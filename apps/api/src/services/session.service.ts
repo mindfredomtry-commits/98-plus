@@ -1,0 +1,38 @@
+import type { SessionState } from '@98plus/shared';
+import {
+  getActiveInteractions,
+  getPendingIncoming,
+  getPendingCheck,
+  getWaitingCheck,
+  getLatestPendingResultId,
+} from './ban.service';
+import { claimInvitesForUser } from './invite.service';
+
+export async function getSessionState(
+  userId: string,
+  username?: string | null,
+): Promise<SessionState> {
+  let incoming = await getPendingIncoming(userId);
+
+  if (!incoming && username) {
+    incoming = await claimInvitesForUser(userId, username);
+  }
+
+  const [pending, waiting, active, pendingResultId] = await Promise.all([
+    getPendingCheck(userId),
+    getWaitingCheck(userId),
+    getActiveInteractions(userId, 15),
+    getLatestPendingResultId(userId),
+  ]);
+
+  return {
+    serverNow: new Date().toISOString(),
+    incoming,
+    check: pending,
+    checkWaiting: !!waiting && !pending,
+    waiting,
+    active,
+    pendingResultId,
+    needsOnboardingRecovery: !!incoming && incoming.status === 'pending',
+  };
+}

@@ -1,0 +1,200 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String    @id @default(cuid())
+  telegramId  BigInt    @unique
+  username    String?
+  firstName   String
+  lastName    String?
+  photoUrl    String?
+  energy      Int       @default(100)
+  streak      Int       @default(0)
+  isOnboarded Boolean   @default(false)
+  lastSeenAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  sentBans      Ban[]             @relation("SentBans")
+  receivedBans  Ban[]             @relation("ReceivedBans")
+  sentInvites   BanInvite[]       @relation("SentInvites")
+  claimedInvites BanInvite[]      @relation("ClaimedInvites")
+  selfBans      SelfBan[]
+  checkAnswers  BanCheckAnswer[]
+  pairStatsAsA  PairDailyStat[]   @relation("PairA")
+  pairStatsAsB  PairDailyStat[]   @relation("PairB")
+  analytics     AnalyticsEvent[]
+  socialContacts SocialContact[] @relation("SocialContacts")
+  knownAsContact SocialContact[] @relation("KnownAsContact")
+}
+
+/// Persistent Telegram social graph (grows from real challenges/invites)
+model SocialContact {
+  id                String   @id @default(cuid())
+  ownerId           String
+  owner             User     @relation("SocialContacts", fields: [ownerId], references: [id], onDelete: Cascade)
+  contactUserId     String?
+  contactUser       User?    @relation("KnownAsContact", fields: [contactUserId], references: [id])
+  contactUsername   String
+  contactFirstName  String
+  contactPhotoUrl   String?
+  lastChallengeText String?
+  interactionCount  Int      @default(1)
+  lastInteractionAt DateTime @default(now())
+  lastSource        String
+
+  @@unique([ownerId, contactUsername])
+  @@index([ownerId, lastInteractionAt])
+  @@index([contactUserId])
+}
+
+model BanInvite {
+  id              String       @id @default(cuid())
+  token           String       @unique
+  senderId        String
+  sender          User         @relation("SentInvites", fields: [senderId], references: [id])
+  targetUsername  String
+  text            String
+  durationMinutes Int
+  status          InviteStatus @default(PENDING)
+  banId           String?      @unique
+  claimedById     String?
+  claimedBy       User?        @relation("ClaimedInvites", fields: [claimedById], references: [id])
+  claimedAt       DateTime?
+  botNotifiedAt   DateTime?
+  createdAt       DateTime     @default(now())
+  expiresAt       DateTime
+
+  @@index([targetUsername, status])
+  @@index([senderId])
+}
+
+enum InviteStatus {
+  PENDING
+  CLAIMED
+  EXPIRED
+}
+
+model BanThread {
+  id        String   @id @default(cuid())
+  userAId   String
+  userBId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  bans      Ban[]
+
+  @@unique([userAId, userBId])
+}
+
+model Ban {
+  id                  String              @id @default(cuid())
+  threadId            String
+  thread              BanThread             @relation(fields: [threadId], references: [id])
+  senderId            String
+  sender              User                @relation("SentBans", fields: [senderId], references: [id])
+  receiverId          String
+  receiver            User                @relation("ReceivedBans", fields: [receiverId], references: [id])
+  inviteId            String?             @unique
+  text                String
+  durationMinutes     Int                 @default(30)
+  status              BanStatus           @default(PENDING)
+  parentBanId         String?
+  parentBan           Ban?                @relation("CounterBan", fields: [parentBanId], references: [id])
+  counterBans         Ban[]               @relation("CounterBan")
+  isOverboard         Boolean             @default(false)
+  energyApplied       Boolean             @default(false)
+  farmSkipped         Boolean             @default(false)
+  outcome             InteractionOutcome?
+  senderEnergyDelta   Int?
+  receiverEnergyDelta Int?
+  acceptedAt          DateTime?
+  reminderSentAt      DateTime?
+  checkStartedAt      DateTime?
+  createdAt           DateTime            @default(now())
+  expiresAt           DateTime?
+  checkDueAt          DateTime?
+  completedAt         DateTime?
+  handledAt           DateTime?
+
+  checkAnswers BanCheckAnswer[]
+
+  @@index([receiverId, status])
+  @@index([senderId])
+  @@index([expiresAt])
+  @@index([checkDueAt])
+}
+
+enum BanStatus {
+  PENDING
+  ACTIVE
+  REPLIED
+  COUNTERED
+  OVERBOARD
+  CHECKING
+  COMPLETED
+  EXPIRED
+  FAILED
+}
+
+enum InteractionOutcome {
+  BOTH_YES
+  BOTH_NO
+  SPLIT
+  OVERBOARD
+  TIMEOUT
+  EXPIRED
+}
+
+model BanCheckAnswer {
+  id        String   @id @default(cuid())
+  banId     String
+  ban       Ban      @relation(fields: [banId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  completed Boolean
+  createdAt DateTime @default(now())
+
+  @@unique([banId, userId])
+}
+
+model PairDailyStat {
+  id               String   @id @default(cuid())
+  userAId          String
+  userA            User     @relation("PairA", fields: [userAId], references: [id])
+  userBId          String
+  userB            User     @relation("PairB", fields: [userBId], references: [id])
+  date             DateTime @db.Date
+  successCount     Int      @default(0)
+  interactionCount Int      @default(0)
+
+  @@unique([userAId, userBId, date])
+}
+
+model SelfBan {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  text      String
+  isPublic  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  name      String
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([name, createdAt])
+  @@index([userId, createdAt])
+}
