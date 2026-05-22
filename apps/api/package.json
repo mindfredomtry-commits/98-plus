@@ -2,14 +2,14 @@
   "name": "@98plus/api",
   "version": "1.0.0",
   "private": true,
-  "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc --noEmitOnError false"
-    "start": "node dist/index.js",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push"
-  },
+ "scripts": {
+  "dev": "tsx watch src/index.ts",
+  "build": "tsc --noEmitOnError false",
+  "start": "node dist/index.js",
+  "db:generate": "prisma generate",
+  "db:migrate": "prisma migrate dev",
+  "db:push": "prisma db push"
+},
   "dependencies": {
     "@98plus/shared": "*",
     "@prisma/client": "^6.1.0",
