@@ -2,6 +2,8 @@ import path from "path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
+
   transpilePackages: ["@98plus/shared"],
 
   typescript: {
