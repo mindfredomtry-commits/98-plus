@@ -26,6 +26,7 @@ const SYNTHETIC_USERNAMES = new Set([
   'cyber_wolf',
   'demo_user',
   'demo_fox',
+  'share',
 ]);
 
 export function isSyntheticSocialUsername(username: string): boolean {

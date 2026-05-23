@@ -50,7 +50,7 @@ function stateBadge(friend: FriendCard): string | null {
     case 'in_challenge':
       return 'в игре';
     case 'invited':
-      return 'приглашён';
+      return 'ждёт';
     case 'active':
       return 'онлайн';
     default:
@@ -157,6 +157,8 @@ interface FriendPickerProps {
   friends?: FriendCard[];
   onFriendsUpdate?: (friends: FriendCard[]) => void;
   inline?: boolean;
+  showAddMore?: boolean;
+  onAddMore?: () => void;
 }
 
 export function FriendPicker({
@@ -165,6 +167,8 @@ export function FriendPicker({
   onChange,
   friends: externalFriends,
   onFriendsUpdate,
+  showAddMore = false,
+  onAddMore,
 }: FriendPickerProps) {
   const { optimisticSendWait } = useApp();
   const [friends, setFriends] = useState<FriendCard[]>(() =>
@@ -282,10 +286,15 @@ export function FriendPicker({
     });
   }, [searchResult]);
 
-  const people = useMemo(
-    () => mergeFriendsWithOptimistic(coerceFriendList(friends), optimisticSendWait),
-    [friends, optimisticSendWait],
-  );
+  const people = useMemo(() => {
+    const merged = mergeFriendsWithOptimistic(
+      coerceFriendList(friends),
+      optimisticSendWait,
+    );
+    return merged.filter(
+      (f) => (f.username ?? '').toLowerCase() !== 'share',
+    );
+  }, [friends, optimisticSendWait]);
 
   function pick(username: string | null | undefined) {
     const clean = (username ?? '').replace(/^@/, '').trim();
@@ -315,23 +324,36 @@ export function FriendPicker({
             <p className="text-xs text-muted/80 mt-2">Отправь первый запрет</p>
           </div>
         ) : (
-          people.map((f, i) => {
-            const uname = (f.username ?? '').toLowerCase();
-            return (
-              <motion.div
-                key={f.id ?? `pending:${uname || i}`}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.03 }}
+          <>
+            {people.map((f, i) => {
+              const uname = (f.username ?? '').toLowerCase();
+              return (
+                <motion.div
+                  key={f.id ?? `pending:${uname || i}`}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.03 }}
+                >
+                  <FriendAvatarCard
+                    friend={f}
+                    selected={!!selectedUsername && selectedUsername === uname}
+                    onSelect={() => pick(f.username)}
+                  />
+                </motion.div>
+              );
+            })}
+            {showAddMore && onAddMore ? (
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.94 }}
+                onClick={onAddMore}
+                className="friend-add-more-card flex-shrink-0 snap-center"
               >
-                <FriendAvatarCard
-                  friend={f}
-                  selected={!!selectedUsername && selectedUsername === uname}
-                  onSelect={() => pick(f.username)}
-                />
-              </motion.div>
-            );
-          })
+                <span className="friend-add-more-card__plus">+</span>
+                <span className="friend-add-more-card__label">Добавить ещё</span>
+              </motion.button>
+            ) : null}
+          </>
         )}
       </div>
 

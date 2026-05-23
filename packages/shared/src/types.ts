@@ -1,6 +1,9 @@
 import type { AuraLevel } from './energy';
 import type { BanDurationMinutes } from './constants';
-import { BAN_DURATIONS_MINUTES } from './constants';
+import {
+  BAN_DURATIONS_MINUTES,
+  ONBOARDING_DURATION_OPTIONS,
+} from './constants';
 
 export type BanStatus =
   | 'pending'
@@ -96,13 +99,16 @@ export interface WsEvent {
   eventId?: string;
 }
 
-export function isValidDurationMinutes(
-  m: number,
-): m is BanDurationMinutes {
+export function isValidDurationMinutes(m: number): boolean {
+  if ((BAN_DURATIONS_MINUTES as readonly number[]).includes(m)) return true;
+  return ONBOARDING_DURATION_OPTIONS.some((o) => o.minutes === m);
+}
+
+export function isBanDurationMinutes(m: number): m is BanDurationMinutes {
   return (BAN_DURATIONS_MINUTES as readonly number[]).includes(m);
 }
 
 /** @deprecated */
 export function isValidDuration(m: number): m is BanDurationMinutes {
-  return isValidDurationMinutes(m);
+  return isBanDurationMinutes(m);
 }

@@ -1,4 +1,8 @@
-import { buildShareUrl, buildStartParam } from '@98plus/shared';
+import {
+  buildShareUrl,
+  buildStartParam,
+  formatViralBanShareMessage,
+} from '@98plus/shared';
 import type { DeepLinkAction } from '@98plus/shared';
 
 const BOT =
@@ -11,31 +15,46 @@ function getTelegramWebApp() {
 }
 
 /** Telegram-only share URL (opens in-app chat picker, not OS sheet) */
-function telegramShareUrl(shareText: string, shareUrl: string): string {
+export function telegramShareUrl(shareText: string, shareUrl: string): string {
   return `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`;
 }
 
-function copyFallback(text: string) {
-  void navigator.clipboard?.writeText(text);
+function copyFallback(text: string, url: string) {
+  void navigator.clipboard?.writeText(`${text}\n\n${url}`);
+}
+
+function openTelegramShareLink(link: string) {
+  const tg = getTelegramWebApp();
+  if (tg?.openTelegramLink) {
+    tg.openTelegramLink(link);
+    return;
+  }
+  window.open(link, '_blank', 'noopener,noreferrer');
+}
+
+/**
+ * Open Telegram share dialog with viral ban copy.
+ * Link is passed only via url= param — not duplicated in message body.
+ */
+export function handleShareChallenge(
+  banText: string,
+  durationMinutes: number,
+  shareUrl: string,
+): Promise<'shared' | 'copied'> {
+  const text = formatViralBanShareMessage({ banText, durationMinutes });
+  return shareChallengeAndWait(text, shareUrl);
 }
 
 /** Share result / deep links — Telegram only */
 export function shareDeepLink(action: DeepLinkAction, text: string) {
   const startParam = buildStartParam(action);
-  const url = buildShareUrl(BOT, startParam, text);
-  const tg = getTelegramWebApp();
-
-  if (tg?.openTelegramLink) {
-    tg.openTelegramLink(telegramShareUrl(text, url));
-    return;
-  }
-
-  copyFallback(`${text}\n\n${url}`);
+  const link = buildShareUrl(BOT, startParam, text);
+  openTelegramShareLink(link);
 }
 
 /**
- * Send challenge via Telegram's native share (t.me/share/url).
- * Never uses navigator.share or OS pickers.
+ * Opens Telegram native share. Resolves when user returns to Mini App
+ * or share/copy completes (best-effort — Telegram has no share callback).
  */
 export function shareChallengeAndWait(
   shareText: string,
@@ -62,17 +81,16 @@ export function shareChallengeAndWait(
       window.clearTimeout(fallback);
     };
 
-    const tg = getTelegramWebApp();
-    const link = telegramShareUrl(shareText, shareUrl);
+    document.addEventListener('visibilitychange', onVisible);
 
+    const link = telegramShareUrl(shareText, shareUrl);
+    const tg = getTelegramWebApp();
     if (tg?.openTelegramLink) {
-      document.addEventListener('visibilitychange', onVisible);
       tg.openTelegramLink(link);
       fallback = window.setTimeout(() => finish('shared'), 120_000);
-      return;
+    } else {
+      copyFallback(shareText, shareUrl);
+      finish('copied');
     }
-
-    copyFallback(shareText);
-    finish('copied');
   });
 }

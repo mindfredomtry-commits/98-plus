@@ -1,6 +1,11 @@
 import Redis from "ioredis";
 
-const redisUrl = process.env.REDIS_URL; // используется твой Redis URL из переменных
+const redisUrl = process.env.REDIS_URL;
+
+if (!redisUrl) {
+  throw new Error('REDIS_URL is not set');
+}
+
 const redis = new Redis(redisUrl);
 
 // функция, которая ждёт, пока Redis станет доступен

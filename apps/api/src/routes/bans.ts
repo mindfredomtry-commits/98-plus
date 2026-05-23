@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   BAN_DURATIONS_MINUTES as BAN_DURATIONS,
   ANALYTICS_EVENTS,
+  isValidDurationMinutes,
 } from '@98plus/shared';
 import { requireAuth, type AuthRequest } from '../middleware/auth';
 import {
@@ -37,9 +38,7 @@ bansRouter.use(requireAuth);
 
 const sendSchema = z.object({
   text: z.string().min(3).max(280),
-  durationMinutes: z
-    .number()
-    .refine((m) => BAN_DURATIONS.includes(m as 3)),
+  durationMinutes: z.number().refine((m) => isValidDurationMinutes(m)),
   durationHours: z.number().optional(),
   receiverTelegramId: z.string().optional(),
   receiverUserId: z.string().optional(),

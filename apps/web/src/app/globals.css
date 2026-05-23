@@ -524,3 +524,147 @@ html.scroll-lock body {
     text-shadow: 0 0 12px rgba(155, 89, 182, 0.8);
   }
 }
+
+/* First-ban viral onboarding */
+.first-ban-hero h2 {
+  text-shadow: 0 0 24px rgba(155, 89, 182, 0.35);
+}
+
+.onboarding-card-title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.onboarding-duration-btn {
+  flex: 1 1 calc(33% - 0.5rem);
+  min-width: 5.5rem;
+  padding: 0.65rem 0.5rem;
+  border-radius: 14px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(8, 6, 14, 0.55);
+  color: rgba(255, 255, 255, 0.55);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.2s ease;
+}
+
+.onboarding-duration-btn--active {
+  color: #fff;
+  border-color: rgba(155, 89, 182, 0.55);
+  background: linear-gradient(
+    135deg,
+    rgba(155, 89, 182, 0.35) 0%,
+    rgba(120, 60, 160, 0.2) 100%
+  );
+  box-shadow: 0 0 20px rgba(155, 89, 182, 0.4);
+}
+
+.telegram-pick-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  border-radius: 18px;
+  border: 1px dashed rgba(155, 89, 182, 0.35);
+  background: rgba(8, 6, 14, 0.45);
+}
+
+.telegram-pick-card__icon {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: rgba(0, 136, 204, 0.15);
+  color: #2aabee;
+}
+
+.telegram-pick-card__copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.telegram-pick-card__title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.telegram-pick-card__subtitle {
+  margin: 0.2rem 0 0;
+  font-size: 0.6875rem;
+  color: rgba(255, 255, 255, 0.45);
+  line-height: 1.35;
+}
+
+.telegram-pick-card__btn {
+  flex-shrink: 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fff;
+  background: linear-gradient(135deg, #9b59b6 0%, #6c3483 100%);
+  box-shadow: 0 0 16px rgba(155, 89, 182, 0.45);
+  border: none;
+  cursor: pointer;
+}
+
+.telegram-pick-card__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.friend-add-more-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 92px;
+  min-height: 120px;
+  padding: 0.75rem 0.5rem;
+  border-radius: 20px;
+  border: 2px dashed rgba(155, 89, 182, 0.35);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.friend-add-more-card:hover {
+  border-color: rgba(155, 89, 182, 0.6);
+  color: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 20px rgba(155, 89, 182, 0.2);
+}
+
+.friend-add-more-card__plus {
+  font-size: 1.75rem;
+  font-weight: 300;
+  line-height: 1;
+  color: rgba(155, 89, 182, 0.9);
+}
+
+.friend-add-more-card__label {
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.25;
+  max-width: 72px;
+}

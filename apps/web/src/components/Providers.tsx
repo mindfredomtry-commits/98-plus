@@ -33,6 +33,7 @@ import {
   isOptimisticSendWaitActive,
   normalizeWaitUsername,
 } from '@/lib/waiting-lifecycle';
+import { isFirstBanComplete, markFirstBanComplete } from '@/lib/first-ban';
 
 interface AppContextValue {
   token: string | null;
@@ -74,6 +75,8 @@ interface AppContextValue {
   optimisticSendWait: OptimisticSendWait | null;
   notifySendSuccess: (username: string, firstName?: string) => void;
   clearCheckOverlay: () => void;
+  showFirstBanOnboarding: boolean;
+  completeFirstBan: () => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -133,6 +136,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [banSentOpen, setBanSentOpen] = useState(false);
   const [optimisticSendWait, setOptimisticSendWait] =
     useState<OptimisticSendWait | null>(null);
+  const [firstBanComplete, setFirstBanComplete] = useState(false);
 
   const dismissedIncomingRef = useRef<Set<string>>(new Set());
   const checkWaitingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -368,6 +372,22 @@ export function Providers({ children }: { children: React.ReactNode }) {
   );
 
   useEffect(() => {
+    setFirstBanComplete(isFirstBanComplete());
+  }, []);
+
+  const completeFirstBan = useCallback(() => {
+    markFirstBanComplete();
+    setFirstBanComplete(true);
+    void auth.onboard().catch(() => {});
+  }, [auth.onboard]);
+
+  const showFirstBanOnboarding = useMemo(() => {
+    if (firstBanComplete) return false;
+    if (auth.user?.isOnboarded) return false;
+    return friends.length === 0;
+  }, [firstBanComplete, auth.user?.isOnboarded, friends.length]);
+
+  useEffect(() => {
     resetScrollLock();
   }, []);
 
@@ -437,6 +457,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
       optimisticSendWait,
       notifySendSuccess,
       clearCheckOverlay,
+      showFirstBanOnboarding,
+      completeFirstBan,
     }),
     [
       auth.token,
@@ -473,6 +495,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
       optimisticSendWait,
       notifySendSuccess,
       clearCheckOverlay,
+      showFirstBanOnboarding,
+      completeFirstBan,
     ],
   );
 

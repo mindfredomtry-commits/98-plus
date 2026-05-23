@@ -2,6 +2,13 @@
 
 import { memo, useMemo, useState, useCallback } from 'react';
 import { coerceFriendList, findFriendByUsername } from '@98plus/shared';
+import { safeResolveReceiverTarget } from '@/lib/resolve-receiver';
+import { useApp } from './Providers';
+import { useTelegram } from '@/hooks/useTelegram';
+import { useSendChallenge } from '@/hooks/useSendChallenge';
+import { GlowCTA } from './GlowCTA';
+import { ctaLog } from '@/lib/cta-log';
+import { sendFirstBanChallenge } from '@/lib/first-challenge-share';
 
 function safeCoerceFriends(input: unknown) {
   try {
@@ -10,12 +17,6 @@ function safeCoerceFriends(input: unknown) {
     return [];
   }
 }
-import { safeResolveReceiverTarget } from '@/lib/resolve-receiver';
-import { useApp } from './Providers';
-import { useTelegram } from '@/hooks/useTelegram';
-import { useSendChallenge } from '@/hooks/useSendChallenge';
-import { GlowCTA } from './GlowCTA';
-import { ctaLog } from '@/lib/cta-log';
 
 interface Props {
   visible?: boolean;
@@ -34,6 +35,8 @@ function SendBanDockInner({ visible = true }: Props) {
     onboard,
     setBanSentOpen,
     notifySendSuccess,
+    showFirstBanOnboarding,
+    completeFirstBan,
   } = useApp();
   const { haptic } = useTelegram();
   const [ctaError, setCtaError] = useState<string | null>(null);
@@ -69,7 +72,9 @@ function SendBanDockInner({ visible = true }: Props) {
   const hasFriend = Boolean(selectedUsername);
   const challengeText = sendText?.trim() ?? '';
   const hasBan = challengeText.length > 0;
-  const ctaReady = hasFriend && hasBan;
+  const ctaReady = showFirstBanOnboarding
+    ? hasBan && challengeText.length >= 3
+    : hasFriend && hasBan;
 
   const resolved = useMemo(() => {
     if (!selectedUsername) {
@@ -87,11 +92,15 @@ function SendBanDockInner({ visible = true }: Props) {
   const helperText =
     ctaError ??
     (!ctaReady && !busy && !sharing
-      ? !hasFriend
-        ? 'выбери человека'
-        : !hasBan
-          ? 'Что ты запрещаешь?'
+      ? showFirstBanOnboarding
+        ? !hasBan || challengeText.length < 3
+          ? 'Напиши запрет'
           : '\u00a0'
+        : !hasFriend
+          ? 'выбери человека'
+          : !hasBan
+            ? 'Что ты запрещаешь?'
+            : '\u00a0'
       : '\u00a0');
 
   async function zapretit() {
@@ -103,6 +112,7 @@ function SendBanDockInner({ visible = true }: Props) {
       selectedUsername,
       busy,
       hasToken: !!token,
+      firstBan: showFirstBanOnboarding,
     });
 
     if (busy || sharing) {
@@ -114,6 +124,35 @@ function SendBanDockInner({ visible = true }: Props) {
       const msg = 'Нет авторизации — перезапусти Mini App из Telegram';
       setCtaError(msg);
       alert(msg);
+      return;
+    }
+
+    if (showFirstBanOnboarding) {
+      if (challengeText.length < 3) {
+        setCtaError('Напиши запрет');
+        haptic('light');
+        return;
+      }
+      haptic('medium');
+      try {
+        await sendFirstBanChallenge({
+          token,
+          banText: challengeText,
+          durationMinutes: sendDuration,
+          afterShare: async () => {
+            completeFirstBan();
+            await onboard().catch(() => {});
+            await refreshUser();
+            await reloadPending();
+            await reloadFriends();
+          },
+        });
+        onSuccess();
+      } catch (e) {
+        const msg = (e as Error).message || 'Не удалось отправить';
+        setCtaError(msg);
+        alert(msg);
+      }
       return;
     }
 

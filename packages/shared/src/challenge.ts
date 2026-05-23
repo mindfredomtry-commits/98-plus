@@ -3,6 +3,12 @@
 export const TELEGRAM_REPLY_BUTTON_LABEL = '🚫 запретить в ответ!';
 
 export function formatDurationLabel(minutes: number): string {
+  if (minutes >= 1440 && minutes % 1440 === 0) {
+    const days = minutes / 1440;
+    if (days === 1) return '1 день';
+    if (days >= 2 && days <= 4) return `${days} дня`;
+    return `${days} дней`;
+  }
   if (minutes === 60) return '1 час';
   if (minutes > 60 && minutes % 60 === 0) {
     const hours = minutes / 60;
@@ -69,6 +75,20 @@ export function formatChallengeShareMessage(params: {
     banText: params.banText,
     durationMinutes: params.durationMinutes,
   });
+}
+
+/** Viral share via t.me/share/url — reads like a direct ban, not an app invite. */
+export function formatViralBanShareMessage(params: {
+  banText: string;
+  durationMinutes: number;
+}): string {
+  const ban = params.banText.replace(/^🚫\s*/, '').trim();
+  const dur = formatDurationLabel(params.durationMinutes);
+  return (
+    `🚫 Запрещаю тебе ${ban} на ${dur}.\n\n` +
+    `Хочешь запретить мне в ответ?\n` +
+    `Открой 98+ 👇`
+  );
 }
 
 /** Confirmation DM to sender after they sent a ban. */

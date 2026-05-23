@@ -1,9 +1,29 @@
 export const ENERGY_DEFAULT = 100;
 export const ENERGY_MAX_DISPLAY = 150;
 
-/** Alpha timers (minutes) */
+/** Alpha timers (minutes) — home quick picks */
 export const BAN_DURATIONS_MINUTES = [3, 10, 30, 60] as const;
 export type BanDurationMinutes = (typeof BAN_DURATIONS_MINUTES)[number];
+
+/** First-ban onboarding duration choices */
+export const ONBOARDING_DURATION_OPTIONS = [
+  { label: '1 час', minutes: 60 },
+  { label: '3 часа', minutes: 180 },
+  { label: '24 часа', minutes: 1440 },
+  { label: '3 дня', minutes: 4320 },
+  { label: '7 дней', minutes: 10080 },
+] as const;
+
+export const ONBOARDING_SUGGESTION_CHIPS = [
+  'алкоголь',
+  'энергетики',
+  'сладкое',
+  'ночные перекусы',
+  'курение',
+] as const;
+
+/** Placeholder username for Telegram share picker (token claim is authoritative) */
+export const SHARE_PICKER_USERNAME = 'share';
 
 /** @deprecated use BAN_DURATIONS_MINUTES */
 export const BAN_DURATIONS = BAN_DURATIONS_MINUTES;
