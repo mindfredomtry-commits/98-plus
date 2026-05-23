@@ -184,7 +184,9 @@ export default function HomePage() {
 
       <main
         className={`app-main challenge-bg ${
-          tab === 'home' ? 'app-main--with-cta' : 'app-main--nav-only'
+          tab === 'home'
+            ? 'app-main--with-cta app-main--compact-home'
+            : 'app-main--nav-only'
         }`}
       >
         {tab === 'home' ? (

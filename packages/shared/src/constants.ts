@@ -54,6 +54,16 @@ export const SEED_BANS = [
   'Не спать днём',
 ] as const;
 
+/** Home screen preset chips (compact viral labels) */
+export const HOME_PRESET_BANS = [
+  'писать бывшему',
+  'играть',
+  'есть ночью',
+  'сидеть в TikTok',
+  'есть сладкое',
+  'пить алкоголь',
+] as const;
+
 export const EXAMPLE_BANS = [
   ...SEED_BANS,
   'Запрещаю тебе писать «пон»',

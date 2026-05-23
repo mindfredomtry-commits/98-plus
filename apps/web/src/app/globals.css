@@ -8,7 +8,7 @@
   --accent: #9b59b6;
   --warning: #ff4d4d;
   --bottom-nav-height: 3.5rem;
-  --cta-dock-height: 6.25rem;
+  --cta-dock-height: 5.75rem;
 }
 
 * {
@@ -67,6 +67,16 @@ html.scroll-lock body {
   padding-bottom: calc(
     var(--bottom-nav-height) + var(--cta-dock-height) +
       env(safe-area-inset-bottom, 0px) + 1.25rem
+  );
+}
+
+.app-main--compact-home {
+  padding-top: 0.625rem;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  padding-bottom: calc(
+    var(--bottom-nav-height) + var(--cta-dock-height) +
+      env(safe-area-inset-bottom, 0px) + 0.5rem
   );
 }
 
@@ -210,10 +220,202 @@ html.scroll-lock body {
     inset 0 0 12px rgba(155, 89, 182, 0.15);
 }
 
+/* Compact home challenge screen */
+.home-arena--compact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.challenge-stack {
+  padding: 0.625rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.people-section {
+  padding: 0.5rem 0.625rem !important;
+}
+
+.people-section-title {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.compact-arena-header {
+  margin-bottom: 0.25rem;
+}
+
+.compact-arena-header__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.compact-arena-header__logo {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 0 16px rgba(155, 89, 182, 0.45);
+}
+
+.compact-arena-header__sub {
+  margin: 0.15rem 0 0;
+  font-size: 0.625rem;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.compact-arena-header__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.125rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.compact-arena-header__energy {
+  margin-top: 0.375rem;
+}
+
+.compact-arena-header__energy-bar {
+  height: 0.375rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.compact-arena-header__energy-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #6c3483, #9b59b6, #c39bd3);
+  box-shadow: 0 0 10px rgba(155, 89, 182, 0.5);
+}
+
+.compact-arena-header__stats {
+  display: flex;
+  gap: 0.375rem;
+  margin-top: 0.375rem;
+  padding-bottom: 0.125rem;
+}
+
+.compact-stat-chip {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 10px;
+  background: rgba(8, 6, 14, 0.55);
+  border: 1px solid rgba(155, 89, 182, 0.15);
+  font-size: 0.625rem;
+}
+
+.compact-stat-chip__val {
+  font-weight: 800;
+  color: #c39bd3;
+}
+
+.compact-stat-chip__lbl {
+  color: rgba(255, 255, 255, 0.4);
+}
+
 .ban-compose {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+.ban-compose--compact {
+  gap: 0.375rem;
+}
+
+.ban-compose-title {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
+}
+
+.ban-compose-error {
+  margin: 0;
+  padding: 0 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #e879f9;
+  text-align: center;
+}
+
+.ban-compose--compact .ban-textarea {
+  min-height: 2.75rem;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.9375rem;
+  border-radius: 16px;
+}
+
+.ban-textarea--error {
+  border-color: rgba(232, 121, 249, 0.55) !important;
+  box-shadow: 0 0 20px rgba(155, 89, 182, 0.35) !important;
+}
+
+.preset-chips--compact .preset-chip--compact {
+  font-size: 0.6875rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+}
+
+.duration-pills--compact {
+  margin-top: 0.125rem;
+}
+
+.duration-pill {
+  padding: 0.45rem 0.25rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(8, 6, 14, 0.55);
+  color: rgba(255, 255, 255, 0.5);
+  transition: all 0.15s ease;
+}
+
+.duration-pill--active {
+  color: #fff;
+  border-color: rgba(155, 89, 182, 0.55);
+  background: linear-gradient(
+    135deg,
+    rgba(155, 89, 182, 0.45) 0%,
+    rgba(108, 52, 131, 0.35) 100%
+  );
+  box-shadow: 0 0 16px rgba(155, 89, 182, 0.4);
+}
+
+.friend-add-more-card--compact {
+  width: 68px;
+  min-height: 76px;
+  padding: 0.5rem 0.25rem;
+  border-radius: 16px;
+}
+
+.friend-add-more-card--compact .friend-add-more-card__plus {
+  font-size: 1.35rem;
+}
+
+.friend-add-more-card--compact .friend-add-more-card__label {
+  font-size: 0.5625rem;
+  max-width: 60px;
 }
 
 .ban-compose-hint {
@@ -269,6 +471,29 @@ html.scroll-lock body {
     0 0 32px rgba(155, 89, 182, 0.38),
     0 0 0 1px rgba(155, 89, 182, 0.25) inset,
     inset 0 0 24px rgba(155, 89, 182, 0.06);
+}
+
+@keyframes ban-textarea-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-4px);
+  }
+  40% {
+    transform: translateX(4px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(3px);
+  }
+}
+
+.ban-textarea--shake {
+  animation: ban-textarea-shake 0.45s ease;
 }
 
 .sr-only {

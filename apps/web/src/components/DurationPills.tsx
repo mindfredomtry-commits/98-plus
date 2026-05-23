@@ -6,15 +6,18 @@ import { BAN_DURATIONS_MINUTES } from '@98plus/shared';
 interface Props {
   value: number;
   onChange: (minutes: number) => void;
+  compact?: boolean;
 }
 
-export function DurationPills({ value, onChange }: Props) {
+export function DurationPills({ value, onChange, compact = false }: Props) {
   return (
-    <section className="space-y-2">
-      <p className="text-xs text-muted uppercase tracking-wider px-0.5">
-        время
-      </p>
-      <div className="flex gap-2">
+    <section className={compact ? 'duration-pills--compact' : 'space-y-2'}>
+      {!compact ? (
+        <p className="text-xs text-muted uppercase tracking-wider px-0.5">
+          время
+        </p>
+      ) : null}
+      <div className="flex gap-1.5">
         {BAN_DURATIONS_MINUTES.map((m) => {
           const active = value === m;
           return (
@@ -23,10 +26,8 @@ export function DurationPills({ value, onChange }: Props) {
               type="button"
               whileTap={{ scale: 0.95 }}
               onClick={() => onChange(m)}
-              className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                active
-                  ? 'bg-accent text-white shadow-glow-sm border border-accent/50'
-                  : 'bg-card/70 text-muted border border-white/8'
+              className={`duration-pill flex-1 ${
+                active ? 'duration-pill--active' : ''
               }`}
             >
               {m}м

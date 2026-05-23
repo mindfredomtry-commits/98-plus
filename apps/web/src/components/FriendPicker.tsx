@@ -13,17 +13,19 @@ import {
 
 function FriendAvatar({
   friend,
-  size = 'lg',
+  compact,
 }: {
   friend: FriendCard;
-  size?: 'lg' | 'md';
+  compact?: boolean;
 }) {
   const letter = (
     friend.firstName?.[0] ??
     friend.username?.[0] ??
     '?'
   ).toUpperCase();
-  const dim = size === 'lg' ? 'w-[72px] h-[72px] text-2xl' : 'w-12 h-12 text-lg';
+  const dim = compact
+    ? 'w-11 h-11 text-base'
+    : 'w-[72px] h-[72px] text-2xl';
 
   if (friend.photoUrl) {
     return (
@@ -49,11 +51,10 @@ function stateBadge(friend: FriendCard): string | null {
   if (friend.challengeState === 'incoming_pending') return 'вызвал';
   switch (friend.friendState) {
     case 'pending':
+    case 'invited':
       return 'ждёт';
     case 'in_challenge':
       return 'в игре';
-    case 'invited':
-      return 'ждёт';
     case 'active':
       return 'онлайн';
     default:
@@ -65,10 +66,12 @@ export function FriendAvatarCard({
   friend,
   selected,
   onSelect,
+  compact = false,
 }: {
   friend: FriendCard;
   selected: boolean;
   onSelect: () => void;
+  compact?: boolean;
 }) {
   const online = friend.presence === 'online';
   const recent = friend.presence === 'recent';
@@ -77,78 +80,47 @@ export function FriendAvatarCard({
     isOptimistic ||
     friend.challengeState === 'outgoing_pending' ||
     friend.hasPendingInvite;
-  const hotStreak = (friend.streak ?? 0) >= 3;
   const badge = stateBadge(friend);
 
   return (
     <motion.button
       type="button"
       onClick={onSelect}
-      whileTap={{ scale: 0.92 }}
-      animate={{ scale: selected ? 1.06 : 1 }}
+      whileTap={{ scale: 0.94 }}
+      animate={{ scale: selected ? 1.04 : 1 }}
       transition={{ type: 'spring', stiffness: 400, damping: 22 }}
-      className={`friend-avatar-card flex-shrink-0 flex flex-col items-center gap-2 w-[92px] snap-center ${
-        selected ? 'friend-avatar-selected' : ''
-      } ${pending ? 'friend-pending-pulse' : ''} ${
-        online ? 'friend-online-ring' : recent ? 'friend-recent-glow' : ''
-      }`}
+      className={`friend-avatar-card flex-shrink-0 flex flex-col items-center snap-center ${
+        compact ? 'friend-avatar-card--compact w-[68px] gap-1' : 'w-[92px] gap-2'
+      } ${selected ? 'friend-avatar-selected' : ''} ${
+        pending ? 'friend-pending-pulse' : ''
+      } ${online ? 'friend-online-ring' : recent ? 'friend-recent-glow' : ''}`}
     >
       <div className="relative">
-        <FriendAvatar friend={friend} size="lg" />
-        {friend.userId && (
+        <FriendAvatar friend={friend} compact={compact} />
+        {friend.userId && !compact ? (
           <span
-            className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-[2.5px] border-bg ${
+            className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-bg ${
               online
-                ? 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.9)]'
+                ? 'bg-emerald-400'
                 : recent
                   ? 'bg-amber-400'
                   : 'bg-white/25'
             }`}
           />
-        )}
-        {hotStreak && (
-          <motion.span
-            animate={{ scale: [1, 1.15, 1], opacity: [0.9, 1, 0.9] }}
-            transition={{ repeat: Infinity, duration: 1.2 }}
-            className="absolute -top-1 -left-1 text-sm"
-          >
-            🔥
-          </motion.span>
-        )}
-        {badge && (
-          <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-accent/90 text-white shadow-glow-sm">
+        ) : null}
+        {badge && compact ? (
+          <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-[8px] font-bold px-1 py-0.5 rounded-full bg-accent/90 text-white">
             {badge}
           </span>
-        )}
+        ) : null}
       </div>
-
-      <div className="text-center w-full px-0.5">
-        <p className="text-xs font-semibold truncate leading-tight">
-          {friend.firstName || friend.username || '—'}
-        </p>
-        <p className="text-[10px] text-muted truncate">
-          @{friend.username || '—'}
-        </p>
-        {friend.userId && (
-          <div className="flex items-center justify-center gap-1.5 mt-1 text-[9px] text-muted">
-            <span>⚡{friend.energyPercent}</span>
-            {friend.streak > 0 && <span>🔥{friend.streak}</span>}
-          </div>
-        )}
-        {isOptimistic ? (
-          <motion.p
-            animate={{ opacity: [0.5, 1, 0.5] }}
-            transition={{ repeat: Infinity, duration: 1.2 }}
-            className="text-[9px] text-accent mt-0.5"
-          >
-            ⚡ вызов ушёл
-          </motion.p>
-        ) : !friend.isRegistered ? (
-          <p className="text-[9px] text-accent/80 mt-0.5">вызов отправлен</p>
-        ) : friend.photoUrl ? null : (
-          <p className="text-[9px] text-muted/70 mt-0.5">в 98+</p>
-        )}
-      </div>
+      <p
+        className={`font-semibold truncate w-full text-center leading-tight ${
+          compact ? 'text-[10px]' : 'text-xs'
+        }`}
+      >
+        {friend.firstName || friend.username || '—'}
+      </p>
     </motion.button>
   );
 }
@@ -156,23 +128,27 @@ export function FriendAvatarCard({
 function AddMoreCard({
   onClick,
   busy,
+  compact,
 }: {
   onClick: () => void;
   busy?: boolean;
+  compact?: boolean;
 }) {
   return (
     <motion.button
       type="button"
       whileTap={{ scale: 0.92 }}
-      whileHover={{ scale: 1.03 }}
+      whileHover={{ scale: 1.02 }}
       disabled={busy}
       onClick={onClick}
-      className={`friend-add-more-card flex-shrink-0 snap-center ${busy ? 'friend-add-more-card--busy' : ''}`}
-      aria-label="Добавить ещё"
+      className={`friend-add-more-card flex-shrink-0 snap-center ${
+        compact ? 'friend-add-more-card--compact' : ''
+      } ${busy ? 'friend-add-more-card--busy' : ''}`}
+      aria-label="Добавить"
     >
       <span className="friend-add-more-card__plus">{busy ? '…' : '+'}</span>
       <span className="friend-add-more-card__label">
-        {busy ? 'Открываем…' : 'Добавить ещё'}
+        {busy ? '…' : 'Добавить'}
       </span>
     </motion.button>
   );
@@ -185,9 +161,11 @@ interface FriendPickerProps {
   friends?: FriendCard[];
   onFriendsUpdate?: (friends: FriendCard[]) => void;
   inline?: boolean;
+  compact?: boolean;
   showAddMore?: boolean;
   onAddMore?: () => void;
   addMoreBusy?: boolean;
+  onRequireBan?: () => string | null;
 }
 
 export function FriendPicker({
@@ -196,9 +174,11 @@ export function FriendPicker({
   onChange,
   friends: externalFriends,
   onFriendsUpdate,
+  compact = false,
   showAddMore = false,
   onAddMore,
   addMoreBusy = false,
+  onRequireBan,
 }: FriendPickerProps) {
   const { optimisticSendWait } = useApp();
   const [friends, setFriends] = useState<FriendCard[]>(() =>
@@ -251,53 +231,48 @@ export function FriendPicker({
     onChange(`@${clean}`);
   }
 
+  function handleAddMore() {
+    if (onRequireBan && !onRequireBan()) return;
+    onAddMore?.();
+  }
+
   return (
-    <div className="space-y-3">
+    <div className={compact ? 'friend-picker--compact space-y-1.5' : 'space-y-3'}>
       <div className="flex items-center justify-between px-0.5">
-        <p className="text-xs text-muted uppercase tracking-wider">Твои люди</p>
-        {selectedUsername && (
-          <motion.span
-            initial={{ opacity: 0, x: 8 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="text-[10px] text-accent font-medium"
-          >
-            выбран
-          </motion.span>
-        )}
+        <p className="people-section-title">ТВОИ ЛЮДИ</p>
+        {selectedUsername ? (
+          <span className="text-[9px] text-accent font-medium">выбран</span>
+        ) : null}
       </div>
 
-      <div className="friends-strip flex gap-4 py-2 -mx-1 px-2 snap-x snap-mandatory min-h-[140px] items-start">
-        {people.length === 0 && !showAddMore ? (
-          <div className="flex flex-col items-center justify-center py-6 px-4 text-center w-full min-w-0">
-            <p className="text-sm text-white/90 font-medium">Пока здесь никого</p>
-            <p className="text-xs text-muted/80 mt-2">Отправь первый запрет</p>
-          </div>
-        ) : (
-          people.map((f, i) => {
-            const uname = (f.username ?? '').toLowerCase();
-            return (
-              <motion.div
-                key={f.id ?? `pending:${uname || i}`}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.03 }}
-              >
-                <FriendAvatarCard
-                  friend={f}
-                  selected={!!selectedUsername && selectedUsername === uname}
-                  onSelect={() => pick(f.username)}
-                />
-              </motion.div>
-            );
-          })
-        )}
+      <div
+        className={`friends-strip flex gap-2.5 py-1 -mx-0.5 px-0.5 snap-x snap-mandatory items-start ${
+          compact ? 'friends-strip--compact min-h-[76px]' : 'min-h-[140px]'
+        }`}
+      >
+        {people.map((f, i) => {
+          const uname = (f.username ?? '').toLowerCase();
+          return (
+            <FriendAvatarCard
+              key={f.id ?? `pending:${uname || i}`}
+              friend={f}
+              compact={compact}
+              selected={!!selectedUsername && selectedUsername === uname}
+              onSelect={() => pick(f.username)}
+            />
+          );
+        })}
         {showAddMore && onAddMore ? (
-          <AddMoreCard onClick={onAddMore} busy={addMoreBusy} />
+          <AddMoreCard
+            onClick={handleAddMore}
+            busy={addMoreBusy}
+            compact={compact}
+          />
         ) : null}
       </div>
 
       <AnimatePresence>
-        {selectedUsername && (
+        {selectedUsername && !compact ? (
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -306,12 +281,10 @@ export function FriendPicker({
           >
             {isOptimisticSendWaitActive(optimisticSendWait) &&
             optimisticSendWait?.username === selectedUsername
-              ? '⚡ вызов ушёл — ждём в арене'
-              : people.find(
-                  (p) => (p.username ?? '').toLowerCase() === selectedUsername,
-                )?.recentChallenge ?? 'готов к вызову'}
+              ? '⚡ вызов ушёл'
+              : 'готов к вызову'}
           </motion.p>
-        )}
+        ) : null}
       </AnimatePresence>
     </div>
   );

@@ -1,14 +1,12 @@
 'use client';
 
 import { memo, useMemo, useCallback, useEffect, useState } from 'react';
-import { isIncomingOverlayBan, type BanInteraction, type UserPublic } from '@98plus/shared';
+import type { BanInteraction, UserPublic } from '@98plus/shared';
 import { useApp } from './Providers';
-import { SocialHeader } from './SocialHeader';
-import { SocialPulseStrip } from './SocialPulseStrip';
+import { CompactArenaHeader } from './CompactArenaHeader';
 import { ChallengeCompose } from './ChallengeCompose';
 import { DurationPills } from './DurationPills';
 import { FriendPicker } from './FriendPicker';
-import { ActiveChallenges } from './ActiveChallenges';
 import { FirstBanOnboarding } from './FirstBanOnboarding';
 import {
   sendFirstBanChallenge,
@@ -30,8 +28,6 @@ function HomeArenaInner({ user }: Props) {
     setSendText,
     sendDuration,
     setSendDuration,
-    setIncomingBan,
-    setCheckBan,
     showFirstBanOnboarding,
     completeFirstBan,
     refreshUser,
@@ -39,9 +35,11 @@ function HomeArenaInner({ user }: Props) {
     reloadFriends,
     onboard,
     setBanSentOpen,
+    setInlineBanError,
+    triggerBanInputShake,
   } = useApp();
 
-  const [firstShareBusy, setFirstShareBusy] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
 
   const safeFriends = useMemo(
     () => (Array.isArray(friends) ? friends : []),
@@ -59,98 +57,81 @@ function HomeArenaInner({ user }: Props) {
     }
   }, [showFirstBanOnboarding, sendDuration, setSendDuration]);
 
-  const openChallenge = useCallback(
-    (b: BanInteraction | null | undefined) => {
-      if (!b?.id) return;
-      if (isIncomingOverlayBan(b) && b.sender?.id) {
-        setIncomingBan(b);
-      } else if (b.status === 'checking') {
-        setCheckBan(b);
+  const requireBanText = useCallback((): string | null => {
+    const text = sendText.trim();
+    if (text.length >= 3) return text;
+    setInlineBanError('Сначала напиши запрет');
+    triggerBanInputShake();
+    return null;
+  }, [sendText, setInlineBanError, triggerBanInputShake]);
+
+  const runShareFlow = useCallback(
+    async (opts: { markFirstBan?: boolean }) => {
+      if (!token || shareBusy) return;
+      const text = requireBanText();
+      if (!text) return;
+
+      setShareBusy(true);
+      setInlineBanError(null);
+      try {
+        if (opts.markFirstBan) {
+          await sendFirstBanChallenge({
+            token,
+            banText: text,
+            durationMinutes: sendDuration,
+            afterShare: async () => {
+              completeFirstBan();
+              await onboard().catch(() => {});
+              await refreshUser();
+              await reloadPending();
+              await reloadFriends();
+            },
+          });
+        } else {
+          await shareBanViaTelegram({
+            token,
+            banText: text,
+            durationMinutes: sendDuration,
+            afterShare: async () => {
+              await reloadFriends();
+              await reloadPending();
+            },
+          });
+        }
+        setBanSentOpen(true);
+      } catch (e) {
+        setInlineBanError((e as Error).message || 'Не удалось отправить');
+      } finally {
+        setShareBusy(false);
       }
     },
-    [setIncomingBan, setCheckBan],
+    [
+      token,
+      shareBusy,
+      requireBanText,
+      sendDuration,
+      setInlineBanError,
+      completeFirstBan,
+      onboard,
+      refreshUser,
+      reloadPending,
+      reloadFriends,
+      setBanSentOpen,
+    ],
   );
 
-  const runAddMoreShare = useCallback(async () => {
-    if (!token || firstShareBusy) return;
-    const text = sendText.trim();
-    if (text.length < 3) {
-      alert('Сначала напиши запрет ниже');
-      return;
-    }
-    setFirstShareBusy(true);
-    try {
-      await shareBanViaTelegram({
-        token,
-        banText: text,
-        durationMinutes: sendDuration,
-        afterShare: async () => {
-          await reloadFriends();
-          await reloadPending();
-        },
-      });
-      setBanSentOpen(true);
-    } catch (e) {
-      alert((e as Error).message || 'Не удалось отправить');
-    } finally {
-      setFirstShareBusy(false);
-    }
-  }, [
-    token,
-    firstShareBusy,
-    sendText,
-    sendDuration,
-    reloadFriends,
-    reloadPending,
-    setBanSentOpen,
-  ]);
+  const runAddMoreShare = useCallback(
+    () => runShareFlow({ markFirstBan: false }),
+    [runShareFlow],
+  );
 
-  const runFirstBanShare = useCallback(async () => {
-    if (!token || firstShareBusy) return;
-    const text = sendText.trim();
-    if (text.length < 3) return;
-
-    setFirstShareBusy(true);
-    try {
-      await sendFirstBanChallenge({
-        token,
-        banText: text,
-        durationMinutes: sendDuration,
-        afterShare: async () => {
-          completeFirstBan();
-          await onboard().catch(() => {});
-          await refreshUser();
-          await reloadPending();
-          await reloadFriends();
-        },
-      });
-      setBanSentOpen(true);
-    } catch (e) {
-      alert((e as Error).message || 'Не удалось отправить');
-    } finally {
-      setFirstShareBusy(false);
-    }
-  }, [
-    token,
-    firstShareBusy,
-    sendText,
-    sendDuration,
-    completeFirstBan,
-    onboard,
-    refreshUser,
-    reloadPending,
-    reloadFriends,
-    setBanSentOpen,
-  ]);
+  const runFirstBanShare = useCallback(
+    () => runShareFlow({ markFirstBan: true }),
+    [runShareFlow],
+  );
 
   return (
-    <div className="home-arena space-y-4">
-      <SocialHeader user={user} liveCount={safeActiveBans.length} />
-
-      {!showFirstBanOnboarding ? (
-        <SocialPulseStrip friends={safeFriends} liveBans={safeActiveBans.length} />
-      ) : null}
-
+    <div className="home-arena home-arena--compact">
       {showFirstBanOnboarding ? (
         <FirstBanOnboarding
           banText={sendText}
@@ -158,34 +139,47 @@ function HomeArenaInner({ user }: Props) {
           durationMinutes={sendDuration}
           onDurationChange={setSendDuration}
           onPickChat={runFirstBanShare}
-          pickChatBusy={firstShareBusy}
+          pickChatBusy={shareBusy}
         />
       ) : (
         <>
-          <section className="glass-card border border-accent/15 p-3 -mx-1 shadow-glow-sm">
-            {token ? (
+          <CompactArenaHeader
+            user={user}
+            liveCount={safeActiveBans.length}
+            friends={safeFriends}
+          />
+
+          <div className="challenge-stack glass-card border border-accent/15 shadow-glow-sm">
+            <ChallengeCompose
+              value={sendText}
+              onChange={setSendText}
+              compact
+            />
+            <DurationPills
+              value={sendDuration}
+              onChange={setSendDuration}
+              compact
+            />
+          </div>
+
+          {token ? (
+            <section className="people-section glass-card border border-accent/12 p-2.5 -mx-0 shadow-glow-sm">
               <FriendPicker
                 token={token}
                 value={sendReceiver ?? ''}
                 onChange={setSendReceiver}
                 friends={safeFriends}
                 inline
+                compact
                 showAddMore
                 onAddMore={runAddMoreShare}
-                addMoreBusy={firstShareBusy}
+                addMoreBusy={shareBusy}
+                onRequireBan={requireBanText}
               />
-            ) : null}
-          </section>
-
-          <section className="glass-card border border-accent/15 p-3 -mx-1 shadow-glow-sm">
-            <ChallengeCompose value={sendText} onChange={setSendText} />
-          </section>
-
-          <DurationPills value={sendDuration} onChange={setSendDuration} />
+            </section>
+          ) : null}
         </>
       )}
-
-      <ActiveChallenges items={safeActiveBans} onOpen={openChallenge} />
     </div>
   );
 }

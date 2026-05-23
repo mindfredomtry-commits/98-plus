@@ -6,33 +6,42 @@ import { SEED_BANS } from '@98plus/shared';
 interface Props {
   selected: string | null;
   onSelect: (preset: string) => void;
+  presets?: readonly string[];
+  compact?: boolean;
 }
 
-export function PresetBanCards({ selected, onSelect }: Props) {
+export function PresetBanCards({
+  selected,
+  onSelect,
+  presets,
+  compact = false,
+}: Props) {
+  const list = presets ?? SEED_BANS;
+
   return (
-    <div className="preset-chips flex flex-wrap gap-2">
-        {(Array.isArray(SEED_BANS) ? SEED_BANS : []).map((preset, i) => {
-          const active = selected === preset;
-          return (
-            <motion.button
-              key={preset}
-              type="button"
-              initial={{ opacity: 0, scale: 0.92 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: i * 0.03 }}
-              whileTap={{ scale: 0.96 }}
-              onClick={() => onSelect(preset)}
-              className={`preset-chip text-left text-sm px-3.5 py-2.5 rounded-2xl border transition-all ${
-                active
-                  ? 'preset-chip-active border-accent/60 text-white'
-                  : 'border-white/8 bg-card/60 text-muted hover:border-accent/30'
-              }`}
-            >
-              <span className="mr-1">🚫</span>
-              {preset}
-            </motion.button>
-          );
-        })}
+    <div
+      className={`preset-chips ${compact ? 'preset-chips--compact' : ''} flex flex-wrap gap-1.5`}
+    >
+      {(Array.isArray(list) ? list : []).map((preset, i) => {
+        const active = selected === preset;
+        return (
+          <motion.button
+            key={preset}
+            type="button"
+            initial={compact ? false : { opacity: 0, scale: 0.92 }}
+            animate={compact ? undefined : { opacity: 1, scale: 1 }}
+            transition={{ delay: i * 0.02 }}
+            whileTap={{ scale: 0.96 }}
+            onClick={() => onSelect(preset)}
+            className={`preset-chip ${compact ? 'preset-chip--compact' : ''} ${
+              active ? 'preset-chip-active' : ''
+            }`}
+          >
+            {!compact ? <span className="mr-1">🚫</span> : null}
+            {preset}
+          </motion.button>
+        );
+      })}
     </div>
   );
 }

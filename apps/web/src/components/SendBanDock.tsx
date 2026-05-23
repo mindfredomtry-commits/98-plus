@@ -8,7 +8,10 @@ import { useTelegram } from '@/hooks/useTelegram';
 import { useSendChallenge } from '@/hooks/useSendChallenge';
 import { GlowCTA } from './GlowCTA';
 import { ctaLog } from '@/lib/cta-log';
-import { sendFirstBanChallenge } from '@/lib/first-challenge-share';
+import {
+  sendFirstBanChallenge,
+  shareBanViaTelegram,
+} from '@/lib/first-challenge-share';
 
 function safeCoerceFriends(input: unknown) {
   try {
@@ -37,6 +40,8 @@ function SendBanDockInner({ visible = true }: Props) {
     notifySendSuccess,
     showFirstBanOnboarding,
     completeFirstBan,
+    setInlineBanError,
+    triggerBanInputShake,
   } = useApp();
   const { haptic } = useTelegram();
   const [ctaError, setCtaError] = useState<string | null>(null);
@@ -71,10 +76,11 @@ function SendBanDockInner({ visible = true }: Props) {
   );
   const hasFriend = Boolean(selectedUsername);
   const challengeText = sendText?.trim() ?? '';
-  const hasBan = challengeText.length > 0;
+  const hasBan = challengeText.length >= 3;
+
   const ctaReady = showFirstBanOnboarding
-    ? hasBan && challengeText.length >= 3
-    : hasFriend && hasBan;
+    ? hasBan
+    : hasBan;
 
   const resolved = useMemo(() => {
     if (!selectedUsername) {
@@ -93,15 +99,18 @@ function SendBanDockInner({ visible = true }: Props) {
     ctaError ??
     (!ctaReady && !busy && !sharing
       ? showFirstBanOnboarding
-        ? !hasBan || challengeText.length < 3
-          ? 'Напиши запрет'
-          : '\u00a0'
-        : !hasFriend
-          ? 'выбери человека'
-          : !hasBan
-            ? 'Что ты запрещаешь?'
-            : '\u00a0'
+        ? 'Сначала напиши запрет'
+        : 'Сначала напиши запрет'
       : '\u00a0');
+
+  function failBanValidation(): boolean {
+    if (hasBan) return false;
+    setInlineBanError('Сначала напиши запрет');
+    triggerBanInputShake();
+    setCtaError(null);
+    haptic('light');
+    return true;
+  }
 
   async function zapretit() {
     setCtaError(null);
@@ -121,19 +130,16 @@ function SendBanDockInner({ visible = true }: Props) {
     }
 
     if (!token) {
-      const msg = 'Нет авторизации — перезапусти Mini App из Telegram';
-      setCtaError(msg);
-      alert(msg);
+      setCtaError('Перезапусти Mini App из Telegram');
       return;
     }
 
+    if (failBanValidation()) return;
+
+    haptic('medium');
+    setInlineBanError(null);
+
     if (showFirstBanOnboarding) {
-      if (challengeText.length < 3) {
-        setCtaError('Напиши запрет');
-        haptic('light');
-        return;
-      }
-      haptic('medium');
       try {
         await sendFirstBanChallenge({
           token,
@@ -149,27 +155,28 @@ function SendBanDockInner({ visible = true }: Props) {
         });
         onSuccess();
       } catch (e) {
-        const msg = (e as Error).message || 'Не удалось отправить';
-        setCtaError(msg);
-        alert(msg);
+        setInlineBanError((e as Error).message || 'Не удалось отправить');
       }
       return;
     }
 
-    const missing: string[] = [];
-    if (!hasFriend) missing.push('человека');
-    if (!hasBan) missing.push('запрет');
-    if (missing.length > 0) {
-      setCtaError(
-        !hasBan && hasFriend
-          ? 'Что ты запрещаешь?'
-          : `Выбери: ${missing.join(', ')}`,
-      );
-      haptic('light');
+    if (!hasFriend) {
+      try {
+        await shareBanViaTelegram({
+          token,
+          banText: challengeText,
+          durationMinutes: sendDuration,
+          afterShare: async () => {
+            await reloadFriends();
+            await reloadPending();
+          },
+        });
+        onSuccess();
+      } catch (e) {
+        setInlineBanError((e as Error).message || 'Не удалось отправить');
+      }
       return;
     }
-
-    haptic('medium');
 
     try {
       await send({
@@ -186,9 +193,7 @@ function SendBanDockInner({ visible = true }: Props) {
         selectedFriend?.firstName ?? selectedUsername,
       );
     } catch (e) {
-      const msg = (e as Error).message || 'Не удалось отправить';
-      setCtaError(msg);
-      alert(msg);
+      setCtaError((e as Error).message || 'Не удалось отправить');
     }
   }
 

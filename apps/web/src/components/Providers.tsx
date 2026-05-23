@@ -77,6 +77,10 @@ interface AppContextValue {
   clearCheckOverlay: () => void;
   showFirstBanOnboarding: boolean;
   completeFirstBan: () => void;
+  inlineBanError: string | null;
+  setInlineBanError: (msg: string | null) => void;
+  banInputShake: boolean;
+  triggerBanInputShake: () => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -137,6 +141,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [optimisticSendWait, setOptimisticSendWait] =
     useState<OptimisticSendWait | null>(null);
   const [firstBanComplete, setFirstBanComplete] = useState(false);
+  const [inlineBanError, setInlineBanError] = useState<string | null>(null);
+  const [banInputShake, setBanInputShake] = useState(false);
+
+  const triggerBanInputShake = useCallback(() => {
+    setBanInputShake(true);
+    window.setTimeout(() => setBanInputShake(false), 500);
+  }, []);
 
   const dismissedIncomingRef = useRef<Set<string>>(new Set());
   const checkWaitingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -459,6 +470,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
       clearCheckOverlay,
       showFirstBanOnboarding,
       completeFirstBan,
+      inlineBanError,
+      setInlineBanError,
+      banInputShake,
+      triggerBanInputShake,
     }),
     [
       auth.token,
@@ -497,6 +512,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       clearCheckOverlay,
       showFirstBanOnboarding,
       completeFirstBan,
+      inlineBanError,
+      banInputShake,
+      triggerBanInputShake,
     ],
   );
 
