@@ -45,7 +45,7 @@ export function useWebSocket(
       return;
     }
 
-    const wsUrl = getWsUrl();
+    const wsUrl = 'wss://98plusapi-production.up.railway.app/ws';
     setStatus('connecting');
     log(`ws: connecting ${wsUrl}`);
     const ws = new WebSocket(`${wsUrl}?token=${encodeURIComponent(token)}`);
