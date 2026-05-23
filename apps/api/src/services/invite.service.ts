@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto';
-import { ANALYTICS_EVENTS, formatChallengeShareMessage } from '@98plus/shared';
+import { ANALYTICS_EVENTS, formatViralBanShareMessage } from '@98plus/shared';
 import { prisma } from '../lib/prisma';
 import { mapBanToInteraction } from './ban.service';
 import { linkPairInteraction } from './energy.service';
@@ -71,11 +71,10 @@ export async function createPendingInvite(params: {
   const senderUsername =
     invite.sender.username ?? invite.sender.firstName;
 
-  const shareText = formatChallengeShareMessage({
-    senderUsername,
-    senderFirstName: invite.sender.firstName,
+  const shareText = formatViralBanShareMessage({
     banText: invite.text,
     durationMinutes: invite.durationMinutes,
+    link: links.miniApp,
   });
 
   await sendPendingBanInviteToUser({

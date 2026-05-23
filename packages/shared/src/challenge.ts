@@ -57,37 +57,35 @@ export function formatIncomingBanMessage(params: {
   );
 }
 
-/** Native Telegram share text (link passed separately via t.me/share/url). */
+/** Native Telegram share text for pending challenges (includes link). */
 export function formatChallengeShareMessage(params: {
   senderUsername: string;
   senderFirstName?: string | null;
   banText: string;
   durationMinutes: number;
-  /** @deprecated link is never embedded in visible text */
   deepLink?: string;
 }): string {
-  void params.deepLink;
-  return formatIncomingBanMessage({
-    senderName: formatSenderDisplayName(
-      params.senderUsername,
-      params.senderFirstName,
-    ),
+  void params.senderUsername;
+  void params.senderFirstName;
+  return formatViralBanShareMessage({
     banText: params.banText,
     durationMinutes: params.durationMinutes,
+    link: params.deepLink ?? '',
   });
 }
 
-/** Viral share via t.me/share/url — reads like a direct ban, not an app invite. */
+/** Viral Telegram share — direct challenge, link in body. */
 export function formatViralBanShareMessage(params: {
   banText: string;
   durationMinutes: number;
+  link: string;
 }): string {
   const ban = params.banText.replace(/^🚫\s*/, '').trim();
   const dur = formatDurationLabel(params.durationMinutes);
   return (
     `🚫 Запрещаю тебе ${ban} на ${dur}.\n\n` +
-    `Хочешь запретить мне в ответ?\n` +
-    `Открой 98+ 👇`
+    `Запретить в ответ?\n` +
+    params.link.trim()
   );
 }
 

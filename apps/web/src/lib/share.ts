@@ -19,8 +19,8 @@ export function telegramShareUrl(shareText: string, shareUrl: string): string {
   return `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`;
 }
 
-function copyFallback(text: string, url: string) {
-  void navigator.clipboard?.writeText(`${text}\n\n${url}`);
+function copyFallback(text: string) {
+  void navigator.clipboard?.writeText(text);
 }
 
 function openTelegramShareLink(link: string) {
@@ -33,15 +33,18 @@ function openTelegramShareLink(link: string) {
 }
 
 /**
- * Open Telegram share dialog with viral ban copy.
- * Link is passed only via url= param — not duplicated in message body.
+ * Open Telegram share dialog with viral ban copy (link embedded in message).
  */
 export function handleShareChallenge(
   banText: string,
   durationMinutes: number,
   shareUrl: string,
 ): Promise<'shared' | 'copied'> {
-  const text = formatViralBanShareMessage({ banText, durationMinutes });
+  const text = formatViralBanShareMessage({
+    banText,
+    durationMinutes,
+    link: shareUrl,
+  });
   return shareChallengeAndWait(text, shareUrl);
 }
 
@@ -89,7 +92,7 @@ export function shareChallengeAndWait(
       tg.openTelegramLink(link);
       fallback = window.setTimeout(() => finish('shared'), 120_000);
     } else {
-      copyFallback(shareText, shareUrl);
+      copyFallback(shareText);
       finish('copied');
     }
   });

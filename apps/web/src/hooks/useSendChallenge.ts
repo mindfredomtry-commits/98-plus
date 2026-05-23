@@ -8,7 +8,7 @@ import {
   deliverDirectChallenge,
   formatDeliveryError,
 } from '@/lib/deliver-challenge';
-import { shareChallengeAndWait } from '@/lib/share';
+import { handleShareChallenge } from '@/lib/share';
 import { ctaLog } from '@/lib/cta-log';
 
 export function useSendChallenge(opts: {
@@ -95,12 +95,16 @@ export function useSendChallenge(opts: {
         });
 
         if (needsShare) {
-          if (!res.shareText || !res.shareUrl) {
-            throw new Error('Не удалось отправить приглашение');
+          if (!res.shareUrl) {
+            throw new Error('Не удалось отправить вызов');
           }
           setSharing(true);
           ctaLog('share:open');
-          await shareChallengeAndWait(res.shareText, res.shareUrl);
+          await handleShareChallenge(
+            params.text.trim(),
+            params.durationMinutes,
+            res.shareUrl,
+          );
           ctaLog('share:done');
 
           await api('/friends/touch-share', {

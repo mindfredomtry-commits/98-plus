@@ -39,7 +39,6 @@ function HomeArenaInner({ user }: Props) {
     reloadFriends,
     onboard,
     setBanSentOpen,
-    setSendOpen,
   } = useApp();
 
   const [firstShareBusy, setFirstShareBusy] = useState(false);
@@ -76,7 +75,7 @@ function HomeArenaInner({ user }: Props) {
     if (!token || firstShareBusy) return;
     const text = sendText.trim();
     if (text.length < 3) {
-      setSendOpen(true);
+      alert('Сначала напиши запрет ниже');
       return;
     }
     setFirstShareBusy(true);
@@ -104,7 +103,6 @@ function HomeArenaInner({ user }: Props) {
     reloadFriends,
     reloadPending,
     setBanSentOpen,
-    setSendOpen,
   ]);
 
   const runFirstBanShare = useCallback(async () => {
@@ -174,6 +172,7 @@ function HomeArenaInner({ user }: Props) {
                 inline
                 showAddMore
                 onAddMore={runAddMoreShare}
+                addMoreBusy={firstShareBusy}
               />
             ) : null}
           </section>
