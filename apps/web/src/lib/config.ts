@@ -118,8 +118,8 @@ export function getClientConfig(): ClientConfig {
   }
 
   return {
-    apiUrl: buildApi || 'http://localhost:4000',
-    wsUrl: readBuildWsUrl() || 'ws://localhost:4000/ws',
+    apiUrl: buildApi || 'https://98plusapi-production.up.railway.app',
+    wsUrl: readBuildWsUrl() || 'wss://98plusapi-production.up.railway.app/ws',
     source: buildApi ? 'build' : 'unset',
   };
 }
