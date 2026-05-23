@@ -176,7 +176,23 @@ export function FriendPicker({
     null,
   );
   const [searching, setSearching] = useState(false);
+  const handleInviteFriend = async () => {
+    const inviteText = 'Зайди в 98+, я хочу отправить тебе запрет';
+  
+    const inviteUrl =
+      'https://t.me/Ninety_eight_pluss_Bot/app?startapp=invite';
+  
+    const shareUrl =
+      `https://t.me/share/url?url=${encodeURIComponent(inviteUrl)}&text=${encodeURIComponent(inviteText)}`;
+  
+      const tg = window.Telegram?.WebApp;
 
+      if (tg?.openTelegramLink) {
+        tg.openTelegramLink(shareUrl);
+      } else {
+        window.open(shareUrl, '_blank');
+      }
+  };
   const loadFriends = useCallback(async () => {
     const { friends: list } = await api<{ friends?: unknown }>('/friends', {
       token,
@@ -341,7 +357,7 @@ export function FriendPicker({
         {!searchExpanded ? (
           <button
             type="button"
-            onClick={() => setSearchExpanded(true)}
+            onClick={handleInviteFriend}
             className="w-full text-center text-xs text-muted/70 py-2.5 hover:text-accent transition-colors"
           >
             Найти кого ещё вызвать
