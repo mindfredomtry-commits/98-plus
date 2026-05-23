@@ -39,19 +39,7 @@ function readBuildApiUrl(): string {
 }
 
 function readBuildWsUrl(): string {
-  const explicit = process.env.NEXT_PUBLIC_WS_URL?.trim();
-  if (explicit) return stripTrailingSlash(explicit);
-  const api = readBuildApiUrl();
-  try {
-    const saved = localStorage.getItem('98plus_api_url');
-  
-    if (saved && saved !== api) {
-      localStorage.removeItem('98plus_api_url');
-      console.info('[98+] cleared stale api url');
-    }
-  } catch {}
-  if (api && !isLocalhost(api)) return deriveWsFromApi(api);
-  return '';
+  return 'wss://98plusapi-production.up.railway.app/ws';
 }
 
 /** Call only in browser */
