@@ -35,7 +35,7 @@ function deriveWsFromApi(apiUrl: string): string {
 }
 
 function readBuildApiUrl(): string {
-  return stripTrailingSlash(process.env.NEXT_PUBLIC_API_URL ?? '');
+  return "https://98plusapi-production.up.railway.app";
 }
 
 function readBuildWsUrl(): string {
