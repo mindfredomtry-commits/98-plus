@@ -63,18 +63,34 @@ bansRouter.get('/pending/check', async (req: AuthRequest, res) => {
 });
 
 bansRouter.get('/session', async (req: AuthRequest, res) => {
-  const user = await prisma.user.findUnique({ where: { id: req.userId } });
-  const session = await getSessionState(req.userId!, user?.username ?? null);
-  res.json(session);
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId } });
+    const session = await getSessionState(req.userId!, user?.username ?? null);
+    res.json(session);
+  } catch (e) {
+    console.error('[bans] session failed', e);
+    res.status(503).json({
+      error: 'Temporary database overload',
+      retry: true,
+    });
+  }
 });
 
 bansRouter.get('/invite-link', async (req: AuthRequest, res) => {
-  const user = await prisma.user.findUnique({ where: { id: req.userId } });
-  const link = inviteLinkForUser(user?.username ?? null);
-  res.json({
-    link,
-    startParam: user?.username ? `u_${user.username}` : null,
-  });
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId } });
+    const link = inviteLinkForUser(user?.username ?? null);
+    res.json({
+      link,
+      startParam: user?.username ? `u_${user.username}` : null,
+    });
+  } catch (e) {
+    console.error('[bans] invite-link failed', e);
+    res.status(503).json({
+      error: 'Temporary database overload',
+      retry: true,
+    });
+  }
 });
 
 bansRouter.get('/:id/result', async (req: AuthRequest, res) => {
