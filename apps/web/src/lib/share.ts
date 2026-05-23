@@ -14,9 +14,9 @@ function getTelegramWebApp() {
     | undefined;
 }
 
-/** Telegram-only share URL (opens in-app chat picker, not OS sheet) */
-export function telegramShareUrl(shareText: string, shareUrl: string): string {
-  return `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`;
+/** Telegram share — text only (link lives in message body, no preview duplicate). */
+export function telegramShareUrl(shareText: string): string {
+  return `https://t.me/share/url?text=${encodeURIComponent(shareText)}`;
 }
 
 function copyFallback(text: string) {
@@ -33,7 +33,7 @@ function openTelegramShareLink(link: string) {
 }
 
 /**
- * Open Telegram share dialog with viral ban copy (link embedded in message).
+ * Open Telegram share dialog with viral ban copy (link once, at bottom).
  */
 export function handleShareChallenge(
   banText: string,
@@ -45,7 +45,7 @@ export function handleShareChallenge(
     durationMinutes,
     link: shareUrl,
   });
-  return shareChallengeAndWait(text, shareUrl);
+  return shareChallengeAndWait(text);
 }
 
 /** Share result / deep links — Telegram only */
@@ -61,7 +61,6 @@ export function shareDeepLink(action: DeepLinkAction, text: string) {
  */
 export function shareChallengeAndWait(
   shareText: string,
-  shareUrl: string,
 ): Promise<'shared' | 'copied'> {
   return new Promise((resolve) => {
     let settled = false;
@@ -86,7 +85,7 @@ export function shareChallengeAndWait(
 
     document.addEventListener('visibilitychange', onVisible);
 
-    const link = telegramShareUrl(shareText, shareUrl);
+    const link = telegramShareUrl(shareText);
     const tg = getTelegramWebApp();
     if (tg?.openTelegramLink) {
       tg.openTelegramLink(link);

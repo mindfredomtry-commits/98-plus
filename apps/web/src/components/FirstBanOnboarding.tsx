@@ -79,7 +79,7 @@ export function FirstBanOnboarding({
           <textarea
             value={banText}
             onChange={(e) => onBanTextChange(e.target.value)}
-            placeholder="Напиши запрет..."
+            placeholder="Запрещаю..."
             rows={3}
             className="ban-textarea"
             maxLength={280}

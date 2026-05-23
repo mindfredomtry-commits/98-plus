@@ -39,7 +39,7 @@ export function ChallengeCompose({ value, onChange }: Props) {
           className="ban-textarea"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="Напиши свой запрет..."
+          placeholder="Запрещаю..."
           rows={3}
           maxLength={MAX_BAN_CHARS}
           autoComplete="off"

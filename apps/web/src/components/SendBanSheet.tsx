@@ -102,7 +102,7 @@ export function SendBanSheet() {
                   key={preset}
                   type="button"
                   onClick={() =>
-                    setSendText(`Запрещаю тебе ${preset.toLowerCase()}`)
+                    setSendText(preset)
                   }
                   className="text-xs bg-bg/80 px-3 py-1.5 rounded-full text-muted border border-white/5 active:border-accent/40"
                 >
@@ -113,7 +113,7 @@ export function SendBanSheet() {
             <textarea
               value={sendText}
               onChange={(e) => setSendText(e.target.value)}
-              placeholder="Запрещаю тебе..."
+              placeholder="Запрещаю..."
               className="w-full bg-bg/90 rounded-2xl p-4 text-lg min-h-[72px] resize-none outline-none focus:ring-2 focus:ring-accent/50 border border-white/5"
             />
             <div className="flex gap-2">

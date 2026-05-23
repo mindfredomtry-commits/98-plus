@@ -43,6 +43,20 @@ function formatBanLine(banText: string): string {
   return t.startsWith('🚫') ? t : `🚫 ${t}`;
 }
 
+/**
+ * Strip leading "запрещаю" / "тебе" so share reads: «Запрещаю {content} на …» once.
+ */
+export function normalizeBanTextForShare(raw: string): string {
+  let ban = raw.replace(/^🚫\s*/, '').trim();
+  let prev: string;
+  do {
+    prev = ban;
+    ban = ban.replace(/^запрещаю\s+(тебе\s+)?/iu, '').trim();
+    ban = ban.replace(/^тебе\s+/iu, '').trim();
+  } while (ban !== prev);
+  return ban;
+}
+
 /** Bot DM / notification body — no URLs, no app headers. */
 export function formatIncomingBanMessage(params: {
   senderName: string;
@@ -74,16 +88,16 @@ export function formatChallengeShareMessage(params: {
   });
 }
 
-/** Viral Telegram share — direct challenge, link in body. */
+/** Viral Telegram share — direct challenge, single link at bottom. */
 export function formatViralBanShareMessage(params: {
   banText: string;
   durationMinutes: number;
   link: string;
 }): string {
-  const ban = params.banText.replace(/^🚫\s*/, '').trim();
+  const ban = normalizeBanTextForShare(params.banText) || '…';
   const dur = formatDurationLabel(params.durationMinutes);
   return (
-    `🚫 Запрещаю тебе ${ban} на ${dur}.\n\n` +
+    `🚫 Запрещаю ${ban} на ${dur}.\n\n` +
     `Запретить в ответ?\n` +
     params.link.trim()
   );

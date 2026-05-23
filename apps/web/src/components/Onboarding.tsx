@@ -22,7 +22,7 @@ export function Onboarding() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: i * 0.04 }}
             onClick={() => {
-              setSendText(`Запрещаю тебе ${text.toLowerCase()}`);
+              setSendText(text);
               setSendOpen(true);
               onboard();
             }}

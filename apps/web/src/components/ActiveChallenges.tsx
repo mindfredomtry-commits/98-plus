@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import type { BanInteraction } from '@98plus/shared';
+import { normalizeBanTextForShare, type BanInteraction } from '@98plus/shared';
 import { BanTimer } from './BanTimer';
 
 interface Props {
@@ -65,7 +65,7 @@ export function ActiveChallenges({ items, onOpen }: Props) {
                 </span>
               </div>
               <p className="text-sm font-medium line-clamp-2 leading-snug">
-                {(b.text ?? '').replace(/^Запрещаю тебе /i, '')}
+                {normalizeBanTextForShare(b.text ?? '') || b.text}
               </p>
               {b.remainingMs != null && (
                 <div className="mt-2 text-[10px]">
