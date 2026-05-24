@@ -120,6 +120,24 @@ export function getWsUrl(): string {
   return getClientConfig().wsUrl;
 }
 
+/** Browser is local Next.js dev (localhost / LAN). */
+export function isBrowserLocalDev(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1') return true;
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  return false;
+}
+
+/** Use /auth/dev when Telegram initData is absent (local browser testing). */
+export function isClientDevAuthEnabled(): boolean {
+  if (process.env.NEXT_PUBLIC_DEV_AUTH_ENABLED === 'true') return true;
+  if (process.env.NODE_ENV === 'development') return true;
+  return isBrowserLocalDev();
+}
+
 export function isApiConfiguredForProduction(): boolean {
   const { apiUrl, source } = getClientConfig();
   if (typeof window === 'undefined') return true;

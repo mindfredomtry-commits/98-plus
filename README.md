@@ -55,7 +55,8 @@ npm run dev:web
 - Web: http://localhost:3000  
 - WS: `ws://localhost:4000/ws?token=JWT`
 
-В dev без Telegram UI авторизуется через `POST /auth/dev`.
+В dev без Telegram UI авторизуется через `POST /auth/dev` (или `GET /auth/dev`).
+На API: `DEV_AUTH_ENABLED=true` или `NODE_ENV` не `production`. Локальный web на `localhost:3000` вызывает dev-auth автоматически.
 
 ### 4. Telegram Bot
 

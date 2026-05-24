@@ -9,7 +9,11 @@ import {
 import { isValidIncomingOverlayPayload } from '@/lib/incoming-challenge';
 import { challengeLog } from '@/lib/challenge-log';
 import { api, ApiError, NetworkError } from '@/lib/api';
-import { getApiUrl, isApiConfiguredForProduction } from '@/lib/config';
+import {
+  getApiUrl,
+  isApiConfiguredForProduction,
+  isClientDevAuthEnabled,
+} from '@/lib/config';
 import { useTelegram } from './useTelegram';
 
 const TOKEN_KEY_LEGACY = '98plus_token';
@@ -109,13 +113,13 @@ export function useAuth() {
           }),
         });
         persistSession(res, telegramId ?? tgUser?.id);
-      } else if (process.env.NODE_ENV === 'development') {
+      } else if (isClientDevAuthEnabled()) {
         res = await api('/auth/dev', {
           method: 'POST',
           body: JSON.stringify({
             telegramId: tgUser?.id ?? 100000001,
             firstName: tgUser?.first_name ?? 'Dev',
-            username: tgUser?.username,
+            username: tgUser?.username ?? 'dev_user',
             startParam: startParam ?? undefined,
           }),
         });

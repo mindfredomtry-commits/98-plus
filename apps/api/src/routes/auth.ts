@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { validateInitData } from '../lib/telegram-auth';
 import { signToken } from '../lib/jwt';
 import { prisma } from '../lib/prisma';
@@ -18,6 +18,7 @@ import {
 } from '../services/social-graph.service';
 import { pushFriendsGraphRefresh } from '../services/friends-sync';
 import type { BanInteraction } from '@98plus/shared';
+import { isDevAuthEnabled } from '../lib/dev-auth';
 
 export const authRouter = Router();
 
@@ -137,26 +138,38 @@ authRouter.post('/telegram', async (req, res) => {
   });
 });
 
-authRouter.post('/dev', async (req, res) => {
-  if (process.env.NODE_ENV === 'production') {
+async function devAuthHandler(req: Request, res: Response): Promise<void> {
+  if (!isDevAuthEnabled()) {
     res.status(404).end();
     return;
   }
 
-  const { telegramId, firstName, username, startParam } = req.body as {
-    telegramId?: number;
-    firstName?: string;
-    username?: string;
-    startParam?: string;
-  };
+  const source =
+    req.method === 'GET'
+      ? (req.query as Record<string, string | undefined>)
+      : (req.body as Record<string, unknown>);
 
-  const id = telegramId ?? 100000001;
+  const telegramIdRaw = source.telegramId;
+  const telegramId =
+    telegramIdRaw != null && telegramIdRaw !== ''
+      ? Number(telegramIdRaw)
+      : 100000001;
+
+  const firstName =
+    (typeof source.firstName === 'string' && source.firstName) || 'Dev';
+  const username =
+    (typeof source.username === 'string' && source.username) || 'dev_user';
+  const startParam =
+    typeof source.startParam === 'string' ? source.startParam : undefined;
+
+  const id = Number.isFinite(telegramId) ? telegramId : 100000001;
+
   const user = await prisma.user.upsert({
     where: { telegramId: BigInt(id) },
     create: {
       telegramId: BigInt(id),
-      firstName: firstName ?? 'Dev',
-      username: username ?? 'dev_user',
+      firstName,
+      username,
     },
     update: { lastSeenAt: new Date() },
   });
@@ -169,4 +182,12 @@ authRouter.post('/dev', async (req, res) => {
   const extra = await afterAuth(user.id, user.username, startParam);
 
   res.json({ token, user: mapUser(user), ...extra });
+}
+
+authRouter.get('/dev', (req: Request, res: Response) => {
+  void devAuthHandler(req, res);
+});
+
+authRouter.post('/dev', (req: Request, res: Response) => {
+  void devAuthHandler(req, res);
 });
