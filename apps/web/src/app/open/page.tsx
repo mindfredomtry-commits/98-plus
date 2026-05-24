@@ -2,17 +2,6 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-const TELEGRAM_URL =
-  process.env.NEXT_PUBLIC_TELEGRAM_BOT_URL ??
-  `https://t.me/${
-    process.env.NEXT_PUBLIC_BOT_USERNAME?.replace('@', '') ??
-    'Ninety_eight_pluss_Bot'
-  }`;
-
-function openTelegramDirect() {
-  window.location.href = TELEGRAM_URL;
-}
-
 export default function OpenLandingPage() {
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -40,6 +29,14 @@ export default function OpenLandingPage() {
         <div className="open-page__orb open-page__orb--2" />
         <div className="open-page__orb open-page__orb--3" />
         <div className="open-page__grid" />
+        <div className="open-page__noise" />
+        <div className="open-page__particles">
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+        </div>
       </div>
 
       <div className="open-page__inner">
@@ -57,12 +54,14 @@ export default function OpenLandingPage() {
             className="open-page__btn open-page__btn--primary"
             onClick={openModal}
           >
-            🚫 ОТКРЫТЬ 98+
+            🚫 ЗАПРЕТИТЬ В ОТВЕТ
           </button>
         </div>
 
-        <p className="open-page__footer">
-          TikTok блокирует Telegram. Открой страницу во внешнем браузере.
+        <p className="open-page__hook">
+          TikTok запретил переход в Telegram.
+          <br />
+          <span className="open-page__hook-accent">Запрети в ответ.</span>
         </p>
       </div>
 
@@ -88,61 +87,95 @@ export default function OpenLandingPage() {
           >
             ×
           </button>
+
+          <p className="open-modal__eyebrow">98+</p>
           <h2 id="open-modal-title" className="open-modal__title">
-            Как открыть во внешнем браузере
+            TikTok запретил Telegram?
           </h2>
-          <p className="open-modal__lead">
-            TikTok блокирует Telegram внутри приложения.
+          <p className="open-modal__punch">ЗАПРЕТИ В ОТВЕТ!</p>
+          <p className="open-modal__subtitle">
+            Открой 98+ через внешний браузер.
           </p>
 
-          <div className="open-modal__steps" role="list">
-            <div className="open-modal__step" role="listitem">
-              <span className="open-modal__step-icon" aria-hidden>
-                ⋮
+          <div className="open-modal__cards">
+            <article className="open-modal__card">
+              <span className="open-modal__card-icon" aria-hidden>
+                ⋯
               </span>
-              <div className="open-modal__step-body">
-                <span className="open-modal__step-num">ШАГ 1</span>
-                <p className="open-modal__step-text">Нажми ⋮ в правом верхнем углу</p>
-                <p className="open-modal__step-hint">Меню TikTok / Instagram</p>
-              </div>
-            </div>
-            <span className="open-modal__arrow" aria-hidden>
-              ↓
-            </span>
-            <div className="open-modal__step" role="listitem">
-              <span className="open-modal__step-icon" aria-hidden>
-                🌐
-              </span>
-              <div className="open-modal__step-body">
-                <span className="open-modal__step-num">ШАГ 2</span>
-                <p className="open-modal__step-text">Open in browser</p>
-                <p className="open-modal__step-hint">
-                  «Открыть в браузере» / «Open in Safari»
+              <div className="open-modal__card-body">
+                <h3 className="open-modal__card-title">Нажми ⋯</h3>
+                <p className="open-modal__card-text">
+                  В правом верхнем углу TikTok
                 </p>
               </div>
-            </div>
-            <span className="open-modal__arrow" aria-hidden>
+            </article>
+
+            <span className="open-modal__connector" aria-hidden>
               ↓
             </span>
-            <div className="open-modal__step" role="listitem">
-              <span className="open-modal__step-icon" aria-hidden>
-                ✈️
+
+            <article className="open-modal__card">
+              <span className="open-modal__card-icon" aria-hidden>
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
               </span>
-              <div className="open-modal__step-body">
-                <span className="open-modal__step-num">ШАГ 3</span>
-                <p className="open-modal__step-text">Telegram откроется автоматически</p>
-                <p className="open-modal__step-hint">Нажми кнопку ниже в браузере</p>
+              <div className="open-modal__card-body">
+                <h3 className="open-modal__card-title">Open in browser</h3>
+                <p className="open-modal__card-text">
+                  Открой страницу во внешнем браузере
+                </p>
               </div>
-            </div>
+            </article>
+
+            <span className="open-modal__connector" aria-hidden>
+              ↓
+            </span>
+
+            <article className="open-modal__card">
+              <span className="open-modal__card-icon open-modal__card-icon--tg" aria-hidden>
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
+                  <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
+                </svg>
+              </span>
+              <div className="open-modal__card-body">
+                <h3 className="open-modal__card-title">Открой Telegram</h3>
+                <p className="open-modal__card-text">
+                  Telegram откроется автоматически
+                </p>
+              </div>
+            </article>
           </div>
 
           <button
             type="button"
             className="open-page__btn open-page__btn--primary open-modal__cta"
-            onClick={openTelegramDirect}
+            onClick={closeModal}
           >
-            🚫 ОТКРЫТЬ 98+ В TELEGRAM
+            🚫 ЗАПРЕТИТЬ В ОТВЕТ
           </button>
+
+          <p className="open-modal__footer">
+            Каждый запрет — это твоя свобода.
+            <br />
+            Добро пожаловать в 98+
+          </p>
         </div>
       </div>
     </main>

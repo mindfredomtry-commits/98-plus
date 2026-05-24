@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from 'next';
 import './open.css';
 
 export const metadata: Metadata = {
-  title: '98+ — Открыть в Telegram',
-  description: 'Социальная система запретов. Открой 98+ в Telegram.',
+  title: '98+ — Запрети в ответ',
+  description: 'TikTok запретил Telegram. Запрети в ответ. Социальная система запретов.',
   robots: { index: true, follow: true },
 };
 
