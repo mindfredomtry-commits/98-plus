@@ -1,9 +1,16 @@
 /** Telegram challenge copy — personal confrontation, not app broadcast. */
 
-export const TELEGRAM_REPLY_BUTTON_LABEL = '🚫 запретить в ответ!';
+/** Registered friend ban DM — WebApp counter-challenge. */
+export const REPLY_BAN_WEBAPP_BUTTON_LABEL = '🚫 Ответить запретом';
 
-/** Opens Mini App from bot chat after /start (viral / invite entry). */
-export const OPEN_MINI_APP_BUTTON_LABEL = 'Открыть 98+';
+/** First-time /start after viral link — opens Mini App. */
+export const OPEN_BAN_WEBAPP_BUTTON_LABEL = '🚫 Открыть запрет';
+
+/** @deprecated Use REPLY_BAN_WEBAPP_BUTTON_LABEL */
+export const TELEGRAM_REPLY_BUTTON_LABEL = REPLY_BAN_WEBAPP_BUTTON_LABEL;
+
+/** @deprecated Use OPEN_BAN_WEBAPP_BUTTON_LABEL */
+export const OPEN_MINI_APP_BUTTON_LABEL = OPEN_BAN_WEBAPP_BUTTON_LABEL;
 
 export function formatDurationLabel(minutes: number): string {
   if (minutes >= 1440 && minutes % 1440 === 0) {
@@ -60,18 +67,28 @@ export function normalizeBanTextForShare(raw: string): string {
   return ban;
 }
 
-/** Bot DM / notification body — no URLs, no app headers. */
-export function formatIncomingBanMessage(params: {
+/** Bot /start + first challenge DM — confrontation, not onboarding. */
+export function formatBotStartChallengeMessage(params: {
   senderName: string;
   banText: string;
   durationMinutes: number;
 }): string {
   return (
-    `${params.senderName} запретил тебе:\n\n` +
-    `${formatBanLine(params.banText)}\n` +
-    `⏱ ${formatDurationLabel(params.durationMinutes)}\n\n` +
-    `Сможешь выдержать?`
+    `🚫 Тебе отправили запрет\n\n` +
+    `${params.senderName} запрещает:\n` +
+    `${formatBanLine(params.banText)}\n\n` +
+    `⏱ На ${formatDurationLabel(params.durationMinutes)}\n\n` +
+    `Ответь запретом в 98+.`
   );
+}
+
+/** @deprecated Use formatBotStartChallengeMessage */
+export function formatIncomingBanMessage(params: {
+  senderName: string;
+  banText: string;
+  durationMinutes: number;
+}): string {
+  return formatBotStartChallengeMessage(params);
 }
 
 /** Native Telegram share text for pending challenges (includes link). */

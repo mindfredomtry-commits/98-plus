@@ -7,12 +7,8 @@ import {
   getInvitePreview,
 } from '../services/invite.service';
 import { miniAppLink } from '../lib/deeplink';
-import {
-  formatIncomingBanMessage,
-  formatSenderDisplayName,
-  OPEN_MINI_APP_BUTTON_LABEL,
-} from '@98plus/shared';
-import { sendInviteClaimWelcome } from './notifications';
+import { OPEN_BAN_WEBAPP_BUTTON_LABEL } from '@98plus/shared';
+import { sendBotStartInviteChallenge } from './notifications';
 
 let bot: Telegraf | null = null;
 
@@ -40,95 +36,121 @@ export function startBot(): Telegraf | null {
     if (!tgUser) return;
 
     const payload = (ctx.startPayload ?? '').trim();
+    const chatId = BigInt(tgUser.id);
 
-    const user = await prisma.user.upsert({
-      where: { telegramId: BigInt(tgUser.id) },
-      create: {
-        telegramId: BigInt(tgUser.id),
-        username: tgUser.username ?? null,
-        firstName: tgUser.first_name,
-        lastName: tgUser.last_name ?? null,
-        photoUrl: null,
-      },
-      update: {
-        username: tgUser.username ?? null,
-        firstName: tgUser.first_name,
-        lastName: tgUser.last_name ?? null,
-        lastSeenAt: new Date(),
-      },
+    console.log('[98+] bot start payload received', {
+      telegramId: tgUser.id,
+      payload: payload || null,
+      username: tgUser.username ?? null,
     });
 
-    if (payload.startsWith('invite_')) {
-      const inviteToken = payload.slice(7);
-      const claimed = await claimInviteByToken(
-        inviteToken,
-        user.id,
-        user.username,
-      );
+    try {
+      const user = await prisma.user.upsert({
+        where: { telegramId: chatId },
+        create: {
+          telegramId: chatId,
+          username: tgUser.username ?? null,
+          firstName: tgUser.first_name,
+          lastName: tgUser.last_name ?? null,
+          photoUrl: null,
+        },
+        update: {
+          username: tgUser.username ?? null,
+          firstName: tgUser.first_name,
+          lastName: tgUser.last_name ?? null,
+          lastSeenAt: new Date(),
+        },
+      });
 
-      if (claimed) {
-        const sender = claimed.sender;
-        await sendInviteClaimWelcome(
-          BigInt(tgUser.id),
-          sender.username ?? sender.firstName,
-          claimed.text,
-          claimed.id,
-          claimed.durationMinutes,
-          sender.firstName,
-          sender.photoUrl,
+      if (payload.startsWith('invite_')) {
+        const inviteToken = payload.slice(7);
+        const claimed = await claimInviteByToken(
+          inviteToken,
+          user.id,
+          user.username,
         );
-        const banUrl = miniAppLink({ type: 'ban', banId: claimed.id });
-        await ctx.reply(
-          formatIncomingBanMessage({
-            senderName: formatSenderDisplayName(
-              sender.username,
-              sender.firstName,
-            ),
+
+        if (claimed) {
+          const sender = claimed.sender;
+          const banUrl = miniAppLink({ type: 'ban', banId: claimed.id });
+          const result = await sendBotStartInviteChallenge({
+            telegramId: chatId,
+            senderUsername: sender.username,
+            senderFirstName: sender.firstName,
+            senderPhotoUrl: sender.photoUrl,
             banText: claimed.text,
             durationMinutes: claimed.durationMinutes,
-          }),
-          Markup.inlineKeyboard([
-            Markup.button.webApp(OPEN_MINI_APP_BUTTON_LABEL, banUrl),
-          ]),
-        );
-        return;
-      }
+            deepLink: banUrl,
+            inviteToken,
+            claimed: true,
+          });
+          console.log('[98+] bot start invite processed', {
+            telegramId: tgUser.id,
+            inviteToken,
+            claimed: true,
+            banId: claimed.id,
+            delivery: result,
+          });
+          return;
+        }
 
-      const preview = await getInvitePreview(inviteToken);
-      if (preview) {
-        const previewUrl = miniAppLink({
-          type: 'invite_token',
-          token: inviteToken,
-        });
-        await ctx.reply(
-          formatIncomingBanMessage({
-            senderName: formatSenderDisplayName(
-              preview.sender.username,
-              preview.sender.firstName,
-            ),
+        const preview = await getInvitePreview(inviteToken);
+        if (preview) {
+          const previewUrl = miniAppLink({
+            type: 'invite_token',
+            token: inviteToken,
+          });
+          const result = await sendBotStartInviteChallenge({
+            telegramId: chatId,
+            senderUsername: preview.sender.username,
+            senderFirstName: preview.sender.firstName,
+            senderPhotoUrl: preview.sender.photoUrl,
             banText: preview.text,
             durationMinutes: preview.durationMinutes,
-          }),
-          Markup.inlineKeyboard([
-            Markup.button.webApp(OPEN_MINI_APP_BUTTON_LABEL, previewUrl),
-          ]),
-        );
-        return;
+            deepLink: previewUrl,
+            inviteToken,
+            claimed: false,
+          });
+          console.log('[98+] bot start invite processed', {
+            telegramId: tgUser.id,
+            inviteToken,
+            claimed: false,
+            delivery: result,
+          });
+          return;
+        }
+
+        console.warn('[98+] bot start failed', {
+          telegramId: tgUser.id,
+          inviteToken,
+          reason: 'invite_not_found',
+        });
       }
+
+      await claimInvitesForUser(user.id, user.username);
+
+      const defaultAppUrl = miniAppLink({
+        type: 'invite',
+        username: user.username ?? 'friend',
+      });
+      await ctx.reply(
+        '🚫 98+\n\nКто-то мог отправить тебе запрет.\nОткрой, чтобы увидеть вызовы и ответить.',
+        Markup.inlineKeyboard([
+          Markup.button.webApp(OPEN_BAN_WEBAPP_BUTTON_LABEL, defaultAppUrl),
+        ]),
+      );
+      console.log('[98+] bot start webapp button sent', {
+        telegramId: tgUser.id,
+        payload: payload || null,
+        default: true,
+      });
+    } catch (e) {
+      console.error('[98+] bot start failed', {
+        telegramId: tgUser.id,
+        payload: payload || null,
+        error: (e as Error).message,
+      });
     }
-
-    await claimInvitesForUser(user.id, user.username);
-
-    const defaultAppUrl = miniAppLink({
-      type: 'invite',
-      username: user.username ?? 'friend',
-    });
-    await ctx.reply(
-      'Здесь люди запрещают друг другу слабости.\n\nКто-то ждёт твой ответ?',
-      Markup.inlineKeyboard([
-        Markup.button.webApp(OPEN_MINI_APP_BUTTON_LABEL, defaultAppUrl),
-      ]),
-    );
   });
 
   bot

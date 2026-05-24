@@ -1,12 +1,13 @@
 import { Markup } from 'telegraf';
 import {
+  formatBotStartChallengeMessage,
   formatChallengeShareMessage,
   formatDurationLabel,
-  formatIncomingBanMessage,
   formatSenderDisplayName,
   formatSenderEchoMessage,
   formatViralBanShareMessage,
-  TELEGRAM_REPLY_BUTTON_LABEL,
+  OPEN_BAN_WEBAPP_BUTTON_LABEL,
+  REPLY_BAN_WEBAPP_BUTTON_LABEL,
 } from '@98plus/shared';
 import { getBot } from './index';
 import { miniAppLink } from '../lib/deeplink';
@@ -20,18 +21,24 @@ import {
   telegramSendMessage,
 } from '../lib/telegram-api';
 
-function replyBanKeyboard(deepLink: string) {
+function replyBanKeyboard(
+  deepLink: string,
+  buttonLabel = REPLY_BAN_WEBAPP_BUTTON_LABEL,
+) {
   return Markup.inlineKeyboard([
-    Markup.button.webApp(TELEGRAM_REPLY_BUTTON_LABEL, deepLink),
+    Markup.button.webApp(buttonLabel, deepLink),
   ]);
 }
 
-function keyboardToJson(deepLink: string) {
+function keyboardToJson(
+  deepLink: string,
+  buttonLabel = REPLY_BAN_WEBAPP_BUTTON_LABEL,
+) {
   return {
     inline_keyboard: [
       [
         {
-          text: TELEGRAM_REPLY_BUTTON_LABEL,
+          text: buttonLabel,
           web_app: { url: deepLink },
         },
       ],
@@ -43,6 +50,7 @@ async function deliverChallengeNotification(params: {
   telegramId: bigint;
   caption: string;
   deepLink: string;
+  buttonLabel?: string;
   senderPhotoUrl?: string | null;
   cardParams?: {
     senderName: string;
@@ -53,7 +61,10 @@ async function deliverChallengeNotification(params: {
   const bot = getBot();
   if (!bot) return;
 
-  const keyboard = replyBanKeyboard(params.deepLink);
+  const keyboard = replyBanKeyboard(
+    params.deepLink,
+    params.buttonLabel ?? REPLY_BAN_WEBAPP_BUTTON_LABEL,
+  );
   const chatId = params.telegramId.toString();
 
   if (params.senderPhotoUrl?.trim()) {
@@ -160,10 +171,18 @@ export async function sendRegisteredFriendBanNotification(
   });
 
   if (skipReason) {
-    console.log('[98+] telegram notify:skip', {
-      banId: params.banId,
-      reason: skipReason,
-    });
+    if (skipReason === 'dev_fixture_telegram_id') {
+      console.log('[98+] dev notification skipped', {
+        banId: params.banId,
+        receiverTelegramId: chatId,
+        reason: skipReason,
+      });
+    } else {
+      console.log('[98+] telegram notify:skip', {
+        banId: params.banId,
+        reason: skipReason,
+      });
+    }
     return { ...baseDebug, skippedReason: skipReason };
   }
 
@@ -181,7 +200,7 @@ export async function sendRegisteredFriendBanNotification(
       const result = await bot.telegram.sendMessage(
         chatId,
         message,
-        replyBanKeyboard(link),
+        replyBanKeyboard(link, REPLY_BAN_WEBAPP_BUTTON_LABEL),
       );
       console.log('[98+] telegram notify:sent', {
         banId: params.banId,
@@ -225,7 +244,7 @@ export async function sendRegisteredFriendBanNotification(
   let apiRes = await telegramSendMessage({
     chatId,
     text: message,
-    replyMarkup: keyboardToJson(link),
+    replyMarkup: keyboardToJson(link, REPLY_BAN_WEBAPP_BUTTON_LABEL),
   });
 
   if (apiRes.ok) {
@@ -321,7 +340,7 @@ export async function sendIncomingBanNotification(
     senderUsername,
     senderFirstName,
   );
-  const caption = formatIncomingBanMessage({
+  const caption = formatBotStartChallengeMessage({
     senderName,
     banText: text,
     durationMinutes: durationMinutes ?? 10,
@@ -331,6 +350,7 @@ export async function sendIncomingBanNotification(
     telegramId,
     caption,
     deepLink: url,
+    buttonLabel: OPEN_BAN_WEBAPP_BUTTON_LABEL,
     senderPhotoUrl,
     cardParams: {
       senderName,
@@ -338,6 +358,85 @@ export async function sendIncomingBanNotification(
       durationMinutes: durationMinutes ?? 10,
     },
   });
+}
+
+export interface BotStartInviteChallengeParams {
+  telegramId: bigint;
+  senderUsername?: string | null;
+  senderFirstName?: string | null;
+  senderPhotoUrl?: string | null;
+  banText: string;
+  durationMinutes: number;
+  deepLink: string;
+  inviteToken?: string;
+  claimed?: boolean;
+}
+
+/** Viral /start — branded challenge + optional SVG card + WebApp open button. */
+export async function sendBotStartInviteChallenge(
+  params: BotStartInviteChallengeParams,
+): Promise<'sent' | 'skipped' | 'failed'> {
+  const chatId = params.telegramId.toString();
+
+  if (isDevTelegramId(params.telegramId)) {
+    console.log('[98+] dev notification skipped', {
+      chatId,
+      reason: 'dev_fixture_telegram_id',
+      inviteToken: params.inviteToken,
+    });
+    return 'skipped';
+  }
+
+  const bot = getBot();
+  if (!bot) {
+    console.warn('[98+] bot start failed', {
+      chatId,
+      reason: 'no_bot',
+      inviteToken: params.inviteToken,
+    });
+    return 'failed';
+  }
+
+  const senderName = formatSenderDisplayName(
+    params.senderUsername,
+    params.senderFirstName,
+  );
+  const caption = formatBotStartChallengeMessage({
+    senderName,
+    banText: params.banText,
+    durationMinutes: params.durationMinutes,
+  });
+
+  try {
+    await deliverChallengeNotification({
+      telegramId: params.telegramId,
+      caption,
+      deepLink: params.deepLink,
+      buttonLabel: OPEN_BAN_WEBAPP_BUTTON_LABEL,
+      senderPhotoUrl: params.senderPhotoUrl,
+      cardParams: {
+        senderName,
+        banText: params.banText,
+        durationMinutes: params.durationMinutes,
+      },
+    });
+    console.log('[98+] bot start webapp button sent', {
+      chatId,
+      inviteToken: params.inviteToken,
+      claimed: params.claimed ?? false,
+      deepLink: params.deepLink,
+    });
+    return 'sent';
+  } catch (e) {
+    const err = formatTelegramApiError(e);
+    console.error('[98+] bot start failed', {
+      chatId,
+      inviteToken: params.inviteToken,
+      errorCode: err.code,
+      error: err.message,
+    });
+    return 'failed';
+  }
 }
 
 export async function sendCheckNotification(
@@ -432,26 +531,14 @@ export async function sendPendingBanInviteToUser(params: {
 
   if (!registered) return;
 
-  const senderName = formatSenderDisplayName(
-    params.senderUsername,
-    params.senderFirstName,
-  );
-  const caption = formatIncomingBanMessage({
-    senderName,
+  await sendBotStartInviteChallenge({
+    telegramId: registered.telegramId,
+    senderUsername: params.senderUsername,
+    senderFirstName: params.senderFirstName,
+    senderPhotoUrl: params.senderPhotoUrl,
     banText: params.banText,
     durationMinutes: params.durationMinutes,
-  });
-
-  await deliverChallengeNotification({
-    telegramId: registered.telegramId,
-    caption,
     deepLink: params.deepLink,
-    senderPhotoUrl: params.senderPhotoUrl,
-    cardParams: {
-      senderName,
-      banText: params.banText,
-      durationMinutes: params.durationMinutes,
-    },
   });
 }
 
@@ -464,16 +551,17 @@ export async function sendInviteClaimWelcome(
   senderFirstName?: string | null,
   senderPhotoUrl?: string | null,
 ) {
-  await sendIncomingBanNotification(
+  const deepLink = miniAppLink({ type: 'ban', banId });
+  await sendBotStartInviteChallenge({
     telegramId,
-    banText,
-    banId,
-    false,
     senderUsername,
-    durationMinutes,
     senderFirstName,
     senderPhotoUrl,
-  );
+    banText,
+    durationMinutes,
+    deepLink,
+    claimed: true,
+  });
 }
 
 /** Re-export for invite flow share picker (no URL in text). */

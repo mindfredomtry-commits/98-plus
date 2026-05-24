@@ -68,7 +68,7 @@ export function buildChallengeCardSvg(params: {
   <text x="400" y="128" text-anchor="middle" fill="#e8e0f0" font-size="20" font-family="system-ui,sans-serif">${sender}</text>
   ${textNodes}
   <text x="400" y="360" text-anchor="middle" fill="#9b59b6" font-size="18" font-family="system-ui,sans-serif">⏱ ${duration}</text>
-  <text x="400" y="420" text-anchor="middle" fill="#6b5b7a" font-size="16" font-family="system-ui,sans-serif">Сможешь выдержать?</text>
+  <text x="400" y="420" text-anchor="middle" fill="#6b5b7a" font-size="16" font-family="system-ui,sans-serif">Ответь запретом</text>
 </svg>`;
 
   return Buffer.from(svg, 'utf-8');
