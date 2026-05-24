@@ -31,9 +31,13 @@ import {
   CHECK_WAITING_UI_TTL_MS,
   createOptimisticSendWait,
   isOptimisticSendWaitActive,
+  mergeActiveBansWithOptimistic,
+  mergeFriendsWithOptimistic,
   normalizeWaitUsername,
 } from '@/lib/waiting-lifecycle';
 import { isFirstBanComplete, markFirstBanComplete } from '@/lib/first-ban';
+import { readFriendsCache, writeFriendsCache } from '@/lib/friends-cache';
+import { timingLog, timingStart } from '@/lib/timing-log';
 
 interface AppContextValue {
   token: string | null;
@@ -73,7 +77,17 @@ interface AppContextValue {
   banSentOpen: boolean;
   setBanSentOpen: (v: boolean) => void;
   optimisticSendWait: OptimisticSendWait | null;
-  notifySendSuccess: (username: string, firstName?: string) => void;
+  applyOptimisticSend: (params: {
+    username: string;
+    firstName?: string;
+    banText: string;
+    durationMinutes: number;
+  }) => void;
+  confirmOptimisticSend: (username: string) => void;
+  rollbackOptimisticSend: (params: {
+    username: string;
+    message: string;
+  }) => void;
   clearCheckOverlay: () => void;
   showFirstBanOnboarding: boolean;
   completeFirstBan: () => void;
@@ -131,7 +145,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [result, setResult] = useState<BanResult | null>(null);
   const [popups, setPopups] = useState<EnergyPopup[]>([]);
   const [activeBans, setActiveBans] = useState<BanInteraction[]>([]);
-  const [friends, setFriends] = useState<FriendCard[]>([]);
+  const [friends, setFriends] = useState<FriendCard[]>(() => {
+    if (typeof window === 'undefined') return [];
+    const cached = readFriendsCache();
+    if (cached.length > 0) {
+      timingLog('friends cache hit on init', 0, cached.length);
+    }
+    return cached;
+  });
   const [sendOpen, setSendOpen] = useState(false);
   const [sendReceiver, setSendReceiver] = useState('');
   const [sendText, setSendText] = useState('');
@@ -155,6 +176,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   tokenRef.current = auth.token;
   const refreshUserRef = useRef(auth.refreshUser);
   refreshUserRef.current = auth.refreshUser;
+  const reloadFriendsRef = useRef<() => Promise<void>>(async () => {});
 
   const clearCheckOverlay = useCallback(() => {
     if (checkWaitingTimerRef.current) {
@@ -207,10 +229,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
     }, 2200);
   }, []);
 
-  const notifySendSuccess = useCallback(
-    (username: string, firstName?: string) => {
+  const applyOptimisticSend = useCallback(
+    (params: {
+      username: string;
+      firstName?: string;
+      banText: string;
+      durationMinutes: number;
+    }) => {
       clearCheckOverlay();
-      const wait = createOptimisticSendWait(username, firstName);
+      const wait = createOptimisticSendWait(params);
       challengeLog('optimistic-send:set', {
         username: wait.username,
         expiresAt: wait.expiresAt,
@@ -218,6 +245,61 @@ export function Providers({ children }: { children: React.ReactNode }) {
       setOptimisticSendWait(wait);
     },
     [clearCheckOverlay],
+  );
+
+  const confirmOptimisticSend = useCallback((username: string) => {
+    const u = normalizeWaitUsername(username);
+    setOptimisticSendWait((prev) => {
+      if (!prev || normalizeWaitUsername(prev.username) !== u) return prev;
+      challengeLog('optimistic-send:confirmed', { username: u });
+      return { ...prev, resolved: true };
+    });
+    setActiveBans((prev) =>
+      prev.filter((b) => !b.id.startsWith('optimistic-ban:')),
+    );
+  }, []);
+
+  const rollbackOptimisticSend = useCallback(
+    (params: { username: string; message: string }) => {
+      const u = normalizeWaitUsername(params.username);
+      challengeLog('optimistic-send:rollback', {
+        username: u,
+        message: params.message,
+      });
+      setOptimisticSendWait((prev) => {
+        if (!prev || normalizeWaitUsername(prev.username) !== u) return prev;
+        return {
+          ...prev,
+          resolved: true,
+          failed: true,
+          errorMessage: params.message,
+        };
+      });
+      setActiveBans((prev) =>
+        prev.filter((b) => !b.id.startsWith('optimistic-ban:')),
+      );
+      void reloadFriendsRef.current?.().catch(() => {});
+    },
+    [],
+  );
+
+  const resolveOptimisticFromSession = useCallback(
+    (active: BanInteraction[]) => {
+      setOptimisticSendWait((prev) => {
+        if (!isOptimisticSendWaitActive(prev)) return prev;
+        const match = active.some((b) => {
+          const recv = (b.receiver?.username ?? '').toLowerCase();
+          const send = (b.sender?.username ?? '').toLowerCase();
+          return recv === prev!.username || send === prev!.username;
+        });
+        if (!match) return prev;
+        challengeLog('optimistic-send:resolved-session', {
+          username: prev!.username,
+        });
+        return { ...prev!, resolved: true };
+      });
+    },
+    [],
   );
 
   const resolveOptimisticFromFriends = useCallback((list: FriendCard[]) => {
@@ -265,17 +347,23 @@ export function Providers({ children }: { children: React.ReactNode }) {
       overlayIncoming: nextIncoming?.id ?? null,
       active: Array.isArray(s.active) ? s.active.length : 0,
     });
-    applySessionToState(s, dismissedIncomingRef.current, {
-      setActiveBans,
-      setIncomingBan,
-      setCheckBan,
-      setCheckWaiting,
-      setResult,
-    });
+    const nextActive = Array.isArray(s.active) ? s.active : [];
+    applySessionToState(
+      { ...s, active: nextActive.filter((b) => !b.id.startsWith('optimistic-ban:')) },
+      dismissedIncomingRef.current,
+      {
+        setActiveBans,
+        setIncomingBan,
+        setCheckBan,
+        setCheckWaiting,
+        setResult,
+      },
+    );
+    resolveOptimisticFromSession(nextActive);
     if (!nextIncoming) {
       setViralOnboarding(false);
     }
-  }, []);
+  }, [resolveOptimisticFromSession]);
 
   useEffect(() => {
     if (!auth.boot) return;
@@ -294,16 +382,23 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const reloadFriends = useCallback(async () => {
     const token = tokenRef.current;
     if (!token) return;
+    const end = timingStart('friends fetch');
     try {
       const { friends: list } = await api<{ friends: FriendCard[] }>(
         '/friends',
         { token },
       );
-      setFriends(coerceFriendList(list));
+      const safe = coerceFriendList(list);
+      writeFriendsCache(safe);
+      setFriends(safe);
+      resolveOptimisticFromFriends(safe);
+      end();
     } catch {
-      /* ignore */
+      end();
     }
-  }, []);
+  }, [resolveOptimisticFromFriends]);
+
+  reloadFriendsRef.current = reloadFriends;
 
   const reloadPending = useCallback(async () => {
     const token = tokenRef.current;
@@ -373,6 +468,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         case 'friends:updated': {
           const payload = event.payload as { friends?: unknown };
           const list = coerceFriendList(payload?.friends);
+          writeFriendsCache(list);
           setFriends(list);
           resolveOptimisticFromFriends(list);
           break;
@@ -417,15 +513,38 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!auth.token) return;
+    const cached = readFriendsCache();
+    if (cached.length > 0) {
+      setFriends((prev) => (prev.length > 0 ? prev : cached));
+      timingLog('friends cache hit on boot', 0, cached.length);
+    } else {
+      timingLog('friends cache miss on boot', 0);
+    }
+    const end = timingStart('/friends loaded');
     api<{ friends?: unknown }>('/friends', { token: auth.token })
       .then((r) => {
         const list = coerceFriendList(r?.friends);
+        writeFriendsCache(list);
         setFriends(list);
         resolveOptimisticFromFriends(list);
+        end();
       })
-      .catch(() => setFriends([]));
+      .catch(() => {
+        end();
+        timingLog('friends fetch failed, keeping cache', 0);
+      });
     reloadPendingRef.current().catch(() => {});
-  }, [auth.token]);
+  }, [auth.token, resolveOptimisticFromFriends]);
+
+  const displayFriends = useMemo(
+    () => mergeFriendsWithOptimistic(friends, optimisticSendWait),
+    [friends, optimisticSendWait],
+  );
+
+  const displayActiveBans = useMemo(
+    () => mergeActiveBansWithOptimistic(activeBans, optimisticSendWait),
+    [activeBans, optimisticSendWait],
+  );
 
   const contextValue = useMemo(
     () => ({
@@ -446,8 +565,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
       setResult,
       popups,
       pushPopup,
-      activeBans,
-      friends,
+      activeBans: displayActiveBans,
+      friends: displayFriends,
       sendOpen,
       setSendOpen,
       sendReceiver,
@@ -466,7 +585,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       banSentOpen,
       setBanSentOpen,
       optimisticSendWait,
-      notifySendSuccess,
+      applyOptimisticSend,
+      confirmOptimisticSend,
+      rollbackOptimisticSend,
       clearCheckOverlay,
       showFirstBanOnboarding,
       completeFirstBan,
@@ -493,8 +614,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
       setResult,
       popups,
       pushPopup,
-      activeBans,
-      friends,
+      displayActiveBans,
+      displayFriends,
       sendOpen,
       sendReceiver,
       sendText,
@@ -508,7 +629,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       viralOnboarding,
       banSentOpen,
       optimisticSendWait,
-      notifySendSuccess,
+      applyOptimisticSend,
+      confirmOptimisticSend,
+      rollbackOptimisticSend,
       clearCheckOverlay,
       showFirstBanOnboarding,
       completeFirstBan,

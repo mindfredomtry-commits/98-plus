@@ -10,19 +10,39 @@ import {
 } from '@/lib/deliver-challenge';
 import { handleShareChallenge } from '@/lib/share';
 import { ctaLog } from '@/lib/cta-log';
+import { timingLog } from '@/lib/timing-log';
+import { VISUAL_SEND_LOADING_MS } from '@/lib/waiting-lifecycle';
+import { SHARE_PICKER_USERNAME } from '@98plus/shared';
+
+export type SendChallengeParams = {
+  text: string;
+  receiverUsername: string;
+  receiverUserId?: string | null;
+  receiverTelegramId?: string | null;
+  durationMinutes: number;
+};
 
 export function useSendChallenge(opts: {
   token: string | null;
   friends?: FriendCard[] | null;
   onSuccess: () => void;
+  onOptimisticApply: (params: SendChallengeParams & { username: string }) => void;
+  onConfirm?: (params: SendChallengeParams & { username: string }) => void;
+  onFail: (
+    params: SendChallengeParams & {
+      username: string;
+      message: string;
+    },
+  ) => void;
   onboard: () => Promise<void>;
   refreshUser: () => Promise<void>;
   reloadPending: () => Promise<void>;
   reloadFriends: () => Promise<void>;
-  onSendSuccess?: (username: string) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [inFlight, setInFlight] = useState(false);
+  const inFlightRef = useRef(false);
 
   const tokenRef = useRef(opts.token);
   tokenRef.current = opts.token;
@@ -30,6 +50,12 @@ export function useSendChallenge(opts: {
   friendsRef.current = opts.friends;
   const onSuccessRef = useRef(opts.onSuccess);
   onSuccessRef.current = opts.onSuccess;
+  const onOptimisticApplyRef = useRef(opts.onOptimisticApply);
+  onOptimisticApplyRef.current = opts.onOptimisticApply;
+  const onConfirmRef = useRef(opts.onConfirm);
+  onConfirmRef.current = opts.onConfirm;
+  const onFailRef = useRef(opts.onFail);
+  onFailRef.current = opts.onFail;
   const onboardRef = useRef(opts.onboard);
   onboardRef.current = opts.onboard;
   const refreshUserRef = useRef(opts.refreshUser);
@@ -38,40 +64,65 @@ export function useSendChallenge(opts: {
   reloadPendingRef.current = opts.reloadPending;
   const reloadFriendsRef = useRef(opts.reloadFriends);
   reloadFriendsRef.current = opts.reloadFriends;
-  const onSendSuccessRef = useRef(opts.onSendSuccess);
-  onSendSuccessRef.current = opts.onSendSuccess;
+
+  const backgroundSync = useCallback(() => {
+    void onboardRef.current().catch(() => {});
+    void refreshUserRef.current().catch(() => {});
+    void reloadPendingRef.current().catch(() => {});
+    void reloadFriendsRef.current().catch(() => {});
+  }, []);
 
   const send = useCallback(
-    async (params: {
-      text: string;
-      receiverUsername: string;
-      receiverUserId?: string | null;
-      receiverTelegramId?: string | null;
-      durationMinutes: number;
-    }) => {
+    async (params: SendChallengeParams) => {
       const token = tokenRef.current;
       if (!token) {
         throw new Error('Нет авторизации — перезапусти Mini App из Telegram');
       }
+      if (inFlightRef.current) return;
 
-      setLoading(true);
       const username = params.receiverUsername.replace(/^@/, '').trim();
+      const cleanUser = username.toLowerCase();
+      const isSharePicker = cleanUser === SHARE_PICKER_USERNAME;
+
+      const resolved = safeResolveReceiverTarget(
+        username,
+        friendsRef.current,
+        {
+          receiverUserId: params.receiverUserId,
+          receiverTelegramId: params.receiverTelegramId,
+        },
+      );
+
+      const canOptimisticNow =
+        Boolean(username) &&
+        !isSharePicker &&
+        (resolved.isRegistered ||
+          Boolean(resolved.receiverUserId || resolved.receiverTelegramId));
+
+      if (canOptimisticNow) {
+        timingLog('sendBan optimistic applied immediately', 0);
+        onOptimisticApplyRef.current({ ...params, username });
+      }
+
+      inFlightRef.current = true;
+      setInFlight(true);
+      setLoading(true);
+      let visualReleased = false;
+      const releaseVisual = () => {
+        if (visualReleased) return;
+        visualReleased = true;
+        setLoading(false);
+      };
+      const visualTimer = window.setTimeout(
+        releaseVisual,
+        VISUAL_SEND_LOADING_MS,
+      );
+      const requestStarted = performance.now();
 
       try {
-        const resolved = safeResolveReceiverTarget(
-          username,
-          friendsRef.current,
-          {
-            receiverUserId: params.receiverUserId,
-            receiverTelegramId: params.receiverTelegramId,
-          },
-        );
-
         ctaLog('mutation:start', {
           username,
           path: resolved.isRegistered ? 'direct' : 'invite-share',
-          userId: resolved.receiverUserId,
-          telegramId: resolved.receiverTelegramId,
         });
 
         const res = await deliverDirectChallenge({
@@ -88,18 +139,20 @@ export function useSendChallenge(opts: {
         const needsShare =
           res.requiresShare === true || res.pending === true;
 
-        ctaLog('mutation:response', {
-          needsShare,
-          hasBan: !!res.ban,
-          requiresShare: res.requiresShare,
-        });
+        ctaLog('mutation:response', { needsShare, hasBan: !!res.ban });
 
         if (needsShare) {
           if (!res.shareUrl) {
             throw new Error('Не удалось отправить вызов');
           }
+          releaseVisual();
           setSharing(true);
           ctaLog('share:open');
+
+          if (!canOptimisticNow) {
+            onOptimisticApplyRef.current({ ...params, username });
+          }
+
           await handleShareChallenge(
             params.text.trim(),
             params.durationMinutes,
@@ -107,7 +160,7 @@ export function useSendChallenge(opts: {
           );
           ctaLog('share:done');
 
-          await api('/friends/touch-share', {
+          void api('/friends/touch-share', {
             method: 'POST',
             token,
             body: JSON.stringify({
@@ -116,32 +169,40 @@ export function useSendChallenge(opts: {
             }),
           }).catch(() => {});
 
-          await api('/analytics/track', {
+          void api('/analytics/track', {
             method: 'POST',
             token,
             body: JSON.stringify({ name: ANALYTICS_EVENTS.INVITE_SHARED }),
           }).catch(() => {});
+        } else {
+          timingLog('sendBan confirmed', performance.now() - requestStarted);
+          onConfirmRef.current?.({ ...params, username });
         }
 
-        await onboardRef.current().catch(() => {});
-        await refreshUserRef.current();
-        await reloadPendingRef.current();
-        await reloadFriendsRef.current();
-        onSendSuccessRef.current?.(username);
         onSuccessRef.current();
+        backgroundSync();
         ctaLog('mutation:success');
       } catch (e) {
-        ctaLog('mutation:fail', {
-          message: e instanceof Error ? e.message : String(e),
-        });
-        throw new Error(formatDeliveryError(e));
+        const message = formatDeliveryError(e);
+        ctaLog('mutation:fail', { message });
+        onFailRef.current({ ...params, username, message });
+        throw new Error(message);
       } finally {
-        setLoading(false);
+        window.clearTimeout(visualTimer);
+        releaseVisual();
         setSharing(false);
+        inFlightRef.current = false;
+        setInFlight(false);
       }
     },
-    [],
+    [backgroundSync],
   );
 
-  return { send, loading, sharing, busy: loading || sharing };
+  return {
+    send,
+    loading,
+    sharing,
+    inFlight,
+    busy: loading || sharing,
+  };
 }

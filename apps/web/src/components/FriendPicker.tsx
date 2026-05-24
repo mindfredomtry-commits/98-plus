@@ -49,6 +49,12 @@ function FriendAvatar({
 
 function stateBadge(friend: FriendCard): string | null {
   if (friend.challengeState === 'incoming_pending') return 'вызвал';
+  if (
+    (friend.id ?? '').startsWith('optimistic:') ||
+    friend.challengeState === 'outgoing_pending'
+  ) {
+    return 'отправлено';
+  }
   switch (friend.friendState) {
     case 'pending':
     case 'invited':
@@ -216,14 +222,15 @@ export function FriendPicker({
   }, [value]);
 
   const people = useMemo(() => {
-    const merged = mergeFriendsWithOptimistic(
-      coerceFriendList(friends),
-      optimisticSendWait,
-    );
+    const base = coerceFriendList(friends);
+    const merged =
+      externalFriends !== undefined
+        ? base
+        : mergeFriendsWithOptimistic(base, optimisticSendWait);
     return merged.filter(
       (f) => (f.username ?? '').toLowerCase() !== 'share',
     );
-  }, [friends, optimisticSendWait]);
+  }, [friends, optimisticSendWait, externalFriends]);
 
   function pick(username: string | null | undefined) {
     const clean = (username ?? '').replace(/^@/, '').trim();

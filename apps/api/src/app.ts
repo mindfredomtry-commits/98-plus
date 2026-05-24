@@ -8,6 +8,31 @@ import { analyticsRouter } from './routes/analytics';
 import { friendsRouter } from './routes/friends';
 import { invitesRouter } from './routes/invites';
 
+/** Explicit local dev frontends (safe to allow against Railway API). */
+const LOCAL_DEV_ORIGINS = [
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://192.168.100.8:3000',
+] as const;
+
+/** Private LAN IP on port 3000 — mobile / same-WiFi Next.js dev. */
+function isLocalLanDevOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    if (url.protocol !== 'http:') return false;
+    const port = url.port || '80';
+    if (port !== '3000') return false;
+    const host = url.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') return true;
+    if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+    if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+    if (/^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 function parseAllowedOrigins(): string[] {
   const raw = process.env.CORS_ORIGIN ?? process.env.CORS_ORIGINS ?? '';
   const list = raw
@@ -17,7 +42,7 @@ function parseAllowedOrigins(): string[] {
   if (list.length === 0 && process.env.WEBAPP_URL) {
     list.push(process.env.WEBAPP_URL.replace(/\/$/, ''));
   }
-  return list;
+  return [...new Set([...list, ...LOCAL_DEV_ORIGINS])];
 }
 
 const allowedOrigins = parseAllowedOrigins();
@@ -25,6 +50,7 @@ const allowedOrigins = parseAllowedOrigins();
 function isOriginAllowed(origin: string | undefined): boolean {
   if (!origin) return true;
   if (allowedOrigins.includes(origin)) return true;
+  if (isLocalLanDevOrigin(origin)) return true;
   if (origin.includes('trycloudflare.com')) return true;
   if (origin.includes('ngrok')) return true;
   if (origin.includes('web.telegram.org')) return true;
@@ -36,23 +62,22 @@ function isOriginAllowed(origin: string | undefined): boolean {
 export function createApp() {
   const app = express();
 
-  app.use(
-    cors({
-      origin(origin, callback) {
-        if (isOriginAllowed(origin)) {
-          callback(null, origin ?? true);
-        } else {
-          console.warn('[cors] blocked origin:', origin);
-          callback(null, false);
-        }
-      },
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-    }),
-  );
+  const corsMiddleware = cors({
+    origin(origin, callback) {
+      if (isOriginAllowed(origin)) {
+        callback(null, origin ?? true);
+      } else {
+        console.warn('[cors] blocked origin:', origin);
+        callback(null, false);
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  });
 
-  app.options('*', cors());
+  app.use(corsMiddleware);
+  app.options('*', corsMiddleware);
 
   app.use(express.json());
 

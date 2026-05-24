@@ -6,6 +6,11 @@ import {
 } from '@98plus/shared';
 import { safeResolveReceiverTarget } from '@/lib/resolve-receiver';
 import { api, ApiError, NetworkError } from '@/lib/api';
+import {
+  DEFAULT_SEND_TIMEOUT_MS,
+  RequestTimeoutError,
+} from '@/lib/request-timeout';
+import { timingLog } from '@/lib/timing-log';
 
 export type DeliveryErrorCode =
   | 'network'
@@ -26,6 +31,7 @@ export class ChallengeDeliveryError extends Error {
 
 export function formatDeliveryError(err: unknown): string {
   if (err instanceof ChallengeDeliveryError) return err.message;
+  if (err instanceof RequestTimeoutError) return err.message;
   if (err instanceof NetworkError) {
     return 'Нет связи с сервером. Проверь интернет или настрой API URL.';
   }
@@ -152,13 +158,16 @@ export async function deliverDirectChallenge(
   }
 
   let res: SendBanResponse;
+  const started = performance.now();
   try {
     res = await api<SendBanResponse>('/bans/send', {
       method: 'POST',
       token: params.token,
       body: JSON.stringify(body),
-      retries: 2,
+      retries: 0,
+      timeoutMs: DEFAULT_SEND_TIMEOUT_MS,
     });
+    timingLog('sendBan request', performance.now() - started);
   } catch (e) {
     if (e instanceof ApiError && e.status === 401) {
       throw new ChallengeDeliveryError(

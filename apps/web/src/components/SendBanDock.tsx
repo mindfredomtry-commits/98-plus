@@ -37,14 +37,16 @@ function SendBanDockInner({ visible = true }: Props) {
     reloadFriends,
     onboard,
     setBanSentOpen,
-    notifySendSuccess,
+    applyOptimisticSend,
+    confirmOptimisticSend,
+    rollbackOptimisticSend,
     showFirstBanOnboarding,
     completeFirstBan,
     setInlineBanError,
     triggerBanInputShake,
   } = useApp();
   const { haptic } = useTelegram();
-  const [ctaError, setCtaError] = useState<string | null>(null);
+  const [sendInlineError, setSendInlineError] = useState<string | null>(null);
 
   const safeFriends = useMemo(
     () => safeCoerceFriends(friends),
@@ -52,14 +54,38 @@ function SendBanDockInner({ visible = true }: Props) {
   );
 
   const onSuccess = useCallback(() => {
-    setCtaError(null);
+    setSendInlineError(null);
     setBanSentOpen(true);
   }, [setBanSentOpen]);
 
-  const { send, busy, sharing } = useSendChallenge({
+  const { send, busy, sharing, inFlight } = useSendChallenge({
     token,
     friends: safeFriends,
     onSuccess,
+    onOptimisticApply: (p) => {
+      setSendInlineError(null);
+      applyOptimisticSend({
+        username: p.username,
+        firstName:
+          findFriendByUsername(safeFriends, p.username)?.firstName ??
+          p.username,
+        banText: p.text,
+        durationMinutes: p.durationMinutes,
+      });
+    },
+    onConfirm: (p) => {
+      confirmOptimisticSend(p.username);
+    },
+    onFail: (p) => {
+      const isTimeout = p.message.includes('тормозит');
+      rollbackOptimisticSend({
+        username: p.username,
+        message: p.message,
+      });
+      setSendInlineError(
+        isTimeout ? p.message : 'Не отправилось. Повторить?',
+      );
+    },
     onboard,
     refreshUser,
     reloadPending,
@@ -78,9 +104,7 @@ function SendBanDockInner({ visible = true }: Props) {
   const challengeText = sendText?.trim() ?? '';
   const hasBan = challengeText.length >= 3;
 
-  const ctaReady = showFirstBanOnboarding
-    ? hasBan
-    : hasBan;
+  const ctaReady = showFirstBanOnboarding ? hasBan : hasBan;
 
   const resolved = useMemo(() => {
     if (!selectedUsername) {
@@ -96,36 +120,35 @@ function SendBanDockInner({ visible = true }: Props) {
       : '🚫 Запретить';
 
   const helperText =
-    ctaError ?? (busy ? 'Подожди…' : sharing ? 'Выбери чат…' : undefined);
+    sendInlineError ??
+    (busy ? 'Подожди…' : sharing ? 'Выбери чат…' : undefined);
 
   function failBanValidation(): boolean {
     if (hasBan) return false;
     setInlineBanError('Сначала напиши запрет');
     triggerBanInputShake();
-    setCtaError(null);
+    setSendInlineError(null);
     haptic('light');
     return true;
   }
 
   async function zapretit() {
-    setCtaError(null);
+    setSendInlineError(null);
 
     ctaLog('press', {
       hasFriend,
       hasBan,
       selectedUsername,
       busy,
+      inFlight,
       hasToken: !!token,
       firstBan: showFirstBanOnboarding,
     });
 
-    if (busy || sharing) {
-      setCtaError('Подожди, отправляем…');
-      return;
-    }
+    if (inFlight || sharing) return;
 
     if (!token) {
-      setCtaError('Перезапусти Mini App из Telegram');
+      setSendInlineError('Перезапусти Mini App из Telegram');
       return;
     }
 
@@ -183,12 +206,8 @@ function SendBanDockInner({ visible = true }: Props) {
           resolved.receiverTelegramId ?? selectedFriend?.telegramId ?? null,
         durationMinutes: sendDuration,
       });
-      notifySendSuccess(
-        sendReceiver,
-        selectedFriend?.firstName ?? selectedUsername,
-      );
-    } catch (e) {
-      setCtaError((e as Error).message || 'Не удалось отправить');
+    } catch {
+      /* inline error set in onFail */
     }
   }
 
@@ -200,6 +219,24 @@ function SendBanDockInner({ visible = true }: Props) {
       aria-hidden={!visible}
     >
       <div className="cta-dock-inner">
+        {sendInlineError ? (
+          <p className="text-center text-[11px] text-red-400/95 mb-1.5 px-2 leading-snug">
+            {sendInlineError.includes('Повторить') ? (
+              <>
+                Не отправилось.{' '}
+                <button
+                  type="button"
+                  className="underline font-semibold text-red-300"
+                  onClick={() => void zapretit()}
+                >
+                  Повторить?
+                </button>
+              </>
+            ) : (
+              sendInlineError
+            )}
+          </p>
+        ) : null}
         <GlowCTA
           onClick={zapretit}
           ready={ctaReady}

@@ -62,9 +62,11 @@ bansRouter.get('/pending/check', async (req: AuthRequest, res) => {
 });
 
 bansRouter.get('/session', async (req: AuthRequest, res) => {
+  const t0 = Date.now();
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     const session = await getSessionState(req.userId!, user?.username ?? null);
+    console.log(`[98+] /bans/session in ${Date.now() - t0}ms`);
     res.json(session);
   } catch (e) {
     console.error('[bans] session failed', e);
@@ -132,6 +134,7 @@ bansRouter.post('/send', async (req: AuthRequest, res) => {
     return;
   }
 
+  const t0 = Date.now();
   try {
     const result = await sendBan({
       senderId: req.userId!,
@@ -143,6 +146,7 @@ bansRouter.post('/send', async (req: AuthRequest, res) => {
         : undefined,
       receiverUsername,
     });
+    console.log(`[98+] /bans/send in ${Date.now() - t0}ms`);
     res.json(result);
   } catch (e) {
     res.status(400).json({ error: (e as Error).message });

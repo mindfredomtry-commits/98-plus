@@ -12,9 +12,11 @@ export const friendsRouter = Router();
 friendsRouter.use(requireAuth);
 
 friendsRouter.get('/', async (req: AuthRequest, res) => {
+  const t0 = Date.now();
   try {
     await touchPresence(req.userId!);
     const friends = await listFriends(req.userId!);
+    console.log(`[98+] /friends loaded in ${Date.now() - t0}ms`);
     res.json({ friends: friends ?? [] });
   } catch (err) {
     console.error('[friends] GET / failed', err);

@@ -1,5 +1,10 @@
 import { SYSTEM_VOICE } from '@98plus/shared';
 import { getApiUrl, isApiConfiguredForProduction } from './config';
+import {
+  fetchWithTimeout,
+  isAbortError,
+  RequestTimeoutError,
+} from './request-timeout';
 
 export class ApiError extends Error {
   constructor(
@@ -52,9 +57,13 @@ function urlFrom(res: Response): string {
 
 export async function api<T>(
   path: string,
-  options: RequestInit & { token?: string | null; retries?: number } = {},
+  options: RequestInit & {
+    token?: string | null;
+    retries?: number;
+    timeoutMs?: number;
+  } = {},
 ): Promise<T> {
-  const { token, retries = 2, ...init } = options;
+  const { token, retries = 2, timeoutMs, ...init } = options;
   const base = getApiUrl();
   const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
   let lastErr: Error | null = null;
@@ -68,12 +77,17 @@ export async function api<T>(
       };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch(url, {
+      const fetchInit: RequestInit = {
         ...init,
         headers,
         mode: 'cors',
         credentials: 'omit',
-      });
+      };
+
+      const res =
+        timeoutMs != null
+          ? await fetchWithTimeout(url, { ...fetchInit, timeoutMs })
+          : await fetch(url, fetchInit);
 
       const data = await parseJsonSafe(res);
 
@@ -92,6 +106,10 @@ export async function api<T>(
         lastErr = e;
         break;
       }
+      if (isAbortError(e)) {
+        lastErr = new RequestTimeoutError();
+        break;
+      }
       lastErr = formatFetchError(url, e);
       if (i < retries) {
         await new Promise((r) => setTimeout(r, 400 * (i + 1)));
@@ -104,6 +122,7 @@ export async function api<T>(
 
 /** User-facing message for UI alerts */
 export function formatApiUserMessage(err: unknown): string {
+  if (err instanceof RequestTimeoutError) return err.message;
   if (err instanceof ApiError) {
     if (err.status === 401) return 'Сессия устарела. Перезапусти Mini App.';
     if (err.status === 403) return 'Недостаточно прав для этого действия.';
