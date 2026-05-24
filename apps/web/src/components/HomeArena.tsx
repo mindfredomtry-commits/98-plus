@@ -163,7 +163,7 @@ function HomeArenaInner({ user }: Props) {
           </div>
 
           {token ? (
-            <section className="people-section glass-card border border-accent/12 p-2.5 -mx-0 shadow-glow-sm">
+            <section className="people-section glass-card border border-accent/12 shadow-glow-sm">
               <FriendPicker
                 token={token}
                 value={sendReceiver ?? ''}

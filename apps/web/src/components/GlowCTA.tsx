@@ -22,13 +22,11 @@ export const GlowCTA = memo(function GlowCTA({
 }: Props) {
   return (
     <div className={`cta-block ${className}`}>
-      <p
-        className={`cta-block-hint ${helperText ? 'cta-block-hint--visible' : ''}`}
-        aria-live="polite"
-        aria-hidden={!helperText?.trim()}
-      >
-        {helperText ?? '\u00a0'}
-      </p>
+      {helperText ? (
+        <p className="cta-block-hint cta-block-hint--visible" aria-live="polite">
+          {helperText}
+        </p>
+      ) : null}
       <button
         type="button"
         onClick={() => {

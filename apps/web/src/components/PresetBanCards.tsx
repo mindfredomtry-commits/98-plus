@@ -20,25 +20,24 @@ export function PresetBanCards({
 
   return (
     <div
-      className={`preset-chips ${compact ? 'preset-chips--compact' : ''} flex flex-wrap gap-1.5`}
+      className={`preset-chips ${compact ? 'preset-chips--home' : ''} flex flex-wrap justify-center`}
     >
-      {(Array.isArray(list) ? list : []).map((preset, i) => {
+      {(Array.isArray(list) ? list : []).map((preset) => {
         const active = selected === preset;
         return (
           <motion.button
             key={preset}
             type="button"
-            initial={compact ? false : { opacity: 0, scale: 0.92 }}
-            animate={compact ? undefined : { opacity: 1, scale: 1 }}
-            transition={{ delay: i * 0.02 }}
             whileTap={{ scale: 0.96 }}
             onClick={() => onSelect(preset)}
-            className={`preset-chip ${compact ? 'preset-chip--compact' : ''} ${
+            className={`preset-chip ${compact ? 'preset-chip--home' : ''} ${
               active ? 'preset-chip-active' : ''
             }`}
           >
-            {!compact ? <span className="mr-1">🚫</span> : null}
-            {preset}
+            <span className="preset-chip__icon" aria-hidden>
+              🚫
+            </span>
+            <span className="preset-chip__label">{preset}</span>
           </motion.button>
         );
       })}

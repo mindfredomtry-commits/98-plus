@@ -96,12 +96,7 @@ function SendBanDockInner({ visible = true }: Props) {
       : '🚫 Запретить';
 
   const helperText =
-    ctaError ??
-    (!ctaReady && !busy && !sharing
-      ? showFirstBanOnboarding
-        ? 'Сначала напиши запрет'
-        : 'Сначала напиши запрет'
-      : '\u00a0');
+    ctaError ?? (busy ? 'Подожди…' : sharing ? 'Выбери чат…' : undefined);
 
   function failBanValidation(): boolean {
     if (hasBan) return false;

@@ -15,7 +15,6 @@ export function CompactArenaHeader({ user, liveCount, friends }: Props) {
   const online = list.filter((f) => f.presence === 'online').length;
   const pressure = list.filter((f) => f.underPressure).length;
   const energyPercent = user?.energyPercent ?? 0;
-  const streak = user?.streak ?? 0;
 
   const stats = [
     { icon: '🟢', label: 'онлайн', value: online || '—' },
@@ -25,42 +24,27 @@ export function CompactArenaHeader({ user, liveCount, friends }: Props) {
 
   return (
     <header className="compact-arena-header">
-      <div className="compact-arena-header__row">
-        <div>
-          <h1 className="compact-arena-header__logo">98+</h1>
-          <p className="compact-arena-header__sub">
-            {liveCount > 0 ? (
-              <span className="text-accent">
-                {liveCount} активн{liveCount === 1 ? 'ый' : 'ых'} вызов
-              </span>
-            ) : (
-              'арена открыта'
-            )}
-          </p>
+      <div className="compact-arena-header__top">
+        <h1 className="compact-arena-header__logo">98+</h1>
+        <div className="compact-arena-header__energy-wrap">
+          <div className="compact-arena-header__energy-bar">
+            <motion.div
+              className="compact-arena-header__energy-fill"
+              initial={false}
+              animate={{ width: `${energyPercent}%` }}
+              transition={{ duration: 0.45, ease: 'easeOut' }}
+            />
+          </div>
         </div>
-        <div className="compact-arena-header__meta">
-          <span>🔥 {streak}</span>
-          <span className="text-accent">⚡ {energyPercent}%</span>
-        </div>
+        <span className="compact-arena-header__pct">⚡ {energyPercent}%</span>
       </div>
 
-      <div className="compact-arena-header__energy">
-        <div className="compact-arena-header__energy-bar">
-          <motion.div
-            className="compact-arena-header__energy-fill"
-            initial={{ width: 0 }}
-            animate={{ width: `${energyPercent}%` }}
-            transition={{ duration: 0.5, ease: 'easeOut' }}
-          />
-        </div>
-      </div>
-
-      <div className="compact-arena-header__stats scroll-x-strip">
-        {stats.map((s, i) => (
+      <div className="compact-arena-header__stats">
+        {stats.map((s) => (
           <div key={s.label} className="compact-stat-chip">
-            <span>{s.icon}</span>
-            <span className="compact-stat-chip__val">{s.value}</span>
+            <span className="compact-stat-chip__icon">{s.icon}</span>
             <span className="compact-stat-chip__lbl">{s.label}</span>
+            <span className="compact-stat-chip__val">{s.value}</span>
           </div>
         ))}
       </div>

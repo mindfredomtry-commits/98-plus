@@ -52,17 +52,21 @@ export function ChallengeCompose({ value, onChange, compact = false }: Props) {
       className={`ban-compose ${compact ? 'ban-compose--compact' : ''}`}
       aria-label="Текст запрета"
     >
-      <p className="ban-compose-title">ЧТО ТЫ ЗАПРЕЩАЕШЬ?</p>
+      {compact ? (
+        <span className="sr-only">Что ты запрещаешь</span>
+      ) : (
+        <p className="ban-compose-title">ЧТО ТЫ ЗАПРЕЩАЕШЬ?</p>
+      )}
       <label className="ban-textarea-wrap">
         <span className="sr-only">Текст запрета</span>
         <motion.textarea
-          className={`ban-textarea ${banInputShake ? 'ban-textarea--shake' : ''} ${
-            inlineBanError ? 'ban-textarea--error' : ''
-          }`}
+          className={`ban-textarea ${compact ? 'ban-textarea--home' : ''} ${
+            banInputShake ? 'ban-textarea--shake' : ''
+          } ${inlineBanError ? 'ban-textarea--error' : ''}`}
           value={value}
           onChange={(e) => handleChange(e.target.value)}
           placeholder={compact ? 'Запрети что-нибудь...' : 'Запрещаю...'}
-          rows={compact ? 2 : 3}
+          rows={compact ? 1 : 3}
           maxLength={MAX_BAN_CHARS}
           autoComplete="off"
           autoCorrect="on"
@@ -70,10 +74,10 @@ export function ChallengeCompose({ value, onChange, compact = false }: Props) {
           enterKeyHint="done"
           animate={
             banInputShake
-              ? { x: [0, -6, 6, -4, 4, 0] }
+              ? { x: [0, -5, 5, -3, 3, 0] }
               : { x: 0 }
           }
-          transition={{ duration: 0.45 }}
+          transition={{ duration: 0.4 }}
         />
       </label>
       {inlineBanError ? (

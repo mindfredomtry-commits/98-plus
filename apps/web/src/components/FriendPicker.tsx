@@ -24,7 +24,7 @@ function FriendAvatar({
     '?'
   ).toUpperCase();
   const dim = compact
-    ? 'w-11 h-11 text-base'
+    ? 'w-9 h-9 text-sm'
     : 'w-[72px] h-[72px] text-2xl';
 
   if (friend.photoUrl) {
@@ -90,7 +90,7 @@ export function FriendAvatarCard({
       animate={{ scale: selected ? 1.04 : 1 }}
       transition={{ type: 'spring', stiffness: 400, damping: 22 }}
       className={`friend-avatar-card flex-shrink-0 flex flex-col items-center snap-center ${
-        compact ? 'friend-avatar-card--compact w-[68px] gap-1' : 'w-[92px] gap-2'
+        compact ? 'friend-avatar-card--compact gap-0.5' : 'w-[92px] gap-2'
       } ${selected ? 'friend-avatar-selected' : ''} ${
         pending ? 'friend-pending-pulse' : ''
       } ${online ? 'friend-online-ring' : recent ? 'friend-recent-glow' : ''}`}
@@ -116,7 +116,7 @@ export function FriendAvatarCard({
       </div>
       <p
         className={`font-semibold truncate w-full text-center leading-tight ${
-          compact ? 'text-[10px]' : 'text-xs'
+          compact ? 'text-[9px]' : 'text-xs'
         }`}
       >
         {friend.firstName || friend.username || '—'}
