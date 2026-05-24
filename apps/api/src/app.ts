@@ -9,19 +9,25 @@ import { friendsRouter } from './routes/friends';
 import { invitesRouter } from './routes/invites';
 
 /** Explicit local dev frontends (safe to allow against Railway API). */
+const LOCAL_DEV_PORTS = ['3000', '3001'] as const;
+
 const LOCAL_DEV_ORIGINS = [
   'http://localhost:3000',
   'http://127.0.0.1:3000',
+  'http://localhost:3001',
+  'http://127.0.0.1:3001',
   'http://192.168.100.8:3000',
 ] as const;
 
-/** Private LAN IP on port 3000 — mobile / same-WiFi Next.js dev. */
+/** Private LAN IP on Next.js dev ports — mobile / same-WiFi local testing. */
 function isLocalLanDevOrigin(origin: string): boolean {
   try {
     const url = new URL(origin);
     if (url.protocol !== 'http:') return false;
     const port = url.port || '80';
-    if (port !== '3000') return false;
+    if (!LOCAL_DEV_PORTS.includes(port as (typeof LOCAL_DEV_PORTS)[number])) {
+      return false;
+    }
     const host = url.hostname;
     if (host === 'localhost' || host === '127.0.0.1') return true;
     if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
