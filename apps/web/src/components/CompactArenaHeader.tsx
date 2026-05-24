@@ -26,7 +26,10 @@ export function CompactArenaHeader({ user, liveCount, friends }: Props) {
     <header className="compact-arena-header">
       <div className="compact-arena-header__top">
         <h1 className="compact-arena-header__logo">98+</h1>
-        <div className="compact-arena-header__energy-wrap">
+        <div className="compact-arena-header__energy-col">
+          <span className="compact-arena-header__energy-label">
+            социальная энергия
+          </span>
           <div className="compact-arena-header__energy-bar">
             <motion.div
               className="compact-arena-header__energy-fill"

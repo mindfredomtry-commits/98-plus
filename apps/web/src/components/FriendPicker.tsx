@@ -24,7 +24,7 @@ function FriendAvatar({
     '?'
   ).toUpperCase();
   const dim = compact
-    ? 'w-9 h-9 text-sm'
+    ? 'w-10 h-10 text-sm'
     : 'w-[72px] h-[72px] text-2xl';
 
   if (friend.photoUrl) {
@@ -237,7 +237,7 @@ export function FriendPicker({
   }
 
   return (
-    <div className={compact ? 'friend-picker--compact space-y-1.5' : 'space-y-3'}>
+    <div className={compact ? 'friend-picker--compact' : 'space-y-3'}>
       <div className="flex items-center justify-between px-0.5">
         <p className="people-section-title">ТВОИ ЛЮДИ</p>
         {selectedUsername ? (
@@ -246,8 +246,8 @@ export function FriendPicker({
       </div>
 
       <div
-        className={`friends-strip flex gap-2.5 py-1 -mx-0.5 px-0.5 snap-x snap-mandatory items-start ${
-          compact ? 'friends-strip--compact min-h-[76px]' : 'min-h-[140px]'
+        className={`friends-strip flex snap-x snap-mandatory ${
+          compact ? 'friends-strip--compact' : 'gap-2.5 py-1 min-h-[140px] items-start -mx-0.5 px-0.5'
         }`}
       >
         {people.map((f, i) => {
