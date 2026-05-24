@@ -1,31 +1,67 @@
 'use client';
 
-import { useCallback } from 'react';
-
-const BOT_DOMAIN =
-  process.env.NEXT_PUBLIC_BOT_USERNAME?.replace('@', '') ??
-  'Ninety_eight_pluss_Bot';
-
-const TG_DEEP_LINK = `tg://resolve?domain=${BOT_DOMAIN}`;
-const WEB_FALLBACK = `https://t.me/${BOT_DOMAIN}`;
-const FALLBACK_DELAY_MS = 1200;
-
-function openTelegramBot() {
-  window.location.href = TG_DEEP_LINK;
-  window.setTimeout(() => {
-    if (document.visibilityState !== 'hidden') {
-      window.location.href = WEB_FALLBACK;
-    }
-  }, FALLBACK_DELAY_MS);
-}
+import { useCallback, useEffect, useRef } from 'react';
+import {
+  bindTelegramOpenVisibilityGuard,
+  GO_ANDROID_INTENT,
+  GO_TG_DEEP_LINK,
+  GO_WEB_FALLBACK,
+  openTelegramFromGo,
+  type GoTelegramAnchors,
+} from '@/lib/open-telegram-from-go';
 
 export default function GoLandingPage() {
+  const tgAnchorRef = useRef<HTMLAnchorElement>(null);
+  const webAnchorRef = useRef<HTMLAnchorElement>(null);
+  const intentAnchorRef = useRef<HTMLAnchorElement>(null);
+
+  const anchorsRef = useRef<GoTelegramAnchors>({
+    tg: null,
+    web: null,
+    intent: null,
+  });
+
+  useEffect(() => {
+    anchorsRef.current = {
+      tg: tgAnchorRef.current,
+      web: webAnchorRef.current,
+      intent: intentAnchorRef.current,
+    };
+    return bindTelegramOpenVisibilityGuard();
+  }, []);
+
   const handleOpen = useCallback(() => {
-    openTelegramBot();
+    anchorsRef.current = {
+      tg: tgAnchorRef.current,
+      web: webAnchorRef.current,
+      intent: intentAnchorRef.current,
+    };
+    openTelegramFromGo(anchorsRef.current);
   }, []);
 
   return (
     <main className="go-landing">
+      <a
+        ref={tgAnchorRef}
+        href={GO_TG_DEEP_LINK}
+        className="go-landing__hidden-link"
+        aria-hidden
+        tabIndex={-1}
+      />
+      <a
+        ref={webAnchorRef}
+        href={GO_WEB_FALLBACK}
+        className="go-landing__hidden-link"
+        aria-hidden
+        tabIndex={-1}
+      />
+      <a
+        ref={intentAnchorRef}
+        href={GO_ANDROID_INTENT}
+        className="go-landing__hidden-link"
+        aria-hidden
+        tabIndex={-1}
+      />
       <div className="go-landing__glow" aria-hidden />
       <div className="go-landing__inner">
         <p className="go-landing__logo">98+</p>
