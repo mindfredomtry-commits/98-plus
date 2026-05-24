@@ -401,14 +401,26 @@
   animation: openCardIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
-.open-modal__card:nth-child(1) {
+.open-modal__card--step1 {
   animation-delay: 0.05s;
+  border-color: rgba(248, 113, 113, 0.35);
+  box-shadow:
+    0 0 28px rgba(239, 68, 68, 0.12),
+    0 0 24px rgba(192, 38, 211, 0.12),
+    inset 0 0 20px rgba(124, 58, 237, 0.06);
 }
-.open-modal__card:nth-child(3) {
+
+.open-modal__card--step2 {
   animation-delay: 0.12s;
 }
-.open-modal__card:nth-child(5) {
+
+.open-modal__card--step3 {
   animation-delay: 0.19s;
+  border-color: rgba(232, 121, 249, 0.55);
+  box-shadow:
+    0 0 32px rgba(217, 70, 239, 0.35),
+    0 0 20px rgba(56, 189, 248, 0.15),
+    inset 0 0 24px rgba(192, 38, 211, 0.1);
 }
 
 @keyframes openCardIn {
@@ -442,10 +454,183 @@
   box-shadow: 0 0 18px rgba(192, 38, 211, 0.35);
 }
 
-.open-modal__card-icon--tg {
+/* Step 1 — wrong START BOT vs ⋯ */
+.open-modal__step1-visual {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  width: 3.25rem;
+}
+
+.open-modal__wrong-btn {
+  display: block;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.5rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+  text-align: center;
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.55);
+  border: 1px solid rgba(248, 113, 113, 0.65);
+  border-radius: 0.35rem;
+  text-decoration: line-through;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.35);
+  position: relative;
+}
+
+.open-modal__wrong-btn::after {
+  content: '✕';
+  position: absolute;
+  top: -0.35rem;
+  right: -0.35rem;
+  font-size: 0.625rem;
+  color: #f87171;
+  text-decoration: none;
+  text-shadow: 0 0 8px rgba(239, 68, 68, 0.8);
+}
+
+.open-modal__dots-pick {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  font-size: 1.75rem;
+  font-weight: 900;
+  line-height: 1;
+  color: #fdf4ff;
+  background: linear-gradient(
+    145deg,
+    rgba(217, 70, 239, 0.45),
+    rgba(124, 58, 237, 0.3)
+  );
+  border: 2px solid rgba(244, 114, 182, 0.75);
+  border-radius: 0.75rem;
+  box-shadow:
+    0 0 22px rgba(232, 121, 249, 0.55),
+    0 0 8px rgba(192, 38, 211, 0.4);
+  animation: openDotsPulse 1.8s ease-in-out infinite;
+}
+
+@keyframes openDotsPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 18px rgba(232, 121, 249, 0.45);
+  }
+  50% {
+    transform: scale(1.06);
+    box-shadow: 0 0 28px rgba(244, 114, 182, 0.7);
+  }
+}
+
+.open-modal__card--step1 .open-modal__card-title {
+  color: #fecdd3;
+}
+
+/* Step 2 — menu mock */
+.open-modal__menu-mock {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  min-width: 7.5rem;
+  background: rgba(15, 10, 22, 0.95);
+  border: 1px solid rgba(216, 180, 254, 0.35);
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+
+.open-modal__menu-icon {
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+.open-modal__menu-item {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #faf5ff;
+  letter-spacing: 0.01em;
+}
+
+/* Step 3 — payoff */
+.open-modal__payoff-icon {
+  position: relative;
+  flex-shrink: 0;
+  width: 3.25rem;
+  height: 3.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.open-modal__payoff-tg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
   color: #38bdf8;
-  border-color: rgba(56, 189, 248, 0.45);
-  box-shadow: 0 0 18px rgba(56, 189, 248, 0.25);
+  background: radial-gradient(
+    circle,
+    rgba(56, 189, 248, 0.25) 0%,
+    rgba(192, 38, 211, 0.15) 70%
+  );
+  border-radius: 50%;
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  box-shadow:
+    0 0 28px rgba(56, 189, 248, 0.45),
+    0 0 20px rgba(217, 70, 239, 0.35);
+  animation: openPayoffGlow 2.2s ease-in-out infinite;
+}
+
+.open-modal__payoff-badge {
+  position: absolute;
+  bottom: -0.15rem;
+  right: -0.35rem;
+  padding: 0.1rem 0.3rem;
+  font-size: 0.5rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  color: #fdf4ff;
+  background: linear-gradient(135deg, #e879f9, #c026d3);
+  border-radius: 0.25rem;
+  box-shadow: 0 0 12px rgba(232, 121, 249, 0.65);
+}
+
+@keyframes openPayoffGlow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 22px rgba(56, 189, 248, 0.35),
+      0 0 16px rgba(217, 70, 239, 0.25);
+  }
+  50% {
+    box-shadow:
+      0 0 36px rgba(56, 189, 248, 0.55),
+      0 0 28px rgba(232, 121, 249, 0.45);
+  }
+}
+
+.open-modal__card-title--payoff {
+  background: linear-gradient(90deg, #fdf4ff, #f0abfc);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.open-modal__card-text--payoff {
+  color: rgba(240, 171, 252, 0.95);
+  font-weight: 600;
+}
+
+.open-modal__card-text--short {
+  font-size: 0.6875rem;
+  opacity: 0.85;
 }
 
 .open-modal__card-body {
@@ -539,7 +724,9 @@
   .open-page__logo-wrap,
   .open-page__particles span,
   .open-modal__connector,
-  .open-modal__card {
+  .open-modal__card,
+  .open-modal__dots-pick,
+  .open-modal__payoff-tg {
     animation: none;
   }
 

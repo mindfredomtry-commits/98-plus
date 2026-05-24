@@ -153,18 +153,21 @@ export default function OpenLandingPage() {
           </h2>
           <p className="open-modal__punch">ЗАПРЕТИ В ОТВЕТ!</p>
           <p className="open-modal__subtitle">
-            Открой 98+ через внешний браузер.
+            Пройди мини-квест и открой 98+.
           </p>
 
           <div className="open-modal__cards">
-            <article className="open-modal__card">
-              <span className="open-modal__card-icon" aria-hidden>
-                ⋯
-              </span>
+            <article className="open-modal__card open-modal__card--step1">
+              <div className="open-modal__step1-visual" aria-hidden>
+                <span className="open-modal__wrong-btn">START BOT</span>
+                <span className="open-modal__dots-pick">⋯</span>
+              </div>
               <div className="open-modal__card-body">
-                <h3 className="open-modal__card-title">Нажми ⋯</h3>
+                <h3 className="open-modal__card-title">
+                  Не нажимай START BOT ❌
+                </h3>
                 <p className="open-modal__card-text">
-                  В правом верхнем углу TikTok
+                  Нажми ⋯ в правом верхнем углу
                 </p>
               </div>
             </article>
@@ -173,27 +176,17 @@ export default function OpenLandingPage() {
               ↓
             </span>
 
-            <article className="open-modal__card">
-              <span className="open-modal__card-icon" aria-hidden>
-                <svg
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                  <polyline points="15 3 21 3 21 9" />
-                  <line x1="10" y1="14" x2="21" y2="3" />
-                </svg>
-              </span>
+            <article className="open-modal__card open-modal__card--step2">
+              <div className="open-modal__menu-mock" aria-hidden>
+                <span className="open-modal__menu-icon">🌐</span>
+                <span className="open-modal__menu-item">Open in browser</span>
+              </div>
               <div className="open-modal__card-body">
-                <h3 className="open-modal__card-title">Open in browser</h3>
-                <p className="open-modal__card-text">
-                  Открой страницу во внешнем браузере
+                <h3 className="open-modal__card-title">
+                  Выбери &ldquo;Open in browser&rdquo;
+                </h3>
+                <p className="open-modal__card-text open-modal__card-text--short">
+                  В меню TikTok
                 </p>
               </div>
             </article>
@@ -202,21 +195,26 @@ export default function OpenLandingPage() {
               ↓
             </span>
 
-            <article className="open-modal__card">
-              <span className="open-modal__card-icon open-modal__card-icon--tg" aria-hidden>
-                <svg
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                >
-                  <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
-                </svg>
-              </span>
+            <article className="open-modal__card open-modal__card--step3">
+              <div className="open-modal__payoff-icon" aria-hidden>
+                <span className="open-modal__payoff-tg">
+                  <svg
+                    width="26"
+                    height="26"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                  >
+                    <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
+                  </svg>
+                </span>
+                <span className="open-modal__payoff-badge">98+</span>
+              </div>
               <div className="open-modal__card-body">
-                <h3 className="open-modal__card-title">Открой Telegram</h3>
-                <p className="open-modal__card-text">
-                  Telegram откроется автоматически
+                <h3 className="open-modal__card-title open-modal__card-title--payoff">
+                  Пора запрещать!
+                </h3>
+                <p className="open-modal__card-text open-modal__card-text--payoff">
+                  Бот 98+ откроется сам!
                 </p>
               </div>
             </article>
@@ -234,7 +232,7 @@ export default function OpenLandingPage() {
 
           {blockedHint ? (
             <p className="open-modal__blocked" role="status">
-              Если TikTok не пустил — нажми ⋯ и выбери Open in browser.
+              Если не открылось — открой через ⋯ → Open in browser.
             </p>
           ) : null}
 
