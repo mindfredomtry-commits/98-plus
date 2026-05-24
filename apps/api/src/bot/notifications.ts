@@ -5,6 +5,7 @@ import {
   formatIncomingBanMessage,
   formatSenderDisplayName,
   formatSenderEchoMessage,
+  formatViralBanShareMessage,
   TELEGRAM_REPLY_BUTTON_LABEL,
 } from '@98plus/shared';
 import { getBot } from './index';
@@ -69,6 +70,66 @@ async function deliverChallengeNotification(params: {
   } catch {
     /* user may not have started bot */
   }
+}
+
+/** Direct ban to registered friend — viral text + Mini App button (plain sendMessage). */
+export async function sendRegisteredFriendBanNotification(params: {
+  receiverTelegramId: bigint;
+  banText: string;
+  durationMinutes: number;
+  banId: string;
+}): Promise<void> {
+  const bot = getBot();
+  if (!bot) {
+    console.warn('[98+] telegram notify failed', { reason: 'no bot instance' });
+    return;
+  }
+
+  const link = miniAppLink({ type: 'ban', banId: params.banId });
+  const message = formatViralBanShareMessage({
+    banText: params.banText,
+    durationMinutes: params.durationMinutes,
+    link,
+  });
+
+  try {
+    await bot.telegram.sendMessage(
+      params.receiverTelegramId.toString(),
+      message,
+      replyBanKeyboard(link),
+    );
+    console.log('[98+] telegram notify sent', {
+      banId: params.banId,
+      chatId: params.receiverTelegramId.toString(),
+    });
+  } catch (e) {
+    console.warn('[98+] telegram notify failed', {
+      banId: params.banId,
+      chatId: params.receiverTelegramId.toString(),
+      error: (e as Error).message,
+    });
+  }
+}
+
+/** Non-blocking wrapper — never fails ban creation. */
+export function notifyRegisteredFriendBanAsync(params: {
+  receiverTelegramId: bigint;
+  banText: string;
+  durationMinutes: number;
+  banId: string;
+  skipTelegram?: boolean;
+}): void {
+  if (params.skipTelegram) {
+    console.log('[98+] dev notification skipped', { banId: params.banId });
+    return;
+  }
+
+  void sendRegisteredFriendBanNotification({
+    receiverTelegramId: params.receiverTelegramId,
+    banText: params.banText,
+    durationMinutes: params.durationMinutes,
+    banId: params.banId,
+  });
 }
 
 export async function sendIncomingBanNotification(

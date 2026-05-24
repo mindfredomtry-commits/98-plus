@@ -212,6 +212,15 @@ export async function deliverDirectChallenge(
     throw new ChallengeDeliveryError('Сервер не вернул вызов', 'api');
   }
 
+  /** Registered direct send — ban exists, ignore stale share flags. */
+  if (res.ban && resolved.receiverUserId && (res.requiresShare || res.pending)) {
+    return {
+      ...res,
+      requiresShare: false,
+      pending: false,
+    };
+  }
+
   if (isClientDevAuthEnabled() && (res.requiresShare || res.pending)) {
     throw new ChallengeDeliveryError(
       'Dev: выбери Dev Peer — этот получатель не зарегистрирован на сервере',

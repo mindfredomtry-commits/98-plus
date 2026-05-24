@@ -130,7 +130,7 @@ export function useSendChallenge(opts: {
           receiverUserId: resolved.receiverUserId,
           receiverTelegramId: resolved.receiverTelegramId,
           friends: friendsRef.current,
-          directOnly: false,
+          directOnly: instantDirectSend,
         });
 
         const needsShare =

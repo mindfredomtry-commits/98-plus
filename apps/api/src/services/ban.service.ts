@@ -20,6 +20,7 @@ import {
 import { mapUser } from './user-mapper';
 import { broadcastEnergyPopup, broadcastToUser } from '../websocket/hub';
 import {
+  notifyRegisteredFriendBanAsync,
   sendCheckNotification,
   sendIncomingBanNotification,
   sendResultNotification,
@@ -304,48 +305,24 @@ export async function sendBan(params: {
     source: 'CHALLENGE_RECEIVED',
   });
 
-  const senderUser = ban.sender;
-  const senderUsername =
-    senderUser.username ?? senderUser.firstName;
-
-  const receiverLabel =
-    receiver.firstName ?? receiver.username ?? undefined;
-
   const notifyDev =
     isDevTelegramId(receiver.telegramId) &&
     isDevTelegramId(ban.sender.telegramId);
 
-  if (!notifyDev) {
-    await sendIncomingBanNotification(
-      receiver.telegramId,
-      text,
-      ban.id,
-      false,
-      senderUsername,
-      durationMinutes,
-      senderUser.firstName,
-      senderUser.photoUrl,
-    );
-    await sendIncomingBanNotification(
-      ban.sender.telegramId,
-      text,
-      ban.id,
-      true,
-      senderUsername,
-      durationMinutes,
-      undefined,
-      undefined,
-      receiverLabel,
-    );
-  }
+  notifyRegisteredFriendBanAsync({
+    receiverTelegramId: receiver.telegramId,
+    banText: text.trim(),
+    durationMinutes,
+    banId: ban.id,
+    skipTelegram: notifyDev,
+  });
 
-  try {
-    await syncSession(receiver.id);
-    await syncSession(senderId);
-  } catch (e) {
-    if (!devMode) throw e;
-    console.warn('[98+] dev send: syncSession skipped', (e as Error).message);
-  }
+  void syncSession(receiver.id).catch((e) => {
+    console.warn('[98+] syncSession receiver failed', (e as Error).message);
+  });
+  void syncSession(senderId).catch((e) => {
+    console.warn('[98+] syncSession sender failed', (e as Error).message);
+  });
 
   return {
     ban: interaction,
