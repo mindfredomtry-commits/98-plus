@@ -9,13 +9,15 @@ import { friendsRouter } from './routes/friends';
 import { invitesRouter } from './routes/invites';
 
 /** Explicit local dev frontends (safe to allow against Railway API). */
-const LOCAL_DEV_PORTS = ['3000', '3001'] as const;
+const LOCAL_DEV_PORTS = ['3000', '3001', '3002'] as const;
 
 const LOCAL_DEV_ORIGINS = [
   'http://localhost:3000',
   'http://127.0.0.1:3000',
   'http://localhost:3001',
   'http://127.0.0.1:3001',
+  'http://localhost:3002',
+  'http://127.0.0.1:3002',
   'http://192.168.100.8:3000',
 ] as const;
 
