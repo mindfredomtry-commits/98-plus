@@ -184,6 +184,7 @@ export function useSendChallenge(opts: {
         ctaLog('mutation:success');
       } catch (e) {
         const message = formatDeliveryError(e);
+        console.error('[98+] sendBan rollback', { username, message, error: e });
         ctaLog('mutation:fail', { message });
         onFailRef.current({ ...params, username, message });
         throw new Error(message);

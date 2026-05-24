@@ -119,6 +119,11 @@ bansRouter.get('/:id/open', async (req: AuthRequest, res) => {
 bansRouter.post('/send', async (req: AuthRequest, res) => {
   const parsed = sendSchema.safeParse(req.body);
   if (!parsed.success) {
+    console.warn('[98+] /bans/send validation failed', {
+      userId: req.userId,
+      body: req.body,
+      issues: parsed.error.flatten(),
+    });
     res.status(400).json({ error: parsed.error.message });
     return;
   }
@@ -149,7 +154,16 @@ bansRouter.post('/send', async (req: AuthRequest, res) => {
     console.log(`[98+] /bans/send in ${Date.now() - t0}ms`);
     res.json(result);
   } catch (e) {
-    res.status(400).json({ error: (e as Error).message });
+    const reason = (e as Error).message;
+    console.warn('[98+] /bans/send rejected', {
+      userId: req.userId,
+      receiverUserId: parsed.data.receiverUserId,
+      receiverUsername: parsed.data.receiverUsername,
+      receiverTelegramId: parsed.data.receiverTelegramId,
+      durationMinutes,
+      reason,
+    });
+    res.status(400).json({ error: reason });
   }
 });
 

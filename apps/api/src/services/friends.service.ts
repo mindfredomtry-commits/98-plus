@@ -4,9 +4,13 @@ import { prisma } from '../lib/prisma';
 import { mapUser } from './user-mapper';
 import { normalizeUsername } from './invite.service';
 import { listSocialGraph, recordSocialContact } from './social-graph.service';
+import { ensureDevFixturesForUser, isDevModeUser } from './dev-fixtures.service';
 
 export async function listFriends(userId: string): Promise<FriendCard[]> {
   try {
+    if (await isDevModeUser(userId)) {
+      await ensureDevFixturesForUser(userId);
+    }
     const graph = await listSocialGraph(userId);
     return graph
       .map((c) => sanitizeFriendCard(c))

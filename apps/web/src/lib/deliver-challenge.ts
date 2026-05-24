@@ -169,11 +169,18 @@ export async function deliverDirectChallenge(
     });
     timingLog('sendBan request', performance.now() - started);
   } catch (e) {
-    if (e instanceof ApiError && e.status === 401) {
-      throw new ChallengeDeliveryError(
-        'Сессия устарела. Перезапусти Mini App.',
-        'auth',
-      );
+    if (e instanceof ApiError) {
+      console.error('[98+] sendBan failed', {
+        status: e.status,
+        message: e.message,
+        body,
+      });
+      if (e.status === 401) {
+        throw new ChallengeDeliveryError(
+          'Сессия устарела. Перезапусти Mini App.',
+          'auth',
+        );
+      }
     }
     throw e;
   }

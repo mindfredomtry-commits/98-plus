@@ -12,6 +12,7 @@ import {
   sendFirstBanChallenge,
   shareBanViaTelegram,
 } from '@/lib/first-challenge-share';
+import { isClientDevAuthEnabled } from '@/lib/config';
 
 interface Props {
   user: UserPublic;
@@ -56,6 +57,28 @@ function HomeArenaInner({ user }: Props) {
       setSendDuration(60);
     }
   }, [showFirstBanOnboarding, sendDuration, setSendDuration]);
+
+  useEffect(() => {
+    if (!isClientDevAuthEnabled() || showFirstBanOnboarding) return;
+    if (sendReceiver?.replace(/^@/, '').trim()) return;
+    const self = user.username?.toLowerCase();
+    const peer = safeFriends.find(
+      (f) =>
+        f.userId &&
+        f.username &&
+        f.username.toLowerCase() !== self &&
+        !(f.id ?? '').startsWith('optimistic:'),
+    );
+    if (peer?.username) {
+      setSendReceiver(`@${peer.username}`);
+    }
+  }, [
+    safeFriends,
+    sendReceiver,
+    setSendReceiver,
+    showFirstBanOnboarding,
+    user.username,
+  ]);
 
   const requireBanText = useCallback((): string | null => {
     const text = sendText.trim();

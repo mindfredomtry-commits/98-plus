@@ -19,6 +19,7 @@ import {
 import { pushFriendsGraphRefresh } from '../services/friends-sync';
 import type { BanInteraction } from '@98plus/shared';
 import { isDevAuthEnabled } from '../lib/dev-auth';
+import { ensureDevFixturesForUser } from '../services/dev-fixtures.service';
 
 export const authRouter = Router();
 
@@ -178,6 +179,8 @@ async function devAuthHandler(req: Request, res: Response): Promise<void> {
     userId: user.id,
     telegramId: user.telegramId.toString(),
   });
+
+  await ensureDevFixturesForUser(user.id);
 
   const extra = await afterAuth(user.id, user.username, startParam);
 

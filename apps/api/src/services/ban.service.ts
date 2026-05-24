@@ -31,6 +31,12 @@ import { trackEvent } from './analytics.service';
 import { createPendingInvite, normalizeUsername } from './invite.service';
 import { recordSocialContact } from './social-graph.service';
 import { applySenderSendCostOnly } from './energy.service';
+import {
+  ensureDevFixturesForUser,
+  ensureDevPeerUser,
+  isDevModeUser,
+  isDevTelegramId,
+} from './dev-fixtures.service';
 
 const COOLDOWN_SEND = 10;
 
@@ -167,15 +173,23 @@ export async function sendBan(params: {
   durationMinutes: number;
 }) {
   const { senderId, text, durationMinutes } = params;
+  const devMode = await isDevModeUser(senderId);
 
   if (!isValidDurationMinutes(durationMinutes)) {
     throw new Error('Invalid duration');
   }
 
+  if (devMode) {
+    await ensureDevFixturesForUser(senderId);
+  }
+
   const can = await canSendBan(senderId);
   if (!can.allowed) throw new Error(can.reason ?? 'Not allowed');
 
-  if (await hasCooldown(`cooldown:send:${senderId}`)) {
+  if (
+    !devMode &&
+    (await hasCooldown(`cooldown:send:${senderId}`))
+  ) {
     throw new Error('Подожди немного.');
   }
 
@@ -188,6 +202,10 @@ export async function sendBan(params: {
     receiver = await findUserByTelegramId(params.receiverTelegramId);
   } else if (params.receiverUsername) {
     receiver = await findUserByUsername(params.receiverUsername);
+    if (!receiver && devMode) {
+      await ensureDevPeerUser();
+      receiver = await findUserByUsername(params.receiverUsername);
+    }
   }
 
   if (!receiver && params.receiverUsername) {
@@ -224,7 +242,10 @@ export async function sendBan(params: {
     senderId < receiver.id
       ? `${senderId}:${receiver.id}`
       : `${receiver.id}:${senderId}`;
-  if (await hasCooldown(`cooldown:pair:${pairKey}`)) {
+  if (
+    !devMode &&
+    (await hasCooldown(`cooldown:pair:${pairKey}`))
+  ) {
     throw new Error('Слишком часто с этим человеком.');
   }
 
@@ -281,27 +302,33 @@ export async function sendBan(params: {
   const receiverLabel =
     receiver.firstName ?? receiver.username ?? undefined;
 
-  await sendIncomingBanNotification(
-    receiver.telegramId,
-    text,
-    ban.id,
-    false,
-    senderUsername,
-    durationMinutes,
-    senderUser.firstName,
-    senderUser.photoUrl,
-  );
-  await sendIncomingBanNotification(
-    ban.sender.telegramId,
-    text,
-    ban.id,
-    true,
-    senderUsername,
-    durationMinutes,
-    undefined,
-    undefined,
-    receiverLabel,
-  );
+  const notifyDev =
+    isDevTelegramId(receiver.telegramId) &&
+    isDevTelegramId(ban.sender.telegramId);
+
+  if (!notifyDev) {
+    await sendIncomingBanNotification(
+      receiver.telegramId,
+      text,
+      ban.id,
+      false,
+      senderUsername,
+      durationMinutes,
+      senderUser.firstName,
+      senderUser.photoUrl,
+    );
+    await sendIncomingBanNotification(
+      ban.sender.telegramId,
+      text,
+      ban.id,
+      true,
+      senderUsername,
+      durationMinutes,
+      undefined,
+      undefined,
+      receiverLabel,
+    );
+  }
 
   await syncSession(receiver.id);
   await syncSession(senderId);
