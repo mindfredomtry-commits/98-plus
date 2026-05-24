@@ -1,24 +1,83 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { openTelegramBotManual } from '@/lib/open-telegram-from-go';
+
+const BLOCKED_CHECK_MS = 900;
 
 export default function OpenLandingPage() {
   const [modalOpen, setModalOpen] = useState(false);
+  const [blockedHint, setBlockedHint] = useState(false);
+  const [opening, setOpening] = useState(false);
+  const blockedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const closeModal = useCallback(() => setModalOpen(false), []);
-  const openModal = useCallback(() => setModalOpen(true), []);
+  const closeModal = useCallback(() => {
+    if (blockedTimerRef.current) {
+      clearTimeout(blockedTimerRef.current);
+      blockedTimerRef.current = null;
+    }
+    setBlockedHint(false);
+    setOpening(false);
+    setModalOpen(false);
+  }, []);
+
+  const openModal = useCallback(() => {
+    setBlockedHint(false);
+    setOpening(false);
+    setModalOpen(true);
+  }, []);
+
+  const handleFinalCta = useCallback(() => {
+    if (blockedTimerRef.current) {
+      clearTimeout(blockedTimerRef.current);
+    }
+    setBlockedHint(false);
+    setOpening(true);
+
+    try {
+      openTelegramBotManual();
+    } catch {
+      setBlockedHint(true);
+      setOpening(false);
+      return;
+    }
+
+    blockedTimerRef.current = window.setTimeout(() => {
+      blockedTimerRef.current = null;
+      setOpening(false);
+      if (document.visibilityState === 'visible') {
+        setBlockedHint(true);
+      }
+    }, BLOCKED_CHECK_MS);
+  }, []);
 
   useEffect(() => {
     if (!modalOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeModal();
     };
+    const onVis = () => {
+      if (document.visibilityState === 'hidden') {
+        if (blockedTimerRef.current) {
+          clearTimeout(blockedTimerRef.current);
+          blockedTimerRef.current = null;
+        }
+        setBlockedHint(false);
+        setOpening(false);
+      }
+    };
     document.addEventListener('keydown', onKey);
+    document.addEventListener('visibilitychange', onVis);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.removeEventListener('keydown', onKey);
+      document.removeEventListener('visibilitychange', onVis);
       document.body.style.overflow = prev;
+      if (blockedTimerRef.current) {
+        clearTimeout(blockedTimerRef.current);
+        blockedTimerRef.current = null;
+      }
     };
   }, [modalOpen, closeModal]);
 
@@ -166,10 +225,18 @@ export default function OpenLandingPage() {
           <button
             type="button"
             className="open-page__btn open-page__btn--primary open-modal__cta"
-            onClick={closeModal}
+            onClick={handleFinalCta}
+            disabled={opening}
+            aria-busy={opening}
           >
             🚫 ЗАПРЕТИТЬ В ОТВЕТ
           </button>
+
+          {blockedHint ? (
+            <p className="open-modal__blocked" role="status">
+              Если TikTok не пустил — нажми ⋯ и выбери Open in browser.
+            </p>
+          ) : null}
 
           <p className="open-modal__footer">
             Каждый запрет — это твоя свобода.

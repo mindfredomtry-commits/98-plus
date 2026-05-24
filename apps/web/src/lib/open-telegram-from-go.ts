@@ -11,6 +11,14 @@ const START_PARAM = 'invite';
 
 export const GO_TG_DEEP_LINK = `tg://resolve?domain=${BOT_DOMAIN}&start=${START_PARAM}`;
 export const GO_WEB_FALLBACK = `https://t.me/${BOT_DOMAIN}?start=${START_PARAM}`;
+
+/** Manual tap from /open modal — https only, no tg:// or timers. */
+export const OPEN_LANDING_TELEGRAM_URL =
+  process.env.NEXT_PUBLIC_TELEGRAM_BOT_URL ?? `https://t.me/${BOT_DOMAIN}`;
+
+export function openTelegramBotManual(): void {
+  window.location.href = OPEN_LANDING_TELEGRAM_URL;
+}
 export const GO_ANDROID_INTENT = `intent://resolve?domain=${BOT_DOMAIN}&start=${START_PARAM}#Intent;scheme=tg;package=org.telegram.messenger;end`;
 
 const FALLBACK_DELAY_MS = 1200;
