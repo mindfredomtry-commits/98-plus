@@ -29,7 +29,6 @@ export default function GoLandingPage() {
       <div className="go-landing__glow" aria-hidden />
       <div className="go-landing__inner">
         <p className="go-landing__logo">98+</p>
-        <h1 className="go-landing__headline">Тебе отправили запрет</h1>
         <p className="go-landing__sub">Открой 98+ в Telegram</p>
         <button type="button" className="go-landing__cta" onClick={handleOpen}>
           🚫 Открыть в Telegram
