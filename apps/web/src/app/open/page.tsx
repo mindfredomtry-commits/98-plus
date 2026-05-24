@@ -55,22 +55,14 @@ export default function OpenLandingPage() {
           <button
             type="button"
             className="open-page__btn open-page__btn--primary"
-            onClick={openTelegramDirect}
-          >
-            🚫 ОТКРЫТЬ 98+ В TELEGRAM
-          </button>
-          <button
-            type="button"
-            className="open-page__btn open-page__btn--secondary"
             onClick={openModal}
           >
-            🌐 ОТКРЫТЬ В БРАУЗЕРЕ
+            🚫 ОТКРЫТЬ 98+
           </button>
         </div>
 
         <p className="open-page__footer">
-          Если Telegram не открывается внутри TikTok — открой страницу во внешнем
-          браузере.
+          TikTok блокирует Telegram. Открой страницу во внешнем браузере.
         </p>
       </div>
 
