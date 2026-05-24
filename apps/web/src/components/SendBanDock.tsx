@@ -12,6 +12,8 @@ import {
   sendFirstBanChallenge,
   shareBanViaTelegram,
 } from '@/lib/first-challenge-share';
+import { resolveDevSendTarget } from '@/lib/dev-receiver';
+import { isClientDevAuthEnabled } from '@/lib/config';
 
 function safeCoerceFriends(input: unknown) {
   try {
@@ -29,6 +31,7 @@ function SendBanDockInner({ visible = true }: Props) {
   const {
     token,
     friends,
+    user,
     sendReceiver,
     sendText,
     sendDuration,
@@ -58,7 +61,7 @@ function SendBanDockInner({ visible = true }: Props) {
     setBanSentOpen(true);
   }, [setBanSentOpen]);
 
-  const { send, busy, sharing, inFlight } = useSendChallenge({
+  const { send, sharing, inFlight } = useSendChallenge({
     token,
     friends: safeFriends,
     onSuccess,
@@ -76,14 +79,22 @@ function SendBanDockInner({ visible = true }: Props) {
     onConfirm: (p) => {
       confirmOptimisticSend(p.username);
     },
+    onRequiresShare: () => {
+      setBanSentOpen(false);
+    },
     onFail: (p) => {
+      setBanSentOpen(false);
       const isTimeout = p.message.includes('тормозит');
       rollbackOptimisticSend({
         username: p.username,
         message: p.message,
       });
       setSendInlineError(
-        isTimeout ? p.message : 'Не отправилось. Повторить?',
+        isTimeout
+          ? p.message
+          : p.message && p.message !== 'Не удалось отправить вызов'
+            ? p.message
+            : 'Не отправилось. Повторить?',
       );
     },
     onboard,
@@ -113,15 +124,10 @@ function SendBanDockInner({ visible = true }: Props) {
     return safeResolveReceiverTarget(selectedUsername, safeFriends);
   }, [selectedUsername, safeFriends]);
 
-  const label = sharing
-    ? 'Выбери чат в Telegram…'
-    : busy
-      ? 'Отправляем…'
-      : '🚫 Запретить';
+  const label = sharing ? 'Выбери чат в Telegram…' : '🚫 Запретить';
 
   const helperText =
-    sendInlineError ??
-    (busy ? 'Подожди…' : sharing ? 'Выбери чат…' : undefined);
+    sendInlineError ?? (sharing ? 'Выбери чат в Telegram…' : undefined);
 
   function failBanValidation(): boolean {
     if (hasBan) return false;
@@ -139,7 +145,6 @@ function SendBanDockInner({ visible = true }: Props) {
       hasFriend,
       hasBan,
       selectedUsername,
-      busy,
       inFlight,
       hasToken: !!token,
       firstBan: showFirstBanOnboarding,
@@ -196,19 +201,35 @@ function SendBanDockInner({ visible = true }: Props) {
       return;
     }
 
-    try {
-      await send({
-        text: challengeText,
-        receiverUsername: sendReceiver,
-        receiverUserId:
-          resolved.receiverUserId ?? selectedFriend?.userId ?? null,
-        receiverTelegramId:
-          resolved.receiverTelegramId ?? selectedFriend?.telegramId ?? null,
-        durationMinutes: sendDuration,
-      });
-    } catch {
-      /* inline error set in onFail */
+    const devTarget = resolveDevSendTarget(safeFriends, sendReceiver, {
+      username: user?.username,
+      userId: user?.id,
+    });
+
+    const sendTarget = devTarget ?? {
+      receiverUsername: sendReceiver,
+      receiverUserId:
+        resolved.receiverUserId ?? selectedFriend?.userId ?? null,
+      receiverTelegramId:
+        resolved.receiverTelegramId ?? selectedFriend?.telegramId ?? null,
+    };
+
+    if (isClientDevAuthEnabled() && !sendTarget.receiverUserId) {
+      setSendInlineError('Выбери Dev Peer в списке людей');
+      return;
     }
+
+    void send({
+      text: challengeText,
+      receiverUsername: sendTarget.receiverUsername.startsWith('@')
+        ? sendTarget.receiverUsername
+        : `@${sendTarget.receiverUsername}`,
+      receiverUserId: sendTarget.receiverUserId,
+      receiverTelegramId: sendTarget.receiverTelegramId,
+      durationMinutes: sendDuration,
+    }).catch(() => {
+      /* inline error set in onFail */
+    });
   }
 
   return (
@@ -240,7 +261,7 @@ function SendBanDockInner({ visible = true }: Props) {
         <GlowCTA
           onClick={zapretit}
           ready={ctaReady}
-          busy={busy || sharing}
+          busy={sharing}
           helperText={helperText}
         >
           {label}

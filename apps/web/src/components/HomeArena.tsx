@@ -13,6 +13,7 @@ import {
   shareBanViaTelegram,
 } from '@/lib/first-challenge-share';
 import { isClientDevAuthEnabled } from '@/lib/config';
+import { pickDevReceiverFriend } from '@/lib/dev-receiver';
 
 interface Props {
   user: UserPublic;
@@ -60,17 +61,17 @@ function HomeArenaInner({ user }: Props) {
 
   useEffect(() => {
     if (!isClientDevAuthEnabled() || showFirstBanOnboarding) return;
-    if (sendReceiver?.replace(/^@/, '').trim()) return;
-    const self = user.username?.toLowerCase();
-    const peer = safeFriends.find(
-      (f) =>
-        f.userId &&
-        f.username &&
-        f.username.toLowerCase() !== self &&
-        !(f.id ?? '').startsWith('optimistic:'),
+    const peer = pickDevReceiverFriend(
+      safeFriends,
+      user.username,
+      user.id,
     );
-    if (peer?.username) {
-      setSendReceiver(`@${peer.username}`);
+    if (!peer?.username) return;
+    const want = `@${peer.username}`;
+    const current = sendReceiver?.replace(/^@/, '').trim().toLowerCase();
+    const self = user.username?.toLowerCase();
+    if (!current || current === self || current === 'dev_user') {
+      setSendReceiver(want);
     }
   }, [
     safeFriends,
@@ -78,6 +79,7 @@ function HomeArenaInner({ user }: Props) {
     setSendReceiver,
     showFirstBanOnboarding,
     user.username,
+    user.id,
   ]);
 
   const requireBanText = useCallback((): string | null => {

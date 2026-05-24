@@ -11,6 +11,7 @@ import {
   RequestTimeoutError,
 } from '@/lib/request-timeout';
 import { timingLog } from '@/lib/timing-log';
+import { isClientDevAuthEnabled } from '@/lib/config';
 
 export type DeliveryErrorCode =
   | 'network'
@@ -150,12 +151,19 @@ export async function deliverDirectChallenge(
     durationMinutes: params.durationMinutes,
     receiverUsername: username,
   };
-  if (resolved.receiverUserId) {
-    body.receiverUserId = resolved.receiverUserId;
+  const userId = resolved.receiverUserId?.trim();
+  if (
+    userId &&
+    !userId.startsWith('contact:') &&
+    !userId.startsWith('optimistic')
+  ) {
+    body.receiverUserId = userId;
   }
   if (resolved.receiverTelegramId) {
     body.receiverTelegramId = resolved.receiverTelegramId;
   }
+
+  console.info('[98+] sendBan payload', body);
 
   let res: SendBanResponse;
   const started = performance.now();
@@ -168,6 +176,11 @@ export async function deliverDirectChallenge(
       timeoutMs: DEFAULT_SEND_TIMEOUT_MS,
     });
     timingLog('sendBan request', performance.now() - started);
+    console.info('[98+] sendBan response', {
+      hasBan: !!res.ban,
+      pending: res.pending,
+      requiresShare: res.requiresShare,
+    });
   } catch (e) {
     if (e instanceof ApiError) {
       console.error('[98+] sendBan failed', {
@@ -197,6 +210,13 @@ export async function deliverDirectChallenge(
 
   if (!res.ban && !res.pending) {
     throw new ChallengeDeliveryError('Сервер не вернул вызов', 'api');
+  }
+
+  if (isClientDevAuthEnabled() && (res.requiresShare || res.pending)) {
+    throw new ChallengeDeliveryError(
+      'Dev: выбери Dev Peer — этот получатель не зарегистрирован на сервере',
+      'target',
+    );
   }
 
   return res;

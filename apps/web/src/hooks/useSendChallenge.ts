@@ -11,7 +11,6 @@ import {
 import { handleShareChallenge } from '@/lib/share';
 import { ctaLog } from '@/lib/cta-log';
 import { timingLog } from '@/lib/timing-log';
-import { VISUAL_SEND_LOADING_MS } from '@/lib/waiting-lifecycle';
 import { SHARE_PICKER_USERNAME } from '@98plus/shared';
 
 export type SendChallengeParams = {
@@ -25,6 +24,7 @@ export type SendChallengeParams = {
 export function useSendChallenge(opts: {
   token: string | null;
   friends?: FriendCard[] | null;
+  /** Direct send: called immediately on click (before API). */
   onSuccess: () => void;
   onOptimisticApply: (params: SendChallengeParams & { username: string }) => void;
   onConfirm?: (params: SendChallengeParams & { username: string }) => void;
@@ -34,12 +34,13 @@ export function useSendChallenge(opts: {
       message: string;
     },
   ) => void;
+  /** Close instant success UI when API requires Telegram share instead. */
+  onRequiresShare?: () => void;
   onboard: () => Promise<void>;
   refreshUser: () => Promise<void>;
   reloadPending: () => Promise<void>;
   reloadFriends: () => Promise<void>;
 }) {
-  const [loading, setLoading] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [inFlight, setInFlight] = useState(false);
   const inFlightRef = useRef(false);
@@ -56,6 +57,8 @@ export function useSendChallenge(opts: {
   onConfirmRef.current = opts.onConfirm;
   const onFailRef = useRef(opts.onFail);
   onFailRef.current = opts.onFail;
+  const onRequiresShareRef = useRef(opts.onRequiresShare);
+  onRequiresShareRef.current = opts.onRequiresShare;
   const onboardRef = useRef(opts.onboard);
   onboardRef.current = opts.onboard;
   const refreshUserRef = useRef(opts.refreshUser);
@@ -93,36 +96,30 @@ export function useSendChallenge(opts: {
         },
       );
 
-      const canOptimisticNow =
+      const instantDirectSend =
         Boolean(username) &&
         !isSharePicker &&
         (resolved.isRegistered ||
           Boolean(resolved.receiverUserId || resolved.receiverTelegramId));
 
-      if (canOptimisticNow) {
+      let showedInstantSuccess = false;
+
+      if (instantDirectSend) {
         timingLog('sendBan optimistic applied immediately', 0);
         onOptimisticApplyRef.current({ ...params, username });
+        onSuccessRef.current();
+        showedInstantSuccess = true;
       }
 
       inFlightRef.current = true;
       setInFlight(true);
-      setLoading(true);
-      let visualReleased = false;
-      const releaseVisual = () => {
-        if (visualReleased) return;
-        visualReleased = true;
-        setLoading(false);
-      };
-      const visualTimer = window.setTimeout(
-        releaseVisual,
-        VISUAL_SEND_LOADING_MS,
-      );
       const requestStarted = performance.now();
 
       try {
         ctaLog('mutation:start', {
           username,
           path: resolved.isRegistered ? 'direct' : 'invite-share',
+          instant: instantDirectSend,
         });
 
         const res = await deliverDirectChallenge({
@@ -145,11 +142,15 @@ export function useSendChallenge(opts: {
           if (!res.shareUrl) {
             throw new Error('Не удалось отправить вызов');
           }
-          releaseVisual();
+
+          if (showedInstantSuccess) {
+            onRequiresShareRef.current?.();
+          }
+
           setSharing(true);
           ctaLog('share:open');
 
-          if (!canOptimisticNow) {
+          if (!instantDirectSend) {
             onOptimisticApplyRef.current({ ...params, username });
           }
 
@@ -159,6 +160,7 @@ export function useSendChallenge(opts: {
             res.shareUrl,
           );
           ctaLog('share:done');
+          setSharing(false);
 
           void api('/friends/touch-share', {
             method: 'POST',
@@ -174,13 +176,19 @@ export function useSendChallenge(opts: {
             token,
             body: JSON.stringify({ name: ANALYTICS_EVENTS.INVITE_SHARED }),
           }).catch(() => {});
+
+          if (!showedInstantSuccess) {
+            onSuccessRef.current();
+          }
         } else {
           timingLog('sendBan confirmed', performance.now() - requestStarted);
           onConfirmRef.current?.({ ...params, username });
+          if (!showedInstantSuccess) {
+            onSuccessRef.current();
+          }
+          backgroundSync();
         }
 
-        onSuccessRef.current();
-        backgroundSync();
         ctaLog('mutation:success');
       } catch (e) {
         const message = formatDeliveryError(e);
@@ -189,8 +197,6 @@ export function useSendChallenge(opts: {
         onFailRef.current({ ...params, username, message });
         throw new Error(message);
       } finally {
-        window.clearTimeout(visualTimer);
-        releaseVisual();
         setSharing(false);
         inFlightRef.current = false;
         setInFlight(false);
@@ -201,9 +207,8 @@ export function useSendChallenge(opts: {
 
   return {
     send,
-    loading,
     sharing,
     inFlight,
-    busy: loading || sharing,
+    busy: sharing,
   };
 }

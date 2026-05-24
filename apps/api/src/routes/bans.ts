@@ -38,7 +38,9 @@ bansRouter.use(requireAuth);
 
 const sendSchema = z.object({
   text: z.string().min(3).max(280),
-  durationMinutes: z.number().refine((m) => isValidDurationMinutes(m)),
+  durationMinutes: z.coerce
+    .number()
+    .refine((m) => isValidDurationMinutes(m)),
   durationHours: z.number().optional(),
   receiverTelegramId: z.string().optional(),
   receiverUserId: z.string().optional(),

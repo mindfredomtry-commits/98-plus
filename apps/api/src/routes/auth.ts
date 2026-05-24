@@ -170,9 +170,15 @@ async function devAuthHandler(req: Request, res: Response): Promise<void> {
     create: {
       telegramId: BigInt(id),
       firstName,
-      username,
+      username: username || 'dev_user',
+      isOnboarded: true,
+      energy: 80,
     },
-    update: { lastSeenAt: new Date() },
+    update: {
+      lastSeenAt: new Date(),
+      username: username || 'dev_user',
+      isOnboarded: true,
+    },
   });
 
   const token = signToken({

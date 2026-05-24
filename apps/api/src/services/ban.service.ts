@@ -32,10 +32,11 @@ import { createPendingInvite, normalizeUsername } from './invite.service';
 import { recordSocialContact } from './social-graph.service';
 import { applySenderSendCostOnly } from './energy.service';
 import {
+  buildDevBanInteractionFallback,
   ensureDevFixturesForUser,
-  ensureDevPeerUser,
   isDevModeUser,
   isDevTelegramId,
+  resolveDevBanReceiver,
 } from './dev-fixtures.service';
 
 const COOLDOWN_SEND = 10;
@@ -202,13 +203,13 @@ export async function sendBan(params: {
     receiver = await findUserByTelegramId(params.receiverTelegramId);
   } else if (params.receiverUsername) {
     receiver = await findUserByUsername(params.receiverUsername);
-    if (!receiver && devMode) {
-      await ensureDevPeerUser();
-      receiver = await findUserByUsername(params.receiverUsername);
-    }
   }
 
-  if (!receiver && params.receiverUsername) {
+  if (devMode) {
+    receiver = await resolveDevBanReceiver(senderId, params, receiver);
+  }
+
+  if (!devMode && !receiver && params.receiverUsername) {
     const targetUsername = normalizeUsername(params.receiverUsername);
     const sender = await prisma.user.findUnique({ where: { id: senderId } });
     if (sender?.username && normalizeUsername(sender.username) === targetUsername) {
@@ -236,7 +237,9 @@ export async function sendBan(params: {
   }
 
   if (!receiver) throw new Error('Укажи @username получателя.');
-  if (receiver.id === senderId) throw new Error('Нельзя запретить себе.');
+  if (!devMode && receiver.id === senderId) {
+    throw new Error('Нельзя запретить себе.');
+  }
 
   const pairKey =
     senderId < receiver.id
@@ -274,7 +277,13 @@ export async function sendBan(params: {
     durationMinutes,
   });
 
-  const interaction = (await mapBanToInteraction(ban.id, receiver.id))!;
+  let interaction =
+    (await mapBanToInteraction(ban.id, receiver.id)) ??
+    (devMode ? buildDevBanInteractionFallback(ban, receiver.id) : null);
+
+  if (!interaction) {
+    throw new Error('Не удалось создать вызов');
+  }
 
   broadcastToUser(receiver.id, { type: 'ban:incoming', payload: interaction });
 
@@ -330,12 +339,17 @@ export async function sendBan(params: {
     );
   }
 
-  await syncSession(receiver.id);
-  await syncSession(senderId);
+  try {
+    await syncSession(receiver.id);
+    await syncSession(senderId);
+  } catch (e) {
+    if (!devMode) throw e;
+    console.warn('[98+] dev send: syncSession skipped', (e as Error).message);
+  }
 
   return {
     ban: interaction,
-    energyDelta: energy.sender,
+    energyDelta: energy.sender ?? 0,
     pending: false,
     requiresShare: false,
   };
