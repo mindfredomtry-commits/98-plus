@@ -78,8 +78,7 @@ export async function buildBanResult(
       : ban.sender.username;
 
   const inviteOpponentLink =
-    inviteLinkForUser(opponentUsername) ??
-    miniAppLink({ type: 'invite', username: opponent.username ?? 'friend' });
+    inviteLinkForUser(opponentUsername ?? opponent.username ?? 'friend') ?? '';
 
   return {
     id: ban.id,

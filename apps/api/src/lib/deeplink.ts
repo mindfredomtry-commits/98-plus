@@ -1,6 +1,6 @@
 import {
-  buildMiniAppUrl,
   buildBotStartUrl,
+  buildMiniAppUrl,
   buildShareUrl,
   buildStartParam,
   type DeepLinkAction,
@@ -17,7 +17,10 @@ export function botUsername(): string {
 }
 
 export function miniAppLink(action: DeepLinkAction): string {
-  const base = 'https://arrow-scott-pursuit-incentive.trycloudflare.com';
+  const base =
+    process.env.WEBAPP_URL?.trim() ||
+    process.env.CORS_ORIGIN?.trim() ||
+    'https://arrow-scott-pursuit-incentive.trycloudflare.com';
 
   const clean = base.replace(/\/$/, '');
   const param = buildStartParam(action);
@@ -29,7 +32,11 @@ export function shareLink(action: DeepLinkAction, text: string): string {
   return buildShareUrl(botUsername(), buildStartParam(action), text);
 }
 
+/** Viral invite — opens bot /start first (not Mini App). */
 export function inviteLinkForUser(username: string | null): string | null {
   if (!username) return null;
-  return miniAppLink({ type: 'invite', username });
+  return buildBotStartUrl(
+    botUsername(),
+    buildStartParam({ type: 'invite', username }),
+  );
 }

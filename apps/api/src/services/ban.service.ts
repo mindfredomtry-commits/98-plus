@@ -21,11 +21,16 @@ import { mapUser } from './user-mapper';
 import { broadcastEnergyPopup, broadcastToUser } from '../websocket/hub';
 import {
   notifyRegisteredFriendBanAsync,
+  sendRegisteredFriendBanNotification,
   sendCheckNotification,
   sendIncomingBanNotification,
   sendResultNotification,
   sendTimerReminderNotification,
 } from '../bot/notifications';
+import {
+  shouldAttachNotificationDebug,
+  type BanNotificationDebug,
+} from '../lib/notification-debug';
 import { buildBanResult, checkOutcomeToPrisma, overboardToPrisma } from './result.service';
 import { miniAppLink } from '../lib/deeplink';
 import { trackEvent } from './analytics.service';
@@ -36,7 +41,6 @@ import {
   buildDevBanInteractionFallback,
   ensureDevFixturesForUser,
   isDevModeUser,
-  isDevTelegramId,
   resolveDevBanReceiver,
 } from './dev-fixtures.service';
 
@@ -238,7 +242,14 @@ export async function sendBan(params: {
   }
 
   if (!receiver) throw new Error('Укажи @username получателя.');
-  if (!devMode && receiver.id === senderId) {
+
+  if (receiver.id === senderId) {
+    console.warn('[98+] /bans/send blocked: receiver equals sender', {
+      senderId,
+      receiverUserId: receiver.id,
+      receiverUsername: receiver.username,
+      receiverTelegramId: receiver.telegramId.toString(),
+    });
     throw new Error('Нельзя запретить себе.');
   }
 
@@ -305,17 +316,24 @@ export async function sendBan(params: {
     source: 'CHALLENGE_RECEIVED',
   });
 
-  const notifyDev =
-    isDevTelegramId(receiver.telegramId) &&
-    isDevTelegramId(ban.sender.telegramId);
-
-  notifyRegisteredFriendBanAsync({
+  const notifyParams = {
+    banId: ban.id,
+    senderUserId: senderId,
+    receiverUserId: receiver.id,
     receiverTelegramId: receiver.telegramId,
+    receiverUsername: receiver.username,
     banText: text.trim(),
     durationMinutes,
-    banId: ban.id,
-    skipTelegram: notifyDev,
-  });
+    isDevMode: devMode,
+  };
+
+  let notificationDebug: BanNotificationDebug | undefined;
+  if (shouldAttachNotificationDebug()) {
+    notificationDebug =
+      await sendRegisteredFriendBanNotification(notifyParams);
+  } else {
+    notifyRegisteredFriendBanAsync(notifyParams);
+  }
 
   void syncSession(receiver.id).catch((e) => {
     console.warn('[98+] syncSession receiver failed', (e as Error).message);
@@ -329,6 +347,7 @@ export async function sendBan(params: {
     energyDelta: energy.sender ?? 0,
     pending: false,
     requiresShare: false,
+    ...(notificationDebug ? { notificationDebug } : {}),
   };
 }
 

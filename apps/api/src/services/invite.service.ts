@@ -74,7 +74,7 @@ export async function createPendingInvite(params: {
   const shareText = formatViralBanShareMessage({
     banText: invite.text,
     durationMinutes: invite.durationMinutes,
-    link: links.miniApp,
+    link: links.botStart,
   });
 
   await sendPendingBanInviteToUser({
@@ -93,7 +93,7 @@ export async function createPendingInvite(params: {
     source: 'INVITE_SENT',
   });
 
-  return { invite, links, shareText, shareUrl: links.miniApp };
+  return { invite, links, shareText, shareUrl: links.botStart };
 }
 
 /** Claim all pending invites matching this user's username */

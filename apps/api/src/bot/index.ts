@@ -10,7 +10,7 @@ import { miniAppLink } from '../lib/deeplink';
 import {
   formatIncomingBanMessage,
   formatSenderDisplayName,
-  TELEGRAM_REPLY_BUTTON_LABEL,
+  OPEN_MINI_APP_BUTTON_LABEL,
 } from '@98plus/shared';
 import { sendInviteClaimWelcome } from './notifications';
 
@@ -88,7 +88,7 @@ export function startBot(): Telegraf | null {
             durationMinutes: claimed.durationMinutes,
           }),
           Markup.inlineKeyboard([
-            Markup.button.webApp(TELEGRAM_REPLY_BUTTON_LABEL, banUrl),
+            Markup.button.webApp(OPEN_MINI_APP_BUTTON_LABEL, banUrl),
           ]),
         );
         return;
@@ -110,7 +110,7 @@ export function startBot(): Telegraf | null {
             durationMinutes: preview.durationMinutes,
           }),
           Markup.inlineKeyboard([
-            Markup.button.webApp(TELEGRAM_REPLY_BUTTON_LABEL, previewUrl),
+            Markup.button.webApp(OPEN_MINI_APP_BUTTON_LABEL, previewUrl),
           ]),
         );
         return;
@@ -119,14 +119,28 @@ export function startBot(): Telegraf | null {
 
     await claimInvitesForUser(user.id, user.username);
 
+    const defaultAppUrl = miniAppLink({
+      type: 'invite',
+      username: user.username ?? 'friend',
+    });
     await ctx.reply(
       'Здесь люди запрещают друг другу слабости.\n\nКто-то ждёт твой ответ?',
       Markup.inlineKeyboard([
-        Markup.button.webApp(TELEGRAM_REPLY_BUTTON_LABEL, webAppUrl()),
+        Markup.button.webApp(OPEN_MINI_APP_BUTTON_LABEL, defaultAppUrl),
       ]),
     );
   });
 
-  bot.launch().then(() => console.log('[bot] started'));
+  bot
+    .launch()
+    .then(() => {
+      console.log('[bot] started', {
+        hasToken: true,
+        webAppUrl: webAppUrl(),
+      });
+    })
+    .catch((err) => {
+      console.error('[bot] launch failed', (err as Error).message);
+    });
   return bot;
 }

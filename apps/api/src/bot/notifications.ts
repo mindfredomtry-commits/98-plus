@@ -12,11 +12,31 @@ import { getBot } from './index';
 import { miniAppLink } from '../lib/deeplink';
 import { prisma } from '../lib/prisma';
 import { buildChallengeCardSvg } from './challenge-card';
+import { isDevTelegramId } from '../services/dev-fixtures.service';
+import type { BanNotificationDebug } from '../lib/notification-debug';
+import {
+  formatTelegramApiError,
+  getTelegramBotToken,
+  telegramSendMessage,
+} from '../lib/telegram-api';
 
 function replyBanKeyboard(deepLink: string) {
   return Markup.inlineKeyboard([
     Markup.button.webApp(TELEGRAM_REPLY_BUTTON_LABEL, deepLink),
   ]);
+}
+
+function keyboardToJson(deepLink: string) {
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: TELEGRAM_REPLY_BUTTON_LABEL,
+          web_app: { url: deepLink },
+        },
+      ],
+    ],
+  };
 }
 
 async function deliverChallengeNotification(params: {
@@ -72,17 +92,79 @@ async function deliverChallengeNotification(params: {
   }
 }
 
-/** Direct ban to registered friend — viral text + Mini App button (plain sendMessage). */
-export async function sendRegisteredFriendBanNotification(params: {
+export interface RegisteredBanNotifyParams {
+  banId: string;
+  senderUserId: string;
+  receiverUserId: string;
   receiverTelegramId: bigint;
+  receiverUsername: string | null;
   banText: string;
   durationMinutes: number;
-  banId: string;
-}): Promise<void> {
-  const bot = getBot();
-  if (!bot) {
-    console.warn('[98+] telegram notify failed', { reason: 'no bot instance' });
-    return;
+  isDevMode: boolean;
+}
+
+function buildSkipReason(
+  receiverTelegramId: bigint,
+  senderUserId: string,
+  receiverUserId: string,
+): string | null {
+  if (receiverUserId === senderUserId) {
+    return 'receiver_equals_sender';
+  }
+  if (!receiverTelegramId || receiverTelegramId <= 0n) {
+    return 'no_receiver_telegram_id';
+  }
+  if (isDevTelegramId(receiverTelegramId)) {
+    return 'dev_fixture_telegram_id';
+  }
+  if (!getTelegramBotToken()) {
+    return 'no_bot_token';
+  }
+  return null;
+}
+
+/** Direct ban to registered friend — viral text + optional Mini App button. */
+export async function sendRegisteredFriendBanNotification(
+  params: RegisteredBanNotifyParams,
+): Promise<BanNotificationDebug> {
+  const chatId = params.receiverTelegramId.toString();
+  const baseDebug: BanNotificationDebug = {
+    attempted: true,
+    receiverTelegramId: chatId,
+    receiverUserId: params.receiverUserId,
+    receiverUsername: params.receiverUsername,
+    senderUserId: params.senderUserId,
+    skippedReason: null,
+    telegramError: null,
+    sent: false,
+    isDevFixtureReceiver: isDevTelegramId(params.receiverTelegramId),
+  };
+
+  const skipReason = buildSkipReason(
+    params.receiverTelegramId,
+    params.senderUserId,
+    params.receiverUserId,
+  );
+
+  console.log('[98+] telegram notify:start', {
+    banId: params.banId,
+    senderUserId: params.senderUserId,
+    receiverUserId: params.receiverUserId,
+    receiverTelegramId: chatId,
+    receiverUsername: params.receiverUsername,
+    isDevMode: params.isDevMode,
+    isDevFixtureReceiver: baseDebug.isDevFixtureReceiver,
+    skipReason,
+    hasBotToken: !!getTelegramBotToken(),
+    hasTelegraf: !!getBot(),
+  });
+
+  if (skipReason) {
+    console.log('[98+] telegram notify:skip', {
+      banId: params.banId,
+      reason: skipReason,
+    });
+    return { ...baseDebug, skippedReason: skipReason };
   }
 
   const link = miniAppLink({ type: 'ban', banId: params.banId });
@@ -92,43 +174,117 @@ export async function sendRegisteredFriendBanNotification(params: {
     link,
   });
 
-  try {
-    await bot.telegram.sendMessage(
-      params.receiverTelegramId.toString(),
-      message,
-      replyBanKeyboard(link),
-    );
-    console.log('[98+] telegram notify sent', {
-      banId: params.banId,
-      chatId: params.receiverTelegramId.toString(),
-    });
-  } catch (e) {
-    console.warn('[98+] telegram notify failed', {
-      banId: params.banId,
-      chatId: params.receiverTelegramId.toString(),
-      error: (e as Error).message,
-    });
+  const bot = getBot();
+
+  if (bot) {
+    try {
+      const result = await bot.telegram.sendMessage(
+        chatId,
+        message,
+        replyBanKeyboard(link),
+      );
+      console.log('[98+] telegram notify:sent', {
+        banId: params.banId,
+        chatId,
+        via: 'telegraf',
+        messageId: result.message_id,
+      });
+      return { ...baseDebug, sent: true };
+    } catch (e) {
+      const err = formatTelegramApiError(e);
+      console.warn('[98+] telegram notify:failed', {
+        banId: params.banId,
+        chatId,
+        via: 'telegraf+keyboard',
+        errorCode: err.code,
+        error: err.message,
+      });
+
+      try {
+        const plain = await bot.telegram.sendMessage(chatId, message);
+        console.log('[98+] telegram notify:sent', {
+          banId: params.banId,
+          chatId,
+          via: 'telegraf_plain',
+          messageId: plain.message_id,
+        });
+        return { ...baseDebug, sent: true };
+      } catch (e2) {
+        const err2 = formatTelegramApiError(e2);
+        console.warn('[98+] telegram notify:failed', {
+          banId: params.banId,
+          chatId,
+          via: 'telegraf_plain',
+          errorCode: err2.code,
+          error: err2.message,
+        });
+      }
+    }
   }
+
+  let apiRes = await telegramSendMessage({
+    chatId,
+    text: message,
+    replyMarkup: keyboardToJson(link),
+  });
+
+  if (apiRes.ok) {
+    console.log('[98+] telegram notify:sent', {
+      banId: params.banId,
+      chatId,
+      via: 'http_api+keyboard',
+      messageId: apiRes.result?.message_id,
+    });
+    return { ...baseDebug, sent: true };
+  }
+
+  console.warn('[98+] telegram notify:failed', {
+    banId: params.banId,
+    chatId,
+    via: 'http_api+keyboard',
+    errorCode: apiRes.error_code,
+    error: apiRes.description,
+  });
+
+  apiRes = await telegramSendMessage({ chatId, text: message });
+  if (apiRes.ok) {
+    console.log('[98+] telegram notify:sent', {
+      banId: params.banId,
+      chatId,
+      via: 'http_api_plain',
+      messageId: apiRes.result?.message_id,
+    });
+    return { ...baseDebug, sent: true };
+  }
+
+  const errMsg = apiRes.description ?? 'unknown';
+  console.warn('[98+] telegram notify:failed', {
+    banId: params.banId,
+    chatId,
+    via: 'http_api_plain',
+    errorCode: apiRes.error_code,
+    error: errMsg,
+  });
+
+  return {
+    ...baseDebug,
+    telegramError: errMsg,
+    telegramErrorCode: apiRes.error_code,
+  };
 }
 
-/** Non-blocking wrapper — never fails ban creation. */
-export function notifyRegisteredFriendBanAsync(params: {
-  receiverTelegramId: bigint;
-  banText: string;
-  durationMinutes: number;
-  banId: string;
-  skipTelegram?: boolean;
-}): void {
-  if (params.skipTelegram) {
-    console.log('[98+] dev notification skipped', { banId: params.banId });
-    return;
-  }
-
-  void sendRegisteredFriendBanNotification({
-    receiverTelegramId: params.receiverTelegramId,
-    banText: params.banText,
-    durationMinutes: params.durationMinutes,
-    banId: params.banId,
+/** Non-blocking — never fails ban creation. */
+export function notifyRegisteredFriendBanAsync(
+  params: RegisteredBanNotifyParams,
+): void {
+  void sendRegisteredFriendBanNotification(params).catch((e) => {
+    const err = formatTelegramApiError(e);
+    console.warn('[98+] telegram notify:failed', {
+      banId: params.banId,
+      unhandled: true,
+      errorCode: err.code,
+      error: err.message,
+    });
   });
 }
 

@@ -2,6 +2,9 @@
 
 export const TELEGRAM_REPLY_BUTTON_LABEL = '🚫 запретить в ответ!';
 
+/** Opens Mini App from bot chat after /start (viral / invite entry). */
+export const OPEN_MINI_APP_BUTTON_LABEL = 'Открыть 98+';
+
 export function formatDurationLabel(minutes: number): string {
   if (minutes >= 1440 && minutes % 1440 === 0) {
     const days = minutes / 1440;

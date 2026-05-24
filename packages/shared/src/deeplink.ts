@@ -75,11 +75,18 @@ export function buildBotStartUrl(
   return `https://t.me/${bot}?start=${encodeURIComponent(startParam)}`;
 }
 
+/**
+ * Telegram native share — viral entry via bot /start (not direct Mini App).
+ * Link in message body only (no duplicate url= preview).
+ */
 export function buildShareUrl(
   botUsername: string,
   startParam: string,
-  text: string,
+  messageBody: string,
 ): string {
-  const appUrl = buildMiniAppUrl(botUsername, startParam);
-  return `https://t.me/share/url?url=${encodeURIComponent(appUrl)}&text=${encodeURIComponent(text)}`;
+  const botStart = buildBotStartUrl(botUsername, startParam);
+  const shareText = messageBody.trim()
+    ? `${messageBody.trim()}\n\n${botStart}`
+    : botStart;
+  return `https://t.me/share/url?text=${encodeURIComponent(shareText)}`;
 }

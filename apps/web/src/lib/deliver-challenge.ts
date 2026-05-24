@@ -180,6 +180,8 @@ export async function deliverDirectChallenge(
       hasBan: !!res.ban,
       pending: res.pending,
       requiresShare: res.requiresShare,
+      notificationDebug: (res as { notificationDebug?: unknown })
+        .notificationDebug,
     });
   } catch (e) {
     if (e instanceof ApiError) {
