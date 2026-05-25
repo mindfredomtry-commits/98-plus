@@ -105,7 +105,9 @@ export default function OpenLandingPage() {
           </p>
         </div>
         <h1 className="open-page__title">98+</h1>
-        <p className="open-page__tagline">mini app в Telegram</p>
+        <p className="open-page__tagline">
+          Открой 98+ mini app в Telegram и начни.
+        </p>
 
         <div className="open-page__actions">
           <button
@@ -113,7 +115,7 @@ export default function OpenLandingPage() {
             className="open-page__btn open-page__btn--primary"
             onClick={openModal}
           >
-            🚫 ЗАПРЕТИТЬ В ОТВЕТ
+            🚫 ЗАПРЕЩАТЬ
           </button>
         </div>
 
@@ -136,7 +138,7 @@ export default function OpenLandingPage() {
           className="open-modal"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="open-modal-title"
+          aria-labelledby="open-modal-intro"
         >
           <button
             type="button"
@@ -148,12 +150,19 @@ export default function OpenLandingPage() {
           </button>
 
           <p className="open-modal__eyebrow">98+</p>
-          <h2 id="open-modal-title" className="open-modal__title">
-            TikTok запретил Telegram?
-          </h2>
-          <p className="open-modal__punch">ЗАПРЕТИ В ОТВЕТ!</p>
-          <p className="open-modal__subtitle">
-            Пройди мини-квест и открой 98+ в Telegram.
+          <div className="open-modal__intro">
+            <p className="open-modal__intro-desire" id="open-modal-intro">
+              ПОРА ЗАПРЕЩАТЬ!
+            </p>
+            <p className="open-modal__intro-problem">
+              Но TikTok запретил переход в Telegram!
+            </p>
+            <p className="open-modal__intro-solution">ЗАПРЕТИ В ОТВЕТ!</p>
+          </div>
+
+          <p className="open-modal__bridge">
+            Когда нажмёшь &laquo;ЗАПРЕЩАТЬ&raquo; &mdash; попадёшь на страницу
+            Telegram.
           </p>
 
           <div className="open-modal__cards">
@@ -237,7 +246,7 @@ export default function OpenLandingPage() {
             disabled={opening}
             aria-busy={opening}
           >
-            🚫 ЗАПРЕТИТЬ В ОТВЕТ
+            🚫 ЗАПРЕЩАТЬ
           </button>
 
           {blockedHint ? (
