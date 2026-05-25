@@ -100,11 +100,8 @@ export default function OpenLandingPage() {
 
       <div className="open-page__inner">
         <div className="open-page__logo-wrap">
-          <p className="open-page__logo" aria-hidden>
-            98+
-          </p>
+          <h1 className="open-page__logo">98+</h1>
         </div>
-        <h1 className="open-page__title">98+</h1>
         <p className="open-page__tagline">
           Открой 98+ mini app в Telegram и начни.
         </p>
@@ -138,7 +135,7 @@ export default function OpenLandingPage() {
           className="open-modal"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="open-modal-intro"
+          aria-labelledby="open-modal-heading"
         >
           <button
             type="button"
@@ -149,37 +146,41 @@ export default function OpenLandingPage() {
             ×
           </button>
 
-          <p className="open-modal__eyebrow">98+</p>
-          <div className="open-modal__intro">
-            <p className="open-modal__intro-desire" id="open-modal-intro">
-              ПОРА ЗАПРЕЩАТЬ!
-            </p>
-            <p className="open-modal__intro-problem">
-              Но TikTok запретил переход в Telegram!
-            </p>
-            <p className="open-modal__intro-solution">ЗАПРЕТИ В ОТВЕТ!</p>
-          </div>
-
-          <p className="open-modal__bridge">
-            Когда нажмёшь &laquo;ЗАПРЕЩАТЬ&raquo; &mdash; попадёшь на страницу
-            Telegram.
-          </p>
+          <h2 id="open-modal-heading" className="open-modal__heading">
+            Мини-квест
+          </h2>
 
           <div className="open-modal__cards">
-            <article className="open-modal__card open-modal__card--step1">
-              <div className="open-modal__step1-visual" aria-hidden>
-                <div className="open-modal__start-bot-wrap">
-                  <span className="open-modal__start-bot">START BOT</span>
-                </div>
-                <span className="open-modal__dots-pick">⋯</span>
+            <article className="open-modal__card open-modal__card--step0">
+              <div className="open-modal__card-body open-modal__card-body--stack">
+                <h3 className="open-modal__card-title">
+                  Когда нажмёшь &laquo;ЗАПРЕЩАТЬ&raquo; &mdash;
+                </h3>
+                <p className="open-modal__card-text open-modal__card-text--emph">
+                  попадёшь на страницу Telegram.
+                </p>
               </div>
-              <div className="open-modal__card-body">
+            </article>
+
+            <span className="open-modal__connector" aria-hidden>
+              ↓
+            </span>
+
+            <article className="open-modal__card open-modal__card--step1">
+              <div className="open-modal__card-body open-modal__card-body--stack">
                 <h3 className="open-modal__card-title">
                   Не нажимай START BOT ❌
                 </h3>
                 <p className="open-modal__card-text">
                   Нажми ⋯ в правом верхнем углу
                 </p>
+                <div className="open-modal__step1-row" aria-hidden>
+                  <div className="open-modal__start-bot-wrap">
+                    <span className="open-modal__start-bot">START BOT</span>
+                  </div>
+                  <span className="open-modal__step1-arrow">→</span>
+                  <span className="open-modal__dots-pick">⋯</span>
+                </div>
               </div>
             </article>
 
@@ -191,8 +192,8 @@ export default function OpenLandingPage() {
               <div className="open-modal__menu-mock" aria-hidden>
                 <span className="open-modal__menu-icon">
                   <svg
-                    width="18"
-                    height="18"
+                    width="20"
+                    height="20"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -211,6 +212,9 @@ export default function OpenLandingPage() {
                 <h3 className="open-modal__card-title">
                   Выбери &ldquo;Open in browser&rdquo;
                 </h3>
+                <p className="open-modal__card-text open-modal__card-text--short">
+                  в меню TikTok
+                </p>
               </div>
             </article>
 
@@ -254,12 +258,6 @@ export default function OpenLandingPage() {
               Если не открылось — открой через ⋯ → Open in browser.
             </p>
           ) : null}
-
-          <p className="open-modal__footer">
-            Каждый запрет — это твоя свобода.
-            <br />
-            Добро пожаловать в 98+
-          </p>
         </div>
       </div>
     </main>

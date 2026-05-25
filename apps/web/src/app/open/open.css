@@ -189,16 +189,8 @@
   }
 }
 
-.open-page__title {
-  margin: 0;
-  font-size: clamp(1.875rem, 9vw, 2.5rem);
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-shadow: 0 0 28px rgba(217, 70, 239, 0.5);
-}
-
 .open-page__tagline {
-  margin: 0 0 1.35rem;
+  margin: 0.15rem 0 1.35rem;
   font-size: 0.875rem;
   font-weight: 500;
   line-height: 1.4;
@@ -341,70 +333,14 @@
   transform: scale(0.92);
 }
 
-.open-modal__eyebrow {
-  margin: 0 0 0.35rem;
-  font-size: 0.6875rem;
-  font-weight: 800;
-  letter-spacing: 0.2em;
-  color: #e879f9;
-  text-shadow: 0 0 12px rgba(232, 121, 249, 0.5);
-}
-
-.open-modal__intro {
+.open-modal__heading {
   margin: 0 2rem 0.65rem 0;
-  padding: 0.75rem 0.85rem;
-  border-radius: 0.75rem;
-  background: rgba(24, 8, 36, 0.65);
-  border: 1px solid rgba(217, 70, 239, 0.3);
-  box-shadow: 0 0 24px rgba(192, 38, 211, 0.12);
-  text-align: left;
-}
-
-.open-modal__intro-desire {
-  margin: 0 0 0.4rem;
-  font-size: clamp(1.125rem, 5.5vw, 1.3125rem);
-  font-weight: 900;
-  letter-spacing: 0.03em;
-  line-height: 1.2;
-  color: #fdf4ff;
-  text-shadow: 0 0 20px rgba(232, 121, 249, 0.45);
-}
-
-.open-modal__intro-problem {
-  margin: 0 0 0.4rem;
   font-size: 0.8125rem;
-  font-weight: 600;
-  line-height: 1.35;
-  color: #fca5a5;
-}
-
-.open-modal__intro-solution {
-  margin: 0;
-  font-size: clamp(1.25rem, 6vw, 1.5rem);
-  font-weight: 900;
-  letter-spacing: 0.04em;
-  line-height: 1.15;
-  background: linear-gradient(90deg, #fdf4ff, #f0abfc, #e879f9);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: drop-shadow(0 0 18px rgba(232, 121, 249, 0.45));
-}
-
-.open-modal__bridge {
-  margin: 0 0 0.75rem;
-  padding: 0 0.15rem;
-  font-size: 0.75rem;
-  font-weight: 500;
-  line-height: 1.45;
-  text-align: left;
-  color: rgba(216, 180, 254, 0.88);
-}
-
-.open-modal__bridge strong,
-.open-modal__bridge :global(strong) {
-  font-weight: 700;
-  color: #f0abfc;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #e879f9;
+  text-shadow: 0 0 12px rgba(232, 121, 249, 0.4);
 }
 
 .open-modal__cards {
@@ -429,8 +365,18 @@
   animation: openCardIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
+.open-modal__card--step0,
 .open-modal__card--step1 {
-  animation-delay: 0.05s;
+  display: block;
+}
+
+.open-modal__card--step0 {
+  animation-delay: 0.03s;
+  border-color: rgba(232, 121, 249, 0.4);
+}
+
+.open-modal__card--step1 {
+  animation-delay: 0.08s;
   border-color: rgba(248, 113, 113, 0.35);
   box-shadow:
     0 0 28px rgba(239, 68, 68, 0.12),
@@ -439,11 +385,11 @@
 }
 
 .open-modal__card--step2 {
-  animation-delay: 0.12s;
+  animation-delay: 0.14s;
 }
 
 .open-modal__card--step3 {
-  animation-delay: 0.19s;
+  animation-delay: 0.2s;
   border-color: rgba(232, 121, 249, 0.55);
   box-shadow:
     0 0 32px rgba(217, 70, 239, 0.35),
@@ -482,100 +428,111 @@
   box-shadow: 0 0 18px rgba(192, 38, 211, 0.35);
 }
 
-/* Step 1 — Telegram START BOT (wrong) vs ⋯ */
-.open-modal__step1-visual {
-  flex-shrink: 0;
+.open-modal__card-body--stack {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+}
+
+.open-modal__card-text--emph {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: rgba(240, 171, 252, 0.95);
+}
+
+.open-modal__card-text--short {
+  font-size: 0.6875rem;
+  opacity: 0.8;
+  margin-top: 0.1rem;
+}
+
+/* Step 1 — flat Telegram START BOT (wrong) → ⋯ */
+.open-modal__step1-row {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 0.4rem;
-  width: 3.5rem;
+  justify-content: center;
+  gap: 0.65rem;
+  margin-top: 0.55rem;
+  width: 100%;
 }
 
 .open-modal__start-bot-wrap {
   position: relative;
   display: inline-block;
-  filter: saturate(0.85);
+  flex-shrink: 0;
 }
 
 .open-modal__start-bot {
   display: inline-block;
-  padding: 0.38rem 0.72rem;
-  font-size: 0.5rem;
+  min-width: 5.5rem;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.5625rem;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   line-height: 1;
+  text-align: center;
   text-transform: uppercase;
   color: #fff;
-  background: linear-gradient(180deg, #3db5f5 0%, #2aabee 45%, #229ed9 100%);
-  border-radius: 1.125rem;
-  box-shadow:
-    0 2px 6px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  white-space: nowrap;
+  background: #2481cc;
+  border: none;
+  border-radius: 1.25rem;
+  box-shadow: none;
 }
 
 .open-modal__start-bot-wrap::before {
   content: '';
   position: absolute;
-  left: -3px;
-  right: -3px;
-  top: 50%;
-  height: 2.5px;
-  background: #ef4444;
-  border-radius: 1px;
-  transform: translateY(-50%) rotate(-14deg);
+  inset: -3px;
+  border: 2px solid #ef4444;
+  border-radius: 1.35rem;
+  pointer-events: none;
   z-index: 2;
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.9);
 }
 
 .open-modal__start-bot-wrap::after {
   content: '✕';
   position: absolute;
-  top: -0.4rem;
-  right: -0.45rem;
+  top: 50%;
+  left: 50%;
   z-index: 3;
-  width: 0.875rem;
-  height: 0.875rem;
+  width: 1.125rem;
+  height: 1.125rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.5rem;
+  font-size: 0.625rem;
   font-weight: 800;
   line-height: 1;
   color: #fff;
-  background: #dc2626;
-  border: 1.5px solid #fecaca;
+  background: rgba(220, 38, 38, 0.92);
   border-radius: 50%;
-  box-shadow: 0 0 10px rgba(239, 68, 68, 0.75);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
 }
 
-.open-modal__start-bot-wrap {
-  outline: 2px solid rgba(239, 68, 68, 0.55);
-  outline-offset: 2px;
-  border-radius: 1.25rem;
+.open-modal__step1-arrow {
+  flex-shrink: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: rgba(167, 139, 250, 0.6);
 }
 
 .open-modal__dots-pick {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 2.75rem;
-  height: 2.75rem;
-  font-size: 1.75rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  font-size: 1.5rem;
   font-weight: 900;
   line-height: 1;
-  color: #fdf4ff;
-  background: linear-gradient(
-    145deg,
-    rgba(217, 70, 239, 0.45),
-    rgba(124, 58, 237, 0.3)
-  );
-  border: 2px solid rgba(244, 114, 182, 0.75);
-  border-radius: 0.75rem;
-  box-shadow:
-    0 0 22px rgba(232, 121, 249, 0.55),
-    0 0 8px rgba(192, 38, 211, 0.4);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  border: 2px solid rgba(244, 114, 182, 0.85);
+  border-radius: 0.5rem;
+  box-shadow: 0 0 20px rgba(232, 121, 249, 0.5);
   animation: openDotsPulse 1.8s ease-in-out infinite;
 }
 
