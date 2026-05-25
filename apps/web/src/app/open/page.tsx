@@ -149,7 +149,7 @@ export default function OpenLandingPage() {
           </button>
 
           <h2 id="open-modal-heading" className="open-modal__heading">
-            МИНИ-КВЕСТ
+            Обойди запрет TikTok! 🚫
           </h2>
 
           <div className="open-modal__cards">
