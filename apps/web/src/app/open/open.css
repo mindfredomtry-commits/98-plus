@@ -163,77 +163,72 @@
 
 .open-page__logo-wrap {
   margin-bottom: 0.5rem;
-  animation: openEmblemPulse 3s ease-in-out infinite;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: none;
+  border: none;
+  box-shadow: none;
 }
 
 .open-page__emblem {
   position: relative;
-  width: clamp(5.25rem, 26vw, 6.75rem);
-  height: clamp(5.25rem, 26vw, 6.75rem);
+  flex-shrink: 0;
+  width: clamp(6rem, 30vw, 7.25rem);
+  height: clamp(6rem, 30vw, 7.25rem);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   background: radial-gradient(
-    circle at 50% 42%,
-    #1c1228 0%,
-    #0c0812 48%,
-    #050508 100%
+    circle at 50% 45%,
+    #141018 0%,
+    #08060c 52%,
+    #030305 100%
   );
+  border: 3px solid #d946ef;
   box-shadow:
-    0 0 0 3px rgba(192, 38, 211, 0.55),
-    0 0 0 6px rgba(124, 58, 237, 0.18),
-    0 0 32px rgba(217, 70, 239, 0.5),
-    0 0 56px rgba(192, 38, 211, 0.28),
-    inset 0 0 24px rgba(0, 0, 0, 0.65);
+    0 0 28px rgba(217, 70, 239, 0.55),
+    0 0 52px rgba(192, 38, 211, 0.32);
+  animation: openEmblemPulse 3s ease-in-out infinite;
 }
 
 .open-page__emblem::before {
   content: '';
   position: absolute;
-  inset: -5px;
+  inset: -1.35rem;
   border-radius: 50%;
-  background: conic-gradient(
-    from 210deg,
-    rgba(232, 121, 249, 0.5),
-    rgba(124, 58, 237, 0.15),
-    rgba(217, 70, 239, 0.45),
-    rgba(232, 121, 249, 0.5)
-  );
-  filter: blur(6px);
-  opacity: 0.75;
+  background: transparent;
+  box-shadow: 0 0 2.5rem 0.75rem rgba(192, 38, 211, 0.28);
   z-index: -1;
+  pointer-events: none;
 }
 
 .open-page__emblem-text {
+  position: relative;
+  z-index: 1;
   margin: 0;
-  font-size: clamp(1.625rem, 7.5vw, 2.125rem);
+  font-size: clamp(1.75rem, 8vw, 2.25rem);
   font-weight: 900;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   line-height: 1;
-  color: #f8f4ff;
-  text-shadow:
-    0 0 18px rgba(232, 121, 249, 0.65),
-    0 0 6px rgba(192, 38, 211, 0.4);
+  color: #faf5ff;
+  text-shadow: 0 0 14px rgba(232, 121, 249, 0.45);
 }
 
 @keyframes openEmblemPulse {
   0%,
   100% {
+    border-color: #c026d3;
     box-shadow:
-      0 0 0 3px rgba(192, 38, 211, 0.5),
-      0 0 0 6px rgba(124, 58, 237, 0.15),
-      0 0 28px rgba(217, 70, 239, 0.45),
-      0 0 48px rgba(192, 38, 211, 0.22),
-      inset 0 0 24px rgba(0, 0, 0, 0.65);
+      0 0 26px rgba(217, 70, 239, 0.5),
+      0 0 48px rgba(192, 38, 211, 0.28);
   }
   50% {
+    border-color: #e879f9;
     box-shadow:
-      0 0 0 3px rgba(244, 114, 182, 0.65),
-      0 0 0 8px rgba(124, 58, 237, 0.22),
-      0 0 40px rgba(232, 121, 249, 0.62),
-      0 0 64px rgba(217, 70, 239, 0.35),
-      inset 0 0 24px rgba(0, 0, 0, 0.65);
+      0 0 36px rgba(232, 121, 249, 0.62),
+      0 0 60px rgba(217, 70, 239, 0.38);
   }
 }
 
