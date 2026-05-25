@@ -100,7 +100,9 @@ export default function OpenLandingPage() {
 
       <div className="open-page__inner">
         <div className="open-page__logo-wrap">
-          <h1 className="open-page__logo">98+</h1>
+          <div className="open-page__emblem">
+            <h1 className="open-page__emblem-text">98+</h1>
+          </div>
         </div>
         <p className="open-page__tagline">
           Открой 98+ mini app в Telegram и начни.
@@ -117,9 +119,9 @@ export default function OpenLandingPage() {
         </div>
 
         <p className="open-page__hook">
-          TikTok запретил переход в Telegram.
+          TikTok запретил переход в Telegram 😈
           <br />
-          <span className="open-page__hook-accent">Запрети в ответ.</span>
+          <span className="open-page__hook-accent">Запрети в ответ. 🚫</span>
         </p>
       </div>
 
@@ -147,7 +149,7 @@ export default function OpenLandingPage() {
           </button>
 
           <h2 id="open-modal-heading" className="open-modal__heading">
-            Мини-квест
+            МИНИ-КВЕСТ
           </h2>
 
           <div className="open-modal__cards">
@@ -179,7 +181,9 @@ export default function OpenLandingPage() {
                     <span className="open-modal__start-bot">START BOT</span>
                   </div>
                   <span className="open-modal__step1-arrow">→</span>
-                  <span className="open-modal__dots-pick">⋯</span>
+                  <span className="open-modal__dots-chrome">
+                    <span className="open-modal__dots-pick">⋯</span>
+                  </span>
                 </div>
               </div>
             </article>
