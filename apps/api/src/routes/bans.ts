@@ -79,16 +79,7 @@ bansRouter.get('/session', async (req: AuthRequest, res) => {
   const t0 = Date.now();
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
-    const ackHeader = req.headers['x-acked-incoming'];
-    const clientAckedIncomingIds =
-      typeof ackHeader === 'string' && ackHeader.trim()
-        ? ackHeader.split(',').map((s) => s.trim()).filter(Boolean)
-        : [];
-    const session = await getSessionState(
-      req.userId!,
-      user?.username ?? null,
-      clientAckedIncomingIds,
-    );
+    const session = await getSessionState(req.userId!, user?.username ?? null);
     console.log(`[98+] /bans/session in ${Date.now() - t0}ms`);
     res.json(session);
   } catch (e) {

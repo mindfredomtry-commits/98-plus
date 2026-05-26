@@ -12,9 +12,9 @@ import { claimInvitesForUser } from './invite.service';
 export async function getSessionState(
   userId: string,
   username?: string | null,
-  clientAckedIncomingIds: string[] = [],
 ): Promise<SessionState> {
-  await backfillStaleIncomingForUser(userId, clientAckedIncomingIds);
+  // Stale-by-age / reply-child / handled only — no client ids on plain session fetch.
+  await backfillStaleIncomingForUser(userId, []);
 
   let incoming = await getPendingIncoming(userId);
 
