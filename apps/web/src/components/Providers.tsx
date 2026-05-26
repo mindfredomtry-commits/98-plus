@@ -18,7 +18,11 @@ import type {
   ResultOpenMode,
 } from '@98plus/shared';
 import { isValidBanResultPayload } from '@98plus/shared';
-import { ANALYTICS_EVENTS, coerceFriendList } from '@98plus/shared';
+import {
+  ANALYTICS_EVENTS,
+  coerceFriendList,
+  formatSenderDisplayName,
+} from '@98plus/shared';
 import { useAuth } from '@/hooks/useAuth';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { EnergyPopupStack } from './EnergyPopupStack';
@@ -77,6 +81,10 @@ interface AppContextValue {
   sendDuration: number;
   setSendDuration: (v: number) => void;
   openSendTo: (receiver: string, text?: string) => void;
+  /** Opens send sheet to reply to a pending incoming ban (uses /reply API). */
+  startIncomingReply: (ban: BanInteraction) => void;
+  incomingReplyBanId: string | null;
+  clearIncomingReply: () => void;
   applySession: (s: SessionState) => void;
   reloadPending: () => Promise<void>;
   reloadFriends: () => Promise<void>;
@@ -196,6 +204,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [sendReceiver, setSendReceiver] = useState('');
   const [sendText, setSendText] = useState('');
   const [sendDuration, setSendDuration] = useState(10);
+  const [incomingReplyBanId, setIncomingReplyBanId] = useState<string | null>(
+    null,
+  );
   const [viralOnboarding, setViralOnboarding] = useState(false);
   const [banSentOpen, setBanSentOpen] = useState(false);
   const [optimisticSendWait, setOptimisticSendWait] =
@@ -458,8 +469,26 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, [applySession]);
 
   const openSendTo = useCallback((receiver: string, text = '') => {
-    setSendReceiver(receiver.startsWith('@') ? receiver : `@${receiver}`);
+    const trimmed = receiver.trim();
+    const withAt =
+      trimmed && !trimmed.startsWith('@') ? `@${trimmed}` : trimmed;
+    setSendReceiver(withAt);
     setSendText(text);
+  }, []);
+
+  const clearIncomingReply = useCallback(() => {
+    setIncomingReplyBanId(null);
+  }, []);
+
+  const startIncomingReply = useCallback((ban: BanInteraction) => {
+    const u = ban.sender?.username?.replace(/^@/, '').trim();
+    const label = u
+      ? `@${u}`
+      : formatSenderDisplayName(ban.sender?.username, ban.sender?.firstName);
+    setIncomingReplyBanId(ban.id);
+    setSendReceiver(label);
+    setSendText('');
+    setSendOpen(true);
   }, []);
 
   const { status: wsStatus, eventLog } = useWebSocket(
@@ -630,6 +659,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       sendDuration,
       setSendDuration,
       openSendTo,
+      startIncomingReply,
+      incomingReplyBanId,
+      clearIncomingReply,
       applySession,
       reloadPending,
       reloadFriends,
@@ -676,6 +708,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       sendText,
       sendDuration,
       openSendTo,
+      startIncomingReply,
+      incomingReplyBanId,
+      clearIncomingReply,
       applySession,
       reloadPending,
       reloadFriends,

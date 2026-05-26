@@ -913,6 +913,26 @@ html.scroll-lock body {
   padding-bottom: 0.85rem;
 }
 
+.modal-card--incoming {
+  max-width: 19.5rem;
+  padding: 1.35rem 1.15rem 1.15rem;
+}
+
+.incoming-modal-title {
+  letter-spacing: 0.01em;
+  text-transform: lowercase;
+}
+
+.incoming-modal-sender .modal-avatar {
+  width: 3.5rem;
+  height: 3.5rem;
+}
+
+.incoming-modal-text {
+  color: rgba(255, 255, 255, 0.94);
+  font-style: italic;
+}
+
 .modal-avatar {
   width: 3.5rem;
   height: 3.5rem;

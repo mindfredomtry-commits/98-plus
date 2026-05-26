@@ -3,6 +3,9 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BAN_DURATIONS_MINUTES, SEED_BANS } from '@98plus/shared';
+import type { SessionState } from '@98plus/shared';
+import { api } from '@/lib/api';
+import { formatDeliveryError } from '@/lib/deliver-challenge';
 import { useApp } from './Providers';
 import { BigButton } from './BigButton';
 import { useTelegram } from '@/hooks/useTelegram';
@@ -24,14 +27,20 @@ export function SendBanSheet() {
     reloadFriends,
     onboard,
     setBanSentOpen,
+    incomingReplyBanId,
+    clearIncomingReply,
+    applySession,
+    reloadFriends,
   } = useApp();
   const { haptic, bindBack } = useTelegram();
   const [duration, setDuration] = useState(10);
+  const isReplyFlow = !!incomingReplyBanId;
 
   const onSuccess = () => {
     setSendOpen(false);
     setSendText('');
     setSendReceiver('');
+    clearIncomingReply();
     setBanSentOpen(true);
   };
 
@@ -50,17 +59,38 @@ export function SendBanSheet() {
     return bindBack(() => setSendOpen(false), true);
   }, [sendOpen, bindBack, setSendOpen]);
 
+  useEffect(() => {
+    if (!sendOpen) clearIncomingReply();
+  }, [sendOpen, clearIncomingReply]);
+
   async function zapretit() {
     if (!token || !sendText.trim() || !sendReceiver.trim()) return;
     haptic('medium');
     try {
+      if (incomingReplyBanId) {
+        const res = await api<{
+          parentId: string;
+          session: SessionState;
+        }>(`/bans/${incomingReplyBanId}/reply`, {
+          method: 'POST',
+          token,
+          body: JSON.stringify({
+            text: sendText.trim(),
+            durationMinutes: duration,
+          }),
+        });
+        if (res.session) applySession(res.session);
+        await reloadFriends();
+        onSuccess();
+        return;
+      }
       await send({
         text: sendText,
         receiverUsername: sendReceiver,
         durationMinutes: duration,
       });
     } catch (e) {
-      alert((e as Error).message);
+      alert(formatDeliveryError(e));
     }
   }
 
@@ -85,15 +115,23 @@ export function SendBanSheet() {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="text-center text-sm text-muted">Кого вызываешь?</p>
+            <p className="text-center text-sm text-muted">
+              {isReplyFlow ? 'Запрет в ответ' : 'Кого вызываешь?'}
+            </p>
 
-            {token && (
-              <FriendPicker
-                token={token}
-                value={sendReceiver}
-                onChange={setSendReceiver}
-                friends={friends}
-              />
+            {isReplyFlow ? (
+              <p className="text-center text-lg font-semibold text-white py-1">
+                {sendReceiver}
+              </p>
+            ) : (
+              token && (
+                <FriendPicker
+                  token={token}
+                  value={sendReceiver}
+                  onChange={setSendReceiver}
+                  friends={friends}
+                />
+              )
             )}
 
             <div className="flex flex-wrap gap-2">
