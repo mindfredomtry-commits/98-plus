@@ -22,6 +22,7 @@ import {
   getBanResult,
   acknowledgeBanResult,
   acknowledgeIncomingBan,
+  backfillStaleIncomingForUser,
   resolveDeepLinkBan,
 } from '../services/ban.service';
 import { getSessionState } from '../services/session.service';
@@ -65,11 +66,29 @@ bansRouter.get('/pending/check', async (req: AuthRequest, res) => {
   res.json({ ban, waiting });
 });
 
+bansRouter.post('/incoming/backfill-ack', async (req: AuthRequest, res) => {
+  const body = (req.body ?? {}) as { banIds?: unknown };
+  const banIds = Array.isArray(body.banIds)
+    ? body.banIds.filter((id): id is string => typeof id === 'string')
+    : [];
+  const count = await backfillStaleIncomingForUser(req.userId!, banIds);
+  res.json({ ok: true, count });
+});
+
 bansRouter.get('/session', async (req: AuthRequest, res) => {
   const t0 = Date.now();
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
-    const session = await getSessionState(req.userId!, user?.username ?? null);
+    const ackHeader = req.headers['x-acked-incoming'];
+    const clientAckedIncomingIds =
+      typeof ackHeader === 'string' && ackHeader.trim()
+        ? ackHeader.split(',').map((s) => s.trim()).filter(Boolean)
+        : [];
+    const session = await getSessionState(
+      req.userId!,
+      user?.username ?? null,
+      clientAckedIncomingIds,
+    );
     console.log(`[98+] /bans/session in ${Date.now() - t0}ms`);
     res.json(session);
   } catch (e) {

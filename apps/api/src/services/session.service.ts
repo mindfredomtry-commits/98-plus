@@ -5,13 +5,17 @@ import {
   getPendingCheck,
   getWaitingCheck,
   getLatestPendingResultId,
+  backfillStaleIncomingForUser,
 } from './ban.service';
 import { claimInvitesForUser } from './invite.service';
 
 export async function getSessionState(
   userId: string,
   username?: string | null,
+  clientAckedIncomingIds: string[] = [],
 ): Promise<SessionState> {
+  await backfillStaleIncomingForUser(userId, clientAckedIncomingIds);
+
   let incoming = await getPendingIncoming(userId);
 
   if (!incoming && username) {

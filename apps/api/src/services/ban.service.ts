@@ -7,6 +7,7 @@ import {
   CHECK_TIMEOUT_MINUTES,
   REMINDER_BEFORE_MS,
   COOLDOWN_CHECK_SECONDS,
+  INCOMING_PENDING_MAX_AGE_MS,
 } from '@98plus/shared';
 import type { BanInteraction, CheckState, BanResult } from '@98plus/shared';
 import { prisma } from '../lib/prisma';
@@ -818,17 +819,120 @@ export async function getActiveInteractions(userId: string, limit = 15) {
   return result;
 }
 
+async function markIncomingAcked(banId: string): Promise<void> {
+  await prisma.ban.update({
+    where: { id: banId },
+    data: { receiverIncomingAckAt: new Date() },
+  });
+}
+
+/** Stale or already-handled pending incoming — do not show modal again. */
+async function isOfferableIncomingBan(
+  ban: {
+    id: string;
+    status: string;
+    createdAt: Date;
+    receiverIncomingAckAt: Date | null;
+    handledAt: Date | null;
+    isOverboard: boolean;
+    _count?: { counterBans: number };
+  },
+): Promise<boolean> {
+  if (ban.receiverIncomingAckAt) return false;
+  if (ban.status !== 'PENDING') return false;
+  if (ban.isOverboard) return false;
+  if (ban.handledAt) {
+    await markIncomingAcked(ban.id);
+    return false;
+  }
+
+  const ageMs = Date.now() - ban.createdAt.getTime();
+  if (ageMs > INCOMING_PENDING_MAX_AGE_MS) {
+    await markIncomingAcked(ban.id);
+    return false;
+  }
+
+  if ((ban._count?.counterBans ?? 0) > 0) {
+    await markIncomingAcked(ban.id);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Backfill ack for stale / already-acted pending incoming (pre receiverIncomingAckAt era).
+ */
+export async function backfillStaleIncomingForUser(
+  userId: string,
+  clientAckedBanIds: string[] = [],
+): Promise<number> {
+  const cutoff = new Date(Date.now() - INCOMING_PENDING_MAX_AGE_MS);
+  let total = 0;
+
+  const staleByAge = await prisma.ban.updateMany({
+    where: {
+      receiverId: userId,
+      status: 'PENDING',
+      receiverIncomingAckAt: null,
+      createdAt: { lt: cutoff },
+    },
+    data: { receiverIncomingAckAt: new Date() },
+  });
+  total += staleByAge.count;
+
+  const withReply = await prisma.ban.findMany({
+    where: {
+      receiverId: userId,
+      status: 'PENDING',
+      receiverIncomingAckAt: null,
+      counterBans: { some: {} },
+    },
+    select: { id: true },
+  });
+  for (const b of withReply) {
+    await markIncomingAcked(b.id);
+    total += 1;
+  }
+
+  const uniqueIds = [
+    ...new Set(clientAckedBanIds.filter((id) => typeof id === 'string' && id.length > 0)),
+  ];
+  if (uniqueIds.length > 0) {
+    const fromClient = await prisma.ban.updateMany({
+      where: {
+        id: { in: uniqueIds },
+        receiverId: userId,
+        receiverIncomingAckAt: null,
+      },
+      data: { receiverIncomingAckAt: new Date() },
+    });
+    total += fromClient.count;
+  }
+
+  return total;
+}
+
 export async function getPendingIncoming(userId: string) {
-  const ban = await prisma.ban.findFirst({
+  const candidates = await prisma.ban.findMany({
     where: {
       receiverId: userId,
       status: 'PENDING',
       receiverIncomingAckAt: null,
     },
     orderBy: { createdAt: 'desc' },
+    take: 15,
+    include: {
+      _count: { select: { counterBans: true } },
+    },
   });
-  if (!ban) return null;
-  return mapBanToInteraction(ban.id, userId);
+
+  for (const ban of candidates) {
+    if (await isOfferableIncomingBan(ban)) {
+      return mapBanToInteraction(ban.id, userId);
+    }
+  }
+  return null;
 }
 
 /** Receiver saw incoming notification — ban may stay PENDING until reply/overboard. */
