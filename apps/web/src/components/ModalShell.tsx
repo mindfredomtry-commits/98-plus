@@ -17,6 +17,8 @@ interface Props {
   closeOnBackdrop?: boolean;
   /** Extra class on the card panel */
   cardClassName?: string;
+  /** Skip re-animation when only children change (success modal). */
+  stable?: boolean;
 }
 
 export function ModalShell({
@@ -28,6 +30,7 @@ export function ModalShell({
   light = false,
   closeOnBackdrop = true,
   cardClassName = '',
+  stable = false,
 }: Props) {
   const cardTransition = light
     ? { duration: 0.16, ease: [0.22, 1, 0.36, 1] as const }
@@ -47,19 +50,23 @@ export function ModalShell({
           role="dialog"
           aria-modal="true"
           aria-label={ariaLabel}
-          initial={{ opacity: 0 }}
+          initial={stable ? false : { opacity: 0 }}
           animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={backdropTransition}
+          exit={stable ? undefined : { opacity: 0 }}
+          transition={stable ? { duration: 0 } : backdropTransition}
           className={`modal-backdrop${light ? ' modal-backdrop--light' : ''}`}
           style={{ zIndex }}
           onClick={closeOnBackdrop ? onClose : undefined}
         >
           <motion.div
-            initial={{ opacity: 0, scale: light ? 0.97 : 0.94, y: light ? 6 : 12 }}
+            initial={
+              stable ? false : { opacity: 0, scale: light ? 0.97 : 0.94, y: light ? 6 : 12 }
+            }
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: light ? 0.98 : 0.96, y: light ? 4 : 8 }}
-            transition={cardTransition}
+            exit={
+              stable ? undefined : { opacity: 0, scale: light ? 0.98 : 0.96, y: light ? 4 : 8 }
+            }
+            transition={stable ? { duration: 0 } : cardTransition}
             className={`modal-card${cardClassName ? ` ${cardClassName}` : ''}`}
             onClick={(e) => e.stopPropagation()}
           >

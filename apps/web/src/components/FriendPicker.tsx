@@ -5,7 +5,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { FriendCard } from '@98plus/shared';
 import { coerceFriendList } from '@98plus/shared';
 import { api } from '@/lib/api';
+import { preloadAvatarUrls } from '@/lib/avatar-url';
 import { useApp } from './Providers';
+import { AvatarImage } from './AvatarImage';
 import {
   mergeFriendsWithOptimistic,
   isOptimisticSendWaitActive,
@@ -23,27 +25,17 @@ function FriendAvatar({
     friend.username?.[0] ??
     '?'
   ).toUpperCase();
-  const dim = compact
-    ? 'w-10 h-10 text-sm'
-    : 'w-[72px] h-[72px] text-2xl';
-
-  if (friend.photoUrl) {
-    return (
-      <img
-        src={friend.photoUrl}
-        alt=""
-        loading="lazy"
-        className={`${dim} rounded-full object-cover ring-2 ring-white/15 bg-card`}
-      />
-    );
-  }
+  const sizeClass = compact ? 'w-10 h-10' : 'w-[72px] h-[72px]';
+  const textClass = compact ? 'text-sm' : 'text-2xl';
 
   return (
-    <div
-      className={`${dim} rounded-full flex items-center justify-center font-bold bg-gradient-to-br from-white/10 to-white/5 ring-2 ring-white/10 text-muted`}
-    >
-      {letter}
-    </div>
+    <AvatarImage
+      src={friend.photoUrl}
+      letter={letter}
+      sizeClass={sizeClass}
+      textClass={textClass}
+      priority={!compact}
+    />
   );
 }
 
@@ -101,7 +93,7 @@ export function FriendAvatarCard({
         pending ? 'friend-pending-pulse' : ''
       } ${online ? 'friend-online-ring' : recent ? 'friend-recent-glow' : ''}`}
     >
-      <div className="relative">
+      <div className="relative avatar-card-slot">
         <FriendAvatar friend={friend} compact={compact} />
         {friend.userId && !compact ? (
           <span
@@ -207,7 +199,7 @@ function FriendPickerInner({
   addMoreBusy = false,
   onRequireBan,
 }: FriendPickerProps) {
-  const { optimisticSendWait } = useApp();
+  const { optimisticSendWait, banSentOpen } = useApp();
 
   const [friends, setFriends] = useState<FriendCard[]>(() =>
     coerceFriendList(externalFriends),
@@ -253,6 +245,10 @@ function FriendPickerInner({
       (f) => (f.username ?? '').toLowerCase() !== 'share',
     );
   }, [friends, optimisticSendWait, externalFriends]);
+
+  useEffect(() => {
+    preloadAvatarUrls(people.map((f) => f.photoUrl));
+  }, [people]);
 
   function pick(username: string | null | undefined) {
     const clean = (username ?? '').replace(/^@/, '').trim();
@@ -301,7 +297,7 @@ function FriendPickerInner({
       </div>
 
       <AnimatePresence>
-        {selectedUsername && !compact ? (
+        {selectedUsername && !compact && !banSentOpen ? (
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

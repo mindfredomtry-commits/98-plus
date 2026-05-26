@@ -35,11 +35,9 @@ function SendBanDockInner({ visible = true }: Props) {
     sendReceiver,
     sendText,
     sendDuration,
-    refreshUser,
-    reloadPending,
-    reloadFriends,
-    onboard,
+    banSentOpen,
     setBanSentOpen,
+    scheduleDeferredSync,
     applyOptimisticSend,
     confirmOptimisticSend,
     rollbackOptimisticSend,
@@ -78,6 +76,7 @@ function SendBanDockInner({ visible = true }: Props) {
     },
     onConfirm: (p) => {
       confirmOptimisticSend(p.username);
+      setSendInlineError(null);
     },
     onRequiresShare: () => {
       setBanSentOpen(false);
@@ -97,10 +96,7 @@ function SendBanDockInner({ visible = true }: Props) {
             : 'Не отправилось. Повторить?',
       );
     },
-    onboard,
-    refreshUser,
-    reloadPending,
-    reloadFriends,
+    scheduleDeferredSync,
   });
 
   const selectedUsername = useMemo(
@@ -126,8 +122,9 @@ function SendBanDockInner({ visible = true }: Props) {
 
   const label = sharing ? 'Выбери чат в Telegram…' : '🚫 Запретить';
 
-  const helperText =
-    sendInlineError ?? (sharing ? 'Выбери чат в Telegram…' : undefined);
+  const helperText = banSentOpen
+    ? undefined
+    : sendInlineError ?? (sharing ? 'Выбери чат в Telegram…' : undefined);
 
   function failBanValidation(): boolean {
     if (hasBan) return false;
@@ -170,10 +167,7 @@ function SendBanDockInner({ visible = true }: Props) {
           durationMinutes: sendDuration,
           afterShare: async () => {
             completeFirstBan();
-            await onboard().catch(() => {});
-            await refreshUser();
-            await reloadPending();
-            await reloadFriends();
+            scheduleDeferredSync();
           },
         });
         onSuccess();
@@ -189,10 +183,9 @@ function SendBanDockInner({ visible = true }: Props) {
           token,
           banText: challengeText,
           durationMinutes: sendDuration,
-          afterShare: async () => {
-            await reloadFriends();
-            await reloadPending();
-          },
+            afterShare: () => {
+              scheduleDeferredSync();
+            },
         });
         onSuccess();
       } catch (e) {
@@ -261,7 +254,7 @@ function SendBanDockInner({ visible = true }: Props) {
         <GlowCTA
           onClick={zapretit}
           ready={ctaReady}
-          busy={sharing}
+          busy={banSentOpen ? false : sharing || inFlight}
           helperText={helperText}
         >
           {label}

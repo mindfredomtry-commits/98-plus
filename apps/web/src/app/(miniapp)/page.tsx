@@ -58,6 +58,7 @@ export default function HomePage() {
     openBanResult,
     applySession,
     reloadPending,
+    banSentOpen,
     wsStatus,
     eventLog,
   } = useApp();
@@ -208,7 +209,9 @@ export default function HomePage() {
   }
 
   return (
-    <div className="app-page">
+    <div
+      className={`app-page${banSentOpen ? ' app-page--success-modal' : ''}`}
+    >
       <ShellErrorBoundary name="ambience" fallback={null}>
         <ArenaAmbience />
       </ShellErrorBoundary>

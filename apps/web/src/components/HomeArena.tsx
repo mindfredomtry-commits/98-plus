@@ -34,10 +34,7 @@ function HomeArenaInner({ user }: Props) {
     setSendDuration,
     showFirstBanOnboarding,
     completeFirstBan,
-    refreshUser,
-    reloadPending,
-    reloadFriends,
-    onboard,
+    scheduleDeferredSync,
     setBanSentOpen,
     setInlineBanError,
     triggerBanInputShake,
@@ -119,9 +116,8 @@ function HomeArenaInner({ user }: Props) {
             token,
             banText: text,
             durationMinutes: sendDuration,
-            afterShare: async () => {
-              await reloadFriends();
-              await reloadPending();
+            afterShare: () => {
+              scheduleDeferredSync();
             },
           });
         }
@@ -139,10 +135,7 @@ function HomeArenaInner({ user }: Props) {
       sendDuration,
       setInlineBanError,
       completeFirstBan,
-      onboard,
-      refreshUser,
-      reloadPending,
-      reloadFriends,
+      scheduleDeferredSync,
       setBanSentOpen,
     ],
   );

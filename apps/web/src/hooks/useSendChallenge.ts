@@ -21,6 +21,10 @@ export type SendChallengeParams = {
   durationMinutes: number;
 };
 
+function isSendCooldownMessage(message: string): boolean {
+  return /подожди/i.test(message);
+}
+
 export function useSendChallenge(opts: {
   token: string | null;
   friends?: FriendCard[] | null;
@@ -40,6 +44,8 @@ export function useSendChallenge(opts: {
   refreshUser: () => Promise<void>;
   reloadPending: () => Promise<void>;
   reloadFriends: () => Promise<void>;
+  /** Refresh after success modal closes — avoids flicker under modal. */
+  scheduleDeferredSync?: () => void;
 }) {
   const [sharing, setSharing] = useState(false);
   const [inFlight, setInFlight] = useState(false);
@@ -59,21 +65,8 @@ export function useSendChallenge(opts: {
   onFailRef.current = opts.onFail;
   const onRequiresShareRef = useRef(opts.onRequiresShare);
   onRequiresShareRef.current = opts.onRequiresShare;
-  const onboardRef = useRef(opts.onboard);
-  onboardRef.current = opts.onboard;
-  const refreshUserRef = useRef(opts.refreshUser);
-  refreshUserRef.current = opts.refreshUser;
-  const reloadPendingRef = useRef(opts.reloadPending);
-  reloadPendingRef.current = opts.reloadPending;
-  const reloadFriendsRef = useRef(opts.reloadFriends);
-  reloadFriendsRef.current = opts.reloadFriends;
-
-  const backgroundSync = useCallback(() => {
-    void onboardRef.current().catch(() => {});
-    void refreshUserRef.current().catch(() => {});
-    void reloadPendingRef.current().catch(() => {});
-    void reloadFriendsRef.current().catch(() => {});
-  }, []);
+  const scheduleDeferredSyncRef = useRef(opts.scheduleDeferredSync);
+  scheduleDeferredSyncRef.current = opts.scheduleDeferredSync;
 
   const send = useCallback(
     async (params: SendChallengeParams) => {
@@ -104,6 +97,9 @@ export function useSendChallenge(opts: {
 
       let showedInstantSuccess = false;
 
+      inFlightRef.current = true;
+      setInFlight(true);
+
       if (instantDirectSend) {
         timingLog('sendBan optimistic applied immediately', 0);
         onOptimisticApplyRef.current({ ...params, username });
@@ -111,8 +107,6 @@ export function useSendChallenge(opts: {
         showedInstantSuccess = true;
       }
 
-      inFlightRef.current = true;
-      setInFlight(true);
       const requestStarted = performance.now();
 
       try {
@@ -180,18 +174,25 @@ export function useSendChallenge(opts: {
           if (!showedInstantSuccess) {
             onSuccessRef.current();
           }
+          scheduleDeferredSyncRef.current?.();
         } else {
           timingLog('sendBan confirmed', performance.now() - requestStarted);
           onConfirmRef.current?.({ ...params, username });
           if (!showedInstantSuccess) {
             onSuccessRef.current();
           }
-          backgroundSync();
+          scheduleDeferredSyncRef.current?.();
         }
 
         ctaLog('mutation:success');
       } catch (e) {
         const message = formatDeliveryError(e);
+        if (showedInstantSuccess && isSendCooldownMessage(message)) {
+          ctaLog('mutation:cooldown-after-success', { username, message });
+          onConfirmRef.current?.({ ...params, username });
+          scheduleDeferredSyncRef.current?.();
+          return;
+        }
         console.error('[98+] sendBan rollback', { username, message, error: e });
         ctaLog('mutation:fail', { message });
         onFailRef.current({ ...params, username, message });
@@ -202,13 +203,13 @@ export function useSendChallenge(opts: {
         setInFlight(false);
       }
     },
-    [backgroundSync],
+    [],
   );
 
   return {
     send,
     sharing,
     inFlight,
-    busy: sharing,
+    busy: sharing || inFlight,
   };
 }

@@ -679,14 +679,34 @@ html.scroll-lock body {
   );
 }
 
-.friend-online-ring .relative > img,
-.friend-online-ring .relative > div:first-child {
+.friend-online-ring .avatar-card-slot,
+.friend-online-ring .avatar-image {
   box-shadow: 0 0 22px rgba(155, 89, 182, 0.55);
+  border-radius: 9999px;
 }
 
-.friend-recent-glow .relative > img,
-.friend-recent-glow .relative > div:first-child {
+.friend-recent-glow .avatar-card-slot,
+.friend-recent-glow .avatar-image {
   box-shadow: 0 0 12px rgba(251, 191, 36, 0.35);
+  border-radius: 9999px;
+}
+
+.avatar-image__fallback {
+  z-index: 0;
+}
+
+.avatar-image__photo {
+  z-index: 1;
+}
+
+.app-page--success-modal .app-main,
+.app-page--success-modal .cta-dock {
+  pointer-events: none;
+}
+
+.app-page--success-modal .home-arena,
+.app-page--success-modal .cta-dock-inner {
+  contain: layout style paint;
 }
 
 .friend-pending-pulse {

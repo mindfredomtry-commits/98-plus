@@ -109,6 +109,8 @@ interface AppContextValue {
   viralOnboarding: boolean;
   banSentOpen: boolean;
   setBanSentOpen: (v: boolean) => void;
+  /** Queue session/friends refresh until success modal closes. */
+  scheduleDeferredSync: () => void;
   optimisticSendWait: OptimisticSendWait | null;
   applyOptimisticSend: (params: {
     username: string;
@@ -249,7 +251,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     null,
   );
   const [viralOnboarding, setViralOnboarding] = useState(false);
-  const [banSentOpen, setBanSentOpen] = useState(false);
+  const [banSentOpen, setBanSentOpenRaw] = useState(false);
+  const [uiFreeze, setUiFreeze] = useState<{
+    friends: FriendCard[];
+    activeBans: BanInteraction[];
+    optimisticSendWait: OptimisticSendWait | null;
+  } | null>(null);
   const [optimisticSendWait, setOptimisticSendWait] =
     useState<OptimisticSendWait | null>(null);
   const [firstBanComplete, setFirstBanComplete] = useState(false);
@@ -263,6 +270,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const dismissedIncomingRef = useRef<Set<string>>(new Set());
   const bufferedIncomingRef = useRef<BanInteraction | null>(null);
+  const banSentOpenRef = useRef(false);
+  const deferredSyncRef = useRef(false);
 
   useEffect(() => {
     const uid = auth.user?.id ?? null;
@@ -547,6 +556,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [friends, resolveOptimisticFromFriends]);
 
   const applySession = useCallback((s: SessionState) => {
+    if (banSentOpenRef.current) return;
     const viewerId = auth.user?.id ?? null;
     if (!viewerId || auth.loading) {
       logIncomingDebug({
@@ -830,9 +840,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           auth.refreshUser();
           break;
         case 'ban:updated':
-          reloadPending();
+          if (!banSentOpenRef.current) reloadPending();
           break;
         case 'friends:updated': {
+          if (banSentOpenRef.current) break;
           const payload = event.payload as { friends?: unknown };
           const list = coerceFriendList(payload?.friends);
           const uid = userIdRef.current;
@@ -950,11 +961,64 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [activeBans, optimisticSendWait],
   );
 
+  const displayFriendsRef = useRef(displayFriends);
+  displayFriendsRef.current = displayFriends;
+  const displayActiveBansRef = useRef(displayActiveBans);
+  displayActiveBansRef.current = displayActiveBans;
+  const optimisticSendWaitRef = useRef(optimisticSendWait);
+  optimisticSendWaitRef.current = optimisticSendWait;
+
+  const flushDeferredSync = useCallback(async () => {
+    if (!deferredSyncRef.current) return;
+    deferredSyncRef.current = false;
+    await reloadPending();
+    await reloadFriends();
+    await auth.refreshUser().catch(() => {});
+    await auth.onboard().catch(() => {});
+  }, [reloadPending, reloadFriends, auth.refreshUser, auth.onboard]);
+
+  const scheduleDeferredSync = useCallback(() => {
+    deferredSyncRef.current = true;
+  }, []);
+
+  const setBanSentOpen = useCallback(
+    (open: boolean) => {
+      if (open) {
+        setUiFreeze({
+          friends: displayFriendsRef.current,
+          activeBans: displayActiveBansRef.current,
+          optimisticSendWait: optimisticSendWaitRef.current,
+        });
+        banSentOpenRef.current = true;
+        setBanSentOpenRaw(true);
+        return;
+      }
+      banSentOpenRef.current = false;
+      setBanSentOpenRaw(false);
+      setUiFreeze(null);
+      void flushDeferredSync();
+    },
+    [flushDeferredSync],
+  );
+
+  banSentOpenRef.current = banSentOpen;
+
+  const optimisticForUi =
+    banSentOpen && uiFreeze ? uiFreeze.optimisticSendWait : optimisticSendWait;
+
   // Show user data as soon as backend user id + token exist (do not wait authReady / session).
   const isAppReady = !!auth.user?.id && !!auth.token && !auth.loading;
 
-  const scopedFriends = isAppReady ? displayFriends : [];
-  const scopedActiveBans = isAppReady ? displayActiveBans : [];
+  const scopedFriends = isAppReady
+    ? banSentOpen && uiFreeze
+      ? uiFreeze.friends
+      : displayFriends
+    : [];
+  const scopedActiveBans = isAppReady
+    ? banSentOpen && uiFreeze
+      ? uiFreeze.activeBans
+      : displayActiveBans
+    : [];
   const scopedIncomingBan = isAppReady ? incomingBan : null;
   const scopedCheckBan = isAppReady ? checkBan : null;
 
@@ -1036,7 +1100,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       viralOnboarding,
       banSentOpen,
       setBanSentOpen,
-      optimisticSendWait,
+      scheduleDeferredSync,
+      optimisticSendWait: optimisticForUi,
       applyOptimisticSend,
       confirmOptimisticSend,
       rollbackOptimisticSend,
@@ -1088,7 +1153,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       eventLog,
       viralOnboarding,
       banSentOpen,
-      optimisticSendWait,
+      uiFreeze,
+      optimisticForUi,
+      scheduleDeferredSync,
+      setBanSentOpen,
       applyOptimisticSend,
       confirmOptimisticSend,
       rollbackOptimisticSend,

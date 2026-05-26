@@ -1,5 +1,7 @@
 'use client';
 
+import { memo } from 'react';
+import { createPortal } from 'react-dom';
 import { BigButton } from './BigButton';
 import { ModalShell } from './ModalShell';
 
@@ -9,9 +11,19 @@ interface Props {
   onAgain: () => void;
 }
 
-export function BanSentSuccessOverlay({ open, onDone, onAgain }: Props) {
-  return (
-    <ModalShell open={open} onClose={onDone} ariaLabel="Запрет отправлен">
+function BanSentSuccessOverlayInner({ open, onDone, onAgain }: Props) {
+  if (!open || typeof document === 'undefined') return null;
+
+  return createPortal(
+    <ModalShell
+      open
+      light
+      stable
+      zIndex={80}
+      closeOnBackdrop={false}
+      onClose={onDone}
+      ariaLabel="Запрет отправлен"
+    >
       <div className="modal-card-body text-center space-y-4">
         <p className="text-5xl">✔</p>
         <h2 className="text-3xl font-black text-glow">Запрет отправлен</h2>
@@ -25,6 +37,9 @@ export function BanSentSuccessOverlay({ open, onDone, onAgain }: Props) {
           Запретить ещё
         </BigButton>
       </div>
-    </ModalShell>
+    </ModalShell>,
+    document.body,
   );
 }
+
+export const BanSentSuccessOverlay = memo(BanSentSuccessOverlayInner);

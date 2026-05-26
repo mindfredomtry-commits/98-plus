@@ -22,15 +22,11 @@ export function SendBanSheet() {
     setSendReceiver,
     sendText,
     setSendText,
-    refreshUser,
-    reloadPending,
-    reloadFriends,
-    onboard,
     setBanSentOpen,
+    scheduleDeferredSync,
     incomingReplyBanId,
     clearIncomingReply,
     applySession,
-    reloadFriends,
   } = useApp();
   const { haptic, bindBack } = useTelegram();
   const [duration, setDuration] = useState(10);
@@ -48,10 +44,13 @@ export function SendBanSheet() {
     token,
     friends,
     onSuccess,
-    onboard,
-    refreshUser,
-    reloadPending,
-    reloadFriends,
+    onOptimisticApply: () => {},
+    onFail: () => {},
+    onboard: async () => {},
+    refreshUser: async () => {},
+    reloadPending: async () => {},
+    reloadFriends: async () => {},
+    scheduleDeferredSync,
   });
 
   useEffect(() => {
@@ -80,7 +79,7 @@ export function SendBanSheet() {
           }),
         });
         if (res.session) applySession(res.session);
-        await reloadFriends();
+        scheduleDeferredSync();
         onSuccess();
         return;
       }
