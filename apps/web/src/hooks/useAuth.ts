@@ -6,7 +6,7 @@ import {
   isInviteTokenStartParam,
   parseStartParam,
 } from '@98plus/shared';
-import { isValidIncomingOverlayPayload } from '@/lib/incoming-challenge';
+import { shouldShowIncomingBanModal } from '@/lib/incoming-challenge';
 import { challengeLog } from '@/lib/challenge-log';
 import { api, ApiError, NetworkError } from '@/lib/api';
 import {
@@ -187,7 +187,11 @@ export function useAuth() {
               token: saved,
               body: JSON.stringify({ token: inviteToken }),
             });
-            const incoming = isValidIncomingOverlayPayload(claim.incoming)
+            const incoming = shouldShowIncomingBanModal(
+              claim.incoming,
+              r.user.id,
+              new Set(),
+            )
               ? claim.incoming
               : null;
             challengeLog('boot:invite-claim', {

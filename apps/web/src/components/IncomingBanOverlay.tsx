@@ -10,7 +10,10 @@ import {
   verifyIncomingChallenge,
 } from '@/lib/deliver-challenge';
 import { challengeLog } from '@/lib/challenge-log';
-import { isValidIncomingOverlayPayload } from '@/lib/incoming-challenge';
+import {
+  isValidIncomingOverlayPayload,
+  shouldShowIncomingBanModal,
+} from '@/lib/incoming-challenge';
 import { useApp } from './Providers';
 import { BigButton } from './BigButton';
 import { useTelegram } from '@/hooks/useTelegram';
@@ -19,6 +22,7 @@ import { ModalShell } from './ModalShell';
 function IncomingBanOverlayInner() {
   const {
     token,
+    user,
     incomingBan,
     dismissIncoming,
     applySession,
@@ -45,7 +49,7 @@ function IncomingBanOverlayInner() {
       return;
     }
 
-    if (!isValidIncomingOverlayPayload(incomingBan)) {
+    if (!isValidIncomingOverlayPayload(incomingBan, user?.id)) {
       safeDismiss(incomingBan.id, 'invalid-local-payload');
       return;
     }
@@ -60,7 +64,7 @@ function IncomingBanOverlayInner() {
       }
 
       const ban = await verifyIncomingChallenge(token, incomingBan.id);
-      if (!isValidIncomingOverlayPayload(ban)) {
+      if (!isValidIncomingOverlayPayload(ban, user?.id)) {
         safeDismiss(incomingBan.id, 'resolved-on-server');
         return;
       }
@@ -71,11 +75,11 @@ function IncomingBanOverlayInner() {
       setBootError(formatDeliveryError(e));
       setVerifiedBan(null);
     }
-  }, [incomingBan, token, safeDismiss]);
+  }, [incomingBan, token, user?.id, safeDismiss]);
 
   useEffect(() => {
     if (!incomingBan || !token) return;
-    if (!isValidIncomingOverlayPayload(incomingBan)) {
+    if (!isValidIncomingOverlayPayload(incomingBan, user?.id)) {
       safeDismiss(incomingBan.id, 'stale-incoming');
       return;
     }
@@ -128,11 +132,17 @@ function IncomingBanOverlayInner() {
     }
   }, [ban?.id, token, hapticSuccess, finishWithSession, reloadPending]);
 
-  if (!incomingBan || !token || !isValidIncomingOverlayPayload(incomingBan)) {
+  const viewerId = user?.id ?? null;
+
+  if (
+    !incomingBan ||
+    !token ||
+    !shouldShowIncomingBanModal(incomingBan, viewerId, new Set())
+  ) {
     return null;
   }
 
-  if (!ban || !isValidIncomingOverlayPayload(ban)) {
+  if (!ban || !isValidIncomingOverlayPayload(ban, viewerId)) {
     return null;
   }
 

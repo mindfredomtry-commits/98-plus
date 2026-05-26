@@ -31,7 +31,12 @@ import { resetScrollLock } from '@/lib/scroll-lock';
 import { fetchSession } from '@/lib/session';
 import { api } from '@/lib/api';
 import { challengeLog } from '@/lib/challenge-log';
-import { isValidIncomingOverlayPayload } from '@/lib/incoming-challenge';
+import {
+  isValidIncomingOverlayPayload,
+  shouldShowIncomingBanModal,
+} from '@/lib/incoming-challenge';
+import { acknowledgeIncomingBan } from '@/lib/incoming-ack-flow';
+import { hydrateAcknowledgedIncomingIds } from '@/lib/acknowledged-incoming';
 import {
   type OptimisticSendWait,
   CHECK_WAITING_UI_TTL_MS,
@@ -125,15 +130,16 @@ export function useApp() {
 function pickIncomingForOverlay(
   ban: BanInteraction | null | undefined,
   dismissed: Set<string>,
+  viewerId: string | null | undefined,
 ): BanInteraction | null {
-  if (!isValidIncomingOverlayPayload(ban)) return null;
-  if (dismissed.has(ban!.id)) return null;
+  if (!shouldShowIncomingBanModal(ban, viewerId, dismissed)) return null;
   return ban!;
 }
 
 function applySessionToState(
   s: SessionState,
   dismissed: Set<string>,
+  viewerId: string | null | undefined,
   setters: {
     setActiveBans: (b: BanInteraction[]) => void;
     setIncomingBan: (b: BanInteraction | null) => void;
@@ -142,7 +148,7 @@ function applySessionToState(
   },
 ) {
   setters.setActiveBans(Array.isArray(s.active) ? s.active : []);
-  setters.setIncomingBan(pickIncomingForOverlay(s.incoming, dismissed));
+  setters.setIncomingBan(pickIncomingForOverlay(s.incoming, dismissed, viewerId));
 
   if (s.check?.status === 'checking') {
     setters.setCheckBan(s.check);
@@ -221,6 +227,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, []);
 
   const dismissedIncomingRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    for (const id of hydrateAcknowledgedIncomingIds()) {
+      dismissedIncomingRef.current.add(id);
+    }
+  }, []);
   const checkWaitingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tokenRef = useRef(auth.token);
   tokenRef.current = auth.token;
@@ -250,27 +262,41 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, []);
 
   const dismissIncoming = useCallback((banId?: string) => {
-    if (banId) dismissedIncomingRef.current.add(banId);
+    if (banId) {
+      dismissedIncomingRef.current.add(banId);
+      acknowledgeIncomingBan(banId, tokenRef.current);
+    }
     challengeLog('incoming:dismiss', { banId: banId ?? null });
     setIncomingBan(null);
     setViralOnboarding(false);
   }, []);
 
-  const setIncomingBanSafe = useCallback((b: BanInteraction | null) => {
-    if (b !== null && !isValidIncomingOverlayPayload(b)) {
-      challengeLog('incoming:reject-set', {
-        id: b.id,
-        status: b.status,
-        hasSender: !!b.sender?.id,
+  const setIncomingBanSafe = useCallback(
+    (b: BanInteraction | null) => {
+      const viewerId = auth.user?.id;
+      if (
+        b !== null &&
+        !shouldShowIncomingBanModal(
+          b,
+          viewerId,
+          dismissedIncomingRef.current,
+        )
+      ) {
+        challengeLog('incoming:reject-set', {
+          id: b.id,
+          status: b.status,
+          hasSender: !!b.sender?.id,
+        });
+        return;
+      }
+      challengeLog(b ? 'incoming:set' : 'incoming:clear', {
+        id: b?.id ?? null,
+        status: b?.status ?? null,
       });
-      return;
-    }
-    challengeLog(b ? 'incoming:set' : 'incoming:clear', {
-      id: b?.id ?? null,
-      status: b?.status ?? null,
-    });
-    setIncomingBan(b);
-  }, []);
+      setIncomingBan(b);
+    },
+    [auth.user?.id],
+  );
 
   const pushPopup = useCallback((p: EnergyPopup) => {
     setPopups((prev) => [...prev, p]);
@@ -387,9 +413,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, [friends, resolveOptimisticFromFriends]);
 
   const applySession = useCallback((s: SessionState) => {
+    const viewerId = auth.user?.id ?? null;
     const nextIncoming = pickIncomingForOverlay(
       s.incoming,
       dismissedIncomingRef.current,
+      viewerId,
     );
     challengeLog('session:apply', {
       incoming: s.incoming?.id ?? null,
@@ -401,6 +429,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     applySessionToState(
       { ...s, active: nextActive.filter((b) => !b.id.startsWith('optimistic-ban:')) },
       dismissedIncomingRef.current,
+      viewerId,
       {
         setActiveBans,
         setIncomingBan,
@@ -412,13 +441,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
     if (!nextIncoming) {
       setViralOnboarding(false);
     }
-  }, [resolveOptimisticFromSession]);
+  }, [resolveOptimisticFromSession, auth.user?.id]);
 
   useEffect(() => {
     if (!auth.boot) return;
     const incoming = pickIncomingForOverlay(
       auth.boot.claimedIncoming,
       dismissedIncomingRef.current,
+      auth.user?.id ?? null,
     );
     if (incoming) {
       challengeLog('boot:claimed-incoming', { banId: incoming.id });
@@ -426,7 +456,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       setViralOnboarding(true);
     }
     auth.clearBoot();
-  }, [auth.boot, auth.clearBoot]);
+  }, [auth.boot, auth.clearBoot, auth.user?.id]);
 
   const reloadFriends = useCallback(async () => {
     const token = tokenRef.current;
@@ -500,6 +530,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           const incoming = pickIncomingForOverlay(
             b,
             dismissedIncomingRef.current,
+            auth.user?.id ?? null,
           );
           if (incoming) setIncomingBanSafe(incoming);
           break;

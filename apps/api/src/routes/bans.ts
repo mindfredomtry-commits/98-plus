@@ -21,6 +21,7 @@ import {
   getCheckState,
   getBanResult,
   acknowledgeBanResult,
+  acknowledgeIncomingBan,
   resolveDeepLinkBan,
 } from '../services/ban.service';
 import { getSessionState } from '../services/session.service';
@@ -108,6 +109,15 @@ bansRouter.get('/:id/result', async (req: AuthRequest, res) => {
 
 bansRouter.post('/:id/result/ack', async (req: AuthRequest, res) => {
   const ok = await acknowledgeBanResult(paramId(req), req.userId!);
+  if (!ok) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+bansRouter.post('/:id/incoming/ack', async (req: AuthRequest, res) => {
+  const ok = await acknowledgeIncomingBan(paramId(req), req.userId!);
   if (!ok) {
     res.status(404).json({ error: 'Not found' });
     return;

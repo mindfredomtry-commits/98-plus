@@ -119,8 +119,9 @@ model Ban {
   createdAt           DateTime            @default(now())
   expiresAt           DateTime?
   checkDueAt          DateTime?
-  completedAt         DateTime?
-  handledAt           DateTime?
+  completedAt              DateTime?
+  handledAt                DateTime?
+  receiverIncomingAckAt    DateTime?
 
   checkAnswers BanCheckAnswer[]
 

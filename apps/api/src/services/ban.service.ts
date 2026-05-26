@@ -442,6 +442,7 @@ export async function replyToIncomingBan(params: {
       status: 'REPLIED',
       handledAt: new Date(),
       completedAt: new Date(),
+      receiverIncomingAckAt: new Date(),
     },
   });
 
@@ -657,6 +658,7 @@ export async function markOverboard(banId: string, userId: string) {
       senderEnergyDelta: energy.sender,
       receiverEnergyDelta: energy.receiver,
       energyApplied: true,
+      receiverIncomingAckAt: new Date(),
     },
   });
 
@@ -815,11 +817,31 @@ export async function getActiveInteractions(userId: string, limit = 15) {
 
 export async function getPendingIncoming(userId: string) {
   const ban = await prisma.ban.findFirst({
-    where: { receiverId: userId, status: 'PENDING' },
+    where: {
+      receiverId: userId,
+      status: 'PENDING',
+      receiverIncomingAckAt: null,
+    },
     orderBy: { createdAt: 'desc' },
   });
   if (!ban) return null;
   return mapBanToInteraction(ban.id, userId);
+}
+
+/** Receiver saw incoming notification — ban may stay PENDING until reply/overboard. */
+export async function acknowledgeIncomingBan(
+  banId: string,
+  userId: string,
+): Promise<boolean> {
+  const ban = await prisma.ban.findUnique({ where: { id: banId } });
+  if (!ban) return false;
+  if (ban.receiverId !== userId) return false;
+  if (ban.receiverIncomingAckAt) return true;
+  await prisma.ban.update({
+    where: { id: banId },
+    data: { receiverIncomingAckAt: new Date() },
+  });
+  return true;
 }
 
 export async function getPendingCheck(userId: string) {
