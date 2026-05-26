@@ -893,25 +893,107 @@ export async function backfillStaleIncomingForUser(
   return total;
 }
 
+function incomingApiLog(
+  payload: Record<string, unknown> & { userId: string; reason: string },
+) {
+  console.log('[incoming-api]', payload);
+}
+
+/** Diagnostic: why a pending row is not offered (null = offer). */
+function pendingIncomingRejectReason(
+  ban: {
+    id: string;
+    receiverId: string;
+    status: string;
+    receiverIncomingAckAt: Date | null;
+    isOverboard: boolean;
+    createdAt: Date;
+    handledAt: Date | null;
+    _count: { counterBans: number };
+  },
+  userId: string,
+  cutoff: Date,
+): string | null {
+  if (ban.receiverId !== userId) return 'receiver mismatch';
+  if (ban.status !== 'PENDING') return 'status mismatch';
+  if (ban.receiverIncomingAckAt) return 'all acked';
+  if (ban.isOverboard) return 'is overboard';
+  if (ban.createdAt < cutoff) return 'too old';
+  // Diagnostic: do not reject fresh bans for counterBans or handledAt.
+  if (ban._count.counterBans > 0) {
+    console.log('[incoming-api]', {
+      userId,
+      pendingIncomingId: ban.id,
+      note: 'has counterBan (diagnostic: still eligible)',
+      counterBansCount: ban._count.counterBans,
+    });
+  }
+  if (ban.handledAt) {
+    console.log('[incoming-api]', {
+      userId,
+      pendingIncomingId: ban.id,
+      note: 'handledAt set (diagnostic: still eligible)',
+      handledAt: ban.handledAt,
+    });
+  }
+  return null;
+}
+
 /** Fresh offerable pending incoming — read-only, no auto-ack side effects. */
 export async function getPendingIncoming(userId: string) {
   const cutoff = new Date(Date.now() - INCOMING_PENDING_MAX_AGE_MS);
 
-  const ban = await prisma.ban.findFirst({
+  const candidates = await prisma.ban.findMany({
     where: {
       receiverId: userId,
       status: 'PENDING',
       receiverIncomingAckAt: null,
-      isOverboard: false,
-      handledAt: null,
-      createdAt: { gte: cutoff },
-      counterBans: { none: {} },
     },
     orderBy: { createdAt: 'desc' },
+    take: 20,
+    include: {
+      _count: { select: { counterBans: true } },
+    },
   });
 
-  if (!ban) return null;
-  return mapBanToInteraction(ban.id, userId);
+  if (candidates.length === 0) {
+    incomingApiLog({ userId, reason: 'no pending bans' });
+    return null;
+  }
+
+  for (const ban of candidates) {
+    const counterBansCount = ban._count.counterBans;
+    const base = {
+      userId,
+      pendingIncomingId: ban.id,
+      receiverId: ban.receiverId,
+      status: ban.status,
+      receiverIncomingAckAt: ban.receiverIncomingAckAt,
+      createdAt: ban.createdAt,
+      isOverboard: ban.isOverboard,
+      handledAt: ban.handledAt,
+      counterBansCount,
+    };
+
+    const reject = pendingIncomingRejectReason(ban, userId, cutoff);
+    if (reject) {
+      if (reject === 'too old' && counterBansCount > 0) {
+        incomingApiLog({ ...base, reason: 'has counterBan' });
+      }
+      incomingApiLog({ ...base, reason: reject });
+      continue;
+    }
+
+    incomingApiLog({ ...base, reason: 'selected' });
+    return mapBanToInteraction(ban.id, userId);
+  }
+
+  incomingApiLog({
+    userId,
+    reason: 'all candidates filtered',
+    candidateCount: candidates.length,
+  });
+  return null;
 }
 
 /** Receiver saw incoming notification — ban may stay PENDING until reply/overboard. */

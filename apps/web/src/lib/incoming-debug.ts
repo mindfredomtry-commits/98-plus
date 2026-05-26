@@ -19,14 +19,11 @@ export function explainIncomingHidden(
   ban: BanInteraction | null | undefined,
   authUserId: string | null | undefined,
   authLoading: boolean,
-  dataOwnerUserId: string | null | undefined,
+  _dataOwnerUserId: string | null | undefined,
   sessionDismissed: ReadonlySet<string>,
 ): { shouldShow: boolean; reason: IncomingHideReason } {
   if (authLoading) return { shouldShow: false, reason: 'auth-loading' };
   if (!authUserId) return { shouldShow: false, reason: 'no-auth-user' };
-  if (!dataOwnerUserId || dataOwnerUserId !== authUserId) {
-    return { shouldShow: false, reason: 'owner-not-ready' };
-  }
   if (!ban?.id?.trim() || !ban.text?.trim()) {
     return { shouldShow: false, reason: 'no-incoming' };
   }
@@ -46,7 +43,10 @@ export function explainIncomingHidden(
     return { shouldShow: false, reason: 'session-dismissed' };
   }
   if (isIncomingAcknowledgedLocally(authUserId, ban.id)) {
-    return { shouldShow: false, reason: 'already-acked-local' };
+    return {
+      shouldShow: true,
+      reason: 'shown',
+    };
   }
   return { shouldShow: true, reason: 'shown' };
 }

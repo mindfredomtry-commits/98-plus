@@ -52,7 +52,6 @@ export default function HomePage() {
     token,
     user,
     loading,
-    authReady,
     error,
     setIncomingBan,
     setCheckBan,
@@ -156,7 +155,7 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [token, ready, authReady, user?.id]);
+  }, [token, ready, user?.id]);
 
   useEffect(() => {
     if (!token) return;
@@ -171,7 +170,7 @@ export default function HomePage() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [token]);
 
-  if (loading || !authReady) {
+  if (loading || !user?.id || !token) {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center challenge-bg">
         <motion.div

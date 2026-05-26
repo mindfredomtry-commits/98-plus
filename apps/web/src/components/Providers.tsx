@@ -53,6 +53,7 @@ import {
 import { isFirstBanComplete, markFirstBanComplete } from '@/lib/first-ban';
 import { writeFriendsCache } from '@/lib/friends-cache';
 import { timingLog, timingStart } from '@/lib/timing-log';
+import { logFriendsTiming } from '@/lib/boot-timing';
 import {
   acknowledgeBanResultOnServer,
   dismissBanResultLocally,
@@ -266,11 +267,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const uid = auth.user?.id ?? null;
     dismissedIncomingRef.current = new Set();
-    if (!uid || !auth.authReady) return;
+    if (!uid || auth.loading) return;
     for (const id of hydrateAcknowledgedIncomingIds(uid)) {
       dismissedIncomingRef.current.add(id);
     }
-  }, [auth.user?.id, auth.authReady]);
+  }, [auth.user?.id, auth.loading]);
 
   const checkWaitingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tokenRef = useRef(auth.token);
@@ -283,12 +284,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   /** Owner is confirmed auth user — friends may load later (empty until fetch). */
   useEffect(() => {
-    if (!auth.authReady || !auth.user?.id) {
+    if (!auth.user?.id || auth.loading) {
       setDataOwnerUserId(null);
       return;
     }
     setDataOwnerUserId(auth.user.id);
-  }, [auth.authReady, auth.user?.id]);
+  }, [auth.user?.id, auth.loading]);
 
   /** Sync reset before paint when backend user id changes (no flash of previous user's data). */
   useLayoutEffect(() => {
@@ -335,12 +336,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const setIncomingBanSafe = useCallback(
     (b: BanInteraction | null) => {
       const viewerId = auth.user?.id;
-      if (b !== null && (!auth.authReady || !viewerId || auth.loading)) {
+      if (b !== null && (!viewerId || auth.loading)) {
         const why = explainIncomingHidden(
           b,
           viewerId,
           auth.loading,
-          dataOwnerUserId,
+          viewerId,
           dismissedIncomingRef.current,
         );
         logIncomingDebug({
@@ -361,6 +362,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           dismissedIncomingRef.current,
         )
       ) {
+        const why = explainIncomingHidden(
+          b,
+          viewerId,
+          auth.loading,
+          viewerId,
+          dismissedIncomingRef.current,
+        );
+        logIncomingDebug({
+          authUserId: viewerId,
+          incomingId: b.id,
+          incomingReceiverId: b.receiver?.id,
+          incomingAcknowledged: b.incomingAcknowledged,
+          shouldShow: false,
+          reason: why.reason,
+        });
         challengeLog('incoming:reject-set', {
           id: b.id,
           status: b.status,
@@ -377,7 +393,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           b,
           viewerId,
           auth.loading,
-          dataOwnerUserId,
+          viewerId,
           dismissedIncomingRef.current,
         );
         logIncomingDebug({
@@ -391,12 +407,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       setIncomingBan(b);
     },
-    [auth.user?.id, auth.authReady, auth.loading, dataOwnerUserId],
+    [auth.user?.id, auth.loading],
   );
 
   // Apply WS-buffered incoming after auth is ready (must run after setIncomingBanSafe exists).
   useEffect(() => {
-    if (!auth.authReady || !auth.user?.id) return;
+    if (!auth.user?.id || auth.loading) return;
     if (!bufferedIncomingRef.current) return;
     const b = bufferedIncomingRef.current;
     bufferedIncomingRef.current = null;
@@ -414,7 +430,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (incoming) {
       setIncomingBanSafe(incoming);
     }
-  }, [auth.authReady, auth.user?.id, setIncomingBanSafe]);
+  }, [auth.user?.id, auth.loading, setIncomingBanSafe]);
 
   const pushPopup = useCallback((p: EnergyPopup) => {
     setPopups((prev) => [...prev, p]);
@@ -532,7 +548,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const applySession = useCallback((s: SessionState) => {
     const viewerId = auth.user?.id ?? null;
-    if (!viewerId || auth.loading || !auth.authReady) {
+    if (!viewerId || auth.loading) {
       logIncomingDebug({
         authUserId: viewerId,
         sessionUserId: s.userId,
@@ -607,10 +623,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setViralOnboarding(false);
     }
     setDataOwnerUserId(viewerId);
-  }, [resolveOptimisticFromSession, auth.user?.id, auth.loading, auth.authReady]);
+  }, [resolveOptimisticFromSession, auth.user?.id, auth.loading]);
 
   useEffect(() => {
-    if (!auth.boot || !auth.authReady || !auth.user?.id) return;
+    if (!auth.boot || !auth.user?.id || auth.loading) return;
     const incoming = pickIncomingForOverlay(
       auth.boot.claimedIncoming,
       dismissedIncomingRef.current,
@@ -623,12 +639,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setDataOwnerUserId(auth.user.id);
     }
     auth.clearBoot();
-  }, [auth.boot, auth.authReady, auth.clearBoot, auth.user?.id]);
+  }, [auth.boot, auth.clearBoot, auth.user?.id, auth.loading]);
 
   const reloadFriends = useCallback(async () => {
     const token = tokenRef.current;
     const uid = userIdRef.current;
     if (!token || !uid) return;
+    logFriendsTiming('started-fetch', { userId: uid, via: 'reloadFriends' });
+    const fetchStartedAt = Date.now();
     const end = timingStart('friends fetch');
     try {
       const requestToken = token;
@@ -640,12 +658,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (tokenRef.current !== requestToken) return end();
       if (userIdRef.current !== requestUid) return end();
       const safe = coerceFriendList(list);
+      logFriendsTiming('response-received', {
+        userId: requestUid,
+        count: safe.length,
+        ms: Date.now() - fetchStartedAt,
+        via: 'reloadFriends',
+      });
       writeFriendsCache(requestUid, safe);
       setFriends(safe);
       setDataOwnerUserId(requestUid);
       resolveOptimisticFromFriends(safe);
       end();
     } catch {
+      logFriendsTiming('response-failed', {
+        userId: uid,
+        ms: Date.now() - fetchStartedAt,
+        via: 'reloadFriends',
+      });
       end();
     }
   }, [resolveOptimisticFromFriends]);
@@ -869,18 +898,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const uid = auth.user?.id;
-    if (!auth.authReady || !auth.token || !uid) return;
+    if (!uid || !auth.token || auth.loading) return;
 
+    logFriendsTiming('started-fetch', {
+      userId: uid,
+      authReady: auth.authReady,
+    });
+    const fetchStartedAt = Date.now();
     const end = timingStart('/friends loaded');
     const requestToken = auth.token;
     const requestUid = uid;
     api<{ friends?: unknown }>('/friends', { token: requestToken })
       .then((r) => {
+        const ms = Date.now() - fetchStartedAt;
         if (tokenRef.current !== requestToken || userIdRef.current !== requestUid) {
+          logFriendsTiming('response-discarded', { userId: requestUid, ms });
           end();
           return;
         }
         const list = coerceFriendList(r?.friends);
+        logFriendsTiming('response-received', {
+          userId: requestUid,
+          count: list.length,
+          ms,
+        });
         writeFriendsCache(requestUid, list);
         setFriends(list);
         setDataOwnerUserId(requestUid);
@@ -888,12 +929,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         end();
       })
       .catch(() => {
+        logFriendsTiming('response-failed', {
+          userId: requestUid,
+          ms: Date.now() - fetchStartedAt,
+        });
         end();
         timingLog('friends fetch failed', 0);
       });
 
     reloadPendingRef.current().catch(() => {});
-  }, [auth.token, auth.authReady, auth.user?.id, resolveOptimisticFromFriends]);
+  }, [auth.token, auth.user?.id, auth.loading, resolveOptimisticFromFriends]);
 
   const displayFriends = useMemo(
     () => mergeFriendsWithOptimistic(friends, optimisticSendWait),
@@ -905,14 +950,45 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [activeBans, optimisticSendWait],
   );
 
-  // Render gating only: authReady means session belongs to current Telegram user.
-  // Do NOT depend on dataOwnerUserId, otherwise we can deadlock incoming acceptance.
-  const isAppReady = auth.authReady && !!auth.user?.id && !auth.loading;
+  // Show user data as soon as backend user id + token exist (do not wait authReady / session).
+  const isAppReady = !!auth.user?.id && !!auth.token && !auth.loading;
 
   const scopedFriends = isAppReady ? displayFriends : [];
   const scopedActiveBans = isAppReady ? displayActiveBans : [];
   const scopedIncomingBan = isAppReady ? incomingBan : null;
   const scopedCheckBan = isAppReady ? checkBan : null;
+
+  useEffect(() => {
+    if (!auth.user?.id) {
+      logFriendsTiming('why-not-rendered', { reason: 'no-user-id' });
+      return;
+    }
+    if (auth.loading) {
+      logFriendsTiming('why-not-rendered', { reason: 'auth-loading' });
+      return;
+    }
+    if (!auth.token) {
+      logFriendsTiming('why-not-rendered', { reason: 'no-token' });
+      return;
+    }
+    if (!isAppReady) {
+      logFriendsTiming('why-not-rendered', { reason: 'not-app-ready' });
+      return;
+    }
+    if (scopedFriends.length === 0 && friends.length === 0) {
+      logFriendsTiming('why-not-rendered', {
+        reason: 'empty-list',
+        fetchMayBeInFlight: true,
+      });
+    }
+  }, [
+    auth.user?.id,
+    auth.loading,
+    auth.token,
+    isAppReady,
+    scopedFriends.length,
+    friends.length,
+  ]);
 
   const contextValue = useMemo(
     () => ({

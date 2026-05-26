@@ -15,6 +15,7 @@ import {
   isClientDevAuthEnabled,
 } from '@/lib/config';
 import { useTelegram } from './useTelegram';
+import { logAuthTiming } from '@/lib/boot-timing';
 
 const TOKEN_KEY_LEGACY = '98plus_token';
 
@@ -87,6 +88,10 @@ export function useAuth() {
       localStorage.removeItem(TOKEN_KEY_LEGACY);
       setToken(res.token);
       setUser(res.user);
+      logAuthTiming('auth-user-set', {
+        userId: res.user.id,
+        telegramId: res.user.telegramId,
+      });
       setBoot({
         claimedIncoming: res.claimedIncoming ?? null,
         viralOnboarding: !!res.viralOnboarding,
@@ -99,6 +104,10 @@ export function useAuth() {
 
   const login = useCallback(async () => {
     const requestIdentity = identityRef.current;
+    logAuthTiming('auth-login-start', {
+      hasInitData: !!initData,
+      telegramId: telegramId ?? tgUser?.id ?? null,
+    });
     if (!isApiConfiguredForProduction()) {
       const apiUrl = getApiUrl();
       setError(
@@ -149,6 +158,9 @@ export function useAuth() {
     } finally {
       if (identityRef.current === requestIdentity) {
         setLoading(false);
+        logAuthTiming('auth-loading-false', {
+          via: 'login',
+        });
       }
     }
   }, [initData, tgUser, startParam, telegramId, persistSession]);
@@ -209,6 +221,11 @@ export function useAuth() {
           });
           if (identityRef.current !== requestIdentity) return;
           setUser(r.user);
+          logAuthTiming('auth-user-set', {
+            userId: r.user.id,
+            telegramId: r.user.telegramId,
+            via: 'users/me',
+          });
 
           if (inviteToken) {
             const claim = await api<{
@@ -243,7 +260,10 @@ export function useAuth() {
           localStorage.removeItem(TOKEN_KEY_LEGACY);
           await login();
         } finally {
-          if (identityRef.current === requestIdentity) setLoading(false);
+          if (identityRef.current === requestIdentity) {
+            setLoading(false);
+            logAuthTiming('auth-loading-false', { via: 'saved-token' });
+          }
         }
         return;
       }
@@ -294,15 +314,16 @@ export function useAuth() {
       (!!telegramIdStr && String(user.telegramId) === telegramIdStr));
 
   useEffect(() => {
-    console.log('[auth-debug]', {
+    logAuthTiming('auth-state', {
       telegramId,
       authReady,
       loading,
       tokenPresent: !!token,
       userId: user?.id ?? null,
       userTelegramId: user?.telegramId ?? null,
+      boundByInitData: initData.trim().length > 0,
     });
-  }, [authReady, loading, telegramId, token, user?.id, user?.telegramId]);
+  }, [authReady, loading, telegramId, token, user?.id, user?.telegramId, initData]);
 
   return {
     token,

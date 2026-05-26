@@ -14,6 +14,7 @@ import {
   isValidIncomingOverlayPayload,
   shouldShowIncomingBanModal,
 } from '@/lib/incoming-challenge';
+import { explainIncomingHidden, logIncomingDebug } from '@/lib/incoming-debug';
 import { useApp } from './Providers';
 import { BigButton } from './BigButton';
 import { useTelegram } from '@/hooks/useTelegram';
@@ -24,7 +25,6 @@ function IncomingBanOverlayInner() {
     token,
     user,
     loading: authLoading,
-    authReady,
     isAppReady,
     incomingBan,
     acknowledgeIncomingAndStartReply,
@@ -125,38 +125,30 @@ function IncomingBanOverlayInner() {
     incomingBan,
     viewerId,
     authLoading,
-    isAppReady ? viewerId : null,
+    viewerId,
     new Set(),
   );
 
-  if (!incomingBan || !token || authLoading || !authReady || !isAppReady) {
-    if (incomingBan?.id) {
-      logIncomingDebug({
-        authUserId: viewerId,
-        incomingId: incomingBan.id,
-        incomingReceiverId: incomingBan.receiver?.id,
-        shouldShow: false,
-        reason: !viewerId
-          ? 'no-auth-user'
-          : authLoading
-            ? 'auth-loading'
-            : !isAppReady
-              ? 'owner-not-ready'
-              : 'no-incoming',
-      });
-    }
-    return null;
-  }
+  const shouldShow = incomingBan
+    ? shouldShowIncomingBanModal(incomingBan, viewerId, new Set())
+    : false;
 
-  if (!shouldShowIncomingBanModal(incomingBan, viewerId, new Set())) {
+  if (incomingBan?.id) {
     logIncomingDebug({
       authUserId: viewerId,
       incomingId: incomingBan.id,
       incomingReceiverId: incomingBan.receiver?.id,
       incomingAcknowledged: incomingBan.incomingAcknowledged,
-      shouldShow: false,
-      reason: hideReason.reason,
+      shouldShow,
+      reason: shouldShow ? 'shown' : hideReason.reason,
     });
+  }
+
+  if (!incomingBan || !token || authLoading || !viewerId || !isAppReady) {
+    return null;
+  }
+
+  if (!shouldShow) {
     return null;
   }
 

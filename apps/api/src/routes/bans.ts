@@ -81,6 +81,15 @@ bansRouter.get('/session', async (req: AuthRequest, res) => {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     const session = await getSessionState(req.userId!, user?.username ?? null);
     console.log(`[98+] /bans/session in ${Date.now() - t0}ms`);
+    console.log('[incoming-api]', {
+      route: '/bans/session',
+      userId: req.userId,
+      pendingIncomingId: session.incoming?.id ?? null,
+      receiverId: session.incoming?.receiver?.id ?? null,
+      status: session.incoming?.status ?? null,
+      incomingAcknowledged: session.incoming?.incomingAcknowledged ?? null,
+      reason: session.incoming ? 'returned-in-session' : 'no-incoming-in-session',
+    });
     res.json(session);
   } catch (e) {
     console.error('[bans] session failed', e);

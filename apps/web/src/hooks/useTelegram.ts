@@ -94,6 +94,14 @@ export function useTelegram() {
       }
 
       setWebApp(tg);
+      if (tg.initData) {
+        console.log('[auth-timing]', {
+          event: 'initData-ready',
+          hasInitData: true,
+          telegramId: tg.initDataUnsafe?.user?.id ?? null,
+          at: Date.now(),
+        });
+      }
     }
     setReady(true);
   }, []);
