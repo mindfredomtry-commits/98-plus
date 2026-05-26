@@ -1,24 +1,25 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import type { FriendCard } from '@98plus/shared';
 import { coerceFriendList } from '@98plus/shared';
 import { api } from '@/lib/api';
-import { preloadAvatarUrls } from '@/lib/avatar-url';
+import { preloadAvatarUrls, friendAvatarUrl } from '@/lib/avatar-url';
 import { useApp } from './Providers';
 import { AvatarImage } from './AvatarImage';
 import {
   mergeFriendsWithOptimistic,
-  isOptimisticSendWaitActive,
 } from '@/lib/waiting-lifecycle';
 
 function FriendAvatar({
   friend,
   compact,
+  online,
 }: {
   friend: FriendCard;
   compact?: boolean;
+  online?: boolean;
 }) {
   const letter = (
     friend.firstName?.[0] ??
@@ -30,34 +31,14 @@ function FriendAvatar({
 
   return (
     <AvatarImage
-      src={friend.photoUrl}
+      src={friendAvatarUrl(friend)}
       letter={letter}
       sizeClass={sizeClass}
       textClass={textClass}
       priority={!compact}
+      onlineGlow={online}
     />
   );
-}
-
-function stateBadge(friend: FriendCard): string | null {
-  if (friend.challengeState === 'incoming_pending') return 'вызвал';
-  if (
-    (friend.id ?? '').startsWith('optimistic:') ||
-    friend.challengeState === 'outgoing_pending'
-  ) {
-    return 'отправлено';
-  }
-  switch (friend.friendState) {
-    case 'pending':
-    case 'invited':
-      return 'ждёт';
-    case 'in_challenge':
-      return 'в игре';
-    case 'active':
-      return 'онлайн';
-    default:
-      return null;
-  }
 }
 
 export function FriendAvatarCard({
@@ -72,13 +53,6 @@ export function FriendAvatarCard({
   compact?: boolean;
 }) {
   const online = friend.presence === 'online';
-  const recent = friend.presence === 'recent';
-  const isOptimistic = (friend.id ?? '').startsWith('optimistic:');
-  const pending =
-    isOptimistic ||
-    friend.challengeState === 'outgoing_pending' ||
-    friend.hasPendingInvite;
-  const badge = stateBadge(friend);
 
   return (
     <motion.button
@@ -89,28 +63,10 @@ export function FriendAvatarCard({
       transition={{ type: 'spring', stiffness: 400, damping: 22 }}
       className={`friend-avatar-card flex-shrink-0 flex flex-col items-center snap-center ${
         compact ? 'friend-avatar-card--compact gap-0.5' : 'w-[92px] gap-2'
-      } ${selected ? 'friend-avatar-selected' : ''} ${
-        pending ? 'friend-pending-pulse' : ''
-      } ${online ? 'friend-online-ring' : recent ? 'friend-recent-glow' : ''}`}
+      } ${selected ? 'friend-avatar-selected' : ''}`}
     >
-      <div className="relative avatar-card-slot">
-        <FriendAvatar friend={friend} compact={compact} />
-        {friend.userId && !compact ? (
-          <span
-            className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-bg ${
-              online
-                ? 'bg-emerald-400'
-                : recent
-                  ? 'bg-amber-400'
-                  : 'bg-white/25'
-            }`}
-          />
-        ) : null}
-        {badge && compact ? (
-          <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-[8px] font-bold px-1 py-0.5 rounded-full bg-accent/90 text-white">
-            {badge}
-          </span>
-        ) : null}
+      <div className="avatar-card-slot">
+        <FriendAvatar friend={friend} compact={compact} online={online} />
       </div>
       <p
         className={`font-semibold truncate w-full text-center leading-tight ${
@@ -199,7 +155,7 @@ function FriendPickerInner({
   addMoreBusy = false,
   onRequireBan,
 }: FriendPickerProps) {
-  const { optimisticSendWait, banSentOpen } = useApp();
+  const { optimisticSendWait } = useApp();
 
   const [friends, setFriends] = useState<FriendCard[]>(() =>
     coerceFriendList(externalFriends),
@@ -247,7 +203,7 @@ function FriendPickerInner({
   }, [friends, optimisticSendWait, externalFriends]);
 
   useEffect(() => {
-    preloadAvatarUrls(people.map((f) => f.photoUrl));
+    preloadAvatarUrls(people.map((f) => friendAvatarUrl(f)));
   }, [people]);
 
   function pick(username: string | null | undefined) {
@@ -295,22 +251,6 @@ function FriendPickerInner({
           />
         ) : null}
       </div>
-
-      <AnimatePresence>
-        {selectedUsername && !compact && !banSentOpen ? (
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="text-center text-[11px] text-accent/90"
-          >
-            {isOptimisticSendWaitActive(optimisticSendWait) &&
-            optimisticSendWait?.username === selectedUsername
-              ? '⚡ вызов ушёл'
-              : 'готов к вызову'}
-          </motion.p>
-        ) : null}
-      </AnimatePresence>
     </div>
   );
 }

@@ -146,7 +146,8 @@ export function sanitizeFriendCard(raw: unknown): FriendCard | null {
     telegramId,
     username,
     firstName,
-    photoUrl: r.photoUrl ?? null,
+    photoUrl: r.photoUrl ?? r.avatarUrl ?? null,
+    avatarUrl: r.avatarUrl ?? r.photoUrl ?? null,
     auraLabel: r.auraLabel ?? 'Контакт',
     streak: typeof r.streak === 'number' ? r.streak : 0,
     energyPercent:
@@ -184,7 +185,10 @@ export interface FriendCard {
   telegramId?: string | null;
   username: string;
   firstName: string;
+  /** @deprecated use avatarUrl */
   photoUrl: string | null;
+  /** Telegram / profile photo for avatar */
+  avatarUrl: string | null;
   auraLabel: string;
   streak: number;
   energyPercent: number;

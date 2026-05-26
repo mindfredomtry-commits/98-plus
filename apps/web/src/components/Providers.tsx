@@ -556,7 +556,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [friends, resolveOptimisticFromFriends]);
 
   const applySession = useCallback((s: SessionState) => {
-    if (banSentOpenRef.current) return;
     const viewerId = auth.user?.id ?? null;
     if (!viewerId || auth.loading) {
       logIncomingDebug({
@@ -584,27 +583,40 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       return;
     }
+
     const nextIncoming = pickIncomingForOverlay(
       s.incoming,
       dismissedIncomingRef.current,
       viewerId,
     );
-    const incomingWhy = explainIncomingHidden(
-      s.incoming,
-      viewerId,
-      auth.loading,
-      viewerId,
-      dismissedIncomingRef.current,
-    );
+    if (nextIncoming) {
+      setIncomingBan(nextIncoming);
+    }
+
     logIncomingDebug({
       authUserId: viewerId,
       sessionUserId: s.userId ?? viewerId,
       incomingId: s.incoming?.id ?? null,
       incomingReceiverId: s.incoming?.receiver?.id ?? null,
       incomingAcknowledged: s.incoming?.incomingAcknowledged ?? null,
-      shouldShow: incomingWhy.shouldShow,
-      reason: incomingWhy.reason,
+      shouldShow: !!nextIncoming,
+      reason: nextIncoming ? 'shown' : 'no-incoming',
     });
+
+    if (banSentOpenRef.current) {
+      setIncomingBan((prev) => {
+        if (nextIncoming) return nextIncoming;
+        if (
+          prev &&
+          shouldShowIncomingBanModal(prev, viewerId, dismissedIncomingRef.current)
+        ) {
+          return prev;
+        }
+        return null;
+      });
+      return;
+    }
+
     challengeLog('session:apply', {
       incoming: s.incoming?.id ?? null,
       incomingStatus: s.incoming?.status ?? null,
@@ -714,8 +726,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         incomingReceiverId: (session as any)?.incoming?.receiver?.id ?? null,
       });
       applySession(session);
-      await refreshUserRef.current();
-      await api('/analytics/track', {
+      void refreshUserRef.current().catch(() => {});
+      void api('/analytics/track', {
         method: 'POST',
         token,
         body: JSON.stringify({
@@ -803,7 +815,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             viewerId,
           );
           if (incoming) {
-            setIncomingBanSafe(incoming);
+            setIncomingBan(incoming);
           } else if (b?.receiver?.id) {
             bufferedIncomingRef.current = b;
             console.log('[incoming-buffer]', {
@@ -1019,7 +1031,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ? uiFreeze.activeBans
       : displayActiveBans
     : [];
-  const scopedIncomingBan = isAppReady ? incomingBan : null;
+  const scopedIncomingBan =
+    auth.user?.id && !auth.loading ? incomingBan : null;
   const scopedCheckBan = isAppReady ? checkBan : null;
 
   useEffect(() => {

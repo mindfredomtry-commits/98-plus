@@ -75,6 +75,7 @@ export function buildOptimisticFriendCard(
     username: wait.username,
     firstName: wait.firstName,
     photoUrl: null,
+    avatarUrl: null,
     auraLabel: 'Отправка',
     streak: 0,
     energyPercent: 0,

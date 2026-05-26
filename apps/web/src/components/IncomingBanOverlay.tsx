@@ -1,133 +1,172 @@
 'use client';
 
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { BanInteraction } from '@98plus/shared';
 import { formatSenderDisplayName } from '@98plus/shared';
-import { api, pingApi } from '@/lib/api';
+import { api } from '@/lib/api';
 import {
   formatDeliveryError,
   validateReplyTarget,
   verifyIncomingChallenge,
 } from '@/lib/deliver-challenge';
 import { challengeLog } from '@/lib/challenge-log';
-import {
-  isValidIncomingOverlayPayload,
-  shouldShowIncomingBanModal,
-} from '@/lib/incoming-challenge';
-import { explainIncomingHidden, logIncomingDebug } from '@/lib/incoming-debug';
+import { shouldShowIncomingBanModal } from '@/lib/incoming-challenge';
+import { logIncomingDebug } from '@/lib/incoming-debug';
+import { friendAvatarUrl } from '@/lib/avatar-url';
 import { useApp } from './Providers';
 import { BigButton } from './BigButton';
+import { AvatarImage } from './AvatarImage';
 import { useTelegram } from '@/hooks/useTelegram';
 import { ModalShell } from './ModalShell';
+
+type VerifyPhase = 'idle' | 'pending' | 'ok' | 'failed';
 
 function IncomingBanOverlayInner() {
   const {
     token,
     user,
     loading: authLoading,
-    isAppReady,
     incomingBan,
+    setIncomingBan,
     acknowledgeIncomingAndStartReply,
     acknowledgeIncomingSeen,
-    reloadPending,
     onboard,
   } = useApp();
   const { haptic, hapticSuccess, bindBack } = useTelegram();
-  const [loading, setLoading] = useState(false);
-  const [bootError, setBootError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
   const [verifiedBan, setVerifiedBan] = useState<BanInteraction | null>(null);
+  const [verifyPhase, setVerifyPhase] = useState<VerifyPhase>('idle');
+  const verifyGenRef = useRef(0);
 
   const viewerId = user?.id ?? null;
 
-  const bootstrap = useCallback(async () => {
-    if (!incomingBan?.id || !token) {
+  const closeOnVerifyFail = useCallback(
+    (reason: string, banId: string) => {
+      challengeLog('overlay:verify-fail', { banId, reason });
+      console.log('[incoming-overlay]', { event: 'verify-fail', banId, reason });
       setVerifiedBan(null);
-      return;
-    }
-
-    if (!isValidIncomingOverlayPayload(incomingBan, viewerId)) {
-      return;
-    }
-
-    setBootError(null);
-
-    try {
-      const apiOk = await pingApi();
-      if (!apiOk) {
-        setBootError('Нет связи с API');
-        return;
-      }
-
-      const ban = await verifyIncomingChallenge(token, incomingBan.id);
-      if (!isValidIncomingOverlayPayload(ban, viewerId)) {
-        challengeLog('overlay:already-acked', { banId: incomingBan.id });
-        return;
-      }
-      validateReplyTarget(ban);
-      setVerifiedBan(ban);
-      challengeLog('overlay:verified', { banId: ban.id });
-    } catch (e) {
-      setBootError(formatDeliveryError(e));
-      setVerifiedBan(null);
-    }
-  }, [incomingBan, token, viewerId]);
+      setVerifyPhase('failed');
+      setIncomingBan(null);
+    },
+    [setIncomingBan],
+  );
 
   useEffect(() => {
-    if (!incomingBan || !token) return;
+    if (!incomingBan?.id || !token || !viewerId) {
+      setVerifiedBan(null);
+      setVerifyPhase('idle');
+      return;
+    }
     if (!shouldShowIncomingBanModal(incomingBan, viewerId, new Set())) {
       return;
     }
-    void bootstrap();
-    onboard().catch(() => {});
-    return bindBack(() => {
+
+    console.log('[incoming-overlay]', {
+      event: 'optimistic-show',
+      banId: incomingBan.id,
+    });
+    setVerifiedBan(null);
+    setVerifyPhase('pending');
+
+    const gen = ++verifyGenRef.current;
+    const banId = incomingBan.id;
+
+    const runVerify = async () => {
+      try {
+        const ban = await verifyIncomingChallenge(token, banId);
+        if (verifyGenRef.current !== gen) return;
+        if (!shouldShowIncomingBanModal(ban, viewerId, new Set())) {
+          closeOnVerifyFail('already-acked-or-invalid', banId);
+          return;
+        }
+        validateReplyTarget(ban);
+        setVerifiedBan(ban);
+        setVerifyPhase('ok');
+        challengeLog('overlay:verified', { banId: ban.id });
+        console.log('[incoming-overlay]', { event: 'verify-ok', banId: ban.id });
+      } catch (e) {
+        if (verifyGenRef.current !== gen) return;
+        closeOnVerifyFail(formatDeliveryError(e), banId);
+      }
+    };
+
+    // Incoming-first: paint modal, verify after render.
+    const t = window.setTimeout(() => {
+      void runVerify();
+    }, 0);
+
+    void onboard().catch(() => {});
+
+    const unbindBack = bindBack(() => {
       if (incomingBan.status === 'pending') return;
       void acknowledgeIncomingSeen(incomingBan.id);
     }, true);
-  }, [incomingBan, token, viewerId, bindBack, onboard, bootstrap, acknowledgeIncomingSeen]);
+
+    return () => {
+      window.clearTimeout(t);
+      verifyGenRef.current += 1;
+      unbindBack?.();
+    };
+  }, [
+    incomingBan,
+    token,
+    viewerId,
+    bindBack,
+    onboard,
+    acknowledgeIncomingSeen,
+    closeOnVerifyFail,
+  ]);
 
   const ban = verifiedBan ?? incomingBan;
 
   const senderLabel = useMemo(() => {
-    if (!ban?.sender) return '';
+    if (!ban?.sender) return '—';
     const u = ban.sender.username?.replace(/^@/, '').trim();
     if (u) return `@${u}`;
     return formatSenderDisplayName(ban.sender.username, ban.sender.firstName);
   }, [ban?.sender]);
 
   const handleCounter = useCallback(async () => {
-    if (!ban?.id || !ban.sender || loading) return;
+    const actBan = verifiedBan ?? incomingBan;
+    if (!actBan?.id || !actBan.sender?.id || actionLoading) return;
     haptic('medium');
-    setLoading(true);
+    setActionLoading(true);
     try {
-      await acknowledgeIncomingAndStartReply(ban);
+      await acknowledgeIncomingAndStartReply(actBan);
     } finally {
-      setLoading(false);
+      setActionLoading(false);
     }
-  }, [ban, haptic, loading, acknowledgeIncomingAndStartReply]);
+  }, [
+    verifiedBan,
+    incomingBan,
+    haptic,
+    actionLoading,
+    acknowledgeIncomingAndStartReply,
+  ]);
 
   const handleOverboard = useCallback(async () => {
-    if (!ban?.id || !token || loading) return;
-    setLoading(true);
+    const actBan = verifiedBan ?? incomingBan;
+    if (!actBan?.id || !token || actionLoading) return;
+    setActionLoading(true);
     hapticSuccess();
     try {
-      await acknowledgeIncomingSeen(ban.id);
-      await api(`/bans/${ban.id}/overboard`, { method: 'POST', token });
+      await acknowledgeIncomingSeen(actBan.id);
+      await api(`/bans/${actBan.id}/overboard`, { method: 'POST', token });
       setVerifiedBan(null);
-      await reloadPending();
     } catch (e) {
       alert(formatDeliveryError(e));
     } finally {
-      setLoading(false);
+      setActionLoading(false);
     }
-  }, [ban?.id, token, hapticSuccess, loading, acknowledgeIncomingSeen, reloadPending]);
-
-  const hideReason = explainIncomingHidden(
+  }, [
+    verifiedBan,
     incomingBan,
-    viewerId,
-    authLoading,
-    viewerId,
-    new Set(),
-  );
+    token,
+    hapticSuccess,
+    actionLoading,
+    acknowledgeIncomingSeen,
+  ]);
 
   const shouldShow = incomingBan
     ? shouldShowIncomingBanModal(incomingBan, viewerId, new Set())
@@ -140,31 +179,40 @@ function IncomingBanOverlayInner() {
       incomingReceiverId: incomingBan.receiver?.id,
       incomingAcknowledged: incomingBan.incomingAcknowledged,
       shouldShow,
-      reason: shouldShow ? 'shown' : hideReason.reason,
+      reason: shouldShow ? 'shown' : 'guard-rejected',
+      extra: { verifyPhase },
     });
   }
 
-  if (!incomingBan || !token || authLoading || !viewerId || !isAppReady) {
+  if (!incomingBan || !token || authLoading || !viewerId) {
     return null;
   }
 
-  if (!shouldShow) {
+  if (!shouldShow || verifyPhase === 'failed') {
     return null;
   }
 
-  if (!ban || !isValidIncomingOverlayPayload(ban, viewerId)) {
+  if (!incomingBan.text?.trim()) {
     return null;
   }
 
-  const canAct = !!ban.sender?.id && !bootError;
+  const senderLetter = (
+    incomingBan.sender?.firstName?.[0] ??
+    incomingBan.sender?.username?.[0] ??
+    '?'
+  ).toUpperCase();
 
-  return (
+  const canAct = !!incomingBan.sender?.id;
+
+  const modal = (
     <ModalShell
       open
       light
+      stable
+      zIndex={70}
       closeOnBackdrop={false}
       ariaLabel="Входящий запрет"
-      onClose={() => void acknowledgeIncomingSeen(ban.id)}
+      onClose={() => void acknowledgeIncomingSeen(incomingBan.id)}
       cardClassName="modal-card--incoming"
     >
       <div className="incoming-modal-body text-center">
@@ -173,29 +221,31 @@ function IncomingBanOverlayInner() {
         </p>
 
         <div className="incoming-modal-sender mb-3">
-          <SenderAvatar
-            name={ban.sender?.firstName ?? '—'}
-            photoUrl={ban.sender?.photoUrl ?? null}
+          <AvatarImage
+            src={friendAvatarUrl({
+              avatarUrl: incomingBan.sender?.photoUrl ?? null,
+              photoUrl: incomingBan.sender?.photoUrl ?? null,
+            })}
+            letter={senderLetter}
+            sizeClass="w-20 h-20 mx-auto"
+            textClass="text-2xl"
+            priority
           />
           <p className="text-muted text-sm mt-2">{senderLabel}</p>
         </div>
 
         <p className="incoming-modal-text text-lg font-semibold leading-snug mb-4 px-1">
-          «{ban.text}»
+          «{incomingBan.text}»
         </p>
 
-        {bootError ? (
-          <p className="text-warning text-xs mb-3 max-w-xs mx-auto">{bootError}</p>
-        ) : null}
-
         <div className="incoming-modal-actions space-y-2.5">
-          <BigButton onClick={handleCounter} disabled={loading || !canAct}>
+          <BigButton onClick={handleCounter} disabled={actionLoading || !canAct}>
             🚫 Запретить в ответ
           </BigButton>
           <BigButton
             variant="ghost"
             onClick={handleOverboard}
-            disabled={loading || !canAct}
+            disabled={actionLoading || !canAct}
           >
             🫷 Перебор!
           </BigButton>
@@ -203,25 +253,9 @@ function IncomingBanOverlayInner() {
       </div>
     </ModalShell>
   );
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(modal, document.body);
 }
 
 export const IncomingBanOverlay = memo(IncomingBanOverlayInner);
-
-function SenderAvatar({
-  name,
-  photoUrl,
-}: {
-  name: string;
-  photoUrl: string | null;
-}) {
-  return (
-    <div className="modal-avatar mx-auto" aria-hidden>
-      {photoUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={photoUrl} alt="" className="w-full h-full object-cover" />
-      ) : (
-        <span className="text-lg font-bold">{name[0]?.toUpperCase() ?? '?'}</span>
-      )}
-    </div>
-  );
-}

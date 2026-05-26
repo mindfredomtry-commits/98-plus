@@ -13,6 +13,8 @@ type Props = {
   textClass?: string;
   ringClassName?: string;
   priority?: boolean;
+  /** Soft neon ring when friend is online */
+  onlineGlow?: boolean;
   className?: string;
 };
 
@@ -23,6 +25,7 @@ function AvatarImageInner({
   textClass = 'text-2xl',
   ringClassName = 'ring-white/10',
   priority = false,
+  onlineGlow = false,
   className = '',
 }: Props) {
   const normalized = normalizeAvatarUrl(src);
@@ -51,7 +54,7 @@ function AvatarImageInner({
 
   return (
     <div
-      className={`avatar-image relative shrink-0 ${sizeClass} ${className}`}
+      className={`avatar-image relative shrink-0 ${sizeClass} ${onlineGlow ? 'avatar-image--online' : ''} ${className}`}
       aria-hidden
     >
       <div

@@ -9,6 +9,14 @@ export function normalizeAvatarUrl(
   return null;
 }
 
+/** Resolve display avatar URL from friend card fields. */
+export function friendAvatarUrl(
+  friend: { avatarUrl?: string | null; photoUrl?: string | null } | null | undefined,
+): string | null {
+  if (!friend) return null;
+  return normalizeAvatarUrl(friend.avatarUrl ?? friend.photoUrl);
+}
+
 /** Warm browser cache for friend strip avatars. */
 export function preloadAvatarUrls(urls: (string | null | undefined)[]): void {
   if (typeof window === 'undefined') return;

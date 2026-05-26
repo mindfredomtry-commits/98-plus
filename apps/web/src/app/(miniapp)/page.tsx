@@ -102,7 +102,7 @@ export default function HomePage() {
       try {
         const uid = user?.id ?? null;
         if (!uid) return;
-        await backfillAcknowledgedIncomingOnce(authToken, uid);
+        void backfillAcknowledgedIncomingOnce(authToken, uid);
         const requestedAt = Date.now();
         console.log('[session-fetch]', {
           authUserId: uid,

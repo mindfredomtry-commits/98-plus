@@ -672,23 +672,52 @@ html.scroll-lock body {
 }
 
 .friend-avatar-selected {
+  outline: 1px solid rgba(168, 85, 247, 0.45);
+  outline-offset: 2px;
   background: linear-gradient(
     180deg,
-    rgba(155, 89, 182, 0.28) 0%,
-    rgba(155, 89, 182, 0.06) 100%
+    rgba(155, 89, 182, 0.18) 0%,
+    rgba(155, 89, 182, 0.04) 100%
   );
 }
 
-.friend-online-ring .avatar-card-slot,
-.friend-online-ring .avatar-image {
-  box-shadow: 0 0 22px rgba(155, 89, 182, 0.55);
-  border-radius: 9999px;
+.avatar-card-slot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.friend-recent-glow .avatar-card-slot,
-.friend-recent-glow .avatar-image {
-  box-shadow: 0 0 12px rgba(251, 191, 36, 0.35);
+.avatar-image--online::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
   border-radius: 9999px;
+  border: 2px solid rgba(236, 72, 153, 0.55);
+  box-shadow:
+    0 0 10px rgba(236, 72, 153, 0.45),
+    0 0 22px rgba(168, 85, 247, 0.35);
+  animation: avatarOnlineBreath 3.2s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+
+@keyframes avatarOnlineBreath {
+  0%,
+  100% {
+    opacity: 0.72;
+    transform: scale(1);
+    box-shadow:
+      0 0 8px rgba(236, 72, 153, 0.35),
+      0 0 18px rgba(168, 85, 247, 0.28);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.02);
+    box-shadow:
+      0 0 14px rgba(236, 72, 153, 0.55),
+      0 0 28px rgba(168, 85, 247, 0.45);
+  }
 }
 
 .avatar-image__fallback {

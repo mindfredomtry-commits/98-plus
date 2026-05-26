@@ -465,6 +465,7 @@ export async function listSocialGraph(
 
     const firstName = (live?.firstName ?? c.contactFirstName ?? '').trim();
     const photoUrl = live?.photoUrl ?? c.contactPhotoUrl;
+    const avatarUrl = photoUrl;
     const username = (
       live?.username?.trim() ||
       (c.contactUsername.startsWith('uid:')
@@ -483,6 +484,7 @@ export async function listSocialGraph(
       username,
       firstName,
       photoUrl,
+      avatarUrl,
       auraLabel: live ? AURA_LABELS[aura] : 'Контакт',
       streak,
       energyPercent: live
