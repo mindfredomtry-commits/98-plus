@@ -88,6 +88,8 @@ export async function mapBanToInteraction(
     sender: mapUser(ban.sender),
     receiver: mapUser(ban.receiver),
     isIncoming: ban.receiverId === viewerId,
+    incomingAcknowledged:
+      ban.receiverId === viewerId && ban.receiverIncomingAckAt != null,
     createdAt: ban.createdAt.toISOString(),
     expiresAt: ban.expiresAt?.toISOString() ?? null,
     checkDueAt: ban.checkDueAt?.toISOString() ?? null,
@@ -788,6 +790,7 @@ export async function resolveDeepLinkBan(banId: string, userId: string) {
   const ban = await prisma.ban.findUnique({ where: { id: banId } });
   if (!ban) return null;
   if (ban.receiverId === userId && ban.status === 'PENDING') {
+    if (ban.receiverIncomingAckAt) return null;
     return mapBanToInteraction(banId, userId);
   }
   if (ban.status === 'CHECKING') {
@@ -832,16 +835,17 @@ export async function getPendingIncoming(userId: string) {
 export async function acknowledgeIncomingBan(
   banId: string,
   userId: string,
-): Promise<boolean> {
+): Promise<BanInteraction | null> {
   const ban = await prisma.ban.findUnique({ where: { id: banId } });
-  if (!ban) return false;
-  if (ban.receiverId !== userId) return false;
-  if (ban.receiverIncomingAckAt) return true;
-  await prisma.ban.update({
-    where: { id: banId },
-    data: { receiverIncomingAckAt: new Date() },
-  });
-  return true;
+  if (!ban) return null;
+  if (ban.receiverId !== userId) return null;
+  if (!ban.receiverIncomingAckAt) {
+    await prisma.ban.update({
+      where: { id: banId },
+      data: { receiverIncomingAckAt: new Date() },
+    });
+  }
+  return mapBanToInteraction(banId, userId);
 }
 
 export async function getPendingCheck(userId: string) {

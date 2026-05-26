@@ -117,12 +117,12 @@ bansRouter.post('/:id/result/ack', async (req: AuthRequest, res) => {
 });
 
 bansRouter.post('/:id/incoming/ack', async (req: AuthRequest, res) => {
-  const ok = await acknowledgeIncomingBan(paramId(req), req.userId!);
-  if (!ok) {
+  const ban = await acknowledgeIncomingBan(paramId(req), req.userId!);
+  if (!ban) {
     res.status(404).json({ error: 'Not found' });
     return;
   }
-  res.json({ ok: true });
+  res.json({ ok: true, ban });
 });
 
 bansRouter.get('/:id/check-state', async (req: AuthRequest, res) => {
