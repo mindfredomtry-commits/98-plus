@@ -875,6 +875,44 @@ html.scroll-lock body {
   text-shadow: 0 0 20px rgba(155, 89, 182, 0.35);
 }
 
+.modal-card--check {
+  max-width: 19rem;
+  padding: 1.25rem 1.1rem 1.1rem;
+}
+
+.check-modal-head {
+  position: relative;
+  padding-right: 2.5rem;
+}
+
+.check-modal-title {
+  letter-spacing: 0.01em;
+}
+
+.check-modal-timer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: 0.75rem;
+}
+
+.check-modal-sender .modal-avatar {
+  width: 3.25rem;
+  height: 3.25rem;
+}
+
+.check-modal-text {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.check-answer-btn {
+  font-size: 1.75rem;
+  line-height: 1;
+  letter-spacing: 0;
+  padding-top: 0.85rem;
+  padding-bottom: 0.85rem;
+}
+
 .modal-avatar {
   width: 3.5rem;
   height: 3.5rem;

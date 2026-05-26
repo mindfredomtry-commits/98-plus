@@ -13,6 +13,10 @@ interface Props {
   ariaLabel?: string;
   /** Faster tween — for result cards on mobile WebView */
   light?: boolean;
+  /** Tap outside card to dismiss (default true) */
+  closeOnBackdrop?: boolean;
+  /** Extra class on the card panel */
+  cardClassName?: string;
 }
 
 export function ModalShell({
@@ -22,6 +26,8 @@ export function ModalShell({
   zIndex = 60,
   ariaLabel = 'Диалог',
   light = false,
+  closeOnBackdrop = true,
+  cardClassName = '',
 }: Props) {
   const cardTransition = light
     ? { duration: 0.16, ease: [0.22, 1, 0.36, 1] as const }
@@ -47,14 +53,14 @@ export function ModalShell({
           transition={backdropTransition}
           className={`modal-backdrop${light ? ' modal-backdrop--light' : ''}`}
           style={{ zIndex }}
-          onClick={onClose}
+          onClick={closeOnBackdrop ? onClose : undefined}
         >
           <motion.div
             initial={{ opacity: 0, scale: light ? 0.97 : 0.94, y: light ? 6 : 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: light ? 0.98 : 0.96, y: light ? 4 : 8 }}
             transition={cardTransition}
-            className="modal-card"
+            className={`modal-card${cardClassName ? ` ${cardClassName}` : ''}`}
             onClick={(e) => e.stopPropagation()}
           >
             {children}

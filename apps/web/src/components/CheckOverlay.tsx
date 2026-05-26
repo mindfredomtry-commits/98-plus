@@ -1,17 +1,17 @@
 'use client';
 
-import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { SYSTEM_VOICE } from '@98plus/shared';
-import type { BanResult } from '@98plus/shared';
+import { memo, useCallback, useMemo, useState } from 'react';
+import { SYSTEM_VOICE, formatSenderDisplayName } from '@98plus/shared';
+import type { BanInteraction, BanResult } from '@98plus/shared';
 import { api } from '@/lib/api';
 import { useApp } from './Providers';
 import { BigButton } from './BigButton';
 import { useTelegram } from '@/hooks/useTelegram';
 import { BanTimer } from './BanTimer';
 import { challengeLog } from '@/lib/challenge-log';
+import { ModalShell } from './ModalShell';
 
-export function CheckOverlay() {
+function CheckOverlayInner() {
   const {
     token,
     checkBan,
@@ -24,100 +24,147 @@ export function CheckOverlay() {
   const { haptic } = useTelegram();
   const [submitting, setSubmitting] = useState(false);
 
-  if (!checkBan?.id || !token || checkBan.status !== 'checking') {
+  const open =
+    !!checkBan?.id && !!token && checkBan.status === 'checking';
+
+  const sender = checkBan?.sender;
+  const senderLabel = useMemo(
+    () =>
+      sender
+        ? formatSenderDisplayName(sender.username, sender.firstName)
+        : '',
+    [sender],
+  );
+
+  const answer = useCallback(
+    async (completed: boolean) => {
+      if (!checkBan?.id || !token || submitting) return;
+      haptic('light');
+      setSubmitting(true);
+      try {
+        const res = await api<{
+          done: boolean;
+          waiting?: boolean;
+          result?: BanResult;
+        }>(`/bans/${checkBan.id}/check`, {
+          method: 'POST',
+          token,
+          body: JSON.stringify({ completed }),
+        });
+
+        if (res.done && res.result) {
+          challengeLog('check:done', { banId: checkBan.id });
+          clearCheckOverlay();
+          setResult(res.result);
+          void refreshUser();
+        } else if (res.waiting) {
+          challengeLog('check:waiting-ui', { banId: checkBan.id });
+          setCheckWaiting(true);
+          window.setTimeout(() => {
+            clearCheckOverlay();
+          }, 3000);
+        }
+      } catch (e) {
+        alert((e as Error).message);
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [
+      checkBan?.id,
+      clearCheckOverlay,
+      haptic,
+      refreshUser,
+      setCheckWaiting,
+      setResult,
+      submitting,
+      token,
+    ],
+  );
+
+  if (!open || !checkBan) {
     return null;
   }
 
-  async function answer(completed: boolean) {
-    haptic('light');
-    setSubmitting(true);
-    try {
-      const res = await api<{
-        done: boolean;
-        waiting?: boolean;
-        result?: BanResult;
-      }>(`/bans/${checkBan!.id}/check`, {
-        method: 'POST',
-        token,
-        body: JSON.stringify({ completed }),
-      });
-
-      if (res.done && res.result) {
-        challengeLog('check:done', { banId: checkBan!.id });
-        clearCheckOverlay();
-        setResult(res.result);
-        await refreshUser();
-      } else if (res.waiting) {
-        challengeLog('check:waiting-ui', { banId: checkBan!.id });
-        setCheckWaiting(true);
-        window.setTimeout(() => {
-          clearCheckOverlay();
-        }, 3000);
-      }
-    } catch (e) {
-      alert((e as Error).message);
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  const showTransientWaiting = checkWaiting;
-
   return (
-    <AnimatePresence mode="wait">
-      <motion.div
-        key={showTransientWaiting ? 'wait' : 'form'}
-        initial={{ opacity: 0, y: 40 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: 24 }}
-        transition={{ duration: 0.25 }}
-        className="fixed inset-x-4 z-[45] bg-card rounded-3xl p-6 shadow-glow border border-accent/20 above-bottom-chrome pointer-events-auto"
-      >
-        {showTransientWaiting ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="text-center py-4"
-          >
-            <motion.p
-              animate={{ opacity: [0.7, 1, 0.7] }}
-              transition={{ repeat: Infinity, duration: 1.4 }}
-              className="text-accent font-medium mb-2"
+    <ModalShell
+      open
+      light
+      closeOnBackdrop={false}
+      ariaLabel="Проверка запрета"
+      onClose={clearCheckOverlay}
+      cardClassName="modal-card--check"
+    >
+      {checkWaiting ? (
+        <div className="check-modal-body text-center py-2">
+          <p className="text-accent font-semibold mb-1">⚡ Ждём друга</p>
+          <p className="text-muted text-sm">Ответ учтён. Скоро результат.</p>
+        </div>
+      ) : (
+        <div className="check-modal-body text-center">
+          <div className="check-modal-head mb-3">
+            <p className="check-modal-title text-xl font-black text-glow">
+              {SYSTEM_VOICE.checkPrompt}
+            </p>
+            {checkBan.remainingMs != null ? (
+              <div className="check-modal-timer">
+                <BanTimer remainingMs={checkBan.remainingMs} />
+              </div>
+            ) : null}
+          </div>
+
+          {sender ? (
+            <div className="check-modal-sender mb-3">
+              <SenderAvatar user={sender} />
+              <p className="text-muted text-xs mt-2">{senderLabel}</p>
+            </div>
+          ) : null}
+
+          <p className="check-modal-text text-base font-semibold leading-snug mb-4">
+            «{checkBan.text}»
+          </p>
+
+          <div className="check-modal-actions space-y-2.5">
+            <BigButton
+              className="check-answer-btn"
+              disabled={submitting}
+              aria-label="Выполнил"
+              onClick={() => answer(true)}
             >
-              ⚡ Ждём друга
-            </motion.p>
-            <p className="text-muted text-sm">Ответ учтён. Скоро результат.</p>
-          </motion.div>
-        ) : (
-          <>
-            <div className="flex justify-between items-start mb-2">
-              <p className="text-accent font-medium">{SYSTEM_VOICE.checkPrompt}</p>
-              <BanTimer remainingMs={checkBan.remainingMs} />
-            </div>
-            <p className="text-lg mb-6">«{checkBan.text ?? ''}»</p>
-            <div className="space-y-3">
-              <BigButton onClick={() => answer(true)} disabled={submitting}>
-                ✅ Выполнил
-              </BigButton>
-              <BigButton
-                variant="ghost"
-                onClick={() => answer(false)}
-                disabled={submitting}
-              >
-                ❌ Не выполнил
-              </BigButton>
-            </div>
-          </>
-        )}
-        <button
-          type="button"
-          onClick={clearCheckOverlay}
-          className="w-full text-muted text-xs py-3 mt-2"
-        >
-          Закрыть
-        </button>
-      </motion.div>
-    </AnimatePresence>
+              ✅
+            </BigButton>
+            <BigButton
+              variant="ghost"
+              className="check-answer-btn"
+              disabled={submitting}
+              aria-label="Не выполнил"
+              onClick={() => answer(false)}
+            >
+              ❌
+            </BigButton>
+          </div>
+        </div>
+      )}
+    </ModalShell>
+  );
+}
+
+export const CheckOverlay = memo(CheckOverlayInner);
+
+function SenderAvatar({
+  user,
+}: {
+  user: NonNullable<BanInteraction['sender']>;
+}) {
+  const letter = (user.firstName?.[0] ?? '?').toUpperCase();
+  return (
+    <div className="modal-avatar mx-auto" aria-hidden>
+      {user.photoUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={user.photoUrl} alt="" className="w-full h-full object-cover" />
+      ) : (
+        <span className="text-lg font-bold">{letter}</span>
+      )}
+    </div>
   );
 }
