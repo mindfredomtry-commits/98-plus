@@ -14,9 +14,17 @@ friendsRouter.use(requireAuth);
 friendsRouter.get('/', async (req: AuthRequest, res) => {
   const t0 = Date.now();
   try {
-    await touchPresence(req.userId!);
+    void touchPresence(req.userId!).catch(() => {});
+    console.log('[friends-api]', {
+      stage: 'auth',
+      ms: Date.now() - t0,
+      totalMs: Date.now() - t0,
+      userId: req.userId,
+    });
     const friends = await listFriends(req.userId!);
-    console.log(`[98+] /friends loaded in ${Date.now() - t0}ms`);
+    const totalMs = Date.now() - t0;
+    console.log('[friends-api]', { stage: 'route-total', totalMs, userId: req.userId });
+    console.log(`[98+] /friends loaded in ${totalMs}ms`);
     res.json({ friends: friends ?? [] });
   } catch (err) {
     console.error('[friends] GET / failed', err);

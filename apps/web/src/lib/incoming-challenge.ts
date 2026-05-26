@@ -1,4 +1,5 @@
 import { isIncomingOverlayBan, type BanInteraction } from '@98plus/shared';
+import { isIncomingAcknowledgedLocally } from './acknowledged-incoming';
 /** Incoming modal requires pending incoming challenge for the receiver. */
 export function isValidIncomingOverlayPayload(
   ban: BanInteraction | null | undefined,
@@ -25,5 +26,6 @@ export function shouldShowIncomingBanModal(
   if (!viewerId || viewerId !== ban.receiver.id) return false;
   if (ban.incomingAcknowledged) return false;
   if (sessionDismissed.has(ban.id)) return false;
+  if (viewerId && isIncomingAcknowledgedLocally(viewerId, ban.id)) return false;
   return true;
 }

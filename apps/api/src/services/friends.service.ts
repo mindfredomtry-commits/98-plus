@@ -7,16 +7,39 @@ import { listSocialGraph, recordSocialContact } from './social-graph.service';
 import { ensureDevFixturesForUser, isDevModeUser } from './dev-fixtures.service';
 
 export async function listFriends(userId: string): Promise<FriendCard[]> {
+  const t0 = Date.now();
+  let stageAt = t0;
+  const logStage = (stage: string) => {
+    const now = Date.now();
+    console.log('[friends-api]', {
+      stage,
+      ms: now - stageAt,
+      totalMs: now - t0,
+      userId,
+    });
+    stageAt = now;
+  };
+
   try {
+    logStage('start');
     if (await isDevModeUser(userId)) {
       await ensureDevFixturesForUser(userId);
+      logStage('dev-fixtures');
     }
-    const graph = await listSocialGraph(userId);
-    return graph
+    const graph = await listSocialGraph(userId, {
+      log: (stage, ms, totalMs) => {
+        console.log('[friends-api]', { stage, ms, totalMs, userId });
+      },
+    });
+    logStage('sanitize');
+    const out = graph
       .map((c) => sanitizeFriendCard(c))
       .filter((c): c is FriendCard => c !== null);
+    logStage('total');
+    return out;
   } catch (err) {
     console.error('[friends] listSocialGraph failed', err);
+    logStage('error');
     return [];
   }
 }

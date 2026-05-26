@@ -72,6 +72,12 @@ bansRouter.post('/incoming/backfill-ack', async (req: AuthRequest, res) => {
     ? body.banIds.filter((id): id is string => typeof id === 'string')
     : [];
   const count = await backfillStaleIncomingForUser(req.userId!, banIds);
+  console.log('[incoming-api]', {
+    route: 'POST /bans/incoming/backfill-ack',
+    userId: req.userId,
+    clientAckCount: banIds.length,
+    acked: count,
+  });
   res.json({ ok: true, count });
 });
 

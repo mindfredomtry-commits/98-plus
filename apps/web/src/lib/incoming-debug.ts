@@ -43,10 +43,7 @@ export function explainIncomingHidden(
     return { shouldShow: false, reason: 'session-dismissed' };
   }
   if (isIncomingAcknowledgedLocally(authUserId, ban.id)) {
-    return {
-      shouldShow: true,
-      reason: 'shown',
-    };
+    return { shouldShow: false, reason: 'already-acked-local' };
   }
   return { shouldShow: true, reason: 'shown' };
 }

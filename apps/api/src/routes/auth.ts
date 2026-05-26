@@ -15,6 +15,7 @@ import { touchPresence } from '../services/presence.service';
 import {
   linkContactsForRegisteredUser,
   materializeRegisteredUser,
+  syncSocialGraphFromHistory,
 } from '../services/social-graph.service';
 import { pushFriendsGraphRefresh } from '../services/friends-sync';
 import type { BanInteraction } from '@98plus/shared';
@@ -106,6 +107,10 @@ authRouter.post('/telegram', async (req, res) => {
     username: user.username,
     firstName: user.firstName,
     photoUrl: user.photoUrl,
+  });
+
+  void syncSocialGraphFromHistory(user.id).catch((err) => {
+    console.warn('[friends] background graph sync failed', err);
   });
 
   const extra = await afterAuth(user.id, user.username, startParam);

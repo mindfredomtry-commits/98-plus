@@ -848,19 +848,16 @@ export async function backfillStaleIncomingForUser(
   });
   total += staleByAge.count;
 
-  const withReply = await prisma.ban.findMany({
+  const withReplyAck = await prisma.ban.updateMany({
     where: {
       receiverId: userId,
       status: 'PENDING',
       receiverIncomingAckAt: null,
       counterBans: { some: {} },
     },
-    select: { id: true },
+    data: { receiverIncomingAckAt: new Date() },
   });
-  for (const b of withReply) {
-    await markIncomingAcked(b.id);
-    total += 1;
-  }
+  total += withReplyAck.count;
 
   const handledPending = await prisma.ban.updateMany({
     where: {
@@ -888,6 +885,46 @@ export async function backfillStaleIncomingForUser(
       data: { receiverIncomingAckAt: new Date() },
     });
     total += fromClient.count;
+  }
+
+  // Collapse queue: ack older pending tails when a newer one exists (skip if <5min apart).
+  const unacked = await prisma.ban.findMany({
+    where: {
+      receiverId: userId,
+      status: 'PENDING',
+      receiverIncomingAckAt: null,
+      isOverboard: false,
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, createdAt: true },
+  });
+  if (unacked.length > 1) {
+    const newest = unacked[0]!;
+    const staleQueueIds = unacked.slice(1).filter((b) => {
+      if (b.createdAt < cutoff) return true;
+      const gapMs = newest.createdAt.getTime() - b.createdAt.getTime();
+      return gapMs > 5 * 60 * 1000;
+    }).map((b) => b.id);
+    if (staleQueueIds.length > 0) {
+      const queueAck = await prisma.ban.updateMany({
+        where: {
+          receiverId: userId,
+          status: 'PENDING',
+          receiverIncomingAckAt: null,
+          id: { in: staleQueueIds },
+        },
+        data: { receiverIncomingAckAt: new Date() },
+      });
+      total += queueAck.count;
+    }
+  }
+
+  if (total > 0) {
+    console.log('[incoming-api]', {
+      userId,
+      reason: 'backfill-ack',
+      count: total,
+    });
   }
 
   return total;
@@ -919,23 +956,8 @@ function pendingIncomingRejectReason(
   if (ban.receiverIncomingAckAt) return 'all acked';
   if (ban.isOverboard) return 'is overboard';
   if (ban.createdAt < cutoff) return 'too old';
-  // Diagnostic: do not reject fresh bans for counterBans or handledAt.
-  if (ban._count.counterBans > 0) {
-    console.log('[incoming-api]', {
-      userId,
-      pendingIncomingId: ban.id,
-      note: 'has counterBan (diagnostic: still eligible)',
-      counterBansCount: ban._count.counterBans,
-    });
-  }
-  if (ban.handledAt) {
-    console.log('[incoming-api]', {
-      userId,
-      pendingIncomingId: ban.id,
-      note: 'handledAt set (diagnostic: still eligible)',
-      handledAt: ban.handledAt,
-    });
-  }
+  if (ban._count.counterBans > 0) return 'has counterBan';
+  if (ban.handledAt) return 'handledAt set';
   return null;
 }
 
@@ -943,57 +965,47 @@ function pendingIncomingRejectReason(
 export async function getPendingIncoming(userId: string) {
   const cutoff = new Date(Date.now() - INCOMING_PENDING_MAX_AGE_MS);
 
-  const candidates = await prisma.ban.findMany({
+  const ban = await prisma.ban.findFirst({
     where: {
       receiverId: userId,
       status: 'PENDING',
       receiverIncomingAckAt: null,
+      isOverboard: false,
+      handledAt: null,
+      createdAt: { gte: cutoff },
+      counterBans: { none: {} },
     },
     orderBy: { createdAt: 'desc' },
-    take: 20,
     include: {
       _count: { select: { counterBans: true } },
     },
   });
 
-  if (candidates.length === 0) {
+  if (!ban) {
     incomingApiLog({ userId, reason: 'no pending bans' });
     return null;
   }
 
-  for (const ban of candidates) {
-    const counterBansCount = ban._count.counterBans;
-    const base = {
-      userId,
-      pendingIncomingId: ban.id,
-      receiverId: ban.receiverId,
-      status: ban.status,
-      receiverIncomingAckAt: ban.receiverIncomingAckAt,
-      createdAt: ban.createdAt,
-      isOverboard: ban.isOverboard,
-      handledAt: ban.handledAt,
-      counterBansCount,
-    };
+  const base = {
+    userId,
+    pendingIncomingId: ban.id,
+    receiverId: ban.receiverId,
+    status: ban.status,
+    receiverIncomingAckAt: ban.receiverIncomingAckAt,
+    createdAt: ban.createdAt,
+    isOverboard: ban.isOverboard,
+    handledAt: ban.handledAt,
+    counterBansCount: ban._count.counterBans,
+  };
 
-    const reject = pendingIncomingRejectReason(ban, userId, cutoff);
-    if (reject) {
-      if (reject === 'too old' && counterBansCount > 0) {
-        incomingApiLog({ ...base, reason: 'has counterBan' });
-      }
-      incomingApiLog({ ...base, reason: reject });
-      continue;
-    }
-
-    incomingApiLog({ ...base, reason: 'selected' });
-    return mapBanToInteraction(ban.id, userId);
+  const reject = pendingIncomingRejectReason(ban, userId, cutoff);
+  if (reject) {
+    incomingApiLog({ ...base, reason: reject });
+    return null;
   }
 
-  incomingApiLog({
-    userId,
-    reason: 'all candidates filtered',
-    candidateCount: candidates.length,
-  });
-  return null;
+  incomingApiLog({ ...base, reason: 'selected' });
+  return mapBanToInteraction(ban.id, userId);
 }
 
 /** Receiver saw incoming notification — ban may stay PENDING until reply/overboard. */

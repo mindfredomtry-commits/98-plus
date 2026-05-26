@@ -19,10 +19,31 @@ export async function getPresenceBatch(
   userIds: string[],
 ): Promise<Record<string, 'online' | 'recent' | 'offline'>> {
   const out: Record<string, 'online' | 'recent' | 'offline'> = {};
-  await Promise.all(
-    userIds.map(async (id) => {
-      out[id] = await getPresence(id);
-    }),
-  );
+  if (userIds.length === 0) return out;
+
+  const unique = [...new Set(userIds)];
+  try {
+    const pipeline = redis.pipeline();
+    for (const id of unique) {
+      pipeline.get(`presence:${id}`);
+    }
+    const results = await pipeline.exec();
+    const now = Date.now();
+    unique.forEach((id, i) => {
+      const row = results?.[i];
+      const err = row?.[0];
+      const v = row?.[1] as string | null | undefined;
+      if (err || v == null || v === '') {
+        out[id] = 'offline';
+        return;
+      }
+      const age = now - parseInt(v, 10);
+      if (age < 60_000) out[id] = 'online';
+      else if (age < 300_000) out[id] = 'recent';
+      else out[id] = 'offline';
+    });
+  } catch {
+    for (const id of unique) out[id] = 'offline';
+  }
   return out;
 }

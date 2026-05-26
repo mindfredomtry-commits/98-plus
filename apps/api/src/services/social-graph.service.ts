@@ -174,7 +174,10 @@ export async function materializeRegisteredUser(user: {
   }
 }
 
-/** Backfill graph from historical bans/invites (idempotent upserts) */
+/**
+ * Backfill graph from historical bans/invites (idempotent upserts).
+ * Expensive — do not call on GET /friends; run on login/background only.
+ */
 export async function syncSocialGraphFromHistory(userId: string) {
   const bans = await prisma.ban.findMany({
     where: { OR: [{ senderId: userId }, { receiverId: userId }] },
@@ -254,65 +257,131 @@ export async function syncSocialGraphFromHistory(userId: string) {
   }
 }
 
-async function getRelationshipOverlay(
-  ownerId: string,
-  contactUserId: string | null,
-  contactUsername: string,
-): Promise<{
+type RelationshipOverlay = {
   challengeState: FriendCard['challengeState'];
   hasPendingInvite: boolean;
   recentChallenge: string | null;
-}> {
-  let challengeState: FriendCard['challengeState'] = 'none';
-  let hasPendingInvite = false;
-  let recentChallenge: string | null = null;
+};
 
-  if (contactUserId) {
-    const latestBan = await prisma.ban.findFirst({
+function challengeSnippet(text: string): string {
+  return text.length > 42 ? `${text.slice(0, 42)}…` : text;
+}
+
+function overlayFromBan(
+  ban: { senderId: string; receiverId: string; status: string; text: string },
+  ownerId: string,
+): RelationshipOverlay {
+  let challengeState: FriendCard['challengeState'] = 'none';
+  if (ban.status === 'PENDING') {
+    challengeState =
+      ban.receiverId === ownerId ? 'incoming_pending' : 'outgoing_pending';
+  } else if (ban.status === 'ACTIVE' || ban.status === 'CHECKING') {
+    challengeState = 'active';
+  }
+  return {
+    challengeState,
+    hasPendingInvite: false,
+    recentChallenge: challengeSnippet(ban.text),
+  };
+}
+
+/** Batch relationship state — 2 queries instead of N×2. */
+async function getRelationshipOverlaysBatch(
+  ownerId: string,
+  contacts: { contactUserId: string | null; contactUsername: string }[],
+): Promise<Map<string, RelationshipOverlay>> {
+  const empty = (): RelationshipOverlay => ({
+    challengeState: 'none',
+    hasPendingInvite: false,
+    recentChallenge: null,
+  });
+
+  const contactKey = (c: {
+    contactUserId: string | null;
+    contactUsername: string;
+  }) => c.contactUserId ?? `u:${normalizeUsername(c.contactUsername)}`;
+
+  const out = new Map<string, RelationshipOverlay>();
+  for (const c of contacts) {
+    out.set(contactKey(c), empty());
+  }
+
+  const linkedUserIds = [
+    ...new Set(
+      contacts
+        .map((c) => c.contactUserId)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    ),
+  ];
+
+  if (linkedUserIds.length > 0) {
+    const bans = await prisma.ban.findMany({
       where: {
         OR: [
-          { senderId: ownerId, receiverId: contactUserId },
-          { senderId: contactUserId, receiverId: ownerId },
+          { senderId: ownerId, receiverId: { in: linkedUserIds } },
+          { senderId: { in: linkedUserIds }, receiverId: ownerId },
         ],
       },
       orderBy: { createdAt: 'desc' },
+      select: {
+        senderId: true,
+        receiverId: true,
+        status: true,
+        text: true,
+      },
+      take: 300,
     });
-    if (latestBan) {
-      recentChallenge =
-        latestBan.text.length > 42
-          ? `${latestBan.text.slice(0, 42)}…`
-          : latestBan.text;
-      if (latestBan.status === 'PENDING') {
-        if (latestBan.receiverId === ownerId) challengeState = 'incoming_pending';
-        else challengeState = 'outgoing_pending';
-      } else if (
-        latestBan.status === 'ACTIVE' ||
-        latestBan.status === 'CHECKING'
-      ) {
-        challengeState = 'active';
+
+    const latestBanByOther = new Map<string, (typeof bans)[0]>();
+    for (const b of bans) {
+      const otherId = b.senderId === ownerId ? b.receiverId : b.senderId;
+      if (!latestBanByOther.has(otherId)) {
+        latestBanByOther.set(otherId, b);
       }
+    }
+
+    for (const c of contacts) {
+      if (!c.contactUserId) continue;
+      const ban = latestBanByOther.get(c.contactUserId);
+      if (!ban) continue;
+      out.set(contactKey(c), overlayFromBan(ban, ownerId));
     }
   }
 
-  const pendingInvite = await prisma.banInvite.findFirst({
-    where: {
-      senderId: ownerId,
-      targetUsername: normalizeUsername(contactUsername),
-      status: 'PENDING',
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  const usernameSet = new Set(
+    contacts
+      .map((c) => normalizeUsername(c.contactUsername))
+      .filter((u) => u.length > 0 && !u.startsWith('uid:')),
+  );
 
-  if (pendingInvite) {
-    hasPendingInvite = true;
-    challengeState = 'outgoing_pending';
-    recentChallenge =
-      pendingInvite.text.length > 42
-        ? `${pendingInvite.text.slice(0, 42)}…`
-        : pendingInvite.text;
+  if (usernameSet.size > 0) {
+    const invites = await prisma.banInvite.findMany({
+      where: { senderId: ownerId, status: 'PENDING' },
+      orderBy: { createdAt: 'desc' },
+      select: { targetUsername: true, text: true },
+      take: 80,
+    });
+
+    const latestInviteByUsername = new Map<string, (typeof invites)[0]>();
+    for (const inv of invites) {
+      const key = normalizeUsername(inv.targetUsername);
+      if (!usernameSet.has(key) || latestInviteByUsername.has(key)) continue;
+      latestInviteByUsername.set(key, inv);
+    }
+
+    for (const c of contacts) {
+      const u = normalizeUsername(c.contactUsername);
+      const inv = latestInviteByUsername.get(u);
+      if (!inv) continue;
+      out.set(contactKey(c), {
+        challengeState: 'outgoing_pending',
+        hasPendingInvite: true,
+        recentChallenge: challengeSnippet(inv.text),
+      });
+    }
   }
 
-  return { challengeState, hasPendingInvite, recentChallenge };
+  return out;
 }
 
 async function purgeSyntheticContacts(ownerId: string) {
@@ -328,30 +397,71 @@ async function purgeSyntheticContacts(ownerId: string) {
   }
 }
 
-export async function listSocialGraph(userId: string): Promise<FriendCard[]> {
+export type FriendsListTimings = {
+  log: (stage: string, ms: number, totalMs: number) => void;
+};
+
+export async function listSocialGraph(
+  userId: string,
+  timings?: FriendsListTimings,
+): Promise<FriendCard[]> {
+  const t0 = Date.now();
+  let stageAt = t0;
+  const stage = (name: string) => {
+    const now = Date.now();
+    timings?.log(name, now - stageAt, now - t0);
+    stageAt = now;
+  };
+
   await purgeSyntheticContacts(userId);
-  await syncSocialGraphFromHistory(userId);
-  await purgeSyntheticContacts(userId);
+  stage('purge-synthetic');
 
   const contacts = await prisma.socialContact.findMany({
     where: { ownerId: userId },
     orderBy: { lastInteractionAt: 'desc' },
     take: 50,
-    include: { contactUser: true },
+    include: {
+      contactUser: {
+        select: {
+          id: true,
+          telegramId: true,
+          username: true,
+          firstName: true,
+          photoUrl: true,
+          energy: true,
+          streak: true,
+          lastSeenAt: true,
+        },
+      },
+    },
   });
+  stage('db-friends-query');
+
+  const contactRows = contacts.filter(
+    (c) => !isSyntheticSocialUsername(c.contactUsername),
+  );
+
+  const overlays = await getRelationshipOverlaysBatch(
+    userId,
+    contactRows.map((c) => ({
+      contactUserId: c.contactUserId,
+      contactUsername: c.contactUsername,
+    })),
+  );
+  stage('relationship-overlay');
 
   const cards: (FriendCard & { lastAt: Date })[] = [];
 
-  for (const c of contacts) {
-    if (isSyntheticSocialUsername(c.contactUsername)) continue;
-
+  for (const c of contactRows) {
     const live = c.contactUser;
     const userIdLinked = live?.id ?? c.contactUserId;
-    const overlay = await getRelationshipOverlay(
-      userId,
-      userIdLinked,
-      c.contactUsername,
-    );
+    const overlayKey =
+      userIdLinked ?? `u:${normalizeUsername(c.contactUsername)}`;
+    const overlay = overlays.get(overlayKey) ?? {
+      challengeState: 'none' as const,
+      hasPendingInvite: false,
+      recentChallenge: null,
+    };
 
     const firstName = (live?.firstName ?? c.contactFirstName ?? '').trim();
     const photoUrl = live?.photoUrl ?? c.contactPhotoUrl;
@@ -404,10 +514,12 @@ export async function listSocialGraph(userId: string): Promise<FriendCard[]> {
       }),
     });
   }
+  stage('users-mapping');
 
   const presence = await getPresenceBatch(
     cards.filter((f) => f.userId).map((f) => f.userId!),
   );
+  stage('status-online');
 
   return cards
     .map((f) => {
