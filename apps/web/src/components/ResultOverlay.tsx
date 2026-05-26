@@ -1,7 +1,8 @@
 'use client';
 
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useEffect, useMemo } from 'react';
 import type { BanResult } from '@98plus/shared';
+import { isValidBanResultPayload, isResultParticipant } from '@98plus/shared';
 import { ANALYTICS_EVENTS } from '@98plus/shared';
 import { shareDeepLink } from '@/lib/share';
 import { api } from '@/lib/api';
@@ -18,6 +19,14 @@ interface Props {
 function ResultOverlayInner({ result, onClose }: Props) {
   const { openSendTo, token } = useApp();
   const { haptic } = useTelegram();
+
+  const showable =
+    isValidBanResultPayload(result) &&
+    isResultParticipant(result, result.viewerId);
+
+  useEffect(() => {
+    if (!showable) onClose();
+  }, [showable, onClose]);
 
   const view = useMemo(() => {
     const isSender = result.viewerId === result.sender.id;
@@ -66,6 +75,8 @@ function ResultOverlayInner({ result, onClose }: Props) {
 
   const senderStatus = result.confirmations?.sender;
   const receiverStatus = result.confirmations?.receiver;
+
+  if (!showable) return null;
 
   return (
     <ModalShell open light ariaLabel="Результат проверки" onClose={onClose}>

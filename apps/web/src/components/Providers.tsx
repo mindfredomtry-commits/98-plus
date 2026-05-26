@@ -15,7 +15,9 @@ import type {
   BanResult,
   SessionState,
   FriendCard,
+  ResultOpenMode,
 } from '@98plus/shared';
+import { isValidBanResultPayload } from '@98plus/shared';
 import { ANALYTICS_EVENTS, coerceFriendList } from '@98plus/shared';
 import { useAuth } from '@/hooks/useAuth';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -38,6 +40,12 @@ import {
 import { isFirstBanComplete, markFirstBanComplete } from '@/lib/first-ban';
 import { readFriendsCache, writeFriendsCache } from '@/lib/friends-cache';
 import { timingLog, timingStart } from '@/lib/timing-log';
+import {
+  acknowledgeBanResultOnServer,
+  dismissBanResultLocally,
+  shouldShowBanResult,
+} from '@/lib/ban-result-flow';
+import { isDismissedResultLocally } from '@/lib/dismissed-results';
 
 interface AppContextValue {
   token: string | null;
@@ -54,7 +62,8 @@ interface AppContextValue {
   checkWaiting: boolean;
   setCheckWaiting: (v: boolean) => void;
   result: BanResult | null;
-  setResult: (r: BanResult | null) => void;
+  openBanResult: (r: BanResult | null | undefined, mode: ResultOpenMode) => void;
+  dismissBanResult: () => void;
   popups: EnergyPopup[];
   pushPopup: (p: EnergyPopup) => void;
   activeBans: BanInteraction[];
@@ -122,7 +131,6 @@ function applySessionToState(
     setIncomingBan: (b: BanInteraction | null) => void;
     setCheckBan: (b: BanInteraction | null) => void;
     setCheckWaiting: (v: boolean) => void;
-    setResult: (r: BanResult | null) => void;
   },
 ) {
   setters.setActiveBans(Array.isArray(s.active) ? s.active : []);
@@ -143,6 +151,37 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [checkBan, setCheckBan] = useState<BanInteraction | null>(null);
   const [checkWaiting, setCheckWaiting] = useState(false);
   const [result, setResult] = useState<BanResult | null>(null);
+
+  const openBanResult = useCallback(
+    (r: BanResult | null | undefined, mode: ResultOpenMode) => {
+      if (!r) {
+        setResult(null);
+        return;
+      }
+      if (!shouldShowBanResult(r, mode, r.id)) {
+        challengeLog('result:reject-open', {
+          banId: r.id,
+          outcome: r.outcome,
+          mode,
+        });
+        dismissBanResultLocally(r.id);
+        void acknowledgeBanResultOnServer(r.id, tokenRef.current);
+        return;
+      }
+      setResult(r);
+    },
+    [],
+  );
+
+  const dismissBanResult = useCallback(() => {
+    setResult((prev) => {
+      if (prev?.id) {
+        dismissBanResultLocally(prev.id);
+        void acknowledgeBanResultOnServer(prev.id, tokenRef.current);
+      }
+      return null;
+    });
+  }, []);
   const [popups, setPopups] = useState<EnergyPopup[]>([]);
   const [activeBans, setActiveBans] = useState<BanInteraction[]>([]);
   const [friends, setFriends] = useState<FriendCard[]>(() => {
@@ -356,7 +395,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
         setIncomingBan,
         setCheckBan,
         setCheckWaiting,
-        setResult,
       },
     );
     resolveOptimisticFromSession(nextActive);
@@ -452,7 +490,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         case 'check:completed':
           clearCheckOverlay();
           dismissIncoming();
-          setResult(event.payload as BanResult);
+          openBanResult(event.payload as BanResult, 'live');
           auth.refreshUser();
           break;
         case 'sync:session':
@@ -476,6 +514,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
       }
     },
     reloadPending,
+    openBanResult,
+    dismissBanResult,
+    clearCheckOverlay,
+    dismissIncoming,
+    scheduleCheckWaitingDismiss,
   );
 
   useEffect(() => {
@@ -493,6 +536,16 @@ export function Providers({ children }: { children: React.ReactNode }) {
     if (auth.user?.isOnboarded) return false;
     return friends.length === 0;
   }, [firstBanComplete, auth.user?.isOnboarded, friends.length]);
+
+  useEffect(() => {
+    if (!result) return;
+    if (
+      isDismissedResultLocally(result.id) ||
+      !isValidBanResultPayload(result)
+    ) {
+      dismissBanResult();
+    }
+  }, [result, dismissBanResult]);
 
   useEffect(() => {
     resetScrollLock();
@@ -562,7 +615,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
       checkWaiting,
       setCheckWaiting,
       result,
-      setResult,
+      openBanResult,
+      dismissBanResult,
       popups,
       pushPopup,
       activeBans: displayActiveBans,
@@ -611,7 +665,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
       checkWaiting,
       setCheckWaiting,
       result,
-      setResult,
+      openBanResult,
+      dismissBanResult,
       popups,
       pushPopup,
       displayActiveBans,

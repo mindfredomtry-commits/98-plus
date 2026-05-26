@@ -865,16 +865,33 @@ export async function getWaitingCheck(userId: string) {
   return null;
 }
 
+/** Unseen check/overboard result only — never stale TIMEOUT/FAILED auto-popups. */
 export async function getLatestPendingResultId(userId: string) {
   const ban = await prisma.ban.findFirst({
     where: {
       OR: [{ senderId: userId }, { receiverId: userId }],
-      status: { in: ['COMPLETED', 'OVERBOARD', 'FAILED'] },
-      outcome: { not: null },
+      status: { in: ['COMPLETED', 'OVERBOARD'] },
+      outcome: { in: ['BOTH_YES', 'BOTH_NO', 'SPLIT', 'OVERBOARD'] },
+      handledAt: null,
     },
     orderBy: { completedAt: 'desc' },
   });
   return ban?.id ?? null;
+}
+
+export async function acknowledgeBanResult(
+  banId: string,
+  userId: string,
+): Promise<boolean> {
+  const ban = await prisma.ban.findUnique({ where: { id: banId } });
+  if (!ban) return false;
+  if (ban.senderId !== userId && ban.receiverId !== userId) return false;
+  if (ban.handledAt) return true;
+  await prisma.ban.update({
+    where: { id: banId },
+    data: { handledAt: new Date() },
+  });
+  return true;
 }
 
 export async function processReminders() {

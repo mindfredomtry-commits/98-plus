@@ -15,7 +15,7 @@ export function ChallengeOverlays() {
     banSentOpen,
     setBanSentOpen,
     result,
-    setResult,
+    dismissBanResult,
   } = useApp();
 
   const recoverIncoming = () => dismissIncoming();
@@ -44,7 +44,7 @@ export function ChallengeOverlays() {
       </ChallengeErrorBoundary>
       <ChallengeErrorBoundary name="result">
         {result ? (
-          <ResultOverlay result={result} onClose={() => setResult(null)} />
+          <ResultOverlay result={result} onClose={dismissBanResult} />
         ) : null}
       </ChallengeErrorBoundary>
     </>

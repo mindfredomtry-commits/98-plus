@@ -4,6 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { motion } from 'framer-motion';
 import type { BanResult } from '@98plus/shared';
+import {
+  acknowledgeBanResultOnServer,
+  dismissBanResultLocally,
+  shouldShowBanResult,
+} from '@/lib/ban-result-flow';
+import { isDismissedResultLocally } from '@/lib/dismissed-results';
 import { useApp } from '@/components/Providers';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSocialBoot } from '@/hooks/useSocialBoot';
@@ -48,7 +54,7 @@ export default function HomePage() {
     error,
     setIncomingBan,
     setCheckBan,
-    setResult,
+    openBanResult,
     applySession,
     reloadPending,
     wsStatus,
@@ -64,7 +70,7 @@ export default function HomePage() {
     ready,
     setIncomingBan,
     setCheckBan,
-    setResult,
+    openBanResult,
     reloadPending,
   });
 
@@ -76,8 +82,8 @@ export default function HomePage() {
   applySessionRef.current = applySession;
   const reloadPendingRef = useRef(reloadPending);
   reloadPendingRef.current = reloadPending;
-  const setResultRef = useRef(setResult);
-  setResultRef.current = setResult;
+  const openBanResultRef = useRef(openBanResult);
+  openBanResultRef.current = openBanResult;
 
   useEffect(() => {
     if (!token || !ready) return;
@@ -98,16 +104,26 @@ export default function HomePage() {
         applySessionRef.current(session);
 
         if (session.pendingResultId) {
-          try {
-            const { result: pendingResult } = await api<{ result: BanResult }>(
-              `/bans/${session.pendingResultId}/result`,
-              { token: authToken },
-            );
-            if (!cancelled && pendingResult) {
-              setResultRef.current(pendingResult);
+          const pendingId = session.pendingResultId;
+          if (isDismissedResultLocally(pendingId)) {
+            void acknowledgeBanResultOnServer(pendingId, authToken);
+          } else {
+            try {
+              const { result: pendingResult } = await api<{ result: BanResult }>(
+                `/bans/${pendingId}/result`,
+                { token: authToken },
+              );
+              if (!cancelled && pendingResult) {
+                if (shouldShowBanResult(pendingResult, 'auto', pendingId)) {
+                  openBanResultRef.current(pendingResult, 'auto');
+                } else {
+                  dismissBanResultLocally(pendingId);
+                  void acknowledgeBanResultOnServer(pendingId, authToken);
+                }
+              }
+            } catch {
+              /* result not ready */
             }
-          } catch {
-            /* result not ready */
           }
         }
       } catch {

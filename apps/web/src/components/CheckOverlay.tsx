@@ -17,7 +17,7 @@ function CheckOverlayInner() {
     checkBan,
     checkWaiting,
     setCheckWaiting,
-    setResult,
+    openBanResult,
     refreshUser,
     clearCheckOverlay,
   } = useApp();
@@ -55,7 +55,7 @@ function CheckOverlayInner() {
         if (res.done && res.result) {
           challengeLog('check:done', { banId: checkBan.id });
           clearCheckOverlay();
-          setResult(res.result);
+          openBanResult(res.result, 'live');
           void refreshUser();
         } else if (res.waiting) {
           challengeLog('check:waiting-ui', { banId: checkBan.id });
@@ -76,7 +76,7 @@ function CheckOverlayInner() {
       haptic,
       refreshUser,
       setCheckWaiting,
-      setResult,
+      openBanResult,
       submitting,
       token,
     ],

@@ -12,7 +12,7 @@ interface BootHandlers {
   ready: boolean;
   setIncomingBan: (ban: BanInteraction | null) => void;
   setCheckBan: (ban: BanInteraction | null) => void;
-  setResult: (r: BanResult | null) => void;
+  openBanResult: (r: BanResult | null | undefined, mode: 'explicit') => void;
   reloadPending: () => Promise<void>;
 }
 
@@ -38,7 +38,7 @@ export function useSocialBoot(h: BootHandlers) {
             `/bans/${action.banId}/result`,
             { token: h.token! },
           );
-          h.setResult(result);
+          if (result) h.openBanResult(result, 'explicit');
           break;
         }
         case 'check': {
@@ -67,7 +67,7 @@ export function useSocialBoot(h: BootHandlers) {
     startParam,
     h.setIncomingBan,
     h.setCheckBan,
-    h.setResult,
+    h.openBanResult,
     h.reloadPending,
   ]);
 }
