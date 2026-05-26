@@ -31,6 +31,7 @@ export async function getSessionState(
 
   return {
     serverNow: new Date().toISOString(),
+    userId,
     incoming,
     check: pending,
     checkWaiting: !!waiting && !pending,
