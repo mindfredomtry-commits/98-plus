@@ -6,7 +6,6 @@ import { BAN_DURATIONS_MINUTES, SEED_BANS } from '@98plus/shared';
 import type { SessionState } from '@98plus/shared';
 import { api } from '@/lib/api';
 import { formatDeliveryError } from '@/lib/deliver-challenge';
-import { acknowledgeIncomingOptimistic } from '@/lib/incoming-ack-flow';
 import { useApp } from './Providers';
 import { BigButton } from './BigButton';
 import { useTelegram } from '@/hooks/useTelegram';
@@ -80,7 +79,6 @@ export function SendBanSheet() {
             durationMinutes: duration,
           }),
         });
-        acknowledgeIncomingOptimistic(incomingReplyBanId);
         if (res.session) applySession(res.session);
         await reloadFriends();
         onSuccess();

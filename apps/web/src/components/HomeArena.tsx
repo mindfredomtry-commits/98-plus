@@ -23,6 +23,8 @@ function HomeArenaInner({ user }: Props) {
   const {
     token,
     friends,
+    isAppReady,
+    loading: authLoading,
     activeBans,
     sendReceiver,
     setSendReceiver,
@@ -189,22 +191,40 @@ function HomeArenaInner({ user }: Props) {
 
           {token ? (
             <section className="people-section glass-card border border-accent/12 shadow-glow-sm">
-              <FriendPicker
-                token={token}
-                value={sendReceiver ?? ''}
-                onChange={setSendReceiver}
-                friends={safeFriends}
-                inline
-                compact
-                showAddMore
-                onAddMore={runAddMoreShare}
-                addMoreBusy={shareBusy}
-                onRequireBan={requireBanText}
-              />
+              {authLoading || !isAppReady ? (
+                <FriendsStripSkeleton />
+              ) : (
+                <FriendPicker
+                  key={user.id}
+                  token={token}
+                  value={sendReceiver ?? ''}
+                  onChange={setSendReceiver}
+                  friends={safeFriends}
+                  inline
+                  compact
+                  showAddMore
+                  onAddMore={runAddMoreShare}
+                  addMoreBusy={shareBusy}
+                  onRequireBan={requireBanText}
+                />
+              )}
             </section>
           ) : null}
         </>
       )}
+    </div>
+  );
+}
+
+function FriendsStripSkeleton() {
+  return (
+    <div className="friends-strip min-h-[140px] flex gap-2.5 py-1 px-0.5" aria-hidden>
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div
+          key={i}
+          className="w-[92px] h-[120px] rounded-2xl bg-white/5 animate-pulse flex-shrink-0"
+        />
+      ))}
     </div>
   );
 }

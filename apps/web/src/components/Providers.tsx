@@ -7,6 +7,7 @@ import {
   useCallback,
   useRef,
   useEffect,
+  useLayoutEffect,
   useMemo,
 } from 'react';
 import type {
@@ -24,6 +25,9 @@ import {
   formatSenderDisplayName,
 } from '@98plus/shared';
 import { useAuth } from '@/hooks/useAuth';
+import { useTelegram } from '@/hooks/useTelegram';
+import { isUserDataScoped } from '@/lib/user-data-scope';
+import { explainIncomingHidden, logIncomingDebug } from '@/lib/incoming-debug';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { EnergyPopupStack } from './EnergyPopupStack';
 import { ShellErrorBoundary } from './ShellErrorBoundary';
@@ -35,7 +39,7 @@ import {
   isValidIncomingOverlayPayload,
   shouldShowIncomingBanModal,
 } from '@/lib/incoming-challenge';
-import { acknowledgeIncomingBan } from '@/lib/incoming-ack-flow';
+import { acknowledgeIncomingFully } from '@/lib/incoming-ack-flow';
 import { hydrateAcknowledgedIncomingIds } from '@/lib/acknowledged-incoming';
 import {
   type OptimisticSendWait,
@@ -47,7 +51,7 @@ import {
   normalizeWaitUsername,
 } from '@/lib/waiting-lifecycle';
 import { isFirstBanComplete, markFirstBanComplete } from '@/lib/first-ban';
-import { readFriendsCache, writeFriendsCache } from '@/lib/friends-cache';
+import { writeFriendsCache } from '@/lib/friends-cache';
 import { timingLog, timingStart } from '@/lib/timing-log';
 import {
   acknowledgeBanResultOnServer,
@@ -60,12 +64,18 @@ interface AppContextValue {
   token: string | null;
   user: ReturnType<typeof useAuth>['user'];
   loading: boolean;
+  /** True when Telegram user matches backend /users/me. */
+  authReady: boolean;
+  /** True when friends/session state belongs to current auth user. */
+  isAppReady: boolean;
   error: string | null;
   refreshUser: () => Promise<void>;
   onboard: () => Promise<void>;
   incomingBan: BanInteraction | null;
   setIncomingBan: (b: BanInteraction | null) => void;
   dismissIncoming: (banId?: string) => void;
+  acknowledgeIncomingAndStartReply: (ban: BanInteraction) => Promise<void>;
+  acknowledgeIncomingSeen: (banId: string) => Promise<void>;
   checkBan: BanInteraction | null;
   setCheckBan: (b: BanInteraction | null) => void;
   checkWaiting: boolean;
@@ -148,7 +158,12 @@ function applySessionToState(
   },
 ) {
   setters.setActiveBans(Array.isArray(s.active) ? s.active : []);
-  setters.setIncomingBan(pickIncomingForOverlay(s.incoming, dismissed, viewerId));
+  setters.setIncomingBan((prev) => {
+    const fromSession = pickIncomingForOverlay(s.incoming, dismissed, viewerId);
+    if (fromSession) return fromSession;
+    if (prev && shouldShowIncomingBanModal(prev, viewerId, dismissed)) return prev;
+    return null;
+  });
 
   if (s.check?.status === 'checking') {
     setters.setCheckBan(s.check);
@@ -159,8 +174,23 @@ function applySessionToState(
   }
 }
 
+/** Hard remount on Telegram account switch — wipes in-memory friends/session. */
 export function Providers({ children }: { children: React.ReactNode }) {
+  const { ready, telegramId } = useTelegram();
+  if (!ready) {
+    return (
+      <div className="min-h-[100dvh] flex items-center justify-center challenge-bg">
+        <span className="text-accent text-2xl font-bold text-glow">98+</span>
+      </div>
+    );
+  }
+  const scopeKey = telegramId != null ? String(telegramId) : 'unknown';
+  return <ProvidersBody key={scopeKey}>{children}</ProvidersBody>;
+}
+
+function ProvidersBody({ children }: { children: React.ReactNode }) {
   const auth = useAuth();
+  const [dataOwnerUserId, setDataOwnerUserId] = useState<string | null>(null);
   const [incomingBan, setIncomingBan] = useState<BanInteraction | null>(null);
   const [checkBan, setCheckBan] = useState<BanInteraction | null>(null);
   const [checkWaiting, setCheckWaiting] = useState(false);
@@ -198,14 +228,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, []);
   const [popups, setPopups] = useState<EnergyPopup[]>([]);
   const [activeBans, setActiveBans] = useState<BanInteraction[]>([]);
-  const [friends, setFriends] = useState<FriendCard[]>(() => {
-    if (typeof window === 'undefined') return [];
-    const cached = readFriendsCache();
-    if (cached.length > 0) {
-      timingLog('friends cache hit on init', 0, cached.length);
-    }
-    return cached;
-  });
+  // Isolation: until auth.user is confirmed, never show cached friends from another Telegram user.
+  const [friends, setFriends] = useState<FriendCard[]>([]);
   const [sendOpen, setSendOpen] = useState(false);
   const [sendReceiver, setSendReceiver] = useState('');
   const [sendText, setSendText] = useState('');
@@ -229,16 +253,50 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const dismissedIncomingRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    for (const id of hydrateAcknowledgedIncomingIds()) {
+    const uid = auth.user?.id ?? null;
+    dismissedIncomingRef.current = new Set();
+    if (!uid || !auth.authReady) return;
+    for (const id of hydrateAcknowledgedIncomingIds(uid)) {
       dismissedIncomingRef.current.add(id);
     }
-  }, []);
+  }, [auth.user?.id, auth.authReady]);
   const checkWaitingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tokenRef = useRef(auth.token);
   tokenRef.current = auth.token;
+  const userIdRef = useRef<string | null>(auth.user?.id ?? null);
+  userIdRef.current = auth.user?.id ?? null;
   const refreshUserRef = useRef(auth.refreshUser);
   refreshUserRef.current = auth.refreshUser;
   const reloadFriendsRef = useRef<() => Promise<void>>(async () => {});
+
+  /** Owner is confirmed auth user — friends may load later (empty until fetch). */
+  useEffect(() => {
+    if (!auth.authReady || !auth.user?.id) {
+      setDataOwnerUserId(null);
+      return;
+    }
+    setDataOwnerUserId(auth.user.id);
+  }, [auth.authReady, auth.user?.id]);
+
+  /** Sync reset before paint when backend user id changes (no flash of previous user's data). */
+  useLayoutEffect(() => {
+    setDataOwnerUserId(null);
+    setIncomingBan(null);
+    setCheckBan(null);
+    setCheckWaiting(false);
+    setResult(null);
+    setPopups([]);
+    setActiveBans([]);
+    setFriends([]);
+    setSendOpen(false);
+    setSendReceiver('');
+    setSendText('');
+    setIncomingReplyBanId(null);
+    setViralOnboarding(false);
+    setBanSentOpen(false);
+    setOptimisticSendWait(null);
+    dismissedIncomingRef.current = new Set();
+  }, [auth.user?.id]);
 
   const clearCheckOverlay = useCallback(() => {
     if (checkWaitingTimerRef.current) {
@@ -261,19 +319,31 @@ export function Providers({ children }: { children: React.ReactNode }) {
     }, CHECK_WAITING_UI_TTL_MS);
   }, []);
 
-  const dismissIncoming = useCallback((banId?: string) => {
-    if (banId) {
-      dismissedIncomingRef.current.add(banId);
-      acknowledgeIncomingBan(banId, tokenRef.current);
-    }
-    challengeLog('incoming:dismiss', { banId: banId ?? null });
-    setIncomingBan(null);
-    setViralOnboarding(false);
-  }, []);
-
   const setIncomingBanSafe = useCallback(
     (b: BanInteraction | null) => {
       const viewerId = auth.user?.id;
+      if (
+        b !== null &&
+        (!auth.authReady ||
+          !isUserDataScoped(dataOwnerUserId, viewerId, auth.loading))
+      ) {
+        const why = explainIncomingHidden(
+          b,
+          viewerId,
+          auth.loading,
+          dataOwnerUserId,
+          dismissedIncomingRef.current,
+        );
+        logIncomingDebug({
+          authUserId: viewerId,
+          incomingId: b.id,
+          incomingReceiverId: b.receiver?.id,
+          incomingAcknowledged: b.incomingAcknowledged,
+          shouldShow: false,
+          reason: why.reason,
+        });
+        return;
+      }
       if (
         b !== null &&
         !shouldShowIncomingBanModal(
@@ -293,9 +363,26 @@ export function Providers({ children }: { children: React.ReactNode }) {
         id: b?.id ?? null,
         status: b?.status ?? null,
       });
+      if (b !== null) {
+        const why = explainIncomingHidden(
+          b,
+          viewerId,
+          auth.loading,
+          dataOwnerUserId,
+          dismissedIncomingRef.current,
+        );
+        logIncomingDebug({
+          authUserId: viewerId,
+          incomingId: b.id,
+          incomingReceiverId: b.receiver?.id,
+          incomingAcknowledged: b.incomingAcknowledged,
+          shouldShow: why.shouldShow,
+          reason: why.reason,
+        });
+      }
       setIncomingBan(b);
     },
-    [auth.user?.id],
+    [auth.user?.id, auth.authReady, auth.loading, dataOwnerUserId],
   );
 
   const pushPopup = useCallback((p: EnergyPopup) => {
@@ -414,20 +501,67 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   const applySession = useCallback((s: SessionState) => {
     const viewerId = auth.user?.id ?? null;
+    if (!viewerId || auth.loading || !auth.authReady) {
+      logIncomingDebug({
+        authUserId: viewerId,
+        sessionUserId: s.userId,
+        incomingId: s.incoming?.id,
+        incomingReceiverId: s.incoming?.receiver?.id,
+        shouldShow: false,
+        reason: !viewerId ? 'no-auth-user' : 'auth-loading',
+      });
+      return;
+    }
+    if (s.userId && s.userId !== viewerId) {
+      challengeLog('session:discard-user-mismatch', {
+        sessionUserId: s.userId,
+        viewerId,
+      });
+      logIncomingDebug({
+        authUserId: viewerId,
+        sessionUserId: s.userId,
+        incomingId: s.incoming?.id,
+        incomingReceiverId: s.incoming?.receiver?.id,
+        shouldShow: false,
+        reason: 'stale-session-discarded',
+      });
+      return;
+    }
     const nextIncoming = pickIncomingForOverlay(
       s.incoming,
       dismissedIncomingRef.current,
       viewerId,
     );
+    const incomingWhy = explainIncomingHidden(
+      s.incoming,
+      viewerId,
+      auth.loading,
+      viewerId,
+      dismissedIncomingRef.current,
+    );
+    logIncomingDebug({
+      authUserId: viewerId,
+      sessionUserId: s.userId ?? viewerId,
+      incomingId: s.incoming?.id ?? null,
+      incomingReceiverId: s.incoming?.receiver?.id ?? null,
+      incomingAcknowledged: s.incoming?.incomingAcknowledged ?? null,
+      shouldShow: incomingWhy.shouldShow,
+      reason: incomingWhy.reason,
+    });
     challengeLog('session:apply', {
       incoming: s.incoming?.id ?? null,
       incomingStatus: s.incoming?.status ?? null,
+      incomingAck: s.incoming?.incomingAcknowledged ?? null,
       overlayIncoming: nextIncoming?.id ?? null,
       active: Array.isArray(s.active) ? s.active.length : 0,
     });
     const nextActive = Array.isArray(s.active) ? s.active : [];
     applySessionToState(
-      { ...s, active: nextActive.filter((b) => !b.id.startsWith('optimistic-ban:')) },
+      {
+        ...s,
+        incoming: nextIncoming,
+        active: nextActive.filter((b) => !b.id.startsWith('optimistic-ban:')),
+      },
       dismissedIncomingRef.current,
       viewerId,
       {
@@ -441,35 +575,43 @@ export function Providers({ children }: { children: React.ReactNode }) {
     if (!nextIncoming) {
       setViralOnboarding(false);
     }
-  }, [resolveOptimisticFromSession, auth.user?.id]);
+    setDataOwnerUserId(viewerId);
+  }, [resolveOptimisticFromSession, auth.user?.id, auth.loading, auth.authReady]);
 
   useEffect(() => {
-    if (!auth.boot) return;
+    if (!auth.boot || !auth.authReady || !auth.user?.id) return;
     const incoming = pickIncomingForOverlay(
       auth.boot.claimedIncoming,
       dismissedIncomingRef.current,
-      auth.user?.id ?? null,
+      auth.user.id,
     );
     if (incoming) {
       challengeLog('boot:claimed-incoming', { banId: incoming.id });
       setIncomingBan(incoming);
       setViralOnboarding(true);
+      setDataOwnerUserId(auth.user.id);
     }
     auth.clearBoot();
-  }, [auth.boot, auth.clearBoot, auth.user?.id]);
+  }, [auth.boot, auth.authReady, auth.clearBoot, auth.user?.id]);
 
   const reloadFriends = useCallback(async () => {
     const token = tokenRef.current;
-    if (!token) return;
+    const uid = userIdRef.current;
+    if (!token || !uid) return;
     const end = timingStart('friends fetch');
     try {
+      const requestToken = token;
+      const requestUid = uid;
       const { friends: list } = await api<{ friends: FriendCard[] }>(
         '/friends',
         { token },
       );
+      if (tokenRef.current !== requestToken) return end();
+      if (userIdRef.current !== requestUid) return end();
       const safe = coerceFriendList(list);
-      writeFriendsCache(safe);
+      writeFriendsCache(requestUid, safe);
       setFriends(safe);
+      setDataOwnerUserId(requestUid);
       resolveOptimisticFromFriends(safe);
       end();
     } catch {
@@ -481,9 +623,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   const reloadPending = useCallback(async () => {
     const token = tokenRef.current;
-    if (!token) return;
+    const requestUserId = userIdRef.current;
+    if (!token || !requestUserId) return;
     try {
       const session = await fetchSession(token);
+      // Discard if user/token switched while request in-flight.
+      if (tokenRef.current !== token) return;
+      if (userIdRef.current !== requestUserId) return;
       applySession(session);
       await refreshUserRef.current();
       await api('/analytics/track', {
@@ -520,6 +666,46 @@ export function Providers({ children }: { children: React.ReactNode }) {
     setSendText('');
     setSendOpen(true);
   }, []);
+
+  const acknowledgeIncomingSeen = useCallback(async (banId: string) => {
+    dismissedIncomingRef.current.add(banId);
+    setIncomingBan(null);
+    setViralOnboarding(false);
+    const uid = userIdRef.current;
+    if (uid) {
+      await acknowledgeIncomingFully(banId, tokenRef.current, uid);
+    }
+    challengeLog('incoming:acked', { banId });
+  }, []);
+
+  const acknowledgeIncomingAndStartReply = useCallback(
+    async (ban: BanInteraction) => {
+      const banId = ban.id;
+      dismissedIncomingRef.current.add(banId);
+      setIncomingBan(null);
+      setViralOnboarding(false);
+      challengeLog('incoming:ack-before-reply', { banId });
+      const uid = userIdRef.current;
+      if (uid) {
+        await acknowledgeIncomingFully(banId, tokenRef.current, uid);
+      }
+      startIncomingReply(ban);
+    },
+    [startIncomingReply],
+  );
+
+  const dismissIncoming = useCallback(
+    (banId?: string) => {
+      if (banId) {
+        void acknowledgeIncomingSeen(banId);
+        return;
+      }
+      challengeLog('incoming:dismiss', { banId: null });
+      setIncomingBan(null);
+      setViralOnboarding(false);
+    },
+    [acknowledgeIncomingSeen],
+  );
 
   const { status: wsStatus, eventLog } = useWebSocket(
     auth.token,
@@ -566,8 +752,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
         case 'friends:updated': {
           const payload = event.payload as { friends?: unknown };
           const list = coerceFriendList(payload?.friends);
-          writeFriendsCache(list);
+          const uid = userIdRef.current;
+          if (!uid) break;
+          writeFriendsCache(uid, list);
           setFriends(list);
+          setDataOwnerUserId(uid);
           resolveOptimisticFromFriends(list);
           break;
         }
@@ -625,29 +814,32 @@ export function Providers({ children }: { children: React.ReactNode }) {
   reloadPendingRef.current = reloadPending;
 
   useEffect(() => {
-    if (!auth.token) return;
-    const cached = readFriendsCache();
-    if (cached.length > 0) {
-      setFriends((prev) => (prev.length > 0 ? prev : cached));
-      timingLog('friends cache hit on boot', 0, cached.length);
-    } else {
-      timingLog('friends cache miss on boot', 0);
-    }
+    const uid = auth.user?.id;
+    if (!auth.authReady || !auth.token || !uid) return;
+
     const end = timingStart('/friends loaded');
-    api<{ friends?: unknown }>('/friends', { token: auth.token })
+    const requestToken = auth.token;
+    const requestUid = uid;
+    api<{ friends?: unknown }>('/friends', { token: requestToken })
       .then((r) => {
+        if (tokenRef.current !== requestToken || userIdRef.current !== requestUid) {
+          end();
+          return;
+        }
         const list = coerceFriendList(r?.friends);
-        writeFriendsCache(list);
+        writeFriendsCache(requestUid, list);
         setFriends(list);
+        setDataOwnerUserId(requestUid);
         resolveOptimisticFromFriends(list);
         end();
       })
       .catch(() => {
         end();
-        timingLog('friends fetch failed, keeping cache', 0);
+        timingLog('friends fetch failed', 0);
       });
+
     reloadPendingRef.current().catch(() => {});
-  }, [auth.token, resolveOptimisticFromFriends]);
+  }, [auth.token, auth.authReady, auth.user?.id, resolveOptimisticFromFriends]);
 
   const displayFriends = useMemo(
     () => mergeFriendsWithOptimistic(friends, optimisticSendWait),
@@ -659,18 +851,29 @@ export function Providers({ children }: { children: React.ReactNode }) {
     [activeBans, optimisticSendWait],
   );
 
+  const isAppReady =
+    auth.authReady &&
+    isUserDataScoped(dataOwnerUserId, auth.user?.id, auth.loading);
+
+  const scopedFriends = isAppReady ? displayFriends : [];
+  const scopedActiveBans = isAppReady ? displayActiveBans : [];
+  const scopedIncomingBan = isAppReady ? incomingBan : null;
+  const scopedCheckBan = isAppReady ? checkBan : null;
+
   const contextValue = useMemo(
     () => ({
       token: auth.token,
       user: auth.user,
       loading: auth.loading,
+      authReady: auth.authReady,
+      isAppReady,
       error: auth.error,
       refreshUser: auth.refreshUser,
       onboard: auth.onboard,
-      incomingBan,
+      incomingBan: scopedIncomingBan,
       setIncomingBan: setIncomingBanSafe,
       dismissIncoming,
-      checkBan,
+      checkBan: scopedCheckBan,
       setCheckBan,
       checkWaiting,
       setCheckWaiting,
@@ -679,8 +882,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
       dismissBanResult,
       popups,
       pushPopup,
-      activeBans: displayActiveBans,
-      friends: displayFriends,
+      activeBans: scopedActiveBans,
+      friends: scopedFriends,
       sendOpen,
       setSendOpen,
       sendReceiver,
@@ -691,6 +894,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
       setSendDuration,
       openSendTo,
       startIncomingReply,
+      acknowledgeIncomingAndStartReply,
+      acknowledgeIncomingSeen,
       incomingReplyBanId,
       clearIncomingReply,
       applySession,
@@ -717,13 +922,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
       auth.token,
       auth.user,
       auth.loading,
+      auth.authReady,
+      isAppReady,
       auth.error,
       auth.refreshUser,
       auth.onboard,
-      incomingBan,
+      scopedIncomingBan,
       setIncomingBanSafe,
       dismissIncoming,
-      checkBan,
+      scopedCheckBan,
       setCheckBan,
       checkWaiting,
       setCheckWaiting,
@@ -732,14 +939,16 @@ export function Providers({ children }: { children: React.ReactNode }) {
       dismissBanResult,
       popups,
       pushPopup,
-      displayActiveBans,
-      displayFriends,
+      scopedActiveBans,
+      scopedFriends,
       sendOpen,
       sendReceiver,
       sendText,
       sendDuration,
       openSendTo,
       startIncomingReply,
+      acknowledgeIncomingAndStartReply,
+      acknowledgeIncomingSeen,
       incomingReplyBanId,
       clearIncomingReply,
       applySession,

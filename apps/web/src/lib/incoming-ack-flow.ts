@@ -1,26 +1,32 @@
+import type { BanInteraction } from '@98plus/shared';
 import { api } from './api';
 import { markIncomingAcknowledgedLocally } from './acknowledged-incoming';
-
-export function acknowledgeIncomingOptimistic(banId: string) {
-  markIncomingAcknowledgedLocally(banId);
-}
 
 export async function acknowledgeIncomingOnServer(
   banId: string,
   token: string | null,
-): Promise<void> {
-  if (!token || !banId) return;
-  try {
-    await api(`/bans/${banId}/incoming/ack`, { method: 'POST', token });
-  } catch {
-    /* local cache is fallback until next session sync */
+  userId: string,
+): Promise<BanInteraction | null> {
+  if (!token || !banId) return null;
+  const res = await api<{ ok: boolean; ban: BanInteraction | null }>(
+    `/bans/${banId}/incoming/ack`,
+    { method: 'POST', token },
+  );
+  if (res.ban?.incomingAcknowledged) {
+    markIncomingAcknowledgedLocally(userId, banId);
   }
+  return res.ban ?? null;
 }
 
-export function acknowledgeIncomingBan(
+/** Persist ack on server; only then write localStorage. */
+export async function acknowledgeIncomingFully(
   banId: string,
   token: string | null,
-) {
-  acknowledgeIncomingOptimistic(banId);
-  void acknowledgeIncomingOnServer(banId, token);
+  userId: string,
+): Promise<BanInteraction | null> {
+  try {
+    return await acknowledgeIncomingOnServer(banId, token, userId);
+  } catch {
+    return null;
+  }
 }

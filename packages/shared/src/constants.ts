@@ -44,6 +44,9 @@ export const CHECK_TIMEOUT_MINUTES = 120;
 
 export const REMINDER_BEFORE_MS = 60_000;
 
+/** Pending incoming older than this is auto-acked (pre-ack migration). */
+export const INCOMING_PENDING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 export const SEED_BANS = [
   'Не есть сладкое',
   'Не сидеть в TikTok',

@@ -11,6 +11,7 @@ export function isValidIncomingOverlayPayload(
   if (!ban.sender?.id || !ban.receiver?.id) return false;
   if (!isIncomingOverlayBan(ban)) return false;
   if (viewerId && viewerId !== ban.receiver.id) return false;
+  if (ban.incomingAcknowledged) return false;
   return true;
 }
 
@@ -20,8 +21,12 @@ export function shouldShowIncomingBanModal(
   viewerId: string | null | undefined,
   sessionDismissed: ReadonlySet<string>,
 ): boolean {
-  if (!isValidIncomingOverlayPayload(ban, viewerId)) return false;
-  if (sessionDismissed.has(ban!.id)) return false;
-  if (isIncomingAcknowledgedLocally(ban!.id)) return false;
+  if (!ban?.id?.trim() || !ban.text?.trim()) return false;
+  if (!ban.sender?.id || !ban.receiver?.id) return false;
+  if (!isIncomingOverlayBan(ban)) return false;
+  if (!viewerId || viewerId !== ban.receiver.id) return false;
+  if (ban.incomingAcknowledged) return false;
+  if (sessionDismissed.has(ban.id)) return false;
+  if (viewerId && isIncomingAcknowledgedLocally(viewerId, ban.id)) return false;
   return true;
 }

@@ -48,6 +48,10 @@ export function useAuth() {
   const [error, setError] = useState<string | null>(null);
   const [boot, setBoot] = useState<AuthBoot | null>(null);
 
+  // Used to discard in-flight auth/session results when Telegram user changes.
+  const identityRef = useRef<number | null>(null);
+  const lastAuthIdentityRef = useRef<number | null>(null);
+
   const formatAuthError = (e: unknown): string => {
     if (e instanceof NetworkError) {
       return `Нет связи с API:\n${e.url}`;
@@ -70,6 +74,14 @@ export function useAuth() {
       },
       tgId?: number | null,
     ) => {
+      const thisTgId = tgId ?? Number(res.user.telegramId);
+      if (identityRef.current != null && thisTgId !== identityRef.current) {
+        return;
+      }
+      if (String(res.user.telegramId) !== String(thisTgId)) {
+        return;
+      }
+
       const key = tokenStorageKey(tgId ?? Number(res.user.telegramId));
       localStorage.setItem(key, res.token);
       localStorage.removeItem(TOKEN_KEY_LEGACY);
@@ -86,6 +98,7 @@ export function useAuth() {
   );
 
   const login = useCallback(async () => {
+    const requestIdentity = identityRef.current;
     if (!isApiConfiguredForProduction()) {
       const apiUrl = getApiUrl();
       setError(
@@ -130,22 +143,40 @@ export function useAuth() {
         return;
       }
     } catch (e) {
-      setError(formatAuthError(e));
+      if (identityRef.current === requestIdentity) {
+        setError(formatAuthError(e));
+      }
     } finally {
-      setLoading(false);
+      if (identityRef.current === requestIdentity) {
+        setLoading(false);
+      }
     }
   }, [initData, tgUser, startParam, telegramId, persistSession]);
 
-  const authRan = useRef(false);
-
   useEffect(() => {
-    if (!ready || authRan.current) return;
-    authRan.current = true;
+    if (!ready) return;
 
+    const identity = telegramId ?? tgUser?.id ?? null;
     const inviteOpen = isInviteTokenStartParam(startParam);
+    const identityChanged = lastAuthIdentityRef.current !== identity;
+
+    // If Telegram user is the same and we already have auth loaded, avoid re-clearing UI.
+    if (!identityChanged && !inviteOpen && token && user) return;
+
+    lastAuthIdentityRef.current = identity;
+    identityRef.current = identity;
+
+    setLoading(true);
+    setError(null);
+    setToken(null);
+    setUser(null);
+    setBoot(null);
+
     const action = parseStartParam(startParam);
     const inviteToken =
       action?.type === 'invite_token' ? action.token : null;
+
+    const requestIdentity = identity;
 
     const run = async () => {
       // Invite deep link: never reuse a cached JWT — auth must be current Telegram user only
@@ -167,14 +198,16 @@ export function useAuth() {
       const storageKey = tokenStorageKey(telegramId ?? tgUser?.id);
       const saved =
         localStorage.getItem(storageKey) ??
-        localStorage.getItem(TOKEN_KEY_LEGACY);
+        (requestIdentity == null ? localStorage.getItem(TOKEN_KEY_LEGACY) : null);
 
       if (saved) {
+        if (identityRef.current !== requestIdentity) return;
         setToken(saved);
         try {
           const r = await api<{ user: UserPublic }>('/users/me', {
             token: saved,
           });
+          if (identityRef.current !== requestIdentity) return;
           setUser(r.user);
 
           if (inviteToken) {
@@ -187,6 +220,7 @@ export function useAuth() {
               token: saved,
               body: JSON.stringify({ token: inviteToken }),
             });
+            if (identityRef.current !== requestIdentity) return;
             const incoming = shouldShowIncomingBanModal(
               claim.incoming,
               r.user.id,
@@ -209,7 +243,7 @@ export function useAuth() {
           localStorage.removeItem(TOKEN_KEY_LEGACY);
           await login();
         } finally {
-          setLoading(false);
+          if (identityRef.current === requestIdentity) setLoading(false);
         }
         return;
       }
@@ -217,8 +251,19 @@ export function useAuth() {
       await login();
     };
 
-    run().catch(() => setLoading(false));
-  }, [ready, login, initData, startParam, telegramId, tgUser?.id]);
+    run().catch(() => {
+      if (identityRef.current === requestIdentity) setLoading(false);
+    });
+  }, [
+    ready,
+    login,
+    initData,
+    startParam,
+    telegramId,
+    tgUser?.id,
+    token,
+    user,
+  ]);
 
   const refreshUser = useCallback(async () => {
     if (!token) return;
@@ -234,10 +279,21 @@ export function useAuth() {
 
   const clearBoot = useCallback(() => setBoot(null), []);
 
+  const telegramIdStr =
+    telegramId != null ? String(telegramId) : tgUser?.id != null ? String(tgUser.id) : null;
+
+  const authReady =
+    !loading &&
+    !!token &&
+    !!user &&
+    !!telegramIdStr &&
+    String(user.telegramId) === telegramIdStr;
+
   return {
     token,
     user,
     loading,
+    authReady,
     error,
     refreshUser,
     onboard,

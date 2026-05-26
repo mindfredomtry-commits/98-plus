@@ -50,6 +50,8 @@ export interface BanInteraction {
   threadId: string;
   remainingMs?: number;
   serverNow?: string;
+  /** Receiver dismissed the incoming notification modal (server ack). */
+  incomingAcknowledged?: boolean;
 }
 
 export interface CheckState {
@@ -62,6 +64,8 @@ export interface CheckState {
 
 export interface SessionState {
   serverNow: string;
+  /** Authenticated user this session belongs to (used for frontend isolation). */
+  userId?: string;
   incoming: BanInteraction | null;
   check: BanInteraction | null;
   checkWaiting: boolean;

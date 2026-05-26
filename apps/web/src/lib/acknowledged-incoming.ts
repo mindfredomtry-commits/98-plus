@@ -1,10 +1,19 @@
-const STORAGE_KEY = '98plus_ack_incoming';
 const MAX_IDS = 120;
 
-function readIds(): Set<string> {
+function storageKey(userId: string): string {
+  return `98plus_ack_incoming:${userId}`;
+}
+
+function writeIds(ids: Set<string>, userId: string) {
+  if (typeof window === 'undefined') return;
+  const list = [...ids].slice(-MAX_IDS);
+  localStorage.setItem(storageKey(userId), JSON.stringify(list));
+}
+
+function readIdsForUser(userId: string): Set<string> {
   if (typeof window === 'undefined') return new Set();
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey(userId));
     if (!raw) return new Set();
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return new Set();
@@ -14,22 +23,16 @@ function readIds(): Set<string> {
   }
 }
 
-function writeIds(ids: Set<string>) {
-  if (typeof window === 'undefined') return;
-  const list = [...ids].slice(-MAX_IDS);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+export function isIncomingAcknowledgedLocally(userId: string, banId: string): boolean {
+  return readIdsForUser(userId).has(banId);
 }
 
-export function isIncomingAcknowledgedLocally(banId: string): boolean {
-  return readIds().has(banId);
-}
-
-export function markIncomingAcknowledgedLocally(banId: string) {
-  const ids = readIds();
+export function markIncomingAcknowledgedLocally(userId: string, banId: string) {
+  const ids = readIdsForUser(userId);
   ids.add(banId);
-  writeIds(ids);
+  writeIds(ids, userId);
 }
 
-export function hydrateAcknowledgedIncomingIds(): string[] {
-  return [...readIds()];
+export function hydrateAcknowledgedIncomingIds(userId: string): string[] {
+  return [...readIdsForUser(userId)];
 }

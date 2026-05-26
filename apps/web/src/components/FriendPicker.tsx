@@ -174,7 +174,28 @@ interface FriendPickerProps {
   onRequireBan?: () => string | null;
 }
 
-export function FriendPicker({
+function FriendsStripSkeleton() {
+  return (
+    <div className="friends-strip min-h-[140px] flex gap-2.5 py-1" aria-hidden>
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div
+          key={i}
+          className="w-[92px] h-[120px] rounded-2xl bg-white/5 animate-pulse flex-shrink-0"
+        />
+      ))}
+    </div>
+  );
+}
+
+export function FriendPicker(props: FriendPickerProps) {
+  const { isAppReady, loading: authLoading, user } = useApp();
+  if (authLoading || !isAppReady || !user?.id) {
+    return <FriendsStripSkeleton />;
+  }
+  return <FriendPickerInner {...props} />;
+}
+
+function FriendPickerInner({
   token,
   value,
   onChange,
@@ -187,6 +208,7 @@ export function FriendPicker({
   onRequireBan,
 }: FriendPickerProps) {
   const { optimisticSendWait } = useApp();
+
   const [friends, setFriends] = useState<FriendCard[]>(() =>
     coerceFriendList(externalFriends),
   );

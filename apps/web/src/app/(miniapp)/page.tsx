@@ -19,6 +19,7 @@ import { ConnectionBanner } from '@/components/ConnectionBanner';
 import { BottomNav, type Tab } from '@/components/BottomNav';
 import { ShellErrorBoundary } from '@/components/ShellErrorBoundary';
 import { fetchSession } from '@/lib/session';
+import { backfillAcknowledgedIncomingOnce } from '@/lib/incoming-backfill';
 import { api } from '@/lib/api';
 import { getApiUrl } from '@/lib/config';
 
@@ -51,6 +52,8 @@ export default function HomePage() {
     token,
     user,
     loading,
+    authReady,
+    isAppReady,
     error,
     setIncomingBan,
     setCheckBan,
@@ -98,6 +101,9 @@ export default function HomePage() {
 
     async function loadSession() {
       try {
+        const uid = user?.id ?? null;
+        if (!uid) return;
+        await backfillAcknowledgedIncomingOnce(authToken, uid);
         const session = await fetchSession(authToken);
         if (cancelled) return;
 
@@ -138,7 +144,7 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [token, ready]);
+  }, [token, ready, authReady, user?.id]);
 
   useEffect(() => {
     if (!token) return;
@@ -153,7 +159,7 @@ export default function HomePage() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [token]);
 
-  if (loading) {
+  if (loading || !authReady || !isAppReady) {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center challenge-bg">
         <motion.div

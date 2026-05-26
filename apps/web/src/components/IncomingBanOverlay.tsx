@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import type { BanInteraction, SessionState } from '@98plus/shared';
+import type { BanInteraction } from '@98plus/shared';
 import { formatSenderDisplayName } from '@98plus/shared';
 import { api, pingApi } from '@/lib/api';
 import {
@@ -23,25 +23,21 @@ function IncomingBanOverlayInner() {
   const {
     token,
     user,
+    loading: authLoading,
+    authReady,
+    isAppReady,
     incomingBan,
-    dismissIncoming,
-    applySession,
+    acknowledgeIncomingAndStartReply,
+    acknowledgeIncomingSeen,
     reloadPending,
     onboard,
-    startIncomingReply,
   } = useApp();
   const { haptic, hapticSuccess, bindBack } = useTelegram();
   const [loading, setLoading] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
   const [verifiedBan, setVerifiedBan] = useState<BanInteraction | null>(null);
 
-  const safeDismiss = useCallback(
-    (banId?: string, reason?: string) => {
-      challengeLog('overlay:dismiss', { banId: banId ?? null, reason });
-      dismissIncoming(banId);
-    },
-    [dismissIncoming],
-  );
+  const viewerId = user?.id ?? null;
 
   const bootstrap = useCallback(async () => {
     if (!incomingBan?.id || !token) {
@@ -49,8 +45,7 @@ function IncomingBanOverlayInner() {
       return;
     }
 
-    if (!isValidIncomingOverlayPayload(incomingBan, user?.id)) {
-      safeDismiss(incomingBan.id, 'invalid-local-payload');
+    if (!isValidIncomingOverlayPayload(incomingBan, viewerId)) {
       return;
     }
 
@@ -64,8 +59,8 @@ function IncomingBanOverlayInner() {
       }
 
       const ban = await verifyIncomingChallenge(token, incomingBan.id);
-      if (!isValidIncomingOverlayPayload(ban, user?.id)) {
-        safeDismiss(incomingBan.id, 'resolved-on-server');
+      if (!isValidIncomingOverlayPayload(ban, viewerId)) {
+        challengeLog('overlay:already-acked', { banId: incomingBan.id });
         return;
       }
       validateReplyTarget(ban);
@@ -75,21 +70,20 @@ function IncomingBanOverlayInner() {
       setBootError(formatDeliveryError(e));
       setVerifiedBan(null);
     }
-  }, [incomingBan, token, user?.id, safeDismiss]);
+  }, [incomingBan, token, viewerId]);
 
   useEffect(() => {
     if (!incomingBan || !token) return;
-    if (!isValidIncomingOverlayPayload(incomingBan, user?.id)) {
-      safeDismiss(incomingBan.id, 'stale-incoming');
+    if (!shouldShowIncomingBanModal(incomingBan, viewerId, new Set())) {
       return;
     }
     void bootstrap();
     onboard().catch(() => {});
     return bindBack(() => {
       if (incomingBan.status === 'pending') return;
-      safeDismiss(incomingBan.id, 'back-button');
+      void acknowledgeIncomingSeen(incomingBan.id);
     }, true);
-  }, [incomingBan, token, bindBack, safeDismiss, onboard, bootstrap]);
+  }, [incomingBan, token, viewerId, bindBack, onboard, bootstrap, acknowledgeIncomingSeen]);
 
   const ban = verifiedBan ?? incomingBan;
 
@@ -100,45 +94,69 @@ function IncomingBanOverlayInner() {
     return formatSenderDisplayName(ban.sender.username, ban.sender.firstName);
   }, [ban?.sender]);
 
-  const finishWithSession = useCallback(
-    (action: string, banId: string, session?: SessionState) => {
-      challengeLog(`resolve:${action}`, { banId });
-      safeDismiss(banId, action);
-      setVerifiedBan(null);
-      if (session) applySession(session);
-    },
-    [applySession, safeDismiss],
-  );
-
-  const handleCounter = useCallback(() => {
-    if (!ban?.id || !ban.sender) return;
+  const handleCounter = useCallback(async () => {
+    if (!ban?.id || !ban.sender || loading) return;
     haptic('medium');
-    startIncomingReply(ban);
-    safeDismiss(ban.id, 'counter-flow');
-  }, [ban, haptic, safeDismiss, startIncomingReply]);
+    setLoading(true);
+    try {
+      await acknowledgeIncomingAndStartReply(ban);
+    } finally {
+      setLoading(false);
+    }
+  }, [ban, haptic, loading, acknowledgeIncomingAndStartReply]);
 
   const handleOverboard = useCallback(async () => {
-    if (!ban?.id || !token) return;
+    if (!ban?.id || !token || loading) return;
     setLoading(true);
     hapticSuccess();
     try {
+      await acknowledgeIncomingSeen(ban.id);
       await api(`/bans/${ban.id}/overboard`, { method: 'POST', token });
-      finishWithSession('overboard', ban.id);
+      setVerifiedBan(null);
       await reloadPending();
     } catch (e) {
       alert(formatDeliveryError(e));
     } finally {
       setLoading(false);
     }
-  }, [ban?.id, token, hapticSuccess, finishWithSession, reloadPending]);
+  }, [ban?.id, token, hapticSuccess, loading, acknowledgeIncomingSeen, reloadPending]);
 
-  const viewerId = user?.id ?? null;
+  const hideReason = explainIncomingHidden(
+    incomingBan,
+    viewerId,
+    authLoading,
+    isAppReady ? viewerId : null,
+    new Set(),
+  );
 
-  if (
-    !incomingBan ||
-    !token ||
-    !shouldShowIncomingBanModal(incomingBan, viewerId, new Set())
-  ) {
+  if (!incomingBan || !token || authLoading || !authReady || !isAppReady) {
+    if (incomingBan?.id) {
+      logIncomingDebug({
+        authUserId: viewerId,
+        incomingId: incomingBan.id,
+        incomingReceiverId: incomingBan.receiver?.id,
+        shouldShow: false,
+        reason: !viewerId
+          ? 'no-auth-user'
+          : authLoading
+            ? 'auth-loading'
+            : !isAppReady
+              ? 'owner-not-ready'
+              : 'no-incoming',
+      });
+    }
+    return null;
+  }
+
+  if (!shouldShowIncomingBanModal(incomingBan, viewerId, new Set())) {
+    logIncomingDebug({
+      authUserId: viewerId,
+      incomingId: incomingBan.id,
+      incomingReceiverId: incomingBan.receiver?.id,
+      incomingAcknowledged: incomingBan.incomingAcknowledged,
+      shouldShow: false,
+      reason: hideReason.reason,
+    });
     return null;
   }
 
@@ -154,7 +172,7 @@ function IncomingBanOverlayInner() {
       light
       closeOnBackdrop={false}
       ariaLabel="Входящий запрет"
-      onClose={() => safeDismiss(ban.id, 'backdrop-blocked')}
+      onClose={() => void acknowledgeIncomingSeen(ban.id)}
       cardClassName="modal-card--incoming"
     >
       <div className="incoming-modal-body text-center">
