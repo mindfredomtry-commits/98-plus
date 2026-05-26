@@ -7,6 +7,8 @@ import { api } from '@/lib/api';
 import { EnergyBar } from './EnergyBar';
 import { BigButton } from './BigButton';
 import { useApp } from './Providers';
+import { AvatarImage } from './AvatarImage';
+import { enrichUserPublic, userAvatarSrc } from '@/lib/user-public-avatar';
 
 interface ProfileData {
   user: UserPublic;
@@ -25,7 +27,9 @@ export function ProfileView({ userId }: { userId?: string }) {
 
   useEffect(() => {
     if (!token || !id) return;
-    api<ProfileData>(`/users/profile/${id}`, { token }).then(setData);
+    api<ProfileData>(`/users/profile/${id}`, { token }).then((d) =>
+      setData({ ...d, user: enrichUserPublic(d.user) }),
+    );
   }, [token, id]);
 
   async function createSelfBan() {
@@ -37,7 +41,7 @@ export function ProfileView({ userId }: { userId?: string }) {
     });
     setSelfText('');
     const refreshed = await api<ProfileData>(`/users/profile/${id}`, { token });
-    setData(refreshed);
+    setData({ ...refreshed, user: enrichUserPublic(refreshed.user) });
   }
 
   if (!data) {
@@ -53,18 +57,12 @@ export function ProfileView({ userId }: { userId?: string }) {
       className="space-y-6"
     >
       <div className="flex items-center gap-4">
-        <div className="w-16 h-16 rounded-full bg-accent/30 flex items-center justify-center text-2xl overflow-hidden">
-          {data.user.photoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={data.user.photoUrl}
-              alt=""
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            data.user.firstName[0]
-          )}
-        </div>
+        <AvatarImage
+          src={userAvatarSrc(enrichUserPublic(data.user))}
+          letter={(data.user.firstName[0] ?? '?').toUpperCase()}
+          sizeClass="w-16 h-16"
+          textClass="text-2xl"
+        />
         <div>
           <h1 className="text-xl font-bold">{data.user.firstName}</h1>
           {data.user.username && (

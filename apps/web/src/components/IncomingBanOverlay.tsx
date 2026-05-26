@@ -114,13 +114,13 @@ function IncomingBanOverlayInner() {
     if (incomingBan?.sender?.id) {
       rememberUserAvatar(
         incomingBan.sender.id,
-        incomingBan.sender.photoUrl ?? null,
+        incomingBan.sender.avatarUrl ?? incomingBan.sender.photoUrl ?? null,
       );
     }
     if (verifiedBan?.sender?.id) {
       rememberUserAvatar(
         verifiedBan.sender.id,
-        verifiedBan.sender.photoUrl ?? null,
+        verifiedBan.sender.avatarUrl ?? verifiedBan.sender.photoUrl ?? null,
       );
     }
     return resolveUserAvatarUrl(verifiedBan?.sender ?? incomingBan?.sender);

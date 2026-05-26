@@ -20,6 +20,7 @@ import {
 import { pushFriendsGraphRefresh } from '../services/friends-sync';
 import type { BanInteraction } from '@98plus/shared';
 import { isDevAuthEnabled } from '../lib/dev-auth';
+import { telegramInitPhotoUrl } from '../lib/avatar-url';
 import { ensureDevFixturesForUser } from '../services/dev-fixtures.service';
 
 export const authRouter = Router();
@@ -78,6 +79,8 @@ authRouter.post('/telegram', async (req, res) => {
     return;
   }
 
+  const initPhoto = telegramInitPhotoUrl(tgUser);
+
   const user = await prisma.user.upsert({
     where: { telegramId: BigInt(tgUser.id) },
     create: {
@@ -85,14 +88,14 @@ authRouter.post('/telegram', async (req, res) => {
       username: tgUser.username ?? null,
       firstName: tgUser.first_name,
       lastName: tgUser.last_name ?? null,
-      photoUrl: tgUser.photo_url ?? null,
+      photoUrl: initPhoto,
       lastSeenAt: new Date(),
     },
     update: {
       username: tgUser.username ?? null,
       firstName: tgUser.first_name,
       lastName: tgUser.last_name ?? null,
-      photoUrl: tgUser.photo_url ?? null,
+      ...(initPhoto ? { photoUrl: initPhoto } : {}),
       lastSeenAt: new Date(),
     },
   });

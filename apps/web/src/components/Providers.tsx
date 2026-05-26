@@ -54,6 +54,7 @@ import {
 } from '@/lib/waiting-lifecycle';
 import { isFirstBanComplete, markFirstBanComplete } from '@/lib/first-ban';
 import { writeFriendsCache, readFriendsCache } from '@/lib/friends-cache';
+import { enrichBanInteraction } from '@/lib/user-public-avatar';
 import { mergeFriendsPreservingAvatars } from '@/lib/friend-avatar-merge';
 import {
   clearAvatarCaches,
@@ -161,7 +162,18 @@ function pickIncomingForOverlay(
   viewerId: string | null | undefined,
 ): BanInteraction | null {
   if (!shouldShowIncomingBanModal(ban, viewerId, dismissed)) return null;
-  return ban!;
+  return enrichBanInteraction(ban!);
+}
+
+function enrichSessionState(s: SessionState): SessionState {
+  return {
+    ...s,
+    incoming: s.incoming ? enrichBanInteraction(s.incoming) : s.incoming,
+    check: s.check ? enrichBanInteraction(s.check) : s.check,
+    active: Array.isArray(s.active)
+      ? s.active.map((b) => enrichBanInteraction(b))
+      : [],
+  };
 }
 
 function applySessionToState(
@@ -175,18 +187,23 @@ function applySessionToState(
     setCheckWaiting: (v: boolean) => void;
   },
 ) {
-  setters.setActiveBans(Array.isArray(s.active) ? s.active : []);
+  const session = enrichSessionState(s);
+  setters.setActiveBans(Array.isArray(session.active) ? session.active : []);
   setters.setIncomingBan((prev) => {
-    const fromSession = pickIncomingForOverlay(s.incoming, dismissed, viewerId);
+    const fromSession = pickIncomingForOverlay(
+      session.incoming,
+      dismissed,
+      viewerId,
+    );
     if (fromSession) return fromSession;
     if (prev && shouldShowIncomingBanModal(prev, viewerId, dismissed)) return prev;
     return null;
   });
 
-  if (s.check?.status === 'checking') {
-    setters.setCheckBan(s.check);
+  if (session.check?.status === 'checking') {
+    setters.setCheckBan(session.check);
     setters.setCheckWaiting(false);
-  } else if (!s.needsOnboardingRecovery) {
+  } else if (!session.needsOnboardingRecovery) {
     setters.setCheckBan(null);
     setters.setCheckWaiting(false);
   }
@@ -626,15 +643,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    const session = enrichSessionState(s);
     const nextIncoming = pickIncomingForOverlay(
-      s.incoming,
+      session.incoming,
       dismissedIncomingRef.current,
       viewerId,
     );
     if (nextIncoming) {
-      if (nextIncoming.sender?.id) {
-        rememberUserAvatar(nextIncoming.sender.id, nextIncoming.sender.photoUrl);
-      }
       setIncomingBan(nextIncoming);
     }
 
@@ -671,11 +686,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
     const nextActive = Array.isArray(s.active) ? s.active : [];
     applySessionToState(
-      {
+      enrichSessionState({
         ...s,
         incoming: nextIncoming,
         active: nextActive.filter((b) => !b.id.startsWith('optimistic-ban:')),
-      },
+      }),
       dismissedIncomingRef.current,
       viewerId,
       {
@@ -701,10 +716,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     );
     if (incoming) {
       challengeLog('boot:claimed-incoming', { banId: incoming.id });
-      if (incoming.sender?.id) {
-        rememberUserAvatar(incoming.sender.id, incoming.sender.photoUrl);
-      }
-      setIncomingBan(incoming);
+      setIncomingBan(enrichBanInteraction(incoming));
       setViralOnboarding(true);
       setDataOwnerUserId(auth.user.id);
       setSessionBootstrapped(true);
@@ -889,7 +901,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (event) => {
       switch (event.type) {
         case 'ban:incoming': {
-          const b = event.payload as BanInteraction;
+          const b = enrichBanInteraction(event.payload as BanInteraction);
           const viewerId = auth.user?.id ?? null;
           const incoming = pickIncomingForOverlay(
             b,
@@ -909,7 +921,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           break;
         }
         case 'check:due': {
-          const ban = event.payload as BanInteraction;
+          const ban = enrichBanInteraction(event.payload as BanInteraction);
           if (ban?.status === 'checking') {
             setCheckBan(ban);
             setCheckWaiting(false);

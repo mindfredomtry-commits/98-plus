@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useCallback, useEffect, useMemo } from 'react';
-import type { BanResult } from '@98plus/shared';
+import type { BanResult, UserPublic } from '@98plus/shared';
 import { isValidBanResultPayload, isResultParticipant } from '@98plus/shared';
 import { ANALYTICS_EVENTS } from '@98plus/shared';
 import { shareDeepLink } from '@/lib/share';
@@ -10,6 +10,8 @@ import { useApp } from './Providers';
 import { BigButton } from './BigButton';
 import { useTelegram } from '@/hooks/useTelegram';
 import { ModalShell } from './ModalShell';
+import { AvatarImage } from './AvatarImage';
+import { userAvatarSrc } from '@/lib/user-public-avatar';
 
 interface Props {
   result: BanResult;
@@ -147,20 +149,16 @@ function ResultOverlayInner({ result, onClose }: Props) {
 
 export const ResultOverlay = memo(ResultOverlayInner);
 
-function Avatar({
-  user,
-}: {
-  user: { firstName?: string | null; photoUrl?: string | null };
-}) {
+function Avatar({ user }: { user: UserPublic }) {
   const letter = (user.firstName?.[0] ?? '?').toUpperCase();
   return (
-    <div className="modal-avatar" aria-hidden>
-      {user.photoUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={user.photoUrl} alt="" className="w-full h-full object-cover" />
-      ) : (
-        <span className="text-lg font-bold">{letter}</span>
-      )}
+    <div className="modal-avatar overflow-hidden" aria-hidden>
+      <AvatarImage
+        src={userAvatarSrc(user)}
+        letter={letter}
+        sizeClass="w-full h-full"
+        textClass="text-lg"
+      />
     </div>
   );
 }

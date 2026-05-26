@@ -53,7 +53,9 @@ export function resolveFriendAvatarUrl(
     | undefined,
 ): string | null {
   if (!friend) return null;
-  const fromFields = normalizeAvatarUrl(friend.avatarUrl ?? friend.photoUrl);
+  const fromFields = normalizeAvatarUrl(
+    friend.avatarUrl ?? friend.photoUrl,
+  );
   if (fromFields) {
     rememberFriendAvatar(friend.id, friend.userId, fromFields);
     return fromFields;
@@ -82,7 +84,7 @@ export function resolveUserAvatarUrl(
   if (!user?.id) {
     return normalizeAvatarUrl(user?.photoUrl ?? user?.avatarUrl);
   }
-  const fromFields = normalizeAvatarUrl(user.photoUrl ?? user.avatarUrl);
+  const fromFields = normalizeAvatarUrl(user.avatarUrl ?? user.photoUrl);
   if (fromFields) {
     userAvatars.set(user.id, fromFields);
     return fromFields;

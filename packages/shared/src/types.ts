@@ -28,6 +28,9 @@ export interface UserPublic {
   telegramId: string;
   username: string | null;
   firstName: string;
+  /** Canonical avatar URL (same value as photoUrl for API compatibility). */
+  avatarUrl: string | null;
+  /** @deprecated use avatarUrl */
   photoUrl: string | null;
   aura: AuraLevel;
   auraLabel: string;

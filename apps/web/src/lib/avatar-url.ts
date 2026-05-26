@@ -1,3 +1,5 @@
+import { resolveFriendAvatarUrl } from './avatar-cache';
+
 /** Normalize Telegram / CDN avatar URLs for <img src>. */
 export function normalizeAvatarUrl(
   url: string | null | undefined,
@@ -9,11 +11,17 @@ export function normalizeAvatarUrl(
   return null;
 }
 
-import { resolveFriendAvatarUrl } from './avatar-cache';
-
 /** Resolve display avatar URL from friend card fields (with in-memory cache). */
 export function friendAvatarUrl(
-  friend: { avatarUrl?: string | null; photoUrl?: string | null; id?: string | null; userId?: string | null } | null | undefined,
+  friend:
+    | {
+        avatarUrl?: string | null;
+        photoUrl?: string | null;
+        id?: string | null;
+        userId?: string | null;
+      }
+    | null
+    | undefined,
 ): string | null {
   return resolveFriendAvatarUrl(friend);
 }

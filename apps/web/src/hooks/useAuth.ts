@@ -16,6 +16,10 @@ import {
 } from '@/lib/config';
 import { useTelegram } from './useTelegram';
 import { logAuthTiming } from '@/lib/boot-timing';
+import {
+  enrichBanInteraction,
+  enrichUserPublic,
+} from '@/lib/user-public-avatar';
 
 const TOKEN_KEY_LEGACY = '98plus_token';
 
@@ -87,13 +91,15 @@ export function useAuth() {
       localStorage.setItem(key, res.token);
       localStorage.removeItem(TOKEN_KEY_LEGACY);
       setToken(res.token);
-      setUser(res.user);
+      setUser(enrichUserPublic(res.user));
       logAuthTiming('auth-user-set', {
         userId: res.user.id,
         telegramId: res.user.telegramId,
       });
       setBoot({
-        claimedIncoming: res.claimedIncoming ?? null,
+        claimedIncoming: res.claimedIncoming
+          ? enrichBanInteraction(res.claimedIncoming)
+          : null,
         viralOnboarding: !!res.viralOnboarding,
         needsOnboardingRecovery: !!res.needsOnboardingRecovery,
       });
@@ -220,7 +226,7 @@ export function useAuth() {
             token: saved,
           });
           if (identityRef.current !== requestIdentity) return;
-          setUser(r.user);
+          setUser(enrichUserPublic(r.user));
           logAuthTiming('auth-user-set', {
             userId: r.user.id,
             telegramId: r.user.telegramId,
@@ -238,12 +244,13 @@ export function useAuth() {
               body: JSON.stringify({ token: inviteToken }),
             });
             if (identityRef.current !== requestIdentity) return;
+            const claimed = enrichBanInteraction(claim.incoming);
             const incoming = shouldShowIncomingBanModal(
-              claim.incoming,
+              claimed,
               r.user.id,
               new Set(),
             )
-              ? claim.incoming
+              ? claimed
               : null;
             challengeLog('boot:invite-claim', {
               banId: claim.incoming?.id ?? null,
@@ -288,7 +295,7 @@ export function useAuth() {
   const refreshUser = useCallback(async () => {
     if (!token) return;
     const r = await api<{ user: UserPublic }>('/users/me', { token });
-    setUser(r.user);
+    setUser(enrichUserPublic(r.user));
   }, [token]);
 
   const onboard = useCallback(async () => {

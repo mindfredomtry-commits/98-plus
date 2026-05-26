@@ -10,6 +10,8 @@ import { useTelegram } from '@/hooks/useTelegram';
 import { BanTimer } from './BanTimer';
 import { challengeLog } from '@/lib/challenge-log';
 import { ModalShell } from './ModalShell';
+import { AvatarImage } from './AvatarImage';
+import { userAvatarSrc } from '@/lib/user-public-avatar';
 
 function CheckOverlayInner() {
   const {
@@ -172,13 +174,13 @@ export const CheckOverlay = memo(CheckOverlayInner);
 function PartyAvatar({ user }: { user: UserPublic }) {
   const letter = (user.firstName?.[0] ?? '?').toUpperCase();
   return (
-    <div className="modal-avatar mx-auto" aria-hidden>
-      {user.photoUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={user.photoUrl} alt="" className="w-full h-full object-cover" />
-      ) : (
-        <span className="text-lg font-bold">{letter}</span>
-      )}
+    <div className="modal-avatar mx-auto overflow-hidden" aria-hidden>
+      <AvatarImage
+        src={userAvatarSrc(user)}
+        letter={letter}
+        sizeClass="w-full h-full"
+        textClass="text-lg"
+      />
     </div>
   );
 }

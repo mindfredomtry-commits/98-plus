@@ -6,6 +6,7 @@ import {
   resolveFriendState,
 } from '@98plus/shared';
 import { prisma } from '../lib/prisma';
+import { pickStoredPhotoUrl } from '../lib/avatar-url';
 import { normalizeUsername } from './invite.service';
 import { getPresenceBatch } from './presence.service';
 
@@ -57,6 +58,17 @@ export async function recordSocialContact(
       : data.recentChallenge
     : null;
 
+  const existing = await prisma.socialContact.findUnique({
+    where: {
+      ownerId_contactUsername: { ownerId, contactUsername },
+    },
+    select: { contactPhotoUrl: true },
+  });
+  const contactPhotoUrl = pickStoredPhotoUrl(
+    photoUrl,
+    existing?.contactPhotoUrl,
+  );
+
   await prisma.socialContact.upsert({
     where: {
       ownerId_contactUsername: { ownerId, contactUsername },
@@ -66,7 +78,7 @@ export async function recordSocialContact(
       contactUserId,
       contactUsername,
       contactFirstName: firstName,
-      contactPhotoUrl: photoUrl,
+      contactPhotoUrl,
       lastChallengeText: snippet,
       interactionCount: 1,
       lastInteractionAt: new Date(),
@@ -75,7 +87,7 @@ export async function recordSocialContact(
     update: {
       ...(contactUserId ? { contactUserId } : {}),
       contactFirstName: firstName,
-      contactPhotoUrl: photoUrl,
+      contactPhotoUrl,
       lastChallengeText: snippet ?? undefined,
       interactionCount: { increment: 1 },
       lastInteractionAt: new Date(),
@@ -91,6 +103,10 @@ export async function linkContactsForRegisteredUser(user: {
   firstName: string;
   photoUrl: string | null;
 }) {
+  const photoPatch = user.photoUrl
+    ? { contactPhotoUrl: user.photoUrl }
+    : {};
+
   if (user.username) {
     const clean = normalizeUsername(user.username);
     await prisma.socialContact.updateMany({
@@ -101,7 +117,7 @@ export async function linkContactsForRegisteredUser(user: {
       data: {
         contactUserId: user.id,
         contactFirstName: user.firstName,
-        contactPhotoUrl: user.photoUrl,
+        ...photoPatch,
       },
     });
   }
@@ -110,7 +126,7 @@ export async function linkContactsForRegisteredUser(user: {
     where: { contactUserId: user.id },
     data: {
       contactFirstName: user.firstName,
-      contactPhotoUrl: user.photoUrl,
+      ...photoPatch,
     },
   });
 }
@@ -464,7 +480,7 @@ export async function listSocialGraph(
     };
 
     const firstName = (live?.firstName ?? c.contactFirstName ?? '').trim();
-    const photoUrl = live?.photoUrl ?? c.contactPhotoUrl;
+    const photoUrl = pickStoredPhotoUrl(live?.photoUrl, c.contactPhotoUrl);
     const avatarUrl = photoUrl;
     const username = (
       live?.username?.trim() ||
