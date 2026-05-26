@@ -1,6 +1,6 @@
 'use client';
 
-import { Component, type ReactNode } from 'react';
+import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { challengeLog } from '@/lib/challenge-log';
 import { resetScrollLock } from '@/lib/scroll-lock';
 
@@ -24,7 +24,13 @@ export class ShellErrorBoundary extends Component<Props, State> {
     return { hasError: true, message: error.message || 'Unknown error' };
   }
 
-  componentDidCatch(error: Error) {
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('[98+ ShellErrorBoundary]', {
+      layer: this.props.name,
+      message: error.message,
+      stack: error.stack,
+      componentStack: info.componentStack,
+    });
     challengeLog('shell:crash', {
       layer: this.props.name,
       message: error.message,

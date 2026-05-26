@@ -177,19 +177,29 @@ function applySessionToState(
 /** Hard remount on Telegram account switch — wipes in-memory friends/session. */
 export function Providers({ children }: { children: React.ReactNode }) {
   const { ready, telegramId } = useTelegram();
+
   if (!ready) {
+    console.log('[boot]', { phase: 'telegram-not-ready' });
     return (
       <div className="min-h-[100dvh] flex items-center justify-center challenge-bg">
         <span className="text-accent text-2xl font-bold text-glow">98+</span>
       </div>
     );
   }
-  const scopeKey = telegramId != null ? String(telegramId) : 'unknown';
+
+  const scopeKey = telegramId != null ? `tg:${telegramId}` : 'tg:pending';
+  console.log('[boot]', { phase: 'providers-mount', scopeKey, telegramId });
+
   return <ProvidersBody key={scopeKey}>{children}</ProvidersBody>;
 }
 
 function ProvidersBody({ children }: { children: React.ReactNode }) {
   const auth = useAuth();
+  console.log('[providers-render]', {
+    userId: auth.user?.id ?? null,
+    authReady: auth.authReady,
+    loading: auth.loading,
+  });
   const [dataOwnerUserId, setDataOwnerUserId] = useState<string | null>(null);
   const [incomingBan, setIncomingBan] = useState<BanInteraction | null>(null);
   const [checkBan, setCheckBan] = useState<BanInteraction | null>(null);
@@ -262,23 +272,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
   }, [auth.user?.id, auth.authReady]);
 
-  // If WS delivered an incoming ban before auth/user was ready, buffer it and
-  // apply as soon as we can safely decide about viewerId + local ack.
-  useEffect(() => {
-    if (!auth.authReady || !auth.user?.id) return;
-    if (!bufferedIncomingRef.current) return;
-    const b = bufferedIncomingRef.current;
-    bufferedIncomingRef.current = null;
-
-    const incoming = pickIncomingForOverlay(
-      b,
-      dismissedIncomingRef.current,
-      auth.user.id,
-    );
-    if (incoming) {
-      setIncomingBanSafe(incoming);
-    }
-  }, [auth.authReady, auth.user?.id, setIncomingBanSafe]);
   const checkWaitingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tokenRef = useRef(auth.token);
   tokenRef.current = auth.token;
@@ -299,6 +292,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   /** Sync reset before paint when backend user id changes (no flash of previous user's data). */
   useLayoutEffect(() => {
+    console.log('[providers-reset]', { userId: auth.user?.id ?? null });
     setDataOwnerUserId(null);
     setIncomingBan(null);
     setCheckBan(null);
@@ -399,6 +393,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [auth.user?.id, auth.authReady, auth.loading, dataOwnerUserId],
   );
+
+  // Apply WS-buffered incoming after auth is ready (must run after setIncomingBanSafe exists).
+  useEffect(() => {
+    if (!auth.authReady || !auth.user?.id) return;
+    if (!bufferedIncomingRef.current) return;
+    const b = bufferedIncomingRef.current;
+    bufferedIncomingRef.current = null;
+    console.log('[incoming-buffer]', {
+      action: 'apply',
+      banId: b.id,
+      receiverId: b.receiver?.id,
+    });
+
+    const incoming = pickIncomingForOverlay(
+      b,
+      dismissedIncomingRef.current,
+      auth.user.id,
+    );
+    if (incoming) {
+      setIncomingBanSafe(incoming);
+    }
+  }, [auth.authReady, auth.user?.id, setIncomingBanSafe]);
 
   const pushPopup = useCallback((p: EnergyPopup) => {
     setPopups((prev) => [...prev, p]);
@@ -749,9 +765,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           );
           if (incoming) {
             setIncomingBanSafe(incoming);
-          } else {
-            // Viewer isn't ready yet: don't lose incoming; we'll apply on authReady.
-            if (b?.receiver?.id) bufferedIncomingRef.current = b;
+          } else if (b?.receiver?.id) {
+            bufferedIncomingRef.current = b;
+            console.log('[incoming-buffer]', {
+              action: 'store',
+              banId: b.id,
+              receiverId: b.receiver?.id,
+            });
           }
           break;
         }

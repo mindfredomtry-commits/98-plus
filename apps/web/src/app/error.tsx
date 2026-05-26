@@ -11,7 +11,12 @@ export default function AppError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error('[98+ route error]', error);
+    console.error('[98+ route error]', {
+      message: error.message,
+      stack: error.stack,
+      digest: error.digest,
+      name: error.name,
+    });
     resetScrollLock();
   }, [error]);
 
@@ -21,6 +26,11 @@ export default function AppError({
       <p className="text-muted text-sm max-w-sm">
         Что-то пошло не так. Арена всё ещё здесь — попробуй ещё раз.
       </p>
+      {error.message ? (
+        <p className="text-[10px] text-muted/60 break-all max-w-sm font-mono">
+          {error.message}
+        </p>
+      ) : null}
       <button
         type="button"
         className="text-accent underline text-sm"
