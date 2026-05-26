@@ -282,12 +282,27 @@ export function useAuth() {
   const telegramIdStr =
     telegramId != null ? String(telegramId) : tgUser?.id != null ? String(tgUser.id) : null;
 
+  // If we authenticated using Telegram initData, the backend token is already bound
+  // to the current Telegram user, so we don't need to wait for telegramIdStr match.
+  const boundByInitData = initData.trim().length > 0;
+
   const authReady =
     !loading &&
     !!token &&
     !!user &&
-    !!telegramIdStr &&
-    String(user.telegramId) === telegramIdStr;
+    (boundByInitData ||
+      (!!telegramIdStr && String(user.telegramId) === telegramIdStr));
+
+  useEffect(() => {
+    console.log('[auth-debug]', {
+      telegramId,
+      authReady,
+      loading,
+      tokenPresent: !!token,
+      userId: user?.id ?? null,
+      userTelegramId: user?.telegramId ?? null,
+    });
+  }, [authReady, loading, telegramId, token, user?.id, user?.telegramId]);
 
   return {
     token,

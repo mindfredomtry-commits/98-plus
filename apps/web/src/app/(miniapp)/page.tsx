@@ -53,7 +53,6 @@ export default function HomePage() {
     user,
     loading,
     authReady,
-    isAppReady,
     error,
     setIncomingBan,
     setCheckBan,
@@ -104,8 +103,21 @@ export default function HomePage() {
         const uid = user?.id ?? null;
         if (!uid) return;
         await backfillAcknowledgedIncomingOnce(authToken, uid);
+        const requestedAt = Date.now();
+        console.log('[session-fetch]', {
+          authUserId: uid,
+          requestedAt,
+        });
         const session = await fetchSession(authToken);
         if (cancelled) return;
+
+        console.log('[session-fetch]', {
+          authUserId: uid,
+          requestedAt,
+          responseUserId: (session as any)?.userId ?? null,
+          incomingId: (session as any)?.incoming?.id ?? null,
+          incomingReceiverId: (session as any)?.incoming?.receiver?.id ?? null,
+        });
 
         applySessionRef.current(session);
 
@@ -159,7 +171,7 @@ export default function HomePage() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [token]);
 
-  if (loading || !authReady || !isAppReady) {
+  if (loading || !authReady) {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center challenge-bg">
         <motion.div

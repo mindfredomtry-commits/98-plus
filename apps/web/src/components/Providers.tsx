@@ -251,6 +251,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, []);
 
   const dismissedIncomingRef = useRef<Set<string>>(new Set());
+  const bufferedIncomingRef = useRef<BanInteraction | null>(null);
 
   useEffect(() => {
     const uid = auth.user?.id ?? null;
@@ -260,6 +261,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       dismissedIncomingRef.current.add(id);
     }
   }, [auth.user?.id, auth.authReady]);
+
+  // If WS delivered an incoming ban before auth/user was ready, buffer it and
+  // apply as soon as we can safely decide about viewerId + local ack.
+  useEffect(() => {
+    if (!auth.authReady || !auth.user?.id) return;
+    if (!bufferedIncomingRef.current) return;
+    const b = bufferedIncomingRef.current;
+    bufferedIncomingRef.current = null;
+
+    const incoming = pickIncomingForOverlay(
+      b,
+      dismissedIncomingRef.current,
+      auth.user.id,
+    );
+    if (incoming) {
+      setIncomingBanSafe(incoming);
+    }
+  }, [auth.authReady, auth.user?.id, setIncomingBanSafe]);
   const checkWaitingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tokenRef = useRef(auth.token);
   tokenRef.current = auth.token;
@@ -322,11 +341,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const setIncomingBanSafe = useCallback(
     (b: BanInteraction | null) => {
       const viewerId = auth.user?.id;
-      if (
-        b !== null &&
-        (!auth.authReady ||
-          !isUserDataScoped(dataOwnerUserId, viewerId, auth.loading))
-      ) {
+      if (b !== null && (!auth.authReady || !viewerId || auth.loading)) {
         const why = explainIncomingHidden(
           b,
           viewerId,
@@ -626,10 +641,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const requestUserId = userIdRef.current;
     if (!token || !requestUserId) return;
     try {
+      const requestedAt = Date.now();
+      console.log('[session-fetch]', {
+        authUserId: requestUserId,
+        requestedAt,
+      });
       const session = await fetchSession(token);
       // Discard if user/token switched while request in-flight.
       if (tokenRef.current !== token) return;
       if (userIdRef.current !== requestUserId) return;
+
+      console.log('[session-fetch]', {
+        authUserId: requestUserId,
+        requestedAt,
+        responseUserId: (session as any)?.userId ?? null,
+        incomingId: (session as any)?.incoming?.id ?? null,
+        incomingReceiverId: (session as any)?.incoming?.receiver?.id ?? null,
+      });
       applySession(session);
       await refreshUserRef.current();
       await api('/analytics/track', {
@@ -713,12 +741,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       switch (event.type) {
         case 'ban:incoming': {
           const b = event.payload as BanInteraction;
+          const viewerId = auth.user?.id ?? null;
           const incoming = pickIncomingForOverlay(
             b,
             dismissedIncomingRef.current,
-            auth.user?.id ?? null,
+            viewerId,
           );
-          if (incoming) setIncomingBanSafe(incoming);
+          if (incoming) {
+            setIncomingBanSafe(incoming);
+          } else {
+            // Viewer isn't ready yet: don't lose incoming; we'll apply on authReady.
+            if (b?.receiver?.id) bufferedIncomingRef.current = b;
+          }
           break;
         }
         case 'check:due': {
@@ -851,9 +885,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [activeBans, optimisticSendWait],
   );
 
-  const isAppReady =
-    auth.authReady &&
-    isUserDataScoped(dataOwnerUserId, auth.user?.id, auth.loading);
+  // Render gating only: authReady means session belongs to current Telegram user.
+  // Do NOT depend on dataOwnerUserId, otherwise we can deadlock incoming acceptance.
+  const isAppReady = auth.authReady && !!auth.user?.id && !auth.loading;
 
   const scopedFriends = isAppReady ? displayFriends : [];
   const scopedActiveBans = isAppReady ? displayActiveBans : [];
