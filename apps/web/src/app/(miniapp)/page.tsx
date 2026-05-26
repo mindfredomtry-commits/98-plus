@@ -135,24 +135,17 @@ export default function HomePage() {
     );
   }
 
-  if (!sessionReady) {
-    return <BootLobby />;
-  }
+  const canRenderShell =
+    incomingGateActive || (sessionReady && friendsReady);
 
-  if (!friendsReady && !incomingGateActive) {
+  if (!canRenderShell) {
     return <BootLobby />;
-  }
-
-  if (incomingGateActive && !friendsReady) {
-    return (
-      <div className="app-page app-page--incoming-gate min-h-[100dvh] challenge-bg" />
-    );
   }
 
   return (
     <div
       className={`app-page${
-        incomingGateActive ? ' app-page--incoming-gate' : ''
+        incomingGateActive ? ' app-page--incoming-overlay-active' : ''
       }${banSentOpen ? ' app-page--success-modal' : ''}`}
     >
       <ShellErrorBoundary name="ambience" fallback={null}>

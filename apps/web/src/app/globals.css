@@ -738,21 +738,22 @@ html.scroll-lock body {
   contain: layout style paint;
 }
 
-.app-page--incoming-gate .app-main,
-.app-page--incoming-gate .cta-dock,
-.app-page--incoming-gate .bottom-nav,
-.app-page--incoming-gate .connection-banner {
-  filter: blur(8px);
-  opacity: 0.35;
+.app-page--incoming-overlay-active .app-main,
+.app-page--incoming-overlay-active .home-arena,
+.app-page--incoming-overlay-active .cta-dock,
+.app-page--incoming-overlay-active .bottom-nav {
+  filter: blur(6px);
+  opacity: 0.42;
   pointer-events: none;
+  user-select: none;
 }
 
-.app-page--incoming-gate::after {
+.app-page--incoming-overlay-active::before {
   content: '';
   position: fixed;
   inset: 0;
-  background: rgba(8, 6, 18, 0.55);
-  z-index: 60;
+  background: rgba(8, 6, 18, 0.52);
+  z-index: 55;
   pointer-events: none;
 }
 

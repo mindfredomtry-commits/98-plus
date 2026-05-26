@@ -1112,13 +1112,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const friendsReady = friendsBootstrapped;
   const sessionReady = sessionBootstrapped;
   const incomingGateActive = useMemo(() => {
-    if (!auth.user?.id || auth.loading || !sessionBootstrapped) return false;
+    if (!auth.user?.id || auth.loading) return false;
     return shouldShowIncomingBanModal(
       incomingBan,
       auth.user.id,
       dismissedIncomingRef.current,
     );
-  }, [incomingBan, auth.user?.id, auth.loading, sessionBootstrapped]);
+  }, [incomingBan, auth.user?.id, auth.loading]);
 
   const scopedFriends = isAppReady
     ? banSentOpen && uiFreeze
