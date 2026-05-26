@@ -826,12 +826,53 @@ html.scroll-lock body {
   /* no nested scroll trap */
 }
 
+.modal-backdrop--light {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
 .modal-avatars {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 1rem;
   padding: 0.5rem 0;
+}
+
+.result-compare {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 0.25rem 0;
+}
+
+.result-party {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 3.5rem;
+}
+
+.result-arrow {
+  font-size: 1.25rem;
+  line-height: 3.5rem;
+  font-weight: 700;
+  text-shadow: 0 0 12px rgba(155, 89, 182, 0.65);
+}
+
+.result-status {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.result-headline {
+  letter-spacing: 0.02em;
+}
+
+.result-energy {
+  text-shadow: 0 0 20px rgba(155, 89, 182, 0.35);
 }
 
 .modal-avatar {

@@ -1,5 +1,6 @@
 'use client';
 
+import { memo, useCallback, useMemo } from 'react';
 import type { BanResult } from '@98plus/shared';
 import { ANALYTICS_EVENTS } from '@98plus/shared';
 import { shareDeepLink } from '@/lib/share';
@@ -14,18 +15,31 @@ interface Props {
   onClose: () => void;
 }
 
-export function ResultOverlay({ result, onClose }: Props) {
+function ResultOverlayInner({ result, onClose }: Props) {
   const { openSendTo, token } = useApp();
   const { haptic } = useTelegram();
 
-  const myDelta =
-    result.viewerId === result.sender?.id
-      ? result.energy?.sender
-      : result.viewerId === result.receiver?.id
-        ? result.energy?.receiver
+  const view = useMemo(() => {
+    const isSender = result.viewerId === result.sender.id;
+    const isReceiver = result.viewerId === result.receiver.id;
+    const myDelta = isSender
+      ? result.energy.sender
+      : isReceiver
+        ? result.energy.receiver
         : null;
+    const primaryLabel = isReceiver
+      ? '🚫 Запретить в ответ'
+      : '🚫 Запретить ещё!';
+    const showStatuses =
+      result.confirmations !== null &&
+      (result.outcome === 'both_yes' ||
+        result.outcome === 'both_no' ||
+        result.outcome === 'split');
 
-  function share() {
+    return { isSender, isReceiver, myDelta, primaryLabel, showStatuses };
+  }, [result]);
+
+  const share = useCallback(() => {
     haptic('light');
     shareDeepLink(
       { type: 'result', banId: result.id },
@@ -41,72 +55,86 @@ export function ResultOverlay({ result, onClose }: Props) {
         }),
       }).catch(() => {});
     }
-  }
+  }, [haptic, result.headline, result.id, result.text, token]);
 
-  function counter() {
+  const counter = useCallback(() => {
     haptic('medium');
     const u = result.opponent?.username;
-    openSendTo(
-      u ? `@${u}` : (result.opponent?.firstName ?? ''),
-    );
+    openSendTo(u ? `@${u}` : (result.opponent?.firstName ?? ''));
     onClose();
-  }
+  }, [haptic, onClose, openSendTo, result.opponent]);
+
+  const senderStatus = result.confirmations?.sender;
+  const receiverStatus = result.confirmations?.receiver;
 
   return (
-    <ModalShell open ariaLabel="Результат вызова" onClose={onClose}>
+    <ModalShell open light ariaLabel="Результат проверки" onClose={onClose}>
       <div className="modal-card-body text-center">
-        <p className="text-2xl font-black text-glow mb-1">
-          {result.headline ?? 'Результат'}
+        <p className="result-headline text-2xl font-black text-glow mb-1">
+          {result.headline}
         </p>
         {result.subline ? (
-          <p className="text-muted text-sm mb-5">{result.subline}</p>
+          <p className="text-muted text-sm mb-4 leading-snug px-1">
+            {result.subline}
+          </p>
         ) : (
-          <div className="mb-5" />
+          <div className="mb-4" />
         )}
 
-        <div className="modal-avatars mx-auto mb-5">
-          {result.sender ? <Avatar user={result.sender} /> : null}
-          <span className="text-muted text-lg" aria-hidden>
-            ⚡
+        <div className="result-compare mx-auto mb-4">
+          <div className="result-party">
+            <Avatar user={result.sender} />
+            {view.showStatuses ? (
+              <span className="result-status" aria-hidden>
+                {senderStatus ? '✅' : '❌'}
+              </span>
+            ) : null}
+          </div>
+          <span className="result-arrow text-accent" aria-hidden>
+            →
           </span>
-          {result.receiver ? <Avatar user={result.receiver} /> : null}
+          <div className="result-party">
+            <Avatar user={result.receiver} />
+            {view.showStatuses ? (
+              <span className="result-status" aria-hidden>
+                {receiverStatus ? '✅' : '❌'}
+              </span>
+            ) : null}
+          </div>
         </div>
 
-        <p className="text-lg font-bold leading-snug mb-4">
-          «{result.text ?? ''}»
+        <p className="text-base font-semibold leading-snug mb-3 px-1">
+          «{result.text}»
         </p>
 
-        {myDelta !== null && myDelta !== undefined ? (
+        {view.myDelta !== null && view.myDelta !== undefined ? (
           <p
-            className={`text-2xl font-bold mb-2 ${
-              myDelta < 0 ? 'text-warning' : 'text-accent'
+            className={`result-energy text-2xl font-bold mb-1 ${
+              view.myDelta < 0 ? 'text-warning' : 'text-accent'
             }`}
           >
-            {myDelta > 0 ? '+' : ''}
-            {myDelta} ⚡
+            {view.myDelta > 0 ? '+' : ''}
+            {view.myDelta} ⚡
           </p>
         ) : null}
         {result.farmSkipped ? (
-          <p className="text-xs text-muted mb-4">Лимит фарма на сегодня</p>
+          <p className="text-xs text-muted mb-2">Лимит фарма на сегодня</p>
         ) : null}
       </div>
 
-      <div className="modal-card-actions space-y-3">
-        <BigButton onClick={counter}>🚫 Запретить в ответ</BigButton>
-        <BigButton variant="ghost" onClick={share}>
-          Поделиться
-        </BigButton>
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full text-muted text-sm py-2"
-        >
-          Закрыть
-        </button>
-      </div>
+      {(view.isSender || view.isReceiver) && (
+        <div className="modal-card-actions space-y-3">
+          <BigButton onClick={counter}>{view.primaryLabel}</BigButton>
+          <BigButton variant="ghost" onClick={share}>
+            Поделиться
+          </BigButton>
+        </div>
+      )}
     </ModalShell>
   );
 }
+
+export const ResultOverlay = memo(ResultOverlayInner);
 
 function Avatar({
   user,

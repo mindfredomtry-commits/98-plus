@@ -58,7 +58,7 @@ export function calcOverboardPenalty(): EnergyDelta {
 export function calcCheckOutcome(outcome: CheckOutcome): EnergyDelta {
   switch (outcome) {
     case 'both_yes':
-      return { sender: 6, receiver: 4 };
+      return { sender: 4, receiver: 6 };
     case 'both_no':
       return { sender: 0, receiver: -2 };
     case 'split':

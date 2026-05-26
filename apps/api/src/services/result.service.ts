@@ -1,6 +1,7 @@
 import { InteractionOutcome as PrismaOutcome } from '@prisma/client';
 import {
-  RESULT_COPY,
+  buildResultPresentation,
+  type BanCheckConfirmations,
   type BanResult,
   type CheckOutcome,
   type InteractionOutcome,
@@ -45,7 +46,7 @@ export async function buildBanResult(
 ): Promise<BanResult | null> {
   const ban = await prisma.ban.findUnique({
     where: { id: banId },
-    include: { sender: true, receiver: true },
+    include: { sender: true, receiver: true, checkAnswers: true },
   });
 
   if (!ban) return null;
@@ -61,9 +62,23 @@ export async function buildBanResult(
       ? 'overboard'
       : 'both_no';
 
-  const copy = RESULT_COPY[outcome];
   const sender = mapUser(ban.sender);
   const receiver = mapUser(ban.receiver);
+
+  const senderAns = ban.checkAnswers.find((a) => a.userId === ban.senderId);
+  const receiverAns = ban.checkAnswers.find((a) => a.userId === ban.receiverId);
+  const confirmations: BanCheckConfirmations | null =
+    senderAns && receiverAns
+      ? { sender: senderAns.completed, receiver: receiverAns.completed }
+      : null;
+
+  const copy = buildResultPresentation(
+    outcome,
+    viewerId,
+    sender,
+    receiver,
+    confirmations,
+  );
 
   const opponent =
     viewerId === ban.senderId
@@ -90,6 +105,7 @@ export async function buildBanResult(
     receiver,
     viewerId,
     opponent,
+    confirmations,
     energy: {
       sender: ban.senderEnergyDelta ?? 0,
       receiver: ban.receiverEnergyDelta ?? 0,

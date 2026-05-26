@@ -1,7 +1,5 @@
 'use client';
 
-import { AnimatePresence } from 'framer-motion';
-import type { BanResult } from '@98plus/shared';
 import { useApp } from './Providers';
 import { ChallengeErrorBoundary } from './ChallengeErrorBoundary';
 import { IncomingBanOverlay } from './IncomingBanOverlay';
@@ -45,11 +43,9 @@ export function ChallengeOverlays() {
         />
       </ChallengeErrorBoundary>
       <ChallengeErrorBoundary name="result">
-        <AnimatePresence>
-          {result ? (
-            <ResultOverlay result={result} onClose={() => setResult(null)} />
-          ) : null}
-        </AnimatePresence>
+        {result ? (
+          <ResultOverlay result={result} onClose={() => setResult(null)} />
+        ) : null}
       </ChallengeErrorBoundary>
     </>
   );
