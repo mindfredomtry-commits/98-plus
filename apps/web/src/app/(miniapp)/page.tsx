@@ -1,15 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { motion } from 'framer-motion';
-import type { BanResult } from '@98plus/shared';
-import {
-  acknowledgeBanResultOnServer,
-  dismissBanResultLocally,
-  shouldShowBanResult,
-} from '@/lib/ban-result-flow';
-import { isDismissedResultLocally } from '@/lib/dismissed-results';
 import { useApp } from '@/components/Providers';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSocialBoot } from '@/hooks/useSocialBoot';
@@ -18,9 +11,6 @@ import { SendBanDock } from '@/components/SendBanDock';
 import { ConnectionBanner } from '@/components/ConnectionBanner';
 import { BottomNav, type Tab } from '@/components/BottomNav';
 import { ShellErrorBoundary } from '@/components/ShellErrorBoundary';
-import { fetchSession } from '@/lib/session';
-import { backfillAcknowledgedIncomingOnce } from '@/lib/incoming-backfill';
-import { api } from '@/lib/api';
 import { getApiUrl } from '@/lib/config';
 
 const ArenaAmbience = dynamic(
@@ -47,16 +37,32 @@ const DebugPanel = dynamic(
   { ssr: false },
 );
 
+function BootLobby() {
+  return (
+    <div className="min-h-[100dvh] flex items-center justify-center challenge-bg">
+      <motion.div
+        animate={{ opacity: [0.4, 1, 0.4] }}
+        transition={{ repeat: Infinity, duration: 1.2 }}
+        className="text-accent text-2xl font-bold text-glow"
+      >
+        98+
+      </motion.div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const {
     token,
     user,
     loading,
     error,
+    friendsReady,
+    sessionReady,
+    incomingGateActive,
     setIncomingBan,
     setCheckBan,
     openBanResult,
-    applySession,
     reloadPending,
     banSentOpen,
     wsStatus,
@@ -80,13 +86,6 @@ export default function HomePage() {
     setApiUrlDisplay(getApiUrl());
   }, []);
 
-  const applySessionRef = useRef(applySession);
-  applySessionRef.current = applySession;
-  const reloadPendingRef = useRef(reloadPending);
-  reloadPendingRef.current = reloadPending;
-  const openBanResultRef = useRef(openBanResult);
-  openBanResultRef.current = openBanResult;
-
   useEffect(() => {
     if (!token || !ready) return;
 
@@ -94,95 +93,23 @@ export default function HomePage() {
     if (params.get('debug') === '1') {
       setDebugOpen(true);
     }
-
-    let cancelled = false;
-    const authToken = token;
-
-    async function loadSession() {
-      try {
-        const uid = user?.id ?? null;
-        if (!uid) return;
-        void backfillAcknowledgedIncomingOnce(authToken, uid);
-        const requestedAt = Date.now();
-        console.log('[session-fetch]', {
-          authUserId: uid,
-          requestedAt,
-        });
-        const session = await fetchSession(authToken);
-        if (cancelled) return;
-
-        console.log('[session-fetch]', {
-          authUserId: uid,
-          requestedAt,
-          responseUserId: (session as any)?.userId ?? null,
-          incomingId: (session as any)?.incoming?.id ?? null,
-          incomingReceiverId: (session as any)?.incoming?.receiver?.id ?? null,
-        });
-
-        applySessionRef.current(session);
-
-        if (session.pendingResultId) {
-          const pendingId = session.pendingResultId;
-          if (isDismissedResultLocally(pendingId)) {
-            void acknowledgeBanResultOnServer(pendingId, authToken);
-          } else {
-            try {
-              const { result: pendingResult } = await api<{ result: BanResult }>(
-                `/bans/${pendingId}/result`,
-                { token: authToken },
-              );
-              if (!cancelled && pendingResult) {
-                if (shouldShowBanResult(pendingResult, 'auto', pendingId)) {
-                  openBanResultRef.current(pendingResult, 'auto');
-                } else {
-                  dismissBanResultLocally(pendingId);
-                  void acknowledgeBanResultOnServer(pendingId, authToken);
-                }
-              }
-            } catch {
-              /* result not ready */
-            }
-          }
-        }
-      } catch {
-        if (!cancelled) {
-          reloadPendingRef.current();
-        }
-      }
-    }
-
-    loadSession();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [token, ready, user?.id]);
+  }, [token, ready]);
 
   useEffect(() => {
     if (!token) return;
 
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
-        reloadPendingRef.current();
+        reloadPending();
       }
     };
 
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [token]);
+  }, [token, reloadPending]);
 
   if (loading || !user?.id || !token) {
-    return (
-      <div className="min-h-[100dvh] flex items-center justify-center challenge-bg">
-        <motion.div
-          animate={{ opacity: [0.4, 1, 0.4] }}
-          transition={{ repeat: Infinity, duration: 1.2 }}
-          className="text-accent text-2xl font-bold text-glow"
-        >
-          98+
-        </motion.div>
-      </div>
-    );
+    return <BootLobby />;
   }
 
   if (error || !user) {
@@ -208,9 +135,25 @@ export default function HomePage() {
     );
   }
 
+  if (!sessionReady) {
+    return <BootLobby />;
+  }
+
+  if (!friendsReady && !incomingGateActive) {
+    return <BootLobby />;
+  }
+
+  if (incomingGateActive && !friendsReady) {
+    return (
+      <div className="app-page app-page--incoming-gate min-h-[100dvh] challenge-bg" />
+    );
+  }
+
   return (
     <div
-      className={`app-page${banSentOpen ? ' app-page--success-modal' : ''}`}
+      className={`app-page${
+        incomingGateActive ? ' app-page--incoming-gate' : ''
+      }${banSentOpen ? ' app-page--success-modal' : ''}`}
     >
       <ShellErrorBoundary name="ambience" fallback={null}>
         <ArenaAmbience />

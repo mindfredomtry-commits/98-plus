@@ -140,14 +140,21 @@ export function sanitizeFriendCard(raw: unknown): FriendCard | null {
   const telegramId =
     r.telegramId != null ? String(r.telegramId).trim() || null : null;
 
+  const rawAvatar =
+    r.avatarUrl ??
+    r.photoUrl ??
+    (typeof (r as { avatar_url?: unknown }).avatar_url === 'string'
+      ? (r as { avatar_url: string }).avatar_url
+      : null);
+
   const card: FriendCard = {
     id: r.id ?? (userId ? userId : `contact:${username}`),
     userId,
     telegramId,
     username,
     firstName,
-    photoUrl: r.photoUrl ?? r.avatarUrl ?? null,
-    avatarUrl: r.avatarUrl ?? r.photoUrl ?? null,
+    photoUrl: rawAvatar,
+    avatarUrl: rawAvatar,
     auraLabel: r.auraLabel ?? 'Контакт',
     streak: typeof r.streak === 'number' ? r.streak : 0,
     energyPercent:

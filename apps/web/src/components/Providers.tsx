@@ -30,6 +30,8 @@ import { isUserDataScoped } from '@/lib/user-data-scope';
 import { explainIncomingHidden, logIncomingDebug } from '@/lib/incoming-debug';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { EnergyPopupStack } from './EnergyPopupStack';
+import { IncomingBanOverlay } from './IncomingBanOverlay';
+import { ChallengeErrorBoundary } from './ChallengeErrorBoundary';
 import { ShellErrorBoundary } from './ShellErrorBoundary';
 import { resetScrollLock } from '@/lib/scroll-lock';
 import { fetchSession } from '@/lib/session';
@@ -51,7 +53,14 @@ import {
   normalizeWaitUsername,
 } from '@/lib/waiting-lifecycle';
 import { isFirstBanComplete, markFirstBanComplete } from '@/lib/first-ban';
-import { writeFriendsCache } from '@/lib/friends-cache';
+import { writeFriendsCache, readFriendsCache } from '@/lib/friends-cache';
+import { mergeFriendsPreservingAvatars } from '@/lib/friend-avatar-merge';
+import {
+  clearAvatarCaches,
+  rememberFriendAvatar,
+  rememberUserAvatar,
+} from '@/lib/avatar-cache';
+import { backfillAcknowledgedIncomingOnce } from '@/lib/incoming-backfill';
 import { timingLog, timingStart } from '@/lib/timing-log';
 import { logFriendsTiming } from '@/lib/boot-timing';
 import {
@@ -69,6 +78,12 @@ interface AppContextValue {
   authReady: boolean;
   /** True when friends/session state belongs to current auth user. */
   isAppReady: boolean;
+  /** Initial /friends fetch finished (or cache hydrated). */
+  friendsReady: boolean;
+  /** First session fetch finished — incoming gate can resolve. */
+  sessionReady: boolean;
+  /** Incoming modal blocks main arena until dismissed. */
+  incomingGateActive: boolean;
   error: string | null;
   refreshUser: () => Promise<void>;
   onboard: () => Promise<void>;
@@ -262,6 +277,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [firstBanComplete, setFirstBanComplete] = useState(false);
   const [inlineBanError, setInlineBanError] = useState<string | null>(null);
   const [banInputShake, setBanInputShake] = useState(false);
+  const [friendsBootstrapped, setFriendsBootstrapped] = useState(false);
+  const [sessionBootstrapped, setSessionBootstrapped] = useState(false);
 
   const triggerBanInputShake = useCallback(() => {
     setBanInputShake(true);
@@ -291,6 +308,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   refreshUserRef.current = auth.refreshUser;
   const reloadFriendsRef = useRef<() => Promise<void>>(async () => {});
 
+  const setFriendsMerged = useCallback((list: FriendCard[]) => {
+    setFriends((prev) => {
+      const merged = mergeFriendsPreservingAvatars(prev, list);
+      const uid = userIdRef.current;
+      if (uid) writeFriendsCache(uid, merged);
+      return merged;
+    });
+  }, []);
+
   /** Owner is confirmed auth user — friends may load later (empty until fetch). */
   useEffect(() => {
     if (!auth.user?.id || auth.loading) {
@@ -303,6 +329,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   /** Sync reset before paint when backend user id changes (no flash of previous user's data). */
   useLayoutEffect(() => {
     console.log('[providers-reset]', { userId: auth.user?.id ?? null });
+    clearAvatarCaches();
     setDataOwnerUserId(null);
     setIncomingBan(null);
     setCheckBan(null);
@@ -311,6 +338,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setPopups([]);
     setActiveBans([]);
     setFriends([]);
+    setFriendsBootstrapped(false);
+    setSessionBootstrapped(false);
     setSendOpen(false);
     setSendReceiver('');
     setSendText('');
@@ -319,6 +348,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setBanSentOpen(false);
     setOptimisticSendWait(null);
     dismissedIncomingRef.current = new Set();
+
+    const uid = auth.user?.id;
+    if (!uid) return;
+
+    const cached = readFriendsCache(uid);
+    for (const f of cached) {
+      rememberFriendAvatar(f.id, f.userId, f.avatarUrl ?? f.photoUrl);
+    }
+    if (cached.length > 0) {
+      setFriends(cached);
+      setFriendsBootstrapped(true);
+      logFriendsTiming('cache-hydrated', { userId: uid, count: cached.length });
+    }
   }, [auth.user?.id]);
 
   const clearCheckOverlay = useCallback(() => {
@@ -590,6 +632,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       viewerId,
     );
     if (nextIncoming) {
+      if (nextIncoming.sender?.id) {
+        rememberUserAvatar(nextIncoming.sender.id, nextIncoming.sender.photoUrl);
+      }
       setIncomingBan(nextIncoming);
     }
 
@@ -656,9 +701,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     );
     if (incoming) {
       challengeLog('boot:claimed-incoming', { banId: incoming.id });
+      if (incoming.sender?.id) {
+        rememberUserAvatar(incoming.sender.id, incoming.sender.photoUrl);
+      }
       setIncomingBan(incoming);
       setViralOnboarding(true);
       setDataOwnerUserId(auth.user.id);
+      setSessionBootstrapped(true);
     }
     auth.clearBoot();
   }, [auth.boot, auth.clearBoot, auth.user?.id, auth.loading]);
@@ -686,8 +735,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ms: Date.now() - fetchStartedAt,
         via: 'reloadFriends',
       });
-      writeFriendsCache(requestUid, safe);
-      setFriends(safe);
+      setFriendsMerged(safe);
+      setFriendsBootstrapped(true);
       setDataOwnerUserId(requestUid);
       resolveOptimisticFromFriends(safe);
       end();
@@ -697,16 +746,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ms: Date.now() - fetchStartedAt,
         via: 'reloadFriends',
       });
+      setFriendsBootstrapped(true);
       end();
     }
-  }, [resolveOptimisticFromFriends]);
+  }, [resolveOptimisticFromFriends, setFriendsMerged]);
 
   reloadFriendsRef.current = reloadFriends;
 
   const reloadPending = useCallback(async () => {
     const token = tokenRef.current;
     const requestUserId = userIdRef.current;
-    if (!token || !requestUserId) return;
+    if (!token || !requestUserId) {
+      setSessionBootstrapped(true);
+      return;
+    }
     try {
       const requestedAt = Date.now();
       console.log('[session-fetch]', {
@@ -721,11 +774,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       console.log('[session-fetch]', {
         authUserId: requestUserId,
         requestedAt,
-        responseUserId: (session as any)?.userId ?? null,
-        incomingId: (session as any)?.incoming?.id ?? null,
-        incomingReceiverId: (session as any)?.incoming?.receiver?.id ?? null,
+        responseUserId: (session as SessionState & { userId?: string })?.userId ?? null,
+        incomingId: session.incoming?.id ?? null,
+        incomingReceiverId: session.incoming?.receiver?.id ?? null,
       });
       applySession(session);
+
+      if (session.pendingResultId) {
+        const pendingId = session.pendingResultId;
+        if (isDismissedResultLocally(pendingId)) {
+          void acknowledgeBanResultOnServer(pendingId, token);
+        } else {
+          try {
+            const { result: pendingResult } = await api<{ result: BanResult }>(
+              `/bans/${pendingId}/result`,
+              { token },
+            );
+            if (tokenRef.current !== token) return;
+            if (userIdRef.current !== requestUserId) return;
+            if (pendingResult) {
+              if (shouldShowBanResult(pendingResult, 'auto', pendingId)) {
+                openBanResult(pendingResult, 'auto');
+              } else {
+                dismissBanResultLocally(pendingId);
+                void acknowledgeBanResultOnServer(pendingId, token);
+              }
+            }
+          } catch {
+            /* result not ready */
+          }
+        }
+      }
+
       void refreshUserRef.current().catch(() => {});
       void api('/analytics/track', {
         method: 'POST',
@@ -736,8 +816,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }).catch(() => {});
     } catch {
       /* session endpoint may fail — ignore */
+    } finally {
+      setSessionBootstrapped(true);
     }
-  }, [applySession]);
+  }, [applySession, openBanResult]);
 
   const openSendTo = useCallback((receiver: string, text = '') => {
     const trimmed = receiver.trim();
@@ -860,8 +942,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           const list = coerceFriendList(payload?.friends);
           const uid = userIdRef.current;
           if (!uid) break;
-          writeFriendsCache(uid, list);
-          setFriends(list);
+          setFriendsMerged(list);
           setDataOwnerUserId(uid);
           resolveOptimisticFromFriends(list);
           break;
@@ -875,6 +956,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     dismissIncoming,
     scheduleCheckWaitingDismiss,
   );
+
+  useEffect(() => {
+    const uid = auth.user?.id;
+    const token = auth.token;
+    if (!uid || !token || auth.loading) return;
+    void backfillAcknowledgedIncomingOnce(token, uid);
+  }, [auth.user?.id, auth.token, auth.loading]);
+
+  const reloadPendingRef = useRef(reloadPending);
+  reloadPendingRef.current = reloadPending;
 
   useEffect(() => {
     setFirstBanComplete(isFirstBanComplete());
@@ -916,9 +1007,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  const reloadPendingRef = useRef(reloadPending);
-  reloadPendingRef.current = reloadPending;
-
   useEffect(() => {
     const uid = auth.user?.id;
     if (!uid || !auth.token || auth.loading) return;
@@ -945,8 +1033,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           count: list.length,
           ms,
         });
-        writeFriendsCache(requestUid, list);
-        setFriends(list);
+        setFriendsMerged(list);
+        setFriendsBootstrapped(true);
         setDataOwnerUserId(requestUid);
         resolveOptimisticFromFriends(list);
         end();
@@ -956,12 +1044,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           userId: requestUid,
           ms: Date.now() - fetchStartedAt,
         });
+        setFriendsBootstrapped(true);
         end();
         timingLog('friends fetch failed', 0);
       });
 
     reloadPendingRef.current().catch(() => {});
-  }, [auth.token, auth.user?.id, auth.loading, resolveOptimisticFromFriends]);
+  }, [auth.token, auth.user?.id, auth.loading, auth.authReady, resolveOptimisticFromFriends, setFriendsMerged]);
 
   const displayFriends = useMemo(
     () => mergeFriendsWithOptimistic(friends, optimisticSendWait),
@@ -1020,6 +1109,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   // Show user data as soon as backend user id + token exist (do not wait authReady / session).
   const isAppReady = !!auth.user?.id && !!auth.token && !auth.loading;
+  const friendsReady = friendsBootstrapped;
+  const sessionReady = sessionBootstrapped;
+  const incomingGateActive = useMemo(() => {
+    if (!auth.user?.id || auth.loading || !sessionBootstrapped) return false;
+    return shouldShowIncomingBanModal(
+      incomingBan,
+      auth.user.id,
+      dismissedIncomingRef.current,
+    );
+  }, [incomingBan, auth.user?.id, auth.loading, sessionBootstrapped]);
 
   const scopedFriends = isAppReady
     ? banSentOpen && uiFreeze
@@ -1052,6 +1151,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       logFriendsTiming('why-not-rendered', { reason: 'not-app-ready' });
       return;
     }
+    if (!friendsReady) {
+      logFriendsTiming('why-not-rendered', { reason: 'friends-loading' });
+      return;
+    }
     if (scopedFriends.length === 0 && friends.length === 0) {
       logFriendsTiming('why-not-rendered', {
         reason: 'empty-list',
@@ -1063,6 +1166,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     auth.loading,
     auth.token,
     isAppReady,
+    friendsReady,
+    sessionReady,
+    incomingGateActive,
     scopedFriends.length,
     friends.length,
   ]);
@@ -1074,6 +1180,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       loading: auth.loading,
       authReady: auth.authReady,
       isAppReady,
+      friendsReady,
+      sessionReady,
+      incomingGateActive,
       error: auth.error,
       refreshUser: auth.refreshUser,
       onboard: auth.onboard,
@@ -1132,6 +1241,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       auth.loading,
       auth.authReady,
       isAppReady,
+      friendsReady,
+      sessionReady,
+      incomingGateActive,
       auth.error,
       auth.refreshUser,
       auth.onboard,
@@ -1185,6 +1297,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   return (
     <AppContext.Provider value={contextValue}>
       <ShellErrorBoundary name="app">
+        {incomingGateActive ? (
+          <ChallengeErrorBoundary
+            name="incoming"
+            onRecover={() => dismissIncoming()}
+          >
+            <IncomingBanOverlay />
+          </ChallengeErrorBoundary>
+        ) : null}
         {children}
         {!result ? (
           <ShellErrorBoundary name="energy" fallback={null}>

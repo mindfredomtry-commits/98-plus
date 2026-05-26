@@ -1,9 +1,9 @@
 'use client';
 
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { normalizeAvatarUrl } from '@/lib/avatar-url';
 
-const LOAD_TIMEOUT_MS = 12_000;
+const loadedUrls = new Set<string>();
 
 type Props = {
   src: string | null | undefined;
@@ -29,25 +29,33 @@ function AvatarImageInner({
   className = '',
 }: Props) {
   const normalized = normalizeAvatarUrl(src);
-  const [loaded, setLoaded] = useState(false);
+  const prevSrcRef = useRef<string | null>(null);
+  const [loaded, setLoaded] = useState(() =>
+    normalized ? loadedUrls.has(normalized) : false,
+  );
   const [failed, setFailed] = useState(!normalized);
 
   useEffect(() => {
     if (!normalized) {
+      prevSrcRef.current = null;
       setLoaded(false);
       setFailed(true);
       return;
     }
+
+    if (prevSrcRef.current === normalized) {
+      return;
+    }
+    prevSrcRef.current = normalized;
+
+    if (loadedUrls.has(normalized)) {
+      setLoaded(true);
+      setFailed(false);
+      return;
+    }
+
     setLoaded(false);
     setFailed(false);
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      if (!cancelled) setFailed(true);
-    }, LOAD_TIMEOUT_MS);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
   }, [normalized]);
 
   const showPhoto = Boolean(normalized) && loaded && !failed;
@@ -62,8 +70,9 @@ function AvatarImageInner({
       >
         {letter}
       </div>
-      {normalized && !failed ? (
+      {normalized ? (
         <img
+          key={normalized}
           src={normalized}
           alt=""
           decoding="async"
@@ -73,6 +82,7 @@ function AvatarImageInner({
             showPhoto ? 'opacity-100' : 'opacity-0'
           }`}
           onLoad={() => {
+            loadedUrls.add(normalized);
             setLoaded(true);
             setFailed(false);
           }}

@@ -738,6 +738,24 @@ html.scroll-lock body {
   contain: layout style paint;
 }
 
+.app-page--incoming-gate .app-main,
+.app-page--incoming-gate .cta-dock,
+.app-page--incoming-gate .bottom-nav,
+.app-page--incoming-gate .connection-banner {
+  filter: blur(8px);
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.app-page--incoming-gate::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 6, 18, 0.55);
+  z-index: 60;
+  pointer-events: none;
+}
+
 .friend-pending-pulse {
   animation: pendingBorder 1.8s ease-in-out infinite;
 }

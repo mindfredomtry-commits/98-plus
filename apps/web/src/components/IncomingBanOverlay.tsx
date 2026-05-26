@@ -13,7 +13,7 @@ import {
 import { challengeLog } from '@/lib/challenge-log';
 import { shouldShowIncomingBanModal } from '@/lib/incoming-challenge';
 import { logIncomingDebug } from '@/lib/incoming-debug';
-import { friendAvatarUrl } from '@/lib/avatar-url';
+import { resolveUserAvatarUrl, rememberUserAvatar } from '@/lib/avatar-cache';
 import { useApp } from './Providers';
 import { BigButton } from './BigButton';
 import { AvatarImage } from './AvatarImage';
@@ -31,7 +31,6 @@ function IncomingBanOverlayInner() {
     setIncomingBan,
     acknowledgeIncomingAndStartReply,
     acknowledgeIncomingSeen,
-    onboard,
   } = useApp();
   const { haptic, hapticSuccess, bindBack } = useTelegram();
   const [actionLoading, setActionLoading] = useState(false);
@@ -91,12 +90,7 @@ function IncomingBanOverlayInner() {
       }
     };
 
-    // Incoming-first: paint modal, verify after render.
-    const t = window.setTimeout(() => {
-      void runVerify();
-    }, 0);
-
-    void onboard().catch(() => {});
+    void runVerify();
 
     const unbindBack = bindBack(() => {
       if (incomingBan.status === 'pending') return;
@@ -104,7 +98,6 @@ function IncomingBanOverlayInner() {
     }, true);
 
     return () => {
-      window.clearTimeout(t);
       verifyGenRef.current += 1;
       unbindBack?.();
     };
@@ -113,10 +106,25 @@ function IncomingBanOverlayInner() {
     token,
     viewerId,
     bindBack,
-    onboard,
     acknowledgeIncomingSeen,
     closeOnVerifyFail,
   ]);
+
+  const senderAvatarSrc = useMemo(() => {
+    if (incomingBan?.sender?.id) {
+      rememberUserAvatar(
+        incomingBan.sender.id,
+        incomingBan.sender.photoUrl ?? null,
+      );
+    }
+    if (verifiedBan?.sender?.id) {
+      rememberUserAvatar(
+        verifiedBan.sender.id,
+        verifiedBan.sender.photoUrl ?? null,
+      );
+    }
+    return resolveUserAvatarUrl(verifiedBan?.sender ?? incomingBan?.sender);
+  }, [incomingBan?.sender, verifiedBan?.sender]);
 
   const ban = verifiedBan ?? incomingBan;
 
@@ -222,10 +230,7 @@ function IncomingBanOverlayInner() {
 
         <div className="incoming-modal-sender mb-3">
           <AvatarImage
-            src={friendAvatarUrl({
-              avatarUrl: incomingBan.sender?.photoUrl ?? null,
-              photoUrl: incomingBan.sender?.photoUrl ?? null,
-            })}
+            src={senderAvatarSrc}
             letter={senderLetter}
             sizeClass="w-20 h-20 mx-auto"
             textClass="text-2xl"

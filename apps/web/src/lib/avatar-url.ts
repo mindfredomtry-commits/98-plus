@@ -9,12 +9,13 @@ export function normalizeAvatarUrl(
   return null;
 }
 
-/** Resolve display avatar URL from friend card fields. */
+import { resolveFriendAvatarUrl } from './avatar-cache';
+
+/** Resolve display avatar URL from friend card fields (with in-memory cache). */
 export function friendAvatarUrl(
-  friend: { avatarUrl?: string | null; photoUrl?: string | null } | null | undefined,
+  friend: { avatarUrl?: string | null; photoUrl?: string | null; id?: string | null; userId?: string | null } | null | undefined,
 ): string | null {
-  if (!friend) return null;
-  return normalizeAvatarUrl(friend.avatarUrl ?? friend.photoUrl);
+  return resolveFriendAvatarUrl(friend);
 }
 
 /** Warm browser cache for friend strip avatars. */

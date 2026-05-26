@@ -2,7 +2,6 @@
 
 import { useApp } from './Providers';
 import { ChallengeErrorBoundary } from './ChallengeErrorBoundary';
-import { IncomingBanOverlay } from './IncomingBanOverlay';
 import { CheckOverlay } from './CheckOverlay';
 import { BanSentSuccessOverlay } from './BanSentSuccessOverlay';
 import { ResultOverlay } from './ResultOverlay';
@@ -18,14 +17,10 @@ export function ChallengeOverlays() {
     dismissBanResult,
   } = useApp();
 
-  const recoverIncoming = () => dismissIncoming();
   const recoverCheck = () => clearCheckOverlay();
 
   return (
     <>
-      <ChallengeErrorBoundary name="incoming" onRecover={recoverIncoming}>
-        <IncomingBanOverlay />
-      </ChallengeErrorBoundary>
       <ChallengeErrorBoundary name="check" onRecover={recoverCheck}>
         <CheckOverlay />
       </ChallengeErrorBoundary>
