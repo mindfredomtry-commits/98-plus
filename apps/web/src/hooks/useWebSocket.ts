@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { ANALYTICS_EVENTS } from '@98plus/shared';
 import { api } from '@/lib/api';
-import { getWsUrl, isApiConfiguredForProduction } from '@/lib/config';
+import {
+  getApiUrl,
+  getWsUrl,
+  isApiConfiguredForProduction,
+  logWsUrlResolution,
+} from '@/lib/config';
 
 export type WsStatus = 'connecting' | 'connected' | 'disconnected' | 'skipped';
 
@@ -45,7 +50,9 @@ export function useWebSocket(
       return;
     }
 
+    logWsUrlResolution();
     const wsUrl = getWsUrl();
+    const apiUrl = getApiUrl();
     setStatus('connecting');
     log(`ws: connecting ${wsUrl}`);
     const ws = new WebSocket(`${wsUrl}?token=${encodeURIComponent(token)}`);
@@ -55,6 +62,7 @@ export function useWebSocket(
       backoffRef.current = 1000;
       setStatus('connected');
       log('ws: connected');
+      console.log('[ws-connected]', { phase: 'socket-open', apiUrl, wsUrl });
       onReconnectRef.current?.();
     };
 
@@ -110,7 +118,11 @@ export function useWebSocket(
     };
 
     ws.onerror = (ev) => {
-      console.error('[98+ ws] error', wsUrl, ev);
+      const err =
+        ev instanceof ErrorEvent && ev.message
+          ? ev.message
+          : 'WebSocket error';
+      console.log('[ws-error]', { wsUrl, apiUrl, error: err });
       log('ws: error');
     };
   }, [token, log]);
