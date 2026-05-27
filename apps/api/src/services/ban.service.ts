@@ -1213,27 +1213,6 @@ export async function getLatestPendingResultId(userId: string) {
   return ban?.id ?? null;
 }
 
-/** Lightweight poll read for result overlay fallback. */
-export async function getPendingResultForPoll(userId: string) {
-  const pendingId = await getLatestPendingResultId(userId);
-  if (!pendingId) {
-    console.log('[result-pending]', {
-      userId,
-      resultId: null,
-      reason: 'none',
-    });
-    return null;
-  }
-
-  const result = await buildBanResult(pendingId, userId);
-  console.log('[result-pending]', {
-    userId,
-    resultId: pendingId,
-    reason: result ? 'found' : 'not-buildable',
-  });
-  return result;
-}
-
 export async function acknowledgeBanResult(
   banId: string,
   userId: string,
