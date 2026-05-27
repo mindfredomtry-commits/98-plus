@@ -1253,21 +1253,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             if (tokenRef.current !== token) return;
             if (userIdRef.current !== requestUserId) return;
             if (pendingResult) {
-              console.log('[result-session-received]', {
-                banId: pendingResult.id,
-                authUserId: requestUserId,
-              });
-              const shouldShow = shouldShowBanResult(
-                pendingResult,
-                'auto',
-                pendingId,
-              );
-              console.log('[result-show-decision]', {
-                banId: pendingResult.id,
-                shouldShow,
-                reason: shouldShow ? 'session-auto' : 'dismissed-or-invalid',
-              });
-              if (shouldShow) {
+              if (shouldShowBanResult(pendingResult, 'auto', pendingId)) {
                 openBanResult(pendingResult, 'auto');
               } else {
                 dismissBanResultLocally(pendingId);
@@ -1387,21 +1373,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         case 'check:completed': {
           const payload = event.payload as BanResult;
           const uid = userIdRef.current;
-          console.log('[result-ws-received]', {
-            banId: payload?.id ?? null,
-            authUserId: uid,
-          });
           if (uid && payload?.id) {
             answeredCheckRef.current.add(payload.id);
             dismissedCheckSessionRef.current.add(payload.id);
             markCheckAnsweredLocally(uid, payload.id);
           }
-          console.log('[result-show-decision]', {
-            banId: payload?.id ?? null,
-            shouldShow:
-              !!payload?.id && shouldShowBanResult(payload, 'live', payload.id),
-            reason: payload?.id ? 'live-event' : 'invalid-payload',
-          });
           clearCheckOverlay();
           dismissIncoming();
           openBanResult(payload, 'live');
