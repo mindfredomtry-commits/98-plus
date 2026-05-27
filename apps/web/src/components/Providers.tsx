@@ -29,6 +29,7 @@ import { useTelegram } from '@/hooks/useTelegram';
 import { isUserDataScoped } from '@/lib/user-data-scope';
 import { explainIncomingHidden, logIncomingDebug } from '@/lib/incoming-debug';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { useIncomingPoll } from '@/hooks/useIncomingPoll';
 import { EnergyPopupStack } from './EnergyPopupStack';
 import { IncomingBanOverlay } from './IncomingBanOverlay';
 import { CheckOverlay } from './CheckOverlay';
@@ -367,6 +368,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const resultOpenRef = useRef(false);
   const bufferedIncomingRef = useRef<BanInteraction | null>(null);
   const incomingWsSeenRef = useRef<Set<string>>(new Set());
+  const incomingBanRef = useRef<BanInteraction | null>(null);
+  useEffect(() => {
+    incomingBanRef.current = incomingBan;
+  }, [incomingBan]);
   const banSentOpenRef = useRef(false);
   const deferredSyncRef = useRef(false);
 
@@ -864,7 +869,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [friends, resolveOptimisticFromFriends]);
 
   const receiveIncomingBan = useCallback(
-    (payload: BanInteraction, source: 'ws' | 'session') => {
+    (payload: BanInteraction, source: 'ws' | 'session' | 'poll') => {
       const b = enrichBanInteraction(payload);
       const viewerId = userIdRef.current;
 
@@ -876,6 +881,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           authUserId: viewerId,
           status: b.status,
         });
+      } else if (source === 'poll') {
+        incomingWsSeenRef.current.add(b.id);
       }
 
       const decision = incomingShowDecision(
@@ -928,6 +935,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [],
   );
+
+  const getOpenIncomingBan = useCallback(
+    () => incomingBanRef.current,
+    [],
+  );
+
+  useIncomingPoll({
+    userId: auth.user?.id,
+    token: auth.token,
+    receiveIncomingBan,
+    dismissedIncomingRef,
+    getOpenIncomingBan,
+    userIdRef,
+    tokenRef,
+  });
 
   const applySession = useCallback((s: SessionState) => {
     const viewerId = auth.user?.id ?? null;

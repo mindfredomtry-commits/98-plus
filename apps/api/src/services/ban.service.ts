@@ -1022,7 +1022,7 @@ function pendingIncomingRejectReason(
 }
 
 /** Fresh offerable pending incoming — read-only, no auto-ack side effects. */
-export async function getPendingIncoming(userId: string) {
+async function findFreshPendingIncomingRow(userId: string) {
   const cutoff = new Date(Date.now() - INCOMING_PENDING_MAX_AGE_MS);
 
   const ban = await prisma.ban.findFirst({
@@ -1042,7 +1042,18 @@ export async function getPendingIncoming(userId: string) {
   });
 
   if (!ban) {
-    incomingSessionLog({ userId, reason: 'no pending bans' });
+    return { ban: null as null, reject: 'no pending bans' as const, cutoff };
+  }
+
+  const reject = pendingIncomingRejectReason(ban, userId, cutoff);
+  return { ban, reject, cutoff };
+}
+
+export async function getPendingIncoming(userId: string) {
+  const { ban, reject } = await findFreshPendingIncomingRow(userId);
+
+  if (!ban) {
+    incomingSessionLog({ userId, reason: reject ?? 'no pending bans' });
     return null;
   }
 
@@ -1058,13 +1069,26 @@ export async function getPendingIncoming(userId: string) {
     counterBansCount: ban._count.counterBans,
   };
 
-  const reject = pendingIncomingRejectReason(ban, userId, cutoff);
   if (reject) {
     incomingSessionLog({ ...base, reason: reject });
     return null;
   }
 
   incomingSessionLog({ ...base, reason: 'selected' });
+  return mapBanToInteraction(ban.id, userId);
+}
+
+/** Lightweight poll read — same rules as session incoming, poll-specific logs only. */
+export async function getPendingIncomingForPoll(userId: string) {
+  const { ban, reject } = await findFreshPendingIncomingRow(userId);
+
+  console.log('[incoming-pending]', {
+    userId,
+    incomingId: ban?.id ?? null,
+    reason: reject ?? (ban ? 'found' : 'none'),
+  });
+
+  if (!ban || reject) return null;
   return mapBanToInteraction(ban.id, userId);
 }
 

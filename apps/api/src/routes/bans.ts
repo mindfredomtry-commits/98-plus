@@ -16,6 +16,7 @@ import {
   submitCheckAnswer,
   getActiveInteractions,
   getPendingIncoming,
+  getPendingIncomingForPoll,
   getPendingCheck,
   getWaitingCheck,
   getCheckState,
@@ -57,6 +58,11 @@ bansRouter.get('/active', async (req: AuthRequest, res) => {
 
 bansRouter.get('/pending/incoming', async (req: AuthRequest, res) => {
   const ban = await getPendingIncoming(req.userId!);
+  res.json({ ban });
+});
+
+bansRouter.get('/incoming/pending', async (req: AuthRequest, res) => {
+  const ban = await getPendingIncomingForPoll(req.userId!);
   res.json({ ban });
 });
 
