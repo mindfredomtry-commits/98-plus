@@ -5,7 +5,8 @@ import { motion } from 'framer-motion';
 import type { FriendCard } from '@98plus/shared';
 import { coerceFriendList } from '@98plus/shared';
 import { api } from '@/lib/api';
-import { preloadAvatarUrls, friendAvatarUrl } from '@/lib/avatar-url';
+import { friendAvatarUrl } from '@/lib/avatar-url';
+import { getAvatarReadyState } from '@/lib/avatar-preload';
 import { useApp } from './Providers';
 import { AvatarImage } from './AvatarImage';
 import {
@@ -32,6 +33,7 @@ function FriendAvatar({
   return (
     <AvatarImage
       src={friendAvatarUrl(friend)}
+      readyState={getAvatarReadyState(friend)}
       letter={letter}
       sizeClass={sizeClass}
       textClass={textClass}
@@ -201,10 +203,6 @@ function FriendPickerInner({
       (f) => (f.username ?? '').toLowerCase() !== 'share',
     );
   }, [friends, optimisticSendWait, externalFriends]);
-
-  useEffect(() => {
-    preloadAvatarUrls(people.map((f) => friendAvatarUrl(f)));
-  }, [people]);
 
   function pick(username: string | null | undefined) {
     const clean = (username ?? '').replace(/^@/, '').trim();

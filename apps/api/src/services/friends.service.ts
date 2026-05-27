@@ -35,6 +35,16 @@ export async function listFriends(userId: string): Promise<FriendCard[]> {
     const out = graph
       .map((c) => sanitizeFriendCard(c))
       .filter((c): c is FriendCard => c !== null);
+    for (const c of out) {
+      console.log('[friends-avatar]', {
+        id: c.id,
+        username: c.username,
+        displayName: c.firstName,
+        telegramId: c.telegramId,
+        avatarUrl: c.avatarUrl,
+        hasAvatarUrl: !!c.avatarUrl,
+      });
+    }
     logStage('total');
     return out;
   } catch (err) {

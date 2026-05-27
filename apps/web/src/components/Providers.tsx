@@ -56,6 +56,8 @@ import { isFirstBanComplete, markFirstBanComplete } from '@/lib/first-ban';
 import { writeFriendsCache, readFriendsCache } from '@/lib/friends-cache';
 import { enrichBanInteraction } from '@/lib/user-public-avatar';
 import { mergeFriendsPreservingAvatars } from '@/lib/friend-avatar-merge';
+import { preloadFriendAvatars } from '@/lib/avatar-preload';
+import { afterKeyboardCollapse, blurActiveInputs } from '@/lib/keyboard-dismiss';
 import {
   clearAvatarCaches,
   rememberFriendAvatar,
@@ -125,6 +127,8 @@ interface AppContextValue {
   viralOnboarding: boolean;
   banSentOpen: boolean;
   setBanSentOpen: (v: boolean) => void;
+  /** Blur keyboard, clear ban text, then open success modal after viewport settles. */
+  completeBanSendSuccess: () => void;
   /** Queue session/friends refresh until success modal closes. */
   scheduleDeferredSync: () => void;
   optimisticSendWait: OptimisticSendWait | null;
@@ -324,15 +328,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const refreshUserRef = useRef(auth.refreshUser);
   refreshUserRef.current = auth.refreshUser;
   const reloadFriendsRef = useRef<() => Promise<void>>(async () => {});
+  const friendsRef = useRef<FriendCard[]>([]);
+  const friendsBootstrappedRef = useRef(false);
 
-  const setFriendsMerged = useCallback((list: FriendCard[]) => {
-    setFriends((prev) => {
-      const merged = mergeFriendsPreservingAvatars(prev, list);
-      const uid = userIdRef.current;
-      if (uid) writeFriendsCache(uid, merged);
-      return merged;
-    });
-  }, []);
+  useEffect(() => {
+    friendsRef.current = friends;
+    friendsBootstrappedRef.current = friendsBootstrapped;
+  }, [friends, friendsBootstrapped]);
 
   /** Owner is confirmed auth user — friends may load later (empty until fetch). */
   useEffect(() => {
@@ -374,9 +376,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       rememberFriendAvatar(f.id, f.userId, f.avatarUrl ?? f.photoUrl);
     }
     if (cached.length > 0) {
-      setFriends(cached);
-      setFriendsBootstrapped(true);
-      logFriendsTiming('cache-hydrated', { userId: uid, count: cached.length });
+      friendsRef.current = cached;
+      logFriendsTiming('cache-hydrated-memory', {
+        userId: uid,
+        count: cached.length,
+      });
     }
   }, [auth.user?.id]);
 
@@ -594,6 +598,42 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const commitFriendsWithAvatarPreload = useCallback(
+    async (
+      incomingList: FriendCard[],
+      meta: { via: string; markReady?: boolean },
+    ) => {
+      const requestUid = userIdRef.current;
+      const requestToken = tokenRef.current;
+      const merged = mergeFriendsPreservingAvatars(
+        friendsRef.current,
+        incomingList,
+      );
+      logFriendsTiming('avatar-preload-start', {
+        userId: requestUid,
+        count: merged.length,
+        via: meta.via,
+      });
+      const preloadStartedAt = Date.now();
+      await preloadFriendAvatars(merged, { timeoutMs: 1000 });
+      if (tokenRef.current !== requestToken) return;
+      if (userIdRef.current !== requestUid) return;
+      logFriendsTiming('avatar-preload-done', {
+        userId: requestUid,
+        ms: Date.now() - preloadStartedAt,
+        via: meta.via,
+      });
+      friendsRef.current = merged;
+      setFriends(merged);
+      if (requestUid) writeFriendsCache(requestUid, merged);
+      resolveOptimisticFromFriends(merged);
+      if (meta.markReady !== false) {
+        setFriendsBootstrapped(true);
+      }
+    },
+    [resolveOptimisticFromFriends],
+  );
+
   useEffect(() => {
     if (!optimisticSendWait || optimisticSendWait.resolved) return;
     const ms = optimisticSendWait.expiresAt - Date.now();
@@ -747,10 +787,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ms: Date.now() - fetchStartedAt,
         via: 'reloadFriends',
       });
-      setFriendsMerged(safe);
-      setFriendsBootstrapped(true);
+      await commitFriendsWithAvatarPreload(safe, {
+        via: 'reloadFriends',
+        markReady: !friendsBootstrappedRef.current,
+      });
       setDataOwnerUserId(requestUid);
-      resolveOptimisticFromFriends(safe);
       end();
     } catch {
       logFriendsTiming('response-failed', {
@@ -758,10 +799,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ms: Date.now() - fetchStartedAt,
         via: 'reloadFriends',
       });
-      setFriendsBootstrapped(true);
+      if (!friendsBootstrappedRef.current) setFriendsBootstrapped(true);
       end();
     }
-  }, [resolveOptimisticFromFriends, setFriendsMerged]);
+  }, [commitFriendsWithAvatarPreload]);
 
   reloadFriendsRef.current = reloadFriends;
 
@@ -954,9 +995,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           const list = coerceFriendList(payload?.friends);
           const uid = userIdRef.current;
           if (!uid) break;
-          setFriendsMerged(list);
-          setDataOwnerUserId(uid);
-          resolveOptimisticFromFriends(list);
+          void commitFriendsWithAvatarPreload(list, {
+            via: 'ws-friends',
+            markReady: false,
+          }).then(() => {
+            setDataOwnerUserId(uid);
+          });
           break;
         }
       }
@@ -1032,7 +1076,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const requestToken = auth.token;
     const requestUid = uid;
     api<{ friends?: unknown }>('/friends', { token: requestToken })
-      .then((r) => {
+      .then(async (r) => {
         const ms = Date.now() - fetchStartedAt;
         if (tokenRef.current !== requestToken || userIdRef.current !== requestUid) {
           logFriendsTiming('response-discarded', { userId: requestUid, ms });
@@ -1045,10 +1089,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           count: list.length,
           ms,
         });
-        setFriendsMerged(list);
-        setFriendsBootstrapped(true);
+        await commitFriendsWithAvatarPreload(list, { via: 'initial-fetch' });
         setDataOwnerUserId(requestUid);
-        resolveOptimisticFromFriends(list);
         end();
       })
       .catch(() => {
@@ -1062,7 +1104,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
     reloadPendingRef.current().catch(() => {});
-  }, [auth.token, auth.user?.id, auth.loading, auth.authReady, resolveOptimisticFromFriends, setFriendsMerged]);
+  }, [
+    auth.token,
+    auth.user?.id,
+    auth.loading,
+    auth.authReady,
+    commitFriendsWithAvatarPreload,
+  ]);
 
   const displayFriends = useMemo(
     () => mergeFriendsWithOptimistic(friends, optimisticSendWait),
@@ -1113,6 +1161,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [flushDeferredSync],
   );
+
+  const completeBanSendSuccess = useCallback(() => {
+    blurActiveInputs();
+    setSendText('');
+    setInlineBanError(null);
+    afterKeyboardCollapse(() => {
+      setBanSentOpen(true);
+    }, 100);
+  }, [setBanSentOpen]);
 
   banSentOpenRef.current = banSentOpen;
 
@@ -1234,6 +1291,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       viralOnboarding,
       banSentOpen,
       setBanSentOpen,
+      completeBanSendSuccess,
       scheduleDeferredSync,
       optimisticSendWait: optimisticForUi,
       applyOptimisticSend,
@@ -1294,6 +1352,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       optimisticForUi,
       scheduleDeferredSync,
       setBanSentOpen,
+      completeBanSendSuccess,
       applyOptimisticSend,
       confirmOptimisticSend,
       rollbackOptimisticSend,

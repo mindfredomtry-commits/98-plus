@@ -100,6 +100,14 @@ authRouter.post('/telegram', async (req, res) => {
     },
   });
 
+  console.log('[auth-avatar]', {
+    userId: user.id,
+    username: user.username,
+    photoFromTelegram: initPhoto,
+    storedPhotoUrl: user.photoUrl,
+    hasStoredPhoto: !!user.photoUrl,
+  });
+
   const token = signToken({
     userId: user.id,
     telegramId: user.telegramId.toString(),

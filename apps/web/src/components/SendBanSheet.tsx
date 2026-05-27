@@ -22,7 +22,7 @@ export function SendBanSheet() {
     setSendReceiver,
     sendText,
     setSendText,
-    setBanSentOpen,
+    completeBanSendSuccess,
     scheduleDeferredSync,
     incomingReplyBanId,
     clearIncomingReply,
@@ -34,10 +34,8 @@ export function SendBanSheet() {
 
   const onSuccess = () => {
     setSendOpen(false);
-    setSendText('');
-    setSendReceiver('');
     clearIncomingReply();
-    setBanSentOpen(true);
+    completeBanSendSuccess();
   };
 
   const { send, busy, sharing } = useSendChallenge({

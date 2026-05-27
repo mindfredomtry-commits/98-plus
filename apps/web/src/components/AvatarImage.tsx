@@ -2,8 +2,7 @@
 
 import { memo, useEffect, useRef, useState } from 'react';
 import { normalizeAvatarUrl } from '@/lib/avatar-url';
-
-const loadedUrls = new Set<string>();
+import { isAvatarUrlPreloaded, preloadedAvatarUrls } from '@/lib/avatar-preload';
 
 type Props = {
   src: string | null | undefined;
@@ -16,6 +15,8 @@ type Props = {
   /** Soft neon ring when friend is online */
   onlineGlow?: boolean;
   className?: string;
+  /** Set after startup preload — avoids letter→photo flicker. */
+  readyState?: 'photo' | 'fallback';
 };
 
 function AvatarImageInner({
@@ -27,15 +28,36 @@ function AvatarImageInner({
   priority = false,
   onlineGlow = false,
   className = '',
+  readyState,
 }: Props) {
   const normalized = normalizeAvatarUrl(src);
   const prevSrcRef = useRef<string | null>(null);
-  const [loaded, setLoaded] = useState(() =>
-    normalized ? loadedUrls.has(normalized) : false,
+  const preloadedPhoto = readyState === 'photo';
+  const preloadedFallback = readyState === 'fallback';
+
+  const [loaded, setLoaded] = useState(() => {
+    if (preloadedFallback || !normalized) return false;
+    if (preloadedPhoto) return true;
+    return isAvatarUrlPreloaded(normalized);
+  });
+  const [failed, setFailed] = useState(
+    () => preloadedFallback || !normalized,
   );
-  const [failed, setFailed] = useState(!normalized);
 
   useEffect(() => {
+    if (preloadedFallback) {
+      setLoaded(false);
+      setFailed(true);
+      return;
+    }
+    if (preloadedPhoto && normalized) {
+      preloadedAvatarUrls.add(normalized);
+      setLoaded(true);
+      setFailed(false);
+      prevSrcRef.current = normalized;
+      return;
+    }
+
     if (!normalized) {
       prevSrcRef.current = null;
       setLoaded(false);
@@ -48,7 +70,7 @@ function AvatarImageInner({
     }
     prevSrcRef.current = normalized;
 
-    if (loadedUrls.has(normalized)) {
+    if (preloadedAvatarUrls.has(normalized)) {
       setLoaded(true);
       setFailed(false);
       return;
@@ -56,9 +78,10 @@ function AvatarImageInner({
 
     setLoaded(false);
     setFailed(false);
-  }, [normalized]);
+  }, [normalized, preloadedPhoto, preloadedFallback]);
 
   const showPhoto = Boolean(normalized) && loaded && !failed;
+  const instantPhoto = preloadedPhoto || (showPhoto && isAvatarUrlPreloaded(normalized));
 
   return (
     <div
@@ -66,11 +89,13 @@ function AvatarImageInner({
       aria-hidden
     >
       <div
-        className={`avatar-image__fallback absolute inset-0 rounded-full flex items-center justify-center font-bold bg-gradient-to-br from-white/14 to-white/6 ring-2 ${ringClassName} text-muted ${textClass}`}
+        className={`avatar-image__fallback absolute inset-0 rounded-full flex items-center justify-center font-bold bg-gradient-to-br from-white/14 to-white/6 ring-2 ${ringClassName} text-muted ${textClass} ${
+          showPhoto ? 'opacity-0' : 'opacity-100'
+        }`}
       >
         {letter}
       </div>
-      {normalized ? (
+      {normalized && !failed ? (
         <img
           key={normalized}
           src={normalized}
@@ -78,11 +103,11 @@ function AvatarImageInner({
           decoding="async"
           loading={priority ? 'eager' : 'lazy'}
           referrerPolicy="no-referrer"
-          className={`avatar-image__photo absolute inset-0 w-full h-full rounded-full object-cover ring-2 ring-white/15 bg-transparent transition-opacity duration-200 ease-out ${
-            showPhoto ? 'opacity-100' : 'opacity-0'
+          className={`avatar-image__photo absolute inset-0 w-full h-full rounded-full object-cover ring-2 ring-white/15 bg-transparent ${
+            instantPhoto ? 'opacity-100' : `transition-opacity duration-200 ease-out ${showPhoto ? 'opacity-100' : 'opacity-0'}`
           }`}
           onLoad={() => {
-            loadedUrls.add(normalized);
+            if (normalized) preloadedAvatarUrls.add(normalized);
             setLoaded(true);
             setFailed(false);
           }}

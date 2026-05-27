@@ -1,3 +1,4 @@
+import { clearAvatarPreloadState } from './avatar-preload';
 import { normalizeAvatarUrl } from './avatar-url';
 
 const friendAvatars = new Map<string, string>();
@@ -16,6 +17,7 @@ function friendKeys(
 export function clearAvatarCaches(): void {
   friendAvatars.clear();
   userAvatars.clear();
+  clearAvatarPreloadState();
 }
 
 export function rememberFriendAvatar(

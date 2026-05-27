@@ -37,6 +37,7 @@ function SendBanDockInner({ visible = true }: Props) {
     sendDuration,
     banSentOpen,
     setBanSentOpen,
+    completeBanSendSuccess,
     scheduleDeferredSync,
     applyOptimisticSend,
     confirmOptimisticSend,
@@ -56,8 +57,8 @@ function SendBanDockInner({ visible = true }: Props) {
 
   const onSuccess = useCallback(() => {
     setSendInlineError(null);
-    setBanSentOpen(true);
-  }, [setBanSentOpen]);
+    completeBanSendSuccess();
+  }, [completeBanSendSuccess]);
 
   const { send, sharing, inFlight } = useSendChallenge({
     token,

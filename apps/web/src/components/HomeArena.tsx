@@ -35,7 +35,7 @@ function HomeArenaInner({ user }: Props) {
     showFirstBanOnboarding,
     completeFirstBan,
     scheduleDeferredSync,
-    setBanSentOpen,
+    completeBanSendSuccess,
     setInlineBanError,
     triggerBanInputShake,
   } = useApp();
@@ -105,10 +105,7 @@ function HomeArenaInner({ user }: Props) {
             durationMinutes: sendDuration,
             afterShare: async () => {
               completeFirstBan();
-              await onboard().catch(() => {});
-              await refreshUser();
-              await reloadPending();
-              await reloadFriends();
+              scheduleDeferredSync();
             },
           });
         } else {
@@ -121,7 +118,7 @@ function HomeArenaInner({ user }: Props) {
             },
           });
         }
-        setBanSentOpen(true);
+        completeBanSendSuccess();
       } catch (e) {
         setInlineBanError((e as Error).message || 'Не удалось отправить');
       } finally {
@@ -136,7 +133,7 @@ function HomeArenaInner({ user }: Props) {
       setInlineBanError,
       completeFirstBan,
       scheduleDeferredSync,
-      setBanSentOpen,
+      completeBanSendSuccess,
     ],
   );
 
