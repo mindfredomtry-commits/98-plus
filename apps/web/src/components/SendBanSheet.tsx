@@ -6,7 +6,7 @@ import { BAN_DURATIONS_MINUTES, SEED_BANS } from '@98plus/shared';
 import type { SessionState } from '@98plus/shared';
 import { api } from '@/lib/api';
 import { formatDeliveryError } from '@/lib/deliver-challenge';
-import { useApp } from './Providers';
+import { useApp } from './AppContext';
 import { BigButton } from './BigButton';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSendChallenge } from '@/hooks/useSendChallenge';

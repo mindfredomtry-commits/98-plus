@@ -7,7 +7,7 @@ import { coerceFriendList } from '@98plus/shared';
 import { api } from '@/lib/api';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { getAvatarReadyState } from '@/lib/avatar-preload';
-import { useApp } from './Providers';
+import { useApp } from './AppContext';
 import { AvatarImage } from './AvatarImage';
 import {
   mergeFriendsWithOptimistic,

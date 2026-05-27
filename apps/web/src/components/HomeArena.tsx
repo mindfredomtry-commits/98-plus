@@ -2,7 +2,7 @@
 
 import { memo, useMemo, useCallback, useEffect, useState } from 'react';
 import type { BanInteraction, UserPublic } from '@98plus/shared';
-import { useApp } from './Providers';
+import { useApp } from './AppContext';
 import { CompactArenaHeader } from './CompactArenaHeader';
 import { ChallengeCompose } from './ChallengeCompose';
 import { DurationPills } from './DurationPills';

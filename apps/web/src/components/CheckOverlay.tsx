@@ -8,7 +8,7 @@ import {
   getCheckViewerRole,
 } from '@98plus/shared';
 import type { BanInteraction, UserPublic } from '@98plus/shared';
-import { useApp } from './Providers';
+import { useApp } from './AppContext';
 import { BigButton } from './BigButton';
 import { useTelegram } from '@/hooks/useTelegram';
 import { BanTimer } from './BanTimer';

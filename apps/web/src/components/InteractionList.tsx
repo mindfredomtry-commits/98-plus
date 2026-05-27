@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion';
 import { isIncomingOverlayBan, type BanInteraction } from '@98plus/shared';
 import { BanTimer } from './BanTimer';
-import { useApp } from './Providers';
+import { useApp } from './AppContext';
 
 export function InteractionList() {
   const { activeBans, setCheckBan, setIncomingBan } = useApp();

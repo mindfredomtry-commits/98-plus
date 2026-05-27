@@ -1,6 +1,6 @@
 'use client';
 
-import { useApp } from './Providers';
+import { useApp } from './AppContext';
 import { ChallengeErrorBoundary } from './ChallengeErrorBoundary';
 import { BanSentSuccessOverlay } from './BanSentSuccessOverlay';
 import { ResultOverlay } from './ResultOverlay';

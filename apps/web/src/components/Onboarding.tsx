@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { SEED_BANS } from '@98plus/shared';
-import { useApp } from './Providers';
+import { useApp } from './AppContext';
 import { BigButton } from './BigButton';
 
 export function Onboarding() {

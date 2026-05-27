@@ -6,12 +6,14 @@ import { isValidBanResultPayload, isResultParticipant } from '@98plus/shared';
 import { ANALYTICS_EVENTS } from '@98plus/shared';
 import { shareDeepLink } from '@/lib/share';
 import { api } from '@/lib/api';
-import { useApp } from './Providers';
+import { useApp } from './AppContext';
 import { BigButton } from './BigButton';
 import { useTelegram } from '@/hooks/useTelegram';
 import { ModalShell } from './ModalShell';
 import { AvatarImage } from './AvatarImage';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
+
+console.log('[module-load]', 'ResultOverlay');
 
 interface Props {
   result: BanResult;

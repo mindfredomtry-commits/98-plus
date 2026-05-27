@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { HOME_PRESET_BANS } from '@98plus/shared';
 import { useTelegram } from '@/hooks/useTelegram';
 import { PresetBanCards } from './PresetBanCards';
-import { useApp } from './Providers';
+import { useApp } from './AppContext';
 
 const MAX_BAN_CHARS = 280;
 

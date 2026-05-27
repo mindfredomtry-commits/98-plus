@@ -14,7 +14,7 @@ import { challengeLog } from '@/lib/challenge-log';
 import { shouldShowIncomingBanModal } from '@/lib/incoming-challenge';
 import { logIncomingDebug } from '@/lib/incoming-debug';
 import { resolveUserAvatarUrl, rememberUserAvatar } from '@/lib/avatar-cache';
-import { useApp } from './Providers';
+import { useApp } from './AppContext';
 import { BigButton } from './BigButton';
 import { AvatarImage } from './AvatarImage';
 import { useTelegram } from '@/hooks/useTelegram';
