@@ -72,9 +72,12 @@ import {
   markCheckAnsweredLocally,
 } from '@/lib/answered-checks';
 import {
+  checkShowDecision,
   pickCheckForOverlay,
   shouldShowCheckOverlay,
 } from '@/lib/check-overlay';
+import { useCheckPoll } from '@/hooks/useCheckPoll';
+import { getCheckViewerRole } from '@98plus/shared';
 import { timingLog, timingStart } from '@/lib/timing-log';
 import { logFriendsTiming } from '@/lib/boot-timing';
 import {
@@ -369,9 +372,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const bufferedIncomingRef = useRef<BanInteraction | null>(null);
   const incomingWsSeenRef = useRef<Set<string>>(new Set());
   const incomingBanRef = useRef<BanInteraction | null>(null);
+  const checkBanRef = useRef<BanInteraction | null>(null);
+  const checkWsSeenRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     incomingBanRef.current = incomingBan;
   }, [incomingBan]);
+  useEffect(() => {
+    checkBanRef.current = checkBan;
+  }, [checkBan]);
   const banSentOpenRef = useRef(false);
   const deferredSyncRef = useRef(false);
 
@@ -951,6 +959,75 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     tokenRef,
   });
 
+  const receiveCheckBan = useCallback(
+    (payload: BanInteraction, source: 'ws' | 'session' | 'poll') => {
+      const b = enrichBanInteraction(payload);
+      const viewerId = userIdRef.current;
+
+      if (source === 'ws') {
+        checkWsSeenRef.current.add(b.id);
+        const role = getCheckViewerRole(
+          viewerId,
+          b.sender.id,
+          b.receiver.id,
+        );
+        console.log('[check-ws-received]', {
+          banId: b.id,
+          role,
+          authUserId: viewerId,
+        });
+      }
+
+      const decision = checkShowDecision(
+        b,
+        viewerId,
+        dismissedCheckSessionRef.current,
+        answeredCheckRef.current,
+        checkAnswerInFlightRef.current,
+        resultOpenRef.current,
+      );
+      console.log('[check-show-decision]', {
+        banId: b.id,
+        shouldShow: decision.shouldShow,
+        reason: decision.reason,
+        role: decision.role,
+        source,
+      });
+
+      const check = pickCheckForOverlay(
+        b,
+        viewerId,
+        dismissedCheckSessionRef.current,
+        answeredCheckRef.current,
+        checkAnswerInFlightRef.current,
+        resultOpenRef.current,
+      );
+      if (check) {
+        if (source === 'session' && !checkWsSeenRef.current.has(check.id)) {
+          console.log('[check-recovery-session]', { banId: check.id });
+        }
+        setCheckBan(check);
+        setCheckWaiting(false);
+      }
+    },
+    [],
+  );
+
+  const getOpenCheckBan = useCallback(() => checkBanRef.current, []);
+
+  useCheckPoll({
+    userId: auth.user?.id,
+    token: auth.token,
+    receiveCheckBan,
+    dismissedCheckSessionRef,
+    answeredCheckRef,
+    checkAnswerInFlightRef,
+    resultOpenRef,
+    getOpenCheckBan,
+    userIdRef,
+    tokenRef,
+  });
+
   const applySession = useCallback((s: SessionState) => {
     const viewerId = auth.user?.id ?? null;
     if (!viewerId) {
@@ -994,6 +1071,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         status: session.incoming.status,
       });
       receiveIncomingBan(session.incoming, 'session');
+    }
+
+    if (session.check) {
+      const role = getCheckViewerRole(
+        viewerId,
+        session.check.sender.id,
+        session.check.receiver.id,
+      );
+      console.log('[check-session-received]', {
+        banId: session.check.id,
+        role,
+        authUserId: viewerId,
+      });
+      receiveCheckBan(session.check, 'session');
     }
 
     logIncomingDebug({
@@ -1054,7 +1145,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setViralOnboarding(false);
     }
     setDataOwnerUserId(viewerId);
-  }, [resolveOptimisticFromSession, auth.user?.id, receiveIncomingBan]);
+  }, [
+    resolveOptimisticFromSession,
+    auth.user?.id,
+    receiveIncomingBan,
+    receiveCheckBan,
+  ]);
 
   useEffect(() => {
     if (!auth.boot || !auth.user?.id || auth.loading) return;
@@ -1267,11 +1363,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           break;
         }
         case 'check:due': {
-          const ban = enrichBanInteraction(event.payload as BanInteraction);
-          if (ban?.status === 'checking') {
-            setCheckBanSafe(ban);
-            setCheckWaiting(false);
-          }
+          receiveCheckBan(event.payload as BanInteraction, 'ws');
           break;
         }
         case 'check:waiting':
@@ -1319,6 +1411,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
     },
     receiveIncomingBan,
+    receiveCheckBan,
     reloadPending,
     openBanResult,
     dismissBanResult,
@@ -1818,14 +1911,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         >
           <IncomingBanOverlay />
         </ChallengeErrorBoundary>
-        {checkGateActive ? (
-          <ChallengeErrorBoundary
-            name="check"
-            onRecover={() => clearCheckOverlay()}
-          >
-            <CheckOverlay />
-          </ChallengeErrorBoundary>
-        ) : null}
+        <ChallengeErrorBoundary
+          name="check"
+          onRecover={() => clearCheckOverlay()}
+        >
+          <CheckOverlay />
+        </ChallengeErrorBoundary>
         {children}
         {!result ? (
           <ShellErrorBoundary name="energy" fallback={null}>

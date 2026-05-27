@@ -465,6 +465,15 @@ export async function acceptBan(banId: string, userId: string) {
     },
   });
 
+  const activated = await prisma.ban.findUnique({ where: { id: banId } });
+  console.log('[ban-activate]', {
+    banId,
+    status: activated?.status ?? null,
+    expiresAt: activated?.expiresAt?.toISOString() ?? null,
+    checkDueAt: activated?.checkDueAt?.toISOString() ?? null,
+    now: new Date().toISOString(),
+  });
+
   await trackEvent(ANALYTICS_EVENTS.BAN_ACCEPTED, userId, { banId });
 
   const interaction = await mapBanToInteraction(banId, userId);
@@ -847,11 +856,7 @@ export async function resolveDeepLinkBan(banId: string, userId: string) {
   const ban = await prisma.ban.findUnique({ where: { id: banId } });
   if (!ban) return null;
   if (ban.receiverId === userId && ban.status === 'PENDING') {
-    if (ban.receiverIncomingAckAt) return null;
-    return mapBanToInteraction(banId, userId);
-  }
-  if (ban.status === 'CHECKING') {
-    return mapBanToInteraction(banId, userId);
+    return acceptBan(banId, userId);
   }
   return mapBanToInteraction(banId, userId);
 }
@@ -1100,7 +1105,11 @@ export async function acknowledgeIncomingBan(
   const ban = await prisma.ban.findUnique({ where: { id: banId } });
   if (!ban) return null;
   if (ban.receiverId !== userId) return null;
-  if (!ban.receiverIncomingAckAt) {
+  if (ban.status === 'PENDING') {
+    await acceptBan(banId, userId);
+  }
+  const fresh = await prisma.ban.findUnique({ where: { id: banId } });
+  if (fresh && !fresh.receiverIncomingAckAt) {
     await prisma.ban.update({
       where: { id: banId },
       data: { receiverIncomingAckAt: new Date() },
@@ -1125,6 +1134,17 @@ export async function getPendingCheck(userId: string) {
     }
   }
   return null;
+}
+
+/** Lightweight poll read for due check overlay — no session side effects. */
+export async function getPendingCheckForPoll(userId: string) {
+  const ban = await getPendingCheck(userId);
+  console.log('[check-pending]', {
+    userId,
+    checkBanId: ban?.id ?? null,
+    reason: ban ? 'found' : 'none',
+  });
+  return ban;
 }
 
 export async function getWaitingCheck(userId: string) {
@@ -1223,6 +1243,13 @@ export async function processExpiredBans() {
     take: 50,
   });
 
+  logCheckScheduler({
+    now: now.toISOString(),
+    dueCount: due.length,
+    dueBanIds: due.map((b) => b.id),
+    reasonIfZero: due.length === 0 ? 'no-active-due' : undefined,
+  });
+
   for (const ban of due) {
     logCheckScheduler({
       banId: ban.id,
@@ -1236,9 +1263,38 @@ export async function processExpiredBans() {
       data: { status: 'CHECKING', checkStartedAt: new Date() },
     });
 
-    const interaction = await mapBanToInteraction(ban.id, ban.senderId);
-    broadcastToUser(ban.senderId, { type: 'check:due', payload: interaction });
-    broadcastToUser(ban.receiverId, { type: 'check:due', payload: interaction });
+    const senderView = await mapBanToInteraction(ban.id, ban.senderId);
+    const receiverView = await mapBanToInteraction(ban.id, ban.receiverId);
+
+    console.log('[check-created]', {
+      banId: ban.id,
+      senderId: ban.senderId,
+      receiverId: ban.receiverId,
+      status: 'CHECKING',
+      checkDueAt: ban.checkDueAt?.toISOString() ?? null,
+    });
+
+    if (senderView) {
+      console.log('[check-ws-emit]', {
+        banId: ban.id,
+        toUserId: ban.senderId,
+        role: 'sender',
+        eventName: 'check:due',
+      });
+      broadcastToUser(ban.senderId, { type: 'check:due', payload: senderView });
+    }
+    if (receiverView) {
+      console.log('[check-ws-emit]', {
+        banId: ban.id,
+        toUserId: ban.receiverId,
+        role: 'receiver',
+        eventName: 'check:due',
+      });
+      broadcastToUser(ban.receiverId, {
+        type: 'check:due',
+        payload: receiverView,
+      });
+    }
 
     const full = await prisma.ban.findUnique({
       where: { id: ban.id },

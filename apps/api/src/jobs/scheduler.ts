@@ -7,6 +7,7 @@ import {
 
 export function startScheduler() {
   cron.schedule('* * * * *', async () => {
+    console.log('[check-scheduler-tick]', { now: new Date().toISOString() });
     try {
       await processReminders();
       await processExpiredBans();
