@@ -21,6 +21,12 @@ async function start() {
   void hydrateCheckDueTimers().catch((e) => {
     console.warn('[check-timer] hydrate failed', (e as Error).message);
   });
+  const { runResultSeenBackfillOnce } = await import(
+    './services/result-seen-backfill'
+  );
+  void runResultSeenBackfillOnce().catch((e) => {
+    console.warn('[backfill-result-seen] failed', (e as Error).message);
+  });
 
   server.listen(port, () => {
     console.log(`[api] 98+ API listening on :${port}`);
