@@ -4,24 +4,11 @@ import {
   rememberFriendAvatar,
   resolveFriendAvatarUrl,
 } from './avatar-cache';
-import { friendAvatarKey } from './avatar-preload';
-import { normalizeAvatarUrl } from './avatar-url';
 
-function pickMergedAvatarUrl(
-  next: FriendCard,
-  prev?: FriendCard,
-): string | null {
-  const fromNext = normalizeAvatarUrl(next.avatarUrl ?? next.photoUrl);
-  if (fromNext) return fromNext;
-  const fromPrev = prev
-    ? normalizeAvatarUrl(prev.avatarUrl ?? prev.photoUrl)
-    : null;
-  if (fromPrev) return fromPrev;
-  return getCachedFriendAvatar(next.id, next.userId);
-}
-
-function withResolvedAvatar(friend: FriendCard, prev?: FriendCard): FriendCard {
-  const avatar = pickMergedAvatarUrl(friend, prev);
+function withResolvedAvatar(friend: FriendCard): FriendCard {
+  const avatar =
+    resolveFriendAvatarUrl(friend) ??
+    getCachedFriendAvatar(friend.id, friend.userId);
   if (!avatar) return friend;
   rememberFriendAvatar(friend.id, friend.userId, avatar);
   return {
@@ -31,10 +18,7 @@ function withResolvedAvatar(friend: FriendCard, prev?: FriendCard): FriendCard {
   };
 }
 
-/**
- * Network list wins for membership; per-friend avatarUrl never downgrades to null.
- * Empty network response does not wipe a non-empty previous list unless allowEmpty.
- */
+/** Never downgrade avatarUrl to null when a prior value exists for the same friend. */
 export function mergeFriendsPreservingAvatars(
   prev: FriendCard[],
   next: FriendCard[],
@@ -44,16 +28,7 @@ export function mergeFriendsPreservingAvatars(
     rememberFriendAvatar(f.id, f.userId, f.avatarUrl ?? f.photoUrl);
   }
   if (!opts?.allowEmpty && next.length === 0 && prev.length > 0) {
-    return prev.map((f) => withResolvedAvatar(f));
+    return prev.map(withResolvedAvatar);
   }
-
-  const prevByKey = new Map<string, FriendCard>();
-  for (const f of prev) {
-    prevByKey.set(friendAvatarKey(f), f);
-  }
-
-  return next.map((f) => {
-    const prior = prevByKey.get(friendAvatarKey(f));
-    return withResolvedAvatar(f, prior);
-  });
+  return next.map(withResolvedAvatar);
 }

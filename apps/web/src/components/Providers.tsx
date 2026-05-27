@@ -39,13 +39,11 @@ import { fetchSession } from '@/lib/session';
 import { api } from '@/lib/api';
 import { challengeLog } from '@/lib/challenge-log';
 import {
-  isFreshIncomingForViewer,
-  logIncomingDecision,
-  logIncomingReceive,
-  logIncomingRecoverySession,
-} from '@/lib/incoming-fresh';
+  isValidIncomingOverlayPayload,
+  shouldShowIncomingBanModal,
+} from '@/lib/incoming-challenge';
 import { acknowledgeIncomingFully } from '@/lib/incoming-ack-flow';
-import { markIncomingAcknowledgedLocally } from '@/lib/acknowledged-incoming';
+import { hydrateAcknowledgedIncomingIds } from '@/lib/acknowledged-incoming';
 import {
   type OptimisticSendWait,
   CHECK_WAITING_UI_TTL_MS,
@@ -60,14 +58,7 @@ import { writeFriendsCache, readFriendsCache } from '@/lib/friends-cache';
 import { readHomeSnapshot, writeHomeSnapshot } from '@/lib/home-snapshot';
 import { enrichBanInteraction } from '@/lib/user-public-avatar';
 import { mergeFriendsPreservingAvatars } from '@/lib/friend-avatar-merge';
-import {
-  preloadFriendAvatars,
-  areFriendAvatarsReady,
-  ARENA_AVATAR_PRELOAD_MS,
-  friendAvatarKey,
-} from '@/lib/avatar-preload';
-import { buildSessionFingerprint } from '@/lib/session-fingerprint';
-import { logStartup, resetStartupTimeline } from '@/lib/startup-timeline';
+import { preloadFriendAvatars } from '@/lib/avatar-preload';
 import { afterKeyboardCollapse, blurActiveInputs } from '@/lib/keyboard-dismiss';
 import {
   clearAvatarCaches,
@@ -107,10 +98,8 @@ interface AppContextValue {
   isAppReady: boolean;
   /** Initial /friends fetch finished (or cache hydrated). */
   friendsReady: boolean;
-  /** Home snapshot hydrated (friends list from disk). */
+  /** HomeArena can render from local snapshot without waiting network. */
   homeSnapshotReady: boolean;
-  /** Friend avatars preloaded — safe to paint HomeArena without visible swap. */
-  arenaReady: boolean;
   /** First session fetch finished — incoming gate can resolve. */
   sessionReady: boolean;
   /** Incoming modal blocks main arena until dismissed. */
@@ -198,11 +187,10 @@ export function useApp() {
 
 function pickIncomingForOverlay(
   ban: BanInteraction | null | undefined,
-  sessionDismissed: Set<string>,
+  dismissed: Set<string>,
   viewerId: string | null | undefined,
 ): BanInteraction | null {
-  if (!isFreshIncomingForViewer(ban, viewerId, sessionDismissed)) return null;
-  logIncomingDecision(ban, viewerId, sessionDismissed);
+  if (!shouldShowIncomingBanModal(ban, viewerId, dismissed)) return null;
   return enrichBanInteraction(ban!);
 }
 
@@ -243,7 +231,7 @@ function applySessionToState(
       viewerId,
     );
     if (fromSession) return fromSession;
-    if (prev && isFreshIncomingForViewer(prev, viewerId, dismissedIncoming)) {
+    if (prev && shouldShowIncomingBanModal(prev, viewerId, dismissedIncoming)) {
       return prev;
     }
     return null;
@@ -262,13 +250,7 @@ function applySessionToState(
     setters.setCheckBan(fromSessionCheck);
     setters.setCheckWaiting(false);
   } else if (!session.needsOnboardingRecovery) {
-    setters.setCheckBan((prev) => {
-      if (!prev) return null;
-      if (checkGuards.answeredLocally.has(prev.id)) return null;
-      if (checkGuards.sessionDismissed.has(prev.id)) return null;
-      if (checkGuards.inFlight.has(prev.id)) return null;
-      return null;
-    });
+    setters.setCheckBan(null);
     setters.setCheckWaiting(false);
   }
 }
@@ -361,7 +343,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [friendsBootstrapped, setFriendsBootstrapped] = useState(false);
   const [sessionBootstrapped, setSessionBootstrapped] = useState(false);
   const [homeSnapshotReady, setHomeSnapshotReady] = useState(false);
-  const [arenaReady, setArenaReady] = useState(false);
   const [startupGraceActive, setStartupGraceActive] = useState(true);
   const [networkBootstrapCompleted, setNetworkBootstrapCompleted] =
     useState(false);
@@ -387,16 +368,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const bufferedIncomingRef = useRef<BanInteraction | null>(null);
   const banSentOpenRef = useRef(false);
   const deferredSyncRef = useRef(false);
-  const lastSessionFingerprintRef = useRef<string | null>(null);
-  const lastFriendsListFingerprintRef = useRef<string | null>(null);
 
   useEffect(() => {
+    const uid = auth.user?.id ?? null;
     dismissedIncomingRef.current = new Set();
     dismissedCheckSessionRef.current = new Set();
     answeredCheckRef.current = new Set();
     checkAnswerInFlightRef.current = new Set();
-    const uid = auth.user?.id ?? null;
     if (!uid || auth.loading) return;
+    for (const id of hydrateAcknowledgedIncomingIds(uid)) {
+      dismissedIncomingRef.current.add(id);
+    }
     for (const id of hydrateAnsweredCheckIds(uid)) {
       answeredCheckRef.current.add(id);
     }
@@ -429,12 +411,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   /** Sync reset before paint when backend user id changes (no flash of previous user's data). */
   useLayoutEffect(() => {
-    resetStartupTimeline();
     console.log('[providers-reset]', { userId: auth.user?.id ?? null });
     clearAvatarCaches();
     setDataOwnerUserId(null);
     setHomeSnapshotReady(false);
-    setArenaReady(false);
     setStartupGraceActive(true);
     setNetworkBootstrapCompleted(false);
     setHasSuccessfulNetworkSync(false);
@@ -460,8 +440,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     dismissedCheckSessionRef.current = new Set();
     answeredCheckRef.current = new Set();
     checkAnswerInFlightRef.current = new Set();
-    lastSessionFingerprintRef.current = null;
-    lastFriendsListFingerprintRef.current = null;
 
     const uid = auth.user?.id;
     if (!uid) return;
@@ -477,56 +455,42 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         rememberFriendAvatar(f.id, f.userId, f.avatarUrl ?? f.photoUrl);
       }
       friendsRef.current = hydratedFriends;
+      setFriends(hydratedFriends);
       setSendDuration(snapshot.sendDuration);
       if (snapshot.sendReceiver) {
         setSendReceiver(snapshot.sendReceiver);
       }
       setFriendsBootstrapped(true);
       setSessionBootstrapped(true);
+      setHomeSnapshotReady(true);
       setDataOwnerUserId(uid);
-
-      let cancelled = false;
-      void (async () => {
-        logStartup('AVATAR_PRELOAD_START', {
-          via: 'snapshot',
-          count: hydratedFriends.length,
+      logFriendsTiming('home-snapshot-hydrated', {
+        userId: uid,
+        count: hydratedFriends.length,
+        savedAt: snapshot.savedAt,
+      });
+      void preloadFriendAvatars(hydratedFriends, { timeoutMs: 2000 });
+      const cachedCheck = snapshot.checkBan
+        ? enrichBanInteraction(snapshot.checkBan)
+        : null;
+      if (
+        cachedCheck &&
+        shouldShowCheckOverlay(
+          cachedCheck,
+          uid,
+          dismissedCheckSessionRef.current,
+          answeredCheckRef.current,
+          checkAnswerInFlightRef.current,
+          resultOpenRef.current,
+        )
+      ) {
+        setCheckBan(cachedCheck);
+        console.log('[check-overlay]', {
+          event: 'snapshot-hydrated',
+          banId: cachedCheck.id,
         });
-        await preloadFriendAvatars(hydratedFriends, {
-          timeoutMs: ARENA_AVATAR_PRELOAD_MS,
-        });
-        if (cancelled || userIdRef.current !== uid) return;
-        friendsRef.current = hydratedFriends;
-        setFriends(hydratedFriends);
-        const ready = areFriendAvatarsReady(hydratedFriends);
-        setArenaReady(ready);
-        setHomeSnapshotReady(true);
-        lastFriendsListFingerprintRef.current = hydratedFriends
-          .map((f) => friendAvatarKey(f))
-          .sort()
-          .join(',');
-        logStartup('AVATAR_PRELOAD_DONE', { via: 'snapshot', arenaReady: ready });
-        logStartup('ARENA_READY', { via: 'snapshot', count: hydratedFriends.length });
-        const cachedCheck = snapshot.checkBan
-          ? enrichBanInteraction(snapshot.checkBan)
-          : null;
-        if (
-          cachedCheck &&
-          shouldShowCheckOverlay(
-            cachedCheck,
-            uid,
-            dismissedCheckSessionRef.current,
-            answeredCheckRef.current,
-            checkAnswerInFlightRef.current,
-            resultOpenRef.current,
-          )
-        ) {
-          setCheckBan(cachedCheck);
-        }
-      })();
-
-      return () => {
-        cancelled = true;
-      };
+      }
+      return;
     }
 
     const cached = readFriendsCache(uid);
@@ -534,33 +498,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       rememberFriendAvatar(f.id, f.userId, f.avatarUrl ?? f.photoUrl);
     }
     if (cached.length > 0) {
+      friendsRef.current = cached;
+      setFriends(cached);
       setFriendsBootstrapped(true);
+      setHomeSnapshotReady(true);
       setDataOwnerUserId(uid);
-      let cancelled = false;
-      void (async () => {
-        logStartup('AVATAR_PRELOAD_START', {
-          via: 'friends-cache',
-          count: cached.length,
-        });
-        await preloadFriendAvatars(cached, {
-          timeoutMs: ARENA_AVATAR_PRELOAD_MS,
-        });
-        if (cancelled || userIdRef.current !== uid) return;
-        friendsRef.current = cached;
-        setFriends(cached);
-        const ready = areFriendAvatarsReady(cached);
-        setArenaReady(ready);
-        setHomeSnapshotReady(true);
-        lastFriendsListFingerprintRef.current = cached
-          .map((f) => friendAvatarKey(f))
-          .sort()
-          .join(',');
-        logStartup('AVATAR_PRELOAD_DONE', { via: 'friends-cache', arenaReady: ready });
-        logStartup('ARENA_READY', { via: 'friends-cache', count: cached.length });
-      })();
-      return () => {
-        cancelled = true;
-      };
+      logFriendsTiming('cache-hydrated-memory', {
+        userId: uid,
+        count: cached.length,
+      });
+      void preloadFriendAvatars(cached, { timeoutMs: 2000 });
     }
   }, [auth.user?.id]);
 
@@ -661,64 +608,104 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }, CHECK_WAITING_UI_TTL_MS);
   }, []);
 
-  const receiveIncomingBan = useCallback(
-    (
-      source: 'ws' | 'session' | 'boot' | 'buffer',
-      ban: BanInteraction,
-      viewerId: string | null | undefined,
-    ) => {
-      const enriched = enrichBanInteraction(ban);
-      logIncomingReceive(source, enriched, viewerId);
-      if (!viewerId) {
-        bufferedIncomingRef.current = enriched;
+  const setIncomingBanSafe = useCallback(
+    (b: BanInteraction | null) => {
+      const viewerId = auth.user?.id;
+      if (b !== null && (!viewerId || auth.loading)) {
+        const why = explainIncomingHidden(
+          b,
+          viewerId,
+          auth.loading,
+          viewerId,
+          dismissedIncomingRef.current,
+        );
+        logIncomingDebug({
+          authUserId: viewerId,
+          incomingId: b.id,
+          incomingReceiverId: b.receiver?.id,
+          incomingAcknowledged: b.incomingAcknowledged,
+          shouldShow: false,
+          reason: why.reason,
+        });
         return;
       }
       if (
-        isFreshIncomingForViewer(
-          enriched,
+        b !== null &&
+        !shouldShowIncomingBanModal(
+          b,
           viewerId,
           dismissedIncomingRef.current,
         )
       ) {
-        logIncomingDecision(
-          enriched,
+        const why = explainIncomingHidden(
+          b,
+          viewerId,
+          auth.loading,
           viewerId,
           dismissedIncomingRef.current,
         );
-        setCheckBan(null);
-        setCheckWaiting(false);
-        setIncomingBan(enriched);
+        logIncomingDebug({
+          authUserId: viewerId,
+          incomingId: b.id,
+          incomingReceiverId: b.receiver?.id,
+          incomingAcknowledged: b.incomingAcknowledged,
+          shouldShow: false,
+          reason: why.reason,
+        });
+        challengeLog('incoming:reject-set', {
+          id: b.id,
+          status: b.status,
+          hasSender: !!b.sender?.id,
+        });
         return;
       }
-      logIncomingDecision(
-        enriched,
-        viewerId,
-        dismissedIncomingRef.current,
-      );
-    },
-    [],
-  );
-
-  const setIncomingBanSafe = useCallback(
-    (b: BanInteraction | null) => {
-      const viewerId = auth.user?.id ?? null;
-      if (b === null) {
-        setIncomingBan(null);
-        return;
+      challengeLog(b ? 'incoming:set' : 'incoming:clear', {
+        id: b?.id ?? null,
+        status: b?.status ?? null,
+      });
+      if (b !== null) {
+        const why = explainIncomingHidden(
+          b,
+          viewerId,
+          auth.loading,
+          viewerId,
+          dismissedIncomingRef.current,
+        );
+        logIncomingDebug({
+          authUserId: viewerId,
+          incomingId: b.id,
+          incomingReceiverId: b.receiver?.id,
+          incomingAcknowledged: b.incomingAcknowledged,
+          shouldShow: why.shouldShow,
+          reason: why.reason,
+        });
       }
-      receiveIncomingBan('buffer', b, viewerId);
+      setIncomingBan(b);
     },
-    [auth.user?.id, receiveIncomingBan],
+    [auth.user?.id, auth.loading],
   );
 
-  // Apply WS-buffered incoming when viewer id is known.
+  // Apply WS-buffered incoming after auth is ready (must run after setIncomingBanSafe exists).
   useEffect(() => {
-    if (!auth.user?.id) return;
+    if (!auth.user?.id || auth.loading) return;
     if (!bufferedIncomingRef.current) return;
     const b = bufferedIncomingRef.current;
     bufferedIncomingRef.current = null;
-    receiveIncomingBan('buffer', b, auth.user.id);
-  }, [auth.user?.id, receiveIncomingBan]);
+    console.log('[incoming-buffer]', {
+      action: 'apply',
+      banId: b.id,
+      receiverId: b.receiver?.id,
+    });
+
+    const incoming = pickIncomingForOverlay(
+      b,
+      dismissedIncomingRef.current,
+      auth.user.id,
+    );
+    if (incoming) {
+      setIncomingBanSafe(incoming);
+    }
+  }, [auth.user?.id, auth.loading, setIncomingBanSafe]);
 
   const pushPopup = useCallback((p: EnergyPopup) => {
     setPopups((prev) => [...prev, p]);
@@ -817,49 +804,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const commitFriendsWithAvatarPreload = useCallback(
     async (
       incomingList: FriendCard[],
-      meta: {
-        via: string;
-        markReady?: boolean;
-        allowEmpty?: boolean;
-        skipIfUnchanged?: boolean;
-      },
+      meta: { via: string; markReady?: boolean; allowEmpty?: boolean },
     ) => {
       const requestUid = userIdRef.current;
       const requestToken = tokenRef.current;
-      if (!requestUid) return;
-
       const merged = mergeFriendsPreservingAvatars(
         friendsRef.current,
         incomingList,
         { allowEmpty: meta.allowEmpty },
       );
-      const listFingerprint = merged
-        .map((f) => friendAvatarKey(f))
-        .sort()
-        .join(',');
-      if (
-        meta.skipIfUnchanged &&
-        listFingerprint === lastFriendsListFingerprintRef.current
-      ) {
-        logFriendsTiming('friends-skip-unchanged', {
-          userId: requestUid,
-          via: meta.via,
-        });
-        return;
-      }
-
-      logStartup('AVATAR_PRELOAD_START', {
-        via: meta.via,
+      logFriendsTiming('friends-committed', {
+        userId: requestUid,
         count: merged.length,
-        timeoutMs: ARENA_AVATAR_PRELOAD_MS,
+        via: meta.via,
       });
-      const preloadStartedAt = Date.now();
-      await preloadFriendAvatars(merged, {
-        timeoutMs: ARENA_AVATAR_PRELOAD_MS,
-      });
-      if (tokenRef.current !== requestToken) return;
-      if (userIdRef.current !== requestUid) return;
-
       friendsRef.current = merged;
       setFriends(merged);
       if (requestUid) writeFriendsCache(requestUid, merged);
@@ -867,23 +825,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (meta.markReady !== false) {
         setFriendsBootstrapped(true);
       }
-      lastFriendsListFingerprintRef.current = listFingerprint;
 
-      const ready = areFriendAvatarsReady(merged);
-      setArenaReady(ready);
-      logFriendsTiming('avatar-preload-done', {
+      logFriendsTiming('avatar-preload-start', {
         userId: requestUid,
-        ms: Date.now() - preloadStartedAt,
-        via: meta.via,
-        arenaReady: ready,
-      });
-      logStartup('AVATAR_PRELOAD_DONE', {
-        via: meta.via,
         count: merged.length,
-        arenaReady: ready,
-        ms: Date.now() - preloadStartedAt,
+        via: meta.via,
       });
-      logStartup('ARENA_READY', { via: meta.via, count: merged.length });
+      const preloadStartedAt = Date.now();
+      void preloadFriendAvatars(merged, { timeoutMs: 1000 }).then(() => {
+        if (tokenRef.current !== requestToken) return;
+        if (userIdRef.current !== requestUid) return;
+        logFriendsTiming('avatar-preload-done', {
+          userId: requestUid,
+          ms: Date.now() - preloadStartedAt,
+          via: meta.via,
+        });
+      });
     },
     [resolveOptimisticFromFriends],
   );
@@ -938,28 +895,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
 
     const session = enrichSessionState(s);
-    const fingerprint = buildSessionFingerprint(session, viewerId);
-    if (lastSessionFingerprintRef.current === fingerprint) {
-      logStartup('SESSION_APPLY_SKIP', { fingerprint });
-      return;
-    }
-    lastSessionFingerprintRef.current = fingerprint;
-
     const nextIncoming = pickIncomingForOverlay(
       session.incoming,
       dismissedIncomingRef.current,
       viewerId,
     );
     if (nextIncoming) {
-      logIncomingRecoverySession(nextIncoming, viewerId, {
-        recoveredVia: 'session',
-      });
-      logStartup('INCOMING_FOUND', { banId: nextIncoming.id });
-      setCheckBan(null);
-      setCheckWaiting(false);
-    }
-    if (session.check?.status === 'checking') {
-      logStartup('CHECK_FOUND', { banId: session.check.id });
+      setIncomingBan(nextIncoming);
     }
 
     logIncomingDebug({
@@ -977,11 +919,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         if (nextIncoming) return nextIncoming;
         if (
           prev &&
-          isFreshIncomingForViewer(
-            prev,
-            viewerId,
-            dismissedIncomingRef.current,
-          )
+          shouldShowIncomingBanModal(prev, viewerId, dismissedIncomingRef.current)
         ) {
           return prev;
         }
@@ -1035,13 +973,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     );
     if (incoming) {
       challengeLog('boot:claimed-incoming', { banId: incoming.id });
-      receiveIncomingBan('boot', incoming, auth.user.id);
+      setIncomingBan(enrichBanInteraction(incoming));
       setViralOnboarding(true);
       setDataOwnerUserId(auth.user.id);
       setSessionBootstrapped(true);
     }
     auth.clearBoot();
-  }, [auth.boot, auth.clearBoot, auth.user?.id, auth.loading, receiveIncomingBan]);
+  }, [auth.boot, auth.clearBoot, auth.user?.id, auth.loading]);
 
   const reloadFriends = useCallback(async () => {
     const token = tokenRef.current;
@@ -1080,7 +1018,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         via: 'reloadFriends',
       });
       if (!friendsBootstrappedRef.current) setFriendsBootstrapped(true);
-      setArenaReady(areFriendAvatarsReady(friendsRef.current));
       end();
     }
   }, [commitFriendsWithAvatarPreload]);
@@ -1096,17 +1033,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
     try {
-      logStartup('SESSION_FETCH_START', { authUserId: requestUserId });
       const requestedAt = Date.now();
+      console.log('[session-fetch]', {
+        authUserId: requestUserId,
+        requestedAt,
+      });
       const session = await fetchSession(token);
+      // Discard if user/token switched while request in-flight.
       if (tokenRef.current !== token) return;
       if (userIdRef.current !== requestUserId) return;
 
-      logStartup('SESSION_FETCH_DONE', {
+      console.log('[session-fetch]', {
         authUserId: requestUserId,
-        ms: Date.now() - requestedAt,
+        requestedAt,
+        responseUserId: (session as SessionState & { userId?: string })?.userId ?? null,
         incomingId: session.incoming?.id ?? null,
-        checkId: session.check?.id ?? null,
+        incomingReceiverId: session.incoming?.receiver?.id ?? null,
       });
       applySession(session);
 
@@ -1230,7 +1172,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       switch (event.type) {
         case 'ban:incoming': {
           const b = enrichBanInteraction(event.payload as BanInteraction);
-          receiveIncomingBan('ws', b, auth.user?.id ?? null);
+          const viewerId = auth.user?.id ?? null;
+          const incoming = pickIncomingForOverlay(
+            b,
+            dismissedIncomingRef.current,
+            viewerId,
+          );
+          if (incoming) {
+            setIncomingBan(incoming);
+          } else if (b?.receiver?.id) {
+            bufferedIncomingRef.current = b;
+            console.log('[incoming-buffer]', {
+              action: 'store',
+              banId: b.id,
+              receiverId: b.receiver?.id,
+            });
+          }
           break;
         }
         case 'check:due': {
@@ -1278,7 +1235,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           void commitFriendsWithAvatarPreload(list, {
             via: 'ws-friends',
             markReady: false,
-            skipIfUnchanged: true,
           }).then(() => {
             setDataOwnerUserId(uid);
           });
@@ -1440,7 +1396,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ms: Date.now() - fetchStartedAt,
         });
         setFriendsBootstrapped(true);
-        setArenaReady(areFriendAvatarsReady(friendsRef.current));
         end();
         timingLog('friends fetch failed', 0);
       });
@@ -1547,15 +1502,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const isAppReady = !!auth.user?.id && !!auth.token && !auth.loading;
   const friendsReady = friendsBootstrapped;
   const sessionReady = sessionBootstrapped;
-  const incomingGateActive = useMemo(
-    () =>
-      isFreshIncomingForViewer(
-        incomingBan,
-        auth.user?.id ?? null,
-        dismissedIncomingRef.current,
-      ),
-    [incomingBan, auth.user?.id],
-  );
+  const incomingGateActive = useMemo(() => {
+    if (!auth.user?.id || auth.loading) return false;
+    return shouldShowIncomingBanModal(
+      incomingBan,
+      auth.user.id,
+      dismissedIncomingRef.current,
+    );
+  }, [incomingBan, auth.user?.id, auth.loading]);
 
   const checkGateActive = useMemo(
     () =>
@@ -1580,7 +1534,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ? uiFreeze.activeBans
       : displayActiveBans
     : [];
-  const scopedIncomingBan = incomingGateActive ? incomingBan : null;
+  const scopedIncomingBan =
+    auth.user?.id && !auth.loading ? incomingBan : null;
   const scopedCheckBan = checkGateActive ? checkBan : null;
 
   const connectionUiState = useMemo(
@@ -1651,7 +1606,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       isAppReady,
       friendsReady,
       homeSnapshotReady,
-      arenaReady,
       sessionReady,
       incomingGateActive,
       error: auth.error,
@@ -1720,7 +1674,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       isAppReady,
       friendsReady,
       homeSnapshotReady,
-      arenaReady,
       sessionReady,
       incomingGateActive,
       auth.error,
@@ -1782,20 +1735,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   return (
     <AppContext.Provider value={contextValue}>
       <ShellErrorBoundary name="app">
-        {checkGateActive ? (
-          <ChallengeErrorBoundary
-            name="check"
-            onRecover={() => clearCheckOverlay()}
-          >
-            <CheckOverlay />
-          </ChallengeErrorBoundary>
-        ) : null}
         {incomingGateActive ? (
           <ChallengeErrorBoundary
             name="incoming"
             onRecover={() => dismissIncoming()}
           >
             <IncomingBanOverlay />
+          </ChallengeErrorBoundary>
+        ) : null}
+        {checkGateActive ? (
+          <ChallengeErrorBoundary
+            name="check"
+            onRecover={() => clearCheckOverlay()}
+          >
+            <CheckOverlay />
           </ChallengeErrorBoundary>
         ) : null}
         {children}

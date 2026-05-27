@@ -12,7 +12,6 @@ import { ConnectionBanner } from '@/components/ConnectionBanner';
 import { BottomNav, type Tab } from '@/components/BottomNav';
 import { ShellErrorBoundary } from '@/components/ShellErrorBoundary';
 import { getApiUrl } from '@/lib/config';
-import { logStartup } from '@/lib/startup-timeline';
 
 const ArenaAmbience = dynamic(
   () =>
@@ -60,7 +59,6 @@ export default function HomePage() {
     error,
     friendsReady,
     homeSnapshotReady,
-    arenaReady,
     sessionReady,
     incomingGateActive,
     checkGateActive,
@@ -143,23 +141,8 @@ export default function HomePage() {
   const canRenderShell =
     incomingGateActive ||
     checkGateActive ||
-    arenaReady;
-
-  useEffect(() => {
-    if (!canRenderShell || !user?.id) return;
-    logStartup('ARENA_RENDER', {
-      userId: user.id,
-      incomingGateActive,
-      checkGateActive,
-      arenaReady,
-    });
-  }, [
-    canRenderShell,
-    user?.id,
-    incomingGateActive,
-    checkGateActive,
-    arenaReady,
-  ]);
+    homeSnapshotReady ||
+    (sessionReady && friendsReady);
 
   if (!canRenderShell) {
     return <BootLobby />;

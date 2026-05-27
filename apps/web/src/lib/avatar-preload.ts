@@ -1,15 +1,12 @@
 import type { FriendCard } from '@98plus/shared';
 import { normalizeAvatarUrl } from './avatar-url';
 
-export type AvatarPreloadStatus = 'none' | 'loaded' | 'failed' | 'timeout';
+export type AvatarPreloadStatus = 'none' | 'loaded' | 'failed';
 
 const statusByKey = new Map<string, AvatarPreloadStatus>();
 const loadedUrls = new Set<string>();
 
-const DEFAULT_TIMEOUT_MS = 3000;
-
-/** Arena first paint waits for preload with this ceiling (slow CDN → final fallback). */
-export const ARENA_AVATAR_PRELOAD_MS = DEFAULT_TIMEOUT_MS;
+const DEFAULT_TIMEOUT_MS = 1000;
 
 export function friendAvatarKey(friend: {
   id?: string | null;
@@ -44,25 +41,14 @@ export function getAvatarReadyState(
 ): 'photo' | 'fallback' | undefined {
   const status = getAvatarPreloadStatus(friend);
   if (status === 'loaded') return 'photo';
-  if (status === 'failed' || status === 'timeout' || status === 'none') {
-    return 'fallback';
-  }
+  if (status === 'failed' || status === 'none') return 'fallback';
   return undefined;
-}
-
-/** True when every friend has a resolved preload status (arena-safe to paint). */
-export function areFriendAvatarsReady(friends: FriendCard[]): boolean {
-  if (friends.length === 0) return true;
-  return friends.every((f) => {
-    const s = getAvatarPreloadStatus(f);
-    return s === 'loaded' || s === 'failed' || s === 'timeout' || s === 'none';
-  });
 }
 
 function preloadOne(
   url: string,
   timeoutMs: number,
-): Promise<'loaded' | 'failed' | 'timeout'> {
+): Promise<'loaded' | 'failed'> {
   if (typeof window === 'undefined') return Promise.resolve('failed');
   if (loadedUrls.has(url)) return Promise.resolve('loaded');
 
@@ -72,7 +58,7 @@ function preloadOne(
     img.referrerPolicy = 'no-referrer';
 
     let settled = false;
-    const finish = (result: 'loaded' | 'failed' | 'timeout') => {
+    const finish = (result: 'loaded' | 'failed') => {
       if (settled) return;
       settled = true;
       window.clearTimeout(timer);
@@ -80,7 +66,7 @@ function preloadOne(
       resolve(result);
     };
 
-    const timer = window.setTimeout(() => finish('timeout'), timeoutMs);
+    const timer = window.setTimeout(() => finish('failed'), timeoutMs);
     img.onload = () => finish('loaded');
     img.onerror = () => finish('failed');
     img.src = url;
@@ -109,9 +95,8 @@ export async function preloadFriendAvatars(
           name,
           username: f.username,
           avatarUrl: null,
-          hasAvatarUrl: false,
           preloadStatus: 'none',
-          reason: 'no-url',
+          imgError: false,
         });
         return;
       }
@@ -123,14 +108,8 @@ export async function preloadFriendAvatars(
         name,
         username: f.username,
         avatarUrl,
-        hasAvatarUrl: true,
         preloadStatus,
-        reason:
-          preloadStatus === 'loaded'
-            ? 'ok'
-            : preloadStatus === 'timeout'
-              ? 'timeout'
-              : 'img-error',
+        imgError: preloadStatus === 'failed',
       });
     }),
   );

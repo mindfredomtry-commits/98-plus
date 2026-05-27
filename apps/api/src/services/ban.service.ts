@@ -272,7 +272,17 @@ export async function sendBan(params: {
     include: { sender: true, receiver: true },
   });
 
-  // Stay PENDING until receiver sees incoming / accepts — verification starts on acceptBan.
+  const expiresAt = scheduleEnd(durationMinutes);
+  await prisma.ban.update({
+    where: { id: ban.id },
+    data: {
+      status: 'ACTIVE',
+      acceptedAt: new Date(),
+      handledAt: new Date(),
+      expiresAt,
+      checkDueAt: expiresAt,
+    },
+  });
 
   await setCooldown(`cooldown:send:${senderId}`, COOLDOWN_SEND);
   const energy = await applySendEnergy(senderId, receiver.id);

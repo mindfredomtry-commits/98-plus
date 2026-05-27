@@ -138,14 +138,14 @@ function FriendsStripSkeleton() {
 }
 
 export function FriendPicker(props: FriendPickerProps) {
-  const { arenaReady, loading: authLoading, user, friends } = useApp();
+  const { friendsReady, loading: authLoading, user, friends } = useApp();
   const hasFriends = Array.isArray(props.friends)
     ? props.friends.length > 0
     : Array.isArray(friends) && friends.length > 0;
   if (authLoading || !user?.id) {
     return <FriendsStripSkeleton />;
   }
-  if (!arenaReady && !hasFriends) {
+  if (!friendsReady && !hasFriends) {
     return <FriendsStripSkeleton />;
   }
   return <FriendPickerInner {...props} />;
