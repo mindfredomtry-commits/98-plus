@@ -319,6 +319,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         void acknowledgeBanResultOnServer(r.id, tokenRef.current);
         return;
       }
+      resultDeliveredBanIdsRef.current.add(r.id);
       setResult(r);
     },
     [],
@@ -390,6 +391,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const incomingBanRef = useRef<BanInteraction | null>(null);
   const checkBanRef = useRef<BanInteraction | null>(null);
   const checkWsSeenRef = useRef<Set<string>>(new Set());
+  const resultDeliveredBanIdsRef = useRef<Set<string>>(new Set());
+  const checkSubmitAtRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     incomingBanRef.current = incomingBan;
   }, [incomingBan]);
@@ -405,6 +408,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     dismissedCheckSessionRef.current = new Set();
     answeredCheckRef.current = new Set();
     checkAnswerInFlightRef.current = new Set();
+    resultDeliveredBanIdsRef.current = new Set();
+    checkSubmitAtRef.current = new Map();
     if (!uid || auth.loading) return;
     for (const id of hydrateAnsweredCheckIds(uid)) {
       answeredCheckRef.current.add(id);
@@ -467,6 +472,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     dismissedCheckSessionRef.current = new Set();
     answeredCheckRef.current = new Set();
     checkAnswerInFlightRef.current = new Set();
+    resultDeliveredBanIdsRef.current = new Set();
+    checkSubmitAtRef.current = new Map();
 
     const uid = auth.user?.id;
     if (!uid) return;
@@ -589,6 +596,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       answeredCheckRef.current.add(banId);
       markCheckAnsweredLocally(uid, banId);
       checkAnswerInFlightRef.current.add(banId);
+      checkSubmitAtRef.current.set(banId, performance.now());
       setCheckBan(null);
       setCheckWaiting(false);
 
@@ -605,8 +613,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
         if (res.done && res.result) {
           challengeLog('check:done', { banId });
+          console.log('[result-open-immediate]', {
+            banId: res.result.id,
+            source: 'http',
+          });
           openBanResult(res.result, 'live');
-          void refreshUserRef.current().catch(() => {});
+          queueMicrotask(() => {
+            void refreshUserRef.current().catch(() => {});
+          });
         } else if (res.waiting) {
           challengeLog('check:waiting-partner', { banId });
         }
@@ -1089,6 +1103,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           console.log('[result-poll-empty]');
           return;
         }
+        if (resultDeliveredBanIdsRef.current.has(pendingResult.id)) {
+          console.log('[result-poll-skip]', {
+            reason: 'already-delivered',
+            banId: pendingResult.id,
+          });
+          return;
+        }
         console.log('[result-poll-hit]', {
           banId: pendingResult.id,
           authUserId: requestUserId,
@@ -1517,38 +1538,40 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         case 'check:completed': {
           const payload = event.payload as BanResult;
           const uid = userIdRef.current;
-          console.log('[result-received]', {
-            source: 'ws',
-            banId: payload?.id ?? null,
+          const banId = payload?.id ?? null;
+          const submitAt = banId ? checkSubmitAtRef.current.get(banId) : undefined;
+          const elapsedClientMs =
+            submitAt != null
+              ? Math.round(performance.now() - submitAt)
+              : undefined;
+          console.log('[result-ws-received]', {
+            banId,
             authUserId: uid,
-            senderId: payload?.sender?.id ?? null,
-            receiverId: payload?.receiver?.id ?? null,
-            outcome: payload?.outcome ?? null,
+            elapsedClientMs,
           });
           const shouldShow =
-            !!payload?.id && shouldShowBanResult(payload, 'live', payload.id);
-          console.log('[result-show-decision]', {
-            shouldShow,
-            reason: shouldShow ? 'live-event' : 'dismissed-or-invalid',
-          });
-          if (uid && payload?.id) {
-            answeredCheckRef.current.add(payload.id);
-            dismissedCheckSessionRef.current.add(payload.id);
-            markCheckAnsweredLocally(uid, payload.id);
-          }
-          clearCheckOverlay();
-          dismissIncoming();
+            !!banId && shouldShowBanResult(payload, 'live', banId);
           if (shouldShow) {
+            console.log('[result-open-immediate]', { banId, source: 'ws' });
             openBanResult(payload, 'live');
-          } else if (payload?.id) {
+          } else if (banId) {
             console.log('[result-dismiss-local]', {
-              banId: payload.id,
+              banId,
               authUserId: payload.viewerId ?? uid,
             });
-            dismissBanResultLocally(payload.id, payload.viewerId ?? uid);
-            void acknowledgeBanResultOnServer(payload.id, tokenRef.current);
+            dismissBanResultLocally(banId, payload.viewerId ?? uid);
+            void acknowledgeBanResultOnServer(banId, tokenRef.current);
           }
-          auth.refreshUser();
+          queueMicrotask(() => {
+            if (uid && banId) {
+              answeredCheckRef.current.add(banId);
+              dismissedCheckSessionRef.current.add(banId);
+              markCheckAnsweredLocally(uid, banId);
+            }
+            clearCheckOverlay();
+            dismissIncoming();
+            void refreshUserRef.current().catch(() => {});
+          });
           break;
         }
         case 'sync:session':

@@ -160,8 +160,15 @@ export async function applyCheckResult(
     where: { id: banId },
     include: { sender: true, receiver: true },
   });
-  if (!ban || ban.energyApplied) {
+  if (!ban) {
     return { sender: 0, receiver: 0, farmSkipped: false };
+  }
+  if (ban.energyApplied) {
+    return {
+      sender: ban.senderEnergyDelta ?? 0,
+      receiver: ban.receiverEnergyDelta ?? 0,
+      farmSkipped: ban.farmSkipped ?? false,
+    };
   }
 
   const skip = await shouldSkipFarmRewards(ban.senderId, ban.receiverId);
@@ -196,8 +203,10 @@ export async function applyCheckResult(
     return { sender: 0, receiver: 0, farmSkipped: false };
   }
 
-  const senderDelta = await applyDelta(ban.senderId, raw.sender, skip);
-  const receiverDelta = await applyDelta(ban.receiverId, raw.receiver, skip);
+  const [senderDelta, receiverDelta] = await Promise.all([
+    applyDelta(ban.senderId, raw.sender, skip),
+    applyDelta(ban.receiverId, raw.receiver, skip),
+  ]);
 
   console.log('[energy-calc]', {
     banId,

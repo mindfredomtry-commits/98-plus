@@ -339,7 +339,7 @@ bansRouter.post('/:id/check', async (req: AuthRequest, res) => {
       completed,
     );
     if (result.result) {
-      await trackEvent(ANALYTICS_EVENTS.RESULT_VIEWED, req.userId!, {
+      void trackEvent(ANALYTICS_EVENTS.RESULT_VIEWED, req.userId!, {
         banId: paramId(req),
       });
     }

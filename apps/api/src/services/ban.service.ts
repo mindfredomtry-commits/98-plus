@@ -158,70 +158,110 @@ async function broadcastResultReady(
   banId: string,
   senderId: string,
   receiverId: string,
+  opts?: {
+    t0?: number;
+    resultSender?: BanResult | null;
+    resultReceiver?: BanResult | null;
+  },
 ) {
-  const resultSender = await buildBanResult(banId, senderId);
-  const resultReceiver = await buildBanResult(banId, receiverId);
-  const ban = await prisma.ban.findUnique({
-    where: { id: banId },
-    include: { sender: true, receiver: true },
-  });
-  console.log('[result-created]', {
+  const t0 = opts?.t0 ?? Date.now();
+  const [resultSender, resultReceiver] = await Promise.all([
+    opts?.resultSender !== undefined
+      ? Promise.resolve(opts.resultSender)
+      : buildBanResult(banId, senderId),
+    opts?.resultReceiver !== undefined
+      ? Promise.resolve(opts.resultReceiver)
+      : buildBanResult(banId, receiverId),
+  ]);
+
+  console.log('[result-ready]', {
     banId,
-    senderId,
-    receiverId,
-    outcome: ban?.outcome ?? null,
-    status: ban?.status ?? null,
+    elapsedMs: Date.now() - t0,
   });
+
   if (resultSender) {
-    console.log('[result-visible-for]', {
-      banId,
-      userId: senderId,
-      role: 'sender',
-      visible: true,
-    });
-    console.log('[result-emit]', {
+    console.log('[result-emit-start]', {
       banId,
       toUserId: senderId,
       role: 'sender',
-      eventName: 'check:completed',
+      elapsedMs: Date.now() - t0,
     });
     broadcastToUser(senderId, {
       type: 'check:completed',
       payload: resultSender,
     });
+    console.log('[result-emit-done]', {
+      banId,
+      toUserId: senderId,
+      role: 'sender',
+      elapsedMs: Date.now() - t0,
+    });
   }
   if (resultReceiver) {
-    console.log('[result-visible-for]', {
-      banId,
-      userId: receiverId,
-      role: 'receiver',
-      visible: true,
-    });
-    console.log('[result-emit]', {
+    console.log('[result-emit-start]', {
       banId,
       toUserId: receiverId,
       role: 'receiver',
-      eventName: 'check:completed',
+      elapsedMs: Date.now() - t0,
     });
     broadcastToUser(receiverId, {
       type: 'check:completed',
       payload: resultReceiver,
     });
-  }
-  if (ban && resultSender) {
-    await sendResultNotification(
-      ban.sender.telegramId,
+    console.log('[result-emit-done]', {
       banId,
-      resultSender.headline,
-      ban.text,
-    );
-    await sendResultNotification(
-      ban.receiver.telegramId,
-      banId,
-      resultReceiver?.headline ?? resultSender.headline,
-      ban.text,
-    );
+      toUserId: receiverId,
+      role: 'receiver',
+      elapsedMs: Date.now() - t0,
+    });
   }
+
+  void (async () => {
+    const ban = await prisma.ban.findUnique({
+      where: { id: banId },
+      include: { sender: true, receiver: true },
+    });
+    if (!ban || !resultSender) return;
+    console.log('[result-created]', {
+      banId,
+      senderId,
+      receiverId,
+      outcome: ban.outcome ?? null,
+      status: ban.status ?? null,
+    });
+    try {
+      await sendResultNotification(
+        ban.sender.telegramId,
+        banId,
+        resultSender.headline,
+        ban.text,
+      );
+      await sendResultNotification(
+        ban.receiver.telegramId,
+        banId,
+        resultReceiver?.headline ?? resultSender.headline,
+        ban.text,
+      );
+    } catch (e) {
+      console.warn('[result-notify-failed]', {
+        banId,
+        message: (e as Error).message,
+      });
+    }
+  })();
+}
+
+function deferAfterCheckResult(
+  ban: { id: string; senderId: string; receiverId: string },
+  energy: { sender: number; receiver: number },
+  msg: string,
+) {
+  void (async () => {
+    broadcastEnergyPopup(ban.senderId, energy.sender, msg);
+    broadcastEnergyPopup(ban.receiverId, energy.receiver, msg);
+    await syncSession(ban.senderId);
+    await syncSession(ban.receiverId);
+  })();
 }
 
 async function syncSession(userId: string) {
@@ -839,14 +879,13 @@ export async function submitCheckAnswer(
     update: { completed },
   });
 
-  await trackEvent(ANALYTICS_EVENTS.CHECK_ANSWERED, userId, {
-    banId,
-    completed,
-  });
-
   const answers = await prisma.banCheckAnswer.findMany({ where: { banId } });
 
   if (answers.length < 2) {
+    void trackEvent(ANALYTICS_EVENTS.CHECK_ANSWERED, userId, {
+      banId,
+      completed,
+    });
     const waitingPayload = await getCheckState(banId, userId);
     broadcastToUser(ban.senderId, { type: 'check:waiting', payload: waitingPayload });
     broadcastToUser(ban.receiverId, { type: 'check:waiting', payload: waitingPayload });
@@ -861,20 +900,39 @@ export async function submitCheckAnswer(
   const senderAns = answers.find((a) => a.userId === ban.senderId)!;
   const receiverAns = answers.find((a) => a.userId === ban.receiverId)!;
 
+  const t0 = Date.now();
+  console.log('[result-second-answer]', { banId, t0 });
+
+  void trackEvent(ANALYTICS_EVENTS.CHECK_ANSWERED, userId, {
+    banId,
+    completed,
+  });
+
   const { resolveCheckOutcome, applyCheckResult } = await import('./energy.service');
   const outcome = resolveCheckOutcome(senderAns.completed, receiverAns.completed);
   const energy = await applyCheckResult(banId, outcome);
 
+  const [resultSender, resultReceiver] = await Promise.all([
+    buildBanResult(banId, ban.senderId),
+    buildBanResult(banId, ban.receiverId),
+  ]);
+
+  await broadcastResultReady(banId, ban.senderId, ban.receiverId, {
+    t0,
+    resultSender,
+    resultReceiver,
+  });
+
+  const result =
+    userId === ban.senderId
+      ? resultSender
+      : userId === ban.receiverId
+        ? resultReceiver
+        : await buildBanResult(banId, userId);
+
   const msg =
     outcome === 'split' ? SYSTEM_VOICE.socialUnstable : SYSTEM_VOICE.checkComplete;
-
-  broadcastEnergyPopup(ban.senderId, energy.sender, msg);
-  broadcastEnergyPopup(ban.receiverId, energy.receiver, msg);
-  await broadcastResultReady(banId, ban.senderId, ban.receiverId);
-
-  const result = await buildBanResult(banId, userId);
-  await syncSession(ban.senderId);
-  await syncSession(ban.receiverId);
+  deferAfterCheckResult(ban, energy, msg);
 
   return {
     done: true,
