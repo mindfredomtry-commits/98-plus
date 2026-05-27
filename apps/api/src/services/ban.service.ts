@@ -483,6 +483,7 @@ export async function acceptBan(banId: string, userId: string) {
     return mapBanToInteraction(banId, userId);
   }
 
+  const fromStatus = ban.status;
   const expiresAt = scheduleEnd(ban.durationMinutes);
 
   await prisma.ban.update({
@@ -494,6 +495,20 @@ export async function acceptBan(banId: string, userId: string) {
       expiresAt,
       checkDueAt: expiresAt,
     },
+  });
+
+  console.log('[ban-status-change]', {
+    banId,
+    from: fromStatus,
+    to: 'ACTIVE',
+    reason: 'accept-ban',
+    actorUserId: userId,
+  });
+  console.log('[accept-ban]', {
+    banId,
+    actorUserId: userId,
+    receiverId: ban.receiverId,
+    reason: 'explicit-accept',
   });
 
   const activated = await prisma.ban.findUnique({ where: { id: banId } });
@@ -534,7 +549,7 @@ export async function replyToIncomingBan(params: {
   });
   if (!parent) throw new Error('Ban not found');
   if (parent.receiverId !== params.userId) throw new Error('Not your ban');
-  if (parent.status !== 'PENDING') {
+  if (parent.status !== 'PENDING' && parent.status !== 'ACTIVE') {
     throw new Error('Already handled');
   }
 
@@ -545,15 +560,16 @@ export async function replyToIncomingBan(params: {
   const can = await canSendBan(params.userId);
   if (!can.allowed) throw new Error(can.reason ?? 'Not allowed');
 
-  await prisma.ban.update({
-    where: { id: parent.id },
-    data: {
-      status: 'REPLIED',
-      handledAt: new Date(),
-      completedAt: new Date(),
-      receiverIncomingAckAt: new Date(),
-    },
-  });
+  if (parent.status === 'PENDING') {
+    await acceptBan(parent.id, params.userId);
+  }
+
+  if (!parent.receiverIncomingAckAt) {
+    await prisma.ban.update({
+      where: { id: parent.id },
+      data: { receiverIncomingAckAt: new Date() },
+    });
+  }
 
   const thread = await getOrCreateThread(params.userId, parent.senderId);
 
@@ -893,12 +909,13 @@ export async function getBanResult(banId: string, viewerId: string) {
   return buildBanResult(banId, viewerId);
 }
 
+/** Read-only ban view for verify/deep-link — never activates PENDING bans. */
 export async function resolveDeepLinkBan(banId: string, userId: string) {
   const ban = await prisma.ban.findUnique({ where: { id: banId } });
   if (!ban) return null;
-  if (ban.receiverId === userId && ban.status === 'PENDING') {
-    return acceptBan(banId, userId);
-  }
+  const isParticipant =
+    ban.senderId === userId || ban.receiverId === userId;
+  if (!isParticipant) return null;
   return mapBanToInteraction(banId, userId);
 }
 
@@ -1138,7 +1155,7 @@ export async function getPendingIncomingForPoll(userId: string) {
   return mapBanToInteraction(ban.id, userId);
 }
 
-/** Receiver saw incoming notification — ban may stay PENDING until reply/overboard. */
+/** Receiver dismissed incoming UI — does not activate ban (status stays PENDING). */
 export async function acknowledgeIncomingBan(
   banId: string,
   userId: string,
@@ -1146,9 +1163,14 @@ export async function acknowledgeIncomingBan(
   const ban = await prisma.ban.findUnique({ where: { id: banId } });
   if (!ban) return null;
   if (ban.receiverId !== userId) return null;
-  if (ban.status === 'PENDING') {
-    await acceptBan(banId, userId);
-  }
+
+  console.log('[incoming-ack]', {
+    banId,
+    actorUserId: userId,
+    receiverId: ban.receiverId,
+    status: ban.status,
+  });
+
   const fresh = await prisma.ban.findUnique({ where: { id: banId } });
   if (fresh && !fresh.receiverIncomingAckAt) {
     await prisma.ban.update({

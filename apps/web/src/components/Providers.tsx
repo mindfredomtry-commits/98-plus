@@ -236,7 +236,15 @@ function applySessionToState(
     );
     if (fromSession) return fromSession;
     if (prev && shouldShowIncomingBanModal(prev, viewerId, dismissedIncoming)) {
+      console.log('[incoming-still-pending-keep]', { banId: prev.id });
       return prev;
+    }
+    if (prev && !fromSession) {
+      console.log('[incoming-cleared]', {
+        banId: prev.id,
+        reason: 'session-empty',
+        authUserId: viewerId,
+      });
     }
     return null;
   });
@@ -1439,6 +1447,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     dismissedIncomingRef.current.add(banId);
     setIncomingBan(null);
     setViralOnboarding(false);
+    console.log('[incoming-cleared]', {
+      banId,
+      reason: 'receiver-dismiss',
+      authUserId: userIdRef.current,
+    });
     const uid = userIdRef.current;
     if (uid) {
       await acknowledgeIncomingFully(banId, tokenRef.current, uid);
@@ -1452,10 +1465,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       dismissedIncomingRef.current.add(banId);
       setIncomingBan(null);
       setViralOnboarding(false);
-      challengeLog('incoming:ack-before-reply', { banId });
-      const uid = userIdRef.current;
-      if (uid) {
-        await acknowledgeIncomingFully(banId, tokenRef.current, uid);
+      challengeLog('incoming:reply-open', { banId });
+      const token = tokenRef.current;
+      if (token) {
+        try {
+          await api<{ ban: BanInteraction }>(`/bans/${banId}/accept`, {
+            method: 'POST',
+            token,
+          });
+        } catch (e) {
+          challengeLog('incoming:accept-failed', {
+            banId,
+            message: (e as Error).message,
+          });
+        }
       }
       startIncomingReply(ban);
     },
@@ -1766,6 +1789,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       banSentOpenRef.current = false;
       setBanSentOpenRaw(false);
       setUiFreeze(null);
+      console.log('[success-done-click]', {
+        banId: null,
+        senderId: userIdRef.current,
+      });
       void flushDeferredSync();
     },
     [flushDeferredSync],

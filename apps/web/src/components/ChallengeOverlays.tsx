@@ -8,7 +8,6 @@ import { ResultOverlay } from './ResultOverlay';
 /** Success/result modals isolated from home shell — check modal lives in Providers. */
 export function ChallengeOverlays() {
   const {
-    dismissIncoming,
     banSentOpen,
     setBanSentOpen,
     result,
@@ -22,11 +21,9 @@ export function ChallengeOverlays() {
           open={banSentOpen}
           onDone={() => {
             setBanSentOpen(false);
-            dismissIncoming();
           }}
           onAgain={() => {
             setBanSentOpen(false);
-            dismissIncoming();
           }}
         />
       </ChallengeErrorBoundary>
