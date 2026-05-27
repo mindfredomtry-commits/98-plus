@@ -32,3 +32,29 @@ export function shouldShowIncomingBanModal(
   if (sessionDismissed.has(ban.id)) return false;
   return true;
 }
+
+/** Diagnostic for [incoming-show-decision] logs. */
+export function incomingShowDecision(
+  ban: BanInteraction | null | undefined,
+  viewerId: string | null | undefined,
+  sessionDismissed: ReadonlySet<string>,
+): { shouldShow: boolean; reason: string } {
+  if (!viewerId) return { shouldShow: false, reason: 'no-auth-user' };
+  if (!ban?.id?.trim() || !ban.text?.trim()) {
+    return { shouldShow: false, reason: 'invalid-payload' };
+  }
+  if (!ban.receiver?.id) return { shouldShow: false, reason: 'no-receiver' };
+  if (ban.receiver.id !== viewerId) {
+    return { shouldShow: false, reason: 'receiver-mismatch' };
+  }
+  if (ban.status !== 'pending') {
+    return { shouldShow: false, reason: `status-${ban.status}` };
+  }
+  if (ban.incomingAcknowledged) {
+    return { shouldShow: false, reason: 'already-acked' };
+  }
+  if (sessionDismissed.has(ban.id)) {
+    return { shouldShow: false, reason: 'session-dismissed' };
+  }
+  return { shouldShow: true, reason: 'show' };
+}

@@ -23,6 +23,12 @@ export async function getSessionState(
     incoming = await claimInvitesForUser(userId, username);
   }
 
+  console.log('[incoming-session]', {
+    userId,
+    incomingId: incoming?.id ?? null,
+    reason: incoming ? 'pending-offered' : 'none',
+  });
+
   const [pending, waiting, active, pendingResultId] = await Promise.all([
     getPendingCheck(userId),
     getWaitingCheck(userId),

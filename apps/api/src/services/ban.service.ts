@@ -272,16 +272,12 @@ export async function sendBan(params: {
     include: { sender: true, receiver: true },
   });
 
-  const expiresAt = scheduleEnd(durationMinutes);
-  await prisma.ban.update({
-    where: { id: ban.id },
-    data: {
-      status: 'ACTIVE',
-      acceptedAt: new Date(),
-      handledAt: new Date(),
-      expiresAt,
-      checkDueAt: expiresAt,
-    },
+  console.log('[incoming-create]', {
+    banId: ban.id,
+    senderId,
+    receiverId: receiver.id,
+    status: ban.status,
+    receiverIncomingAckAt: ban.receiverIncomingAckAt,
   });
 
   await setCooldown(`cooldown:send:${senderId}`, COOLDOWN_SEND);
@@ -301,6 +297,12 @@ export async function sendBan(params: {
   }
 
   broadcastToUser(receiver.id, { type: 'ban:incoming', payload: interaction });
+  console.log('[incoming-ws]', {
+    banId: ban.id,
+    toUserId: receiver.id,
+    emitted: true,
+    status: interaction.status,
+  });
 
   await recordSocialContact(senderId, {
     username: receiver.username ?? receiver.firstName,
@@ -925,10 +927,14 @@ export async function backfillStaleIncomingForUser(
   return total;
 }
 
-function incomingApiLog(
+function incomingSessionLog(
   payload: Record<string, unknown> & { userId: string; reason: string },
 ) {
-  console.log('[incoming-api]', payload);
+  console.log('[incoming-session]', {
+    userId: payload.userId,
+    incomingId: payload.pendingIncomingId ?? null,
+    reason: payload.reason,
+  });
 }
 
 /** Diagnostic: why a pending row is not offered (null = offer). */
@@ -977,7 +983,7 @@ export async function getPendingIncoming(userId: string) {
   });
 
   if (!ban) {
-    incomingApiLog({ userId, reason: 'no pending bans' });
+    incomingSessionLog({ userId, reason: 'no pending bans' });
     return null;
   }
 
@@ -995,11 +1001,11 @@ export async function getPendingIncoming(userId: string) {
 
   const reject = pendingIncomingRejectReason(ban, userId, cutoff);
   if (reject) {
-    incomingApiLog({ ...base, reason: reject });
+    incomingSessionLog({ ...base, reason: reject });
     return null;
   }
 
-  incomingApiLog({ ...base, reason: 'selected' });
+  incomingSessionLog({ ...base, reason: 'selected' });
   return mapBanToInteraction(ban.id, userId);
 }
 

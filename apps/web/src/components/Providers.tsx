@@ -39,11 +39,11 @@ import { fetchSession } from '@/lib/session';
 import { api } from '@/lib/api';
 import { challengeLog } from '@/lib/challenge-log';
 import {
+  incomingShowDecision,
   isValidIncomingOverlayPayload,
   shouldShowIncomingBanModal,
 } from '@/lib/incoming-challenge';
 import { acknowledgeIncomingFully } from '@/lib/incoming-ack-flow';
-import { hydrateAcknowledgedIncomingIds } from '@/lib/acknowledged-incoming';
 import {
   type OptimisticSendWait,
   CHECK_WAITING_UI_TTL_MS,
@@ -376,9 +376,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     answeredCheckRef.current = new Set();
     checkAnswerInFlightRef.current = new Set();
     if (!uid || auth.loading) return;
-    for (const id of hydrateAcknowledgedIncomingIds(uid)) {
-      dismissedIncomingRef.current.add(id);
-    }
     for (const id of hydrateAnsweredCheckIds(uid)) {
       answeredCheckRef.current.add(id);
     }
@@ -900,6 +897,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       dismissedIncomingRef.current,
       viewerId,
     );
+    if (session.incoming) {
+      console.log('[incoming-session-received]', {
+        banId: session.incoming.id,
+        receiverId: session.incoming.receiver?.id ?? null,
+        authUserId: viewerId,
+        status: session.incoming.status,
+      });
+      const decision = incomingShowDecision(
+        session.incoming,
+        viewerId,
+        dismissedIncomingRef.current,
+      );
+      console.log('[incoming-show-decision]', {
+        banId: session.incoming.id,
+        shouldShow: decision.shouldShow,
+        reason: decision.reason,
+        source: 'session',
+      });
+    }
     if (nextIncoming) {
       setIncomingBan(nextIncoming);
     }
@@ -1172,7 +1188,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       switch (event.type) {
         case 'ban:incoming': {
           const b = enrichBanInteraction(event.payload as BanInteraction);
-          const viewerId = auth.user?.id ?? null;
+          const viewerId = userIdRef.current;
+          console.log('[incoming-ws-received]', {
+            banId: b.id,
+            receiverId: b.receiver?.id ?? null,
+            authUserId: viewerId,
+            status: b.status,
+          });
+          const decision = incomingShowDecision(
+            b,
+            viewerId,
+            dismissedIncomingRef.current,
+          );
+          console.log('[incoming-show-decision]', {
+            banId: b.id,
+            shouldShow: decision.shouldShow,
+            reason: decision.reason,
+            source: 'ws',
+          });
           const incoming = pickIncomingForOverlay(
             b,
             dismissedIncomingRef.current,
@@ -1180,7 +1213,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           );
           if (incoming) {
             setIncomingBan(incoming);
-          } else if (b?.receiver?.id) {
+          } else if (
+            b?.receiver?.id &&
+            viewerId &&
+            b.receiver.id === viewerId
+          ) {
             bufferedIncomingRef.current = b;
             console.log('[incoming-buffer]', {
               action: 'store',
