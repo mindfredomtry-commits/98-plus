@@ -303,7 +303,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           outcome: r.outcome,
           mode,
         });
-        dismissBanResultLocally(r.id);
+        dismissBanResultLocally(r.id, r.viewerId ?? null);
         void acknowledgeBanResultOnServer(r.id, tokenRef.current);
         return;
       }
@@ -315,7 +315,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const dismissBanResult = useCallback(() => {
     setResult((prev) => {
       if (prev?.id) {
-        dismissBanResultLocally(prev.id);
+        dismissBanResultLocally(prev.id, prev.viewerId ?? null);
         void acknowledgeBanResultOnServer(prev.id, tokenRef.current);
       }
       return null;
@@ -1242,7 +1242,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       if (session.pendingResultId) {
         const pendingId = session.pendingResultId;
-        if (isDismissedResultLocally(pendingId)) {
+        if (isDismissedResultLocally(pendingId, requestUserId)) {
           void acknowledgeBanResultOnServer(pendingId, token);
         } else {
           try {
@@ -1253,10 +1253,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             if (tokenRef.current !== token) return;
             if (userIdRef.current !== requestUserId) return;
             if (pendingResult) {
-              if (shouldShowBanResult(pendingResult, 'auto', pendingId)) {
+              const shouldShow = shouldShowBanResult(pendingResult, 'auto', pendingId);
+              console.log('[result-received]', {
+                source: 'session',
+                banId: pendingResult.id,
+                authUserId: requestUserId,
+                senderId: pendingResult.sender.id,
+                receiverId: pendingResult.receiver.id,
+                outcome: pendingResult.outcome,
+              });
+              console.log('[result-show-decision]', {
+                shouldShow,
+                reason: shouldShow ? 'session-auto' : 'dismissed-or-invalid',
+              });
+              if (shouldShow) {
                 openBanResult(pendingResult, 'auto');
               } else {
-                dismissBanResultLocally(pendingId);
+                dismissBanResultLocally(pendingId, pendingResult.viewerId ?? requestUserId);
                 void acknowledgeBanResultOnServer(pendingId, token);
               }
             }
@@ -1373,6 +1386,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         case 'check:completed': {
           const payload = event.payload as BanResult;
           const uid = userIdRef.current;
+          console.log('[result-received]', {
+            source: 'ws',
+            banId: payload?.id ?? null,
+            authUserId: uid,
+            senderId: payload?.sender?.id ?? null,
+            receiverId: payload?.receiver?.id ?? null,
+            outcome: payload?.outcome ?? null,
+          });
+          const shouldShow =
+            !!payload?.id && shouldShowBanResult(payload, 'live', payload.id);
+          console.log('[result-show-decision]', {
+            shouldShow,
+            reason: shouldShow ? 'live-event' : 'dismissed-or-invalid',
+          });
           if (uid && payload?.id) {
             answeredCheckRef.current.add(payload.id);
             dismissedCheckSessionRef.current.add(payload.id);
@@ -1380,7 +1407,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           }
           clearCheckOverlay();
           dismissIncoming();
-          openBanResult(payload, 'live');
+          if (shouldShow) {
+            openBanResult(payload, 'live');
+          } else if (payload?.id) {
+            dismissBanResultLocally(payload.id, payload.viewerId ?? uid);
+            void acknowledgeBanResultOnServer(payload.id, tokenRef.current);
+          }
           auth.refreshUser();
           break;
         }
@@ -1506,7 +1538,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!result) return;
     if (
-      isDismissedResultLocally(result.id) ||
+      isDismissedResultLocally(result.id, result.viewerId ?? null) ||
       !isValidBanResultPayload(result)
     ) {
       dismissBanResult();

@@ -166,6 +166,33 @@ export async function applyCheckResult(
 
   const skip = await shouldSkipFarmRewards(ban.senderId, ban.receiverId);
   const raw = calcCheckOutcome(outcome);
+  const noEnergyApply = process.env.TEST_MODE_NO_ENERGY_APPLY === 'true';
+
+  if (noEnergyApply) {
+    const { checkOutcomeToPrisma } = await import('./result.service');
+    await prisma.ban.update({
+      where: { id: banId },
+      data: {
+        energyApplied: true,
+        status: 'COMPLETED',
+        completedAt: new Date(),
+        outcome: checkOutcomeToPrisma(outcome),
+        senderEnergyDelta: 0,
+        receiverEnergyDelta: 0,
+        farmSkipped: false,
+      },
+    });
+    console.log('[energy-calc]', {
+      banId,
+      senderId: ban.senderId,
+      receiverId: ban.receiverId,
+      outcome,
+      testModeNoEnergyApply: true,
+      rewardSender: 0,
+      rewardReceiver: 0,
+    });
+    return { sender: 0, receiver: 0, farmSkipped: false };
+  }
 
   const senderDelta = await applyDelta(ban.senderId, raw.sender, skip);
   const receiverDelta = await applyDelta(ban.receiverId, raw.receiver, skip);

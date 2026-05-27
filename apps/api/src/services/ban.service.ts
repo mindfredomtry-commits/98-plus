@@ -161,22 +161,53 @@ async function broadcastResultReady(
 ) {
   const resultSender = await buildBanResult(banId, senderId);
   const resultReceiver = await buildBanResult(banId, receiverId);
+  const ban = await prisma.ban.findUnique({
+    where: { id: banId },
+    include: { sender: true, receiver: true },
+  });
+  console.log('[result-created]', {
+    banId,
+    senderId,
+    receiverId,
+    outcome: ban?.outcome ?? null,
+    status: ban?.status ?? null,
+  });
   if (resultSender) {
+    console.log('[result-visible-for]', {
+      banId,
+      userId: senderId,
+      role: 'sender',
+      visible: true,
+    });
+    console.log('[result-emit]', {
+      banId,
+      toUserId: senderId,
+      role: 'sender',
+      eventName: 'check:completed',
+    });
     broadcastToUser(senderId, {
       type: 'check:completed',
       payload: resultSender,
     });
   }
   if (resultReceiver) {
+    console.log('[result-visible-for]', {
+      banId,
+      userId: receiverId,
+      role: 'receiver',
+      visible: true,
+    });
+    console.log('[result-emit]', {
+      banId,
+      toUserId: receiverId,
+      role: 'receiver',
+      eventName: 'check:completed',
+    });
     broadcastToUser(receiverId, {
       type: 'check:completed',
       payload: resultReceiver,
     });
   }
-  const ban = await prisma.ban.findUnique({
-    where: { id: banId },
-    include: { sender: true, receiver: true },
-  });
   if (ban && resultSender) {
     await sendResultNotification(
       ban.sender.telegramId,
@@ -1180,18 +1211,53 @@ export async function getWaitingCheck(userId: string) {
   return null;
 }
 
-/** Unseen check/overboard result only — never stale TIMEOUT/FAILED auto-popups. */
+/** Latest participant-visible completed result for sender or receiver. */
 export async function getLatestPendingResultId(userId: string) {
   const ban = await prisma.ban.findFirst({
     where: {
       OR: [{ senderId: userId }, { receiverId: userId }],
-      status: { in: ['COMPLETED', 'OVERBOARD'] },
-      outcome: { in: ['BOTH_YES', 'BOTH_NO', 'SPLIT', 'OVERBOARD'] },
-      handledAt: null,
+      status: { in: ['COMPLETED', 'OVERBOARD', 'FAILED', 'EXPIRED'] },
+      outcome: { not: null },
+      completedAt: { not: null },
     },
     orderBy: { completedAt: 'desc' },
   });
   return ban?.id ?? null;
+}
+
+/** Lightweight poll read for result delivery fallback. */
+export async function getPendingResultForPoll(userId: string) {
+  const pendingId = await getLatestPendingResultId(userId);
+  if (!pendingId) {
+    console.log('[result-pending]', {
+      userId,
+      resultId: null,
+      banId: null,
+      role: null,
+      reason: 'none',
+    });
+    return null;
+  }
+
+  const ban = await prisma.ban.findUnique({
+    where: { id: pendingId },
+    select: { senderId: true, receiverId: true },
+  });
+  const role =
+    ban?.senderId === userId
+      ? 'sender'
+      : ban?.receiverId === userId
+        ? 'receiver'
+        : 'none';
+  const result = await buildBanResult(pendingId, userId);
+  console.log('[result-pending]', {
+    userId,
+    resultId: result?.id ?? null,
+    banId: pendingId,
+    role,
+    reason: result ? 'found' : 'not-buildable',
+  });
+  return result;
 }
 
 export async function acknowledgeBanResult(
@@ -1201,11 +1267,8 @@ export async function acknowledgeBanResult(
   const ban = await prisma.ban.findUnique({ where: { id: banId } });
   if (!ban) return false;
   if (ban.senderId !== userId && ban.receiverId !== userId) return false;
-  if (ban.handledAt) return true;
-  await prisma.ban.update({
-    where: { id: banId },
-    data: { handledAt: new Date() },
-  });
+  // Intentional no-op: result dismissal is per-user local. Do not mutate handledAt,
+  // because handledAt is shared and can hide result from the other participant.
   return true;
 }
 

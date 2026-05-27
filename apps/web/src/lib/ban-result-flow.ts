@@ -11,7 +11,7 @@ export function shouldShowBanResult(
   mode: ResultOpenMode,
   banId?: string | null,
 ): boolean {
-  if (banId && isDismissedResultLocally(banId)) return false;
+  if (banId && isDismissedResultLocally(banId, result?.viewerId ?? null)) return false;
   return shouldOpenBanResult(result, mode);
 }
 
@@ -27,6 +27,9 @@ export async function acknowledgeBanResultOnServer(
   }
 }
 
-export function dismissBanResultLocally(banId: string) {
-  markDismissedResultLocally(banId);
+export function dismissBanResultLocally(
+  banId: string,
+  viewerId?: string | null,
+) {
+  markDismissedResultLocally(banId, viewerId ?? null);
 }
