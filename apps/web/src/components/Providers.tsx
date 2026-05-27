@@ -32,6 +32,8 @@ import { explainIncomingHidden, logIncomingDebug } from '@/lib/incoming-debug';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useIncomingPoll } from '@/hooks/useIncomingPoll';
 import { EnergyPopupStack } from './EnergyPopupStack';
+import { IncomingBanOverlay } from './IncomingBanOverlay';
+import { CheckOverlay } from './CheckOverlay';
 import { ChallengeErrorBoundary } from './ChallengeErrorBoundary';
 import { ShellErrorBoundary } from './ShellErrorBoundary';
 import { resetScrollLock } from '@/lib/scroll-lock';
@@ -94,17 +96,6 @@ import {
 } from '@/lib/connection-ui';
 
 // Break circular import: Providers -> ResultOverlay -> Providers (useApp).
-const IncomingBanOverlayLazy = dynamic(
-  () =>
-    import('./IncomingBanOverlay').then((m) => ({
-      default: m.IncomingBanOverlay,
-    })),
-  { ssr: false },
-);
-const CheckOverlayLazy = dynamic(
-  () => import('./CheckOverlay').then((m) => ({ default: m.CheckOverlay })),
-  { ssr: false },
-);
 const ResultOverlayLazy = dynamic(
   () => import('./ResultOverlay').then((m) => ({ default: m.ResultOverlay })),
   { ssr: false },
@@ -1998,13 +1989,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           name="incoming"
           onRecover={() => dismissIncoming()}
         >
-          <IncomingBanOverlayLazy />
+          <IncomingBanOverlay />
         </ChallengeErrorBoundary>
         <ChallengeErrorBoundary
           name="check"
           onRecover={() => clearCheckOverlay()}
         >
-          <CheckOverlayLazy />
+          <CheckOverlay />
         </ChallengeErrorBoundary>
         {result ? (
           <ChallengeErrorBoundary
