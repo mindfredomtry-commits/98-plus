@@ -155,35 +155,13 @@ export async function applyOverboard(
 export async function applyCheckResult(
   banId: string,
   outcome: CheckOutcome,
-): Promise<EnergyDelta & { farmSkipped: boolean; applied: boolean }> {
+): Promise<EnergyDelta & { farmSkipped: boolean }> {
   const ban = await prisma.ban.findUnique({
     where: { id: banId },
     include: { sender: true, receiver: true },
   });
-  if (!ban) {
-    return { sender: 0, receiver: 0, farmSkipped: false, applied: false };
-  }
-  if (ban.energyApplied) {
-    return {
-      sender: ban.senderEnergyDelta ?? 0,
-      receiver: ban.receiverEnergyDelta ?? 0,
-      farmSkipped: ban.farmSkipped ?? false,
-      applied: false,
-    };
-  }
-
-  const claimed = await prisma.ban.updateMany({
-    where: { id: banId, energyApplied: false },
-    data: { energyApplied: true },
-  });
-  if (claimed.count === 0) {
-    const existing = await prisma.ban.findUnique({ where: { id: banId } });
-    return {
-      sender: existing?.senderEnergyDelta ?? 0,
-      receiver: existing?.receiverEnergyDelta ?? 0,
-      farmSkipped: existing?.farmSkipped ?? false,
-      applied: false,
-    };
+  if (!ban || ban.energyApplied) {
+    return { sender: 0, receiver: 0, farmSkipped: false };
   }
 
   const skip = await shouldSkipFarmRewards(ban.senderId, ban.receiverId);
@@ -211,6 +189,7 @@ export async function applyCheckResult(
   await prisma.ban.update({
     where: { id: banId },
     data: {
+      energyApplied: true,
       status: 'COMPLETED',
       completedAt: new Date(),
       outcome: checkOutcomeToPrisma(outcome),
@@ -220,12 +199,7 @@ export async function applyCheckResult(
     },
   });
 
-  return {
-    sender: senderDelta,
-    receiver: receiverDelta,
-    farmSkipped: skip,
-    applied: true,
-  };
+  return { sender: senderDelta, receiver: receiverDelta, farmSkipped: skip };
 }
 
 export function resolveCheckOutcome(

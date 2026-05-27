@@ -154,56 +154,30 @@ export async function mapBanToInteraction(
   };
 }
 
-/** Emit per-viewer result payloads to both parties (Redis pub/sub via broadcastToUser). */
-export async function broadcastResultReady(
+async function broadcastResultReady(
   banId: string,
   senderId: string,
   receiverId: string,
 ) {
-  const ban = await prisma.ban.findUnique({
-    where: { id: banId },
-    include: { sender: true, receiver: true },
-  });
-  if (!ban) return;
-
   const resultSender = await buildBanResult(banId, senderId);
   const resultReceiver = await buildBanResult(banId, receiverId);
-
-  console.log('[result-created]', {
-    banId,
-    senderId,
-    receiverId,
-    outcome: ban.outcome,
-    energyDeltaSender: ban.senderEnergyDelta ?? 0,
-    energyDeltaReceiver: ban.receiverEnergyDelta ?? 0,
-  });
-
   if (resultSender) {
-    console.log('[result-ws-emit]', {
-      banId,
-      toUserId: senderId,
-      role: 'sender',
-      eventName: 'check:completed',
-    });
     broadcastToUser(senderId, {
       type: 'check:completed',
       payload: resultSender,
     });
   }
   if (resultReceiver) {
-    console.log('[result-ws-emit]', {
-      banId,
-      toUserId: receiverId,
-      role: 'receiver',
-      eventName: 'check:completed',
-    });
     broadcastToUser(receiverId, {
       type: 'check:completed',
       payload: resultReceiver,
     });
   }
-
-  if (resultSender) {
+  const ban = await prisma.ban.findUnique({
+    where: { id: banId },
+    include: { sender: true, receiver: true },
+  });
+  if (ban && resultSender) {
     await sendResultNotification(
       ban.sender.telegramId,
       banId,
@@ -842,18 +816,16 @@ export async function submitCheckAnswer(
   const outcome = resolveCheckOutcome(senderAns.completed, receiverAns.completed);
   const energy = await applyCheckResult(banId, outcome);
 
-  if (energy.applied) {
-    const msg =
-      outcome === 'split' ? SYSTEM_VOICE.socialUnstable : SYSTEM_VOICE.checkComplete;
+  const msg =
+    outcome === 'split' ? SYSTEM_VOICE.socialUnstable : SYSTEM_VOICE.checkComplete;
 
-    broadcastEnergyPopup(ban.senderId, energy.sender, msg);
-    broadcastEnergyPopup(ban.receiverId, energy.receiver, msg);
-    await broadcastResultReady(banId, ban.senderId, ban.receiverId);
-  }
+  broadcastEnergyPopup(ban.senderId, energy.sender, msg);
+  broadcastEnergyPopup(ban.receiverId, energy.receiver, msg);
+  await broadcastResultReady(banId, ban.senderId, ban.receiverId);
 
   const result = await buildBanResult(banId, userId);
-  void syncSession(ban.senderId).catch(() => {});
-  void syncSession(ban.receiverId).catch(() => {});
+  await syncSession(ban.senderId);
+  await syncSession(ban.receiverId);
 
   return {
     done: true,
@@ -1220,22 +1192,6 @@ export async function getLatestPendingResultId(userId: string) {
     orderBy: { completedAt: 'desc' },
   });
   return ban?.id ?? null;
-}
-
-/** Unviewed result for poll/session fallback — per-user via handledAt. */
-export async function getPendingResultForPoll(userId: string) {
-  const banId = await getLatestPendingResultId(userId);
-  if (!banId) {
-    console.log('[result-pending]', { userId, banId: null, reason: 'none' });
-    return null;
-  }
-  const result = await buildBanResult(banId, userId);
-  console.log('[result-pending]', {
-    userId,
-    banId,
-    reason: result ? 'found' : 'invalid-payload',
-  });
-  return result;
 }
 
 export async function acknowledgeBanResult(
