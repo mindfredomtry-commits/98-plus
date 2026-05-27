@@ -1,12 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import type { FriendCard } from '@98plus/shared';
 import { coerceFriendList } from '@98plus/shared';
 import { api } from '@/lib/api';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { getAvatarReadyState } from '@/lib/avatar-preload';
+import { logAvatarStartup } from '@/lib/avatar-startup-diag';
 import { useApp } from './Providers';
 import { AvatarImage } from './AvatarImage';
 import {
@@ -209,6 +210,17 @@ function FriendPickerInner({
       (f) => (f.username ?? '').toLowerCase() !== 'share',
     );
   }, [friends, optimisticSendWait, externalFriends]);
+
+  const friendsRenderLoggedRef = useRef(false);
+  useEffect(() => {
+    if (people.length === 0 || friendsRenderLoggedRef.current) return;
+    friendsRenderLoggedRef.current = true;
+    logAvatarStartup('[friends-render]', {
+      count: people.length,
+      compact,
+      source: externalFriends !== undefined ? 'props' : 'local',
+    });
+  }, [people.length, compact, externalFriends]);
 
   function pick(username: string | null | undefined) {
     const clean = (username ?? '').replace(/^@/, '').trim();

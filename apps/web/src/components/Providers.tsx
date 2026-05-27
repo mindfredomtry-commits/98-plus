@@ -60,7 +60,12 @@ import { writeFriendsCache, readFriendsCache } from '@/lib/friends-cache';
 import { readHomeSnapshot, writeHomeSnapshot } from '@/lib/home-snapshot';
 import { enrichBanInteraction } from '@/lib/user-public-avatar';
 import { mergeFriendsPreservingAvatars } from '@/lib/friend-avatar-merge';
-import { preloadFriendAvatars } from '@/lib/avatar-preload';
+import {
+  preloadFriendAvatars,
+  setAvatarPreloadCompleteListener,
+} from '@/lib/avatar-preload';
+import { markAvatarStartup } from '@/lib/avatar-startup-diag';
+import { preloadAvatarUrls } from '@/lib/avatar-url';
 import { afterKeyboardCollapse, blurActiveInputs } from '@/lib/keyboard-dismiss';
 import {
   clearAvatarCaches,
@@ -376,6 +381,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [friendsBootstrapped, setFriendsBootstrapped] = useState(false);
   const [sessionBootstrapped, setSessionBootstrapped] = useState(false);
   const [homeSnapshotReady, setHomeSnapshotReady] = useState(false);
+  const [, setAvatarPreloadEpoch] = useState(0);
   const [startupGraceActive, setStartupGraceActive] = useState(true);
   const [networkBootstrapCompleted, setNetworkBootstrapCompleted] =
     useState(false);
@@ -554,9 +560,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         userId: uid,
         count: cached.length,
       });
-      void preloadFriendAvatars(cached, { timeoutMs: 2000 });
+      markAvatarStartup();
+      preloadAvatarUrls(cached.map((f) => f.avatarUrl ?? f.photoUrl));
+      void preloadFriendAvatars(cached, { timeoutMs: 2000, via: 'friends-cache' });
     }
   }, [auth.user?.id]);
+
+  useEffect(() => {
+    setAvatarPreloadCompleteListener(() => {
+      setAvatarPreloadEpoch((n) => n + 1);
+    });
+    return () => setAvatarPreloadCompleteListener(null);
+  }, []);
+
+  useEffect(() => {
+    if (auth.authReady && auth.user?.id) markAvatarStartup();
+  }, [auth.authReady, auth.user?.id]);
 
   const clearCheckOverlay = useCallback(() => {
     if (checkWaitingTimerRef.current) {
@@ -1055,8 +1074,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         count: merged.length,
         via: meta.via,
       });
+      preloadAvatarUrls(merged.map((f) => f.avatarUrl ?? f.photoUrl));
       const preloadStartedAt = Date.now();
-      void preloadFriendAvatars(merged, { timeoutMs: 1000 }).then(() => {
+      void preloadFriendAvatars(merged, {
+        timeoutMs: 1000,
+        via: meta.via,
+      }).then(() => {
         if (tokenRef.current !== requestToken) return;
         if (userIdRef.current !== requestUid) return;
         logFriendsTiming('avatar-preload-done', {

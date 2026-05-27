@@ -3,6 +3,7 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { normalizeAvatarUrl } from '@/lib/avatar-url';
 import { isAvatarUrlPreloaded, preloadedAvatarUrls } from '@/lib/avatar-preload';
+import { logAvatarStartup } from '@/lib/avatar-startup-diag';
 
 type Props = {
   src: string | null | undefined;
@@ -81,7 +82,23 @@ function AvatarImageInner({
   }, [normalized, preloadedPhoto, preloadedFallback]);
 
   const showPhoto = Boolean(normalized) && loaded && !failed;
-  const instantPhoto = preloadedPhoto || (showPhoto && isAvatarUrlPreloaded(normalized));
+  const instantPhoto =
+    preloadedPhoto ||
+    (normalized != null && isAvatarUrlPreloaded(normalized)) ||
+    (showPhoto && isAvatarUrlPreloaded(normalized));
+  const renderLoggedRef = useRef(false);
+
+  useEffect(() => {
+    if (!showPhoto || renderLoggedRef.current) return;
+    renderLoggedRef.current = true;
+    logAvatarStartup('[avatar-render]', {
+      priority,
+      instant: instantPhoto,
+      preloaded: normalized ? isAvatarUrlPreloaded(normalized) : false,
+    });
+  }, [showPhoto, priority, instantPhoto, normalized]);
+
+  const imgDecoding = instantPhoto || priority ? 'sync' : 'async';
 
   return (
     <div
@@ -100,8 +117,9 @@ function AvatarImageInner({
           key={normalized}
           src={normalized}
           alt=""
-          decoding="async"
+          decoding={imgDecoding}
           loading={priority ? 'eager' : 'lazy'}
+          fetchPriority={priority ? 'high' : undefined}
           referrerPolicy="no-referrer"
           className={`avatar-image__photo absolute inset-0 w-full h-full rounded-full object-cover ring-2 ring-white/15 bg-transparent ${
             instantPhoto ? 'opacity-100' : `transition-opacity duration-200 ease-out ${showPhoto ? 'opacity-100' : 'opacity-0'}`

@@ -1,4 +1,5 @@
 import type { FriendCard } from '@98plus/shared';
+import { logAvatarStartup } from './avatar-startup-diag';
 import { normalizeAvatarUrl } from './avatar-url';
 
 export type AvatarPreloadStatus = 'none' | 'loaded' | 'failed';
@@ -41,8 +42,18 @@ export function getAvatarReadyState(
 ): 'photo' | 'fallback' | undefined {
   const status = getAvatarPreloadStatus(friend);
   if (status === 'loaded') return 'photo';
-  if (status === 'failed' || status === 'none') return 'fallback';
+  if (status === 'failed') return 'fallback';
   return undefined;
+}
+
+let onPreloadComplete: (() => void) | null = null;
+
+export function setAvatarPreloadCompleteListener(cb: (() => void) | null): void {
+  onPreloadComplete = cb;
+}
+
+function notifyPreloadComplete(): void {
+  onPreloadComplete?.();
 }
 
 function preloadOne(
@@ -76,10 +87,17 @@ function preloadOne(
 /** Preload friend avatars before arena paint; resolves fallback for missing/failed URLs. */
 export async function preloadFriendAvatars(
   friends: FriendCard[],
-  options?: { timeoutMs?: number },
+  options?: { timeoutMs?: number; via?: string },
 ): Promise<void> {
   if (typeof window === 'undefined') return;
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const startedAt = performance.now();
+
+  logAvatarStartup('[avatar-load-start]', {
+    count: friends.length,
+    via: options?.via ?? 'preload',
+    timeoutMs,
+  });
 
   await Promise.allSettled(
     friends.map(async (f) => {
@@ -113,6 +131,13 @@ export async function preloadFriendAvatars(
       });
     }),
   );
+
+  logAvatarStartup('[avatar-data-ready]', {
+    count: friends.length,
+    via: options?.via ?? 'preload',
+    preloadMs: Math.round(performance.now() - startedAt),
+  });
+  notifyPreloadComplete();
 }
 
 export { loadedUrls as preloadedAvatarUrls };

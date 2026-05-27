@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import type { UserPublic } from '@98plus/shared';
 import { api } from '@/lib/api';
@@ -8,6 +8,8 @@ import { EnergyBar } from './EnergyBar';
 import { BigButton } from './BigButton';
 import { useApp } from './Providers';
 import { AvatarImage } from './AvatarImage';
+import { preloadAvatarUrls } from '@/lib/avatar-url';
+import { logAvatarStartup } from '@/lib/avatar-startup-diag';
 import { enrichUserPublic, userAvatarSrc } from '@/lib/user-public-avatar';
 
 interface ProfileData {
@@ -24,6 +26,15 @@ export function ProfileView({ userId }: { userId?: string }) {
   const [selfPublic, setSelfPublic] = useState(false);
 
   const id = userId ?? me?.id;
+  const sessionProfile = useMemo(
+    () => (me && id === me.id ? enrichUserPublic(me) : null),
+    [me, id],
+  );
+
+  useEffect(() => {
+    const src = userAvatarSrc(sessionProfile);
+    if (src) preloadAvatarUrls([src]);
+  }, [sessionProfile]);
 
   useEffect(() => {
     if (!token || !id) return;
@@ -31,6 +42,18 @@ export function ProfileView({ userId }: { userId?: string }) {
       setData({ ...d, user: enrichUserPublic(d.user) }),
     );
   }, [token, id]);
+
+  const displayUser = data?.user ?? sessionProfile;
+  const profileRenderLoggedRef = useRef(false);
+  useEffect(() => {
+    if (!displayUser || profileRenderLoggedRef.current) return;
+    profileRenderLoggedRef.current = true;
+    logAvatarStartup('[profile-render]', {
+      userId: displayUser.id,
+      via: data ? 'api' : 'session',
+      hasAvatar: !!userAvatarSrc(displayUser),
+    });
+  }, [displayUser, data]);
 
   async function createSelfBan() {
     if (!token || !selfText.trim()) return;
@@ -44,11 +67,11 @@ export function ProfileView({ userId }: { userId?: string }) {
     setData({ ...refreshed, user: enrichUserPublic(refreshed.user) });
   }
 
-  if (!data) {
+  if (!displayUser) {
     return <div className="text-muted text-center py-12">...</div>;
   }
 
-  const isMe = me?.id === data.user.id;
+  const isMe = me?.id === displayUser.id;
 
   return (
     <motion.div
@@ -58,23 +81,24 @@ export function ProfileView({ userId }: { userId?: string }) {
     >
       <div className="flex items-center gap-4">
         <AvatarImage
-          src={userAvatarSrc(enrichUserPublic(data.user))}
-          letter={(data.user.firstName[0] ?? '?').toUpperCase()}
+          src={userAvatarSrc(displayUser)}
+          letter={(displayUser.firstName[0] ?? '?').toUpperCase()}
           sizeClass="w-16 h-16"
           textClass="text-2xl"
+          priority
         />
         <div>
-          <h1 className="text-xl font-bold">{data.user.firstName}</h1>
-          {data.user.username && (
-            <p className="text-muted text-sm">@{data.user.username}</p>
+          <h1 className="text-xl font-bold">{displayUser.firstName}</h1>
+          {displayUser.username && (
+            <p className="text-muted text-sm">@{displayUser.username}</p>
           )}
-          <p className="text-accent text-sm">🔥 {data.user.streak} streak</p>
+          <p className="text-accent text-sm">🔥 {displayUser.streak} streak</p>
         </div>
       </div>
 
-      <EnergyBar user={data.user} />
+      <EnergyBar user={displayUser} />
 
-      {data.publicSelfBans.length > 0 && (
+      {data && data.publicSelfBans.length > 0 && (
         <section>
           <h3 className="text-sm text-muted mb-2">Self-bans</h3>
           {data.publicSelfBans.map((s) => (
@@ -85,7 +109,7 @@ export function ProfileView({ userId }: { userId?: string }) {
         </section>
       )}
 
-      {data.strongestInteractions.length > 0 && (
+      {data && data.strongestInteractions.length > 0 && (
         <section>
           <h3 className="text-sm text-muted mb-2">Сильные interaction</h3>
           {data.strongestInteractions.map((b) => (
