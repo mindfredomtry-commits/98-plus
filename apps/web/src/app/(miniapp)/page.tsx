@@ -61,6 +61,7 @@ export default function HomePage() {
     homeSnapshotReady,
     sessionReady,
     incomingGateActive,
+    checkGateActive,
     setIncomingBan,
     setCheckBan,
     openBanResult,
@@ -139,6 +140,7 @@ export default function HomePage() {
 
   const canRenderShell =
     incomingGateActive ||
+    checkGateActive ||
     homeSnapshotReady ||
     (sessionReady && friendsReady);
 
@@ -150,7 +152,9 @@ export default function HomePage() {
     <div
       className={`app-page${
         incomingGateActive ? ' app-page--incoming-overlay-active' : ''
-      }${banSentOpen ? ' app-page--success-modal' : ''}`}
+      }${checkGateActive ? ' app-page--check-overlay-active' : ''}${
+        banSentOpen ? ' app-page--success-modal' : ''
+      }`}
     >
       <ShellErrorBoundary name="ambience" fallback={null}>
         <ArenaAmbience />

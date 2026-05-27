@@ -1,7 +1,8 @@
-import type { FriendCard, UserPublic } from '@98plus/shared';
+import type { FriendCard, UserPublic, BanInteraction } from '@98plus/shared';
 import { coerceFriendList } from '@98plus/shared';
 
-const SNAPSHOT_VERSION = 1 as const;
+const SNAPSHOT_VERSION = 2 as const;
+const SNAPSHOT_VERSION_LEGACY = 1 as const;
 
 export type HomeSnapshotUser = Pick<
   UserPublic,
@@ -25,6 +26,7 @@ export interface HomeSnapshot {
   sendDuration: number;
   sendReceiver: string;
   activeBansCount: number;
+  checkBan?: BanInteraction | null;
 }
 
 function snapshotKey(userId: string): string {
@@ -37,7 +39,12 @@ export function readHomeSnapshot(userId: string): HomeSnapshot | null {
     const raw = localStorage.getItem(snapshotKey(userId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<HomeSnapshot>;
-    if (parsed.version !== SNAPSHOT_VERSION) return null;
+    if (
+      parsed.version !== SNAPSHOT_VERSION &&
+      parsed.version !== SNAPSHOT_VERSION_LEGACY
+    ) {
+      return null;
+    }
     if (parsed.ownerUserId !== userId) return null;
     if (!parsed.user?.id || parsed.user.id !== userId) return null;
 
@@ -53,6 +60,12 @@ export function readHomeSnapshot(userId: string): HomeSnapshot | null {
         typeof parsed.sendReceiver === 'string' ? parsed.sendReceiver : '',
       activeBansCount:
         typeof parsed.activeBansCount === 'number' ? parsed.activeBansCount : 0,
+      checkBan:
+        parsed.checkBan &&
+        typeof parsed.checkBan === 'object' &&
+        typeof (parsed.checkBan as BanInteraction).id === 'string'
+          ? (parsed.checkBan as BanInteraction)
+          : null,
     };
   } catch {
     return null;
@@ -67,6 +80,7 @@ export function writeHomeSnapshot(
     sendDuration: number;
     sendReceiver: string;
     activeBansCount: number;
+    checkBan?: BanInteraction | null;
   },
 ): void {
   if (typeof window === 'undefined' || !userId || !data.user?.id) return;
@@ -91,6 +105,8 @@ export function writeHomeSnapshot(
     sendDuration: data.sendDuration,
     sendReceiver: data.sendReceiver,
     activeBansCount: data.activeBansCount,
+    checkBan:
+      data.checkBan?.status === 'checking' ? data.checkBan : null,
   };
 
   try {

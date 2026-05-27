@@ -741,14 +741,19 @@ html.scroll-lock body {
 .app-page--incoming-overlay-active .app-main,
 .app-page--incoming-overlay-active .home-arena,
 .app-page--incoming-overlay-active .cta-dock,
-.app-page--incoming-overlay-active .bottom-nav {
+.app-page--incoming-overlay-active .bottom-nav,
+.app-page--check-overlay-active .app-main,
+.app-page--check-overlay-active .home-arena,
+.app-page--check-overlay-active .cta-dock,
+.app-page--check-overlay-active .bottom-nav {
   filter: blur(6px);
   opacity: 0.42;
   pointer-events: none;
   user-select: none;
 }
 
-.app-page--incoming-overlay-active::before {
+.app-page--incoming-overlay-active::before,
+.app-page--check-overlay-active::before {
   content: '';
   position: fixed;
   inset: 0;

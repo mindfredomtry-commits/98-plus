@@ -31,6 +31,7 @@ import { explainIncomingHidden, logIncomingDebug } from '@/lib/incoming-debug';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { EnergyPopupStack } from './EnergyPopupStack';
 import { IncomingBanOverlay } from './IncomingBanOverlay';
+import { CheckOverlay } from './CheckOverlay';
 import { ChallengeErrorBoundary } from './ChallengeErrorBoundary';
 import { ShellErrorBoundary } from './ShellErrorBoundary';
 import { resetScrollLock } from '@/lib/scroll-lock';
@@ -65,6 +66,14 @@ import {
   rememberUserAvatar,
 } from '@/lib/avatar-cache';
 import { backfillAcknowledgedIncomingOnce } from '@/lib/incoming-backfill';
+import {
+  hydrateAnsweredCheckIds,
+  markCheckAnsweredLocally,
+} from '@/lib/answered-checks';
+import {
+  pickCheckForOverlay,
+  shouldShowCheckOverlay,
+} from '@/lib/check-overlay';
 import { timingLog, timingStart } from '@/lib/timing-log';
 import { logFriendsTiming } from '@/lib/boot-timing';
 import {
@@ -104,7 +113,12 @@ interface AppContextValue {
   acknowledgeIncomingAndStartReply: (ban: BanInteraction) => Promise<void>;
   acknowledgeIncomingSeen: (banId: string) => Promise<void>;
   checkBan: BanInteraction | null;
+  checkGateActive: boolean;
   setCheckBan: (b: BanInteraction | null) => void;
+  submitCheckAnswer: (
+    banId: string,
+    completed: boolean,
+  ) => Promise<{ ok: boolean; error?: string }>;
   checkWaiting: boolean;
   setCheckWaiting: (v: boolean) => void;
   result: BanResult | null;
@@ -193,30 +207,47 @@ function enrichSessionState(s: SessionState): SessionState {
 
 function applySessionToState(
   s: SessionState,
-  dismissed: Set<string>,
+  dismissedIncoming: Set<string>,
+  checkGuards: {
+    sessionDismissed: Set<string>;
+    answeredLocally: Set<string>;
+    inFlight: Set<string>;
+    resultOpen: boolean;
+  },
   viewerId: string | null | undefined,
   setters: {
     setActiveBans: (b: BanInteraction[]) => void;
-    setIncomingBan: (b: BanInteraction | null) => void;
+    setIncomingBan: (b: BanInteraction | null | ((prev: BanInteraction | null) => BanInteraction | null)) => void;
     setCheckBan: (b: BanInteraction | null) => void;
     setCheckWaiting: (v: boolean) => void;
   },
 ) {
   const session = enrichSessionState(s);
   setters.setActiveBans(Array.isArray(session.active) ? session.active : []);
-  setters.setIncomingBan((prev) => {
+  setters.setIncomingBan((prev: BanInteraction | null) => {
     const fromSession = pickIncomingForOverlay(
       session.incoming,
-      dismissed,
+      dismissedIncoming,
       viewerId,
     );
     if (fromSession) return fromSession;
-    if (prev && shouldShowIncomingBanModal(prev, viewerId, dismissed)) return prev;
+    if (prev && shouldShowIncomingBanModal(prev, viewerId, dismissedIncoming)) {
+      return prev;
+    }
     return null;
   });
 
-  if (session.check?.status === 'checking') {
-    setters.setCheckBan(session.check);
+  const fromSessionCheck = pickCheckForOverlay(
+    session.check,
+    viewerId,
+    checkGuards.sessionDismissed,
+    checkGuards.answeredLocally,
+    checkGuards.inFlight,
+    checkGuards.resultOpen,
+  );
+
+  if (fromSessionCheck) {
+    setters.setCheckBan(fromSessionCheck);
     setters.setCheckWaiting(false);
   } else if (!session.needsOnboardingRecovery) {
     setters.setCheckBan(null);
@@ -330,6 +361,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, []);
 
   const dismissedIncomingRef = useRef<Set<string>>(new Set());
+  const dismissedCheckSessionRef = useRef<Set<string>>(new Set());
+  const answeredCheckRef = useRef<Set<string>>(new Set());
+  const checkAnswerInFlightRef = useRef<Set<string>>(new Set());
+  const resultOpenRef = useRef(false);
   const bufferedIncomingRef = useRef<BanInteraction | null>(null);
   const banSentOpenRef = useRef(false);
   const deferredSyncRef = useRef(false);
@@ -337,9 +372,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const uid = auth.user?.id ?? null;
     dismissedIncomingRef.current = new Set();
+    dismissedCheckSessionRef.current = new Set();
+    answeredCheckRef.current = new Set();
+    checkAnswerInFlightRef.current = new Set();
     if (!uid || auth.loading) return;
     for (const id of hydrateAcknowledgedIncomingIds(uid)) {
       dismissedIncomingRef.current.add(id);
+    }
+    for (const id of hydrateAnsweredCheckIds(uid)) {
+      answeredCheckRef.current.add(id);
     }
   }, [auth.user?.id, auth.loading]);
 
@@ -396,9 +437,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setBanSentOpen(false);
     setOptimisticSendWait(null);
     dismissedIncomingRef.current = new Set();
+    dismissedCheckSessionRef.current = new Set();
+    answeredCheckRef.current = new Set();
+    checkAnswerInFlightRef.current = new Set();
 
     const uid = auth.user?.id;
     if (!uid) return;
+
+    for (const id of hydrateAnsweredCheckIds(uid)) {
+      answeredCheckRef.current.add(id);
+    }
 
     const snapshot = readHomeSnapshot(uid);
     if (snapshot) {
@@ -422,6 +470,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         savedAt: snapshot.savedAt,
       });
       void preloadFriendAvatars(hydratedFriends, { timeoutMs: 2000 });
+      const cachedCheck = snapshot.checkBan
+        ? enrichBanInteraction(snapshot.checkBan)
+        : null;
+      if (
+        cachedCheck &&
+        shouldShowCheckOverlay(
+          cachedCheck,
+          uid,
+          dismissedCheckSessionRef.current,
+          answeredCheckRef.current,
+          checkAnswerInFlightRef.current,
+          resultOpenRef.current,
+        )
+      ) {
+        setCheckBan(cachedCheck);
+        console.log('[check-overlay]', {
+          event: 'snapshot-hydrated',
+          banId: cachedCheck.id,
+        });
+      }
       return;
     }
 
@@ -451,6 +519,82 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setCheckBan(null);
     setCheckWaiting(false);
   }, []);
+
+  const setCheckBanSafe = useCallback(
+    (b: BanInteraction | null) => {
+      const viewerId = auth.user?.id ?? null;
+      if (b !== null) {
+        if (
+          !shouldShowCheckOverlay(
+            b,
+            viewerId,
+            dismissedCheckSessionRef.current,
+            answeredCheckRef.current,
+            checkAnswerInFlightRef.current,
+            resultOpenRef.current,
+          )
+        ) {
+          console.log('[check-overlay]', {
+            event: 'reject-set',
+            banId: b.id,
+            authUserId: viewerId,
+          });
+          return;
+        }
+        challengeLog('check:set', { id: b.id, status: b.status });
+        setCheckBan(enrichBanInteraction(b));
+        return;
+      }
+      setCheckBan(null);
+    },
+    [auth.user?.id],
+  );
+
+  const submitCheckAnswer = useCallback(
+    async (banId: string, completed: boolean) => {
+      const uid = userIdRef.current;
+      const token = tokenRef.current;
+      if (!uid || !token) {
+        return { ok: false, error: 'Нет авторизации' };
+      }
+
+      dismissedCheckSessionRef.current.add(banId);
+      answeredCheckRef.current.add(banId);
+      markCheckAnsweredLocally(uid, banId);
+      checkAnswerInFlightRef.current.add(banId);
+      setCheckBan(null);
+      setCheckWaiting(false);
+
+      try {
+        const res = await api<{
+          done: boolean;
+          waiting?: boolean;
+          result?: BanResult;
+        }>(`/bans/${banId}/check`, {
+          method: 'POST',
+          token,
+          body: JSON.stringify({ completed }),
+        });
+
+        if (res.done && res.result) {
+          challengeLog('check:done', { banId });
+          openBanResult(res.result, 'live');
+          void refreshUserRef.current().catch(() => {});
+        } else if (res.waiting) {
+          challengeLog('check:waiting-partner', { banId });
+        }
+
+        return { ok: true };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : 'Ошибка отправки';
+        challengeLog('check:submit-failed', { banId, message });
+        return { ok: false, error: message };
+      } finally {
+        checkAnswerInFlightRef.current.delete(banId);
+      }
+    },
+    [openBanResult],
+  );
 
   const scheduleCheckWaitingDismiss = useCallback(() => {
     if (checkWaitingTimerRef.current) {
@@ -723,14 +867,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const applySession = useCallback((s: SessionState) => {
     const viewerId = auth.user?.id ?? null;
-    if (!viewerId || auth.loading) {
+    if (!viewerId) {
       logIncomingDebug({
         authUserId: viewerId,
         sessionUserId: s.userId,
         incomingId: s.incoming?.id,
         incomingReceiverId: s.incoming?.receiver?.id,
         shouldShow: false,
-        reason: !viewerId ? 'no-auth-user' : 'auth-loading',
+        reason: 'no-auth-user',
       });
       return;
     }
@@ -799,6 +943,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         active: nextActive.filter((b) => !b.id.startsWith('optimistic-ban:')),
       }),
       dismissedIncomingRef.current,
+      {
+        sessionDismissed: dismissedCheckSessionRef.current,
+        answeredLocally: answeredCheckRef.current,
+        inFlight: checkAnswerInFlightRef.current,
+        resultOpen: resultOpenRef.current,
+      },
       viewerId,
       {
         setActiveBans,
@@ -812,7 +962,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setViralOnboarding(false);
     }
     setDataOwnerUserId(viewerId);
-  }, [resolveOptimisticFromSession, auth.user?.id, auth.loading]);
+  }, [resolveOptimisticFromSession, auth.user?.id]);
 
   useEffect(() => {
     if (!auth.boot || !auth.user?.id || auth.loading) return;
@@ -1043,7 +1193,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         case 'check:due': {
           const ban = enrichBanInteraction(event.payload as BanInteraction);
           if (ban?.status === 'checking') {
-            setCheckBan(ban);
+            setCheckBanSafe(ban);
             setCheckWaiting(false);
           }
           break;
@@ -1052,12 +1202,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           setCheckWaiting(true);
           scheduleCheckWaitingDismiss();
           break;
-        case 'check:completed':
+        case 'check:completed': {
+          const payload = event.payload as BanResult;
+          const uid = userIdRef.current;
+          if (uid && payload?.id) {
+            answeredCheckRef.current.add(payload.id);
+            dismissedCheckSessionRef.current.add(payload.id);
+            markCheckAnsweredLocally(uid, payload.id);
+          }
           clearCheckOverlay();
           dismissIncoming();
-          openBanResult(event.payload as BanResult, 'live');
+          openBanResult(payload, 'live');
           auth.refreshUser();
           break;
+        }
         case 'sync:session':
           applySession(event.payload as SessionState);
           break;
@@ -1149,6 +1307,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   reloadPendingRef.current = reloadPending;
 
   useEffect(() => {
+    resultOpenRef.current = !!result;
+  }, [result]);
+
+  useEffect(() => {
+    const uid = auth.user?.id;
+    const token = auth.token;
+    if (!uid || !token) return;
+    void reloadPendingRef.current().catch(() => {});
+  }, [auth.user?.id, auth.token]);
+
+  useEffect(() => {
     setFirstBanComplete(isFirstBanComplete());
   }, []);
 
@@ -1230,8 +1399,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         end();
         timingLog('friends fetch failed', 0);
       });
-
-    reloadPendingRef.current().catch(() => {});
   }, [
     auth.token,
     auth.user?.id,
@@ -1315,6 +1482,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         sendDuration,
         sendReceiver,
         activeBansCount: displayActiveBansRef.current.length,
+        checkBan: checkBan?.status === 'checking' ? checkBan : null,
       });
     }, 400);
 
@@ -1327,6 +1495,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     sendReceiver,
     displayFriends,
     displayActiveBans.length,
+    checkBan,
   ]);
 
   // Show user data as soon as backend user id + token exist (do not wait authReady / session).
@@ -1342,6 +1511,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     );
   }, [incomingBan, auth.user?.id, auth.loading]);
 
+  const checkGateActive = useMemo(
+    () =>
+      shouldShowCheckOverlay(
+        checkBan,
+        auth.user?.id ?? null,
+        dismissedCheckSessionRef.current,
+        answeredCheckRef.current,
+        checkAnswerInFlightRef.current,
+        !!result,
+      ),
+    [checkBan, auth.user?.id, result],
+  );
+
   const scopedFriends = isAppReady
     ? banSentOpen && uiFreeze
       ? uiFreeze.friends
@@ -1354,7 +1536,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     : [];
   const scopedIncomingBan =
     auth.user?.id && !auth.loading ? incomingBan : null;
-  const scopedCheckBan = isAppReady ? checkBan : null;
+  const scopedCheckBan = checkGateActive ? checkBan : null;
 
   const connectionUiState = useMemo(
     () =>
@@ -1433,7 +1615,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setIncomingBan: setIncomingBanSafe,
       dismissIncoming,
       checkBan: scopedCheckBan,
-      setCheckBan,
+      checkGateActive,
+      setCheckBan: setCheckBanSafe,
+      submitCheckAnswer,
       checkWaiting,
       setCheckWaiting,
       result,
@@ -1499,7 +1683,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setIncomingBanSafe,
       dismissIncoming,
       scopedCheckBan,
-      setCheckBan,
+      checkGateActive,
+      setCheckBanSafe,
+      submitCheckAnswer,
       checkWaiting,
       setCheckWaiting,
       result,
@@ -1555,6 +1741,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             onRecover={() => dismissIncoming()}
           >
             <IncomingBanOverlay />
+          </ChallengeErrorBoundary>
+        ) : null}
+        {checkGateActive ? (
+          <ChallengeErrorBoundary
+            name="check"
+            onRecover={() => clearCheckOverlay()}
+          >
+            <CheckOverlay />
           </ChallengeErrorBoundary>
         ) : null}
         {children}

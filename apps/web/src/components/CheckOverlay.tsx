@@ -1,13 +1,13 @@
 'use client';
 
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   formatSenderDisplayName,
   getCheckModalView,
   getCheckViewerRole,
 } from '@98plus/shared';
-import type { BanInteraction, BanResult, UserPublic } from '@98plus/shared';
-import { api } from '@/lib/api';
+import type { BanInteraction, UserPublic } from '@98plus/shared';
 import { useApp } from './Providers';
 import { BigButton } from './BigButton';
 import { useTelegram } from '@/hooks/useTelegram';
@@ -22,25 +22,16 @@ function CheckOverlayInner() {
     token,
     user,
     checkBan,
-    checkWaiting,
-    setCheckWaiting,
-    openBanResult,
-    refreshUser,
-    clearCheckOverlay,
+    checkGateActive,
+    submitCheckAnswer,
   } = useApp();
   const { haptic } = useTelegram();
-  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const modalView = useMemo(() => {
     if (!checkBan) return null;
     return getCheckModalView(checkBan, user?.id ?? null);
   }, [checkBan, user?.id]);
-
-  const open =
-    !!checkBan?.id &&
-    !!token &&
-    checkBan.status === 'checking' &&
-    modalView !== null;
 
   useEffect(() => {
     if (!checkBan?.id) return;
@@ -49,19 +40,14 @@ function CheckOverlayInner() {
       checkBan.sender.id,
       checkBan.receiver.id,
     );
-    let reason = 'shown';
-    if (!token) reason = 'no-token';
-    else if (checkBan.status !== 'checking') reason = 'not-checking';
-    else if (!modalView) reason = 'no-modal-view';
     console.log('[check-debug]', {
       authUserId: user?.id ?? null,
       checkBanId: checkBan.id,
       role,
-      shouldShow: open,
-      reason,
-      checkWaiting,
+      shouldShow: checkGateActive,
+      reason: checkGateActive ? 'shown' : 'guard-rejected',
     });
-  }, [checkBan, user?.id, token, modalView, open, checkWaiting]);
+  }, [checkBan, user?.id, checkGateActive]);
 
   const displayedLabel = useMemo(() => {
     if (!modalView) return '';
@@ -73,58 +59,29 @@ function CheckOverlayInner() {
 
   const answer = useCallback(
     async (completed: boolean) => {
-      if (!checkBan?.id || !token || submitting || !modalView) return;
+      if (!checkBan?.id || !token || !modalView) return;
       haptic('light');
-      setSubmitting(true);
-      try {
-        const res = await api<{
-          done: boolean;
-          waiting?: boolean;
-          result?: BanResult;
-        }>(`/bans/${checkBan.id}/check`, {
-          method: 'POST',
-          token,
-          body: JSON.stringify({ completed }),
-        });
-
-        if (res.done && res.result) {
-          challengeLog('check:done', {
-            banId: checkBan.id,
-            role: modalView.role,
-          });
-          clearCheckOverlay();
-          openBanResult(res.result, 'live');
-          void refreshUser();
-        } else if (res.waiting) {
-          challengeLog('check:waiting-ui', {
-            banId: checkBan.id,
-            role: modalView.role,
-          });
-          setCheckWaiting(true);
-          window.setTimeout(() => {
-            clearCheckOverlay();
-          }, 3000);
-        }
-      } catch (e) {
-        alert((e as Error).message);
-      } finally {
-        setSubmitting(false);
+      setSubmitError(null);
+      challengeLog('check:answer-click', {
+        banId: checkBan.id,
+        completed,
+        role: modalView.role,
+      });
+      const res = await submitCheckAnswer(checkBan.id, completed);
+      if (!res.ok && res.error) {
+        setSubmitError(res.error);
       }
     },
-    [
-      checkBan?.id,
-      clearCheckOverlay,
-      haptic,
-      modalView,
-      refreshUser,
-      setCheckWaiting,
-      openBanResult,
-      submitting,
-      token,
-    ],
+    [checkBan?.id, haptic, modalView, submitCheckAnswer, token],
   );
 
-  if (!open || !checkBan || !modalView) {
+  if (
+    !checkGateActive ||
+    !checkBan ||
+    !token ||
+    !user?.id ||
+    !modalView
+  ) {
     return null;
   }
 
@@ -133,65 +90,67 @@ function CheckOverlayInner() {
   const noLabel =
     modalView.role === 'receiver' ? 'Не выдержал' : 'Не выполнил запрет';
 
-  return (
+  const modal = (
     <ModalShell
       open
       light
+      stable
+      zIndex={70}
       closeOnBackdrop={false}
       ariaLabel={modalView.title}
-      onClose={clearCheckOverlay}
+      onClose={() => {}}
       cardClassName="modal-card--check"
     >
-      {checkWaiting ? (
-        <div className="check-modal-body text-center py-2">
-          <p className="text-accent font-semibold mb-1">⚡ Ждём друга</p>
-          <p className="text-muted text-sm">Ответ учтён. Скоро результат.</p>
-        </div>
-      ) : (
-        <div className="check-modal-body text-center">
-          <div className="check-modal-head mb-3">
-            <p className="check-modal-title text-xl font-black text-glow">
-              {modalView.title}
-            </p>
-            {checkBan.remainingMs != null ? (
-              <div className="check-modal-timer">
-                <BanTimer remainingMs={checkBan.remainingMs} />
-              </div>
-            ) : null}
-          </div>
-
-          <div className="check-modal-sender mb-3">
-            <PartyAvatar user={modalView.displayedUser} />
-            <p className="text-muted text-xs mt-2">{displayedLabel}</p>
-          </div>
-
-          <p className="check-modal-text text-base font-semibold leading-snug mb-4">
-            «{checkBan.text}»
+      <div className="check-modal-body text-center">
+        <div className="check-modal-head mb-3">
+          <p className="check-modal-title text-xl font-black text-glow">
+            {modalView.title}
           </p>
-
-          <div className="check-modal-actions space-y-2.5">
-            <BigButton
-              className="check-answer-btn"
-              disabled={submitting}
-              aria-label={yesLabel}
-              onClick={() => answer(true)}
-            >
-              ✅
-            </BigButton>
-            <BigButton
-              variant="ghost"
-              className="check-answer-btn"
-              disabled={submitting}
-              aria-label={noLabel}
-              onClick={() => answer(false)}
-            >
-              ❌
-            </BigButton>
-          </div>
+          {checkBan.remainingMs != null ? (
+            <div className="check-modal-timer">
+              <BanTimer remainingMs={checkBan.remainingMs} />
+            </div>
+          ) : null}
         </div>
-      )}
+
+        <div className="check-modal-sender mb-3">
+          <PartyAvatar user={modalView.displayedUser} />
+          <p className="text-muted text-xs mt-2">{displayedLabel}</p>
+        </div>
+
+        <p className="check-modal-text text-base font-semibold leading-snug mb-4">
+          «{checkBan.text}»
+        </p>
+
+        {submitError ? (
+          <p className="text-warning text-xs mb-3 whitespace-pre-wrap">
+            {submitError}
+          </p>
+        ) : null}
+
+        <div className="check-modal-actions space-y-2.5">
+          <BigButton
+            className="check-answer-btn"
+            aria-label={yesLabel}
+            onClick={() => void answer(true)}
+          >
+            ✅
+          </BigButton>
+          <BigButton
+            variant="ghost"
+            className="check-answer-btn"
+            aria-label={noLabel}
+            onClick={() => void answer(false)}
+          >
+            ❌
+          </BigButton>
+        </div>
+      </div>
     </ModalShell>
   );
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(modal, document.body);
 }
 
 export const CheckOverlay = memo(CheckOverlayInner);
@@ -205,6 +164,7 @@ function PartyAvatar({ user }: { user: UserPublic }) {
         letter={letter}
         sizeClass="w-full h-full"
         textClass="text-lg"
+        priority
       />
     </div>
   );
