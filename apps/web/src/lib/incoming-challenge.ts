@@ -1,12 +1,16 @@
-import { isIncomingOverlayBan, type BanInteraction } from '@98plus/shared';
+import type { BanInteraction } from '@98plus/shared';
+import { isIncomingOverlayBan } from '@98plus/shared';
+import {
+  isFreshIncomingForViewer,
+  logIncomingDecision,
+} from './incoming-fresh';
 
-/** Incoming modal requires pending incoming challenge for the receiver. */
+/** @deprecated Use isFreshIncomingForViewer — kept for deeplink validation */
 export function isValidIncomingOverlayPayload(
   ban: BanInteraction | null | undefined,
   viewerId?: string | null,
 ): boolean {
-  if (!ban?.id?.trim()) return false;
-  if (!ban.text?.trim()) return false;
+  if (!ban?.id?.trim() || !ban.text?.trim()) return false;
   if (!ban.sender?.id || !ban.receiver?.id) return false;
   if (!isIncomingOverlayBan(ban)) return false;
   if (viewerId && viewerId !== ban.receiver.id) return false;
@@ -14,21 +18,15 @@ export function isValidIncomingOverlayPayload(
   return true;
 }
 
-/**
- * Minimal guard — show incoming modal as soon as auth user matches receiver.
- * Does not wait for friends, avatars, session sync, or dataOwner.
- */
+/** @deprecated Use isFreshIncomingForViewer */
 export function shouldShowIncomingBanModal(
   ban: BanInteraction | null | undefined,
   viewerId: string | null | undefined,
   sessionDismissed: ReadonlySet<string>,
 ): boolean {
-  if (!viewerId) return false;
-  if (!ban?.id?.trim() || !ban.text?.trim()) return false;
-  if (!ban.receiver?.id) return false;
-  if (ban.receiver.id !== viewerId) return false;
-  if (ban.status !== 'pending') return false;
-  if (ban.incomingAcknowledged) return false;
-  if (sessionDismissed.has(ban.id)) return false;
-  return true;
+  const show = isFreshIncomingForViewer(ban, viewerId, sessionDismissed);
+  if (ban?.id) {
+    logIncomingDecision(ban, viewerId, sessionDismissed);
+  }
+  return show;
 }

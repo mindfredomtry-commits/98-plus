@@ -6,7 +6,7 @@ import {
   isInviteTokenStartParam,
   parseStartParam,
 } from '@98plus/shared';
-import { shouldShowIncomingBanModal } from '@/lib/incoming-challenge';
+import { isFreshIncomingForViewer } from '@/lib/incoming-fresh';
 import { challengeLog } from '@/lib/challenge-log';
 import { api, ApiError, NetworkError } from '@/lib/api';
 import {
@@ -16,6 +16,7 @@ import {
 } from '@/lib/config';
 import { useTelegram } from './useTelegram';
 import { logAuthTiming } from '@/lib/boot-timing';
+import { logStartup } from '@/lib/startup-timeline';
 import {
   enrichBanInteraction,
   enrichUserPublic,
@@ -277,7 +278,7 @@ export function useAuth() {
             });
             if (identityRef.current !== requestIdentity) return;
             const claimed = enrichBanInteraction(claim.incoming);
-            const incoming = shouldShowIncomingBanModal(
+            const incoming = isFreshIncomingForViewer(
               claimed,
               r.user.id,
               new Set(),
@@ -353,6 +354,14 @@ export function useAuth() {
     !!user &&
     (boundByInitData ||
       (!!telegramIdStr && String(user.telegramId) === telegramIdStr));
+
+  useEffect(() => {
+    if (!authReady || !user?.id) return;
+    logStartup('AUTH_READY', {
+      userId: user.id,
+      telegramId: user.telegramId,
+    });
+  }, [authReady, user?.id, user?.telegramId]);
 
   useEffect(() => {
     logAuthTiming('auth-state', {

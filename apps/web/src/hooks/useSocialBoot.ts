@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from 'react';
 import { parseStartParam } from '@98plus/shared';
-import { isValidIncomingOverlayPayload } from '@/lib/incoming-challenge';
 import type { BanResult, BanInteraction } from '@98plus/shared';
 import { api } from '@/lib/api';
 import { useTelegram } from './useTelegram';
@@ -54,7 +53,7 @@ export function useSocialBoot(h: BootHandlers) {
             `/bans/${action.banId}/open`,
             { token: h.token! },
           );
-          if (ban && isValidIncomingOverlayPayload(ban)) h.setIncomingBan(ban);
+          if (ban) h.setIncomingBan(ban);
           break;
         }
       }

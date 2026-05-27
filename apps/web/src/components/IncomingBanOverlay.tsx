@@ -11,7 +11,7 @@ import {
   verifyIncomingChallenge,
 } from '@/lib/deliver-challenge';
 import { challengeLog } from '@/lib/challenge-log';
-import { shouldShowIncomingBanModal } from '@/lib/incoming-challenge';
+import { isFreshIncomingForViewer } from '@/lib/incoming-fresh';
 import { logIncomingDebug } from '@/lib/incoming-debug';
 import { resolveUserAvatarUrl, rememberUserAvatar } from '@/lib/avatar-cache';
 import { useApp } from './Providers';
@@ -26,8 +26,8 @@ function IncomingBanOverlayInner() {
   const {
     token,
     user,
-    loading: authLoading,
     incomingBan,
+    incomingGateActive,
     setIncomingBan,
     acknowledgeIncomingAndStartReply,
     acknowledgeIncomingSeen,
@@ -52,12 +52,9 @@ function IncomingBanOverlayInner() {
   );
 
   useEffect(() => {
-    if (!incomingBan?.id || !token || !viewerId) {
+    if (!incomingGateActive || !incomingBan?.id) {
       setVerifiedBan(null);
       setVerifyPhase('idle');
-      return;
-    }
-    if (!shouldShowIncomingBanModal(incomingBan, viewerId, new Set())) {
       return;
     }
 
@@ -75,11 +72,16 @@ function IncomingBanOverlayInner() {
       try {
         const ban = await verifyIncomingChallenge(token, banId);
         if (verifyGenRef.current !== gen) return;
-        if (!shouldShowIncomingBanModal(ban, viewerId, new Set())) {
+        if (!isFreshIncomingForViewer(ban, viewerId, new Set())) {
           closeOnVerifyFail('already-acked-or-invalid', banId);
           return;
         }
         validateReplyTarget(ban);
+        if (ban.status === 'pending') {
+          void api(`/bans/${banId}/accept`, { method: 'POST', token }).catch(
+            () => {},
+          );
+        }
         setVerifiedBan(ban);
         setVerifyPhase('ok');
         challengeLog('overlay:verified', { banId: ban.id });
@@ -103,6 +105,7 @@ function IncomingBanOverlayInner() {
     };
   }, [
     incomingBan,
+    incomingGateActive,
     token,
     viewerId,
     bindBack,
@@ -176,27 +179,13 @@ function IncomingBanOverlayInner() {
     acknowledgeIncomingSeen,
   ]);
 
-  const shouldShow = incomingBan
-    ? shouldShowIncomingBanModal(incomingBan, viewerId, new Set())
-    : false;
+  const shouldShow = incomingGateActive;
 
-  if (incomingBan?.id) {
-    logIncomingDebug({
-      authUserId: viewerId,
-      incomingId: incomingBan.id,
-      incomingReceiverId: incomingBan.receiver?.id,
-      incomingAcknowledged: incomingBan.incomingAcknowledged,
-      shouldShow,
-      reason: shouldShow ? 'shown' : 'guard-rejected',
-      extra: { verifyPhase },
-    });
-  }
-
-  if (!incomingBan || !token || authLoading || !viewerId) {
+  if (!incomingBan || !token || !viewerId || !shouldShow) {
     return null;
   }
 
-  if (!shouldShow || verifyPhase === 'failed') {
+  if (verifyPhase === 'failed') {
     return null;
   }
 
