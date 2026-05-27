@@ -307,6 +307,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         setResult(null);
         return;
       }
+      if (resultDeliveredBanIdsRef.current.has(r.id)) {
+        return;
+      }
       if (!shouldShowBanResult(r, mode, r.id, userIdRef.current)) {
         challengeLog('result:reject-open', {
           banId: r.id,
@@ -323,6 +326,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
       resultDeliveredBanIdsRef.current.add(r.id);
+      resultOpenRef.current = true;
       setResult(r);
     },
     [],
@@ -581,14 +585,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       const mode = source === 'poll' ? 'auto' : 'live';
       const decision = diagnoseResultShow(payload, mode, uid, banId);
-      console.log('[result-show-decision]', {
-        banId,
-        shouldShow: decision.shouldShow,
-        reason: decision.reason,
-        source,
-      });
 
       if (!decision.shouldShow) {
+        console.log('[result-show-decision]', {
+          banId,
+          shouldShow: false,
+          reason: decision.reason,
+          source,
+        });
         dismissBanResultLocally(banId, payload.viewerId ?? uid);
         void acknowledgeBanResultOnServer(banId, tokenRef.current);
         return;
@@ -596,6 +600,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       console.log('[result-open-immediate]', { banId, source });
       openBanResult(payload, mode);
+
+      console.log('[result-show-decision]', {
+        banId,
+        shouldShow: true,
+        reason: decision.reason,
+        source,
+      });
     },
     [openBanResult],
   );
@@ -727,6 +738,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           challengeLog('check:done', { banId });
           receiveResult(res.result, 'http');
           queueMicrotask(() => {
+            clearCheckOverlay();
+            dismissIncoming();
             void refreshUserRef.current().catch(() => {});
           });
         } else if (res.waiting) {
@@ -1433,34 +1446,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             if (tokenRef.current !== token) return;
             if (userIdRef.current !== requestUserId) return;
             if (pendingResult) {
-              const shouldShow = shouldShowBanResult(
-                pendingResult,
-                'auto',
-                pendingId,
-                requestUserId,
-              );
-              console.log('[result-received]', {
-                source: 'session',
-                banId: pendingResult.id,
-                authUserId: requestUserId,
-                senderId: pendingResult.sender.id,
-                receiverId: pendingResult.receiver.id,
-                outcome: pendingResult.outcome,
-              });
-              console.log('[result-show-decision]', {
-                shouldShow,
-                reason: shouldShow ? 'session-auto' : 'dismissed-or-invalid',
-              });
-              if (shouldShow) {
-                openBanResult(pendingResult, 'auto');
-              } else {
-                console.log('[result-dismiss-local]', {
-                  banId: pendingId,
-                  authUserId: pendingResult.viewerId ?? requestUserId,
-                });
-                dismissBanResultLocally(pendingId, pendingResult.viewerId ?? requestUserId);
-                void acknowledgeBanResultOnServer(pendingId, token);
-              }
+              receiveResult(pendingResult, 'poll');
             }
           } catch {
             /* result not ready */
@@ -1491,7 +1477,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setSessionBootstrapped(true);
       setInitialNetworkBootstrapAttempted(true);
     }
-  }, [applySession, openBanResult]);
+  }, [applySession, receiveResult]);
 
   const openSendTo = useCallback((receiver: string, text = '') => {
     const trimmed = receiver.trim();
@@ -1603,12 +1589,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             elapsedClientMs,
           });
           receiveResult(payload, 'ws');
+          if (uid && banId) {
+            answeredCheckRef.current.add(banId);
+            dismissedCheckSessionRef.current.add(banId);
+            markCheckAnsweredLocally(uid, banId);
+          }
           queueMicrotask(() => {
-            if (uid && banId) {
-              answeredCheckRef.current.add(banId);
-              dismissedCheckSessionRef.current.add(banId);
-              markCheckAnsweredLocally(uid, banId);
-            }
             clearCheckOverlay();
             dismissIncoming();
             void refreshUserRef.current().catch(() => {});
@@ -2154,7 +2140,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           onRecover={() => dismissBanResult()}
         >
           {result ? (
-            <ResultOverlay result={result} onClose={dismissBanResult} />
+            <ResultOverlay
+              key={result.id}
+              result={result}
+              onClose={dismissBanResult}
+            />
           ) : null}
         </ChallengeErrorBoundary>
         {children}

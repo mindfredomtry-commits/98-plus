@@ -33,7 +33,13 @@ import {
   shouldAttachNotificationDebug,
   type BanNotificationDebug,
 } from '../lib/notification-debug';
-import { buildBanResult, checkOutcomeToPrisma, overboardToPrisma } from './result.service';
+import {
+  buildBanResult,
+  checkOutcomeToPrisma,
+  mapBanRowToResult,
+  overboardToPrisma,
+} from './result.service';
+import { applyCheckResult, resolveCheckOutcome } from './energy.service';
 import { miniAppLink } from '../lib/deeplink';
 import { trackEvent } from './analytics.service';
 import { createPendingInvite, normalizeUsername } from './invite.service';
@@ -163,51 +169,32 @@ function emitCheckCompletedResults(
   resultReceiver: BanResult | null,
   t0: number,
 ) {
-  console.log('[result-ready]', {
-    banId,
-    elapsedMs: Date.now() - t0,
-    hasSenderPayload: !!resultSender,
-    hasReceiverPayload: !!resultReceiver,
-  });
-
   if (resultSender) {
-    console.log('[result-emit-start]', {
-      banId,
-      toUserId: senderId,
-      role: 'sender',
-      elapsedMs: Date.now() - t0,
-    });
     const delivery = broadcastToUser(senderId, {
       type: 'check:completed',
       payload: resultSender,
     });
-    console.log('[result-emit-done]', {
+    console.log('[result-emit-sender]', {
       banId,
       toUserId: senderId,
-      role: 'sender',
       elapsedMs: Date.now() - t0,
       delivered: delivery.delivered,
       published: delivery.published,
+      eventName: 'check:completed',
     });
   }
   if (resultReceiver) {
-    console.log('[result-emit-start]', {
-      banId,
-      toUserId: receiverId,
-      role: 'receiver',
-      elapsedMs: Date.now() - t0,
-    });
     const delivery = broadcastToUser(receiverId, {
       type: 'check:completed',
       payload: resultReceiver,
     });
-    console.log('[result-emit-done]', {
+    console.log('[result-emit-receiver]', {
       banId,
       toUserId: receiverId,
-      role: 'receiver',
       elapsedMs: Date.now() - t0,
       delivered: delivery.delivered,
       published: delivery.published,
+      eventName: 'check:completed',
     });
   }
 }
@@ -281,12 +268,14 @@ function deferAfterCheckResult(
   energy: { sender: number; receiver: number },
   msg: string,
 ) {
-  void (async () => {
-    broadcastEnergyPopup(ban.senderId, energy.sender, msg);
-    broadcastEnergyPopup(ban.receiverId, energy.receiver, msg);
-    await syncSession(ban.senderId);
-    await syncSession(ban.receiverId);
-  })();
+  setTimeout(() => {
+    void (async () => {
+      broadcastEnergyPopup(ban.senderId, energy.sender, msg);
+      broadcastEnergyPopup(ban.receiverId, energy.receiver, msg);
+      await syncSession(ban.senderId);
+      await syncSession(ban.receiverId);
+    })();
+  }, 250);
 }
 
 async function syncSession(userId: string) {
@@ -898,10 +887,18 @@ export async function submitCheckAnswer(
     if (result) return { done: true, outcome: result.outcome, result, waiting: false };
   }
 
+  const t0 = Date.now();
+  console.log('[result-click-answer]', { banId, userId, t0 });
+
   await prisma.banCheckAnswer.upsert({
     where: { banId_userId: { banId, userId } },
     create: { banId, userId, completed },
     update: { completed },
+  });
+  console.log('[result-answer-saved]', {
+    banId,
+    userId,
+    elapsedMs: Date.now() - t0,
   });
 
   const answers = await prisma.banCheckAnswer.findMany({ where: { banId } });
@@ -925,22 +922,39 @@ export async function submitCheckAnswer(
   const senderAns = answers.find((a) => a.userId === ban.senderId)!;
   const receiverAns = answers.find((a) => a.userId === ban.receiverId)!;
 
-  const t0 = Date.now();
-  console.log('[result-second-answer]', { banId, t0 });
+  console.log('[result-both-answered]', {
+    banId,
+    elapsedMs: Date.now() - t0,
+  });
 
   void trackEvent(ANALYTICS_EVENTS.CHECK_ANSWERED, userId, {
     banId,
     completed,
   });
 
-  const { resolveCheckOutcome, applyCheckResult } = await import('./energy.service');
   const outcome = resolveCheckOutcome(senderAns.completed, receiverAns.completed);
-  const energy = await applyCheckResult(banId, outcome);
 
-  const [resultSender, resultReceiver] = await Promise.all([
-    buildBanResult(banId, ban.senderId),
-    buildBanResult(banId, ban.receiverId),
-  ]);
+  console.log('[result-apply-start]', { banId, elapsedMs: Date.now() - t0 });
+  const energy = await applyCheckResult(banId, outcome, {
+    id: ban.id,
+    senderId: ban.senderId,
+    receiverId: ban.receiverId,
+    energyApplied: ban.energyApplied,
+    senderEnergyDelta: ban.senderEnergyDelta,
+    receiverEnergyDelta: ban.receiverEnergyDelta,
+    farmSkipped: ban.farmSkipped,
+  });
+  console.log('[result-apply-done]', { banId, elapsedMs: Date.now() - t0 });
+
+  console.log('[result-build-start]', { banId, elapsedMs: Date.now() - t0 });
+  const resultSender = mapBanRowToResult(energy.completedBan, ban.senderId);
+  const resultReceiver = mapBanRowToResult(energy.completedBan, ban.receiverId);
+  console.log('[result-build-done]', {
+    banId,
+    elapsedMs: Date.now() - t0,
+    hasSenderPayload: !!resultSender,
+    hasReceiverPayload: !!resultReceiver,
+  });
 
   emitCheckCompletedResults(
     banId,
@@ -956,11 +970,18 @@ export async function submitCheckAnswer(
       ? resultSender
       : userId === ban.receiverId
         ? resultReceiver
-        : await buildBanResult(banId, userId);
+        : mapBanRowToResult(energy.completedBan, userId);
 
   const msg =
     outcome === 'split' ? SYSTEM_VOICE.socialUnstable : SYSTEM_VOICE.checkComplete;
   deferAfterCheckResult(ban, energy, msg);
+
+  console.log('[result-http-response]', {
+    banId,
+    userId,
+    elapsedMs: Date.now() - t0,
+    hasResult: !!result,
+  });
 
   return {
     done: true,

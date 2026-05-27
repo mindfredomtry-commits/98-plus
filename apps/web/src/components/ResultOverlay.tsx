@@ -81,7 +81,13 @@ function ResultOverlayInner({ result, onClose }: Props) {
   if (!showable) return null;
 
   return (
-    <ModalShell open light ariaLabel="Результат проверки" onClose={onClose}>
+    <ModalShell
+      open
+      light
+      stable
+      ariaLabel="Результат проверки"
+      onClose={onClose}
+    >
       <div className="modal-card-body text-center">
         <p className="result-headline text-2xl font-black text-glow mb-1">
           {result.headline}

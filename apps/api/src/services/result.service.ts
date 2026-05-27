@@ -40,16 +40,28 @@ export function overboardToPrisma(): PrismaOutcome {
   return 'OVERBOARD';
 }
 
-export async function buildBanResult(
-  banId: string,
-  viewerId: string | null,
-): Promise<BanResult | null> {
-  const ban = await prisma.ban.findUnique({
-    where: { id: banId },
-    include: { sender: true, receiver: true, checkAnswers: true },
-  });
+type BanResultRow = {
+  id: string;
+  text: string;
+  status: string;
+  outcome: PrismaOutcome | null;
+  isOverboard: boolean;
+  senderEnergyDelta: number | null;
+  receiverEnergyDelta: number | null;
+  farmSkipped: boolean;
+  completedAt: Date | null;
+  createdAt: Date;
+  senderId: string;
+  receiverId: string;
+  sender: Parameters<typeof mapUser>[0];
+  receiver: Parameters<typeof mapUser>[0];
+  checkAnswers: { userId: string; completed: boolean }[];
+};
 
-  if (!ban) return null;
+export function mapBanRowToResult(
+  ban: BanResultRow,
+  viewerId: string | null,
+): BanResult | null {
   if (viewerId && viewerId !== ban.senderId && viewerId !== ban.receiverId) {
     return null;
   }
@@ -122,4 +134,16 @@ export async function buildBanResult(
     ),
     inviteOpponentLink,
   };
+}
+
+export async function buildBanResult(
+  banId: string,
+  viewerId: string | null,
+): Promise<BanResult | null> {
+  const ban = await prisma.ban.findUnique({
+    where: { id: banId },
+    include: { sender: true, receiver: true, checkAnswers: true },
+  });
+  if (!ban) return null;
+  return mapBanRowToResult(ban, viewerId);
 }

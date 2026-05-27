@@ -118,6 +118,57 @@ async function applyDelta(
   return delta;
 }
 
+/** One user fetch for both participants — fewer round-trips on check complete. */
+async function applyCheckPairDeltas(
+  senderId: string,
+  receiverId: string,
+  raw: { sender: number; receiver: number },
+  skipRewards: boolean,
+): Promise<{ sender: number; receiver: number }> {
+  if (raw.sender === 0 && raw.receiver === 0) {
+    return { sender: 0, receiver: 0 };
+  }
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: [senderId, receiverId] } },
+    select: { id: true, energy: true },
+  });
+  const senderUser = users.find((u) => u.id === senderId);
+  const receiverUser = users.find((u) => u.id === receiverId);
+
+  const calc = (user: { energy: number } | undefined, rawDelta: number) => {
+    if (rawDelta === 0) return { delta: 0, increment: false };
+    if (skipRewards && rawDelta > 0) return { delta: 0, increment: false };
+    if (!user) return { delta: 0, increment: false };
+    const delta = applyRewardMultiplier(rawDelta, user.energy);
+    return { delta, increment: delta !== 0 };
+  };
+
+  const s = calc(senderUser, raw.sender);
+  const r = calc(receiverUser, raw.receiver);
+
+  const updates: Promise<unknown>[] = [];
+  if (s.increment && senderUser) {
+    updates.push(
+      prisma.user.update({
+        where: { id: senderId },
+        data: { energy: { increment: s.delta } },
+      }),
+    );
+  }
+  if (r.increment && receiverUser) {
+    updates.push(
+      prisma.user.update({
+        where: { id: receiverId },
+        data: { energy: { increment: r.delta } },
+      }),
+    );
+  }
+  if (updates.length > 0) await Promise.all(updates);
+
+  return { sender: s.delta, receiver: r.delta };
+}
+
 export async function applySendEnergy(
   senderId: string,
   receiverId: string,
@@ -152,94 +203,131 @@ export async function applyOverboard(
   return { sender: s, receiver: r };
 }
 
+type CheckResultBanRow = {
+  id: string;
+  senderId: string;
+  receiverId: string;
+  energyApplied: boolean;
+  senderEnergyDelta: number | null;
+  receiverEnergyDelta: number | null;
+  farmSkipped: boolean;
+};
+
 export async function applyCheckResult(
   banId: string,
   outcome: CheckOutcome,
-): Promise<EnergyDelta & { farmSkipped: boolean }> {
-  const ban = await prisma.ban.findUnique({
-    where: { id: banId },
-    include: { sender: true, receiver: true },
-  });
-  if (!ban) {
-    return { sender: 0, receiver: 0, farmSkipped: false };
+  knownBan?: CheckResultBanRow | null,
+): Promise<
+  EnergyDelta & {
+    farmSkipped: boolean;
+    completedBan: Awaited<
+      ReturnType<typeof prisma.ban.findUnique>
+    > & {
+      sender: NonNullable<Awaited<ReturnType<typeof prisma.ban.findUnique>>> extends infer B
+        ? B extends { sender: infer S }
+          ? S
+          : never
+        : never;
+      receiver: NonNullable<Awaited<ReturnType<typeof prisma.ban.findUnique>>> extends infer B
+        ? B extends { receiver: infer R }
+          ? R
+          : never
+        : never;
+      checkAnswers: { userId: string; completed: boolean }[];
+    };
   }
+> {
+  const ban =
+    knownBan ??
+    (await prisma.ban.findUnique({
+      where: { id: banId },
+      select: {
+        id: true,
+        senderId: true,
+        receiverId: true,
+        energyApplied: true,
+        senderEnergyDelta: true,
+        receiverEnergyDelta: true,
+        farmSkipped: true,
+      },
+    }));
+
+  if (!ban) {
+    throw new Error('Ban not found');
+  }
+
   if (ban.energyApplied) {
+    const completedBan = await prisma.ban.findUnique({
+      where: { id: banId },
+      include: { sender: true, receiver: true, checkAnswers: true },
+    });
+    if (!completedBan) throw new Error('Ban not found');
     return {
       sender: ban.senderEnergyDelta ?? 0,
       receiver: ban.receiverEnergyDelta ?? 0,
       farmSkipped: ban.farmSkipped ?? false,
+      completedBan,
     };
   }
 
-  const skip = await shouldSkipFarmRewards(ban.senderId, ban.receiverId);
+  const { checkOutcomeToPrisma } = await import('./result.service');
+  const prismaOutcome = checkOutcomeToPrisma(outcome);
   const raw = calcCheckOutcome(outcome);
   const noEnergyApply = process.env.TEST_MODE_NO_ENERGY_APPLY === 'true';
 
   if (noEnergyApply) {
-    const { checkOutcomeToPrisma } = await import('./result.service');
-    await prisma.ban.update({
+    const completedBan = await prisma.ban.update({
       where: { id: banId },
       data: {
         energyApplied: true,
         status: 'COMPLETED',
         completedAt: new Date(),
-        outcome: checkOutcomeToPrisma(outcome),
+        outcome: prismaOutcome,
         senderEnergyDelta: 0,
         receiverEnergyDelta: 0,
         farmSkipped: false,
         senderResultSeenAt: null,
         receiverResultSeenAt: null,
       },
+      include: { sender: true, receiver: true, checkAnswers: true },
     });
-    console.log('[energy-calc]', {
-      banId,
-      senderId: ban.senderId,
-      receiverId: ban.receiverId,
-      outcome,
-      testModeNoEnergyApply: true,
-      rewardSender: 0,
-      rewardReceiver: 0,
-    });
-    return { sender: 0, receiver: 0, farmSkipped: false };
+    return { sender: 0, receiver: 0, farmSkipped: false, completedBan };
   }
 
-  const [senderDelta, receiverDelta] = await Promise.all([
-    applyDelta(ban.senderId, raw.sender, skip),
-    applyDelta(ban.receiverId, raw.receiver, skip),
-  ]);
-
-  console.log('[energy-calc]', {
-    banId,
-    senderId: ban.senderId,
-    receiverId: ban.receiverId,
-    outcome,
-    multiplier: skip ? 0 : 'energy-scaled',
-    antiFarmSkipped: skip,
-    rewardSender: senderDelta,
-    rewardReceiver: receiverDelta,
-  });
+  const skip = await shouldSkipFarmRewards(ban.senderId, ban.receiverId);
+  const { sender: senderDelta, receiver: receiverDelta } = await applyCheckPairDeltas(
+    ban.senderId,
+    ban.receiverId,
+    raw,
+    skip,
+  );
 
   if (outcome === 'both_yes' && !skip) {
-    await incrementPairSuccess(ban.senderId, ban.receiverId);
+    void incrementPairSuccess(ban.senderId, ban.receiverId);
   }
 
-  const { checkOutcomeToPrisma } = await import('./result.service');
-  await prisma.ban.update({
+  const completedBan = await prisma.ban.update({
     where: { id: banId },
     data: {
       energyApplied: true,
       status: 'COMPLETED',
       completedAt: new Date(),
-      outcome: checkOutcomeToPrisma(outcome),
+      outcome: prismaOutcome,
       senderEnergyDelta: senderDelta,
       receiverEnergyDelta: receiverDelta,
       farmSkipped: skip,
       senderResultSeenAt: null,
       receiverResultSeenAt: null,
     },
+    include: { sender: true, receiver: true, checkAnswers: true },
   });
 
-  return { sender: senderDelta, receiver: receiverDelta, farmSkipped: skip };
+  return {
+    sender: senderDelta,
+    receiver: receiverDelta,
+    farmSkipped: skip,
+    completedBan,
+  };
 }
 
 export function resolveCheckOutcome(
