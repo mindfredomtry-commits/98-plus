@@ -20,6 +20,10 @@ import {
   enrichBanInteraction,
   enrichUserPublic,
 } from '@/lib/user-public-avatar';
+import {
+  readAuthProfileCache,
+  writeAuthProfileCache,
+} from '@/lib/auth-profile-cache';
 
 const TOKEN_KEY_LEGACY = '98plus_token';
 
@@ -92,6 +96,7 @@ export function useAuth() {
       localStorage.removeItem(TOKEN_KEY_LEGACY);
       setToken(res.token);
       setUser(enrichUserPublic(res.user));
+      writeAuthProfileCache(res.user);
       logAuthTiming('auth-user-set', {
         userId: res.user.id,
         telegramId: res.user.telegramId,
@@ -209,6 +214,21 @@ export function useAuth() {
 
       // Telegram Mini App: always bind session to signed initData (current user)
       if (initData) {
+        const tgId = telegramId ?? tgUser?.id ?? null;
+        const cachedProfile = tgId != null ? readAuthProfileCache(tgId) : null;
+        if (cachedProfile?.id) {
+          const saved =
+            localStorage.getItem(tokenStorageKey(tgId)) ??
+            localStorage.getItem(TOKEN_KEY_LEGACY);
+          if (saved) setToken(saved);
+          setUser(enrichUserPublic(cachedProfile));
+          setLoading(false);
+          logAuthTiming('auth-user-set', {
+            userId: cachedProfile.id,
+            telegramId: cachedProfile.telegramId,
+            via: 'profile-cache-initData',
+          });
+        }
         await login();
         return;
       }
@@ -221,12 +241,24 @@ export function useAuth() {
       if (saved) {
         if (identityRef.current !== requestIdentity) return;
         setToken(saved);
+        const tgId = telegramId ?? tgUser?.id ?? null;
+        const cachedProfile = tgId != null ? readAuthProfileCache(tgId) : null;
+        if (cachedProfile?.id) {
+          setUser(enrichUserPublic(cachedProfile));
+          setLoading(false);
+          logAuthTiming('auth-user-set', {
+            userId: cachedProfile.id,
+            telegramId: cachedProfile.telegramId,
+            via: 'profile-cache',
+          });
+        }
         try {
           const r = await api<{ user: UserPublic }>('/users/me', {
             token: saved,
           });
           if (identityRef.current !== requestIdentity) return;
           setUser(enrichUserPublic(r.user));
+          writeAuthProfileCache(r.user);
           logAuthTiming('auth-user-set', {
             userId: r.user.id,
             telegramId: r.user.telegramId,
@@ -295,7 +327,9 @@ export function useAuth() {
   const refreshUser = useCallback(async () => {
     if (!token) return;
     const r = await api<{ user: UserPublic }>('/users/me', { token });
-    setUser(enrichUserPublic(r.user));
+    const enriched = enrichUserPublic(r.user);
+    setUser(enriched);
+    writeAuthProfileCache(enriched);
   }, [token]);
 
   const onboard = useCallback(async () => {

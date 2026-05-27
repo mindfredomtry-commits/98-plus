@@ -54,6 +54,7 @@ import {
 } from '@/lib/waiting-lifecycle';
 import { isFirstBanComplete, markFirstBanComplete } from '@/lib/first-ban';
 import { writeFriendsCache, readFriendsCache } from '@/lib/friends-cache';
+import { readHomeSnapshot, writeHomeSnapshot } from '@/lib/home-snapshot';
 import { enrichBanInteraction } from '@/lib/user-public-avatar';
 import { mergeFriendsPreservingAvatars } from '@/lib/friend-avatar-merge';
 import { preloadFriendAvatars } from '@/lib/avatar-preload';
@@ -83,6 +84,8 @@ interface AppContextValue {
   isAppReady: boolean;
   /** Initial /friends fetch finished (or cache hydrated). */
   friendsReady: boolean;
+  /** HomeArena can render from local snapshot without waiting network. */
+  homeSnapshotReady: boolean;
   /** First session fetch finished — incoming gate can resolve. */
   sessionReady: boolean;
   /** Incoming modal blocks main arena until dismissed. */
@@ -300,6 +303,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [banInputShake, setBanInputShake] = useState(false);
   const [friendsBootstrapped, setFriendsBootstrapped] = useState(false);
   const [sessionBootstrapped, setSessionBootstrapped] = useState(false);
+  const [homeSnapshotReady, setHomeSnapshotReady] = useState(false);
 
   const triggerBanInputShake = useCallback(() => {
     setBanInputShake(true);
@@ -350,6 +354,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     console.log('[providers-reset]', { userId: auth.user?.id ?? null });
     clearAvatarCaches();
     setDataOwnerUserId(null);
+    setHomeSnapshotReady(false);
     setIncomingBan(null);
     setCheckBan(null);
     setCheckWaiting(false);
@@ -371,16 +376,46 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const uid = auth.user?.id;
     if (!uid) return;
 
+    const snapshot = readHomeSnapshot(uid);
+    if (snapshot) {
+      const hydratedFriends = coerceFriendList(snapshot.friends);
+      for (const f of hydratedFriends) {
+        rememberFriendAvatar(f.id, f.userId, f.avatarUrl ?? f.photoUrl);
+      }
+      friendsRef.current = hydratedFriends;
+      setFriends(hydratedFriends);
+      setSendDuration(snapshot.sendDuration);
+      if (snapshot.sendReceiver) {
+        setSendReceiver(snapshot.sendReceiver);
+      }
+      setFriendsBootstrapped(true);
+      setSessionBootstrapped(true);
+      setHomeSnapshotReady(true);
+      setDataOwnerUserId(uid);
+      logFriendsTiming('home-snapshot-hydrated', {
+        userId: uid,
+        count: hydratedFriends.length,
+        savedAt: snapshot.savedAt,
+      });
+      void preloadFriendAvatars(hydratedFriends, { timeoutMs: 2000 });
+      return;
+    }
+
     const cached = readFriendsCache(uid);
     for (const f of cached) {
       rememberFriendAvatar(f.id, f.userId, f.avatarUrl ?? f.photoUrl);
     }
     if (cached.length > 0) {
       friendsRef.current = cached;
+      setFriends(cached);
+      setFriendsBootstrapped(true);
+      setHomeSnapshotReady(true);
+      setDataOwnerUserId(uid);
       logFriendsTiming('cache-hydrated-memory', {
         userId: uid,
         count: cached.length,
       });
+      void preloadFriendAvatars(cached, { timeoutMs: 2000 });
     }
   }, [auth.user?.id]);
 
@@ -601,26 +636,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const commitFriendsWithAvatarPreload = useCallback(
     async (
       incomingList: FriendCard[],
-      meta: { via: string; markReady?: boolean },
+      meta: { via: string; markReady?: boolean; allowEmpty?: boolean },
     ) => {
       const requestUid = userIdRef.current;
       const requestToken = tokenRef.current;
       const merged = mergeFriendsPreservingAvatars(
         friendsRef.current,
         incomingList,
+        { allowEmpty: meta.allowEmpty },
       );
-      logFriendsTiming('avatar-preload-start', {
+      logFriendsTiming('friends-committed', {
         userId: requestUid,
         count: merged.length,
-        via: meta.via,
-      });
-      const preloadStartedAt = Date.now();
-      await preloadFriendAvatars(merged, { timeoutMs: 1000 });
-      if (tokenRef.current !== requestToken) return;
-      if (userIdRef.current !== requestUid) return;
-      logFriendsTiming('avatar-preload-done', {
-        userId: requestUid,
-        ms: Date.now() - preloadStartedAt,
         via: meta.via,
       });
       friendsRef.current = merged;
@@ -630,6 +657,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (meta.markReady !== false) {
         setFriendsBootstrapped(true);
       }
+
+      logFriendsTiming('avatar-preload-start', {
+        userId: requestUid,
+        count: merged.length,
+        via: meta.via,
+      });
+      const preloadStartedAt = Date.now();
+      void preloadFriendAvatars(merged, { timeoutMs: 1000 }).then(() => {
+        if (tokenRef.current !== requestToken) return;
+        if (userIdRef.current !== requestUid) return;
+        logFriendsTiming('avatar-preload-done', {
+          userId: requestUid,
+          ms: Date.now() - preloadStartedAt,
+          via: meta.via,
+        });
+      });
     },
     [resolveOptimisticFromFriends],
   );
@@ -790,6 +833,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       await commitFriendsWithAvatarPreload(safe, {
         via: 'reloadFriends',
         markReady: !friendsBootstrappedRef.current,
+        allowEmpty: true,
       });
       setDataOwnerUserId(requestUid);
       end();
@@ -1089,7 +1133,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           count: list.length,
           ms,
         });
-        await commitFriendsWithAvatarPreload(list, { via: 'initial-fetch' });
+        await commitFriendsWithAvatarPreload(list, {
+          via: 'initial-fetch',
+          allowEmpty: true,
+        });
         setDataOwnerUserId(requestUid);
         end();
       })
@@ -1176,6 +1223,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const optimisticForUi =
     banSentOpen && uiFreeze ? uiFreeze.optimisticSendWait : optimisticSendWait;
 
+  useEffect(() => {
+    const uid = auth.user?.id;
+    if (!uid || auth.loading || !friendsBootstrapped || !auth.user) return;
+
+    const timer = window.setTimeout(() => {
+      writeHomeSnapshot(uid, {
+        friends: displayFriendsRef.current,
+        user: auth.user,
+        sendDuration,
+        sendReceiver,
+        activeBansCount: displayActiveBansRef.current.length,
+      });
+    }, 400);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    auth.user,
+    auth.loading,
+    friendsBootstrapped,
+    sendDuration,
+    sendReceiver,
+    displayFriends,
+    displayActiveBans.length,
+  ]);
+
   // Show user data as soon as backend user id + token exist (do not wait authReady / session).
   const isAppReady = !!auth.user?.id && !!auth.token && !auth.loading;
   const friendsReady = friendsBootstrapped;
@@ -1250,6 +1322,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       authReady: auth.authReady,
       isAppReady,
       friendsReady,
+      homeSnapshotReady,
       sessionReady,
       incomingGateActive,
       error: auth.error,
@@ -1312,6 +1385,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       auth.authReady,
       isAppReady,
       friendsReady,
+      homeSnapshotReady,
       sessionReady,
       incomingGateActive,
       auth.error,

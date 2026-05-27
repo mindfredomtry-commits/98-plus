@@ -24,6 +24,7 @@ function HomeArenaInner({ user }: Props) {
     token,
     friends,
     isAppReady,
+    friendsReady,
     loading: authLoading,
     activeBans,
     sendReceiver,
@@ -181,7 +182,7 @@ function HomeArenaInner({ user }: Props) {
 
           {token ? (
             <section className="people-section glass-card border border-accent/12 shadow-glow-sm">
-              {authLoading || !isAppReady ? (
+              {authLoading || (!friendsReady && safeFriends.length === 0) ? (
                 <FriendsStripSkeleton />
               ) : (
                 <FriendPicker

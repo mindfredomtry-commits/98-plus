@@ -58,6 +58,7 @@ export default function HomePage() {
     loading,
     error,
     friendsReady,
+    homeSnapshotReady,
     sessionReady,
     incomingGateActive,
     setIncomingBan,
@@ -136,7 +137,9 @@ export default function HomePage() {
   }
 
   const canRenderShell =
-    incomingGateActive || (sessionReady && friendsReady);
+    incomingGateActive ||
+    homeSnapshotReady ||
+    (sessionReady && friendsReady);
 
   if (!canRenderShell) {
     return <BootLobby />;

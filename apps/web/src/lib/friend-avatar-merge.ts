@@ -22,9 +22,13 @@ function withResolvedAvatar(friend: FriendCard): FriendCard {
 export function mergeFriendsPreservingAvatars(
   prev: FriendCard[],
   next: FriendCard[],
+  opts?: { allowEmpty?: boolean },
 ): FriendCard[] {
   for (const f of prev) {
     rememberFriendAvatar(f.id, f.userId, f.avatarUrl ?? f.photoUrl);
+  }
+  if (!opts?.allowEmpty && next.length === 0 && prev.length > 0) {
+    return prev.map(withResolvedAvatar);
   }
   return next.map(withResolvedAvatar);
 }
