@@ -1,14 +1,61 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
-import { verifyToken } from '../lib/jwt';
 import { randomUUID } from 'crypto';
+import { verifyToken } from '../lib/jwt';
+import { redis } from '../lib/redis';
 import { touchPresence } from '../services/presence.service';
 import { listFriends } from '../services/friends.service';
 
 const clients = new Map<string, Set<WebSocket>>();
 const PING_MS = 25_000;
+const WS_USER_EVENT_CHANNEL = 'ws:user-event';
+const instanceId = randomUUID();
+
+type UserWsEvent = {
+  type: string;
+  payload: unknown;
+  eventId: string;
+};
+
+type UserEventMessage = {
+  userId: string;
+  event: UserWsEvent;
+  origin: string;
+};
+
+function deliverToLocalClients(userId: string, event: UserWsEvent): number {
+  const set = clients.get(userId);
+  if (!set) return 0;
+  const msg = JSON.stringify(event);
+  let delivered = 0;
+  for (const ws of set) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(msg);
+      delivered += 1;
+    }
+  }
+  return delivered;
+}
+
+function initCrossInstanceBroadcast(): void {
+  const sub = redis.duplicate();
+  void sub.subscribe(WS_USER_EVENT_CHANNEL).catch((err: Error) => {
+    console.warn('[ws] redis subscribe failed', err.message);
+  });
+  sub.on('message', (_channel, raw) => {
+    try {
+      const msg = JSON.parse(raw.toString()) as UserEventMessage;
+      if (msg.origin === instanceId) return;
+      deliverToLocalClients(msg.userId, msg.event);
+    } catch {
+      /* ignore malformed */
+    }
+  });
+}
 
 export function initWebSocket(server: Server): WebSocketServer {
+  initCrossInstanceBroadcast();
+
   const wss = new WebSocketServer({ server, path: '/ws' });
 
   const pingInterval = setInterval(() => {
@@ -40,6 +87,8 @@ export function initWebSocket(server: Server): WebSocketServer {
     const { userId } = payload;
     if (!clients.has(userId)) clients.set(userId, new Set());
     clients.get(userId)!.add(ws);
+
+    console.log('[ws-connected]', { userId, sockets: clients.get(userId)!.size });
 
     ws.on('message', (raw) => {
       try {
@@ -86,16 +135,25 @@ export function initWebSocket(server: Server): WebSocketServer {
 export function broadcastToUser(
   userId: string,
   event: { type: string; payload: unknown; eventId?: string },
-): void {
-  const set = clients.get(userId);
-  if (!set) return;
-  const msg = JSON.stringify({
-    ...event,
+): { delivered: number; published: boolean } {
+  const fullEvent: UserWsEvent = {
+    type: event.type,
+    payload: event.payload,
     eventId: event.eventId ?? randomUUID(),
+  };
+
+  const delivered = deliverToLocalClients(userId, fullEvent);
+
+  const message: UserEventMessage = {
+    userId,
+    event: fullEvent,
+    origin: instanceId,
+  };
+  void redis.publish(WS_USER_EVENT_CHANNEL, JSON.stringify(message)).catch((e) => {
+    console.warn('[ws] redis publish failed', (e as Error).message);
   });
-  for (const ws of set) {
-    if (ws.readyState === WebSocket.OPEN) ws.send(msg);
-  }
+
+  return { delivered, published: true };
 }
 
 export function broadcastEnergyPopup(
@@ -115,4 +173,13 @@ export function broadcastEnergyPopup(
 
 export function getConnectedUserIds(): string[] {
   return [...clients.keys()];
+}
+
+export function isUserConnectedLocally(userId: string): boolean {
+  const set = clients.get(userId);
+  if (!set) return false;
+  for (const ws of set) {
+    if (ws.readyState === WebSocket.OPEN) return true;
+  }
+  return false;
 }

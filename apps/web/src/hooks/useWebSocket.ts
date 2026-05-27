@@ -45,7 +45,7 @@ export function useWebSocket(
       return;
     }
 
-    const wsUrl = 'wss://98plusapi-production.up.railway.app/ws';
+    const wsUrl = getWsUrl();
     setStatus('connecting');
     log(`ws: connecting ${wsUrl}`);
     const ws = new WebSocket(`${wsUrl}?token=${encodeURIComponent(token)}`);
@@ -68,6 +68,12 @@ export function useWebSocket(
 
         if (data.type === 'ping') {
           ws.send(JSON.stringify({ type: 'ping' }));
+          return;
+        }
+
+        if (data.type === 'connected') {
+          const userId = (data.payload as { userId?: string } | undefined)?.userId;
+          console.log('[ws-connected]', { userId: userId ?? null });
           return;
         }
 

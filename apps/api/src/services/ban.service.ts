@@ -1,4 +1,5 @@
 import { BanStatus, InteractionOutcome as PrismaOutcome } from '@prisma/client';
+import type { User } from '@prisma/client';
 import {
   SYSTEM_VOICE,
   formatChallengeShareMessage,
@@ -64,6 +65,54 @@ function mapBanStatus(s: BanStatus): BanInteraction['status'] {
 
 function scheduleEnd(minutes: number): Date {
   return new Date(Date.now() + minutes * 60 * 1000);
+}
+
+type BanWithUsers = {
+  id: string;
+  text: string;
+  status: BanStatus;
+  durationMinutes: number;
+  threadId: string;
+  createdAt: Date;
+  expiresAt: Date | null;
+  checkDueAt: Date | null;
+  receiverId: string;
+  receiverIncomingAckAt: Date | null;
+  sender: User;
+  receiver: User;
+};
+
+function buildInteractionFromBan(
+  ban: BanWithUsers,
+  viewerId: string,
+): BanInteraction {
+  const target = ban.checkDueAt ?? ban.expiresAt;
+  const remainingMs = target
+    ? Math.max(0, target.getTime() - Date.now())
+    : undefined;
+
+  return {
+    id: ban.id,
+    text: ban.text,
+    status: mapBanStatus(ban.status),
+    durationMinutes: ban.durationMinutes as BanInteraction['durationMinutes'],
+    sender: mapUser(ban.sender),
+    receiver: mapUser(ban.receiver),
+    isIncoming: ban.receiverId === viewerId,
+    incomingAcknowledged:
+      ban.receiverId === viewerId && ban.receiverIncomingAckAt != null,
+    createdAt: ban.createdAt.toISOString(),
+    expiresAt: ban.expiresAt?.toISOString() ?? null,
+    checkDueAt: ban.checkDueAt?.toISOString() ?? null,
+    threadId: ban.threadId,
+    remainingMs:
+      ban.status === 'ACTIVE' ||
+      ban.status === 'CHECKING' ||
+      ban.status === 'PENDING'
+        ? remainingMs
+        : undefined,
+    serverNow: new Date().toISOString(),
+  };
 }
 
 export async function mapBanToInteraction(
@@ -277,7 +326,24 @@ export async function sendBan(params: {
     senderId,
     receiverId: receiver.id,
     status: ban.status,
-    receiverIncomingAckAt: ban.receiverIncomingAckAt,
+  });
+
+  const interaction = buildInteractionFromBan(ban, receiver.id);
+
+  console.log('[incoming-ws-emit-start]', {
+    banId: ban.id,
+    toUserId: receiver.id,
+    eventName: 'ban:incoming',
+  });
+  const emitResult = broadcastToUser(receiver.id, {
+    type: 'ban:incoming',
+    payload: interaction,
+  });
+  console.log('[incoming-ws-emit-done]', {
+    banId: ban.id,
+    deliveredOrQueued:
+      emitResult.delivered > 0 ? `delivered:${emitResult.delivered}` : 'not-connected',
+    published: emitResult.published,
   });
 
   await setCooldown(`cooldown:send:${senderId}`, COOLDOWN_SEND);
@@ -288,21 +354,14 @@ export async function sendBan(params: {
     durationMinutes,
   });
 
-  let interaction =
-    (await mapBanToInteraction(ban.id, receiver.id)) ??
-    (devMode ? buildDevBanInteractionFallback(ban, receiver.id) : null);
-
-  if (!interaction) {
-    throw new Error('Не удалось создать вызов');
+  if (devMode && !interaction.sender?.id) {
+    const fallback =
+      (await mapBanToInteraction(ban.id, receiver.id)) ??
+      buildDevBanInteractionFallback(ban, receiver.id);
+    if (fallback) {
+      Object.assign(interaction, fallback);
+    }
   }
-
-  broadcastToUser(receiver.id, { type: 'ban:incoming', payload: interaction });
-  console.log('[incoming-ws]', {
-    banId: ban.id,
-    toUserId: receiver.id,
-    emitted: true,
-    status: interaction.status,
-  });
 
   await recordSocialContact(senderId, {
     username: receiver.username ?? receiver.firstName,

@@ -366,6 +366,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const checkAnswerInFlightRef = useRef<Set<string>>(new Set());
   const resultOpenRef = useRef(false);
   const bufferedIncomingRef = useRef<BanInteraction | null>(null);
+  const incomingWsSeenRef = useRef<Set<string>>(new Set());
   const banSentOpenRef = useRef(false);
   const deferredSyncRef = useRef(false);
 
@@ -700,9 +701,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       auth.user.id,
     );
     if (incoming) {
-      setIncomingBanSafe(incoming);
+      setIncomingBan(incoming);
     }
-  }, [auth.user?.id, auth.loading, setIncomingBanSafe]);
+  }, [auth.user?.id, auth.loading]);
 
   const pushPopup = useCallback((p: EnergyPopup) => {
     setPopups((prev) => [...prev, p]);
@@ -862,6 +863,72 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     resolveOptimisticFromFriends(friends);
   }, [friends, resolveOptimisticFromFriends]);
 
+  const receiveIncomingBan = useCallback(
+    (payload: BanInteraction, source: 'ws' | 'session') => {
+      const b = enrichBanInteraction(payload);
+      const viewerId = userIdRef.current;
+
+      if (source === 'ws') {
+        incomingWsSeenRef.current.add(b.id);
+        console.log('[incoming-ws-received]', {
+          banId: b.id,
+          receiverId: b.receiver?.id ?? null,
+          authUserId: viewerId,
+          status: b.status,
+        });
+      }
+
+      const decision = incomingShowDecision(
+        b,
+        viewerId,
+        dismissedIncomingRef.current,
+      );
+      console.log('[incoming-show-decision]', {
+        banId: b.id,
+        shouldShow: decision.shouldShow,
+        reason: decision.reason,
+        source,
+      });
+
+      const incoming = pickIncomingForOverlay(
+        b,
+        dismissedIncomingRef.current,
+        viewerId,
+      );
+      if (incoming) {
+        if (
+          source === 'session' &&
+          !incomingWsSeenRef.current.has(incoming.id)
+        ) {
+          const delayMs = incoming.createdAt
+            ? Date.now() - new Date(incoming.createdAt).getTime()
+            : null;
+          console.log('[incoming-recovery-session]', {
+            banId: incoming.id,
+            delayMs,
+          });
+        }
+        setIncomingBan(incoming);
+        return;
+      }
+
+      if (
+        source === 'ws' &&
+        b.receiver?.id &&
+        (!viewerId || b.receiver.id === viewerId)
+      ) {
+        bufferedIncomingRef.current = b;
+        console.log('[incoming-buffer]', {
+          action: 'store',
+          banId: b.id,
+          receiverId: b.receiver?.id,
+          authUserId: viewerId,
+        });
+      }
+    },
+    [],
+  );
+
   const applySession = useCallback((s: SessionState) => {
     const viewerId = auth.user?.id ?? null;
     if (!viewerId) {
@@ -904,20 +971,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         authUserId: viewerId,
         status: session.incoming.status,
       });
-      const decision = incomingShowDecision(
-        session.incoming,
-        viewerId,
-        dismissedIncomingRef.current,
-      );
-      console.log('[incoming-show-decision]', {
-        banId: session.incoming.id,
-        shouldShow: decision.shouldShow,
-        reason: decision.reason,
-        source: 'session',
-      });
-    }
-    if (nextIncoming) {
-      setIncomingBan(nextIncoming);
+      receiveIncomingBan(session.incoming, 'session');
     }
 
     logIncomingDebug({
@@ -978,7 +1032,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setViralOnboarding(false);
     }
     setDataOwnerUserId(viewerId);
-  }, [resolveOptimisticFromSession, auth.user?.id]);
+  }, [resolveOptimisticFromSession, auth.user?.id, receiveIncomingBan]);
 
   useEffect(() => {
     if (!auth.boot || !auth.user?.id || auth.loading) return;
@@ -1187,44 +1241,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (event) => {
       switch (event.type) {
         case 'ban:incoming': {
-          const b = enrichBanInteraction(event.payload as BanInteraction);
-          const viewerId = userIdRef.current;
-          console.log('[incoming-ws-received]', {
-            banId: b.id,
-            receiverId: b.receiver?.id ?? null,
-            authUserId: viewerId,
-            status: b.status,
-          });
-          const decision = incomingShowDecision(
-            b,
-            viewerId,
-            dismissedIncomingRef.current,
-          );
-          console.log('[incoming-show-decision]', {
-            banId: b.id,
-            shouldShow: decision.shouldShow,
-            reason: decision.reason,
-            source: 'ws',
-          });
-          const incoming = pickIncomingForOverlay(
-            b,
-            dismissedIncomingRef.current,
-            viewerId,
-          );
-          if (incoming) {
-            setIncomingBan(incoming);
-          } else if (
-            b?.receiver?.id &&
-            viewerId &&
-            b.receiver.id === viewerId
-          ) {
-            bufferedIncomingRef.current = b;
-            console.log('[incoming-buffer]', {
-              action: 'store',
-              banId: b.id,
-              receiverId: b.receiver?.id,
-            });
-          }
+          receiveIncomingBan(event.payload as BanInteraction, 'ws');
           break;
         }
         case 'check:due': {
@@ -1279,6 +1296,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       }
     },
+    receiveIncomingBan,
     reloadPending,
     openBanResult,
     dismissBanResult,
@@ -1772,14 +1790,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   return (
     <AppContext.Provider value={contextValue}>
       <ShellErrorBoundary name="app">
-        {incomingGateActive ? (
-          <ChallengeErrorBoundary
-            name="incoming"
-            onRecover={() => dismissIncoming()}
-          >
-            <IncomingBanOverlay />
-          </ChallengeErrorBoundary>
-        ) : null}
+        <ChallengeErrorBoundary
+          name="incoming"
+          onRecover={() => dismissIncoming()}
+        >
+          <IncomingBanOverlay />
+        </ChallengeErrorBoundary>
         {checkGateActive ? (
           <ChallengeErrorBoundary
             name="check"

@@ -192,7 +192,7 @@ function IncomingBanOverlayInner() {
     });
   }
 
-  if (!incomingBan || !token || authLoading || !viewerId) {
+  if (!incomingBan || !token || !viewerId) {
     return null;
   }
 
