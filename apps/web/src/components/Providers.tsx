@@ -1,6 +1,8 @@
 'use client';
 
 import {
+  createContext,
+  useContext,
   useState,
   useCallback,
   useRef,
@@ -89,9 +91,6 @@ import {
   STARTUP_GRACE_MS,
   type ConnectionUiState,
 } from '@/lib/connection-ui';
-import { AppContext } from './AppContext';
-
-console.log('[module-load]', 'Providers');
 
 // Break static circular imports:
 // Providers -> IncomingBanOverlay -> Providers (useApp)
@@ -195,6 +194,14 @@ interface AppContextValue {
   setInlineBanError: (msg: string | null) => void;
   banInputShake: boolean;
   triggerBanInputShake: () => void;
+}
+
+const AppContext = createContext<AppContextValue | null>(null);
+
+export function useApp() {
+  const ctx = useContext(AppContext);
+  if (!ctx) throw new Error('useApp outside Providers');
+  return ctx;
 }
 
 function pickIncomingForOverlay(

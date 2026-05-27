@@ -6,7 +6,7 @@ import type { UserPublic } from '@98plus/shared';
 import { api } from '@/lib/api';
 import { EnergyBar } from './EnergyBar';
 import { BigButton } from './BigButton';
-import { useApp } from './AppContext';
+import { useApp } from './Providers';
 import { AvatarImage } from './AvatarImage';
 import { enrichUserPublic, userAvatarSrc } from '@/lib/user-public-avatar';
 

@@ -3,7 +3,7 @@
 import { memo, useMemo, useState, useCallback } from 'react';
 import { coerceFriendList, findFriendByUsername } from '@98plus/shared';
 import { safeResolveReceiverTarget } from '@/lib/resolve-receiver';
-import { useApp } from './AppContext';
+import { useApp } from './Providers';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSendChallenge } from '@/hooks/useSendChallenge';
 import { GlowCTA } from './GlowCTA';
