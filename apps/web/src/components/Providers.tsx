@@ -10,7 +10,6 @@ import {
   useLayoutEffect,
   useMemo,
 } from 'react';
-import dynamic from 'next/dynamic';
 import type {
   EnergyPopup,
   BanInteraction,
@@ -32,6 +31,8 @@ import { explainIncomingHidden, logIncomingDebug } from '@/lib/incoming-debug';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useIncomingPoll } from '@/hooks/useIncomingPoll';
 import { EnergyPopupStack } from './EnergyPopupStack';
+import { IncomingBanOverlay } from './IncomingBanOverlay';
+import { CheckOverlay } from './CheckOverlay';
 import { ChallengeErrorBoundary } from './ChallengeErrorBoundary';
 import { ShellErrorBoundary } from './ShellErrorBoundary';
 import { resetScrollLock } from '@/lib/scroll-lock';
@@ -91,21 +92,6 @@ import {
   STARTUP_GRACE_MS,
   type ConnectionUiState,
 } from '@/lib/connection-ui';
-
-// Break static circular imports:
-// Providers -> IncomingBanOverlay -> Providers (useApp)
-// Providers -> CheckOverlay -> Providers (useApp)
-const IncomingBanOverlayLazy = dynamic(
-  () =>
-    import('./IncomingBanOverlay').then((m) => ({
-      default: m.IncomingBanOverlay,
-    })),
-  { ssr: false },
-);
-const CheckOverlayLazy = dynamic(
-  () => import('./CheckOverlay').then((m) => ({ default: m.CheckOverlay })),
-  { ssr: false },
-);
 
 interface AppContextValue {
   token: string | null;
@@ -1978,13 +1964,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           name="incoming"
           onRecover={() => dismissIncoming()}
         >
-          <IncomingBanOverlayLazy />
+          <IncomingBanOverlay />
         </ChallengeErrorBoundary>
         <ChallengeErrorBoundary
           name="check"
           onRecover={() => clearCheckOverlay()}
         >
-          <CheckOverlayLazy />
+          <CheckOverlay />
         </ChallengeErrorBoundary>
         {children}
         {!result ? (
