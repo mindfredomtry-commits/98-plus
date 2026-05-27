@@ -40,6 +40,7 @@ import {
   overboardToPrisma,
 } from './result.service';
 import { applyCheckResult, resolveCheckOutcome } from './energy.service';
+import { banParticipantRole, logResultLatency } from '../lib/result-latency-diag';
 import { miniAppLink } from '../lib/deeplink';
 import { trackEvent } from './analytics.service';
 import { createPendingInvite, normalizeUsername } from './invite.service';
@@ -170,31 +171,59 @@ function emitCheckCompletedResults(
   t0: number,
 ) {
   if (resultSender) {
+    logResultLatency('[result-emit-start]', {
+      banId,
+      role: 'sender',
+      toUserId: senderId,
+      elapsedMs: Date.now() - t0,
+    });
     const delivery = broadcastToUser(senderId, {
       type: 'check:completed',
       payload: resultSender,
     });
-    console.log('[result-emit-sender]', {
+    logResultLatency('[result-emit-done]', {
       banId,
+      role: 'sender',
       toUserId: senderId,
       elapsedMs: Date.now() - t0,
       delivered: delivery.delivered,
       published: delivery.published,
-      eventName: 'check:completed',
+    });
+    logResultLatency('[result-emit-sender]', {
+      banId,
+      role: 'sender',
+      toUserId: senderId,
+      elapsedMs: Date.now() - t0,
+      delivered: delivery.delivered,
+      published: delivery.published,
     });
   }
   if (resultReceiver) {
+    logResultLatency('[result-emit-start]', {
+      banId,
+      role: 'receiver',
+      toUserId: receiverId,
+      elapsedMs: Date.now() - t0,
+    });
     const delivery = broadcastToUser(receiverId, {
       type: 'check:completed',
       payload: resultReceiver,
     });
-    console.log('[result-emit-receiver]', {
+    logResultLatency('[result-emit-done]', {
       banId,
+      role: 'receiver',
       toUserId: receiverId,
       elapsedMs: Date.now() - t0,
       delivered: delivery.delivered,
       published: delivery.published,
-      eventName: 'check:completed',
+    });
+    logResultLatency('[result-emit-receiver]', {
+      banId,
+      role: 'receiver',
+      toUserId: receiverId,
+      elapsedMs: Date.now() - t0,
+      delivered: delivery.delivered,
+      published: delivery.published,
     });
   }
 }
@@ -270,6 +299,10 @@ function deferAfterCheckResult(
 ) {
   setTimeout(() => {
     void (async () => {
+      logResultLatency('[result-diag-defer-side-effects]', {
+        banId: ban.id,
+        delayMs: 250,
+      });
       broadcastEnergyPopup(ban.senderId, energy.sender, msg);
       broadcastEnergyPopup(ban.receiverId, energy.receiver, msg);
       await syncSession(ban.senderId);
@@ -888,22 +921,36 @@ export async function submitCheckAnswer(
   }
 
   const t0 = Date.now();
-  console.log('[result-click-answer]', { banId, userId, t0 });
+  const actorRole = banParticipantRole(userId, ban.senderId, ban.receiverId);
+  logResultLatency('[result-click-answer]', {
+    banId,
+    userId,
+    role: actorRole,
+    t0,
+  });
 
   await prisma.banCheckAnswer.upsert({
     where: { banId_userId: { banId, userId } },
     create: { banId, userId, completed },
     update: { completed },
   });
-  console.log('[result-answer-saved]', {
+  logResultLatency('[result-answer-saved]', {
     banId,
     userId,
+    role: actorRole,
     elapsedMs: Date.now() - t0,
   });
 
   const answers = await prisma.banCheckAnswer.findMany({ where: { banId } });
 
   if (answers.length < 2) {
+    logResultLatency('[result-first-answer-waiting]', {
+      banId,
+      userId,
+      role: actorRole,
+      answerCount: answers.length,
+      elapsedMs: Date.now() - t0,
+    });
     void trackEvent(ANALYTICS_EVENTS.CHECK_ANSWERED, userId, {
       banId,
       completed,
@@ -922,8 +969,16 @@ export async function submitCheckAnswer(
   const senderAns = answers.find((a) => a.userId === ban.senderId)!;
   const receiverAns = answers.find((a) => a.userId === ban.receiverId)!;
 
-  console.log('[result-both-answered]', {
+  logResultLatency('[result-second-answer]', {
     banId,
+    userId,
+    role: actorRole,
+    elapsedMs: Date.now() - t0,
+  });
+  logResultLatency('[result-both-answered]', {
+    banId,
+    secondAnswererId: userId,
+    secondAnswererRole: actorRole,
     elapsedMs: Date.now() - t0,
   });
 
@@ -934,7 +989,11 @@ export async function submitCheckAnswer(
 
   const outcome = resolveCheckOutcome(senderAns.completed, receiverAns.completed);
 
-  console.log('[result-apply-start]', { banId, elapsedMs: Date.now() - t0 });
+  logResultLatency('[result-apply-start]', {
+    banId,
+    role: actorRole,
+    elapsedMs: Date.now() - t0,
+  });
   const energy = await applyCheckResult(banId, outcome, {
     id: ban.id,
     senderId: ban.senderId,
@@ -944,9 +1003,17 @@ export async function submitCheckAnswer(
     receiverEnergyDelta: ban.receiverEnergyDelta,
     farmSkipped: ban.farmSkipped,
   });
-  console.log('[result-apply-done]', { banId, elapsedMs: Date.now() - t0 });
+  logResultLatency('[result-apply-done]', {
+    banId,
+    role: actorRole,
+    elapsedMs: Date.now() - t0,
+  });
 
-  console.log('[result-build-start]', { banId, elapsedMs: Date.now() - t0 });
+  logResultLatency('[result-build-start]', {
+    banId,
+    role: actorRole,
+    elapsedMs: Date.now() - t0,
+  });
   const resultSender = mapBanRowToResult(energy.completedBan, ban.senderId);
   const resultReceiver = mapBanRowToResult(energy.completedBan, ban.receiverId);
   console.log('[result-build-done]', {
@@ -976,9 +1043,17 @@ export async function submitCheckAnswer(
     outcome === 'split' ? SYSTEM_VOICE.socialUnstable : SYSTEM_VOICE.checkComplete;
   deferAfterCheckResult(ban, energy, msg);
 
-  console.log('[result-http-response]', {
+  logResultLatency('[result-http-return]', {
     banId,
     userId,
+    role: actorRole,
+    elapsedMs: Date.now() - t0,
+    hasResult: !!result,
+  });
+  logResultLatency('[result-http-response]', {
+    banId,
+    userId,
+    role: actorRole,
     elapsedMs: Date.now() - t0,
     hasResult: !!result,
   });

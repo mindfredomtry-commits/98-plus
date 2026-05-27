@@ -87,6 +87,11 @@ import {
   dismissBanResultLocally,
   shouldShowBanResult,
 } from '@/lib/ban-result-flow';
+import {
+  logResultLatency,
+  resultElapsedSinceSubmit,
+  resultParticipantRole,
+} from '@/lib/result-latency-diag';
 import { isDismissedResultLocally } from '@/lib/dismissed-results';
 import {
   resolveConnectionUiState,
@@ -578,8 +583,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const uid = userIdRef.current;
       if (!banId || !payload) return;
 
+      const role = resultParticipantRole(uid, payload);
+      const elapsedMs = resultElapsedSinceSubmit(
+        banId,
+        checkSubmitAtRef.current,
+      );
+
       if (resultDeliveredBanIdsRef.current.has(banId)) {
-        console.log('[result-skip-duplicate]', { banId, source });
+        logResultLatency('[result-skip-duplicate]', {
+          banId,
+          authUserId: uid,
+          role,
+          source,
+          elapsedMs,
+        });
         return;
       }
 
@@ -587,25 +604,37 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const decision = diagnoseResultShow(payload, mode, uid, banId);
 
       if (!decision.shouldShow) {
-        console.log('[result-show-decision]', {
+        logResultLatency('[result-show-decision]', {
           banId,
+          authUserId: uid,
+          role,
+          source,
+          elapsedMs,
           shouldShow: false,
           reason: decision.reason,
-          source,
         });
         dismissBanResultLocally(banId, payload.viewerId ?? uid);
         void acknowledgeBanResultOnServer(banId, tokenRef.current);
         return;
       }
 
-      console.log('[result-open-immediate]', { banId, source });
+      logResultLatency('[result-open-immediate]', {
+        banId,
+        authUserId: uid,
+        role,
+        source,
+        elapsedMs,
+      });
       openBanResult(payload, mode);
 
-      console.log('[result-show-decision]', {
+      logResultLatency('[result-show-decision]', {
         banId,
+        authUserId: uid,
+        role,
+        source,
+        elapsedMs,
         shouldShow: true,
         reason: decision.reason,
-        source,
       });
     },
     [openBanResult],
@@ -632,16 +661,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             ? Math.round(performance.now() - submitAt)
             : undefined;
 
+        const role = resultParticipantRole(requestUserId, pendingResult);
         if (source === 'burst') {
-          console.log('[result-poll-burst]', {
-            banId: pendingResult.id,
-            elapsedClientMs,
-          });
-        } else {
-          console.log('[result-poll-hit]', {
+          logResultLatency('[result-poll-burst]', {
             banId: pendingResult.id,
             authUserId: requestUserId,
-            elapsedClientMs,
+            role,
+            source: 'poll',
+            elapsedMs: elapsedClientMs,
+          });
+        } else {
+          logResultLatency('[result-poll-hit]', {
+            banId: pendingResult.id,
+            authUserId: requestUserId,
+            role,
+            source: 'poll',
+            elapsedMs: elapsedClientMs,
           });
         }
         receiveResult(pendingResult, 'poll');
@@ -654,6 +689,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const scheduleResultPollBurst = useCallback(() => {
     cancelResultPollBurst();
+    const uid = userIdRef.current;
+    for (const [banId] of checkSubmitAtRef.current) {
+      logResultLatency('[result-poll-burst-scheduled]', {
+        banId,
+        authUserId: uid,
+        role: resultParticipantRole(uid, checkBanRef.current),
+        delaysMs: [0, 200, 500, 900],
+      });
+    }
     for (const ms of [0, 200, 500, 900]) {
       const t = window.setTimeout(
         () => void pollPendingResultOnce('burst'),
@@ -709,11 +753,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       checkAnswerInFlightRef.current.add(banId);
       const t0 = performance.now();
       checkSubmitAtRef.current.set(banId, t0);
-      console.log('[result-click-answer]', { banId, t0 });
+      const role = resultParticipantRole(uid, checkBanRef.current);
+      logResultLatency('[result-click-answer]', {
+        banId,
+        authUserId: uid,
+        role,
+        elapsedMs: 0,
+      });
       setCheckBan(null);
       setCheckWaiting(false);
 
       try {
+        logResultLatency('[result-http-start]', {
+          banId,
+          authUserId: uid,
+          role,
+          elapsedMs: Math.round(performance.now() - t0),
+        });
         const res = await api<{
           done: boolean;
           waiting?: boolean;
@@ -726,12 +782,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
 
         const elapsedMs = Math.round(performance.now() - t0);
-        console.log('[result-http-response]', {
+        logResultLatency('[result-http-response]', {
           banId,
+          authUserId: uid,
+          role,
+          source: 'http',
+          elapsedMs,
           done: res.done,
           waiting: !!res.waiting,
           hasResult: !!res.result,
-          elapsedMs,
         });
 
         if (res.done && res.result) {
@@ -1435,6 +1494,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       if (session.pendingResultId) {
         const pendingId = session.pendingResultId;
+        logResultLatency('[result-diag-reload-pending]', {
+          banId: pendingId,
+          authUserId: requestUserId,
+          pendingResultId: pendingId,
+          alreadyDelivered: resultDeliveredBanIdsRef.current.has(pendingId),
+        });
         if (isDismissedResultLocally(pendingId, requestUserId)) {
           void acknowledgeBanResultOnServer(pendingId, token);
         } else {
@@ -1573,20 +1638,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           setCheckWaiting(true);
           scheduleCheckWaitingDismiss();
           scheduleResultPollBurst();
+          logResultLatency('[result-diag-check-waiting-ws]', {
+            authUserId: userIdRef.current,
+            role: resultParticipantRole(
+              userIdRef.current,
+              checkBanRef.current,
+            ),
+          });
           break;
         case 'check:completed': {
           const payload = event.payload as BanResult;
           const uid = userIdRef.current;
           const banId = payload?.id ?? null;
           const submitAt = banId ? checkSubmitAtRef.current.get(banId) : undefined;
-          const elapsedClientMs =
-            submitAt != null
-              ? Math.round(performance.now() - submitAt)
-              : undefined;
-          console.log('[result-ws-received]', {
+          const role = resultParticipantRole(uid, payload);
+          const elapsedMs = resultElapsedSinceSubmit(
+            banId,
+            checkSubmitAtRef.current,
+          );
+          logResultLatency('[result-ws-received]', {
             banId,
             authUserId: uid,
-            elapsedClientMs,
+            role,
+            source: 'ws',
+            elapsedMs,
           });
           receiveResult(payload, 'ws');
           if (uid && banId) {
@@ -1630,6 +1705,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
     },
     () => {
+      logResultLatency('[result-diag-ws-reconnect]', {
+        authUserId: userIdRef.current,
+      });
       void reloadPendingRef.current().catch(() => {});
     },
   );
