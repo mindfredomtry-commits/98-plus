@@ -19,6 +19,7 @@ import {
   getPendingIncomingForPoll,
   getPendingCheck,
   getPendingCheckForPoll,
+  getPendingResultForPoll,
   getWaitingCheck,
   getCheckState,
   getBanResult,
@@ -76,6 +77,11 @@ bansRouter.get('/pending/check', async (req: AuthRequest, res) => {
 bansRouter.get('/check/pending', async (req: AuthRequest, res) => {
   const ban = await getPendingCheckForPoll(req.userId!);
   res.json({ ban });
+});
+
+bansRouter.get('/result/pending', async (req: AuthRequest, res) => {
+  const result = await getPendingResultForPoll(req.userId!);
+  res.json({ result });
 });
 
 bansRouter.post('/incoming/backfill-ack', async (req: AuthRequest, res) => {

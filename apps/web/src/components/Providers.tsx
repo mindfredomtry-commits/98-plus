@@ -33,6 +33,7 @@ import { useIncomingPoll } from '@/hooks/useIncomingPoll';
 import { EnergyPopupStack } from './EnergyPopupStack';
 import { IncomingBanOverlay } from './IncomingBanOverlay';
 import { CheckOverlay } from './CheckOverlay';
+import { ResultOverlay } from './ResultOverlay';
 import { ChallengeErrorBoundary } from './ChallengeErrorBoundary';
 import { ShellErrorBoundary } from './ShellErrorBoundary';
 import { resetScrollLock } from '@/lib/scroll-lock';
@@ -83,8 +84,10 @@ import { logFriendsTiming } from '@/lib/boot-timing';
 import {
   acknowledgeBanResultOnServer,
   dismissBanResultLocally,
+  resultShowDecision,
   shouldShowBanResult,
 } from '@/lib/ban-result-flow';
+import { useResultPoll } from '@/hooks/useResultPoll';
 import { isDismissedResultLocally } from '@/lib/dismissed-results';
 import {
   resolveConnectionUiState,
@@ -290,6 +293,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [checkBan, setCheckBan] = useState<BanInteraction | null>(null);
   const [checkWaiting, setCheckWaiting] = useState(false);
   const [result, setResult] = useState<BanResult | null>(null);
+  const resultRef = useRef<BanResult | null>(null);
+  useEffect(() => {
+    resultRef.current = result;
+  }, [result]);
 
   const openBanResult = useCallback(
     (r: BanResult | null | undefined, mode: ResultOpenMode) => {
@@ -561,6 +568,64 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [auth.user?.id],
   );
 
+  const scheduleCheckWaitingDismiss = useCallback(() => {
+    if (checkWaitingTimerRef.current) {
+      clearTimeout(checkWaitingTimerRef.current);
+    }
+    checkWaitingTimerRef.current = setTimeout(() => {
+      challengeLog('check-waiting:expired');
+      setCheckWaiting(false);
+      setCheckBan(null);
+      checkWaitingTimerRef.current = null;
+    }, CHECK_WAITING_UI_TTL_MS);
+  }, []);
+
+  const receiveResult = useCallback(
+    (payload: BanResult, source: 'ws' | 'session' | 'poll' | 'http') => {
+      const viewerId = userIdRef.current;
+      const role =
+        getCheckViewerRole(
+          viewerId,
+          payload.sender.id,
+          payload.receiver.id,
+        ) ?? null;
+
+      if (source === 'ws') {
+        console.log('[result-ws-received]', {
+          banId: payload.id,
+          authUserId: viewerId,
+          role,
+        });
+      } else if (source === 'session') {
+        console.log('[result-session-received]', {
+          banId: payload.id,
+          authUserId: viewerId,
+          role,
+        });
+      }
+
+      const decision = resultShowDecision(payload, viewerId, 'live');
+      console.log('[result-show-decision]', {
+        banId: payload.id,
+        shouldShow: decision.shouldShow,
+        reason: decision.reason,
+        source,
+      });
+
+      if (!decision.shouldShow) return;
+
+      if (payload.id) {
+        answeredCheckRef.current.add(payload.id);
+        dismissedCheckSessionRef.current.add(payload.id);
+      }
+      clearCheckOverlay();
+      dismissIncoming();
+      setResult(payload);
+      void refreshUserRef.current().catch(() => {});
+    },
+    [clearCheckOverlay, dismissIncoming],
+  );
+
   const submitCheckAnswer = useCallback(
     async (banId: string, completed: boolean) => {
       const uid = userIdRef.current;
@@ -574,7 +639,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       markCheckAnsweredLocally(uid, banId);
       checkAnswerInFlightRef.current.add(banId);
       setCheckBan(null);
-      setCheckWaiting(false);
 
       try {
         const res = await api<{
@@ -589,10 +653,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
         if (res.done && res.result) {
           challengeLog('check:done', { banId });
-          openBanResult(res.result, 'live');
-          void refreshUserRef.current().catch(() => {});
+          receiveResult(res.result, 'http');
         } else if (res.waiting) {
           challengeLog('check:waiting-partner', { banId });
+          setCheckWaiting(true);
+          scheduleCheckWaitingDismiss();
+        } else {
+          setCheckWaiting(false);
         }
 
         return { ok: true };
@@ -604,20 +671,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         checkAnswerInFlightRef.current.delete(banId);
       }
     },
-    [openBanResult],
+    [receiveResult, scheduleCheckWaitingDismiss],
   );
 
-  const scheduleCheckWaitingDismiss = useCallback(() => {
-    if (checkWaitingTimerRef.current) {
-      clearTimeout(checkWaitingTimerRef.current);
-    }
-    checkWaitingTimerRef.current = setTimeout(() => {
-      challengeLog('check-waiting:expired');
-      setCheckWaiting(false);
-      setCheckBan(null);
-      checkWaitingTimerRef.current = null;
-    }, CHECK_WAITING_UI_TTL_MS);
-  }, []);
+  const getOpenResult = useCallback(() => resultRef.current, []);
+
+  useResultPoll({
+    userId: auth.user?.id,
+    token: auth.token,
+    receiveResult,
+    getOpenResult,
+    userIdRef,
+    tokenRef,
+  });
 
   const setIncomingBanSafe = useCallback(
     (b: BanInteraction | null) => {
@@ -1087,6 +1153,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       receiveCheckBan(session.check, 'session');
     }
 
+    if (s.pendingResultId && !isDismissedResultLocally(s.pendingResultId)) {
+      void api<{ result: BanResult }>(`/bans/${s.pendingResultId}/result`, {
+        token: tokenRef.current!,
+      })
+        .then(({ result: pendingResult }) => {
+          if (
+            pendingResult &&
+            tokenRef.current &&
+            userIdRef.current === viewerId
+          ) {
+            receiveResult(pendingResult, 'session');
+          }
+        })
+        .catch(() => {});
+    }
+
     logIncomingDebug({
       authUserId: viewerId,
       sessionUserId: s.userId ?? viewerId,
@@ -1150,6 +1232,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     auth.user?.id,
     receiveIncomingBan,
     receiveCheckBan,
+    receiveResult,
   ]);
 
   useEffect(() => {
@@ -1371,17 +1454,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           scheduleCheckWaitingDismiss();
           break;
         case 'check:completed': {
-          const payload = event.payload as BanResult;
-          const uid = userIdRef.current;
-          if (uid && payload?.id) {
-            answeredCheckRef.current.add(payload.id);
-            dismissedCheckSessionRef.current.add(payload.id);
-            markCheckAnsweredLocally(uid, payload.id);
-          }
-          clearCheckOverlay();
-          dismissIncoming();
-          openBanResult(payload, 'live');
-          auth.refreshUser();
+          receiveResult(event.payload as BanResult, 'ws');
           break;
         }
         case 'sync:session':
@@ -1412,6 +1485,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     receiveIncomingBan,
     receiveCheckBan,
+    receiveResult,
     reloadPending,
     openBanResult,
     dismissBanResult,
@@ -1917,6 +1991,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         >
           <CheckOverlay />
         </ChallengeErrorBoundary>
+        {result ? (
+          <ChallengeErrorBoundary
+            name="result"
+            onRecover={() => dismissBanResult()}
+          >
+            <ResultOverlay result={result} onClose={dismissBanResult} />
+          </ChallengeErrorBoundary>
+        ) : null}
         {children}
         {!result ? (
           <ShellErrorBoundary name="energy" fallback={null}>
