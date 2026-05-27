@@ -170,6 +170,17 @@ export async function applyCheckResult(
   const senderDelta = await applyDelta(ban.senderId, raw.sender, skip);
   const receiverDelta = await applyDelta(ban.receiverId, raw.receiver, skip);
 
+  console.log('[energy-calc]', {
+    banId,
+    senderId: ban.senderId,
+    receiverId: ban.receiverId,
+    outcome,
+    multiplier: skip ? 0 : 'energy-scaled',
+    antiFarmSkipped: skip,
+    rewardSender: senderDelta,
+    rewardReceiver: receiverDelta,
+  });
+
   if (outcome === 'both_yes' && !skip) {
     await incrementPairSuccess(ban.senderId, ban.receiverId);
   }

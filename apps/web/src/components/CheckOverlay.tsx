@@ -1,7 +1,11 @@
 'use client';
 
-import { memo, useCallback, useMemo, useState } from 'react';
-import { formatSenderDisplayName, getCheckModalView } from '@98plus/shared';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  formatSenderDisplayName,
+  getCheckModalView,
+  getCheckViewerRole,
+} from '@98plus/shared';
 import type { BanInteraction, BanResult, UserPublic } from '@98plus/shared';
 import { api } from '@/lib/api';
 import { useApp } from './Providers';
@@ -37,6 +41,27 @@ function CheckOverlayInner() {
     !!token &&
     checkBan.status === 'checking' &&
     modalView !== null;
+
+  useEffect(() => {
+    if (!checkBan?.id) return;
+    const role = getCheckViewerRole(
+      user?.id ?? null,
+      checkBan.sender.id,
+      checkBan.receiver.id,
+    );
+    let reason = 'shown';
+    if (!token) reason = 'no-token';
+    else if (checkBan.status !== 'checking') reason = 'not-checking';
+    else if (!modalView) reason = 'no-modal-view';
+    console.log('[check-debug]', {
+      authUserId: user?.id ?? null,
+      checkBanId: checkBan.id,
+      role,
+      shouldShow: open,
+      reason,
+      checkWaiting,
+    });
+  }, [checkBan, user?.id, token, modalView, open, checkWaiting]);
 
   const displayedLabel = useMemo(() => {
     if (!modalView) return '';

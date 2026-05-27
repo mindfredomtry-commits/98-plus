@@ -256,17 +256,6 @@ export async function sendBan(params: {
     throw new Error('Нельзя запретить себе.');
   }
 
-  const pairKey =
-    senderId < receiver.id
-      ? `${senderId}:${receiver.id}`
-      : `${receiver.id}:${senderId}`;
-  if (
-    !devMode &&
-    (await hasCooldown(`cooldown:pair:${pairKey}`))
-  ) {
-    throw new Error('Слишком часто с этим человеком.');
-  }
-
   const thread = await getOrCreateThread(senderId, receiver.id);
 
   const ban = await prisma.ban.create({
@@ -283,8 +272,19 @@ export async function sendBan(params: {
     include: { sender: true, receiver: true },
   });
 
+  const expiresAt = scheduleEnd(durationMinutes);
+  await prisma.ban.update({
+    where: { id: ban.id },
+    data: {
+      status: 'ACTIVE',
+      acceptedAt: new Date(),
+      handledAt: new Date(),
+      expiresAt,
+      checkDueAt: expiresAt,
+    },
+  });
+
   await setCooldown(`cooldown:send:${senderId}`, COOLDOWN_SEND);
-  await setCooldown(`cooldown:pair:${pairKey}`, 20);
   const energy = await applySendEnergy(senderId, receiver.id);
   await recordBanSent(senderId);
   await trackEvent(ANALYTICS_EVENTS.BAN_SENT, senderId, {
@@ -466,12 +466,7 @@ export async function replyToIncomingBan(params: {
     include: { sender: true, receiver: true },
   });
 
-  const pairKey =
-    params.userId < parent.senderId
-      ? `${params.userId}:${parent.senderId}`
-      : `${parent.senderId}:${params.userId}`;
   await setCooldown(`cooldown:send:${params.userId}`, COOLDOWN_SEND);
-  await setCooldown(`cooldown:pair:${pairKey}`, 20);
   await applySendEnergy(params.userId, parent.senderId);
   await recordBanSent(params.userId);
   await trackEvent(ANALYTICS_EVENTS.BAN_SENT, params.userId, {
@@ -1125,6 +1120,10 @@ export async function processReminders() {
   }
 }
 
+function logCheckScheduler(payload: Record<string, unknown>) {
+  console.log('[check-scheduler]', payload);
+}
+
 export async function processExpiredBans() {
   const now = new Date();
   const due = await prisma.ban.findMany({
@@ -1136,6 +1135,13 @@ export async function processExpiredBans() {
   });
 
   for (const ban of due) {
+    logCheckScheduler({
+      banId: ban.id,
+      status: ban.status,
+      endsAt: ban.checkDueAt?.toISOString() ?? null,
+      shouldCreateCheck: true,
+      reason: 'checkDue-passed',
+    });
     await prisma.ban.update({
       where: { id: ban.id },
       data: { status: 'CHECKING', checkStartedAt: new Date() },
@@ -1170,6 +1176,13 @@ export async function processStaleChecks() {
   });
 
   for (const ban of stale) {
+    logCheckScheduler({
+      banId: ban.id,
+      status: ban.status,
+      endsAt: ban.checkDueAt?.toISOString() ?? null,
+      shouldCreateCheck: false,
+      reason: 'check-timeout',
+    });
     const hasSender = ban.checkAnswers.some((a) => a.userId === ban.senderId);
     const hasReceiver = ban.checkAnswers.some(
       (a) => a.userId === ban.receiverId,

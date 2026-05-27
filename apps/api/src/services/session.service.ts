@@ -1,4 +1,5 @@
 import type { SessionState } from '@98plus/shared';
+import { getCheckViewerRole } from '@98plus/shared';
 import {
   getActiveInteractions,
   getPendingIncoming,
@@ -28,6 +29,16 @@ export async function getSessionState(
     getActiveInteractions(userId, 15),
     getLatestPendingResultId(userId),
   ]);
+
+  if (pending) {
+    console.log('[check-session]', {
+      userId,
+      checkBanId: pending.id,
+      role: getCheckViewerRole(userId, pending.sender.id, pending.receiver.id),
+      banId: pending.id,
+      status: pending.status,
+    });
+  }
 
   return {
     serverNow: new Date().toISOString(),
