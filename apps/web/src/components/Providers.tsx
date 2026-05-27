@@ -33,6 +33,7 @@ import { useIncomingPoll } from '@/hooks/useIncomingPoll';
 import { EnergyPopupStack } from './EnergyPopupStack';
 import { IncomingBanOverlay } from './IncomingBanOverlay';
 import { CheckOverlay } from './CheckOverlay';
+import { ResultOverlay } from './ResultOverlay';
 import { ChallengeErrorBoundary } from './ChallengeErrorBoundary';
 import { ShellErrorBoundary } from './ShellErrorBoundary';
 import { resetScrollLock } from '@/lib/scroll-lock';
@@ -82,6 +83,7 @@ import { timingLog, timingStart } from '@/lib/timing-log';
 import { logFriendsTiming } from '@/lib/boot-timing';
 import {
   acknowledgeBanResultOnServer,
+  diagnoseResultShow,
   dismissBanResultLocally,
   shouldShowBanResult,
 } from '@/lib/ban-result-flow';
@@ -305,11 +307,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         setResult(null);
         return;
       }
-      if (!shouldShowBanResult(r, mode, r.id)) {
+      if (!shouldShowBanResult(r, mode, r.id, userIdRef.current)) {
         challengeLog('result:reject-open', {
           banId: r.id,
           outcome: r.outcome,
           mode,
+          reason: diagnoseResultShow(r, mode, userIdRef.current, r.id).reason,
         });
         console.log('[result-dismiss-local]', {
           banId: r.id,
@@ -393,6 +396,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const checkWsSeenRef = useRef<Set<string>>(new Set());
   const resultDeliveredBanIdsRef = useRef<Set<string>>(new Set());
   const checkSubmitAtRef = useRef<Map<string, number>>(new Map());
+  const resultPollBurstTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => {
     incomingBanRef.current = incomingBan;
   }, [incomingBan]);
@@ -554,6 +558,102 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setCheckWaiting(false);
   }, []);
 
+  const cancelResultPollBurst = useCallback(() => {
+    for (const t of resultPollBurstTimersRef.current) {
+      clearTimeout(t);
+    }
+    resultPollBurstTimersRef.current = [];
+  }, []);
+
+  const receiveResult = useCallback(
+    (
+      payload: BanResult | null | undefined,
+      source: 'ws' | 'http' | 'poll',
+    ) => {
+      const banId = payload?.id ?? null;
+      const uid = userIdRef.current;
+      if (!banId || !payload) return;
+
+      if (resultDeliveredBanIdsRef.current.has(banId)) {
+        console.log('[result-skip-duplicate]', { banId, source });
+        return;
+      }
+
+      const mode = source === 'poll' ? 'auto' : 'live';
+      const decision = diagnoseResultShow(payload, mode, uid, banId);
+      console.log('[result-show-decision]', {
+        banId,
+        shouldShow: decision.shouldShow,
+        reason: decision.reason,
+        source,
+      });
+
+      if (!decision.shouldShow) {
+        dismissBanResultLocally(banId, payload.viewerId ?? uid);
+        void acknowledgeBanResultOnServer(banId, tokenRef.current);
+        return;
+      }
+
+      console.log('[result-open-immediate]', { banId, source });
+      openBanResult(payload, mode);
+    },
+    [openBanResult],
+  );
+
+  const pollPendingResultOnce = useCallback(
+    async (source: 'interval' | 'burst') => {
+      const requestUserId = userIdRef.current;
+      const requestToken = tokenRef.current;
+      if (!requestUserId || !requestToken) return;
+      if (resultOpenRef.current) return;
+
+      try {
+        const { result: pendingResult } = await api<{ result: BanResult | null }>(
+          '/bans/result/pending',
+          { token: requestToken, retries: 0 },
+        );
+        if (!pendingResult?.id) return;
+        if (resultDeliveredBanIdsRef.current.has(pendingResult.id)) return;
+
+        const submitAt = checkSubmitAtRef.current.get(pendingResult.id);
+        const elapsedClientMs =
+          submitAt != null
+            ? Math.round(performance.now() - submitAt)
+            : undefined;
+
+        if (source === 'burst') {
+          console.log('[result-poll-burst]', {
+            banId: pendingResult.id,
+            elapsedClientMs,
+          });
+        } else {
+          console.log('[result-poll-hit]', {
+            banId: pendingResult.id,
+            authUserId: requestUserId,
+            elapsedClientMs,
+          });
+        }
+        receiveResult(pendingResult, 'poll');
+      } catch {
+        /* fallback only */
+      }
+    },
+    [receiveResult],
+  );
+
+  const scheduleResultPollBurst = useCallback(() => {
+    cancelResultPollBurst();
+    for (const ms of [0, 200, 500, 900]) {
+      const t = window.setTimeout(
+        () => void pollPendingResultOnce('burst'),
+        ms,
+      );
+      resultPollBurstTimersRef.current.push(t);
+    }
+  }, [cancelResultPollBurst, pollPendingResultOnce]);
+
+  useEffect(() => () => cancelResultPollBurst(), [cancelResultPollBurst]);
+
   const setCheckBanSafe = useCallback(
     (b: BanInteraction | null) => {
       const viewerId = auth.user?.id ?? null;
@@ -596,7 +696,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       answeredCheckRef.current.add(banId);
       markCheckAnsweredLocally(uid, banId);
       checkAnswerInFlightRef.current.add(banId);
-      checkSubmitAtRef.current.set(banId, performance.now());
+      const t0 = performance.now();
+      checkSubmitAtRef.current.set(banId, t0);
+      console.log('[result-click-answer]', { banId, t0 });
       setCheckBan(null);
       setCheckWaiting(false);
 
@@ -609,20 +711,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           method: 'POST',
           token,
           body: JSON.stringify({ completed }),
+          retries: 0,
+        });
+
+        const elapsedMs = Math.round(performance.now() - t0);
+        console.log('[result-http-response]', {
+          banId,
+          done: res.done,
+          waiting: !!res.waiting,
+          hasResult: !!res.result,
+          elapsedMs,
         });
 
         if (res.done && res.result) {
           challengeLog('check:done', { banId });
-          console.log('[result-open-immediate]', {
-            banId: res.result.id,
-            source: 'http',
-          });
-          openBanResult(res.result, 'live');
+          receiveResult(res.result, 'http');
           queueMicrotask(() => {
             void refreshUserRef.current().catch(() => {});
           });
         } else if (res.waiting) {
           challengeLog('check:waiting-partner', { banId });
+          scheduleResultPollBurst();
+        } else if (res.done) {
+          scheduleResultPollBurst();
         }
 
         return { ok: true };
@@ -634,7 +745,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         checkAnswerInFlightRef.current.delete(banId);
       }
     },
-    [openBanResult],
+    [receiveResult, scheduleResultPollBurst],
   );
 
   const scheduleCheckWaitingDismiss = useCallback(() => {
@@ -1068,90 +1179,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     console.log('[result-poll-start]', { userId });
 
     let stopped = false;
-    let inFlight = false;
-    const tick = async () => {
-      if (stopped || inFlight) return;
+    const tick = () => {
+      if (stopped) return;
       if (document.visibilityState !== 'visible') {
         console.log('[result-poll-skip]', { reason: 'hidden' });
         return;
       }
-      const open = result;
-      if (open?.id) {
-        console.log('[result-poll-skip]', { reason: 'already-open', banId: open.id });
+      if (result?.id) {
+        console.log('[result-poll-skip]', {
+          reason: 'already-open',
+          banId: result.id,
+        });
         return;
       }
-
-      const requestUserId = userIdRef.current;
-      const requestToken = tokenRef.current;
-      if (!requestUserId || !requestToken) {
-        console.log('[result-poll-skip]', { reason: 'missing-refs' });
-        return;
-      }
-
-      inFlight = true;
-      try {
-        const { result: pendingResult } = await api<{ result: BanResult | null }>(
-          '/bans/result/pending',
-          { token: requestToken },
-        );
-        if (stopped) return;
-        if (userIdRef.current !== requestUserId || tokenRef.current !== requestToken) {
-          console.log('[result-poll-skip]', { reason: 'auth-changed' });
-          return;
-        }
-        if (!pendingResult?.id) {
-          console.log('[result-poll-empty]');
-          return;
-        }
-        if (resultDeliveredBanIdsRef.current.has(pendingResult.id)) {
-          console.log('[result-poll-skip]', {
-            reason: 'already-delivered',
-            banId: pendingResult.id,
-          });
-          return;
-        }
-        console.log('[result-poll-hit]', {
-          banId: pendingResult.id,
-          authUserId: requestUserId,
-        });
-        console.log('[result-received]', {
-          source: 'poll',
-          banId: pendingResult.id,
-          authUserId: requestUserId,
-          senderId: pendingResult.sender.id,
-          receiverId: pendingResult.receiver.id,
-          outcome: pendingResult.outcome,
-        });
-        const shouldShow = shouldShowBanResult(
-          pendingResult,
-          'auto',
-          pendingResult.id,
-        );
-        console.log('[result-show-decision]', {
-          shouldShow,
-          reason: shouldShow ? 'poll-auto' : 'dismissed-or-invalid',
-        });
-        if (shouldShow) {
-          openBanResult(pendingResult, 'auto');
-        } else {
-          console.log('[result-dismiss-local]', {
-            banId: pendingResult.id,
-            authUserId: requestUserId,
-          });
-          dismissBanResultLocally(pendingResult.id, pendingResult.viewerId ?? requestUserId);
-          void acknowledgeBanResultOnServer(pendingResult.id, requestToken);
-        }
-      } catch {
-        console.log('[result-poll-skip]', { reason: 'request-failed' });
-      } finally {
-        inFlight = false;
-      }
+      void pollPendingResultOnce('interval');
     };
 
     void tick();
-    const timer = window.setInterval(() => void tick(), 2500);
+    const timer = window.setInterval(tick, 2500);
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void tick();
+      if (document.visibilityState === 'visible') tick();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => {
@@ -1159,7 +1206,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [auth.user?.id, auth.token, result, openBanResult]);
+  }, [auth.user?.id, auth.token, result, pollPendingResultOnce]);
 
   const applySession = useCallback((s: SessionState) => {
     const viewerId = auth.user?.id ?? null;
@@ -1386,7 +1433,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             if (tokenRef.current !== token) return;
             if (userIdRef.current !== requestUserId) return;
             if (pendingResult) {
-              const shouldShow = shouldShowBanResult(pendingResult, 'auto', pendingId);
+              const shouldShow = shouldShowBanResult(
+                pendingResult,
+                'auto',
+                pendingId,
+                requestUserId,
+              );
               console.log('[result-received]', {
                 source: 'session',
                 banId: pendingResult.id,
@@ -1534,6 +1586,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         case 'check:waiting':
           setCheckWaiting(true);
           scheduleCheckWaitingDismiss();
+          scheduleResultPollBurst();
           break;
         case 'check:completed': {
           const payload = event.payload as BanResult;
@@ -1549,19 +1602,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             authUserId: uid,
             elapsedClientMs,
           });
-          const shouldShow =
-            !!banId && shouldShowBanResult(payload, 'live', banId);
-          if (shouldShow) {
-            console.log('[result-open-immediate]', { banId, source: 'ws' });
-            openBanResult(payload, 'live');
-          } else if (banId) {
-            console.log('[result-dismiss-local]', {
-              banId,
-              authUserId: payload.viewerId ?? uid,
-            });
-            dismissBanResultLocally(banId, payload.viewerId ?? uid);
-            void acknowledgeBanResultOnServer(banId, tokenRef.current);
-          }
+          receiveResult(payload, 'ws');
           queueMicrotask(() => {
             if (uid && banId) {
               answeredCheckRef.current.add(banId);
@@ -1579,7 +1620,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           break;
         case 'energy:popup':
           pushPopup(event.payload as EnergyPopup);
-          auth.refreshUser();
+          queueMicrotask(() => {
+            void refreshUserRef.current().catch(() => {});
+          });
           break;
         case 'ban:updated':
           if (!banSentOpenRef.current) reloadPending();
@@ -1600,14 +1643,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       }
     },
-    receiveIncomingBan,
-    receiveCheckBan,
-    reloadPending,
-    openBanResult,
-    dismissBanResult,
-    clearCheckOverlay,
-    dismissIncoming,
-    scheduleCheckWaitingDismiss,
+    () => {
+      void reloadPendingRef.current().catch(() => {});
+    },
   );
 
   useEffect(() => {
@@ -2110,6 +2148,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           onRecover={() => clearCheckOverlay()}
         >
           <CheckOverlay />
+        </ChallengeErrorBoundary>
+        <ChallengeErrorBoundary
+          name="result"
+          onRecover={() => dismissBanResult()}
+        >
+          {result ? (
+            <ResultOverlay result={result} onClose={dismissBanResult} />
+          ) : null}
         </ChallengeErrorBoundary>
         {children}
         {!result ? (

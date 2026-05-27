@@ -154,6 +154,64 @@ export async function mapBanToInteraction(
   };
 }
 
+/** Sync WS emit — payloads must be pre-built (same path as ban:incoming). */
+function emitCheckCompletedResults(
+  banId: string,
+  senderId: string,
+  receiverId: string,
+  resultSender: BanResult | null,
+  resultReceiver: BanResult | null,
+  t0: number,
+) {
+  console.log('[result-ready]', {
+    banId,
+    elapsedMs: Date.now() - t0,
+    hasSenderPayload: !!resultSender,
+    hasReceiverPayload: !!resultReceiver,
+  });
+
+  if (resultSender) {
+    console.log('[result-emit-start]', {
+      banId,
+      toUserId: senderId,
+      role: 'sender',
+      elapsedMs: Date.now() - t0,
+    });
+    const delivery = broadcastToUser(senderId, {
+      type: 'check:completed',
+      payload: resultSender,
+    });
+    console.log('[result-emit-done]', {
+      banId,
+      toUserId: senderId,
+      role: 'sender',
+      elapsedMs: Date.now() - t0,
+      delivered: delivery.delivered,
+      published: delivery.published,
+    });
+  }
+  if (resultReceiver) {
+    console.log('[result-emit-start]', {
+      banId,
+      toUserId: receiverId,
+      role: 'receiver',
+      elapsedMs: Date.now() - t0,
+    });
+    const delivery = broadcastToUser(receiverId, {
+      type: 'check:completed',
+      payload: resultReceiver,
+    });
+    console.log('[result-emit-done]', {
+      banId,
+      toUserId: receiverId,
+      role: 'receiver',
+      elapsedMs: Date.now() - t0,
+      delivered: delivery.delivered,
+      published: delivery.published,
+    });
+  }
+}
+
 async function broadcastResultReady(
   banId: string,
   senderId: string,
@@ -174,47 +232,14 @@ async function broadcastResultReady(
       : buildBanResult(banId, receiverId),
   ]);
 
-  console.log('[result-ready]', {
+  emitCheckCompletedResults(
     banId,
-    elapsedMs: Date.now() - t0,
-  });
-
-  if (resultSender) {
-    console.log('[result-emit-start]', {
-      banId,
-      toUserId: senderId,
-      role: 'sender',
-      elapsedMs: Date.now() - t0,
-    });
-    broadcastToUser(senderId, {
-      type: 'check:completed',
-      payload: resultSender,
-    });
-    console.log('[result-emit-done]', {
-      banId,
-      toUserId: senderId,
-      role: 'sender',
-      elapsedMs: Date.now() - t0,
-    });
-  }
-  if (resultReceiver) {
-    console.log('[result-emit-start]', {
-      banId,
-      toUserId: receiverId,
-      role: 'receiver',
-      elapsedMs: Date.now() - t0,
-    });
-    broadcastToUser(receiverId, {
-      type: 'check:completed',
-      payload: resultReceiver,
-    });
-    console.log('[result-emit-done]', {
-      banId,
-      toUserId: receiverId,
-      role: 'receiver',
-      elapsedMs: Date.now() - t0,
-    });
-  }
+    senderId,
+    receiverId,
+    resultSender,
+    resultReceiver,
+    t0,
+  );
 
   void (async () => {
     const ban = await prisma.ban.findUnique({
@@ -917,11 +942,14 @@ export async function submitCheckAnswer(
     buildBanResult(banId, ban.receiverId),
   ]);
 
-  await broadcastResultReady(banId, ban.senderId, ban.receiverId, {
-    t0,
+  emitCheckCompletedResults(
+    banId,
+    ban.senderId,
+    ban.receiverId,
     resultSender,
     resultReceiver,
-  });
+    t0,
+  );
 
   const result =
     userId === ban.senderId
