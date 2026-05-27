@@ -50,6 +50,9 @@ export async function buildBanResult(
   });
 
   if (!ban) return null;
+  if (viewerId && viewerId !== ban.senderId && viewerId !== ban.receiverId) {
+    return null;
+  }
 
   const terminal = ['COMPLETED', 'OVERBOARD', 'FAILED', 'EXPIRED'];
   if (!terminal.includes(ban.status) && !ban.outcome) {

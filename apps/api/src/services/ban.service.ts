@@ -766,6 +766,8 @@ export async function markOverboard(banId: string, userId: string) {
       receiverEnergyDelta: energy.receiver,
       energyApplied: true,
       receiverIncomingAckAt: new Date(),
+      senderResultSeenAt: null,
+      receiverResultSeenAt: null,
     },
   });
 
@@ -1215,7 +1217,10 @@ export async function getWaitingCheck(userId: string) {
 export async function getLatestPendingResultId(userId: string) {
   const ban = await prisma.ban.findFirst({
     where: {
-      OR: [{ senderId: userId }, { receiverId: userId }],
+      OR: [
+        { senderId: userId, senderResultSeenAt: null },
+        { receiverId: userId, receiverResultSeenAt: null },
+      ],
       status: { in: ['COMPLETED', 'OVERBOARD', 'FAILED', 'EXPIRED'] },
       outcome: { not: null },
       completedAt: { not: null },
@@ -1231,9 +1236,10 @@ export async function getPendingResultForPoll(userId: string) {
   if (!pendingId) {
     console.log('[result-pending]', {
       userId,
-      resultId: null,
       banId: null,
       role: null,
+      seenAt: null,
+      returned: false,
       reason: 'none',
     });
     return null;
@@ -1241,20 +1247,55 @@ export async function getPendingResultForPoll(userId: string) {
 
   const ban = await prisma.ban.findUnique({
     where: { id: pendingId },
-    select: { senderId: true, receiverId: true },
+    select: {
+      id: true,
+      senderId: true,
+      receiverId: true,
+      senderResultSeenAt: true,
+      receiverResultSeenAt: true,
+    },
   });
+  if (!ban) {
+    console.log('[result-pending]', {
+      userId,
+      banId: pendingId,
+      role: null,
+      seenAt: null,
+      returned: false,
+      reason: 'ban-not-found',
+    });
+    return null;
+  }
   const role =
-    ban?.senderId === userId
+    ban.senderId === userId
       ? 'sender'
-      : ban?.receiverId === userId
+      : ban.receiverId === userId
         ? 'receiver'
         : 'none';
+  const seenAt =
+    role === 'sender'
+      ? ban.senderResultSeenAt
+      : role === 'receiver'
+        ? ban.receiverResultSeenAt
+        : null;
+  if (seenAt) {
+    console.log('[result-pending]', {
+      userId,
+      banId: pendingId,
+      role,
+      seenAt: seenAt.toISOString(),
+      returned: false,
+      reason: 'already-seen',
+    });
+    return null;
+  }
   const result = await buildBanResult(pendingId, userId);
   console.log('[result-pending]', {
     userId,
-    resultId: result?.id ?? null,
     banId: pendingId,
     role,
+    seenAt: null,
+    returned: !!result,
     reason: result ? 'found' : 'not-buildable',
   });
   return result;
@@ -1267,8 +1308,21 @@ export async function acknowledgeBanResult(
   const ban = await prisma.ban.findUnique({ where: { id: banId } });
   if (!ban) return false;
   if (ban.senderId !== userId && ban.receiverId !== userId) return false;
-  // Intentional no-op: result dismissal is per-user local. Do not mutate handledAt,
-  // because handledAt is shared and can hide result from the other participant.
+  const role = ban.senderId === userId ? 'sender' : 'receiver';
+  const field = role === 'sender' ? 'senderResultSeenAt' : 'receiverResultSeenAt';
+  await prisma.ban.update({
+    where: { id: banId },
+    data:
+      role === 'sender'
+        ? { senderResultSeenAt: new Date() }
+        : { receiverResultSeenAt: new Date() },
+  });
+  console.log('[result-ack]', {
+    userId,
+    banId,
+    role,
+    updatedField: field,
+  });
   return true;
 }
 
@@ -1472,6 +1526,8 @@ export async function processStaleChecks() {
         outcome: 'TIMEOUT' as PrismaOutcome,
         completedAt: new Date(),
         energyApplied: true,
+        senderResultSeenAt: null,
+        receiverResultSeenAt: null,
       },
     });
 
@@ -1515,6 +1571,8 @@ export async function adminResetBan(banId: string) {
       checkDueAt: null,
       checkStartedAt: null,
       reminderSentAt: null,
+      senderResultSeenAt: null,
+      receiverResultSeenAt: null,
     },
   });
 }

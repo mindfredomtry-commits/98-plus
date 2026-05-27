@@ -303,6 +303,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           outcome: r.outcome,
           mode,
         });
+        console.log('[result-dismiss-local]', {
+          banId: r.id,
+          authUserId: r.viewerId ?? userIdRef.current,
+        });
         dismissBanResultLocally(r.id, r.viewerId ?? null);
         void acknowledgeBanResultOnServer(r.id, tokenRef.current);
         return;
@@ -315,6 +319,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const dismissBanResult = useCallback(() => {
     setResult((prev) => {
       if (prev?.id) {
+        console.log('[result-dismiss-local]', {
+          banId: prev.id,
+          authUserId: prev.viewerId ?? userIdRef.current,
+        });
         dismissBanResultLocally(prev.id, prev.viewerId ?? null);
         void acknowledgeBanResultOnServer(prev.id, tokenRef.current);
       }
@@ -1028,6 +1036,102 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     tokenRef,
   });
 
+  useEffect(() => {
+    const userId = auth.user?.id;
+    const token = auth.token;
+    if (!userId || !token) {
+      console.log('[result-poll-skip]', { reason: 'no-auth' });
+      return;
+    }
+    console.log('[result-poll-start]', { userId });
+
+    let stopped = false;
+    let inFlight = false;
+    const tick = async () => {
+      if (stopped || inFlight) return;
+      if (document.visibilityState !== 'visible') {
+        console.log('[result-poll-skip]', { reason: 'hidden' });
+        return;
+      }
+      const open = result;
+      if (open?.id) {
+        console.log('[result-poll-skip]', { reason: 'already-open', banId: open.id });
+        return;
+      }
+
+      const requestUserId = userIdRef.current;
+      const requestToken = tokenRef.current;
+      if (!requestUserId || !requestToken) {
+        console.log('[result-poll-skip]', { reason: 'missing-refs' });
+        return;
+      }
+
+      inFlight = true;
+      try {
+        const { result: pendingResult } = await api<{ result: BanResult | null }>(
+          '/bans/result/pending',
+          { token: requestToken },
+        );
+        if (stopped) return;
+        if (userIdRef.current !== requestUserId || tokenRef.current !== requestToken) {
+          console.log('[result-poll-skip]', { reason: 'auth-changed' });
+          return;
+        }
+        if (!pendingResult?.id) {
+          console.log('[result-poll-empty]');
+          return;
+        }
+        console.log('[result-poll-hit]', {
+          banId: pendingResult.id,
+          authUserId: requestUserId,
+        });
+        console.log('[result-received]', {
+          source: 'poll',
+          banId: pendingResult.id,
+          authUserId: requestUserId,
+          senderId: pendingResult.sender.id,
+          receiverId: pendingResult.receiver.id,
+          outcome: pendingResult.outcome,
+        });
+        const shouldShow = shouldShowBanResult(
+          pendingResult,
+          'auto',
+          pendingResult.id,
+        );
+        console.log('[result-show-decision]', {
+          shouldShow,
+          reason: shouldShow ? 'poll-auto' : 'dismissed-or-invalid',
+        });
+        if (shouldShow) {
+          openBanResult(pendingResult, 'auto');
+        } else {
+          console.log('[result-dismiss-local]', {
+            banId: pendingResult.id,
+            authUserId: requestUserId,
+          });
+          dismissBanResultLocally(pendingResult.id, pendingResult.viewerId ?? requestUserId);
+          void acknowledgeBanResultOnServer(pendingResult.id, requestToken);
+        }
+      } catch {
+        console.log('[result-poll-skip]', { reason: 'request-failed' });
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void tick();
+    const timer = window.setInterval(() => void tick(), 2500);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void tick();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [auth.user?.id, auth.token, result, openBanResult]);
+
   const applySession = useCallback((s: SessionState) => {
     const viewerId = auth.user?.id ?? null;
     if (!viewerId) {
@@ -1269,6 +1373,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               if (shouldShow) {
                 openBanResult(pendingResult, 'auto');
               } else {
+                console.log('[result-dismiss-local]', {
+                  banId: pendingId,
+                  authUserId: pendingResult.viewerId ?? requestUserId,
+                });
                 dismissBanResultLocally(pendingId, pendingResult.viewerId ?? requestUserId);
                 void acknowledgeBanResultOnServer(pendingId, token);
               }
@@ -1410,6 +1518,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           if (shouldShow) {
             openBanResult(payload, 'live');
           } else if (payload?.id) {
+            console.log('[result-dismiss-local]', {
+              banId: payload.id,
+              authUserId: payload.viewerId ?? uid,
+            });
             dismissBanResultLocally(payload.id, payload.viewerId ?? uid);
             void acknowledgeBanResultOnServer(payload.id, tokenRef.current);
           }

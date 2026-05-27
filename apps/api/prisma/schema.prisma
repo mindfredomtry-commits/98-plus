@@ -123,6 +123,8 @@ model Ban {
   completedAt              DateTime?
   handledAt                DateTime?
   receiverIncomingAckAt    DateTime?
+  senderResultSeenAt       DateTime?
+  receiverResultSeenAt     DateTime?
 
   checkAnswers BanCheckAnswer[]
 

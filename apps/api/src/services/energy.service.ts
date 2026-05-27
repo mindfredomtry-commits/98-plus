@@ -180,6 +180,8 @@ export async function applyCheckResult(
         senderEnergyDelta: 0,
         receiverEnergyDelta: 0,
         farmSkipped: false,
+        senderResultSeenAt: null,
+        receiverResultSeenAt: null,
       },
     });
     console.log('[energy-calc]', {
@@ -223,6 +225,8 @@ export async function applyCheckResult(
       senderEnergyDelta: senderDelta,
       receiverEnergyDelta: receiverDelta,
       farmSkipped: skip,
+      senderResultSeenAt: null,
+      receiverResultSeenAt: null,
     },
   });
 
