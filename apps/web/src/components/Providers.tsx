@@ -77,6 +77,7 @@ import {
   shouldShowCheckOverlay,
 } from '@/lib/check-overlay';
 import { useCheckPoll } from '@/hooks/useCheckPoll';
+import { useResultPoll } from '@/hooks/useResultPoll';
 import { getCheckViewerRole } from '@98plus/shared';
 import { timingLog, timingStart } from '@/lib/timing-log';
 import { logFriendsTiming } from '@/lib/boot-timing';
@@ -374,6 +375,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const incomingBanRef = useRef<BanInteraction | null>(null);
   const checkBanRef = useRef<BanInteraction | null>(null);
   const checkWsSeenRef = useRef<Set<string>>(new Set());
+  const resultWsSeenRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     incomingBanRef.current = incomingBan;
   }, [incomingBan]);
@@ -1028,6 +1030,67 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     tokenRef,
   });
 
+  const receiveResult = useCallback(
+    (payload: BanResult, source: 'ws' | 'session' | 'poll') => {
+      const uid = userIdRef.current;
+      if (!payload?.id) {
+        console.log('[result-show-decision]', {
+          banId: null,
+          shouldShow: false,
+          reason: 'invalid-payload',
+          source,
+        });
+        return;
+      }
+      if (source === 'ws') {
+        resultWsSeenRef.current.add(payload.id);
+        console.log('[result-ws-received]', {
+          banId: payload.id,
+          authUserId: uid,
+        });
+      } else if (source === 'session') {
+        console.log('[result-session-received]', {
+          banId: payload.id,
+          authUserId: uid,
+        });
+      }
+      const mode = source === 'ws' ? 'live' : 'auto';
+      const shouldShow = shouldShowBanResult(payload, mode, payload.id);
+      console.log('[result-show-decision]', {
+        banId: payload.id,
+        shouldShow,
+        reason: shouldShow ? `${source}-${mode}` : 'dismissed-or-invalid',
+        source,
+      });
+      if (!shouldShow) {
+        dismissBanResultLocally(payload.id);
+        void acknowledgeBanResultOnServer(payload.id, tokenRef.current);
+        return;
+      }
+      if (uid) {
+        answeredCheckRef.current.add(payload.id);
+        dismissedCheckSessionRef.current.add(payload.id);
+        markCheckAnsweredLocally(uid, payload.id);
+      }
+      clearCheckOverlay();
+      dismissIncoming();
+      openBanResult(payload, mode);
+      void refreshUserRef.current().catch(() => {});
+    },
+    [clearCheckOverlay, dismissIncoming, openBanResult],
+  );
+
+  const getOpenResult = useCallback(() => resultOpenRef.current ? result : null, [result]);
+
+  useResultPoll({
+    userId: auth.user?.id,
+    token: auth.token,
+    receiveResult,
+    getOpenResult,
+    userIdRef,
+    tokenRef,
+  });
+
   const applySession = useCallback((s: SessionState) => {
     const viewerId = auth.user?.id ?? null;
     if (!viewerId) {
@@ -1253,26 +1316,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             if (tokenRef.current !== token) return;
             if (userIdRef.current !== requestUserId) return;
             if (pendingResult) {
-              console.log('[result-session-received]', {
-                banId: pendingResult.id,
-                authUserId: requestUserId,
-              });
-              const shouldShow = shouldShowBanResult(
-                pendingResult,
-                'auto',
-                pendingId,
-              );
-              console.log('[result-show-decision]', {
-                banId: pendingResult.id,
-                shouldShow,
-                reason: shouldShow ? 'session-auto' : 'dismissed-or-invalid',
-              });
-              if (shouldShow) {
-                openBanResult(pendingResult, 'auto');
-              } else {
-                dismissBanResultLocally(pendingId);
-                void acknowledgeBanResultOnServer(pendingId, token);
+              if (!resultWsSeenRef.current.has(pendingResult.id)) {
+                console.log('[result-recovery-session]', {
+                  banId: pendingResult.id,
+                });
               }
+              receiveResult(pendingResult, 'session');
             }
           } catch {
             /* result not ready */
@@ -1303,7 +1352,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setSessionBootstrapped(true);
       setInitialNetworkBootstrapAttempted(true);
     }
-  }, [applySession, openBanResult]);
+  }, [applySession, receiveResult]);
 
   const openSendTo = useCallback((receiver: string, text = '') => {
     const trimmed = receiver.trim();
@@ -1386,26 +1435,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           break;
         case 'check:completed': {
           const payload = event.payload as BanResult;
-          const uid = userIdRef.current;
-          console.log('[result-ws-received]', {
-            banId: payload?.id ?? null,
-            authUserId: uid,
-          });
-          if (uid && payload?.id) {
-            answeredCheckRef.current.add(payload.id);
-            dismissedCheckSessionRef.current.add(payload.id);
-            markCheckAnsweredLocally(uid, payload.id);
-          }
-          console.log('[result-show-decision]', {
-            banId: payload?.id ?? null,
-            shouldShow:
-              !!payload?.id && shouldShowBanResult(payload, 'live', payload.id),
-            reason: payload?.id ? 'live-event' : 'invalid-payload',
-          });
-          clearCheckOverlay();
-          dismissIncoming();
-          openBanResult(payload, 'live');
-          auth.refreshUser();
+          receiveResult(payload, 'ws');
           break;
         }
         case 'sync:session':
@@ -1436,6 +1466,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     receiveIncomingBan,
     receiveCheckBan,
+    receiveResult,
     reloadPending,
     openBanResult,
     dismissBanResult,
