@@ -6,8 +6,8 @@ import {
 } from '../services/ban.service';
 
 export function startScheduler() {
-  cron.schedule('* * * * *', async () => {
-    console.log('[check-scheduler-tick]', { now: new Date().toISOString() });
+  // Precise timers handle check due; this cron is backup (≤15s skew).
+  cron.schedule('*/15 * * * * *', async () => {
     try {
       await processReminders();
       await processExpiredBans();
@@ -16,5 +16,12 @@ export function startScheduler() {
       console.error('[scheduler]', e);
     }
   });
-  console.log('[scheduler] alpha cron: reminders + checks + stale (every minute)');
+
+  cron.schedule('* * * * *', async () => {
+    console.log('[check-scheduler-tick]', { now: new Date().toISOString() });
+  });
+
+  console.log(
+    '[scheduler] check backup every 15s; heartbeat every minute',
+  );
 }

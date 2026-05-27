@@ -476,6 +476,11 @@ export async function acceptBan(banId: string, userId: string) {
 
   await trackEvent(ANALYTICS_EVENTS.BAN_ACCEPTED, userId, { banId });
 
+  if (activated?.checkDueAt) {
+    const { scheduleCheckDueTimer } = await import('./check-due-timer');
+    scheduleCheckDueTimer(banId, activated.checkDueAt);
+  }
+
   const interaction = await mapBanToInteraction(banId, userId);
   broadcastToUser(ban.senderId, { type: 'ban:updated', payload: interaction });
   broadcastToUser(ban.receiverId, { type: 'ban:updated', payload: interaction });
@@ -642,6 +647,9 @@ export async function counterBan(params: {
       checkDueAt: expiresAt,
     },
   });
+
+  const { scheduleCheckDueTimer } = await import('./check-due-timer');
+  scheduleCheckDueTimer(counter.id, expiresAt);
 
   await trackEvent(ANALYTICS_EVENTS.BAN_COUNTER, params.userId, {
     banId: counter.id,
@@ -1233,6 +1241,77 @@ function logCheckScheduler(payload: Record<string, unknown>) {
   console.log('[check-scheduler]', payload);
 }
 
+/** Idempotent ACTIVE → CHECKING when checkDueAt passed; emits WS to both parties. */
+export async function processSingleDueCheck(banId: string): Promise<boolean> {
+  const now = new Date();
+  const ban = await prisma.ban.findUnique({ where: { id: banId } });
+  if (!ban) return false;
+  if (ban.status !== 'ACTIVE') return false;
+  if (!ban.checkDueAt || ban.checkDueAt > now) return false;
+
+  const latenessMs = now.getTime() - ban.checkDueAt.getTime();
+
+  const updated = await prisma.ban.updateMany({
+    where: {
+      id: banId,
+      status: 'ACTIVE',
+      checkDueAt: { lte: now },
+    },
+    data: { status: 'CHECKING', checkStartedAt: now },
+  });
+  if (updated.count === 0) return false;
+
+  const { cancelCheckDueTimer } = await import('./check-due-timer');
+  cancelCheckDueTimer(banId);
+
+  console.log('[check-created]', {
+    banId: ban.id,
+    senderId: ban.senderId,
+    receiverId: ban.receiverId,
+    status: 'CHECKING',
+    checkDueAt: ban.checkDueAt.toISOString(),
+    latenessMs,
+  });
+
+  const senderView = await mapBanToInteraction(ban.id, ban.senderId);
+  const receiverView = await mapBanToInteraction(ban.id, ban.receiverId);
+
+  if (senderView) {
+    console.log('[check-ws-emit]', {
+      banId: ban.id,
+      toUserId: ban.senderId,
+      role: 'sender',
+      eventName: 'check:due',
+    });
+    broadcastToUser(ban.senderId, { type: 'check:due', payload: senderView });
+  }
+  if (receiverView) {
+    console.log('[check-ws-emit]', {
+      banId: ban.id,
+      toUserId: ban.receiverId,
+      role: 'receiver',
+      eventName: 'check:due',
+    });
+    broadcastToUser(ban.receiverId, {
+      type: 'check:due',
+      payload: receiverView,
+    });
+  }
+
+  const full = await prisma.ban.findUnique({
+    where: { id: ban.id },
+    include: { sender: true, receiver: true },
+  });
+  if (full) {
+    await sendCheckNotification(full.sender.telegramId, ban.text, ban.id);
+    await sendCheckNotification(full.receiver.telegramId, ban.text, ban.id);
+  }
+  await syncSession(ban.senderId);
+  await syncSession(ban.receiverId);
+
+  return true;
+}
+
 export async function processExpiredBans() {
   const now = new Date();
   const due = await prisma.ban.findMany({
@@ -1243,69 +1322,42 @@ export async function processExpiredBans() {
     take: 50,
   });
 
+  let maxLatenessMs = 0;
+  for (const ban of due) {
+    if (ban.checkDueAt) {
+      maxLatenessMs = Math.max(
+        maxLatenessMs,
+        now.getTime() - ban.checkDueAt.getTime(),
+      );
+    }
+    await processSingleDueCheck(ban.id);
+  }
+
   logCheckScheduler({
     now: now.toISOString(),
     dueCount: due.length,
     dueBanIds: due.map((b) => b.id),
+    maxLatenessMs,
     reasonIfZero: due.length === 0 ? 'no-active-due' : undefined,
   });
+}
 
-  for (const ban of due) {
-    logCheckScheduler({
-      banId: ban.id,
-      status: ban.status,
-      endsAt: ban.checkDueAt?.toISOString() ?? null,
-      shouldCreateCheck: true,
-      reason: 'checkDue-passed',
-    });
-    await prisma.ban.update({
-      where: { id: ban.id },
-      data: { status: 'CHECKING', checkStartedAt: new Date() },
-    });
-
-    const senderView = await mapBanToInteraction(ban.id, ban.senderId);
-    const receiverView = await mapBanToInteraction(ban.id, ban.receiverId);
-
-    console.log('[check-created]', {
-      banId: ban.id,
-      senderId: ban.senderId,
-      receiverId: ban.receiverId,
-      status: 'CHECKING',
-      checkDueAt: ban.checkDueAt?.toISOString() ?? null,
-    });
-
-    if (senderView) {
-      console.log('[check-ws-emit]', {
-        banId: ban.id,
-        toUserId: ban.senderId,
-        role: 'sender',
-        eventName: 'check:due',
-      });
-      broadcastToUser(ban.senderId, { type: 'check:due', payload: senderView });
+/** Re-schedule precise timers after process restart (cron still backs up misses). */
+export async function hydrateCheckDueTimers(): Promise<void> {
+  const now = Date.now();
+  const bans = await prisma.ban.findMany({
+    where: { status: 'ACTIVE', checkDueAt: { not: null } },
+    select: { id: true, checkDueAt: true },
+    take: 500,
+  });
+  const { scheduleCheckDueTimer } = await import('./check-due-timer');
+  for (const ban of bans) {
+    if (!ban.checkDueAt) continue;
+    if (ban.checkDueAt.getTime() <= now) {
+      void processSingleDueCheck(ban.id);
+    } else {
+      scheduleCheckDueTimer(ban.id, ban.checkDueAt);
     }
-    if (receiverView) {
-      console.log('[check-ws-emit]', {
-        banId: ban.id,
-        toUserId: ban.receiverId,
-        role: 'receiver',
-        eventName: 'check:due',
-      });
-      broadcastToUser(ban.receiverId, {
-        type: 'check:due',
-        payload: receiverView,
-      });
-    }
-
-    const full = await prisma.ban.findUnique({
-      where: { id: ban.id },
-      include: { sender: true, receiver: true },
-    });
-    if (full) {
-      await sendCheckNotification(full.sender.telegramId, ban.text, ban.id);
-      await sendCheckNotification(full.receiver.telegramId, ban.text, ban.id);
-    }
-    await syncSession(ban.senderId);
-    await syncSession(ban.receiverId);
   }
 }
 
@@ -1381,10 +1433,12 @@ export async function adminExpireBan(banId: string) {
       status: 'ACTIVE',
     },
   });
-  await processExpiredBans();
+  await processSingleDueCheck(banId);
 }
 
 export async function adminResetBan(banId: string) {
+  const { cancelCheckDueTimer } = await import('./check-due-timer');
+  cancelCheckDueTimer(banId);
   await prisma.banCheckAnswer.deleteMany({ where: { banId } });
   await prisma.ban.update({
     where: { id: banId },

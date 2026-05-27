@@ -17,6 +17,10 @@ async function start() {
   initWebSocket(server);
   startBot();
   startScheduler();
+  const { hydrateCheckDueTimers } = await import('./services/ban.service');
+  void hydrateCheckDueTimers().catch((e) => {
+    console.warn('[check-timer] hydrate failed', (e as Error).message);
+  });
 
   server.listen(port, () => {
     console.log(`[api] 98+ API listening on :${port}`);
