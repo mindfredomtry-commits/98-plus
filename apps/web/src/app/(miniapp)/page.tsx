@@ -67,6 +67,7 @@ export default function HomePage() {
     reloadPending,
     banSentOpen,
     wsStatus,
+    connectionUiState,
     eventLog,
   } = useApp();
   const { ready } = useTelegram();
@@ -155,7 +156,7 @@ export default function HomePage() {
         <ArenaAmbience />
       </ShellErrorBoundary>
 
-      <ConnectionBanner status={wsStatus} onRetry={reloadPending} />
+      <ConnectionBanner state={connectionUiState} onRetry={reloadPending} />
 
       <main
         className={`app-main challenge-bg ${

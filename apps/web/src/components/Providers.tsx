@@ -73,6 +73,11 @@ import {
   shouldShowBanResult,
 } from '@/lib/ban-result-flow';
 import { isDismissedResultLocally } from '@/lib/dismissed-results';
+import {
+  resolveConnectionUiState,
+  STARTUP_GRACE_MS,
+  type ConnectionUiState,
+} from '@/lib/connection-ui';
 
 interface AppContextValue {
   token: string | null;
@@ -126,6 +131,9 @@ interface AppContextValue {
   reloadPending: () => Promise<void>;
   reloadFriends: () => Promise<void>;
   wsStatus: ReturnType<typeof useWebSocket>['status'];
+  connectionUiState: ConnectionUiState;
+  networkBootstrapCompleted: boolean;
+  hasSuccessfulNetworkSync: boolean;
   eventLog: string[];
   viralOnboarding: boolean;
   banSentOpen: boolean;
@@ -304,6 +312,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [friendsBootstrapped, setFriendsBootstrapped] = useState(false);
   const [sessionBootstrapped, setSessionBootstrapped] = useState(false);
   const [homeSnapshotReady, setHomeSnapshotReady] = useState(false);
+  const [startupGraceActive, setStartupGraceActive] = useState(true);
+  const [networkBootstrapCompleted, setNetworkBootstrapCompleted] =
+    useState(false);
+  const [hasSuccessfulNetworkSync, setHasSuccessfulNetworkSync] =
+    useState(false);
+  const [initialNetworkBootstrapAttempted, setInitialNetworkBootstrapAttempted] =
+    useState(false);
+  const [wsHasConnectedOnce, setWsHasConnectedOnce] = useState(false);
+  const [navigatorOffline, setNavigatorOffline] = useState(() =>
+    typeof navigator !== 'undefined' ? !navigator.onLine : false,
+  );
 
   const triggerBanInputShake = useCallback(() => {
     setBanInputShake(true);
@@ -355,6 +374,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     clearAvatarCaches();
     setDataOwnerUserId(null);
     setHomeSnapshotReady(false);
+    setStartupGraceActive(true);
+    setNetworkBootstrapCompleted(false);
+    setHasSuccessfulNetworkSync(false);
+    setInitialNetworkBootstrapAttempted(false);
+    setWsHasConnectedOnce(false);
     setIncomingBan(null);
     setCheckBan(null);
     setCheckWaiting(false);
@@ -855,6 +879,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const requestUserId = userIdRef.current;
     if (!token || !requestUserId) {
       setSessionBootstrapped(true);
+      setInitialNetworkBootstrapAttempted(true);
       return;
     }
     try {
@@ -911,10 +936,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           name: ANALYTICS_EVENTS.SESSION_RECOVERED,
         }),
       }).catch(() => {});
+      setHasSuccessfulNetworkSync(true);
+      setNetworkBootstrapCompleted(true);
+      console.log('[connection-ui]', {
+        phase: 'session-sync-ok',
+        authUserId: requestUserId,
+      });
     } catch {
-      /* session endpoint may fail — ignore */
+      console.log('[connection-ui]', {
+        phase: 'session-sync-failed',
+        authUserId: requestUserId,
+      });
     } finally {
       setSessionBootstrapped(true);
+      setInitialNetworkBootstrapAttempted(true);
     }
   }, [applySession, openBanResult]);
 
@@ -1056,6 +1091,52 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     dismissIncoming,
     scheduleCheckWaitingDismiss,
   );
+
+  useEffect(() => {
+    if (wsStatus === 'connected') {
+      setWsHasConnectedOnce(true);
+    }
+  }, [wsStatus]);
+
+  useEffect(() => {
+    if (!auth.user?.id || !auth.token || auth.loading) {
+      setStartupGraceActive(true);
+      return;
+    }
+    setStartupGraceActive(true);
+    console.log('[connection-ui]', {
+      phase: 'grace-start',
+      ms: STARTUP_GRACE_MS,
+      userId: auth.user.id,
+    });
+    const t = window.setTimeout(() => {
+      setStartupGraceActive(false);
+      console.log('[connection-ui]', { phase: 'grace-end', userId: auth.user?.id });
+    }, STARTUP_GRACE_MS);
+    return () => window.clearTimeout(t);
+  }, [auth.user?.id, auth.token, auth.loading]);
+
+  useEffect(() => {
+    const sync = () => setNavigatorOffline(!navigator.onLine);
+    window.addEventListener('online', sync);
+    window.addEventListener('offline', sync);
+    return () => {
+      window.removeEventListener('online', sync);
+      window.removeEventListener('offline', sync);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (startupGraceActive) return;
+    if (hasSuccessfulNetworkSync) return;
+    if (!initialNetworkBootstrapAttempted) return;
+    setNetworkBootstrapCompleted(true);
+    console.log('[connection-ui]', { phase: 'bootstrap-settled-without-sync' });
+  }, [
+    startupGraceActive,
+    hasSuccessfulNetworkSync,
+    initialNetworkBootstrapAttempted,
+  ]);
 
   useEffect(() => {
     const uid = auth.user?.id;
@@ -1275,6 +1356,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     auth.user?.id && !auth.loading ? incomingBan : null;
   const scopedCheckBan = isAppReady ? checkBan : null;
 
+  const connectionUiState = useMemo(
+    () =>
+      resolveConnectionUiState({
+        wsStatus,
+        startupGraceActive,
+        networkBootstrapCompleted,
+        hasSuccessfulNetworkSync,
+        wsHasConnectedOnce,
+        navigatorOffline,
+      }),
+    [
+      wsStatus,
+      startupGraceActive,
+      networkBootstrapCompleted,
+      hasSuccessfulNetworkSync,
+      wsHasConnectedOnce,
+      navigatorOffline,
+    ],
+  );
+
   useEffect(() => {
     if (!auth.user?.id) {
       logFriendsTiming('why-not-rendered', { reason: 'no-user-id' });
@@ -1360,6 +1461,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       reloadPending,
       reloadFriends,
       wsStatus,
+      connectionUiState,
+      networkBootstrapCompleted,
+      hasSuccessfulNetworkSync,
       eventLog,
       viralOnboarding,
       banSentOpen,
@@ -1419,6 +1523,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       reloadPending,
       reloadFriends,
       wsStatus,
+      connectionUiState,
+      networkBootstrapCompleted,
+      hasSuccessfulNetworkSync,
       eventLog,
       viralOnboarding,
       banSentOpen,
