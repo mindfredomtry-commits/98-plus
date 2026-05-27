@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import {
   createContext,
   useContext,
@@ -33,7 +34,6 @@ import { useIncomingPoll } from '@/hooks/useIncomingPoll';
 import { EnergyPopupStack } from './EnergyPopupStack';
 import { IncomingBanOverlay } from './IncomingBanOverlay';
 import { CheckOverlay } from './CheckOverlay';
-import { ResultOverlay } from './ResultOverlay';
 import { ChallengeErrorBoundary } from './ChallengeErrorBoundary';
 import { ShellErrorBoundary } from './ShellErrorBoundary';
 import { resetScrollLock } from '@/lib/scroll-lock';
@@ -94,6 +94,12 @@ import {
   STARTUP_GRACE_MS,
   type ConnectionUiState,
 } from '@/lib/connection-ui';
+
+// Break circular import: Providers -> ResultOverlay -> Providers (useApp).
+const ResultOverlayLazy = dynamic(
+  () => import('./ResultOverlay').then((m) => ({ default: m.ResultOverlay })),
+  { ssr: false },
+);
 
 interface AppContextValue {
   token: string | null;
@@ -1996,7 +2002,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             name="result"
             onRecover={() => dismissBanResult()}
           >
-            <ResultOverlay result={result} onClose={dismissBanResult} />
+            <ResultOverlayLazy result={result} onClose={dismissBanResult} />
           </ChallengeErrorBoundary>
         ) : null}
         {children}
