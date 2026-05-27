@@ -161,22 +161,41 @@ async function broadcastResultReady(
 ) {
   const resultSender = await buildBanResult(banId, senderId);
   const resultReceiver = await buildBanResult(banId, receiverId);
+  const ban = await prisma.ban.findUnique({
+    where: { id: banId },
+    include: { sender: true, receiver: true },
+  });
+  console.log('[result-created]', {
+    banId,
+    senderId,
+    receiverId,
+    outcome: ban?.outcome ?? null,
+    energyApplied: !!ban?.energyApplied,
+  });
   if (resultSender) {
+    console.log('[result-ws-emit]', {
+      banId,
+      toUserId: senderId,
+      role: 'sender',
+      eventName: 'check:completed',
+    });
     broadcastToUser(senderId, {
       type: 'check:completed',
       payload: resultSender,
     });
   }
   if (resultReceiver) {
+    console.log('[result-ws-emit]', {
+      banId,
+      toUserId: receiverId,
+      role: 'receiver',
+      eventName: 'check:completed',
+    });
     broadcastToUser(receiverId, {
       type: 'check:completed',
       payload: resultReceiver,
     });
   }
-  const ban = await prisma.ban.findUnique({
-    where: { id: banId },
-    include: { sender: true, receiver: true },
-  });
   if (ban && resultSender) {
     await sendResultNotification(
       ban.sender.telegramId,
@@ -815,17 +834,17 @@ export async function submitCheckAnswer(
   const { resolveCheckOutcome, applyCheckResult } = await import('./energy.service');
   const outcome = resolveCheckOutcome(senderAns.completed, receiverAns.completed);
   const energy = await applyCheckResult(banId, outcome);
-
-  const msg =
-    outcome === 'split' ? SYSTEM_VOICE.socialUnstable : SYSTEM_VOICE.checkComplete;
-
-  broadcastEnergyPopup(ban.senderId, energy.sender, msg);
-  broadcastEnergyPopup(ban.receiverId, energy.receiver, msg);
+  if (energy.applied) {
+    const msg =
+      outcome === 'split' ? SYSTEM_VOICE.socialUnstable : SYSTEM_VOICE.checkComplete;
+    broadcastEnergyPopup(ban.senderId, energy.sender, msg);
+    broadcastEnergyPopup(ban.receiverId, energy.receiver, msg);
+  }
   await broadcastResultReady(banId, ban.senderId, ban.receiverId);
 
   const result = await buildBanResult(banId, userId);
-  await syncSession(ban.senderId);
-  await syncSession(ban.receiverId);
+  void syncSession(ban.senderId).catch(() => {});
+  void syncSession(ban.receiverId).catch(() => {});
 
   return {
     done: true,

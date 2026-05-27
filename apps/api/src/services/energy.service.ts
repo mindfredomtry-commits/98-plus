@@ -155,13 +155,33 @@ export async function applyOverboard(
 export async function applyCheckResult(
   banId: string,
   outcome: CheckOutcome,
-): Promise<EnergyDelta & { farmSkipped: boolean }> {
+): Promise<EnergyDelta & { farmSkipped: boolean; applied: boolean }> {
   const ban = await prisma.ban.findUnique({
     where: { id: banId },
     include: { sender: true, receiver: true },
   });
   if (!ban || ban.energyApplied) {
-    return { sender: 0, receiver: 0, farmSkipped: false };
+    return {
+      sender: ban?.senderEnergyDelta ?? 0,
+      receiver: ban?.receiverEnergyDelta ?? 0,
+      farmSkipped: ban?.farmSkipped ?? false,
+      applied: false,
+    };
+  }
+
+  // Idempotent claim: only one request can apply result/energy.
+  const claimed = await prisma.ban.updateMany({
+    where: { id: banId, energyApplied: false },
+    data: { energyApplied: true },
+  });
+  if (claimed.count === 0) {
+    const current = await prisma.ban.findUnique({ where: { id: banId } });
+    return {
+      sender: current?.senderEnergyDelta ?? 0,
+      receiver: current?.receiverEnergyDelta ?? 0,
+      farmSkipped: current?.farmSkipped ?? false,
+      applied: false,
+    };
   }
 
   const skip = await shouldSkipFarmRewards(ban.senderId, ban.receiverId);
@@ -189,7 +209,6 @@ export async function applyCheckResult(
   await prisma.ban.update({
     where: { id: banId },
     data: {
-      energyApplied: true,
       status: 'COMPLETED',
       completedAt: new Date(),
       outcome: checkOutcomeToPrisma(outcome),
@@ -199,7 +218,12 @@ export async function applyCheckResult(
     },
   });
 
-  return { sender: senderDelta, receiver: receiverDelta, farmSkipped: skip };
+  return {
+    sender: senderDelta,
+    receiver: receiverDelta,
+    farmSkipped: skip,
+    applied: true,
+  };
 }
 
 export function resolveCheckOutcome(
