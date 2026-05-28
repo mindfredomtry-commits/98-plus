@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
 import './lobby-screen.css';
 
 type Props = {
@@ -9,36 +8,8 @@ type Props = {
 };
 
 export function LobbyScreen({ onEnter, className = '' }: Props) {
-  const [hapticDebugLabel, setHapticDebugLabel] = useState<string | null>(null);
-  const debugHideTimerRef = useRef<number | null>(null);
-  const enterTimerRef = useRef<number | null>(null);
-
-  const showHapticDebug = (label: string) => {
-    setHapticDebugLabel(label);
-    if (debugHideTimerRef.current != null) {
-      window.clearTimeout(debugHideTimerRef.current);
-    }
-    debugHideTimerRef.current = window.setTimeout(() => {
-      setHapticDebugLabel(null);
-      debugHideTimerRef.current = null;
-    }, 1200);
-  };
-
-  useEffect(() => {
-    return () => {
-      if (debugHideTimerRef.current != null) {
-        window.clearTimeout(debugHideTimerRef.current);
-      }
-      if (enterTimerRef.current != null) {
-        window.clearTimeout(enterTimerRef.current);
-      }
-    };
-  }, []);
-
   const handleEnter = () => {
-    setHapticDebugLabel('CLICK');
     let method: 'telegram' | 'vibrate' | 'none' = 'none';
-    let error: string | null = null;
     const telegram = (
       window as Window & {
         Telegram?: {
@@ -51,40 +22,22 @@ export function LobbyScreen({ onEnter, className = '' }: Props) {
       }
     ).Telegram;
     const telegramHaptic = telegram?.WebApp?.HapticFeedback;
-    const hasTelegram = !!telegram?.WebApp;
-    const hasHaptic = typeof telegramHaptic?.impactOccurred === 'function';
-    const hasVibrate = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
 
     try {
-      if (hasHaptic) {
-        telegramHaptic.notificationOccurred?.('success');
-        navigator.vibrate?.(30);
-        method = 'telegram';
-        showHapticDebug('HAPTIC: telegram');
-      } else if (hasVibrate) {
-        navigator.vibrate([20, 20, 20]);
+      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        navigator.vibrate(30);
         method = 'vibrate';
-        showHapticDebug('HAPTIC: vibrate');
-      } else {
-        showHapticDebug('HAPTIC: none');
       }
-    } catch (err) {
-      method = 'none';
-      error = err instanceof Error ? err.message : String(err);
-      showHapticDebug('HAPTIC ERROR');
+      if (typeof telegramHaptic?.notificationOccurred === 'function') {
+        telegramHaptic.notificationOccurred('success');
+        method = 'telegram';
+      }
+    } catch {
+      // Haptic must never block lobby enter.
     }
+
     console.log('[lobby-haptic]', { method });
-    console.log('[lobby-haptic-debug]', {
-      hasTelegram,
-      hasHaptic,
-      hasVibrate,
-      method,
-      error,
-    });
-    enterTimerRef.current = window.setTimeout(() => {
-      onEnter();
-      enterTimerRef.current = null;
-    }, 350);
+    onEnter();
   };
 
   return (
@@ -116,31 +69,6 @@ export function LobbyScreen({ onEnter, className = '' }: Props) {
         >
           🚫 ЗАПРЕЩАТЬ
         </button>
-      </div>
-      <div
-        aria-live="polite"
-        style={{
-          position: 'fixed',
-          left: '50%',
-          bottom: '110px',
-          transform: 'translateX(-50%)',
-          zIndex: 80,
-          pointerEvents: 'none',
-          padding: '0.32rem 0.6rem',
-          borderRadius: '999px',
-          border: '1px solid rgba(124, 58, 237, 0.55)',
-          background: 'rgba(24, 10, 40, 0.82)',
-          color: '#f5f3ff',
-          fontSize: '10px',
-          fontWeight: 700,
-          letterSpacing: '0.05em',
-          textTransform: 'uppercase',
-          boxShadow: '0 0 14px rgba(124, 58, 237, 0.35)',
-          opacity: hapticDebugLabel ? 1 : 0,
-          transition: 'opacity 160ms ease',
-        }}
-      >
-        {hapticDebugLabel ?? 'HAPTIC'}
       </div>
     </div>
   );
