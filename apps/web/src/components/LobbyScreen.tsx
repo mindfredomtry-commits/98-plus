@@ -11,8 +11,9 @@ type Props = {
 export function LobbyScreen({ onEnter, className = '' }: Props) {
   const [hapticDebugLabel, setHapticDebugLabel] = useState<string | null>(null);
   const debugHideTimerRef = useRef<number | null>(null);
+  const enterTimerRef = useRef<number | null>(null);
 
-  const showHapticDebug = (label: 'telegram' | 'vibrate' | 'none' | 'error') => {
+  const showHapticDebug = (label: string) => {
     setHapticDebugLabel(label);
     if (debugHideTimerRef.current != null) {
       window.clearTimeout(debugHideTimerRef.current);
@@ -28,10 +29,14 @@ export function LobbyScreen({ onEnter, className = '' }: Props) {
       if (debugHideTimerRef.current != null) {
         window.clearTimeout(debugHideTimerRef.current);
       }
+      if (enterTimerRef.current != null) {
+        window.clearTimeout(enterTimerRef.current);
+      }
     };
   }, []);
 
   const handleEnter = () => {
+    setHapticDebugLabel('CLICK');
     let method: 'telegram' | 'vibrate' | 'none' = 'none';
     let error: string | null = null;
     const telegram = (
@@ -54,18 +59,18 @@ export function LobbyScreen({ onEnter, className = '' }: Props) {
       if (hasHaptic) {
         telegramHaptic.impactOccurred('medium');
         method = 'telegram';
-        showHapticDebug('telegram');
+        showHapticDebug('HAPTIC: telegram');
       } else if (hasVibrate) {
         navigator.vibrate([20, 20, 20]);
         method = 'vibrate';
-        showHapticDebug('vibrate');
+        showHapticDebug('HAPTIC: vibrate');
       } else {
-        showHapticDebug('none');
+        showHapticDebug('HAPTIC: none');
       }
     } catch (err) {
       method = 'none';
       error = err instanceof Error ? err.message : String(err);
-      showHapticDebug('error');
+      showHapticDebug('HAPTIC ERROR');
     }
     console.log('[lobby-haptic]', { method });
     console.log('[lobby-haptic-debug]', {
@@ -75,7 +80,10 @@ export function LobbyScreen({ onEnter, className = '' }: Props) {
       method,
       error,
     });
-    onEnter();
+    enterTimerRef.current = window.setTimeout(() => {
+      onEnter();
+      enterTimerRef.current = null;
+    }, 350);
   };
 
   return (
@@ -131,11 +139,7 @@ export function LobbyScreen({ onEnter, className = '' }: Props) {
           transition: 'opacity 160ms ease',
         }}
       >
-        {hapticDebugLabel === 'error'
-          ? 'HAPTIC ERROR'
-          : hapticDebugLabel
-            ? `HAPTIC: ${hapticDebugLabel}`
-            : 'HAPTIC'}
+        {hapticDebugLabel ?? 'HAPTIC'}
       </div>
     </div>
   );
