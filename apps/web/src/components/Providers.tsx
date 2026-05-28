@@ -384,6 +384,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [friendsBootstrapped, setFriendsBootstrapped] = useState(false);
   const [sessionBootstrapped, setSessionBootstrapped] = useState(false);
   const [homeSnapshotReady, setHomeSnapshotReady] = useState(false);
+  const [lobbyOpen, setLobbyOpen] = useState(true);
+  const lobbyShownLoggedRef = useRef(false);
   const [, setAvatarPreloadEpoch] = useState(0);
   const [startupGraceActive, setStartupGraceActive] = useState(true);
   const [networkBootstrapCompleted, setNetworkBootstrapCompleted] =
