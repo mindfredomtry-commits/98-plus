@@ -44,7 +44,7 @@ export function LobbyScreen({ onEnter, className = '' }: Props) {
         Telegram?: {
           WebApp?: {
             HapticFeedback?: {
-              impactOccurred?: (style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft') => void;
+              notificationOccurred?: (type: 'error' | 'success' | 'warning') => void;
             };
           };
         };
@@ -57,7 +57,8 @@ export function LobbyScreen({ onEnter, className = '' }: Props) {
 
     try {
       if (hasHaptic) {
-        telegramHaptic.impactOccurred('medium');
+        telegramHaptic.notificationOccurred?.('success');
+        navigator.vibrate?.(30);
         method = 'telegram';
         showHapticDebug('HAPTIC: telegram');
       } else if (hasVibrate) {
