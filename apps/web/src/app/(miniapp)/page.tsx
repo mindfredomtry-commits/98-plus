@@ -7,6 +7,7 @@ import { useApp } from '@/components/Providers';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSocialBoot } from '@/hooks/useSocialBoot';
 import { HomeArena } from '@/components/HomeArena';
+import { LobbyScreen } from '@/components/LobbyScreen';
 import { SendBanDock } from '@/components/SendBanDock';
 import { ConnectionBanner } from '@/components/ConnectionBanner';
 import { BottomNav, type Tab } from '@/components/BottomNav';
@@ -62,6 +63,8 @@ export default function HomePage() {
     sessionReady,
     incomingGateActive,
     checkGateActive,
+    lobbyOpen,
+    closeLobby,
     setIncomingBan,
     setCheckBan,
     openBanResult,
@@ -148,13 +151,19 @@ export default function HomePage() {
     return <BootLobby />;
   }
 
+  const overlaysUiActive = !lobbyOpen;
+
   return (
     <div
       className={`app-page${
-        incomingGateActive ? ' app-page--incoming-overlay-active' : ''
-      }${checkGateActive ? ' app-page--check-overlay-active' : ''}${
-        banSentOpen ? ' app-page--success-modal' : ''
-      }`}
+        incomingGateActive && overlaysUiActive
+          ? ' app-page--incoming-overlay-active'
+          : ''
+      }${
+        checkGateActive && overlaysUiActive
+          ? ' app-page--check-overlay-active'
+          : ''
+      }${banSentOpen ? ' app-page--success-modal' : ''}`}
     >
       <ShellErrorBoundary name="ambience" fallback={null}>
         <ArenaAmbience />
@@ -209,6 +218,8 @@ export default function HomePage() {
           onClose={() => setDebugOpen(false)}
         />
       ) : null}
+
+      {lobbyOpen ? <LobbyScreen onEnter={closeLobby} /> : null}
     </div>
   );
 }

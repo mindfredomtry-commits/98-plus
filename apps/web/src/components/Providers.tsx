@@ -191,6 +191,9 @@ interface AppContextValue {
   setInlineBanError: (msg: string | null) => void;
   banInputShake: boolean;
   triggerBanInputShake: () => void;
+  /** Ritual entry gate — blocks challenge overlays until dismissed. */
+  lobbyOpen: boolean;
+  closeLobby: () => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -2013,6 +2016,55 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [checkBan, auth.user?.id, result],
   );
 
+  const canShowAppOverlays = !lobbyOpen;
+
+  const closeLobby = useCallback(() => {
+    console.log('[lobby-enter-click]', { userId: userIdRef.current ?? null });
+    setLobbyOpen(false);
+    console.log('[lobby-closed]', { userId: userIdRef.current ?? null });
+  }, []);
+
+  useEffect(() => {
+    setLobbyOpen(true);
+    lobbyShownLoggedRef.current = false;
+  }, [auth.user?.id]);
+
+  useEffect(() => {
+    if (!lobbyOpen || lobbyShownLoggedRef.current) return;
+    if (!auth.user?.id || auth.loading) return;
+    lobbyShownLoggedRef.current = true;
+    console.log('[lobby-show]', { userId: auth.user.id });
+  }, [lobbyOpen, auth.user?.id, auth.loading]);
+
+  useEffect(() => {
+    if (!lobbyOpen) return;
+    if (incomingGateActive && incomingBan) {
+      console.log('[lobby-gated-overlay]', {
+        type: 'incoming',
+        banId: incomingBan.id,
+      });
+    }
+    if (checkGateActive && checkBan) {
+      console.log('[lobby-gated-overlay]', {
+        type: 'check',
+        banId: checkBan.id,
+      });
+    }
+    if (result) {
+      console.log('[lobby-gated-overlay]', {
+        type: 'result',
+        banId: result.id,
+      });
+    }
+  }, [
+    lobbyOpen,
+    incomingGateActive,
+    checkGateActive,
+    incomingBan,
+    checkBan,
+    result,
+  ]);
+
   const scopedFriends = isAppReady
     ? banSentOpen && uiFreeze
       ? uiFreeze.friends
@@ -2154,6 +2206,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setInlineBanError,
       banInputShake,
       triggerBanInputShake,
+      lobbyOpen,
+      closeLobby,
     }),
     [
       auth.token,
@@ -2218,36 +2272,42 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       inlineBanError,
       banInputShake,
       triggerBanInputShake,
+      lobbyOpen,
+      closeLobby,
     ],
   );
 
   return (
     <AppContext.Provider value={contextValue}>
       <ShellErrorBoundary name="app">
-        <ChallengeErrorBoundary
-          name="incoming"
-          onRecover={() => dismissIncoming()}
-        >
-          <IncomingBanOverlay />
-        </ChallengeErrorBoundary>
-        <ChallengeErrorBoundary
-          name="check"
-          onRecover={() => clearCheckOverlay()}
-        >
-          <CheckOverlay />
-        </ChallengeErrorBoundary>
-        <ChallengeErrorBoundary
-          name="result"
-          onRecover={() => dismissBanResult()}
-        >
-          {result ? (
-            <ResultOverlay
-              key={result.id}
-              result={result}
-              onClose={dismissBanResult}
-            />
-          ) : null}
-        </ChallengeErrorBoundary>
+        {canShowAppOverlays ? (
+          <>
+            <ChallengeErrorBoundary
+              name="incoming"
+              onRecover={() => dismissIncoming()}
+            >
+              <IncomingBanOverlay />
+            </ChallengeErrorBoundary>
+            <ChallengeErrorBoundary
+              name="check"
+              onRecover={() => clearCheckOverlay()}
+            >
+              <CheckOverlay />
+            </ChallengeErrorBoundary>
+            <ChallengeErrorBoundary
+              name="result"
+              onRecover={() => dismissBanResult()}
+            >
+              {result ? (
+                <ResultOverlay
+                  key={result.id}
+                  result={result}
+                  onClose={dismissBanResult}
+                />
+              ) : null}
+            </ChallengeErrorBoundary>
+          </>
+        ) : null}
         {children}
         {!result ? (
           <ShellErrorBoundary name="energy" fallback={null}>
