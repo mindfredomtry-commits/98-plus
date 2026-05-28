@@ -1,5 +1,7 @@
 /* /open — 98+ mini-story funnel (TikTok-safe, manual only) */
 
+@import '../../styles/98-theme.css';
+
 .open-page {
   position: fixed;
   inset: 0;
@@ -46,7 +48,7 @@
   height: min(85vw, 20rem);
   bottom: -10%;
   right: -25%;
-  background: radial-gradient(circle, #7c3aed 0%, transparent 70%);
+  background: radial-gradient(circle, var(--98-purple-vivid) 0%, transparent 70%);
   animation-duration: 11s;
   animation-delay: -3s;
 }
@@ -266,10 +268,10 @@
   color: #fff;
   background: linear-gradient(
     145deg,
-    #f0abfc 0%,
-    #e879f9 25%,
-    #c026d3 55%,
-    #7c3aed 100%
+    var(--98-purple-soft) 0%,
+    var(--98-purple-electric) 25%,
+    var(--98-purple-core) 55%,
+    var(--98-purple-vivid) 100%
   );
   box-shadow:
     0 0 36px rgba(217, 70, 239, 0.55),
@@ -288,7 +290,7 @@
   margin: 1.1rem 0 0;
   font-size: 0.75rem;
   line-height: 1.5;
-  color: rgba(192, 132, 252, 0.72);
+  color: rgba(var(--98-purple-soft-rgb), 0.72);
   max-width: 17rem;
 }
 
@@ -726,7 +728,7 @@
   margin: 0;
   font-size: 0.75rem;
   line-height: 1.4;
-  color: rgba(192, 132, 252, 0.8);
+  color: rgba(var(--98-purple-soft-rgb), 0.8);
 }
 
 .open-modal__connector {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import '../styles/98-theme.css';
 
 export default function GlobalError({
   error,
@@ -23,7 +24,7 @@ export default function GlobalError({
       <body
         style={{
           margin: 0,
-          background: '#0f0f0f',
+          background: 'var(--98-bg-black)',
           color: '#fff',
           fontFamily: 'system-ui, sans-serif',
         }}
@@ -50,7 +51,7 @@ export default function GlobalError({
             style={{
               background: 'transparent',
               border: 'none',
-              color: '#9b59b6',
+              color: 'var(--98-purple-core)',
               textDecoration: 'underline',
               fontSize: 14,
             }}

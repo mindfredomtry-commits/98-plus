@@ -1,0 +1,88 @@
+/**
+ * 98+ canonical design tokens — one cult, subtle temperature per surface.
+ * Do not use raw hex purples in components; use these vars.
+ */
+
+:root {
+  /* —— Canonical palette —— */
+  --98-bg-black: #0f0f0f;
+  --98-card-bg: #1a1a1a;
+  --98-purple-core: #9b59b6;
+  --98-purple-cold: #6c3483;
+  --98-purple-warm: #a868c8;
+  --98-purple-electric: #ae5cdb;
+  --98-purple-soft: #c39bd3;
+  --98-purple-deep: #3b0764;
+  --98-purple-mid: #5b21b6;
+  --98-purple-vivid: #7c3aed;
+  --98-purple-muted: #7d3c98;
+  --98-purple-warm-light: #b07cd4;
+
+  --98-purple-core-rgb: 155, 89, 182;
+  --98-purple-cold-rgb: 108, 52, 131;
+  --98-purple-warm-rgb: 168, 104, 200;
+  --98-purple-electric-rgb: 174, 92, 219;
+  --98-purple-soft-rgb: 195, 155, 211;
+  --98-purple-deep-rgb: 59, 7, 100;
+  --98-purple-vivid-rgb: 124, 58, 237;
+  --98-neon-magenta-rgb: 219, 92, 180;
+
+  --98-glow-core: rgba(var(--98-purple-core-rgb), 0.45);
+  --98-glow-soft: rgba(var(--98-purple-core-rgb), 0.25);
+  --98-glow-electric: rgba(var(--98-purple-electric-rgb), 0.7);
+  --98-border-core: rgba(var(--98-purple-core-rgb), 0.35);
+  --98-overlay-bg: rgba(8, 6, 18, 0.52);
+  --98-text-primary: #ffffff;
+  --98-text-secondary: rgba(255, 255, 255, 0.52);
+
+  /* Active accent layer (arena / default) — warm-leaning */
+  --98-accent: var(--98-purple-core);
+  --98-accent-rgb: var(--98-purple-warm-rgb);
+  --98-accent-soft: var(--98-purple-soft);
+  --98-accent-soft-rgb: var(--98-purple-soft-rgb);
+  --98-glow: var(--98-glow-core);
+  --98-glow-strong: rgba(var(--98-purple-warm-rgb), 0.55);
+  --98-border: var(--98-border-core);
+
+  /* Legacy app bridge (Tailwind + existing CSS) */
+  --bg: var(--98-bg-black);
+  --card: var(--98-card-bg);
+  --accent: var(--98-purple-core);
+}
+
+/* Arena — slightly warmer, subtle neon-magenta in glows */
+.app-page,
+.challenge-bg {
+  --98-accent-rgb: var(--98-purple-warm-rgb);
+  --98-glow-strong: rgba(var(--98-purple-warm-rgb), 0.55);
+}
+
+/* Lobby — colder, deeper violet, less pink */
+.lobby-screen {
+  --98-accent: var(--98-purple-cold);
+  --98-accent-rgb: var(--98-purple-cold-rgb);
+  --98-accent-soft: #b8a0c8;
+  --98-accent-soft-rgb: 184, 160, 200;
+  --98-glow-strong: rgba(var(--98-purple-cold-rgb), 0.5);
+  --98-glow: rgba(var(--98-purple-cold-rgb), 0.4);
+  --98-border: rgba(var(--98-purple-cold-rgb), 0.4);
+}
+
+/* Result — electric peak glow */
+.modal-card:has(.result-headline) {
+  --98-accent: var(--98-purple-electric);
+  --98-accent-rgb: var(--98-purple-electric-rgb);
+  --98-glow-strong: var(--98-glow-electric);
+  --98-glow: rgba(var(--98-purple-electric-rgb), 0.55);
+  --98-border: rgba(var(--98-purple-electric-rgb), 0.45);
+}
+
+/* Incoming / check — cold pressure */
+.modal-card--incoming,
+.modal-card--check {
+  --98-accent: var(--98-purple-cold);
+  --98-accent-rgb: var(--98-purple-cold-rgb);
+  --98-glow-strong: rgba(var(--98-purple-cold-rgb), 0.5);
+  --98-glow: rgba(var(--98-purple-cold-rgb), 0.38);
+  --98-border: rgba(var(--98-purple-cold-rgb), 0.42);
+}

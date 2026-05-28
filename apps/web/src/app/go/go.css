@@ -1,3 +1,5 @@
+@import '../../styles/98-theme.css';
+
 .go-landing {
   position: relative;
   min-height: 100dvh;
@@ -11,7 +13,7 @@
   overflow: hidden;
   background: radial-gradient(
       ellipse 120% 80% at 50% -10%,
-      rgba(155, 89, 182, 0.28),
+      rgba(var(--98-purple-core-rgb), 0.28),
       transparent 55%
     ),
     linear-gradient(180deg, #1a1228 0%, #0f0f0f 45%, #0a0a0a 100%);
@@ -28,7 +30,7 @@
   transform: translateX(-50%);
   background: radial-gradient(
     ellipse at center,
-    rgba(155, 89, 182, 0.45),
+    rgba(var(--98-purple-core-rgb), 0.45),
     transparent 70%
   );
   pointer-events: none;
@@ -53,7 +55,7 @@
   letter-spacing: 0.12em;
   line-height: 1;
   color: #e8e0f0;
-  text-shadow: 0 0 32px rgba(155, 89, 182, 0.65);
+  text-shadow: 0 0 32px rgba(var(--98-purple-core-rgb), 0.65);
 }
 
 .go-landing__headline {
@@ -77,13 +79,18 @@
   padding: 1rem 1.25rem;
   border: none;
   border-radius: 1rem;
-  background: linear-gradient(180deg, #b07cd4 0%, #9b59b6 55%, #7d3c98 100%);
+  background: linear-gradient(
+    180deg,
+    var(--98-purple-warm) 0%,
+    var(--98-purple-core) 55%,
+    var(--98-purple-muted) 100%
+  );
   color: #fff;
   font-size: 1.0625rem;
   font-weight: 800;
   line-height: 1.2;
   cursor: pointer;
-  box-shadow: 0 0 28px rgba(155, 89, 182, 0.5);
+  box-shadow: 0 0 28px rgba(var(--98-purple-core-rgb), 0.5);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }

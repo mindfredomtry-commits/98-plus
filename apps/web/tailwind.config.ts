@@ -5,15 +5,15 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        bg: '#0F0F0F',
-        card: '#1A1A1A',
-        accent: '#9B59B6',
+        bg: 'var(--98-bg-black)',
+        card: 'var(--98-card-bg)',
+        accent: 'var(--98-purple-core)',
         warning: '#FF4D4D',
         muted: '#666666',
       },
       boxShadow: {
-        glow: '0 0 24px rgba(155, 89, 182, 0.45)',
-        'glow-sm': '0 0 12px rgba(155, 89, 182, 0.35)',
+        glow: '0 0 24px var(--98-glow-core)',
+        'glow-sm': '0 0 12px var(--98-glow-soft)',
       },
       animation: {
         'pulse-glow': 'pulseGlow 2s ease-in-out infinite',
@@ -21,8 +21,8 @@ const config: Config = {
       },
       keyframes: {
         pulseGlow: {
-          '0%, 100%': { boxShadow: '0 0 16px rgba(155, 89, 182, 0.3)' },
-          '50%': { boxShadow: '0 0 28px rgba(155, 89, 182, 0.6)' },
+          '0%, 100%': { boxShadow: '0 0 16px var(--98-glow-soft)' },
+          '50%': { boxShadow: '0 0 28px var(--98-glow-core)' },
         },
         shake: {
           '0%, 100%': { transform: 'translateX(0)' },
