@@ -8,6 +8,34 @@ type Props = {
 };
 
 export function LobbyScreen({ onEnter, className = '' }: Props) {
+  const handleEnter = () => {
+    let method: 'telegram' | 'vibrate' | 'none' = 'none';
+    try {
+      const telegramHaptic = (
+        window as Window & {
+          Telegram?: {
+            WebApp?: {
+              HapticFeedback?: {
+                impactOccurred?: (style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft') => void;
+              };
+            };
+          };
+        }
+      ).Telegram?.WebApp?.HapticFeedback;
+      if (typeof telegramHaptic?.impactOccurred === 'function') {
+        telegramHaptic.impactOccurred('light');
+        method = 'telegram';
+      } else if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        navigator.vibrate(12);
+        method = 'vibrate';
+      }
+    } catch {
+      method = 'none';
+    }
+    console.log('[lobby-haptic]', { method });
+    onEnter();
+  };
+
   return (
     <div
       className={`lobby-screen ${className}`.trim()}
@@ -33,7 +61,7 @@ export function LobbyScreen({ onEnter, className = '' }: Props) {
         <button
           type="button"
           className="btn-98-primary lobby-screen__cta"
-          onClick={onEnter}
+          onClick={handleEnter}
         >
           🚫 ЗАПРЕЩАТЬ
         </button>
