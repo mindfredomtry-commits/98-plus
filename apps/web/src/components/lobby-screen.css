@@ -155,49 +155,12 @@
 
 .lobby-screen__cta {
   width: min(100%, 320px);
-  padding: 1rem 1.5rem;
-  border: none;
-  border-radius: 1.25rem;
-  font-size: 1.125rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  color: var(--98-text-primary);
-  background: linear-gradient(
-    135deg,
-    var(--98-purple-vivid) 0%,
-    var(--98-purple-mid) 50%,
-    var(--98-purple-deep) 100%
-  );
-  box-shadow:
-    0 0 28px rgba(var(--98-accent-rgb), 0.55),
-    0 8px 32px rgba(0, 0, 0, 0.45);
-  cursor: pointer;
-  animation: lobby-cta-glow 2.8s ease-in-out infinite;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.lobby-screen__cta:active {
-  transform: scale(0.97);
-}
-
-@keyframes lobby-cta-glow {
-  0%, 100% {
-    box-shadow:
-      0 0 22px rgba(var(--98-accent-rgb), 0.45),
-      0 8px 28px rgba(0, 0, 0, 0.4);
-  }
-  50% {
-    box-shadow:
-      0 0 36px rgba(var(--98-accent-rgb), 0.7),
-      0 8px 32px rgba(0, 0, 0, 0.45);
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .lobby-screen__particle,
   .lobby-screen__orb-ring,
-  .lobby-screen__orb,
-  .lobby-screen__cta {
+  .lobby-screen__orb {
     animation: none;
   }
 }

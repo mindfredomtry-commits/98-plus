@@ -32,7 +32,7 @@ export function LobbyScreen({ onEnter, className = '' }: Props) {
       <div className="lobby-screen__cta-wrap">
         <button
           type="button"
-          className="lobby-screen__cta"
+          className="btn-98-primary lobby-screen__cta"
           onClick={onEnter}
         >
           🚫 ЗАПРЕЩАТЬ

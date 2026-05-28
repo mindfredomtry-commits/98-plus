@@ -35,14 +35,14 @@
   --98-text-primary: #ffffff;
   --98-text-secondary: rgba(255, 255, 255, 0.52);
 
-  /* Active accent layer (arena / default) — warm-leaning */
-  --98-accent: var(--98-purple-core);
-  --98-accent-rgb: var(--98-purple-warm-rgb);
+  /* Active accent layer — cold violet core (lobby continuity) */
+  --98-accent: var(--98-purple-cold);
+  --98-accent-rgb: var(--98-purple-cold-rgb);
   --98-accent-soft: var(--98-purple-soft);
   --98-accent-soft-rgb: var(--98-purple-soft-rgb);
-  --98-glow: var(--98-glow-core);
-  --98-glow-strong: rgba(var(--98-purple-warm-rgb), 0.55);
-  --98-border: var(--98-border-core);
+  --98-glow: rgba(var(--98-purple-cold-rgb), 0.4);
+  --98-glow-strong: rgba(var(--98-purple-cold-rgb), 0.5);
+  --98-border: rgba(var(--98-purple-cold-rgb), 0.22);
 
   /* Legacy app bridge (Tailwind + existing CSS) */
   --bg: var(--98-bg-black);
@@ -50,11 +50,14 @@
   --accent: var(--98-purple-core);
 }
 
-/* Arena — slightly warmer, subtle neon-magenta in glows */
+/* Arena — lobby continuity, deep cold violet */
 .app-page,
 .challenge-bg {
-  --98-accent-rgb: var(--98-purple-warm-rgb);
-  --98-glow-strong: rgba(var(--98-purple-warm-rgb), 0.55);
+  --98-accent: var(--98-purple-cold);
+  --98-accent-rgb: var(--98-purple-cold-rgb);
+  --98-glow-strong: rgba(var(--98-purple-cold-rgb), 0.48);
+  --98-glow: rgba(var(--98-purple-cold-rgb), 0.36);
+  --98-border: rgba(var(--98-purple-cold-rgb), 0.2);
 }
 
 /* Lobby — colder, deeper violet, less pink */

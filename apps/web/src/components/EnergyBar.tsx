@@ -14,11 +14,10 @@ export function EnergyBar({ user }: { user: UserPublic }) {
       </div>
       <div className="h-2 rounded-full bg-card overflow-hidden">
         <motion.div
-          className="h-full rounded-full bg-gradient-to-r from-accent/60 to-accent"
+          className="h-full rounded-full energy-bar-fill"
           initial={{ width: 0 }}
           animate={{ width: `${user.energyPercent}%` }}
           transition={{ duration: 0.6, ease: 'easeOut' }}
-          style={{ boxShadow: '0 0 12px rgba(155,89,182,0.5)' }}
         />
       </div>
     </div>

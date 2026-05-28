@@ -1,0 +1,87 @@
+/**
+ * Shared primary CTA — Lobby ritual + main arena send.
+ * Same gradient, glow, radius; size modifiers only.
+ */
+
+.btn-98-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 3.25rem;
+  padding: 1rem 1.5rem;
+  border: none;
+  border-radius: 1.25rem;
+  font-size: 1.125rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  color: var(--98-text-primary);
+  background: linear-gradient(
+    135deg,
+    var(--98-purple-vivid) 0%,
+    var(--98-purple-mid) 50%,
+    var(--98-purple-deep) 100%
+  );
+  box-shadow:
+    0 0 28px rgba(var(--98-accent-rgb), 0.55),
+    0 8px 32px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  animation: btn-98-primary-glow 2.8s ease-in-out infinite;
+  transition: transform 0.15s ease, opacity 0.2s ease;
+}
+
+.btn-98-primary:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn-98-primary--ready {
+  box-shadow:
+    0 0 36px rgba(var(--98-accent-rgb), 0.7),
+    0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+.btn-98-primary--busy,
+.btn-98-primary:disabled {
+  cursor: wait;
+  opacity: 0.94;
+}
+
+.btn-98-primary__label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  line-height: 1.2;
+}
+
+/* Main arena dock — same button, compact height */
+.app-main--compact-home .btn-98-primary {
+  min-height: 3.625rem;
+  max-height: 4rem;
+  padding: 0.875rem 1.25rem;
+  font-size: 1rem;
+}
+
+@keyframes btn-98-primary-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 22px rgba(var(--98-accent-rgb), 0.45),
+      0 8px 28px rgba(0, 0, 0, 0.4);
+  }
+  50% {
+    box-shadow:
+      0 0 36px rgba(var(--98-accent-rgb), 0.7),
+      0 8px 32px rgba(0, 0, 0, 0.45);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-98-primary {
+    animation: none;
+  }
+}

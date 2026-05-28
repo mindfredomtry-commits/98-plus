@@ -33,10 +33,10 @@ export const GlowCTA = memo(function GlowCTA({
           if (!busy) onClick?.();
         }}
         disabled={busy}
-        className={`glow-cta touch-manipulation select-none ${ready ? 'glow-cta--ready' : ''} ${busy ? 'glow-cta--busy' : ''}`}
+        className={`btn-98-primary touch-manipulation select-none ${ready ? 'btn-98-primary--ready' : ''} ${busy ? 'btn-98-primary--busy' : ''}`}
         aria-busy={busy}
       >
-        <span className="glow-cta-label inline-flex items-center justify-center gap-2">
+        <span className="btn-98-primary__label">
           {busy ? (
             <span
               className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin shrink-0"
