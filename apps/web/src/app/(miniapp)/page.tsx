@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { motion } from 'framer-motion';
 import { useApp } from '@/components/Providers';
@@ -14,6 +14,10 @@ import { ConnectionBanner } from '@/components/ConnectionBanner';
 import { BottomNav, type Tab } from '@/components/BottomNav';
 import { ShellErrorBoundary } from '@/components/ShellErrorBoundary';
 import { getApiUrl } from '@/lib/config';
+import {
+  logLobbyInfluenceDebug,
+  resolveLobbyInfluencePercent,
+} from '@/lib/lobby-influence';
 
 const ArenaAmbience = dynamic(
   () =>
@@ -160,6 +164,16 @@ export default function HomePage() {
     setInstantBanOpen(true);
   };
 
+  const lobbyInfluence = useMemo(
+    () => resolveLobbyInfluencePercent(user),
+    [user?.energyPercent, user?.id],
+  );
+
+  useEffect(() => {
+    if (!lobbyOpen) return;
+    logLobbyInfluenceDebug(user, lobbyInfluence);
+  }, [lobbyOpen, user, lobbyInfluence]);
+
   return (
     <div
       className={`app-page${
@@ -226,7 +240,12 @@ export default function HomePage() {
         />
       ) : null}
 
-      {lobbyOpen ? <LobbyScreen onEnter={handleLobbyEnter} /> : null}
+      {lobbyOpen ? (
+        <LobbyScreen
+          onEnter={handleLobbyEnter}
+          influencePercent={lobbyInfluence.influencePercent}
+        />
+      ) : null}
       {instantBanOpen ? (
         <InstantBanFlow onClose={() => setInstantBanOpen(false)} />
       ) : null}

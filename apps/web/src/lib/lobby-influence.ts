@@ -1,0 +1,48 @@
+import type { UserPublic } from '@98plus/shared';
+
+/** Lobby gate + ring use the same display percent as arena header (0–100). */
+export const LOBBY_MIN_INFLUENCE_PERCENT = 10;
+
+export type LobbyInfluenceResolved = {
+  influencePercent: number;
+  rawEnergyPercent: number | undefined;
+  fromFallback: boolean;
+};
+
+/**
+ * Maps authenticated user to lobby ring / CTA threshold.
+ * Source: UserPublic.energyPercent from mapUser (energy / ENERGY_MAX_DISPLAY * 100).
+ */
+export function resolveLobbyInfluencePercent(
+  user: UserPublic | null | undefined,
+): LobbyInfluenceResolved {
+  const raw = user?.energyPercent;
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return {
+      influencePercent: Math.min(100, Math.max(0, Math.round(raw))),
+      rawEnergyPercent: raw,
+      fromFallback: false,
+    };
+  }
+
+  // TODO: replace fallback with real user energy from session once exposed by API
+  return {
+    influencePercent: 100,
+    rawEnergyPercent: undefined,
+    fromFallback: true,
+  };
+}
+
+export function logLobbyInfluenceDebug(
+  user: UserPublic | null | undefined,
+  resolved: LobbyInfluenceResolved,
+): void {
+  if (process.env.NODE_ENV === 'production') return;
+  console.debug('[98+] lobby influence percent', {
+    userId: user?.id ?? null,
+    rawEnergyPercent: resolved.rawEnergyPercent,
+    influencePercent: resolved.influencePercent,
+    fromFallback: resolved.fromFallback,
+    canBan: resolved.influencePercent >= LOBBY_MIN_INFLUENCE_PERCENT,
+  });
+}
