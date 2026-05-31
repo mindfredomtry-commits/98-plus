@@ -8,6 +8,7 @@ import { useTelegram } from '@/hooks/useTelegram';
 import { useSocialBoot } from '@/hooks/useSocialBoot';
 import { HomeArena } from '@/components/HomeArena';
 import { LobbyScreen } from '@/components/LobbyScreen';
+import { InstantBanFlow } from '@/components/instant-ban/InstantBanFlow';
 import { SendBanDock } from '@/components/SendBanDock';
 import { ConnectionBanner } from '@/components/ConnectionBanner';
 import { BottomNav, type Tab } from '@/components/BottomNav';
@@ -77,6 +78,7 @@ export default function HomePage() {
   const { ready } = useTelegram();
   const [tab, setTab] = useState<Tab>('home');
   const [debugOpen, setDebugOpen] = useState(false);
+  const [instantBanOpen, setInstantBanOpen] = useState(false);
   const [apiUrlDisplay, setApiUrlDisplay] = useState('');
 
   useSocialBoot({
@@ -151,7 +153,12 @@ export default function HomePage() {
     return <BootLobby />;
   }
 
-  const overlaysUiActive = !lobbyOpen;
+  const overlaysUiActive = !lobbyOpen && !instantBanOpen;
+
+  const handleLobbyEnter = () => {
+    closeLobby();
+    setInstantBanOpen(true);
+  };
 
   return (
     <div
@@ -219,7 +226,10 @@ export default function HomePage() {
         />
       ) : null}
 
-      {lobbyOpen ? <LobbyScreen onEnter={closeLobby} /> : null}
+      {lobbyOpen ? <LobbyScreen onEnter={handleLobbyEnter} /> : null}
+      {instantBanOpen ? (
+        <InstantBanFlow onClose={() => setInstantBanOpen(false)} />
+      ) : null}
     </div>
   );
 }
