@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { motion } from 'framer-motion';
 import { useApp } from '@/components/Providers';
@@ -120,6 +120,13 @@ export default function HomePage() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [token, reloadPending]);
 
+  const lobbyInfluence = resolveLobbyInfluencePercent(user);
+
+  useEffect(() => {
+    if (!lobbyOpen) return;
+    logLobbyInfluenceDebug(user, lobbyInfluence);
+  }, [lobbyOpen, user, lobbyInfluence.influencePercent, lobbyInfluence.fromFallback]);
+
   if (loading || !user?.id || !token) {
     return <BootLobby />;
   }
@@ -163,16 +170,6 @@ export default function HomePage() {
     closeLobby();
     setInstantBanOpen(true);
   };
-
-  const lobbyInfluence = useMemo(
-    () => resolveLobbyInfluencePercent(user),
-    [user?.energyPercent, user?.id],
-  );
-
-  useEffect(() => {
-    if (!lobbyOpen) return;
-    logLobbyInfluenceDebug(user, lobbyInfluence);
-  }, [lobbyOpen, user, lobbyInfluence]);
 
   return (
     <div
