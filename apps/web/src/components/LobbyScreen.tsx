@@ -1,14 +1,17 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { InfluenceRing } from './lobby/InfluenceRing';
 import { LOBBY_MIN_INFLUENCE_PERCENT } from '@/lib/lobby-influence';
+import { shareLobbyAskInvite } from '@/lib/share';
 import './lobby-screen.css';
 
 type Props = {
   onEnter: () => void;
   /** 0–100 display influence (UserPublic.energyPercent from API). */
   influencePercent: number;
+  /** For low-influence share deep link (invite to ban this user). */
+  inviteUsername?: string | null;
   className?: string;
 };
 
@@ -59,8 +62,10 @@ function triggerBlockedHaptic(): void {
 export function LobbyScreen({
   onEnter,
   influencePercent,
+  inviteUsername = null,
   className = '',
 }: Props) {
+  const [lowInfluenceRevealed, setLowInfluenceRevealed] = useState(false);
   const [hintPulse, setHintPulse] = useState(false);
   const [ctaNudge, setCtaNudge] = useState(false);
 
@@ -68,11 +73,26 @@ export function LobbyScreen({
     () => Math.min(100, Math.max(0, influencePercent)),
     [influencePercent],
   );
-  const canBan = influence >= LOBBY_MIN_INFLUENCE_PERCENT;
+  const lowInfluence = influence < LOBBY_MIN_INFLUENCE_PERCENT;
+  const askMode = lowInfluence && lowInfluenceRevealed;
+
+  useEffect(() => {
+    if (!lowInfluence) {
+      setLowInfluenceRevealed(false);
+    }
+  }, [lowInfluence]);
 
   const handleEnter = () => {
-    if (!canBan) {
+    if (!lowInfluence) {
+      triggerEnterHaptic();
+      console.log('[lobby-haptic]', { method: 'enter' });
+      onEnter();
+      return;
+    }
+
+    if (!lowInfluenceRevealed) {
       triggerBlockedHaptic();
+      setLowInfluenceRevealed(true);
       setHintPulse(true);
       setCtaNudge(true);
       window.setTimeout(() => {
@@ -82,10 +102,10 @@ export function LobbyScreen({
       return;
     }
 
-    triggerEnterHaptic();
-    console.log('[lobby-haptic]', { method: 'enter' });
-    onEnter();
+    shareLobbyAskInvite(inviteUsername);
   };
+
+  const buttonLabel = askMode ? '🚫 ХОЧУ ЗАПРЕЩАТЬ' : '🚫 ЗАПРЕЩАТЬ';
 
   return (
     <div
@@ -109,9 +129,11 @@ export function LobbyScreen({
       </div>
 
       <div className="lobby-screen__cta-wrap">
-        {!canBan ? (
+        {lowInfluence ? (
           <p
-            className={`lobby-screen__cta-hint${hintPulse ? ' lobby-screen__cta-hint--pulse' : ''}`}
+            className={`lobby-screen__cta-hint${
+              !lowInfluenceRevealed ? ' lobby-screen__cta-hint--muted' : ''
+            }${hintPulse ? ' lobby-screen__cta-hint--pulse' : ''}`}
           >
             Выполни пару запретов от других —<br />
             и сможешь запрещать снова!
@@ -122,7 +144,7 @@ export function LobbyScreen({
           className={`btn-98-primary lobby-screen__cta${ctaNudge ? ' lobby-screen__cta--nudge' : ''}`}
           onClick={handleEnter}
         >
-          {canBan ? '🚫 ЗАПРЕЩАТЬ' : '🚫 ХОЧУ ЗАПРЕЩАТЬ'}
+          {buttonLabel}
         </button>
       </div>
     </div>

@@ -177,6 +177,14 @@
   text-align: center;
   color: rgba(var(--98-purple-soft-rgb), 0.88);
   text-shadow: 0 0 12px rgba(var(--98-purple-electric-rgb), 0.25);
+  transition:
+    opacity 0.35s ease,
+    color 0.35s ease;
+}
+
+.lobby-screen__cta-hint--muted {
+  opacity: 0.32;
+  text-shadow: none;
 }
 
 .lobby-screen__cta-hint--pulse {

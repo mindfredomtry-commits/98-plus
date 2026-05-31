@@ -241,6 +241,7 @@ export default function HomePage() {
         <LobbyScreen
           onEnter={handleLobbyEnter}
           influencePercent={lobbyInfluence.influencePercent}
+          inviteUsername={user.username ?? null}
         />
       ) : null}
       {instantBanOpen ? (
