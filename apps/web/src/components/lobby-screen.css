@@ -77,9 +77,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: clamp(3rem, 18vh, 6rem);
-  width: min(72vw, 280px);
-  height: min(72vw, 280px);
+  margin-bottom: var(--98-lobby-orb-wrap-margin-bottom);
+  width: var(--98-lobby-orb-wrap-size);
+  height: var(--98-lobby-orb-wrap-size);
 }
 
 .influence-ring {
@@ -133,7 +133,7 @@
 }
 
 .lobby-screen__title {
-  font-size: clamp(2.75rem, 12vw, 3.75rem);
+  font-size: var(--98-lobby-orb-title-size);
   font-weight: 800;
   letter-spacing: -0.04em;
   color: var(--98-text-primary);

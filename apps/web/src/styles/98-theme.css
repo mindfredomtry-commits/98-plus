@@ -45,6 +45,17 @@
   --98-text-primary: #ffffff;
   --98-text-secondary: rgba(255, 255, 255, 0.52);
 
+  /* Lobby orb — shared with Confirm enter (lobby-screen.css) */
+  --98-lobby-orb-wrap-size: min(72vw, 280px);
+  --98-lobby-orb-core-size: min(58vw, 220px);
+  --98-lobby-orb-title-size: clamp(2.75rem, 12vw, 3.75rem);
+  --98-lobby-orb-wrap-margin-bottom: clamp(3rem, 18vh, 6rem);
+  --98-confirm-orb-size: min(42vw, 160px);
+  --98-confirm-orb-title-size: clamp(2.5rem, 12vw, 2.75rem);
+  --98-confirm-orb-scale-from-lobby: 0.571428571;
+  --98-confirm-enter-compress-ms: 600ms;
+  --98-confirm-enter-lobby-hold-ms: 100ms;
+
   /* Active accent layer — cold violet core (lobby continuity) */
   --98-accent: var(--98-purple-cold);
   --98-accent-rgb: var(--98-purple-cold-rgb);

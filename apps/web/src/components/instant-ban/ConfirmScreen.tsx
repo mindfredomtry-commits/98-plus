@@ -3,12 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
+import { InfluenceRing } from '../lobby/InfluenceRing';
 import { AvatarImage } from '../AvatarImage';
+import '../lobby-screen.css';
 
 const HOLD_MS = 650;
 const RELEASE_RESET_MS = 800;
+const CONFIRM_ENTER_LOBBY_HOLD_MS = 100;
+const CONFIRM_ENTER_COMPRESS_MS = 600;
 
 type HoldPhase = 'idle' | 'holding' | 'ready' | 'releasing';
+type EnterPhase = 'lobby-orb' | 'compressing' | 'ready';
 
 type Props = {
   enterKey: number;
@@ -79,8 +84,10 @@ export function ConfirmScreen({
     '?'
   ).toUpperCase();
 
+  const [enterPhase, setEnterPhase] = useState<EnterPhase>('lobby-orb');
   const [holdPhase, setHoldPhase] = useState<HoldPhase>('idle');
   const [bounce, setBounce] = useState(false);
+  const enterComplete = enterPhase === 'ready';
 
   const holdPhaseRef = useRef<HoldPhase>('idle');
   const readyToReleaseRef = useRef(false);
@@ -141,6 +148,21 @@ export function ConfirmScreen({
   }, [error]);
 
   useEffect(() => {
+    setEnterPhase('lobby-orb');
+    const compressTimer = window.setTimeout(() => {
+      setEnterPhase('compressing');
+    }, CONFIRM_ENTER_LOBBY_HOLD_MS);
+    const readyTimer = window.setTimeout(() => {
+      setEnterPhase('ready');
+    }, CONFIRM_ENTER_LOBBY_HOLD_MS + CONFIRM_ENTER_COMPRESS_MS);
+
+    return () => {
+      window.clearTimeout(compressTimer);
+      window.clearTimeout(readyTimer);
+    };
+  }, [enterKey]);
+
+  useEffect(() => {
     return () => {
       clearHoldTimer();
       clearReleaseTimer();
@@ -152,7 +174,9 @@ export function ConfirmScreen({
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
-      if (sending || sendTriggeredRef.current || e.button !== 0) return;
+      if (!enterComplete || sending || sendTriggeredRef.current || e.button !== 0) {
+        return;
+      }
       e.preventDefault();
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -172,12 +196,12 @@ export function ConfirmScreen({
         safeNotification('success');
       }, HOLD_MS);
     },
-    [sending, clearHoldTimer, clearReleaseTimer, setPhase],
+    [enterComplete, sending, clearHoldTimer, clearReleaseTimer, setPhase],
   );
 
   const handlePointerUp = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
-      if (sending || sendTriggeredRef.current) return;
+      if (!enterComplete || sending || sendTriggeredRef.current) return;
       clearHoldTimer();
       try {
         if (e.currentTarget.hasPointerCapture(e.pointerId)) {
@@ -222,17 +246,17 @@ export function ConfirmScreen({
   );
 
   const handlePointerCancel = useCallback(() => {
-    if (sending || sendTriggeredRef.current) return;
+    if (!enterComplete || sending || sendTriggeredRef.current) return;
     cancelHold(true);
-  }, [sending, cancelHold]);
+  }, [enterComplete, sending, cancelHold]);
 
   const handlePointerLeave = useCallback(() => {
-    if (sending || sendTriggeredRef.current) return;
+    if (!enterComplete || sending || sendTriggeredRef.current) return;
     if (holdPhaseRef.current === 'idle' || holdPhaseRef.current === 'releasing') {
       return;
     }
     cancelHold(true);
-  }, [sending, cancelHold]);
+  }, [enterComplete, sending, cancelHold]);
 
   const orbBtnClass = [
     'instant-ban-confirm-orb-btn',
@@ -258,8 +282,23 @@ export function ConfirmScreen({
     <div
       className="instant-ban-confirm"
       data-confirm-enter-key={enterKey}
+      data-enter-phase={enterPhase}
       data-instant-ban-view="ConfirmScreen"
     >
+      {enterPhase !== 'ready' ? (
+        <div
+          className="instant-ban-confirm-orb-overlay"
+          data-enter-phase={enterPhase}
+          aria-hidden
+        >
+          <div className="lobby-screen__orb-wrap instant-ban-confirm-orb-overlay__wrap">
+            <InfluenceRing value={100} />
+            <div className="lobby-screen__orb">
+              <span className="lobby-screen__title">98+</span>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <button type="button" className="instant-ban-flow__back" onClick={onBack}>
         ← Назад
       </button>
@@ -286,8 +325,8 @@ export function ConfirmScreen({
       <div className="instant-ban-confirm-orb-wrap">
         <button
           type="button"
-          className={`${orbBtnClass} instant-ban-confirm-enter instant-ban-confirm-enter--4`}
-          disabled={sending}
+          className={orbBtnClass}
+          disabled={sending || !enterComplete}
           aria-label="Зажми 98+ чтобы отправить запрет"
           onPointerDown={handlePointerDown}
           onPointerUp={handlePointerUp}
