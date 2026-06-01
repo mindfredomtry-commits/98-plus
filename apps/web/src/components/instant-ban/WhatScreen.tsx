@@ -232,8 +232,21 @@ function WhatScreenInner({
 
       const dy = t.clientY - start.y;
       const dx = t.clientX - start.x;
-      if (dy < SWIPE_DOWN_THRESHOLD_PX) return;
-      if (Math.abs(dx) > Math.abs(dy) * 0.6) return;
+      const isMostlyVertical = Math.abs(dx) <= Math.abs(dy) * 0.6;
+      const isSwipeDown = dy >= SWIPE_DOWN_THRESHOLD_PX;
+      const isSwipeUp = dy <= -SWIPE_DOWN_THRESHOLD_PX;
+      const direction = isSwipeDown
+        ? 'down'
+        : isSwipeUp
+          ? 'up'
+          : dy < 0
+            ? 'up-short'
+            : 'short';
+      const triggered = isSwipeDown && isMostlyVertical;
+
+      instantBanDebug('swipe', { dy, dx, direction, triggered, canContinue });
+
+      if (!triggered) return;
 
       handleSubmit();
     },

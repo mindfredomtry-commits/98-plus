@@ -76,6 +76,7 @@ export function InstantBanFlow({ onClose }: Props) {
   const [banText, setBanText] = useState('');
   const [durationMinutes, setDurationMinutes] = useState(DEFAULT_DURATION_MINUTES);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [confirmEnterKey, setConfirmEnterKey] = useState(0);
 
   useInstantBanViewport(step !== 'what');
 
@@ -172,6 +173,7 @@ export function InstantBanFlow({ onClose }: Props) {
   const handleWhatSubmit = useCallback((text: string, duration: number) => {
     setBanText(text);
     setDurationMinutes(duration);
+    setConfirmEnterKey((k) => k + 1);
     setStep('confirm');
   }, []);
 
@@ -263,7 +265,9 @@ export function InstantBanFlow({ onClose }: Props) {
     >
       <div className="instant-ban-flow__grid" aria-hidden />
       <div className="instant-ban-flow__inner">
-        <h1 className="instant-ban-flow__title">{stepTitle}</h1>
+        {step !== 'confirm' ? (
+          <h1 className="instant-ban-flow__title">{stepTitle}</h1>
+        ) : null}
         <div className="instant-ban-flow__body">
           {step === 'who' ? (
             <WhoScreen
@@ -284,6 +288,8 @@ export function InstantBanFlow({ onClose }: Props) {
           ) : null}
           {step === 'confirm' && selectedUser ? (
             <ConfirmScreen
+              key={`confirm-${confirmEnterKey}-${selectedUser.id ?? selectedUser.userId ?? selectedUser.username}`}
+              enterKey={confirmEnterKey}
               selectedUser={selectedUser}
               banText={banText}
               durationMinutes={durationMinutes}

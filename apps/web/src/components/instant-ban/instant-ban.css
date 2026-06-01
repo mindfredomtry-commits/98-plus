@@ -339,6 +339,43 @@
   margin: 0.5rem auto 0.25rem;
 }
 
+@keyframes instant-ban-confirm-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.instant-ban-confirm-enter {
+  opacity: 0;
+  animation: instant-ban-confirm-reveal 240ms ease forwards;
+  will-change: opacity, transform;
+}
+
+.instant-ban-confirm-enter--1 {
+  animation-delay: 0ms;
+}
+
+.instant-ban-confirm-enter--2 {
+  animation-delay: 120ms;
+}
+
+.instant-ban-confirm-enter--3 {
+  animation-delay: 240ms;
+}
+
+.instant-ban-confirm-enter--4 {
+  animation-delay: 360ms;
+}
+
+.instant-ban-confirm-enter--5 {
+  animation-delay: 480ms;
+}
+
 .instant-ban-confirm-orb-wrap {
   display: flex;
   flex-direction: column;

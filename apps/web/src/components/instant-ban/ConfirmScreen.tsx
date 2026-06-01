@@ -11,6 +11,7 @@ const RELEASE_RESET_MS = 800;
 type HoldPhase = 'idle' | 'holding' | 'ready' | 'releasing';
 
 type Props = {
+  enterKey: number;
   selectedUser: FriendCard;
   banText: string;
   durationMinutes: number;
@@ -253,7 +254,11 @@ export function ConfirmScreen({
           : 'Зажми';
 
   return (
-    <>
+    <div
+      className="instant-ban-confirm"
+      data-confirm-enter-key={enterKey}
+      data-instant-ban-view="ConfirmScreen"
+    >
       <button type="button" className="instant-ban-flow__back" onClick={onBack}>
         ← Назад
       </button>
@@ -306,6 +311,6 @@ export function ConfirmScreen({
           </button>
         ) : null}
       </div>
-    </>
+    </div>
   );
 }
