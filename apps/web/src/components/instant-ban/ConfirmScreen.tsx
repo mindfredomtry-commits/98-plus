@@ -5,7 +5,7 @@ import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { AvatarImage } from '../AvatarImage';
 
-const HOLD_MS = 900;
+const HOLD_MS = 650;
 const RELEASE_RESET_MS = 800;
 
 type HoldPhase = 'idle' | 'holding' | 'ready' | 'releasing';
