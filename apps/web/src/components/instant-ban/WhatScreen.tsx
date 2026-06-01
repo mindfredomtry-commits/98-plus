@@ -45,10 +45,195 @@ const SWIPE_VERTICAL_DOMINANCE = 1.2;
 
 type SwipeStart = { x: number; y: number; pointerId: number };
 
-function isSwipeInteractiveTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  return !!target.closest('button, input, textarea, select, a, label');
+const SWIPE_TAP_MAX_PX = 12;
+
+function logSwipeZone(
+  phase: string,
+  data: Record<string, unknown>,
+): void {
+  if (process.env.NODE_ENV === 'development') {
+    console.debug('[instant-ban:swipe-zone]', { phase, ...data });
+  }
+  instantBanDebug('swipe-zone', { phase, ...data });
 }
+
+const WhatSwipeGestureZone = memo(function WhatSwipeGestureZone({
+  onTrigger,
+  isReady,
+}: {
+  onTrigger: () => void;
+  isReady: () => boolean;
+}) {
+  const startRef = useRef<SwipeStart | null>(null);
+  const submitLockRef = useRef(false);
+  const movedRef = useRef(false);
+
+  const trySubmit = useCallback(
+    (
+      phase: string,
+      dy: number,
+      dx: number,
+      startY: number,
+      currentY: number,
+    ): boolean => {
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
+      const ready = isReady();
+      const isSwipeDown = dy > SWIPE_DOWN_THRESHOLD_PX;
+      const isMostlyVertical = absDy > absDx * SWIPE_VERTICAL_DOMINANCE;
+      const triggered = ready && isSwipeDown && isMostlyVertical;
+
+      logSwipeZone(phase, {
+        startY,
+        currentY,
+        dy,
+        dx,
+        canContinue: ready,
+        triggered,
+      });
+
+      if (!triggered || submitLockRef.current) return false;
+      submitLockRef.current = true;
+      onTrigger();
+      window.setTimeout(() => {
+        submitLockRef.current = false;
+      }, 400);
+      return true;
+    },
+    [isReady, onTrigger],
+  );
+
+  const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    movedRef.current = false;
+    startRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      pointerId: e.pointerId,
+    };
+    logSwipeZone('down', {
+      startY: e.clientY,
+      currentY: e.clientY,
+      dy: 0,
+      dx: 0,
+      canContinue: isReady(),
+      triggered: false,
+    });
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* noop */
+    }
+  }, [isReady]);
+
+  const onPointerMove = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      const start = startRef.current;
+      if (!start || start.pointerId !== e.pointerId) return;
+
+      const dy = e.clientY - start.y;
+      const dx = e.clientX - start.x;
+      if (Math.abs(dy) > 8 || Math.abs(dx) > 8) {
+        movedRef.current = true;
+      }
+      if (dy > 8) {
+        e.preventDefault();
+      }
+
+      trySubmit('move', dy, dx, start.y, e.clientY);
+    },
+    [trySubmit],
+  );
+
+  const onPointerUp = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      const start = startRef.current;
+      startRef.current = null;
+      try {
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+      } catch {
+        /* noop */
+      }
+      if (!start || start.pointerId !== e.pointerId) return;
+
+      const dy = e.clientY - start.y;
+      const dx = e.clientX - start.x;
+      const ready = isReady();
+
+      if (
+        !movedRef.current &&
+        Math.abs(dy) <= SWIPE_TAP_MAX_PX &&
+        Math.abs(dx) <= SWIPE_TAP_MAX_PX &&
+        ready &&
+        !submitLockRef.current
+      ) {
+        logSwipeZone('tap-fallback', {
+          startY: start.y,
+          currentY: e.clientY,
+          dy,
+          dx,
+          canContinue: ready,
+          triggered: true,
+        });
+        submitLockRef.current = true;
+        onTrigger();
+        window.setTimeout(() => {
+          submitLockRef.current = false;
+        }, 400);
+        return;
+      }
+
+      logSwipeZone('up', {
+        startY: start.y,
+        currentY: e.clientY,
+        dy,
+        dx,
+        canContinue: ready,
+        triggered: false,
+      });
+    },
+    [isReady, onTrigger],
+  );
+
+  const onPointerCancel = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    startRef.current = null;
+    movedRef.current = false;
+    logSwipeZone('cancel', {
+      startY: null,
+      currentY: e.clientY,
+      dy: 0,
+      dx: 0,
+      canContinue: isReady(),
+      triggered: false,
+    });
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      /* noop */
+    }
+  }, [isReady]);
+
+  return (
+    <div
+      className="instant-ban-what-swipe-zone"
+      aria-hidden
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+    >
+      <div className="instant-ban-what-swipe-hint">
+        <SwipeHintChevron className="instant-ban-what-swipe-hint__chevron instant-ban-what-swipe-hint__chevron--1" />
+        <SwipeHintChevron className="instant-ban-what-swipe-hint__chevron instant-ban-what-swipe-hint__chevron--2" />
+        <SwipeHintChevron className="instant-ban-what-swipe-hint__chevron instant-ban-what-swipe-hint__chevron--3" />
+      </div>
+    </div>
+  );
+});
 
 function fullTextFromChip(chip: string): string {
   return `${CHIP_PREFIX}${chip}`;
@@ -229,120 +414,21 @@ function WhatScreenInner({
   const showSwipeHint =
     canContinue && selectedUser != null && durationMinutes > 0;
 
-  const swipeStartRef = useRef<SwipeStart | null>(null);
-  const swipeSubmitLockRef = useRef(false);
   const canContinueRef = useRef(canContinue);
 
   useEffect(() => {
     canContinueRef.current = canContinue;
   }, [canContinue]);
 
-  const finishSwipe = useCallback(
-    (endX: number, endY: number, pointerId: number) => {
-      const start = swipeStartRef.current;
-      swipeStartRef.current = null;
-      if (!start || start.pointerId !== pointerId) return;
-
-      const startY = start.y;
-      const startX = start.x;
-      const dy = endY - startY;
-      const dx = endX - startX;
-      const absDx = Math.abs(dx);
-      const absDy = Math.abs(dy);
-      const isSwipeUp = dy < -SWIPE_DOWN_THRESHOLD_PX;
-      const isSwipeDown = dy > SWIPE_DOWN_THRESHOLD_PX;
-      const isMostlyVertical = absDy > absDx * SWIPE_VERTICAL_DOMINANCE;
-      const textOk = (inputRef.current?.value ?? '').trim().length >= 3;
-      const ready = canContinueRef.current && textOk && durationMinutes > 0;
-      const direction = isSwipeDown
-        ? 'down'
-        : isSwipeUp
-          ? 'up'
-          : dy < 0
-            ? 'up-short'
-            : 'short';
-      const triggered = ready && isSwipeDown && isMostlyVertical;
-
-      if (process.env.NODE_ENV === 'development') {
-        console.debug('[instant-ban:swipe]', {
-          startY,
-          endY,
-          dy,
-          absDx,
-          absDy,
-          direction,
-          triggered,
-        });
-      }
-      instantBanDebug('swipe', {
-        startY,
-        endY,
-        dy,
-        absDx,
-        absDy,
-        direction,
-        triggered,
-        canContinue: canContinueRef.current,
-      });
-
-      if (isSwipeUp || !triggered) return;
-      if (swipeSubmitLockRef.current) return;
-      swipeSubmitLockRef.current = true;
-      handleSubmit();
-      window.setTimeout(() => {
-        swipeSubmitLockRef.current = false;
-      }, 400);
-    },
-    [durationMinutes, handleSubmit],
-  );
-
-  const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    if (isSwipeInteractiveTarget(e.target)) return;
-    swipeStartRef.current = {
-      x: e.clientX,
-      y: e.clientY,
-      pointerId: e.pointerId,
-    };
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      /* noop */
-    }
-  }, []);
-
-  const onPointerUp = useCallback(
-    (e: ReactPointerEvent<HTMLDivElement>) => {
-      try {
-        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-          e.currentTarget.releasePointerCapture(e.pointerId);
-        }
-      } catch {
-        /* noop */
-      }
-      finishSwipe(e.clientX, e.clientY, e.pointerId);
-    },
-    [finishSwipe],
-  );
-
-  const onPointerCancel = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    swipeStartRef.current = null;
-    try {
-      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      }
-    } catch {
-      /* noop */
-    }
-  }, []);
+  const isSwipeReady = useCallback(() => {
+    const textOk = (inputRef.current?.value ?? '').trim().length >= 3;
+    return canContinueRef.current && textOk && durationMinutes > 0;
+  }, [durationMinutes]);
 
   return (
     <div
       className="instant-ban-what instant-ban-what-mobile"
       data-instant-ban-view="WhatScreen"
-      onPointerDown={onPointerDown}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerCancel}
     >
       <button type="button" className="instant-ban-flow__back" onClick={onBack}>
         ← Назад
@@ -410,11 +496,7 @@ function WhatScreenInner({
         </div>
       </div>
       {showSwipeHint ? (
-        <div className="instant-ban-what-swipe-hint" aria-hidden>
-          <SwipeHintChevron className="instant-ban-what-swipe-hint__chevron instant-ban-what-swipe-hint__chevron--1" />
-          <SwipeHintChevron className="instant-ban-what-swipe-hint__chevron instant-ban-what-swipe-hint__chevron--2" />
-          <SwipeHintChevron className="instant-ban-what-swipe-hint__chevron instant-ban-what-swipe-hint__chevron--3" />
-        </div>
+        <WhatSwipeGestureZone onTrigger={handleSubmit} isReady={isSwipeReady} />
       ) : null}
     </div>
   );

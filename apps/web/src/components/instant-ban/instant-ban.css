@@ -804,17 +804,32 @@
   box-shadow: 0 0 10px var(--98-power-glow-soft);
 }
 
+.instant-ban-what-swipe-zone {
+  width: 100%;
+  height: clamp(120px, 32vw, 160px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1.75rem;
+  padding: 0;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
 .instant-ban-what-swipe-hint {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
   gap: 0;
-  margin-top: 1.75rem;
-  padding: 0.25rem 0 1rem;
+  margin: 0;
+  padding: 0.25rem 0;
   pointer-events: none;
   flex-shrink: 0;
-  touch-action: none;
 }
 
 .instant-ban-what-swipe-hint__chevron {
