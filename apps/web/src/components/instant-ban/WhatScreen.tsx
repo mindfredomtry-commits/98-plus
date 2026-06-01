@@ -19,6 +19,16 @@ const DURATION_OPTIONS = [3, 10, 30, 60] as const;
 
 const CHIP_PREFIX = 'Запрещаю ';
 
+const PLACEHOLDER_CYCLE_PHRASES = [
+  'Запрети снова это делать...',
+  'Запретить это уже давно пора...',
+  'Запрети то, что давно хочешь...',
+  'Запрети то, что тебя раздражает...',
+] as const;
+
+const PLACEHOLDER_CYCLE_MS = 2000;
+const PLACEHOLDER_FADE_MS = 250;
+
 const DEFAULT_DURATION = 3;
 
 function fullTextFromChip(chip: string): string {
@@ -107,6 +117,30 @@ function WhatScreenInner({
   const [selectedChip, setSelectedChip] = useState<string | null>(() =>
     chipFromFullText(initialBanText),
   );
+  const [isEmpty, setIsEmpty] = useState(initialBanText.length === 0);
+  const [phraseIndex, setPhraseIndex] = useState(0);
+  const [phraseVisible, setPhraseVisible] = useState(true);
+
+  useEffect(() => {
+    if (!isEmpty) return;
+
+    setPhraseIndex(0);
+    setPhraseVisible(true);
+
+    let fadeTimeout: ReturnType<typeof setTimeout> | undefined;
+    const intervalId = window.setInterval(() => {
+      setPhraseVisible(false);
+      fadeTimeout = window.setTimeout(() => {
+        setPhraseIndex((i) => (i + 1) % PLACEHOLDER_CYCLE_PHRASES.length);
+        setPhraseVisible(true);
+      }, PLACEHOLDER_FADE_MS);
+    }, PLACEHOLDER_CYCLE_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+      if (fadeTimeout) window.clearTimeout(fadeTimeout);
+    };
+  }, [isEmpty]);
 
   useEffect(() => {
     instantBanDebug('what-mount', { instanceId, mode: 'mobile-safe-input' });
@@ -132,6 +166,8 @@ function WhatScreenInner({
     const t0 =
       typeof performance !== 'undefined' ? performance.now() : 0;
     const value = inputRef.current?.value ?? '';
+    const empty = value.length === 0;
+    setIsEmpty((prev) => (prev === empty ? prev : empty));
     const matched = chipFromFullText(value);
     setSelectedChip((prev) => (prev === matched ? prev : matched));
     scheduleCanContinueSync();
@@ -158,6 +194,7 @@ function WhatScreenInner({
       if (inputRef.current) {
         inputRef.current.value = fullTextFromChip(chip);
       }
+      setIsEmpty(false);
       setSelectedChip(chip);
       scheduleCanContinueSync();
     },
@@ -217,6 +254,16 @@ function WhatScreenInner({
       </button>
       <WhatSelectedUser user={selectedUser} />
       <label className="instant-ban-what-field">
+        {isEmpty ? (
+          <span
+            className={`instant-ban-what-placeholder-cycle${
+              phraseVisible ? '' : ' instant-ban-what-placeholder-cycle--hidden'
+            }`}
+            aria-hidden
+          >
+            {PLACEHOLDER_CYCLE_PHRASES[phraseIndex]}
+          </span>
+        ) : null}
         <input
           ref={inputRef}
           type="text"
@@ -226,7 +273,7 @@ function WhatScreenInner({
           onInput={handleInput}
           onFocus={handleFocus}
           onBlur={handleBlur}
-          placeholder="Запрети что-нибудь…"
+          placeholder=""
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="none"

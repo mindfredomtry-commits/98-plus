@@ -545,6 +545,7 @@
 }
 
 .instant-ban-what-field {
+  position: relative;
   display: flex;
   align-items: flex-start;
   min-height: 6rem;
@@ -556,7 +557,26 @@
   box-shadow: none;
 }
 
+.instant-ban-what-placeholder-cycle {
+  position: absolute;
+  left: 1rem;
+  right: 1rem;
+  top: 1rem;
+  pointer-events: none;
+  font-size: 1.125rem;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.32);
+  transition: opacity 250ms ease;
+  opacity: 1;
+}
+
+.instant-ban-what-placeholder-cycle--hidden {
+  opacity: 0;
+}
+
 .instant-ban-what-input--mobile {
+  position: relative;
+  z-index: 1;
   width: 100%;
   min-height: 0;
   height: auto;
