@@ -78,6 +78,9 @@ export function InstantBanFlow({ onClose }: Props) {
   const [durationMinutes, setDurationMinutes] = useState(DEFAULT_DURATION_MINUTES);
   const [sendError, setSendError] = useState<string | null>(null);
   const [confirmEnterKey, setConfirmEnterKey] = useState(0);
+  const [successFromPayoff, setSuccessFromPayoff] = useState(false);
+  const sendCompleteRef = useRef(false);
+  const payoffCompleteRef = useRef(false);
 
   useInstantBanViewport(step !== 'what');
 
@@ -112,12 +115,29 @@ export function InstantBanFlow({ onClose }: Props) {
     setBanText('');
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
     setSendError(null);
+    setSuccessFromPayoff(false);
+    sendCompleteRef.current = false;
+    payoffCompleteRef.current = false;
+  }, []);
+
+  const attemptSuccess = useCallback(() => {
+    if (!sendCompleteRef.current || !payoffCompleteRef.current) return;
+    sendCompleteRef.current = false;
+    payoffCompleteRef.current = false;
+    setSuccessFromPayoff(true);
+    setStep('success');
   }, []);
 
   const onSuccess = useCallback(() => {
     setSendError(null);
-    setStep('success');
-  }, []);
+    sendCompleteRef.current = true;
+    attemptSuccess();
+  }, [attemptSuccess]);
+
+  const handlePayoffComplete = useCallback(() => {
+    payoffCompleteRef.current = true;
+    attemptSuccess();
+  }, [attemptSuccess]);
 
   const { send, inFlight, sharing } = useSendChallenge({
     token,
@@ -141,6 +161,7 @@ export function InstantBanFlow({ onClose }: Props) {
         username: p.username,
         message: p.message,
       });
+      sendCompleteRef.current = false;
       setSendError(p.message || 'Не получилось отправить запрет');
     },
     onboard,
@@ -302,15 +323,20 @@ export function InstantBanFlow({ onClose }: Props) {
               durationMinutes={durationMinutes}
               sending={inFlight || sharing}
               error={sendError}
+              senderUser={user}
               onConfirm={() => void executeSend()}
+              onPayoffComplete={handlePayoffComplete}
               onRetry={() => void executeSend()}
               onBack={handleConfirmBack}
             />
           ) : null}
           {step === 'success' && selectedUser ? (
             <SuccessScreen
+              senderUser={user}
               selectedUser={selectedUser}
               banText={banText}
+              durationMinutes={durationMinutes}
+              fromPayoff={successFromPayoff}
               onAgain={resetForAnother}
               onReturn={onClose}
             />

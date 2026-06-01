@@ -1,18 +1,20 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { FriendCard } from '@98plus/shared';
+import type { FriendCard, UserPublic } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { AvatarImage } from '../AvatarImage';
 import { InfluenceRing } from '../lobby/InfluenceRing';
+import { SuccessBanCardBody } from './SuccessBanCardBody';
 
 const HOLD_MS = 650;
-const RELEASE_RESET_MS = 800;
+const PAYOFF_EXPAND_MS = 650;
 const CONFIRM_ENTER_LOBBY_HOLD_MS = 100;
 const CONFIRM_ENTER_COMPRESS_MS = 600;
 
 type HoldPhase = 'idle' | 'holding' | 'ready' | 'releasing';
 type EnterPhase = 'lobby-orb' | 'compressing' | 'ready';
+type PayoffPhase = 'idle' | 'expanding';
 
 type Props = {
   enterKey: number;
@@ -23,7 +25,9 @@ type Props = {
   durationMinutes: number;
   sending: boolean;
   error: string | null;
+  senderUser: UserPublic | null | undefined;
   onConfirm: () => void;
+  onPayoffComplete: () => void;
   onRetry: () => void;
   onBack: () => void;
 };
@@ -78,10 +82,12 @@ export function ConfirmScreen({
   influencePercent,
   selectedUser,
   banText,
-  durationMinutes: _durationMinutes,
+  durationMinutes,
   sending,
   error,
+  senderUser,
   onConfirm,
+  onPayoffComplete,
   onRetry,
   onBack,
 }: Props) {
@@ -101,8 +107,10 @@ export function ConfirmScreen({
   const [enterPhase, setEnterPhase] = useState<EnterPhase>('lobby-orb');
   const [ringProgress, setRingProgress] = useState(influenceStart);
   const [holdPhase, setHoldPhase] = useState<HoldPhase>('idle');
+  const [payoffPhase, setPayoffPhase] = useState<PayoffPhase>('idle');
   const [bounce, setBounce] = useState(false);
   const enterComplete = enterPhase === 'ready';
+  const payoffExpanding = payoffPhase === 'expanding';
 
   const orbWrapRef = useRef<HTMLDivElement>(null);
   const orbStageRef = useRef<HTMLDivElement>(null);
@@ -111,7 +119,7 @@ export function ConfirmScreen({
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendTriggeredRef = useRef(false);
   const bounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const releaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const payoffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const setPhase = useCallback((phase: HoldPhase) => {
     holdPhaseRef.current = phase;
@@ -125,12 +133,18 @@ export function ConfirmScreen({
     }
   }, []);
 
-  const clearReleaseTimer = useCallback(() => {
-    if (releaseTimerRef.current) {
-      clearTimeout(releaseTimerRef.current);
-      releaseTimerRef.current = null;
+  const clearPayoffTimer = useCallback(() => {
+    if (payoffTimerRef.current) {
+      clearTimeout(payoffTimerRef.current);
+      payoffTimerRef.current = null;
     }
   }, []);
+
+  const resetPayoff = useCallback(() => {
+    clearPayoffTimer();
+    setPayoffPhase('idle');
+    setPhase('idle');
+  }, [clearPayoffTimer, setPhase]);
 
   const triggerBounce = useCallback(() => {
     if (bounceTimerRef.current) {
@@ -161,8 +175,11 @@ export function ConfirmScreen({
   useEffect(() => {
     if (error) {
       sendTriggeredRef.current = false;
+      if (payoffPhase === 'expanding') {
+        resetPayoff();
+      }
     }
-  }, [error]);
+  }, [error, payoffPhase, resetPayoff]);
 
   useEffect(() => {
     setEnterPhase('lobby-orb');
@@ -213,16 +230,16 @@ export function ConfirmScreen({
   useEffect(() => {
     return () => {
       clearHoldTimer();
-      clearReleaseTimer();
+      clearPayoffTimer();
       if (bounceTimerRef.current) {
         clearTimeout(bounceTimerRef.current);
       }
     };
-  }, [clearHoldTimer, clearReleaseTimer]);
+  }, [clearHoldTimer, clearPayoffTimer]);
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
-      if (!enterComplete || sending || sendTriggeredRef.current || e.button !== 0) {
+      if (!enterComplete || sending || sendTriggeredRef.current || payoffExpanding || e.button !== 0) {
         return;
       }
       e.preventDefault();
@@ -232,7 +249,7 @@ export function ConfirmScreen({
         /* noop */
       }
       clearHoldTimer();
-      clearReleaseTimer();
+      clearPayoffTimer();
       readyToReleaseRef.current = false;
       setPhase('holding');
       safeImpact('light');
@@ -244,12 +261,12 @@ export function ConfirmScreen({
         safeNotification('success');
       }, HOLD_MS);
     },
-    [enterComplete, sending, clearHoldTimer, clearReleaseTimer, setPhase],
+    [enterComplete, sending, payoffExpanding, clearHoldTimer, clearPayoffTimer, setPhase],
   );
 
   const handlePointerUp = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
-      if (!enterComplete || sending || sendTriggeredRef.current) return;
+      if (!enterComplete || sending || sendTriggeredRef.current || payoffExpanding) return;
       clearHoldTimer();
       try {
         if (e.currentTarget.hasPointerCapture(e.pointerId)) {
@@ -263,13 +280,13 @@ export function ConfirmScreen({
         readyToReleaseRef.current = false;
         sendTriggeredRef.current = true;
         setPhase('releasing');
+        setPayoffPhase('expanding');
         onConfirm();
-        clearReleaseTimer();
-        releaseTimerRef.current = setTimeout(() => {
-          releaseTimerRef.current = null;
-          if (!sendTriggeredRef.current) return;
-          setPhase('idle');
-        }, RELEASE_RESET_MS);
+        clearPayoffTimer();
+        payoffTimerRef.current = setTimeout(() => {
+          payoffTimerRef.current = null;
+          onPayoffComplete();
+        }, PAYOFF_EXPAND_MS);
         return;
       }
 
@@ -286,21 +303,23 @@ export function ConfirmScreen({
     [
       enterComplete,
       sending,
+      payoffExpanding,
       clearHoldTimer,
-      clearReleaseTimer,
+      clearPayoffTimer,
       setPhase,
       onConfirm,
+      onPayoffComplete,
       triggerBounce,
     ],
   );
 
   const handlePointerCancel = useCallback(() => {
-    if (!enterComplete || sending || sendTriggeredRef.current) return;
+    if (!enterComplete || sending || sendTriggeredRef.current || payoffExpanding) return;
     cancelHold(true);
   }, [enterComplete, sending, cancelHold]);
 
   const handlePointerLeave = useCallback(() => {
-    if (!enterComplete || sending || sendTriggeredRef.current) return;
+    if (!enterComplete || sending || sendTriggeredRef.current || payoffExpanding) return;
     if (holdPhaseRef.current === 'idle' || holdPhaseRef.current === 'releasing') {
       return;
     }
@@ -317,7 +336,11 @@ export function ConfirmScreen({
     .filter(Boolean)
     .join(' ');
 
-  const statusLabel = sending
+  const statusLabel = payoffExpanding
+    ? sending
+      ? 'Запрет отправляется…'
+      : ''
+    : sending
     ? 'Запрет отправляется…'
     : error
       ? 'Не получилось отправить запрет'
@@ -332,11 +355,14 @@ export function ConfirmScreen({
       className="instant-ban-confirm"
       data-confirm-enter-key={enterKey}
       data-enter-phase={enterPhase}
+      data-payoff-phase={payoffPhase}
       data-instant-ban-view="ConfirmScreen"
     >
-      <button type="button" className="instant-ban-flow__back" onClick={onBack}>
-        ← Назад
-      </button>
+      {!payoffExpanding ? (
+        <button type="button" className="instant-ban-flow__back" onClick={onBack}>
+          ← Назад
+        </button>
+      ) : null}
       <div className="instant-ban-confirm-copy">
         <span className="instant-ban-confirm-copy__lead instant-ban-confirm-enter instant-ban-confirm-enter--1">
           Ты запрещаешь
@@ -358,27 +384,50 @@ export function ConfirmScreen({
         </em>
       </div>
       <div ref={orbWrapRef} className="instant-ban-confirm-orb-wrap">
-        <div ref={orbStageRef} className="instant-ban-confirm-orb-stage">
-          <button
-            type="button"
-            className={orbBtnClass}
-            disabled={sending || !enterComplete}
-            aria-label="Зажми 98+ чтобы отправить запрет"
-            onPointerDown={handlePointerDown}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerCancel}
-            onPointerLeave={handlePointerLeave}
+        <div
+          ref={orbStageRef}
+          className={`instant-ban-confirm-orb-stage${
+            payoffExpanding ? ' instant-ban-confirm-orb-stage--payoff' : ''
+          }`}
+        >
+          <div
+            className={`instant-ban-confirm-payoff-morph${
+              payoffExpanding ? ' instant-ban-confirm-payoff-morph--expanding' : ''
+            }`}
           >
-            <span className="instant-ban-confirm-orb-ring" aria-hidden>
-              <InfluenceRing
-                value={ringProgress}
-                className="instant-ban-confirm-influence-ring"
+            <button
+              type="button"
+              className={orbBtnClass}
+              disabled={sending || !enterComplete || payoffExpanding}
+              aria-label="Зажми 98+ чтобы отправить запрет"
+              onPointerDown={handlePointerDown}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerCancel}
+              onPointerLeave={handlePointerLeave}
+            >
+              <span className="instant-ban-confirm-orb-ring" aria-hidden>
+                <InfluenceRing
+                  value={ringProgress}
+                  className="instant-ban-confirm-influence-ring"
+                />
+              </span>
+              <span className="instant-ban-confirm-orb">
+                <span className="instant-ban-confirm-orb__title">98+</span>
+              </span>
+            </button>
+            <div
+              className="instant-ban-payoff-card-inner"
+              aria-hidden={!payoffExpanding}
+            >
+              <SuccessBanCardBody
+                senderUser={senderUser}
+                selectedUser={selectedUser}
+                banText={banText}
+                durationMinutes={durationMinutes}
+                contentClassName="instant-ban-payoff-card-inner__content"
               />
-            </span>
-            <span className="instant-ban-confirm-orb">
-              <span className="instant-ban-confirm-orb__title">98+</span>
-            </span>
-          </button>
+            </div>
+          </div>
         </div>
         <p
           className={`instant-ban-status instant-ban-confirm-enter instant-ban-confirm-enter--5${

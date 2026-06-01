@@ -506,7 +506,7 @@
   opacity: 1;
   transform: scale(1);
   transform-origin: center center;
-  transition: transform 900ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 950ms cubic-bezier(0.34, 1.12, 0.64, 1);
 }
 
 .instant-ban-confirm-influence-ring.influence-ring {
@@ -553,24 +553,25 @@
 }
 
 .instant-ban-confirm-orb-btn--holding .instant-ban-confirm-orb-ring {
-  transform: scale(0.9);
+  transform: scale(0.95);
 }
 
 .instant-ban-confirm-orb-btn--ready .instant-ban-confirm-orb-ring {
-  transform: scale(0.86);
-  border-color: rgba(var(--98-power-rgb), 1);
-  box-shadow:
-    0 0 10px var(--98-power-glow),
-    0 0 18px var(--98-power-glow-soft);
+  transform: scale(0.92);
+}
+
+.instant-ban-confirm-orb-btn--ready
+  .instant-ban-confirm-influence-ring
+  .influence-ring__progress {
+  stroke: rgba(var(--98-power-rgb), 1);
+  filter: drop-shadow(0 0 10px var(--98-power-glow))
+    drop-shadow(0 0 18px var(--98-power-glow-soft));
 }
 
 .instant-ban-confirm-orb-btn--releasing .instant-ban-confirm-orb-ring {
-  transition-duration: 800ms;
+  transition-duration: 950ms;
+  transition-timing-function: cubic-bezier(0.34, 1.12, 0.64, 1);
   transform: scale(1);
-  border-color: rgba(var(--98-power-rgb), 0.92);
-  box-shadow:
-    0 0 6px var(--98-power-glow-soft),
-    0 0 14px var(--98-power-glow-soft);
 }
 
 .instant-ban-confirm-orb {
@@ -588,19 +589,20 @@
   opacity: 1;
   transform: scale(1);
   transform-origin: center center;
-  transition: transform 900ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 950ms cubic-bezier(0.34, 1.12, 0.64, 1);
 }
 
 .instant-ban-confirm-orb-btn--holding .instant-ban-confirm-orb {
-  transform: scale(0.92);
+  transform: scale(0.96);
 }
 
 .instant-ban-confirm-orb-btn--ready .instant-ban-confirm-orb {
-  transform: scale(0.9);
+  transform: scale(0.93);
 }
 
 .instant-ban-confirm-orb-btn--releasing .instant-ban-confirm-orb {
-  transition-duration: 800ms;
+  transition-duration: 950ms;
+  transition-timing-function: cubic-bezier(0.34, 1.12, 0.64, 1);
   transform: scale(1);
 }
 
@@ -679,18 +681,104 @@
   margin: 0;
 }
 
+.instant-ban-confirm[data-enter-phase='ready'] .instant-ban-confirm-orb-btn:disabled {
+  opacity: 0.7;
+}
+
+.instant-ban-confirm[data-payoff-phase='expanding'] .instant-ban-confirm-orb-btn:disabled {
+  opacity: 1;
+}
+
+/* Confirm → Success: orb morph shell */
+.instant-ban-confirm-payoff-morph {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 1px solid transparent;
+  background: transparent;
+  overflow: hidden;
+  transition:
+    width 650ms ease-in-out,
+    min-height 650ms ease-in-out,
+    border-radius 650ms ease-in-out,
+    background 650ms ease-in-out,
+    box-shadow 650ms ease-in-out,
+    border-color 650ms ease-in-out;
+}
+
+.instant-ban-confirm-payoff-morph--expanding {
+  width: min(88vw, 340px);
+  min-height: 240px;
+  height: auto;
+  border-radius: 1.25rem;
+  border-color: rgba(var(--98-accent-rgb), 0.22);
+  background: linear-gradient(
+    165deg,
+    rgba(var(--98-purple-deep-rgb), 0.4) 0%,
+    rgba(10, 6, 16, 0.9) 100%
+  );
+  box-shadow: 0 0 32px rgba(var(--98-accent-rgb), 0.15);
+}
+
+.instant-ban-confirm-payoff-morph--expanding .instant-ban-confirm-orb-btn {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 280ms ease;
+}
+
+.instant-ban-confirm-orb-stage--payoff {
+  width: min(88vw, 340px);
+  height: auto;
+  min-height: var(--98-confirm-orb-size);
+}
+
+.instant-ban-confirm[data-payoff-phase='expanding'] .instant-ban-confirm-copy {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 280ms ease;
+}
+
+.instant-ban-confirm[data-payoff-phase='expanding'] .instant-ban-status {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.instant-ban-payoff-card-inner {
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+}
+
+.instant-ban-confirm-payoff-morph--expanding .instant-ban-payoff-card-inner {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+  transition:
+    opacity 420ms ease 180ms,
+    transform 420ms ease 180ms;
+}
+
+.instant-ban-payoff-card-inner__content {
+  text-align: center;
+}
+
 .instant-ban-status--error {
   color: #f87171;
 }
 
 .instant-ban-success-card {
-  flex: 1;
+  flex: 0 1 auto;
+  width: min(88vw, 340px);
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 1.5rem 1rem;
+  padding: 1.25rem 1rem 1rem;
   border-radius: 1.25rem;
   border: 1px solid rgba(var(--98-accent-rgb), 0.22);
   background: linear-gradient(
@@ -701,24 +789,85 @@
   box-shadow: 0 0 32px rgba(var(--98-accent-rgb), 0.15);
 }
 
+.instant-ban-success-card--from-payoff {
+  animation: none;
+}
+
+.instant-ban-success-card__content--enter {
+  animation: instant-ban-success-content-enter 420ms ease forwards;
+}
+
+@keyframes instant-ban-success-content-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .instant-ban-success-card__icon {
-  font-size: 3rem;
-  margin-bottom: 0.75rem;
+  font-size: 1rem;
+  line-height: 1;
+  margin-bottom: 0.5rem;
+  opacity: 0.85;
 }
 
 .instant-ban-success-card__title {
-  margin: 0 0 1rem;
-  font-size: 1.25rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  margin: 0 0 0.875rem;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--98-text-primary);
 }
 
-.instant-ban-success-card__body {
-  margin: 0;
+.instant-ban-success-card__participants {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-bottom: 0.875rem;
+}
+
+.instant-ban-success-card__arrow {
+  color: rgba(var(--98-purple-soft-rgb), 0.62);
+  font-size: 1.125rem;
+  line-height: 1;
+}
+
+.instant-ban-success-card__quote {
+  margin: 0 0 0.625rem;
   font-size: 0.9375rem;
-  line-height: 1.55;
-  color: rgba(255, 255, 255, 0.78);
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 600;
+}
+
+.instant-ban-success-card__duration {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.3;
+  color: var(--98-purple-soft);
+  font-weight: 600;
+}
+
+.instant-ban-actions--from-payoff {
+  animation: instant-ban-success-actions-enter 320ms ease 80ms forwards;
+  opacity: 0;
+}
+
+@keyframes instant-ban-success-actions-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .instant-ban-actions {
