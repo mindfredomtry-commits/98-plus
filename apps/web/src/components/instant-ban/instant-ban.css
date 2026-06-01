@@ -300,13 +300,18 @@
   align-items: center;
   justify-content: center;
   flex: 1;
-  min-height: 140px;
-  gap: 0.625rem;
-  padding-top: 0.25rem;
+  min-height: 0;
+  gap: 0.5rem;
+  padding: 1.25rem 0 clamp(2rem, 14vh, 4.5rem);
 }
 
 .instant-ban-confirm-orb-btn {
   position: relative;
+  width: min(42vw, 160px);
+  height: min(42vw, 160px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: transparent;
   padding: 0;
@@ -321,80 +326,61 @@
 
 .instant-ban-confirm-orb-ring {
   position: absolute;
-  inset: -4px;
+  inset: 0;
   border-radius: 50%;
-  border: 1.5px solid rgba(var(--98-neon-magenta-rgb), 0.88);
+  border: 2px solid rgba(var(--98-neon-magenta-rgb), 0.92);
+  background: transparent;
   box-shadow:
-    0 0 4px rgba(var(--98-neon-magenta-rgb), 0.45),
-    0 0 10px rgba(var(--98-purple-electric-rgb), 0.22);
-  animation: instant-ban-ring-pulse 2.4s ease-in-out infinite;
+    0 0 6px rgba(var(--98-neon-magenta-rgb), 0.38),
+    0 0 14px rgba(var(--98-purple-electric-rgb), 0.22);
+  animation: instant-ban-ring-pulse 2.6s ease-in-out infinite;
   pointer-events: none;
 }
 
 .instant-ban-confirm-orb {
   position: relative;
-  width: min(22vw, 80px);
-  height: min(22vw, 80px);
-  border-radius: 50%;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(
-    circle at 50% 42%,
-    rgba(var(--98-purple-deep-rgb), 0.55) 0%,
-    rgba(10, 6, 16, 0.96) 72%,
-    rgba(6, 4, 10, 1) 100%
-  );
-  box-shadow:
-    0 0 8px rgba(var(--98-neon-magenta-rgb), 0.22),
-    inset 0 0 10px rgba(var(--98-purple-deep-rgb), 0.35);
-  animation: instant-ban-orb-glow 2.4s ease-in-out infinite;
+  width: auto;
+  height: auto;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .instant-ban-confirm-orb__title {
-  font-size: clamp(1.125rem, 4.5vw, 1.375rem);
+  font-size: clamp(2.5rem, 12vw, 2.75rem);
   font-weight: 800;
   letter-spacing: -0.04em;
-  color: var(--98-text-primary);
-  text-shadow: 0 0 8px rgba(var(--98-neon-magenta-rgb), 0.35);
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.12);
 }
 
 @keyframes instant-ban-ring-pulse {
   0%, 100% {
-    transform: scale(1);
-    opacity: 0.88;
+    opacity: 0.9;
     box-shadow:
-      0 0 4px rgba(var(--98-neon-magenta-rgb), 0.45),
-      0 0 10px rgba(var(--98-purple-electric-rgb), 0.22);
+      0 0 6px rgba(var(--98-neon-magenta-rgb), 0.38),
+      0 0 14px rgba(var(--98-purple-electric-rgb), 0.22);
   }
   50% {
-    transform: scale(1.02);
     opacity: 1;
     box-shadow:
-      0 0 6px rgba(var(--98-neon-magenta-rgb), 0.55),
-      0 0 14px rgba(var(--98-purple-electric-rgb), 0.28);
+      0 0 8px rgba(var(--98-neon-magenta-rgb), 0.48),
+      0 0 18px rgba(var(--98-purple-electric-rgb), 0.28);
   }
 }
 
-@keyframes instant-ban-orb-glow {
-  0%, 100% {
-    box-shadow:
-      0 0 6px rgba(var(--98-neon-magenta-rgb), 0.18),
-      inset 0 0 8px rgba(var(--98-purple-deep-rgb), 0.3);
-  }
-  50% {
-    box-shadow:
-      0 0 10px rgba(var(--98-neon-magenta-rgb), 0.28),
-      inset 0 0 10px rgba(var(--98-purple-deep-rgb), 0.38);
-  }
-}
-
-.instant-ban-status {
+.instant-ban-confirm-orb-wrap .instant-ban-status {
   text-align: center;
   font-size: 0.8125rem;
-  color: rgba(var(--98-purple-soft-rgb), 0.82);
+  color: rgba(var(--98-purple-soft-rgb), 0.62);
   min-height: 1.125rem;
-  margin-top: -0.125rem;
+  margin: 0;
 }
 
 .instant-ban-status--error {
@@ -466,8 +452,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .instant-ban-confirm-orb-ring,
-  .instant-ban-confirm-orb {
+  .instant-ban-confirm-orb-ring {
     animation: none;
   }
 }
