@@ -189,32 +189,26 @@ export function ConfirmScreen({
   }, [enterPhase]);
 
   useLayoutEffect(() => {
-    if (enterPhase !== 'compressing') return;
     const wrap = orbWrapRef.current;
     const stage = orbStageRef.current;
     if (!wrap || !stage) return;
 
-    const rect = wrap.getBoundingClientRect();
-    const startX = window.innerWidth / 2;
+    const wrapRect = wrap.getBoundingClientRect();
+    const wrapCenterX = wrapRect.left + wrapRect.width / 2;
+    const wrapCenterY = wrapRect.top + wrapRect.height / 2;
     const marginBottom = parseFloat(
       getComputedStyle(document.documentElement).getPropertyValue(
         '--98-lobby-orb-wrap-margin-bottom',
       ),
     );
-    const startY = window.innerHeight / 2 - (Number.isFinite(marginBottom) ? marginBottom / 2 : 0);
-    const endX = rect.left + rect.width / 2;
-    const endY = rect.top + rect.height / 2;
+    const lobbyCenterY =
+      window.innerHeight / 2 -
+      (Number.isFinite(marginBottom) ? marginBottom / 2 : 0);
+    const lobbyCenterX = window.innerWidth / 2;
 
-    stage.style.setProperty('--orb-settle-x', `${endX - startX}px`);
-    stage.style.setProperty('--orb-settle-y', `${endY - startY}px`);
-  }, [enterPhase]);
-
-  useEffect(() => {
-    if (enterPhase === 'ready' && orbStageRef.current) {
-      orbStageRef.current.style.removeProperty('--orb-settle-x');
-      orbStageRef.current.style.removeProperty('--orb-settle-y');
-    }
-  }, [enterPhase]);
+    stage.style.setProperty('--orb-enter-x', `${lobbyCenterX - wrapCenterX}px`);
+    stage.style.setProperty('--orb-enter-y', `${lobbyCenterY - wrapCenterY}px`);
+  }, [enterKey]);
 
   useEffect(() => {
     return () => {
@@ -376,12 +370,10 @@ export function ConfirmScreen({
             onPointerLeave={handlePointerLeave}
           >
             <span className="instant-ban-confirm-orb-ring" aria-hidden>
-              {enterPhase !== 'ready' ? (
-                <InfluenceRing
-                  value={ringProgress}
-                  className="instant-ban-confirm-influence-ring"
-                />
-              ) : null}
+              <InfluenceRing
+                value={ringProgress}
+                className="instant-ban-confirm-influence-ring"
+              />
             </span>
             <span className="instant-ban-confirm-orb">
               <span className="instant-ban-confirm-orb__title">98+</span>

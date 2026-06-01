@@ -412,70 +412,47 @@
   min-height: var(--98-confirm-orb-size);
 }
 
-/* Single orb: lobby-size/position → settle into confirm slot */
+/* Single orb in flow: scale/translate from lobby pose → confirm slot (no fixed/ready swap) */
 .instant-ban-confirm-orb-stage {
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  width: var(--98-confirm-orb-size);
+  height: var(--98-confirm-orb-size);
+  transform-origin: center center;
+  opacity: 1;
 }
 
-.instant-ban-confirm[data-enter-phase='lobby-orb'] .instant-ban-confirm-orb-stage,
-.instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-orb-stage {
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  z-index: 25;
-  width: var(--98-lobby-orb-wrap-size);
-  height: var(--98-lobby-orb-wrap-size);
-  margin: 0;
-  transform: translate(-50%, var(--98-confirm-orb-lobby-center-y));
+.instant-ban-confirm[data-enter-phase='lobby-orb'] .instant-ban-confirm-orb-stage {
+  transform: translate(var(--orb-enter-x, 0px), var(--orb-enter-y, 0px))
+    scale(calc(1 / var(--98-confirm-orb-scale-from-lobby)));
   pointer-events: none;
 }
 
 .instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-orb-stage {
   animation: instant-ban-confirm-orb-settle var(--98-confirm-enter-compress-ms)
     ease-in-out forwards;
+  pointer-events: none;
 }
 
 @keyframes instant-ban-confirm-orb-settle {
   from {
-    width: var(--98-lobby-orb-wrap-size);
-    height: var(--98-lobby-orb-wrap-size);
-    transform: translate(-50%, var(--98-confirm-orb-lobby-center-y));
+    transform: translate(var(--orb-enter-x, 0px), var(--orb-enter-y, 0px))
+      scale(calc(1 / var(--98-confirm-orb-scale-from-lobby)));
   }
   to {
-    width: var(--98-confirm-orb-size);
-    height: var(--98-confirm-orb-size);
-    transform: translate(
-      calc(-50% + var(--orb-settle-x, var(--98-confirm-orb-settle-x))),
-      calc(-50% + var(--orb-settle-y, var(--98-confirm-orb-settle-y)))
-    );
+    transform: translate(0, 0) scale(1);
   }
 }
 
 .instant-ban-confirm[data-enter-phase='ready'] .instant-ban-confirm-orb-stage {
-  position: relative;
-  left: auto;
-  top: auto;
-  z-index: auto;
-  width: auto;
-  height: auto;
-  transform: none;
-  pointer-events: auto;
+  transform: translate(0, 0) scale(1);
 }
 
 .instant-ban-confirm[data-enter-phase='lobby-orb'] .instant-ban-confirm-orb-btn,
 .instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-orb-btn {
-  width: 100%;
-  height: 100%;
   pointer-events: none;
-}
-
-.instant-ban-confirm[data-enter-phase='ready'] .instant-ban-confirm-orb-btn {
-  width: var(--98-confirm-orb-size);
-  height: var(--98-confirm-orb-size);
-  pointer-events: auto;
 }
 
 .instant-ban-confirm[data-enter-phase='lobby-orb'] .instant-ban-status,
@@ -486,8 +463,8 @@
 
 .instant-ban-confirm-orb-btn {
   position: relative;
-  width: var(--98-confirm-orb-size);
-  height: var(--98-confirm-orb-size);
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -499,38 +476,37 @@
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
+  opacity: 1;
 }
 
 .instant-ban-confirm-orb-btn:disabled {
   cursor: wait;
-  opacity: 0.7;
   pointer-events: none;
+}
+
+.instant-ban-confirm[data-enter-phase='lobby-orb'] .instant-ban-confirm-orb-btn:disabled,
+.instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-orb-btn:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.instant-ban-confirm[data-enter-phase='ready'] .instant-ban-confirm-orb-btn:disabled {
+  opacity: 0.7;
 }
 
 .instant-ban-confirm-orb-ring {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  border: 2px solid rgba(var(--98-power-rgb), 0.92);
+  border: none;
   background: transparent;
-  box-shadow:
-    0 0 6px var(--98-power-glow-soft),
-    0 0 14px var(--98-power-glow-soft);
+  box-shadow: none;
   animation: none;
   pointer-events: none;
+  opacity: 1;
   transform: scale(1);
   transform-origin: center center;
-  transition:
-    transform 900ms cubic-bezier(0.4, 0, 0.2, 1),
-    box-shadow 900ms ease,
-    border-color 900ms ease;
-}
-
-/* Enter: SVG progress ring (Lobby fill → 100%); hide CSS border to avoid double ring */
-.instant-ban-confirm[data-enter-phase='lobby-orb'] .instant-ban-confirm-orb-ring,
-.instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-orb-ring {
-  border-color: transparent;
-  box-shadow: none;
+  transition: transform 900ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .instant-ban-confirm-influence-ring.influence-ring {
@@ -539,6 +515,18 @@
   width: 100%;
   height: 100%;
   transform: rotate(-90deg);
+  opacity: 1;
+}
+
+.instant-ban-confirm-influence-ring .influence-ring__track {
+  stroke: rgba(var(--98-purple-deep-rgb), 0.55);
+}
+
+.instant-ban-confirm-influence-ring .influence-ring__progress {
+  stroke: rgba(var(--98-power-rgb), 0.92);
+  filter: drop-shadow(0 0 6px var(--98-power-glow-soft))
+    drop-shadow(0 0 14px var(--98-power-glow-soft));
+  transition: stroke-dashoffset 0.65s ease, stroke 900ms ease, filter 900ms ease;
 }
 
 .instant-ban-confirm[data-enter-phase='compressing']
@@ -597,6 +585,7 @@
   border: none;
   border-radius: 0;
   box-shadow: none;
+  opacity: 1;
   transform: scale(1);
   transform-origin: center center;
   transition: transform 900ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -637,9 +626,16 @@
     .instant-ban-confirm-orb-btn--ready
   ):not(.instant-ban-confirm-orb-btn--releasing)
   .instant-ban-confirm-orb-ring {
-  animation:
-    instant-ban-ring-pulse 2.6s ease-in-out infinite,
-    instant-ban-ring-breathe 2.9s ease-in-out infinite;
+  animation: instant-ban-ring-breathe 2.9s ease-in-out infinite;
+}
+
+.instant-ban-confirm[data-enter-phase='ready']
+  .instant-ban-confirm-orb-btn:not(.instant-ban-confirm-orb-btn--holding):not(
+    .instant-ban-confirm-orb-btn--ready
+  ):not(.instant-ban-confirm-orb-btn--releasing)
+  .instant-ban-confirm-influence-ring
+  .influence-ring__progress {
+  animation: instant-ban-confirm-ring-glow-pulse 2.6s ease-in-out infinite;
 }
 
 .instant-ban-confirm-orb__title {
@@ -648,6 +644,7 @@
   letter-spacing: -0.04em;
   line-height: 1;
   color: #fff;
+  opacity: 1;
   text-shadow: 0 0 8px rgba(255, 255, 255, 0.12);
   transition:
     font-size var(--98-confirm-enter-compress-ms) ease-in-out,
@@ -662,18 +659,15 @@
     0 0 48px rgba(var(--98-accent-rgb), 0.55);
 }
 
-@keyframes instant-ban-ring-pulse {
-  0%, 100% {
-    opacity: 0.9;
-    box-shadow:
-      0 0 6px var(--98-power-glow-soft),
-      0 0 14px var(--98-power-glow-soft);
+@keyframes instant-ban-confirm-ring-glow-pulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 6px var(--98-power-glow-soft))
+      drop-shadow(0 0 14px var(--98-power-glow-soft));
   }
   50% {
-    opacity: 1;
-    box-shadow:
-      0 0 8px var(--98-power-glow),
-      0 0 18px var(--98-power-glow-soft);
+    filter: drop-shadow(0 0 8px var(--98-power-glow))
+      drop-shadow(0 0 18px var(--98-power-glow-soft));
   }
 }
 
@@ -762,10 +756,7 @@
   .instant-ban-confirm-orb-stage {
     animation: none !important;
     opacity: 1;
-    transform: none;
-    position: relative !important;
-    width: auto !important;
-    height: auto !important;
+    transform: translate(0, 0) scale(1) !important;
   }
 
   .instant-ban-confirm-orb-ring,
