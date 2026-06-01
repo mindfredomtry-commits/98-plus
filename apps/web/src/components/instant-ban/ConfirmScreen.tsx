@@ -16,6 +16,8 @@ type EnterPhase = 'lobby-orb' | 'compressing' | 'ready';
 
 type Props = {
   enterKey: number;
+  /** Lobby ring fill 0–100; omitted → 100. */
+  influencePercent?: number;
   selectedUser: FriendCard;
   banText: string;
   durationMinutes: number;

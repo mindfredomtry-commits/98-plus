@@ -251,6 +251,11 @@ export function InstantBanFlow({ onClose }: Props) {
     send,
   ]);
 
+  const lobbyInfluencePercent = useMemo(() => {
+    const { influencePercent } = resolveLobbyInfluencePercent(user);
+    return Math.min(100, Math.max(0, influencePercent));
+  }, [user]);
+
   const liteMode = isInstantBanLiteMode();
   const whatMobileSafe = step === 'what';
 
