@@ -61,6 +61,7 @@ function safeNotification(type: 'success' | 'warning' | 'error'): void {
 }
 
 export function ConfirmScreen({
+  enterKey,
   selectedUser,
   banText,
   durationMinutes: _durationMinutes,

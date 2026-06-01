@@ -230,11 +230,13 @@ function WhatScreenInner({
       const t = e.changedTouches[0];
       if (!t) return;
 
-      const dy = t.clientY - start.y;
+      const endY = t.clientY;
+      const startY = start.y;
+      const dy = endY - startY;
       const dx = t.clientX - start.x;
       const isMostlyVertical = Math.abs(dx) <= Math.abs(dy) * 0.6;
-      const isSwipeDown = dy >= SWIPE_DOWN_THRESHOLD_PX;
-      const isSwipeUp = dy <= -SWIPE_DOWN_THRESHOLD_PX;
+      const isSwipeUp = dy < -SWIPE_DOWN_THRESHOLD_PX;
+      const isSwipeDown = dy > SWIPE_DOWN_THRESHOLD_PX;
       const direction = isSwipeDown
         ? 'down'
         : isSwipeUp
@@ -244,8 +246,17 @@ function WhatScreenInner({
             : 'short';
       const triggered = isSwipeDown && isMostlyVertical;
 
-      instantBanDebug('swipe', { dy, dx, direction, triggered, canContinue });
+      instantBanDebug('swipe', {
+        dy,
+        dx,
+        startY,
+        endY,
+        direction,
+        triggered,
+        canContinue,
+      });
 
+      if (isSwipeUp) return;
       if (!triggered) return;
 
       handleSubmit();
@@ -261,8 +272,8 @@ function WhatScreenInner({
     <div
       className="instant-ban-what instant-ban-what-mobile"
       data-instant-ban-view="WhatScreen"
-      onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
+      onTouchStartCapture={onTouchStart}
+      onTouchEndCapture={onTouchEnd}
       onTouchCancel={onTouchCancel}
     >
       <button type="button" className="instant-ban-flow__back" onClick={onBack}>
