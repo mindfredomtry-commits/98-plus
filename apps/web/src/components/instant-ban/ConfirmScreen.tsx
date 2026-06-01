@@ -1,11 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
-import { InfluenceRing } from '../lobby/InfluenceRing';
 import { AvatarImage } from '../AvatarImage';
-import '../lobby-screen.css';
 
 const HOLD_MS = 650;
 const RELEASE_RESET_MS = 800;
@@ -89,6 +87,8 @@ export function ConfirmScreen({
   const [bounce, setBounce] = useState(false);
   const enterComplete = enterPhase === 'ready';
 
+  const orbWrapRef = useRef<HTMLDivElement>(null);
+  const orbStageRef = useRef<HTMLDivElement>(null);
   const holdPhaseRef = useRef<HoldPhase>('idle');
   const readyToReleaseRef = useRef(false);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -161,6 +161,34 @@ export function ConfirmScreen({
       window.clearTimeout(readyTimer);
     };
   }, [enterKey]);
+
+  useLayoutEffect(() => {
+    if (enterPhase !== 'compressing') return;
+    const wrap = orbWrapRef.current;
+    const stage = orbStageRef.current;
+    if (!wrap || !stage) return;
+
+    const rect = wrap.getBoundingClientRect();
+    const startX = window.innerWidth / 2;
+    const marginBottom = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue(
+        '--98-lobby-orb-wrap-margin-bottom',
+      ),
+    );
+    const startY = window.innerHeight / 2 - (Number.isFinite(marginBottom) ? marginBottom / 2 : 0);
+    const endX = rect.left + rect.width / 2;
+    const endY = rect.top + rect.height / 2;
+
+    stage.style.setProperty('--orb-settle-x', `${endX - startX}px`);
+    stage.style.setProperty('--orb-settle-y', `${endY - startY}px`);
+  }, [enterPhase]);
+
+  useEffect(() => {
+    if (enterPhase === 'ready' && orbStageRef.current) {
+      orbStageRef.current.style.removeProperty('--orb-settle-x');
+      orbStageRef.current.style.removeProperty('--orb-settle-y');
+    }
+  }, [enterPhase]);
 
   useEffect(() => {
     return () => {
@@ -236,6 +264,7 @@ export function ConfirmScreen({
       }
     },
     [
+      enterComplete,
       sending,
       clearHoldTimer,
       clearReleaseTimer,
@@ -285,20 +314,6 @@ export function ConfirmScreen({
       data-enter-phase={enterPhase}
       data-instant-ban-view="ConfirmScreen"
     >
-      {enterPhase !== 'ready' ? (
-        <div
-          className="instant-ban-confirm-orb-overlay"
-          data-enter-phase={enterPhase}
-          aria-hidden
-        >
-          <div className="lobby-screen__orb-wrap instant-ban-confirm-orb-overlay__wrap">
-            <InfluenceRing value={100} />
-            <div className="lobby-screen__orb">
-              <span className="lobby-screen__title">98+</span>
-            </div>
-          </div>
-        </div>
-      ) : null}
       <button type="button" className="instant-ban-flow__back" onClick={onBack}>
         ← Назад
       </button>
@@ -322,22 +337,24 @@ export function ConfirmScreen({
           &ldquo;{trimmed}&rdquo;
         </em>
       </div>
-      <div className="instant-ban-confirm-orb-wrap">
-        <button
-          type="button"
-          className={orbBtnClass}
-          disabled={sending || !enterComplete}
-          aria-label="Зажми 98+ чтобы отправить запрет"
-          onPointerDown={handlePointerDown}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerCancel}
-          onPointerLeave={handlePointerLeave}
-        >
-          <span className="instant-ban-confirm-orb-ring" aria-hidden />
-          <span className="instant-ban-confirm-orb">
-            <span className="instant-ban-confirm-orb__title">98+</span>
-          </span>
-        </button>
+      <div ref={orbWrapRef} className="instant-ban-confirm-orb-wrap">
+        <div ref={orbStageRef} className="instant-ban-confirm-orb-stage">
+          <button
+            type="button"
+            className={orbBtnClass}
+            disabled={sending || !enterComplete}
+            aria-label="Зажми 98+ чтобы отправить запрет"
+            onPointerDown={handlePointerDown}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerCancel}
+            onPointerLeave={handlePointerLeave}
+          >
+            <span className="instant-ban-confirm-orb-ring" aria-hidden />
+            <span className="instant-ban-confirm-orb">
+              <span className="instant-ban-confirm-orb__title">98+</span>
+            </span>
+          </button>
+        </div>
         <p
           className={`instant-ban-status instant-ban-confirm-enter instant-ban-confirm-enter--5${
             error ? ' instant-ban-status--error' : ''
