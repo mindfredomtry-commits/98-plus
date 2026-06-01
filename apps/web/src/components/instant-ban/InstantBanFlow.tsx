@@ -14,6 +14,7 @@ import { safeResolveReceiverTarget } from '@/lib/resolve-receiver';
 import { resolveDevSendTarget } from '@/lib/dev-receiver';
 import { isClientDevAuthEnabled } from '@/lib/config';
 import { instantBanDebug, isInstantBanLiteMode } from '@/lib/instant-ban-debug';
+import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { shareInstantBanInviteMore } from '@/lib/share';
 import { WhoScreen } from './WhoScreen';
 import { WhatScreen } from './WhatScreen';
@@ -290,6 +291,7 @@ export function InstantBanFlow({ onClose }: Props) {
             <ConfirmScreen
               key={`confirm-${confirmEnterKey}-${selectedUser.id ?? selectedUser.userId ?? selectedUser.username}`}
               enterKey={confirmEnterKey}
+              influencePercent={lobbyInfluencePercent}
               selectedUser={selectedUser}
               banText={banText}
               durationMinutes={durationMinutes}

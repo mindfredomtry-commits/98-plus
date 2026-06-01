@@ -526,6 +526,28 @@
     border-color 900ms ease;
 }
 
+/* Enter: SVG progress ring (Lobby fill → 100%); hide CSS border to avoid double ring */
+.instant-ban-confirm[data-enter-phase='lobby-orb'] .instant-ban-confirm-orb-ring,
+.instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-orb-ring {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.instant-ban-confirm-influence-ring.influence-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.instant-ban-confirm[data-enter-phase='compressing']
+  .instant-ban-confirm-influence-ring
+  .influence-ring__progress {
+  transition-duration: var(--98-confirm-enter-compress-ms);
+  transition-timing-function: ease-in-out;
+}
+
 @keyframes instant-ban-ring-breathe {
   0%,
   100% {

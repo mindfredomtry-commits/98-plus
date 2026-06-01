@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { AvatarImage } from '../AvatarImage';
+import { InfluenceRing } from '../lobby/InfluenceRing';
 
 const HOLD_MS = 650;
 const RELEASE_RESET_MS = 800;
@@ -63,8 +64,16 @@ function safeNotification(type: 'success' | 'warning' | 'error'): void {
   }
 }
 
+function clampInfluencePercent(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 100;
+  }
+  return Math.min(100, Math.max(0, value));
+}
+
 export function ConfirmScreen({
   enterKey,
+  influencePercent,
   selectedUser,
   banText,
   durationMinutes: _durationMinutes,
@@ -82,7 +91,13 @@ export function ConfirmScreen({
     '?'
   ).toUpperCase();
 
+  const influenceStart = useMemo(
+    () => clampInfluencePercent(influencePercent),
+    [influencePercent],
+  );
+
   const [enterPhase, setEnterPhase] = useState<EnterPhase>('lobby-orb');
+  const [ringProgress, setRingProgress] = useState(influenceStart);
   const [holdPhase, setHoldPhase] = useState<HoldPhase>('idle');
   const [bounce, setBounce] = useState(false);
   const enterComplete = enterPhase === 'ready';
@@ -149,6 +164,7 @@ export function ConfirmScreen({
 
   useEffect(() => {
     setEnterPhase('lobby-orb');
+    setRingProgress(influenceStart);
     const compressTimer = window.setTimeout(() => {
       setEnterPhase('compressing');
     }, CONFIRM_ENTER_LOBBY_HOLD_MS);
@@ -160,7 +176,15 @@ export function ConfirmScreen({
       window.clearTimeout(compressTimer);
       window.clearTimeout(readyTimer);
     };
-  }, [enterKey]);
+  }, [enterKey, influenceStart]);
+
+  useEffect(() => {
+    if (enterPhase !== 'compressing') return;
+    const frame = requestAnimationFrame(() => {
+      setRingProgress(100);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [enterPhase]);
 
   useLayoutEffect(() => {
     if (enterPhase !== 'compressing') return;
@@ -349,7 +373,14 @@ export function ConfirmScreen({
             onPointerCancel={handlePointerCancel}
             onPointerLeave={handlePointerLeave}
           >
-            <span className="instant-ban-confirm-orb-ring" aria-hidden />
+            <span className="instant-ban-confirm-orb-ring" aria-hidden>
+              {enterPhase !== 'ready' ? (
+                <InfluenceRing
+                  value={ringProgress}
+                  className="instant-ban-confirm-influence-ring"
+                />
+              ) : null}
+            </span>
             <span className="instant-ban-confirm-orb">
               <span className="instant-ban-confirm-orb__title">98+</span>
             </span>
