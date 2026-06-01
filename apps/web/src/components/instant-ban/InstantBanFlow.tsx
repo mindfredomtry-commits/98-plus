@@ -141,8 +141,15 @@ export function InstantBanFlow({ onClose }: Props) {
   const handleSelectUser = useCallback((friend: FriendCard) => {
     setSelectedUser(friend);
     setBanText('');
+    setDurationMinutes(DEFAULT_DURATION_MINUTES);
     setSendError(null);
     setStep('what');
+  }, []);
+
+  const handleWhatSubmit = useCallback((text: string, duration: number) => {
+    setBanText(text);
+    setDurationMinutes(duration);
+    setStep('confirm');
   }, []);
 
   const handleInviteMore = useCallback(() => {
@@ -225,12 +232,11 @@ export function InstantBanFlow({ onClose }: Props) {
           ) : null}
           {step === 'what' && selectedUser ? (
             <WhatScreen
+              key={selectedUser.id ?? selectedUser.userId ?? selectedUser.username}
               selectedUser={selectedUser}
-              banText={banText}
-              selectedDurationMinutes={durationMinutes}
-              onChange={setBanText}
-              onDurationChange={setDurationMinutes}
-              onNext={() => setStep('confirm')}
+              initialBanText={banText}
+              initialDurationMinutes={durationMinutes}
+              onSubmit={handleWhatSubmit}
               onBack={() => setStep('who')}
             />
           ) : null}

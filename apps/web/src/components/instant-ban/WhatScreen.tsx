@@ -1,5 +1,6 @@
 'use client';
 
+import { memo, useCallback, useState } from 'react';
 import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { AvatarImage } from '../AvatarImage';
@@ -15,13 +16,14 @@ const QUICK_CHIPS = [
 
 const DURATION_OPTIONS = [3, 10, 30, 60] as const;
 
+const DEFAULT_DURATION = 3;
+
 type Props = {
   selectedUser: FriendCard;
-  banText: string;
-  selectedDurationMinutes: number;
-  onChange: (text: string) => void;
-  onDurationChange: (minutes: number) => void;
-  onNext: () => void;
+  /** Restored when returning from Confirm. */
+  initialBanText?: string;
+  initialDurationMinutes?: number;
+  onSubmit: (text: string, durationMinutes: number) => void;
   onBack: () => void;
 };
 
@@ -29,46 +31,71 @@ function friendLabel(friend: FriendCard): string {
   return friend.firstName || friend.username || '—';
 }
 
-export function WhatScreen({
-  selectedUser,
-  banText,
-  selectedDurationMinutes,
-  onChange,
-  onDurationChange,
-  onNext,
-  onBack,
-}: Props) {
+const WhatSelectedUser = memo(function WhatSelectedUser({
+  user,
+}: {
+  user: FriendCard;
+}) {
   const letter = (
-    selectedUser.firstName?.[0] ??
-    selectedUser.username?.[0] ??
-    '?'
+    user.firstName?.[0] ?? user.username?.[0] ?? '?'
   ).toUpperCase();
-  const canContinue = banText.trim().length >= 3;
 
   return (
-    <>
+    <div className="instant-ban-what-selected">
+      <AvatarImage
+        src={friendAvatarUrl(user)}
+        letter={letter}
+        sizeClass="w-11 h-11"
+        textClass="text-base"
+        priority
+      />
+      <div className="instant-ban-what-selected__name">{friendLabel(user)}</div>
+    </div>
+  );
+});
+
+function WhatScreenInner({
+  selectedUser,
+  initialBanText = '',
+  initialDurationMinutes = DEFAULT_DURATION,
+  onSubmit,
+  onBack,
+}: Props) {
+  const [draftText, setDraftText] = useState(initialBanText);
+  const [durationMinutes, setDurationMinutes] = useState(initialDurationMinutes);
+  const [inputFocused, setInputFocused] = useState(false);
+
+  const canContinue = draftText.trim().length >= 3;
+
+  const handleSubmit = useCallback(() => {
+    const text = draftText.trim();
+    if (text.length < 3) return;
+    onSubmit(text, durationMinutes);
+  }, [draftText, durationMinutes, onSubmit]);
+
+  return (
+    <div
+      className={`instant-ban-what${
+        inputFocused ? ' instant-ban-what--typing' : ''
+      }`}
+    >
       <button type="button" className="instant-ban-flow__back" onClick={onBack}>
         ← Назад
       </button>
-      <div className="instant-ban-what-selected">
-        <AvatarImage
-          src={friendAvatarUrl(selectedUser)}
-          letter={letter}
-          sizeClass="w-11 h-11"
-          textClass="text-base"
-          priority
-        />
-        <div className="instant-ban-what-selected__name">
-          {friendLabel(selectedUser)}
-        </div>
-      </div>
+      <WhatSelectedUser user={selectedUser} />
       <textarea
         className="instant-ban-what-input"
-        value={banText}
-        onChange={(e) => onChange(e.target.value)}
+        value={draftText}
+        onChange={(e) => setDraftText(e.target.value)}
+        onFocus={() => setInputFocused(true)}
+        onBlur={() => setInputFocused(false)}
         placeholder="Запрети что-нибудь…"
         rows={4}
-        autoFocus
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="sentences"
+        spellCheck={false}
+        enterKeyHint="done"
       />
       <div className="instant-ban-chips">
         {QUICK_CHIPS.map((chip) => (
@@ -76,7 +103,7 @@ export function WhatScreen({
             key={chip}
             type="button"
             className="instant-ban-chip"
-            onClick={() => onChange(chip)}
+            onClick={() => setDraftText(chip)}
           >
             {chip}
           </button>
@@ -90,11 +117,11 @@ export function WhatScreen({
               key={minutes}
               type="button"
               className={`instant-ban-duration-pill${
-                selectedDurationMinutes === minutes
+                durationMinutes === minutes
                   ? ' instant-ban-duration-pill--active'
                   : ''
               }`}
-              onClick={() => onDurationChange(minutes)}
+              onClick={() => setDurationMinutes(minutes)}
             >
               {minutes}м
             </button>
@@ -106,11 +133,13 @@ export function WhatScreen({
           type="button"
           className="btn-98-primary"
           disabled={!canContinue}
-          onClick={onNext}
+          onClick={handleSubmit}
         >
           ДАЛЬШЕ
         </button>
       </div>
-    </>
+    </div>
   );
 }
+
+export const WhatScreen = memo(WhatScreenInner);
