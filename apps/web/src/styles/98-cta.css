@@ -19,12 +19,12 @@
   color: var(--98-text-primary);
   background: linear-gradient(
     135deg,
-    var(--98-purple-vivid) 0%,
-    var(--98-purple-mid) 50%,
+    var(--98-power-strong) 0%,
+    var(--98-power) 45%,
     var(--98-purple-deep) 100%
   );
   box-shadow:
-    0 0 28px rgba(var(--98-accent-rgb), 0.55),
+    0 0 28px var(--98-power-glow),
     0 8px 32px rgba(0, 0, 0, 0.45);
   cursor: pointer;
   pointer-events: auto;
@@ -40,7 +40,7 @@
 
 .btn-98-primary--ready {
   box-shadow:
-    0 0 36px rgba(var(--98-accent-rgb), 0.7),
+    0 0 36px var(--98-power-glow),
     0 8px 32px rgba(0, 0, 0, 0.45);
 }
 
@@ -75,12 +75,12 @@
   0%,
   100% {
     box-shadow:
-      0 0 22px rgba(var(--98-accent-rgb), 0.45),
+      0 0 22px var(--98-power-glow-soft),
       0 8px 28px rgba(0, 0, 0, 0.4);
   }
   50% {
     box-shadow:
-      0 0 36px rgba(var(--98-accent-rgb), 0.7),
+      0 0 36px var(--98-power-glow),
       0 8px 32px rgba(0, 0, 0, 0.45);
   }
 }

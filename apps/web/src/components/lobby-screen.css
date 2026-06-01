@@ -99,11 +99,11 @@
 
 .influence-ring__progress {
   fill: none;
-  stroke: url(#influence-ring-glow);
+  stroke: var(--98-power);
   stroke-width: 2.5;
   stroke-linecap: round;
-  filter: drop-shadow(0 0 6px rgba(var(--98-neon-magenta-rgb), 0.75))
-    drop-shadow(0 0 14px rgba(var(--98-purple-electric-rgb), 0.45));
+  filter: drop-shadow(0 0 8px var(--98-power-glow))
+    drop-shadow(0 0 16px var(--98-power-glow-soft));
   transition: stroke-dashoffset 0.65s ease;
 }
 
@@ -198,8 +198,8 @@
   }
   50% {
     opacity: 1;
-    color: rgba(var(--98-neon-magenta-rgb), 0.95);
-    text-shadow: 0 0 16px rgba(var(--98-neon-magenta-rgb), 0.45);
+    color: var(--98-power);
+    text-shadow: 0 0 16px var(--98-power-glow-soft);
   }
 }
 

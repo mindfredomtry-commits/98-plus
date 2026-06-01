@@ -139,8 +139,8 @@
 }
 
 .instant-ban-who-item--selected {
-  border-color: rgba(var(--98-purple-vivid-rgb), 0.5);
-  box-shadow: 0 0 24px rgba(var(--98-accent-rgb), 0.2);
+  border-color: var(--98-power-soft);
+  box-shadow: 0 0 24px var(--98-power-glow-soft);
 }
 
 .instant-ban-who-item__name {
@@ -166,7 +166,7 @@
   width: 3rem;
   height: 3rem;
   border-radius: 50%;
-  border: 1px solid rgba(var(--98-purple-vivid-rgb), 0.45);
+  border: 1px solid var(--98-power-soft);
   background: rgba(var(--98-purple-deep-rgb), 0.45);
   color: var(--98-purple-soft);
   font-size: 1.5rem;
@@ -228,7 +228,7 @@
 }
 
 .instant-ban-what-input:focus {
-  border-color: rgba(var(--98-purple-vivid-rgb), 0.45);
+  border-color: var(--98-power-soft);
 }
 
 .instant-ban-what-input--single {
@@ -254,9 +254,11 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.instant-ban-chip:active {
-  border-color: rgba(var(--98-purple-vivid-rgb), 0.45);
-  background: rgba(var(--98-accent-rgb), 0.12);
+.instant-ban-chip:active,
+.instant-ban-chip--selected {
+  border-color: rgba(var(--98-power-rgb), 0.65);
+  background: rgba(var(--98-power-rgb), 0.18);
+  box-shadow: 0 0 12px var(--98-power-glow-soft);
 }
 
 .instant-ban-duration {
@@ -291,10 +293,10 @@
 }
 
 .instant-ban-duration-pill--active {
-  border-color: rgba(var(--98-purple-vivid-rgb), 0.65);
-  background: rgba(var(--98-accent-rgb), 0.28);
+  border-color: rgba(var(--98-power-rgb), 0.65);
+  background: rgba(var(--98-power-rgb), 0.28);
   color: var(--98-text-primary);
-  box-shadow: 0 0 12px rgba(var(--98-accent-rgb), 0.2);
+  box-shadow: 0 0 12px var(--98-power-glow-soft);
 }
 
 .instant-ban-confirm-copy {
@@ -360,11 +362,11 @@
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  border: 2px solid rgba(var(--98-neon-magenta-rgb), 0.92);
+  border: 2px solid rgba(var(--98-power-rgb), 0.92);
   background: transparent;
   box-shadow:
-    0 0 6px rgba(var(--98-neon-magenta-rgb), 0.38),
-    0 0 14px rgba(var(--98-purple-electric-rgb), 0.22);
+    0 0 6px var(--98-power-glow-soft),
+    0 0 14px var(--98-power-glow-soft);
   animation: instant-ban-ring-pulse 2.6s ease-in-out infinite;
   pointer-events: none;
 }
@@ -396,14 +398,14 @@
   0%, 100% {
     opacity: 0.9;
     box-shadow:
-      0 0 6px rgba(var(--98-neon-magenta-rgb), 0.38),
-      0 0 14px rgba(var(--98-purple-electric-rgb), 0.22);
+      0 0 6px var(--98-power-glow-soft),
+      0 0 14px var(--98-power-glow-soft);
   }
   50% {
     opacity: 1;
     box-shadow:
-      0 0 8px rgba(var(--98-neon-magenta-rgb), 0.48),
-      0 0 18px rgba(var(--98-purple-electric-rgb), 0.28);
+      0 0 8px var(--98-power-glow),
+      0 0 18px var(--98-power-glow-soft);
   }
 }
 
@@ -620,14 +622,15 @@
 }
 
 .instant-ban-chip--mobile:active {
-  border-color: rgba(var(--98-purple-vivid-rgb), 0.4);
-  background: rgba(var(--98-accent-rgb), 0.15);
+  border-color: rgba(var(--98-power-rgb), 0.45);
+  background: rgba(var(--98-power-rgb), 0.15);
   transform: none;
 }
 
 .instant-ban-chip--mobile.instant-ban-chip--selected {
-  border-color: rgba(var(--98-purple-vivid-rgb), 0.65);
-  background: rgba(var(--98-accent-rgb), 0.18);
+  border-color: rgba(var(--98-power-rgb), 0.65);
+  background: rgba(var(--98-power-rgb), 0.18);
+  box-shadow: 0 0 12px var(--98-power-glow-soft);
 }
 
 .instant-ban-duration--mobile {
@@ -646,9 +649,9 @@
 }
 
 .instant-ban-duration-pill--mobile.instant-ban-duration-pill--active {
-  border-color: rgba(var(--98-purple-vivid-rgb), 0.55);
-  background: rgba(var(--98-accent-rgb), 0.22);
-  box-shadow: none;
+  border-color: rgba(var(--98-power-rgb), 0.55);
+  background: rgba(var(--98-power-rgb), 0.22);
+  box-shadow: 0 0 10px var(--98-power-glow-soft);
 }
 
 .instant-ban-what-swipe-hint {
@@ -667,8 +670,8 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  color: rgba(var(--98-purple-vivid-rgb), 1);
-  opacity: 0.24;
+  color: var(--98-power);
+  opacity: 0.3;
   line-height: 0;
   animation: instant-ban-swipe-chevron-flow 1.1s ease-in-out infinite;
 }

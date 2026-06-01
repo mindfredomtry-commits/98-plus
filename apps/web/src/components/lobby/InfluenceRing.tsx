@@ -21,13 +21,6 @@ export function InfluenceRing({ value, className = '' }: Props) {
       viewBox={`0 0 ${SIZE} ${SIZE}`}
       aria-hidden
     >
-      <defs>
-        <linearGradient id="influence-ring-glow" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#e879f9" />
-          <stop offset="50%" stopColor="#c084fc" />
-          <stop offset="100%" stopColor="#a855f7" />
-        </linearGradient>
-      </defs>
       <circle
         className="influence-ring__track"
         cx={SIZE / 2}

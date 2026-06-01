@@ -31,6 +31,16 @@
   --98-glow-soft: rgba(var(--98-purple-core-rgb), 0.25);
   --98-glow-electric: rgba(var(--98-purple-electric-rgb), 0.7);
   --98-border-core: rgba(var(--98-purple-core-rgb), 0.35);
+
+  /* Unified 98+ power — rings, CTA, selected chips/duration, swipe hint */
+  --98-power: var(--98-purple-electric);
+  --98-power-rgb: var(--98-purple-electric-rgb);
+  --98-power-strong: #c86aef;
+  --98-power-strong-rgb: 200, 106, 239;
+  --98-power-soft: rgba(var(--98-power-rgb), 0.42);
+  --98-power-glow: rgba(var(--98-power-rgb), 0.55);
+  --98-power-glow-soft: rgba(var(--98-power-rgb), 0.28);
+  --98-power-muted: rgba(var(--98-power-rgb), 0.72);
   --98-overlay-bg: rgba(8, 6, 18, 0.52);
   --98-text-primary: #ffffff;
   --98-text-secondary: rgba(255, 255, 255, 0.52);
@@ -60,15 +70,24 @@
   --98-border: rgba(var(--98-purple-cold-rgb), 0.2);
 }
 
-/* Lobby — colder, deeper violet, less pink */
+/* Lobby — atmosphere cold; active ring/CTA use --98-power */
 .lobby-screen {
-  --98-accent: var(--98-purple-cold);
-  --98-accent-rgb: var(--98-purple-cold-rgb);
-  --98-accent-soft: #b8a0c8;
-  --98-accent-soft-rgb: 184, 160, 200;
-  --98-glow-strong: rgba(var(--98-purple-cold-rgb), 0.5);
-  --98-glow: rgba(var(--98-purple-cold-rgb), 0.4);
-  --98-border: rgba(var(--98-purple-cold-rgb), 0.4);
+  --98-accent: var(--98-power);
+  --98-accent-rgb: var(--98-power-rgb);
+  --98-accent-soft: var(--98-purple-soft);
+  --98-accent-soft-rgb: var(--98-purple-soft-rgb);
+  --98-glow-strong: var(--98-power-glow);
+  --98-glow: var(--98-power-glow-soft);
+  --98-border: var(--98-power-soft);
+}
+
+/* Instant ban flow — active states share power tokens */
+.instant-ban-flow {
+  --98-accent: var(--98-power);
+  --98-accent-rgb: var(--98-power-rgb);
+  --98-glow-strong: var(--98-power-glow);
+  --98-glow: var(--98-power-glow-soft);
+  --98-border: var(--98-power-soft);
 }
 
 /* Result — electric peak glow */
