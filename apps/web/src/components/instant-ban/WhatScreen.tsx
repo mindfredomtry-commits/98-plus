@@ -26,7 +26,7 @@ const PLACEHOLDER_CYCLE_PHRASES = [
   'Запрети то, что тебя раздражает...',
 ] as const;
 
-const PLACEHOLDER_CYCLE_MS = 2000;
+const PLACEHOLDER_CYCLE_MS = 3000;
 const PLACEHOLDER_FADE_MS = 250;
 
 const DEFAULT_DURATION = 3;
