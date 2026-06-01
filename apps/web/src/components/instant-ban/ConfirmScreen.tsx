@@ -258,23 +258,29 @@ export function ConfirmScreen({
         ← Назад
       </button>
       <div className="instant-ban-confirm-copy">
-        <span className="instant-ban-confirm-copy__lead">Ты запрещаешь</span>
-        <strong>{name}</strong>
-        <div className="instant-ban-confirm-copy__avatar">
-          <AvatarImage
-            src={friendAvatarUrl(selectedUser)}
-            letter={letter}
-            sizeClass="w-12 h-12"
-            textClass="text-base"
-            priority
-          />
+        <span className="instant-ban-confirm-copy__lead instant-ban-confirm-enter instant-ban-confirm-enter--1">
+          Ты запрещаешь
+        </span>
+        <div className="instant-ban-confirm-copy__subject instant-ban-confirm-enter instant-ban-confirm-enter--2">
+          <strong>{name}</strong>
+          <div className="instant-ban-confirm-copy__avatar">
+            <AvatarImage
+              src={friendAvatarUrl(selectedUser)}
+              letter={letter}
+              sizeClass="w-12 h-12"
+              textClass="text-base"
+              priority
+            />
+          </div>
         </div>
-        <em>&ldquo;{trimmed}&rdquo;</em>
+        <em className="instant-ban-confirm-enter instant-ban-confirm-enter--3">
+          &ldquo;{trimmed}&rdquo;
+        </em>
       </div>
       <div className="instant-ban-confirm-orb-wrap">
         <button
           type="button"
-          className={orbBtnClass}
+          className={`${orbBtnClass} instant-ban-confirm-enter instant-ban-confirm-enter--4`}
           disabled={sending}
           aria-label="Зажми 98+ чтобы отправить запрет"
           onPointerDown={handlePointerDown}
@@ -288,7 +294,9 @@ export function ConfirmScreen({
           </span>
         </button>
         <p
-          className={`instant-ban-status${error ? ' instant-ban-status--error' : ''}`}
+          className={`instant-ban-status instant-ban-confirm-enter instant-ban-confirm-enter--5${
+            error ? ' instant-ban-status--error' : ''
+          }`}
         >
           {statusLabel}
         </p>

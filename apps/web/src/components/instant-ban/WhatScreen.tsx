@@ -31,6 +31,9 @@ const PLACEHOLDER_FADE_MS = 250;
 
 const DEFAULT_DURATION = 3;
 
+/** Finger moves down the screen (positive dy). */
+const SWIPE_DOWN_THRESHOLD_PX = 56;
+
 function fullTextFromChip(chip: string): string {
   return `${CHIP_PREFIX}${chip}`;
 }
@@ -229,7 +232,7 @@ function WhatScreenInner({
 
       const dy = t.clientY - start.y;
       const dx = t.clientX - start.x;
-      if (dy < 56) return;
+      if (dy < SWIPE_DOWN_THRESHOLD_PX) return;
       if (Math.abs(dx) > Math.abs(dy) * 0.6) return;
 
       handleSubmit();
