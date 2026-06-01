@@ -1,6 +1,14 @@
 'use client';
 
-import { memo, useCallback, useEffect, useId, useRef, useState, type TouchEvent } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { instantBanDebug } from '@/lib/instant-ban-debug';
@@ -33,6 +41,14 @@ const DEFAULT_DURATION = 3;
 
 /** Finger moves down the screen (positive dy). */
 const SWIPE_DOWN_THRESHOLD_PX = 56;
+const SWIPE_VERTICAL_DOMINANCE = 1.2;
+
+type SwipeStart = { x: number; y: number; pointerId: number };
+
+function isSwipeInteractiveTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return !!target.closest('button, input, textarea, select, a, label');
+}
 
 function fullTextFromChip(chip: string): string {
   return `${CHIP_PREFIX}${chip}`;
@@ -213,30 +229,31 @@ function WhatScreenInner({
   const showSwipeHint =
     canContinue && selectedUser != null && durationMinutes > 0;
 
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const swipeStartRef = useRef<SwipeStart | null>(null);
+  const swipeSubmitLockRef = useRef(false);
+  const canContinueRef = useRef(canContinue);
 
-  const onTouchStart = useCallback((e: TouchEvent) => {
-    const t = e.touches[0];
-    if (!t) return;
-    touchStartRef.current = { x: t.clientX, y: t.clientY };
-  }, []);
+  useEffect(() => {
+    canContinueRef.current = canContinue;
+  }, [canContinue]);
 
-  const onTouchEnd = useCallback(
-    (e: TouchEvent) => {
-      const start = touchStartRef.current;
-      touchStartRef.current = null;
-      if (!start || !canContinue) return;
+  const finishSwipe = useCallback(
+    (endX: number, endY: number, pointerId: number) => {
+      const start = swipeStartRef.current;
+      swipeStartRef.current = null;
+      if (!start || start.pointerId !== pointerId) return;
 
-      const t = e.changedTouches[0];
-      if (!t) return;
-
-      const endY = t.clientY;
       const startY = start.y;
+      const startX = start.x;
       const dy = endY - startY;
-      const dx = t.clientX - start.x;
-      const isMostlyVertical = Math.abs(dx) <= Math.abs(dy) * 0.6;
+      const dx = endX - startX;
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
       const isSwipeUp = dy < -SWIPE_DOWN_THRESHOLD_PX;
       const isSwipeDown = dy > SWIPE_DOWN_THRESHOLD_PX;
+      const isMostlyVertical = absDy > absDx * SWIPE_VERTICAL_DOMINANCE;
+      const textOk = (inputRef.current?.value ?? '').trim().length >= 3;
+      const ready = canContinueRef.current && textOk && durationMinutes > 0;
       const direction = isSwipeDown
         ? 'down'
         : isSwipeUp
@@ -244,37 +261,88 @@ function WhatScreenInner({
           : dy < 0
             ? 'up-short'
             : 'short';
-      const triggered = isSwipeDown && isMostlyVertical;
+      const triggered = ready && isSwipeDown && isMostlyVertical;
 
+      if (process.env.NODE_ENV === 'development') {
+        console.debug('[instant-ban:swipe]', {
+          startY,
+          endY,
+          dy,
+          absDx,
+          absDy,
+          direction,
+          triggered,
+        });
+      }
       instantBanDebug('swipe', {
-        dy,
-        dx,
         startY,
         endY,
+        dy,
+        absDx,
+        absDy,
         direction,
         triggered,
-        canContinue,
+        canContinue: canContinueRef.current,
       });
 
-      if (isSwipeUp) return;
-      if (!triggered) return;
-
+      if (isSwipeUp || !triggered) return;
+      if (swipeSubmitLockRef.current) return;
+      swipeSubmitLockRef.current = true;
       handleSubmit();
+      window.setTimeout(() => {
+        swipeSubmitLockRef.current = false;
+      }, 400);
     },
-    [canContinue, handleSubmit],
+    [durationMinutes, handleSubmit],
   );
 
-  const onTouchCancel = useCallback(() => {
-    touchStartRef.current = null;
+  const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    if (isSwipeInteractiveTarget(e.target)) return;
+    swipeStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      pointerId: e.pointerId,
+    };
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* noop */
+    }
+  }, []);
+
+  const onPointerUp = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      try {
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+      } catch {
+        /* noop */
+      }
+      finishSwipe(e.clientX, e.clientY, e.pointerId);
+    },
+    [finishSwipe],
+  );
+
+  const onPointerCancel = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    swipeStartRef.current = null;
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      /* noop */
+    }
   }, []);
 
   return (
     <div
       className="instant-ban-what instant-ban-what-mobile"
       data-instant-ban-view="WhatScreen"
-      onTouchStartCapture={onTouchStart}
-      onTouchEndCapture={onTouchEnd}
-      onTouchCancel={onTouchCancel}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
     >
       <button type="button" className="instant-ban-flow__back" onClick={onBack}>
         ← Назад

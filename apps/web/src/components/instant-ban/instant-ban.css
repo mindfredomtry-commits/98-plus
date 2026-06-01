@@ -376,14 +376,18 @@
   animation-delay: 480ms;
 }
 
+/* Wrapper for enterKey / view tag — no layout box (children flex in flow__body) */
+.instant-ban-confirm {
+  display: contents;
+}
+
 .instant-ban-confirm-orb-wrap {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 auto;
   gap: 0.5rem;
+  margin-top: 0.25rem;
   padding: 1.25rem 0 clamp(2rem, 14vh, 4.5rem);
 }
 
@@ -680,6 +684,7 @@
   height: auto;
   width: 100%;
   padding-bottom: 0.5rem;
+  touch-action: pan-y;
 }
 
 .instant-ban-what-selected--mobile {
@@ -809,6 +814,7 @@
   padding: 0.25rem 0 1rem;
   pointer-events: none;
   flex-shrink: 0;
+  touch-action: none;
 }
 
 .instant-ban-what-swipe-hint__chevron {
