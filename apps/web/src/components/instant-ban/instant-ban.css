@@ -671,9 +671,7 @@
   flex: 1 1 auto;
   min-height: 0;
   height: auto;
-  overflow-y: auto;
-  overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
+  overflow: hidden;
 }
 
 .instant-ban-what-mobile {
@@ -681,10 +679,25 @@
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
-  height: auto;
+  height: 100%;
   width: 100%;
-  padding-bottom: 0.5rem;
-  touch-action: pan-y;
+  padding-bottom: 0;
+}
+
+.instant-ban-what-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.instant-ban-what-scroll-spacer {
+  flex-shrink: 0;
+  width: 100%;
+  height: clamp(180px, 42vw, 260px);
+  pointer-events: none;
 }
 
 .instant-ban-what-selected--mobile {
@@ -813,10 +826,7 @@
   flex-shrink: 0;
   margin-top: 1.75rem;
   padding: 0;
-  pointer-events: auto;
-  touch-action: none;
-  -webkit-user-select: none;
-  user-select: none;
+  cursor: default;
   -webkit-tap-highlight-color: transparent;
 }
 

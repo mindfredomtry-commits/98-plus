@@ -1,14 +1,6 @@
 'use client';
 
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-} from 'react';
+import { memo, useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { instantBanDebug } from '@/lib/instant-ban-debug';
@@ -39,192 +31,20 @@ const PLACEHOLDER_FADE_MS = 250;
 
 const DEFAULT_DURATION = 3;
 
-/** Finger moves down the screen (positive dy). */
-const SWIPE_DOWN_THRESHOLD_PX = 56;
-const SWIPE_VERTICAL_DOMINANCE = 1.2;
+/** Bottom edge: scrollTop + clientHeight >= scrollHeight - threshold */
+const SCROLL_BOTTOM_THRESHOLD_PX = 80;
 
-type SwipeStart = { x: number; y: number; pointerId: number };
-
-const SWIPE_TAP_MAX_PX = 12;
-
-function logSwipeZone(
-  phase: string,
-  data: Record<string, unknown>,
-): void {
-  if (process.env.NODE_ENV === 'development') {
-    console.debug('[instant-ban:swipe-zone]', { phase, ...data });
-  }
-  instantBanDebug('swipe-zone', { phase, ...data });
-}
-
-const WhatSwipeGestureZone = memo(function WhatSwipeGestureZone({
-  onTrigger,
-  isReady,
+const WhatSwipeTapZone = memo(function WhatSwipeTapZone({
+  onTap,
 }: {
-  onTrigger: () => void;
-  isReady: () => boolean;
+  onTap: () => void;
 }) {
-  const startRef = useRef<SwipeStart | null>(null);
-  const submitLockRef = useRef(false);
-  const movedRef = useRef(false);
-
-  const trySubmit = useCallback(
-    (
-      phase: string,
-      dy: number,
-      dx: number,
-      startY: number,
-      currentY: number,
-    ): boolean => {
-      const absDx = Math.abs(dx);
-      const absDy = Math.abs(dy);
-      const ready = isReady();
-      const isSwipeDown = dy > SWIPE_DOWN_THRESHOLD_PX;
-      const isMostlyVertical = absDy > absDx * SWIPE_VERTICAL_DOMINANCE;
-      const triggered = ready && isSwipeDown && isMostlyVertical;
-
-      logSwipeZone(phase, {
-        startY,
-        currentY,
-        dy,
-        dx,
-        canContinue: ready,
-        triggered,
-      });
-
-      if (!triggered || submitLockRef.current) return false;
-      submitLockRef.current = true;
-      onTrigger();
-      window.setTimeout(() => {
-        submitLockRef.current = false;
-      }, 400);
-      return true;
-    },
-    [isReady, onTrigger],
-  );
-
-  const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    movedRef.current = false;
-    startRef.current = {
-      x: e.clientX,
-      y: e.clientY,
-      pointerId: e.pointerId,
-    };
-    logSwipeZone('down', {
-      startY: e.clientY,
-      currentY: e.clientY,
-      dy: 0,
-      dx: 0,
-      canContinue: isReady(),
-      triggered: false,
-    });
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      /* noop */
-    }
-  }, [isReady]);
-
-  const onPointerMove = useCallback(
-    (e: ReactPointerEvent<HTMLDivElement>) => {
-      const start = startRef.current;
-      if (!start || start.pointerId !== e.pointerId) return;
-
-      const dy = e.clientY - start.y;
-      const dx = e.clientX - start.x;
-      if (Math.abs(dy) > 8 || Math.abs(dx) > 8) {
-        movedRef.current = true;
-      }
-      if (dy > 8) {
-        e.preventDefault();
-      }
-
-      trySubmit('move', dy, dx, start.y, e.clientY);
-    },
-    [trySubmit],
-  );
-
-  const onPointerUp = useCallback(
-    (e: ReactPointerEvent<HTMLDivElement>) => {
-      const start = startRef.current;
-      startRef.current = null;
-      try {
-        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-          e.currentTarget.releasePointerCapture(e.pointerId);
-        }
-      } catch {
-        /* noop */
-      }
-      if (!start || start.pointerId !== e.pointerId) return;
-
-      const dy = e.clientY - start.y;
-      const dx = e.clientX - start.x;
-      const ready = isReady();
-
-      if (
-        !movedRef.current &&
-        Math.abs(dy) <= SWIPE_TAP_MAX_PX &&
-        Math.abs(dx) <= SWIPE_TAP_MAX_PX &&
-        ready &&
-        !submitLockRef.current
-      ) {
-        logSwipeZone('tap-fallback', {
-          startY: start.y,
-          currentY: e.clientY,
-          dy,
-          dx,
-          canContinue: ready,
-          triggered: true,
-        });
-        submitLockRef.current = true;
-        onTrigger();
-        window.setTimeout(() => {
-          submitLockRef.current = false;
-        }, 400);
-        return;
-      }
-
-      logSwipeZone('up', {
-        startY: start.y,
-        currentY: e.clientY,
-        dy,
-        dx,
-        canContinue: ready,
-        triggered: false,
-      });
-    },
-    [isReady, onTrigger],
-  );
-
-  const onPointerCancel = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    startRef.current = null;
-    movedRef.current = false;
-    logSwipeZone('cancel', {
-      startY: null,
-      currentY: e.clientY,
-      dy: 0,
-      dx: 0,
-      canContinue: isReady(),
-      triggered: false,
-    });
-    try {
-      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      }
-    } catch {
-      /* noop */
-    }
-  }, [isReady]);
-
   return (
     <div
       className="instant-ban-what-swipe-zone"
+      role="presentation"
       aria-hidden
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerCancel}
+      onClick={onTap}
     >
       <div className="instant-ban-what-swipe-hint">
         <SwipeHintChevron className="instant-ban-what-swipe-hint__chevron instant-ban-what-swipe-hint__chevron--1" />
@@ -425,6 +245,57 @@ function WhatScreenInner({
     return canContinueRef.current && textOk && durationMinutes > 0;
   }, [durationMinutes]);
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const submitLockRef = useRef(false);
+
+  const tryAdvanceToConfirm = useCallback(
+    (source: 'scroll' | 'tap') => {
+      if (submitLockRef.current || !isSwipeReady()) return false;
+      submitLockRef.current = true;
+      handleSubmit();
+      window.setTimeout(() => {
+        submitLockRef.current = false;
+      }, 400);
+      if (process.env.NODE_ENV === 'development') {
+        console.debug('[instant-ban:what-advance]', { source, triggered: true });
+      }
+      return true;
+    },
+    [handleSubmit, isSwipeReady],
+  );
+
+  const onScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el || submitLockRef.current) return;
+
+    const { scrollTop, clientHeight, scrollHeight } = el;
+    const scrollable =
+      scrollHeight - clientHeight > SCROLL_BOTTOM_THRESHOLD_PX;
+    const atBottom =
+      scrollTop + clientHeight >= scrollHeight - SCROLL_BOTTOM_THRESHOLD_PX;
+    const ready = isSwipeReady();
+    const triggered = scrollable && atBottom && ready;
+
+    if (process.env.NODE_ENV === 'development') {
+      console.debug('[instant-ban:scroll]', {
+        scrollTop,
+        clientHeight,
+        scrollHeight,
+        scrollable,
+        atBottom,
+        canContinue: ready,
+        triggered,
+      });
+    }
+
+    if (!triggered) return;
+    tryAdvanceToConfirm('scroll');
+  }, [isSwipeReady, tryAdvanceToConfirm]);
+
+  const onSwipeZoneTap = useCallback(() => {
+    tryAdvanceToConfirm('tap');
+  }, [tryAdvanceToConfirm]);
+
   return (
     <div
       className="instant-ban-what instant-ban-what-mobile"
@@ -433,6 +304,11 @@ function WhatScreenInner({
       <button type="button" className="instant-ban-flow__back" onClick={onBack}>
         ← Назад
       </button>
+      <div
+        ref={scrollRef}
+        className="instant-ban-what-scroll"
+        onScroll={onScroll}
+      >
       <WhatSelectedUser user={selectedUser} />
       <label className="instant-ban-what-field">
         {isEmpty ? (
@@ -496,8 +372,12 @@ function WhatScreenInner({
         </div>
       </div>
       {showSwipeHint ? (
-        <WhatSwipeGestureZone onTrigger={handleSubmit} isReady={isSwipeReady} />
+        <>
+          <WhatSwipeTapZone onTap={onSwipeZoneTap} />
+          <div className="instant-ban-what-scroll-spacer" aria-hidden />
+        </>
       ) : null}
+      </div>
     </div>
   );
 }
