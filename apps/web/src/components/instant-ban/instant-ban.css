@@ -8,8 +8,8 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  height: 100%;
-  max-height: 100%;
+  height: var(--instant-ban-vh, 100%);
+  max-height: var(--instant-ban-vh, 100%);
   background:
     radial-gradient(
       ellipse 120% 80% at 50% -12%,
@@ -84,16 +84,13 @@
   width: 100%;
 }
 
-.instant-ban-what--typing .instant-ban-what-input,
-.instant-ban-what--typing .instant-ban-what-input:focus {
+.instant-ban-what:focus-within .instant-ban-what-input,
+.instant-ban-what:focus-within .instant-ban-what-input:focus {
   box-shadow: none;
 }
 
-.instant-ban-what--typing .instant-ban-chip {
-  transition: none;
-}
-
-.instant-ban-what--typing .instant-ban-duration-pill {
+.instant-ban-what:focus-within .instant-ban-chip,
+.instant-ban-what:focus-within .instant-ban-duration-pill {
   transition: none;
 }
 
@@ -232,6 +229,11 @@
 
 .instant-ban-what-input:focus {
   border-color: rgba(var(--98-purple-vivid-rgb), 0.45);
+}
+
+.instant-ban-what-input--single {
+  min-height: 0;
+  height: 3rem;
 }
 
 .instant-ban-chips {
@@ -485,4 +487,169 @@
   .instant-ban-confirm-orb-ring {
     animation: none;
   }
+}
+
+/* WhatScreen — mobile-safe (Telegram WebView): plain layout, no GPU tricks */
+.instant-ban-flow--what-mobile-safe {
+  height: 100%;
+  max-height: none;
+  background: var(--98-bg-black);
+}
+
+.instant-ban-flow--what-mobile-safe .instant-ban-flow__grid {
+  display: none;
+}
+
+.instant-ban-flow--what-mobile-safe .instant-ban-flow__title {
+  text-shadow: none;
+  margin-bottom: 0.75rem;
+}
+
+.instant-ban-flow--what-mobile-safe .instant-ban-flow__inner {
+  min-height: 0;
+  height: auto;
+  flex: 1;
+}
+
+.instant-ban-flow--what-mobile-safe .instant-ban-flow__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.instant-ban-what-mobile {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-height: auto;
+  height: auto;
+  width: 100%;
+  padding-bottom: 0.5rem;
+}
+
+.instant-ban-what-selected--mobile {
+  margin-bottom: 0.75rem;
+  padding: 0.625rem 0.875rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(12, 8, 18, 0.95);
+  box-shadow: none;
+}
+
+.instant-ban-what-field {
+  display: flex;
+  align-items: center;
+  min-height: 6rem;
+  margin: 0 0 0.75rem;
+  padding: 0 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(8, 6, 14, 0.98);
+  box-shadow: none;
+}
+
+.instant-ban-what-input--mobile {
+  width: 100%;
+  min-height: 0;
+  height: 2.75rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--98-text-primary);
+  font-size: 1.125rem;
+  line-height: 1.35;
+  outline: none;
+  box-shadow: none;
+  transform: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.instant-ban-what-input--mobile::placeholder {
+  color: rgba(255, 255, 255, 0.32);
+}
+
+.instant-ban-what-input--mobile:focus {
+  outline: none;
+  box-shadow: none;
+  border: none;
+}
+
+.instant-ban-chips--mobile {
+  margin-top: 0;
+  gap: 0.375rem;
+}
+
+.instant-ban-chip--mobile {
+  padding: 0.4375rem 0.625rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(10, 8, 16, 0.92);
+  box-shadow: none;
+  transition: none;
+}
+
+.instant-ban-chip--mobile:active {
+  border-color: rgba(var(--98-purple-vivid-rgb), 0.4);
+  background: rgba(var(--98-accent-rgb), 0.15);
+  transform: none;
+}
+
+.instant-ban-duration--mobile {
+  margin-top: 0.875rem;
+}
+
+.instant-ban-duration--mobile .instant-ban-duration__label {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.instant-ban-duration-pill--mobile {
+  box-shadow: none;
+  transition: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(10, 8, 16, 0.92);
+}
+
+.instant-ban-duration-pill--mobile.instant-ban-duration-pill--active {
+  border-color: rgba(var(--98-purple-vivid-rgb), 0.55);
+  background: rgba(var(--98-accent-rgb), 0.22);
+  box-shadow: none;
+}
+
+.instant-ban-actions--mobile {
+  margin-top: 1rem;
+}
+
+/* ?liteInstantBan=1 — strip GPU-heavy decor to isolate CSS vs JS lag */
+.instant-ban-debug-lite.instant-ban-flow {
+  background: #000;
+}
+
+.instant-ban-debug-lite .instant-ban-flow__grid {
+  display: none;
+}
+
+.instant-ban-debug-lite .instant-ban-flow__title {
+  text-shadow: none;
+}
+
+.instant-ban-debug-lite .instant-ban-who-item,
+.instant-ban-debug-lite .instant-ban-what-selected,
+.instant-ban-debug-lite .instant-ban-what-input,
+.instant-ban-debug-lite .instant-ban-chip,
+.instant-ban-debug-lite .instant-ban-duration-pill,
+.instant-ban-debug-lite .instant-ban-duration-pill--active,
+.instant-ban-debug-lite .instant-ban-success-card {
+  box-shadow: none !important;
+  transition: none !important;
+  animation: none !important;
+  backdrop-filter: none !important;
+}
+
+.instant-ban-debug-lite .instant-ban-confirm-orb-ring {
+  animation: none;
 }

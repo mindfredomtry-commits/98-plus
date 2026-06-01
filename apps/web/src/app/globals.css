@@ -774,6 +774,15 @@ html.scroll-lock body {
   contain: layout style paint;
 }
 
+.app-page--instant-ban-active .arena-ambience,
+.app-page--instant-ban-active .app-main,
+.app-page--instant-ban-active .cta-dock,
+.app-page--instant-ban-active .bottom-nav,
+.app-page--instant-ban-active .connection-banner {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .app-page--incoming-overlay-active .app-main,
 .app-page--incoming-overlay-active .home-arena,
 .app-page--incoming-overlay-active .cta-dock,

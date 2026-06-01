@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { motion } from 'framer-motion';
 import { useApp } from '@/components/Providers';
@@ -18,6 +18,7 @@ import {
   logLobbyInfluenceDebug,
   resolveLobbyInfluencePercent,
 } from '@/lib/lobby-influence';
+import { instantBanDebug } from '@/lib/instant-ban-debug';
 
 const ArenaAmbience = dynamic(
   () =>
@@ -45,7 +46,10 @@ const DebugPanel = dynamic(
 
 function BootLobby() {
   return (
-    <div className="min-h-[100dvh] flex items-center justify-center challenge-bg">
+    <div
+      className="min-h-[100dvh] flex items-center justify-center challenge-bg"
+      data-shell-view="BootLobby"
+    >
       <motion.div
         animate={{ opacity: [0.4, 1, 0.4] }}
         transition={{ repeat: Infinity, duration: 1.2 }}
@@ -84,6 +88,10 @@ export default function HomePage() {
   const [debugOpen, setDebugOpen] = useState(false);
   const [instantBanOpen, setInstantBanOpen] = useState(false);
   const [apiUrlDisplay, setApiUrlDisplay] = useState('');
+
+  const handleCloseInstantBan = useCallback(() => {
+    setInstantBanOpen(false);
+  }, []);
 
   useSocialBoot({
     token,
@@ -127,6 +135,42 @@ export default function HomePage() {
     logLobbyInfluenceDebug(user, lobbyInfluence);
   }, [lobbyOpen, user, lobbyInfluence.influencePercent, lobbyInfluence.fromFallback]);
 
+  const canRenderShell =
+    incomingGateActive ||
+    checkGateActive ||
+    homeSnapshotReady ||
+    (sessionReady && friendsReady);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return;
+    if (loading || !user?.id || !token) {
+      instantBanDebug('shell-view', { view: 'BootLobby-auth' });
+      return;
+    }
+    if (error || !user) {
+      instantBanDebug('shell-view', { view: 'Error' });
+      return;
+    }
+    if (!canRenderShell) {
+      instantBanDebug('shell-view', { view: 'BootLobby-shell' });
+      return;
+    }
+    instantBanDebug('shell-view', {
+      view: 'HomeShell',
+      lobbyOpen,
+      instantBanOpen,
+    });
+  }, [
+    loading,
+    user?.id,
+    token,
+    error,
+    user,
+    canRenderShell,
+    lobbyOpen,
+    instantBanOpen,
+  ]);
+
   if (loading || !user?.id || !token) {
     return <BootLobby />;
   }
@@ -154,12 +198,6 @@ export default function HomePage() {
     );
   }
 
-  const canRenderShell =
-    incomingGateActive ||
-    checkGateActive ||
-    homeSnapshotReady ||
-    (sessionReady && friendsReady);
-
   if (!canRenderShell) {
     return <BootLobby />;
   }
@@ -181,7 +219,10 @@ export default function HomePage() {
         checkGateActive && overlaysUiActive
           ? ' app-page--check-overlay-active'
           : ''
-      }${banSentOpen ? ' app-page--success-modal' : ''}`}
+      }${banSentOpen ? ' app-page--success-modal' : ''}${
+        instantBanOpen ? ' app-page--instant-ban-active' : ''
+      }`}
+      data-shell-view="HomeShell"
     >
       <ShellErrorBoundary name="ambience" fallback={null}>
         <ArenaAmbience />
@@ -245,7 +286,7 @@ export default function HomePage() {
         />
       ) : null}
       {instantBanOpen ? (
-        <InstantBanFlow onClose={() => setInstantBanOpen(false)} />
+        <InstantBanFlow onClose={handleCloseInstantBan} />
       ) : null}
     </div>
   );

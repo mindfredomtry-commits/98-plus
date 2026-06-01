@@ -1,8 +1,9 @@
 'use client';
 
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
+import { instantBanDebug } from '@/lib/instant-ban-debug';
 import { AvatarImage } from '../AvatarImage';
 
 const QUICK_CHIPS = [
@@ -20,7 +21,6 @@ const DEFAULT_DURATION = 3;
 
 type Props = {
   selectedUser: FriendCard;
-  /** Restored when returning from Confirm. */
   initialBanText?: string;
   initialDurationMinutes?: number;
   onSubmit: (text: string, durationMinutes: number) => void;
@@ -41,13 +41,12 @@ const WhatSelectedUser = memo(function WhatSelectedUser({
   ).toUpperCase();
 
   return (
-    <div className="instant-ban-what-selected">
+    <div className="instant-ban-what-selected instant-ban-what-selected--mobile">
       <AvatarImage
         src={friendAvatarUrl(user)}
         letter={letter}
         sizeClass="w-11 h-11"
         textClass="text-base"
-        priority
       />
       <div className="instant-ban-what-selected__name">{friendLabel(user)}</div>
     </div>
@@ -61,62 +60,120 @@ function WhatScreenInner({
   onSubmit,
   onBack,
 }: Props) {
-  const [draftText, setDraftText] = useState(initialBanText);
-  const [durationMinutes, setDurationMinutes] = useState(initialDurationMinutes);
-  const [inputFocused, setInputFocused] = useState(false);
+  const instanceId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const canContinueRafRef = useRef<number | null>(null);
 
-  const canContinue = draftText.trim().length >= 3;
+  const [canContinue, setCanContinue] = useState(
+    initialBanText.trim().length >= 3,
+  );
+  const [durationMinutes, setDurationMinutes] = useState(initialDurationMinutes);
+
+  useEffect(() => {
+    instantBanDebug('what-mount', { instanceId, mode: 'mobile-safe-input' });
+    return () => {
+      instantBanDebug('what-unmount', { instanceId });
+      if (canContinueRafRef.current != null) {
+        cancelAnimationFrame(canContinueRafRef.current);
+      }
+    };
+  }, [instanceId]);
+
+  const scheduleCanContinueSync = useCallback(() => {
+    if (canContinueRafRef.current != null) return;
+    canContinueRafRef.current = requestAnimationFrame(() => {
+      canContinueRafRef.current = null;
+      const value = inputRef.current?.value ?? '';
+      const next = value.trim().length >= 3;
+      setCanContinue((prev) => (prev === next ? prev : next));
+    });
+  }, []);
+
+  const handleInput = useCallback(() => {
+    const t0 =
+      typeof performance !== 'undefined' ? performance.now() : 0;
+    scheduleCanContinueSync();
+    if (process.env.NODE_ENV === 'development' && t0) {
+      requestAnimationFrame(() => {
+        instantBanDebug('onInput', {
+          ms: Math.round((performance.now() - t0) * 100) / 100,
+          len: inputRef.current?.value.length ?? 0,
+        });
+      });
+    }
+  }, [scheduleCanContinueSync]);
+
+  const handleFocus = useCallback(() => {
+    instantBanDebug('input-focus', { instanceId });
+  }, [instanceId]);
+
+  const handleBlur = useCallback(() => {
+    instantBanDebug('input-blur', { instanceId });
+  }, [instanceId]);
+
+  const applyChip = useCallback(
+    (chip: string) => {
+      if (inputRef.current) {
+        inputRef.current.value = chip;
+      }
+      scheduleCanContinueSync();
+    },
+    [scheduleCanContinueSync],
+  );
 
   const handleSubmit = useCallback(() => {
-    const text = draftText.trim();
+    const text = (inputRef.current?.value ?? '').trim();
     if (text.length < 3) return;
     onSubmit(text, durationMinutes);
-  }, [draftText, durationMinutes, onSubmit]);
+  }, [durationMinutes, onSubmit]);
 
   return (
     <div
-      className={`instant-ban-what${
-        inputFocused ? ' instant-ban-what--typing' : ''
-      }`}
+      className="instant-ban-what instant-ban-what-mobile"
+      data-instant-ban-view="WhatScreen"
     >
       <button type="button" className="instant-ban-flow__back" onClick={onBack}>
         ← Назад
       </button>
       <WhatSelectedUser user={selectedUser} />
-      <textarea
-        className="instant-ban-what-input"
-        value={draftText}
-        onChange={(e) => setDraftText(e.target.value)}
-        onFocus={() => setInputFocused(true)}
-        onBlur={() => setInputFocused(false)}
-        placeholder="Запрети что-нибудь…"
-        rows={4}
-        autoComplete="off"
-        autoCorrect="off"
-        autoCapitalize="sentences"
-        spellCheck={false}
-        enterKeyHint="done"
-      />
-      <div className="instant-ban-chips">
+      <label className="instant-ban-what-field">
+        <input
+          ref={inputRef}
+          type="text"
+          inputMode="text"
+          className="instant-ban-what-input instant-ban-what-input--mobile"
+          defaultValue={initialBanText}
+          onInput={handleInput}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          placeholder="Запрети что-нибудь…"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          enterKeyHint="done"
+        />
+      </label>
+      <div className="instant-ban-chips instant-ban-chips--mobile">
         {QUICK_CHIPS.map((chip) => (
           <button
             key={chip}
             type="button"
-            className="instant-ban-chip"
-            onClick={() => setDraftText(chip)}
+            className="instant-ban-chip instant-ban-chip--mobile"
+            onClick={() => applyChip(chip)}
           >
             {chip}
           </button>
         ))}
       </div>
-      <div className="instant-ban-duration">
+      <div className="instant-ban-duration instant-ban-duration--mobile">
         <p className="instant-ban-duration__label">На сколько?</p>
         <div className="instant-ban-duration-pills">
           {DURATION_OPTIONS.map((minutes) => (
             <button
               key={minutes}
               type="button"
-              className={`instant-ban-duration-pill${
+              className={`instant-ban-duration-pill instant-ban-duration-pill--mobile${
                 durationMinutes === minutes
                   ? ' instant-ban-duration-pill--active'
                   : ''
@@ -128,7 +185,7 @@ function WhatScreenInner({
           ))}
         </div>
       </div>
-      <div className="instant-ban-actions">
+      <div className="instant-ban-actions instant-ban-actions--mobile">
         <button
           type="button"
           className="btn-98-primary"

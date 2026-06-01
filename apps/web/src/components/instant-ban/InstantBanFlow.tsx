@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   coerceFriendList,
   findFriendByUsername,
@@ -9,9 +9,11 @@ import {
 import { useApp } from '../Providers';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSendChallenge } from '@/hooks/useSendChallenge';
+import { useInstantBanViewport } from '@/hooks/useInstantBanViewport';
 import { safeResolveReceiverTarget } from '@/lib/resolve-receiver';
 import { resolveDevSendTarget } from '@/lib/dev-receiver';
 import { isClientDevAuthEnabled } from '@/lib/config';
+import { instantBanDebug, isInstantBanLiteMode } from '@/lib/instant-ban-debug';
 import { shareInstantBanInviteMore } from '@/lib/share';
 import { WhoScreen } from './WhoScreen';
 import { WhatScreen } from './WhatScreen';
@@ -50,6 +52,10 @@ function triggerConfirmHaptic(): void {
 }
 
 export function InstantBanFlow({ onClose }: Props) {
+  const flowId = useId();
+  const renderCountRef = useRef(0);
+  renderCountRef.current += 1;
+
   const {
     token,
     user,
@@ -70,6 +76,23 @@ export function InstantBanFlow({ onClose }: Props) {
   const [banText, setBanText] = useState('');
   const [durationMinutes, setDurationMinutes] = useState(DEFAULT_DURATION_MINUTES);
   const [sendError, setSendError] = useState<string | null>(null);
+
+  useInstantBanViewport(step !== 'what');
+
+  useEffect(() => {
+    instantBanDebug('flow-mount', { flowId });
+    return () => {
+      instantBanDebug('flow-unmount', { flowId });
+    };
+  }, [flowId]);
+
+  useEffect(() => {
+    instantBanDebug('flow-render', {
+      flowId,
+      step,
+      renderCount: renderCountRef.current,
+    });
+  });
 
   const safeFriends = useMemo(() => {
     try {
@@ -152,6 +175,14 @@ export function InstantBanFlow({ onClose }: Props) {
     setStep('confirm');
   }, []);
 
+  const handleWhatBack = useCallback(() => {
+    setStep('who');
+  }, []);
+
+  const handleConfirmBack = useCallback(() => {
+    setStep('what');
+  }, []);
+
   const handleInviteMore = useCallback(() => {
     shareInstantBanInviteMore(user?.username ?? null);
     haptic('light');
@@ -217,8 +248,19 @@ export function InstantBanFlow({ onClose }: Props) {
     send,
   ]);
 
+  const liteMode = isInstantBanLiteMode();
+  const whatMobileSafe = step === 'what';
+
   return (
-    <div className="instant-ban-flow" role="dialog" aria-modal="true">
+    <div
+      className={`instant-ban-flow${
+        whatMobileSafe ? ' instant-ban-flow--what-mobile-safe' : ''
+      }${liteMode ? ' instant-ban-debug-lite' : ''}`}
+      role="dialog"
+      aria-modal="true"
+      data-instant-ban-view="InstantBanFlow"
+      data-instant-ban-step={step}
+    >
       <div className="instant-ban-flow__grid" aria-hidden />
       <div className="instant-ban-flow__inner">
         <h1 className="instant-ban-flow__title">{stepTitle}</h1>
@@ -237,7 +279,7 @@ export function InstantBanFlow({ onClose }: Props) {
               initialBanText={banText}
               initialDurationMinutes={durationMinutes}
               onSubmit={handleWhatSubmit}
-              onBack={() => setStep('who')}
+              onBack={handleWhatBack}
             />
           ) : null}
           {step === 'confirm' && selectedUser ? (
@@ -249,7 +291,7 @@ export function InstantBanFlow({ onClose }: Props) {
               error={sendError}
               onConfirm={() => void executeSend()}
               onRetry={() => void executeSend()}
-              onBack={() => setStep('what')}
+              onBack={handleConfirmBack}
             />
           ) : null}
           {step === 'success' && selectedUser ? (

@@ -38,6 +38,7 @@ export function useWebSocket(
   const mountedRef = useRef(true);
 
   const log = useCallback((msg: string) => {
+    if (process.env.NODE_ENV === 'production') return;
     setEventLog((prev) => [msg, ...prev].slice(0, 40));
   }, []);
 
