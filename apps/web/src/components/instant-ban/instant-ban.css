@@ -490,6 +490,7 @@
 
   .instant-ban-what-swipe-hint__chevron {
     animation: none;
+    opacity: 0.75;
   }
 }
 
@@ -527,8 +528,8 @@
 .instant-ban-what-mobile {
   display: flex;
   flex-direction: column;
-  flex: none;
-  min-height: auto;
+  flex: 1 1 auto;
+  min-height: 0;
   height: auto;
   width: 100%;
   padding-bottom: 0.5rem;
@@ -632,32 +633,49 @@
 
 .instant-ban-what-swipe-hint {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
   align-items: center;
-  margin-top: 0.75rem;
-  padding: 0.25rem 0 0.5rem;
+  justify-content: center;
+  gap: 0;
+  margin-top: auto;
+  padding: 2.75rem 0 1.25rem;
   pointer-events: none;
   flex-shrink: 0;
 }
 
 .instant-ban-what-swipe-hint__chevron {
   display: block;
-  font-size: 1.375rem;
-  line-height: 1;
-  color: rgba(var(--98-purple-soft-rgb), 0.6);
-  text-shadow: 0 0 10px rgba(var(--98-purple-electric-rgb), 0.22);
-  animation: instant-ban-swipe-hint-breathe 2s ease-in-out infinite;
+  font-size: 2.0625rem;
+  line-height: 0.72;
+  color: rgba(var(--98-purple-vivid-rgb), 0.92);
+  opacity: 0.28;
+  text-shadow: none;
+  animation: instant-ban-swipe-chevron-flow 2.1s ease-in-out infinite;
 }
 
-@keyframes instant-ban-swipe-hint-breathe {
+.instant-ban-what-swipe-hint__chevron--1 {
+  animation-delay: 0s;
+}
+
+.instant-ban-what-swipe-hint__chevron--2 {
+  animation-delay: 0.32s;
+}
+
+.instant-ban-what-swipe-hint__chevron--3 {
+  animation-delay: 0.64s;
+}
+
+@keyframes instant-ban-swipe-chevron-flow {
   0%,
+  72%,
   100% {
+    opacity: 0.22;
     transform: translateY(0);
-    opacity: 0.55;
   }
-  50% {
+  14%,
+  28% {
+    opacity: 0.95;
     transform: translateY(5px);
-    opacity: 0.68;
   }
 }
 

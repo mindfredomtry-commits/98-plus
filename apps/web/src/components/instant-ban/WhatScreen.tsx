@@ -246,7 +246,15 @@ function WhatScreenInner({
       </div>
       {showSwipeHint ? (
         <div className="instant-ban-what-swipe-hint" aria-hidden>
-          <span className="instant-ban-what-swipe-hint__chevron">⌄</span>
+          <span className="instant-ban-what-swipe-hint__chevron instant-ban-what-swipe-hint__chevron--1">
+            ⌄
+          </span>
+          <span className="instant-ban-what-swipe-hint__chevron instant-ban-what-swipe-hint__chevron--2">
+            ⌄
+          </span>
+          <span className="instant-ban-what-swipe-hint__chevron instant-ban-what-swipe-hint__chevron--3">
+            ⌄
+          </span>
         </div>
       ) : null}
     </div>
