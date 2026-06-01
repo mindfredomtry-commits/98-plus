@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useCallback, useEffect, useId, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useId, useRef, useState, type TouchEvent } from 'react';
 import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { instantBanDebug } from '@/lib/instant-ban-debug';
@@ -147,10 +147,47 @@ function WhatScreenInner({
     onSubmit(text, durationMinutes);
   }, [durationMinutes, onSubmit]);
 
+  const showSwipeHint =
+    canContinue && selectedUser != null && durationMinutes > 0;
+
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const onTouchStart = useCallback((e: TouchEvent) => {
+    const t = e.touches[0];
+    if (!t) return;
+    touchStartRef.current = { x: t.clientX, y: t.clientY };
+  }, []);
+
+  const onTouchEnd = useCallback(
+    (e: TouchEvent) => {
+      const start = touchStartRef.current;
+      touchStartRef.current = null;
+      if (!start || !canContinue) return;
+
+      const t = e.changedTouches[0];
+      if (!t) return;
+
+      const dy = t.clientY - start.y;
+      const dx = t.clientX - start.x;
+      if (dy < 56) return;
+      if (Math.abs(dx) > Math.abs(dy) * 0.6) return;
+
+      handleSubmit();
+    },
+    [canContinue, handleSubmit],
+  );
+
+  const onTouchCancel = useCallback(() => {
+    touchStartRef.current = null;
+  }, []);
+
   return (
     <div
       className="instant-ban-what instant-ban-what-mobile"
       data-instant-ban-view="WhatScreen"
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchCancel}
     >
       <button type="button" className="instant-ban-flow__back" onClick={onBack}>
         ← Назад
@@ -207,16 +244,11 @@ function WhatScreenInner({
           ))}
         </div>
       </div>
-      <div className="instant-ban-actions instant-ban-actions--mobile">
-        <button
-          type="button"
-          className="btn-98-primary"
-          disabled={!canContinue}
-          onClick={handleSubmit}
-        >
-          ДАЛЬШЕ
-        </button>
-      </div>
+      {showSwipeHint ? (
+        <div className="instant-ban-what-swipe-hint" aria-hidden>
+          <span className="instant-ban-what-swipe-hint__chevron">⌄</span>
+        </div>
+      ) : null}
     </div>
   );
 }
