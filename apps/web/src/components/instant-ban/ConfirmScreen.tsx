@@ -44,16 +44,16 @@ export function ConfirmScreen({
       </button>
       <div className="instant-ban-confirm-copy">
         Ты запрещаешь
+        <strong>{name}</strong>
         <div className="instant-ban-confirm-copy__avatar">
           <AvatarImage
             src={friendAvatarUrl(selectedUser)}
             letter={letter}
-            sizeClass="w-14 h-14"
-            textClass="text-lg"
+            sizeClass="w-12 h-12"
+            textClass="text-base"
             priority
           />
         </div>
-        <strong>{name}</strong>
         <em>&ldquo;{trimmed}&rdquo;</em>
       </div>
       <div className="instant-ban-confirm-orb-wrap">
