@@ -541,10 +541,10 @@
 
 .instant-ban-what-field {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   min-height: 6rem;
   margin: 0 0 0.75rem;
-  padding: 0 1rem;
+  padding: 1rem 1rem 1rem;
   border-radius: 0.75rem;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(8, 6, 14, 0.98);
@@ -554,7 +554,7 @@
 .instant-ban-what-input--mobile {
   width: 100%;
   min-height: 0;
-  height: 2.75rem;
+  height: auto;
   margin: 0;
   padding: 0;
   border: none;
@@ -568,6 +568,7 @@
   transform: none;
   -webkit-appearance: none;
   appearance: none;
+  align-self: flex-start;
 }
 
 .instant-ban-what-input--mobile::placeholder {
@@ -597,6 +598,11 @@
   border-color: rgba(var(--98-purple-vivid-rgb), 0.4);
   background: rgba(var(--98-accent-rgb), 0.15);
   transform: none;
+}
+
+.instant-ban-chip--mobile.instant-ban-chip--selected {
+  border-color: rgba(var(--98-purple-vivid-rgb), 0.65);
+  background: rgba(var(--98-accent-rgb), 0.18);
 }
 
 .instant-ban-duration--mobile {

@@ -17,7 +17,20 @@ const QUICK_CHIPS = [
 
 const DURATION_OPTIONS = [3, 10, 30, 60] as const;
 
+const CHIP_PREFIX = 'Запрещаю ';
+
 const DEFAULT_DURATION = 3;
+
+function fullTextFromChip(chip: string): string {
+  return `${CHIP_PREFIX}${chip}`;
+}
+
+function chipFromFullText(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith(CHIP_PREFIX)) return null;
+  const rest = trimmed.slice(CHIP_PREFIX.length);
+  return (QUICK_CHIPS as readonly string[]).includes(rest) ? rest : null;
+}
 
 type Props = {
   selectedUser: FriendCard;
@@ -68,6 +81,9 @@ function WhatScreenInner({
     initialBanText.trim().length >= 3,
   );
   const [durationMinutes, setDurationMinutes] = useState(initialDurationMinutes);
+  const [selectedChip, setSelectedChip] = useState<string | null>(() =>
+    chipFromFullText(initialBanText),
+  );
 
   useEffect(() => {
     instantBanDebug('what-mount', { instanceId, mode: 'mobile-safe-input' });
@@ -92,12 +108,15 @@ function WhatScreenInner({
   const handleInput = useCallback(() => {
     const t0 =
       typeof performance !== 'undefined' ? performance.now() : 0;
+    const value = inputRef.current?.value ?? '';
+    const matched = chipFromFullText(value);
+    setSelectedChip((prev) => (prev === matched ? prev : matched));
     scheduleCanContinueSync();
     if (process.env.NODE_ENV === 'development' && t0) {
       requestAnimationFrame(() => {
         instantBanDebug('onInput', {
           ms: Math.round((performance.now() - t0) * 100) / 100,
-          len: inputRef.current?.value.length ?? 0,
+          len: value.length,
         });
       });
     }
@@ -114,8 +133,9 @@ function WhatScreenInner({
   const applyChip = useCallback(
     (chip: string) => {
       if (inputRef.current) {
-        inputRef.current.value = chip;
+        inputRef.current.value = fullTextFromChip(chip);
       }
+      setSelectedChip(chip);
       scheduleCanContinueSync();
     },
     [scheduleCanContinueSync],
@@ -159,7 +179,9 @@ function WhatScreenInner({
           <button
             key={chip}
             type="button"
-            className="instant-ban-chip instant-ban-chip--mobile"
+            className={`instant-ban-chip instant-ban-chip--mobile${
+              selectedChip === chip ? ' instant-ban-chip--selected' : ''
+            }`}
             onClick={() => applyChip(chip)}
           >
             {chip}
