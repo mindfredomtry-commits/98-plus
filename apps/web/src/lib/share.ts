@@ -70,6 +70,27 @@ export function shareLobbyAskInvite(username: string | null | undefined): void {
   );
 }
 
+export const INSTANT_BAN_INVITE_MORE_MESSAGE =
+  'Заходи в 98+ — будем запрещать друг другу';
+
+/** WhoScreen — invite more people into your ban circle. */
+export function shareInstantBanInviteMore(
+  username: string | null | undefined,
+): void {
+  const clean = username?.replace('@', '').trim();
+  if (clean) {
+    shareDeepLink(
+      { type: 'invite', username: clean },
+      INSTANT_BAN_INVITE_MORE_MESSAGE,
+    );
+    return;
+  }
+  const botLink = `https://t.me/${BOT}`;
+  openTelegramShareLink(
+    telegramShareUrl(`${INSTANT_BAN_INVITE_MORE_MESSAGE}\n\n${botLink}`),
+  );
+}
+
 /**
  * Opens Telegram native share. Resolves when user returns to Mini App
  * or share/copy completes (best-effort — Telegram has no share callback).

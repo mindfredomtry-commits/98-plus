@@ -13,10 +13,14 @@ const QUICK_CHIPS = [
   'лежать до обеда',
 ] as const;
 
+const DURATION_OPTIONS = [3, 10, 30, 60] as const;
+
 type Props = {
   selectedUser: FriendCard;
   banText: string;
+  selectedDurationMinutes: number;
   onChange: (text: string) => void;
+  onDurationChange: (minutes: number) => void;
   onNext: () => void;
   onBack: () => void;
 };
@@ -28,7 +32,9 @@ function friendLabel(friend: FriendCard): string {
 export function WhatScreen({
   selectedUser,
   banText,
+  selectedDurationMinutes,
   onChange,
+  onDurationChange,
   onNext,
   onBack,
 }: Props) {
@@ -75,6 +81,25 @@ export function WhatScreen({
             {chip}
           </button>
         ))}
+      </div>
+      <div className="instant-ban-duration">
+        <p className="instant-ban-duration__label">На сколько?</p>
+        <div className="instant-ban-duration-pills">
+          {DURATION_OPTIONS.map((minutes) => (
+            <button
+              key={minutes}
+              type="button"
+              className={`instant-ban-duration-pill${
+                selectedDurationMinutes === minutes
+                  ? ' instant-ban-duration-pill--active'
+                  : ''
+              }`}
+              onClick={() => onDurationChange(minutes)}
+            >
+              {minutes}м
+            </button>
+          ))}
+        </div>
       </div>
       <div className="instant-ban-actions">
         <button

@@ -12,7 +12,7 @@ import { useSendChallenge } from '@/hooks/useSendChallenge';
 import { safeResolveReceiverTarget } from '@/lib/resolve-receiver';
 import { resolveDevSendTarget } from '@/lib/dev-receiver';
 import { isClientDevAuthEnabled } from '@/lib/config';
-import { shareBanViaTelegram } from '@/lib/first-challenge-share';
+import { shareInstantBanInviteMore } from '@/lib/share';
 import { WhoScreen } from './WhoScreen';
 import { WhatScreen } from './WhatScreen';
 import { ConfirmScreen } from './ConfirmScreen';
@@ -68,8 +68,8 @@ export function InstantBanFlow({ onClose }: Props) {
   const [step, setStep] = useState<Step>('who');
   const [selectedUser, setSelectedUser] = useState<FriendCard | null>(null);
   const [banText, setBanText] = useState('');
+  const [durationMinutes, setDurationMinutes] = useState(DEFAULT_DURATION_MINUTES);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [inviteBusy, setInviteBusy] = useState(false);
 
   const safeFriends = useMemo(() => {
     try {
@@ -85,6 +85,7 @@ export function InstantBanFlow({ onClose }: Props) {
     setStep('who');
     setSelectedUser(null);
     setBanText('');
+    setDurationMinutes(DEFAULT_DURATION_MINUTES);
     setSendError(null);
   }, []);
 
@@ -144,26 +145,10 @@ export function InstantBanFlow({ onClose }: Props) {
     setStep('what');
   }, []);
 
-  const handleInvite = useCallback(async () => {
-    if (!token || inviteBusy) return;
-    setInviteBusy(true);
-    try {
-      // TODO: dedicated invite-only flow without ban text
-      await shareBanViaTelegram({
-        token,
-        banText: 'играть',
-        durationMinutes: DEFAULT_DURATION_MINUTES,
-        afterShare: async () => {
-          scheduleDeferredSync?.();
-        },
-      });
-      haptic('light');
-    } catch {
-      // Placeholder — invite share requires ban text today
-    } finally {
-      setInviteBusy(false);
-    }
-  }, [token, inviteBusy, scheduleDeferredSync, haptic]);
+  const handleInviteMore = useCallback(() => {
+    shareInstantBanInviteMore(user?.username ?? null);
+    haptic('light');
+  }, [user?.username, haptic]);
 
   const executeSend = useCallback(async () => {
     if (!token || !selectedUser || inFlight || sharing) return;
@@ -206,7 +191,7 @@ export function InstantBanFlow({ onClose }: Props) {
           : `@${sendTarget.receiverUsername}`,
         receiverUserId: sendTarget.receiverUserId,
         receiverTelegramId: sendTarget.receiverTelegramId,
-        durationMinutes: DEFAULT_DURATION_MINUTES,
+        durationMinutes: durationMinutes,
       });
     } catch {
       /* onFail sets sendError */
@@ -217,6 +202,7 @@ export function InstantBanFlow({ onClose }: Props) {
     inFlight,
     sharing,
     banText,
+    durationMinutes,
     haptic,
     safeFriends,
     user?.username,
@@ -234,14 +220,16 @@ export function InstantBanFlow({ onClose }: Props) {
             <WhoScreen
               friends={safeFriends}
               onSelect={handleSelectUser}
-              onInvite={() => void handleInvite()}
+              onInviteMore={handleInviteMore}
             />
           ) : null}
           {step === 'what' && selectedUser ? (
             <WhatScreen
               selectedUser={selectedUser}
               banText={banText}
+              selectedDurationMinutes={durationMinutes}
               onChange={setBanText}
+              onDurationChange={setDurationMinutes}
               onNext={() => setStep('confirm')}
               onBack={() => setStep('who')}
             />
@@ -250,6 +238,7 @@ export function InstantBanFlow({ onClose }: Props) {
             <ConfirmScreen
               selectedUser={selectedUser}
               banText={banText}
+              durationMinutes={durationMinutes}
               sending={inFlight || sharing}
               error={sendError}
               onConfirm={() => void executeSend()}

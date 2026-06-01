@@ -1,10 +1,13 @@
 'use client';
 
 import type { FriendCard } from '@98plus/shared';
+import { friendAvatarUrl } from '@/lib/avatar-url';
+import { AvatarImage } from '../AvatarImage';
 
 type Props = {
   selectedUser: FriendCard;
   banText: string;
+  durationMinutes: number;
   sending: boolean;
   error: string | null;
   onConfirm: () => void;
@@ -19,6 +22,7 @@ function friendLabel(friend: FriendCard): string {
 export function ConfirmScreen({
   selectedUser,
   banText,
+  durationMinutes: _durationMinutes,
   sending,
   error,
   onConfirm,
@@ -27,6 +31,11 @@ export function ConfirmScreen({
 }: Props) {
   const name = friendLabel(selectedUser);
   const trimmed = banText.trim();
+  const letter = (
+    selectedUser.firstName?.[0] ??
+    selectedUser.username?.[0] ??
+    '?'
+  ).toUpperCase();
 
   return (
     <>
@@ -35,7 +44,15 @@ export function ConfirmScreen({
       </button>
       <div className="instant-ban-confirm-copy">
         Ты запрещаешь
-        <br />
+        <div className="instant-ban-confirm-copy__avatar">
+          <AvatarImage
+            src={friendAvatarUrl(selectedUser)}
+            letter={letter}
+            sizeClass="w-14 h-14"
+            textClass="text-lg"
+            priority
+          />
+        </div>
         <strong>{name}</strong>
         <em>&ldquo;{trimmed}&rdquo;</em>
       </div>
@@ -59,7 +76,7 @@ export function ConfirmScreen({
             ? 'Запрет отправляется…'
             : error
               ? 'Не получилось отправить запрет'
-              : 'Нажми на символ'}
+              : 'Нажми'}
         </p>
         {error ? (
           <button type="button" className="instant-ban-secondary" onClick={onRetry}>
