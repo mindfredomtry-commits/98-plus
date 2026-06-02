@@ -31,11 +31,12 @@ import {
 } from '@/lib/instant-ban-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { shareInstantBanInviteMore } from '@/lib/share';
-import { InfluenceRing } from '../lobby/InfluenceRing';
 import { ArenaLobbyIdle } from './ArenaLobbyIdle';
+import { ArenaLobbyOrb } from './ArenaLobbyOrb';
 import { WhoScreen } from './WhoScreen';
 import { WhatScreen } from './WhatScreen';
 import { ConfirmScreen } from './ConfirmScreen';
+import { useConfirmOrbController } from './useConfirmOrbController';
 import '../lobby-screen.css';
 import './instant-ban.css';
 
@@ -472,6 +473,30 @@ export function InstantBanFlow({
     [composeExitProgress],
   );
 
+  const confirmActive = phase === 'confirming' && selectedUser != null;
+
+  const confirmOrb = useConfirmOrbController({
+    active: confirmActive,
+    enterKey: confirmEnterKey,
+    influencePercent: lobbyInfluencePercent,
+    sending: inFlight || sharing,
+    error: sendError,
+    payoffArmToken,
+    orbWrapRef: lobbyOrbMountRef,
+    onConfirm: () => void handleConfirmRelease(),
+    onSendContextChange: handleSendContextChange,
+    onBindAbortRelease: handleBindAbortRelease,
+  });
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return;
+    const roots = document.querySelectorAll('[data-orb-root]');
+    const titles = document.querySelectorAll('[data-orb-root] .lobby-screen__title');
+    console.log('[orb-count]', roots.length, '98+-labels:', titles.length, {
+      phase,
+    });
+  }, [phase, confirmEnterKey]);
+
   return (
     <div
       className={`lobby-screen instant-ban-arena-send instant-ban-flow${
@@ -495,41 +520,35 @@ export function InstantBanFlow({
       <div className="instant-ban-arena-send__stage">
         <div
           ref={lobbyOrbMountRef}
-          className={`lobby-screen__orb-wrap${
-            phase === 'confirming' ? ' lobby-screen__orb-wrap--confirm' : ''
+          className={`lobby-screen__orb-wrap lobby-screen__orb-root${
+            confirmActive ? ' lobby-screen__orb-wrap--confirm' : ''
           }${overlayOpen ? ' lobby-screen__orb-wrap--overlay-dim' : ''}`}
+          data-orb-root
         >
-          {phase !== 'confirming' ? (
-            <>
-              <InfluenceRing value={lobbyInfluencePercent} />
-              <div className="lobby-screen__orb">
-                <span className="lobby-screen__title">98+</span>
-              </div>
-            </>
-          ) : null}
+          <ArenaLobbyOrb
+            confirmActive={confirmActive}
+            confirmOrb={confirmOrb}
+            senderUser={user}
+            selectedUser={selectedUser}
+            banText={banText}
+            durationMinutes={durationMinutes}
+            sending={inFlight || sharing}
+            error={sendError}
+            onRetry={() => void handleRetrySend()}
+            onAgain={resetForAnother}
+          />
         </div>
 
-        {phase === 'confirming' && selectedUser ? (
+        {confirmActive ? (
           <div className="instant-ban-arena-send__confirm-layer">
             <ConfirmScreen
-              key={`confirm-${confirmEnterKey}-${selectedUser.id ?? selectedUser.userId ?? selectedUser.username}`}
+              key={`confirm-${confirmEnterKey}-${selectedUser!.id ?? selectedUser!.userId ?? selectedUser!.username}`}
               enterKey={confirmEnterKey}
-              sharedLobbyOrb
-              sharedOrbMountRef={lobbyOrbMountRef}
-              influencePercent={lobbyInfluencePercent}
-              senderUser={user}
-              selectedUser={selectedUser}
+              enterPhase={confirmOrb.enterPhase}
+              payoffPhase={confirmOrb.payoffPhase}
+              selectedUser={selectedUser!}
               banText={banText}
-              durationMinutes={durationMinutes}
-              sending={inFlight || sharing}
-              error={sendError}
-              payoffArmToken={payoffArmToken}
-              onConfirm={() => void handleConfirmRelease()}
-              onAgain={resetForAnother}
-              onRetry={() => void handleRetrySend()}
               onBack={handleConfirmBack}
-              onSendContextChange={handleSendContextChange}
-              onBindAbortRelease={handleBindAbortRelease}
             />
           </div>
         ) : null}
