@@ -1680,56 +1680,54 @@
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
   .instant-ban-send-overlay__panel {
-  max-height: none;
-  flex: 0 1 auto;
+  max-height: min(72vh, 560px);
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
   .instant-ban-send-overlay__title {
   margin-bottom: 0.625rem;
+  flex-shrink: 0;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
   .instant-ban-send-overlay__body {
-  overflow: visible;
-  flex: 0 1 auto;
-}
-
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-what-mobile--swipe-ready {
-  touch-action: none;
-}
-
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-what-mobile--swipe-ready .instant-ban-flow__back,
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-what-mobile--swipe-ready .instant-ban-chip,
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-what-mobile--swipe-ready .instant-ban-duration-pill,
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-what-mobile--swipe-ready .instant-ban-what-input,
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-what-mobile--swipe-ready .instant-ban-what-swipe-zone {
-  touch-action: manipulation;
+  overflow: hidden;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
   .instant-ban-what-mobile {
-  height: auto;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  touch-action: pan-y;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
   .instant-ban-what-scroll {
-  overflow-y: visible;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
   .instant-ban-what-scroll-spacer {
-  display: none;
-  height: 0;
+  display: block;
+  height: clamp(72px, 16vh, 112px);
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']

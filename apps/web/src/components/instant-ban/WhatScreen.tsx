@@ -32,53 +32,20 @@ const PLACEHOLDER_FADE_MS = 250;
 const DEFAULT_DURATION = 3;
 
 /** Bottom edge: scrollTop + clientHeight >= scrollHeight - threshold */
-const SCROLL_BOTTOM_THRESHOLD_PX = 80;
-
-/** Intentional downward swipe to confirm (compose-screen). */
-const SWIPE_DOWN_MIN_DISTANCE_PX = 48;
-const SWIPE_DOWN_MIN_VELOCITY_PX_MS = 0.4;
-const SWIPE_HORIZONTAL_DOMINANCE_RATIO = 1.25;
-/** Early vertical intent — block browser scroll steal in WebView. */
-const SWIPE_LOCK_MIN_DY_PX = 10;
-
-type GestureStart = {
-  x: number;
-  y: number;
-  t: number;
-  id: number;
-};
-
-function isSwipeGestureBlockedTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  if (target.closest('.instant-ban-flow__back')) return true;
-  if (target.closest('input, textarea, select')) return true;
-  return false;
-}
-
-function evaluateDownwardSwipe(dx: number, dy: number, dt: number): boolean {
-  if (dy <= 0) return false;
-  const absDx = Math.abs(dx);
-  const absDy = Math.abs(dy);
-  if (absDy < absDx * SWIPE_HORIZONTAL_DOMINANCE_RATIO) return false;
-  const velocity = dy / Math.max(dt, 1);
-  return (
-    absDy >= SWIPE_DOWN_MIN_DISTANCE_PX ||
-    velocity >= SWIPE_DOWN_MIN_VELOCITY_PX_MS
-  );
-}
-
-function whatComposeGestureDebug(event: string, data?: Record<string, unknown>): void {
-  if (process.env.NODE_ENV !== 'development') return;
-  console.debug(`[instant-ban:what-${event}]`, data ?? {});
-}
+const SCROLL_BOTTOM_THRESHOLD_PX = 36;
+/** Content must exceed viewport by at least this much to enable scroll-to-confirm. */
+const SCROLLABLE_MIN_OVERFLOW_PX = 24;
 
 const WhatSwipeTapZone = memo(function WhatSwipeTapZone({
   onTap,
+  sentinelRef,
 }: {
   onTap: () => void;
+  sentinelRef: React.RefObject<HTMLDivElement | null>;
 }) {
   return (
     <div
+      ref={sentinelRef}
       className="instant-ban-what-swipe-zone"
       role="presentation"
       aria-hidden
@@ -278,223 +245,94 @@ function WhatScreenInner({
     canContinueRef.current = canContinue;
   }, [canContinue]);
 
-  const isSwipeReady = useCallback(() => {
+  const isScrollReady = useCallback(() => {
     const textOk = (inputRef.current?.value ?? '').trim().length >= 3;
     return canContinueRef.current && textOk && durationMinutes > 0;
   }, [durationMinutes]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const composeRef = useRef<HTMLDivElement>(null);
+  const scrollSentinelRef = useRef<HTMLDivElement>(null);
   const submitLockRef = useRef(false);
-  const touchStartRef = useRef<GestureStart | null>(null);
-  const pointerStartRef = useRef<GestureStart | null>(null);
 
   const tryAdvanceToConfirm = useCallback(
-    (source: 'scroll' | 'tap' | 'swipe') => {
-      if (submitLockRef.current || !isSwipeReady()) return false;
+    (source: 'scroll' | 'tap') => {
+      if (submitLockRef.current || !isScrollReady()) return false;
       submitLockRef.current = true;
       handleSubmit();
       window.setTimeout(() => {
         submitLockRef.current = false;
       }, 400);
-      if (source === 'swipe') {
-        whatComposeGestureDebug('swipe-confirm-fired');
-      }
       if (process.env.NODE_ENV === 'development') {
         console.debug('[instant-ban:what-advance]', { source, triggered: true });
       }
       return true;
     },
-    [handleSubmit, isSwipeReady],
+    [handleSubmit, isScrollReady],
   );
 
-  const finishSwipeGesture = useCallback(
-    (
-      start: GestureStart,
-      endX: number,
-      endY: number,
-      endT: number,
-    ): boolean => {
-      if (submitLockRef.current || !isSwipeReady()) return false;
-
-      const dx = endX - start.x;
-      const dy = endY - start.y;
-      const dt = Math.max(endT - start.t, 1);
-
-      if (!evaluateDownwardSwipe(dx, dy, dt)) return false;
-
-      whatComposeGestureDebug('touch-end', {
-        dx,
-        dy,
-        dt,
-        velocity: dy / dt,
-      });
-
-      return tryAdvanceToConfirm('swipe');
-    },
-    [isSwipeReady, tryAdvanceToConfirm],
-  );
-
-  const onScroll = useCallback(() => {
+  const checkScrollToConfirm = useCallback((): boolean => {
     const el = scrollRef.current;
-    if (!el || submitLockRef.current) return;
+    if (!el || submitLockRef.current || !isScrollReady()) return false;
 
     const { scrollTop, clientHeight, scrollHeight } = el;
-    const scrollable =
-      scrollHeight - clientHeight > SCROLL_BOTTOM_THRESHOLD_PX;
+    const maxScroll = scrollHeight - clientHeight;
+    const scrollable = maxScroll > SCROLLABLE_MIN_OVERFLOW_PX;
     const atBottom =
       scrollTop + clientHeight >= scrollHeight - SCROLL_BOTTOM_THRESHOLD_PX;
-    const ready = isSwipeReady();
-    const triggered = scrollable && atBottom && ready;
 
     if (process.env.NODE_ENV === 'development') {
-      console.debug('[instant-ban:scroll]', {
+      console.debug('[instant-ban:what-scroll-check]', {
         scrollTop,
         clientHeight,
         scrollHeight,
         scrollable,
         atBottom,
-        canContinue: ready,
-        triggered,
+        ready: isScrollReady(),
       });
     }
 
-    if (!triggered) return;
-    tryAdvanceToConfirm('scroll');
-  }, [isSwipeReady, tryAdvanceToConfirm]);
+    if (!scrollable || !atBottom) return false;
+    return tryAdvanceToConfirm('scroll');
+  }, [isScrollReady, tryAdvanceToConfirm]);
+
+  const onScroll = useCallback(() => {
+    checkScrollToConfirm();
+  }, [checkScrollToConfirm]);
 
   const onSwipeZoneTap = useCallback(() => {
     tryAdvanceToConfirm('tap');
   }, [tryAdvanceToConfirm]);
 
-  const onTouchStart = useCallback(
-    (e: React.TouchEvent<HTMLDivElement>) => {
-      if (!showSwipeHint || !isSwipeReady() || submitLockRef.current) return;
-      if (e.touches.length !== 1) return;
-      if (isSwipeGestureBlockedTarget(e.target)) return;
-
-      const touch = e.touches[0];
-      touchStartRef.current = {
-        x: touch.clientX,
-        y: touch.clientY,
-        t: Date.now(),
-        id: touch.identifier,
-      };
-
-      whatComposeGestureDebug('touch-start', {
-        x: touch.clientX,
-        y: touch.clientY,
-        id: touch.identifier,
-      });
-    },
-    [showSwipeHint, isSwipeReady],
-  );
-
-  const onTouchEnd = useCallback(
-    (e: React.TouchEvent<HTMLDivElement>) => {
-      const start = touchStartRef.current;
-      if (!start) return;
-
-      const touch = Array.from(e.changedTouches).find((t) => t.identifier === start.id);
-      if (!touch) return;
-
-      touchStartRef.current = null;
-      finishSwipeGesture(start, touch.clientX, touch.clientY, Date.now());
-    },
-    [finishSwipeGesture],
-  );
-
-  const onTouchCancel = useCallback(() => {
-    touchStartRef.current = null;
-  }, []);
-
   useEffect(() => {
     if (!showSwipeHint) return;
-    const el = composeRef.current;
-    if (!el) return;
 
-    const onTouchMove = (e: TouchEvent) => {
-      const start = touchStartRef.current;
-      if (!start || e.touches.length !== 1) return;
+    const root = scrollRef.current;
+    const sentinel = scrollSentinelRef.current;
+    if (!root || !sentinel) return;
 
-      const touch = Array.from(e.touches).find((t) => t.identifier === start.id);
-      if (!touch) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        checkScrollToConfirm();
+      },
+      {
+        root,
+        threshold: 0.35,
+        rootMargin: '0px 0px -4px 0px',
+      },
+    );
 
-      const dy = touch.clientY - start.y;
-      const dx = touch.clientX - start.x;
-      if (
-        dy > SWIPE_LOCK_MIN_DY_PX &&
-        Math.abs(dy) > Math.abs(dx) * SWIPE_HORIZONTAL_DOMINANCE_RATIO &&
-        e.cancelable
-      ) {
-        e.preventDefault();
-      }
-    };
+    observer.observe(sentinel);
 
-    el.addEventListener('touchmove', onTouchMove, { passive: false });
     return () => {
-      el.removeEventListener('touchmove', onTouchMove);
+      observer.disconnect();
     };
-  }, [showSwipeHint]);
-
-  const clearPointerStart = useCallback((pointerId?: number) => {
-    const start = pointerStartRef.current;
-    if (!start) return;
-    if (pointerId != null && start.id !== pointerId) return;
-    pointerStartRef.current = null;
-  }, []);
-
-  const onComposePointerDown = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!showSwipeHint || !isSwipeReady() || submitLockRef.current) return;
-      if (e.pointerType === 'touch') return;
-      if (e.pointerType === 'mouse' && e.button !== 0) return;
-      if (isSwipeGestureBlockedTarget(e.target)) return;
-
-      pointerStartRef.current = {
-        x: e.clientX,
-        y: e.clientY,
-        t: Date.now(),
-        id: e.pointerId,
-      };
-    },
-    [showSwipeHint, isSwipeReady],
-  );
-
-  const onComposePointerUp = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (e.pointerType === 'touch') return;
-
-      const start = pointerStartRef.current;
-      if (!start || start.id !== e.pointerId) return;
-      pointerStartRef.current = null;
-
-      finishSwipeGesture(start, e.clientX, e.clientY, Date.now());
-    },
-    [finishSwipeGesture],
-  );
-
-  const onComposePointerCancel = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (e.pointerType === 'touch') return;
-      clearPointerStart(e.pointerId);
-    },
-    [clearPointerStart],
-  );
+  }, [showSwipeHint, checkScrollToConfirm]);
 
   return (
     <div
-      ref={composeRef}
-      className={`instant-ban-what instant-ban-what-mobile${
-        showSwipeHint ? ' instant-ban-what-mobile--swipe-ready' : ''
-      }`}
+      className="instant-ban-what instant-ban-what-mobile"
       data-instant-ban-view="WhatScreen"
-      onTouchStart={showSwipeHint ? onTouchStart : undefined}
-      onTouchEnd={showSwipeHint ? onTouchEnd : undefined}
-      onTouchCancel={showSwipeHint ? onTouchCancel : undefined}
-      onPointerDown={showSwipeHint ? onComposePointerDown : undefined}
-      onPointerUp={showSwipeHint ? onComposePointerUp : undefined}
-      onPointerCancel={showSwipeHint ? onComposePointerCancel : undefined}
     >
       <button type="button" className="instant-ban-flow__back" onClick={onBack}>
         ← Назад
@@ -504,74 +342,77 @@ function WhatScreenInner({
         className="instant-ban-what-scroll"
         onScroll={onScroll}
       >
-      <WhatSelectedUser user={selectedUser} />
-      <label className="instant-ban-what-field">
-        {isEmpty ? (
-          <span
-            className={`instant-ban-what-placeholder-cycle${
-              phraseVisible ? '' : ' instant-ban-what-placeholder-cycle--hidden'
-            }`}
-            aria-hidden
-          >
-            {PLACEHOLDER_CYCLE_PHRASES[phraseIndex]}
-          </span>
-        ) : null}
-        <input
-          ref={inputRef}
-          type="text"
-          inputMode="text"
-          className="instant-ban-what-input instant-ban-what-input--mobile"
-          defaultValue={initialBanText}
-          onInput={handleInput}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
-          placeholder=""
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="none"
-          spellCheck={false}
-          enterKeyHint="done"
-        />
-      </label>
-      <div className="instant-ban-chips instant-ban-chips--mobile">
-        {QUICK_CHIPS.map((chip) => (
-          <button
-            key={chip}
-            type="button"
-            className={`instant-ban-chip instant-ban-chip--mobile${
-              selectedChip === chip ? ' instant-ban-chip--selected' : ''
-            }`}
-            onClick={() => applyChip(chip)}
-          >
-            {chip}
-          </button>
-        ))}
-      </div>
-      <div className="instant-ban-duration instant-ban-duration--mobile">
-        <p className="instant-ban-duration__label">На сколько?</p>
-        <div className="instant-ban-duration-pills">
-          {DURATION_OPTIONS.map((minutes) => (
-            <button
-              key={minutes}
-              type="button"
-              className={`instant-ban-duration-pill instant-ban-duration-pill--mobile${
-                durationMinutes === minutes
-                  ? ' instant-ban-duration-pill--active'
-                  : ''
+        <WhatSelectedUser user={selectedUser} />
+        <label className="instant-ban-what-field">
+          {isEmpty ? (
+            <span
+              className={`instant-ban-what-placeholder-cycle${
+                phraseVisible ? '' : ' instant-ban-what-placeholder-cycle--hidden'
               }`}
-              onClick={() => setDurationMinutes(minutes)}
+              aria-hidden
             >
-              {minutes}м
+              {PLACEHOLDER_CYCLE_PHRASES[phraseIndex]}
+            </span>
+          ) : null}
+          <input
+            ref={inputRef}
+            type="text"
+            inputMode="text"
+            className="instant-ban-what-input instant-ban-what-input--mobile"
+            defaultValue={initialBanText}
+            onInput={handleInput}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            placeholder=""
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            enterKeyHint="done"
+          />
+        </label>
+        <div className="instant-ban-chips instant-ban-chips--mobile">
+          {QUICK_CHIPS.map((chip) => (
+            <button
+              key={chip}
+              type="button"
+              className={`instant-ban-chip instant-ban-chip--mobile${
+                selectedChip === chip ? ' instant-ban-chip--selected' : ''
+              }`}
+              onClick={() => applyChip(chip)}
+            >
+              {chip}
             </button>
           ))}
         </div>
-      </div>
-      {showSwipeHint ? (
-        <>
-          <WhatSwipeTapZone onTap={onSwipeZoneTap} />
-          <div className="instant-ban-what-scroll-spacer" aria-hidden />
-        </>
-      ) : null}
+        <div className="instant-ban-duration instant-ban-duration--mobile">
+          <p className="instant-ban-duration__label">На сколько?</p>
+          <div className="instant-ban-duration-pills">
+            {DURATION_OPTIONS.map((minutes) => (
+              <button
+                key={minutes}
+                type="button"
+                className={`instant-ban-duration-pill instant-ban-duration-pill--mobile${
+                  durationMinutes === minutes
+                    ? ' instant-ban-duration-pill--active'
+                    : ''
+                }`}
+                onClick={() => setDurationMinutes(minutes)}
+              >
+                {minutes}м
+              </button>
+            ))}
+          </div>
+        </div>
+        {showSwipeHint ? (
+          <>
+            <WhatSwipeTapZone
+              sentinelRef={scrollSentinelRef}
+              onTap={onSwipeZoneTap}
+            />
+            <div className="instant-ban-what-scroll-spacer" aria-hidden />
+          </>
+        ) : null}
       </div>
     </div>
   );
