@@ -36,7 +36,10 @@ import { ArenaLobbyOrb } from './ArenaLobbyOrb';
 import { WhoScreen } from './WhoScreen';
 import { WhatScreen } from './WhatScreen';
 import { ConfirmScreen } from './ConfirmScreen';
-import { useConfirmOrbController } from './useConfirmOrbController';
+import {
+  CONFIRM_COMPRESS_HOLD_MS,
+  useConfirmOrbController,
+} from './useConfirmOrbController';
 import '../lobby-screen.css';
 import './instant-ban.css';
 
@@ -143,6 +146,7 @@ export function InstantBanFlow({
   const payoffArmTokenRef = useRef(0);
   const lobbyOrbMountRef = useRef<HTMLDivElement>(null);
   const [composeExitProgress, setComposeExitProgress] = useState(0);
+  const [confirmLayoutActive, setConfirmLayoutActive] = useState(false);
 
   const legacyStep = legacyStepFromPhase(phase);
   const overlayOpen = phase === 'selectingTarget' || phase === 'composingBan';
@@ -492,10 +496,13 @@ export function InstantBanFlow({
     if (process.env.NODE_ENV !== 'development') return;
     const roots = document.querySelectorAll('[data-orb-root]');
     const titles = document.querySelectorAll('[data-orb-root] .lobby-screen__title');
+    const orbId = document.querySelector('[data-debug-orb-id]')?.getAttribute('data-debug-orb-id');
     console.log('[orb-count]', roots.length, '98+-labels:', titles.length, {
       phase,
+      orbId,
+      confirmLayoutActive,
     });
-  }, [phase, confirmEnterKey]);
+  }, [phase, confirmEnterKey, confirmLayoutActive]);
 
   return (
     <div
@@ -509,6 +516,7 @@ export function InstantBanFlow({
       data-instant-ban-view="InstantBanFlow"
       data-send-phase={phase}
       data-instant-ban-step={legacyStep}
+      data-debug-slow-orb={process.env.NODE_ENV === 'development' ? '' : undefined}
     >
       <div className="lobby-screen__grid" aria-hidden />
       <div className="lobby-screen__particles" aria-hidden>
@@ -521,26 +529,47 @@ export function InstantBanFlow({
         <div
           ref={lobbyOrbMountRef}
           className={`lobby-screen__orb-wrap lobby-screen__orb-root${
-            confirmActive ? ' lobby-screen__orb-wrap--confirm' : ''
+            confirmLayoutActive ? ' lobby-screen__orb-wrap--confirm' : ''
           }${overlayOpen ? ' lobby-screen__orb-wrap--overlay-dim' : ''}`}
           data-orb-root
         >
           <ArenaLobbyOrb
+            sendPhase={phase}
             confirmActive={confirmActive}
             confirmOrb={confirmOrb}
             senderUser={user}
             selectedUser={selectedUser}
             banText={banText}
             durationMinutes={durationMinutes}
-            sending={inFlight || sharing}
-            error={sendError}
-            onRetry={() => void handleRetrySend()}
             onAgain={resetForAnother}
           />
         </div>
 
         {confirmActive ? (
-          <div className="instant-ban-arena-send__confirm-layer">
+          <div
+            className="instant-ban-arena-send__confirm-layer"
+            data-enter-phase={confirmOrb.enterPhase}
+          >
+            {!confirmOrb.payoffActive ? (
+              <div className="instant-ban-confirm-hold-strip">
+                <p
+                  className={`instant-ban-status instant-ban-confirm-enter instant-ban-confirm-enter--5${
+                    sendError ? ' instant-ban-status--error' : ''
+                  }`}
+                >
+                  {confirmOrb.statusLabel}
+                </p>
+                {sendError ? (
+                  <button
+                    type="button"
+                    className="instant-ban-secondary"
+                    onClick={() => void handleRetrySend()}
+                  >
+                    Попробовать снова
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             <ConfirmScreen
               key={`confirm-${confirmEnterKey}-${selectedUser!.id ?? selectedUser!.userId ?? selectedUser!.username}`}
               enterKey={confirmEnterKey}

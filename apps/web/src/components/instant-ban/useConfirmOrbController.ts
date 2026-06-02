@@ -24,6 +24,8 @@ const REVEAL_STAGGER_MS = 100;
 const REVEAL_ITEM_MS = 280;
 const CTA_EXTRA_DELAY_MS = 120;
 const CONFIRM_ENTER_COMPRESS_MS = 600;
+/** Keep lobby-sized orb visible after compose exits before compress starts. */
+export const CONFIRM_COMPRESS_HOLD_MS = 180;
 
 export type HoldPhase = 'idle' | 'holding' | 'ready' | 'releasing';
 export type EnterPhase = 'lobby-orb' | 'compressing' | 'ready';
@@ -258,10 +260,10 @@ export function useConfirmOrbController({
     setEnterPhase('lobby-orb');
     const compressTimer = window.setTimeout(() => {
       setEnterPhase('compressing');
-    }, 32);
+    }, CONFIRM_COMPRESS_HOLD_MS);
     const readyTimer = window.setTimeout(() => {
       setEnterPhase('ready');
-    }, 32 + CONFIRM_ENTER_COMPRESS_MS);
+    }, CONFIRM_COMPRESS_HOLD_MS + CONFIRM_ENTER_COMPRESS_MS);
 
     return () => {
       window.clearTimeout(compressTimer);
