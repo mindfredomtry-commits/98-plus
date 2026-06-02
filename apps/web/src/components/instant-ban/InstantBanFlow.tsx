@@ -1,6 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import {
   coerceFriendList,
   findFriendByUsername,
@@ -133,6 +141,7 @@ export function InstantBanFlow({
   const payoffArmedRef = useRef(false);
   const payoffArmTokenRef = useRef(0);
   const lobbyOrbMountRef = useRef<HTMLDivElement>(null);
+  const [composeExitProgress, setComposeExitProgress] = useState(0);
 
   const legacyStep = legacyStepFromPhase(phase);
   const overlayOpen = phase === 'selectingTarget' || phase === 'composingBan';
@@ -264,10 +273,12 @@ export function InstantBanFlow({
     setBanText('');
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
     setSendError(null);
+    setComposeExitProgress(0);
     setPhase('composingBan');
   }, []);
 
   const handleWhatSubmit = useCallback((text: string, duration: number) => {
+    setComposeExitProgress(0);
     setBanText(text);
     setDurationMinutes(duration);
     payoffArmedRef.current = false;
@@ -277,10 +288,16 @@ export function InstantBanFlow({
   }, []);
 
   const handleWhatBack = useCallback(() => {
+    setComposeExitProgress(0);
     setPhase('selectingTarget');
   }, []);
 
+  const handleComposeExitProgress = useCallback((progress: number) => {
+    setComposeExitProgress(progress);
+  }, []);
+
   const handleConfirmBack = useCallback(() => {
+    setComposeExitProgress(0);
     setPhase('composingBan');
   }, []);
 
@@ -447,11 +464,20 @@ export function InstantBanFlow({
   const liteMode = isInstantBanLiteMode();
   const whatMobileSafe = phase === 'composingBan';
 
+  const composeOverlayStyle = useMemo(
+    () =>
+      ({
+        '--compose-exit-progress': String(composeExitProgress),
+      }) as CSSProperties,
+    [composeExitProgress],
+  );
+
   return (
     <div
       className={`lobby-screen instant-ban-arena-send instant-ban-flow${
         whatMobileSafe ? ' instant-ban-flow--what-mobile-safe' : ''
       }${liteMode ? ' instant-ban-debug-lite' : ''}`}
+      style={phase === 'composingBan' ? composeOverlayStyle : undefined}
       role="dialog"
       aria-modal="true"
       aria-label="98+ arena"
@@ -512,7 +538,10 @@ export function InstantBanFlow({
           <div
             className={`instant-ban-send-overlay${
               phase === 'composingBan' ? ' instant-ban-send-overlay--compose' : ''
+            }${
+              composeExitProgress > 0 ? ' instant-ban-send-overlay--compose-dismissing' : ''
             }`}
+            style={phase === 'composingBan' ? composeOverlayStyle : undefined}
             role="presentation"
           >
             {phase === 'selectingTarget' ? (
@@ -531,6 +560,7 @@ export function InstantBanFlow({
               <WhatScreen
                 key={selectedUser.id ?? selectedUser.userId ?? selectedUser.username}
                 overlayTitle={overlayTitle}
+                onComposeExitProgress={handleComposeExitProgress}
                 selectedUser={selectedUser}
                 initialBanText={banText}
                 initialDurationMinutes={durationMinutes}

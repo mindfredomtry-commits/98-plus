@@ -1559,6 +1559,12 @@
     transform 280ms ease;
 }
 
+.instant-ban-arena-send[data-send-phase='composingBan']
+  .lobby-screen__orb-wrap--overlay-dim {
+  opacity: calc(0.72 + var(--compose-exit-progress, 0) * 0.28);
+  transform: scale(calc(0.94 + var(--compose-exit-progress, 0) * 0.06));
+}
+
 .instant-ban-arena-send__confirm-layer {
   position: absolute;
   inset: 0;
@@ -1690,10 +1696,11 @@
   overflow: hidden;
 }
 
-/* Compose overlay — unified scrolling scene */
+/* Compose overlay — temporary layer above lobby (swipe-away, not scroll clip) */
 .instant-ban-send-overlay--compose {
   justify-content: flex-start;
-  padding-top: clamp(26vh, 200px, 34vh);
+  padding-top: 0;
+  overflow: visible;
   background: linear-gradient(
     180deg,
     transparent 0%,
@@ -1701,50 +1708,119 @@
     rgba(5, 3, 8, 0.92) 32%,
     rgba(5, 3, 8, 0.98) 100%
   );
+  transition: opacity 220ms ease;
+}
+
+.instant-ban-send-overlay--compose-dismissing {
+  opacity: calc(1 - var(--compose-exit-progress, 0) * 0.94);
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(5, 3, 8, calc(0.45 * (1 - var(--compose-exit-progress, 0)))) 16%,
+    rgba(5, 3, 8, calc(0.92 * (1 - var(--compose-exit-progress, 0)))) 32%,
+    rgba(5, 3, 8, calc(0.98 * (1 - var(--compose-exit-progress, 0)))) 100%
+  );
 }
 
 .instant-ban-what-mobile--compose-scene {
-  flex: 1 1 auto;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
   width: 100%;
-  max-width: 32rem;
-  margin: 0 auto;
-  padding: 0 1.25rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  max-width: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
   pointer-events: auto;
+  overflow: visible;
+  --compose-exit-progress: 0;
 }
 
-.instant-ban-compose-scene__scroll {
+.instant-ban-compose-scene {
+  position: relative;
   flex: 1 1 auto;
+  width: 100%;
   min-height: 0;
-  max-height: min(72vh, 560px);
+  overflow: visible;
+  --compose-exit-progress: 0;
+}
+
+.instant-ban-compose-scene__veil {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: calc(1 - var(--compose-exit-progress, 0) * 0.55);
+  background: linear-gradient(
+    180deg,
+    rgba(5, 3, 8, 0.35) 0%,
+    rgba(5, 3, 8, 0.72) 40%,
+    rgba(5, 3, 8, 0.88) 100%
+  );
+  transition: opacity 80ms linear;
+}
+
+.instant-ban-compose-scene__scroll-driver {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   touch-action: pan-y;
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    transparent 0,
-    rgba(0, 0, 0, 0.2) max(6px, 1.5%),
-    rgba(0, 0, 0, 0.72) max(18px, 5%),
-    #000 max(34px, 10%),
-    #000 100%
+  scrollbar-width: none;
+  opacity: 0;
+  pointer-events: auto;
+}
+
+.instant-ban-compose-scene__scroll-driver::-webkit-scrollbar {
+  display: none;
+}
+
+.instant-ban-compose-scene__scroll-driver-track {
+  height: max(140vh, calc(100% + 280px));
+  width: 1px;
+  pointer-events: none;
+}
+
+.instant-ban-compose-scene__scroll-driver-sentinel {
+  height: 1px;
+  width: 100%;
+  margin-top: -48px;
+  pointer-events: none;
+}
+
+.instant-ban-compose-scene__layer {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 32rem;
+  min-height: 100%;
+  margin: 0 auto;
+  padding: clamp(26vh, 200px, 34vh) 1.25rem
+    calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+  pointer-events: none;
+  overflow: visible;
+  will-change: transform, opacity;
+  transform: translate3d(
+    0,
+    calc(var(--compose-exit-progress, 0) * -72vh),
+    0
   );
-  mask-image: linear-gradient(
-    to bottom,
-    transparent 0,
-    rgba(0, 0, 0, 0.2) max(6px, 1.5%),
-    rgba(0, 0, 0, 0.72) max(18px, 5%),
-    #000 max(34px, 10%),
-    #000 100%
-  );
-  -webkit-mask-size: 100% 100%;
-  mask-size: 100% 100%;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
+  opacity: calc(1 - var(--compose-exit-progress, 0));
+}
+
+.instant-ban-compose-scene__layer .instant-ban-flow__back,
+.instant-ban-compose-scene__layer .instant-ban-what-field,
+.instant-ban-compose-scene__layer .instant-ban-chip,
+.instant-ban-compose-scene__layer .instant-ban-duration-pill,
+.instant-ban-compose-scene__layer .instant-ban-what-swipe-zone,
+.instant-ban-compose-scene__layer .instant-ban-what-input,
+.instant-ban-compose-scene__gesture {
+  pointer-events: auto;
 }
 
 .instant-ban-compose-scene__title {
@@ -1754,9 +1830,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .instant-ban-compose-scene__scroll {
-    -webkit-mask-image: none;
-    mask-image: none;
+  .instant-ban-compose-scene__layer {
+    transform: translate3d(
+      0,
+      calc(var(--compose-exit-progress, 0) * -40vh),
+      0
+    );
   }
 }
 
@@ -1831,64 +1910,67 @@
   flex-direction: column;
 }
 
-/* Compose scene — compact spacing (unified scroll layer) */
+/* Compose scene — compact spacing (swipe-away layer) */
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__scroll .instant-ban-what-scroll-spacer {
+  .instant-ban-compose-scene__layer .instant-ban-what-scroll-spacer {
   display: block;
   height: clamp(72px, 16vh, 112px);
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__scroll .instant-ban-flow__back {
+  .instant-ban-compose-scene__layer .instant-ban-flow__back {
   margin-bottom: 0.5rem;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__scroll .instant-ban-what-selected--mobile {
+  .instant-ban-compose-scene__layer .instant-ban-what-selected--mobile {
   margin-bottom: 0.5rem;
   padding: 0.5rem 0.75rem;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__scroll .instant-ban-what-field {
+  .instant-ban-compose-scene__layer .instant-ban-what-field {
   min-height: 4.25rem;
   margin-bottom: 0.5rem;
   padding: 0.75rem 0.875rem;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__scroll .instant-ban-what-placeholder-cycle {
+  .instant-ban-compose-scene__layer .instant-ban-what-placeholder-cycle {
   top: 0.75rem;
   left: 0.875rem;
   right: 0.875rem;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__scroll .instant-ban-chips--mobile {
+  .instant-ban-compose-scene__layer .instant-ban-chips--mobile {
   gap: 0.3125rem;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__scroll .instant-ban-duration--mobile {
+  .instant-ban-compose-scene__layer .instant-ban-duration--mobile {
   margin-top: 0.5rem;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__scroll .instant-ban-duration__label {
+  .instant-ban-compose-scene__layer .instant-ban-duration__label {
   margin-bottom: 0.375rem;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__scroll .instant-ban-what-swipe-zone {
+  .instant-ban-compose-scene__layer .instant-ban-what-swipe-zone {
   height: auto;
   min-height: 4.25rem;
   margin-top: 0.625rem;
   padding-bottom: 0.125rem;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .instant-ban-compose-scene__scroll {
-    -webkit-mask-image: none;
-    mask-image: none;
-  }
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-send-overlay--compose {
+  pointer-events: none;
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-what-mobile--compose-scene {
+  pointer-events: auto;
 }
