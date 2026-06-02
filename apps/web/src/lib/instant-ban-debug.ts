@@ -1,5 +1,7 @@
 'use client';
 
+import { ApiError } from '@/lib/api';
+
 /** Dev diagnostics + ?liteInstantBan=1 GPU/layout experiments */
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -35,24 +37,70 @@ export function instantBanDebug(
   });
 }
 
-export function instantBanSendBeforeDebug(data: {
+export type InstantBanSendBeforePayload = {
   banText: string;
   selectedUserId: string | null;
+  selectedUsername: string | null;
   durationMinutes: number;
+  senderUserId: string | null;
+  currentUserId: string | null;
   payoffPhase: string;
   sendTriggered: boolean;
-}): void {
+  inFlight: boolean;
+  sharing: boolean;
+  hasToken: boolean;
+  receiverUserId: string | null;
+  receiverTelegramId: string | null;
+  devAuth: boolean;
+  devPeerResolved: boolean;
+};
+
+export function instantBanSendBeforeDebug(data: InstantBanSendBeforePayload): void {
   if (!isDev) return;
   console.debug('[instant-ban:send-before]', data);
+}
+
+export function serializeInstantBanSendError(error: unknown): {
+  message: string;
+  status?: number;
+  response?: unknown;
+  stack?: string;
+} {
+  if (error instanceof ApiError) {
+    return {
+      message: error.message,
+      status: error.status,
+      response: { url: error.url ?? null },
+      stack: error.stack,
+    };
+  }
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      stack: error.stack,
+      status: (error as Error & { status?: number }).status,
+      response: (error as Error & { response?: unknown }).response,
+    };
+  }
+  return { message: String(error) };
 }
 
 export function instantBanSendErrorDebug(data: {
   message: string;
   error: unknown;
   response?: unknown;
+  status?: number;
+  stack?: string;
 }): void {
   if (!isDev) return;
-  console.debug('[instant-ban:send-error]', data);
+  const serialized = serializeInstantBanSendError(data.error);
+  console.debug('[instant-ban:send-error]', {
+    message: data.message || serialized.message,
+    status: data.status ?? serialized.status,
+    response: data.response ?? serialized.response,
+    stack: data.stack ?? serialized.stack,
+    error: data.error,
+  });
 }
 
 export type InstantBanViewportDiagRefs = {

@@ -10,6 +10,7 @@ import {
 } from '@/lib/deliver-challenge';
 import { handleShareChallenge } from '@/lib/share';
 import { ctaLog } from '@/lib/cta-log';
+import { instantBanDebug } from '@/lib/instant-ban-debug';
 import { timingLog } from '@/lib/timing-log';
 import { SHARE_PICKER_USERNAME } from '@98plus/shared';
 
@@ -74,7 +75,10 @@ export function useSendChallenge(opts: {
       if (!token) {
         throw new Error('Нет авторизации — перезапусти Mini App из Telegram');
       }
-      if (inFlightRef.current) return;
+      if (inFlightRef.current) {
+        instantBanDebug('send-skipped-hook', { reason: 'inFlight' });
+        return;
+      }
 
       const username = params.receiverUsername.replace(/^@/, '').trim();
       const cleanUser = username.toLowerCase();

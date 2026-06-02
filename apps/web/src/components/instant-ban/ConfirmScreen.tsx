@@ -12,6 +12,7 @@ import type { FriendCard, UserPublic } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { AvatarImage } from '../AvatarImage';
 import { InfluenceRing } from '../lobby/InfluenceRing';
+import { instantBanDebug } from '@/lib/instant-ban-debug';
 import { SuccessPayoffReveal } from './SuccessPayoffReveal';
 
 const HOLD_MS = 650;
@@ -247,6 +248,31 @@ export function ConfirmScreen({
     },
     [clearHoldTimer, payoffActive, setPhase, triggerBounce],
   );
+
+  useEffect(() => {
+    onBindAbortRelease(abortRelease);
+  }, [onBindAbortRelease, abortRelease]);
+
+  useEffect(() => {
+    onSendContextChange({
+      payoffPhase: payoffPhaseRef.current,
+      sendTriggered: sendTriggeredRef.current,
+    });
+  });
+
+  useEffect(() => {
+    if (payoffArmToken === 0 || payoffArmToken === payoffArmSeenRef.current) {
+      return;
+    }
+    payoffArmSeenRef.current = payoffArmToken;
+    if (!payoffPendingRef.current) {
+      instantBanDebug('payoff-skip', { reason: 'not-pending', payoffArmToken });
+      return;
+    }
+    payoffPendingRef.current = false;
+    instantBanDebug('payoff-start', { payoffArmToken });
+    setPayoff('impact');
+  }, [payoffArmToken, setPayoff]);
 
   useEffect(() => {
     if (error) {
