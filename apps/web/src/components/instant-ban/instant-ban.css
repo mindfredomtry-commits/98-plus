@@ -689,21 +689,25 @@
   color: #f87171;
 }
 
-/* Success / Payoff — single morph container: circle contour → card contour */
+/* Success / Payoff — single morph container: measured orb rect → centered card */
 .instant-ban-success-root {
-  flex: 1 1 auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  min-height: 0;
-  padding: 1rem 0;
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.instant-ban-success-root--interactive {
+  pointer-events: auto;
 }
 
 .instant-ban-payoff-morph {
-  --payoff-card-width: min(86vw, 340px);
-  position: relative;
-  width: var(--payoff-card-width);
+  position: fixed;
+  left: var(--morph-left, 50%);
+  top: var(--morph-top, 50%);
+  width: var(--morph-width, var(--98-confirm-orb-size));
+  height: var(--morph-height, var(--98-confirm-orb-size));
+  transform: translate(-50%, -50%);
   box-sizing: border-box;
   border: 2px solid rgba(var(--98-power-rgb), 0.92);
   box-shadow:
@@ -711,23 +715,27 @@
     0 0 14px var(--98-power-glow-soft);
   overflow: hidden;
   transition:
-    transform 700ms cubic-bezier(0.33, 1, 0.68, 1),
+    left 700ms cubic-bezier(0.33, 1, 0.68, 1),
+    top 700ms cubic-bezier(0.33, 1, 0.68, 1),
+    width 700ms cubic-bezier(0.33, 1, 0.68, 1),
+    height 700ms cubic-bezier(0.33, 1, 0.68, 1),
     border-radius 700ms cubic-bezier(0.33, 1, 0.68, 1),
     background 700ms ease,
     border-color 700ms ease,
     box-shadow 700ms ease;
 }
 
-.instant-ban-payoff-morph--from-orb {
-  transform: translate(var(--morph-dx, 0px), var(--morph-dy, 0px))
-    scale(var(--morph-scale, 1));
+.instant-ban-payoff-morph--circle {
   border-radius: 50%;
   background: transparent;
-  aspect-ratio: 1;
 }
 
 .instant-ban-payoff-morph--to-card {
-  transform: translate(0, 0) scale(1);
+  left: var(--morph-end-left, 50%);
+  top: var(--morph-end-top, 50%);
+  width: var(--morph-end-width, min(86vw, 340px));
+  height: var(--morph-end-height, 240px);
+  min-height: var(--morph-end-height, 240px);
   border-radius: 24px;
   background: linear-gradient(
     165deg,
@@ -736,7 +744,12 @@
   );
   border-color: rgba(var(--98-accent-rgb), 0.22);
   box-shadow: 0 0 32px rgba(var(--98-accent-rgb), 0.15);
-  aspect-ratio: auto;
+}
+
+.instant-ban-payoff-morph--settled {
+  height: auto;
+  min-height: var(--morph-end-height, 240px);
+  transition: none;
 }
 
 .instant-ban-payoff-morph__orb-label {
@@ -900,8 +913,8 @@
     transform: none !important;
   }
 
-  .instant-ban-payoff-morph--from-orb {
-    transform: none !important;
+  .instant-ban-payoff-morph--circle {
+    transform: translate(-50%, -50%) !important;
   }
 
   .instant-ban-payoff-morph__content {

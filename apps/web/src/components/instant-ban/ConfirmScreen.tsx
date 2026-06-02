@@ -5,7 +5,7 @@ import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { AvatarImage } from '../AvatarImage';
 import { InfluenceRing } from '../lobby/InfluenceRing';
-import type { PayoffAnchor } from './payoff-anchor';
+import { payoffAnchorFromRect } from './payoff-anchor';
 
 const HOLD_MS = 650;
 const CONFIRM_ENTER_LOBBY_HOLD_MS = 100;
@@ -24,7 +24,7 @@ type Props = {
   sending: boolean;
   error: string | null;
   onConfirm: () => void;
-  onPayoffStart: (anchor: PayoffAnchor) => void;
+  onPayoffStart: (anchor: ReturnType<typeof payoffAnchorFromRect>) => void;
   onRetry: () => void;
   onBack: () => void;
 };
@@ -256,19 +256,23 @@ export function ConfirmScreen({
         sendTriggeredRef.current = true;
         setPhase('releasing');
 
-        const stage = orbStageRef.current;
-        if (stage) {
-          const rect = stage.getBoundingClientRect();
-          onPayoffStart({
-            centerX: rect.left + rect.width / 2,
-            centerY: rect.top + rect.height / 2,
-            size: rect.width,
-          });
+        const orbEl =
+          orbStageRef.current?.querySelector<HTMLElement>(
+            '.instant-ban-confirm-orb-btn',
+          ) ?? orbStageRef.current;
+        if (orbEl) {
+          onPayoffStart(payoffAnchorFromRect(orbEl.getBoundingClientRect()));
         } else {
+          const fallbackSize = 160;
+          const cx = window.innerWidth / 2;
+          const cy = window.innerHeight / 2;
           onPayoffStart({
-            centerX: window.innerWidth / 2,
-            centerY: window.innerHeight / 2,
-            size: 160,
+            x: cx - fallbackSize / 2,
+            y: cy - fallbackSize / 2,
+            width: fallbackSize,
+            height: fallbackSize,
+            centerX: cx,
+            centerY: cy,
           });
         }
 
