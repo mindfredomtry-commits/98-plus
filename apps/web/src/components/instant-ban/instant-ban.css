@@ -1529,3 +1529,138 @@
 .instant-ban-debug-lite .instant-ban-confirm-orb-ring {
   animation: none;
 }
+
+/* —— Arena send shell: one lobby + overlays + confirm state —— */
+
+.instant-ban-arena-send {
+  z-index: 65;
+}
+
+.instant-ban-arena-send.instant-ban-flow {
+  background: transparent;
+}
+
+.instant-ban-arena-send__stage {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+
+.lobby-screen__orb-wrap--overlay-dim {
+  opacity: 0.72;
+  transform: scale(0.94);
+  transition:
+    opacity 280ms ease,
+    transform 280ms ease;
+}
+
+.instant-ban-arena-send__confirm-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.instant-ban-arena-send__confirm-layer .instant-ban-confirm-orb-wrap,
+.instant-ban-arena-send__confirm-layer .instant-ban-flow__back,
+.instant-ban-arena-send__confirm-layer .instant-ban-confirm-copy,
+.instant-ban-arena-send__confirm-layer .instant-ban-status,
+.instant-ban-arena-send__confirm-layer .instant-ban-secondary {
+  pointer-events: auto;
+}
+
+.instant-ban-arena-send[data-send-phase='confirming'] .instant-ban-confirm-copy {
+  position: relative;
+  z-index: 2;
+  margin-bottom: 0.5rem;
+  max-width: min(100%, 340px);
+  padding: 0 1.25rem;
+  text-align: center;
+}
+
+.instant-ban-arena-send[data-send-phase='confirming'] .instant-ban-confirm-orb-wrap {
+  margin-top: 0;
+  padding-top: 0;
+  padding-bottom: clamp(5rem, 18vh, 7rem);
+}
+
+.instant-ban-send-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(5, 3, 8, 0.28) 24%,
+    rgba(5, 3, 8, 0.9) 46%,
+    rgba(5, 3, 8, 0.97) 100%
+  );
+}
+
+.instant-ban-send-overlay__panel {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  max-height: min(72vh, 560px);
+  min-height: 0;
+  width: 100%;
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: 0 1.25rem calc(1rem + env(safe-area-inset-bottom, 0px));
+}
+
+.instant-ban-send-overlay__title {
+  margin: 0 0 1rem;
+  font-size: clamp(1.125rem, 4.5vw, 1.375rem);
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--98-text-primary);
+  text-shadow: 0 0 20px rgba(var(--98-accent-rgb), 0.45);
+  flex-shrink: 0;
+}
+
+.instant-ban-send-overlay__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe {
+  height: var(--instant-ban-vh, 100%);
+  max-height: var(--instant-ban-vh, 100%);
+  background: transparent;
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe .instant-ban-send-overlay__panel {
+  max-height: min(78vh, 640px);
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe .instant-ban-send-overlay__title {
+  text-shadow: none;
+  margin-bottom: 0.75rem;
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe .instant-ban-send-overlay__body {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+

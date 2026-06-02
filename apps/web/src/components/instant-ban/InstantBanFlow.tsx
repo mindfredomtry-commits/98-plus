@@ -23,18 +23,46 @@ import {
 } from '@/lib/instant-ban-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { shareInstantBanInviteMore } from '@/lib/share';
+import { InfluenceRing } from '../lobby/InfluenceRing';
+import { ArenaLobbyIdle } from './ArenaLobbyIdle';
 import { WhoScreen } from './WhoScreen';
 import { WhatScreen } from './WhatScreen';
 import { ConfirmScreen } from './ConfirmScreen';
+import '../lobby-screen.css';
 import './instant-ban.css';
 
 const DEFAULT_DURATION_MINUTES = 3;
 
-type Step = 'who' | 'what' | 'confirm';
+/** Parent send-flow phases (arena shell stays mounted). */
+export type SendFlowPhase =
+  | 'idle'
+  | 'selectingTarget'
+  | 'composingBan'
+  | 'confirming';
+
+/** Legacy step ids for CSS hooks / debug. */
+type LegacyStep = 'idle' | 'who' | 'what' | 'confirm';
 
 type Props = {
-  onClose: () => void;
+  sendStarted: boolean;
+  onStartSend: () => void;
+  influencePercent: number;
+  inviteUsername?: string | null;
+  onClose?: () => void;
 };
+
+function legacyStepFromPhase(phase: SendFlowPhase): LegacyStep {
+  switch (phase) {
+    case 'idle':
+      return 'idle';
+    case 'selectingTarget':
+      return 'who';
+    case 'composingBan':
+      return 'what';
+    case 'confirming':
+      return 'confirm';
+  }
+}
 
 function triggerConfirmHaptic(): void {
   try {
@@ -58,7 +86,12 @@ function triggerConfirmHaptic(): void {
   }
 }
 
-export function InstantBanFlow({ onClose }: Props) {
+export function InstantBanFlow({
+  sendStarted,
+  onStartSend,
+  influencePercent,
+  inviteUsername = null,
+}: Props) {
   const flowId = useId();
   const renderCountRef = useRef(0);
   renderCountRef.current += 1;
@@ -78,7 +111,9 @@ export function InstantBanFlow({ onClose }: Props) {
   } = useApp();
   const { haptic } = useTelegram();
 
-  const [step, setStep] = useState<Step>('who');
+  const [phase, setPhase] = useState<SendFlowPhase>(
+    sendStarted ? 'selectingTarget' : 'idle',
+  );
   const [selectedUser, setSelectedUser] = useState<FriendCard | null>(null);
   const [banText, setBanText] = useState('');
   const [durationMinutes, setDurationMinutes] = useState(DEFAULT_DURATION_MINUTES);
@@ -98,7 +133,17 @@ export function InstantBanFlow({ onClose }: Props) {
   const payoffArmedRef = useRef(false);
   const payoffArmTokenRef = useRef(0);
 
-  useInstantBanViewport(step !== 'what');
+  const legacyStep = legacyStepFromPhase(phase);
+  const overlayOpen = phase === 'selectingTarget' || phase === 'composingBan';
+  const showLobbyOrb = phase !== 'confirming';
+
+  useInstantBanViewport(phase === 'composingBan');
+
+  useEffect(() => {
+    if (sendStarted && phase === 'idle') {
+      setPhase('selectingTarget');
+    }
+  }, [sendStarted, phase]);
 
   useEffect(() => {
     instantBanDebug('flow-mount', { flowId });
@@ -110,7 +155,8 @@ export function InstantBanFlow({ onClose }: Props) {
   useEffect(() => {
     instantBanDebug('flow-render', {
       flowId,
-      step,
+      phase,
+      legacyStep,
       renderCount: renderCountRef.current,
     });
   });
@@ -126,7 +172,7 @@ export function InstantBanFlow({ onClose }: Props) {
   }, [friends]);
 
   const resetForAnother = useCallback(() => {
-    setStep('who');
+    setPhase('selectingTarget');
     setSelectedUser(null);
     setBanText('');
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
@@ -197,23 +243,28 @@ export function InstantBanFlow({ onClose }: Props) {
     scheduleDeferredSync,
   });
 
-  const stepTitle = useMemo(() => {
-    switch (step) {
-      case 'who':
+  const overlayTitle = useMemo(() => {
+    switch (phase) {
+      case 'selectingTarget':
         return 'КОМУ ЗАПРЕЩАЕШЬ?';
-      case 'what':
+      case 'composingBan':
         return 'ЧТО ЗАПРЕЩАЕШЬ?';
-      case 'confirm':
-        return 'ПОДТВЕРДИ ЗАПРЕТ';
+      default:
+        return '';
     }
-  }, [step]);
+  }, [phase]);
+
+  const handleBeginSend = useCallback(() => {
+    onStartSend();
+    setPhase('selectingTarget');
+  }, [onStartSend]);
 
   const handleSelectUser = useCallback((friend: FriendCard) => {
     setSelectedUser(friend);
     setBanText('');
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
     setSendError(null);
-    setStep('what');
+    setPhase('composingBan');
   }, []);
 
   const handleWhatSubmit = useCallback((text: string, duration: number) => {
@@ -222,15 +273,15 @@ export function InstantBanFlow({ onClose }: Props) {
     payoffArmedRef.current = false;
     sendSnapshotRef.current = null;
     setConfirmEnterKey((k) => k + 1);
-    setStep('confirm');
+    setPhase('confirming');
   }, []);
 
   const handleWhatBack = useCallback(() => {
-    setStep('who');
+    setPhase('selectingTarget');
   }, []);
 
   const handleConfirmBack = useCallback(() => {
-    setStep('what');
+    setPhase('composingBan');
   }, []);
 
   const handleInviteMore = useCallback(() => {
@@ -388,51 +439,53 @@ export function InstantBanFlow({ onClose }: Props) {
     await executeSend();
   }, [captureSendSnapshot, executeSend]);
 
-  const lobbyInfluencePercent = useMemo(() => {
-    const { influencePercent } = resolveLobbyInfluencePercent(user);
-    return Math.min(100, Math.max(0, influencePercent));
-  }, [user]);
+  const lobbyInfluencePercent = useMemo(
+    () => Math.min(100, Math.max(0, influencePercent)),
+    [influencePercent],
+  );
 
   const liteMode = isInstantBanLiteMode();
-  const whatMobileSafe = step === 'what';
+  const whatMobileSafe = phase === 'composingBan';
 
   return (
     <div
-      className={`instant-ban-flow${
+      className={`lobby-screen instant-ban-arena-send instant-ban-flow${
         whatMobileSafe ? ' instant-ban-flow--what-mobile-safe' : ''
       }${liteMode ? ' instant-ban-debug-lite' : ''}`}
       role="dialog"
       aria-modal="true"
+      aria-label="98+ arena"
       data-instant-ban-view="InstantBanFlow"
-      data-instant-ban-step={step}
+      data-send-phase={phase}
+      data-instant-ban-step={legacyStep}
     >
-      <div className="instant-ban-flow__grid" aria-hidden />
-      <div className="instant-ban-flow__inner">
-        {step !== 'confirm' ? (
-          <h1 className="instant-ban-flow__title">{stepTitle}</h1>
+      <div className="lobby-screen__grid" aria-hidden />
+      <div className="lobby-screen__particles" aria-hidden>
+        {Array.from({ length: 10 }).map((_, i) => (
+          <span key={i} className="lobby-screen__particle" />
+        ))}
+      </div>
+
+      <div className="instant-ban-arena-send__stage">
+        {showLobbyOrb ? (
+          <div
+            className={`lobby-screen__orb-wrap${
+              overlayOpen ? ' lobby-screen__orb-wrap--overlay-dim' : ''
+            }`}
+          >
+            <InfluenceRing value={lobbyInfluencePercent} />
+            <div className="lobby-screen__orb">
+              <span className="lobby-screen__title">98+</span>
+            </div>
+          </div>
         ) : null}
-        <div className="instant-ban-flow__body">
-          {step === 'who' ? (
-            <WhoScreen
-              friends={safeFriends}
-              onSelect={handleSelectUser}
-              onInviteMore={handleInviteMore}
-            />
-          ) : null}
-          {step === 'what' && selectedUser ? (
-            <WhatScreen
-              key={selectedUser.id ?? selectedUser.userId ?? selectedUser.username}
-              selectedUser={selectedUser}
-              initialBanText={banText}
-              initialDurationMinutes={durationMinutes}
-              onSubmit={handleWhatSubmit}
-              onBack={handleWhatBack}
-            />
-          ) : null}
-          {step === 'confirm' && selectedUser ? (
+
+        {phase === 'confirming' && selectedUser ? (
+          <div className="instant-ban-arena-send__confirm-layer">
             <ConfirmScreen
               key={`confirm-${confirmEnterKey}-${selectedUser.id ?? selectedUser.userId ?? selectedUser.username}`}
               enterKey={confirmEnterKey}
+              orbAtLobbyPosition
               influencePercent={lobbyInfluencePercent}
               senderUser={user}
               selectedUser={selectedUser}
@@ -448,9 +501,44 @@ export function InstantBanFlow({ onClose }: Props) {
               onSendContextChange={handleSendContextChange}
               onBindAbortRelease={handleBindAbortRelease}
             />
-          ) : null}
-        </div>
+          </div>
+        ) : null}
+
+        {overlayOpen ? (
+          <div className="instant-ban-send-overlay" role="presentation">
+            <div className="instant-ban-send-overlay__panel">
+              <h1 className="instant-ban-send-overlay__title">{overlayTitle}</h1>
+              <div className="instant-ban-send-overlay__body">
+                {phase === 'selectingTarget' ? (
+                  <WhoScreen
+                    friends={safeFriends}
+                    onSelect={handleSelectUser}
+                    onInviteMore={handleInviteMore}
+                  />
+                ) : null}
+                {phase === 'composingBan' && selectedUser ? (
+                  <WhatScreen
+                    key={selectedUser.id ?? selectedUser.userId ?? selectedUser.username}
+                    selectedUser={selectedUser}
+                    initialBanText={banText}
+                    initialDurationMinutes={durationMinutes}
+                    onSubmit={handleWhatSubmit}
+                    onBack={handleWhatBack}
+                  />
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
+
+      {phase === 'idle' ? (
+        <ArenaLobbyIdle
+          influencePercent={lobbyInfluencePercent}
+          inviteUsername={inviteUsername}
+          onBeginSend={handleBeginSend}
+        />
+      ) : null}
     </div>
   );
 }

@@ -7,7 +7,6 @@ import { useApp } from '@/components/Providers';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSocialBoot } from '@/hooks/useSocialBoot';
 import { HomeArena } from '@/components/HomeArena';
-import { LobbyScreen } from '@/components/LobbyScreen';
 import { InstantBanFlow } from '@/components/instant-ban/InstantBanFlow';
 import { SendBanDock } from '@/components/SendBanDock';
 import { ConnectionBanner } from '@/components/ConnectionBanner';
@@ -203,6 +202,7 @@ export default function HomePage() {
   }
 
   const overlaysUiActive = !lobbyOpen && !instantBanOpen;
+  const arenaVisible = lobbyOpen || instantBanOpen;
 
   const handleLobbyEnter = () => {
     closeLobby();
@@ -220,7 +220,7 @@ export default function HomePage() {
           ? ' app-page--check-overlay-active'
           : ''
       }${banSentOpen ? ' app-page--success-modal' : ''}${
-        instantBanOpen ? ' app-page--instant-ban-active' : ''
+        arenaVisible ? ' app-page--instant-ban-active' : ''
       }`}
       data-shell-view="HomeShell"
     >
@@ -278,15 +278,14 @@ export default function HomePage() {
         />
       ) : null}
 
-      {lobbyOpen ? (
-        <LobbyScreen
-          onEnter={handleLobbyEnter}
+      {arenaVisible ? (
+        <InstantBanFlow
+          sendStarted={instantBanOpen}
+          onStartSend={handleLobbyEnter}
           influencePercent={lobbyInfluence.influencePercent}
           inviteUsername={user.username ?? null}
+          onClose={handleCloseInstantBan}
         />
-      ) : null}
-      {instantBanOpen ? (
-        <InstantBanFlow onClose={handleCloseInstantBan} />
       ) : null}
     </div>
   );

@@ -47,6 +47,8 @@ type ConfirmSendContext = {
 
 type Props = {
   enterKey: number;
+  /** Orb already at lobby center — skip fly-in from viewport center. */
+  orbAtLobbyPosition?: boolean;
   influencePercent?: number;
   senderUser: UserPublic | null | undefined;
   selectedUser: FriendCard;
@@ -145,6 +147,7 @@ function clearPayoffShellStyles(el: HTMLButtonElement | null): void {
 
 export function ConfirmScreen({
   enterKey,
+  orbAtLobbyPosition = false,
   influencePercent,
   senderUser,
   selectedUser,
@@ -308,13 +311,25 @@ export function ConfirmScreen({
   }, [error, payoffPhase, resetPayoff]);
 
   useEffect(() => {
-    setEnterPhase('lobby-orb');
     setRingProgress(influenceStart);
     sendTriggeredRef.current = false;
     payoffPendingRef.current = false;
     payoffArmSeenRef.current = 0;
     setPayoff('none');
     clearPayoffTimer();
+
+    if (orbAtLobbyPosition) {
+      setEnterPhase('compressing');
+      const readyTimer = window.setTimeout(() => {
+        setEnterPhase('ready');
+      }, CONFIRM_ENTER_COMPRESS_MS);
+
+      return () => {
+        window.clearTimeout(readyTimer);
+      };
+    }
+
+    setEnterPhase('lobby-orb');
     const compressTimer = window.setTimeout(() => {
       setEnterPhase('compressing');
     }, CONFIRM_ENTER_LOBBY_HOLD_MS);
@@ -326,7 +341,7 @@ export function ConfirmScreen({
       window.clearTimeout(compressTimer);
       window.clearTimeout(readyTimer);
     };
-  }, [enterKey, influenceStart, clearPayoffTimer, setPayoff]);
+  }, [enterKey, influenceStart, clearPayoffTimer, setPayoff, orbAtLobbyPosition]);
 
   useEffect(() => {
     if (enterPhase !== 'compressing') return;
@@ -340,6 +355,12 @@ export function ConfirmScreen({
     const wrap = orbWrapRef.current;
     const stage = orbStageRef.current;
     if (!wrap || !stage) return;
+
+    if (orbAtLobbyPosition) {
+      stage.style.setProperty('--orb-enter-x', '0px');
+      stage.style.setProperty('--orb-enter-y', '0px');
+      return;
+    }
 
     const wrapRect = wrap.getBoundingClientRect();
     const wrapCenterX = wrapRect.left + wrapRect.width / 2;
@@ -356,7 +377,7 @@ export function ConfirmScreen({
 
     stage.style.setProperty('--orb-enter-x', `${lobbyCenterX - wrapCenterX}px`);
     stage.style.setProperty('--orb-enter-y', `${lobbyCenterY - wrapCenterY}px`);
-  }, [enterKey]);
+  }, [enterKey, orbAtLobbyPosition]);
 
   useLayoutEffect(() => {
     const btn = orbBtnRef.current;
