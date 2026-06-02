@@ -48,12 +48,14 @@ export function SuccessBanCardBody({
       </div>
       <h2 className="instant-ban-success-card__title">Запрет отправлен</h2>
       <div className="instant-ban-success-card__participants">
-        <AvatarImage
-          src={userAvatarSrc(senderUser)}
-          letter={senderLetter}
-          sizeClass="w-11 h-11"
-          textClass="text-sm"
-        />
+        <div className="instant-ban-success-card__sender-wrap">
+          <AvatarImage
+            src={userAvatarSrc(senderUser)}
+            letter={senderLetter}
+            sizeClass="w-11 h-11"
+            textClass="text-sm"
+          />
+        </div>
         <span className="instant-ban-success-card__arrow" aria-hidden>
           →
         </span>

@@ -685,127 +685,104 @@
   opacity: 0.7;
 }
 
-.instant-ban-confirm[data-payoff-phase='expanding'] .instant-ban-confirm-orb-btn:disabled {
-  opacity: 1;
-}
-
-/* Confirm → Success: orb morph shell */
-.instant-ban-confirm-payoff-morph {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  border: 1px solid transparent;
-  background: transparent;
-  overflow: hidden;
-  transition:
-    width 650ms ease-in-out,
-    min-height 650ms ease-in-out,
-    border-radius 650ms ease-in-out,
-    background 650ms ease-in-out,
-    box-shadow 650ms ease-in-out,
-    border-color 650ms ease-in-out;
-}
-
-.instant-ban-confirm-payoff-morph--expanding {
-  width: min(88vw, 340px);
-  min-height: 240px;
-  height: auto;
-  border-radius: 1.25rem;
-  border-color: rgba(var(--98-accent-rgb), 0.22);
-  background: linear-gradient(
-    165deg,
-    rgba(var(--98-purple-deep-rgb), 0.4) 0%,
-    rgba(10, 6, 16, 0.9) 100%
-  );
-  box-shadow: 0 0 32px rgba(var(--98-accent-rgb), 0.15);
-}
-
-.instant-ban-confirm-payoff-morph--expanding .instant-ban-confirm-orb-btn {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 280ms ease;
-}
-
-.instant-ban-confirm-orb-stage--payoff {
-  width: min(88vw, 340px);
-  height: auto;
-  min-height: var(--98-confirm-orb-size);
-}
-
-.instant-ban-confirm[data-payoff-phase='expanding'] .instant-ban-confirm-copy {
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 280ms ease;
-}
-
-.instant-ban-confirm[data-payoff-phase='expanding'] .instant-ban-status {
-  opacity: 0;
-  visibility: hidden;
-}
-
-.instant-ban-payoff-card-inner {
-  opacity: 0;
-  transform: translateY(8px);
-  pointer-events: none;
-}
-
-.instant-ban-confirm-payoff-morph--expanding .instant-ban-payoff-card-inner {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
-  transition:
-    opacity 420ms ease 180ms,
-    transform 420ms ease 180ms;
-}
-
-.instant-ban-payoff-card-inner__content {
-  text-align: center;
-}
-
 .instant-ban-status--error {
   color: #f87171;
 }
 
-.instant-ban-success-card {
-  flex: 0 1 auto;
-  width: min(88vw, 340px);
-  margin: 0 auto;
+/* Success / Payoff — single morph container: circle contour → card contour */
+.instant-ban-success-root {
+  flex: 1 1 auto;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  text-align: center;
-  padding: 1.25rem 1rem 1rem;
-  border-radius: 1.25rem;
-  border: 1px solid rgba(var(--98-accent-rgb), 0.22);
+  width: 100%;
+  min-height: 0;
+  padding: 1rem 0;
+}
+
+.instant-ban-payoff-morph {
+  --payoff-card-width: min(86vw, 340px);
+  position: relative;
+  width: var(--payoff-card-width);
+  box-sizing: border-box;
+  border: 2px solid rgba(var(--98-power-rgb), 0.92);
+  box-shadow:
+    0 0 6px var(--98-power-glow-soft),
+    0 0 14px var(--98-power-glow-soft);
+  overflow: hidden;
+  transition:
+    transform 700ms cubic-bezier(0.33, 1, 0.68, 1),
+    border-radius 700ms cubic-bezier(0.33, 1, 0.68, 1),
+    background 700ms ease,
+    border-color 700ms ease,
+    box-shadow 700ms ease;
+}
+
+.instant-ban-payoff-morph--from-orb {
+  transform: translate(var(--morph-dx, 0px), var(--morph-dy, 0px))
+    scale(var(--morph-scale, 1));
+  border-radius: 50%;
+  background: transparent;
+  aspect-ratio: 1;
+}
+
+.instant-ban-payoff-morph--to-card {
+  transform: translate(0, 0) scale(1);
+  border-radius: 24px;
   background: linear-gradient(
     165deg,
     rgba(var(--98-purple-deep-rgb), 0.4) 0%,
     rgba(10, 6, 16, 0.9) 100%
   );
+  border-color: rgba(var(--98-accent-rgb), 0.22);
   box-shadow: 0 0 32px rgba(var(--98-accent-rgb), 0.15);
+  aspect-ratio: auto;
 }
 
-.instant-ban-success-card--from-payoff {
-  animation: none;
+.instant-ban-payoff-morph__orb-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--98-confirm-orb-title-size);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: #fff;
+  opacity: 1;
+  text-shadow:
+    0 0 24px rgba(var(--98-accent-rgb), 0.9),
+    0 0 48px rgba(var(--98-accent-rgb), 0.55);
+  transition: opacity 260ms ease;
+  pointer-events: none;
 }
 
-.instant-ban-success-card__content--enter {
-  animation: instant-ban-success-content-enter 420ms ease forwards;
+.instant-ban-payoff-morph--to-card .instant-ban-payoff-morph__orb-label {
+  opacity: 0;
 }
 
-@keyframes instant-ban-success-content-enter {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.instant-ban-payoff-morph__content {
+  opacity: 0;
+  transform: translateY(8px);
+  padding: 1.25rem 1rem 1rem;
+  text-align: center;
+  pointer-events: none;
+}
+
+.instant-ban-payoff-morph--to-card .instant-ban-payoff-morph__content {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+  transition:
+    opacity 420ms ease 200ms,
+    transform 420ms ease 200ms;
+}
+
+.instant-ban-success-card__content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .instant-ban-success-card__icon {
@@ -832,6 +809,11 @@
   margin-bottom: 0.875rem;
 }
 
+.instant-ban-success-card__sender-wrap {
+  border-radius: 9999px;
+  box-shadow: 0 0 16px rgba(var(--98-accent-rgb), 0.42);
+}
+
 .instant-ban-success-card__arrow {
   color: rgba(var(--98-purple-soft-rgb), 0.62);
   font-size: 1.125rem;
@@ -854,20 +836,9 @@
   font-weight: 600;
 }
 
-.instant-ban-actions--from-payoff {
-  animation: instant-ban-success-actions-enter 320ms ease 80ms forwards;
-  opacity: 0;
-}
-
-@keyframes instant-ban-success-actions-enter {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.instant-ban-success-card__again {
+  width: 100%;
+  margin-top: 1rem;
 }
 
 .instant-ban-actions {
@@ -920,6 +891,21 @@
   .instant-ban-what-swipe-hint__chevron {
     animation: none;
     opacity: 0.75;
+  }
+
+  .instant-ban-payoff-morph,
+  .instant-ban-payoff-morph__content,
+  .instant-ban-payoff-morph__orb-label {
+    transition-duration: 0.01ms !important;
+    transform: none !important;
+  }
+
+  .instant-ban-payoff-morph--from-orb {
+    transform: none !important;
+  }
+
+  .instant-ban-payoff-morph__content {
+    opacity: 1 !important;
   }
 }
 
@@ -1186,7 +1172,7 @@
 .instant-ban-debug-lite .instant-ban-chip,
 .instant-ban-debug-lite .instant-ban-duration-pill,
 .instant-ban-debug-lite .instant-ban-duration-pill--active,
-.instant-ban-debug-lite .instant-ban-success-card {
+.instant-ban-debug-lite .instant-ban-payoff-morph {
   box-shadow: none !important;
   transition: none !important;
   animation: none !important;

@@ -20,11 +20,12 @@ import { WhoScreen } from './WhoScreen';
 import { WhatScreen } from './WhatScreen';
 import { ConfirmScreen } from './ConfirmScreen';
 import { SuccessScreen } from './SuccessScreen';
+import type { PayoffAnchor } from './payoff-anchor';
 import './instant-ban.css';
 
 const DEFAULT_DURATION_MINUTES = 3;
 
-type Step = 'who' | 'what' | 'confirm' | 'success';
+type Step = 'who' | 'what' | 'confirm' | 'payoff' | 'success';
 
 type Props = {
   onClose: () => void;
@@ -78,7 +79,7 @@ export function InstantBanFlow({ onClose }: Props) {
   const [durationMinutes, setDurationMinutes] = useState(DEFAULT_DURATION_MINUTES);
   const [sendError, setSendError] = useState<string | null>(null);
   const [confirmEnterKey, setConfirmEnterKey] = useState(0);
-  const [successFromPayoff, setSuccessFromPayoff] = useState(false);
+  const [payoffAnchor, setPayoffAnchor] = useState<PayoffAnchor | null>(null);
   const sendCompleteRef = useRef(false);
   const payoffCompleteRef = useRef(false);
 
@@ -115,7 +116,7 @@ export function InstantBanFlow({ onClose }: Props) {
     setBanText('');
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
     setSendError(null);
-    setSuccessFromPayoff(false);
+    setPayoffAnchor(null);
     sendCompleteRef.current = false;
     payoffCompleteRef.current = false;
   }, []);
@@ -124,7 +125,6 @@ export function InstantBanFlow({ onClose }: Props) {
     if (!sendCompleteRef.current || !payoffCompleteRef.current) return;
     sendCompleteRef.current = false;
     payoffCompleteRef.current = false;
-    setSuccessFromPayoff(true);
     setStep('success');
   }, []);
 
@@ -133,6 +133,11 @@ export function InstantBanFlow({ onClose }: Props) {
     sendCompleteRef.current = true;
     attemptSuccess();
   }, [attemptSuccess]);
+
+  const handlePayoffStart = useCallback((anchor: PayoffAnchor) => {
+    setPayoffAnchor(anchor);
+    setStep('payoff');
+  }, []);
 
   const handlePayoffComplete = useCallback(() => {
     payoffCompleteRef.current = true;
@@ -162,6 +167,9 @@ export function InstantBanFlow({ onClose }: Props) {
         message: p.message,
       });
       sendCompleteRef.current = false;
+      payoffCompleteRef.current = false;
+      setPayoffAnchor(null);
+      setStep('confirm');
       setSendError(p.message || 'Не получилось отправить запрет');
     },
     onboard,
@@ -179,6 +187,8 @@ export function InstantBanFlow({ onClose }: Props) {
         return 'ЧТО ЗАПРЕЩАЕШЬ?';
       case 'confirm':
         return 'ПОДТВЕРДИ ЗАПРЕТ';
+      case 'payoff':
+        return 'ЗАПРЕТ ОТПРАВЛЕН';
       case 'success':
         return 'ЗАПРЕТ ОТПРАВЛЕН';
     }
@@ -292,7 +302,7 @@ export function InstantBanFlow({ onClose }: Props) {
     >
       <div className="instant-ban-flow__grid" aria-hidden />
       <div className="instant-ban-flow__inner">
-        {step !== 'confirm' ? (
+        {step !== 'confirm' && step !== 'payoff' ? (
           <h1 className="instant-ban-flow__title">{stepTitle}</h1>
         ) : null}
         <div className="instant-ban-flow__body">
@@ -323,22 +333,22 @@ export function InstantBanFlow({ onClose }: Props) {
               durationMinutes={durationMinutes}
               sending={inFlight || sharing}
               error={sendError}
-              senderUser={user}
               onConfirm={() => void executeSend()}
-              onPayoffComplete={handlePayoffComplete}
+              onPayoffStart={handlePayoffStart}
               onRetry={() => void executeSend()}
               onBack={handleConfirmBack}
             />
           ) : null}
-          {step === 'success' && selectedUser ? (
+          {(step === 'payoff' || step === 'success') && selectedUser && payoffAnchor ? (
             <SuccessScreen
+              morphAnchor={payoffAnchor}
+              morphActive={step === 'payoff'}
               senderUser={user}
               selectedUser={selectedUser}
               banText={banText}
               durationMinutes={durationMinutes}
-              fromPayoff={successFromPayoff}
+              onMorphComplete={handlePayoffComplete}
               onAgain={resetForAnother}
-              onReturn={onClose}
             />
           ) : null}
         </div>
