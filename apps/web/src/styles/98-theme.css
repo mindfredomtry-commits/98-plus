@@ -50,6 +50,11 @@
   --98-lobby-orb-core-size: min(58vw, 220px);
   --98-lobby-orb-title-size: clamp(2.75rem, 12vw, 3.75rem);
   --98-lobby-orb-wrap-margin-bottom: clamp(3rem, 18vh, 6rem);
+  --98-payoff-impact-ms: 250ms;
+  --98-payoff-morph-ms: 4000ms;
+  --98-payoff-settle-ms: 450ms;
+  --98-payoff-reveal-item-ms: 280ms;
+  --98-payoff-reveal-stagger-ms: 100ms;
   --98-confirm-orb-size: min(42vw, 160px);
   --98-confirm-orb-title-size: clamp(2.5rem, 12vw, 2.75rem);
   --98-confirm-orb-scale-from-lobby: 0.571428571;
