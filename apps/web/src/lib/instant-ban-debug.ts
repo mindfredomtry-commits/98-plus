@@ -35,6 +35,26 @@ export function instantBanDebug(
   });
 }
 
+export function instantBanSendBeforeDebug(data: {
+  banText: string;
+  selectedUserId: string | null;
+  durationMinutes: number;
+  payoffPhase: string;
+  sendTriggered: boolean;
+}): void {
+  if (!isDev) return;
+  console.debug('[instant-ban:send-before]', data);
+}
+
+export function instantBanSendErrorDebug(data: {
+  message: string;
+  error: unknown;
+  response?: unknown;
+}): void {
+  if (!isDev) return;
+  console.debug('[instant-ban:send-error]', data);
+}
+
 export type InstantBanViewportDiagRefs = {
   resizeCount: number;
   vvResizeCount: number;

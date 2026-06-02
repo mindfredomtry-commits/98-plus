@@ -35,6 +35,11 @@ type PayoffPhase =
   | 'cta'
   | 'ready';
 
+type ConfirmSendContext = {
+  payoffPhase: string;
+  sendTriggered: boolean;
+};
+
 type Props = {
   enterKey: number;
   influencePercent?: number;
@@ -44,10 +49,13 @@ type Props = {
   durationMinutes: number;
   sending: boolean;
   error: string | null;
+  payoffArmToken: number;
   onConfirm: () => void;
   onAgain: () => void;
   onRetry: () => void;
   onBack: () => void;
+  onSendContextChange: (ctx: ConfirmSendContext) => void;
+  onBindAbortRelease: (abort: () => void) => void;
 };
 
 function friendLabel(friend: FriendCard): string {
@@ -119,10 +127,13 @@ export function ConfirmScreen({
   durationMinutes,
   sending,
   error,
+  payoffArmToken,
   onConfirm,
   onAgain,
   onRetry,
   onBack,
+  onSendContextChange,
+  onBindAbortRelease,
 }: Props) {
   const name = friendLabel(selectedUser);
   const trimmed = banText.trim();
@@ -154,6 +165,8 @@ export function ConfirmScreen({
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const payoffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendTriggeredRef = useRef(false);
+  const payoffPendingRef = useRef(false);
+  const payoffArmSeenRef = useRef(0);
   const bounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const setPhase = useCallback((phase: HoldPhase) => {
     holdPhaseRef.current = phase;
@@ -190,8 +203,18 @@ export function ConfirmScreen({
     [clearPayoffTimer, setPayoff],
   );
 
+  const abortRelease = useCallback(() => {
+    payoffPendingRef.current = false;
+    sendTriggeredRef.current = false;
+    readyToReleaseRef.current = false;
+    setPhase('idle');
+    setPayoff('none');
+    clearPayoffShellStyles(orbBtnRef.current);
+  }, [setPayoff, setPhase]);
+
   const resetPayoff = useCallback(() => {
     clearPayoffTimer();
+    payoffPendingRef.current = false;
     setPayoff('none');
     setPhase('idle');
     sendTriggeredRef.current = false;
@@ -235,6 +258,8 @@ export function ConfirmScreen({
     setEnterPhase('lobby-orb');
     setRingProgress(influenceStart);
     sendTriggeredRef.current = false;
+    payoffPendingRef.current = false;
+    payoffArmSeenRef.current = 0;
     setPayoff('none');
     clearPayoffTimer();
     const compressTimer = window.setTimeout(() => {
@@ -407,8 +432,8 @@ export function ConfirmScreen({
       if (readyToReleaseRef.current) {
         readyToReleaseRef.current = false;
         sendTriggeredRef.current = true;
+        payoffPendingRef.current = true;
         setPhase('releasing');
-        setPayoff('impact');
         onConfirm();
         return;
       }

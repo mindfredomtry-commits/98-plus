@@ -13,7 +13,12 @@ import { useInstantBanViewport } from '@/hooks/useInstantBanViewport';
 import { safeResolveReceiverTarget } from '@/lib/resolve-receiver';
 import { resolveDevSendTarget } from '@/lib/dev-receiver';
 import { isClientDevAuthEnabled } from '@/lib/config';
-import { instantBanDebug, isInstantBanLiteMode } from '@/lib/instant-ban-debug';
+import {
+  instantBanDebug,
+  instantBanSendBeforeDebug,
+  instantBanSendErrorDebug,
+  isInstantBanLiteMode,
+} from '@/lib/instant-ban-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { shareInstantBanInviteMore } from '@/lib/share';
 import { WhoScreen } from './WhoScreen';
@@ -77,8 +82,18 @@ export function InstantBanFlow({ onClose }: Props) {
   const [durationMinutes, setDurationMinutes] = useState(DEFAULT_DURATION_MINUTES);
   const [sendError, setSendError] = useState<string | null>(null);
   const [confirmEnterKey, setConfirmEnterKey] = useState(0);
-  const sendCompleteRef = useRef(false);
-  const impactCompleteRef = useRef(false);
+  const [payoffArmToken, setPayoffArmToken] = useState(0);
+  const sendSnapshotRef = useRef<{
+    banText: string;
+    selectedUser: FriendCard;
+    durationMinutes: number;
+  } | null>(null);
+  const flowSendAttemptRef = useRef(false);
+  const confirmSendContextRef = useRef<{
+    payoffPhase: string;
+    sendTriggered: boolean;
+  }>({ payoffPhase: 'none', sendTriggered: false });
+  const confirmAbortReleaseRef = useRef<(() => void) | null>(null);
 
   useInstantBanViewport(step !== 'what');
 
@@ -113,10 +128,13 @@ export function InstantBanFlow({ onClose }: Props) {
     setBanText('');
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
     setSendError(null);
+    flowSendAttemptRef.current = false;
+    sendSnapshotRef.current = null;
   }, []);
 
   const onSuccess = useCallback(() => {
     setSendError(null);
+    setPayoffArmToken((t) => t + 1);
   }, []);
 
   const { send, inFlight, sharing } = useSendChallenge({
@@ -137,11 +155,17 @@ export function InstantBanFlow({ onClose }: Props) {
       confirmOptimisticSend(p.username);
     },
     onFail: (p) => {
+      flowSendAttemptRef.current = false;
       rollbackOptimisticSend({
         username: p.username,
         message: p.message,
       });
-      setSendError(p.message || 'Не получилось отправить запрет');
+      const message = p.message || 'Не получилось отправить запрет';
+      instantBanSendErrorDebug({
+        message,
+        error: p,
+      });
+      setSendError(message);
     },
     onboard,
     refreshUser,
@@ -172,6 +196,8 @@ export function InstantBanFlow({ onClose }: Props) {
   const handleWhatSubmit = useCallback((text: string, duration: number) => {
     setBanText(text);
     setDurationMinutes(duration);
+    flowSendAttemptRef.current = false;
+    sendSnapshotRef.current = null;
     setConfirmEnterKey((k) => k + 1);
     setStep('confirm');
   }, []);
@@ -189,20 +215,67 @@ export function InstantBanFlow({ onClose }: Props) {
     haptic('light');
   }, [user?.username, haptic]);
 
-  const executeSend = useCallback(async () => {
-    if (!token || !selectedUser || inFlight || sharing) return;
-    const text = banText.trim();
-    if (text.length < 3) return;
+  const handleSendContextChange = useCallback(
+    (ctx: { payoffPhase: string; sendTriggered: boolean }) => {
+      confirmSendContextRef.current = ctx;
+    },
+    [],
+  );
 
+  const handleBindAbortRelease = useCallback((abort: () => void) => {
+    confirmAbortReleaseRef.current = abort;
+  }, []);
+
+  const executeSend = useCallback(async (): Promise<boolean> => {
+    const snap = sendSnapshotRef.current;
+    if (!snap) {
+      instantBanDebug('send-skipped', { reason: 'no-snapshot' });
+      return false;
+    }
+
+    const { banText: snapText, selectedUser: snapUser, durationMinutes: snapDuration } =
+      snap;
+
+    instantBanSendBeforeDebug({
+      banText: snapText,
+      selectedUserId: snapUser.id ?? snapUser.userId ?? snapUser.username ?? null,
+      durationMinutes: snapDuration,
+      payoffPhase: confirmSendContextRef.current.payoffPhase,
+      sendTriggered: confirmSendContextRef.current.sendTriggered,
+    });
+
+    if (flowSendAttemptRef.current) {
+      instantBanDebug('send-skipped', { reason: 'duplicate-flow-attempt' });
+      return false;
+    }
+
+    if (!token) {
+      setSendError('Не получилось отправить запрет');
+      return false;
+    }
+
+    if (inFlight || sharing) {
+      instantBanDebug('send-skipped', { reason: 'in-flight', inFlight, sharing });
+      setSendError('Не получилось отправить запрет');
+      return false;
+    }
+
+    const text = snapText.trim();
+    if (text.length < 3) {
+      setSendError('Не получилось отправить запрет');
+      return false;
+    }
+
+    const username = (snapUser.username ?? '').replace(/^@/, '').trim();
+    if (!username) {
+      setSendError('Не получилось отправить запрет');
+      return false;
+    }
+
+    flowSendAttemptRef.current = true;
     setSendError(null);
     triggerConfirmHaptic();
     haptic('medium');
-
-    const username = (selectedUser.username ?? '').replace(/^@/, '').trim();
-    if (!username) {
-      setSendError('Не получилось отправить запрет');
-      return;
-    }
 
     const resolved = safeResolveReceiverTarget(username, safeFriends);
     const devTarget = resolveDevSendTarget(safeFriends, `@${username}`, {
@@ -212,14 +285,15 @@ export function InstantBanFlow({ onClose }: Props) {
 
     const sendTarget = devTarget ?? {
       receiverUsername: `@${username}`,
-      receiverUserId: resolved.receiverUserId ?? selectedUser.userId ?? null,
+      receiverUserId: resolved.receiverUserId ?? snapUser.userId ?? null,
       receiverTelegramId:
-        resolved.receiverTelegramId ?? selectedUser.telegramId ?? null,
+        resolved.receiverTelegramId ?? snapUser.telegramId ?? null,
     };
 
     if (isClientDevAuthEnabled() && !sendTarget.receiverUserId) {
+      flowSendAttemptRef.current = false;
       setSendError('Выбери Dev Peer в списке людей');
-      return;
+      return false;
     }
 
     try {
@@ -230,24 +304,55 @@ export function InstantBanFlow({ onClose }: Props) {
           : `@${sendTarget.receiverUsername}`,
         receiverUserId: sendTarget.receiverUserId,
         receiverTelegramId: sendTarget.receiverTelegramId,
-        durationMinutes: durationMinutes,
+        durationMinutes: snapDuration,
       });
-    } catch {
-      /* onFail sets sendError */
+      return true;
+    } catch (e) {
+      instantBanSendErrorDebug({
+        message: e instanceof Error ? e.message : String(e),
+        error: e,
+      });
+      return true;
     }
   }, [
     token,
-    selectedUser,
     inFlight,
     sharing,
-    banText,
-    durationMinutes,
     haptic,
     safeFriends,
     user?.username,
     user?.id,
     send,
   ]);
+
+  const captureSendSnapshot = useCallback(() => {
+    if (!selectedUser) return false;
+    sendSnapshotRef.current = {
+      banText,
+      selectedUser,
+      durationMinutes,
+    };
+    return true;
+  }, [banText, selectedUser, durationMinutes]);
+
+  const handleConfirmRelease = useCallback(async () => {
+    if (!captureSendSnapshot()) {
+      confirmAbortReleaseRef.current?.();
+      return;
+    }
+
+    const started = await executeSend();
+    if (!started) {
+      flowSendAttemptRef.current = false;
+      confirmAbortReleaseRef.current?.();
+    }
+  }, [captureSendSnapshot, executeSend]);
+
+  const handleRetrySend = useCallback(async () => {
+    flowSendAttemptRef.current = false;
+    if (!captureSendSnapshot()) return;
+    await executeSend();
+  }, [captureSendSnapshot, executeSend]);
 
   const lobbyInfluencePercent = useMemo(() => {
     const { influencePercent } = resolveLobbyInfluencePercent(user);
@@ -301,10 +406,13 @@ export function InstantBanFlow({ onClose }: Props) {
               durationMinutes={durationMinutes}
               sending={inFlight || sharing}
               error={sendError}
-              onConfirm={() => void executeSend()}
+              payoffArmToken={payoffArmToken}
+              onConfirm={() => void handleConfirmRelease()}
               onAgain={resetForAnother}
-              onRetry={() => void executeSend()}
+              onRetry={() => void handleRetrySend()}
               onBack={handleConfirmBack}
+              onSendContextChange={handleSendContextChange}
+              onBindAbortRelease={handleBindAbortRelease}
             />
           ) : null}
         </div>
