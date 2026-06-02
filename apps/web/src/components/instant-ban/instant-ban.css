@@ -715,14 +715,14 @@
     0 0 14px var(--98-power-glow-soft);
   overflow: hidden;
   transition:
-    left 700ms cubic-bezier(0.33, 1, 0.68, 1),
-    top 700ms cubic-bezier(0.33, 1, 0.68, 1),
-    width 700ms cubic-bezier(0.33, 1, 0.68, 1),
-    height 700ms cubic-bezier(0.33, 1, 0.68, 1),
-    border-radius 700ms cubic-bezier(0.33, 1, 0.68, 1),
-    background 700ms ease,
-    border-color 700ms ease,
-    box-shadow 700ms ease;
+    left 2000ms cubic-bezier(0.33, 1, 0.68, 1),
+    top 2000ms cubic-bezier(0.33, 1, 0.68, 1),
+    width 2000ms cubic-bezier(0.33, 1, 0.68, 1),
+    height 2000ms cubic-bezier(0.33, 1, 0.68, 1),
+    border-radius 2000ms cubic-bezier(0.33, 1, 0.68, 1),
+    background 2000ms ease,
+    border-color 2000ms ease,
+    box-shadow 2000ms ease;
 }
 
 .instant-ban-payoff-morph--circle {

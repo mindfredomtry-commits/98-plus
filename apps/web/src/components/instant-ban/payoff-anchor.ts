@@ -7,7 +7,7 @@ export type PayoffAnchor = {
   centerY: number;
 };
 
-export const PAYOFF_MORPH_MS = 700;
+export const PAYOFF_MORPH_MS = 2000;
 export const PAYOFF_CARD_WIDTH = 340;
 export const PAYOFF_CARD_VW = 0.86;
 export const PAYOFF_CARD_MIN_HEIGHT = 240;
