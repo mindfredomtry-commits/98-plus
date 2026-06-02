@@ -75,6 +75,8 @@ type Props = {
   selectedUser: FriendCard;
   initialBanText?: string;
   initialDurationMinutes?: number;
+  /** Unified compose scene title (inside scroll layer). */
+  overlayTitle?: string;
   onSubmit: (text: string, durationMinutes: number) => void;
   onBack: () => void;
 };
@@ -132,6 +134,7 @@ function WhatScreenInner({
   selectedUser,
   initialBanText = '',
   initialDurationMinutes = DEFAULT_DURATION,
+  overlayTitle,
   onSubmit,
   onBack,
 }: Props) {
@@ -331,17 +334,26 @@ function WhatScreenInner({
 
   return (
     <div
-      className="instant-ban-what instant-ban-what-mobile"
+      className={`instant-ban-what instant-ban-what-mobile${
+        overlayTitle ? ' instant-ban-what-mobile--compose-scene' : ''
+      }`}
       data-instant-ban-view="WhatScreen"
     >
-      <button type="button" className="instant-ban-flow__back" onClick={onBack}>
-        ← Назад
-      </button>
       <div
         ref={scrollRef}
-        className="instant-ban-what-scroll"
+        className={`instant-ban-what-scroll${
+          overlayTitle ? ' instant-ban-compose-scene__scroll' : ''
+        }`}
         onScroll={onScroll}
       >
+        {overlayTitle ? (
+          <h1 className="instant-ban-send-overlay__title instant-ban-compose-scene__title">
+            {overlayTitle}
+          </h1>
+        ) : null}
+        <button type="button" className="instant-ban-flow__back" onClick={onBack}>
+          ← Назад
+        </button>
         <WhatSelectedUser user={selectedUser} />
         <label className="instant-ban-what-field">
           {isEmpty ? (

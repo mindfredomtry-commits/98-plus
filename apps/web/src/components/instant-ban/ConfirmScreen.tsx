@@ -7,7 +7,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type RefObject,
 } from 'react';
+import { createPortal } from 'react-dom';
 import type { FriendCard, UserPublic } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { AvatarImage } from '../AvatarImage';
@@ -47,7 +49,10 @@ type ConfirmSendContext = {
 
 type Props = {
   enterKey: number;
-  /** Orb already at lobby center — skip fly-in from viewport center. */
+  /** Mount confirm orb UI into the persistent lobby orb shell (no second orb). */
+  sharedLobbyOrb?: boolean;
+  sharedOrbMountRef?: RefObject<HTMLDivElement | null>;
+  /** @deprecated use sharedLobbyOrb — kept for non-arena callers */
   orbAtLobbyPosition?: boolean;
   influencePercent?: number;
   senderUser: UserPublic | null | undefined;
@@ -147,6 +152,8 @@ function clearPayoffShellStyles(el: HTMLButtonElement | null): void {
 
 export function ConfirmScreen({
   enterKey,
+  sharedLobbyOrb = false,
+  sharedOrbMountRef,
   orbAtLobbyPosition = false,
   influencePercent,
   senderUser,
@@ -183,6 +190,10 @@ export function ConfirmScreen({
   const [bounce, setBounce] = useState(false);
   const enterComplete = enterPhase === 'ready';
   const payoffActive = payoffPhase !== 'none';
+  const useLobbyOrbShell = sharedLobbyOrb;
+  const skipOrbFlyIn = useLobbyOrbShell || orbAtLobbyPosition;
+
+  const [sharedOrbMountReady, setSharedOrbMountReady] = useState(false);
 
   const orbWrapRef = useRef<HTMLDivElement>(null);
   const orbStageRef = useRef<HTMLDivElement>(null);
@@ -318,7 +329,7 @@ export function ConfirmScreen({
     setPayoff('none');
     clearPayoffTimer();
 
-    if (orbAtLobbyPosition) {
+    if (skipOrbFlyIn) {
       setEnterPhase('compressing');
       const readyTimer = window.setTimeout(() => {
         setEnterPhase('ready');
@@ -341,7 +352,36 @@ export function ConfirmScreen({
       window.clearTimeout(compressTimer);
       window.clearTimeout(readyTimer);
     };
-  }, [enterKey, influenceStart, clearPayoffTimer, setPayoff, orbAtLobbyPosition]);
+  }, [enterKey, influenceStart, clearPayoffTimer, setPayoff, skipOrbFlyIn]);
+
+  useLayoutEffect(() => {
+    if (!useLobbyOrbShell || !sharedOrbMountRef?.current) {
+      setSharedOrbMountReady(false);
+      return;
+    }
+    setSharedOrbMountReady(true);
+  }, [useLobbyOrbShell, sharedOrbMountRef, enterKey]);
+
+  useLayoutEffect(() => {
+    const mount = sharedOrbMountRef?.current;
+    if (!useLobbyOrbShell || !mount) return;
+
+    mount.setAttribute('data-enter-phase', enterPhase);
+    mount.setAttribute('data-payoff-phase', payoffPhase);
+    mount.setAttribute('data-confirm-enter-key', String(enterKey));
+
+    return () => {
+      mount.removeAttribute('data-enter-phase');
+      mount.removeAttribute('data-payoff-phase');
+      mount.removeAttribute('data-confirm-enter-key');
+    };
+  }, [
+    useLobbyOrbShell,
+    sharedOrbMountRef,
+    enterPhase,
+    payoffPhase,
+    enterKey,
+  ]);
 
   useEffect(() => {
     if (enterPhase !== 'compressing') return;
@@ -356,7 +396,7 @@ export function ConfirmScreen({
     const stage = orbStageRef.current;
     if (!wrap || !stage) return;
 
-    if (orbAtLobbyPosition) {
+    if (skipOrbFlyIn) {
       stage.style.setProperty('--orb-enter-x', '0px');
       stage.style.setProperty('--orb-enter-y', '0px');
       return;
@@ -377,7 +417,7 @@ export function ConfirmScreen({
 
     stage.style.setProperty('--orb-enter-x', `${lobbyCenterX - wrapCenterX}px`);
     stage.style.setProperty('--orb-enter-y', `${lobbyCenterY - wrapCenterY}px`);
-  }, [enterKey, orbAtLobbyPosition]);
+  }, [enterKey, skipOrbFlyIn]);
 
   useLayoutEffect(() => {
     const btn = orbBtnRef.current;
@@ -615,14 +655,89 @@ export function ConfirmScreen({
   const showOrbFace =
     payoffPhase === 'none' || payoffPhase === 'impact' || payoffPhase === 'morph';
 
-  return (
+  const orbShell = (
     <div
-      className="instant-ban-confirm"
-      data-confirm-enter-key={enterKey}
-      data-enter-phase={enterPhase}
-      data-payoff-phase={payoffPhase}
-      data-instant-ban-view="ConfirmScreen"
+      ref={orbWrapRef}
+      className={`instant-ban-confirm-orb-wrap${
+        useLobbyOrbShell ? ' instant-ban-confirm-orb-wrap--lobby-shared' : ''
+      }${
+        payoffPhase === 'morph' ||
+        payoffPhase === 'settle' ||
+        payoffPhase === 'reveal' ||
+        payoffPhase === 'cta' ||
+        payoffPhase === 'ready'
+          ? ' instant-ban-confirm-orb-wrap--payoff'
+          : ''
+      }`}
     >
+      <div ref={orbStageRef} className="instant-ban-confirm-orb-stage">
+        <button
+          ref={orbBtnRef}
+          type="button"
+          className={orbBtnClass}
+          disabled={
+            (sending && !payoffActive) ||
+            (!enterComplete && !payoffActive) ||
+            (payoffActive && payoffPhase !== 'ready')
+          }
+          aria-label={
+            payoffActive
+              ? 'Запрет отправлен'
+              : 'Зажми 98+ чтобы отправить запрет'
+          }
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerCancel}
+          onPointerLeave={handlePointerLeave}
+        >
+          {showOrbFace ? (
+            <span className="instant-ban-confirm-orb-face">
+              <span className="instant-ban-confirm-orb-ring">
+                <InfluenceRing
+                  value={ringProgress}
+                  className="instant-ban-confirm-influence-ring"
+                />
+              </span>
+              <span className="instant-ban-confirm-orb lobby-screen__orb">
+                <span className="instant-ban-confirm-orb__title lobby-screen__title">
+                  98+
+                </span>
+              </span>
+            </span>
+          ) : null}
+          {showPayoffContent ? (
+            <SuccessPayoffReveal
+              senderUser={senderUser}
+              selectedUser={selectedUser}
+              banText={banText}
+              durationMinutes={durationMinutes}
+              showCta={showPayoffCta}
+              onAgain={payoffPhase === 'ready' ? onAgain : undefined}
+            />
+          ) : null}
+        </button>
+      </div>
+      {!payoffActive ? (
+        <>
+          <p
+            className={`instant-ban-status instant-ban-confirm-enter instant-ban-confirm-enter--5${
+              error ? ' instant-ban-status--error' : ''
+            }`}
+          >
+            {statusLabel}
+          </p>
+          {error ? (
+            <button type="button" className="instant-ban-secondary" onClick={onRetry}>
+              Попробовать снова
+            </button>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+
+  const copyBlock = (
+    <>
       {!payoffActive ? (
         <button type="button" className="instant-ban-flow__back" onClick={onBack}>
           ← Назад
@@ -652,80 +767,39 @@ export function ConfirmScreen({
           &ldquo;{trimmed}&rdquo;
         </em>
       </div>
-      <div
-        ref={orbWrapRef}
-        className={`instant-ban-confirm-orb-wrap${
-          payoffPhase === 'morph' ||
-          payoffPhase === 'settle' ||
-          payoffPhase === 'reveal' ||
-          payoffPhase === 'cta' ||
-          payoffPhase === 'ready'
-            ? ' instant-ban-confirm-orb-wrap--payoff'
-            : ''
-        }`}
-      >
-        <div ref={orbStageRef} className="instant-ban-confirm-orb-stage">
-          <button
-            ref={orbBtnRef}
-            type="button"
-            className={orbBtnClass}
-            disabled={
-              (sending && !payoffActive) ||
-              (!enterComplete && !payoffActive) ||
-              (payoffActive && payoffPhase !== 'ready')
-            }
-            aria-label={
-              payoffActive
-                ? 'Запрет отправлен'
-                : 'Зажми 98+ чтобы отправить запрет'
-            }
-            onPointerDown={handlePointerDown}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerCancel}
-            onPointerLeave={handlePointerLeave}
-          >
-            {showOrbFace ? (
-              <span className="instant-ban-confirm-orb-face">
-                <span className="instant-ban-confirm-orb-ring">
-                  <InfluenceRing
-                    value={ringProgress}
-                    className="instant-ban-confirm-influence-ring"
-                  />
-                </span>
-                <span className="instant-ban-confirm-orb">
-                  <span className="instant-ban-confirm-orb__title">98+</span>
-                </span>
-              </span>
-            ) : null}
-            {showPayoffContent ? (
-              <SuccessPayoffReveal
-                senderUser={senderUser}
-                selectedUser={selectedUser}
-                banText={banText}
-                durationMinutes={durationMinutes}
-                showCta={showPayoffCta}
-                onAgain={payoffPhase === 'ready' ? onAgain : undefined}
-              />
-            ) : null}
-          </button>
+    </>
+  );
+
+  if (useLobbyOrbShell) {
+    const mountNode = sharedOrbMountRef?.current;
+    return (
+      <>
+        <div
+          className="instant-ban-confirm instant-ban-confirm--shared-lobby"
+          data-confirm-enter-key={enterKey}
+          data-enter-phase={enterPhase}
+          data-payoff-phase={payoffPhase}
+          data-instant-ban-view="ConfirmScreen"
+        >
+          {copyBlock}
         </div>
-        {!payoffActive ? (
-          <>
-            <p
-              className={`instant-ban-status instant-ban-confirm-enter instant-ban-confirm-enter--5${
-                error ? ' instant-ban-status--error' : ''
-              }`}
-            >
-              {statusLabel}
-            </p>
-            {error ? (
-              <button type="button" className="instant-ban-secondary" onClick={onRetry}>
-                Попробовать снова
-              </button>
-            ) : null}
-          </>
-        ) : null}
-      </div>
+        {sharedOrbMountReady && mountNode
+          ? createPortal(orbShell, mountNode)
+          : null}
+      </>
+    );
+  }
+
+  return (
+    <div
+      className="instant-ban-confirm"
+      data-confirm-enter-key={enterKey}
+      data-enter-phase={enterPhase}
+      data-payoff-phase={payoffPhase}
+      data-instant-ban-view="ConfirmScreen"
+    >
+      {copyBlock}
+      {orbShell}
     </div>
   );
 }

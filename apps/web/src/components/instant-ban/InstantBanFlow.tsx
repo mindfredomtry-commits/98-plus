@@ -132,10 +132,10 @@ export function InstantBanFlow({
   const confirmAbortReleaseRef = useRef<(() => void) | null>(null);
   const payoffArmedRef = useRef(false);
   const payoffArmTokenRef = useRef(0);
+  const lobbyOrbMountRef = useRef<HTMLDivElement>(null);
 
   const legacyStep = legacyStepFromPhase(phase);
   const overlayOpen = phase === 'selectingTarget' || phase === 'composingBan';
-  const showLobbyOrb = phase !== 'confirming';
 
   useInstantBanViewport(phase === 'composingBan');
 
@@ -467,25 +467,29 @@ export function InstantBanFlow({
       </div>
 
       <div className="instant-ban-arena-send__stage">
-        {showLobbyOrb ? (
-          <div
-            className={`lobby-screen__orb-wrap${
-              overlayOpen ? ' lobby-screen__orb-wrap--overlay-dim' : ''
-            }`}
-          >
-            <InfluenceRing value={lobbyInfluencePercent} />
-            <div className="lobby-screen__orb">
-              <span className="lobby-screen__title">98+</span>
-            </div>
-          </div>
-        ) : null}
+        <div
+          ref={lobbyOrbMountRef}
+          className={`lobby-screen__orb-wrap${
+            phase === 'confirming' ? ' lobby-screen__orb-wrap--confirm' : ''
+          }${overlayOpen ? ' lobby-screen__orb-wrap--overlay-dim' : ''}`}
+        >
+          {phase !== 'confirming' ? (
+            <>
+              <InfluenceRing value={lobbyInfluencePercent} />
+              <div className="lobby-screen__orb">
+                <span className="lobby-screen__title">98+</span>
+              </div>
+            </>
+          ) : null}
+        </div>
 
         {phase === 'confirming' && selectedUser ? (
           <div className="instant-ban-arena-send__confirm-layer">
             <ConfirmScreen
               key={`confirm-${confirmEnterKey}-${selectedUser.id ?? selectedUser.userId ?? selectedUser.username}`}
               enterKey={confirmEnterKey}
-              orbAtLobbyPosition
+              sharedLobbyOrb
+              sharedOrbMountRef={lobbyOrbMountRef}
               influencePercent={lobbyInfluencePercent}
               senderUser={user}
               selectedUser={selectedUser}
@@ -505,29 +509,35 @@ export function InstantBanFlow({
         ) : null}
 
         {overlayOpen ? (
-          <div className="instant-ban-send-overlay" role="presentation">
-            <div className="instant-ban-send-overlay__panel">
-              <h1 className="instant-ban-send-overlay__title">{overlayTitle}</h1>
-              <div className="instant-ban-send-overlay__body">
-                {phase === 'selectingTarget' ? (
+          <div
+            className={`instant-ban-send-overlay${
+              phase === 'composingBan' ? ' instant-ban-send-overlay--compose' : ''
+            }`}
+            role="presentation"
+          >
+            {phase === 'selectingTarget' ? (
+              <div className="instant-ban-send-overlay__panel">
+                <h1 className="instant-ban-send-overlay__title">{overlayTitle}</h1>
+                <div className="instant-ban-send-overlay__body">
                   <WhoScreen
                     friends={safeFriends}
                     onSelect={handleSelectUser}
                     onInviteMore={handleInviteMore}
                   />
-                ) : null}
-                {phase === 'composingBan' && selectedUser ? (
-                  <WhatScreen
-                    key={selectedUser.id ?? selectedUser.userId ?? selectedUser.username}
-                    selectedUser={selectedUser}
-                    initialBanText={banText}
-                    initialDurationMinutes={durationMinutes}
-                    onSubmit={handleWhatSubmit}
-                    onBack={handleWhatBack}
-                  />
-                ) : null}
+                </div>
               </div>
-            </div>
+            ) : null}
+            {phase === 'composingBan' && selectedUser ? (
+              <WhatScreen
+                key={selectedUser.id ?? selectedUser.userId ?? selectedUser.username}
+                overlayTitle={overlayTitle}
+                selectedUser={selectedUser}
+                initialBanText={banText}
+                initialDurationMinutes={durationMinutes}
+                onSubmit={handleWhatSubmit}
+                onBack={handleWhatBack}
+              />
+            ) : null}
           </div>
         ) : null}
       </div>
