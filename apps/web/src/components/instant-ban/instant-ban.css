@@ -324,11 +324,43 @@
   align-items: center;
 }
 
-.instant-ban-confirm-copy__subject strong {
+.instant-ban-confirm-copy__subject strong,
+.instant-ban-confirm-info__name {
   display: block;
   margin-top: 0.35rem;
   color: var(--98-text-primary);
   font-weight: 800;
+  font-size: 1.125rem;
+}
+
+.instant-ban-confirm-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0;
+}
+
+.instant-ban-confirm-info__label {
+  display: block;
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.62);
+  letter-spacing: 0.02em;
+}
+
+.instant-ban-confirm-info__avatar {
+  margin: 0.5rem auto 0.35rem;
+}
+
+.instant-ban-confirm-info__ban {
+  display: block;
+  margin-top: 0.25rem;
+  font-style: normal;
+  color: var(--98-purple-soft);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  max-width: 20rem;
 }
 
 .instant-ban-confirm-copy em {
@@ -360,30 +392,38 @@
   opacity: 0;
 }
 
-.instant-ban-confirm[data-enter-phase='lobby-orb'] .instant-ban-confirm-copy {
+.instant-ban-confirm[data-enter-phase='lobby-orb'] .instant-ban-confirm-copy,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='lobby-orb'] .instant-ban-confirm-info {
   opacity: 0;
   visibility: hidden;
 }
 
-.instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-copy {
+.instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-copy,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='compressing'] .instant-ban-confirm-info {
   visibility: visible;
 }
 
-.instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-enter--1 {
+.instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-enter--1,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='compressing']
+  .instant-ban-confirm-enter--1 {
   visibility: visible;
   animation: instant-ban-confirm-reveal 240ms ease forwards;
   animation-delay: 0ms;
   will-change: opacity, transform;
 }
 
-.instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-enter--2 {
+.instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-enter--2,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='compressing']
+  .instant-ban-confirm-enter--2 {
   visibility: visible;
   animation: instant-ban-confirm-reveal 240ms ease forwards;
   animation-delay: 120ms;
   will-change: opacity, transform;
 }
 
-.instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-enter--3 {
+.instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-enter--3,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='compressing']
+  .instant-ban-confirm-enter--3 {
   visibility: visible;
   animation: instant-ban-confirm-reveal 240ms ease forwards;
   animation-delay: 240ms;
@@ -391,13 +431,18 @@
 }
 
 .instant-ban-confirm[data-enter-phase='ready'] .instant-ban-confirm-copy,
-.instant-ban-confirm[data-enter-phase='ready'] .instant-ban-confirm-copy .instant-ban-confirm-enter {
+.instant-ban-confirm[data-enter-phase='ready'] .instant-ban-confirm-copy .instant-ban-confirm-enter,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='ready'] .instant-ban-confirm-info,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='ready']
+  .instant-ban-confirm-info
+  .instant-ban-confirm-enter {
   opacity: 1;
   visibility: visible;
   transform: none;
 }
 
-.instant-ban-confirm[data-enter-phase='ready'] .instant-ban-confirm-enter--5 {
+.instant-ban-confirm[data-enter-phase='ready'] .instant-ban-confirm-enter--5,
+.lobby-screen__orb-wrap--confirm[data-enter-phase='ready'] .instant-ban-confirm-enter--5 {
   animation: instant-ban-confirm-reveal 200ms ease forwards;
   animation-delay: 0ms;
 }
@@ -1568,46 +1613,58 @@
 .instant-ban-arena-send__confirm-layer {
   position: absolute;
   inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+/* Shared lobby confirm — info above, orb portaled separately below */
+.instant-ban-confirm-layout--shared-lobby {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  padding: calc(env(safe-area-inset-top, 0px) + 0.5rem) 1.25rem 0;
+  box-sizing: border-box;
+}
+
+.instant-ban-confirm-layout__back,
+.instant-ban-confirm-layout--shared-lobby .instant-ban-confirm-info,
+.instant-ban-confirm-layout--shared-lobby .instant-ban-flow__back {
+  pointer-events: auto;
+}
+
+.instant-ban-confirm-layout__back {
+  align-self: flex-start;
+  margin-bottom: 0.25rem;
+}
+
+.instant-ban-arena-send[data-send-phase='confirming'] .instant-ban-confirm-layout--shared-lobby
+  .instant-ban-confirm-info {
+  margin-top: clamp(6vh, 48px, 12vh);
+  margin-bottom: 0;
+  max-width: min(100%, 340px);
+  padding: 0;
+  z-index: 2;
+}
+
+.instant-ban-arena-send[data-send-phase='confirming'] .lobby-screen__orb-wrap--confirm {
+  position: absolute;
+  left: 50%;
+  top: clamp(46vh, 380px, 54vh);
+  width: var(--98-confirm-orb-size);
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  transform: translate(-50%, -50%);
+  z-index: 4;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  z-index: 6;
-  pointer-events: none;
-  padding: 0 1.25rem;
-  box-sizing: border-box;
-}
-
-.instant-ban-confirm--shared-lobby {
-  display: contents;
-}
-
-.instant-ban-confirm--shared-lobby .instant-ban-flow__back,
-.instant-ban-confirm--shared-lobby .instant-ban-confirm-copy,
-.instant-ban-confirm--shared-lobby .instant-ban-status,
-.instant-ban-confirm--shared-lobby .instant-ban-secondary {
-  pointer-events: auto;
-}
-
-.instant-ban-arena-send[data-send-phase='confirming'] .instant-ban-arena-send__confirm-layer {
-  justify-content: flex-end;
-  padding-bottom: calc(
-    var(--98-lobby-orb-wrap-margin-bottom) + var(--98-lobby-orb-wrap-size) * 0.55
-  );
-}
-
-.instant-ban-arena-send[data-send-phase='confirming'] .instant-ban-confirm-copy {
-  position: relative;
-  z-index: 2;
-  margin-bottom: 0.5rem;
-  max-width: min(100%, 340px);
-  padding: 0;
-  text-align: center;
-}
-
-.instant-ban-confirm--shared-lobby .instant-ban-confirm-copy {
-  width: 100%;
-  max-width: min(100%, 340px);
 }
 
 .lobby-screen__orb-wrap--confirm {
@@ -1620,17 +1677,40 @@
   align-items: center;
   width: 100%;
   margin-top: 0;
-  padding: 0;
-  min-height: var(--98-lobby-orb-wrap-size);
-  gap: 0.5rem;
+  padding: 0 0 clamp(0.75rem, 4vh, 1.5rem);
+  min-height: 0;
+  gap: 0.625rem;
 }
 
 .lobby-screen__orb-wrap--confirm .instant-ban-confirm-orb-stage,
 .instant-ban-confirm-orb-wrap--lobby-shared .instant-ban-confirm-orb-stage {
-  width: var(--98-lobby-orb-wrap-size);
-  height: var(--98-lobby-orb-wrap-size);
-  transform: none !important;
-  animation: none !important;
+  width: var(--98-confirm-orb-size);
+  height: var(--98-confirm-orb-size);
+  flex-shrink: 0;
+  transform-origin: center center;
+}
+
+.lobby-screen__orb-wrap--confirm[data-enter-phase='lobby-orb'] .instant-ban-confirm-orb-stage {
+  transform: scale(calc(1 / var(--98-confirm-orb-scale-from-lobby)));
+}
+
+.lobby-screen__orb-wrap--confirm[data-enter-phase='compressing'] .instant-ban-confirm-orb-stage {
+  animation: instant-ban-confirm-orb-settle var(--98-confirm-enter-compress-ms)
+    ease-in-out forwards;
+  pointer-events: none;
+}
+
+.lobby-screen__orb-wrap--confirm[data-enter-phase='ready'] .instant-ban-confirm-orb-stage {
+  transform: translate(0, 0) scale(1);
+}
+
+.lobby-screen__orb-wrap--confirm[data-enter-phase='lobby-orb'] .instant-ban-confirm-orb-btn,
+.lobby-screen__orb-wrap--confirm[data-enter-phase='compressing'] .instant-ban-confirm-orb-btn {
+  pointer-events: none;
+}
+
+.lobby-screen__orb-wrap--confirm[data-enter-phase='ready'] .instant-ban-confirm-orb-btn {
+  pointer-events: auto;
 }
 
 .lobby-screen__orb-wrap--confirm .instant-ban-confirm-orb-btn,
@@ -1647,6 +1727,12 @@
 
 .lobby-screen__orb-wrap--confirm .instant-ban-confirm-orb__title.lobby-screen__title,
 .instant-ban-confirm-orb-wrap--lobby-shared .instant-ban-confirm-orb__title.lobby-screen__title {
+  font-size: var(--98-confirm-orb-title-size);
+  transition: font-size var(--98-confirm-enter-compress-ms) ease-in-out;
+}
+
+.lobby-screen__orb-wrap--confirm[data-enter-phase='lobby-orb']
+  .instant-ban-confirm-orb__title.lobby-screen__title {
   font-size: var(--98-lobby-orb-title-size);
 }
 
@@ -1658,6 +1744,23 @@
   .influence-ring__progress {
   transition-duration: var(--98-confirm-enter-compress-ms);
   transition-timing-function: ease-in-out;
+}
+
+.lobby-screen__orb-wrap--confirm[data-enter-phase='lobby-orb'] .instant-ban-status,
+.lobby-screen__orb-wrap--confirm[data-enter-phase='compressing'] .instant-ban-status {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.lobby-screen__orb-wrap--confirm[data-enter-phase='ready'] .instant-ban-status {
+  opacity: 1;
+  visibility: visible;
+}
+
+.lobby-screen__orb-wrap--confirm .instant-ban-confirm-orb-wrap .instant-ban-status {
+  margin-top: 0.125rem;
+  text-align: center;
+  pointer-events: none;
 }
 
 .lobby-screen__orb-wrap--confirm .instant-ban-confirm-orb-btn--holding .instant-ban-confirm-orb-ring,

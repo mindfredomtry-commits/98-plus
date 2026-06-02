@@ -330,12 +330,16 @@ export function ConfirmScreen({
     clearPayoffTimer();
 
     if (skipOrbFlyIn) {
-      setEnterPhase('compressing');
+      setEnterPhase('lobby-orb');
+      const compressTimer = window.setTimeout(() => {
+        setEnterPhase('compressing');
+      }, 32);
       const readyTimer = window.setTimeout(() => {
         setEnterPhase('ready');
-      }, CONFIRM_ENTER_COMPRESS_MS);
+      }, 32 + CONFIRM_ENTER_COMPRESS_MS);
 
       return () => {
+        window.clearTimeout(compressTimer);
         window.clearTimeout(readyTimer);
       };
     }
@@ -736,6 +740,33 @@ export function ConfirmScreen({
     </div>
   );
 
+  const confirmInfoBlock = (
+    <div
+      className={`instant-ban-confirm-info instant-ban-confirm-copy${
+        payoffActive ? ' instant-ban-confirm-copy--hidden' : ''
+      }`}
+    >
+      <span className="instant-ban-confirm-info__label instant-ban-confirm-copy__lead instant-ban-confirm-enter instant-ban-confirm-enter--1">
+        Ты запрещаешь
+      </span>
+      <strong className="instant-ban-confirm-info__name instant-ban-confirm-enter instant-ban-confirm-enter--2">
+        {name}
+      </strong>
+      <div className="instant-ban-confirm-info__avatar instant-ban-confirm-copy__avatar instant-ban-confirm-enter instant-ban-confirm-enter--2">
+        <AvatarImage
+          src={friendAvatarUrl(selectedUser)}
+          letter={letter}
+          sizeClass="w-12 h-12"
+          textClass="text-base"
+          priority
+        />
+      </div>
+      <em className="instant-ban-confirm-info__ban instant-ban-confirm-enter instant-ban-confirm-enter--3">
+        &ldquo;{trimmed}&rdquo;
+      </em>
+    </div>
+  );
+
   const copyBlock = (
     <>
       {!payoffActive ? (
@@ -743,30 +774,7 @@ export function ConfirmScreen({
           ← Назад
         </button>
       ) : null}
-      <div
-        className={`instant-ban-confirm-copy${
-          payoffActive ? ' instant-ban-confirm-copy--hidden' : ''
-        }`}
-      >
-        <span className="instant-ban-confirm-copy__lead instant-ban-confirm-enter instant-ban-confirm-enter--1">
-          Ты запрещаешь
-        </span>
-        <div className="instant-ban-confirm-copy__subject instant-ban-confirm-enter instant-ban-confirm-enter--2">
-          <strong>{name}</strong>
-          <div className="instant-ban-confirm-copy__avatar">
-            <AvatarImage
-              src={friendAvatarUrl(selectedUser)}
-              letter={letter}
-              sizeClass="w-12 h-12"
-              textClass="text-base"
-              priority
-            />
-          </div>
-        </div>
-        <em className="instant-ban-confirm-enter instant-ban-confirm-enter--3">
-          &ldquo;{trimmed}&rdquo;
-        </em>
-      </div>
+      {confirmInfoBlock}
     </>
   );
 
@@ -775,13 +783,22 @@ export function ConfirmScreen({
     return (
       <>
         <div
-          className="instant-ban-confirm instant-ban-confirm--shared-lobby"
+          className="instant-ban-confirm instant-ban-confirm-layout instant-ban-confirm-layout--shared-lobby"
           data-confirm-enter-key={enterKey}
           data-enter-phase={enterPhase}
           data-payoff-phase={payoffPhase}
           data-instant-ban-view="ConfirmScreen"
         >
-          {copyBlock}
+          {!payoffActive ? (
+            <button
+              type="button"
+              className="instant-ban-confirm-layout__back instant-ban-flow__back"
+              onClick={onBack}
+            >
+              ← Назад
+            </button>
+          ) : null}
+          {confirmInfoBlock}
         </div>
         {sharedOrbMountReady && mountNode
           ? createPortal(orbShell, mountNode)
