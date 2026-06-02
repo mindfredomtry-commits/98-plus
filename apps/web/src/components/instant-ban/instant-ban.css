@@ -1722,6 +1722,35 @@
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   touch-action: pan-y;
+  /* Soft dissolve at top edge — content fades into arena, not hard clip */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    rgba(0, 0, 0, 0.2) max(6px, 1.5%),
+    rgba(0, 0, 0, 0.72) max(18px, 5%),
+    #000 max(34px, 10%),
+    #000 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    rgba(0, 0, 0, 0.2) max(6px, 1.5%),
+    rgba(0, 0, 0, 0.72) max(18px, 5%),
+    #000 max(34px, 10%),
+    #000 100%
+  );
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+    .instant-ban-what-scroll {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
