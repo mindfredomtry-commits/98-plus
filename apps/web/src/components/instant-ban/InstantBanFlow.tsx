@@ -479,6 +479,18 @@ export function InstantBanFlow({
 
   const confirmActive = phase === 'confirming' && selectedUser != null;
 
+  useEffect(() => {
+    if (!confirmActive) {
+      setConfirmLayoutActive(false);
+      return;
+    }
+    setConfirmLayoutActive(false);
+    const timer = window.setTimeout(() => {
+      setConfirmLayoutActive(true);
+    }, CONFIRM_COMPRESS_HOLD_MS);
+    return () => window.clearTimeout(timer);
+  }, [confirmActive, confirmEnterKey]);
+
   const confirmOrb = useConfirmOrbController({
     active: confirmActive,
     enterKey: confirmEnterKey,

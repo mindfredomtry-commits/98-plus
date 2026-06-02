@@ -71,7 +71,7 @@
   50% { transform: translate(6px, -14px) scale(1.15); opacity: 0.55; }
 }
 
-.lobby-screen__orb-wrap {
+.lobby-screen__orb-wrap:not(.lobby-screen__orb-root) {
   position: relative;
   z-index: 2;
   display: flex;

@@ -1660,7 +1660,7 @@
 }
 
 /* Persistent lobby orb — same slot, animated size (no position jump / no remount) */
-.lobby-screen__orb-root {
+.lobby-screen__orb-wrap.lobby-screen__orb-root {
   --arena-orb-size: var(--98-lobby-orb-wrap-size);
   --arena-orb-margin-bottom: var(--98-lobby-orb-wrap-margin-bottom);
   width: var(--arena-orb-size);
@@ -1699,11 +1699,7 @@
 .instant-ban-arena-lobby-orb__stage {
   width: 100%;
   height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transform: scale(1);
-  transform-origin: center center;
+  display: block;
 }
 
 .instant-ban-arena-lobby-orb__btn,
@@ -1729,7 +1725,6 @@
 .instant-ban-arena-lobby-orb__face {
   position: absolute;
   inset: 0;
-  display: block;
   opacity: 1;
   visibility: visible;
   transition: opacity 220ms ease;
@@ -1741,34 +1736,94 @@
   pointer-events: none;
 }
 
-.instant-ban-arena-lobby-orb__ring {
+/* Ring + 98+ share one box; only .lobby-screen__orb-root resizes */
+.instant-ban-arena-lobby-orb__core {
   position: absolute;
   inset: 0;
-  border-radius: 50%;
   transform: scale(1);
   transform-origin: center center;
-  transition: transform var(--98-confirm-enter-compress-ms) ease-in-out;
 }
 
-.lobby-screen__orb-root .lobby-screen__orb {
-  position: relative;
+.lobby-screen__orb-root .instant-ban-arena-lobby-orb__core .instant-ban-confirm-influence-ring,
+.lobby-screen__orb-root .instant-ban-arena-lobby-orb__core .influence-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+  transform-origin: center center;
+}
+
+.lobby-screen__orb-root .instant-ban-arena-lobby-orb__core .lobby-screen__orb {
+  position: absolute;
+  inset: 0;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: auto;
   height: auto;
+  margin: 0;
+  transform: none;
+  transition: none;
 }
 
+/* Enter compress: no per-layer scale — only orb-root width/height */
+.lobby-screen__orb-root .instant-ban-arena-lobby-orb__core.instant-ban-confirm-orb-ring {
+  transform: none;
+  transition: none;
+  animation: none;
+}
+
+.lobby-screen__orb-root .instant-ban-confirm-orb-btn--holding .instant-ban-confirm-orb-ring,
+.lobby-screen__orb-root .instant-ban-confirm-orb-btn--ready .instant-ban-confirm-orb-ring,
+.lobby-screen__orb-root .instant-ban-confirm-orb-btn--releasing .instant-ban-confirm-orb-ring,
+.lobby-screen__orb-root .instant-ban-confirm-orb-btn--bounce .instant-ban-confirm-orb-ring {
+  transform: none;
+  animation: none;
+}
+
+.lobby-screen__orb-root .instant-ban-confirm-orb-btn--holding .instant-ban-arena-lobby-orb__core {
+  transform: scale(0.95);
+  transition: transform 950ms cubic-bezier(0.34, 1.12, 0.64, 1);
+}
+
+.lobby-screen__orb-root .instant-ban-confirm-orb-btn--ready .instant-ban-arena-lobby-orb__core {
+  transform: scale(0.92);
+  transition: transform 950ms cubic-bezier(0.34, 1.12, 0.64, 1);
+}
+
+.lobby-screen__orb-root .instant-ban-confirm-orb-btn--releasing .instant-ban-arena-lobby-orb__core {
+  transform: scale(1);
+  transition: transform 950ms cubic-bezier(0.34, 1.12, 0.64, 1);
+}
+
+.lobby-screen__orb-root .instant-ban-confirm-orb-btn--bounce .instant-ban-arena-lobby-orb__core {
+  animation: instant-ban-confirm-orb-bounce 450ms ease;
+}
+
+.lobby-screen__orb-root .instant-ban-confirm-orb-btn--holding .instant-ban-confirm-orb,
+.lobby-screen__orb-root .instant-ban-confirm-orb-btn--ready .instant-ban-confirm-orb,
+.lobby-screen__orb-root .instant-ban-confirm-orb-btn--releasing .instant-ban-confirm-orb,
+.lobby-screen__orb-root .instant-ban-confirm-orb-btn--holding .lobby-screen__orb,
+.lobby-screen__orb-root .instant-ban-confirm-orb-btn--ready .lobby-screen__orb {
+  transform: none;
+}
+
+/* 98+ scales with OrbRoot only — no separate title tween */
 .lobby-screen__orb-root .lobby-screen__title {
-  transition: font-size var(--98-confirm-enter-compress-ms) ease-in-out;
+  font-size: calc(var(--arena-orb-size) * 0.13393);
+  line-height: 1;
+  transition: none;
 }
 
-.lobby-screen__orb-root[data-enter-phase='lobby-orb'] .lobby-screen__title,
-.lobby-screen__orb-root:not([data-enter-phase]) .lobby-screen__title {
-  font-size: var(--98-lobby-orb-title-size);
-}
-
-.lobby-screen__orb-root[data-enter-phase='compressing'] .lobby-screen__title,
-.lobby-screen__orb-root[data-enter-phase='ready'] .lobby-screen__title {
-  font-size: var(--98-confirm-orb-title-size);
+.lobby-screen__orb-root[data-enter-phase='ready']
+  .instant-ban-arena-lobby-orb__btn:not(.instant-ban-confirm-orb-btn--holding):not(
+    .instant-ban-confirm-orb-btn--ready
+  ):not(.instant-ban-confirm-orb-btn--releasing)
+  .instant-ban-arena-lobby-orb__core {
+  animation: instant-ban-ring-breathe 2.9s ease-in-out infinite;
+  transform-origin: center center;
 }
 
 .lobby-screen__orb-root[data-enter-phase='compressing']
@@ -1822,7 +1877,8 @@
 .lobby-screen__orb-wrap--confirm .instant-ban-confirm-orb-btn--holding .instant-ban-confirm-orb-ring,
 .lobby-screen__orb-wrap--confirm .instant-ban-confirm-orb-btn--ready .instant-ban-confirm-orb-ring,
 .lobby-screen__orb-wrap--confirm .instant-ban-confirm-orb-btn--releasing .instant-ban-confirm-orb-ring {
-  transition: transform 950ms cubic-bezier(0.34, 1.12, 0.64, 1);
+  transform: none;
+  transition: none;
 }
 
 .lobby-screen__orb-wrap--confirm .instant-ban-confirm-orb-btn--ready
