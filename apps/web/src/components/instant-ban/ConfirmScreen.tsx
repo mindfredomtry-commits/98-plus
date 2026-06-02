@@ -554,7 +554,10 @@ export function ConfirmScreen({
     payoffPhase === 'ready';
   const showPayoffCta = payoffPhase === 'cta' || payoffPhase === 'ready';
   const showOrbFace =
-    payoffPhase === 'none' || payoffPhase === 'impact';
+    payoffPhase === 'none' ||
+    payoffPhase === 'impact' ||
+    payoffPhase === 'morph' ||
+    payoffPhase === 'settle';
 
   return (
     <div

@@ -745,7 +745,7 @@
   pointer-events: none;
 }
 
-/* Один внешний контур: shell = форма. Без card-skin и без дочернего orb во время morph. */
+/* Shell = одна форма; заливка карточки только с card-skin (settle+). */
 .instant-ban-confirm-orb-btn--payoff-shell {
   position: fixed;
   z-index: 40;
@@ -754,10 +754,20 @@
   transform: translate(-50%, -50%);
   transform-origin: center center;
   overflow: hidden;
-  background: #050308;
-  border: none;
-  box-shadow: 0 0 18px rgba(var(--98-accent-rgb), 0.14);
+  background: transparent;
+  border: 1px solid rgba(var(--98-accent-rgb), 0.28);
+  box-shadow:
+    0 0 20px rgba(var(--98-accent-rgb), 0.16),
+    inset 0 0 48px rgba(5, 3, 8, 0.72);
   transition: none;
+}
+
+.instant-ban-confirm-orb-btn--payoff-impact .instant-ban-confirm-orb-face,
+.instant-ban-confirm-orb-btn--payoff-impact .instant-ban-confirm-orb-ring,
+.instant-ban-confirm-orb-btn--payoff-impact .instant-ban-confirm-orb,
+.instant-ban-confirm-orb-btn--payoff-impact .instant-ban-confirm-orb__title {
+  opacity: 1;
+  visibility: visible;
 }
 
 .instant-ban-confirm-orb-btn--payoff-geometry {
@@ -768,6 +778,50 @@
 .instant-ban-confirm-orb-btn--payoff-geometry-run {
   animation: instant-ban-payoff-geometry var(--98-payoff-morph-ms)
     cubic-bezier(0.34, 1.12, 0.64, 1) forwards;
+}
+
+.instant-ban-confirm-orb-btn--payoff-geometry-run .instant-ban-confirm-orb-face {
+  animation: instant-ban-payoff-face-fade var(--98-payoff-morph-ms)
+    cubic-bezier(0.34, 1.12, 0.64, 1) forwards;
+}
+
+.instant-ban-confirm-orb-btn--payoff-geometry .instant-ban-confirm-orb-ring,
+.instant-ban-confirm-orb-btn--payoff-geometry-run .instant-ban-confirm-orb-ring {
+  animation: instant-ban-payoff-ring-fade var(--98-payoff-morph-ms)
+    cubic-bezier(0.34, 1.12, 0.64, 1) forwards;
+  transition: none;
+}
+
+.instant-ban-confirm-orb-btn--payoff-geometry .instant-ban-confirm-orb,
+.instant-ban-confirm-orb-btn--payoff-geometry-run .instant-ban-confirm-orb {
+  animation: none !important;
+  transform: scale(1);
+}
+
+@keyframes instant-ban-payoff-face-fade {
+  0%,
+  68% {
+    opacity: 1;
+    visibility: visible;
+  }
+  82%,
+  100% {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+@keyframes instant-ban-payoff-ring-fade {
+  0%,
+  74% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  88%,
+  100% {
+    opacity: 0;
+    visibility: hidden;
+  }
 }
 
 @keyframes instant-ban-payoff-geometry {
@@ -844,6 +898,11 @@
   55% {
     transform: translate(-50%, -50%) scale(1.03);
   }
+}
+
+.instant-ban-confirm-orb-btn--payoff-settle .instant-ban-confirm-orb-face {
+  opacity: 0;
+  visibility: hidden;
 }
 
 .instant-ban-confirm-orb-btn--payoff-settle {
@@ -1143,6 +1202,13 @@
 
   .instant-ban-confirm-orb-btn--payoff-geometry-run {
     animation-duration: 0.01ms;
+  }
+
+  .instant-ban-confirm-orb-btn--payoff-geometry-run .instant-ban-confirm-orb-face,
+  .instant-ban-confirm-orb-btn--payoff-geometry-run .instant-ban-confirm-orb-ring {
+    animation: none;
+    opacity: 1;
+    visibility: visible;
   }
 
   .instant-ban-confirm-orb-btn--payoff-settle {
