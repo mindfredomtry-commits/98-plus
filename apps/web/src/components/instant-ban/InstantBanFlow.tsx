@@ -19,11 +19,12 @@ import { shareInstantBanInviteMore } from '@/lib/share';
 import { WhoScreen } from './WhoScreen';
 import { WhatScreen } from './WhatScreen';
 import { ConfirmScreen } from './ConfirmScreen';
+import { SuccessScreen } from './SuccessScreen';
 import './instant-ban.css';
 
 const DEFAULT_DURATION_MINUTES = 3;
 
-type Step = 'who' | 'what' | 'confirm';
+type Step = 'who' | 'what' | 'confirm' | 'success';
 
 type Props = {
   onClose: () => void;
@@ -77,7 +78,8 @@ export function InstantBanFlow({ onClose }: Props) {
   const [durationMinutes, setDurationMinutes] = useState(DEFAULT_DURATION_MINUTES);
   const [sendError, setSendError] = useState<string | null>(null);
   const [confirmEnterKey, setConfirmEnterKey] = useState(0);
-  const [sendSucceeded, setSendSucceeded] = useState(false);
+  const sendCompleteRef = useRef(false);
+  const impactCompleteRef = useRef(false);
 
   useInstantBanViewport(step !== 'what');
 
@@ -112,13 +114,27 @@ export function InstantBanFlow({ onClose }: Props) {
     setBanText('');
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
     setSendError(null);
-    setSendSucceeded(false);
+    sendCompleteRef.current = false;
+    impactCompleteRef.current = false;
+  }, []);
+
+  const openSuccessWhenReady = useCallback(() => {
+    if (!sendCompleteRef.current || !impactCompleteRef.current) return;
+    sendCompleteRef.current = false;
+    impactCompleteRef.current = false;
+    setStep('success');
   }, []);
 
   const onSuccess = useCallback(() => {
     setSendError(null);
-    setSendSucceeded(true);
-  }, []);
+    sendCompleteRef.current = true;
+    openSuccessWhenReady();
+  }, [openSuccessWhenReady]);
+
+  const handleImpactComplete = useCallback(() => {
+    impactCompleteRef.current = true;
+    openSuccessWhenReady();
+  }, [openSuccessWhenReady]);
 
   const { send, inFlight, sharing } = useSendChallenge({
     token,
@@ -142,7 +158,8 @@ export function InstantBanFlow({ onClose }: Props) {
         username: p.username,
         message: p.message,
       });
-      setSendSucceeded(false);
+      sendCompleteRef.current = false;
+      impactCompleteRef.current = false;
       setSendError(p.message || 'Не получилось отправить запрет');
     },
     onboard,
@@ -160,6 +177,8 @@ export function InstantBanFlow({ onClose }: Props) {
         return 'ЧТО ЗАПРЕЩАЕШЬ?';
       case 'confirm':
         return 'ПОДТВЕРДИ ЗАПРЕТ';
+      case 'success':
+        return 'ЗАПРЕТ ОТПРАВЛЕН';
     }
   }, [step]);
 
@@ -174,7 +193,8 @@ export function InstantBanFlow({ onClose }: Props) {
   const handleWhatSubmit = useCallback((text: string, duration: number) => {
     setBanText(text);
     setDurationMinutes(duration);
-    setSendSucceeded(false);
+    sendCompleteRef.current = false;
+    impactCompleteRef.current = false;
     setConfirmEnterKey((k) => k + 1);
     setStep('confirm');
   }, []);
@@ -302,13 +322,20 @@ export function InstantBanFlow({ onClose }: Props) {
               banText={banText}
               durationMinutes={durationMinutes}
               sending={inFlight || sharing}
-              sendSucceeded={sendSucceeded}
               error={sendError}
-              senderUser={user}
               onConfirm={() => void executeSend()}
-              onAgain={resetForAnother}
+              onImpactComplete={handleImpactComplete}
               onRetry={() => void executeSend()}
               onBack={handleConfirmBack}
+            />
+          ) : null}
+          {step === 'success' && selectedUser ? (
+            <SuccessScreen
+              senderUser={user}
+              selectedUser={selectedUser}
+              banText={banText}
+              durationMinutes={durationMinutes}
+              onAgain={resetForAnother}
             />
           ) : null}
         </div>
