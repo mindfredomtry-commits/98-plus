@@ -41,10 +41,16 @@ const DEFAULT_DURATION = 3;
 
 /** Scroll driver must exceed viewport by at least this much. */
 const SCROLL_DRIVER_MIN_OVERFLOW_PX = 120;
-/** Commit swipe-away when scroll progress reaches this fraction. */
-const SCROLL_COMMIT_PROGRESS = 0.92;
-/** Full compose-layer exit animation (tap or scroll commit). */
+/** Light swipe past this → auto-complete exit on release. */
+const SNAP_EXIT_THRESHOLD = 0.15;
+/** Upward progress velocity (1/s) that also commits exit on release. */
+const SNAP_EXIT_VELOCITY = 0.35;
+/** Debounce before evaluating snap after scroll stops. */
+const SCROLL_SETTLE_MS = 48;
+/** Full compose-layer exit animation. */
 const COMPOSE_EXIT_MS = 240;
+/** Snap-back when release below threshold. */
+const COMPOSE_RESET_MS = 160;
 
 const WhatSwipeTapZone = memo(function WhatSwipeTapZone({
   onTap,
@@ -174,6 +180,7 @@ function WhatScreenInner({
 
   const [exitProgress, setExitProgress] = useState(0);
   const [isExiting, setIsExiting] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
   useEffect(() => {
     if (!isEmpty) return;
@@ -267,6 +274,11 @@ function WhatScreenInner({
   const canContinueRef = useRef(canContinue);
   const exitProgressRef = useRef(0);
   const isExitingRef = useRef(false);
+  const isResettingRef = useRef(false);
+  const exitVelocityRef = useRef(0);
+  const progressSampleRef = useRef({ progress: 0, time: 0 });
+  const snapSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isGestureActiveRef = useRef(false);
 
   useEffect(() => {
     canContinueRef.current = canContinue;
@@ -279,6 +291,10 @@ function WhatScreenInner({
   useEffect(() => {
     isExitingRef.current = isExiting;
   }, [isExiting]);
+
+  useEffect(() => {
+    isResettingRef.current = isResetting;
+  }, [isResetting]);
 
   useEffect(() => {
     if (!isComposeScene) return;
@@ -310,7 +326,38 @@ function WhatScreenInner({
     }
   }, []);
 
-  useEffect(() => clearExitAnim, [clearExitAnim]);
+  const clearSnapSettleTimer = useCallback(() => {
+    if (snapSettleTimerRef.current != null) {
+      clearTimeout(snapSettleTimerRef.current);
+      snapSettleTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearExitAnim();
+      clearSnapSettleTimer();
+    };
+  }, [clearExitAnim, clearSnapSettleTimer]);
+
+  const recordProgressSample = useCallback((progress: number) => {
+    const now = performance.now();
+    const prev = progressSampleRef.current;
+    if (prev.time > 0) {
+      const dt = (now - prev.time) / 1000;
+      if (dt > 0 && dt < 0.45) {
+        exitVelocityRef.current = (progress - prev.progress) / dt;
+      }
+    }
+    progressSampleRef.current = { progress, time: now };
+  }, []);
+
+  const resetScrollDriver = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = 0;
+    exitVelocityRef.current = 0;
+    progressSampleRef.current = { progress: 0, time: 0 };
+  }, []);
 
   const scrollProgressFromDriver = useCallback((): number => {
     const el = scrollRef.current;
@@ -323,10 +370,62 @@ function WhatScreenInner({
   }, []);
 
   const syncProgressFromScroll = useCallback(() => {
+    if (
+      exitCommitRef.current ||
+      isExitingRef.current ||
+      isResettingRef.current
+    ) {
+      return exitProgressRef.current;
+    }
+
     const progress = scrollProgressFromDriver();
+    recordProgressSample(progress);
     setExitProgress(progress);
     return progress;
-  }, [scrollProgressFromDriver]);
+  }, [recordProgressSample, scrollProgressFromDriver]);
+
+  const runComposeReset = useCallback(() => {
+    if (
+      exitCommitRef.current ||
+      isExitingRef.current ||
+      isResettingRef.current
+    ) {
+      return;
+    }
+
+    clearSnapSettleTimer();
+    const start = exitProgressRef.current;
+    if (start <= 0.002) {
+      setExitProgress(0);
+      resetScrollDriver();
+      return;
+    }
+
+    setIsResetting(true);
+    clearExitAnim();
+
+    const startTime = performance.now();
+
+    const tick = (now: number) => {
+      const elapsed = now - startTime;
+      const t = Math.min(1, elapsed / COMPOSE_RESET_MS);
+      const eased = easeOutCubic(t);
+      const next = start * (1 - eased);
+      setExitProgress(next);
+
+      if (t < 1) {
+        exitAnimRef.current = requestAnimationFrame(tick);
+        return;
+      }
+
+      exitAnimRef.current = null;
+      setIsResetting(false);
+      setExitProgress(0);
+      resetScrollDriver();
+    };
+
+    exitAnimRef.current = requestAnimationFrame(tick);
+  }, [clearExitAnim, clearSnapSettleTimer, resetScrollDriver]);
 
   const runComposeExit = useCallback(
     (source: 'scroll' | 'tap') => {
@@ -334,11 +433,13 @@ function WhatScreenInner({
         submitLockRef.current ||
         exitCommitRef.current ||
         isExitingRef.current ||
+        isResettingRef.current ||
         !isScrollReady()
       ) {
         return false;
       }
 
+      clearSnapSettleTimer();
       exitCommitRef.current = true;
       submitLockRef.current = true;
       setIsExiting(true);
@@ -373,8 +474,61 @@ function WhatScreenInner({
       exitAnimRef.current = requestAnimationFrame(tick);
       return true;
     },
-    [clearExitAnim, handleSubmit, isScrollReady],
+    [clearExitAnim, clearSnapSettleTimer, handleSubmit, isScrollReady],
   );
+
+  const shouldSnapComplete = useCallback(() => {
+    const progress = exitProgressRef.current;
+    const velocity = exitVelocityRef.current;
+    return (
+      progress >= SNAP_EXIT_THRESHOLD || velocity >= SNAP_EXIT_VELOCITY
+    );
+  }, []);
+
+  const evaluateSnapOnSettle = useCallback(() => {
+    if (
+      exitCommitRef.current ||
+      isExitingRef.current ||
+      isResettingRef.current
+    ) {
+      return;
+    }
+
+    if (!isScrollReady()) {
+      if (exitProgressRef.current > 0.002) {
+        runComposeReset();
+      }
+      return;
+    }
+
+    const progress = exitProgressRef.current;
+
+    if (process.env.NODE_ENV === 'development') {
+      console.debug('[instant-ban:compose-snap]', {
+        progress,
+        velocity: exitVelocityRef.current,
+        complete: shouldSnapComplete(),
+      });
+    }
+
+    if (shouldSnapComplete()) {
+      runComposeExit('scroll');
+      return;
+    }
+
+    if (progress > 0.002) {
+      runComposeReset();
+    }
+  }, [isScrollReady, runComposeExit, runComposeReset, shouldSnapComplete]);
+
+  const scheduleSnapEvaluate = useCallback(() => {
+    if (isGestureActiveRef.current) return;
+    clearSnapSettleTimer();
+    snapSettleTimerRef.current = setTimeout(() => {
+      snapSettleTimerRef.current = null;
+      evaluateSnapOnSettle();
+    }, SCROLL_SETTLE_MS);
+  }, [clearSnapSettleTimer, evaluateSnapOnSettle]);
 
   const tryAdvanceToConfirm = useCallback(
     (source: 'scroll' | 'tap') => {
@@ -407,34 +561,30 @@ function WhatScreenInner({
       return tryAdvanceToConfirm('scroll');
     }
 
-    if (submitLockRef.current || exitCommitRef.current || !isScrollReady()) {
-      return false;
-    }
-
-    const progress = syncProgressFromScroll();
-
-    if (process.env.NODE_ENV === 'development') {
-      console.debug('[instant-ban:compose-scroll-progress]', { progress });
-    }
-
-    if (progress < SCROLL_COMMIT_PROGRESS) return false;
-    return tryAdvanceToConfirm('scroll');
-  }, [
-    isComposeScene,
-    isScrollReady,
-    syncProgressFromScroll,
-    tryAdvanceToConfirm,
-  ]);
+    evaluateSnapOnSettle();
+    return exitCommitRef.current;
+  }, [evaluateSnapOnSettle, isComposeScene, isScrollReady, tryAdvanceToConfirm]);
 
   const onScroll = useCallback(() => {
     if (!isComposeScene) {
       checkScrollToConfirm();
       return;
     }
-    if (exitCommitRef.current || isExitingRef.current) return;
+    if (
+      exitCommitRef.current ||
+      isExitingRef.current ||
+      isResettingRef.current
+    ) {
+      return;
+    }
     syncProgressFromScroll();
-    checkScrollToConfirm();
-  }, [checkScrollToConfirm, isComposeScene, syncProgressFromScroll]);
+    scheduleSnapEvaluate();
+  }, [
+    checkScrollToConfirm,
+    isComposeScene,
+    scheduleSnapEvaluate,
+    syncProgressFromScroll,
+  ]);
 
   const onSwipeZoneTap = useCallback(() => {
     tryAdvanceToConfirm('tap');
@@ -445,28 +595,62 @@ function WhatScreenInner({
   const onGestureTouchStart = useCallback(
     (e: React.TouchEvent) => {
       const el = scrollRef.current;
-      if (!el || !showSwipeHint || exitCommitRef.current) return;
+      if (
+        !el ||
+        !showSwipeHint ||
+        exitCommitRef.current ||
+        isExitingRef.current ||
+        isResettingRef.current
+      ) {
+        return;
+      }
+      clearSnapSettleTimer();
+      isGestureActiveRef.current = true;
+      exitVelocityRef.current = 0;
+      progressSampleRef.current = {
+        progress: exitProgressRef.current,
+        time: performance.now(),
+      };
       gestureTouchRef.current = {
         y: e.touches[0]?.clientY ?? 0,
         scroll: el.scrollTop,
       };
     },
-    [showSwipeHint],
+    [clearSnapSettleTimer, showSwipeHint],
   );
 
   const onGestureTouchMove = useCallback(
     (e: React.TouchEvent) => {
       const el = scrollRef.current;
-      if (!el || exitCommitRef.current || isExitingRef.current) return;
+      if (
+        !el ||
+        exitCommitRef.current ||
+        isExitingRef.current ||
+        isResettingRef.current
+      ) {
+        return;
+      }
       const touch = e.touches[0];
       if (!touch) return;
       const dy = gestureTouchRef.current.y - touch.clientY;
       el.scrollTop = gestureTouchRef.current.scroll + dy;
       syncProgressFromScroll();
-      checkScrollToConfirm();
     },
-    [checkScrollToConfirm, syncProgressFromScroll],
+    [syncProgressFromScroll],
   );
+
+  const onGestureTouchEnd = useCallback(() => {
+    isGestureActiveRef.current = false;
+    if (
+      exitCommitRef.current ||
+      isExitingRef.current ||
+      isResettingRef.current
+    ) {
+      return;
+    }
+    clearSnapSettleTimer();
+    evaluateSnapOnSettle();
+  }, [clearSnapSettleTimer, evaluateSnapOnSettle]);
 
   useEffect(() => {
     if (!showSwipeHint || !isComposeScene) return;
@@ -577,6 +761,8 @@ function WhatScreenInner({
           className="instant-ban-compose-scene__gesture"
           onTouchStart={isComposeScene ? onGestureTouchStart : undefined}
           onTouchMove={isComposeScene ? onGestureTouchMove : undefined}
+          onTouchEnd={isComposeScene ? onGestureTouchEnd : undefined}
+          onTouchCancel={isComposeScene ? onGestureTouchEnd : undefined}
         >
           <WhatSwipeTapZone
             sentinelRef={scrollSentinelRef}
@@ -592,7 +778,7 @@ function WhatScreenInner({
     return (
       <div
         className={`instant-ban-what instant-ban-what-mobile instant-ban-what-mobile--compose-scene${
-          isExiting || exitProgress > 0
+          isExiting || isResetting || exitProgress > 0
             ? ' instant-ban-what-mobile--compose-dismissing'
             : ''
         }`}
@@ -603,6 +789,8 @@ function WhatScreenInner({
         <div
           className="instant-ban-compose-scene"
           style={composeLayerStyle}
+          onTouchEnd={onGestureTouchEnd}
+          onTouchCancel={onGestureTouchEnd}
         >
           <div
             className="instant-ban-compose-scene__veil"
@@ -618,6 +806,9 @@ function WhatScreenInner({
               ref={scrollRef}
               className="instant-ban-compose-scene__scroll-driver"
               onScroll={onScroll}
+              onTouchStart={onGestureTouchStart}
+              onTouchEnd={onGestureTouchEnd}
+              onTouchCancel={onGestureTouchEnd}
               aria-hidden
             >
               <div className="instant-ban-compose-scene__scroll-driver-track" />
