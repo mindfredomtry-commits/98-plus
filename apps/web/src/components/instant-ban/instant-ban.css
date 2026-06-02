@@ -1700,6 +1700,7 @@
   .instant-ban-what-mobile {
   height: auto;
   flex: 0 1 auto;
+  touch-action: pan-y;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']

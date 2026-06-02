@@ -34,6 +34,25 @@ const DEFAULT_DURATION = 3;
 /** Bottom edge: scrollTop + clientHeight >= scrollHeight - threshold */
 const SCROLL_BOTTOM_THRESHOLD_PX = 80;
 
+/** Intentional downward swipe to confirm (compose-screen). */
+const SWIPE_DOWN_MIN_DISTANCE_PX = 52;
+const SWIPE_DOWN_MIN_VELOCITY_PX_MS = 0.42;
+const SWIPE_HORIZONTAL_DOMINANCE_RATIO = 1.25;
+
+type SwipeStart = {
+  x: number;
+  y: number;
+  t: number;
+  pointerId: number;
+};
+
+function isSwipeGestureBlockedTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  if (target.closest('.instant-ban-flow__back')) return true;
+  if (target.closest('input, textarea, select')) return true;
+  return false;
+}
+
 const WhatSwipeTapZone = memo(function WhatSwipeTapZone({
   onTap,
 }: {
@@ -247,9 +266,10 @@ function WhatScreenInner({
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const submitLockRef = useRef(false);
+  const swipeStartRef = useRef<SwipeStart | null>(null);
 
   const tryAdvanceToConfirm = useCallback(
-    (source: 'scroll' | 'tap') => {
+    (source: 'scroll' | 'tap' | 'swipe') => {
       if (submitLockRef.current || !isSwipeReady()) return false;
       submitLockRef.current = true;
       handleSubmit();
@@ -296,10 +316,82 @@ function WhatScreenInner({
     tryAdvanceToConfirm('tap');
   }, [tryAdvanceToConfirm]);
 
+  const clearSwipeStart = useCallback((pointerId?: number) => {
+    const start = swipeStartRef.current;
+    if (!start) return;
+    if (pointerId != null && start.pointerId !== pointerId) return;
+    swipeStartRef.current = null;
+  }, []);
+
+  const onComposePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!showSwipeHint || !isSwipeReady() || submitLockRef.current) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      if (isSwipeGestureBlockedTarget(e.target)) return;
+
+      swipeStartRef.current = {
+        x: e.clientX,
+        y: e.clientY,
+        t: Date.now(),
+        pointerId: e.pointerId,
+      };
+    },
+    [showSwipeHint, isSwipeReady],
+  );
+
+  const onComposePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const start = swipeStartRef.current;
+      if (!start || start.pointerId !== e.pointerId) return;
+      swipeStartRef.current = null;
+
+      if (submitLockRef.current || !isSwipeReady()) return;
+
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+      const dt = Math.max(Date.now() - start.t, 1);
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
+
+      if (dy <= 0) return;
+      if (absDy < absDx * SWIPE_HORIZONTAL_DOMINANCE_RATIO) return;
+
+      const velocity = dy / dt;
+      const intentional =
+        absDy >= SWIPE_DOWN_MIN_DISTANCE_PX ||
+        velocity >= SWIPE_DOWN_MIN_VELOCITY_PX_MS;
+
+      if (!intentional) return;
+
+      if (process.env.NODE_ENV === 'development') {
+        console.debug('[instant-ban:what-swipe]', {
+          dx,
+          dy,
+          dt,
+          velocity,
+          triggered: true,
+        });
+      }
+
+      tryAdvanceToConfirm('swipe');
+    },
+    [isSwipeReady, tryAdvanceToConfirm],
+  );
+
+  const onComposePointerCancel = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      clearSwipeStart(e.pointerId);
+    },
+    [clearSwipeStart],
+  );
+
   return (
     <div
       className="instant-ban-what instant-ban-what-mobile"
       data-instant-ban-view="WhatScreen"
+      onPointerDown={showSwipeHint ? onComposePointerDown : undefined}
+      onPointerUp={showSwipeHint ? onComposePointerUp : undefined}
+      onPointerCancel={showSwipeHint ? onComposePointerCancel : undefined}
     >
       <button type="button" className="instant-ban-flow__back" onClick={onBack}>
         ← Назад
