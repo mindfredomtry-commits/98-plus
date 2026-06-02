@@ -55,6 +55,9 @@
   --98-payoff-settle-ms: 450ms;
   --98-payoff-reveal-item-ms: 280ms;
   --98-payoff-reveal-stagger-ms: 100ms;
+  --98-payoff-card-width: min(86vw, 340px);
+  --98-payoff-card-height: 240px;
+  --98-payoff-card-radius: 24px;
   --98-confirm-orb-size: min(42vw, 160px);
   --98-confirm-orb-title-size: clamp(2.5rem, 12vw, 2.75rem);
   --98-confirm-orb-scale-from-lobby: 0.571428571;

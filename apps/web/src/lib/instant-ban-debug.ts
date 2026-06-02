@@ -77,6 +77,27 @@ export function instantBanPayoffStartDebug(data: Record<string, unknown>): void 
   console.debug('[instant-ban:payoff-start]', data);
 }
 
+export function instantBanPayoffPhaseDebug(
+  phase: string,
+  className: string,
+  el: HTMLElement,
+): void {
+  if (!isDev) return;
+  const style = getComputedStyle(el);
+  console.debug('[instant-ban:payoff-phase]', {
+    phase,
+    className,
+    width: style.width,
+    height: style.height,
+    borderRadius: style.borderRadius,
+    clipPath: style.clipPath,
+    mask: style.mask || style.webkitMask,
+    transform: style.transform,
+    left: style.left,
+    top: style.top,
+  });
+}
+
 export function serializeInstantBanSendError(error: unknown): {
   message: string;
   status?: number;

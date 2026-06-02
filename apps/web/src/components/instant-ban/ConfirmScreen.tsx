@@ -12,7 +12,11 @@ import type { FriendCard, UserPublic } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { AvatarImage } from '../AvatarImage';
 import { InfluenceRing } from '../lobby/InfluenceRing';
-import { instantBanDebug, instantBanPayoffStartDebug } from '@/lib/instant-ban-debug';
+import {
+  instantBanDebug,
+  instantBanPayoffPhaseDebug,
+  instantBanPayoffStartDebug,
+} from '@/lib/instant-ban-debug';
 import { SuccessPayoffReveal } from './SuccessPayoffReveal';
 
 const HOLD_MS = 650;
@@ -104,15 +108,35 @@ function clampInfluencePercent(value: number | undefined): number {
   return Math.min(100, Math.max(0, value));
 }
 
+const PAYOFF_CARD_LOCKED_PHASES: PayoffPhase[] = ['settle', 'reveal', 'cta', 'ready'];
+
+function lockPayoffCardGeometry(el: HTMLButtonElement): void {
+  el.classList.remove('instant-ban-confirm-orb-btn--payoff-geometry-run');
+  el.classList.add('instant-ban-confirm-orb-btn--payoff-card-locked');
+  el.style.left = '50%';
+  el.style.top = '50%';
+  el.style.width = 'var(--98-payoff-card-width)';
+  el.style.height = 'var(--98-payoff-card-height)';
+  el.style.borderRadius = 'var(--98-payoff-card-radius)';
+  el.style.transform = 'translate(-50%, -50%)';
+  el.style.clipPath = 'none';
+  el.style.mask = 'none';
+}
+
 function clearPayoffShellStyles(el: HTMLButtonElement | null): void {
   if (!el) return;
-  el.classList.remove('instant-ban-confirm-orb-btn--payoff-geometry-run');
+  el.classList.remove(
+    'instant-ban-confirm-orb-btn--payoff-geometry-run',
+    'instant-ban-confirm-orb-btn--payoff-card-locked',
+  );
   el.style.removeProperty('left');
   el.style.removeProperty('top');
   el.style.removeProperty('width');
   el.style.removeProperty('height');
   el.style.removeProperty('border-radius');
   el.style.removeProperty('transform');
+  el.style.removeProperty('clip-path');
+  el.style.removeProperty('mask');
   el.style.removeProperty('--payoff-x0');
   el.style.removeProperty('--payoff-y0');
   el.style.removeProperty('--payoff-w0');
@@ -370,6 +394,17 @@ export function ConfirmScreen({
     return () => cancelAnimationFrame(frame);
   }, [payoffPhase]);
 
+  useLayoutEffect(() => {
+    const btn = orbBtnRef.current;
+    if (!btn) return;
+
+    if (PAYOFF_CARD_LOCKED_PHASES.includes(payoffPhase)) {
+      lockPayoffCardGeometry(btn);
+    }
+
+    instantBanPayoffPhaseDebug(payoffPhase, btn.className, btn);
+  }, [payoffPhase]);
+
   useEffect(() => {
     if (payoffPhase !== 'impact') return;
     schedulePayoff(RELEASE_IMPACT_MS, 'morph');
@@ -515,10 +550,10 @@ export function ConfirmScreen({
     payoffPhase === 'impact' ? 'instant-ban-confirm-orb-btn--payoff-impact' : '',
     payoffPhase === 'morph' ? 'instant-ban-confirm-orb-btn--payoff-geometry' : '',
     payoffPhase === 'settle' ? 'instant-ban-confirm-orb-btn--payoff-settle' : '',
-    payoffPhase === 'settle' ||
-    payoffPhase === 'reveal' ||
-    payoffPhase === 'cta' ||
-    payoffPhase === 'ready'
+    PAYOFF_CARD_LOCKED_PHASES.includes(payoffPhase)
+      ? 'instant-ban-confirm-orb-btn--payoff-card-locked'
+      : '',
+    PAYOFF_CARD_LOCKED_PHASES.includes(payoffPhase)
       ? 'instant-ban-confirm-orb-btn--payoff-card-skin'
       : '',
     payoffPhase === 'reveal' || payoffPhase === 'cta' || payoffPhase === 'ready'
@@ -557,10 +592,7 @@ export function ConfirmScreen({
     payoffPhase === 'ready';
   const showPayoffCta = payoffPhase === 'cta' || payoffPhase === 'ready';
   const showOrbFace =
-    payoffPhase === 'none' ||
-    payoffPhase === 'impact' ||
-    payoffPhase === 'morph' ||
-    payoffPhase === 'settle';
+    payoffPhase === 'none' || payoffPhase === 'impact' || payoffPhase === 'morph';
 
   return (
     <div

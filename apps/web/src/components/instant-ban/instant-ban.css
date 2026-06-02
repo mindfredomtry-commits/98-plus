@@ -855,17 +855,40 @@
   86% {
     left: 50%;
     top: 50%;
-    width: min(86vw, 340px);
+    width: var(--98-payoff-card-width);
     height: 210px;
     border-radius: 28px;
   }
   100% {
     left: 50%;
     top: 50%;
-    width: min(86vw, 340px);
-    height: 240px;
-    border-radius: 24px;
+    width: var(--98-payoff-card-width);
+    height: var(--98-payoff-card-height);
+    border-radius: var(--98-payoff-card-radius);
   }
+}
+
+/* Persistent card geometry after morph — не возвращаться к circle inline/orb base */
+.instant-ban-confirm-orb-btn--payoff-card-locked,
+.instant-ban-confirm[data-payoff-phase='settle'] .instant-ban-confirm-orb-btn--payoff-shell,
+.instant-ban-confirm[data-payoff-phase='reveal'] .instant-ban-confirm-orb-btn--payoff-shell,
+.instant-ban-confirm[data-payoff-phase='cta'] .instant-ban-confirm-orb-btn--payoff-shell,
+.instant-ban-confirm[data-payoff-phase='ready'] .instant-ban-confirm-orb-btn--payoff-shell {
+  left: 50% !important;
+  top: 50% !important;
+  width: var(--98-payoff-card-width) !important;
+  height: var(--98-payoff-card-height) !important;
+  max-width: var(--98-payoff-card-width);
+  max-height: none;
+  min-width: 0;
+  min-height: 0;
+  border-radius: var(--98-payoff-card-radius) !important;
+  clip-path: none !important;
+  -webkit-clip-path: none !important;
+  mask: none !important;
+  -webkit-mask: none !important;
+  transform: translate(-50%, -50%);
+  overflow: hidden;
 }
 
 .instant-ban-confirm-orb-btn--payoff-card-skin {
@@ -1213,6 +1236,13 @@
 
   .instant-ban-confirm-orb-btn--payoff-settle {
     animation: none;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  .instant-ban-confirm-orb-btn--payoff-card-locked {
+    width: var(--98-payoff-card-width) !important;
+    height: var(--98-payoff-card-height) !important;
+    border-radius: var(--98-payoff-card-radius) !important;
   }
 
   .instant-ban-payoff-reveal__icon,
