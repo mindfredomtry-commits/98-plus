@@ -1664,3 +1664,101 @@
   flex-direction: column;
 }
 
+/* Compose overlay — compact block higher on screen; arrows in first viewport */
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-send-overlay {
+  justify-content: flex-start;
+  padding-top: clamp(26vh, 200px, 34vh);
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(5, 3, 8, 0.45) 16%,
+    rgba(5, 3, 8, 0.92) 32%,
+    rgba(5, 3, 8, 0.98) 100%
+  );
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-send-overlay__panel {
+  max-height: none;
+  flex: 0 1 auto;
+  padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-send-overlay__title {
+  margin-bottom: 0.625rem;
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-send-overlay__body {
+  overflow: visible;
+  flex: 0 1 auto;
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-what-mobile {
+  height: auto;
+  flex: 0 1 auto;
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-what-scroll {
+  overflow-y: visible;
+  flex: 0 1 auto;
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-what-scroll-spacer {
+  display: none;
+  height: 0;
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-flow__back {
+  margin-bottom: 0.5rem;
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-what-selected--mobile {
+  margin-bottom: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-what-field {
+  min-height: 4.25rem;
+  margin-bottom: 0.5rem;
+  padding: 0.75rem 0.875rem;
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-what-placeholder-cycle {
+  top: 0.75rem;
+  left: 0.875rem;
+  right: 0.875rem;
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-chips--mobile {
+  gap: 0.3125rem;
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-duration--mobile {
+  margin-top: 0.5rem;
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-duration__label {
+  margin-bottom: 0.375rem;
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-what-swipe-zone {
+  height: auto;
+  min-height: 4.25rem;
+  margin-top: 0.625rem;
+  padding-bottom: 0.125rem;
+}
+
