@@ -24,9 +24,6 @@ const CTA_EXTRA_DELAY_MS = 120;
 const CONFIRM_ENTER_LOBBY_HOLD_MS = 100;
 const CONFIRM_ENTER_COMPRESS_MS = 600;
 
-const PAYOFF_CARD_WIDTH = 'min(86vw, 340px)';
-const PAYOFF_CARD_HEIGHT = '240px';
-
 type HoldPhase = 'idle' | 'holding' | 'ready' | 'releasing';
 type EnterPhase = 'lobby-orb' | 'compressing' | 'ready';
 type PayoffPhase =
@@ -100,12 +97,17 @@ function clampInfluencePercent(value: number | undefined): number {
 
 function clearPayoffShellStyles(el: HTMLButtonElement | null): void {
   if (!el) return;
+  el.classList.remove('instant-ban-confirm-orb-btn--payoff-geometry-run');
   el.style.removeProperty('left');
   el.style.removeProperty('top');
   el.style.removeProperty('width');
   el.style.removeProperty('height');
   el.style.removeProperty('border-radius');
   el.style.removeProperty('transform');
+  el.style.removeProperty('--payoff-x0');
+  el.style.removeProperty('--payoff-y0');
+  el.style.removeProperty('--payoff-w0');
+  el.style.removeProperty('--payoff-h0');
 }
 
 export function ConfirmScreen({
@@ -279,10 +281,14 @@ export function ConfirmScreen({
   }, [enterKey]);
 
   useLayoutEffect(() => {
-    if (payoffPhase !== 'morph') return;
-
     const btn = orbBtnRef.current;
     if (!btn) return;
+
+    if (payoffPhase !== 'morph') {
+      return;
+    }
+
+    btn.classList.remove('instant-ban-confirm-orb-btn--payoff-geometry-run');
 
     const rect = btn.getBoundingClientRect();
     const startX = rect.left + rect.width / 2;
@@ -290,6 +296,10 @@ export function ConfirmScreen({
     const startW = rect.width;
     const startH = rect.height;
 
+    btn.style.setProperty('--payoff-x0', `${startX}px`);
+    btn.style.setProperty('--payoff-y0', `${startY}px`);
+    btn.style.setProperty('--payoff-w0', `${startW}px`);
+    btn.style.setProperty('--payoff-h0', `${startH}px`);
     btn.style.left = `${startX}px`;
     btn.style.top = `${startY}px`;
     btn.style.width = `${startW}px`;
@@ -297,17 +307,13 @@ export function ConfirmScreen({
     btn.style.borderRadius = '50%';
     btn.style.transform = 'translate(-50%, -50%)';
 
-    const runEnd = () => {
-      btn.style.left = '50%';
-      btn.style.top = '50%';
-      btn.style.width = PAYOFF_CARD_WIDTH;
-      btn.style.height = PAYOFF_CARD_HEIGHT;
-      btn.style.borderRadius = '24px';
-    };
+    void btn.offsetHeight;
 
-    requestAnimationFrame(() => {
-      requestAnimationFrame(runEnd);
+    const frame = requestAnimationFrame(() => {
+      btn.classList.add('instant-ban-confirm-orb-btn--payoff-geometry-run');
     });
+
+    return () => cancelAnimationFrame(frame);
   }, [payoffPhase]);
 
   useEffect(() => {
@@ -453,10 +459,14 @@ export function ConfirmScreen({
     holdPhase === 'releasing' ? 'instant-ban-confirm-orb-btn--releasing' : '',
     bounce ? 'instant-ban-confirm-orb-btn--bounce' : '',
     payoffPhase === 'impact' ? 'instant-ban-confirm-orb-btn--payoff-impact' : '',
-    payoffPhase === 'morph' || payoffPhase === 'settle'
-      ? 'instant-ban-confirm-orb-btn--payoff-morph'
-      : '',
+    payoffPhase === 'morph' ? 'instant-ban-confirm-orb-btn--payoff-geometry' : '',
     payoffPhase === 'settle' ? 'instant-ban-confirm-orb-btn--payoff-settle' : '',
+    payoffPhase === 'settle' ||
+    payoffPhase === 'reveal' ||
+    payoffPhase === 'cta' ||
+    payoffPhase === 'ready'
+      ? 'instant-ban-confirm-orb-btn--payoff-card-skin'
+      : '',
     payoffPhase === 'reveal' || payoffPhase === 'cta' || payoffPhase === 'ready'
       ? 'instant-ban-confirm-orb-btn--payoff-reveal'
       : '',
@@ -492,6 +502,8 @@ export function ConfirmScreen({
     payoffPhase === 'cta' ||
     payoffPhase === 'ready';
   const showPayoffCta = payoffPhase === 'cta' || payoffPhase === 'ready';
+  const showOrbFace =
+    payoffPhase === 'none' || payoffPhase === 'impact';
 
   return (
     <div
@@ -562,17 +574,19 @@ export function ConfirmScreen({
             onPointerCancel={handlePointerCancel}
             onPointerLeave={handlePointerLeave}
           >
-            <span className="instant-ban-confirm-orb-face" aria-hidden={payoffPhase !== 'none' && payoffPhase !== 'impact'}>
-              <span className="instant-ban-confirm-orb-ring">
-                <InfluenceRing
-                  value={ringProgress}
-                  className="instant-ban-confirm-influence-ring"
-                />
+            {showOrbFace ? (
+              <span className="instant-ban-confirm-orb-face">
+                <span className="instant-ban-confirm-orb-ring">
+                  <InfluenceRing
+                    value={ringProgress}
+                    className="instant-ban-confirm-influence-ring"
+                  />
+                </span>
+                <span className="instant-ban-confirm-orb">
+                  <span className="instant-ban-confirm-orb__title">98+</span>
+                </span>
               </span>
-              <span className="instant-ban-confirm-orb">
-                <span className="instant-ban-confirm-orb__title">98+</span>
-              </span>
-            </span>
+            ) : null}
             {showPayoffContent ? (
               <SuccessPayoffReveal
                 senderUser={senderUser}
