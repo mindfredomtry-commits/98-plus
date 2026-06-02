@@ -1697,10 +1697,27 @@
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-what-mobile--swipe-ready {
+  touch-action: none;
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-what-mobile--swipe-ready .instant-ban-flow__back,
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-what-mobile--swipe-ready .instant-ban-chip,
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-what-mobile--swipe-ready .instant-ban-duration-pill,
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-what-mobile--swipe-ready .instant-ban-what-input,
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+  .instant-ban-what-mobile--swipe-ready .instant-ban-what-swipe-zone {
+  touch-action: manipulation;
+}
+
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
   .instant-ban-what-mobile {
   height: auto;
   flex: 0 1 auto;
-  touch-action: pan-y;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']

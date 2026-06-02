@@ -35,15 +35,17 @@ const DEFAULT_DURATION = 3;
 const SCROLL_BOTTOM_THRESHOLD_PX = 80;
 
 /** Intentional downward swipe to confirm (compose-screen). */
-const SWIPE_DOWN_MIN_DISTANCE_PX = 52;
-const SWIPE_DOWN_MIN_VELOCITY_PX_MS = 0.42;
+const SWIPE_DOWN_MIN_DISTANCE_PX = 48;
+const SWIPE_DOWN_MIN_VELOCITY_PX_MS = 0.4;
 const SWIPE_HORIZONTAL_DOMINANCE_RATIO = 1.25;
+/** Early vertical intent — block browser scroll steal in WebView. */
+const SWIPE_LOCK_MIN_DY_PX = 10;
 
-type SwipeStart = {
+type GestureStart = {
   x: number;
   y: number;
   t: number;
-  pointerId: number;
+  id: number;
 };
 
 function isSwipeGestureBlockedTarget(target: EventTarget | null): boolean {
@@ -51,6 +53,23 @@ function isSwipeGestureBlockedTarget(target: EventTarget | null): boolean {
   if (target.closest('.instant-ban-flow__back')) return true;
   if (target.closest('input, textarea, select')) return true;
   return false;
+}
+
+function evaluateDownwardSwipe(dx: number, dy: number, dt: number): boolean {
+  if (dy <= 0) return false;
+  const absDx = Math.abs(dx);
+  const absDy = Math.abs(dy);
+  if (absDy < absDx * SWIPE_HORIZONTAL_DOMINANCE_RATIO) return false;
+  const velocity = dy / Math.max(dt, 1);
+  return (
+    absDy >= SWIPE_DOWN_MIN_DISTANCE_PX ||
+    velocity >= SWIPE_DOWN_MIN_VELOCITY_PX_MS
+  );
+}
+
+function whatComposeGestureDebug(event: string, data?: Record<string, unknown>): void {
+  if (process.env.NODE_ENV !== 'development') return;
+  console.debug(`[instant-ban:what-${event}]`, data ?? {});
 }
 
 const WhatSwipeTapZone = memo(function WhatSwipeTapZone({
@@ -265,8 +284,10 @@ function WhatScreenInner({
   }, [durationMinutes]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const composeRef = useRef<HTMLDivElement>(null);
   const submitLockRef = useRef(false);
-  const swipeStartRef = useRef<SwipeStart | null>(null);
+  const touchStartRef = useRef<GestureStart | null>(null);
+  const pointerStartRef = useRef<GestureStart | null>(null);
 
   const tryAdvanceToConfirm = useCallback(
     (source: 'scroll' | 'tap' | 'swipe') => {
@@ -276,12 +297,42 @@ function WhatScreenInner({
       window.setTimeout(() => {
         submitLockRef.current = false;
       }, 400);
+      if (source === 'swipe') {
+        whatComposeGestureDebug('swipe-confirm-fired');
+      }
       if (process.env.NODE_ENV === 'development') {
         console.debug('[instant-ban:what-advance]', { source, triggered: true });
       }
       return true;
     },
     [handleSubmit, isSwipeReady],
+  );
+
+  const finishSwipeGesture = useCallback(
+    (
+      start: GestureStart,
+      endX: number,
+      endY: number,
+      endT: number,
+    ): boolean => {
+      if (submitLockRef.current || !isSwipeReady()) return false;
+
+      const dx = endX - start.x;
+      const dy = endY - start.y;
+      const dt = Math.max(endT - start.t, 1);
+
+      if (!evaluateDownwardSwipe(dx, dy, dt)) return false;
+
+      whatComposeGestureDebug('touch-end', {
+        dx,
+        dy,
+        dt,
+        velocity: dy / dt,
+      });
+
+      return tryAdvanceToConfirm('swipe');
+    },
+    [isSwipeReady, tryAdvanceToConfirm],
   );
 
   const onScroll = useCallback(() => {
@@ -316,24 +367,95 @@ function WhatScreenInner({
     tryAdvanceToConfirm('tap');
   }, [tryAdvanceToConfirm]);
 
-  const clearSwipeStart = useCallback((pointerId?: number) => {
-    const start = swipeStartRef.current;
+  const onTouchStart = useCallback(
+    (e: React.TouchEvent<HTMLDivElement>) => {
+      if (!showSwipeHint || !isSwipeReady() || submitLockRef.current) return;
+      if (e.touches.length !== 1) return;
+      if (isSwipeGestureBlockedTarget(e.target)) return;
+
+      const touch = e.touches[0];
+      touchStartRef.current = {
+        x: touch.clientX,
+        y: touch.clientY,
+        t: Date.now(),
+        id: touch.identifier,
+      };
+
+      whatComposeGestureDebug('touch-start', {
+        x: touch.clientX,
+        y: touch.clientY,
+        id: touch.identifier,
+      });
+    },
+    [showSwipeHint, isSwipeReady],
+  );
+
+  const onTouchEnd = useCallback(
+    (e: React.TouchEvent<HTMLDivElement>) => {
+      const start = touchStartRef.current;
+      if (!start) return;
+
+      const touch = Array.from(e.changedTouches).find((t) => t.identifier === start.id);
+      if (!touch) return;
+
+      touchStartRef.current = null;
+      finishSwipeGesture(start, touch.clientX, touch.clientY, Date.now());
+    },
+    [finishSwipeGesture],
+  );
+
+  const onTouchCancel = useCallback(() => {
+    touchStartRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (!showSwipeHint) return;
+    const el = composeRef.current;
+    if (!el) return;
+
+    const onTouchMove = (e: TouchEvent) => {
+      const start = touchStartRef.current;
+      if (!start || e.touches.length !== 1) return;
+
+      const touch = Array.from(e.touches).find((t) => t.identifier === start.id);
+      if (!touch) return;
+
+      const dy = touch.clientY - start.y;
+      const dx = touch.clientX - start.x;
+      if (
+        dy > SWIPE_LOCK_MIN_DY_PX &&
+        Math.abs(dy) > Math.abs(dx) * SWIPE_HORIZONTAL_DOMINANCE_RATIO &&
+        e.cancelable
+      ) {
+        e.preventDefault();
+      }
+    };
+
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    return () => {
+      el.removeEventListener('touchmove', onTouchMove);
+    };
+  }, [showSwipeHint]);
+
+  const clearPointerStart = useCallback((pointerId?: number) => {
+    const start = pointerStartRef.current;
     if (!start) return;
-    if (pointerId != null && start.pointerId !== pointerId) return;
-    swipeStartRef.current = null;
+    if (pointerId != null && start.id !== pointerId) return;
+    pointerStartRef.current = null;
   }, []);
 
   const onComposePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!showSwipeHint || !isSwipeReady() || submitLockRef.current) return;
+      if (e.pointerType === 'touch') return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       if (isSwipeGestureBlockedTarget(e.target)) return;
 
-      swipeStartRef.current = {
+      pointerStartRef.current = {
         x: e.clientX,
         y: e.clientY,
         t: Date.now(),
-        pointerId: e.pointerId,
+        id: e.pointerId,
       };
     },
     [showSwipeHint, isSwipeReady],
@@ -341,54 +463,35 @@ function WhatScreenInner({
 
   const onComposePointerUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      const start = swipeStartRef.current;
-      if (!start || start.pointerId !== e.pointerId) return;
-      swipeStartRef.current = null;
+      if (e.pointerType === 'touch') return;
 
-      if (submitLockRef.current || !isSwipeReady()) return;
+      const start = pointerStartRef.current;
+      if (!start || start.id !== e.pointerId) return;
+      pointerStartRef.current = null;
 
-      const dx = e.clientX - start.x;
-      const dy = e.clientY - start.y;
-      const dt = Math.max(Date.now() - start.t, 1);
-      const absDx = Math.abs(dx);
-      const absDy = Math.abs(dy);
-
-      if (dy <= 0) return;
-      if (absDy < absDx * SWIPE_HORIZONTAL_DOMINANCE_RATIO) return;
-
-      const velocity = dy / dt;
-      const intentional =
-        absDy >= SWIPE_DOWN_MIN_DISTANCE_PX ||
-        velocity >= SWIPE_DOWN_MIN_VELOCITY_PX_MS;
-
-      if (!intentional) return;
-
-      if (process.env.NODE_ENV === 'development') {
-        console.debug('[instant-ban:what-swipe]', {
-          dx,
-          dy,
-          dt,
-          velocity,
-          triggered: true,
-        });
-      }
-
-      tryAdvanceToConfirm('swipe');
+      finishSwipeGesture(start, e.clientX, e.clientY, Date.now());
     },
-    [isSwipeReady, tryAdvanceToConfirm],
+    [finishSwipeGesture],
   );
 
   const onComposePointerCancel = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      clearSwipeStart(e.pointerId);
+      if (e.pointerType === 'touch') return;
+      clearPointerStart(e.pointerId);
     },
-    [clearSwipeStart],
+    [clearPointerStart],
   );
 
   return (
     <div
-      className="instant-ban-what instant-ban-what-mobile"
+      ref={composeRef}
+      className={`instant-ban-what instant-ban-what-mobile${
+        showSwipeHint ? ' instant-ban-what-mobile--swipe-ready' : ''
+      }`}
       data-instant-ban-view="WhatScreen"
+      onTouchStart={showSwipeHint ? onTouchStart : undefined}
+      onTouchEnd={showSwipeHint ? onTouchEnd : undefined}
+      onTouchCancel={showSwipeHint ? onTouchCancel : undefined}
       onPointerDown={showSwipeHint ? onComposePointerDown : undefined}
       onPointerUp={showSwipeHint ? onComposePointerUp : undefined}
       onPointerCancel={showSwipeHint ? onComposePointerCancel : undefined}
