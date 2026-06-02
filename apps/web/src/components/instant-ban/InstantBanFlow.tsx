@@ -19,13 +19,11 @@ import { shareInstantBanInviteMore } from '@/lib/share';
 import { WhoScreen } from './WhoScreen';
 import { WhatScreen } from './WhatScreen';
 import { ConfirmScreen } from './ConfirmScreen';
-import { SuccessScreen } from './SuccessScreen';
-import type { PayoffAnchor } from './payoff-anchor';
 import './instant-ban.css';
 
 const DEFAULT_DURATION_MINUTES = 3;
 
-type Step = 'who' | 'what' | 'confirm' | 'payoff' | 'success';
+type Step = 'who' | 'what' | 'confirm';
 
 type Props = {
   onClose: () => void;
@@ -79,9 +77,7 @@ export function InstantBanFlow({ onClose }: Props) {
   const [durationMinutes, setDurationMinutes] = useState(DEFAULT_DURATION_MINUTES);
   const [sendError, setSendError] = useState<string | null>(null);
   const [confirmEnterKey, setConfirmEnterKey] = useState(0);
-  const [payoffAnchor, setPayoffAnchor] = useState<PayoffAnchor | null>(null);
-  const sendCompleteRef = useRef(false);
-  const payoffCompleteRef = useRef(false);
+  const [sendSucceeded, setSendSucceeded] = useState(false);
 
   useInstantBanViewport(step !== 'what');
 
@@ -116,33 +112,13 @@ export function InstantBanFlow({ onClose }: Props) {
     setBanText('');
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
     setSendError(null);
-    setPayoffAnchor(null);
-    sendCompleteRef.current = false;
-    payoffCompleteRef.current = false;
-  }, []);
-
-  const attemptSuccess = useCallback(() => {
-    if (!sendCompleteRef.current || !payoffCompleteRef.current) return;
-    sendCompleteRef.current = false;
-    payoffCompleteRef.current = false;
-    setStep('success');
+    setSendSucceeded(false);
   }, []);
 
   const onSuccess = useCallback(() => {
     setSendError(null);
-    sendCompleteRef.current = true;
-    attemptSuccess();
-  }, [attemptSuccess]);
-
-  const handlePayoffStart = useCallback((anchor: PayoffAnchor) => {
-    setPayoffAnchor(anchor);
-    setStep('payoff');
+    setSendSucceeded(true);
   }, []);
-
-  const handlePayoffComplete = useCallback(() => {
-    payoffCompleteRef.current = true;
-    attemptSuccess();
-  }, [attemptSuccess]);
 
   const { send, inFlight, sharing } = useSendChallenge({
     token,
@@ -166,10 +142,7 @@ export function InstantBanFlow({ onClose }: Props) {
         username: p.username,
         message: p.message,
       });
-      sendCompleteRef.current = false;
-      payoffCompleteRef.current = false;
-      setPayoffAnchor(null);
-      setStep('confirm');
+      setSendSucceeded(false);
       setSendError(p.message || 'Не получилось отправить запрет');
     },
     onboard,
@@ -187,10 +160,6 @@ export function InstantBanFlow({ onClose }: Props) {
         return 'ЧТО ЗАПРЕЩАЕШЬ?';
       case 'confirm':
         return 'ПОДТВЕРДИ ЗАПРЕТ';
-      case 'payoff':
-        return 'ЗАПРЕТ ОТПРАВЛЕН';
-      case 'success':
-        return 'ЗАПРЕТ ОТПРАВЛЕН';
     }
   }, [step]);
 
@@ -205,6 +174,7 @@ export function InstantBanFlow({ onClose }: Props) {
   const handleWhatSubmit = useCallback((text: string, duration: number) => {
     setBanText(text);
     setDurationMinutes(duration);
+    setSendSucceeded(false);
     setConfirmEnterKey((k) => k + 1);
     setStep('confirm');
   }, []);
@@ -302,7 +272,7 @@ export function InstantBanFlow({ onClose }: Props) {
     >
       <div className="instant-ban-flow__grid" aria-hidden />
       <div className="instant-ban-flow__inner">
-        {step !== 'confirm' && step !== 'payoff' ? (
+        {step !== 'confirm' ? (
           <h1 className="instant-ban-flow__title">{stepTitle}</h1>
         ) : null}
         <div className="instant-ban-flow__body">
@@ -332,23 +302,13 @@ export function InstantBanFlow({ onClose }: Props) {
               banText={banText}
               durationMinutes={durationMinutes}
               sending={inFlight || sharing}
+              sendSucceeded={sendSucceeded}
               error={sendError}
+              senderUser={user}
               onConfirm={() => void executeSend()}
-              onPayoffStart={handlePayoffStart}
+              onAgain={resetForAnother}
               onRetry={() => void executeSend()}
               onBack={handleConfirmBack}
-            />
-          ) : null}
-          {(step === 'payoff' || step === 'success') && selectedUser && payoffAnchor ? (
-            <SuccessScreen
-              morphAnchor={payoffAnchor}
-              morphActive={step === 'payoff'}
-              senderUser={user}
-              selectedUser={selectedUser}
-              banText={banText}
-              durationMinutes={durationMinutes}
-              onMorphComplete={handlePayoffComplete}
-              onAgain={resetForAnother}
             />
           ) : null}
         </div>

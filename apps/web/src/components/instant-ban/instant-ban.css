@@ -312,6 +312,12 @@
   line-height: 1.5;
 }
 
+.instant-ban-confirm-copy--hidden {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 220ms ease;
+}
+
 .instant-ban-confirm-copy__subject {
   display: flex;
   flex-direction: column;
@@ -477,6 +483,7 @@
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
   opacity: 1;
+  overflow: hidden;
 }
 
 .instant-ban-confirm-orb-btn:disabled {
@@ -685,111 +692,77 @@
   opacity: 0.7;
 }
 
-.instant-ban-status--error {
-  color: #f87171;
-}
-
-/* Success / Payoff — single morph container: measured orb rect → centered card */
-.instant-ban-success-root {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
-  pointer-events: none;
-}
-
-.instant-ban-success-root--interactive {
-  pointer-events: auto;
-}
-
-.instant-ban-payoff-morph {
-  position: fixed;
-  left: var(--morph-left, 50%);
-  top: var(--morph-top, 50%);
-  width: var(--morph-width, var(--98-confirm-orb-size));
-  height: var(--morph-height, var(--98-confirm-orb-size));
-  transform: translate(-50%, -50%);
-  box-sizing: border-box;
-  border: 2px solid rgba(var(--98-power-rgb), 0.92);
-  box-shadow:
-    0 0 6px var(--98-power-glow-soft),
-    0 0 14px var(--98-power-glow-soft);
-  overflow: hidden;
-  transition:
-    left 2000ms cubic-bezier(0.33, 1, 0.68, 1),
-    top 2000ms cubic-bezier(0.33, 1, 0.68, 1),
-    width 2000ms cubic-bezier(0.33, 1, 0.68, 1),
-    height 2000ms cubic-bezier(0.33, 1, 0.68, 1),
-    border-radius 2000ms cubic-bezier(0.33, 1, 0.68, 1),
-    background 2000ms ease,
-    border-color 2000ms ease,
-    box-shadow 2000ms ease;
-}
-
-.instant-ban-payoff-morph--circle {
-  border-radius: 50%;
-  background: transparent;
-}
-
-.instant-ban-payoff-morph--to-card {
-  left: var(--morph-end-left, 50%);
-  top: var(--morph-end-top, 50%);
-  width: var(--morph-end-width, min(86vw, 340px));
-  height: var(--morph-end-height, 240px);
-  min-height: var(--morph-end-height, 240px);
+.instant-ban-confirm-orb-btn--expanding-to-card,
+.instant-ban-confirm-orb-btn--card-ready {
+  width: min(86vw, 340px);
+  height: 240px;
+  min-height: 240px;
   border-radius: 24px;
+  border: 2px solid rgba(var(--98-power-rgb), 0.92);
   background: linear-gradient(
     165deg,
     rgba(var(--98-purple-deep-rgb), 0.4) 0%,
     rgba(10, 6, 16, 0.9) 100%
   );
-  border-color: rgba(var(--98-accent-rgb), 0.22);
   box-shadow: 0 0 32px rgba(var(--98-accent-rgb), 0.15);
+  transform: translate(var(--payoff-shift-x, 0px), var(--payoff-shift-y, 0px));
+  transition:
+    width 4000ms cubic-bezier(0.33, 1, 0.68, 1),
+    height 4000ms cubic-bezier(0.33, 1, 0.68, 1),
+    min-height 4000ms cubic-bezier(0.33, 1, 0.68, 1),
+    border-radius 4000ms cubic-bezier(0.33, 1, 0.68, 1),
+    transform 4000ms cubic-bezier(0.33, 1, 0.68, 1),
+    background 4000ms ease,
+    border-color 4000ms ease,
+    box-shadow 4000ms ease;
 }
 
-.instant-ban-payoff-morph--settled {
-  height: auto;
-  min-height: var(--morph-end-height, 240px);
-  transition: none;
+.instant-ban-confirm-orb-btn--expanding-to-card {
+  pointer-events: none;
 }
 
-.instant-ban-payoff-morph__orb-label {
+.instant-ban-confirm-orb-btn--card-ready {
+  pointer-events: auto;
+}
+
+.instant-ban-confirm-orb-btn--expanding-to-card .instant-ban-confirm-orb-ring,
+.instant-ban-confirm-orb-btn--card-ready .instant-ban-confirm-orb-ring,
+.instant-ban-confirm-orb-btn--expanding-to-card .instant-ban-confirm-orb,
+.instant-ban-confirm-orb-btn--card-ready .instant-ban-confirm-orb {
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+.instant-ban-confirm-success-content {
   position: absolute;
   inset: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--98-confirm-orb-title-size);
-  font-weight: 800;
-  letter-spacing: -0.04em;
-  line-height: 1;
-  color: #fff;
-  opacity: 1;
-  text-shadow:
-    0 0 24px rgba(var(--98-accent-rgb), 0.9),
-    0 0 48px rgba(var(--98-accent-rgb), 0.55);
-  transition: opacity 260ms ease;
-  pointer-events: none;
-}
-
-.instant-ban-payoff-morph--to-card .instant-ban-payoff-morph__orb-label {
-  opacity: 0;
-}
-
-.instant-ban-payoff-morph__content {
+  flex-direction: column;
+  justify-content: flex-start;
+  padding: 1.25rem 1rem 1rem;
   opacity: 0;
   transform: translateY(8px);
-  padding: 1.25rem 1rem 1rem;
-  text-align: center;
   pointer-events: none;
 }
 
-.instant-ban-payoff-morph--to-card .instant-ban-payoff-morph__content {
+.instant-ban-confirm-orb-btn--expanding-to-card .instant-ban-confirm-success-content,
+.instant-ban-confirm-orb-btn--card-ready .instant-ban-confirm-success-content {
   opacity: 1;
   transform: translateY(0);
-  pointer-events: auto;
   transition:
     opacity 420ms ease 200ms,
     transform 420ms ease 200ms;
+}
+
+.instant-ban-success-card__again-pill {
+  display: inline-flex;
+  width: 100%;
+  margin-top: 1rem;
+  justify-content: center;
+}
+
+.instant-ban-status--error {
+  color: #f87171;
 }
 
 .instant-ban-success-card__content {
@@ -906,20 +879,6 @@
     opacity: 0.75;
   }
 
-  .instant-ban-payoff-morph,
-  .instant-ban-payoff-morph__content,
-  .instant-ban-payoff-morph__orb-label {
-    transition-duration: 0.01ms !important;
-    transform: none !important;
-  }
-
-  .instant-ban-payoff-morph--circle {
-    transform: translate(-50%, -50%) !important;
-  }
-
-  .instant-ban-payoff-morph__content {
-    opacity: 1 !important;
-  }
 }
 
 /* WhatScreen — mobile-safe (Telegram WebView): plain layout, no GPU tricks */
@@ -1184,8 +1143,7 @@
 .instant-ban-debug-lite .instant-ban-what-input,
 .instant-ban-debug-lite .instant-ban-chip,
 .instant-ban-debug-lite .instant-ban-duration-pill,
-.instant-ban-debug-lite .instant-ban-duration-pill--active,
-.instant-ban-debug-lite .instant-ban-payoff-morph {
+.instant-ban-debug-lite .instant-ban-duration-pill--active {
   box-shadow: none !important;
   transition: none !important;
   animation: none !important;

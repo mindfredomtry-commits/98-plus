@@ -1,18 +1,20 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { FriendCard } from '@98plus/shared';
+import type { FriendCard, UserPublic } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { AvatarImage } from '../AvatarImage';
 import { InfluenceRing } from '../lobby/InfluenceRing';
-import { payoffAnchorFromRect } from './payoff-anchor';
+import { SuccessBanCardBody } from './SuccessBanCardBody';
 
 const HOLD_MS = 650;
+const PAYOFF_MORPH_MS = 4000;
 const CONFIRM_ENTER_LOBBY_HOLD_MS = 100;
 const CONFIRM_ENTER_COMPRESS_MS = 600;
 
 type HoldPhase = 'idle' | 'holding' | 'ready' | 'releasing';
 type EnterPhase = 'lobby-orb' | 'compressing' | 'ready';
+type PayoffPhase = 'idle' | 'expanding' | 'card';
 
 type Props = {
   enterKey: number;
@@ -22,9 +24,11 @@ type Props = {
   banText: string;
   durationMinutes: number;
   sending: boolean;
+  sendSucceeded: boolean;
   error: string | null;
+  senderUser: UserPublic | null | undefined;
   onConfirm: () => void;
-  onPayoffStart: (anchor: ReturnType<typeof payoffAnchorFromRect>) => void;
+  onAgain: () => void;
   onRetry: () => void;
   onBack: () => void;
 };
@@ -81,9 +85,11 @@ export function ConfirmScreen({
   banText,
   durationMinutes,
   sending,
+  sendSucceeded,
   error,
+  senderUser,
   onConfirm,
-  onPayoffStart,
+  onAgain,
   onRetry,
   onBack,
 }: Props) {
@@ -103,14 +109,19 @@ export function ConfirmScreen({
   const [enterPhase, setEnterPhase] = useState<EnterPhase>('lobby-orb');
   const [ringProgress, setRingProgress] = useState(influenceStart);
   const [holdPhase, setHoldPhase] = useState<HoldPhase>('idle');
+  const [payoffPhase, setPayoffPhase] = useState<PayoffPhase>('idle');
+  const [morphDone, setMorphDone] = useState(false);
   const [bounce, setBounce] = useState(false);
   const enterComplete = enterPhase === 'ready';
+  const showingPayoff = payoffPhase !== 'idle';
 
   const orbWrapRef = useRef<HTMLDivElement>(null);
   const orbStageRef = useRef<HTMLDivElement>(null);
+  const orbBtnRef = useRef<HTMLButtonElement>(null);
   const holdPhaseRef = useRef<HoldPhase>('idle');
   const readyToReleaseRef = useRef(false);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const morphTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendTriggeredRef = useRef(false);
   const bounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -123,6 +134,13 @@ export function ConfirmScreen({
     if (holdTimerRef.current) {
       clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
+    }
+  }, []);
+
+  const clearMorphTimer = useCallback(() => {
+    if (morphTimerRef.current) {
+      clearTimeout(morphTimerRef.current);
+      morphTimerRef.current = null;
     }
   }, []);
 
@@ -155,12 +173,24 @@ export function ConfirmScreen({
   useEffect(() => {
     if (error) {
       sendTriggeredRef.current = false;
+      setPayoffPhase('idle');
+      setMorphDone(false);
+      clearMorphTimer();
+      setPhase('idle');
     }
-  }, [error]);
+  }, [error, clearMorphTimer, setPhase]);
 
   useEffect(() => {
     setEnterPhase('lobby-orb');
     setRingProgress(influenceStart);
+    setPayoffPhase('idle');
+    setMorphDone(false);
+    sendTriggeredRef.current = false;
+    clearMorphTimer();
+    if (orbBtnRef.current) {
+      orbBtnRef.current.style.removeProperty('--payoff-shift-x');
+      orbBtnRef.current.style.removeProperty('--payoff-shift-y');
+    }
     const compressTimer = window.setTimeout(() => {
       setEnterPhase('compressing');
     }, CONFIRM_ENTER_LOBBY_HOLD_MS);
@@ -172,7 +202,14 @@ export function ConfirmScreen({
       window.clearTimeout(compressTimer);
       window.clearTimeout(readyTimer);
     };
-  }, [enterKey, influenceStart]);
+  }, [enterKey, influenceStart, clearMorphTimer]);
+
+  useEffect(() => {
+    if (payoffPhase === 'expanding' && morphDone && sendSucceeded) {
+      setPayoffPhase('card');
+      setPhase('idle');
+    }
+  }, [payoffPhase, morphDone, sendSucceeded, setPhase]);
 
   useEffect(() => {
     if (enterPhase !== 'compressing') return;
@@ -207,15 +244,16 @@ export function ConfirmScreen({
   useEffect(() => {
     return () => {
       clearHoldTimer();
+      clearMorphTimer();
       if (bounceTimerRef.current) {
         clearTimeout(bounceTimerRef.current);
       }
     };
-  }, [clearHoldTimer]);
+  }, [clearHoldTimer, clearMorphTimer]);
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
-      if (!enterComplete || sending || sendTriggeredRef.current || e.button !== 0) {
+      if (!enterComplete || sending || sendTriggeredRef.current || showingPayoff || e.button !== 0) {
         return;
       }
       e.preventDefault();
@@ -236,12 +274,12 @@ export function ConfirmScreen({
         safeNotification('success');
       }, HOLD_MS);
     },
-    [enterComplete, sending, clearHoldTimer, setPhase],
+    [enterComplete, sending, showingPayoff, clearHoldTimer, setPhase],
   );
 
   const handlePointerUp = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
-      if (!enterComplete || sending || sendTriggeredRef.current) return;
+      if (!enterComplete || sending || sendTriggeredRef.current || showingPayoff) return;
       clearHoldTimer();
       try {
         if (e.currentTarget.hasPointerCapture(e.pointerId)) {
@@ -255,27 +293,18 @@ export function ConfirmScreen({
         readyToReleaseRef.current = false;
         sendTriggeredRef.current = true;
         setPhase('releasing');
-
-        const orbEl =
-          orbStageRef.current?.querySelector<HTMLElement>(
-            '.instant-ban-confirm-orb-btn',
-          ) ?? orbStageRef.current;
-        if (orbEl) {
-          onPayoffStart(payoffAnchorFromRect(orbEl.getBoundingClientRect()));
-        } else {
-          const fallbackSize = 160;
-          const cx = window.innerWidth / 2;
-          const cy = window.innerHeight / 2;
-          onPayoffStart({
-            x: cx - fallbackSize / 2,
-            y: cy - fallbackSize / 2,
-            width: fallbackSize,
-            height: fallbackSize,
-            centerX: cx,
-            centerY: cy,
-          });
-        }
-
+        setPayoffPhase('expanding');
+        setMorphDone(false);
+        const btnRect = e.currentTarget.getBoundingClientRect();
+        const dx = window.innerWidth / 2 - (btnRect.left + btnRect.width / 2);
+        const dy = window.innerHeight / 2 - (btnRect.top + btnRect.height / 2);
+        e.currentTarget.style.setProperty('--payoff-shift-x', `${dx}px`);
+        e.currentTarget.style.setProperty('--payoff-shift-y', `${dy}px`);
+        clearMorphTimer();
+        morphTimerRef.current = setTimeout(() => {
+          morphTimerRef.current = null;
+          setMorphDone(true);
+        }, PAYOFF_MORPH_MS);
         onConfirm();
         return;
       }
@@ -293,38 +322,49 @@ export function ConfirmScreen({
     [
       enterComplete,
       sending,
+      showingPayoff,
       clearHoldTimer,
+      clearMorphTimer,
       setPhase,
       onConfirm,
-      onPayoffStart,
       triggerBounce,
     ],
   );
 
   const handlePointerCancel = useCallback(() => {
-    if (!enterComplete || sending || sendTriggeredRef.current) return;
+    if (!enterComplete || sending || sendTriggeredRef.current || showingPayoff) return;
     cancelHold(true);
-  }, [enterComplete, sending, cancelHold]);
+  }, [enterComplete, sending, showingPayoff, cancelHold]);
 
   const handlePointerLeave = useCallback(() => {
-    if (!enterComplete || sending || sendTriggeredRef.current) return;
+    if (!enterComplete || sending || sendTriggeredRef.current || showingPayoff) return;
     if (holdPhaseRef.current === 'idle' || holdPhaseRef.current === 'releasing') {
       return;
     }
     cancelHold(true);
-  }, [enterComplete, sending, cancelHold]);
+  }, [enterComplete, sending, showingPayoff, cancelHold]);
+
+  const handleOrbClick = useCallback(() => {
+    if (payoffPhase === 'card') {
+      onAgain();
+    }
+  }, [payoffPhase, onAgain]);
 
   const orbBtnClass = [
     'instant-ban-confirm-orb-btn',
     holdPhase === 'holding' ? 'instant-ban-confirm-orb-btn--holding' : '',
     holdPhase === 'ready' ? 'instant-ban-confirm-orb-btn--ready' : '',
     holdPhase === 'releasing' ? 'instant-ban-confirm-orb-btn--releasing' : '',
+    payoffPhase === 'expanding' ? 'instant-ban-confirm-orb-btn--expanding-to-card' : '',
+    payoffPhase === 'card' ? 'instant-ban-confirm-orb-btn--card-ready' : '',
     bounce ? 'instant-ban-confirm-orb-btn--bounce' : '',
   ]
     .filter(Boolean)
     .join(' ');
 
-  const statusLabel = sending
+  const statusLabel = payoffPhase === 'card'
+    ? ''
+    : sending || payoffPhase === 'expanding'
     ? 'Запрет отправляется…'
     : error
       ? 'Не получилось отправить запрет'
@@ -339,12 +379,15 @@ export function ConfirmScreen({
       className="instant-ban-confirm"
       data-confirm-enter-key={enterKey}
       data-enter-phase={enterPhase}
+      data-payoff-phase={payoffPhase}
       data-instant-ban-view="ConfirmScreen"
     >
-      <button type="button" className="instant-ban-flow__back" onClick={onBack}>
-        ← Назад
-      </button>
-      <div className="instant-ban-confirm-copy">
+      {!showingPayoff ? (
+        <button type="button" className="instant-ban-flow__back" onClick={onBack}>
+          ← Назад
+        </button>
+      ) : null}
+      <div className={`instant-ban-confirm-copy${showingPayoff ? ' instant-ban-confirm-copy--hidden' : ''}`}>
         <span className="instant-ban-confirm-copy__lead instant-ban-confirm-enter instant-ban-confirm-enter--1">
           Ты запрещаешь
         </span>
@@ -367,14 +410,16 @@ export function ConfirmScreen({
       <div ref={orbWrapRef} className="instant-ban-confirm-orb-wrap">
         <div ref={orbStageRef} className="instant-ban-confirm-orb-stage">
           <button
+            ref={orbBtnRef}
             type="button"
             className={orbBtnClass}
-            disabled={sending || !enterComplete}
+            disabled={(payoffPhase !== 'card' && sending) || (payoffPhase === 'idle' && !enterComplete)}
             aria-label="Зажми 98+ чтобы отправить запрет"
             onPointerDown={handlePointerDown}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerCancel}
             onPointerLeave={handlePointerLeave}
+            onClick={handleOrbClick}
           >
             <span className="instant-ban-confirm-orb-ring" aria-hidden>
               <InfluenceRing
@@ -385,6 +430,17 @@ export function ConfirmScreen({
             <span className="instant-ban-confirm-orb">
               <span className="instant-ban-confirm-orb__title">98+</span>
             </span>
+            <div className="instant-ban-confirm-success-content">
+              <SuccessBanCardBody
+                senderUser={senderUser}
+                selectedUser={selectedUser}
+                banText={banText}
+                durationMinutes={durationMinutes}
+              />
+              <span className="btn-98-primary instant-ban-success-card__again-pill">
+                Запретить ещё!
+              </span>
+            </div>
           </button>
         </div>
         <p
