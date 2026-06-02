@@ -53,11 +53,28 @@ export type InstantBanSendBeforePayload = {
   receiverTelegramId: string | null;
   devAuth: boolean;
   devPeerResolved: boolean;
+  instantDirectSend: boolean;
+  isRegistered: boolean;
 };
 
 export function instantBanSendBeforeDebug(data: InstantBanSendBeforePayload): void {
   if (!isDev) return;
   console.debug('[instant-ban:send-before]', data);
+}
+
+export function instantBanSendSuccessDebug(data: Record<string, unknown>): void {
+  if (!isDev) return;
+  console.debug('[instant-ban:send-success]', data);
+}
+
+export function instantBanPayoffArmDebug(data: Record<string, unknown>): void {
+  if (!isDev) return;
+  console.debug('[instant-ban:payoff-arm]', data);
+}
+
+export function instantBanPayoffStartDebug(data: Record<string, unknown>): void {
+  if (!isDev) return;
+  console.debug('[instant-ban:payoff-start]', data);
 }
 
 export function serializeInstantBanSendError(error: unknown): {

@@ -70,14 +70,14 @@ export function useSendChallenge(opts: {
   scheduleDeferredSyncRef.current = opts.scheduleDeferredSync;
 
   const send = useCallback(
-    async (params: SendChallengeParams) => {
+    async (params: SendChallengeParams): Promise<'started' | 'skipped'> => {
       const token = tokenRef.current;
       if (!token) {
         throw new Error('Нет авторизации — перезапусти Mini App из Telegram');
       }
       if (inFlightRef.current) {
         instantBanDebug('send-skipped-hook', { reason: 'inFlight' });
-        return;
+        return 'skipped';
       }
 
       const username = params.receiverUsername.replace(/^@/, '').trim();
@@ -189,13 +189,14 @@ export function useSendChallenge(opts: {
         }
 
         ctaLog('mutation:success');
+        return 'started';
       } catch (e) {
         const message = formatDeliveryError(e);
         if (showedInstantSuccess && isSendCooldownMessage(message)) {
           ctaLog('mutation:cooldown-after-success', { username, message });
           onConfirmRef.current?.({ ...params, username });
           scheduleDeferredSyncRef.current?.();
-          return;
+          return 'started';
         }
         console.error('[98+] sendBan rollback', { username, message, error: e });
         ctaLog('mutation:fail', { message });

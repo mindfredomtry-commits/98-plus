@@ -12,7 +12,7 @@ import type { FriendCard, UserPublic } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { AvatarImage } from '../AvatarImage';
 import { InfluenceRing } from '../lobby/InfluenceRing';
-import { instantBanDebug } from '@/lib/instant-ban-debug';
+import { instantBanDebug, instantBanPayoffStartDebug } from '@/lib/instant-ban-debug';
 import { SuccessPayoffReveal } from './SuccessPayoffReveal';
 
 const HOLD_MS = 650;
@@ -270,15 +270,18 @@ export function ConfirmScreen({
       return;
     }
     payoffPendingRef.current = false;
-    instantBanDebug('payoff-start', { payoffArmToken });
+    instantBanPayoffStartDebug({
+      payoffArmToken,
+      phase: 'impact',
+    });
     setPayoff('impact');
   }, [payoffArmToken, setPayoff]);
 
   useEffect(() => {
-    if (error) {
+    if (error && payoffPhase === 'none') {
       resetPayoff();
     }
-  }, [error, resetPayoff]);
+  }, [error, payoffPhase, resetPayoff]);
 
   useEffect(() => {
     setEnterPhase('lobby-orb');

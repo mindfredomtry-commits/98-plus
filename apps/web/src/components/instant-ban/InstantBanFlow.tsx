@@ -15,8 +15,10 @@ import { resolveDevSendTarget } from '@/lib/dev-receiver';
 import { isClientDevAuthEnabled } from '@/lib/config';
 import {
   instantBanDebug,
+  instantBanPayoffArmDebug,
   instantBanSendBeforeDebug,
   instantBanSendErrorDebug,
+  instantBanSendSuccessDebug,
   isInstantBanLiteMode,
 } from '@/lib/instant-ban-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
@@ -93,6 +95,8 @@ export function InstantBanFlow({ onClose }: Props) {
     sendTriggered: boolean;
   }>({ payoffPhase: 'none', sendTriggered: false });
   const confirmAbortReleaseRef = useRef<(() => void) | null>(null);
+  const payoffArmedRef = useRef(false);
+  const payoffArmTokenRef = useRef(0);
 
   useInstantBanViewport(step !== 'what');
 
@@ -127,14 +131,25 @@ export function InstantBanFlow({ onClose }: Props) {
     setBanText('');
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
     setSendError(null);
-    flowSendAttemptRef.current = false;
+    payoffArmedRef.current = false;
     sendSnapshotRef.current = null;
   }, []);
 
   const onSuccess = useCallback(() => {
     setSendError(null);
-    instantBanDebug('send-success', { armPayoff: true });
-    setPayoffArmToken((t) => t + 1);
+    payoffArmedRef.current = true;
+    const nextToken = payoffArmTokenRef.current + 1;
+    payoffArmTokenRef.current = nextToken;
+    instantBanSendSuccessDebug({
+      payoffArmToken: nextToken,
+      payoffPending: confirmSendContextRef.current.sendTriggered,
+      payoffPhase: confirmSendContextRef.current.payoffPhase,
+    });
+    instantBanPayoffArmDebug({
+      payoffArmToken: nextToken,
+      payoffPending: confirmSendContextRef.current.sendTriggered,
+    });
+    setPayoffArmToken(nextToken);
   }, []);
 
   const { send, inFlight, sharing } = useSendChallenge({
@@ -163,7 +178,16 @@ export function InstantBanFlow({ onClose }: Props) {
       instantBanSendErrorDebug({
         message,
         error: p,
+        payoffArmed: payoffArmedRef.current,
+        payoffArmToken: payoffArmTokenRef.current,
       });
+      if (payoffArmedRef.current) {
+        instantBanDebug('send-error-after-payoff-armed', {
+          message,
+          payoffArmToken: payoffArmTokenRef.current,
+        });
+        return;
+      }
       setSendError(message);
     },
     onboard,
@@ -195,6 +219,7 @@ export function InstantBanFlow({ onClose }: Props) {
   const handleWhatSubmit = useCallback((text: string, duration: number) => {
     setBanText(text);
     setDurationMinutes(duration);
+    payoffArmedRef.current = false;
     sendSnapshotRef.current = null;
     setConfirmEnterKey((k) => k + 1);
     setStep('confirm');
@@ -224,18 +249,21 @@ export function InstantBanFlow({ onClose }: Props) {
     confirmAbortReleaseRef.current = abort;
   }, []);
 
-  const executeSend = useCallback(async (): Promise<boolean> => {
+  const executeSend = useCallback(async (): Promise<'started' | 'skipped' | 'rejected'> => {
     const snap = sendSnapshotRef.current;
     if (!snap) {
       instantBanDebug('send-skipped', { reason: 'no-snapshot' });
-      return false;
+      return 'rejected';
     }
 
     const { banText: snapText, selectedUser: snapUser, durationMinutes: snapDuration } =
       snap;
 
     const username = (snapUser.username ?? '').replace(/^@/, '').trim();
-    const resolved = safeResolveReceiverTarget(username, safeFriends);
+    const resolved = safeResolveReceiverTarget(username, safeFriends, {
+      receiverUserId: snapUser.userId ?? null,
+      receiverTelegramId: snapUser.telegramId ?? null,
+    });
     const devTarget = resolveDevSendTarget(safeFriends, `@${username}`, {
       username: user?.username,
       userId: user?.id,
@@ -247,6 +275,11 @@ export function InstantBanFlow({ onClose }: Props) {
       receiverTelegramId:
         resolved.receiverTelegramId ?? snapUser.telegramId ?? null,
     };
+
+    const instantDirectSend =
+      Boolean(username) &&
+      (resolved.isRegistered ||
+        Boolean(sendTarget.receiverUserId || sendTarget.receiverTelegramId));
 
     instantBanSendBeforeDebug({
       banText: snapText,
@@ -264,45 +297,43 @@ export function InstantBanFlow({ onClose }: Props) {
       receiverTelegramId: sendTarget.receiverTelegramId,
       devAuth: isClientDevAuthEnabled(),
       devPeerResolved: Boolean(devTarget?.receiverUserId),
+      instantDirectSend,
+      isRegistered: resolved.isRegistered,
     });
 
     if (!token) {
       instantBanDebug('send-rejected', { reason: 'no-token' });
       setSendError('Не получилось отправить запрет');
-      return false;
-    }
-
-    if (inFlight || sharing) {
-      instantBanDebug('send-rejected', { reason: 'in-flight', inFlight, sharing });
-      setSendError('Не получилось отправить запрет');
-      return false;
+      return 'rejected';
     }
 
     const text = snapText.trim();
     if (text.length < 3) {
       instantBanDebug('send-rejected', { reason: 'text-too-short', length: text.length });
       setSendError('Не получилось отправить запрет');
-      return false;
+      return 'rejected';
     }
 
     if (!username) {
       instantBanDebug('send-rejected', { reason: 'no-username' });
       setSendError('Не получилось отправить запрет');
-      return false;
+      return 'rejected';
     }
 
     if (isClientDevAuthEnabled() && !sendTarget.receiverUserId) {
       instantBanDebug('send-rejected', { reason: 'dev-peer-missing' });
       setSendError('Выбери Dev Peer в списке людей');
-      return false;
+      return 'rejected';
     }
 
-    setSendError(null);
+    if (!payoffArmedRef.current) {
+      setSendError(null);
+    }
     triggerConfirmHaptic();
     haptic('medium');
 
     try {
-      await send({
+      const outcome = await send({
         text,
         receiverUsername: sendTarget.receiverUsername.startsWith('@')
           ? sendTarget.receiverUsername
@@ -311,24 +342,20 @@ export function InstantBanFlow({ onClose }: Props) {
         receiverTelegramId: sendTarget.receiverTelegramId,
         durationMinutes: snapDuration,
       });
-      return true;
+      if (outcome === 'skipped') {
+        instantBanDebug('send-skipped', { reason: 'hook-in-flight' });
+        return 'skipped';
+      }
+      return 'started';
     } catch (e) {
       instantBanSendErrorDebug({
         message: e instanceof Error ? e.message : String(e),
         error: e,
+        payoffArmed: payoffArmedRef.current,
       });
-      return true;
+      return 'started';
     }
-  }, [
-    token,
-    inFlight,
-    sharing,
-    haptic,
-    safeFriends,
-    user?.username,
-    user?.id,
-    send,
-  ]);
+  }, [token, haptic, safeFriends, user?.username, user?.id, send]);
 
   const captureSendSnapshot = useCallback(() => {
     if (!selectedUser) return false;
@@ -341,14 +368,17 @@ export function InstantBanFlow({ onClose }: Props) {
   }, [banText, selectedUser, durationMinutes]);
 
   const handleConfirmRelease = useCallback(async () => {
+    instantBanDebug('confirm-release', {
+      payoffPending: confirmSendContextRef.current.sendTriggered,
+    });
     if (!captureSendSnapshot()) {
       confirmAbortReleaseRef.current?.();
       return;
     }
 
-    const started = await executeSend();
-    if (!started) {
-      instantBanDebug('send-abort-release', { reason: 'send-not-started' });
+    const outcome = await executeSend();
+    if (outcome === 'rejected') {
+      instantBanDebug('send-abort-release', { reason: 'send-rejected' });
       confirmAbortReleaseRef.current?.();
     }
   }, [captureSendSnapshot, executeSend]);
