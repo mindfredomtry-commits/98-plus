@@ -44,6 +44,8 @@ import './instant-ban.css';
 const DEFAULT_DURATION_MINUTES = 3;
 const CTA_EXIT_MS = 200;
 const CTA_ENTER_MS = 400;
+/** Extra wait before first CTA spring-in on cold app open (Who return unchanged). */
+const LOBBY_CTA_COLD_START_DELAY_MS = 200;
 const WHO_PANEL_ENTER_MS = 220;
 
 function prefersReducedMotion(): boolean {
@@ -54,7 +56,7 @@ function prefersReducedMotion(): boolean {
 function resolveInitialCtaState(sendStarted: boolean): LobbyCtaState {
   if (sendStarted) return 'hidden';
   if (prefersReducedMotion()) return 'visible';
-  return 'entering';
+  return 'hidden';
 }
 
 /** Parent send-flow phases (arena shell stays mounted). */
@@ -171,6 +173,7 @@ export function InstantBanFlow({
   const [whoPanelEntering, setWhoPanelEntering] = useState(false);
   const ctaExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ctaEnterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ctaBootDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const whoPanelEnterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lobbyCtaBootSpringRef = useRef(false);
   const prevSendStartedRef = useRef(sendStarted);
@@ -200,6 +203,13 @@ export function InstantBanFlow({
     }
   }, []);
 
+  const clearCtaBootDelayTimer = useCallback(() => {
+    if (ctaBootDelayTimerRef.current) {
+      clearTimeout(ctaBootDelayTimerRef.current);
+      ctaBootDelayTimerRef.current = null;
+    }
+  }, []);
+
   const clearWhoPanelEnterTimer = useCallback(() => {
     if (whoPanelEnterTimerRef.current) {
       clearTimeout(whoPanelEnterTimerRef.current);
@@ -226,19 +236,24 @@ export function InstantBanFlow({
     if (lobbyCtaBootSpringRef.current) return;
     if (sendStarted) return;
     if (prefersReducedMotion()) return;
-    if (ctaState !== 'entering') return;
     lobbyCtaBootSpringRef.current = true;
-    scheduleCtaBecomeVisible();
-  }, [ctaState, scheduleCtaBecomeVisible, sendStarted]);
+    ctaBootDelayTimerRef.current = setTimeout(() => {
+      ctaBootDelayTimerRef.current = null;
+      setCtaState('entering');
+      scheduleCtaBecomeVisible();
+    }, LOBBY_CTA_COLD_START_DELAY_MS);
+    return () => clearCtaBootDelayTimer();
+  }, [clearCtaBootDelayTimer, scheduleCtaBecomeVisible, sendStarted]);
 
   /** Only enter who-step when send flow opens — not when user dismisses back to lobby idle. */
   useEffect(() => {
     if (sendStarted && !prevSendStartedRef.current) {
+      clearCtaBootDelayTimer();
       setPhase('selectingTarget');
       setCtaState('hidden');
     }
     prevSendStartedRef.current = sendStarted;
-  }, [sendStarted]);
+  }, [clearCtaBootDelayTimer, sendStarted]);
 
   useEffect(() => {
     if (phase === 'confirming' && ctaState !== 'hidden') {
@@ -434,9 +449,15 @@ export function InstantBanFlow({
       }
       clearCtaExitTimer();
       clearCtaEnterTimer();
+      clearCtaBootDelayTimer();
       clearWhoPanelEnterTimer();
     };
-  }, [clearCtaEnterTimer, clearCtaExitTimer, clearWhoPanelEnterTimer]);
+  }, [
+    clearCtaBootDelayTimer,
+    clearCtaEnterTimer,
+    clearCtaExitTimer,
+    clearWhoPanelEnterTimer,
+  ]);
 
   const handleSelectUser = useCallback((friend: FriendCard) => {
     setSelectedUser(friend);
