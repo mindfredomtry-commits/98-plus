@@ -143,19 +143,21 @@ export function InstantBanFlow({
   const lobbyOrbMountRef = useRef<HTMLDivElement>(null);
   const [composeExitProgress, setComposeExitProgress] = useState(0);
   const [composeDismissing, setComposeDismissing] = useState(false);
-  const [whoDismissing, setWhoDismissing] = useState(false);
   const whoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevSendStartedRef = useRef(sendStarted);
 
   const legacyStep = legacyStepFromPhase(phase);
   const overlayOpen = phase === 'selectingTarget' || phase === 'composingBan';
 
   useInstantBanViewport(phase === 'composingBan');
 
+  /** Only enter who-step when send flow opens — not when user dismisses back to lobby idle. */
   useEffect(() => {
-    if (sendStarted && phase === 'idle') {
+    if (sendStarted && !prevSendStartedRef.current) {
       setPhase('selectingTarget');
     }
-  }, [sendStarted, phase]);
+    prevSendStartedRef.current = sendStarted;
+  }, [sendStarted]);
 
   useEffect(() => {
     instantBanDebug('flow-mount', { flowId });
@@ -268,7 +270,6 @@ export function InstantBanFlow({
 
   const handleBeginSend = useCallback(() => {
     onStartSend();
-    setWhoDismissing(false);
     setPhase('selectingTarget');
   }, [onStartSend]);
 
@@ -277,22 +278,33 @@ export function InstantBanFlow({
       clearTimeout(whoDismissTimerRef.current);
       whoDismissTimerRef.current = null;
     }
-    setWhoDismissing(false);
     setComposeExitProgress(0);
     setComposeDismissing(false);
     setSelectedUser(null);
+    setBanText('');
+    setDurationMinutes(DEFAULT_DURATION_MINUTES);
     setSendError(null);
     setPhase('idle');
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[who-dismiss-set-phase-idle]');
+    }
   }, []);
 
-  const handleWhoDismiss = useCallback(() => {
+  const handleWhoDismissToLobby = useCallback(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[who-dismiss-on-dismiss-call]', { phase });
+    }
     if (phase !== 'selectingTarget') return;
-    setWhoDismissing(true);
-    whoDismissTimerRef.current = setTimeout(() => {
-      whoDismissTimerRef.current = null;
-      finishWhoDismiss();
-    }, 40);
+    finishWhoDismiss();
+    if (process.env.NODE_ENV === 'development') {
+      requestAnimationFrame(() => {
+        console.log('[who-dismiss-phase-after]', {
+          note: 'read on next render via flow-render log',
+        });
+      });
+    }
   }, [finishWhoDismiss, phase]);
+
 
   useEffect(() => {
     return () => {
@@ -642,8 +654,7 @@ export function InstantBanFlow({
                   friends={safeFriends}
                   onSelect={handleSelectUser}
                   onInviteMore={handleInviteMore}
-                  onDismiss={handleWhoDismiss}
-                  dismissing={whoDismissing}
+                  onDismissToLobby={handleWhoDismissToLobby}
                 />
               </div>
             ) : null}

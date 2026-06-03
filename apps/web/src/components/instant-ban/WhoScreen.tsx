@@ -19,11 +19,26 @@ const WHO_DISMISS_SNAP_MS = 200;
 const WHO_DISMISS_COMPLETE_MS = 200;
 
 function whoDismissDevLog(
-  event: 'start' | 'move' | 'fired' | 'snap',
+  event:
+    | 'start'
+    | 'move'
+    | 'fired'
+    | 'snap'
+    | 'threshold-hit'
+    | 'complete-start'
+    | 'on-dismiss-call',
   data?: Record<string, unknown>,
 ): void {
   if (process.env.NODE_ENV !== 'development') return;
-  console.log(`[who-dismiss-${event}]`, data ?? {});
+  const tag =
+    event === 'threshold-hit'
+      ? 'who-dismiss-threshold-hit'
+      : event === 'complete-start'
+        ? 'who-dismiss-complete-start'
+        : event === 'on-dismiss-call'
+          ? 'who-dismiss-on-dismiss-call'
+          : `who-dismiss-${event}`;
+  console.log(`[${tag}]`, data ?? {});
 }
 
 function easeOutCubic(t: number): number {
@@ -35,8 +50,8 @@ type WhoOverlayProps = {
   friends: FriendCard[];
   onSelect: (friend: FriendCard) => void;
   onInviteMore: () => void;
-  onDismiss: () => void;
-  dismissing?: boolean;
+  /** Must call parent setPhase('idle') — see InstantBanFlow.handleWhoDismissToLobby */
+  onDismissToLobby: () => void;
 };
 
 export function WhoOverlay({
@@ -44,7 +59,7 @@ export function WhoOverlay({
   friends,
   onSelect,
   onInviteMore,
-  onDismiss,
+  onDismissToLobby,
   dismissing = false,
 }: WhoOverlayProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -85,10 +100,9 @@ export function WhoOverlay({
     if (!dismissZoneGestureRef.current) return;
     if (dismissCompletingRef.current || commitRef.current) return;
     if (translateY >= WHO_DISMISS_THRESHOLD_PX) {
-      whoDismissDevLog('fired', {
+      whoDismissDevLog('threshold-hit', {
         translateY,
         thresholdPx: WHO_DISMISS_THRESHOLD_PX,
-        trigger: 'auto-threshold',
       });
       completeWhoDismissRef.current();
     }
@@ -153,14 +167,6 @@ export function WhoOverlay({
   }, [clearCompleteTimer, readMaxScroll, resetGestureMetrics, scrollToRest, title]);
 
   useEffect(() => {
-    if (dismissing) {
-      dismissCompletingRef.current = true;
-      applyTranslate(WHO_DISMISS_DISTANCE_PX, false);
-      setDismissCompleting(true);
-    }
-  }, [applyTranslate, dismissing]);
-
-  useEffect(() => {
     return () => {
       clearSnapAnim();
       clearCompleteTimer();
@@ -219,15 +225,19 @@ export function WhoOverlay({
     commitRef.current = true;
     dismissZoneGestureRef.current = false;
     setDismissCompleting(true);
+    applyTranslate(WHO_DISMISS_DISTANCE_PX, false);
 
-    animateTranslatePx(WHO_DISMISS_DISTANCE_PX, () => {
-      clearCompleteTimer();
-      completeTimerRef.current = setTimeout(() => {
-        completeTimerRef.current = null;
-        onDismiss();
-      }, WHO_DISMISS_COMPLETE_MS);
+    whoDismissDevLog('complete-start', {
+      translateY: dismissTranslateRef.current,
     });
-  }, [animateTranslatePx, clearCompleteTimer, onDismiss]);
+
+    clearCompleteTimer();
+    completeTimerRef.current = setTimeout(() => {
+      completeTimerRef.current = null;
+      whoDismissDevLog('on-dismiss-call', {});
+      onDismissToLobby();
+    }, WHO_DISMISS_COMPLETE_MS);
+  }, [applyTranslate, clearCompleteTimer, onDismissToLobby]);
 
   useEffect(() => {
     completeWhoDismissRef.current = completeWhoDismiss;
