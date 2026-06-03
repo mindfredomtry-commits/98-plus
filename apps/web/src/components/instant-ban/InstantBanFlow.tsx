@@ -37,6 +37,7 @@ import { WhoOverlay } from './WhoScreen';
 import { WhatScreen } from './WhatScreen';
 import { ConfirmScreen } from './ConfirmScreen';
 import { useConfirmOrbController } from './useConfirmOrbController';
+import { useLobbyRingIntroFill } from './useLobbyRingIntroFill';
 import '../lobby-screen.css';
 import './instant-ban.css';
 
@@ -635,6 +636,12 @@ export function InstantBanFlow({
     [influencePercent],
   );
 
+  const { displayPercent: lobbyRingDisplayPercent, isFilling: lobbyRingIntroFilling } =
+    useLobbyRingIntroFill(lobbyInfluencePercent, {
+      phase,
+      sendStarted,
+    });
+
   const liteMode = isInstantBanLiteMode();
   const whatMobileSafe = phase === 'composingBan';
 
@@ -724,7 +731,10 @@ export function InstantBanFlow({
           <ArenaLobbyOrb
             sendPhase={phase}
             confirmActive={confirmActive}
+            orbCompressActive={orbCompressActive}
             confirmOrb={confirmOrb}
+            lobbyRingDisplayPercent={lobbyRingDisplayPercent}
+            lobbyRingIntroFilling={lobbyRingIntroFilling}
             senderUser={user}
             selectedUser={selectedUser}
             banText={banText}

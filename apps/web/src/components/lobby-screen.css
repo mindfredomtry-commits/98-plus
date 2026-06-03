@@ -107,6 +107,16 @@
   transition: stroke-dashoffset 0.65s ease;
 }
 
+.influence-ring--no-transition .influence-ring__progress {
+  transition: none;
+}
+
+.influence-ring--intro-filling .influence-ring__progress {
+  filter: drop-shadow(0 0 10px var(--98-power-glow))
+    drop-shadow(0 0 18px var(--98-power-glow-soft))
+    drop-shadow(0 0 26px rgba(var(--98-accent-rgb), 0.4));
+}
+
 .lobby-screen__orb-ring {
   display: none;
 }
@@ -203,8 +213,10 @@
     animation: none;
   }
 
-  .influence-ring__progress {
+  .influence-ring__progress,
+  .influence-ring--intro-filling .influence-ring__progress {
     transition: none;
+    animation: none;
   }
 
   .lobby-screen__cta-hint--pulse,

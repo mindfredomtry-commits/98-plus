@@ -11,7 +11,11 @@ type ConfirmOrb = ReturnType<typeof useConfirmOrbController>;
 type Props = {
   sendPhase: string;
   confirmActive: boolean;
+  orbCompressActive: boolean;
   confirmOrb: ConfirmOrb;
+  /** Lobby ring fill (0 → actual on first open); ignored during confirm/compress. */
+  lobbyRingDisplayPercent: number;
+  lobbyRingIntroFilling?: boolean;
   senderUser: UserPublic | null | undefined;
   selectedUser: FriendCard | null;
   banText: string;
@@ -22,9 +26,13 @@ type Props = {
 const ArenaInfluenceRing = memo(function ArenaInfluenceRing({
   value,
   debugId,
+  disableTransition = false,
+  introFilling = false,
 }: {
   value: number;
   debugId: string;
+  disableTransition?: boolean;
+  introFilling?: boolean;
 }) {
   const ringMountLogged = useRef(false);
 
@@ -40,7 +48,10 @@ const ArenaInfluenceRing = memo(function ArenaInfluenceRing({
   return (
     <InfluenceRing
       value={value}
-      className="instant-ban-confirm-influence-ring"
+      className={`instant-ban-confirm-influence-ring${
+        introFilling ? ' influence-ring--intro-filling' : ''
+      }`}
+      disableTransition={disableTransition}
     />
   );
 });
@@ -105,6 +116,11 @@ export function ArenaLobbyOrb({
     payoffPhase === 'cta' ||
     payoffPhase === 'ready';
 
+  const useLobbyRingDisplay = !confirmActive && !orbCompressActive;
+  const ringDisplayValue = useLobbyRingDisplay
+    ? lobbyRingDisplayPercent
+    : ringValue;
+
   return (
     <div
       className={`instant-ban-arena-lobby-orb${
@@ -138,8 +154,10 @@ export function ArenaLobbyOrb({
           >
             <span className="instant-ban-arena-lobby-orb__ring-layer instant-ban-confirm-orb-ring">
               <ArenaInfluenceRing
-                value={ringValue}
+                value={ringDisplayValue}
                 debugId={debugIdRef.current}
+                disableTransition={useLobbyRingDisplay && lobbyRingIntroFilling}
+                introFilling={useLobbyRingDisplay && lobbyRingIntroFilling}
               />
             </span>
             <span className="instant-ban-arena-lobby-orb__title-layer">
