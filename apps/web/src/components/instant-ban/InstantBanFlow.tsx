@@ -33,7 +33,7 @@ import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { shareInstantBanInviteMore } from '@/lib/share';
 import { ArenaLobbyIdle } from './ArenaLobbyIdle';
 import { ArenaLobbyOrb } from './ArenaLobbyOrb';
-import { WhoDismissHeader, WhoScreen } from './WhoScreen';
+import { WhoOverlay } from './WhoScreen';
 import { WhatScreen } from './WhatScreen';
 import { ConfirmScreen } from './ConfirmScreen';
 import { useConfirmOrbController } from './useConfirmOrbController';
@@ -41,8 +41,6 @@ import '../lobby-screen.css';
 import './instant-ban.css';
 
 const DEFAULT_DURATION_MINUTES = 3;
-const WHO_DISMISS_ANIM_MS = 220;
-
 /** Parent send-flow phases (arena shell stays mounted). */
 export type SendFlowPhase =
   | 'idle'
@@ -293,7 +291,7 @@ export function InstantBanFlow({
     whoDismissTimerRef.current = setTimeout(() => {
       whoDismissTimerRef.current = null;
       finishWhoDismiss();
-    }, WHO_DISMISS_ANIM_MS);
+    }, 60);
   }, [finishWhoDismiss, phase, whoDismissing]);
 
   useEffect(() => {
@@ -638,23 +636,15 @@ export function InstantBanFlow({
             role="presentation"
           >
             {phase === 'selectingTarget' ? (
-              <div
-                className={`instant-ban-send-overlay__panel instant-ban-send-overlay__panel--who${
-                  whoDismissing ? ' instant-ban-send-overlay__panel--who-dismissing' : ''
-                }`}
-              >
-                <WhoDismissHeader
+              <div className="instant-ban-send-overlay__panel instant-ban-send-overlay__panel--who">
+                <WhoOverlay
                   title={overlayTitle}
+                  friends={safeFriends}
+                  onSelect={handleSelectUser}
+                  onInviteMore={handleInviteMore}
                   onDismiss={handleWhoDismiss}
                   dismissing={whoDismissing}
                 />
-                <div className="instant-ban-send-overlay__body instant-ban-send-overlay__body--who">
-                  <WhoScreen
-                    friends={safeFriends}
-                    onSelect={handleSelectUser}
-                    onInviteMore={handleInviteMore}
-                  />
-                </div>
               </div>
             ) : null}
             {phase === 'composingBan' && selectedUser ? (

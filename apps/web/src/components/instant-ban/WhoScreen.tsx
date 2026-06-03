@@ -12,11 +12,11 @@ import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { AvatarImage } from '../AvatarImage';
 
-/** Min scrollable overflow in dismiss driver (pull-down room). */
-const WHO_DISMISS_DRIVER_MIN_OVERFLOW = 96;
-const WHO_DISMISS_SNAP_THRESHOLD = 0.18;
+/** Fixed pull-down distance in scroll-driver (px). */
+const WHO_DISMISS_TRACK_PX = 96;
+const WHO_DISMISS_SNAP_THRESHOLD = 0.14;
 const WHO_DISMISS_SCROLL_SETTLE_MS = 48;
-const WHO_DISMISS_SNAP_BACK_MS = 180;
+const WHO_DISMISS_SNAP_MS = 200;
 
 function whoDismissDevLog(
   event: 'start' | 'move' | 'fired',
@@ -30,44 +30,54 @@ function easeOutCubic(t: number): number {
   return 1 - (1 - t) ** 3;
 }
 
-type WhoDismissHeaderProps = {
+type WhoOverlayProps = {
   title: string;
+  friends: FriendCard[];
+  onSelect: (friend: FriendCard) => void;
+  onInviteMore: () => void;
   onDismiss: () => void;
   dismissing?: boolean;
 };
 
-export function WhoDismissHeader({
+export function WhoOverlay({
   title,
+  friends,
+  onSelect,
+  onInviteMore,
   onDismiss,
   dismissing = false,
-}: WhoDismissHeaderProps) {
+}: WhoOverlayProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const commitRef = useRef(false);
-  const isSnappingBackRef = useRef(false);
+  const isSnappingRef = useRef(false);
   const snapSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const snapBackAnimRef = useRef<number | null>(null);
+  const snapAnimRef = useRef<number | null>(null);
   const moveLoggedRef = useRef(false);
   const [dismissProgress, setDismissProgress] = useState(0);
 
   const readMaxScroll = useCallback((): number => {
     const el = scrollRef.current;
-    if (!el) return 0;
-    return Math.max(0, el.scrollHeight - el.clientHeight);
+    if (!el) return WHO_DISMISS_TRACK_PX;
+    const max = el.scrollHeight - el.clientHeight;
+    return max > 0 ? max : WHO_DISMISS_TRACK_PX;
   }, []);
 
   const progressFromScroll = useCallback((): number => {
     const el = scrollRef.current;
     if (!el) return 0;
-    const max = el.scrollHeight - el.clientHeight;
-    if (max < WHO_DISMISS_DRIVER_MIN_OVERFLOW) return 0;
+    const max = readMaxScroll();
+    if (max < 24) return 0;
     return Math.min(1, Math.max(0, 1 - el.scrollTop / max));
-  }, []);
+  }, [readMaxScroll]);
+
+  const applyProgressFromScroll = useCallback(() => {
+    setDismissProgress(progressFromScroll());
+  }, [progressFromScroll]);
 
   const scrollToRest = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const max = readMaxScroll();
-    el.scrollTop = max;
+    el.scrollTop = readMaxScroll();
     setDismissProgress(0);
   }, [readMaxScroll]);
 
@@ -78,83 +88,105 @@ export function WhoDismissHeader({
     }
   }, []);
 
-  const clearSnapBackAnim = useCallback(() => {
-    if (snapBackAnimRef.current != null) {
-      cancelAnimationFrame(snapBackAnimRef.current);
-      snapBackAnimRef.current = null;
+  const clearSnapAnim = useCallback(() => {
+    if (snapAnimRef.current != null) {
+      cancelAnimationFrame(snapAnimRef.current);
+      snapAnimRef.current = null;
     }
   }, []);
 
   useLayoutEffect(() => {
     commitRef.current = false;
-    isSnappingBackRef.current = false;
+    isSnappingRef.current = false;
     moveLoggedRef.current = false;
     scrollToRest();
     whoDismissDevLog('start', { maxScroll: readMaxScroll() });
   }, [title, scrollToRest, readMaxScroll]);
 
   useEffect(() => {
+    if (dismissing) {
+      setDismissProgress(1);
+    }
+  }, [dismissing]);
+
+  useEffect(() => {
     return () => {
       clearSnapSettleTimer();
-      clearSnapBackAnim();
+      clearSnapAnim();
     };
-  }, [clearSnapBackAnim, clearSnapSettleTimer]);
+  }, [clearSnapAnim, clearSnapSettleTimer]);
 
-  const runSnapBack = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el || commitRef.current || dismissing) return;
-
-    const max = readMaxScroll();
-    const startTop = el.scrollTop;
-    if (startTop >= max - 0.5) {
-      scrollToRest();
-      return;
-    }
-
-    clearSnapBackAnim();
-    isSnappingBackRef.current = true;
-    const startTime = performance.now();
-
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - startTime) / WHO_DISMISS_SNAP_BACK_MS);
-      const eased = easeOutCubic(t);
-      el.scrollTop = startTop + (max - startTop) * eased;
-      setDismissProgress(progressFromScroll());
-
-      if (t < 1) {
-        snapBackAnimRef.current = requestAnimationFrame(tick);
+  const runSnapAnim = useCallback(
+    (targetProgress: number, onComplete?: () => void) => {
+      const el = scrollRef.current;
+      if (!el) {
+        setDismissProgress(targetProgress);
+        onComplete?.();
         return;
       }
 
-      snapBackAnimRef.current = null;
-      isSnappingBackRef.current = false;
-      scrollToRest();
-    };
+      clearSnapAnim();
+      isSnappingRef.current = true;
+      const max = readMaxScroll();
+      const startTop = el.scrollTop;
+      const endTop = targetProgress >= 1 ? 0 : max;
+      const startProgress = progressFromScroll();
+      const startTime = performance.now();
 
-    snapBackAnimRef.current = requestAnimationFrame(tick);
-  }, [
-    clearSnapBackAnim,
-    dismissing,
-    progressFromScroll,
-    readMaxScroll,
-    scrollToRest,
-  ]);
+      const tick = (now: number) => {
+        const t = Math.min(1, (now - startTime) / WHO_DISMISS_SNAP_MS);
+        const eased = easeOutCubic(t);
+        el.scrollTop = startTop + (endTop - startTop) * eased;
+        const nextProgress = startProgress + (targetProgress - startProgress) * eased;
+        setDismissProgress(nextProgress);
+
+        if (t < 1) {
+          snapAnimRef.current = requestAnimationFrame(tick);
+          return;
+        }
+
+        snapAnimRef.current = null;
+        isSnappingRef.current = false;
+        if (targetProgress <= 0) {
+          scrollToRest();
+        } else {
+          setDismissProgress(1);
+        }
+        onComplete?.();
+      };
+
+      snapAnimRef.current = requestAnimationFrame(tick);
+    },
+    [clearSnapAnim, progressFromScroll, readMaxScroll, scrollToRest],
+  );
+
+  const runSnapBack = useCallback(() => {
+    if (commitRef.current || dismissing) return;
+    runSnapAnim(0);
+  }, [dismissing, runSnapAnim]);
+
+  const runSnapDismiss = useCallback(() => {
+    if (commitRef.current || dismissing) return;
+    commitRef.current = true;
+    whoDismissDevLog('fired', { progress: progressFromScroll() });
+    runSnapAnim(1, onDismiss);
+  }, [dismissing, onDismiss, progressFromScroll, runSnapAnim]);
 
   const evaluateSnap = useCallback(() => {
-    if (commitRef.current || dismissing || isSnappingBackRef.current) return;
+    if (commitRef.current || dismissing || isSnappingRef.current) return;
 
     const progress = progressFromScroll();
     if (progress >= WHO_DISMISS_SNAP_THRESHOLD) {
-      commitRef.current = true;
-      whoDismissDevLog('fired', { progress });
-      onDismiss();
+      runSnapDismiss();
       return;
     }
 
-    if (progress > 0.002) {
+    if (progress > 0.004) {
       runSnapBack();
+    } else {
+      scrollToRest();
     }
-  }, [dismissing, onDismiss, progressFromScroll, runSnapBack]);
+  }, [dismissing, progressFromScroll, runSnapBack, runSnapDismiss, scrollToRest]);
 
   const scheduleSnapEvaluate = useCallback(() => {
     clearSnapSettleTimer();
@@ -165,10 +197,10 @@ export function WhoDismissHeader({
   }, [clearSnapSettleTimer, evaluateSnap]);
 
   const onScroll = useCallback(() => {
-    if (commitRef.current || dismissing || isSnappingBackRef.current) return;
+    if (commitRef.current || dismissing || isSnappingRef.current) return;
 
+    applyProgressFromScroll();
     const progress = progressFromScroll();
-    setDismissProgress(progress);
 
     if (!moveLoggedRef.current && progress > 0.004) {
       moveLoggedRef.current = true;
@@ -182,6 +214,7 @@ export function WhoDismissHeader({
 
     scheduleSnapEvaluate();
   }, [
+    applyProgressFromScroll,
     dismissing,
     progressFromScroll,
     readMaxScroll,
@@ -198,29 +231,37 @@ export function WhoDismissHeader({
 
   return (
     <div
-      className={`instant-ban-who-dismiss-scene${
-        dismissing ? ' instant-ban-who-dismiss-scene--dismissing' : ''
+      className={`instant-ban-who-scene${
+        dismissing ? ' instant-ban-who-scene--dismissing' : ''
       }`}
       style={sceneStyle}
     >
-      <div
-        ref={scrollRef}
-        className="instant-ban-who-dismiss-scroll-driver"
-        onScroll={onScroll}
-        onTouchStart={onTouchStart}
-        aria-hidden
-      >
-        <div className="instant-ban-who-dismiss-scroll-driver__track" />
-        <div className="instant-ban-who-dismiss-scroll-driver__anchor" />
-      </div>
-      <div className="instant-ban-who-dismiss-layer" aria-hidden={false}>
+      <div className="instant-ban-who-scene__header">
+        <div
+          ref={scrollRef}
+          className="instant-ban-who-dismiss-scroll-driver"
+          onScroll={onScroll}
+          onTouchStart={onTouchStart}
+          aria-hidden
+        >
+          <div className="instant-ban-who-dismiss-scroll-driver__track" />
+          <div className="instant-ban-who-dismiss-scroll-driver__anchor" />
+        </div>
         <h1 className="instant-ban-send-overlay__title">{title}</h1>
+      </div>
+
+      <div className="instant-ban-who-scene__body">
+        <WhoFriendList
+          friends={friends}
+          onSelect={onSelect}
+          onInviteMore={onInviteMore}
+        />
       </div>
     </div>
   );
 }
 
-type Props = {
+type ListProps = {
   friends: FriendCard[];
   onSelect: (friend: FriendCard) => void;
   onInviteMore: () => void;
@@ -230,7 +271,7 @@ function friendLabel(friend: FriendCard): string {
   return friend.firstName || friend.username || '—';
 }
 
-export function WhoScreen({ friends, onSelect, onInviteMore }: Props) {
+function WhoFriendList({ friends, onSelect, onInviteMore }: ListProps) {
   return (
     <div className="instant-ban-who-list">
       {friends.map((friend, i) => {
@@ -275,3 +316,6 @@ export function WhoScreen({ friends, onSelect, onInviteMore }: Props) {
     </div>
   );
 }
+
+/** @deprecated Use WhoOverlay — kept for re-exports if needed */
+export const WhoScreen = WhoFriendList;
