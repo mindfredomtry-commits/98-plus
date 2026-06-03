@@ -62,6 +62,8 @@
   --98-confirm-orb-mini-size: min(26vw, 80px);
   /* Ring-layer scale at mini-core (80px ring on 280px lobby wrap). */
   --98-confirm-ring-mini-scale: 0.2857142857;
+  /* Ring scale on lobby wrap that matches final confirm orb diameter (160/280). */
+  --98-confirm-ring-confirm-scale: 0.5714285714;
   --98-confirm-orb-title-size: clamp(2.5rem, 12vw, 2.75rem);
   --98-confirm-orb-scale-from-lobby: 0.571428571;
   --98-confirm-compress-shrink-ms: 300ms;

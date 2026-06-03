@@ -329,8 +329,24 @@ export function useConfirmOrbController({
       mount.removeAttribute('data-enter-phase');
       mount.removeAttribute('data-payoff-phase');
       mount.removeAttribute('data-confirm-enter-key');
+      mount.removeAttribute('data-ring-enter-active');
     }
   }, [active, compressActive, orbWrapRef, enterPhase, payoffPhase, enterKey]);
+
+  /** One continuous ring animation — enterPhase changes must not restart ring CSS. */
+  useLayoutEffect(() => {
+    const mount = orbWrapRef.current;
+    if (!mount) return;
+
+    if (!compressActive) {
+      mount.removeAttribute('data-ring-enter-active');
+      return;
+    }
+
+    mount.removeAttribute('data-ring-enter-active');
+    void mount.offsetWidth;
+    mount.setAttribute('data-ring-enter-active', '');
+  }, [compressActive, enterKey, orbWrapRef]);
 
   useEffect(() => {
     if (

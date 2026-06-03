@@ -1890,16 +1890,10 @@
     transform 360ms ease;
 }
 
-.lobby-screen__orb-root.lobby-screen__orb-wrap--confirm[data-enter-phase='expanding'],
+/* Snap wrap to confirm slot only when ring enter finished — same visual diameter as pre-ready ring scale */
 .lobby-screen__orb-root.lobby-screen__orb-wrap--confirm[data-enter-phase='ready'] {
   --arena-orb-size: var(--98-confirm-orb-size);
   --arena-orb-margin-bottom: clamp(2rem, 12vh, 4rem);
-  transition:
-    width var(--98-confirm-compress-expand-ms) cubic-bezier(0.34, 1.45, 0.64, 1),
-    height var(--98-confirm-compress-expand-ms) cubic-bezier(0.34, 1.45, 0.64, 1),
-    margin-bottom var(--98-confirm-compress-expand-ms) cubic-bezier(0.34, 1.45, 0.64, 1),
-    opacity 360ms ease,
-    transform 360ms ease;
 }
 
 .lobby-screen__orb-root.lobby-screen__orb-wrap--overlay-dim {
@@ -2017,45 +2011,44 @@
 }
 
 .lobby-screen__orb-root .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
+  transform: scale(1);
   transition: transform 950ms cubic-bezier(0.34, 1.12, 0.64, 1);
 }
 
-@keyframes instant-ban-confirm-ring-shrink {
-  from {
+/* Single timeline: shrink → mini hold → spring to confirm diameter (lobby wrap stays 280px) */
+@keyframes instant-ban-confirm-ring-enter {
+  0% {
     transform: scale(1);
   }
-  to {
+  33.333% {
     transform: scale(var(--98-confirm-ring-mini-scale));
   }
-}
-
-@keyframes instant-ban-confirm-ring-spring-expand {
-  0% {
+  61.111% {
     transform: scale(var(--98-confirm-ring-mini-scale));
   }
-  58% {
-    transform: scale(1.08);
+  75% {
+    transform: scale(0.6171428571);
   }
-  78% {
-    transform: scale(0.96);
+  88% {
+    transform: scale(0.5485714286);
   }
   100% {
-    transform: scale(1);
+    transform: scale(var(--98-confirm-ring-confirm-scale));
   }
 }
 
-.lobby-screen__orb-root[data-enter-phase='compressing']
+.lobby-screen__orb-root[data-ring-enter-active]
   .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
-  animation: instant-ban-confirm-ring-shrink var(--98-confirm-compress-shrink-ms)
-    cubic-bezier(0.55, 0.06, 0.68, 0.42) forwards;
+  animation: instant-ban-confirm-ring-enter var(--98-confirm-enter-compress-ms)
+    cubic-bezier(0.34, 1.45, 0.64, 1) forwards;
   transition: none;
 }
 
-.lobby-screen__orb-root[data-enter-phase='mini-core']
-  .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
-  transform: scale(var(--98-confirm-ring-mini-scale));
-  animation: none;
-  transition: none;
+.lobby-screen__orb-root[data-ring-enter-active]
+  .instant-ban-confirm-influence-ring
+  .influence-ring__progress {
+  transition-duration: var(--98-confirm-compress-shrink-ms);
+  transition-timing-function: ease-in;
 }
 
 .lobby-screen__orb-root[data-enter-phase='mini-core']
@@ -2066,17 +2059,11 @@
     drop-shadow(0 0 20px var(--98-power-glow-soft));
 }
 
-.lobby-screen__orb-root[data-enter-phase='expanding']
-  .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
-  animation: instant-ban-confirm-ring-spring-expand var(--98-confirm-compress-expand-ms)
-    cubic-bezier(0.34, 1.45, 0.64, 1) forwards;
-  transition: none;
-}
-
-.lobby-screen__orb-root[data-enter-phase='ready']
+.lobby-screen__orb-root[data-enter-phase='ready'][data-ring-enter-active]
   .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
   transform: scale(1);
   animation: none;
+  transition: none;
 }
 
 .lobby-screen__orb-root .instant-ban-confirm-orb-btn--holding .instant-ban-arena-lobby-orb__ring-layer {
