@@ -1693,10 +1693,19 @@
   min-height: 0;
 }
 
-/* Lobby CTA — only in idle; animated enter/exit (see instant-ban-lobby-cta--*) */
+/* Lobby CTA — idle: above stage (clickable). Send-flow: always below overlay stack. */
 .instant-ban-arena-send[data-send-phase='idle'] .instant-ban-arena-send__stage {
   z-index: 1;
   pointer-events: none;
+}
+
+.instant-ban-arena-send[data-send-phase='selectingTarget'] .instant-ban-arena-send__stage,
+.instant-ban-arena-send[data-send-phase='composingBan'] .instant-ban-arena-send__stage {
+  z-index: 6;
+}
+
+.instant-ban-arena-send > .instant-ban-lobby-cta {
+  z-index: 3;
 }
 
 .instant-ban-arena-send[data-send-phase='idle'] > .instant-ban-lobby-cta--visible,
@@ -1714,7 +1723,7 @@
 }
 
 .instant-ban-lobby-cta--exiting {
-  z-index: 11;
+  z-index: 3;
   pointer-events: none;
 }
 
