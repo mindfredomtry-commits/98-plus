@@ -55,11 +55,32 @@
   --98-arena-orb-anchor-top: 45%;
   --98-confirm-ring-lobby-scale: 1.75;
   --98-confirm-ring-mini-scale: 0.5;
-  --98-payoff-core-size: 22px;
+  --98-payoff-core-size: 14px;
+  --98-payoff-energy-sphere-size: 36px;
+  --98-payoff-proto-size: 56px;
+  --98-payoff-energy-fill: radial-gradient(
+    circle at 50% 50%,
+    rgba(255, 255, 255, 1) 0%,
+    rgba(var(--98-power-rgb), 1) 16%,
+    rgba(var(--98-accent-rgb), 0.7) 38%,
+    transparent 66%
+  );
+  --98-payoff-energy-glow:
+    0 0 8px rgba(255, 255, 255, 0.9),
+    0 0 20px rgba(var(--98-power-rgb), 0.95),
+    0 0 40px rgba(var(--98-power-rgb), 0.55),
+    0 0 60px rgba(var(--98-accent-rgb), 0.28);
+  --98-payoff-proto-fill: radial-gradient(
+    ellipse 82% 78% at 50% 44%,
+    rgba(255, 255, 255, 0.82) 0%,
+    rgba(var(--98-power-rgb), 0.95) 26%,
+    rgba(var(--98-accent-rgb), 0.52) 52%,
+    transparent 76%
+  );
   --98-payoff-collapse-ms: 560ms;
-  --98-payoff-core-ms: 140ms;
-  --98-payoff-rebirth-ms: 520ms;
-  --98-payoff-grow-ms: 780ms;
+  --98-payoff-core-ms: 220ms;
+  --98-payoff-rebirth-ms: 680ms;
+  --98-payoff-grow-ms: 820ms;
   --98-payoff-settle-ms: 450ms;
   --98-payoff-reveal-item-ms: 280ms;
   --98-payoff-reveal-stagger-ms: 100ms;

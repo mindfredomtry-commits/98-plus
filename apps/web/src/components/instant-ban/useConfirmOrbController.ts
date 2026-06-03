@@ -19,9 +19,9 @@ import {
 const HOLD_MS = 650;
 /** Must match payoff ritual vars in 98-theme.css */
 const PAYOFF_COLLAPSE_MS = 560;
-const PAYOFF_CORE_MS = 140;
-const PAYOFF_REBIRTH_MS = 520;
-const PAYOFF_GROW_MS = 780;
+const PAYOFF_CORE_MS = 220;
+const PAYOFF_REBIRTH_MS = 680;
+const PAYOFF_GROW_MS = 820;
 const PAYOFF_SETTLE_MS = 450;
 const REVEAL_STAGGER_MS = 100;
 const REVEAL_ITEM_MS = 280;

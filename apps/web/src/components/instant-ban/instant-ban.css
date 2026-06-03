@@ -994,7 +994,7 @@
   pointer-events: none;
 }
 
-/* Один morph-shell — центр стабилен */
+/* Один morph-shell — центр стабилен; карточный язык только с grow */
 .instant-ban-arena-lobby-orb__btn.instant-ban-confirm-orb-btn--payoff-shell {
   position: absolute;
   left: 50%;
@@ -1008,13 +1008,23 @@
   transform: translate(-50%, -50%);
   transform-origin: center center;
   border-radius: 50%;
-  overflow: hidden;
+  overflow: visible;
   cursor: default;
   touch-action: none;
   background: transparent;
-  border: 1px solid rgba(var(--98-accent-rgb), 0.32);
-  box-shadow: 0 0 22px rgba(var(--98-power-rgb), 0.28);
+  border: none;
+  box-shadow: none;
   transition: none;
+}
+
+.instant-ban-confirm-orb-btn--payoff-grow,
+.instant-ban-confirm-orb-btn--payoff-grow-run,
+.instant-ban-confirm-orb-btn--payoff-card-locked,
+.instant-ban-confirm-orb-btn--payoff-settle,
+.instant-ban-confirm-orb-btn--payoff-reveal,
+.instant-ban-confirm-orb-btn--payoff-cta,
+.instant-ban-confirm-orb-btn--payoff-ready {
+  overflow: hidden;
 }
 
 .instant-ban-confirm-orb-btn--payoff-collapse,
@@ -1042,28 +1052,25 @@
     width: var(--98-confirm-orb-size);
     height: var(--98-confirm-orb-size);
     border-radius: 50%;
-    border-color: rgba(var(--98-accent-rgb), 0.38);
-    box-shadow:
-      0 0 28px rgba(var(--98-power-rgb), 0.4),
-      inset 0 0 24px rgba(5, 3, 8, 0.35);
+    border: none;
     background: transparent;
+    box-shadow: 0 0 24px rgba(var(--98-power-rgb), 0.32);
+  }
+  72% {
+    width: calc(var(--98-payoff-core-size) * 2.2);
+    height: calc(var(--98-payoff-core-size) * 2.2);
+    border-radius: 50%;
+    border: none;
+    background: var(--98-payoff-energy-fill);
+    box-shadow: var(--98-payoff-energy-glow);
   }
   100% {
     width: var(--98-payoff-core-size);
     height: var(--98-payoff-core-size);
     border-radius: 50%;
-    border-color: transparent;
-    background: radial-gradient(
-      circle at 50% 50%,
-      rgba(255, 255, 255, 0.95) 0%,
-      rgba(var(--98-power-rgb), 0.98) 28%,
-      rgba(var(--98-accent-rgb), 0.55) 62%,
-      transparent 100%
-    );
-    box-shadow:
-      0 0 18px rgba(var(--98-power-rgb), 0.95),
-      0 0 42px rgba(var(--98-power-rgb), 0.65),
-      0 0 68px rgba(var(--98-accent-rgb), 0.35);
+    border: none;
+    background: var(--98-payoff-energy-fill);
+    box-shadow: var(--98-payoff-energy-glow);
   }
 }
 
@@ -1110,29 +1117,44 @@
   }
 }
 
-/* Core — яркая точка */
+/* Core — только энергия (не карточка) */
 .instant-ban-confirm-orb-btn--payoff-core {
   width: var(--98-payoff-core-size);
   height: var(--98-payoff-core-size);
   border-radius: 50%;
-  border-color: transparent;
-  background: radial-gradient(
-    circle at 50% 50%,
-    rgba(255, 255, 255, 0.95) 0%,
-    rgba(var(--98-power-rgb), 0.98) 28%,
-    rgba(var(--98-accent-rgb), 0.55) 62%,
-    transparent 100%
-  );
-  box-shadow:
-    0 0 18px rgba(var(--98-power-rgb), 0.95),
-    0 0 42px rgba(var(--98-power-rgb), 0.65),
-    0 0 68px rgba(var(--98-accent-rgb), 0.35);
+  border: none;
+  background: var(--98-payoff-energy-fill);
+  box-shadow: var(--98-payoff-energy-glow);
+  overflow: visible;
+  animation: instant-ban-payoff-core-pulse 1.1s ease-in-out infinite;
 }
 
-/* Rebirth: точка → квадрат → маленькая тёмная карточка */
+@keyframes instant-ban-payoff-core-pulse {
+  0%,
+  100% {
+    filter: brightness(1);
+    box-shadow: var(--98-payoff-energy-glow);
+  }
+  50% {
+    filter: brightness(1.12);
+    box-shadow:
+      0 0 10px rgba(255, 255, 255, 0.95),
+      0 0 26px rgba(var(--98-power-rgb), 1),
+      0 0 48px rgba(var(--98-power-rgb), 0.65),
+      0 0 72px rgba(var(--98-accent-rgb), 0.34);
+  }
+}
+
+/* Rebirth: точка → шар → мягкий квадрат (без карточного языка) */
+.instant-ban-confirm-orb-btn--payoff-rebirth,
+.instant-ban-confirm-orb-btn--payoff-rebirth-run {
+  border: none;
+  overflow: visible;
+}
+
 .instant-ban-confirm-orb-btn--payoff-rebirth-run {
   animation: instant-ban-payoff-rebirth-shell var(--98-payoff-rebirth-ms)
-    cubic-bezier(0.2, 1, 0.32, 1) forwards;
+    cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 @keyframes instant-ban-payoff-rebirth-shell {
@@ -1140,47 +1162,66 @@
     width: var(--98-payoff-core-size);
     height: var(--98-payoff-core-size);
     border-radius: 50%;
-    border-color: transparent;
-    background: radial-gradient(
-      circle at 50% 50%,
-      rgba(255, 255, 255, 0.92) 0%,
-      rgba(var(--98-power-rgb), 0.95) 35%,
-      rgba(var(--98-accent-rgb), 0.45) 70%,
-      transparent 100%
-    );
-    box-shadow:
-      0 0 20px rgba(var(--98-power-rgb), 0.9),
-      0 0 48px rgba(var(--98-power-rgb), 0.5);
+    border: none;
+    background: var(--98-payoff-energy-fill);
+    box-shadow: var(--98-payoff-energy-glow);
   }
-  38% {
-    width: 44px;
-    height: 44px;
-    border-radius: 12px;
-    border-color: rgba(var(--98-power-rgb), 0.55);
-    background: radial-gradient(
-      circle at 50% 50%,
-      rgba(var(--98-power-rgb), 0.85) 0%,
-      rgba(var(--98-accent-rgb), 0.35) 100%
-    );
+  20% {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: none;
+    background: var(--98-payoff-energy-fill);
+    box-shadow: var(--98-payoff-energy-glow);
+  }
+  42% {
+    width: var(--98-payoff-energy-sphere-size);
+    height: var(--98-payoff-energy-sphere-size);
+    border-radius: 50%;
+    border: none;
+    background: var(--98-payoff-energy-fill);
     box-shadow:
-      0 0 24px rgba(var(--98-power-rgb), 0.75),
-      0 0 40px rgba(var(--98-accent-rgb), 0.25);
+      0 0 12px rgba(255, 255, 255, 0.88),
+      0 0 28px rgba(var(--98-power-rgb), 0.98),
+      0 0 52px rgba(var(--98-power-rgb), 0.6),
+      0 0 76px rgba(var(--98-accent-rgb), 0.3);
+  }
+  58% {
+    width: calc(var(--98-payoff-energy-sphere-size) * 1.05);
+    height: calc(var(--98-payoff-energy-sphere-size) * 1.05);
+    border-radius: 38%;
+    border: none;
+    background: var(--98-payoff-energy-fill);
+    box-shadow:
+      0 0 14px rgba(255, 255, 255, 0.82),
+      0 0 30px rgba(var(--98-power-rgb), 0.95),
+      0 0 54px rgba(var(--98-power-rgb), 0.55);
+  }
+  74% {
+    width: calc(var(--98-payoff-proto-size) * 0.88);
+    height: calc(var(--98-payoff-proto-size) * 0.88);
+    border-radius: 28%;
+    border: none;
+    background: var(--98-payoff-proto-fill);
+    box-shadow:
+      0 0 16px rgba(var(--98-power-rgb), 0.9),
+      0 0 40px rgba(var(--98-power-rgb), 0.48),
+      0 0 64px rgba(var(--98-accent-rgb), 0.26);
   }
   100% {
-    width: calc(var(--98-payoff-card-width) * 0.58);
-    height: calc(var(--98-payoff-card-height) * 0.52);
-    border-radius: 18px;
-    border: 1px solid rgba(var(--98-accent-rgb), 0.2);
-    background: linear-gradient(
-      165deg,
-      rgba(var(--98-purple-deep-rgb), 0.38) 0%,
-      rgba(10, 6, 16, 0.92) 100%
-    );
-    box-shadow: 0 0 28px rgba(var(--98-accent-rgb), 0.14);
+    width: var(--98-payoff-proto-size);
+    height: var(--98-payoff-proto-size);
+    border-radius: 22%;
+    border: none;
+    background: var(--98-payoff-proto-fill);
+    box-shadow:
+      0 0 18px rgba(var(--98-power-rgb), 0.85),
+      0 0 42px rgba(var(--98-power-rgb), 0.45),
+      0 0 62px rgba(var(--98-accent-rgb), 0.22);
   }
 }
 
-/* Grow: маленькая карточка → финальный размер */
+/* Grow: материализация карточки из энергии */
 .instant-ban-confirm-orb-btn--payoff-grow-run {
   animation: instant-ban-payoff-grow-shell var(--98-payoff-grow-ms)
     cubic-bezier(0.18, 1, 0.34, 1) forwards;
@@ -1188,14 +1229,56 @@
 
 @keyframes instant-ban-payoff-grow-shell {
   0% {
-    width: calc(var(--98-payoff-card-width) * 0.58);
-    height: calc(var(--98-payoff-card-height) * 0.52);
-    border-radius: 18px;
+    width: var(--98-payoff-proto-size);
+    height: var(--98-payoff-proto-size);
+    border-radius: 22%;
+    border: none;
+    background: var(--98-payoff-proto-fill);
+    box-shadow:
+      0 0 18px rgba(var(--98-power-rgb), 0.85),
+      0 0 42px rgba(var(--98-power-rgb), 0.45),
+      0 0 62px rgba(var(--98-accent-rgb), 0.22);
   }
-  82% {
+  28% {
+    width: calc(var(--98-payoff-card-width) * 0.42);
+    height: calc(var(--98-payoff-card-height) * 0.38);
+    border-radius: 20px;
+    border: 1px solid rgba(var(--98-accent-rgb), 0.08);
+    background: radial-gradient(
+      ellipse 90% 85% at 50% 42%,
+      rgba(var(--98-power-rgb), 0.35) 0%,
+      rgba(10, 6, 16, 0.55) 58%,
+      rgba(10, 6, 16, 0.78) 100%
+    );
+    box-shadow: 0 0 26px rgba(var(--98-accent-rgb), 0.1);
+  }
+  52% {
+    width: calc(var(--98-payoff-card-width) * 0.68);
+    height: calc(var(--98-payoff-card-height) * 0.62);
+    border-radius: 22px;
+    border: 1px solid rgba(var(--98-accent-rgb), 0.16);
+    background: linear-gradient(
+      165deg,
+      rgba(var(--98-purple-deep-rgb), 0.22) 0%,
+      rgba(10, 6, 16, 0.88) 100%
+    );
+    box-shadow: 0 0 28px rgba(var(--98-accent-rgb), 0.12);
+  }
+  78% {
+    width: calc(var(--98-payoff-card-width) * 0.94);
+    height: calc(var(--98-payoff-card-height) * 0.92);
+    border-radius: calc(var(--98-payoff-card-radius) - 2px);
+    border: 1px solid rgba(var(--98-accent-rgb), 0.2);
+    background: linear-gradient(
+      165deg,
+      rgba(var(--98-purple-deep-rgb), 0.34) 0%,
+      rgba(10, 6, 16, 0.9) 100%
+    );
+  }
+  92% {
     width: calc(var(--98-payoff-card-width) * 1.02);
-    height: calc(var(--98-payoff-card-height) * 1.03);
-    border-radius: calc(var(--98-payoff-card-radius) + 2px);
+    height: calc(var(--98-payoff-card-height) * 1.02);
+    border-radius: calc(var(--98-payoff-card-radius) + 1px);
   }
   100% {
     width: var(--98-payoff-card-width);
@@ -1563,6 +1646,10 @@
   .instant-ban-confirm-orb-btn--payoff-core {
     width: var(--98-payoff-core-size);
     height: var(--98-payoff-core-size);
+    animation: none;
+    border: none;
+    background: var(--98-payoff-energy-fill);
+    box-shadow: var(--98-payoff-energy-glow);
   }
 
   .instant-ban-confirm-orb-btn--payoff-settle {
@@ -2102,7 +2189,19 @@
 }
 
 .lobby-screen__orb-root
-  .instant-ban-arena-lobby-orb__btn.instant-ban-confirm-orb-btn--payoff-shell {
+  .instant-ban-arena-lobby-orb__btn.instant-ban-confirm-orb-btn--payoff-grow,
+.lobby-screen__orb-root
+  .instant-ban-arena-lobby-orb__btn.instant-ban-confirm-orb-btn--payoff-grow-run,
+.lobby-screen__orb-root
+  .instant-ban-arena-lobby-orb__btn.instant-ban-confirm-orb-btn--payoff-card-locked,
+.lobby-screen__orb-root
+  .instant-ban-arena-lobby-orb__btn.instant-ban-confirm-orb-btn--payoff-settle,
+.lobby-screen__orb-root
+  .instant-ban-arena-lobby-orb__btn.instant-ban-confirm-orb-btn--payoff-reveal,
+.lobby-screen__orb-root
+  .instant-ban-arena-lobby-orb__btn.instant-ban-confirm-orb-btn--payoff-cta,
+.lobby-screen__orb-root
+  .instant-ban-arena-lobby-orb__btn.instant-ban-confirm-orb-btn--payoff-ready {
   overflow: hidden;
 }
 
