@@ -106,7 +106,9 @@ export function ArenaLobbyIdle({
   const buttonLabel = askMode ? '🚫 ХОЧУ ЗАПРЕЩАТЬ' : '🚫 ЗАПРЕЩАТЬ';
 
   return (
-    <div className="lobby-screen__cta-wrap">
+    <div
+      className={`lobby-screen__cta-wrap instant-ban-lobby-cta instant-ban-lobby-cta--${ctaState}`}
+    >
       {lowInfluence ? (
         <p
           className={`lobby-screen__cta-hint${

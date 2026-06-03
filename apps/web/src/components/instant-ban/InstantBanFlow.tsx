@@ -150,12 +150,23 @@ export function InstantBanFlow({
   const whoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [whoExitActive, setWhoExitActive] = useState(false);
   const [whoDismissProgress, setWhoDismissProgress] = useState(0);
+  const [ctaState, setCtaState] = useState<LobbyCtaState>(() =>
+    sendStarted ? 'hidden' : 'visible',
+  );
+  const [whoPanelEntering, setWhoPanelEntering] = useState(false);
+  const ctaExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ctaEnterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const whoPanelEnterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevSendStartedRef = useRef(sendStarted);
 
   const legacyStep = legacyStepFromPhase(phase);
   const overlayOpen = phase === 'selectingTarget' || phase === 'composingBan';
   const orbOverlayDim = phase === 'composingBan';
-  const showLobbyCta = phase !== 'confirming';
+  const showLobbyCta =
+    ctaState === 'visible' ||
+    ctaState === 'exiting' ||
+    ctaState === 'entering';
+  const ctaInteractive = phase === 'idle' && ctaState === 'visible';
 
   useInstantBanViewport(phase === 'composingBan');
 
@@ -345,10 +356,16 @@ export function InstantBanFlow({
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
     setSendError(null);
     setPhase('idle');
+    clearCtaEnterTimer();
+    setCtaState('entering');
+    ctaEnterTimerRef.current = setTimeout(() => {
+      ctaEnterTimerRef.current = null;
+      setCtaState('visible');
+    }, CTA_ENTER_MS);
     if (process.env.NODE_ENV === 'development') {
       console.log('[who-dismiss-set-phase-idle]');
     }
-  }, []);
+  }, [clearCtaEnterTimer]);
 
   const handleWhoDismissDragProgress = useCallback((progress: number) => {
     setWhoDismissProgress(progress);
