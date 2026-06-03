@@ -1695,6 +1695,24 @@
 
 .instant-ban-arena-send > .lobby-screen__cta-wrap {
   z-index: 3;
+  pointer-events: auto;
+}
+
+/* Idle: stage must not block CTA (no overlay mounted). */
+.instant-ban-arena-send[data-send-phase='idle'] .instant-ban-arena-send__stage {
+  z-index: 1;
+  pointer-events: none;
+}
+
+.instant-ban-arena-send[data-send-phase='idle'] > .lobby-screen__cta-wrap {
+  z-index: 5;
+}
+
+/* Who/what: CTA visible under dim; overlay captures touches. */
+.instant-ban-arena-send[data-send-phase='selectingTarget'] > .lobby-screen__cta-wrap,
+.instant-ban-arena-send[data-send-phase='composingBan'] > .lobby-screen__cta-wrap {
+  z-index: 3;
+  pointer-events: none;
 }
 
 .instant-ban-arena-send[data-send-phase='confirming'] .instant-ban-arena-send__stage,
