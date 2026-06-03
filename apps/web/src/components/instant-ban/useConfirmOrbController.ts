@@ -81,7 +81,10 @@ function clearPayoffShellStyles(el: HTMLButtonElement | null): void {
 }
 
 export type ConfirmOrbControllerOptions = {
+  /** Hold/send/payoff — after compose exit completes. */
   active: boolean;
+  /** Ring compress + enter timeline — starts with compose exit. */
+  compressActive: boolean;
   enterKey: number;
   influencePercent: number;
   sending: boolean;
@@ -239,16 +242,19 @@ export function useConfirmOrbController({
   });
 
   useEffect(() => {
-    if (!active) {
-      setEnterPhase('lobby-orb');
-      setHoldPhaseState('idle');
-      setPayoff('none');
-      setRingProgress(influenceStart);
-      sendTriggeredRef.current = false;
-      payoffPendingRef.current = false;
-      clearPayoffShellStyles(orbBtnRef.current);
-      return;
-    }
+    if (compressActive || active) return;
+
+    setEnterPhase('lobby-orb');
+    setHoldPhaseState('idle');
+    setPayoff('none');
+    setRingProgress(influenceStart);
+    sendTriggeredRef.current = false;
+    payoffPendingRef.current = false;
+    clearPayoffShellStyles(orbBtnRef.current);
+  }, [active, compressActive, influenceStart, setHoldPhaseState, setPayoff]);
+
+  useEffect(() => {
+    if (!compressActive) return;
 
     setRingProgress(influenceStart);
     sendTriggeredRef.current = false;
@@ -257,24 +263,19 @@ export function useConfirmOrbController({
     setPayoff('none');
     clearPayoffTimer();
 
-    setEnterPhase('lobby-orb');
-    const compressTimer = window.setTimeout(() => {
-      setEnterPhase('compressing');
-    }, CONFIRM_COMPRESS_HOLD_MS);
+    setEnterPhase('compressing');
     const readyTimer = window.setTimeout(() => {
       setEnterPhase('ready');
-    }, CONFIRM_COMPRESS_HOLD_MS + CONFIRM_ENTER_COMPRESS_MS);
+    }, CONFIRM_ENTER_COMPRESS_MS);
 
     return () => {
-      window.clearTimeout(compressTimer);
       window.clearTimeout(readyTimer);
     };
   }, [
-    active,
+    compressActive,
     enterKey,
     influenceStart,
     clearPayoffTimer,
-    setHoldPhaseState,
     setPayoff,
   ]);
 
@@ -305,7 +306,7 @@ export function useConfirmOrbController({
     const mount = orbWrapRef.current;
     if (!mount) return;
 
-    if (active) {
+    if (compressActive || active) {
       mount.setAttribute('data-enter-phase', enterPhase);
       mount.setAttribute('data-payoff-phase', payoffPhase);
       mount.setAttribute('data-confirm-enter-key', String(enterKey));
@@ -314,10 +315,10 @@ export function useConfirmOrbController({
       mount.removeAttribute('data-payoff-phase');
       mount.removeAttribute('data-confirm-enter-key');
     }
-  }, [active, orbWrapRef, enterPhase, payoffPhase, enterKey]);
+  }, [active, compressActive, orbWrapRef, enterPhase, payoffPhase, enterKey]);
 
   useEffect(() => {
-    if (!active || enterPhase !== 'compressing') return;
+    if (!compressActive || enterPhase !== 'compressing') return;
     const frame = requestAnimationFrame(() => {
       setRingProgress(100);
     });
@@ -581,7 +582,7 @@ export function useConfirmOrbController({
   const showOrbFace =
     payoffPhase === 'none' || payoffPhase === 'impact' || payoffPhase === 'morph';
 
-  const ringValue = active ? ringProgress : influenceStart;
+  const ringValue = compressActive ? ringProgress : influenceStart;
 
   return {
     orbBtnRef,

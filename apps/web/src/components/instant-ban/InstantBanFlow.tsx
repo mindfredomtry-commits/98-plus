@@ -36,10 +36,7 @@ import { ArenaLobbyOrb } from './ArenaLobbyOrb';
 import { WhoScreen } from './WhoScreen';
 import { WhatScreen } from './WhatScreen';
 import { ConfirmScreen } from './ConfirmScreen';
-import {
-  CONFIRM_COMPRESS_HOLD_MS,
-  useConfirmOrbController,
-} from './useConfirmOrbController';
+import { useConfirmOrbController } from './useConfirmOrbController';
 import '../lobby-screen.css';
 import './instant-ban.css';
 
@@ -146,7 +143,7 @@ export function InstantBanFlow({
   const payoffArmTokenRef = useRef(0);
   const lobbyOrbMountRef = useRef<HTMLDivElement>(null);
   const [composeExitProgress, setComposeExitProgress] = useState(0);
-  const [confirmLayoutActive, setConfirmLayoutActive] = useState(false);
+  const [composeDismissing, setComposeDismissing] = useState(false);
 
   const legacyStep = legacyStepFromPhase(phase);
   const overlayOpen = phase === 'selectingTarget' || phase === 'composingBan';
@@ -279,21 +276,28 @@ export function InstantBanFlow({
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
     setSendError(null);
     setComposeExitProgress(0);
+    setComposeDismissing(false);
     setPhase('composingBan');
+  }, []);
+
+  const handleComposeExitStart = useCallback(() => {
+    setComposeDismissing(true);
+    setConfirmEnterKey((k) => k + 1);
   }, []);
 
   const handleWhatSubmit = useCallback((text: string, duration: number) => {
     setComposeExitProgress(0);
+    setComposeDismissing(false);
     setBanText(text);
     setDurationMinutes(duration);
     payoffArmedRef.current = false;
     sendSnapshotRef.current = null;
-    setConfirmEnterKey((k) => k + 1);
     setPhase('confirming');
   }, []);
 
   const handleWhatBack = useCallback(() => {
     setComposeExitProgress(0);
+    setComposeDismissing(false);
     setPhase('selectingTarget');
   }, []);
 
@@ -303,6 +307,7 @@ export function InstantBanFlow({
 
   const handleConfirmBack = useCallback(() => {
     setComposeExitProgress(0);
+    setComposeDismissing(false);
     setPhase('composingBan');
   }, []);
 
@@ -478,21 +483,13 @@ export function InstantBanFlow({
   );
 
   const confirmActive = phase === 'confirming' && selectedUser != null;
-
-  useEffect(() => {
-    if (!confirmActive) {
-      setConfirmLayoutActive(false);
-      return;
-    }
-    setConfirmLayoutActive(false);
-    const timer = window.setTimeout(() => {
-      setConfirmLayoutActive(true);
-    }, CONFIRM_COMPRESS_HOLD_MS);
-    return () => window.clearTimeout(timer);
-  }, [confirmActive, confirmEnterKey]);
+  const orbCompressActive =
+    composeDismissing || (phase === 'confirming' && selectedUser != null);
+  const confirmLayoutActive = orbCompressActive;
 
   const confirmOrb = useConfirmOrbController({
     active: confirmActive,
+    compressActive: orbCompressActive,
     enterKey: confirmEnterKey,
     influencePercent: lobbyInfluencePercent,
     sending: inFlight || sharing,
@@ -512,9 +509,10 @@ export function InstantBanFlow({
     console.log('[orb-count]', roots.length, '98+-labels:', titles.length, {
       phase,
       orbId,
+      composeDismissing,
       confirmLayoutActive,
     });
-  }, [phase, confirmEnterKey, confirmLayoutActive]);
+  }, [phase, confirmEnterKey, composeDismissing, confirmLayoutActive]);
 
   return (
     <div
@@ -527,6 +525,7 @@ export function InstantBanFlow({
       aria-label="98+ arena"
       data-instant-ban-view="InstantBanFlow"
       data-send-phase={phase}
+      data-orb-compress-active={orbCompressActive ? '' : undefined}
       data-instant-ban-step={legacyStep}
       data-debug-slow-orb={process.env.NODE_ENV === 'development' ? '' : undefined}
     >
@@ -621,6 +620,7 @@ export function InstantBanFlow({
                 key={selectedUser.id ?? selectedUser.userId ?? selectedUser.username}
                 overlayTitle={overlayTitle}
                 onComposeExitProgress={handleComposeExitProgress}
+                onComposeExitStart={handleComposeExitStart}
                 selectedUser={selectedUser}
                 initialBanText={banText}
                 initialDurationMinutes={durationMinutes}

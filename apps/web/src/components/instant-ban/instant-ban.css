@@ -1598,7 +1598,10 @@
 
 .instant-ban-arena-send[data-send-phase='confirming'] .instant-ban-arena-send__stage,
 .instant-ban-arena-send.lobby-screen[data-send-phase='confirming'],
-.instant-ban-arena-send.instant-ban-flow[data-send-phase='confirming'] {
+.instant-ban-arena-send.instant-ban-flow[data-send-phase='confirming'],
+.instant-ban-arena-send[data-orb-compress-active] .instant-ban-arena-send__stage,
+.instant-ban-arena-send.lobby-screen[data-orb-compress-active],
+.instant-ban-arena-send.instant-ban-flow[data-orb-compress-active] {
   overflow: visible;
 }
 

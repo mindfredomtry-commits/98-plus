@@ -95,6 +95,8 @@ type Props = {
   overlayTitle?: string;
   /** 0–1 while compose layer dismisses (overlay fade). */
   onComposeExitProgress?: (progress: number) => void;
+  /** Fired when swipe exit animation starts (orb compress begins here). */
+  onComposeExitStart?: () => void;
   onSubmit: (text: string, durationMinutes: number) => void;
   onBack: () => void;
 };
@@ -158,6 +160,7 @@ function WhatScreenInner({
   initialDurationMinutes = DEFAULT_DURATION,
   overlayTitle,
   onComposeExitProgress,
+  onComposeExitStart,
   onSubmit,
   onBack,
 }: Props) {
@@ -443,6 +446,7 @@ function WhatScreenInner({
       exitCommitRef.current = true;
       submitLockRef.current = true;
       setIsExiting(true);
+      onComposeExitStart?.();
       clearExitAnim();
 
       const start = exitProgressRef.current;
@@ -474,7 +478,7 @@ function WhatScreenInner({
       exitAnimRef.current = requestAnimationFrame(tick);
       return true;
     },
-    [clearExitAnim, clearSnapSettleTimer, handleSubmit, isScrollReady],
+    [clearExitAnim, clearSnapSettleTimer, handleSubmit, isScrollReady, onComposeExitStart],
   );
 
   const shouldSnapComplete = useCallback(() => {
