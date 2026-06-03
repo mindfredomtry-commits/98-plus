@@ -144,6 +144,7 @@ export function InstantBanFlow({
   const [composeExitProgress, setComposeExitProgress] = useState(0);
   const [composeDismissing, setComposeDismissing] = useState(false);
   const whoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [whoExitActive, setWhoExitActive] = useState(false);
   const prevSendStartedRef = useRef(sendStarted);
 
   const legacyStep = legacyStepFromPhase(phase);
@@ -278,6 +279,7 @@ export function InstantBanFlow({
       clearTimeout(whoDismissTimerRef.current);
       whoDismissTimerRef.current = null;
     }
+    setWhoExitActive(false);
     setComposeExitProgress(0);
     setComposeDismissing(false);
     setSelectedUser(null);
@@ -288,6 +290,10 @@ export function InstantBanFlow({
     if (process.env.NODE_ENV === 'development') {
       console.log('[who-dismiss-set-phase-idle]');
     }
+  }, []);
+
+  const handleWhoDismissExitStart = useCallback(() => {
+    setWhoExitActive(true);
   }, []);
 
   const handleWhoDismissToLobby = useCallback(() => {
@@ -569,6 +575,7 @@ export function InstantBanFlow({
       aria-label="98+ arena"
       data-instant-ban-view="InstantBanFlow"
       data-send-phase={phase}
+      data-who-exit-active={whoExitActive ? '' : undefined}
       data-orb-compress-active={orbCompressActive ? '' : undefined}
       data-instant-ban-step={legacyStep}
       data-debug-slow-orb={process.env.NODE_ENV === 'development' ? '' : undefined}
@@ -643,7 +650,7 @@ export function InstantBanFlow({
               phase === 'composingBan' ? ' instant-ban-send-overlay--compose' : ''
             }${
               composeExitProgress > 0 ? ' instant-ban-send-overlay--compose-dismissing' : ''
-            }`}
+            }${whoExitActive ? ' instant-ban-send-overlay--who-exiting' : ''}`}
             style={phase === 'composingBan' ? composeOverlayStyle : undefined}
             role="presentation"
           >
@@ -654,6 +661,7 @@ export function InstantBanFlow({
                   friends={safeFriends}
                   onSelect={handleSelectUser}
                   onInviteMore={handleInviteMore}
+                  onDismissExitStart={handleWhoDismissExitStart}
                   onDismissToLobby={handleWhoDismissToLobby}
                 />
               </div>

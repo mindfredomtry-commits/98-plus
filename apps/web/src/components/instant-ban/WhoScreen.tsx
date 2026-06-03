@@ -15,8 +15,9 @@ import { AvatarImage } from '../AvatarImage';
 
 const WHO_DISMISS_DISTANCE_PX = 120;
 const WHO_DISMISS_THRESHOLD_PX = 48;
-const WHO_DISMISS_SNAP_MS = 200;
-const WHO_DISMISS_COMPLETE_MS = 200;
+const WHO_DISMISS_SNAP_MS = 180;
+/** Exit to lobby after layer + dim finish animating. */
+const WHO_DISMISS_EXIT_MS = 260;
 
 function whoDismissDevLog(
   event:
@@ -50,7 +51,8 @@ type WhoOverlayProps = {
   friends: FriendCard[];
   onSelect: (friend: FriendCard) => void;
   onInviteMore: () => void;
-  /** Must call parent setPhase('idle') — see InstantBanFlow.handleWhoDismissToLobby */
+  /** Fade dim/overlay; then setPhase('idle') after exit animation. */
+  onDismissExitStart: () => void;
   onDismissToLobby: () => void;
 };
 
@@ -59,8 +61,8 @@ export function WhoOverlay({
   friends,
   onSelect,
   onInviteMore,
+  onDismissExitStart,
   onDismissToLobby,
-  dismissing = false,
 }: WhoOverlayProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const commitRef = useRef(false);
@@ -224,20 +226,23 @@ export function WhoOverlay({
     dismissCompletingRef.current = true;
     commitRef.current = true;
     dismissZoneGestureRef.current = false;
+    setSnapTransition(false);
     setDismissCompleting(true);
-    applyTranslate(WHO_DISMISS_DISTANCE_PX, false);
 
     whoDismissDevLog('complete-start', {
       translateY: dismissTranslateRef.current,
+      exitMs: WHO_DISMISS_EXIT_MS,
     });
+
+    onDismissExitStart();
 
     clearCompleteTimer();
     completeTimerRef.current = setTimeout(() => {
       completeTimerRef.current = null;
       whoDismissDevLog('on-dismiss-call', {});
       onDismissToLobby();
-    }, WHO_DISMISS_COMPLETE_MS);
-  }, [applyTranslate, clearCompleteTimer, onDismissToLobby]);
+    }, WHO_DISMISS_EXIT_MS);
+  }, [clearCompleteTimer, onDismissExitStart, onDismissToLobby]);
 
   useEffect(() => {
     completeWhoDismissRef.current = completeWhoDismiss;
@@ -350,9 +355,15 @@ export function WhoOverlay({
   return (
     <div
       className={`instant-ban-who-scene${
-        dismissTranslateY < 1 ? ' instant-ban-who-scene--at-rest' : ''
-      }${dismissCompleting ? ' instant-ban-who-scene--completing' : ''}${
-        snapTransition ? ' instant-ban-who-scene--snap-transition' : ''
+        dismissCompleting ? ' instant-ban-who-scene--completing' : ''
+      }${
+        !dismissCompleting && dismissTranslateY < 1
+          ? ' instant-ban-who-scene--at-rest'
+          : ''
+      }${
+        snapTransition && !dismissCompleting
+          ? ' instant-ban-who-scene--snap-transition'
+          : ''
       }`}
       style={sceneStyle}
     >
