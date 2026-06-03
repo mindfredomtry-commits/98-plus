@@ -33,7 +33,7 @@ import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { shareInstantBanInviteMore } from '@/lib/share';
 import { ArenaLobbyIdle } from './ArenaLobbyIdle';
 import { ArenaLobbyOrb } from './ArenaLobbyOrb';
-import { WhoDismissZone, WhoScreen } from './WhoScreen';
+import { WhoDismissHeader, WhoScreen } from './WhoScreen';
 import { WhatScreen } from './WhatScreen';
 import { ConfirmScreen } from './ConfirmScreen';
 import { useConfirmOrbController } from './useConfirmOrbController';
@@ -643,12 +643,11 @@ export function InstantBanFlow({
                   whoDismissing ? ' instant-ban-send-overlay__panel--who-dismissing' : ''
                 }`}
               >
-                <WhoDismissZone
+                <WhoDismissHeader
+                  title={overlayTitle}
                   onDismiss={handleWhoDismiss}
                   dismissing={whoDismissing}
-                >
-                  <h1 className="instant-ban-send-overlay__title">{overlayTitle}</h1>
-                </WhoDismissZone>
+                />
                 <div className="instant-ban-send-overlay__body instant-ban-send-overlay__body--who">
                   <WhoScreen
                     friends={safeFriends}

@@ -1,77 +1,221 @@
 'use client';
 
-import { useCallback, useRef, type PointerEvent, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { AvatarImage } from '../AvatarImage';
 
-const WHO_DISMISS_DY_MIN = 52;
-const WHO_DISMISS_DX_RATIO = 1.2;
+/** Min scrollable overflow in dismiss driver (pull-down room). */
+const WHO_DISMISS_DRIVER_MIN_OVERFLOW = 96;
+const WHO_DISMISS_SNAP_THRESHOLD = 0.18;
+const WHO_DISMISS_SCROLL_SETTLE_MS = 48;
+const WHO_DISMISS_SNAP_BACK_MS = 180;
 
-type DismissZoneProps = {
-  children: ReactNode;
+function whoDismissDevLog(
+  event: 'start' | 'move' | 'fired',
+  data?: Record<string, unknown>,
+): void {
+  if (process.env.NODE_ENV !== 'development') return;
+  console.log(`[who-dismiss-${event}]`, data ?? {});
+}
+
+function easeOutCubic(t: number): number {
+  return 1 - (1 - t) ** 3;
+}
+
+type WhoDismissHeaderProps = {
+  title: string;
   onDismiss: () => void;
   dismissing?: boolean;
 };
 
-function isInteractiveDismissTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  return Boolean(
-    target.closest(
-      'button, a, input, textarea, select, label, [role="button"], [role="link"]',
-    ),
-  );
-}
-
-export function WhoDismissZone({
-  children,
+export function WhoDismissHeader({
+  title,
   onDismiss,
   dismissing = false,
-}: DismissZoneProps) {
-  const startRef = useRef<{ x: number; y: number } | null>(null);
+}: WhoDismissHeaderProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const commitRef = useRef(false);
+  const isSnappingBackRef = useRef(false);
+  const snapSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const snapBackAnimRef = useRef<number | null>(null);
+  const moveLoggedRef = useRef(false);
+  const [dismissProgress, setDismissProgress] = useState(0);
 
-  const clearStart = useCallback(() => {
-    startRef.current = null;
+  const readMaxScroll = useCallback((): number => {
+    const el = scrollRef.current;
+    if (!el) return 0;
+    return Math.max(0, el.scrollHeight - el.clientHeight);
   }, []);
 
-  const onPointerDown = useCallback((e: PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0 || dismissing) return;
-    if (isInteractiveDismissTarget(e.target)) return;
-    startRef.current = { x: e.clientX, y: e.clientY };
-    e.currentTarget.setPointerCapture(e.pointerId);
-  }, [dismissing]);
+  const progressFromScroll = useCallback((): number => {
+    const el = scrollRef.current;
+    if (!el) return 0;
+    const max = el.scrollHeight - el.clientHeight;
+    if (max < WHO_DISMISS_DRIVER_MIN_OVERFLOW) return 0;
+    return Math.min(1, Math.max(0, 1 - el.scrollTop / max));
+  }, []);
 
-  const onPointerUp = useCallback(
-    (e: PointerEvent<HTMLDivElement>) => {
-      const start = startRef.current;
-      clearStart();
-      if (!start || dismissing) return;
+  const scrollToRest = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const max = readMaxScroll();
+    el.scrollTop = max;
+    setDismissProgress(0);
+  }, [readMaxScroll]);
 
-      try {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      } catch {
-        /* noop */
+  const clearSnapSettleTimer = useCallback(() => {
+    if (snapSettleTimerRef.current) {
+      clearTimeout(snapSettleTimerRef.current);
+      snapSettleTimerRef.current = null;
+    }
+  }, []);
+
+  const clearSnapBackAnim = useCallback(() => {
+    if (snapBackAnimRef.current != null) {
+      cancelAnimationFrame(snapBackAnimRef.current);
+      snapBackAnimRef.current = null;
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    commitRef.current = false;
+    isSnappingBackRef.current = false;
+    moveLoggedRef.current = false;
+    scrollToRest();
+    whoDismissDevLog('start', { maxScroll: readMaxScroll() });
+  }, [title, scrollToRest, readMaxScroll]);
+
+  useEffect(() => {
+    return () => {
+      clearSnapSettleTimer();
+      clearSnapBackAnim();
+    };
+  }, [clearSnapBackAnim, clearSnapSettleTimer]);
+
+  const runSnapBack = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el || commitRef.current || dismissing) return;
+
+    const max = readMaxScroll();
+    const startTop = el.scrollTop;
+    if (startTop >= max - 0.5) {
+      scrollToRest();
+      return;
+    }
+
+    clearSnapBackAnim();
+    isSnappingBackRef.current = true;
+    const startTime = performance.now();
+
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - startTime) / WHO_DISMISS_SNAP_BACK_MS);
+      const eased = easeOutCubic(t);
+      el.scrollTop = startTop + (max - startTop) * eased;
+      setDismissProgress(progressFromScroll());
+
+      if (t < 1) {
+        snapBackAnimRef.current = requestAnimationFrame(tick);
+        return;
       }
 
-      const dy = e.clientY - start.y;
-      const dx = e.clientX - start.x;
-      if (dy > WHO_DISMISS_DY_MIN && Math.abs(dy) > Math.abs(dx) * WHO_DISMISS_DX_RATIO) {
-        onDismiss();
-      }
-    },
-    [clearStart, dismissing, onDismiss],
-  );
+      snapBackAnimRef.current = null;
+      isSnappingBackRef.current = false;
+      scrollToRest();
+    };
+
+    snapBackAnimRef.current = requestAnimationFrame(tick);
+  }, [
+    clearSnapBackAnim,
+    dismissing,
+    progressFromScroll,
+    readMaxScroll,
+    scrollToRest,
+  ]);
+
+  const evaluateSnap = useCallback(() => {
+    if (commitRef.current || dismissing || isSnappingBackRef.current) return;
+
+    const progress = progressFromScroll();
+    if (progress >= WHO_DISMISS_SNAP_THRESHOLD) {
+      commitRef.current = true;
+      whoDismissDevLog('fired', { progress });
+      onDismiss();
+      return;
+    }
+
+    if (progress > 0.002) {
+      runSnapBack();
+    }
+  }, [dismissing, onDismiss, progressFromScroll, runSnapBack]);
+
+  const scheduleSnapEvaluate = useCallback(() => {
+    clearSnapSettleTimer();
+    snapSettleTimerRef.current = setTimeout(() => {
+      snapSettleTimerRef.current = null;
+      evaluateSnap();
+    }, WHO_DISMISS_SCROLL_SETTLE_MS);
+  }, [clearSnapSettleTimer, evaluateSnap]);
+
+  const onScroll = useCallback(() => {
+    if (commitRef.current || dismissing || isSnappingBackRef.current) return;
+
+    const progress = progressFromScroll();
+    setDismissProgress(progress);
+
+    if (!moveLoggedRef.current && progress > 0.004) {
+      moveLoggedRef.current = true;
+      whoDismissDevLog('start', { scrollTop: scrollRef.current?.scrollTop });
+    }
+    whoDismissDevLog('move', {
+      progress: Number(progress.toFixed(3)),
+      scrollTop: scrollRef.current?.scrollTop,
+      maxScroll: readMaxScroll(),
+    });
+
+    scheduleSnapEvaluate();
+  }, [
+    dismissing,
+    progressFromScroll,
+    readMaxScroll,
+    scheduleSnapEvaluate,
+  ]);
+
+  const onTouchStart = useCallback(() => {
+    whoDismissDevLog('start', { source: 'touch' });
+  }, []);
+
+  const sceneStyle = {
+    '--who-dismiss-progress': String(dismissProgress),
+  } as CSSProperties;
 
   return (
     <div
-      className={`instant-ban-who-dismiss-zone${
-        dismissing ? ' instant-ban-who-dismiss-zone--dismissing' : ''
+      className={`instant-ban-who-dismiss-scene${
+        dismissing ? ' instant-ban-who-dismiss-scene--dismissing' : ''
       }`}
-      onPointerDown={onPointerDown}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
+      style={sceneStyle}
     >
-      {children}
+      <div
+        ref={scrollRef}
+        className="instant-ban-who-dismiss-scroll-driver"
+        onScroll={onScroll}
+        onTouchStart={onTouchStart}
+        aria-hidden
+      >
+        <div className="instant-ban-who-dismiss-scroll-driver__track" />
+        <div className="instant-ban-who-dismiss-scroll-driver__anchor" />
+      </div>
+      <div className="instant-ban-who-dismiss-layer" aria-hidden={false}>
+        <h1 className="instant-ban-send-overlay__title">{title}</h1>
+      </div>
     </div>
   );
 }

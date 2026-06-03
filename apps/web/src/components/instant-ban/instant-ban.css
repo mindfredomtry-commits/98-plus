@@ -113,12 +113,67 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.instant-ban-who-dismiss-zone {
+/* Who overlay — scroll-driver pull-down dismiss (Telegram WebView safe) */
+.instant-ban-who-dismiss-scene {
+  position: relative;
   flex-shrink: 0;
+  z-index: 2;
+  min-height: clamp(4.5rem, 14vh, 6.5rem);
+  margin: 0 0 0.25rem;
+  --who-dismiss-progress: 0;
+  transform: translate3d(
+    0,
+    calc(var(--who-dismiss-progress, 0) * 12vh),
+    0
+  );
+  opacity: calc(1 - var(--who-dismiss-progress, 0) * 0.35);
+}
+
+.instant-ban-who-dismiss-scroll-driver {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   touch-action: pan-y;
-  -webkit-user-select: none;
-  user-select: none;
-  cursor: default;
+  scrollbar-width: none;
+  opacity: 0;
+  pointer-events: auto;
+}
+
+.instant-ban-who-dismiss-scroll-driver::-webkit-scrollbar {
+  display: none;
+}
+
+.instant-ban-who-dismiss-scroll-driver__track {
+  height: max(120px, calc(100% + 96px));
+  width: 1px;
+  pointer-events: none;
+}
+
+.instant-ban-who-dismiss-scroll-driver__anchor {
+  min-height: 100%;
+  width: 100%;
+  pointer-events: none;
+}
+
+.instant-ban-who-dismiss-layer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: clamp(4.5rem, 14vh, 6.5rem);
+  padding: 0 0.25rem;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.instant-ban-who-dismiss-layer .instant-ban-send-overlay__title {
+  margin: 0;
+  pointer-events: none;
 }
 
 .instant-ban-who-list {
@@ -2144,7 +2199,11 @@
 }
 
 .instant-ban-send-overlay__panel--who {
+  position: relative;
+  z-index: 1;
   gap: 0.25rem;
+  overflow: visible;
+  pointer-events: auto;
 }
 
 .instant-ban-send-overlay__body--who {
