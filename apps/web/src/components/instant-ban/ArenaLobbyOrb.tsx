@@ -136,11 +136,13 @@ export function ArenaLobbyOrb({
               showOrbFace ? '' : ' instant-ban-arena-lobby-orb__face--hidden'
             }`}
           >
-            <span className="instant-ban-arena-lobby-orb__core instant-ban-confirm-orb-ring">
+            <span className="instant-ban-arena-lobby-orb__ring-layer instant-ban-confirm-orb-ring">
               <ArenaInfluenceRing
                 value={ringValue}
                 debugId={debugIdRef.current}
               />
+            </span>
+            <span className="instant-ban-arena-lobby-orb__title-layer">
               <span className="lobby-screen__orb" data-orb-core>
                 <span className="lobby-screen__title">98+</span>
               </span>
