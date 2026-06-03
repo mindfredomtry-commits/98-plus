@@ -1693,26 +1693,74 @@
   min-height: 0;
 }
 
-.instant-ban-arena-send > .lobby-screen__cta-wrap {
-  z-index: 3;
-  pointer-events: auto;
-}
-
-/* Idle: stage must not block CTA (no overlay mounted). */
+/* Lobby CTA — only in idle; animated enter/exit (see instant-ban-lobby-cta--*) */
 .instant-ban-arena-send[data-send-phase='idle'] .instant-ban-arena-send__stage {
   z-index: 1;
   pointer-events: none;
 }
 
-.instant-ban-arena-send[data-send-phase='idle'] > .lobby-screen__cta-wrap {
+.instant-ban-arena-send[data-send-phase='idle'] > .instant-ban-lobby-cta--visible,
+.instant-ban-arena-send[data-send-phase='idle'] > .instant-ban-lobby-cta--entering {
   z-index: 5;
 }
 
-/* Who/what: CTA visible under dim; overlay captures touches. */
-.instant-ban-arena-send[data-send-phase='selectingTarget'] > .lobby-screen__cta-wrap,
-.instant-ban-arena-send[data-send-phase='composingBan'] > .lobby-screen__cta-wrap {
-  z-index: 3;
+.instant-ban-lobby-cta--hidden {
+  display: none;
   pointer-events: none;
+}
+
+.instant-ban-lobby-cta--visible {
+  pointer-events: auto;
+}
+
+.instant-ban-lobby-cta--exiting {
+  z-index: 11;
+  pointer-events: none;
+}
+
+.instant-ban-lobby-cta--entering {
+  z-index: 5;
+  pointer-events: none;
+}
+
+.instant-ban-lobby-cta--exiting .lobby-screen__cta,
+.instant-ban-lobby-cta--exiting .lobby-screen__cta-hint {
+  animation: instant-ban-lobby-cta-exit 200ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.instant-ban-lobby-cta--entering .lobby-screen__cta {
+  animation: instant-ban-lobby-cta-spring-in 400ms cubic-bezier(0.34, 1.45, 0.64, 1) forwards;
+}
+
+@keyframes instant-ban-lobby-cta-exit {
+  from {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+    filter: drop-shadow(0 0 14px rgba(var(--98-accent-rgb), 0.35));
+  }
+
+  to {
+    transform: scale(0.72) translateY(12px);
+    opacity: 0;
+    filter: none;
+  }
+}
+
+@keyframes instant-ban-lobby-cta-spring-in {
+  0% {
+    transform: scale(0.82);
+    opacity: 0;
+  }
+
+  55% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .instant-ban-arena-send[data-send-phase='confirming'] .instant-ban-arena-send__stage,
@@ -2280,6 +2328,31 @@
   max-height: min(72vh, 560px);
   overflow: visible;
   pointer-events: auto;
+}
+
+.instant-ban-send-overlay__panel--who-enter {
+  animation: instant-ban-who-panel-enter 220ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+@keyframes instant-ban-who-panel-enter {
+  from {
+    transform: translateY(32px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .instant-ban-lobby-cta--exiting .lobby-screen__cta,
+  .instant-ban-lobby-cta--exiting .lobby-screen__cta-hint,
+  .instant-ban-lobby-cta--entering .lobby-screen__cta,
+  .instant-ban-send-overlay__panel--who-enter {
+    animation: none;
+  }
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe {

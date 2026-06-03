@@ -4,9 +4,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { LOBBY_MIN_INFLUENCE_PERCENT } from '@/lib/lobby-influence';
 import { shareLobbyAskInvite } from '@/lib/share';
 
+export type LobbyCtaState = 'visible' | 'exiting' | 'hidden' | 'entering';
+
 type Props = {
   influencePercent: number;
   inviteUsername?: string | null;
+  ctaState: LobbyCtaState;
+  ctaInteractive: boolean;
   onBeginSend: () => void;
 };
 
@@ -55,6 +59,8 @@ function triggerBlockedHaptic(): void {
 export function ArenaLobbyIdle({
   influencePercent,
   inviteUsername = null,
+  ctaState,
+  ctaInteractive,
   onBeginSend,
 }: Props) {
   const [lowInfluenceRevealed, setLowInfluenceRevealed] = useState(false);
@@ -76,6 +82,7 @@ export function ArenaLobbyIdle({
 
   const handleEnter = () => {
     if (!lowInfluence) {
+      if (!ctaInteractive) return;
       triggerEnterHaptic();
       onBeginSend();
       return;
@@ -113,6 +120,7 @@ export function ArenaLobbyIdle({
       <button
         type="button"
         className={`btn-98-primary lobby-screen__cta${ctaNudge ? ' lobby-screen__cta--nudge' : ''}`}
+        disabled={!ctaInteractive && !lowInfluence}
         onClick={handleEnter}
       >
         {buttonLabel}

@@ -31,7 +31,7 @@ import {
 } from '@/lib/instant-ban-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { shareInstantBanInviteMore } from '@/lib/share';
-import { ArenaLobbyIdle } from './ArenaLobbyIdle';
+import { ArenaLobbyIdle, type LobbyCtaState } from './ArenaLobbyIdle';
 import { ArenaLobbyOrb } from './ArenaLobbyOrb';
 import { WhoOverlay } from './WhoScreen';
 import { WhatScreen } from './WhatScreen';
@@ -41,6 +41,10 @@ import '../lobby-screen.css';
 import './instant-ban.css';
 
 const DEFAULT_DURATION_MINUTES = 3;
+const CTA_EXIT_MS = 200;
+const CTA_ENTER_MS = 400;
+const WHO_PANEL_ENTER_MS = 220;
+
 /** Parent send-flow phases (arena shell stays mounted). */
 export type SendFlowPhase =
   | 'idle'
@@ -155,13 +159,41 @@ export function InstantBanFlow({
 
   useInstantBanViewport(phase === 'composingBan');
 
+  const clearCtaExitTimer = useCallback(() => {
+    if (ctaExitTimerRef.current) {
+      clearTimeout(ctaExitTimerRef.current);
+      ctaExitTimerRef.current = null;
+    }
+  }, []);
+
+  const clearCtaEnterTimer = useCallback(() => {
+    if (ctaEnterTimerRef.current) {
+      clearTimeout(ctaEnterTimerRef.current);
+      ctaEnterTimerRef.current = null;
+    }
+  }, []);
+
+  const clearWhoPanelEnterTimer = useCallback(() => {
+    if (whoPanelEnterTimerRef.current) {
+      clearTimeout(whoPanelEnterTimerRef.current);
+      whoPanelEnterTimerRef.current = null;
+    }
+  }, []);
+
   /** Only enter who-step when send flow opens — not when user dismisses back to lobby idle. */
   useEffect(() => {
     if (sendStarted && !prevSendStartedRef.current) {
       setPhase('selectingTarget');
+      setCtaState('hidden');
     }
     prevSendStartedRef.current = sendStarted;
   }, [sendStarted]);
+
+  useEffect(() => {
+    if (phase === 'confirming' && ctaState !== 'hidden') {
+      setCtaState('hidden');
+    }
+  }, [ctaState, phase]);
 
   useEffect(() => {
     instantBanDebug('flow-mount', { flowId });
@@ -273,9 +305,31 @@ export function InstantBanFlow({
   }, [phase]);
 
   const handleBeginSend = useCallback(() => {
+    if (phase !== 'idle' || ctaState !== 'visible') return;
+
+    clearCtaExitTimer();
+    clearWhoPanelEnterTimer();
+    setCtaState('exiting');
+    setWhoPanelEntering(true);
     onStartSend();
     setPhase('selectingTarget');
-  }, [onStartSend]);
+
+    ctaExitTimerRef.current = setTimeout(() => {
+      ctaExitTimerRef.current = null;
+      setCtaState('hidden');
+    }, CTA_EXIT_MS);
+
+    whoPanelEnterTimerRef.current = setTimeout(() => {
+      whoPanelEnterTimerRef.current = null;
+      setWhoPanelEntering(false);
+    }, WHO_PANEL_ENTER_MS);
+  }, [
+    clearCtaExitTimer,
+    clearWhoPanelEnterTimer,
+    ctaState,
+    onStartSend,
+    phase,
+  ]);
 
   const finishWhoDismiss = useCallback(() => {
     if (whoDismissTimerRef.current) {
@@ -326,8 +380,11 @@ export function InstantBanFlow({
       if (whoDismissTimerRef.current) {
         clearTimeout(whoDismissTimerRef.current);
       }
+      clearCtaExitTimer();
+      clearCtaEnterTimer();
+      clearWhoPanelEnterTimer();
     };
-  }, []);
+  }, [clearCtaEnterTimer, clearCtaExitTimer, clearWhoPanelEnterTimer]);
 
   const handleSelectUser = useCallback((friend: FriendCard) => {
     setSelectedUser(friend);
@@ -685,7 +742,13 @@ export function InstantBanFlow({
               />
             ) : null}
             {phase === 'selectingTarget' ? (
-              <div className="instant-ban-send-overlay__panel instant-ban-send-overlay__panel--who">
+              <div
+                className={`instant-ban-send-overlay__panel instant-ban-send-overlay__panel--who${
+                  whoPanelEntering
+                    ? ' instant-ban-send-overlay__panel--who-enter'
+                    : ''
+                }`}
+              >
                 <WhoOverlay
                   title={overlayTitle}
                   friends={safeFriends}
@@ -718,6 +781,8 @@ export function InstantBanFlow({
         <ArenaLobbyIdle
           influencePercent={lobbyInfluencePercent}
           inviteUsername={inviteUsername}
+          ctaState={ctaState}
+          ctaInteractive={ctaInteractive}
           onBeginSend={handleBeginSend}
         />
       ) : null}
