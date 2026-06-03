@@ -13,11 +13,8 @@ import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { AvatarImage } from '../AvatarImage';
 
-/** Pull range mapped to visual translate (px). */
 const WHO_DISMISS_DISTANCE_PX = 120;
-/** Commit dismiss when layer moved at least this far down. */
 const WHO_DISMISS_THRESHOLD_PX = 48;
-const WHO_DISMISS_SCROLL_SETTLE_MS = 100;
 const WHO_DISMISS_SNAP_MS = 200;
 const WHO_DISMISS_COMPLETE_MS = 200;
 
@@ -52,18 +49,16 @@ export function WhoOverlay({
 }: WhoOverlayProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const commitRef = useRef(false);
+  const dismissCompletingRef = useRef(false);
+  const dismissZoneGestureRef = useRef(false);
   const isSnappingRef = useRef(false);
-  const gestureActiveRef = useRef(false);
   const touchStartYRef = useRef(0);
   const baseTranslateRef = useRef(0);
   const dismissTranslateRef = useRef(0);
   const maxTranslateYRef = useRef(0);
-  const dismissProgressRef = useRef(0);
-  const maxDismissProgressRef = useRef(0);
-  const snapSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const snapAnimRef = useRef<number | null>(null);
   const completeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const moveLoggedRef = useRef(false);
+  const completeWhoDismissRef = useRef<() => void>(() => {});
   const [dismissTranslateY, setDismissTranslateY] = useState(0);
   const [snapTransition, setSnapTransition] = useState(false);
   const [dismissCompleting, setDismissCompleting] = useState(false);
@@ -86,35 +81,39 @@ export function WhoOverlay({
     return Math.min(1, Math.max(0, 1 - el.scrollTop / max));
   }, [progressFromTranslate, readMaxScroll]);
 
+  const tryAutoComplete = useCallback((translateY: number) => {
+    if (!dismissZoneGestureRef.current) return;
+    if (dismissCompletingRef.current || commitRef.current) return;
+    if (translateY >= WHO_DISMISS_THRESHOLD_PX) {
+      whoDismissDevLog('fired', {
+        translateY,
+        thresholdPx: WHO_DISMISS_THRESHOLD_PX,
+        trigger: 'auto-threshold',
+      });
+      completeWhoDismissRef.current();
+    }
+  }, []);
+
   const applyTranslate = useCallback(
     (translateY: number, trackPeak = false) => {
       const y = Math.min(
         WHO_DISMISS_DISTANCE_PX,
         Math.max(0, translateY),
       );
-      const progress = progressFromTranslate(y);
 
       dismissTranslateRef.current = y;
-      dismissProgressRef.current = progress;
-
       if (trackPeak) {
         maxTranslateYRef.current = Math.max(maxTranslateYRef.current, y);
-        maxDismissProgressRef.current = Math.max(
-          maxDismissProgressRef.current,
-          progress,
-        );
       }
-
       setDismissTranslateY(y);
+      tryAutoComplete(y);
     },
-    [progressFromTranslate],
+    [tryAutoComplete],
   );
 
   const resetGestureMetrics = useCallback(() => {
     dismissTranslateRef.current = 0;
     maxTranslateYRef.current = 0;
-    dismissProgressRef.current = 0;
-    maxDismissProgressRef.current = 0;
     setDismissTranslateY(0);
   }, []);
 
@@ -125,13 +124,6 @@ export function WhoOverlay({
     }
     resetGestureMetrics();
   }, [readMaxScroll, resetGestureMetrics]);
-
-  const clearSnapSettleTimer = useCallback(() => {
-    if (snapSettleTimerRef.current) {
-      clearTimeout(snapSettleTimerRef.current);
-      snapSettleTimerRef.current = null;
-    }
-  }, []);
 
   const clearSnapAnim = useCallback(() => {
     if (snapAnimRef.current != null) {
@@ -149,25 +141,20 @@ export function WhoOverlay({
 
   useLayoutEffect(() => {
     commitRef.current = false;
+    dismissCompletingRef.current = false;
+    dismissZoneGestureRef.current = false;
     isSnappingRef.current = false;
-    gestureActiveRef.current = false;
-    moveLoggedRef.current = false;
     setSnapTransition(false);
     setDismissCompleting(false);
     clearCompleteTimer();
     resetGestureMetrics();
     scrollToRest();
     whoDismissDevLog('start', { maxScroll: readMaxScroll() });
-  }, [
-    clearCompleteTimer,
-    readMaxScroll,
-    resetGestureMetrics,
-    scrollToRest,
-    title,
-  ]);
+  }, [clearCompleteTimer, readMaxScroll, resetGestureMetrics, scrollToRest, title]);
 
   useEffect(() => {
     if (dismissing) {
+      dismissCompletingRef.current = true;
       applyTranslate(WHO_DISMISS_DISTANCE_PX, false);
       setDismissCompleting(true);
     }
@@ -175,11 +162,10 @@ export function WhoOverlay({
 
   useEffect(() => {
     return () => {
-      clearSnapSettleTimer();
       clearSnapAnim();
       clearCompleteTimer();
     };
-  }, [clearSnapAnim, clearCompleteTimer, clearSnapSettleTimer]);
+  }, [clearSnapAnim, clearCompleteTimer]);
 
   const animateTranslatePx = useCallback(
     (targetPx: number, onComplete?: () => void) => {
@@ -193,7 +179,8 @@ export function WhoOverlay({
         const t = Math.min(1, (now - startTime) / WHO_DISMISS_SNAP_MS);
         const eased = easeOutCubic(t);
         const y = start + (targetPx - start) * eased;
-        applyTranslate(y, false);
+        dismissTranslateRef.current = y;
+        setDismissTranslateY(y);
 
         if (t < 1) {
           snapAnimRef.current = requestAnimationFrame(tick);
@@ -202,31 +189,37 @@ export function WhoOverlay({
 
         snapAnimRef.current = null;
         isSnappingRef.current = false;
-        applyTranslate(targetPx, false);
+        dismissTranslateRef.current = targetPx;
+        setDismissTranslateY(targetPx);
         onComplete?.();
       };
 
       snapAnimRef.current = requestAnimationFrame(tick);
     },
-    [applyTranslate, clearSnapAnim],
+    [clearSnapAnim],
   );
 
   const snapBack = useCallback(() => {
-    if (commitRef.current || dismissing) return;
+    if (dismissCompletingRef.current || commitRef.current) return;
+    whoDismissDevLog('snap', {
+      maxTranslateY: maxTranslateYRef.current,
+      currentTranslateY: dismissTranslateRef.current,
+      decision: 'snap-back',
+      thresholdPx: WHO_DISMISS_THRESHOLD_PX,
+    });
     animateTranslatePx(0, () => {
       setSnapTransition(false);
       scrollToRest();
     });
-  }, [animateTranslatePx, dismissing, scrollToRest]);
+  }, [animateTranslatePx, scrollToRest]);
 
   const completeWhoDismiss = useCallback(() => {
-    if (commitRef.current || dismissing) return;
+    if (dismissCompletingRef.current || commitRef.current) return;
+    dismissCompletingRef.current = true;
     commitRef.current = true;
+    dismissZoneGestureRef.current = false;
     setDismissCompleting(true);
-    whoDismissDevLog('fired', {
-      maxTranslateY: maxTranslateYRef.current,
-      currentTranslateY: dismissTranslateRef.current,
-    });
+
     animateTranslatePx(WHO_DISMISS_DISTANCE_PX, () => {
       clearCompleteTimer();
       completeTimerRef.current = setTimeout(() => {
@@ -234,106 +227,67 @@ export function WhoOverlay({
         onDismiss();
       }, WHO_DISMISS_COMPLETE_MS);
     });
-  }, [
-    animateTranslatePx,
-    clearCompleteTimer,
-    dismissing,
-    onDismiss,
-  ]);
+  }, [animateTranslatePx, clearCompleteTimer, onDismiss]);
 
-  const evaluateSnap = useCallback(() => {
-    if (commitRef.current || dismissing || isSnappingRef.current) return;
+  useEffect(() => {
+    completeWhoDismissRef.current = completeWhoDismiss;
+  }, [completeWhoDismiss]);
 
-    const currentTranslateY = dismissTranslateRef.current;
-    const maxTranslateY = maxTranslateYRef.current;
-    const decisionY = Math.max(maxTranslateY, currentTranslateY);
-    const currentProgress = dismissProgressRef.current;
-    const maxProgress = maxDismissProgressRef.current;
-    const el = scrollRef.current;
+  const onGestureEnd = useCallback(() => {
+    dismissZoneGestureRef.current = false;
 
-    const decision =
-      decisionY >= WHO_DISMISS_THRESHOLD_PX ? 'complete' : 'snap-back';
-
-    whoDismissDevLog('snap', {
-      currentProgress: Number(currentProgress.toFixed(3)),
-      maxProgress: Number(maxProgress.toFixed(3)),
-      currentTranslateY: Number(currentTranslateY.toFixed(1)),
-      maxTranslateY: Number(maxTranslateY.toFixed(1)),
-      scrollTop: el?.scrollTop,
-      maxScroll: readMaxScroll(),
-      decision,
-      thresholdPx: WHO_DISMISS_THRESHOLD_PX,
-      distancePx: WHO_DISMISS_DISTANCE_PX,
-    });
-
-    if (decisionY >= WHO_DISMISS_THRESHOLD_PX) {
-      completeWhoDismiss();
+    if (dismissCompletingRef.current || commitRef.current) {
       return;
     }
 
-    if (decisionY > 6) {
+    const peakY = maxTranslateYRef.current;
+
+    whoDismissDevLog('snap', {
+      currentTranslateY: dismissTranslateRef.current,
+      maxTranslateY: peakY,
+      scrollTop: scrollRef.current?.scrollTop,
+      maxScroll: readMaxScroll(),
+      decision: peakY >= WHO_DISMISS_THRESHOLD_PX ? 'complete' : 'snap-back',
+      thresholdPx: WHO_DISMISS_THRESHOLD_PX,
+    });
+
+    if (peakY >= WHO_DISMISS_THRESHOLD_PX) {
+      completeWhoDismissRef.current();
+      return;
+    }
+
+    if (peakY > 6) {
       snapBack();
     } else {
       scrollToRest();
     }
-  }, [
-    completeWhoDismiss,
-    dismissing,
-    readMaxScroll,
-    scrollToRest,
-    snapBack,
-  ]);
+  }, [readMaxScroll, snapBack, scrollToRest]);
 
-  const scheduleSnapEvaluate = useCallback(() => {
-    clearSnapSettleTimer();
-    snapSettleTimerRef.current = setTimeout(() => {
-      snapSettleTimerRef.current = null;
-      evaluateSnap();
-    }, WHO_DISMISS_SCROLL_SETTLE_MS);
-  }, [clearSnapSettleTimer, evaluateSnap]);
+  const onScroll = useCallback(() => {
+    if (
+      dismissCompletingRef.current ||
+      commitRef.current ||
+      isSnappingRef.current ||
+      !dismissZoneGestureRef.current
+    ) {
+      return;
+    }
 
-  const onGestureEnd = useCallback(() => {
-    const hadGesture =
-      gestureActiveRef.current || maxTranslateYRef.current > 6;
-    gestureActiveRef.current = false;
-    if (!hadGesture || commitRef.current || dismissing) return;
-    clearSnapSettleTimer();
-    evaluateSnap();
-  }, [clearSnapSettleTimer, dismissing, evaluateSnap]);
-
-  const mergeScrollIntoTranslate = useCallback(() => {
     const fromScroll = progressFromScroll() * WHO_DISMISS_DISTANCE_PX;
     const merged = Math.max(dismissTranslateRef.current, fromScroll);
     applyTranslate(merged, true);
-  }, [applyTranslate, progressFromScroll]);
 
-  const onScroll = useCallback(() => {
-    if (commitRef.current || dismissing || isSnappingRef.current) return;
-    mergeScrollIntoTranslate();
-
-    if (!moveLoggedRef.current && dismissTranslateRef.current > 6) {
-      moveLoggedRef.current = true;
-      whoDismissDevLog('start', { source: 'scroll' });
-    }
     whoDismissDevLog('move', {
-      translateY: Number(dismissTranslateRef.current.toFixed(1)),
-      peakY: Number(maxTranslateYRef.current.toFixed(1)),
-      scrollTop: scrollRef.current?.scrollTop,
+      source: 'scroll',
+      translateY: dismissTranslateRef.current,
+      peakY: maxTranslateYRef.current,
     });
-
-    if (gestureActiveRef.current) {
-      scheduleSnapEvaluate();
-    }
-  }, [
-    dismissing,
-    mergeScrollIntoTranslate,
-    scheduleSnapEvaluate,
-  ]);
+  }, [applyTranslate, progressFromScroll]);
 
   const onTouchStart = useCallback((e: TouchEvent<HTMLDivElement>) => {
     const touch = e.touches[0];
     if (!touch) return;
-    gestureActiveRef.current = true;
+    dismissZoneGestureRef.current = true;
     touchStartYRef.current = touch.clientY;
     baseTranslateRef.current = dismissTranslateRef.current;
     maxTranslateYRef.current = Math.max(
@@ -343,30 +297,38 @@ export function WhoOverlay({
     whoDismissDevLog('start', { source: 'touch', y: touch.clientY });
   }, []);
 
-  const onTouchMove = useCallback((e: TouchEvent<HTMLDivElement>) => {
-    if (!gestureActiveRef.current || commitRef.current || dismissing) return;
-    const touch = e.touches[0];
-    if (!touch) return;
+  const onTouchMove = useCallback(
+    (e: TouchEvent<HTMLDivElement>) => {
+      if (
+        !dismissZoneGestureRef.current ||
+        dismissCompletingRef.current ||
+        commitRef.current
+      ) {
+        return;
+      }
 
-    const dy = touch.clientY - touchStartYRef.current;
-    if (dy <= 0) return;
+      const touch = e.touches[0];
+      if (!touch) return;
 
-    const nextY = Math.min(
-      WHO_DISMISS_DISTANCE_PX,
-      baseTranslateRef.current + dy,
-    );
-    applyTranslate(nextY, true);
+      const dy = touch.clientY - touchStartYRef.current;
+      if (dy <= 0) return;
 
-    if (!moveLoggedRef.current && nextY > 6) {
-      moveLoggedRef.current = true;
-    }
-    whoDismissDevLog('move', {
-      source: 'touch',
-      dy: Number(dy.toFixed(1)),
-      translateY: Number(nextY.toFixed(1)),
-      peakY: Number(maxTranslateYRef.current.toFixed(1)),
-    });
-  }, [applyTranslate, dismissing]);
+      const nextY = Math.min(
+        WHO_DISMISS_DISTANCE_PX,
+        baseTranslateRef.current + dy,
+      );
+      applyTranslate(nextY, true);
+
+      whoDismissDevLog('move', {
+        source: 'touch',
+        dy: Number(dy.toFixed(1)),
+        translateY: nextY,
+        peakY: maxTranslateYRef.current,
+        thresholdPx: WHO_DISMISS_THRESHOLD_PX,
+      });
+    },
+    [applyTranslate],
+  );
 
   const sceneStyle = {
     '--who-dismiss-translate-y': String(dismissTranslateY),
