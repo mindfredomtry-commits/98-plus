@@ -59,7 +59,10 @@ const ArenaInfluenceRing = memo(function ArenaInfluenceRing({
 export function ArenaLobbyOrb({
   sendPhase,
   confirmActive,
+  orbCompressActive,
   confirmOrb,
+  lobbyRingDisplayPercent,
+  lobbyRingIntroFilling = false,
   senderUser,
   selectedUser,
   banText,
