@@ -286,13 +286,13 @@ export function InstantBanFlow({
   }, []);
 
   const handleWhoDismiss = useCallback(() => {
-    if (whoDismissing || phase !== 'selectingTarget') return;
+    if (phase !== 'selectingTarget') return;
     setWhoDismissing(true);
     whoDismissTimerRef.current = setTimeout(() => {
       whoDismissTimerRef.current = null;
       finishWhoDismiss();
-    }, 80);
-  }, [finishWhoDismiss, phase, whoDismissing]);
+    }, 40);
+  }, [finishWhoDismiss, phase]);
 
   useEffect(() => {
     return () => {
