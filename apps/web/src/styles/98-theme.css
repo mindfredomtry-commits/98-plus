@@ -59,9 +59,15 @@
   --98-payoff-card-height: 240px;
   --98-payoff-card-radius: 24px;
   --98-confirm-orb-size: min(42vw, 160px);
+  --98-confirm-orb-mini-size: min(26vw, 80px);
+  /* Ring-layer scale at mini-core (80px ring on 280px lobby wrap). */
+  --98-confirm-ring-mini-scale: 0.2857142857;
   --98-confirm-orb-title-size: clamp(2.5rem, 12vw, 2.75rem);
   --98-confirm-orb-scale-from-lobby: 0.571428571;
-  --98-confirm-enter-compress-ms: 600ms;
+  --98-confirm-compress-shrink-ms: 300ms;
+  --98-confirm-compress-mini-hold-ms: 250ms;
+  --98-confirm-compress-expand-ms: 350ms;
+  --98-confirm-enter-compress-ms: 900ms;
   --98-confirm-enter-lobby-hold-ms: 100ms;
   --98-confirm-orb-settle-x: 0px;
   --98-confirm-orb-settle-y: 0px;

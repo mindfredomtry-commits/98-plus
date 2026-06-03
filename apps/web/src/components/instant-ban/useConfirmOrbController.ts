@@ -23,12 +23,26 @@ const PAYOFF_SETTLE_MS = 450;
 const REVEAL_STAGGER_MS = 100;
 const REVEAL_ITEM_MS = 280;
 const CTA_EXTRA_DELAY_MS = 120;
-const CONFIRM_ENTER_COMPRESS_MS = 600;
+/** Stage 1: lobby ring shrinks toward mini-core (ring layer only). */
+export const CONFIRM_COMPRESS_SHRINK_MS = 300;
+/** Stage 2: hold dense ring around 98+. */
+export const CONFIRM_COMPRESS_MINI_HOLD_MS = 250;
+/** Stage 3: spring expand ring + wrap to confirm size. */
+export const CONFIRM_COMPRESS_EXPAND_MS = 350;
+export const CONFIRM_ENTER_COMPRESS_MS =
+  CONFIRM_COMPRESS_SHRINK_MS +
+  CONFIRM_COMPRESS_MINI_HOLD_MS +
+  CONFIRM_COMPRESS_EXPAND_MS;
 /** Keep lobby-sized orb visible after compose exits before compress starts. */
 export const CONFIRM_COMPRESS_HOLD_MS = 180;
 
 export type HoldPhase = 'idle' | 'holding' | 'ready' | 'releasing';
-export type EnterPhase = 'lobby-orb' | 'compressing' | 'ready';
+export type EnterPhase =
+  | 'lobby-orb'
+  | 'compressing'
+  | 'mini-core'
+  | 'expanding'
+  | 'ready';
 export type PayoffPhase =
   | 'none'
   | 'impact'
@@ -319,12 +333,17 @@ export function useConfirmOrbController({
   }, [active, compressActive, orbWrapRef, enterPhase, payoffPhase, enterKey]);
 
   useEffect(() => {
-    if (!compressActive || enterPhase !== 'compressing') return;
+    if (
+      !compressActive ||
+      (enterPhase !== 'compressing' && enterPhase !== 'mini-core')
+    ) {
+      return;
+    }
     const frame = requestAnimationFrame(() => {
       setRingProgress(100);
     });
     return () => cancelAnimationFrame(frame);
-  }, [active, enterPhase]);
+  }, [compressActive, enterPhase]);
 
   useLayoutEffect(() => {
     const btn = orbBtnRef.current;

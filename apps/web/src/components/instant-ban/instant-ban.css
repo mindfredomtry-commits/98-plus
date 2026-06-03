@@ -495,12 +495,22 @@
 }
 
 .instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-copy,
-.instant-ban-confirm-layout--shared-lobby[data-enter-phase='compressing'] .instant-ban-confirm-info {
+.instant-ban-confirm[data-enter-phase='mini-core'] .instant-ban-confirm-copy,
+.instant-ban-confirm[data-enter-phase='expanding'] .instant-ban-confirm-copy,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='compressing'] .instant-ban-confirm-info,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='mini-core'] .instant-ban-confirm-info,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='expanding'] .instant-ban-confirm-info {
   visibility: visible;
 }
 
 .instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-enter--1,
+.instant-ban-confirm[data-enter-phase='mini-core'] .instant-ban-confirm-enter--1,
+.instant-ban-confirm[data-enter-phase='expanding'] .instant-ban-confirm-enter--1,
 .instant-ban-confirm-layout--shared-lobby[data-enter-phase='compressing']
+  .instant-ban-confirm-enter--1,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='mini-core']
+  .instant-ban-confirm-enter--1,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='expanding']
   .instant-ban-confirm-enter--1 {
   visibility: visible;
   animation: instant-ban-confirm-reveal 240ms ease forwards;
@@ -509,7 +519,13 @@
 }
 
 .instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-enter--2,
+.instant-ban-confirm[data-enter-phase='mini-core'] .instant-ban-confirm-enter--2,
+.instant-ban-confirm[data-enter-phase='expanding'] .instant-ban-confirm-enter--2,
 .instant-ban-confirm-layout--shared-lobby[data-enter-phase='compressing']
+  .instant-ban-confirm-enter--2,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='mini-core']
+  .instant-ban-confirm-enter--2,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='expanding']
   .instant-ban-confirm-enter--2 {
   visibility: visible;
   animation: instant-ban-confirm-reveal 240ms ease forwards;
@@ -518,7 +534,13 @@
 }
 
 .instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-enter--3,
+.instant-ban-confirm[data-enter-phase='mini-core'] .instant-ban-confirm-enter--3,
+.instant-ban-confirm[data-enter-phase='expanding'] .instant-ban-confirm-enter--3,
 .instant-ban-confirm-layout--shared-lobby[data-enter-phase='compressing']
+  .instant-ban-confirm-enter--3,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='mini-core']
+  .instant-ban-confirm-enter--3,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='expanding']
   .instant-ban-confirm-enter--3 {
   visibility: visible;
   animation: instant-ban-confirm-reveal 240ms ease forwards;
@@ -633,7 +655,9 @@
 }
 
 .instant-ban-confirm[data-enter-phase='lobby-orb'] .instant-ban-confirm-orb-btn:disabled,
-.instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-orb-btn:disabled {
+.instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-orb-btn:disabled,
+.instant-ban-confirm[data-enter-phase='mini-core'] .instant-ban-confirm-orb-btn:disabled,
+.instant-ban-confirm[data-enter-phase='expanding'] .instant-ban-confirm-orb-btn:disabled {
   opacity: 1;
   cursor: default;
 }
@@ -679,9 +703,12 @@
 
 .instant-ban-confirm[data-enter-phase='compressing']
   .instant-ban-confirm-influence-ring
+  .influence-ring__progress,
+.instant-ban-confirm[data-enter-phase='mini-core']
+  .instant-ban-confirm-influence-ring
   .influence-ring__progress {
-  transition-duration: var(--98-confirm-enter-compress-ms);
-  transition-timing-function: ease-in-out;
+  transition-duration: var(--98-confirm-compress-shrink-ms);
+  transition-timing-function: ease-in;
 }
 
 @keyframes instant-ban-ring-breathe {
@@ -802,7 +829,9 @@
 }
 
 .instant-ban-confirm[data-enter-phase='lobby-orb'] .instant-ban-confirm-orb__title,
-.instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-orb__title {
+.instant-ban-confirm[data-enter-phase='compressing'] .instant-ban-confirm-orb__title,
+.instant-ban-confirm[data-enter-phase='mini-core'] .instant-ban-confirm-orb__title,
+.instant-ban-confirm[data-enter-phase='expanding'] .instant-ban-confirm-orb__title {
   font-size: var(--98-lobby-orb-title-size);
   text-shadow:
     0 0 24px rgba(var(--98-accent-rgb), 0.9),
@@ -1841,10 +1870,13 @@
 
 /* Dev: add data-debug-slow-orb on .instant-ban-arena-send to verify continuous compress */
 .instant-ban-arena-send[data-debug-slow-orb] {
-  --98-confirm-enter-compress-ms: 1000ms;
+  --98-confirm-compress-shrink-ms: 500ms;
+  --98-confirm-compress-mini-hold-ms: 400ms;
+  --98-confirm-compress-expand-ms: 600ms;
+  --98-confirm-enter-compress-ms: 1500ms;
 }
 
-/* Persistent lobby orb — same slot, animated size (no position jump / no remount) */
+/* Persistent lobby orb — wrap size changes only on expand stage; ring layer scales separately */
 .lobby-screen__orb-wrap.lobby-screen__orb-root {
   --arena-orb-size: var(--98-lobby-orb-wrap-size);
   --arena-orb-margin-bottom: var(--98-lobby-orb-wrap-margin-bottom);
@@ -1854,16 +1886,20 @@
   z-index: 4;
   overflow: visible;
   transition:
-    width var(--98-confirm-enter-compress-ms) ease-in-out,
-    height var(--98-confirm-enter-compress-ms) ease-in-out,
-    margin-bottom var(--98-confirm-enter-compress-ms) ease-in-out,
     opacity 360ms ease,
     transform 360ms ease;
 }
 
-.lobby-screen__orb-root.lobby-screen__orb-wrap--confirm {
+.lobby-screen__orb-root.lobby-screen__orb-wrap--confirm[data-enter-phase='expanding'],
+.lobby-screen__orb-root.lobby-screen__orb-wrap--confirm[data-enter-phase='ready'] {
   --arena-orb-size: var(--98-confirm-orb-size);
   --arena-orb-margin-bottom: clamp(2rem, 12vh, 4rem);
+  transition:
+    width var(--98-confirm-compress-expand-ms) cubic-bezier(0.34, 1.45, 0.64, 1),
+    height var(--98-confirm-compress-expand-ms) cubic-bezier(0.34, 1.45, 0.64, 1),
+    margin-bottom var(--98-confirm-compress-expand-ms) cubic-bezier(0.34, 1.45, 0.64, 1),
+    opacity 360ms ease,
+    transform 360ms ease;
 }
 
 .lobby-screen__orb-root.lobby-screen__orb-wrap--overlay-dim {
@@ -1984,6 +2020,65 @@
   transition: transform 950ms cubic-bezier(0.34, 1.12, 0.64, 1);
 }
 
+@keyframes instant-ban-confirm-ring-shrink {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(var(--98-confirm-ring-mini-scale));
+  }
+}
+
+@keyframes instant-ban-confirm-ring-spring-expand {
+  0% {
+    transform: scale(var(--98-confirm-ring-mini-scale));
+  }
+  58% {
+    transform: scale(1.08);
+  }
+  78% {
+    transform: scale(0.96);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.lobby-screen__orb-root[data-enter-phase='compressing']
+  .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
+  animation: instant-ban-confirm-ring-shrink var(--98-confirm-compress-shrink-ms)
+    cubic-bezier(0.55, 0.06, 0.68, 0.42) forwards;
+  transition: none;
+}
+
+.lobby-screen__orb-root[data-enter-phase='mini-core']
+  .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
+  transform: scale(var(--98-confirm-ring-mini-scale));
+  animation: none;
+  transition: none;
+}
+
+.lobby-screen__orb-root[data-enter-phase='mini-core']
+  .instant-ban-confirm-influence-ring
+  .influence-ring__progress {
+  stroke: rgba(var(--98-power-rgb), 1);
+  filter: drop-shadow(0 0 10px var(--98-power-glow))
+    drop-shadow(0 0 20px var(--98-power-glow-soft));
+}
+
+.lobby-screen__orb-root[data-enter-phase='expanding']
+  .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
+  animation: instant-ban-confirm-ring-spring-expand var(--98-confirm-compress-expand-ms)
+    cubic-bezier(0.34, 1.45, 0.64, 1) forwards;
+  transition: none;
+}
+
+.lobby-screen__orb-root[data-enter-phase='ready']
+  .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
+  transform: scale(1);
+  animation: none;
+}
+
 .lobby-screen__orb-root .instant-ban-confirm-orb-btn--holding .instant-ban-arena-lobby-orb__ring-layer {
   transform: scale(0.95);
 }
@@ -2030,15 +2125,24 @@
 .lobby-screen__orb-root[data-enter-phase='compressing']
   .instant-ban-confirm-influence-ring
   .influence-ring__progress,
+.lobby-screen__orb-root[data-enter-phase='mini-core']
+  .instant-ban-confirm-influence-ring
+  .influence-ring__progress {
+  transition-duration: var(--98-confirm-compress-shrink-ms);
+  transition-timing-function: ease-in;
+}
+
 .lobby-screen__orb-root[data-enter-phase='ready']
   .instant-ban-confirm-influence-ring
   .influence-ring__progress {
-  transition-duration: var(--98-confirm-enter-compress-ms);
-  transition-timing-function: ease-in-out;
+  transition-duration: var(--98-confirm-compress-expand-ms);
+  transition-timing-function: ease-out;
 }
 
 .lobby-screen__orb-root[data-enter-phase='lobby-orb'] .instant-ban-arena-lobby-orb__btn,
-.lobby-screen__orb-root[data-enter-phase='compressing'] .instant-ban-arena-lobby-orb__btn {
+.lobby-screen__orb-root[data-enter-phase='compressing'] .instant-ban-arena-lobby-orb__btn,
+.lobby-screen__orb-root[data-enter-phase='mini-core'] .instant-ban-arena-lobby-orb__btn,
+.lobby-screen__orb-root[data-enter-phase='expanding'] .instant-ban-arena-lobby-orb__btn {
   pointer-events: none;
 }
 
