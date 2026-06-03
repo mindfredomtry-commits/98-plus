@@ -45,6 +45,17 @@ const CTA_EXIT_MS = 200;
 const CTA_ENTER_MS = 400;
 const WHO_PANEL_ENTER_MS = 220;
 
+function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function resolveInitialCtaState(sendStarted: boolean): LobbyCtaState {
+  if (sendStarted) return 'hidden';
+  if (prefersReducedMotion()) return 'visible';
+  return 'entering';
+}
+
 /** Parent send-flow phases (arena shell stays mounted). */
 export type SendFlowPhase =
   | 'idle'
@@ -151,12 +162,13 @@ export function InstantBanFlow({
   const [whoExitActive, setWhoExitActive] = useState(false);
   const [whoDismissProgress, setWhoDismissProgress] = useState(0);
   const [ctaState, setCtaState] = useState<LobbyCtaState>(() =>
-    sendStarted ? 'hidden' : 'visible',
+    resolveInitialCtaState(sendStarted),
   );
   const [whoPanelEntering, setWhoPanelEntering] = useState(false);
   const ctaExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ctaEnterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const whoPanelEnterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lobbyCtaBootSpringRef = useRef(false);
   const prevSendStartedRef = useRef(sendStarted);
 
   const legacyStep = legacyStepFromPhase(phase);
@@ -190,6 +202,30 @@ export function InstantBanFlow({
       whoPanelEnterTimerRef.current = null;
     }
   }, []);
+
+  const scheduleCtaBecomeVisible = useCallback(() => {
+    clearCtaEnterTimer();
+    ctaEnterTimerRef.current = setTimeout(() => {
+      ctaEnterTimerRef.current = null;
+      setCtaState('visible');
+    }, CTA_ENTER_MS);
+  }, [clearCtaEnterTimer]);
+
+  const beginCtaSpringIn = useCallback(() => {
+    clearCtaEnterTimer();
+    setCtaState('entering');
+    scheduleCtaBecomeVisible();
+  }, [clearCtaEnterTimer, scheduleCtaBecomeVisible]);
+
+  /** First lobby open only — dismiss re-entry uses beginCtaSpringIn. */
+  useEffect(() => {
+    if (lobbyCtaBootSpringRef.current) return;
+    if (sendStarted) return;
+    if (prefersReducedMotion()) return;
+    if (ctaState !== 'entering') return;
+    lobbyCtaBootSpringRef.current = true;
+    scheduleCtaBecomeVisible();
+  }, [ctaState, scheduleCtaBecomeVisible, sendStarted]);
 
   /** Only enter who-step when send flow opens — not when user dismisses back to lobby idle. */
   useEffect(() => {
@@ -356,16 +392,11 @@ export function InstantBanFlow({
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
     setSendError(null);
     setPhase('idle');
-    clearCtaEnterTimer();
-    setCtaState('entering');
-    ctaEnterTimerRef.current = setTimeout(() => {
-      ctaEnterTimerRef.current = null;
-      setCtaState('visible');
-    }, CTA_ENTER_MS);
+    beginCtaSpringIn();
     if (process.env.NODE_ENV === 'development') {
       console.log('[who-dismiss-set-phase-idle]');
     }
-  }, [clearCtaEnterTimer]);
+  }, [beginCtaSpringIn]);
 
   const handleWhoDismissDragProgress = useCallback((progress: number) => {
     setWhoDismissProgress(progress);
