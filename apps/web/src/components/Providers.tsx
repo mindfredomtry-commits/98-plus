@@ -284,16 +284,7 @@ function applySessionToState(
 
 /** Hard remount on Telegram account switch — wipes in-memory friends/session. */
 export function Providers({ children }: { children: React.ReactNode }) {
-  const { ready, telegramId } = useTelegram();
-
-  if (!ready) {
-    console.log('[boot]', { phase: 'telegram-not-ready' });
-    return (
-      <div className="min-h-[100dvh] flex items-center justify-center challenge-bg">
-        <span className="text-accent text-2xl font-bold text-glow">98+</span>
-      </div>
-    );
-  }
+  const { telegramId } = useTelegram();
 
   const scopeKey = telegramId != null ? `tg:${telegramId}` : 'tg:pending';
   console.log('[boot]', { phase: 'providers-mount', scopeKey, telegramId });

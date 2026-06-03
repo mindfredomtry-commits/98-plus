@@ -24,6 +24,7 @@ import {
   readAuthProfileCache,
   writeAuthProfileCache,
 } from '@/lib/auth-profile-cache';
+import { readInitialAuthSession } from '@/lib/read-initial-auth-session';
 
 const TOKEN_KEY_LEGACY = '98plus_token';
 
@@ -51,9 +52,10 @@ export interface AuthBoot {
 export function useAuth() {
   const { initData, ready, user: tgUser, startParam, telegramId } =
     useTelegram();
-  const [token, setToken] = useState<string | null>(null);
-  const [user, setUser] = useState<UserPublic | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [initialSession] = useState(readInitialAuthSession);
+  const [token, setToken] = useState<string | null>(initialSession.token);
+  const [user, setUser] = useState<UserPublic | null>(initialSession.user);
+  const [loading, setLoading] = useState(initialSession.loading);
   const [error, setError] = useState<string | null>(null);
   const [boot, setBoot] = useState<AuthBoot | null>(null);
 
@@ -189,11 +191,18 @@ export function useAuth() {
     lastAuthIdentityRef.current = identity;
     identityRef.current = identity;
 
-    setLoading(true);
-    setError(null);
-    setToken(null);
-    setUser(null);
-    setBoot(null);
+    const warmSession = !!(token && user) && !inviteOpen;
+
+    if (!warmSession) {
+      setLoading(true);
+      setError(null);
+      setToken(null);
+      setUser(null);
+      setBoot(null);
+    } else {
+      setLoading(false);
+      setError(null);
+    }
 
     const action = parseStartParam(startParam);
     const inviteToken =

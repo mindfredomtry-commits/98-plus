@@ -32,6 +32,8 @@ export function useLobbyRingIntroFill(actualPercent: number, options: Options) {
   const introDoneRef = useRef(false);
   const introStartedRef = useRef(false);
   const animFrameRef = useRef<number | null>(null);
+  const targetPercentRef = useRef(clampPercent(actualPercent));
+  targetPercentRef.current = clampPercent(actualPercent);
   const [displayPercent, setDisplayPercent] = useState(() =>
     introDoneRef.current ? clampPercent(actualPercent) : 0,
   );
@@ -57,20 +59,21 @@ export function useLobbyRingIntroFill(actualPercent: number, options: Options) {
   const runIntroFill = useCallback(
     (target: number) => {
       cancelAnim();
-      const clampedTarget = clampPercent(target);
+      targetPercentRef.current = clampPercent(target);
       setIsFilling(true);
       setDisplayPercent(0);
       const startTime = performance.now();
 
       const tick = (now: number) => {
+        const endTarget = targetPercentRef.current;
         const t = Math.min(1, (now - startTime) / LOBBY_RING_INTRO_MS);
         const eased = easeOutCubic(t);
-        setDisplayPercent(clampedTarget * eased);
+        setDisplayPercent(endTarget * eased);
         if (t < 1) {
           animFrameRef.current = requestAnimationFrame(tick);
           return;
         }
-        finishIntro(clampedTarget);
+        finishIntro(endTarget);
       };
 
       animFrameRef.current = requestAnimationFrame(tick);
@@ -91,7 +94,9 @@ export function useLobbyRingIntroFill(actualPercent: number, options: Options) {
       return;
     }
 
-    if (introStartedRef.current) return;
+    if (introStartedRef.current) {
+      return;
+    }
 
     const skipIntro = options.sendStarted || prefersReducedMotion();
 

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { motion } from 'framer-motion';
 import { useApp } from '@/components/Providers';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSocialBoot } from '@/hooks/useSocialBoot';
@@ -42,23 +41,6 @@ const DebugPanel = dynamic(
     })),
   { ssr: false },
 );
-
-function BootLobby() {
-  return (
-    <div
-      className="min-h-[100dvh] flex items-center justify-center challenge-bg"
-      data-shell-view="BootLobby"
-    >
-      <motion.div
-        animate={{ opacity: [0.4, 1, 0.4] }}
-        transition={{ repeat: Infinity, duration: 1.2 }}
-        className="text-accent text-2xl font-bold text-glow"
-      >
-        98+
-      </motion.div>
-    </div>
-  );
-}
 
 export default function HomePage() {
   const {
@@ -134,47 +116,47 @@ export default function HomePage() {
     logLobbyInfluenceDebug(user, lobbyInfluence);
   }, [lobbyOpen, user, lobbyInfluence.influencePercent, lobbyInfluence.fromFallback]);
 
-  const canRenderShell =
-    incomingGateActive ||
-    checkGateActive ||
-    homeSnapshotReady ||
-    (sessionReady && friendsReady);
+  const hasAuthSession = !!user?.id && !!token;
+  const lobbyPrefetch = loading && !hasAuthSession;
+
+  const handleLobbyEnter = useCallback(() => {
+    closeLobby();
+    setInstantBanOpen(true);
+  }, [closeLobby]);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== 'development') return;
-    if (loading || !user?.id || !token) {
-      instantBanDebug('shell-view', { view: 'BootLobby-auth' });
+    if (lobbyPrefetch) {
+      instantBanDebug('shell-view', { view: 'LobbyPrefetch' });
       return;
     }
-    if (error || !user) {
+    if (error || (!loading && !user)) {
       instantBanDebug('shell-view', { view: 'Error' });
-      return;
-    }
-    if (!canRenderShell) {
-      instantBanDebug('shell-view', { view: 'BootLobby-shell' });
       return;
     }
     instantBanDebug('shell-view', {
       view: 'HomeShell',
       lobbyOpen,
       instantBanOpen,
+      homeSnapshotReady,
+      sessionReady,
+      friendsReady,
     });
   }, [
+    lobbyPrefetch,
     loading,
     user?.id,
     token,
     error,
     user,
-    canRenderShell,
     lobbyOpen,
     instantBanOpen,
+    homeSnapshotReady,
+    sessionReady,
+    friendsReady,
   ]);
 
-  if (loading || !user?.id || !token) {
-    return <BootLobby />;
-  }
-
-  if (error || !user) {
+  if (error || (!loading && !user)) {
     return (
       <div className="min-h-[100dvh] flex flex-col items-center justify-center px-6 text-center gap-4 challenge-bg">
         <p className="text-4xl text-glow">98+</p>
@@ -197,21 +179,13 @@ export default function HomePage() {
     );
   }
 
-  if (!canRenderShell) {
-    return <BootLobby />;
-  }
-
   const overlaysUiActive = !lobbyOpen && !instantBanOpen;
-  const arenaVisible = lobbyOpen || instantBanOpen;
-
-  const handleLobbyEnter = () => {
-    closeLobby();
-    setInstantBanOpen(true);
-  };
+  const arenaVisible = lobbyOpen || instantBanOpen || lobbyPrefetch;
+  const shellView = lobbyPrefetch ? 'LobbyPrefetch' : 'HomeShell';
 
   return (
     <div
-      className={`app-page${
+      className={`app-page min-h-[100dvh]${
         incomingGateActive && overlaysUiActive
           ? ' app-page--incoming-overlay-active'
           : ''
@@ -222,39 +196,47 @@ export default function HomePage() {
       }${banSentOpen ? ' app-page--success-modal' : ''}${
         arenaVisible ? ' app-page--instant-ban-active' : ''
       }`}
-      data-shell-view="HomeShell"
+      data-shell-view={shellView}
     >
       <ShellErrorBoundary name="ambience" fallback={null}>
         <ArenaAmbience />
       </ShellErrorBoundary>
 
-      <ConnectionBanner state={connectionUiState} onRetry={reloadPending} />
+      {!lobbyPrefetch ? (
+        <ConnectionBanner state={connectionUiState} onRetry={reloadPending} />
+      ) : null}
 
-      <main
-        className={`app-main challenge-bg ${
-          tab === 'home'
-            ? 'app-main--with-cta app-main--compact-home'
-            : 'app-main--nav-only'
-        }`}
-      >
-        {tab === 'home' ? (
-          <ShellErrorBoundary name="home">
-            <HomeArena user={user} />
-          </ShellErrorBoundary>
-        ) : (
-          <div className="pt-12 pb-8">
-            <p className="text-muted text-sm text-center py-8">
-              @{user.username ?? user.firstName}
-            </p>
-          </div>
-        )}
-      </main>
+      {!lobbyPrefetch ? (
+        <main
+          className={`app-main challenge-bg ${
+            tab === 'home'
+              ? 'app-main--with-cta app-main--compact-home'
+              : 'app-main--nav-only'
+          }`}
+        >
+          {tab === 'home' && user ? (
+            <ShellErrorBoundary name="home">
+              <HomeArena user={user} />
+            </ShellErrorBoundary>
+          ) : user ? (
+            <div className="pt-12 pb-8">
+              <p className="text-muted text-sm text-center py-8">
+                @{user.username ?? user.firstName}
+              </p>
+            </div>
+          ) : null}
+        </main>
+      ) : null}
 
-      <ShellErrorBoundary name="cta" fallback={null}>
-        <SendBanDock visible={tab === 'home'} />
-      </ShellErrorBoundary>
+      {!lobbyPrefetch ? (
+        <ShellErrorBoundary name="cta" fallback={null}>
+          <SendBanDock visible={tab === 'home'} />
+        </ShellErrorBoundary>
+      ) : null}
 
-      <BottomNav tab={tab} onChange={setTab} />
+      {!lobbyPrefetch ? (
+        <BottomNav tab={tab} onChange={setTab} />
+      ) : null}
 
       <button
         type="button"
@@ -282,8 +264,10 @@ export default function HomePage() {
         <InstantBanFlow
           sendStarted={instantBanOpen}
           onStartSend={handleLobbyEnter}
-          influencePercent={lobbyInfluence.influencePercent}
-          inviteUsername={user.username ?? null}
+          influencePercent={
+            hasAuthSession ? lobbyInfluence.influencePercent : 0
+          }
+          inviteUsername={user?.username ?? null}
           onClose={handleCloseInstantBan}
         />
       ) : null}

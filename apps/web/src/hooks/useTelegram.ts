@@ -83,8 +83,8 @@ export function useTelegram() {
     if (tg) {
       tg.ready();
       tg.expand();
-      tg.setHeaderColor('#0F0F0F');
-      tg.setBackgroundColor('#0F0F0F');
+      tg.setHeaderColor('#050308');
+      tg.setBackgroundColor('#050308');
 
       const tp = tg.themeParams ?? tg.initDataUnsafe?.theme_params;
       if (tp) {
