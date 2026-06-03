@@ -49,9 +49,12 @@
   --98-lobby-orb-wrap-size: min(72vw, 280px);
   --98-lobby-orb-core-size: min(58vw, 220px);
   --98-lobby-orb-title-size: clamp(2.75rem, 12vw, 3.75rem);
-  /* Match confirm slot — avoids vertical jump when ready */
   --98-lobby-orb-wrap-margin-bottom: clamp(2rem, 12vh, 4rem);
   --98-confirm-orb-margin-bottom: clamp(2rem, 12vh, 4rem);
+  /* Fixed layout slot = confirm size; lobby ring drawn larger via ring-layer scale */
+  --98-arena-orb-anchor-top: 45%;
+  --98-confirm-ring-lobby-scale: 1.75;
+  --98-confirm-ring-mini-scale: 0.5;
   --98-payoff-impact-ms: 250ms;
   --98-payoff-morph-ms: 4000ms;
   --98-payoff-settle-ms: 450ms;
@@ -62,10 +65,6 @@
   --98-payoff-card-radius: 24px;
   --98-confirm-orb-size: min(42vw, 160px);
   --98-confirm-orb-mini-size: min(26vw, 80px);
-  /* Ring-layer scale at mini-core (80px ring on 280px lobby wrap). */
-  --98-confirm-ring-mini-scale: 0.2857142857;
-  /* Ring scale on lobby wrap that matches final confirm orb diameter (160/280). */
-  --98-confirm-ring-confirm-scale: 0.5714285714;
   --98-confirm-orb-title-size: clamp(2.5rem, 12vw, 2.75rem);
   --98-confirm-orb-scale-from-lobby: 0.571428571;
   --98-confirm-compress-shrink-ms: 420ms;
