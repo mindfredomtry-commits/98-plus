@@ -101,6 +101,7 @@ export type ConfirmOrbControllerOptions = {
 
 export function useConfirmOrbController({
   active,
+  compressActive,
   enterKey,
   influencePercent,
   sending,
