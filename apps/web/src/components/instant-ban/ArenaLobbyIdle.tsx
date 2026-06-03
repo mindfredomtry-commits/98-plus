@@ -7,7 +7,12 @@ import { shareLobbyAskInvite } from '@/lib/share';
 export type LobbyCtaState = 'visible' | 'exiting' | 'hidden' | 'entering';
 
 type Props = {
+  /** Real lobby energy 0–100 (not ring intro display percent). */
   influencePercent: number;
+  /** True when UserPublic.energyPercent is known (not prefetch / fallback). */
+  energyLoaded: boolean;
+  /** Ring intro animating 0 → actual — must not trigger low-energy hint. */
+  lobbyRingIntroFilling: boolean;
   inviteUsername?: string | null;
   ctaState: LobbyCtaState;
   ctaInteractive: boolean;
@@ -58,6 +63,8 @@ function triggerBlockedHaptic(): void {
 
 export function ArenaLobbyIdle({
   influencePercent,
+  energyLoaded,
+  lobbyRingIntroFilling,
   inviteUsername = null,
   ctaState,
   ctaInteractive,
@@ -71,7 +78,9 @@ export function ArenaLobbyIdle({
     () => Math.min(100, Math.max(0, influencePercent)),
     [influencePercent],
   );
-  const lowInfluence = influence < LOBBY_MIN_INFLUENCE_PERCENT;
+  const lowInfluence =
+    energyLoaded && influence < LOBBY_MIN_INFLUENCE_PERCENT;
+  const showLowEnergyHint = lowInfluence && !lobbyRingIntroFilling;
   const askMode = lowInfluence && lowInfluenceRevealed;
 
   useEffect(() => {
@@ -109,7 +118,7 @@ export function ArenaLobbyIdle({
     <div
       className={`lobby-screen__cta-wrap instant-ban-lobby-cta instant-ban-lobby-cta--${ctaState}`}
     >
-      {lowInfluence ? (
+      {showLowEnergyHint ? (
         <p
           className={`lobby-screen__cta-hint${
             !lowInfluenceRevealed ? ' lobby-screen__cta-hint--muted' : ''

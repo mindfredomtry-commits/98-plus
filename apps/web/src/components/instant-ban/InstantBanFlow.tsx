@@ -71,6 +71,8 @@ type Props = {
   sendStarted: boolean;
   onStartSend: () => void;
   influencePercent: number;
+  /** User energy known (session + real energyPercent, not prefetch placeholder). */
+  energyLoaded?: boolean;
   inviteUsername?: string | null;
   onClose?: () => void;
 };
@@ -114,6 +116,7 @@ export function InstantBanFlow({
   sendStarted,
   onStartSend,
   influencePercent,
+  energyLoaded = false,
   inviteUsername = null,
 }: Props) {
   const flowId = useId();
@@ -838,6 +841,8 @@ export function InstantBanFlow({
       {showLobbyCta ? (
         <ArenaLobbyIdle
           influencePercent={lobbyInfluencePercent}
+          energyLoaded={energyLoaded}
+          lobbyRingIntroFilling={lobbyRingIntroFilling}
           inviteUsername={inviteUsername}
           ctaState={ctaState}
           ctaInteractive={ctaInteractive}

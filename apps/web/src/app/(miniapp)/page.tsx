@@ -267,6 +267,7 @@ export default function HomePage() {
           influencePercent={
             hasAuthSession ? lobbyInfluence.influencePercent : 0
           }
+          energyLoaded={hasAuthSession && !lobbyInfluence.fromFallback}
           inviteUsername={user?.username ?? null}
           onClose={handleCloseInstantBan}
         />
