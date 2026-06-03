@@ -113,10 +113,25 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+.instant-ban-who-dismiss-zone {
+  flex-shrink: 0;
+  touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
 .instant-ban-who-list {
   display: flex;
   flex-direction: column;
   gap: 0.625rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 
 .instant-ban-who-item {
@@ -2126,6 +2141,33 @@
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+}
+
+.instant-ban-send-overlay__panel--who {
+  gap: 0.25rem;
+}
+
+.instant-ban-send-overlay__body--who {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.instant-ban-send-overlay__panel--who-dismissing {
+  animation: instant-ban-who-overlay-dismiss 220ms ease forwards;
+  pointer-events: none;
+}
+
+@keyframes instant-ban-who-overlay-dismiss {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(14%);
+  }
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe {

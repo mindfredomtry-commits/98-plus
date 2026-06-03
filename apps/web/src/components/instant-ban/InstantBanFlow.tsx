@@ -33,7 +33,7 @@ import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { shareInstantBanInviteMore } from '@/lib/share';
 import { ArenaLobbyIdle } from './ArenaLobbyIdle';
 import { ArenaLobbyOrb } from './ArenaLobbyOrb';
-import { WhoScreen } from './WhoScreen';
+import { WhoDismissZone, WhoScreen } from './WhoScreen';
 import { WhatScreen } from './WhatScreen';
 import { ConfirmScreen } from './ConfirmScreen';
 import { useConfirmOrbController } from './useConfirmOrbController';
@@ -41,6 +41,7 @@ import '../lobby-screen.css';
 import './instant-ban.css';
 
 const DEFAULT_DURATION_MINUTES = 3;
+const WHO_DISMISS_ANIM_MS = 220;
 
 /** Parent send-flow phases (arena shell stays mounted). */
 export type SendFlowPhase =
@@ -144,6 +145,8 @@ export function InstantBanFlow({
   const lobbyOrbMountRef = useRef<HTMLDivElement>(null);
   const [composeExitProgress, setComposeExitProgress] = useState(0);
   const [composeDismissing, setComposeDismissing] = useState(false);
+  const [whoDismissing, setWhoDismissing] = useState(false);
+  const whoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const legacyStep = legacyStepFromPhase(phase);
   const overlayOpen = phase === 'selectingTarget' || phase === 'composingBan';
@@ -267,8 +270,39 @@ export function InstantBanFlow({
 
   const handleBeginSend = useCallback(() => {
     onStartSend();
+    setWhoDismissing(false);
     setPhase('selectingTarget');
   }, [onStartSend]);
+
+  const finishWhoDismiss = useCallback(() => {
+    if (whoDismissTimerRef.current) {
+      clearTimeout(whoDismissTimerRef.current);
+      whoDismissTimerRef.current = null;
+    }
+    setWhoDismissing(false);
+    setComposeExitProgress(0);
+    setComposeDismissing(false);
+    setSelectedUser(null);
+    setSendError(null);
+    setPhase('idle');
+  }, []);
+
+  const handleWhoDismiss = useCallback(() => {
+    if (whoDismissing || phase !== 'selectingTarget') return;
+    setWhoDismissing(true);
+    whoDismissTimerRef.current = setTimeout(() => {
+      whoDismissTimerRef.current = null;
+      finishWhoDismiss();
+    }, WHO_DISMISS_ANIM_MS);
+  }, [finishWhoDismiss, phase, whoDismissing]);
+
+  useEffect(() => {
+    return () => {
+      if (whoDismissTimerRef.current) {
+        clearTimeout(whoDismissTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleSelectUser = useCallback((friend: FriendCard) => {
     setSelectedUser(friend);
@@ -604,9 +638,18 @@ export function InstantBanFlow({
             role="presentation"
           >
             {phase === 'selectingTarget' ? (
-              <div className="instant-ban-send-overlay__panel">
-                <h1 className="instant-ban-send-overlay__title">{overlayTitle}</h1>
-                <div className="instant-ban-send-overlay__body">
+              <div
+                className={`instant-ban-send-overlay__panel instant-ban-send-overlay__panel--who${
+                  whoDismissing ? ' instant-ban-send-overlay__panel--who-dismissing' : ''
+                }`}
+              >
+                <WhoDismissZone
+                  onDismiss={handleWhoDismiss}
+                  dismissing={whoDismissing}
+                >
+                  <h1 className="instant-ban-send-overlay__title">{overlayTitle}</h1>
+                </WhoDismissZone>
+                <div className="instant-ban-send-overlay__body instant-ban-send-overlay__body--who">
                   <WhoScreen
                     friends={safeFriends}
                     onSelect={handleSelectUser}
