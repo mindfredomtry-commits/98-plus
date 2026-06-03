@@ -145,6 +145,7 @@ export function InstantBanFlow({
   const [composeDismissing, setComposeDismissing] = useState(false);
   const whoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [whoExitActive, setWhoExitActive] = useState(false);
+  const [whoDismissProgress, setWhoDismissProgress] = useState(0);
   const prevSendStartedRef = useRef(sendStarted);
 
   const legacyStep = legacyStepFromPhase(phase);
@@ -280,6 +281,7 @@ export function InstantBanFlow({
       whoDismissTimerRef.current = null;
     }
     setWhoExitActive(false);
+    setWhoDismissProgress(0);
     setComposeExitProgress(0);
     setComposeDismissing(false);
     setSelectedUser(null);
@@ -292,7 +294,12 @@ export function InstantBanFlow({
     }
   }, []);
 
+  const handleWhoDismissDragProgress = useCallback((progress: number) => {
+    setWhoDismissProgress(progress);
+  }, []);
+
   const handleWhoDismissExitStart = useCallback(() => {
+    setWhoDismissProgress(1);
     setWhoExitActive(true);
   }, []);
 
@@ -532,6 +539,16 @@ export function InstantBanFlow({
     [composeExitProgress],
   );
 
+  const arenaOverlayStyle = useMemo((): CSSProperties | undefined => {
+    if (phase === 'composingBan') return composeOverlayStyle;
+    if (phase === 'selectingTarget') {
+      return {
+        '--who-dismiss-progress': String(whoDismissProgress),
+      } as CSSProperties;
+    }
+    return undefined;
+  }, [composeOverlayStyle, phase, whoDismissProgress]);
+
   const confirmActive = phase === 'confirming' && selectedUser != null;
   const orbCompressActive =
     composeDismissing || (phase === 'confirming' && selectedUser != null);
@@ -569,7 +586,7 @@ export function InstantBanFlow({
       className={`lobby-screen instant-ban-arena-send instant-ban-flow${
         whatMobileSafe ? ' instant-ban-flow--what-mobile-safe' : ''
       }${liteMode ? ' instant-ban-debug-lite' : ''}`}
-      style={phase === 'composingBan' ? composeOverlayStyle : undefined}
+      style={arenaOverlayStyle}
       role="dialog"
       aria-modal="true"
       aria-label="98+ arena"
@@ -651,7 +668,7 @@ export function InstantBanFlow({
             }${
               composeExitProgress > 0 ? ' instant-ban-send-overlay--compose-dismissing' : ''
             }${whoExitActive ? ' instant-ban-send-overlay--who-exiting' : ''}`}
-            style={phase === 'composingBan' ? composeOverlayStyle : undefined}
+            style={arenaOverlayStyle}
             role="presentation"
           >
             {phase === 'selectingTarget' ? (
@@ -661,6 +678,7 @@ export function InstantBanFlow({
                   friends={safeFriends}
                   onSelect={handleSelectUser}
                   onInviteMore={handleInviteMore}
+                  onDismissDragProgress={handleWhoDismissDragProgress}
                   onDismissExitStart={handleWhoDismissExitStart}
                   onDismissToLobby={handleWhoDismissToLobby}
                 />

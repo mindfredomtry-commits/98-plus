@@ -13,32 +13,28 @@ import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { AvatarImage } from '../AvatarImage';
 
-const WHO_DISMISS_DISTANCE_PX = 120;
-const WHO_DISMISS_THRESHOLD_PX = 48;
-const WHO_DISMISS_SNAP_MS = 180;
+const WHO_DISMISS_DISTANCE_PX = 140;
+const WHO_DISMISS_THRESHOLD_PX = 64;
+const WHO_DISMISS_THRESHOLD_PROGRESS = 0.4;
+/** Downward flick on release (px/ms). */
+const WHO_DISMISS_VELOCITY_THRESHOLD = 1.2;
+const WHO_DISMISS_SNAP_MS = 160;
 /** Exit to lobby after layer + dim finish animating. */
 const WHO_DISMISS_EXIT_MS = 260;
 
 function whoDismissDevLog(
-  event:
-    | 'start'
-    | 'move'
-    | 'fired'
-    | 'snap'
-    | 'threshold-hit'
-    | 'complete-start'
-    | 'on-dismiss-call',
+  event: 'drag' | 'release' | 'complete-start' | 'on-dismiss-call',
   data?: Record<string, unknown>,
 ): void {
   if (process.env.NODE_ENV !== 'development') return;
   const tag =
-    event === 'threshold-hit'
-      ? 'who-dismiss-threshold-hit'
-      : event === 'complete-start'
-        ? 'who-dismiss-complete-start'
-        : event === 'on-dismiss-call'
-          ? 'who-dismiss-on-dismiss-call'
-          : `who-dismiss-${event}`;
+    event === 'drag'
+      ? 'who-dismiss-drag'
+      : event === 'release'
+        ? 'who-dismiss-release'
+        : event === 'complete-start'
+          ? 'who-dismiss-complete-start'
+          : 'who-dismiss-on-dismiss-call';
   console.log(`[${tag}]`, data ?? {});
 }
 
@@ -51,7 +47,8 @@ type WhoOverlayProps = {
   friends: FriendCard[];
   onSelect: (friend: FriendCard) => void;
   onInviteMore: () => void;
-  /** Fade dim/overlay; then setPhase('idle') after exit animation. */
+  /** 0–1 while finger drags who layer (dims overlay/orb). */
+  onDismissDragProgress: (progress: number) => void;
   onDismissExitStart: () => void;
   onDismissToLobby: () => void;
 };
@@ -61,6 +58,7 @@ export function WhoOverlay({
   friends,
   onSelect,
   onInviteMore,
+  onDismissDragProgress,
   onDismissExitStart,
   onDismissToLobby,
 }: WhoOverlayProps) {
@@ -70,6 +68,9 @@ export function WhoOverlay({
   const dismissZoneGestureRef = useRef(false);
   const isSnappingRef = useRef(false);
   const touchStartYRef = useRef(0);
+  const lastMoveYRef = useRef(0);
+  const lastMoveTimeRef = useRef(0);
+  const velocityYRef = useRef(0);
   const baseTranslateRef = useRef(0);
   const dismissTranslateRef = useRef(0);
   const maxTranslateYRef = useRef(0);
@@ -98,20 +99,28 @@ export function WhoOverlay({
     return Math.min(1, Math.max(0, 1 - el.scrollTop / max));
   }, [progressFromTranslate, readMaxScroll]);
 
-  const tryAutoComplete = useCallback((translateY: number) => {
-    if (!dismissZoneGestureRef.current) return;
-    if (dismissCompletingRef.current || commitRef.current) return;
-    if (translateY >= WHO_DISMISS_THRESHOLD_PX) {
-      whoDismissDevLog('threshold-hit', {
+  const lastDragLogAtRef = useRef(0);
+
+  const publishDragProgress = useCallback(
+    (translateY: number, logDrag = false) => {
+      const progress = progressFromTranslate(translateY);
+      onDismissDragProgress(progress);
+      if (!logDrag) return;
+      const now = performance.now();
+      if (now - lastDragLogAtRef.current < 120) return;
+      lastDragLogAtRef.current = now;
+      whoDismissDevLog('drag', {
         translateY,
-        thresholdPx: WHO_DISMISS_THRESHOLD_PX,
+        progress,
+        opacity: 1 - progress,
+        dimOpacity: 1 - progress,
       });
-      completeWhoDismissRef.current();
-    }
-  }, []);
+    },
+    [onDismissDragProgress, progressFromTranslate],
+  );
 
   const applyTranslate = useCallback(
-    (translateY: number, trackPeak = false) => {
+    (translateY: number, trackPeak = false, logDrag = false) => {
       const y = Math.min(
         WHO_DISMISS_DISTANCE_PX,
         Math.max(0, translateY),
@@ -122,16 +131,18 @@ export function WhoOverlay({
         maxTranslateYRef.current = Math.max(maxTranslateYRef.current, y);
       }
       setDismissTranslateY(y);
-      tryAutoComplete(y);
+      publishDragProgress(y, logDrag);
     },
-    [tryAutoComplete],
+    [publishDragProgress],
   );
 
   const resetGestureMetrics = useCallback(() => {
     dismissTranslateRef.current = 0;
     maxTranslateYRef.current = 0;
+    velocityYRef.current = 0;
     setDismissTranslateY(0);
-  }, []);
+    onDismissDragProgress(0);
+  }, [onDismissDragProgress]);
 
   const scrollToRest = useCallback(() => {
     const el = scrollRef.current;
@@ -165,7 +176,6 @@ export function WhoOverlay({
     clearCompleteTimer();
     resetGestureMetrics();
     scrollToRest();
-    whoDismissDevLog('start', { maxScroll: readMaxScroll() });
   }, [clearCompleteTimer, readMaxScroll, resetGestureMetrics, scrollToRest, title]);
 
   useEffect(() => {
@@ -189,6 +199,7 @@ export function WhoOverlay({
         const y = start + (targetPx - start) * eased;
         dismissTranslateRef.current = y;
         setDismissTranslateY(y);
+        publishDragProgress(y);
 
         if (t < 1) {
           snapAnimRef.current = requestAnimationFrame(tick);
@@ -204,17 +215,23 @@ export function WhoOverlay({
 
       snapAnimRef.current = requestAnimationFrame(tick);
     },
-    [clearSnapAnim],
+    [clearSnapAnim, publishDragProgress],
+  );
+
+  const shouldCompleteOnRelease = useCallback(
+    (translateY: number, velocityY: number) => {
+      const progress = progressFromTranslate(translateY);
+      return (
+        translateY >= WHO_DISMISS_THRESHOLD_PX ||
+        progress >= WHO_DISMISS_THRESHOLD_PROGRESS ||
+        velocityY >= WHO_DISMISS_VELOCITY_THRESHOLD
+      );
+    },
+    [progressFromTranslate],
   );
 
   const snapBack = useCallback(() => {
     if (dismissCompletingRef.current || commitRef.current) return;
-    whoDismissDevLog('snap', {
-      maxTranslateY: maxTranslateYRef.current,
-      currentTranslateY: dismissTranslateRef.current,
-      decision: 'snap-back',
-      thresholdPx: WHO_DISMISS_THRESHOLD_PX,
-    });
     animateTranslatePx(0, () => {
       setSnapTransition(false);
       scrollToRest();
@@ -255,28 +272,33 @@ export function WhoOverlay({
       return;
     }
 
+    const translateY = dismissTranslateRef.current;
     const peakY = maxTranslateYRef.current;
+    const velocityY = velocityYRef.current;
+    const progress = progressFromTranslate(translateY);
+    const complete = shouldCompleteOnRelease(translateY, velocityY);
 
-    whoDismissDevLog('snap', {
-      currentTranslateY: dismissTranslateRef.current,
+    whoDismissDevLog('release', {
+      translateY,
       maxTranslateY: peakY,
-      scrollTop: scrollRef.current?.scrollTop,
-      maxScroll: readMaxScroll(),
-      decision: peakY >= WHO_DISMISS_THRESHOLD_PX ? 'complete' : 'snap-back',
-      thresholdPx: WHO_DISMISS_THRESHOLD_PX,
+      velocityY: Number(velocityY.toFixed(2)),
+      progress,
+      decision: complete ? 'complete' : 'snap-back',
     });
 
-    if (peakY >= WHO_DISMISS_THRESHOLD_PX) {
+    velocityYRef.current = 0;
+
+    if (complete) {
       completeWhoDismissRef.current();
       return;
     }
 
-    if (peakY > 6) {
+    if (translateY > 6) {
       snapBack();
     } else {
       scrollToRest();
     }
-  }, [readMaxScroll, snapBack, scrollToRest]);
+  }, [progressFromTranslate, shouldCompleteOnRelease, snapBack, scrollToRest]);
 
   const onScroll = useCallback(() => {
     if (
@@ -291,12 +313,6 @@ export function WhoOverlay({
     const fromScroll = progressFromScroll() * WHO_DISMISS_DISTANCE_PX;
     const merged = Math.max(dismissTranslateRef.current, fromScroll);
     applyTranslate(merged, true);
-
-    whoDismissDevLog('move', {
-      source: 'scroll',
-      translateY: dismissTranslateRef.current,
-      peakY: maxTranslateYRef.current,
-    });
   }, [applyTranslate, progressFromScroll]);
 
   const onTouchStart = useCallback((e: TouchEvent<HTMLDivElement>) => {
@@ -328,19 +344,20 @@ export function WhoOverlay({
       const dy = touch.clientY - touchStartYRef.current;
       if (dy <= 0) return;
 
+      const now = performance.now();
+      const dt = now - lastMoveTimeRef.current;
+      if (dt > 0) {
+        velocityYRef.current =
+          (touch.clientY - lastMoveYRef.current) / dt;
+      }
+      lastMoveYRef.current = touch.clientY;
+      lastMoveTimeRef.current = now;
+
       const nextY = Math.min(
         WHO_DISMISS_DISTANCE_PX,
         baseTranslateRef.current + dy,
       );
-      applyTranslate(nextY, true);
-
-      whoDismissDevLog('move', {
-        source: 'touch',
-        dy: Number(dy.toFixed(1)),
-        translateY: nextY,
-        peakY: maxTranslateYRef.current,
-        thresholdPx: WHO_DISMISS_THRESHOLD_PX,
-      });
+      applyTranslate(nextY, true, true);
     },
     [applyTranslate],
   );

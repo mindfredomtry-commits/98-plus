@@ -122,7 +122,7 @@
   --who-dismiss-translate-y: 0;
   --who-dismiss-progress: 0;
   transform: translate3d(0, calc(var(--who-dismiss-translate-y, 0) * 1px), 0);
-  opacity: calc(1 - var(--who-dismiss-progress, 0) * 0.35);
+  opacity: calc(1 - var(--who-dismiss-progress, 0));
   will-change: transform, opacity;
 }
 
@@ -142,8 +142,8 @@
 
 .instant-ban-who-scene--snap-transition:not(.instant-ban-who-scene--completing) {
   transition:
-    transform 180ms ease-out,
-    opacity 180ms ease-out;
+    transform 160ms ease-out,
+    opacity 160ms ease-out;
 }
 
 .instant-ban-who-scene__header {
@@ -1709,6 +1709,13 @@
     transform 280ms ease;
 }
 
+.instant-ban-arena-send[data-send-phase='selectingTarget']
+  .lobby-screen__orb-wrap--overlay-dim {
+  opacity: calc(0.72 * (1 - var(--who-dismiss-progress, 0)));
+  transform: scale(calc(0.94 + var(--who-dismiss-progress, 0) * 0.06));
+  transition: none;
+}
+
 .instant-ban-arena-send[data-send-phase='composingBan']
   .lobby-screen__orb-wrap--overlay-dim {
   opacity: calc(0.72 + var(--compose-exit-progress, 0) * 0.28);
@@ -2196,6 +2203,12 @@
     rgba(5, 3, 8, 0.97) 100%
   );
   transition: opacity 240ms ease-out;
+}
+
+.instant-ban-arena-send[data-send-phase='selectingTarget']
+  .instant-ban-send-overlay:not(.instant-ban-send-overlay--who-exiting) {
+  opacity: calc(1 - var(--who-dismiss-progress, 0));
+  transition: none;
 }
 
 .instant-ban-send-overlay--who-exiting {
