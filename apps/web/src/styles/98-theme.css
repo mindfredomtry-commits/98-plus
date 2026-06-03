@@ -49,7 +49,9 @@
   --98-lobby-orb-wrap-size: min(72vw, 280px);
   --98-lobby-orb-core-size: min(58vw, 220px);
   --98-lobby-orb-title-size: clamp(2.75rem, 12vw, 3.75rem);
-  --98-lobby-orb-wrap-margin-bottom: clamp(3rem, 18vh, 6rem);
+  /* Match confirm slot — avoids vertical jump when ready */
+  --98-lobby-orb-wrap-margin-bottom: clamp(2rem, 12vh, 4rem);
+  --98-confirm-orb-margin-bottom: clamp(2rem, 12vh, 4rem);
   --98-payoff-impact-ms: 250ms;
   --98-payoff-morph-ms: 4000ms;
   --98-payoff-settle-ms: 450ms;
@@ -66,10 +68,10 @@
   --98-confirm-ring-confirm-scale: 0.5714285714;
   --98-confirm-orb-title-size: clamp(2.5rem, 12vw, 2.75rem);
   --98-confirm-orb-scale-from-lobby: 0.571428571;
-  --98-confirm-compress-shrink-ms: 300ms;
-  --98-confirm-compress-mini-hold-ms: 250ms;
+  --98-confirm-compress-shrink-ms: 420ms;
+  --98-confirm-compress-mini-hold-ms: 80ms;
   --98-confirm-compress-expand-ms: 350ms;
-  --98-confirm-enter-compress-ms: 900ms;
+  --98-confirm-enter-compress-ms: 850ms;
   --98-confirm-enter-lobby-hold-ms: 100ms;
   --98-confirm-orb-settle-x: 0px;
   --98-confirm-orb-settle-y: 0px;

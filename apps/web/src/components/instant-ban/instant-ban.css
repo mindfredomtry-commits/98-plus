@@ -1870,13 +1870,13 @@
 
 /* Dev: add data-debug-slow-orb on .instant-ban-arena-send to verify continuous compress */
 .instant-ban-arena-send[data-debug-slow-orb] {
-  --98-confirm-compress-shrink-ms: 500ms;
-  --98-confirm-compress-mini-hold-ms: 400ms;
+  --98-confirm-compress-shrink-ms: 700ms;
+  --98-confirm-compress-mini-hold-ms: 150ms;
   --98-confirm-compress-expand-ms: 600ms;
-  --98-confirm-enter-compress-ms: 1500ms;
+  --98-confirm-enter-compress-ms: 1450ms;
 }
 
-/* Persistent lobby orb — wrap size changes only on expand stage; ring layer scales separately */
+/* Persistent lobby orb — vertical slot aligned with confirm; ring scales on ring-layer only */
 .lobby-screen__orb-wrap.lobby-screen__orb-root {
   --arena-orb-size: var(--98-lobby-orb-wrap-size);
   --arena-orb-margin-bottom: var(--98-lobby-orb-wrap-margin-bottom);
@@ -1885,25 +1885,37 @@
   margin-bottom: var(--arena-orb-margin-bottom);
   z-index: 4;
   overflow: visible;
-  transition:
-    opacity 360ms ease,
-    transform 360ms ease;
+  /* Nudge large lobby wrap so 98+ center matches confirm-size box (no jump on ready) */
+  transform: translateY(
+    calc((var(--98-confirm-orb-size) - var(--98-lobby-orb-wrap-size)) / 2)
+  );
+  transition: opacity 360ms ease;
 }
 
-/* Snap wrap to confirm slot only when ring enter finished — same visual diameter as pre-ready ring scale */
+/* Snap wrap to confirm size — same visual center, no extra translate */
 .lobby-screen__orb-root.lobby-screen__orb-wrap--confirm[data-enter-phase='ready'] {
   --arena-orb-size: var(--98-confirm-orb-size);
-  --arena-orb-margin-bottom: clamp(2rem, 12vh, 4rem);
+  --arena-orb-margin-bottom: var(--98-confirm-orb-margin-bottom);
+  transform: translateY(0);
 }
 
 .lobby-screen__orb-root.lobby-screen__orb-wrap--overlay-dim {
   opacity: 0.72;
-  transform: scale(0.94);
+  transform: translateY(
+      calc((var(--98-confirm-orb-size) - var(--98-lobby-orb-wrap-size)) / 2)
+    )
+    scale(0.94);
 }
 
-.lobby-screen__orb-root.lobby-screen__orb-wrap--confirm {
+.lobby-screen__orb-root.lobby-screen__orb-wrap--confirm:not([data-enter-phase='ready']) {
   opacity: 1;
-  transform: scale(1);
+  transform: translateY(
+    calc((var(--98-confirm-orb-size) - var(--98-lobby-orb-wrap-size)) / 2)
+  );
+}
+
+.lobby-screen__orb-root.lobby-screen__orb-wrap--confirm[data-enter-phase='ready'] {
+  opacity: 1;
 }
 
 .instant-ban-arena-lobby-orb {
@@ -2015,21 +2027,21 @@
   transition: transform 950ms cubic-bezier(0.34, 1.12, 0.64, 1);
 }
 
-/* Single timeline: shrink → mini hold → spring to confirm diameter (lobby wrap stays 280px) */
+/* Single timeline: slow shrink → brief mini → spring expand (percentages match theme ms) */
 @keyframes instant-ban-confirm-ring-enter {
   0% {
     transform: scale(1);
   }
-  33.333% {
+  49.41% {
     transform: scale(var(--98-confirm-ring-mini-scale));
   }
-  61.111% {
+  58.82% {
     transform: scale(var(--98-confirm-ring-mini-scale));
   }
-  75% {
+  82.35% {
     transform: scale(0.6171428571);
   }
-  88% {
+  91.18% {
     transform: scale(0.5485714286);
   }
   100% {
@@ -2040,7 +2052,7 @@
 .lobby-screen__orb-root[data-ring-enter-active]
   .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
   animation: instant-ban-confirm-ring-enter var(--98-confirm-enter-compress-ms)
-    cubic-bezier(0.34, 1.45, 0.64, 1) forwards;
+    cubic-bezier(0.45, 0.05, 0.2, 1) forwards;
   transition: none;
 }
 

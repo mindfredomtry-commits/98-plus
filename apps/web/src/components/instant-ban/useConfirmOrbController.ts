@@ -24,9 +24,9 @@ const REVEAL_STAGGER_MS = 100;
 const REVEAL_ITEM_MS = 280;
 const CTA_EXTRA_DELAY_MS = 120;
 /** Stage 1: lobby ring shrinks toward mini-core (ring layer only). */
-export const CONFIRM_COMPRESS_SHRINK_MS = 300;
-/** Stage 2: hold dense ring around 98+. */
-export const CONFIRM_COMPRESS_MINI_HOLD_MS = 250;
+export const CONFIRM_COMPRESS_SHRINK_MS = 420;
+/** Stage 2: brief hold dense ring around 98+. */
+export const CONFIRM_COMPRESS_MINI_HOLD_MS = 80;
 /** Stage 3: spring expand ring + wrap to confirm size. */
 export const CONFIRM_COMPRESS_EXPAND_MS = 350;
 export const CONFIRM_ENTER_COMPRESS_MS =
