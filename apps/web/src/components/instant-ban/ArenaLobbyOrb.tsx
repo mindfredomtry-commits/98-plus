@@ -113,6 +113,7 @@ export function ArenaLobbyOrb({
   }, []);
 
   const payoffWrap =
+    payoffPhase === 'impact' ||
     payoffPhase === 'morph' ||
     payoffPhase === 'settle' ||
     payoffPhase === 'reveal' ||

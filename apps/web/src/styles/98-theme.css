@@ -56,7 +56,7 @@
   --98-confirm-ring-lobby-scale: 1.75;
   --98-confirm-ring-mini-scale: 0.5;
   --98-payoff-impact-ms: 250ms;
-  --98-payoff-morph-ms: 4000ms;
+  --98-payoff-morph-ms: 2600ms;
   --98-payoff-settle-ms: 450ms;
   --98-payoff-reveal-item-ms: 280ms;
   --98-payoff-reveal-stagger-ms: 100ms;
