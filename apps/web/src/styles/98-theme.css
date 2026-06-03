@@ -55,8 +55,11 @@
   --98-arena-orb-anchor-top: 45%;
   --98-confirm-ring-lobby-scale: 1.75;
   --98-confirm-ring-mini-scale: 0.5;
-  --98-payoff-impact-ms: 250ms;
-  --98-payoff-morph-ms: 2600ms;
+  --98-payoff-core-size: 22px;
+  --98-payoff-collapse-ms: 560ms;
+  --98-payoff-core-ms: 140ms;
+  --98-payoff-rebirth-ms: 520ms;
+  --98-payoff-grow-ms: 780ms;
   --98-payoff-settle-ms: 450ms;
   --98-payoff-reveal-item-ms: 280ms;
   --98-payoff-reveal-stagger-ms: 100ms;

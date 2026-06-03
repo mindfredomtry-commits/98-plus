@@ -112,13 +112,7 @@ export function ArenaLobbyOrb({
     };
   }, []);
 
-  const payoffWrap =
-    payoffPhase === 'impact' ||
-    payoffPhase === 'morph' ||
-    payoffPhase === 'settle' ||
-    payoffPhase === 'reveal' ||
-    payoffPhase === 'cta' ||
-    payoffPhase === 'ready';
+  const payoffWrap = payoffPhase !== 'none';
 
   const useLobbyRingDisplay = !confirmActive && !orbCompressActive;
   const ringDisplayValue = useLobbyRingDisplay

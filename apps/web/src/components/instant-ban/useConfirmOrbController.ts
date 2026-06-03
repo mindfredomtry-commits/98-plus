@@ -17,9 +17,11 @@ import {
 } from '@/lib/instant-ban-debug';
 
 const HOLD_MS = 650;
-const RELEASE_IMPACT_MS = 250;
-/** Must match --98-payoff-morph-ms in 98-theme.css */
-const PAYOFF_MORPH_MS = 2600;
+/** Must match payoff ritual vars in 98-theme.css */
+const PAYOFF_COLLAPSE_MS = 560;
+const PAYOFF_CORE_MS = 140;
+const PAYOFF_REBIRTH_MS = 520;
+const PAYOFF_GROW_MS = 780;
 const PAYOFF_SETTLE_MS = 450;
 const REVEAL_STAGGER_MS = 100;
 const REVEAL_ITEM_MS = 280;
@@ -46,14 +48,22 @@ export type EnterPhase =
   | 'ready';
 export type PayoffPhase =
   | 'none'
-  | 'impact'
-  | 'morph'
+  | 'collapse'
+  | 'core'
+  | 'rebirth'
+  | 'grow'
   | 'settle'
   | 'reveal'
   | 'cta'
   | 'ready';
 
 const PAYOFF_CARD_LOCKED_PHASES: PayoffPhase[] = ['settle', 'reveal', 'cta', 'ready'];
+
+const PAYOFF_ANIM_RUN_CLASS: Partial<Record<PayoffPhase, string>> = {
+  collapse: 'instant-ban-confirm-orb-btn--payoff-collapse-run',
+  rebirth: 'instant-ban-confirm-orb-btn--payoff-rebirth-run',
+  grow: 'instant-ban-confirm-orb-btn--payoff-grow-run',
+};
 
 function clampInfluencePercent(value: number | undefined): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -63,16 +73,26 @@ function clampInfluencePercent(value: number | undefined): number {
 }
 
 function lockPayoffCardGeometry(el: HTMLButtonElement): void {
-  el.classList.remove('instant-ban-confirm-orb-btn--payoff-morph-run');
+  Object.values(PAYOFF_ANIM_RUN_CLASS).forEach((cls) => {
+    if (cls) el.classList.remove(cls);
+  });
   el.classList.add('instant-ban-confirm-orb-btn--payoff-card-locked');
 }
 
 function clearPayoffShellStyles(el: HTMLButtonElement | null): void {
   if (!el) return;
-  el.classList.remove(
-    'instant-ban-confirm-orb-btn--payoff-morph-run',
-    'instant-ban-confirm-orb-btn--payoff-card-locked',
-  );
+  Object.values(PAYOFF_ANIM_RUN_CLASS).forEach((cls) => {
+    if (cls) el.classList.remove(cls);
+  });
+  el.classList.remove('instant-ban-confirm-orb-btn--payoff-card-locked');
+}
+
+function restartPayoffAnimRun(btn: HTMLButtonElement, phase: PayoffPhase): void {
+  const runClass = PAYOFF_ANIM_RUN_CLASS[phase];
+  if (!runClass) return;
+  btn.classList.remove(runClass);
+  void btn.offsetWidth;
+  btn.classList.add(runClass);
 }
 
 export type ConfirmOrbControllerOptions = {
@@ -285,12 +305,13 @@ export function useConfirmOrbController({
       return;
     }
     payoffPendingRef.current = false;
+    setHoldPhaseState('idle');
     instantBanPayoffStartDebug({
       payoffArmToken,
-      phase: 'impact',
+      phase: 'collapse',
     });
-    setPayoff('impact');
-  }, [payoffArmToken, setPayoff]);
+    setPayoff('collapse');
+  }, [payoffArmToken, setHoldPhaseState, setPayoff]);
 
   useEffect(() => {
     if (error && payoffPhase === 'none') {
@@ -344,10 +365,8 @@ export function useConfirmOrbController({
 
   useEffect(() => {
     const btn = orbBtnRef.current;
-    if (!btn || payoffPhase !== 'morph') return;
-    btn.classList.remove('instant-ban-confirm-orb-btn--payoff-morph-run');
-    void btn.offsetWidth;
-    btn.classList.add('instant-ban-confirm-orb-btn--payoff-morph-run');
+    if (!btn || !(payoffPhase in PAYOFF_ANIM_RUN_CLASS)) return;
+    restartPayoffAnimRun(btn, payoffPhase);
   }, [payoffPhase]);
 
   useLayoutEffect(() => {
@@ -360,13 +379,23 @@ export function useConfirmOrbController({
   }, [payoffPhase]);
 
   useEffect(() => {
-    if (payoffPhase !== 'impact') return;
-    schedulePayoff(RELEASE_IMPACT_MS, 'morph');
+    if (payoffPhase !== 'collapse') return;
+    schedulePayoff(PAYOFF_COLLAPSE_MS, 'core');
   }, [payoffPhase, schedulePayoff]);
 
   useEffect(() => {
-    if (payoffPhase !== 'morph') return;
-    schedulePayoff(PAYOFF_MORPH_MS, 'settle');
+    if (payoffPhase !== 'core') return;
+    schedulePayoff(PAYOFF_CORE_MS, 'rebirth');
+  }, [payoffPhase, schedulePayoff]);
+
+  useEffect(() => {
+    if (payoffPhase !== 'rebirth') return;
+    schedulePayoff(PAYOFF_REBIRTH_MS, 'grow');
+  }, [payoffPhase, schedulePayoff]);
+
+  useEffect(() => {
+    if (payoffPhase !== 'grow') return;
+    schedulePayoff(PAYOFF_GROW_MS, 'settle');
   }, [payoffPhase, schedulePayoff]);
 
   useEffect(() => {
@@ -530,8 +559,10 @@ export function useConfirmOrbController({
     holdPhase === 'ready' ? 'instant-ban-confirm-orb-btn--ready' : '',
     holdPhase === 'releasing' ? 'instant-ban-confirm-orb-btn--releasing' : '',
     bounce ? 'instant-ban-confirm-orb-btn--bounce' : '',
-    payoffPhase === 'impact' ? 'instant-ban-confirm-orb-btn--payoff-impact' : '',
-    payoffPhase === 'morph' ? 'instant-ban-confirm-orb-btn--payoff-morph' : '',
+    payoffPhase === 'collapse' ? 'instant-ban-confirm-orb-btn--payoff-collapse' : '',
+    payoffPhase === 'core' ? 'instant-ban-confirm-orb-btn--payoff-core' : '',
+    payoffPhase === 'rebirth' ? 'instant-ban-confirm-orb-btn--payoff-rebirth' : '',
+    payoffPhase === 'grow' ? 'instant-ban-confirm-orb-btn--payoff-grow' : '',
     payoffPhase === 'settle' ? 'instant-ban-confirm-orb-btn--payoff-settle' : '',
     PAYOFF_CARD_LOCKED_PHASES.includes(payoffPhase)
       ? 'instant-ban-confirm-orb-btn--payoff-card-locked'
@@ -543,8 +574,10 @@ export function useConfirmOrbController({
       ? 'instant-ban-confirm-orb-btn--payoff-cta'
       : '',
     payoffPhase === 'ready' ? 'instant-ban-confirm-orb-btn--payoff-ready' : '',
-    payoffPhase === 'impact' ||
-    payoffPhase === 'morph' ||
+    payoffPhase === 'collapse' ||
+    payoffPhase === 'core' ||
+    payoffPhase === 'rebirth' ||
+    payoffPhase === 'grow' ||
     payoffPhase === 'settle' ||
     payoffPhase === 'reveal' ||
     payoffPhase === 'cta' ||
@@ -572,7 +605,7 @@ export function useConfirmOrbController({
     payoffPhase === 'cta' ||
     payoffPhase === 'ready';
   const showPayoffCta = payoffPhase === 'cta' || payoffPhase === 'ready';
-  const showOrbFace = payoffPhase === 'none' || payoffPhase === 'impact';
+  const showOrbFace = payoffPhase === 'none' || payoffPhase === 'collapse';
 
   const ringValue = compressActive ? ringProgress : influenceStart;
 

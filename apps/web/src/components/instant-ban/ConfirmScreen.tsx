@@ -33,8 +33,6 @@ export function ConfirmScreen({
     selectedUser.username?.[0] ??
     '?'
   ).toUpperCase();
-  const payoffActive = payoffPhase !== 'none';
-
   return (
     <div
       className="instant-ban-confirm instant-ban-confirm-layout instant-ban-confirm-layout--shared-lobby"
@@ -43,7 +41,7 @@ export function ConfirmScreen({
       data-payoff-phase={payoffPhase}
       data-instant-ban-view="ConfirmScreen"
     >
-      {!payoffActive ? (
+      {payoffPhase === 'none' ? (
         <button
           type="button"
           className="instant-ban-confirm-layout__back instant-ban-flow__back"
@@ -52,11 +50,7 @@ export function ConfirmScreen({
           ← Назад
         </button>
       ) : null}
-      <div
-        className={`instant-ban-confirm-info instant-ban-confirm-copy${
-          payoffActive ? ' instant-ban-confirm-copy--hidden' : ''
-        }`}
-      >
+      <div className="instant-ban-confirm-info instant-ban-confirm-copy">
         <span className="instant-ban-confirm-info__label instant-ban-confirm-copy__lead instant-ban-confirm-enter instant-ban-confirm-enter--1">
           Ты запрещаешь
         </span>
