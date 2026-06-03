@@ -291,7 +291,7 @@ export function InstantBanFlow({
     whoDismissTimerRef.current = setTimeout(() => {
       whoDismissTimerRef.current = null;
       finishWhoDismiss();
-    }, 60);
+    }, 80);
   }, [finishWhoDismiss, phase, whoDismissing]);
 
   useEffect(() => {

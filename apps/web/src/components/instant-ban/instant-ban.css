@@ -117,11 +117,9 @@
 .instant-ban-who-scene {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
   width: 100%;
+  min-height: 0;
   --who-dismiss-progress: 0;
-  will-change: transform, opacity;
   transform: translate3d(
     0,
     calc(var(--who-dismiss-progress, 0) * 28vh),
@@ -130,22 +128,32 @@
   opacity: calc(1 - var(--who-dismiss-progress, 0) * 0.55);
 }
 
+.instant-ban-who-scene--at-rest {
+  transform: none;
+  opacity: 1;
+}
+
+.instant-ban-who-scene--snap-transition {
+  transition:
+    transform 180ms ease-out,
+    opacity 180ms ease-out;
+}
+
 .instant-ban-who-scene__header {
   position: relative;
   flex-shrink: 0;
   z-index: 2;
-  min-height: clamp(4.25rem, 13vh, 6rem);
+  min-height: 3.25rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 0.25rem;
   box-sizing: border-box;
 }
 
 .instant-ban-who-scene__header .instant-ban-send-overlay__title {
   position: relative;
   z-index: 1;
-  margin: 0;
+  margin: 0 0 1rem;
   pointer-events: none;
 }
 
@@ -2214,7 +2222,8 @@
   z-index: 1;
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
+  width: 100%;
   min-height: 0;
   max-height: min(72vh, 560px);
   overflow: visible;
