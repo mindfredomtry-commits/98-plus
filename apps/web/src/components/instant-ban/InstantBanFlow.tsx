@@ -150,6 +150,8 @@ export function InstantBanFlow({
 
   const legacyStep = legacyStepFromPhase(phase);
   const overlayOpen = phase === 'selectingTarget' || phase === 'composingBan';
+  const orbOverlayDim = phase === 'composingBan';
+  const showLobbyCta = phase !== 'confirming';
 
   useInstantBanViewport(phase === 'composingBan');
 
@@ -541,13 +543,16 @@ export function InstantBanFlow({
 
   const arenaOverlayStyle = useMemo((): CSSProperties | undefined => {
     if (phase === 'composingBan') return composeOverlayStyle;
-    if (phase === 'selectingTarget') {
-      return {
-        '--who-dismiss-progress': String(whoDismissProgress),
-      } as CSSProperties;
-    }
     return undefined;
-  }, [composeOverlayStyle, phase, whoDismissProgress]);
+  }, [composeOverlayStyle, phase]);
+
+  const whoDimStyle = useMemo(
+    () =>
+      ({
+        '--who-dismiss-progress': String(whoDismissProgress),
+      }) as CSSProperties,
+    [whoDismissProgress],
+  );
 
   const confirmActive = phase === 'confirming' && selectedUser != null;
   const orbCompressActive =
@@ -592,7 +597,6 @@ export function InstantBanFlow({
       aria-label="98+ arena"
       data-instant-ban-view="InstantBanFlow"
       data-send-phase={phase}
-      data-who-exit-active={whoExitActive ? '' : undefined}
       data-orb-compress-active={orbCompressActive ? '' : undefined}
       data-instant-ban-step={legacyStep}
       data-debug-slow-orb={process.env.NODE_ENV === 'development' ? '' : undefined}
@@ -609,7 +613,7 @@ export function InstantBanFlow({
           ref={lobbyOrbMountRef}
           className={`lobby-screen__orb-wrap lobby-screen__orb-root${
             confirmLayoutActive ? ' lobby-screen__orb-wrap--confirm' : ''
-          }${overlayOpen ? ' lobby-screen__orb-wrap--overlay-dim' : ''}`}
+          }${orbOverlayDim ? ' lobby-screen__orb-wrap--overlay-dim' : ''}`}
           data-orb-root
         >
           <ArenaLobbyOrb
@@ -667,10 +671,19 @@ export function InstantBanFlow({
               phase === 'composingBan' ? ' instant-ban-send-overlay--compose' : ''
             }${
               composeExitProgress > 0 ? ' instant-ban-send-overlay--compose-dismissing' : ''
-            }${whoExitActive ? ' instant-ban-send-overlay--who-exiting' : ''}`}
+            }${phase === 'selectingTarget' ? ' instant-ban-send-overlay--who' : ''}`}
             style={arenaOverlayStyle}
             role="presentation"
           >
+            {phase === 'selectingTarget' ? (
+              <div
+                className={`instant-ban-send-overlay__dim${
+                  whoExitActive ? ' instant-ban-send-overlay__dim--exiting' : ''
+                }`}
+                style={whoDimStyle}
+                aria-hidden
+              />
+            ) : null}
             {phase === 'selectingTarget' ? (
               <div className="instant-ban-send-overlay__panel instant-ban-send-overlay__panel--who">
                 <WhoOverlay
@@ -701,7 +714,7 @@ export function InstantBanFlow({
         ) : null}
       </div>
 
-      {phase === 'idle' ? (
+      {showLobbyCta ? (
         <ArenaLobbyIdle
           influencePercent={lobbyInfluencePercent}
           inviteUsername={inviteUsername}

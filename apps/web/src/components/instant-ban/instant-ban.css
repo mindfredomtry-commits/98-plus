@@ -1683,6 +1683,7 @@
 
 .instant-ban-arena-send__stage {
   position: relative;
+  z-index: 4;
   flex: 1 1 auto;
   width: 100%;
   display: flex;
@@ -1690,6 +1691,10 @@
   align-items: center;
   justify-content: center;
   min-height: 0;
+}
+
+.instant-ban-arena-send > .lobby-screen__cta-wrap {
+  z-index: 3;
 }
 
 .instant-ban-arena-send[data-send-phase='confirming'] .instant-ban-arena-send__stage,
@@ -1709,22 +1714,10 @@
     transform 280ms ease;
 }
 
-.instant-ban-arena-send[data-send-phase='selectingTarget']
-  .lobby-screen__orb-wrap--overlay-dim {
-  opacity: calc(0.72 * (1 - var(--who-dismiss-progress, 0)));
-  transform: scale(calc(0.94 + var(--who-dismiss-progress, 0) * 0.06));
-  transition: none;
-}
-
 .instant-ban-arena-send[data-send-phase='composingBan']
   .lobby-screen__orb-wrap--overlay-dim {
   opacity: calc(0.72 + var(--compose-exit-progress, 0) * 0.28);
   transform: scale(calc(0.94 + var(--compose-exit-progress, 0) * 0.06));
-}
-
-.instant-ban-arena-send[data-who-exit-active] .lobby-screen__orb-wrap--overlay-dim {
-  opacity: 1;
-  transform: scale(1);
 }
 
 .instant-ban-arena-send__confirm-layer {
@@ -2195,6 +2188,14 @@
   justify-content: flex-end;
   pointer-events: none;
   opacity: 1;
+  background: transparent;
+}
+
+.instant-ban-send-overlay__dim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
   background: linear-gradient(
     180deg,
     transparent 0%,
@@ -2202,21 +2203,22 @@
     rgba(5, 3, 8, 0.9) 46%,
     rgba(5, 3, 8, 0.97) 100%
   );
-  transition: opacity 240ms ease-out;
+  opacity: 1;
 }
 
-.instant-ban-arena-send[data-send-phase='selectingTarget']
-  .instant-ban-send-overlay:not(.instant-ban-send-overlay--who-exiting) {
+.instant-ban-send-overlay--who .instant-ban-send-overlay__dim {
   opacity: calc(1 - var(--who-dismiss-progress, 0));
   transition: none;
 }
 
-.instant-ban-send-overlay--who-exiting {
+.instant-ban-send-overlay__dim--exiting {
   opacity: 0;
-  pointer-events: none;
+  transition: opacity 240ms ease-out;
 }
 
 .instant-ban-send-overlay__panel {
+  position: relative;
+  z-index: 1;
   pointer-events: auto;
   display: flex;
   flex-direction: column;
