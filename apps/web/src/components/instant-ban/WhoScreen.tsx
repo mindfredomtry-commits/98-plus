@@ -63,6 +63,8 @@ export function WhoOverlay({
   onDismissToLobby,
 }: WhoOverlayProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [gestureZoneInsetBottom, setGestureZoneInsetBottom] = useState(0);
   const commitRef = useRef(false);
   const dismissCompletingRef = useRef(false);
   const dismissZoneGestureRef = useRef(false);
@@ -166,6 +168,13 @@ export function WhoOverlay({
     }
   }, []);
 
+  const updateGestureZoneInset = useCallback(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    const rect = header.getBoundingClientRect();
+    setGestureZoneInsetBottom(Math.max(0, window.innerHeight - rect.bottom));
+  }, []);
+
   useLayoutEffect(() => {
     commitRef.current = false;
     dismissCompletingRef.current = false;
@@ -176,7 +185,41 @@ export function WhoOverlay({
     clearCompleteTimer();
     resetGestureMetrics();
     scrollToRest();
-  }, [clearCompleteTimer, readMaxScroll, resetGestureMetrics, scrollToRest, title]);
+    updateGestureZoneInset();
+  }, [
+    clearCompleteTimer,
+    readMaxScroll,
+    resetGestureMetrics,
+    scrollToRest,
+    title,
+    updateGestureZoneInset,
+    friends.length,
+  ]);
+
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+
+    updateGestureZoneInset();
+
+    const ro = new ResizeObserver(() => {
+      updateGestureZoneInset();
+    });
+    ro.observe(header);
+
+    const panel = header.closest('.instant-ban-send-overlay__panel--who');
+    if (panel) ro.observe(panel);
+
+    window.addEventListener('resize', updateGestureZoneInset);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', updateGestureZoneInset);
+    };
+  }, [updateGestureZoneInset, friends.length]);
+
+  useLayoutEffect(() => {
+    updateGestureZoneInset();
+  }, [dismissTranslateY, updateGestureZoneInset]);
 
   useEffect(() => {
     return () => {
@@ -369,30 +412,42 @@ export function WhoOverlay({
     ),
   } as CSSProperties;
 
+  const gestureZoneStyle = {
+    bottom: `${gestureZoneInsetBottom}px`,
+  } as CSSProperties;
+
   return (
-    <div
-      className={`instant-ban-who-scene${
-        dismissCompleting ? ' instant-ban-who-scene--completing' : ''
-      }${
-        !dismissCompleting && dismissTranslateY < 1
-          ? ' instant-ban-who-scene--at-rest'
-          : ''
-      }${
-        snapTransition && !dismissCompleting
-          ? ' instant-ban-who-scene--snap-transition'
-          : ''
-      }`}
-      style={sceneStyle}
-    >
-      <div className="instant-ban-who-scene__header">
+    <>
+      <div
+        className={`instant-ban-who-dismiss-gesture-zone${
+          dismissCompleting ? ' instant-ban-who-dismiss-gesture-zone--off' : ''
+        }`}
+        style={gestureZoneStyle}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onGestureEnd}
+        onTouchCancel={onGestureEnd}
+        aria-hidden
+      />
+      <div
+        className={`instant-ban-who-scene${
+          dismissCompleting ? ' instant-ban-who-scene--completing' : ''
+        }${
+          !dismissCompleting && dismissTranslateY < 1
+            ? ' instant-ban-who-scene--at-rest'
+            : ''
+        }${
+          snapTransition && !dismissCompleting
+            ? ' instant-ban-who-scene--snap-transition'
+            : ''
+        }`}
+        style={sceneStyle}
+      >
+      <div ref={headerRef} className="instant-ban-who-scene__header">
         <div
           ref={scrollRef}
           className="instant-ban-who-dismiss-scroll-driver"
           onScroll={onScroll}
-          onTouchStart={onTouchStart}
-          onTouchMove={onTouchMove}
-          onTouchEnd={onGestureEnd}
-          onTouchCancel={onGestureEnd}
           aria-hidden
         >
           <div className="instant-ban-who-dismiss-scroll-driver__track" />
@@ -409,6 +464,7 @@ export function WhoOverlay({
         />
       </div>
     </div>
+    </>
   );
 }
 

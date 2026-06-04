@@ -113,6 +113,22 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Who overlay — full upper hit zone (orb + title), dismiss drag on gesture layer */
+.instant-ban-who-dismiss-gesture-zone {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 11;
+  touch-action: pan-y;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.instant-ban-who-dismiss-gesture-zone--off {
+  pointer-events: none;
+}
+
 /* Who overlay — gesture in header, visual move on whole scene (px-driven) */
 .instant-ban-who-scene {
   display: flex;
