@@ -2302,6 +2302,136 @@
   background: transparent;
 }
 
+/* Who ↔ What — both shells mounted; only shells animate (not inner nodes) */
+.instant-ban-send-overlay--cross-screen {
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
+.instant-ban-screen-transition-shell {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+  will-change: transform, opacity;
+}
+
+.instant-ban-screen-transition-shell--who {
+  justify-content: flex-end;
+}
+
+.instant-ban-screen-transition-shell--what {
+  justify-content: flex-start;
+}
+
+.instant-ban-screen-transition-shell--outgoing {
+  z-index: 1;
+  pointer-events: none;
+}
+
+.instant-ban-screen-transition-shell--incoming {
+  z-index: 2;
+  pointer-events: auto;
+}
+
+.instant-ban-screen-transition-shell--active {
+  z-index: 2;
+  pointer-events: auto;
+  transform: translate3d(0, 0, 0);
+  opacity: 1;
+}
+
+.instant-ban-screen-transition-shell--out-up {
+  animation: instant-ban-screen-layer-out-up 280ms cubic-bezier(0.22, 1, 0.36, 1)
+    forwards;
+}
+
+.instant-ban-screen-transition-shell--in-up {
+  animation: instant-ban-screen-layer-in-up 280ms cubic-bezier(0.22, 1, 0.36, 1)
+    forwards;
+}
+
+.instant-ban-screen-transition-shell--out-down {
+  animation: instant-ban-screen-layer-out-down 280ms
+    cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.instant-ban-screen-transition-shell--in-from-above {
+  animation: instant-ban-screen-layer-in-from-above 280ms
+    cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes instant-ban-screen-layer-out-up {
+  from {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+
+  to {
+    transform: translate3d(0, -8vh, 0);
+    opacity: 0;
+  }
+}
+
+@keyframes instant-ban-screen-layer-in-up {
+  from {
+    transform: translate3d(0, 8vh, 0);
+    opacity: 0;
+  }
+
+  to {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+}
+
+@keyframes instant-ban-screen-layer-out-down {
+  from {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+
+  to {
+    transform: translate3d(0, 8vh, 0);
+    opacity: 0;
+  }
+}
+
+@keyframes instant-ban-screen-layer-in-from-above {
+  from {
+    transform: translate3d(0, -8vh, 0);
+    opacity: 0;
+  }
+
+  to {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+}
+
+.instant-ban-screen-transition-shell--who .instant-ban-who-screen-layer,
+.instant-ban-screen-transition-shell--what .instant-ban-what-screen-layer {
+  transform: none;
+  opacity: 1;
+}
+
+.instant-ban-screen-transition-shell .instant-ban-send-overlay__panel--who-enter {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .instant-ban-screen-transition-shell--out-up,
+  .instant-ban-screen-transition-shell--in-up,
+  .instant-ban-screen-transition-shell--out-down,
+  .instant-ban-screen-transition-shell--in-from-above {
+    animation: none;
+    transform: none;
+    opacity: 1;
+  }
+}
+
 .instant-ban-send-overlay__dim {
   position: absolute;
   inset: 0;

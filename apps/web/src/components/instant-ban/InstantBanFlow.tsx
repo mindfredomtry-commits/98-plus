@@ -47,6 +47,29 @@ const CTA_ENTER_MS = 400;
 /** Extra wait before first CTA spring-in on cold app open (Who return unchanged). */
 const LOBBY_CTA_COLD_START_DELAY_MS = 200;
 const WHO_PANEL_ENTER_MS = 220;
+const WHO_OVERLAY_TITLE = 'КОМУ ЗАПРЕЩАЕШЬ?';
+const WHAT_OVERLAY_TITLE = 'ЧТО ЗАПРЕЩАЕШЬ?';
+const SCREEN_TRANSITION_MS = 280;
+
+type ScreenTransition = 'whoToWhat' | 'whatToWho' | null;
+
+function screenTransitionShellClass(
+  surface: 'who' | 'what',
+  transition: ScreenTransition,
+): string {
+  const base = `instant-ban-screen-transition-shell instant-ban-screen-transition-shell--${surface}`;
+  if (!transition) {
+    return `${base} instant-ban-screen-transition-shell--active`;
+  }
+  if (transition === 'whoToWhat') {
+    return surface === 'who'
+      ? `${base} instant-ban-screen-transition-shell--outgoing instant-ban-screen-transition-shell--out-up`
+      : `${base} instant-ban-screen-transition-shell--incoming instant-ban-screen-transition-shell--in-up`;
+  }
+  return surface === 'what'
+    ? `${base} instant-ban-screen-transition-shell--outgoing instant-ban-screen-transition-shell--out-down`
+    : `${base} instant-ban-screen-transition-shell--incoming instant-ban-screen-transition-shell--in-from-above`;
+}
 
 function prefersReducedMotion(): boolean {
   if (typeof window === 'undefined') return false;
@@ -173,19 +196,28 @@ export function InstantBanFlow({
   const ctaEnterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ctaBootDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const whoPanelEnterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const screenTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const screenTransitionRef = useRef<ScreenTransition>(null);
+  const [screenTransition, setScreenTransition] = useState<ScreenTransition>(null);
   const lobbyCtaBootSpringRef = useRef(false);
   const prevSendStartedRef = useRef(sendStarted);
 
   const legacyStep = legacyStepFromPhase(phase);
-  const overlayOpen = phase === 'selectingTarget' || phase === 'composingBan';
-  const orbOverlayDim = phase === 'composingBan';
+  const showWhoOverlay =
+    phase === 'selectingTarget' || screenTransition === 'whatToWho';
+  const showWhatOverlay =
+    (phase === 'composingBan' || screenTransition === 'whoToWhat') &&
+    selectedUser != null;
+  const overlayOpen = showWhoOverlay || showWhatOverlay;
+  const orbOverlayDim =
+    phase === 'composingBan' || screenTransition === 'whoToWhat';
   const showLobbyCta =
     ctaState === 'visible' ||
     ctaState === 'exiting' ||
     ctaState === 'entering';
   const ctaInteractive = phase === 'idle' && ctaState === 'visible';
 
-  useInstantBanViewport(phase === 'composingBan');
+  useInstantBanViewport(orbOverlayDim);
 
   const clearCtaExitTimer = useCallback(() => {
     if (ctaExitTimerRef.current) {
@@ -214,6 +246,41 @@ export function InstantBanFlow({
       whoPanelEnterTimerRef.current = null;
     }
   }, []);
+
+  const clearScreenTransitionTimer = useCallback(() => {
+    if (screenTransitionTimerRef.current) {
+      clearTimeout(screenTransitionTimerRef.current);
+      screenTransitionTimerRef.current = null;
+    }
+  }, []);
+
+  const beginScreenTransition = useCallback(
+    (kind: Exclude<ScreenTransition, null>, onComplete: () => void) => {
+      if (screenTransitionRef.current) return false;
+      const reduced = prefersReducedMotion();
+      const durationMs = reduced ? 0 : SCREEN_TRANSITION_MS;
+
+      screenTransitionRef.current = kind;
+      setScreenTransition(kind);
+
+      if (durationMs === 0) {
+        screenTransitionRef.current = null;
+        setScreenTransition(null);
+        onComplete();
+        return true;
+      }
+
+      clearScreenTransitionTimer();
+      screenTransitionTimerRef.current = setTimeout(() => {
+        screenTransitionTimerRef.current = null;
+        screenTransitionRef.current = null;
+        setScreenTransition(null);
+        onComplete();
+      }, durationMs);
+      return true;
+    },
+    [clearScreenTransitionTimer],
+  );
 
   const scheduleCtaBecomeVisible = useCallback(() => {
     clearCtaEnterTimer();
@@ -342,16 +409,6 @@ export function InstantBanFlow({
     scheduleDeferredSync,
   });
 
-  const overlayTitle = useMemo(() => {
-    switch (phase) {
-      case 'selectingTarget':
-        return 'КОМУ ЗАПРЕЩАЕШЬ?';
-      case 'composingBan':
-        return 'ЧТО ЗАПРЕЩАЕШЬ?';
-      default:
-        return '';
-    }
-  }, [phase]);
 
   const handleBeginSend = useCallback(() => {
     if (phase !== 'idle' || ctaState !== 'visible') return;
@@ -385,6 +442,9 @@ export function InstantBanFlow({
       clearTimeout(whoDismissTimerRef.current);
       whoDismissTimerRef.current = null;
     }
+    clearScreenTransitionTimer();
+    screenTransitionRef.current = null;
+    setScreenTransition(null);
     setWhoExitActive(false);
     setWhoDismissProgress(0);
     setComposeExitProgress(0);
@@ -398,7 +458,7 @@ export function InstantBanFlow({
     if (process.env.NODE_ENV === 'development') {
       console.log('[who-dismiss-set-phase-idle]');
     }
-  }, [beginCtaSpringIn]);
+  }, [beginCtaSpringIn, clearScreenTransitionTimer]);
 
   const handleWhoDismissDragProgress = useCallback((progress: number) => {
     setWhoDismissProgress(progress);
@@ -413,6 +473,7 @@ export function InstantBanFlow({
     if (process.env.NODE_ENV === 'development') {
       console.log('[who-dismiss-on-dismiss-call]', { phase });
     }
+    if (screenTransitionRef.current) return;
     if (phase !== 'selectingTarget') return;
     finishWhoDismiss();
     if (process.env.NODE_ENV === 'development') {
@@ -434,23 +495,30 @@ export function InstantBanFlow({
       clearCtaEnterTimer();
       clearCtaBootDelayTimer();
       clearWhoPanelEnterTimer();
+      clearScreenTransitionTimer();
     };
   }, [
     clearCtaBootDelayTimer,
     clearCtaEnterTimer,
     clearCtaExitTimer,
+    clearScreenTransitionTimer,
     clearWhoPanelEnterTimer,
   ]);
 
-  const handleSelectUser = useCallback((friend: FriendCard) => {
-    setSelectedUser(friend);
-    setBanText('');
-    setDurationMinutes(DEFAULT_DURATION_MINUTES);
-    setSendError(null);
-    setComposeExitProgress(0);
-    setComposeDismissing(false);
-    setPhase('composingBan');
-  }, []);
+  const handleSelectUser = useCallback(
+    (friend: FriendCard) => {
+      if (screenTransitionRef.current) return;
+      setSelectedUser(friend);
+      setBanText('');
+      setDurationMinutes(DEFAULT_DURATION_MINUTES);
+      setSendError(null);
+      setComposeExitProgress(0);
+      setComposeDismissing(false);
+      setPhase('composingBan');
+      beginScreenTransition('whoToWhat', () => {});
+    },
+    [beginScreenTransition],
+  );
 
   const handleComposeExitStart = useCallback(() => {
     setComposeDismissing(true);
@@ -468,10 +536,13 @@ export function InstantBanFlow({
   }, []);
 
   const handleWhatBack = useCallback(() => {
+    if (screenTransitionRef.current) return;
     setComposeExitProgress(0);
     setComposeDismissing(false);
-    setPhase('selectingTarget');
-  }, []);
+    beginScreenTransition('whatToWho', () => {
+      setPhase('selectingTarget');
+    });
+  }, [beginScreenTransition]);
 
   const handleComposeExitProgress = useCallback((progress: number) => {
     setComposeExitProgress(progress);
@@ -650,7 +721,7 @@ export function InstantBanFlow({
     });
 
   const liteMode = isInstantBanLiteMode();
-  const whatMobileSafe = phase === 'composingBan';
+  const whatMobileSafe = orbOverlayDim;
 
   const composeOverlayStyle = useMemo(
     () =>
@@ -718,6 +789,7 @@ export function InstantBanFlow({
       aria-label="98+ arena"
       data-instant-ban-view="InstantBanFlow"
       data-send-phase={phase}
+      data-screen-transition={screenTransition ?? undefined}
       data-orb-compress-active={orbCompressActive ? '' : undefined}
       data-instant-ban-step={legacyStep}
       data-debug-slow-orb={process.env.NODE_ENV === 'development' ? '' : undefined}
@@ -805,14 +877,18 @@ export function InstantBanFlow({
         {overlayOpen ? (
           <div
             className={`instant-ban-send-overlay${
-              phase === 'composingBan' ? ' instant-ban-send-overlay--compose' : ''
+              showWhatOverlay ? ' instant-ban-send-overlay--compose' : ''
             }${
               composeExitProgress > 0 ? ' instant-ban-send-overlay--compose-dismissing' : ''
-            }${phase === 'selectingTarget' ? ' instant-ban-send-overlay--who' : ''}`}
+            }${
+              showWhoOverlay && !showWhatOverlay
+                ? ' instant-ban-send-overlay--who'
+                : ''
+            }${screenTransition ? ' instant-ban-send-overlay--cross-screen' : ''}`}
             style={arenaOverlayStyle}
             role="presentation"
           >
-            {phase === 'selectingTarget' ? (
+            {showWhoOverlay && !showWhatOverlay ? (
               <div
                 className={`instant-ban-send-overlay__dim${
                   whoExitActive ? ' instant-ban-send-overlay__dim--exiting' : ''
@@ -821,37 +897,45 @@ export function InstantBanFlow({
                 aria-hidden
               />
             ) : null}
-            {phase === 'selectingTarget' ? (
+            {showWhoOverlay ? (
               <div
-                className={`instant-ban-send-overlay__panel instant-ban-send-overlay__panel--who${
-                  whoPanelEntering
-                    ? ' instant-ban-send-overlay__panel--who-enter'
-                    : ''
-                }`}
+                className={screenTransitionShellClass('who', screenTransition)}
               >
-                <WhoOverlay
-                  title={overlayTitle}
-                  friends={safeFriends}
-                  onSelect={handleSelectUser}
-                  onInviteMore={handleInviteMore}
-                  onDismissDragProgress={handleWhoDismissDragProgress}
-                  onDismissExitStart={handleWhoDismissExitStart}
-                  onDismissToLobby={handleWhoDismissToLobby}
-                />
+                <div
+                  className={`instant-ban-send-overlay__panel instant-ban-send-overlay__panel--who${
+                    whoPanelEntering && screenTransition !== 'whatToWho'
+                      ? ' instant-ban-send-overlay__panel--who-enter'
+                      : ''
+                  }`}
+                >
+                  <WhoOverlay
+                    title={WHO_OVERLAY_TITLE}
+                    friends={safeFriends}
+                    onSelect={handleSelectUser}
+                    onInviteMore={handleInviteMore}
+                    onDismissDragProgress={handleWhoDismissDragProgress}
+                    onDismissExitStart={handleWhoDismissExitStart}
+                    onDismissToLobby={handleWhoDismissToLobby}
+                  />
+                </div>
               </div>
             ) : null}
-            {phase === 'composingBan' && selectedUser ? (
-              <WhatScreen
-                key={selectedUser.id ?? selectedUser.userId ?? selectedUser.username}
-                overlayTitle={overlayTitle}
-                onComposeExitProgress={handleComposeExitProgress}
-                onComposeExitStart={handleComposeExitStart}
-                selectedUser={selectedUser}
-                initialBanText={banText}
-                initialDurationMinutes={durationMinutes}
-                onSubmit={handleWhatSubmit}
-                onBack={handleWhatBack}
-              />
+            {showWhatOverlay && selectedUser ? (
+              <div
+                className={screenTransitionShellClass('what', screenTransition)}
+              >
+                <WhatScreen
+                  key={selectedUser.id ?? selectedUser.userId ?? selectedUser.username}
+                  overlayTitle={WHAT_OVERLAY_TITLE}
+                  onComposeExitProgress={handleComposeExitProgress}
+                  onComposeExitStart={handleComposeExitStart}
+                  selectedUser={selectedUser}
+                  initialBanText={banText}
+                  initialDurationMinutes={durationMinutes}
+                  onSubmit={handleWhatSubmit}
+                  onBack={handleWhatBack}
+                />
+              </div>
             ) : null}
           </div>
         ) : null}
