@@ -74,10 +74,12 @@ const WhatSwipeTapZone = memo(function WhatSwipeTapZone({
       onClick={onTap}
     >
       <div className="instant-ban-what-scroll-lift-hint" aria-hidden>
-        <span className="instant-ban-what-scroll-lift-hint__mover">
-          <span className="instant-ban-what-scroll-lift-hint__orb" />
+        <div className="instant-ban-what-scroll-lift-hint__stage">
           <span className="instant-ban-what-scroll-lift-hint__trail" />
-        </span>
+          <span className="instant-ban-what-scroll-lift-hint__mover">
+            <span className="instant-ban-what-scroll-lift-hint__circle" />
+          </span>
+        </div>
       </div>
     </div>
   );
