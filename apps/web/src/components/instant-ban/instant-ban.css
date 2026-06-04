@@ -1254,12 +1254,12 @@
 
   .instant-ban-what-scroll-lift-hint__mover {
     opacity: 0.88;
-    transform: translateY(-2.75rem);
+    transform: translateX(-50%) translateY(-2.75rem);
   }
 
   .instant-ban-what-scroll-lift-hint__trail {
-    opacity: 0.55;
-    height: 2.75rem;
+    transform: scaleY(0.72);
+    opacity: 0.5;
   }
 
   .instant-ban-success-card--enter,
@@ -1478,99 +1478,115 @@
 
 .instant-ban-what-scroll-lift-hint__mover {
   position: absolute;
-  right: 0;
   bottom: 0;
-  left: 0;
+  left: 50%;
   z-index: 1;
   display: flex;
-  justify-content: center;
-  animation: instant-ban-what-scroll-lift-mover 1.4s cubic-bezier(0.33, 1, 0.68, 1)
+  flex-direction: column;
+  align-items: center;
+  animation: instant-ban-what-scroll-lift-mover 1.45s cubic-bezier(0.33, 1, 0.68, 1)
     infinite;
   will-change: transform, opacity;
 }
 
 .instant-ban-what-scroll-lift-hint__circle {
+  position: relative;
+  z-index: 1;
   flex-shrink: 0;
   width: var(--lift-hint-circle);
   height: var(--lift-hint-circle);
   border-radius: 50%;
-  border: 1.5px solid rgba(var(--98-power-rgb), 0.82);
-  background: rgba(var(--98-power-rgb), 0.2);
-  box-shadow: 0 0 18px rgba(var(--98-power-rgb), 0.16);
+  border: 2px solid rgba(var(--98-power-rgb), 0.84);
+  background: rgba(var(--98-power-rgb), 0.22);
+  box-shadow: 0 0 16px rgba(var(--98-power-rgb), 0.1);
 }
 
 .instant-ban-what-scroll-lift-hint__trail {
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  z-index: 0;
-  width: var(--lift-hint-circle);
-  transform: translateX(-50%);
+  flex-shrink: 0;
+  width: calc(var(--lift-hint-circle) * 0.86);
+  height: var(--lift-hint-rise);
+  margin-top: -0.25rem;
   border-radius: 999px;
+  transform-origin: top center;
   background: linear-gradient(
     180deg,
-    rgba(var(--98-power-rgb), 0.42) 0%,
-    rgba(var(--98-power-rgb), 0.24) 38%,
-    rgba(var(--98-power-rgb), 0.08) 68%,
+    rgba(var(--98-power-rgb), 0.26) 0%,
+    rgba(var(--98-power-rgb), 0.14) 42%,
+    rgba(var(--98-power-rgb), 0.06) 72%,
     transparent 100%
   );
-  animation: instant-ban-what-scroll-lift-trail 1.4s cubic-bezier(0.33, 1, 0.68, 1)
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    #000 0%,
+    #000 28%,
+    rgba(0, 0, 0, 0.55) 62%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    #000 0%,
+    #000 28%,
+    rgba(0, 0, 0, 0.55) 62%,
+    transparent 100%
+  );
+  filter: blur(0.65px);
+  animation: instant-ban-what-scroll-lift-trail 1.45s cubic-bezier(0.33, 1, 0.68, 1)
     infinite;
-  will-change: height, opacity;
+  will-change: transform, opacity;
   pointer-events: none;
 }
 
 @keyframes instant-ban-what-scroll-lift-mover {
   0% {
     opacity: 0;
-    transform: translateY(0);
+    transform: translateX(-50%) translateY(0);
   }
 
   15% {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateX(-50%) translateY(0);
   }
 
-  55% {
+  52% {
     opacity: 1;
-    transform: translateY(calc(-1 * var(--lift-hint-rise)));
+    transform: translateX(-50%) translateY(calc(-1 * var(--lift-hint-rise)));
   }
 
   80% {
-    opacity: 0.15;
-    transform: translateY(calc(-1 * var(--lift-hint-rise)));
+    opacity: 0;
+    transform: translateX(-50%) translateY(calc(-1 * var(--lift-hint-rise)));
   }
 
   100% {
     opacity: 0;
-    transform: translateY(0);
+    transform: translateX(-50%) translateY(0);
   }
 }
 
 @keyframes instant-ban-what-scroll-lift-trail {
   0% {
     opacity: 0;
-    height: 0;
+    transform: scaleY(0.04);
   }
 
   15% {
-    opacity: 0.55;
-    height: 0.625rem;
+    opacity: 0.42;
+    transform: scaleY(0.14);
   }
 
-  55% {
-    opacity: 0.82;
-    height: var(--lift-hint-rise);
+  52% {
+    opacity: 0.68;
+    transform: scaleY(1);
   }
 
   80% {
     opacity: 0;
-    height: var(--lift-hint-rise);
+    transform: scaleY(1);
   }
 
   100% {
     opacity: 0;
-    height: 0;
+    transform: scaleY(0.04);
   }
 }
 
