@@ -897,16 +897,19 @@ function WhatScreenInner({
             </div>
           ) : null}
           <div
-            className={`instant-ban-what-screen-layer${
+            className={`instant-ban-what-exit-layer${
               isExiting || isResetting || exitProgress > 0
-                ? ' instant-ban-what-screen-layer--dismissing'
+                ? ' instant-ban-what-exit-layer--dismissing'
                 : ''
             }`}
             style={composeLayerStyle}
+            data-instant-ban-view="WhatExitLayer"
           >
-            <div className="instant-ban-what-screen-layer__veil" aria-hidden />
-            <div className="instant-ban-what-screen-layer__content">
-              {composeContent}
+            <div className="instant-ban-what-screen-layer">
+              <div className="instant-ban-what-screen-layer__veil" aria-hidden />
+              <div className="instant-ban-what-screen-layer__content">
+                {composeContent}
+              </div>
             </div>
           </div>
         </div>

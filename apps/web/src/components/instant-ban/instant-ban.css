@@ -2258,8 +2258,8 @@
   pointer-events: none;
 }
 
-/* What — swipe-away: only screen-layer transform/opacity (title, fields, hint move together) */
-.instant-ban-what-screen-layer {
+/* What → Confirm: vertical Y on exit-layer (horizontal X stays on track) */
+.instant-ban-what-exit-layer {
   position: relative;
   z-index: 1;
   width: 100%;
@@ -2277,6 +2277,20 @@
     0
   );
   opacity: calc(1 - min(1, var(--compose-exit-progress, 0) * 1.6));
+}
+
+.instant-ban-what-exit-layer--dismissing {
+  pointer-events: none;
+}
+
+.instant-ban-what-screen-layer {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  pointer-events: none;
+  overflow: visible;
 }
 
 .instant-ban-what-screen-layer__content {
@@ -2313,7 +2327,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .instant-ban-what-screen-layer {
+  .instant-ban-what-exit-layer {
     transform: translate3d(
       0,
       calc(var(--compose-exit-progress, 0) * -34vh),
@@ -2440,12 +2454,6 @@
   min-height: 0;
 }
 
-/* What only — do not block Who dismiss-layer transform */
-.instant-ban-cross-screen-page--what .instant-ban-what-screen-layer {
-  transform: none !important;
-  opacity: 1 !important;
-}
-
 .instant-ban-cross-screen-page--who .instant-ban-send-overlay__panel--who-enter {
   animation: none;
 }
@@ -2483,6 +2491,7 @@ html.instant-ban-resuming .instant-ban-cross-screen-page,
 html.instant-ban-resuming .instant-ban-arena-send__stage,
 html.instant-ban-resuming .instant-ban-arena-send__confirm-layer,
 html.instant-ban-resuming .instant-ban-what-mobile--compose-scene,
+html.instant-ban-resuming .instant-ban-what-exit-layer,
 html.instant-ban-resuming .instant-ban-what-screen-layer,
 html.instant-ban-resuming .instant-ban-who-dismiss-layer,
 html.instant-ban-resuming .instant-ban-who-screen-layer {
