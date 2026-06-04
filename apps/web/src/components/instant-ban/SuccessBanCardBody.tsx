@@ -19,7 +19,6 @@ type Props = {
   selectedUser: FriendCard;
   banText: string;
   durationMinutes: number;
-  contentClassName?: string;
 };
 
 export function SuccessBanCardBody({
@@ -27,7 +26,6 @@ export function SuccessBanCardBody({
   selectedUser,
   banText,
   durationMinutes,
-  contentClassName = '',
 }: Props) {
   const trimmed = banText.trim();
   const receiverLetter = (
@@ -42,34 +40,42 @@ export function SuccessBanCardBody({
   ).toUpperCase();
 
   return (
-    <div className={`instant-ban-success-card__content ${contentClassName}`.trim()}>
+    <>
       <div className="instant-ban-success-card__icon" aria-hidden>
         🚫
       </div>
-      <h2 className="instant-ban-success-card__title">Запрет отправлен</h2>
-      <div className="instant-ban-success-card__participants">
-        <div className="instant-ban-success-card__sender-wrap">
-          <AvatarImage
-            src={userAvatarSrc(senderUser)}
-            letter={senderLetter}
-            sizeClass="w-11 h-11"
-            textClass="text-sm"
-          />
+      <p className="instant-ban-success-card__title text-xl font-black text-glow mb-3">
+        Запрет отправлен
+      </p>
+      <div className="result-compare mx-auto mb-3">
+        <div className="result-party">
+          <div className="modal-avatar overflow-hidden">
+            <AvatarImage
+              src={userAvatarSrc(senderUser)}
+              letter={senderLetter}
+              sizeClass="w-full h-full"
+              textClass="text-lg"
+            />
+          </div>
         </div>
-        <span className="instant-ban-success-card__arrow" aria-hidden>
+        <span className="result-arrow text-accent" aria-hidden>
           →
         </span>
-        <AvatarImage
-          src={friendAvatarUrl(selectedUser)}
-          letter={receiverLetter}
-          sizeClass="w-11 h-11"
-          textClass="text-sm"
-        />
+        <div className="result-party">
+          <div className="modal-avatar overflow-hidden">
+            <AvatarImage
+              src={friendAvatarUrl(selectedUser)}
+              letter={receiverLetter}
+              sizeClass="w-full h-full"
+              textClass="text-lg"
+            />
+          </div>
+        </div>
       </div>
-      <p className="instant-ban-success-card__quote">&ldquo;{trimmed}&rdquo;</p>
-      <p className="instant-ban-success-card__duration">
-        На {formatDurationMinutes(durationMinutes)}
+      <p className="incoming-modal-text text-lg font-semibold leading-snug mb-3 px-1">
+        «{trimmed}»
       </p>
-    </div>
+      <p className="text-muted text-sm">На {formatDurationMinutes(durationMinutes)}</p>
+    </>
   );
 }

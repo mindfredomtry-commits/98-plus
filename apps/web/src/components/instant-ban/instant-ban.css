@@ -1026,27 +1026,21 @@
   align-items: center;
   justify-content: center;
   width: 100%;
+  padding: 0 1.25rem;
+  box-sizing: border-box;
 }
 
-.instant-ban-success-card__content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.instant-ban-success-card {
-  width: min(86vw, 340px);
-  min-height: 240px;
-  padding: 1.25rem 1rem 1rem;
-  border-radius: 24px;
-  border: 1px solid rgba(var(--98-accent-rgb), 0.22);
-  background: linear-gradient(
-    165deg,
-    rgba(var(--98-purple-deep-rgb), 0.4) 0%,
-    rgba(10, 6, 16, 0.9) 100%
-  );
-  box-shadow: 0 0 32px rgba(var(--98-accent-rgb), 0.15);
+.instant-ban-arena-send__success-layer .instant-ban-success-card.modal-card {
+  width: 100%;
+  max-width: 19.5rem;
+  min-height: 0;
+  max-height: none;
+  overflow: visible;
   text-align: center;
+}
+
+.instant-ban-success-card .modal-card-actions {
+  margin-top: 1rem;
 }
 
 .instant-ban-success-card--enter {
@@ -1067,57 +1061,14 @@
 .instant-ban-success-card__icon {
   font-size: 1rem;
   line-height: 1;
-  margin-bottom: 0.5rem;
-  opacity: 0.85;
+  margin-bottom: 0.35rem;
+  opacity: 0.9;
 }
 
 .instant-ban-success-card__title {
-  margin: 0 0 0.875rem;
-  font-size: 1rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  color: var(--98-text-primary);
-}
-
-.instant-ban-success-card__participants {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.75rem;
-  margin-bottom: 0.875rem;
-}
-
-.instant-ban-success-card__sender-wrap {
-  border-radius: 9999px;
-  box-shadow: 0 0 16px rgba(var(--98-accent-rgb), 0.42);
-}
-
-.instant-ban-success-card__arrow {
-  color: rgba(var(--98-purple-soft-rgb), 0.62);
-  font-size: 1.125rem;
-  line-height: 1;
-}
-
-.instant-ban-success-card__quote {
-  margin: 0 0 0.625rem;
-  font-size: 0.9375rem;
-  line-height: 1.45;
-  color: rgba(255, 255, 255, 0.85);
-  font-weight: 600;
-}
-
-.instant-ban-success-card__duration {
   margin: 0;
-  font-size: 0.8125rem;
-  line-height: 1.3;
-  color: var(--98-purple-soft);
-  font-weight: 600;
-}
-
-.instant-ban-success-card__again {
-  width: 100%;
-  margin-top: 1rem;
+  letter-spacing: 0.01em;
+  text-transform: none;
 }
 
 .instant-ban-actions {

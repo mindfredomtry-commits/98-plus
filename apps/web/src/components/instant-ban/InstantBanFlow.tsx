@@ -762,6 +762,7 @@ export function InstantBanFlow({
               banText={successSnapshot.banText}
               durationMinutes={successSnapshot.durationMinutes}
               onAgain={resetForAnother}
+              onShare={handleInviteMore}
             />
           </div>
         ) : null}
