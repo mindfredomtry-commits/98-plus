@@ -73,10 +73,11 @@ const WhatSwipeTapZone = memo(function WhatSwipeTapZone({
       aria-hidden
       onClick={onTap}
     >
-      <div className="instant-ban-what-swipe-hint">
-        <SwipeHintChevron className="instant-ban-what-swipe-hint__chevron instant-ban-what-swipe-hint__chevron--1" />
-        <SwipeHintChevron className="instant-ban-what-swipe-hint__chevron instant-ban-what-swipe-hint__chevron--2" />
-        <SwipeHintChevron className="instant-ban-what-swipe-hint__chevron instant-ban-what-swipe-hint__chevron--3" />
+      <div className="instant-ban-what-scroll-lift-hint" aria-hidden>
+        <span className="instant-ban-what-scroll-lift-hint__mover">
+          <span className="instant-ban-what-scroll-lift-hint__orb" />
+          <span className="instant-ban-what-scroll-lift-hint__trail" />
+        </span>
       </div>
     </div>
   );
@@ -109,29 +110,6 @@ type Props = {
 
 function friendLabel(friend: FriendCard): string {
   return friend.firstName || friend.username || '—';
-}
-
-function SwipeHintChevron({ className }: { className: string }) {
-  return (
-    <span className={className}>
-      <svg
-        className="instant-ban-what-swipe-hint__svg"
-        viewBox="0 0 44 20"
-        width="44"
-        height="20"
-        aria-hidden
-      >
-        <path
-          d="M4 5 L22 17 L40 5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="3.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </span>
-  );
 }
 
 function easeOutCubic(t: number): number {
