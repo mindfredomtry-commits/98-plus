@@ -1059,16 +1059,65 @@
 }
 
 .instant-ban-success-card__icon {
-  font-size: 1rem;
-  line-height: 1;
-  margin-bottom: 0.35rem;
-  opacity: 0.9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 0.4rem;
+  color: var(--98-accent);
+  filter: drop-shadow(0 0 10px var(--98-glow));
+}
+
+.instant-ban-success-card__icon svg {
+  width: 1.3rem;
+  height: 1.3rem;
 }
 
 .instant-ban-success-card__title {
   margin: 0;
   letter-spacing: 0.01em;
   text-transform: none;
+}
+
+.instant-ban-success-card__duration {
+  margin: 0;
+  color: var(--98-accent);
+  text-shadow: 0 0 12px var(--98-glow);
+}
+
+.instant-ban-success-card__btn-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.instant-ban-success-card__btn-glyph {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex-shrink: 0;
+  color: inherit;
+}
+
+.instant-ban-success-card .instant-ban-success-card__btn-primary {
+  min-height: 0;
+  padding: 0.8125rem 1.25rem;
+  border-radius: 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  box-shadow: 0 0 20px var(--98-glow);
+}
+
+.instant-ban-success-card .instant-ban-success-card__btn-secondary {
+  min-height: 0;
+  padding: 0.75rem 1.25rem;
+  border-radius: 1rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-color: rgba(var(--98-accent-rgb), 0.18);
+  background: rgba(8, 6, 14, 0.92);
+  color: rgba(255, 255, 255, 0.88);
 }
 
 .instant-ban-actions {

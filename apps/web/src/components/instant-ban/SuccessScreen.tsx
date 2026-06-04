@@ -1,7 +1,8 @@
 'use client';
 
 import type { FriendCard, UserPublic } from '@98plus/shared';
-import { SuccessBanCardBody } from './SuccessBanCardBody';
+import { BigButton } from '../BigButton';
+import { BanGlyph, SuccessBanCardBody } from './SuccessBanCardBody';
 
 type Props = {
   senderUser: UserPublic | null | undefined;
@@ -32,12 +33,19 @@ export function SuccessScreen({
           />
         </div>
         <div className="modal-card-actions space-y-2.5">
-          <button type="button" className="btn-98-primary w-full" onClick={onAgain}>
-            Запретить ещё!
-          </button>
-          <button type="button" className="instant-ban-secondary" onClick={onShare}>
+          <BigButton className="instant-ban-success-card__btn-primary" onClick={onAgain}>
+            <span className="instant-ban-success-card__btn-label">
+              <BanGlyph className="instant-ban-success-card__btn-glyph" />
+              Запретить ещё!
+            </span>
+          </BigButton>
+          <BigButton
+            variant="ghost"
+            className="instant-ban-success-card__btn-secondary"
+            onClick={onShare}
+          >
             Поделиться
-          </button>
+          </BigButton>
         </div>
       </div>
     </div>

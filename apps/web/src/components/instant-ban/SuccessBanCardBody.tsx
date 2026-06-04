@@ -5,6 +5,26 @@ import { friendAvatarUrl } from '@/lib/avatar-url';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
 import { AvatarImage } from '../AvatarImage';
 
+/** Brand-purple no-entry mark (not system-red emoji). */
+export function BanGlyph({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+      <path
+        d="M8.2 8.2l7.6 7.6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function formatDurationMinutes(minutes: number): string {
   const m = Math.max(1, Math.round(minutes));
   if (m >= 60 && m % 60 === 0) {
@@ -42,7 +62,7 @@ export function SuccessBanCardBody({
   return (
     <>
       <div className="instant-ban-success-card__icon" aria-hidden>
-        🚫
+        <BanGlyph />
       </div>
       <p className="instant-ban-success-card__title text-xl font-black text-glow mb-3">
         Запрет отправлен
@@ -75,7 +95,9 @@ export function SuccessBanCardBody({
       <p className="incoming-modal-text text-lg font-semibold leading-snug mb-3 px-1">
         «{trimmed}»
       </p>
-      <p className="text-muted text-sm">На {formatDurationMinutes(durationMinutes)}</p>
+      <p className="instant-ban-success-card__duration text-sm font-semibold">
+        На {formatDurationMinutes(durationMinutes)}
+      </p>
     </>
   );
 }
