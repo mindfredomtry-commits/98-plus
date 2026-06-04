@@ -37,6 +37,18 @@ export function instantBanDebug(
   });
 }
 
+export function logViewportResume(data: {
+  oldHeight: number | null;
+  candidateHeight: number;
+  accepted: boolean;
+  ignored: boolean;
+  reason: string;
+  source?: string;
+}): void {
+  if (!isDev) return;
+  console.log('[viewport-resume]', data);
+}
+
 export type InstantBanSendBeforePayload = {
   banText: string;
   selectedUserId: string | null;

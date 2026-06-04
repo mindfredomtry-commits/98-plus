@@ -5,6 +5,7 @@ import {
   instantBanDebug,
   isInstantBanLiteMode,
   logInstantBanViewport,
+  logViewportResume,
 } from '@/lib/instant-ban-debug';
 
 const HEIGHT_VARS = [
@@ -14,15 +15,16 @@ const HEIGHT_VARS = [
 ] as const;
 
 const RESUME_CLASS = 'instant-ban-resuming';
-const RESUME_SETTLE_MS = 120;
-const RESUME_REMEASURE_MS = 100;
-/** Reject one-frame height glitches during resume (e.g. ~half viewport). */
-const RESUME_SUSPICIOUS_LOW_RATIO = 0.78;
-const RESUME_SUSPICIOUS_HIGH_RATIO = 1.28;
+const RESUME_SETTLE_MS = 150;
+const RESUME_REMEASURE_MS = 150;
+/** Reject half-viewport glitches on resume (Telegram WebView). */
+const RESUME_SUSPICIOUS_LOW_RATIO = 0.82;
+const RESUME_SUSPICIOUS_HIGH_RATIO = 1.22;
 
 function measureViewportHeight(): number {
   const vv = window.visualViewport;
-  const h = vv?.height ?? window.innerHeight;
+  const inner = window.innerHeight;
+  const h = vv?.height ?? inner;
   return Math.max(1, Math.round(h));
 }
 
@@ -83,28 +85,72 @@ export function useInstantBanViewport(active: boolean): void {
       resumeClearTimerRef.current = null;
     };
 
-    const applyHeight = (source: string, opts?: { force?: boolean }) => {
-      const measured = measureViewportHeight();
+    const reapplyLastStable = (source: string) => {
       const stable = stableHeightRef.current;
+      if (stable == null) return;
+      setStableHeightVars(root, stable);
+      if (process.env.NODE_ENV === 'development') {
+        logViewportResume({
+          oldHeight: stable,
+          candidateHeight: measureViewportHeight(),
+          accepted: true,
+          ignored: false,
+          reason: 'reapply-last-stable',
+          source,
+        });
+      }
+    };
+
+    const tryCommitHeight = (
+      source: string,
+      opts?: { force?: boolean; allowWhileResuming?: boolean },
+    ) => {
+      const measured = measureViewportHeight();
+      const oldHeight = stableHeightRef.current;
+
+      if (resumingRef.current && !opts?.allowWhileResuming) {
+        reapplyLastStable(`${source}:frozen`);
+        logViewportResume({
+          oldHeight,
+          candidateHeight: measured,
+          accepted: false,
+          ignored: true,
+          reason: 'resuming-frozen',
+          source,
+        });
+        return;
+      }
 
       if (
-        resumingRef.current &&
-        !opts?.force &&
-        stable != null &&
-        isSuspiciousResumeHeight(measured, stable)
+        oldHeight != null &&
+        isSuspiciousResumeHeight(measured, oldHeight) &&
+        (resumingRef.current || !opts?.force)
       ) {
-        if (process.env.NODE_ENV === 'development') {
-          instantBanDebug('viewport-skip-suspicious', {
-            source,
-            measured,
-            stable,
-          });
-        }
+        reapplyLastStable(`${source}:suspicious`);
+        logViewportResume({
+          oldHeight,
+          candidateHeight: measured,
+          accepted: false,
+          ignored: true,
+          reason: 'suspicious-ratio',
+          source,
+        });
         return;
       }
 
       stableHeightRef.current = measured;
       setStableHeightVars(root, measured);
+
+      if (resumingRef.current || opts?.allowWhileResuming) {
+        logViewportResume({
+          oldHeight,
+          candidateHeight: measured,
+          accepted: true,
+          ignored: false,
+          reason: opts?.force ? 'force-commit' : 'commit',
+          source,
+        });
+      }
 
       if (process.env.NODE_ENV === 'development') {
         logInstantBanViewport(source, countsRef.current);
@@ -116,16 +162,20 @@ export function useInstantBanViewport(active: boolean): void {
       resumingRef.current = true;
       root.classList.add(RESUME_CLASS);
       clearResumeTimers();
+      reapplyLastStable(`${source}:resume-start`);
 
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           if (gen !== resumeGenRef.current) return;
-          applyHeight(`${source}:raf2`);
+          reapplyLastStable(`${source}:raf2`);
 
           resumeRemeasureTimerRef.current = setTimeout(() => {
             resumeRemeasureTimerRef.current = null;
             if (gen !== resumeGenRef.current) return;
-            applyHeight(`${source}:delayed`, { force: true });
+            tryCommitHeight(`${source}:delayed`, {
+              force: true,
+              allowWhileResuming: true,
+            });
 
             resumeClearTimerRef.current = setTimeout(() => {
               endResume(gen);
@@ -137,22 +187,31 @@ export function useInstantBanViewport(active: boolean): void {
 
     const onWindowResize = () => {
       countsRef.current.resizeCount += 1;
-      applyHeight('window.resize');
+      if (resumingRef.current) {
+        reapplyLastStable('window.resize');
+        return;
+      }
+      tryCommitHeight('window.resize');
     };
 
     const onVvResize = () => {
       countsRef.current.vvResizeCount += 1;
-      applyHeight('visualViewport.resize');
+      if (resumingRef.current) {
+        reapplyLastStable('visualViewport.resize');
+        return;
+      }
+      tryCommitHeight('visualViewport.resize');
     };
 
     const onVvScroll = () => {
       if (resumingRef.current) return;
-      applyHeight('visualViewport.scroll');
+      tryCommitHeight('visualViewport.scroll');
     };
 
     const onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
         wasHiddenRef.current = true;
+        reapplyLastStable('visibilitychange:hidden');
         return;
       }
       if (document.visibilityState === 'visible' && wasHiddenRef.current) {
@@ -167,8 +226,9 @@ export function useInstantBanViewport(active: boolean): void {
       scheduleResumeRecheck('focus');
     };
 
-    const onPageShow = (e: PageTransitionEvent) => {
-      if (e.persisted) {
+    const onPageShow = () => {
+      if (wasHiddenRef.current) {
+        wasHiddenRef.current = false;
         scheduleResumeRecheck('pageshow');
       }
     };
@@ -190,10 +250,16 @@ export function useInstantBanViewport(active: boolean): void {
     const tg = window.Telegram?.WebApp as
       | { onEvent?: (event: string, cb: () => void) => void }
       | undefined;
-    const onTgViewport = () => applyHeight('telegram.viewportChanged');
+    const onTgViewport = () => {
+      if (resumingRef.current) {
+        reapplyLastStable('telegram.viewportChanged');
+        return;
+      }
+      tryCommitHeight('telegram.viewportChanged');
+    };
     tg?.onEvent?.('viewportChanged', onTgViewport);
 
-    applyHeight('mount');
+    tryCommitHeight('mount');
 
     return () => {
       clearResumeTimers();

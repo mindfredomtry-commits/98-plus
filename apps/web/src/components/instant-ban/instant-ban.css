@@ -1,9 +1,16 @@
-.instant-ban-flow {
+.instant-ban-arena-send.lobby-screen.instant-ban-flow {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: auto;
+  width: 100%;
+  height: var(--instant-ban-vh, var(--app-stable-height, 100dvh));
+  max-height: var(--instant-ban-vh, var(--app-stable-height, 100dvh));
+  min-height: var(--instant-ban-vh, var(--app-stable-height, 100dvh));
+}
+
+.instant-ban-flow {
   z-index: 65;
   display: flex;
   flex-direction: column;
@@ -1791,7 +1798,11 @@
 
 .instant-ban-arena-send__confirm-layer {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--instant-ban-vh, var(--app-stable-height, 100dvh));
+  max-height: var(--instant-ban-vh, var(--app-stable-height, 100dvh));
   z-index: 6;
   display: flex;
   flex-direction: column;
@@ -1826,7 +1837,11 @@
 
 .instant-ban-arena-send[data-send-phase='confirming'] .instant-ban-confirm-layout--shared-lobby
   .instant-ban-confirm-info {
-  margin-top: clamp(6vh, 48px, 12vh);
+  margin-top: clamp(
+    calc(var(--instant-ban-vh, 100dvh) * 0.06),
+    48px,
+    calc(var(--instant-ban-vh, 100dvh) * 0.12)
+  );
   margin-bottom: 0;
   max-width: min(100%, 340px);
   padding: 0;
@@ -2258,8 +2273,12 @@
   position: relative;
   z-index: 1;
   width: 100%;
-  padding: clamp(26vh, 200px, 34vh) 1.25rem
-    calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  padding: clamp(
+      calc(var(--instant-ban-vh, 100dvh) * 0.26),
+      200px,
+      calc(var(--instant-ban-vh, 100dvh) * 0.34)
+    )
+    1.25rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
   box-sizing: border-box;
 }
 
@@ -2444,16 +2463,27 @@
   }
 }
 
-/* Telegram resume: keep last stable height, skip height-driven layout jumps */
+/* Telegram resume: freeze stable height + block height-driven transitions */
+html.instant-ban-resuming .instant-ban-arena-send.lobby-screen.instant-ban-flow,
 html.instant-ban-resuming .instant-ban-flow,
 html.instant-ban-resuming .instant-ban-arena-send.instant-ban-flow--what-mobile-safe,
 html.instant-ban-resuming .instant-ban-send-overlay--cross-screen,
-html.instant-ban-resuming .instant-ban-arena-send__stage {
+html.instant-ban-resuming .instant-ban-cross-screen-viewport,
+html.instant-ban-resuming .instant-ban-cross-screen-page,
+html.instant-ban-resuming .instant-ban-arena-send__stage,
+html.instant-ban-resuming .instant-ban-arena-send__confirm-layer,
+html.instant-ban-resuming .instant-ban-what-mobile--compose-scene,
+html.instant-ban-resuming .instant-ban-what-screen-layer,
+html.instant-ban-resuming .instant-ban-who-screen-layer {
   transition: none !important;
 }
 
+html.instant-ban-resuming .instant-ban-arena-send.lobby-screen.instant-ban-flow,
 html.instant-ban-resuming .instant-ban-flow,
-html.instant-ban-resuming .instant-ban-arena-send.instant-ban-flow--what-mobile-safe {
+html.instant-ban-resuming .instant-ban-arena-send.instant-ban-flow--what-mobile-safe,
+html.instant-ban-resuming .instant-ban-send-overlay--cross-screen,
+html.instant-ban-resuming .instant-ban-arena-send__stage,
+html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
   height: var(--instant-ban-vh, var(--app-stable-height, 100dvh));
   max-height: var(--instant-ban-vh, var(--app-stable-height, 100dvh));
   min-height: var(--instant-ban-vh, var(--app-stable-height, 100dvh));
@@ -2490,7 +2520,7 @@ html.instant-ban-resuming .instant-ban-arena-send.instant-ban-flow--what-mobile-
   pointer-events: auto;
   display: flex;
   flex-direction: column;
-  max-height: min(72vh, 560px);
+  max-height: min(calc(var(--instant-ban-vh, 100dvh) * 0.72), 560px);
   min-height: 0;
   width: 100%;
   max-width: 32rem;
@@ -2527,7 +2557,7 @@ html.instant-ban-resuming .instant-ban-arena-send.instant-ban-flow--what-mobile-
   flex: 0 1 auto;
   width: 100%;
   min-height: 0;
-  max-height: min(72vh, 560px);
+  max-height: min(calc(var(--instant-ban-vh, 100dvh) * 0.72), 560px);
   overflow: visible;
   pointer-events: auto;
   transform: none;
@@ -2566,7 +2596,7 @@ html.instant-ban-resuming .instant-ban-arena-send.instant-ban-flow--what-mobile-
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe .instant-ban-send-overlay__panel {
-  max-height: min(78vh, 640px);
+  max-height: min(calc(var(--instant-ban-vh, 100dvh) * 0.78), 640px);
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe .instant-ban-send-overlay__title {
@@ -2586,7 +2616,11 @@ html.instant-ban-resuming .instant-ban-arena-send.instant-ban-flow--what-mobile-
   .instant-ban-what-screen-layer
   .instant-ban-what-scroll-spacer {
   display: block;
-  height: clamp(72px, 16vh, 112px);
+  height: clamp(
+    72px,
+    calc(var(--instant-ban-vh, 100dvh) * 0.16),
+    112px
+  );
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe
@@ -2666,7 +2700,11 @@ html.instant-ban-resuming .instant-ban-arena-send.instant-ban-flow--what-mobile-
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe
   .instant-ban-cross-screen-page--what
   .instant-ban-what-screen-layer__content {
-  padding-top: clamp(22vh, 156px, 30vh);
+  padding-top: clamp(
+    calc(var(--instant-ban-vh, 100dvh) * 0.22),
+    156px,
+    calc(var(--instant-ban-vh, 100dvh) * 0.3)
+  );
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe

@@ -433,7 +433,7 @@ export function WhoOverlay({
         className={`instant-ban-who-screen-layer${
           dismissCompleting ? ' instant-ban-who-screen-layer--completing' : ''
         }${
-          !dismissCompleting && dismissTranslateY < 1
+          !dismissCompleting && dismissTranslateY <= 0
             ? ' instant-ban-who-screen-layer--at-rest'
             : ''
         }${
