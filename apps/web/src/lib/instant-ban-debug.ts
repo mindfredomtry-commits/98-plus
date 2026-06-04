@@ -16,6 +16,58 @@ export function isInstantBanLiteMode(): boolean {
   return liteCached;
 }
 
+/** ?probeSwipeHint=1 — outlines + console DOM probe (works in prod builds). */
+export function isInstantBanSwipeHintProbe(): boolean {
+  if (typeof window === 'undefined') return false;
+  return (
+    new URLSearchParams(window.location.search).get('probeSwipeHint') === '1'
+  );
+}
+
+export function instantBanSwipeHintDomDebug(
+  build: string,
+  nodes: Record<string, HTMLElement | null>,
+): void {
+  const probeOn = isInstantBanSwipeHintProbe();
+  const isDevBuild = process.env.NODE_ENV === 'development';
+  if (!probeOn && !isDevBuild) return;
+
+  const pick = (el: HTMLElement | null) => {
+    if (!el) return null;
+    const s = getComputedStyle(el);
+    return {
+      tag: el.tagName,
+      className: el.className,
+      display: s.display,
+      position: s.position,
+      top: s.top,
+      left: s.left,
+      width: s.width,
+      height: s.height,
+      transform: s.transform,
+      zIndex: s.zIndex,
+      overflow: s.overflow,
+      clipPath: s.clipPath,
+    };
+  };
+
+  const picked = Object.fromEntries(
+    Object.entries(nodes).map(([key, el]) => [key, pick(el)]),
+  );
+
+  const hintNodes = document.querySelectorAll('[data-what-swipe-hint]');
+
+  console.log('[what-swipe-hint-dom]', {
+    build,
+    probeOn,
+    hintNodeCount: hintNodes.length,
+    hintBuilds: Array.from(hintNodes).map((el) =>
+      el.getAttribute('data-hint-build'),
+    ),
+    ...picked,
+  });
+}
+
 /** Production + lite: uncontrolled input (no setState per keystroke). */
 export function isInstantBanUncontrolledInput(): boolean {
   return true;

@@ -1477,6 +1477,15 @@
   overflow: visible;
 }
 
+.instant-ban-what-scroll-lift-hint__stage,
+.instant-ban-what-scroll-lift-hint__mover,
+.instant-ban-what-scroll-lift-hint__shape,
+.instant-ban-what-scroll-lift-hint__circle-shell,
+.instant-ban-what-scroll-lift-hint__circle,
+.instant-ban-what-scroll-lift-hint__trail {
+  display: block;
+}
+
 .instant-ban-what-scroll-lift-hint__stage {
   position: relative;
   width: var(--lift-hint-circle);
@@ -1516,13 +1525,12 @@
   overflow: hidden;
   border-radius: 50%;
   background: var(--lift-hint-shape-bg);
-  isolation: isolate;
+  pointer-events: none;
 }
 
 .instant-ban-what-scroll-lift-hint__circle {
   position: relative;
   z-index: 1;
-  display: block;
   box-sizing: border-box;
   width: 100%;
   height: 100%;
@@ -1537,13 +1545,11 @@
   top: calc(var(--lift-hint-circle) - var(--lift-hint-seam));
   left: 0;
   z-index: 1;
-  display: block;
   width: var(--lift-hint-circle);
   height: var(--lift-hint-rise);
   margin: 0;
   border-radius: 0 0 999px 999px;
   transform-origin: top center;
-  clip-path: inset(var(--lift-hint-seam) 0 0 0);
   background: linear-gradient(
     180deg,
     rgba(var(--98-power-rgb), 0.26) 0%,
@@ -1569,6 +1575,20 @@
     infinite;
   will-change: transform, opacity;
   pointer-events: none;
+}
+
+/* ?probeSwipeHint=1 — verify this CSS bundle drives the visible hint on device */
+html[data-probe-swipe-hint='1'] .instant-ban-what-scroll-lift-hint[data-hint-build] {
+  outline: 1px dashed rgba(255, 80, 80, 0.85);
+  outline-offset: 2px;
+}
+
+html[data-probe-swipe-hint='1'] .instant-ban-what-scroll-lift-hint__circle-shell {
+  outline: 2px solid #ff5050;
+}
+
+html[data-probe-swipe-hint='1'] .instant-ban-what-scroll-lift-hint__trail {
+  outline: 2px solid #50ff80;
 }
 
 @keyframes instant-ban-what-scroll-lift-mover {
