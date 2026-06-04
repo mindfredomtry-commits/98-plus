@@ -864,9 +864,11 @@ export function InstantBanFlow({
   );
 
   const arenaOverlayStyle = useMemo((): CSSProperties | undefined => {
-    if (phase === 'composingBan') return composeOverlayStyle;
+    if (phase === 'composingBan' || composeExitProgress > 0) {
+      return composeOverlayStyle;
+    }
     return undefined;
-  }, [composeOverlayStyle, phase]);
+  }, [composeExitProgress, composeOverlayStyle, phase]);
 
   const whoDimStyle = useMemo(
     () =>
@@ -1021,7 +1023,9 @@ export function InstantBanFlow({
             }`}
             style={{
               ...crossScreenStyle,
-              ...(phase === 'composingBan' ? composeOverlayStyle : undefined),
+              ...(phase === 'composingBan' || composeExitProgress > 0
+                ? composeOverlayStyle
+                : undefined),
             }}
             role="presentation"
             onTouchStartCapture={onCrossScreenTouchStartCapture}

@@ -1803,7 +1803,9 @@
 
 .instant-ban-arena-send[data-send-phase='composingBan']
   .lobby-screen__orb-wrap--overlay-dim {
-  opacity: calc(0.72 + var(--compose-exit-progress, 0) * 0.28);
+  opacity: calc(
+    0.72 + min(1, var(--compose-exit-progress, 0) / 0.65) * 0.28
+  );
 }
 
 .instant-ban-arena-send__confirm-layer {
@@ -1892,7 +1894,7 @@
 .instant-ban-arena-send[data-send-phase='composingBan']
   .lobby-screen__orb-root.lobby-screen__orb-wrap--overlay-dim {
   transform: translate(-50%, -50%)
-    scale(calc(0.94 + var(--compose-exit-progress, 0) * 0.06));
+    scale(calc(0.94 + min(1, var(--compose-exit-progress, 0) / 0.65) * 0.06));
 }
 
 .lobby-screen__orb-root.lobby-screen__orb-wrap--confirm {
@@ -2370,7 +2372,11 @@
 
 .instant-ban-send-overlay--cross-screen .instant-ban-send-overlay__shared-dim {
   z-index: 0;
-  opacity: calc(1 - var(--who-dismiss-progress, 0));
+  opacity: calc(
+    (1 - var(--who-dismiss-progress, 0)) *
+      (1 - min(1, var(--compose-exit-progress, 0) / 0.65))
+  );
+  transition: none;
   background: linear-gradient(
     180deg,
     rgba(5, 3, 8, 0.35) 0%,
