@@ -3,12 +3,12 @@
 import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { AvatarImage } from '../AvatarImage';
-import type { EnterPhase, PayoffPhase } from './useConfirmOrbController';
+import type { EnterPhase, HoldPhase } from './useConfirmOrbController';
 
 type Props = {
   enterKey: number;
   enterPhase: EnterPhase;
-  payoffPhase: PayoffPhase;
+  holdPhase: HoldPhase;
   selectedUser: FriendCard;
   banText: string;
   onBack: () => void;
@@ -21,7 +21,7 @@ function friendLabel(friend: FriendCard): string {
 export function ConfirmScreen({
   enterKey,
   enterPhase,
-  payoffPhase,
+  holdPhase,
   selectedUser,
   banText,
   onBack,
@@ -38,18 +38,16 @@ export function ConfirmScreen({
       className="instant-ban-confirm instant-ban-confirm-layout instant-ban-confirm-layout--shared-lobby"
       data-confirm-enter-key={enterKey}
       data-enter-phase={enterPhase}
-      data-payoff-phase={payoffPhase}
+      data-hold-phase={holdPhase}
       data-instant-ban-view="ConfirmScreen"
     >
-      {payoffPhase === 'none' ? (
-        <button
-          type="button"
-          className="instant-ban-confirm-layout__back instant-ban-flow__back"
-          onClick={onBack}
-        >
-          ← Назад
-        </button>
-      ) : null}
+      <button
+        type="button"
+        className="instant-ban-confirm-layout__back instant-ban-flow__back"
+        onClick={onBack}
+      >
+        ← Назад
+      </button>
       <div className="instant-ban-confirm-info instant-ban-confirm-copy">
         <span className="instant-ban-confirm-info__label instant-ban-confirm-copy__lead instant-ban-confirm-enter instant-ban-confirm-enter--1">
           Ты запрещаешь

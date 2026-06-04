@@ -10,22 +10,7 @@ import {
   type PointerEvent,
   type RefObject,
 } from 'react';
-import {
-  instantBanDebug,
-  instantBanPayoffPhaseDebug,
-  instantBanPayoffStartDebug,
-} from '@/lib/instant-ban-debug';
-
 const HOLD_MS = 650;
-/** Must match payoff ritual vars in 98-theme.css */
-const PAYOFF_COLLAPSE_MS = 560;
-const PAYOFF_CORE_MS = 220;
-const PAYOFF_REBIRTH_MS = 680;
-const PAYOFF_GROW_MS = 820;
-const PAYOFF_SETTLE_MS = 450;
-const REVEAL_STAGGER_MS = 100;
-const REVEAL_ITEM_MS = 280;
-const CTA_EXTRA_DELAY_MS = 120;
 /** Stage 1: lobby ring shrinks toward mini-core (ring layer only). */
 export const CONFIRM_COMPRESS_SHRINK_MS = 420;
 /** Stage 2: brief hold dense ring around 98+. */
@@ -46,24 +31,9 @@ export type EnterPhase =
   | 'mini-core'
   | 'expanding'
   | 'ready';
-export type PayoffPhase =
-  | 'none'
-  | 'collapse'
-  | 'core'
-  | 'rebirth'
-  | 'grow'
-  | 'settle'
-  | 'reveal'
-  | 'cta'
-  | 'ready';
 
-const PAYOFF_CARD_LOCKED_PHASES: PayoffPhase[] = ['settle', 'reveal', 'cta', 'ready'];
-
-const PAYOFF_ANIM_RUN_CLASS: Partial<Record<PayoffPhase, string>> = {
-  collapse: 'instant-ban-confirm-orb-btn--payoff-collapse-run',
-  rebirth: 'instant-ban-confirm-orb-btn--payoff-rebirth-run',
-  grow: 'instant-ban-confirm-orb-btn--payoff-grow-run',
-};
+/** Payoff morph removed — kept for ConfirmScreen data attr compatibility. */
+export type PayoffPhase = 'none';
 
 function clampInfluencePercent(value: number | undefined): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -72,31 +42,8 @@ function clampInfluencePercent(value: number | undefined): number {
   return Math.min(100, Math.max(0, value));
 }
 
-function lockPayoffCardGeometry(el: HTMLButtonElement): void {
-  Object.values(PAYOFF_ANIM_RUN_CLASS).forEach((cls) => {
-    if (cls) el.classList.remove(cls);
-  });
-  el.classList.add('instant-ban-confirm-orb-btn--payoff-card-locked');
-}
-
-function clearPayoffShellStyles(el: HTMLButtonElement | null): void {
-  if (!el) return;
-  Object.values(PAYOFF_ANIM_RUN_CLASS).forEach((cls) => {
-    if (cls) el.classList.remove(cls);
-  });
-  el.classList.remove('instant-ban-confirm-orb-btn--payoff-card-locked');
-}
-
-function restartPayoffAnimRun(btn: HTMLButtonElement, phase: PayoffPhase): void {
-  const runClass = PAYOFF_ANIM_RUN_CLASS[phase];
-  if (!runClass) return;
-  btn.classList.remove(runClass);
-  void btn.offsetWidth;
-  btn.classList.add(runClass);
-}
-
 export type ConfirmOrbControllerOptions = {
-  /** Hold/send/payoff — after compose exit completes. */
+  /** Hold/send — after compose exit completes. */
   active: boolean;
   /** Ring compress + enter timeline — starts with compose exit. */
   compressActive: boolean;
@@ -104,7 +51,6 @@ export type ConfirmOrbControllerOptions = {
   influencePercent: number;
   sending: boolean;
   error: string | null;
-  payoffArmToken: number;
   orbWrapRef: RefObject<HTMLDivElement | null>;
   onConfirm: () => void;
   onSendContextChange: (ctx: {
@@ -121,7 +67,6 @@ export function useConfirmOrbController({
   influencePercent,
   sending,
   error,
-  payoffArmToken,
   orbWrapRef,
   onConfirm,
   onSendContextChange,
@@ -135,31 +80,20 @@ export function useConfirmOrbController({
   const [enterPhase, setEnterPhase] = useState<EnterPhase>('lobby-orb');
   const [ringProgress, setRingProgress] = useState(influenceStart);
   const [holdPhase, setHoldPhase] = useState<HoldPhase>('idle');
-  const [payoffPhase, setPayoffPhase] = useState<PayoffPhase>('none');
   const [bounce, setBounce] = useState(false);
 
   const orbBtnRef = useRef<HTMLButtonElement>(null);
   const holdPhaseRef = useRef<HoldPhase>('idle');
-  const payoffPhaseRef = useRef<PayoffPhase>('none');
   const readyToReleaseRef = useRef(false);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const payoffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendTriggeredRef = useRef(false);
-  const payoffPendingRef = useRef(false);
-  const payoffArmSeenRef = useRef(0);
   const bounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const enterComplete = enterPhase === 'ready';
-  const payoffActive = payoffPhase !== 'none';
 
   const setHoldPhaseState = useCallback((phase: HoldPhase) => {
     holdPhaseRef.current = phase;
     setHoldPhase(phase);
-  }, []);
-
-  const setPayoff = useCallback((phase: PayoffPhase) => {
-    payoffPhaseRef.current = phase;
-    setPayoffPhase(phase);
   }, []);
 
   const clearHoldTimer = useCallback(() => {
@@ -169,41 +103,11 @@ export function useConfirmOrbController({
     }
   }, []);
 
-  const clearPayoffTimer = useCallback(() => {
-    if (payoffTimerRef.current) {
-      clearTimeout(payoffTimerRef.current);
-      payoffTimerRef.current = null;
-    }
-  }, []);
-
-  const schedulePayoff = useCallback(
-    (delayMs: number, next: PayoffPhase) => {
-      clearPayoffTimer();
-      payoffTimerRef.current = setTimeout(() => {
-        payoffTimerRef.current = null;
-        setPayoff(next);
-      }, delayMs);
-    },
-    [clearPayoffTimer, setPayoff],
-  );
-
   const abortRelease = useCallback(() => {
-    payoffPendingRef.current = false;
     sendTriggeredRef.current = false;
     readyToReleaseRef.current = false;
     setHoldPhaseState('idle');
-    setPayoff('none');
-    clearPayoffShellStyles(orbBtnRef.current);
-  }, [setHoldPhaseState, setPayoff]);
-
-  const resetPayoff = useCallback(() => {
-    clearPayoffTimer();
-    payoffPendingRef.current = false;
-    setPayoff('none');
-    setHoldPhaseState('idle');
-    sendTriggeredRef.current = false;
-    clearPayoffShellStyles(orbBtnRef.current);
-  }, [clearPayoffTimer, setHoldPhaseState, setPayoff]);
+  }, [setHoldPhaseState]);
 
   const triggerBounce = useCallback(() => {
     if (bounceTimerRef.current) {
@@ -218,7 +122,6 @@ export function useConfirmOrbController({
 
   const cancelHold = useCallback(
     (withWarning: boolean) => {
-      if (payoffActive) return;
       clearHoldTimer();
       readyToReleaseRef.current = false;
       if (holdPhaseRef.current !== 'idle' && holdPhaseRef.current !== 'releasing') {
@@ -243,7 +146,7 @@ export function useConfirmOrbController({
         }
       }
     },
-    [clearHoldTimer, payoffActive, setHoldPhaseState, triggerBounce],
+    [clearHoldTimer, setHoldPhaseState, triggerBounce],
   );
 
   useEffect(() => {
@@ -252,7 +155,7 @@ export function useConfirmOrbController({
 
   useEffect(() => {
     onSendContextChange({
-      payoffPhase: payoffPhaseRef.current,
+      payoffPhase: 'none',
       sendTriggered: sendTriggeredRef.current,
     });
   });
@@ -262,22 +165,15 @@ export function useConfirmOrbController({
 
     setEnterPhase('lobby-orb');
     setHoldPhaseState('idle');
-    setPayoff('none');
     setRingProgress(influenceStart);
     sendTriggeredRef.current = false;
-    payoffPendingRef.current = false;
-    clearPayoffShellStyles(orbBtnRef.current);
-  }, [active, compressActive, influenceStart, setHoldPhaseState, setPayoff]);
+  }, [active, compressActive, influenceStart, setHoldPhaseState]);
 
   useEffect(() => {
     if (!compressActive) return;
 
     setRingProgress(influenceStart);
     sendTriggeredRef.current = false;
-    payoffPendingRef.current = false;
-    payoffArmSeenRef.current = 0;
-    setPayoff('none');
-    clearPayoffTimer();
 
     setEnterPhase('compressing');
     const readyTimer = window.setTimeout(() => {
@@ -287,37 +183,7 @@ export function useConfirmOrbController({
     return () => {
       window.clearTimeout(readyTimer);
     };
-  }, [
-    compressActive,
-    enterKey,
-    influenceStart,
-    clearPayoffTimer,
-    setPayoff,
-  ]);
-
-  useEffect(() => {
-    if (payoffArmToken === 0 || payoffArmToken === payoffArmSeenRef.current) {
-      return;
-    }
-    payoffArmSeenRef.current = payoffArmToken;
-    if (!payoffPendingRef.current) {
-      instantBanDebug('payoff-skip', { reason: 'not-pending', payoffArmToken });
-      return;
-    }
-    payoffPendingRef.current = false;
-    setHoldPhaseState('idle');
-    instantBanPayoffStartDebug({
-      payoffArmToken,
-      phase: 'collapse',
-    });
-    setPayoff('collapse');
-  }, [payoffArmToken, setHoldPhaseState, setPayoff]);
-
-  useEffect(() => {
-    if (error && payoffPhase === 'none') {
-      resetPayoff();
-    }
-  }, [error, payoffPhase, resetPayoff]);
+  }, [compressActive, enterKey, influenceStart]);
 
   useLayoutEffect(() => {
     const mount = orbWrapRef.current;
@@ -325,7 +191,7 @@ export function useConfirmOrbController({
 
     if (compressActive || active) {
       mount.setAttribute('data-enter-phase', enterPhase);
-      mount.setAttribute('data-payoff-phase', payoffPhase);
+      mount.setAttribute('data-payoff-phase', 'none');
       mount.setAttribute('data-confirm-enter-key', String(enterKey));
     } else {
       mount.removeAttribute('data-enter-phase');
@@ -333,9 +199,8 @@ export function useConfirmOrbController({
       mount.removeAttribute('data-confirm-enter-key');
       mount.removeAttribute('data-ring-enter-active');
     }
-  }, [active, compressActive, orbWrapRef, enterPhase, payoffPhase, enterKey]);
+  }, [active, compressActive, orbWrapRef, enterPhase, enterKey]);
 
-  /** One continuous ring animation — enterPhase changes must not restart ring CSS. */
   useLayoutEffect(() => {
     const mount = orbWrapRef.current;
     if (!mount) return;
@@ -364,64 +229,20 @@ export function useConfirmOrbController({
   }, [compressActive, enterPhase]);
 
   useEffect(() => {
-    const btn = orbBtnRef.current;
-    if (!btn || !(payoffPhase in PAYOFF_ANIM_RUN_CLASS)) return;
-    restartPayoffAnimRun(btn, payoffPhase);
-  }, [payoffPhase]);
-
-  useLayoutEffect(() => {
-    const btn = orbBtnRef.current;
-    if (!btn) return;
-    if (PAYOFF_CARD_LOCKED_PHASES.includes(payoffPhase)) {
-      lockPayoffCardGeometry(btn);
+    if (error) {
+      sendTriggeredRef.current = false;
+      setHoldPhaseState('idle');
     }
-    instantBanPayoffPhaseDebug(payoffPhase, btn.className, btn);
-  }, [payoffPhase]);
-
-  useEffect(() => {
-    if (payoffPhase !== 'collapse') return;
-    schedulePayoff(PAYOFF_COLLAPSE_MS, 'core');
-  }, [payoffPhase, schedulePayoff]);
-
-  useEffect(() => {
-    if (payoffPhase !== 'core') return;
-    schedulePayoff(PAYOFF_CORE_MS, 'rebirth');
-  }, [payoffPhase, schedulePayoff]);
-
-  useEffect(() => {
-    if (payoffPhase !== 'rebirth') return;
-    schedulePayoff(PAYOFF_REBIRTH_MS, 'grow');
-  }, [payoffPhase, schedulePayoff]);
-
-  useEffect(() => {
-    if (payoffPhase !== 'grow') return;
-    schedulePayoff(PAYOFF_GROW_MS, 'settle');
-  }, [payoffPhase, schedulePayoff]);
-
-  useEffect(() => {
-    if (payoffPhase !== 'settle') return;
-    schedulePayoff(PAYOFF_SETTLE_MS, 'reveal');
-  }, [payoffPhase, schedulePayoff]);
-
-  useEffect(() => {
-    if (payoffPhase !== 'reveal') return;
-    schedulePayoff(REVEAL_ITEM_MS + REVEAL_STAGGER_MS * 4, 'cta');
-  }, [payoffPhase, schedulePayoff]);
-
-  useEffect(() => {
-    if (payoffPhase !== 'cta') return;
-    schedulePayoff(REVEAL_ITEM_MS + CTA_EXTRA_DELAY_MS, 'ready');
-  }, [payoffPhase, schedulePayoff]);
+  }, [error, setHoldPhaseState]);
 
   useEffect(() => {
     return () => {
       clearHoldTimer();
-      clearPayoffTimer();
       if (bounceTimerRef.current) {
         clearTimeout(bounceTimerRef.current);
       }
     };
-  }, [clearHoldTimer, clearPayoffTimer]);
+  }, [clearHoldTimer]);
 
   const handlePointerDown = useCallback(
     (e: PointerEvent<HTMLButtonElement>) => {
@@ -430,7 +251,6 @@ export function useConfirmOrbController({
         !enterComplete ||
         sending ||
         sendTriggeredRef.current ||
-        payoffActive ||
         e.button !== 0
       ) {
         return;
@@ -466,18 +286,12 @@ export function useConfirmOrbController({
         }
       }, HOLD_MS);
     },
-    [active, enterComplete, sending, payoffActive, clearHoldTimer, setHoldPhaseState],
+    [active, enterComplete, sending, clearHoldTimer, setHoldPhaseState],
   );
 
   const handlePointerUp = useCallback(
     (e: PointerEvent<HTMLButtonElement>) => {
-      if (
-        !active ||
-        !enterComplete ||
-        sending ||
-        sendTriggeredRef.current ||
-        payoffActive
-      ) {
+      if (!active || !enterComplete || sending || sendTriggeredRef.current) {
         return;
       }
       clearHoldTimer();
@@ -492,7 +306,6 @@ export function useConfirmOrbController({
       if (readyToReleaseRef.current) {
         readyToReleaseRef.current = false;
         sendTriggeredRef.current = true;
-        payoffPendingRef.current = true;
         setHoldPhaseState('releasing');
         onConfirm();
         return;
@@ -526,30 +339,29 @@ export function useConfirmOrbController({
       active,
       enterComplete,
       sending,
-      payoffActive,
       clearHoldTimer,
       setHoldPhaseState,
       onConfirm,
-      cancelHold,
+      triggerBounce,
     ],
   );
 
   const handlePointerCancel = useCallback(() => {
-    if (!active || !enterComplete || sending || sendTriggeredRef.current || payoffActive) {
+    if (!active || !enterComplete || sending || sendTriggeredRef.current) {
       return;
     }
     cancelHold(true);
-  }, [active, enterComplete, sending, payoffActive, cancelHold]);
+  }, [active, enterComplete, sending, cancelHold]);
 
   const handlePointerLeave = useCallback(() => {
-    if (!active || !enterComplete || sending || sendTriggeredRef.current || payoffActive) {
+    if (!active || !enterComplete || sending || sendTriggeredRef.current) {
       return;
     }
     if (holdPhaseRef.current === 'idle' || holdPhaseRef.current === 'releasing') {
       return;
     }
     cancelHold(true);
-  }, [active, enterComplete, sending, payoffActive, cancelHold]);
+  }, [active, enterComplete, sending, cancelHold]);
 
   const orbBtnClass = [
     'instant-ban-arena-lobby-orb__btn',
@@ -559,53 +371,19 @@ export function useConfirmOrbController({
     holdPhase === 'ready' ? 'instant-ban-confirm-orb-btn--ready' : '',
     holdPhase === 'releasing' ? 'instant-ban-confirm-orb-btn--releasing' : '',
     bounce ? 'instant-ban-confirm-orb-btn--bounce' : '',
-    payoffPhase === 'collapse' ? 'instant-ban-confirm-orb-btn--payoff-collapse' : '',
-    payoffPhase === 'core' ? 'instant-ban-confirm-orb-btn--payoff-core' : '',
-    payoffPhase === 'rebirth' ? 'instant-ban-confirm-orb-btn--payoff-rebirth' : '',
-    payoffPhase === 'grow' ? 'instant-ban-confirm-orb-btn--payoff-grow' : '',
-    payoffPhase === 'settle' ? 'instant-ban-confirm-orb-btn--payoff-settle' : '',
-    PAYOFF_CARD_LOCKED_PHASES.includes(payoffPhase)
-      ? 'instant-ban-confirm-orb-btn--payoff-card-locked'
-      : '',
-    payoffPhase === 'reveal' || payoffPhase === 'cta' || payoffPhase === 'ready'
-      ? 'instant-ban-confirm-orb-btn--payoff-reveal'
-      : '',
-    payoffPhase === 'cta' || payoffPhase === 'ready'
-      ? 'instant-ban-confirm-orb-btn--payoff-cta'
-      : '',
-    payoffPhase === 'ready' ? 'instant-ban-confirm-orb-btn--payoff-ready' : '',
-    payoffPhase === 'collapse' ||
-    payoffPhase === 'core' ||
-    payoffPhase === 'rebirth' ||
-    payoffPhase === 'grow' ||
-    payoffPhase === 'settle' ||
-    payoffPhase === 'reveal' ||
-    payoffPhase === 'cta' ||
-    payoffPhase === 'ready'
-      ? 'instant-ban-confirm-orb-btn--payoff-shell'
-      : '',
   ]
     .filter(Boolean)
     .join(' ');
 
-  const statusLabel = payoffActive
-    ? ''
-    : sending
-      ? 'Запрет отправляется…'
-      : error
-        ? 'Не получилось отправить запрет'
-        : holdPhase === 'ready'
-          ? 'Отпусти'
-          : holdPhase === 'holding'
-            ? 'Держи…'
-            : 'Зажми';
-
-  const showPayoffContent =
-    payoffPhase === 'reveal' ||
-    payoffPhase === 'cta' ||
-    payoffPhase === 'ready';
-  const showPayoffCta = payoffPhase === 'cta' || payoffPhase === 'ready';
-  const showOrbFace = payoffPhase === 'none' || payoffPhase === 'collapse';
+  const statusLabel = sending
+    ? 'Запрет отправляется…'
+    : error
+      ? 'Не получилось отправить запрет'
+      : holdPhase === 'ready'
+        ? 'Отпусти'
+        : holdPhase === 'holding'
+          ? 'Держи…'
+          : 'Зажми';
 
   const ringValue = compressActive ? ringProgress : influenceStart;
 
@@ -613,22 +391,20 @@ export function useConfirmOrbController({
     orbBtnRef,
     orbBtnClass,
     enterPhase,
-    payoffPhase,
-    payoffActive,
+    payoffPhase: 'none' as const,
+    payoffActive: false,
     enterComplete,
     holdPhase,
     ringValue,
-    showOrbFace,
-    showPayoffContent,
-    showPayoffCta,
+    showOrbFace: true,
+    showPayoffContent: false,
+    showPayoffCta: false,
     statusLabel,
     handlePointerDown,
     handlePointerUp,
     handlePointerCancel,
     handlePointerLeave,
     buttonDisabled:
-      (sending && !payoffActive) ||
-      (active && !enterComplete && !payoffActive) ||
-      (payoffActive && payoffPhase !== 'ready'),
+      sending || (active && !enterComplete),
   };
 }

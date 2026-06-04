@@ -23,7 +23,6 @@ import { resolveDevSendTarget } from '@/lib/dev-receiver';
 import { isClientDevAuthEnabled } from '@/lib/config';
 import {
   instantBanDebug,
-  instantBanPayoffArmDebug,
   instantBanSendBeforeDebug,
   instantBanSendErrorDebug,
   instantBanSendSuccessDebug,
@@ -36,6 +35,7 @@ import { ArenaLobbyOrb } from './ArenaLobbyOrb';
 import { WhoOverlay } from './WhoScreen';
 import { WhatScreen } from './WhatScreen';
 import { ConfirmScreen } from './ConfirmScreen';
+import { SuccessScreen } from './SuccessScreen';
 import { useConfirmOrbController } from './useConfirmOrbController';
 import { useLobbyRingIntroFill } from './useLobbyRingIntroFill';
 import '../lobby-screen.css';
@@ -148,7 +148,7 @@ export function InstantBanFlow({
   const [durationMinutes, setDurationMinutes] = useState(DEFAULT_DURATION_MINUTES);
   const [sendError, setSendError] = useState<string | null>(null);
   const [confirmEnterKey, setConfirmEnterKey] = useState(0);
-  const [payoffArmToken, setPayoffArmToken] = useState(0);
+  const [banSentSuccess, setBanSentSuccess] = useState(false);
   const sendSnapshotRef = useRef<{
     banText: string;
     selectedUser: FriendCard;
@@ -159,8 +159,6 @@ export function InstantBanFlow({
     sendTriggered: boolean;
   }>({ payoffPhase: 'none', sendTriggered: false });
   const confirmAbortReleaseRef = useRef<(() => void) | null>(null);
-  const payoffArmedRef = useRef(false);
-  const payoffArmTokenRef = useRef(0);
   const lobbyOrbMountRef = useRef<HTMLDivElement>(null);
   const [composeExitProgress, setComposeExitProgress] = useState(0);
   const [composeDismissing, setComposeDismissing] = useState(false);
@@ -293,25 +291,17 @@ export function InstantBanFlow({
     setBanText('');
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
     setSendError(null);
-    payoffArmedRef.current = false;
+    setBanSentSuccess(false);
     sendSnapshotRef.current = null;
   }, []);
 
   const onSuccess = useCallback(() => {
     setSendError(null);
-    payoffArmedRef.current = true;
-    const nextToken = payoffArmTokenRef.current + 1;
-    payoffArmTokenRef.current = nextToken;
     instantBanSendSuccessDebug({
-      payoffArmToken: nextToken,
       payoffPending: confirmSendContextRef.current.sendTriggered,
       payoffPhase: confirmSendContextRef.current.payoffPhase,
     });
-    instantBanPayoffArmDebug({
-      payoffArmToken: nextToken,
-      payoffPending: confirmSendContextRef.current.sendTriggered,
-    });
-    setPayoffArmToken(nextToken);
+    setBanSentSuccess(true);
   }, []);
 
   const { send, inFlight, sharing } = useSendChallenge({
@@ -337,19 +327,11 @@ export function InstantBanFlow({
         message: p.message,
       });
       const message = p.message || 'Не получилось отправить запрет';
-      instantBanSendErrorDebug({
-        message,
-        error: p,
-        payoffArmed: payoffArmedRef.current,
-        payoffArmToken: payoffArmTokenRef.current,
-      });
-      if (payoffArmedRef.current) {
-        instantBanDebug('send-error-after-payoff-armed', {
-          message,
-          payoffArmToken: payoffArmTokenRef.current,
-        });
+      if (banSentSuccess) {
+        instantBanSendErrorDebug({ message, error: p, banSentSuccess: true });
         return;
       }
+      instantBanSendErrorDebug({ message, error: p });
       setSendError(message);
     },
     onboard,
@@ -479,7 +461,7 @@ export function InstantBanFlow({
     setComposeDismissing(false);
     setBanText(text);
     setDurationMinutes(duration);
-    payoffArmedRef.current = false;
+    setBanSentSuccess(false);
     sendSnapshotRef.current = null;
     setPhase('confirming');
   }, []);
@@ -497,6 +479,7 @@ export function InstantBanFlow({
   const handleConfirmBack = useCallback(() => {
     setComposeExitProgress(0);
     setComposeDismissing(false);
+    setBanSentSuccess(false);
     setPhase('composingBan');
   }, []);
 
@@ -593,7 +576,7 @@ export function InstantBanFlow({
       return 'rejected';
     }
 
-    if (!payoffArmedRef.current) {
+    if (!banSentSuccess) {
       setSendError(null);
     }
     triggerConfirmHaptic();
@@ -618,11 +601,10 @@ export function InstantBanFlow({
       instantBanSendErrorDebug({
         message: e instanceof Error ? e.message : String(e),
         error: e,
-        payoffArmed: payoffArmedRef.current,
       });
       return 'started';
     }
-  }, [token, haptic, safeFriends, user?.username, user?.id, send]);
+  }, [token, haptic, safeFriends, user?.username, user?.id, send, banSentSuccess]);
 
   const captureSendSnapshot = useCallback(() => {
     if (!selectedUser) return false;
@@ -690,10 +672,13 @@ export function InstantBanFlow({
     [whoDismissProgress],
   );
 
-  const confirmActive = phase === 'confirming' && selectedUser != null;
+  const confirmActive =
+    phase === 'confirming' && selectedUser != null && !banSentSuccess;
   const orbCompressActive =
-    composeDismissing || (phase === 'confirming' && selectedUser != null);
+    !banSentSuccess &&
+    (composeDismissing || (phase === 'confirming' && selectedUser != null));
   const confirmLayoutActive = orbCompressActive;
+  const successSnapshot = sendSnapshotRef.current;
 
   const confirmOrb = useConfirmOrbController({
     active: confirmActive,
@@ -702,7 +687,6 @@ export function InstantBanFlow({
     influencePercent: lobbyInfluencePercent,
     sending: inFlight || sharing,
     error: sendError,
-    payoffArmToken,
     orbWrapRef: lobbyOrbMountRef,
     onConfirm: () => void handleConfirmRelease(),
     onSendContextChange: handleSendContextChange,
@@ -767,36 +751,49 @@ export function InstantBanFlow({
           />
         </div>
 
+        {banSentSuccess && successSnapshot ? (
+          <div
+            className="instant-ban-arena-send__success-layer"
+            data-instant-ban-view="SuccessOverlay"
+          >
+            <SuccessScreen
+              senderUser={user}
+              selectedUser={successSnapshot.selectedUser}
+              banText={successSnapshot.banText}
+              durationMinutes={successSnapshot.durationMinutes}
+              onAgain={resetForAnother}
+            />
+          </div>
+        ) : null}
+
         {confirmActive ? (
           <div
             className="instant-ban-arena-send__confirm-layer"
             data-enter-phase={confirmOrb.enterPhase}
           >
-            {!confirmOrb.payoffActive ? (
-              <div className="instant-ban-confirm-hold-strip">
-                <p
-                  className={`instant-ban-status instant-ban-confirm-enter instant-ban-confirm-enter--5${
-                    sendError ? ' instant-ban-status--error' : ''
-                  }`}
+            <div className="instant-ban-confirm-hold-strip">
+              <p
+                className={`instant-ban-status instant-ban-confirm-enter instant-ban-confirm-enter--5${
+                  sendError ? ' instant-ban-status--error' : ''
+                }`}
+              >
+                {confirmOrb.statusLabel}
+              </p>
+              {sendError ? (
+                <button
+                  type="button"
+                  className="instant-ban-secondary"
+                  onClick={() => void handleRetrySend()}
                 >
-                  {confirmOrb.statusLabel}
-                </p>
-                {sendError ? (
-                  <button
-                    type="button"
-                    className="instant-ban-secondary"
-                    onClick={() => void handleRetrySend()}
-                  >
-                    Попробовать снова
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
+                  Попробовать снова
+                </button>
+              ) : null}
+            </div>
             <ConfirmScreen
               key={`confirm-${confirmEnterKey}-${selectedUser!.id ?? selectedUser!.userId ?? selectedUser!.username}`}
               enterKey={confirmEnterKey}
               enterPhase={confirmOrb.enterPhase}
-              payoffPhase={confirmOrb.payoffPhase}
+              holdPhase={confirmOrb.holdPhase}
               selectedUser={selectedUser!}
               banText={banText}
               onBack={handleConfirmBack}
