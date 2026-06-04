@@ -851,7 +851,8 @@ export function InstantBanFlow({
     });
 
   const liteMode = isInstantBanLiteMode();
-  const whatMobileSafe = orbOverlayDim;
+  /** What layout in pager — from friend pick, not from phase commit (avoids vertical jump). */
+  const whatMobileSafe = Boolean(selectedUser) && showCrossScreenPager;
 
   const composeOverlayStyle = useMemo(
     () =>

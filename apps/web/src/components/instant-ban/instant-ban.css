@@ -2557,15 +2557,19 @@
   flex-direction: column;
 }
 
-/* Compose scene — compact spacing (swipe-away layer) */
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-what-screen-layer .instant-ban-what-scroll-spacer {
+/* Compose scene — compact spacing (pager What page; not tied to phase commit) */
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe
+  .instant-ban-cross-screen-page--what
+  .instant-ban-what-screen-layer
+  .instant-ban-what-scroll-spacer {
   display: block;
   height: clamp(72px, 16vh, 112px);
 }
 
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-what-screen-layer .instant-ban-flow__back {
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe
+  .instant-ban-cross-screen-page--what
+  .instant-ban-what-screen-layer
+  .instant-ban-flow__back {
   margin-bottom: 0.5rem;
 }
 
@@ -2589,48 +2593,63 @@
   text-shadow: 0 0 14px rgba(var(--98-power-rgb), 0.35);
 }
 
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-what-screen-layer .instant-ban-what-selected--mobile {
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe
+  .instant-ban-cross-screen-page--what
+  .instant-ban-what-screen-layer
+  .instant-ban-what-selected--mobile {
   margin-bottom: 0.5rem;
   padding: 0.5rem 0.75rem;
 }
 
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-what-screen-layer .instant-ban-what-field {
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe
+  .instant-ban-cross-screen-page--what
+  .instant-ban-what-screen-layer
+  .instant-ban-what-field {
   min-height: 4.25rem;
   margin-bottom: 0.5rem;
   padding: 0.75rem 0.875rem;
 }
 
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-what-screen-layer .instant-ban-what-placeholder-cycle {
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe
+  .instant-ban-cross-screen-page--what
+  .instant-ban-what-screen-layer
+  .instant-ban-what-placeholder-cycle {
   top: 0.75rem;
   left: 0.875rem;
   right: 0.875rem;
 }
 
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-what-screen-layer .instant-ban-chips--mobile {
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe
+  .instant-ban-cross-screen-page--what
+  .instant-ban-what-screen-layer
+  .instant-ban-chips--mobile {
   gap: 0.3125rem;
 }
 
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-what-screen-layer .instant-ban-duration--mobile {
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe
+  .instant-ban-cross-screen-page--what
+  .instant-ban-what-screen-layer
+  .instant-ban-duration--mobile {
   margin-top: 0.5rem;
 }
 
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-what-screen-layer .instant-ban-duration__label {
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe
+  .instant-ban-cross-screen-page--what
+  .instant-ban-what-screen-layer
+  .instant-ban-duration__label {
   margin-bottom: 0.375rem;
 }
 
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe
+  .instant-ban-cross-screen-page--what
   .instant-ban-what-screen-layer__content {
   padding-top: clamp(22vh, 156px, 30vh);
 }
 
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-what-screen-layer .instant-ban-what-swipe-zone {
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe
+  .instant-ban-cross-screen-page--what
+  .instant-ban-what-screen-layer
+  .instant-ban-what-swipe-zone {
   align-items: flex-end;
   justify-content: center;
   overflow: visible;
@@ -2641,20 +2660,18 @@
   padding-bottom: max(0.625rem, calc(env(safe-area-inset-bottom, 0px) + 0.375rem));
 }
 
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-what-screen-layer .instant-ban-what-scroll-lift-hint {
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe
+  .instant-ban-cross-screen-page--what
+  .instant-ban-what-screen-layer
+  .instant-ban-what-scroll-lift-hint {
   --lift-hint-path-drop: 2.25rem;
   width: 100%;
   padding-top: 0;
   padding-bottom: var(--lift-hint-path-drop);
 }
 
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-send-overlay--compose {
-  pointer-events: none;
-}
-
-.instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
+.instant-ban-arena-send.instant-ban-flow--what-mobile-safe
+  .instant-ban-cross-screen-page--what
   .instant-ban-what-mobile--compose-scene {
   pointer-events: auto;
 }
