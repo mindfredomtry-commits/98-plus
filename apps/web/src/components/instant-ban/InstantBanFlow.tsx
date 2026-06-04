@@ -49,26 +49,17 @@ const LOBBY_CTA_COLD_START_DELAY_MS = 200;
 const WHO_PANEL_ENTER_MS = 220;
 const WHO_OVERLAY_TITLE = 'КОМУ ЗАПРЕЩАЕШЬ?';
 const WHAT_OVERLAY_TITLE = 'ЧТО ЗАПРЕЩАЕШЬ?';
-const SCREEN_TRANSITION_MS = 280;
+const SCREEN_TRANSITION_MS = 300;
+const CROSS_SCREEN_COMMIT_THRESHOLD = 0.35;
 
 type ScreenTransition = 'whoToWhat' | 'whatToWho' | null;
 
-function screenTransitionShellClass(
-  surface: 'who' | 'what',
-  transition: ScreenTransition,
-): string {
-  const base = `instant-ban-screen-transition-shell instant-ban-screen-transition-shell--${surface}`;
-  if (!transition) {
-    return `${base} instant-ban-screen-transition-shell--active`;
-  }
-  if (transition === 'whoToWhat') {
-    return surface === 'who'
-      ? `${base} instant-ban-screen-transition-shell--outgoing instant-ban-screen-transition-shell--out-up`
-      : `${base} instant-ban-screen-transition-shell--incoming instant-ban-screen-transition-shell--in-up`;
-  }
-  return surface === 'what'
-    ? `${base} instant-ban-screen-transition-shell--outgoing instant-ban-screen-transition-shell--out-down`
-    : `${base} instant-ban-screen-transition-shell--incoming instant-ban-screen-transition-shell--in-from-above`;
+function easeOutCubic(t: number): number {
+  return 1 - (1 - t) ** 3;
+}
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
 }
 
 function prefersReducedMotion(): boolean {
@@ -196,21 +187,31 @@ export function InstantBanFlow({
   const ctaEnterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ctaBootDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const whoPanelEnterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const screenTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const screenTransitionRef = useRef<ScreenTransition>(null);
+  const crossScreenAnimRef = useRef<number | null>(null);
+  const crossScreenProgressRef = useRef(0);
+  const crossScreenDragRef = useRef({
+    active: false,
+    decided: false,
+    startX: 0,
+    startY: 0,
+    startProgress: 0,
+    width: 1,
+  });
   const [screenTransition, setScreenTransition] = useState<ScreenTransition>(null);
+  const [crossScreenProgress, setCrossScreenProgress] = useState(0);
   const lobbyCtaBootSpringRef = useRef(false);
   const prevSendStartedRef = useRef(sendStarted);
 
   const legacyStep = legacyStepFromPhase(phase);
-  const showWhoOverlay =
-    phase === 'selectingTarget' || screenTransition === 'whatToWho';
-  const showWhatOverlay =
-    (phase === 'composingBan' || screenTransition === 'whoToWhat') &&
-    selectedUser != null;
-  const overlayOpen = showWhoOverlay || showWhatOverlay;
+  const showCrossScreenPager =
+    phase === 'selectingTarget' || phase === 'composingBan';
+  const overlayOpen = showCrossScreenPager;
   const orbOverlayDim =
-    phase === 'composingBan' || screenTransition === 'whoToWhat';
+    crossScreenProgress > 0.02 || phase === 'composingBan';
+  const crossScreenDragEnabled =
+    selectedUser != null &&
+    (phase === 'selectingTarget' || phase === 'composingBan');
   const showLobbyCta =
     ctaState === 'visible' ||
     ctaState === 'exiting' ||
@@ -247,40 +248,162 @@ export function InstantBanFlow({
     }
   }, []);
 
-  const clearScreenTransitionTimer = useCallback(() => {
-    if (screenTransitionTimerRef.current) {
-      clearTimeout(screenTransitionTimerRef.current);
-      screenTransitionTimerRef.current = null;
+  const stopCrossScreenAnim = useCallback(() => {
+    if (crossScreenAnimRef.current != null) {
+      cancelAnimationFrame(crossScreenAnimRef.current);
+      crossScreenAnimRef.current = null;
     }
   }, []);
 
-  const beginScreenTransition = useCallback(
-    (kind: Exclude<ScreenTransition, null>, onComplete: () => void) => {
-      if (screenTransitionRef.current) return false;
-      const reduced = prefersReducedMotion();
-      const durationMs = reduced ? 0 : SCREEN_TRANSITION_MS;
+  const setCrossScreenProgressImmediate = useCallback((value: number) => {
+    const next = clamp01(value);
+    crossScreenProgressRef.current = next;
+    setCrossScreenProgress(next);
+  }, []);
 
-      screenTransitionRef.current = kind;
-      setScreenTransition(kind);
+  useEffect(() => {
+    crossScreenProgressRef.current = crossScreenProgress;
+  }, [crossScreenProgress]);
 
-      if (durationMs === 0) {
-        screenTransitionRef.current = null;
-        setScreenTransition(null);
-        onComplete();
-        return true;
+  useEffect(() => {
+    if (screenTransitionRef.current) return;
+    if (phase === 'composingBan') {
+      setCrossScreenProgressImmediate(1);
+    } else if (phase === 'selectingTarget') {
+      setCrossScreenProgressImmediate(0);
+    }
+  }, [phase, screenTransition, setCrossScreenProgressImmediate]);
+
+  const animateCrossScreenProgress = useCallback(
+    (to: number, onComplete?: () => void) => {
+      stopCrossScreenAnim();
+      const from = crossScreenProgressRef.current;
+      const target = clamp01(to);
+
+      if (prefersReducedMotion() || Math.abs(target - from) < 0.001) {
+        setCrossScreenProgressImmediate(target);
+        onComplete?.();
+        return;
       }
 
-      clearScreenTransitionTimer();
-      screenTransitionTimerRef.current = setTimeout(() => {
-        screenTransitionTimerRef.current = null;
-        screenTransitionRef.current = null;
-        setScreenTransition(null);
-        onComplete();
-      }, durationMs);
-      return true;
+      const start = performance.now();
+      const tick = (now: number) => {
+        const t = Math.min(1, (now - start) / SCREEN_TRANSITION_MS);
+        const next = from + (target - from) * easeOutCubic(t);
+        setCrossScreenProgressImmediate(next);
+        if (t < 1) {
+          crossScreenAnimRef.current = requestAnimationFrame(tick);
+          return;
+        }
+        crossScreenAnimRef.current = null;
+        onComplete?.();
+      };
+      crossScreenAnimRef.current = requestAnimationFrame(tick);
     },
-    [clearScreenTransitionTimer],
+    [setCrossScreenProgressImmediate, stopCrossScreenAnim],
   );
+
+  const completeWhoToWhat = useCallback(() => {
+    screenTransitionRef.current = null;
+    setScreenTransition(null);
+    setPhase('composingBan');
+    setCrossScreenProgressImmediate(1);
+  }, [setCrossScreenProgressImmediate]);
+
+  const completeWhatToWho = useCallback(() => {
+    screenTransitionRef.current = null;
+    setScreenTransition(null);
+    setPhase('selectingTarget');
+    setCrossScreenProgressImmediate(0);
+  }, [setCrossScreenProgressImmediate]);
+
+  const commitCrossScreenProgress = useCallback(
+    (progress: number) => {
+      if (screenTransitionRef.current) return;
+      const p = clamp01(progress);
+
+      if (phase === 'selectingTarget' && selectedUser) {
+        if (p >= CROSS_SCREEN_COMMIT_THRESHOLD) {
+          screenTransitionRef.current = 'whoToWhat';
+          setScreenTransition('whoToWhat');
+          animateCrossScreenProgress(1, completeWhoToWhat);
+        } else {
+          animateCrossScreenProgress(0);
+        }
+        return;
+      }
+
+      if (phase === 'composingBan') {
+        if (p <= 1 - CROSS_SCREEN_COMMIT_THRESHOLD) {
+          screenTransitionRef.current = 'whatToWho';
+          setScreenTransition('whatToWho');
+          animateCrossScreenProgress(0, completeWhatToWho);
+        } else {
+          animateCrossScreenProgress(1);
+        }
+      }
+    },
+    [
+      animateCrossScreenProgress,
+      completeWhatToWho,
+      completeWhoToWhat,
+      phase,
+      selectedUser,
+    ],
+  );
+
+  const onCrossScreenTouchStartCapture = useCallback(
+    (e: React.TouchEvent) => {
+      if (!crossScreenDragEnabled || screenTransitionRef.current) return;
+      const touch = e.touches[0];
+      if (!touch) return;
+      const width =
+        typeof window !== 'undefined'
+          ? Math.max(window.innerWidth, 1)
+          : 1;
+      crossScreenDragRef.current = {
+        active: false,
+        decided: false,
+        startX: touch.clientX,
+        startY: touch.clientY,
+        startProgress: crossScreenProgressRef.current,
+        width,
+      };
+    },
+    [crossScreenDragEnabled],
+  );
+
+  const onCrossScreenTouchMoveCapture = useCallback(
+    (e: React.TouchEvent) => {
+      const drag = crossScreenDragRef.current;
+      const touch = e.touches[0];
+      if (!touch) return;
+
+      if (!drag.decided) {
+        const dx = touch.clientX - drag.startX;
+        const dy = touch.clientY - drag.startY;
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+        if (Math.abs(dy) > Math.abs(dx)) {
+          crossScreenDragRef.current = { ...drag, active: false, decided: true };
+          return;
+        }
+        stopCrossScreenAnim();
+        crossScreenDragRef.current = { ...drag, active: true, decided: true };
+      }
+
+      if (!crossScreenDragRef.current.active) return;
+      const { startX, startProgress, width } = crossScreenDragRef.current;
+      const delta = (startX - touch.clientX) / width;
+      setCrossScreenProgressImmediate(startProgress + delta);
+    },
+    [setCrossScreenProgressImmediate, stopCrossScreenAnim],
+  );
+
+  const onCrossScreenTouchEndCapture = useCallback(() => {
+    if (!crossScreenDragRef.current.active) return;
+    crossScreenDragRef.current.active = false;
+    commitCrossScreenProgress(crossScreenProgressRef.current);
+  }, [commitCrossScreenProgress]);
 
   const scheduleCtaBecomeVisible = useCallback(() => {
     clearCtaEnterTimer();
@@ -442,9 +565,10 @@ export function InstantBanFlow({
       clearTimeout(whoDismissTimerRef.current);
       whoDismissTimerRef.current = null;
     }
-    clearScreenTransitionTimer();
+    stopCrossScreenAnim();
     screenTransitionRef.current = null;
     setScreenTransition(null);
+    setCrossScreenProgressImmediate(0);
     setWhoExitActive(false);
     setWhoDismissProgress(0);
     setComposeExitProgress(0);
@@ -458,7 +582,7 @@ export function InstantBanFlow({
     if (process.env.NODE_ENV === 'development') {
       console.log('[who-dismiss-set-phase-idle]');
     }
-  }, [beginCtaSpringIn, clearScreenTransitionTimer]);
+  }, [beginCtaSpringIn, setCrossScreenProgressImmediate, stopCrossScreenAnim]);
 
   const handleWhoDismissDragProgress = useCallback((progress: number) => {
     setWhoDismissProgress(progress);
@@ -495,14 +619,14 @@ export function InstantBanFlow({
       clearCtaEnterTimer();
       clearCtaBootDelayTimer();
       clearWhoPanelEnterTimer();
-      clearScreenTransitionTimer();
+      stopCrossScreenAnim();
     };
   }, [
     clearCtaBootDelayTimer,
     clearCtaEnterTimer,
     clearCtaExitTimer,
-    clearScreenTransitionTimer,
     clearWhoPanelEnterTimer,
+    stopCrossScreenAnim,
   ]);
 
   const handleSelectUser = useCallback(
@@ -514,10 +638,16 @@ export function InstantBanFlow({
       setSendError(null);
       setComposeExitProgress(0);
       setComposeDismissing(false);
-      setPhase('composingBan');
-      beginScreenTransition('whoToWhat', () => {});
+      screenTransitionRef.current = 'whoToWhat';
+      setScreenTransition('whoToWhat');
+      setCrossScreenProgressImmediate(0);
+      animateCrossScreenProgress(1, completeWhoToWhat);
     },
-    [beginScreenTransition],
+    [
+      animateCrossScreenProgress,
+      completeWhoToWhat,
+      setCrossScreenProgressImmediate,
+    ],
   );
 
   const handleComposeExitStart = useCallback(() => {
@@ -539,10 +669,10 @@ export function InstantBanFlow({
     if (screenTransitionRef.current) return;
     setComposeExitProgress(0);
     setComposeDismissing(false);
-    beginScreenTransition('whatToWho', () => {
-      setPhase('selectingTarget');
-    });
-  }, [beginScreenTransition]);
+    screenTransitionRef.current = 'whatToWho';
+    setScreenTransition('whatToWho');
+    animateCrossScreenProgress(0, completeWhatToWho);
+  }, [animateCrossScreenProgress, completeWhatToWho]);
 
   const handleComposeExitProgress = useCallback((progress: number) => {
     setComposeExitProgress(progress);
@@ -744,6 +874,14 @@ export function InstantBanFlow({
     [whoDismissProgress],
   );
 
+  const crossScreenStyle = useMemo(
+    () =>
+      ({
+        '--cross-screen-progress': String(crossScreenProgress),
+      }) as CSSProperties,
+    [crossScreenProgress],
+  );
+
   const confirmActive =
     phase === 'confirming' && selectedUser != null && !banSentSuccess;
   const orbCompressActive =
@@ -876,19 +1014,24 @@ export function InstantBanFlow({
 
         {overlayOpen ? (
           <div
-            className={`instant-ban-send-overlay${
-              showWhatOverlay ? ' instant-ban-send-overlay--compose' : ''
+            className={`instant-ban-send-overlay instant-ban-send-overlay--cross-screen${
+              orbOverlayDim ? ' instant-ban-send-overlay--compose' : ''
             }${
               composeExitProgress > 0 ? ' instant-ban-send-overlay--compose-dismissing' : ''
             }${
-              showWhoOverlay && !showWhatOverlay
-                ? ' instant-ban-send-overlay--who'
-                : ''
-            }${screenTransition ? ' instant-ban-send-overlay--cross-screen' : ''}`}
-            style={arenaOverlayStyle}
+              crossScreenProgress < 0.98 ? ' instant-ban-send-overlay--who' : ''
+            }`}
+            style={{
+              ...crossScreenStyle,
+              ...(phase === 'composingBan' ? composeOverlayStyle : undefined),
+            }}
             role="presentation"
+            onTouchStartCapture={onCrossScreenTouchStartCapture}
+            onTouchMoveCapture={onCrossScreenTouchMoveCapture}
+            onTouchEndCapture={onCrossScreenTouchEndCapture}
+            onTouchCancelCapture={onCrossScreenTouchEndCapture}
           >
-            {showWhoOverlay && !showWhatOverlay ? (
+            {crossScreenProgress < 0.98 ? (
               <div
                 className={`instant-ban-send-overlay__dim${
                   whoExitActive ? ' instant-ban-send-overlay__dim--exiting' : ''
@@ -897,46 +1040,50 @@ export function InstantBanFlow({
                 aria-hidden
               />
             ) : null}
-            {showWhoOverlay ? (
-              <div
-                className={screenTransitionShellClass('who', screenTransition)}
-              >
-                <div
-                  className={`instant-ban-send-overlay__panel instant-ban-send-overlay__panel--who${
-                    whoPanelEntering && screenTransition !== 'whatToWho'
-                      ? ' instant-ban-send-overlay__panel--who-enter'
-                      : ''
-                  }`}
-                >
-                  <WhoOverlay
-                    title={WHO_OVERLAY_TITLE}
-                    friends={safeFriends}
-                    onSelect={handleSelectUser}
-                    onInviteMore={handleInviteMore}
-                    onDismissDragProgress={handleWhoDismissDragProgress}
-                    onDismissExitStart={handleWhoDismissExitStart}
-                    onDismissToLobby={handleWhoDismissToLobby}
-                  />
+            <div className="instant-ban-cross-screen-viewport">
+              <div className="instant-ban-cross-screen-track">
+                <div className="instant-ban-cross-screen-page instant-ban-cross-screen-page--who">
+                  <div
+                    className={`instant-ban-send-overlay__panel instant-ban-send-overlay__panel--who${
+                      whoPanelEntering && crossScreenProgress < 0.02
+                        ? ' instant-ban-send-overlay__panel--who-enter'
+                        : ''
+                    }`}
+                  >
+                    <WhoOverlay
+                      title={WHO_OVERLAY_TITLE}
+                      friends={safeFriends}
+                      onSelect={handleSelectUser}
+                      onInviteMore={handleInviteMore}
+                      onDismissDragProgress={handleWhoDismissDragProgress}
+                      onDismissExitStart={handleWhoDismissExitStart}
+                      onDismissToLobby={handleWhoDismissToLobby}
+                    />
+                  </div>
+                </div>
+                <div className="instant-ban-cross-screen-page instant-ban-cross-screen-page--what">
+                  {selectedUser ? (
+                    <WhatScreen
+                      key={
+                        selectedUser.id ??
+                        selectedUser.userId ??
+                        selectedUser.username
+                      }
+                      overlayTitle={WHAT_OVERLAY_TITLE}
+                      onComposeExitProgress={handleComposeExitProgress}
+                      onComposeExitStart={handleComposeExitStart}
+                      selectedUser={selectedUser}
+                      initialBanText={banText}
+                      initialDurationMinutes={durationMinutes}
+                      onSubmit={handleWhatSubmit}
+                      onBack={handleWhatBack}
+                    />
+                  ) : (
+                    <div className="instant-ban-cross-screen-page__placeholder" aria-hidden />
+                  )}
                 </div>
               </div>
-            ) : null}
-            {showWhatOverlay && selectedUser ? (
-              <div
-                className={screenTransitionShellClass('what', screenTransition)}
-              >
-                <WhatScreen
-                  key={selectedUser.id ?? selectedUser.userId ?? selectedUser.username}
-                  overlayTitle={WHAT_OVERLAY_TITLE}
-                  onComposeExitProgress={handleComposeExitProgress}
-                  onComposeExitStart={handleComposeExitStart}
-                  selectedUser={selectedUser}
-                  initialBanText={banText}
-                  initialDurationMinutes={durationMinutes}
-                  onSubmit={handleWhatSubmit}
-                  onBack={handleWhatBack}
-                />
-              </div>
-            ) : null}
+            </div>
           </div>
         ) : null}
       </div>
