@@ -2308,6 +2308,25 @@
   overflow: hidden;
   pointer-events: auto;
   touch-action: pan-y pinch-zoom;
+  background: transparent;
+}
+
+/* One fullscreen dim outside the track — no per-page darken (avoids vertical seam) */
+.instant-ban-send-overlay--cross-screen.instant-ban-send-overlay--compose,
+.instant-ban-send-overlay--cross-screen.instant-ban-send-overlay--compose-dismissing {
+  background: transparent;
+}
+
+.instant-ban-send-overlay--cross-screen .instant-ban-send-overlay__shared-dim {
+  z-index: 0;
+  opacity: calc(1 - var(--who-dismiss-progress, 0));
+  background: linear-gradient(
+    180deg,
+    rgba(5, 3, 8, 0.35) 0%,
+    rgba(5, 3, 8, 0.52) 18%,
+    rgba(5, 3, 8, 0.9) 36%,
+    rgba(5, 3, 8, 0.97) 100%
+  );
 }
 
 .instant-ban-cross-screen-viewport {
@@ -2321,6 +2340,10 @@
   isolation: isolate;
   container-type: inline-size;
   container-name: instant-ban-cross-screen;
+}
+
+.instant-ban-cross-screen-page .instant-ban-what-screen-layer__veil {
+  display: none;
 }
 
 /* Track = 2× viewport; each page = exactly one viewport column */

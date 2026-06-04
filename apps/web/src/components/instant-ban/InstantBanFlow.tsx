@@ -1015,11 +1015,7 @@ export function InstantBanFlow({
         {overlayOpen ? (
           <div
             className={`instant-ban-send-overlay instant-ban-send-overlay--cross-screen${
-              orbOverlayDim ? ' instant-ban-send-overlay--compose' : ''
-            }${
               composeExitProgress > 0 ? ' instant-ban-send-overlay--compose-dismissing' : ''
-            }${
-              crossScreenProgress < 0.98 ? ' instant-ban-send-overlay--who' : ''
             }`}
             style={{
               ...crossScreenStyle,
@@ -1031,15 +1027,13 @@ export function InstantBanFlow({
             onTouchEndCapture={onCrossScreenTouchEndCapture}
             onTouchCancelCapture={onCrossScreenTouchEndCapture}
           >
-            {crossScreenProgress < 0.98 ? (
-              <div
-                className={`instant-ban-send-overlay__dim${
-                  whoExitActive ? ' instant-ban-send-overlay__dim--exiting' : ''
-                }`}
-                style={whoDimStyle}
-                aria-hidden
-              />
-            ) : null}
+            <div
+              className={`instant-ban-send-overlay__shared-dim instant-ban-send-overlay__dim${
+                whoExitActive ? ' instant-ban-send-overlay__dim--exiting' : ''
+              }`}
+              style={whoDimStyle}
+              aria-hidden
+            />
             <div className="instant-ban-cross-screen-viewport">
               <div className="instant-ban-cross-screen-track">
                 <div className="instant-ban-cross-screen-page instant-ban-cross-screen-page--who">
