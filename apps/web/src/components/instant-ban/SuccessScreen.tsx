@@ -1,5 +1,6 @@
 'use client';
 
+import { useLayoutEffect, useRef } from 'react';
 import type { FriendCard, UserPublic } from '@98plus/shared';
 import { BigButton } from '../BigButton';
 import { LobbyBanMark, SuccessBanCardBody } from './SuccessBanCardBody';
@@ -21,9 +22,39 @@ export function SuccessScreen({
   onAgain,
   onShare,
 }: Props) {
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const node = cardRef.current;
+    if (!node) return;
+
+    const settle = () => {
+      node.classList.remove('instant-ban-success-card--enter');
+      node.classList.add('instant-ban-success-card--entered');
+    };
+
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      settle();
+      return;
+    }
+
+    const onEnd = (event: AnimationEvent) => {
+      if (event.target !== node || event.animationName !== 'instant-ban-success-card-enter') {
+        return;
+      }
+      settle();
+    };
+
+    node.addEventListener('animationend', onEnd);
+    return () => node.removeEventListener('animationend', onEnd);
+  }, []);
+
   return (
     <div className="instant-ban-success-screen">
-      <div className="modal-card modal-card--incoming instant-ban-success-card instant-ban-success-card--enter">
+      <div
+        ref={cardRef}
+        className="modal-card modal-card--incoming instant-ban-success-card instant-ban-success-card--enter"
+      >
         <div className="modal-card-body text-center">
           <SuccessBanCardBody
             senderUser={senderUser}
