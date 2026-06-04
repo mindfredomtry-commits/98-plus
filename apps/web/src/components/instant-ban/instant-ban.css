@@ -2273,10 +2273,11 @@
   will-change: transform, opacity;
   transform: translate3d(
     0,
-    calc(var(--compose-exit-progress, 0) * -60vh),
+    calc(var(--compose-exit-progress, 0) * -38vh),
     0
   );
-  opacity: calc(1 - min(1, var(--compose-exit-progress, 0) * 1.6));
+  /* Fade out by ~0.65 progress while finger-driven motion continues */
+  opacity: calc(1 - min(1, var(--compose-exit-progress, 0) / 0.65));
 }
 
 .instant-ban-what-exit-layer--dismissing {
@@ -2330,7 +2331,7 @@
   .instant-ban-what-exit-layer {
     transform: translate3d(
       0,
-      calc(var(--compose-exit-progress, 0) * -34vh),
+      calc(var(--compose-exit-progress, 0) * -24vh),
       0
     );
   }
