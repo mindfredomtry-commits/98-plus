@@ -285,15 +285,16 @@ export function InstantBanFlow({
     }
   }, [friends]);
 
-  const resetForAnother = useCallback(() => {
-    setPhase('selectingTarget');
+  const handleSuccessExitComplete = useCallback(() => {
+    setBanSentSuccess(false);
+    sendSnapshotRef.current = null;
     setSelectedUser(null);
     setBanText('');
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
     setSendError(null);
-    setBanSentSuccess(false);
-    sendSnapshotRef.current = null;
-  }, []);
+    setPhase('idle');
+    beginCtaSpringIn();
+  }, [beginCtaSpringIn]);
 
   const onSuccess = useCallback(() => {
     setSendError(null);
@@ -747,7 +748,6 @@ export function InstantBanFlow({
             selectedUser={selectedUser}
             banText={banText}
             durationMinutes={durationMinutes}
-            onAgain={resetForAnother}
           />
         </div>
 
@@ -761,7 +761,7 @@ export function InstantBanFlow({
               selectedUser={successSnapshot.selectedUser}
               banText={successSnapshot.banText}
               durationMinutes={successSnapshot.durationMinutes}
-              onAgain={resetForAnother}
+              onExitComplete={handleSuccessExitComplete}
               onShare={handleInviteMore}
             />
           </div>
