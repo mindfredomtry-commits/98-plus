@@ -1487,19 +1487,35 @@
   bottom: 0;
   left: 50%;
   z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
   width: var(--lift-hint-circle);
   height: calc(var(--lift-hint-circle) + var(--lift-hint-rise));
+  line-height: 0;
   animation: instant-ban-what-scroll-lift-mover 1.45s cubic-bezier(0.33, 1, 0.68, 1)
     infinite;
   will-change: transform, opacity;
 }
 
-.instant-ban-what-scroll-lift-hint__circle {
+.instant-ban-what-scroll-lift-hint__circle-shell {
   position: relative;
   z-index: 2;
-  display: block;
+  flex: 0 0 var(--lift-hint-circle);
   width: var(--lift-hint-circle);
   height: var(--lift-hint-circle);
+  overflow: hidden;
+  border-radius: 50%;
+  isolation: isolate;
+  contain: layout paint;
+}
+
+.instant-ban-what-scroll-lift-hint__circle {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
   border-radius: 50%;
   border: 2px solid rgba(var(--98-power-rgb), 0.84);
   background: rgba(var(--98-power-rgb), 0.22);
@@ -1507,13 +1523,11 @@
 }
 
 .instant-ban-what-scroll-lift-hint__trail {
-  position: absolute;
-  top: calc(var(--lift-hint-circle) - 1px);
-  left: 0;
-  z-index: 1;
+  flex: 0 0 var(--lift-hint-rise);
   display: block;
-  width: var(--lift-hint-circle);
+  width: 100%;
   height: var(--lift-hint-rise);
+  margin: 0;
   border-radius: 0 0 999px 999px;
   transform-origin: top center;
   background: linear-gradient(
