@@ -430,20 +430,20 @@ export function WhoOverlay({
         aria-hidden
       />
       <div
-        className={`instant-ban-who-scene${
-          dismissCompleting ? ' instant-ban-who-scene--completing' : ''
+        className={`instant-ban-who-screen-layer${
+          dismissCompleting ? ' instant-ban-who-screen-layer--completing' : ''
         }${
           !dismissCompleting && dismissTranslateY < 1
-            ? ' instant-ban-who-scene--at-rest'
+            ? ' instant-ban-who-screen-layer--at-rest'
             : ''
         }${
           snapTransition && !dismissCompleting
-            ? ' instant-ban-who-scene--snap-transition'
+            ? ' instant-ban-who-screen-layer--snap-transition'
             : ''
         }`}
         style={sceneStyle}
       >
-      <div ref={headerRef} className="instant-ban-who-scene__header">
+      <div ref={headerRef} className="instant-ban-who-screen-layer__header">
         <div
           ref={scrollRef}
           className="instant-ban-who-dismiss-scroll-driver"
@@ -456,7 +456,7 @@ export function WhoOverlay({
         <h1 className="instant-ban-send-overlay__title">{title}</h1>
       </div>
 
-      <div className="instant-ban-who-scene__body">
+      <div className="instant-ban-who-screen-layer__body">
         <WhoFriendList
           friends={friends}
           onSelect={onSelect}

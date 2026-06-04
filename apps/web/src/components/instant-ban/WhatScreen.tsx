@@ -866,18 +866,12 @@ function WhatScreenInner({
   if (isComposeScene) {
     return (
       <div
-        className={`instant-ban-what instant-ban-what-mobile instant-ban-what-mobile--compose-scene${
-          isExiting || isResetting || exitProgress > 0
-            ? ' instant-ban-what-mobile--compose-dismissing'
-            : ''
-        }`}
+        className="instant-ban-what instant-ban-what-mobile instant-ban-what-mobile--compose-scene"
         data-instant-ban-view="WhatScreen"
         data-compose-exit-progress={exitProgress.toFixed(3)}
-        style={composeLayerStyle}
       >
         <div
           className="instant-ban-compose-scene"
-          style={composeLayerStyle}
           onTouchStartCapture={onBackSwipeTouchStartCapture}
           onTouchMoveCapture={onBackSwipeTouchMoveCapture}
           onTouchEndCapture={onBackSwipeTouchEndCapture}
@@ -885,15 +879,6 @@ function WhatScreenInner({
           onTouchEnd={onGestureTouchEnd}
           onTouchCancel={onGestureTouchEnd}
         >
-          <div
-            className="instant-ban-compose-scene__veil"
-            aria-hidden
-            style={
-              {
-                '--compose-exit-progress': String(exitProgress),
-              } as CSSProperties
-            }
-          />
           {showSwipeHint ? (
             <div
               ref={scrollRef}
@@ -912,10 +897,17 @@ function WhatScreenInner({
             </div>
           ) : null}
           <div
-            className="instant-ban-compose-scene__layer"
+            className={`instant-ban-what-screen-layer${
+              isExiting || isResetting || exitProgress > 0
+                ? ' instant-ban-what-screen-layer--dismissing'
+                : ''
+            }`}
             style={composeLayerStyle}
           >
-            {composeContent}
+            <div className="instant-ban-what-screen-layer__veil" aria-hidden />
+            <div className="instant-ban-what-screen-layer__content">
+              {composeContent}
+            </div>
           </div>
         </div>
       </div>

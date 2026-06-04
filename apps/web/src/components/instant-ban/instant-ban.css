@@ -129,8 +129,8 @@
   pointer-events: none;
 }
 
-/* Who overlay — gesture in header, visual move on whole scene (px-driven) */
-.instant-ban-who-scene {
+/* Who — swipe dismiss: only screen-layer moves (title, cards, etc. stay aligned) */
+.instant-ban-who-screen-layer {
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -142,12 +142,12 @@
   will-change: transform, opacity;
 }
 
-.instant-ban-who-scene--at-rest {
+.instant-ban-who-screen-layer--at-rest {
   transform: none;
   opacity: 1;
 }
 
-.instant-ban-who-scene--completing {
+.instant-ban-who-screen-layer--completing {
   transform: translate3d(0, 110vh, 0);
   opacity: 0;
   transition:
@@ -156,13 +156,15 @@
   pointer-events: none;
 }
 
-.instant-ban-who-scene--snap-transition:not(.instant-ban-who-scene--completing) {
+.instant-ban-who-screen-layer--snap-transition:not(
+    .instant-ban-who-screen-layer--completing
+  ) {
   transition:
     transform 160ms ease-out,
     opacity 160ms ease-out;
 }
 
-.instant-ban-who-scene__header {
+.instant-ban-who-screen-layer__header {
   position: relative;
   flex-shrink: 0;
   z-index: 2;
@@ -173,7 +175,7 @@
   box-sizing: border-box;
 }
 
-.instant-ban-who-scene__header .instant-ban-send-overlay__title {
+.instant-ban-who-screen-layer__header .instant-ban-send-overlay__title {
   position: relative;
   z-index: 1;
   margin: 0 0 1rem;
@@ -210,7 +212,7 @@
   pointer-events: none;
 }
 
-.instant-ban-who-scene__body {
+.instant-ban-who-screen-layer__body {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -2154,15 +2156,9 @@
   transition: opacity 220ms ease;
 }
 
+/* Compose dismiss: content moves on what-screen-layer only, not overlay chrome */
 .instant-ban-send-overlay--compose-dismissing {
-  opacity: calc(1 - var(--compose-exit-progress, 0) * 0.94);
-  background: linear-gradient(
-    180deg,
-    transparent 0%,
-    rgba(5, 3, 8, calc(0.45 * (1 - var(--compose-exit-progress, 0)))) 16%,
-    rgba(5, 3, 8, calc(0.92 * (1 - var(--compose-exit-progress, 0)))) 32%,
-    rgba(5, 3, 8, calc(0.98 * (1 - var(--compose-exit-progress, 0)))) 100%
-  );
+  opacity: 1;
 }
 
 .instant-ban-what-mobile--compose-scene {
@@ -2189,19 +2185,18 @@
   --compose-exit-progress: 0;
 }
 
-.instant-ban-compose-scene__veil {
+.instant-ban-what-screen-layer__veil {
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: calc(1 - var(--compose-exit-progress, 0) * 0.55);
+  opacity: 1;
   background: linear-gradient(
     180deg,
     rgba(5, 3, 8, 0.35) 0%,
     rgba(5, 3, 8, 0.72) 40%,
     rgba(5, 3, 8, 0.88) 100%
   );
-  transition: opacity 80ms linear;
 }
 
 .instant-ban-compose-scene__scroll-driver {
@@ -2235,18 +2230,18 @@
   pointer-events: none;
 }
 
-.instant-ban-compose-scene__layer {
+/* What — swipe-away: only screen-layer transform/opacity (title, fields, hint move together) */
+.instant-ban-what-screen-layer {
   position: relative;
   z-index: 1;
   width: 100%;
   max-width: 32rem;
   min-height: 100%;
   margin: 0 auto;
-  padding: clamp(26vh, 200px, 34vh) 1.25rem
-    calc(0.5rem + env(safe-area-inset-bottom, 0px));
   box-sizing: border-box;
   pointer-events: none;
   overflow: visible;
+  --compose-exit-progress: 0;
   will-change: transform, opacity;
   transform: translate3d(
     0,
@@ -2256,24 +2251,37 @@
   opacity: calc(1 - min(1, var(--compose-exit-progress, 0) * 1.6));
 }
 
-.instant-ban-compose-scene__layer .instant-ban-flow__back,
-.instant-ban-compose-scene__layer .instant-ban-what-field,
-.instant-ban-compose-scene__layer .instant-ban-chip,
-.instant-ban-compose-scene__layer .instant-ban-duration-pill,
-.instant-ban-compose-scene__layer .instant-ban-what-swipe-zone,
-.instant-ban-compose-scene__layer .instant-ban-what-input,
-.instant-ban-compose-scene__gesture {
+.instant-ban-what-screen-layer__content {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  padding: clamp(26vh, 200px, 34vh) 1.25rem
+    calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+}
+
+.instant-ban-what-screen-layer__content > * {
+  transform: none;
+}
+
+.instant-ban-what-screen-layer .instant-ban-flow__back,
+.instant-ban-what-screen-layer .instant-ban-what-field,
+.instant-ban-what-screen-layer .instant-ban-chip,
+.instant-ban-what-screen-layer .instant-ban-duration-pill,
+.instant-ban-what-screen-layer .instant-ban-what-swipe-zone,
+.instant-ban-what-screen-layer .instant-ban-what-input,
+.instant-ban-what-screen-layer .instant-ban-compose-scene__gesture {
   pointer-events: auto;
 }
 
-.instant-ban-compose-scene__title {
+.instant-ban-what-screen-layer .instant-ban-compose-scene__title {
   flex-shrink: 0;
   margin-bottom: 0.625rem;
   text-shadow: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .instant-ban-compose-scene__layer {
+  .instant-ban-what-screen-layer {
     transform: translate3d(
       0,
       calc(var(--compose-exit-progress, 0) * -34vh),
@@ -2365,6 +2373,7 @@
   max-height: min(72vh, 560px);
   overflow: visible;
   pointer-events: auto;
+  transform: none;
 }
 
 .instant-ban-send-overlay__panel--who-enter {
@@ -2415,17 +2424,17 @@
 
 /* Compose scene — compact spacing (swipe-away layer) */
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__layer .instant-ban-what-scroll-spacer {
+  .instant-ban-what-screen-layer .instant-ban-what-scroll-spacer {
   display: block;
   height: clamp(72px, 16vh, 112px);
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__layer .instant-ban-flow__back {
+  .instant-ban-what-screen-layer .instant-ban-flow__back {
   margin-bottom: 0.5rem;
 }
 
-.instant-ban-compose-scene__layer .instant-ban-flow__back--icon-only {
+.instant-ban-what-screen-layer .instant-ban-flow__back--icon-only {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2438,7 +2447,7 @@
   color: var(--98-text-primary);
 }
 
-.instant-ban-compose-scene__layer .instant-ban-flow__back-glyph {
+.instant-ban-what-screen-layer .instant-ban-flow__back-glyph {
   font-size: 1.375rem;
   font-weight: 400;
   line-height: 1;
@@ -2446,47 +2455,47 @@
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__layer .instant-ban-what-selected--mobile {
+  .instant-ban-what-screen-layer .instant-ban-what-selected--mobile {
   margin-bottom: 0.5rem;
   padding: 0.5rem 0.75rem;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__layer .instant-ban-what-field {
+  .instant-ban-what-screen-layer .instant-ban-what-field {
   min-height: 4.25rem;
   margin-bottom: 0.5rem;
   padding: 0.75rem 0.875rem;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__layer .instant-ban-what-placeholder-cycle {
+  .instant-ban-what-screen-layer .instant-ban-what-placeholder-cycle {
   top: 0.75rem;
   left: 0.875rem;
   right: 0.875rem;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__layer .instant-ban-chips--mobile {
+  .instant-ban-what-screen-layer .instant-ban-chips--mobile {
   gap: 0.3125rem;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__layer .instant-ban-duration--mobile {
+  .instant-ban-what-screen-layer .instant-ban-duration--mobile {
   margin-top: 0.5rem;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__layer .instant-ban-duration__label {
+  .instant-ban-what-screen-layer .instant-ban-duration__label {
   margin-bottom: 0.375rem;
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__layer {
+  .instant-ban-what-screen-layer__content {
   padding-top: clamp(22vh, 156px, 30vh);
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__layer .instant-ban-what-swipe-zone {
+  .instant-ban-what-screen-layer .instant-ban-what-swipe-zone {
   align-items: flex-end;
   justify-content: center;
   overflow: visible;
@@ -2498,7 +2507,7 @@
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe[data-send-phase='composingBan']
-  .instant-ban-compose-scene__layer .instant-ban-what-scroll-lift-hint {
+  .instant-ban-what-screen-layer .instant-ban-what-scroll-lift-hint {
   --lift-hint-path-drop: 2.25rem;
   width: 100%;
   padding-top: 0;
