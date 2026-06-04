@@ -137,12 +137,15 @@
   pointer-events: none;
 }
 
-/* Who — swipe dismiss: only screen-layer moves (title, cards, etc. stay aligned) */
-.instant-ban-who-screen-layer {
+/* Who pull-down dismiss — vertical Y on dismiss-layer (horizontal X stays on track) */
+.instant-ban-who-dismiss-layer {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   width: 100%;
   min-height: 0;
+  flex: 0 1 auto;
   --who-dismiss-translate-y: 0;
   --who-dismiss-progress: 0;
   transform: translate3d(0, calc(var(--who-dismiss-translate-y, 0) * 1px), 0);
@@ -150,12 +153,12 @@
   will-change: transform, opacity;
 }
 
-.instant-ban-who-screen-layer--at-rest {
+.instant-ban-who-dismiss-layer--at-rest {
   transform: none;
   opacity: 1;
 }
 
-.instant-ban-who-screen-layer--completing {
+.instant-ban-who-dismiss-layer--completing {
   transform: translate3d(0, 110vh, 0);
   opacity: 0;
   transition:
@@ -164,12 +167,19 @@
   pointer-events: none;
 }
 
-.instant-ban-who-screen-layer--snap-transition:not(
-    .instant-ban-who-screen-layer--completing
+.instant-ban-who-dismiss-layer--snap-transition:not(
+    .instant-ban-who-dismiss-layer--completing
   ) {
   transition:
     transform 160ms ease-out,
     opacity 160ms ease-out;
+}
+
+.instant-ban-who-screen-layer {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
 }
 
 .instant-ban-who-screen-layer__header {
@@ -2430,13 +2440,13 @@
   min-height: 0;
 }
 
-.instant-ban-cross-screen-page .instant-ban-who-screen-layer,
-.instant-ban-cross-screen-page .instant-ban-what-screen-layer {
+/* What only — do not block Who dismiss-layer transform */
+.instant-ban-cross-screen-page--what .instant-ban-what-screen-layer {
   transform: none !important;
   opacity: 1 !important;
 }
 
-.instant-ban-cross-screen-page .instant-ban-send-overlay__panel--who-enter {
+.instant-ban-cross-screen-page--who .instant-ban-send-overlay__panel--who-enter {
   animation: none;
 }
 
@@ -2474,6 +2484,7 @@ html.instant-ban-resuming .instant-ban-arena-send__stage,
 html.instant-ban-resuming .instant-ban-arena-send__confirm-layer,
 html.instant-ban-resuming .instant-ban-what-mobile--compose-scene,
 html.instant-ban-resuming .instant-ban-what-screen-layer,
+html.instant-ban-resuming .instant-ban-who-dismiss-layer,
 html.instant-ban-resuming .instant-ban-who-screen-layer {
   transition: none !important;
 }
@@ -2560,6 +2571,9 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
   max-height: min(calc(var(--instant-ban-vh, 100dvh) * 0.72), 560px);
   overflow: visible;
   pointer-events: auto;
+}
+
+.instant-ban-who-dismiss-layer .instant-ban-send-overlay__panel--who {
   transform: none;
 }
 

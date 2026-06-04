@@ -1039,23 +1039,18 @@ export function InstantBanFlow({
             <div className="instant-ban-cross-screen-viewport">
               <div className="instant-ban-cross-screen-track">
                 <div className="instant-ban-cross-screen-page instant-ban-cross-screen-page--who">
-                  <div
-                    className={`instant-ban-send-overlay__panel instant-ban-send-overlay__panel--who${
+                  <WhoOverlay
+                    title={WHO_OVERLAY_TITLE}
+                    friends={safeFriends}
+                    onSelect={handleSelectUser}
+                    onInviteMore={handleInviteMore}
+                    onDismissDragProgress={handleWhoDismissDragProgress}
+                    onDismissExitStart={handleWhoDismissExitStart}
+                    onDismissToLobby={handleWhoDismissToLobby}
+                    whoPanelEntering={
                       whoPanelEntering && crossScreenProgress < 0.02
-                        ? ' instant-ban-send-overlay__panel--who-enter'
-                        : ''
-                    }`}
-                  >
-                    <WhoOverlay
-                      title={WHO_OVERLAY_TITLE}
-                      friends={safeFriends}
-                      onSelect={handleSelectUser}
-                      onInviteMore={handleInviteMore}
-                      onDismissDragProgress={handleWhoDismissDragProgress}
-                      onDismissExitStart={handleWhoDismissExitStart}
-                      onDismissToLobby={handleWhoDismissToLobby}
-                    />
-                  </div>
+                    }
+                  />
                 </div>
                 <div className="instant-ban-cross-screen-page instant-ban-cross-screen-page--what">
                   {selectedUser ? (

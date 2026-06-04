@@ -51,6 +51,7 @@ type WhoOverlayProps = {
   onDismissDragProgress: (progress: number) => void;
   onDismissExitStart: () => void;
   onDismissToLobby: () => void;
+  whoPanelEntering?: boolean;
 };
 
 export function WhoOverlay({
@@ -61,6 +62,7 @@ export function WhoOverlay({
   onDismissDragProgress,
   onDismissExitStart,
   onDismissToLobby,
+  whoPanelEntering = false,
 }: WhoOverlayProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -430,40 +432,49 @@ export function WhoOverlay({
         aria-hidden
       />
       <div
-        className={`instant-ban-who-screen-layer${
-          dismissCompleting ? ' instant-ban-who-screen-layer--completing' : ''
+        className={`instant-ban-who-dismiss-layer${
+          dismissCompleting ? ' instant-ban-who-dismiss-layer--completing' : ''
         }${
           !dismissCompleting && dismissTranslateY <= 0
-            ? ' instant-ban-who-screen-layer--at-rest'
+            ? ' instant-ban-who-dismiss-layer--at-rest'
             : ''
         }${
           snapTransition && !dismissCompleting
-            ? ' instant-ban-who-screen-layer--snap-transition'
+            ? ' instant-ban-who-dismiss-layer--snap-transition'
             : ''
         }`}
         style={sceneStyle}
+        data-instant-ban-view="WhoDismissLayer"
       >
-      <div ref={headerRef} className="instant-ban-who-screen-layer__header">
         <div
-          ref={scrollRef}
-          className="instant-ban-who-dismiss-scroll-driver"
-          onScroll={onScroll}
-          aria-hidden
+          className={`instant-ban-send-overlay__panel instant-ban-send-overlay__panel--who${
+            whoPanelEntering ? ' instant-ban-send-overlay__panel--who-enter' : ''
+          }`}
         >
-          <div className="instant-ban-who-dismiss-scroll-driver__track" />
-          <div className="instant-ban-who-dismiss-scroll-driver__anchor" />
-        </div>
-        <h1 className="instant-ban-send-overlay__title">{title}</h1>
-      </div>
+          <div className="instant-ban-who-screen-layer">
+            <div ref={headerRef} className="instant-ban-who-screen-layer__header">
+              <div
+                ref={scrollRef}
+                className="instant-ban-who-dismiss-scroll-driver"
+                onScroll={onScroll}
+                aria-hidden
+              >
+                <div className="instant-ban-who-dismiss-scroll-driver__track" />
+                <div className="instant-ban-who-dismiss-scroll-driver__anchor" />
+              </div>
+              <h1 className="instant-ban-send-overlay__title">{title}</h1>
+            </div>
 
-      <div className="instant-ban-who-screen-layer__body">
-        <WhoFriendList
-          friends={friends}
-          onSelect={onSelect}
-          onInviteMore={onInviteMore}
-        />
+            <div className="instant-ban-who-screen-layer__body">
+              <WhoFriendList
+                friends={friends}
+                onSelect={onSelect}
+                onInviteMore={onInviteMore}
+              />
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
     </>
   );
 }
