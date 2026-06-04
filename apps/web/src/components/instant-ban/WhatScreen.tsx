@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type TouchEvent,
 } from 'react';
 import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
@@ -51,6 +52,9 @@ const SCROLL_SETTLE_MS = 48;
 const COMPOSE_EXIT_MS = 240;
 /** Snap-back when release below threshold. */
 const COMPOSE_RESET_MS = 160;
+/** Swipe right → back to Who (compose scene only). */
+const WHAT_BACK_SWIPE_MIN_DX = 80;
+const WHAT_BACK_SWIPE_DX_DOMINANCE = 1.5;
 
 const WhatSwipeTapZone = memo(function WhatSwipeTapZone({
   onTap,
@@ -595,6 +599,93 @@ function WhatScreenInner({
   }, [tryAdvanceToConfirm]);
 
   const gestureTouchRef = useRef({ y: 0, scroll: 0 });
+  const backSwipeRef = useRef({
+    x: 0,
+    y: 0,
+    active: false,
+    cancelled: false,
+  });
+
+  const resetBackSwipe = useCallback(() => {
+    backSwipeRef.current.active = false;
+    backSwipeRef.current.cancelled = false;
+  }, []);
+
+  const onBackSwipeTouchStartCapture = useCallback(
+    (e: TouchEvent<HTMLDivElement>) => {
+      if (
+        !isComposeScene ||
+        exitCommitRef.current ||
+        isExitingRef.current ||
+        isResettingRef.current
+      ) {
+        return;
+      }
+      const touch = e.touches[0];
+      if (!touch) return;
+      backSwipeRef.current = {
+        x: touch.clientX,
+        y: touch.clientY,
+        active: true,
+        cancelled: false,
+      };
+    },
+    [isComposeScene],
+  );
+
+  const onBackSwipeTouchMoveCapture = useCallback(
+    (e: TouchEvent<HTMLDivElement>) => {
+      if (!backSwipeRef.current.active || backSwipeRef.current.cancelled) {
+        return;
+      }
+      if (isGestureActiveRef.current) {
+        backSwipeRef.current.cancelled = true;
+        return;
+      }
+      const touch = e.touches[0];
+      if (!touch) return;
+      const dx = touch.clientX - backSwipeRef.current.x;
+      const dy = touch.clientY - backSwipeRef.current.y;
+      if (Math.abs(dy) >= Math.abs(dx) * WHAT_BACK_SWIPE_DX_DOMINANCE) {
+        backSwipeRef.current.cancelled = true;
+      }
+    },
+    [],
+  );
+
+  const onBackSwipeTouchEndCapture = useCallback(
+    (e: TouchEvent<HTMLDivElement>) => {
+      if (!backSwipeRef.current.active) return;
+      const startX = backSwipeRef.current.x;
+      const startY = backSwipeRef.current.y;
+      const wasCancelled = backSwipeRef.current.cancelled;
+      resetBackSwipe();
+
+      if (
+        wasCancelled ||
+        isGestureActiveRef.current ||
+        exitCommitRef.current ||
+        isExitingRef.current ||
+        isResettingRef.current
+      ) {
+        return;
+      }
+
+      const touch = e.changedTouches[0];
+      if (!touch) return;
+
+      const dx = touch.clientX - startX;
+      const dy = touch.clientY - startY;
+
+      if (
+        dx >= WHAT_BACK_SWIPE_MIN_DX &&
+        dx > Math.abs(dy) * WHAT_BACK_SWIPE_DX_DOMINANCE
+      ) {
+        onBack();
+      }
+    },
+    [onBack, resetBackSwipe],
+  );
 
   const onGestureTouchStart = useCallback(
     (e: React.TouchEvent) => {
@@ -695,8 +786,17 @@ function WhatScreenInner({
           {overlayTitle}
         </h1>
       ) : null}
-      <button type="button" className="instant-ban-flow__back" onClick={onBack}>
-        ← Назад
+      <button
+        type="button"
+        className={`instant-ban-flow__back${
+          overlayTitle ? ' instant-ban-flow__back--icon-only' : ''
+        }`}
+        onClick={onBack}
+        aria-label="Назад"
+      >
+        <span className="instant-ban-flow__back-glyph" aria-hidden>
+          ←
+        </span>
       </button>
       <WhatSelectedUser user={selectedUser} />
       <label className="instant-ban-what-field">
@@ -793,6 +893,10 @@ function WhatScreenInner({
         <div
           className="instant-ban-compose-scene"
           style={composeLayerStyle}
+          onTouchStartCapture={onBackSwipeTouchStartCapture}
+          onTouchMoveCapture={onBackSwipeTouchMoveCapture}
+          onTouchEndCapture={onBackSwipeTouchEndCapture}
+          onTouchCancelCapture={onBackSwipeTouchEndCapture}
           onTouchEnd={onGestureTouchEnd}
           onTouchCancel={onGestureTouchEnd}
         >
