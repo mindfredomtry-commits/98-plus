@@ -54,7 +54,7 @@
   /* Fixed layout slot = confirm size; lobby ring drawn larger via ring-layer scale */
   --98-arena-orb-anchor-top: 45%;
   --98-confirm-ring-lobby-scale: 1.75;
-  --98-confirm-ring-mini-scale: 0.5;
+  --98-confirm-ring-mini-scale: 1.22;
   --98-payoff-core-size: 14px;
   --98-payoff-energy-sphere-size: 36px;
   --98-payoff-proto-size: 56px;
