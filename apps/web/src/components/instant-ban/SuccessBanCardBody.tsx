@@ -5,8 +5,14 @@ import { friendAvatarUrl } from '@/lib/avatar-url';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
 import { AvatarImage } from '../AvatarImage';
 
-/** Brand-purple no-entry mark (not system-red emoji). */
+/** Success-card no-entry mark — diagonal meets circle (orb energy styling via CSS). */
 export function BanGlyph({ className = '' }: { className?: string }) {
+  const edge = 9 / Math.SQRT2;
+  const x1 = 12 - edge;
+  const y1 = 12 - edge;
+  const x2 = 12 + edge;
+  const y2 = 12 + edge;
+
   return (
     <svg
       className={className}
@@ -16,12 +22,21 @@ export function BanGlyph({ className = '' }: { className?: string }) {
     >
       <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.75" />
       <path
-        d="M8.2 8.2l7.6 7.6"
+        d={`M${x1} ${y1}L${x2} ${y2}`}
         stroke="currentColor"
         strokeWidth="2.75"
         strokeLinecap="round"
       />
     </svg>
+  );
+}
+
+/** Same mark as lobby CTA "🚫 ЗАПРЕЩАТЬ" — emoji only inside Success Card. */
+export function LobbyBanMark({ className = '' }: { className?: string }) {
+  return (
+    <span className={className} aria-hidden>
+      🚫
+    </span>
   );
 }
 

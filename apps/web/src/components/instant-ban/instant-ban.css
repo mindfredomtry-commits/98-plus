@@ -1063,14 +1063,15 @@
   align-items: center;
   justify-content: center;
   margin: 0 auto 0.45rem;
-  color: var(--98-accent);
-  filter: drop-shadow(0 0 6px var(--98-glow-strong))
-    drop-shadow(0 0 14px var(--98-glow));
+  color: var(--98-power-strong);
+  filter: drop-shadow(0 0 8px var(--98-power-glow))
+    drop-shadow(0 0 18px var(--98-power-glow-soft));
 }
 
 .instant-ban-success-card__icon svg {
   width: 1.8rem;
   height: 1.8rem;
+  stroke: var(--98-power);
 }
 
 .instant-ban-success-card__title {
@@ -1089,25 +1090,34 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5625rem;
+  gap: 0.5rem;
+  line-height: 1.2;
+}
+
+.instant-ban-success-card__btn-emoji {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 1.125rem;
   line-height: 1;
 }
 
-.instant-ban-success-card__btn-glyph {
-  width: 1.3rem;
-  height: 1.3rem;
-  flex-shrink: 0;
-  color: inherit;
-  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.35));
+.instant-ban-success-card__btn-text {
+  line-height: 1.2;
 }
 
 .instant-ban-success-card .instant-ban-success-card__btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 0;
   padding: 0.875rem 1.25rem;
   border-radius: 1rem;
   font-size: 1rem;
   font-weight: 600;
   letter-spacing: 0.02em;
+  line-height: 1.2;
   box-shadow:
     0 0 26px var(--98-glow-strong),
     0 0 12px var(--98-glow);

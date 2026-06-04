@@ -2,7 +2,7 @@
 
 import type { FriendCard, UserPublic } from '@98plus/shared';
 import { BigButton } from '../BigButton';
-import { BanGlyph, SuccessBanCardBody } from './SuccessBanCardBody';
+import { LobbyBanMark, SuccessBanCardBody } from './SuccessBanCardBody';
 
 type Props = {
   senderUser: UserPublic | null | undefined;
@@ -35,8 +35,8 @@ export function SuccessScreen({
         <div className="modal-card-actions space-y-2.5">
           <BigButton className="instant-ban-success-card__btn-primary" onClick={onAgain}>
             <span className="instant-ban-success-card__btn-label">
-              <BanGlyph className="instant-ban-success-card__btn-glyph" />
-              Запретить ещё!
+              <LobbyBanMark className="instant-ban-success-card__btn-emoji" />
+              <span className="instant-ban-success-card__btn-text">Запретить ещё!</span>
             </span>
           </BigButton>
           <BigButton
