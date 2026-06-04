@@ -42,10 +42,12 @@ const DEFAULT_DURATION = 3;
 
 /** Scroll driver must exceed viewport by at least this much. */
 const SCROLL_DRIVER_MIN_OVERFLOW_PX = 120;
+/** Raw scroll fraction that maps to exit progress 1 (shorter finger travel). */
+const COMPOSE_EXIT_SCROLL_COMPLETE = 0.68;
 /** Light swipe past this → auto-complete exit on release. */
-const SNAP_EXIT_THRESHOLD = 0.15;
+const SNAP_EXIT_THRESHOLD = 0.1;
 /** Upward progress velocity (1/s) that also commits exit on release. */
-const SNAP_EXIT_VELOCITY = 0.35;
+const SNAP_EXIT_VELOCITY = 0.28;
 /** Debounce before evaluating snap after scroll stops. */
 const SCROLL_SETTLE_MS = 48;
 /** Full compose-layer exit animation. */
@@ -373,7 +375,8 @@ function WhatScreenInner({
     const maxScroll = el.scrollHeight - el.clientHeight;
     if (maxScroll <= SCROLL_DRIVER_MIN_OVERFLOW_PX) return 0;
 
-    return Math.min(1, Math.max(0, el.scrollTop / maxScroll));
+    const raw = Math.min(1, Math.max(0, el.scrollTop / maxScroll));
+    return Math.min(1, raw / COMPOSE_EXIT_SCROLL_COMPLETE);
   }, []);
 
   const syncProgressFromScroll = useCallback(() => {

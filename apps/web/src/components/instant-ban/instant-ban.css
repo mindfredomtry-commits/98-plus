@@ -2089,7 +2089,7 @@
 }
 
 .instant-ban-compose-scene__scroll-driver-track {
-  height: max(140vh, calc(100% + 280px));
+  height: max(108vh, calc(100% + 200px));
   width: 1px;
   pointer-events: none;
 }
@@ -2116,10 +2116,10 @@
   will-change: transform, opacity;
   transform: translate3d(
     0,
-    calc(var(--compose-exit-progress, 0) * -72vh),
+    calc(var(--compose-exit-progress, 0) * -60vh),
     0
   );
-  opacity: calc(1 - var(--compose-exit-progress, 0));
+  opacity: calc(1 - min(1, var(--compose-exit-progress, 0) * 1.6));
 }
 
 .instant-ban-compose-scene__layer .instant-ban-flow__back,
@@ -2142,7 +2142,7 @@
   .instant-ban-compose-scene__layer {
     transform: translate3d(
       0,
-      calc(var(--compose-exit-progress, 0) * -40vh),
+      calc(var(--compose-exit-progress, 0) * -34vh),
       0
     );
   }
