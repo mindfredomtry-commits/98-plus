@@ -2315,32 +2315,57 @@
   z-index: 1;
   flex: 1 1 auto;
   width: 100%;
+  max-width: 100%;
   min-height: 0;
   overflow: hidden;
+  isolation: isolate;
+  container-type: inline-size;
+  container-name: instant-ban-cross-screen;
 }
 
+/* Track = 2× viewport; each page = exactly one viewport column */
 .instant-ban-cross-screen-track {
   display: flex;
   flex-direction: row;
+  flex-wrap: nowrap;
   width: 200%;
   height: 100%;
   min-height: 0;
+  box-sizing: border-box;
   transform: translate3d(
     calc(var(--cross-screen-progress, 0) * -50%),
     0,
     0
   );
+  transform-origin: left center;
   will-change: transform;
 }
 
 .instant-ban-cross-screen-page {
+  position: relative;
   flex: 0 0 50%;
   width: 50%;
+  max-width: 50%;
   min-width: 0;
   min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
   opacity: 1;
+}
+
+/* Compose scene is absolute — must anchor to its page, not the viewport */
+.instant-ban-cross-screen-page .instant-ban-what-mobile--compose-scene {
+  position: absolute;
+  inset: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  box-sizing: border-box;
 }
 
 .instant-ban-cross-screen-page--who {
@@ -2364,6 +2389,23 @@
 
 .instant-ban-cross-screen-page .instant-ban-send-overlay__panel--who-enter {
   animation: none;
+}
+
+@supports (width: 1cqi) {
+  .instant-ban-cross-screen-track {
+    width: 200cqi;
+    transform: translate3d(
+      calc(var(--cross-screen-progress, 0) * -100cqi),
+      0,
+      0
+    );
+  }
+
+  .instant-ban-cross-screen-page {
+    flex: 0 0 100cqi;
+    width: 100cqi;
+    max-width: 100cqi;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
