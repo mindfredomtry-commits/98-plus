@@ -218,7 +218,8 @@ export function InstantBanFlow({
     ctaState === 'entering';
   const ctaInteractive = phase === 'idle' && ctaState === 'visible';
 
-  useInstantBanViewport(orbOverlayDim);
+  /** Stable viewport height for all send phases (Who/What/Confirm), including resume. */
+  useInstantBanViewport(true);
 
   const clearCtaExitTimer = useCallback(() => {
     if (ctaExitTimerRef.current) {
