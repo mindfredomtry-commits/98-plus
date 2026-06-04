@@ -14,11 +14,11 @@ export function BanGlyph({ className = '' }: { className?: string }) {
       fill="none"
       aria-hidden
     >
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.75" />
       <path
         d="M8.2 8.2l7.6 7.6"
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="2.75"
         strokeLinecap="round"
       />
     </svg>
