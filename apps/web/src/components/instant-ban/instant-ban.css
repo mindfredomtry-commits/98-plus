@@ -1462,6 +1462,8 @@
   --lift-hint-circle: 2.875rem;
   --lift-hint-rise: 5.5rem;
   --lift-hint-path-drop: 0rem;
+  --lift-hint-seam: 2px;
+  --lift-hint-shape-bg: #050308;
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -1487,31 +1489,39 @@
   bottom: 0;
   left: 50%;
   z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0;
   width: var(--lift-hint-circle);
-  height: calc(var(--lift-hint-circle) + var(--lift-hint-rise));
-  line-height: 0;
+  height: calc(
+    var(--lift-hint-circle) + var(--lift-hint-rise) - var(--lift-hint-seam)
+  );
   animation: instant-ban-what-scroll-lift-mover 1.45s cubic-bezier(0.33, 1, 0.68, 1)
     infinite;
   will-change: transform, opacity;
 }
 
-.instant-ban-what-scroll-lift-hint__circle-shell {
+.instant-ban-what-scroll-lift-hint__shape {
   position: relative;
+  width: var(--lift-hint-circle);
+  height: calc(
+    var(--lift-hint-circle) + var(--lift-hint-rise) - var(--lift-hint-seam)
+  );
+}
+
+.instant-ban-what-scroll-lift-hint__circle-shell {
+  position: absolute;
+  top: 0;
+  left: 0;
   z-index: 2;
-  flex: 0 0 var(--lift-hint-circle);
   width: var(--lift-hint-circle);
   height: var(--lift-hint-circle);
   overflow: hidden;
   border-radius: 50%;
+  background: var(--lift-hint-shape-bg);
   isolation: isolate;
-  contain: layout paint;
 }
 
 .instant-ban-what-scroll-lift-hint__circle {
+  position: relative;
+  z-index: 1;
   display: block;
   box-sizing: border-box;
   width: 100%;
@@ -1523,13 +1533,17 @@
 }
 
 .instant-ban-what-scroll-lift-hint__trail {
-  flex: 0 0 var(--lift-hint-rise);
+  position: absolute;
+  top: calc(var(--lift-hint-circle) - var(--lift-hint-seam));
+  left: 0;
+  z-index: 1;
   display: block;
-  width: 100%;
+  width: var(--lift-hint-circle);
   height: var(--lift-hint-rise);
   margin: 0;
   border-radius: 0 0 999px 999px;
   transform-origin: top center;
+  clip-path: inset(var(--lift-hint-seam) 0 0 0);
   background: linear-gradient(
     180deg,
     rgba(var(--98-power-rgb), 0.26) 0%,
