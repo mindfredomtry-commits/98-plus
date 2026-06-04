@@ -590,10 +590,39 @@
   animation-delay: 240ms;
 }
 
-.instant-ban-confirm[data-enter-phase='ready'][data-hold-phase='releasing']
-  .instant-ban-confirm-enter,
+/* Visible: после enter, до зажатия orb */
 .instant-ban-confirm[data-enter-phase='ready'][data-hold-phase='idle']
-  .instant-ban-confirm-enter {
+  .instant-ban-confirm-enter--1,
+.instant-ban-confirm[data-enter-phase='ready'][data-hold-phase='idle']
+  .instant-ban-confirm-enter--2,
+.instant-ban-confirm[data-enter-phase='ready'][data-hold-phase='idle']
+  .instant-ban-confirm-enter--3,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='ready'][data-hold-phase='idle']
+  .instant-ban-confirm-enter--1,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='ready'][data-hold-phase='idle']
+  .instant-ban-confirm-enter--2,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='ready'][data-hold-phase='idle']
+  .instant-ban-confirm-enter--3 {
+  animation: none;
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+}
+
+/* Hidden: только после отпускания с отправкой */
+.instant-ban-confirm[data-enter-phase='ready'][data-hold-phase='releasing']
+  .instant-ban-confirm-enter--1,
+.instant-ban-confirm[data-enter-phase='ready'][data-hold-phase='releasing']
+  .instant-ban-confirm-enter--2,
+.instant-ban-confirm[data-enter-phase='ready'][data-hold-phase='releasing']
+  .instant-ban-confirm-enter--3,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='ready'][data-hold-phase='releasing']
+  .instant-ban-confirm-enter--1,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='ready'][data-hold-phase='releasing']
+  .instant-ban-confirm-enter--2,
+.instant-ban-confirm-layout--shared-lobby[data-enter-phase='ready'][data-hold-phase='releasing']
+  .instant-ban-confirm-enter--3 {
+  animation: none;
   opacity: 0;
   visibility: hidden;
   transform: translateY(18px);
