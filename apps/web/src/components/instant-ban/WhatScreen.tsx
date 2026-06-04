@@ -5,7 +5,6 @@ import {
   useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -13,11 +12,7 @@ import {
 } from 'react';
 import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
-import {
-  instantBanDebug,
-  instantBanSwipeHintDomDebug,
-  isInstantBanSwipeHintProbe,
-} from '@/lib/instant-ban-debug';
+import { instantBanDebug } from '@/lib/instant-ban-debug';
 import { AvatarImage } from '../AvatarImage';
 
 const QUICK_CHIPS = [
@@ -63,9 +58,6 @@ const COMPOSE_RESET_MS = 160;
 const WHAT_BACK_SWIPE_MIN_DX = 80;
 const WHAT_BACK_SWIPE_DX_DOMINANCE = 1.5;
 
-/** Bump when swipe-hint DOM/CSS changes — visible in data-hint-build + console probe. */
-const WHAT_SWIPE_HINT_BUILD = 'block-seam-v5';
-
 const WhatSwipeTapZone = memo(function WhatSwipeTapZone({
   onTap,
   sentinelRef,
@@ -73,34 +65,6 @@ const WhatSwipeTapZone = memo(function WhatSwipeTapZone({
   onTap: () => void;
   sentinelRef: React.RefObject<HTMLDivElement | null>;
 }) {
-  const hintRef = useRef<HTMLDivElement>(null);
-  const stageRef = useRef<HTMLDivElement>(null);
-  const moverRef = useRef<HTMLDivElement>(null);
-  const shapeRef = useRef<HTMLDivElement>(null);
-  const circleShellRef = useRef<HTMLDivElement>(null);
-  const circleRef = useRef<HTMLDivElement>(null);
-  const trailRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!isInstantBanSwipeHintProbe()) return;
-    document.documentElement.dataset.probeSwipeHint = '1';
-    return () => {
-      delete document.documentElement.dataset.probeSwipeHint;
-    };
-  }, []);
-
-  useLayoutEffect(() => {
-    instantBanSwipeHintDomDebug(WHAT_SWIPE_HINT_BUILD, {
-      hint: hintRef.current,
-      stage: stageRef.current,
-      mover: moverRef.current,
-      shape: shapeRef.current,
-      circleShell: circleShellRef.current,
-      circle: circleRef.current,
-      trail: trailRef.current,
-    });
-  }, []);
-
   return (
     <div
       ref={sentinelRef}
@@ -109,23 +73,12 @@ const WhatSwipeTapZone = memo(function WhatSwipeTapZone({
       aria-hidden
       onClick={onTap}
     >
-      <div
-        ref={hintRef}
-        className="instant-ban-what-scroll-lift-hint"
-        data-hint-build={WHAT_SWIPE_HINT_BUILD}
-        data-what-swipe-hint="scroll-lift"
-        aria-hidden
-      >
-        <div ref={stageRef} className="instant-ban-what-scroll-lift-hint__stage">
-          <div ref={moverRef} className="instant-ban-what-scroll-lift-hint__mover">
-            <div ref={shapeRef} className="instant-ban-what-scroll-lift-hint__shape">
-              <div ref={trailRef} className="instant-ban-what-scroll-lift-hint__trail" />
-              <div
-                ref={circleShellRef}
-                className="instant-ban-what-scroll-lift-hint__circle-shell"
-              >
-                <div ref={circleRef} className="instant-ban-what-scroll-lift-hint__circle" />
-              </div>
+      <div className="instant-ban-what-scroll-lift-hint" aria-hidden>
+        <div className="instant-ban-what-scroll-lift-hint__stage">
+          <div className="instant-ban-what-scroll-lift-hint__mover">
+            <div className="instant-ban-what-scroll-lift-hint__shape">
+              <div className="instant-ban-what-scroll-lift-hint__trail" />
+              <div className="instant-ban-what-scroll-lift-hint__circle-shell" />
             </div>
           </div>
         </div>
