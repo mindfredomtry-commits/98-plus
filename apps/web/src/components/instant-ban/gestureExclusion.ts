@@ -24,3 +24,10 @@ export function isNoHorizontalPagerTarget(target: EventTarget | null): boolean {
     target.closest(NO_HORIZONTAL_PAGER_SELECTOR) != null
   );
 }
+
+export function isPresetChipTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest(PRESET_CHIP_SELECTOR) != null
+  );
+}

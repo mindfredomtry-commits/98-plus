@@ -38,7 +38,11 @@ import { ConfirmScreen } from './ConfirmScreen';
 import { SuccessScreen } from './SuccessScreen';
 import { useConfirmOrbController } from './useConfirmOrbController';
 import { useLobbyRingIntroFill } from './useLobbyRingIntroFill';
-import { getCrossScreenTouchPolicy } from './gestureExclusion';
+import {
+  getCrossScreenTouchPolicy,
+  isPresetChipTarget,
+} from './gestureExclusion';
+import { describeHitTarget, logPager } from './presetChipDiag';
 import '../lobby-screen.css';
 import './instant-ban.css';
 
@@ -206,6 +210,7 @@ export function InstantBanFlow({
   const crossScreenDragRef = useRef({
     active: false,
     decided: false,
+    policy: 'normal' as ReturnType<typeof getCrossScreenTouchPolicy>,
     startX: 0,
     startY: 0,
     startProgress: 0,
@@ -213,6 +218,7 @@ export function InstantBanFlow({
     lastMoveAt: 0,
     velocityProgressPerSec: 0,
   });
+  const crossScreenChipLockRef = useRef(false);
   const [screenTransition, setScreenTransition] = useState<ScreenTransition>(null);
   const [crossScreenProgress, setCrossScreenProgress] = useState(0);
   const lobbyCtaBootSpringRef = useRef(false);
@@ -389,10 +395,27 @@ export function InstantBanFlow({
 
   const onCrossScreenTouchStartCapture = useCallback(
     (e: React.TouchEvent) => {
-      if (!crossScreenDragEnabled || screenTransitionRef.current) return;
       const touch = e.touches[0];
+      logPager('capture', {
+        x: touch?.clientX,
+        y: touch?.clientY,
+        hit: touch
+          ? describeHitTarget(touch.clientX, touch.clientY)
+          : undefined,
+        onChip: isPresetChipTarget(e.target),
+        defaultPrevented: e.defaultPrevented,
+      });
+      if (!crossScreenDragEnabled || screenTransitionRef.current) return;
       if (!touch) return;
+      if (isPresetChipTarget(e.target)) {
+        crossScreenChipLockRef.current = true;
+        crossScreenDragRef.current.active = false;
+        logPager('start', { skipped: 'preset-chip' });
+        return;
+      }
+      crossScreenChipLockRef.current = false;
       const policy = getCrossScreenTouchPolicy(e.target);
+      logPager('start', { policy });
       const width =
         typeof window !== 'undefined'
           ? Math.max(window.innerWidth, 1)
@@ -414,11 +437,16 @@ export function InstantBanFlow({
 
   const onCrossScreenTouchMoveCapture = useCallback(
     (e: React.TouchEvent) => {
+      if (crossScreenChipLockRef.current) return;
       const drag = crossScreenDragRef.current;
       const touch = e.touches[0];
       if (!touch) return;
 
       if (drag.policy === 'exclude') return;
+
+      if (drag.active) {
+        logPager('move', { active: true });
+      }
 
       if (!drag.decided) {
         const dx = touch.clientX - drag.startX;
@@ -471,6 +499,14 @@ export function InstantBanFlow({
   );
 
   const onCrossScreenTouchEndCapture = useCallback(() => {
+    logPager('end', {
+      chipLock: crossScreenChipLockRef.current,
+      active: crossScreenDragRef.current.active,
+    });
+    if (crossScreenChipLockRef.current) {
+      crossScreenChipLockRef.current = false;
+      return;
+    }
     if (!crossScreenDragRef.current.active) return;
     const { velocityProgressPerSec } = crossScreenDragRef.current;
     crossScreenDragRef.current.active = false;
