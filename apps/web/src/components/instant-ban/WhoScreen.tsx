@@ -65,6 +65,7 @@ export function WhoOverlay({
   onDismissExitStart,
   onDismissToLobby,
   whoPanelEntering = false,
+  gestureZoneActive = true,
 }: WhoOverlayProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
