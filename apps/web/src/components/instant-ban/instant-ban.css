@@ -511,7 +511,8 @@
 
 .instant-ban-confirm-info__duration {
   display: inline-block;
-  margin-top: 0.625rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.125rem;
   padding: 0.3125rem 0.75rem;
   border-radius: 999px;
   font-size: 0.8125rem;
@@ -2079,15 +2080,22 @@
 
 .instant-ban-arena-send[data-send-phase='confirming'] .instant-ban-confirm-layout--shared-lobby
   .instant-ban-confirm-info {
-  margin-top: clamp(
-    calc(var(--instant-ban-vh, 100dvh) * 0.06),
-    48px,
-    calc(var(--instant-ban-vh, 100dvh) * 0.12)
+  position: absolute;
+  left: 1.25rem;
+  right: 1.25rem;
+  top: calc(env(safe-area-inset-top, 0px) + 3.25rem);
+  bottom: calc(
+    (100% - var(--98-arena-orb-anchor-top, 45%)) +
+      (var(--98-confirm-orb-size, 160px) * var(--98-confirm-ring-lobby-scale, 1.75) / 2) +
+      0.875rem
   );
-  margin-bottom: 0;
+  margin: 0 auto;
   max-width: min(100%, 340px);
+  width: 100%;
   padding: 0;
   z-index: 2;
+  justify-content: flex-end;
+  box-sizing: border-box;
 }
 
 /* Dev: add data-debug-slow-orb on .instant-ban-arena-send to verify continuous compress */

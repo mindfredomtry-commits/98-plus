@@ -46,10 +46,11 @@ export function ConfirmScreen({
     >
       <button
         type="button"
-        className="instant-ban-confirm-layout__back instant-ban-flow__back"
+        className="instant-ban-confirm-layout__back instant-ban-flow__back instant-ban-flow__back--icon-only instant-ban-flow__back--what-compose"
         onClick={onBack}
+        aria-label="Назад"
       >
-        ← Назад
+        <WhatBackIcon />
       </button>
       <div className="instant-ban-confirm-info instant-ban-confirm-copy">
         <span className="instant-ban-confirm-info__label instant-ban-confirm-copy__lead instant-ban-confirm-enter instant-ban-confirm-enter--1">
