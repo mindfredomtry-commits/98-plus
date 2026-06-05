@@ -345,10 +345,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setResult(null);
     }
     if (active?.kind === 'incoming') {
+      console.log('INCOMING QUEUE ACTIVE', { banId: active.ban.id });
+    } else if (queue.some((q) => q.kind === 'incoming')) {
       console.log('INCOMING QUEUE ACTIVE', {
-        banId: active.ban.id,
-        queueLength: queue.length,
-        queueKeys: queue.map(overlayQueueKey),
+        banId: null,
+        reason: 'incoming-queued-not-head',
+        headKind: active?.kind ?? null,
       });
     }
   }, []);
@@ -390,9 +392,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         console.log('INCOMING QUEUE PUSH', {
           banId: item.ban.id,
           skipped: false,
-          live: !!opts?.live,
+          reason: 'enqueued',
           source: opts?.source ?? null,
-          queueKeys: next.map(overlayQueueKey),
         });
       }
 
@@ -1212,24 +1213,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const b = enrichBanInteraction(payload);
       const viewerId = userIdRef.current;
 
-      if (source === 'ws') {
+      if (source === 'ws' || source === 'poll') {
         incomingWsSeenRef.current.add(b.id);
-        console.log('INCOMING WS RECEIVED', {
-          banId: b.id,
-          receiverId: b.receiver?.id ?? null,
-          authUserId: viewerId,
-          status: b.status,
-          dismissed: dismissedIncomingRef.current.has(b.id),
-        });
-      } else if (source === 'poll') {
-        incomingWsSeenRef.current.add(b.id);
-        console.log('INCOMING POLL RECEIVED', {
-          banId: b.id,
-          receiverId: b.receiver?.id ?? null,
-          authUserId: viewerId,
-          status: b.status,
-          dismissed: dismissedIncomingRef.current.has(b.id),
-        });
       }
 
       const decision = incomingShowDecision(
@@ -1272,16 +1257,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      console.log('INCOMING QUEUE PUSH', {
+        banId: b.id,
+        skipped: true,
+        reason: decision.reason,
+        source,
+        authUserId: viewerId,
+      });
+
       if (
         source === 'ws' &&
         b.receiver?.id &&
         (!viewerId || b.receiver.id === viewerId)
       ) {
         bufferedIncomingRef.current = b;
-        console.log('[incoming-buffer]', {
-          action: 'store',
+        console.log('INCOMING QUEUE PUSH', {
           banId: b.id,
-          receiverId: b.receiver?.id,
+          skipped: true,
+          reason: 'buffered-no-auth',
           authUserId: viewerId,
         });
       }
@@ -2393,7 +2386,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         {children}
         <GlobalOverlayHost
           active={notificationOverlayActive}
-          debugActiveKinds={overlayActiveKinds}
+          activeIncomingBanId={
+            incomingGateActive ? (incomingBan?.id ?? null) : null
+          }
         >
           <ChallengeErrorBoundary
             name="incoming"

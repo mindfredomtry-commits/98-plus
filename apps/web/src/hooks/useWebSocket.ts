@@ -86,6 +86,19 @@ export function useWebSocket(
           return;
         }
 
+        if (data.type === 'ban:incoming') {
+          const banId = (data.payload as { id?: string } | undefined)?.id ?? null;
+          const dedupSkip = !!(
+            data.eventId && seenRef.current.has(data.eventId)
+          );
+          console.log('INCOMING WS RECEIVED', {
+            banId,
+            skipped: dedupSkip,
+            reason: dedupSkip ? 'eventId-dedup' : null,
+            eventId: data.eventId ?? null,
+          });
+        }
+
         if (data.eventId) {
           if (seenRef.current.has(data.eventId)) return;
           seenRef.current.add(data.eventId);

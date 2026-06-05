@@ -12,6 +12,7 @@ import {
 import {
   coerceFriendList,
   findFriendByUsername,
+  type BanInteraction,
   type FriendCard,
 } from '@98plus/shared';
 import { useApp } from '../Providers';
@@ -29,13 +30,21 @@ import {
   isInstantBanLiteMode,
 } from '@/lib/instant-ban-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
-import { shareInstantBanInviteMore } from '@/lib/share';
+import { shareDeepLink, shareInstantBanInviteMore } from '@/lib/share';
 import { ArenaLobbyIdle, type LobbyCtaState } from './ArenaLobbyIdle';
 import { ArenaLobbyOrb } from './ArenaLobbyOrb';
 import { WhoOverlay } from './WhoScreen';
 import { WhatScreen } from './WhatScreen';
 import { ConfirmScreen } from './ConfirmScreen';
 import { SuccessScreen } from './SuccessScreen';
+import { ArenaLobbyTopNav } from './ArenaLobbyTopNav';
+import { BansOverlay } from './BansOverlay';
+import { ActiveBanCardOverlay } from './ActiveBanCardOverlay';
+import {
+  type BansTab,
+  filterBansForTab,
+  opponentForBan,
+} from './bans-overlay-utils';
 import { useConfirmOrbController } from './useConfirmOrbController';
 import { useLobbyRingIntroFill } from './useLobbyRingIntroFill';
 import {
@@ -172,6 +181,7 @@ export function InstantBanFlow({
     applyOptimisticSend,
     confirmOptimisticSend,
     rollbackOptimisticSend,
+    activeBans,
   } = useApp();
   const { haptic } = useTelegram();
 
@@ -227,13 +237,19 @@ export function InstantBanFlow({
   const [crossScreenProgress, setCrossScreenProgress] = useState(0);
   const lobbyCtaBootSpringRef = useRef(false);
   const prevSendStartedRef = useRef(sendStarted);
+  const [bansOverlayOpen, setBansOverlayOpen] = useState(false);
+  const [bansTab, setBansTab] = useState<BansTab>('yours');
+  const [selectedBanForDetails, setSelectedBanForDetails] =
+    useState<BanInteraction | null>(null);
 
   const legacyStep = legacyStepFromPhase(phase);
   const showCrossScreenPager =
     phase === 'selectingTarget' || phase === 'composingBan';
   const overlayOpen = showCrossScreenPager;
   const orbOverlayDim =
-    crossScreenProgress > 0.02 || phase === 'composingBan';
+    crossScreenProgress > 0.02 ||
+    phase === 'composingBan' ||
+    bansOverlayOpen;
   /** Horizontal pager only on Who — no finger swipe What → Who. */
   const crossScreenDragEnabled =
     selectedUser != null && phase === 'selectingTarget';
@@ -598,6 +614,99 @@ export function InstantBanFlow({
       return [];
     }
   }, [friends]);
+
+  const filteredBans = useMemo(
+    () =>
+      filterBansForTab(
+        Array.isArray(activeBans) ? activeBans : [],
+        bansTab,
+        user?.id,
+      ),
+    [activeBans, bansTab, user?.id],
+  );
+
+  const showLobbyTopNav =
+    phase === 'idle' && !banSentSuccess && !bansOverlayOpen;
+
+  useEffect(() => {
+    if (phase !== 'idle') {
+      setBansOverlayOpen(false);
+      setSelectedBanForDetails(null);
+    }
+  }, [phase]);
+
+  const handleOpenBansOverlay = useCallback(() => {
+    if (phase !== 'idle' || banSentSuccess) return;
+    setBansTab('yours');
+    setSelectedBanForDetails(null);
+    setBansOverlayOpen(true);
+  }, [banSentSuccess, phase]);
+
+  const handleCloseBansOverlay = useCallback(() => {
+    setBansOverlayOpen(false);
+    setSelectedBanForDetails(null);
+  }, []);
+
+  const handleBanShare = useCallback(
+    (ban: BanInteraction) => {
+      haptic('light');
+      shareDeepLink(
+        { type: 'ban', banId: ban.id },
+        `Запрет в 98+\n«${ban.text?.trim() || ''}»`,
+      );
+    },
+    [haptic],
+  );
+
+  const handleBanMore = useCallback(
+    (ban: BanInteraction) => {
+      if (!user?.id) return;
+      const opponent = opponentForBan(ban, user.id);
+      const fromFriends = findFriendByUsername(
+        safeFriends,
+        opponent.username ?? '',
+      );
+      const friend: FriendCard =
+        fromFriends ??
+        ({
+          id: opponent.id,
+          userId: opponent.id,
+          telegramId: opponent.telegramId,
+          username: opponent.username ?? '',
+          firstName: opponent.firstName,
+          photoUrl: opponent.photoUrl,
+          avatarUrl: opponent.avatarUrl,
+          auraLabel: opponent.auraLabel,
+          streak: opponent.streak,
+          energyPercent: opponent.energyPercent,
+          presence: 'offline',
+          lastSeenAt: null,
+          interactionCount: 0,
+          isRegistered: true,
+        } satisfies FriendCard);
+
+      setBansOverlayOpen(false);
+      setSelectedBanForDetails(null);
+      clearCtaExitTimer();
+      clearWhoPanelEnterTimer();
+      setCtaState('hidden');
+      onStartSend();
+      setSelectedUser(friend);
+      setBanText('');
+      setDurationMinutes(DEFAULT_DURATION_MINUTES);
+      setSendError(null);
+      setPhase('composingBan');
+      setCrossScreenProgressImmediate(1);
+    },
+    [
+      clearCtaExitTimer,
+      clearWhoPanelEnterTimer,
+      onStartSend,
+      safeFriends,
+      setCrossScreenProgressImmediate,
+      user?.id,
+    ],
+  );
 
   const handleSuccessExitComplete = useCallback(() => {
     setBanSentSuccess(false);
@@ -1058,8 +1167,12 @@ export function InstantBanFlow({
       data-screen-transition={screenTransition ?? undefined}
       data-orb-compress-active={orbCompressActive ? '' : undefined}
       data-instant-ban-step={legacyStep}
+      data-bans-overlay-open={bansOverlayOpen ? '' : undefined}
       data-debug-slow-orb={process.env.NODE_ENV === 'development' ? '' : undefined}
     >
+      {showLobbyTopNav ? (
+        <ArenaLobbyTopNav onOpenBans={handleOpenBansOverlay} />
+      ) : null}
       <div className="lobby-screen__grid" aria-hidden />
       <div className="lobby-screen__particles" aria-hidden>
         {Array.from({ length: 10 }).map((_, i) => (
@@ -1214,7 +1327,7 @@ export function InstantBanFlow({
         ) : null}
       </div>
 
-      {showLobbyCta ? (
+      {showLobbyCta && !bansOverlayOpen ? (
         <ArenaLobbyIdle
           influencePercent={lobbyInfluencePercent}
           energyLoaded={energyLoaded}
@@ -1224,6 +1337,27 @@ export function InstantBanFlow({
           ctaInteractive={ctaInteractive}
           onBeginSend={handleBeginSend}
         />
+      ) : null}
+
+      {bansOverlayOpen && phase === 'idle' ? (
+        <div className="instant-ban-arena-send__bans-layer">
+          <BansOverlay
+            tab={bansTab}
+            bans={filteredBans}
+            userId={user?.id}
+            onTabChange={setBansTab}
+            onClose={handleCloseBansOverlay}
+            onSelectBan={setSelectedBanForDetails}
+          />
+          {selectedBanForDetails ? (
+            <ActiveBanCardOverlay
+              ban={selectedBanForDetails}
+              onBack={() => setSelectedBanForDetails(null)}
+              onBanMore={() => handleBanMore(selectedBanForDetails)}
+              onShare={() => handleBanShare(selectedBanForDetails)}
+            />
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

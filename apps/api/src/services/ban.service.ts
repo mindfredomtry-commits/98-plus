@@ -402,6 +402,14 @@ export async function sendBan(params: {
       durationMinutes,
     });
 
+    console.log('BACKEND SEND BAN', {
+      banId: null,
+      senderId,
+      receiverId: null,
+      status: 'invite-pending',
+      targetUsername,
+    });
+
     return {
       pending: true,
       requiresShare: true,
@@ -439,7 +447,7 @@ export async function sendBan(params: {
     include: { sender: true, receiver: true },
   });
 
-  console.log('[incoming-create]', {
+  console.log('BACKEND SEND BAN', {
     banId: ban.id,
     senderId,
     receiverId: receiver.id,
@@ -448,11 +456,6 @@ export async function sendBan(params: {
 
   const interaction = buildInteractionFromBan(ban, receiver.id);
 
-  console.log('[incoming-ws-emit-start]', {
-    banId: ban.id,
-    toUserId: receiver.id,
-    eventName: 'ban:incoming',
-  });
   const emitResult = broadcastToUser(receiver.id, {
     type: 'ban:incoming',
     payload: interaction,
@@ -1327,9 +1330,9 @@ export async function getPendingIncoming(userId: string) {
 export async function getPendingIncomingForPoll(userId: string) {
   const { ban, reject } = await findFreshPendingIncomingRow(userId);
 
-  console.log('[incoming-pending]', {
+  console.log('BACKEND POLL INCOMING', {
     userId,
-    incomingId: ban?.id ?? null,
+    banId: ban?.id ?? null,
     reason: reject ?? (ban ? 'found' : 'none'),
   });
 

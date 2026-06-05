@@ -144,6 +144,20 @@ export function broadcastToUser(
 
   const delivered = deliverToLocalClients(userId, fullEvent);
 
+  if (event.type === 'ban:incoming') {
+    const payload = fullEvent.payload as {
+      id?: string;
+      receiver?: { id?: string };
+    };
+    console.log('BACKEND EMIT INCOMING', {
+      banId: payload?.id ?? null,
+      receiverId: payload?.receiver?.id ?? userId,
+      toUserId: userId,
+      delivered,
+      published: true,
+    });
+  }
+
   const message: UserEventMessage = {
     userId,
     event: fullEvent,

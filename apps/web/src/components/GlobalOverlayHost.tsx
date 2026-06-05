@@ -8,7 +8,7 @@ interface Props {
   /** When true, the layer accepts pointer events (backdrop taps). */
   active: boolean;
   children: ReactNode;
-  debugActiveKinds?: string[];
+  activeIncomingBanId?: string | null;
 }
 
 /**
@@ -18,7 +18,7 @@ interface Props {
 export function GlobalOverlayHost({
   active,
   children,
-  debugActiveKinds = [],
+  activeIncomingBanId = null,
 }: Props) {
   const [mounted, setMounted] = useState(false);
 
@@ -27,12 +27,11 @@ export function GlobalOverlayHost({
   }, []);
 
   useEffect(() => {
-    if (!active) return;
+    if (!activeIncomingBanId) return;
     console.log('INCOMING OVERLAY HOST ACTIVE', {
-      active,
-      kinds: debugActiveKinds,
+      banId: activeIncomingBanId,
     });
-  }, [active, debugActiveKinds]);
+  }, [activeIncomingBanId]);
 
   if (!mounted || typeof document === 'undefined') return null;
 

@@ -3064,3 +3064,340 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
   .instant-ban-what-mobile--compose-scene {
   pointer-events: auto;
 }
+
+/* —— Lobby top nav + “Твои запреты” overlay stack —— */
+/* z-index: lobby shell 65 < bans layer 12 < active card 14 < GlobalOverlayHost 100 */
+
+.instant-ban-arena-lobby-nav {
+  position: absolute;
+  top: calc(0.5rem + env(safe-area-inset-top, 0px));
+  left: 0;
+  right: 0;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0 0.75rem;
+  pointer-events: auto;
+}
+
+.instant-ban-arena-lobby-nav__item {
+  flex: 1 1 0;
+  max-width: 7.5rem;
+  padding: 0.45rem 0.35rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(var(--98-text-primary-rgb, 255, 255, 255), 0.55);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.instant-ban-arena-lobby-nav__item--active {
+  color: var(--98-text-primary);
+  background: rgba(var(--98-purple-soft-rgb), 0.14);
+  box-shadow: 0 0 18px rgba(var(--98-accent-rgb), 0.22);
+}
+
+.instant-ban-arena-lobby-nav__item--muted:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.instant-ban-arena-send__bans-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.instant-ban-bans-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  min-height: 0;
+}
+
+.instant-ban-bans-overlay__dim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(5, 3, 8, 0.55) 0%,
+    rgba(5, 3, 8, 0.82) 28%,
+    rgba(5, 3, 8, 0.96) 52%,
+    rgba(5, 3, 8, 0.98) 100%
+  );
+  backdrop-filter: blur(6px);
+}
+
+.instant-ban-bans-overlay__panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: calc(0.75rem + env(safe-area-inset-top, 0px)) 1.1rem
+    calc(1rem + env(safe-area-inset-bottom, 0px));
+}
+
+.instant-ban-bans-overlay__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.instant-ban-bans-overlay__back {
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.instant-ban-bans-overlay__title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  color: var(--98-text-primary);
+}
+
+.instant-ban-bans-overlay__tabs {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.instant-ban-bans-overlay__tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.instant-ban-bans-overlay__tab {
+  flex: 0 0 auto;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid rgba(var(--98-purple-soft-rgb), 0.22);
+  border-radius: 999px;
+  background: rgba(8, 5, 14, 0.55);
+  color: rgba(var(--98-text-primary-rgb, 255, 255, 255), 0.62);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.instant-ban-bans-overlay__tab--active {
+  color: var(--98-text-primary);
+  border-color: rgba(var(--98-accent-rgb), 0.55);
+  background: rgba(var(--98-accent-rgb), 0.14);
+  box-shadow: 0 0 16px rgba(var(--98-accent-rgb), 0.2);
+}
+
+.instant-ban-bans-overlay__tab--stub:not(.instant-ban-bans-overlay__tab--active) {
+  opacity: 0.7;
+}
+
+.instant-ban-bans-overlay__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding-bottom: 0.5rem;
+}
+
+.instant-ban-bans-overlay__empty {
+  margin: 2rem 0 0;
+  text-align: center;
+  color: rgba(var(--98-text-primary-rgb, 255, 255, 255), 0.5);
+  font-size: 0.85rem;
+}
+
+.instant-ban-bans-list-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.85rem 0.9rem;
+  border: 1px solid rgba(var(--98-accent-rgb), 0.35);
+  border-radius: 1rem;
+  background: rgba(12, 8, 20, 0.82);
+  box-shadow:
+    0 0 20px rgba(var(--98-accent-rgb), 0.12),
+    inset 0 0 0 1px rgba(var(--98-purple-soft-rgb), 0.08);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 120ms ease, border-color 120ms ease;
+}
+
+.instant-ban-bans-list-item:active {
+  transform: scale(0.99);
+  border-color: rgba(var(--98-accent-rgb), 0.55);
+}
+
+.instant-ban-bans-list-item__avatar {
+  flex-shrink: 0;
+}
+
+.instant-ban-bans-list-item__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.instant-ban-bans-list-item__text {
+  margin: 0 0 0.2rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--98-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.instant-ban-bans-list-item__timer {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(var(--98-accent-rgb), 0.95);
+  font-variant-numeric: tabular-nums;
+}
+
+.instant-ban-bans-list-item__star {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  color: rgba(var(--98-accent-rgb), 0.28);
+  line-height: 1;
+}
+
+.instant-ban-active-ban-card-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.instant-ban-active-ban-card-layer__dim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: rgba(3, 2, 6, 0.55);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.instant-ban-active-ban-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 19.5rem;
+  pointer-events: auto;
+}
+
+.instant-ban-active-ban-card__back {
+  position: absolute;
+  top: 0.85rem;
+  left: 0.85rem;
+  z-index: 2;
+  margin: 0;
+  color: rgba(var(--98-accent-rgb), 0.9);
+}
+
+.instant-ban-active-ban-card__body {
+  padding-top: 2.25rem;
+}
+
+.instant-ban-active-ban-card__status {
+  margin: 0 0 1rem;
+  font-size: 1.35rem;
+  font-weight: 800;
+  text-transform: lowercase;
+  color: var(--98-text-primary);
+  text-shadow: 0 0 18px rgba(var(--98-accent-rgb), 0.35);
+}
+
+.instant-ban-active-ban-card__participants {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+
+.instant-ban-active-ban-card__party {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: 5.5rem;
+}
+
+.instant-ban-active-ban-card__party-name {
+  font-size: 0.68rem;
+  color: rgba(var(--98-text-primary-rgb, 255, 255, 255), 0.65);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.instant-ban-active-ban-card__arrow {
+  color: rgba(var(--98-accent-rgb), 0.85);
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.instant-ban-active-ban-card__text {
+  margin: 0 0 0.85rem;
+  font-size: 0.95rem;
+  font-style: italic;
+  line-height: 1.35;
+  color: var(--98-text-primary);
+}
+
+.instant-ban-active-ban-card__timer {
+  margin: 0 0 1.25rem;
+  font-size: clamp(2rem, 10vw, 2.6rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: rgba(var(--98-accent-rgb), 0.95);
+  text-shadow: 0 0 24px rgba(var(--98-accent-rgb), 0.35);
+}
+
+.instant-ban-active-ban-card__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.instant-ban-arena-send[data-bans-overlay-open] > .instant-ban-lobby-cta {
+  visibility: hidden;
+  pointer-events: none;
+}

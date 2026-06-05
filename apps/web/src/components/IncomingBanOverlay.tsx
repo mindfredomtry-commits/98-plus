@@ -199,10 +199,23 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
   }
 
   if (!incomingBan || !token || !viewerId) {
+    if (incomingBan?.id) {
+      console.log('INCOMING OVERLAY RENDER', {
+        banId: incomingBan.id,
+        skipped: true,
+        reason: !token ? 'no-token' : 'no-viewer',
+      });
+    }
     return null;
   }
 
   if (!shouldShow || verifyPhase === 'failed') {
+    console.log('INCOMING OVERLAY RENDER', {
+      banId: incomingBan.id,
+      skipped: true,
+      reason: !shouldShow ? 'guard-rejected' : 'verify-failed',
+      verifyPhase,
+    });
     return null;
   }
 
@@ -218,11 +231,7 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
 
   const canAct = !!incomingBan.sender?.id;
 
-  console.log('INCOMING OVERLAY RENDER', {
-    banId: incomingBan.id,
-    verifyPhase,
-    embedded,
-  });
+  console.log('INCOMING OVERLAY RENDER', { banId: incomingBan.id });
 
   const modal = (
     <ModalShell

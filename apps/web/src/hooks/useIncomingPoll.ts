@@ -83,23 +83,24 @@ export function useIncomingPoll(params: {
         }
 
         if (!ban?.id) {
-          console.log('[incoming-poll-empty]');
-          return;
-        }
-
-        if (dismissedIncomingRef.current.has(ban.id)) {
-          console.log('[incoming-poll-skip]', {
-            reason: 'dismissed',
-            banId: ban.id,
+          console.log('INCOMING POLL RECEIVED', {
+            banId: null,
+            skipped: true,
+            reason: 'empty',
           });
           return;
         }
 
-        console.log('INCOMING POLL RECEIVED', {
-          banId: ban.id,
-          receiverId: ban.receiver?.id ?? null,
-          dismissed: dismissedIncomingRef.current.has(ban.id),
-        });
+        if (dismissedIncomingRef.current.has(ban.id)) {
+          console.log('INCOMING POLL RECEIVED', {
+            banId: ban.id,
+            skipped: true,
+            reason: 'dismissed-session',
+          });
+          return;
+        }
+
+        console.log('INCOMING POLL RECEIVED', { banId: ban.id });
         receiveIncomingBan(ban, 'poll');
       } catch {
         console.log('[incoming-poll-skip]', { reason: 'request-failed' });
