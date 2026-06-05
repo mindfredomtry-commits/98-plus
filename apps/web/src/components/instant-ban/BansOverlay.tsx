@@ -11,21 +11,23 @@ import {
 import {
   type BansTab,
   banStatusLabel,
+  bansTabEmptyMessage,
   opponentForBan,
   userDisplayLetter,
 } from './bans-overlay-utils';
 
-const TABS: { id: BansTab; label: string; stub?: boolean }[] = [
+const TABS: { id: BansTab; label: string }[] = [
   { id: 'yours', label: 'Твои' },
   { id: 'toYou', label: 'Тебе' },
-  { id: 'history', label: 'История', stub: true },
-  { id: 'archive', label: 'Архив', stub: true },
+  { id: 'history', label: 'История' },
+  { id: 'archive', label: 'Архив' },
 ];
 
 type Props = {
   tab: BansTab;
   bans: BanInteraction[];
   userId: string | undefined;
+  historyLoading?: boolean;
   onTabChange: (tab: BansTab) => void;
   onClose: () => void;
   onSelectBan: (ban: BanInteraction) => void;
@@ -77,11 +79,12 @@ export function BansOverlay({
   tab,
   bans,
   userId,
+  historyLoading = false,
   onTabChange,
   onClose,
   onSelectBan,
 }: Props) {
-  const isStubTab = tab === 'history' || tab === 'archive';
+  const emptyMessage = bansTabEmptyMessage(tab);
 
   return (
     <div
@@ -114,7 +117,7 @@ export function BansOverlay({
               aria-selected={tab === t.id}
               className={`instant-ban-bans-overlay__tab${
                 tab === t.id ? ' instant-ban-bans-overlay__tab--active' : ''
-              }${t.stub ? ' instant-ban-bans-overlay__tab--stub' : ''}`}
+              }`}
               onClick={() => onTabChange(t.id)}
             >
               {t.label}
@@ -123,12 +126,10 @@ export function BansOverlay({
         </div>
 
         <div className="instant-ban-bans-overlay__list" role="tabpanel">
-          {isStubTab ? (
-            <p className="instant-ban-bans-overlay__empty">Скоро</p>
+          {tab === 'history' && historyLoading ? (
+            <p className="instant-ban-bans-overlay__empty">Загрузка…</p>
           ) : bans.length === 0 ? (
-            <p className="instant-ban-bans-overlay__empty">
-              Пока тихо. Отправь первый запрет.
-            </p>
+            <p className="instant-ban-bans-overlay__empty">{emptyMessage}</p>
           ) : (
             bans.map((ban) => (
               <BanListItem

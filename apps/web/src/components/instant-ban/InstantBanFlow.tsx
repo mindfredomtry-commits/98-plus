@@ -30,6 +30,7 @@ import {
   isInstantBanLiteMode,
 } from '@/lib/instant-ban-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
+import { api } from '@/lib/api';
 import { shareDeepLink, shareInstantBanInviteMore } from '@/lib/share';
 import { ArenaLobbyIdle, type LobbyCtaState } from './ArenaLobbyIdle';
 import { ArenaLobbyOrb } from './ArenaLobbyOrb';
@@ -241,6 +242,8 @@ export function InstantBanFlow({
   const [bansTab, setBansTab] = useState<BansTab>('yours');
   const [selectedBanForDetails, setSelectedBanForDetails] =
     useState<BanInteraction | null>(null);
+  const [historyBans, setHistoryBans] = useState<BanInteraction[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const legacyStep = legacyStepFromPhase(phase);
   const showCrossScreenPager =
@@ -619,10 +622,11 @@ export function InstantBanFlow({
     () =>
       filterBansForTab(
         Array.isArray(activeBans) ? activeBans : [],
+        historyBans,
         bansTab,
         user?.id,
       ),
-    [activeBans, bansTab, user?.id],
+    [activeBans, historyBans, bansTab, user?.id],
   );
 
   const showLobbyTopNav =
@@ -634,6 +638,26 @@ export function InstantBanFlow({
       setSelectedBanForDetails(null);
     }
   }, [phase]);
+
+  useEffect(() => {
+    if (!bansOverlayOpen || !token) return;
+    let cancelled = false;
+    setHistoryLoading(true);
+    api<{ items: BanInteraction[] }>('/bans/history', { token })
+      .then((res) => {
+        if (cancelled) return;
+        setHistoryBans(Array.isArray(res.items) ? res.items : []);
+      })
+      .catch(() => {
+        if (!cancelled) setHistoryBans([]);
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bansOverlayOpen, token]);
 
   const handleOpenBansOverlay = useCallback(() => {
     if (phase !== 'idle' || banSentSuccess) return;
@@ -1345,6 +1369,7 @@ export function InstantBanFlow({
             tab={bansTab}
             bans={filteredBans}
             userId={user?.id}
+            historyLoading={historyLoading}
             onTabChange={setBansTab}
             onClose={handleCloseBansOverlay}
             onSelectBan={setSelectedBanForDetails}

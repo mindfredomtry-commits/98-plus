@@ -1123,6 +1123,33 @@ export async function getActiveInteractions(userId: string, limit = 15) {
   return result;
 }
 
+const HISTORY_BAN_STATUSES: BanStatus[] = [
+  'COMPLETED',
+  'EXPIRED',
+  'FAILED',
+  'OVERBOARD',
+  'COUNTERED',
+];
+
+export async function getHistoryInteractions(userId: string, limit = 50) {
+  const bans = await prisma.ban.findMany({
+    where: {
+      OR: [{ senderId: userId }, { receiverId: userId }],
+      status: { in: HISTORY_BAN_STATUSES },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+    include: { sender: true, receiver: true },
+  });
+
+  const result: BanInteraction[] = [];
+  for (const b of bans) {
+    const m = await mapBanToInteraction(b.id, userId);
+    if (m) result.push(m);
+  }
+  return result;
+}
+
 async function markIncomingAcked(banId: string): Promise<void> {
   await prisma.ban.update({
     where: { id: banId },

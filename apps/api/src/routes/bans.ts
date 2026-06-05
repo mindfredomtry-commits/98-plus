@@ -15,6 +15,7 @@ import {
   markOverboard,
   submitCheckAnswer,
   getActiveInteractions,
+  getHistoryInteractions,
   getPendingIncoming,
   getPendingIncomingForPoll,
   getPendingCheck,
@@ -55,6 +56,11 @@ const sendSchema = z.object({
 
 bansRouter.get('/active', async (req: AuthRequest, res) => {
   const items = await getActiveInteractions(req.userId!);
+  res.json({ items });
+});
+
+bansRouter.get('/history', async (req: AuthRequest, res) => {
+  const items = await getHistoryInteractions(req.userId!);
   res.json({ items });
 });
 

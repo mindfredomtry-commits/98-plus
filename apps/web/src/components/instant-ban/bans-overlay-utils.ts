@@ -1,8 +1,41 @@
-import type { BanInteraction, UserPublic } from '@98plus/shared';
+import type { BanInteraction, BanStatus } from '@98plus/shared';
 
 export type BansTab = 'yours' | 'toYou' | 'history' | 'archive';
 
-export function userDisplayLetter(user: UserPublic | null | undefined): string {
+/** Receiver has not accepted yet — exclude from Твои / Тебе. */
+export const BAN_PENDING_STATUS: BanStatus = 'pending';
+
+/** Accepted, still running — shown in Твои / Тебе. */
+export const BAN_IN_PROGRESS_STATUSES: readonly BanStatus[] = [
+  'active',
+  'checking',
+] as const;
+
+/** Finished bans — История only. */
+export const BAN_TERMINAL_STATUSES: readonly BanStatus[] = [
+  'completed',
+  'expired',
+  'failed',
+  'overboard',
+  'countered',
+] as const;
+
+export function isBanPending(ban: BanInteraction): boolean {
+  return ban.status === BAN_PENDING_STATUS;
+}
+
+export function isBanTerminal(status: BanStatus): boolean {
+  return (BAN_TERMINAL_STATUSES as readonly string[]).includes(status);
+}
+
+/** Accepted by receiver and not finished yet. */
+export function isBanAcceptedInProgress(ban: BanInteraction): boolean {
+  if (isBanPending(ban)) return false;
+  if (isBanTerminal(ban.status)) return false;
+  return true;
+}
+
+export function userDisplayLetter(user: BanInteraction['sender']): string {
   return (
     user?.firstName?.[0] ??
     user?.username?.[0] ??
@@ -10,7 +43,9 @@ export function userDisplayLetter(user: UserPublic | null | undefined): string {
   ).toUpperCase();
 }
 
-export function userDisplayName(user: UserPublic | null | undefined): string {
+export function userDisplayName(
+  user: BanInteraction['sender'] | BanInteraction['receiver'],
+): string {
   return user?.firstName || user?.username || '—';
 }
 
@@ -39,29 +74,57 @@ export function banStatusLabel(status: BanInteraction['status']): string {
   }
 }
 
+export function bansTabEmptyMessage(tab: BansTab): string {
+  switch (tab) {
+    case 'yours':
+      return 'Нет принятых запретов, которые ты отправил.';
+    case 'toYou':
+      return 'Нет принятых запретов от других.';
+    case 'history':
+      return 'Завершённых запретов пока нет.';
+    case 'archive':
+      return 'Сохранённых запретов пока нет.';
+    default:
+      return 'Пока тихо.';
+  }
+}
+
 export function filterBansForTab(
-  bans: BanInteraction[],
+  activeBans: BanInteraction[],
+  historyBans: BanInteraction[],
   tab: BansTab,
   userId: string | undefined,
 ): BanInteraction[] {
   if (!userId) return [];
+
   switch (tab) {
     case 'yours':
-      return bans.filter((b) => b.sender?.id === userId);
+      return activeBans.filter(
+        (b) =>
+          b.sender?.id === userId && isBanAcceptedInProgress(b),
+      );
     case 'toYou':
-      return bans.filter((b) => b.receiver?.id === userId);
+      return activeBans.filter(
+        (b) =>
+          b.receiver?.id === userId && isBanAcceptedInProgress(b),
+      );
     case 'history':
+      return historyBans.filter(
+        (b) =>
+          (b.sender?.id === userId || b.receiver?.id === userId) &&
+          isBanTerminal(b.status),
+      );
     case 'archive':
       return [];
     default:
-      return bans;
+      return [];
   }
 }
 
 export function opponentForBan(
   ban: BanInteraction,
   userId: string | undefined,
-): UserPublic {
+): BanInteraction['sender'] {
   if (userId && ban.sender?.id === userId) {
     return ban.receiver;
   }
