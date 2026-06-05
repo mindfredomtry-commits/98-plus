@@ -512,7 +512,7 @@
 .instant-ban-confirm-info__duration {
   display: inline-block;
   margin-top: 0.5rem;
-  margin-bottom: 0.125rem;
+  margin-bottom: 0;
   padding: 0.3125rem 0.75rem;
   border-radius: 999px;
   font-size: 0.8125rem;
@@ -2080,22 +2080,40 @@
 
 .instant-ban-arena-send[data-send-phase='confirming'] .instant-ban-confirm-layout--shared-lobby
   .instant-ban-confirm-info {
+  --confirm-info-ring-gap: clamp(1rem, 1.25rem, 1.5rem);
   position: absolute;
   left: 1.25rem;
   right: 1.25rem;
-  top: calc(env(safe-area-inset-top, 0px) + 3.25rem);
   bottom: calc(
     (100% - var(--98-arena-orb-anchor-top, 45%)) +
       (var(--98-confirm-orb-size, 160px) * var(--98-confirm-ring-lobby-scale, 1.75) / 2) +
-      0.875rem
+      var(--confirm-info-ring-gap)
   );
   margin: 0 auto;
   max-width: min(100%, 340px);
   width: 100%;
+  max-height: calc(
+    var(--98-arena-orb-anchor-top, 45%) -
+      (var(--98-confirm-orb-size, 160px) * var(--98-confirm-ring-lobby-scale, 1.75) / 2) -
+      var(--confirm-info-ring-gap) -
+      env(safe-area-inset-top, 0px) -
+      3.5rem
+  );
   padding: 0;
   z-index: 2;
-  justify-content: flex-end;
   box-sizing: border-box;
+}
+
+.instant-ban-arena-send[data-send-phase='confirming']
+  .instant-ban-confirm-layout--shared-lobby
+  .instant-ban-confirm-info__avatar {
+  margin: 0.375rem auto 0.25rem;
+}
+
+.instant-ban-arena-send[data-send-phase='confirming']
+  .instant-ban-confirm-layout--shared-lobby
+  .instant-ban-confirm-info__name {
+  margin-top: 0.25rem;
 }
 
 /* Dev: add data-debug-slow-orb on .instant-ban-arena-send to verify continuous compress */
