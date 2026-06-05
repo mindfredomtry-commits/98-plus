@@ -44,10 +44,14 @@ export function ActiveBanCardOverlay({
   onBanMore,
   onShare,
 }: Props) {
-  const left = useBanRemainingMs(ban.remainingMs);
+  const left = useBanRemainingMs(ban);
   const timerText =
     left != null
-      ? formatBanRemaining(left, 'clock')
+      ? left <= 0
+        ? ban.status === 'checking'
+          ? 'проверка'
+          : '00:00'
+        : formatBanRemaining(left, 'clock')
       : banStatusLabel(ban.status);
   const statusTitle =
     ban.status === 'active' ? 'запрещено' : banStatusLabel(ban.status);

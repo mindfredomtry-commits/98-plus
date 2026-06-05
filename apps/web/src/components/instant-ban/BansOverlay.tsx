@@ -43,7 +43,7 @@ function BanListItem({
   onSelect: () => void;
 }) {
   const opponent = opponentForBan(ban, userId);
-  const left = useBanRemainingMs(ban.remainingMs);
+  const left = useBanRemainingMs(ban);
   const timerText =
     left != null
       ? formatBanRemaining(left, 'compact')
