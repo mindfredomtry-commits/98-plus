@@ -19,7 +19,10 @@ import {
   WhatDurationSlider,
   clampWhatDurationMinutes,
 } from './WhatDurationSlider';
-import { isNoHorizontalPagerTarget } from './gestureExclusion';
+import {
+  isNoHorizontalPagerTarget,
+  PRESET_CHIP_SELECTOR,
+} from './gestureExclusion';
 
 const QUICK_CHIPS = [
   'сидеть в TikTok',
@@ -615,7 +618,11 @@ function WhatScreenInner({
       }
       const touch = e.touches[0];
       if (!touch) return;
-      if (isNoHorizontalPagerTarget(e.target)) {
+      if (
+        isNoHorizontalPagerTarget(e.target) ||
+        (e.target instanceof Element &&
+          e.target.closest(PRESET_CHIP_SELECTOR) != null)
+      ) {
         backSwipeRef.current.active = false;
         return;
       }
@@ -832,10 +839,10 @@ function WhatScreenInner({
           <button
             key={chip}
             type="button"
+            data-preset-chip=""
             className={`instant-ban-chip instant-ban-chip--mobile${
               selectedChip === chip ? ' instant-ban-chip--selected' : ''
             }`}
-            onPointerDown={() => applyChip(chip)}
             onClick={() => applyChip(chip)}
           >
             {chip}
@@ -849,6 +856,7 @@ function WhatScreenInner({
       {showSwipeHint ? (
         <div
           className="instant-ban-compose-scene__gesture"
+          data-no-horizontal-pager=""
           onTouchStart={isComposeScene ? onGestureTouchStart : undefined}
           onTouchMove={isComposeScene ? onGestureTouchMove : undefined}
           onTouchEnd={isComposeScene ? onGestureTouchEnd : undefined}

@@ -2359,7 +2359,8 @@
   touch-action: pan-y;
   scrollbar-width: none;
   opacity: 0;
-  pointer-events: auto;
+  /* Scroll is driven from gesture zone; must not steal taps on chips/field above */
+  pointer-events: none;
 }
 
 .instant-ban-compose-scene__scroll-driver::-webkit-scrollbar {
@@ -2886,10 +2887,12 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
   .instant-ban-cross-screen-page--what
   .instant-ban-what-screen-layer
   .instant-ban-what-scroll-lift-hint {
-  --lift-hint-path-drop: 1.875rem;
+  --lift-hint-path-drop: 2.25rem;
   width: 100%;
   padding-top: 0;
   padding-bottom: var(--lift-hint-path-drop);
+  /* path-drop also shifts animation rest — lift wrapper instead */
+  transform: translateY(-0.875rem);
 }
 
 .instant-ban-arena-send.instant-ban-flow--what-mobile-safe
