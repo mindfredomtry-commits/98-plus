@@ -1,20 +1,31 @@
 export const NO_HORIZONTAL_PAGER_SELECTOR = '[data-no-horizontal-pager]';
 
 export const PRESET_CHIP_SELECTOR = '[data-preset-chip]';
+export const BAN_INPUT_SELECTOR = '[data-ban-input]';
+export const WHAT_BACK_SELECTOR = '[data-what-back]';
+export const DURATION_SLIDER_SELECTOR = '.instant-ban-what-duration-slider';
 
-/** Higher axis-lock before horizontal pager claims field / back taps. */
-export const HORIZONTAL_PAGER_DEFER_SELECTOR =
-  '.instant-ban-what-input, .instant-ban-what-field, .instant-ban-flow__back';
+export const WHAT_INTERACTIVE_SELECTOR = [
+  PRESET_CHIP_SELECTOR,
+  BAN_INPUT_SELECTOR,
+  WHAT_BACK_SELECTOR,
+  DURATION_SLIDER_SELECTOR,
+  '.instant-ban-what-field',
+].join(', ');
 
 export type CrossScreenTouchPolicy = 'exclude' | 'defer' | 'normal';
+
+export function isWhatInteractiveTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return target.closest(WHAT_INTERACTIVE_SELECTOR) != null;
+}
 
 export function getCrossScreenTouchPolicy(
   target: EventTarget | null,
 ): CrossScreenTouchPolicy {
   if (!(target instanceof Element)) return 'normal';
   if (target.closest(NO_HORIZONTAL_PAGER_SELECTOR)) return 'exclude';
-  if (target.closest(PRESET_CHIP_SELECTOR)) return 'exclude';
-  if (target.closest(HORIZONTAL_PAGER_DEFER_SELECTOR)) return 'defer';
+  if (isWhatInteractiveTarget(target)) return 'exclude';
   return 'normal';
 }
 

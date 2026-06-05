@@ -21,16 +21,18 @@ import {
 } from './WhatDurationSlider';
 import {
   isNoHorizontalPagerTarget,
-  isPresetChipTarget,
-  PRESET_CHIP_SELECTOR,
+  isWhatInteractiveTarget,
 } from './gestureExclusion';
 import {
   describeHitTarget,
-  isPresetChipDiagEnabled,
+  isWhatTouchDiagEnabled,
+  logBanInput,
   logComposeGesture,
   logComposeLayer,
+  logDocumentHitTest,
   logPresetChip,
-} from './presetChipDiag';
+  logWhatBack,
+} from './whatScreenTouchDiag';
 
 const QUICK_CHIPS = [
   'сидеть в TikTok',
@@ -40,9 +42,6 @@ const QUICK_CHIPS = [
   'пить энергетики',
   'лежать до обеда',
 ] as const;
-
-/** First visual row — diagnostic target chips. */
-const TOP_ROW_PRESET_CHIPS = new Set<string>(QUICK_CHIPS.slice(0, 3));
 
 const CHIP_PREFIX = 'Запрещаю ';
 
@@ -284,12 +283,20 @@ function WhatScreenInner({
   }, [scheduleCanContinueSync]);
 
   const handleFocus = useCallback(() => {
+    logBanInput('focus');
     instantBanDebug('input-focus', { instanceId });
   }, [instanceId]);
 
   const handleBlur = useCallback(() => {
+    logBanInput('blur');
     instantBanDebug('input-blur', { instanceId });
   }, [instanceId]);
+
+  const handleBackNavigate = useCallback(() => {
+    logWhatBack('click');
+    logWhatBack('navigate-who');
+    onBack();
+  }, [onBack]);
 
   const applyChip = useCallback(
     (chip: string) => {
@@ -310,17 +317,14 @@ function WhatScreenInner({
   } | null>(null);
   const chipTouchActivatedRef = useRef<string | null>(null);
 
-  const diagTopRowChip = useCallback((chip: string, event: string) => {
-    if (!TOP_ROW_PRESET_CHIPS.has(chip)) return;
+  const diagChip = useCallback((chip: string, event: string) => {
     logPresetChip(event, chip);
   }, []);
 
   const activatePresetChip = useCallback(
     (chip: string, source: string) => {
       applyChip(chip);
-      if (TOP_ROW_PRESET_CHIPS.has(chip)) {
-        logPresetChip('selected', chip, { source });
-      }
+      logPresetChip('selected', chip, { source });
       chipTouchActivatedRef.current = chip;
       window.requestAnimationFrame(() => {
         if (chipTouchActivatedRef.current === chip) {
@@ -333,36 +337,34 @@ function WhatScreenInner({
 
   const handlePresetChipPointerDown = useCallback(
     (chip: string) => {
-      diagTopRowChip(chip, 'pointerdown');
+      diagChip(chip, 'pointerdown');
     },
-    [diagTopRowChip],
+    [diagChip],
   );
 
   const handlePresetChipPointerUp = useCallback(
     (chip: string) => {
-      diagTopRowChip(chip, 'pointerup');
+      diagChip(chip, 'pointerup');
     },
-    [diagTopRowChip],
+    [diagChip],
   );
 
   const handlePresetChipClick = useCallback(
     (chip: string) => {
-      diagTopRowChip(chip, 'click');
+      diagChip(chip, 'click');
       if (chipTouchActivatedRef.current === chip) return;
       activatePresetChip(chip, 'click');
     },
-    [activatePresetChip, diagTopRowChip],
+    [activatePresetChip, diagChip],
   );
 
   const handlePresetChipTouchStart = useCallback(
     (chip: string, e: TouchEvent<HTMLButtonElement>) => {
       const touch = e.touches[0];
-      diagTopRowChip(chip, 'touchstart');
-      if (TOP_ROW_PRESET_CHIPS.has(chip) && touch && isPresetChipDiagEnabled()) {
-        logPresetChip('hit-test', chip, {
-          x: touch.clientX,
-          y: touch.clientY,
-          topElement: describeHitTarget(touch.clientX, touch.clientY),
+      diagChip(chip, 'touchstart');
+      if (touch && isWhatTouchDiagEnabled()) {
+        logDocumentHitTest('chip-touchstart', touch.clientX, touch.clientY, {
+          label: chip,
           defaultPrevented: e.defaultPrevented,
         });
       }
@@ -373,12 +375,12 @@ function WhatScreenInner({
         y: touch.clientY,
       };
     },
-    [diagTopRowChip],
+    [diagChip],
   );
 
   const handlePresetChipTouchEnd = useCallback(
     (chip: string, e: TouchEvent<HTMLButtonElement>) => {
-      diagTopRowChip(chip, 'touchend');
+      diagChip(chip, 'touchend');
       const start = chipTouchStartRef.current;
       chipTouchStartRef.current = null;
       if (!start || start.chip !== chip) return;
@@ -390,23 +392,19 @@ function WhatScreenInner({
       if (chipTouchActivatedRef.current === chip) return;
       activatePresetChip(chip, 'touchend');
     },
-    [activatePresetChip, diagTopRowChip],
+    [activatePresetChip, diagChip],
   );
 
   useEffect(() => {
-    if (!isPresetChipDiagEnabled()) return;
+    if (!isWhatTouchDiagEnabled()) return;
 
     const onDocTouchStartCapture = (e: TouchEvent) => {
       const touch = e.touches[0];
       if (!touch) return;
-      const hit = describeHitTarget(touch.clientX, touch.clientY);
-      const onChip = hit.includes('{chip}');
-      if (!onChip) return;
-      logPresetChip('doc-capture', 'touchstart', {
-        x: touch.clientX,
-        y: touch.clientY,
-        hit,
+      logDocumentHitTest('touchstart-capture', touch.clientX, touch.clientY, {
         defaultPrevented: e.defaultPrevented,
+        eventTarget:
+          e.target instanceof Element ? e.target.tagName : String(e.target),
       });
     };
 
@@ -921,17 +919,6 @@ function WhatScreenInner({
     evaluateSnapOnSettle();
   }, [clearSnapSettleTimer, evaluateSnapOnSettle]);
 
-  const onComposeSceneTouchEnd = useCallback(
-    (e: TouchEvent<HTMLDivElement>) => {
-      logComposeGesture('touch', 'bubble-end', {
-        onChip: isPresetChipTarget(e.target),
-      });
-      if (isPresetChipTarget(e.target)) return;
-      onGestureTouchEnd();
-    },
-    [onGestureTouchEnd],
-  );
-
   useEffect(() => {
     if (!showSwipeHint || !isComposeScene) return;
 
@@ -964,8 +951,25 @@ function WhatScreenInner({
       } as CSSProperties)
     : undefined;
 
-  const composeContent = (
-    <>
+  const lowerSwipeZone =
+    showSwipeHint ? (
+      <div
+        className="instant-ban-what-lower-swipe-zone"
+        data-no-horizontal-pager=""
+      >
+        <WhatSwipeTapZone
+          sentinelRef={scrollSentinelRef}
+          onTap={onSwipeZoneTap}
+          onGestureTouchStart={onGestureTouchStart}
+          onGestureTouchMove={onGestureTouchMove}
+          onGestureTouchEnd={onGestureTouchEnd}
+        />
+        <div className="instant-ban-what-scroll-spacer" aria-hidden />
+      </div>
+    ) : null;
+
+  const interactiveContent = (
+    <div className="instant-ban-what-interactive-content" data-what-interactive>
       {overlayTitle ? (
         <h1 className="instant-ban-send-overlay__title instant-ban-compose-scene__title">
           {overlayTitle}
@@ -973,10 +977,15 @@ function WhatScreenInner({
       ) : null}
       <button
         type="button"
+        data-what-back=""
         className={`instant-ban-flow__back${
           overlayTitle ? ' instant-ban-flow__back--icon-only' : ''
         }${overlayTitle ? ' instant-ban-flow__back--what-compose' : ''}`}
-        onClick={onBack}
+        onClick={handleBackNavigate}
+        onPointerDown={() => logWhatBack('pointerdown')}
+        onPointerUp={() => logWhatBack('pointerup')}
+        onTouchStart={() => logWhatBack('touchstart')}
+        onTouchEnd={() => logWhatBack('touchend')}
         aria-label="Назад"
       >
         {overlayTitle ? (
@@ -1003,11 +1012,20 @@ function WhatScreenInner({
           ref={inputRef}
           type="text"
           inputMode="text"
+          data-ban-input=""
           className="instant-ban-what-input instant-ban-what-input--mobile"
           defaultValue={initialBanText}
-          onInput={handleInput}
+          onInput={() => {
+            logBanInput('input');
+            handleInput();
+          }}
           onFocus={handleFocus}
           onBlur={handleBlur}
+          onPointerDown={() => logBanInput('pointerdown')}
+          onPointerUp={() => logBanInput('pointerup')}
+          onTouchStart={() => logBanInput('touchstart')}
+          onTouchEnd={() => logBanInput('touchend')}
+          onClick={() => logBanInput('click')}
           placeholder=""
           autoComplete="off"
           autoCorrect="off"
@@ -1026,6 +1044,7 @@ function WhatScreenInner({
               selectedChip === chip ? ' instant-ban-chip--selected' : ''
             }`}
             onPointerDown={() => handlePresetChipPointerDown(chip)}
+            onPointerUp={() => handlePresetChipPointerUp(chip)}
             onClick={() => handlePresetChipClick(chip)}
             onTouchStart={(e) => handlePresetChipTouchStart(chip, e)}
             onTouchEnd={(e) => handlePresetChipTouchEnd(chip, e)}
@@ -1038,40 +1057,15 @@ function WhatScreenInner({
         value={durationMinutes}
         onChange={setDurationMinutes}
       />
-      {!isComposeScene && showSwipeHint ? (
-        <div
-          className="instant-ban-compose-scene__gesture"
-          data-no-horizontal-pager=""
-        >
-          <WhatSwipeTapZone
-            sentinelRef={scrollSentinelRef}
-            onTap={onSwipeZoneTap}
-            onGestureTouchStart={onGestureTouchStart}
-            onGestureTouchMove={onGestureTouchMove}
-            onGestureTouchEnd={onGestureTouchEnd}
-          />
-          <div className="instant-ban-what-scroll-spacer" aria-hidden />
-        </div>
-      ) : null}
-    </>
+    </div>
   );
 
-  const composeGestureZone =
-    isComposeScene && showSwipeHint ? (
-      <div
-        className="instant-ban-compose-scene__gesture"
-        data-no-horizontal-pager=""
-      >
-        <WhatSwipeTapZone
-          sentinelRef={scrollSentinelRef}
-          onTap={onSwipeZoneTap}
-          onGestureTouchStart={onGestureTouchStart}
-          onGestureTouchMove={onGestureTouchMove}
-          onGestureTouchEnd={onGestureTouchEnd}
-        />
-        <div className="instant-ban-what-scroll-spacer" aria-hidden />
-      </div>
-    ) : null;
+  const composeContent = (
+    <>
+      {interactiveContent}
+      {!isComposeScene ? lowerSwipeZone : null}
+    </>
+  );
 
   if (isComposeScene) {
     return (
@@ -1120,12 +1114,10 @@ function WhatScreenInner({
             style={composeLayerStyle}
             data-instant-ban-view="WhatExitLayer"
           >
-            <div className="instant-ban-what-screen-layer">
+            <div className="instant-ban-what-screen-layer instant-ban-what-screen-layer--compose">
               <div className="instant-ban-what-screen-layer__veil" aria-hidden />
-              <div className="instant-ban-what-screen-layer__content">
-                {composeContent}
-              </div>
-              {composeGestureZone}
+              {interactiveContent}
+              {lowerSwipeZone}
             </div>
           </div>
         </div>
