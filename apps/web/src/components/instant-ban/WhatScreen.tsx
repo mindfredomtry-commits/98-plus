@@ -19,6 +19,7 @@ import {
   WhatDurationSlider,
   clampWhatDurationMinutes,
 } from './WhatDurationSlider';
+import { isNoHorizontalPagerTarget } from './gestureExclusion';
 
 const QUICK_CHIPS = [
   'сидеть в TikTok',
@@ -72,6 +73,7 @@ const WhatSwipeTapZone = memo(function WhatSwipeTapZone({
     <div
       ref={sentinelRef}
       className="instant-ban-what-swipe-zone"
+      data-no-horizontal-pager=""
       role="presentation"
       aria-hidden
       onClick={onTap}
@@ -613,6 +615,10 @@ function WhatScreenInner({
       }
       const touch = e.touches[0];
       if (!touch) return;
+      if (isNoHorizontalPagerTarget(e.target)) {
+        backSwipeRef.current.active = false;
+        return;
+      }
       backSwipeRef.current = {
         x: touch.clientX,
         y: touch.clientY,
@@ -829,6 +835,7 @@ function WhatScreenInner({
             className={`instant-ban-chip instant-ban-chip--mobile${
               selectedChip === chip ? ' instant-ban-chip--selected' : ''
             }`}
+            onPointerDown={() => applyChip(chip)}
             onClick={() => applyChip(chip)}
           >
             {chip}

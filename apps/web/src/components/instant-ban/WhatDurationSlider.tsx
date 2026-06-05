@@ -71,7 +71,10 @@ export const WhatDurationSlider = memo(function WhatDurationSlider({
   );
 
   return (
-    <div className="instant-ban-what-duration-slider">
+    <div
+      className="instant-ban-what-duration-slider"
+      data-no-horizontal-pager=""
+    >
       <div
         className="instant-ban-what-duration-slider__value-pill"
         aria-live="polite"

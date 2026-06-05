@@ -38,6 +38,7 @@ import { ConfirmScreen } from './ConfirmScreen';
 import { SuccessScreen } from './SuccessScreen';
 import { useConfirmOrbController } from './useConfirmOrbController';
 import { useLobbyRingIntroFill } from './useLobbyRingIntroFill';
+import { getCrossScreenTouchPolicy } from './gestureExclusion';
 import '../lobby-screen.css';
 import './instant-ban.css';
 
@@ -56,6 +57,7 @@ const CROSS_SCREEN_COMMIT_THRESHOLD = 0.3;
 const CROSS_SCREEN_DRAG_SENSITIVITY = 1.22;
 /** Ignore micro-movements before axis lock. */
 const CROSS_SCREEN_AXIS_LOCK_MIN_PX = 12;
+const CROSS_SCREEN_DEFER_AXIS_LOCK_MIN_PX = 24;
 /** |dx| must exceed |dy| × this to claim horizontal pager (not vertical dismiss/compose). */
 const CROSS_SCREEN_HORIZONTAL_DX_DOMINANCE = 1.2;
 /** Short fling can complete below commit threshold if velocity is high enough. */
@@ -390,13 +392,15 @@ export function InstantBanFlow({
       if (!crossScreenDragEnabled || screenTransitionRef.current) return;
       const touch = e.touches[0];
       if (!touch) return;
+      const policy = getCrossScreenTouchPolicy(e.target);
       const width =
         typeof window !== 'undefined'
           ? Math.max(window.innerWidth, 1)
           : 1;
       crossScreenDragRef.current = {
         active: false,
-        decided: false,
+        decided: policy === 'exclude',
+        policy,
         startX: touch.clientX,
         startY: touch.clientY,
         startProgress: crossScreenProgressRef.current,
@@ -414,15 +418,18 @@ export function InstantBanFlow({
       const touch = e.touches[0];
       if (!touch) return;
 
+      if (drag.policy === 'exclude') return;
+
       if (!drag.decided) {
         const dx = touch.clientX - drag.startX;
         const dy = touch.clientY - drag.startY;
         const absDx = Math.abs(dx);
         const absDy = Math.abs(dy);
-        if (
-          absDx < CROSS_SCREEN_AXIS_LOCK_MIN_PX &&
-          absDy < CROSS_SCREEN_AXIS_LOCK_MIN_PX
-        ) {
+        const axisLockMin =
+          drag.policy === 'defer'
+            ? CROSS_SCREEN_DEFER_AXIS_LOCK_MIN_PX
+            : CROSS_SCREEN_AXIS_LOCK_MIN_PX;
+        if (absDx < axisLockMin && absDy < axisLockMin) {
           return;
         }
         if (absDy > absDx * CROSS_SCREEN_HORIZONTAL_DX_DOMINANCE) {
