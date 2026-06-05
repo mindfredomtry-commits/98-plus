@@ -1135,6 +1135,7 @@ export function InstantBanFlow({
               holdPhase={confirmOrb.holdPhase}
               selectedUser={selectedUser!}
               banText={banText}
+              durationMinutes={durationMinutes}
               onBack={handleConfirmBack}
             />
           </div>

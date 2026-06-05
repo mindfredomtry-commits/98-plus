@@ -3,6 +3,7 @@
 import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { AvatarImage } from '../AvatarImage';
+import { WhatBackIcon } from './WhatBackIcon';
 import type { EnterPhase, HoldPhase } from './useConfirmOrbController';
 
 type Props = {
@@ -11,6 +12,7 @@ type Props = {
   holdPhase: HoldPhase;
   selectedUser: FriendCard;
   banText: string;
+  durationMinutes: number;
   onBack: () => void;
 };
 
@@ -24,6 +26,7 @@ export function ConfirmScreen({
   holdPhase,
   selectedUser,
   banText,
+  durationMinutes,
   onBack,
 }: Props) {
   const name = friendLabel(selectedUser);
@@ -67,6 +70,12 @@ export function ConfirmScreen({
         <em className="instant-ban-confirm-info__ban instant-ban-confirm-enter instant-ban-confirm-enter--3">
           &ldquo;{trimmed}&rdquo;
         </em>
+        <span
+          className="instant-ban-confirm-info__duration instant-ban-confirm-enter instant-ban-confirm-enter--4"
+          aria-label={`Длительность запрета: ${durationMinutes} минут`}
+        >
+          {durationMinutes} мин
+        </span>
       </div>
     </div>
   );
