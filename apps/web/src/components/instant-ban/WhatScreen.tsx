@@ -171,6 +171,9 @@ function WhatScreenInner({
   const [canContinue, setCanContinue] = useState(
     initialBanText.trim().length >= 3,
   );
+  const [canSwipeToConfirm, setCanSwipeToConfirm] = useState(
+    initialBanText.trim().length > 0,
+  );
   const [durationMinutes, setDurationMinutes] = useState(() =>
     clampWhatDurationMinutes(initialDurationMinutes),
   );
@@ -223,8 +226,11 @@ function WhatScreenInner({
     canContinueRafRef.current = requestAnimationFrame(() => {
       canContinueRafRef.current = null;
       const value = inputRef.current?.value ?? '';
-      const next = value.trim().length >= 3;
-      setCanContinue((prev) => (prev === next ? prev : next));
+      const trimmedLen = value.trim().length;
+      const nextContinue = trimmedLen >= 3;
+      const nextSwipe = trimmedLen > 0;
+      setCanContinue((prev) => (prev === nextContinue ? prev : nextContinue));
+      setCanSwipeToConfirm((prev) => (prev === nextSwipe ? prev : nextSwipe));
     });
   }, []);
 
@@ -271,6 +277,7 @@ function WhatScreenInner({
       }
       setIsEmpty(false);
       setSelectedChip(chip);
+      setCanSwipeToConfirm(true);
       scheduleCanContinueSync();
     },
     [scheduleCanContinueSync],
@@ -426,9 +433,10 @@ function WhatScreenInner({
   }, [durationMinutes, onSubmit]);
 
   const showSwipeHint =
-    canContinue && selectedUser != null && durationMinutes > 0;
+    canSwipeToConfirm && selectedUser != null && durationMinutes > 0;
 
   const canContinueRef = useRef(canContinue);
+  const canSwipeToConfirmRef = useRef(canSwipeToConfirm);
   const exitProgressRef = useRef(0);
   const isExitingRef = useRef(false);
   const isResettingRef = useRef(false);
@@ -440,6 +448,10 @@ function WhatScreenInner({
   useEffect(() => {
     canContinueRef.current = canContinue;
   }, [canContinue]);
+
+  useEffect(() => {
+    canSwipeToConfirmRef.current = canSwipeToConfirm;
+  }, [canSwipeToConfirm]);
 
   useEffect(() => {
     exitProgressRef.current = exitProgress;
@@ -764,6 +776,10 @@ function WhatScreenInner({
 
   const onGestureTouchStart = useCallback(
     (e: React.TouchEvent) => {
+      if (!canSwipeToConfirmRef.current) {
+        logComposeGesture('gesture', 'touchstart-skipped-no-text');
+        return;
+      }
       if (shouldDeferWhatScreenGesture(e.target)) {
         logComposeGesture('gesture', 'touchstart-skipped-interactive', {
           hit:
