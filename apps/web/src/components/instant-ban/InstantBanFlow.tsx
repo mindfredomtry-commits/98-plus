@@ -50,7 +50,18 @@ const WHO_PANEL_ENTER_MS = 220;
 const WHO_OVERLAY_TITLE = 'КОМУ ЗАПРЕЩАЕШЬ?';
 const WHAT_OVERLAY_TITLE = 'ЧТО ЗАПРЕЩАЕШЬ?';
 const SCREEN_TRANSITION_MS = 300;
-const CROSS_SCREEN_COMMIT_THRESHOLD = 0.35;
+/** Release past this progress → complete page change (~30% screen, tuned down from 0.35). */
+const CROSS_SCREEN_COMMIT_THRESHOLD = 0.3;
+/** Finger travel → progress multiplier (~22% more responsive). */
+const CROSS_SCREEN_DRAG_SENSITIVITY = 1.22;
+/** Ignore micro-movements before axis lock. */
+const CROSS_SCREEN_AXIS_LOCK_MIN_PX = 12;
+/** |dx| must exceed |dy| × this to claim horizontal pager (not vertical dismiss/compose). */
+const CROSS_SCREEN_HORIZONTAL_DX_DOMINANCE = 1.2;
+/** Short fling can complete below commit threshold if velocity is high enough. */
+const CROSS_SCREEN_FLING_MIN_PROGRESS = 0.2;
+/** Progress per second to count as intentional fling (~20% easier than 0.8). */
+const CROSS_SCREEN_FLING_VELOCITY = 0.65;
 
 type ScreenTransition = 'whoToWhat' | 'whatToWho' | null;
 
@@ -197,6 +208,8 @@ export function InstantBanFlow({
     startY: 0,
     startProgress: 0,
     width: 1,
+    lastMoveAt: 0,
+    velocityProgressPerSec: 0,
   });
   const [screenTransition, setScreenTransition] = useState<ScreenTransition>(null);
   const [crossScreenProgress, setCrossScreenProgress] = useState(0);
@@ -318,13 +331,30 @@ export function InstantBanFlow({
     setCrossScreenProgressImmediate(0);
   }, [setCrossScreenProgressImmediate]);
 
+  const shouldCompleteWhoToWhat = useCallback(
+    (progress: number, velocity: number) =>
+      progress >= CROSS_SCREEN_COMMIT_THRESHOLD ||
+      (progress >= CROSS_SCREEN_FLING_MIN_PROGRESS &&
+        velocity >= CROSS_SCREEN_FLING_VELOCITY),
+    [],
+  );
+
+  const shouldCompleteWhatToWho = useCallback(
+    (progress: number, velocity: number) =>
+      progress <= 1 - CROSS_SCREEN_COMMIT_THRESHOLD ||
+      (progress <= 1 - CROSS_SCREEN_FLING_MIN_PROGRESS &&
+        velocity <= -CROSS_SCREEN_FLING_VELOCITY),
+    [],
+  );
+
   const commitCrossScreenProgress = useCallback(
-    (progress: number) => {
+    (progress: number, velocityProgressPerSec: number) => {
       if (screenTransitionRef.current) return;
       const p = clamp01(progress);
+      const v = velocityProgressPerSec;
 
       if (phase === 'selectingTarget' && selectedUser) {
-        if (p >= CROSS_SCREEN_COMMIT_THRESHOLD) {
+        if (shouldCompleteWhoToWhat(p, v)) {
           screenTransitionRef.current = 'whoToWhat';
           setScreenTransition('whoToWhat');
           animateCrossScreenProgress(1, completeWhoToWhat);
@@ -335,7 +365,7 @@ export function InstantBanFlow({
       }
 
       if (phase === 'composingBan') {
-        if (p <= 1 - CROSS_SCREEN_COMMIT_THRESHOLD) {
+        if (shouldCompleteWhatToWho(p, v)) {
           screenTransitionRef.current = 'whatToWho';
           setScreenTransition('whatToWho');
           animateCrossScreenProgress(0, completeWhatToWho);
@@ -350,6 +380,8 @@ export function InstantBanFlow({
       completeWhoToWhat,
       phase,
       selectedUser,
+      shouldCompleteWhatToWho,
+      shouldCompleteWhoToWhat,
     ],
   );
 
@@ -369,6 +401,8 @@ export function InstantBanFlow({
         startY: touch.clientY,
         startProgress: crossScreenProgressRef.current,
         width,
+        lastMoveAt: performance.now(),
+        velocityProgressPerSec: 0,
       };
     },
     [crossScreenDragEnabled],
@@ -383,27 +417,60 @@ export function InstantBanFlow({
       if (!drag.decided) {
         const dx = touch.clientX - drag.startX;
         const dy = touch.clientY - drag.startY;
-        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
-        if (Math.abs(dy) > Math.abs(dx)) {
+        const absDx = Math.abs(dx);
+        const absDy = Math.abs(dy);
+        if (
+          absDx < CROSS_SCREEN_AXIS_LOCK_MIN_PX &&
+          absDy < CROSS_SCREEN_AXIS_LOCK_MIN_PX
+        ) {
+          return;
+        }
+        if (absDy > absDx * CROSS_SCREEN_HORIZONTAL_DX_DOMINANCE) {
           crossScreenDragRef.current = { ...drag, active: false, decided: true };
           return;
         }
         stopCrossScreenAnim();
-        crossScreenDragRef.current = { ...drag, active: true, decided: true };
+        crossScreenDragRef.current = {
+          ...drag,
+          active: true,
+          decided: true,
+          lastMoveAt: performance.now(),
+        };
       }
 
       if (!crossScreenDragRef.current.active) return;
       const { startX, startProgress, width } = crossScreenDragRef.current;
-      const delta = (startX - touch.clientX) / width;
-      setCrossScreenProgressImmediate(startProgress + delta);
+      const delta =
+        ((startX - touch.clientX) / width) * CROSS_SCREEN_DRAG_SENSITIVITY;
+      const prevProgress = crossScreenProgressRef.current;
+      const nextProgress = clamp01(startProgress + delta);
+      const now = performance.now();
+      const lastMoveAt = crossScreenDragRef.current.lastMoveAt;
+      let velocityProgressPerSec = crossScreenDragRef.current.velocityProgressPerSec;
+      if (lastMoveAt > 0) {
+        const dtSec = (now - lastMoveAt) / 1000;
+        if (dtSec > 0 && dtSec < 0.12) {
+          velocityProgressPerSec = (nextProgress - prevProgress) / dtSec;
+        }
+      }
+      crossScreenDragRef.current = {
+        ...crossScreenDragRef.current,
+        lastMoveAt: now,
+        velocityProgressPerSec,
+      };
+      setCrossScreenProgressImmediate(nextProgress);
     },
     [setCrossScreenProgressImmediate, stopCrossScreenAnim],
   );
 
   const onCrossScreenTouchEndCapture = useCallback(() => {
     if (!crossScreenDragRef.current.active) return;
+    const { velocityProgressPerSec } = crossScreenDragRef.current;
     crossScreenDragRef.current.active = false;
-    commitCrossScreenProgress(crossScreenProgressRef.current);
+    commitCrossScreenProgress(
+      crossScreenProgressRef.current,
+      velocityProgressPerSec,
+    );
   }, [commitCrossScreenProgress]);
 
   const scheduleCtaBecomeVisible = useCallback(() => {

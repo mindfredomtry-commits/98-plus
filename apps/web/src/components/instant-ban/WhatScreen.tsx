@@ -14,6 +14,11 @@ import type { FriendCard } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { instantBanDebug } from '@/lib/instant-ban-debug';
 import { AvatarImage } from '../AvatarImage';
+import { WhatBackIcon } from './WhatBackIcon';
+import {
+  WhatDurationSlider,
+  clampWhatDurationMinutes,
+} from './WhatDurationSlider';
 
 const QUICK_CHIPS = [
   'сидеть в TikTok',
@@ -23,8 +28,6 @@ const QUICK_CHIPS = [
   'пить энергетики',
   'лежать до обеда',
 ] as const;
-
-const DURATION_OPTIONS = [3, 10, 30, 60] as const;
 
 const CHIP_PREFIX = 'Запрещаю ';
 
@@ -159,7 +162,9 @@ function WhatScreenInner({
   const [canContinue, setCanContinue] = useState(
     initialBanText.trim().length >= 3,
   );
-  const [durationMinutes, setDurationMinutes] = useState(initialDurationMinutes);
+  const [durationMinutes, setDurationMinutes] = useState(() =>
+    clampWhatDurationMinutes(initialDurationMinutes),
+  );
   const [selectedChip, setSelectedChip] = useState<string | null>(() =>
     chipFromFullText(initialBanText),
   );
@@ -775,13 +780,17 @@ function WhatScreenInner({
         type="button"
         className={`instant-ban-flow__back${
           overlayTitle ? ' instant-ban-flow__back--icon-only' : ''
-        }`}
+        }${overlayTitle ? ' instant-ban-flow__back--what-compose' : ''}`}
         onClick={onBack}
         aria-label="Назад"
       >
-        <span className="instant-ban-flow__back-glyph" aria-hidden>
-          ←
-        </span>
+        {overlayTitle ? (
+          <WhatBackIcon />
+        ) : (
+          <span className="instant-ban-flow__back-glyph" aria-hidden>
+            ←
+          </span>
+        )}
       </button>
       <WhatSelectedUser user={selectedUser} />
       <label className="instant-ban-what-field">
@@ -826,25 +835,10 @@ function WhatScreenInner({
           </button>
         ))}
       </div>
-      <div className="instant-ban-duration instant-ban-duration--mobile">
-        <p className="instant-ban-duration__label">На сколько?</p>
-        <div className="instant-ban-duration-pills">
-          {DURATION_OPTIONS.map((minutes) => (
-            <button
-              key={minutes}
-              type="button"
-              className={`instant-ban-duration-pill instant-ban-duration-pill--mobile${
-                durationMinutes === minutes
-                  ? ' instant-ban-duration-pill--active'
-                  : ''
-              }`}
-              onClick={() => setDurationMinutes(minutes)}
-            >
-              {minutes}м
-            </button>
-          ))}
-        </div>
-      </div>
+      <WhatDurationSlider
+        value={durationMinutes}
+        onChange={setDurationMinutes}
+      />
       {showSwipeHint ? (
         <div
           className="instant-ban-compose-scene__gesture"
