@@ -19,6 +19,7 @@ import {
   WhatDurationSlider,
   clampWhatDurationMinutes,
 } from './WhatDurationSlider';
+import { shouldDeferWhatScreenGesture } from './gestureExclusion';
 import {
   describeHitTarget,
   inspectHitTarget,
@@ -26,7 +27,6 @@ import {
   isWhatTouchDiagEnabled,
   logBanInput,
   logComposeGesture,
-  logComposeLayer,
   logDocumentHitTest,
   logPresetChip,
   logWhatBack,
@@ -74,14 +74,8 @@ const COMPOSE_EXIT_MS = 240;
 const COMPOSE_RESET_MS = 160;
 const WhatSwipeTapZone = memo(function WhatSwipeTapZone({
   onTap,
-  onGestureTouchStart,
-  onGestureTouchMove,
-  onGestureTouchEnd,
 }: {
   onTap: () => void;
-  onGestureTouchStart?: (e: React.TouchEvent) => void;
-  onGestureTouchMove?: (e: React.TouchEvent) => void;
-  onGestureTouchEnd?: (e: React.TouchEvent) => void;
 }) {
   return (
     <div
@@ -90,29 +84,6 @@ const WhatSwipeTapZone = memo(function WhatSwipeTapZone({
       role="presentation"
       aria-hidden
       onClick={onTap}
-      onTouchStart={(e) => {
-        const touch = e.touches[0];
-        logComposeLayer('swipe-zone', 'touchstart', {
-          x: touch?.clientX,
-          y: touch?.clientY,
-          hit: touch
-            ? describeHitTarget(touch.clientX, touch.clientY)
-            : undefined,
-        });
-        onGestureTouchStart?.(e);
-      }}
-      onTouchMove={(e) => {
-        logComposeLayer('swipe-zone', 'touchmove');
-        onGestureTouchMove?.(e);
-      }}
-      onTouchEnd={(e) => {
-        logComposeLayer('swipe-zone', 'touchend');
-        onGestureTouchEnd?.(e);
-      }}
-      onTouchCancel={(e) => {
-        logComposeLayer('swipe-zone', 'touchcancel');
-        onGestureTouchEnd?.(e);
-      }}
     >
       <div className="instant-ban-what-scroll-lift-hint" aria-hidden>
         <div className="instant-ban-what-scroll-lift-hint__stage">
@@ -793,6 +764,18 @@ function WhatScreenInner({
 
   const onGestureTouchStart = useCallback(
     (e: React.TouchEvent) => {
+      if (shouldDeferWhatScreenGesture(e.target)) {
+        logComposeGesture('gesture', 'touchstart-skipped-interactive', {
+          hit:
+            e.touches[0] != null
+              ? describeHitTarget(
+                  e.touches[0].clientX,
+                  e.touches[0].clientY,
+                )
+              : undefined,
+        });
+        return;
+      }
       const touch = e.touches[0];
       logComposeGesture('gesture', 'touchstart', {
         x: touch?.clientX,
@@ -827,6 +810,7 @@ function WhatScreenInner({
 
   const onGestureTouchMove = useCallback(
     (e: React.TouchEvent) => {
+      if (!isGestureActiveRef.current) return;
       logComposeGesture('gesture', 'touchmove');
       if (
         exitCommitRef.current ||
@@ -871,22 +855,13 @@ function WhatScreenInner({
         className="instant-ban-what-lower-swipe-zone"
         data-no-horizontal-pager=""
       >
-        <WhatSwipeTapZone
-          onTap={onSwipeZoneTap}
-          onGestureTouchStart={onGestureTouchStart}
-          onGestureTouchMove={onGestureTouchMove}
-          onGestureTouchEnd={onGestureTouchEnd}
-        />
+        <WhatSwipeTapZone onTap={onSwipeZoneTap} />
         <div className="instant-ban-what-scroll-spacer" aria-hidden />
       </div>
     ) : null;
 
   const interactiveContent = (
-    <div
-      className="instant-ban-what-interactive-content"
-      data-what-interactive
-      data-gesture-exclude
-    >
+    <div className="instant-ban-what-interactive-content" data-what-interactive>
       {overlayTitle ? (
         <h1 className="instant-ban-send-overlay__title instant-ban-compose-scene__title">
           {overlayTitle}
@@ -1009,7 +984,13 @@ function WhatScreenInner({
         data-instant-ban-view="WhatScreen"
         data-compose-exit-progress={exitProgress.toFixed(3)}
       >
-        <div className="instant-ban-compose-scene">
+        <div
+          className="instant-ban-compose-scene"
+          onTouchStart={onGestureTouchStart}
+          onTouchMove={onGestureTouchMove}
+          onTouchEnd={onGestureTouchEnd}
+          onTouchCancel={onGestureTouchEnd}
+        >
           <div
             className={`instant-ban-what-exit-layer${
               isExiting || isResetting || exitProgress > 0
@@ -1034,6 +1015,10 @@ function WhatScreenInner({
     <div
       className="instant-ban-what instant-ban-what-mobile"
       data-instant-ban-view="WhatScreen"
+      onTouchStart={onGestureTouchStart}
+      onTouchMove={onGestureTouchMove}
+      onTouchEnd={onGestureTouchEnd}
+      onTouchCancel={onGestureTouchEnd}
     >
       <div
         ref={scrollRef}

@@ -2384,8 +2384,9 @@
   position: relative;
   flex: 1 1 auto;
   width: 100%;
-  min-height: 0;
+  min-height: 100%;
   overflow: visible;
+  touch-action: pan-y;
   --compose-exit-progress: 0;
 }
 
@@ -2632,7 +2633,7 @@
 
 .instant-ban-cross-screen-page--what {
   justify-content: flex-start;
-  touch-action: manipulation;
+  touch-action: pan-y;
 }
 
 .instant-ban-cross-screen-page__placeholder {

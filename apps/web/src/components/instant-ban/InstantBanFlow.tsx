@@ -234,9 +234,9 @@ export function InstantBanFlow({
   const overlayOpen = showCrossScreenPager;
   const orbOverlayDim =
     crossScreenProgress > 0.02 || phase === 'composingBan';
+  /** Horizontal pager only on Who — no finger swipe What → Who. */
   const crossScreenDragEnabled =
-    selectedUser != null &&
-    (phase === 'selectingTarget' || phase === 'composingBan');
+    selectedUser != null && phase === 'selectingTarget';
   /** Fixed Who dismiss zone (z-index 11) must not cover What interactive layer. */
   const whoDismissGestureActive =
     phase === 'selectingTarget' && crossScreenProgress < 0.02;
@@ -413,6 +413,7 @@ export function InstantBanFlow({
         defaultPrevented: e.defaultPrevented,
       });
       if (!crossScreenDragEnabled || screenTransitionRef.current) return;
+      if (phase === 'composingBan') return;
       if (!touch) return;
       if (touch) {
         logDocumentHitTest('pager-capture', touch.clientX, touch.clientY, {
@@ -444,7 +445,7 @@ export function InstantBanFlow({
         velocityProgressPerSec: 0,
       };
     },
-    [crossScreenDragEnabled],
+    [crossScreenDragEnabled, phase],
   );
 
   const onCrossScreenTouchMoveCapture = useCallback(
@@ -1182,7 +1183,10 @@ export function InstantBanFlow({
                     gestureZoneActive={whoDismissGestureActive}
                   />
                 </div>
-                <div className="instant-ban-cross-screen-page instant-ban-cross-screen-page--what">
+                <div
+                  className="instant-ban-cross-screen-page instant-ban-cross-screen-page--what"
+                  data-no-horizontal-pager=""
+                >
                   {selectedUser ? (
                     <WhatScreen
                       key={

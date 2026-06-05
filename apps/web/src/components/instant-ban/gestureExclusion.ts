@@ -14,8 +14,14 @@ export const WHAT_INTERACTIVE_SELECTOR = [
   WHAT_BACK_SELECTOR,
   DURATION_SLIDER_SELECTOR,
   '.instant-ban-what-field',
-  '[data-what-interactive]',
 ].join(', ');
+
+/** True when touch should go to the control, not a WhatScreen ritual gesture. */
+export function shouldDeferWhatScreenGesture(
+  target: EventTarget | null,
+): boolean {
+  return isWhatInteractiveTarget(target);
+}
 
 export type CrossScreenTouchPolicy = 'exclude' | 'defer' | 'normal';
 
