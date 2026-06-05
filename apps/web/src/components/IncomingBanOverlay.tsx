@@ -34,7 +34,7 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
     user,
     loading: authLoading,
     incomingBan,
-    setIncomingBan,
+    dismissIncoming,
     acknowledgeIncomingAndStartReply,
     acknowledgeIncomingSeen,
   } = useApp();
@@ -52,9 +52,9 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
       console.log('[incoming-overlay]', { event: 'verify-fail', banId, reason });
       setVerifiedBan(null);
       setVerifyPhase('failed');
-      setIncomingBan(null);
+      dismissIncoming(banId);
     },
-    [setIncomingBan],
+    [dismissIncoming],
   );
 
   useEffect(() => {
@@ -217,6 +217,12 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
   ).toUpperCase();
 
   const canAct = !!incomingBan.sender?.id;
+
+  console.log('INCOMING OVERLAY RENDER', {
+    banId: incomingBan.id,
+    verifyPhase,
+    embedded,
+  });
 
   const modal = (
     <ModalShell

@@ -95,9 +95,10 @@ export function useIncomingPoll(params: {
           return;
         }
 
-        console.log('[incoming-poll-hit]', {
+        console.log('INCOMING POLL RECEIVED', {
           banId: ban.id,
           receiverId: ban.receiver?.id ?? null,
+          dismissed: dismissedIncomingRef.current.has(ban.id),
         });
         receiveIncomingBan(ban, 'poll');
       } catch {

@@ -1,4 +1,7 @@
 import type { BanInteraction, BanResult } from '@98plus/shared';
+import { shouldShowBanResult } from '@/lib/ban-result-flow';
+import { shouldShowCheckOverlay } from '@/lib/check-overlay';
+import { shouldShowIncomingBanModal } from '@/lib/incoming-challenge';
 
 export type QueuedOverlay =
   | { kind: 'incoming'; ban: BanInteraction }
@@ -6,6 +9,14 @@ export type QueuedOverlay =
   | { kind: 'result'; result: BanResult };
 
 export const APP_NOTIFICATION_Z_INDEX = 100;
+
+export type OverlayQueueGuards = {
+  viewerId: string | null;
+  dismissedIncoming: ReadonlySet<string>;
+  dismissedCheck: ReadonlySet<string>;
+  answeredChecks: ReadonlySet<string>;
+  checkInFlight: ReadonlySet<string>;
+};
 
 export function overlayQueueKey(item: QueuedOverlay): string {
   const id = item.kind === 'result' ? item.result.id : item.ban.id;
@@ -35,6 +46,52 @@ export function enqueueOverlay(
   }
 
   return [...next, item];
+}
+
+/** Live WS/poll events jump ahead of queued items (still deduped). */
+export function prependOverlay(
+  queue: QueuedOverlay[],
+  item: QueuedOverlay,
+): QueuedOverlay[] {
+  if (queue.some((q) => overlayQueueKey(q) === overlayQueueKey(item))) {
+    return queue;
+  }
+  let next = queue;
+  const banId = overlayBanId(item);
+  if (item.kind === 'result') {
+    next = next.filter(
+      (q) => overlayBanId(q) !== banId || q.kind === 'result',
+    );
+  }
+  return [item, ...next];
+}
+
+export function pruneOverlayQueue(
+  queue: QueuedOverlay[],
+  guards: OverlayQueueGuards,
+): QueuedOverlay[] {
+  const { viewerId, dismissedIncoming, dismissedCheck, answeredChecks, checkInFlight } =
+    guards;
+  return queue.filter((item) => {
+    if (item.kind === 'incoming') {
+      return shouldShowIncomingBanModal(
+        item.ban,
+        viewerId,
+        dismissedIncoming,
+      );
+    }
+    if (item.kind === 'check') {
+      return shouldShowCheckOverlay(
+        item.ban,
+        viewerId,
+        dismissedCheck,
+        answeredChecks,
+        checkInFlight,
+        false,
+      );
+    }
+    return shouldShowBanResult(item.result, 'auto', item.result.id, viewerId);
+  });
 }
 
 export function dequeueOverlay(queue: QueuedOverlay[]): QueuedOverlay[] {
