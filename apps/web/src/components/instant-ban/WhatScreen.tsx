@@ -1080,8 +1080,6 @@ function WhatScreenInner({
           onTouchMoveCapture={onBackSwipeTouchMoveCapture}
           onTouchEndCapture={onBackSwipeTouchEndCapture}
           onTouchCancelCapture={onBackSwipeTouchEndCapture}
-          onTouchEnd={onComposeSceneTouchEnd}
-          onTouchCancel={onComposeSceneTouchEnd}
         >
           {showSwipeHint ? (
             <div
