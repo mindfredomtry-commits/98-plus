@@ -19,10 +19,16 @@ import { BigButton } from './BigButton';
 import { AvatarImage } from './AvatarImage';
 import { useTelegram } from '@/hooks/useTelegram';
 import { ModalShell } from './ModalShell';
+import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
 
 type VerifyPhase = 'idle' | 'pending' | 'ok' | 'failed';
 
-function IncomingBanOverlayInner() {
+interface Props {
+  /** Render inside GlobalOverlayHost instead of a separate body portal. */
+  embedded?: boolean;
+}
+
+function IncomingBanOverlayInner({ embedded = false }: Props) {
   const {
     token,
     user,
@@ -259,6 +265,7 @@ function IncomingBanOverlayInner() {
     </ModalShell>
   );
 
+  if (embedded) return modal;
   if (typeof document === 'undefined') return null;
   return createPortal(modal, document.body);
 }

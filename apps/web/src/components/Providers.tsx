@@ -34,6 +34,13 @@ import { EnergyPopupStack } from './EnergyPopupStack';
 import { IncomingBanOverlay } from './IncomingBanOverlay';
 import { CheckOverlay } from './CheckOverlay';
 import { ResultOverlay } from './ResultOverlay';
+import { GlobalOverlayHost } from './GlobalOverlayHost';
+import {
+  enqueueOverlay,
+  popOverlayHead,
+  removeOverlaysForBan,
+  type QueuedOverlay,
+} from '@/lib/overlay-queue';
 import { ChallengeErrorBoundary } from './ChallengeErrorBoundary';
 import { ShellErrorBoundary } from './ShellErrorBoundary';
 import { resetScrollLock } from '@/lib/scroll-lock';
@@ -304,6 +311,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [checkBan, setCheckBan] = useState<BanInteraction | null>(null);
   const [checkWaiting, setCheckWaiting] = useState(false);
   const [result, setResult] = useState<BanResult | null>(null);
+  const [overlayQueue, setOverlayQueue] = useState<QueuedOverlay[]>([]);
+  const overlayQueueRef = useRef<QueuedOverlay[]>([]);
 
   const openBanResult = useCallback(
     (r: BanResult | null | undefined, mode: ResultOpenMode) => {
@@ -330,25 +339,33 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
       resultDeliveredBanIdsRef.current.add(r.id);
-      resultOpenRef.current = true;
-      setResult(r);
+      setOverlayQueue((prev) =>
+        enqueueOverlay(prev, { kind: 'result', result: r }),
+      );
     },
     [],
   );
 
   const dismissBanResult = useCallback(() => {
-    setResult((prev) => {
-      if (prev?.id) {
-        console.log('[result-dismiss-local]', {
-          banId: prev.id,
-          authUserId: prev.viewerId ?? userIdRef.current,
-        });
-        dismissBanResultLocally(prev.id, prev.viewerId ?? null);
-        void acknowledgeBanResultOnServer(prev.id, tokenRef.current);
-      }
-      return null;
-    });
-  }, []);
+    const head = overlayQueueRef.current[0];
+    const banId =
+      head?.kind === 'result'
+        ? head.result.id
+        : (result?.id ?? null);
+    const viewerId =
+      head?.kind === 'result'
+        ? (head.result.viewerId ?? userIdRef.current)
+        : (result?.viewerId ?? userIdRef.current);
+    if (banId) {
+      console.log('[result-dismiss-local]', {
+        banId,
+        authUserId: viewerId,
+      });
+      dismissBanResultLocally(banId, viewerId ?? null);
+      void acknowledgeBanResultOnServer(banId, tokenRef.current);
+    }
+    setOverlayQueue((prev) => popOverlayHead(prev));
+  }, [result]);
   const [popups, setPopups] = useState<EnergyPopup[]>([]);
   const [activeBans, setActiveBans] = useState<BanInteraction[]>([]);
   // Isolation: until auth.user is confirmed, never show cached friends from another Telegram user.
@@ -408,6 +425,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const resultDeliveredBanIdsRef = useRef<Set<string>>(new Set());
   const checkSubmitAtRef = useRef<Map<string, number>>(new Map());
   const resultPollBurstTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const syncDisplayFromQueue = useCallback((queue: QueuedOverlay[]) => {
+    const active = queue[0] ?? null;
+    setIncomingBan(active?.kind === 'incoming' ? active.ban : null);
+    setCheckBan(active?.kind === 'check' ? active.ban : null);
+    if (active?.kind === 'result') {
+      resultOpenRef.current = true;
+      setResult(active.result);
+    } else {
+      resultOpenRef.current = false;
+      setResult(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    overlayQueueRef.current = overlayQueue;
+    syncDisplayFromQueue(overlayQueue);
+  }, [overlayQueue, syncDisplayFromQueue]);
+
+  const enqueueNotification = useCallback((item: QueuedOverlay) => {
+    setOverlayQueue((prev) => enqueueOverlay(prev, item));
+  }, []);
+
   useEffect(() => {
     incomingBanRef.current = incomingBan;
   }, [incomingBan]);
@@ -471,6 +511,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setCheckBan(null);
     setCheckWaiting(false);
     setResult(null);
+    setOverlayQueue([]);
+    overlayQueueRef.current = [];
     setPopups([]);
     setActiveBans([]);
     setFriends([]);
@@ -578,8 +620,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearTimeout(checkWaitingTimerRef.current);
       checkWaitingTimerRef.current = null;
     }
-    setCheckBan(null);
     setCheckWaiting(false);
+    setOverlayQueue((prev) => {
+      if (prev[0]?.kind === 'check') return popOverlayHead(prev);
+      return prev.filter((q) => q.kind !== 'check');
+    });
   }, []);
 
   const cancelResultPollBurst = useCallback(() => {
@@ -746,12 +791,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           return;
         }
         challengeLog('check:set', { id: b.id, status: b.status });
-        setCheckBan(enrichBanInteraction(b));
+        enqueueNotification({
+          kind: 'check',
+          ban: enrichBanInteraction(b),
+        });
         return;
       }
-      setCheckBan(null);
+      setOverlayQueue((prev) => prev.filter((q) => q.kind !== 'check'));
     },
-    [auth.user?.id],
+    [auth.user?.id, enqueueNotification],
   );
 
   const submitCheckAnswer = useCallback(
@@ -775,7 +823,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         role,
         elapsedMs: 0,
       });
-      setCheckBan(null);
+      setOverlayQueue((prev) =>
+        removeOverlaysForBan(prev, banId, ['check']),
+      );
       setCheckWaiting(false);
 
       try {
@@ -812,8 +862,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           challengeLog('check:done', { banId });
           receiveResult(res.result, 'http');
           queueMicrotask(() => {
-            clearCheckOverlay();
-            dismissIncoming();
+            setOverlayQueue((prev) =>
+              removeOverlaysForBan(prev, banId, ['check', 'incoming']),
+            );
             void refreshUserRef.current().catch(() => {});
           });
         } else if (res.waiting) {
@@ -842,7 +893,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     checkWaitingTimerRef.current = setTimeout(() => {
       challengeLog('check-waiting:expired');
       setCheckWaiting(false);
-      setCheckBan(null);
+      setOverlayQueue((prev) => {
+        if (prev[0]?.kind === 'check') return popOverlayHead(prev);
+        return prev.filter((q) => q.kind !== 'check');
+      });
       checkWaitingTimerRef.current = null;
     }, CHECK_WAITING_UI_TTL_MS);
   }, []);
@@ -919,9 +973,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason: why.reason,
         });
       }
-      setIncomingBan(b);
+      enqueueNotification({ kind: 'incoming', ban: b });
     },
-    [auth.user?.id, auth.loading],
+    [auth.user?.id, auth.loading, enqueueNotification],
   );
 
   // Apply WS-buffered incoming after auth is ready (must run after setIncomingBanSafe exists).
@@ -942,9 +996,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       auth.user.id,
     );
     if (incoming) {
-      setIncomingBan(incoming);
+      enqueueNotification({ kind: 'incoming', ban: incoming });
     }
-  }, [auth.user?.id, auth.loading]);
+  }, [auth.user?.id, auth.loading, enqueueNotification]);
 
   const pushPopup = useCallback((p: EnergyPopup) => {
     setPopups((prev) => [...prev, p]);
@@ -1155,7 +1209,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             delayMs,
           });
         }
-        setIncomingBan(incoming);
+        enqueueNotification({ kind: 'incoming', ban: incoming });
         return;
       }
 
@@ -1173,7 +1227,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
       }
     },
-    [],
+    [enqueueNotification],
   );
 
   const getOpenIncomingBan = useCallback(
@@ -1238,11 +1292,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         if (source === 'session' && !checkWsSeenRef.current.has(check.id)) {
           console.log('[check-recovery-session]', { banId: check.id });
         }
-        setCheckBan(check);
+        enqueueNotification({ kind: 'check', ban: check });
         setCheckWaiting(false);
       }
     },
-    [],
+    [enqueueNotification],
   );
 
   const getOpenCheckBan = useCallback(() => checkBanRef.current, []);
@@ -1588,8 +1642,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const acknowledgeIncomingSeen = useCallback(async (banId: string) => {
     dismissedIncomingRef.current.add(banId);
-    setIncomingBan(null);
     setViralOnboarding(false);
+    setOverlayQueue((prev) =>
+      prev.filter((q) => !(q.kind === 'incoming' && q.ban.id === banId)),
+    );
     console.log('[incoming-cleared]', {
       banId,
       reason: 'receiver-dismiss',
@@ -1606,8 +1662,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     async (ban: BanInteraction) => {
       const banId = ban.id;
       dismissedIncomingRef.current.add(banId);
-      setIncomingBan(null);
       setViralOnboarding(false);
+      setOverlayQueue((prev) =>
+        prev.filter((q) => !(q.kind === 'incoming' && q.ban.id === banId)),
+      );
       challengeLog('incoming:reply-open', { banId });
       const token = tokenRef.current;
       if (token) {
@@ -1635,8 +1693,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
       challengeLog('incoming:dismiss', { banId: null });
-      setIncomingBan(null);
       setViralOnboarding(false);
+      setOverlayQueue((prev) =>
+        prev[0]?.kind === 'incoming' ? popOverlayHead(prev) : prev,
+      );
     },
     [acknowledgeIncomingSeen],
   );
@@ -1689,8 +1749,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             markCheckAnsweredLocally(uid, banId);
           }
           queueMicrotask(() => {
-            clearCheckOverlay();
-            dismissIncoming();
+            if (banId) {
+              setOverlayQueue((prev) =>
+                removeOverlaysForBan(prev, banId, ['check', 'incoming']),
+              );
+            }
             void refreshUserRef.current().catch(() => {});
           });
           break;
@@ -2009,7 +2072,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [checkBan, auth.user?.id, result],
   );
 
-  const canShowAppOverlays = !lobbyOpen;
+  const notificationOverlayActive =
+    incomingGateActive || checkGateActive || !!result;
 
   const closeLobby = useCallback(() => {
     console.log('[lobby-enter-click]', { userId: userIdRef.current ?? null });
@@ -2273,35 +2337,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   return (
     <AppContext.Provider value={contextValue}>
       <ShellErrorBoundary name="app">
-        {canShowAppOverlays ? (
-          <>
-            <ChallengeErrorBoundary
-              name="incoming"
-              onRecover={() => dismissIncoming()}
-            >
-              <IncomingBanOverlay />
-            </ChallengeErrorBoundary>
-            <ChallengeErrorBoundary
-              name="check"
-              onRecover={() => clearCheckOverlay()}
-            >
-              <CheckOverlay />
-            </ChallengeErrorBoundary>
-            <ChallengeErrorBoundary
-              name="result"
-              onRecover={() => dismissBanResult()}
-            >
-              {result ? (
-                <ResultOverlay
-                  key={result.id}
-                  result={result}
-                  onClose={dismissBanResult}
-                />
-              ) : null}
-            </ChallengeErrorBoundary>
-          </>
-        ) : null}
         {children}
+        <GlobalOverlayHost active={notificationOverlayActive}>
+          <ChallengeErrorBoundary
+            name="incoming"
+            onRecover={() => dismissIncoming()}
+          >
+            <IncomingBanOverlay embedded />
+          </ChallengeErrorBoundary>
+          <ChallengeErrorBoundary
+            name="check"
+            onRecover={() => clearCheckOverlay()}
+          >
+            <CheckOverlay embedded />
+          </ChallengeErrorBoundary>
+          <ChallengeErrorBoundary
+            name="result"
+            onRecover={() => dismissBanResult()}
+          >
+            {result ? (
+              <ResultOverlay
+                key={result.id}
+                result={result}
+                onClose={dismissBanResult}
+                embedded
+              />
+            ) : null}
+          </ChallengeErrorBoundary>
+        </GlobalOverlayHost>
         {!result ? (
           <ShellErrorBoundary name="energy" fallback={null}>
             <EnergyPopupStack popups={popups} />

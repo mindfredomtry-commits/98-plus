@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useCallback, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import type { BanResult, UserPublic } from '@98plus/shared';
 import { isValidBanResultPayload, isResultParticipant } from '@98plus/shared';
 import { ANALYTICS_EVENTS } from '@98plus/shared';
@@ -12,13 +13,15 @@ import { useTelegram } from '@/hooks/useTelegram';
 import { ModalShell } from './ModalShell';
 import { AvatarImage } from './AvatarImage';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
+import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
 
 interface Props {
   result: BanResult;
   onClose: () => void;
+  embedded?: boolean;
 }
 
-function ResultOverlayInner({ result, onClose }: Props) {
+function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
   const { openSendTo, token } = useApp();
   const { haptic } = useTelegram();
 
@@ -80,11 +83,12 @@ function ResultOverlayInner({ result, onClose }: Props) {
 
   if (!showable) return null;
 
-  return (
+  const modal = (
     <ModalShell
       open
       light
       stable
+      zIndex={APP_NOTIFICATION_Z_INDEX}
       ariaLabel="Результат проверки"
       onClose={onClose}
     >
@@ -151,6 +155,10 @@ function ResultOverlayInner({ result, onClose }: Props) {
       )}
     </ModalShell>
   );
+
+  if (embedded) return modal;
+  if (typeof document === 'undefined') return null;
+  return createPortal(modal, document.body);
 }
 
 export const ResultOverlay = memo(ResultOverlayInner);

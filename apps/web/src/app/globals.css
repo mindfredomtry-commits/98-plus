@@ -807,6 +807,17 @@ html.scroll-lock body {
   pointer-events: none;
 }
 
+/* Global notification layer — incoming / check / result above all app screens */
+.app-notification-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.app-notification-layer--active {
+  pointer-events: auto;
+}
+
 .friend-pending-pulse {
   animation: pendingBorder 1.8s ease-in-out infinite;
 }

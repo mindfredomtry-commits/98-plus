@@ -16,8 +16,13 @@ import { challengeLog } from '@/lib/challenge-log';
 import { ModalShell } from './ModalShell';
 import { AvatarImage } from './AvatarImage';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
+import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
 
-function CheckOverlayInner() {
+interface Props {
+  embedded?: boolean;
+}
+
+function CheckOverlayInner({ embedded = false }: Props) {
   const {
     token,
     user,
@@ -95,7 +100,7 @@ function CheckOverlayInner() {
       open
       light
       stable
-      zIndex={70}
+      zIndex={APP_NOTIFICATION_Z_INDEX}
       closeOnBackdrop={false}
       ariaLabel={modalView.title}
       onClose={() => {}}
@@ -149,6 +154,7 @@ function CheckOverlayInner() {
     </ModalShell>
   );
 
+  if (embedded) return modal;
   if (typeof document === 'undefined') return null;
   return createPortal(modal, document.body);
 }

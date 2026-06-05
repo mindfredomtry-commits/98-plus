@@ -179,20 +179,15 @@ export default function HomePage() {
     );
   }
 
-  const overlaysUiActive = !lobbyOpen && !instantBanOpen;
   const arenaVisible = lobbyOpen || instantBanOpen || lobbyPrefetch;
   const shellView = lobbyPrefetch ? 'LobbyPrefetch' : 'HomeShell';
 
   return (
     <div
       className={`app-page min-h-[100dvh]${
-        incomingGateActive && overlaysUiActive
-          ? ' app-page--incoming-overlay-active'
-          : ''
+        incomingGateActive ? ' app-page--incoming-overlay-active' : ''
       }${
-        checkGateActive && overlaysUiActive
-          ? ' app-page--check-overlay-active'
-          : ''
+        checkGateActive ? ' app-page--check-overlay-active' : ''
       }${banSentOpen ? ' app-page--success-modal' : ''}${
         arenaVisible ? ' app-page--instant-ban-active' : ''
       }`}
