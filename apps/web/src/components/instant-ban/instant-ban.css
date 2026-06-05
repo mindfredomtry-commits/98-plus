@@ -135,6 +135,20 @@
 
 .instant-ban-who-dismiss-gesture-zone--off {
   pointer-events: none;
+  touch-action: none;
+}
+
+/* Who fixed dismiss zone (z-index 11) must not block What taps */
+.instant-ban-arena-send[data-who-gesture-active='false']
+  .instant-ban-who-dismiss-gesture-zone {
+  pointer-events: none;
+  touch-action: none;
+}
+
+.instant-ban-arena-send[data-send-phase='composingBan']
+  .instant-ban-who-dismiss-gesture-zone {
+  pointer-events: none;
+  touch-action: none;
 }
 
 /* Who pull-down dismiss — vertical Y on dismiss-layer (horizontal X stays on track) */
@@ -1558,25 +1572,34 @@
 }
 
 .instant-ban-what-interactive-content {
+  position: relative;
+  z-index: 12;
   flex: 0 0 auto;
   width: 100%;
   box-sizing: border-box;
   pointer-events: auto;
+  touch-action: manipulation;
+  isolation: isolate;
 }
 
 .instant-ban-what-lower-swipe-zone {
+  position: relative;
+  z-index: 5;
   flex: 0 0 auto;
   margin-top: auto;
   width: 100%;
   box-sizing: border-box;
+  pointer-events: auto;
+  touch-action: pan-y;
 }
 
 .instant-ban-what-lower-swipe-zone .instant-ban-what-swipe-zone {
-  pointer-events: none;
+  pointer-events: auto;
+  touch-action: pan-y;
 }
 
 .instant-ban-what-lower-swipe-zone .instant-ban-what-scroll-lift-hint {
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 .instant-ban-what-duration-slider__input::-webkit-slider-runnable-track {
@@ -2380,19 +2403,17 @@
   );
 }
 
+/* Legacy non-compose scroll driver only — never fullscreen over interactive content */
 .instant-ban-compose-scene__scroll-driver {
   position: absolute;
-  inset: 0;
-  z-index: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
-  touch-action: pan-y;
-  scrollbar-width: none;
+  left: -9999px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
   opacity: 0;
-  /* Scroll is driven from gesture zone; must not steal taps on chips/field above */
   pointer-events: none;
+  touch-action: none;
 }
 
 .instant-ban-compose-scene__scroll-driver::-webkit-scrollbar {
@@ -2465,14 +2486,17 @@
   transform: none;
 }
 
-.instant-ban-what-screen-layer .instant-ban-flow__back,
-.instant-ban-what-screen-layer .instant-ban-what-field,
-.instant-ban-what-screen-layer .instant-ban-chips,
-.instant-ban-what-screen-layer .instant-ban-chip,
-.instant-ban-what-screen-layer .instant-ban-what-duration-slider,
-.instant-ban-what-screen-layer .instant-ban-what-duration-slider__input,
-.instant-ban-what-screen-layer .instant-ban-what-swipe-zone,
-.instant-ban-what-screen-layer .instant-ban-what-input {
+.instant-ban-what-screen-layer .instant-ban-what-interactive-content,
+.instant-ban-what-screen-layer .instant-ban-what-interactive-content .instant-ban-flow__back,
+.instant-ban-what-screen-layer .instant-ban-what-interactive-content .instant-ban-what-field,
+.instant-ban-what-screen-layer .instant-ban-what-interactive-content .instant-ban-chips,
+.instant-ban-what-screen-layer .instant-ban-what-interactive-content .instant-ban-chip,
+.instant-ban-what-screen-layer .instant-ban-what-interactive-content .instant-ban-what-duration-slider,
+.instant-ban-what-screen-layer .instant-ban-what-interactive-content .instant-ban-what-duration-slider__input,
+.instant-ban-what-screen-layer .instant-ban-what-interactive-content .instant-ban-what-input,
+.instant-ban-what-screen-layer .instant-ban-what-interactive-content .instant-ban-compose-scene__title,
+.instant-ban-what-screen-layer .instant-ban-what-lower-swipe-zone,
+.instant-ban-what-screen-layer .instant-ban-what-lower-swipe-zone .instant-ban-what-swipe-zone {
   pointer-events: auto;
 }
 
@@ -2512,8 +2536,7 @@
   max-height: 100%;
   justify-content: flex-start;
   overflow: hidden;
-  pointer-events: auto;
-  touch-action: pan-y pinch-zoom;
+  pointer-events: none;
   background: transparent;
 }
 
@@ -2550,6 +2573,8 @@
   isolation: isolate;
   container-type: inline-size;
   container-name: instant-ban-cross-screen;
+  pointer-events: auto;
+  touch-action: manipulation;
 }
 
 .instant-ban-cross-screen-page .instant-ban-what-screen-layer__veil {
@@ -2607,6 +2632,7 @@
 
 .instant-ban-cross-screen-page--what {
   justify-content: flex-start;
+  touch-action: manipulation;
 }
 
 .instant-ban-cross-screen-page__placeholder {

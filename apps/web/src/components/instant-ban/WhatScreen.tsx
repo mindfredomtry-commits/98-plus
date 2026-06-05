@@ -20,11 +20,9 @@ import {
   clampWhatDurationMinutes,
 } from './WhatDurationSlider';
 import {
-  isNoHorizontalPagerTarget,
-  isWhatInteractiveTarget,
-} from './gestureExclusion';
-import {
   describeHitTarget,
+  inspectHitTarget,
+  isWhatHitDebugEnabled,
   isWhatTouchDiagEnabled,
   logBanInput,
   logComposeGesture,
@@ -32,6 +30,7 @@ import {
   logDocumentHitTest,
   logPresetChip,
   logWhatBack,
+  logWhatHit,
 } from './whatScreenTouchDiag';
 
 const QUICK_CHIPS = [
@@ -59,8 +58,10 @@ const DEFAULT_DURATION = 3;
 
 /** Scroll driver must exceed viewport by at least this much. */
 const SCROLL_DRIVER_MIN_OVERFLOW_PX = 120;
-/** Raw scroll fraction that maps to exit progress 1 (shorter finger travel). */
+/** Raw scroll fraction that maps to exit progress 1 (non-compose scroll mode). */
 const COMPOSE_EXIT_SCROLL_COMPLETE = 0.48;
+/** Finger travel (px) for compose exit progress 0 → 1 (lower swipe zone only). */
+const COMPOSE_EXIT_TRAVEL_PX = 300;
 /** Release past this progress → complete What → Confirm (title ~top ≈ 0.5–0.55). */
 const SNAP_EXIT_THRESHOLD = 0.44;
 /** Upward progress velocity (1/s) that also commits exit on release. */
@@ -71,26 +72,19 @@ const SCROLL_SETTLE_MS = 48;
 const COMPOSE_EXIT_MS = 240;
 /** Snap-back when release below threshold. */
 const COMPOSE_RESET_MS = 160;
-/** Swipe right → back to Who (compose scene only). */
-const WHAT_BACK_SWIPE_MIN_DX = 80;
-const WHAT_BACK_SWIPE_DX_DOMINANCE = 1.5;
-
 const WhatSwipeTapZone = memo(function WhatSwipeTapZone({
   onTap,
-  sentinelRef,
   onGestureTouchStart,
   onGestureTouchMove,
   onGestureTouchEnd,
 }: {
   onTap: () => void;
-  sentinelRef: React.RefObject<HTMLDivElement | null>;
   onGestureTouchStart?: (e: React.TouchEvent) => void;
   onGestureTouchMove?: (e: React.TouchEvent) => void;
   onGestureTouchEnd?: (e: React.TouchEvent) => void;
 }) {
   return (
     <div
-      ref={sentinelRef}
       className="instant-ban-what-swipe-zone"
       data-no-horizontal-pager=""
       role="presentation"
@@ -293,6 +287,7 @@ function WhatScreenInner({
   }, [instanceId]);
 
   const handleBackNavigate = useCallback(() => {
+    logWhatHit('back', { source: 'click' });
     logWhatBack('click');
     logWhatBack('navigate-who');
     onBack();
@@ -337,6 +332,7 @@ function WhatScreenInner({
 
   const handlePresetChipPointerDown = useCallback(
     (chip: string) => {
+      logWhatHit('chip', { source: 'pointerdown', label: chip });
       diagChip(chip, 'pointerdown');
     },
     [diagChip],
@@ -351,6 +347,7 @@ function WhatScreenInner({
 
   const handlePresetChipClick = useCallback(
     (chip: string) => {
+      logWhatHit('chip', { source: 'click', label: chip });
       diagChip(chip, 'click');
       if (chipTouchActivatedRef.current === chip) return;
       activatePresetChip(chip, 'click');
@@ -361,6 +358,7 @@ function WhatScreenInner({
   const handlePresetChipTouchStart = useCallback(
     (chip: string, e: TouchEvent<HTMLButtonElement>) => {
       const touch = e.touches[0];
+      logWhatHit('chip', { source: 'touchstart', label: chip });
       diagChip(chip, 'touchstart');
       if (touch && isWhatTouchDiagEnabled()) {
         logDocumentHitTest('chip-touchstart', touch.clientX, touch.clientY, {
@@ -396,15 +394,51 @@ function WhatScreenInner({
   );
 
   useEffect(() => {
-    if (!isWhatTouchDiagEnabled()) return;
+    if (!isWhatTouchDiagEnabled() && !isWhatHitDebugEnabled()) return;
 
     const onDocTouchStartCapture = (e: TouchEvent) => {
       const touch = e.touches[0];
       if (!touch) return;
-      logDocumentHitTest('touchstart-capture', touch.clientX, touch.clientY, {
-        defaultPrevented: e.defaultPrevented,
+
+      if (isWhatTouchDiagEnabled()) {
+        logDocumentHitTest('touchstart-capture', touch.clientX, touch.clientY, {
+          defaultPrevented: e.defaultPrevented,
+          eventTarget:
+            e.target instanceof Element ? e.target.tagName : String(e.target),
+        });
+      }
+
+      if (!isWhatHitDebugEnabled()) return;
+
+      const whatRoot = document.querySelector(
+        '[data-instant-ban-view="WhatScreen"]',
+      );
+      if (!(whatRoot instanceof Element)) return;
+      const rect = whatRoot.getBoundingClientRect();
+      if (
+        touch.clientX < rect.left ||
+        touch.clientX > rect.right ||
+        touch.clientY < rect.top ||
+        touch.clientY > rect.bottom
+      ) {
+        return;
+      }
+
+      const hit = inspectHitTarget(touch.clientX, touch.clientY);
+      const onInteractive =
+        e.target instanceof Element &&
+        (e.target.closest('[data-gesture-exclude]') != null ||
+          e.target.closest('[data-what-interactive]') != null);
+
+      console.log('WHAT TOUCH CAPTURE', {
+        x: touch.clientX,
+        y: touch.clientY,
+        onInteractive,
         eventTarget:
-          e.target instanceof Element ? e.target.tagName : String(e.target),
+          e.target instanceof Element
+            ? `${e.target.tagName}.${e.target.className}`
+            : String(e.target),
+        elementFromPoint: hit,
       });
     };
 
@@ -466,7 +500,6 @@ function WhatScreenInner({
   }, [durationMinutes]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const scrollSentinelRef = useRef<HTMLDivElement>(null);
   const submitLockRef = useRef(false);
   const exitAnimRef = useRef<number | null>(null);
   const exitCommitRef = useRef(false);
@@ -505,11 +538,13 @@ function WhatScreenInner({
   }, []);
 
   const resetScrollDriver = useCallback(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = 0;
+    if (!isComposeScene) {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = 0;
+    }
     exitVelocityRef.current = 0;
     progressSampleRef.current = { progress: 0, time: 0 };
-  }, []);
+  }, [isComposeScene]);
 
   const scrollProgressFromDriver = useCallback((): number => {
     const el = scrollRef.current;
@@ -744,109 +779,16 @@ function WhatScreenInner({
     tryAdvanceToConfirm('tap');
   }, [tryAdvanceToConfirm]);
 
-  const gestureTouchRef = useRef({ y: 0, scroll: 0 });
-  const backSwipeRef = useRef({
-    x: 0,
-    y: 0,
-    active: false,
-    cancelled: false,
-  });
+  const gestureTouchRef = useRef({ y: 0, startProgress: 0 });
 
-  const resetBackSwipe = useCallback(() => {
-    backSwipeRef.current.active = false;
-    backSwipeRef.current.cancelled = false;
-  }, []);
-
-  const onBackSwipeTouchStartCapture = useCallback(
-    (e: TouchEvent<HTMLDivElement>) => {
-      const touch = e.touches[0];
-      logComposeGesture('touch', 'capture-start', {
-        x: touch?.clientX,
-        y: touch?.clientY,
-        hit: touch
-          ? describeHitTarget(touch.clientX, touch.clientY)
-          : undefined,
-        onChip: isPresetChipTarget(e.target),
-      });
-      if (
-        !isComposeScene ||
-        exitCommitRef.current ||
-        isExitingRef.current ||
-        isResettingRef.current
-      ) {
-        return;
-      }
-      if (!touch) return;
-      if (
-        isNoHorizontalPagerTarget(e.target) ||
-        (e.target instanceof Element &&
-          e.target.closest(PRESET_CHIP_SELECTOR) != null)
-      ) {
-        backSwipeRef.current.active = false;
-        return;
-      }
-      backSwipeRef.current = {
-        x: touch.clientX,
-        y: touch.clientY,
-        active: true,
-        cancelled: false,
-      };
+  const applyComposeExitProgress = useCallback(
+    (progress: number) => {
+      const clamped = Math.min(1, Math.max(0, progress));
+      recordProgressSample(clamped);
+      setExitProgress(clamped);
+      return clamped;
     },
-    [isComposeScene],
-  );
-
-  const onBackSwipeTouchMoveCapture = useCallback(
-    (e: TouchEvent<HTMLDivElement>) => {
-      if (!backSwipeRef.current.active || backSwipeRef.current.cancelled) {
-        return;
-      }
-      if (isGestureActiveRef.current) {
-        backSwipeRef.current.cancelled = true;
-        return;
-      }
-      const touch = e.touches[0];
-      if (!touch) return;
-      const dx = touch.clientX - backSwipeRef.current.x;
-      const dy = touch.clientY - backSwipeRef.current.y;
-      if (Math.abs(dy) >= Math.abs(dx) * WHAT_BACK_SWIPE_DX_DOMINANCE) {
-        backSwipeRef.current.cancelled = true;
-      }
-    },
-    [],
-  );
-
-  const onBackSwipeTouchEndCapture = useCallback(
-    (e: TouchEvent<HTMLDivElement>) => {
-      if (!backSwipeRef.current.active) return;
-      const startX = backSwipeRef.current.x;
-      const startY = backSwipeRef.current.y;
-      const wasCancelled = backSwipeRef.current.cancelled;
-      resetBackSwipe();
-
-      if (
-        wasCancelled ||
-        isGestureActiveRef.current ||
-        exitCommitRef.current ||
-        isExitingRef.current ||
-        isResettingRef.current
-      ) {
-        return;
-      }
-
-      const touch = e.changedTouches[0];
-      if (!touch) return;
-
-      const dx = touch.clientX - startX;
-      const dy = touch.clientY - startY;
-
-      if (
-        dx >= WHAT_BACK_SWIPE_MIN_DX &&
-        dx > Math.abs(dy) * WHAT_BACK_SWIPE_DX_DOMINANCE
-      ) {
-        onBack();
-      }
-    },
-    [onBack, resetBackSwipe],
+    [recordProgressSample],
   );
 
   const onGestureTouchStart = useCallback(
@@ -859,9 +801,7 @@ function WhatScreenInner({
           ? describeHitTarget(touch.clientX, touch.clientY)
           : undefined,
       });
-      const el = scrollRef.current;
       if (
-        !el ||
         !showSwipeHint ||
         exitCommitRef.current ||
         isExitingRef.current ||
@@ -869,6 +809,7 @@ function WhatScreenInner({
       ) {
         return;
       }
+      if (!touch) return;
       clearSnapSettleTimer();
       isGestureActiveRef.current = true;
       exitVelocityRef.current = 0;
@@ -877,8 +818,8 @@ function WhatScreenInner({
         time: performance.now(),
       };
       gestureTouchRef.current = {
-        y: e.touches[0]?.clientY ?? 0,
-        scroll: el.scrollTop,
+        y: touch.clientY,
+        startProgress: exitProgressRef.current,
       };
     },
     [clearSnapSettleTimer, showSwipeHint],
@@ -887,9 +828,7 @@ function WhatScreenInner({
   const onGestureTouchMove = useCallback(
     (e: React.TouchEvent) => {
       logComposeGesture('gesture', 'touchmove');
-      const el = scrollRef.current;
       if (
-        !el ||
         exitCommitRef.current ||
         isExitingRef.current ||
         isResettingRef.current
@@ -899,10 +838,11 @@ function WhatScreenInner({
       const touch = e.touches[0];
       if (!touch) return;
       const dy = gestureTouchRef.current.y - touch.clientY;
-      el.scrollTop = gestureTouchRef.current.scroll + dy;
-      syncProgressFromScroll();
+      const next =
+        gestureTouchRef.current.startProgress + dy / COMPOSE_EXIT_TRAVEL_PX;
+      applyComposeExitProgress(next);
     },
-    [syncProgressFromScroll],
+    [applyComposeExitProgress],
   );
 
   const onGestureTouchEnd = useCallback(() => {
@@ -919,32 +859,6 @@ function WhatScreenInner({
     evaluateSnapOnSettle();
   }, [clearSnapSettleTimer, evaluateSnapOnSettle]);
 
-  useEffect(() => {
-    if (!showSwipeHint || !isComposeScene) return;
-
-    const root = scrollRef.current;
-    const sentinel = scrollSentinelRef.current;
-    if (!root || !sentinel) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        checkScrollToConfirm();
-      },
-      {
-        root,
-        threshold: 0.35,
-        rootMargin: '0px 0px -4px 0px',
-      },
-    );
-
-    observer.observe(sentinel);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [showSwipeHint, isComposeScene, checkScrollToConfirm]);
-
   const composeLayerStyle = isComposeScene
     ? ({
         '--compose-exit-progress': String(exitProgress),
@@ -958,7 +872,6 @@ function WhatScreenInner({
         data-no-horizontal-pager=""
       >
         <WhatSwipeTapZone
-          sentinelRef={scrollSentinelRef}
           onTap={onSwipeZoneTap}
           onGestureTouchStart={onGestureTouchStart}
           onGestureTouchMove={onGestureTouchMove}
@@ -969,7 +882,11 @@ function WhatScreenInner({
     ) : null;
 
   const interactiveContent = (
-    <div className="instant-ban-what-interactive-content" data-what-interactive>
+    <div
+      className="instant-ban-what-interactive-content"
+      data-what-interactive
+      data-gesture-exclude
+    >
       {overlayTitle ? (
         <h1 className="instant-ban-send-overlay__title instant-ban-compose-scene__title">
           {overlayTitle}
@@ -978,13 +895,20 @@ function WhatScreenInner({
       <button
         type="button"
         data-what-back=""
+        data-gesture-exclude=""
         className={`instant-ban-flow__back${
           overlayTitle ? ' instant-ban-flow__back--icon-only' : ''
         }${overlayTitle ? ' instant-ban-flow__back--what-compose' : ''}`}
         onClick={handleBackNavigate}
-        onPointerDown={() => logWhatBack('pointerdown')}
+        onPointerDown={() => {
+          logWhatHit('back', { source: 'pointerdown' });
+          logWhatBack('pointerdown');
+        }}
         onPointerUp={() => logWhatBack('pointerup')}
-        onTouchStart={() => logWhatBack('touchstart')}
+        onTouchStart={() => {
+          logWhatHit('back', { source: 'touchstart' });
+          logWhatBack('touchstart');
+        }}
         onTouchEnd={() => logWhatBack('touchend')}
         aria-label="Назад"
       >
@@ -997,7 +921,7 @@ function WhatScreenInner({
         )}
       </button>
       <WhatSelectedUser user={selectedUser} />
-      <label className="instant-ban-what-field">
+      <label className="instant-ban-what-field" data-gesture-exclude="">
         {isEmpty ? (
           <span
             className={`instant-ban-what-placeholder-cycle${
@@ -1013,6 +937,7 @@ function WhatScreenInner({
           type="text"
           inputMode="text"
           data-ban-input=""
+          data-gesture-exclude=""
           className="instant-ban-what-input instant-ban-what-input--mobile"
           defaultValue={initialBanText}
           onInput={() => {
@@ -1021,11 +946,20 @@ function WhatScreenInner({
           }}
           onFocus={handleFocus}
           onBlur={handleBlur}
-          onPointerDown={() => logBanInput('pointerdown')}
+          onPointerDown={() => {
+            logWhatHit('input', { source: 'pointerdown' });
+            logBanInput('pointerdown');
+          }}
           onPointerUp={() => logBanInput('pointerup')}
-          onTouchStart={() => logBanInput('touchstart')}
+          onTouchStart={() => {
+            logWhatHit('input', { source: 'touchstart' });
+            logBanInput('touchstart');
+          }}
           onTouchEnd={() => logBanInput('touchend')}
-          onClick={() => logBanInput('click')}
+          onClick={() => {
+            logWhatHit('input', { source: 'click' });
+            logBanInput('click');
+          }}
           placeholder=""
           autoComplete="off"
           autoCorrect="off"
@@ -1040,6 +974,7 @@ function WhatScreenInner({
             key={chip}
             type="button"
             data-preset-chip=""
+            data-gesture-exclude=""
             className={`instant-ban-chip instant-ban-chip--mobile${
               selectedChip === chip ? ' instant-ban-chip--selected' : ''
             }`}
@@ -1074,35 +1009,7 @@ function WhatScreenInner({
         data-instant-ban-view="WhatScreen"
         data-compose-exit-progress={exitProgress.toFixed(3)}
       >
-        <div
-          className="instant-ban-compose-scene"
-          onTouchStartCapture={onBackSwipeTouchStartCapture}
-          onTouchMoveCapture={onBackSwipeTouchMoveCapture}
-          onTouchEndCapture={onBackSwipeTouchEndCapture}
-          onTouchCancelCapture={onBackSwipeTouchEndCapture}
-        >
-          {showSwipeHint ? (
-            <div
-              ref={scrollRef}
-              className="instant-ban-compose-scene__scroll-driver"
-              onScroll={onScroll}
-              onTouchStart={(e) => {
-                const touch = e.touches[0];
-                logComposeLayer('scroll-driver', 'touchstart', {
-                  x: touch?.clientX,
-                  y: touch?.clientY,
-                  hit: touch
-                    ? describeHitTarget(touch.clientX, touch.clientY)
-                    : undefined,
-                });
-              }}
-              onTouchEnd={() => logComposeLayer('scroll-driver', 'touchend')}
-              aria-hidden
-            >
-              <div className="instant-ban-compose-scene__scroll-driver-track" />
-              <div className="instant-ban-compose-scene__scroll-driver-sentinel" />
-            </div>
-          ) : null}
+        <div className="instant-ban-compose-scene">
           <div
             className={`instant-ban-what-exit-layer${
               isExiting || isResetting || exitProgress > 0

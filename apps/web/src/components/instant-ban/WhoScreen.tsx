@@ -52,6 +52,8 @@ type WhoOverlayProps = {
   onDismissExitStart: () => void;
   onDismissToLobby: () => void;
   whoPanelEntering?: boolean;
+  /** Off while What page is visible — fixed zone must not block What taps. */
+  gestureZoneActive?: boolean;
 };
 
 export function WhoOverlay({
@@ -422,7 +424,9 @@ export function WhoOverlay({
     <>
       <div
         className={`instant-ban-who-dismiss-gesture-zone${
-          dismissCompleting ? ' instant-ban-who-dismiss-gesture-zone--off' : ''
+          dismissCompleting || !gestureZoneActive
+            ? ' instant-ban-who-dismiss-gesture-zone--off'
+            : ''
         }`}
         style={gestureZoneStyle}
         onTouchStart={onTouchStart}

@@ -1,6 +1,7 @@
 'use client';
 
 let touchDiagCached: boolean | null = null;
+let whatHitDebugCached: boolean | null = null;
 
 /** Dev build or `?chipDebug=1` on the mini-app URL (works on phone). */
 export function isWhatTouchDiagEnabled(): boolean {
@@ -12,6 +13,33 @@ export function isWhatTouchDiagEnabled(): boolean {
     process.env.NODE_ENV === 'development' ||
     new URLSearchParams(window.location.search).get('chipDebug') === '1';
   return touchDiagCached;
+}
+
+/** Dev build or `?whatDebug=1` — logs WHAT HIT + elementFromPoint on What taps. */
+export function isWhatHitDebugEnabled(): boolean {
+  if (typeof window === 'undefined') {
+    return process.env.NODE_ENV === 'development';
+  }
+  if (whatHitDebugCached !== null) return whatHitDebugCached;
+  whatHitDebugCached =
+    process.env.NODE_ENV === 'development' ||
+    new URLSearchParams(window.location.search).get('whatDebug') === '1' ||
+    new URLSearchParams(window.location.search).get('chipDebug') === '1';
+  return whatHitDebugCached;
+}
+
+export type WhatHitKind = 'back' | 'input' | 'chip' | 'slider';
+
+export function logWhatHit(
+  kind: WhatHitKind,
+  extra?: Record<string, unknown>,
+): void {
+  if (!isWhatHitDebugEnabled()) return;
+  if (extra) {
+    console.log(`WHAT HIT: ${kind}`, extra);
+  } else {
+    console.log(`WHAT HIT: ${kind}`);
+  }
 }
 
 /** @deprecated use isWhatTouchDiagEnabled */
@@ -26,6 +54,7 @@ export type HitInspection = {
   closestBanInput: boolean;
   closestWhatBack: boolean;
   closestNoHorizontalPager: boolean;
+  closestGestureExclude: boolean;
   pointerEvents: string;
   zIndex: string;
   position: string;
@@ -47,6 +76,7 @@ export function inspectHitTarget(x: number, y: number): HitInspection | null {
     closestBanInput: el.closest('[data-ban-input]') != null,
     closestWhatBack: el.closest('[data-what-back]') != null,
     closestNoHorizontalPager: el.closest('[data-no-horizontal-pager]') != null,
+    closestGestureExclude: el.closest('[data-gesture-exclude]') != null,
     pointerEvents: cs.pointerEvents,
     zIndex: cs.zIndex,
     position: cs.position,

@@ -9,6 +9,7 @@ import {
   useState,
   type CSSProperties,
 } from 'react';
+import { logWhatHit } from './whatScreenTouchDiag';
 
 export const WHAT_DURATION_MIN = 3;
 export const WHAT_DURATION_MAX = 60;
@@ -73,6 +74,8 @@ export const WhatDurationSlider = memo(function WhatDurationSlider({
   return (
     <div
       className="instant-ban-what-duration-slider"
+      data-duration-slider=""
+      data-gesture-exclude=""
       data-no-horizontal-pager=""
     >
       <div
@@ -94,6 +97,8 @@ export const WhatDurationSlider = memo(function WhatDurationSlider({
           value={rawValue}
           onInput={handleInput}
           onChange={handleInput}
+          onPointerDown={() => logWhatHit('slider', { source: 'pointerdown' })}
+          onTouchStart={() => logWhatHit('slider', { source: 'touchstart' })}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           onBlur={endDrag}

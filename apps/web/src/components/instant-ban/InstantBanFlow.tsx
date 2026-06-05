@@ -237,6 +237,9 @@ export function InstantBanFlow({
   const crossScreenDragEnabled =
     selectedUser != null &&
     (phase === 'selectingTarget' || phase === 'composingBan');
+  /** Fixed Who dismiss zone (z-index 11) must not cover What interactive layer. */
+  const whoDismissGestureActive =
+    phase === 'selectingTarget' && crossScreenProgress < 0.02;
   const showLobbyCta =
     ctaState === 'visible' ||
     ctaState === 'exiting' ||
@@ -1050,6 +1053,7 @@ export function InstantBanFlow({
       aria-label="98+ arena"
       data-instant-ban-view="InstantBanFlow"
       data-send-phase={phase}
+      data-who-gesture-active={whoDismissGestureActive ? 'true' : 'false'}
       data-screen-transition={screenTransition ?? undefined}
       data-orb-compress-active={orbCompressActive ? '' : undefined}
       data-instant-ban-step={legacyStep}
@@ -1147,10 +1151,6 @@ export function InstantBanFlow({
                 : undefined),
             }}
             role="presentation"
-            onTouchStartCapture={onCrossScreenTouchStartCapture}
-            onTouchMoveCapture={onCrossScreenTouchMoveCapture}
-            onTouchEndCapture={onCrossScreenTouchEndCapture}
-            onTouchCancelCapture={onCrossScreenTouchEndCapture}
           >
             <div
               className={`instant-ban-send-overlay__shared-dim instant-ban-send-overlay__dim${
@@ -1159,7 +1159,13 @@ export function InstantBanFlow({
               style={whoDimStyle}
               aria-hidden
             />
-            <div className="instant-ban-cross-screen-viewport">
+            <div
+              className="instant-ban-cross-screen-viewport"
+              onTouchStartCapture={onCrossScreenTouchStartCapture}
+              onTouchMoveCapture={onCrossScreenTouchMoveCapture}
+              onTouchEndCapture={onCrossScreenTouchEndCapture}
+              onTouchCancelCapture={onCrossScreenTouchEndCapture}
+            >
               <div className="instant-ban-cross-screen-track">
                 <div className="instant-ban-cross-screen-page instant-ban-cross-screen-page--who">
                   <WhoOverlay
@@ -1173,6 +1179,7 @@ export function InstantBanFlow({
                     whoPanelEntering={
                       whoPanelEntering && crossScreenProgress < 0.02
                     }
+                    gestureZoneActive={whoDismissGestureActive}
                   />
                 </div>
                 <div className="instant-ban-cross-screen-page instant-ban-cross-screen-page--what">
