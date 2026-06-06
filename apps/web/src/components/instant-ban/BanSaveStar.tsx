@@ -3,11 +3,13 @@
 import type { SyntheticEvent } from 'react';
 
 /**
- * Regular pentagram in 24×24: center (12, 12), top ray on vertical axis,
- * R = 9.5, r = R·sin(18°)/sin(54°).
+ * Soft pentagram in 24×24: center (12, 12), top ray on vertical axis.
+ * Shorter tips (R = 8) and shallower valleys (r = 6.2) for a compact shape.
  */
 const STAR_PATH =
-  'M12 2.5 L14.133 9.064 L21.035 9.064 L15.451 13.121 L17.584 19.686 L12 15.629 L6.416 19.686 L8.549 13.121 L2.965 9.064 L9.867 9.064 Z';
+  'M12 4 L15.644 6.984 L19.608 9.528 L17.897 13.916 L16.702 18.472 L12 18.2 L7.298 18.472 L6.103 13.916 L4.392 9.528 L8.356 6.984 Z';
+
+const STAR_STROKE_WIDTH = 0.8;
 
 type Props = {
   banId: string;
@@ -51,7 +53,7 @@ export function BanSaveStar({ banId, saved, onToggle }: Props) {
           d={STAR_PATH}
           fill="currentColor"
           stroke="currentColor"
-          strokeWidth="1.1"
+          strokeWidth={STAR_STROKE_WIDTH}
           strokeLinejoin="round"
           strokeLinecap="round"
           className="instant-ban-bans-list-item__star-fill"
@@ -61,7 +63,7 @@ export function BanSaveStar({ banId, saved, onToggle }: Props) {
           d={STAR_PATH}
           fill="none"
           stroke="currentColor"
-          strokeWidth="1.1"
+          strokeWidth={STAR_STROKE_WIDTH}
           strokeLinejoin="round"
           strokeLinecap="round"
           className="instant-ban-bans-list-item__star-outline"
