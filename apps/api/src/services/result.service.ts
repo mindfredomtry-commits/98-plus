@@ -11,6 +11,13 @@ import { prisma } from '../lib/prisma';
 import { inviteLinkForUser, miniAppLink, shareLink } from '../lib/deeplink';
 import { mapUser } from './user-mapper';
 
+export function mapPrismaOutcomeToShared(
+  o: PrismaOutcome | null | undefined,
+): InteractionOutcome | null {
+  if (!o) return null;
+  return prismaToShared(o);
+}
+
 function prismaToShared(o: PrismaOutcome): InteractionOutcome {
   const map: Record<PrismaOutcome, InteractionOutcome> = {
     BOTH_YES: 'both_yes',

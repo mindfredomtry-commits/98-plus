@@ -1387,6 +1387,7 @@ export function InstantBanFlow({
           {selectedBanForDetails ? (
             <ActiveBanCardOverlay
               ban={selectedBanForDetails}
+              isHistory={bansTab === 'history'}
               onBack={() => setSelectedBanForDetails(null)}
               onBanMore={() => handleBanMore(selectedBanForDetails)}
               onShare={() => handleBanShare(selectedBanForDetails)}

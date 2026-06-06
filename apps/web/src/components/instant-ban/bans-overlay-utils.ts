@@ -1,4 +1,8 @@
-import type { BanInteraction, BanStatus } from '@98plus/shared';
+import {
+  formatHistoryOutcomeLabel,
+  type BanInteraction,
+  type BanStatus,
+} from '@98plus/shared';
 
 export type BansTab = 'yours' | 'toYou' | 'history' | 'archive';
 
@@ -47,6 +51,11 @@ export function userDisplayName(
   user: BanInteraction['sender'] | BanInteraction['receiver'],
 ): string {
   return user?.firstName || user?.username || '—';
+}
+
+/** Product outcome label for История — never "завершён". */
+export function banHistoryStatusLabel(ban: BanInteraction): string {
+  return formatHistoryOutcomeLabel(ban.outcome, ban.status);
 }
 
 export function banStatusLabel(status: BanInteraction['status']): string {

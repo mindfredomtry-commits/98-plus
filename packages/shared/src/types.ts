@@ -1,5 +1,6 @@
 import type { AuraLevel } from './energy';
 import type { BanDurationMinutes } from './constants';
+import type { InteractionOutcome } from './result';
 import {
   BAN_DURATIONS_MINUTES,
   INSTANT_BAN_DURATION_MAX_MINUTES,
@@ -57,6 +58,8 @@ export interface BanInteraction {
   serverNow?: string;
   /** Receiver dismissed the incoming notification modal (server ack). */
   incomingAcknowledged?: boolean;
+  /** Terminal check/result outcome — populated for history list items. */
+  outcome?: InteractionOutcome | null;
 }
 
 export interface CheckState {

@@ -37,6 +37,7 @@ import {
   buildBanResult,
   checkOutcomeToPrisma,
   mapBanRowToResult,
+  mapPrismaOutcomeToShared,
   overboardToPrisma,
 } from './result.service';
 import { applyCheckResult, resolveCheckOutcome } from './energy.service';
@@ -158,6 +159,7 @@ export async function mapBanToInteraction(
         ? remainingMs
         : undefined,
     serverNow: new Date().toISOString(),
+    outcome: mapPrismaOutcomeToShared(ban.outcome),
   };
 }
 
@@ -1142,12 +1144,26 @@ export async function getHistoryInteractions(userId: string, limit = 50) {
     include: { sender: true, receiver: true },
   });
 
-  const result: BanInteraction[] = [];
-  for (const b of bans) {
-    const m = await mapBanToInteraction(b.id, userId);
-    if (m) result.push(m);
-  }
-  return result;
+  return bans.map((ban) => {
+    return {
+      id: ban.id,
+      text: ban.text,
+      status: mapBanStatus(ban.status),
+      durationMinutes: ban.durationMinutes as BanInteraction['durationMinutes'],
+      sender: mapUser(ban.sender),
+      receiver: mapUser(ban.receiver),
+      isIncoming: ban.receiverId === userId,
+      incomingAcknowledged:
+        ban.receiverId === userId && ban.receiverIncomingAckAt != null,
+      createdAt: ban.createdAt.toISOString(),
+      expiresAt: ban.expiresAt?.toISOString() ?? null,
+      checkDueAt: ban.checkDueAt?.toISOString() ?? null,
+      threadId: ban.threadId,
+      remainingMs: undefined,
+      serverNow: new Date().toISOString(),
+      outcome: mapPrismaOutcomeToShared(ban.outcome),
+    } satisfies BanInteraction;
+  });
 }
 
 async function markIncomingAcked(banId: string): Promise<void> {

@@ -50,6 +50,29 @@ const CHECK_HEADLINES: Record<CheckOutcome, string> = {
   both_yes: 'ЗАПРЕТИТЕЛЬНО!',
 };
 
+/** Lowercase product labels for history list (not modal headlines). */
+export const HISTORY_OUTCOME_LABELS: Partial<
+  Record<InteractionOutcome, string>
+> = {
+  both_yes: 'запретительно',
+  both_no: 'зато честно',
+  split: 'нестыковочка',
+  overboard: 'перебор',
+};
+
+export function formatHistoryOutcomeLabel(
+  outcome: InteractionOutcome | null | undefined,
+  banStatus?: string,
+): string {
+  if (outcome && HISTORY_OUTCOME_LABELS[outcome]) {
+    return HISTORY_OUTCOME_LABELS[outcome]!;
+  }
+  if (banStatus === 'overboard') {
+    return HISTORY_OUTCOME_LABELS.overboard!;
+  }
+  return 'статус неизвестен';
+}
+
 export function formatResultHeadline(outcome: InteractionOutcome): string {
   if (outcome === 'both_yes' || outcome === 'both_no' || outcome === 'split') {
     return CHECK_HEADLINES[outcome];

@@ -10,6 +10,7 @@ import {
   useBanRemainingMs,
 } from '@/lib/ban-remaining-time';
 import {
+  banHistoryStatusLabel,
   banStatusLabel,
   userDisplayLetter,
   userDisplayName,
@@ -17,6 +18,7 @@ import {
 
 type Props = {
   ban: BanInteraction;
+  isHistory?: boolean;
   onBack: () => void;
   onBanMore: () => void;
   onShare: () => void;
@@ -40,21 +42,27 @@ function PartyAvatar({ user }: { user: BanInteraction['sender'] }) {
 
 export function ActiveBanCardOverlay({
   ban,
+  isHistory = false,
   onBack,
   onBanMore,
   onShare,
 }: Props) {
   const left = useBanRemainingMs(ban);
+  const historyLabel = isHistory ? banHistoryStatusLabel(ban) : null;
   const timerText =
-    left != null
+    historyLabel ??
+    (left != null
       ? left <= 0
         ? ban.status === 'checking'
           ? 'проверка'
           : '00:00'
         : formatBanRemaining(left, 'clock')
+      : banStatusLabel(ban.status));
+  const statusTitle = historyLabel
+    ? historyLabel
+    : ban.status === 'active'
+      ? 'запрещено'
       : banStatusLabel(ban.status);
-  const statusTitle =
-    ban.status === 'active' ? 'запрещено' : banStatusLabel(ban.status);
 
   return (
     <div

@@ -10,6 +10,7 @@ import {
 } from '@/lib/ban-remaining-time';
 import {
   type BansTab,
+  banHistoryStatusLabel,
   banStatusLabel,
   bansTabEmptyMessage,
   opponentForBan,
@@ -135,6 +136,7 @@ export function BansOverlay({
               <BanListItem
                 key={ban.id}
                 ban={ban}
+                tab={tab}
                 userId={userId}
                 onSelect={() => onSelectBan(ban)}
               />
