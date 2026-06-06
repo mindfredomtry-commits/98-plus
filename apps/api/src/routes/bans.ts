@@ -12,6 +12,9 @@ import {
   submitCheckAnswer,
   getActiveInteractions,
   getHistoryInteractions,
+  getSavedInteractions,
+  saveBanForUser,
+  unsaveBanForUser,
   getPendingIncoming,
   getPendingIncomingForPoll,
   getPendingCheck,
@@ -58,6 +61,11 @@ bansRouter.get('/active', async (req: AuthRequest, res) => {
 
 bansRouter.get('/history', async (req: AuthRequest, res) => {
   const items = await getHistoryInteractions(req.userId!);
+  res.json({ items });
+});
+
+bansRouter.get('/saved', async (req: AuthRequest, res) => {
+  const items = await getSavedInteractions(req.userId!);
   res.json({ items });
 });
 
@@ -169,6 +177,24 @@ bansRouter.post('/:id/incoming/ack', async (req: AuthRequest, res) => {
     return;
   }
   res.json({ ok: true, ban });
+});
+
+bansRouter.post('/:id/save', async (req: AuthRequest, res) => {
+  try {
+    await saveBanForUser(req.userId!, paramId(req));
+    res.json({ ok: true, saved: true });
+  } catch (e) {
+    res.status(404).json({ error: (e as Error).message });
+  }
+});
+
+bansRouter.delete('/:id/save', async (req: AuthRequest, res) => {
+  try {
+    await unsaveBanForUser(req.userId!, paramId(req));
+    res.json({ ok: true, saved: false });
+  } catch (e) {
+    res.status(404).json({ error: (e as Error).message });
+  }
 });
 
 bansRouter.get('/:id/check-state', async (req: AuthRequest, res) => {

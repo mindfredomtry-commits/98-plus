@@ -33,6 +33,7 @@ model User {
   analytics     AnalyticsEvent[]
   socialContacts SocialContact[] @relation("SocialContacts")
   knownAsContact SocialContact[] @relation("KnownAsContact")
+  savedBans      SavedBan[]
 }
 
 /// Persistent Telegram social graph (grows from real challenges/invites)
@@ -127,6 +128,7 @@ model Ban {
   receiverResultSeenAt     DateTime?
 
   checkAnswers BanCheckAnswer[]
+  savedBy      SavedBan[]
 
   @@index([receiverId, status])
   @@index([senderId])
@@ -188,6 +190,18 @@ model SelfBan {
   isPublic  Boolean  @default(false)
   createdAt DateTime @default(now())
 
+  @@index([userId, createdAt])
+}
+
+model SavedBan {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  banId     String
+  ban       Ban      @relation(fields: [banId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, banId])
   @@index([userId, createdAt])
 }
 

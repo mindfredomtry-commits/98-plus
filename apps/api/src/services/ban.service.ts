@@ -1128,6 +1128,63 @@ export async function getHistoryInteractions(userId: string, limit = 50) {
   return bans.map((ban) => mapBanRecordToInteraction(ban, userId));
 }
 
+async function assertBanParticipant(
+  banId: string,
+  userId: string,
+): Promise<void> {
+  const ban = await prisma.ban.findUnique({
+    where: { id: banId },
+    select: { senderId: true, receiverId: true },
+  });
+  if (!ban || (ban.senderId !== userId && ban.receiverId !== userId)) {
+    throw new Error('Запрет не найден');
+  }
+}
+
+export async function saveBanForUser(
+  userId: string,
+  banId: string,
+): Promise<void> {
+  await assertBanParticipant(banId, userId);
+  await prisma.savedBan.upsert({
+    where: { userId_banId: { userId, banId } },
+    create: { userId, banId },
+    update: {},
+  });
+}
+
+export async function unsaveBanForUser(
+  userId: string,
+  banId: string,
+): Promise<void> {
+  await prisma.savedBan.deleteMany({
+    where: { userId, banId },
+  });
+}
+
+export async function getSavedInteractions(
+  userId: string,
+  limit = 100,
+): Promise<BanInteraction[]> {
+  const rows = await prisma.savedBan.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+    include: {
+      ban: { include: { sender: true, receiver: true } },
+    },
+  });
+
+  return rows
+    .map((row) => {
+      const ban = row.ban;
+      if (!ban) return null;
+      if (ban.senderId !== userId && ban.receiverId !== userId) return null;
+      return mapBanRecordToInteraction(ban, userId);
+    })
+    .filter((b): b is BanInteraction => b != null);
+}
+
 async function markIncomingAcked(banId: string): Promise<void> {
   await prisma.ban.update({
     where: { id: banId },
