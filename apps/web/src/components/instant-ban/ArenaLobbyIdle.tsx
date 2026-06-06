@@ -2,8 +2,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { LOBBY_MIN_INFLUENCE_PERCENT } from '@/lib/lobby-influence';
-import { shareLobbyAskInvite } from '@/lib/share';
-
 export type LobbyCtaState = 'visible' | 'exiting' | 'hidden' | 'entering';
 
 type Props = {
@@ -13,10 +11,10 @@ type Props = {
   energyLoaded: boolean;
   /** Ring intro animating 0 → actual — must not trigger low-energy hint. */
   lobbyRingIntroFilling: boolean;
-  inviteUsername?: string | null;
   ctaState: LobbyCtaState;
   ctaInteractive: boolean;
   onBeginSend: () => void;
+  onLowEnergyAsk: () => void;
 };
 
 function triggerEnterHaptic(): void {
@@ -65,10 +63,10 @@ export function ArenaLobbyIdle({
   influencePercent,
   energyLoaded,
   lobbyRingIntroFilling,
-  inviteUsername = null,
   ctaState,
   ctaInteractive,
   onBeginSend,
+  onLowEnergyAsk,
 }: Props) {
   const [lowInfluenceRevealed, setLowInfluenceRevealed] = useState(false);
   const [hintPulse, setHintPulse] = useState(false);
@@ -109,7 +107,7 @@ export function ArenaLobbyIdle({
       return;
     }
 
-    shareLobbyAskInvite(inviteUsername);
+    onLowEnergyAsk();
   };
 
   const buttonLabel = askMode ? '🚫 ХОЧУ ЗАПРЕЩАТЬ' : '🚫 ЗАПРЕЩАТЬ';

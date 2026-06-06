@@ -37,7 +37,11 @@ import {
   saveBan,
   unsaveBan,
 } from '@/lib/saved-bans-api';
-import { shareDeepLink, shareInstantBanInviteMore } from '@/lib/share';
+import {
+  shareDeepLink,
+  shareInstantBanInviteMore,
+  shareLobbyAskInvite,
+} from '@/lib/share';
 import { ArenaLobbyIdle, type LobbyCtaState } from './ArenaLobbyIdle';
 import { ArenaLobbyOrb } from './ArenaLobbyOrb';
 import { WhoOverlay } from './WhoScreen';
@@ -1096,6 +1100,31 @@ export function InstantBanFlow({
   });
 
 
+  const handleLowEnergyAsk = useCallback(() => {
+    if (pendingStartupInteractions) {
+      console.log('[lobby-low-energy-ask]', {
+        action: 'release-startup-interactions',
+        pendingStartupInteractions: true,
+      });
+      releaseStartupInteractions();
+      return;
+    }
+    if (notificationSessionActive) {
+      console.log('[lobby-low-energy-ask]', {
+        action: 'queue-already-active',
+        notificationSessionActive: true,
+      });
+      return;
+    }
+    console.log('[lobby-low-energy-ask]', { action: 'telegram-share' });
+    shareLobbyAskInvite(inviteUsername);
+  }, [
+    inviteUsername,
+    notificationSessionActive,
+    pendingStartupInteractions,
+    releaseStartupInteractions,
+  ]);
+
   const handleBeginSend = useCallback(() => {
     if (phase !== 'idle' || ctaState !== 'visible') return;
 
@@ -1768,10 +1797,10 @@ export function InstantBanFlow({
           influencePercent={lobbyInfluencePercent}
           energyLoaded={energyLoaded}
           lobbyRingIntroFilling={lobbyRingIntroFilling}
-          inviteUsername={inviteUsername}
           ctaState={ctaState}
           ctaInteractive={ctaInteractive}
           onBeginSend={handleBeginSend}
+          onLowEnergyAsk={handleLowEnergyAsk}
         />
       ) : null}
 
