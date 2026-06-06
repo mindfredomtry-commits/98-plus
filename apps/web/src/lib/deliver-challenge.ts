@@ -126,14 +126,19 @@ export async function deliverDirectChallenge(
   if (!text || text.length < 3) {
     throw new ChallengeDeliveryError('Напиши текст запрета', 'invalid');
   }
-  if (!username) {
-    throw new ChallengeDeliveryError('Не указан получатель', 'target');
-  }
 
   const resolved = safeResolveReceiverTarget(username, params.friends, {
     receiverUserId: params.receiverUserId,
     receiverTelegramId: params.receiverTelegramId,
   });
+
+  if (
+    !username &&
+    !resolved.receiverUserId &&
+    !resolved.receiverTelegramId
+  ) {
+    throw new ChallengeDeliveryError('Не указан получатель', 'target');
+  }
 
   if (
     params.directOnly &&
@@ -149,8 +154,10 @@ export async function deliverDirectChallenge(
   const body: Record<string, unknown> = {
     text,
     durationMinutes: params.durationMinutes,
-    receiverUsername: username,
   };
+  if (username) {
+    body.receiverUsername = username;
+  }
   const userId = resolved.receiverUserId?.trim();
   if (
     userId &&

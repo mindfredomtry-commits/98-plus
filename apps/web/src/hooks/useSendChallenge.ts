@@ -89,8 +89,11 @@ export function useSendChallenge(opts: {
         },
       );
 
+      const hasReceiverTarget = Boolean(
+        username || resolved.receiverUserId || resolved.receiverTelegramId,
+      );
       const instantDirectSend =
-        Boolean(username) &&
+        hasReceiverTarget &&
         !isSharePicker &&
         (resolved.isRegistered ||
           Boolean(resolved.receiverUserId || resolved.receiverTelegramId));

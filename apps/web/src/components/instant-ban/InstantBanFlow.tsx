@@ -11,6 +11,7 @@ import {
 } from 'react';
 import {
   coerceFriendList,
+  findFriendByUsername,
   isValidDurationMinutes,
   type BanInteraction,
   type FriendCard,
@@ -1171,10 +1172,27 @@ export function InstantBanFlow({
         resolved.receiverTelegramId ?? snapUser.telegramId ?? null,
     };
 
+    const hasReceiverTarget = Boolean(
+      username || sendTarget.receiverUserId || sendTarget.receiverTelegramId,
+    );
     const instantDirectSend =
-      Boolean(username) &&
+      hasReceiverTarget &&
       (resolved.isRegistered ||
         Boolean(sendTarget.receiverUserId || sendTarget.receiverTelegramId));
+
+    const receiverUsernameForApi = (() => {
+      if (username) {
+        return sendTarget.receiverUsername.startsWith('@')
+          ? sendTarget.receiverUsername
+          : `@${sendTarget.receiverUsername.replace(/^@/, '')}`;
+      }
+      if (sendTarget.receiverUserId) {
+        return `@${sendTarget.receiverUserId}`;
+      }
+      const name = snapUser.firstName?.trim().replace(/\s+/g, '');
+      if (name) return `@${name}`;
+      return '@receiver';
+    })();
 
     if (typeof window !== 'undefined') {
       console.info('[98+] send API target', {
@@ -1183,6 +1201,22 @@ export function InstantBanFlow({
         configApiUrl: window.__98_CONFIG__?.apiUrl,
       });
     }
+
+    const logSendRejected = (reason: string, extra?: Record<string, unknown>) => {
+      console.info('[98+] sendBan failed', {
+        stage: 'pre-flight',
+        reason,
+        textLength: snapText.trim().length,
+        durationMinutes: snapDuration,
+        selectedUserId: snapUser.userId ?? snapUser.id ?? null,
+        selectedUsername: snapUser.username ?? null,
+        receiverUserId: sendTarget.receiverUserId,
+        receiverTelegramId: sendTarget.receiverTelegramId,
+        receiverUsernameForApi,
+        hasToken: Boolean(token),
+        ...extra,
+      });
+    };
 
     instantBanSendBeforeDebug({
       banText: snapText,
@@ -1205,26 +1239,26 @@ export function InstantBanFlow({
     });
 
     if (!token) {
-      instantBanDebug('send-rejected', { reason: 'no-token' });
+      logSendRejected('no-token');
       setSendError('Не получилось отправить запрет');
       return 'rejected';
     }
 
     const text = snapText.trim();
     if (text.length < 3) {
-      instantBanDebug('send-rejected', { reason: 'text-too-short', length: text.length });
+      logSendRejected('text-too-short', { textLength: text.length });
       setSendError('Не получилось отправить запрет');
       return 'rejected';
     }
 
-    if (!username) {
-      instantBanDebug('send-rejected', { reason: 'no-username' });
+    if (!hasReceiverTarget) {
+      logSendRejected('no-receiver');
       setSendError('Не получилось отправить запрет');
       return 'rejected';
     }
 
     if (isClientDevAuthEnabled() && !sendTarget.receiverUserId) {
-      instantBanDebug('send-rejected', { reason: 'dev-peer-missing' });
+      logSendRejected('dev-peer-missing');
       setSendError('Выбери Dev Peer в списке людей');
       return 'rejected';
     }
@@ -1235,12 +1269,19 @@ export function InstantBanFlow({
     triggerConfirmHaptic();
     haptic('medium');
 
+    console.info('[98+] sendBan payload', {
+      textLength: text.length,
+      durationMinutes: snapDuration,
+      receiverUserId: sendTarget.receiverUserId,
+      receiverTelegramId: sendTarget.receiverTelegramId,
+      receiverUsername: receiverUsernameForApi,
+      selectedUserId: snapUser.userId ?? snapUser.id ?? null,
+    });
+
     try {
       const outcome = await send({
         text,
-        receiverUsername: sendTarget.receiverUsername.startsWith('@')
-          ? sendTarget.receiverUsername
-          : `@${sendTarget.receiverUsername}`,
+        receiverUsername: receiverUsernameForApi,
         receiverUserId: sendTarget.receiverUserId,
         receiverTelegramId: sendTarget.receiverTelegramId,
         durationMinutes: snapDuration,
@@ -1253,6 +1294,12 @@ export function InstantBanFlow({
     } catch (e) {
       const message =
         e instanceof Error ? e.message : 'Не получилось отправить запрет';
+      console.info('[98+] sendBan failed', {
+        stage: 'request',
+        message,
+        error: e instanceof Error ? e.name : typeof e,
+        status: (e as { status?: number }).status,
+      });
       instantBanSendErrorDebug({ message, error: e });
       setSendError(message);
       return 'rejected';

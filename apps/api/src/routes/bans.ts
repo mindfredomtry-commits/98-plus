@@ -211,6 +211,17 @@ bansRouter.get('/:id/open', async (req: AuthRequest, res) => {
 });
 
 bansRouter.post('/send', async (req: AuthRequest, res) => {
+  const rawBody = req.body as Record<string, unknown>;
+  console.info('[98+] /bans/send received', {
+    userId: req.userId,
+    receiverUserId: rawBody?.receiverUserId,
+    receiverTelegramId: rawBody?.receiverTelegramId,
+    receiverUsername: rawBody?.receiverUsername,
+    durationMinutes: rawBody?.durationMinutes,
+    textLength:
+      typeof rawBody?.text === 'string' ? rawBody.text.length : undefined,
+  });
+
   const parsed = sendSchema.safeParse(req.body);
   if (!parsed.success) {
     console.warn('[98+] /bans/send validation failed', {
