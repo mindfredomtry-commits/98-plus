@@ -642,17 +642,13 @@ export function InstantBanFlow({
   useEffect(() => {
     if (!bansOverlayOpen || !token) return;
     let cancelled = false;
-    setHistoryLoading(true);
-    api<{ items: BanInteraction[] }>('/bans/history', { token })
+    void api<{ items: BanInteraction[] }>('/bans/history', { token })
       .then((res) => {
         if (cancelled) return;
         setHistoryBans(Array.isArray(res.items) ? res.items : []);
       })
       .catch(() => {
-        if (!cancelled) setHistoryBans([]);
-      })
-      .finally(() => {
-        if (!cancelled) setHistoryLoading(false);
+        /* keep cached history on background refresh errors */
       });
     return () => {
       cancelled = true;
