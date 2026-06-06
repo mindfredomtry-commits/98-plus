@@ -50,7 +50,7 @@ import {
   type BansTab,
   filterBansForTab,
   opponentForBan,
-  opponentToFriendCard,
+  resolveOpponentFriendCard,
 } from './bans-overlay-utils';
 import { useConfirmOrbController } from './useConfirmOrbController';
 import { useLobbyRingIntroFill } from './useLobbyRingIntroFill';
@@ -211,6 +211,8 @@ export function InstantBanFlow({
     sendTriggered: boolean;
   }>({ payoffPhase: 'none', sendTriggered: false });
   const confirmAbortReleaseRef = useRef<(() => void) | null>(null);
+  /** Phase to enter when sendStarted flips false→true (archive repeat / ban-more). */
+  const sendEntryPhaseRef = useRef<SendFlowPhase | null>(null);
   const lobbyOrbMountRef = useRef<HTMLDivElement>(null);
   const [composeExitProgress, setComposeExitProgress] = useState(0);
   const [composeDismissing, setComposeDismissing] = useState(false);
@@ -590,7 +592,9 @@ export function InstantBanFlow({
   useEffect(() => {
     if (sendStarted && !prevSendStartedRef.current) {
       clearCtaBootDelayTimer();
-      setPhase('selectingTarget');
+      const entryPhase = sendEntryPhaseRef.current;
+      sendEntryPhaseRef.current = null;
+      setPhase(entryPhase ?? 'selectingTarget');
       setCtaState('hidden');
     }
     prevSendStartedRef.current = sendStarted;
@@ -769,23 +773,81 @@ export function InstantBanFlow({
   }, [haptic]);
 
   const beginRepeatBanFlow = useCallback(
-    (ban: BanInteraction, options?: { goToConfirm: boolean }) => {
-      if (!user?.id) return false;
+    (
+      ban: BanInteraction,
+      options?: { goToConfirm?: boolean; fromArchive?: boolean },
+    ) => {
+      const logArchive = options?.fromArchive === true;
+
+      if (!user?.id) {
+        if (logArchive) {
+          console.info('[98+] ARCHIVE REPEAT FALLBACK', { reason: 'no-user' });
+        }
+        return false;
+      }
 
       const opponent = opponentForBan(ban, user.id);
-      const friend = opponentToFriendCard(opponent, safeFriends);
+      if (!opponent?.id) {
+        if (logArchive) {
+          console.info('[98+] ARCHIVE REPEAT FALLBACK', { reason: 'no-opponent' });
+        }
+        sendEntryPhaseRef.current = 'selectingTarget';
+        setBansOverlayOpen(false);
+        setSelectedBanForDetails(null);
+        clearCtaExitTimer();
+        clearWhoPanelEnterTimer();
+        setCtaState('hidden');
+        onStartSend();
+        setPhase('selectingTarget');
+        return false;
+      }
+
+      const { card: friend, source } = resolveOpponentFriendCard(
+        opponent,
+        safeFriends,
+      );
       const text = ban.text?.trim() ?? '';
       const duration = isValidDurationMinutes(ban.durationMinutes)
         ? ban.durationMinutes
         : DEFAULT_DURATION_MINUTES;
-      const goToConfirm = options?.goToConfirm ?? text.length >= 3;
+      const wantConfirm = options?.goToConfirm ?? true;
+      const canConfirm = wantConfirm && text.length >= 3;
+      const targetPhase: SendFlowPhase = canConfirm
+        ? 'confirming'
+        : text.length > 0
+          ? 'composingBan'
+          : 'selectingTarget';
+
+      if (logArchive) {
+        console.info('[98+] ARCHIVE REPEAT OPPONENT', {
+          opponentId: opponent.id,
+          username: opponent.username,
+          source,
+        });
+        console.info('[98+] ARCHIVE REPEAT TARGET READY', {
+          selectedUserId: friend.userId ?? friend.id,
+        });
+        if (targetPhase === 'confirming') {
+          console.info('[98+] ARCHIVE REPEAT TO CONFIRM');
+        } else {
+          console.info('[98+] ARCHIVE REPEAT FALLBACK', {
+            reason:
+              text.length < 3
+                ? 'short-text'
+                : targetPhase === 'composingBan'
+                  ? 'what-prefill'
+                  : 'no-text',
+          });
+        }
+      }
+
+      sendEntryPhaseRef.current = targetPhase;
 
       setBansOverlayOpen(false);
       setSelectedBanForDetails(null);
       clearCtaExitTimer();
       clearWhoPanelEnterTimer();
       setCtaState('hidden');
-      onStartSend();
       setSelectedUser(friend);
       setBanText(text);
       setDurationMinutes(duration);
@@ -796,12 +858,12 @@ export function InstantBanFlow({
       sendSnapshotRef.current = null;
       setCrossScreenProgressImmediate(1);
 
-      if (goToConfirm) {
+      if (targetPhase === 'confirming') {
         setConfirmEnterKey((k) => k + 1);
-        setPhase('confirming');
-      } else {
-        setPhase('composingBan');
       }
+
+      onStartSend();
+      setPhase(targetPhase);
 
       return true;
     },
@@ -817,8 +879,9 @@ export function InstantBanFlow({
 
   const handleRepeatBanFromArchive = useCallback(
     (ban: BanInteraction) => {
+      console.info('[98+] ARCHIVE REPEAT CLICK', { banId: ban.id });
       haptic('light');
-      beginRepeatBanFlow(ban);
+      beginRepeatBanFlow(ban, { fromArchive: true, goToConfirm: true });
     },
     [beginRepeatBanFlow, haptic],
   );
@@ -848,7 +911,7 @@ export function InstantBanFlow({
 
   const handleBanMore = useCallback(
     (ban: BanInteraction) => {
-      beginRepeatBanFlow(ban, { goToConfirm: false });
+      beginRepeatBanFlow(ban, { goToConfirm: false, fromArchive: false });
     },
     [beginRepeatBanFlow],
   );

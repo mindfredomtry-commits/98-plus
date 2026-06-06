@@ -140,13 +140,10 @@ export function opponentForBan(
   return ban.sender;
 }
 
-export function opponentToFriendCard(
+/** Build send target from ban record — does not depend on friends cache. */
+export function friendCardFromBanUser(
   opponent: BanInteraction['sender'],
-  friends: FriendCard[],
 ): FriendCard {
-  const fromFriends = findFriendByUsername(friends, opponent.username ?? '');
-  if (fromFriends) return fromFriends;
-
   return {
     id: opponent.id,
     userId: opponent.id,
@@ -163,4 +160,25 @@ export function opponentToFriendCard(
     interactionCount: 0,
     isRegistered: true,
   };
+}
+
+export type OpponentFriendSource = 'ban-record' | 'friends-cache';
+
+export function resolveOpponentFriendCard(
+  opponent: BanInteraction['sender'],
+  friends: FriendCard[],
+): { card: FriendCard; source: OpponentFriendSource } {
+  const fromFriends = findFriendByUsername(friends, opponent.username ?? '');
+  if (fromFriends) {
+    return { card: fromFriends, source: 'friends-cache' };
+  }
+  return { card: friendCardFromBanUser(opponent), source: 'ban-record' };
+}
+
+/** @deprecated Prefer resolveOpponentFriendCard for repeat/archive flows. */
+export function opponentToFriendCard(
+  opponent: BanInteraction['sender'],
+  friends: FriendCard[],
+): FriendCard {
+  return resolveOpponentFriendCard(opponent, friends).card;
 }
