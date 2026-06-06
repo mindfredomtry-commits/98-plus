@@ -178,24 +178,24 @@ export async function deliverDirectChallenge(
     timingLog('sendBan request', performance.now() - started);
     console.info('[98+] sendBan response', {
       hasBan: !!res.ban,
+      banId: res.ban?.id,
       pending: res.pending,
       requiresShare: res.requiresShare,
       notificationDebug: (res as { notificationDebug?: unknown })
         .notificationDebug,
     });
   } catch (e) {
-    if (e instanceof ApiError) {
-      console.error('[98+] sendBan failed', {
-        status: e.status,
-        message: e.message,
-        body,
-      });
-      if (e.status === 401) {
-        throw new ChallengeDeliveryError(
-          'Сессия устарела. Перезапусти Mini App.',
-          'auth',
-        );
-      }
+    const failed = {
+      error: e instanceof Error ? e.name : typeof e,
+      status: e instanceof ApiError ? e.status : undefined,
+      message: e instanceof Error ? e.message : String(e),
+    };
+    console.error('[98+] sendBan failed', failed);
+    if (e instanceof ApiError && e.status === 401) {
+      throw new ChallengeDeliveryError(
+        'Сессия устарела. Перезапусти Mini App.',
+        'auth',
+      );
     }
     throw e;
   }

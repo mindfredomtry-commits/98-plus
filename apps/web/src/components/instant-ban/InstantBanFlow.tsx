@@ -21,7 +21,7 @@ import { useSendChallenge } from '@/hooks/useSendChallenge';
 import { useInstantBanViewport } from '@/hooks/useInstantBanViewport';
 import { safeResolveReceiverTarget } from '@/lib/resolve-receiver';
 import { resolveDevSendTarget } from '@/lib/dev-receiver';
-import { isClientDevAuthEnabled } from '@/lib/config';
+import { getApiUrl, isClientDevAuthEnabled } from '@/lib/config';
 import {
   instantBanDebug,
   instantBanSendBeforeDebug,
@@ -769,16 +769,18 @@ export function InstantBanFlow({
     onConfirm: (p) => {
       confirmOptimisticSend(p.username);
     },
+    onRequiresShare: () => {
+      setBanSentSuccess(false);
+      confirmAbortReleaseRef.current?.();
+    },
     onFail: (p) => {
       rollbackOptimisticSend({
         username: p.username,
         message: p.message,
       });
+      setBanSentSuccess(false);
+      confirmAbortReleaseRef.current?.();
       const message = p.message || 'Не получилось отправить запрет';
-      if (banSentSuccess) {
-        instantBanSendErrorDebug({ message, error: p, banSentSuccess: true });
-        return;
-      }
       instantBanSendErrorDebug({ message, error: p });
       setSendError(message);
     },
@@ -990,6 +992,14 @@ export function InstantBanFlow({
       (resolved.isRegistered ||
         Boolean(sendTarget.receiverUserId || sendTarget.receiverTelegramId));
 
+    if (typeof window !== 'undefined') {
+      console.info('[98+] send API target', {
+        getApiUrl: getApiUrl(),
+        localStorage: localStorage.getItem('98plus_api_url'),
+        configApiUrl: window.__98_CONFIG__?.apiUrl,
+      });
+    }
+
     instantBanSendBeforeDebug({
       banText: snapText,
       selectedUserId: snapUser.id ?? snapUser.userId ?? null,
@@ -1057,11 +1067,11 @@ export function InstantBanFlow({
       }
       return 'started';
     } catch (e) {
-      instantBanSendErrorDebug({
-        message: e instanceof Error ? e.message : String(e),
-        error: e,
-      });
-      return 'started';
+      const message =
+        e instanceof Error ? e.message : 'Не получилось отправить запрет';
+      instantBanSendErrorDebug({ message, error: e });
+      setSendError(message);
+      return 'rejected';
     }
   }, [token, haptic, safeFriends, user?.username, user?.id, send, banSentSuccess]);
 

@@ -22,14 +22,10 @@ export type SendChallengeParams = {
   durationMinutes: number;
 };
 
-function isSendCooldownMessage(message: string): boolean {
-  return /подожди/i.test(message);
-}
-
 export function useSendChallenge(opts: {
   token: string | null;
   friends?: FriendCard[] | null;
-  /** Direct send: called immediately on click (before API). */
+  /** Called only after API confirms ban.id (never optimistically). */
   onSuccess: () => void;
   onOptimisticApply: (params: SendChallengeParams & { username: string }) => void;
   onConfirm?: (params: SendChallengeParams & { username: string }) => void;
@@ -99,17 +95,8 @@ export function useSendChallenge(opts: {
         (resolved.isRegistered ||
           Boolean(resolved.receiverUserId || resolved.receiverTelegramId));
 
-      let showedInstantSuccess = false;
-
       inFlightRef.current = true;
       setInFlight(true);
-
-      if (instantDirectSend) {
-        timingLog('sendBan optimistic applied immediately', 0);
-        onOptimisticApplyRef.current({ ...params, username });
-        onSuccessRef.current();
-        showedInstantSuccess = true;
-      }
 
       const requestStarted = performance.now();
 
@@ -131,26 +118,21 @@ export function useSendChallenge(opts: {
           directOnly: instantDirectSend,
         });
 
+        const hasConfirmedBan = Boolean(res.ban?.id);
         const needsShare =
           res.requiresShare === true || res.pending === true;
 
-        ctaLog('mutation:response', { needsShare, hasBan: !!res.ban });
+        ctaLog('mutation:response', { needsShare, hasBan: hasConfirmedBan });
 
         if (needsShare) {
           if (!res.shareUrl) {
             throw new Error('Не удалось отправить вызов');
           }
 
-          if (showedInstantSuccess) {
-            onRequiresShareRef.current?.();
-          }
+          onRequiresShareRef.current?.();
 
           setSharing(true);
           ctaLog('share:open');
-
-          if (!instantDirectSend) {
-            onOptimisticApplyRef.current({ ...params, username });
-          }
 
           await handleShareChallenge(
             params.text.trim(),
@@ -175,16 +157,20 @@ export function useSendChallenge(opts: {
             body: JSON.stringify({ name: ANALYTICS_EVENTS.INVITE_SHARED }),
           }).catch(() => {});
 
-          if (!showedInstantSuccess) {
+          if (hasConfirmedBan) {
+            onOptimisticApplyRef.current({ ...params, username });
+            onConfirmRef.current?.({ ...params, username });
             onSuccessRef.current();
           }
           scheduleDeferredSyncRef.current?.();
         } else {
-          timingLog('sendBan confirmed', performance.now() - requestStarted);
-          onConfirmRef.current?.({ ...params, username });
-          if (!showedInstantSuccess) {
-            onSuccessRef.current();
+          if (!hasConfirmedBan) {
+            throw new Error('Сервер не подтвердил запрет');
           }
+          timingLog('sendBan confirmed', performance.now() - requestStarted);
+          onOptimisticApplyRef.current({ ...params, username });
+          onConfirmRef.current?.({ ...params, username });
+          onSuccessRef.current();
           scheduleDeferredSyncRef.current?.();
         }
 
@@ -192,12 +178,6 @@ export function useSendChallenge(opts: {
         return 'started';
       } catch (e) {
         const message = formatDeliveryError(e);
-        if (showedInstantSuccess && isSendCooldownMessage(message)) {
-          ctaLog('mutation:cooldown-after-success', { username, message });
-          onConfirmRef.current?.({ ...params, username });
-          scheduleDeferredSyncRef.current?.();
-          return 'started';
-        }
         console.error('[98+] sendBan rollback', { username, message, error: e });
         ctaLog('mutation:fail', { message });
         onFailRef.current({ ...params, username, message });
