@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useCallback, useEffect, useMemo } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { BanResult, UserPublic } from '@98plus/shared';
 import {
@@ -12,6 +12,7 @@ import {
 import { ANALYTICS_EVENTS } from '@98plus/shared';
 import { shareDeepLink } from '@/lib/share';
 import { api } from '@/lib/api';
+import { getSavedBans, saveBan, unsaveBan } from '@/lib/saved-bans-api';
 import { useApp } from './Providers';
 import { BigButton } from './BigButton';
 import { useTelegram } from '@/hooks/useTelegram';
@@ -19,6 +20,9 @@ import { ModalShell } from './ModalShell';
 import { AvatarImage } from './AvatarImage';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
+import { BanSaveStar } from './instant-ban/BanSaveStar';
+import { ResultShareIcon } from './instant-ban/ResultShareIcon';
+import './instant-ban/instant-ban.css';
 
 interface Props {
   result: BanResult;
@@ -28,7 +32,8 @@ interface Props {
 
 function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
   const { openSendTo, openNewBanWhoFlow, token } = useApp();
-  const { haptic } = useTelegram();
+  const { haptic, hapticSuccess } = useTelegram();
+  const [archiveSaved, setArchiveSaved] = useState(false);
 
   const showable =
     isValidBanResultPayload(result) &&
@@ -37,6 +42,20 @@ function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
   useEffect(() => {
     if (!showable) onClose();
   }, [showable, onClose]);
+
+  useEffect(() => {
+    if (!token || !result.id) return;
+    let cancelled = false;
+    void getSavedBans(token)
+      .then((items) => {
+        if (cancelled) return;
+        setArchiveSaved(items.some((b) => b.id === result.id));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [token, result.id]);
 
   const view = useMemo(() => {
     const isSender = result.viewerId === result.sender.id;
@@ -107,6 +126,30 @@ function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
     openNewBanWhoFlow();
   }, [haptic, onClose, openNewBanWhoFlow]);
 
+  const toggleArchiveSave = useCallback(() => {
+    if (!token || !result.id) return;
+
+    let wasSaved = false;
+    setArchiveSaved((prev) => {
+      wasSaved = prev;
+      return !prev;
+    });
+    haptic('light');
+    hapticSuccess();
+
+    void (async () => {
+      try {
+        if (wasSaved) {
+          await unsaveBan(token, result.id);
+        } else {
+          await saveBan(token, result.id);
+        }
+      } catch {
+        setArchiveSaved(wasSaved);
+      }
+    })();
+  }, [haptic, hapticSuccess, result.id, token]);
+
   const senderStatus = result.confirmations?.sender;
   const receiverStatus = result.confirmations?.receiver;
 
@@ -120,8 +163,30 @@ function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
       zIndex={APP_NOTIFICATION_Z_INDEX}
       ariaLabel="Результат проверки"
       onClose={onClose}
+      cardClassName="modal-card--result"
     >
-      <div className="modal-card-body text-center">
+      <div className="result-card-head">
+        <button
+          type="button"
+          className="result-card-head__share"
+          onClick={share}
+          aria-label="Поделиться"
+        >
+          <ResultShareIcon />
+        </button>
+        {token ? (
+          <div className="result-card-head__archive">
+            <BanSaveStar
+              mode="toggle"
+              banId={result.id}
+              saved={archiveSaved}
+              onAction={toggleArchiveSave}
+            />
+          </div>
+        ) : null}
+      </div>
+
+      <div className="modal-card-body text-center result-card-body">
         <p className="result-headline text-2xl font-black text-glow mb-1">
           {view.displayHeadline}
         </p>
@@ -175,16 +240,13 @@ function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
       </div>
 
       {(view.isSender || view.isReceiver) && (
-        <div className="modal-card-actions space-y-3">
+        <div className="modal-card-actions result-card-actions space-y-2.5">
           <BigButton onClick={counter}>{view.primaryLabel}</BigButton>
           {view.showBanOthers ? (
             <BigButton variant="ghost" onClick={banOthers}>
               🚫 Запретить другим!
             </BigButton>
           ) : null}
-          <BigButton variant="ghost" onClick={share}>
-            Поделиться
-          </BigButton>
         </div>
       )}
     </ModalShell>

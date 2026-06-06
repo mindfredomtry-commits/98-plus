@@ -953,6 +953,68 @@ html.scroll-lock body {
   text-shadow: 0 0 20px rgba(var(--98-accent-rgb), 0.35);
 }
 
+.modal-card--result {
+  position: relative;
+  padding-top: 2.5rem;
+}
+
+.result-card-head {
+  position: absolute;
+  top: 0.55rem;
+  left: 0.55rem;
+  right: 0.55rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.result-card-head > * {
+  pointer-events: auto;
+}
+
+.result-card-head__share {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(var(--98-accent-rgb), 0.88);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 160ms ease, color 160ms ease;
+}
+
+.result-card-head__share:active {
+  transform: scale(1.15);
+}
+
+.result-card-head__share-icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  display: block;
+}
+
+.result-card-head__archive .instant-ban-bans-list-item__star {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+.result-card-head__archive .instant-ban-bans-list-item__star-icon {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.result-card-actions {
+  margin-top: 1rem;
+}
+
 .modal-card--check {
   max-width: 19rem;
   padding: 1.25rem 1.1rem 1.1rem;
