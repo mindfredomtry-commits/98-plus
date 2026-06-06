@@ -125,7 +125,18 @@ export type SendFlowPhase =
 /** Legacy step ids for CSS hooks / debug. */
 type LegacyStep = 'idle' | 'who' | 'what' | 'confirm';
 
-type ConfirmEntrySource = 'send-flow' | 'archive';
+type BansOverlayEntrySource = {
+  type: 'bans-overlay';
+  tab: BansTab;
+};
+
+type ConfirmEntrySource = 'send-flow' | BansOverlayEntrySource;
+
+function isBansOverlayEntrySource(
+  source: ConfirmEntrySource,
+): source is BansOverlayEntrySource {
+  return typeof source === 'object' && source.type === 'bans-overlay';
+}
 
 type Props = {
   sendStarted: boolean;
@@ -880,7 +891,11 @@ export function InstantBanFlow({
   const beginRepeatBanFlow = useCallback(
     (
       ban: BanInteraction,
-      options?: { goToConfirm?: boolean; fromArchive?: boolean },
+      options?: {
+        goToConfirm?: boolean;
+        fromArchive?: boolean;
+        bansOverlayTab?: BansTab;
+      },
     ) => {
       const logArchive = options?.fromArchive === true;
 
@@ -965,8 +980,9 @@ export function InstantBanFlow({
 
       if (targetPhase === 'confirming') {
         setConfirmEnterKey((k) => k + 1);
-        confirmEntrySourceRef.current =
-          options?.fromArchive === true ? 'archive' : 'send-flow';
+        confirmEntrySourceRef.current = options?.bansOverlayTab
+          ? { type: 'bans-overlay', tab: options.bansOverlayTab }
+          : 'send-flow';
       }
 
       onStartSend();
@@ -988,7 +1004,11 @@ export function InstantBanFlow({
     (ban: BanInteraction) => {
       console.info('[98+] ARCHIVE REPEAT CLICK', { banId: ban.id });
       haptic('light');
-      beginRepeatBanFlow(ban, { fromArchive: true, goToConfirm: true });
+      beginRepeatBanFlow(ban, {
+        fromArchive: true,
+        goToConfirm: true,
+        bansOverlayTab: 'archive',
+      });
     },
     [beginRepeatBanFlow, haptic],
   );
@@ -1019,9 +1039,12 @@ export function InstantBanFlow({
 
   const handleBanMore = useCallback(
     (ban: BanInteraction) => {
-      beginRepeatBanFlow(ban, { goToConfirm: true, fromArchive: false });
+      beginRepeatBanFlow(ban, {
+        goToConfirm: true,
+        bansOverlayTab: bansTab,
+      });
     },
-    [beginRepeatBanFlow],
+    [beginRepeatBanFlow, bansTab],
   );
 
   const handleSuccessExitComplete = useCallback(() => {
@@ -1313,17 +1336,25 @@ export function InstantBanFlow({
     sendSnapshotRef.current = null;
     confirmAbortReleaseRef.current?.();
 
-    if (confirmEntrySourceRef.current === 'archive') {
+    const entrySource = confirmEntrySourceRef.current;
+    if (isBansOverlayEntrySource(entrySource)) {
       confirmEntrySourceRef.current = 'send-flow';
-      setBansTab('archive');
+      setBansTab(entrySource.tab);
+      setSelectedBanForDetails(null);
+      setSelectedUser(null);
+      setBanText('');
+      setDurationMinutes(DEFAULT_DURATION_MINUTES);
       setPhase('idle');
       setBansOverlayOpen(true);
       setCrossScreenProgressImmediate(0);
+      stopCrossScreenAnim();
+      screenTransitionRef.current = null;
+      setScreenTransition(null);
       return;
     }
 
     setPhase('composingBan');
-  }, [setCrossScreenProgressImmediate]);
+  }, [setCrossScreenProgressImmediate, stopCrossScreenAnim]);
 
   const handleInviteMore = useCallback(() => {
     shareInstantBanInviteMore(user?.username ?? null);
@@ -1823,7 +1854,7 @@ export function InstantBanFlow({
           {selectedBanForDetails ? (
             <ActiveBanCardOverlay
               ban={selectedBanForDetails}
-              isHistory={bansTab === 'history'}
+              isHistory={bansTab === 'history' || bansTab === 'archive'}
               saved={savedBanIds.has(selectedBanForDetails.id)}
               onBack={() => setSelectedBanForDetails(null)}
               onBanMore={() => handleBanMore(selectedBanForDetails)}

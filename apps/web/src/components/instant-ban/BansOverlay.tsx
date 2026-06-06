@@ -120,9 +120,8 @@ function BanListItem({
           onAction: onRemoveFromArchive,
         }
       : {
-          mode: 'repeat' as const,
+          mode: 'archive-mark' as const,
           banId: ban.id,
-          onAction: onRepeatBan,
         }
     : {
         mode: 'toggle' as const,

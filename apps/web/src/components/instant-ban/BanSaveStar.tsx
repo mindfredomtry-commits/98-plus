@@ -27,7 +27,13 @@ type DeleteProps = {
   onAction: () => void;
 };
 
-type Props = ToggleProps | RepeatProps | DeleteProps;
+/** Archive list — filled ban mark only, no label or repeat action. */
+type ArchiveMarkProps = {
+  mode: 'archive-mark';
+  banId: string;
+};
+
+type Props = ToggleProps | RepeatProps | DeleteProps | ArchiveMarkProps;
 
 function TrashGlyph({ strokeWidth = 0.8 }: { strokeWidth?: number }) {
   return (
@@ -43,8 +49,42 @@ function TrashGlyph({ strokeWidth = 0.8 }: { strokeWidth?: number }) {
   );
 }
 
+function BanMarkIcon({ filled }: { filled: boolean }) {
+  return (
+    <span className="instant-ban-bans-list-item__star-icon" aria-hidden>
+      <span
+        className="instant-ban-bans-list-item__ban-glyph-fill"
+        data-active={filled ? 'true' : 'false'}
+      >
+        <BanGlyph strokeWidth={ARCHIVE_GLYPH_FILL_STROKE} />
+      </span>
+      <span
+        className="instant-ban-bans-list-item__ban-glyph-outline"
+        data-active={filled ? 'false' : 'true'}
+      >
+        <BanGlyph strokeWidth={ARCHIVE_GLYPH_OUTLINE_STROKE} />
+      </span>
+    </span>
+  );
+}
+
 export function BanSaveStar(props: Props) {
-  const { banId, mode, onAction } = props;
+  const { banId, mode } = props;
+
+  if (mode === 'archive-mark') {
+    return (
+      <span
+        className="instant-ban-bans-list-item__star instant-ban-bans-list-item__star--saved"
+        aria-hidden
+        data-ban-id={banId}
+        data-archive-icon-mode="archive-mark"
+      >
+        <BanMarkIcon filled />
+      </span>
+    );
+  }
+
+  const { onAction } = props;
 
   const stopBubble = (e: SyntheticEvent) => {
     e.stopPropagation();
@@ -97,26 +137,13 @@ export function BanSaveStar(props: Props) {
       data-archive-icon-mode={mode}
       data-saved={saved ? 'true' : 'false'}
     >
-      <span className="instant-ban-bans-list-item__star-icon" aria-hidden>
-        {isDelete ? (
+      {isDelete ? (
+        <span className="instant-ban-bans-list-item__star-icon" aria-hidden>
           <TrashGlyph strokeWidth={ARCHIVE_GLYPH_OUTLINE_STROKE} />
-        ) : (
-          <>
-            <span
-              className="instant-ban-bans-list-item__ban-glyph-fill"
-              data-active={saved ? 'true' : 'false'}
-            >
-              <BanGlyph strokeWidth={ARCHIVE_GLYPH_FILL_STROKE} />
-            </span>
-            <span
-              className="instant-ban-bans-list-item__ban-glyph-outline"
-              data-active={saved ? 'false' : 'true'}
-            >
-              <BanGlyph strokeWidth={ARCHIVE_GLYPH_OUTLINE_STROKE} />
-            </span>
-          </>
-        )}
-      </span>
+        </span>
+      ) : (
+        <BanMarkIcon filled={saved} />
+      )}
       {actionLabel ? (
         <span className="instant-ban-bans-list-item__star-label">{actionLabel}</span>
       ) : null}
