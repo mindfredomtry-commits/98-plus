@@ -2,9 +2,12 @@
 
 import type { SyntheticEvent } from 'react';
 
-/** Single geometry for filled + outline — prevents shift on toggle. */
+/**
+ * Regular pentagram in 24×24: center (12, 12), top ray on vertical axis,
+ * R = 9.5, r = R·sin(18°)/sin(54°).
+ */
 const STAR_PATH =
-  'M12 2.5l2.55 5.52 6.02.52-4.56 3.95 1.38 5.88L12 15.9l-5.39 3.47 1.38-5.88-4.56-3.95 6.02-.52L12 2.5z';
+  'M12 2.5 L14.133 9.064 L21.035 9.064 L15.451 13.121 L17.584 19.686 L12 15.629 L6.416 19.686 L8.549 13.121 L2.965 9.064 L9.867 9.064 Z';
 
 type Props = {
   banId: string;
