@@ -5,6 +5,10 @@ export const ENERGY_MAX_DISPLAY = 150;
 export const BAN_DURATIONS_MINUTES = [3, 10, 30, 60] as const;
 export type BanDurationMinutes = (typeof BAN_DURATIONS_MINUTES)[number];
 
+/** Instant-ban slider range (minutes) — any integer in [min, max] */
+export const INSTANT_BAN_DURATION_MIN_MINUTES = 3;
+export const INSTANT_BAN_DURATION_MAX_MINUTES = 60;
+
 /** First-ban onboarding duration choices */
 export const ONBOARDING_DURATION_OPTIONS = [
   { label: '1 час', minutes: 60 },

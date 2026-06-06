@@ -1,10 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import {
-  BAN_DURATIONS_MINUTES as BAN_DURATIONS,
-  ANALYTICS_EVENTS,
-  isValidDurationMinutes,
-} from '@98plus/shared';
+import { ANALYTICS_EVENTS, isValidDurationMinutes } from '@98plus/shared';
 import { requireAuth, type AuthRequest } from '../middleware/auth';
 import {
   sendBan,
@@ -47,6 +43,7 @@ const sendSchema = z.object({
   text: z.string().min(3).max(280),
   durationMinutes: z.coerce
     .number()
+    .int()
     .refine((m) => isValidDurationMinutes(m)),
   durationHours: z.number().optional(),
   receiverTelegramId: z.string().optional(),
@@ -273,7 +270,7 @@ bansRouter.post('/:id/reply', async (req: AuthRequest, res) => {
     res.status(400).json({ error: 'text required' });
     return;
   }
-  if (!BAN_DURATIONS.includes(mins as (typeof BAN_DURATIONS)[number])) {
+  if (!Number.isInteger(mins) || !isValidDurationMinutes(mins)) {
     res.status(400).json({ error: 'Invalid duration' });
     return;
   }
@@ -303,7 +300,7 @@ bansRouter.post('/:id/counter', async (req: AuthRequest, res) => {
     res.status(400).json({ error: 'text required' });
     return;
   }
-  if (!BAN_DURATIONS.includes(mins as (typeof BAN_DURATIONS)[number])) {
+  if (!Number.isInteger(mins) || !isValidDurationMinutes(mins)) {
     res.status(400).json({ error: 'Invalid duration' });
     return;
   }

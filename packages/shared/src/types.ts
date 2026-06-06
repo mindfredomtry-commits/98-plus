@@ -2,6 +2,8 @@ import type { AuraLevel } from './energy';
 import type { BanDurationMinutes } from './constants';
 import {
   BAN_DURATIONS_MINUTES,
+  INSTANT_BAN_DURATION_MAX_MINUTES,
+  INSTANT_BAN_DURATION_MIN_MINUTES,
   ONBOARDING_DURATION_OPTIONS,
 } from './constants';
 
@@ -106,9 +108,25 @@ export interface WsEvent {
   eventId?: string;
 }
 
+/** Instant-ban send: any whole minute from 3 to 60 (WhatDurationSlider). */
+export function isInstantBanDurationMinutes(m: number): boolean {
+  return (
+    Number.isInteger(m) &&
+    m >= INSTANT_BAN_DURATION_MIN_MINUTES &&
+    m <= INSTANT_BAN_DURATION_MAX_MINUTES
+  );
+}
+
+/** First-ban onboarding duration choices (hours/days). */
+export function isOnboardingDurationMinutes(m: number): boolean {
+  return (
+    Number.isInteger(m) &&
+    ONBOARDING_DURATION_OPTIONS.some((o) => o.minutes === m)
+  );
+}
+
 export function isValidDurationMinutes(m: number): boolean {
-  if ((BAN_DURATIONS_MINUTES as readonly number[]).includes(m)) return true;
-  return ONBOARDING_DURATION_OPTIONS.some((o) => o.minutes === m);
+  return isInstantBanDurationMinutes(m) || isOnboardingDurationMinutes(m);
 }
 
 export function isBanDurationMinutes(m: number): m is BanDurationMinutes {
