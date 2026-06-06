@@ -53,6 +53,9 @@
   --98-confirm-orb-margin-bottom: clamp(2rem, 12vh, 4rem);
   /* Fixed layout slot = confirm size; lobby ring drawn larger via ring-layer scale */
   --98-arena-orb-anchor-top: 45%;
+  /* Lobby top nav — sits just above the orb ring (orb/CTA positions unchanged) */
+  --98-lobby-nav-block-height: 2.25rem;
+  --98-lobby-nav-orb-gap: 0.5rem;
   --98-confirm-ring-lobby-scale: 1.75;
   --98-confirm-ring-mini-scale: 0.8;
   --98-payoff-core-size: 14px;

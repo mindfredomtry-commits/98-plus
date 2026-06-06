@@ -3070,7 +3070,15 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
 
 .instant-ban-arena-lobby-nav {
   position: absolute;
-  top: calc(0.5rem + env(safe-area-inset-top, 0px));
+  top: max(
+    calc(env(safe-area-inset-top, 0px) + 0.75rem),
+    calc(
+      var(--98-arena-orb-anchor-top)
+      - (var(--98-confirm-orb-size) * var(--98-confirm-ring-lobby-scale) / 2)
+      - var(--98-lobby-nav-block-height)
+      - var(--98-lobby-nav-orb-gap)
+    )
+  );
   left: 0;
   right: 0;
   z-index: 7;
