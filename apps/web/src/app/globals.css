@@ -820,6 +820,7 @@ html.scroll-lock body {
 
 .app-notification-layer--session {
   pointer-events: auto;
+  isolation: isolate;
 }
 
 .app-notification-layer__session-backdrop {
@@ -830,6 +831,10 @@ html.scroll-lock body {
   -webkit-backdrop-filter: blur(8px);
   pointer-events: auto;
   z-index: 0;
+}
+
+.app-notification-layer--session .app-notification-layer__session-backdrop {
+  opacity: 1;
 }
 
 .app-notification-layer__content {

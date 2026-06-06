@@ -3066,7 +3066,14 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
 }
 
 /* —— Lobby top nav + “Твои запреты” overlay stack —— */
-/* z-index: lobby shell 65 < bans layer 12 < active card 14 < GlobalOverlayHost 100 */
+/* z-index: lobby shell 65 < bans layer 12 < lobby nav 13 < GlobalOverlayHost 100 */
+
+.instant-ban-arena-send[data-bans-overlay-open] .instant-ban-arena-lobby-nav,
+.instant-ban-arena-send[data-notification-session] .instant-ban-arena-lobby-nav,
+.instant-ban-arena-send[data-notification-session] .instant-ban-arena-send__bans-layer {
+  visibility: hidden;
+  pointer-events: none;
+}
 
 .instant-ban-arena-lobby-nav {
   position: absolute;

@@ -32,9 +32,10 @@ export function NotificationQueueShell({
   contentKey,
   children,
 }: Props) {
-  if (!kind) return null;
+  if (!sessionActive && !kind) return null;
 
   const handoff = sessionActive;
+  const shellKind = kind ?? 'incoming';
 
   return (
     <ModalShell
@@ -44,13 +45,18 @@ export function NotificationQueueShell({
       handoff={handoff}
       zIndex={APP_NOTIFICATION_Z_INDEX}
       closeOnBackdrop={false}
-      ariaLabel={ARIA[kind]}
+      ariaLabel={ARIA[shellKind]}
       onClose={() => {}}
-      cardClassName={`${CARD_CLASS[kind]} modal-card--handoff`}
+      cardClassName={`${CARD_CLASS[shellKind]} modal-card--handoff`}
     >
-      <div key={contentKey ?? kind} className="notification-queue-shell__content">
-        {children}
-      </div>
+      {kind ? (
+        <div
+          key={contentKey ?? kind}
+          className="notification-queue-shell__content"
+        >
+          {children}
+        </div>
+      ) : null}
     </ModalShell>
   );
 }

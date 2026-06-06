@@ -668,21 +668,35 @@ export function InstantBanFlow({
     [activeBans, historyBans, savedBans, bansTab, user?.id],
   );
 
-  const showLobbyTopNav = phase === 'idle' && !banSentSuccess;
+  const notificationQueueUiLock =
+    notificationSessionActive || notificationOverlayActive;
+  const showLobbyTopNav =
+    phase === 'idle' &&
+    !banSentSuccess &&
+    !bansOverlayOpen &&
+    !notificationQueueUiLock;
+  const showBansLayer =
+    bansOverlayOpen && phase === 'idle' && !notificationQueueUiLock;
 
   useEffect(() => {
     console.log('[LOBBY NAV STATE]', {
       showLobbyTopNav,
+      showBansLayer,
       phase,
       banSentSuccess,
       bansOverlayOpen,
+      notificationSessionActive,
+      notificationQueueUiLock,
       pendingStartupInteractions,
     });
   }, [
     showLobbyTopNav,
+    showBansLayer,
     phase,
     banSentSuccess,
     bansOverlayOpen,
+    notificationSessionActive,
+    notificationQueueUiLock,
     pendingStartupInteractions,
   ]);
 
@@ -1586,6 +1600,7 @@ export function InstantBanFlow({
       data-orb-compress-active={orbCompressActive ? '' : undefined}
       data-instant-ban-step={legacyStep}
       data-bans-overlay-open={bansOverlayOpen ? '' : undefined}
+      data-notification-session={notificationSessionActive ? '' : undefined}
       data-debug-slow-orb={process.env.NODE_ENV === 'development' ? '' : undefined}
     >
       {showLobbyTopNav ? (
@@ -1748,7 +1763,7 @@ export function InstantBanFlow({
         ) : null}
       </div>
 
-      {showLobbyCta && !bansOverlayOpen ? (
+      {showLobbyCta && !bansOverlayOpen && !notificationQueueUiLock ? (
         <ArenaLobbyIdle
           influencePercent={lobbyInfluencePercent}
           energyLoaded={energyLoaded}
@@ -1760,7 +1775,7 @@ export function InstantBanFlow({
         />
       ) : null}
 
-      {bansOverlayOpen && phase === 'idle' ? (
+      {showBansLayer ? (
         <div className="instant-ban-arena-send__bans-layer">
           <BansOverlay
             tab={bansTab}
