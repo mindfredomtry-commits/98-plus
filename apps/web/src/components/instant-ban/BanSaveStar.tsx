@@ -63,13 +63,22 @@ export function BanSaveStar(props: Props) {
 
   const saved = mode === 'toggle' ? props.saved : mode === 'repeat';
   const isDelete = mode === 'delete';
+  const isLabeled = mode === 'repeat' || mode === 'delete';
+  const actionLabel =
+    mode === 'repeat'
+      ? 'Запретить ещё раз!'
+      : mode === 'delete'
+        ? 'Удалить из архива'
+        : null;
 
   return (
     <button
       type="button"
       className={`instant-ban-bans-list-item__star${
         saved ? ' instant-ban-bans-list-item__star--saved' : ''
-      }${isDelete ? ' instant-ban-bans-list-item__star--delete' : ''}`}
+      }${isDelete ? ' instant-ban-bans-list-item__star--delete' : ''}${
+        isLabeled ? ' instant-ban-bans-list-item__star--labeled' : ''
+      }`}
       onClick={handleActivate}
       onPointerDown={stopBubble}
       onTouchStart={stopBubble}
@@ -108,6 +117,9 @@ export function BanSaveStar(props: Props) {
           </>
         )}
       </span>
+      {actionLabel ? (
+        <span className="instant-ban-bans-list-item__star-label">{actionLabel}</span>
+      ) : null}
     </button>
   );
 }

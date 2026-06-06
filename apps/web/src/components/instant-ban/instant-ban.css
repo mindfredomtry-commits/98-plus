@@ -3358,6 +3358,43 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
   color: rgba(var(--98-accent-rgb), 0.95);
 }
 
+.instant-ban-bans-list-item__star--labeled {
+  flex-direction: column;
+  width: auto;
+  min-width: 2.75rem;
+  max-width: 5.25rem;
+  height: auto;
+  min-height: 2.75rem;
+  padding: 0.2rem 0.35rem;
+  gap: 0.2rem;
+}
+
+.instant-ban-bans-list-item__star--labeled .instant-ban-bans-list-item__star-icon {
+  width: 1.65rem;
+  height: 1.65rem;
+}
+
+.instant-ban-bans-list-item__star-icon > svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.instant-ban-bans-list-item__star--labeled:active {
+  transform: scale(1.04);
+}
+
+.instant-ban-bans-list-item__star-label {
+  display: block;
+  max-width: 100%;
+  font-size: 0.58rem;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+}
+
 .instant-ban-bans-list-item__star-icon {
   position: relative;
   width: 2rem;
