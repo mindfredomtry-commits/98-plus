@@ -37,6 +37,7 @@ import { ResultOverlay } from './ResultOverlay';
 import { GlobalOverlayHost } from './GlobalOverlayHost';
 import {
   enqueueOverlay,
+  mergeOverlayQueues,
   overlayQueueKey,
   popOverlayHead,
   prependOverlay,
@@ -207,6 +208,12 @@ interface AppContextValue {
   /** Opens InstantBan Who screen for a new ban (increments on each request). */
   newBanWhoFlowRequest: number;
   openNewBanWhoFlow: () => void;
+  /** Accumulated pre-open interactions waiting for ritual release. */
+  pendingStartupInteractions: boolean;
+  /** Release queued startup interactions (e.g. after opening «Твои запреты»). */
+  releaseStartupInteractions: (opts?: { requireBanSend?: boolean }) => void;
+  /** Mark first successful ban send in this session (InstantBan success path). */
+  markSessionBanSendSuccess: () => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -275,6 +282,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [result, setResult] = useState<BanResult | null>(null);
   const [overlayQueue, setOverlayQueue] = useState<QueuedOverlay[]>([]);
   const overlayQueueRef = useRef<QueuedOverlay[]>([]);
+  const pendingStartupInteractionsRef = useRef<QueuedOverlay[]>([]);
+  const startupInteractionsHoldRef = useRef(true);
+  const sessionBanSendSuccessRef = useRef(false);
+  const [pendingStartupInteractionsCount, setPendingStartupInteractionsCount] =
+    useState(0);
 
   const [popups, setPopups] = useState<EnergyPopup[]>([]);
   const [activeBans, setActiveBans] = useState<BanInteraction[]>([]);
@@ -336,6 +348,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const checkSubmitAtRef = useRef<Map<string, number>>(new Map());
   const resultPollBurstTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
+  const syncPendingStartupCount = useCallback(() => {
+    setPendingStartupInteractionsCount(
+      pendingStartupInteractionsRef.current.length,
+    );
+  }, []);
+
+  const isOverlayLive = useCallback(
+    (opts?: { live?: boolean; source?: 'ws' | 'session' | 'poll' }) => {
+      if (opts?.live === true) return true;
+      if (opts?.source === 'ws') return true;
+      if (
+        opts?.source === 'poll' &&
+        !startupInteractionsHoldRef.current
+      ) {
+        return true;
+      }
+      return false;
+    },
+    [],
+  );
+
   const syncDisplayFromQueue = useCallback((queue: QueuedOverlay[]) => {
     const active = queue[0] ?? null;
     setIncomingBan(active?.kind === 'incoming' ? active.ban : null);
@@ -367,14 +400,74 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [syncDisplayFromQueue],
   );
 
+  const releaseStartupInteractions = useCallback(
+    (opts?: { requireBanSend?: boolean }) => {
+      if (opts?.requireBanSend && !sessionBanSendSuccessRef.current) {
+        return;
+      }
+      const pending = pendingStartupInteractionsRef.current;
+      const hadHold = startupInteractionsHoldRef.current;
+      startupInteractionsHoldRef.current = false;
+      pendingStartupInteractionsRef.current = [];
+      syncPendingStartupCount();
+
+      if (!hadHold && pending.length === 0) return;
+
+      console.log('[startup-interactions-release]', {
+        count: pending.length,
+        requireBanSend: opts?.requireBanSend ?? false,
+      });
+
+      if (pending.length === 0) return;
+
+      applyOverlayQueue(
+        mergeOverlayQueues(overlayQueueRef.current, pending),
+      );
+    },
+    [applyOverlayQueue, syncPendingStartupCount],
+  );
+
+  const markSessionBanSendSuccess = useCallback(() => {
+    sessionBanSendSuccessRef.current = true;
+  }, []);
+
   const enqueueNotification = useCallback(
     (
       item: QueuedOverlay,
       opts?: { live?: boolean; source?: 'ws' | 'session' | 'poll' },
     ) => {
+      const live = isOverlayLive(opts);
+
+      if (startupInteractionsHoldRef.current && !live) {
+        const prevPending = pendingStartupInteractionsRef.current;
+        const nextPending = enqueueOverlay(prevPending, item);
+        if (nextPending === prevPending) {
+          if (item.kind === 'incoming') {
+            console.log('INCOMING QUEUE PUSH', {
+              banId: item.ban.id,
+              skipped: true,
+              reason: 'startup-pending-dedup',
+              source: opts?.source ?? null,
+            });
+          }
+          return;
+        }
+        pendingStartupInteractionsRef.current = nextPending;
+        syncPendingStartupCount();
+        if (item.kind === 'incoming') {
+          console.log('INCOMING QUEUE PUSH', {
+            banId: item.ban.id,
+            skipped: false,
+            reason: 'startup-pending',
+            source: opts?.source ?? null,
+          });
+        }
+        return;
+      }
+
       const prev = overlayQueueRef.current;
       const next =
-        opts?.live && (item.kind === 'incoming' || item.kind === 'check')
+        live && (item.kind === 'incoming' || item.kind === 'check')
           ? prependOverlay(prev, item)
           : enqueueOverlay(prev, item);
 
@@ -397,12 +490,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           skipped: false,
           reason: 'enqueued',
           source: opts?.source ?? null,
+          live,
         });
       }
 
       applyOverlayQueue(next);
     },
-    [applyOverlayQueue],
+    [applyOverlayQueue, isOverlayLive, syncPendingStartupCount],
   );
 
   const openBanResult = useCallback(
@@ -430,11 +524,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
       resultDeliveredBanIdsRef.current.add(r.id);
+
+      const resultItem: QueuedOverlay = { kind: 'result', result: r };
+      if (
+        startupInteractionsHoldRef.current &&
+        mode !== 'explicit' &&
+        mode !== 'live'
+      ) {
+        const prevPending = pendingStartupInteractionsRef.current;
+        const nextPending = enqueueOverlay(prevPending, resultItem);
+        if (nextPending !== prevPending) {
+          pendingStartupInteractionsRef.current = nextPending;
+          syncPendingStartupCount();
+          console.log('[result-startup-pending]', { banId: r.id, mode });
+        }
+        return;
+      }
+
       applyOverlayQueue(
-        enqueueOverlay(overlayQueueRef.current, { kind: 'result', result: r }),
+        enqueueOverlay(overlayQueueRef.current, resultItem),
       );
     },
-    [applyOverlayQueue],
+    [applyOverlayQueue, syncPendingStartupCount],
   );
 
   const dismissBanResult = useCallback(() => {
@@ -535,6 +646,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setResult(null);
     setOverlayQueue([]);
     overlayQueueRef.current = [];
+    pendingStartupInteractionsRef.current = [];
+    startupInteractionsHoldRef.current = true;
+    sessionBanSendSuccessRef.current = false;
+    setPendingStartupInteractionsCount(0);
     setPopups([]);
     setActiveBans([]);
     setFriends([]);
@@ -597,7 +712,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           resultOpenRef.current,
         )
       ) {
-        enqueueNotification({ kind: 'check', ban: cachedCheck });
+        enqueueNotification(
+          { kind: 'check', ban: cachedCheck },
+          { source: 'session' },
+        );
         console.log('[check-overlay]', {
           event: 'snapshot-hydrated',
           banId: cachedCheck.id,
@@ -1045,7 +1163,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       auth.user.id,
     );
     if (incoming) {
-      enqueueNotification({ kind: 'incoming', ban: incoming });
+      enqueueNotification(
+        { kind: 'incoming', ban: incoming },
+        { live: true, source: 'ws' },
+      );
     }
   }, [auth.user?.id, auth.loading, enqueueNotification]);
 
@@ -1253,7 +1374,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         enqueueNotification(
           { kind: 'incoming', ban: incoming },
           {
-            live: source === 'ws' || source === 'poll',
+            live:
+              source === 'ws' ||
+              (source === 'poll' && !startupInteractionsHoldRef.current),
             source,
           },
         );
@@ -1347,7 +1470,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         if (source === 'session' && !checkWsSeenRef.current.has(check.id)) {
           console.log('[check-recovery-session]', { banId: check.id });
         }
-        enqueueNotification({ kind: 'check', ban: check });
+        enqueueNotification(
+          { kind: 'check', ban: check },
+          {
+            live:
+              source === 'ws' ||
+              (source === 'poll' && !startupInteractionsHoldRef.current),
+            source,
+          },
+        );
         setCheckWaiting(false);
       }
     },
@@ -2251,6 +2382,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     friends.length,
   ]);
 
+  const pendingStartupInteractions = pendingStartupInteractionsCount > 0;
+
   const contextValue = useMemo(
     () => ({
       token: auth.token,
@@ -2323,6 +2456,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       closeLobby,
       newBanWhoFlowRequest,
       openNewBanWhoFlow,
+      pendingStartupInteractions,
+      releaseStartupInteractions,
+      markSessionBanSendSuccess,
     }),
     [
       auth.token,
@@ -2391,6 +2527,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       closeLobby,
       newBanWhoFlowRequest,
       openNewBanWhoFlow,
+      pendingStartupInteractions,
+      releaseStartupInteractions,
+      markSessionBanSendSuccess,
     ],
   );
 

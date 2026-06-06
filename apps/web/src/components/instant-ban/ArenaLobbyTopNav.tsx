@@ -2,9 +2,13 @@
 
 type Props = {
   onOpenBans: () => void;
+  bansNeedAttention?: boolean;
 };
 
-export function ArenaLobbyTopNav({ onOpenBans }: Props) {
+export function ArenaLobbyTopNav({
+  onOpenBans,
+  bansNeedAttention = false,
+}: Props) {
   return (
     <nav
       className="instant-ban-arena-lobby-nav"
@@ -20,8 +24,17 @@ export function ArenaLobbyTopNav({ onOpenBans }: Props) {
       </button>
       <button
         type="button"
-        className="instant-ban-arena-lobby-nav__item instant-ban-arena-lobby-nav__item--active"
+        className={`instant-ban-arena-lobby-nav__item instant-ban-arena-lobby-nav__item--active${
+          bansNeedAttention
+            ? ' instant-ban-arena-lobby-nav__item--attention'
+            : ''
+        }`}
         onClick={onOpenBans}
+        aria-label={
+          bansNeedAttention
+            ? 'Твои запреты — есть непрочитанные события'
+            : 'Твои запреты'
+        }
       >
         Твои запреты
       </button>

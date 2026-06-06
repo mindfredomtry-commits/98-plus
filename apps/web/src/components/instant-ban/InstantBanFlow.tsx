@@ -193,6 +193,9 @@ export function InstantBanFlow({
     rollbackOptimisticSend,
     activeBans,
     newBanWhoFlowRequest,
+    pendingStartupInteractions,
+    releaseStartupInteractions,
+    markSessionBanSendSuccess,
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
 
@@ -896,10 +899,11 @@ export function InstantBanFlow({
 
   const handleOpenBansOverlay = useCallback(() => {
     if (phase !== 'idle' || banSentSuccess) return;
+    releaseStartupInteractions();
     setBansTab('yours');
     setSelectedBanForDetails(null);
     setBansOverlayOpen(true);
-  }, [banSentSuccess, phase]);
+  }, [banSentSuccess, phase, releaseStartupInteractions]);
 
   const handleCloseBansOverlay = useCallback(() => {
     setBansOverlayOpen(false);
@@ -925,6 +929,7 @@ export function InstantBanFlow({
   );
 
   const handleSuccessExitComplete = useCallback(() => {
+    releaseStartupInteractions({ requireBanSend: true });
     setBanSentSuccess(false);
     sendSnapshotRef.current = null;
     confirmEntrySourceRef.current = 'send-flow';
@@ -934,16 +939,17 @@ export function InstantBanFlow({
     setSendError(null);
     setPhase('idle');
     beginCtaSpringIn();
-  }, [beginCtaSpringIn]);
+  }, [beginCtaSpringIn, releaseStartupInteractions]);
 
   const onSuccess = useCallback(() => {
     setSendError(null);
+    markSessionBanSendSuccess();
     instantBanSendSuccessDebug({
       payoffPending: confirmSendContextRef.current.sendTriggered,
       payoffPhase: confirmSendContextRef.current.payoffPhase,
     });
     setBanSentSuccess(true);
-  }, []);
+  }, [markSessionBanSendSuccess]);
 
   const { send, inFlight, sharing } = useSendChallenge({
     token,
@@ -1492,7 +1498,10 @@ export function InstantBanFlow({
       data-debug-slow-orb={process.env.NODE_ENV === 'development' ? '' : undefined}
     >
       {showLobbyTopNav ? (
-        <ArenaLobbyTopNav onOpenBans={handleOpenBansOverlay} />
+        <ArenaLobbyTopNav
+          onOpenBans={handleOpenBansOverlay}
+          bansNeedAttention={pendingStartupInteractions}
+        />
       ) : null}
       <div className="lobby-screen__grid" aria-hidden />
       <div className="lobby-screen__particles" aria-hidden>

@@ -3103,6 +3103,35 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
   box-shadow: 0 0 18px rgba(var(--98-accent-rgb), 0.22);
 }
 
+@keyframes instant-ban-lobby-nav-attention-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 14px rgba(var(--98-accent-rgb), 0.16),
+      0 0 0 0 rgba(var(--98-accent-rgb), 0);
+    background: rgba(var(--98-purple-soft-rgb), 0.14);
+  }
+  50% {
+    box-shadow:
+      0 0 28px rgba(var(--98-accent-rgb), 0.38),
+      0 0 48px rgba(var(--98-accent-rgb), 0.12);
+    background: rgba(var(--98-purple-soft-rgb), 0.22);
+  }
+}
+
+.instant-ban-arena-lobby-nav__item--attention {
+  animation: instant-ban-lobby-nav-attention-glow 3.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .instant-ban-arena-lobby-nav__item--attention {
+    animation: none;
+    box-shadow:
+      0 0 20px rgba(var(--98-accent-rgb), 0.3),
+      0 0 36px rgba(var(--98-accent-rgb), 0.1);
+  }
+}
+
 .instant-ban-arena-lobby-nav__item--muted:disabled {
   opacity: 0.45;
   cursor: default;

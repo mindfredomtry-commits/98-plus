@@ -120,3 +120,15 @@ export function removeOverlayByKey(
 ): QueuedOverlay[] {
   return queue.filter((q) => overlayQueueKey(q) !== key);
 }
+
+/** Append pending startup items onto the live display queue (FIFO, deduped). */
+export function mergeOverlayQueues(
+  display: QueuedOverlay[],
+  pending: QueuedOverlay[],
+): QueuedOverlay[] {
+  let next = display;
+  for (const item of pending) {
+    next = enqueueOverlay(next, item);
+  }
+  return next;
+}
