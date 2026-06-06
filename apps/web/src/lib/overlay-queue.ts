@@ -23,6 +23,20 @@ export function overlayQueueKey(item: QueuedOverlay): string {
   return `${item.kind}:${id}`;
 }
 
+/** Stable dedup key for check overlays — one active check per ban id. */
+export function checkOverlayKey(banId: string): string {
+  return `check:${banId}`;
+}
+
+export function hasCheckInQueue(
+  queue: QueuedOverlay[],
+  banId: string,
+): boolean {
+  return queue.some(
+    (q) => q.kind === 'check' && overlayQueueKey(q) === checkOverlayKey(banId),
+  );
+}
+
 export function overlayBanId(item: QueuedOverlay): string {
   return item.kind === 'result' ? item.result.id : item.ban.id;
 }
@@ -119,6 +133,33 @@ export function removeOverlayByKey(
   key: string,
 ): QueuedOverlay[] {
   return queue.filter((q) => overlayQueueKey(q) !== key);
+}
+
+/**
+ * Insert or refresh a check overlay without duplicate queue entries.
+ * When `toHead` is true, an existing entry is promoted to the queue head.
+ */
+export function upsertCheckOverlay(
+  queue: QueuedOverlay[],
+  ban: BanInteraction,
+  opts?: { toHead?: boolean },
+): { queue: QueuedOverlay[]; changed: boolean; deduped: boolean } {
+  const item: QueuedOverlay = { kind: 'check', ban };
+  const key = checkOverlayKey(ban.id);
+  const idx = queue.findIndex((q) => overlayQueueKey(q) === key);
+
+  if (idx >= 0) {
+    const next = [...queue];
+    next[idx] = item;
+    if (opts?.toHead && idx > 0) {
+      next.splice(idx, 1);
+      next.unshift(item);
+    }
+    return { queue: next, changed: true, deduped: true };
+  }
+
+  const next = opts?.toHead ? [item, ...queue] : [...queue, item];
+  return { queue: next, changed: true, deduped: false };
 }
 
 /** Append pending startup items onto the live display queue (FIFO, deduped). */

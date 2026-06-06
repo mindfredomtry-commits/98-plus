@@ -45,12 +45,12 @@ function CheckOverlayInner({ embedded = false }: Props) {
       checkBan.sender.id,
       checkBan.receiver.id,
     );
-    console.log('[check-debug]', {
+    console.log('[CHECK OVERLAY ACTIVE]', {
       authUserId: user?.id ?? null,
       checkBanId: checkBan.id,
       role,
       shouldShow: checkGateActive,
-      reason: checkGateActive ? 'shown' : 'guard-rejected',
+      reason: checkGateActive ? 'render' : 'guard-rejected',
     });
   }, [checkBan, user?.id, checkGateActive]);
 

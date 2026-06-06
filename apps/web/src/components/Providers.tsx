@@ -37,12 +37,14 @@ import { ResultOverlay } from './ResultOverlay';
 import { GlobalOverlayHost } from './GlobalOverlayHost';
 import {
   enqueueOverlay,
+  hasCheckInQueue,
   mergeOverlayQueues,
   overlayQueueKey,
   popOverlayHead,
   prependOverlay,
   pruneOverlayQueue,
   removeOverlaysForBan,
+  upsertCheckOverlay,
   type QueuedOverlay,
 } from '@/lib/overlay-queue';
 import { ChallengeErrorBoundary } from './ChallengeErrorBoundary';
@@ -389,6 +391,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         headKind: active?.kind ?? null,
       });
     }
+    if (active?.kind === 'check') {
+      console.log('[CHECK OVERLAY ACTIVE]', { banId: active.ban.id });
+    } else if (queue.some((q) => q.kind === 'check')) {
+      console.log('[CHECK OVERLAY ACTIVE]', {
+        banId: null,
+        reason: 'check-queued-not-head',
+        headKind: active?.kind ?? null,
+      });
+    }
   }, []);
 
   const applyOverlayQueue = useCallback(
@@ -478,8 +489,50 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       const prev = overlayQueueRef.current;
+
+      if (item.kind === 'check') {
+        const banId = item.ban.id;
+        const alreadyActive =
+          checkBanRef.current?.id === banId ||
+          hasCheckInQueue(prev, banId);
+        const { queue: next, changed, deduped } = upsertCheckOverlay(
+          prev,
+          item.ban,
+          { toHead: live || !alreadyActive },
+        );
+
+        if (!changed) {
+          console.log('[CHECK QUEUE DEDUP]', {
+            banId,
+            skipped: true,
+            reason: 'unchanged',
+            source: opts?.source ?? null,
+          });
+          return;
+        }
+
+        if (deduped || alreadyActive) {
+          console.log('[CHECK QUEUE DEDUP]', {
+            banId,
+            skipped: false,
+            reason: alreadyActive ? 'refresh-active' : 'refresh-queued',
+            source: opts?.source ?? null,
+            live,
+          });
+        } else {
+          console.log('[CHECK QUEUE PUSH]', {
+            banId,
+            source: opts?.source ?? null,
+            live,
+          });
+        }
+
+        applyOverlayQueue(next);
+        return;
+      }
+
       const next =
-        live && (item.kind === 'incoming' || item.kind === 'check')
+        live && item.kind === 'incoming'
           ? prependOverlay(prev, item)
           : enqueueOverlay(prev, item);
 
@@ -583,13 +636,54 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const pruneAndSyncOverlayQueue = useCallback(() => {
     const viewerId = userIdRef.current;
-    const next = pruneOverlayQueue(overlayQueueRef.current, {
+    const prev = overlayQueueRef.current;
+    const prunedChecks = prev
+      .filter((q) => q.kind === 'check')
+      .map((q) => q.ban.id);
+    let next = pruneOverlayQueue(prev, {
       viewerId,
       dismissedIncoming: dismissedIncomingRef.current,
       dismissedCheck: dismissedCheckSessionRef.current,
       answeredChecks: answeredCheckRef.current,
       checkInFlight: checkAnswerInFlightRef.current,
     });
+
+    for (const banId of prunedChecks) {
+      if (hasCheckInQueue(next, banId)) continue;
+      const removed = prev.find(
+        (q) => q.kind === 'check' && q.ban.id === banId,
+      );
+      if (!removed) continue;
+      const stillValid = shouldShowCheckOverlay(
+        removed.ban,
+        viewerId,
+        dismissedCheckSessionRef.current,
+        answeredCheckRef.current,
+        checkAnswerInFlightRef.current,
+        resultOpenRef.current,
+      );
+      if (!stillValid) {
+        console.log('[CHECK OVERLAY PRUNE]', {
+          banId,
+          removed: true,
+          reason: 'guard-rejected',
+        });
+        continue;
+      }
+      const wasHead =
+        prev[0]?.kind === 'check' && prev[0].ban.id === banId;
+      console.log('[CHECK OVERLAY PRUNE]', {
+        banId,
+        removed: true,
+        restored: true,
+        wasHead,
+      });
+      const restored = upsertCheckOverlay(next, removed.ban, {
+        toHead: wasHead,
+      });
+      next = restored.queue;
+    }
+
     applyOverlayQueue(next);
   }, [applyOverlayQueue]);
 
@@ -774,10 +868,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
     setCheckWaiting(false);
     const prev = overlayQueueRef.current;
+    const dismissedIds = prev
+      .filter((q) => q.kind === 'check')
+      .map((q) => q.ban.id);
     const next =
       prev[0]?.kind === 'check'
         ? popOverlayHead(prev)
         : prev.filter((q) => q.kind !== 'check');
+    for (const banId of dismissedIds) {
+      console.log('[CHECK OVERLAY DISMISSED]', {
+        banId,
+        reason: 'clear-check-overlay',
+      });
+    }
     applyOverlayQueue(next);
   }, [applyOverlayQueue]);
 
@@ -970,6 +1073,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       answeredCheckRef.current.add(banId);
       markCheckAnsweredLocally(uid, banId);
       checkAnswerInFlightRef.current.add(banId);
+      console.log('[CHECK OVERLAY DISMISSED]', {
+        banId,
+        reason: 'user-answer',
+        completed,
+      });
       const t0 = performance.now();
       checkSubmitAtRef.current.set(banId, t0);
       const role = resultParticipantRole(uid, checkBanRef.current);
@@ -1049,12 +1157,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     checkWaitingTimerRef.current = setTimeout(() => {
       challengeLog('check-waiting:expired');
       setCheckWaiting(false);
-      const prev = overlayQueueRef.current;
-      const next =
-        prev[0]?.kind === 'check'
-          ? popOverlayHead(prev)
-          : prev.filter((q) => q.kind !== 'check');
-      applyOverlayQueue(next);
       checkWaitingTimerRef.current = null;
     }, CHECK_WAITING_UI_TTL_MS);
   }, [applyOverlayQueue]);
@@ -1478,21 +1580,42 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         checkAnswerInFlightRef.current,
         resultOpenRef.current,
       );
-      if (check) {
-        if (source === 'session' && !checkWsSeenRef.current.has(check.id)) {
-          console.log('[check-recovery-session]', { banId: check.id });
-        }
+      if (!check) return;
+
+      const alreadyVisible =
+        checkBanRef.current?.id === check.id ||
+        hasCheckInQueue(overlayQueueRef.current, check.id);
+      if (alreadyVisible) {
+        console.log('[CHECK QUEUE DEDUP]', {
+          banId: check.id,
+          skipped: false,
+          reason: 'already-active',
+          source,
+        });
         enqueueNotification(
           { kind: 'check', ban: check },
           {
-            live:
-              source === 'ws' ||
-              (source === 'poll' && !startupInteractionsHoldRef.current),
+            live: source === 'ws',
             source,
           },
         );
         setCheckWaiting(false);
+        return;
       }
+
+      if (source === 'session' && !checkWsSeenRef.current.has(check.id)) {
+        console.log('[check-recovery-session]', { banId: check.id });
+      }
+      enqueueNotification(
+        { kind: 'check', ban: check },
+        {
+          live:
+            source === 'ws' ||
+            (source === 'poll' && !startupInteractionsHoldRef.current),
+          source,
+        },
+      );
+      setCheckWaiting(false);
     },
     [enqueueNotification],
   );
