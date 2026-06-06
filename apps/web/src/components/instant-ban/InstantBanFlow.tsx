@@ -690,29 +690,47 @@ export function InstantBanFlow({
   }, [bansOverlayOpen, token, user?.id]);
 
   const handleToggleSave = useCallback(
-    async (ban: BanInteraction) => {
+    (ban: BanInteraction) => {
       if (!token || !ban.id) return;
-      const wasSaved = savedBanIds.has(ban.id);
-      haptic('light');
-      try {
+
+      let wasSaved = false;
+      setSavedBans((prev) => {
+        wasSaved = prev.some((b) => b.id === ban.id);
         if (wasSaved) {
-          await unsaveBan(token, ban.id);
-          setSavedBans((prev) => prev.filter((b) => b.id !== ban.id));
-          setArchiveToast('Удалено из архива');
-        } else {
-          await saveBan(token, ban.id);
-          setSavedBans((prev) => {
-            if (prev.some((b) => b.id === ban.id)) return prev;
-            return [ban, ...prev];
-          });
-          setArchiveToast('Добавлено в архив');
+          return prev.filter((b) => b.id !== ban.id);
         }
-        hapticSuccess();
-      } catch {
-        setArchiveToast('Не удалось обновить архив');
-      }
+        if (prev.some((b) => b.id === ban.id)) return prev;
+        return [ban, ...prev];
+      });
+
+      setArchiveToast(
+        wasSaved ? 'Удалено из архива' : 'Добавлено в архив',
+      );
+      haptic('light');
+      hapticSuccess();
+
+      void (async () => {
+        try {
+          if (wasSaved) {
+            await unsaveBan(token, ban.id);
+          } else {
+            await saveBan(token, ban.id);
+          }
+        } catch {
+          setSavedBans((prev) => {
+            const isSaved = prev.some((b) => b.id === ban.id);
+            if (wasSaved) {
+              if (isSaved) return prev;
+              return [ban, ...prev];
+            }
+            if (!isSaved) return prev;
+            return prev.filter((b) => b.id !== ban.id);
+          });
+          setArchiveToast('Не удалось обновить архив');
+        }
+      })();
     },
-    [haptic, hapticSuccess, savedBanIds, token],
+    [haptic, hapticSuccess, token],
   );
 
   const handleOpenBansOverlay = useCallback(() => {
