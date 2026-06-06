@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { BanInteraction } from '@98plus/shared';
 import { AvatarImage } from '../AvatarImage';
 import { BanSaveStar } from './BanSaveStar';
@@ -27,6 +27,8 @@ const TABS: { id: BansTab; label: string }[] = [
   { id: 'archive', label: 'Архив' },
 ];
 
+const ARCHIVE_LONG_PRESS_MS = 500;
+
 type Props = {
   tab: BansTab;
   bans: BanInteraction[];
@@ -37,6 +39,9 @@ type Props = {
   onClose: () => void;
   onSelectBan: (ban: BanInteraction) => void;
   onToggleSave: (ban: BanInteraction) => void;
+  onRepeatBan: (ban: BanInteraction) => void;
+  onRemoveFromArchive: (ban: BanInteraction) => void;
+  onDeleteModeEnter: () => void;
 };
 
 function BanListItem({
@@ -44,18 +49,28 @@ function BanListItem({
   tab,
   userId,
   saved,
+  deleteMode,
   onSelect,
   onToggleSave,
+  onRepeatBan,
+  onRemoveFromArchive,
+  onEnterDeleteMode,
 }: {
   ban: BanInteraction;
   tab: BansTab;
   userId: string | undefined;
   saved: boolean;
+  deleteMode: boolean;
   onSelect: () => void;
   onToggleSave: () => void;
+  onRepeatBan: () => void;
+  onRemoveFromArchive: () => void;
+  onEnterDeleteMode: () => void;
 }) {
   const opponent = opponentForBan(ban, userId);
   const left = useBanRemainingMs(ban);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFiredRef = useRef(false);
   const useOutcomeLabel =
     tab === 'history' || (tab === 'archive' && isBanTerminal(ban.status));
   const timerText =
@@ -64,13 +79,75 @@ function BanListItem({
       : useOutcomeLabel
         ? banHistoryStatusLabel(ban)
         : banStatusLabel(ban.status);
+  const isArchiveTab = tab === 'archive';
+
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  const handleMainPointerDown = useCallback(() => {
+    if (!isArchiveTab || deleteMode) return;
+    longPressFiredRef.current = false;
+    clearLongPressTimer();
+    longPressTimerRef.current = setTimeout(() => {
+      longPressFiredRef.current = true;
+      onEnterDeleteMode();
+    }, ARCHIVE_LONG_PRESS_MS);
+  }, [clearLongPressTimer, deleteMode, isArchiveTab, onEnterDeleteMode]);
+
+  const handleMainPointerEnd = useCallback(() => {
+    clearLongPressTimer();
+  }, [clearLongPressTimer]);
+
+  const handleMainClick = useCallback(() => {
+    if (longPressFiredRef.current) {
+      longPressFiredRef.current = false;
+      return;
+    }
+    onSelect();
+  }, [onSelect]);
+
+  useEffect(() => () => clearLongPressTimer(), [clearLongPressTimer]);
+
+  const iconProps = isArchiveTab
+    ? deleteMode
+      ? {
+          mode: 'delete' as const,
+          banId: ban.id,
+          onAction: onRemoveFromArchive,
+        }
+      : {
+          mode: 'repeat' as const,
+          banId: ban.id,
+          onAction: onRepeatBan,
+        }
+    : {
+        mode: 'toggle' as const,
+        banId: ban.id,
+        saved,
+        onAction: onToggleSave,
+      };
 
   return (
-    <div className="instant-ban-bans-list-item">
+    <div
+      className={`instant-ban-bans-list-item${
+        deleteMode ? ' instant-ban-bans-list-item--delete-mode' : ''
+      }`}
+    >
       <button
         type="button"
         className="instant-ban-bans-list-item__main"
-        onClick={onSelect}
+        onClick={handleMainClick}
+        onPointerDown={handleMainPointerDown}
+        onPointerUp={handleMainPointerEnd}
+        onPointerLeave={handleMainPointerEnd}
+        onPointerCancel={handleMainPointerEnd}
+        onContextMenu={(e) => {
+          if (isArchiveTab) e.preventDefault();
+        }}
       >
         <AvatarImage
           src={userAvatarSrc(opponent)}
@@ -86,11 +163,7 @@ function BanListItem({
           <p className="instant-ban-bans-list-item__timer">{timerText}</p>
         </div>
       </button>
-      <BanSaveStar
-        banId={ban.id}
-        saved={saved}
-        onToggle={onToggleSave}
-      />
+      <BanSaveStar {...iconProps} />
     </div>
   );
 }
@@ -105,9 +178,17 @@ export function BansOverlay({
   onClose,
   onSelectBan,
   onToggleSave,
+  onRepeatBan,
+  onRemoveFromArchive,
+  onDeleteModeEnter,
 }: Props) {
   const emptyMessage = bansTabEmptyMessage(tab);
   const [toastVisible, setToastVisible] = useState(false);
+  const [deleteModeBanId, setDeleteModeBanId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDeleteModeBanId(null);
+  }, [tab]);
 
   useEffect(() => {
     if (!archiveToast) {
@@ -118,6 +199,38 @@ export function BansOverlay({
     const timer = window.setTimeout(() => setToastVisible(false), 2200);
     return () => window.clearTimeout(timer);
   }, [archiveToast]);
+
+  const handleTabChange = useCallback(
+    (nextTab: BansTab) => {
+      setDeleteModeBanId(null);
+      onTabChange(nextTab);
+    },
+    [onTabChange],
+  );
+
+  const handleSelectBan = useCallback(
+    (ban: BanInteraction) => {
+      setDeleteModeBanId(null);
+      onSelectBan(ban);
+    },
+    [onSelectBan],
+  );
+
+  const handleEnterDeleteMode = useCallback(
+    (banId: string) => {
+      setDeleteModeBanId(banId);
+      onDeleteModeEnter();
+    },
+    [onDeleteModeEnter],
+  );
+
+  const handleRemoveFromArchive = useCallback(
+    (ban: BanInteraction) => {
+      setDeleteModeBanId(null);
+      onRemoveFromArchive(ban);
+    },
+    [onRemoveFromArchive],
+  );
 
   return (
     <div
@@ -152,7 +265,7 @@ export function BansOverlay({
                 className={`instant-ban-bans-overlay__tab${
                   tab === t.id ? ' instant-ban-bans-overlay__tab--active' : ''
                 }`}
-                onClick={() => onTabChange(t.id)}
+                onClick={() => handleTabChange(t.id)}
               >
                 {t.label}
               </button>
@@ -160,7 +273,15 @@ export function BansOverlay({
           </div>
         </div>
 
-        <div className="instant-ban-bans-overlay__list" role="tabpanel">
+        <div
+          className="instant-ban-bans-overlay__list"
+          role="tabpanel"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setDeleteModeBanId(null);
+            }
+          }}
+        >
           {bans.length === 0 ? (
             <p className="instant-ban-bans-overlay__empty">{emptyMessage}</p>
           ) : (
@@ -171,8 +292,12 @@ export function BansOverlay({
                 tab={tab}
                 userId={userId}
                 saved={savedBanIds.has(ban.id)}
-                onSelect={() => onSelectBan(ban)}
+                deleteMode={tab === 'archive' && deleteModeBanId === ban.id}
+                onSelect={() => handleSelectBan(ban)}
                 onToggleSave={() => onToggleSave(ban)}
+                onRepeatBan={() => onRepeatBan(ban)}
+                onRemoveFromArchive={() => handleRemoveFromArchive(ban)}
+                onEnterDeleteMode={() => handleEnterDeleteMode(ban.id)}
               />
             ))
           )}

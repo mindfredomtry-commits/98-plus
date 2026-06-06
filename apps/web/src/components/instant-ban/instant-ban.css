@@ -3349,6 +3349,15 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
   filter: drop-shadow(0 0 10px rgba(var(--98-accent-rgb), 0.75));
 }
 
+.instant-ban-bans-list-item--delete-mode {
+  background: rgba(var(--98-accent-rgb), 0.06);
+  border-radius: 0.75rem;
+}
+
+.instant-ban-bans-list-item__star--delete {
+  color: rgba(var(--98-accent-rgb), 0.95);
+}
+
 .instant-ban-bans-list-item__star-icon {
   position: relative;
   width: 2rem;

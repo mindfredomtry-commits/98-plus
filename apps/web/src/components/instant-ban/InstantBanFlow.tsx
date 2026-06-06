@@ -11,7 +11,7 @@ import {
 } from 'react';
 import {
   coerceFriendList,
-  findFriendByUsername,
+  isValidDurationMinutes,
   type BanInteraction,
   type FriendCard,
 } from '@98plus/shared';
@@ -50,6 +50,7 @@ import {
   type BansTab,
   filterBansForTab,
   opponentForBan,
+  opponentToFriendCard,
 } from './bans-overlay-utils';
 import { useConfirmOrbController } from './useConfirmOrbController';
 import { useLobbyRingIntroFill } from './useLobbyRingIntroFill';
@@ -733,6 +734,95 @@ export function InstantBanFlow({
     [haptic, hapticSuccess, token],
   );
 
+  const handleRemoveFromArchive = useCallback(
+    (ban: BanInteraction) => {
+      if (!token || !ban.id) return;
+
+      let wasSaved = false;
+      setSavedBans((prev) => {
+        wasSaved = prev.some((b) => b.id === ban.id);
+        return prev.filter((b) => b.id !== ban.id);
+      });
+      if (!wasSaved) return;
+
+      setArchiveToast('Удалено из архива');
+      haptic('light');
+      hapticSuccess();
+
+      void (async () => {
+        try {
+          await unsaveBan(token, ban.id);
+        } catch {
+          setSavedBans((prev) => {
+            if (prev.some((b) => b.id === ban.id)) return prev;
+            return [ban, ...prev];
+          });
+          setArchiveToast('Не удалось обновить архив');
+        }
+      })();
+    },
+    [haptic, hapticSuccess, token],
+  );
+
+  const handleArchiveDeleteModeEnter = useCallback(() => {
+    haptic('light');
+  }, [haptic]);
+
+  const beginRepeatBanFlow = useCallback(
+    (ban: BanInteraction, options?: { goToConfirm: boolean }) => {
+      if (!user?.id) return false;
+
+      const opponent = opponentForBan(ban, user.id);
+      const friend = opponentToFriendCard(opponent, safeFriends);
+      const text = ban.text?.trim() ?? '';
+      const duration = isValidDurationMinutes(ban.durationMinutes)
+        ? ban.durationMinutes
+        : DEFAULT_DURATION_MINUTES;
+      const goToConfirm = options?.goToConfirm ?? text.length >= 3;
+
+      setBansOverlayOpen(false);
+      setSelectedBanForDetails(null);
+      clearCtaExitTimer();
+      clearWhoPanelEnterTimer();
+      setCtaState('hidden');
+      onStartSend();
+      setSelectedUser(friend);
+      setBanText(text);
+      setDurationMinutes(duration);
+      setSendError(null);
+      setComposeExitProgress(0);
+      setComposeDismissing(false);
+      setBanSentSuccess(false);
+      sendSnapshotRef.current = null;
+      setCrossScreenProgressImmediate(1);
+
+      if (goToConfirm) {
+        setConfirmEnterKey((k) => k + 1);
+        setPhase('confirming');
+      } else {
+        setPhase('composingBan');
+      }
+
+      return true;
+    },
+    [
+      clearCtaExitTimer,
+      clearWhoPanelEnterTimer,
+      onStartSend,
+      safeFriends,
+      setCrossScreenProgressImmediate,
+      user?.id,
+    ],
+  );
+
+  const handleRepeatBanFromArchive = useCallback(
+    (ban: BanInteraction) => {
+      haptic('light');
+      beginRepeatBanFlow(ban);
+    },
+    [beginRepeatBanFlow, haptic],
+  );
+
   const handleOpenBansOverlay = useCallback(() => {
     if (phase !== 'idle' || banSentSuccess) return;
     setBansTab('yours');
@@ -758,52 +848,9 @@ export function InstantBanFlow({
 
   const handleBanMore = useCallback(
     (ban: BanInteraction) => {
-      if (!user?.id) return;
-      const opponent = opponentForBan(ban, user.id);
-      const fromFriends = findFriendByUsername(
-        safeFriends,
-        opponent.username ?? '',
-      );
-      const friend: FriendCard =
-        fromFriends ??
-        ({
-          id: opponent.id,
-          userId: opponent.id,
-          telegramId: opponent.telegramId,
-          username: opponent.username ?? '',
-          firstName: opponent.firstName,
-          photoUrl: opponent.photoUrl,
-          avatarUrl: opponent.avatarUrl,
-          auraLabel: opponent.auraLabel,
-          streak: opponent.streak,
-          energyPercent: opponent.energyPercent,
-          presence: 'offline',
-          lastSeenAt: null,
-          interactionCount: 0,
-          isRegistered: true,
-        } satisfies FriendCard);
-
-      setBansOverlayOpen(false);
-      setSelectedBanForDetails(null);
-      clearCtaExitTimer();
-      clearWhoPanelEnterTimer();
-      setCtaState('hidden');
-      onStartSend();
-      setSelectedUser(friend);
-      setBanText('');
-      setDurationMinutes(DEFAULT_DURATION_MINUTES);
-      setSendError(null);
-      setPhase('composingBan');
-      setCrossScreenProgressImmediate(1);
+      beginRepeatBanFlow(ban, { goToConfirm: false });
     },
-    [
-      clearCtaExitTimer,
-      clearWhoPanelEnterTimer,
-      onStartSend,
-      safeFriends,
-      setCrossScreenProgressImmediate,
-      user?.id,
-    ],
+    [beginRepeatBanFlow],
   );
 
   const handleSuccessExitComplete = useCallback(() => {
@@ -1458,7 +1505,10 @@ export function InstantBanFlow({
             onTabChange={setBansTab}
             onClose={handleCloseBansOverlay}
             onSelectBan={setSelectedBanForDetails}
-            onToggleSave={(ban) => void handleToggleSave(ban)}
+            onToggleSave={handleToggleSave}
+            onRepeatBan={handleRepeatBanFromArchive}
+            onRemoveFromArchive={handleRemoveFromArchive}
+            onDeleteModeEnter={handleArchiveDeleteModeEnter}
           />
           {selectedBanForDetails ? (
             <ActiveBanCardOverlay

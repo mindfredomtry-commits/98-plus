@@ -1,7 +1,9 @@
 import {
+  findFriendByUsername,
   formatHistoryOutcomeLabel,
   type BanInteraction,
   type BanStatus,
+  type FriendCard,
 } from '@98plus/shared';
 
 export type BansTab = 'yours' | 'toYou' | 'history' | 'archive';
@@ -136,4 +138,29 @@ export function opponentForBan(
     return ban.receiver;
   }
   return ban.sender;
+}
+
+export function opponentToFriendCard(
+  opponent: BanInteraction['sender'],
+  friends: FriendCard[],
+): FriendCard {
+  const fromFriends = findFriendByUsername(friends, opponent.username ?? '');
+  if (fromFriends) return fromFriends;
+
+  return {
+    id: opponent.id,
+    userId: opponent.id,
+    telegramId: opponent.telegramId,
+    username: opponent.username ?? '',
+    firstName: opponent.firstName,
+    photoUrl: opponent.photoUrl,
+    avatarUrl: opponent.avatarUrl,
+    auraLabel: opponent.auraLabel,
+    streak: opponent.streak,
+    energyPercent: opponent.energyPercent,
+    presence: 'offline',
+    lastSeenAt: null,
+    interactionCount: 0,
+    isRegistered: true,
+  };
 }
