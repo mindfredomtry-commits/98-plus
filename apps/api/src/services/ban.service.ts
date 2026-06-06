@@ -86,11 +86,12 @@ type BanWithUsers = {
   checkDueAt: Date | null;
   receiverId: string;
   receiverIncomingAckAt: Date | null;
+  outcome: PrismaOutcome | null;
   sender: User;
   receiver: User;
 };
 
-function buildInteractionFromBan(
+function mapBanRecordToInteraction(
   ban: BanWithUsers,
   viewerId: string,
 ): BanInteraction {
@@ -98,6 +99,10 @@ function buildInteractionFromBan(
   const remainingMs = target
     ? Math.max(0, target.getTime() - Date.now())
     : undefined;
+  const inProgress =
+    ban.status === 'ACTIVE' ||
+    ban.status === 'CHECKING' ||
+    ban.status === 'PENDING';
 
   return {
     id: ban.id,
@@ -113,14 +118,17 @@ function buildInteractionFromBan(
     expiresAt: ban.expiresAt?.toISOString() ?? null,
     checkDueAt: ban.checkDueAt?.toISOString() ?? null,
     threadId: ban.threadId,
-    remainingMs:
-      ban.status === 'ACTIVE' ||
-      ban.status === 'CHECKING' ||
-      ban.status === 'PENDING'
-        ? remainingMs
-        : undefined,
+    remainingMs: inProgress ? remainingMs : undefined,
     serverNow: new Date().toISOString(),
+    outcome: mapPrismaOutcomeToShared(ban.outcome),
   };
+}
+
+function buildInteractionFromBan(
+  ban: BanWithUsers,
+  viewerId: string,
+): BanInteraction {
+  return mapBanRecordToInteraction(ban, viewerId);
 }
 
 export async function mapBanToInteraction(
@@ -133,34 +141,7 @@ export async function mapBanToInteraction(
   });
   if (!ban) return null;
 
-  const target = ban.checkDueAt ?? ban.expiresAt;
-  const remainingMs = target
-    ? Math.max(0, target.getTime() - Date.now())
-    : undefined;
-
-  return {
-    id: ban.id,
-    text: ban.text,
-    status: mapBanStatus(ban.status),
-    durationMinutes: ban.durationMinutes as BanInteraction['durationMinutes'],
-    sender: mapUser(ban.sender),
-    receiver: mapUser(ban.receiver),
-    isIncoming: ban.receiverId === viewerId,
-    incomingAcknowledged:
-      ban.receiverId === viewerId && ban.receiverIncomingAckAt != null,
-    createdAt: ban.createdAt.toISOString(),
-    expiresAt: ban.expiresAt?.toISOString() ?? null,
-    checkDueAt: ban.checkDueAt?.toISOString() ?? null,
-    threadId: ban.threadId,
-    remainingMs:
-      ban.status === 'ACTIVE' ||
-      ban.status === 'CHECKING' ||
-      ban.status === 'PENDING'
-        ? remainingMs
-        : undefined,
-    serverNow: new Date().toISOString(),
-    outcome: mapPrismaOutcomeToShared(ban.outcome),
-  };
+  return mapBanRecordToInteraction(ban, viewerId);
 }
 
 /** Sync WS emit — payloads must be pre-built (same path as ban:incoming). */
@@ -1139,31 +1120,12 @@ export async function getHistoryInteractions(userId: string, limit = 50) {
       OR: [{ senderId: userId }, { receiverId: userId }],
       status: { in: HISTORY_BAN_STATUSES },
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
     take: limit,
     include: { sender: true, receiver: true },
   });
 
-  return bans.map((ban) => {
-    return {
-      id: ban.id,
-      text: ban.text,
-      status: mapBanStatus(ban.status),
-      durationMinutes: ban.durationMinutes as BanInteraction['durationMinutes'],
-      sender: mapUser(ban.sender),
-      receiver: mapUser(ban.receiver),
-      isIncoming: ban.receiverId === userId,
-      incomingAcknowledged:
-        ban.receiverId === userId && ban.receiverIncomingAckAt != null,
-      createdAt: ban.createdAt.toISOString(),
-      expiresAt: ban.expiresAt?.toISOString() ?? null,
-      checkDueAt: ban.checkDueAt?.toISOString() ?? null,
-      threadId: ban.threadId,
-      remainingMs: undefined,
-      serverNow: new Date().toISOString(),
-      outcome: mapPrismaOutcomeToShared(ban.outcome),
-    } satisfies BanInteraction;
-  });
+  return bans.map((ban) => mapBanRecordToInteraction(ban, userId));
 }
 
 async function markIncomingAcked(banId: string): Promise<void> {

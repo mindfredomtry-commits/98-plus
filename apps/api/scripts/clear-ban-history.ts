@@ -1,6 +1,8 @@
 /**
  * Dev/admin utility — remove terminal (history) bans only.
  *
+ * Uses DIRECT_URL (not DATABASE_URL pooler) — required for Supabase/PgBouncer.
+ *
  * Does NOT delete users or open bans (PENDING / ACTIVE / REPLIED / CHECKING).
  *
  * Usage:
@@ -9,9 +11,43 @@
  *   npm run db:clear-ban-history -- --username=dev_user --confirm
  */
 import 'dotenv/config';
-import type { BanStatus, Prisma } from '@prisma/client';
-import { prisma } from '../src/lib/prisma';
+import { PrismaClient, type BanStatus, type Prisma } from '@prisma/client';
 import { normalizeUsername } from '../src/services/invite.service';
+
+function maskDbUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.password) parsed.password = '***';
+    return parsed.toString();
+  } catch {
+    return '(invalid url)';
+  }
+}
+
+function createScriptPrisma(): PrismaClient {
+  const directUrl = process.env.DIRECT_URL?.trim();
+  if (!directUrl) {
+    console.error(
+      '[clear-ban-history] DIRECT_URL is required for this admin script.',
+    );
+    console.error(
+      '[clear-ban-history] PgBouncer pooler (DATABASE_URL) breaks prepared statements.',
+    );
+    console.error(
+      '[clear-ban-history] Add DIRECT_URL to apps/api/.env (Supabase direct connection, port 5432).',
+    );
+    process.exit(1);
+  }
+
+  console.log('[clear-ban-history] using DIRECT_URL', maskDbUrl(directUrl));
+  return new PrismaClient({
+    datasources: {
+      db: { url: directUrl },
+    },
+  });
+}
+
+const prisma = createScriptPrisma();
 
 const HISTORY_BAN_STATUSES: BanStatus[] = [
   'COMPLETED',
