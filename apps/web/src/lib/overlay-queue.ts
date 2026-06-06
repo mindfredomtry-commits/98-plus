@@ -37,6 +37,57 @@ export function hasCheckInQueue(
   );
 }
 
+export function getActiveOverlayKey(queue: QueuedOverlay[]): string | null {
+  const head = queue[0];
+  return head ? overlayQueueKey(head) : null;
+}
+
+export type EnqueueOverlayAction =
+  | 'display-new'
+  | 'enqueue-waiting'
+  | 'same-key-refresh'
+  | 'dedup';
+
+/**
+ * Enqueue with active-overlay lock: only queue[0] is displayed.
+ * While head exists, new items with a different key append to the tail.
+ * Same-key items refresh data in place without changing the active overlay.
+ */
+export function enqueueWithActiveLock(
+  queue: QueuedOverlay[],
+  item: QueuedOverlay,
+): { queue: QueuedOverlay[]; changed: boolean; action: EnqueueOverlayAction } {
+  const newKey = overlayQueueKey(item);
+  const activeKey = getActiveOverlayKey(queue);
+  const existingIdx = queue.findIndex((q) => overlayQueueKey(q) === newKey);
+
+  if (existingIdx >= 0) {
+    const next = [...queue];
+    next[existingIdx] = item;
+    return { queue: next, changed: true, action: 'same-key-refresh' };
+  }
+
+  if (activeKey === null) {
+    return { queue: [item], changed: true, action: 'display-new' };
+  }
+
+  let next = queue;
+  if (item.kind === 'result') {
+    const banId = overlayBanId(item);
+    next = next.filter((q, idx) => {
+      if (idx === 0) return true;
+      if (overlayBanId(q) !== banId) return true;
+      return q.kind === 'result';
+    });
+  }
+
+  return {
+    queue: [...next, item],
+    changed: true,
+    action: 'enqueue-waiting',
+  };
+}
+
 export function overlayBanId(item: QueuedOverlay): string {
   return item.kind === 'result' ? item.result.id : item.ban.id;
 }
@@ -135,41 +186,30 @@ export function removeOverlayByKey(
   return queue.filter((q) => overlayQueueKey(q) !== key);
 }
 
-/**
- * Insert or refresh a check overlay without duplicate queue entries.
- * When `toHead` is true, an existing entry is promoted to the queue head.
- */
+/** @deprecated Use enqueueWithActiveLock — never promotes check above active overlay. */
 export function upsertCheckOverlay(
   queue: QueuedOverlay[],
   ban: BanInteraction,
-  opts?: { toHead?: boolean },
 ): { queue: QueuedOverlay[]; changed: boolean; deduped: boolean } {
-  const item: QueuedOverlay = { kind: 'check', ban };
-  const key = checkOverlayKey(ban.id);
-  const idx = queue.findIndex((q) => overlayQueueKey(q) === key);
-
-  if (idx >= 0) {
-    const next = [...queue];
-    next[idx] = item;
-    if (opts?.toHead && idx > 0) {
-      next.splice(idx, 1);
-      next.unshift(item);
-    }
-    return { queue: next, changed: true, deduped: true };
-  }
-
-  const next = opts?.toHead ? [item, ...queue] : [...queue, item];
-  return { queue: next, changed: true, deduped: false };
+  const { queue: next, changed, action } = enqueueWithActiveLock(queue, {
+    kind: 'check',
+    ban,
+  });
+  return {
+    queue: next,
+    changed,
+    deduped: action === 'same-key-refresh' || action === 'dedup',
+  };
 }
 
-/** Append pending startup items onto the live display queue (FIFO, deduped). */
+/** Append pending startup items onto the live display queue (respects active lock). */
 export function mergeOverlayQueues(
   display: QueuedOverlay[],
   pending: QueuedOverlay[],
 ): QueuedOverlay[] {
   let next = display;
   for (const item of pending) {
-    next = enqueueOverlay(next, item);
+    next = enqueueWithActiveLock(next, item).queue;
   }
   return next;
 }

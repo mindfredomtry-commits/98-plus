@@ -37,14 +37,14 @@ import { ResultOverlay } from './ResultOverlay';
 import { GlobalOverlayHost } from './GlobalOverlayHost';
 import {
   enqueueOverlay,
+  enqueueWithActiveLock,
+  getActiveOverlayKey,
   hasCheckInQueue,
   mergeOverlayQueues,
   overlayQueueKey,
   popOverlayHead,
-  prependOverlay,
   pruneOverlayQueue,
   removeOverlaysForBan,
-  upsertCheckOverlay,
   type QueuedOverlay,
 } from '@/lib/overlay-queue';
 import { ChallengeErrorBoundary } from './ChallengeErrorBoundary';
@@ -284,6 +284,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [result, setResult] = useState<BanResult | null>(null);
   const [overlayQueue, setOverlayQueue] = useState<QueuedOverlay[]>([]);
   const overlayQueueRef = useRef<QueuedOverlay[]>([]);
+  const activeOverlayLockRef = useRef<string | null>(null);
   const pendingStartupInteractionsRef = useRef<QueuedOverlay[]>([]);
   const startupInteractionsHoldRef = useRef(true);
   const sessionBanSendSuccessRef = useRef(false);
@@ -408,7 +409,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const nextHead = next[0] ?? null;
       const prevKey = prevHead ? overlayQueueKey(prevHead) : null;
       const nextKey = nextHead ? overlayQueueKey(nextHead) : null;
+      activeOverlayLockRef.current = nextKey;
+      if (nextKey) {
+        console.log('[OVERLAY ACTIVE LOCK]', {
+          key: nextKey,
+          kind: nextHead?.kind ?? null,
+        });
+      } else {
+        console.log('[OVERLAY ACTIVE LOCK]', { key: null });
+      }
       if (prevKey !== nextKey) {
+        console.log('[OVERLAY DISPLAY NEXT]', {
+          prevKey,
+          nextKey,
+          queueLength: next.length,
+          nextKind: nextHead?.kind ?? null,
+        });
         console.log('[OVERLAY QUEUE NEXT]', {
           prevKey,
           nextKey,
@@ -489,74 +505,64 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       const prev = overlayQueueRef.current;
+      const activeKey = getActiveOverlayKey(prev);
+      const newKey = overlayQueueKey(item);
+      const { queue: next, changed, action } = enqueueWithActiveLock(prev, item);
 
-      if (item.kind === 'check') {
-        const banId = item.ban.id;
-        const alreadyActive =
-          checkBanRef.current?.id === banId ||
-          hasCheckInQueue(prev, banId);
-        const { queue: next, changed, deduped } = upsertCheckOverlay(
-          prev,
-          item.ban,
-          { toHead: live || !alreadyActive },
-        );
-
-        if (!changed) {
-          console.log('[CHECK QUEUE DEDUP]', {
-            banId,
-            skipped: true,
-            reason: 'unchanged',
-            source: opts?.source ?? null,
-          });
-          return;
-        }
-
-        if (deduped || alreadyActive) {
-          console.log('[CHECK QUEUE DEDUP]', {
-            banId,
-            skipped: false,
-            reason: alreadyActive ? 'refresh-active' : 'refresh-queued',
-            source: opts?.source ?? null,
-            live,
-          });
-        } else {
-          console.log('[CHECK QUEUE PUSH]', {
-            banId,
-            source: opts?.source ?? null,
-            live,
-          });
-        }
-
-        applyOverlayQueue(next);
-        return;
-      }
-
-      const next =
-        live && item.kind === 'incoming'
-          ? prependOverlay(prev, item)
-          : enqueueOverlay(prev, item);
-
-      if (next === prev) {
+      if (!changed) {
         if (item.kind === 'incoming') {
           console.log('INCOMING QUEUE PUSH', {
             banId: item.ban.id,
             skipped: true,
             reason: 'dedup',
             source: opts?.source ?? null,
-            queueKeys: prev.map(overlayQueueKey),
+          });
+        } else if (item.kind === 'check') {
+          console.log('[CHECK QUEUE DEDUP]', {
+            banId: item.ban.id,
+            skipped: true,
+            reason: 'unchanged',
+            source: opts?.source ?? null,
           });
         }
         return;
       }
 
-      if (item.kind === 'incoming') {
-        console.log('INCOMING QUEUE PUSH', {
-          banId: item.ban.id,
-          skipped: false,
-          reason: 'enqueued',
+      if (action === 'same-key-refresh') {
+        console.log('[OVERLAY SAME_KEY_REFRESH]', {
+          key: newKey,
+          kind: item.kind,
           source: opts?.source ?? null,
-          live,
         });
+      } else if (action === 'enqueue-waiting') {
+        console.log('[OVERLAY ENQUEUE WAITING]', {
+          activeKey,
+          newKey,
+          kind: item.kind,
+          queueLength: next.length,
+          source: opts?.source ?? null,
+        });
+        console.log('[OVERLAY BLOCKED_BY_ACTIVE]', {
+          activeKey,
+          newKey,
+          kind: item.kind,
+        });
+      } else if (action === 'display-new') {
+        if (item.kind === 'incoming') {
+          console.log('INCOMING QUEUE PUSH', {
+            banId: item.ban.id,
+            skipped: false,
+            reason: 'display-new',
+            source: opts?.source ?? null,
+            live,
+          });
+        } else if (item.kind === 'check') {
+          console.log('[CHECK QUEUE PUSH]', {
+            banId: item.ban.id,
+            source: opts?.source ?? null,
+            live,
+          });
+        }
       }
 
       applyOverlayQueue(next);
@@ -606,9 +612,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      applyOverlayQueue(
-        enqueueOverlay(overlayQueueRef.current, resultItem),
+      const prev = overlayQueueRef.current;
+      const activeKey = getActiveOverlayKey(prev);
+      const newKey = overlayQueueKey(resultItem);
+      const { queue: next, changed, action } = enqueueWithActiveLock(
+        prev,
+        resultItem,
       );
+      if (!changed) return;
+      if (action === 'same-key-refresh') {
+        console.log('[OVERLAY SAME_KEY_REFRESH]', { key: newKey, kind: 'result' });
+      } else if (action === 'enqueue-waiting') {
+        console.log('[OVERLAY ENQUEUE WAITING]', {
+          activeKey,
+          newKey,
+          kind: 'result',
+          queueLength: next.length,
+        });
+        console.log('[OVERLAY BLOCKED_BY_ACTIVE]', {
+          activeKey,
+          newKey,
+          kind: 'result',
+        });
+      }
+      applyOverlayQueue(next);
     },
     [applyOverlayQueue, syncPendingStartupCount],
   );
@@ -678,10 +705,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         restored: true,
         wasHead,
       });
-      const restored = upsertCheckOverlay(next, removed.ban, {
-        toHead: wasHead,
-      });
-      next = restored.queue;
+      const { queue: restoredQueue } = enqueueWithActiveLock(next, removed);
+      next = restoredQueue;
     }
 
     applyOverlayQueue(next);
@@ -1582,27 +1607,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
       if (!check) return;
 
-      const alreadyVisible =
-        checkBanRef.current?.id === check.id ||
-        hasCheckInQueue(overlayQueueRef.current, check.id);
-      if (alreadyVisible) {
-        console.log('[CHECK QUEUE DEDUP]', {
-          banId: check.id,
-          skipped: false,
-          reason: 'already-active',
-          source,
-        });
-        enqueueNotification(
-          { kind: 'check', ban: check },
-          {
-            live: source === 'ws',
-            source,
-          },
-        );
-        setCheckWaiting(false);
-        return;
-      }
-
       if (source === 'session' && !checkWsSeenRef.current.has(check.id)) {
         console.log('[check-recovery-session]', { banId: check.id });
       }
@@ -2379,6 +2383,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [checkBan, auth.user?.id, result],
   );
 
+  const activeOverlayKind = overlayQueue[0]?.kind ?? null;
+
   const notificationOverlayActive =
     incomingGateActive || checkGateActive || !!result;
 
@@ -2674,35 +2680,40 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         {children}
         <GlobalOverlayHost
           active={notificationOverlayActive}
+          activeOverlayKind={activeOverlayKind}
           activeIncomingBanId={
-            incomingGateActive ? (incomingBan?.id ?? null) : null
+            activeOverlayKind === 'incoming' ? (incomingBan?.id ?? null) : null
           }
         >
-          <ChallengeErrorBoundary
-            name="incoming"
-            onRecover={() => dismissIncoming()}
-          >
-            <IncomingBanOverlay embedded />
-          </ChallengeErrorBoundary>
-          <ChallengeErrorBoundary
-            name="check"
-            onRecover={() => clearCheckOverlay()}
-          >
-            <CheckOverlay embedded />
-          </ChallengeErrorBoundary>
-          <ChallengeErrorBoundary
-            name="result"
-            onRecover={() => dismissBanResult()}
-          >
-            {result ? (
+          {activeOverlayKind === 'incoming' ? (
+            <ChallengeErrorBoundary
+              name="incoming"
+              onRecover={() => dismissIncoming()}
+            >
+              <IncomingBanOverlay embedded />
+            </ChallengeErrorBoundary>
+          ) : null}
+          {activeOverlayKind === 'check' ? (
+            <ChallengeErrorBoundary
+              name="check"
+              onRecover={() => clearCheckOverlay()}
+            >
+              <CheckOverlay embedded />
+            </ChallengeErrorBoundary>
+          ) : null}
+          {activeOverlayKind === 'result' && result ? (
+            <ChallengeErrorBoundary
+              name="result"
+              onRecover={() => dismissBanResult()}
+            >
               <ResultOverlay
                 key={result.id}
                 result={result}
                 onClose={dismissBanResult}
                 embedded
               />
-            ) : null}
-          </ChallengeErrorBoundary>
+            </ChallengeErrorBoundary>
+          ) : null}
         </GlobalOverlayHost>
         {!result ? (
           <ShellErrorBoundary name="energy" fallback={null}>

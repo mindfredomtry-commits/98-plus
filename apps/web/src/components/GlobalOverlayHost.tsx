@@ -4,10 +4,14 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
 
+type ActiveOverlayKind = 'incoming' | 'check' | 'result';
+
 interface Props {
   /** When true, the layer accepts pointer events (backdrop taps). */
   active: boolean;
   children: ReactNode;
+  /** Only one notification overlay kind is mounted at a time. */
+  activeOverlayKind?: ActiveOverlayKind | null;
   activeIncomingBanId?: string | null;
 }
 
@@ -18,6 +22,7 @@ interface Props {
 export function GlobalOverlayHost({
   active,
   children,
+  activeOverlayKind = null,
   activeIncomingBanId = null,
 }: Props) {
   const [mounted, setMounted] = useState(false);
@@ -27,11 +32,12 @@ export function GlobalOverlayHost({
   }, []);
 
   useEffect(() => {
-    if (!activeIncomingBanId) return;
-    console.log('INCOMING OVERLAY HOST ACTIVE', {
-      banId: activeIncomingBanId,
+    if (!activeOverlayKind) return;
+    console.log('[OVERLAY ACTIVE LOCK]', {
+      hostKind: activeOverlayKind,
+      incomingBanId: activeIncomingBanId,
     });
-  }, [activeIncomingBanId]);
+  }, [activeOverlayKind, activeIncomingBanId]);
 
   if (!mounted || typeof document === 'undefined') return null;
 
