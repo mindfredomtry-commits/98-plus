@@ -36,7 +36,13 @@ export function ArenaLobbyTopNav({
             : 'Твои запреты'
         }
       >
-        Твои запреты
+        {bansNeedAttention ? (
+          <span
+            className="instant-ban-arena-lobby-nav__pending-dot"
+            aria-hidden
+          />
+        ) : null}
+        <span className="instant-ban-arena-lobby-nav__label">Твои запреты</span>
       </button>
       <button
         type="button"

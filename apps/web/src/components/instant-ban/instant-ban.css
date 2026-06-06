@@ -3106,9 +3106,28 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
 }
 
 .instant-ban-arena-lobby-nav__item--active {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
   color: var(--98-text-primary);
   background: rgba(var(--98-purple-soft-rgb), 0.14);
   box-shadow: 0 0 18px rgba(var(--98-accent-rgb), 0.22);
+}
+
+.instant-ban-arena-lobby-nav__label {
+  line-height: 1.15;
+}
+
+.instant-ban-arena-lobby-nav__pending-dot {
+  flex-shrink: 0;
+  width: var(--98-lobby-pending-dot-size);
+  height: var(--98-lobby-pending-dot-size);
+  border-radius: 50%;
+  background: var(--98-power);
+  box-shadow:
+    0 0 5px rgba(var(--98-power-rgb), 0.85),
+    0 0 10px rgba(var(--98-power-rgb), 0.35);
 }
 
 @keyframes instant-ban-lobby-nav-attention-glow {

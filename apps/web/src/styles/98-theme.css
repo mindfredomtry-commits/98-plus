@@ -56,6 +56,7 @@
   /* Lobby top nav — sits just above the orb ring (orb/CTA positions unchanged) */
   --98-lobby-nav-block-height: 2.25rem;
   --98-lobby-nav-orb-gap: 0.5rem;
+  --98-lobby-pending-dot-size: 5px;
   --98-confirm-ring-lobby-scale: 1.75;
   --98-confirm-ring-mini-scale: 0.8;
   --98-payoff-core-size: 14px;
