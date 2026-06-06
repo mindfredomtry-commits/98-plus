@@ -59,6 +59,8 @@ import {
 } from './bans-overlay-utils';
 import { useConfirmOrbController } from './useConfirmOrbController';
 import { useLobbyRingIntroFill } from './useLobbyRingIntroFill';
+import { canLobbySendBan } from '@/lib/lobby-influence';
+import { triggerLobbyBlockedHaptic } from './lobby-cta-haptics';
 import {
   getCrossScreenTouchPolicy,
   isWhatInteractiveTarget,
@@ -275,6 +277,8 @@ export function InstantBanFlow({
   const lobbyCtaBootSpringRef = useRef(false);
   const prevSendStartedRef = useRef(sendStarted);
   const [bansOverlayOpen, setBansOverlayOpen] = useState(false);
+  const [lowInfluenceRevealed, setLowInfluenceRevealed] = useState(false);
+  const [lowEnergyBlockedSignal, setLowEnergyBlockedSignal] = useState(0);
   const [bansTab, setBansTab] = useState<BansTab>('yours');
   const [selectedBanForDetails, setSelectedBanForDetails] =
     useState<BanInteraction | null>(null);
@@ -899,6 +903,25 @@ export function InstantBanFlow({
     ) => {
       const logArchive = options?.fromArchive === true;
 
+      if (options?.bansOverlayTab != null) {
+        if (!canLobbySendBan(energyLoaded, influencePercent)) {
+          console.log('[repeat-ban-low-energy-blocked]', {
+            banId: ban.id,
+            tab: options.bansOverlayTab,
+            influencePercent,
+            energyLoaded,
+          });
+          triggerLobbyBlockedHaptic();
+          setLowInfluenceRevealed(true);
+          setLowEnergyBlockedSignal((n) => n + 1);
+          setBansOverlayOpen(false);
+          setSelectedBanForDetails(null);
+          setPhase('idle');
+          confirmEntrySourceRef.current = 'send-flow';
+          return false;
+        }
+      }
+
       if (!user?.id) {
         if (logArchive) {
           console.info('[98+] ARCHIVE REPEAT FALLBACK', { reason: 'no-user' });
@@ -993,6 +1016,8 @@ export function InstantBanFlow({
     [
       clearCtaExitTimer,
       clearWhoPanelEnterTimer,
+      energyLoaded,
+      influencePercent,
       onStartSend,
       safeFriends,
       setCrossScreenProgressImmediate,
@@ -1830,6 +1855,9 @@ export function InstantBanFlow({
           lobbyRingIntroFilling={lobbyRingIntroFilling}
           ctaState={ctaState}
           ctaInteractive={ctaInteractive}
+          lowInfluenceRevealed={lowInfluenceRevealed}
+          onLowInfluenceRevealedChange={setLowInfluenceRevealed}
+          lowEnergyBlockedSignal={lowEnergyBlockedSignal}
           onBeginSend={handleBeginSend}
           onLowEnergyAsk={handleLowEnergyAsk}
         />

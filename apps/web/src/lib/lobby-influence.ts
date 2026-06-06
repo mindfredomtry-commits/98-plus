@@ -3,6 +3,22 @@ import type { UserPublic } from '@98plus/shared';
 /** Lobby gate + ring use the same display percent as arena header (0–100). */
 export const LOBBY_MIN_INFLUENCE_PERCENT = 10;
 
+/** Same gate as ArenaLobbyIdle low-energy CTA. */
+export function isLobbyLowEnergy(
+  energyLoaded: boolean,
+  influencePercent: number,
+): boolean {
+  const influence = Math.min(100, Math.max(0, influencePercent));
+  return energyLoaded && influence < LOBBY_MIN_INFLUENCE_PERCENT;
+}
+
+export function canLobbySendBan(
+  energyLoaded: boolean,
+  influencePercent: number,
+): boolean {
+  return !isLobbyLowEnergy(energyLoaded, influencePercent);
+}
+
 export type LobbyInfluenceResolved = {
   influencePercent: number;
   rawEnergyPercent: number | undefined;

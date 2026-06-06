@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { LOBBY_MIN_INFLUENCE_PERCENT } from '@/lib/lobby-influence';
+import { isLobbyLowEnergy } from '@/lib/lobby-influence';
+import { triggerLobbyBlockedHaptic } from './lobby-cta-haptics';
+
 export type LobbyCtaState = 'visible' | 'exiting' | 'hidden' | 'entering';
 
 type Props = {
@@ -13,6 +15,10 @@ type Props = {
   lobbyRingIntroFilling: boolean;
   ctaState: LobbyCtaState;
   ctaInteractive: boolean;
+  lowInfluenceRevealed: boolean;
+  onLowInfluenceRevealedChange: (revealed: boolean) => void;
+  /** Increment to replay hint pulse (e.g. repeat-ban blocked). */
+  lowEnergyBlockedSignal?: number;
   onBeginSend: () => void;
   onLowEnergyAsk: () => void;
 };
@@ -38,37 +44,18 @@ function triggerEnterHaptic(): void {
   }
 }
 
-function triggerBlockedHaptic(): void {
-  try {
-    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-      navigator.vibrate([12, 40, 12]);
-    }
-    (
-      window as Window & {
-        Telegram?: {
-          WebApp?: {
-            HapticFeedback?: {
-              notificationOccurred?: (type: 'error' | 'success' | 'warning') => void;
-            };
-          };
-        };
-      }
-    ).Telegram?.WebApp?.HapticFeedback?.notificationOccurred?.('warning');
-  } catch {
-    // no-op
-  }
-}
-
 export function ArenaLobbyIdle({
   influencePercent,
   energyLoaded,
   lobbyRingIntroFilling,
   ctaState,
   ctaInteractive,
+  lowInfluenceRevealed,
+  onLowInfluenceRevealedChange,
+  lowEnergyBlockedSignal = 0,
   onBeginSend,
   onLowEnergyAsk,
 }: Props) {
-  const [lowInfluenceRevealed, setLowInfluenceRevealed] = useState(false);
   const [hintPulse, setHintPulse] = useState(false);
   const [ctaNudge, setCtaNudge] = useState(false);
 
@@ -76,16 +63,37 @@ export function ArenaLobbyIdle({
     () => Math.min(100, Math.max(0, influencePercent)),
     [influencePercent],
   );
-  const lowInfluence =
-    energyLoaded && influence < LOBBY_MIN_INFLUENCE_PERCENT;
+  const lowInfluence = isLobbyLowEnergy(energyLoaded, influence);
   const showLowEnergyHint = lowInfluence && !lobbyRingIntroFilling;
   const askMode = lowInfluence && lowInfluenceRevealed;
 
   useEffect(() => {
     if (!lowInfluence) {
-      setLowInfluenceRevealed(false);
+      onLowInfluenceRevealedChange(false);
     }
-  }, [lowInfluence]);
+  }, [lowInfluence, onLowInfluenceRevealedChange]);
+
+  useEffect(() => {
+    if (lowEnergyBlockedSignal <= 0) return;
+    setHintPulse(true);
+    setCtaNudge(true);
+    const t = window.setTimeout(() => {
+      setHintPulse(false);
+      setCtaNudge(false);
+    }, 900);
+    return () => window.clearTimeout(t);
+  }, [lowEnergyBlockedSignal]);
+
+  const revealLowEnergy = () => {
+    triggerLobbyBlockedHaptic();
+    onLowInfluenceRevealedChange(true);
+    setHintPulse(true);
+    setCtaNudge(true);
+    window.setTimeout(() => {
+      setHintPulse(false);
+      setCtaNudge(false);
+    }, 900);
+  };
 
   const handleEnter = () => {
     if (!lowInfluence) {
@@ -96,14 +104,7 @@ export function ArenaLobbyIdle({
     }
 
     if (!lowInfluenceRevealed) {
-      triggerBlockedHaptic();
-      setLowInfluenceRevealed(true);
-      setHintPulse(true);
-      setCtaNudge(true);
-      window.setTimeout(() => {
-        setHintPulse(false);
-        setCtaNudge(false);
-      }, 900);
+      revealLowEnergy();
       return;
     }
 
