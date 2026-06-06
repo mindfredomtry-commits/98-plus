@@ -121,6 +121,8 @@ export type SendFlowPhase =
 /** Legacy step ids for CSS hooks / debug. */
 type LegacyStep = 'idle' | 'who' | 'what' | 'confirm';
 
+type ConfirmEntrySource = 'send-flow' | 'archive';
+
 type Props = {
   sendStarted: boolean;
   onStartSend: () => void;
@@ -214,6 +216,8 @@ export function InstantBanFlow({
   const confirmAbortReleaseRef = useRef<(() => void) | null>(null);
   /** Phase to enter when sendStarted flips false→true (archive repeat / ban-more). */
   const sendEntryPhaseRef = useRef<SendFlowPhase | null>(null);
+  /** Where Confirm was opened from — drives ← back navigation. */
+  const confirmEntrySourceRef = useRef<ConfirmEntrySource>('send-flow');
   const lobbyOrbMountRef = useRef<HTMLDivElement>(null);
   const [composeExitProgress, setComposeExitProgress] = useState(0);
   const [composeDismissing, setComposeDismissing] = useState(false);
@@ -861,6 +865,8 @@ export function InstantBanFlow({
 
       if (targetPhase === 'confirming') {
         setConfirmEnterKey((k) => k + 1);
+        confirmEntrySourceRef.current =
+          options?.fromArchive === true ? 'archive' : 'send-flow';
       }
 
       onStartSend();
@@ -920,6 +926,7 @@ export function InstantBanFlow({
   const handleSuccessExitComplete = useCallback(() => {
     setBanSentSuccess(false);
     sendSnapshotRef.current = null;
+    confirmEntrySourceRef.current = 'send-flow';
     setSelectedUser(null);
     setBanText('');
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
@@ -1106,6 +1113,7 @@ export function InstantBanFlow({
     setDurationMinutes(duration);
     setBanSentSuccess(false);
     sendSnapshotRef.current = null;
+    confirmEntrySourceRef.current = 'send-flow';
     setPhase('confirming');
   }, []);
 
@@ -1126,8 +1134,21 @@ export function InstantBanFlow({
     setComposeExitProgress(0);
     setComposeDismissing(false);
     setBanSentSuccess(false);
+    setSendError(null);
+    sendSnapshotRef.current = null;
+    confirmAbortReleaseRef.current?.();
+
+    if (confirmEntrySourceRef.current === 'archive') {
+      confirmEntrySourceRef.current = 'send-flow';
+      setBansTab('archive');
+      setPhase('idle');
+      setBansOverlayOpen(true);
+      setCrossScreenProgressImmediate(0);
+      return;
+    }
+
     setPhase('composingBan');
-  }, []);
+  }, [setCrossScreenProgressImmediate]);
 
   const handleInviteMore = useCallback(() => {
     shareInstantBanInviteMore(user?.username ?? null);
