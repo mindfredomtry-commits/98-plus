@@ -4,10 +4,10 @@ import type { SyntheticEvent } from 'react';
 
 /**
  * Soft pentagram in 24×24: center (12, 12), top ray on vertical axis.
- * Shorter tips (R = 8) and shallower valleys (r = 6.2) for a compact shape.
+ * R = 8.9, r = 5.1 — visible rays and valleys, not pentagon-like.
  */
 const STAR_PATH =
-  'M12 4 L15.644 6.984 L19.608 9.528 L17.897 13.916 L16.702 18.472 L12 18.2 L7.298 18.472 L6.103 13.916 L4.392 9.528 L8.356 6.984 Z';
+  'M12 3.1 L14.998 7.874 L20.465 9.25 L16.85 13.576 L17.231 19.2 L12 17.1 L6.769 19.2 L7.15 13.576 L3.536 9.25 L9.002 7.874 Z';
 
 const STAR_STROKE_WIDTH = 0.8;
 
