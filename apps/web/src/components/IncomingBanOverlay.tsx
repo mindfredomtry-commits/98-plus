@@ -38,6 +38,7 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
     dismissIncoming,
     acknowledgeIncomingAndStartReply,
     acknowledgeIncomingSeen,
+    notificationSessionActive,
   } = useApp();
   const { haptic, hapticSuccess, bindBack } = useTelegram();
   const [actionLoading, setActionLoading] = useState(false);
@@ -292,6 +293,7 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
       open
       light
       stable
+      handoff={notificationSessionActive}
       zIndex={70}
       closeOnBackdrop={false}
       ariaLabel="Входящий запрет"

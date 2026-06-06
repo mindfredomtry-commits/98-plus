@@ -10,6 +10,8 @@ interface Props {
   /** When true, the layer accepts pointer events (backdrop taps). */
   active: boolean;
   children: ReactNode;
+  /** Keeps session backdrop visible between queued cards. */
+  queueSessionActive?: boolean;
   /** Only one notification overlay kind is mounted at a time. */
   activeOverlayKind?: ActiveOverlayKind | null;
   activeIncomingBanId?: string | null;
@@ -22,6 +24,7 @@ interface Props {
 export function GlobalOverlayHost({
   active,
   children,
+  queueSessionActive = false,
   activeOverlayKind = null,
   activeIncomingBanId = null,
 }: Props) {
@@ -43,12 +46,17 @@ export function GlobalOverlayHost({
 
   return createPortal(
     <div
-      className={`app-notification-layer${active ? ' app-notification-layer--active' : ''}`}
+      className={`app-notification-layer${active ? ' app-notification-layer--active' : ''}${
+        queueSessionActive ? ' app-notification-layer--session' : ''
+      }`}
       style={{ zIndex: APP_NOTIFICATION_Z_INDEX }}
       data-notification-layer=""
       aria-hidden={!active}
     >
-      {children}
+      {queueSessionActive ? (
+        <div className="app-notification-layer__session-backdrop" aria-hidden />
+      ) : null}
+      <div className="app-notification-layer__content">{children}</div>
     </div>,
     document.body,
   );

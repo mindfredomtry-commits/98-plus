@@ -10,6 +10,7 @@ import {
   useLayoutEffect,
   useMemo,
 } from 'react';
+import { flushSync } from 'react-dom';
 import type {
   EnergyPopup,
   BanInteraction,
@@ -133,6 +134,8 @@ interface AppContextValue {
   sessionReady: boolean;
   /** Incoming modal blocks main arena until dismissed. */
   incomingGateActive: boolean;
+  /** True while overlay queue has items — keeps notification session (dim) between cards. */
+  notificationSessionActive: boolean;
   error: string | null;
   refreshUser: () => Promise<void>;
   onboard: () => Promise<void>;
@@ -285,6 +288,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [overlayQueue, setOverlayQueue] = useState<QueuedOverlay[]>([]);
   const overlayQueueRef = useRef<QueuedOverlay[]>([]);
   const activeOverlayLockRef = useRef<string | null>(null);
+  const overlayQueueDrainActiveRef = useRef(false);
   const pendingStartupInteractionsRef = useRef<QueuedOverlay[]>([]);
   const startupInteractionsHoldRef = useRef(true);
   const sessionBanSendSuccessRef = useRef(false);
@@ -437,6 +441,48 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setOverlayQueue(next);
     },
     [syncDisplayFromQueue],
+  );
+
+  const dismissCurrentOverlay = useCallback(
+    (reason: string, nextQueue?: QueuedOverlay[]) => {
+      const prev = overlayQueueRef.current;
+      const prevKey = prev[0] ? overlayQueueKey(prev[0]) : null;
+      const remaining = nextQueue ?? popOverlayHead(prev);
+      const drainTotal = prev.length;
+
+      console.log('[OVERLAY DISMISS CURRENT]', {
+        prevKey,
+        reason,
+        remaining: remaining.length,
+      });
+
+      if (drainTotal > 1 && !overlayQueueDrainActiveRef.current) {
+        overlayQueueDrainActiveRef.current = true;
+        console.log('[OVERLAY QUEUE DRAIN START]', { count: drainTotal });
+      }
+
+      const t0 = performance.now();
+      const commit = () => {
+        applyOverlayQueue(remaining);
+        const delayMs = Math.round(performance.now() - t0);
+        if (remaining.length > 0) {
+          const nextKey = remaining[0] ? overlayQueueKey(remaining[0]) : null;
+          console.log('[OVERLAY NEXT IMMEDIATE]', { prevKey, nextKey, delayMs });
+          console.log('[OVERLAY NEXT_DELAY_MS]', { delayMs });
+        }
+        if (remaining.length === 0 && overlayQueueDrainActiveRef.current) {
+          overlayQueueDrainActiveRef.current = false;
+          console.log('[OVERLAY QUEUE DRAIN END]', {});
+        }
+      };
+
+      if (remaining.length > 0) {
+        flushSync(commit);
+      } else {
+        commit();
+      }
+    },
+    [applyOverlayQueue],
   );
 
   const releaseStartupInteractions = useCallback(
@@ -658,8 +704,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       dismissBanResultLocally(banId, viewerId ?? null);
       void acknowledgeBanResultOnServer(banId, tokenRef.current);
     }
-    applyOverlayQueue(popOverlayHead(overlayQueueRef.current));
-  }, [applyOverlayQueue, result]);
+    dismissCurrentOverlay('result-dismiss');
+  }, [dismissCurrentOverlay, result]);
 
   const pruneAndSyncOverlayQueue = useCallback(() => {
     const viewerId = userIdRef.current;
@@ -906,8 +952,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         reason: 'clear-check-overlay',
       });
     }
-    applyOverlayQueue(next);
-  }, [applyOverlayQueue]);
+    dismissCurrentOverlay('clear-check-overlay', next);
+  }, [dismissCurrentOverlay]);
 
   const cancelResultPollBurst = useCallback(() => {
     for (const t of resultPollBurstTimersRef.current) {
@@ -1112,7 +1158,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         role,
         elapsedMs: 0,
       });
-      applyOverlayQueue(
+      dismissCurrentOverlay(
+        'user-answer',
         removeOverlaysForBan(overlayQueueRef.current, banId, ['check']),
       );
       setCheckWaiting(false);
@@ -1172,7 +1219,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         checkAnswerInFlightRef.current.delete(banId);
       }
     },
-    [applyOverlayQueue, receiveResult, scheduleResultPollBurst],
+    [dismissCurrentOverlay, receiveResult, scheduleResultPollBurst],
   );
 
   const scheduleCheckWaitingDismiss = useCallback(() => {
@@ -1275,13 +1322,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const removeIncomingFromQueue = useCallback(
     (banId: string) => {
-      applyOverlayQueue(
-        overlayQueueRef.current.filter(
-          (q) => !(q.kind === 'incoming' && q.ban.id === banId),
-        ),
+      const prev = overlayQueueRef.current;
+      const next = prev.filter(
+        (q) => !(q.kind === 'incoming' && q.ban.id === banId),
       );
+      const headWasTarget =
+        prev[0]?.kind === 'incoming' && prev[0].ban.id === banId;
+      if (headWasTarget) {
+        dismissCurrentOverlay('incoming-seen', next);
+      } else {
+        applyOverlayQueue(next);
+      }
     },
-    [applyOverlayQueue],
+    [applyOverlayQueue, dismissCurrentOverlay],
   );
 
   // Apply WS-buffered incoming after auth is ready (must run after setIncomingBanSafe exists).
@@ -2001,12 +2054,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       challengeLog('incoming:dismiss', { banId: null });
       setViralOnboarding(false);
-      const prev = overlayQueueRef.current;
-      if (prev[0]?.kind === 'incoming') {
-        applyOverlayQueue(popOverlayHead(prev));
-      }
+      dismissCurrentOverlay('incoming-dismiss');
     },
-    [acknowledgeIncomingSeen, applyOverlayQueue],
+    [acknowledgeIncomingSeen, dismissCurrentOverlay],
   );
 
   const { status: wsStatus, eventLog } = useWebSocket(
@@ -2361,32 +2411,39 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const isAppReady = !!auth.user?.id && !!auth.token && !auth.loading;
   const friendsReady = friendsBootstrapped;
   const sessionReady = sessionBootstrapped;
+  const activeOverlayKind = overlayQueue[0]?.kind ?? null;
+  const notificationSessionActive = overlayQueue.length > 0;
+
   const incomingGateActive = useMemo(() => {
     if (!auth.user?.id || auth.loading) return false;
+    if (activeOverlayKind === 'incoming' && incomingBan) return true;
     return shouldShowIncomingBanModal(
       incomingBan,
       auth.user.id,
       dismissedIncomingRef.current,
     );
-  }, [incomingBan, auth.user?.id, auth.loading]);
+  }, [activeOverlayKind, incomingBan, auth.user?.id, auth.loading]);
 
   const checkGateActive = useMemo(
-    () =>
-      shouldShowCheckOverlay(
+    () => {
+      if (activeOverlayKind === 'check' && checkBan) return true;
+      return shouldShowCheckOverlay(
         checkBan,
         auth.user?.id ?? null,
         dismissedCheckSessionRef.current,
         answeredCheckRef.current,
         checkAnswerInFlightRef.current,
         !!result,
-      ),
-    [checkBan, auth.user?.id, result],
+      );
+    },
+    [activeOverlayKind, checkBan, auth.user?.id, result],
   );
 
-  const activeOverlayKind = overlayQueue[0]?.kind ?? null;
-
   const notificationOverlayActive =
-    incomingGateActive || checkGateActive || !!result;
+    notificationSessionActive ||
+    incomingGateActive ||
+    checkGateActive ||
+    !!result;
 
   const overlayActiveKinds = useMemo(() => {
     const kinds: string[] = [];
@@ -2536,6 +2593,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       homeSnapshotReady,
       sessionReady,
       incomingGateActive,
+      notificationSessionActive,
       error: auth.error,
       refreshUser: auth.refreshUser,
       onboard: auth.onboard,
@@ -2611,6 +2669,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       homeSnapshotReady,
       sessionReady,
       incomingGateActive,
+      notificationSessionActive,
       auth.error,
       auth.refreshUser,
       auth.onboard,
@@ -2679,7 +2738,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       <ShellErrorBoundary name="app">
         {children}
         <GlobalOverlayHost
-          active={notificationOverlayActive}
+          active={notificationSessionActive}
+          queueSessionActive={notificationSessionActive}
           activeOverlayKind={activeOverlayKind}
           activeIncomingBanId={
             activeOverlayKind === 'incoming' ? (incomingBan?.id ?? null) : null

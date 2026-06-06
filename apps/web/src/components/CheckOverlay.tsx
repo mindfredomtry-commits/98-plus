@@ -29,6 +29,7 @@ function CheckOverlayInner({ embedded = false }: Props) {
     checkBan,
     checkGateActive,
     submitCheckAnswer,
+    notificationSessionActive,
   } = useApp();
   const { haptic } = useTelegram();
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -100,6 +101,7 @@ function CheckOverlayInner({ embedded = false }: Props) {
       open
       light
       stable
+      handoff={notificationSessionActive}
       zIndex={APP_NOTIFICATION_Z_INDEX}
       closeOnBackdrop={false}
       ariaLabel={modalView.title}

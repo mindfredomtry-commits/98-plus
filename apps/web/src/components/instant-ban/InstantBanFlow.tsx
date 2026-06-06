@@ -198,6 +198,7 @@ export function InstantBanFlow({
     markSessionBanSendSuccess,
     incomingGateActive,
     checkGateActive,
+    notificationSessionActive,
     result,
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
@@ -274,7 +275,10 @@ export function InstantBanFlow({
     phase === 'selectingTarget' || phase === 'composingBan';
   const overlayOpen = showCrossScreenPager;
   const notificationOverlayActive =
-    incomingGateActive || checkGateActive || !!result;
+    notificationSessionActive ||
+    incomingGateActive ||
+    checkGateActive ||
+    !!result;
   const orbOverlayDim =
     crossScreenProgress > 0.02 ||
     phase === 'composingBan' ||

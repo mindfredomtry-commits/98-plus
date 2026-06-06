@@ -31,7 +31,8 @@ interface Props {
 }
 
 function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
-  const { openSendTo, openNewBanWhoFlow, token } = useApp();
+  const { openSendTo, openNewBanWhoFlow, token, notificationSessionActive } =
+    useApp();
   const { haptic, hapticSuccess } = useTelegram();
   const [archiveSaved, setArchiveSaved] = useState(false);
 
@@ -160,6 +161,7 @@ function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
       open
       light
       stable
+      handoff={notificationSessionActive}
       zIndex={APP_NOTIFICATION_Z_INDEX}
       ariaLabel="Результат проверки"
       onClose={onClose}
