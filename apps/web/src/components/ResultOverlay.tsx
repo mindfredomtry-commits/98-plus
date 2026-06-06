@@ -1,6 +1,13 @@
 'use client';
 
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 import type { BanResult, UserPublic } from '@98plus/shared';
 import {
@@ -28,11 +35,23 @@ interface Props {
   result: BanResult;
   onClose: () => void;
   embedded?: boolean;
+  contentOnly?: boolean;
 }
 
-function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
-  const { openSendTo, openNewBanWhoFlow, token, notificationSessionActive } =
-    useApp();
+function ResultOverlayInner({
+  result,
+  onClose,
+  embedded = false,
+  contentOnly = false,
+}: Props) {
+  const {
+    openSendTo,
+    openNewBanWhoFlow,
+    token,
+    notificationSessionActive,
+    markOverlayUserAction,
+    reportOverlayRendered,
+  } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
   const [archiveSaved, setArchiveSaved] = useState(false);
 
@@ -115,17 +134,19 @@ function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
   }, [haptic, result.id, result.text, token, view.displayHeadline]);
 
   const counter = useCallback(() => {
+    markOverlayUserAction('result', result.id);
     haptic('medium');
     const u = result.opponent?.username;
     openSendTo(u ? `@${u}` : (result.opponent?.firstName ?? ''));
     onClose();
-  }, [haptic, onClose, openSendTo, result.opponent]);
+  }, [haptic, markOverlayUserAction, onClose, openSendTo, result.id, result.opponent]);
 
   const banOthers = useCallback(() => {
+    markOverlayUserAction('result', result.id);
     haptic('medium');
     onClose();
     openNewBanWhoFlow();
-  }, [haptic, onClose, openNewBanWhoFlow]);
+  }, [haptic, markOverlayUserAction, onClose, openNewBanWhoFlow, result.id]);
 
   const toggleArchiveSave = useCallback(() => {
     if (!token || !result.id) return;
@@ -153,20 +174,17 @@ function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
 
   const senderStatus = result.confirmations?.sender;
   const receiverStatus = result.confirmations?.receiver;
+  const hasActions = view.isSender || view.isReceiver;
+
+  useLayoutEffect(() => {
+    if (!showable || !result.id) return;
+    reportOverlayRendered('result', result.id, hasActions);
+  }, [showable, result.id, hasActions, reportOverlayRendered]);
 
   if (!showable) return null;
 
-  const modal = (
-    <ModalShell
-      open
-      light
-      stable
-      handoff={notificationSessionActive}
-      zIndex={APP_NOTIFICATION_Z_INDEX}
-      ariaLabel="Результат проверки"
-      onClose={onClose}
-      cardClassName="modal-card--result"
-    >
+  const body = (
+    <>
       <div className="result-card-head">
         <button
           type="button"
@@ -241,7 +259,7 @@ function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
         ) : null}
       </div>
 
-      {(view.isSender || view.isReceiver) && (
+      {hasActions ? (
         <div className="modal-card-actions result-card-actions space-y-2.5">
           <BigButton onClick={counter}>{view.primaryLabel}</BigButton>
           {view.showBanOthers ? (
@@ -250,7 +268,24 @@ function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
             </BigButton>
           ) : null}
         </div>
-      )}
+      ) : null}
+    </>
+  );
+
+  if (contentOnly) return body;
+
+  const modal = (
+    <ModalShell
+      open
+      light
+      stable
+      handoff={notificationSessionActive}
+      zIndex={APP_NOTIFICATION_Z_INDEX}
+      ariaLabel="Результат проверки"
+      onClose={onClose}
+      cardClassName="modal-card--result"
+    >
+      {body}
     </ModalShell>
   );
 

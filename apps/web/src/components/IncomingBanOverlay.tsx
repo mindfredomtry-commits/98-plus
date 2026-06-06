@@ -1,6 +1,14 @@
 'use client';
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 import type { BanInteraction } from '@98plus/shared';
 import { findFriendByUsername, formatSenderDisplayName } from '@98plus/shared';
@@ -26,9 +34,11 @@ type VerifyPhase = 'idle' | 'pending' | 'ok' | 'failed';
 interface Props {
   /** Render inside GlobalOverlayHost instead of a separate body portal. */
   embedded?: boolean;
+  /** Body only — shell provided by NotificationQueueShell. */
+  contentOnly?: boolean;
 }
 
-function IncomingBanOverlayInner({ embedded = false }: Props) {
+function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Props) {
   const {
     token,
     user,
@@ -39,6 +49,9 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
     acknowledgeIncomingAndStartReply,
     acknowledgeIncomingSeen,
     notificationSessionActive,
+    activeOverlayKind,
+    markOverlayUserAction,
+    reportOverlayRendered,
   } = useApp();
   const { haptic, hapticSuccess, bindBack } = useTelegram();
   const [actionLoading, setActionLoading] = useState(false);
@@ -165,6 +178,7 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
   const handleCounter = useCallback(async () => {
     const actBan = verifiedBan ?? resolvedIncoming ?? incomingBan;
     if (!actBan?.id || !actBan.sender?.id || actionLoading) return;
+    markOverlayUserAction('incoming', actBan.id);
     haptic('medium');
     setActionLoading(true);
     try {
@@ -178,12 +192,14 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
     incomingBan,
     haptic,
     actionLoading,
+    markOverlayUserAction,
     acknowledgeIncomingAndStartReply,
   ]);
 
   const handleOverboard = useCallback(async () => {
     const actBan = verifiedBan ?? resolvedIncoming ?? incomingBan;
     if (!actBan?.id || !token || actionLoading) return;
+    markOverlayUserAction('incoming', actBan.id);
     setActionLoading(true);
     hapticSuccess();
     try {
@@ -202,11 +218,14 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
     token,
     hapticSuccess,
     actionLoading,
+    markOverlayUserAction,
     acknowledgeIncomingSeen,
   ]);
 
+  const isQueueHead = activeOverlayKind === 'incoming';
   const shouldShow = incomingBan
-    ? shouldShowIncomingBanModal(incomingBan, viewerId, new Set())
+    ? isQueueHead ||
+      shouldShowIncomingBanModal(incomingBan, viewerId, new Set())
     : false;
 
   const canAct = !!displayBan?.sender?.id;
@@ -214,29 +233,15 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
   const counterEnabled = buttonsEnabled && canAct;
   const overboardEnabled = buttonsEnabled;
 
-  useEffect(() => {
-    if (!incomingBan?.id || !buttonsEnabled) return;
-    console.log('[OVERLAY BUTTONS ENABLED]', {
-      banId: incomingBan.id,
-      verifyPhase,
-      hasVerifiedBan: !!verifiedBan?.id,
-      counterEnabled,
-      overboardEnabled,
-    });
-    if (verifyPhase === 'pending' && canAct) {
-      console.log('[INCOMING OVERLAY READY]', {
-        banId: incomingBan.id,
-        source: 'optimistic-sender',
-      });
-    }
+  useLayoutEffect(() => {
+    if (!incomingBan?.id || !shouldShow || verifyPhase === 'failed') return;
+    reportOverlayRendered('incoming', incomingBan.id, buttonsEnabled);
   }, [
     incomingBan?.id,
-    buttonsEnabled,
+    shouldShow,
     verifyPhase,
-    verifiedBan?.id,
-    canAct,
-    counterEnabled,
-    overboardEnabled,
+    buttonsEnabled,
+    reportOverlayRendered,
   ]);
 
   if (incomingBan?.id) {
@@ -246,8 +251,8 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
       incomingReceiverId: incomingBan.receiver?.id,
       incomingAcknowledged: incomingBan.incomingAcknowledged,
       shouldShow,
-      reason: shouldShow ? 'shown' : 'guard-rejected',
-      extra: { verifyPhase },
+      reason: shouldShow ? 'shown' : 'session-dismissed',
+      extra: { verifyPhase, isQueueHead },
     });
   }
 
@@ -286,7 +291,49 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
     banId: incomingBan.id,
     verifyPhase,
     buttonsEnabled,
+    contentOnly,
   });
+
+  const body = (
+    <div className="incoming-modal-body text-center">
+      <p className="incoming-modal-title text-xl font-black text-glow mb-3">
+        тебе запретили!
+      </p>
+
+      <div className="incoming-modal-sender mb-3">
+        <AvatarImage
+          src={senderAvatarSrc}
+          letter={senderLetter}
+          sizeClass="w-20 h-20 mx-auto"
+          textClass="text-2xl"
+          priority
+        />
+        <p className="text-muted text-sm mt-2">{senderLabel}</p>
+      </div>
+
+      <p className="incoming-modal-text text-lg font-semibold leading-snug mb-4 px-1">
+        «{incomingBan.text}»
+      </p>
+
+      <div className="incoming-modal-actions space-y-2.5">
+        <BigButton
+          onClick={handleCounter}
+          disabled={actionLoading || !counterEnabled}
+        >
+          🚫 Запретить в ответ
+        </BigButton>
+        <BigButton
+          variant="ghost"
+          onClick={handleOverboard}
+          disabled={actionLoading || !overboardEnabled}
+        >
+          🫷 Перебор!
+        </BigButton>
+      </div>
+    </div>
+  );
+
+  if (contentOnly) return body;
 
   const modal = (
     <ModalShell
@@ -294,48 +341,13 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
       light
       stable
       handoff={notificationSessionActive}
-      zIndex={70}
+      zIndex={APP_NOTIFICATION_Z_INDEX}
       closeOnBackdrop={false}
       ariaLabel="Входящий запрет"
       onClose={() => void acknowledgeIncomingSeen(incomingBan.id)}
       cardClassName="modal-card--incoming"
     >
-      <div className="incoming-modal-body text-center">
-        <p className="incoming-modal-title text-xl font-black text-glow mb-3">
-          тебе запретили!
-        </p>
-
-        <div className="incoming-modal-sender mb-3">
-          <AvatarImage
-            src={senderAvatarSrc}
-            letter={senderLetter}
-            sizeClass="w-20 h-20 mx-auto"
-            textClass="text-2xl"
-            priority
-          />
-          <p className="text-muted text-sm mt-2">{senderLabel}</p>
-        </div>
-
-        <p className="incoming-modal-text text-lg font-semibold leading-snug mb-4 px-1">
-          «{incomingBan.text}»
-        </p>
-
-        <div className="incoming-modal-actions space-y-2.5">
-          <BigButton
-            onClick={handleCounter}
-            disabled={actionLoading || !counterEnabled}
-          >
-            🚫 Запретить в ответ
-          </BigButton>
-          <BigButton
-            variant="ghost"
-            onClick={handleOverboard}
-            disabled={actionLoading || !overboardEnabled}
-          >
-            🫷 Перебор!
-          </BigButton>
-        </div>
-      </div>
+      {body}
     </ModalShell>
   );
 

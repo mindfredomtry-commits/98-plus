@@ -46,11 +46,32 @@ export function ModalShell({
     : light
       ? { duration: 0.14 }
       : { duration: 0.2 };
+
   useEffect(() => {
     if (!open) return;
     acquireScrollLock();
     return () => releaseScrollLock();
   }, [open]);
+
+  if (handoff && open) {
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={ariaLabel}
+        className="modal-backdrop modal-backdrop--light modal-backdrop--handoff modal-backdrop--handoff-static"
+        style={{ zIndex }}
+        onClick={closeOnBackdrop ? onClose : undefined}
+      >
+        <div
+          className={`modal-card modal-card--handoff${cardClassName ? ` ${cardClassName}` : ''}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {children}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <AnimatePresence>
@@ -60,10 +81,10 @@ export function ModalShell({
           role="dialog"
           aria-modal="true"
           aria-label={ariaLabel}
-          initial={stable ? false : { opacity: 0 }}
+          initial={instant ? false : { opacity: 0 }}
           animate={{ opacity: 1 }}
-          exit={stable ? undefined : { opacity: 0 }}
-          transition={stable ? { duration: 0 } : backdropTransition}
+          exit={instant ? undefined : { opacity: 0 }}
+          transition={instant ? { duration: 0 } : backdropTransition}
           className={`modal-backdrop${light ? ' modal-backdrop--light' : ''}${
             handoff ? ' modal-backdrop--handoff' : ''
           }`}

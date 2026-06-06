@@ -36,6 +36,12 @@ import { IncomingBanOverlay } from './IncomingBanOverlay';
 import { CheckOverlay } from './CheckOverlay';
 import { ResultOverlay } from './ResultOverlay';
 import { GlobalOverlayHost } from './GlobalOverlayHost';
+import { NotificationQueueShell } from './NotificationQueueShell';
+import {
+  overlayDelayCause,
+  overlayDelayMs,
+  overlayTs,
+} from '@/lib/overlay-timing';
 import {
   enqueueOverlay,
   enqueueWithActiveLock,
@@ -136,6 +142,11 @@ interface AppContextValue {
   incomingGateActive: boolean;
   /** True while overlay queue has items — keeps notification session (dim) between cards. */
   notificationSessionActive: boolean;
+  activeOverlayKind: 'incoming' | 'check' | 'result' | null;
+  markOverlayUserAction: (kind: string, banId?: string) => void;
+  reportOverlayRendered: (kind: string, banId: string, buttonsReady?: boolean) => void;
+  /** Dev-only: last overlay handoff timing from reportOverlayRendered. */
+  overlayHandoffDebug: { delayMs: number; cause: string } | null;
   error: string | null;
   refreshUser: () => Promise<void>;
   onboard: () => Promise<void>;
@@ -289,6 +300,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const overlayQueueRef = useRef<QueuedOverlay[]>([]);
   const activeOverlayLockRef = useRef<string | null>(null);
   const overlayQueueDrainActiveRef = useRef(false);
+  const overlayActionTsRef = useRef<number | null>(null);
+  const overlayHandoffTsRef = useRef<number | null>(null);
+  const [overlayHandoffDebug, setOverlayHandoffDebug] = useState<{
+    delayMs: number;
+    cause: string;
+  } | null>(null);
   const pendingStartupInteractionsRef = useRef<QueuedOverlay[]>([]);
   const startupInteractionsHoldRef = useRef(true);
   const sessionBanSendSuccessRef = useRef(false);
@@ -443,36 +460,108 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [syncDisplayFromQueue],
   );
 
+  const markOverlayUserAction = useCallback((kind: string, banId?: string) => {
+    const ts = overlayTs();
+    overlayActionTsRef.current = ts;
+    console.log('[OVERLAY ACTION CLICK]', { ts, kind, banId: banId ?? null });
+  }, []);
+
+  const reportOverlayRendered = useCallback(
+    (kind: string, banId: string, buttonsReady = true) => {
+      const ts = overlayTs();
+      const delayFromAction = overlayDelayMs(overlayActionTsRef.current);
+      const delayFromHandoff = overlayDelayMs(overlayHandoffTsRef.current);
+      console.log('[OVERLAY NEXT RENDERED]', {
+        ts,
+        kind,
+        banId,
+        delayFromActionMs: delayFromAction,
+        delayFromHandoffMs: delayFromHandoff,
+      });
+      if (buttonsReady) {
+        console.log('[OVERLAY BUTTONS ENABLED]', {
+          ts,
+          kind,
+          banId,
+          delayFromActionMs: delayFromAction,
+        });
+      }
+      if (delayFromAction != null) {
+        const cause = overlayDelayCause(delayFromAction, {
+          handoffMs: delayFromHandoff,
+        });
+        console.log('[OVERLAY NEXT_DELAY_MS]', {
+          delayMs: delayFromAction,
+          kind,
+          banId,
+          cause,
+          from: 'action-click',
+        });
+        if (delayFromAction > 150) {
+          console.log('[OVERLAY HANDOFF SLOW]', {
+            delayMs: delayFromAction,
+            kind,
+            banId,
+            delayFromHandoffMs: delayFromHandoff,
+            cause,
+          });
+        }
+        if (process.env.NODE_ENV === 'development') {
+          setOverlayHandoffDebug({ delayMs: delayFromAction, cause });
+        }
+      }
+    },
+    [],
+  );
+
   const dismissCurrentOverlay = useCallback(
     (reason: string, nextQueue?: QueuedOverlay[]) => {
       const prev = overlayQueueRef.current;
       const prevKey = prev[0] ? overlayQueueKey(prev[0]) : null;
       const remaining = nextQueue ?? popOverlayHead(prev);
       const drainTotal = prev.length;
+      const dismissTs = overlayTs();
+      overlayHandoffTsRef.current = dismissTs;
 
       console.log('[OVERLAY DISMISS CURRENT]', {
+        ts: dismissTs,
         prevKey,
         reason,
         remaining: remaining.length,
+        actionAgeMs: overlayDelayMs(overlayActionTsRef.current),
       });
 
       if (drainTotal > 1 && !overlayQueueDrainActiveRef.current) {
         overlayQueueDrainActiveRef.current = true;
-        console.log('[OVERLAY QUEUE DRAIN START]', { count: drainTotal });
+        console.log('[OVERLAY QUEUE DRAIN START]', { ts: dismissTs, count: drainTotal });
       }
 
-      const t0 = performance.now();
       const commit = () => {
         applyOverlayQueue(remaining);
-        const delayMs = Math.round(performance.now() - t0);
+        const selectTs = overlayTs();
         if (remaining.length > 0) {
           const nextKey = remaining[0] ? overlayQueueKey(remaining[0]) : null;
-          console.log('[OVERLAY NEXT IMMEDIATE]', { prevKey, nextKey, delayMs });
-          console.log('[OVERLAY NEXT_DELAY_MS]', { delayMs });
+          const commitDelayMs = overlayDelayMs(dismissTs);
+          console.log('[OVERLAY NEXT SELECTED]', {
+            ts: selectTs,
+            prevKey,
+            nextKey,
+            commitDelayMs,
+          });
+          console.log('[OVERLAY NEXT IMMEDIATE]', {
+            ts: selectTs,
+            prevKey,
+            nextKey,
+            delayMs: commitDelayMs,
+          });
         }
-        if (remaining.length === 0 && overlayQueueDrainActiveRef.current) {
-          overlayQueueDrainActiveRef.current = false;
-          console.log('[OVERLAY QUEUE DRAIN END]', {});
+        if (remaining.length === 0) {
+          overlayActionTsRef.current = null;
+          overlayHandoffTsRef.current = null;
+          if (overlayQueueDrainActiveRef.current) {
+            overlayQueueDrainActiveRef.current = false;
+            console.log('[OVERLAY QUEUE DRAIN END]', { ts: selectTs });
+          }
         }
       };
 
@@ -2594,6 +2683,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       sessionReady,
       incomingGateActive,
       notificationSessionActive,
+      activeOverlayKind,
+      markOverlayUserAction,
+      reportOverlayRendered,
+      overlayHandoffDebug,
       error: auth.error,
       refreshUser: auth.refreshUser,
       onboard: auth.onboard,
@@ -2670,6 +2763,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       sessionReady,
       incomingGateActive,
       notificationSessionActive,
+      activeOverlayKind,
+      markOverlayUserAction,
+      reportOverlayRendered,
+      overlayHandoffDebug,
       auth.error,
       auth.refreshUser,
       auth.onboard,
@@ -2745,35 +2842,42 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             activeOverlayKind === 'incoming' ? (incomingBan?.id ?? null) : null
           }
         >
-          {activeOverlayKind === 'incoming' ? (
-            <ChallengeErrorBoundary
-              name="incoming"
-              onRecover={() => dismissIncoming()}
-            >
-              <IncomingBanOverlay embedded />
-            </ChallengeErrorBoundary>
-          ) : null}
-          {activeOverlayKind === 'check' ? (
-            <ChallengeErrorBoundary
-              name="check"
-              onRecover={() => clearCheckOverlay()}
-            >
-              <CheckOverlay embedded />
-            </ChallengeErrorBoundary>
-          ) : null}
-          {activeOverlayKind === 'result' && result ? (
-            <ChallengeErrorBoundary
-              name="result"
-              onRecover={() => dismissBanResult()}
-            >
-              <ResultOverlay
-                key={result.id}
-                result={result}
-                onClose={dismissBanResult}
-                embedded
-              />
-            </ChallengeErrorBoundary>
-          ) : null}
+          <NotificationQueueShell
+            kind={activeOverlayKind}
+            sessionActive={notificationSessionActive}
+            contentKey={
+              overlayQueue[0] ? overlayQueueKey(overlayQueue[0]) : null
+            }
+          >
+            {activeOverlayKind === 'incoming' ? (
+              <ChallengeErrorBoundary
+                name="incoming"
+                onRecover={() => dismissIncoming()}
+              >
+                <IncomingBanOverlay contentOnly />
+              </ChallengeErrorBoundary>
+            ) : null}
+            {activeOverlayKind === 'check' ? (
+              <ChallengeErrorBoundary
+                name="check"
+                onRecover={() => clearCheckOverlay()}
+              >
+                <CheckOverlay contentOnly />
+              </ChallengeErrorBoundary>
+            ) : null}
+            {activeOverlayKind === 'result' && result ? (
+              <ChallengeErrorBoundary
+                name="result"
+                onRecover={() => dismissBanResult()}
+              >
+                <ResultOverlay
+                  result={result}
+                  onClose={dismissBanResult}
+                  contentOnly
+                />
+              </ChallengeErrorBoundary>
+            ) : null}
+          </NotificationQueueShell>
         </GlobalOverlayHost>
         {!result ? (
           <ShellErrorBoundary name="energy" fallback={null}>

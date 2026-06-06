@@ -64,7 +64,10 @@ export default function HomePage() {
     wsStatus,
     connectionUiState,
     eventLog,
+    overlayHandoffDebug,
   } = useApp();
+  const overlayHandoffDbgVisible =
+    process.env.NODE_ENV === 'development' && overlayHandoffDebug != null;
   const { ready } = useTelegram();
   const [tab, setTab] = useState<Tab>('home');
   const [debugOpen, setDebugOpen] = useState(false);
@@ -240,13 +243,24 @@ export default function HomePage() {
         <BottomNav tab={tab} onChange={setTab} />
       ) : null}
 
-      <button
-        type="button"
-        onClick={() => setDebugOpen(true)}
-        className="fixed right-4 text-[10px] text-muted/40 z-30 above-bottom-chrome pointer-events-auto"
-      >
-        dbg
-      </button>
+      <div className="fixed right-4 z-30 above-bottom-chrome flex flex-col items-end gap-0.5">
+        {overlayHandoffDbgVisible ? (
+          <div
+            className="text-[10px] text-muted/50 font-mono text-right leading-tight pointer-events-none"
+            aria-hidden
+          >
+            <div>delay: {overlayHandoffDebug.delayMs}ms</div>
+            <div>cause: {overlayHandoffDebug.cause}</div>
+          </div>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => setDebugOpen(true)}
+          className="text-[10px] text-muted/40 pointer-events-auto"
+        >
+          dbg
+        </button>
+      </div>
 
       <ShellErrorBoundary name="overlays" fallback={null}>
         <ChallengeOverlays />

@@ -941,6 +941,20 @@ html.scroll-lock body {
   -webkit-backdrop-filter: none;
 }
 
+.modal-backdrop--handoff-static {
+  transition: none !important;
+  animation: none !important;
+}
+
+.modal-card--handoff {
+  transition: none !important;
+  animation: none !important;
+}
+
+.notification-queue-shell__content {
+  width: 100%;
+}
+
 .modal-avatars {
   display: flex;
   align-items: center;
