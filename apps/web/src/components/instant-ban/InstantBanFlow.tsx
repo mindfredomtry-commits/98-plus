@@ -1019,7 +1019,7 @@ export function InstantBanFlow({
 
   const handleBanMore = useCallback(
     (ban: BanInteraction) => {
-      beginRepeatBanFlow(ban, { goToConfirm: false, fromArchive: false });
+      beginRepeatBanFlow(ban, { goToConfirm: true, fromArchive: false });
     },
     [beginRepeatBanFlow],
   );
@@ -1824,9 +1824,11 @@ export function InstantBanFlow({
             <ActiveBanCardOverlay
               ban={selectedBanForDetails}
               isHistory={bansTab === 'history'}
+              saved={savedBanIds.has(selectedBanForDetails.id)}
               onBack={() => setSelectedBanForDetails(null)}
               onBanMore={() => handleBanMore(selectedBanForDetails)}
               onShare={() => handleBanShare(selectedBanForDetails)}
+              onToggleSave={() => handleToggleSave(selectedBanForDetails)}
             />
           ) : null}
         </div>
