@@ -28,7 +28,6 @@ type Props = {
   tab: BansTab;
   bans: BanInteraction[];
   userId: string | undefined;
-  historyLoading?: boolean;
   onTabChange: (tab: BansTab) => void;
   onClose: () => void;
   onSelectBan: (ban: BanInteraction) => void;
@@ -36,19 +35,24 @@ type Props = {
 
 function BanListItem({
   ban,
+  tab,
   userId,
   onSelect,
 }: {
   ban: BanInteraction;
+  tab: BansTab;
   userId: string | undefined;
   onSelect: () => void;
 }) {
   const opponent = opponentForBan(ban, userId);
   const left = useBanRemainingMs(ban);
+  const isHistory = tab === 'history';
   const timerText =
     left != null
       ? formatBanRemaining(left, 'compact')
-      : banStatusLabel(ban.status);
+      : isHistory
+        ? banHistoryStatusLabel(ban)
+        : banStatusLabel(ban.status);
 
   return (
     <button
@@ -80,7 +84,6 @@ export function BansOverlay({
   tab,
   bans,
   userId,
-  historyLoading = false,
   onTabChange,
   onClose,
   onSelectBan,
@@ -97,39 +100,39 @@ export function BansOverlay({
     >
       <div className="instant-ban-bans-overlay__dim" aria-hidden />
       <div className="instant-ban-bans-overlay__panel">
-        <header className="instant-ban-bans-overlay__header">
-          <button
-            type="button"
-            className="instant-ban-flow__back instant-ban-flow__back--icon-only instant-ban-bans-overlay__back"
-            onClick={onClose}
-            aria-label="Назад в лобби"
-          >
-            <WhatBackIcon />
-          </button>
-          <h2 className="instant-ban-bans-overlay__title">твои запреты</h2>
-        </header>
-
-        <div className="instant-ban-bans-overlay__tabs" role="tablist">
-          {TABS.map((t) => (
+        <div className="instant-ban-bans-overlay__chrome">
+          <header className="instant-ban-bans-overlay__header">
             <button
-              key={t.id}
               type="button"
-              role="tab"
-              aria-selected={tab === t.id}
-              className={`instant-ban-bans-overlay__tab${
-                tab === t.id ? ' instant-ban-bans-overlay__tab--active' : ''
-              }`}
-              onClick={() => onTabChange(t.id)}
+              className="instant-ban-flow__back instant-ban-flow__back--icon-only instant-ban-bans-overlay__back"
+              onClick={onClose}
+              aria-label="Назад в лобби"
             >
-              {t.label}
+              <WhatBackIcon />
             </button>
-          ))}
+            <h2 className="instant-ban-bans-overlay__title">твои запреты</h2>
+          </header>
+
+          <div className="instant-ban-bans-overlay__tabs" role="tablist">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.id}
+                className={`instant-ban-bans-overlay__tab${
+                  tab === t.id ? ' instant-ban-bans-overlay__tab--active' : ''
+                }`}
+                onClick={() => onTabChange(t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="instant-ban-bans-overlay__list" role="tabpanel">
-          {tab === 'history' && historyLoading ? (
-            <p className="instant-ban-bans-overlay__empty">Загрузка…</p>
-          ) : bans.length === 0 ? (
+          {bans.length === 0 ? (
             <p className="instant-ban-bans-overlay__empty">{emptyMessage}</p>
           ) : (
             bans.map((ban) => (

@@ -10,7 +10,8 @@
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:backfill-result-seen": "tsx scripts/backfill-result-seen.ts",
-    "db:clear-user-bans": "tsx scripts/clear-user-bans.ts"
+    "db:clear-user-bans": "tsx scripts/clear-user-bans.ts",
+    "db:clear-ban-history": "tsx scripts/clear-ban-history.ts"
   },
   "dependencies": {
     "@98plus/shared": "file:../../packages/shared",

@@ -3149,6 +3149,7 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
   width: 100%;
   max-width: 32rem;
   margin: 0 auto;
@@ -3156,11 +3157,28 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
     calc(1rem + env(safe-area-inset-bottom, 0px));
 }
 
+.instant-ban-bans-overlay__chrome {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  margin: 0 -0.35rem;
+  padding: 0 0.35rem 0.65rem;
+  background: linear-gradient(
+    180deg,
+    rgba(5, 3, 8, 0.98) 0%,
+    rgba(5, 3, 8, 0.96) 72%,
+    rgba(5, 3, 8, 0.88) 100%
+  );
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(var(--98-purple-soft-rgb), 0.12);
+}
+
 .instant-ban-bans-overlay__header {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0.85rem;
 }
 
 .instant-ban-bans-overlay__back {
@@ -3181,7 +3199,7 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
 .instant-ban-bans-overlay__tabs {
   display: flex;
   gap: 0.35rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
@@ -3216,6 +3234,8 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
 }
 
 .instant-ban-bans-overlay__list {
+  position: relative;
+  z-index: 1;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -3224,7 +3244,9 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
+  padding-top: 0.85rem;
   padding-bottom: 0.5rem;
+  overscroll-behavior: contain;
 }
 
 .instant-ban-bans-overlay__empty {

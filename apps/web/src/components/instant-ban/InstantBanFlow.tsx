@@ -243,7 +243,7 @@ export function InstantBanFlow({
   const [selectedBanForDetails, setSelectedBanForDetails] =
     useState<BanInteraction | null>(null);
   const [historyBans, setHistoryBans] = useState<BanInteraction[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
+  const historyFetchGenRef = useRef(0);
 
   const legacyStep = legacyStepFromPhase(phase);
   const showCrossScreenPager =
@@ -1379,7 +1379,6 @@ export function InstantBanFlow({
             tab={bansTab}
             bans={filteredBans}
             userId={user?.id}
-            historyLoading={historyLoading}
             onTabChange={setBansTab}
             onClose={handleCloseBansOverlay}
             onSelectBan={setSelectedBanForDetails}
