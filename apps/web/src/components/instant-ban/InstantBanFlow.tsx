@@ -31,6 +31,11 @@ import {
 } from '@/lib/instant-ban-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { api } from '@/lib/api';
+import {
+  getSavedBans,
+  saveBan,
+  unsaveBan,
+} from '@/lib/saved-bans-api';
 import { shareDeepLink, shareInstantBanInviteMore } from '@/lib/share';
 import { ArenaLobbyIdle, type LobbyCtaState } from './ArenaLobbyIdle';
 import { ArenaLobbyOrb } from './ArenaLobbyOrb';
@@ -184,7 +189,7 @@ export function InstantBanFlow({
     rollbackOptimisticSend,
     activeBans,
   } = useApp();
-  const { haptic } = useTelegram();
+  const { haptic, hapticSuccess } = useTelegram();
 
   const [phase, setPhase] = useState<SendFlowPhase>(
     sendStarted ? 'selectingTarget' : 'idle',
@@ -243,7 +248,11 @@ export function InstantBanFlow({
   const [selectedBanForDetails, setSelectedBanForDetails] =
     useState<BanInteraction | null>(null);
   const [historyBans, setHistoryBans] = useState<BanInteraction[]>([]);
+  const [savedBans, setSavedBans] = useState<BanInteraction[]>([]);
+  const [archiveToast, setArchiveToast] = useState<string | null>(null);
   const historyFetchGenRef = useRef(0);
+  const savedFetchGenRef = useRef(0);
+  const historyUserIdRef = useRef<string | null>(null);
 
   const legacyStep = legacyStepFromPhase(phase);
   const showCrossScreenPager =
@@ -618,15 +627,21 @@ export function InstantBanFlow({
     }
   }, [friends]);
 
+  const savedBanIds = useMemo(
+    () => new Set(savedBans.map((b) => b.id)),
+    [savedBans],
+  );
+
   const filteredBans = useMemo(
     () =>
       filterBansForTab(
         Array.isArray(activeBans) ? activeBans : [],
         historyBans,
+        savedBans,
         bansTab,
         user?.id,
       ),
-    [activeBans, historyBans, bansTab, user?.id],
+    [activeBans, historyBans, savedBans, bansTab, user?.id],
   );
 
   const showLobbyTopNav =
@@ -640,20 +655,65 @@ export function InstantBanFlow({
   }, [phase]);
 
   useEffect(() => {
-    if (!bansOverlayOpen || !token) return;
-    let cancelled = false;
+    const uid = user?.id ?? null;
+    if (historyUserIdRef.current !== uid) {
+      historyUserIdRef.current = uid;
+      setHistoryBans([]);
+      setSavedBans([]);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!bansOverlayOpen || !token || !user?.id) return;
+    const fetchForUserId = user.id;
+    const historyGen = ++historyFetchGenRef.current;
     void api<{ items: BanInteraction[] }>('/bans/history', { token })
       .then((res) => {
-        if (cancelled) return;
+        if (historyFetchGenRef.current !== historyGen) return;
+        if (historyUserIdRef.current !== fetchForUserId) return;
         setHistoryBans(Array.isArray(res.items) ? res.items : []);
       })
       .catch(() => {
         /* keep cached history on background refresh errors */
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [bansOverlayOpen, token]);
+
+    const savedGen = ++savedFetchGenRef.current;
+    void getSavedBans(token)
+      .then((items) => {
+        if (savedFetchGenRef.current !== savedGen) return;
+        if (historyUserIdRef.current !== fetchForUserId) return;
+        setSavedBans(items);
+      })
+      .catch(() => {
+        /* keep cached archive on background refresh errors */
+      });
+  }, [bansOverlayOpen, token, user?.id]);
+
+  const handleToggleSave = useCallback(
+    async (ban: BanInteraction) => {
+      if (!token || !ban.id) return;
+      const wasSaved = savedBanIds.has(ban.id);
+      haptic('light');
+      try {
+        if (wasSaved) {
+          await unsaveBan(token, ban.id);
+          setSavedBans((prev) => prev.filter((b) => b.id !== ban.id));
+          setArchiveToast('Удалено из архива');
+        } else {
+          await saveBan(token, ban.id);
+          setSavedBans((prev) => {
+            if (prev.some((b) => b.id === ban.id)) return prev;
+            return [ban, ...prev];
+          });
+          setArchiveToast('Добавлено в архив');
+        }
+        hapticSuccess();
+      } catch {
+        setArchiveToast('Не удалось обновить архив');
+      }
+    },
+    [haptic, hapticSuccess, savedBanIds, token],
+  );
 
   const handleOpenBansOverlay = useCallback(() => {
     if (phase !== 'idle' || banSentSuccess) return;
@@ -1375,9 +1435,12 @@ export function InstantBanFlow({
             tab={bansTab}
             bans={filteredBans}
             userId={user?.id}
+            savedBanIds={savedBanIds}
+            archiveToast={archiveToast}
             onTabChange={setBansTab}
             onClose={handleCloseBansOverlay}
             onSelectBan={setSelectedBanForDetails}
+            onToggleSave={(ban) => void handleToggleSave(ban)}
           />
           {selectedBanForDetails ? (
             <ActiveBanCardOverlay

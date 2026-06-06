@@ -3259,9 +3259,9 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
 .instant-ban-bans-list-item {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.35rem;
   width: 100%;
-  padding: 0.85rem 0.9rem;
+  padding: 0.85rem 0.55rem 0.85rem 0.9rem;
   border: 1px solid rgba(var(--98-accent-rgb), 0.35);
   border-radius: 1rem;
   background: rgba(12, 8, 20, 0.82);
@@ -3269,14 +3269,28 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
     0 0 20px rgba(var(--98-accent-rgb), 0.12),
     inset 0 0 0 1px rgba(var(--98-purple-soft-rgb), 0.08);
   text-align: left;
-  cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 120ms ease, border-color 120ms ease;
+  transition: border-color 120ms ease;
 }
 
-.instant-ban-bans-list-item:active {
+.instant-ban-bans-list-item__main {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 120ms ease;
+}
+
+.instant-ban-bans-list-item__main:active {
   transform: scale(0.99);
-  border-color: rgba(var(--98-accent-rgb), 0.55);
 }
 
 .instant-ban-bans-list-item__avatar {
@@ -3307,10 +3321,70 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
 }
 
 .instant-ban-bans-list-item__star {
+  position: relative;
+  z-index: 2;
   flex-shrink: 0;
-  font-size: 0.85rem;
-  color: rgba(var(--98-accent-rgb), 0.28);
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(var(--98-accent-rgb), 0.88);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 160ms ease, color 160ms ease, filter 160ms ease;
+}
+
+.instant-ban-bans-list-item__star:active {
+  transform: scale(1.2);
+}
+
+.instant-ban-bans-list-item__star--saved {
+  color: rgb(var(--98-accent-rgb));
+  filter: drop-shadow(0 0 10px rgba(var(--98-accent-rgb), 0.75));
+}
+
+.instant-ban-bans-list-item__star-icon {
+  width: 2rem;
+  height: 2rem;
+  display: block;
+  pointer-events: none;
+}
+
+.instant-ban-bans-overlay__toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  z-index: 4;
+  transform: translateX(-50%);
+  max-width: calc(100% - 2rem);
+  padding: 0.65rem 1rem;
+  border-radius: 999px;
+  background: rgba(18, 10, 28, 0.94);
+  border: 1px solid rgba(var(--98-accent-rgb), 0.45);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  color: var(--98-text-primary);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: center;
+  pointer-events: none;
+  animation: instant-ban-archive-toast-in 180ms ease;
+}
+
+@keyframes instant-ban-archive-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
 }
 
 .instant-ban-active-ban-card-layer {

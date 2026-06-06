@@ -101,6 +101,7 @@ export function bansTabEmptyMessage(tab: BansTab): string {
 export function filterBansForTab(
   activeBans: BanInteraction[],
   historyBans: BanInteraction[],
+  savedBans: BanInteraction[],
   tab: BansTab,
   userId: string | undefined,
 ): BanInteraction[] {
@@ -118,13 +119,10 @@ export function filterBansForTab(
           b.receiver?.id === userId && isBanAcceptedInProgress(b),
       );
     case 'history':
-      return historyBans.filter(
-        (b) =>
-          (b.sender?.id === userId || b.receiver?.id === userId) &&
-          isBanTerminal(b.status),
-      );
+      // GET /bans/history already scopes by sender OR receiver + terminal status.
+      return historyBans;
     case 'archive':
-      return [];
+      return savedBans;
     default:
       return [];
   }

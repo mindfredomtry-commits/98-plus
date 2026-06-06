@@ -1,7 +1,9 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import type { BanInteraction } from '@98plus/shared';
 import { AvatarImage } from '../AvatarImage';
+import { BanSaveStar } from './BanSaveStar';
 import { WhatBackIcon } from './WhatBackIcon';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
 import {
@@ -13,6 +15,7 @@ import {
   banHistoryStatusLabel,
   banStatusLabel,
   bansTabEmptyMessage,
+  isBanTerminal,
   opponentForBan,
   userDisplayLetter,
 } from './bans-overlay-utils';
@@ -28,55 +31,67 @@ type Props = {
   tab: BansTab;
   bans: BanInteraction[];
   userId: string | undefined;
+  savedBanIds: ReadonlySet<string>;
+  archiveToast: string | null;
   onTabChange: (tab: BansTab) => void;
   onClose: () => void;
   onSelectBan: (ban: BanInteraction) => void;
+  onToggleSave: (ban: BanInteraction) => void;
 };
 
 function BanListItem({
   ban,
   tab,
   userId,
+  saved,
   onSelect,
+  onToggleSave,
 }: {
   ban: BanInteraction;
   tab: BansTab;
   userId: string | undefined;
+  saved: boolean;
   onSelect: () => void;
+  onToggleSave: () => void;
 }) {
   const opponent = opponentForBan(ban, userId);
   const left = useBanRemainingMs(ban);
-  const isHistory = tab === 'history';
+  const useOutcomeLabel =
+    tab === 'history' || (tab === 'archive' && isBanTerminal(ban.status));
   const timerText =
     left != null
       ? formatBanRemaining(left, 'compact')
-      : isHistory
+      : useOutcomeLabel
         ? banHistoryStatusLabel(ban)
         : banStatusLabel(ban.status);
 
   return (
-    <button
-      type="button"
-      className="instant-ban-bans-list-item"
-      onClick={onSelect}
-    >
-      <AvatarImage
-        src={userAvatarSrc(opponent)}
-        letter={userDisplayLetter(opponent)}
-        sizeClass="w-11 h-11"
-        textClass="text-sm"
-        className="instant-ban-bans-list-item__avatar"
+    <div className="instant-ban-bans-list-item">
+      <button
+        type="button"
+        className="instant-ban-bans-list-item__main"
+        onClick={onSelect}
+      >
+        <AvatarImage
+          src={userAvatarSrc(opponent)}
+          letter={userDisplayLetter(opponent)}
+          sizeClass="w-11 h-11"
+          textClass="text-sm"
+          className="instant-ban-bans-list-item__avatar"
+        />
+        <div className="instant-ban-bans-list-item__body">
+          <p className="instant-ban-bans-list-item__text">
+            {ban.text?.trim() || '—'}
+          </p>
+          <p className="instant-ban-bans-list-item__timer">{timerText}</p>
+        </div>
+      </button>
+      <BanSaveStar
+        banId={ban.id}
+        saved={saved}
+        onToggle={onToggleSave}
       />
-      <div className="instant-ban-bans-list-item__body">
-        <p className="instant-ban-bans-list-item__text">
-          {ban.text?.trim() || '—'}
-        </p>
-        <p className="instant-ban-bans-list-item__timer">{timerText}</p>
-      </div>
-      <span className="instant-ban-bans-list-item__star" aria-hidden>
-        ★
-      </span>
-    </button>
+    </div>
   );
 }
 
@@ -84,11 +99,25 @@ export function BansOverlay({
   tab,
   bans,
   userId,
+  savedBanIds,
+  archiveToast,
   onTabChange,
   onClose,
   onSelectBan,
+  onToggleSave,
 }: Props) {
   const emptyMessage = bansTabEmptyMessage(tab);
+  const [toastVisible, setToastVisible] = useState(false);
+
+  useEffect(() => {
+    if (!archiveToast) {
+      setToastVisible(false);
+      return;
+    }
+    setToastVisible(true);
+    const timer = window.setTimeout(() => setToastVisible(false), 2200);
+    return () => window.clearTimeout(timer);
+  }, [archiveToast]);
 
   return (
     <div
@@ -141,11 +170,18 @@ export function BansOverlay({
                 ban={ban}
                 tab={tab}
                 userId={userId}
+                saved={savedBanIds.has(ban.id)}
                 onSelect={() => onSelectBan(ban)}
+                onToggleSave={() => onToggleSave(ban)}
               />
             ))
           )}
         </div>
+        {archiveToast && toastVisible ? (
+          <div className="instant-ban-bans-overlay__toast" role="status">
+            {archiveToast}
+          </div>
+        ) : null}
       </div>
     </div>
   );
