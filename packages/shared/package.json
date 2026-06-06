@@ -7,7 +7,8 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test:duration": "tsx scripts/check-duration-validation.ts"
+    "test:duration": "tsx scripts/check-duration-validation.ts",
+    "test:pair-free-mode": "tsx scripts/check-pair-free-mode.ts"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

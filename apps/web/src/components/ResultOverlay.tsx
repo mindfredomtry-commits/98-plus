@@ -3,7 +3,12 @@
 import { memo, useCallback, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import type { BanResult, UserPublic } from '@98plus/shared';
-import { isValidBanResultPayload, isResultParticipant } from '@98plus/shared';
+import {
+  getResultCardHeadline,
+  isValidBanResultPayload,
+  isResultParticipant,
+  showFreeModeBanOthersAction,
+} from '@98plus/shared';
 import { ANALYTICS_EVENTS } from '@98plus/shared';
 import { shareDeepLink } from '@/lib/share';
 import { api } from '@/lib/api';
@@ -22,7 +27,7 @@ interface Props {
 }
 
 function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
-  const { openSendTo, token } = useApp();
+  const { openSendTo, openNewBanWhoFlow, token } = useApp();
   const { haptic } = useTelegram();
 
   const showable =
@@ -50,14 +55,32 @@ function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
         result.outcome === 'both_no' ||
         result.outcome === 'split');
 
-    return { isSender, isReceiver, myDelta, primaryLabel, showStatuses };
+    const displayHeadline = getResultCardHeadline(
+      result.outcome,
+      result.farmSkipped,
+      result.headline,
+    );
+    const showBanOthers = showFreeModeBanOthersAction(
+      result.farmSkipped,
+      result.outcome,
+    );
+
+    return {
+      isSender,
+      isReceiver,
+      myDelta,
+      primaryLabel,
+      showStatuses,
+      displayHeadline,
+      showBanOthers,
+    };
   }, [result]);
 
   const share = useCallback(() => {
     haptic('light');
     shareDeepLink(
       { type: 'result', banId: result.id },
-      `${result.headline}\n«${result.text}»\n\n98+`,
+      `${view.displayHeadline}\n«${result.text}»\n\n98+`,
     );
     if (token) {
       api('/analytics/track', {
@@ -69,7 +92,7 @@ function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
         }),
       }).catch(() => {});
     }
-  }, [haptic, result.headline, result.id, result.text, token]);
+  }, [haptic, result.id, result.text, token, view.displayHeadline]);
 
   const counter = useCallback(() => {
     haptic('medium');
@@ -77,6 +100,12 @@ function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
     openSendTo(u ? `@${u}` : (result.opponent?.firstName ?? ''));
     onClose();
   }, [haptic, onClose, openSendTo, result.opponent]);
+
+  const banOthers = useCallback(() => {
+    haptic('medium');
+    onClose();
+    openNewBanWhoFlow();
+  }, [haptic, onClose, openNewBanWhoFlow]);
 
   const senderStatus = result.confirmations?.sender;
   const receiverStatus = result.confirmations?.receiver;
@@ -94,7 +123,7 @@ function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
     >
       <div className="modal-card-body text-center">
         <p className="result-headline text-2xl font-black text-glow mb-1">
-          {result.headline}
+          {view.displayHeadline}
         </p>
         {result.subline ? (
           <p className="text-muted text-sm mb-4 leading-snug px-1">
@@ -148,6 +177,11 @@ function ResultOverlayInner({ result, onClose, embedded = false }: Props) {
       {(view.isSender || view.isReceiver) && (
         <div className="modal-card-actions space-y-3">
           <BigButton onClick={counter}>{view.primaryLabel}</BigButton>
+          {view.showBanOthers ? (
+            <BigButton variant="ghost" onClick={banOthers}>
+              🚫 Запретить другим!
+            </BigButton>
+          ) : null}
           <BigButton variant="ghost" onClick={share}>
             Поделиться
           </BigButton>

@@ -55,6 +55,7 @@ export default function HomePage() {
     checkGateActive,
     lobbyOpen,
     closeLobby,
+    newBanWhoFlowRequest,
     setIncomingBan,
     setCheckBan,
     openBanResult,
@@ -123,6 +124,12 @@ export default function HomePage() {
     closeLobby();
     setInstantBanOpen(true);
   }, [closeLobby]);
+
+  useEffect(() => {
+    if (newBanWhoFlowRequest > 0) {
+      setInstantBanOpen(true);
+    }
+  }, [newBanWhoFlowRequest]);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== 'development') return;

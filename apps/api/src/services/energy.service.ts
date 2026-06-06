@@ -7,6 +7,7 @@ import {
   type CheckOutcome,
   type EnergyDelta,
   isLowEnergy,
+  isPairDailyFreeMode,
   LOW_ENERGY_DAILY_BAN_LIMIT,
   ANTI_FARM_DAILY_SUCCESS_LIMIT,
 } from '@98plus/shared';
@@ -21,6 +22,49 @@ function todayDate(): Date {
   const d = new Date();
   d.setUTCHours(0, 0, 0, 0);
   return d;
+}
+
+function tomorrowDate(): Date {
+  const d = todayDate();
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d;
+}
+
+/** All bans between pair today — any status, either direction. */
+async function countPairBansToday(
+  userAId: string,
+  userBId: string,
+): Promise<number> {
+  const [a, b] = pairKey(userAId, userBId);
+  const start = todayDate();
+  const end = tomorrowDate();
+
+  return prisma.ban.count({
+    where: {
+      createdAt: { gte: start, lt: end },
+      OR: [
+        { senderId: a, receiverId: b },
+        { senderId: b, receiverId: a },
+      ],
+    },
+  });
+}
+
+async function isPairFreeMode(
+  userAId: string,
+  userBId: string,
+): Promise<{ free: boolean; countToday: number }> {
+  const countToday = await countPairBansToday(userAId, userBId);
+  const free = isPairDailyFreeMode(countToday);
+  if (free) {
+    const [a, b] = pairKey(userAId, userBId);
+    console.info('[98+] pair free mode', {
+      pairKey: `${a}:${b}`,
+      countToday,
+      reason: 'pair_daily_limit',
+    });
+  }
+  return { free, countToday };
 }
 
 export async function canSendBan(userId: string): Promise<{
@@ -99,13 +143,19 @@ async function incrementPairInteraction(
   });
 }
 
+type ApplyDeltaOpts = {
+  skipPositiveRewards?: boolean;
+  pairFreeMode?: boolean;
+};
+
 async function applyDelta(
   userId: string,
   rawDelta: number,
-  skipRewards: boolean,
+  opts: ApplyDeltaOpts = {},
 ): Promise<number> {
   if (rawDelta === 0) return 0;
-  if (skipRewards && rawDelta > 0) return 0;
+  if (opts.pairFreeMode) return 0;
+  if (opts.skipPositiveRewards && rawDelta > 0) return 0;
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return 0;
@@ -123,8 +173,11 @@ async function applyCheckPairDeltas(
   senderId: string,
   receiverId: string,
   raw: { sender: number; receiver: number },
-  skipRewards: boolean,
+  opts: ApplyDeltaOpts = {},
 ): Promise<{ sender: number; receiver: number }> {
+  if (opts.pairFreeMode) {
+    return { sender: 0, receiver: 0 };
+  }
   if (raw.sender === 0 && raw.receiver === 0) {
     return { sender: 0, receiver: 0 };
   }
@@ -138,7 +191,9 @@ async function applyCheckPairDeltas(
 
   const calc = (user: { energy: number } | undefined, rawDelta: number) => {
     if (rawDelta === 0) return { delta: 0, increment: false };
-    if (skipRewards && rawDelta > 0) return { delta: 0, increment: false };
+    if (opts.skipPositiveRewards && rawDelta > 0) {
+      return { delta: 0, increment: false };
+    }
     if (!user) return { delta: 0, increment: false };
     const delta = applyRewardMultiplier(rawDelta, user.energy);
     return { delta, increment: delta !== 0 };
@@ -173,16 +228,22 @@ export async function applySendEnergy(
   senderId: string,
   receiverId: string,
 ): Promise<{ sender: number; receiver: number }> {
-  const { sender, receiver } = calcSendCost();
-  const s = await applyDelta(senderId, sender, false);
+  const { free: pairFreeMode } = await isPairFreeMode(senderId, receiverId);
   await incrementPairInteraction(senderId, receiverId);
-  return { sender: s, receiver };
+
+  if (pairFreeMode) {
+    return { sender: 0, receiver: 0 };
+  }
+
+  const { sender } = calcSendCost();
+  const s = await applyDelta(senderId, sender, { pairFreeMode: false });
+  return { sender: s, receiver: 0 };
 }
 
 /** Pending invite — only sender pays send cost until claim */
 export async function applySenderSendCostOnly(senderId: string): Promise<number> {
   const { sender } = calcSendCost();
-  return applyDelta(senderId, sender, false);
+  return applyDelta(senderId, sender, { pairFreeMode: false });
 }
 
 export async function linkPairInteraction(
@@ -196,10 +257,16 @@ export async function applyOverboard(
   senderId: string,
   receiverId: string,
 ): Promise<EnergyDelta> {
-  const raw = calcOverboardPenalty();
-  const s = await applyDelta(senderId, raw.sender, false);
-  const r = await applyDelta(receiverId, raw.receiver, false);
+  const { free: pairFreeMode } = await isPairFreeMode(senderId, receiverId);
   await incrementPairInteraction(senderId, receiverId);
+
+  if (pairFreeMode) {
+    return { sender: 0, receiver: 0 };
+  }
+
+  const raw = calcOverboardPenalty();
+  const s = await applyDelta(senderId, raw.sender, { pairFreeMode: false });
+  const r = await applyDelta(receiverId, raw.receiver, { pairFreeMode: false });
   return { sender: s, receiver: r };
 }
 
@@ -294,15 +361,22 @@ export async function applyCheckResult(
     return { sender: 0, receiver: 0, farmSkipped: false, completedBan };
   }
 
-  const skip = await shouldSkipFarmRewards(ban.senderId, ban.receiverId);
-  const { sender: senderDelta, receiver: receiverDelta } = await applyCheckPairDeltas(
+  const { free: pairFreeMode } = await isPairFreeMode(
     ban.senderId,
     ban.receiverId,
-    raw,
-    skip,
   );
+  const skipPositiveRewards =
+    !pairFreeMode &&
+    (await shouldSkipFarmRewards(ban.senderId, ban.receiverId));
+  const farmSkipped = pairFreeMode || skipPositiveRewards;
 
-  if (outcome === 'both_yes' && !skip) {
+  const { sender: senderDelta, receiver: receiverDelta } =
+    await applyCheckPairDeltas(ban.senderId, ban.receiverId, raw, {
+      pairFreeMode,
+      skipPositiveRewards,
+    });
+
+  if (outcome === 'both_yes' && !pairFreeMode && !skipPositiveRewards) {
     void incrementPairSuccess(ban.senderId, ban.receiverId);
   }
 
@@ -315,7 +389,7 @@ export async function applyCheckResult(
       outcome: prismaOutcome,
       senderEnergyDelta: senderDelta,
       receiverEnergyDelta: receiverDelta,
-      farmSkipped: skip,
+      farmSkipped,
       senderResultSeenAt: null,
       receiverResultSeenAt: null,
     },
@@ -325,7 +399,7 @@ export async function applyCheckResult(
   return {
     sender: senderDelta,
     receiver: receiverDelta,
-    farmSkipped: skip,
+    farmSkipped,
     completedBan,
   };
 }
@@ -344,5 +418,5 @@ export async function applySelfBanReward(
   isPublic: boolean,
 ): Promise<number> {
   const raw = calcSelfBanReward(isPublic);
-  return applyDelta(userId, raw, false);
+  return applyDelta(userId, raw, { pairFreeMode: false });
 }

@@ -35,6 +35,9 @@ export type BanDurationHours = BanDurationMinutes;
 
 export const ANTI_FARM_DAILY_SUCCESS_LIMIT = 3;
 
+/** Pair is energy-free when ban count today exceeds this (6th+ ban). */
+export const PAIR_DAILY_FREE_MODE_BAN_LIMIT = 5;
+
 export const SELF_BAN_DAILY_LIMIT = 10;
 export const LOW_ENERGY_DAILY_BAN_LIMIT = 2;
 export const LOW_ENERGY_THRESHOLD = 30;

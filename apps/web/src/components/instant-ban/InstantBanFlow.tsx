@@ -192,6 +192,7 @@ export function InstantBanFlow({
     confirmOptimisticSend,
     rollbackOptimisticSend,
     activeBans,
+    newBanWhoFlowRequest,
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
 
@@ -1010,6 +1011,40 @@ export function InstantBanFlow({
     onStartSend,
     phase,
   ]);
+
+  const beginNewBanWhoFlow = useCallback(() => {
+    sendEntryPhaseRef.current = 'selectingTarget';
+    setBansOverlayOpen(false);
+    setSelectedBanForDetails(null);
+    clearCtaExitTimer();
+    clearWhoPanelEnterTimer();
+    setCtaState('hidden');
+    setSelectedUser(null);
+    setBanText('');
+    setDurationMinutes(DEFAULT_DURATION_MINUTES);
+    setSendError(null);
+    setComposeExitProgress(0);
+    setComposeDismissing(false);
+    setBanSentSuccess(false);
+    sendSnapshotRef.current = null;
+    setCrossScreenProgressImmediate(0);
+    onStartSend();
+    setPhase('selectingTarget');
+  }, [
+    clearCtaExitTimer,
+    clearWhoPanelEnterTimer,
+    onStartSend,
+    setCrossScreenProgressImmediate,
+  ]);
+
+  const lastNewBanWhoFlowRequestRef = useRef(0);
+
+  useEffect(() => {
+    if (newBanWhoFlowRequest === 0) return;
+    if (lastNewBanWhoFlowRequestRef.current === newBanWhoFlowRequest) return;
+    lastNewBanWhoFlowRequestRef.current = newBanWhoFlowRequest;
+    beginNewBanWhoFlow();
+  }, [newBanWhoFlowRequest, beginNewBanWhoFlow]);
 
   const finishWhoDismiss = useCallback(() => {
     if (whoDismissTimerRef.current) {

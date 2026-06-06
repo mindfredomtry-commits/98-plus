@@ -204,6 +204,9 @@ interface AppContextValue {
   /** Ritual entry gate — blocks challenge overlays until dismissed. */
   lobbyOpen: boolean;
   closeLobby: () => void;
+  /** Opens InstantBan Who screen for a new ban (increments on each request). */
+  newBanWhoFlowRequest: number;
+  openNewBanWhoFlow: () => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -2127,6 +2130,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     console.log('[lobby-closed]', { userId: userIdRef.current ?? null });
   }, []);
 
+  const [newBanWhoFlowRequest, setNewBanWhoFlowRequest] = useState(0);
+
+  const openNewBanWhoFlow = useCallback(() => {
+    closeLobby();
+    setNewBanWhoFlowRequest((n) => n + 1);
+  }, [closeLobby]);
+
   useEffect(() => {
     setLobbyOpen(true);
     lobbyShownLoggedRef.current = false;
@@ -2311,6 +2321,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       triggerBanInputShake,
       lobbyOpen,
       closeLobby,
+      newBanWhoFlowRequest,
+      openNewBanWhoFlow,
     }),
     [
       auth.token,
@@ -2377,6 +2389,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       triggerBanInputShake,
       lobbyOpen,
       closeLobby,
+      newBanWhoFlowRequest,
+      openNewBanWhoFlow,
     ],
   );
 

@@ -136,6 +136,33 @@ export function buildResultPresentation(
   };
 }
 
+/** Result modal headline — normal pair mode uses «ЗАПРЕТНО!» for mutual success. */
+export function getResultCardHeadline(
+  outcome: InteractionOutcome,
+  farmSkipped: boolean,
+  fallbackHeadline: string,
+): string {
+  if (outcome === 'both_yes' && !farmSkipped) {
+    return 'ЗАПРЕТНО!';
+  }
+  return fallbackHeadline;
+}
+
+const FREE_MODE_RESULT_ACTION_OUTCOMES: InteractionOutcome[] = [
+  'both_yes',
+  'both_no',
+  'split',
+  'overboard',
+];
+
+/** Whether the result card should offer «Запретить другим!» (pair free mode). */
+export function showFreeModeBanOthersAction(
+  farmSkipped: boolean,
+  outcome: InteractionOutcome,
+): boolean {
+  return farmSkipped && FREE_MODE_RESULT_ACTION_OUTCOMES.includes(outcome);
+}
+
 /** Fallback copy for non-check outcomes and observers. */
 export const RESULT_COPY: Record<
   InteractionOutcome,

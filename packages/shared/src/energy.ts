@@ -1,4 +1,7 @@
-import { LOW_ENERGY_THRESHOLD } from './constants';
+import {
+  LOW_ENERGY_THRESHOLD,
+  PAIR_DAILY_FREE_MODE_BAN_LIMIT,
+} from './constants';
 
 export type AuraLevel =
   | 'weak'
@@ -68,6 +71,11 @@ export function calcCheckOutcome(outcome: CheckOutcome): EnergyDelta {
 
 export function calcSelfBanReward(isPublic: boolean): number {
   return isPublic ? 3 : 1;
+}
+
+/** All bans between a pair today (any status/direction) — energy-free above limit. */
+export function isPairDailyFreeMode(bansTodayBetweenPair: number): boolean {
+  return bansTodayBetweenPair > PAIR_DAILY_FREE_MODE_BAN_LIMIT;
 }
 
 export interface TransientFeedback {
