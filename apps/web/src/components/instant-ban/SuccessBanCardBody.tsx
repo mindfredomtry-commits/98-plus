@@ -5,9 +5,17 @@ import { friendAvatarUrl } from '@/lib/avatar-url';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
 import { AvatarImage } from '../AvatarImage';
 
-/** Success-card no-entry mark — diagonal meets circle (orb energy styling via CSS). */
-export function BanGlyph({ className = '' }: { className?: string }) {
-  const edge = 9 / Math.SQRT2;
+export const BAN_GLYPH_RADIUS = 9;
+
+/** Success-card no-entry mark — circle + diagonal slash (orb energy styling via CSS). */
+export function BanGlyph({
+  className = '',
+  strokeWidth = 2.75,
+}: {
+  className?: string;
+  strokeWidth?: number;
+}) {
+  const edge = BAN_GLYPH_RADIUS / Math.SQRT2;
   const x1 = 12 - edge;
   const y1 = 12 - edge;
   const x2 = 12 + edge;
@@ -20,11 +28,17 @@ export function BanGlyph({ className = '' }: { className?: string }) {
       fill="none"
       aria-hidden
     >
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.75" />
+      <circle
+        cx="12"
+        cy="12"
+        r={BAN_GLYPH_RADIUS}
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+      />
       <path
         d={`M${x1} ${y1}L${x2} ${y2}`}
         stroke="currentColor"
-        strokeWidth="2.75"
+        strokeWidth={strokeWidth}
         strokeLinecap="round"
       />
     </svg>
