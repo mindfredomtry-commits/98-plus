@@ -3356,6 +3356,21 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
   pointer-events: none;
 }
 
+.instant-ban-bans-list-item__star-fill,
+.instant-ban-bans-list-item__star-outline {
+  transition: opacity 120ms ease;
+}
+
+.instant-ban-bans-list-item__star-fill[data-active='false'],
+.instant-ban-bans-list-item__star-outline[data-active='false'] {
+  opacity: 0;
+}
+
+.instant-ban-bans-list-item__star-fill[data-active='true'],
+.instant-ban-bans-list-item__star-outline[data-active='true'] {
+  opacity: 1;
+}
+
 .instant-ban-bans-overlay__toast {
   position: absolute;
   left: 50%;

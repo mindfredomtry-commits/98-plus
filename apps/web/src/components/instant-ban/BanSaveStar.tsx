@@ -2,6 +2,10 @@
 
 import type { SyntheticEvent } from 'react';
 
+/** Single geometry for filled + outline — prevents shift on toggle. */
+const STAR_PATH =
+  'M12 2.5l2.55 5.52 6.02.52-4.56 3.95 1.38 5.88L12 15.9l-5.39 3.47 1.38-5.88-4.56-3.95 6.02-.52L12 2.5z';
+
 type Props = {
   banId: string;
   saved: boolean;
@@ -41,11 +45,24 @@ export function BanSaveStar({ banId, saved, onToggle }: Props) {
         aria-hidden
       >
         <path
-          d="M12 2.5l2.55 5.52 6.02.52-4.56 3.95 1.38 5.88L12 15.9l-5.39 3.47 1.38-5.88-4.56-3.95 6.02-.52L12 2.5z"
-          fill={saved ? 'currentColor' : 'none'}
+          d={STAR_PATH}
+          fill="currentColor"
           stroke="currentColor"
-          strokeWidth="1.75"
+          strokeWidth="1.1"
           strokeLinejoin="round"
+          strokeLinecap="round"
+          className="instant-ban-bans-list-item__star-fill"
+          data-active={saved ? 'true' : 'false'}
+        />
+        <path
+          d={STAR_PATH}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.1"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          className="instant-ban-bans-list-item__star-outline"
+          data-active={saved ? 'false' : 'true'}
         />
       </svg>
     </button>
