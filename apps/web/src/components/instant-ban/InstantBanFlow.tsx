@@ -196,6 +196,9 @@ export function InstantBanFlow({
     pendingStartupInteractions,
     releaseStartupInteractions,
     markSessionBanSendSuccess,
+    incomingGateActive,
+    checkGateActive,
+    result,
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
 
@@ -270,10 +273,13 @@ export function InstantBanFlow({
   const showCrossScreenPager =
     phase === 'selectingTarget' || phase === 'composingBan';
   const overlayOpen = showCrossScreenPager;
+  const notificationOverlayActive =
+    incomingGateActive || checkGateActive || !!result;
   const orbOverlayDim =
     crossScreenProgress > 0.02 ||
     phase === 'composingBan' ||
-    bansOverlayOpen;
+    bansOverlayOpen ||
+    notificationOverlayActive;
   /** Horizontal pager only on Who — no finger swipe What → Who. */
   const crossScreenDragEnabled =
     selectedUser != null && phase === 'selectingTarget';
@@ -338,7 +344,7 @@ export function InstantBanFlow({
     if (screenTransitionRef.current) return;
     if (phase === 'composingBan') {
       setCrossScreenProgressImmediate(1);
-    } else if (phase === 'selectingTarget') {
+    } else if (phase === 'selectingTarget' || phase === 'idle') {
       setCrossScreenProgressImmediate(0);
     }
   }, [phase, screenTransition, setCrossScreenProgressImmediate]);
@@ -658,8 +664,76 @@ export function InstantBanFlow({
     [activeBans, historyBans, savedBans, bansTab, user?.id],
   );
 
-  const showLobbyTopNav =
-    phase === 'idle' && !banSentSuccess && !bansOverlayOpen;
+  const showLobbyTopNav = phase === 'idle' && !banSentSuccess;
+
+  useEffect(() => {
+    console.log('[LOBBY NAV STATE]', {
+      showLobbyTopNav,
+      phase,
+      banSentSuccess,
+      bansOverlayOpen,
+      pendingStartupInteractions,
+    });
+  }, [
+    showLobbyTopNav,
+    phase,
+    banSentSuccess,
+    bansOverlayOpen,
+    pendingStartupInteractions,
+  ]);
+
+  const prevOrbDimRef = useRef(orbOverlayDim);
+  useEffect(() => {
+    if (prevOrbDimRef.current && !orbOverlayDim) {
+      console.log('[LOBBY ORB VISUAL RESET]', {
+        phase,
+        crossScreenProgress,
+        bansOverlayOpen,
+        notificationOverlayActive,
+      });
+    }
+    prevOrbDimRef.current = orbOverlayDim;
+  }, [
+    orbOverlayDim,
+    phase,
+    crossScreenProgress,
+    bansOverlayOpen,
+    notificationOverlayActive,
+  ]);
+
+  const prevNotificationOverlayRef = useRef(notificationOverlayActive);
+  useEffect(() => {
+    const wasActive = prevNotificationOverlayRef.current;
+    prevNotificationOverlayRef.current = notificationOverlayActive;
+    if (
+      wasActive &&
+      !notificationOverlayActive &&
+      phase === 'idle' &&
+      !banSentSuccess &&
+      crossScreenProgressRef.current > 0.02
+    ) {
+      stopCrossScreenAnim();
+      screenTransitionRef.current = null;
+      setScreenTransition(null);
+      setComposeExitProgress(0);
+      setComposeDismissing(false);
+      setCrossScreenProgressImmediate(0);
+      console.log('[LOBBY ORB VISUAL RESET]', {
+        phase,
+        reason: 'notification-overlay-closed',
+        crossScreenProgress: 0,
+        bansOverlayOpen,
+        notificationOverlayActive: false,
+      });
+    }
+  }, [
+    banSentSuccess,
+    bansOverlayOpen,
+    notificationOverlayActive,
+    phase,
+    setCrossScreenProgressImmediate,
+    stopCrossScreenAnim,
+  ]);
 
   useEffect(() => {
     if (phase !== 'idle') {
@@ -933,13 +1007,26 @@ export function InstantBanFlow({
     setBanSentSuccess(false);
     sendSnapshotRef.current = null;
     confirmEntrySourceRef.current = 'send-flow';
+    stopCrossScreenAnim();
+    screenTransitionRef.current = null;
+    setScreenTransition(null);
     setSelectedUser(null);
     setBanText('');
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
     setSendError(null);
+    setWhoExitActive(false);
+    setWhoDismissProgress(0);
+    setComposeExitProgress(0);
+    setComposeDismissing(false);
+    setCrossScreenProgressImmediate(0);
     setPhase('idle');
     beginCtaSpringIn();
-  }, [beginCtaSpringIn, releaseStartupInteractions]);
+  }, [
+    beginCtaSpringIn,
+    releaseStartupInteractions,
+    setCrossScreenProgressImmediate,
+    stopCrossScreenAnim,
+  ]);
 
   const onSuccess = useCallback(() => {
     setSendError(null);

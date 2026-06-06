@@ -393,6 +393,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const applyOverlayQueue = useCallback(
     (next: QueuedOverlay[]) => {
+      const prevHead = overlayQueueRef.current[0] ?? null;
+      const nextHead = next[0] ?? null;
+      const prevKey = prevHead ? overlayQueueKey(prevHead) : null;
+      const nextKey = nextHead ? overlayQueueKey(nextHead) : null;
+      if (prevKey !== nextKey) {
+        console.log('[OVERLAY QUEUE NEXT]', {
+          prevKey,
+          nextKey,
+          queueLength: next.length,
+          nextKind: nextHead?.kind ?? null,
+        });
+      }
       overlayQueueRef.current = next;
       syncDisplayFromQueue(next);
       setOverlayQueue(next);

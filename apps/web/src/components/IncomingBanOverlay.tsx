@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { BanInteraction } from '@98plus/shared';
-import { formatSenderDisplayName } from '@98plus/shared';
+import { findFriendByUsername, formatSenderDisplayName } from '@98plus/shared';
 import { api } from '@/lib/api';
 import {
   formatDeliveryError,
@@ -33,6 +33,7 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
     token,
     user,
     loading: authLoading,
+    friends,
     incomingBan,
     dismissIncoming,
     acknowledgeIncomingAndStartReply,
@@ -56,6 +57,10 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
     },
     [dismissIncoming],
   );
+
+  useEffect(() => {
+    setActionLoading(false);
+  }, [incomingBan?.id]);
 
   useEffect(() => {
     if (!incomingBan?.id || !token || !viewerId) {
@@ -90,6 +95,7 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
         setVerifyPhase('ok');
         challengeLog('overlay:verified', { banId: ban.id });
         console.log('[incoming-overlay]', { event: 'verify-ok', banId: ban.id });
+        console.log('[INCOMING OVERLAY READY]', { banId: ban.id, source: 'verify-ok' });
       } catch (e) {
         if (verifyGenRef.current !== gen) return;
         closeOnVerifyFail(formatDeliveryError(e), banId);
@@ -116,33 +122,47 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
     closeOnVerifyFail,
   ]);
 
-  const senderAvatarSrc = useMemo(() => {
-    if (incomingBan?.sender?.id) {
-      rememberUserAvatar(
-        incomingBan.sender.id,
-        incomingBan.sender.avatarUrl ?? incomingBan.sender.photoUrl ?? null,
-      );
-    }
-    if (verifiedBan?.sender?.id) {
-      rememberUserAvatar(
-        verifiedBan.sender.id,
-        verifiedBan.sender.avatarUrl ?? verifiedBan.sender.photoUrl ?? null,
-      );
-    }
-    return resolveUserAvatarUrl(verifiedBan?.sender ?? incomingBan?.sender);
-  }, [incomingBan?.sender, verifiedBan?.sender]);
+  const resolvedIncoming = useMemo(() => {
+    if (!incomingBan) return null;
+    if (incomingBan.sender?.id) return incomingBan;
+    const username = incomingBan.sender?.username?.replace(/^@/, '').trim();
+    if (!username) return incomingBan;
+    const friend = findFriendByUsername(friends, username);
+    const senderId = friend?.id ?? friend?.userId;
+    if (!senderId) return incomingBan;
+    return {
+      ...incomingBan,
+      sender: {
+        ...incomingBan.sender!,
+        id: senderId,
+      },
+    };
+  }, [friends, incomingBan]);
 
-  const ban = verifiedBan ?? incomingBan;
+  const displayBan = verifiedBan ?? resolvedIncoming ?? incomingBan;
+
+  const senderAvatarSrc = useMemo(() => {
+    if (displayBan?.sender?.id) {
+      rememberUserAvatar(
+        displayBan.sender.id,
+        displayBan.sender.avatarUrl ?? displayBan.sender.photoUrl ?? null,
+      );
+    }
+    return resolveUserAvatarUrl(displayBan?.sender);
+  }, [displayBan?.sender]);
 
   const senderLabel = useMemo(() => {
-    if (!ban?.sender) return '—';
-    const u = ban.sender.username?.replace(/^@/, '').trim();
+    if (!displayBan?.sender) return '—';
+    const u = displayBan.sender.username?.replace(/^@/, '').trim();
     if (u) return `@${u}`;
-    return formatSenderDisplayName(ban.sender.username, ban.sender.firstName);
-  }, [ban?.sender]);
+    return formatSenderDisplayName(
+      displayBan.sender.username,
+      displayBan.sender.firstName,
+    );
+  }, [displayBan?.sender]);
 
   const handleCounter = useCallback(async () => {
-    const actBan = verifiedBan ?? incomingBan;
+    const actBan = verifiedBan ?? resolvedIncoming ?? incomingBan;
     if (!actBan?.id || !actBan.sender?.id || actionLoading) return;
     haptic('medium');
     setActionLoading(true);
@@ -153,6 +173,7 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
     }
   }, [
     verifiedBan,
+    resolvedIncoming,
     incomingBan,
     haptic,
     actionLoading,
@@ -160,7 +181,7 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
   ]);
 
   const handleOverboard = useCallback(async () => {
-    const actBan = verifiedBan ?? incomingBan;
+    const actBan = verifiedBan ?? resolvedIncoming ?? incomingBan;
     if (!actBan?.id || !token || actionLoading) return;
     setActionLoading(true);
     hapticSuccess();
@@ -175,6 +196,7 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
     }
   }, [
     verifiedBan,
+    resolvedIncoming,
     incomingBan,
     token,
     hapticSuccess,
@@ -185,6 +207,36 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
   const shouldShow = incomingBan
     ? shouldShowIncomingBanModal(incomingBan, viewerId, new Set())
     : false;
+
+  const canAct = !!displayBan?.sender?.id;
+  const buttonsEnabled = verifyPhase !== 'failed' && !!incomingBan?.id;
+  const counterEnabled = buttonsEnabled && canAct;
+  const overboardEnabled = buttonsEnabled;
+
+  useEffect(() => {
+    if (!incomingBan?.id || !buttonsEnabled) return;
+    console.log('[OVERLAY BUTTONS ENABLED]', {
+      banId: incomingBan.id,
+      verifyPhase,
+      hasVerifiedBan: !!verifiedBan?.id,
+      counterEnabled,
+      overboardEnabled,
+    });
+    if (verifyPhase === 'pending' && canAct) {
+      console.log('[INCOMING OVERLAY READY]', {
+        banId: incomingBan.id,
+        source: 'optimistic-sender',
+      });
+    }
+  }, [
+    incomingBan?.id,
+    buttonsEnabled,
+    verifyPhase,
+    verifiedBan?.id,
+    canAct,
+    counterEnabled,
+    overboardEnabled,
+  ]);
 
   if (incomingBan?.id) {
     logIncomingDebug({
@@ -229,9 +281,11 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
     '?'
   ).toUpperCase();
 
-  const canAct = !!incomingBan.sender?.id;
-
-  console.log('INCOMING OVERLAY RENDER', { banId: incomingBan.id });
+  console.log('INCOMING OVERLAY RENDER', {
+    banId: incomingBan.id,
+    verifyPhase,
+    buttonsEnabled,
+  });
 
   const modal = (
     <ModalShell
@@ -265,13 +319,16 @@ function IncomingBanOverlayInner({ embedded = false }: Props) {
         </p>
 
         <div className="incoming-modal-actions space-y-2.5">
-          <BigButton onClick={handleCounter} disabled={actionLoading || !canAct}>
+          <BigButton
+            onClick={handleCounter}
+            disabled={actionLoading || !counterEnabled}
+          >
             🚫 Запретить в ответ
           </BigButton>
           <BigButton
             variant="ghost"
             onClick={handleOverboard}
-            disabled={actionLoading || !canAct}
+            disabled={actionLoading || !overboardEnabled}
           >
             🫷 Перебор!
           </BigButton>
