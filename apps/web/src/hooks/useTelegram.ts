@@ -24,6 +24,7 @@ export interface TgWebApp {
   setBackgroundColor: (color: string) => void;
   colorScheme?: 'light' | 'dark';
   themeParams?: Record<string, string>;
+  platform?: string;
   BackButton?: {
     show: () => void;
     hide: () => void;

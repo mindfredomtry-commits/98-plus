@@ -140,15 +140,60 @@ export function useAuth() {
       };
 
       if (initData) {
-        res = await api('/auth/telegram', {
-          method: 'POST',
-          body: JSON.stringify({
-            initData,
-            startParam: startParam ?? undefined,
-          }),
-        });
+        if (typeof window !== 'undefined') {
+          console.log('[TG AUTH DEBUG]', {
+            hasTelegram: !!window.Telegram,
+            hasWebApp: !!window.Telegram?.WebApp,
+            initDataLength: window.Telegram?.WebApp?.initData?.length ?? 0,
+            platform: window.Telegram?.WebApp?.platform,
+            startParam: window.Telegram?.WebApp?.initDataUnsafe?.start_param,
+          });
+        }
+        try {
+          res = await api('/auth/telegram', {
+            method: 'POST',
+            body: JSON.stringify({
+              initData,
+              startParam: startParam ?? undefined,
+            }),
+          });
+          console.log('[TG AUTH DEBUG] /auth/telegram response', {
+            ok: true,
+            userId: res.user?.id ?? null,
+            telegramId: res.user?.telegramId ?? null,
+          });
+        } catch (authErr) {
+          console.log('[TG AUTH DEBUG] /auth/telegram failed', {
+            kind:
+              authErr instanceof NetworkError
+                ? 'network'
+                : authErr instanceof ApiError
+                  ? 'api'
+                  : 'unknown',
+            status: authErr instanceof ApiError ? authErr.status : null,
+            url:
+              authErr instanceof NetworkError
+                ? authErr.url
+                : authErr instanceof ApiError
+                  ? authErr.url
+                  : null,
+            message:
+              authErr instanceof Error ? authErr.message : String(authErr),
+          });
+          throw authErr;
+        }
         persistSession(res, telegramId ?? tgUser?.id);
       } else if (isClientDevAuthEnabled()) {
+        if (typeof window !== 'undefined') {
+          console.log('[TG AUTH DEBUG]', {
+            hasTelegram: !!window.Telegram,
+            hasWebApp: !!window.Telegram?.WebApp,
+            initDataLength: window.Telegram?.WebApp?.initData?.length ?? 0,
+            platform: window.Telegram?.WebApp?.platform,
+            startParam: window.Telegram?.WebApp?.initDataUnsafe?.start_param,
+            initDataFromHook: initData.length,
+          });
+        }
         res = await api('/auth/dev', {
           method: 'POST',
           body: JSON.stringify({
@@ -160,6 +205,16 @@ export function useAuth() {
         });
         persistSession(res, tgUser?.id ?? 100000001);
       } else {
+        if (typeof window !== 'undefined') {
+          console.log('[TG AUTH DEBUG]', {
+            hasTelegram: !!window.Telegram,
+            hasWebApp: !!window.Telegram?.WebApp,
+            initDataLength: window.Telegram?.WebApp?.initData?.length ?? 0,
+            platform: window.Telegram?.WebApp?.platform,
+            startParam: window.Telegram?.WebApp?.initDataUnsafe?.start_param,
+            initDataFromHook: initData.length,
+          });
+        }
         setError('Открой через Telegram');
         setLoading(false);
         return;
