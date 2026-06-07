@@ -89,6 +89,8 @@ export default function HomePage() {
     deepLinkSelectedBanId,
     sendFlowOpen,
     closeSendFlow,
+    deepLinkReplyBooting,
+    setDeepLinkReplyBooting,
   } = useApp();
   const overlayHandoffDbgVisible =
     process.env.NODE_ENV === 'development' && overlayHandoffDebug != null;
@@ -120,16 +122,26 @@ export default function HomePage() {
     openDeepLinkActive,
     openBanResult,
     reloadPending,
+    setDeepLinkReplyBooting,
   });
 
+  const sendStarted = instantBanOpen || sendFlowOpen;
+  const replyDeepLinkLoading =
+    deepLinkReplyBooting ||
+    (deepLinkBoot.parsedType === 'reply' &&
+      deepLinkBoot.deepLinkDetected &&
+      !sendStarted);
+
   /** Parent layout effect runs before InstantBanFlow effects — latch send UI early. */
+  useLayoutEffect(() => {
+    if (replyDeepLinkLoading) closeLobby();
+  }, [replyDeepLinkLoading, closeLobby]);
+
   useLayoutEffect(() => {
     if (!deepLinkRepeatBan && !deepLinkReplyBan && !deepLinkActiveBan) return;
     closeLobby();
     setInstantBanOpen(true);
   }, [deepLinkRepeatBan, deepLinkReplyBan, deepLinkActiveBan, closeLobby]);
-
-  const sendStarted = instantBanOpen || sendFlowOpen;
 
   useEffect(() => {
     setApiUrlDisplay(getApiUrl());
@@ -321,6 +333,8 @@ export default function HomePage() {
       }${
         checkGateActive ? ' app-page--check-overlay-active' : ''
       }${banSentOpen ? ' app-page--success-modal' : ''}${
+        replyDeepLinkLoading ? ' app-page--reply-deeplink-loading' : ''
+      }${
         arenaVisible ? ' app-page--instant-ban-active' : ''
       }`}
       data-shell-view={shellView}

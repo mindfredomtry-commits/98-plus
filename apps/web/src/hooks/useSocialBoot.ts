@@ -22,6 +22,7 @@ interface BootHandlers {
   openDeepLinkActive: (ban: BanInteraction) => void;
   openBanResult: (r: BanResult | null | undefined, mode: 'explicit') => void;
   reloadPending: () => Promise<void>;
+  setDeepLinkReplyBooting: (v: boolean) => void;
 }
 
 function deepLinkBootKey(startParam: string | undefined): string | null {
@@ -138,11 +139,20 @@ export function useSocialBoot(h: BootHandlers) {
           break;
         }
         case 'reply': {
-          const { ban } = await api<{ ban: BanInteraction }>(
-            `/bans/${action.banId}/open`,
-            { token: h.token! },
-          );
-          if (ban) await h.openDeepLinkReply(ban);
+          h.setDeepLinkReplyBooting(true);
+          try {
+            const { ban } = await api<{ ban: BanInteraction }>(
+              `/bans/${action.banId}/open`,
+              { token: h.token! },
+            );
+            if (ban) {
+              await h.openDeepLinkReply(ban);
+            } else {
+              h.setDeepLinkReplyBooting(false);
+            }
+          } catch {
+            h.setDeepLinkReplyBooting(false);
+          }
           break;
         }
         case 'active': {
@@ -177,5 +187,6 @@ export function useSocialBoot(h: BootHandlers) {
     h.openDeepLinkActive,
     h.openBanResult,
     h.reloadPending,
+    h.setDeepLinkReplyBooting,
   ]);
 }

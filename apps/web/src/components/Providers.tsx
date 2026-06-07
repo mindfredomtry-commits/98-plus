@@ -182,6 +182,8 @@ interface AppContextValue {
   sendFlowOpen: boolean;
   openSendFlow: () => void;
   closeSendFlow: () => void;
+  deepLinkReplyBooting: boolean;
+  setDeepLinkReplyBooting: (v: boolean) => void;
   submitCheckAnswer: (
     banId: string,
     completed: boolean,
@@ -402,6 +404,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     null,
   );
   const [sendFlowOpen, setSendFlowOpen] = useState(false);
+  const [deepLinkReplyBooting, setDeepLinkReplyBooting] = useState(false);
   const openSendFlow = useCallback(() => {
     setSendFlowOpen(true);
     setLobbyOpen(false);
@@ -1667,7 +1670,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return;
       }
-      openSendFlow();
       dismissedIncomingRef.current.add(b.id);
       removeIncomingFromQueue(b.id);
       setIncomingReplyBanId(b.id);
@@ -1686,6 +1688,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       }
       setDeepLinkReplyBan(enriched);
+      openSendFlow();
       console.log('[reply-deeplink]', { banId: b.id, queued: true });
       logDeepLinkHandlerResult({
         type: 'reply',
@@ -2848,6 +2851,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       deepLinkRepeatBan ||
       deepLinkActiveBan ||
       sendFlowOpen ||
+      deepLinkReplyBooting ||
       checkGateActive ||
       result
     ) {
@@ -2861,6 +2865,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     deepLinkRepeatBan,
     deepLinkActiveBan,
     sendFlowOpen,
+    deepLinkReplyBooting,
     checkGateActive,
     result,
   ]);
@@ -3035,6 +3040,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       sendFlowOpen,
       openSendFlow,
       closeSendFlow,
+      deepLinkReplyBooting,
+      setDeepLinkReplyBooting,
       submitCheckAnswer,
       checkWaiting,
       setCheckWaiting,
@@ -3130,6 +3137,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       sendFlowOpen,
       openSendFlow,
       closeSendFlow,
+      deepLinkReplyBooting,
+      setDeepLinkReplyBooting,
       submitCheckAnswer,
       checkWaiting,
       setCheckWaiting,

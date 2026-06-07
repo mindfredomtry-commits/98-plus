@@ -783,6 +783,24 @@ html.scroll-lock body {
   pointer-events: none;
 }
 
+.app-page--reply-deeplink-loading .arena-ambience,
+.app-page--reply-deeplink-loading .app-main,
+.app-page--reply-deeplink-loading .cta-dock,
+.app-page--reply-deeplink-loading .bottom-nav,
+.app-page--reply-deeplink-loading .connection-banner {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.app-page--reply-deeplink-loading::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(8, 10, 18, 0.72);
+  pointer-events: none;
+}
+
 .app-page--incoming-overlay-active .app-main,
 .app-page--incoming-overlay-active .home-arena,
 .app-page--incoming-overlay-active .cta-dock,

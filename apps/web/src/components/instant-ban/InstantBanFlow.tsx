@@ -231,6 +231,8 @@ export function InstantBanFlow({
     result,
     sendFlowOpen,
     overlayQueueLength,
+    deepLinkReplyBooting,
+    setDeepLinkReplyBooting,
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
 
@@ -325,9 +327,11 @@ export function InstantBanFlow({
   const whoDismissGestureActive =
     phase === 'selectingTarget' && crossScreenProgress < 0.02;
   const showLobbyCta =
-    ctaState === 'visible' ||
-    ctaState === 'exiting' ||
-    ctaState === 'entering';
+    !deepLinkReplyBooting &&
+    !incomingReplyBanId &&
+    (ctaState === 'visible' ||
+      ctaState === 'exiting' ||
+      ctaState === 'entering');
   const ctaInteractive = phase === 'idle' && ctaState === 'visible';
 
   /** Stable viewport height for all send phases (Who/What/Confirm), including resume. */
@@ -647,11 +651,26 @@ export function InstantBanFlow({
       clearCtaBootDelayTimer();
       const entryPhase = sendEntryPhaseRef.current;
       sendEntryPhaseRef.current = null;
-      setPhase(entryPhase ?? 'selectingTarget');
+      if (entryPhase) {
+        setPhase(entryPhase);
+        if (entryPhase === 'composingBan') {
+          setCrossScreenProgressImmediate(1);
+        }
+      } else if (incomingReplyBanId) {
+        setPhase('composingBan');
+        setCrossScreenProgressImmediate(1);
+      } else {
+        setPhase('selectingTarget');
+      }
       setCtaState('hidden');
     }
     prevSendStartedRef.current = sendStarted;
-  }, [clearCtaBootDelayTimer, sendStarted]);
+  }, [
+    clearCtaBootDelayTimer,
+    incomingReplyBanId,
+    sendStarted,
+    setCrossScreenProgressImmediate,
+  ]);
 
   useEffect(() => {
     if (phase === 'confirming' && ctaState !== 'hidden') {
@@ -1063,9 +1082,12 @@ export function InstantBanFlow({
       setComposeDismissing(false);
       setBanSentSuccess(false);
       sendSnapshotRef.current = null;
-      setCrossScreenProgressImmediate(1);
-      onStartSend();
       setPhase('composingBan');
+      setCrossScreenProgressImmediate(1);
+      setCtaState('hidden');
+      if (!sendStarted) {
+        onStartSend();
+      }
       return true;
     },
     [
@@ -1073,6 +1095,7 @@ export function InstantBanFlow({
       clearWhoPanelEnterTimer,
       onStartSend,
       safeFriends,
+      sendStarted,
       setCrossScreenProgressImmediate,
       user?.id,
     ],
@@ -1359,7 +1382,12 @@ export function InstantBanFlow({
       ok,
       reason: ok ? null : 'begin-reply-failed',
     });
-    if (ok) clearDeepLinkReplyBan();
+    if (ok) {
+      setDeepLinkReplyBooting(false);
+      clearDeepLinkReplyBan();
+    } else {
+      setDeepLinkReplyBooting(false);
+    }
   }, [
     deepLinkReplyBan,
     user?.id,
@@ -1370,6 +1398,7 @@ export function InstantBanFlow({
     selectedUser?.id,
     selectedUser?.userId,
     overlayQueueLength,
+    setDeepLinkReplyBooting,
   ]);
 
   useLayoutEffect(() => {
