@@ -98,6 +98,7 @@ export default function HomePage() {
     replyDeepLinkBanId,
     replyHandoffLock,
     armReplyDeepLink,
+    activeBanUiShellActive,
   } = useApp();
   const overlayHandoffDbgVisible =
     process.env.NODE_ENV === 'development' && overlayHandoffDebug != null;
@@ -151,8 +152,8 @@ export default function HomePage() {
 
   /** Parent layout effect runs before InstantBanFlow effects — latch send UI early. */
   useLayoutEffect(() => {
-    if (replyDeepLinkLoading) closeLobby();
-  }, [replyDeepLinkLoading, closeLobby]);
+    if (replyDeepLinkLoading || activeBanUiShellActive) closeLobby();
+  }, [replyDeepLinkLoading, activeBanUiShellActive, closeLobby]);
 
   useLayoutEffect(() => {
     if (!deepLinkRepeatBan && !deepLinkReplyBan && !deepLinkActiveBan) return;
@@ -359,6 +360,8 @@ export default function HomePage() {
         replyDeepLinkLoading ? ' app-page--reply-deeplink-loading' : ''
       }${
         replyUiShellActive ? ' app-page--reply-ui-shell' : ''
+      }${
+        activeBanUiShellActive ? ' app-page--active-ban-deeplink-loading' : ''
       }${
         arenaVisible ? ' app-page--instant-ban-active' : ''
       }`}

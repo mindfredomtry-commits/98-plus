@@ -69,6 +69,7 @@ import {
   logReplyFlowLoopGuard,
   patchReplyHandoffDebug,
 } from '@/lib/reply-handoff-debug';
+import { logActiveBanDeeplink } from '@/lib/active-ban-deeplink-debug';
 import {
   incomingShowDecision,
   isValidIncomingOverlayPayload,
@@ -181,6 +182,9 @@ interface AppContextValue {
   deepLinkActiveBan: BanInteraction | null;
   openDeepLinkActive: (b: BanInteraction) => void;
   clearDeepLinkActiveBan: () => void;
+  /** Sender "Ты запретил" deep link — block lobby until active card is visible. */
+  activeBanUiShellActive: boolean;
+  notifyActiveBanCardVisible: (banId: string) => void;
   overlayQueueLength: number;
   deepLinkSelectedBanId: string | null;
   /** Latched true when a deep-link send/active flow should keep lobby closed. */
@@ -418,6 +422,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [deepLinkActiveBan, setDeepLinkActiveBan] = useState<BanInteraction | null>(
     null,
   );
+  const [activeBanDeepLinkBanId, setActiveBanDeepLinkBanId] = useState<string | null>(
+    null,
+  );
+  const [activeBanCardReady, setActiveBanCardReady] = useState(false);
+  const activeBanCardVisibleRef = useRef(false);
   const [sendFlowOpen, setSendFlowOpen] = useState(false);
   const [deepLinkReplyBooting, setDeepLinkReplyBooting] = useState(false);
   const [replyDeepLinkBanId, setReplyDeepLinkBanId] = useState<string | null>(null);
@@ -434,6 +443,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, []);
 
   const armReplyDeepLink = useCallback((banId: string) => {
+    if (activeBanDeepLinkBanId != null || activeBanCardVisibleRef.current) {
+      logActiveBanDeeplink('wrong-reply-flow-blocked', {
+        payload: `a_${activeBanDeepLinkBanId ?? banId}`,
+        banId: activeBanDeepLinkBanId ?? banId,
+      });
+      return;
+    }
     if (replyLockReleasedRef.current) {
       logReplyFlowLoopGuard('skip arm after release');
       return;
@@ -451,7 +467,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       lockActive: true,
       lobbyOpen: lobbyOpen,
     });
-  }, [lobbyOpen]);
+  }, [lobbyOpen, activeBanDeepLinkBanId]);
 
   const beginReplyHandoff = useCallback((banId: string) => {
     if (replyLockReleasedRef.current) {
@@ -1514,10 +1530,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setDeepLinkActiveBan(null);
   }, []);
 
+  const notifyActiveBanCardVisible = useCallback((banId: string) => {
+    if (activeBanCardVisibleRef.current) return;
+    activeBanCardVisibleRef.current = true;
+    setActiveBanCardReady(true);
+    setActiveBanDeepLinkBanId(null);
+    logActiveBanDeeplink('active-card-visible', {
+      banId,
+      cardVisible: true,
+      bansOverlayOpen: true,
+      lobbyBlocked: false,
+    });
+  }, []);
+
   const openDeepLinkActive = useCallback(
     (b: BanInteraction) => {
       noteDeepLinkHandlerOpened('openDeepLinkActive', b.id);
       const enriched = enrichBanInteraction(b);
+      const payload = `a_${b.id}`;
+      logActiveBanDeeplink('telegram-open', { payload, banId: b.id });
+      logActiveBanDeeplink('ban-id', { payload, banId: b.id });
+      logActiveBanDeeplink('lobby-blocked', {
+        payload,
+        banId: b.id,
+        lobbyBlocked: true,
+      });
+      activeBanCardVisibleRef.current = false;
+      setActiveBanCardReady(false);
+      setActiveBanDeepLinkBanId(b.id);
+      setLobbyOpen(false);
       if (!userIdRef.current || auth.loading) {
         bufferedActiveDeepLinkRef.current = enriched;
         console.log('[active-deeplink]', {
@@ -1538,6 +1579,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         selectedBanId: b.id,
         overlayQueueLength: overlayQueueRef.current.length,
         ok: true,
+        reason: 'active-ban-card',
       });
     },
     [auth.loading, openSendFlow],
@@ -3158,6 +3200,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [replyUiShellActive, replyIncomingReady],
   );
 
+  const activeBanUiShellActive = useMemo(
+    () => activeBanDeepLinkBanId != null && !activeBanCardReady,
+    [activeBanDeepLinkBanId, activeBanCardReady],
+  );
+
   useEffect(() => {
     if (!auth.user?.id) return;
     if (
@@ -3168,6 +3215,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       deepLinkReplyBooting ||
       replyHandoffLock ||
       replyUiShellActive ||
+      activeBanUiShellActive ||
       incomingGateActive ||
       checkGateActive ||
       result
@@ -3185,6 +3233,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     deepLinkReplyBooting,
     replyHandoffLock,
     replyUiShellActive,
+    activeBanUiShellActive,
     incomingGateActive,
     checkGateActive,
     result,
@@ -3230,6 +3279,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       deepLinkActiveBan,
       openDeepLinkActive,
       clearDeepLinkActiveBan,
+      activeBanUiShellActive,
+      notifyActiveBanCardVisible,
       overlayQueueLength: overlayQueue.length,
       deepLinkSelectedBanId,
       sendFlowOpen,
@@ -3409,6 +3460,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       beginReplyHandoff,
       notifyReplyWhatVisible,
       releaseReplyHandoffLock,
+      activeBanUiShellActive,
+      notifyActiveBanCardVisible,
     ],
   );
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { parseStartParam } from '@98plus/shared';
+import { buildStartParam, parseStartParam } from '@98plus/shared';
 import { isValidIncomingOverlayPayload } from '@/lib/incoming-challenge';
 import type { BanResult, BanInteraction } from '@98plus/shared';
 import { api } from '@/lib/api';
@@ -10,6 +10,7 @@ import {
   readStartParamRawFromLocation,
 } from '@/lib/deep-link-boot-debug';
 import { logReplyFlow } from '@/lib/reply-handoff-debug';
+import { logActiveBanDeeplink } from '@/lib/active-ban-deeplink-debug';
 import { useTelegram } from './useTelegram';
 
 interface BootHandlers {
@@ -163,6 +164,10 @@ export function useSocialBoot(h: BootHandlers) {
           break;
         }
         case 'active': {
+          logActiveBanDeeplink('payload', {
+            payload: buildStartParam(action),
+            banId: action.banId,
+          });
           const { ban } = await api<{ ban: BanInteraction }>(
             `/bans/${action.banId}/open`,
             { token: h.token! },

@@ -830,6 +830,38 @@ html.scroll-lock body {
   pointer-events: none;
 }
 
+.app-page--active-ban-deeplink-loading .arena-ambience,
+.app-page--active-ban-deeplink-loading .app-main,
+.app-page--active-ban-deeplink-loading .cta-dock,
+.app-page--active-ban-deeplink-loading .bottom-nav,
+.app-page--active-ban-deeplink-loading .connection-banner,
+.app-page--active-ban-deeplink-loading .instant-ban-arena-send .instant-ban-arena-lobby-nav,
+.app-page--active-ban-deeplink-loading .instant-ban-arena-send > .instant-ban-lobby-cta,
+.app-page--active-ban-deeplink-loading .instant-ban-arena-send .lobby-screen__orb-wrap,
+.app-page--active-ban-deeplink-loading .instant-ban-arena-send .lobby-screen__particles,
+.app-page--active-ban-deeplink-loading .instant-ban-arena-send .lobby-screen__grid,
+.app-page--active-ban-deeplink-loading .instant-ban-flow--active-ban-ui-shell .instant-ban-arena-lobby-nav,
+.app-page--active-ban-deeplink-loading .instant-ban-flow--active-ban-ui-shell > .instant-ban-lobby-cta,
+.app-page--active-ban-deeplink-loading .instant-ban-flow--active-ban-ui-shell .lobby-screen__orb-wrap {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.app-page--active-ban-deeplink-loading::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(8, 10, 18, 0.72);
+  pointer-events: none;
+}
+
+.app-page--active-ban-deeplink-loading .instant-ban-arena-send__bans-layer,
+.app-page--active-ban-deeplink-loading .instant-ban-active-ban-card-layer {
+  visibility: visible;
+  pointer-events: auto;
+}
+
 .app-page--reply-ui-shell .instant-ban-arena-send[data-send-phase='composingBan']
   .instant-ban-send-overlay {
   visibility: visible;

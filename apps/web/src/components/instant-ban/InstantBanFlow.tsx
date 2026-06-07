@@ -35,6 +35,7 @@ import {
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { logDeepLinkHandlerResult } from '@/lib/deep-link-boot-debug';
 import { logReplyFlow, logReplyFlowLoopGuard } from '@/lib/reply-handoff-debug';
+import { logActiveBanDeeplink } from '@/lib/active-ban-deeplink-debug';
 import { api } from '@/lib/api';
 import {
   getSavedBans,
@@ -239,6 +240,8 @@ export function InstantBanFlow({
     replyDeepLinkBanId,
     notifyReplyWhatVisible,
     releaseReplyHandoffLock,
+    activeBanUiShellActive,
+    notifyActiveBanCardVisible,
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
 
@@ -299,6 +302,7 @@ export function InstantBanFlow({
   const [crossScreenProgress, setCrossScreenProgress] = useState(0);
   const lobbyCtaBootSpringRef = useRef(false);
   const prevSendStartedRef = useRef(sendStarted);
+  const skipActiveDeepLinkEntryRef = useRef(false);
   const [bansOverlayOpen, setBansOverlayOpen] = useState(false);
   const [lowInfluenceRevealed, setLowInfluenceRevealed] = useState(false);
   const [lowEnergyBlockedSignal, setLowEnergyBlockedSignal] = useState(0);
@@ -332,7 +336,7 @@ export function InstantBanFlow({
   /** Fixed Who dismiss zone (z-index 11) must not cover What interactive layer. */
   const whoDismissGestureActive =
     phase === 'selectingTarget' && crossScreenProgress < 0.02;
-  const replyLobbyBlocked = replyUiShellActive;
+  const replyLobbyBlocked = replyUiShellActive || activeBanUiShellActive;
   const showLobbyCta =
     !replyLobbyBlocked &&
     !deepLinkReplyBooting &&
@@ -679,6 +683,12 @@ export function InstantBanFlow({
   useEffect(() => {
     if (sendStarted && !prevSendStartedRef.current) {
       clearCtaBootDelayTimer();
+      if (skipActiveDeepLinkEntryRef.current) {
+        skipActiveDeepLinkEntryRef.current = false;
+        setCtaState('hidden');
+        prevSendStartedRef.current = sendStarted;
+        return;
+      }
       const entryPhase = sendEntryPhaseRef.current;
       sendEntryPhaseRef.current = null;
       if (entryPhase) {
@@ -1509,11 +1519,20 @@ export function InstantBanFlow({
     if (!deepLinkActiveBan?.id || !user?.id) return;
     if (lastDeepLinkActiveBanIdRef.current === deepLinkActiveBan.id) return;
     lastDeepLinkActiveBanIdRef.current = deepLinkActiveBan.id;
+    skipActiveDeepLinkEntryRef.current = true;
     console.log('[active-deeplink]', {
       banId: deepLinkActiveBan.id,
       action: 'begin-flow',
     });
     const ok = beginActiveBanFromDeepLink(deepLinkActiveBan);
+    if (ok) {
+      logActiveBanDeeplink('active-card-visible', {
+        banId: deepLinkActiveBan.id,
+        cardVisible: true,
+        bansOverlayOpen: true,
+      });
+      notifyActiveBanCardVisible(deepLinkActiveBan.id);
+    }
     logDeepLinkHandlerResult({
       type: 'active',
       banId: deepLinkActiveBan.id,
@@ -1524,7 +1543,7 @@ export function InstantBanFlow({
       selectedBanId: deepLinkActiveBan.id,
       overlayQueueLength,
       ok,
-      reason: ok ? 'bans-overlay' : 'begin-active-failed',
+      reason: ok ? 'active-ban-card' : 'begin-active-failed',
     });
     if (ok) clearDeepLinkActiveBan();
   }, [
@@ -1532,6 +1551,7 @@ export function InstantBanFlow({
     user?.id,
     beginActiveBanFromDeepLink,
     clearDeepLinkActiveBan,
+    notifyActiveBanCardVisible,
     sendStarted,
     sendFlowOpen,
     overlayQueueLength,
@@ -2020,6 +2040,8 @@ export function InstantBanFlow({
         whatMobileSafe ? ' instant-ban-flow--what-mobile-safe' : ''
       }${liteMode ? ' instant-ban-debug-lite' : ''}${
         replyUiShellActive ? ' instant-ban-flow--reply-ui-shell' : ''
+      }${
+        activeBanUiShellActive ? ' instant-ban-flow--active-ban-ui-shell' : ''
       }`}
       style={arenaOverlayStyle}
       role="dialog"
