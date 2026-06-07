@@ -42,7 +42,6 @@ import {
 } from './result.service';
 import { applyCheckResult, resolveCheckOutcome } from './energy.service';
 import { banParticipantRole, logResultLatency } from '../lib/result-latency-diag';
-import { miniAppLink } from '../lib/deeplink';
 import { trackEvent } from './analytics.service';
 import { createPendingInvite, normalizeUsername } from './invite.service';
 import { recordSocialContact } from './social-graph.service';

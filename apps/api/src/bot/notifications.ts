@@ -16,7 +16,7 @@ import {
   RETENTION_BAN_WEBAPP_BUTTON_LABEL,
 } from '@98plus/shared';
 import { getBot } from './index';
-import { botWebAppButtonUrl } from '../lib/deeplink';
+import { botWebAppButtonUrl, type BotWebAppButtonMeta } from '../lib/deeplink';
 import { prisma } from '../lib/prisma';
 import { buildChallengeCardSvg } from './challenge-card';
 import { isDevTelegramId } from '../services/dev-fixtures.service';
@@ -26,6 +26,13 @@ import {
   getTelegramBotToken,
   telegramSendMessage,
 } from '../lib/telegram-api';
+
+function notificationDeepLink(
+  action: Parameters<typeof botWebAppButtonUrl>[0],
+  meta: BotWebAppButtonMeta,
+): string {
+  return botWebAppButtonUrl(action, meta);
+}
 
 function replyBanKeyboard(
   deepLink: string,
@@ -198,7 +205,13 @@ export async function sendRegisteredFriendBanNotification(
     return { ...baseDebug, skippedReason: skipReason };
   }
 
-  const link = botWebAppButtonUrl({ type: 'reply', banId: params.banId });
+  const link = notificationDeepLink(
+    { type: 'reply', banId: params.banId },
+    {
+      source: 'sendRegisteredFriendBanNotification',
+      buttonLabel: REPLY_BAN_WEBAPP_BUTTON_LABEL,
+    },
+  );
   const message = formatIncomingBanMessage({
     senderUsername: params.senderUsername,
     senderFirstName: params.senderFirstName,
@@ -329,7 +342,13 @@ export async function sendIncomingBanNotification(
   senderFirstName?: string | null,
   senderPhotoUrl?: string | null,
 ) {
-  const url = botWebAppButtonUrl({ type: 'reply', banId });
+  const url = notificationDeepLink(
+    { type: 'reply', banId },
+    {
+      source: 'sendIncomingBanNotification',
+      buttonLabel: REPLY_BAN_WEBAPP_BUTTON_LABEL,
+    },
+  );
 
   const caption = formatIncomingBanMessage({
     senderUsername,
@@ -441,7 +460,13 @@ export async function sendCheckNotification(
   const bot = getBot();
   if (!bot) return;
 
-  const url = botWebAppButtonUrl({ type: 'check', banId });
+  const url = notificationDeepLink(
+    { type: 'check', banId },
+    {
+      source: 'sendCheckNotification',
+      buttonLabel: REPLY_BAN_WEBAPP_BUTTON_LABEL,
+    },
+  );
   const message = formatBotCheckChallengeMessage({
     senderUsername,
     senderFirstName,
@@ -481,7 +506,13 @@ export async function sendBanAcceptedSenderNotification(params: {
     banText: params.banText,
     durationMinutes: params.durationMinutes,
   });
-  const link = botWebAppButtonUrl({ type: 'active', banId: params.banId });
+  const link = notificationDeepLink(
+    { type: 'active', banId: params.banId },
+    {
+      source: 'sendBanAcceptedSenderNotification',
+      buttonLabel: REPLY_BAN_WEBAPP_BUTTON_LABEL,
+    },
+  );
 
   try {
     await bot.telegram.sendMessage(
@@ -513,13 +544,29 @@ export async function sendResultNotification(
     opponentFirstName: result.opponent.firstName,
     banText: result.text,
   });
-  const link = botWebAppButtonUrl({ type: 'result', banId: result.id });
+  const resultLink = notificationDeepLink(
+    { type: 'result', banId: result.id },
+    {
+      source: 'sendResultNotification',
+      buttonLabel: OPEN_BAN_WEBAPP_BUTTON_LABEL,
+    },
+  );
+  const repeatLink = notificationDeepLink(
+    { type: 'repeat', banId: result.id },
+    {
+      source: 'sendResultNotification',
+      buttonLabel: REPEAT_BAN_WEBAPP_BUTTON_LABEL,
+    },
+  );
 
   try {
     await bot.telegram.sendMessage(
       telegramId.toString(),
       message,
-      replyBanKeyboard(link, REPEAT_BAN_WEBAPP_BUTTON_LABEL),
+      Markup.inlineKeyboard([
+        [Markup.button.webApp(OPEN_BAN_WEBAPP_BUTTON_LABEL, resultLink)],
+        [Markup.button.webApp(REPEAT_BAN_WEBAPP_BUTTON_LABEL, repeatLink)],
+      ]),
     );
   } catch {
     /* user may not have started bot */
@@ -537,10 +584,16 @@ export async function sendRetentionNotification(params: {
   const bot = getBot();
   if (!bot) return;
 
-  const link = botWebAppButtonUrl({
-    type: 'invite',
-    username: params.friendUsername.replace('@', ''),
-  });
+  const link = notificationDeepLink(
+    {
+      type: 'invite',
+      username: params.friendUsername.replace('@', ''),
+    },
+    {
+      source: 'sendRetentionNotification',
+      buttonLabel: RETENTION_BAN_WEBAPP_BUTTON_LABEL,
+    },
+  );
   const message = formatRetentionBanMessage({
     friendUsername: params.friendUsername,
     friendFirstName: params.friendFirstName,
@@ -597,7 +650,13 @@ export async function sendInviteClaimWelcome(
   senderFirstName?: string | null,
   senderPhotoUrl?: string | null,
 ) {
-  const deepLink = botWebAppButtonUrl({ type: 'ban', banId });
+  const deepLink = notificationDeepLink(
+    { type: 'reply', banId },
+    {
+      source: 'sendInviteClaimWelcome',
+      buttonLabel: REPLY_BAN_WEBAPP_BUTTON_LABEL,
+    },
+  );
   await sendBotStartInviteChallenge({
     telegramId,
     senderUsername,

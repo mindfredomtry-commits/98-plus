@@ -4,12 +4,9 @@ import { prisma } from '../lib/prisma';
 import { mapBanToInteraction } from './ban.service';
 import { linkPairInteraction } from './energy.service';
 import { trackEvent } from './analytics.service';
-import {
-  buildBotStartUrl,
-  buildMiniAppUrl,
-  buildStartParam,
-} from '@98plus/shared';
-import { botUsername } from '../lib/deeplink';
+import { buildBotStartUrl, buildStartParam } from '@98plus/shared';
+import { REPLY_BAN_WEBAPP_BUTTON_LABEL } from '@98plus/shared';
+import { botUsername, botWebAppButtonUrl } from '../lib/deeplink';
 import { sendPendingBanInviteToUser } from '../bot/notifications';
 import { broadcastToUser } from '../websocket/hub';
 import type { BanInteraction } from '@98plus/shared';
@@ -33,7 +30,13 @@ export function inviteLinks(token: string) {
   const startParam = buildStartParam({ type: 'invite_token', token });
   const bot = botUsername();
   return {
-    miniApp: buildMiniAppUrl(bot, startParam),
+    webAppButton: botWebAppButtonUrl(
+      { type: 'invite_token', token },
+      {
+        source: 'inviteLinks',
+        buttonLabel: REPLY_BAN_WEBAPP_BUTTON_LABEL,
+      },
+    ),
     botStart: buildBotStartUrl(bot, startParam),
     startParam,
   };
@@ -84,7 +87,7 @@ export async function createPendingInvite(params: {
     senderPhotoUrl: invite.sender.photoUrl,
     banText: invite.text,
     durationMinutes: invite.durationMinutes,
-    deepLink: links.miniApp,
+    deepLink: links.webAppButton,
   });
 
   await recordSocialContact(params.senderId, {

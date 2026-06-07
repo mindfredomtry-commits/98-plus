@@ -6,7 +6,7 @@ import {
   claimInvitesForUser,
   getInvitePreview,
 } from '../services/invite.service';
-import { botWebAppButtonUrl } from '../lib/deeplink';
+import { botWebAppButtonUrl, botWebAppPlainOpenUrl } from '../lib/deeplink';
 import { OPEN_BAN_WEBAPP_BUTTON_LABEL } from '@98plus/shared';
 import { sendBotStartInviteChallenge } from './notifications';
 
@@ -96,10 +96,13 @@ export function startBot(): Telegraf | null {
 
         const preview = await getInvitePreview(inviteToken);
         if (preview) {
-          const previewUrl = botWebAppButtonUrl({
-            type: 'invite_token',
-            token: inviteToken,
-          });
+          const previewUrl = botWebAppButtonUrl(
+            { type: 'invite_token', token: inviteToken },
+            {
+              source: 'botStartInvitePreview',
+              buttonLabel: OPEN_BAN_WEBAPP_BUTTON_LABEL,
+            },
+          );
           const result = await sendBotStartInviteChallenge({
             telegramId: chatId,
             senderUsername: preview.sender.username,
@@ -129,9 +132,9 @@ export function startBot(): Telegraf | null {
 
       await claimInvitesForUser(user.id, user.username);
 
-      const defaultAppUrl = botWebAppButtonUrl({
-        type: 'invite',
-        username: user.username ?? 'friend',
+      const defaultAppUrl = botWebAppPlainOpenUrl({
+        source: 'botStartDefault',
+        buttonLabel: OPEN_BAN_WEBAPP_BUTTON_LABEL,
       });
       await ctx.reply(
         '🚫 98+\n\nКто-то мог отправить тебе запрет.\nОткрой, чтобы увидеть вызовы и ответить.',
