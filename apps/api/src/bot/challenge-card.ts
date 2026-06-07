@@ -1,5 +1,10 @@
 /** SVG challenge card for Telegram sendPhoto (dark 98+ mood). */
 
+import {
+  formatTelegramDisplayName,
+  formatTelegramUsernameLine,
+} from '@98plus/shared';
+
 function escapeXml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -31,24 +36,41 @@ function wrapLines(text: string, maxLen: number, maxLines: number): string[] {
 }
 
 export function buildChallengeCardSvg(params: {
-  senderName: string;
+  senderUsername?: string | null;
+  senderFirstName?: string | null;
+  senderDisplayName?: string | null;
   banText: string;
   durationLabel: string;
 }): Buffer {
-  const sender = escapeXml(params.senderName.slice(0, 40));
+  const sender = escapeXml(
+    formatTelegramDisplayName(
+      params.senderUsername,
+      params.senderFirstName,
+      params.senderDisplayName,
+      'друг',
+    ).slice(0, 40),
+  );
+  const usernameLine = formatTelegramUsernameLine(params.senderUsername);
+  const usernameNode = usernameLine
+    ? `<text x="400" y="124" text-anchor="middle" fill="#b794d4" font-size="18" font-family="system-ui,sans-serif">${escapeXml(usernameLine)}</text>`
+    : '';
+  const banStartY = usernameLine ? 168 : 152;
   const lines = wrapLines(
     params.banText.replace(/^🚫\s*/, ''),
     22,
     4,
   ).map(escapeXml);
   const duration = escapeXml(params.durationLabel);
-  const lineYs = [200, 232, 264, 296].slice(0, lines.length);
+  const lineYs = [0, 32, 64, 96]
+    .map((offset) => banStartY + offset)
+    .slice(0, lines.length);
   const textNodes = lines
     .map(
       (ln, i) =>
         `<text x="400" y="${lineYs[i]}" text-anchor="middle" fill="#f5f0ff" font-size="26" font-weight="700" font-family="system-ui,sans-serif">${ln}</text>`,
     )
     .join('\n');
+  const durationY = usernameLine ? 392 : 380;
 
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="480" viewBox="0 0 800 480">
@@ -65,8 +87,9 @@ export function buildChallengeCardSvg(params: {
   <rect width="800" height="480" fill="url(#bg)"/>
   <ellipse cx="400" cy="160" rx="320" ry="200" fill="url(#glow)"/>
   <text x="400" y="96" text-anchor="middle" fill="#e8e0f0" font-size="28" font-weight="700" font-family="system-ui,sans-serif">🚫 ${sender}</text>
+  ${usernameNode}
   ${textNodes}
-  <text x="400" y="380" text-anchor="middle" fill="#9b59b6" font-size="18" font-family="system-ui,sans-serif">на ${duration}</text>
+  <text x="400" y="${durationY}" text-anchor="middle" fill="#9b59b6" font-size="18" font-family="system-ui,sans-serif">на ${duration}</text>
 </svg>`;
 
   return Buffer.from(svg, 'utf-8');

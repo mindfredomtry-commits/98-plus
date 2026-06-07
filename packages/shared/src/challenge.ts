@@ -63,12 +63,64 @@ export function formatParticipantDisplayName(
   firstName?: string | null,
   displayName?: string | null,
 ): string {
+  return formatTelegramDisplayName(username, firstName, displayName, 'друг');
+}
+
+export interface TelegramPersonFields {
+  username?: string | null;
+  firstName?: string | null;
+  displayName?: string | null;
+}
+
+/** Display name for Telegram bot copy — firstName → displayName → username (no @). */
+export function formatTelegramDisplayName(
+  username?: string | null,
+  firstName?: string | null,
+  displayName?: string | null,
+  fallback = 'друг',
+): string {
   const name = firstName?.trim();
   if (name) return name;
   const alias = displayName?.trim();
   if (alias) return alias;
   const u = (username ?? '').replace(/^@/, '').trim();
-  return u || 'друг';
+  return u || fallback;
+}
+
+/** Clickable @username line — empty when username missing. */
+export function formatTelegramUsernameLine(
+  username?: string | null,
+): string {
+  const u = (username ?? '').replace(/^@/, '').trim();
+  return u ? `@${u}` : '';
+}
+
+/** Name block with optional @username on the next line (no trailing blank lines). */
+export function formatTelegramPersonBlock(
+  person: TelegramPersonFields & { fallback?: string },
+): string {
+  const name = formatTelegramDisplayName(
+    person.username,
+    person.firstName,
+    person.displayName,
+    person.fallback ?? 'друг',
+  );
+  const userLine = formatTelegramUsernameLine(person.username);
+  return userLine ? `${name}\n${userLine}` : name;
+}
+
+/** Incoming/check header — 🚫 on the name line, @username below when present. */
+export function formatPersonalChallengePersonHeader(
+  person: TelegramPersonFields,
+): string {
+  const name = formatTelegramDisplayName(
+    person.username,
+    person.firstName,
+    person.displayName,
+    'друг',
+  );
+  const userLine = formatTelegramUsernameLine(person.username);
+  return userLine ? `🚫 ${name}\n${userLine}` : `🚫 ${name}`;
 }
 
 /** Telegram result outcomes that get a bot DM (not timeout/expired). */
@@ -100,12 +152,19 @@ export function formatTelegramResultHeadline(
 /** Result DM — status, opponent, ban essence; no URL in body. */
 export function formatBotResultMessage(params: {
   headline: string;
-  opponentName: string;
+  opponentUsername?: string | null;
+  opponentFirstName?: string | null;
+  opponentDisplayName?: string | null;
   banText: string;
 }): string {
-  const name = params.opponentName.trim() || 'друг';
+  const person = formatTelegramPersonBlock({
+    username: params.opponentUsername,
+    firstName: params.opponentFirstName,
+    displayName: params.opponentDisplayName,
+    fallback: 'друг',
+  });
   const essence = banTextEssence(params.banText);
-  return `${params.headline}\n\n${name}\n\n🚫 ${essence}`;
+  return `${params.headline}\n\n${person}\n\n🚫 ${essence}`;
 }
 
 /**
@@ -128,19 +187,27 @@ export function banTextEssence(raw: string): string {
 
 /** Personal challenge block — reads like a message from the sender. */
 export function formatPersonalChallengeBlock(params: {
-  senderName: string;
+  senderUsername?: string | null;
+  senderFirstName?: string | null;
+  senderDisplayName?: string | null;
   banText: string;
   durationMinutes: number;
 }): string {
-  const name = params.senderName.trim() || 'Кто-то';
+  const header = formatPersonalChallengePersonHeader({
+    username: params.senderUsername,
+    firstName: params.senderFirstName,
+    displayName: params.senderDisplayName,
+  });
   const essence = banTextEssence(params.banText);
   const dur = formatDurationLabel(params.durationMinutes);
-  return `🚫 ${name}\n\nЗапрещаю ${essence}\nна ${dur}.`;
+  return `${header}\n\nЗапрещаю ${essence}\nна ${dur}.`;
 }
 
 /** Incoming ban DM — no link in body (link lives in WebApp button). */
 export function formatIncomingBanMessage(params: {
-  senderName: string;
+  senderUsername?: string | null;
+  senderFirstName?: string | null;
+  senderDisplayName?: string | null;
   banText: string;
   durationMinutes: number;
 }): string {
@@ -149,7 +216,9 @@ export function formatIncomingBanMessage(params: {
 
 /** @deprecated Use formatIncomingBanMessage */
 export function formatBotStartChallengeMessage(params: {
-  senderName: string;
+  senderUsername?: string | null;
+  senderFirstName?: string | null;
+  senderDisplayName?: string | null;
   banText: string;
   durationMinutes: number;
 }): string {
@@ -158,7 +227,9 @@ export function formatBotStartChallengeMessage(params: {
 
 /** Check DM — same personal block + honest answer prompt. */
 export function formatBotCheckChallengeMessage(params: {
-  senderName: string;
+  senderUsername?: string | null;
+  senderFirstName?: string | null;
+  senderDisplayName?: string | null;
   banText: string;
   durationMinutes: number;
 }): string {
@@ -171,12 +242,19 @@ export function formatBotCheckChallengeMessage(params: {
 
 /** Retention DM — re-engage with a prior ban to this friend. */
 export function formatRetentionBanMessage(params: {
-  friendName: string;
+  friendUsername?: string | null;
+  friendFirstName?: string | null;
+  friendDisplayName?: string | null;
   banText: string;
 }): string {
-  const name = params.friendName.trim() || 'Кто-то';
+  const person = formatTelegramPersonBlock({
+    username: params.friendUsername,
+    firstName: params.friendFirstName,
+    displayName: params.friendDisplayName,
+    fallback: 'друг',
+  });
   const essence = banTextEssence(params.banText);
-  return `${name} сегодня можно ${essence}?`;
+  return `${person}\n\nсегодня можно ${essence}?`;
 }
 
 /** Native Telegram share text for pending challenges (includes link). */

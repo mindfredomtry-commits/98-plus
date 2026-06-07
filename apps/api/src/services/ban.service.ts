@@ -3,7 +3,6 @@ import type { User } from '@prisma/client';
 import {
   SYSTEM_VOICE,
   formatChallengeShareMessage,
-  formatSenderDisplayName,
   isValidDurationMinutes,
   ANALYTICS_EVENTS,
   CHECK_TIMEOUT_MINUTES,
@@ -1951,16 +1950,11 @@ export async function processRetention() {
         contact.contactUsername.replace('@', '').trim();
       if (!friendUsername) continue;
 
-      const friendName = formatSenderDisplayName(
-        friend.username,
-        friend.firstName,
-        contact.contactFirstName,
-      );
-
       await sendRetentionNotification({
         telegramId: user.telegramId,
-        friendName,
         friendUsername,
+        friendFirstName: friend.firstName,
+        friendDisplayName: contact.contactFirstName,
         banText: lastSentBan.text,
       });
 

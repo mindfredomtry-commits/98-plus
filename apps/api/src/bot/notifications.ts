@@ -6,9 +6,7 @@ import {
   formatChallengeShareMessage,
   formatDurationLabel,
   formatIncomingBanMessage,
-  formatParticipantDisplayName,
   formatRetentionBanMessage,
-  formatSenderDisplayName,
   formatTelegramResultHeadline,
   isTelegramResultOutcome,
   OPEN_BAN_WEBAPP_BUTTON_LABEL,
@@ -60,7 +58,9 @@ async function deliverChallengeNotification(params: {
   buttonLabel?: string;
   senderPhotoUrl?: string | null;
   cardParams?: {
-    senderName: string;
+    senderUsername?: string | null;
+    senderFirstName?: string | null;
+    senderDisplayName?: string | null;
     banText: string;
     durationMinutes: number;
   };
@@ -89,7 +89,9 @@ async function deliverChallengeNotification(params: {
   if (params.cardParams) {
     try {
       const svg = buildChallengeCardSvg({
-        senderName: params.cardParams.senderName,
+        senderUsername: params.cardParams.senderUsername,
+        senderFirstName: params.cardParams.senderFirstName,
+        senderDisplayName: params.cardParams.senderDisplayName,
         banText: params.cardParams.banText,
         durationLabel: formatDurationLabel(params.cardParams.durationMinutes),
       });
@@ -196,12 +198,9 @@ export async function sendRegisteredFriendBanNotification(
   }
 
   const link = miniAppLink({ type: 'ban', banId: params.banId });
-  const senderName = formatSenderDisplayName(
-    params.senderUsername,
-    params.senderFirstName,
-  );
   const message = formatIncomingBanMessage({
-    senderName,
+    senderUsername: params.senderUsername,
+    senderFirstName: params.senderFirstName,
     banText: params.banText,
     durationMinutes: params.durationMinutes,
   });
@@ -331,12 +330,9 @@ export async function sendIncomingBanNotification(
 ) {
   const url = miniAppLink({ type: 'ban', banId });
 
-  const senderName = formatSenderDisplayName(
+  const caption = formatIncomingBanMessage({
     senderUsername,
     senderFirstName,
-  );
-  const caption = formatIncomingBanMessage({
-    senderName,
     banText: text,
     durationMinutes: durationMinutes ?? 10,
   });
@@ -348,7 +344,8 @@ export async function sendIncomingBanNotification(
     buttonLabel: REPLY_BAN_WEBAPP_BUTTON_LABEL,
     senderPhotoUrl,
     cardParams: {
-      senderName,
+      senderUsername,
+      senderFirstName,
       banText: text,
       durationMinutes: durationMinutes ?? 10,
     },
@@ -392,12 +389,9 @@ export async function sendBotStartInviteChallenge(
     return 'failed';
   }
 
-  const senderName = formatSenderDisplayName(
-    params.senderUsername,
-    params.senderFirstName,
-  );
   const caption = formatIncomingBanMessage({
-    senderName,
+    senderUsername: params.senderUsername,
+    senderFirstName: params.senderFirstName,
     banText: params.banText,
     durationMinutes: params.durationMinutes,
   });
@@ -410,7 +404,8 @@ export async function sendBotStartInviteChallenge(
       buttonLabel: REPLY_BAN_WEBAPP_BUTTON_LABEL,
       senderPhotoUrl: params.senderPhotoUrl,
       cardParams: {
-        senderName,
+        senderUsername: params.senderUsername,
+        senderFirstName: params.senderFirstName,
         banText: params.banText,
         durationMinutes: params.durationMinutes,
       },
@@ -446,12 +441,9 @@ export async function sendCheckNotification(
   if (!bot) return;
 
   const url = miniAppLink({ type: 'check', banId });
-  const senderName = formatSenderDisplayName(
+  const message = formatBotCheckChallengeMessage({
     senderUsername,
     senderFirstName,
-  );
-  const message = formatBotCheckChallengeMessage({
-    senderName,
     banText,
     durationMinutes: durationMinutes ?? 10,
   });
@@ -480,13 +472,10 @@ export async function sendResultNotification(
   if (!bot) return;
 
   const headline = formatTelegramResultHeadline(result.outcome);
-  const opponentName = formatParticipantDisplayName(
-    result.opponent.username,
-    result.opponent.firstName,
-  );
   const message = formatBotResultMessage({
     headline,
-    opponentName,
+    opponentUsername: result.opponent.username,
+    opponentFirstName: result.opponent.firstName,
     banText: result.text,
   });
   const link = miniAppLink({ type: 'repeat', banId: result.id });
@@ -504,8 +493,9 @@ export async function sendResultNotification(
 
 export async function sendRetentionNotification(params: {
   telegramId: bigint;
-  friendName: string;
   friendUsername: string;
+  friendFirstName?: string | null;
+  friendDisplayName?: string | null;
   banText: string;
 }): Promise<void> {
   if (isDevTelegramId(params.telegramId)) return;
@@ -517,7 +507,9 @@ export async function sendRetentionNotification(params: {
     username: params.friendUsername.replace('@', ''),
   });
   const message = formatRetentionBanMessage({
-    friendName: params.friendName,
+    friendUsername: params.friendUsername,
+    friendFirstName: params.friendFirstName,
+    friendDisplayName: params.friendDisplayName,
     banText: params.banText,
   });
 
