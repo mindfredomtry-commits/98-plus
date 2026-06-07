@@ -329,6 +329,7 @@ export function InstantBanFlow({
   const showLobbyCta =
     !deepLinkReplyBooting &&
     !incomingReplyBanId &&
+    !incomingGateActive &&
     (ctaState === 'visible' ||
       ctaState === 'exiting' ||
       ctaState === 'entering');
@@ -1367,27 +1368,29 @@ export function InstantBanFlow({
     lastDeepLinkReplyBanIdRef.current = deepLinkReplyBan.id;
     console.log('[reply-deeplink]', {
       banId: deepLinkReplyBan.id,
-      action: 'begin-flow',
+      action: 'card-reply-begin-what',
     });
     const ok = beginIncomingReplyFromDeepLink(deepLinkReplyBan);
+    const opponent = user?.id
+      ? opponentForBan(deepLinkReplyBan, user.id)
+      : null;
     logDeepLinkHandlerResult({
       type: 'reply',
       banId: deepLinkReplyBan.id,
       instantBanOpen: sendStarted,
       sendFlowOpen,
       phase: ok ? 'composingBan' : 'idle',
-      selectedUserId: selectedUser?.userId ?? selectedUser?.id ?? null,
+      selectedUserId:
+        opponent?.id ??
+        selectedUser?.userId ??
+        selectedUser?.id ??
+        null,
       selectedBanId: deepLinkReplyBan.id,
       overlayQueueLength,
       ok,
-      reason: ok ? null : 'begin-reply-failed',
+      reason: ok ? 'card-reply-what' : 'begin-reply-failed',
     });
-    if (ok) {
-      setDeepLinkReplyBooting(false);
-      clearDeepLinkReplyBan();
-    } else {
-      setDeepLinkReplyBooting(false);
-    }
+    if (ok) clearDeepLinkReplyBan();
   }, [
     deepLinkReplyBan,
     user?.id,

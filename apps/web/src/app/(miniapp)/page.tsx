@@ -91,6 +91,7 @@ export default function HomePage() {
     closeSendFlow,
     deepLinkReplyBooting,
     setDeepLinkReplyBooting,
+    activeOverlayKind,
   } = useApp();
   const overlayHandoffDbgVisible =
     process.env.NODE_ENV === 'development' && overlayHandoffDebug != null;
@@ -130,7 +131,7 @@ export default function HomePage() {
     deepLinkReplyBooting ||
     (deepLinkBoot.parsedType === 'reply' &&
       deepLinkBoot.deepLinkDetected &&
-      !sendStarted);
+      !incomingGateActive);
 
   /** Parent layout effect runs before InstantBanFlow effects — latch send UI early. */
   useLayoutEffect(() => {
@@ -191,14 +192,16 @@ export default function HomePage() {
 
   const deepLinkDebugLine = useMemo(
     () =>
-      `[DEEP LINK DEBUG]\nstartParamRaw: ${deepLinkBoot.startParamRaw ?? '—'}\nstartParamResolved: ${deepLinkBoot.startParamResolved ?? '—'}\nparsedType: ${deepLinkBoot.parsedType ?? '—'}\nparsedBanId: ${deepLinkBoot.parsedBanId ?? '—'}\ndeepLinkDetected: ${deepLinkBoot.deepLinkDetected}\ndeepLinkConsumed: ${deepLinkBoot.deepLinkConsumed}\nbootBlocker: ${deepLinkBoot.bootBlocker ?? '—'}\nlastHandler: ${deepLinkBoot.lastHandler ?? '—'}\ninstantBanOpen: ${instantBanOpen}\nsendFlowOpen: ${sendFlowOpen}\nsendStarted: ${sendStarted}\nselectedBanId: ${deepLinkSelectedBanId ?? '—'}\noverlayQueueLength: ${overlayQueueLength}`,
+      `[DEEP LINK DEBUG]\nstartParamRaw: ${deepLinkBoot.startParamRaw ?? '—'}\nstartParamResolved: ${deepLinkBoot.startParamResolved ?? '—'}\nparsedType: ${deepLinkBoot.parsedType ?? '—'}\nparsedBanId: ${deepLinkBoot.parsedBanId ?? '—'}\ndeepLinkDetected: ${deepLinkBoot.deepLinkDetected}\ndeepLinkConsumed: ${deepLinkBoot.deepLinkConsumed}\nbootBlocker: ${deepLinkBoot.bootBlocker ?? '—'}\nlastHandler: ${deepLinkBoot.lastHandler ?? '—'}\ninstantBanOpen: ${instantBanOpen}\nsendFlowOpen: ${sendFlowOpen}\nsendStarted: ${sendStarted}\nactiveOverlayKind: ${activeOverlayKind ?? '—'}\nselectedBanId: ${deepLinkSelectedBanId ?? '—'}\noverlayQueueLength: ${overlayQueueLength}\nincomingGateActive: ${incomingGateActive}`,
     [
       deepLinkBoot,
       instantBanOpen,
       sendFlowOpen,
       sendStarted,
+      activeOverlayKind,
       deepLinkSelectedBanId,
       overlayQueueLength,
+      incomingGateActive,
     ],
   );
 

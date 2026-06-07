@@ -1670,37 +1670,58 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return;
       }
-      dismissedIncomingRef.current.add(b.id);
-      removeIncomingFromQueue(b.id);
-      setIncomingReplyBanId(b.id);
-      const token = tokenRef.current;
-      if (token) {
-        try {
-          await api<{ ban: BanInteraction }>(`/bans/${b.id}/accept`, {
-            method: 'POST',
-            token,
-          });
-        } catch (e) {
-          challengeLog('incoming:accept-failed', {
-            banId: b.id,
-            message: (e as Error).message,
-          });
-        }
+      const viewerId = userIdRef.current;
+      if (
+        !shouldShowIncomingBanModal(
+          enriched,
+          viewerId,
+          dismissedIncomingRef.current,
+        )
+      ) {
+        const why = explainIncomingHidden(
+          enriched,
+          viewerId,
+          auth.loading,
+          viewerId,
+          dismissedIncomingRef.current,
+        );
+        console.log('[reply-deeplink]', {
+          banId: b.id,
+          rejected: true,
+          reason: why.reason,
+        });
+        setDeepLinkReplyBooting(false);
+        logDeepLinkHandlerResult({
+          type: 'reply',
+          banId: b.id,
+          instantBanOpen: false,
+          sendFlowOpen: false,
+          selectedBanId: b.id,
+          overlayQueueLength: overlayQueueRef.current.length,
+          ok: false,
+          reason: why.reason,
+        });
+        return;
       }
-      setDeepLinkReplyBan(enriched);
-      openSendFlow();
-      console.log('[reply-deeplink]', { banId: b.id, queued: true });
+      setLobbyOpen(false);
+      challengeLog('incoming:reply-deeplink', { id: b.id, status: b.status });
+      enqueueNotification(
+        { kind: 'incoming', ban: enriched },
+        { live: true, source: 'session' },
+      );
+      console.log('[reply-deeplink]', { banId: b.id, queued: 'incoming-overlay' });
       logDeepLinkHandlerResult({
         type: 'reply',
         banId: b.id,
         instantBanOpen: false,
-        sendFlowOpen: true,
+        sendFlowOpen: false,
         selectedBanId: b.id,
         overlayQueueLength: overlayQueueRef.current.length,
         ok: true,
+        reason: 'incoming-overlay',
       });
     },
-    [auth.loading, openSendFlow, removeIncomingFromQueue],
+    [auth.loading, enqueueNotification],
   );
 
   useEffect(() => {
@@ -2371,16 +2392,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setIncomingReplyBanId(null);
   }, []);
 
-  const startIncomingReply = useCallback((ban: BanInteraction) => {
-    const u = ban.sender?.username?.replace(/^@/, '').trim();
-    const label = u
-      ? `@${u}`
-      : formatSenderDisplayName(ban.sender?.username, ban.sender?.firstName);
-    setIncomingReplyBanId(ban.id);
-    setSendReceiver(label);
-    setSendText('');
-    setSendOpen(true);
-  }, []);
+  const startIncomingReply = useCallback(
+    (ban: BanInteraction) => {
+      const enriched = enrichBanInteraction(ban);
+      setIncomingReplyBanId(ban.id);
+      setDeepLinkReplyBan(enriched);
+      setLobbyOpen(false);
+      openSendFlow();
+      console.log('[reply-deeplink]', {
+        banId: ban.id,
+        action: 'card-reply-start',
+      });
+    },
+    [openSendFlow],
+  );
 
   const acknowledgeIncomingSeen = useCallback(async (banId: string) => {
     dismissedIncomingRef.current.add(banId);
@@ -2852,6 +2877,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       deepLinkActiveBan ||
       sendFlowOpen ||
       deepLinkReplyBooting ||
+      incomingGateActive ||
       checkGateActive ||
       result
     ) {
@@ -2866,9 +2892,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     deepLinkActiveBan,
     sendFlowOpen,
     deepLinkReplyBooting,
+    incomingGateActive,
     checkGateActive,
     result,
   ]);
+
+  useEffect(() => {
+    if (deepLinkReplyBooting && incomingGateActive) {
+      setDeepLinkReplyBooting(false);
+    }
+  }, [deepLinkReplyBooting, incomingGateActive]);
 
   useEffect(() => {
     if (!lobbyOpen || lobbyShownLoggedRef.current) return;
