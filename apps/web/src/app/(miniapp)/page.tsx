@@ -74,7 +74,7 @@ export default function HomePage() {
   } = useApp();
   const overlayHandoffDbgVisible =
     process.env.NODE_ENV === 'development' && overlayHandoffDebug != null;
-  const { ready } = useTelegram();
+  const { ready, webApp, startParam } = useTelegram();
   const [tab, setTab] = useState<Tab>('home');
   const [debugOpen, setDebugOpen] = useState(false);
   const [instantBanOpen, setInstantBanOpen] = useState(false);
@@ -183,24 +183,47 @@ export default function HomePage() {
   ]);
 
   if (error || (!loading && !user)) {
+    const showTgAuthDebug = error?.includes('Нет связи с API') ?? false;
+    const tgAuthDebug = showTgAuthDebug
+      ? {
+          hasTelegram:
+            typeof window !== 'undefined' ? !!window.Telegram : false,
+          hasWebApp: !!webApp,
+          platform: webApp?.platform ?? null,
+          initDataLength: webApp?.initData?.length ?? 0,
+          startParam:
+            webApp?.initDataUnsafe?.start_param ?? startParam ?? null,
+          'error.message': error ?? null,
+        }
+      : null;
+
     return (
-      <div className="min-h-[100dvh] flex flex-col items-center justify-center px-6 text-center gap-4 challenge-bg">
-        <p className="text-4xl text-glow">98+</p>
-        <p className="text-muted text-sm whitespace-pre-wrap max-w-sm">
-          {error ?? 'Открой через Telegram'}
-        </p>
-        {apiUrlDisplay ? (
-          <p className="text-xs text-muted/70 break-all max-w-sm">
-            API: {apiUrlDisplay}
+      <div className="min-h-[100dvh] flex flex-col challenge-bg">
+        <div className="flex flex-1 flex-col items-center justify-center px-6 text-center gap-4">
+          <p className="text-4xl text-glow">98+</p>
+          <p className="text-muted text-sm whitespace-pre-wrap max-w-sm">
+            {error ?? 'Открой через Telegram'}
           </p>
+          {apiUrlDisplay ? (
+            <p className="text-xs text-muted/70 break-all max-w-sm">
+              API: {apiUrlDisplay}
+            </p>
+          ) : null}
+          <button
+            type="button"
+            className="text-accent underline"
+            onClick={() => window.location.reload()}
+          >
+            Обновить
+          </button>
+        </div>
+        {tgAuthDebug ? (
+          <div className="px-4 pb-6 pt-2 w-full max-w-sm mx-auto">
+            <p className="text-[10px] leading-relaxed text-muted/55 font-mono text-left whitespace-pre-wrap break-all">
+              {`[TG AUTH DEBUG]\nhasTelegram: ${tgAuthDebug.hasTelegram}\nhasWebApp: ${tgAuthDebug.hasWebApp}\nplatform: ${tgAuthDebug.platform ?? '—'}\ninitDataLength: ${tgAuthDebug.initDataLength}\nstartParam: ${tgAuthDebug.startParam ?? '—'}\nerror.message: ${tgAuthDebug['error.message'] ?? '—'}`}
+            </p>
+          </div>
         ) : null}
-        <button
-          type="button"
-          className="text-accent underline"
-          onClick={() => window.location.reload()}
-        >
-          Обновить
-        </button>
       </div>
     );
   }
