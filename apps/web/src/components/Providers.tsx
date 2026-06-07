@@ -164,6 +164,14 @@ interface AppContextValue {
   deepLinkRepeatBan: BanInteraction | null;
   openDeepLinkRepeat: (b: BanInteraction) => void;
   clearDeepLinkRepeatBan: () => void;
+  /** Telegram reply-ban deep link — opens What with sender pre-selected. */
+  deepLinkReplyBan: BanInteraction | null;
+  openDeepLinkReply: (b: BanInteraction) => Promise<void>;
+  clearDeepLinkReplyBan: () => void;
+  /** Telegram active-ban deep link — opens active ban card with timer. */
+  deepLinkActiveBan: BanInteraction | null;
+  openDeepLinkActive: (b: BanInteraction) => void;
+  clearDeepLinkActiveBan: () => void;
   submitCheckAnswer: (
     banId: string,
     completed: boolean,
@@ -372,7 +380,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const bufferedIncomingRef = useRef<BanInteraction | null>(null);
   const bufferedCheckDeepLinkRef = useRef<BanInteraction | null>(null);
   const bufferedRepeatDeepLinkRef = useRef<BanInteraction | null>(null);
+  const bufferedReplyDeepLinkRef = useRef<BanInteraction | null>(null);
+  const bufferedActiveDeepLinkRef = useRef<BanInteraction | null>(null);
   const [deepLinkRepeatBan, setDeepLinkRepeatBan] = useState<BanInteraction | null>(
+    null,
+  );
+  const [deepLinkReplyBan, setDeepLinkReplyBan] = useState<BanInteraction | null>(
+    null,
+  );
+  const [deepLinkActiveBan, setDeepLinkActiveBan] = useState<BanInteraction | null>(
     null,
   );
   const incomingWsSeenRef = useRef<Set<string>>(new Set());
@@ -721,6 +737,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (!r) {
         applyOverlayQueue([]);
         return;
+      }
+      if (mode === 'explicit' || mode === 'live') {
+        setLobbyOpen(false);
       }
       if (resultDeliveredBanIdsRef.current.has(r.id)) {
         return;
@@ -1299,6 +1318,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return;
       }
+      setLobbyOpen(false);
       setDeepLinkRepeatBan(enriched);
       console.log('[repeat-deeplink]', { banId: b.id, queued: true });
     },
@@ -1316,6 +1336,45 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
     setDeepLinkRepeatBan(buffered);
   }, [auth.user?.id, auth.loading]);
+
+  const clearDeepLinkReplyBan = useCallback(() => {
+    setDeepLinkReplyBan(null);
+  }, []);
+
+  const clearDeepLinkActiveBan = useCallback(() => {
+    setDeepLinkActiveBan(null);
+  }, []);
+
+  const openDeepLinkActive = useCallback(
+    (b: BanInteraction) => {
+      const enriched = enrichBanInteraction(b);
+      if (!userIdRef.current || auth.loading) {
+        bufferedActiveDeepLinkRef.current = enriched;
+        console.log('[active-deeplink]', {
+          banId: b.id,
+          buffered: true,
+          reason: 'auth-not-ready',
+        });
+        return;
+      }
+      setLobbyOpen(false);
+      setDeepLinkActiveBan(enriched);
+      console.log('[active-deeplink]', { banId: b.id, queued: true });
+    },
+    [auth.loading],
+  );
+
+  useEffect(() => {
+    if (!auth.user?.id || auth.loading) return;
+    const buffered = bufferedActiveDeepLinkRef.current;
+    if (!buffered) return;
+    bufferedActiveDeepLinkRef.current = null;
+    console.log('[active-deeplink]', {
+      banId: buffered.id,
+      action: 'apply-buffered',
+    });
+    openDeepLinkActive(buffered);
+  }, [auth.user?.id, auth.loading, openDeepLinkActive]);
 
   const submitCheckAnswer = useCallback(
     async (banId: string, completed: boolean) => {
@@ -1521,6 +1580,54 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [applyOverlayQueue, dismissCurrentOverlay],
   );
+
+  const openDeepLinkReply = useCallback(
+    async (b: BanInteraction) => {
+      const enriched = enrichBanInteraction(b);
+      if (!userIdRef.current || auth.loading) {
+        bufferedReplyDeepLinkRef.current = enriched;
+        console.log('[reply-deeplink]', {
+          banId: b.id,
+          buffered: true,
+          reason: 'auth-not-ready',
+        });
+        return;
+      }
+      setLobbyOpen(false);
+      dismissedIncomingRef.current.add(b.id);
+      removeIncomingFromQueue(b.id);
+      setIncomingReplyBanId(b.id);
+      const token = tokenRef.current;
+      if (token) {
+        try {
+          await api<{ ban: BanInteraction }>(`/bans/${b.id}/accept`, {
+            method: 'POST',
+            token,
+          });
+        } catch (e) {
+          challengeLog('incoming:accept-failed', {
+            banId: b.id,
+            message: (e as Error).message,
+          });
+        }
+      }
+      setDeepLinkReplyBan(enriched);
+      console.log('[reply-deeplink]', { banId: b.id, queued: true });
+    },
+    [auth.loading, removeIncomingFromQueue],
+  );
+
+  useEffect(() => {
+    if (!auth.user?.id || auth.loading) return;
+    const buffered = bufferedReplyDeepLinkRef.current;
+    if (!buffered) return;
+    bufferedReplyDeepLinkRef.current = null;
+    console.log('[reply-deeplink]', {
+      banId: buffered.id,
+      action: 'apply-buffered',
+    });
+    void openDeepLinkReply(buffered);
+  }, [auth.user?.id, auth.loading, openDeepLinkReply]);
 
   // Apply WS-buffered incoming after auth is ready (must run after setIncomingBanSafe exists).
   useEffect(() => {
@@ -2796,6 +2903,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       deepLinkRepeatBan,
       openDeepLinkRepeat,
       clearDeepLinkRepeatBan,
+      deepLinkReplyBan,
+      openDeepLinkReply,
+      clearDeepLinkReplyBan,
+      deepLinkActiveBan,
+      openDeepLinkActive,
+      clearDeepLinkActiveBan,
       submitCheckAnswer,
       checkWaiting,
       setCheckWaiting,
@@ -2880,6 +2993,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       deepLinkRepeatBan,
       openDeepLinkRepeat,
       clearDeepLinkRepeatBan,
+      deepLinkReplyBan,
+      openDeepLinkReply,
+      clearDeepLinkReplyBan,
+      deepLinkActiveBan,
+      openDeepLinkActive,
+      clearDeepLinkActiveBan,
       submitCheckAnswer,
       checkWaiting,
       setCheckWaiting,

@@ -15,6 +15,7 @@ import {
   isValidDurationMinutes,
   type BanInteraction,
   type FriendCard,
+  type SessionState,
 } from '@98plus/shared';
 import { useApp } from '../Providers';
 import { useTelegram } from '@/hooks/useTelegram';
@@ -212,6 +213,13 @@ export function InstantBanFlow({
     newBanWhoFlowRequest,
     deepLinkRepeatBan,
     clearDeepLinkRepeatBan,
+    deepLinkReplyBan,
+    clearDeepLinkReplyBan,
+    deepLinkActiveBan,
+    clearDeepLinkActiveBan,
+    incomingReplyBanId,
+    clearIncomingReply,
+    applySession,
     pendingStartupInteractions,
     releaseStartupInteractions,
     markSessionBanSendSuccess,
@@ -231,6 +239,7 @@ export function InstantBanFlow({
   const [sendError, setSendError] = useState<string | null>(null);
   const [confirmEnterKey, setConfirmEnterKey] = useState(0);
   const [banSentSuccess, setBanSentSuccess] = useState(false);
+  const [replySending, setReplySending] = useState(false);
   const sendSnapshotRef = useRef<{
     banText: string;
     selectedUser: FriendCard;
@@ -1027,6 +1036,57 @@ export function InstantBanFlow({
     ],
   );
 
+  const beginIncomingReplyFromDeepLink = useCallback(
+    (ban: BanInteraction) => {
+      if (!user?.id) return false;
+
+      const opponent = opponentForBan(ban, user.id);
+      if (!opponent?.id) return false;
+
+      const { card: friend } = resolveOpponentFriendCard(opponent, safeFriends);
+
+      sendEntryPhaseRef.current = 'composingBan';
+      setBansOverlayOpen(false);
+      setSelectedBanForDetails(null);
+      clearCtaExitTimer();
+      clearWhoPanelEnterTimer();
+      setCtaState('hidden');
+      setSelectedUser(friend);
+      setBanText('');
+      setDurationMinutes(DEFAULT_DURATION_MINUTES);
+      setSendError(null);
+      setComposeExitProgress(0);
+      setComposeDismissing(false);
+      setBanSentSuccess(false);
+      sendSnapshotRef.current = null;
+      setCrossScreenProgressImmediate(1);
+      onStartSend();
+      setPhase('composingBan');
+      return true;
+    },
+    [
+      clearCtaExitTimer,
+      clearWhoPanelEnterTimer,
+      onStartSend,
+      safeFriends,
+      setCrossScreenProgressImmediate,
+      user?.id,
+    ],
+  );
+
+  const beginActiveBanFromDeepLink = useCallback(
+    (ban: BanInteraction) => {
+      releaseStartupInteractions();
+      setBansTab('yours');
+      setSelectedBanForDetails(ban);
+      setBansOverlayOpen(true);
+      setPhase('idle');
+      setCtaState('hidden');
+      return true;
+    },
+    [releaseStartupInteractions],
+  );
+
   const handleRepeatBanFromArchive = useCallback(
     (ban: BanInteraction) => {
       console.info('[98+] ARCHIVE REPEAT CLICK', { banId: ban.id });
@@ -1229,6 +1289,8 @@ export function InstantBanFlow({
 
   const lastNewBanWhoFlowRequestRef = useRef(0);
   const lastDeepLinkRepeatBanIdRef = useRef<string | null>(null);
+  const lastDeepLinkReplyBanIdRef = useRef<string | null>(null);
+  const lastDeepLinkActiveBanIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (newBanWhoFlowRequest === 0) return;
@@ -1252,6 +1314,40 @@ export function InstantBanFlow({
     user?.id,
     beginRepeatBanFlow,
     clearDeepLinkRepeatBan,
+  ]);
+
+  useEffect(() => {
+    if (!deepLinkReplyBan?.id || !user?.id) return;
+    if (lastDeepLinkReplyBanIdRef.current === deepLinkReplyBan.id) return;
+    lastDeepLinkReplyBanIdRef.current = deepLinkReplyBan.id;
+    console.log('[reply-deeplink]', {
+      banId: deepLinkReplyBan.id,
+      action: 'begin-flow',
+    });
+    beginIncomingReplyFromDeepLink(deepLinkReplyBan);
+    clearDeepLinkReplyBan();
+  }, [
+    deepLinkReplyBan,
+    user?.id,
+    beginIncomingReplyFromDeepLink,
+    clearDeepLinkReplyBan,
+  ]);
+
+  useEffect(() => {
+    if (!deepLinkActiveBan?.id || !user?.id) return;
+    if (lastDeepLinkActiveBanIdRef.current === deepLinkActiveBan.id) return;
+    lastDeepLinkActiveBanIdRef.current = deepLinkActiveBan.id;
+    console.log('[active-deeplink]', {
+      banId: deepLinkActiveBan.id,
+      action: 'begin-flow',
+    });
+    beginActiveBanFromDeepLink(deepLinkActiveBan);
+    clearDeepLinkActiveBan();
+  }, [
+    deepLinkActiveBan,
+    user?.id,
+    beginActiveBanFromDeepLink,
+    clearDeepLinkActiveBan,
   ]);
 
   const finishWhoDismiss = useCallback(() => {
@@ -1551,6 +1647,34 @@ export function InstantBanFlow({
     });
 
     try {
+      if (incomingReplyBanId) {
+        if (replySending) {
+          instantBanDebug('send-skipped', { reason: 'reply-in-flight' });
+          return 'skipped';
+        }
+        setReplySending(true);
+        try {
+          const res = await api<{
+            parentId: string;
+            session: SessionState;
+          }>(`/bans/${incomingReplyBanId}/reply`, {
+            method: 'POST',
+            token,
+            body: JSON.stringify({
+              text,
+              durationMinutes: snapDuration,
+            }),
+          });
+          if (res.session) applySession(res.session);
+          scheduleDeferredSync();
+          clearIncomingReply();
+          onSuccess();
+          return 'started';
+        } finally {
+          setReplySending(false);
+        }
+      }
+
       const outcome = await send({
         text,
         receiverUsername: receiverUsernameForApi,
@@ -1576,7 +1700,21 @@ export function InstantBanFlow({
       setSendError(message);
       return 'rejected';
     }
-  }, [token, haptic, safeFriends, user?.username, user?.id, send, banSentSuccess]);
+  }, [
+    token,
+    haptic,
+    safeFriends,
+    user?.username,
+    user?.id,
+    send,
+    banSentSuccess,
+    incomingReplyBanId,
+    replySending,
+    applySession,
+    scheduleDeferredSync,
+    clearIncomingReply,
+    onSuccess,
+  ]);
 
   const captureSendSnapshot = useCallback(() => {
     if (!selectedUser) return false;
@@ -1668,7 +1806,7 @@ export function InstantBanFlow({
     compressActive: orbCompressActive,
     enterKey: confirmEnterKey,
     influencePercent: lobbyInfluencePercent,
-    sending: inFlight || sharing,
+    sending: inFlight || sharing || replySending,
     error: sendError,
     orbWrapRef: lobbyOrbMountRef,
     onConfirm: () => void handleConfirmRelease(),

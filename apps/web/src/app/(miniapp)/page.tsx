@@ -59,7 +59,11 @@ export default function HomePage() {
     setIncomingBan,
     openDeepLinkCheck,
     openDeepLinkRepeat,
+    openDeepLinkReply,
+    openDeepLinkActive,
     deepLinkRepeatBan,
+    deepLinkReplyBan,
+    deepLinkActiveBan,
     openBanResult,
     reloadPending,
     banSentOpen,
@@ -87,14 +91,17 @@ export default function HomePage() {
     setIncomingBan,
     openDeepLinkCheck,
     openDeepLinkRepeat,
+    openDeepLinkReply,
+    openDeepLinkActive,
     openBanResult,
     reloadPending,
   });
 
   useEffect(() => {
-    if (!deepLinkRepeatBan) return;
+    if (!deepLinkRepeatBan && !deepLinkReplyBan && !deepLinkActiveBan) return;
+    closeLobby();
     setInstantBanOpen(true);
-  }, [deepLinkRepeatBan]);
+  }, [deepLinkRepeatBan, deepLinkReplyBan, deepLinkActiveBan, closeLobby]);
 
   useEffect(() => {
     setApiUrlDisplay(getApiUrl());

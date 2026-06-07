@@ -198,7 +198,7 @@ export async function sendRegisteredFriendBanNotification(
     return { ...baseDebug, skippedReason: skipReason };
   }
 
-  const link = miniAppLink({ type: 'ban', banId: params.banId });
+  const link = miniAppLink({ type: 'reply', banId: params.banId });
   const message = formatIncomingBanMessage({
     senderUsername: params.senderUsername,
     senderFirstName: params.senderFirstName,
@@ -329,7 +329,7 @@ export async function sendIncomingBanNotification(
   senderFirstName?: string | null,
   senderPhotoUrl?: string | null,
 ) {
-  const url = miniAppLink({ type: 'ban', banId });
+  const url = miniAppLink({ type: 'reply', banId });
 
   const caption = formatIncomingBanMessage({
     senderUsername,
@@ -481,7 +481,7 @@ export async function sendBanAcceptedSenderNotification(params: {
     banText: params.banText,
     durationMinutes: params.durationMinutes,
   });
-  const link = miniAppLink({ type: 'repeat', banId: params.banId });
+  const link = miniAppLink({ type: 'active', banId: params.banId });
 
   try {
     await bot.telegram.sendMessage(
@@ -513,7 +513,7 @@ export async function sendResultNotification(
     opponentFirstName: result.opponent.firstName,
     banText: result.text,
   });
-  const link = miniAppLink({ type: 'repeat', banId: result.id });
+  const link = miniAppLink({ type: 'result', banId: result.id });
 
   try {
     await bot.telegram.sendMessage(

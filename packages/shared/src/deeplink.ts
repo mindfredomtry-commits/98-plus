@@ -4,7 +4,9 @@ export type DeepLinkAction =
   | { type: 'result'; banId: string }
   | { type: 'repeat'; banId: string }
   | { type: 'check'; banId: string }
-  | { type: 'ban'; banId: string };
+  | { type: 'ban'; banId: string }
+  | { type: 'reply'; banId: string }
+  | { type: 'active'; banId: string };
 
 /** Read signed start_param from Telegram WebApp initData string */
 export function readStartParamFromInitData(initData?: string | null): string | null {
@@ -40,6 +42,12 @@ export function parseStartParam(raw?: string | null): DeepLinkAction | null {
   if (p.startsWith('b_')) {
     return { type: 'ban', banId: p.slice(2) };
   }
+  if (p.startsWith('ply_')) {
+    return { type: 'reply', banId: p.slice(4) };
+  }
+  if (p.startsWith('a_')) {
+    return { type: 'active', banId: p.slice(2) };
+  }
   return null;
 }
 
@@ -61,6 +69,10 @@ export function buildStartParam(action: DeepLinkAction): string {
       return `c_${action.banId}`;
     case 'ban':
       return `b_${action.banId}`;
+    case 'reply':
+      return `ply_${action.banId}`;
+    case 'active':
+      return `a_${action.banId}`;
   }
 }
 

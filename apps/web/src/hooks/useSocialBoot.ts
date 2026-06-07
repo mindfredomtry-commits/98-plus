@@ -14,6 +14,8 @@ interface BootHandlers {
   setIncomingBan: (ban: BanInteraction | null) => void;
   openDeepLinkCheck: (ban: BanInteraction) => void;
   openDeepLinkRepeat: (ban: BanInteraction) => void;
+  openDeepLinkReply: (ban: BanInteraction) => Promise<void>;
+  openDeepLinkActive: (ban: BanInteraction) => void;
   openBanResult: (r: BanResult | null | undefined, mode: 'explicit') => void;
   reloadPending: () => Promise<void>;
 }
@@ -28,6 +30,8 @@ function deepLinkBootKey(startParam: string | undefined): string | null {
     case 'check':
     case 'result':
     case 'repeat':
+    case 'reply':
+    case 'active':
       return `${action.type}:${action.banId}`;
     default:
       return null;
@@ -86,6 +90,22 @@ export function useSocialBoot(h: BootHandlers) {
           if (ban) h.openDeepLinkRepeat(ban);
           break;
         }
+        case 'reply': {
+          const { ban } = await api<{ ban: BanInteraction }>(
+            `/bans/${action.banId}/open`,
+            { token: h.token! },
+          );
+          if (ban) await h.openDeepLinkReply(ban);
+          break;
+        }
+        case 'active': {
+          const { ban } = await api<{ ban: BanInteraction }>(
+            `/bans/${action.banId}/open`,
+            { token: h.token! },
+          );
+          if (ban) h.openDeepLinkActive(ban);
+          break;
+        }
       }
     })().catch(() => {
       processedRef.current = null;
@@ -98,6 +118,8 @@ export function useSocialBoot(h: BootHandlers) {
     h.setIncomingBan,
     h.openDeepLinkCheck,
     h.openDeepLinkRepeat,
+    h.openDeepLinkReply,
+    h.openDeepLinkActive,
     h.openBanResult,
     h.reloadPending,
   ]);
