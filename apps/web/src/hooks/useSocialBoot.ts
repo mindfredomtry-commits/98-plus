@@ -9,24 +9,45 @@ import { useTelegram } from './useTelegram';
 
 interface BootHandlers {
   token: string | null;
+  userId: string | null;
   ready: boolean;
   setIncomingBan: (ban: BanInteraction | null) => void;
-  setCheckBan: (ban: BanInteraction | null) => void;
+  openDeepLinkCheck: (ban: BanInteraction) => void;
+  openDeepLinkRepeat: (ban: BanInteraction) => void;
   openBanResult: (r: BanResult | null | undefined, mode: 'explicit') => void;
   reloadPending: () => Promise<void>;
 }
 
+function deepLinkBootKey(startParam: string | undefined): string | null {
+  const action = parseStartParam(startParam);
+  if (!action) return null;
+  switch (action.type) {
+    case 'invite_token':
+      return `invite_token:${action.token}`;
+    case 'ban':
+    case 'check':
+    case 'result':
+    case 'repeat':
+      return `${action.type}:${action.banId}`;
+    default:
+      return null;
+  }
+}
+
 export function useSocialBoot(h: BootHandlers) {
   const { startParam } = useTelegram();
-  const ran = useRef(false);
+  const processedRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!h.token || !h.ready || ran.current) return;
+    if (!h.token || !h.ready || !h.userId) return;
+
+    const bootKey = deepLinkBootKey(startParam);
+    if (!bootKey || processedRef.current === bootKey) return;
 
     const action = parseStartParam(startParam);
     if (!action) return;
 
-    ran.current = true;
+    processedRef.current = bootKey;
 
     (async () => {
       switch (action.type) {
@@ -46,7 +67,7 @@ export function useSocialBoot(h: BootHandlers) {
             `/bans/${action.banId}/open`,
             { token: h.token! },
           );
-          if (ban) h.setCheckBan(ban);
+          if (ban) h.openDeepLinkCheck(ban);
           break;
         }
         case 'ban': {
@@ -57,16 +78,26 @@ export function useSocialBoot(h: BootHandlers) {
           if (ban && isValidIncomingOverlayPayload(ban)) h.setIncomingBan(ban);
           break;
         }
+        case 'repeat': {
+          const { ban } = await api<{ ban: BanInteraction }>(
+            `/bans/${action.banId}/open`,
+            { token: h.token! },
+          );
+          if (ban) h.openDeepLinkRepeat(ban);
+          break;
+        }
       }
     })().catch(() => {
-      ran.current = false;
+      processedRef.current = null;
     });
   }, [
     h.token,
+    h.userId,
     h.ready,
     startParam,
     h.setIncomingBan,
-    h.setCheckBan,
+    h.openDeepLinkCheck,
+    h.openDeepLinkRepeat,
     h.openBanResult,
     h.reloadPending,
   ]);

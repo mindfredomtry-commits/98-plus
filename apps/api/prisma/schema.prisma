@@ -34,6 +34,20 @@ model User {
   socialContacts SocialContact[] @relation("SocialContacts")
   knownAsContact SocialContact[] @relation("KnownAsContact")
   savedBans      SavedBan[]
+  retentionLogs  BotRetentionLog[]
+}
+
+/// Dedup Telegram retention DMs per user–friend pair.
+model BotRetentionLog {
+  id       String   @id @default(cuid())
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  friendId String
+  banId    String?
+  sentAt   DateTime @default(now())
+
+  @@index([userId, friendId, sentAt])
+  @@index([userId, sentAt])
 }
 
 /// Persistent Telegram social graph (grows from real challenges/invites)

@@ -1,7 +1,13 @@
 /** Telegram challenge copy — personal confrontation, not app broadcast. */
 
-/** Registered friend ban DM — WebApp counter-challenge. */
-export const REPLY_BAN_WEBAPP_BUTTON_LABEL = '🚫 Ответить запретом';
+/** Incoming ban + check DM — counter-challenge via WebApp. */
+export const REPLY_BAN_WEBAPP_BUTTON_LABEL = '🚫 запретить в ответ';
+
+/** Retention DM — opens send flow to a friend. */
+export const RETENTION_BAN_WEBAPP_BUTTON_LABEL = '🚫 запретить';
+
+/** Result DM — opens repeat-ban flow for the same challenge. */
+export const REPEAT_BAN_WEBAPP_BUTTON_LABEL = '🚫 запретить ещё';
 
 /** First-time /start after viral link — opens Mini App. */
 export const OPEN_BAN_WEBAPP_BUTTON_LABEL = '🚫 Открыть запрет';
@@ -37,24 +43,73 @@ export function formatDurationLabel(minutes: number): string {
   return `${m} ${word}`;
 }
 
+/** firstName → displayName → @username; never empty. */
 export function formatSenderDisplayName(
   username?: string | null,
   firstName?: string | null,
+  displayName?: string | null,
 ): string {
   const name = firstName?.trim();
   if (name) return name;
+  const alias = displayName?.trim();
+  if (alias) return alias;
   const u = (username ?? '').replace(/^@/, '').trim();
   return u ? `@${u}` : 'Кто-то';
 }
 
-function formatBanLine(banText: string): string {
-  const t = banText.trim();
-  if (!t) return '🚫 …';
-  return t.startsWith('🚫') ? t : `🚫 ${t}`;
+/** Result DM opponent name — firstName → displayName → username (no @); fallback «друг». */
+export function formatParticipantDisplayName(
+  username?: string | null,
+  firstName?: string | null,
+  displayName?: string | null,
+): string {
+  const name = firstName?.trim();
+  if (name) return name;
+  const alias = displayName?.trim();
+  if (alias) return alias;
+  const u = (username ?? '').replace(/^@/, '').trim();
+  return u || 'друг';
+}
+
+/** Telegram result outcomes that get a bot DM (not timeout/expired). */
+export type TelegramResultOutcome =
+  | 'both_yes'
+  | 'both_no'
+  | 'split'
+  | 'overboard';
+
+const TELEGRAM_RESULT_HEADLINES: Record<TelegramResultOutcome, string> = {
+  both_yes: 'ЗАПРЕТИТЕЛЬНО! ✅✅',
+  both_no: 'ЗАТО ЧЕСТНО! ❌❌',
+  split: 'НЕСТЫКОВОЧКА! ❌✅',
+  overboard: 'ПЕРЕБОР 🫷',
+};
+
+export function isTelegramResultOutcome(
+  outcome: string,
+): outcome is TelegramResultOutcome {
+  return outcome in TELEGRAM_RESULT_HEADLINES;
+}
+
+export function formatTelegramResultHeadline(
+  outcome: TelegramResultOutcome,
+): string {
+  return TELEGRAM_RESULT_HEADLINES[outcome];
+}
+
+/** Result DM — status, opponent, ban essence; no URL in body. */
+export function formatBotResultMessage(params: {
+  headline: string;
+  opponentName: string;
+  banText: string;
+}): string {
+  const name = params.opponentName.trim() || 'друг';
+  const essence = banTextEssence(params.banText);
+  return `${params.headline}\n\n${name}\n\n🚫 ${essence}`;
 }
 
 /**
- * Strip leading "запрещаю" / "тебе" so share reads: «Запрещаю {content} на …» once.
+ * Strip leading "запрещаю" / "тебе" — ban essence for retention and shares.
  */
 export function normalizeBanTextForShare(raw: string): string {
   let ban = raw.replace(/^🚫\s*/, '').trim();
@@ -67,28 +122,61 @@ export function normalizeBanTextForShare(raw: string): string {
   return ban;
 }
 
-/** Bot /start + first challenge DM — confrontation, not onboarding. */
-export function formatBotStartChallengeMessage(params: {
+export function banTextEssence(raw: string): string {
+  return normalizeBanTextForShare(raw) || '…';
+}
+
+/** Personal challenge block — reads like a message from the sender. */
+export function formatPersonalChallengeBlock(params: {
   senderName: string;
   banText: string;
   durationMinutes: number;
 }): string {
-  return (
-    `🚫 Тебе отправили запрет\n\n` +
-    `${params.senderName} запрещает:\n` +
-    `${formatBanLine(params.banText)}\n\n` +
-    `⏱ На ${formatDurationLabel(params.durationMinutes)}\n\n` +
-    `Ответь запретом в 98+.`
-  );
+  const name = params.senderName.trim() || 'Кто-то';
+  const essence = banTextEssence(params.banText);
+  const dur = formatDurationLabel(params.durationMinutes);
+  return `🚫 ${name}\n\nЗапрещаю ${essence}\nна ${dur}.`;
 }
 
-/** @deprecated Use formatBotStartChallengeMessage */
+/** Incoming ban DM — no link in body (link lives in WebApp button). */
 export function formatIncomingBanMessage(params: {
   senderName: string;
   banText: string;
   durationMinutes: number;
 }): string {
-  return formatBotStartChallengeMessage(params);
+  return formatPersonalChallengeBlock(params);
+}
+
+/** @deprecated Use formatIncomingBanMessage */
+export function formatBotStartChallengeMessage(params: {
+  senderName: string;
+  banText: string;
+  durationMinutes: number;
+}): string {
+  return formatIncomingBanMessage(params);
+}
+
+/** Check DM — same personal block + honest answer prompt. */
+export function formatBotCheckChallengeMessage(params: {
+  senderName: string;
+  banText: string;
+  durationMinutes: number;
+}): string {
+  return (
+    `Пора честно ответить.\n\n` +
+    `${formatPersonalChallengeBlock(params)}\n\n` +
+    `Выдержал?`
+  );
+}
+
+/** Retention DM — re-engage with a prior ban to this friend. */
+export function formatRetentionBanMessage(params: {
+  friendName: string;
+  banText: string;
+}): string {
+  const name = params.friendName.trim() || 'Кто-то';
+  const essence = banTextEssence(params.banText);
+  return `${name} сегодня можно ${essence}?`;
 }
 
 /** Native Telegram share text for pending challenges (includes link). */
@@ -114,29 +202,9 @@ export function formatViralBanShareMessage(params: {
   durationMinutes: number;
   link: string;
 }): string {
-  const ban = normalizeBanTextForShare(params.banText) || '…';
+  const essence = banTextEssence(params.banText);
   const dur = formatDurationLabel(params.durationMinutes);
-  return (
-    `🚫 Запрещаю ${ban} на ${dur}.\n\n` +
-    `Запретить в ответ?\n` +
-    params.link.trim()
-  );
-}
-
-/** Confirmation DM to sender after they sent a ban. */
-export function formatSenderEchoMessage(params: {
-  banText: string;
-  durationMinutes: number;
-  receiverLabel?: string | null;
-}): string {
-  const who = params.receiverLabel?.trim();
-  const lead = who
-    ? `Ты запретил ${who}:`
-    : 'Ты отправил запрет:';
-  return (
-    `${lead}\n\n` +
-    `${formatBanLine(params.banText)}\n` +
-    `⏱ ${formatDurationLabel(params.durationMinutes)}\n\n` +
-    `Ждём ответа.`
-  );
+  const body = `🚫 Запрещаю ${essence}\nна ${dur}.`;
+  const link = params.link.trim();
+  return link ? `${body}\n\n${link}` : body;
 }

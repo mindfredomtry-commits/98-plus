@@ -2,6 +2,7 @@ export type DeepLinkAction =
   | { type: 'invite'; username: string }
   | { type: 'invite_token'; token: string }
   | { type: 'result'; banId: string }
+  | { type: 'repeat'; banId: string }
   | { type: 'check'; banId: string }
   | { type: 'ban'; banId: string };
 
@@ -27,6 +28,9 @@ export function parseStartParam(raw?: string | null): DeepLinkAction | null {
   if (p.startsWith('u_')) {
     return { type: 'invite', username: p.slice(2).replace('@', '') };
   }
+  if (p.startsWith('rp_')) {
+    return { type: 'repeat', banId: p.slice(3) };
+  }
   if (p.startsWith('r_')) {
     return { type: 'result', banId: p.slice(2) };
   }
@@ -51,6 +55,8 @@ export function buildStartParam(action: DeepLinkAction): string {
       return `invite_${action.token}`;
     case 'result':
       return `r_${action.banId}`;
+    case 'repeat':
+      return `rp_${action.banId}`;
     case 'check':
       return `c_${action.banId}`;
     case 'ban':

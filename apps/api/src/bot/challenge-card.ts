@@ -64,11 +64,9 @@ export function buildChallengeCardSvg(params: {
   </defs>
   <rect width="800" height="480" fill="url(#bg)"/>
   <ellipse cx="400" cy="160" rx="320" ry="200" fill="url(#glow)"/>
-  <text x="400" y="72" text-anchor="middle" fill="#b794d4" font-size="22" font-family="system-ui,sans-serif" letter-spacing="3">98+</text>
-  <text x="400" y="128" text-anchor="middle" fill="#e8e0f0" font-size="20" font-family="system-ui,sans-serif">${sender}</text>
+  <text x="400" y="96" text-anchor="middle" fill="#e8e0f0" font-size="28" font-weight="700" font-family="system-ui,sans-serif">🚫 ${sender}</text>
   ${textNodes}
-  <text x="400" y="360" text-anchor="middle" fill="#9b59b6" font-size="18" font-family="system-ui,sans-serif">⏱ ${duration}</text>
-  <text x="400" y="420" text-anchor="middle" fill="#6b5b7a" font-size="16" font-family="system-ui,sans-serif">Ответь запретом</text>
+  <text x="400" y="380" text-anchor="middle" fill="#9b59b6" font-size="18" font-family="system-ui,sans-serif">на ${duration}</text>
 </svg>`;
 
   return Buffer.from(svg, 'utf-8');

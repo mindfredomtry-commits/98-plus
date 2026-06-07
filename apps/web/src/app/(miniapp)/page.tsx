@@ -57,7 +57,9 @@ export default function HomePage() {
     closeLobby,
     newBanWhoFlowRequest,
     setIncomingBan,
-    setCheckBan,
+    openDeepLinkCheck,
+    openDeepLinkRepeat,
+    deepLinkRepeatBan,
     openBanResult,
     reloadPending,
     banSentOpen,
@@ -80,12 +82,19 @@ export default function HomePage() {
 
   useSocialBoot({
     token,
+    userId: user?.id ?? null,
     ready,
     setIncomingBan,
-    setCheckBan,
+    openDeepLinkCheck,
+    openDeepLinkRepeat,
     openBanResult,
     reloadPending,
   });
+
+  useEffect(() => {
+    if (!deepLinkRepeatBan) return;
+    setInstantBanOpen(true);
+  }, [deepLinkRepeatBan]);
 
   useEffect(() => {
     setApiUrlDisplay(getApiUrl());

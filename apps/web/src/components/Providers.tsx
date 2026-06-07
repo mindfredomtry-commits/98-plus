@@ -158,6 +158,12 @@ interface AppContextValue {
   checkBan: BanInteraction | null;
   checkGateActive: boolean;
   setCheckBan: (b: BanInteraction | null) => void;
+  /** Telegram check deep link — opens check overlay immediately (not lobby). */
+  openDeepLinkCheck: (b: BanInteraction) => void;
+  /** Telegram repeat-ban deep link — opens confirm for the same challenge. */
+  deepLinkRepeatBan: BanInteraction | null;
+  openDeepLinkRepeat: (b: BanInteraction) => void;
+  clearDeepLinkRepeatBan: () => void;
   submitCheckAnswer: (
     banId: string,
     completed: boolean,
@@ -364,6 +370,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const checkAnswerInFlightRef = useRef<Set<string>>(new Set());
   const resultOpenRef = useRef(false);
   const bufferedIncomingRef = useRef<BanInteraction | null>(null);
+  const bufferedCheckDeepLinkRef = useRef<BanInteraction | null>(null);
+  const bufferedRepeatDeepLinkRef = useRef<BanInteraction | null>(null);
+  const [deepLinkRepeatBan, setDeepLinkRepeatBan] = useState<BanInteraction | null>(
+    null,
+  );
   const incomingWsSeenRef = useRef<Set<string>>(new Set());
   const incomingBanRef = useRef<BanInteraction | null>(null);
   const checkBanRef = useRef<BanInteraction | null>(null);
@@ -1220,6 +1231,91 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [auth.user?.id, applyOverlayQueue, enqueueNotification],
   );
+
+  const openDeepLinkCheck = useCallback(
+    (b: BanInteraction) => {
+      const viewerId = userIdRef.current;
+      if (!viewerId || auth.loading) {
+        bufferedCheckDeepLinkRef.current = enrichBanInteraction(b);
+        console.log('[check-deeplink]', {
+          banId: b.id,
+          buffered: true,
+          reason: 'auth-not-ready',
+        });
+        return;
+      }
+      if (
+        !shouldShowCheckOverlay(
+          b,
+          viewerId,
+          dismissedCheckSessionRef.current,
+          answeredCheckRef.current,
+          checkAnswerInFlightRef.current,
+          resultOpenRef.current,
+        )
+      ) {
+        console.log('[check-deeplink]', {
+          banId: b.id,
+          rejected: true,
+          authUserId: viewerId,
+        });
+        return;
+      }
+      setLobbyOpen(false);
+      challengeLog('check:deeplink', { id: b.id, status: b.status });
+      enqueueNotification(
+        { kind: 'check', ban: enrichBanInteraction(b) },
+        { live: true, source: 'session' },
+      );
+    },
+    [auth.loading, enqueueNotification],
+  );
+
+  useEffect(() => {
+    if (!auth.user?.id || auth.loading) return;
+    const buffered = bufferedCheckDeepLinkRef.current;
+    if (!buffered) return;
+    bufferedCheckDeepLinkRef.current = null;
+    console.log('[check-deeplink]', {
+      banId: buffered.id,
+      action: 'apply-buffered',
+    });
+    openDeepLinkCheck(buffered);
+  }, [auth.user?.id, auth.loading, openDeepLinkCheck]);
+
+  const clearDeepLinkRepeatBan = useCallback(() => {
+    setDeepLinkRepeatBan(null);
+  }, []);
+
+  const openDeepLinkRepeat = useCallback(
+    (b: BanInteraction) => {
+      const enriched = enrichBanInteraction(b);
+      if (!userIdRef.current || auth.loading) {
+        bufferedRepeatDeepLinkRef.current = enriched;
+        console.log('[repeat-deeplink]', {
+          banId: b.id,
+          buffered: true,
+          reason: 'auth-not-ready',
+        });
+        return;
+      }
+      setDeepLinkRepeatBan(enriched);
+      console.log('[repeat-deeplink]', { banId: b.id, queued: true });
+    },
+    [auth.loading],
+  );
+
+  useEffect(() => {
+    if (!auth.user?.id || auth.loading) return;
+    const buffered = bufferedRepeatDeepLinkRef.current;
+    if (!buffered) return;
+    bufferedRepeatDeepLinkRef.current = null;
+    console.log('[repeat-deeplink]', {
+      banId: buffered.id,
+      action: 'apply-buffered',
+    });
+    setDeepLinkRepeatBan(buffered);
+  }, [auth.user?.id, auth.loading]);
 
   const submitCheckAnswer = useCallback(
     async (banId: string, completed: boolean) => {
@@ -2696,6 +2792,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       checkBan: scopedCheckBan,
       checkGateActive,
       setCheckBan: setCheckBanSafe,
+      openDeepLinkCheck,
+      deepLinkRepeatBan,
+      openDeepLinkRepeat,
+      clearDeepLinkRepeatBan,
       submitCheckAnswer,
       checkWaiting,
       setCheckWaiting,
@@ -2776,6 +2876,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       scopedCheckBan,
       checkGateActive,
       setCheckBanSafe,
+      openDeepLinkCheck,
+      deepLinkRepeatBan,
+      openDeepLinkRepeat,
+      clearDeepLinkRepeatBan,
       submitCheckAnswer,
       checkWaiting,
       setCheckWaiting,

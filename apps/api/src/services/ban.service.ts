@@ -3,16 +3,16 @@ import type { User } from '@prisma/client';
 import {
   SYSTEM_VOICE,
   formatChallengeShareMessage,
+  formatSenderDisplayName,
   isValidDurationMinutes,
   ANALYTICS_EVENTS,
   CHECK_TIMEOUT_MINUTES,
-  REMINDER_BEFORE_MS,
   COOLDOWN_CHECK_SECONDS,
   INCOMING_PENDING_MAX_AGE_MS,
 } from '@98plus/shared';
 import type { BanInteraction, CheckState, BanResult } from '@98plus/shared';
 import { prisma } from '../lib/prisma';
-import { hasCooldown, setCooldown } from '../lib/redis';
+import { getDailyCount, hasCooldown, incrDaily, setCooldown } from '../lib/redis';
 import {
   applyOverboard,
   applySendEnergy,
@@ -27,7 +27,7 @@ import {
   sendCheckNotification,
   sendIncomingBanNotification,
   sendResultNotification,
-  sendTimerReminderNotification,
+  sendRetentionNotification,
 } from '../bot/notifications';
 import {
   shouldAttachNotificationDebug,
@@ -51,6 +51,7 @@ import {
   buildDevBanInteractionFallback,
   ensureDevFixturesForUser,
   isDevModeUser,
+  isDevTelegramId,
   resolveDevBanReceiver,
 } from './dev-fixtures.service';
 
@@ -240,39 +241,43 @@ async function broadcastResultReady(
     t0,
   );
 
-  void (async () => {
-    const ban = await prisma.ban.findUnique({
-      where: { id: banId },
-      include: { sender: true, receiver: true },
-    });
-    if (!ban || !resultSender) return;
-    console.log('[result-created]', {
-      banId,
-      senderId,
-      receiverId,
-      outcome: ban.outcome ?? null,
-      status: ban.status ?? null,
-    });
-    try {
-      await sendResultNotification(
-        ban.sender.telegramId,
-        banId,
-        resultSender.headline,
-        ban.text,
-      );
-      await sendResultNotification(
-        ban.receiver.telegramId,
-        banId,
-        resultReceiver?.headline ?? resultSender.headline,
-        ban.text,
-      );
-    } catch (e) {
-      console.warn('[result-notify-failed]', {
-        banId,
-        message: (e as Error).message,
-      });
+  void notifyResultTelegramDm(resultSender, resultReceiver, banId);
+}
+
+async function notifyResultTelegramDm(
+  resultSender: BanResult | null,
+  resultReceiver: BanResult | null,
+  banId: string,
+) {
+  const ban = await prisma.ban.findUnique({
+    where: { id: banId },
+    include: { sender: true, receiver: true },
+  });
+  if (!ban) return;
+
+  console.log('[result-created]', {
+    banId,
+    senderId: ban.senderId,
+    receiverId: ban.receiverId,
+    outcome: ban.outcome ?? null,
+    status: ban.status ?? null,
+  });
+
+  if (ban.outcome === 'TIMEOUT' || ban.outcome === 'EXPIRED') return;
+
+  try {
+    if (resultSender) {
+      await sendResultNotification(ban.sender.telegramId, resultSender);
     }
-  })();
+    if (resultReceiver) {
+      await sendResultNotification(ban.receiver.telegramId, resultReceiver);
+    }
+  } catch (e) {
+    console.warn('[result-notify-failed]', {
+      banId,
+      message: (e as Error).message,
+    });
+  }
 }
 
 function deferAfterCheckResult(
@@ -490,6 +495,8 @@ export async function sendBan(params: {
     receiverUserId: receiver.id,
     receiverTelegramId: receiver.telegramId,
     receiverUsername: receiver.username,
+    senderUsername: ban.sender.username,
+    senderFirstName: ban.sender.firstName,
     banText: text.trim(),
     durationMinutes,
     isDevMode: devMode,
@@ -699,7 +706,6 @@ export async function replyToIncomingBan(params: {
     parent.sender.telegramId,
     params.text,
     reply.id,
-    false,
     senderUsername,
     params.durationMinutes,
     parent.receiver.firstName,
@@ -813,7 +819,6 @@ export async function counterBan(params: {
       parent.sender.telegramId,
       params.text,
       counter.id,
-      false,
       parent.receiver.username ?? parent.receiver.firstName,
       params.durationMinutes,
       parent.receiver.firstName,
@@ -1017,6 +1022,8 @@ export async function submitCheckAnswer(
     resultReceiver,
     t0,
   );
+
+  void notifyResultTelegramDm(resultSender, resultReceiver, banId);
 
   const result =
     userId === ban.senderId
@@ -1595,32 +1602,9 @@ export async function acknowledgeBanResult(
   return true;
 }
 
+/** Timer reminder DMs removed — check overlay handles this in-app. */
 export async function processReminders() {
-  const now = Date.now();
-  const soon = new Date(now + REMINDER_BEFORE_MS);
-
-  const bans = await prisma.ban.findMany({
-    where: {
-      status: 'ACTIVE',
-      reminderSentAt: null,
-      checkDueAt: { lte: soon, gt: new Date() },
-    },
-    take: 30,
-    include: { sender: true, receiver: true },
-  });
-
-  for (const ban of bans) {
-    await prisma.ban.update({
-      where: { id: ban.id },
-      data: { reminderSentAt: new Date() },
-    });
-    await sendTimerReminderNotification(ban.sender.telegramId, ban.text, ban.id);
-    await sendTimerReminderNotification(
-      ban.receiver.telegramId,
-      ban.text,
-      ban.id,
-    );
-  }
+  /* no-op */
 }
 
 function logCheckScheduler(payload: Record<string, unknown>) {
@@ -1689,8 +1673,15 @@ export async function processSingleDueCheck(banId: string): Promise<boolean> {
     include: { sender: true, receiver: true },
   });
   if (full) {
-    await sendCheckNotification(full.sender.telegramId, ban.text, ban.id);
-    await sendCheckNotification(full.receiver.telegramId, ban.text, ban.id);
+    const checkArgs = [
+      ban.text,
+      ban.id,
+      full.sender.username,
+      full.sender.firstName,
+      ban.durationMinutes,
+    ] as const;
+    await sendCheckNotification(full.sender.telegramId, ...checkArgs);
+    await sendCheckNotification(full.receiver.telegramId, ...checkArgs);
   }
   await syncSession(ban.senderId);
   await syncSession(ban.receiverId);
@@ -1855,4 +1846,133 @@ export async function adminForceComplete(banId: string, bothYes = true) {
   });
   await submitCheckAnswer(banId, ban.senderId, bothYes);
   await submitCheckAnswer(banId, ban.receiverId, bothYes);
+}
+
+const RETENTION_INACTIVE_MS = 12 * 60 * 60 * 1000;
+const RETENTION_PAIR_COOLDOWN_MS = 72 * 60 * 60 * 1000;
+
+const RETENTION_OPEN_BAN_STATUSES: BanStatus[] = [
+  'PENDING',
+  'ACTIVE',
+  'REPLIED',
+  'CHECKING',
+  'COUNTERED',
+  'OVERBOARD',
+];
+
+function pairBanWhere(userId: string, friendId: string) {
+  return {
+    OR: [
+      { senderId: userId, receiverId: friendId },
+      { senderId: friendId, receiverId: userId },
+    ],
+  };
+}
+
+/** Daily retention — soft re-engage, heavily gated to avoid spam. */
+export async function processRetention() {
+  const now = new Date();
+  const inactiveBefore = new Date(now.getTime() - RETENTION_INACTIVE_MS);
+  const pairCooldownBefore = new Date(now.getTime() - RETENTION_PAIR_COOLDOWN_MS);
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+
+  const users = await prisma.user.findMany({
+    where: {
+      OR: [{ lastSeenAt: null }, { lastSeenAt: { lte: inactiveBefore } }],
+      socialContacts: { some: { contactUserId: { not: null } } },
+    },
+    orderBy: { lastSeenAt: 'asc' },
+    take: 80,
+    include: {
+      socialContacts: {
+        where: { contactUserId: { not: null } },
+        orderBy: { lastInteractionAt: 'desc' },
+        take: 8,
+      },
+    },
+  });
+
+  for (const user of users) {
+    if (isDevTelegramId(user.telegramId)) continue;
+
+    const dailyKey = `daily:retention:${user.id}`;
+    if ((await getDailyCount(dailyKey)) > 0) continue;
+
+    for (const contact of user.socialContacts) {
+      const friendId = contact.contactUserId;
+      if (!friendId) continue;
+
+      const historyCount = await prisma.ban.count({
+        where: pairBanWhere(user.id, friendId),
+      });
+      if (historyCount === 0) continue;
+
+      const openCount = await prisma.ban.count({
+        where: {
+          ...pairBanWhere(user.id, friendId),
+          status: { in: RETENTION_OPEN_BAN_STATUSES },
+        },
+      });
+      if (openCount > 0) continue;
+
+      const todayCount = await prisma.ban.count({
+        where: {
+          ...pairBanWhere(user.id, friendId),
+          createdAt: { gte: todayStart },
+        },
+      });
+      if (todayCount > 0) continue;
+
+      const recentRetention = await prisma.botRetentionLog.findFirst({
+        where: {
+          userId: user.id,
+          friendId,
+          sentAt: { gte: pairCooldownBefore },
+        },
+      });
+      if (recentRetention) continue;
+
+      const lastSentBan = await prisma.ban.findFirst({
+        where: { senderId: user.id, receiverId: friendId },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, text: true },
+      });
+      if (!lastSentBan?.text?.trim()) continue;
+
+      const friend = await prisma.user.findUnique({
+        where: { id: friendId },
+        select: { username: true, firstName: true },
+      });
+      if (!friend) continue;
+
+      const friendUsername =
+        friend.username?.replace('@', '').trim() ||
+        contact.contactUsername.replace('@', '').trim();
+      if (!friendUsername) continue;
+
+      const friendName = formatSenderDisplayName(
+        friend.username,
+        friend.firstName,
+        contact.contactFirstName,
+      );
+
+      await sendRetentionNotification({
+        telegramId: user.telegramId,
+        friendName,
+        friendUsername,
+        banText: lastSentBan.text,
+      });
+
+      await prisma.botRetentionLog.create({
+        data: {
+          userId: user.id,
+          friendId,
+          banId: lastSentBan.id,
+        },
+      });
+      await incrDaily(dailyKey);
+      break;
+    }
+  }
 }

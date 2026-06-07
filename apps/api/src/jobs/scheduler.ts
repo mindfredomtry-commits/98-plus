@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import {
   processExpiredBans,
-  processReminders,
+  processRetention,
   processStaleChecks,
 } from '../services/ban.service';
 
@@ -9,11 +9,18 @@ export function startScheduler() {
   // Precise timers handle check due; this cron is backup (≤15s skew).
   cron.schedule('*/15 * * * * *', async () => {
     try {
-      await processReminders();
       await processExpiredBans();
       await processStaleChecks();
     } catch (e) {
       console.error('[scheduler]', e);
+    }
+  });
+
+  cron.schedule('0 12 * * *', async () => {
+    try {
+      await processRetention();
+    } catch (e) {
+      console.error('[scheduler] retention', e);
     }
   });
 
@@ -22,6 +29,6 @@ export function startScheduler() {
   });
 
   console.log(
-    '[scheduler] check backup every 15s; heartbeat every minute',
+    '[scheduler] check backup every 15s; retention daily 12:00; heartbeat every minute',
   );
 }

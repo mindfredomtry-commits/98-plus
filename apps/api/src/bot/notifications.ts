@@ -1,13 +1,20 @@
 import { Markup } from 'telegraf';
+import type { BanResult } from '@98plus/shared';
 import {
-  formatBotStartChallengeMessage,
+  formatBotCheckChallengeMessage,
+  formatBotResultMessage,
   formatChallengeShareMessage,
   formatDurationLabel,
+  formatIncomingBanMessage,
+  formatParticipantDisplayName,
+  formatRetentionBanMessage,
   formatSenderDisplayName,
-  formatSenderEchoMessage,
-  formatViralBanShareMessage,
+  formatTelegramResultHeadline,
+  isTelegramResultOutcome,
   OPEN_BAN_WEBAPP_BUTTON_LABEL,
+  REPEAT_BAN_WEBAPP_BUTTON_LABEL,
   REPLY_BAN_WEBAPP_BUTTON_LABEL,
+  RETENTION_BAN_WEBAPP_BUTTON_LABEL,
 } from '@98plus/shared';
 import { getBot } from './index';
 import { miniAppLink } from '../lib/deeplink';
@@ -109,6 +116,8 @@ export interface RegisteredBanNotifyParams {
   receiverUserId: string;
   receiverTelegramId: bigint;
   receiverUsername: string | null;
+  senderUsername: string | null;
+  senderFirstName: string | null;
   banText: string;
   durationMinutes: number;
   isDevMode: boolean;
@@ -187,10 +196,14 @@ export async function sendRegisteredFriendBanNotification(
   }
 
   const link = miniAppLink({ type: 'ban', banId: params.banId });
-  const message = formatViralBanShareMessage({
+  const senderName = formatSenderDisplayName(
+    params.senderUsername,
+    params.senderFirstName,
+  );
+  const message = formatIncomingBanMessage({
+    senderName,
     banText: params.banText,
     durationMinutes: params.durationMinutes,
-    link,
   });
 
   const bot = getBot();
@@ -311,36 +324,18 @@ export async function sendIncomingBanNotification(
   telegramId: bigint,
   text: string,
   banId: string,
-  isEcho = false,
   senderUsername?: string,
   durationMinutes?: number,
   senderFirstName?: string | null,
   senderPhotoUrl?: string | null,
-  receiverLabel?: string | null,
 ) {
   const url = miniAppLink({ type: 'ban', banId });
-
-  if (isEcho) {
-    const bot = getBot();
-    if (!bot) return;
-    const message = formatSenderEchoMessage({
-      banText: text,
-      durationMinutes: durationMinutes ?? 10,
-      receiverLabel,
-    });
-    try {
-      await bot.telegram.sendMessage(telegramId.toString(), message);
-    } catch {
-      /* ignore */
-    }
-    return;
-  }
 
   const senderName = formatSenderDisplayName(
     senderUsername,
     senderFirstName,
   );
-  const caption = formatBotStartChallengeMessage({
+  const caption = formatIncomingBanMessage({
     senderName,
     banText: text,
     durationMinutes: durationMinutes ?? 10,
@@ -350,7 +345,7 @@ export async function sendIncomingBanNotification(
     telegramId,
     caption,
     deepLink: url,
-    buttonLabel: OPEN_BAN_WEBAPP_BUTTON_LABEL,
+    buttonLabel: REPLY_BAN_WEBAPP_BUTTON_LABEL,
     senderPhotoUrl,
     cardParams: {
       senderName,
@@ -401,7 +396,7 @@ export async function sendBotStartInviteChallenge(
     params.senderUsername,
     params.senderFirstName,
   );
-  const caption = formatBotStartChallengeMessage({
+  const caption = formatIncomingBanMessage({
     senderName,
     banText: params.banText,
     durationMinutes: params.durationMinutes,
@@ -412,7 +407,7 @@ export async function sendBotStartInviteChallenge(
       telegramId: params.telegramId,
       caption,
       deepLink: params.deepLink,
-      buttonLabel: OPEN_BAN_WEBAPP_BUTTON_LABEL,
+      buttonLabel: REPLY_BAN_WEBAPP_BUTTON_LABEL,
       senderPhotoUrl: params.senderPhotoUrl,
       cardParams: {
         senderName,
@@ -443,73 +438,97 @@ export async function sendCheckNotification(
   telegramId: bigint,
   banText: string,
   banId: string,
+  senderUsername?: string | null,
+  senderFirstName?: string | null,
+  durationMinutes?: number,
 ) {
   const bot = getBot();
   if (!bot) return;
 
   const url = miniAppLink({ type: 'check', banId });
-  const line = banText.trim().startsWith('🚫')
-    ? banText.trim()
-    : `🚫 ${banText.trim()}`;
+  const senderName = formatSenderDisplayName(
+    senderUsername,
+    senderFirstName,
+  );
+  const message = formatBotCheckChallengeMessage({
+    senderName,
+    banText,
+    durationMinutes: durationMinutes ?? 10,
+  });
 
   try {
     await bot.telegram.sendMessage(
       telegramId.toString(),
-      `⏱ Пора честно ответить.\n\n${line}\n\nВыдержал?`,
-      replyBanKeyboard(url),
+      message,
+      replyBanKeyboard(url, REPLY_BAN_WEBAPP_BUTTON_LABEL),
     );
   } catch {
     /* ignore */
   }
 }
 
+/** Result DM — skip timeout/expired; repeat-ban button only (no URL in text). */
 export async function sendResultNotification(
   telegramId: bigint,
-  banId: string,
-  headline: string,
-  banText: string,
-) {
+  result: BanResult,
+): Promise<void> {
+  if (result.outcome === 'timeout' || result.outcome === 'expired') return;
+  if (!isTelegramResultOutcome(result.outcome)) return;
+  if (isDevTelegramId(telegramId)) return;
+
   const bot = getBot();
   if (!bot) return;
 
-  const url = miniAppLink({ type: 'result', banId });
-  const line = banText.trim().startsWith('🚫')
-    ? banText.trim()
-    : `🚫 ${banText.trim()}`;
+  const headline = formatTelegramResultHeadline(result.outcome);
+  const opponentName = formatParticipantDisplayName(
+    result.opponent.username,
+    result.opponent.firstName,
+  );
+  const message = formatBotResultMessage({
+    headline,
+    opponentName,
+    banText: result.text,
+  });
+  const link = miniAppLink({ type: 'repeat', banId: result.id });
 
   try {
     await bot.telegram.sendMessage(
       telegramId.toString(),
-      `${headline}\n\n${line}`,
-      Markup.inlineKeyboard([
-        Markup.button.webApp('Посмотреть', url),
-      ]),
+      message,
+      replyBanKeyboard(link, REPEAT_BAN_WEBAPP_BUTTON_LABEL),
     );
   } catch {
-    /* ignore */
+    /* user may not have started bot */
   }
 }
 
-export async function sendTimerReminderNotification(
-  telegramId: bigint,
-  banText: string,
-  banId: string,
-) {
+export async function sendRetentionNotification(params: {
+  telegramId: bigint;
+  friendName: string;
+  friendUsername: string;
+  banText: string;
+}): Promise<void> {
+  if (isDevTelegramId(params.telegramId)) return;
   const bot = getBot();
   if (!bot) return;
-  const url = miniAppLink({ type: 'ban', banId });
-  const line = banText.trim().startsWith('🚫')
-    ? banText.trim()
-    : `🚫 ${banText.trim()}`;
+
+  const link = miniAppLink({
+    type: 'invite',
+    username: params.friendUsername.replace('@', ''),
+  });
+  const message = formatRetentionBanMessage({
+    friendName: params.friendName,
+    banText: params.banText,
+  });
 
   try {
     await bot.telegram.sendMessage(
-      telegramId.toString(),
-      `⏱ Скоро проверка.\n\n${line}\n\nДержишься?`,
-      replyBanKeyboard(url),
+      params.telegramId.toString(),
+      message,
+      replyBanKeyboard(link, RETENTION_BAN_WEBAPP_BUTTON_LABEL),
     );
   } catch {
-    /* ignore */
+    /* user may not have started bot */
   }
 }
 

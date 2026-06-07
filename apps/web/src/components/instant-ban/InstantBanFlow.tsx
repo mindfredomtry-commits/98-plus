@@ -210,6 +210,8 @@ export function InstantBanFlow({
     rollbackOptimisticSend,
     activeBans,
     newBanWhoFlowRequest,
+    deepLinkRepeatBan,
+    clearDeepLinkRepeatBan,
     pendingStartupInteractions,
     releaseStartupInteractions,
     markSessionBanSendSuccess,
@@ -1226,6 +1228,7 @@ export function InstantBanFlow({
   ]);
 
   const lastNewBanWhoFlowRequestRef = useRef(0);
+  const lastDeepLinkRepeatBanIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (newBanWhoFlowRequest === 0) return;
@@ -1233,6 +1236,23 @@ export function InstantBanFlow({
     lastNewBanWhoFlowRequestRef.current = newBanWhoFlowRequest;
     beginNewBanWhoFlow();
   }, [newBanWhoFlowRequest, beginNewBanWhoFlow]);
+
+  useEffect(() => {
+    if (!deepLinkRepeatBan?.id || !user?.id) return;
+    if (lastDeepLinkRepeatBanIdRef.current === deepLinkRepeatBan.id) return;
+    lastDeepLinkRepeatBanIdRef.current = deepLinkRepeatBan.id;
+    console.log('[repeat-deeplink]', {
+      banId: deepLinkRepeatBan.id,
+      action: 'begin-flow',
+    });
+    beginRepeatBanFlow(deepLinkRepeatBan, { goToConfirm: true });
+    clearDeepLinkRepeatBan();
+  }, [
+    deepLinkRepeatBan,
+    user?.id,
+    beginRepeatBanFlow,
+    clearDeepLinkRepeatBan,
+  ]);
 
   const finishWhoDismiss = useCallback(() => {
     if (whoDismissTimerRef.current) {
