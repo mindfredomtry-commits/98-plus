@@ -240,6 +240,25 @@ export function formatBotCheckChallengeMessage(params: {
   );
 }
 
+/** Sender DM when receiver accepted the ban — shows receiver identity. */
+export function formatBotBanAcceptedSenderMessage(params: {
+  receiverUsername?: string | null;
+  receiverFirstName?: string | null;
+  receiverDisplayName?: string | null;
+  banText: string;
+  durationMinutes: number;
+}): string {
+  const person = formatTelegramPersonBlock({
+    username: params.receiverUsername,
+    firstName: params.receiverFirstName,
+    displayName: params.receiverDisplayName,
+    fallback: 'друг',
+  });
+  const essence = banTextEssence(params.banText);
+  const dur = formatDurationLabel(params.durationMinutes);
+  return `🚫 Ты запретил\n\n${person}\n\n${essence}\nна ${dur}.`;
+}
+
 /** Retention DM — re-engage with a prior ban to this friend. */
 export function formatRetentionBanMessage(params: {
   friendUsername?: string | null;

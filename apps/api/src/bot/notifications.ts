@@ -1,6 +1,7 @@
 import { Markup } from 'telegraf';
 import type { BanResult } from '@98plus/shared';
 import {
+  formatBotBanAcceptedSenderMessage,
   formatBotCheckChallengeMessage,
   formatBotResultMessage,
   formatChallengeShareMessage,
@@ -456,6 +457,40 @@ export async function sendCheckNotification(
     );
   } catch {
     /* ignore */
+  }
+}
+
+/** Sender DM when receiver accepted ban — once per banId. */
+export async function sendBanAcceptedSenderNotification(params: {
+  telegramId: bigint;
+  banId: string;
+  receiverUsername?: string | null;
+  receiverFirstName?: string | null;
+  receiverDisplayName?: string | null;
+  banText: string;
+  durationMinutes: number;
+}): Promise<void> {
+  if (isDevTelegramId(params.telegramId)) return;
+  const bot = getBot();
+  if (!bot) return;
+
+  const message = formatBotBanAcceptedSenderMessage({
+    receiverUsername: params.receiverUsername,
+    receiverFirstName: params.receiverFirstName,
+    receiverDisplayName: params.receiverDisplayName,
+    banText: params.banText,
+    durationMinutes: params.durationMinutes,
+  });
+  const link = miniAppLink({ type: 'repeat', banId: params.banId });
+
+  try {
+    await bot.telegram.sendMessage(
+      params.telegramId.toString(),
+      message,
+      replyBanKeyboard(link, REPLY_BAN_WEBAPP_BUTTON_LABEL),
+    );
+  } catch {
+    /* user may not have started bot */
   }
 }
 

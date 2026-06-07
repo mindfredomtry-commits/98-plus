@@ -23,6 +23,7 @@ import { broadcastEnergyPopup, broadcastToUser } from '../websocket/hub';
 import {
   notifyRegisteredFriendBanAsync,
   sendRegisteredFriendBanNotification,
+  sendBanAcceptedSenderNotification,
   sendCheckNotification,
   sendIncomingBanNotification,
   sendResultNotification,
@@ -612,7 +613,53 @@ export async function acceptBan(banId: string, userId: string) {
   await syncSession(ban.senderId);
   await syncSession(ban.receiverId);
 
+  void notifySenderBanAcceptedDm(banId);
+
   return interaction;
+}
+
+const BAN_ACCEPTED_SENDER_DM_TYPE = 'ban_accepted_sender_dm';
+
+async function notifySenderBanAcceptedDm(banId: string) {
+  const claimed = await prisma.ban.updateMany({
+    where: {
+      id: banId,
+      status: 'ACTIVE',
+      acceptedAt: { not: null },
+      senderAcceptedDmSentAt: null,
+    },
+    data: { senderAcceptedDmSentAt: new Date() },
+  });
+  if (claimed.count === 0) return;
+
+  const ban = await prisma.ban.findUnique({
+    where: { id: banId },
+    include: { sender: true, receiver: true },
+  });
+  if (!ban) return;
+
+  console.log('[ban-accepted-sender-dm]', {
+    banId,
+    type: BAN_ACCEPTED_SENDER_DM_TYPE,
+    senderId: ban.senderId,
+    receiverId: ban.receiverId,
+  });
+
+  try {
+    await sendBanAcceptedSenderNotification({
+      telegramId: ban.sender.telegramId,
+      banId: ban.id,
+      receiverUsername: ban.receiver.username,
+      receiverFirstName: ban.receiver.firstName,
+      banText: ban.text,
+      durationMinutes: ban.durationMinutes,
+    });
+  } catch (e) {
+    console.warn('[ban-accepted-sender-dm-failed]', {
+      banId,
+      message: (e as Error).message,
+    });
+  }
 }
 
 /** Reply to incoming challenge: resolve parent + send reverse ban atomically */

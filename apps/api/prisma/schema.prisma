@@ -138,6 +138,7 @@ model Ban {
   completedAt              DateTime?
   handledAt                DateTime?
   receiverIncomingAckAt    DateTime?
+  senderAcceptedDmSentAt   DateTime?
   senderResultSeenAt       DateTime?
   receiverResultSeenAt     DateTime?
 
