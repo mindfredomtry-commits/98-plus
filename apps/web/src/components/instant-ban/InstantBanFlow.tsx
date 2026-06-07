@@ -34,7 +34,7 @@ import {
 } from '@/lib/instant-ban-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { logDeepLinkHandlerResult } from '@/lib/deep-link-boot-debug';
-import { logReplyFlow } from '@/lib/reply-handoff-debug';
+import { logReplyFlow, logReplyFlowLoopGuard } from '@/lib/reply-handoff-debug';
 import { api } from '@/lib/api';
 import {
   getSavedBans,
@@ -687,7 +687,11 @@ export function InstantBanFlow({
           setCrossScreenProgressImmediate(1);
         }
       } else if (incomingReplyBanId) {
-        setPhase('composingBan');
+        if (phase !== 'composingBan') {
+          setPhase('composingBan');
+        } else {
+          logReplyFlowLoopGuard('skip already composingBan');
+        }
         setCrossScreenProgressImmediate(1);
       } else {
         setPhase('selectingTarget');
@@ -698,6 +702,7 @@ export function InstantBanFlow({
   }, [
     clearCtaBootDelayTimer,
     incomingReplyBanId,
+    phase,
     sendStarted,
     setCrossScreenProgressImmediate,
   ]);
@@ -1098,6 +1103,8 @@ export function InstantBanFlow({
       if (!opponent?.id && !opponent?.username) return false;
 
       const { card: friend } = resolveOpponentFriendCard(opponent, safeFriends);
+      const friendKey =
+        friend.userId ?? friend.id ?? friend.username ?? null;
 
       sendEntryPhaseRef.current = 'composingBan';
       setBansOverlayOpen(false);
@@ -1105,7 +1112,11 @@ export function InstantBanFlow({
       clearCtaExitTimer();
       clearWhoPanelEnterTimer();
       setCtaState('hidden');
-      setSelectedUser(friend);
+      setSelectedUser((prev) => {
+        const prevKey = prev?.userId ?? prev?.id ?? prev?.username ?? null;
+        if (prevKey && friendKey && prevKey === friendKey) return prev;
+        return friend;
+      });
       setBanText('');
       setDurationMinutes(DEFAULT_DURATION_MINUTES);
       setSendError(null);
@@ -1113,7 +1124,11 @@ export function InstantBanFlow({
       setComposeDismissing(false);
       setBanSentSuccess(false);
       sendSnapshotRef.current = null;
-      setPhase('composingBan');
+      if (phase !== 'composingBan') {
+        setPhase('composingBan');
+      } else {
+        logReplyFlowLoopGuard('skip already composingBan');
+      }
       setCrossScreenProgressImmediate(1);
       setCtaState('hidden');
       if (!sendStarted) {
@@ -1125,6 +1140,7 @@ export function InstantBanFlow({
       clearCtaExitTimer,
       clearWhoPanelEnterTimer,
       onStartSend,
+      phase,
       safeFriends,
       sendStarted,
       setCrossScreenProgressImmediate,
@@ -1349,6 +1365,9 @@ export function InstantBanFlow({
   const lastNewBanWhoFlowRequestRef = useRef(0);
   const lastDeepLinkRepeatBanIdRef = useRef<string | null>(null);
   const lastDeepLinkReplyBanIdRef = useRef<string | null>(null);
+  const phaseSetFromReplyRef = useRef<string | null>(null);
+  const lockReleasedRef = useRef(false);
+  const whatVisibleNotifiedRef = useRef(false);
   const lastDeepLinkActiveBanIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -1394,8 +1413,19 @@ export function InstantBanFlow({
 
   useLayoutEffect(() => {
     if (!deepLinkReplyBan?.id || !user?.id) return;
+    if (phaseSetFromReplyRef.current === deepLinkReplyBan.id) {
+      logReplyFlowLoopGuard('skip already composingBan');
+      return;
+    }
+    if (phase === 'composingBan' && selectedUser) {
+      phaseSetFromReplyRef.current = deepLinkReplyBan.id;
+      lastDeepLinkReplyBanIdRef.current = deepLinkReplyBan.id;
+      logReplyFlowLoopGuard('skip already composingBan');
+      return;
+    }
     if (lastDeepLinkReplyBanIdRef.current === deepLinkReplyBan.id) return;
     lastDeepLinkReplyBanIdRef.current = deepLinkReplyBan.id;
+    phaseSetFromReplyRef.current = deepLinkReplyBan.id;
     console.log('[reply-deeplink]', {
       banId: deepLinkReplyBan.id,
       action: 'card-reply-begin-what',
@@ -1436,6 +1466,8 @@ export function InstantBanFlow({
   }, [
     deepLinkReplyBan,
     user?.id,
+    phase,
+    selectedUser,
     beginIncomingReplyFromDeepLink,
     releaseReplyHandoffLock,
     sendStarted,
@@ -1445,20 +1477,19 @@ export function InstantBanFlow({
     overlayQueueLength,
   ]);
 
-  const replyWhatReleaseRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!replyHandoffLock) {
-      replyWhatReleaseRef.current = null;
-    }
-  }, [replyHandoffLock]);
-
   useLayoutEffect(() => {
-    if (!replyHandoffLock || replyWhatReleaseRef.current) return;
+    if (lockReleasedRef.current || whatVisibleNotifiedRef.current) {
+      logReplyFlowLoopGuard('skip already released');
+      return;
+    }
+    if (!replyHandoffLock) return;
     if (phase !== 'composingBan' || !selectedUser) return;
     const banId =
       incomingReplyBanId ?? deepLinkReplyBan?.id ?? replyDeepLinkBanId;
     if (!banId) return;
-    replyWhatReleaseRef.current = banId;
+    lockReleasedRef.current = true;
+    whatVisibleNotifiedRef.current = true;
+    logReplyFlowLoopGuard('release once');
     const selectedUserId =
       selectedUser.userId ?? selectedUser.id ?? selectedUser.username ?? null;
     notifyReplyWhatVisible(banId, selectedUserId);

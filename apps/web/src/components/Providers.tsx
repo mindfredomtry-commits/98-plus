@@ -66,6 +66,7 @@ import {
 } from '@/lib/deep-link-boot-debug';
 import {
   logReplyFlow,
+  logReplyFlowLoopGuard,
   patchReplyHandoffDebug,
 } from '@/lib/reply-handoff-debug';
 import {
@@ -422,6 +423,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [replyDeepLinkBanId, setReplyDeepLinkBanId] = useState<string | null>(null);
   const [replyHandoffLock, setReplyHandoffLock] = useState(false);
   const [replyWhatReady, setReplyWhatReady] = useState(false);
+  const replyFlowArmedBanIdRef = useRef<string | null>(null);
+  const replyLockReleasedRef = useRef(false);
   const openSendFlow = useCallback(() => {
     setSendFlowOpen(true);
     setLobbyOpen(false);
@@ -431,9 +434,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, []);
 
   const armReplyDeepLink = useCallback((banId: string) => {
-    setReplyDeepLinkBanId(banId);
-    setReplyWhatReady(false);
-    setReplyHandoffLock(true);
+    if (replyLockReleasedRef.current) {
+      logReplyFlowLoopGuard('skip arm after release');
+      return;
+    }
+    if (replyFlowArmedBanIdRef.current === banId) {
+      logReplyFlowLoopGuard('skip already armed');
+      return;
+    }
+    replyFlowArmedBanIdRef.current = banId;
+    setReplyDeepLinkBanId((prev) => (prev === banId ? prev : banId));
+    setReplyWhatReady((prev) => (prev ? false : prev));
+    setReplyHandoffLock((prev) => (prev ? prev : true));
     logReplyFlow('telegram-open-start', {
       banId,
       lockActive: true,
@@ -442,8 +454,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [lobbyOpen]);
 
   const beginReplyHandoff = useCallback((banId: string) => {
-    setReplyHandoffLock(true);
-    setReplyWhatReady(false);
+    if (replyLockReleasedRef.current) {
+      logReplyFlowLoopGuard('skip handoff after release');
+      return;
+    }
+    setReplyHandoffLock((prev) => (prev ? prev : true));
+    setReplyWhatReady((prev) => (prev ? false : prev));
     logReplyFlow('card-reply-click', {
       banId,
       lockActive: true,
@@ -454,10 +470,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const notifyReplyWhatVisible = useCallback(
     (banId: string, selectedUserId: string | null) => {
-      setReplyWhatReady(true);
-      setReplyHandoffLock(false);
-      setDeepLinkReplyBooting(false);
-      setReplyDeepLinkBanId(null);
+      if (replyLockReleasedRef.current) {
+        logReplyFlowLoopGuard('skip already released');
+        return;
+      }
+      replyLockReleasedRef.current = true;
+      logReplyFlowLoopGuard('release once');
+      setReplyWhatReady((prev) => (prev ? prev : true));
+      setReplyHandoffLock((prev) => (prev ? false : prev));
+      setDeepLinkReplyBooting((prev) => (prev ? false : prev));
       logReplyFlow('what-visible', {
         banId,
         lockActive: false,
@@ -478,10 +499,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const releaseReplyHandoffLock = useCallback(() => {
-    setReplyHandoffLock(false);
-    setReplyWhatReady(true);
-    setDeepLinkReplyBooting(false);
-    setReplyDeepLinkBanId(null);
+    if (replyLockReleasedRef.current) {
+      logReplyFlowLoopGuard('skip already released');
+      return;
+    }
+    replyLockReleasedRef.current = true;
+    logReplyFlowLoopGuard('release once');
+    setReplyHandoffLock((prev) => (prev ? false : prev));
+    setReplyWhatReady((prev) => (prev ? prev : true));
+    setDeepLinkReplyBooting((prev) => (prev ? false : prev));
     logReplyFlow('lock-released', {
       banId: replyDeepLinkBanId,
       lockActive: false,
@@ -1770,6 +1796,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         setDeepLinkReplyBooting(false);
         setReplyDeepLinkBanId(null);
         setReplyHandoffLock(false);
+        replyFlowArmedBanIdRef.current = null;
+        replyLockReleasedRef.current = false;
         logDeepLinkHandlerResult({
           type: 'reply',
           banId: b.id,
@@ -2522,11 +2550,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setViralOnboarding(false);
       challengeLog('incoming:reply-open', { banId });
 
-      flushSync(() => {
-        beginReplyHandoff(banId);
-        startIncomingReply(ban);
-      });
-
+      beginReplyHandoff(banId);
+      startIncomingReply(ban);
       removeIncomingFromQueue(banId);
       logReplyFlow('overlay-dismissed', {
         banId,

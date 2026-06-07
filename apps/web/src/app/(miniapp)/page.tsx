@@ -5,6 +5,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from 'react';
@@ -138,18 +139,15 @@ export default function HomePage() {
     activeOverlayKind === 'incoming' &&
     replyTargetBanId != null &&
     deepLinkSelectedBanId === replyTargetBanId;
-  const replyDeepLinkLoading = replyUiShellActive;
+  const replyDeepLinkLoading = replyUiShellDark;
+  const replyFlowArmedOnceRef = useRef(false);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (replyFlowArmedOnceRef.current) return;
     if (deepLinkBoot.parsedType !== 'reply' || !deepLinkBoot.parsedBanId) return;
-    if (replyDeepLinkBanId) return;
+    replyFlowArmedOnceRef.current = true;
     armReplyDeepLink(deepLinkBoot.parsedBanId);
-  }, [
-    deepLinkBoot.parsedType,
-    deepLinkBoot.parsedBanId,
-    replyDeepLinkBanId,
-    armReplyDeepLink,
-  ]);
+  }, [deepLinkBoot.parsedType, deepLinkBoot.parsedBanId, armReplyDeepLink]);
 
   /** Parent layout effect runs before InstantBanFlow effects — latch send UI early. */
   useLayoutEffect(() => {

@@ -54,6 +54,10 @@ export function subscribeReplyHandoffDebug(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+export function logReplyFlowLoopGuard(reason: string): void {
+  console.log('[REPLY FLOW LOOP GUARD]', reason);
+}
+
 export function logReplyFlow(
   stage: ReplyFlowStage,
   patch: Partial<ReplyHandoffDebugSnapshot> = {},
