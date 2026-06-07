@@ -5,6 +5,10 @@ import { parseStartParam } from '@98plus/shared';
 import { isValidIncomingOverlayPayload } from '@/lib/incoming-challenge';
 import type { BanResult, BanInteraction } from '@98plus/shared';
 import { api } from '@/lib/api';
+import {
+  patchDeepLinkBootDebug,
+  readStartParamRawFromLocation,
+} from '@/lib/deep-link-boot-debug';
 import { useTelegram } from './useTelegram';
 
 interface BootHandlers {
@@ -43,15 +47,58 @@ export function useSocialBoot(h: BootHandlers) {
   const processedRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!h.token || !h.ready || !h.userId) return;
-
+    const startParamRaw = readStartParamRawFromLocation();
+    const actionFromHook = parseStartParam(startParam);
+    const actionFromRaw = parseStartParam(startParamRaw ?? undefined);
     const bootKey = deepLinkBootKey(startParam);
-    if (!bootKey || processedRef.current === bootKey) return;
+
+    patchDeepLinkBootDebug({
+      startParamRaw,
+      startParamResolved: startParam?.trim() || null,
+      parsedType: actionFromHook?.type ?? actionFromRaw?.type ?? null,
+      parsedBanId:
+        (actionFromHook && 'banId' in actionFromHook
+          ? actionFromHook.banId
+          : null) ??
+        (actionFromRaw && 'banId' in actionFromRaw ? actionFromRaw.banId : null),
+      deepLinkDetected: Boolean(bootKey),
+    });
+
+    if (!h.token || !h.ready || !h.userId) {
+      patchDeepLinkBootDebug({
+        deepLinkConsumed: false,
+        bootBlocker: !h.token
+          ? 'waiting-token'
+          : !h.ready
+            ? 'waiting-tg-ready'
+            : 'waiting-userId',
+      });
+      return;
+    }
+
+    if (!bootKey || processedRef.current === bootKey) {
+      patchDeepLinkBootDebug({
+        deepLinkConsumed: processedRef.current === bootKey,
+        bootBlocker: !bootKey ? 'no-boot-key' : 'dup-boot-key',
+      });
+      return;
+    }
 
     const action = parseStartParam(startParam);
-    if (!action) return;
+    if (!action) {
+      patchDeepLinkBootDebug({
+        deepLinkConsumed: false,
+        bootBlocker: 'parse-null',
+      });
+      return;
+    }
 
     processedRef.current = bootKey;
+    patchDeepLinkBootDebug({
+      deepLinkConsumed: false,
+      bootBlocker: 'handler-running',
+      lastHandler: action.type,
+    });
 
     (async () => {
       switch (action.type) {
@@ -107,8 +154,16 @@ export function useSocialBoot(h: BootHandlers) {
           break;
         }
       }
+      patchDeepLinkBootDebug({
+        deepLinkConsumed: true,
+        bootBlocker: null,
+      });
     })().catch(() => {
       processedRef.current = null;
+      patchDeepLinkBootDebug({
+        deepLinkConsumed: false,
+        bootBlocker: 'handler-error',
+      });
     });
   }, [
     h.token,

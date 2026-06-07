@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import dynamic from 'next/dynamic';
 import { useApp } from '@/components/Providers';
 import { useTelegram } from '@/hooks/useTelegram';
@@ -17,6 +17,10 @@ import {
   resolveLobbyInfluencePercent,
 } from '@/lib/lobby-influence';
 import { instantBanDebug } from '@/lib/instant-ban-debug';
+import {
+  getDeepLinkBootDebug,
+  subscribeDeepLinkBootDebug,
+} from '@/lib/deep-link-boot-debug';
 
 const ArenaAmbience = dynamic(
   () =>
@@ -74,10 +78,17 @@ export default function HomePage() {
     connectionUiState,
     eventLog,
     overlayHandoffDebug,
+    overlayQueueLength,
+    deepLinkSelectedBanId,
   } = useApp();
   const overlayHandoffDbgVisible =
     process.env.NODE_ENV === 'development' && overlayHandoffDebug != null;
   const { ready, webApp, startParam } = useTelegram();
+  const deepLinkBoot = useSyncExternalStore(
+    subscribeDeepLinkBootDebug,
+    getDeepLinkBootDebug,
+    getDeepLinkBootDebug,
+  );
   const [tab, setTab] = useState<Tab>('home');
   const [debugOpen, setDebugOpen] = useState(false);
   const [instantBanOpen, setInstantBanOpen] = useState(false);
@@ -152,6 +163,23 @@ export default function HomePage() {
       : lobbyOpen
         ? 'arena-lobby'
         : 'arena-deep-link';
+
+  const deepLinkDebugLine = useMemo(
+    () =>
+      `[DEEP LINK DEBUG]\nstartParamRaw: ${deepLinkBoot.startParamRaw ?? '—'}\nstartParamResolved: ${deepLinkBoot.startParamResolved ?? '—'}\nparsedType: ${deepLinkBoot.parsedType ?? '—'}\nparsedBanId: ${deepLinkBoot.parsedBanId ?? '—'}\ndeepLinkDetected: ${deepLinkBoot.deepLinkDetected}\ndeepLinkConsumed: ${deepLinkBoot.deepLinkConsumed}\nbootBlocker: ${deepLinkBoot.bootBlocker ?? '—'}\nlastHandler: ${deepLinkBoot.lastHandler ?? '—'}\ninstantBanOpen: ${instantBanOpen}\nselectedBanId: ${deepLinkSelectedBanId ?? '—'}\noverlayQueueLength: ${overlayQueueLength}`,
+    [
+      deepLinkBoot,
+      instantBanOpen,
+      deepLinkSelectedBanId,
+      overlayQueueLength,
+    ],
+  );
+
+  const showDeepLinkDebug =
+    Boolean(deepLinkBoot.startParamRaw) ||
+    Boolean(deepLinkBoot.startParamResolved) ||
+    Boolean(startParam) ||
+    hasAuthSession;
 
   useEffect(() => {
     if (!hasAuthSession) {
@@ -254,6 +282,13 @@ export default function HomePage() {
           <div className="px-4 pb-6 pt-2 w-full max-w-sm mx-auto">
             <p className="text-[10px] leading-relaxed text-muted/55 font-mono text-left whitespace-pre-wrap break-all">
               {`[TG AUTH DEBUG]\nhasTelegram: ${tgAuthDebug.hasTelegram}\nhasWebApp: ${tgAuthDebug.hasWebApp}\nplatform: ${tgAuthDebug.platform ?? '—'}\ninitDataLength: ${tgAuthDebug.initDataLength}\nstartParam: ${tgAuthDebug.startParam ?? '—'}\nerror.message: ${tgAuthDebug['error.message'] ?? '—'}`}
+            </p>
+          </div>
+        ) : null}
+        {showDeepLinkDebug ? (
+          <div className="px-4 pb-6 pt-2 w-full max-w-sm mx-auto">
+            <p className="text-[9px] leading-snug text-muted/45 font-mono text-left whitespace-pre-wrap break-all">
+              {deepLinkDebugLine}
             </p>
           </div>
         ) : null}
@@ -362,14 +397,21 @@ export default function HomePage() {
         />
       ) : null}
 
-      {shellDebugLine ? (
+      {shellDebugLine || showDeepLinkDebug ? (
         <div
           className="fixed bottom-0 left-0 right-0 z-[9999] px-2 pb-2 pointer-events-none"
           aria-hidden
         >
-          <p className="text-[9px] leading-snug text-muted/45 font-mono text-left whitespace-pre-wrap break-all max-h-[28dvh] overflow-hidden">
-            {shellDebugLine}
-          </p>
+          {shellDebugLine ? (
+            <p className="text-[9px] leading-snug text-muted/45 font-mono text-left whitespace-pre-wrap break-all max-h-[14dvh] overflow-hidden">
+              {shellDebugLine}
+            </p>
+          ) : null}
+          {showDeepLinkDebug ? (
+            <p className="text-[9px] leading-snug text-muted/45 font-mono text-left whitespace-pre-wrap break-all max-h-[28dvh] overflow-hidden">
+              {deepLinkDebugLine}
+            </p>
+          ) : null}
         </div>
       ) : null}
     </div>

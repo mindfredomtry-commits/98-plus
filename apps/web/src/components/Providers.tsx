@@ -60,6 +60,7 @@ import { resetScrollLock } from '@/lib/scroll-lock';
 import { fetchSession } from '@/lib/session';
 import { api } from '@/lib/api';
 import { challengeLog } from '@/lib/challenge-log';
+import { noteDeepLinkHandlerOpened } from '@/lib/deep-link-boot-debug';
 import {
   incomingShowDecision,
   isValidIncomingOverlayPayload,
@@ -172,6 +173,8 @@ interface AppContextValue {
   deepLinkActiveBan: BanInteraction | null;
   openDeepLinkActive: (b: BanInteraction) => void;
   clearDeepLinkActiveBan: () => void;
+  overlayQueueLength: number;
+  deepLinkSelectedBanId: string | null;
   submitCheckAnswer: (
     banId: string,
     completed: boolean,
@@ -741,6 +744,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (mode === 'explicit' || mode === 'live') {
         setLobbyOpen(false);
       }
+      if (mode === 'explicit' || mode === 'live') {
+        noteDeepLinkHandlerOpened('openBanResult', r.id);
+      }
       if (resultDeliveredBanIdsRef.current.has(r.id)) {
         return;
       }
@@ -1253,6 +1259,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const openDeepLinkCheck = useCallback(
     (b: BanInteraction) => {
+      noteDeepLinkHandlerOpened('openDeepLinkCheck', b.id);
       const viewerId = userIdRef.current;
       if (!viewerId || auth.loading) {
         bufferedCheckDeepLinkRef.current = enrichBanInteraction(b);
@@ -1308,6 +1315,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const openDeepLinkRepeat = useCallback(
     (b: BanInteraction) => {
+      noteDeepLinkHandlerOpened('openDeepLinkRepeat', b.id);
       const enriched = enrichBanInteraction(b);
       if (!userIdRef.current || auth.loading) {
         bufferedRepeatDeepLinkRef.current = enriched;
@@ -1347,6 +1355,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const openDeepLinkActive = useCallback(
     (b: BanInteraction) => {
+      noteDeepLinkHandlerOpened('openDeepLinkActive', b.id);
       const enriched = enrichBanInteraction(b);
       if (!userIdRef.current || auth.loading) {
         bufferedActiveDeepLinkRef.current = enriched;
@@ -1583,6 +1592,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const openDeepLinkReply = useCallback(
     async (b: BanInteraction) => {
+      noteDeepLinkHandlerOpened('openDeepLinkReply', b.id);
       const enriched = enrichBanInteraction(b);
       if (!userIdRef.current || auth.loading) {
         bufferedReplyDeepLinkRef.current = enriched;
@@ -2891,6 +2901,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const pendingStartupInteractions = pendingStartupInteractionsCount > 0;
 
+  const deepLinkSelectedBanId = useMemo(
+    () =>
+      deepLinkReplyBan?.id ??
+      deepLinkActiveBan?.id ??
+      deepLinkRepeatBan?.id ??
+      scopedCheckBan?.id ??
+      scopedIncomingBan?.id ??
+      result?.id ??
+      null,
+    [
+      deepLinkReplyBan?.id,
+      deepLinkActiveBan?.id,
+      deepLinkRepeatBan?.id,
+      scopedCheckBan?.id,
+      scopedIncomingBan?.id,
+      result?.id,
+    ],
+  );
+
   const contextValue = useMemo(
     () => ({
       token: auth.token,
@@ -2926,6 +2955,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       deepLinkActiveBan,
       openDeepLinkActive,
       clearDeepLinkActiveBan,
+      overlayQueueLength: overlayQueue.length,
+      deepLinkSelectedBanId,
       submitCheckAnswer,
       checkWaiting,
       setCheckWaiting,
@@ -3016,6 +3047,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       deepLinkActiveBan,
       openDeepLinkActive,
       clearDeepLinkActiveBan,
+      overlayQueue.length,
+      deepLinkSelectedBanId,
       submitCheckAnswer,
       checkWaiting,
       setCheckWaiting,
