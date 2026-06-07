@@ -6,7 +6,7 @@ import {
   claimInvitesForUser,
   getInvitePreview,
 } from '../services/invite.service';
-import { miniAppLink } from '../lib/deeplink';
+import { botWebAppButtonUrl } from '../lib/deeplink';
 import { OPEN_BAN_WEBAPP_BUTTON_LABEL } from '@98plus/shared';
 import { sendBotStartInviteChallenge } from './notifications';
 
@@ -72,7 +72,7 @@ export function startBot(): Telegraf | null {
 
         if (claimed) {
           const sender = claimed.sender;
-          const banUrl = miniAppLink({ type: 'ban', banId: claimed.id });
+          const banUrl = botWebAppButtonUrl({ type: 'ban', banId: claimed.id });
           const result = await sendBotStartInviteChallenge({
             telegramId: chatId,
             senderUsername: sender.username,
@@ -96,7 +96,7 @@ export function startBot(): Telegraf | null {
 
         const preview = await getInvitePreview(inviteToken);
         if (preview) {
-          const previewUrl = miniAppLink({
+          const previewUrl = botWebAppButtonUrl({
             type: 'invite_token',
             token: inviteToken,
           });
@@ -129,7 +129,7 @@ export function startBot(): Telegraf | null {
 
       await claimInvitesForUser(user.id, user.username);
 
-      const defaultAppUrl = miniAppLink({
+      const defaultAppUrl = botWebAppButtonUrl({
         type: 'invite',
         username: user.username ?? 'friend',
       });

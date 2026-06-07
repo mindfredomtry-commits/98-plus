@@ -33,6 +33,12 @@ export function parseStartParam(raw?: string | null): DeepLinkAction | null {
   if (p.startsWith('rp_')) {
     return { type: 'repeat', banId: p.slice(3) };
   }
+  if (p.startsWith('res_')) {
+    return { type: 'result', banId: p.slice(4) };
+  }
+  if (p.startsWith('rply_')) {
+    return { type: 'reply', banId: p.slice(5) };
+  }
   if (p.startsWith('r_')) {
     return { type: 'result', banId: p.slice(2) };
   }
@@ -62,7 +68,7 @@ export function buildStartParam(action: DeepLinkAction): string {
     case 'invite_token':
       return `invite_${action.token}`;
     case 'result':
-      return `r_${action.banId}`;
+      return `res_${action.banId}`;
     case 'repeat':
       return `rp_${action.banId}`;
     case 'check':
@@ -70,10 +76,24 @@ export function buildStartParam(action: DeepLinkAction): string {
     case 'ban':
       return `b_${action.banId}`;
     case 'reply':
-      return `ply_${action.banId}`;
+      return `rply_${action.banId}`;
     case 'active':
       return `a_${action.banId}`;
   }
+}
+
+/**
+ * Direct HTTPS URL for Telegram inline keyboard `web_app` buttons.
+ * Uses tgWebAppStartParam (Telegram WebApp spec) — not t.me/startapp links.
+ */
+export function buildWebAppDirectUrl(
+  webAppBaseUrl: string,
+  startParam: string,
+): string {
+  const base = webAppBaseUrl.replace(/\/$/, '');
+  const url = new URL(`${base}/`);
+  url.searchParams.set('tgWebAppStartParam', startParam);
+  return url.toString();
 }
 
 export function buildMiniAppUrl(

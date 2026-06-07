@@ -16,7 +16,7 @@ import {
   RETENTION_BAN_WEBAPP_BUTTON_LABEL,
 } from '@98plus/shared';
 import { getBot } from './index';
-import { miniAppLink } from '../lib/deeplink';
+import { botWebAppButtonUrl } from '../lib/deeplink';
 import { prisma } from '../lib/prisma';
 import { buildChallengeCardSvg } from './challenge-card';
 import { isDevTelegramId } from '../services/dev-fixtures.service';
@@ -198,7 +198,7 @@ export async function sendRegisteredFriendBanNotification(
     return { ...baseDebug, skippedReason: skipReason };
   }
 
-  const link = miniAppLink({ type: 'reply', banId: params.banId });
+  const link = botWebAppButtonUrl({ type: 'reply', banId: params.banId });
   const message = formatIncomingBanMessage({
     senderUsername: params.senderUsername,
     senderFirstName: params.senderFirstName,
@@ -329,7 +329,7 @@ export async function sendIncomingBanNotification(
   senderFirstName?: string | null,
   senderPhotoUrl?: string | null,
 ) {
-  const url = miniAppLink({ type: 'reply', banId });
+  const url = botWebAppButtonUrl({ type: 'reply', banId });
 
   const caption = formatIncomingBanMessage({
     senderUsername,
@@ -441,7 +441,7 @@ export async function sendCheckNotification(
   const bot = getBot();
   if (!bot) return;
 
-  const url = miniAppLink({ type: 'check', banId });
+  const url = botWebAppButtonUrl({ type: 'check', banId });
   const message = formatBotCheckChallengeMessage({
     senderUsername,
     senderFirstName,
@@ -481,7 +481,7 @@ export async function sendBanAcceptedSenderNotification(params: {
     banText: params.banText,
     durationMinutes: params.durationMinutes,
   });
-  const link = miniAppLink({ type: 'active', banId: params.banId });
+  const link = botWebAppButtonUrl({ type: 'active', banId: params.banId });
 
   try {
     await bot.telegram.sendMessage(
@@ -513,7 +513,7 @@ export async function sendResultNotification(
     opponentFirstName: result.opponent.firstName,
     banText: result.text,
   });
-  const link = miniAppLink({ type: 'result', banId: result.id });
+  const link = botWebAppButtonUrl({ type: 'result', banId: result.id });
 
   try {
     await bot.telegram.sendMessage(
@@ -537,7 +537,7 @@ export async function sendRetentionNotification(params: {
   const bot = getBot();
   if (!bot) return;
 
-  const link = miniAppLink({
+  const link = botWebAppButtonUrl({
     type: 'invite',
     username: params.friendUsername.replace('@', ''),
   });
@@ -597,7 +597,7 @@ export async function sendInviteClaimWelcome(
   senderFirstName?: string | null,
   senderPhotoUrl?: string | null,
 ) {
-  const deepLink = miniAppLink({ type: 'ban', banId });
+  const deepLink = botWebAppButtonUrl({ type: 'ban', banId });
   await sendBotStartInviteChallenge({
     telegramId,
     senderUsername,
