@@ -65,6 +65,10 @@ import {
   noteDeepLinkHandlerOpened,
 } from '@/lib/deep-link-boot-debug';
 import {
+  logReplyFlow,
+  patchReplyHandoffDebug,
+} from '@/lib/reply-handoff-debug';
+import {
   incomingShowDecision,
   isValidIncomingOverlayPayload,
   shouldShowIncomingBanModal,
@@ -157,7 +161,7 @@ interface AppContextValue {
   incomingBan: BanInteraction | null;
   setIncomingBan: (b: BanInteraction | null) => void;
   dismissIncoming: (banId?: string) => void;
-  acknowledgeIncomingAndStartReply: (ban: BanInteraction) => Promise<void>;
+  acknowledgeIncomingAndStartReply: (ban: BanInteraction) => void;
   acknowledgeIncomingSeen: (banId: string) => Promise<void>;
   checkBan: BanInteraction | null;
   checkGateActive: boolean;
@@ -184,6 +188,16 @@ interface AppContextValue {
   closeSendFlow: () => void;
   deepLinkReplyBooting: boolean;
   setDeepLinkReplyBooting: (v: boolean) => void;
+  /** Reply deep link: block lobby render until What is ready. */
+  replyUiShellActive: boolean;
+  /** Dark transition shell — hidden while incoming card is on screen. */
+  replyUiShellDark: boolean;
+  replyDeepLinkBanId: string | null;
+  replyHandoffLock: boolean;
+  armReplyDeepLink: (banId: string) => void;
+  beginReplyHandoff: (banId: string) => void;
+  notifyReplyWhatVisible: (banId: string, selectedUserId: string | null) => void;
+  releaseReplyHandoffLock: () => void;
   submitCheckAnswer: (
     banId: string,
     completed: boolean,
@@ -405,6 +419,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
   const [sendFlowOpen, setSendFlowOpen] = useState(false);
   const [deepLinkReplyBooting, setDeepLinkReplyBooting] = useState(false);
+  const [replyDeepLinkBanId, setReplyDeepLinkBanId] = useState<string | null>(null);
+  const [replyHandoffLock, setReplyHandoffLock] = useState(false);
+  const [replyWhatReady, setReplyWhatReady] = useState(false);
   const openSendFlow = useCallback(() => {
     setSendFlowOpen(true);
     setLobbyOpen(false);
@@ -412,6 +429,66 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const closeSendFlow = useCallback(() => {
     setSendFlowOpen(false);
   }, []);
+
+  const armReplyDeepLink = useCallback((banId: string) => {
+    setReplyDeepLinkBanId(banId);
+    setReplyWhatReady(false);
+    setReplyHandoffLock(true);
+    logReplyFlow('telegram-open-start', {
+      banId,
+      lockActive: true,
+      lobbyOpen: lobbyOpen,
+    });
+  }, [lobbyOpen]);
+
+  const beginReplyHandoff = useCallback((banId: string) => {
+    setReplyHandoffLock(true);
+    setReplyWhatReady(false);
+    logReplyFlow('card-reply-click', {
+      banId,
+      lockActive: true,
+      acceptPending: true,
+      lobbyOpen: lobbyOpen,
+    });
+  }, [lobbyOpen]);
+
+  const notifyReplyWhatVisible = useCallback(
+    (banId: string, selectedUserId: string | null) => {
+      setReplyWhatReady(true);
+      setReplyHandoffLock(false);
+      setDeepLinkReplyBooting(false);
+      setReplyDeepLinkBanId(null);
+      logReplyFlow('what-visible', {
+        banId,
+        lockActive: false,
+        selectedUserId,
+        phase: 'composingBan',
+        instantBanOpen: true,
+        lobbyOpen: lobbyOpen,
+      });
+      logReplyFlow('lock-released', {
+        banId,
+        lockActive: false,
+        selectedUserId,
+        phase: 'composingBan',
+        lobbyOpen: lobbyOpen,
+      });
+    },
+    [lobbyOpen],
+  );
+
+  const releaseReplyHandoffLock = useCallback(() => {
+    setReplyHandoffLock(false);
+    setReplyWhatReady(true);
+    setDeepLinkReplyBooting(false);
+    setReplyDeepLinkBanId(null);
+    logReplyFlow('lock-released', {
+      banId: replyDeepLinkBanId,
+      lockActive: false,
+      lobbyOpen: lobbyOpen,
+    });
+  }, [lobbyOpen, replyDeepLinkBanId]);
+
   const incomingWsSeenRef = useRef<Set<string>>(new Set());
   const incomingBanRef = useRef<BanInteraction | null>(null);
   const checkBanRef = useRef<BanInteraction | null>(null);
@@ -1691,6 +1768,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason: why.reason,
         });
         setDeepLinkReplyBooting(false);
+        setReplyDeepLinkBanId(null);
+        setReplyHandoffLock(false);
         logDeepLinkHandlerResult({
           type: 'reply',
           banId: b.id,
@@ -1709,6 +1788,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         { kind: 'incoming', ban: enriched },
         { live: true, source: 'session' },
       );
+      logReplyFlow('incoming-visible', {
+        banId: b.id,
+        lockActive: true,
+        activeOverlayKind: 'incoming',
+        selectedBanId: b.id,
+        lobbyOpen: false,
+      });
       console.log('[reply-deeplink]', { banId: b.id, queued: 'incoming-overlay' });
       logDeepLinkHandlerResult({
         type: 'reply',
@@ -2399,6 +2485,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setDeepLinkReplyBan(enriched);
       setLobbyOpen(false);
       openSendFlow();
+      logReplyFlow('send-flow-open-requested', {
+        banId: ban.id,
+        lockActive: true,
+        instantBanOpen: true,
+        lobbyOpen: false,
+      });
       console.log('[reply-deeplink]', {
         banId: ban.id,
         action: 'card-reply-start',
@@ -2424,29 +2516,53 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [removeIncomingFromQueue]);
 
   const acknowledgeIncomingAndStartReply = useCallback(
-    async (ban: BanInteraction) => {
+    (ban: BanInteraction) => {
       const banId = ban.id;
       dismissedIncomingRef.current.add(banId);
       setViralOnboarding(false);
-      removeIncomingFromQueue(banId);
       challengeLog('incoming:reply-open', { banId });
+
+      flushSync(() => {
+        beginReplyHandoff(banId);
+        startIncomingReply(ban);
+      });
+
+      removeIncomingFromQueue(banId);
+      logReplyFlow('overlay-dismissed', {
+        banId,
+        lockActive: true,
+        activeOverlayKind: null,
+        lobbyOpen: false,
+      });
+
       const token = tokenRef.current;
       if (token) {
-        try {
-          await api<{ ban: BanInteraction }>(`/bans/${banId}/accept`, {
-            method: 'POST',
-            token,
-          });
-        } catch (e) {
-          challengeLog('incoming:accept-failed', {
-            banId,
-            message: (e as Error).message,
-          });
-        }
+        void (async () => {
+          try {
+            await api<{ ban: BanInteraction }>(`/bans/${banId}/accept`, {
+              method: 'POST',
+              token,
+            });
+            patchReplyHandoffDebug({
+              acceptPending: false,
+              acceptDone: true,
+            });
+          } catch (e) {
+            challengeLog('incoming:accept-failed', {
+              banId,
+              message: (e as Error).message,
+            });
+            patchReplyHandoffDebug({
+              acceptPending: false,
+              acceptDone: false,
+            });
+          }
+        })();
+      } else {
+        patchReplyHandoffDebug({ acceptPending: false, acceptDone: false });
       }
-      startIncomingReply(ban);
     },
-    [removeIncomingFromQueue, startIncomingReply],
+    [beginReplyHandoff, removeIncomingFromQueue, startIncomingReply],
   );
 
   const dismissIncoming = useCallback(
@@ -2870,40 +2986,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [closeLobby]);
 
   useEffect(() => {
-    if (!auth.user?.id) return;
-    if (
-      deepLinkReplyBan ||
-      deepLinkRepeatBan ||
-      deepLinkActiveBan ||
-      sendFlowOpen ||
-      deepLinkReplyBooting ||
-      incomingGateActive ||
-      checkGateActive ||
-      result
-    ) {
-      return;
-    }
-    setLobbyOpen(true);
-    lobbyShownLoggedRef.current = false;
-  }, [
-    auth.user?.id,
-    deepLinkReplyBan,
-    deepLinkRepeatBan,
-    deepLinkActiveBan,
-    sendFlowOpen,
-    deepLinkReplyBooting,
-    incomingGateActive,
-    checkGateActive,
-    result,
-  ]);
-
-  useEffect(() => {
-    if (deepLinkReplyBooting && incomingGateActive) {
-      setDeepLinkReplyBooting(false);
-    }
-  }, [deepLinkReplyBooting, incomingGateActive]);
-
-  useEffect(() => {
     if (!lobbyOpen || lobbyShownLoggedRef.current) return;
     if (!auth.user?.id || auth.loading) return;
     lobbyShownLoggedRef.current = true;
@@ -3033,6 +3115,61 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ],
   );
 
+  const replyIncomingReady = useMemo(
+    () =>
+      activeOverlayKind === 'incoming' &&
+      replyDeepLinkBanId != null &&
+      deepLinkSelectedBanId === replyDeepLinkBanId,
+    [activeOverlayKind, replyDeepLinkBanId, deepLinkSelectedBanId],
+  );
+
+  const replyUiShellActive = useMemo(
+    () => replyDeepLinkBanId != null && !replyWhatReady,
+    [replyDeepLinkBanId, replyWhatReady],
+  );
+
+  const replyUiShellDark = useMemo(
+    () => replyUiShellActive && !replyIncomingReady,
+    [replyUiShellActive, replyIncomingReady],
+  );
+
+  useEffect(() => {
+    if (!auth.user?.id) return;
+    if (
+      deepLinkReplyBan ||
+      deepLinkRepeatBan ||
+      deepLinkActiveBan ||
+      sendFlowOpen ||
+      deepLinkReplyBooting ||
+      replyHandoffLock ||
+      replyUiShellActive ||
+      incomingGateActive ||
+      checkGateActive ||
+      result
+    ) {
+      return;
+    }
+    setLobbyOpen(true);
+    lobbyShownLoggedRef.current = false;
+  }, [
+    auth.user?.id,
+    deepLinkReplyBan,
+    deepLinkRepeatBan,
+    deepLinkActiveBan,
+    sendFlowOpen,
+    deepLinkReplyBooting,
+    replyHandoffLock,
+    replyUiShellActive,
+    incomingGateActive,
+    checkGateActive,
+    result,
+  ]);
+
+  useEffect(() => {
+    if (!deepLinkReplyBooting || !replyIncomingReady) return;
+    setDeepLinkReplyBooting(false);
+  }, [deepLinkReplyBooting, replyIncomingReady]);
+
   const contextValue = useMemo(
     () => ({
       token: auth.token,
@@ -3075,6 +3212,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       closeSendFlow,
       deepLinkReplyBooting,
       setDeepLinkReplyBooting,
+      replyUiShellActive,
+      replyUiShellDark,
+      replyDeepLinkBanId,
+      replyHandoffLock,
+      armReplyDeepLink,
+      beginReplyHandoff,
+      notifyReplyWhatVisible,
+      releaseReplyHandoffLock,
       submitCheckAnswer,
       checkWaiting,
       setCheckWaiting,
@@ -3172,6 +3317,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       closeSendFlow,
       deepLinkReplyBooting,
       setDeepLinkReplyBooting,
+      replyUiShellActive,
+      replyUiShellDark,
+      replyDeepLinkBanId,
+      replyHandoffLock,
+      armReplyDeepLink,
+      beginReplyHandoff,
+      notifyReplyWhatVisible,
+      releaseReplyHandoffLock,
       submitCheckAnswer,
       checkWaiting,
       setCheckWaiting,
@@ -3223,6 +3376,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       pendingStartupInteractions,
       releaseStartupInteractions,
       markSessionBanSendSuccess,
+      replyUiShellActive,
+      replyUiShellDark,
+      replyDeepLinkBanId,
+      replyHandoffLock,
+      armReplyDeepLink,
+      beginReplyHandoff,
+      notifyReplyWhatVisible,
+      releaseReplyHandoffLock,
     ],
   );
 

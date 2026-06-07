@@ -175,17 +175,14 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     );
   }, [displayBan?.sender]);
 
-  const handleCounter = useCallback(async () => {
+  const handleCounter = useCallback(() => {
     const actBan = verifiedBan ?? resolvedIncoming ?? incomingBan;
     if (!actBan?.id || !actBan.sender?.id || actionLoading) return;
     markOverlayUserAction('incoming', actBan.id);
     haptic('medium');
     setActionLoading(true);
-    try {
-      await acknowledgeIncomingAndStartReply(actBan);
-    } finally {
-      setActionLoading(false);
-    }
+    acknowledgeIncomingAndStartReply(actBan);
+    setActionLoading(false);
   }, [
     verifiedBan,
     resolvedIncoming,

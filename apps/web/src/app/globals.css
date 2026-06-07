@@ -787,7 +787,17 @@ html.scroll-lock body {
 .app-page--reply-deeplink-loading .app-main,
 .app-page--reply-deeplink-loading .cta-dock,
 .app-page--reply-deeplink-loading .bottom-nav,
-.app-page--reply-deeplink-loading .connection-banner {
+.app-page--reply-deeplink-loading .connection-banner,
+.app-page--reply-deeplink-loading .instant-ban-arena-send .instant-ban-arena-lobby-nav,
+.app-page--reply-deeplink-loading .instant-ban-arena-send > .instant-ban-lobby-cta,
+.app-page--reply-deeplink-loading .instant-ban-arena-send .lobby-screen__orb-wrap,
+.app-page--reply-deeplink-loading .instant-ban-arena-send .lobby-screen__particles,
+.app-page--reply-deeplink-loading .instant-ban-arena-send .lobby-screen__grid,
+.app-page--reply-deeplink-loading .instant-ban-flow--reply-ui-shell .instant-ban-arena-lobby-nav,
+.app-page--reply-deeplink-loading .instant-ban-flow--reply-ui-shell > .instant-ban-lobby-cta,
+.app-page--reply-deeplink-loading .instant-ban-flow--reply-ui-shell .lobby-screen__orb-wrap,
+.app-page--reply-deeplink-loading .instant-ban-flow--reply-ui-shell .lobby-screen__particles,
+.app-page--reply-deeplink-loading .instant-ban-flow--reply-ui-shell .lobby-screen__grid {
   visibility: hidden;
   pointer-events: none;
 }
@@ -796,9 +806,34 @@ html.scroll-lock body {
   content: '';
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: 40;
   background: rgba(8, 10, 18, 0.72);
   pointer-events: none;
+}
+
+.instant-ban-flow--reply-ui-shell .instant-ban-arena-lobby-nav,
+.instant-ban-flow--reply-ui-shell > .instant-ban-lobby-cta,
+.instant-ban-flow--reply-ui-shell .lobby-screen__orb-wrap,
+.instant-ban-flow--reply-ui-shell .lobby-screen__particles,
+.instant-ban-flow--reply-ui-shell .lobby-screen__grid,
+.app-page--reply-ui-shell .instant-ban-arena-send .instant-ban-arena-lobby-nav,
+.app-page--reply-ui-shell .instant-ban-arena-send > .instant-ban-lobby-cta,
+.app-page--reply-ui-shell .instant-ban-arena-send .lobby-screen__orb-wrap,
+.app-page--reply-ui-shell .instant-ban-arena-send .lobby-screen__particles,
+.app-page--reply-ui-shell .instant-ban-arena-send .lobby-screen__grid {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.app-page--reply-ui-shell .arena-ambience {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.app-page--reply-ui-shell .instant-ban-arena-send[data-send-phase='composingBan']
+  .instant-ban-send-overlay {
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .app-page--incoming-overlay-active .app-main,

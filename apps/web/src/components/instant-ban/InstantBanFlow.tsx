@@ -34,6 +34,7 @@ import {
 } from '@/lib/instant-ban-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { logDeepLinkHandlerResult } from '@/lib/deep-link-boot-debug';
+import { logReplyFlow } from '@/lib/reply-handoff-debug';
 import { api } from '@/lib/api';
 import {
   getSavedBans,
@@ -233,6 +234,11 @@ export function InstantBanFlow({
     overlayQueueLength,
     deepLinkReplyBooting,
     setDeepLinkReplyBooting,
+    replyUiShellActive,
+    replyHandoffLock,
+    replyDeepLinkBanId,
+    notifyReplyWhatVisible,
+    releaseReplyHandoffLock,
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
 
@@ -326,7 +332,9 @@ export function InstantBanFlow({
   /** Fixed Who dismiss zone (z-index 11) must not cover What interactive layer. */
   const whoDismissGestureActive =
     phase === 'selectingTarget' && crossScreenProgress < 0.02;
+  const replyLobbyBlocked = replyUiShellActive;
   const showLobbyCta =
+    !replyLobbyBlocked &&
     !deepLinkReplyBooting &&
     !incomingReplyBanId &&
     !incomingGateActive &&
@@ -632,8 +640,24 @@ export function InstantBanFlow({
     scheduleCtaBecomeVisible();
   }, [clearCtaEnterTimer, scheduleCtaBecomeVisible]);
 
+  const replyLobbyBlockedLoggedRef = useRef(false);
+  useEffect(() => {
+    if (!replyLobbyBlocked) {
+      replyLobbyBlockedLoggedRef.current = false;
+      return;
+    }
+    if (replyLobbyBlockedLoggedRef.current) return;
+    replyLobbyBlockedLoggedRef.current = true;
+    logReplyFlow('lobby-render-blocked', {
+      banId: replyDeepLinkBanId,
+      lockActive: true,
+      phase,
+    });
+  }, [replyLobbyBlocked, replyDeepLinkBanId, phase]);
+
   /** First lobby open only — dismiss re-entry uses beginCtaSpringIn. */
   useEffect(() => {
+    if (replyUiShellActive) return;
     if (lobbyCtaBootSpringRef.current) return;
     if (sendStarted) return;
     if (prefersReducedMotion()) return;
@@ -644,7 +668,12 @@ export function InstantBanFlow({
       scheduleCtaBecomeVisible();
     }, LOBBY_CTA_COLD_START_DELAY_MS);
     return () => clearCtaBootDelayTimer();
-  }, [clearCtaBootDelayTimer, scheduleCtaBecomeVisible, sendStarted]);
+  }, [
+    clearCtaBootDelayTimer,
+    scheduleCtaBecomeVisible,
+    sendStarted,
+    replyUiShellActive,
+  ]);
 
   /** Only enter who-step when send flow opens — not when user dismisses back to lobby idle. */
   useEffect(() => {
@@ -728,7 +757,8 @@ export function InstantBanFlow({
     phase === 'idle' &&
     !banSentSuccess &&
     !bansOverlayOpen &&
-    !notificationQueueUiLock;
+    !notificationQueueUiLock &&
+    !replyUiShellActive;
   const showBansLayer =
     bansOverlayOpen && phase === 'idle' && !notificationQueueUiLock;
 
@@ -1374,6 +1404,18 @@ export function InstantBanFlow({
     const opponent = user?.id
       ? opponentForBan(deepLinkReplyBan, user.id)
       : null;
+    if (ok) {
+      logReplyFlow('phase-set-composingBan', {
+        banId: deepLinkReplyBan.id,
+        lockActive: true,
+        phase: 'composingBan',
+        selectedUserId:
+          opponent?.id ??
+          selectedUser?.userId ??
+          selectedUser?.id ??
+          null,
+      });
+    }
     logDeepLinkHandlerResult({
       type: 'reply',
       banId: deepLinkReplyBan.id,
@@ -1390,18 +1432,46 @@ export function InstantBanFlow({
       ok,
       reason: ok ? 'card-reply-what' : 'begin-reply-failed',
     });
-    if (ok) clearDeepLinkReplyBan();
+    if (!ok) releaseReplyHandoffLock();
   }, [
     deepLinkReplyBan,
     user?.id,
     beginIncomingReplyFromDeepLink,
-    clearDeepLinkReplyBan,
+    releaseReplyHandoffLock,
     sendStarted,
     sendFlowOpen,
     selectedUser?.id,
     selectedUser?.userId,
     overlayQueueLength,
-    setDeepLinkReplyBooting,
+  ]);
+
+  const replyWhatReleaseRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!replyHandoffLock) {
+      replyWhatReleaseRef.current = null;
+    }
+  }, [replyHandoffLock]);
+
+  useLayoutEffect(() => {
+    if (!replyHandoffLock || replyWhatReleaseRef.current) return;
+    if (phase !== 'composingBan' || !selectedUser) return;
+    const banId =
+      incomingReplyBanId ?? deepLinkReplyBan?.id ?? replyDeepLinkBanId;
+    if (!banId) return;
+    replyWhatReleaseRef.current = banId;
+    const selectedUserId =
+      selectedUser.userId ?? selectedUser.id ?? selectedUser.username ?? null;
+    notifyReplyWhatVisible(banId, selectedUserId);
+    if (deepLinkReplyBan?.id === banId) clearDeepLinkReplyBan();
+  }, [
+    replyHandoffLock,
+    phase,
+    selectedUser,
+    incomingReplyBanId,
+    deepLinkReplyBan,
+    replyDeepLinkBanId,
+    notifyReplyWhatVisible,
+    clearDeepLinkReplyBan,
   ]);
 
   useLayoutEffect(() => {
@@ -1917,7 +1987,9 @@ export function InstantBanFlow({
     <div
       className={`lobby-screen instant-ban-arena-send instant-ban-flow${
         whatMobileSafe ? ' instant-ban-flow--what-mobile-safe' : ''
-      }${liteMode ? ' instant-ban-debug-lite' : ''}`}
+      }${liteMode ? ' instant-ban-debug-lite' : ''}${
+        replyUiShellActive ? ' instant-ban-flow--reply-ui-shell' : ''
+      }`}
       style={arenaOverlayStyle}
       role="dialog"
       aria-modal="true"
@@ -1938,34 +2010,40 @@ export function InstantBanFlow({
           bansNeedAttention={pendingStartupInteractions}
         />
       ) : null}
-      <div className="lobby-screen__grid" aria-hidden />
-      <div className="lobby-screen__particles" aria-hidden>
-        {Array.from({ length: 10 }).map((_, i) => (
-          <span key={i} className="lobby-screen__particle" />
-        ))}
-      </div>
+      {!replyLobbyBlocked ? (
+        <>
+          <div className="lobby-screen__grid" aria-hidden />
+          <div className="lobby-screen__particles" aria-hidden>
+            {Array.from({ length: 10 }).map((_, i) => (
+              <span key={i} className="lobby-screen__particle" />
+            ))}
+          </div>
+        </>
+      ) : null}
 
       <div className="instant-ban-arena-send__stage">
-        <div
-          ref={lobbyOrbMountRef}
-          className={`lobby-screen__orb-wrap lobby-screen__orb-root${
-            confirmLayoutActive ? ' lobby-screen__orb-wrap--confirm' : ''
-          }${orbOverlayDim ? ' lobby-screen__orb-wrap--overlay-dim' : ''}`}
-          data-orb-root
-        >
-          <ArenaLobbyOrb
-            sendPhase={phase}
-            confirmActive={confirmActive}
-            orbCompressActive={orbCompressActive}
-            confirmOrb={confirmOrb}
-            lobbyRingDisplayPercent={lobbyRingDisplayPercent}
-            lobbyRingIntroFilling={lobbyRingIntroFilling}
-            senderUser={user}
-            selectedUser={selectedUser}
-            banText={banText}
-            durationMinutes={durationMinutes}
-          />
-        </div>
+        {!replyLobbyBlocked ? (
+          <div
+            ref={lobbyOrbMountRef}
+            className={`lobby-screen__orb-wrap lobby-screen__orb-root${
+              confirmLayoutActive ? ' lobby-screen__orb-wrap--confirm' : ''
+            }${orbOverlayDim ? ' lobby-screen__orb-wrap--overlay-dim' : ''}`}
+            data-orb-root
+          >
+            <ArenaLobbyOrb
+              sendPhase={phase}
+              confirmActive={confirmActive}
+              orbCompressActive={orbCompressActive}
+              confirmOrb={confirmOrb}
+              lobbyRingDisplayPercent={lobbyRingDisplayPercent}
+              lobbyRingIntroFilling={lobbyRingIntroFilling}
+              senderUser={user}
+              selectedUser={selectedUser}
+              banText={banText}
+              durationMinutes={durationMinutes}
+            />
+          </div>
+        ) : null}
 
         {banSentSuccess && successSnapshot ? (
           <div

@@ -92,6 +92,11 @@ export default function HomePage() {
     deepLinkReplyBooting,
     setDeepLinkReplyBooting,
     activeOverlayKind,
+    replyUiShellActive,
+    replyUiShellDark,
+    replyDeepLinkBanId,
+    replyHandoffLock,
+    armReplyDeepLink,
   } = useApp();
   const overlayHandoffDbgVisible =
     process.env.NODE_ENV === 'development' && overlayHandoffDebug != null;
@@ -124,14 +129,27 @@ export default function HomePage() {
     openBanResult,
     reloadPending,
     setDeepLinkReplyBooting,
+    armReplyDeepLink,
   });
 
   const sendStarted = instantBanOpen || sendFlowOpen;
-  const replyDeepLinkLoading =
-    deepLinkReplyBooting ||
-    (deepLinkBoot.parsedType === 'reply' &&
-      deepLinkBoot.deepLinkDetected &&
-      !incomingGateActive);
+  const replyTargetBanId = replyDeepLinkBanId ?? deepLinkBoot.parsedBanId;
+  const replyIncomingReady =
+    activeOverlayKind === 'incoming' &&
+    replyTargetBanId != null &&
+    deepLinkSelectedBanId === replyTargetBanId;
+  const replyDeepLinkLoading = replyUiShellActive;
+
+  useEffect(() => {
+    if (deepLinkBoot.parsedType !== 'reply' || !deepLinkBoot.parsedBanId) return;
+    if (replyDeepLinkBanId) return;
+    armReplyDeepLink(deepLinkBoot.parsedBanId);
+  }, [
+    deepLinkBoot.parsedType,
+    deepLinkBoot.parsedBanId,
+    replyDeepLinkBanId,
+    armReplyDeepLink,
+  ]);
 
   /** Parent layout effect runs before InstantBanFlow effects — latch send UI early. */
   useLayoutEffect(() => {
@@ -192,7 +210,7 @@ export default function HomePage() {
 
   const deepLinkDebugLine = useMemo(
     () =>
-      `[DEEP LINK DEBUG]\nstartParamRaw: ${deepLinkBoot.startParamRaw ?? '—'}\nstartParamResolved: ${deepLinkBoot.startParamResolved ?? '—'}\nparsedType: ${deepLinkBoot.parsedType ?? '—'}\nparsedBanId: ${deepLinkBoot.parsedBanId ?? '—'}\ndeepLinkDetected: ${deepLinkBoot.deepLinkDetected}\ndeepLinkConsumed: ${deepLinkBoot.deepLinkConsumed}\nbootBlocker: ${deepLinkBoot.bootBlocker ?? '—'}\nlastHandler: ${deepLinkBoot.lastHandler ?? '—'}\ninstantBanOpen: ${instantBanOpen}\nsendFlowOpen: ${sendFlowOpen}\nsendStarted: ${sendStarted}\nactiveOverlayKind: ${activeOverlayKind ?? '—'}\nselectedBanId: ${deepLinkSelectedBanId ?? '—'}\noverlayQueueLength: ${overlayQueueLength}\nincomingGateActive: ${incomingGateActive}`,
+      `[DEEP LINK DEBUG]\nstartParamRaw: ${deepLinkBoot.startParamRaw ?? '—'}\nstartParamResolved: ${deepLinkBoot.startParamResolved ?? '—'}\nparsedType: ${deepLinkBoot.parsedType ?? '—'}\nparsedBanId: ${deepLinkBoot.parsedBanId ?? '—'}\ndeepLinkDetected: ${deepLinkBoot.deepLinkDetected}\ndeepLinkConsumed: ${deepLinkBoot.deepLinkConsumed}\nbootBlocker: ${deepLinkBoot.bootBlocker ?? '—'}\nlastHandler: ${deepLinkBoot.lastHandler ?? '—'}\ninstantBanOpen: ${instantBanOpen}\nsendFlowOpen: ${sendFlowOpen}\nsendStarted: ${sendStarted}\nactiveOverlayKind: ${activeOverlayKind ?? '—'}\nselectedBanId: ${deepLinkSelectedBanId ?? '—'}\noverlayQueueLength: ${overlayQueueLength}\nincomingGateActive: ${incomingGateActive}\nreplyUiShellActive: ${replyUiShellActive}\nreplyUiShellDark: ${replyUiShellDark}\nreplyIncomingReady: ${replyIncomingReady}\nreplyHandoffLock: ${replyHandoffLock}`,
     [
       deepLinkBoot,
       instantBanOpen,
@@ -202,6 +220,10 @@ export default function HomePage() {
       deepLinkSelectedBanId,
       overlayQueueLength,
       incomingGateActive,
+      replyUiShellActive,
+      replyUiShellDark,
+      replyIncomingReady,
+      replyHandoffLock,
     ],
   );
 
@@ -337,6 +359,8 @@ export default function HomePage() {
         checkGateActive ? ' app-page--check-overlay-active' : ''
       }${banSentOpen ? ' app-page--success-modal' : ''}${
         replyDeepLinkLoading ? ' app-page--reply-deeplink-loading' : ''
+      }${
+        replyUiShellActive ? ' app-page--reply-ui-shell' : ''
       }${
         arenaVisible ? ' app-page--instant-ban-active' : ''
       }`}

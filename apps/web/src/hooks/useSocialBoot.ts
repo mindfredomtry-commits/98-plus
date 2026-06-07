@@ -9,6 +9,7 @@ import {
   patchDeepLinkBootDebug,
   readStartParamRawFromLocation,
 } from '@/lib/deep-link-boot-debug';
+import { logReplyFlow } from '@/lib/reply-handoff-debug';
 import { useTelegram } from './useTelegram';
 
 interface BootHandlers {
@@ -23,6 +24,7 @@ interface BootHandlers {
   openBanResult: (r: BanResult | null | undefined, mode: 'explicit') => void;
   reloadPending: () => Promise<void>;
   setDeepLinkReplyBooting: (v: boolean) => void;
+  armReplyDeepLink: (banId: string) => void;
 }
 
 function deepLinkBootKey(startParam: string | undefined): string | null {
@@ -139,7 +141,12 @@ export function useSocialBoot(h: BootHandlers) {
           break;
         }
         case 'reply': {
+          h.armReplyDeepLink(action.banId);
           h.setDeepLinkReplyBooting(true);
+          logReplyFlow('incoming-loading', {
+            banId: action.banId,
+            lockActive: true,
+          });
           try {
             const { ban } = await api<{ ban: BanInteraction }>(
               `/bans/${action.banId}/open`,
@@ -188,5 +195,6 @@ export function useSocialBoot(h: BootHandlers) {
     h.openBanResult,
     h.reloadPending,
     h.setDeepLinkReplyBooting,
+    h.armReplyDeepLink,
   ]);
 }
