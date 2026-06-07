@@ -68,3 +68,18 @@ export function noteDeepLinkHandlerOpened(
     lastHandler: banId ? `${handler}:${banId}` : handler,
   });
 }
+
+export function logDeepLinkHandlerResult(params: {
+  type: string;
+  banId: string | null;
+  instantBanOpen: boolean;
+  sendFlowOpen?: boolean;
+  phase?: string | null;
+  selectedUserId?: string | null;
+  selectedBanId?: string | null;
+  overlayQueueLength?: number;
+  ok?: boolean;
+  reason?: string | null;
+}): void {
+  console.log('[DEEP LINK HANDLER RESULT]', params);
+}

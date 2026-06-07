@@ -1,6 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import dynamic from 'next/dynamic';
 import { useApp } from '@/components/Providers';
 import { useTelegram } from '@/hooks/useTelegram';
@@ -80,6 +87,8 @@ export default function HomePage() {
     overlayHandoffDebug,
     overlayQueueLength,
     deepLinkSelectedBanId,
+    sendFlowOpen,
+    closeSendFlow,
   } = useApp();
   const overlayHandoffDbgVisible =
     process.env.NODE_ENV === 'development' && overlayHandoffDebug != null;
@@ -97,7 +106,8 @@ export default function HomePage() {
 
   const handleCloseInstantBan = useCallback(() => {
     setInstantBanOpen(false);
-  }, []);
+    closeSendFlow();
+  }, [closeSendFlow]);
 
   useSocialBoot({
     token,
@@ -112,11 +122,14 @@ export default function HomePage() {
     reloadPending,
   });
 
-  useEffect(() => {
+  /** Parent layout effect runs before InstantBanFlow effects — latch send UI early. */
+  useLayoutEffect(() => {
     if (!deepLinkRepeatBan && !deepLinkReplyBan && !deepLinkActiveBan) return;
     closeLobby();
     setInstantBanOpen(true);
   }, [deepLinkRepeatBan, deepLinkReplyBan, deepLinkActiveBan, closeLobby]);
+
+  const sendStarted = instantBanOpen || sendFlowOpen;
 
   useEffect(() => {
     setApiUrlDisplay(getApiUrl());
@@ -158,7 +171,7 @@ export default function HomePage() {
   const legacyHomeVisible = hasAuthSession && !arenaVisible;
   const shellModeForDebug = !arenaVisible
     ? 'legacy-home'
-    : instantBanOpen
+    : sendStarted
       ? 'arena-send'
       : lobbyOpen
         ? 'arena-lobby'
@@ -166,10 +179,12 @@ export default function HomePage() {
 
   const deepLinkDebugLine = useMemo(
     () =>
-      `[DEEP LINK DEBUG]\nstartParamRaw: ${deepLinkBoot.startParamRaw ?? '—'}\nstartParamResolved: ${deepLinkBoot.startParamResolved ?? '—'}\nparsedType: ${deepLinkBoot.parsedType ?? '—'}\nparsedBanId: ${deepLinkBoot.parsedBanId ?? '—'}\ndeepLinkDetected: ${deepLinkBoot.deepLinkDetected}\ndeepLinkConsumed: ${deepLinkBoot.deepLinkConsumed}\nbootBlocker: ${deepLinkBoot.bootBlocker ?? '—'}\nlastHandler: ${deepLinkBoot.lastHandler ?? '—'}\ninstantBanOpen: ${instantBanOpen}\nselectedBanId: ${deepLinkSelectedBanId ?? '—'}\noverlayQueueLength: ${overlayQueueLength}`,
+      `[DEEP LINK DEBUG]\nstartParamRaw: ${deepLinkBoot.startParamRaw ?? '—'}\nstartParamResolved: ${deepLinkBoot.startParamResolved ?? '—'}\nparsedType: ${deepLinkBoot.parsedType ?? '—'}\nparsedBanId: ${deepLinkBoot.parsedBanId ?? '—'}\ndeepLinkDetected: ${deepLinkBoot.deepLinkDetected}\ndeepLinkConsumed: ${deepLinkBoot.deepLinkConsumed}\nbootBlocker: ${deepLinkBoot.bootBlocker ?? '—'}\nlastHandler: ${deepLinkBoot.lastHandler ?? '—'}\ninstantBanOpen: ${instantBanOpen}\nsendFlowOpen: ${sendFlowOpen}\nsendStarted: ${sendStarted}\nselectedBanId: ${deepLinkSelectedBanId ?? '—'}\noverlayQueueLength: ${overlayQueueLength}`,
     [
       deepLinkBoot,
       instantBanOpen,
+      sendFlowOpen,
+      sendStarted,
       deepLinkSelectedBanId,
       overlayQueueLength,
     ],
@@ -187,7 +202,7 @@ export default function HomePage() {
       return;
     }
     setShellDebugLine(
-      `[SHELL DEBUG]\nbuild: ${APP_SHELL_BUILD}\nhost: ${window.location.host}\nhref: ${window.location.href}\nstartParam: ${startParam ?? webApp?.initDataUnsafe?.start_param ?? '—'}\nmode: ${shellModeForDebug}\nroute: /(miniapp)\nlobbyOpen: ${lobbyOpen}\ninstantBanOpen: ${instantBanOpen}\narenaVisible: ${arenaVisible}\nlegacyHome: ${legacyHomeVisible}`,
+      `[SHELL DEBUG]\nbuild: ${APP_SHELL_BUILD}\nhost: ${window.location.host}\nhref: ${window.location.href}\nstartParam: ${startParam ?? webApp?.initDataUnsafe?.start_param ?? '—'}\nmode: ${shellModeForDebug}\nroute: /(miniapp)\nlobbyOpen: ${lobbyOpen}\ninstantBanOpen: ${instantBanOpen}\nsendFlowOpen: ${sendFlowOpen}\narenaVisible: ${arenaVisible}\nlegacyHome: ${legacyHomeVisible}`,
     );
   }, [
     hasAuthSession,
@@ -196,6 +211,7 @@ export default function HomePage() {
     shellModeForDebug,
     lobbyOpen,
     instantBanOpen,
+    sendFlowOpen,
     arenaVisible,
     legacyHomeVisible,
   ]);
@@ -386,7 +402,7 @@ export default function HomePage() {
 
       {arenaVisible ? (
         <InstantBanFlow
-          sendStarted={instantBanOpen}
+          sendStarted={sendStarted}
           onStartSend={handleLobbyEnter}
           influencePercent={
             hasAuthSession ? lobbyInfluence.influencePercent : 0

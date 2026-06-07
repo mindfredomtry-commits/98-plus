@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -32,6 +33,7 @@ import {
   isInstantBanLiteMode,
 } from '@/lib/instant-ban-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
+import { logDeepLinkHandlerResult } from '@/lib/deep-link-boot-debug';
 import { api } from '@/lib/api';
 import {
   getSavedBans,
@@ -227,6 +229,8 @@ export function InstantBanFlow({
     checkGateActive,
     notificationSessionActive,
     result,
+    sendFlowOpen,
+    overlayQueueLength,
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
 
@@ -1041,7 +1045,7 @@ export function InstantBanFlow({
       if (!user?.id) return false;
 
       const opponent = opponentForBan(ban, user.id);
-      if (!opponent?.id) return false;
+      if (!opponent?.id && !opponent?.username) return false;
 
       const { card: friend } = resolveOpponentFriendCard(opponent, safeFriends);
 
@@ -1082,9 +1086,10 @@ export function InstantBanFlow({
       setBansOverlayOpen(true);
       setPhase('idle');
       setCtaState('hidden');
+      onStartSend();
       return true;
     },
-    [releaseStartupInteractions],
+    [onStartSend, releaseStartupInteractions],
   );
 
   const handleRepeatBanFromArchive = useCallback(
@@ -1299,7 +1304,7 @@ export function InstantBanFlow({
     beginNewBanWhoFlow();
   }, [newBanWhoFlowRequest, beginNewBanWhoFlow]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!deepLinkRepeatBan?.id || !user?.id) return;
     if (lastDeepLinkRepeatBanIdRef.current === deepLinkRepeatBan.id) return;
     lastDeepLinkRepeatBanIdRef.current = deepLinkRepeatBan.id;
@@ -1307,16 +1312,33 @@ export function InstantBanFlow({
       banId: deepLinkRepeatBan.id,
       action: 'begin-flow',
     });
-    beginRepeatBanFlow(deepLinkRepeatBan, { goToConfirm: true });
-    clearDeepLinkRepeatBan();
+    const ok = beginRepeatBanFlow(deepLinkRepeatBan, { goToConfirm: true });
+    logDeepLinkHandlerResult({
+      type: 'repeat',
+      banId: deepLinkRepeatBan.id,
+      instantBanOpen: sendStarted,
+      sendFlowOpen,
+      phase: ok ? 'confirming' : 'idle',
+      selectedUserId: selectedUser?.userId ?? selectedUser?.id ?? null,
+      selectedBanId: deepLinkRepeatBan.id,
+      overlayQueueLength,
+      ok,
+      reason: ok ? null : 'begin-repeat-failed',
+    });
+    if (ok) clearDeepLinkRepeatBan();
   }, [
     deepLinkRepeatBan,
     user?.id,
     beginRepeatBanFlow,
     clearDeepLinkRepeatBan,
+    sendStarted,
+    sendFlowOpen,
+    selectedUser?.id,
+    selectedUser?.userId,
+    overlayQueueLength,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!deepLinkReplyBan?.id || !user?.id) return;
     if (lastDeepLinkReplyBanIdRef.current === deepLinkReplyBan.id) return;
     lastDeepLinkReplyBanIdRef.current = deepLinkReplyBan.id;
@@ -1324,16 +1346,33 @@ export function InstantBanFlow({
       banId: deepLinkReplyBan.id,
       action: 'begin-flow',
     });
-    beginIncomingReplyFromDeepLink(deepLinkReplyBan);
-    clearDeepLinkReplyBan();
+    const ok = beginIncomingReplyFromDeepLink(deepLinkReplyBan);
+    logDeepLinkHandlerResult({
+      type: 'reply',
+      banId: deepLinkReplyBan.id,
+      instantBanOpen: sendStarted,
+      sendFlowOpen,
+      phase: ok ? 'composingBan' : 'idle',
+      selectedUserId: selectedUser?.userId ?? selectedUser?.id ?? null,
+      selectedBanId: deepLinkReplyBan.id,
+      overlayQueueLength,
+      ok,
+      reason: ok ? null : 'begin-reply-failed',
+    });
+    if (ok) clearDeepLinkReplyBan();
   }, [
     deepLinkReplyBan,
     user?.id,
     beginIncomingReplyFromDeepLink,
     clearDeepLinkReplyBan,
+    sendStarted,
+    sendFlowOpen,
+    selectedUser?.id,
+    selectedUser?.userId,
+    overlayQueueLength,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!deepLinkActiveBan?.id || !user?.id) return;
     if (lastDeepLinkActiveBanIdRef.current === deepLinkActiveBan.id) return;
     lastDeepLinkActiveBanIdRef.current = deepLinkActiveBan.id;
@@ -1341,13 +1380,28 @@ export function InstantBanFlow({
       banId: deepLinkActiveBan.id,
       action: 'begin-flow',
     });
-    beginActiveBanFromDeepLink(deepLinkActiveBan);
-    clearDeepLinkActiveBan();
+    const ok = beginActiveBanFromDeepLink(deepLinkActiveBan);
+    logDeepLinkHandlerResult({
+      type: 'active',
+      banId: deepLinkActiveBan.id,
+      instantBanOpen: sendStarted,
+      sendFlowOpen,
+      phase: ok ? 'idle' : 'idle',
+      selectedUserId: null,
+      selectedBanId: deepLinkActiveBan.id,
+      overlayQueueLength,
+      ok,
+      reason: ok ? 'bans-overlay' : 'begin-active-failed',
+    });
+    if (ok) clearDeepLinkActiveBan();
   }, [
     deepLinkActiveBan,
     user?.id,
     beginActiveBanFromDeepLink,
     clearDeepLinkActiveBan,
+    sendStarted,
+    sendFlowOpen,
+    overlayQueueLength,
   ]);
 
   const finishWhoDismiss = useCallback(() => {

@@ -60,7 +60,10 @@ import { resetScrollLock } from '@/lib/scroll-lock';
 import { fetchSession } from '@/lib/session';
 import { api } from '@/lib/api';
 import { challengeLog } from '@/lib/challenge-log';
-import { noteDeepLinkHandlerOpened } from '@/lib/deep-link-boot-debug';
+import {
+  logDeepLinkHandlerResult,
+  noteDeepLinkHandlerOpened,
+} from '@/lib/deep-link-boot-debug';
 import {
   incomingShowDecision,
   isValidIncomingOverlayPayload,
@@ -175,6 +178,10 @@ interface AppContextValue {
   clearDeepLinkActiveBan: () => void;
   overlayQueueLength: number;
   deepLinkSelectedBanId: string | null;
+  /** Latched true when a deep-link send/active flow should keep lobby closed. */
+  sendFlowOpen: boolean;
+  openSendFlow: () => void;
+  closeSendFlow: () => void;
   submitCheckAnswer: (
     banId: string,
     completed: boolean,
@@ -394,6 +401,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [deepLinkActiveBan, setDeepLinkActiveBan] = useState<BanInteraction | null>(
     null,
   );
+  const [sendFlowOpen, setSendFlowOpen] = useState(false);
+  const openSendFlow = useCallback(() => {
+    setSendFlowOpen(true);
+    setLobbyOpen(false);
+  }, []);
+  const closeSendFlow = useCallback(() => {
+    setSendFlowOpen(false);
+  }, []);
   const incomingWsSeenRef = useRef<Set<string>>(new Set());
   const incomingBanRef = useRef<BanInteraction | null>(null);
   const checkBanRef = useRef<BanInteraction | null>(null);
@@ -807,6 +822,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
       }
       applyOverlayQueue(next);
+      if (mode === 'explicit' || mode === 'live') {
+        logDeepLinkHandlerResult({
+          type: 'result',
+          banId: r.id,
+          instantBanOpen: false,
+          sendFlowOpen: false,
+          selectedBanId: r.id,
+          overlayQueueLength: next.length,
+          ok: true,
+        });
+      }
     },
     [applyOverlayQueue, syncPendingStartupCount],
   );
@@ -1293,6 +1319,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         { kind: 'check', ban: enrichBanInteraction(b) },
         { live: true, source: 'session' },
       );
+      logDeepLinkHandlerResult({
+        type: 'check',
+        banId: b.id,
+        instantBanOpen: false,
+        sendFlowOpen: false,
+        selectedBanId: b.id,
+        overlayQueueLength: overlayQueueRef.current.length + 1,
+        ok: true,
+      });
     },
     [auth.loading, enqueueNotification],
   );
@@ -1326,11 +1361,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return;
       }
-      setLobbyOpen(false);
+      openSendFlow();
       setDeepLinkRepeatBan(enriched);
       console.log('[repeat-deeplink]', { banId: b.id, queued: true });
+      logDeepLinkHandlerResult({
+        type: 'repeat',
+        banId: b.id,
+        instantBanOpen: false,
+        sendFlowOpen: true,
+        selectedBanId: b.id,
+        overlayQueueLength: overlayQueueRef.current.length,
+        ok: true,
+      });
     },
-    [auth.loading],
+    [auth.loading, openSendFlow],
   );
 
   useEffect(() => {
@@ -1342,8 +1386,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       banId: buffered.id,
       action: 'apply-buffered',
     });
+    openSendFlow();
     setDeepLinkRepeatBan(buffered);
-  }, [auth.user?.id, auth.loading]);
+    logDeepLinkHandlerResult({
+      type: 'repeat',
+      banId: buffered.id,
+      instantBanOpen: false,
+      sendFlowOpen: true,
+      selectedBanId: buffered.id,
+      overlayQueueLength: overlayQueueRef.current.length,
+      ok: true,
+      reason: 'buffered',
+    });
+  }, [auth.user?.id, auth.loading, openSendFlow]);
 
   const clearDeepLinkReplyBan = useCallback(() => {
     setDeepLinkReplyBan(null);
@@ -1366,11 +1421,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return;
       }
-      setLobbyOpen(false);
+      openSendFlow();
       setDeepLinkActiveBan(enriched);
       console.log('[active-deeplink]', { banId: b.id, queued: true });
+      logDeepLinkHandlerResult({
+        type: 'active',
+        banId: b.id,
+        instantBanOpen: false,
+        sendFlowOpen: true,
+        selectedBanId: b.id,
+        overlayQueueLength: overlayQueueRef.current.length,
+        ok: true,
+      });
     },
-    [auth.loading],
+    [auth.loading, openSendFlow],
   );
 
   useEffect(() => {
@@ -1603,7 +1667,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return;
       }
-      setLobbyOpen(false);
+      openSendFlow();
       dismissedIncomingRef.current.add(b.id);
       removeIncomingFromQueue(b.id);
       setIncomingReplyBanId(b.id);
@@ -1623,8 +1687,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       setDeepLinkReplyBan(enriched);
       console.log('[reply-deeplink]', { banId: b.id, queued: true });
+      logDeepLinkHandlerResult({
+        type: 'reply',
+        banId: b.id,
+        instantBanOpen: false,
+        sendFlowOpen: true,
+        selectedBanId: b.id,
+        overlayQueueLength: overlayQueueRef.current.length,
+        ok: true,
+      });
     },
-    [auth.loading, removeIncomingFromQueue],
+    [auth.loading, openSendFlow, removeIncomingFromQueue],
   );
 
   useEffect(() => {
@@ -2774,6 +2847,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       deepLinkReplyBan ||
       deepLinkRepeatBan ||
       deepLinkActiveBan ||
+      sendFlowOpen ||
       checkGateActive ||
       result
     ) {
@@ -2786,6 +2860,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     deepLinkReplyBan,
     deepLinkRepeatBan,
     deepLinkActiveBan,
+    sendFlowOpen,
     checkGateActive,
     result,
   ]);
@@ -2957,6 +3032,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearDeepLinkActiveBan,
       overlayQueueLength: overlayQueue.length,
       deepLinkSelectedBanId,
+      sendFlowOpen,
+      openSendFlow,
+      closeSendFlow,
       submitCheckAnswer,
       checkWaiting,
       setCheckWaiting,
@@ -3049,6 +3127,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearDeepLinkActiveBan,
       overlayQueue.length,
       deepLinkSelectedBanId,
+      sendFlowOpen,
+      openSendFlow,
+      closeSendFlow,
       submitCheckAnswer,
       checkWaiting,
       setCheckWaiting,
