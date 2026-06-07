@@ -2759,9 +2759,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [closeLobby]);
 
   useEffect(() => {
+    if (!auth.user?.id) return;
+    if (
+      deepLinkReplyBan ||
+      deepLinkRepeatBan ||
+      deepLinkActiveBan ||
+      checkGateActive ||
+      result
+    ) {
+      return;
+    }
     setLobbyOpen(true);
     lobbyShownLoggedRef.current = false;
-  }, [auth.user?.id]);
+  }, [
+    auth.user?.id,
+    deepLinkReplyBan,
+    deepLinkRepeatBan,
+    deepLinkActiveBan,
+    checkGateActive,
+    result,
+  ]);
 
   useEffect(() => {
     if (!lobbyOpen || lobbyShownLoggedRef.current) return;

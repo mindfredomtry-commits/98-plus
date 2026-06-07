@@ -42,6 +42,9 @@ const DebugPanel = dynamic(
   { ssr: false },
 );
 
+/** Bump when diagnosing shell / deploy mismatches. */
+const APP_SHELL_BUILD = 'arena-v2@1.0.0';
+
 export default function HomePage() {
   const {
     token,
@@ -79,6 +82,7 @@ export default function HomePage() {
   const [debugOpen, setDebugOpen] = useState(false);
   const [instantBanOpen, setInstantBanOpen] = useState(false);
   const [apiUrlDisplay, setApiUrlDisplay] = useState('');
+  const [shellDebugLine, setShellDebugLine] = useState<string | null>(null);
 
   const handleCloseInstantBan = useCallback(() => {
     setInstantBanOpen(false);
@@ -138,6 +142,35 @@ export default function HomePage() {
 
   const hasAuthSession = !!user?.id && !!token;
   const lobbyPrefetch = loading && !hasAuthSession;
+  /** v2 arena shell — never drop to legacy HomeArena while session is active. */
+  const arenaVisible = lobbyPrefetch || hasAuthSession;
+  const legacyHomeVisible = hasAuthSession && !arenaVisible;
+  const shellModeForDebug = !arenaVisible
+    ? 'legacy-home'
+    : instantBanOpen
+      ? 'arena-send'
+      : lobbyOpen
+        ? 'arena-lobby'
+        : 'arena-deep-link';
+
+  useEffect(() => {
+    if (!hasAuthSession) {
+      setShellDebugLine(null);
+      return;
+    }
+    setShellDebugLine(
+      `[SHELL DEBUG]\nbuild: ${APP_SHELL_BUILD}\nhost: ${window.location.host}\nhref: ${window.location.href}\nstartParam: ${startParam ?? webApp?.initDataUnsafe?.start_param ?? '—'}\nmode: ${shellModeForDebug}\nroute: /(miniapp)\nlobbyOpen: ${lobbyOpen}\ninstantBanOpen: ${instantBanOpen}\narenaVisible: ${arenaVisible}\nlegacyHome: ${legacyHomeVisible}`,
+    );
+  }, [
+    hasAuthSession,
+    startParam,
+    webApp,
+    shellModeForDebug,
+    lobbyOpen,
+    instantBanOpen,
+    arenaVisible,
+    legacyHomeVisible,
+  ]);
 
   const handleLobbyEnter = useCallback(() => {
     closeLobby();
@@ -228,7 +261,6 @@ export default function HomePage() {
     );
   }
 
-  const arenaVisible = lobbyOpen || instantBanOpen || lobbyPrefetch;
   const shellView = lobbyPrefetch ? 'LobbyPrefetch' : 'HomeShell';
 
   return (
@@ -241,6 +273,8 @@ export default function HomePage() {
         arenaVisible ? ' app-page--instant-ban-active' : ''
       }`}
       data-shell-view={shellView}
+      data-shell-mode={shellModeForDebug}
+      data-shell-build={APP_SHELL_BUILD}
     >
       <ShellErrorBoundary name="ambience" fallback={null}>
         <ArenaAmbience />
@@ -258,7 +292,7 @@ export default function HomePage() {
               : 'app-main--nav-only'
           }`}
         >
-          {tab === 'home' && user ? (
+          {tab === 'home' && user && legacyHomeVisible ? (
             <ShellErrorBoundary name="home">
               <HomeArena user={user} />
             </ShellErrorBoundary>
@@ -272,7 +306,7 @@ export default function HomePage() {
         </main>
       ) : null}
 
-      {!lobbyPrefetch ? (
+      {!lobbyPrefetch && legacyHomeVisible ? (
         <ShellErrorBoundary name="cta" fallback={null}>
           <SendBanDock visible={tab === 'home'} />
         </ShellErrorBoundary>
@@ -326,6 +360,17 @@ export default function HomePage() {
           inviteUsername={user?.username ?? null}
           onClose={handleCloseInstantBan}
         />
+      ) : null}
+
+      {shellDebugLine ? (
+        <div
+          className="fixed bottom-0 left-0 right-0 z-[9999] px-2 pb-2 pointer-events-none"
+          aria-hidden
+        >
+          <p className="text-[9px] leading-snug text-muted/45 font-mono text-left whitespace-pre-wrap break-all max-h-[28dvh] overflow-hidden">
+            {shellDebugLine}
+          </p>
+        </div>
       ) : null}
     </div>
   );
