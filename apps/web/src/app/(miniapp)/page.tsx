@@ -99,6 +99,7 @@ export default function HomePage() {
     replyHandoffLock,
     armReplyDeepLink,
     activeBanUiShellActive,
+    resultReplyPending,
   } = useApp();
   const overlayHandoffDbgVisible =
     process.env.NODE_ENV === 'development' && overlayHandoffDebug != null;
@@ -160,6 +161,12 @@ export default function HomePage() {
     closeLobby();
     setInstantBanOpen(true);
   }, [deepLinkRepeatBan, deepLinkReplyBan, deepLinkActiveBan, closeLobby]);
+
+  useLayoutEffect(() => {
+    if (!resultReplyPending) return;
+    closeLobby();
+    setInstantBanOpen(true);
+  }, [resultReplyPending, closeLobby]);
 
   useEffect(() => {
     setApiUrlDisplay(getApiUrl());
@@ -435,6 +442,7 @@ export default function HomePage() {
       {token ? (
         <DebugPanel
           token={token}
+          userId={user?.id}
           wsStatus={wsStatus}
           eventLog={eventLog}
           open={debugOpen}

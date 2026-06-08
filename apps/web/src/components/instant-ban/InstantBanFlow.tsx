@@ -17,6 +17,7 @@ import {
   type BanInteraction,
   type FriendCard,
   type SessionState,
+  type UserPublic,
 } from '@98plus/shared';
 import { useApp } from '../Providers';
 import { useTelegram } from '@/hooks/useTelegram';
@@ -242,6 +243,10 @@ export function InstantBanFlow({
     releaseReplyHandoffLock,
     activeBanUiShellActive,
     notifyActiveBanCardVisible,
+    resultReplyPending,
+    resultReplyRequest,
+    resultReplyHandoffLock,
+    notifyResultReplyWhatVisible,
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
 
@@ -1105,11 +1110,9 @@ export function InstantBanFlow({
     ],
   );
 
-  const beginIncomingReplyFromDeepLink = useCallback(
-    (ban: BanInteraction) => {
+  const beginComposingBanForOpponent = useCallback(
+    (opponent: UserPublic) => {
       if (!user?.id) return false;
-
-      const opponent = opponentForBan(ban, user.id);
       if (!opponent?.id && !opponent?.username) return false;
 
       const { card: friend } = resolveOpponentFriendCard(opponent, safeFriends);
@@ -1156,6 +1159,15 @@ export function InstantBanFlow({
       setCrossScreenProgressImmediate,
       user?.id,
     ],
+  );
+
+  const beginIncomingReplyFromDeepLink = useCallback(
+    (ban: BanInteraction) => {
+      if (!user?.id) return false;
+      const opponent = opponentForBan(ban, user.id);
+      return beginComposingBanForOpponent(opponent);
+    },
+    [beginComposingBanForOpponent, user?.id],
   );
 
   const beginActiveBanFromDeepLink = useCallback(
@@ -1378,6 +1390,8 @@ export function InstantBanFlow({
   const phaseSetFromReplyRef = useRef<string | null>(null);
   const lockReleasedRef = useRef(false);
   const whatVisibleNotifiedRef = useRef(false);
+  const resultReplyWhatNotifiedRef = useRef(false);
+  const lastResultReplyRequestRef = useRef(0);
   const lastDeepLinkActiveBanIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -1485,6 +1499,41 @@ export function InstantBanFlow({
     selectedUser?.id,
     selectedUser?.userId,
     overlayQueueLength,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!resultReplyPending || resultReplyRequest === 0) return;
+    if (lastResultReplyRequestRef.current === resultReplyRequest) return;
+    lastResultReplyRequestRef.current = resultReplyRequest;
+    resultReplyWhatNotifiedRef.current = false;
+
+    const ok = beginComposingBanForOpponent(resultReplyPending.opponent);
+    if (!ok) {
+      notifyResultReplyWhatVisible(resultReplyPending.banId, null);
+    }
+  }, [
+    resultReplyRequest,
+    resultReplyPending,
+    beginComposingBanForOpponent,
+    notifyResultReplyWhatVisible,
+  ]);
+
+  useLayoutEffect(() => {
+    if (resultReplyWhatNotifiedRef.current) return;
+    if (!resultReplyHandoffLock) return;
+    if (phase !== 'composingBan' || !selectedUser) return;
+    const banId = resultReplyPending?.banId;
+    if (!banId) return;
+    resultReplyWhatNotifiedRef.current = true;
+    const selectedUserId =
+      selectedUser.userId ?? selectedUser.id ?? selectedUser.username ?? null;
+    notifyResultReplyWhatVisible(banId, selectedUserId);
+  }, [
+    resultReplyHandoffLock,
+    resultReplyPending?.banId,
+    phase,
+    selectedUser,
+    notifyResultReplyWhatVisible,
   ]);
 
   useLayoutEffect(() => {

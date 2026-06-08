@@ -140,7 +140,7 @@ export function opponentForBan(
   return ban.sender;
 }
 
-/** Build send target from ban record — does not depend on friends cache. */
+/** Build send target from a public user record — does not depend on friends cache. */
 export function friendCardFromBanUser(
   opponent: BanInteraction['sender'],
 ): FriendCard {

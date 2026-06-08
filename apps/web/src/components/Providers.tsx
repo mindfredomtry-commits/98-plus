@@ -18,6 +18,7 @@ import type {
   SessionState,
   FriendCard,
   ResultOpenMode,
+  UserPublic,
 } from '@98plus/shared';
 import { isValidBanResultPayload } from '@98plus/shared';
 import {
@@ -43,11 +44,9 @@ import {
   overlayTs,
 } from '@/lib/overlay-timing';
 import {
-  enqueueOverlay,
   enqueueWithActiveLock,
   getActiveOverlayKey,
   hasCheckInQueue,
-  mergeOverlayQueues,
   overlayQueueKey,
   popOverlayHead,
   pruneOverlayQueue,
@@ -103,6 +102,17 @@ import {
   rememberUserAvatar,
 } from '@/lib/avatar-cache';
 import { backfillAcknowledgedIncomingOnce } from '@/lib/incoming-backfill';
+import { hydrateAcknowledgedIncomingIds } from '@/lib/acknowledged-incoming';
+import {
+  evaluateOverlayEnqueue,
+  filterOverlayQueueByTtl,
+  logOverlayArbiter,
+  mergeStartupPendingSingle,
+  OVERLAY_SHOW_NEXT_DELAY_MS,
+} from '@/lib/overlay-arbiter';
+import { installOverlayDismissCacheDevHelper } from '@/lib/overlay-dismiss-cache-dev';
+import { logResultNav, logResultReply } from '@/lib/result-reply-debug';
+import { resolveResultReplyOpponent } from '@/lib/result-reply-flow';
 import {
   hydrateAnsweredCheckIds,
   markCheckAnsweredLocally,
@@ -212,6 +222,17 @@ interface AppContextValue {
   result: BanResult | null;
   openBanResult: (r: BanResult | null | undefined, mode: ResultOpenMode) => void;
   dismissBanResult: () => void;
+  /** Result card → What with opponent pre-selected (overboard / check outcomes). */
+  startReplyFromResult: (r: BanResult) => void;
+  /** Result card → next overlay or lobby («К запретам»). */
+  navigateFromResult: () => void;
+  resultReplyPending: { banId: string; opponent: UserPublic } | null;
+  resultReplyRequest: number;
+  resultReplyHandoffLock: boolean;
+  notifyResultReplyWhatVisible: (
+    banId: string,
+    selectedUserId: string | null,
+  ) => void;
   popups: EnergyPopup[];
   pushPopup: (p: EnergyPopup) => void;
   activeBans: BanInteraction[];
@@ -432,6 +453,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [replyDeepLinkBanId, setReplyDeepLinkBanId] = useState<string | null>(null);
   const [replyHandoffLock, setReplyHandoffLock] = useState(false);
   const [replyWhatReady, setReplyWhatReady] = useState(false);
+  const [resultReplyPending, setResultReplyPending] = useState<{
+    banId: string;
+    opponent: UserPublic;
+  } | null>(null);
+  const [resultReplyRequest, setResultReplyRequest] = useState(0);
+  const [resultReplyHandoffLock, setResultReplyHandoffLock] = useState(false);
+  const [resultReplyWhatReady, setResultReplyWhatReady] = useState(true);
   const replyFlowArmedBanIdRef = useRef<string | null>(null);
   const replyLockReleasedRef = useRef(false);
   const openSendFlow = useCallback(() => {
@@ -538,6 +566,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const resultDeliveredBanIdsRef = useRef<Set<string>>(new Set());
   const checkSubmitAtRef = useRef<Map<string, number>>(new Map());
   const resultPollBurstTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const shownOverlayKeysRef = useRef<Set<string>>(new Set());
+  const locallyAckedIncomingRef = useRef<Set<string>>(new Set());
+  const deepLinkBlockedRef = useRef(false);
+  const overlayShowNextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   const syncPendingStartupCount = useCallback(() => {
     setPendingStartupInteractionsCount(
@@ -548,13 +582,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const isOverlayLive = useCallback(
     (opts?: { live?: boolean; source?: 'ws' | 'session' | 'poll' }) => {
       if (opts?.live === true) return true;
+      if (startupInteractionsHoldRef.current) return false;
       if (opts?.source === 'ws') return true;
-      if (
-        opts?.source === 'poll' &&
-        !startupInteractionsHoldRef.current
-      ) {
-        return true;
-      }
+      if (opts?.source === 'poll') return true;
       return false;
     },
     [],
@@ -619,6 +649,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           queueLength: next.length,
           nextKind: nextHead?.kind ?? null,
         });
+        if (nextKey) {
+          shownOverlayKeysRef.current.add(nextKey);
+          logOverlayArbiter('show', {
+            key: nextKey,
+            kind: nextHead?.kind ?? null,
+            banId:
+              nextHead?.kind === 'result'
+                ? nextHead.result.id
+                : nextHead?.ban.id ?? null,
+          });
+        }
       }
       overlayQueueRef.current = next;
       syncDisplayFromQueue(next);
@@ -690,6 +731,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const dismissTs = overlayTs();
       overlayHandoffTsRef.current = dismissTs;
 
+      logOverlayArbiter('dismiss', {
+        prevKey,
+        reason,
+        remaining: remaining.length,
+        actionAgeMs: overlayDelayMs(overlayActionTsRef.current),
+      });
+
       console.log('[OVERLAY DISMISS CURRENT]', {
         ts: dismissTs,
         prevKey,
@@ -703,23 +751,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         console.log('[OVERLAY QUEUE DRAIN START]', { ts: dismissTs, count: drainTotal });
       }
 
+      if (overlayShowNextTimerRef.current) {
+        clearTimeout(overlayShowNextTimerRef.current);
+        overlayShowNextTimerRef.current = null;
+      }
+
       const commit = () => {
         applyOverlayQueue(remaining);
         const selectTs = overlayTs();
         if (remaining.length > 0) {
           const nextKey = remaining[0] ? overlayQueueKey(remaining[0]) : null;
-          const commitDelayMs = overlayDelayMs(dismissTs);
+          logOverlayArbiter('show-next', {
+            prevKey,
+            nextKey,
+            delayMs: overlayDelayMs(dismissTs),
+          });
           console.log('[OVERLAY NEXT SELECTED]', {
             ts: selectTs,
             prevKey,
             nextKey,
-            commitDelayMs,
-          });
-          console.log('[OVERLAY NEXT IMMEDIATE]', {
-            ts: selectTs,
-            prevKey,
-            nextKey,
-            delayMs: commitDelayMs,
+            commitDelayMs: overlayDelayMs(dismissTs),
           });
         }
         if (remaining.length === 0) {
@@ -733,39 +784,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       };
 
       if (remaining.length > 0) {
-        flushSync(commit);
+        overlayShowNextTimerRef.current = setTimeout(() => {
+          overlayShowNextTimerRef.current = null;
+          flushSync(commit);
+        }, OVERLAY_SHOW_NEXT_DELAY_MS);
       } else {
         commit();
       }
     },
     [applyOverlayQueue],
-  );
-
-  const releaseStartupInteractions = useCallback(
-    (opts?: { requireBanSend?: boolean }) => {
-      if (opts?.requireBanSend && !sessionBanSendSuccessRef.current) {
-        return;
-      }
-      const pending = pendingStartupInteractionsRef.current;
-      const hadHold = startupInteractionsHoldRef.current;
-      startupInteractionsHoldRef.current = false;
-      pendingStartupInteractionsRef.current = [];
-      syncPendingStartupCount();
-
-      if (!hadHold && pending.length === 0) return;
-
-      console.log('[startup-interactions-release]', {
-        count: pending.length,
-        requireBanSend: opts?.requireBanSend ?? false,
-      });
-
-      if (pending.length === 0) return;
-
-      applyOverlayQueue(
-        mergeOverlayQueues(overlayQueueRef.current, pending),
-      );
-    },
-    [applyOverlayQueue, syncPendingStartupCount],
   );
 
   const markSessionBanSendSuccess = useCallback(() => {
@@ -775,40 +802,64 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const enqueueNotification = useCallback(
     (
       item: QueuedOverlay,
-      opts?: { live?: boolean; source?: 'ws' | 'session' | 'poll' },
+      opts?: {
+        live?: boolean;
+        source?: 'ws' | 'session' | 'poll' | 'deeplink';
+      },
     ) => {
       const live = isOverlayLive(opts);
+      const banId = item.kind === 'result' ? item.result.id : item.ban.id;
+      const key = overlayQueueKey(item);
+      const decision = evaluateOverlayEnqueue(item, {
+        viewerId: userIdRef.current,
+        deepLinkBlocked: deepLinkBlockedRef.current,
+        activeOverlayKey: getActiveOverlayKey(overlayQueueRef.current),
+        queueKeys: new Set(overlayQueueRef.current.map(overlayQueueKey)),
+        pendingKeys: new Set(
+          pendingStartupInteractionsRef.current.map(overlayQueueKey),
+        ),
+        shownOverlayKeys: shownOverlayKeysRef.current,
+        dismissedIncoming: dismissedIncomingRef.current,
+        dismissedCheck: dismissedCheckSessionRef.current,
+        answeredChecks: answeredCheckRef.current,
+        locallyAckedIncoming: locallyAckedIncomingRef.current,
+        source: opts?.source,
+        live,
+      });
+
+      if (!decision.accept) {
+        logOverlayArbiter(
+          decision.reason === 'ttl-skip'
+            ? 'ttl-skip'
+            : decision.reason === 'dedup-skip'
+              ? 'dedup-skip'
+              : decision.reason === 'blocked-by-deeplink'
+                ? 'blocked-by-deeplink'
+                : 'dedup-skip',
+          { key, kind: item.kind, banId, source: opts?.source ?? null },
+        );
+        return;
+      }
 
       if (startupInteractionsHoldRef.current && !live) {
         const prevPending = pendingStartupInteractionsRef.current;
-        const nextPending = enqueueOverlay(prevPending, item);
-        if (nextPending === prevPending) {
-          if (item.kind === 'incoming') {
-            console.log('INCOMING QUEUE PUSH', {
-              banId: item.ban.id,
-              skipped: true,
-              reason: 'startup-pending-dedup',
-              source: opts?.source ?? null,
-            });
-          }
-          return;
-        }
+        const nextPending = mergeStartupPendingSingle(prevPending, item);
         pendingStartupInteractionsRef.current = nextPending;
         syncPendingStartupCount();
-        if (item.kind === 'incoming') {
-          console.log('INCOMING QUEUE PUSH', {
-            banId: item.ban.id,
-            skipped: false,
-            reason: 'startup-pending',
-            source: opts?.source ?? null,
-          });
-        }
+        logOverlayArbiter('enqueue', {
+          key,
+          kind: item.kind,
+          banId,
+          source: opts?.source ?? null,
+          scope: 'startup-pending',
+          queueLength: nextPending.length,
+        });
         return;
       }
 
       const prev = overlayQueueRef.current;
       const activeKey = getActiveOverlayKey(prev);
-      const newKey = overlayQueueKey(item);
+      const newKey = key;
       const { queue: next, changed, action } = enqueueWithActiveLock(prev, item);
 
       if (!changed) {
@@ -837,19 +888,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source: opts?.source ?? null,
         });
       } else if (action === 'enqueue-waiting') {
-        console.log('[OVERLAY ENQUEUE WAITING]', {
+        logOverlayArbiter('blocked-by-current-overlay', {
           activeKey,
           newKey,
           kind: item.kind,
-          queueLength: next.length,
           source: opts?.source ?? null,
         });
-        console.log('[OVERLAY BLOCKED_BY_ACTIVE]', {
-          activeKey,
-          newKey,
+        logOverlayArbiter('enqueue', {
+          key: newKey,
           kind: item.kind,
+          banId,
+          source: opts?.source ?? null,
+          scope: 'queue-tail',
+          queueLength: next.length,
         });
       } else if (action === 'display-new') {
+        logOverlayArbiter('enqueue', {
+          key: newKey,
+          kind: item.kind,
+          banId,
+          source: opts?.source ?? null,
+          scope: 'display-new',
+        });
         if (item.kind === 'incoming') {
           console.log('INCOMING QUEUE PUSH', {
             banId: item.ban.id,
@@ -872,6 +932,33 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [applyOverlayQueue, isOverlayLive, syncPendingStartupCount],
   );
 
+  const releaseStartupInteractions = useCallback(
+    (opts?: { requireBanSend?: boolean }) => {
+      if (opts?.requireBanSend && !sessionBanSendSuccessRef.current) {
+        return;
+      }
+      const pending = pendingStartupInteractionsRef.current;
+      const hadHold = startupInteractionsHoldRef.current;
+      startupInteractionsHoldRef.current = false;
+      pendingStartupInteractionsRef.current = [];
+      syncPendingStartupCount();
+
+      if (!hadHold && pending.length === 0) return;
+
+      console.log('[startup-interactions-release]', {
+        count: pending.length,
+        requireBanSend: opts?.requireBanSend ?? false,
+      });
+
+      if (pending.length === 0) return;
+
+      for (const item of pending) {
+        enqueueNotification(item, { source: 'session' });
+      }
+    },
+    [enqueueNotification, syncPendingStartupCount],
+  );
+
   const openBanResult = useCallback(
     (r: BanResult | null | undefined, mode: ResultOpenMode) => {
       if (!r) {
@@ -880,8 +967,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       if (mode === 'explicit' || mode === 'live') {
         setLobbyOpen(false);
-      }
-      if (mode === 'explicit' || mode === 'live') {
         noteDeepLinkHandlerOpened('openBanResult', r.id);
       }
       if (resultDeliveredBanIdsRef.current.has(r.id)) {
@@ -904,46 +989,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       resultDeliveredBanIdsRef.current.add(r.id);
 
-      const resultItem: QueuedOverlay = { kind: 'result', result: r };
-      if (
-        startupInteractionsHoldRef.current &&
-        mode !== 'explicit' &&
-        mode !== 'live'
-      ) {
-        const prevPending = pendingStartupInteractionsRef.current;
-        const nextPending = enqueueOverlay(prevPending, resultItem);
-        if (nextPending !== prevPending) {
-          pendingStartupInteractionsRef.current = nextPending;
-          syncPendingStartupCount();
-          console.log('[result-startup-pending]', { banId: r.id, mode });
-        }
-        return;
-      }
+      const source: 'deeplink' | 'ws' | 'poll' =
+        mode === 'explicit'
+          ? 'deeplink'
+          : mode === 'live'
+            ? 'ws'
+            : 'poll';
 
-      const prev = overlayQueueRef.current;
-      const activeKey = getActiveOverlayKey(prev);
-      const newKey = overlayQueueKey(resultItem);
-      const { queue: next, changed, action } = enqueueWithActiveLock(
-        prev,
-        resultItem,
+      enqueueNotification(
+        { kind: 'result', result: r },
+        {
+          live: mode === 'explicit' || mode === 'live',
+          source,
+        },
       );
-      if (!changed) return;
-      if (action === 'same-key-refresh') {
-        console.log('[OVERLAY SAME_KEY_REFRESH]', { key: newKey, kind: 'result' });
-      } else if (action === 'enqueue-waiting') {
-        console.log('[OVERLAY ENQUEUE WAITING]', {
-          activeKey,
-          newKey,
-          kind: 'result',
-          queueLength: next.length,
-        });
-        console.log('[OVERLAY BLOCKED_BY_ACTIVE]', {
-          activeKey,
-          newKey,
-          kind: 'result',
-        });
-      }
-      applyOverlayQueue(next);
+
       if (mode === 'explicit' || mode === 'live') {
         logDeepLinkHandlerResult({
           type: 'result',
@@ -951,12 +1011,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           instantBanOpen: false,
           sendFlowOpen: false,
           selectedBanId: r.id,
-          overlayQueueLength: next.length,
+          overlayQueueLength: overlayQueueRef.current.length,
           ok: true,
         });
       }
     },
-    [applyOverlayQueue, syncPendingStartupCount],
+    [applyOverlayQueue, enqueueNotification],
   );
 
   const dismissBanResult = useCallback(() => {
@@ -986,13 +1046,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const prunedChecks = prev
       .filter((q) => q.kind === 'check')
       .map((q) => q.ban.id);
-    let next = pruneOverlayQueue(prev, {
-      viewerId,
-      dismissedIncoming: dismissedIncomingRef.current,
-      dismissedCheck: dismissedCheckSessionRef.current,
-      answeredChecks: answeredCheckRef.current,
-      checkInFlight: checkAnswerInFlightRef.current,
-    });
+    let next = filterOverlayQueueByTtl(
+      pruneOverlayQueue(prev, {
+        viewerId,
+        dismissedIncoming: dismissedIncomingRef.current,
+        dismissedCheck: dismissedCheckSessionRef.current,
+        answeredChecks: answeredCheckRef.current,
+        checkInFlight: checkAnswerInFlightRef.current,
+      }),
+    );
 
     for (const banId of prunedChecks) {
       if (hasCheckInQueue(next, banId)) continue;
@@ -1109,12 +1171,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setSendReceiver('');
     setSendText('');
     setIncomingReplyBanId(null);
+    setResultReplyPending(null);
+    setResultReplyRequest(0);
+    setResultReplyHandoffLock(false);
+    setResultReplyWhatReady(true);
     setViralOnboarding(false);
     setBanSentOpen(false);
     setOptimisticSendWait(null);
     dismissedIncomingRef.current = new Set();
     dismissedCheckSessionRef.current = new Set();
     answeredCheckRef.current = new Set();
+    locallyAckedIncomingRef.current = new Set();
+    shownOverlayKeysRef.current = new Set();
     checkAnswerInFlightRef.current = new Set();
     resultDeliveredBanIdsRef.current = new Set();
     checkSubmitAtRef.current = new Map();
@@ -1122,9 +1190,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const uid = auth.user?.id;
     if (!uid) return;
 
+    for (const id of hydrateAcknowledgedIncomingIds(uid)) {
+      dismissedIncomingRef.current.add(id);
+      locallyAckedIncomingRef.current.add(id);
+    }
     for (const id of hydrateAnsweredCheckIds(uid)) {
       answeredCheckRef.current.add(id);
     }
+    installOverlayDismissCacheDevHelper(uid);
 
     const snapshot = readHomeSnapshot(uid);
     if (snapshot) {
@@ -1439,7 +1512,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       challengeLog('check:deeplink', { id: b.id, status: b.status });
       enqueueNotification(
         { kind: 'check', ban: enrichBanInteraction(b) },
-        { live: true, source: 'session' },
+        { live: true, source: 'deeplink' },
       );
       logDeepLinkHandlerResult({
         type: 'check',
@@ -1856,7 +1929,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       challengeLog('incoming:reply-deeplink', { id: b.id, status: b.status });
       enqueueNotification(
         { kind: 'incoming', ban: enriched },
-        { live: true, source: 'session' },
+        { live: true, source: 'deeplink' },
       );
       logReplyFlow('incoming-visible', {
         banId: b.id,
@@ -2548,6 +2621,59 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setIncomingReplyBanId(null);
   }, []);
 
+  const notifyResultReplyWhatVisible = useCallback(
+    (banId: string, selectedUserId: string | null) => {
+      setResultReplyWhatReady(true);
+      setResultReplyHandoffLock(false);
+      setResultReplyPending(null);
+      logResultReply('what-visible', {
+        banId,
+        selectedUserId,
+        phase: 'composingBan',
+      });
+    },
+    [],
+  );
+
+  const startReplyFromResult = useCallback(
+    (r: BanResult) => {
+      logResultReply('start', { banId: r.id, outcome: r.outcome });
+      const opponent = resolveResultReplyOpponent(r);
+      if (!opponent?.id) {
+        console.warn('[RESULT REPLY] no-opponent', { banId: r.id });
+        return;
+      }
+      setLobbyOpen(false);
+      setResultReplyHandoffLock(true);
+      setResultReplyWhatReady(false);
+      setResultReplyPending({ banId: r.id, opponent });
+      setResultReplyRequest((n) => n + 1);
+      openSendFlow();
+      logResultReply('selected-user', {
+        banId: r.id,
+        userId: opponent.id,
+        username: opponent.username,
+      });
+    },
+    [openSendFlow],
+  );
+
+  const navigateFromResult = useCallback(() => {
+    const banId = result?.id ?? null;
+    const queueLen = overlayQueueRef.current.length;
+    logResultNav('to-bans', { banId, queueLength: queueLen });
+    markOverlayUserAction('result-nav', banId ?? undefined);
+
+    const remainingAfterPop = Math.max(0, queueLen - 1);
+    dismissBanResult();
+
+    if (remainingAfterPop > 0) {
+      logResultNav('next-overlay', { remaining: remainingAfterPop });
+    } else {
+      logResultNav('lobby-fallback', {});
+    }
+  }, [dismissBanResult, markOverlayUserAction, result?.id]);
+
   const startIncomingReply = useCallback(
     (ban: BanInteraction) => {
       const enriched = enrichBanInteraction(ban);
@@ -3190,9 +3316,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [activeOverlayKind, replyDeepLinkBanId, deepLinkSelectedBanId],
   );
 
+  const resultReplyUiShellActive = useMemo(
+    () => resultReplyHandoffLock && !resultReplyWhatReady,
+    [resultReplyHandoffLock, resultReplyWhatReady],
+  );
+
   const replyUiShellActive = useMemo(
-    () => replyDeepLinkBanId != null && !replyWhatReady,
-    [replyDeepLinkBanId, replyWhatReady],
+    () =>
+      (replyDeepLinkBanId != null && !replyWhatReady) ||
+      resultReplyUiShellActive,
+    [replyDeepLinkBanId, replyWhatReady, resultReplyUiShellActive],
   );
 
   const replyUiShellDark = useMemo(
@@ -3206,6 +3339,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   useEffect(() => {
+    deepLinkBlockedRef.current =
+      replyHandoffLock ||
+      replyUiShellActive ||
+      resultReplyUiShellActive ||
+      activeBanUiShellActive ||
+      deepLinkReplyBooting ||
+      deepLinkReplyBan != null ||
+      deepLinkActiveBan != null ||
+      activeBanDeepLinkBanId != null;
+  }, [
+    replyHandoffLock,
+    replyUiShellActive,
+    resultReplyUiShellActive,
+    activeBanUiShellActive,
+    deepLinkReplyBooting,
+    deepLinkReplyBan,
+    deepLinkActiveBan,
+    activeBanDeepLinkBanId,
+  ]);
+
+  useEffect(() => {
     if (!auth.user?.id) return;
     if (
       deepLinkReplyBan ||
@@ -3215,6 +3369,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       deepLinkReplyBooting ||
       replyHandoffLock ||
       replyUiShellActive ||
+      resultReplyUiShellActive ||
       activeBanUiShellActive ||
       incomingGateActive ||
       checkGateActive ||
@@ -3233,6 +3388,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     deepLinkReplyBooting,
     replyHandoffLock,
     replyUiShellActive,
+    resultReplyUiShellActive,
     activeBanUiShellActive,
     incomingGateActive,
     checkGateActive,
@@ -3302,6 +3458,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       result,
       openBanResult,
       dismissBanResult,
+      startReplyFromResult,
+      navigateFromResult,
+      resultReplyPending,
+      resultReplyRequest,
+      resultReplyHandoffLock,
+      notifyResultReplyWhatVisible,
       popups,
       pushPopup,
       activeBans: scopedActiveBans,
@@ -3407,6 +3569,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       result,
       openBanResult,
       dismissBanResult,
+      startReplyFromResult,
+      navigateFromResult,
+      resultReplyPending,
+      resultReplyRequest,
+      resultReplyHandoffLock,
+      notifyResultReplyWhatVisible,
       popups,
       pushPopup,
       scopedActiveBans,

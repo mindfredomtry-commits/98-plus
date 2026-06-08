@@ -13,6 +13,10 @@ import {
 } from '@98plus/shared';
 import { prisma } from '../lib/prisma';
 import { getDailyCount, incrDaily } from '../lib/redis';
+import {
+  banResultRowInclude,
+  type BanResultRow,
+} from './result.service';
 
 function pairKey(a: string, b: string): [string, string] {
   return a < b ? [a, b] : [b, a];
@@ -284,26 +288,7 @@ export async function applyCheckResult(
   banId: string,
   outcome: CheckOutcome,
   knownBan?: CheckResultBanRow | null,
-): Promise<
-  EnergyDelta & {
-    farmSkipped: boolean;
-    completedBan: Awaited<
-      ReturnType<typeof prisma.ban.findUnique>
-    > & {
-      sender: NonNullable<Awaited<ReturnType<typeof prisma.ban.findUnique>>> extends infer B
-        ? B extends { sender: infer S }
-          ? S
-          : never
-        : never;
-      receiver: NonNullable<Awaited<ReturnType<typeof prisma.ban.findUnique>>> extends infer B
-        ? B extends { receiver: infer R }
-          ? R
-          : never
-        : never;
-      checkAnswers: { userId: string; completed: boolean }[];
-    };
-  }
-> {
+): Promise<EnergyDelta & { farmSkipped: boolean; completedBan: BanResultRow }> {
   const ban =
     knownBan ??
     (await prisma.ban.findUnique({
@@ -326,7 +311,7 @@ export async function applyCheckResult(
   if (ban.energyApplied) {
     const completedBan = await prisma.ban.findUnique({
       where: { id: banId },
-      include: { sender: true, receiver: true, checkAnswers: true },
+      include: banResultRowInclude,
     });
     if (!completedBan) throw new Error('Ban not found');
     return {
@@ -356,7 +341,7 @@ export async function applyCheckResult(
         senderResultSeenAt: null,
         receiverResultSeenAt: null,
       },
-      include: { sender: true, receiver: true, checkAnswers: true },
+      include: banResultRowInclude,
     });
     return { sender: 0, receiver: 0, farmSkipped: false, completedBan };
   }
@@ -393,7 +378,7 @@ export async function applyCheckResult(
       senderResultSeenAt: null,
       receiverResultSeenAt: null,
     },
-    include: { sender: true, receiver: true, checkAnswers: true },
+    include: banResultRowInclude,
   });
 
   return {

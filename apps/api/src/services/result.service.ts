@@ -1,4 +1,7 @@
-import { InteractionOutcome as PrismaOutcome } from '@prisma/client';
+import {
+  InteractionOutcome as PrismaOutcome,
+  type Prisma,
+} from '@prisma/client';
 import {
   buildResultPresentation,
   type BanCheckConfirmations,
@@ -47,23 +50,16 @@ export function overboardToPrisma(): PrismaOutcome {
   return 'OVERBOARD';
 }
 
-type BanResultRow = {
-  id: string;
-  text: string;
-  status: string;
-  outcome: PrismaOutcome | null;
-  isOverboard: boolean;
-  senderEnergyDelta: number | null;
-  receiverEnergyDelta: number | null;
-  farmSkipped: boolean;
-  completedAt: Date | null;
-  createdAt: Date;
-  senderId: string;
-  receiverId: string;
-  sender: Parameters<typeof mapUser>[0];
-  receiver: Parameters<typeof mapUser>[0];
-  checkAnswers: { userId: string; completed: boolean }[];
-};
+/** Prisma include shared by check-result energy apply + result mapping. */
+export const banResultRowInclude = {
+  sender: true,
+  receiver: true,
+  checkAnswers: true,
+} satisfies Prisma.BanInclude;
+
+export type BanResultRow = Prisma.BanGetPayload<{
+  include: typeof banResultRowInclude;
+}>;
 
 export function mapBanRowToResult(
   ban: BanResultRow,

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { clearLocalOverlayDismissCache } from '@/lib/overlay-arbiter';
 import type { WsStatus } from '@/hooks/useWebSocket';
 
 interface DebugData {
@@ -15,12 +16,14 @@ interface DebugData {
 
 export function DebugPanel({
   token,
+  userId,
   wsStatus,
   eventLog,
   open,
   onClose,
 }: {
   token: string;
+  userId?: string | null;
   wsStatus: WsStatus;
   eventLog: string[];
   open: boolean;
@@ -104,6 +107,25 @@ export function DebugPanel({
         >
           clear redis
         </button>
+        {process.env.NODE_ENV !== 'production' && userId ? (
+          <button
+            type="button"
+            className="bg-card px-2 py-1 rounded"
+            onClick={() => {
+              clearLocalOverlayDismissCache(userId);
+              if (typeof window !== 'undefined') {
+                (
+                  window as Window & {
+                    __clearOverlayDismissCache?: (uid?: string) => void;
+                  }
+                ).__clearOverlayDismissCache?.(userId);
+              }
+              alert('overlay dismiss cache cleared — reload mini app');
+            }}
+          >
+            clear overlay cache
+          </button>
+        ) : null}
       </div>
     </div>
   );

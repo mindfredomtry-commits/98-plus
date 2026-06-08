@@ -45,8 +45,10 @@ function ResultOverlayInner({
   contentOnly = false,
 }: Props) {
   const {
-    openSendTo,
     openNewBanWhoFlow,
+    startReplyFromResult,
+    dismissBanResult,
+    navigateFromResult,
     token,
     notificationSessionActive,
     markOverlayUserAction,
@@ -133,13 +135,23 @@ function ResultOverlayInner({
     }
   }, [haptic, result.id, result.text, token, view.displayHeadline]);
 
-  const counter = useCallback(() => {
-    markOverlayUserAction('result', result.id);
+  const replyFromResult = useCallback(() => {
+    markOverlayUserAction('result-reply', result.id);
     haptic('medium');
-    const u = result.opponent?.username;
-    openSendTo(u ? `@${u}` : (result.opponent?.firstName ?? ''));
-    onClose();
-  }, [haptic, markOverlayUserAction, onClose, openSendTo, result.id, result.opponent]);
+    startReplyFromResult(result);
+    dismissBanResult();
+  }, [
+    haptic,
+    markOverlayUserAction,
+    startReplyFromResult,
+    dismissBanResult,
+    result,
+  ]);
+
+  const goToBans = useCallback(() => {
+    haptic('light');
+    navigateFromResult();
+  }, [haptic, navigateFromResult]);
 
   const banOthers = useCallback(() => {
     markOverlayUserAction('result', result.id);
@@ -261,12 +273,15 @@ function ResultOverlayInner({
 
       {hasActions ? (
         <div className="modal-card-actions result-card-actions space-y-2.5">
-          <BigButton onClick={counter}>{view.primaryLabel}</BigButton>
+          <BigButton onClick={replyFromResult}>{view.primaryLabel}</BigButton>
           {view.showBanOthers ? (
             <BigButton variant="ghost" onClick={banOthers}>
               🚫 Запретить другим!
             </BigButton>
           ) : null}
+          <BigButton variant="ghost" onClick={goToBans}>
+            К запретам
+          </BigButton>
         </div>
       ) : null}
     </>
