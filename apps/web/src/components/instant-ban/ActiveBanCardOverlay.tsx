@@ -16,6 +16,7 @@ import './instant-ban.css';
 
 type Props = {
   ban: BanInteraction;
+  viewerUserId?: string | null;
   isHistory?: boolean;
   saved?: boolean;
   onBack: () => void;
@@ -23,6 +24,9 @@ type Props = {
   onShare: () => void;
   onToggleSave?: () => void;
 };
+
+const BAN_MORE_LABEL_SENDER = '🚫 Запретить ещё раз!';
+const BAN_MORE_LABEL_RECEIVER = '🚫 Запретить в ответ!';
 
 function PartyAvatar({ user }: { user: BanInteraction['sender'] }) {
   const letter = (user?.firstName?.[0] ?? user?.username?.[0] ?? '?').toUpperCase();
@@ -40,6 +44,7 @@ function PartyAvatar({ user }: { user: BanInteraction['sender'] }) {
 
 export function ActiveBanCardOverlay({
   ban,
+  viewerUserId = null,
   isHistory = false,
   saved = false,
   onBack,
@@ -48,6 +53,14 @@ export function ActiveBanCardOverlay({
   onToggleSave,
 }: Props) {
   const left = useBanRemainingMs(ban);
+
+  const banMoreLabel = useMemo(() => {
+    const isSender =
+      viewerUserId != null
+        ? ban.sender?.id === viewerUserId
+        : !ban.isIncoming;
+    return isSender ? BAN_MORE_LABEL_SENDER : BAN_MORE_LABEL_RECEIVER;
+  }, [viewerUserId, ban.sender?.id, ban.isIncoming]);
 
   const view = useMemo(() => {
     const historyLabel = isHistory ? banHistoryStatusLabel(ban) : null;
@@ -133,7 +146,7 @@ export function ActiveBanCardOverlay({
         </div>
 
         <div className="modal-card-actions result-card-actions space-y-2.5">
-          <BigButton onClick={onBanMore}>🚫 Запретить в ответ!</BigButton>
+          <BigButton onClick={onBanMore}>{banMoreLabel}</BigButton>
           <BigButton variant="ghost" onClick={onBack}>
             К запретам
           </BigButton>

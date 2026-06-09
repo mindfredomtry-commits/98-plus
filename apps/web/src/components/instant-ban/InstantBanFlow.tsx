@@ -2541,6 +2541,7 @@ export function InstantBanFlow({
           {selectedBanForDetails ? (
             <ActiveBanCardOverlay
               ban={selectedBanForDetails}
+              viewerUserId={user?.id ?? null}
               isHistory={bansTab === 'history' || bansTab === 'archive'}
               saved={savedBanIds.has(selectedBanForDetails.id)}
               onBack={() => setSelectedBanForDetails(null)}
