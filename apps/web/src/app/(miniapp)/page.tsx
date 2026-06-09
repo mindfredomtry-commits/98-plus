@@ -29,6 +29,11 @@ import {
   getDeepLinkBootDebug,
   subscribeDeepLinkBootDebug,
 } from '@/lib/deep-link-boot-debug';
+import {
+  formatOverboardFlowTraceLines,
+  getOverboardFlowTrace,
+  subscribeOverboardFlowTrace,
+} from '@/lib/overboard-flow-debug';
 
 const ArenaAmbience = dynamic(
   () =>
@@ -108,6 +113,18 @@ export default function HomePage() {
     subscribeDeepLinkBootDebug,
     getDeepLinkBootDebug,
     getDeepLinkBootDebug,
+  );
+  const overboardTrace = useSyncExternalStore(
+    subscribeOverboardFlowTrace,
+    getOverboardFlowTrace,
+    getOverboardFlowTrace,
+  );
+  const overboardTraceLine = useMemo(
+    () =>
+      overboardTrace.events.length > 0
+        ? formatOverboardFlowTraceLines(overboardTrace)
+        : null,
+    [overboardTrace],
   );
   const [tab, setTab] = useState<Tab>('home');
   const [debugOpen, setDebugOpen] = useState(false);
@@ -463,11 +480,27 @@ export default function HomePage() {
         />
       ) : null}
 
-      {shellDebugLine || showDeepLinkDebug ? (
+      {overboardTrace.emergencyHint ? (
+        <div
+          className="fixed top-16 left-0 right-0 z-[120] flex justify-center px-4 pointer-events-none"
+          role="status"
+        >
+          <p className="rounded-2xl bg-card/95 border border-white/10 px-4 py-2 text-sm text-muted shadow-glow">
+            {overboardTrace.emergencyHint}
+          </p>
+        </div>
+      ) : null}
+
+      {shellDebugLine || showDeepLinkDebug || overboardTraceLine ? (
         <div
           className="fixed bottom-0 left-0 right-0 z-[9999] px-2 pb-2 pointer-events-none"
           aria-hidden
         >
+          {overboardTraceLine ? (
+            <p className="text-[8px] leading-snug text-amber-300/80 font-mono text-left whitespace-pre-wrap break-all max-h-[32dvh] overflow-y-auto mb-1">
+              {overboardTraceLine}
+            </p>
+          ) : null}
           {shellDebugLine ? (
             <p className="text-[9px] leading-snug text-muted/45 font-mono text-left whitespace-pre-wrap break-all max-h-[14dvh] overflow-hidden">
               {shellDebugLine}

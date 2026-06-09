@@ -76,9 +76,10 @@ import {
 } from '@/lib/incoming-challenge';
 import { acknowledgeIncomingFully } from '@/lib/incoming-ack-flow';
 import {
-  logOverboardFlow,
-  logOverboardButtonClick,
+  traceOverboardFlow,
+  logOverboardResultForce,
 } from '@/lib/overboard-flow-debug';
+import { logResultUi } from '@/lib/result-ui-debug';
 import {
   type OptimisticSendWait,
   CHECK_WAITING_UI_TTL_MS,
@@ -415,6 +416,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [sessionBootstrapped, setSessionBootstrapped] = useState(false);
   const [homeSnapshotReady, setHomeSnapshotReady] = useState(false);
   const [lobbyOpen, setLobbyOpen] = useState(true);
+  const lobbyOpenRef = useRef(true);
   const lobbyShownLoggedRef = useRef(false);
   const [, setAvatarPreloadEpoch] = useState(0);
   const [startupGraceActive, setStartupGraceActive] = useState(true);
@@ -440,6 +442,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const checkAnswerInFlightRef = useRef<Set<string>>(new Set());
   const resultOpenRef = useRef(false);
   const overboardInFlightRef = useRef<string | null>(null);
+  const directResultOverlayRef = useRef(false);
+  const [directResultOverlayActive, setDirectResultOverlayActive] =
+    useState(false);
   const bufferedIncomingRef = useRef<BanInteraction | null>(null);
   const bufferedCheckDeepLinkRef = useRef<BanInteraction | null>(null);
   const bufferedRepeatDeepLinkRef = useRef<BanInteraction | null>(null);
@@ -607,11 +612,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setIncomingBan(active?.kind === 'incoming' ? active.ban : null);
     setCheckBan(active?.kind === 'check' ? active.ban : null);
     if (active?.kind === 'result') {
+      directResultOverlayRef.current = false;
+      setDirectResultOverlayActive(false);
       resultOpenRef.current = true;
       setResult(active.result);
+    } else if (directResultOverlayRef.current) {
+      resultOpenRef.current = true;
     } else {
       resultOpenRef.current = false;
       setResult(null);
+      setDirectResultOverlayActive(false);
     }
     if (active?.kind === 'incoming') {
       console.log('INCOMING QUEUE ACTIVE', { banId: active.ban.id });
@@ -973,23 +983,62 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const openBanResult = useCallback(
     (r: BanResult | null | undefined, mode: ResultOpenMode) => {
+      const queueHeadKind = overlayQueueRef.current[0]?.kind ?? null;
+      const resultKey = r?.id ? `result:${r.id}` : null;
+
       if (!r) {
+        logResultUi(null, {
+          overlayKind: queueHeadKind,
+          compactCard: false,
+          fullOverlay: false,
+          source: `openBanResult:${mode}`,
+          rejectReason: 'null-payload',
+        });
         applyOverlayQueue([]);
         return;
       }
+
       if (mode === 'explicit' || mode === 'live') {
         setLobbyOpen(false);
         noteDeepLinkHandlerOpened('openBanResult', r.id);
       }
+
       if (resultDeliveredBanIdsRef.current.has(r.id)) {
+        logResultUi(r.outcome, {
+          overlayKind: queueHeadKind,
+          compactCard: false,
+          fullOverlay: queueHeadKind === 'result',
+          source: `openBanResult:${mode}`,
+          rejectReason: 'resultDelivered-duplicate',
+          overlayQueueLength: overlayQueueRef.current.length,
+          resultDelivered: true,
+          shownOverlayKey: resultKey
+            ? shownOverlayKeysRef.current.has(resultKey)
+            : false,
+        });
         return;
       }
+
       if (!shouldShowBanResult(r, mode, r.id, userIdRef.current)) {
+        const rejectReason = diagnoseResultShow(
+          r,
+          mode,
+          userIdRef.current,
+          r.id,
+        ).reason;
         challengeLog('result:reject-open', {
           banId: r.id,
           outcome: r.outcome,
           mode,
-          reason: diagnoseResultShow(r, mode, userIdRef.current, r.id).reason,
+          reason: rejectReason,
+        });
+        logResultUi(r.outcome, {
+          overlayKind: queueHeadKind,
+          compactCard: false,
+          fullOverlay: false,
+          source: `openBanResult:${mode}`,
+          rejectReason,
+          overlayQueueLength: overlayQueueRef.current.length,
         });
         console.log('[result-dismiss-local]', {
           banId: r.id,
@@ -1007,6 +1056,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             ? 'ws'
             : 'poll';
 
+      const queueLenBefore = overlayQueueRef.current.length;
       enqueueNotification(
         { kind: 'result', result: r },
         {
@@ -1016,9 +1066,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
 
       const head = overlayQueueRef.current[0];
-      if (head?.kind === 'result' && head.result.id === r.id) {
+      const fullOverlay = head?.kind === 'result' && head.result.id === r.id;
+      if (fullOverlay) {
         resultDeliveredBanIdsRef.current.add(r.id);
       }
+
+      logResultUi(r.outcome, {
+        overlayKind: head?.kind ?? null,
+        compactCard: false,
+        fullOverlay,
+        source: `openBanResult:${mode}`,
+        rejectReason: fullOverlay
+          ? undefined
+          : queueLenBefore === overlayQueueRef.current.length
+            ? 'enqueue-skipped'
+            : 'enqueue-not-head',
+        overlayQueueLength: overlayQueueRef.current.length,
+        resultDelivered: resultDeliveredBanIdsRef.current.has(r.id),
+        shownOverlayKey: resultKey
+          ? shownOverlayKeysRef.current.has(resultKey)
+          : false,
+      });
 
       if (mode === 'explicit' || mode === 'live') {
         logDeepLinkHandlerResult({
@@ -1028,7 +1096,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           sendFlowOpen: false,
           selectedBanId: r.id,
           overlayQueueLength: overlayQueueRef.current.length,
-          ok: true,
+          ok: fullOverlay,
+          reason: fullOverlay ? null : 'enqueue-not-head',
         });
       }
     },
@@ -1037,6 +1106,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const dismissBanResult = useCallback(() => {
     const head = overlayQueueRef.current[0];
+    const wasDirect = directResultOverlayRef.current;
     const banId =
       head?.kind === 'result'
         ? head.result.id
@@ -1053,7 +1123,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       dismissBanResultLocally(banId, viewerId ?? null);
       void acknowledgeBanResultOnServer(banId, tokenRef.current);
     }
-    dismissCurrentOverlay('result-dismiss');
+    directResultOverlayRef.current = false;
+    setDirectResultOverlayActive(false);
+    if (wasDirect || head?.kind !== 'result') {
+      resultOpenRef.current = false;
+      setResult(null);
+    }
+    if (head?.kind === 'result') {
+      dismissCurrentOverlay('result-dismiss');
+    }
   }, [dismissCurrentOverlay, result]);
 
   const pruneAndSyncOverlayQueue = useCallback(() => {
@@ -1338,6 +1416,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId,
         checkSubmitAtRef.current,
       );
+
+      if (overboardInFlightRef.current === banId) {
+        logResultLatency('[result-skip-overboard-in-flight]', {
+          banId,
+          authUserId: uid,
+          role,
+          source,
+          elapsedMs,
+        });
+        return;
+      }
 
       if (resultDeliveredBanIdsRef.current.has(banId)) {
         logResultLatency('[result-skip-duplicate]', {
@@ -1776,26 +1865,109 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [dismissCurrentOverlay, receiveResult, scheduleResultPollBurst],
   );
 
-  const forceApplyBanResultOverlay = useCallback(
-    (payload: BanResult, reason: string) => {
-      if (!isValidBanResultPayload(payload)) return false;
-      const item: QueuedOverlay = { kind: 'result', result: payload };
-      shownOverlayKeysRef.current.add(overlayQueueKey(item));
-      resultDeliveredBanIdsRef.current.add(payload.id);
-      dismissedIncomingRef.current.add(payload.id);
-      setLobbyOpen(false);
-      applyOverlayQueue([item]);
-      logOverboardFlow('overlay-state-after-open', {
-        banId: payload.id,
-        reason,
-        activeOverlayKind: overlayQueueRef.current[0]?.kind ?? null,
-        overlayQueueLength: overlayQueueRef.current.length,
-        resultOpen: resultOpenRef.current,
-        outcome: payload.outcome,
+  const snapshotOverboardOverlayState = useCallback(
+    (banId: string) => ({
+      banId,
+      activeOverlayKind: overlayQueueRef.current[0]?.kind ?? null,
+      overlayQueueLength: overlayQueueRef.current.length,
+      resultOpen: resultOpenRef.current,
+      lobbyOpen: lobbyOpenRef.current,
+      resultDelivered: resultDeliveredBanIdsRef.current.has(banId),
+      incomingGateHead:
+        overlayQueueRef.current[0]?.kind === 'incoming'
+          ? overlayQueueRef.current[0].ban.id
+          : null,
+    }),
+    [],
+  );
+
+  const logOverboardFinalState = useCallback(
+    (banId: string, outcome: string) => {
+      traceOverboardFlow('final-state', {
+        ...snapshotOverboardOverlayState(banId),
+        outcome,
       });
-      return resultOpenRef.current;
     },
-    [applyOverlayQueue],
+    [snapshotOverboardOverlayState],
+  );
+
+  const forceOpenOverboardResult = useCallback(
+    (payload: BanResult, banId: string): boolean => {
+      const uid = userIdRef.current;
+      logOverboardResultForce('start', { banId, authUserId: uid });
+
+      if (!uid || !isValidBanResultPayload(payload)) {
+        logOverboardResultForce('final state', {
+          banId,
+          ok: false,
+          reason: 'invalid-payload',
+        });
+        return false;
+      }
+
+      const normalized: BanResult = {
+        ...payload,
+        viewerId: payload.viewerId ?? uid,
+      };
+      logOverboardResultForce('normalized result', {
+        banId: normalized.id,
+        outcome: normalized.outcome,
+        viewerId: normalized.viewerId,
+        headline: normalized.headline,
+      });
+
+      dismissedIncomingRef.current.add(banId);
+      setIncomingBan(null);
+      setCheckBan(null);
+      closeSendFlow();
+      setLobbyOpen(false);
+      lobbyOpenRef.current = false;
+
+      const cleaned = removeOverlaysForBan(
+        overlayQueueRef.current,
+        banId,
+        ['incoming', 'check'],
+      );
+      overlayQueueRef.current = cleaned;
+      setOverlayQueue(cleaned);
+
+      directResultOverlayRef.current = true;
+      setDirectResultOverlayActive(true);
+      resultOpenRef.current = true;
+      setResult(normalized);
+
+      logOverboardResultForce('set activeOverlayKind=result');
+      logOverboardResultForce('result set true', {
+        banId: normalized.id,
+        directResultOverlay: true,
+      });
+
+      resultDeliveredBanIdsRef.current.add(banId);
+      shownOverlayKeysRef.current.add(overlayQueueKey({ kind: 'result', result: normalized }));
+      logOverboardResultForce('delivered marked after open', { banId });
+
+      logResultUi(normalized.outcome, {
+        overlayKind: 'result',
+        compactCard: false,
+        fullOverlay: true,
+        source: 'forceOpenOverboardResult',
+        overlayQueueLength: overlayQueueRef.current.length,
+        resultDelivered: true,
+      });
+
+      logOverboardResultForce('final state', {
+        banId,
+        ok: true,
+        resultOpen: true,
+        directResultOverlay: true,
+        lobbyOpen: false,
+        sendFlowOpen: false,
+        overlayQueueLength: overlayQueueRef.current.length,
+      });
+
+      return true;
+    },
+    [closeSendFlow],
   );
 
   const submitIncomingOverboard = useCallback(
@@ -1806,24 +1978,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return { ok: false, error: 'Нет авторизации' };
       }
 
-      logOverboardFlow('submit-start', { banId, authUserId: uid });
+      traceOverboardFlow('submit-start', { banId, authUserId: uid });
       overboardInFlightRef.current = banId;
       setViralOnboarding(false);
       challengeLog('incoming:overboard', { banId });
-
-      const finishWithLobby = (why: string) => {
-        dismissedIncomingRef.current.add(banId);
-        dismissCurrentOverlay(
-          'overboard-fallback-lobby',
-          removeOverlaysForBan(overlayQueueRef.current, banId, [
-            'incoming',
-            'check',
-          ]),
-        );
-        setLobbyOpen(true);
-        lobbyShownLoggedRef.current = false;
-        logOverboardFlow('fallback-to-lobby', { banId, reason: why });
-      };
 
       const fetchResultByBanId = async (
         source: string,
@@ -1833,24 +1991,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             `/bans/${banId}/result`,
             { token, retries: 0 },
           );
-          logOverboardFlow('api-response-raw', {
+          traceOverboardFlow('api-response-raw', {
             banId,
             source,
             result: fetched.result,
           });
-          logOverboardFlow('has-result', {
+          traceOverboardFlow('has-result', {
             banId,
             value: isValidBanResultPayload(fetched.result),
             source,
           });
           return fetched.result;
-        } catch {
+        } catch (e) {
+          traceOverboardFlow('api-response-raw', {
+            banId,
+            source,
+            error: e instanceof Error ? e.message : 'fetch-failed',
+          });
+          traceOverboardFlow('has-result', {
+            banId,
+            value: false,
+            source,
+          });
           return null;
         }
       };
 
       try {
-        logOverboardFlow('api-request', {
+        traceOverboardFlow('api-request', {
           banId,
           endpoint: `/bans/${banId}/overboard`,
         });
@@ -1864,85 +2032,54 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           token,
           retries: 0,
         });
-        logOverboardFlow('api-response-raw', { banId, res });
-        logOverboardFlow('has-result', {
+        traceOverboardFlow('api-response-raw', { banId, res });
+        traceOverboardFlow('has-result', {
           banId,
           value: isValidBanResultPayload(res.result),
           source: 'overboard-response',
         });
 
-        let result: BanResult | null = res.result ?? null;
-        if (!isValidBanResultPayload(result)) {
-          logOverboardFlow('result-fetch-after-action', {
-            banId,
-            reason: 'missing-in-response',
-          });
-          result = await fetchResultByBanId('result-fetch-after-overboard');
+        let resultPayload: BanResult | null = res.result ?? null;
+        if (!isValidBanResultPayload(resultPayload)) {
+          resultPayload = await fetchResultByBanId('result-fetch-after-overboard');
         }
 
-        const openOverboardResult = (payload: BanResult, handler: string) => {
-          logOverboardFlow('receiverResult-call', { banId, handler });
-          forceApplyBanResultOverlay(payload, handler);
-          logOverboardFlow('result-open-immediate', {
-            banId,
-            outcome: payload.outcome,
-            handler,
-          });
-        };
-
-        if (isValidBanResultPayload(result)) {
-          openOverboardResult(result, 'forceApplyBanResultOverlay');
-          void acknowledgeIncomingFully(banId, token, uid).catch(() => {});
-          queueMicrotask(() => {
-            void refreshUserRef.current().catch(() => {});
-          });
-
-          await new Promise((r) => setTimeout(r, 300));
-          if (!resultOpenRef.current) {
-            logOverboardFlow('result-fetch-after-action', {
-              banId,
-              reason: '300ms-verify-failed',
+        if (isValidBanResultPayload(resultPayload)) {
+          const opened = forceOpenOverboardResult(resultPayload, banId);
+          if (opened) {
+            void acknowledgeIncomingFully(banId, token, uid).catch(() => {});
+            queueMicrotask(() => {
+              void refreshUserRef.current().catch(() => {});
             });
-            const refetched = await fetchResultByBanId('300ms-verify');
-            if (isValidBanResultPayload(refetched)) {
-              resultDeliveredBanIdsRef.current.delete(banId);
-              logOverboardFlow('receiverResult-call', {
-                banId,
-                handler: 'openBanResult-explicit',
-              });
-              openBanResult(refetched, 'explicit');
-            }
+            logOverboardFinalState(banId, 'result-opened-force');
+            return { ok: true };
           }
-
-          if (!resultOpenRef.current) {
-            finishWithLobby('result-not-visible-after-fallback');
-          }
-          return { ok: true };
         }
 
         scheduleResultPollBurst();
         const polled = await fetchResultByBanId('post-overboard-poll');
-        if (isValidBanResultPayload(polled)) {
-          openOverboardResult(polled, 'forceApplyBanResultOverlay-poll');
+        if (isValidBanResultPayload(polled) && forceOpenOverboardResult(polled, banId)) {
           void acknowledgeIncomingFully(banId, token, uid).catch(() => {});
+          logOverboardFinalState(banId, 'result-opened-force-poll');
           return { ok: true };
         }
 
-        finishWithLobby('no-result-payload');
-        return { ok: true };
+        traceOverboardFlow('fallback-to-lobby', {
+          banId,
+          reason: 'no-valid-result-payload',
+        });
+        return { ok: false, error: 'Не удалось открыть результат перебора' };
       } catch (e) {
         const message = e instanceof Error ? e.message : 'Ошибка перебора';
-        logOverboardFlow('api-error', { banId, message });
-        finishWithLobby('api-error');
+        traceOverboardFlow('api-error', { banId, message });
         return { ok: false, error: message };
       } finally {
         overboardInFlightRef.current = null;
       }
     },
     [
-      dismissCurrentOverlay,
-      forceApplyBanResultOverlay,
-      openBanResult,
+      forceOpenOverboardResult,
+      logOverboardFinalState,
       scheduleResultPollBurst,
     ],
   );
@@ -2178,6 +2315,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [auth.user?.id, auth.loading, enqueueNotification]);
 
   const pushPopup = useCallback((p: EnergyPopup) => {
+    const isOverboardEnergy =
+      p.message?.includes('ПЕРЕБОР') || p.message?.includes('перебор');
+    logResultUi(isOverboardEnergy ? 'overboard' : 'energy-popup', {
+      overlayKind: overlayQueueRef.current[0]?.kind ?? null,
+      compactCard: true,
+      fullOverlay: overlayQueueRef.current[0]?.kind === 'result',
+      source: 'EnergyPopupStack',
+      overlayQueueLength: overlayQueueRef.current.length,
+    });
     setPopups((prev) => [...prev, p]);
     setTimeout(() => {
       setPopups((prev) => prev.filter((x) => x.id !== p.id));
@@ -3310,8 +3456,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const isAppReady = !!auth.user?.id && !!auth.token && !auth.loading;
   const friendsReady = friendsBootstrapped;
   const sessionReady = sessionBootstrapped;
-  const activeOverlayKind = overlayQueue[0]?.kind ?? null;
-  const notificationSessionActive = overlayQueue.length > 0;
+  const activeOverlayKind = directResultOverlayActive
+    ? 'result'
+    : (overlayQueue[0]?.kind ?? null);
+  const notificationSessionActive =
+    directResultOverlayActive || overlayQueue.length > 0;
 
   const incomingGateActive = useMemo(() => {
     if (!auth.user?.id || auth.loading) return false;
@@ -3355,14 +3504,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const closeLobby = useCallback(() => {
     console.log('[lobby-enter-click]', { userId: userIdRef.current ?? null });
     setLobbyOpen(false);
+    lobbyOpenRef.current = false;
     console.log('[lobby-closed]', { userId: userIdRef.current ?? null });
   }, []);
 
   const openLobby = useCallback(() => {
     setLobbyOpen(true);
+    lobbyOpenRef.current = true;
     lobbyShownLoggedRef.current = false;
     console.log('[lobby-opened]', { userId: userIdRef.current ?? null });
   }, []);
+
+  useEffect(() => {
+    lobbyOpenRef.current = lobbyOpen;
+  }, [lobbyOpen]);
 
   const clearReplyDeepLinkState = useCallback(() => {
     setReplyDeepLinkBanId(null);
