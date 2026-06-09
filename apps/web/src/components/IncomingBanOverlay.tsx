@@ -20,6 +20,7 @@ import {
 import { challengeLog } from '@/lib/challenge-log';
 import { shouldShowIncomingBanModal } from '@/lib/incoming-challenge';
 import { logIncomingDebug } from '@/lib/incoming-debug';
+import { logOverboardButtonClick } from '@/lib/overboard-flow-debug';
 import { resolveUserAvatarUrl, rememberUserAvatar } from '@/lib/avatar-cache';
 import { useApp } from './Providers';
 import { BigButton } from './BigButton';
@@ -196,6 +197,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
   const handleOverboard = useCallback(async () => {
     const actBan = verifiedBan ?? resolvedIncoming ?? incomingBan;
     if (!actBan?.id || actionLoading) return;
+    logOverboardButtonClick(actBan.id, 'submitIncomingOverboard');
     markOverlayUserAction('incoming', actBan.id);
     setActionLoading(true);
     hapticSuccess();
