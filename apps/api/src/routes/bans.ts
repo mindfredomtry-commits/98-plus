@@ -375,10 +375,27 @@ bansRouter.post('/:id/counter', async (req: AuthRequest, res) => {
 });
 
 bansRouter.post('/:id/overboard', async (req: AuthRequest, res) => {
+  const banId = paramId(req);
+  const userId = req.userId!;
+  console.log('[OVERBOARD API] start', { banId, userId });
   try {
-    const { ban, result } = await markOverboard(paramId(req), req.userId!);
-    res.json({ ban, result, ok: true, status: 'OVERBOARD' });
+    const { ban, result } = await markOverboard(banId, userId);
+    console.log('[OVERBOARD API] markOverboard done', {
+      banId,
+      hasBan: !!ban,
+      hasResult: !!result,
+      outcome: result?.outcome ?? null,
+    });
+    const payload = { ban, result, ok: true, status: 'OVERBOARD' as const };
+    console.log('[OVERBOARD API] response sending', { banId });
+    res.json(payload);
+    console.log('[OVERBOARD API] response sent', { banId });
   } catch (e) {
+    console.error('[OVERBOARD API] error', {
+      banId,
+      userId,
+      message: (e as Error).message,
+    });
     res.status(400).json({ error: (e as Error).message });
   }
 });

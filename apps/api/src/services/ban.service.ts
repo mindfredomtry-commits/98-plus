@@ -917,8 +917,18 @@ export async function markOverboard(banId: string, userId: string) {
 
   const updated = await mapBanToInteraction(banId, userId);
   const result = await buildBanResult(banId, userId);
-  await syncSession(ban.senderId);
-  await syncSession(ban.receiverId);
+  void syncSession(ban.senderId).catch((e) => {
+    console.warn('[OVERBOARD API] syncSession sender failed', {
+      banId,
+      message: (e as Error).message,
+    });
+  });
+  void syncSession(ban.receiverId).catch((e) => {
+    console.warn('[OVERBOARD API] syncSession receiver failed', {
+      banId,
+      message: (e as Error).message,
+    });
+  });
   return { ban: updated, result };
 }
 
