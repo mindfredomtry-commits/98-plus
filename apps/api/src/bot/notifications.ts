@@ -14,6 +14,7 @@ import {
   REPEAT_BAN_WEBAPP_BUTTON_LABEL,
   REPLY_BAN_WEBAPP_BUTTON_LABEL,
   RETENTION_BAN_WEBAPP_BUTTON_LABEL,
+  SENDER_BAN_CONFIRMED_WEBAPP_BUTTON_LABEL,
 } from '@98plus/shared';
 import { getBot } from './index';
 import { botWebAppButtonUrl, type BotWebAppButtonMeta } from '../lib/deeplink';
@@ -510,7 +511,7 @@ export async function sendBanAcceptedSenderNotification(params: {
     { type: 'active', banId: params.banId },
     {
       source: 'sendBanAcceptedSenderNotification',
-      buttonLabel: REPLY_BAN_WEBAPP_BUTTON_LABEL,
+      buttonLabel: SENDER_BAN_CONFIRMED_WEBAPP_BUTTON_LABEL,
     },
   );
 
@@ -518,7 +519,7 @@ export async function sendBanAcceptedSenderNotification(params: {
     await bot.telegram.sendMessage(
       params.telegramId.toString(),
       message,
-      replyBanKeyboard(link, REPLY_BAN_WEBAPP_BUTTON_LABEL),
+      replyBanKeyboard(link, SENDER_BAN_CONFIRMED_WEBAPP_BUTTON_LABEL),
     );
   } catch {
     /* user may not have started bot */

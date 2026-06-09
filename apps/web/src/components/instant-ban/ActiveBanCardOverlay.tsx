@@ -133,7 +133,7 @@ export function ActiveBanCardOverlay({
         </div>
 
         <div className="modal-card-actions result-card-actions space-y-2.5">
-          <BigButton onClick={onBanMore}>🚫 Запретить ещё раз!</BigButton>
+          <BigButton onClick={onBanMore}>🚫 Запретить в ответ!</BigButton>
           <BigButton variant="ghost" onClick={onBack}>
             К запретам
           </BigButton>

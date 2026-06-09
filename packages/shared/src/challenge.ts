@@ -9,6 +9,10 @@ export const RETENTION_BAN_WEBAPP_BUTTON_LABEL = '🚫 запретить';
 /** Result DM — opens repeat-ban flow for the same challenge. */
 export const REPEAT_BAN_WEBAPP_BUTTON_LABEL = '🚫 запретить ещё';
 
+/** Sender “Ты запретил” DM — next ban cycle (WebApp button label only). */
+export const SENDER_BAN_CONFIRMED_WEBAPP_BUTTON_LABEL =
+  '🚫 Запретить ещё раз!';
+
 /** First-time /start after viral link — opens Mini App. */
 export const OPEN_BAN_WEBAPP_BUTTON_LABEL = '🚫 Открыть запрет';
 
