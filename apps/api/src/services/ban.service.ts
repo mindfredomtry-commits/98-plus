@@ -916,9 +916,10 @@ export async function markOverboard(banId: string, userId: string) {
   await broadcastResultReady(banId, ban.senderId, ban.receiverId);
 
   const updated = await mapBanToInteraction(banId, userId);
+  const result = await buildBanResult(banId, userId);
   await syncSession(ban.senderId);
   await syncSession(ban.receiverId);
-  return updated;
+  return { ban: updated, result };
 }
 
 export async function submitCheckAnswer(

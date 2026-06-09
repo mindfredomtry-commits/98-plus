@@ -12,7 +12,6 @@ import {
 import { createPortal } from 'react-dom';
 import type { BanInteraction } from '@98plus/shared';
 import { findFriendByUsername, formatSenderDisplayName } from '@98plus/shared';
-import { api } from '@/lib/api';
 import {
   formatDeliveryError,
   validateReplyTarget,
@@ -48,6 +47,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     dismissIncoming,
     acknowledgeIncomingAndStartReply,
     acknowledgeIncomingSeen,
+    submitIncomingOverboard,
     notificationSessionActive,
     activeOverlayKind,
     markOverlayUserAction,
@@ -195,14 +195,16 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
 
   const handleOverboard = useCallback(async () => {
     const actBan = verifiedBan ?? resolvedIncoming ?? incomingBan;
-    if (!actBan?.id || !token || actionLoading) return;
+    if (!actBan?.id || actionLoading) return;
     markOverlayUserAction('incoming', actBan.id);
     setActionLoading(true);
     hapticSuccess();
     try {
-      await acknowledgeIncomingSeen(actBan.id);
-      await api(`/bans/${actBan.id}/overboard`, { method: 'POST', token });
+      const res = await submitIncomingOverboard(actBan.id);
       setVerifiedBan(null);
+      if (!res.ok && res.error) {
+        alert(res.error);
+      }
     } catch (e) {
       alert(formatDeliveryError(e));
     } finally {
@@ -212,11 +214,10 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     verifiedBan,
     resolvedIncoming,
     incomingBan,
-    token,
     hapticSuccess,
     actionLoading,
     markOverlayUserAction,
-    acknowledgeIncomingSeen,
+    submitIncomingOverboard,
   ]);
 
   const isQueueHead = activeOverlayKind === 'incoming';

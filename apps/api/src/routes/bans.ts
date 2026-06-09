@@ -376,8 +376,8 @@ bansRouter.post('/:id/counter', async (req: AuthRequest, res) => {
 
 bansRouter.post('/:id/overboard', async (req: AuthRequest, res) => {
   try {
-    const ban = await markOverboard(paramId(req), req.userId!);
-    res.json({ ban });
+    const { ban, result } = await markOverboard(paramId(req), req.userId!);
+    res.json({ ban, result, ok: true, status: 'OVERBOARD' });
   } catch (e) {
     res.status(400).json({ error: (e as Error).message });
   }

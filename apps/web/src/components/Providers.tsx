@@ -75,6 +75,7 @@ import {
   shouldShowIncomingBanModal,
 } from '@/lib/incoming-challenge';
 import { acknowledgeIncomingFully } from '@/lib/incoming-ack-flow';
+import { logOverboardFlow } from '@/lib/overboard-flow-debug';
 import {
   type OptimisticSendWait,
   CHECK_WAITING_UI_TTL_MS,
@@ -216,6 +217,9 @@ interface AppContextValue {
   submitCheckAnswer: (
     banId: string,
     completed: boolean,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  submitIncomingOverboard: (
+    banId: string,
   ) => Promise<{ ok: boolean; error?: string }>;
   checkWaiting: boolean;
   setCheckWaiting: (v: boolean) => void;
@@ -1759,6 +1763,100 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return { ok: false, error: message };
       } finally {
         checkAnswerInFlightRef.current.delete(banId);
+      }
+    },
+    [dismissCurrentOverlay, receiveResult, scheduleResultPollBurst],
+  );
+
+  const submitIncomingOverboard = useCallback(
+    async (banId: string) => {
+      const uid = userIdRef.current;
+      const token = tokenRef.current;
+      if (!uid || !token) {
+        return { ok: false, error: 'Нет авторизации' };
+      }
+
+      logOverboardFlow('click', { banId, authUserId: uid });
+      dismissedIncomingRef.current.add(banId);
+      setViralOnboarding(false);
+      challengeLog('incoming:overboard', { banId });
+
+      dismissCurrentOverlay(
+        'incoming-overboard',
+        removeOverlaysForBan(overlayQueueRef.current, banId, ['incoming']),
+      );
+      void acknowledgeIncomingFully(banId, token, uid).catch(() => {});
+
+      try {
+        logOverboardFlow('api-request', {
+          banId,
+          endpoint: `/bans/${banId}/overboard`,
+        });
+        const res = await api<{
+          ok?: boolean;
+          status?: string;
+          ban: BanInteraction;
+          result?: BanResult | null;
+        }>(`/bans/${banId}/overboard`, {
+          method: 'POST',
+          token,
+          retries: 0,
+        });
+        logOverboardFlow('api-response', {
+          banId,
+          status: res.status ?? 'OVERBOARD',
+          hasResult: isValidBanResultPayload(res.result),
+          banStatus: res.ban?.status,
+        });
+
+        let result: BanResult | null = res.result ?? null;
+        if (!isValidBanResultPayload(result)) {
+          logOverboardFlow('result-fetch-after-action', {
+            banId,
+            reason: 'missing-in-response',
+          });
+          try {
+            const fetched = await api<{ result: BanResult | null }>(
+              `/bans/${banId}/result`,
+              { token, retries: 0 },
+            );
+            result = fetched.result;
+            logOverboardFlow('api-response', {
+              banId,
+              source: 'result-fetch',
+              hasResult: isValidBanResultPayload(result),
+            });
+          } catch {
+            /* best effort */
+          }
+        }
+
+        if (isValidBanResultPayload(result)) {
+          logOverboardFlow('result-open-immediate', {
+            banId,
+            outcome: result.outcome,
+          });
+          receiveResult(result, 'http');
+          queueMicrotask(() => {
+            void refreshUserRef.current().catch(() => {});
+          });
+          return { ok: true };
+        }
+
+        scheduleResultPollBurst();
+        logOverboardFlow('fallback-to-lobby', {
+          banId,
+          reason: 'no-result-payload',
+        });
+        setLobbyOpen(true);
+        lobbyShownLoggedRef.current = false;
+        return { ok: true };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : 'Ошибка перебора';
+        logOverboardFlow('api-error', { banId, message });
+        setLobbyOpen(true);
+        lobbyShownLoggedRef.current = false;
+        return { ok: false, error: message };
       }
     },
     [dismissCurrentOverlay, receiveResult, scheduleResultPollBurst],
@@ -3474,6 +3572,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       notifyReplyWhatVisible,
       releaseReplyHandoffLock,
       submitCheckAnswer,
+      submitIncomingOverboard,
       checkWaiting,
       setCheckWaiting,
       result,
@@ -3587,6 +3686,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       notifyReplyWhatVisible,
       releaseReplyHandoffLock,
       submitCheckAnswer,
+      submitIncomingOverboard,
       checkWaiting,
       setCheckWaiting,
       result,
