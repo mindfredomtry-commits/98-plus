@@ -55,7 +55,7 @@ function SendBanDockInner({ visible = true }: Props) {
     [friends],
   );
 
-  const onSuccess = useCallback(() => {
+  const onSuccess = useCallback((_banId: string) => {
     setSendInlineError(null);
     completeBanSendSuccess();
   }, [completeBanSendSuccess]);
@@ -171,7 +171,7 @@ function SendBanDockInner({ visible = true }: Props) {
             scheduleDeferredSync();
           },
         });
-        onSuccess();
+        onSuccess('');
       } catch (e) {
         setInlineBanError((e as Error).message || 'Не удалось отправить');
       }
@@ -188,7 +188,7 @@ function SendBanDockInner({ visible = true }: Props) {
               scheduleDeferredSync();
             },
         });
-        onSuccess();
+        onSuccess('');
       } catch (e) {
         setInlineBanError((e as Error).message || 'Не удалось отправить');
       }

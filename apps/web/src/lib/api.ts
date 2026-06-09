@@ -1,4 +1,4 @@
-import { SYSTEM_VOICE } from '@98plus/shared';
+import { INSUFFICIENT_ENERGY_ERROR, SYSTEM_VOICE } from '@98plus/shared';
 import { getApiUrl, isApiConfiguredForProduction } from './config';
 import {
   fetchWithTimeout,
@@ -7,13 +7,19 @@ import {
 } from './request-timeout';
 
 export class ApiError extends Error {
+  public readonly code?: string;
+  public readonly redirectToLobby?: boolean;
+
   constructor(
     message: string,
     public status: number,
     public url?: string,
+    opts?: { code?: string; redirectToLobby?: boolean },
   ) {
     super(message);
     this.name = 'ApiError';
+    this.code = opts?.code;
+    this.redirectToLobby = opts?.redirectToLobby;
   }
 }
 
@@ -92,12 +98,25 @@ export async function api<T>(
       const data = await parseJsonSafe(res);
 
       if (!res.ok) {
+        const errorField =
+          typeof data.error === 'string' ? data.error : undefined;
         const errMsg =
-          (typeof data.error === 'string' && data.error) ||
+          (typeof data.message === 'string' && data.message) ||
+          errorField ||
           res.statusText ||
           `HTTP ${res.status}`;
         console.error('[98+ api]', res.status, url, data);
-        throw new ApiError(errMsg, res.status, url);
+        throw new ApiError(
+          errMsg,
+          res.status,
+          url,
+          res.status === 402 || errorField === INSUFFICIENT_ENERGY_ERROR
+            ? {
+                code: INSUFFICIENT_ENERGY_ERROR,
+                redirectToLobby: data.redirectToLobby === true,
+              }
+            : undefined,
+        );
       }
 
       return data as T;

@@ -12,6 +12,7 @@ import { handleShareChallenge } from '@/lib/share';
 import { ctaLog } from '@/lib/cta-log';
 import { instantBanDebug } from '@/lib/instant-ban-debug';
 import { timingLog } from '@/lib/timing-log';
+import { isInsufficientEnergyApiError } from '@/lib/energy-gate';
 import { SHARE_PICKER_USERNAME } from '@98plus/shared';
 
 export type SendChallengeParams = {
@@ -26,7 +27,7 @@ export function useSendChallenge(opts: {
   token: string | null;
   friends?: FriendCard[] | null;
   /** Called only after API confirms ban.id (never optimistically). */
-  onSuccess: () => void;
+  onSuccess: (banId: string) => void;
   onOptimisticApply: (params: SendChallengeParams & { username: string }) => void;
   onConfirm?: (params: SendChallengeParams & { username: string }) => void;
   onFail: (
@@ -160,10 +161,10 @@ export function useSendChallenge(opts: {
             body: JSON.stringify({ name: ANALYTICS_EVENTS.INVITE_SHARED }),
           }).catch(() => {});
 
-          if (hasConfirmedBan) {
+          if (hasConfirmedBan && res.ban?.id) {
             onOptimisticApplyRef.current({ ...params, username });
             onConfirmRef.current?.({ ...params, username });
-            onSuccessRef.current();
+            onSuccessRef.current(res.ban.id);
           }
           scheduleDeferredSyncRef.current?.();
         } else {
@@ -173,13 +174,16 @@ export function useSendChallenge(opts: {
           timingLog('sendBan confirmed', performance.now() - requestStarted);
           onOptimisticApplyRef.current({ ...params, username });
           onConfirmRef.current?.({ ...params, username });
-          onSuccessRef.current();
+          onSuccessRef.current(res.ban!.id);
           scheduleDeferredSyncRef.current?.();
         }
 
         ctaLog('mutation:success');
         return 'started';
       } catch (e) {
+        if (isInsufficientEnergyApiError(e)) {
+          throw e;
+        }
         const message = formatDeliveryError(e);
         console.error('[98+] sendBan rollback', { username, message, error: e });
         ctaLog('mutation:fail', { message });

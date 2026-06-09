@@ -65,8 +65,16 @@ import {
 } from './bans-overlay-utils';
 import { useConfirmOrbController } from './useConfirmOrbController';
 import { useLobbyRingIntroFill } from './useLobbyRingIntroFill';
-import { canLobbySendBan } from '@/lib/lobby-influence';
 import { triggerLobbyBlockedHaptic } from './lobby-cta-haptics';
+import {
+  evaluateConfirmSubmitEnergy,
+  isInsufficientEnergyApiError,
+  isLowEnergySendFailure,
+  logEnergyGate,
+  resolveSendFlowSource,
+} from '@/lib/energy-gate';
+import { logSendFlow } from '@/lib/send-flow-debug';
+import { DEFAULT_SEND_TIMEOUT_MS } from '@/lib/request-timeout';
 import {
   getCrossScreenTouchPolicy,
   isWhatInteractiveTarget,
@@ -197,6 +205,7 @@ export function InstantBanFlow({
   influencePercent,
   energyLoaded = false,
   inviteUsername = null,
+  onClose,
 }: Props) {
   const flowId = useId();
   const renderCountRef = useRef(0);
@@ -247,6 +256,9 @@ export function InstantBanFlow({
     resultReplyRequest,
     resultReplyHandoffLock,
     notifyResultReplyWhatVisible,
+    closeSendFlow,
+    openLobby,
+    clearReplyDeepLinkState,
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
 
@@ -270,6 +282,12 @@ export function InstantBanFlow({
     sendTriggered: boolean;
   }>({ payoffPhase: 'none', sendTriggered: false });
   const confirmAbortReleaseRef = useRef<(() => void) | null>(null);
+  /** Blocks late success after INSUFFICIENT_ENERGY or stale send attempts. */
+  const sendFailedRef = useRef(false);
+  const flowSendAttemptRef = useRef(0);
+  const returnToLobbyAfterLowEnergyRef = useRef<
+    ((opts?: { source?: string; apiResult?: string }) => void) | null
+  >(null);
   /** Phase to enter when sendStarted flips false→true (archive repeat / ban-more). */
   const sendEntryPhaseRef = useRef<SendFlowPhase | null>(null);
   /** Where Confirm was opened from — drives ← back navigation. */
@@ -311,6 +329,8 @@ export function InstantBanFlow({
   const [bansOverlayOpen, setBansOverlayOpen] = useState(false);
   const [lowInfluenceRevealed, setLowInfluenceRevealed] = useState(false);
   const [lowEnergyBlockedSignal, setLowEnergyBlockedSignal] = useState(0);
+  /** Suppresses confirm inline error/retry during low-energy lobby redirect. */
+  const [lowEnergyRedirecting, setLowEnergyRedirecting] = useState(false);
   const [bansTab, setBansTab] = useState<BansTab>('yours');
   const [selectedBanForDetails, setSelectedBanForDetails] =
     useState<BanInteraction | null>(null);
@@ -988,25 +1008,6 @@ export function InstantBanFlow({
     ) => {
       const logArchive = options?.fromArchive === true;
 
-      if (options?.bansOverlayTab != null) {
-        if (!canLobbySendBan(energyLoaded, influencePercent)) {
-          console.log('[repeat-ban-low-energy-blocked]', {
-            banId: ban.id,
-            tab: options.bansOverlayTab,
-            influencePercent,
-            energyLoaded,
-          });
-          triggerLobbyBlockedHaptic();
-          setLowInfluenceRevealed(true);
-          setLowEnergyBlockedSignal((n) => n + 1);
-          setBansOverlayOpen(false);
-          setSelectedBanForDetails(null);
-          setPhase('idle');
-          confirmEntrySourceRef.current = 'send-flow';
-          return false;
-        }
-      }
-
       if (!user?.id) {
         if (logArchive) {
           console.info('[98+] ARCHIVE REPEAT FALLBACK', { reason: 'no-user' });
@@ -1101,8 +1102,6 @@ export function InstantBanFlow({
     [
       clearCtaExitTimer,
       clearWhoPanelEnterTimer,
-      energyLoaded,
-      influencePercent,
       onStartSend,
       safeFriends,
       setCrossScreenProgressImmediate,
@@ -1257,20 +1256,45 @@ export function InstantBanFlow({
     stopCrossScreenAnim,
   ]);
 
-  const onSuccess = useCallback(() => {
-    setSendError(null);
-    markSessionBanSendSuccess();
-    instantBanSendSuccessDebug({
-      payoffPending: confirmSendContextRef.current.sendTriggered,
-      payoffPhase: confirmSendContextRef.current.payoffPhase,
-    });
-    setBanSentSuccess(true);
-  }, [markSessionBanSendSuccess]);
+  const openSuccess = useCallback(
+    (banId: string, attemptId?: number) => {
+      if (sendFailedRef.current) {
+        logSendFlow('blocked-late-success', {
+          banId,
+          reason: 'send-failed',
+          attemptId,
+        });
+        return;
+      }
+      const currentAttempt = flowSendAttemptRef.current;
+      if (attemptId != null && attemptId !== currentAttempt) {
+        logSendFlow('blocked-late-success', {
+          banId,
+          reason: 'stale-attempt',
+          attemptId,
+          currentAttempt,
+        });
+        return;
+      }
+      if (!banId.trim()) return;
+
+      logSendFlow('open-success', { banId, attemptId: attemptId ?? currentAttempt });
+      setSendError(null);
+      markSessionBanSendSuccess();
+      instantBanSendSuccessDebug({
+        banId,
+        payoffPending: confirmSendContextRef.current.sendTriggered,
+        payoffPhase: confirmSendContextRef.current.payoffPhase,
+      });
+      setBanSentSuccess(true);
+    },
+    [markSessionBanSendSuccess],
+  );
 
   const { send, inFlight, sharing } = useSendChallenge({
     token,
     friends: safeFriends,
-    onSuccess,
+    onSuccess: (banId) => openSuccess(banId, flowSendAttemptRef.current),
     onOptimisticApply: (p) => {
       applyOptimisticSend({
         username: p.username,
@@ -1289,6 +1313,17 @@ export function InstantBanFlow({
       confirmAbortReleaseRef.current?.();
     },
     onFail: (p) => {
+      if (sendFailedRef.current || isLowEnergySendFailure(p.message)) {
+        logSendFlow('suppress-confirm-error-for-low-energy', {
+          source: 'send-hook-on-fail',
+          message: p.message,
+        });
+        returnToLobbyAfterLowEnergyRef.current?.({
+          source: 'send-hook',
+          apiResult: 'INSUFFICIENT_ENERGY',
+        });
+        return;
+      }
       rollbackOptimisticSend({
         username: p.username,
         message: p.message,
@@ -1769,12 +1804,96 @@ export function InstantBanFlow({
     confirmAbortReleaseRef.current = abort;
   }, []);
 
+  const returnToLobbyAfterLowEnergy = useCallback(
+    (opts?: { source?: string; apiResult?: string }) => {
+      sendFailedRef.current = true;
+      setLowEnergyRedirecting(true);
+      setReplySending(false);
+      logSendFlow('insufficient-energy-stop', {
+        source: opts?.source,
+        apiResult: opts?.apiResult,
+        attemptId: flowSendAttemptRef.current,
+      });
+      logSendFlow('insufficient-energy-redirect-to-lobby', {
+        source: opts?.source,
+        apiResult: opts?.apiResult,
+      });
+      logSendFlow('suppress-confirm-error-for-low-energy', {
+        source: opts?.source,
+      });
+
+      closeSendFlow();
+      onClose?.();
+      clearReplyDeepLinkState();
+      clearIncomingReply();
+      clearDeepLinkReplyBan();
+      releaseReplyHandoffLock();
+      setDeepLinkReplyBooting(false);
+
+      confirmAbortReleaseRef.current?.();
+      setConfirmEnterKey((k) => k + 1);
+      setBanSentSuccess(false);
+      sendSnapshotRef.current = null;
+      confirmEntrySourceRef.current = 'send-flow';
+      stopCrossScreenAnim();
+      screenTransitionRef.current = null;
+      setScreenTransition(null);
+      setSelectedUser(null);
+      setBanText('');
+      setDurationMinutes(DEFAULT_DURATION_MINUTES);
+      setSendError(null);
+      setWhoExitActive(false);
+      setWhoDismissProgress(0);
+      setComposeExitProgress(0);
+      setComposeDismissing(false);
+      setCrossScreenProgressImmediate(0);
+      setBansOverlayOpen(false);
+      setSelectedBanForDetails(null);
+      setPhase('idle');
+      setCtaState('hidden');
+      setLowInfluenceRevealed(true);
+      setLowEnergyBlockedSignal((n) => n + 1);
+      openLobby();
+      triggerLobbyBlockedHaptic();
+      logSendFlow('lobby-hint-shown', { source: opts?.source });
+      logEnergyGate('return-to-lobby', {
+        phase: 'idle',
+        incomingReplyBanId: null,
+        sendFlowOpen: false,
+        source: opts?.source,
+        apiResult: opts?.apiResult,
+      });
+      logEnergyGate('low-energy-hint-visible', {});
+      beginCtaSpringIn();
+      window.setTimeout(() => setLowEnergyRedirecting(false), 0);
+    },
+    [
+      beginCtaSpringIn,
+      clearDeepLinkReplyBan,
+      clearIncomingReply,
+      clearReplyDeepLinkState,
+      closeSendFlow,
+      onClose,
+      openLobby,
+      releaseReplyHandoffLock,
+      setCrossScreenProgressImmediate,
+      setDeepLinkReplyBooting,
+      stopCrossScreenAnim,
+    ],
+  );
+
+  returnToLobbyAfterLowEnergyRef.current = returnToLobbyAfterLowEnergy;
+
   const executeSend = useCallback(async (): Promise<'started' | 'skipped' | 'rejected'> => {
     const snap = sendSnapshotRef.current;
     if (!snap) {
       instantBanDebug('send-skipped', { reason: 'no-snapshot' });
       return 'rejected';
     }
+
+    sendFailedRef.current = false;
+    setLowEnergyRedirecting(false);
+    const attemptId = ++flowSendAttemptRef.current;
 
     const { banText: snapText, selectedUser: snapUser, durationMinutes: snapDuration } =
       snap;
@@ -1887,6 +2006,72 @@ export function InstantBanFlow({
       return 'rejected';
     }
 
+    const source = resolveSendFlowSource({
+      incomingReplyBanId,
+      deepLinkReplyBanId: deepLinkReplyBan?.id ?? null,
+      replyDeepLinkBanId,
+    });
+    const isReplyFlow = source === 'reply_from_bot';
+    const effectiveReplyBanId =
+      incomingReplyBanId ?? deepLinkReplyBan?.id ?? replyDeepLinkBanId ?? null;
+
+    logSendFlow('hold-start', {
+      source,
+      isReplyFlow,
+      effectiveReplyBanId,
+      attemptId,
+    });
+
+    if (isReplyFlow && !effectiveReplyBanId) {
+      logSendRejected('reply-ban-id-missing', { source, attemptId });
+      setSendError('Не получилось отправить запрет');
+      confirmAbortReleaseRef.current?.();
+      return 'rejected';
+    }
+
+    logEnergyGate('confirm-hold', {
+      source,
+      incomingReplyBanId,
+      selectedUserId: snapUser.userId ?? snapUser.id ?? null,
+      influencePercent,
+      energyLoaded,
+    });
+
+    const energyGate = await evaluateConfirmSubmitEnergy(token, {
+      energyLoaded,
+      influencePercent,
+    });
+    void refreshUser().catch(() => {});
+
+    logEnergyGate('confirm-hold', {
+      source,
+      energyBefore: energyGate.energyBefore,
+      canSend: energyGate.allowed,
+      influencePercent: energyGate.influencePercent,
+      energyLoaded: energyGate.energyLoaded,
+    });
+
+    if (!energyGate.allowed) {
+      logEnergyGate('low-energy-block-submit', {
+        source,
+        energyBefore: energyGate.energyBefore,
+        canSend: false,
+        influencePercent: energyGate.influencePercent,
+        energyLoaded: energyGate.energyLoaded,
+        incomingReplyBanId,
+      });
+      returnToLobbyAfterLowEnergy({ source, apiResult: 'client-gate' });
+      return 'rejected';
+    }
+
+    logEnergyGate('enough-energy', {
+      source,
+      energyBefore: energyGate.energyBefore,
+      canSend: true,
+      influencePercent: energyGate.influencePercent,
+      energyLoaded: energyGate.energyLoaded,
+    });
+
     if (!banSentSuccess) {
       setSendError(null);
     }
@@ -1903,34 +2088,48 @@ export function InstantBanFlow({
     });
 
     try {
-      if (incomingReplyBanId) {
+      if (effectiveReplyBanId) {
         if (replySending) {
           instantBanDebug('send-skipped', { reason: 'reply-in-flight' });
           return 'skipped';
         }
         setReplySending(true);
+        const endpoint = `/bans/${effectiveReplyBanId}/reply`;
+        logSendFlow('api-request', { endpoint, attemptId });
         try {
           const res = await api<{
             parentId: string;
+            replyBan: BanInteraction;
             session: SessionState;
-          }>(`/bans/${incomingReplyBanId}/reply`, {
+          }>(endpoint, {
             method: 'POST',
             token,
             body: JSON.stringify({
               text,
               durationMinutes: snapDuration,
             }),
+            retries: 0,
+            timeoutMs: DEFAULT_SEND_TIMEOUT_MS,
           });
+          logSendFlow('api-response', {
+            status: 'ok',
+            banId: res.replyBan?.id ?? null,
+            attemptId,
+          });
+          if (!res.replyBan?.id) {
+            throw new Error('Сервер не подтвердил запрет');
+          }
           if (res.session) applySession(res.session);
           scheduleDeferredSync();
           clearIncomingReply();
-          onSuccess();
+          openSuccess(res.replyBan.id, attemptId);
           return 'started';
         } finally {
           setReplySending(false);
         }
       }
 
+      logSendFlow('api-request', { endpoint: '/bans/send', attemptId });
       const outcome = await send({
         text,
         receiverUsername: receiverUsernameForApi,
@@ -1944,6 +2143,24 @@ export function InstantBanFlow({
       }
       return 'started';
     } catch (e) {
+      logSendFlow('api-error', {
+        status: (e as { status?: number }).status,
+        message: e instanceof Error ? e.message : String(e),
+        attemptId,
+      });
+      if (isLowEnergySendFailure(e)) {
+        logEnergyGate('insufficientEnergyRedirect', {
+          source,
+          energyBefore: energyGate.influencePercent,
+          canSend: false,
+          apiResult: 'INSUFFICIENT_ENERGY',
+        });
+        returnToLobbyAfterLowEnergy({
+          source,
+          apiResult: 'INSUFFICIENT_ENERGY',
+        });
+        return 'rejected';
+      }
       const message =
         e instanceof Error ? e.message : 'Не получилось отправить запрет';
       console.info('[98+] sendBan failed', {
@@ -1951,9 +2168,11 @@ export function InstantBanFlow({
         message,
         error: e instanceof Error ? e.name : typeof e,
         status: (e as { status?: number }).status,
+        source,
       });
       instantBanSendErrorDebug({ message, error: e });
       setSendError(message);
+      confirmAbortReleaseRef.current?.();
       return 'rejected';
     }
   }, [
@@ -1969,7 +2188,16 @@ export function InstantBanFlow({
     applySession,
     scheduleDeferredSync,
     clearIncomingReply,
-    onSuccess,
+    openSuccess,
+    energyLoaded,
+    influencePercent,
+    refreshUser,
+    returnToLobbyAfterLowEnergy,
+    deepLinkReplyBan,
+    replyDeepLinkBanId,
+    clearDeepLinkReplyBan,
+    releaseReplyHandoffLock,
+    setDeepLinkReplyBooting,
   ]);
 
   const captureSendSnapshot = useCallback(() => {
@@ -1994,7 +2222,9 @@ export function InstantBanFlow({
     const outcome = await executeSend();
     if (outcome === 'rejected') {
       instantBanDebug('send-abort-release', { reason: 'send-rejected' });
-      confirmAbortReleaseRef.current?.();
+      if (!sendFailedRef.current) {
+        confirmAbortReleaseRef.current?.();
+      }
     }
   }, [captureSendSnapshot, executeSend]);
 
@@ -2057,13 +2287,18 @@ export function InstantBanFlow({
   const confirmLayoutActive = orbCompressActive;
   const successSnapshot = sendSnapshotRef.current;
 
+  const confirmSendError =
+    sendError && !lowEnergyRedirecting && !sendFailedRef.current
+      ? sendError
+      : null;
+
   const confirmOrb = useConfirmOrbController({
     active: confirmActive,
     compressActive: orbCompressActive,
     enterKey: confirmEnterKey,
     influencePercent: lobbyInfluencePercent,
     sending: inFlight || sharing || replySending,
-    error: sendError,
+    error: confirmSendError,
     orbWrapRef: lobbyOrbMountRef,
     onConfirm: () => void handleConfirmRelease(),
     onSendContextChange: handleSendContextChange,
@@ -2171,12 +2406,12 @@ export function InstantBanFlow({
             <div className="instant-ban-confirm-hold-strip">
               <p
                 className={`instant-ban-status instant-ban-confirm-enter instant-ban-confirm-enter--5${
-                  sendError ? ' instant-ban-status--error' : ''
+                  confirmSendError ? ' instant-ban-status--error' : ''
                 }`}
               >
                 {confirmOrb.statusLabel}
               </p>
-              {sendError ? (
+              {confirmSendError ? (
                 <button
                   type="button"
                   className="instant-ban-secondary"

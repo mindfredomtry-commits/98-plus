@@ -6,10 +6,13 @@ import {
   calcSelfBanReward,
   type CheckOutcome,
   type EnergyDelta,
+  hasEnoughEnergyToSendBan,
+  INSUFFICIENT_ENERGY_ERROR,
   isLowEnergy,
   isPairDailyFreeMode,
   LOW_ENERGY_DAILY_BAN_LIMIT,
   ANTI_FARM_DAILY_SUCCESS_LIMIT,
+  type CanSendBanCode,
 } from '@98plus/shared';
 import { prisma } from '../lib/prisma';
 import { getDailyCount, incrDaily } from '../lib/redis';
@@ -74,9 +77,19 @@ async function isPairFreeMode(
 export async function canSendBan(userId: string): Promise<{
   allowed: boolean;
   reason?: string;
+  code?: CanSendBanCode;
 }> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return { allowed: false, reason: 'User not found' };
+
+  if (!hasEnoughEnergyToSendBan(user.energy)) {
+    return {
+      allowed: false,
+      code: INSUFFICIENT_ENERGY_ERROR,
+      reason:
+        'Выполни пару запретов от других — и сможешь запрещать снова!',
+    };
+  }
 
   if (isLowEnergy(user.energy)) {
     const key = `daily:ban:${userId}`;

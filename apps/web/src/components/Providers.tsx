@@ -287,6 +287,9 @@ interface AppContextValue {
   /** Ritual entry gate — blocks challenge overlays until dismissed. */
   lobbyOpen: boolean;
   closeLobby: () => void;
+  openLobby: () => void;
+  /** Full reset of reply deep-link latch (ban id, handoff, incoming reply). */
+  clearReplyDeepLinkState: () => void;
   /** Opens InstantBan Who screen for a new ban (increments on each request). */
   newBanWhoFlowRequest: number;
   openNewBanWhoFlow: () => void;
@@ -488,6 +491,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
     replyFlowArmedBanIdRef.current = banId;
     setReplyDeepLinkBanId((prev) => (prev === banId ? prev : banId));
+    setIncomingReplyBanId((prev) => (prev === banId ? prev : banId));
     setReplyWhatReady((prev) => (prev ? false : prev));
     setReplyHandoffLock((prev) => (prev ? prev : true));
     logReplyFlow('telegram-open-start', {
@@ -3171,6 +3175,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     console.log('[lobby-closed]', { userId: userIdRef.current ?? null });
   }, []);
 
+  const openLobby = useCallback(() => {
+    setLobbyOpen(true);
+    lobbyShownLoggedRef.current = false;
+    console.log('[lobby-opened]', { userId: userIdRef.current ?? null });
+  }, []);
+
+  const clearReplyDeepLinkState = useCallback(() => {
+    setReplyDeepLinkBanId(null);
+    setIncomingReplyBanId(null);
+    setDeepLinkReplyBan(null);
+    setReplyHandoffLock(false);
+    setReplyWhatReady(false);
+    setDeepLinkReplyBooting(false);
+    replyFlowArmedBanIdRef.current = null;
+    replyLockReleasedRef.current = false;
+  }, []);
+
   const [newBanWhoFlowRequest, setNewBanWhoFlowRequest] = useState(0);
 
   const openNewBanWhoFlow = useCallback(() => {
@@ -3508,6 +3529,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       triggerBanInputShake,
       lobbyOpen,
       closeLobby,
+      openLobby,
+      clearReplyDeepLinkState,
       newBanWhoFlowRequest,
       openNewBanWhoFlow,
       pendingStartupInteractions,
@@ -3615,6 +3638,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       triggerBanInputShake,
       lobbyOpen,
       closeLobby,
+      openLobby,
+      clearReplyDeepLinkState,
       newBanWhoFlowRequest,
       openNewBanWhoFlow,
       pendingStartupInteractions,

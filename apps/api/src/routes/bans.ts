@@ -1,7 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { ANALYTICS_EVENTS, isValidDurationMinutes } from '@98plus/shared';
+import {
+  ANALYTICS_EVENTS,
+  INSUFFICIENT_ENERGY_ERROR,
+  isValidDurationMinutes,
+} from '@98plus/shared';
 import { requireAuth, type AuthRequest } from '../middleware/auth';
+import { isInsufficientEnergyError } from '../lib/ban-send-errors';
 import {
   sendBan,
   acceptBan,
@@ -34,6 +39,18 @@ import { inviteLinkForUser } from '../lib/deeplink';
 import { prisma } from '../lib/prisma';
 
 export const bansRouter = Router();
+
+function respondBanSendError(res: import('express').Response, e: unknown): void {
+  if (isInsufficientEnergyError(e)) {
+    res.status(402).json({
+      error: INSUFFICIENT_ENERGY_ERROR,
+      redirectToLobby: true,
+      message: e.message,
+    });
+    return;
+  }
+  res.status(400).json({ error: (e as Error).message });
+}
 
 function paramId(req: AuthRequest): string {
   const id = req.params.id;
@@ -267,8 +284,9 @@ bansRouter.post('/send', async (req: AuthRequest, res) => {
       receiverTelegramId: parsed.data.receiverTelegramId,
       durationMinutes,
       reason,
+      code: isInsufficientEnergyError(e) ? INSUFFICIENT_ENERGY_ERROR : undefined,
     });
-    res.status(400).json({ error: reason });
+    respondBanSendError(res, e);
   }
 });
 
@@ -322,7 +340,7 @@ bansRouter.post('/:id/reply', async (req: AuthRequest, res) => {
     res.json(result);
   } catch (e) {
     console.error('[bans] reply failed', e);
-    res.status(400).json({ error: (e as Error).message });
+    respondBanSendError(res, e);
   }
 });
 

@@ -32,7 +32,7 @@ export function SendBanSheet() {
   const [duration, setDuration] = useState(10);
   const isReplyFlow = !!incomingReplyBanId;
 
-  const onSuccess = () => {
+  const onSuccess = (_banId: string) => {
     setSendOpen(false);
     clearIncomingReply();
     completeBanSendSuccess();
@@ -67,6 +67,7 @@ export function SendBanSheet() {
       if (incomingReplyBanId) {
         const res = await api<{
           parentId: string;
+          replyBan: { id: string };
           session: SessionState;
         }>(`/bans/${incomingReplyBanId}/reply`, {
           method: 'POST',
@@ -75,10 +76,14 @@ export function SendBanSheet() {
             text: sendText.trim(),
             durationMinutes: duration,
           }),
+          retries: 0,
         });
+        if (!res.replyBan?.id) {
+          throw new Error('Сервер не подтвердил запрет');
+        }
         if (res.session) applySession(res.session);
         scheduleDeferredSync();
-        onSuccess();
+        onSuccess(res.replyBan.id);
         return;
       }
       await send({

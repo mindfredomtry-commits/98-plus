@@ -1,7 +1,9 @@
-import type { UserPublic } from '@98plus/shared';
+import {
+  LOBBY_MIN_INFLUENCE_PERCENT,
+  type UserPublic,
+} from '@98plus/shared';
 
-/** Lobby gate + ring use the same display percent as arena header (0–100). */
-export const LOBBY_MIN_INFLUENCE_PERCENT = 10;
+export { LOBBY_MIN_INFLUENCE_PERCENT };
 
 /** Same gate as ArenaLobbyIdle low-energy CTA. */
 export function isLobbyLowEnergy(

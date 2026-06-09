@@ -1,7 +1,11 @@
 import {
+  ENERGY_MAX_DISPLAY,
   LOW_ENERGY_THRESHOLD,
   PAIR_DAILY_FREE_MODE_BAN_LIMIT,
 } from './constants';
+
+/** Lobby ring / CTA / confirm-hold send gate — influence below this blocks ban creation. */
+export const LOBBY_MIN_INFLUENCE_PERCENT = 10;
 
 export type AuraLevel =
   | 'weak'
@@ -36,6 +40,33 @@ export function getRewardMultiplier(energy: number): number {
 export function isLowEnergy(energy: number): boolean {
   return energy < LOW_ENERGY_THRESHOLD;
 }
+
+export function influencePercentFromEnergy(energy: number): number {
+  if (!Number.isFinite(energy)) return 0;
+  return Math.min(
+    100,
+    Math.max(0, Math.round((energy / ENERGY_MAX_DISPLAY) * 100)),
+  );
+}
+
+/** Shared gate for lobby CTA, confirm hold, and backend canSendBan. */
+export function hasEnoughEnergyToSendBan(energy: number): boolean {
+  return (
+    influencePercentFromEnergy(energy) >= LOBBY_MIN_INFLUENCE_PERCENT
+  );
+}
+
+export function hasEnoughInfluenceToSendBan(influencePercent: number): boolean {
+  if (!Number.isFinite(influencePercent)) return false;
+  return (
+    Math.min(100, Math.max(0, influencePercent)) >=
+    LOBBY_MIN_INFLUENCE_PERCENT
+  );
+}
+
+export const INSUFFICIENT_ENERGY_ERROR = 'INSUFFICIENT_ENERGY' as const;
+
+export type CanSendBanCode = typeof INSUFFICIENT_ENERGY_ERROR;
 
 export type CheckOutcome = 'both_yes' | 'both_no' | 'split';
 

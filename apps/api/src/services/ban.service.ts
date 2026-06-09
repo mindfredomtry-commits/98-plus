@@ -42,6 +42,7 @@ import {
 } from './result.service';
 import { applyCheckResult, resolveCheckOutcome } from './energy.service';
 import { banParticipantRole, logResultLatency } from '../lib/result-latency-diag';
+import { assertCanSendBan } from '../lib/ban-send-errors';
 import { trackEvent } from './analytics.service';
 import { createPendingInvite, normalizeUsername } from './invite.service';
 import { recordSocialContact } from './social-graph.service';
@@ -346,8 +347,7 @@ export async function sendBan(params: {
     await ensureDevFixturesForUser(senderId);
   }
 
-  const can = await canSendBan(senderId);
-  if (!can.allowed) throw new Error(can.reason ?? 'Not allowed');
+  assertCanSendBan(await canSendBan(senderId));
 
   if (
     !devMode &&
@@ -682,8 +682,7 @@ export async function replyToIncomingBan(params: {
     throw new Error('Invalid duration');
   }
 
-  const can = await canSendBan(params.userId);
-  if (!can.allowed) throw new Error(can.reason ?? 'Not allowed');
+  assertCanSendBan(await canSendBan(params.userId));
 
   if (parent.status === 'PENDING') {
     await acceptBan(parent.id, params.userId);
