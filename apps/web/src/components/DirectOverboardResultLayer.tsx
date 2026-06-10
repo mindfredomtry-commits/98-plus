@@ -8,6 +8,8 @@ import {
   isLocalOverboardBypassForBan,
   logResultOpenAttempt,
 } from '@/lib/overlay-priority';
+import { logOverboardDirectState } from '@/lib/overboard-direct-state';
+import { logResultPath } from '@/lib/result-open-trace';
 import { ResultOverlay } from './ResultOverlay';
 
 type Props = {
@@ -24,8 +26,31 @@ export function DirectOverboardResultLayer({ result, onClose }: Props) {
       resultId: result.id,
       allowed: true,
       bypassPriorityLock: isLocalOverboardBypassForBan(result.id),
-      extra: { outcome: result.outcome },
+      extra: { outcome: result.outcome, phase: 'mounted' },
     });
+    logResultPath('DirectOverboardResultLayer', 'state-written', {
+      banId: result.id,
+      resultId: result.id,
+      allowed: true,
+      bypassPriorityLock: isLocalOverboardBypassForBan(result.id),
+      extra: { mounted: true, outcome: result.outcome },
+    });
+    logOverboardDirectState(
+      'DirectOverboardResultLayer mounted=true',
+      {
+        directResultOverlayActive: true,
+        directResultOverlayRef: true,
+        resultOpenRef: true,
+        resultBanId: result.id,
+        activeOverlayKind: 'result',
+        overboardInFlightBanId: result.id,
+        localBypassBanId: null,
+        priorityLocked: false,
+        showDirectOverboardLayer: true,
+        displayResultBanId: result.id,
+      },
+      { mounted: true },
+    );
   }, [result.id, result.outcome]);
 
   if (typeof document === 'undefined') return null;

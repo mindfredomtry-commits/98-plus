@@ -101,18 +101,29 @@ export function buildOptimisticOverboardResult(
     return null;
   }
 
-  const enriched: BanInteraction = { ...mergedBan, text, sender, receiver };
+  let resolvedSender = sender;
+  let resolvedReceiver = receiver;
+  if (mergedBan.isIncoming !== false) {
+    resolvedReceiver = { ...receiver, id: viewerId };
+  }
+
+  const enriched: BanInteraction = {
+    ...mergedBan,
+    text,
+    sender: resolvedSender,
+    receiver: resolvedReceiver,
+  };
 
   const economy = resolveOptimisticOverboardEconomy(enriched);
   logOptimisticOverboard(enriched.id, enriched, economy, viewerId);
 
   const copy = RESULT_COPY.overboard;
   const opponent =
-    viewerId === sender.id
-      ? receiver
-      : viewerId === receiver.id
-        ? sender
-        : sender;
+    viewerId === resolvedSender.id
+      ? resolvedReceiver
+      : viewerId === resolvedReceiver.id
+        ? resolvedSender
+        : resolvedSender;
 
   return {
     id: enriched.id,
@@ -120,8 +131,8 @@ export function buildOptimisticOverboardResult(
     outcome: 'overboard',
     headline: copy.headline,
     subline: copy.subline,
-    sender,
-    receiver,
+    sender: resolvedSender,
+    receiver: resolvedReceiver,
     viewerId,
     opponent,
     confirmations: null,

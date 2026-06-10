@@ -64,6 +64,7 @@ function ResultOverlayInner({
     dismissBanResult,
     navigateFromResult,
     token,
+    user,
     notificationSessionActive,
     markOverlayUserAction,
     reportOverlayRendered,
@@ -71,9 +72,11 @@ function ResultOverlayInner({
   const { haptic, hapticSuccess } = useTelegram();
   const [archiveSaved, setArchiveSaved] = useState(false);
 
+  const viewerId = result.viewerId ?? user?.id ?? null;
   const showable =
     isValidBanResultPayload(result) &&
-    isResultParticipant(result, result.viewerId);
+    (directPaint ||
+      isResultParticipant(result, viewerId));
 
   useEffect(() => {
     if (!showable) onClose();

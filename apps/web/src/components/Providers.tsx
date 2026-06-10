@@ -83,6 +83,10 @@ import {
   tryLockFromStartParam,
   unlockNotificationQueue,
 } from '@/lib/overlay-priority';
+import {
+  logOverboardDirectState,
+  type OverboardDirectStateSnapshot,
+} from '@/lib/overboard-direct-state';
 import { logResultPath } from '@/lib/result-open-trace';
 import {
   logReplyFlow,
@@ -436,6 +440,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [checkBan, setCheckBan] = useState<BanInteraction | null>(null);
   const [checkWaiting, setCheckWaiting] = useState(false);
   const [result, setResult] = useState<BanResult | null>(null);
+  const resultRef = useRef<BanResult | null>(null);
+  useEffect(() => {
+    resultRef.current = result;
+  }, [result]);
   const [overlayQueue, setOverlayQueue] = useState<QueuedOverlay[]>([]);
   const overlayQueueRef = useRef<QueuedOverlay[]>([]);
   const activeOverlayLockRef = useRef<string | null>(null);
@@ -756,6 +764,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
 
     if (active?.kind === 'result') {
+      const inFlightId = overboardInFlightRef.current;
+      if (
+        directResultOverlayRef.current &&
+        inFlightId &&
+        active.result.id === inFlightId
+      ) {
+        logResultPath('syncDisplayFromQueue', 'path-skip', {
+          banId: active.result.id,
+          resultId: active.result.id,
+          allowed: true,
+          reason: 'keep-direct-overboard-in-flight',
+        });
+        resultOpenRef.current = true;
+      } else {
       logResultOpenAttempt('syncDisplayFromQueue', {
         resultId: active.result.id,
         allowed: !resultBlock.blocked,
@@ -763,8 +785,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         bypassPriorityLock: resultBlock.bypassPriorityLock,
       });
       if (resultBlock.blocked) {
-        resultOpenRef.current = false;
         if (!directResultOverlayRef.current) {
+          resultOpenRef.current = false;
           logResultPath('syncDisplayFromQueue', 'state-cleared', {
             banId: active.result.id,
             resultId: active.result.id,
@@ -773,6 +795,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
           setResult(null);
           setDirectResultOverlayActive(false);
+        } else {
+          resultOpenRef.current = true;
+          logResultPath('syncDisplayFromQueue', 'path-skip', {
+            banId: active.result.id,
+            resultId: active.result.id,
+            allowed: true,
+            reason: 'queue-head-blocked-keep-direct',
+          });
         }
       } else {
         logResultOpenAttempt('syncDisplayFromQueue', {
@@ -793,6 +823,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         resultOpenRef.current = true;
         setResult(active.result);
       }
+      }
     } else if (directResultOverlayRef.current) {
       const directBanId =
         getLocalOverboardBypassBanId() ?? overboardInFlightRef.current;
@@ -802,6 +833,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         overboardInFlightBanId: overboardInFlightRef.current,
       });
       if (directBlock.blocked) {
+        const keepDirect =
+          overboardInFlightRef.current != null &&
+          (isLocalOverboardBypassForBan(overboardInFlightRef.current) ||
+            directBanId === overboardInFlightRef.current);
+        if (keepDirect) {
+          resultOpenRef.current = true;
+          logResultPath('syncDisplayFromQueue-direct', 'path-skip', {
+            banId: directBanId,
+            resultId: directBanId,
+            allowed: true,
+            reason: 'direct-in-flight-protected',
+          });
+        } else {
         logResultOpenAttempt('syncDisplayFromQueue-direct', {
           resultId: directBanId,
           allowed: false,
@@ -818,10 +862,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         resultOpenRef.current = false;
         setResult(null);
         setDirectResultOverlayActive(false);
+        }
       } else {
         resultOpenRef.current = true;
       }
-    } else {
+    } else if (!directResultOverlayRef.current) {
       resultOpenRef.current = false;
       logResultPath('syncDisplayFromQueue', 'state-cleared', {
         banId:
@@ -832,6 +877,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       setResult(null);
       setDirectResultOverlayActive(false);
+    } else {
+      resultOpenRef.current = true;
     }
     if (active?.kind === 'incoming') {
       console.log('INCOMING QUEUE ACTIVE', { banId: active.ban.id });
@@ -2265,6 +2312,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [dismissCurrentOverlay, receiveResult, scheduleResultPollBurst],
   );
 
+  const readDirectOverboardSnapshot = useCallback(
+    (
+      renderDirectActive = directResultOverlayActive,
+    ): OverboardDirectStateSnapshot => {
+      const resultBanId = resultRef.current?.id ?? null;
+      const locked = isNotificationQueueLocked();
+      const bypassBanId = getLocalOverboardBypassBanId();
+      const priorityBlocks =
+        !renderDirectActive &&
+        locked &&
+        !isLocalOverboardBypassForBan(resultBanId);
+      const displayBanId = priorityBlocks ? null : resultBanId;
+      const showDirect =
+        renderDirectActive && displayBanId != null;
+      return {
+        directResultOverlayActive: renderDirectActive,
+        directResultOverlayRef: directResultOverlayRef.current,
+        resultOpenRef: resultOpenRef.current,
+        resultBanId,
+        activeOverlayKind: showDirect
+          ? 'result'
+          : (overlayQueueRef.current[0]?.kind ?? null),
+        overboardInFlightBanId: overboardInFlightRef.current,
+        localBypassBanId: bypassBanId,
+        priorityLocked: locked,
+        showDirectOverboardLayer: showDirect,
+        displayResultBanId: displayBanId,
+      };
+    },
+    [directResultOverlayActive],
+  );
+
   const snapshotOverboardOverlayState = useCallback(
     (banId: string) => ({
       banId,
@@ -2297,6 +2376,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const forceOpenOverboardResult = useCallback(
     (payload: BanResult, banId: string, clickTs?: number | null): boolean => {
       const uid = userIdRef.current;
+      logOverboardDirectState('before', readDirectOverboardSnapshot(), {
+        banId,
+        step: 'forceOpenOverboardResult',
+      });
       logResultPath('forceOpenOverboardResult', 'attempt', {
         banId,
         resultId: banId,
@@ -2330,6 +2413,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           overboardInFlight: overboardInFlightRef.current,
           localBypass: getLocalOverboardBypassBanId(),
         });
+        logOverboardDirectState('force returned', readDirectOverboardSnapshot(), {
+          banId,
+          forceReturned: false,
+          reason: 'priority-lock',
+        });
         return false;
       }
 
@@ -2343,6 +2431,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId,
           ok: false,
           reason: 'invalid-payload',
+        });
+        logOverboardDirectState('force returned', readDirectOverboardSnapshot(), {
+          banId,
+          forceReturned: false,
+          reason: !uid ? 'no-auth-user' : 'invalid-payload',
         });
         return false;
       }
@@ -2380,12 +2473,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       logOverboardPaint('result-state-set', clickTs);
+      resultRef.current = normalized;
       logResultPath('forceOpenOverboardResult', 'state-written', {
         banId,
         resultId: banId,
         allowed: true,
         bypassPriorityLock: block.bypassPriorityLock,
         extra: { directResultOverlay: true },
+      });
+      logResultOpenAttempt('forceOpenOverboardResult', {
+        resultId: banId,
+        allowed: true,
+        bypassPriorityLock: block.bypassPriorityLock,
+        extra: { phase: 'state-written', directResultOverlay: true },
+      });
+      logOverboardDirectState('after', readDirectOverboardSnapshot(true), {
+        banId,
+        forceReturned: true,
+        step: 'forceOpenOverboardResult',
       });
 
       queueMicrotask(() => {
@@ -2435,7 +2540,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       return true;
     },
-    [closeSendFlow],
+    [closeSendFlow, readDirectOverboardSnapshot],
   );
 
   const collectOverboardFallbackBans = useCallback(
@@ -2463,6 +2568,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ): boolean => {
       const banId = ban.id;
       const uid = userIdRef.current;
+      logOverboardDirectState('before', readDirectOverboardSnapshot(), {
+        banId,
+        step: 'openIncomingOverboardOptimistic',
+      });
       logResultPath('openIncomingOverboardOptimistic', 'attempt', {
         banId,
         resultId: banId,
@@ -2488,6 +2597,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       };
       const optimistic = buildOptimisticOverboardResult(ban, uid, buildCtx);
       logOverboardTiming('optimistic-built', clickTs);
+      logOverboardDirectState('builtResult', readDirectOverboardSnapshot(), {
+        banId,
+        builtResult: !!optimistic,
+      });
       if (!optimistic) {
         const diag = getOptimisticOverboardBuildDiagnostics(ban, uid, buildCtx);
         logResultPath('openIncomingOverboardOptimistic', 'path-skip', {
@@ -2524,8 +2637,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       overboardInFlightRef.current = banId;
       dismissedIncomingRef.current.add(banId);
 
+      logOverboardDirectState('calling forceOpenOverboardResult', readDirectOverboardSnapshot(), {
+        banId,
+      });
       const ok = forceOpenOverboardResult(optimistic, banId, clickTs);
       logOverboardTiming('result-state-set', clickTs);
+      logOverboardDirectState('force returned', readDirectOverboardSnapshot(true), {
+        banId,
+        forceReturned: ok,
+      });
 
       if (!ok) {
         logResultPath('forceOpenOverboardResult', 'path-skip', {
@@ -2539,9 +2659,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       traceOverboardFlow('optimistic-result-opened', { banId });
+      logOverboardDirectState('after', readDirectOverboardSnapshot(true), {
+        banId,
+        optimisticOpened: true,
+      });
       return true;
     },
-    [collectOverboardFallbackBans, forceOpenOverboardResult],
+    [
+      collectOverboardFallbackBans,
+      forceOpenOverboardResult,
+      readDirectOverboardSnapshot,
+    ],
   );
 
   const runIncomingOverboardApi = useCallback(
@@ -4225,6 +4353,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const sessionReady = sessionBootstrapped;
   const notificationQueueLocked = isNotificationQueueLocked();
   const priorityBlocksResult =
+    !directResultOverlayActive &&
     notificationQueueLocked &&
     !isLocalOverboardBypassForBan(result?.id ?? null);
   const displayResult = priorityBlocksResult ? null : result;
