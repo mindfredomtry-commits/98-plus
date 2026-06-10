@@ -202,7 +202,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     hapticSuccess();
     setVerifiedBan(null);
     try {
-      const res = await submitIncomingOverboard(actBan.id);
+      const res = await submitIncomingOverboard(actBan);
       if (!res.ok && res.error) {
         alert(res.error);
       }

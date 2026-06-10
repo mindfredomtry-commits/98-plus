@@ -82,6 +82,7 @@ import {
   setOverboardEmergencyHint,
 } from '@/lib/overboard-flow-debug';
 import { postOverboardWithTrace } from '@/lib/overboard-api';
+import { buildOptimisticOverboardResult } from '@/lib/optimistic-overboard-result';
 import { RequestTimeoutError } from '@/lib/request-timeout';
 import {
   logResultPresentation,
@@ -231,7 +232,7 @@ interface AppContextValue {
     completed: boolean,
   ) => Promise<{ ok: boolean; error?: string }>;
   submitIncomingOverboard: (
-    banId: string,
+    ban: BanInteraction,
   ) => Promise<{ ok: boolean; error?: string }>;
   checkWaiting: boolean;
   setCheckWaiting: (v: boolean) => void;
@@ -2002,17 +2003,63 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const submitIncomingOverboard = useCallback(
-    async (banId: string) => {
+    async (ban: BanInteraction) => {
+      const banId = ban.id;
       const uid = userIdRef.current;
       const token = tokenRef.current;
       if (!uid || !token) {
         return { ok: false, error: 'Нет авторизации' };
       }
 
-      traceOverboardFlow('submit-start', { banId, authUserId: uid });
+      const optimistic = buildOptimisticOverboardResult(ban, uid);
+      if (!optimistic) {
+        return { ok: false, error: 'Недостаточно данных для перебора' };
+      }
+
+      traceOverboardFlow('submit-start', {
+        banId,
+        authUserId: uid,
+        optimistic: true,
+      });
       overboardInFlightRef.current = banId;
       setViralOnboarding(false);
       challengeLog('incoming:overboard', { banId });
+
+      if (!forceOpenOverboardResult(optimistic, banId)) {
+        overboardInFlightRef.current = null;
+        return { ok: false, error: 'Не удалось открыть перебор' };
+      }
+      traceOverboardFlow('optimistic-result-opened', { banId });
+
+      const syncOverboardResultFromApi = (
+        payload: BanResult,
+        source: string,
+      ): boolean => {
+        if (!isValidBanResultPayload(payload)) return false;
+        const normalized: BanResult = {
+          ...payload,
+          viewerId: payload.viewerId ?? uid,
+        };
+        if (
+          directResultOverlayRef.current &&
+          resultDeliveredBanIdsRef.current.has(banId)
+        ) {
+          setResult(normalized);
+          traceOverboardFlow('optimistic-sync-api', { banId, source });
+          logOverboardFinalState(banId, `sync-${source}`);
+          return true;
+        }
+        return forceOpenOverboardResult(normalized, banId);
+      };
+
+      const finishOverboardSuccess = (payload: BanResult, source: string) => {
+        syncOverboardResultFromApi(payload, source);
+        void acknowledgeIncomingFully(banId, token, uid).catch(() => {});
+        queueMicrotask(() => {
+          void refreshUserRef.current().catch(() => {});
+        });
+        return { ok: true as const };
+      };
 
       const fetchResultByBanId = async (
         source: string,
@@ -2073,30 +2120,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       };
 
-      const openResultPayload = (
-        payload: BanResult,
-        outcome: string,
-      ): boolean => {
-        if (!forceOpenOverboardResult(payload, banId)) return false;
-        void acknowledgeIncomingFully(banId, token, uid).catch(() => {});
-        queueMicrotask(() => {
-          void refreshUserRef.current().catch(() => {});
-        });
-        logOverboardFinalState(banId, outcome);
-        return true;
-      };
-
       const recoverAfterOverboardApiIssue = async (
         reason: string,
       ): Promise<{ ok: boolean; error?: string }> => {
         traceOverboardFlow('api-recovery-start', { banId, reason });
         scheduleResultPollBurst();
 
-        let payload =
+        const payload =
           (await fetchResultByBanId(`recovery-${reason}`)) ??
           (await fetchPendingResult(`recovery-pending-${reason}`));
 
-        if (payload && openResultPayload(payload, `result-opened-recovery-${reason}`)) {
+        if (payload && isValidBanResultPayload(payload)) {
+          return finishOverboardSuccess(payload, `recovery-${reason}`);
+        }
+
+        if (directResultOverlayRef.current) {
+          setOverboardEmergencyHint('не удалось подтвердить перебор');
+          window.setTimeout(() => setOverboardEmergencyHint(null), 5000);
+          traceOverboardFlow('optimistic-kept-api-fail', { banId, reason });
+          logOverboardFinalState(banId, `optimistic-kept-${reason}`);
           return { ok: true };
         }
 
@@ -2156,12 +2198,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
         }
 
-        if (
-          res.result &&
-          isValidBanResultPayload(res.result) &&
-          openResultPayload(res.result, 'result-opened-force')
-        ) {
-          return { ok: true };
+        if (res.result && isValidBanResultPayload(res.result)) {
+          return finishOverboardSuccess(res.result, 'overboard-response');
         }
 
         let resultPayload: BanResult | null = res.result ?? null;
@@ -2169,13 +2207,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           resultPayload = await fetchResultByBanId('result-fetch-after-overboard');
         }
 
-        if (resultPayload && openResultPayload(resultPayload, 'result-opened-force')) {
-          return { ok: true };
+        if (resultPayload && isValidBanResultPayload(resultPayload)) {
+          return finishOverboardSuccess(resultPayload, 'result-fetch-after-overboard');
         }
 
         const polled = await fetchPendingResult('post-overboard-pending');
-        if (polled && openResultPayload(polled, 'result-opened-force-pending')) {
-          return { ok: true };
+        if (polled && isValidBanResultPayload(polled)) {
+          return finishOverboardSuccess(polled, 'post-overboard-pending');
         }
 
         return recoverAfterOverboardApiIssue('no-valid-result-payload');
