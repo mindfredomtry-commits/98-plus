@@ -598,6 +598,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         hasResult: resultRef.current != null,
       };
     }, []);
+  const isDirectOverboardLocallyActive = useCallback(() => {
+    return (
+      directResultOverlayActiveRef.current ||
+      directResultOverlayRef.current ||
+      overboardInFlightRef.current != null ||
+      getLocalOverboardBypassBanId() != null
+    );
+  }, []);
+  /** Last auth user id we already ran providers-reset for (avoids deps-only reruns). */
+  const providersResetForUserIdRef = useRef<string | null | undefined>(undefined);
   const [directResultOverlayActive, setDirectResultOverlayActive] =
     useState(false);
   const [overboardTransitionActive, setOverboardTransitionActive] =
@@ -1737,7 +1747,39 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   /** Sync reset before paint when backend user id changes (no flash of previous user's data). */
   useLayoutEffect(() => {
-    console.log('[providers-reset]', { userId: auth.user?.id ?? null });
+    const nextUserId = auth.user?.id ?? null;
+    const directActive = isDirectOverboardLocallyActive();
+
+    if (
+      providersResetForUserIdRef.current !== undefined &&
+      providersResetForUserIdRef.current === nextUserId
+    ) {
+      if (directActive) {
+        markVisibleOverboardTrace('DIRECT OVERBOARD STATE RESET SKIPPED', {
+          source: 'providers-reset',
+          reason: 'same-user-deps-rerun',
+          directActive: true,
+          userId: nextUserId,
+        });
+      }
+      return;
+    }
+
+    const prevResetUserId = providersResetForUserIdRef.current;
+    const realUserChange =
+      prevResetUserId !== undefined &&
+      prevResetUserId !== null &&
+      nextUserId !== null &&
+      prevResetUserId !== nextUserId;
+    providersResetForUserIdRef.current = nextUserId;
+
+    console.log('[providers-reset]', {
+      userId: nextUserId,
+      prevResetUserId: prevResetUserId ?? null,
+      directActive,
+      realUserChange,
+    });
+
     clearAvatarCaches();
     setDataOwnerUserId(null);
     setHomeSnapshotReady(false);
@@ -1749,22 +1791,42 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setIncomingBan(null);
     setCheckBan(null);
     setCheckWaiting(false);
-    const gateBefore = snapshotDirectOverboardGate();
-    setResult(null);
-    clearDirectOverboardLayerRefs();
-    setDirectResultOverlayActive(false);
-    logDirectOverboardStateReset({
-      source: 'providers-reset',
-      reason: 'auth-user-changed',
-      before: gateBefore,
-      after: {
-        directResultOverlayActive: false,
-        directResultOverlayRef: false,
-        resultBanId: null,
-        showDirectOverboardLayer: false,
-        hasResult: false,
-      },
-    });
+
+    const preserveDirectOverboard =
+      !realUserChange &&
+      directActive &&
+      (directResultOverlayActiveRef.current ||
+        directResultOverlayRef.current ||
+        overboardInFlightRef.current != null ||
+        getLocalOverboardBypassBanId() != null);
+
+    if (preserveDirectOverboard) {
+      markVisibleOverboardTrace('DIRECT OVERBOARD STATE RESET SKIPPED', {
+        source: 'providers-reset',
+        reason: 'auth-user-changed',
+        directActive: true,
+        userId: nextUserId,
+        prevUserId: prevResetUserId ?? null,
+      });
+    } else {
+      const gateBefore = snapshotDirectOverboardGate();
+      setResult(null);
+      clearDirectOverboardLayerRefs();
+      setDirectResultOverlayActive(false);
+      logDirectOverboardStateReset({
+        source: 'providers-reset',
+        reason: 'auth-user-changed',
+        before: gateBefore,
+        after: {
+          directResultOverlayActive: false,
+          directResultOverlayRef: false,
+          resultBanId: null,
+          showDirectOverboardLayer: false,
+          hasResult: false,
+        },
+      });
+    }
+
     setOverlayQueue([]);
     overlayQueueRef.current = [];
     pendingStartupInteractionsRef.current = [];
@@ -1881,7 +1943,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         armActiveBanDeepLinkEarly(action.banId);
       }
     }
-  }, [auth.user?.id, armActiveBanDeepLinkEarly, enqueueNotification]);
+  }, [
+    auth.user?.id,
+    armActiveBanDeepLinkEarly,
+    clearDirectOverboardLayerRefs,
+    enqueueNotification,
+    isDirectOverboardLocallyActive,
+    snapshotDirectOverboardGate,
+  ]);
 
   useEffect(() => {
     setAvatarPreloadCompleteListener(() => {
