@@ -115,7 +115,6 @@ function ResultOverlayInner({
       result.farmSkipped,
       result.outcome,
     );
-    const showPrimaryAction = result.outcome !== 'overboard';
 
     return {
       isSender,
@@ -126,7 +125,6 @@ function ResultOverlayInner({
       displayHeadline,
       displaySubline,
       showBanOthers,
-      showPrimaryAction,
     };
   }, [isOverboard, overboardPresentation.headline, overboardPresentation.subline, result]);
 
@@ -315,10 +313,8 @@ function ResultOverlayInner({
 
       {hasActions ? (
         <div className="modal-card-actions result-card-actions space-y-2.5">
-          {view.showPrimaryAction ? (
-            <BigButton onClick={replyFromResult}>{view.primaryLabel}</BigButton>
-          ) : null}
-          {view.showBanOthers && view.showPrimaryAction ? (
+          <BigButton onClick={replyFromResult}>{view.primaryLabel}</BigButton>
+          {view.showBanOthers ? (
             <BigButton variant="ghost" onClick={banOthers}>
               🚫 Запретить другим!
             </BigButton>

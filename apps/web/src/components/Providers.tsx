@@ -25,6 +25,7 @@ import {
   ANALYTICS_EVENTS,
   coerceFriendList,
   formatSenderDisplayName,
+  SYSTEM_VOICE,
 } from '@98plus/shared';
 import { useAuth } from '@/hooks/useAuth';
 import { useTelegram } from '@/hooks/useTelegram';
@@ -322,6 +323,13 @@ export function useApp() {
   const ctx = useContext(AppContext);
   if (!ctx) throw new Error('useApp outside Providers');
   return ctx;
+}
+
+/** WS energy toast for overboard — full ResultOverlay replaces it. */
+function isOverboardEnergyPopup(p: EnergyPopup): boolean {
+  const msg = p.message?.trim();
+  if (!msg) return false;
+  return msg === SYSTEM_VOICE.overboard || msg.includes('ПЕРЕБОР');
 }
 
 function pickIncomingForOverlay(
@@ -1944,6 +1952,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       directResultOverlayRef.current = true;
       setDirectResultOverlayActive(true);
       resultOpenRef.current = true;
+      setPopups((prev) => prev.filter((x) => !isOverboardEnergyPopup(x)));
       setResult(normalized);
 
       logOverboardResultForce('set activeOverlayKind=result');
@@ -2403,9 +2412,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [auth.user?.id, auth.loading, enqueueNotification]);
 
   const pushPopup = useCallback((p: EnergyPopup) => {
-    const isOverboardEnergy =
-      p.message?.includes('ПЕРЕБОР') || p.message?.includes('перебор');
-    logResultUi(isOverboardEnergy ? 'overboard' : 'energy-popup', {
+    const isOverboardEnergy = isOverboardEnergyPopup(p);
+    if (isOverboardEnergy) {
+      logResultUi('overboard', {
+        overlayKind: overlayQueueRef.current[0]?.kind ?? null,
+        compactCard: true,
+        fullOverlay: false,
+        source: 'EnergyPopupStack',
+        rejectReason: 'suppressed-overboard-result-flow',
+        overlayQueueLength: overlayQueueRef.current.length,
+      });
+      return;
+    }
+    logResultUi('energy-popup', {
       overlayKind: overlayQueueRef.current[0]?.kind ?? null,
       compactCard: true,
       fullOverlay: overlayQueueRef.current[0]?.kind === 'result',
