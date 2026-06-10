@@ -15,8 +15,19 @@ type LockState = {
 
 let lockState: LockState | null = null;
 
+/** Incoming ban id for which local "Перебор" click may bypass priority lock. */
+let localOverboardBypassBanId: string | null = null;
+
 /** Brief window: unlock flush may show deferred pending results. */
 let explicitResultUnlockActive = false;
+
+const LOCAL_OVERBOARD_SOURCES = new Set([
+  'local-overboard-click',
+  'forceOpenOverboardResult',
+  'direct-overboard-result',
+  'DirectOverboardResultLayer',
+  'syncDisplayFromQueue-direct',
+]);
 
 type ResultOpenTraceContext = {
   getActiveOverlayKind: () => string | null;
@@ -29,6 +40,24 @@ export function registerResultOpenTraceContext(
   ctx: ResultOpenTraceContext | null,
 ): void {
   traceContext = ctx;
+}
+
+export function armLocalOverboardBypass(banId: string): void {
+  localOverboardBypassBanId = banId;
+}
+
+export function clearLocalOverboardBypass(): void {
+  localOverboardBypassBanId = null;
+}
+
+export function getLocalOverboardBypassBanId(): string | null {
+  return localOverboardBypassBanId;
+}
+
+export function isLocalOverboardBypassForBan(
+  banId: string | null | undefined,
+): boolean {
+  return !!banId && localOverboardBypassBanId === banId;
 }
 
 export function isNotificationQueueLocked(): boolean {
@@ -103,12 +132,14 @@ export function tryLockFromStartParam(source: string): boolean {
 }
 
 export type ResultOpenAttemptSource =
+  | 'local-overboard-click'
   | 'receiveResult'
   | 'openBanResult'
   | 'pollPendingResultOnce'
   | 'reloadPending'
   | 'enqueueNotification'
   | 'syncDisplayFromQueue'
+  | 'syncDisplayFromQueue-direct'
   | 'forceOpenOverboardResult'
   | 'DirectOverboardResultLayer'
   | 'applyOverlayQueue'
@@ -124,16 +155,31 @@ export function logResultOpenAttempt(
     mode?: string | null;
     allowed: boolean;
     blockReason?: string | null;
+    bypassPriorityLock?: boolean;
     extra?: Record<string, unknown>;
   },
 ): void {
+  const banId = data.banId ?? data.resultId ?? null;
+  const lockReason = getNotificationQueueLockReason();
+  const bypassPriorityLock =
+    data.bypassPriorityLock ??
+    (isLocalOverboardBypassForBan(banId) &&
+      LOCAL_OVERBOARD_SOURCES.has(String(source)));
+  const isLocalUserAction =
+    bypassPriorityLock === true ||
+    (isLocalOverboardBypassForBan(banId) &&
+      LOCAL_OVERBOARD_SOURCES.has(String(source)));
+
   console.log('[RESULT OPEN ATTEMPT]', {
     source,
-    banId: data.banId ?? data.resultId ?? null,
-    resultId: data.resultId ?? data.banId ?? null,
+    banId,
+    resultId: data.resultId ?? banId,
+    lockReason,
+    isLocalUserAction,
+    bypassPriorityLock,
     activeOverlayKind: traceContext?.getActiveOverlayKind() ?? null,
     activeBanDeepLinkId: traceContext?.getActiveBanDeepLinkId() ?? null,
-    notificationQueueLockReason: getNotificationQueueLockReason(),
+    notificationQueueLockReason: lockReason,
     isLocked: isNotificationQueueLocked(),
     allowed: data.allowed,
     mode: data.mode ?? null,
@@ -143,26 +189,40 @@ export function logResultOpenAttempt(
 }
 
 export function shouldBlockResultOpen(opts?: {
+  source?: string;
   explicitUserUnlock?: boolean;
   overboardInFlightBanId?: string | null;
   resultBanId?: string | null;
-}): { blocked: boolean; reason: string | null } {
+  bypassPriorityLock?: boolean;
+}): {
+  blocked: boolean;
+  reason: string | null;
+  bypassPriorityLock: boolean;
+} {
+  const lockReason = getNotificationQueueLockReason();
+
   if (!isNotificationQueueLocked()) {
-    return { blocked: false, reason: null };
+    return { blocked: false, reason: null, bypassPriorityLock: false };
   }
-  if (opts?.explicitUserUnlock || explicitResultUnlockActive) {
-    return { blocked: false, reason: null };
+
+  const bypassPriorityLock =
+    opts?.bypassPriorityLock === true ||
+    opts?.explicitUserUnlock === true ||
+    explicitResultUnlockActive ||
+    (opts?.resultBanId != null &&
+      isLocalOverboardBypassForBan(opts.resultBanId)) ||
+    (opts?.overboardInFlightBanId != null &&
+      opts?.resultBanId != null &&
+      opts.overboardInFlightBanId === opts.resultBanId);
+
+  if (bypassPriorityLock) {
+    return { blocked: false, reason: null, bypassPriorityLock: true };
   }
-  if (
-    opts?.overboardInFlightBanId &&
-    opts.resultBanId &&
-    opts.overboardInFlightBanId === opts.resultBanId
-  ) {
-    return { blocked: false, reason: null };
-  }
+
   return {
     blocked: true,
-    reason: getNotificationQueueLockReason(),
+    reason: lockReason,
+    bypassPriorityLock: false,
   };
 }
 

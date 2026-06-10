@@ -130,6 +130,7 @@ export function useSocialBoot(h: BootHandlers) {
               mode: 'explicit',
               allowed: !block.blocked,
               blockReason: block.reason,
+              bypassPriorityLock: block.bypassPriorityLock,
             });
             if (!block.blocked) {
               h.openBanResult(result, 'explicit');

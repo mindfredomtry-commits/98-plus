@@ -4,7 +4,10 @@ import { useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import type { BanResult } from '@98plus/shared';
 import { DIRECT_OVERBOARD_RESULT_Z_INDEX } from '@/lib/overlay-queue';
-import { logResultOpenAttempt } from '@/lib/overlay-priority';
+import {
+  isLocalOverboardBypassForBan,
+  logResultOpenAttempt,
+} from '@/lib/overlay-priority';
 import { ResultOverlay } from './ResultOverlay';
 
 type Props = {
@@ -17,9 +20,10 @@ type Props = {
  */
 export function DirectOverboardResultLayer({ result, onClose }: Props) {
   useLayoutEffect(() => {
-    logResultOpenAttempt('DirectOverboardResultLayer', {
+    logResultOpenAttempt('direct-overboard-result', {
       resultId: result.id,
       allowed: true,
+      bypassPriorityLock: isLocalOverboardBypassForBan(result.id),
       extra: { outcome: result.outcome },
     });
   }, [result.id, result.outcome]);
