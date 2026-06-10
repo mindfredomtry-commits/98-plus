@@ -6,6 +6,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -51,6 +52,23 @@ interface Props {
   contentOnly?: boolean;
   /** Fresh shell + paint timing for direct overboard layer. */
   directPaint?: boolean;
+};
+
+type ResultOverlayTraceProps = {
+  showable: boolean;
+  directPaint: boolean;
+  outcome: string;
+  contentOnly: boolean;
+  resultBanId: string;
+  embedded: boolean;
+};
+
+function traceResultOverlayLifecycle(
+  stage: string,
+  props: ResultOverlayTraceProps,
+  extra?: Record<string, unknown>,
+): void {
+  markVisibleOverboardTrace(stage, { ...props, ...extra });
 }
 
 function ResultOverlayInner({
@@ -87,26 +105,54 @@ function ResultOverlayInner({
   })();
   const showable = returnsNullReason == null;
 
+  const tracePropsRef = useRef<ResultOverlayTraceProps>({
+    showable,
+    directPaint,
+    outcome: result.outcome,
+    contentOnly,
+    resultBanId: result.id,
+    embedded,
+  });
+  tracePropsRef.current = {
+    showable,
+    directPaint,
+    outcome: result.outcome,
+    contentOnly,
+    resultBanId: result.id,
+    embedded,
+  };
+
+  traceResultOverlayLifecycle('RESULT OVERLAY ENTER', tracePropsRef.current, {
+    returnsNullReason,
+    viewerId,
+  });
+
+  useEffect(() => {
+    traceResultOverlayLifecycle('RESULT OVERLAY MOUNT', tracePropsRef.current);
+    return () => {
+      traceResultOverlayLifecycle('RESULT OVERLAY UNMOUNT', tracePropsRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     if (directPaint) return;
     if (!showable) onClose();
+    return () => {
+      traceResultOverlayLifecycle('RESULT OVERLAY EFFECT CLEANUP', tracePropsRef.current, {
+        effect: 'onClose-guard',
+      });
+    };
   }, [directPaint, showable, onClose]);
 
   useLayoutEffect(() => {
-    markVisibleOverboardTrace('RESULT OVERLAY RENDER', {
-      outcome: result.outcome,
-      hasResult: true,
-      contentOnly,
-      directPaint,
-      returnsNullReason,
-      viewerId,
-      senderId: result.sender?.id ?? null,
-      receiverId: result.receiver?.id ?? null,
-    });
     if (!directPaint || !showable) return;
+
+    traceResultOverlayLifecycle('RESULT OVERLAY RAF SCHEDULED', tracePropsRef.current);
 
     let rafId = 0;
     rafId = requestAnimationFrame(() => {
+      traceResultOverlayLifecycle('RESULT OVERLAY RAF RUN', tracePropsRef.current);
+
       const layer = document.querySelector('[data-direct-overboard-result]');
       const backdrop = layer?.querySelector('.modal-backdrop') ?? null;
       const card = layer?.querySelector('.modal-card') ?? null;
@@ -146,18 +192,16 @@ function ResultOverlayInner({
     });
 
     return () => {
+      traceResultOverlayLifecycle('RESULT OVERLAY EFFECT CLEANUP', tracePropsRef.current, {
+        effect: 'dom-raf',
+        rafId,
+      });
       cancelAnimationFrame(rafId);
     };
   }, [
-    contentOnly,
     directPaint,
     result.id,
-    result.outcome,
-    result.receiver?.id,
-    result.sender?.id,
-    returnsNullReason,
     showable,
-    viewerId,
   ]);
 
   useEffect(() => {
@@ -171,6 +215,9 @@ function ResultOverlayInner({
       .catch(() => {});
     return () => {
       cancelled = true;
+      traceResultOverlayLifecycle('RESULT OVERLAY EFFECT CLEANUP', tracePropsRef.current, {
+        effect: 'saved-bans',
+      });
     };
   }, [token, result.id]);
 
@@ -459,7 +506,12 @@ function ResultOverlayInner({
   );
 
   if (embedded) return modal;
-  if (typeof document === 'undefined') return null;
+  if (typeof document === 'undefined') {
+    traceResultOverlayLifecycle('RESULT OVERLAY RETURN NULL', tracePropsRef.current, {
+      reason: 'no-document',
+    });
+    return null;
+  }
   return createPortal(modal, document.body);
 }
 
