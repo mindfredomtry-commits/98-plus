@@ -157,15 +157,6 @@ function ResultOverlayInner({
       const backdrop = layer?.querySelector('.modal-backdrop') ?? null;
       const card = layer?.querySelector('.modal-card') ?? null;
 
-      if (card instanceof HTMLElement) {
-        card.style.setProperty('background', 'red', 'important');
-        card.style.setProperty('border', '8px solid yellow', 'important');
-        card.style.setProperty('opacity', '1', 'important');
-        card.style.setProperty('transform', 'none', 'important');
-        card.style.setProperty('visibility', 'visible', 'important');
-        card.style.setProperty('z-index', '1000000', 'important');
-      }
-
       const backdropStyle = backdrop ? getComputedStyle(backdrop) : null;
       const cardStyle = card ? getComputedStyle(card) : null;
       const cardRect = card?.getBoundingClientRect();

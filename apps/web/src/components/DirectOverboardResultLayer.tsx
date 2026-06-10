@@ -135,22 +135,6 @@ export function DirectOverboardResultLayer({ result, onClose }: Props) {
       style={{ zIndex: DIRECT_OVERBOARD_RESULT_Z_INDEX }}
       data-direct-overboard-result=""
     >
-      <div
-        aria-hidden
-        style={{
-          position: 'fixed',
-          inset: 0,
-          zIndex: DIRECT_OVERBOARD_RESULT_Z_INDEX,
-          pointerEvents: 'none',
-          color: 'red',
-          fontSize: '14px',
-          fontWeight: 700,
-          padding: '8px',
-          textShadow: '0 0 4px #000',
-        }}
-      >
-        DIRECT LAYER IS VISIBLE
-      </div>
       <ResultOverlay
         result={result}
         onClose={onClose}
