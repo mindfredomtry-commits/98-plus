@@ -16,6 +16,7 @@ import {
   applyOverboard,
   applySendEnergy,
   canSendBan,
+  getPairEconomyState,
   recordBanSent,
 } from './energy.service';
 import { mapUser } from './user-mapper';
@@ -132,6 +133,28 @@ function buildInteractionFromBan(
   return mapBanRecordToInteraction(ban, viewerId);
 }
 
+const TERMINAL_BAN_STATUSES: BanStatus[] = [
+  'COMPLETED',
+  'OVERBOARD',
+  'FAILED',
+  'EXPIRED',
+];
+
+async function attachPairEconomyToInteraction(
+  interaction: BanInteraction,
+  senderId: string,
+  receiverId: string,
+): Promise<BanInteraction> {
+  const economy = await getPairEconomyState(senderId, receiverId);
+  return {
+    ...interaction,
+    funMode: economy.funMode,
+    isFunMode: economy.funMode,
+    economyMode: economy.economyMode,
+    pairBanCount24h: economy.pairBanCount24h,
+  };
+}
+
 export async function mapBanToInteraction(
   banId: string,
   viewerId: string,
@@ -142,7 +165,19 @@ export async function mapBanToInteraction(
   });
   if (!ban) return null;
 
-  return mapBanRecordToInteraction(ban, viewerId);
+  const base = mapBanRecordToInteraction(ban, viewerId);
+  if (TERMINAL_BAN_STATUSES.includes(ban.status) && ban.energyApplied) {
+    const funMode = ban.funMode ?? false;
+    return {
+      ...base,
+      funMode,
+      isFunMode: funMode,
+      economyMode: funMode ? 'fun' : 'normal',
+      pairBanCount24h: ban.pairBanCount24h ?? null,
+    };
+  }
+
+  return attachPairEconomyToInteraction(base, ban.senderId, ban.receiverId);
 }
 
 /** Sync WS emit — payloads must be pre-built (same path as ban:incoming). */
@@ -441,7 +476,11 @@ export async function sendBan(params: {
     status: ban.status,
   });
 
-  const interaction = buildInteractionFromBan(ban, receiver.id);
+  const interaction = await attachPairEconomyToInteraction(
+    buildInteractionFromBan(ban, receiver.id),
+    ban.senderId,
+    ban.receiverId,
+  );
 
   const emitResult = broadcastToUser(receiver.id, {
     type: 'ban:incoming',

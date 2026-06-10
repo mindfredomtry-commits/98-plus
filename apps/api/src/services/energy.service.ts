@@ -57,6 +57,22 @@ async function countPairBansToday(
   });
 }
 
+export async function getPairEconomyState(
+  userAId: string,
+  userBId: string,
+): Promise<{
+  funMode: boolean;
+  pairBanCount24h: number;
+  economyMode: 'normal' | 'fun';
+}> {
+  const { free, countToday } = await isPairFreeMode(userAId, userBId);
+  return {
+    funMode: free,
+    pairBanCount24h: countToday,
+    economyMode: free ? 'fun' : 'normal',
+  };
+}
+
 async function isPairFreeMode(
   userAId: string,
   userBId: string,
