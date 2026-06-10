@@ -105,9 +105,11 @@ function ResultOverlayInner({
       : isReceiver
         ? result.energy.receiver
         : null;
-    const primaryLabel = isReceiver
+    const primaryLabel = isOverboard
       ? '🚫 Запретить в ответ'
-      : '🚫 Запретить ещё!';
+      : isReceiver
+        ? '🚫 Запретить в ответ'
+        : '🚫 Запретить ещё!';
     const showStatuses =
       result.confirmations !== null &&
       (result.outcome === 'both_yes' ||
@@ -124,10 +126,9 @@ function ResultOverlayInner({
     const displaySubline = isOverboard
       ? overboardPresentation.subline
       : result.subline;
-    const showBanOthers = showFreeModeBanOthersAction(
-      result.farmSkipped,
-      result.outcome,
-    );
+    const showBanOthers =
+      !isOverboard &&
+      showFreeModeBanOthersAction(result.farmSkipped, result.outcome);
 
     return {
       isSender,

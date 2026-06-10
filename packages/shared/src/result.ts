@@ -189,7 +189,6 @@ const FREE_MODE_RESULT_ACTION_OUTCOMES: InteractionOutcome[] = [
   'both_yes',
   'both_no',
   'split',
-  'overboard',
 ];
 
 /** Whether the result card should offer «Запретить другим!» (pair free mode). */
