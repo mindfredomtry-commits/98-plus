@@ -938,6 +938,7 @@ html.scroll-lock body {
   position: fixed;
   inset: 0;
   pointer-events: none;
+  isolation: isolate;
 }
 
 .direct-overboard-result-layer > * {

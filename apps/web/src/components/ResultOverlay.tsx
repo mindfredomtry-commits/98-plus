@@ -12,6 +12,7 @@ import { createPortal } from 'react-dom';
 import type { BanResult, UserPublic } from '@98plus/shared';
 import {
   getResultCardHeadline,
+  isDirectOverboardOpenable,
   isResultFunMode,
   isValidBanResultPayload,
   isResultParticipant,
@@ -37,6 +38,7 @@ import {
   logOverboardPaint,
 } from '@/lib/overboard-timing-debug';
 import { logResultFunMode } from '@/lib/result-fun-mode-debug';
+import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
 import { logResultPresentation } from '@/lib/result-ui-debug';
 import { BanSaveStar } from './instant-ban/BanSaveStar';
 import { ResultShareIcon } from './instant-ban/ResultShareIcon';
@@ -73,14 +75,69 @@ function ResultOverlayInner({
   const [archiveSaved, setArchiveSaved] = useState(false);
 
   const viewerId = result.viewerId ?? user?.id ?? null;
-  const showable =
-    isValidBanResultPayload(result) &&
-    (directPaint ||
-      isResultParticipant(result, viewerId));
+  const returnsNullReason = (() => {
+    if (directPaint) {
+      if (isDirectOverboardOpenable(result, viewerId)) return null;
+      if (isValidBanResultPayload(result)) return null;
+      return 'directPaint-not-openable';
+    }
+    if (!isValidBanResultPayload(result)) return 'invalid-payload';
+    if (!isResultParticipant(result, viewerId)) return 'not-participant';
+    return null;
+  })();
+  const showable = returnsNullReason == null;
 
   useEffect(() => {
+    if (directPaint) return;
     if (!showable) onClose();
-  }, [showable, onClose]);
+  }, [directPaint, showable, onClose]);
+
+  useLayoutEffect(() => {
+    markVisibleOverboardTrace('RESULT OVERLAY RENDER', {
+      outcome: result.outcome,
+      hasResult: true,
+      contentOnly,
+      directPaint,
+      returnsNullReason,
+      viewerId,
+      senderId: result.sender?.id ?? null,
+      receiverId: result.receiver?.id ?? null,
+    });
+    if (!directPaint || !showable) return;
+    const layer = document.querySelector('[data-direct-overboard-result]');
+    const backdrop = layer?.querySelector('.modal-backdrop');
+    const card = layer?.querySelector('.modal-card');
+    const layerStyle = layer ? getComputedStyle(layer as Element) : null;
+    const backdropStyle = backdrop ? getComputedStyle(backdrop as Element) : null;
+    const cardStyle = card ? getComputedStyle(card as Element) : null;
+    markVisibleOverboardTrace('RESULT OVERLAY DOM visible', {
+      layerFound: layer != null,
+      backdropFound: backdrop != null,
+      cardFound: card != null,
+      layerDisplay: layerStyle?.display ?? null,
+      layerVisibility: layerStyle?.visibility ?? null,
+      layerOpacity: layerStyle?.opacity ?? null,
+      backdropOpacity: backdropStyle?.opacity ?? null,
+      backdropVisibility: backdropStyle?.visibility ?? null,
+      cardOpacity: cardStyle?.opacity ?? null,
+      cardTransform: cardStyle?.transform ?? null,
+      visible:
+        backdrop != null &&
+        backdropStyle?.display !== 'none' &&
+        backdropStyle?.visibility !== 'hidden' &&
+        Number(backdropStyle?.opacity ?? 1) > 0.05,
+    });
+  }, [
+    contentOnly,
+    directPaint,
+    result.id,
+    result.outcome,
+    result.receiver?.id,
+    result.sender?.id,
+    returnsNullReason,
+    showable,
+    viewerId,
+  ]);
 
   useEffect(() => {
     if (!token || !result.id) return;
