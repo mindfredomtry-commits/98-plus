@@ -34,6 +34,11 @@ import {
   getOverboardFlowTrace,
   subscribeOverboardFlowTrace,
 } from '@/lib/overboard-flow-debug';
+import {
+  formatResultOpenTraceLines,
+  getResultOpenTrace,
+  subscribeResultOpenTrace,
+} from '@/lib/result-open-trace';
 
 const ArenaAmbience = dynamic(
   () =>
@@ -119,6 +124,11 @@ export default function HomePage() {
     subscribeOverboardFlowTrace,
     getOverboardFlowTrace,
     getOverboardFlowTrace,
+  );
+  const resultOpenTrace = useSyncExternalStore(
+    subscribeResultOpenTrace,
+    getResultOpenTrace,
+    getResultOpenTrace,
   );
   const overboardTraceLine = useMemo(
     () =>
@@ -221,6 +231,14 @@ export default function HomePage() {
   }, [lobbyOpen, user, lobbyInfluence.influencePercent, lobbyInfluence.fromFallback]);
 
   const hasAuthSession = !!user?.id && !!token;
+  const resultOpenTraceLine = useMemo(() => {
+    if (resultOpenTrace.length === 0) {
+      return hasAuthSession
+        ? '[RESULT OPEN TRACE] (empty — ждём [RESULT OPEN ATTEMPT])'
+        : null;
+    }
+    return `[RESULT OPEN TRACE — last ${resultOpenTrace.length}]\n${formatResultOpenTraceLines(resultOpenTrace)}`;
+  }, [resultOpenTrace, hasAuthSession]);
   const lobbyPrefetch = loading && !hasAuthSession;
   /** v2 arena shell — never drop to legacy HomeArena while session is active. */
   const arenaVisible = lobbyPrefetch || hasAuthSession;
@@ -493,11 +511,19 @@ export default function HomePage() {
         </div>
       ) : null}
 
-      {shellDebugLine || showDeepLinkDebug || overboardTraceLine ? (
+      {shellDebugLine ||
+      showDeepLinkDebug ||
+      overboardTraceLine ||
+      (hasAuthSession && resultOpenTraceLine) ? (
         <div
           className="fixed bottom-0 left-0 right-0 z-[9999] px-2 pb-2 pointer-events-none"
           aria-hidden
         >
+          {resultOpenTraceLine ? (
+            <p className="text-[8px] leading-snug text-lime-300/90 font-mono text-left whitespace-pre-wrap break-all max-h-[36dvh] overflow-y-auto mb-1">
+              {resultOpenTraceLine}
+            </p>
+          ) : null}
           {overboardTraceLine ? (
             <p className="text-[8px] leading-snug text-amber-300/80 font-mono text-left whitespace-pre-wrap break-all max-h-[32dvh] overflow-y-auto mb-1">
               {overboardTraceLine}

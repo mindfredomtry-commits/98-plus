@@ -1,5 +1,6 @@
 import { parseStartParam, readStartParamFromInitData } from '@98plus/shared';
 import { readStartParamRawFromLocation } from '@/lib/deep-link-boot-debug';
+import { pushResultOpenTrace } from '@/lib/result-open-trace';
 
 /** Blocks auto pending result/status overlays during priority deep-link flows. */
 export type NotificationQueueLockReason =
@@ -78,9 +79,11 @@ export function lockNotificationQueue(
 ): void {
   const prev = lockState?.reason ?? null;
   lockState = { reason, banId: banId ?? null };
-  if (prev !== reason) {
-    logOverlayPriority('queue-locked', { reason, banId: banId ?? null });
-  }
+  logOverlayPriority('queue-locked', {
+    reason,
+    lockReason: reason,
+    banId: banId ?? null,
+  });
 }
 
 export function unlockNotificationQueue(unlockReason: string): void {
@@ -170,21 +173,63 @@ export function logResultOpenAttempt(
     (isLocalOverboardBypassForBan(banId) &&
       LOCAL_OVERBOARD_SOURCES.has(String(source)));
 
-  console.log('[RESULT OPEN ATTEMPT]', {
+  const activeOverlayKind = traceContext?.getActiveOverlayKind() ?? null;
+  const activeBanDeepLinkId = traceContext?.getActiveBanDeepLinkId() ?? null;
+  const row = {
     source,
     banId,
     resultId: data.resultId ?? banId,
     lockReason,
     isLocalUserAction,
     bypassPriorityLock,
-    activeOverlayKind: traceContext?.getActiveOverlayKind() ?? null,
-    activeBanDeepLinkId: traceContext?.getActiveBanDeepLinkId() ?? null,
+    activeOverlayKind,
+    activeBanDeepLinkId,
     notificationQueueLockReason: lockReason,
     isLocked: isNotificationQueueLocked(),
     allowed: data.allowed,
     mode: data.mode ?? null,
     blockReason: data.blockReason ?? null,
+    localOverboardBypassBanId: getLocalOverboardBypassBanId(),
+    explicitResultUnlockActive,
     ...data.extra,
+  };
+  console.log('[RESULT OPEN ATTEMPT]', row);
+  pushResultOpenTrace({
+    ts: Date.now(),
+    source: String(source),
+    banId,
+    resultId: data.resultId ?? banId,
+    lockReason,
+    bypassPriorityLock: bypassPriorityLock === true,
+    allowed: data.allowed,
+    activeOverlayKind,
+    activeBanDeepLinkId,
+    blockReason: data.blockReason ?? null,
+    isLocked: isNotificationQueueLocked(),
+    isLocalUserAction,
+    mode: data.mode ?? null,
+    extra: data.extra,
+  });
+}
+
+/** Full guard diagnosis when allowed=false — copy from Telegram WebView console. */
+export function logResultOpenDenied(
+  source: string,
+  banId: string | null,
+  block: ReturnType<typeof shouldBlockResultOpen>,
+  extra?: Record<string, unknown>,
+): void {
+  logResultOpenAttempt(source, {
+    resultId: banId,
+    allowed: false,
+    blockReason: block.reason,
+    bypassPriorityLock: block.bypassPriorityLock,
+    extra: {
+      denied: true,
+      localOverboardBypassBanId: getLocalOverboardBypassBanId(),
+      explicitResultUnlockActive,
+      ...extra,
+    },
   });
 }
 

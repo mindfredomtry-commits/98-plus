@@ -756,6 +756,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           setDirectResultOverlayActive(false);
         }
       } else {
+        logResultOpenAttempt('syncDisplayFromQueue', {
+          resultId: active.result.id,
+          allowed: true,
+          bypassPriorityLock: resultBlock.bypassPriorityLock,
+          extra: { phase: 'queue-head-result-applied' },
+        });
         directResultOverlayRef.current = false;
         setDirectResultOverlayActive(false);
         resultOpenRef.current = true;
@@ -2204,6 +2210,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId,
           ok: false,
           reason: 'priority-lock',
+          overboardInFlight: overboardInFlightRef.current,
+          localBypass: getLocalOverboardBypassBanId(),
         });
         return false;
       }
@@ -2250,6 +2258,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       logOverboardPaint('result-state-set', clickTs);
+      logResultOpenAttempt('forceOpenOverboardResult', {
+        resultId: banId,
+        allowed: true,
+        bypassPriorityLock: block.bypassPriorityLock,
+        extra: { phase: 'state-written', directResultOverlay: true },
+      });
 
       queueMicrotask(() => {
         closeSendFlow();
