@@ -94,10 +94,9 @@ import {
 } from '@/lib/overboard-direct-state';
 import {
   FORCE_OPEN_OVERBOARD_IMPL_ID,
-  logDirectForceCall,
   logForceOverboard,
   logResultStateCleared,
-  probeForceOpenFn,
+  probeForceOpenRef,
 } from '@/lib/force-overboard-debug';
 import { logResultPath } from '@/lib/result-open-trace';
 import {
@@ -536,18 +535,33 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     clickTs?: number | null,
     opts?: { source?: 'local-overboard-click' | 'api-sync' | 'recovery' },
   ) => boolean;
+  const forceOpenOverboardLatestImplRef = useRef<ForceOpenOverboardFn | null>(
+    null,
+  );
   const forceOpenOverboardResultRef = useRef<ForceOpenOverboardFn>(
-    function forceOpenOverboardResultStub(): boolean {
-      console.log(
-        '[FORCE OVERBOARD] enter STUB-REF — real impl not wired yet',
-        FORCE_OPEN_OVERBOARD_IMPL_ID,
-      );
-      logDirectForceCall('exception', {
-        error: 'force-open-stub-invoked',
+    function forceOpenOverboardResultStub(
+      _payload: BanResult,
+      banId: string,
+    ): boolean {
+      markVisibleOverboardTrace('FORCE-STUB-INVOKED', {
+        banId,
+        implId: 'stub',
       });
       return false;
     },
   );
+  const assignForceOpenOverboardRef = useCallback((impl: ForceOpenOverboardFn) => {
+    Object.assign(impl, {
+      __forceOpenImplId: FORCE_OPEN_OVERBOARD_IMPL_ID,
+    });
+    forceOpenOverboardLatestImplRef.current = impl;
+    forceOpenOverboardResultRef.current = impl;
+    markVisibleOverboardTrace('FORCE-REF-ASSIGNED', {
+      typeofImpl: typeof impl,
+      implName: impl.name || '(anonymous)',
+      implId: FORCE_OPEN_OVERBOARD_IMPL_ID,
+    });
+  }, []);
   const directResultOverlayRef = useRef(false);
   const [directResultOverlayActive, setDirectResultOverlayActive] =
     useState(false);
@@ -2407,11 +2421,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clickTs?: number | null,
       opts?: { source?: 'local-overboard-click' | 'api-sync' | 'recovery' },
     ): boolean {
-      console.error('FORCE-OVERBOARD-ENTER-VISIBLE');
       markVisibleOverboardTrace('FORCE-OVERBOARD-ENTER-VISIBLE', {
         banId,
         implId: FORCE_OPEN_OVERBOARD_IMPL_ID,
-        diagBuild: 'overboard-diag-v4',
+        diagBuild: 'overboard-diag-v5',
       });
       console.log('[FORCE OVERBOARD] enter', FORCE_OPEN_OVERBOARD_IMPL_ID);
       const uid = userIdRef.current;
@@ -2648,10 +2661,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [closeSendFlow, readDirectOverboardSnapshot],
   );
-  Object.assign(forceOpenOverboardResult, {
-    __forceOpenImplId: FORCE_OPEN_OVERBOARD_IMPL_ID,
-  });
-  forceOpenOverboardResultRef.current = forceOpenOverboardResult;
+  assignForceOpenOverboardRef(forceOpenOverboardResult);
+  useLayoutEffect(() => {
+    assignForceOpenOverboardRef(forceOpenOverboardResult);
+  }, [assignForceOpenOverboardRef, forceOpenOverboardResult]);
 
   const collectOverboardFallbackBans = useCallback(
     (banId: string, extra: BanInteraction[] = []): BanInteraction[] => {
@@ -2710,12 +2723,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       logOverboardDirectState('builtResult', readDirectOverboardSnapshot(), {
         banId,
         builtResult: !!optimistic,
-        diagBuild: 'overboard-diag-v4',
+        diagBuild: 'overboard-diag-v5',
       });
       markVisibleOverboardTrace('BUILT-RESULT-VISIBLE', {
         banId,
         builtResult: !!optimistic,
-        diagBuild: 'overboard-diag-v4',
+        diagBuild: 'overboard-diag-v5',
       });
       if (!optimistic) {
         const diag = getOptimisticOverboardBuildDiagnostics(ban, uid, buildCtx);
@@ -2755,41 +2768,50 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       logOverboardDirectState('calling forceOpenOverboardResult', readDirectOverboardSnapshot(), {
         banId,
-        diagBuild: 'overboard-diag-v4',
+        diagBuild: 'overboard-diag-v5',
       });
       console.error('DIRECT-CALL-VISIBLE-1');
       markVisibleOverboardTrace('DIRECT-CALL-VISIBLE-1', {
         banId,
-        diagBuild: 'overboard-diag-v4',
+        diagBuild: 'overboard-diag-v5',
       });
       console.error('DIRECT-CALL-VISIBLE-2');
       markVisibleOverboardTrace('DIRECT-CALL-VISIBLE-2', {
         banId,
-        diagBuild: 'overboard-diag-v4',
-      });
-
-      const invokeForce = forceOpenOverboardResultRef.current;
-      const closureForce = forceOpenOverboardResult;
-      logDirectForceCall('probe', {
-        banId,
-        ...probeForceOpenFn(invokeForce, closureForce),
-        refMatchesLatest: invokeForce === closureForce,
+        diagBuild: 'overboard-diag-v5',
       });
 
       let ok = false;
       try {
-        logDirectForceCall('before invoke', {
-          banId,
-          ...probeForceOpenFn(invokeForce, closureForce),
+        const refFn = forceOpenOverboardResultRef.current;
+        const implFn = forceOpenOverboardLatestImplRef.current;
+        markVisibleOverboardTrace('DIRECT-CALL-PROBE', {
+          argsBanId: banId,
+          ...probeForceOpenRef(refFn, implFn),
         });
-        ok = invokeForce(optimistic, banId, clickTs, {
-          source: 'local-overboard-click',
-        });
-        logDirectForceCall('after invoke', { banId, returned: ok });
+
+        if (typeof refFn !== 'function') {
+          markVisibleOverboardTrace('DIRECT-CALL-NOT-A-FUNCTION', {
+            argsBanId: banId,
+            typeofRef: typeof refFn,
+          });
+        } else {
+          markVisibleOverboardTrace('DIRECT-CALL-BEFORE-INVOKE', {
+            argsBanId: banId,
+            fnName: refFn.name || '(anonymous)',
+          });
+          ok = refFn(optimistic, banId, clickTs, {
+            source: 'local-overboard-click',
+          });
+          markVisibleOverboardTrace('DIRECT-CALL-AFTER-INVOKE', {
+            argsBanId: banId,
+            returned: ok,
+          });
+        }
       } catch (error) {
-        logDirectForceCall('exception', {
-          banId,
-          error: error instanceof Error ? error.message : String(error),
+        markVisibleOverboardTrace('DIRECT-CALL-EXCEPTION', {
+          argsBanId: banId,
+          message: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
         });
         ok = false;

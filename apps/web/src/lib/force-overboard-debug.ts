@@ -1,7 +1,32 @@
 import { traceOverboardFlow } from '@/lib/overboard-flow-debug';
 import { logResultPath } from '@/lib/result-open-trace';
 
-export const FORCE_OPEN_OVERBOARD_IMPL_ID = 'force-open-overboard-v3';
+export const FORCE_OPEN_OVERBOARD_IMPL_ID = 'force-open-overboard-v4';
+
+export function probeForceOpenRef(
+  refFn: unknown,
+  implFn?: unknown,
+): Record<string, unknown> {
+  const callable = typeof refFn === 'function';
+  let refStringPrefix = '';
+  if (callable) {
+    try {
+      refStringPrefix = String(refFn).slice(0, 80);
+    } catch {
+      refStringPrefix = '(unstringifiable)';
+    }
+  }
+  return {
+    typeofRef: typeof refFn,
+    fnName: callable ? (refFn as { name?: string }).name || '(anonymous)' : null,
+    hasCurrent: callable,
+    sameAsImpl: refFn === implFn,
+    implId: callable
+      ? (refFn as { __forceOpenImplId?: string }).__forceOpenImplId ?? null
+      : null,
+    refStringPrefix,
+  };
+}
 
 export type DirectForceCallPhase =
   | 'probe'
