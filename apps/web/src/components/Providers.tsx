@@ -112,10 +112,12 @@ import {
 } from '@/lib/incoming-challenge';
 import { acknowledgeIncomingFully } from '@/lib/incoming-ack-flow';
 import {
+  logDirectOverboardStateReset,
   markVisibleOverboardTrace,
   traceOverboardFlow,
   logOverboardResultForce,
   setOverboardEmergencyHint,
+  type DirectOverboardGateSnapshot,
 } from '@/lib/overboard-flow-debug';
 import { postOverboardWithTrace } from '@/lib/overboard-api';
 import {
@@ -586,6 +588,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     displayResultBanIdRef.current = null;
     showDirectOverboardLayerRef.current = false;
   }, []);
+  const snapshotDirectOverboardGate =
+    useCallback((): DirectOverboardGateSnapshot => {
+      return {
+        directResultOverlayActive: directResultOverlayActiveRef.current,
+        directResultOverlayRef: directResultOverlayRef.current,
+        resultBanId: resultBanIdRef.current ?? resultRef.current?.id ?? null,
+        showDirectOverboardLayer: showDirectOverboardLayerRef.current,
+        hasResult: resultRef.current != null,
+      };
+    }, []);
   const [directResultOverlayActive, setDirectResultOverlayActive] =
     useState(false);
   const [overboardTransitionActive, setOverboardTransitionActive] =
@@ -761,10 +773,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       banId: result?.id ?? null,
       reason: 'suppress-queued-display',
     });
+    const gateBefore = snapshotDirectOverboardGate();
     clearDirectOverboardLayerRefs();
     setResult(null);
     setDirectResultOverlayActive(false);
-  }, [clearDirectOverboardLayerRefs, result?.id]);
+    logDirectOverboardStateReset({
+      source: 'suppressQueuedOverlayDisplay',
+      reason: 'suppress-queued-display',
+      before: gateBefore,
+      after: {
+        directResultOverlayActive: false,
+        directResultOverlayRef: false,
+        resultBanId: null,
+        showDirectOverboardLayer: false,
+        hasResult: false,
+      },
+    });
+  }, [clearDirectOverboardLayerRefs, result?.id, snapshotDirectOverboardGate]);
 
   const armActiveBanDeepLinkEarly = useCallback((banId: string) => {
     lockNotificationQueue('deep-link-active-ban', banId);
@@ -858,8 +883,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             resultId: active.result.id,
             reason: resultBlock.reason ?? 'queue-head-blocked',
           });
+          const gateBefore = snapshotDirectOverboardGate();
           setResult(null);
           setDirectResultOverlayActive(false);
+          logDirectOverboardStateReset({
+            source: 'syncDisplayFromQueue',
+            reason: resultBlock.reason ?? 'queue-head-blocked',
+            before: gateBefore,
+            after: {
+              directResultOverlayActive: false,
+              directResultOverlayRef: gateBefore.directResultOverlayRef,
+              resultBanId: null,
+              showDirectOverboardLayer: gateBefore.showDirectOverboardLayer,
+              hasResult: false,
+            },
+          });
         } else {
           resultOpenRef.current = true;
           logResultPath('syncDisplayFromQueue', 'path-skip', {
@@ -883,10 +921,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           bypassPriorityLock: resultBlock.bypassPriorityLock,
           extra: { via: 'queue-head' },
         });
+        const gateBefore = snapshotDirectOverboardGate();
         clearDirectOverboardLayerRefs();
         setDirectResultOverlayActive(false);
         resultOpenRef.current = true;
         setResult(active.result);
+        logDirectOverboardStateReset({
+          source: 'syncDisplayFromQueue',
+          reason: 'queue-head-result-applied',
+          before: gateBefore,
+          after: {
+            directResultOverlayActive: false,
+            directResultOverlayRef: false,
+            resultBanId: active.result.id,
+            showDirectOverboardLayer: false,
+            hasResult: true,
+          },
+        });
       }
       }
     } else if (directResultOverlayRef.current) {
@@ -922,9 +973,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           resultId: directBanId,
           reason: directBlock.reason ?? 'direct-blocked',
         });
+        const gateBefore = snapshotDirectOverboardGate();
         clearDirectOverboardLayerRefs();
         setResult(null);
         setDirectResultOverlayActive(false);
+        logDirectOverboardStateReset({
+          source: 'syncDisplayFromQueue-direct',
+          reason: directBlock.reason ?? 'direct-blocked',
+          before: gateBefore,
+          after: {
+            directResultOverlayActive: false,
+            directResultOverlayRef: false,
+            resultBanId: null,
+            showDirectOverboardLayer: false,
+            hasResult: false,
+          },
+        });
         }
       } else {
         resultOpenRef.current = true;
@@ -938,8 +1002,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         reason: 'queue-head-not-result',
         extra: { headKind: active?.kind ?? null },
       });
+      const gateBefore = snapshotDirectOverboardGate();
       setResult(null);
       setDirectResultOverlayActive(false);
+      logDirectOverboardStateReset({
+        source: 'syncDisplayFromQueue',
+        reason: 'queue-head-not-result',
+        before: gateBefore,
+        after: {
+          directResultOverlayActive: false,
+          directResultOverlayRef: gateBefore.directResultOverlayRef,
+          resultBanId: null,
+          showDirectOverboardLayer: gateBefore.showDirectOverboardLayer,
+          hasResult: false,
+        },
+      });
     } else {
       resultOpenRef.current = true;
     }
@@ -961,7 +1038,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         headKind: active?.kind ?? null,
       });
     }
-  }, []);
+  }, [snapshotDirectOverboardGate]);
 
   const applyOverlayQueue = useCallback(
     (next: QueuedOverlay[]) => {
@@ -1521,9 +1598,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       void acknowledgeBanResultOnServer(banId, tokenRef.current);
     }
     clearLocalOverboardBypass();
+    const gateBefore = snapshotDirectOverboardGate();
     clearDirectOverboardLayerRefs();
     setDirectResultOverlayActive(false);
-    if (wasDirect || head?.kind !== 'result') {
+    const clearsResult = wasDirect || head?.kind !== 'result';
+    if (clearsResult) {
       logResultStateCleared('dismissBanResult', {
         banId,
         resultId: banId,
@@ -1531,10 +1610,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       setResult(null);
     }
+    logDirectOverboardStateReset({
+      source: 'dismissBanResult',
+      reason: clearsResult ? 'dismiss-clear-result' : 'dismiss-keep-queue-result',
+      before: gateBefore,
+      after: {
+        directResultOverlayActive: false,
+        directResultOverlayRef: false,
+        resultBanId: clearsResult ? null : banId,
+        showDirectOverboardLayer: false,
+        hasResult: !clearsResult,
+      },
+    });
     if (head?.kind === 'result') {
       dismissCurrentOverlay('result-dismiss');
     }
-  }, [clearDirectOverboardLayerRefs, dismissCurrentOverlay, result]);
+  }, [
+    clearDirectOverboardLayerRefs,
+    dismissCurrentOverlay,
+    result,
+    snapshotDirectOverboardGate,
+  ]);
 
   const pruneAndSyncOverlayQueue = useCallback(() => {
     const viewerId = userIdRef.current;
@@ -1653,9 +1749,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setIncomingBan(null);
     setCheckBan(null);
     setCheckWaiting(false);
+    const gateBefore = snapshotDirectOverboardGate();
     setResult(null);
     clearDirectOverboardLayerRefs();
     setDirectResultOverlayActive(false);
+    logDirectOverboardStateReset({
+      source: 'providers-reset',
+      reason: 'auth-user-changed',
+      before: gateBefore,
+      after: {
+        directResultOverlayActive: false,
+        directResultOverlayRef: false,
+        resultBanId: null,
+        showDirectOverboardLayer: false,
+        hasResult: false,
+      },
+    });
     setOverlayQueue([]);
     overlayQueueRef.current = [];
     pendingStartupInteractionsRef.current = [];
@@ -2622,7 +2731,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId,
           reason: error instanceof Error ? error.message : String(error),
         });
+        const gateBefore = snapshotDirectOverboardGate();
         clearDirectOverboardLayerRefs();
+        logDirectOverboardStateReset({
+          source: 'forceOpenOverboardResult',
+          reason: 'flushSync-error',
+          before: gateBefore,
+          after: {
+            directResultOverlayActive: false,
+            directResultOverlayRef: false,
+            resultBanId: null,
+            showDirectOverboardLayer: false,
+            hasResult: gateBefore.hasResult,
+          },
+        });
         return false;
       }
 
@@ -2690,6 +2812,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       closeSendFlow,
       commitDirectOverboardLayerRefs,
       readDirectOverboardSnapshot,
+      snapshotDirectOverboardGate,
     ],
   );
   assignForceOpenOverboardRef(forceOpenOverboardResult);
@@ -5216,17 +5339,58 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             </NotificationQueueShell>
           </GlobalOverlayHost>
         ) : null}
-        {showDirectOverboardLayer && displayResult ? (
-          <ChallengeErrorBoundary
-            name="direct-overboard-result"
-            onRecover={() => dismissBanResult()}
-          >
-            <DirectOverboardResultLayer
-              result={displayResult}
-              onClose={dismissBanResult}
-            />
-          </ChallengeErrorBoundary>
-        ) : null}
+        {(() => {
+          const directJsxFields = {
+            active: directResultOverlayActive,
+            hasResult: result != null,
+            resultBanId: result?.id ?? null,
+            refActive: directResultOverlayRef.current,
+            willRender: showDirectOverboardLayer,
+            outcome: result?.outcome ?? null,
+            showable: displayResult != null,
+            contentOnly: false,
+            embedded: true,
+          };
+          if (!showDirectOverboardLayer) {
+            markVisibleOverboardTrace('DIRECT OVERBOARD JSX BRANCH', {
+              branch: 'providers-return-null-not-active',
+              ...directJsxFields,
+            });
+            return null;
+          }
+          if (!displayResult) {
+            markVisibleOverboardTrace('DIRECT OVERBOARD JSX BRANCH', {
+              branch: 'providers-return-null-no-result',
+              ...directJsxFields,
+            });
+            return null;
+          }
+          markVisibleOverboardTrace('DIRECT OVERBOARD JSX BRANCH', {
+            branch: 'providers-render-direct-layer',
+            ...directJsxFields,
+            resultBanId: displayResult.id,
+            outcome: displayResult.outcome,
+          });
+          markVisibleOverboardTrace('ABOUT TO RENDER RESULT OVERLAY', {
+            ...directJsxFields,
+            resultBanId: displayResult.id,
+            outcome: displayResult.outcome,
+            embedded: true,
+            directPaint: true,
+            contentOnly: false,
+          });
+          return (
+            <ChallengeErrorBoundary
+              name="direct-overboard-result"
+              onRecover={() => dismissBanResult()}
+            >
+              <DirectOverboardResultLayer
+                result={displayResult}
+                onClose={dismissBanResult}
+              />
+            </ChallengeErrorBoundary>
+          );
+        })()}
         {!displayResult ? (
           <ShellErrorBoundary name="energy" fallback={null}>
             <EnergyPopupStack popups={popups} />

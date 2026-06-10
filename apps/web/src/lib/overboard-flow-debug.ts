@@ -33,6 +33,23 @@ function formatDetail(data?: Record<string, unknown>): string {
   }
 }
 
+export type DirectOverboardGateSnapshot = {
+  directResultOverlayActive: boolean;
+  directResultOverlayRef: boolean;
+  resultBanId: string | null;
+  showDirectOverboardLayer: boolean;
+  hasResult: boolean;
+};
+
+export function logDirectOverboardStateReset(params: {
+  source: string;
+  reason: string;
+  before: DirectOverboardGateSnapshot;
+  after: DirectOverboardGateSnapshot;
+}): void {
+  markVisibleOverboardTrace('DIRECT OVERBOARD STATE RESET', params);
+}
+
 /** Loud marker for on-device deploy verification — console.error + on-screen trace. */
 export function markVisibleOverboardTrace(
   marker: string,

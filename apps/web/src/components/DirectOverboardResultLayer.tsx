@@ -3,6 +3,10 @@
 import { useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { BanResult } from '@98plus/shared';
+import {
+  isDirectOverboardOpenable,
+  isValidBanResultPayload,
+} from '@98plus/shared';
 import { DIRECT_OVERBOARD_RESULT_Z_INDEX } from '@/lib/overlay-queue';
 import {
   isLocalOverboardBypassForBan,
@@ -19,11 +23,36 @@ type Props = {
   onClose: () => void;
 };
 
+function traceDirectLayerJsxBranch(
+  branch: string,
+  fields: Record<string, unknown>,
+): void {
+  markVisibleOverboardTrace('DIRECT OVERBOARD JSX BRANCH', { branch, ...fields });
+}
+
 /**
  * Fresh portal layer for optimistic overboard — does not reuse NotificationQueueShell DOM.
  */
 export function DirectOverboardResultLayer({ result, onClose }: Props) {
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+
+  const viewerId = result.viewerId ?? null;
+  const showable =
+    isDirectOverboardOpenable(result, viewerId) ||
+    isValidBanResultPayload(result);
+
+  const jsxFields = {
+    active: true,
+    hasResult: true,
+    resultBanId: result.id,
+    refActive: true,
+    willRender: true,
+    outcome: result.outcome,
+    showable,
+    contentOnly: false,
+    embedded: true,
+    portalReady: portalTarget != null,
+  };
 
   useLayoutEffect(() => {
     const target = getAppPortalRoot();
@@ -77,7 +106,28 @@ export function DirectOverboardResultLayer({ result, onClose }: Props) {
     );
   }, [portalTarget, result.id, result.outcome]);
 
-  if (!portalTarget) return null;
+  if (!portalTarget) {
+    traceDirectLayerJsxBranch('return-null-no-portal-target', jsxFields);
+    return null;
+  }
+
+  traceDirectLayerJsxBranch('render-result-overlay-portal', jsxFields);
+
+  markVisibleOverboardTrace('ABOUT TO RENDER RESULT OVERLAY', {
+    active: jsxFields.active,
+    hasResult: jsxFields.hasResult,
+    resultBanId: result.id,
+    refActive: jsxFields.refActive,
+    willRender: jsxFields.willRender,
+    outcome: result.outcome,
+    showable,
+    contentOnly: false,
+    embedded: true,
+    directPaint: true,
+    viewerId,
+    senderId: result.sender?.id ?? null,
+    receiverId: result.receiver?.id ?? null,
+  });
 
   return createPortal(
     <div
