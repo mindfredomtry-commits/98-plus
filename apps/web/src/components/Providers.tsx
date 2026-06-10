@@ -39,6 +39,7 @@ import { CheckOverlay } from './CheckOverlay';
 import { ResultOverlay } from './ResultOverlay';
 import { GlobalOverlayHost } from './GlobalOverlayHost';
 import { NotificationQueueShell } from './NotificationQueueShell';
+import { DirectOverboardResultLayer } from './DirectOverboardResultLayer';
 import {
   overlayDelayCause,
   overlayDelayMs,
@@ -83,6 +84,11 @@ import {
 } from '@/lib/overboard-flow-debug';
 import { postOverboardWithTrace } from '@/lib/overboard-api';
 import { buildOptimisticOverboardResult } from '@/lib/optimistic-overboard-result';
+import {
+  logOverboardPaint,
+  logOverboardTiming,
+  markOverboardClickStart,
+} from '@/lib/overboard-timing-debug';
 import { RequestTimeoutError } from '@/lib/request-timeout';
 import {
   logResultPresentation,
@@ -233,6 +239,16 @@ interface AppContextValue {
   ) => Promise<{ ok: boolean; error?: string }>;
   submitIncomingOverboard: (
     ban: BanInteraction,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  /** Sync optimistic result open — call directly from overboard click handler. */
+  openIncomingOverboardOptimistic: (
+    ban: BanInteraction,
+    clickTs?: number,
+  ) => boolean;
+  /** POST /overboard after optimistic result is already visible. */
+  runIncomingOverboardApi: (
+    ban: BanInteraction,
+    clickTs?: number,
   ) => Promise<{ ok: boolean; error?: string }>;
   checkWaiting: boolean;
   setCheckWaiting: (v: boolean) => void;
@@ -1913,7 +1929,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const forceOpenOverboardResult = useCallback(
-    (payload: BanResult, banId: string): boolean => {
+    (payload: BanResult, banId: string, clickTs?: number | null): boolean => {
       const uid = userIdRef.current;
       logOverboardResultForce('start', { banId, authUserId: uid });
 
@@ -1938,9 +1954,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       dismissedIncomingRef.current.add(banId);
-      closeSendFlow();
-      setLobbyOpen(false);
-      lobbyOpenRef.current = false;
 
       const cleaned = removeOverlaysForBan(
         overlayQueueRef.current,
@@ -1959,6 +1972,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         resultOpenRef.current = true;
         setPopups((prev) => prev.filter((x) => !isOverboardEnergyPopup(x)));
         setResult(normalized);
+      });
+
+      logOverboardPaint('result-state-set', clickTs);
+
+      queueMicrotask(() => {
+        closeSendFlow();
+        logOverboardPaint('closeSendFlow deferred', clickTs);
+        if (lobbyOpenRef.current) {
+          setLobbyOpen(false);
+          lobbyOpenRef.current = false;
+        }
       });
 
       logOverboardResultForce('set activeOverlayKind=result');
@@ -2002,8 +2026,39 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [closeSendFlow],
   );
 
-  const submitIncomingOverboard = useCallback(
-    async (ban: BanInteraction) => {
+  const openIncomingOverboardOptimistic = useCallback(
+    (ban: BanInteraction, clickTs = performance.now()): boolean => {
+      const banId = ban.id;
+      const uid = userIdRef.current;
+      if (!uid) return false;
+
+      const optimistic = buildOptimisticOverboardResult(ban, uid);
+      logOverboardTiming('optimistic-built', clickTs);
+      if (!optimistic) return false;
+
+      logOverboardTiming('flushSync-start', clickTs);
+      overboardInFlightRef.current = banId;
+      dismissedIncomingRef.current.add(banId);
+
+      const ok = forceOpenOverboardResult(optimistic, banId, clickTs);
+      logOverboardTiming('result-state-set', clickTs);
+
+      if (!ok) {
+        overboardInFlightRef.current = null;
+        return false;
+      }
+
+      traceOverboardFlow('optimistic-result-opened', { banId });
+      return true;
+    },
+    [forceOpenOverboardResult],
+  );
+
+  const runIncomingOverboardApi = useCallback(
+    async (
+      ban: BanInteraction,
+      clickTs?: number,
+    ): Promise<{ ok: boolean; error?: string }> => {
       const banId = ban.id;
       const uid = userIdRef.current;
       const token = tokenRef.current;
@@ -2011,25 +2066,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return { ok: false, error: 'Нет авторизации' };
       }
 
-      const optimistic = buildOptimisticOverboardResult(ban, uid);
-      if (!optimistic) {
-        return { ok: false, error: 'Недостаточно данных для перебора' };
-      }
-
+      logOverboardTiming('api-start', clickTs);
       traceOverboardFlow('submit-start', {
         banId,
         authUserId: uid,
         optimistic: true,
       });
-      overboardInFlightRef.current = banId;
       setViralOnboarding(false);
       challengeLog('incoming:overboard', { banId });
-
-      if (!forceOpenOverboardResult(optimistic, banId)) {
-        overboardInFlightRef.current = null;
-        return { ok: false, error: 'Не удалось открыть перебор' };
-      }
-      traceOverboardFlow('optimistic-result-opened', { banId });
 
       const syncOverboardResultFromApi = (
         payload: BanResult,
@@ -2234,6 +2278,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       logOverboardFinalState,
       scheduleResultPollBurst,
     ],
+  );
+
+  const submitIncomingOverboard = useCallback(
+    async (ban: BanInteraction) => {
+      const clickTs = markOverboardClickStart();
+      if (!openIncomingOverboardOptimistic(ban, clickTs)) {
+        return { ok: false, error: 'Не удалось открыть перебор' };
+      }
+      return runIncomingOverboardApi(ban, clickTs);
+    },
+    [openIncomingOverboardOptimistic, runIncomingOverboardApi],
   );
 
   const scheduleCheckWaitingDismiss = useCallback(() => {
@@ -3977,6 +4032,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       releaseReplyHandoffLock,
       submitCheckAnswer,
       submitIncomingOverboard,
+      openIncomingOverboardOptimistic,
+      runIncomingOverboardApi,
       checkWaiting,
       setCheckWaiting,
       result,
@@ -4091,6 +4148,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       releaseReplyHandoffLock,
       submitCheckAnswer,
       submitIncomingOverboard,
+      openIncomingOverboardOptimistic,
+      runIncomingOverboardApi,
       checkWaiting,
       setCheckWaiting,
       result,
@@ -4166,51 +4225,64 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     <AppContext.Provider value={contextValue}>
       <ShellErrorBoundary name="app">
         {children}
-        <GlobalOverlayHost
-          active={notificationSessionActive}
-          queueSessionActive={notificationSessionActive}
-          activeOverlayKind={activeOverlayKind}
-          activeIncomingBanId={
-            activeOverlayKind === 'incoming' ? (incomingBan?.id ?? null) : null
-          }
-        >
-          <NotificationQueueShell
-            kind={activeOverlayKind}
-            sessionActive={notificationSessionActive}
-            contentKey={
-              overlayQueue[0] ? overlayQueueKey(overlayQueue[0]) : null
+        {!directResultOverlayActive ? (
+          <GlobalOverlayHost
+            active={notificationSessionActive}
+            queueSessionActive={notificationSessionActive}
+            activeOverlayKind={activeOverlayKind}
+            activeIncomingBanId={
+              activeOverlayKind === 'incoming' ? (incomingBan?.id ?? null) : null
             }
           >
-            {activeOverlayKind === 'incoming' ? (
-              <ChallengeErrorBoundary
-                name="incoming"
-                onRecover={() => dismissIncoming()}
-              >
-                <IncomingBanOverlay contentOnly />
-              </ChallengeErrorBoundary>
-            ) : null}
-            {activeOverlayKind === 'check' ? (
-              <ChallengeErrorBoundary
-                name="check"
-                onRecover={() => clearCheckOverlay()}
-              >
-                <CheckOverlay contentOnly />
-              </ChallengeErrorBoundary>
-            ) : null}
-            {activeOverlayKind === 'result' && result ? (
-              <ChallengeErrorBoundary
-                name="result"
-                onRecover={() => dismissBanResult()}
-              >
-                <ResultOverlay
-                  result={result}
-                  onClose={dismissBanResult}
-                  contentOnly
-                />
-              </ChallengeErrorBoundary>
-            ) : null}
-          </NotificationQueueShell>
-        </GlobalOverlayHost>
+            <NotificationQueueShell
+              kind={activeOverlayKind}
+              sessionActive={notificationSessionActive}
+              contentKey={
+                overlayQueue[0] ? overlayQueueKey(overlayQueue[0]) : null
+              }
+            >
+              {activeOverlayKind === 'incoming' ? (
+                <ChallengeErrorBoundary
+                  name="incoming"
+                  onRecover={() => dismissIncoming()}
+                >
+                  <IncomingBanOverlay contentOnly />
+                </ChallengeErrorBoundary>
+              ) : null}
+              {activeOverlayKind === 'check' ? (
+                <ChallengeErrorBoundary
+                  name="check"
+                  onRecover={() => clearCheckOverlay()}
+                >
+                  <CheckOverlay contentOnly />
+                </ChallengeErrorBoundary>
+              ) : null}
+              {activeOverlayKind === 'result' && result ? (
+                <ChallengeErrorBoundary
+                  name="result"
+                  onRecover={() => dismissBanResult()}
+                >
+                  <ResultOverlay
+                    result={result}
+                    onClose={dismissBanResult}
+                    contentOnly
+                  />
+                </ChallengeErrorBoundary>
+              ) : null}
+            </NotificationQueueShell>
+          </GlobalOverlayHost>
+        ) : null}
+        {directResultOverlayActive && result ? (
+          <ChallengeErrorBoundary
+            name="direct-overboard-result"
+            onRecover={() => dismissBanResult()}
+          >
+            <DirectOverboardResultLayer
+              result={result}
+              onClose={dismissBanResult}
+            />
+          </ChallengeErrorBoundary>
+        ) : null}
         {!result ? (
           <ShellErrorBoundary name="energy" fallback={null}>
             <EnergyPopupStack popups={popups} />

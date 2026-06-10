@@ -1,4 +1,5 @@
 import type { CheckOutcome } from './energy';
+import { isPairDailyFreeMode } from './energy';
 import type { UserPublic } from './types';
 import { formatSenderDisplayName } from './challenge';
 
@@ -39,6 +40,20 @@ export interface BanResult {
   deepLink: string;
   shareLink: string;
   inviteOpponentLink: string;
+}
+
+/** Fun mode from incoming ban payload — never infer from energy delta alone. */
+export function isIncomingPairFunMode(ban: {
+  funMode?: boolean;
+  isFunMode?: boolean;
+  economyMode?: ResultEconomyMode | string | null;
+  pairBanCount24h?: number | null;
+}): boolean {
+  if (ban.funMode === true || ban.isFunMode === true || ban.economyMode === 'fun') {
+    return true;
+  }
+  const count = ban.pairBanCount24h;
+  return count != null && isPairDailyFreeMode(count);
 }
 
 /** Explicit fun-mode flag — never infer from energy delta alone. */

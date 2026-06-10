@@ -21,6 +21,7 @@ import { challengeLog } from '@/lib/challenge-log';
 import { shouldShowIncomingBanModal } from '@/lib/incoming-challenge';
 import { logIncomingDebug } from '@/lib/incoming-debug';
 import { logOverboardButtonClick } from '@/lib/overboard-flow-debug';
+import { markOverboardClickStart } from '@/lib/overboard-timing-debug';
 import { resolveUserAvatarUrl, rememberUserAvatar } from '@/lib/avatar-cache';
 import { useApp } from './Providers';
 import { BigButton } from './BigButton';
@@ -48,7 +49,8 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     dismissIncoming,
     acknowledgeIncomingAndStartReply,
     acknowledgeIncomingSeen,
-    submitIncomingOverboard,
+    openIncomingOverboardOptimistic,
+    runIncomingOverboardApi,
     notificationSessionActive,
     activeOverlayKind,
     markOverlayUserAction,
@@ -59,6 +61,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
   const [verifiedBan, setVerifiedBan] = useState<BanInteraction | null>(null);
   const [verifyPhase, setVerifyPhase] = useState<VerifyPhase>('idle');
   const verifyGenRef = useRef(0);
+  const overboardClickLockRef = useRef(false);
 
   const viewerId = user?.id ?? null;
 
@@ -194,21 +197,35 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     acknowledgeIncomingAndStartReply,
   ]);
 
-  const handleOverboard = useCallback(async () => {
+  const handleOverboard = useCallback(() => {
     const actBan = verifiedBan ?? resolvedIncoming ?? incomingBan;
-    if (!actBan?.id || actionLoading) return;
-    logOverboardButtonClick(actBan.id, 'submitIncomingOverboard');
+    if (!actBan?.id || actionLoading || overboardClickLockRef.current) return;
+
+    const clickTs = markOverboardClickStart();
+    overboardClickLockRef.current = true;
+    logOverboardButtonClick(actBan.id, 'openIncomingOverboardOptimistic');
     markOverlayUserAction('incoming', actBan.id);
     hapticSuccess();
-    setVerifiedBan(null);
-    try {
-      const res = await submitIncomingOverboard(actBan);
-      if (!res.ok && res.error) {
-        alert(res.error);
-      }
-    } catch (e) {
-      alert(formatDeliveryError(e));
+
+    const opened = openIncomingOverboardOptimistic(actBan, clickTs);
+    if (!opened) {
+      overboardClickLockRef.current = false;
+      alert('Не удалось открыть перебор');
+      return;
     }
+
+    void runIncomingOverboardApi(actBan, clickTs)
+      .then((res) => {
+        if (!res.ok && res.error) {
+          alert(res.error);
+        }
+      })
+      .catch((e) => {
+        alert(formatDeliveryError(e));
+      })
+      .finally(() => {
+        overboardClickLockRef.current = false;
+      });
   }, [
     verifiedBan,
     resolvedIncoming,
@@ -216,7 +233,8 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     hapticSuccess,
     actionLoading,
     markOverlayUserAction,
-    submitIncomingOverboard,
+    openIncomingOverboardOptimistic,
+    runIncomingOverboardApi,
   ]);
 
   const isQueueHead = activeOverlayKind === 'incoming';

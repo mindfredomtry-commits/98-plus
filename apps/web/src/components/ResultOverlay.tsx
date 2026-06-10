@@ -28,7 +28,14 @@ import { useTelegram } from '@/hooks/useTelegram';
 import { ModalShell } from './ModalShell';
 import { AvatarImage } from './AvatarImage';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
-import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
+import {
+  APP_NOTIFICATION_Z_INDEX,
+  DIRECT_OVERBOARD_RESULT_Z_INDEX,
+} from '@/lib/overlay-queue';
+import {
+  getOverboardClickTs,
+  logOverboardPaint,
+} from '@/lib/overboard-timing-debug';
 import { logResultFunMode } from '@/lib/result-fun-mode-debug';
 import { logResultPresentation } from '@/lib/result-ui-debug';
 import { BanSaveStar } from './instant-ban/BanSaveStar';
@@ -40,6 +47,8 @@ interface Props {
   onClose: () => void;
   embedded?: boolean;
   contentOnly?: boolean;
+  /** Fresh shell + paint timing for direct overboard layer. */
+  directPaint?: boolean;
 }
 
 function ResultOverlayInner({
@@ -47,6 +56,7 @@ function ResultOverlayInner({
   onClose,
   embedded = false,
   contentOnly = false,
+  directPaint = false,
 }: Props) {
   const {
     openNewBanWhoFlow,
@@ -208,6 +218,15 @@ function ResultOverlayInner({
   }, [showable, result.id, hasActions, reportOverlayRendered]);
 
   useLayoutEffect(() => {
+    if (!directPaint || !showable || !result.id) return;
+    const clickTs = getOverboardClickTs();
+    logOverboardPaint('ResultOverlay useLayoutEffect', clickTs);
+    requestAnimationFrame(() => {
+      logOverboardPaint('requestAnimationFrame after mount', clickTs);
+    });
+  }, [directPaint, showable, result.id]);
+
+  useLayoutEffect(() => {
     if (!showable) return;
     logResultFunMode(result);
   }, [showable, result]);
@@ -347,8 +366,8 @@ function ResultOverlayInner({
       open
       light
       stable
-      handoff={notificationSessionActive}
-      zIndex={APP_NOTIFICATION_Z_INDEX}
+      handoff={directPaint ? false : notificationSessionActive}
+      zIndex={directPaint ? DIRECT_OVERBOARD_RESULT_Z_INDEX : APP_NOTIFICATION_Z_INDEX}
       ariaLabel="Результат проверки"
       onClose={onClose}
       cardClassName="modal-card--result"

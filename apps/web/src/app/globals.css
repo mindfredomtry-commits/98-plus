@@ -934,6 +934,16 @@ html.scroll-lock body {
   pointer-events: auto;
 }
 
+.direct-overboard-result-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.direct-overboard-result-layer > * {
+  pointer-events: auto;
+}
+
 .friend-pending-pulse {
   animation: pendingBorder 1.8s ease-in-out infinite;
 }

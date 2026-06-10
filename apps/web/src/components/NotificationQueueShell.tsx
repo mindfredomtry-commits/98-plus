@@ -51,7 +51,7 @@ export function NotificationQueueShell({
     >
       {kind ? (
         <div
-          key={contentKey ?? kind}
+          key={handoff ? undefined : (contentKey ?? kind)}
           className="notification-queue-shell__content"
         >
           {children}

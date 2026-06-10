@@ -10,6 +10,9 @@ export type QueuedOverlay =
 
 export const APP_NOTIFICATION_Z_INDEX = 100;
 
+/** Fresh result layer above notification queue shell (overboard optimistic). */
+export const DIRECT_OVERBOARD_RESULT_Z_INDEX = APP_NOTIFICATION_Z_INDEX + 10;
+
 export type OverlayQueueGuards = {
   viewerId: string | null;
   dismissedIncoming: ReadonlySet<string>;

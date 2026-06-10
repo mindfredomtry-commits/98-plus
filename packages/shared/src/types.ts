@@ -60,6 +60,12 @@ export interface BanInteraction {
   incomingAcknowledged?: boolean;
   /** Terminal check/result outcome — populated for history list items. */
   outcome?: InteractionOutcome | null;
+  /** Pair exceeded daily ban cap — energy-free for this interaction. */
+  funMode?: boolean;
+  isFunMode?: boolean;
+  economyMode?: 'normal' | 'fun';
+  /** Bans between pair in rolling day window (for optimistic UI). */
+  pairBanCount24h?: number | null;
 }
 
 export interface CheckState {
