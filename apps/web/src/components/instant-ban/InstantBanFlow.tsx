@@ -37,6 +37,11 @@ import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { logDeepLinkHandlerResult } from '@/lib/deep-link-boot-debug';
 import { logReplyFlow, logReplyFlowLoopGuard } from '@/lib/reply-handoff-debug';
 import { logActiveBanDeeplink } from '@/lib/active-ban-deeplink-debug';
+import {
+  isNotificationQueueLocked,
+  lockNotificationQueue,
+  logOverlayPriority,
+} from '@/lib/overlay-priority';
 import { api } from '@/lib/api';
 import {
   getSavedBans,
@@ -238,6 +243,7 @@ export function InstantBanFlow({
     applySession,
     pendingStartupInteractions,
     releaseStartupInteractions,
+    unlockNotificationQueueAndFlush,
     markSessionBanSendSuccess,
     incomingGateActive,
     checkGateActive,
@@ -253,6 +259,7 @@ export function InstantBanFlow({
     notifyReplyWhatVisible,
     releaseReplyHandoffLock,
     activeBanUiShellActive,
+    activeBanDeepLinkBanId,
     notifyActiveBanCardVisible,
     resultReplyPending,
     resultReplyRequest,
@@ -1016,6 +1023,9 @@ export function InstantBanFlow({
     ) => {
       const logArchive = options?.fromArchive === true;
 
+      lockNotificationQueue('repeat-ban-flow', ban.id);
+      logOverlayPriority('repeat-flow-start', { banId: ban.id });
+
       if (!user?.id) {
         if (logArchive) {
           console.info('[98+] ARCHIVE REPEAT FALLBACK', { reason: 'no-user' });
@@ -1179,7 +1189,6 @@ export function InstantBanFlow({
 
   const beginActiveBanFromDeepLink = useCallback(
     (ban: BanInteraction) => {
-      releaseStartupInteractions();
       setBansTab('yours');
       setSelectedBanForDetails(ban);
       setBansOverlayOpen(true);
@@ -1188,7 +1197,7 @@ export function InstantBanFlow({
       onStartSend();
       return true;
     },
-    [onStartSend, releaseStartupInteractions],
+    [onStartSend],
   );
 
   const handleRepeatBanFromArchive = useCallback(
@@ -1206,16 +1215,26 @@ export function InstantBanFlow({
 
   const handleOpenBansOverlay = useCallback(() => {
     if (phase !== 'idle' || banSentSuccess) return;
-    releaseStartupInteractions();
+    logOverlayPriority('explicit-bans-open-unlock', {});
+    unlockNotificationQueueAndFlush('explicit-bans-open-unlock');
     setBansTab('yours');
     setSelectedBanForDetails(null);
     setBansOverlayOpen(true);
-  }, [banSentSuccess, phase, releaseStartupInteractions]);
+  }, [banSentSuccess, phase, unlockNotificationQueueAndFlush]);
 
   const handleCloseBansOverlay = useCallback(() => {
+    if (isNotificationQueueLocked()) {
+      unlockNotificationQueueAndFlush('target-flow-closed');
+    }
     setBansOverlayOpen(false);
     setSelectedBanForDetails(null);
-  }, []);
+  }, [unlockNotificationQueueAndFlush]);
+
+  const handleActiveBanBackToBansList = useCallback(() => {
+    logOverlayPriority('explicit-bans-open-unlock', { source: 'active-ban-back' });
+    unlockNotificationQueueAndFlush('explicit-bans-open-unlock');
+    setSelectedBanForDetails(null);
+  }, [unlockNotificationQueueAndFlush]);
 
   const handleBanShare = useCallback(
     (ban: BanInteraction) => {
@@ -1239,7 +1258,8 @@ export function InstantBanFlow({
   );
 
   const handleSuccessExitComplete = useCallback(() => {
-    releaseStartupInteractions({ requireBanSend: true });
+    logOverlayPriority('send-success-unlock', {});
+    unlockNotificationQueueAndFlush('send-success-unlock');
     setBanSentSuccess(false);
     sendSnapshotRef.current = null;
     confirmEntrySourceRef.current = 'send-flow';
@@ -1259,7 +1279,7 @@ export function InstantBanFlow({
     beginCtaSpringIn();
   }, [
     beginCtaSpringIn,
-    releaseStartupInteractions,
+    unlockNotificationQueueAndFlush,
     setCrossScreenProgressImmediate,
     stopCrossScreenAnim,
   ]);
@@ -1356,7 +1376,10 @@ export function InstantBanFlow({
         action: 'release-startup-interactions',
         pendingStartupInteractions: true,
       });
-      releaseStartupInteractions();
+      logOverlayPriority('explicit-bans-open-unlock', {
+        source: 'low-energy-ask',
+      });
+      unlockNotificationQueueAndFlush('explicit-bans-open-unlock');
       return;
     }
     if (notificationSessionActive) {
@@ -1372,7 +1395,7 @@ export function InstantBanFlow({
     inviteUsername,
     notificationSessionActive,
     pendingStartupInteractions,
-    releaseStartupInteractions,
+    unlockNotificationQueueAndFlush,
   ]);
 
   const handleBeginSend = useCallback(() => {
@@ -1436,6 +1459,29 @@ export function InstantBanFlow({
   const resultReplyWhatNotifiedRef = useRef(false);
   const lastResultReplyRequestRef = useRef(0);
   const lastDeepLinkActiveBanIdRef = useRef<string | null>(null);
+  const lastEarlyActiveBanIdRef = useRef<string | null>(null);
+
+  useLayoutEffect(() => {
+    if (deepLinkActiveBan?.id || !activeBanDeepLinkBanId || !user?.id) return;
+    if (lastEarlyActiveBanIdRef.current === activeBanDeepLinkBanId) return;
+    const ban = activeBans.find((b) => b.id === activeBanDeepLinkBanId);
+    if (!ban) return;
+    lastEarlyActiveBanIdRef.current = activeBanDeepLinkBanId;
+    lastDeepLinkActiveBanIdRef.current = activeBanDeepLinkBanId;
+    console.log('[active-deeplink]', {
+      banId: ban.id,
+      action: 'early-open-from-session',
+    });
+    beginActiveBanFromDeepLink(ban);
+    notifyActiveBanCardVisible(ban.id);
+  }, [
+    activeBanDeepLinkBanId,
+    activeBans,
+    beginActiveBanFromDeepLink,
+    deepLinkActiveBan?.id,
+    notifyActiveBanCardVisible,
+    user?.id,
+  ]);
 
   useEffect(() => {
     if (newBanWhoFlowRequest === 0) return;
@@ -1872,6 +1918,8 @@ export function InstantBanFlow({
         apiResult: opts?.apiResult,
       });
       logEnergyGate('low-energy-hint-visible', {});
+      lockNotificationQueue('low-energy-gate');
+      logOverlayPriority('low-energy-keep-locked', {});
       beginCtaSpringIn();
       window.setTimeout(() => setLowEnergyRedirecting(false), 0);
     },
@@ -2552,7 +2600,7 @@ export function InstantBanFlow({
               viewerUserId={user?.id ?? null}
               isHistory={bansTab === 'history' || bansTab === 'archive'}
               saved={savedBanIds.has(selectedBanForDetails.id)}
-              onBack={() => setSelectedBanForDetails(null)}
+              onBack={handleActiveBanBackToBansList}
               onBanMore={() => handleBanMore(selectedBanForDetails)}
               onShare={() => handleBanShare(selectedBanForDetails)}
               onToggleSave={() => handleToggleSave(selectedBanForDetails)}

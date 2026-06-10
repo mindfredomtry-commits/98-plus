@@ -1,0 +1,189 @@
+import { parseStartParam, readStartParamFromInitData } from '@98plus/shared';
+import { readStartParamRawFromLocation } from '@/lib/deep-link-boot-debug';
+
+/** Blocks auto pending result/status overlays during priority deep-link flows. */
+export type NotificationQueueLockReason =
+  | 'deep-link-active-ban'
+  | 'repeat-ban-flow'
+  | 'send-flow'
+  | 'low-energy-gate';
+
+type LockState = {
+  reason: NotificationQueueLockReason;
+  banId?: string | null;
+};
+
+let lockState: LockState | null = null;
+
+/** Brief window: unlock flush may show deferred pending results. */
+let explicitResultUnlockActive = false;
+
+type ResultOpenTraceContext = {
+  getActiveOverlayKind: () => string | null;
+  getActiveBanDeepLinkId: () => string | null;
+};
+
+let traceContext: ResultOpenTraceContext | null = null;
+
+export function registerResultOpenTraceContext(
+  ctx: ResultOpenTraceContext | null,
+): void {
+  traceContext = ctx;
+}
+
+export function isNotificationQueueLocked(): boolean {
+  return lockState != null;
+}
+
+export function isOverlayPriorityLocked(): boolean {
+  return lockState != null;
+}
+
+export function getNotificationQueueLockReason(): NotificationQueueLockReason | null {
+  return lockState?.reason ?? null;
+}
+
+export function lockNotificationQueue(
+  reason: NotificationQueueLockReason,
+  banId?: string | null,
+): void {
+  const prev = lockState?.reason ?? null;
+  lockState = { reason, banId: banId ?? null };
+  if (prev !== reason) {
+    logOverlayPriority('queue-locked', { reason, banId: banId ?? null });
+  }
+}
+
+export function unlockNotificationQueue(unlockReason: string): void {
+  if (!lockState) return;
+  const prev = lockState.reason;
+  lockState = null;
+  logOverlayPriority('queue-unlocked', { reason: unlockReason, prevLock: prev });
+}
+
+export function runWithExplicitResultUnlock<T>(fn: () => T): T {
+  explicitResultUnlockActive = true;
+  try {
+    return fn();
+  } finally {
+    explicitResultUnlockActive = false;
+  }
+}
+
+export function readPriorityStartParamRaw(): string | null {
+  if (typeof window === 'undefined') return null;
+  const fromUrl = readStartParamRawFromLocation();
+  if (fromUrl) return fromUrl;
+  const tg = window.Telegram?.WebApp;
+  const fromUnsafe = tg?.initDataUnsafe?.start_param?.trim();
+  if (fromUnsafe) return fromUnsafe;
+  const fromInitData = readStartParamFromInitData(tg?.initData)?.trim();
+  if (fromInitData) return fromInitData;
+  return null;
+}
+
+/** Lock synchronously from Telegram start_param (URL or initData). */
+export function tryLockFromStartParam(source: string): boolean {
+  const action = parseStartParam(readPriorityStartParamRaw() ?? undefined);
+  if (!action) return false;
+  if (action.type === 'active') {
+    lockNotificationQueue('deep-link-active-ban', action.banId);
+    logOverlayPriority('deep-link-active-start', {
+      banId: action.banId,
+      source,
+    });
+    return true;
+  }
+  if (action.type === 'repeat') {
+    lockNotificationQueue('repeat-ban-flow', action.banId);
+    logOverlayPriority('repeat-flow-start', { banId: action.banId, source });
+    return true;
+  }
+  return false;
+}
+
+export type ResultOpenAttemptSource =
+  | 'receiveResult'
+  | 'openBanResult'
+  | 'pollPendingResultOnce'
+  | 'reloadPending'
+  | 'enqueueNotification'
+  | 'syncDisplayFromQueue'
+  | 'forceOpenOverboardResult'
+  | 'DirectOverboardResultLayer'
+  | 'applyOverlayQueue'
+  | 'useSocialBoot-explicit'
+  | 'ws-check-completed'
+  | 'submitCheckAnswer-http';
+
+export function logResultOpenAttempt(
+  source: ResultOpenAttemptSource | string,
+  data: {
+    banId?: string | null;
+    resultId?: string | null;
+    mode?: string | null;
+    allowed: boolean;
+    blockReason?: string | null;
+    extra?: Record<string, unknown>;
+  },
+): void {
+  console.log('[RESULT OPEN ATTEMPT]', {
+    source,
+    banId: data.banId ?? data.resultId ?? null,
+    resultId: data.resultId ?? data.banId ?? null,
+    activeOverlayKind: traceContext?.getActiveOverlayKind() ?? null,
+    activeBanDeepLinkId: traceContext?.getActiveBanDeepLinkId() ?? null,
+    notificationQueueLockReason: getNotificationQueueLockReason(),
+    isLocked: isNotificationQueueLocked(),
+    allowed: data.allowed,
+    mode: data.mode ?? null,
+    blockReason: data.blockReason ?? null,
+    ...data.extra,
+  });
+}
+
+export function shouldBlockResultOpen(opts?: {
+  explicitUserUnlock?: boolean;
+  overboardInFlightBanId?: string | null;
+  resultBanId?: string | null;
+}): { blocked: boolean; reason: string | null } {
+  if (!isNotificationQueueLocked()) {
+    return { blocked: false, reason: null };
+  }
+  if (opts?.explicitUserUnlock || explicitResultUnlockActive) {
+    return { blocked: false, reason: null };
+  }
+  if (
+    opts?.overboardInFlightBanId &&
+    opts.resultBanId &&
+    opts.overboardInFlightBanId === opts.resultBanId
+  ) {
+    return { blocked: false, reason: null };
+  }
+  return {
+    blocked: true,
+    reason: getNotificationQueueLockReason(),
+  };
+}
+
+export function logOverlayPriority(
+  event:
+    | 'deep-link-active-start'
+    | 'queue-locked'
+    | 'pending-result-blocked'
+    | 'active-ban-opened'
+    | 'repeat-flow-start'
+    | 'send-success-unlock'
+    | 'low-energy-keep-locked'
+    | 'explicit-bans-open-unlock'
+    | 'queue-unlocked'
+    | 'pending-result-shown',
+  data: Record<string, unknown>,
+): void {
+  console.log(`[OVERLAY PRIORITY] ${event}`, data);
+}
+
+/** Synchronous lock before React effects — blocks reloadPending result flash. */
+if (typeof window !== 'undefined') {
+  tryLockFromStartParam('module-init');
+}

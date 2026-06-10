@@ -1,8 +1,10 @@
 'use client';
 
+import { useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import type { BanResult } from '@98plus/shared';
 import { DIRECT_OVERBOARD_RESULT_Z_INDEX } from '@/lib/overlay-queue';
+import { logResultOpenAttempt } from '@/lib/overlay-priority';
 import { ResultOverlay } from './ResultOverlay';
 
 type Props = {
@@ -14,6 +16,14 @@ type Props = {
  * Fresh portal layer for optimistic overboard — does not reuse NotificationQueueShell DOM.
  */
 export function DirectOverboardResultLayer({ result, onClose }: Props) {
+  useLayoutEffect(() => {
+    logResultOpenAttempt('DirectOverboardResultLayer', {
+      resultId: result.id,
+      allowed: true,
+      extra: { outcome: result.outcome },
+    });
+  }, [result.id, result.outcome]);
+
   if (typeof document === 'undefined') return null;
 
   return createPortal(

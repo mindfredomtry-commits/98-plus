@@ -11,6 +11,13 @@ import {
 } from '@/lib/deep-link-boot-debug';
 import { logReplyFlow } from '@/lib/reply-handoff-debug';
 import { logActiveBanDeeplink } from '@/lib/active-ban-deeplink-debug';
+import {
+  lockNotificationQueue,
+  logOverlayPriority,
+  logResultOpenAttempt,
+  shouldBlockResultOpen,
+  tryLockFromStartParam,
+} from '@/lib/overlay-priority';
 import { useTelegram } from './useTelegram';
 
 interface BootHandlers {
@@ -22,6 +29,7 @@ interface BootHandlers {
   openDeepLinkRepeat: (ban: BanInteraction) => void;
   openDeepLinkReply: (ban: BanInteraction) => Promise<void>;
   openDeepLinkActive: (ban: BanInteraction) => void;
+  armActiveBanDeepLinkEarly: (banId: string) => void;
   openBanResult: (r: BanResult | null | undefined, mode: 'explicit') => void;
   reloadPending: () => Promise<void>;
   setDeepLinkReplyBooting: (v: boolean) => void;
@@ -98,6 +106,7 @@ export function useSocialBoot(h: BootHandlers) {
     }
 
     processedRef.current = bootKey;
+    tryLockFromStartParam('useSocialBoot-handler');
     patchDeepLinkBootDebug({
       deepLinkConsumed: false,
       bootBlocker: 'handler-running',
@@ -114,7 +123,18 @@ export function useSocialBoot(h: BootHandlers) {
             `/bans/${action.banId}/result`,
             { token: h.token! },
           );
-          if (result) h.openBanResult(result, 'explicit');
+          if (result) {
+            const block = shouldBlockResultOpen({ resultBanId: result.id });
+            logResultOpenAttempt('useSocialBoot-explicit', {
+              resultId: result.id,
+              mode: 'explicit',
+              allowed: !block.blocked,
+              blockReason: block.reason,
+            });
+            if (!block.blocked) {
+              h.openBanResult(result, 'explicit');
+            }
+          }
           break;
         }
         case 'check': {
@@ -134,6 +154,8 @@ export function useSocialBoot(h: BootHandlers) {
           break;
         }
         case 'repeat': {
+          lockNotificationQueue('repeat-ban-flow', action.banId);
+          logOverlayPriority('repeat-flow-start', { banId: action.banId });
           const { ban } = await api<{ ban: BanInteraction }>(
             `/bans/${action.banId}/open`,
             { token: h.token! },
@@ -168,6 +190,7 @@ export function useSocialBoot(h: BootHandlers) {
             payload: buildStartParam(action),
             banId: action.banId,
           });
+          h.armActiveBanDeepLinkEarly(action.banId);
           const { ban } = await api<{ ban: BanInteraction }>(
             `/bans/${action.banId}/open`,
             { token: h.token! },
@@ -197,6 +220,7 @@ export function useSocialBoot(h: BootHandlers) {
     h.openDeepLinkRepeat,
     h.openDeepLinkReply,
     h.openDeepLinkActive,
+    h.armActiveBanDeepLinkEarly,
     h.openBanResult,
     h.reloadPending,
     h.setDeepLinkReplyBooting,
