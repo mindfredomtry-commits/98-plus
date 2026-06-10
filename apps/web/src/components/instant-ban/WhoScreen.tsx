@@ -4,13 +4,15 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
   type TouchEvent,
 } from 'react';
 import type { FriendCard } from '@98plus/shared';
-import { friendAvatarUrl } from '@/lib/avatar-url';
+import { enrichFriendsForWho } from '@/lib/friend-avatar-merge';
+import { logWhoAvatar, resolveWhoAvatarDisplay } from '@/lib/who-avatar';
 import { AvatarImage } from '../AvatarImage';
 
 const WHO_DISMISS_DISTANCE_PX = 140;
@@ -494,38 +496,73 @@ function friendLabel(friend: FriendCard): string {
   return friend.firstName || friend.username || '—';
 }
 
+function WhoFriendItem({
+  friend,
+  onSelect,
+}: {
+  friend: FriendCard;
+  onSelect: (friend: FriendCard) => void;
+}) {
+  const display = useMemo(() => resolveWhoAvatarDisplay(friend), [friend]);
+  const letter = (
+    display.friend.firstName?.[0] ??
+    display.friend.username?.[0] ??
+    '?'
+  ).toUpperCase();
+
+  useLayoutEffect(() => {
+    logWhoAvatar(display);
+  }, [
+    display.friend.id,
+    display.friend.userId,
+    display.avatarUrl,
+    display.preloaded,
+    display.fallbackUsed,
+  ]);
+
+  return (
+    <button
+      type="button"
+      className="instant-ban-who-item"
+      onClick={() => onSelect(display.friend)}
+    >
+      <AvatarImage
+        src={display.avatarUrl}
+        readyState={display.readyState}
+        letter={letter}
+        sizeClass="w-12 h-12"
+        textClass="text-lg"
+        priority
+      />
+      <div>
+        <div className="instant-ban-who-item__name">
+          {friendLabel(display.friend)}
+        </div>
+        {display.friend.username ? (
+          <div className="instant-ban-who-item__username">
+            @{display.friend.username}
+          </div>
+        ) : null}
+      </div>
+    </button>
+  );
+}
+
 function WhoFriendList({ friends, onSelect, onInviteMore }: ListProps) {
+  const enrichedFriends = useMemo(
+    () => enrichFriendsForWho(friends),
+    [friends],
+  );
+
   return (
     <div className="instant-ban-who-list">
-      {friends.map((friend, i) => {
-        const letter = (
-          friend.firstName?.[0] ??
-          friend.username?.[0] ??
-          '?'
-        ).toUpperCase();
-        return (
-          <button
-            key={friend.id ?? friend.userId ?? `friend:${i}`}
-            type="button"
-            className="instant-ban-who-item"
-            onClick={() => onSelect(friend)}
-          >
-            <AvatarImage
-              src={friendAvatarUrl(friend)}
-              letter={letter}
-              sizeClass="w-12 h-12"
-              textClass="text-lg"
-              priority
-            />
-            <div>
-              <div className="instant-ban-who-item__name">{friendLabel(friend)}</div>
-              {friend.username ? (
-                <div className="instant-ban-who-item__username">@{friend.username}</div>
-              ) : null}
-            </div>
-          </button>
-        );
-      })}
+      {enrichedFriends.map((friend, i) => (
+        <WhoFriendItem
+          key={friend.id ?? friend.userId ?? `friend:${i}`}
+          friend={friend}
+          onSelect={onSelect}
+        />
+      ))}
       <button
         type="button"
         className="instant-ban-who-item instant-ban-who-item--invite"

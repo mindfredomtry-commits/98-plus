@@ -115,6 +115,7 @@ import { mergeFriendsPreservingAvatars } from '@/lib/friend-avatar-merge';
 import {
   preloadFriendAvatars,
   setAvatarPreloadCompleteListener,
+  syncSeedCachedFriendAvatars,
 } from '@/lib/avatar-preload';
 import { markAvatarStartup } from '@/lib/avatar-startup-diag';
 import { preloadAvatarUrls } from '@/lib/avatar-url';
@@ -2694,6 +2695,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         via: meta.via,
       });
       preloadAvatarUrls(merged.map((f) => f.avatarUrl ?? f.photoUrl));
+      syncSeedCachedFriendAvatars(merged);
       const preloadStartedAt = Date.now();
       void preloadFriendAvatars(merged, {
         timeoutMs: 1000,

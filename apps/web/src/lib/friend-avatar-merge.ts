@@ -5,7 +5,7 @@ import {
   resolveFriendAvatarUrl,
 } from './avatar-cache';
 
-function withResolvedAvatar(friend: FriendCard): FriendCard {
+export function enrichFriendCard(friend: FriendCard): FriendCard {
   const avatar =
     resolveFriendAvatarUrl(friend) ??
     getCachedFriendAvatar(friend.id, friend.userId);
@@ -28,7 +28,11 @@ export function mergeFriendsPreservingAvatars(
     rememberFriendAvatar(f.id, f.userId, f.avatarUrl ?? f.photoUrl);
   }
   if (!opts?.allowEmpty && next.length === 0 && prev.length > 0) {
-    return prev.map(withResolvedAvatar);
+    return prev.map(enrichFriendCard);
   }
-  return next.map(withResolvedAvatar);
+  return next.map(enrichFriendCard);
+}
+
+export function enrichFriendsForWho(friends: FriendCard[]): FriendCard[] {
+  return friends.map(enrichFriendCard);
 }

@@ -50,6 +50,8 @@ import {
 } from '@/lib/share';
 import { ArenaLobbyIdle, type LobbyCtaState } from './ArenaLobbyIdle';
 import { ArenaLobbyOrb } from './ArenaLobbyOrb';
+import { syncSeedCachedFriendAvatars } from '@/lib/avatar-preload';
+import { enrichFriendsForWho } from '@/lib/friend-avatar-merge';
 import { WhoOverlay } from './WhoScreen';
 import { WhatScreen } from './WhatScreen';
 import { ConfirmScreen } from './ConfirmScreen';
@@ -766,13 +768,19 @@ export function InstantBanFlow({
 
   const safeFriends = useMemo(() => {
     try {
-      return coerceFriendList(friends).filter(
+      const list = coerceFriendList(friends).filter(
         (f) => (f.username ?? '').toLowerCase() !== 'share',
       );
+      return enrichFriendsForWho(list);
     } catch {
       return [];
     }
   }, [friends]);
+
+  useLayoutEffect(() => {
+    if (phase !== 'selectingTarget' || safeFriends.length === 0) return;
+    syncSeedCachedFriendAvatars(safeFriends);
+  }, [phase, safeFriends]);
 
   const savedBanIds = useMemo(
     () => new Set(savedBans.map((b) => b.id)),
