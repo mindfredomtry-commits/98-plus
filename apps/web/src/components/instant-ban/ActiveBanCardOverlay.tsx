@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useLayoutEffect, useMemo } from 'react';
 import type { BanInteraction } from '@98plus/shared';
 import { AvatarImage } from '../AvatarImage';
 import { BigButton } from '../BigButton';
@@ -12,6 +12,7 @@ import {
 import { banHistoryStatusLabel, banStatusLabel } from './bans-overlay-utils';
 import { BanSaveStar } from './BanSaveStar';
 import { ResultShareIcon } from './ResultShareIcon';
+import { logResultPresentation } from '@/lib/result-ui-debug';
 import './instant-ban.css';
 
 type Props = {
@@ -84,6 +85,16 @@ export function ActiveBanCardOverlay({
 
     return { headline, footerText };
   }, [ban, isHistory, left]);
+
+  useLayoutEffect(() => {
+    logResultPresentation(ban.status === 'overboard' ? 'overboard' : ban.status, {
+      component: 'ActiveBanCardOverlay',
+      displayHeadline: view.headline,
+      presentation: null,
+      resultStatus: ban.status,
+      source: 'mount',
+    });
+  }, [ban.id, ban.status, view.headline]);
 
   return (
     <div

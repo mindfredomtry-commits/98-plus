@@ -82,7 +82,11 @@ import {
 } from '@/lib/overboard-flow-debug';
 import { postOverboardWithTrace } from '@/lib/overboard-api';
 import { RequestTimeoutError } from '@/lib/request-timeout';
-import { logResultUi } from '@/lib/result-ui-debug';
+import {
+  logResultPresentation,
+  logResultUi,
+  resolveResultPresentation,
+} from '@/lib/result-ui-debug';
 import {
   type OptimisticSendWait,
   CHECK_WAITING_UI_TTL_MS,
@@ -1871,7 +1875,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const snapshotOverboardOverlayState = useCallback(
     (banId: string) => ({
       banId,
-      activeOverlayKind: overlayQueueRef.current[0]?.kind ?? null,
+      activeOverlayKind: directResultOverlayRef.current
+        ? 'result'
+        : (overlayQueueRef.current[0]?.kind ?? null),
+      directResultOverlay: directResultOverlayRef.current,
       overlayQueueLength: overlayQueueRef.current.length,
       resultOpen: resultOpenRef.current,
       lobbyOpen: lobbyOpenRef.current,
@@ -1956,6 +1963,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source: 'forceOpenOverboardResult',
         overlayQueueLength: overlayQueueRef.current.length,
         resultDelivered: true,
+      });
+      logResultPresentation(normalized.outcome, {
+        component: 'ResultOverlay',
+        presentation: resolveResultPresentation(normalized.outcome),
+        displayHeadline: normalized.headline,
+        resultStatus: 'OVERBOARD',
+        source: 'forceOpenOverboardResult',
       });
 
       logOverboardResultForce('final state', {
@@ -2112,6 +2126,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           value: isValidBanResultPayload(res.result),
           source: 'overboard-response',
         });
+
+        if (res.result) {
+          logResultPresentation(res.result.outcome, {
+            component: 'ResultOverlay',
+            presentation: {
+              headline: res.result.headline,
+              subline: res.result.subline,
+            },
+            displayHeadline: res.result.headline,
+            resultStatus: res.status ?? null,
+            resultType: res.ban?.status ?? null,
+            source: 'overboard-api-response',
+          });
+        }
 
         let resultPayload: BanResult | null = res.result ?? null;
         if (!isValidBanResultPayload(resultPayload)) {

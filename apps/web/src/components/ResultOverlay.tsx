@@ -14,6 +14,7 @@ import {
   getResultCardHeadline,
   isValidBanResultPayload,
   isResultParticipant,
+  RESULT_COPY,
   showFreeModeBanOthersAction,
 } from '@98plus/shared';
 import { ANALYTICS_EVENTS } from '@98plus/shared';
@@ -27,6 +28,7 @@ import { ModalShell } from './ModalShell';
 import { AvatarImage } from './AvatarImage';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
+import { logResultPresentation } from '@/lib/result-ui-debug';
 import { BanSaveStar } from './instant-ban/BanSaveStar';
 import { ResultShareIcon } from './instant-ban/ResultShareIcon';
 import './instant-ban/instant-ban.css';
@@ -79,6 +81,9 @@ function ResultOverlayInner({
     };
   }, [token, result.id]);
 
+  const isOverboard = result.outcome === 'overboard';
+  const overboardPresentation = RESULT_COPY.overboard;
+
   const view = useMemo(() => {
     const isSender = result.viewerId === result.sender.id;
     const isReceiver = result.viewerId === result.receiver.id;
@@ -96,15 +101,21 @@ function ResultOverlayInner({
         result.outcome === 'both_no' ||
         result.outcome === 'split');
 
-    const displayHeadline = getResultCardHeadline(
-      result.outcome,
-      result.farmSkipped,
-      result.headline,
-    );
+    const displayHeadline = isOverboard
+      ? overboardPresentation.headline
+      : getResultCardHeadline(
+          result.outcome,
+          result.farmSkipped,
+          result.headline,
+        );
+    const displaySubline = isOverboard
+      ? overboardPresentation.subline
+      : result.subline;
     const showBanOthers = showFreeModeBanOthersAction(
       result.farmSkipped,
       result.outcome,
     );
+    const showPrimaryAction = result.outcome !== 'overboard';
 
     return {
       isSender,
@@ -113,9 +124,11 @@ function ResultOverlayInner({
       primaryLabel,
       showStatuses,
       displayHeadline,
+      displaySubline,
       showBanOthers,
+      showPrimaryAction,
     };
-  }, [result]);
+  }, [isOverboard, overboardPresentation.headline, overboardPresentation.subline, result]);
 
   const share = useCallback(() => {
     haptic('light');
@@ -193,38 +206,67 @@ function ResultOverlayInner({
     reportOverlayRendered('result', result.id, hasActions);
   }, [showable, result.id, hasActions, reportOverlayRendered]);
 
+  useLayoutEffect(() => {
+    if (!showable) return;
+    logResultPresentation(result.outcome, {
+      component: 'ResultOverlay',
+      branch: isOverboard ? 'overboard' : 'default',
+      displayHeadline: view.displayHeadline,
+      presentation: isOverboard
+        ? overboardPresentation
+        : { headline: result.headline, subline: result.subline },
+      source: 'mount',
+    });
+  }, [
+    showable,
+    isOverboard,
+    overboardPresentation,
+    result.id,
+    result.outcome,
+    result.headline,
+    result.subline,
+    view.displayHeadline,
+  ]);
+
   if (!showable) return null;
+
+  const cardHead = (
+    <div className="result-card-head">
+      <button
+        type="button"
+        className="result-card-head__share"
+        onClick={share}
+        aria-label="Поделиться"
+      >
+        <ResultShareIcon />
+      </button>
+      {token ? (
+        <div className="result-card-head__archive">
+          <BanSaveStar
+            mode="toggle"
+            banId={result.id}
+            saved={archiveSaved}
+            onAction={toggleArchiveSave}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
 
   const body = (
     <>
-      <div className="result-card-head">
-        <button
-          type="button"
-          className="result-card-head__share"
-          onClick={share}
-          aria-label="Поделиться"
-        >
-          <ResultShareIcon />
-        </button>
-        {token ? (
-          <div className="result-card-head__archive">
-            <BanSaveStar
-              mode="toggle"
-              banId={result.id}
-              saved={archiveSaved}
-              onAction={toggleArchiveSave}
-            />
-          </div>
-        ) : null}
-      </div>
+      {cardHead}
 
-      <div className="modal-card-body text-center result-card-body">
+      <div
+        className="modal-card-body text-center result-card-body"
+        data-result-branch={isOverboard ? 'overboard' : undefined}
+      >
         <p className="result-headline text-2xl font-black text-glow mb-1">
           {view.displayHeadline}
         </p>
-        {result.subline ? (
+        {view.displaySubline ? (
           <p className="text-muted text-sm mb-4 leading-snug px-1">
-            {result.subline}
+            {view.displaySubline}
           </p>
         ) : (
           <div className="mb-4" />
@@ -273,8 +315,10 @@ function ResultOverlayInner({
 
       {hasActions ? (
         <div className="modal-card-actions result-card-actions space-y-2.5">
-          <BigButton onClick={replyFromResult}>{view.primaryLabel}</BigButton>
-          {view.showBanOthers ? (
+          {view.showPrimaryAction ? (
+            <BigButton onClick={replyFromResult}>{view.primaryLabel}</BigButton>
+          ) : null}
+          {view.showBanOthers && view.showPrimaryAction ? (
             <BigButton variant="ghost" onClick={banOthers}>
               🚫 Запретить другим!
             </BigButton>
