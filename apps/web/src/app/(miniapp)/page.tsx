@@ -65,7 +65,7 @@ const DebugPanel = dynamic(
 );
 
 /** Bump when diagnosing shell / deploy mismatches. */
-const APP_SHELL_BUILD = 'arena-v2@overboard-diag-v15';
+const APP_SHELL_BUILD = 'arena-v2@overboard-diag-v16';
 
 export default function HomePage() {
   const {
@@ -83,6 +83,7 @@ export default function HomePage() {
     newBanWhoFlowRequest,
     openBansOverlayRequest,
     bansCtaQueueSuppress,
+    bansReturnToLobbyLatch,
     closeSendFlow,
     setIncomingBan,
     openDeepLinkCheck,
@@ -183,21 +184,38 @@ export default function HomePage() {
   }, [deepLinkBoot.parsedType, deepLinkBoot.parsedBanId, armReplyDeepLink]);
 
   /** Parent layout effect runs before InstantBanFlow effects — latch send UI early. */
-  useLayoutEffect(() => {
-    if (replyDeepLinkLoading || activeBanUiShellActive) closeLobby();
-  }, [replyDeepLinkLoading, activeBanUiShellActive, closeLobby]);
+  const shellBlocksLobbyClose =
+    bansCtaQueueSuppress || bansReturnToLobbyLatch;
 
   useLayoutEffect(() => {
+    if (shellBlocksLobbyClose) return;
+    if (replyDeepLinkLoading || activeBanUiShellActive) closeLobby();
+  }, [
+    shellBlocksLobbyClose,
+    replyDeepLinkLoading,
+    activeBanUiShellActive,
+    closeLobby,
+  ]);
+
+  useLayoutEffect(() => {
+    if (shellBlocksLobbyClose) return;
     if (!deepLinkRepeatBan && !deepLinkReplyBan && !deepLinkActiveBan) return;
     closeLobby();
     setInstantBanOpen(true);
-  }, [deepLinkRepeatBan, deepLinkReplyBan, deepLinkActiveBan, closeLobby]);
+  }, [
+    shellBlocksLobbyClose,
+    deepLinkRepeatBan,
+    deepLinkReplyBan,
+    deepLinkActiveBan,
+    closeLobby,
+  ]);
 
   useLayoutEffect(() => {
+    if (shellBlocksLobbyClose) return;
     if (!resultReplyPending) return;
     closeLobby();
     setInstantBanOpen(true);
-  }, [resultReplyPending, closeLobby]);
+  }, [shellBlocksLobbyClose, resultReplyPending, closeLobby]);
 
   useEffect(() => {
     setApiUrlDisplay(getApiUrl());
@@ -304,11 +322,11 @@ export default function HomePage() {
   }, [closeLobby]);
 
   useEffect(() => {
-    if (bansCtaQueueSuppress) return;
+    if (shellBlocksLobbyClose) return;
     if (newBanWhoFlowRequest > 0) {
       setInstantBanOpen(true);
     }
-  }, [bansCtaQueueSuppress, newBanWhoFlowRequest]);
+  }, [shellBlocksLobbyClose, newBanWhoFlowRequest]);
 
   useLayoutEffect(() => {
     if (openBansOverlayRequest === 0) return;

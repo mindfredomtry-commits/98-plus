@@ -365,7 +365,7 @@ interface AppContextValue {
   /** Ritual entry gate — blocks challenge overlays until dismissed. */
   lobbyOpen: boolean;
   closeLobby: () => void;
-  openLobby: () => void;
+  openLobby: (source?: string) => void;
   /** Full reset of reply deep-link latch (ban id, handoff, incoming reply). */
   clearReplyDeepLinkState: () => void;
   /** Opens InstantBan Who screen for a new ban (increments on each request). */
@@ -376,6 +376,12 @@ interface AppContextValue {
   /** Hides notification queue while BansOverlay opened from direct overboard CTA. */
   bansCtaQueueSuppress: boolean;
   clearBansCtaQueueSuppress: () => void;
+  bansNavState: BansNavState;
+  armBansNavFromResultCta: () => void;
+  resetBansNavState: () => void;
+  /** Blocks page shell effects from closing lobby during bans→lobby return. */
+  bansReturnToLobbyLatch: boolean;
+  setBansReturnToLobbyLatch: (active: boolean) => void;
   /** Accumulated pre-open interactions waiting for ritual release. */
   pendingStartupInteractions: boolean;
   /** Release queued startup interactions (e.g. after opening «Твои запреты»). */
@@ -387,6 +393,20 @@ interface AppContextValue {
   /** Unlock overlay queue and flush deferred pending overlays. */
   unlockNotificationQueueAndFlush: (reason: string) => void;
 }
+
+export type BansNavOrigin = 'lobby' | 'result-cta';
+
+export type BansNavState = {
+  origin: BansNavOrigin;
+  previousScreen: 'lobby';
+  returnTarget: 'lobby';
+};
+
+export const DEFAULT_BANS_NAV: BansNavState = {
+  origin: 'lobby',
+  previousScreen: 'lobby',
+  returnTarget: 'lobby',
+};
 
 const AppContext = createContext<AppContextValue | null>(null);
 
@@ -603,6 +623,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         hasResult: resultRef.current != null,
       };
     }, []);
+  const armBansNavFromResultCtaRef = useRef<() => void>(() => {});
+
   const isDirectOverboardLocallyActive = useCallback(() => {
     return (
       directResultOverlayActiveRef.current ||
@@ -4366,6 +4388,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setLobbyOpen(false);
       lobbyOpenRef.current = false;
       setBansCtaQueueSuppress(true);
+      armBansNavFromResultCtaRef.current();
       queueMicrotask(() => {
         setOpenBansOverlayRequest((n) => n + 1);
       });
@@ -4957,11 +4980,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     console.log('[lobby-closed]', { userId: userIdRef.current ?? null });
   }, []);
 
-  const openLobby = useCallback(() => {
+  const openLobby = useCallback((source?: string) => {
     setLobbyOpen(true);
     lobbyOpenRef.current = true;
     lobbyShownLoggedRef.current = false;
-    console.log('[lobby-opened]', { userId: userIdRef.current ?? null });
+    console.log('[lobby-opened]', {
+      userId: userIdRef.current ?? null,
+      source: source ?? 'default',
+      lobbyOpen: true,
+    });
   }, []);
 
   useEffect(() => {
@@ -4982,10 +5009,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [newBanWhoFlowRequest, setNewBanWhoFlowRequest] = useState(0);
   const [openBansOverlayRequest, setOpenBansOverlayRequest] = useState(0);
   const [bansCtaQueueSuppress, setBansCtaQueueSuppress] = useState(false);
+  const [bansNavState, setBansNavState] = useState<BansNavState>(DEFAULT_BANS_NAV);
+  const [bansReturnToLobbyLatch, setBansReturnToLobbyLatch] = useState(false);
 
   const clearBansCtaQueueSuppress = useCallback(() => {
     setBansCtaQueueSuppress(false);
   }, []);
+
+  const armBansNavFromResultCta = useCallback(() => {
+    setBansNavState({
+      origin: 'result-cta',
+      previousScreen: 'lobby',
+      returnTarget: 'lobby',
+    });
+    console.log('[BANS NAV] opened-from-result-cta returnTarget=lobby');
+  }, []);
+
+  const resetBansNavState = useCallback(() => {
+    setBansNavState(DEFAULT_BANS_NAV);
+  }, []);
+
+  useLayoutEffect(() => {
+    armBansNavFromResultCtaRef.current = armBansNavFromResultCta;
+  }, [armBansNavFromResultCta]);
 
   const openNewBanWhoFlow = useCallback(() => {
     closeLobby();
@@ -5338,6 +5384,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       openBansOverlayRequest,
       bansCtaQueueSuppress,
       clearBansCtaQueueSuppress,
+      bansNavState,
+      armBansNavFromResultCta,
+      resetBansNavState,
+      bansReturnToLobbyLatch,
+      setBansReturnToLobbyLatch,
       pendingStartupInteractions,
       releaseStartupInteractions,
       markSessionBanSendSuccess,
@@ -5455,6 +5506,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       openBansOverlayRequest,
       bansCtaQueueSuppress,
       clearBansCtaQueueSuppress,
+      bansNavState,
+      armBansNavFromResultCta,
+      resetBansNavState,
+      bansReturnToLobbyLatch,
+      setBansReturnToLobbyLatch,
       pendingStartupInteractions,
       releaseStartupInteractions,
       markSessionBanSendSuccess,
@@ -5474,6 +5530,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       openBansOverlayRequest,
       bansCtaQueueSuppress,
       clearBansCtaQueueSuppress,
+      bansNavState,
+      armBansNavFromResultCta,
+      resetBansNavState,
+      bansReturnToLobbyLatch,
+      setBansReturnToLobbyLatch,
     ],
   );
 
