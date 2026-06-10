@@ -273,18 +273,33 @@ export async function linkPairInteraction(
 export async function applyOverboard(
   senderId: string,
   receiverId: string,
-): Promise<EnergyDelta> {
-  const { free: pairFreeMode } = await isPairFreeMode(senderId, receiverId);
+): Promise<
+  EnergyDelta & { funMode: boolean; pairBanCount24h: number }
+> {
+  const { free: pairFreeMode, countToday } = await isPairFreeMode(
+    senderId,
+    receiverId,
+  );
   await incrementPairInteraction(senderId, receiverId);
 
   if (pairFreeMode) {
-    return { sender: 0, receiver: 0 };
+    return {
+      sender: 0,
+      receiver: 0,
+      funMode: true,
+      pairBanCount24h: countToday,
+    };
   }
 
   const raw = calcOverboardPenalty();
   const s = await applyDelta(senderId, raw.sender, { pairFreeMode: false });
   const r = await applyDelta(receiverId, raw.receiver, { pairFreeMode: false });
-  return { sender: s, receiver: r };
+  return {
+    sender: s,
+    receiver: r,
+    funMode: false,
+    pairBanCount24h: countToday,
+  };
 }
 
 type CheckResultBanRow = {
@@ -359,10 +374,8 @@ export async function applyCheckResult(
     return { sender: 0, receiver: 0, farmSkipped: false, completedBan };
   }
 
-  const { free: pairFreeMode } = await isPairFreeMode(
-    ban.senderId,
-    ban.receiverId,
-  );
+  const { free: pairFreeMode, countToday: pairBanCount24h } =
+    await isPairFreeMode(ban.senderId, ban.receiverId);
   const skipPositiveRewards =
     !pairFreeMode &&
     (await shouldSkipFarmRewards(ban.senderId, ban.receiverId));
@@ -388,6 +401,8 @@ export async function applyCheckResult(
       senderEnergyDelta: senderDelta,
       receiverEnergyDelta: receiverDelta,
       farmSkipped,
+      funMode: pairFreeMode,
+      pairBanCount24h,
       senderResultSeenAt: null,
       receiverResultSeenAt: null,
     },

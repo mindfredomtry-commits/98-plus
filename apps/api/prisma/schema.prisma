@@ -126,6 +126,8 @@ model Ban {
   isOverboard         Boolean             @default(false)
   energyApplied       Boolean             @default(false)
   farmSkipped         Boolean             @default(false)
+  funMode             Boolean             @default(false)
+  pairBanCount24h     Int?
   outcome             InteractionOutcome?
   senderEnergyDelta   Int?
   receiverEnergyDelta Int?

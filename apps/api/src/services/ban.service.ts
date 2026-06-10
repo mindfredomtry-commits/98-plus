@@ -903,6 +903,8 @@ export async function markOverboard(banId: string, userId: string) {
       senderEnergyDelta: energy.sender,
       receiverEnergyDelta: energy.receiver,
       energyApplied: true,
+      funMode: energy.funMode,
+      pairBanCount24h: energy.pairBanCount24h,
       receiverIncomingAckAt: new Date(),
       senderResultSeenAt: null,
       receiverResultSeenAt: null,

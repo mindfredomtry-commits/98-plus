@@ -12,6 +12,7 @@ import { createPortal } from 'react-dom';
 import type { BanResult, UserPublic } from '@98plus/shared';
 import {
   getResultCardHeadline,
+  isResultFunMode,
   isValidBanResultPayload,
   isResultParticipant,
   RESULT_COPY,
@@ -28,6 +29,7 @@ import { ModalShell } from './ModalShell';
 import { AvatarImage } from './AvatarImage';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
+import { logResultFunMode } from '@/lib/result-fun-mode-debug';
 import { logResultPresentation } from '@/lib/result-ui-debug';
 import { BanSaveStar } from './instant-ban/BanSaveStar';
 import { ResultShareIcon } from './instant-ban/ResultShareIcon';
@@ -82,6 +84,7 @@ function ResultOverlayInner({
   }, [token, result.id]);
 
   const isOverboard = result.outcome === 'overboard';
+  const isFunMode = isResultFunMode(result);
   const overboardPresentation = RESULT_COPY.overboard;
 
   const view = useMemo(() => {
@@ -206,6 +209,11 @@ function ResultOverlayInner({
 
   useLayoutEffect(() => {
     if (!showable) return;
+    logResultFunMode(result);
+  }, [showable, result]);
+
+  useLayoutEffect(() => {
+    if (!showable) return;
     logResultPresentation(result.outcome, {
       component: 'ResultOverlay',
       branch: isOverboard ? 'overboard' : 'default',
@@ -306,7 +314,12 @@ function ResultOverlayInner({
             {view.myDelta} ⚡
           </p>
         ) : null}
-        {result.farmSkipped ? (
+        {isFunMode ? (
+          <p className="result-fun-mode-badge" aria-label="fun mode">
+            fun mode
+          </p>
+        ) : null}
+        {result.farmSkipped && !isFunMode ? (
           <p className="text-xs text-muted mb-2">Лимит фарма на сегодня</p>
         ) : null}
       </div>

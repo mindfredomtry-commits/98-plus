@@ -1089,6 +1089,20 @@ html.scroll-lock body {
   text-shadow: 0 0 20px rgba(var(--98-accent-rgb), 0.35);
 }
 
+.result-fun-mode-badge {
+  display: inline-block;
+  margin: 0.15rem auto 0.5rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  color: rgba(var(--98-text-rgb, 220, 220, 230), 0.55);
+  background: rgba(var(--98-text-rgb, 220, 220, 230), 0.08);
+  border: 1px solid rgba(var(--98-text-rgb, 220, 220, 230), 0.12);
+}
+
 .modal-card--result {
   position: relative;
   padding-top: 2.5rem;

@@ -13,6 +13,8 @@ export interface BanCheckConfirmations {
   receiver: boolean;
 }
 
+export type ResultEconomyMode = 'normal' | 'fun';
+
 export interface BanResult {
   id: string;
   text: string;
@@ -26,10 +28,30 @@ export interface BanResult {
   confirmations: BanCheckConfirmations | null;
   energy: { sender: number; receiver: number };
   farmSkipped: boolean;
+  /** Pair exceeded daily ban cap — energy economy disabled for this result. */
+  funMode?: boolean;
+  /** @deprecated alias — use funMode */
+  isFunMode?: boolean;
+  economyMode?: ResultEconomyMode;
+  /** Pair ban count in rolling 24h window at result creation (dev / diagnostics). */
+  pairBanCount24h?: number | null;
   completedAt: string;
   deepLink: string;
   shareLink: string;
   inviteOpponentLink: string;
+}
+
+/** Explicit fun-mode flag — never infer from energy delta alone. */
+export function isResultFunMode(result: {
+  funMode?: boolean;
+  isFunMode?: boolean;
+  economyMode?: ResultEconomyMode | string | null;
+}): boolean {
+  return (
+    result.funMode === true ||
+    result.isFunMode === true ||
+    result.economyMode === 'fun'
+  );
 }
 
 export type ResultViewerRole = 'sender' | 'receiver' | 'observer';

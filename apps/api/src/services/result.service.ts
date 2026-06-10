@@ -129,6 +129,10 @@ export function mapBanRowToResult(
       receiver: ban.receiverEnergyDelta ?? 0,
     },
     farmSkipped: ban.farmSkipped,
+    funMode: ban.funMode ?? false,
+    isFunMode: ban.funMode ?? false,
+    economyMode: ban.funMode ? ('fun' as const) : ('normal' as const),
+    pairBanCount24h: ban.pairBanCount24h ?? null,
     completedAt: (ban.completedAt ?? ban.createdAt).toISOString(),
     deepLink: miniAppLink({ type: 'result', banId: ban.id }),
     shareLink: shareLink(
