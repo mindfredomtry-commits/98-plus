@@ -65,7 +65,7 @@ const DebugPanel = dynamic(
 );
 
 /** Bump when diagnosing shell / deploy mismatches. */
-const APP_SHELL_BUILD = 'arena-v2@overboard-diag-v12';
+const APP_SHELL_BUILD = 'arena-v2@overboard-diag-v13';
 
 export default function HomePage() {
   const {
@@ -82,6 +82,8 @@ export default function HomePage() {
     closeLobby,
     newBanWhoFlowRequest,
     openBansOverlayRequest,
+    bansCtaQueueSuppress,
+    closeSendFlow,
     setIncomingBan,
     openDeepLinkCheck,
     openDeepLinkRepeat,
@@ -101,7 +103,6 @@ export default function HomePage() {
     overlayQueueLength,
     deepLinkSelectedBanId,
     sendFlowOpen,
-    closeSendFlow,
     deepLinkReplyBooting,
     setDeepLinkReplyBooting,
     activeOverlayKind,
@@ -303,16 +304,17 @@ export default function HomePage() {
   }, [closeLobby]);
 
   useEffect(() => {
+    if (bansCtaQueueSuppress) return;
     if (newBanWhoFlowRequest > 0) {
       setInstantBanOpen(true);
     }
-  }, [newBanWhoFlowRequest]);
+  }, [bansCtaQueueSuppress, newBanWhoFlowRequest]);
 
   useLayoutEffect(() => {
-    if (openBansOverlayRequest > 0) {
-      setInstantBanOpen(true);
-    }
-  }, [openBansOverlayRequest]);
+    if (openBansOverlayRequest === 0) return;
+    setInstantBanOpen(false);
+    closeSendFlow();
+  }, [openBansOverlayRequest, closeSendFlow]);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== 'development') return;

@@ -4333,22 +4333,43 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const queueLen = overlayQueueRef.current.length;
 
     markVisibleOverboardTrace('RESULT CTA OPEN BANS click', {
+      action: wasDirect ? 'open-bans' : 'open-bans-queue',
+      direct: wasDirect,
       banId,
       wasDirect,
       queueLength: queueLen,
     });
-    logResultNav('to-bans', { banId, queueLength: queueLen, wasDirect });
+    logResultNav('to-bans', {
+      action: 'open-bans',
+      direct: wasDirect,
+      banId,
+      queueLength: queueLen,
+      wasDirect,
+    });
     markOverlayUserAction('result-nav', banId ?? undefined);
 
     if (wasDirect) {
       closeDirectOverboardForCta(banId);
+      closeSendFlow();
+      clearIncomingReply();
+      clearDeepLinkReplyBan();
+      logResultNav('block-send-flow', {
+        reason: 'open-bans-cta',
+        direct: true,
+        banId,
+      });
+      markVisibleOverboardTrace('RESULT NAV BLOCK SEND FLOW', {
+        reason: 'open-bans-cta',
+        direct: true,
+        banId,
+      });
       setLobbyOpen(false);
       lobbyOpenRef.current = false;
       setBansCtaQueueSuppress(true);
       queueMicrotask(() => {
         setOpenBansOverlayRequest((n) => n + 1);
       });
-      logResultNav('open-bans-overlay', { banId, wasDirect: true });
+      logResultNav('open-bans-overlay', { direct: true, banId, wasDirect: true });
       return;
     }
 
@@ -4361,7 +4382,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       logResultNav('lobby-fallback', {});
     }
   }, [
+    clearDeepLinkReplyBan,
+    clearIncomingReply,
     closeDirectOverboardForCta,
+    closeSendFlow,
     directResultOverlayActive,
     dismissBanResult,
     markOverlayUserAction,

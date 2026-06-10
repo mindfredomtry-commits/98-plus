@@ -305,6 +305,8 @@ function ResultOverlayInner({
     haptic('light');
     if (directPaint) {
       markVisibleOverboardTrace('RESULT CTA OPEN BANS click', {
+        action: 'open-bans',
+        direct: true,
         directPaint: true,
         banId: result.id,
         outcome: result.outcome,

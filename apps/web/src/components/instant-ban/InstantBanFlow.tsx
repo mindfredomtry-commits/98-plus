@@ -718,6 +718,7 @@ export function InstantBanFlow({
 
   /** Only enter who-step when send flow opens — not when user dismisses back to lobby idle. */
   useEffect(() => {
+    if (bansCtaQueueSuppress) return;
     if (sendStarted && !prevSendStartedRef.current) {
       clearCtaBootDelayTimer();
       if (skipActiveDeepLinkEntryRef.current) {
@@ -747,6 +748,7 @@ export function InstantBanFlow({
     }
     prevSendStartedRef.current = sendStarted;
   }, [
+    bansCtaQueueSuppress,
     clearCtaBootDelayTimer,
     incomingReplyBanId,
     phase,
@@ -1227,9 +1229,28 @@ export function InstantBanFlow({
     setBansOverlayOpen(true);
   }, [banSentSuccess, phase, unlockNotificationQueueAndFlush]);
 
+  const resetSendUiForBansCta = useCallback(() => {
+    sendEntryPhaseRef.current = null;
+    stopCrossScreenAnim();
+    screenTransitionRef.current = null;
+    setScreenTransition(null);
+    setSelectedUser(null);
+    setBanText('');
+    setSendError(null);
+    setWhoExitActive(false);
+    setWhoDismissProgress(0);
+    setComposeExitProgress(0);
+    setComposeDismissing(false);
+    setCrossScreenProgressImmediate(0);
+    setCtaState('hidden');
+    setPhase('idle');
+  }, [setCrossScreenProgressImmediate, stopCrossScreenAnim]);
+
   const handleOpenBansFromResultCta = useCallback(() => {
     if (banSentSuccess) return;
-    if (phase !== 'idle') {
+    if (bansCtaQueueSuppress) {
+      resetSendUiForBansCta();
+    } else if (phase !== 'idle') {
       console.log('[open-bans-from-result-cta]', {
         action: 'blocked',
         phase,
@@ -1239,7 +1260,9 @@ export function InstantBanFlow({
     }
     console.log('[open-bans-from-result-cta]', {
       action: 'open',
+      direct: true,
       bansCtaQueueSuppress,
+      phase,
       notificationQueueUiLock:
         notificationSessionActive || notificationOverlayActive,
     });
@@ -1252,6 +1275,7 @@ export function InstantBanFlow({
     notificationSessionActive,
     notificationOverlayActive,
     phase,
+    resetSendUiForBansCta,
   ]);
 
   const handleCloseBansOverlay = useCallback(() => {

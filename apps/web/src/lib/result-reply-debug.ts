@@ -4,7 +4,8 @@ export type ResultNavLogStage =
   | 'to-bans'
   | 'next-overlay'
   | 'lobby-fallback'
-  | 'open-bans-overlay';
+  | 'open-bans-overlay'
+  | 'block-send-flow';
 
 export function logResultReply(
   stage: ResultReplyLogStage,
