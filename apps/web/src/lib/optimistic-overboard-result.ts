@@ -1,6 +1,7 @@
 import type { BanInteraction, BanResult } from '@98plus/shared';
 import {
   calcOverboardPenalty,
+  ensureDirectOverboardOptimisticResult,
   isIncomingPairFunMode,
   RESULT_COPY,
 } from '@98plus/shared';
@@ -125,26 +126,29 @@ export function buildOptimisticOverboardResult(
         ? resolvedSender
         : resolvedSender;
 
-  return {
-    id: enriched.id,
-    text,
-    outcome: 'overboard',
-    headline: copy.headline,
-    subline: copy.subline,
-    sender: resolvedSender,
-    receiver: resolvedReceiver,
+  return ensureDirectOverboardOptimisticResult(
+    {
+      id: enriched.id,
+      text,
+      outcome: 'overboard',
+      headline: copy.headline,
+      subline: copy.subline,
+      sender: resolvedSender,
+      receiver: resolvedReceiver,
+      viewerId,
+      opponent,
+      confirmations: null,
+      energy: economy.energy,
+      farmSkipped: economy.funMode,
+      funMode: economy.funMode,
+      isFunMode: economy.funMode,
+      economyMode: economy.economyMode,
+      pairBanCount24h: economy.pairBanCount24h,
+      completedAt: new Date().toISOString(),
+      deepLink: '',
+      shareLink: '',
+      inviteOpponentLink: '',
+    },
     viewerId,
-    opponent,
-    confirmations: null,
-    energy: economy.energy,
-    farmSkipped: economy.funMode,
-    funMode: economy.funMode,
-    isFunMode: economy.funMode,
-    economyMode: economy.economyMode,
-    pairBanCount24h: economy.pairBanCount24h,
-    completedAt: new Date().toISOString(),
-    deepLink: '',
-    shareLink: '',
-    inviteOpponentLink: '',
-  };
+  );
 }

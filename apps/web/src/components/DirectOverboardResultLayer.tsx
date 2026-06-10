@@ -35,6 +35,10 @@ export function DirectOverboardResultLayer({ result, onClose }: Props) {
       bypassPriorityLock: isLocalOverboardBypassForBan(result.id),
       extra: { mounted: true, outcome: result.outcome },
     });
+    console.log('[DIRECT OVERBOARD LAYER] mounted=true', {
+      banId: result.id,
+      outcome: result.outcome,
+    });
     logOverboardDirectState(
       'DirectOverboardResultLayer mounted=true',
       {
