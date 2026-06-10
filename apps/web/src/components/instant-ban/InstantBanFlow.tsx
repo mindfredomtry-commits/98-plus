@@ -232,6 +232,9 @@ export function InstantBanFlow({
     rollbackOptimisticSend,
     activeBans,
     newBanWhoFlowRequest,
+    openBansOverlayRequest,
+    bansCtaQueueSuppress,
+    clearBansCtaQueueSuppress,
     deepLinkRepeatBan,
     clearDeepLinkRepeatBan,
     deepLinkReplyBan,
@@ -815,7 +818,9 @@ export function InstantBanFlow({
     !notificationQueueUiLock &&
     !replyUiShellActive;
   const showBansLayer =
-    bansOverlayOpen && phase === 'idle' && !notificationQueueUiLock;
+    bansOverlayOpen &&
+    phase === 'idle' &&
+    (!notificationQueueUiLock || bansCtaQueueSuppress);
 
   useEffect(() => {
     console.log('[LOBBY NAV STATE]', {
@@ -1222,13 +1227,50 @@ export function InstantBanFlow({
     setBansOverlayOpen(true);
   }, [banSentSuccess, phase, unlockNotificationQueueAndFlush]);
 
+  const handleOpenBansFromResultCta = useCallback(() => {
+    if (banSentSuccess) return;
+    if (phase !== 'idle') {
+      console.log('[open-bans-from-result-cta]', {
+        action: 'blocked',
+        phase,
+        bansCtaQueueSuppress,
+      });
+      return;
+    }
+    console.log('[open-bans-from-result-cta]', {
+      action: 'open',
+      bansCtaQueueSuppress,
+      notificationQueueUiLock:
+        notificationSessionActive || notificationOverlayActive,
+    });
+    setBansTab('yours');
+    setSelectedBanForDetails(null);
+    setBansOverlayOpen(true);
+  }, [
+    banSentSuccess,
+    bansCtaQueueSuppress,
+    notificationSessionActive,
+    notificationOverlayActive,
+    phase,
+  ]);
+
   const handleCloseBansOverlay = useCallback(() => {
-    if (isNotificationQueueLocked()) {
-      unlockNotificationQueueAndFlush('target-flow-closed');
+    const wasBansCta = bansCtaQueueSuppress;
+    if (wasBansCta) {
+      clearBansCtaQueueSuppress();
+    }
+    if (isNotificationQueueLocked() || wasBansCta) {
+      unlockNotificationQueueAndFlush(
+        wasBansCta ? 'result-cta-bans-closed' : 'target-flow-closed',
+      );
     }
     setBansOverlayOpen(false);
     setSelectedBanForDetails(null);
-  }, [unlockNotificationQueueAndFlush]);
+  }, [
+    bansCtaQueueSuppress,
+    clearBansCtaQueueSuppress,
+    unlockNotificationQueueAndFlush,
+  ]);
 
   const handleActiveBanBackToBansList = useCallback(() => {
     logOverlayPriority('explicit-bans-open-unlock', { source: 'active-ban-back' });
@@ -1489,6 +1531,16 @@ export function InstantBanFlow({
     lastNewBanWhoFlowRequestRef.current = newBanWhoFlowRequest;
     beginNewBanWhoFlow();
   }, [newBanWhoFlowRequest, beginNewBanWhoFlow]);
+
+  const lastOpenBansOverlayRequestRef = useRef(0);
+  useLayoutEffect(() => {
+    if (openBansOverlayRequest === 0) return;
+    if (lastOpenBansOverlayRequestRef.current === openBansOverlayRequest) {
+      return;
+    }
+    lastOpenBansOverlayRequestRef.current = openBansOverlayRequest;
+    handleOpenBansFromResultCta();
+  }, [openBansOverlayRequest, handleOpenBansFromResultCta]);
 
   useLayoutEffect(() => {
     if (!deepLinkRepeatBan?.id || !user?.id) return;

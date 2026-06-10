@@ -303,8 +303,15 @@ function ResultOverlayInner({
 
   const goToBans = useCallback(() => {
     haptic('light');
+    if (directPaint) {
+      markVisibleOverboardTrace('RESULT CTA OPEN BANS click', {
+        directPaint: true,
+        banId: result.id,
+        outcome: result.outcome,
+      });
+    }
     navigateFromResult();
-  }, [haptic, navigateFromResult]);
+  }, [directPaint, haptic, navigateFromResult, result.id, result.outcome]);
 
   const banOthers = useCallback(() => {
     markOverlayUserAction('result', result.id);

@@ -65,7 +65,7 @@ const DebugPanel = dynamic(
 );
 
 /** Bump when diagnosing shell / deploy mismatches. */
-const APP_SHELL_BUILD = 'arena-v2@overboard-diag-v11';
+const APP_SHELL_BUILD = 'arena-v2@overboard-diag-v12';
 
 export default function HomePage() {
   const {
@@ -81,6 +81,7 @@ export default function HomePage() {
     lobbyOpen,
     closeLobby,
     newBanWhoFlowRequest,
+    openBansOverlayRequest,
     setIncomingBan,
     openDeepLinkCheck,
     openDeepLinkRepeat,
@@ -306,6 +307,12 @@ export default function HomePage() {
       setInstantBanOpen(true);
     }
   }, [newBanWhoFlowRequest]);
+
+  useLayoutEffect(() => {
+    if (openBansOverlayRequest > 0) {
+      setInstantBanOpen(true);
+    }
+  }, [openBansOverlayRequest]);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== 'development') return;

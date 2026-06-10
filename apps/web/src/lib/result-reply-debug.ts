@@ -1,6 +1,10 @@
 export type ResultReplyLogStage = 'start' | 'selected-user' | 'what-visible';
 
-export type ResultNavLogStage = 'to-bans' | 'next-overlay' | 'lobby-fallback';
+export type ResultNavLogStage =
+  | 'to-bans'
+  | 'next-overlay'
+  | 'lobby-fallback'
+  | 'open-bans-overlay';
 
 export function logResultReply(
   stage: ResultReplyLogStage,

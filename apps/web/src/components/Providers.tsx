@@ -371,6 +371,11 @@ interface AppContextValue {
   /** Opens InstantBan Who screen for a new ban (increments on each request). */
   newBanWhoFlowRequest: number;
   openNewBanWhoFlow: () => void;
+  /** Opens BansOverlay from result card «К запретам» (increments on each request). */
+  openBansOverlayRequest: number;
+  /** Hides notification queue while BansOverlay opened from direct overboard CTA. */
+  bansCtaQueueSuppress: boolean;
+  clearBansCtaQueueSuppress: () => void;
   /** Accumulated pre-open interactions waiting for ritual release. */
   pendingStartupInteractions: boolean;
   /** Release queued startup interactions (e.g. after opening «Твои запреты»). */
@@ -1608,6 +1613,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       void acknowledgeBanResultOnServer(banId, tokenRef.current);
     }
     clearLocalOverboardBypass();
+    if (wasDirect) {
+      overboardInFlightRef.current = null;
+    }
     const gateBefore = snapshotDirectOverboardGate();
     clearDirectOverboardLayerRefs();
     setDirectResultOverlayActive(false);
@@ -4269,11 +4277,80 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [openSendFlow],
   );
 
+  const closeDirectOverboardForCta = useCallback(
+    (banId: string | null) => {
+      markVisibleOverboardTrace('DIRECT OVERBOARD CLOSE FROM CTA', {
+        banId,
+        inFlightId: overboardInFlightRef.current,
+      });
+
+      const viewerId =
+        resultRef.current?.viewerId ?? userIdRef.current ?? null;
+      if (banId) {
+        dismissBanResultLocally(banId, viewerId);
+        void acknowledgeBanResultOnServer(banId, tokenRef.current);
+      }
+
+      overboardInFlightRef.current = null;
+      clearLocalOverboardBypass();
+
+      const gateBefore = snapshotDirectOverboardGate();
+      try {
+        flushSync(() => {
+          clearDirectOverboardLayerRefs();
+          setDirectResultOverlayActive(false);
+          setResult(null);
+        });
+      } catch {
+        clearDirectOverboardLayerRefs();
+        setDirectResultOverlayActive(false);
+        setResult(null);
+      }
+      resultRef.current = null;
+
+      logDirectOverboardStateReset({
+        source: 'open-bans-cta',
+        reason: 'user-open-bans',
+        before: gateBefore,
+        after: {
+          directResultOverlayActive: false,
+          directResultOverlayRef: false,
+          resultBanId: null,
+          showDirectOverboardLayer: false,
+          hasResult: false,
+        },
+      });
+    },
+    [clearDirectOverboardLayerRefs, snapshotDirectOverboardGate],
+  );
+
   const navigateFromResult = useCallback(() => {
-    const banId = result?.id ?? null;
+    const banId = result?.id ?? resultRef.current?.id ?? null;
+    const wasDirect =
+      directResultOverlayRef.current ||
+      directResultOverlayActiveRef.current ||
+      directResultOverlayActive;
     const queueLen = overlayQueueRef.current.length;
-    logResultNav('to-bans', { banId, queueLength: queueLen });
+
+    markVisibleOverboardTrace('RESULT CTA OPEN BANS click', {
+      banId,
+      wasDirect,
+      queueLength: queueLen,
+    });
+    logResultNav('to-bans', { banId, queueLength: queueLen, wasDirect });
     markOverlayUserAction('result-nav', banId ?? undefined);
+
+    if (wasDirect) {
+      closeDirectOverboardForCta(banId);
+      setLobbyOpen(false);
+      lobbyOpenRef.current = false;
+      setBansCtaQueueSuppress(true);
+      queueMicrotask(() => {
+        setOpenBansOverlayRequest((n) => n + 1);
+      });
+      logResultNav('open-bans-overlay', { banId, wasDirect: true });
+      return;
+    }
 
     const remainingAfterPop = Math.max(0, queueLen - 1);
     dismissBanResult();
@@ -4283,7 +4360,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     } else {
       logResultNav('lobby-fallback', {});
     }
-  }, [dismissBanResult, markOverlayUserAction, result?.id]);
+  }, [
+    closeDirectOverboardForCta,
+    directResultOverlayActive,
+    dismissBanResult,
+    markOverlayUserAction,
+    result?.id,
+  ]);
 
   const startIncomingReply = useCallback(
     (ban: BanInteraction) => {
@@ -4873,6 +4956,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, []);
 
   const [newBanWhoFlowRequest, setNewBanWhoFlowRequest] = useState(0);
+  const [openBansOverlayRequest, setOpenBansOverlayRequest] = useState(0);
+  const [bansCtaQueueSuppress, setBansCtaQueueSuppress] = useState(false);
+
+  const clearBansCtaQueueSuppress = useCallback(() => {
+    setBansCtaQueueSuppress(false);
+  }, []);
 
   const openNewBanWhoFlow = useCallback(() => {
     closeLobby();
@@ -5222,6 +5311,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearReplyDeepLinkState,
       newBanWhoFlowRequest,
       openNewBanWhoFlow,
+      openBansOverlayRequest,
+      bansCtaQueueSuppress,
+      clearBansCtaQueueSuppress,
       pendingStartupInteractions,
       releaseStartupInteractions,
       markSessionBanSendSuccess,
@@ -5336,6 +5428,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearReplyDeepLinkState,
       newBanWhoFlowRequest,
       openNewBanWhoFlow,
+      openBansOverlayRequest,
+      bansCtaQueueSuppress,
+      clearBansCtaQueueSuppress,
       pendingStartupInteractions,
       releaseStartupInteractions,
       markSessionBanSendSuccess,
@@ -5352,6 +5447,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       activeBanUiShellActive,
       activeBanDeepLinkBanId,
       notifyActiveBanCardVisible,
+      openBansOverlayRequest,
+      bansCtaQueueSuppress,
+      clearBansCtaQueueSuppress,
     ],
   );
 
@@ -5361,8 +5459,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         {children}
         {!showDirectOverboardLayer ? (
           <GlobalOverlayHost
-            active={notificationSessionActive}
-            queueSessionActive={notificationSessionActive}
+            active={notificationSessionActive && !bansCtaQueueSuppress}
+            queueSessionActive={notificationSessionActive && !bansCtaQueueSuppress}
             activeOverlayKind={displayActiveOverlayKind}
             activeIncomingBanId={
               displayActiveOverlayKind === 'incoming'
