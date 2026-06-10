@@ -239,6 +239,7 @@ export function InstantBanFlow({
     resetBansNavState,
     bansReturnToLobbyLatch,
     setBansReturnToLobbyLatch,
+    completeBansOverlayCloseFromResultCta,
     lobbyOpen,
     deepLinkRepeatBan,
     clearDeepLinkRepeatBan,
@@ -904,12 +905,25 @@ export function InstantBanFlow({
     stopCrossScreenAnim,
   ]);
 
+  const handleCloseBansOverlayRef = useRef<() => void>(() => {});
+
   useEffect(() => {
-    if (phase !== 'idle') {
-      setBansOverlayOpen(false);
-      setSelectedBanForDetails(null);
+    if (phase === 'idle' || !bansOverlayOpen) return;
+    console.log('[BANS CLOSE] phase-forced-close', {
+      phase,
+      origin: bansNavState.origin,
+      returnTarget: bansNavState.returnTarget,
+    });
+    if (
+      bansNavState.origin === 'result-cta' ||
+      bansCtaQueueSuppress
+    ) {
+      handleCloseBansOverlayRef.current();
+      return;
     }
-  }, [phase]);
+    setBansOverlayOpen(false);
+    setSelectedBanForDetails(null);
+  }, [bansCtaQueueSuppress, bansNavState.origin, bansNavState.returnTarget, bansOverlayOpen, phase]);
 
   useEffect(() => {
     const uid = user?.id ?? null;
@@ -1285,55 +1299,18 @@ export function InstantBanFlow({
   ]);
 
   const handleCloseBansOverlay = useCallback(() => {
-    const nav = bansNavState;
-    const fromResultCta =
-      nav.origin === 'result-cta' || bansCtaQueueSuppress;
-    const wasBansCta = bansCtaQueueSuppress;
-    const lobbyBefore = lobbyOpen;
-
-    console.log('[BANS CLOSE]', {
-      origin: nav.origin,
-      returnTarget: nav.returnTarget,
-      previousScreen: nav.previousScreen,
-      'lobbyOpen(before)': lobbyBefore,
-      bansCtaQueueSuppress,
-      fromResultCta,
-    });
-
     setBansOverlayOpen(false);
     setSelectedBanForDetails(null);
 
-    if (fromResultCta) {
-      console.log('[BANS CLOSE BRANCH] branch=result-cta');
-      setBansReturnToLobbyLatch(true);
+    const returnedToLobby = completeBansOverlayCloseFromResultCta();
+    if (returnedToLobby) {
       resetSendUiForBansCta();
       closeSendFlow();
-      openLobby('bans-close-result-cta');
       beginCtaSpringIn();
-      resetBansNavState();
-      console.log('[BANS NAV] back-to-lobby source=result-cta');
-      console.log('[BANS CLOSE]', {
-        origin: nav.origin,
-        returnTarget: nav.returnTarget,
-        previousScreen: nav.previousScreen,
-        'lobbyOpen(after)': true,
-        bansCtaQueueSuppress,
-      });
-      queueMicrotask(() => {
-        if (wasBansCta) {
-          clearBansCtaQueueSuppress();
-        }
-        if (isNotificationQueueLocked() || wasBansCta) {
-          unlockNotificationQueueAndFlush(
-            wasBansCta ? 'result-cta-bans-closed' : 'target-flow-closed',
-          );
-        }
-        window.setTimeout(() => setBansReturnToLobbyLatch(false), 320);
-      });
       return;
     }
 
-    console.log('[BANS CLOSE BRANCH] branch=default');
+    const wasBansCta = bansCtaQueueSuppress;
     if (wasBansCta) {
       clearBansCtaQueueSuppress();
     }
@@ -1344,17 +1321,17 @@ export function InstantBanFlow({
     }
   }, [
     bansCtaQueueSuppress,
-    bansNavState,
     beginCtaSpringIn,
     clearBansCtaQueueSuppress,
     closeSendFlow,
-    lobbyOpen,
-    openLobby,
-    resetBansNavState,
+    completeBansOverlayCloseFromResultCta,
     resetSendUiForBansCta,
-    setBansReturnToLobbyLatch,
     unlockNotificationQueueAndFlush,
   ]);
+
+  useLayoutEffect(() => {
+    handleCloseBansOverlayRef.current = handleCloseBansOverlay;
+  }, [handleCloseBansOverlay]);
 
   const handleActiveBanBackToBansList = useCallback(() => {
     logOverlayPriority('explicit-bans-open-unlock', { source: 'active-ban-back' });
