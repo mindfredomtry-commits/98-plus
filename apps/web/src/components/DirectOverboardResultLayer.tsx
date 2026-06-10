@@ -9,6 +9,7 @@ import {
   logResultOpenAttempt,
 } from '@/lib/overlay-priority';
 import { logOverboardDirectState } from '@/lib/overboard-direct-state';
+import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
 import { logResultPath } from '@/lib/result-open-trace';
 import { ResultOverlay } from './ResultOverlay';
 
@@ -34,6 +35,10 @@ export function DirectOverboardResultLayer({ result, onClose }: Props) {
       allowed: true,
       bypassPriorityLock: isLocalOverboardBypassForBan(result.id),
       extra: { mounted: true, outcome: result.outcome },
+    });
+    markVisibleOverboardTrace('DIRECT OVERBOARD LAYER mounted=true', {
+      banId: result.id,
+      outcome: result.outcome,
     });
     console.log('[DIRECT OVERBOARD LAYER] mounted=true', {
       banId: result.id,

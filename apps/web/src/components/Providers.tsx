@@ -563,6 +563,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
   }, []);
   const directResultOverlayRef = useRef(false);
+  const directResultOverlayActiveRef = useRef(false);
+  const resultBanIdRef = useRef<string | null>(null);
+  const displayResultBanIdRef = useRef<string | null>(null);
+  const showDirectOverboardLayerRef = useRef(false);
+  const commitDirectOverboardLayerRefs = useCallback(
+    (banId: string, active: boolean) => {
+      directResultOverlayRef.current = active;
+      directResultOverlayActiveRef.current = active;
+      resultOpenRef.current = active;
+      resultBanIdRef.current = active ? banId : null;
+      displayResultBanIdRef.current = active ? banId : null;
+      showDirectOverboardLayerRef.current = active;
+    },
+    [],
+  );
+  const clearDirectOverboardLayerRefs = useCallback(() => {
+    directResultOverlayRef.current = false;
+    directResultOverlayActiveRef.current = false;
+    resultOpenRef.current = false;
+    resultBanIdRef.current = null;
+    displayResultBanIdRef.current = null;
+    showDirectOverboardLayerRef.current = false;
+  }, []);
   const [directResultOverlayActive, setDirectResultOverlayActive] =
     useState(false);
   const [overboardTransitionActive, setOverboardTransitionActive] =
@@ -738,11 +761,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       banId: result?.id ?? null,
       reason: 'suppress-queued-display',
     });
-    directResultOverlayRef.current = false;
-    resultOpenRef.current = false;
+    clearDirectOverboardLayerRefs();
     setResult(null);
     setDirectResultOverlayActive(false);
-  }, [result?.id]);
+  }, [clearDirectOverboardLayerRefs, result?.id]);
 
   const armActiveBanDeepLinkEarly = useCallback((banId: string) => {
     lockNotificationQueue('deep-link-active-ban', banId);
@@ -861,7 +883,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           bypassPriorityLock: resultBlock.bypassPriorityLock,
           extra: { via: 'queue-head' },
         });
-        directResultOverlayRef.current = false;
+        clearDirectOverboardLayerRefs();
         setDirectResultOverlayActive(false);
         resultOpenRef.current = true;
         setResult(active.result);
@@ -900,8 +922,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           resultId: directBanId,
           reason: directBlock.reason ?? 'direct-blocked',
         });
-        directResultOverlayRef.current = false;
-        resultOpenRef.current = false;
+        clearDirectOverboardLayerRefs();
         setResult(null);
         setDirectResultOverlayActive(false);
         }
@@ -1500,10 +1521,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       void acknowledgeBanResultOnServer(banId, tokenRef.current);
     }
     clearLocalOverboardBypass();
-    directResultOverlayRef.current = false;
+    clearDirectOverboardLayerRefs();
     setDirectResultOverlayActive(false);
     if (wasDirect || head?.kind !== 'result') {
-      resultOpenRef.current = false;
       logResultStateCleared('dismissBanResult', {
         banId,
         resultId: banId,
@@ -1514,7 +1534,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (head?.kind === 'result') {
       dismissCurrentOverlay('result-dismiss');
     }
-  }, [dismissCurrentOverlay, result]);
+  }, [clearDirectOverboardLayerRefs, dismissCurrentOverlay, result]);
 
   const pruneAndSyncOverlayQueue = useCallback(() => {
     const viewerId = userIdRef.current;
@@ -1634,7 +1654,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setCheckBan(null);
     setCheckWaiting(false);
     setResult(null);
-    directResultOverlayRef.current = false;
+    clearDirectOverboardLayerRefs();
     setDirectResultOverlayActive(false);
     setOverlayQueue([]);
     overlayQueueRef.current = [];
@@ -2353,20 +2373,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [dismissCurrentOverlay, receiveResult, scheduleResultPollBurst],
   );
 
-  const readDirectOverboardSnapshot = useCallback(
-    (
-      renderDirectActive = directResultOverlayActive,
-    ): OverboardDirectStateSnapshot => {
-      const resultBanId = resultRef.current?.id ?? null;
+  const readDirectOverboardSnapshot =
+    useCallback((): OverboardDirectStateSnapshot => {
+      const renderDirectActive =
+        directResultOverlayActiveRef.current || directResultOverlayActive;
+      const resultBanId =
+        resultBanIdRef.current ??
+        resultRef.current?.id ??
+        null;
       const locked = isNotificationQueueLocked();
       const bypassBanId = getLocalOverboardBypassBanId();
       const priorityBlocks =
         !renderDirectActive &&
         locked &&
         !isLocalOverboardBypassForBan(resultBanId);
-      const displayBanId = priorityBlocks ? null : resultBanId;
+      const displayBanId = priorityBlocks
+        ? null
+        : (displayResultBanIdRef.current ?? resultBanId);
       const showDirect =
-        renderDirectActive && displayBanId != null;
+        showDirectOverboardLayerRef.current ||
+        (renderDirectActive && displayBanId != null && resultRef.current != null);
       return {
         directResultOverlayActive: renderDirectActive,
         directResultOverlayRef: directResultOverlayRef.current,
@@ -2381,9 +2407,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         showDirectOverboardLayer: showDirect,
         displayResultBanId: displayBanId,
       };
-    },
-    [directResultOverlayActive],
-  );
+    }, [directResultOverlayActive]);
 
   const snapshotOverboardOverlayState = useCallback(
     (banId: string) => ({
@@ -2578,11 +2602,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           setIncomingBan(null);
           setCheckBan(null);
           setOverlayQueue(cleaned);
-          directResultOverlayRef.current = true;
-          setDirectResultOverlayActive(true);
-          resultOpenRef.current = true;
           setPopups((prev) => prev.filter((x) => !isOverboardEnergyPopup(x)));
           setResult(normalized);
+          setDirectResultOverlayActive(true);
+          resultRef.current = normalized;
+          commitDirectOverboardLayerRefs(banId, true);
           logForceOverboard('setResult-done', {
             banId,
             resultBanId: normalized.id,
@@ -2598,18 +2622,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId,
           reason: error instanceof Error ? error.message : String(error),
         });
-        directResultOverlayRef.current = false;
-        resultOpenRef.current = false;
+        clearDirectOverboardLayerRefs();
         return false;
       }
 
-      logOverboardPaint('result-state-set', clickTs);
+      commitDirectOverboardLayerRefs(banId, true);
       resultRef.current = normalized;
 
       logForceOverboard('state-written', {
         banId,
         resultBanId: normalized.id,
         directResultOverlayActive: true,
+        directResultOverlayRef: directResultOverlayRef.current,
+        resultOpenRef: resultOpenRef.current,
+        showDirectOverboardLayerRef: showDirectOverboardLayerRef.current,
         activeOverlayKind: 'result',
         isLocalForce,
         bypassPriorityLock: block.bypassPriorityLock || isLocalForce,
@@ -2620,7 +2646,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         bypassPriorityLock: block.bypassPriorityLock || isLocalForce,
         extra: { phase: 'state-written', directResultOverlay: true },
       });
-      logOverboardDirectState('after', readDirectOverboardSnapshot(true), {
+      logOverboardDirectState('after', readDirectOverboardSnapshot(), {
         banId,
         forceReturned: true,
         step: 'forceOpenOverboardResult',
@@ -2659,7 +2685,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       logForceOverboard('exit', { banId, ok: true });
       return true;
     },
-    [closeSendFlow, readDirectOverboardSnapshot],
+    [
+      clearDirectOverboardLayerRefs,
+      closeSendFlow,
+      commitDirectOverboardLayerRefs,
+      readDirectOverboardSnapshot,
+    ],
   );
   assignForceOpenOverboardRef(forceOpenOverboardResult);
   useLayoutEffect(() => {
@@ -2818,7 +2849,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       logOverboardTiming('result-state-set', clickTs);
-      logOverboardDirectState('force returned', readDirectOverboardSnapshot(true), {
+      logOverboardDirectState('force returned', readDirectOverboardSnapshot(), {
         banId,
         forceReturned: ok,
       });
@@ -2835,7 +2866,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       traceOverboardFlow('optimistic-result-opened', { banId });
-      logOverboardDirectState('after', readDirectOverboardSnapshot(true), {
+      logOverboardDirectState('after', readDirectOverboardSnapshot(), {
         banId,
         optimisticOpened: true,
       });
@@ -4528,6 +4559,39 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const displayResult = priorityBlocksResult ? null : result;
   const showDirectOverboardLayer =
     directResultOverlayActive && displayResult != null;
+
+  useLayoutEffect(() => {
+    directResultOverlayActiveRef.current = directResultOverlayActive;
+    if (directResultOverlayActive && result?.id) {
+      commitDirectOverboardLayerRefs(result.id, true);
+    }
+  }, [
+    commitDirectOverboardLayerRefs,
+    directResultOverlayActive,
+    result?.id,
+  ]);
+
+  useLayoutEffect(() => {
+    if (
+      !directResultOverlayActive &&
+      !overboardInFlightRef.current &&
+      result?.outcome !== 'overboard'
+    ) {
+      return;
+    }
+    markVisibleOverboardTrace('DIRECT OVERBOARD LAYER render-check', {
+      active: directResultOverlayActive,
+      hasResult: result != null,
+      resultBanId: result?.id ?? null,
+      refActive: directResultOverlayRef.current,
+      willRender: showDirectOverboardLayer,
+    });
+  }, [
+    directResultOverlayActive,
+    result,
+    showDirectOverboardLayer,
+  ]);
+
   const activeOverlayKind = showDirectOverboardLayer
     ? 'result'
     : (overlayQueue[0]?.kind ?? null);
