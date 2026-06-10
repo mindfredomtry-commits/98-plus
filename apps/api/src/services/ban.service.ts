@@ -917,18 +917,37 @@ export async function counterBan(params: {
   return receiverView;
 }
 
+async function loadOverboardIdempotent(banId: string, userId: string) {
+  const updated = await mapBanToInteraction(banId, userId);
+  const result = await buildBanResult(banId, userId);
+  if (!result || result.outcome !== 'overboard') return null;
+  return { ban: updated, result, idempotent: true as const };
+}
+
 export async function markOverboard(banId: string, userId: string) {
   const ban = await prisma.ban.findUnique({ where: { id: banId } });
   if (!ban) throw new Error('Ban not found');
   if (ban.receiverId !== userId) throw new Error('Not your ban');
+
+  const alreadyOverboard = ban.status === 'OVERBOARD' || ban.isOverboard;
+  if (alreadyOverboard) {
+    const existing = await loadOverboardIdempotent(banId, userId);
+    if (existing) return existing;
+  }
+
   if (!['PENDING', 'ACTIVE'].includes(ban.status)) {
+    const existing = await loadOverboardIdempotent(banId, userId);
+    if (existing) return existing;
     throw new Error('Already handled');
   }
 
-  if (await hasCooldown(`cooldown:overboard:${userId}`)) {
+  const cooldownKey = `cooldown:overboard:${banId}:${userId}`;
+  if (await hasCooldown(cooldownKey)) {
+    const existing = await loadOverboardIdempotent(banId, userId);
+    if (existing) return existing;
     throw new Error('Подожди.');
   }
-  await setCooldown(`cooldown:overboard:${userId}`, 120);
+  await setCooldown(cooldownKey, 120);
 
   const energy = await applyOverboard(ban.senderId, ban.receiverId);
 
@@ -970,7 +989,7 @@ export async function markOverboard(banId: string, userId: string) {
       message: (e as Error).message,
     });
   });
-  return { ban: updated, result };
+  return { ban: updated, result, idempotent: false as const };
 }
 
 export async function submitCheckAnswer(

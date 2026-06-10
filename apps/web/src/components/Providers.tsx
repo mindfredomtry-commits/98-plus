@@ -59,7 +59,7 @@ import { ChallengeErrorBoundary } from './ChallengeErrorBoundary';
 import { ShellErrorBoundary } from './ShellErrorBoundary';
 import { resetScrollLock } from '@/lib/scroll-lock';
 import { fetchSession } from '@/lib/session';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { challengeLog } from '@/lib/challenge-log';
 import {
   logDeepLinkHandlerResult,
@@ -2166,8 +2166,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       const recoverAfterOverboardApiIssue = async (
         reason: string,
+        apiError?: string,
       ): Promise<{ ok: boolean; error?: string }> => {
-        traceOverboardFlow('api-recovery-start', { banId, reason });
+        traceOverboardFlow('api-recovery-start', { banId, reason, apiError });
         scheduleResultPollBurst();
 
         const payload =
@@ -2179,9 +2180,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
 
         if (directResultOverlayRef.current) {
-          setOverboardEmergencyHint('не удалось подтвердить перебор');
-          window.setTimeout(() => setOverboardEmergencyHint(null), 5000);
-          traceOverboardFlow('optimistic-kept-api-fail', { banId, reason });
+          traceOverboardFlow('optimistic-kept-api-fail', {
+            banId,
+            reason,
+            apiError,
+          });
           logOverboardFinalState(banId, `optimistic-kept-${reason}`);
           return { ok: true };
         }
@@ -2215,11 +2218,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         try {
           res = await postOverboardWithTrace(banId, token);
         } catch (apiErr) {
+          const apiError =
+            apiErr instanceof Error ? apiErr.message : String(apiErr);
+          if (apiErr instanceof ApiError && apiErr.status === 400) {
+            const fetched = await fetchResultByBanId('api-400-recovery');
+            if (fetched && isValidBanResultPayload(fetched)) {
+              traceOverboardFlow('api-400-recovered-result', { banId, apiError });
+              return finishOverboardSuccess(fetched, 'api-400-idempotent-recovery');
+            }
+          }
           const reason =
             apiErr instanceof RequestTimeoutError
               ? 'api-timeout'
               : 'api-fetch-error';
-          return recoverAfterOverboardApiIssue(reason);
+          return recoverAfterOverboardApiIssue(reason, apiError);
+        }
+
+        if (res.idempotent) {
+          traceOverboardFlow('api-idempotent-200', { banId });
         }
 
         traceOverboardFlow('has-result', {
@@ -2264,7 +2280,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       } catch (e) {
         const message = e instanceof Error ? e.message : 'Ошибка перебора';
         traceOverboardFlow('api-fetch-error', { banId, message });
-        return recoverAfterOverboardApiIssue('unexpected-error');
+        return recoverAfterOverboardApiIssue('unexpected-error', message);
       } finally {
         overboardInFlightRef.current = null;
         if (!directResultOverlayRef.current) {

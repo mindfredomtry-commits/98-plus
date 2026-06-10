@@ -377,26 +377,53 @@ bansRouter.post('/:id/counter', async (req: AuthRequest, res) => {
 bansRouter.post('/:id/overboard', async (req: AuthRequest, res) => {
   const banId = paramId(req);
   const userId = req.userId!;
+
+  const banRow = await prisma.ban.findUnique({ where: { id: banId } });
+  const isReceiver = banRow?.receiverId === userId;
+  const alreadyOverboard =
+    banRow?.status === 'OVERBOARD' || banRow?.isOverboard === true;
+  let alreadyResultExists = false;
+  if (banRow && isReceiver) {
+    const existing = await getBanResult(banId, userId);
+    alreadyResultExists =
+      existing?.outcome === 'overboard' || alreadyOverboard;
+  }
+
   console.log('[OVERBOARD API] start', { banId, userId });
+  console.log('[OVERBOARD API] banId=', banId);
+  console.log('[OVERBOARD API] userId=', userId);
+  console.log('[OVERBOARD API] ban.status=', banRow?.status ?? null);
+  console.log('[OVERBOARD API] isReceiver=', isReceiver);
+  console.log('[OVERBOARD API] alreadyOverboard=', alreadyOverboard);
+  console.log('[OVERBOARD API] alreadyResultExists=', alreadyResultExists);
+
   try {
-    const { ban, result } = await markOverboard(banId, userId);
+    const outcome = await markOverboard(banId, userId);
     console.log('[OVERBOARD API] markOverboard done', {
       banId,
-      hasBan: !!ban,
-      hasResult: !!result,
-      outcome: result?.outcome ?? null,
+      hasBan: !!outcome.ban,
+      hasResult: !!outcome.result,
+      outcome: outcome.result?.outcome ?? null,
+      idempotent: outcome.idempotent === true,
     });
-    const payload = { ban, result, ok: true, status: 'OVERBOARD' as const };
-    console.log('[OVERBOARD API] response sending', { banId });
+    const payload = {
+      ban: outcome.ban,
+      result: outcome.result,
+      ok: true,
+      status: 'OVERBOARD' as const,
+      ...(outcome.idempotent ? { idempotent: true as const } : {}),
+    };
     res.json(payload);
-    console.log('[OVERBOARD API] response sent', { banId });
   } catch (e) {
-    console.error('[OVERBOARD API] error', {
-      banId,
-      userId,
-      message: (e as Error).message,
-    });
-    res.status(400).json({ error: (e as Error).message });
+    const reason = (e as Error).message;
+    console.log('[OVERBOARD API] 400 reason=', reason);
+    console.log('[OVERBOARD API] banId=', banId);
+    console.log('[OVERBOARD API] userId=', userId);
+    console.log('[OVERBOARD API] ban.status=', banRow?.status ?? null);
+    console.log('[OVERBOARD API] isReceiver=', isReceiver);
+    console.log('[OVERBOARD API] alreadyOverboard=', alreadyOverboard);
+    console.log('[OVERBOARD API] alreadyResultExists=', alreadyResultExists);
+    res.status(400).json({ error: reason });
   }
 });
 

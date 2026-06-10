@@ -15,6 +15,8 @@ export type OverboardPostResponse = {
   status?: string;
   ban?: BanInteraction;
   result?: BanResult | null;
+  idempotent?: boolean;
+  error?: string;
 };
 
 export async function postOverboardWithTrace(
@@ -76,11 +78,23 @@ export async function postOverboardWithTrace(
 
     if (!res.ok) {
       const errMsg =
-        (typeof (data as { error?: string }).error === 'string' &&
-          (data as { error?: string }).error) ||
+        (typeof data.error === 'string' && data.error) ||
         res.statusText ||
         `HTTP ${res.status}`;
-      traceOverboardFlow('api-fetch-error', { banId, status: res.status, message: errMsg });
+      traceOverboardFlow('api-fetch-error', {
+        banId,
+        status: res.status,
+        message: errMsg,
+        responseText: text.slice(0, 1200),
+        responseBody: data,
+      });
+      if (res.status === 400) {
+        traceOverboardFlow('api-400-body', {
+          banId,
+          error: errMsg,
+          responseText: text,
+        });
+      }
       throw new ApiError(errMsg, res.status, url);
     }
 
