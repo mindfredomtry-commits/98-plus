@@ -83,7 +83,10 @@ import {
   setOverboardEmergencyHint,
 } from '@/lib/overboard-flow-debug';
 import { postOverboardWithTrace } from '@/lib/overboard-api';
-import { buildOptimisticOverboardResult } from '@/lib/optimistic-overboard-result';
+import {
+  buildOptimisticOverboardResult,
+  mergeOverboardResultUsers,
+} from '@/lib/optimistic-overboard-result';
 import {
   logOverboardPaint,
   logOverboardTiming,
@@ -1249,6 +1252,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   tokenRef.current = auth.token;
   const userIdRef = useRef<string | null>(auth.user?.id ?? null);
   userIdRef.current = auth.user?.id ?? null;
+  const authUserRef = useRef(auth.user);
+  authUserRef.current = auth.user;
   const refreshUserRef = useRef(auth.refreshUser);
   refreshUserRef.current = auth.refreshUser;
   const reloadFriendsRef = useRef<() => Promise<void>>(async () => {});
@@ -2032,7 +2037,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const uid = userIdRef.current;
       if (!uid) return false;
 
-      const optimistic = buildOptimisticOverboardResult(ban, uid);
+      const optimistic = buildOptimisticOverboardResult(ban, uid, {
+        viewerId: uid,
+        viewer: authUserRef.current,
+        friends: friendsRef.current,
+      });
       logOverboardTiming('optimistic-built', clickTs);
       if (!optimistic) return false;
 
@@ -2088,7 +2097,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           directResultOverlayRef.current &&
           resultDeliveredBanIdsRef.current.has(banId)
         ) {
-          setResult(normalized);
+          setResult((prev) =>
+            prev
+              ? mergeOverboardResultUsers(prev, normalized)
+              : normalized,
+          );
           traceOverboardFlow('optimistic-sync-api', { banId, source });
           logOverboardFinalState(banId, `sync-${source}`);
           return true;

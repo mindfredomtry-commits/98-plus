@@ -4,7 +4,10 @@ import {
   isIncomingPairFunMode,
   RESULT_COPY,
 } from '@98plus/shared';
-import { enrichBanInteraction } from './user-public-avatar';
+import {
+  type OptimisticAvatarContext,
+  prepareOptimisticOverboardParticipants,
+} from './optimistic-overboard-avatar';
 
 function resolveOptimisticOverboardEconomy(ban: BanInteraction): {
   funMode: boolean;
@@ -54,15 +57,26 @@ function logOptimisticOverboard(
   console.log('[OPTIMISTIC OVERBOARD] optimisticEnergy=', viewerDelta ?? '—');
 }
 
+export type { OptimisticAvatarContext } from './optimistic-overboard-avatar';
+export { mergeOverboardResultUsers } from './optimistic-overboard-avatar';
+
 /** Local overboard result card — shown before /overboard API resolves. */
 export function buildOptimisticOverboardResult(
   ban: BanInteraction,
   viewerId: string,
+  avatarCtx?: OptimisticAvatarContext,
 ): BanResult | null {
-  const enriched = enrichBanInteraction(ban);
-  const { sender, receiver } = enriched;
-  if (!enriched.id?.trim() || !enriched.text?.trim()) return null;
+  const ctx: OptimisticAvatarContext = avatarCtx ?? { viewerId };
+  const patched = { ...ban };
+  if (!patched.id?.trim() || !patched.text?.trim()) return null;
+
+  const { sender, receiver } = prepareOptimisticOverboardParticipants(
+    patched,
+    ctx,
+  );
   if (!sender?.id?.trim() || !receiver?.id?.trim()) return null;
+
+  const enriched = { ...patched, sender, receiver };
 
   const economy = resolveOptimisticOverboardEconomy(enriched);
   logOptimisticOverboard(enriched.id, enriched, economy, viewerId);

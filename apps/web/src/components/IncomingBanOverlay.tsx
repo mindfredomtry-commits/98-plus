@@ -148,11 +148,15 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     const friend = findFriendByUsername(friends, username);
     const senderId = friend?.id ?? friend?.userId;
     if (!senderId) return incomingBan;
+    const friendAvatar =
+      friend.avatarUrl ?? friend.photoUrl ?? null;
     return {
       ...incomingBan,
       sender: {
         ...incomingBan.sender!,
         id: senderId,
+        avatarUrl: incomingBan.sender?.avatarUrl ?? friendAvatar,
+        photoUrl: incomingBan.sender?.photoUrl ?? friendAvatar,
       },
     };
   }, [friends, incomingBan]);

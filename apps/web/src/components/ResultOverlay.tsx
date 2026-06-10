@@ -300,7 +300,7 @@ function ResultOverlayInner({
 
         <div className="result-compare mx-auto mb-4">
           <div className="result-party">
-            <Avatar user={result.sender} />
+            <Avatar user={result.sender} priority={directPaint} />
             {view.showStatuses ? (
               <span className="result-status" aria-hidden>
                 {senderStatus ? '✅' : '❌'}
@@ -384,7 +384,13 @@ function ResultOverlayInner({
 
 export const ResultOverlay = memo(ResultOverlayInner);
 
-function Avatar({ user }: { user: UserPublic }) {
+function Avatar({
+  user,
+  priority = false,
+}: {
+  user: UserPublic;
+  priority?: boolean;
+}) {
   const letter = (user.firstName?.[0] ?? '?').toUpperCase();
   return (
     <div className="modal-avatar overflow-hidden" aria-hidden>
@@ -393,6 +399,7 @@ function Avatar({ user }: { user: UserPublic }) {
         letter={letter}
         sizeClass="w-full h-full"
         textClass="text-lg"
+        priority={priority}
       />
     </div>
   );
