@@ -33,6 +33,15 @@ function formatDetail(data?: Record<string, unknown>): string {
   }
 }
 
+/** Loud marker for on-device deploy verification — console.error + on-screen trace. */
+export function markVisibleOverboardTrace(
+  marker: string,
+  data?: Record<string, unknown>,
+): void {
+  console.error(marker);
+  traceOverboardFlow(marker, data);
+}
+
 /** Always logs to console + appends to dev trace overlay. */
 export function traceOverboardFlow(
   stage: string,

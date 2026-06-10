@@ -113,6 +113,7 @@ import {
 } from '@/lib/incoming-challenge';
 import { acknowledgeIncomingFully } from '@/lib/incoming-ack-flow';
 import {
+  markVisibleOverboardTrace,
   traceOverboardFlow,
   logOverboardResultForce,
   setOverboardEmergencyHint,
@@ -2406,6 +2407,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clickTs?: number | null,
       opts?: { source?: 'local-overboard-click' | 'api-sync' | 'recovery' },
     ): boolean {
+      console.error('FORCE-OVERBOARD-ENTER-VISIBLE');
+      markVisibleOverboardTrace('FORCE-OVERBOARD-ENTER-VISIBLE', {
+        banId,
+        implId: FORCE_OPEN_OVERBOARD_IMPL_ID,
+        diagBuild: 'overboard-diag-v4',
+      });
       console.log('[FORCE OVERBOARD] enter', FORCE_OPEN_OVERBOARD_IMPL_ID);
       const uid = userIdRef.current;
       const inFlightId = overboardInFlightRef.current;
@@ -2703,6 +2710,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       logOverboardDirectState('builtResult', readDirectOverboardSnapshot(), {
         banId,
         builtResult: !!optimistic,
+        diagBuild: 'overboard-diag-v4',
+      });
+      markVisibleOverboardTrace('BUILT-RESULT-VISIBLE', {
+        banId,
+        builtResult: !!optimistic,
+        diagBuild: 'overboard-diag-v4',
       });
       if (!optimistic) {
         const diag = getOptimisticOverboardBuildDiagnostics(ban, uid, buildCtx);
@@ -2742,6 +2755,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       logOverboardDirectState('calling forceOpenOverboardResult', readDirectOverboardSnapshot(), {
         banId,
+        diagBuild: 'overboard-diag-v4',
+      });
+      console.error('DIRECT-CALL-VISIBLE-1');
+      markVisibleOverboardTrace('DIRECT-CALL-VISIBLE-1', {
+        banId,
+        diagBuild: 'overboard-diag-v4',
+      });
+      console.error('DIRECT-CALL-VISIBLE-2');
+      markVisibleOverboardTrace('DIRECT-CALL-VISIBLE-2', {
+        banId,
+        diagBuild: 'overboard-diag-v4',
       });
 
       const invokeForce = forceOpenOverboardResultRef.current;
