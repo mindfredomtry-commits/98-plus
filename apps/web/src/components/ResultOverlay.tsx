@@ -104,29 +104,50 @@ function ResultOverlayInner({
       receiverId: result.receiver?.id ?? null,
     });
     if (!directPaint || !showable) return;
-    const layer = document.querySelector('[data-direct-overboard-result]');
-    const backdrop = layer?.querySelector('.modal-backdrop');
-    const card = layer?.querySelector('.modal-card');
-    const layerStyle = layer ? getComputedStyle(layer as Element) : null;
-    const backdropStyle = backdrop ? getComputedStyle(backdrop as Element) : null;
-    const cardStyle = card ? getComputedStyle(card as Element) : null;
-    markVisibleOverboardTrace('RESULT OVERLAY DOM visible', {
-      layerFound: layer != null,
-      backdropFound: backdrop != null,
-      cardFound: card != null,
-      layerDisplay: layerStyle?.display ?? null,
-      layerVisibility: layerStyle?.visibility ?? null,
-      layerOpacity: layerStyle?.opacity ?? null,
-      backdropOpacity: backdropStyle?.opacity ?? null,
-      backdropVisibility: backdropStyle?.visibility ?? null,
-      cardOpacity: cardStyle?.opacity ?? null,
-      cardTransform: cardStyle?.transform ?? null,
-      visible:
-        backdrop != null &&
-        backdropStyle?.display !== 'none' &&
-        backdropStyle?.visibility !== 'hidden' &&
-        Number(backdropStyle?.opacity ?? 1) > 0.05,
+
+    let rafId = 0;
+    rafId = requestAnimationFrame(() => {
+      const layer = document.querySelector('[data-direct-overboard-result]');
+      const backdrop = layer?.querySelector('.modal-backdrop') ?? null;
+      const card = layer?.querySelector('.modal-card') ?? null;
+
+      if (card instanceof HTMLElement) {
+        card.style.setProperty('background', 'red', 'important');
+        card.style.setProperty('border', '8px solid yellow', 'important');
+        card.style.setProperty('opacity', '1', 'important');
+        card.style.setProperty('transform', 'none', 'important');
+        card.style.setProperty('visibility', 'visible', 'important');
+        card.style.setProperty('z-index', '1000000', 'important');
+      }
+
+      const backdropStyle = backdrop ? getComputedStyle(backdrop) : null;
+      const cardStyle = card ? getComputedStyle(card) : null;
+      const cardRect = card?.getBoundingClientRect();
+
+      markVisibleOverboardTrace('RESULT OVERLAY DOM', {
+        backdropFound: backdrop != null,
+        cardFound: card != null,
+        backdropOpacity: backdropStyle?.opacity ?? null,
+        cardOpacity: cardStyle?.opacity ?? null,
+        cardVisibility: cardStyle?.visibility ?? null,
+        cardDisplay: cardStyle?.display ?? null,
+        cardTransform: cardStyle?.transform ?? null,
+        cardRect: cardRect
+          ? {
+              top: cardRect.top,
+              left: cardRect.left,
+              width: cardRect.width,
+              height: cardRect.height,
+              bottom: cardRect.bottom,
+              right: cardRect.right,
+            }
+          : null,
+      });
     });
+
+    return () => {
+      cancelAnimationFrame(rafId);
+    };
   }, [
     contentOnly,
     directPaint,
