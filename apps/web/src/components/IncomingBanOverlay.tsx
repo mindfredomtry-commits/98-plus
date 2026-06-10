@@ -199,18 +199,15 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     if (!actBan?.id || actionLoading) return;
     logOverboardButtonClick(actBan.id, 'submitIncomingOverboard');
     markOverlayUserAction('incoming', actBan.id);
-    setActionLoading(true);
     hapticSuccess();
+    setVerifiedBan(null);
     try {
       const res = await submitIncomingOverboard(actBan.id);
-      setVerifiedBan(null);
       if (!res.ok && res.error) {
         alert(res.error);
       }
     } catch (e) {
       alert(formatDeliveryError(e));
-    } finally {
-      setActionLoading(false);
     }
   }, [
     verifiedBan,

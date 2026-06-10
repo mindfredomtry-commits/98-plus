@@ -460,6 +460,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const directResultOverlayRef = useRef(false);
   const [directResultOverlayActive, setDirectResultOverlayActive] =
     useState(false);
+  const [overboardTransitionActive, setOverboardTransitionActive] =
+    useState(false);
   const bufferedIncomingRef = useRef<BanInteraction | null>(null);
   const bufferedCheckDeepLinkRef = useRef<BanInteraction | null>(null);
   const bufferedRepeatDeepLinkRef = useRef<BanInteraction | null>(null);
@@ -1935,8 +1937,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       dismissedIncomingRef.current.add(banId);
-      setIncomingBan(null);
-      setCheckBan(null);
       closeSendFlow();
       setLobbyOpen(false);
       lobbyOpenRef.current = false;
@@ -1947,13 +1947,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ['incoming', 'check'],
       );
       overlayQueueRef.current = cleaned;
-      setOverlayQueue(cleaned);
 
-      directResultOverlayRef.current = true;
-      setDirectResultOverlayActive(true);
-      resultOpenRef.current = true;
-      setPopups((prev) => prev.filter((x) => !isOverboardEnergyPopup(x)));
-      setResult(normalized);
+      flushSync(() => {
+        setOverboardTransitionActive(false);
+        setIncomingBan(null);
+        setCheckBan(null);
+        setOverlayQueue(cleaned);
+        directResultOverlayRef.current = true;
+        setDirectResultOverlayActive(true);
+        resultOpenRef.current = true;
+        setPopups((prev) => prev.filter((x) => !isOverboardEnergyPopup(x)));
+        setResult(normalized);
+      });
 
       logOverboardResultForce('set activeOverlayKind=result');
       logOverboardResultForce('result set true', {
@@ -2096,6 +2101,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
 
         dismissedIncomingRef.current.add(banId);
+        setOverboardTransitionActive(false);
         dismissCurrentOverlay(
           'overboard-recovery-lobby',
           removeOverlaysForBan(overlayQueueRef.current, banId, [
@@ -2150,6 +2156,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
         }
 
+        if (
+          res.result &&
+          isValidBanResultPayload(res.result) &&
+          openResultPayload(res.result, 'result-opened-force')
+        ) {
+          return { ok: true };
+        }
+
         let resultPayload: BanResult | null = res.result ?? null;
         if (!isValidBanResultPayload(resultPayload)) {
           resultPayload = await fetchResultByBanId('result-fetch-after-overboard');
@@ -2171,6 +2185,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return recoverAfterOverboardApiIssue('unexpected-error');
       } finally {
         overboardInFlightRef.current = null;
+        if (!directResultOverlayRef.current) {
+          setOverboardTransitionActive(false);
+        }
       }
     },
     [
@@ -3567,7 +3584,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ? 'result'
     : (overlayQueue[0]?.kind ?? null);
   const notificationSessionActive =
-    directResultOverlayActive || overlayQueue.length > 0;
+    directResultOverlayActive ||
+    overboardTransitionActive ||
+    overlayQueue.length > 0;
 
   const incomingGateActive = useMemo(() => {
     if (!auth.user?.id || auth.loading) return false;
