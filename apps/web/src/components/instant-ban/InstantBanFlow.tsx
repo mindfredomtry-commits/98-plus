@@ -153,6 +153,20 @@ type BansOverlayEntrySource = {
   tab: BansTab;
 };
 
+type BansNavOrigin = 'lobby' | 'result-cta';
+
+type BansNavState = {
+  origin: BansNavOrigin;
+  previousScreen: 'lobby';
+  returnTarget: 'lobby';
+};
+
+const DEFAULT_BANS_NAV: BansNavState = {
+  origin: 'lobby',
+  previousScreen: 'lobby',
+  returnTarget: 'lobby',
+};
+
 type ConfirmEntrySource = 'send-flow' | BansOverlayEntrySource;
 
 function isBansOverlayEntrySource(
@@ -338,6 +352,7 @@ export function InstantBanFlow({
   const lobbyCtaBootSpringRef = useRef(false);
   const prevSendStartedRef = useRef(sendStarted);
   const skipActiveDeepLinkEntryRef = useRef(false);
+  const bansNavRef = useRef<BansNavState>(DEFAULT_BANS_NAV);
   const [bansOverlayOpen, setBansOverlayOpen] = useState(false);
   const [lowInfluenceRevealed, setLowInfluenceRevealed] = useState(false);
   const [lowEnergyBlockedSignal, setLowEnergyBlockedSignal] = useState(0);
@@ -1224,6 +1239,7 @@ export function InstantBanFlow({
     if (phase !== 'idle' || banSentSuccess) return;
     logOverlayPriority('explicit-bans-open-unlock', {});
     unlockNotificationQueueAndFlush('explicit-bans-open-unlock');
+    bansNavRef.current = DEFAULT_BANS_NAV;
     setBansTab('yours');
     setSelectedBanForDetails(null);
     setBansOverlayOpen(true);
@@ -1258,6 +1274,12 @@ export function InstantBanFlow({
       });
       return;
     }
+    bansNavRef.current = {
+      origin: 'result-cta',
+      previousScreen: 'lobby',
+      returnTarget: 'lobby',
+    };
+    console.log('[BANS NAV] opened-from-result-cta returnTarget=lobby');
     console.log('[open-bans-from-result-cta]', {
       action: 'open',
       direct: true,
@@ -1279,7 +1301,22 @@ export function InstantBanFlow({
   ]);
 
   const handleCloseBansOverlay = useCallback(() => {
+    const nav = bansNavRef.current;
+    const fromResultCta = nav.origin === 'result-cta' || bansCtaQueueSuppress;
     const wasBansCta = bansCtaQueueSuppress;
+
+    setBansOverlayOpen(false);
+    setSelectedBanForDetails(null);
+
+    if (fromResultCta) {
+      console.log('[BANS NAV] back-to-lobby source=result-cta');
+      resetSendUiForBansCta();
+      closeSendFlow();
+      openLobby();
+      beginCtaSpringIn();
+      bansNavRef.current = DEFAULT_BANS_NAV;
+    }
+
     if (wasBansCta) {
       clearBansCtaQueueSuppress();
     }
@@ -1288,11 +1325,13 @@ export function InstantBanFlow({
         wasBansCta ? 'result-cta-bans-closed' : 'target-flow-closed',
       );
     }
-    setBansOverlayOpen(false);
-    setSelectedBanForDetails(null);
   }, [
     bansCtaQueueSuppress,
+    beginCtaSpringIn,
     clearBansCtaQueueSuppress,
+    closeSendFlow,
+    openLobby,
+    resetSendUiForBansCta,
     unlockNotificationQueueAndFlush,
   ]);
 
