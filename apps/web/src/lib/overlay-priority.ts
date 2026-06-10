@@ -194,9 +194,12 @@ export function logResultOpenAttempt(
     ...data.extra,
   };
   console.log('[RESULT OPEN ATTEMPT]', row);
+  const phase =
+    typeof data.extra?.phase === 'string' ? data.extra.phase : 'attempt';
   pushResultOpenTrace({
     ts: Date.now(),
     source: String(source),
+    phase,
     banId,
     resultId: data.resultId ?? banId,
     lockReason,
@@ -208,6 +211,7 @@ export function logResultOpenAttempt(
     isLocked: isNotificationQueueLocked(),
     isLocalUserAction,
     mode: data.mode ?? null,
+    reason: data.blockReason ?? null,
     extra: data.extra,
   });
 }

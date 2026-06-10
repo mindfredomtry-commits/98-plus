@@ -5,7 +5,9 @@ import {
   RESULT_COPY,
 } from '@98plus/shared';
 import {
-  type OptimisticAvatarContext,
+  type OptimisticOverboardBuildContext,
+  type OptimisticOverboardBuildDiagnostics,
+  diagnoseOptimisticOverboardParticipants,
   prepareOptimisticOverboardParticipants,
 } from './optimistic-overboard-avatar';
 
@@ -57,26 +59,49 @@ function logOptimisticOverboard(
   console.log('[OPTIMISTIC OVERBOARD] optimisticEnergy=', viewerDelta ?? '—');
 }
 
-export type { OptimisticAvatarContext } from './optimistic-overboard-avatar';
-export { mergeOverboardResultUsers } from './optimistic-overboard-avatar';
+export type { OptimisticAvatarContext, OptimisticOverboardBuildContext } from './optimistic-overboard-avatar';
+export {
+  mergeOverboardResultUsers,
+  diagnoseOptimisticOverboardParticipants,
+} from './optimistic-overboard-avatar';
+
+export function getOptimisticOverboardBuildDiagnostics(
+  ban: BanInteraction,
+  viewerId: string,
+  avatarCtx?: OptimisticOverboardBuildContext,
+): OptimisticOverboardBuildDiagnostics {
+  const ctx: OptimisticOverboardBuildContext = {
+    ...(avatarCtx ?? {}),
+    viewerId,
+  };
+  return diagnoseOptimisticOverboardParticipants(ban, ctx);
+}
 
 /** Local overboard result card — shown before /overboard API resolves. */
 export function buildOptimisticOverboardResult(
   ban: BanInteraction,
   viewerId: string,
-  avatarCtx?: OptimisticAvatarContext,
+  avatarCtx?: OptimisticOverboardBuildContext,
 ): BanResult | null {
-  const ctx: OptimisticAvatarContext = avatarCtx ?? { viewerId };
-  const patched = { ...ban };
-  if (!patched.id?.trim() || !patched.text?.trim()) return null;
+  const ctx: OptimisticOverboardBuildContext = {
+    ...(avatarCtx ?? {}),
+    viewerId,
+  };
+  const diagnostics = diagnoseOptimisticOverboardParticipants(ban, ctx);
+  if (diagnostics.missingBanId || diagnostics.missingText || diagnostics.missingParticipants) {
+    return null;
+  }
 
-  const { sender, receiver } = prepareOptimisticOverboardParticipants(
-    patched,
+  const { sender, receiver, mergedBan } = prepareOptimisticOverboardParticipants(
+    ban,
     ctx,
   );
-  if (!sender?.id?.trim() || !receiver?.id?.trim()) return null;
+  const text = mergedBan.text?.trim();
+  if (!text || !sender.id?.trim() || !receiver.id?.trim()) {
+    return null;
+  }
 
-  const enriched = { ...patched, sender, receiver };
+  const enriched: BanInteraction = { ...mergedBan, text, sender, receiver };
 
   const economy = resolveOptimisticOverboardEconomy(enriched);
   logOptimisticOverboard(enriched.id, enriched, economy, viewerId);
@@ -91,7 +116,7 @@ export function buildOptimisticOverboardResult(
 
   return {
     id: enriched.id,
-    text: enriched.text.trim(),
+    text,
     outcome: 'overboard',
     headline: copy.headline,
     subline: copy.subline,

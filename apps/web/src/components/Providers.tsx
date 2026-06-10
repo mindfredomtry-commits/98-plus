@@ -83,6 +83,7 @@ import {
   tryLockFromStartParam,
   unlockNotificationQueue,
 } from '@/lib/overlay-priority';
+import { logResultPath } from '@/lib/result-open-trace';
 import {
   logReplyFlow,
   logReplyFlowLoopGuard,
@@ -103,8 +104,10 @@ import {
 import { postOverboardWithTrace } from '@/lib/overboard-api';
 import {
   buildOptimisticOverboardResult,
+  getOptimisticOverboardBuildDiagnostics,
   mergeOverboardResultUsers,
 } from '@/lib/optimistic-overboard-result';
+import type { OptimisticOverboardBuildContext } from '@/lib/optimistic-overboard-result';
 import {
   logOverboardPaint,
   logOverboardTiming,
@@ -267,6 +270,7 @@ interface AppContextValue {
   openIncomingOverboardOptimistic: (
     ban: BanInteraction,
     clickTs?: number,
+    opts?: { fallbackBans?: BanInteraction[] },
   ) => boolean;
   /** POST /overboard after optimistic result is already visible. */
   runIncomingOverboardApi: (
@@ -450,6 +454,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const [popups, setPopups] = useState<EnergyPopup[]>([]);
   const [activeBans, setActiveBans] = useState<BanInteraction[]>([]);
+  const sessionActiveBansRef = useRef<BanInteraction[]>([]);
+  useEffect(() => {
+    sessionActiveBansRef.current = activeBans;
+  }, [activeBans]);
   // Isolation: until auth.user is confirmed, never show cached friends from another Telegram user.
   const [friends, setFriends] = useState<FriendCard[]>([]);
   const [sendOpen, setSendOpen] = useState(false);
@@ -673,6 +681,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       allowed: false,
       blockReason: 'suppress-queued-display',
     });
+    logResultPath('syncDisplayFromQueue', 'state-cleared', {
+      banId: result?.id ?? null,
+      allowed: false,
+      reason: 'suppress-queued-display',
+    });
     directResultOverlayRef.current = false;
     resultOpenRef.current = false;
     setResult(null);
@@ -752,6 +765,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (resultBlock.blocked) {
         resultOpenRef.current = false;
         if (!directResultOverlayRef.current) {
+          logResultPath('syncDisplayFromQueue', 'state-cleared', {
+            banId: active.result.id,
+            resultId: active.result.id,
+            allowed: false,
+            reason: resultBlock.reason ?? 'queue-head-blocked',
+          });
           setResult(null);
           setDirectResultOverlayActive(false);
         }
@@ -761,6 +780,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           allowed: true,
           bypassPriorityLock: resultBlock.bypassPriorityLock,
           extra: { phase: 'queue-head-result-applied' },
+        });
+        logResultPath('syncDisplayFromQueue', 'state-written', {
+          banId: active.result.id,
+          resultId: active.result.id,
+          allowed: true,
+          bypassPriorityLock: resultBlock.bypassPriorityLock,
+          extra: { via: 'queue-head' },
         });
         directResultOverlayRef.current = false;
         setDirectResultOverlayActive(false);
@@ -782,6 +808,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           blockReason: directBlock.reason,
           bypassPriorityLock: directBlock.bypassPriorityLock,
         });
+        logResultPath('syncDisplayFromQueue-direct', 'state-cleared', {
+          banId: directBanId,
+          resultId: directBanId,
+          allowed: false,
+          reason: directBlock.reason ?? 'direct-blocked',
+        });
         directResultOverlayRef.current = false;
         resultOpenRef.current = false;
         setResult(null);
@@ -791,6 +823,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
     } else {
       resultOpenRef.current = false;
+      logResultPath('syncDisplayFromQueue', 'state-cleared', {
+        banId:
+          getLocalOverboardBypassBanId() ?? overboardInFlightRef.current,
+        allowed: false,
+        reason: 'queue-head-not-result',
+        extra: { headKind: active?.kind ?? null },
+      });
       setResult(null);
       setDirectResultOverlayActive(false);
     }
@@ -1376,6 +1415,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setDirectResultOverlayActive(false);
     if (wasDirect || head?.kind !== 'result') {
       resultOpenRef.current = false;
+      logResultPath('dismissBanResult', 'state-cleared', {
+        banId,
+        resultId: banId,
+        allowed: true,
+        extra: { wasDirect },
+      });
       setResult(null);
     }
     if (head?.kind === 'result') {
@@ -1683,6 +1728,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         extra: { wsOrHttpSource: source },
       });
       if (block.blocked) {
+        logResultPath('receiveResult', 'path-skip', {
+          banId,
+          resultId: banId,
+          allowed: false,
+          reason: block.reason ?? 'priority-lock',
+          extra: { wsOrHttpSource: source },
+        });
         logOverlayPriority('pending-result-blocked', {
           resultId: banId,
           reason: block.reason,
@@ -1697,6 +1749,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
 
       if (overboardInFlightRef.current === banId) {
+        logResultPath('receiveResult', 'path-skip', {
+          banId,
+          resultId: banId,
+          allowed: false,
+          reason: 'overboard-in-flight',
+          extra: { wsOrHttpSource: source },
+        });
         logResultLatency('[result-skip-overboard-in-flight]', {
           banId,
           authUserId: uid,
@@ -1743,6 +1802,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source,
         elapsedMs,
       });
+      logResultPath('receiveResult', 'receive', {
+        banId,
+        resultId: banId,
+        allowed: true,
+        mode,
+        extra: { wsOrHttpSource: source },
+      });
       openBanResult(payload, mode);
 
       logResultLatency('[result-show-decision]', {
@@ -1762,16 +1828,36 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     async (source: 'interval' | 'burst') => {
       const requestUserId = userIdRef.current;
       const requestToken = tokenRef.current;
-      if (!requestUserId || !requestToken) return;
-      if (resultOpenRef.current) return;
+      if (!requestUserId || !requestToken) {
+        logResultPath('pollPendingResultOnce', 'path-skip', {
+          allowed: false,
+          reason: 'no-auth',
+          extra: { pollSource: source },
+        });
+        return;
+      }
+      if (resultOpenRef.current) {
+        logResultPath('pollPendingResultOnce', 'path-skip', {
+          allowed: false,
+          reason: 'result-already-open',
+          extra: { pollSource: source },
+        });
+        return;
+      }
       const pollBlock = shouldBlockResultOpen({
         overboardInFlightBanId: overboardInFlightRef.current,
+      });
+      logResultPath('pollPendingResultOnce', 'poll-gate', {
+        allowed: !pollBlock.blocked,
+        blockReason: pollBlock.reason,
+        bypassPriorityLock: pollBlock.bypassPriorityLock,
+        extra: { pollSource: source },
       });
       logResultOpenAttempt('pollPendingResultOnce', {
         allowed: !pollBlock.blocked,
         blockReason: pollBlock.reason,
         bypassPriorityLock: pollBlock.bypassPriorityLock,
-        extra: { pollSource: source },
+        extra: { pollSource: source, phase: 'poll-gate' },
       });
       if (pollBlock.blocked) return;
 
@@ -1780,8 +1866,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           '/bans/result/pending',
           { token: requestToken, retries: 0 },
         );
-        if (!pendingResult?.id) return;
-        if (resultDeliveredBanIdsRef.current.has(pendingResult.id)) return;
+        if (!pendingResult?.id) {
+          logResultPath('pollPendingResultOnce', 'poll-miss', {
+            allowed: true,
+            extra: { pollSource: source },
+          });
+          return;
+        }
+        if (resultDeliveredBanIdsRef.current.has(pendingResult.id)) {
+          logResultPath('pollPendingResultOnce', 'poll-skip-delivered', {
+            banId: pendingResult.id,
+            resultId: pendingResult.id,
+            allowed: false,
+            extra: { pollSource: source },
+          });
+          return;
+        }
 
         const submitAt = checkSubmitAtRef.current.get(pendingResult.id);
         const elapsedClientMs =
@@ -1807,6 +1907,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             elapsedMs: elapsedClientMs,
           });
         }
+        logResultPath('pollPendingResultOnce', 'poll-hit', {
+          banId: pendingResult.id,
+          resultId: pendingResult.id,
+          allowed: true,
+          extra: { pollSource: source },
+        });
         receiveResult(pendingResult, 'poll');
       } catch {
         /* fallback only */
@@ -2191,6 +2297,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const forceOpenOverboardResult = useCallback(
     (payload: BanResult, banId: string, clickTs?: number | null): boolean => {
       const uid = userIdRef.current;
+      logResultPath('forceOpenOverboardResult', 'attempt', {
+        banId,
+        resultId: banId,
+        extra: { hasUid: !!uid, hasPayload: !!payload },
+      });
       logOverboardResultForce('start', { banId, authUserId: uid });
 
       const block = shouldBlockResultOpen({
@@ -2206,6 +2317,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         bypassPriorityLock: block.bypassPriorityLock,
       });
       if (block.blocked) {
+        logResultPath('forceOpenOverboardResult', 'path-skip', {
+          banId,
+          allowed: false,
+          reason: block.reason ?? 'priority-lock',
+          blockReason: block.reason,
+        });
         logOverboardResultForce('final state', {
           banId,
           ok: false,
@@ -2217,6 +2334,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       if (!uid || !isValidBanResultPayload(payload)) {
+        logResultPath('forceOpenOverboardResult', 'path-skip', {
+          banId,
+          allowed: false,
+          reason: !uid ? 'no-auth-user' : 'invalid-payload',
+        });
         logOverboardResultForce('final state', {
           banId,
           ok: false,
@@ -2258,11 +2380,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       logOverboardPaint('result-state-set', clickTs);
-      logResultOpenAttempt('forceOpenOverboardResult', {
+      logResultPath('forceOpenOverboardResult', 'state-written', {
+        banId,
         resultId: banId,
         allowed: true,
         bypassPriorityLock: block.bypassPriorityLock,
-        extra: { phase: 'state-written', directResultOverlay: true },
+        extra: { directResultOverlay: true },
       });
 
       queueMicrotask(() => {
@@ -2315,23 +2438,85 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [closeSendFlow],
   );
 
+  const collectOverboardFallbackBans = useCallback(
+    (banId: string, extra: BanInteraction[] = []): BanInteraction[] => {
+      const out: BanInteraction[] = [];
+      const seen = new Set<string>();
+      const push = (row: BanInteraction | null | undefined) => {
+        if (!row?.id || row.id !== banId || seen.has(row.id)) return;
+        seen.add(row.id);
+        out.push(row);
+      };
+      for (const row of extra) push(row);
+      push(incomingBanRef.current);
+      push(sessionActiveBansRef.current.find((row) => row.id === banId));
+      return out;
+    },
+    [],
+  );
+
   const openIncomingOverboardOptimistic = useCallback(
-    (ban: BanInteraction, clickTs = performance.now()): boolean => {
+    (
+      ban: BanInteraction,
+      clickTs = performance.now(),
+      opts?: { fallbackBans?: BanInteraction[] },
+    ): boolean => {
       const banId = ban.id;
       const uid = userIdRef.current;
-      if (!uid) return false;
+      logResultPath('openIncomingOverboardOptimistic', 'attempt', {
+        banId,
+        resultId: banId,
+        extra: { hasUid: !!uid },
+      });
+      if (!uid) {
+        logResultPath('openIncomingOverboardOptimistic', 'path-skip', {
+          banId,
+          allowed: false,
+          reason: 'no-auth-user',
+        });
+        return false;
+      }
 
-      const optimistic = buildOptimisticOverboardResult(ban, uid, {
+      const buildCtx: OptimisticOverboardBuildContext = {
         viewerId: uid,
         viewer: authUserRef.current,
         friends: friendsRef.current,
-      });
+        fallbackBans: collectOverboardFallbackBans(
+          banId,
+          opts?.fallbackBans ?? [],
+        ),
+      };
+      const optimistic = buildOptimisticOverboardResult(ban, uid, buildCtx);
       logOverboardTiming('optimistic-built', clickTs);
-      if (!optimistic) return false;
+      if (!optimistic) {
+        const diag = getOptimisticOverboardBuildDiagnostics(ban, uid, buildCtx);
+        logResultPath('openIncomingOverboardOptimistic', 'path-skip', {
+          banId,
+          allowed: false,
+          reason: 'optimistic-build-null',
+          extra: {
+            missingSenderId: diag.missingSenderId,
+            missingReceiverId: diag.missingReceiverId,
+            missingText: diag.missingText,
+            missingBanId: diag.missingBanId,
+            missingParticipants: diag.missingParticipants,
+            buildReason: diag.reason,
+          },
+        });
+        return false;
+      }
+
+      logResultPath('openIncomingOverboardOptimistic', 'state-written', {
+        banId,
+        resultId: banId,
+        allowed: true,
+        extra: { phase: 'optimistic-built' },
+      });
 
       logOverboardTiming('flushSync-start', clickTs);
       armLocalOverboardBypass(banId);
-      logResultOpenAttempt('local-overboard-click', {
+      logResultPath('local-overboard-click', 'attempt', {
+        banId,
         resultId: banId,
         allowed: true,
         bypassPriorityLock: true,
@@ -2343,6 +2528,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       logOverboardTiming('result-state-set', clickTs);
 
       if (!ok) {
+        logResultPath('forceOpenOverboardResult', 'path-skip', {
+          banId,
+          allowed: false,
+          reason: 'force-open-returned-false',
+        });
         overboardInFlightRef.current = null;
         clearLocalOverboardBypass();
         return false;
@@ -2351,7 +2541,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       traceOverboardFlow('optimistic-result-opened', { banId });
       return true;
     },
-    [forceOpenOverboardResult],
+    [collectOverboardFallbackBans, forceOpenOverboardResult],
   );
 
   const runIncomingOverboardApi = useCallback(

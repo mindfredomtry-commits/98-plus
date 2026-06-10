@@ -17,6 +17,188 @@ export type OptimisticAvatarContext = {
   friends?: FriendCard[];
 };
 
+export type OptimisticOverboardBuildContext = OptimisticAvatarContext & {
+  /** verifiedBan, incomingBan, session active row — merged for incomplete WS payloads */
+  fallbackBans?: BanInteraction[];
+};
+
+type BanTextFields = {
+  text?: string | null;
+  title?: string | null;
+  banText?: string | null;
+};
+
+export type OptimisticOverboardBuildDiagnostics = {
+  missingBanId: boolean;
+  missingText: boolean;
+  missingSenderId: boolean;
+  missingReceiverId: boolean;
+  missingParticipants: boolean;
+  reason: string | null;
+};
+
+const OPT_ID_PREFIX = 'opt:';
+
+function pickBanText(...sources: (BanTextFields | null | undefined)[]): string | null {
+  for (const source of sources) {
+    if (!source) continue;
+    for (const key of ['text', 'title', 'banText'] as const) {
+      const value = source[key]?.trim();
+      if (value) return value;
+    }
+  }
+  return null;
+}
+
+function mergeBanSources(
+  primary: BanInteraction,
+  fallbacks: BanInteraction[],
+): BanInteraction {
+  const sources = [primary, ...fallbacks.filter((b) => b.id === primary.id)];
+  const text = pickBanText(...sources) ?? primary.text?.trim() ?? '';
+  const sender =
+    sources.find(
+      (s) =>
+        s.sender?.id?.trim() ||
+        s.sender?.username?.trim() ||
+        s.sender?.firstName?.trim() ||
+        s.sender?.telegramId?.trim(),
+    )?.sender ?? primary.sender;
+  const receiver =
+    sources.find(
+      (s) =>
+        s.receiver?.id?.trim() ||
+        s.receiver?.username?.trim() ||
+        s.receiver?.firstName?.trim() ||
+        s.receiver?.telegramId?.trim(),
+    )?.receiver ?? primary.receiver;
+
+  return {
+    ...primary,
+    text,
+    sender: sender ?? primary.sender,
+    receiver: receiver ?? primary.receiver,
+  };
+}
+
+function syntheticParticipantId(
+  banId: string,
+  role: 'sender' | 'receiver',
+  hint?: string | null,
+): string {
+  const trimmed = hint?.trim();
+  if (trimmed) return trimmed;
+  return `${OPT_ID_PREFIX}${role}:${banId}`;
+}
+
+function hasDisplayIdentity(user: UserPublic | null | undefined): boolean {
+  if (!user?.id?.trim()) return false;
+  return Boolean(
+    user.firstName?.trim() ||
+      user.username?.replace(/^@/, '').trim() ||
+      user.telegramId?.trim(),
+  );
+}
+
+function coalesceUserPublic(
+  partial: Partial<UserPublic> | null | undefined,
+  fallbackId: string,
+  ctx: OptimisticAvatarContext,
+): UserPublic {
+  const id =
+    partial?.id?.trim() ||
+    partial?.telegramId?.trim() ||
+    fallbackId.trim();
+  const firstName =
+    partial?.firstName?.trim() ||
+    partial?.username?.replace(/^@/, '').trim() ||
+    'Игрок';
+  const base: UserPublic = {
+    id,
+    telegramId: partial?.telegramId?.trim() || id,
+    username: partial?.username ?? null,
+    firstName,
+    avatarUrl: partial?.avatarUrl ?? partial?.photoUrl ?? null,
+    photoUrl: partial?.photoUrl ?? partial?.avatarUrl ?? null,
+    aura: partial?.aura ?? 'stable',
+    auraLabel: partial?.auraLabel ?? '',
+    energyPercent: partial?.energyPercent ?? 50,
+    streak: partial?.streak ?? 0,
+    isOnboarded: partial?.isOnboarded ?? true,
+  };
+  return resolveUserAvatarForOptimistic(base, ctx).user;
+}
+
+function patchSenderFromFriends(
+  sender: Partial<UserPublic> | null | undefined,
+  friends: FriendCard[],
+): Partial<UserPublic> | null | undefined {
+  if (!sender || sender.id?.trim()) return sender;
+  const username = sender.username?.replace(/^@/, '').trim();
+  if (!username) return sender;
+  const friend = findFriendByUsername(friends, username);
+  const senderId = friend?.userId ?? friend?.id;
+  if (!senderId) return sender;
+  const friendUrl = friend ? resolveFriendAvatarUrl(friend) : null;
+  return {
+    ...sender,
+    id: senderId,
+    avatarUrl: sender.avatarUrl ?? friend?.avatarUrl ?? friendUrl,
+    photoUrl: sender.photoUrl ?? friend?.photoUrl ?? friendUrl,
+  };
+}
+
+function resolveOptimisticSender(
+  ban: BanInteraction,
+  banId: string,
+  ctx: OptimisticOverboardBuildContext,
+): UserPublic {
+  const friends = ctx.friends ?? [];
+  const patched = patchSenderFromFriends(ban.sender, friends) ?? ban.sender;
+  return coalesceUserPublic(
+    patched,
+    syntheticParticipantId(banId, 'sender'),
+    ctx,
+  );
+}
+
+function resolveOptimisticReceiver(
+  ban: BanInteraction,
+  banId: string,
+  ctx: OptimisticOverboardBuildContext,
+): UserPublic {
+  if (ban.isIncoming !== false && ctx.viewerId) {
+    const viewerPartial: Partial<UserPublic> = {
+      ...(ban.receiver ?? {}),
+      ...(ctx.viewer ?? {}),
+      id: ctx.viewerId,
+    };
+    return coalesceUserPublic(
+      viewerPartial,
+      syntheticParticipantId(banId, 'receiver', ctx.viewerId),
+      ctx,
+    );
+  }
+
+  if (ctx.viewerId && ban.receiver?.id === ctx.viewerId && ctx.viewer) {
+    return coalesceUserPublic(
+      { ...ctx.viewer, ...ban.receiver, id: ctx.viewerId },
+      ctx.viewerId,
+      ctx,
+    );
+  }
+
+  const receiverPartial = ban.receiver ?? ctx.viewer ?? null;
+  const receiverId =
+    receiverPartial?.id?.trim() ||
+    (ctx.viewerId && ban.receiver?.id === ctx.viewerId ? ctx.viewerId : null);
+  return coalesceUserPublic(
+    receiverId ? { ...receiverPartial, id: receiverId } : receiverPartial,
+    syntheticParticipantId(banId, 'receiver', receiverId ?? ctx.viewerId),
+    ctx,
+  );
+}
+
 type AvatarResolveMeta = {
   fromIncoming: boolean;
   fromCache: boolean;
@@ -41,9 +223,16 @@ function findFriendForUser(
 }
 
 function resolveUserAvatarForOptimistic(
-  user: UserPublic,
+  user: UserPublic | null | undefined,
   ctx: OptimisticAvatarContext,
 ): { user: UserPublic; meta: AvatarResolveMeta } {
+  if (!user?.id?.trim()) {
+    const fallback = coalesceUserPublic(user, `${OPT_ID_PREFIX}unknown`, ctx);
+    return {
+      user: fallback,
+      meta: { fromIncoming: false, fromCache: false, fallbackUsed: true },
+    };
+  }
   const incomingUrl = normalizeAvatarUrl(user.avatarUrl ?? user.photoUrl);
   let url = incomingUrl;
   let fromIncoming = !!incomingUrl;
@@ -159,27 +348,61 @@ function logOptimisticOverboardAvatars(
   });
 }
 
+export function diagnoseOptimisticOverboardParticipants(
+  ban: BanInteraction,
+  ctx: OptimisticOverboardBuildContext,
+): OptimisticOverboardBuildDiagnostics {
+  const banId = ban.id?.trim() ?? '';
+  const merged = mergeBanSources(ban, ctx.fallbackBans ?? []);
+  const text = pickBanText(merged, ...(ctx.fallbackBans ?? [])) ?? merged.text?.trim();
+  const sender = resolveOptimisticSender(merged, banId, ctx);
+  const receiver = resolveOptimisticReceiver(merged, banId, ctx);
+
+  const missingBanId = !banId;
+  const missingText = !text;
+  const missingSenderId = !ban.sender?.id?.trim() && !merged.sender?.id?.trim();
+  const missingReceiverId =
+    !ban.receiver?.id?.trim() && !merged.receiver?.id?.trim();
+  const missingParticipants =
+    !hasDisplayIdentity(sender) || !hasDisplayIdentity(receiver);
+
+  let reason: string | null = null;
+  if (missingBanId) reason = 'missing-ban-id';
+  else if (missingText) reason = 'missing-text';
+  else if (missingParticipants) reason = 'missing-participants';
+  return {
+    missingBanId,
+    missingText,
+    missingSenderId,
+    missingReceiverId,
+    missingParticipants,
+    reason,
+  };
+}
+
 export function prepareOptimisticOverboardParticipants(
   ban: BanInteraction,
-  ctx: OptimisticAvatarContext,
-): { sender: UserPublic; receiver: UserPublic } {
-  const patched = patchBanParticipantsFromContext(ban, ctx);
-  const senderResolved = resolveUserAvatarForOptimistic(patched.sender, ctx);
-  const receiverResolved = resolveUserAvatarForOptimistic(patched.receiver, ctx);
+  ctx: OptimisticOverboardBuildContext = { viewerId: '' },
+): { sender: UserPublic; receiver: UserPublic; mergedBan: BanInteraction } {
+  const merged = mergeBanSources(ban, ctx.fallbackBans ?? []);
+  const patched = patchBanParticipantsFromContext(merged, ctx);
+  const banId = patched.id?.trim() ?? merged.id;
+  const sender = resolveOptimisticSender(patched, banId, ctx);
+  const receiver = resolveOptimisticReceiver(patched, banId, ctx);
 
-  logOptimisticOverboardAvatars(patched.id, {
-    url: resolveUserAvatarUrl(senderResolved.user),
-    meta: senderResolved.meta,
+  logOptimisticOverboardAvatars(banId, {
+    url: resolveUserAvatarUrl(sender),
+    meta: { fromIncoming: false, fromCache: false, fallbackUsed: false },
   }, {
-    url: resolveUserAvatarUrl(receiverResolved.user),
-    meta: receiverResolved.meta,
+    url: resolveUserAvatarUrl(receiver),
+    meta: { fromIncoming: false, fromCache: false, fallbackUsed: false },
   });
 
   const preloadTargets = [
-    senderResolved.user.avatarUrl,
-    senderResolved.user.photoUrl,
-    receiverResolved.user.avatarUrl,
-    receiverResolved.user.photoUrl,
+    sender.avatarUrl,
+    sender.photoUrl,
+    receiver.avatarUrl,
+    receiver.photoUrl,
   ];
   preloadAvatarUrls(preloadTargets);
   for (const raw of preloadTargets) {
@@ -188,8 +411,14 @@ export function prepareOptimisticOverboardParticipants(
   }
 
   return {
-    sender: senderResolved.user,
-    receiver: receiverResolved.user,
+    sender,
+    receiver,
+    mergedBan: {
+      ...patched,
+      text: pickBanText(patched, ...(ctx.fallbackBans ?? [])) ?? patched.text,
+      sender,
+      receiver,
+    },
   };
 }
 
