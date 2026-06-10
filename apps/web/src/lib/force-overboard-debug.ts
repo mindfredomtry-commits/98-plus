@@ -1,6 +1,58 @@
 import { traceOverboardFlow } from '@/lib/overboard-flow-debug';
 import { logResultPath } from '@/lib/result-open-trace';
 
+export const FORCE_OPEN_OVERBOARD_IMPL_ID = 'force-open-overboard-v3';
+
+export type DirectForceCallPhase =
+  | 'probe'
+  | 'before invoke'
+  | 'after invoke'
+  | 'exception';
+
+export function logDirectForceCall(
+  phase: DirectForceCallPhase,
+  data?: Record<string, unknown>,
+): void {
+  console.log(`[DIRECT CALL] ${phase}`, data ?? '');
+  traceOverboardFlow(`direct-call:${phase}`, data);
+  const pathPhase =
+    phase === 'before invoke'
+      ? 'attempt'
+      : phase === 'after invoke'
+        ? 'state-written'
+        : 'path-skip';
+  logResultPath('direct-force-call', pathPhase, {
+    banId: typeof data?.banId === 'string' ? data.banId : null,
+    allowed: phase === 'after invoke' && data?.returned === true,
+    reason: phase === 'exception' ? String(data?.error ?? 'exception') : null,
+    extra: { phase, ...data },
+  });
+}
+
+export function probeForceOpenFn(
+  fn: unknown,
+  closureFn?: unknown,
+): Record<string, unknown> {
+  const callable = typeof fn === 'function';
+  const probe: Record<string, unknown> = {
+    typeofFn: typeof fn,
+    callable,
+    fnName: callable ? (fn as { name?: string }).name || '(anonymous)' : null,
+    sameAsClosure: fn === closureFn,
+    implId: callable
+      ? (fn as { __forceOpenImplId?: string }).__forceOpenImplId ?? null
+      : null,
+  };
+  if (callable && process.env.NODE_ENV !== 'production') {
+    try {
+      probe.fnSnippet = String(fn).slice(0, 120);
+    } catch {
+      probe.fnSnippet = '(unstringifiable)';
+    }
+  }
+  return probe;
+}
+
 export type ForceOverboardLogStep =
   | 'enter'
   | 'input'
@@ -19,7 +71,8 @@ export function logForceOverboard(
   data?: Record<string, unknown>,
 ): void {
   const line = `[FORCE OVERBOARD] ${step}`;
-  console.log(line, data ?? '');
+  // Always mirror to console — visible even if traceOverboardFlow is filtered.
+  console.log(line, { implId: FORCE_OPEN_OVERBOARD_IMPL_ID, ...(data ?? {}) });
   traceOverboardFlow(`force:${step}`, data);
   if (step === 'state-written' || step === 'early-return' || step === 'flushSync-error') {
     logResultPath('forceOpenOverboardResult', step === 'state-written' ? 'state-written' : 'path-skip', {

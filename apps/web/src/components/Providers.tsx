@@ -93,8 +93,11 @@ import {
   type OverboardDirectStateSnapshot,
 } from '@/lib/overboard-direct-state';
 import {
+  FORCE_OPEN_OVERBOARD_IMPL_ID,
+  logDirectForceCall,
   logForceOverboard,
   logResultStateCleared,
+  probeForceOpenFn,
 } from '@/lib/force-overboard-debug';
 import { logResultPath } from '@/lib/result-open-trace';
 import {
@@ -526,6 +529,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const checkAnswerInFlightRef = useRef<Set<string>>(new Set());
   const resultOpenRef = useRef(false);
   const overboardInFlightRef = useRef<string | null>(null);
+  type ForceOpenOverboardFn = (
+    payload: BanResult,
+    banId: string,
+    clickTs?: number | null,
+    opts?: { source?: 'local-overboard-click' | 'api-sync' | 'recovery' },
+  ) => boolean;
+  const forceOpenOverboardResultRef = useRef<ForceOpenOverboardFn>(
+    function forceOpenOverboardResultStub(): boolean {
+      console.log(
+        '[FORCE OVERBOARD] enter STUB-REF — real impl not wired yet',
+        FORCE_OPEN_OVERBOARD_IMPL_ID,
+      );
+      logDirectForceCall('exception', {
+        error: 'force-open-stub-invoked',
+      });
+      return false;
+    },
+  );
   const directResultOverlayRef = useRef(false);
   const [directResultOverlayActive, setDirectResultOverlayActive] =
     useState(false);
@@ -2379,12 +2400,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const forceOpenOverboardResult = useCallback(
-    (
+    function forceOpenOverboardResultImpl(
       payload: BanResult,
       banId: string,
       clickTs?: number | null,
       opts?: { source?: 'local-overboard-click' | 'api-sync' | 'recovery' },
-    ): boolean => {
+    ): boolean {
+      console.log('[FORCE OVERBOARD] enter', FORCE_OPEN_OVERBOARD_IMPL_ID);
       const uid = userIdRef.current;
       const inFlightId = overboardInFlightRef.current;
       const isLocalForce =
@@ -2619,6 +2641,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [closeSendFlow, readDirectOverboardSnapshot],
   );
+  Object.assign(forceOpenOverboardResult, {
+    __forceOpenImplId: FORCE_OPEN_OVERBOARD_IMPL_ID,
+  });
+  forceOpenOverboardResultRef.current = forceOpenOverboardResult;
 
   const collectOverboardFallbackBans = useCallback(
     (banId: string, extra: BanInteraction[] = []): BanInteraction[] => {
@@ -2717,9 +2743,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       logOverboardDirectState('calling forceOpenOverboardResult', readDirectOverboardSnapshot(), {
         banId,
       });
-      const ok = forceOpenOverboardResult(optimistic, banId, clickTs, {
-        source: 'local-overboard-click',
+
+      const invokeForce = forceOpenOverboardResultRef.current;
+      const closureForce = forceOpenOverboardResult;
+      logDirectForceCall('probe', {
+        banId,
+        ...probeForceOpenFn(invokeForce, closureForce),
+        refMatchesLatest: invokeForce === closureForce,
       });
+
+      let ok = false;
+      try {
+        logDirectForceCall('before invoke', {
+          banId,
+          ...probeForceOpenFn(invokeForce, closureForce),
+        });
+        ok = invokeForce(optimistic, banId, clickTs, {
+          source: 'local-overboard-click',
+        });
+        logDirectForceCall('after invoke', { banId, returned: ok });
+      } catch (error) {
+        logDirectForceCall('exception', {
+          banId,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        });
+        ok = false;
+      }
+
       logOverboardTiming('result-state-set', clickTs);
       logOverboardDirectState('force returned', readDirectOverboardSnapshot(true), {
         banId,
@@ -2744,11 +2795,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       return true;
     },
-    [
-      collectOverboardFallbackBans,
-      forceOpenOverboardResult,
-      readDirectOverboardSnapshot,
-    ],
+    [collectOverboardFallbackBans, readDirectOverboardSnapshot],
   );
 
   const runIncomingOverboardApi = useCallback(
@@ -2794,7 +2841,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           logOverboardFinalState(banId, `sync-${source}`);
           return true;
         }
-        return forceOpenOverboardResult(normalized, banId, undefined, {
+        return forceOpenOverboardResultRef.current(normalized, banId, undefined, {
           source: 'api-sync',
         });
       };
@@ -2991,12 +3038,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       }
     },
-    [
-      dismissCurrentOverlay,
-      forceOpenOverboardResult,
-      logOverboardFinalState,
-      scheduleResultPollBurst,
-    ],
+    [dismissCurrentOverlay, logOverboardFinalState, scheduleResultPollBurst],
   );
 
   const submitIncomingOverboard = useCallback(
