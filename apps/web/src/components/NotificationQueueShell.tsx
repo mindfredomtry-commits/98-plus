@@ -32,7 +32,7 @@ export function NotificationQueueShell({
   contentKey,
   children,
 }: Props) {
-  if (!sessionActive && !kind) return null;
+  if (!kind) return null;
 
   const handoff = sessionActive;
   const shellKind = kind ?? 'incoming';

@@ -4988,12 +4988,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     : activeOverlayKind;
   const notificationShellSuppressedForBansLobby =
     bansCtaQueueSuppressRef.current || bansReturnToLobbyLatchRef.current;
+  const hasQueuedOverlayShell =
+    overlayQueue.length > 0 && displayActiveOverlayKind != null;
   const notificationSessionActive =
     !priorityBlocksResult &&
     !notificationShellSuppressedForBansLobby &&
     (showDirectOverboardLayer ||
       overboardTransitionActive ||
-      overlayQueue.length > 0);
+      hasQueuedOverlayShell);
 
   const incomingGateActive = useMemo(() => {
     if (priorityBlocksResult) return false;
@@ -5301,6 +5303,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             headKind: nextQueue[0]?.kind ?? null,
           });
         }
+        resultOpenRef.current = false;
+        setResult(null);
+        resultRef.current = null;
+        clearDirectOverboardLayerRefs();
+        setDirectResultOverlayActive(false);
       });
 
       console.log('[LOBBY OPEN DONE]', {
@@ -5325,8 +5332,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             wasBansCta ? 'result-cta-bans-closed' : 'target-flow-closed',
           );
         }
-        setBansReturnToLobbyLatch(false);
-        bansReturnToLobbyLatchRef.current = false;
+        requestAnimationFrame(() => {
+          setBansReturnToLobbyLatch(false);
+          bansReturnToLobbyLatchRef.current = false;
+        });
       }, 400);
 
       console.log('[BANS NAV] back-to-lobby source=result-cta');
@@ -5337,7 +5346,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       return true;
     },
-    [dismissCurrentOverlay, resetBansNavState, unlockNotificationQueueAndFlush],
+    [
+      clearDirectOverboardLayerRefs,
+      dismissCurrentOverlay,
+      resetBansNavState,
+      unlockNotificationQueueAndFlush,
+    ],
   );
 
   useLayoutEffect(() => {

@@ -368,11 +368,12 @@ export function InstantBanFlow({
   const showCrossScreenPager =
     phase === 'selectingTarget' || phase === 'composingBan';
   const overlayOpen = showCrossScreenPager;
-  const notificationOverlayActive =
-    notificationSessionActive ||
-    incomingGateActive ||
-    checkGateActive ||
-    !!result;
+  const notificationOverlayActive = bansReturnToLobbyLatch
+    ? false
+    : notificationSessionActive ||
+      incomingGateActive ||
+      checkGateActive ||
+      !!result;
   const bansLayerUiOpen =
     !bansReturnToLobbyLatch &&
     (bansOverlayOpen || bansCtaQueueSuppress || resultCtaBansOverlayOpen);
@@ -392,7 +393,7 @@ export function InstantBanFlow({
     !replyLobbyBlocked &&
     !deepLinkReplyBooting &&
     !incomingReplyBanId &&
-    !incomingGateActive &&
+    (!incomingGateActive || bansReturnToLobbyLatch) &&
     (ctaState === 'visible' ||
       ctaState === 'exiting' ||
       ctaState === 'entering');
@@ -1279,6 +1280,8 @@ export function InstantBanFlow({
     setComposeExitProgress(0);
     setComposeDismissing(false);
     setCrossScreenProgressImmediate(0);
+    setBanSentSuccess(false);
+    sendSnapshotRef.current = null;
     setCtaState('hidden');
     setPhase('idle');
   }, [setCrossScreenProgressImmediate, stopCrossScreenAnim]);
@@ -1337,13 +1340,43 @@ export function InstantBanFlow({
 
   const scheduleLobbyVisibilityCheck = useCallback(
     (source: string) => {
+      const readDomEl = (el: Element | null) => {
+        if (!el) return null;
+        const style = getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        return {
+          display: style.display,
+          visibility: style.visibility,
+          opacity: style.opacity,
+          zIndex: style.zIndex,
+          rect: {
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height,
+          },
+        };
+      };
+
       const runCheck = () => {
+        const lobbyRoot = document.querySelector(
+          '.instant-ban-arena-send.instant-ban-flow',
+        );
         const lobbyCta = document.querySelector('.instant-ban-lobby-cta');
         const orbRoot = document.querySelector('[data-orb-root]');
-        const lobbyEl = lobbyCta ?? orbRoot;
-        const lobbyStyle = lobbyEl ? getComputedStyle(lobbyEl) : null;
-        const lobbyRect = lobbyEl?.getBoundingClientRect();
+        const notificationLayer = document.querySelector(
+          '[data-notification-layer]',
+        );
+        const directLayer = document.querySelector('[data-direct-overboard-result]');
         const check = {
+          lobbyRootFound: lobbyRoot != null,
+          orbFound: orbRoot != null,
+          ctaFound: lobbyCta != null,
+          lobbyRoot: readDomEl(lobbyRoot),
+          orb: readDomEl(orbRoot),
+          cta: readDomEl(lobbyCta),
+          notificationLayerFound: notificationLayer != null,
+          directOverboardLayerFound: directLayer != null,
           lobbyOpen,
           instantBanOpen: sendStarted,
           sendStarted,
@@ -1357,25 +1390,14 @@ export function InstantBanFlow({
           bansReturnToLobbyLatch,
           notificationQueueUiLock:
             notificationSessionActive || notificationOverlayActive,
-          directActive: notificationSessionActive,
           activeOverlayKind,
           ctaState,
-          lobbyElementFound: lobbyEl != null,
-          lobbyDisplay: lobbyStyle?.display ?? null,
-          lobbyVisibility: lobbyStyle?.visibility ?? null,
-          lobbyOpacity: lobbyStyle?.opacity ?? null,
-          lobbyRect: lobbyRect
-            ? {
-                top: lobbyRect.top,
-                left: lobbyRect.left,
-                width: lobbyRect.width,
-                height: lobbyRect.height,
-              }
-            : null,
+          banSentSuccess,
+          showLobbyCta,
           source,
         };
-        console.log('[LOBBY VISIBILITY CHECK]', check);
-        markVisibleOverboardTrace('[LOBBY VISIBILITY CHECK]', check);
+        console.log('[LOBBY DOM CHECK]', check);
+        markVisibleOverboardTrace('[LOBBY DOM CHECK]', check);
       };
       requestAnimationFrame(() => {
         requestAnimationFrame(runCheck);
@@ -1383,6 +1405,7 @@ export function InstantBanFlow({
     },
     [
       activeOverlayKind,
+      banSentSuccess,
       bansCtaQueueSuppress,
       bansReturnToLobbyLatch,
       ctaState,
@@ -1393,6 +1416,7 @@ export function InstantBanFlow({
       resultCtaBansOverlayOpen,
       sendFlowOpen,
       sendStarted,
+      showLobbyCta,
     ],
   );
 
@@ -1408,10 +1432,10 @@ export function InstantBanFlow({
           setSelectedBanForDetails(null);
           clearResultCtaBansOverlayOpen();
           resetSendUiForBansCta();
-          setCtaState('entering');
+          setConfirmEnterKey((k) => k + 1);
+          setCtaState('visible');
         });
         clearCtaEnterTimer();
-        scheduleCtaBecomeVisible();
         closeSendFlow();
         const logBansCloseFinalState = () => {
           const finalState = {
