@@ -25,6 +25,7 @@ import {
   isDirectOverboardOpenable,
   isValidBanResultPayload,
   parseStartParam,
+  buildBanInteractionFromReplyPreview,
 } from '@98plus/shared';
 import {
   ANALYTICS_EVENTS,
@@ -696,6 +697,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const replyDeeplinkFastShellRef = useRef(false);
   const replyDeeplinkPrefetchRef = useRef(false);
   const bootClaimedIncomingRef = useRef<BanInteraction | null>(null);
+  const bootReplyDeeplinkPreviewRef = useRef<BanInteraction | null>(null);
+  const replyStartParamPreviewBanRef = useRef<BanInteraction | null>(null);
+  const replyStartParamPreviewRawRef = useRef<
+    import('@98plus/shared').ReplyStartParamPreview | null
+  >(null);
   const lastSessionIncomingRef = useRef<BanInteraction | null>(null);
   const replyDeeplinkFastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -887,6 +893,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [openSendFlow, suppressQueuedOverlayDisplay]);
 
   useLayoutEffect(() => {
+    const syncReplyStartParamPreview = (viewerId: string | null | undefined) => {
+      if (!viewerId) return;
+      const rawPreview = replyStartParamPreviewRawRef.current;
+      if (!rawPreview) return;
+      const banId =
+        replyDeeplinkPendingBanIdRef.current ??
+        replyDeepLinkBanIdRef.current ??
+        null;
+      if (!banId) return;
+      replyStartParamPreviewBanRef.current = enrichBanInteraction(
+        buildBanInteractionFromReplyPreview(banId, rawPreview, viewerId),
+      );
+      console.log('[REPLY START_PARAM PREVIEW PARSED]', {
+        banId,
+        hasText: !!rawPreview.text?.trim(),
+        hasSender: !!rawPreview.senderId,
+      });
+      markVisibleOverboardTrace('[REPLY START_PARAM PREVIEW PARSED]', {
+        banId,
+        hasText: !!rawPreview.text?.trim(),
+        hasSender: !!rawPreview.senderId,
+      });
+    };
+
     if (tryLockFromStartParam('providers-layout')) {
       const action = parseStartParam(readPriorityStartParamRaw() ?? undefined);
       if (action?.type === 'active') {
@@ -894,14 +924,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       if (action?.type === 'reply') {
         replyDeeplinkPendingBanIdRef.current = action.banId;
+        if (action.preview?.text?.trim()) {
+          replyStartParamPreviewRawRef.current = action.preview;
+          syncReplyStartParamPreview(
+            userIdRef.current ?? auth.user?.id ?? null,
+          );
+        }
       }
     } else {
       const action = parseStartParam(readPriorityStartParamRaw() ?? undefined);
       if (action?.type === 'reply') {
         replyDeeplinkPendingBanIdRef.current = action.banId;
+        if (action.preview?.text?.trim()) {
+          replyStartParamPreviewRawRef.current = action.preview;
+          syncReplyStartParamPreview(
+            userIdRef.current ?? auth.user?.id ?? null,
+          );
+        }
       }
     }
-  }, [armActiveBanDeepLinkEarly]);
+  }, [armActiveBanDeepLinkEarly, auth.user?.id]);
+
+  useEffect(() => {
+    const viewerId = auth.user?.id;
+    if (!viewerId || auth.loading) return;
+    const rawPreview = replyStartParamPreviewRawRef.current;
+    if (!rawPreview) return;
+    const banId = replyDeeplinkPendingBanIdRef.current;
+    if (!banId) return;
+    replyStartParamPreviewBanRef.current = enrichBanInteraction(
+      buildBanInteractionFromReplyPreview(banId, rawPreview, viewerId),
+    );
+  }, [auth.user?.id, auth.loading]);
 
   useEffect(() => {
     replyDeeplinkFastShellRef.current = replyDeeplinkFastShell;
@@ -4043,9 +4097,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         activeBans: sessionActiveBansRef.current,
         claimedIncoming:
           bootClaimedIncomingRef.current ?? auth.boot?.claimedIncoming ?? null,
+        replyDeeplinkPreview:
+          bootReplyDeeplinkPreviewRef.current ??
+          (auth.boot?.replyDeeplinkPreview
+            ? enrichBanInteraction(auth.boot.replyDeeplinkPreview)
+            : null),
+        startParamPreviewBan: replyStartParamPreviewBanRef.current,
         sessionIncoming: lastSessionIncomingRef.current,
       }),
-    [auth.boot?.claimedIncoming],
+    [auth.boot?.claimedIncoming, auth.boot?.replyDeeplinkPreview],
   );
 
   const openReplyDeepLinkFast = useCallback(
@@ -4345,6 +4405,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     auth.token,
     auth.user?.id,
     auth.boot?.claimedIncoming,
+    auth.boot?.replyDeeplinkPreview,
     buildReplyFastLookupCtx,
     hydrateReplyDeeplinkIncomingBan,
     overlayQueue.length,
@@ -5061,6 +5122,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!auth.boot || !auth.user?.id || auth.loading) return;
+    if (auth.boot.replyDeeplinkPreview) {
+      bootReplyDeeplinkPreviewRef.current = enrichBanInteraction(
+        auth.boot.replyDeeplinkPreview,
+      );
+      console.log('[AUTH CLAIMED INCOMING PREVIEW]', {
+        banId: auth.boot.replyDeeplinkPreview.id,
+        hasText: !!auth.boot.replyDeeplinkPreview.text?.trim(),
+        hasSender: !!auth.boot.replyDeeplinkPreview.sender?.id,
+      });
+      markVisibleOverboardTrace('[AUTH CLAIMED INCOMING PREVIEW]', {
+        banId: auth.boot.replyDeeplinkPreview.id,
+        hasText: !!auth.boot.replyDeeplinkPreview.text?.trim(),
+        hasSender: !!auth.boot.replyDeeplinkPreview.sender?.id,
+      });
+    }
     const incoming = pickIncomingForOverlay(
       auth.boot.claimedIncoming,
       dismissedIncomingRef.current,

@@ -45,6 +45,7 @@ function clearAllStoredTokens() {
 
 export interface AuthBoot {
   claimedIncoming: BanInteraction | null;
+  replyDeeplinkPreview: BanInteraction | null;
   viralOnboarding: boolean;
   needsOnboardingRecovery: boolean;
 }
@@ -80,6 +81,7 @@ export function useAuth() {
         token: string;
         user: UserPublic;
         claimedIncoming?: BanInteraction | null;
+        replyDeeplinkPreview?: BanInteraction | null;
         viralOnboarding?: boolean;
         needsOnboardingRecovery?: boolean;
       },
@@ -106,6 +108,9 @@ export function useAuth() {
       setBoot({
         claimedIncoming: res.claimedIncoming
           ? enrichBanInteraction(res.claimedIncoming)
+          : null,
+        replyDeeplinkPreview: res.replyDeeplinkPreview
+          ? enrichBanInteraction(res.replyDeeplinkPreview)
           : null,
         viralOnboarding: !!res.viralOnboarding,
         needsOnboardingRecovery: !!res.needsOnboardingRecovery,
@@ -135,6 +140,7 @@ export function useAuth() {
         token: string;
         user: UserPublic;
         claimedIncoming?: BanInteraction | null;
+        replyDeeplinkPreview?: BanInteraction | null;
         viralOnboarding?: boolean;
         needsOnboardingRecovery?: boolean;
       };
@@ -354,6 +360,7 @@ export function useAuth() {
             });
             setBoot({
               claimedIncoming: incoming,
+              replyDeeplinkPreview: null,
               viralOnboarding: !!incoming,
               needsOnboardingRecovery: !!incoming,
             });

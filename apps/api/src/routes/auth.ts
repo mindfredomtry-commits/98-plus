@@ -22,6 +22,7 @@ import type { BanInteraction } from '@98plus/shared';
 import { isDevAuthEnabled } from '../lib/dev-auth';
 import { telegramInitPhotoUrl } from '../lib/avatar-url';
 import { ensureDevFixturesForUser } from '../services/dev-fixtures.service';
+import { getReplyDeeplinkPreview } from '../services/reply-preview.service';
 
 export const authRouter = Router();
 
@@ -33,6 +34,7 @@ async function afterAuth(
   await touchPresence(userId);
 
   let claimedIncoming: BanInteraction | null = null;
+  let replyDeeplinkPreview: BanInteraction | null = null;
   let viralOnboarding = false;
 
   const action = parseStartParam(startParam);
@@ -50,8 +52,20 @@ async function afterAuth(
     if (claimedIncoming) viralOnboarding = true;
   }
 
+  if (action?.type === 'reply') {
+    replyDeeplinkPreview = await getReplyDeeplinkPreview(userId, action.banId);
+    if (replyDeeplinkPreview) {
+      console.log('[AUTH CLAIMED INCOMING PREVIEW]', {
+        banId: action.banId,
+        hasText: !!replyDeeplinkPreview.text?.trim(),
+        hasSender: !!replyDeeplinkPreview.sender?.id,
+      });
+    }
+  }
+
   return {
     claimedIncoming,
+    replyDeeplinkPreview,
     viralOnboarding,
     needsOnboardingRecovery: !!claimedIncoming,
   };

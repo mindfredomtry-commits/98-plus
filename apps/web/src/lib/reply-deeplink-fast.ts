@@ -17,6 +17,8 @@ export type ReplyFastCacheSource =
   | 'startup-pending'
   | 'active-bans'
   | 'auth-claimed-incoming'
+  | 'auth-reply-preview'
+  | 'start-param-preview'
   | 'session-incoming'
   | 'caller-prefill';
 
@@ -71,19 +73,23 @@ export type ReplyFastCacheLookup = {
   pendingStartup: readonly QueuedOverlay[];
   activeBans: readonly BanInteraction[];
   claimedIncoming: BanInteraction | null;
+  replyDeeplinkPreview: BanInteraction | null;
+  startParamPreviewBan: BanInteraction | null;
   sessionIncoming: BanInteraction | null;
 };
 
 const SOURCE_PRIORITY: Record<ReplyFastCacheSource, number> = {
   'caller-prefill': -1,
-  'overlay-queue': 0,
-  'incoming-state': 1,
-  'buffered-incoming': 2,
-  'buffered-reply-deeplink': 3,
-  'startup-pending': 4,
-  'session-incoming': 5,
-  'auth-claimed-incoming': 6,
-  'active-bans': 7,
+  'start-param-preview': 0,
+  'auth-reply-preview': 1,
+  'overlay-queue': 2,
+  'incoming-state': 3,
+  'buffered-incoming': 4,
+  'buffered-reply-deeplink': 5,
+  'startup-pending': 6,
+  'session-incoming': 7,
+  'auth-claimed-incoming': 8,
+  'active-bans': 9,
 };
 
 export function resolveReplyFastCachedBan(
@@ -108,6 +114,8 @@ export function resolveReplyFastCachedBan(
     candidates.push({ ban, source });
   };
 
+  push(ctx.startParamPreviewBan, 'start-param-preview');
+  push(ctx.replyDeeplinkPreview, 'auth-reply-preview');
   for (const q of ctx.overlayQueue) {
     if (q.kind === 'incoming') push(q.ban, 'overlay-queue');
   }
@@ -149,6 +157,8 @@ export function resolveReplyPrefillBan(
     candidates.push({ ban, source });
   };
 
+  push(ctx.startParamPreviewBan, 'start-param-preview');
+  push(ctx.replyDeeplinkPreview, 'auth-reply-preview');
   for (const q of ctx.overlayQueue) {
     if (q.kind === 'incoming') push(q.ban, 'overlay-queue');
   }
@@ -341,6 +351,8 @@ export function diagnoseReplyPrefillSources(
     diagnoseListSource('pendingStartup', pendingIncoming, ctx),
     diagnoseSingleSource('lastSessionIncomingRef', ctx.sessionIncoming, ctx),
     diagnoseSingleSource('auth.boot.claimedIncoming', ctx.claimedIncoming, ctx),
+    diagnoseSingleSource('startParamPreviewBan', ctx.startParamPreviewBan, ctx),
+    diagnoseSingleSource('auth.replyDeeplinkPreview', ctx.replyDeeplinkPreview, ctx),
     diagnoseListSource('activeBans', ctx.activeBans, ctx),
   ];
 }

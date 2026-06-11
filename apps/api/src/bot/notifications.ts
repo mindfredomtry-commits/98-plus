@@ -27,6 +27,10 @@ import {
   getTelegramBotToken,
   telegramSendMessage,
 } from '../lib/telegram-api';
+import {
+  startParamPreviewFromBan,
+  storeReplyPreviewForReceiver,
+} from '../services/reply-preview.service';
 
 function notificationDeepLink(
   action: Parameters<typeof botWebAppButtonUrl>[0],
@@ -206,8 +210,22 @@ export async function sendRegisteredFriendBanNotification(
     return { ...baseDebug, skippedReason: skipReason };
   }
 
+  const previewBan = await storeReplyPreviewForReceiver(
+    params.banId,
+    params.receiverUserId,
+  );
+  const startPreview = previewBan
+    ? startParamPreviewFromBan(previewBan)
+    : {
+        text: params.banText,
+        senderId: params.senderUserId,
+        senderName:
+          params.senderFirstName ?? params.senderUsername ?? undefined,
+        receiverId: params.receiverUserId,
+      };
+
   const link = notificationDeepLink(
-    { type: 'reply', banId: params.banId },
+    { type: 'reply', banId: params.banId, preview: startPreview },
     {
       source: 'sendRegisteredFriendBanNotification',
       buttonLabel: REPLY_BAN_WEBAPP_BUTTON_LABEL,
@@ -338,13 +356,19 @@ export async function sendIncomingBanNotification(
   telegramId: bigint,
   text: string,
   banId: string,
+  receiverUserId: string,
   senderUsername?: string,
   durationMinutes?: number,
   senderFirstName?: string | null,
   senderPhotoUrl?: string | null,
 ) {
+  const previewBan = await storeReplyPreviewForReceiver(banId, receiverUserId);
+  const startPreview = previewBan
+    ? startParamPreviewFromBan(previewBan)
+    : { text, receiverId: receiverUserId };
+
   const url = notificationDeepLink(
-    { type: 'reply', banId },
+    { type: 'reply', banId, preview: startPreview },
     {
       source: 'sendIncomingBanNotification',
       buttonLabel: REPLY_BAN_WEBAPP_BUTTON_LABEL,

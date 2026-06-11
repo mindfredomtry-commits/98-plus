@@ -1,3 +1,9 @@
+import {
+  buildReplyStartParam,
+  parseReplyStartParamRest,
+  type ReplyStartParamPreview,
+} from './reply-preview';
+
 export type DeepLinkAction =
   | { type: 'invite'; username: string }
   | { type: 'invite_token'; token: string }
@@ -5,8 +11,10 @@ export type DeepLinkAction =
   | { type: 'repeat'; banId: string }
   | { type: 'check'; banId: string }
   | { type: 'ban'; banId: string }
-  | { type: 'reply'; banId: string }
+  | { type: 'reply'; banId: string; preview?: ReplyStartParamPreview }
   | { type: 'active'; banId: string };
+
+export type { ReplyStartParamPreview };
 
 /** Read signed start_param from Telegram WebApp initData string */
 export function readStartParamFromInitData(initData?: string | null): string | null {
@@ -37,7 +45,12 @@ export function parseStartParam(raw?: string | null): DeepLinkAction | null {
     return { type: 'result', banId: p.slice(4) };
   }
   if (p.startsWith('rply_')) {
-    return { type: 'reply', banId: p.slice(5) };
+    const parsed = parseReplyStartParamRest(p.slice(5));
+    return {
+      type: 'reply',
+      banId: parsed.banId,
+      ...(parsed.preview ? { preview: parsed.preview } : {}),
+    };
   }
   if (p.startsWith('r_')) {
     return { type: 'result', banId: p.slice(2) };
@@ -49,7 +62,12 @@ export function parseStartParam(raw?: string | null): DeepLinkAction | null {
     return { type: 'ban', banId: p.slice(2) };
   }
   if (p.startsWith('ply_')) {
-    return { type: 'reply', banId: p.slice(4) };
+    const parsed = parseReplyStartParamRest(p.slice(4));
+    return {
+      type: 'reply',
+      banId: parsed.banId,
+      ...(parsed.preview ? { preview: parsed.preview } : {}),
+    };
   }
   if (p.startsWith('a_')) {
     return { type: 'active', banId: p.slice(2) };
@@ -76,7 +94,7 @@ export function buildStartParam(action: DeepLinkAction): string {
     case 'ban':
       return `b_${action.banId}`;
     case 'reply':
-      return `rply_${action.banId}`;
+      return buildReplyStartParam(action.banId, action.preview);
     case 'active':
       return `a_${action.banId}`;
   }
