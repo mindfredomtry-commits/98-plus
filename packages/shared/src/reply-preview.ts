@@ -1,4 +1,6 @@
-import type { BanDurationMinutes, BanInteraction, UserPublic } from './types';
+import type { BanInteraction, UserPublic } from './types';
+import type { BanDurationMinutes } from './constants';
+import { AURA_LABELS } from './energy';
 
 /** Visual-only preview embedded in reply start_param or auth boot — not for server decisions. */
 export type ReplyStartParamPreview = {
@@ -23,8 +25,8 @@ function minimalPreviewUser(
     firstName: name?.trim() || '',
     avatarUrl: null,
     photoUrl: null,
-    aura: 'ember',
-    auraLabel: '',
+    aura: 'weak',
+    auraLabel: AURA_LABELS.weak,
     energyPercent: 0,
     streak: 0,
     isOnboarded: true,
