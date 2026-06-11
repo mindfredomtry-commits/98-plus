@@ -110,6 +110,8 @@ export default function HomePage() {
     replyUiShellActive,
     replyUiShellDark,
     replyDeepLinkBanId,
+    replyToBanId,
+    replyComposeActive,
     replyHandoffLock,
     armReplyDeepLink,
     activeBanUiShellActive,
@@ -267,7 +269,7 @@ export default function HomePage() {
 
   const deepLinkDebugLine = useMemo(
     () =>
-      `[DEEP LINK DEBUG]\nstartParamRaw: ${deepLinkBoot.startParamRaw ?? '—'}\nstartParamResolved: ${deepLinkBoot.startParamResolved ?? '—'}\nparsedType: ${deepLinkBoot.parsedType ?? '—'}\nparsedBanId: ${deepLinkBoot.parsedBanId ?? '—'}\ndeepLinkDetected: ${deepLinkBoot.deepLinkDetected}\ndeepLinkConsumed: ${deepLinkBoot.deepLinkConsumed}\nbootBlocker: ${deepLinkBoot.bootBlocker ?? '—'}\nlastHandler: ${deepLinkBoot.lastHandler ?? '—'}\ninstantBanOpen: ${instantBanOpen}\nsendFlowOpen: ${sendFlowOpen}\nsendStarted: ${sendStarted}\nactiveOverlayKind: ${activeOverlayKind ?? '—'}\nselectedBanId: ${deepLinkSelectedBanId ?? '—'}\noverlayQueueLength: ${overlayQueueLength}\nincomingGateActive: ${incomingGateActive}\nreplyUiShellActive: ${replyUiShellActive}\nreplyUiShellDark: ${replyUiShellDark}\nreplyDeeplinkFastShell: ${replyDeeplinkFastShell}\nreplyIncomingReady: ${replyIncomingReady}\nreplyHandoffLock: ${replyHandoffLock}`,
+      `[DEEP LINK DEBUG]\nstartParamRaw: ${deepLinkBoot.startParamRaw ?? '—'}\nstartParamResolved: ${deepLinkBoot.startParamResolved ?? '—'}\nparsedType: ${deepLinkBoot.parsedType ?? '—'}\nparsedBanId: ${deepLinkBoot.parsedBanId ?? '—'}\ndeepLinkDetected: ${deepLinkBoot.deepLinkDetected}\ndeepLinkConsumed: ${deepLinkBoot.deepLinkConsumed}\nbootBlocker: ${deepLinkBoot.bootBlocker ?? '—'}\nlastHandler: ${deepLinkBoot.lastHandler ?? '—'}\ninstantBanOpen: ${instantBanOpen}\nsendFlowOpen: ${sendFlowOpen}\nsendStarted: ${sendStarted}\nreplyComposeActive: ${replyComposeActive}\nreplyToBanId: ${replyToBanId ?? '—'}\nactiveOverlayKind: ${activeOverlayKind ?? '—'}\nselectedBanId: ${deepLinkSelectedBanId ?? '—'}\noverlayQueueLength: ${overlayQueueLength}\nincomingGateActive: ${incomingGateActive}\nreplyUiShellActive: ${replyUiShellActive}\nreplyUiShellDark: ${replyUiShellDark}\nreplyDeeplinkFastShell: ${replyDeeplinkFastShell}\nreplyIncomingReady: ${replyIncomingReady}\nreplyHandoffLock: ${replyHandoffLock}`,
     [
       deepLinkBoot,
       instantBanOpen,
@@ -282,6 +284,8 @@ export default function HomePage() {
       replyDeeplinkFastShell,
       replyIncomingReady,
       replyHandoffLock,
+      replyComposeActive,
+      replyToBanId,
     ],
   );
 

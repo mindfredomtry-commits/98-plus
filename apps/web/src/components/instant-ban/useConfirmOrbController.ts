@@ -253,8 +253,29 @@ export function useConfirmOrbController({
         sendTriggeredRef.current ||
         e.button !== 0
       ) {
+        const reason = !active
+          ? 'orb-not-active'
+          : !enterComplete
+            ? 'enter-not-complete'
+            : sending
+              ? 'already-sending'
+              : sendTriggeredRef.current
+                ? 'send-already-triggered'
+                : 'not-primary-button';
+        console.log('[hold-debug] blocked:', reason, {
+          active,
+          enterComplete,
+          sending,
+          sendTriggered: sendTriggeredRef.current,
+          button: e.button,
+        });
         return;
       }
+      console.log('[hold-debug] pointer-down', {
+        active,
+        enterComplete,
+        sending,
+      });
       e.preventDefault();
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -307,6 +328,7 @@ export function useConfirmOrbController({
         readyToReleaseRef.current = false;
         sendTriggeredRef.current = true;
         setHoldPhaseState('releasing');
+        console.log('[hold-debug] hold-complete-release');
         onConfirm();
         return;
       }

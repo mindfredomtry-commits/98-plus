@@ -102,6 +102,21 @@ import '../lobby-screen.css';
 import './instant-ban.css';
 
 const DEFAULT_DURATION_MINUTES = 3;
+
+function logHoldDebug(
+  message: string,
+  data?: Record<string, unknown>,
+): void {
+  if (data) {
+    console.log(`[hold-debug] ${message}`, data);
+  } else {
+    console.log(`[hold-debug] ${message}`);
+  }
+}
+
+function logHoldBlocked(reason: string, extra?: Record<string, unknown>): void {
+  console.log('[hold-debug] blocked:', reason, extra ?? {});
+}
 const CTA_EXIT_MS = 200;
 const CTA_ENTER_MS = 400;
 /** Extra wait before first CTA spring-in on cold app open (Who return unchanged). */
@@ -258,8 +273,11 @@ export function InstantBanFlow({
     clearDeepLinkActiveBan,
     incomingReplyBanId,
     replyToBanId,
+    replyComposeActive,
     getPinnedReplyToBanId,
     clearIncomingReply,
+    openSendFlow,
+    closeSendFlow,
     applySession,
     pendingStartupInteractions,
     releaseStartupInteractions,
@@ -403,8 +421,13 @@ export function InstantBanFlow({
   /** Fixed Who dismiss zone (z-index 11) must not cover What interactive layer. */
   const whoDismissGestureActive =
     phase === 'selectingTarget' && crossScreenProgress < 0.02;
+  const replyComposeUiActive =
+    replyComposeActive &&
+    Boolean(replyToBanId ?? getPinnedReplyToBanId()) &&
+    (phase === 'composingBan' || phase === 'confirming');
   const replyLobbyBlocked =
     !bansReturnToLobbyLatch &&
+    !replyComposeUiActive &&
     (replyUiShellActive ||
       activeBanUiShellActive ||
       (incomingGateActive &&
@@ -1200,7 +1223,10 @@ export function InstantBanFlow({
   );
 
   const beginComposingBanForOpponent = useCallback(
-    (opponent: UserPublic) => {
+    (
+      opponent: UserPublic,
+      options?: { skipLobbyStart?: boolean },
+    ) => {
       if (!user?.id) return false;
       if (!opponent?.id && !opponent?.username) return false;
 
@@ -1233,7 +1259,7 @@ export function InstantBanFlow({
       }
       setCrossScreenProgressImmediate(1);
       setCtaState('hidden');
-      if (!sendStarted) {
+      if (!options?.skipLobbyStart && !sendStarted) {
         onStartSend();
       }
       return true;
@@ -1258,7 +1284,7 @@ export function InstantBanFlow({
       if (!opponent?.id || opponent.id === user.id) {
         return false;
       }
-      return beginComposingBanForOpponent(opponent);
+      return beginComposingBanForOpponent(opponent, { skipLobbyStart: true });
     },
     [beginComposingBanForOpponent, user?.id],
   );
@@ -2367,8 +2393,27 @@ export function InstantBanFlow({
   returnToLobbyAfterLowEnergyRef.current = returnToLobbyAfterLowEnergy;
 
   const executeSend = useCallback(async (): Promise<'started' | 'skipped' | 'rejected'> => {
+    logHoldDebug('entered executeSend', {
+      phase,
+      sendStarted,
+      sendFlowOpen,
+      replyComposeActive,
+      replyToBanId,
+      pinnedReplyToBanId: getPinnedReplyToBanId(),
+      selectedUserId:
+        selectedUser?.userId ?? selectedUser?.id ?? selectedUser?.username ?? null,
+      currentUserId: user?.id ?? null,
+      banTextLen: banText.trim().length,
+      durationMinutes,
+      activeOverlayKind,
+      inFlight,
+      sharing,
+      replySending,
+    });
+
     const snap = sendSnapshotRef.current;
     if (!snap) {
+      logHoldBlocked('no-snapshot');
       instantBanDebug('send-skipped', { reason: 'no-snapshot' });
       return 'rejected';
     }
@@ -2464,6 +2509,7 @@ export function InstantBanFlow({
     });
 
     if (!token) {
+      logHoldBlocked('no-token');
       logSendRejected('no-token');
       setSendError('Не получилось отправить запрет');
       return 'rejected';
@@ -2471,18 +2517,37 @@ export function InstantBanFlow({
 
     const text = snapText.trim();
     if (text.length < 3) {
+      logHoldBlocked('text-too-short', { textLength: text.length });
       logSendRejected('text-too-short', { textLength: text.length });
       setSendError('Не получилось отправить запрет');
       return 'rejected';
     }
 
     if (!hasReceiverTarget) {
+      logHoldBlocked('no-receiver', {
+        selectedUserId: snapUser.userId ?? snapUser.id ?? null,
+        username,
+      });
       logSendRejected('no-receiver');
       setSendError('Не получилось отправить запрет');
       return 'rejected';
     }
 
+    if (
+      snapUser.userId &&
+      user?.id &&
+      snapUser.userId === user.id
+    ) {
+      logHoldBlocked('receiver-is-self', {
+        selectedUserId: snapUser.userId,
+        currentUserId: user.id,
+      });
+      setSendError('Не получилось отправить запрет');
+      return 'rejected';
+    }
+
     if (isClientDevAuthEnabled() && !sendTarget.receiverUserId) {
+      logHoldBlocked('dev-peer-missing');
       logSendRejected('dev-peer-missing');
       setSendError('Выбери Dev Peer в списке людей');
       return 'rejected';
@@ -2533,6 +2598,11 @@ export function InstantBanFlow({
     });
 
     if ((isReplyFlow || pinnedReplyToBanId) && !effectiveReplyBanId) {
+      logHoldBlocked('reply-ban-id-missing', {
+        pinnedReplyToBanId,
+        isReplyFlow,
+        source,
+      });
       console.error('[reply-send-debug] WRONG_ENDPOINT', {
         reason: 'reply-ban-id-missing',
         pinnedReplyToBanId,
@@ -2603,9 +2673,16 @@ export function InstantBanFlow({
       selectedUserId: snapUser.userId ?? snapUser.id ?? null,
     });
 
+    const openedSendFlowForReplyPost =
+      Boolean(pinnedReplyToBanId) && !sendFlowOpen;
+    if (openedSendFlowForReplyPost) {
+      openSendFlow();
+    }
+
     try {
       if (effectiveReplyBanId) {
         if (replySending) {
+          logHoldBlocked('reply-in-flight');
           instantBanDebug('send-skipped', { reason: 'reply-in-flight' });
           return 'skipped';
         }
@@ -2647,10 +2724,22 @@ export function InstantBanFlow({
           return 'started';
         } finally {
           setReplySending(false);
+          if (openedSendFlowForReplyPost) {
+            closeSendFlow();
+          }
         }
       }
 
       if (pinnedReplyToBanId || isReplyFlow) {
+        if (openedSendFlowForReplyPost) {
+          closeSendFlow();
+        }
+        logHoldBlocked('reply-context-fell-through-to-normal-send', {
+          pinnedReplyToBanId,
+          effectiveReplyBanId,
+          isReplyFlow,
+          source,
+        });
         console.error('[reply-send-debug] WRONG_ENDPOINT', {
           reason: 'reply-context-fell-through-to-normal-send',
           pinnedReplyToBanId,
@@ -2728,8 +2817,18 @@ export function InstantBanFlow({
     banSentSuccess,
     incomingReplyBanId,
     replyToBanId,
+    replyComposeActive,
     getPinnedReplyToBanId,
     replySending,
+    openSendFlow,
+    closeSendFlow,
+    sendFlowOpen,
+    phase,
+    selectedUser,
+    banText,
+    activeOverlayKind,
+    inFlight,
+    sharing,
     applySession,
     scheduleDeferredSync,
     clearIncomingReply,
@@ -2746,7 +2845,23 @@ export function InstantBanFlow({
   ]);
 
   const captureSendSnapshot = useCallback(() => {
-    if (!selectedUser) return false;
+    logHoldDebug('snapshot-attempt', {
+      phase,
+      sendStarted,
+      sendFlowOpen,
+      replyComposeActive,
+      replyToBanId,
+      pinnedReplyToBanId: getPinnedReplyToBanId(),
+      selectedUser,
+      currentUserId: user?.id ?? null,
+      banText,
+      durationMinutes,
+      activeOverlayKind,
+    });
+    if (!selectedUser) {
+      logHoldBlocked('no-selectedUser');
+      return false;
+    }
     const pinnedReplyId = getPinnedReplyToBanId() ?? replyToBanId ?? null;
     sendSnapshotRef.current = {
       banText,
@@ -2760,13 +2875,45 @@ export function InstantBanFlow({
         selectedUser.userId ?? selectedUser.id ?? selectedUser.username ?? null,
     });
     return true;
-  }, [banText, selectedUser, durationMinutes, getPinnedReplyToBanId, replyToBanId]);
+  }, [
+    banText,
+    selectedUser,
+    durationMinutes,
+    getPinnedReplyToBanId,
+    replyToBanId,
+    phase,
+    sendStarted,
+    sendFlowOpen,
+    replyComposeActive,
+    user?.id,
+    activeOverlayKind,
+  ]);
 
   const handleConfirmRelease = useCallback(async () => {
+    logHoldDebug('entered', {
+      phase,
+      sendStarted,
+      sendFlowOpen,
+      replyComposeActive,
+      replyToBanId,
+      pinnedReplyToBanId: getPinnedReplyToBanId(),
+      selectedUser,
+      currentUserId: user?.id ?? null,
+      banText,
+      durationMinutes,
+      activeOverlayKind,
+      replyLobbyBlocked,
+      confirmActive:
+        phase === 'confirming' && selectedUser != null && !banSentSuccess,
+      inFlight,
+      sharing,
+      replySending,
+    });
     instantBanDebug('confirm-release', {
       payoffPending: confirmSendContextRef.current.sendTriggered,
     });
     if (!captureSendSnapshot()) {
+      logHoldBlocked('captureSendSnapshot-failed');
       confirmAbortReleaseRef.current?.();
       return;
     }
@@ -2778,7 +2925,26 @@ export function InstantBanFlow({
         confirmAbortReleaseRef.current?.();
       }
     }
-  }, [captureSendSnapshot, executeSend]);
+  }, [
+    captureSendSnapshot,
+    executeSend,
+    phase,
+    sendStarted,
+    sendFlowOpen,
+    replyComposeActive,
+    replyToBanId,
+    getPinnedReplyToBanId,
+    selectedUser,
+    user?.id,
+    banText,
+    durationMinutes,
+    activeOverlayKind,
+    replyLobbyBlocked,
+    banSentSuccess,
+    inFlight,
+    sharing,
+    replySending,
+  ]);
 
   const handleRetrySend = useCallback(async () => {
     if (!captureSendSnapshot()) return;

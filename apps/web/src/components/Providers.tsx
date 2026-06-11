@@ -354,6 +354,8 @@ interface AppContextValue {
   incomingReplyBanId: string | null;
   /** Parent ban id for /bans/:id/reply — survives incoming-card consume. */
   replyToBanId: string | null;
+  /** True while What/Confirm compose is open for a reply (before POST). */
+  replyComposeActive: boolean;
   /** Ref-backed parent ban id — read at send time to avoid stale React state. */
   getPinnedReplyToBanId: () => string | null;
   clearIncomingReply: (opts?: { finalizeBanId?: string }) => void;
@@ -728,6 +730,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const replyToBanIdPersistRef = useRef<string | null>(null);
   const incomingReplyComposeDismissedRef = useRef<Set<string>>(new Set());
   const [replyToBanId, setReplyToBanId] = useState<string | null>(null);
+  const [replyComposeActive, setReplyComposeActive] = useState(false);
   const [replyDeepLinkBanId, setReplyDeepLinkBanId] = useState<string | null>(null);
   const [replyHandoffLock, setReplyHandoffLock] = useState(false);
   const [replyWhatReady, setReplyWhatReady] = useState(false);
@@ -751,6 +754,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const pinReplyToBanId = useCallback((banId: string | null) => {
     replyToBanIdPersistRef.current = banId;
     setReplyToBanId(banId);
+    if (!banId) {
+      setReplyComposeActive(false);
+    }
   }, []);
 
   const getPinnedReplyToBanId = useCallback(
@@ -2204,6 +2210,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setSendText('');
     setIncomingReplyBanId(null);
     pinReplyToBanId(null);
+    setReplyComposeActive(false);
     setResultReplyPending(null);
     setResultReplyRequest(0);
     setResultReplyHandoffLock(false);
@@ -3413,6 +3420,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       clearReplyFastSessionAfterAnswer(banId, { preserveReplySendIds: true });
+      setReplyHandoffLock(false);
+      setReplyWhatReady(true);
+      setDeepLinkReplyBooting(false);
 
       console.log('[INCOMING CARD DISMISSED FOR REPLY COMPOSE]', { banId });
       markVisibleOverboardTrace('[INCOMING CARD DISMISSED FOR REPLY COMPOSE]', {
@@ -5678,16 +5688,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (ban: BanInteraction) => {
       const enriched = enrichBanInteraction(ban);
       pinReplyToBanId(ban.id);
+      setReplyComposeActive(true);
       setIncomingReplyBanId(ban.id);
       setReplyDeepLinkBanId(ban.id);
       replyDeepLinkBanIdRef.current = ban.id;
       setDeepLinkReplyBan(enriched);
       setLobbyOpen(false);
-      openSendFlow();
-      logReplyFlow('send-flow-open-requested', {
+      logReplyFlow('reply-compose-open', {
         banId: ban.id,
-        lockActive: true,
-        instantBanOpen: true,
+        lockActive: false,
+        instantBanOpen: false,
+        sendFlowOpen: false,
         lobbyOpen: false,
       });
       console.log('[reply-deeplink]', {
@@ -5695,7 +5706,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         action: 'card-reply-start',
       });
     },
-    [openSendFlow, pinReplyToBanId],
+    [pinReplyToBanId],
   );
 
   const acknowledgeIncomingSeen = useCallback(async (banId: string) => {
@@ -6223,7 +6234,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       queueHeadKind === 'incoming' ||
       replyFastIncomingActive ||
       (replyDeepLinkBanId != null &&
-        (replyDeeplinkFastShell || replyHandoffLock)));
+        (replyDeeplinkFastShell || replyHandoffLock) &&
+        !incomingReplyComposeDismissedRef.current.has(replyDeepLinkBanId)));
   const incomingOverlayDisplayKind = shouldRenderIncomingOverlay
     ? 'incoming'
     : displayActiveOverlayKind;
@@ -6925,14 +6937,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const replyUiShellActive = useMemo(
     () =>
-      (replyDeepLinkBanId != null &&
-        replyHandoffLock &&
-        !replyWhatReady &&
-        (replyDeeplinkFastShell ||
-          replyIncomingCardMounted ||
-          shouldRenderIncomingOverlay)) ||
+      (replyComposeActive
+        ? false
+        : replyDeepLinkBanId != null &&
+          replyHandoffLock &&
+          !replyWhatReady &&
+          (replyDeeplinkFastShell ||
+            replyIncomingCardMounted ||
+            shouldRenderIncomingOverlay)) ||
       resultReplyUiShellActive,
     [
+      replyComposeActive,
       replyDeepLinkBanId,
       replyHandoffLock,
       replyWhatReady,
@@ -7181,6 +7196,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       acknowledgeIncomingSeen,
       incomingReplyBanId,
       replyToBanId,
+      replyComposeActive,
       getPinnedReplyToBanId,
       clearIncomingReply,
       applySession,
@@ -7311,6 +7327,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       acknowledgeIncomingSeen,
       incomingReplyBanId,
       replyToBanId,
+      replyComposeActive,
       getPinnedReplyToBanId,
       clearIncomingReply,
       applySession,

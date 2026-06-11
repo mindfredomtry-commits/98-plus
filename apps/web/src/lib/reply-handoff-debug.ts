@@ -5,6 +5,7 @@ export type ReplyFlowStage =
   | 'incoming-loading'
   | 'incoming-visible'
   | 'card-reply-click'
+  | 'reply-compose-open'
   | 'overlay-dismissed'
   | 'phase-set-composingBan'
   | 'what-visible'
