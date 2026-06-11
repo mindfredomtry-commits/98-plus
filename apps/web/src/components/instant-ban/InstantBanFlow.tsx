@@ -388,9 +388,11 @@ export function InstantBanFlow({
   /** Fixed Who dismiss zone (z-index 11) must not cover What interactive layer. */
   const whoDismissGestureActive =
     phase === 'selectingTarget' && crossScreenProgress < 0.02;
-  const replyLobbyBlocked = replyUiShellActive || activeBanUiShellActive;
+  const replyLobbyBlocked =
+    !bansReturnToLobbyLatch &&
+    (replyUiShellActive || activeBanUiShellActive);
   const showLobbyCta =
-    !replyLobbyBlocked &&
+    (!replyLobbyBlocked || bansReturnToLobbyLatch) &&
     !deepLinkReplyBooting &&
     !incomingReplyBanId &&
     (!incomingGateActive || bansReturnToLobbyLatch) &&
@@ -1390,6 +1392,14 @@ export function InstantBanFlow({
           bansReturnToLobbyLatch,
           notificationQueueUiLock:
             notificationSessionActive || notificationOverlayActive,
+          notificationOverlayActive,
+          incomingGateActive,
+          replyLobbyBlocked,
+          replyUiShellActive,
+          activeBanUiShellActive,
+          replyDeepLinkBanId,
+          incomingReplyBanId,
+          resultReplyHandoffLock,
           activeOverlayKind,
           ctaState,
           banSentSuccess,
@@ -1404,16 +1414,23 @@ export function InstantBanFlow({
       });
     },
     [
+      activeBanUiShellActive,
       activeOverlayKind,
       banSentSuccess,
       bansCtaQueueSuppress,
       bansReturnToLobbyLatch,
       ctaState,
+      incomingGateActive,
+      incomingReplyBanId,
       lobbyOpen,
       notificationOverlayActive,
       notificationSessionActive,
       phase,
+      replyDeepLinkBanId,
+      replyLobbyBlocked,
+      replyUiShellActive,
       resultCtaBansOverlayOpen,
+      resultReplyHandoffLock,
       sendFlowOpen,
       sendStarted,
       showLobbyCta,
@@ -1481,8 +1498,8 @@ export function InstantBanFlow({
       clearBansCtaQueueSuppress,
       clearCtaEnterTimer,
       clearResultCtaBansOverlayOpen,
-      closeSendFlow,
       completeBansOverlayCloseFromResultCta,
+      onClose,
       lobbyOpen,
       notificationOverlayActive,
       notificationSessionActive,

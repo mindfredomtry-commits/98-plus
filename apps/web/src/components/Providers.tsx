@@ -5081,6 +5081,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     replyLockReleasedRef.current = false;
   }, []);
 
+  const restoreLobbyShellForResultCtaReturn = useCallback(() => {
+    clearReplyDeepLinkState();
+    setReplyWhatReady(true);
+    setResultReplyHandoffLock(false);
+    setResultReplyWhatReady(true);
+    setResultReplyPending(null);
+    activeBanCardVisibleRef.current = false;
+    setActiveBanCardReady(true);
+    setActiveBanDeepLinkBanId(null);
+  }, [clearReplyDeepLinkState]);
+
   const [newBanWhoFlowRequest, setNewBanWhoFlowRequest] = useState(0);
   const [openBansOverlayRequest, setOpenBansOverlayRequest] = useState(0);
   const [resultCtaBansOverlayOpen, setResultCtaBansOverlayOpen] =
@@ -5308,6 +5319,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         resultRef.current = null;
         clearDirectOverboardLayerRefs();
         setDirectResultOverlayActive(false);
+        restoreLobbyShellForResultCtaReturn();
       });
 
       console.log('[LOBBY OPEN DONE]', {
@@ -5350,6 +5362,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearDirectOverboardLayerRefs,
       dismissCurrentOverlay,
       resetBansNavState,
+      restoreLobbyShellForResultCtaReturn,
       unlockNotificationQueueAndFlush,
     ],
   );
