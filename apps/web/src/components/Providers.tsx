@@ -5673,14 +5673,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     : replyFastIncomingActive
       ? 'incoming'
       : (overlayQueue[0]?.kind ?? overlayQueueRef.current[0]?.kind ?? null);
-  const displayActiveOverlayKind = priorityBlocksResult
-    ? null
-    : activeOverlayKind;
+  const displayActiveOverlayKind =
+    priorityBlocksResult && !replyFastIncomingActive
+      ? null
+      : activeOverlayKind;
+  const queueHeadKind =
+    overlayQueue[0]?.kind ?? overlayQueueRef.current[0]?.kind ?? null;
+  const shouldRenderIncomingOverlay =
+    !showDirectOverboardLayer &&
+    (displayActiveOverlayKind === 'incoming' ||
+      activeOverlayKind === 'incoming' ||
+      queueHeadKind === 'incoming' ||
+      replyFastIncomingActive ||
+      (replyDeepLinkBanId != null &&
+        (replyDeeplinkFastShell || replyHandoffLock)));
+  const incomingOverlayDisplayKind = shouldRenderIncomingOverlay
+    ? 'incoming'
+    : displayActiveOverlayKind;
   const notificationShellSuppressedForBansLobby =
     bansCtaQueueSuppressRef.current || bansReturnToLobbyLatchRef.current;
   const hasQueuedOverlayShell =
-    (overlayQueue.length > 0 || replyFastIncomingActive) &&
-    displayActiveOverlayKind != null;
+    (overlayQueue.length > 0 ||
+      replyFastIncomingActive ||
+      shouldRenderIncomingOverlay) &&
+    incomingOverlayDisplayKind != null;
   const notificationSessionActive =
     !priorityBlocksResult &&
     !notificationShellSuppressedForBansLobby &&
@@ -6118,8 +6134,32 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ? uiFreeze.activeBans
       : displayActiveBans
     : [];
-  const scopedIncomingBan =
-    auth.user?.id && !auth.loading ? incomingBan : null;
+  const scopedIncomingBan = useMemo(() => {
+    const viewerId = auth.user?.id;
+    if (!viewerId || auth.loading) return null;
+    if (incomingBan) return incomingBan;
+    const fastBanId =
+      replyDeepLinkBanId ?? replyDeeplinkPendingBanIdRef.current;
+    if (!fastBanId || !replyDeeplinkFastOpenedRef.current) return null;
+    const fromQueue =
+      overlayQueue.find(
+        (q) => q.kind === 'incoming' && q.ban.id === fastBanId,
+      ) ??
+      overlayQueueRef.current.find(
+        (q) => q.kind === 'incoming' && q.ban.id === fastBanId,
+      );
+    if (fromQueue?.kind === 'incoming') return fromQueue.ban;
+    if (incomingBanRef.current?.id === fastBanId) return incomingBanRef.current;
+    return buildReplyDeeplinkShellBan(fastBanId, viewerId);
+  }, [
+    auth.user?.id,
+    auth.loading,
+    incomingBan,
+    overlayQueue,
+    replyDeepLinkBanId,
+    replyDeeplinkFastShell,
+    replyHandoffLock,
+  ]);
   const scopedCheckBan = checkGateActive ? checkBan : null;
 
   const connectionUiState = useMemo(
@@ -6285,13 +6325,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const replyUiShellActive = useMemo(
     () =>
       (replyDeepLinkBanId != null &&
+        replyHandoffLock &&
         !replyWhatReady &&
-        replyIncomingCardMounted) ||
+        (replyDeeplinkFastShell ||
+          replyIncomingCardMounted ||
+          shouldRenderIncomingOverlay)) ||
       resultReplyUiShellActive,
     [
       replyDeepLinkBanId,
+      replyHandoffLock,
       replyWhatReady,
+      replyDeeplinkFastShell,
       replyIncomingCardMounted,
+      shouldRenderIncomingOverlay,
       resultReplyUiShellActive,
     ],
   );
@@ -6375,6 +6421,59 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setDeepLinkReplyBooting(false);
   }, [deepLinkReplyBooting, replyIncomingReady]);
 
+  const incomingJsxWillRender =
+    shouldRenderIncomingOverlay &&
+    !showDirectOverboardLayer &&
+    incomingOverlayDisplayKind === 'incoming' &&
+    scopedIncomingBan != null;
+
+  useLayoutEffect(() => {
+    const jsxBranch = {
+      activeOverlayKind: incomingOverlayDisplayKind,
+      selectedBanId: deepLinkSelectedBanId,
+      queueHeadKind,
+      willRender: incomingJsxWillRender,
+      hasIncomingBan: scopedIncomingBan != null,
+      showDirectOverboardLayer,
+      notificationSessionActive,
+    };
+    console.log(
+      `[INCOMING JSX BRANCH] activeOverlayKind=${incomingOverlayDisplayKind ?? 'null'} selectedBanId=${deepLinkSelectedBanId ?? 'null'} queueHeadKind=${queueHeadKind ?? 'null'} willRender=${incomingJsxWillRender}`,
+      jsxBranch,
+    );
+    markVisibleOverboardTrace('[INCOMING JSX BRANCH]', jsxBranch);
+    if (incomingJsxWillRender && scopedIncomingBan?.id) {
+      console.log('[INCOMING JSX RENDER CARD]', { banId: scopedIncomingBan.id });
+      markVisibleOverboardTrace('[INCOMING JSX RENDER CARD]', {
+        banId: scopedIncomingBan.id,
+      });
+      return;
+    }
+    const nullReason = !shouldRenderIncomingOverlay
+      ? 'incoming-overlay-not-requested'
+      : showDirectOverboardLayer
+        ? 'direct-overboard-active'
+        : incomingOverlayDisplayKind !== 'incoming'
+          ? 'display-kind-not-incoming'
+          : !scopedIncomingBan
+            ? 'no-incoming-ban'
+            : 'unknown';
+    console.log('[INCOMING JSX RETURN NULL]', { reason: nullReason, ...jsxBranch });
+    markVisibleOverboardTrace('[INCOMING JSX RETURN NULL]', {
+      reason: nullReason,
+      ...jsxBranch,
+    });
+  }, [
+    deepLinkSelectedBanId,
+    incomingJsxWillRender,
+    incomingOverlayDisplayKind,
+    notificationSessionActive,
+    queueHeadKind,
+    scopedIncomingBan,
+    shouldRenderIncomingOverlay,
+    showDirectOverboardLayer,
+  ]);
+
   const contextValue = useMemo(
     () => ({
       token: auth.token,
@@ -6387,7 +6486,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       sessionReady,
       incomingGateActive,
       notificationSessionActive,
-      activeOverlayKind,
+      activeOverlayKind: incomingOverlayDisplayKind,
       markOverlayUserAction,
       reportOverlayRendered,
       overlayHandoffDebug,
@@ -6521,7 +6620,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       sessionReady,
       incomingGateActive,
       notificationSessionActive,
-      activeOverlayKind,
+      incomingOverlayDisplayKind,
       markOverlayUserAction,
       reportOverlayRendered,
       overlayHandoffDebug,
@@ -6669,23 +6768,32 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         {children}
         {!showDirectOverboardLayer ? (
           <GlobalOverlayHost
-            active={notificationSessionActive}
-            queueSessionActive={notificationSessionActive}
-            activeOverlayKind={displayActiveOverlayKind}
+            active={notificationSessionActive || incomingJsxWillRender}
+            queueSessionActive={
+              notificationSessionActive || incomingJsxWillRender
+            }
+            activeOverlayKind={incomingOverlayDisplayKind}
             activeIncomingBanId={
-              displayActiveOverlayKind === 'incoming'
-                ? (incomingBan?.id ?? null)
+              incomingOverlayDisplayKind === 'incoming'
+                ? (scopedIncomingBan?.id ?? null)
                 : null
             }
           >
             <NotificationQueueShell
-              kind={displayActiveOverlayKind}
-              sessionActive={notificationSessionActive}
+              kind={incomingOverlayDisplayKind}
+              sessionActive={
+                notificationSessionActive || incomingJsxWillRender
+              }
               contentKey={
-                overlayQueue[0] ? overlayQueueKey(overlayQueue[0]) : null
+                overlayQueue[0]
+                  ? overlayQueueKey(overlayQueue[0])
+                  : scopedIncomingBan?.id
+                    ? `incoming:${scopedIncomingBan.id}`
+                    : null
               }
             >
-              {displayActiveOverlayKind === 'incoming' ? (
+              {incomingOverlayDisplayKind === 'incoming' &&
+              scopedIncomingBan ? (
                 <ChallengeErrorBoundary
                   name="incoming"
                   onRecover={() => dismissIncoming()}
@@ -6693,7 +6801,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   <IncomingBanOverlay contentOnly />
                 </ChallengeErrorBoundary>
               ) : null}
-              {displayActiveOverlayKind === 'check' ? (
+              {incomingOverlayDisplayKind === 'check' ? (
                 <ChallengeErrorBoundary
                   name="check"
                   onRecover={() => clearCheckOverlay()}
@@ -6701,7 +6809,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   <CheckOverlay contentOnly />
                 </ChallengeErrorBoundary>
               ) : null}
-              {displayActiveOverlayKind === 'result' && displayResult ? (
+              {incomingOverlayDisplayKind === 'result' && displayResult ? (
                 <ChallengeErrorBoundary
                   name="result"
                   onRecover={() => dismissBanResult()}

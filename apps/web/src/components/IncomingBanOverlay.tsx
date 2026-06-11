@@ -59,9 +59,11 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     runIncomingOverboardApi,
     notificationSessionActive,
     activeOverlayKind,
+    incomingGateActive,
     markOverlayUserAction,
     reportOverlayRendered,
     replyDeeplinkFastShell,
+    replyDeepLinkBanId,
   } = useApp();
   const { haptic, hapticSuccess, bindBack } = useTelegram();
   const [actionLoading, setActionLoading] = useState(false);
@@ -262,6 +264,9 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
   const isQueueHead = activeOverlayKind === 'incoming';
   const shouldShow = incomingBan
     ? isQueueHead ||
+      incomingGateActive ||
+      replyDeeplinkFastShell ||
+      isReplyDeeplinkShell ||
       shouldShowIncomingBanModal(incomingBan, viewerId, new Set())
     : false;
 

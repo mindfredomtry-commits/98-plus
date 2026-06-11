@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
 
@@ -28,11 +28,11 @@ export function GlobalOverlayHost({
   activeOverlayKind = null,
   activeIncomingBanId = null,
 }: Props) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
 
   useEffect(() => {
     if (!activeOverlayKind) return;

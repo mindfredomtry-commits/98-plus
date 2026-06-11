@@ -390,7 +390,11 @@ export function InstantBanFlow({
     phase === 'selectingTarget' && crossScreenProgress < 0.02;
   const replyLobbyBlocked =
     !bansReturnToLobbyLatch &&
-    (replyUiShellActive || activeBanUiShellActive);
+    (replyUiShellActive ||
+      activeBanUiShellActive ||
+      (incomingGateActive &&
+        replyDeepLinkBanId != null &&
+        activeOverlayKind === 'incoming'));
   const showLobbyCta =
     (!replyLobbyBlocked || bansReturnToLobbyLatch) &&
     !deepLinkReplyBooting &&
