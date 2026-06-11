@@ -4755,7 +4755,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ) {
       dismissBanResult();
     }
-  }, [result, dismissBanResult, bansReturnToLobbyLatch]);
+  }, [result, dismissBanResult]);
 
   useEffect(() => {
     resetScrollLock();
