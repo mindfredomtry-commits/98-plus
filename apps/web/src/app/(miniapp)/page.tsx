@@ -65,7 +65,7 @@ const DebugPanel = dynamic(
 );
 
 /** Bump when diagnosing shell / deploy mismatches. */
-const APP_SHELL_BUILD = 'arena-v2@overboard-diag-v33';
+const APP_SHELL_BUILD = 'arena-v2@overboard-diag-v34';
 
 export default function HomePage() {
   const {
@@ -178,25 +178,9 @@ export default function HomePage() {
     activeOverlayKind === 'incoming' &&
     replyTargetBanId != null &&
     deepLinkSelectedBanId === replyTargetBanId;
-  const replyDeepLinkPending =
-    deepLinkBoot.parsedType === 'reply' &&
-    deepLinkBoot.parsedBanId != null &&
-    !replyIncomingReady;
-  const replyDeepLinkDarkShell =
-    replyUiShellDark && !replyDeeplinkFastShell && !replyIncomingReady;
+  /** Block lobby only after incoming card is actually mounted for reply deeplink. */
   const replyDeepLinkLobbyHidden =
-    replyDeepLinkPending ||
-    replyDeeplinkFastShell ||
-    replyDeepLinkDarkShell ||
-    activeBanUiShellActive;
-  const replyFlowArmedOnceRef = useRef(false);
-
-  useLayoutEffect(() => {
-    if (replyFlowArmedOnceRef.current) return;
-    if (deepLinkBoot.parsedType !== 'reply' || !deepLinkBoot.parsedBanId) return;
-    replyFlowArmedOnceRef.current = true;
-    armReplyDeepLink(deepLinkBoot.parsedBanId);
-  }, [deepLinkBoot.parsedType, deepLinkBoot.parsedBanId, armReplyDeepLink]);
+    replyIncomingReady || activeBanUiShellActive;
 
   /** Parent layout effect runs before InstantBanFlow effects — latch send UI early. */
   const shellBlocksLobbyClose =
@@ -445,11 +429,7 @@ export default function HomePage() {
       }${
         checkGateActive ? ' app-page--check-overlay-active' : ''
       }${banSentOpen ? ' app-page--success-modal' : ''}${
-        replyDeepLinkPending && !replyDeeplinkFastShell
-          ? ' app-page--reply-deeplink-pending'
-          : ''
-      }${
-        replyDeepLinkDarkShell ? ' app-page--reply-deeplink-loading' : ''
+        replyUiShellDark ? ' app-page--reply-deeplink-loading' : ''
       }${
         replyUiShellActive ? ' app-page--reply-ui-shell' : ''
       }${
