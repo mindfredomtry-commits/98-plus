@@ -693,6 +693,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const replyDeeplinkFastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const replyDeepLinkBanIdRef = useRef<string | null>(null);
+  const replyDeeplinkFastGraceUntilRef = useRef<number | null>(null);
   const [replyDeepLinkBanId, setReplyDeepLinkBanId] = useState<string | null>(null);
   const [replyHandoffLock, setReplyHandoffLock] = useState(false);
   const [replyWhatReady, setReplyWhatReady] = useState(false);
@@ -895,6 +897,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [replyDeeplinkFastShell]);
 
   useEffect(() => {
+    replyDeepLinkBanIdRef.current = replyDeepLinkBanId;
+  }, [replyDeepLinkBanId]);
+
+  useEffect(() => {
     bootClaimedIncomingRef.current = auth.boot?.claimedIncoming ?? null;
   }, [auth.boot?.claimedIncoming]);
 
@@ -928,6 +934,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const syncDisplayFromQueue = useCallback((queue: QueuedOverlay[]) => {
     const active = queue[0] ?? null;
+    const replyFastBanId =
+      replyDeeplinkFastShellRef.current
+        ? (replyDeepLinkBanIdRef.current ??
+          replyDeeplinkPendingBanIdRef.current)
+        : null;
+    if (
+      replyFastBanId &&
+      active?.kind === 'incoming' &&
+      active.ban.id === replyFastBanId
+    ) {
+      console.log('[SYNC QUEUE SKIPPED] reason=reply-fast-incoming-active', {
+        banId: replyFastBanId,
+      });
+      markVisibleOverboardTrace('[SYNC QUEUE SKIPPED]', {
+        reason: 'reply-fast-incoming-active',
+        banId: replyFastBanId,
+      });
+      setIncomingBan(active.ban);
+      setCheckBan(null);
+      return;
+    }
+
     const resultBlock = shouldBlockResultOpen({
       resultBanId: active?.kind === 'result' ? active.result.id : null,
       overboardInFlightBanId: overboardInFlightRef.current,
@@ -1836,6 +1864,33 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         checkInFlight: checkAnswerInFlightRef.current,
       }),
     );
+
+    const replyFastBanId =
+      replyDeeplinkFastShellRef.current
+        ? (replyDeepLinkBanIdRef.current ??
+          replyDeeplinkPendingBanIdRef.current)
+        : null;
+    if (
+      replyFastBanId &&
+      !(
+        next[0]?.kind === 'incoming' && next[0].ban.id === replyFastBanId
+      )
+    ) {
+      const preserved = prev.find(
+        (q) => q.kind === 'incoming' && q.ban.id === replyFastBanId,
+      );
+      if (preserved) {
+        next = [
+          preserved,
+          ...next.filter(
+            (q) =>
+              !(
+                q.kind === 'incoming' && q.ban.id === replyFastBanId
+              ),
+          ),
+        ];
+      }
+    }
 
     for (const banId of prunedChecks) {
       if (hasCheckInQueue(next, banId)) continue;
@@ -3690,6 +3745,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       replyDeeplinkFastOpenedRef.current = false;
       replyDeeplinkPendingBanIdRef.current = null;
+      replyDeeplinkFastGraceUntilRef.current = null;
+      replyDeepLinkBanIdRef.current = null;
       replyDeeplinkFastShellRef.current = false;
       replyDeeplinkPrefetchRef.current = false;
       setReplyDeeplinkFastShell(false);
@@ -3731,31 +3788,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [applyOverlayQueue],
   );
 
-  const isReplyFastIncomingCardMounted = useCallback(
-    (banId: string): boolean => {
-      const head = overlayQueueRef.current[0];
-      return head?.kind === 'incoming' && head.ban.id === banId;
-    },
-    [],
-  );
+  const isReplyFastQueueHeadValid = useCallback((banId: string): boolean => {
+    const head = overlayQueueRef.current[0];
+    return head?.kind === 'incoming' && head.ban.id === banId;
+  }, []);
 
-  /** Reply deeplink: mount incoming queue head first — bypass overlay arbiter. */
+  const isReplyFastIncomingCardMounted = isReplyFastQueueHeadValid;
+
+  /** Reply deeplink: force incoming at queue head — bypass overlay arbiter. */
   const applyReplyDeeplinkFastOverlay = useCallback(
     (ban: BanInteraction): boolean => {
       const item: QueuedOverlay = { kind: 'incoming', ban };
       const prev = overlayQueueRef.current;
-      const { queue: next, changed } = enqueueWithActiveLock(prev, item);
-      if (!changed) {
-        return isReplyFastIncomingCardMounted(ban.id);
-      }
+      const key = overlayQueueKey(item);
+      const next: QueuedOverlay[] = [
+        item,
+        ...prev.filter((q) => overlayQueueKey(q) !== key),
+      ];
       applyOverlayQueue(next);
-      const mounted = isReplyFastIncomingCardMounted(ban.id);
+      const mounted = isReplyFastQueueHeadValid(ban.id);
       if (mounted) {
         setIncomingBan(ban);
       }
       return mounted;
     },
-    [applyOverlayQueue, isReplyFastIncomingCardMounted],
+    [applyOverlayQueue, isReplyFastQueueHeadValid],
   );
 
   const openReplyDeepLinkFast = useCallback(
@@ -3806,30 +3863,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         markVisibleOverboardTrace('[REPLY FAST DATA CACHE MISS]', { banId });
       }
 
+      replyDeeplinkFastOpenedRef.current = true;
+      replyDeeplinkPendingBanIdRef.current = banId;
+      replyDeeplinkFastGraceUntilRef.current = performance.now() + 120;
+
       let cardMounted = false;
       flushSync(() => {
         cardMounted = applyReplyDeeplinkFastOverlay(openBan);
-      });
+        if (!cardMounted) return;
 
-      if (!cardMounted) {
-        console.log('[REPLY FAST SHELL OPEN FAILED UNBLOCK LOBBY]', {
-          banId,
-          reason: 'queue-head-not-incoming',
-        });
-        markVisibleOverboardTrace('[REPLY FAST SHELL OPEN FAILED UNBLOCK LOBBY]', {
-          banId,
-        });
-        replyDeeplinkPendingBanIdRef.current = null;
-        return false;
-      }
-
-      replyDeeplinkFastOpenedRef.current = true;
-      replyDeeplinkPendingBanIdRef.current = banId;
-
-      flushSync(() => {
+        replyDeepLinkBanIdRef.current = banId;
         replyFlowArmedBanIdRef.current = banId;
         setReplyDeepLinkBanId(banId);
         setIncomingReplyBanId(banId);
+        setIncomingBan(openBan);
         setReplyWhatReady(false);
         setReplyHandoffLock(true);
         setDeepLinkReplyBooting(!usingPrefetch);
@@ -3840,10 +3887,36 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         lobbyOpenRef.current = false;
       });
 
+      if (!cardMounted) {
+        console.log('[REPLY FAST SHELL OPEN FAILED UNBLOCK LOBBY]', {
+          banId,
+          reason: 'queue-head-not-incoming',
+        });
+        markVisibleOverboardTrace('[REPLY FAST SHELL OPEN FAILED UNBLOCK LOBBY]', {
+          banId,
+        });
+        replyDeeplinkFastOpenedRef.current = false;
+        replyDeeplinkPendingBanIdRef.current = null;
+        replyDeeplinkFastGraceUntilRef.current = null;
+        return false;
+      }
+
+      const writtenOverlayKind = overlayQueueRef.current[0]?.kind ?? null;
+      console.log('[REPLY FAST STATE WRITTEN]', {
+        banId,
+        activeOverlayKind: writtenOverlayKind,
+        selectedBanId: banId,
+      });
+      markVisibleOverboardTrace('[REPLY FAST STATE WRITTEN]', {
+        banId,
+        activeOverlayKind: writtenOverlayKind,
+        selectedBanId: banId,
+      });
+
       console.log('[REPLY FAST SHELL OPEN OK]', {
         banId,
         usingPrefetch,
-        activeOverlayKind: overlayQueueRef.current[0]?.kind ?? null,
+        activeOverlayKind: writtenOverlayKind,
       });
       markVisibleOverboardTrace('[REPLY FAST SHELL OPEN OK]', { banId });
 
@@ -6004,9 +6077,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const replyIncomingCardMounted = useMemo(() => {
     const banId = replyDeepLinkBanId;
     if (!banId) return false;
-    const head = overlayQueue[0];
+    const head = overlayQueue[0] ?? overlayQueueRef.current[0];
+    const overlayKind =
+      activeOverlayKind === 'incoming'
+        ? 'incoming'
+        : (head?.kind === 'incoming' ? 'incoming' : activeOverlayKind);
     return (
-      activeOverlayKind === 'incoming' &&
+      overlayKind === 'incoming' &&
       head?.kind === 'incoming' &&
       head.ban.id === banId
     );
@@ -6016,7 +6093,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const banId = replyDeepLinkBanId ?? replyDeeplinkPendingBanIdRef.current;
     if (!banId || !replyDeeplinkFastOpenedRef.current) return;
     if (!replyDeeplinkFastShell && !replyHandoffLock) return;
-    if (isReplyFastIncomingCardMounted(banId)) return;
+
+    if (isReplyFastQueueHeadValid(banId)) {
+      console.log('[REPLY FAST QUEUE HEAD VALID]', { banId });
+      markVisibleOverboardTrace('[REPLY FAST QUEUE HEAD VALID]', { banId });
+      return;
+    }
+
+    const graceUntil = replyDeeplinkFastGraceUntilRef.current;
+    if (graceUntil != null && performance.now() < graceUntil) {
+      console.log('[REPLY FAST GUARD GRACE]', { banId });
+      markVisibleOverboardTrace('[REPLY FAST GUARD GRACE]', { banId });
+      const waitMs = Math.max(1, Math.ceil(graceUntil - performance.now()));
+      const timer = window.setTimeout(() => {
+        if (!replyDeeplinkFastOpenedRef.current) return;
+        const activeBanId =
+          replyDeepLinkBanIdRef.current ??
+          replyDeeplinkPendingBanIdRef.current;
+        if (!activeBanId) return;
+        if (isReplyFastQueueHeadValid(activeBanId)) return;
+        abortReplyDeepLinkFast('lobby-blocked-without-card');
+      }, waitMs);
+      return () => clearTimeout(timer);
+    }
 
     console.log('[REPLY FAST INVALID STATE UNBLOCK LOBBY]', {
       reason: 'lobby-blocked-without-card',
@@ -6034,7 +6133,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [
     abortReplyDeepLinkFast,
     activeOverlayKind,
-    isReplyFastIncomingCardMounted,
+    isReplyFastQueueHeadValid,
     replyDeepLinkBanId,
     replyDeeplinkFastShell,
     replyHandoffLock,
