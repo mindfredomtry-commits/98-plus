@@ -352,6 +352,8 @@ interface AppContextValue {
   /** Opens send sheet to reply to a pending incoming ban (uses /reply API). */
   startIncomingReply: (ban: BanInteraction) => void;
   incomingReplyBanId: string | null;
+  /** Parent ban id for /bans/:id/reply — survives incoming-card consume. */
+  replyToBanId: string | null;
   clearIncomingReply: () => void;
   applySession: (s: SessionState) => void;
   reloadPending: () => Promise<void>;
@@ -721,6 +723,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const replyDeeplinkFastHydratedRef = useRef(false);
   const replyDeeplinkPrefillBanRef = useRef<BanInteraction | null>(null);
   const incomingConsumedAfterAnswerRef = useRef<Set<string>>(new Set());
+  const replyToBanIdPersistRef = useRef<string | null>(null);
+  const [replyToBanId, setReplyToBanId] = useState<string | null>(null);
   const [replyDeepLinkBanId, setReplyDeepLinkBanId] = useState<string | null>(null);
   const [replyHandoffLock, setReplyHandoffLock] = useState(false);
   const [replyWhatReady, setReplyWhatReady] = useState(false);
@@ -741,6 +745,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setSendFlowOpen(false);
   }, []);
 
+  const pinReplyToBanId = useCallback((banId: string | null) => {
+    replyToBanIdPersistRef.current = banId;
+    setReplyToBanId(banId);
+  }, []);
+
   const armReplyDeepLink = useCallback((banId: string) => {
     if (activeBanDeepLinkBanId != null || activeBanCardVisibleRef.current) {
       logActiveBanDeeplink('wrong-reply-flow-blocked', {
@@ -758,6 +767,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
     replyFlowArmedBanIdRef.current = banId;
+    pinReplyToBanId(banId);
     setReplyDeepLinkBanId((prev) => (prev === banId ? prev : banId));
     setIncomingReplyBanId((prev) => (prev === banId ? prev : banId));
     setReplyWhatReady((prev) => (prev ? false : prev));
@@ -767,7 +777,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       lockActive: true,
       lobbyOpen: lobbyOpen,
     });
-  }, [lobbyOpen, activeBanDeepLinkBanId]);
+  }, [lobbyOpen, activeBanDeepLinkBanId, pinReplyToBanId]);
 
   const beginReplyHandoff = useCallback((banId: string) => {
     if (replyLockReleasedRef.current) {
@@ -3287,29 +3297,44 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  const clearReplyFastSessionAfterAnswer = useCallback((banId: string) => {
-    if (replyDeeplinkFastTimeoutRef.current) {
-      clearTimeout(replyDeeplinkFastTimeoutRef.current);
-      replyDeeplinkFastTimeoutRef.current = null;
-    }
-    replyDeeplinkFastOpenedRef.current = false;
-    replyDeeplinkPendingBanIdRef.current = null;
-    replyDeeplinkFastWrittenAtRef.current = null;
-    replyDeeplinkFastWrittenBanIdRef.current = null;
-    replyDeeplinkFastHydratedRef.current = false;
-    replyDeeplinkFastShellRef.current = false;
-    replyDeeplinkPrefetchRef.current = false;
-    replyDeepLinkBanIdRef.current = null;
-    setReplyDeeplinkFastShell(false);
-    setDeepLinkReplyBooting(false);
-    setReplyDeepLinkBanId((prev) => (prev === banId ? null : prev));
-    setIncomingReplyBanId((prev) => (prev === banId ? null : prev));
-    setReplyHandoffLock(false);
-    setReplyWhatReady(true);
-    replyFlowArmedBanIdRef.current = null;
-    console.log('[REPLY FAST CLEARED AFTER ANSWER]', { banId });
-    markVisibleOverboardTrace('[REPLY FAST CLEARED AFTER ANSWER]', { banId });
-  }, []);
+  const clearReplyFastSessionAfterAnswer = useCallback(
+    (banId: string, opts?: { preserveReplySendIds?: boolean }) => {
+      const preserveReplySendIds = opts?.preserveReplySendIds === true;
+      if (replyDeeplinkFastTimeoutRef.current) {
+        clearTimeout(replyDeeplinkFastTimeoutRef.current);
+        replyDeeplinkFastTimeoutRef.current = null;
+      }
+      replyDeeplinkFastOpenedRef.current = false;
+      replyDeeplinkPendingBanIdRef.current = null;
+      replyDeeplinkFastWrittenAtRef.current = null;
+      replyDeeplinkFastWrittenBanIdRef.current = null;
+      replyDeeplinkFastHydratedRef.current = false;
+      replyDeeplinkFastShellRef.current = false;
+      replyDeeplinkPrefetchRef.current = false;
+      setReplyDeeplinkFastShell(false);
+      setDeepLinkReplyBooting(false);
+
+      if (!preserveReplySendIds) {
+        replyDeepLinkBanIdRef.current = null;
+        setReplyDeepLinkBanId((prev) => (prev === banId ? null : prev));
+        setIncomingReplyBanId((prev) => (prev === banId ? null : prev));
+        setReplyHandoffLock(false);
+        setReplyWhatReady(true);
+        replyFlowArmedBanIdRef.current = null;
+        pinReplyToBanId(null);
+      }
+
+      console.log('[REPLY FAST CLEARED AFTER ANSWER]', {
+        banId,
+        preserveReplySendIds,
+      });
+      markVisibleOverboardTrace('[REPLY FAST CLEARED AFTER ANSWER]', {
+        banId,
+        preserveReplySendIds,
+      });
+    },
+    [pinReplyToBanId],
+  );
 
   const consumeIncomingAfterAnswer = useCallback(
     (banId: string, answer: 'overboard' | 'reply') => {
@@ -3352,7 +3377,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (incomingBanRef.current?.id === banId) {
         setIncomingBan(null);
       }
-      clearReplyFastSessionAfterAnswer(banId);
+      clearReplyFastSessionAfterAnswer(banId, {
+        preserveReplySendIds: answer === 'reply',
+      });
     },
     [applyOverlayQueue, clearReplyFastSessionAfterAnswer],
   );
@@ -3948,6 +3975,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       setReplyDeepLinkBanId(null);
       setIncomingReplyBanId(null);
+      pinReplyToBanId(null);
       setReplyHandoffLock(false);
       setReplyWhatReady(true);
       replyFlowArmedBanIdRef.current = null;
@@ -3957,7 +3985,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       lobbyOpenRef.current = true;
       lobbyShownLoggedRef.current = false;
     },
-    [clearReplyDeeplinkFastTimeout, dismissCurrentOverlay, replyDeepLinkBanId],
+    [clearReplyDeeplinkFastTimeout, dismissCurrentOverlay, pinReplyToBanId, replyDeepLinkBanId],
   );
 
   const hydrateReplyDeeplinkIncomingBan = useCallback(
@@ -4324,6 +4352,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
         replyDeepLinkBanIdRef.current = banId;
         replyFlowArmedBanIdRef.current = banId;
+        pinReplyToBanId(banId);
         setReplyDeepLinkBanId(banId);
         setIncomingReplyBanId(banId);
         setIncomingBan(openBan);
@@ -4482,6 +4511,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     overlayQueue.length,
     incomingBan?.id,
     sessionBootstrapped,
+    pinReplyToBanId,
   ]);
 
   useLayoutEffect(() => {
@@ -5373,8 +5403,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, []);
 
   const clearIncomingReply = useCallback(() => {
+    pinReplyToBanId(null);
     setIncomingReplyBanId(null);
-  }, []);
+  }, [pinReplyToBanId]);
 
   const notifyResultReplyWhatVisible = useCallback(
     (banId: string, selectedUserId: string | null) => {
@@ -5564,7 +5595,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const startIncomingReply = useCallback(
     (ban: BanInteraction) => {
       const enriched = enrichBanInteraction(ban);
+      pinReplyToBanId(ban.id);
       setIncomingReplyBanId(ban.id);
+      setReplyDeepLinkBanId(ban.id);
+      replyDeepLinkBanIdRef.current = ban.id;
       setDeepLinkReplyBan(enriched);
       setLobbyOpen(false);
       openSendFlow();
@@ -5579,7 +5613,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         action: 'card-reply-start',
       });
     },
-    [openSendFlow],
+    [openSendFlow, pinReplyToBanId],
   );
 
   const acknowledgeIncomingSeen = useCallback(async (banId: string) => {
@@ -5601,12 +5635,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const acknowledgeIncomingAndStartReply = useCallback(
     (ban: BanInteraction) => {
       const banId = ban.id;
-      consumeIncomingAfterAnswer(banId, 'reply');
       setViralOnboarding(false);
       challengeLog('incoming:reply-open', { banId });
 
       beginReplyHandoff(banId);
       startIncomingReply(ban);
+      consumeIncomingAfterAnswer(banId, 'reply');
       logReplyFlow('overlay-dismissed', {
         banId,
         lockActive: true,
@@ -6222,6 +6256,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [lobbyOpen]);
 
   const clearReplyDeepLinkState = useCallback(() => {
+    pinReplyToBanId(null);
     setReplyDeepLinkBanId(null);
     setIncomingReplyBanId(null);
     setDeepLinkReplyBan(null);
@@ -6230,7 +6265,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setDeepLinkReplyBooting(false);
     replyFlowArmedBanIdRef.current = null;
     replyLockReleasedRef.current = false;
-  }, []);
+  }, [pinReplyToBanId]);
 
   const restoreLobbyShellForResultCtaReturn = useCallback(() => {
     clearReplyDeepLinkState();
@@ -7059,6 +7094,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       acknowledgeIncomingAndStartReply,
       acknowledgeIncomingSeen,
       incomingReplyBanId,
+      replyToBanId,
       clearIncomingReply,
       applySession,
       reloadPending,
@@ -7187,6 +7223,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       acknowledgeIncomingAndStartReply,
       acknowledgeIncomingSeen,
       incomingReplyBanId,
+      replyToBanId,
       clearIncomingReply,
       applySession,
       reloadPending,

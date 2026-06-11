@@ -86,6 +86,7 @@ import {
   logEnergyGate,
   resolveSendFlowSource,
 } from '@/lib/energy-gate';
+import { isReplyDeeplinkShellBan } from '@/lib/reply-deeplink-fast';
 import { logSendFlow } from '@/lib/send-flow-debug';
 import { DEFAULT_SEND_TIMEOUT_MS } from '@/lib/request-timeout';
 import {
@@ -256,6 +257,7 @@ export function InstantBanFlow({
     deepLinkActiveBan,
     clearDeepLinkActiveBan,
     incomingReplyBanId,
+    replyToBanId,
     clearIncomingReply,
     applySession,
     pendingStartupInteractions,
@@ -1249,7 +1251,11 @@ export function InstantBanFlow({
   const beginIncomingReplyFromDeepLink = useCallback(
     (ban: BanInteraction) => {
       if (!user?.id) return false;
+      if (isReplyDeeplinkShellBan(ban)) return false;
       const opponent = opponentForBan(ban, user.id);
+      if (!opponent?.id || opponent.id === user.id) {
+        return false;
+      }
       return beginComposingBanForOpponent(opponent);
     },
     [beginComposingBanForOpponent, user?.id],
@@ -2061,7 +2067,6 @@ export function InstantBanFlow({
     const selectedUserId =
       selectedUser.userId ?? selectedUser.id ?? selectedUser.username ?? null;
     notifyReplyWhatVisible(banId, selectedUserId);
-    if (deepLinkReplyBan?.id === banId) clearDeepLinkReplyBan();
   }, [
     replyHandoffLock,
     phase,
@@ -2070,7 +2075,6 @@ export function InstantBanFlow({
     deepLinkReplyBan,
     replyDeepLinkBanId,
     notifyReplyWhatVisible,
-    clearDeepLinkReplyBan,
   ]);
 
   useLayoutEffect(() => {
@@ -2485,11 +2489,27 @@ export function InstantBanFlow({
     const source = resolveSendFlowSource({
       incomingReplyBanId,
       deepLinkReplyBanId: deepLinkReplyBan?.id ?? null,
-      replyDeepLinkBanId,
+      replyDeepLinkBanId: replyDeepLinkBanId ?? replyToBanId,
     });
     const isReplyFlow = source === 'reply_from_bot';
     const effectiveReplyBanId =
-      incomingReplyBanId ?? deepLinkReplyBan?.id ?? replyDeepLinkBanId ?? null;
+      replyToBanId ??
+      incomingReplyBanId ??
+      deepLinkReplyBan?.id ??
+      replyDeepLinkBanId ??
+      null;
+    const receiverId =
+      sendTarget.receiverUserId ?? snapUser.userId ?? snapUser.id ?? null;
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[reply-send-debug] currentUser', user?.id ?? null);
+      console.log('[reply-send-debug] selectedUser', snapUser);
+      console.log('[reply-send-debug] receiverId', receiverId);
+      console.log('[reply-send-debug] originalBanId', replyToBanId);
+      console.log('[reply-send-debug] replyToBanId', effectiveReplyBanId);
+      console.log('[reply-send-debug] banText', snapText);
+      console.log('[reply-send-debug] duration', snapDuration);
+    }
 
     logSendFlow('hold-start', {
       source,
@@ -2571,6 +2591,16 @@ export function InstantBanFlow({
         }
         setReplySending(true);
         const endpoint = `/bans/${effectiveReplyBanId}/reply`;
+        const replyPayload = {
+          text,
+          durationMinutes: snapDuration,
+        };
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[reply-send-debug] send payload', {
+            endpoint,
+            payload: replyPayload,
+          });
+        }
         logSendFlow('api-request', { endpoint, attemptId });
         try {
           const res = await api<{
@@ -2580,10 +2610,7 @@ export function InstantBanFlow({
           }>(endpoint, {
             method: 'POST',
             token,
-            body: JSON.stringify({
-              text,
-              durationMinutes: snapDuration,
-            }),
+            body: JSON.stringify(replyPayload),
             retries: 0,
             timeoutMs: DEFAULT_SEND_TIMEOUT_MS,
           });
@@ -2639,6 +2666,16 @@ export function InstantBanFlow({
       }
       const message =
         e instanceof Error ? e.message : 'Не получилось отправить запрет';
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[reply-send-debug] send error response', {
+          message,
+          status: (e as { status?: number }).status,
+          error: e,
+          source,
+          isReplyFlow,
+          effectiveReplyBanId,
+        });
+      }
       console.info('[98+] sendBan failed', {
         stage: 'request',
         message,
@@ -2660,6 +2697,7 @@ export function InstantBanFlow({
     send,
     banSentSuccess,
     incomingReplyBanId,
+    replyToBanId,
     replySending,
     applySession,
     scheduleDeferredSync,
