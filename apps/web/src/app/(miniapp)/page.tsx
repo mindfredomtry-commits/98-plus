@@ -4,8 +4,6 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
-  useRef,
   useState,
   useSyncExternalStore,
 } from 'react';
@@ -29,16 +27,6 @@ import {
   getDeepLinkBootDebug,
   subscribeDeepLinkBootDebug,
 } from '@/lib/deep-link-boot-debug';
-import {
-  formatOverboardFlowTraceLines,
-  getOverboardFlowTrace,
-  subscribeOverboardFlowTrace,
-} from '@/lib/overboard-flow-debug';
-import {
-  formatResultOpenTraceLines,
-  getResultOpenTrace,
-  subscribeResultOpenTrace,
-} from '@/lib/result-open-trace';
 
 const ArenaAmbience = dynamic(
   () =>
@@ -100,55 +88,29 @@ export default function HomePage() {
     wsStatus,
     connectionUiState,
     eventLog,
-    overlayHandoffDebug,
-    overlayQueueLength,
     deepLinkSelectedBanId,
     sendFlowOpen,
-    deepLinkReplyBooting,
     setDeepLinkReplyBooting,
     activeOverlayKind,
     replyUiShellActive,
     replyUiShellDark,
     replyDeepLinkBanId,
-    replyToBanId,
-    replyComposeActive,
-    replyHandoffLock,
     armReplyDeepLink,
     activeBanUiShellActive,
     resultReplyPending,
     replyDeeplinkFastShell,
     abortReplyDeepLinkFast,
   } = useApp();
-  const overlayHandoffDbgVisible =
-    process.env.NODE_ENV === 'development' && overlayHandoffDebug != null;
-  const { ready, webApp, startParam } = useTelegram();
+  const { ready } = useTelegram();
   const deepLinkBoot = useSyncExternalStore(
     subscribeDeepLinkBootDebug,
     getDeepLinkBootDebug,
     getDeepLinkBootDebug,
   );
-  const overboardTrace = useSyncExternalStore(
-    subscribeOverboardFlowTrace,
-    getOverboardFlowTrace,
-    getOverboardFlowTrace,
-  );
-  const resultOpenTrace = useSyncExternalStore(
-    subscribeResultOpenTrace,
-    getResultOpenTrace,
-    getResultOpenTrace,
-  );
-  const overboardTraceLine = useMemo(
-    () =>
-      overboardTrace.events.length > 0
-        ? formatOverboardFlowTraceLines(overboardTrace)
-        : null,
-    [overboardTrace],
-  );
   const [tab, setTab] = useState<Tab>('home');
   const [debugOpen, setDebugOpen] = useState(false);
   const [instantBanOpen, setInstantBanOpen] = useState(false);
   const [apiUrlDisplay, setApiUrlDisplay] = useState('');
-  const [shellDebugLine, setShellDebugLine] = useState<string | null>(null);
 
   const handleCloseInstantBan = useCallback(() => {
     setInstantBanOpen(false);
@@ -247,14 +209,6 @@ export default function HomePage() {
   }, [lobbyOpen, user, lobbyInfluence.influencePercent, lobbyInfluence.fromFallback]);
 
   const hasAuthSession = !!user?.id && !!token;
-  const resultOpenTraceLine = useMemo(() => {
-    if (resultOpenTrace.length === 0) {
-      return hasAuthSession
-        ? '[RESULT OPEN TRACE] (empty — ждём [RESULT OPEN ATTEMPT])'
-        : null;
-    }
-    return `[RESULT OPEN TRACE — last ${resultOpenTrace.length}]\n${formatResultOpenTraceLines(resultOpenTrace)}`;
-  }, [resultOpenTrace, hasAuthSession]);
   const lobbyPrefetch = loading && !hasAuthSession;
   /** v2 arena shell — never drop to legacy HomeArena while session is active. */
   const arenaVisible = lobbyPrefetch || hasAuthSession;
@@ -266,54 +220,6 @@ export default function HomePage() {
       : lobbyOpen
         ? 'arena-lobby'
         : 'arena-deep-link';
-
-  const deepLinkDebugLine = useMemo(
-    () =>
-      `[DEEP LINK DEBUG]\nstartParamRaw: ${deepLinkBoot.startParamRaw ?? '—'}\nstartParamResolved: ${deepLinkBoot.startParamResolved ?? '—'}\nparsedType: ${deepLinkBoot.parsedType ?? '—'}\nparsedBanId: ${deepLinkBoot.parsedBanId ?? '—'}\ndeepLinkDetected: ${deepLinkBoot.deepLinkDetected}\ndeepLinkConsumed: ${deepLinkBoot.deepLinkConsumed}\nbootBlocker: ${deepLinkBoot.bootBlocker ?? '—'}\nlastHandler: ${deepLinkBoot.lastHandler ?? '—'}\ninstantBanOpen: ${instantBanOpen}\nsendFlowOpen: ${sendFlowOpen}\nsendStarted: ${sendStarted}\nreplyComposeActive: ${replyComposeActive}\nreplyToBanId: ${replyToBanId ?? '—'}\nactiveOverlayKind: ${activeOverlayKind ?? '—'}\nselectedBanId: ${deepLinkSelectedBanId ?? '—'}\noverlayQueueLength: ${overlayQueueLength}\nincomingGateActive: ${incomingGateActive}\nreplyUiShellActive: ${replyUiShellActive}\nreplyUiShellDark: ${replyUiShellDark}\nreplyDeeplinkFastShell: ${replyDeeplinkFastShell}\nreplyIncomingReady: ${replyIncomingReady}\nreplyHandoffLock: ${replyHandoffLock}`,
-    [
-      deepLinkBoot,
-      instantBanOpen,
-      sendFlowOpen,
-      sendStarted,
-      activeOverlayKind,
-      deepLinkSelectedBanId,
-      overlayQueueLength,
-      incomingGateActive,
-      replyUiShellActive,
-      replyUiShellDark,
-      replyDeeplinkFastShell,
-      replyIncomingReady,
-      replyHandoffLock,
-      replyComposeActive,
-      replyToBanId,
-    ],
-  );
-
-  const showDeepLinkDebug =
-    Boolean(deepLinkBoot.startParamRaw) ||
-    Boolean(deepLinkBoot.startParamResolved) ||
-    Boolean(startParam) ||
-    hasAuthSession;
-
-  useEffect(() => {
-    if (!hasAuthSession) {
-      setShellDebugLine(null);
-      return;
-    }
-    setShellDebugLine(
-      `[SHELL DEBUG]\nbuild: ${APP_SHELL_BUILD}\nhost: ${window.location.host}\nhref: ${window.location.href}\nstartParam: ${startParam ?? webApp?.initDataUnsafe?.start_param ?? '—'}\nmode: ${shellModeForDebug}\nroute: /(miniapp)\nlobbyOpen: ${lobbyOpen}\ninstantBanOpen: ${instantBanOpen}\nsendFlowOpen: ${sendFlowOpen}\narenaVisible: ${arenaVisible}\nlegacyHome: ${legacyHomeVisible}`,
-    );
-  }, [
-    hasAuthSession,
-    startParam,
-    webApp,
-    shellModeForDebug,
-    lobbyOpen,
-    instantBanOpen,
-    sendFlowOpen,
-    arenaVisible,
-    legacyHomeVisible,
-  ]);
 
   const handleLobbyEnter = useCallback(() => {
     closeLobby();
@@ -372,20 +278,6 @@ export default function HomePage() {
   ]);
 
   if (error || (!loading && !user)) {
-    const showTgAuthDebug = error?.includes('Нет связи с API') ?? false;
-    const tgAuthDebug = showTgAuthDebug
-      ? {
-          hasTelegram:
-            typeof window !== 'undefined' ? !!window.Telegram : false,
-          hasWebApp: !!webApp,
-          platform: webApp?.platform ?? null,
-          initDataLength: webApp?.initData?.length ?? 0,
-          startParam:
-            webApp?.initDataUnsafe?.start_param ?? startParam ?? null,
-          'error.message': error ?? null,
-        }
-      : null;
-
     return (
       <div className="min-h-[100dvh] flex flex-col challenge-bg">
         <div className="flex flex-1 flex-col items-center justify-center px-6 text-center gap-4">
@@ -406,20 +298,6 @@ export default function HomePage() {
             Обновить
           </button>
         </div>
-        {tgAuthDebug ? (
-          <div className="px-4 pb-6 pt-2 w-full max-w-sm mx-auto">
-            <p className="text-[10px] leading-relaxed text-muted/55 font-mono text-left whitespace-pre-wrap break-all">
-              {`[TG AUTH DEBUG]\nhasTelegram: ${tgAuthDebug.hasTelegram}\nhasWebApp: ${tgAuthDebug.hasWebApp}\nplatform: ${tgAuthDebug.platform ?? '—'}\ninitDataLength: ${tgAuthDebug.initDataLength}\nstartParam: ${tgAuthDebug.startParam ?? '—'}\nerror.message: ${tgAuthDebug['error.message'] ?? '—'}`}
-            </p>
-          </div>
-        ) : null}
-        {showDeepLinkDebug ? (
-          <div className="px-4 pb-6 pt-2 w-full max-w-sm mx-auto">
-            <p className="text-[9px] leading-snug text-muted/45 font-mono text-left whitespace-pre-wrap break-all">
-              {deepLinkDebugLine}
-            </p>
-          </div>
-        ) : null}
       </div>
     );
   }
@@ -485,25 +363,6 @@ export default function HomePage() {
         <BottomNav tab={tab} onChange={setTab} />
       ) : null}
 
-      <div className="fixed right-4 z-30 above-bottom-chrome flex flex-col items-end gap-0.5">
-        {overlayHandoffDbgVisible ? (
-          <div
-            className="text-[10px] text-muted/50 font-mono text-right leading-tight pointer-events-none"
-            aria-hidden
-          >
-            <div>delay: {overlayHandoffDebug.delayMs}ms</div>
-            <div>cause: {overlayHandoffDebug.cause}</div>
-          </div>
-        ) : null}
-        <button
-          type="button"
-          onClick={() => setDebugOpen(true)}
-          className="text-[10px] text-muted/40 pointer-events-auto"
-        >
-          dbg
-        </button>
-      </div>
-
       <ShellErrorBoundary name="overlays" fallback={null}>
         <ChallengeOverlays />
       </ShellErrorBoundary>
@@ -532,47 +391,6 @@ export default function HomePage() {
         />
       ) : null}
 
-      {overboardTrace.emergencyHint ? (
-        <div
-          className="fixed top-16 left-0 right-0 z-[120] flex justify-center px-4 pointer-events-none"
-          role="status"
-        >
-          <p className="rounded-2xl bg-card/95 border border-white/10 px-4 py-2 text-sm text-muted shadow-glow">
-            {overboardTrace.emergencyHint}
-          </p>
-        </div>
-      ) : null}
-
-      {shellDebugLine ||
-      showDeepLinkDebug ||
-      overboardTraceLine ||
-      (hasAuthSession && resultOpenTraceLine) ? (
-        <div
-          className="fixed bottom-0 left-0 right-0 z-[9999] px-2 pb-2 pointer-events-none"
-          aria-hidden
-        >
-          {resultOpenTraceLine ? (
-            <p className="text-[8px] leading-snug text-lime-300/90 font-mono text-left whitespace-pre-wrap break-all max-h-[36dvh] overflow-y-auto mb-1">
-              {resultOpenTraceLine}
-            </p>
-          ) : null}
-          {overboardTraceLine ? (
-            <p className="text-[8px] leading-snug text-amber-300/80 font-mono text-left whitespace-pre-wrap break-all max-h-[32dvh] overflow-y-auto mb-1">
-              {overboardTraceLine}
-            </p>
-          ) : null}
-          {shellDebugLine ? (
-            <p className="text-[9px] leading-snug text-muted/45 font-mono text-left whitespace-pre-wrap break-all max-h-[14dvh] overflow-hidden">
-              {shellDebugLine}
-            </p>
-          ) : null}
-          {showDeepLinkDebug ? (
-            <p className="text-[9px] leading-snug text-muted/45 font-mono text-left whitespace-pre-wrap break-all max-h-[28dvh] overflow-hidden">
-              {deepLinkDebugLine}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
     </div>
   );
 }
