@@ -697,6 +697,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const replyDeeplinkFastWrittenAtRef = useRef<number | null>(null);
   const replyDeeplinkFastWrittenBanIdRef = useRef<string | null>(null);
   const replyDeeplinkFastHydratedRef = useRef(false);
+  const incomingConsumedAfterAnswerRef = useRef<Set<string>>(new Set());
   const [replyDeepLinkBanId, setReplyDeepLinkBanId] = useState<string | null>(null);
   const [replyHandoffLock, setReplyHandoffLock] = useState(false);
   const [replyWhatReady, setReplyWhatReady] = useState(false);
@@ -940,7 +941,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ? (replyDeepLinkBanIdRef.current ??
         replyDeeplinkPendingBanIdRef.current)
       : null;
-    if (replyFastBanId) {
+    if (
+      replyFastBanId &&
+      !incomingConsumedAfterAnswerRef.current.has(replyFastBanId)
+    ) {
       const queuedIncoming = queue.find(
         (q) => q.kind === 'incoming' && q.ban.id === replyFastBanId,
       );
@@ -1877,7 +1881,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ? (replyDeepLinkBanIdRef.current ??
         replyDeeplinkPendingBanIdRef.current)
       : null;
-    if (replyFastBanId) {
+    if (
+      replyFastBanId &&
+      !incomingConsumedAfterAnswerRef.current.has(replyFastBanId)
+    ) {
       const inNext = next.some(
         (q) => q.kind === 'incoming' && q.ban.id === replyFastBanId,
       );
@@ -2115,6 +2122,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setBanSentOpen(false);
     setOptimisticSendWait(null);
     dismissedIncomingRef.current = new Set();
+    incomingConsumedAfterAnswerRef.current = new Set();
     dismissedCheckSessionRef.current = new Set();
     answeredCheckRef.current = new Set();
     locallyAckedIncomingRef.current = new Set();
@@ -3207,6 +3215,76 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const clearReplyFastSessionAfterAnswer = useCallback((banId: string) => {
+    if (replyDeeplinkFastTimeoutRef.current) {
+      clearTimeout(replyDeeplinkFastTimeoutRef.current);
+      replyDeeplinkFastTimeoutRef.current = null;
+    }
+    replyDeeplinkFastOpenedRef.current = false;
+    replyDeeplinkPendingBanIdRef.current = null;
+    replyDeeplinkFastWrittenAtRef.current = null;
+    replyDeeplinkFastWrittenBanIdRef.current = null;
+    replyDeeplinkFastHydratedRef.current = false;
+    replyDeeplinkFastShellRef.current = false;
+    replyDeeplinkPrefetchRef.current = false;
+    replyDeepLinkBanIdRef.current = null;
+    setReplyDeeplinkFastShell(false);
+    setDeepLinkReplyBooting(false);
+    setReplyDeepLinkBanId((prev) => (prev === banId ? null : prev));
+    setIncomingReplyBanId((prev) => (prev === banId ? null : prev));
+    setReplyHandoffLock(false);
+    setReplyWhatReady(true);
+    replyFlowArmedBanIdRef.current = null;
+    console.log('[REPLY FAST CLEARED AFTER ANSWER]', { banId });
+    markVisibleOverboardTrace('[REPLY FAST CLEARED AFTER ANSWER]', { banId });
+  }, []);
+
+  const consumeIncomingAfterAnswer = useCallback(
+    (banId: string, answer: 'overboard' | 'reply') => {
+      const alreadyConsumed = incomingConsumedAfterAnswerRef.current.has(banId);
+      incomingConsumedAfterAnswerRef.current.add(banId);
+      dismissedIncomingRef.current.add(banId);
+      locallyAckedIncomingRef.current.add(banId);
+
+      if (!alreadyConsumed) {
+        console.log('[INCOMING CONSUMED AFTER ANSWER]', { banId, answer });
+        markVisibleOverboardTrace('[INCOMING CONSUMED AFTER ANSWER]', {
+          banId,
+          answer,
+        });
+      }
+
+      const beforeQueue = overlayQueueRef.current;
+      const beforeLen = beforeQueue.length;
+      const nextQueue = removeOverlaysForBan(beforeQueue, banId, ['incoming']);
+      if (nextQueue.length !== beforeLen) {
+        applyOverlayQueue(nextQueue);
+      } else if (overlayQueueRef.current !== nextQueue) {
+        overlayQueueRef.current = nextQueue;
+        setOverlayQueue(nextQueue);
+      }
+
+      console.log('[INCOMING QUEUE POP AFTER ANSWER]', {
+        banId,
+        before: beforeLen,
+        after: nextQueue.length,
+        answer,
+      });
+      markVisibleOverboardTrace('[INCOMING QUEUE POP AFTER ANSWER]', {
+        banId,
+        before: beforeLen,
+        after: nextQueue.length,
+        answer,
+      });
+
+      if (incomingBanRef.current?.id === banId) {
+        setIncomingBan(null);
+      }
+      clearReplyFastSessionAfterAnswer(banId);
+    },
+    [applyOverlayQueue, clearReplyFastSessionAfterAnswer],
+  );
+
   const openIncomingOverboardOptimistic = useCallback(
     (
       ban: BanInteraction,
@@ -3363,9 +3441,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId,
         optimisticOpened: true,
       });
+      consumeIncomingAfterAnswer(banId, 'overboard');
       return true;
     },
-    [collectOverboardFallbackBans, readDirectOverboardSnapshot],
+    [
+      collectOverboardFallbackBans,
+      consumeIncomingAfterAnswer,
+      readDirectOverboardSnapshot,
+    ],
   );
 
   const runIncomingOverboardApi = useCallback(
@@ -3829,6 +3912,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const resolveReplyFastStillValid = useCallback(
     (banId: string): { valid: boolean; source: string | null } => {
+      if (incomingConsumedAfterAnswerRef.current.has(banId)) {
+        console.log('[INCOMING REOPEN BLOCKED AFTER ANSWER]', { banId });
+        markVisibleOverboardTrace('[INCOMING REOPEN BLOCKED AFTER ANSWER]', {
+          banId,
+        });
+        return { valid: false, source: null };
+      }
       const head = overlayQueueRef.current[0];
       if (head?.kind === 'incoming' && head.ban.id === banId) {
         return { valid: true, source: 'queue-head' };
@@ -3861,6 +3951,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const ensureReplyFastIncomingAtHead = useCallback(
     (banId: string) => {
+      if (incomingConsumedAfterAnswerRef.current.has(banId)) return;
       if (isReplyFastQueueHeadValid(banId)) return;
       const queued = overlayQueueRef.current.find(
         (q) => q.kind === 'incoming' && q.ban.id === banId,
@@ -3936,6 +4027,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const openReplyDeepLinkFast = useCallback(
     (banId: string) => {
       if (replyDeeplinkFastOpenedRef.current) return false;
+      if (incomingConsumedAfterAnswerRef.current.has(banId)) {
+        console.log('[INCOMING REOPEN BLOCKED AFTER ANSWER]', { banId });
+        markVisibleOverboardTrace('[INCOMING REOPEN BLOCKED AFTER ANSWER]', {
+          banId,
+        });
+        return false;
+      }
       const viewerId = userIdRef.current;
       const token = tokenRef.current;
       if (!viewerId || !token || auth.loading) return false;
@@ -5047,6 +5145,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const viewerId =
         resultRef.current?.viewerId ?? userIdRef.current ?? null;
 
+      consumeIncomingAfterAnswer(banId, 'overboard');
+
       console.log('[RESULT CTA CONSUME]', { banId });
       markVisibleOverboardTrace('[RESULT CTA CONSUME]', { banId });
 
@@ -5079,7 +5179,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       cancelResultPollBurst();
       applyDirectOverboardCloseState(banId);
     },
-    [applyDirectOverboardCloseState, cancelResultPollBurst],
+    [
+      applyDirectOverboardCloseState,
+      cancelResultPollBurst,
+      consumeIncomingAfterAnswer,
+    ],
   );
 
   const closeDirectOverboardForCta = useCallback(
@@ -5193,13 +5297,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const acknowledgeIncomingAndStartReply = useCallback(
     (ban: BanInteraction) => {
       const banId = ban.id;
-      dismissedIncomingRef.current.add(banId);
+      consumeIncomingAfterAnswer(banId, 'reply');
       setViralOnboarding(false);
       challengeLog('incoming:reply-open', { banId });
 
       beginReplyHandoff(banId);
       startIncomingReply(ban);
-      removeIncomingFromQueue(banId);
       logReplyFlow('overlay-dismissed', {
         banId,
         lockActive: true,
@@ -5234,7 +5337,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         patchReplyHandoffDebug({ acceptPending: false, acceptDone: false });
       }
     },
-    [beginReplyHandoff, removeIncomingFromQueue, startIncomingReply],
+    [beginReplyHandoff, consumeIncomingAfterAnswer, startIncomingReply],
   );
 
   const dismissIncoming = useCallback(
@@ -5663,6 +5766,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       : null;
   const replyFastIncomingActive =
     replyFastDisplayBanId != null &&
+    !incomingConsumedAfterAnswerRef.current.has(replyFastDisplayBanId) &&
     (resolveReplyFastStillValid(replyFastDisplayBanId).valid ||
       (replyDeeplinkFastWrittenBanIdRef.current === replyFastDisplayBanId &&
         replyDeeplinkFastWrittenAtRef.current != null &&
@@ -5679,8 +5783,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       : activeOverlayKind;
   const queueHeadKind =
     overlayQueue[0]?.kind ?? overlayQueueRef.current[0]?.kind ?? null;
+  const notificationShellSuppressedForBansLobby =
+    bansCtaQueueSuppressRef.current || bansReturnToLobbyLatchRef.current;
+  const incomingAnswerBlockId =
+    replyDeepLinkBanId ?? replyDeeplinkPendingBanIdRef.current;
+  const incomingBlockedAfterAnswer =
+    incomingAnswerBlockId != null &&
+    incomingConsumedAfterAnswerRef.current.has(incomingAnswerBlockId);
   const shouldRenderIncomingOverlay =
     !showDirectOverboardLayer &&
+    !notificationShellSuppressedForBansLobby &&
+    !incomingBlockedAfterAnswer &&
     (displayActiveOverlayKind === 'incoming' ||
       activeOverlayKind === 'incoming' ||
       queueHeadKind === 'incoming' ||
@@ -5690,8 +5803,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const incomingOverlayDisplayKind = shouldRenderIncomingOverlay
     ? 'incoming'
     : displayActiveOverlayKind;
-  const notificationShellSuppressedForBansLobby =
-    bansCtaQueueSuppressRef.current || bansReturnToLobbyLatchRef.current;
   const hasQueuedOverlayShell =
     (overlayQueue.length > 0 ||
       replyFastIncomingActive ||
@@ -5853,6 +5964,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       flushSync(() => {
         if (banId) {
+          console.log('[RESULT CTA OPEN BANS PRIORITY]', { banId });
+          markVisibleOverboardTrace('[RESULT CTA OPEN BANS PRIORITY]', { banId });
           consumeResultBanForResultCta(banId);
         } else {
           applyDirectOverboardCloseState(null);
@@ -6141,6 +6254,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const fastBanId =
       replyDeepLinkBanId ?? replyDeeplinkPendingBanIdRef.current;
     if (!fastBanId || !replyDeeplinkFastOpenedRef.current) return null;
+    if (
+      incomingConsumedAfterAnswerRef.current.has(fastBanId) ||
+      dismissedIncomingRef.current.has(fastBanId)
+    ) {
+      return null;
+    }
     const fromQueue =
       overlayQueue.find(
         (q) => q.kind === 'incoming' && q.ban.id === fastBanId,
