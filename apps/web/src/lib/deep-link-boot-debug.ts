@@ -1,5 +1,7 @@
 /** Read-only deep link boot diagnostics — does not affect routing. */
 
+import { parseStartParam } from '@98plus/shared';
+
 export type DeepLinkBootDebugSnapshot = {
   startParamRaw: string | null;
   startParamResolved: string | null;
@@ -58,6 +60,20 @@ export function getDeepLinkBootDebug(): DeepLinkBootDebugSnapshot {
 export function subscribeDeepLinkBootDebug(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+/** Sync parse on module load so first paint can block lobby for reply deep links. */
+if (typeof window !== 'undefined') {
+  const startParamRaw = readStartParamRawFromLocation();
+  const action = parseStartParam(startParamRaw ?? undefined);
+  if (action?.type === 'reply') {
+    patchDeepLinkBootDebug({
+      startParamRaw,
+      parsedType: 'reply',
+      parsedBanId: action.banId,
+      deepLinkDetected: true,
+    });
+  }
 }
 
 export function noteDeepLinkHandlerOpened(

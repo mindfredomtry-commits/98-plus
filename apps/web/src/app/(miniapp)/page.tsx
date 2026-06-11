@@ -65,7 +65,7 @@ const DebugPanel = dynamic(
 );
 
 /** Bump when diagnosing shell / deploy mismatches. */
-const APP_SHELL_BUILD = 'arena-v2@overboard-diag-v30';
+const APP_SHELL_BUILD = 'arena-v2@overboard-diag-v31';
 
 export default function HomePage() {
   const {
@@ -114,6 +114,8 @@ export default function HomePage() {
     armReplyDeepLink,
     activeBanUiShellActive,
     resultReplyPending,
+    replyDeeplinkFastShell,
+    abortReplyDeepLinkFast,
   } = useApp();
   const overlayHandoffDbgVisible =
     process.env.NODE_ENV === 'development' && overlayHandoffDebug != null;
@@ -165,6 +167,8 @@ export default function HomePage() {
     reloadPending,
     setDeepLinkReplyBooting,
     armReplyDeepLink,
+    replyDeeplinkFastShell,
+    abortReplyDeepLinkFast,
   });
 
   const sendStarted = instantBanOpen || sendFlowOpen;
@@ -173,7 +177,17 @@ export default function HomePage() {
     activeOverlayKind === 'incoming' &&
     replyTargetBanId != null &&
     deepLinkSelectedBanId === replyTargetBanId;
-  const replyDeepLinkLoading = replyUiShellDark;
+  const replyDeepLinkPending =
+    deepLinkBoot.parsedType === 'reply' &&
+    deepLinkBoot.parsedBanId != null &&
+    !replyIncomingReady;
+  const replyDeepLinkDarkShell =
+    replyUiShellDark && !replyDeeplinkFastShell && !replyIncomingReady;
+  const replyDeepLinkLobbyHidden =
+    replyDeepLinkPending ||
+    replyDeeplinkFastShell ||
+    replyDeepLinkDarkShell ||
+    activeBanUiShellActive;
   const replyFlowArmedOnceRef = useRef(false);
 
   useLayoutEffect(() => {
@@ -189,13 +203,8 @@ export default function HomePage() {
 
   useLayoutEffect(() => {
     if (shellBlocksLobbyClose) return;
-    if (replyDeepLinkLoading || activeBanUiShellActive) closeLobby();
-  }, [
-    shellBlocksLobbyClose,
-    replyDeepLinkLoading,
-    activeBanUiShellActive,
-    closeLobby,
-  ]);
+    if (replyDeepLinkLobbyHidden) closeLobby();
+  }, [shellBlocksLobbyClose, replyDeepLinkLobbyHidden, closeLobby]);
 
   useLayoutEffect(() => {
     if (shellBlocksLobbyClose) return;
@@ -273,7 +282,7 @@ export default function HomePage() {
 
   const deepLinkDebugLine = useMemo(
     () =>
-      `[DEEP LINK DEBUG]\nstartParamRaw: ${deepLinkBoot.startParamRaw ?? '—'}\nstartParamResolved: ${deepLinkBoot.startParamResolved ?? '—'}\nparsedType: ${deepLinkBoot.parsedType ?? '—'}\nparsedBanId: ${deepLinkBoot.parsedBanId ?? '—'}\ndeepLinkDetected: ${deepLinkBoot.deepLinkDetected}\ndeepLinkConsumed: ${deepLinkBoot.deepLinkConsumed}\nbootBlocker: ${deepLinkBoot.bootBlocker ?? '—'}\nlastHandler: ${deepLinkBoot.lastHandler ?? '—'}\ninstantBanOpen: ${instantBanOpen}\nsendFlowOpen: ${sendFlowOpen}\nsendStarted: ${sendStarted}\nactiveOverlayKind: ${activeOverlayKind ?? '—'}\nselectedBanId: ${deepLinkSelectedBanId ?? '—'}\noverlayQueueLength: ${overlayQueueLength}\nincomingGateActive: ${incomingGateActive}\nreplyUiShellActive: ${replyUiShellActive}\nreplyUiShellDark: ${replyUiShellDark}\nreplyIncomingReady: ${replyIncomingReady}\nreplyHandoffLock: ${replyHandoffLock}`,
+      `[DEEP LINK DEBUG]\nstartParamRaw: ${deepLinkBoot.startParamRaw ?? '—'}\nstartParamResolved: ${deepLinkBoot.startParamResolved ?? '—'}\nparsedType: ${deepLinkBoot.parsedType ?? '—'}\nparsedBanId: ${deepLinkBoot.parsedBanId ?? '—'}\ndeepLinkDetected: ${deepLinkBoot.deepLinkDetected}\ndeepLinkConsumed: ${deepLinkBoot.deepLinkConsumed}\nbootBlocker: ${deepLinkBoot.bootBlocker ?? '—'}\nlastHandler: ${deepLinkBoot.lastHandler ?? '—'}\ninstantBanOpen: ${instantBanOpen}\nsendFlowOpen: ${sendFlowOpen}\nsendStarted: ${sendStarted}\nactiveOverlayKind: ${activeOverlayKind ?? '—'}\nselectedBanId: ${deepLinkSelectedBanId ?? '—'}\noverlayQueueLength: ${overlayQueueLength}\nincomingGateActive: ${incomingGateActive}\nreplyUiShellActive: ${replyUiShellActive}\nreplyUiShellDark: ${replyUiShellDark}\nreplyDeeplinkFastShell: ${replyDeeplinkFastShell}\nreplyIncomingReady: ${replyIncomingReady}\nreplyHandoffLock: ${replyHandoffLock}`,
     [
       deepLinkBoot,
       instantBanOpen,
@@ -285,6 +294,7 @@ export default function HomePage() {
       incomingGateActive,
       replyUiShellActive,
       replyUiShellDark,
+      replyDeeplinkFastShell,
       replyIncomingReady,
       replyHandoffLock,
     ],
@@ -434,7 +444,11 @@ export default function HomePage() {
       }${
         checkGateActive ? ' app-page--check-overlay-active' : ''
       }${banSentOpen ? ' app-page--success-modal' : ''}${
-        replyDeepLinkLoading ? ' app-page--reply-deeplink-loading' : ''
+        replyDeepLinkPending && !replyDeeplinkFastShell
+          ? ' app-page--reply-deeplink-pending'
+          : ''
+      }${
+        replyDeepLinkDarkShell ? ' app-page--reply-deeplink-loading' : ''
       }${
         replyUiShellActive ? ' app-page--reply-ui-shell' : ''
       }${

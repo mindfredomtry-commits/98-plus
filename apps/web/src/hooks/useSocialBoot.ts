@@ -34,6 +34,8 @@ interface BootHandlers {
   reloadPending: () => Promise<void>;
   setDeepLinkReplyBooting: (v: boolean) => void;
   armReplyDeepLink: (banId: string) => void;
+  replyDeeplinkFastShell: boolean;
+  abortReplyDeepLinkFast: (reason: string) => void;
 }
 
 function deepLinkBootKey(startParam: string | undefined): string | null {
@@ -165,11 +167,14 @@ export function useSocialBoot(h: BootHandlers) {
           break;
         }
         case 'reply': {
-          h.armReplyDeepLink(action.banId);
-          h.setDeepLinkReplyBooting(true);
+          if (!h.replyDeeplinkFastShell) {
+            h.armReplyDeepLink(action.banId);
+            h.setDeepLinkReplyBooting(true);
+          }
           logReplyFlow('incoming-loading', {
             banId: action.banId,
             lockActive: true,
+            fastShellAlreadyOpen: h.replyDeeplinkFastShell,
           });
           try {
             const { ban } = await api<{ ban: BanInteraction }>(
@@ -178,11 +183,17 @@ export function useSocialBoot(h: BootHandlers) {
             );
             if (ban) {
               await h.openDeepLinkReply(ban);
+            } else if (h.replyDeeplinkFastShell) {
+              h.abortReplyDeepLinkFast('api-empty-ban');
             } else {
               h.setDeepLinkReplyBooting(false);
             }
           } catch {
-            h.setDeepLinkReplyBooting(false);
+            if (h.replyDeeplinkFastShell) {
+              h.abortReplyDeepLinkFast('api-error');
+            } else {
+              h.setDeepLinkReplyBooting(false);
+            }
           }
           break;
         }
@@ -226,5 +237,7 @@ export function useSocialBoot(h: BootHandlers) {
     h.reloadPending,
     h.setDeepLinkReplyBooting,
     h.armReplyDeepLink,
+    h.replyDeeplinkFastShell,
+    h.abortReplyDeepLinkFast,
   ]);
 }

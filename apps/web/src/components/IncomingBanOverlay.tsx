@@ -30,6 +30,10 @@ import { AvatarImage } from './AvatarImage';
 import { useTelegram } from '@/hooks/useTelegram';
 import { ModalShell } from './ModalShell';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
+import {
+  REPLY_DEEPLINK_SHELL_SENDER_ID,
+  REPLY_DEEPLINK_SHELL_TEXT,
+} from '@/lib/reply-deeplink-fast';
 
 type VerifyPhase = 'idle' | 'pending' | 'ok' | 'failed';
 
@@ -56,6 +60,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     activeOverlayKind,
     markOverlayUserAction,
     reportOverlayRendered,
+    replyDeeplinkFastShell,
   } = useApp();
   const { haptic, hapticSuccess, bindBack } = useTelegram();
   const [actionLoading, setActionLoading] = useState(false);
@@ -81,6 +86,11 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     setActionLoading(false);
   }, [incomingBan?.id]);
 
+  const isReplyDeeplinkShell =
+    replyDeeplinkFastShell ||
+    incomingBan?.sender?.id === REPLY_DEEPLINK_SHELL_SENDER_ID ||
+    incomingBan?.text === REPLY_DEEPLINK_SHELL_TEXT;
+
   useEffect(() => {
     if (!incomingBan?.id || !token || !viewerId) {
       setVerifiedBan(null);
@@ -88,6 +98,17 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
       return;
     }
     if (!shouldShowIncomingBanModal(incomingBan, viewerId, new Set())) {
+      return;
+    }
+
+    if (isReplyDeeplinkShell) {
+      console.log('[incoming-overlay]', {
+        event: 'reply-deeplink-shell',
+        banId: incomingBan.id,
+        source: 'reply-deeplink-fast',
+      });
+      setVerifiedBan(null);
+      setVerifyPhase('pending');
       return;
     }
 
@@ -134,6 +155,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     };
   }, [
     incomingBan,
+    isReplyDeeplinkShell,
     token,
     viewerId,
     bindBack,
@@ -279,8 +301,11 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
       shouldShowIncomingBanModal(incomingBan, viewerId, new Set())
     : false;
 
-  const canAct = !!displayBan?.sender?.id;
-  const buttonsEnabled = verifyPhase !== 'failed' && !!incomingBan?.id;
+  const canAct =
+    !!displayBan?.sender?.id &&
+    displayBan.sender.id !== REPLY_DEEPLINK_SHELL_SENDER_ID;
+  const buttonsEnabled =
+    !isReplyDeeplinkShell && verifyPhase !== 'failed' && !!incomingBan?.id;
   const counterEnabled = buttonsEnabled && canAct;
   const overboardEnabled = buttonsEnabled;
 
@@ -328,7 +353,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     return null;
   }
 
-  if (!incomingBan.text?.trim()) {
+  if (!isReplyDeeplinkShell && !incomingBan.text?.trim()) {
     return null;
   }
 
@@ -345,7 +370,37 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     contentOnly,
   });
 
-  const body = (
+  const body = isReplyDeeplinkShell ? (
+    <div
+      className="incoming-modal-body text-center incoming-modal-body--shell"
+      aria-busy="true"
+      aria-live="polite"
+    >
+      <p className="incoming-modal-title text-xl font-black text-glow mb-3">
+        тебе запретили!
+      </p>
+
+      <div className="incoming-modal-sender mb-3">
+        <div
+          className="w-20 h-20 mx-auto rounded-full bg-white/10 animate-pulse"
+          aria-hidden
+        />
+        <div className="h-4 w-24 mx-auto mt-2 rounded bg-white/10 animate-pulse" />
+      </div>
+
+      <div className="incoming-modal-text mb-4 px-6 space-y-2">
+        <div className="h-5 w-full rounded bg-white/10 animate-pulse" />
+        <div className="h-5 w-4/5 mx-auto rounded bg-white/10 animate-pulse" />
+      </div>
+
+      <div className="incoming-modal-actions space-y-2.5">
+        <BigButton disabled>🚫 Запретить в ответ</BigButton>
+        <BigButton variant="ghost" disabled>
+          🫷 Перебор!
+        </BigButton>
+      </div>
+    </div>
+  ) : (
     <div className="incoming-modal-body text-center">
       <p className="incoming-modal-title text-xl font-black text-glow mb-3">
         тебе запретили!

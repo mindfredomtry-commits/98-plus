@@ -783,6 +783,25 @@ html.scroll-lock body {
   pointer-events: none;
 }
 
+.app-page--reply-deeplink-pending .arena-ambience,
+.app-page--reply-deeplink-pending .app-main,
+.app-page--reply-deeplink-pending .cta-dock,
+.app-page--reply-deeplink-pending .bottom-nav,
+.app-page--reply-deeplink-pending .connection-banner,
+.app-page--reply-deeplink-pending .instant-ban-arena-send .instant-ban-arena-lobby-nav,
+.app-page--reply-deeplink-pending .instant-ban-arena-send > .instant-ban-lobby-cta,
+.app-page--reply-deeplink-pending .instant-ban-arena-send .lobby-screen__orb-wrap,
+.app-page--reply-deeplink-pending .instant-ban-arena-send .lobby-screen__particles,
+.app-page--reply-deeplink-pending .instant-ban-arena-send .lobby-screen__grid,
+.app-page--reply-deeplink-pending .instant-ban-flow--reply-ui-shell .instant-ban-arena-lobby-nav,
+.app-page--reply-deeplink-pending .instant-ban-flow--reply-ui-shell > .instant-ban-lobby-cta,
+.app-page--reply-deeplink-pending .instant-ban-flow--reply-ui-shell .lobby-screen__orb-wrap,
+.app-page--reply-deeplink-pending .instant-ban-flow--reply-ui-shell .lobby-screen__particles,
+.app-page--reply-deeplink-pending .instant-ban-flow--reply-ui-shell .lobby-screen__grid {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .app-page--reply-deeplink-loading .arena-ambience,
 .app-page--reply-deeplink-loading .app-main,
 .app-page--reply-deeplink-loading .cta-dock,
