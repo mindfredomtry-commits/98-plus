@@ -4986,8 +4986,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const displayActiveOverlayKind = priorityBlocksResult
     ? null
     : activeOverlayKind;
+  const notificationShellSuppressedForBansLobby =
+    bansCtaQueueSuppressRef.current || bansReturnToLobbyLatchRef.current;
   const notificationSessionActive =
     !priorityBlocksResult &&
+    !notificationShellSuppressedForBansLobby &&
     (showDirectOverboardLayer ||
       overboardTransitionActive ||
       overlayQueue.length > 0);
@@ -5279,6 +5282,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
         resultCtaBansOverlayOpenRef.current = false;
         setResultCtaBansOverlayOpen(false);
+        setOverboardTransitionActive(false);
+
+        let nextQueue = overlayQueueRef.current;
+        let poppedDismissedResult = false;
+        while (nextQueue[0]?.kind === 'result') {
+          const headResult = nextQueue[0].result;
+          const viewerId = headResult.viewerId ?? userIdRef.current ?? null;
+          if (!isDismissedResultLocally(headResult.id, viewerId)) break;
+          nextQueue = popOverlayHead(nextQueue);
+          poppedDismissedResult = true;
+        }
+        if (poppedDismissedResult) {
+          overlayQueueRef.current = nextQueue;
+          setOverlayQueue(nextQueue);
+          markVisibleOverboardTrace('[BANS CLOSE QUEUE DRAIN]', {
+            queueLength: nextQueue.length,
+            headKind: nextQueue[0]?.kind ?? null,
+          });
+        }
       });
 
       console.log('[LOBBY OPEN DONE]', {
@@ -5296,16 +5318,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       queueMicrotask(() => {
         resetBansNavState();
+      });
+      window.setTimeout(() => {
         if (isNotificationQueueLocked() || wasBansCta) {
           unlockNotificationQueueAndFlush(
             wasBansCta ? 'result-cta-bans-closed' : 'target-flow-closed',
           );
         }
-        window.setTimeout(() => {
-          setBansReturnToLobbyLatch(false);
-          bansReturnToLobbyLatchRef.current = false;
-        }, 400);
-      });
+        setBansReturnToLobbyLatch(false);
+        bansReturnToLobbyLatchRef.current = false;
+      }, 400);
 
       console.log('[BANS NAV] back-to-lobby source=result-cta');
       markVisibleOverboardTrace('[BANS NAV]', {
@@ -5861,8 +5883,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         {children}
         {!showDirectOverboardLayer ? (
           <GlobalOverlayHost
-            active={notificationSessionActive && !bansCtaQueueSuppress}
-            queueSessionActive={notificationSessionActive && !bansCtaQueueSuppress}
+            active={notificationSessionActive}
+            queueSessionActive={notificationSessionActive}
             activeOverlayKind={displayActiveOverlayKind}
             activeIncomingBanId={
               displayActiveOverlayKind === 'incoming'

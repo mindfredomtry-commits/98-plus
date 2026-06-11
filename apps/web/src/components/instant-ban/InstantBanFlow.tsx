@@ -1406,13 +1406,35 @@ export function InstantBanFlow({
         flushSync(() => {
           setBansOverlayOpen(false);
           setSelectedBanForDetails(null);
+          clearResultCtaBansOverlayOpen();
           resetSendUiForBansCta();
           setCtaState('entering');
         });
         clearCtaEnterTimer();
         scheduleCtaBecomeVisible();
         closeSendFlow();
+        const logBansCloseFinalState = () => {
+          const finalState = {
+            lobbyOpen,
+            bansOverlayOpen: false,
+            effectiveBansOverlayOpen: false,
+            showBansLayer: false,
+            resultCtaBansOverlayOpen: false,
+            bansCtaQueueSuppress,
+            bansReturnToLobbyLatch,
+            notificationQueueUiLock:
+              notificationSessionActive || notificationOverlayActive,
+            phase: 'idle' as const,
+            sendStarted,
+            sendFlowOpen,
+            source,
+          };
+          console.log('[BANS CLOSE FINAL STATE]', finalState);
+          markVisibleOverboardTrace('[BANS CLOSE FINAL STATE]', finalState);
+        };
+        logBansCloseFinalState();
         scheduleLobbyVisibilityCheck(source);
+        requestAnimationFrame(logBansCloseFinalState);
         return;
       }
 
@@ -1431,13 +1453,20 @@ export function InstantBanFlow({
     },
     [
       bansCtaQueueSuppress,
+      bansReturnToLobbyLatch,
       clearBansCtaQueueSuppress,
       clearCtaEnterTimer,
+      clearResultCtaBansOverlayOpen,
       closeSendFlow,
       completeBansOverlayCloseFromResultCta,
+      lobbyOpen,
+      notificationOverlayActive,
+      notificationSessionActive,
       resetSendUiForBansCta,
       scheduleCtaBecomeVisible,
       scheduleLobbyVisibilityCheck,
+      sendFlowOpen,
+      sendStarted,
       unlockNotificationQueueAndFlush,
     ],
   );
