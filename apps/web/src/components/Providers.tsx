@@ -790,6 +790,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const checkBanRef = useRef<BanInteraction | null>(null);
   const checkWsSeenRef = useRef<Set<string>>(new Set());
   const resultDeliveredBanIdsRef = useRef<Set<string>>(new Set());
+  const resultCtaConsumedBanIdsRef = useRef<Set<string>>(new Set());
   const checkSubmitAtRef = useRef<Map<string, number>>(new Map());
   const resultPollBurstTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const shownOverlayKeysRef = useRef<Set<string>>(new Set());
@@ -980,6 +981,42 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
         }
       } else {
+        const resultId = active.result.id;
+        const viewerId = active.result.viewerId ?? userIdRef.current ?? null;
+        if (
+          resultCtaConsumedBanIdsRef.current.has(resultId) ||
+          isDismissedResultLocally(resultId, viewerId)
+        ) {
+          console.log('[DIRECT RESULT REOPEN BLOCKED]', {
+            reason: 'dismissed-after-result-cta',
+            banId: resultId,
+          });
+          markVisibleOverboardTrace('[DIRECT RESULT REOPEN BLOCKED]', {
+            reason: 'dismissed-after-result-cta',
+            banId: resultId,
+            source: 'syncDisplayFromQueue',
+          });
+          const pruned = removeOverlaysForBan(queue, resultId, ['result']);
+          if (pruned.length !== queue.length) {
+            overlayQueueRef.current = pruned;
+            setOverlayQueue(pruned);
+          }
+          if (!directResultOverlayRef.current) {
+            resultOpenRef.current = false;
+            setResult(null);
+            setDirectResultOverlayActive(false);
+          }
+          logResultPath('syncDisplayFromQueue', 'path-skip', {
+            banId: resultId,
+            resultId,
+            allowed: false,
+            reason: 'dismissed-after-result-cta',
+          });
+          if (pruned.length !== queue.length) {
+            syncDisplayFromQueue(pruned);
+          }
+          return;
+        }
         logResultOpenAttempt('syncDisplayFromQueue', {
           resultId: active.result.id,
           allowed: true,
@@ -1819,6 +1856,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     answeredCheckRef.current = new Set();
     checkAnswerInFlightRef.current = new Set();
     resultDeliveredBanIdsRef.current = new Set();
+    resultCtaConsumedBanIdsRef.current = new Set();
     checkSubmitAtRef.current = new Map();
     if (!uid || auth.loading) return;
     for (const id of hydrateAnsweredCheckIds(uid)) {
@@ -1964,6 +2002,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     shownOverlayKeysRef.current = new Set();
     checkAnswerInFlightRef.current = new Set();
     resultDeliveredBanIdsRef.current = new Set();
+    resultCtaConsumedBanIdsRef.current = new Set();
     checkSubmitAtRef.current = new Map();
 
     const uid = auth.user?.id;
@@ -2274,6 +2313,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             allowed: false,
             extra: { pollSource: source },
           });
+          return;
+        }
+        if (
+          resultCtaConsumedBanIdsRef.current.has(pendingResult.id) ||
+          isDismissedResultLocally(pendingResult.id, requestUserId)
+        ) {
+          console.log('[POLL RESULT SKIPPED DISMISSED]', {
+            banId: pendingResult.id,
+          });
+          markVisibleOverboardTrace('[POLL RESULT SKIPPED DISMISSED]', {
+            banId: pendingResult.id,
+            pollSource: source,
+          });
+          void acknowledgeBanResultOnServer(pendingResult.id, requestToken);
           return;
         }
 
@@ -2771,6 +2824,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return false;
       }
 
+      if (
+        resultCtaConsumedBanIdsRef.current.has(banId) ||
+        isDismissedResultLocally(banId, uid)
+      ) {
+        console.log('[DIRECT RESULT REOPEN BLOCKED]', {
+          reason: 'dismissed-after-result-cta',
+          banId,
+        });
+        markVisibleOverboardTrace('[DIRECT RESULT REOPEN BLOCKED]', {
+          reason: 'dismissed-after-result-cta',
+          banId,
+          source: 'forceOpenOverboardResult',
+        });
+        logForceOverboard('early-return', {
+          banId,
+          reason: 'dismissed-after-result-cta',
+          guard: 'result-cta-consumed',
+        });
+        return false;
+      }
+
       if (!payload) {
         logForceOverboard('early-return', {
           banId,
@@ -3205,6 +3279,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ...payload,
           viewerId: payload.viewerId ?? uid,
         };
+        if (
+          resultCtaConsumedBanIdsRef.current.has(banId) ||
+          isDismissedResultLocally(banId, uid)
+        ) {
+          console.log('[DIRECT RESULT REOPEN BLOCKED]', {
+            reason: 'dismissed-after-result-cta',
+            banId,
+          });
+          markVisibleOverboardTrace('[DIRECT RESULT REOPEN BLOCKED]', {
+            reason: 'dismissed-after-result-cta',
+            banId,
+            source: `api-sync:${source}`,
+          });
+          traceOverboardFlow('api-sync-skipped-dismissed', { banId, source });
+          return true;
+        }
         if (
           directResultOverlayRef.current &&
           resultDeliveredBanIdsRef.current.has(banId)
@@ -4395,14 +4485,57 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         void acknowledgeBanResultOnServer(banId, tokenRef.current);
       }
 
-      overboardInFlightRef.current = null;
+      if (overboardInFlightRef.current === banId) {
+        overboardInFlightRef.current = null;
+      }
       clearLocalOverboardBypass();
       clearDirectOverboardLayerRefs();
+      resultOpenRef.current = false;
       setDirectResultOverlayActive(false);
       setResult(null);
       resultRef.current = null;
     },
     [clearDirectOverboardLayerRefs],
+  );
+
+  const consumeResultBanForResultCta = useCallback(
+    (banId: string) => {
+      const viewerId =
+        resultRef.current?.viewerId ?? userIdRef.current ?? null;
+
+      console.log('[RESULT CTA CONSUME]', { banId });
+      markVisibleOverboardTrace('[RESULT CTA CONSUME]', { banId });
+
+      resultCtaConsumedBanIdsRef.current.add(banId);
+      resultDeliveredBanIdsRef.current.add(banId);
+      dismissBanResultLocally(banId, viewerId);
+      void acknowledgeBanResultOnServer(banId, tokenRef.current);
+
+      const beforeQueue = overlayQueueRef.current;
+      const beforeLen = beforeQueue.length;
+      const nextQueue = removeOverlaysForBan(beforeQueue, banId, ['result']);
+      overlayQueueRef.current = nextQueue;
+      setOverlayQueue(nextQueue);
+
+      console.log('[QUEUE POP RESULT CTA]', {
+        banId,
+        before: beforeLen,
+        after: nextQueue.length,
+        beforeHeadKind: beforeQueue[0]?.kind ?? null,
+        afterHeadKind: nextQueue[0]?.kind ?? null,
+      });
+      markVisibleOverboardTrace('[QUEUE POP RESULT CTA]', {
+        banId,
+        before: beforeLen,
+        after: nextQueue.length,
+        beforeHeadKind: beforeQueue[0]?.kind ?? null,
+        afterHeadKind: nextQueue[0]?.kind ?? null,
+      });
+
+      cancelResultPollBurst();
+      applyDirectOverboardCloseState(banId);
+    },
+    [applyDirectOverboardCloseState, cancelResultPollBurst],
   );
 
   const closeDirectOverboardForCta = useCallback(
@@ -5139,29 +5272,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         returnTarget: 'lobby',
       };
 
-      if (banId) {
-        const prevQueue = overlayQueueRef.current;
-        let nextQueue: QueuedOverlay[];
-        if (
-          prevQueue[0]?.kind === 'result' &&
-          prevQueue[0].result.id === banId
-        ) {
-          nextQueue = popOverlayHead(prevQueue);
-        } else {
-          nextQueue = prevQueue.filter(
-            (q) => !(q.kind === 'result' && q.result.id === banId),
-          );
-        }
-        if (nextQueue.length !== prevQueue.length) {
-          overlayQueueRef.current = nextQueue;
-          setOverlayQueue(nextQueue);
-        }
-      }
-
       let nextBansRequest = 0;
       const gateBefore = snapshotDirectOverboardGate();
 
       flushSync(() => {
+        if (banId) {
+          consumeResultBanForResultCta(banId);
+        } else {
+          applyDirectOverboardCloseState(null);
+          cancelResultPollBurst();
+        }
         setBansCtaQueueSuppress(true);
         setBansNavState(bansNavStateRef.current);
         setLobbyOpen(true);
@@ -5175,27 +5295,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         resultCtaBansOverlayOpenRef.current = true;
       });
 
-      requestAnimationFrame(() => {
-        flushSync(() => {
-          applyDirectOverboardCloseState(banId);
-        });
-        logDirectOverboardStateReset({
-          source: 'open-bans-cta',
-          reason: 'user-open-bans-deferred-close',
-          before: gateBefore,
-          after: {
-            directResultOverlayActive: false,
-            directResultOverlayRef: false,
-            resultBanId: null,
-            showDirectOverboardLayer: false,
-            hasResult: false,
-          },
-        });
-        markVisibleOverboardTrace('[DIRECT RESULT CLEANUP DONE]', {
-          banId,
-          bansCtaQueueSuppress: bansCtaQueueSuppressRef.current,
-          resultCtaBansOverlayOpen: resultCtaBansOverlayOpenRef.current,
-        });
+      logDirectOverboardStateReset({
+        source: 'open-bans-cta',
+        reason: 'user-open-bans-sync-consume',
+        before: gateBefore,
+        after: {
+          directResultOverlayActive: false,
+          directResultOverlayRef: false,
+          resultBanId: null,
+          showDirectOverboardLayer: false,
+          hasResult: false,
+        },
+      });
+      markVisibleOverboardTrace('[DIRECT RESULT CLEANUP DONE]', {
+        banId,
+        bansCtaQueueSuppress: bansCtaQueueSuppressRef.current,
+        resultCtaBansOverlayOpen: resultCtaBansOverlayOpenRef.current,
       });
 
       markVisibleOverboardTrace('[BANS OPEN REQUESTED]', {
@@ -5212,9 +5327,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [
       applyDirectOverboardCloseState,
+      cancelResultPollBurst,
       clearDeepLinkReplyBan,
       clearIncomingReply,
       closeSendFlow,
+      consumeResultBanForResultCta,
       snapshotDirectOverboardGate,
     ],
   );
