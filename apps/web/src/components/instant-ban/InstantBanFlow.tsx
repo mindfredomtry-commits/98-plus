@@ -830,8 +830,9 @@ export function InstantBanFlow({
     !replyUiShellActive;
   const showBansLayer =
     bansOverlayOpen &&
-    (phase === 'idle' || bansCtaQueueSuppress) &&
-    (!notificationQueueUiLock || bansCtaQueueSuppress);
+    (bansCtaQueueSuppress ||
+      (phase === 'idle' &&
+        (!notificationQueueUiLock || bansReturnToLobbyLatch)));
 
   useEffect(() => {
     console.log('[LOBBY NAV STATE]', {
@@ -1624,38 +1625,100 @@ export function InstantBanFlow({
   }, [newBanWhoFlowRequest, beginNewBanWhoFlow]);
 
   const lastOpenBansOverlayRequestRef = useRef(0);
+  const resultCtaBansOpenTickRef = useRef(0);
+  const bansOverlayOpenRef = useRef(bansOverlayOpen);
+  const showBansLayerRef = useRef(showBansLayer);
+  bansOverlayOpenRef.current = bansOverlayOpen;
+  showBansLayerRef.current = showBansLayer;
 
-  const openBansFromResultCtaProviderRequest = useCallback(() => {
-    const ok = handleOpenBansFromResultCtaRef.current();
-    console.log('[BANS OVERLAY OPENED]', {
-      ok,
-      source: 'provider-resultCtaBansOverlayOpen',
-    });
-    markVisibleOverboardTrace('[BANS OVERLAY OPENED]', {
-      ok,
-      source: 'provider-resultCtaBansOverlayOpen',
-    });
-    return ok;
-  }, []);
+  const scheduleBansVisibleCheck = useCallback(
+    (source: string) => {
+      const runCheck = () => {
+        const visibleCheck = {
+          bansOverlayOpen: bansOverlayOpenRef.current,
+          instantBanOpen: sendStarted,
+          lobbyOpen,
+          phase,
+          showBansLayer: showBansLayerRef.current,
+          resultActive: result != null,
+          directActive: notificationSessionActive,
+          bansCtaQueueSuppress,
+          notificationQueueUiLock:
+            notificationSessionActive || notificationOverlayActive,
+          source,
+        };
+        console.log('[BANS VISIBLE CHECK]', visibleCheck);
+        markVisibleOverboardTrace('[BANS VISIBLE CHECK]', visibleCheck);
+
+        if (bansOverlayOpenRef.current && !showBansLayerRef.current) {
+          console.log('[BANS OPEN FALLBACK LOBBY]', visibleCheck);
+          markVisibleOverboardTrace('[BANS OPEN FALLBACK LOBBY]', visibleCheck);
+          setBansOverlayOpen(false);
+          openLobby('bans-open-fallback');
+          beginCtaSpringIn();
+        }
+      };
+      requestAnimationFrame(() => {
+        requestAnimationFrame(runCheck);
+      });
+    },
+    [
+      beginCtaSpringIn,
+      bansCtaQueueSuppress,
+      lobbyOpen,
+      notificationOverlayActive,
+      notificationSessionActive,
+      openLobby,
+      phase,
+      result,
+      sendStarted,
+    ],
+  );
+
+  const openBansFromResultCtaProviderRequest = useCallback(
+    (source: string) => {
+      const tick = resultCtaBansOpenTickRef.current;
+      const ok = handleOpenBansFromResultCtaRef.current();
+      console.log('[BANS OVERLAY OPENED]', {
+        ok,
+        source,
+        tick,
+      });
+      markVisibleOverboardTrace('[BANS OVERLAY OPENED]', {
+        ok,
+        source,
+        tick,
+      });
+      if (ok) {
+        scheduleBansVisibleCheck(source);
+      }
+      return ok;
+    },
+    [scheduleBansVisibleCheck],
+  );
 
   useLayoutEffect(() => {
-    if (!resultCtaBansOverlayOpen) return;
-    openBansFromResultCtaProviderRequest();
-    clearResultCtaBansOverlayOpen();
+    if (!resultCtaBansOverlayOpen && openBansOverlayRequest === 0) return;
+    const tick = openBansOverlayRequest;
+    if (tick > 0 && lastOpenBansOverlayRequestRef.current === tick) return;
+    if (tick > 0) {
+      lastOpenBansOverlayRequestRef.current = tick;
+    }
+    resultCtaBansOpenTickRef.current = tick;
+    openBansFromResultCtaProviderRequest(
+      resultCtaBansOverlayOpen
+        ? 'provider-resultCtaBansOverlayOpen'
+        : 'provider-openBansOverlayRequest',
+    );
+    if (resultCtaBansOverlayOpen) {
+      clearResultCtaBansOverlayOpen();
+    }
   }, [
     clearResultCtaBansOverlayOpen,
     openBansFromResultCtaProviderRequest,
+    openBansOverlayRequest,
     resultCtaBansOverlayOpen,
   ]);
-
-  useLayoutEffect(() => {
-    if (openBansOverlayRequest === 0) return;
-    if (lastOpenBansOverlayRequestRef.current === openBansOverlayRequest) {
-      return;
-    }
-    lastOpenBansOverlayRequestRef.current = openBansOverlayRequest;
-    openBansFromResultCtaProviderRequest();
-  }, [openBansOverlayRequest, openBansFromResultCtaProviderRequest]);
 
   useLayoutEffect(() => {
     if (!deepLinkRepeatBan?.id || !user?.id) return;
@@ -2561,7 +2624,10 @@ export function InstantBanFlow({
       data-orb-compress-active={orbCompressActive ? '' : undefined}
       data-instant-ban-step={legacyStep}
       data-bans-overlay-open={bansOverlayOpen ? '' : undefined}
-      data-notification-session={notificationSessionActive ? '' : undefined}
+      data-bans-cta-session={bansCtaQueueSuppress ? '' : undefined}
+      data-notification-session={
+        notificationSessionActive && !bansCtaQueueSuppress ? '' : undefined
+      }
       data-debug-slow-orb={process.env.NODE_ENV === 'development' ? '' : undefined}
     >
       {showLobbyTopNav ? (
