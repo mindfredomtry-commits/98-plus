@@ -65,7 +65,7 @@ const DebugPanel = dynamic(
 );
 
 /** Bump when diagnosing shell / deploy mismatches. */
-const APP_SHELL_BUILD = 'arena-v2@overboard-diag-v23';
+const APP_SHELL_BUILD = 'arena-v2@overboard-diag-v24';
 
 export default function HomePage() {
   const {

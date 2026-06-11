@@ -88,6 +88,9 @@ function ResultOverlayInner({
     notificationSessionActive,
     markOverlayUserAction,
     reportOverlayRendered,
+    bansCtaQueueSuppress,
+    resultCtaBansOverlayOpen,
+    bansNavState,
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
   const [archiveSaved, setArchiveSaved] = useState(false);
@@ -122,6 +125,31 @@ function ResultOverlayInner({
     embedded,
   };
 
+  const resultCtaBansSessionActive =
+    bansCtaQueueSuppress ||
+    resultCtaBansOverlayOpen ||
+    (bansNavState.origin === 'result-cta' &&
+      bansNavState.returnTarget === 'lobby');
+  const resultCtaBansSessionRef = useRef(resultCtaBansSessionActive);
+  resultCtaBansSessionRef.current = resultCtaBansSessionActive;
+
+  const skipResultOverlayCleanup = useCallback(
+    (effect: string) => {
+      if (!resultCtaBansSessionRef.current) return false;
+      traceResultOverlayLifecycle('RESULT OVERLAY CLEANUP SKIPPED', tracePropsRef.current, {
+        reason: 'result-cta-bans-open',
+        effect,
+      });
+      return true;
+    },
+    [],
+  );
+
+  const guardedOnClose = useCallback(() => {
+    if (skipResultOverlayCleanup('onClose')) return;
+    onClose();
+  }, [onClose, skipResultOverlayCleanup]);
+
   traceResultOverlayLifecycle('RESULT OVERLAY ENTER', tracePropsRef.current, {
     returnsNullReason,
     viewerId,
@@ -130,19 +158,22 @@ function ResultOverlayInner({
   useEffect(() => {
     traceResultOverlayLifecycle('RESULT OVERLAY MOUNT', tracePropsRef.current);
     return () => {
-      traceResultOverlayLifecycle('RESULT OVERLAY UNMOUNT', tracePropsRef.current);
+      traceResultOverlayLifecycle('RESULT OVERLAY UNMOUNT', tracePropsRef.current, {
+        resultCtaBansSession: resultCtaBansSessionRef.current,
+      });
     };
   }, []);
 
   useEffect(() => {
     if (directPaint) return;
-    if (!showable) onClose();
+    if (!showable) guardedOnClose();
     return () => {
+      if (skipResultOverlayCleanup('onClose-guard')) return;
       traceResultOverlayLifecycle('RESULT OVERLAY EFFECT CLEANUP', tracePropsRef.current, {
         effect: 'onClose-guard',
       });
     };
-  }, [directPaint, showable, onClose]);
+  }, [directPaint, guardedOnClose, showable, skipResultOverlayCleanup]);
 
   useLayoutEffect(() => {
     if (!directPaint || !showable) return;
@@ -183,6 +214,10 @@ function ResultOverlayInner({
     });
 
     return () => {
+      if (skipResultOverlayCleanup('dom-raf')) {
+        cancelAnimationFrame(rafId);
+        return;
+      }
       traceResultOverlayLifecycle('RESULT OVERLAY EFFECT CLEANUP', tracePropsRef.current, {
         effect: 'dom-raf',
         rafId,
@@ -206,11 +241,12 @@ function ResultOverlayInner({
       .catch(() => {});
     return () => {
       cancelled = true;
+      if (skipResultOverlayCleanup('saved-bans')) return;
       traceResultOverlayLifecycle('RESULT OVERLAY EFFECT CLEANUP', tracePropsRef.current, {
         effect: 'saved-bans',
       });
     };
-  }, [token, result.id]);
+  }, [result.id, skipResultOverlayCleanup, token]);
 
   const isOverboard = result.outcome === 'overboard';
   const isFunMode = isResultFunMode(result);
@@ -498,7 +534,7 @@ function ResultOverlayInner({
       handoff={directPaint ? false : notificationSessionActive}
       zIndex={directPaint ? DIRECT_OVERBOARD_RESULT_Z_INDEX : APP_NOTIFICATION_Z_INDEX}
       ariaLabel="Результат проверки"
-      onClose={onClose}
+      onClose={guardedOnClose}
       cardClassName="modal-card--result"
     >
       {body}

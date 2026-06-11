@@ -1,6 +1,7 @@
 'use client';
 
-import { useLayoutEffect, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { useApp } from './Providers';
 import { createPortal } from 'react-dom';
 import type { BanResult } from '@98plus/shared';
 import {
@@ -34,7 +35,18 @@ function traceDirectLayerJsxBranch(
  * Fresh portal layer for optimistic overboard — does not reuse NotificationQueueShell DOM.
  */
 export function DirectOverboardResultLayer({ result, onClose }: Props) {
+  const {
+    bansCtaQueueSuppress,
+    resultCtaBansOverlayOpen,
+    bansNavState,
+  } = useApp();
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+  const resultCtaBansSessionRef = useRef(false);
+  resultCtaBansSessionRef.current =
+    bansCtaQueueSuppress ||
+    resultCtaBansOverlayOpen ||
+    (bansNavState.origin === 'result-cta' &&
+      bansNavState.returnTarget === 'lobby');
 
   const viewerId = result.viewerId ?? null;
   const showable =
@@ -105,6 +117,17 @@ export function DirectOverboardResultLayer({ result, onClose }: Props) {
       { mounted: true },
     );
   }, [portalTarget, result.id, result.outcome]);
+
+  useLayoutEffect(() => {
+    return () => {
+      if (!resultCtaBansSessionRef.current) return;
+      markVisibleOverboardTrace('RESULT OVERLAY CLEANUP SKIPPED', {
+        reason: 'result-cta-bans-open',
+        effect: 'direct-layer-unmount',
+        banId: result.id,
+      });
+    };
+  }, [result.id]);
 
   if (!portalTarget) {
     traceDirectLayerJsxBranch('return-null-no-portal-target', jsxFields);

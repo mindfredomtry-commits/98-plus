@@ -822,15 +822,22 @@ export function InstantBanFlow({
 
   const notificationQueueUiLock =
     notificationSessionActive || notificationOverlayActive;
+  const bansOpenFromResultCta =
+    bansCtaQueueSuppress ||
+    resultCtaBansOverlayOpen ||
+    openBansOverlayRequest > 0;
+  const effectiveBansOverlayOpen =
+    bansOverlayOpen || bansOpenFromResultCta;
   const showLobbyTopNav =
     phase === 'idle' &&
     !banSentSuccess &&
-    !bansOverlayOpen &&
+    !effectiveBansOverlayOpen &&
     (!notificationQueueUiLock || bansReturnToLobbyLatch) &&
     !replyUiShellActive;
   const showBansLayer =
-    bansOverlayOpen &&
+    effectiveBansOverlayOpen &&
     (bansCtaQueueSuppress ||
+      resultCtaBansOverlayOpen ||
       (phase === 'idle' &&
         (!notificationQueueUiLock || bansReturnToLobbyLatch)));
 
@@ -1628,14 +1635,17 @@ export function InstantBanFlow({
   const resultCtaBansOpenTickRef = useRef(0);
   const bansOverlayOpenRef = useRef(bansOverlayOpen);
   const showBansLayerRef = useRef(showBansLayer);
+  const effectiveBansOverlayOpenRef = useRef(effectiveBansOverlayOpen);
   bansOverlayOpenRef.current = bansOverlayOpen;
   showBansLayerRef.current = showBansLayer;
+  effectiveBansOverlayOpenRef.current = effectiveBansOverlayOpen;
 
   const scheduleBansVisibleCheck = useCallback(
     (source: string) => {
       const runCheck = () => {
         const visibleCheck = {
           bansOverlayOpen: bansOverlayOpenRef.current,
+          effectiveBansOverlayOpen: effectiveBansOverlayOpenRef.current,
           instantBanOpen: sendStarted,
           lobbyOpen,
           phase,
@@ -1643,6 +1653,7 @@ export function InstantBanFlow({
           resultActive: result != null,
           directActive: notificationSessionActive,
           bansCtaQueueSuppress,
+          resultCtaBansOverlayOpen,
           notificationQueueUiLock:
             notificationSessionActive || notificationOverlayActive,
           source,
@@ -1650,12 +1661,17 @@ export function InstantBanFlow({
         console.log('[BANS VISIBLE CHECK]', visibleCheck);
         markVisibleOverboardTrace('[BANS VISIBLE CHECK]', visibleCheck);
 
-        if (bansOverlayOpenRef.current && !showBansLayerRef.current) {
+        if (
+          effectiveBansOverlayOpenRef.current &&
+          !showBansLayerRef.current
+        ) {
           console.log('[BANS OPEN FALLBACK LOBBY]', visibleCheck);
           markVisibleOverboardTrace('[BANS OPEN FALLBACK LOBBY]', visibleCheck);
           setBansOverlayOpen(false);
           openLobby('bans-open-fallback');
           beginCtaSpringIn();
+        } else if (showBansLayerRef.current) {
+          clearResultCtaBansOverlayOpen();
         }
       };
       requestAnimationFrame(() => {
@@ -1665,12 +1681,15 @@ export function InstantBanFlow({
     [
       beginCtaSpringIn,
       bansCtaQueueSuppress,
+      clearResultCtaBansOverlayOpen,
       lobbyOpen,
       notificationOverlayActive,
       notificationSessionActive,
+      openBansOverlayRequest,
       openLobby,
       phase,
       result,
+      resultCtaBansOverlayOpen,
       sendStarted,
     ],
   );
@@ -1710,15 +1729,17 @@ export function InstantBanFlow({
         ? 'provider-resultCtaBansOverlayOpen'
         : 'provider-openBansOverlayRequest',
     );
-    if (resultCtaBansOverlayOpen) {
-      clearResultCtaBansOverlayOpen();
-    }
   }, [
-    clearResultCtaBansOverlayOpen,
     openBansFromResultCtaProviderRequest,
     openBansOverlayRequest,
     resultCtaBansOverlayOpen,
   ]);
+
+  useLayoutEffect(() => {
+    if (!bansCtaQueueSuppress) return;
+    if (result != null) return;
+    scheduleBansVisibleCheck('direct-result-cleanup');
+  }, [bansCtaQueueSuppress, result, scheduleBansVisibleCheck]);
 
   useLayoutEffect(() => {
     if (!deepLinkRepeatBan?.id || !user?.id) return;
@@ -2623,7 +2644,7 @@ export function InstantBanFlow({
       data-screen-transition={screenTransition ?? undefined}
       data-orb-compress-active={orbCompressActive ? '' : undefined}
       data-instant-ban-step={legacyStep}
-      data-bans-overlay-open={bansOverlayOpen ? '' : undefined}
+      data-bans-overlay-open={effectiveBansOverlayOpen ? '' : undefined}
       data-bans-cta-session={bansCtaQueueSuppress ? '' : undefined}
       data-notification-session={
         notificationSessionActive && !bansCtaQueueSuppress ? '' : undefined
@@ -2797,7 +2818,7 @@ export function InstantBanFlow({
       </div>
 
       {showLobbyCta &&
-      !bansOverlayOpen &&
+      !effectiveBansOverlayOpen &&
       (!notificationQueueUiLock || bansReturnToLobbyLatch) ? (
         <ArenaLobbyIdle
           influencePercent={lobbyInfluencePercent}

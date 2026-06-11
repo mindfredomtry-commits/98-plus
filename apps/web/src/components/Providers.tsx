@@ -1663,11 +1663,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
     if (
-      nav.origin === 'result-cta' &&
-      nav.returnTarget === 'lobby' &&
-      bansCtaQueueSuppressRef.current
+      bansCtaQueueSuppressRef.current ||
+      resultCtaBansOverlayOpenRef.current ||
+      (nav.origin === 'result-cta' && nav.returnTarget === 'lobby')
     ) {
       console.log('[DISMISS RESULT] skipped reason=result-cta-bans-open');
+      markVisibleOverboardTrace('[DISMISS RESULT SKIPPED]', {
+        reason: 'result-cta-bans-open',
+        bansCtaSuppress: bansCtaQueueSuppressRef.current,
+        resultCtaBansOverlayOpen: resultCtaBansOverlayOpenRef.current,
+        navOrigin: nav.origin,
+      });
       return;
     }
 
@@ -5125,8 +5131,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       flushSync(() => {
         setBansCtaQueueSuppress(true);
         setBansNavState(bansNavStateRef.current);
-        setLobbyOpen(false);
-        lobbyOpenRef.current = false;
+        setLobbyOpen(true);
+        lobbyOpenRef.current = true;
         setOpenBansOverlayRequest((n) => {
           nextBansRequest = n + 1;
           openBansOverlayRequestRef.current = n + 1;
@@ -5134,7 +5140,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         setResultCtaBansOverlayOpen(true);
         resultCtaBansOverlayOpenRef.current = true;
-        applyDirectOverboardCloseState(banId);
+      });
+
+      requestAnimationFrame(() => {
+        flushSync(() => {
+          applyDirectOverboardCloseState(banId);
+        });
+        logDirectOverboardStateReset({
+          source: 'open-bans-cta',
+          reason: 'user-open-bans-deferred-close',
+          before: gateBefore,
+          after: {
+            directResultOverlayActive: false,
+            directResultOverlayRef: false,
+            resultBanId: null,
+            showDirectOverboardLayer: false,
+            hasResult: false,
+          },
+        });
+        markVisibleOverboardTrace('[DIRECT RESULT CLEANUP DONE]', {
+          banId,
+          bansCtaQueueSuppress: bansCtaQueueSuppressRef.current,
+          resultCtaBansOverlayOpen: resultCtaBansOverlayOpenRef.current,
+        });
       });
 
       markVisibleOverboardTrace('[BANS OPEN REQUESTED]', {
@@ -5146,19 +5174,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         openBansOverlayRequest: nextBansRequest,
         resultCtaBansOverlayOpen: true,
         lobbyOpen: lobbyOpenRef.current,
-      });
-
-      logDirectOverboardStateReset({
-        source: 'open-bans-cta',
-        reason: 'user-open-bans',
-        before: gateBefore,
-        after: {
-          directResultOverlayActive: false,
-          directResultOverlayRef: false,
-          resultBanId: null,
-          showDirectOverboardLayer: false,
-          hasResult: false,
-        },
       });
 
     },
@@ -5893,7 +5908,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           return (
             <ChallengeErrorBoundary
               name="direct-overboard-result"
-              onRecover={() => dismissBanResult()}
+              onRecover={() => {
+                if (
+                  bansCtaQueueSuppressRef.current ||
+                  resultCtaBansOverlayOpenRef.current ||
+                  bansNavStateRef.current.origin === 'result-cta'
+                ) {
+                  markVisibleOverboardTrace(
+                    'RESULT OVERLAY CLEANUP SKIPPED',
+                    { reason: 'result-cta-bans-open', effect: 'error-boundary-recover' },
+                  );
+                  return;
+                }
+                dismissBanResult();
+              }}
             >
               <DirectOverboardResultLayer
                 result={displayResult}
