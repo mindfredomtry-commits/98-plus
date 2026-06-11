@@ -3908,35 +3908,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     openReplyDeepLinkFast,
   ]);
 
-  useLayoutEffect(() => {
-    const banId = replyDeepLinkBanId ?? replyDeeplinkPendingBanIdRef.current;
-    if (!banId || !replyDeeplinkFastOpenedRef.current) return;
-    if (!replyDeeplinkFastShell && !replyHandoffLock) return;
-    if (isReplyFastIncomingCardMounted(banId)) return;
-
-    console.log('[REPLY FAST INVALID STATE UNBLOCK LOBBY]', {
-      reason: 'lobby-blocked-without-card',
-      banId,
-      activeOverlayKind,
-      replyDeeplinkFastShell,
-      replyHandoffLock,
-      queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
-    });
-    markVisibleOverboardTrace('[REPLY FAST INVALID STATE UNBLOCK LOBBY]', {
-      reason: 'lobby-blocked-without-card',
-      banId,
-    });
-    abortReplyDeepLinkFast('lobby-blocked-without-card');
-  }, [
-    abortReplyDeepLinkFast,
-    activeOverlayKind,
-    isReplyFastIncomingCardMounted,
-    replyDeepLinkBanId,
-    replyDeeplinkFastShell,
-    replyHandoffLock,
-    overlayQueue,
-  ]);
-
   const openDeepLinkReply = useCallback(
     async (b: BanInteraction) => {
       noteDeepLinkHandlerOpened('openDeepLinkReply', b.id);
@@ -6040,6 +6011,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       head.ban.id === banId
     );
   }, [replyDeepLinkBanId, overlayQueue, activeOverlayKind]);
+
+  useLayoutEffect(() => {
+    const banId = replyDeepLinkBanId ?? replyDeeplinkPendingBanIdRef.current;
+    if (!banId || !replyDeeplinkFastOpenedRef.current) return;
+    if (!replyDeeplinkFastShell && !replyHandoffLock) return;
+    if (isReplyFastIncomingCardMounted(banId)) return;
+
+    console.log('[REPLY FAST INVALID STATE UNBLOCK LOBBY]', {
+      reason: 'lobby-blocked-without-card',
+      banId,
+      activeOverlayKind,
+      replyDeeplinkFastShell,
+      replyHandoffLock,
+      queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+    });
+    markVisibleOverboardTrace('[REPLY FAST INVALID STATE UNBLOCK LOBBY]', {
+      reason: 'lobby-blocked-without-card',
+      banId,
+    });
+    abortReplyDeepLinkFast('lobby-blocked-without-card');
+  }, [
+    abortReplyDeepLinkFast,
+    activeOverlayKind,
+    isReplyFastIncomingCardMounted,
+    replyDeepLinkBanId,
+    replyDeeplinkFastShell,
+    replyHandoffLock,
+    overlayQueue,
+  ]);
 
   const replyIncomingReady = useMemo(
     () =>
