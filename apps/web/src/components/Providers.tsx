@@ -151,6 +151,10 @@ import { isFirstBanComplete, markFirstBanComplete } from '@/lib/first-ban';
 import { writeFriendsCache, readFriendsCache } from '@/lib/friends-cache';
 import { readHomeSnapshot, writeHomeSnapshot } from '@/lib/home-snapshot';
 import { enrichBanInteraction } from '@/lib/user-public-avatar';
+import {
+  getAuthReplyPreviewStash,
+  subscribeAuthReplyPreviewEarly,
+} from '@/lib/auth-reply-preview-stash';
 import { mergeFriendsPreservingAvatars } from '@/lib/friend-avatar-merge';
 import {
   preloadFriendAvatars,
@@ -3965,6 +3969,66 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [applyOverlayQueue],
   );
 
+  const applyAuthReplyPreviewHydration = useCallback(
+    (preview: BanInteraction) => {
+      const banId = preview.id;
+      if (incomingConsumedAfterAnswerRef.current.has(banId)) return false;
+
+      const pendingBanId =
+        replyDeeplinkPendingBanIdRef.current ??
+        replyDeepLinkBanIdRef.current;
+      if (pendingBanId && pendingBanId !== banId) return false;
+
+      const enriched = enrichBanInteraction(preview);
+      bootReplyDeeplinkPreviewRef.current = enriched;
+      replyDeeplinkPrefillBanRef.current = enriched;
+
+      if (!replyDeeplinkFastOpenedRef.current) {
+        return false;
+      }
+
+      const viewerId = userIdRef.current;
+      if (!viewerId) return false;
+
+      const current = incomingBanRef.current;
+      const alreadyReal =
+        current?.id === banId &&
+        hasReplyFastDisplayText(current) &&
+        !isReplyDeeplinkShellBan(current) &&
+        replyDeeplinkFastHydratedRef.current &&
+        !replyDeeplinkFastShellRef.current;
+      if (alreadyReal) return false;
+
+      const hydratedInPlace = hydrateReplyDeeplinkIncomingBan(enriched);
+      flushSync(() => {
+        setIncomingBan(enriched);
+        replyDeeplinkFastShellRef.current = false;
+        replyDeeplinkPrefetchRef.current = true;
+        setReplyDeeplinkFastShell(false);
+        setDeepLinkReplyBooting(false);
+        replyDeeplinkFastHydratedRef.current = true;
+      });
+      console.log('[INCOMING CARD HYDRATED FROM AUTH PREVIEW]', {
+        banId,
+        hydratedInPlace,
+        hasText: hasReplyFastDisplayText(enriched),
+        hasSender: canReplyFastEnableButtons(enriched, viewerId),
+      });
+      markVisibleOverboardTrace('[INCOMING CARD HYDRATED FROM AUTH PREVIEW]', {
+        banId,
+        hydratedInPlace,
+      });
+      return true;
+    },
+    [hydrateReplyDeeplinkIncomingBan],
+  );
+
+  useLayoutEffect(() => {
+    return subscribeAuthReplyPreviewEarly((preview) => {
+      applyAuthReplyPreviewHydration(preview);
+    });
+  }, [applyAuthReplyPreviewHydration]);
+
   const isReplyFastQueueHeadValid = useCallback((banId: string): boolean => {
     const head = overlayQueueRef.current[0];
     return head?.kind === 'incoming' && head.ban.id === banId;
@@ -4098,6 +4162,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         claimedIncoming:
           bootClaimedIncomingRef.current ?? auth.boot?.claimedIncoming ?? null,
         replyDeeplinkPreview:
+          getAuthReplyPreviewStash() ??
           bootReplyDeeplinkPreviewRef.current ??
           (auth.boot?.replyDeeplinkPreview
             ? enrichBanInteraction(auth.boot.replyDeeplinkPreview)
@@ -5122,21 +5187,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!auth.boot || !auth.user?.id || auth.loading) return;
-    if (auth.boot.replyDeeplinkPreview) {
-      bootReplyDeeplinkPreviewRef.current = enrichBanInteraction(
-        auth.boot.replyDeeplinkPreview,
-      );
-      console.log('[AUTH CLAIMED INCOMING PREVIEW]', {
-        banId: auth.boot.replyDeeplinkPreview.id,
-        hasText: !!auth.boot.replyDeeplinkPreview.text?.trim(),
-        hasSender: !!auth.boot.replyDeeplinkPreview.sender?.id,
-      });
-      markVisibleOverboardTrace('[AUTH CLAIMED INCOMING PREVIEW]', {
-        banId: auth.boot.replyDeeplinkPreview.id,
-        hasText: !!auth.boot.replyDeeplinkPreview.text?.trim(),
-        hasSender: !!auth.boot.replyDeeplinkPreview.sender?.id,
-      });
-    }
     const incoming = pickIncomingForOverlay(
       auth.boot.claimedIncoming,
       dismissedIncomingRef.current,

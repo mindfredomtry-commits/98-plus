@@ -25,6 +25,11 @@ import {
   writeAuthProfileCache,
 } from '@/lib/auth-profile-cache';
 import { readInitialAuthSession } from '@/lib/read-initial-auth-session';
+import {
+  isReplyDeepLinkStartParamPending,
+  stashAuthReplyPreviewEarly,
+} from '@/lib/auth-reply-preview-stash';
+import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
 
 const TOKEN_KEY_LEGACY = '98plus_token';
 
@@ -105,6 +110,19 @@ export function useAuth() {
         userId: res.user.id,
         telegramId: res.user.telegramId,
       });
+      if (res.replyDeeplinkPreview) {
+        console.log('[AUTH CLAIMED INCOMING PREVIEW]', {
+          banId: res.replyDeeplinkPreview.id,
+          hasText: !!res.replyDeeplinkPreview.text?.trim(),
+          hasSender: !!res.replyDeeplinkPreview.sender?.id,
+        });
+        markVisibleOverboardTrace('[AUTH CLAIMED INCOMING PREVIEW]', {
+          banId: res.replyDeeplinkPreview.id,
+          hasText: !!res.replyDeeplinkPreview.text?.trim(),
+          hasSender: !!res.replyDeeplinkPreview.sender?.id,
+        });
+        stashAuthReplyPreviewEarly(res.replyDeeplinkPreview);
+      }
       setBoot({
         claimedIncoming: res.claimedIncoming
           ? enrichBanInteraction(res.claimedIncoming)
@@ -254,6 +272,8 @@ export function useAuth() {
 
     const warmSession = !!(token && user) && !inviteOpen;
 
+    const replyDeepLinkPending = isReplyDeepLinkStartParamPending();
+
     if (!warmSession) {
       setLoading(true);
       setError(null);
@@ -261,7 +281,9 @@ export function useAuth() {
       setUser(null);
       setBoot(null);
     } else {
-      setLoading(false);
+      if (!replyDeepLinkPending) {
+        setLoading(false);
+      }
       setError(null);
     }
 
@@ -292,7 +314,9 @@ export function useAuth() {
             localStorage.getItem(TOKEN_KEY_LEGACY);
           if (saved) setToken(saved);
           setUser(enrichUserPublic(cachedProfile));
-          setLoading(false);
+          if (!replyDeepLinkPending) {
+            setLoading(false);
+          }
           logAuthTiming('auth-user-set', {
             userId: cachedProfile.id,
             telegramId: cachedProfile.telegramId,
@@ -315,7 +339,9 @@ export function useAuth() {
         const cachedProfile = tgId != null ? readAuthProfileCache(tgId) : null;
         if (cachedProfile?.id) {
           setUser(enrichUserPublic(cachedProfile));
-          setLoading(false);
+          if (!replyDeepLinkPending) {
+            setLoading(false);
+          }
           logAuthTiming('auth-user-set', {
             userId: cachedProfile.id,
             telegramId: cachedProfile.telegramId,

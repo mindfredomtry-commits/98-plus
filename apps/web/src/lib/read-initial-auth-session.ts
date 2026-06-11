@@ -1,6 +1,7 @@
 import type { UserPublic } from '@98plus/shared';
 import { readAuthProfileCache } from '@/lib/auth-profile-cache';
 import { enrichUserPublic } from '@/lib/user-public-avatar';
+import { isReplyDeepLinkStartParamPending } from '@/lib/auth-reply-preview-stash';
 
 const TOKEN_KEY_LEGACY = '98plus_token';
 
@@ -34,7 +35,7 @@ export function readInitialAuthSession(): InitialAuthSession {
     return {
       token,
       user: enrichUserPublic(cached),
-      loading: false,
+      loading: isReplyDeepLinkStartParamPending(),
     };
   }
 
