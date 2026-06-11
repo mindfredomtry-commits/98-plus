@@ -240,6 +240,8 @@ export function InstantBanFlow({
     bansReturnToLobbyLatch,
     setBansReturnToLobbyLatch,
     completeBansOverlayCloseFromResultCta,
+    registerOpenBansFromResultCtaHandler,
+    registerBeginCtaSpringInHandler,
     lobbyOpen,
     deepLinkRepeatBan,
     clearDeepLinkRepeatBan,
@@ -827,7 +829,7 @@ export function InstantBanFlow({
     !replyUiShellActive;
   const showBansLayer =
     bansOverlayOpen &&
-    phase === 'idle' &&
+    (phase === 'idle' || bansCtaQueueSuppress) &&
     (!notificationQueueUiLock || bansCtaQueueSuppress);
 
   useEffect(() => {
@@ -906,6 +908,7 @@ export function InstantBanFlow({
   ]);
 
   const handleCloseBansOverlayRef = useRef<() => void>(() => {});
+  const resetSendUiForBansCtaRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (phase === 'idle' || !bansOverlayOpen) return;
@@ -918,12 +921,18 @@ export function InstantBanFlow({
       bansNavState.origin === 'result-cta' ||
       bansCtaQueueSuppress
     ) {
-      handleCloseBansOverlayRef.current();
+      resetSendUiForBansCtaRef.current();
       return;
     }
     setBansOverlayOpen(false);
     setSelectedBanForDetails(null);
-  }, [bansCtaQueueSuppress, bansNavState.origin, bansNavState.returnTarget, bansOverlayOpen, phase]);
+  }, [
+    bansCtaQueueSuppress,
+    bansNavState.origin,
+    bansNavState.returnTarget,
+    bansOverlayOpen,
+    phase,
+  ]);
 
   useEffect(() => {
     const uid = user?.id ?? null;
@@ -1266,8 +1275,18 @@ export function InstantBanFlow({
     setPhase('idle');
   }, [setCrossScreenProgressImmediate, stopCrossScreenAnim]);
 
-  const handleOpenBansFromResultCta = useCallback(() => {
-    if (banSentSuccess) return;
+  useLayoutEffect(() => {
+    resetSendUiForBansCtaRef.current = resetSendUiForBansCta;
+  }, [resetSendUiForBansCta]);
+
+  const handleOpenBansFromResultCta = useCallback((): boolean => {
+    if (banSentSuccess) {
+      console.log('[BANS OVERLAY OPENED]', {
+        ok: false,
+        reason: 'ban-sent-success',
+      });
+      return false;
+    }
     if (bansCtaQueueSuppress) {
       resetSendUiForBansCta();
     } else if (phase !== 'idle') {
@@ -1276,7 +1295,7 @@ export function InstantBanFlow({
         phase,
         bansCtaQueueSuppress,
       });
-      return;
+      return false;
     }
     console.log('[open-bans-from-result-cta]', {
       action: 'open',
@@ -1289,6 +1308,13 @@ export function InstantBanFlow({
     setBansTab('yours');
     setSelectedBanForDetails(null);
     setBansOverlayOpen(true);
+    console.log('[BANS OVERLAY OPENED]', {
+      ok: true,
+      tab: 'yours',
+      bansCtaQueueSuppress,
+      phase,
+    });
+    return true;
   }, [
     banSentSuccess,
     bansCtaQueueSuppress,
@@ -1297,6 +1323,9 @@ export function InstantBanFlow({
     phase,
     resetSendUiForBansCta,
   ]);
+
+  const handleOpenBansFromResultCtaRef = useRef(handleOpenBansFromResultCta);
+  handleOpenBansFromResultCtaRef.current = handleOpenBansFromResultCta;
 
   const handleCloseBansOverlay = useCallback(() => {
     setBansOverlayOpen(false);
@@ -1594,6 +1623,21 @@ export function InstantBanFlow({
   }, [newBanWhoFlowRequest, beginNewBanWhoFlow]);
 
   const lastOpenBansOverlayRequestRef = useRef(0);
+  useLayoutEffect(() => {
+    registerOpenBansFromResultCtaHandler(() =>
+      handleOpenBansFromResultCtaRef.current(),
+    );
+    registerBeginCtaSpringInHandler(beginCtaSpringIn);
+    return () => {
+      registerOpenBansFromResultCtaHandler(null);
+      registerBeginCtaSpringInHandler(null);
+    };
+  }, [
+    beginCtaSpringIn,
+    registerBeginCtaSpringInHandler,
+    registerOpenBansFromResultCtaHandler,
+  ]);
+
   useLayoutEffect(() => {
     if (openBansOverlayRequest === 0) return;
     if (lastOpenBansOverlayRequestRef.current === openBansOverlayRequest) {
