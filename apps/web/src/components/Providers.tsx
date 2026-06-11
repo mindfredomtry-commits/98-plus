@@ -5018,10 +5018,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     openLobbyRef.current = openLobby;
   }, [openLobby]);
 
-  useLayoutEffect(() => {
-    requestOpenBansFromResultCtaRef.current = requestOpenBansFromResultCta;
-  }, [requestOpenBansFromResultCta]);
-
   useEffect(() => {
     lobbyOpenRef.current = lobbyOpen;
   }, [lobbyOpen]);
@@ -5238,7 +5234,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     armBansNavFromResultCtaRef.current = armBansNavFromResultCta;
     completeBansCloseFromResultCtaRef.current =
       completeBansOverlayCloseFromResultCta;
-  }, [armBansNavFromResultCta, completeBansOverlayCloseFromResultCta]);
+    requestOpenBansFromResultCtaRef.current = requestOpenBansFromResultCta;
+  }, [
+    armBansNavFromResultCta,
+    completeBansOverlayCloseFromResultCta,
+    requestOpenBansFromResultCta,
+  ]);
 
   useEffect(() => {
     bansCtaQueueSuppressRef.current = bansCtaQueueSuppress;
