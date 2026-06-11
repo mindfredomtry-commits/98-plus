@@ -258,6 +258,7 @@ export function InstantBanFlow({
     clearDeepLinkActiveBan,
     incomingReplyBanId,
     replyToBanId,
+    getPinnedReplyToBanId,
     clearIncomingReply,
     applySession,
     pendingStartupInteractions,
@@ -306,6 +307,7 @@ export function InstantBanFlow({
     banText: string;
     selectedUser: FriendCard;
     durationMinutes: number;
+    replyToBanId: string | null;
   } | null>(null);
   const confirmSendContextRef = useRef<{
     payoffPhase: string;
@@ -2486,30 +2488,42 @@ export function InstantBanFlow({
       return 'rejected';
     }
 
+    const pinnedReplyToBanId =
+      snap.replyToBanId ?? getPinnedReplyToBanId() ?? replyToBanId ?? null;
     const source = resolveSendFlowSource({
+      replyToBanId: pinnedReplyToBanId,
       incomingReplyBanId,
       deepLinkReplyBanId: deepLinkReplyBan?.id ?? null,
-      replyDeepLinkBanId: replyDeepLinkBanId ?? replyToBanId,
+      replyDeepLinkBanId,
     });
     const isReplyFlow = source === 'reply_from_bot';
     const effectiveReplyBanId =
-      replyToBanId ??
+      pinnedReplyToBanId ??
       incomingReplyBanId ??
       deepLinkReplyBan?.id ??
       replyDeepLinkBanId ??
       null;
     const receiverId =
       sendTarget.receiverUserId ?? snapUser.userId ?? snapUser.id ?? null;
+    const selectedUserId = snapUser.userId ?? snapUser.id ?? null;
+    const replyEndpoint = effectiveReplyBanId
+      ? `/bans/${effectiveReplyBanId}/reply`
+      : null;
 
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[reply-send-debug] currentUser', user?.id ?? null);
-      console.log('[reply-send-debug] selectedUser', snapUser);
-      console.log('[reply-send-debug] receiverId', receiverId);
-      console.log('[reply-send-debug] originalBanId', replyToBanId);
-      console.log('[reply-send-debug] replyToBanId', effectiveReplyBanId);
-      console.log('[reply-send-debug] banText', snapText);
-      console.log('[reply-send-debug] duration', snapDuration);
-    }
+    console.log('[reply-send-debug] endpoint', replyEndpoint ?? '/bans/send');
+    console.log('[reply-send-debug] replyToBanId', pinnedReplyToBanId);
+    console.log('[reply-send-debug] selectedUser.id', selectedUserId);
+    console.log('[reply-send-debug] currentUser.id', user?.id ?? null);
+    console.log('[reply-send-debug] payload', {
+      text: snapText,
+      durationMinutes: snapDuration,
+    });
+    console.log('[reply-send-debug] currentUser', user?.id ?? null);
+    console.log('[reply-send-debug] selectedUser', snapUser);
+    console.log('[reply-send-debug] receiverId', receiverId);
+    console.log('[reply-send-debug] originalBanId', pinnedReplyToBanId);
+    console.log('[reply-send-debug] banText', snapText);
+    console.log('[reply-send-debug] duration', snapDuration);
 
     logSendFlow('hold-start', {
       source,
@@ -2518,7 +2532,13 @@ export function InstantBanFlow({
       attemptId,
     });
 
-    if (isReplyFlow && !effectiveReplyBanId) {
+    if ((isReplyFlow || pinnedReplyToBanId) && !effectiveReplyBanId) {
+      console.error('[reply-send-debug] WRONG_ENDPOINT', {
+        reason: 'reply-ban-id-missing',
+        pinnedReplyToBanId,
+        isReplyFlow,
+        source,
+      });
       logSendRejected('reply-ban-id-missing', { source, attemptId });
       setSendError('Не получилось отправить запрет');
       confirmAbortReleaseRef.current?.();
@@ -2595,12 +2615,10 @@ export function InstantBanFlow({
           text,
           durationMinutes: snapDuration,
         };
-        if (process.env.NODE_ENV === 'development') {
-          console.log('[reply-send-debug] send payload', {
-            endpoint,
-            payload: replyPayload,
-          });
-        }
+        console.log('[reply-send-debug] send payload', {
+          endpoint,
+          payload: replyPayload,
+        });
         logSendFlow('api-request', { endpoint, attemptId });
         try {
           const res = await api<{
@@ -2624,12 +2642,25 @@ export function InstantBanFlow({
           }
           if (res.session) applySession(res.session);
           scheduleDeferredSync();
-          clearIncomingReply();
+          clearIncomingReply({ finalizeBanId: effectiveReplyBanId });
           openSuccess(res.replyBan.id, attemptId);
           return 'started';
         } finally {
           setReplySending(false);
         }
+      }
+
+      if (pinnedReplyToBanId || isReplyFlow) {
+        console.error('[reply-send-debug] WRONG_ENDPOINT', {
+          reason: 'reply-context-fell-through-to-normal-send',
+          pinnedReplyToBanId,
+          effectiveReplyBanId,
+          isReplyFlow,
+          source,
+        });
+        setSendError('Не получилось отправить запрет');
+        confirmAbortReleaseRef.current?.();
+        return 'rejected';
       }
 
       logSendFlow('api-request', { endpoint: '/bans/send', attemptId });
@@ -2666,16 +2697,15 @@ export function InstantBanFlow({
       }
       const message =
         e instanceof Error ? e.message : 'Не получилось отправить запрет';
-      if (process.env.NODE_ENV === 'development') {
-        console.log('[reply-send-debug] send error response', {
-          message,
-          status: (e as { status?: number }).status,
-          error: e,
-          source,
-          isReplyFlow,
-          effectiveReplyBanId,
-        });
-      }
+      console.log('[reply-send-debug] send error response', {
+        message,
+        status: (e as { status?: number }).status,
+        error: e,
+        source,
+        isReplyFlow,
+        effectiveReplyBanId,
+        pinnedReplyToBanId: snap.replyToBanId ?? getPinnedReplyToBanId(),
+      });
       console.info('[98+] sendBan failed', {
         stage: 'request',
         message,
@@ -2698,6 +2728,7 @@ export function InstantBanFlow({
     banSentSuccess,
     incomingReplyBanId,
     replyToBanId,
+    getPinnedReplyToBanId,
     replySending,
     applySession,
     scheduleDeferredSync,
@@ -2716,13 +2747,20 @@ export function InstantBanFlow({
 
   const captureSendSnapshot = useCallback(() => {
     if (!selectedUser) return false;
+    const pinnedReplyId = getPinnedReplyToBanId() ?? replyToBanId ?? null;
     sendSnapshotRef.current = {
       banText,
       selectedUser,
       durationMinutes,
+      replyToBanId: pinnedReplyId,
     };
+    console.log('[reply-send-debug] snapshot-captured', {
+      replyToBanId: pinnedReplyId,
+      selectedUserId:
+        selectedUser.userId ?? selectedUser.id ?? selectedUser.username ?? null,
+    });
     return true;
-  }, [banText, selectedUser, durationMinutes]);
+  }, [banText, selectedUser, durationMinutes, getPinnedReplyToBanId, replyToBanId]);
 
   const handleConfirmRelease = useCallback(async () => {
     instantBanDebug('confirm-release', {

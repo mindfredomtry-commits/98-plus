@@ -354,7 +354,9 @@ interface AppContextValue {
   incomingReplyBanId: string | null;
   /** Parent ban id for /bans/:id/reply — survives incoming-card consume. */
   replyToBanId: string | null;
-  clearIncomingReply: () => void;
+  /** Ref-backed parent ban id — read at send time to avoid stale React state. */
+  getPinnedReplyToBanId: () => string | null;
+  clearIncomingReply: (opts?: { finalizeBanId?: string }) => void;
   applySession: (s: SessionState) => void;
   reloadPending: () => Promise<void>;
   reloadFriends: () => Promise<void>;
@@ -724,6 +726,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const replyDeeplinkPrefillBanRef = useRef<BanInteraction | null>(null);
   const incomingConsumedAfterAnswerRef = useRef<Set<string>>(new Set());
   const replyToBanIdPersistRef = useRef<string | null>(null);
+  const incomingReplyComposeDismissedRef = useRef<Set<string>>(new Set());
   const [replyToBanId, setReplyToBanId] = useState<string | null>(null);
   const [replyDeepLinkBanId, setReplyDeepLinkBanId] = useState<string | null>(null);
   const [replyHandoffLock, setReplyHandoffLock] = useState(false);
@@ -749,6 +752,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     replyToBanIdPersistRef.current = banId;
     setReplyToBanId(banId);
   }, []);
+
+  const getPinnedReplyToBanId = useCallback(
+    () => replyToBanIdPersistRef.current,
+    [],
+  );
 
   const armReplyDeepLink = useCallback((banId: string) => {
     if (activeBanDeepLinkBanId != null || activeBanCardVisibleRef.current) {
@@ -2195,6 +2203,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setSendReceiver('');
     setSendText('');
     setIncomingReplyBanId(null);
+    pinReplyToBanId(null);
     setResultReplyPending(null);
     setResultReplyRequest(0);
     setResultReplyHandoffLock(false);
@@ -2204,6 +2213,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setOptimisticSendWait(null);
     dismissedIncomingRef.current = new Set();
     incomingConsumedAfterAnswerRef.current = new Set();
+    incomingReplyComposeDismissedRef.current = new Set();
     dismissedCheckSessionRef.current = new Set();
     answeredCheckRef.current = new Set();
     locallyAckedIncomingRef.current = new Set();
@@ -3384,6 +3394,61 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [applyOverlayQueue, clearReplyFastSessionAfterAnswer],
   );
 
+  const dismissIncomingCardForReplyCompose = useCallback(
+    (banId: string) => {
+      incomingReplyComposeDismissedRef.current.add(banId);
+
+      const beforeQueue = overlayQueueRef.current;
+      const beforeLen = beforeQueue.length;
+      const nextQueue = removeOverlaysForBan(beforeQueue, banId, ['incoming']);
+      if (nextQueue.length !== beforeLen) {
+        applyOverlayQueue(nextQueue);
+      } else if (overlayQueueRef.current !== nextQueue) {
+        overlayQueueRef.current = nextQueue;
+        setOverlayQueue(nextQueue);
+      }
+
+      if (incomingBanRef.current?.id === banId) {
+        setIncomingBan(null);
+      }
+
+      clearReplyFastSessionAfterAnswer(banId, { preserveReplySendIds: true });
+
+      console.log('[INCOMING CARD DISMISSED FOR REPLY COMPOSE]', { banId });
+      markVisibleOverboardTrace('[INCOMING CARD DISMISSED FOR REPLY COMPOSE]', {
+        banId,
+      });
+    },
+    [applyOverlayQueue, clearReplyFastSessionAfterAnswer],
+  );
+
+  const finalizeIncomingReplyAfterSend = useCallback(
+    (banId: string) => {
+      incomingConsumedAfterAnswerRef.current.add(banId);
+      dismissedIncomingRef.current.add(banId);
+      locallyAckedIncomingRef.current.add(banId);
+      incomingReplyComposeDismissedRef.current.delete(banId);
+
+      const beforeQueue = overlayQueueRef.current;
+      const nextQueue = removeOverlaysForBan(beforeQueue, banId, ['incoming']);
+      if (nextQueue.length !== beforeQueue.length) {
+        applyOverlayQueue(nextQueue);
+      }
+
+      if (incomingBanRef.current?.id === banId) {
+        setIncomingBan(null);
+      }
+
+      clearReplyFastSessionAfterAnswer(banId);
+
+      console.log('[INCOMING REPLY FINALIZED AFTER SEND]', { banId });
+      markVisibleOverboardTrace('[INCOMING REPLY FINALIZED AFTER SEND]', {
+        banId,
+      });
+    },
+    [applyOverlayQueue, clearReplyFastSessionAfterAnswer],
+  );
+
   const openIncomingOverboardOptimistic = useCallback(
     (
       ban: BanInteraction,
@@ -4213,6 +4278,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (incomingConsumedAfterAnswerRef.current.has(banId)) {
         console.log('[INCOMING REOPEN BLOCKED AFTER ANSWER]', { banId });
         markVisibleOverboardTrace('[INCOMING REOPEN BLOCKED AFTER ANSWER]', {
+          banId,
+        });
+        return false;
+      }
+      if (
+        incomingReplyComposeDismissedRef.current.has(banId) &&
+        replyToBanIdPersistRef.current === banId
+      ) {
+        console.log('[INCOMING REOPEN BLOCKED REPLY COMPOSE ACTIVE]', { banId });
+        markVisibleOverboardTrace('[INCOMING REOPEN BLOCKED REPLY COMPOSE ACTIVE]', {
           banId,
         });
         return false;
@@ -5402,10 +5477,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setSendText(text);
   }, []);
 
-  const clearIncomingReply = useCallback(() => {
-    pinReplyToBanId(null);
-    setIncomingReplyBanId(null);
-  }, [pinReplyToBanId]);
+  const clearIncomingReply = useCallback(
+    (opts?: { finalizeBanId?: string }) => {
+      if (opts?.finalizeBanId) {
+        finalizeIncomingReplyAfterSend(opts.finalizeBanId);
+      }
+      pinReplyToBanId(null);
+      setIncomingReplyBanId(null);
+      setDeepLinkReplyBan(null);
+    },
+    [finalizeIncomingReplyAfterSend, pinReplyToBanId],
+  );
 
   const notifyResultReplyWhatVisible = useCallback(
     (banId: string, selectedUserId: string | null) => {
@@ -5640,7 +5722,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       beginReplyHandoff(banId);
       startIncomingReply(ban);
-      consumeIncomingAfterAnswer(banId, 'reply');
+      dismissIncomingCardForReplyCompose(banId);
       logReplyFlow('overlay-dismissed', {
         banId,
         lockActive: true,
@@ -5675,7 +5757,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         patchReplyHandoffDebug({ acceptPending: false, acceptDone: false });
       }
     },
-    [beginReplyHandoff, consumeIncomingAfterAnswer, startIncomingReply],
+    [
+      beginReplyHandoff,
+      dismissIncomingCardForReplyCompose,
+      startIncomingReply,
+    ],
   );
 
   const dismissIncoming = useCallback(
@@ -7095,6 +7181,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       acknowledgeIncomingSeen,
       incomingReplyBanId,
       replyToBanId,
+      getPinnedReplyToBanId,
       clearIncomingReply,
       applySession,
       reloadPending,
@@ -7224,6 +7311,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       acknowledgeIncomingSeen,
       incomingReplyBanId,
       replyToBanId,
+      getPinnedReplyToBanId,
       clearIncomingReply,
       applySession,
       reloadPending,

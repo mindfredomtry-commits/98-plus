@@ -24,8 +24,10 @@ export function resolveSendFlowSource(opts: {
   incomingReplyBanId: string | null;
   deepLinkReplyBanId: string | null;
   replyDeepLinkBanId: string | null;
+  replyToBanId?: string | null;
 }): SendFlowSource {
   if (
+    opts.replyToBanId ||
     opts.incomingReplyBanId ||
     opts.deepLinkReplyBanId ||
     opts.replyDeepLinkBanId
