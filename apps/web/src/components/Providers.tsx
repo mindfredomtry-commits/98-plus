@@ -107,6 +107,11 @@ import {
 } from '@/lib/reply-handoff-debug';
 import { logActiveBanDeeplink } from '@/lib/active-ban-deeplink-debug';
 import {
+  armPendingDeepLinkRouteFromStartParam,
+  logOpenActiveBanCard,
+  resolvePendingDeepLinkRoute,
+} from '@/lib/deep-link-route-boot';
+import {
   incomingShowDecision,
   isValidIncomingOverlayPayload,
   shouldShowIncomingBanModal,
@@ -886,15 +891,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [clearDirectOverboardLayerRefs, result?.id, snapshotDirectOverboardGate]);
 
   const armActiveBanDeepLinkEarly = useCallback((banId: string) => {
+    armPendingDeepLinkRouteFromStartParam('armActiveBanDeepLinkEarly');
     lockNotificationQueue('deep-link-active-ban', banId);
     logOverlayPriority('deep-link-active-start', { banId });
     activeBanCardVisibleRef.current = false;
     setActiveBanCardReady(false);
     setActiveBanDeepLinkBanId(banId);
     setLobbyOpen(false);
-    openSendFlow();
     suppressQueuedOverlayDisplay();
-  }, [openSendFlow, suppressQueuedOverlayDisplay]);
+  }, [suppressQueuedOverlayDisplay]);
 
   useLayoutEffect(() => {
     const syncReplyStartParamPreview = (viewerId: string | null | undefined) => {
@@ -2786,21 +2791,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return;
       }
-      openSendFlow();
+      logOpenActiveBanCard(b.id, 'openDeepLinkActive');
+      resolvePendingDeepLinkRoute('active-ban', b.id);
       setDeepLinkActiveBan(enriched);
       console.log('[active-deeplink]', { banId: b.id, queued: true });
       logDeepLinkHandlerResult({
         type: 'active',
         banId: b.id,
         instantBanOpen: false,
-        sendFlowOpen: true,
+        sendFlowOpen: false,
         selectedBanId: b.id,
         overlayQueueLength: overlayQueueRef.current.length,
         ok: true,
         reason: 'active-ban-card',
       });
     },
-    [auth.loading, openSendFlow, suppressQueuedOverlayDisplay],
+    [auth.loading, suppressQueuedOverlayDisplay],
   );
 
   useEffect(() => {

@@ -866,6 +866,12 @@ html.scroll-lock body {
   pointer-events: none;
 }
 
+.app-page--active-ban-deeplink-loading .instant-ban-send-overlay,
+.app-page--active-ban-deeplink-loading .instant-ban-cross-screen-viewport {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 .app-page--active-ban-deeplink-loading::before {
   content: '';
   position: fixed;

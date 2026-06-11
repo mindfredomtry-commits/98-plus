@@ -11,6 +11,7 @@ import {
 } from '@/lib/deep-link-boot-debug';
 import { logReplyFlow } from '@/lib/reply-handoff-debug';
 import { logActiveBanDeeplink } from '@/lib/active-ban-deeplink-debug';
+import { armPendingDeepLinkRouteFromStartParam } from '@/lib/deep-link-route-boot';
 import {
   lockNotificationQueue,
   logOverlayPriority,
@@ -201,6 +202,7 @@ export function useSocialBoot(h: BootHandlers) {
           break;
         }
         case 'active': {
+          armPendingDeepLinkRouteFromStartParam('useSocialBoot-active');
           logActiveBanDeeplink('payload', {
             payload: buildStartParam(action),
             banId: action.banId,

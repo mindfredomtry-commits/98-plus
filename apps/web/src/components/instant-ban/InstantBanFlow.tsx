@@ -40,6 +40,10 @@ import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
 import { logReplyFlow, logReplyFlowLoopGuard } from '@/lib/reply-handoff-debug';
 import { logActiveBanDeeplink } from '@/lib/active-ban-deeplink-debug';
 import {
+  logOpenActiveBanCard,
+  resolvePendingDeepLinkRoute,
+} from '@/lib/deep-link-route-boot';
+import {
   isNotificationQueueLocked,
   lockNotificationQueue,
   logOverlayPriority,
@@ -285,9 +289,10 @@ export function InstantBanFlow({
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
 
-  const [phase, setPhase] = useState<SendFlowPhase>(
-    sendStarted ? 'selectingTarget' : 'idle',
-  );
+  const [phase, setPhase] = useState<SendFlowPhase>(() => {
+    if (activeBanDeepLinkBanId) return 'idle';
+    return sendStarted ? 'selectingTarget' : 'idle';
+  });
   const [selectedUser, setSelectedUser] = useState<FriendCard | null>(null);
   const [banText, setBanText] = useState('');
   const [durationMinutes, setDurationMinutes] = useState(DEFAULT_DURATION_MINUTES);
@@ -322,7 +327,9 @@ export function InstantBanFlow({
   const [whoExitActive, setWhoExitActive] = useState(false);
   const [whoDismissProgress, setWhoDismissProgress] = useState(0);
   const [ctaState, setCtaState] = useState<LobbyCtaState>(() =>
-    resolveInitialCtaState(sendStarted),
+    activeBanDeepLinkBanId || activeBanUiShellActive
+      ? 'hidden'
+      : resolveInitialCtaState(sendStarted),
   );
   const [whoPanelEntering, setWhoPanelEntering] = useState(false);
   const ctaExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -365,8 +372,12 @@ export function InstantBanFlow({
   const historyUserIdRef = useRef<string | null>(null);
 
   const legacyStep = legacyStepFromPhase(phase);
+  const activeBanDeepLinkBooting =
+    activeBanUiShellActive ||
+    (activeBanDeepLinkBanId != null && !bansOverlayOpen);
   const showCrossScreenPager =
-    phase === 'selectingTarget' || phase === 'composingBan';
+    !activeBanDeepLinkBooting &&
+    (phase === 'selectingTarget' || phase === 'composingBan');
   const overlayOpen = showCrossScreenPager;
   const notificationOverlayActive = bansReturnToLobbyLatch
     ? false
@@ -748,6 +759,11 @@ export function InstantBanFlow({
         prevSendStartedRef.current = sendStarted;
         return;
       }
+      if (activeBanDeepLinkBooting || activeBanUiShellActive) {
+        setCtaState('hidden');
+        prevSendStartedRef.current = sendStarted;
+        return;
+      }
       const entryPhase = sendEntryPhaseRef.current;
       sendEntryPhaseRef.current = null;
       if (entryPhase) {
@@ -774,6 +790,8 @@ export function InstantBanFlow({
     incomingReplyBanId,
     phase,
     sendStarted,
+    activeBanDeepLinkBooting,
+    activeBanUiShellActive,
     setCrossScreenProgressImmediate,
   ]);
 
@@ -1239,6 +1257,8 @@ export function InstantBanFlow({
 
   const beginActiveBanFromDeepLink = useCallback(
     (ban: BanInteraction) => {
+      logOpenActiveBanCard(ban.id, 'beginActiveBanFromDeepLink');
+      resolvePendingDeepLinkRoute('active-ban', ban.id);
       setBansTab('yours');
       setSelectedBanForDetails(ban);
       setBansOverlayOpen(true);
