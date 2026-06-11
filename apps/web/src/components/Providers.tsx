@@ -204,6 +204,7 @@ import { isDismissedResultLocally } from '@/lib/dismissed-results';
 import {
   buildReplyDeeplinkShellBan,
   REPLY_DEEPLINK_FAST_TIMEOUT_MS,
+  resolveReplyFastCachedBan,
 } from '@/lib/reply-deeplink-fast';
 import {
   resolveConnectionUiState,
@@ -686,6 +687,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const replyDeeplinkPendingBanIdRef = useRef<string | null>(null);
   const replyDeeplinkFastOpenedRef = useRef(false);
   const replyDeeplinkFastShellRef = useRef(false);
+  const replyDeeplinkPrefetchRef = useRef(false);
+  const bootClaimedIncomingRef = useRef<BanInteraction | null>(null);
+  const lastSessionIncomingRef = useRef<BanInteraction | null>(null);
   const replyDeeplinkFastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -889,6 +893,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     replyDeeplinkFastShellRef.current = replyDeeplinkFastShell;
   }, [replyDeeplinkFastShell]);
+
+  useEffect(() => {
+    bootClaimedIncomingRef.current = auth.boot?.claimedIncoming ?? null;
+  }, [auth.boot?.claimedIncoming]);
 
   useEffect(() => {
     registerResultOpenTraceContext({
@@ -3683,6 +3691,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       replyDeeplinkFastOpenedRef.current = false;
       replyDeeplinkPendingBanIdRef.current = null;
       replyDeeplinkFastShellRef.current = false;
+      replyDeeplinkPrefetchRef.current = false;
       setReplyDeeplinkFastShell(false);
       setDeepLinkReplyBooting(false);
 
@@ -3735,7 +3744,41 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       console.log('[REPLY DEEPLINK FAST OPEN]', { banId });
       markVisibleOverboardTrace('[REPLY DEEPLINK FAST OPEN]', { banId });
 
-      const shell = buildReplyDeeplinkShellBan(banId, viewerId);
+      const cacheHit = resolveReplyFastCachedBan({
+        banId,
+        viewerId,
+        dismissed: dismissedIncomingRef.current,
+        overlayQueue: overlayQueueRef.current,
+        incomingBan: incomingBanRef.current,
+        bufferedIncoming: bufferedIncomingRef.current,
+        bufferedReplyDeepLink: bufferedReplyDeepLinkRef.current,
+        pendingStartup: pendingStartupInteractionsRef.current,
+        activeBans: sessionActiveBansRef.current,
+        claimedIncoming:
+          bootClaimedIncomingRef.current ?? auth.boot?.claimedIncoming ?? null,
+        sessionIncoming: lastSessionIncomingRef.current,
+      });
+
+      const openBan = cacheHit
+        ? enrichBanInteraction(cacheHit.ban)
+        : buildReplyDeeplinkShellBan(banId, viewerId);
+      const usingPrefetch = cacheHit != null;
+
+      if (cacheHit) {
+        console.log('[REPLY FAST DATA CACHE HIT]', {
+          banId,
+          source: cacheHit.source,
+          textLen: openBan.text?.length ?? 0,
+          senderId: openBan.sender?.id ?? null,
+        });
+        markVisibleOverboardTrace('[REPLY FAST DATA CACHE HIT]', {
+          banId,
+          source: cacheHit.source,
+        });
+      } else {
+        console.log('[REPLY FAST DATA CACHE MISS]', { banId });
+        markVisibleOverboardTrace('[REPLY FAST DATA CACHE MISS]', { banId });
+      }
 
       flushSync(() => {
         if (replyFlowArmedBanIdRef.current !== banId) {
@@ -3745,25 +3788,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           setReplyWhatReady(false);
           setReplyHandoffLock(true);
         }
-        setDeepLinkReplyBooting(true);
-        setReplyDeeplinkFastShell(true);
-        replyDeeplinkFastShellRef.current = true;
+        setDeepLinkReplyBooting(!usingPrefetch);
+        setReplyDeeplinkFastShell(!usingPrefetch);
+        replyDeeplinkFastShellRef.current = !usingPrefetch;
+        replyDeeplinkPrefetchRef.current = usingPrefetch;
         setLobbyOpen(false);
         lobbyOpenRef.current = false;
         enqueueNotification(
-          { kind: 'incoming', ban: shell },
+          { kind: 'incoming', ban: openBan },
           { live: true, source: 'deeplink' },
         );
       });
 
-      console.log('[INCOMING CARD SHELL OPENED]', {
-        source: 'reply-deeplink-fast',
-        banId,
-      });
-      markVisibleOverboardTrace('[INCOMING CARD SHELL OPENED]', {
-        source: 'reply-deeplink-fast',
-        banId,
-      });
+      if (usingPrefetch) {
+        console.log('[INCOMING CARD OPENED WITH PREFETCHED DATA]', {
+          banId,
+          source: cacheHit!.source,
+          textLen: openBan.text?.length ?? 0,
+        });
+        markVisibleOverboardTrace('[INCOMING CARD OPENED WITH PREFETCHED DATA]', {
+          banId,
+          source: cacheHit!.source,
+        });
+      } else {
+        console.log('[INCOMING CARD SHELL OPENED]', {
+          source: 'reply-deeplink-fast',
+          banId,
+        });
+        markVisibleOverboardTrace('[INCOMING CARD SHELL OPENED]', {
+          source: 'reply-deeplink-fast',
+          banId,
+        });
+      }
       console.log('[REPLY DEEPLINK LOBBY BLOCKED]', {
         reason: 'waiting-incoming-card',
         banId,
@@ -3774,16 +3830,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       clearReplyDeeplinkFastTimeout();
-      replyDeeplinkFastTimeoutRef.current = setTimeout(() => {
-        if (replyDeeplinkFastShellRef.current) {
-          abortReplyDeepLinkFast('timeout-2s');
-        }
-      }, REPLY_DEEPLINK_FAST_TIMEOUT_MS);
+      if (!usingPrefetch) {
+        replyDeeplinkFastTimeoutRef.current = setTimeout(() => {
+          if (replyDeeplinkFastShellRef.current) {
+            abortReplyDeepLinkFast('timeout-2s');
+          }
+        }, REPLY_DEEPLINK_FAST_TIMEOUT_MS);
+      }
 
       return true;
     },
     [
       abortReplyDeepLinkFast,
+      auth.boot?.claimedIncoming,
       auth.loading,
       clearReplyDeeplinkFastTimeout,
       enqueueNotification,
@@ -3857,12 +3916,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
       const wasShell = replyDeeplinkFastShellRef.current;
+      const wasPrefetch = replyDeeplinkPrefetchRef.current;
+      const hadFastOpen = wasShell || wasPrefetch;
       setLobbyOpen(false);
       lobbyOpenRef.current = false;
       challengeLog('incoming:reply-deeplink', { id: b.id, status: b.status });
 
       let hydratedInPlace = false;
-      if (wasShell) {
+      if (hadFastOpen) {
+        const prevHead = overlayQueueRef.current.find(
+          (q) => q.kind === 'incoming' && q.ban.id === enriched.id,
+        );
+        const prevText =
+          prevHead?.kind === 'incoming' ? prevHead.ban.text : null;
         hydratedInPlace = hydrateReplyDeeplinkIncomingBan(enriched);
         if (!hydratedInPlace) {
           enqueueNotification(
@@ -3873,6 +3939,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         clearReplyDeeplinkFastTimeout();
         flushSync(() => {
           replyDeeplinkFastShellRef.current = false;
+          replyDeeplinkPrefetchRef.current = false;
           setReplyDeeplinkFastShell(false);
           setDeepLinkReplyBooting(false);
         });
@@ -3880,24 +3947,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         console.log('[INCOMING CARD DATA READY]', {
           banId: b.id,
           hydratedInPlace,
+          wasShell,
+          wasPrefetch,
           selectedBanId: replyDeepLinkBanId ?? b.id,
           queueHeadKind: headBan?.kind ?? null,
-          queueHeadText: headBan?.kind === 'incoming' ? headBan.ban.text : null,
+          queueHeadText: enriched.text ?? null,
         });
         markVisibleOverboardTrace('[INCOMING CARD DATA READY]', {
           banId: b.id,
           hydratedInPlace,
+          wasPrefetch,
         });
-        console.log('[INCOMING CARD HYDRATED]', {
+        console.log('[INCOMING CARD HYDRATED FROM API]', {
           banId: b.id,
           hydratedInPlace,
-          incomingGateWillBe: true,
+          wasShell,
+          wasPrefetch,
+          textChanged: prevText !== enriched.text,
           senderId: enriched.sender?.id ?? null,
           textLen: enriched.text?.length ?? 0,
         });
-        markVisibleOverboardTrace('[INCOMING CARD HYDRATED]', {
+        markVisibleOverboardTrace('[INCOMING CARD HYDRATED FROM API]', {
           banId: b.id,
           hydratedInPlace,
+          wasPrefetch,
         });
       } else {
         enqueueNotification(
@@ -3912,6 +3985,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         selectedBanId: b.id,
         lobbyOpen: false,
         hydratedFromShell: wasShell,
+        hydratedFromPrefetch: wasPrefetch,
         hydratedInPlace,
       });
       console.log('[reply-deeplink]', { banId: b.id, queued: 'incoming-overlay' });
@@ -4219,6 +4293,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         authUserId: viewerId,
       });
 
+      if (b.receiver?.id && (!viewerId || b.receiver.id === viewerId)) {
+        lastSessionIncomingRef.current = b;
+      }
+
       if (
         source === 'ws' &&
         b.receiver?.id &&
@@ -4403,6 +4481,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       viewerId,
     );
     if (session.incoming) {
+      lastSessionIncomingRef.current = enrichBanInteraction(session.incoming);
       console.log('[incoming-session-received]', {
         banId: session.incoming.id,
         receiverId: session.incoming.receiver?.id ?? null,
@@ -4410,6 +4489,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         status: session.incoming.status,
       });
       receiveIncomingBan(session.incoming, 'session');
+    } else {
+      lastSessionIncomingRef.current = null;
     }
 
     if (session.check) {

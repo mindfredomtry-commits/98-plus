@@ -31,8 +31,9 @@ import { useTelegram } from '@/hooks/useTelegram';
 import { ModalShell } from './ModalShell';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
 import {
-  REPLY_DEEPLINK_SHELL_SENDER_ID,
-  REPLY_DEEPLINK_SHELL_TEXT,
+  canReplyFastEnableButtons,
+  hasReplyFastDisplayText,
+  isReplyDeeplinkShellBan,
 } from '@/lib/reply-deeplink-fast';
 
 type VerifyPhase = 'idle' | 'pending' | 'ok' | 'failed';
@@ -89,9 +90,10 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
   }, [incomingBan?.id]);
 
   const isReplyDeeplinkShell =
-    replyDeeplinkFastShell ||
-    incomingBan?.sender?.id === REPLY_DEEPLINK_SHELL_SENDER_ID ||
-    incomingBan?.text === REPLY_DEEPLINK_SHELL_TEXT;
+    replyDeeplinkFastShell || isReplyDeeplinkShellBan(incomingBan);
+  const isReplyDeeplinkFastPath =
+    replyDeepLinkBanId != null && incomingBan?.id === replyDeepLinkBanId;
+  const hasKnownReplyActors = canReplyFastEnableButtons(incomingBan, viewerId);
 
   useEffect(() => {
     if (!incomingBan?.id || !token || !viewerId) {
@@ -110,10 +112,33 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
         event: 'reply-deeplink-shell',
         banId: incomingBan.id,
         source: 'reply-deeplink-fast',
+        hasKnownReplyActors,
       });
       setVerifiedBan(null);
       setVerifyPhase('pending');
       return;
+    }
+
+    if (
+      isReplyDeeplinkFastPath &&
+      hasReplyFastDisplayText(incomingBan) &&
+      hasKnownReplyActors
+    ) {
+      setVerifiedBan(incomingBan);
+      setVerifyPhase('ok');
+      console.log('[INCOMING CARD OPENED WITH PREFETCHED DATA]', {
+        banId: incomingBan.id,
+        source: 'overlay-ui',
+        textLen: incomingBan.text?.length ?? 0,
+        senderId: incomingBan.sender?.id ?? null,
+      });
+      const unbindBack = bindBack(() => {
+        if (incomingBan.status === 'pending') return;
+        void acknowledgeIncomingSeen(incomingBan.id);
+      }, true);
+      return () => {
+        unbindBack?.();
+      };
     }
 
     if (
@@ -123,7 +148,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
       replyShellBanIdRef.current = null;
       setVerifiedBan(incomingBan);
       setVerifyPhase('ok');
-      console.log('[INCOMING CARD HYDRATED]', {
+      console.log('[INCOMING CARD HYDRATED FROM API]', {
         banId: incomingBan.id,
         source: 'overlay-ui',
         textLen: incomingBan.text?.length ?? 0,
@@ -182,6 +207,8 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
   }, [
     incomingBan,
     isReplyDeeplinkShell,
+    isReplyDeeplinkFastPath,
+    hasKnownReplyActors,
     token,
     viewerId,
     bindBack,
@@ -238,11 +265,11 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
       shouldShowIncomingBanModal(incomingBan, viewerId, new Set())
     : false;
 
-  const canAct =
-    !!displayBan?.sender?.id &&
-    displayBan.sender.id !== REPLY_DEEPLINK_SHELL_SENDER_ID;
+  const canAct = canReplyFastEnableButtons(displayBan, viewerId);
   const buttonsEnabled =
-    !isReplyDeeplinkShell && verifyPhase !== 'failed' && !!incomingBan?.id;
+    verifyPhase !== 'failed' &&
+    !!incomingBan?.id &&
+    (!isReplyDeeplinkShell || hasKnownReplyActors);
   const counterEnabled = buttonsEnabled && canAct;
   const overboardEnabled = buttonsEnabled;
 

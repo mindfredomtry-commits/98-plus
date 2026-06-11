@@ -35,6 +35,7 @@ interface BootHandlers {
   setDeepLinkReplyBooting: (v: boolean) => void;
   armReplyDeepLink: (banId: string) => void;
   replyDeeplinkFastShell: boolean;
+  replyDeepLinkBanId: string | null;
   abortReplyDeepLinkFast: (reason: string) => void;
 }
 
@@ -167,14 +168,16 @@ export function useSocialBoot(h: BootHandlers) {
           break;
         }
         case 'reply': {
-          if (!h.replyDeeplinkFastShell) {
+          const fastPathAlreadyOpen = h.replyDeepLinkBanId === action.banId;
+          if (!fastPathAlreadyOpen) {
             h.armReplyDeepLink(action.banId);
             h.setDeepLinkReplyBooting(true);
           }
           logReplyFlow('incoming-loading', {
             banId: action.banId,
             lockActive: true,
-            fastShellAlreadyOpen: h.replyDeeplinkFastShell,
+            fastPathAlreadyOpen,
+            fastShell: h.replyDeeplinkFastShell,
           });
           try {
             const { ban } = await api<{ ban: BanInteraction }>(
@@ -238,6 +241,7 @@ export function useSocialBoot(h: BootHandlers) {
     h.setDeepLinkReplyBooting,
     h.armReplyDeepLink,
     h.replyDeeplinkFastShell,
+    h.replyDeepLinkBanId,
     h.abortReplyDeepLinkFast,
   ]);
 }
