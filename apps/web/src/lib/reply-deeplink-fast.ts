@@ -17,7 +17,13 @@ export type ReplyFastCacheSource =
   | 'startup-pending'
   | 'active-bans'
   | 'auth-claimed-incoming'
-  | 'session-incoming';
+  | 'session-incoming'
+  | 'caller-prefill';
+
+export type ReplyPrefillResult = {
+  hit: ReplyFastCacheHit | null;
+  missReason: string;
+};
 
 export type ReplyFastCacheHit = {
   ban: BanInteraction;
@@ -69,6 +75,7 @@ export type ReplyFastCacheLookup = {
 };
 
 const SOURCE_PRIORITY: Record<ReplyFastCacheSource, number> = {
+  'caller-prefill': -1,
   'overlay-queue': 0,
   'incoming-state': 1,
   'buffered-incoming': 2,
@@ -122,6 +129,63 @@ export function resolveReplyFastCachedBan(
     (a, b) => SOURCE_PRIORITY[a.source] - SOURCE_PRIORITY[b.source],
   );
   return candidates[0] ?? null;
+}
+
+/** Read-only prefill: real text required; skips modal guard (display-only). */
+export function resolveReplyPrefillBan(
+  ctx: ReplyFastCacheLookup,
+): ReplyPrefillResult {
+  const candidates: ReplyFastCacheHit[] = [];
+
+  const push = (
+    ban: BanInteraction | null | undefined,
+    source: ReplyFastCacheSource,
+  ) => {
+    if (!ban?.id || ban.id !== ctx.banId) return;
+    if (isReplyDeeplinkShellBan(ban)) return;
+    if (ctx.dismissed.has(ban.id)) return;
+    if (!hasReplyFastDisplayText(ban)) return;
+    if (ban.receiver?.id && ban.receiver.id !== ctx.viewerId) return;
+    candidates.push({ ban, source });
+  };
+
+  for (const q of ctx.overlayQueue) {
+    if (q.kind === 'incoming') push(q.ban, 'overlay-queue');
+  }
+  push(ctx.incomingBan, 'incoming-state');
+  push(ctx.bufferedIncoming, 'buffered-incoming');
+  push(ctx.bufferedReplyDeepLink, 'buffered-reply-deeplink');
+  for (const q of ctx.pendingStartup) {
+    if (q.kind === 'incoming') push(q.ban, 'startup-pending');
+  }
+  push(ctx.sessionIncoming, 'session-incoming');
+  push(ctx.claimedIncoming, 'auth-claimed-incoming');
+  for (const b of ctx.activeBans) {
+    push(b, 'active-bans');
+  }
+
+  if (candidates.length === 0) {
+    return { hit: null, missReason: 'no-local-ban-with-text' };
+  }
+
+  candidates.sort(
+    (a, b) => SOURCE_PRIORITY[a.source] - SOURCE_PRIORITY[b.source],
+  );
+  return { hit: candidates[0] ?? null, missReason: '' };
+}
+
+export function buildReplyPrefillLookup(
+  banId: string,
+  viewerId: string,
+  dismissed: ReadonlySet<string>,
+  sources: Omit<ReplyFastCacheLookup, 'banId' | 'viewerId' | 'dismissed'>,
+): ReplyFastCacheLookup {
+  return {
+    banId,
+    viewerId,
+    dismissed,
+    ...sources,
+  };
 }
 
 export function buildReplyDeeplinkShellBan(

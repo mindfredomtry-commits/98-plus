@@ -204,7 +204,12 @@ import { isDismissedResultLocally } from '@/lib/dismissed-results';
 import {
   buildReplyDeeplinkShellBan,
   REPLY_DEEPLINK_FAST_TIMEOUT_MS,
+  buildReplyPrefillLookup,
   resolveReplyFastCachedBan,
+  resolveReplyPrefillBan,
+  canReplyFastEnableButtons,
+  hasReplyFastDisplayText,
+  isReplyDeeplinkShellBan,
 } from '@/lib/reply-deeplink-fast';
 import {
   resolveConnectionUiState,
@@ -697,6 +702,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const replyDeeplinkFastWrittenAtRef = useRef<number | null>(null);
   const replyDeeplinkFastWrittenBanIdRef = useRef<string | null>(null);
   const replyDeeplinkFastHydratedRef = useRef(false);
+  const replyDeeplinkPrefillBanRef = useRef<BanInteraction | null>(null);
   const incomingConsumedAfterAnswerRef = useRef<Set<string>>(new Set());
   const [replyDeepLinkBanId, setReplyDeepLinkBanId] = useState<string | null>(null);
   const [replyHandoffLock, setReplyHandoffLock] = useState(false);
@@ -4024,8 +4030,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [applyOverlayQueue, isReplyFastQueueHeadValid],
   );
 
+  const buildReplyFastLookupCtx = useCallback(
+    (banId: string, viewerId: string) =>
+      buildReplyPrefillLookup(banId, viewerId, dismissedIncomingRef.current, {
+        overlayQueue: overlayQueueRef.current,
+        incomingBan: incomingBanRef.current,
+        bufferedIncoming: bufferedIncomingRef.current,
+        bufferedReplyDeepLink: bufferedReplyDeepLinkRef.current,
+        pendingStartup: pendingStartupInteractionsRef.current,
+        activeBans: sessionActiveBansRef.current,
+        claimedIncoming:
+          bootClaimedIncomingRef.current ?? auth.boot?.claimedIncoming ?? null,
+        sessionIncoming: lastSessionIncomingRef.current,
+      }),
+    [auth.boot?.claimedIncoming],
+  );
+
   const openReplyDeepLinkFast = useCallback(
-    (banId: string) => {
+    (banId: string, optionalPrefilledBan?: BanInteraction | null) => {
       if (replyDeeplinkFastOpenedRef.current) return false;
       if (incomingConsumedAfterAnswerRef.current.has(banId)) {
         console.log('[INCOMING REOPEN BLOCKED AFTER ANSWER]', { banId });
@@ -4043,41 +4065,87 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       console.log('[REPLY DEEPLINK FAST OPEN]', { banId });
       markVisibleOverboardTrace('[REPLY DEEPLINK FAST OPEN]', { banId });
 
-      const cacheHit = resolveReplyFastCachedBan({
-        banId,
-        viewerId,
-        dismissed: dismissedIncomingRef.current,
-        overlayQueue: overlayQueueRef.current,
-        incomingBan: incomingBanRef.current,
-        bufferedIncoming: bufferedIncomingRef.current,
-        bufferedReplyDeepLink: bufferedReplyDeepLinkRef.current,
-        pendingStartup: pendingStartupInteractionsRef.current,
-        activeBans: sessionActiveBansRef.current,
-        claimedIncoming:
-          bootClaimedIncomingRef.current ?? auth.boot?.claimedIncoming ?? null,
-        sessionIncoming: lastSessionIncomingRef.current,
-      });
+      const lookupCtx = buildReplyFastLookupCtx(banId, viewerId);
+      console.log('[REPLY PREFILL LOOKUP]', { banId });
+      markVisibleOverboardTrace('[REPLY PREFILL LOOKUP]', { banId });
+
+      let cacheHit: ReturnType<typeof resolveReplyFastCachedBan> = null;
+      if (
+        optionalPrefilledBan?.id === banId &&
+        hasReplyFastDisplayText(optionalPrefilledBan) &&
+        !isReplyDeeplinkShellBan(optionalPrefilledBan)
+      ) {
+        cacheHit = { ban: optionalPrefilledBan, source: 'caller-prefill' };
+      }
+      if (!cacheHit) {
+        cacheHit = resolveReplyFastCachedBan(lookupCtx);
+      }
+      if (!cacheHit) {
+        const prefill = resolveReplyPrefillBan(lookupCtx);
+        cacheHit = prefill.hit;
+        if (prefill.hit) {
+          const hasText = hasReplyFastDisplayText(prefill.hit.ban);
+          const hasSender = canReplyFastEnableButtons(prefill.hit.ban, viewerId);
+          console.log('[REPLY PREFILL HIT]', {
+            banId,
+            source: prefill.hit.source,
+            hasText,
+            hasSender,
+          });
+          markVisibleOverboardTrace('[REPLY PREFILL HIT]', {
+            banId,
+            source: prefill.hit.source,
+            hasText,
+            hasSender,
+          });
+        } else {
+          console.log('[REPLY PREFILL MISS]', {
+            banId,
+            reason: prefill.missReason,
+          });
+          markVisibleOverboardTrace('[REPLY PREFILL MISS]', {
+            banId,
+            reason: prefill.missReason,
+          });
+        }
+      } else {
+        const hasText = hasReplyFastDisplayText(cacheHit.ban);
+        const hasSender = canReplyFastEnableButtons(cacheHit.ban, viewerId);
+        console.log('[REPLY PREFILL HIT]', {
+          banId,
+          source: cacheHit.source,
+          hasText,
+          hasSender,
+        });
+        markVisibleOverboardTrace('[REPLY PREFILL HIT]', {
+          banId,
+          source: cacheHit.source,
+          hasText,
+          hasSender,
+        });
+        if (cacheHit.source !== 'caller-prefill') {
+          console.log('[REPLY FAST DATA CACHE HIT]', {
+            banId,
+            source: cacheHit.source,
+            textLen: cacheHit.ban.text?.length ?? 0,
+            senderId: cacheHit.ban.sender?.id ?? null,
+          });
+          markVisibleOverboardTrace('[REPLY FAST DATA CACHE HIT]', {
+            banId,
+            source: cacheHit.source,
+          });
+        }
+      }
+
+      if (!cacheHit) {
+        console.log('[REPLY FAST DATA CACHE MISS]', { banId });
+        markVisibleOverboardTrace('[REPLY FAST DATA CACHE MISS]', { banId });
+      }
 
       const openBan = cacheHit
         ? enrichBanInteraction(cacheHit.ban)
         : buildReplyDeeplinkShellBan(banId, viewerId);
       const usingPrefetch = cacheHit != null;
-
-      if (cacheHit) {
-        console.log('[REPLY FAST DATA CACHE HIT]', {
-          banId,
-          source: cacheHit.source,
-          textLen: openBan.text?.length ?? 0,
-          senderId: openBan.sender?.id ?? null,
-        });
-        markVisibleOverboardTrace('[REPLY FAST DATA CACHE HIT]', {
-          banId,
-          source: cacheHit.source,
-        });
-      } else {
-        console.log('[REPLY FAST DATA CACHE MISS]', { banId });
-        markVisibleOverboardTrace('[REPLY FAST DATA CACHE MISS]', { banId });
-      }
 
       replyDeeplinkFastOpenedRef.current = true;
       replyDeeplinkPendingBanIdRef.current = banId;
@@ -4140,6 +4208,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       markVisibleOverboardTrace('[REPLY FAST SHELL OPEN OK]', { banId });
 
       if (usingPrefetch) {
+        console.log('[INCOMING CARD OPENED WITH PREFILL]', {
+          banId,
+          source: cacheHit!.source,
+          textLen: openBan.text?.length ?? 0,
+          senderId: openBan.sender?.id ?? null,
+        });
+        markVisibleOverboardTrace('[INCOMING CARD OPENED WITH PREFILL]', {
+          banId,
+          source: cacheHit!.source,
+        });
         console.log('[INCOMING CARD OPENED WITH PREFETCHED DATA]', {
           banId,
           source: cacheHit!.source,
@@ -4176,15 +4254,74 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       applyReplyDeeplinkFastOverlay,
       auth.boot?.claimedIncoming,
       auth.loading,
+      buildReplyFastLookupCtx,
       scheduleReplyFastTimeout,
     ],
   );
 
   useLayoutEffect(() => {
     const banId = replyDeeplinkPendingBanIdRef.current;
+    const viewerId = auth.user?.id;
+    if (!banId || !viewerId || auth.loading || !auth.token) {
+      replyDeeplinkPrefillBanRef.current = null;
+      return;
+    }
+    if (incomingConsumedAfterAnswerRef.current.has(banId)) {
+      replyDeeplinkPrefillBanRef.current = null;
+      return;
+    }
+    const lookupCtx = buildReplyFastLookupCtx(banId, viewerId);
+    const strict = resolveReplyFastCachedBan(lookupCtx);
+    const prefill = strict ?? resolveReplyPrefillBan(lookupCtx).hit;
+    replyDeeplinkPrefillBanRef.current = prefill?.ban ?? null;
+
+    if (
+      prefill?.ban &&
+      replyDeeplinkFastOpenedRef.current &&
+      replyDeepLinkBanIdRef.current === banId &&
+      replyDeeplinkFastShellRef.current &&
+      !incomingConsumedAfterAnswerRef.current.has(banId)
+    ) {
+      const enriched = enrichBanInteraction(prefill.ban);
+      const hydratedInPlace = hydrateReplyDeeplinkIncomingBan(enriched);
+      if (hydratedInPlace) {
+        flushSync(() => {
+          setIncomingBan(enriched);
+          replyDeeplinkFastShellRef.current = false;
+          replyDeeplinkPrefetchRef.current = true;
+          setReplyDeeplinkFastShell(false);
+          setDeepLinkReplyBooting(false);
+          replyDeeplinkFastHydratedRef.current = true;
+        });
+        console.log('[INCOMING CARD OPENED WITH PREFILL]', {
+          banId,
+          source: prefill.source,
+          late: true,
+        });
+        markVisibleOverboardTrace('[INCOMING CARD OPENED WITH PREFILL]', {
+          banId,
+          source: prefill.source,
+          late: true,
+        });
+      }
+    }
+  }, [
+    auth.loading,
+    auth.token,
+    auth.user?.id,
+    auth.boot?.claimedIncoming,
+    buildReplyFastLookupCtx,
+    hydrateReplyDeeplinkIncomingBan,
+    overlayQueue.length,
+    incomingBan?.id,
+    sessionBootstrapped,
+  ]);
+
+  useLayoutEffect(() => {
+    const banId = replyDeeplinkPendingBanIdRef.current;
     if (!banId || replyDeeplinkFastOpenedRef.current) return;
     if (!auth.user?.id || auth.loading || !auth.token) return;
-    openReplyDeepLinkFast(banId);
+    openReplyDeepLinkFast(banId, replyDeeplinkPrefillBanRef.current);
   }, [
     auth.loading,
     auth.token,

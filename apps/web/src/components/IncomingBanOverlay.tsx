@@ -128,6 +128,12 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     ) {
       setVerifiedBan(incomingBan);
       setVerifyPhase('ok');
+      console.log('[INCOMING CARD OPENED WITH PREFILL]', {
+        banId: incomingBan.id,
+        source: 'overlay-ui',
+        textLen: incomingBan.text?.length ?? 0,
+        senderId: incomingBan.sender?.id ?? null,
+      });
       console.log('[INCOMING CARD OPENED WITH PREFETCHED DATA]', {
         banId: incomingBan.id,
         source: 'overlay-ui',
