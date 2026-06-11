@@ -638,6 +638,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
   const openLobbyRef = useRef<(source?: string) => void>(() => {});
   const resultCtaBansOverlayOpenRef = useRef(false);
+  const openBansOverlayRequestRef = useRef(0);
 
   const isDirectOverboardLocallyActive = useCallback(() => {
     return (
@@ -903,6 +904,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     } else {
       setIncomingBan(active?.kind === 'incoming' ? active.ban : null);
       setCheckBan(active?.kind === 'check' ? active.ban : null);
+    }
+
+    const shouldSkipResultQueueSync =
+      bansCtaQueueSuppressRef.current ||
+      bansNavStateRef.current.origin === 'result-cta' ||
+      resultCtaBansOverlayOpenRef.current;
+
+    if (shouldSkipResultQueueSync) {
+      console.log('[QUEUE SYNC SKIPPED] reason=result-cta-bans-open', {
+        bansCtaSuppress: bansCtaQueueSuppressRef.current,
+        navOrigin: bansNavStateRef.current.origin,
+        resultCtaBansOverlayOpen: resultCtaBansOverlayOpenRef.current,
+        headKind: active?.kind ?? null,
+      });
+      markVisibleOverboardTrace('[QUEUE SYNC SKIPPED]', {
+        reason: 'result-cta-bans-open',
+        headKind: active?.kind ?? null,
+      });
+      return;
     }
 
     if (active?.kind === 'result') {
@@ -5080,6 +5100,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         returnTarget: 'lobby',
       };
 
+      if (banId) {
+        const prevQueue = overlayQueueRef.current;
+        let nextQueue: QueuedOverlay[];
+        if (
+          prevQueue[0]?.kind === 'result' &&
+          prevQueue[0].result.id === banId
+        ) {
+          nextQueue = popOverlayHead(prevQueue);
+        } else {
+          nextQueue = prevQueue.filter(
+            (q) => !(q.kind === 'result' && q.result.id === banId),
+          );
+        }
+        if (nextQueue.length !== prevQueue.length) {
+          overlayQueueRef.current = nextQueue;
+          setOverlayQueue(nextQueue);
+        }
+      }
+
       let nextBansRequest = 0;
       const gateBefore = snapshotDirectOverboardGate();
 
@@ -5090,6 +5129,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         lobbyOpenRef.current = false;
         setOpenBansOverlayRequest((n) => {
           nextBansRequest = n + 1;
+          openBansOverlayRequestRef.current = n + 1;
           return nextBansRequest;
         });
         setResultCtaBansOverlayOpen(true);
@@ -5121,21 +5161,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         },
       });
 
-      const queueHead = overlayQueueRef.current[0];
-      if (
-        banId &&
-        queueHead?.kind === 'result' &&
-        queueHead.result.id === banId
-      ) {
-        dismissCurrentOverlay('result-cta-open-bans-pop');
-      }
     },
     [
       applyDirectOverboardCloseState,
       clearDeepLinkReplyBan,
       clearIncomingReply,
       closeSendFlow,
-      dismissCurrentOverlay,
       snapshotDirectOverboardGate,
     ],
   );
@@ -5181,7 +5212,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     bansReturnToLobbyLatchRef.current = true;
 
     console.log('[LOBBY OPEN]', {
-      source: 'completeBansOverlayCloseFromResultCta',
+      source: 'bans-close-result-cta',
       lobbyOpenBefore: lobbyOpenRef.current,
     });
     flushSync(() => {
@@ -5191,7 +5222,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
     console.log('[LOBBY OPEN DONE]', {
       lobbyOpen: lobbyOpenRef.current,
-      source: 'completeBansOverlayCloseFromResultCta',
+      source: 'bans-close-result-cta',
     });
 
     const head = overlayQueueRef.current[0];
@@ -5202,10 +5233,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
     }
 
-    resetBansNavState();
-
     const wasBansCta = bansCtaQueueSuppress;
     queueMicrotask(() => {
+      resetBansNavState();
       if (wasBansCta) {
         clearBansCtaQueueSuppress();
       }
@@ -5240,6 +5270,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     completeBansOverlayCloseFromResultCta,
     requestOpenBansFromResultCta,
   ]);
+
+  useEffect(() => {
+    openBansOverlayRequestRef.current = openBansOverlayRequest;
+  }, [openBansOverlayRequest]);
 
   useEffect(() => {
     bansCtaQueueSuppressRef.current = bansCtaQueueSuppress;
