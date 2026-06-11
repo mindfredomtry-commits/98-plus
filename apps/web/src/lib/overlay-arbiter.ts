@@ -119,16 +119,17 @@ export function evaluateOverlayEnqueue(
     return { accept: false, reason: 'blocked-by-deeplink' };
   }
 
-  if (ctx.shownOverlayKeys.has(key)) {
-    return { accept: false, reason: 'dedup-skip' };
-  }
-
   if (isOverlayDismissedLocally(item, ctx)) {
     return { accept: false, reason: 'dedup-skip' };
   }
 
+  /** Active queue slot may refresh in place (e.g. reply deeplink shell → /open hydrate). */
   if (ctx.queueKeys.has(key) || ctx.pendingKeys.has(key)) {
     return { accept: true, reason: 'refresh' };
+  }
+
+  if (ctx.shownOverlayKeys.has(key)) {
+    return { accept: false, reason: 'dedup-skip' };
   }
 
   const wsFresh = ctx.source === 'ws';

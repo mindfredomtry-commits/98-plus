@@ -3707,6 +3707,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [clearReplyDeeplinkFastTimeout, dismissCurrentOverlay, replyDeepLinkBanId],
   );
 
+  const hydrateReplyDeeplinkIncomingBan = useCallback(
+    (enriched: BanInteraction): boolean => {
+      const prev = overlayQueueRef.current;
+      const idx = prev.findIndex(
+        (q) => q.kind === 'incoming' && q.ban.id === enriched.id,
+      );
+      if (idx < 0) return false;
+      const next = [...prev];
+      next[idx] = { kind: 'incoming', ban: enriched };
+      applyOverlayQueue(next);
+      return true;
+    },
+    [applyOverlayQueue],
+  );
+
   const openReplyDeepLinkFast = useCallback(
     (banId: string) => {
       if (replyDeeplinkFastOpenedRef.current) return false;
@@ -3845,17 +3860,50 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setLobbyOpen(false);
       lobbyOpenRef.current = false;
       challengeLog('incoming:reply-deeplink', { id: b.id, status: b.status });
-      enqueueNotification(
-        { kind: 'incoming', ban: enriched },
-        { live: true, source: 'deeplink' },
-      );
+
+      let hydratedInPlace = false;
       if (wasShell) {
+        hydratedInPlace = hydrateReplyDeeplinkIncomingBan(enriched);
+        if (!hydratedInPlace) {
+          enqueueNotification(
+            { kind: 'incoming', ban: enriched },
+            { live: true, source: 'deeplink' },
+          );
+        }
         clearReplyDeeplinkFastTimeout();
-        replyDeeplinkFastShellRef.current = false;
-        setReplyDeeplinkFastShell(false);
-        setDeepLinkReplyBooting(false);
-        console.log('[INCOMING CARD DATA READY]', { banId: b.id });
-        markVisibleOverboardTrace('[INCOMING CARD DATA READY]', { banId: b.id });
+        flushSync(() => {
+          replyDeeplinkFastShellRef.current = false;
+          setReplyDeeplinkFastShell(false);
+          setDeepLinkReplyBooting(false);
+        });
+        const headBan = overlayQueueRef.current[0];
+        console.log('[INCOMING CARD DATA READY]', {
+          banId: b.id,
+          hydratedInPlace,
+          selectedBanId: replyDeepLinkBanId ?? b.id,
+          queueHeadKind: headBan?.kind ?? null,
+          queueHeadText: headBan?.kind === 'incoming' ? headBan.ban.text : null,
+        });
+        markVisibleOverboardTrace('[INCOMING CARD DATA READY]', {
+          banId: b.id,
+          hydratedInPlace,
+        });
+        console.log('[INCOMING CARD HYDRATED]', {
+          banId: b.id,
+          hydratedInPlace,
+          incomingGateWillBe: true,
+          senderId: enriched.sender?.id ?? null,
+          textLen: enriched.text?.length ?? 0,
+        });
+        markVisibleOverboardTrace('[INCOMING CARD HYDRATED]', {
+          banId: b.id,
+          hydratedInPlace,
+        });
+      } else {
+        enqueueNotification(
+          { kind: 'incoming', ban: enriched },
+          { live: true, source: 'deeplink' },
+        );
       }
       logReplyFlow('incoming-visible', {
         banId: b.id,
@@ -3864,6 +3912,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         selectedBanId: b.id,
         lobbyOpen: false,
         hydratedFromShell: wasShell,
+        hydratedInPlace,
       });
       console.log('[reply-deeplink]', { banId: b.id, queued: 'incoming-overlay' });
       logDeepLinkHandlerResult({
@@ -3877,7 +3926,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         reason: 'incoming-overlay',
       });
     },
-    [abortReplyDeepLinkFast, auth.loading, clearReplyDeeplinkFastTimeout, enqueueNotification],
+    [
+      abortReplyDeepLinkFast,
+      auth.loading,
+      clearReplyDeeplinkFastTimeout,
+      enqueueNotification,
+      hydrateReplyDeeplinkIncomingBan,
+      replyDeepLinkBanId,
+    ],
   );
 
   useEffect(

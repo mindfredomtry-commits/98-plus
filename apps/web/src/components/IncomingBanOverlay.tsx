@@ -68,6 +68,8 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
   const [verifyPhase, setVerifyPhase] = useState<VerifyPhase>('idle');
   const verifyGenRef = useRef(0);
   const overboardClickLockRef = useRef(false);
+  const replyShellBanIdRef = useRef<string | null>(null);
+  const blockingLayerLoggedRef = useRef(false);
 
   const viewerId = user?.id ?? null;
 
@@ -102,6 +104,8 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     }
 
     if (isReplyDeeplinkShell) {
+      replyShellBanIdRef.current = incomingBan.id;
+      blockingLayerLoggedRef.current = false;
       console.log('[incoming-overlay]', {
         event: 'reply-deeplink-shell',
         banId: incomingBan.id,
@@ -110,6 +114,28 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
       setVerifiedBan(null);
       setVerifyPhase('pending');
       return;
+    }
+
+    if (
+      replyShellBanIdRef.current &&
+      incomingBan.id === replyShellBanIdRef.current
+    ) {
+      replyShellBanIdRef.current = null;
+      setVerifiedBan(incomingBan);
+      setVerifyPhase('ok');
+      console.log('[INCOMING CARD HYDRATED]', {
+        banId: incomingBan.id,
+        source: 'overlay-ui',
+        textLen: incomingBan.text?.length ?? 0,
+        senderId: incomingBan.sender?.id ?? null,
+      });
+      const unbindBack = bindBack(() => {
+        if (incomingBan.status === 'pending') return;
+        void acknowledgeIncomingSeen(incomingBan.id);
+      }, true);
+      return () => {
+        unbindBack?.();
+      };
     }
 
     console.log('[incoming-overlay]', {
@@ -206,7 +232,42 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     );
   }, [displayBan?.sender]);
 
+  const isQueueHead = activeOverlayKind === 'incoming';
+  const shouldShow = incomingBan
+    ? isQueueHead ||
+      shouldShowIncomingBanModal(incomingBan, viewerId, new Set())
+    : false;
+
+  const canAct =
+    !!displayBan?.sender?.id &&
+    displayBan.sender.id !== REPLY_DEEPLINK_SHELL_SENDER_ID;
+  const buttonsEnabled =
+    !isReplyDeeplinkShell && verifyPhase !== 'failed' && !!incomingBan?.id;
+  const counterEnabled = buttonsEnabled && canAct;
+  const overboardEnabled = buttonsEnabled;
+
+  const logClickTest = useCallback(
+    (action: 'counter' | 'overboard') => {
+      console.log('[INCOMING CARD CLICK TEST]', {
+        banId: incomingBan?.id ?? null,
+        action,
+        buttonsEnabled,
+        counterEnabled,
+        overboardEnabled,
+        verifyPhase,
+      });
+    },
+    [
+      incomingBan?.id,
+      buttonsEnabled,
+      counterEnabled,
+      overboardEnabled,
+      verifyPhase,
+    ],
+  );
+
   const handleCounter = useCallback(() => {
+    logClickTest('counter');
     const actBan = verifiedBan ?? resolvedIncoming ?? incomingBan;
     if (!actBan?.id || !actBan.sender?.id || actionLoading) return;
     markOverlayUserAction('incoming', actBan.id);
@@ -222,9 +283,11 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     actionLoading,
     markOverlayUserAction,
     acknowledgeIncomingAndStartReply,
+    logClickTest,
   ]);
 
   const handleOverboard = useCallback(() => {
+    logClickTest('overboard');
     const actBan = verifiedBan ?? resolvedIncoming ?? incomingBan;
     if (!actBan?.id || actionLoading || overboardClickLockRef.current) {
       logResultPath('local-overboard-click', 'path-skip', {
@@ -293,21 +356,8 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     runIncomingOverboardApi,
     verifyPhase,
     verifiedBan?.id,
+    logClickTest,
   ]);
-
-  const isQueueHead = activeOverlayKind === 'incoming';
-  const shouldShow = incomingBan
-    ? isQueueHead ||
-      shouldShowIncomingBanModal(incomingBan, viewerId, new Set())
-    : false;
-
-  const canAct =
-    !!displayBan?.sender?.id &&
-    displayBan.sender.id !== REPLY_DEEPLINK_SHELL_SENDER_ID;
-  const buttonsEnabled =
-    !isReplyDeeplinkShell && verifyPhase !== 'failed' && !!incomingBan?.id;
-  const counterEnabled = buttonsEnabled && canAct;
-  const overboardEnabled = buttonsEnabled;
 
   useLayoutEffect(() => {
     if (!incomingBan?.id || !shouldShow || verifyPhase === 'failed') return;
@@ -318,6 +368,75 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     verifyPhase,
     buttonsEnabled,
     reportOverlayRendered,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!incomingBan?.id || isReplyDeeplinkShell || !shouldShow) return;
+    if (typeof document === 'undefined') return;
+
+    const card =
+      document.querySelector('.modal-card--incoming') ??
+      document.querySelector('.incoming-modal-body');
+    if (!card) return;
+
+    const rect = card.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.bottom - 72;
+    const stack = document.elementsFromPoint(cx, cy);
+    const top = stack[0] ?? null;
+    const hitCard = top != null && card.contains(top);
+
+    if (hitCard) {
+      if (blockingLayerLoggedRef.current) {
+        console.log('[BLOCKING LAYER REMOVED]', {
+          banId: incomingBan.id,
+          topTag: top?.tagName ?? null,
+        });
+        blockingLayerLoggedRef.current = false;
+      }
+      console.log('[INCOMING CARD CLICK TEST]', {
+        banId: incomingBan.id,
+        ok: true,
+        buttonsEnabled,
+        verifyPhase,
+        topTag: top?.tagName ?? null,
+        topClass:
+          top instanceof HTMLElement ? top.className.slice(0, 80) : null,
+      });
+      return;
+    }
+
+    if (!blockingLayerLoggedRef.current) {
+      blockingLayerLoggedRef.current = true;
+      console.log('[BLOCKING LAYER FOUND]', {
+        banId: incomingBan.id,
+        buttonsEnabled,
+        verifyPhase,
+        topTag: top?.tagName ?? null,
+        topClass:
+          top instanceof HTMLElement ? top.className.slice(0, 120) : null,
+        topPointerEvents:
+          top instanceof HTMLElement
+            ? getComputedStyle(top).pointerEvents
+            : null,
+        topOpacity:
+          top instanceof HTMLElement ? getComputedStyle(top).opacity : null,
+        topVisibility:
+          top instanceof HTMLElement ? getComputedStyle(top).visibility : null,
+        stackPreview: stack.slice(0, 6).map((el) => ({
+          tag: el.tagName,
+          class:
+            el instanceof HTMLElement ? el.className.slice(0, 60) : '',
+        })),
+      });
+    }
+  }, [
+    incomingBan?.id,
+    incomingBan?.text,
+    isReplyDeeplinkShell,
+    shouldShow,
+    buttonsEnabled,
+    verifyPhase,
   ]);
 
   if (incomingBan?.id) {
