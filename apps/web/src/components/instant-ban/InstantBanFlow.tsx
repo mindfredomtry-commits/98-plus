@@ -10,6 +10,7 @@ import {
   useState,
   type CSSProperties,
 } from 'react';
+import { flushSync } from 'react-dom';
 import {
   coerceFriendList,
   findFriendByUsername,
@@ -260,6 +261,7 @@ export function InstantBanFlow({
     incomingGateActive,
     checkGateActive,
     notificationSessionActive,
+    activeOverlayKind,
     result,
     sendFlowOpen,
     overlayQueueLength,
@@ -371,11 +373,14 @@ export function InstantBanFlow({
     incomingGateActive ||
     checkGateActive ||
     !!result;
+  const bansLayerUiOpen =
+    !bansReturnToLobbyLatch &&
+    (bansOverlayOpen || bansCtaQueueSuppress || resultCtaBansOverlayOpen);
   const orbOverlayDim =
     crossScreenProgress > 0.02 ||
     phase === 'composingBan' ||
-    bansOverlayOpen ||
-    notificationOverlayActive;
+    bansLayerUiOpen ||
+    (notificationOverlayActive && !bansReturnToLobbyLatch);
   /** Horizontal pager only on Who — no finger swipe What → Who. */
   const crossScreenDragEnabled =
     selectedUser != null && phase === 'selectingTarget';
@@ -822,11 +827,7 @@ export function InstantBanFlow({
 
   const notificationQueueUiLock =
     notificationSessionActive || notificationOverlayActive;
-  /** Latch flags only — openBansOverlayRequest is a monotonic tick, not open state. */
-  const bansOpenFromResultCta =
-    bansCtaQueueSuppress || resultCtaBansOverlayOpen;
-  const effectiveBansOverlayOpen =
-    bansOverlayOpen || bansOpenFromResultCta;
+  const effectiveBansOverlayOpen = bansLayerUiOpen;
   const showLobbyTopNav =
     phase === 'idle' &&
     !banSentSuccess &&
@@ -837,8 +838,7 @@ export function InstantBanFlow({
     effectiveBansOverlayOpen &&
     (bansCtaQueueSuppress ||
       resultCtaBansOverlayOpen ||
-      (phase === 'idle' &&
-        (!notificationQueueUiLock || bansReturnToLobbyLatch)));
+      (phase === 'idle' && !notificationQueueUiLock));
 
   useEffect(() => {
     console.log('[LOBBY NAV STATE]', {
@@ -1335,21 +1335,89 @@ export function InstantBanFlow({
   const handleOpenBansFromResultCtaRef = useRef(handleOpenBansFromResultCta);
   handleOpenBansFromResultCtaRef.current = handleOpenBansFromResultCta;
 
+  const scheduleLobbyVisibilityCheck = useCallback(
+    (source: string) => {
+      const runCheck = () => {
+        const lobbyCta = document.querySelector('.instant-ban-lobby-cta');
+        const orbRoot = document.querySelector('[data-orb-root]');
+        const lobbyEl = lobbyCta ?? orbRoot;
+        const lobbyStyle = lobbyEl ? getComputedStyle(lobbyEl) : null;
+        const lobbyRect = lobbyEl?.getBoundingClientRect();
+        const check = {
+          lobbyOpen,
+          instantBanOpen: sendStarted,
+          sendStarted,
+          sendFlowOpen,
+          phase,
+          bansOverlayOpen: bansOverlayOpenRef.current,
+          showBansLayer: showBansLayerRef.current,
+          effectiveBansOverlayOpen: effectiveBansOverlayOpenRef.current,
+          resultCtaBansOverlayOpen,
+          bansCtaQueueSuppress,
+          bansReturnToLobbyLatch,
+          notificationQueueUiLock:
+            notificationSessionActive || notificationOverlayActive,
+          directActive: notificationSessionActive,
+          activeOverlayKind,
+          ctaState,
+          lobbyElementFound: lobbyEl != null,
+          lobbyDisplay: lobbyStyle?.display ?? null,
+          lobbyVisibility: lobbyStyle?.visibility ?? null,
+          lobbyOpacity: lobbyStyle?.opacity ?? null,
+          lobbyRect: lobbyRect
+            ? {
+                top: lobbyRect.top,
+                left: lobbyRect.left,
+                width: lobbyRect.width,
+                height: lobbyRect.height,
+              }
+            : null,
+          source,
+        };
+        console.log('[LOBBY VISIBILITY CHECK]', check);
+        markVisibleOverboardTrace('[LOBBY VISIBILITY CHECK]', check);
+      };
+      requestAnimationFrame(() => {
+        requestAnimationFrame(runCheck);
+      });
+    },
+    [
+      activeOverlayKind,
+      bansCtaQueueSuppress,
+      bansReturnToLobbyLatch,
+      ctaState,
+      lobbyOpen,
+      notificationOverlayActive,
+      notificationSessionActive,
+      phase,
+      resultCtaBansOverlayOpen,
+      sendFlowOpen,
+      sendStarted,
+    ],
+  );
+
   const handleCloseBansOverlay = useCallback(
     (source = 'back-arrow') => {
       console.log('[BANS CLOSE]', { source });
       markVisibleOverboardTrace('[BANS CLOSE]', { source });
 
-      setBansOverlayOpen(false);
-      setSelectedBanForDetails(null);
-
       const returnedToLobby = completeBansOverlayCloseFromResultCta(source);
       if (returnedToLobby) {
-        resetSendUiForBansCta();
+        flushSync(() => {
+          setBansOverlayOpen(false);
+          setSelectedBanForDetails(null);
+          resetSendUiForBansCta();
+          setCtaState('entering');
+        });
+        clearCtaEnterTimer();
+        scheduleCtaBecomeVisible();
         closeSendFlow();
-        beginCtaSpringIn();
+        scheduleLobbyVisibilityCheck(source);
         return;
       }
+
+      setBansOverlayOpen(false);
+      setSelectedBanForDetails(null);
 
       const wasBansCta = bansCtaQueueSuppress;
       if (wasBansCta) {
@@ -1362,14 +1430,17 @@ export function InstantBanFlow({
       }
     },
     [
-    bansCtaQueueSuppress,
-    beginCtaSpringIn,
-    clearBansCtaQueueSuppress,
-    closeSendFlow,
-    completeBansOverlayCloseFromResultCta,
-    resetSendUiForBansCta,
-    unlockNotificationQueueAndFlush,
-  ]);
+      bansCtaQueueSuppress,
+      clearBansCtaQueueSuppress,
+      clearCtaEnterTimer,
+      closeSendFlow,
+      completeBansOverlayCloseFromResultCta,
+      resetSendUiForBansCta,
+      scheduleCtaBecomeVisible,
+      scheduleLobbyVisibilityCheck,
+      unlockNotificationQueueAndFlush,
+    ],
+  );
 
   useLayoutEffect(() => {
     handleCloseBansOverlayRef.current = handleCloseBansOverlay;
@@ -2651,7 +2722,11 @@ export function InstantBanFlow({
       data-bans-overlay-open={effectiveBansOverlayOpen ? '' : undefined}
       data-bans-cta-session={bansCtaQueueSuppress ? '' : undefined}
       data-notification-session={
-        notificationSessionActive && !bansCtaQueueSuppress ? '' : undefined
+        notificationSessionActive &&
+        !bansCtaQueueSuppress &&
+        !bansReturnToLobbyLatch
+          ? ''
+          : undefined
       }
       data-debug-slow-orb={process.env.NODE_ENV === 'development' ? '' : undefined}
     >

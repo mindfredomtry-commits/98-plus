@@ -908,6 +908,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
     const shouldSkipResultQueueSync =
       bansCtaQueueSuppressRef.current ||
+      bansReturnToLobbyLatchRef.current ||
       bansNavStateRef.current.origin === 'result-cta' ||
       resultCtaBansOverlayOpenRef.current;
 
@@ -1065,6 +1066,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         resultOpenRef.current = true;
       }
     } else if (!directResultOverlayRef.current) {
+      const returningFromResultCtaBans =
+        bansReturnToLobbyLatchRef.current ||
+        (bansNavStateRef.current.origin === 'result-cta' &&
+          bansNavStateRef.current.returnTarget === 'lobby');
+      if (returningFromResultCtaBans) {
+        console.log('[QUEUE SYNC SKIPPED] reason=result-cta-return-lobby', {
+          headKind: active?.kind ?? null,
+          bansReturnLatch: bansReturnToLobbyLatchRef.current,
+          navOrigin: bansNavStateRef.current.origin,
+        });
+        markVisibleOverboardTrace('[QUEUE SYNC SKIPPED]', {
+          reason: 'result-cta-return-lobby',
+          headKind: active?.kind ?? null,
+        });
+      } else {
       resultOpenRef.current = false;
       logResultPath('syncDisplayFromQueue', 'state-cleared', {
         banId:
@@ -1088,6 +1104,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           hasResult: false,
         },
       });
+      }
     } else {
       resultOpenRef.current = true;
     }

@@ -65,7 +65,7 @@ const DebugPanel = dynamic(
 );
 
 /** Bump when diagnosing shell / deploy mismatches. */
-const APP_SHELL_BUILD = 'arena-v2@overboard-diag-v25';
+const APP_SHELL_BUILD = 'arena-v2@overboard-diag-v26';
 
 export default function HomePage() {
   const {
@@ -333,6 +333,12 @@ export default function HomePage() {
     setInstantBanOpen(false);
     closeSendFlow();
   }, [openBansOverlayRequest, closeSendFlow]);
+
+  useLayoutEffect(() => {
+    if (!bansReturnToLobbyLatch) return;
+    setInstantBanOpen(false);
+    closeSendFlow();
+  }, [bansReturnToLobbyLatch, closeSendFlow]);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== 'development') return;
