@@ -207,6 +207,8 @@ import {
   buildReplyPrefillLookup,
   resolveReplyFastCachedBan,
   resolveReplyPrefillBan,
+  diagnoseReplyPrefillSources,
+  buildReplyPrefillMissDetail,
   canReplyFastEnableButtons,
   hasReplyFastDisplayText,
   isReplyDeeplinkShellBan,
@@ -4099,6 +4101,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             hasSender,
           });
         } else {
+          const sourceChecks = diagnoseReplyPrefillSources(lookupCtx);
+          for (const check of sourceChecks) {
+            console.log('[REPLY PREFILL SOURCE CHECK]', {
+              source: check.source,
+              count: check.count,
+              matched: check.matched,
+              hasText: check.hasText,
+              hasSender: check.hasSender,
+              failReason: check.failReason,
+              sampleKeys: check.sampleKeys,
+            });
+            markVisibleOverboardTrace('[REPLY PREFILL SOURCE CHECK]', {
+              source: check.source,
+              count: check.count,
+              matched: check.matched,
+              hasText: check.hasText,
+              hasSender: check.hasSender,
+              failReason: check.failReason,
+              sampleKeys: check.sampleKeys,
+            });
+          }
+          const missDetailReason = buildReplyPrefillMissDetail(
+            banId,
+            sourceChecks,
+          );
           console.log('[REPLY PREFILL MISS]', {
             banId,
             reason: prefill.missReason,
@@ -4106,6 +4133,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           markVisibleOverboardTrace('[REPLY PREFILL MISS]', {
             banId,
             reason: prefill.missReason,
+          });
+          console.log('[REPLY PREFILL MISS DETAIL]', {
+            banId,
+            reason: missDetailReason,
+          });
+          markVisibleOverboardTrace('[REPLY PREFILL MISS DETAIL]', {
+            banId,
+            reason: missDetailReason,
           });
         }
       } else {

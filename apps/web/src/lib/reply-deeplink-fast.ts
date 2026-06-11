@@ -188,6 +188,173 @@ export function buildReplyPrefillLookup(
   };
 }
 
+export type ReplyPrefillSourceCheck = {
+  source: string;
+  count: number;
+  matched: boolean;
+  hasText: boolean;
+  hasSender: boolean;
+  sampleKeys: string[];
+  failReason: string;
+};
+
+function sampleBanKeys(ban: BanInteraction | null | undefined): string[] {
+  if (!ban) return [];
+  return Object.keys(ban).slice(0, 16);
+}
+
+function inspectBanForPrefill(
+  ban: BanInteraction | null | undefined,
+  ctx: ReplyFastCacheLookup,
+): Pick<
+  ReplyPrefillSourceCheck,
+  'matched' | 'hasText' | 'hasSender' | 'sampleKeys' | 'failReason'
+> {
+  if (!ban) {
+    return {
+      matched: false,
+      hasText: false,
+      hasSender: false,
+      sampleKeys: [],
+      failReason: 'empty',
+    };
+  }
+  const sampleKeys = sampleBanKeys(ban);
+  if (!ban.id) {
+    return {
+      matched: false,
+      hasText: false,
+      hasSender: false,
+      sampleKeys,
+      failReason: 'no-id',
+    };
+  }
+  if (ban.id !== ctx.banId) {
+    return {
+      matched: false,
+      hasText: hasReplyFastDisplayText(ban),
+      hasSender: canReplyFastEnableButtons(ban, ctx.viewerId),
+      sampleKeys,
+      failReason: 'banId-mismatch',
+    };
+  }
+  if (isReplyDeeplinkShellBan(ban)) {
+    return {
+      matched: true,
+      hasText: false,
+      hasSender: false,
+      sampleKeys,
+      failReason: 'shell-ban',
+    };
+  }
+  if (ctx.dismissed.has(ban.id)) {
+    return {
+      matched: true,
+      hasText: hasReplyFastDisplayText(ban),
+      hasSender: canReplyFastEnableButtons(ban, ctx.viewerId),
+      sampleKeys,
+      failReason: 'dismissed',
+    };
+  }
+  if (!hasReplyFastDisplayText(ban)) {
+    return {
+      matched: true,
+      hasText: false,
+      hasSender: canReplyFastEnableButtons(ban, ctx.viewerId),
+      sampleKeys,
+      failReason: 'no-text',
+    };
+  }
+  if (ban.receiver?.id && ban.receiver.id !== ctx.viewerId) {
+    return {
+      matched: true,
+      hasText: true,
+      hasSender: false,
+      sampleKeys,
+      failReason: 'receiver-mismatch',
+    };
+  }
+  return {
+    matched: true,
+    hasText: true,
+    hasSender: canReplyFastEnableButtons(ban, ctx.viewerId),
+    sampleKeys,
+    failReason: 'ok',
+  };
+}
+
+function diagnoseListSource(
+  source: string,
+  bans: readonly BanInteraction[],
+  ctx: ReplyFastCacheLookup,
+): ReplyPrefillSourceCheck {
+  const count = bans.length;
+  const matchedBan = bans.find((b) => b?.id === ctx.banId) ?? null;
+  const inspect = inspectBanForPrefill(matchedBan ?? bans[0] ?? null, ctx);
+  return {
+    source,
+    count,
+    matched: matchedBan != null,
+    hasText: matchedBan ? hasReplyFastDisplayText(matchedBan) : false,
+    hasSender: matchedBan
+      ? canReplyFastEnableButtons(matchedBan, ctx.viewerId)
+      : false,
+    sampleKeys: inspect.sampleKeys,
+    failReason:
+      count === 0 ? 'empty' : matchedBan ? inspect.failReason : 'banId-mismatch',
+  };
+}
+
+function diagnoseSingleSource(
+  source: string,
+  ban: BanInteraction | null,
+  ctx: ReplyFastCacheLookup,
+): ReplyPrefillSourceCheck {
+  const inspect = inspectBanForPrefill(ban, ctx);
+  return {
+    source,
+    count: ban ? 1 : 0,
+    matched: inspect.matched,
+    hasText: ban ? hasReplyFastDisplayText(ban) : false,
+    hasSender: ban ? canReplyFastEnableButtons(ban, ctx.viewerId) : false,
+    sampleKeys: inspect.sampleKeys,
+    failReason: inspect.failReason,
+  };
+}
+
+/** Read-only diagnostics for [REPLY PREFILL MISS] — no lookup behavior change. */
+export function diagnoseReplyPrefillSources(
+  ctx: ReplyFastCacheLookup,
+): ReplyPrefillSourceCheck[] {
+  const overlayIncoming = ctx.overlayQueue
+    .filter((q) => q.kind === 'incoming')
+    .map((q) => q.ban);
+  const pendingIncoming = ctx.pendingStartup
+    .filter((q) => q.kind === 'incoming')
+    .map((q) => q.ban);
+
+  return [
+    diagnoseListSource('overlayQueue', overlayIncoming, ctx),
+    diagnoseSingleSource('incomingBan', ctx.incomingBan, ctx),
+    diagnoseSingleSource('bufferedIncoming', ctx.bufferedIncoming, ctx),
+    diagnoseSingleSource('bufferedReplyDeepLink', ctx.bufferedReplyDeepLink, ctx),
+    diagnoseListSource('pendingStartup', pendingIncoming, ctx),
+    diagnoseSingleSource('lastSessionIncomingRef', ctx.sessionIncoming, ctx),
+    diagnoseSingleSource('auth.boot.claimedIncoming', ctx.claimedIncoming, ctx),
+    diagnoseListSource('activeBans', ctx.activeBans, ctx),
+  ];
+}
+
+export function buildReplyPrefillMissDetail(
+  banId: string,
+  checks: readonly ReplyPrefillSourceCheck[],
+): string {
+  const sourceSummary = checks
+    .map((c) => `${c.source}(${c.failReason})`)
+    .join(', ');
+  return `no-local-ban-with-text; banId=${banId}; sources: ${sourceSummary}`;
+}
+
 export function buildReplyDeeplinkShellBan(
   banId: string,
   viewerId: string,
