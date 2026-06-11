@@ -35,6 +35,7 @@ import {
 } from '@/lib/instant-ban-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { logDeepLinkHandlerResult } from '@/lib/deep-link-boot-debug';
+import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
 import { logReplyFlow, logReplyFlowLoopGuard } from '@/lib/reply-handoff-debug';
 import { logActiveBanDeeplink } from '@/lib/active-ban-deeplink-debug';
 import {
@@ -233,6 +234,8 @@ export function InstantBanFlow({
     activeBans,
     newBanWhoFlowRequest,
     openBansOverlayRequest,
+    resultCtaBansOverlayOpen,
+    clearResultCtaBansOverlayOpen,
     bansCtaQueueSuppress,
     clearBansCtaQueueSuppress,
     bansNavState,
@@ -240,8 +243,6 @@ export function InstantBanFlow({
     bansReturnToLobbyLatch,
     setBansReturnToLobbyLatch,
     completeBansOverlayCloseFromResultCta,
-    registerOpenBansFromResultCtaHandler,
-    registerBeginCtaSpringInHandler,
     lobbyOpen,
     deepLinkRepeatBan,
     clearDeepLinkRepeatBan,
@@ -1623,19 +1624,28 @@ export function InstantBanFlow({
   }, [newBanWhoFlowRequest, beginNewBanWhoFlow]);
 
   const lastOpenBansOverlayRequestRef = useRef(0);
+
+  const openBansFromResultCtaProviderRequest = useCallback(() => {
+    const ok = handleOpenBansFromResultCtaRef.current();
+    console.log('[BANS OVERLAY OPENED]', {
+      ok,
+      source: 'provider-resultCtaBansOverlayOpen',
+    });
+    markVisibleOverboardTrace('[BANS OVERLAY OPENED]', {
+      ok,
+      source: 'provider-resultCtaBansOverlayOpen',
+    });
+    return ok;
+  }, []);
+
   useLayoutEffect(() => {
-    registerOpenBansFromResultCtaHandler(() =>
-      handleOpenBansFromResultCtaRef.current(),
-    );
-    registerBeginCtaSpringInHandler(beginCtaSpringIn);
-    return () => {
-      registerOpenBansFromResultCtaHandler(null);
-      registerBeginCtaSpringInHandler(null);
-    };
+    if (!resultCtaBansOverlayOpen) return;
+    openBansFromResultCtaProviderRequest();
+    clearResultCtaBansOverlayOpen();
   }, [
-    beginCtaSpringIn,
-    registerBeginCtaSpringInHandler,
-    registerOpenBansFromResultCtaHandler,
+    clearResultCtaBansOverlayOpen,
+    openBansFromResultCtaProviderRequest,
+    resultCtaBansOverlayOpen,
   ]);
 
   useLayoutEffect(() => {
@@ -1644,8 +1654,8 @@ export function InstantBanFlow({
       return;
     }
     lastOpenBansOverlayRequestRef.current = openBansOverlayRequest;
-    handleOpenBansFromResultCta();
-  }, [openBansOverlayRequest, handleOpenBansFromResultCta]);
+    openBansFromResultCtaProviderRequest();
+  }, [openBansOverlayRequest, openBansFromResultCtaProviderRequest]);
 
   useLayoutEffect(() => {
     if (!deepLinkRepeatBan?.id || !user?.id) return;
