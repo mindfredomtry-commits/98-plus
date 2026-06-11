@@ -19,6 +19,7 @@ import {
   opponentForBan,
   userDisplayLetter,
 } from './bans-overlay-utils';
+import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
 
 const TABS: { id: BansTab; label: string }[] = [
   { id: 'yours', label: 'Твои' },
@@ -231,6 +232,12 @@ export function BansOverlay({
     [onRemoveFromArchive],
   );
 
+  const handleBackClick = useCallback(() => {
+    console.log('[BANS BACK CLICK]');
+    markVisibleOverboardTrace('[BANS BACK CLICK]', {});
+    onClose();
+  }, [onClose]);
+
   return (
     <div
       className="instant-ban-bans-overlay"
@@ -246,7 +253,7 @@ export function BansOverlay({
             <button
               type="button"
               className="instant-ban-flow__back instant-ban-flow__back--icon-only instant-ban-bans-overlay__back"
-              onClick={onClose}
+              onClick={handleBackClick}
               aria-label="Назад в лобби"
             >
               <WhatBackIcon />

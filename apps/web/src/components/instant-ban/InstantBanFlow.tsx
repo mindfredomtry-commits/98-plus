@@ -822,10 +822,9 @@ export function InstantBanFlow({
 
   const notificationQueueUiLock =
     notificationSessionActive || notificationOverlayActive;
+  /** Latch flags only — openBansOverlayRequest is a monotonic tick, not open state. */
   const bansOpenFromResultCta =
-    bansCtaQueueSuppress ||
-    resultCtaBansOverlayOpen ||
-    openBansOverlayRequest > 0;
+    bansCtaQueueSuppress || resultCtaBansOverlayOpen;
   const effectiveBansOverlayOpen =
     bansOverlayOpen || bansOpenFromResultCta;
   const showLobbyTopNav =
@@ -1336,28 +1335,33 @@ export function InstantBanFlow({
   const handleOpenBansFromResultCtaRef = useRef(handleOpenBansFromResultCta);
   handleOpenBansFromResultCtaRef.current = handleOpenBansFromResultCta;
 
-  const handleCloseBansOverlay = useCallback(() => {
-    setBansOverlayOpen(false);
-    setSelectedBanForDetails(null);
+  const handleCloseBansOverlay = useCallback(
+    (source = 'back-arrow') => {
+      console.log('[BANS CLOSE]', { source });
+      markVisibleOverboardTrace('[BANS CLOSE]', { source });
 
-    const returnedToLobby = completeBansOverlayCloseFromResultCta();
-    if (returnedToLobby) {
-      resetSendUiForBansCta();
-      closeSendFlow();
-      beginCtaSpringIn();
-      return;
-    }
+      setBansOverlayOpen(false);
+      setSelectedBanForDetails(null);
 
-    const wasBansCta = bansCtaQueueSuppress;
-    if (wasBansCta) {
-      clearBansCtaQueueSuppress();
-    }
-    if (isNotificationQueueLocked() || wasBansCta) {
-      unlockNotificationQueueAndFlush(
-        wasBansCta ? 'result-cta-bans-closed' : 'target-flow-closed',
-      );
-    }
-  }, [
+      const returnedToLobby = completeBansOverlayCloseFromResultCta(source);
+      if (returnedToLobby) {
+        resetSendUiForBansCta();
+        closeSendFlow();
+        beginCtaSpringIn();
+        return;
+      }
+
+      const wasBansCta = bansCtaQueueSuppress;
+      if (wasBansCta) {
+        clearBansCtaQueueSuppress();
+      }
+      if (isNotificationQueueLocked() || wasBansCta) {
+        unlockNotificationQueueAndFlush(
+          wasBansCta ? 'result-cta-bans-closed' : 'target-flow-closed',
+        );
+      }
+    },
+    [
     bansCtaQueueSuppress,
     beginCtaSpringIn,
     clearBansCtaQueueSuppress,

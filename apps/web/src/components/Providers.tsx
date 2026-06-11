@@ -386,7 +386,7 @@ interface AppContextValue {
   bansReturnToLobbyLatch: boolean;
   setBansReturnToLobbyLatch: (active: boolean) => void;
   /** Closes result-cta bans session: open lobby before queue/result reset. */
-  completeBansOverlayCloseFromResultCta: () => boolean;
+  completeBansOverlayCloseFromResultCta: (source?: string) => boolean;
   /** Accumulated pre-open interactions waiting for ritual release. */
   pendingStartupInteractions: boolean;
   /** Release queued startup interactions (e.g. after opening «Твои запреты»). */
@@ -5202,78 +5202,104 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setBansNavState(DEFAULT_BANS_NAV);
   }, []);
 
-  const completeBansOverlayCloseFromResultCta = useCallback(() => {
-    const nav = bansNavStateRef.current;
-    const fromResultCta =
-      (nav.origin === 'result-cta' && nav.returnTarget === 'lobby') ||
-      bansCtaQueueSuppress;
+  const completeBansOverlayCloseFromResultCta = useCallback(
+    (closeSource = 'unknown') => {
+      const nav = bansNavStateRef.current;
+      const fromResultCta =
+        (nav.origin === 'result-cta' && nav.returnTarget === 'lobby') ||
+        bansCtaQueueSuppressRef.current;
 
-    console.log('[BANS CLOSE]', {
-      origin: nav.origin,
-      returnTarget: nav.returnTarget,
-      previousScreen: nav.previousScreen,
-      'lobbyOpen(before)': lobbyOpenRef.current,
-      bansCtaQueueSuppress,
-      fromResultCta,
-    });
+      console.log('[BANS CLOSE]', {
+        source: closeSource,
+        origin: nav.origin,
+        returnTarget: nav.returnTarget,
+        previousScreen: nav.previousScreen,
+        'lobbyOpen(before)': lobbyOpenRef.current,
+        bansCtaQueueSuppress: bansCtaQueueSuppressRef.current,
+        fromResultCta,
+      });
+      markVisibleOverboardTrace('[BANS CLOSE]', {
+        source: closeSource,
+        fromResultCta,
+        origin: nav.origin,
+      });
 
-    if (!fromResultCta) {
-      console.log('[BANS CLOSE BRANCH] branch=default');
-      return false;
-    }
-
-    console.log('[BANS CLOSE BRANCH] branch=result-cta');
-    setBansReturnToLobbyLatch(true);
-    bansReturnToLobbyLatchRef.current = true;
-
-    console.log('[LOBBY OPEN]', {
-      source: 'bans-close-result-cta',
-      lobbyOpenBefore: lobbyOpenRef.current,
-    });
-    flushSync(() => {
-      setLobbyOpen(true);
-      lobbyOpenRef.current = true;
-      lobbyShownLoggedRef.current = false;
-    });
-    console.log('[LOBBY OPEN DONE]', {
-      lobbyOpen: lobbyOpenRef.current,
-      source: 'bans-close-result-cta',
-    });
-
-    const head = overlayQueueRef.current[0];
-    if (head?.kind === 'result') {
-      const viewerId = head.result.viewerId ?? userIdRef.current ?? null;
-      if (isDismissedResultLocally(head.result.id, viewerId)) {
-        dismissCurrentOverlay('result-cta-bans-close-pop');
+      if (!fromResultCta) {
+        console.log('[BANS CLOSE BRANCH] branch=default');
+        return false;
       }
-    }
 
-    const wasBansCta = bansCtaQueueSuppress;
-    queueMicrotask(() => {
-      resetBansNavState();
-      if (wasBansCta) {
-        clearBansCtaQueueSuppress();
-      }
-      if (isNotificationQueueLocked() || wasBansCta) {
-        unlockNotificationQueueAndFlush(
-          wasBansCta ? 'result-cta-bans-closed' : 'target-flow-closed',
-        );
-      }
-      window.setTimeout(() => {
-        setBansReturnToLobbyLatch(false);
-        bansReturnToLobbyLatchRef.current = false;
-      }, 400);
-    });
+      console.log('[BANS CLOSE BRANCH] branch=result-cta');
+      markVisibleOverboardTrace('[BANS CLOSE BRANCH]', {
+        branch: 'result-cta',
+        source: closeSource,
+      });
 
-    console.log('[BANS NAV] back-to-lobby source=result-cta');
-    return true;
-  }, [
-    bansCtaQueueSuppress,
-    clearBansCtaQueueSuppress,
-    dismissCurrentOverlay,
-    resetBansNavState,
-    unlockNotificationQueueAndFlush,
-  ]);
+      const lobbySource =
+        closeSource === 'back-arrow'
+          ? 'bans-back-arrow-result-cta'
+          : 'bans-close-result-cta';
+      const wasBansCta = bansCtaQueueSuppressRef.current;
+
+      console.log('[LOBBY OPEN]', {
+        source: lobbySource,
+        lobbyOpenBefore: lobbyOpenRef.current,
+      });
+      markVisibleOverboardTrace('[LOBBY OPEN]', {
+        source: lobbySource,
+        lobbyOpenBefore: lobbyOpenRef.current,
+      });
+
+      flushSync(() => {
+        setBansReturnToLobbyLatch(true);
+        bansReturnToLobbyLatchRef.current = true;
+        setLobbyOpen(true);
+        lobbyOpenRef.current = true;
+        lobbyShownLoggedRef.current = false;
+        if (wasBansCta) {
+          bansCtaQueueSuppressRef.current = false;
+          setBansCtaQueueSuppress(false);
+        }
+        resultCtaBansOverlayOpenRef.current = false;
+        setResultCtaBansOverlayOpen(false);
+      });
+
+      console.log('[LOBBY OPEN DONE]', {
+        lobbyOpen: lobbyOpenRef.current,
+        source: lobbySource,
+      });
+
+      const head = overlayQueueRef.current[0];
+      if (head?.kind === 'result') {
+        const viewerId = head.result.viewerId ?? userIdRef.current ?? null;
+        if (isDismissedResultLocally(head.result.id, viewerId)) {
+          dismissCurrentOverlay('result-cta-bans-close-pop');
+        }
+      }
+
+      queueMicrotask(() => {
+        resetBansNavState();
+        if (isNotificationQueueLocked() || wasBansCta) {
+          unlockNotificationQueueAndFlush(
+            wasBansCta ? 'result-cta-bans-closed' : 'target-flow-closed',
+          );
+        }
+        window.setTimeout(() => {
+          setBansReturnToLobbyLatch(false);
+          bansReturnToLobbyLatchRef.current = false;
+        }, 400);
+      });
+
+      console.log('[BANS NAV] back-to-lobby source=result-cta');
+      markVisibleOverboardTrace('[BANS NAV]', {
+        action: 'back-to-lobby',
+        source: 'result-cta',
+        closeSource,
+      });
+      return true;
+    },
+    [dismissCurrentOverlay, resetBansNavState, unlockNotificationQueueAndFlush],
+  );
 
   useLayoutEffect(() => {
     armBansNavFromResultCtaRef.current = armBansNavFromResultCta;
