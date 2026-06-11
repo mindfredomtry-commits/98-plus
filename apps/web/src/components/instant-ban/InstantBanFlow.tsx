@@ -304,7 +304,6 @@ export function InstantBanFlow({
     resultReplyRequest,
     resultReplyHandoffLock,
     notifyResultReplyWhatVisible,
-    closeSendFlow,
     openLobby,
     clearReplyDeepLinkState,
   } = useApp();
