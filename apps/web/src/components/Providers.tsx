@@ -6006,6 +6006,33 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     auth.loading,
   ]);
 
+  const queueHeadBanId =
+    overlayQueue[0]?.kind === 'incoming'
+      ? overlayQueue[0].ban.id
+      : overlayQueueRef.current[0]?.kind === 'incoming'
+        ? overlayQueueRef.current[0].ban.id
+        : null;
+  const isReplyFastShellRequested = Boolean(
+    replyDeeplinkFastShell && replyDeepLinkBanId && incomingGateActive,
+  );
+  const isReplyFastPendingOpen = Boolean(
+    replyDeeplinkPendingBanIdRef.current &&
+      !replyDeeplinkFastOpenedRef.current &&
+      !incomingBlockedAfterAnswer &&
+      !showDirectOverboardLayer &&
+      !notificationShellSuppressedForBansLobby &&
+      auth.user?.id &&
+      !auth.loading &&
+      auth.token,
+  );
+  const effectiveShouldRenderIncoming =
+    shouldRenderIncomingOverlay ||
+    isReplyFastShellRequested ||
+    isReplyFastPendingOpen;
+  const effectiveIncomingOverlayDisplayKind = effectiveShouldRenderIncoming
+    ? 'incoming'
+    : incomingOverlayDisplayKind;
+
   const checkGateActive = useMemo(
     () => {
       if (priorityBlocksResult) return false;
@@ -6535,6 +6562,36 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ],
   );
 
+  const effectiveIncomingBanId =
+    deepLinkSelectedBanId ?? queueHeadBanId ?? replyDeepLinkBanId;
+
+  const effectiveScopedIncomingBan = useMemo(() => {
+    if (scopedIncomingBan) return scopedIncomingBan;
+    if (!isReplyFastShellRequested && !isReplyFastPendingOpen) return null;
+    const viewerId = auth.user?.id;
+    if (!viewerId || auth.loading) return null;
+    const banId =
+      effectiveIncomingBanId ??
+      replyDeepLinkBanId ??
+      replyDeeplinkPendingBanIdRef.current;
+    if (!banId) return null;
+    if (
+      incomingConsumedAfterAnswerRef.current.has(banId) ||
+      dismissedIncomingRef.current.has(banId)
+    ) {
+      return null;
+    }
+    return buildReplyDeeplinkShellBan(banId, viewerId);
+  }, [
+    scopedIncomingBan,
+    isReplyFastShellRequested,
+    isReplyFastPendingOpen,
+    effectiveIncomingBanId,
+    replyDeepLinkBanId,
+    auth.user?.id,
+    auth.loading,
+  ]);
+
   const replyIncomingCardMounted = useMemo(() => {
     const banId = replyDeepLinkBanId;
     if (!banId) return false;
@@ -6712,41 +6769,55 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setDeepLinkReplyBooting(false);
   }, [deepLinkReplyBooting, replyIncomingReady]);
 
+  const incomingJsxRenderSource =
+    isReplyFastShellRequested || isReplyFastPendingOpen
+      ? 'reply-fast-shell-fallback'
+      : shouldRenderIncomingOverlay
+        ? 'normal'
+        : null;
+
   const incomingJsxWillRender =
-    shouldRenderIncomingOverlay &&
+    effectiveShouldRenderIncoming &&
     !showDirectOverboardLayer &&
-    incomingOverlayDisplayKind === 'incoming' &&
-    scopedIncomingBan != null;
+    effectiveIncomingOverlayDisplayKind === 'incoming' &&
+    effectiveScopedIncomingBan != null;
 
   useLayoutEffect(() => {
     const jsxBranch = {
-      activeOverlayKind: incomingOverlayDisplayKind,
-      selectedBanId: deepLinkSelectedBanId,
+      activeOverlayKind: effectiveIncomingOverlayDisplayKind,
+      selectedBanId: effectiveIncomingBanId,
       queueHeadKind,
       willRender: incomingJsxWillRender,
-      hasIncomingBan: scopedIncomingBan != null,
+      source: incomingJsxRenderSource,
+      hasIncomingBan: effectiveScopedIncomingBan != null,
+      isReplyFastShellRequested,
+      isReplyFastPendingOpen,
       showDirectOverboardLayer,
       notificationSessionActive,
     };
     console.log(
-      `[INCOMING JSX BRANCH] activeOverlayKind=${incomingOverlayDisplayKind ?? 'null'} selectedBanId=${deepLinkSelectedBanId ?? 'null'} queueHeadKind=${queueHeadKind ?? 'null'} willRender=${incomingJsxWillRender}`,
+      `[INCOMING JSX BRANCH] activeOverlayKind=${effectiveIncomingOverlayDisplayKind ?? 'null'} selectedBanId=${effectiveIncomingBanId ?? 'null'} queueHeadKind=${queueHeadKind ?? 'null'} willRender=${incomingJsxWillRender} source=${incomingJsxRenderSource ?? 'null'}`,
       jsxBranch,
     );
     markVisibleOverboardTrace('[INCOMING JSX BRANCH]', jsxBranch);
-    if (incomingJsxWillRender && scopedIncomingBan?.id) {
-      console.log('[INCOMING JSX RENDER CARD]', { banId: scopedIncomingBan.id });
+    if (incomingJsxWillRender && effectiveScopedIncomingBan?.id) {
+      console.log('[INCOMING JSX RENDER CARD]', {
+        banId: effectiveScopedIncomingBan.id,
+        source: incomingJsxRenderSource,
+      });
       markVisibleOverboardTrace('[INCOMING JSX RENDER CARD]', {
-        banId: scopedIncomingBan.id,
+        banId: effectiveScopedIncomingBan.id,
+        source: incomingJsxRenderSource,
       });
       return;
     }
-    const nullReason = !shouldRenderIncomingOverlay
+    const nullReason = !effectiveShouldRenderIncoming
       ? 'incoming-overlay-not-requested'
       : showDirectOverboardLayer
         ? 'direct-overboard-active'
-        : incomingOverlayDisplayKind !== 'incoming'
+        : effectiveIncomingOverlayDisplayKind !== 'incoming'
           ? 'display-kind-not-incoming'
-          : !scopedIncomingBan
+          : !effectiveScopedIncomingBan
             ? 'no-incoming-ban'
             : 'unknown';
     console.log('[INCOMING JSX RETURN NULL]', { reason: nullReason, ...jsxBranch });
@@ -6755,12 +6826,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ...jsxBranch,
     });
   }, [
-    deepLinkSelectedBanId,
+    effectiveIncomingBanId,
+    effectiveIncomingOverlayDisplayKind,
+    effectiveScopedIncomingBan,
+    effectiveShouldRenderIncoming,
+    incomingJsxRenderSource,
     incomingJsxWillRender,
-    incomingOverlayDisplayKind,
+    isReplyFastPendingOpen,
+    isReplyFastShellRequested,
     notificationSessionActive,
     queueHeadKind,
-    scopedIncomingBan,
     shouldRenderIncomingOverlay,
     showDirectOverboardLayer,
   ]);
@@ -6784,7 +6859,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       error: auth.error,
       refreshUser: auth.refreshUser,
       onboard: auth.onboard,
-      incomingBan: scopedIncomingBan,
+      incomingBan: effectiveScopedIncomingBan,
       setIncomingBan: setIncomingBanSafe,
       dismissIncoming,
       checkBan: scopedCheckBan,
@@ -6919,6 +6994,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       auth.refreshUser,
       auth.onboard,
       scopedIncomingBan,
+      effectiveScopedIncomingBan,
       setIncomingBanSafe,
       dismissIncoming,
       scopedCheckBan,
@@ -7063,28 +7139,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             queueSessionActive={
               notificationSessionActive || incomingJsxWillRender
             }
-            activeOverlayKind={incomingOverlayDisplayKind}
+            activeOverlayKind={effectiveIncomingOverlayDisplayKind}
             activeIncomingBanId={
-              incomingOverlayDisplayKind === 'incoming'
-                ? (scopedIncomingBan?.id ?? null)
+              effectiveIncomingOverlayDisplayKind === 'incoming'
+                ? (effectiveScopedIncomingBan?.id ?? null)
                 : null
             }
           >
             <NotificationQueueShell
-              kind={incomingOverlayDisplayKind}
+              kind={effectiveIncomingOverlayDisplayKind}
               sessionActive={
                 notificationSessionActive || incomingJsxWillRender
               }
               contentKey={
                 overlayQueue[0]
                   ? overlayQueueKey(overlayQueue[0])
-                  : scopedIncomingBan?.id
-                    ? `incoming:${scopedIncomingBan.id}`
+                  : effectiveScopedIncomingBan?.id
+                    ? `incoming:${effectiveScopedIncomingBan.id}`
                     : null
               }
             >
-              {incomingOverlayDisplayKind === 'incoming' &&
-              scopedIncomingBan ? (
+              {effectiveIncomingOverlayDisplayKind === 'incoming' &&
+              effectiveScopedIncomingBan ? (
                 <ChallengeErrorBoundary
                   name="incoming"
                   onRecover={() => dismissIncoming()}
@@ -7092,7 +7168,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   <IncomingBanOverlay contentOnly />
                 </ChallengeErrorBoundary>
               ) : null}
-              {incomingOverlayDisplayKind === 'check' ? (
+              {effectiveIncomingOverlayDisplayKind === 'check' ? (
                 <ChallengeErrorBoundary
                   name="check"
                   onRecover={() => clearCheckOverlay()}
@@ -7100,7 +7176,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   <CheckOverlay contentOnly />
                 </ChallengeErrorBoundary>
               ) : null}
-              {incomingOverlayDisplayKind === 'result' && displayResult ? (
+              {effectiveIncomingOverlayDisplayKind === 'result' && displayResult ? (
                 <ChallengeErrorBoundary
                   name="result"
                   onRecover={() => dismissBanResult()}
