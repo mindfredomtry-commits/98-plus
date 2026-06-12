@@ -14,6 +14,7 @@ import { useBootRouteRelease } from '@/hooks/useBootRouteRelease';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSocialBoot } from '@/hooks/useSocialBoot';
 import { AppBootScreen } from '@/components/AppBootScreen';
+import { PillSourceDebugBadge } from '@/components/PillSourceDebugBadge';
 import { HomeArena } from '@/components/HomeArena';
 import { InstantBanFlow } from '@/components/instant-ban/InstantBanFlow';
 import { SendBanDock } from '@/components/SendBanDock';
@@ -358,6 +359,7 @@ export default function HomePage() {
       data-shell-mode={shellModeForDebug}
       data-shell-build={APP_SHELL_BUILD}
     >
+      <PillSourceDebugBadge />
       <ShellErrorBoundary name="ambience" fallback={null}>
         <ArenaAmbience />
       </ShellErrorBoundary>

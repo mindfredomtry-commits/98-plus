@@ -3,6 +3,10 @@
 import { useEffect, type ReactNode } from 'react';
 import { ModalShell } from './ModalShell';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
+import {
+  clearPillSourceIf,
+  reportPillSource,
+} from '@/lib/pill-source-debug';
 
 type OverlayKind = 'incoming' | 'check' | 'result';
 
@@ -34,11 +38,8 @@ export function NotificationQueueShell({
 }: Props) {
   useEffect(() => {
     if (!kind) return;
-    console.log('[pill-source-debug] rendering from NotificationQueueShell', {
-      kind,
-      contentKey,
-      sessionActive,
-    });
+    reportPillSource('NotificationQueueShell');
+    return () => clearPillSourceIf('NotificationQueueShell');
   }, [kind, contentKey, sessionActive]);
 
   if (!kind) return null;

@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { isLobbyLowEnergy } from '@/lib/lobby-influence';
+import {
+  clearPillSourceIf,
+  reportPillSource,
+} from '@/lib/pill-source-debug';
 import { triggerLobbyBlockedHaptic } from './lobby-cta-haptics';
 
 export type LobbyCtaState = 'visible' | 'exiting' | 'hidden' | 'entering';
@@ -114,11 +118,8 @@ export function ArenaLobbyIdle({
   const buttonLabel = askMode ? '🚫 ХОЧУ ЗАПРЕЩАТЬ' : '🚫 ЗАПРЕЩАТЬ';
 
   useEffect(() => {
-    console.log('[pill-source-debug] rendering from ArenaLobbyIdle', {
-      ctaState,
-      ctaInteractive,
-      buttonLabel,
-    });
+    reportPillSource('ArenaLobbyIdle');
+    return () => clearPillSourceIf('ArenaLobbyIdle');
   }, [ctaState, ctaInteractive, buttonLabel]);
 
   return (

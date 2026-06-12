@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useEffect } from 'react';
+import { memo } from 'react';
 
 interface Props {
   children: React.ReactNode;
@@ -20,12 +20,8 @@ export const GlowCTA = memo(function GlowCTA({
   helperText,
   className = '',
 }: Props) {
-  useEffect(() => {
-    console.log('[pill-source-debug] rendering from GlowCTA', { ready, busy });
-  }, [ready, busy]);
-
   return (
-    <div className={`cta-block ${className}`} data-pill-source="GlowCTA">
+    <div className={`cta-block ${className}`}>
       {helperText ? (
         <p className="cta-block-hint cta-block-hint--visible" aria-live="polite">
           {helperText}

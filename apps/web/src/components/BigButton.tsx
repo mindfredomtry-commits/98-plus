@@ -2,6 +2,10 @@
 
 import { useEffect } from 'react';
 import { motion } from 'framer-motion';
+import {
+  clearPillSourceIf,
+  reportPillSource,
+} from '@/lib/pill-source-debug';
 
 interface Props {
   children: React.ReactNode;
@@ -19,11 +23,8 @@ export function BigButton({
   className = '',
 }: Props) {
   useEffect(() => {
-    console.log('[pill-source-debug] rendering from BigButton', {
-      variant,
-      disabled: Boolean(disabled),
-      hasLabel: Boolean(children),
-    });
+    reportPillSource('BigButton');
+    return () => clearPillSourceIf('BigButton');
   }, [variant, disabled, children]);
 
   const styles = {
