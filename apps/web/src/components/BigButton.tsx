@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { motion } from 'framer-motion';
 
 interface Props {
@@ -17,6 +18,14 @@ export function BigButton({
   disabled,
   className = '',
 }: Props) {
+  useEffect(() => {
+    console.log('[pill-source-debug] rendering from BigButton', {
+      variant,
+      disabled: Boolean(disabled),
+      hasLabel: Boolean(children),
+    });
+  }, [variant, disabled, children]);
+
   const styles = {
     primary:
       'bg-accent text-white shadow-glow hover:brightness-110 active:scale-[0.98]',
@@ -30,6 +39,7 @@ export function BigButton({
       whileTap={{ scale: disabled ? 1 : 0.97 }}
       onClick={onClick}
       disabled={disabled}
+      data-pill-source="BigButton"
       className={`w-full py-4 px-6 rounded-2xl text-lg font-semibold transition-all disabled:opacity-40 ${styles[variant]} ${className}`}
     >
       {children}

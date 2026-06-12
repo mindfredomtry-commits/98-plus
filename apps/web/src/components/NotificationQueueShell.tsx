@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { ModalShell } from './ModalShell';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
 
@@ -32,6 +32,15 @@ export function NotificationQueueShell({
   contentKey,
   children,
 }: Props) {
+  useEffect(() => {
+    if (!kind) return;
+    console.log('[pill-source-debug] rendering from NotificationQueueShell', {
+      kind,
+      contentKey,
+      sessionActive,
+    });
+  }, [kind, contentKey, sessionActive]);
+
   if (!kind) return null;
 
   const handoff = sessionActive;

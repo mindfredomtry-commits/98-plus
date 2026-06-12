@@ -93,6 +93,7 @@ export default function HomePage() {
     eventLog,
     deepLinkSelectedBanId,
     sendFlowOpen,
+    deepLinkReplyBooting,
     setDeepLinkReplyBooting,
     activeOverlayKind,
     replyUiShellActive,
@@ -105,10 +106,21 @@ export default function HomePage() {
     abortReplyDeepLinkFast,
     incomingCardFullyReady,
     incomingCardDisplayBan,
+    replyHandoffLock,
   } = useApp();
   const { ready } = useTelegram();
   const deepLinkRouteBootPending = useDeepLinkRouteBootPending();
   const showBootScreen = loading || deepLinkRouteBootPending;
+  const replyDeeplinkPending =
+    !incomingCardFullyReady &&
+    Boolean(
+      replyDeepLinkBanId ||
+        deepLinkReplyBan ||
+        replyDeeplinkFastShell ||
+        deepLinkReplyBooting ||
+        replyHandoffLock ||
+        replyUiShellActive,
+    );
   useBootRouteRelease(showBootScreen, deepLinkRouteBootPending, {
     incomingCardReady: incomingCardFullyReady,
     incomingBanId: incomingCardDisplayBan?.id ?? null,
@@ -339,6 +351,8 @@ export default function HomePage() {
         activeBanUiShellActive ? ' app-page--active-ban-deeplink-loading' : ''
       }${
         arenaVisible ? ' app-page--instant-ban-active' : ''
+      }${
+        replyDeeplinkPending ? ' app-page--reply-deeplink-pending' : ''
       }${showBootScreen ? ' app-page--boot-active' : ''}`}
       data-shell-view={shellView}
       data-shell-mode={shellModeForDebug}

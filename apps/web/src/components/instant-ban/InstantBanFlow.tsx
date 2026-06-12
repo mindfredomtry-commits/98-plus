@@ -298,8 +298,10 @@ export function InstantBanFlow({
     deepLinkReplyBooting,
     setDeepLinkReplyBooting,
     replyUiShellActive,
+    replyDeeplinkFastShell,
     replyHandoffLock,
     replyDeepLinkBanId,
+    incomingCardFullyReady,
     notifyReplyWhatVisible,
     releaseReplyHandoffLock,
     activeBanUiShellActive,
@@ -445,8 +447,23 @@ export function InstantBanFlow({
       (incomingGateActive &&
         replyDeepLinkBanId != null &&
         activeOverlayKind === 'incoming'));
-  const lobbyChromeHidden = replyLobbyBlocked || deepLinkRouteBootPending;
+  /** Reply/incoming deeplink — block lobby pill until real incoming card is mounted. */
+  const replyIncomingDeeplinkPending =
+    !bansReturnToLobbyLatch &&
+    !replyComposeUiActive &&
+    !incomingCardFullyReady &&
+    (deepLinkRouteBootPending ||
+      deepLinkReplyBooting ||
+      replyDeeplinkFastShell ||
+      replyHandoffLock ||
+      replyDeepLinkBanId != null ||
+      deepLinkReplyBan != null ||
+      incomingReplyBanId != null ||
+      replyUiShellActive);
+  const lobbyChromeHidden =
+    replyLobbyBlocked || deepLinkRouteBootPending || replyIncomingDeeplinkPending;
   const showLobbyCta =
+    !replyIncomingDeeplinkPending &&
     (!replyLobbyBlocked || bansReturnToLobbyLatch) &&
     !deepLinkRouteBootPending &&
     !deepLinkReplyBooting &&
@@ -769,8 +786,25 @@ export function InstantBanFlow({
     });
   }, [replyLobbyBlocked, replyDeepLinkBanId, phase]);
 
+  useEffect(() => {
+    if (!replyIncomingDeeplinkPending) return;
+    clearCtaBootDelayTimer();
+    clearCtaEnterTimer();
+    clearCtaExitTimer();
+    if (ctaState !== 'hidden') {
+      setCtaState('hidden');
+    }
+  }, [
+    replyIncomingDeeplinkPending,
+    clearCtaBootDelayTimer,
+    clearCtaEnterTimer,
+    clearCtaExitTimer,
+    ctaState,
+  ]);
+
   /** First lobby open only — dismiss re-entry uses beginCtaSpringIn. */
   useEffect(() => {
+    if (replyIncomingDeeplinkPending) return;
     if (replyUiShellActive) return;
     if (lobbyCtaBootSpringRef.current) return;
     if (sendStarted) return;
@@ -787,6 +821,7 @@ export function InstantBanFlow({
     scheduleCtaBecomeVisible,
     sendStarted,
     replyUiShellActive,
+    replyIncomingDeeplinkPending,
   ]);
 
   /** Only enter who-step when send flow opens — not when user dismisses back to lobby idle. */

@@ -790,16 +790,27 @@ html.scroll-lock body {
 .app-page--reply-deeplink-pending .connection-banner,
 .app-page--reply-deeplink-pending .instant-ban-arena-send .instant-ban-arena-lobby-nav,
 .app-page--reply-deeplink-pending .instant-ban-arena-send > .instant-ban-lobby-cta,
+.app-page--reply-deeplink-pending .instant-ban-flow > .instant-ban-lobby-cta,
 .app-page--reply-deeplink-pending .instant-ban-arena-send .lobby-screen__orb-wrap,
 .app-page--reply-deeplink-pending .instant-ban-arena-send .lobby-screen__particles,
 .app-page--reply-deeplink-pending .instant-ban-arena-send .lobby-screen__grid,
 .app-page--reply-deeplink-pending .instant-ban-flow--reply-ui-shell .instant-ban-arena-lobby-nav,
 .app-page--reply-deeplink-pending .instant-ban-flow--reply-ui-shell > .instant-ban-lobby-cta,
+.app-page--reply-deeplink-pending .instant-ban-flow > .instant-ban-lobby-cta,
 .app-page--reply-deeplink-pending .instant-ban-flow--reply-ui-shell .lobby-screen__orb-wrap,
 .app-page--reply-deeplink-pending .instant-ban-flow--reply-ui-shell .lobby-screen__particles,
 .app-page--reply-deeplink-pending .instant-ban-flow--reply-ui-shell .lobby-screen__grid {
   visibility: hidden;
   pointer-events: none;
+}
+
+/* Lobby CTA spring-in reads as empty purple pill — never paint during reply deeplink. */
+.app-page--reply-deeplink-pending .instant-ban-lobby-cta,
+.app-page--reply-deeplink-loading .instant-ban-lobby-cta,
+.app-page--reply-ui-shell .instant-ban-lobby-cta,
+.app-page--boot-active .instant-ban-lobby-cta {
+  display: none !important;
+  pointer-events: none !important;
 }
 
 .app-page--reply-deeplink-loading .arena-ambience,
@@ -821,6 +832,7 @@ html.scroll-lock body {
   pointer-events: none;
 }
 
+.app-page--reply-deeplink-pending::before,
 .app-page--reply-deeplink-loading::before {
   content: '';
   position: fixed;

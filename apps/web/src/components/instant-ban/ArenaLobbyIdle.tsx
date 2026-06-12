@@ -113,9 +113,18 @@ export function ArenaLobbyIdle({
 
   const buttonLabel = askMode ? '🚫 ХОЧУ ЗАПРЕЩАТЬ' : '🚫 ЗАПРЕЩАТЬ';
 
+  useEffect(() => {
+    console.log('[pill-source-debug] rendering from ArenaLobbyIdle', {
+      ctaState,
+      ctaInteractive,
+      buttonLabel,
+    });
+  }, [ctaState, ctaInteractive, buttonLabel]);
+
   return (
     <div
       className={`lobby-screen__cta-wrap instant-ban-lobby-cta instant-ban-lobby-cta--${ctaState}`}
+      data-pill-source="ArenaLobbyIdle"
     >
       {showLowEnergyHint ? (
         <p
