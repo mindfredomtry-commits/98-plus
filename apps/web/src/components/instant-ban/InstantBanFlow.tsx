@@ -80,8 +80,10 @@ import {
   resolveOpponentFriendCard,
 } from './bans-overlay-utils';
 import { useConfirmOrbController } from './useConfirmOrbController';
+import { LobbyBootOrbWrap } from '@/components/lobby/LobbyBootOrbWrap';
 import { LobbyScreenAtmosphere } from '@/components/lobby/LobbyScreenAtmosphere';
 import { useLobbyBootIntro } from './useLobbyBootIntro';
+import '@/components/lobby-boot-intro.css';
 import { triggerLobbyBlockedHaptic } from './lobby-cta-haptics';
 import {
   evaluateConfirmSubmitEnergy,
@@ -3121,9 +3123,15 @@ export function InstantBanFlow({
   );
 
   const {
-    orbScale: lobbyOrbBootScale,
     ringDisplayPercent: lobbyRingDisplayPercent,
+    ringTarget: lobbyRingTarget,
+    introActive: lobbyBootIntroActive,
+    scaleIntroActive: lobbyScaleIntroActive,
+    ringIntroActive: lobbyRingIntroActive,
+    ringCatchupActive: lobbyRingCatchupActive,
     isFilling: lobbyRingIntroFilling,
+    onScaleAnimationEnd: onLobbyScaleIntroEnd,
+    onRingAnimationEnd: onLobbyRingIntroEnd,
   } = useLobbyBootIntro(lobbyInfluencePercent, {
     phase,
     sendStarted,
@@ -3174,25 +3182,6 @@ export function InstantBanFlow({
   const confirmLayoutActive = orbCompressActive;
   const successSnapshot = sendSnapshotRef.current;
 
-  const lobbyOrbBootStyle = useMemo((): CSSProperties | undefined => {
-    if (lobbyChromeHidden || phase !== 'idle' || confirmActive || orbCompressActive) {
-      return undefined;
-    }
-    if (lobbyOrbBootScale >= 0.999 && !lobbyRingIntroFilling) {
-      return undefined;
-    }
-    return {
-      transform: `translate(-50%, -50%) scale(${lobbyOrbBootScale})`,
-    };
-  }, [
-    lobbyChromeHidden,
-    phase,
-    confirmActive,
-    orbCompressActive,
-    lobbyOrbBootScale,
-    lobbyRingIntroFilling,
-  ]);
-
   const confirmSendError =
     sendError && !lowEnergyRedirecting && !sendFailedRef.current
       ? sendError
@@ -3232,7 +3221,7 @@ export function InstantBanFlow({
         replyUiShellActive ? ' instant-ban-flow--reply-ui-shell' : ''
       }${
         activeBanUiShellActive ? ' instant-ban-flow--active-ban-ui-shell' : ''
-      }`}
+      }${lobbyBootIntroActive ? ' lobby-screen--boot-intro-active' : ''}`}
       style={arenaOverlayStyle}
       role="dialog"
       aria-modal="true"
@@ -3264,13 +3253,32 @@ export function InstantBanFlow({
 
       <div className="instant-ban-arena-send__stage">
         {!lobbyChromeHidden ? (
-          <div
+          <LobbyBootOrbWrap
             ref={lobbyOrbMountRef}
             className={`lobby-screen__orb-wrap lobby-screen__orb-root${
               confirmLayoutActive ? ' lobby-screen__orb-wrap--confirm' : ''
             }${orbOverlayDim ? ' lobby-screen__orb-wrap--overlay-dim' : ''}`}
-            data-orb-root
-            style={lobbyOrbBootStyle}
+            scaleActive={
+              lobbyScaleIntroActive &&
+              phase === 'idle' &&
+              !confirmActive &&
+              !orbCompressActive
+            }
+            ringActive={
+              lobbyRingIntroActive &&
+              phase === 'idle' &&
+              !confirmActive &&
+              !orbCompressActive
+            }
+            ringCatchupActive={
+              lobbyRingCatchupActive &&
+              phase === 'idle' &&
+              !confirmActive &&
+              !orbCompressActive
+            }
+            ringTarget={lobbyRingTarget}
+            onScaleAnimationEnd={onLobbyScaleIntroEnd}
+            onRingAnimationEnd={onLobbyRingIntroEnd}
           >
             <ArenaLobbyOrb
               sendPhase={phase}
@@ -3284,7 +3292,7 @@ export function InstantBanFlow({
               banText={banText}
               durationMinutes={durationMinutes}
             />
-          </div>
+          </LobbyBootOrbWrap>
         ) : null}
 
         {banSentSuccess && successSnapshot ? (

@@ -1,0 +1,78 @@
+/* GPU-friendly boot lobby orb intro — transform + SVG stroke only */
+
+@property --lobby-boot-ring-target {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+
+.lobby-screen--boot-intro-active .lobby-screen__particle {
+  animation-play-state: paused !important;
+}
+
+.lobby-screen--boot-intro-active .lobby-screen__grid {
+  opacity: 0.22;
+}
+
+.lobby-boot-intro-scale-active.lobby-screen__orb-root {
+  transform: translate3d(-50%, -50%, 0) scale(0.15);
+  will-change: transform;
+  backface-visibility: hidden;
+  contain: layout paint style;
+  animation: lobby-boot-scale-in 450ms cubic-bezier(0.33, 1, 0.68, 1) forwards;
+}
+
+@keyframes lobby-boot-scale-in {
+  to {
+    transform: translate3d(-50%, -50%, 0) scale(1);
+  }
+}
+
+.lobby-boot-intro-ring-active .influence-ring__progress {
+  --ring-circ: 871.87;
+  stroke-dasharray: var(--ring-circ);
+  stroke-dashoffset: var(--ring-circ);
+  transition: none;
+  filter: drop-shadow(0 0 8px var(--98-power-glow))
+    drop-shadow(0 0 16px var(--98-power-glow-soft));
+  animation: lobby-boot-ring-fill 550ms cubic-bezier(0.33, 1, 0.68, 1) forwards;
+}
+
+@keyframes lobby-boot-ring-fill {
+  to {
+    stroke-dashoffset: calc(
+      var(--ring-circ) * (1 - var(--lobby-boot-ring-target) / 100)
+    );
+  }
+}
+
+.lobby-boot-intro-ring-catchup .influence-ring__progress {
+  transition: stroke-dashoffset 550ms cubic-bezier(0.33, 1, 0.68, 1);
+  filter: drop-shadow(0 0 8px var(--98-power-glow))
+    drop-shadow(0 0 16px var(--98-power-glow-soft));
+}
+
+.lobby-boot-intro-scale-active .lobby-screen__title,
+.lobby-boot-intro-ring-active .lobby-screen__title {
+  text-shadow:
+    0 0 24px rgba(var(--98-accent-rgb), 0.9),
+    0 0 48px rgba(var(--98-accent-rgb), 0.55);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lobby-boot-intro-scale-active.lobby-screen__orb-root {
+    animation: none;
+    transform: translate3d(-50%, -50%, 0) scale(1);
+  }
+
+  .lobby-boot-intro-ring-active .influence-ring__progress {
+    animation: none;
+    stroke-dashoffset: calc(
+      var(--ring-circ) * (1 - var(--lobby-boot-ring-target) / 100)
+    );
+  }
+
+  .lobby-boot-intro-ring-catchup .influence-ring__progress {
+    transition: none;
+  }
+}

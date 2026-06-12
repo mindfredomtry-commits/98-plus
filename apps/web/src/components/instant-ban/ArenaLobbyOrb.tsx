@@ -51,7 +51,7 @@ const ArenaInfluenceRing = memo(function ArenaInfluenceRing({
       className={`instant-ban-confirm-influence-ring${
         introFilling ? ' influence-ring--intro-filling' : ''
       }`}
-      disableTransition={disableTransition}
+      disableTransition={disableTransition || introFilling}
     />
   );
 });
@@ -155,7 +155,7 @@ export function ArenaLobbyOrb({
                 value={ringDisplayValue}
                 debugId={debugIdRef.current}
                 disableTransition={useLobbyRingDisplay && lobbyRingIntroFilling}
-                introFilling={useLobbyRingDisplay && lobbyRingIntroFilling}
+                introFilling={false}
               />
             </span>
             <span className="instant-ban-arena-lobby-orb__title-layer">

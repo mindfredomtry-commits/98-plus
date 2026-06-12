@@ -4,7 +4,7 @@ import { InfluenceRing } from '@/components/lobby/InfluenceRing';
 
 type Props = {
   ringPercent: number;
-  ringIntroFilling?: boolean;
+  ringCatchupActive?: boolean;
 };
 
 /**
@@ -12,7 +12,7 @@ type Props = {
  */
 export function LobbyIdleOrb({
   ringPercent,
-  ringIntroFilling = false,
+  ringCatchupActive = false,
 }: Props) {
   const clamped = Math.min(100, Math.max(0, ringPercent));
 
@@ -24,10 +24,8 @@ export function LobbyIdleOrb({
             <span className="instant-ban-arena-lobby-orb__ring-layer instant-ban-confirm-orb-ring">
               <InfluenceRing
                 value={clamped}
-                className={`instant-ban-confirm-influence-ring${
-                  ringIntroFilling ? ' influence-ring--intro-filling' : ''
-                }`}
-                disableTransition={ringIntroFilling}
+                className="instant-ban-confirm-influence-ring"
+                disableTransition={!ringCatchupActive}
               />
             </span>
             <span className="instant-ban-arena-lobby-orb__title-layer">
