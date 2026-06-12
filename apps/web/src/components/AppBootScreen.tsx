@@ -39,7 +39,6 @@ export function AppBootScreen({ influencePercent }: Props) {
       data-app-boot-screen=""
       aria-hidden
     >
-      <div className="lobby-screen__grid" />
       <div className="lobby-screen__particles" aria-hidden>
         {Array.from({ length: 10 }).map((_, i) => (
           <span key={i} className="lobby-screen__particle" />
