@@ -12,6 +12,7 @@ import {
   acceptBan,
   rejectBan,
   replyToIncomingBan,
+  createReplyApiStepLogger,
   counterBan,
   markOverboard,
   submitCheckAnswer,
@@ -315,6 +316,19 @@ bansRouter.post('/:id/reject', async (req: AuthRequest, res) => {
 });
 
 bansRouter.post('/:id/reply', async (req: AuthRequest, res) => {
+  const banId = paramId(req);
+  const replyLog = createReplyApiStepLogger({
+    banId,
+    userId: req.userId ?? 'unknown',
+  });
+  replyLog.step('route entered');
+
+  if (!req.userId) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  replyLog.step('auth ok');
+
   const { text, durationMinutes, durationHours } = req.body as {
     text?: string;
     durationMinutes?: number;
@@ -332,13 +346,16 @@ bansRouter.post('/:id/reply', async (req: AuthRequest, res) => {
 
   try {
     const result = await replyToIncomingBan({
-      banId: paramId(req),
-      userId: req.userId!,
+      banId,
+      userId: req.userId,
       text: text.trim(),
       durationMinutes: mins,
+      replyLog,
     });
+    replyLog.step('response sent');
     res.json(result);
   } catch (e) {
+    replyLog.step('reply failed', { error: (e as Error).message });
     console.error('[bans] reply failed', e);
     respondBanSendError(res, e);
   }

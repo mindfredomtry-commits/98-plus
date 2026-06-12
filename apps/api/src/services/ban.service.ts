@@ -700,13 +700,46 @@ async function notifySenderBanAcceptedDm(banId: string) {
   }
 }
 
+export type ReplyApiStepLogger = {
+  step: (stage: string, extra?: Record<string, unknown>) => void;
+};
+
+export function createReplyApiStepLogger(context: {
+  banId: string;
+  userId: string;
+}): ReplyApiStepLogger {
+  let lastMs = Date.now();
+  const startMs = lastMs;
+  return {
+    step(stage: string, extra?: Record<string, unknown>) {
+      const now = Date.now();
+      const stepMs = now - lastMs;
+      const totalMs = now - startMs;
+      lastMs = now;
+      console.log(`[REPLY API] ${stage}`, {
+        banId: context.banId,
+        userId: context.userId,
+        stepMs,
+        totalMs,
+        ...extra,
+      });
+    },
+  };
+}
+
 /** Reply to incoming challenge: resolve parent + send reverse ban atomically */
 export async function replyToIncomingBan(params: {
   banId: string;
   userId: string;
   text: string;
   durationMinutes: number;
+  replyLog?: ReplyApiStepLogger;
 }) {
+  const log =
+    params.replyLog ??
+    createReplyApiStepLogger({ banId: params.banId, userId: params.userId });
+
+  log.step('loading parent ban');
   const parent = await prisma.ban.findUnique({
     where: { id: params.banId },
     include: { sender: true, receiver: true },
@@ -720,22 +753,35 @@ export async function replyToIncomingBan(params: {
   if (!isValidDurationMinutes(params.durationMinutes)) {
     throw new Error('Invalid duration');
   }
+  log.step('parent ban loaded', {
+    parentStatus: parent.status,
+    senderId: parent.senderId,
+  });
 
+  log.step('resolving receiver');
   assertCanSendBan(await canSendBan(params.userId));
+  log.step('resolving receiver: canSendBan ok');
 
   if (parent.status === 'PENDING') {
+    log.step('resolving receiver: acceptBan start');
     await acceptBan(parent.id, params.userId);
+    log.step('resolving receiver: acceptBan done');
   }
 
   if (!parent.receiverIncomingAckAt) {
+    log.step('resolving receiver: ack update start');
     await prisma.ban.update({
       where: { id: parent.id },
       data: { receiverIncomingAckAt: new Date() },
     });
+    log.step('resolving receiver: ack update done');
   }
 
+  log.step('resolving receiver: getOrCreateThread start');
   const thread = await getOrCreateThread(params.userId, parent.senderId);
+  log.step('resolving receiver: getOrCreateThread done', { threadId: thread.id });
 
+  log.step('creating reply ban');
   const reply = await prisma.ban.create({
     data: {
       threadId: thread.id,
@@ -750,16 +796,27 @@ export async function replyToIncomingBan(params: {
     },
     include: { sender: true, receiver: true },
   });
+  log.step('reply ban created', { replyBanId: reply.id });
 
+  log.step('publishing events');
+  log.step('publishing events: setCooldown start');
   await setCooldown(`cooldown:send:${params.userId}`, COOLDOWN_SEND);
+  log.step('publishing events: setCooldown done');
+  log.step('publishing events: applySendEnergy start');
   await applySendEnergy(params.userId, parent.senderId);
+  log.step('publishing events: applySendEnergy done');
+  log.step('publishing events: recordBanSent start');
   await recordBanSent(params.userId);
+  log.step('publishing events: recordBanSent done');
+  log.step('publishing events: trackEvent start');
   await trackEvent(ANALYTICS_EVENTS.BAN_SENT, params.userId, {
     banId: reply.id,
     parentId: parent.id,
     durationMinutes: params.durationMinutes,
   });
+  log.step('publishing events: trackEvent done');
 
+  log.step('publishing events: recordSocialContact start');
   await recordSocialContact(params.userId, {
     username: parent.sender.username ?? parent.sender.firstName,
     contactUserId: parent.senderId,
@@ -776,15 +833,21 @@ export async function replyToIncomingBan(params: {
     recentChallenge: params.text.trim(),
     source: 'CHALLENGE_RECEIVED',
   });
+  log.step('publishing events: recordSocialContact done');
 
+  log.step('publishing events: mapBanToInteraction start');
   const senderIncoming = (await mapBanToInteraction(reply.id, parent.senderId))!;
+  log.step('publishing events: mapBanToInteraction done');
+  log.step('publishing events: broadcastToUser start');
   broadcastToUser(parent.senderId, {
     type: 'ban:incoming',
     payload: senderIncoming,
   });
+  log.step('publishing events: broadcastToUser done');
 
   const senderUsername =
     parent.receiver.username ?? parent.receiver.firstName;
+  log.step('sending notifications');
   await sendIncomingBanNotification(
     parent.sender.telegramId,
     params.text,
@@ -795,19 +858,30 @@ export async function replyToIncomingBan(params: {
     parent.receiver.firstName,
     parent.receiver.photoUrl,
   );
+  log.step('notifications finished');
 
+  log.step('notifications finished: syncSession sender start');
   await syncSession(parent.senderId);
+  log.step('notifications finished: syncSession sender done');
+  log.step('notifications finished: syncSession receiver start');
   await syncSession(params.userId);
+  log.step('notifications finished: syncSession receiver done');
 
   const { getSessionState } = await import('./session.service');
+  log.step('notifications finished: getSessionState start');
   const session = await getSessionState(
     params.userId,
     parent.receiver.username,
   );
+  log.step('notifications finished: getSessionState done');
+
+  log.step('notifications finished: mapBanToInteraction reply start');
+  const replyBan = await mapBanToInteraction(reply.id, params.userId);
+  log.step('notifications finished: mapBanToInteraction reply done');
 
   return {
     parentId: parent.id,
-    replyBan: await mapBanToInteraction(reply.id, params.userId),
+    replyBan,
     session,
   };
 }
