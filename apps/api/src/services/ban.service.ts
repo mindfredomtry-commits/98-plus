@@ -727,6 +727,75 @@ export function createReplyApiStepLogger(context: {
   };
 }
 
+type ReplyBanWithUsers = BanWithUsers;
+
+async function runReplyBanPostCreateWork(params: {
+  parent: ReplyBanWithUsers & {
+    sender: User;
+    receiver: User;
+  };
+  reply: ReplyBanWithUsers;
+  userId: string;
+  text: string;
+  durationMinutes: number;
+}) {
+  const { parent, reply, userId, text, durationMinutes } = params;
+
+  await trackEvent(ANALYTICS_EVENTS.BAN_SENT, userId, {
+    banId: reply.id,
+    parentId: parent.id,
+    durationMinutes,
+  });
+
+  await recordSocialContact(userId, {
+    username: parent.sender.username ?? parent.sender.firstName,
+    contactUserId: parent.senderId,
+    firstName: parent.sender.firstName,
+    photoUrl: parent.sender.photoUrl,
+    recentChallenge: text,
+    source: 'CHALLENGE_SENT',
+  });
+  await recordSocialContact(parent.senderId, {
+    username: parent.receiver.username ?? parent.receiver.firstName,
+    contactUserId: userId,
+    firstName: parent.receiver.firstName,
+    photoUrl: parent.receiver.photoUrl,
+    recentChallenge: text,
+    source: 'CHALLENGE_RECEIVED',
+  });
+
+  const senderIncoming = (await mapBanToInteraction(reply.id, parent.senderId))!;
+  broadcastToUser(parent.senderId, {
+    type: 'ban:incoming',
+    payload: senderIncoming,
+  });
+
+  const senderUsername = parent.receiver.username ?? parent.receiver.firstName;
+  await sendIncomingBanNotification(
+    parent.sender.telegramId,
+    text,
+    reply.id,
+    parent.senderId,
+    senderUsername,
+    durationMinutes,
+    parent.receiver.firstName,
+    parent.receiver.photoUrl,
+  );
+
+  void syncSession(parent.senderId).catch((e) => {
+    console.warn('[reply-ban-bg] syncSession sender failed', {
+      banId: reply.id,
+      message: (e as Error).message,
+    });
+  });
+  void syncSession(userId).catch((e) => {
+    console.warn('[reply-ban-bg] syncSession receiver failed', {
+      banId: reply.id,
+      message: (e as Error).message,
+    });
+  });
+}
+
 /** Reply to incoming challenge: resolve parent + send reverse ban atomically */
 export async function replyToIncomingBan(params: {
   banId: string;
@@ -798,91 +867,33 @@ export async function replyToIncomingBan(params: {
   });
   log.step('reply ban created', { replyBanId: reply.id });
 
-  log.step('publishing events');
-  log.step('publishing events: setCooldown start');
   await setCooldown(`cooldown:send:${params.userId}`, COOLDOWN_SEND);
-  log.step('publishing events: setCooldown done');
-  log.step('publishing events: applySendEnergy start');
   await applySendEnergy(params.userId, parent.senderId);
-  log.step('publishing events: applySendEnergy done');
-  log.step('publishing events: recordBanSent start');
   await recordBanSent(params.userId);
-  log.step('publishing events: recordBanSent done');
-  log.step('publishing events: trackEvent start');
-  await trackEvent(ANALYTICS_EVENTS.BAN_SENT, params.userId, {
-    banId: reply.id,
-    parentId: parent.id,
+
+  const { buildMinimalSessionState } = await import('./session.service');
+  const replyBan = buildInteractionFromBan(reply, params.userId);
+
+  void runReplyBanPostCreateWork({
+    parent,
+    reply,
+    userId: params.userId,
+    text: params.text.trim(),
     durationMinutes: params.durationMinutes,
+  }).catch((e) => {
+    console.error('[reply-ban-bg] post-create work failed', {
+      banId: reply.id,
+      parentId: parent.id,
+      message: (e as Error).message,
+    });
   });
-  log.step('publishing events: trackEvent done');
 
-  log.step('publishing events: recordSocialContact start');
-  await recordSocialContact(params.userId, {
-    username: parent.sender.username ?? parent.sender.firstName,
-    contactUserId: parent.senderId,
-    firstName: parent.sender.firstName,
-    photoUrl: parent.sender.photoUrl,
-    recentChallenge: params.text.trim(),
-    source: 'CHALLENGE_SENT',
-  });
-  await recordSocialContact(parent.senderId, {
-    username: parent.receiver.username ?? parent.receiver.firstName,
-    contactUserId: params.userId,
-    firstName: parent.receiver.firstName,
-    photoUrl: parent.receiver.photoUrl,
-    recentChallenge: params.text.trim(),
-    source: 'CHALLENGE_RECEIVED',
-  });
-  log.step('publishing events: recordSocialContact done');
-
-  log.step('publishing events: mapBanToInteraction start');
-  const senderIncoming = (await mapBanToInteraction(reply.id, parent.senderId))!;
-  log.step('publishing events: mapBanToInteraction done');
-  log.step('publishing events: broadcastToUser start');
-  broadcastToUser(parent.senderId, {
-    type: 'ban:incoming',
-    payload: senderIncoming,
-  });
-  log.step('publishing events: broadcastToUser done');
-
-  const senderUsername =
-    parent.receiver.username ?? parent.receiver.firstName;
-  log.step('sending notifications');
-  await sendIncomingBanNotification(
-    parent.sender.telegramId,
-    params.text,
-    reply.id,
-    parent.senderId,
-    senderUsername,
-    params.durationMinutes,
-    parent.receiver.firstName,
-    parent.receiver.photoUrl,
-  );
-  log.step('notifications finished');
-
-  log.step('notifications finished: syncSession sender start');
-  await syncSession(parent.senderId);
-  log.step('notifications finished: syncSession sender done');
-  log.step('notifications finished: syncSession receiver start');
-  await syncSession(params.userId);
-  log.step('notifications finished: syncSession receiver done');
-
-  const { getSessionState } = await import('./session.service');
-  log.step('notifications finished: getSessionState start');
-  const session = await getSessionState(
-    params.userId,
-    parent.receiver.username,
-  );
-  log.step('notifications finished: getSessionState done');
-
-  log.step('notifications finished: mapBanToInteraction reply start');
-  const replyBan = await mapBanToInteraction(reply.id, params.userId);
-  log.step('notifications finished: mapBanToInteraction reply done');
+  log.step('response ready (background work scheduled)');
 
   return {
     parentId: parent.id,
     replyBan,
-    session,
+    session: buildMinimalSessionState(params.userId),
   };
 }
 
