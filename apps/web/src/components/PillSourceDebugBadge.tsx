@@ -69,6 +69,7 @@ export function PillSourceDebugBadge() {
         <div>initialState={ringIntro.initialState}</div>
         <div>hasPaintedOnce={String(ringIntro.hasPaintedOnce)}</div>
         <div>bootIntroInitial={String(ringIntro.bootIntroInitial)}</div>
+        <div>introPrimed={String(ringIntro.introPrimed)}</div>
       </div>
     </div>,
     document.body,

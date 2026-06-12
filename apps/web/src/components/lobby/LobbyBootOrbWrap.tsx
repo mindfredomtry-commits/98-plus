@@ -14,7 +14,8 @@ import { patchLobbyBootIntroDebugGeometry } from '@/lib/lobby-boot-intro-debug';
 type Props = {
   className?: string;
   style?: CSSProperties;
-  bootIntroInitial: boolean;
+  bootIntroActive: boolean;
+  introPrimed: boolean;
   scalePending: boolean;
   scaleActive: boolean;
   scaleDone: boolean;
@@ -45,7 +46,8 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
     {
       className = '',
       style,
-      bootIntroInitial,
+      bootIntroActive,
+      introPrimed,
       scalePending,
       scaleActive,
       scaleDone,
@@ -65,11 +67,11 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
     onScaleRef.current = onScaleAnimationEnd;
     onRingRef.current = onRingAnimationEnd;
 
-    const effectiveScalePending = bootIntroInitial && (scalePending || scaleActive);
-    const effectiveScaleActive = bootIntroInitial && scaleActive;
-    const effectiveScaleDone = bootIntroInitial && scaleDone;
-    const effectiveRingBase = bootIntroInitial || ringBaseActive;
-    const effectiveRingActive = bootIntroInitial && ringActive;
+    const effectiveScalePending = bootIntroActive && (scalePending || scaleActive);
+    const effectiveScaleActive = bootIntroActive && scaleActive;
+    const effectiveScaleDone = bootIntroActive && scaleDone;
+    const effectiveRingBase = bootIntroActive && ringBaseActive;
+    const effectiveRingActive = bootIntroActive && ringActive;
 
     const scaleLayerClass = [
       effectiveScalePending ? 'lobby-boot-intro-scale-pending' : '',
@@ -87,11 +89,14 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
       .filter(Boolean)
       .join(' ');
 
-    const scaleFactor = effectiveScaleDone
-      ? 1
-      : effectiveScalePending || effectiveScaleActive
-        ? LOBBY_BOOT_INTRO_SCALE_START
-        : undefined;
+    const scaleFactor =
+      introPrimed || !bootIntroActive
+        ? undefined
+        : effectiveScaleDone
+          ? 1
+          : effectiveScalePending || effectiveScaleActive
+            ? LOBBY_BOOT_INTRO_SCALE_START
+            : undefined;
 
     useLayoutEffect(() => {
       const root =
@@ -106,13 +111,16 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
         ringTransform: readTransform(ringLayer),
         wrapperTransform: readTransform(root),
         scaleLayerClass: scaleLayerClass || '—',
-        ringRootClass: ringRootClass || '—',
+        ringRootClass: introPrimed
+          ? 'lobby-boot-intro-primed'
+          : ringRootClass || '—',
       });
     }, [
       ref,
       scaleLayerClass,
       ringRootClass,
-      bootIntroInitial,
+      bootIntroActive,
+      introPrimed,
       scalePending,
       scaleActive,
       scaleDone,
@@ -161,15 +169,22 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
         : {}),
     } as CSSProperties;
 
+    const rootClass = [
+      className,
+      ringRootClass,
+      introPrimed ? 'lobby-boot-intro-primed lobby-orb-normal-visible' : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+
     return (
       <div
         ref={ref}
-        className={`${className}${ringRootClass ? ` ${ringRootClass}` : ''}${
-          bootIntroInitial ? ' lobby-boot-intro-orb-root' : ''
-        }`}
+        className={rootClass}
         style={mergedStyle}
         data-orb-root
-        data-boot-intro-initial={bootIntroInitial ? '' : undefined}
+        data-boot-intro-active={bootIntroActive ? '' : undefined}
+        data-boot-intro-primed={introPrimed ? '' : undefined}
       >
         <div
           ref={scaleLayerRef}

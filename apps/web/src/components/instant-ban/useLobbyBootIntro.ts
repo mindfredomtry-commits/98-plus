@@ -305,6 +305,7 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
       initialState: initialMetaRef.current!.initialState,
       hasPaintedOnce: hasPaintedOnceRef.current,
       bootIntroInitial,
+      introPrimed: skipIntro,
     });
   }, [
     enabled,
@@ -315,12 +316,14 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
     bootCssFillActive,
     ringDisplayPercent,
     bootIntroInitial,
+    skipIntro,
   ]);
 
   return {
     ringDisplayPercent,
     ringTarget: target,
     introActive,
+    bootIntroActive: bootIntroInitial,
     bootIntroInitial,
     scaleIntroActive: scaleActive,
     scalePending,

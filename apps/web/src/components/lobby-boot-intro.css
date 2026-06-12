@@ -22,18 +22,12 @@
   overflow: visible;
 }
 
-/* Never paint lobby ring in normal mode before boot intro classes */
-.lobby-screen__orb-root:not(.lobby-boot-intro-ring-base):not(.lobby-boot-intro-orb-root)
+/* Boot intro only — hide ring until boot ring-base is on (avoids full-size flash) */
+.lobby-screen__orb-root[data-boot-intro-active]:not(.lobby-boot-intro-ring-base)
   .instant-ban-arena-lobby-orb__ring-layer {
   visibility: hidden;
 }
 
-.lobby-boot-intro-orb-root:not(.lobby-boot-intro-ring-base)
-  .instant-ban-arena-lobby-orb__ring-layer {
-  visibility: hidden;
-}
-
-/* Inline --boot-orb-scale-factor wins before CSS bundle parse */
 .lobby-boot-orb-scale-layer.lobby-boot-intro-scale-pending,
 .lobby-boot-orb-scale-layer.lobby-boot-intro-scale-active {
   transform: scale(var(--boot-orb-scale-factor, 0.15));
@@ -59,33 +53,23 @@
   }
 }
 
-.lobby-screen__orb-root:has(.lobby-boot-intro-ring-base),
-.lobby-screen__orb-root:has(.lobby-boot-intro-ring-active),
-.lobby-screen__orb-root:has(.lobby-boot-intro-ring-catchup),
-.lobby-screen__orb-root:has(.lobby-boot-intro-scale-pending),
-.lobby-screen__orb-root:has(.lobby-boot-intro-scale-done) {
+.lobby-screen__orb-root[data-boot-intro-active],
+.lobby-screen__orb-root[data-boot-intro-primed] {
   overflow: visible;
   contain: none;
 }
 
-/* Ring + center share one scale stack — no animated transform on ring-layer during intro */
-.lobby-screen__orb-root:has(.lobby-boot-intro-ring-base)
+.lobby-screen__orb-root[data-boot-intro-active].lobby-boot-intro-ring-base
   .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
   transform: scale(var(--98-confirm-ring-lobby-scale));
   transition: none !important;
 }
 
-.lobby-boot-intro-scale-pending .instant-ban-arena-lobby-orb__ring-layer,
+.lobby-screen__orb-root[data-boot-intro-active].lobby-boot-intro-ring-base
+  .instant-ban-arena-lobby-orb__ring-layer,
 .lobby-boot-intro-ring-base .instant-ban-arena-lobby-orb__ring-layer {
   opacity: 1;
   visibility: visible;
-}
-
-.lobby-screen__orb-root.lobby-boot-intro-ring-base:not(:has(.lobby-boot-intro-scale-pending)):not(
-    :has(.lobby-boot-intro-scale-done)
-  ):not(:has(.lobby-boot-intro-ring-active)):not(:has(.lobby-boot-intro-ring-catchup))
-  .instant-ban-arena-lobby-orb__ring-layer {
-  visibility: hidden;
 }
 
 .lobby-boot-intro-ring-base .influence-ring,
@@ -133,12 +117,34 @@
     drop-shadow(0 0 16px var(--98-power-glow-soft));
 }
 
-.lobby-boot-intro-scale-done .lobby-screen__title,
 .lobby-boot-intro-scale-active .lobby-screen__title,
+.lobby-boot-intro-scale-done .lobby-screen__title,
 .lobby-boot-intro-ring-active .lobby-screen__title {
   text-shadow:
     0 0 24px rgba(var(--98-accent-rgb), 0.9),
     0 0 48px rgba(var(--98-accent-rgb), 0.55);
+}
+
+/* After primed — restore normal lobby orb/ring (no boot transforms) */
+.lobby-screen__orb-root.lobby-boot-intro-primed .lobby-boot-orb-scale-layer,
+.lobby-screen__orb-root.lobby-orb-normal-visible .lobby-boot-orb-scale-layer {
+  transform: none;
+  will-change: auto;
+  animation: none;
+}
+
+.lobby-screen__orb-root.lobby-boot-intro-primed .instant-ban-arena-lobby-orb__face,
+.lobby-screen__orb-root.lobby-boot-intro-primed .instant-ban-arena-lobby-orb__ring-layer,
+.lobby-screen__orb-root.lobby-boot-intro-primed .lobby-screen__orb,
+.lobby-screen__orb-root.lobby-boot-intro-primed .lobby-screen__title {
+  opacity: 1;
+  visibility: visible;
+}
+
+.lobby-screen__orb-root.lobby-boot-intro-primed
+  .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
+  transform: scale(var(--98-confirm-ring-lobby-scale));
+  transition: transform 950ms cubic-bezier(0.34, 1.12, 0.64, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {

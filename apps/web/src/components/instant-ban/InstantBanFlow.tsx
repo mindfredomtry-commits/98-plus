@@ -3125,8 +3125,9 @@ export function InstantBanFlow({
   const {
     ringDisplayPercent: lobbyRingDisplayPercent,
     ringTarget: lobbyRingTarget,
-    introActive: lobbyBootIntroActive,
-    bootIntroInitial: lobbyBootIntroInitial,
+    introActive: lobbyBootVisualActive,
+    bootIntroActive: lobbyBootIntroActive,
+    introPrimed: lobbyIntroPrimed,
     scaleIntroActive: lobbyScaleIntroActive,
     scalePending: lobbyScalePending,
     scaleDone: lobbyScaleDone,
@@ -3226,7 +3227,7 @@ export function InstantBanFlow({
         replyUiShellActive ? ' instant-ban-flow--reply-ui-shell' : ''
       }${
         activeBanUiShellActive ? ' instant-ban-flow--active-ban-ui-shell' : ''
-      }${lobbyBootIntroActive ? ' lobby-screen--boot-intro-active' : ''}`}
+      }${lobbyBootVisualActive ? ' lobby-screen--boot-intro-active' : ''}`}
       style={arenaOverlayStyle}
       role="dialog"
       aria-modal="true"
@@ -3263,8 +3264,14 @@ export function InstantBanFlow({
             className={`lobby-screen__orb-wrap lobby-screen__orb-root${
               confirmLayoutActive ? ' lobby-screen__orb-wrap--confirm' : ''
             }${orbOverlayDim ? ' lobby-screen__orb-wrap--overlay-dim' : ''}`}
-            bootIntroInitial={
-              lobbyBootIntroInitial &&
+            bootIntroActive={
+              lobbyBootIntroActive &&
+              phase === 'idle' &&
+              !confirmActive &&
+              !orbCompressActive
+            }
+            introPrimed={
+              lobbyIntroPrimed &&
               phase === 'idle' &&
               !confirmActive &&
               !orbCompressActive
