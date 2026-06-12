@@ -255,6 +255,7 @@ export function InstantBanFlow({
     activeBans,
     newBanWhoFlowRequest,
     openBansOverlayRequest,
+    closeBansOverlayRequest,
     resultCtaBansOverlayOpen,
     clearResultCtaBansOverlayOpen,
     bansCtaQueueSuppress,
@@ -1984,6 +1985,14 @@ export function InstantBanFlow({
 
   const openBansFromResultCtaProviderRequest = useCallback(
     (source: string) => {
+      if (replyComposeActive || deepLinkReplyBan?.id) {
+        console.log('[queue-reply-debug] blocked by bans overlay intent', {
+          source,
+          replyComposeActive,
+          replyToBanId: deepLinkReplyBan?.id ?? null,
+        });
+        return false;
+      }
       const tick = resultCtaBansOpenTickRef.current;
       const ok = handleOpenBansFromResultCtaRef.current();
       console.log('[BANS OVERLAY OPENED]', {
@@ -2001,8 +2010,19 @@ export function InstantBanFlow({
       }
       return ok;
     },
-    [scheduleBansVisibleCheck],
+    [deepLinkReplyBan?.id, replyComposeActive, scheduleBansVisibleCheck],
   );
+
+  useLayoutEffect(() => {
+    if (closeBansOverlayRequest === 0) return;
+    lastOpenBansOverlayRequestRef.current = 0;
+    resultCtaBansOpenTickRef.current = 0;
+    setBansOverlayOpen(false);
+    setSelectedBanForDetails(null);
+    console.log('[queue-reply-debug] close local bans overlay', {
+      closeBansOverlayRequest,
+    });
+  }, [closeBansOverlayRequest]);
 
   useLayoutEffect(() => {
     if (!resultCtaBansOverlayOpen && openBansOverlayRequest === 0) return;

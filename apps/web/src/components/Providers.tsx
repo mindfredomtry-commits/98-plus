@@ -411,6 +411,8 @@ interface AppContextValue {
   openNewBanWhoFlow: () => void;
   /** Opens BansOverlay from result card «К запретам» (increments on each request). */
   openBansOverlayRequest: number;
+  /** Closes BansOverlay when result-cta navigation intent is cleared. */
+  closeBansOverlayRequest: number;
   /** Provider latch: InstantBanFlow must open BansOverlay while direct result closes. */
   resultCtaBansOverlayOpen: boolean;
   clearResultCtaBansOverlayOpen: () => void;
@@ -576,6 +578,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [sessionBootstrapped, setSessionBootstrapped] = useState(false);
   const [homeSnapshotReady, setHomeSnapshotReady] = useState(false);
   const [lobbyOpen, setLobbyOpen] = useState(true);
+  const [openBansOverlayRequest, setOpenBansOverlayRequest] = useState(0);
+  const [closeBansOverlayRequest, setCloseBansOverlayRequest] = useState(0);
+  const [resultCtaBansOverlayOpen, setResultCtaBansOverlayOpen] =
+    useState(false);
+  const [bansCtaQueueSuppress, setBansCtaQueueSuppress] = useState(false);
+  const [bansNavState, setBansNavState] = useState<BansNavState>(DEFAULT_BANS_NAV);
+  const [bansReturnToLobbyLatch, setBansReturnToLobbyLatch] = useState(false);
   const lobbyOpenRef = useRef(true);
   const lobbyShownLoggedRef = useRef(false);
   const [, setAvatarPreloadEpoch] = useState(0);
@@ -5602,6 +5611,90 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [finalizeIncomingReplyAfterSend, pinReplyToBanId],
   );
 
+  const clearBansCtaQueueSuppress = useCallback(() => {
+    bansCtaQueueSuppressRef.current = false;
+    setBansCtaQueueSuppress(false);
+  }, []);
+
+  const clearResultCtaBansOverlayOpen = useCallback(() => {
+    resultCtaBansOverlayOpenRef.current = false;
+    setResultCtaBansOverlayOpen(false);
+  }, []);
+
+  const clearBansOverlayNavigationIntent = useCallback((source: string) => {
+    const hadIntent =
+      bansCtaQueueSuppressRef.current ||
+      resultCtaBansOverlayOpenRef.current ||
+      openBansOverlayRequestRef.current > 0 ||
+      bansNavStateRef.current.origin === 'result-cta';
+    if (!hadIntent) return;
+
+    console.log('[queue-reply-debug] clear bans overlay intent', { source });
+    bansCtaQueueSuppressRef.current = false;
+    setBansCtaQueueSuppress(false);
+    resultCtaBansOverlayOpenRef.current = false;
+    setResultCtaBansOverlayOpen(false);
+    setOpenBansOverlayRequest(0);
+    openBansOverlayRequestRef.current = 0;
+    bansNavStateRef.current = DEFAULT_BANS_NAV;
+    setBansNavState(DEFAULT_BANS_NAV);
+    setBansReturnToLobbyLatch(false);
+    bansReturnToLobbyLatchRef.current = false;
+    setCloseBansOverlayRequest((n) => n + 1);
+  }, []);
+
+  const armOpenBansOverlayFromResultCta = useCallback(
+    (banId: string | null) => {
+      closeSendFlow();
+      clearIncomingReply();
+      clearDeepLinkReplyBan();
+      logResultNav('block-send-flow', {
+        reason: 'open-bans-cta',
+        direct: true,
+        banId,
+      });
+      markVisibleOverboardTrace('RESULT NAV BLOCK SEND FLOW', {
+        reason: 'open-bans-cta',
+        direct: true,
+        banId,
+      });
+
+      bansCtaQueueSuppressRef.current = true;
+      bansNavStateRef.current = {
+        origin: 'result-cta',
+        previousScreen: 'lobby',
+        returnTarget: 'lobby',
+      };
+
+      let nextBansRequest = 0;
+      flushSync(() => {
+        setBansCtaQueueSuppress(true);
+        setBansNavState(bansNavStateRef.current);
+        setLobbyOpen(true);
+        lobbyOpenRef.current = true;
+        setOpenBansOverlayRequest((n) => {
+          nextBansRequest = n + 1;
+          openBansOverlayRequestRef.current = n + 1;
+          return nextBansRequest;
+        });
+        setResultCtaBansOverlayOpen(true);
+        resultCtaBansOverlayOpenRef.current = true;
+      });
+
+      markVisibleOverboardTrace('[BANS OPEN REQUESTED]', {
+        openBansOverlayRequest: nextBansRequest,
+        resultCtaBansOverlayOpen: true,
+        bansCtaQueueSuppress: true,
+      });
+      console.log('[BANS OPEN REQUESTED]', {
+        openBansOverlayRequest: nextBansRequest,
+        resultCtaBansOverlayOpen: true,
+        lobbyOpen: lobbyOpenRef.current,
+      });
+    },
+    [clearDeepLinkReplyBan, clearIncomingReply, closeSendFlow],
+  );
+
   const notifyResultReplyWhatVisible = useCallback(
     (banId: string, selectedUserId: string | null) => {
       setResultReplyWhatReady(true);
@@ -5746,6 +5839,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       directResultOverlayActive;
     const queueLen = overlayQueueRef.current.length;
 
+    console.log('[overboard-status-debug] to bans clicked', {
+      banId,
+      wasDirect,
+      queueLength: queueLen,
+    });
+
     markVisibleOverboardTrace('RESULT CTA OPEN BANS click', {
       action: wasDirect ? 'open-bans' : 'open-bans-queue',
       direct: wasDirect,
@@ -5762,29 +5861,67 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
     markOverlayUserAction('result-nav', banId ?? undefined);
 
+    const showNextPendingOrOpenBans = (source: string) => {
+      const nextHead = overlayQueueRef.current[0] ?? null;
+      if (nextHead) {
+        const nextBanId =
+          nextHead.kind === 'result'
+            ? nextHead.result.id
+            : nextHead.ban.id;
+        console.log('[overboard-status-debug] queue has next pending', {
+          kind: nextHead.kind,
+          banId: nextBanId,
+          queueLength: overlayQueueRef.current.length,
+        });
+        console.log(
+          '[overboard-status-debug] open next pending instead of persistent bans intent',
+          { source },
+        );
+        clearBansOverlayNavigationIntent(source);
+        syncDisplayFromQueue(overlayQueueRef.current);
+        logResultNav('next-overlay', {
+          remaining: overlayQueueRef.current.length,
+        });
+        return true;
+      }
+      return false;
+    };
+
     if (wasDirect) {
-      requestOpenBansFromResultCtaRef.current(banId);
+      if (banId) {
+        consumeResultBanForResultCta(banId);
+      } else {
+        applyDirectOverboardCloseState(null);
+        cancelResultPollBurst();
+      }
+      if (showNextPendingOrOpenBans('overboard-status-direct')) {
+        return;
+      }
+      armOpenBansOverlayFromResultCta(banId);
       logResultNav('open-bans-overlay', { direct: true, banId, wasDirect: true });
       return;
     }
 
-    const remainingAfterPop = Math.max(0, queueLen - 1);
+    clearBansOverlayNavigationIntent('navigate-from-result-queue');
     dismissBanResult();
 
-    if (remainingAfterPop > 0) {
-      logResultNav('next-overlay', { remaining: remainingAfterPop });
-    } else {
-      logResultNav('lobby-fallback', {});
+    if (showNextPendingOrOpenBans('navigate-from-result-non-direct')) {
+      return;
     }
+
+    logResultNav('lobby-fallback', {});
+    armOpenBansOverlayFromResultCta(banId);
   }, [
-    clearDeepLinkReplyBan,
-    clearIncomingReply,
-    closeSendFlow,
+    applyDirectOverboardCloseState,
+    armOpenBansOverlayFromResultCta,
+    cancelResultPollBurst,
+    clearBansOverlayNavigationIntent,
+    consumeResultBanForResultCta,
     directResultOverlayActive,
     dismissBanResult,
-    dismissCurrentOverlay,
     markOverlayUserAction,
     result?.id,
+    syncDisplayFromQueue,
   ]);
 
   const startIncomingReply = useCallback(
@@ -5831,12 +5968,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const acknowledgeIncomingAndStartReply = useCallback(
     (ban: BanInteraction) => {
       const banId = ban.id;
+      console.log('[queue-reply-debug] reply clicked from queued incoming', {
+        banId,
+      });
+      if (
+        bansCtaQueueSuppressRef.current ||
+        resultCtaBansOverlayOpenRef.current ||
+        openBansOverlayRequestRef.current > 0
+      ) {
+        console.log('[queue-reply-debug] blocked by bans overlay intent', {
+          bansCtaQueueSuppress: bansCtaQueueSuppressRef.current,
+          resultCtaBansOverlayOpen: resultCtaBansOverlayOpenRef.current,
+          openBansOverlayRequest: openBansOverlayRequestRef.current,
+        });
+      }
+      clearBansOverlayNavigationIntent('incoming-reply-click');
+
       setViralOnboarding(false);
       challengeLog('incoming:reply-open', { banId });
 
       beginReplyHandoff(banId);
       startIncomingReply(ban);
       dismissIncomingCardForReplyCompose(banId);
+
+      console.log('[queue-reply-debug] replyToBanId', { banId });
+      console.log('[queue-reply-debug] selectedUser', {
+        userId: ban.sender?.id ?? null,
+        username: ban.sender?.username ?? null,
+      });
+      console.log('[queue-reply-debug] open What', { banId });
       logReplyFlow('overlay-dismissed', {
         banId,
         lockActive: true,
@@ -5873,6 +6033,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [
       beginReplyHandoff,
+      clearBansOverlayNavigationIntent,
       dismissIncomingCardForReplyCompose,
       startIncomingReply,
     ],
@@ -6480,22 +6641,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [clearReplyDeepLinkState]);
 
   const [newBanWhoFlowRequest, setNewBanWhoFlowRequest] = useState(0);
-  const [openBansOverlayRequest, setOpenBansOverlayRequest] = useState(0);
-  const [resultCtaBansOverlayOpen, setResultCtaBansOverlayOpen] =
-    useState(false);
-  const [bansCtaQueueSuppress, setBansCtaQueueSuppress] = useState(false);
-  const [bansNavState, setBansNavState] = useState<BansNavState>(DEFAULT_BANS_NAV);
-  const [bansReturnToLobbyLatch, setBansReturnToLobbyLatch] = useState(false);
-
-  const clearBansCtaQueueSuppress = useCallback(() => {
-    bansCtaQueueSuppressRef.current = false;
-    setBansCtaQueueSuppress(false);
-  }, []);
-
-  const clearResultCtaBansOverlayOpen = useCallback(() => {
-    resultCtaBansOverlayOpenRef.current = false;
-    setResultCtaBansOverlayOpen(false);
-  }, []);
 
   const requestOpenBansFromResultCta = useCallback(
     (banId: string | null) => {
@@ -6505,28 +6650,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         click: true,
       });
 
-      closeSendFlow();
-      clearIncomingReply();
-      clearDeepLinkReplyBan();
-      logResultNav('block-send-flow', {
-        reason: 'open-bans-cta',
-        direct: true,
-        banId,
-      });
-      markVisibleOverboardTrace('RESULT NAV BLOCK SEND FLOW', {
-        reason: 'open-bans-cta',
-        direct: true,
-        banId,
-      });
-
-      bansCtaQueueSuppressRef.current = true;
-      bansNavStateRef.current = {
-        origin: 'result-cta',
-        previousScreen: 'lobby',
-        returnTarget: 'lobby',
-      };
-
-      let nextBansRequest = 0;
       const gateBefore = snapshotDirectOverboardGate();
 
       flushSync(() => {
@@ -6538,18 +6661,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           applyDirectOverboardCloseState(null);
           cancelResultPollBurst();
         }
-        setBansCtaQueueSuppress(true);
-        setBansNavState(bansNavStateRef.current);
-        setLobbyOpen(true);
-        lobbyOpenRef.current = true;
-        setOpenBansOverlayRequest((n) => {
-          nextBansRequest = n + 1;
-          openBansOverlayRequestRef.current = n + 1;
-          return nextBansRequest;
-        });
-        setResultCtaBansOverlayOpen(true);
-        resultCtaBansOverlayOpenRef.current = true;
       });
+
+      armOpenBansOverlayFromResultCta(banId);
 
       logDirectOverboardStateReset({
         source: 'open-bans-cta',
@@ -6568,25 +6682,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         bansCtaQueueSuppress: bansCtaQueueSuppressRef.current,
         resultCtaBansOverlayOpen: resultCtaBansOverlayOpenRef.current,
       });
-
-      markVisibleOverboardTrace('[BANS OPEN REQUESTED]', {
-        openBansOverlayRequest: nextBansRequest,
-        resultCtaBansOverlayOpen: true,
-        bansCtaQueueSuppress: true,
-      });
-      console.log('[BANS OPEN REQUESTED]', {
-        openBansOverlayRequest: nextBansRequest,
-        resultCtaBansOverlayOpen: true,
-        lobbyOpen: lobbyOpenRef.current,
-      });
-
     },
     [
       applyDirectOverboardCloseState,
+      armOpenBansOverlayFromResultCta,
       cancelResultPollBurst,
-      clearDeepLinkReplyBan,
-      clearIncomingReply,
-      closeSendFlow,
       consumeResultBanForResultCta,
       snapshotDirectOverboardGate,
     ],
@@ -7334,6 +7434,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       newBanWhoFlowRequest,
       openNewBanWhoFlow,
       openBansOverlayRequest,
+      closeBansOverlayRequest,
       resultCtaBansOverlayOpen,
       clearResultCtaBansOverlayOpen,
       bansCtaQueueSuppress,
@@ -7466,6 +7567,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       newBanWhoFlowRequest,
       openNewBanWhoFlow,
       openBansOverlayRequest,
+      closeBansOverlayRequest,
       resultCtaBansOverlayOpen,
       clearResultCtaBansOverlayOpen,
       bansCtaQueueSuppress,
@@ -7496,6 +7598,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       notifyActiveBanCardVisible,
       clearActiveBanDeepLinkShell,
       openBansOverlayRequest,
+      closeBansOverlayRequest,
       bansCtaQueueSuppress,
       clearBansCtaQueueSuppress,
       bansNavState,
