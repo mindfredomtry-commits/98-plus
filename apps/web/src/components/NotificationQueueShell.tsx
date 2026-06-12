@@ -1,12 +1,8 @@
 'use client';
 
-import { useEffect, type ReactNode } from 'react';
+import { Children, isValidElement, useEffect, type ReactNode } from 'react';
 import { ModalShell } from './ModalShell';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
-import {
-  clearPillSourceIf,
-  reportPillSource,
-} from '@/lib/pill-source-debug';
 
 type OverlayKind = 'incoming' | 'check' | 'result';
 
@@ -27,7 +23,16 @@ type Props = {
   sessionActive: boolean;
   contentKey: string | null;
   children: ReactNode;
+  /** Incoming card display ban id — debug + incoming guard. */
+  displayBanId?: string | null;
+  incomingCardReady?: boolean;
 };
+
+function hasRenderableChildren(children: ReactNode): boolean {
+  return Children.toArray(children).some(
+    (child) => child != null && child !== false && isValidElement(child),
+  );
+}
 
 /** Single persistent modal shell for queued notification handoff. */
 export function NotificationQueueShell({
@@ -35,14 +40,75 @@ export function NotificationQueueShell({
   sessionActive,
   contentKey,
   children,
+  displayBanId = null,
+  incomingCardReady = false,
 }: Props) {
+  const hasContent = hasRenderableChildren(children);
+
+  useEffect(() => {
+    console.log('[notification-shell-debug] mounted', {
+      kind,
+      displayBanId,
+      incomingCardReady,
+      hasContent,
+      sessionActive,
+      contentKey,
+    });
+  }, [kind, displayBanId, incomingCardReady, hasContent, sessionActive, contentKey]);
+
   useEffect(() => {
     if (!kind) return;
-    reportPillSource('NotificationQueueShell');
-    return () => clearPillSourceIf('NotificationQueueShell');
-  }, [kind, contentKey, sessionActive]);
+    console.log('[notification-shell-debug] kind=', kind, {
+      displayBanId,
+      incomingCardReady,
+      hasContent,
+    });
+  }, [kind, displayBanId, incomingCardReady, hasContent]);
+
+  useEffect(() => {
+    console.log('[notification-shell-debug] displayBan=', displayBanId ?? 'null');
+  }, [displayBanId]);
+
+  useEffect(() => {
+    console.log(
+      '[notification-shell-debug] incomingCardReady=',
+      incomingCardReady,
+    );
+  }, [incomingCardReady]);
+
+  useEffect(() => {
+    if (!kind) return;
+    if (kind === 'incoming' && !incomingCardReady) {
+      console.log('[notification-shell-debug] rendering shell', {
+        kind,
+        displayBanId,
+        reason: 'incoming-not-ready',
+      });
+      return;
+    }
+    if (!hasContent) {
+      console.log('[notification-shell-debug] rendering shell', {
+        kind,
+        displayBanId,
+        reason: 'no-content',
+      });
+      return;
+    }
+    console.log('[notification-shell-debug] rendering real card', {
+      kind,
+      displayBanId,
+    });
+  }, [kind, incomingCardReady, hasContent, displayBanId]);
 
   if (!kind) return null;
+
+  if (kind === 'incoming' && !incomingCardReady) {
+    return null;
+  }
+
+  if (!hasContent) {
+    return null;
+  }
 
   const handoff = sessionActive;
   const shellKind = kind ?? 'incoming';
@@ -59,14 +125,12 @@ export function NotificationQueueShell({
       onClose={() => {}}
       cardClassName={`${CARD_CLASS[shellKind]} modal-card--handoff`}
     >
-      {kind ? (
-        <div
-          key={handoff ? undefined : (contentKey ?? kind)}
-          className="notification-queue-shell__content"
-        >
-          {children}
-        </div>
-      ) : null}
+      <div
+        key={handoff ? undefined : (contentKey ?? kind)}
+        className="notification-queue-shell__content"
+      >
+        {children}
+      </div>
     </ModalShell>
   );
 }

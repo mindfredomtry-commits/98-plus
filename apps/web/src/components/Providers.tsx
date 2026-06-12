@@ -6653,7 +6653,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const incomingOverlayDisplayKind = shouldRenderIncomingOverlay
     ? 'incoming'
     : displayActiveOverlayKind;
+  const replyIncomingDirectPath = Boolean(
+    replyDeepLinkBanId != null ||
+      replyDeeplinkFastShell ||
+      replyHandoffLock ||
+      deepLinkReplyBooting,
+  );
+  const replyIncomingQueueShellDeferred =
+    replyIncomingDirectPath &&
+    (replyDeeplinkFastShell || deepLinkReplyBooting);
   const hasQueuedOverlayShell =
+    !replyIncomingQueueShellDeferred &&
     (overlayQueue.length > 0 ||
       replyFastIncomingActive ||
       shouldRenderIncomingOverlay) &&
@@ -7110,26 +7120,36 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       candidates.push(ban);
     };
 
+    addCandidate(incomingBan);
+    addCandidate(incomingBanRef.current);
+    if (scopedIncomingBan && !isReplyDeeplinkShellBan(scopedIncomingBan)) {
+      addCandidate(scopedIncomingBan);
+    }
+
     if (fastBanId) {
       for (const q of overlayQueue) {
-        if (q.kind === 'incoming' && q.ban.id === fastBanId) {
+        if (
+          q.kind === 'incoming' &&
+          q.ban.id === fastBanId &&
+          !isReplyDeeplinkShellBan(q.ban)
+        ) {
           addCandidate(q.ban);
         }
       }
       for (const q of overlayQueueRef.current) {
-        if (q.kind === 'incoming' && q.ban.id === fastBanId) {
+        if (
+          q.kind === 'incoming' &&
+          q.ban.id === fastBanId &&
+          !isReplyDeeplinkShellBan(q.ban)
+        ) {
           addCandidate(q.ban);
         }
       }
     } else {
       const head = overlayQueue[0] ?? overlayQueueRef.current[0];
-      if (head?.kind === 'incoming') addCandidate(head.ban);
-    }
-
-    addCandidate(incomingBanRef.current);
-    addCandidate(incomingBan);
-    if (scopedIncomingBan && !isReplyDeeplinkShellBan(scopedIncomingBan)) {
-      addCandidate(scopedIncomingBan);
+      if (head?.kind === 'incoming' && !isReplyDeeplinkShellBan(head.ban)) {
+        addCandidate(head.ban);
+      }
     }
 
     return pickIncomingCardDisplayBan(candidates, viewerId);
@@ -7167,6 +7187,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     checkGateActive,
     displayResult,
   ]);
+
+  const notificationQueueShellKind = useMemo(() => {
+    if (!incomingNotificationShellKind) return null;
+    if (
+      incomingNotificationShellKind === 'incoming' &&
+      replyIncomingDirectPath
+    ) {
+      return null;
+    }
+    return incomingNotificationShellKind;
+  }, [incomingNotificationShellKind, replyIncomingDirectPath]);
+
+  const showReplyIncomingOverlayDirect =
+    replyIncomingDirectPath &&
+    incomingCardDisplayBan != null &&
+    !showDirectOverboardLayer;
 
   useEffect(() => {
     const viewerId = auth.user?.id ?? null;
@@ -7486,8 +7522,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const incomingJsxWillRender =
     !showDirectOverboardLayer &&
-    incomingNotificationShellKind === 'incoming' &&
-    incomingCardDisplayBan != null;
+    incomingCardDisplayBan != null &&
+    (showReplyIncomingOverlayDirect ||
+      (notificationQueueShellKind === 'incoming' &&
+        !replyIncomingDirectPath));
 
   useLayoutEffect(() => {
     const jsxBranch = {
@@ -7507,10 +7545,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       jsxBranch,
     );
     markVisibleOverboardTrace('[INCOMING JSX BRANCH]', jsxBranch);
+    if (showReplyIncomingOverlayDirect) {
+      console.log('[notification-shell-debug] reply direct IncomingBanOverlay', {
+        banId: incomingCardDisplayBan?.id ?? null,
+      });
+    }
     if (incomingJsxWillRender && incomingCardDisplayBan?.id) {
       console.log('[INCOMING JSX RENDER CARD]', {
         banId: incomingCardDisplayBan.id,
         source: incomingJsxRenderSource,
+        replyDirect: showReplyIncomingOverlayDirect,
       });
       markVisibleOverboardTrace('[INCOMING JSX RENDER CARD]', {
         banId: incomingCardDisplayBan.id,
@@ -7548,9 +7592,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     isReplyFastPendingOpen,
     isReplyFastShellRequested,
     notificationSessionActive,
+    notificationQueueShellKind,
     queueHeadKind,
     shouldRenderIncomingOverlay,
     showDirectOverboardLayer,
+    showReplyIncomingOverlayDirect,
   ]);
 
   useLayoutEffect(() => {
@@ -7875,62 +7921,83 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       <ShellErrorBoundary name="app">
         {children}
         {!showDirectOverboardLayer ? (
-          <GlobalOverlayHost
-            active={notificationSessionActive || incomingJsxWillRender}
-            queueSessionActive={
-              notificationSessionActive || incomingJsxWillRender
-            }
-            activeOverlayKind={incomingNotificationShellKind}
-            activeIncomingBanId={
-              incomingNotificationShellKind === 'incoming'
-                ? (incomingCardDisplayBan?.id ?? null)
-                : null
-            }
-          >
-            <NotificationQueueShell
-              kind={incomingNotificationShellKind}
-              sessionActive={
+          <>
+            {showReplyIncomingOverlayDirect ? (
+              <ChallengeErrorBoundary
+                name="incoming-reply-direct"
+                onRecover={() => dismissIncoming()}
+              >
+                <IncomingBanOverlay />
+              </ChallengeErrorBoundary>
+            ) : null}
+            <GlobalOverlayHost
+              active={
+                notificationSessionActive ||
+                incomingJsxWillRender ||
+                showReplyIncomingOverlayDirect
+              }
+              queueSessionActive={
                 notificationSessionActive || incomingJsxWillRender
               }
-              contentKey={
-                overlayQueue[0]
-                  ? overlayQueueKey(overlayQueue[0])
-                  : incomingCardDisplayBan?.id
-                    ? `incoming:${incomingCardDisplayBan.id}`
-                    : null
+              activeOverlayKind={
+                showReplyIncomingOverlayDirect
+                  ? 'incoming'
+                  : notificationQueueShellKind
+              }
+              activeIncomingBanId={
+                showReplyIncomingOverlayDirect ||
+                notificationQueueShellKind === 'incoming'
+                  ? (incomingCardDisplayBan?.id ?? null)
+                  : null
               }
             >
-              {incomingNotificationShellKind === 'incoming' &&
-              incomingCardDisplayBan ? (
-                <ChallengeErrorBoundary
-                  name="incoming"
-                  onRecover={() => dismissIncoming()}
-                >
-                  <IncomingBanOverlay contentOnly />
-                </ChallengeErrorBoundary>
-              ) : null}
-              {incomingNotificationShellKind === 'check' ? (
-                <ChallengeErrorBoundary
-                  name="check"
-                  onRecover={() => clearCheckOverlay()}
-                >
-                  <CheckOverlay contentOnly />
-                </ChallengeErrorBoundary>
-              ) : null}
-              {incomingNotificationShellKind === 'result' && displayResult ? (
-                <ChallengeErrorBoundary
-                  name="result"
-                  onRecover={() => dismissBanResult()}
-                >
-                  <ResultOverlay
-                    result={displayResult}
-                    onClose={dismissBanResult}
-                    contentOnly
-                  />
-                </ChallengeErrorBoundary>
-              ) : null}
-            </NotificationQueueShell>
-          </GlobalOverlayHost>
+              <NotificationQueueShell
+                kind={notificationQueueShellKind}
+                displayBanId={incomingCardDisplayBan?.id ?? null}
+                incomingCardReady={incomingCardFullyReady}
+                sessionActive={
+                  notificationSessionActive || incomingJsxWillRender
+                }
+                contentKey={
+                  overlayQueue[0]
+                    ? overlayQueueKey(overlayQueue[0])
+                    : incomingCardDisplayBan?.id
+                      ? `incoming:${incomingCardDisplayBan.id}`
+                      : null
+                }
+              >
+                {notificationQueueShellKind === 'incoming' &&
+                incomingCardDisplayBan ? (
+                  <ChallengeErrorBoundary
+                    name="incoming"
+                    onRecover={() => dismissIncoming()}
+                  >
+                    <IncomingBanOverlay contentOnly />
+                  </ChallengeErrorBoundary>
+                ) : null}
+                {notificationQueueShellKind === 'check' ? (
+                  <ChallengeErrorBoundary
+                    name="check"
+                    onRecover={() => clearCheckOverlay()}
+                  >
+                    <CheckOverlay contentOnly />
+                  </ChallengeErrorBoundary>
+                ) : null}
+                {notificationQueueShellKind === 'result' && displayResult ? (
+                  <ChallengeErrorBoundary
+                    name="result"
+                    onRecover={() => dismissBanResult()}
+                  >
+                    <ResultOverlay
+                      result={displayResult}
+                      onClose={dismissBanResult}
+                      contentOnly
+                    />
+                  </ChallengeErrorBoundary>
+                ) : null}
+              </NotificationQueueShell>
+            </GlobalOverlayHost>
+          </>
         ) : null}
         {(() => {
           const directJsxFields = {
