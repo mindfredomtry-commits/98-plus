@@ -1,38 +1,11 @@
-/* Visual boot shell — sits above empty shell, below notification overlays (z 100). */
+/* Deep-link boot placeholder — shares .lobby-screen background from lobby-screen.css */
 .app-boot-screen,
 .app-boot-screen.lobby-screen {
   position: fixed;
   inset: 0;
-  /* Beat .lobby-screen { z-index: 60 } and .instant-ban-flow { z-index: 65 }. */
   z-index: 66;
   isolation: isolate;
   pointer-events: none;
-  /* Opaque base — .lobby-screen gradients alone can composite as translucent. */
-  background-color: var(--98-bg-black);
-  background-image:
-    radial-gradient(
-      ellipse 120% 80% at 50% 20%,
-      rgba(var(--98-purple-cold-rgb), 0.35),
-      transparent 55%
-    ),
-    radial-gradient(
-      ellipse 90% 60% at 50% 100%,
-      rgba(var(--98-purple-deep-rgb), 0.45),
-      transparent 50%
-    ),
-    linear-gradient(var(--98-bg-black), var(--98-bg-black));
-}
-
-/*
- * Empty pill on boot = .instant-ban-lobby-cta > .btn-98-primary.lobby-screen__cta
- * (CTA spring-in / glow shell under the boot layer). Hide arena lobby chrome only while boot is up.
- */
-.app-page--boot-active .instant-ban-flow > .instant-ban-lobby-cta,
-.app-page--boot-active .instant-ban-flow > .instant-ban-arena-lobby-nav,
-.app-page--boot-active .instant-ban-flow .lobby-screen__grid,
-.app-page--boot-active .instant-ban-flow .lobby-screen__particles,
-.app-page--boot-active .instant-ban-flow .lobby-screen__orb-wrap {
-  display: none !important;
 }
 
 .app-boot-screen__stage {
@@ -44,31 +17,4 @@
   flex: 1;
   width: 100%;
   min-height: 0;
-}
-
-.app-boot-screen:not(.app-boot-screen--filling)
-  .influence-ring__progress {
-  animation: app-boot-ring-breathe 2.8s ease-in-out infinite;
-}
-
-@keyframes app-boot-ring-breathe {
-  0%,
-  100% {
-    opacity: 0.82;
-    filter: drop-shadow(0 0 6px var(--98-power-glow))
-      drop-shadow(0 0 14px var(--98-power-glow-soft));
-  }
-  50% {
-    opacity: 1;
-    filter: drop-shadow(0 0 10px var(--98-power-glow))
-      drop-shadow(0 0 20px var(--98-power-glow-soft))
-      drop-shadow(0 0 28px rgba(var(--98-accent-rgb), 0.35));
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .app-boot-screen:not(.app-boot-screen--filling)
-    .influence-ring__progress {
-    animation: none;
-  }
 }

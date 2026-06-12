@@ -14,6 +14,7 @@ import { useBootRouteRelease } from '@/hooks/useBootRouteRelease';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSocialBoot } from '@/hooks/useSocialBoot';
 import { AppBootScreen } from '@/components/AppBootScreen';
+import '@/components/app-boot-screen.css';
 import { PillSourceDebugBadge } from '@/components/PillSourceDebugBadge';
 import { HomeArena } from '@/components/HomeArena';
 import { InstantBanFlow } from '@/components/instant-ban/InstantBanFlow';
@@ -112,6 +113,11 @@ export default function HomePage() {
   const { ready } = useTelegram();
   const deepLinkRouteBootPending = useDeepLinkRouteBootPending();
   const showBootScreen = loading || deepLinkRouteBootPending;
+  /** Auth boot — real InstantBanFlow lobby chrome; no duplicate overlay. */
+  const bootUsesRealLobbyChrome =
+    showBootScreen && loading && !deepLinkRouteBootPending;
+  const showBootPlaceholder =
+    showBootScreen && !bootUsesRealLobbyChrome;
   const replyDeeplinkPending =
     !incomingCardFullyReady &&
     Boolean(
@@ -364,7 +370,7 @@ export default function HomePage() {
         <ArenaAmbience />
       </ShellErrorBoundary>
 
-      {showBootScreen ? (
+      {showBootPlaceholder ? (
         <AppBootScreen influencePercent={lobbyInfluence.influencePercent} />
       ) : null}
 

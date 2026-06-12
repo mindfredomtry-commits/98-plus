@@ -808,7 +808,8 @@ html.scroll-lock body {
 .app-page--reply-deeplink-pending .instant-ban-lobby-cta,
 .app-page--reply-deeplink-loading .instant-ban-lobby-cta,
 .app-page--reply-ui-shell .instant-ban-lobby-cta,
-.app-page--boot-active .instant-ban-lobby-cta {
+.app-page--boot-active .instant-ban-lobby-cta,
+.app-page--boot-active .instant-ban-arena-lobby-nav {
   display: none !important;
   pointer-events: none !important;
 }

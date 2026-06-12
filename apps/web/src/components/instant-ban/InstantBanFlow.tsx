@@ -80,6 +80,7 @@ import {
   resolveOpponentFriendCard,
 } from './bans-overlay-utils';
 import { useConfirmOrbController } from './useConfirmOrbController';
+import { LobbyScreenAtmosphere } from '@/components/lobby/LobbyScreenAtmosphere';
 import { useLobbyRingIntroFill } from './useLobbyRingIntroFill';
 import { triggerLobbyBlockedHaptic } from './lobby-cta-haptics';
 import {
@@ -3235,16 +3236,7 @@ export function InstantBanFlow({
           bansNeedAttention={pendingStartupInteractions}
         />
       ) : null}
-      {!lobbyChromeHidden ? (
-        <>
-          <div className="lobby-screen__grid" aria-hidden />
-          <div className="lobby-screen__particles" aria-hidden>
-            {Array.from({ length: 10 }).map((_, i) => (
-              <span key={i} className="lobby-screen__particle" />
-            ))}
-          </div>
-        </>
-      ) : null}
+      {!lobbyChromeHidden ? <LobbyScreenAtmosphere /> : null}
 
       <div className="instant-ban-arena-send__stage">
         {!lobbyChromeHidden ? (

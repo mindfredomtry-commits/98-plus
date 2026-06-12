@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { consumeLobbyRingIntroPrime } from '@/lib/lobby-ring-intro-session';
 
 type LobbyPhase = 'idle' | 'selectingTarget' | 'composingBan' | 'confirming';
 
@@ -29,14 +30,21 @@ type Options = {
  * One-time lobby ring fill 0 → actual on cold open. Does not re-run on Who→Lobby return.
  */
 export function useLobbyRingIntroFill(actualPercent: number, options: Options) {
-  const introDoneRef = useRef(false);
-  const introStartedRef = useRef(false);
+  const bootPrimeRef = useRef<number | null>(null);
+  if (bootPrimeRef.current === null) {
+    bootPrimeRef.current = consumeLobbyRingIntroPrime();
+  }
+  const bootPrimedPercent = bootPrimeRef.current;
+
+  const introDoneRef = useRef(bootPrimedPercent != null);
+  const introStartedRef = useRef(bootPrimedPercent != null);
   const animFrameRef = useRef<number | null>(null);
   const targetPercentRef = useRef(clampPercent(actualPercent));
   targetPercentRef.current = clampPercent(actualPercent);
-  const [displayPercent, setDisplayPercent] = useState(() =>
-    introDoneRef.current ? clampPercent(actualPercent) : 0,
-  );
+  const [displayPercent, setDisplayPercent] = useState(() => {
+    if (bootPrimedPercent != null) return clampPercent(bootPrimedPercent);
+    return introDoneRef.current ? clampPercent(actualPercent) : 0;
+  });
   const [isFilling, setIsFilling] = useState(false);
 
   const cancelAnim = useCallback(() => {

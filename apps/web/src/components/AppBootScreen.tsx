@@ -1,7 +1,9 @@
 'use client';
 
-import { InfluenceRing } from '@/components/lobby/InfluenceRing';
-import { useLobbyRingIntroFill } from '@/components/instant-ban/useLobbyRingIntroFill';
+import { useEffect } from 'react';
+import { LobbyIdleOrb } from '@/components/lobby/LobbyIdleOrb';
+import { LobbyScreenAtmosphere } from '@/components/lobby/LobbyScreenAtmosphere';
+import { primeLobbyRingIntroFromBoot } from '@/lib/lobby-ring-intro-session';
 import './instant-ban/instant-ban.css';
 import './lobby-screen.css';
 import './app-boot-screen.css';
@@ -21,34 +23,24 @@ function resolveBootRingTarget(influencePercent: number): number {
 }
 
 /**
- * Visual-only boot shell: dark arena + orb + influence ring while auth loading.
- * No navigation, CTA, or flow side effects.
+ * Deep-link / chrome-hidden boot placeholder — same lobby background + orb as InstantBanFlow.
+ * Normal auth boot uses real InstantBanFlow chrome instead (no duplicate layer).
  */
 export function AppBootScreen({ influencePercent }: Props) {
   const ringTarget = resolveBootRingTarget(influencePercent);
-  const { displayPercent, isFilling } = useLobbyRingIntroFill(ringTarget, {
-    phase: 'idle',
-    sendStarted: false,
-  });
+
+  useEffect(() => {
+    primeLobbyRingIntroFromBoot(ringTarget);
+  }, [ringTarget]);
 
   return (
     <div
-      className={`app-boot-screen lobby-screen${
-        isFilling ? ' app-boot-screen--filling' : ''
-      }`}
+      className="app-boot-screen lobby-screen"
       data-app-boot-screen=""
       data-boot-part="root"
       aria-hidden
     >
-      <div
-        className="lobby-screen__particles"
-        data-boot-part="particles"
-        aria-hidden
-      >
-        {Array.from({ length: 10 }).map((_, i) => (
-          <span key={i} className="lobby-screen__particle" />
-        ))}
-      </div>
+      <LobbyScreenAtmosphere />
 
       <div className="app-boot-screen__stage" data-boot-part="extra">
         <div
@@ -56,31 +48,7 @@ export function AppBootScreen({ influencePercent }: Props) {
           data-orb-root
           data-boot-part="orb"
         >
-          <div className="instant-ban-arena-lobby-orb" data-arena-lobby-orb>
-            <div className="instant-ban-arena-lobby-orb__stage">
-              <div className="instant-ban-arena-lobby-orb__btn">
-                <span className="instant-ban-arena-lobby-orb__face">
-                  <span
-                    className="instant-ban-arena-lobby-orb__ring-layer instant-ban-confirm-orb-ring"
-                    data-boot-part="ring"
-                  >
-                    <InfluenceRing
-                      value={displayPercent}
-                      className={`instant-ban-confirm-influence-ring${
-                        isFilling ? ' influence-ring--intro-filling' : ''
-                      }`}
-                      disableTransition={isFilling}
-                    />
-                  </span>
-                  <span className="instant-ban-arena-lobby-orb__title-layer">
-                    <span className="lobby-screen__orb" data-orb-core>
-                      <span className="lobby-screen__title">98+</span>
-                    </span>
-                  </span>
-                </span>
-              </div>
-            </div>
-          </div>
+          <LobbyIdleOrb ringPercent={ringTarget} staticRing />
         </div>
       </div>
     </div>
