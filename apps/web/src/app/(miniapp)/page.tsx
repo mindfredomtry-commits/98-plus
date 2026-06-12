@@ -11,6 +11,7 @@ import dynamic from 'next/dynamic';
 import { useApp } from '@/components/Providers';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSocialBoot } from '@/hooks/useSocialBoot';
+import { AppBootScreen } from '@/components/AppBootScreen';
 import { HomeArena } from '@/components/HomeArena';
 import { InstantBanFlow } from '@/components/instant-ban/InstantBanFlow';
 import { SendBanDock } from '@/components/SendBanDock';
@@ -326,6 +327,10 @@ export default function HomePage() {
       <ShellErrorBoundary name="ambience" fallback={null}>
         <ArenaAmbience />
       </ShellErrorBoundary>
+
+      {loading ? (
+        <AppBootScreen influencePercent={lobbyInfluence.influencePercent} />
+      ) : null}
 
       {!lobbyPrefetch ? (
         <ConnectionBanner state={connectionUiState} onRetry={reloadPending} />

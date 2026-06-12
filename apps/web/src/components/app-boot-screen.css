@@ -1,0 +1,45 @@
+/* Visual boot shell — sits above empty shell, below notification overlays (z 100). */
+.app-boot-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 66;
+  pointer-events: none;
+}
+
+.app-boot-screen__stage {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+}
+
+.app-boot-screen:not(.app-boot-screen--filling)
+  .influence-ring__progress {
+  animation: app-boot-ring-breathe 2.8s ease-in-out infinite;
+}
+
+@keyframes app-boot-ring-breathe {
+  0%,
+  100% {
+    opacity: 0.82;
+    filter: drop-shadow(0 0 6px var(--98-power-glow))
+      drop-shadow(0 0 14px var(--98-power-glow-soft));
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 10px var(--98-power-glow))
+      drop-shadow(0 0 20px var(--98-power-glow-soft))
+      drop-shadow(0 0 28px rgba(var(--98-accent-rgb), 0.35));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-boot-screen:not(.app-boot-screen--filling)
+    .influence-ring__progress {
+    animation: none;
+  }
+}
