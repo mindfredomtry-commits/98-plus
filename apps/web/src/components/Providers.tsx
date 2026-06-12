@@ -107,6 +107,10 @@ import {
 } from '@/lib/reply-handoff-debug';
 import { logActiveBanDeeplink } from '@/lib/active-ban-deeplink-debug';
 import {
+  countQueuedOverlaysByKind,
+  logQueueDebug,
+} from '@/lib/queue-debug';
+import {
   armPendingDeepLinkRouteFromStartParam,
   logOpenActiveBanCard,
   resolvePendingDeepLinkRoute,
@@ -424,7 +428,10 @@ interface AppContextValue {
   /** Accumulated pre-open interactions waiting for ritual release. */
   pendingStartupInteractions: boolean;
   /** Release queued startup interactions (e.g. after opening «Твои запреты»). */
-  releaseStartupInteractions: (opts?: { requireBanSend?: boolean }) => void;
+  releaseStartupInteractions: (opts?: {
+    requireBanSend?: boolean;
+    force?: boolean;
+  }) => void;
   /** Mark first successful ban send in this session (InstantBan success path). */
   markSessionBanSendSuccess: () => void;
   /** Lock overlay queue before active-ban API returns (start_param a_*). */
@@ -1670,25 +1677,78 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const unlockNotificationQueueAndFlush = useCallback(
     (reason: string) => {
-      const wasLocked = isNotificationQueueLocked();
-      unlockNotificationQueue(reason);
-      if (!wasLocked) return;
+      const prevLock = getNotificationQueueLockReason();
+      const startupPending = pendingStartupInteractionsRef.current;
+      const startupCounts = countQueuedOverlaysByKind(startupPending);
+      const queueCounts = countQueuedOverlaysByKind(overlayQueueRef.current);
+
+      logQueueDebug('unlock queue', {
+        reason,
+        prevLock,
+        startupHold: startupInteractionsHoldRef.current,
+        startupPending: startupCounts,
+        queuePending: queueCounts,
+        deepLinkBlocked: deepLinkBlockedRef.current,
+        activeBanDeepLinkId: activeBanDeepLinkBanIdRef.current,
+      });
+
+      if (isNotificationQueueLocked()) {
+        unlockNotificationQueue(reason);
+      }
+
+      // Stale ref from useEffect may still block enqueue right after unlock.
+      deepLinkBlockedRef.current = isNotificationQueueLocked();
+      logQueueDebug('active locks', {
+        queueLock: getNotificationQueueLockReason(),
+        deepLinkBlocked: deepLinkBlockedRef.current,
+        startupHold: startupInteractionsHoldRef.current,
+        activeBanDeepLinkId: activeBanDeepLinkBanIdRef.current,
+      });
+
+      const shouldFlushStartup =
+        startupInteractionsHoldRef.current || startupPending.length > 0;
+
       runWithExplicitResultUnlock(() => {
-        const pending = pendingStartupInteractionsRef.current;
-        startupInteractionsHoldRef.current = false;
-        pendingStartupInteractionsRef.current = [];
-        syncPendingStartupCount();
-        if (pending.length > 0) {
-          console.log('[startup-interactions-release]', {
-            count: pending.length,
-            reason: 'queue-unlock',
-          });
-          for (const item of pending) {
-            enqueueNotification(item, { source: 'session' });
+        if (shouldFlushStartup) {
+          startupInteractionsHoldRef.current = false;
+          pendingStartupInteractionsRef.current = [];
+          syncPendingStartupCount();
+          if (startupPending.length > 0) {
+            logQueueDebug('pending incoming count', {
+              incoming: startupCounts.incoming,
+            });
+            logQueueDebug('pending check count', {
+              check: startupCounts.check,
+            });
+            logQueueDebug('pending result count', {
+              result: startupCounts.result,
+            });
+            console.log('[startup-interactions-release]', {
+              count: startupPending.length,
+              reason,
+            });
+            for (const item of startupPending) {
+              enqueueNotification(item, { source: 'session' });
+            }
           }
         }
+
         syncDisplayFromQueue(overlayQueueRef.current);
         const head = overlayQueueRef.current[0];
+        if (head) {
+          logQueueDebug('show next overlay', {
+            kind: head.kind,
+            banId:
+              head.kind === 'result'
+                ? head.result.id
+                : head.kind === 'incoming' || head.kind === 'check'
+                  ? head.ban.id
+                  : null,
+          });
+        } else {
+          logQueueDebug('no pending -> lobby', { reason: 'empty-queue-reload' });
+        }
+
         if (head?.kind === 'result') {
           logOverlayPriority('pending-result-shown', {
             resultId: head.result.id,
@@ -1702,8 +1762,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const releaseStartupInteractions = useCallback(
-    (opts?: { requireBanSend?: boolean }) => {
-      if (isNotificationQueueLocked()) {
+    (opts?: { requireBanSend?: boolean; force?: boolean }) => {
+      if (!opts?.force && isNotificationQueueLocked()) {
         return;
       }
       if (opts?.requireBanSend && !sessionBanSendSuccessRef.current) {
@@ -1715,20 +1775,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       pendingStartupInteractionsRef.current = [];
       syncPendingStartupCount();
 
-      if (!hadHold && pending.length === 0) return;
+      if (!opts?.force && !hadHold && pending.length === 0) return;
 
       console.log('[startup-interactions-release]', {
         count: pending.length,
         requireBanSend: opts?.requireBanSend ?? false,
+        force: opts?.force ?? false,
       });
 
       if (pending.length === 0) return;
 
+      deepLinkBlockedRef.current = isNotificationQueueLocked();
       for (const item of pending) {
         enqueueNotification(item, { source: 'session' });
       }
+      syncDisplayFromQueue(overlayQueueRef.current);
     },
-    [enqueueNotification, syncPendingStartupCount],
+    [enqueueNotification, syncDisplayFromQueue, syncPendingStartupCount],
   );
 
   const openBanResult = useCallback(
@@ -2795,15 +2858,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       banId,
       hadCardVisible: activeBanCardVisibleRef.current,
     });
-    if (getNotificationQueueLockReason() === 'deep-link-active-ban') {
+    const lockReason = getNotificationQueueLockReason();
+    if (
+      lockReason === 'deep-link-active-ban' ||
+      (source === 'success-exit' && lockReason === 'repeat-ban-flow')
+    ) {
       unlockNotificationQueue(`active-repeat:${source}`);
     }
     dismissActiveBanDeepLinkRoute(source);
     bufferedActiveDeepLinkRef.current = null;
     activeBanCardVisibleRef.current = false;
+    activeBanDeepLinkBanIdRef.current = null;
     setActiveBanCardReady(true);
     setActiveBanDeepLinkBanId(null);
     setDeepLinkActiveBan(null);
+    deepLinkBlockedRef.current = isNotificationQueueLocked();
+    logQueueDebug('active locks after clear shell', {
+      source,
+      queueLock: getNotificationQueueLockReason(),
+      deepLinkBlocked: deepLinkBlockedRef.current,
+      activeBanDeepLinkId: activeBanDeepLinkBanIdRef.current,
+    });
   }, []);
 
   const notifyActiveBanCardVisible = useCallback((banId: string) => {

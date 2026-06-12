@@ -1322,13 +1322,32 @@ export function InstantBanFlow({
 
   const handleOpenBansOverlay = useCallback(() => {
     if (phase !== 'idle' || banSentSuccess) return;
+    const hadPendingIndicator = pendingStartupInteractions;
+    console.log('[queue-debug] manual flush from lobby button', {
+      pendingStartupInteractions: hadPendingIndicator,
+    });
     logOverlayPriority('explicit-bans-open-unlock', {});
+    clearActiveBanDeepLinkShell('lobby-bans-button');
+    closeSendFlow();
     unlockNotificationQueueAndFlush('explicit-bans-open-unlock');
+    releaseStartupInteractions({ force: true });
+    if (hadPendingIndicator) {
+      return;
+    }
     resetBansNavState();
     setBansTab('yours');
     setSelectedBanForDetails(null);
     setBansOverlayOpen(true);
-  }, [banSentSuccess, phase, resetBansNavState, unlockNotificationQueueAndFlush]);
+  }, [
+    banSentSuccess,
+    clearActiveBanDeepLinkShell,
+    closeSendFlow,
+    pendingStartupInteractions,
+    phase,
+    releaseStartupInteractions,
+    resetBansNavState,
+    unlockNotificationQueueAndFlush,
+  ]);
 
   const resetSendUiForBansCta = useCallback(() => {
     sendEntryPhaseRef.current = null;
@@ -1618,13 +1637,13 @@ export function InstantBanFlow({
   );
 
   const handleSuccessExitComplete = useCallback(() => {
-    console.log('[active-repeat-debug] release to queue', {
+    console.log('[queue-debug] success exit', {
       fromActiveRepeat: activeBanRepeatComposeRef.current,
+      pendingStartupInteractions,
     });
-    logOverlayPriority('send-success-unlock', {});
-    unlockNotificationQueueAndFlush('send-success-unlock');
     clearActiveBanDeepLinkShell('success-exit');
     activeBanRepeatComposeRef.current = false;
+    closeSendFlow();
     setBansOverlayOpen(false);
     setSelectedBanForDetails(null);
     setBanSentSuccess(false);
@@ -1643,10 +1662,16 @@ export function InstantBanFlow({
     setComposeDismissing(false);
     setCrossScreenProgressImmediate(0);
     setPhase('idle');
+    logOverlayPriority('send-success-unlock', {});
+    unlockNotificationQueueAndFlush('send-success-unlock');
+    releaseStartupInteractions({ force: true });
     beginCtaSpringIn();
   }, [
     beginCtaSpringIn,
     clearActiveBanDeepLinkShell,
+    closeSendFlow,
+    pendingStartupInteractions,
+    releaseStartupInteractions,
     unlockNotificationQueueAndFlush,
     setCrossScreenProgressImmediate,
     stopCrossScreenAnim,
