@@ -215,7 +215,10 @@ import {
   resultElapsedSinceSubmit,
   resultParticipantRole,
 } from '@/lib/result-latency-diag';
-import { isDismissedResultLocally } from '@/lib/dismissed-results';
+import {
+  hydrateDismissedResultIds,
+  isDismissedResultLocally,
+} from '@/lib/dismissed-results';
 import {
   buildReplyDeeplinkShellBan,
   REPLY_DEEPLINK_FAST_TIMEOUT_MS,
@@ -1175,6 +1178,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           resultCtaConsumedBanIdsRef.current.has(resultId) ||
           isDismissedResultLocally(resultId, viewerId)
         ) {
+          console.log('[overboard-repeat-debug] duplicate result blocked', {
+            banId: resultId,
+            source: 'syncDisplayFromQueue',
+            consumed: resultCtaConsumedBanIdsRef.current.has(resultId),
+            dismissedLocal: viewerId
+              ? isDismissedResultLocally(resultId, viewerId)
+              : false,
+          });
           console.log('[DIRECT RESULT REOPEN BLOCKED]', {
             reason: 'dismissed-after-result-cta',
             banId: resultId,
@@ -1223,6 +1234,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         setDirectResultOverlayActive(false);
         resultOpenRef.current = true;
         setResult(active.result);
+        if (active.result.outcome === 'overboard') {
+          console.log('[overboard-repeat-debug] status shown', {
+            banId: active.result.id,
+            source: 'syncDisplayFromQueue',
+          });
+        }
         logDirectOverboardStateReset({
           source: 'syncDisplayFromQueue',
           reason: 'queue-head-result-applied',
@@ -1544,6 +1561,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const key = overlayQueueKey(item);
 
       if (item.kind === 'result') {
+        const resultId = item.result.id;
+        const uid = userIdRef.current;
+        if (
+          resultCtaConsumedBanIdsRef.current.has(resultId) ||
+          (uid && isDismissedResultLocally(resultId, uid))
+        ) {
+          console.log('[overboard-repeat-debug] duplicate result blocked', {
+            banId: resultId,
+            source: 'enqueueNotification',
+            enqueueSource: opts?.source ?? null,
+          });
+          return;
+        }
+
         const block = shouldBlockResultOpen({
           source: 'enqueueNotification',
           resultBanId: item.result.id,
@@ -1809,6 +1840,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const resultKey = r?.id ? `result:${r.id}` : null;
 
       if (r) {
+        const uid = userIdRef.current;
+        if (
+          resultCtaConsumedBanIdsRef.current.has(r.id) ||
+          (uid && isDismissedResultLocally(r.id, uid))
+        ) {
+          console.log('[overboard-repeat-debug] duplicate result blocked', {
+            banId: r.id,
+            source: `openBanResult:${mode}`,
+          });
+          return;
+        }
+
         const block = shouldBlockResultOpen({
           resultBanId: r.id,
           overboardInFlightBanId: overboardInFlightRef.current,
@@ -2158,6 +2201,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     for (const id of hydrateAnsweredCheckIds(uid)) {
       answeredCheckRef.current.add(id);
     }
+    for (const id of hydrateDismissedResultIds(uid)) {
+      resultCtaConsumedBanIdsRef.current.add(id);
+      resultDeliveredBanIdsRef.current.add(id);
+    }
   }, [auth.user?.id, auth.loading]);
 
   const checkWaitingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2500,6 +2547,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       if (resultDeliveredBanIdsRef.current.has(banId)) {
+        console.log('[overboard-repeat-debug] duplicate result blocked', {
+          banId,
+          source,
+          reason: 'result-delivered-ref',
+        });
         logResultLatency('[result-skip-duplicate]', {
           banId,
           authUserId: uid,
@@ -2507,6 +2559,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
           elapsedMs,
         });
+        return;
+      }
+
+      if (
+        resultCtaConsumedBanIdsRef.current.has(banId) ||
+        (uid && isDismissedResultLocally(banId, uid))
+      ) {
+        console.log('[overboard-repeat-debug] duplicate result blocked', {
+          banId,
+          source,
+          consumed: resultCtaConsumedBanIdsRef.current.has(banId),
+          dismissedLocal: uid ? isDismissedResultLocally(banId, uid) : false,
+        });
+        void acknowledgeBanResultOnServer(banId, tokenRef.current);
         return;
       }
 
@@ -2607,6 +2673,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           return;
         }
         if (resultDeliveredBanIdsRef.current.has(pendingResult.id)) {
+          console.log('[overboard-repeat-debug] poll skipped dismissed result', {
+            banId: pendingResult.id,
+            pollSource: source,
+            reason: 'result-delivered-ref',
+          });
           logResultPath('pollPendingResultOnce', 'poll-skip-delivered', {
             banId: pendingResult.id,
             resultId: pendingResult.id,
@@ -2619,8 +2690,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           resultCtaConsumedBanIdsRef.current.has(pendingResult.id) ||
           isDismissedResultLocally(pendingResult.id, requestUserId)
         ) {
-          console.log('[POLL RESULT SKIPPED DISMISSED]', {
+          console.log('[overboard-repeat-debug] poll skipped dismissed result', {
             banId: pendingResult.id,
+            pollSource: source,
+            consumed: resultCtaConsumedBanIdsRef.current.has(pendingResult.id),
+            dismissedLocal: isDismissedResultLocally(
+              pendingResult.id,
+              requestUserId,
+            ),
           });
           markVisibleOverboardTrace('[POLL RESULT SKIPPED DISMISSED]', {
             banId: pendingResult.id,
@@ -3166,6 +3243,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         resultCtaConsumedBanIdsRef.current.has(banId) ||
         isDismissedResultLocally(banId, uid)
       ) {
+        console.log('[overboard-repeat-debug] duplicate result blocked', {
+          banId,
+          source: 'forceOpenOverboardResult',
+          consumed: resultCtaConsumedBanIdsRef.current.has(banId),
+          dismissedLocal: isDismissedResultLocally(banId, uid),
+        });
         console.log('[DIRECT RESULT REOPEN BLOCKED]', {
           reason: 'dismissed-after-result-cta',
           banId,
@@ -3376,6 +3459,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       shownOverlayKeysRef.current.add(
         overlayQueueKey({ kind: 'result', result: normalized }),
       );
+
+      console.log('[overboard-repeat-debug] status shown', {
+        banId,
+        source: opts?.source ?? null,
+        outcome: normalized.outcome,
+      });
 
       logResultUi(normalized.outcome, {
         overlayKind: 'result',
@@ -3771,6 +3860,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           resultCtaConsumedBanIdsRef.current.has(banId) ||
           isDismissedResultLocally(banId, uid)
         ) {
+          console.log('[overboard-repeat-debug] duplicate result blocked', {
+            banId,
+            source: `api-sync:${source}`,
+            consumed: resultCtaConsumedBanIdsRef.current.has(banId),
+            dismissedLocal: isDismissedResultLocally(banId, uid),
+          });
           console.log('[DIRECT RESULT REOPEN BLOCKED]', {
             reason: 'dismissed-after-result-cta',
             banId,
@@ -5534,7 +5629,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             resultId: pendingId,
             reason: pendingBlock.reason,
           });
-        } else if (isDismissedResultLocally(pendingId, requestUserId)) {
+        } else if (
+          resultCtaConsumedBanIdsRef.current.has(pendingId) ||
+          isDismissedResultLocally(pendingId, requestUserId)
+        ) {
+          console.log('[overboard-repeat-debug] poll skipped dismissed result', {
+            banId: pendingId,
+            source: 'reloadPending',
+            consumed: resultCtaConsumedBanIdsRef.current.has(pendingId),
+            dismissedLocal: isDismissedResultLocally(
+              pendingId,
+              requestUserId,
+            ),
+          });
           void acknowledgeBanResultOnServer(pendingId, token);
         } else {
           try {
@@ -5767,16 +5874,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (banId: string) => {
       const viewerId =
         resultRef.current?.viewerId ?? userIdRef.current ?? null;
+      const outcome = resultRef.current?.outcome ?? result?.outcome ?? null;
 
-      consumeIncomingAfterAnswer(banId, 'overboard');
+      if (outcome === 'overboard') {
+        consumeIncomingAfterAnswer(banId, 'overboard');
+      }
 
+      console.log('[overboard-repeat-debug] local dismiss resultId', {
+        banId,
+        viewerId,
+        outcome,
+      });
       console.log('[RESULT CTA CONSUME]', { banId });
       markVisibleOverboardTrace('[RESULT CTA CONSUME]', { banId });
 
       resultCtaConsumedBanIdsRef.current.add(banId);
       resultDeliveredBanIdsRef.current.add(banId);
       dismissBanResultLocally(banId, viewerId);
-      void acknowledgeBanResultOnServer(banId, tokenRef.current);
+
+      const token = tokenRef.current;
+      console.log('[overboard-repeat-debug] ack result start', { banId });
+      void (async () => {
+        await acknowledgeBanResultOnServer(banId, token);
+        console.log('[overboard-repeat-debug] ack result done', { banId });
+      })();
 
       const beforeQueue = overlayQueueRef.current;
       const beforeLen = beforeQueue.length;
@@ -5806,6 +5927,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       applyDirectOverboardCloseState,
       cancelResultPollBurst,
       consumeIncomingAfterAnswer,
+      result?.outcome,
     ],
   );
 
@@ -5839,6 +5961,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       directResultOverlayActive;
     const queueLen = overlayQueueRef.current.length;
 
+    console.log('[overboard-repeat-debug] to bans clicked', {
+      banId,
+      wasDirect,
+      queueLength: queueLen,
+    });
     console.log('[overboard-status-debug] to bans clicked', {
       banId,
       wasDirect,
@@ -5887,29 +6014,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return false;
     };
 
-    if (wasDirect) {
-      if (banId) {
-        consumeResultBanForResultCta(banId);
-      } else {
-        applyDirectOverboardCloseState(null);
-        cancelResultPollBurst();
-      }
-      if (showNextPendingOrOpenBans('overboard-status-direct')) {
-        return;
-      }
-      armOpenBansOverlayFromResultCta(banId);
-      logResultNav('open-bans-overlay', { direct: true, banId, wasDirect: true });
+    if (banId) {
+      consumeResultBanForResultCta(banId);
+    } else if (wasDirect) {
+      applyDirectOverboardCloseState(null);
+      cancelResultPollBurst();
+    }
+
+    clearBansOverlayNavigationIntent(
+      wasDirect ? 'overboard-status-direct' : 'navigate-from-result-queue',
+    );
+
+    if (
+      showNextPendingOrOpenBans(
+        wasDirect ? 'overboard-status-direct' : 'navigate-from-result-non-direct',
+      )
+    ) {
       return;
     }
 
-    clearBansOverlayNavigationIntent('navigate-from-result-queue');
-    dismissBanResult();
-
-    if (showNextPendingOrOpenBans('navigate-from-result-non-direct')) {
-      return;
-    }
-
-    logResultNav('lobby-fallback', {});
+    logResultNav('open-bans-overlay', { direct: wasDirect, banId, wasDirect });
     armOpenBansOverlayFromResultCta(banId);
   }, [
     applyDirectOverboardCloseState,
@@ -5918,7 +6042,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     clearBansOverlayNavigationIntent,
     consumeResultBanForResultCta,
     directResultOverlayActive,
-    dismissBanResult,
     markOverlayUserAction,
     result?.id,
     syncDisplayFromQueue,

@@ -39,3 +39,10 @@ export function markDismissedResultLocally(
   ids.add(banId);
   writeIds(ids, scopeUserId);
 }
+
+/** Restore in-memory consumed sets after auth ref reset. */
+export function hydrateDismissedResultIds(
+  scopeUserId?: string | null,
+): string[] {
+  return [...readIds(scopeUserId)];
+}
