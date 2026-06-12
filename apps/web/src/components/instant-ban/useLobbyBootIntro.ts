@@ -191,8 +191,8 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
   const ringCatchupActive = uiState === 'ring-catchup';
   const ringCssFillActive =
     energyKnown && (uiState === 'scale' || uiState === 'ring-fill');
-  const bootCssFillActive = ringCssFillActive;
-  const ringBootBaseActive = bootCssFillActive;
+  const ringBootBaseActive = introActive;
+  const bootCssFillActive = introActive && !ringCatchupActive;
 
   const ringClass = buildRingClass(
     scaleIntroActive,

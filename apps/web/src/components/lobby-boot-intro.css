@@ -18,8 +18,18 @@
   transform: translate3d(-50%, -50%, 0) scale(0.15);
   will-change: transform;
   backface-visibility: hidden;
-  contain: layout paint style;
+  overflow: visible;
+  contain: layout style;
   animation: lobby-boot-scale-in 450ms cubic-bezier(0.33, 1, 0.68, 1) forwards;
+}
+
+/* Ring layer extends past confirm orb slot — never clip during boot intro */
+.lobby-boot-intro-scale-active.lobby-screen__orb-root,
+.lobby-boot-intro-ring-base.lobby-screen__orb-root,
+.lobby-boot-intro-ring-active.lobby-screen__orb-root,
+.lobby-boot-intro-ring-catchup.lobby-screen__orb-root {
+  overflow: visible;
+  contain: none;
 }
 
 @keyframes lobby-boot-scale-in {
@@ -28,9 +38,29 @@
   }
 }
 
-/* Empty ring visible from frame 1 — progress 0, no hide/fill-mode tricks */
+.lobby-boot-intro-ring-base .instant-ban-arena-lobby-orb__ring-layer,
+.lobby-boot-intro-scale-active .instant-ban-arena-lobby-orb__ring-layer {
+  opacity: 1;
+  visibility: visible;
+}
+
+.lobby-boot-intro-ring-base .influence-ring,
+.lobby-boot-intro-ring-base .influence-ring__track,
+.lobby-boot-intro-ring-base .influence-ring__progress {
+  opacity: 1;
+  visibility: visible;
+}
+
+.lobby-boot-intro-ring-base .influence-ring__track {
+  stroke: rgba(var(--98-purple-deep-rgb), 0.55);
+  stroke-width: 2.5;
+}
+
+/* Empty ring visible from frame 1 — progress 0 */
 .lobby-boot-intro-ring-base .influence-ring__progress {
   --ring-circ: 871.87;
+  stroke: rgba(var(--98-power-rgb), 0.92);
+  stroke-width: 2.5;
   stroke-dasharray: var(--ring-circ);
   stroke-dashoffset: var(--ring-circ);
   opacity: 1;
