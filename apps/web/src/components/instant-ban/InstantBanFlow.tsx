@@ -81,7 +81,7 @@ import {
 } from './bans-overlay-utils';
 import { useConfirmOrbController } from './useConfirmOrbController';
 import { LobbyScreenAtmosphere } from '@/components/lobby/LobbyScreenAtmosphere';
-import { useLobbyRingIntroFill } from './useLobbyRingIntroFill';
+import { useLobbyBootIntro } from './useLobbyBootIntro';
 import { triggerLobbyBlockedHaptic } from './lobby-cta-haptics';
 import {
   evaluateConfirmSubmitEnergy,
@@ -3120,11 +3120,35 @@ export function InstantBanFlow({
     [influencePercent],
   );
 
-  const { displayPercent: lobbyRingDisplayPercent, isFilling: lobbyRingIntroFilling } =
-    useLobbyRingIntroFill(lobbyInfluencePercent, {
-      phase,
-      sendStarted,
-    });
+  const {
+    orbScale: lobbyOrbBootScale,
+    ringDisplayPercent: lobbyRingDisplayPercent,
+    isFilling: lobbyRingIntroFilling,
+  } = useLobbyBootIntro(lobbyInfluencePercent, {
+    phase,
+    sendStarted,
+    energyKnown: energyLoaded,
+    enabled: !lobbyChromeHidden,
+  });
+
+  const lobbyOrbBootStyle = useMemo((): CSSProperties | undefined => {
+    if (lobbyChromeHidden || phase !== 'idle' || confirmActive || orbCompressActive) {
+      return undefined;
+    }
+    if (lobbyOrbBootScale >= 0.999 && !lobbyRingIntroFilling) {
+      return undefined;
+    }
+    return {
+      transform: `translate(-50%, -50%) scale(${lobbyOrbBootScale})`,
+    };
+  }, [
+    lobbyChromeHidden,
+    phase,
+    confirmActive,
+    orbCompressActive,
+    lobbyOrbBootScale,
+    lobbyRingIntroFilling,
+  ]);
 
   const liteMode = isInstantBanLiteMode();
   /** What layout in pager — from friend pick, not from phase commit (avoids vertical jump). */
@@ -3246,6 +3270,7 @@ export function InstantBanFlow({
               confirmLayoutActive ? ' lobby-screen__orb-wrap--confirm' : ''
             }${orbOverlayDim ? ' lobby-screen__orb-wrap--overlay-dim' : ''}`}
             data-orb-root
+            style={lobbyOrbBootStyle}
           >
             <ArenaLobbyOrb
               sendPhase={phase}

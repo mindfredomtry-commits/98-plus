@@ -4,14 +4,16 @@ import { InfluenceRing } from '@/components/lobby/InfluenceRing';
 
 type Props = {
   ringPercent: number;
-  /** Boot placeholder — static ring, no intro transition class. */
-  staticRing?: boolean;
+  ringIntroFilling?: boolean;
 };
 
 /**
  * Idle lobby orb shell — same DOM/CSS as ArenaLobbyOrb lobby face, no interactions.
  */
-export function LobbyIdleOrb({ ringPercent, staticRing = false }: Props) {
+export function LobbyIdleOrb({
+  ringPercent,
+  ringIntroFilling = false,
+}: Props) {
   const clamped = Math.min(100, Math.max(0, ringPercent));
 
   return (
@@ -23,9 +25,9 @@ export function LobbyIdleOrb({ ringPercent, staticRing = false }: Props) {
               <InfluenceRing
                 value={clamped}
                 className={`instant-ban-confirm-influence-ring${
-                  staticRing ? ' influence-ring--no-transition' : ''
+                  ringIntroFilling ? ' influence-ring--intro-filling' : ''
                 }`}
-                disableTransition={staticRing}
+                disableTransition={ringIntroFilling}
               />
             </span>
             <span className="instant-ban-arena-lobby-orb__title-layer">

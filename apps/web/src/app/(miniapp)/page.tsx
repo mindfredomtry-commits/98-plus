@@ -371,7 +371,10 @@ export default function HomePage() {
       </ShellErrorBoundary>
 
       {showBootPlaceholder ? (
-        <AppBootScreen influencePercent={lobbyInfluence.influencePercent} />
+        <AppBootScreen
+          influencePercent={lobbyInfluence.influencePercent}
+          energyKnown={hasAuthSession && !lobbyInfluence.fromFallback}
+        />
       ) : null}
 
       {!lobbyPrefetch ? (

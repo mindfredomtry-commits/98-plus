@@ -1,37 +1,38 @@
 'use client';
 
-import { useEffect } from 'react';
+import type { CSSProperties } from 'react';
 import { LobbyIdleOrb } from '@/components/lobby/LobbyIdleOrb';
 import { LobbyScreenAtmosphere } from '@/components/lobby/LobbyScreenAtmosphere';
-import { primeLobbyRingIntroFromBoot } from '@/lib/lobby-ring-intro-session';
+import { useLobbyBootIntro } from '@/components/instant-ban/useLobbyBootIntro';
 import './instant-ban/instant-ban.css';
 import './lobby-screen.css';
 import './app-boot-screen.css';
 
 type Props = {
-  /** Known influence 0–100; falls back to ambient boot level when unset/zero. */
   influencePercent: number;
+  energyKnown: boolean;
 };
-
-const BOOT_AMBIENT_RING_PERCENT = 68;
-
-function resolveBootRingTarget(influencePercent: number): number {
-  if (!Number.isFinite(influencePercent) || influencePercent <= 0) {
-    return BOOT_AMBIENT_RING_PERCENT;
-  }
-  return Math.min(100, Math.max(0, influencePercent));
-}
 
 /**
  * Deep-link / chrome-hidden boot placeholder — same lobby background + orb as InstantBanFlow.
  * Normal auth boot uses real InstantBanFlow chrome instead (no duplicate layer).
  */
-export function AppBootScreen({ influencePercent }: Props) {
-  const ringTarget = resolveBootRingTarget(influencePercent);
+export function AppBootScreen({ influencePercent, energyKnown }: Props) {
+  const ringTarget = Math.min(100, Math.max(0, influencePercent));
 
-  useEffect(() => {
-    primeLobbyRingIntroFromBoot(ringTarget);
-  }, [ringTarget]);
+  const { orbScale, ringDisplayPercent, isFilling } = useLobbyBootIntro(
+    ringTarget,
+    {
+      phase: 'idle',
+      sendStarted: false,
+      energyKnown,
+      enabled: true,
+    },
+  );
+
+  const orbWrapStyle = {
+    transform: `translate(-50%, -50%) scale(${orbScale})`,
+  } as CSSProperties;
 
   return (
     <div
@@ -47,8 +48,12 @@ export function AppBootScreen({ influencePercent }: Props) {
           className="lobby-screen__orb-wrap lobby-screen__orb-root"
           data-orb-root
           data-boot-part="orb"
+          style={orbWrapStyle}
         >
-          <LobbyIdleOrb ringPercent={ringTarget} staticRing />
+          <LobbyIdleOrb
+            ringPercent={ringDisplayPercent}
+            ringIntroFilling={isFilling}
+          />
         </div>
       </div>
     </div>
