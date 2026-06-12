@@ -1,10 +1,13 @@
 import { parseStartParam } from '@98plus/shared';
-import { readStartParamRawFromLocation } from '@/lib/deep-link-boot-debug';
+import { readPriorityStartParamRaw } from '@/lib/overlay-priority';
 
 export type PendingDeepLinkRoute =
   | 'active-ban'
   | 'reply'
   | 'incoming'
+  | 'repeat'
+  | 'check'
+  | 'result'
   | null;
 
 type DeepLinkRouteBoot = {
@@ -21,6 +24,26 @@ let boot: DeepLinkRouteBoot = {
   initialRouteResolved: false,
 };
 
+const listeners = new Set<() => void>();
+
+function notifyDeepLinkRouteBoot(): void {
+  listeners.forEach((listener) => listener());
+}
+
+export function subscribeDeepLinkRouteBoot(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+/** Sync: bot/deep-link entry with route not yet resolved (show AppBootScreen). */
+export function isDeepLinkRouteBootPending(): boolean {
+  return boot.bootingFromBotLink && !boot.initialRouteResolved;
+}
+
+export function hasTelegramDeepLinkStartParam(): boolean {
+  return parseStartParam(readPriorityStartParamRaw() ?? undefined) != null;
+}
+
 function routeFromAction(
   action: ReturnType<typeof parseStartParam>,
 ): PendingDeepLinkRoute {
@@ -32,6 +55,12 @@ function routeFromAction(
       return 'reply';
     case 'ban':
       return 'incoming';
+    case 'repeat':
+      return 'repeat';
+    case 'check':
+      return 'check';
+    case 'result':
+      return 'result';
     default:
       return null;
   }
@@ -58,7 +87,7 @@ export function armPendingDeepLinkRouteFromStartParam(
   source: string,
   raw?: string | null,
 ): PendingDeepLinkRoute {
-  const startParamRaw = raw ?? readStartParamRawFromLocation();
+  const startParamRaw = raw ?? readPriorityStartParamRaw();
   console.log('[deep-link] raw start param', { source, raw: startParamRaw });
   const action = parseStartParam(startParamRaw ?? undefined);
   const route = routeFromAction(action);
@@ -77,6 +106,7 @@ export function armPendingDeepLinkRouteFromStartParam(
     pendingBanId: banId,
     initialRouteResolved: false,
   };
+  notifyDeepLinkRouteBoot();
   if (route === 'active-ban') {
     console.log('[deep-link] suppress default screen', {
       route,
@@ -87,11 +117,23 @@ export function armPendingDeepLinkRouteFromStartParam(
   return route;
 }
 
+/** End boot for the armed pending route (abort / reject paths). */
+export function resolveActiveDeepLinkRouteBoot(banId?: string | null): void {
+  if (!boot.pendingDeepLinkRoute) return;
+  resolvePendingDeepLinkRoute(
+    boot.pendingDeepLinkRoute,
+    banId ?? boot.pendingBanId,
+  );
+}
+
 export function resolvePendingDeepLinkRoute(
   route: PendingDeepLinkRoute,
   banId?: string | null,
 ): void {
   if (!route) return;
+  if (boot.initialRouteResolved) return;
+  if (!boot.bootingFromBotLink) return;
+  if (boot.pendingDeepLinkRoute !== route) return;
   boot = {
     ...boot,
     bootingFromBotLink: false,
@@ -99,6 +141,7 @@ export function resolvePendingDeepLinkRoute(
     pendingDeepLinkRoute: route,
     pendingBanId: banId ?? boot.pendingBanId,
   };
+  notifyDeepLinkRouteBoot();
   console.log('[deep-link] initial route resolved', {
     route,
     banId: banId ?? boot.pendingBanId,
@@ -119,6 +162,7 @@ export function dismissActiveBanDeepLinkRoute(source: string): void {
     pendingBanId: null,
     initialRouteResolved: true,
   };
+  notifyDeepLinkRouteBoot();
   console.log('[active-repeat-debug] dismiss active ban route', { source });
 }
 

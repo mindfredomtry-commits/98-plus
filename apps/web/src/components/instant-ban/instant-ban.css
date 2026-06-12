@@ -1972,8 +1972,33 @@
   animation: instant-ban-lobby-cta-exit 200ms cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
-.instant-ban-lobby-cta--entering .lobby-screen__cta {
+/* Replaces btn-98-primary-glow during enter — glow at opacity:0 reads as empty pill in WebView. */
+.instant-ban-lobby-cta--entering .lobby-screen__cta.btn-98-primary {
   animation: instant-ban-lobby-cta-spring-in 400ms cubic-bezier(0.34, 1.45, 0.64, 1) forwards;
+}
+
+@keyframes instant-ban-lobby-cta-spring-in {
+  0% {
+    transform: scale(0.82);
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  1% {
+    visibility: visible;
+  }
+
+  55% {
+    transform: scale(1.04);
+    opacity: 1;
+    visibility: visible;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+    visibility: visible;
+  }
 }
 
 @keyframes instant-ban-lobby-cta-exit {
@@ -1987,23 +2012,6 @@
     transform: scale(0.72) translateY(12px);
     opacity: 0;
     filter: none;
-  }
-}
-
-@keyframes instant-ban-lobby-cta-spring-in {
-  0% {
-    transform: scale(0.82);
-    opacity: 0;
-  }
-
-  55% {
-    transform: scale(1.04);
-    opacity: 1;
-  }
-
-  100% {
-    transform: scale(1);
-    opacity: 1;
   }
 }
 

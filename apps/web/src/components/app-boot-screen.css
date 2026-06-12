@@ -7,7 +7,32 @@
   z-index: 66;
   isolation: isolate;
   pointer-events: none;
+  /* Opaque base — .lobby-screen gradients alone can composite as translucent. */
   background-color: var(--98-bg-black);
+  background-image:
+    radial-gradient(
+      ellipse 120% 80% at 50% 20%,
+      rgba(var(--98-purple-cold-rgb), 0.35),
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse 90% 60% at 50% 100%,
+      rgba(var(--98-purple-deep-rgb), 0.45),
+      transparent 50%
+    ),
+    linear-gradient(var(--98-bg-black), var(--98-bg-black));
+}
+
+/*
+ * Empty pill on boot = .instant-ban-lobby-cta > .btn-98-primary.lobby-screen__cta
+ * (CTA spring-in / glow shell under the boot layer). Hide arena lobby chrome only while boot is up.
+ */
+.app-page--boot-active .instant-ban-flow > .instant-ban-lobby-cta,
+.app-page--boot-active .instant-ban-flow > .instant-ban-arena-lobby-nav,
+.app-page--boot-active .instant-ban-flow .lobby-screen__grid,
+.app-page--boot-active .instant-ban-flow .lobby-screen__particles,
+.app-page--boot-active .instant-ban-flow .lobby-screen__orb-wrap {
+  display: none !important;
 }
 
 .app-boot-screen__stage {

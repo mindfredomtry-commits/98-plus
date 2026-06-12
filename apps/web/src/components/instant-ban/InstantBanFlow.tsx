@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
 } from 'react';
 import { flushSync } from 'react-dom';
@@ -40,8 +41,10 @@ import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
 import { logReplyFlow, logReplyFlowLoopGuard } from '@/lib/reply-handoff-debug';
 import { logActiveBanDeeplink } from '@/lib/active-ban-deeplink-debug';
 import {
+  isDeepLinkRouteBootPending,
   logOpenActiveBanCard,
   resolvePendingDeepLinkRoute,
+  subscribeDeepLinkRouteBoot,
 } from '@/lib/deep-link-route-boot';
 import {
   isNotificationQueueLocked,
@@ -310,6 +313,11 @@ export function InstantBanFlow({
     clearReplyDeepLinkState,
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
+  const deepLinkRouteBootPending = useSyncExternalStore(
+    subscribeDeepLinkRouteBoot,
+    isDeepLinkRouteBootPending,
+    () => false,
+  );
 
   const [phase, setPhase] = useState<SendFlowPhase>(() => {
     if (activeBanDeepLinkBanId) return 'idle';
@@ -437,8 +445,10 @@ export function InstantBanFlow({
       (incomingGateActive &&
         replyDeepLinkBanId != null &&
         activeOverlayKind === 'incoming'));
+  const lobbyChromeHidden = replyLobbyBlocked || deepLinkRouteBootPending;
   const showLobbyCta =
     (!replyLobbyBlocked || bansReturnToLobbyLatch) &&
+    !deepLinkRouteBootPending &&
     !deepLinkReplyBooting &&
     !incomingReplyBanId &&
     (!incomingGateActive || bansReturnToLobbyLatch) &&
@@ -889,7 +899,8 @@ export function InstantBanFlow({
     !banSentSuccess &&
     !effectiveBansOverlayOpen &&
     (!notificationQueueUiLock || bansReturnToLobbyLatch) &&
-    !replyUiShellActive;
+    !replyUiShellActive &&
+    !deepLinkRouteBootPending;
   const showBansLayer =
     effectiveBansOverlayOpen &&
     (bansCtaQueueSuppress ||
@@ -3189,7 +3200,7 @@ export function InstantBanFlow({
           bansNeedAttention={pendingStartupInteractions}
         />
       ) : null}
-      {!replyLobbyBlocked ? (
+      {!lobbyChromeHidden ? (
         <>
           <div className="lobby-screen__grid" aria-hidden />
           <div className="lobby-screen__particles" aria-hidden>
@@ -3201,7 +3212,7 @@ export function InstantBanFlow({
       ) : null}
 
       <div className="instant-ban-arena-send__stage">
-        {!replyLobbyBlocked ? (
+        {!lobbyChromeHidden ? (
           <div
             ref={lobbyOrbMountRef}
             className={`lobby-screen__orb-wrap lobby-screen__orb-root${

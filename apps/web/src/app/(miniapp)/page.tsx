@@ -9,6 +9,7 @@ import {
 } from 'react';
 import dynamic from 'next/dynamic';
 import { useApp } from '@/components/Providers';
+import { useDeepLinkRouteBootPending } from '@/hooks/useDeepLinkRouteBootPending';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSocialBoot } from '@/hooks/useSocialBoot';
 import { AppBootScreen } from '@/components/AppBootScreen';
@@ -103,6 +104,8 @@ export default function HomePage() {
     abortReplyDeepLinkFast,
   } = useApp();
   const { ready } = useTelegram();
+  const deepLinkRouteBootPending = useDeepLinkRouteBootPending();
+  const showBootScreen = loading || deepLinkRouteBootPending;
   const deepLinkBoot = useSyncExternalStore(
     subscribeDeepLinkBootDebug,
     getDeepLinkBootDebug,
@@ -319,7 +322,7 @@ export default function HomePage() {
         activeBanUiShellActive ? ' app-page--active-ban-deeplink-loading' : ''
       }${
         arenaVisible ? ' app-page--instant-ban-active' : ''
-      }`}
+      }${showBootScreen ? ' app-page--boot-active' : ''}`}
       data-shell-view={shellView}
       data-shell-mode={shellModeForDebug}
       data-shell-build={APP_SHELL_BUILD}
@@ -328,7 +331,7 @@ export default function HomePage() {
         <ArenaAmbience />
       </ShellErrorBoundary>
 
-      {loading ? (
+      {showBootScreen ? (
         <AppBootScreen influencePercent={lobbyInfluence.influencePercent} />
       ) : null}
 

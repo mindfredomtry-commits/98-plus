@@ -113,6 +113,7 @@ import {
 import {
   armPendingDeepLinkRouteFromStartParam,
   logOpenActiveBanCard,
+  resolveActiveDeepLinkRouteBoot,
   resolvePendingDeepLinkRoute,
   dismissActiveBanDeepLinkRoute,
 } from '@/lib/deep-link-route-boot';
@@ -1974,6 +1975,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           : false,
       });
 
+      if (mode === 'explicit' && fullOverlay) {
+        resolvePendingDeepLinkRoute('result', r.id);
+      }
+
       if (mode === 'explicit' || mode === 'live') {
         logDeepLinkHandlerResult({
           type: 'result',
@@ -2838,6 +2843,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         { kind: 'check', ban: enrichBanInteraction(b) },
         { live: true, source: 'deeplink' },
       );
+      resolvePendingDeepLinkRoute('check', b.id);
       logDeepLinkHandlerResult({
         type: 'check',
         banId: b.id,
@@ -2885,6 +2891,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       openSendFlow();
       setDeepLinkRepeatBan(enriched);
+      resolvePendingDeepLinkRoute('repeat', b.id);
       console.log('[repeat-deeplink]', { banId: b.id, queued: true });
       logDeepLinkHandlerResult({
         type: 'repeat',
@@ -4196,6 +4203,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         { kind: 'incoming', ban: b },
         { source: 'session' },
       );
+      resolvePendingDeepLinkRoute('incoming', b.id);
     },
     [auth.user?.id, auth.loading, applyOverlayQueue, enqueueNotification],
   );
@@ -4266,6 +4274,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setLobbyOpen(true);
       lobbyOpenRef.current = true;
       lobbyShownLoggedRef.current = false;
+      resolveActiveDeepLinkRouteBoot(banId);
     },
     [clearReplyDeeplinkFastTimeout, dismissCurrentOverlay, pinReplyToBanId, replyDeepLinkBanId],
   );
@@ -4733,6 +4742,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId,
       });
 
+      resolvePendingDeepLinkRoute('reply', banId);
       scheduleReplyFastTimeout(banId);
 
       return true;
@@ -4870,6 +4880,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ok: false,
           reason: why.reason,
         });
+        resolveActiveDeepLinkRouteBoot(b.id);
         return;
       }
       const wasShell = replyDeeplinkFastShellRef.current;
@@ -4947,6 +4958,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         hydratedInPlace,
       });
       console.log('[reply-deeplink]', { banId: b.id, queued: 'incoming-overlay' });
+      resolvePendingDeepLinkRoute('reply', b.id);
       logDeepLinkHandlerResult({
         type: 'reply',
         banId: b.id,
