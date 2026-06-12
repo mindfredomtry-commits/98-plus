@@ -3131,25 +3131,6 @@ export function InstantBanFlow({
     enabled: !lobbyChromeHidden,
   });
 
-  const lobbyOrbBootStyle = useMemo((): CSSProperties | undefined => {
-    if (lobbyChromeHidden || phase !== 'idle' || confirmActive || orbCompressActive) {
-      return undefined;
-    }
-    if (lobbyOrbBootScale >= 0.999 && !lobbyRingIntroFilling) {
-      return undefined;
-    }
-    return {
-      transform: `translate(-50%, -50%) scale(${lobbyOrbBootScale})`,
-    };
-  }, [
-    lobbyChromeHidden,
-    phase,
-    confirmActive,
-    orbCompressActive,
-    lobbyOrbBootScale,
-    lobbyRingIntroFilling,
-  ]);
-
   const liteMode = isInstantBanLiteMode();
   /** What layout in pager — from friend pick, not from phase commit (avoids vertical jump). */
   const whatMobileSafe = Boolean(selectedUser) && showCrossScreenPager;
@@ -3192,6 +3173,25 @@ export function InstantBanFlow({
     (composeDismissing || (phase === 'confirming' && selectedUser != null));
   const confirmLayoutActive = orbCompressActive;
   const successSnapshot = sendSnapshotRef.current;
+
+  const lobbyOrbBootStyle = useMemo((): CSSProperties | undefined => {
+    if (lobbyChromeHidden || phase !== 'idle' || confirmActive || orbCompressActive) {
+      return undefined;
+    }
+    if (lobbyOrbBootScale >= 0.999 && !lobbyRingIntroFilling) {
+      return undefined;
+    }
+    return {
+      transform: `translate(-50%, -50%) scale(${lobbyOrbBootScale})`,
+    };
+  }, [
+    lobbyChromeHidden,
+    phase,
+    confirmActive,
+    orbCompressActive,
+    lobbyOrbBootScale,
+    lobbyRingIntroFilling,
+  ]);
 
   const confirmSendError =
     sendError && !lowEnergyRedirecting && !sendFailedRef.current
