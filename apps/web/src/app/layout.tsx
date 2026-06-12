@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { RuntimeConfigScript } from '@/components/RuntimeConfigScript';
+import { LobbyOrbPrehydrateStyle } from '@/components/LobbyOrbPrehydrateStyle';
 
 export const metadata: Metadata = {
   title: '98+',
@@ -24,6 +25,7 @@ export default function RootLayout({
   return (
     <html lang="ru">
       <head>
+        <LobbyOrbPrehydrateStyle />
         <RuntimeConfigScript />
       </head>
       <body className="bg-bg">{children}</body>

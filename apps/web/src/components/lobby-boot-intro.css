@@ -1,5 +1,23 @@
 /* GPU-friendly boot lobby orb intro — inner scale layer + SVG stroke */
 
+/* Pre-hydration / post-hydration gate (mirrors LobbyOrbPrehydrateStyle in layout head) */
+html:not([data-app-hydrated]) .lobby-screen__orb-root .instant-ban-arena-lobby-orb__ring-layer {
+  visibility: hidden !important;
+}
+
+html:not([data-app-hydrated]) .lobby-screen__orb-root .lobby-boot-orb-scale-layer {
+  transform: scale(var(--boot-orb-initial-scale, 0.15));
+  transform-origin: center center;
+}
+
+html[data-app-hydrated]
+  .lobby-screen__orb-root:not([data-boot-intro-active]):not(.lobby-boot-intro-primed):not(
+    .lobby-boot-intro-ring-base
+  )
+  .instant-ban-arena-lobby-orb__ring-layer {
+  visibility: hidden !important;
+}
+
 @property --boot-ring-target-progress {
   syntax: '<number>';
   inherits: true;

@@ -306,6 +306,9 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
       hasPaintedOnce: hasPaintedOnceRef.current,
       bootIntroInitial,
       introPrimed: skipIntro,
+      appHydrated:
+        typeof document !== 'undefined' &&
+        document.documentElement.dataset.appHydrated === 'true',
     });
   }, [
     enabled,

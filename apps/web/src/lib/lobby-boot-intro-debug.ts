@@ -17,6 +17,7 @@ export type LobbyBootIntroDebug = {
   hasPaintedOnce: boolean;
   bootIntroInitial: boolean;
   introPrimed: boolean;
+  appHydrated: boolean;
 };
 
 let current: LobbyBootIntroDebug = {
@@ -36,6 +37,7 @@ let current: LobbyBootIntroDebug = {
   hasPaintedOnce: false,
   bootIntroInitial: false,
   introPrimed: false,
+  appHydrated: false,
 };
 
 const listeners = new Set<() => void>();
@@ -61,7 +63,8 @@ function isSame(a: LobbyBootIntroDebug, b: LobbyBootIntroDebug): boolean {
     a.initialState === b.initialState &&
     a.hasPaintedOnce === b.hasPaintedOnce &&
     a.bootIntroInitial === b.bootIntroInitial &&
-    a.introPrimed === b.introPrimed
+    a.introPrimed === b.introPrimed &&
+    a.appHydrated === b.appHydrated
   );
 }
 
@@ -79,6 +82,7 @@ export function reportLobbyBootIntroDebug(
       | 'hasPaintedOnce'
       | 'bootIntroInitial'
       | 'introPrimed'
+      | 'appHydrated'
     >
   >,
 ): void {
