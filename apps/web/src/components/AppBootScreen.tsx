@@ -37,24 +37,33 @@ export function AppBootScreen({ influencePercent }: Props) {
         isFilling ? ' app-boot-screen--filling' : ''
       }`}
       data-app-boot-screen=""
+      data-boot-part="root"
       aria-hidden
     >
-      <div className="lobby-screen__particles" aria-hidden>
+      <div
+        className="lobby-screen__particles"
+        data-boot-part="particles"
+        aria-hidden
+      >
         {Array.from({ length: 10 }).map((_, i) => (
           <span key={i} className="lobby-screen__particle" />
         ))}
       </div>
 
-      <div className="app-boot-screen__stage">
+      <div className="app-boot-screen__stage" data-boot-part="extra">
         <div
           className="lobby-screen__orb-wrap lobby-screen__orb-root"
           data-orb-root
+          data-boot-part="orb"
         >
           <div className="instant-ban-arena-lobby-orb" data-arena-lobby-orb>
             <div className="instant-ban-arena-lobby-orb__stage">
               <div className="instant-ban-arena-lobby-orb__btn">
                 <span className="instant-ban-arena-lobby-orb__face">
-                  <span className="instant-ban-arena-lobby-orb__ring-layer instant-ban-confirm-orb-ring">
+                  <span
+                    className="instant-ban-arena-lobby-orb__ring-layer instant-ban-confirm-orb-ring"
+                    data-boot-part="ring"
+                  >
                     <InfluenceRing
                       value={displayPercent}
                       className={`instant-ban-confirm-influence-ring${

@@ -1,9 +1,13 @@
 /* Visual boot shell — sits above empty shell, below notification overlays (z 100). */
-.app-boot-screen {
+.app-boot-screen,
+.app-boot-screen.lobby-screen {
   position: fixed;
   inset: 0;
+  /* Beat .lobby-screen { z-index: 60 } and .instant-ban-flow { z-index: 65 }. */
   z-index: 66;
+  isolation: isolate;
   pointer-events: none;
+  background-color: var(--98-bg-black);
 }
 
 .app-boot-screen__stage {
