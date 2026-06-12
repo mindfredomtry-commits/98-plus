@@ -3126,18 +3126,9 @@ export function InstantBanFlow({
     ringDisplayPercent: lobbyRingDisplayPercent,
     ringTarget: lobbyRingTarget,
     introActive: lobbyBootVisualActive,
-    bootIntroActive: lobbyBootIntroActive,
-    introPrimed: lobbyIntroPrimed,
-    scaleIntroActive: lobbyScaleIntroActive,
-    scalePending: lobbyScalePending,
-    scaleDone: lobbyScaleDone,
-    ringBootBaseActive: lobbyRingBootBaseActive,
-    ringIntroActive: lobbyRingIntroActive,
     bootCssFillActive: lobbyRingBootCssFillActive,
-    ringCatchupActive: lobbyRingCatchupActive,
     isFilling: lobbyRingIntroFilling,
-    onScaleAnimationEnd: onLobbyScaleIntroEnd,
-    onRingAnimationEnd: onLobbyRingIntroEnd,
+    onIntroEnd: onLobbyBootIntroEnd,
   } = useLobbyBootIntro(lobbyInfluencePercent, {
     phase,
     sendStarted,
@@ -3264,57 +3255,14 @@ export function InstantBanFlow({
             className={`lobby-screen__orb-wrap lobby-screen__orb-root${
               confirmLayoutActive ? ' lobby-screen__orb-wrap--confirm' : ''
             }${orbOverlayDim ? ' lobby-screen__orb-wrap--overlay-dim' : ''}`}
-            bootIntroActive={
-              lobbyBootIntroActive &&
-              phase === 'idle' &&
-              !confirmActive &&
-              !orbCompressActive
-            }
-            introPrimed={
-              lobbyIntroPrimed &&
-              phase === 'idle' &&
-              !confirmActive &&
-              !orbCompressActive
-            }
-            scalePending={
-              lobbyScalePending &&
-              phase === 'idle' &&
-              !confirmActive &&
-              !orbCompressActive
-            }
-            scaleActive={
-              lobbyScaleIntroActive &&
-              phase === 'idle' &&
-              !confirmActive &&
-              !orbCompressActive
-            }
-            scaleDone={
-              lobbyScaleDone &&
-              phase === 'idle' &&
-              !confirmActive &&
-              !orbCompressActive
-            }
-            ringBaseActive={
-              lobbyRingBootBaseActive &&
-              phase === 'idle' &&
-              !confirmActive &&
-              !orbCompressActive
-            }
-            ringActive={
-              lobbyRingIntroActive &&
-              phase === 'idle' &&
-              !confirmActive &&
-              !orbCompressActive
-            }
-            ringCatchupActive={
-              lobbyRingCatchupActive &&
+            introActive={
+              lobbyBootVisualActive &&
               phase === 'idle' &&
               !confirmActive &&
               !orbCompressActive
             }
             ringTarget={lobbyRingTarget}
-            onScaleAnimationEnd={onLobbyScaleIntroEnd}
-            onRingAnimationEnd={onLobbyRingIntroEnd}
+            onIntroEnd={onLobbyBootIntroEnd}
           >
             <ArenaLobbyOrb
               sendPhase={phase}

@@ -5,7 +5,6 @@ import { LobbyOrbFace } from '@/components/lobby/LobbyOrbFace';
 
 type Props = {
   ringPercent: number;
-  ringCatchupActive?: boolean;
   bootCssFillActive?: boolean;
 };
 
@@ -14,7 +13,6 @@ type Props = {
  */
 export function LobbyIdleOrb({
   ringPercent,
-  ringCatchupActive = false,
   bootCssFillActive = false,
 }: Props) {
   const clamped = Math.min(100, Math.max(0, ringPercent));
@@ -28,7 +26,7 @@ export function LobbyIdleOrb({
               <InfluenceRing
                 value={clamped}
                 className="instant-ban-confirm-influence-ring"
-                disableTransition={!ringCatchupActive}
+                disableTransition={bootCssFillActive}
                 bootCssFillActive={bootCssFillActive}
               />
             }

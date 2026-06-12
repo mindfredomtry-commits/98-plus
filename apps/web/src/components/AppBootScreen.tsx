@@ -24,17 +24,8 @@ export function AppBootScreen({ influencePercent, energyKnown }: Props) {
     ringDisplayPercent,
     ringTarget: ringTargetCss,
     introActive,
-    bootIntroActive,
-    introPrimed,
-    scaleIntroActive,
-    scalePending,
-    scaleDone,
-    ringBootBaseActive,
-    ringIntroActive,
     bootCssFillActive,
-    ringCatchupActive,
-    onScaleAnimationEnd,
-    onRingAnimationEnd,
+    onIntroEnd,
   } = useLobbyBootIntro(ringTarget, {
     phase: 'idle',
     sendStarted: false,
@@ -56,21 +47,12 @@ export function AppBootScreen({ influencePercent, energyKnown }: Props) {
       <div className="app-boot-screen__stage" data-boot-part="extra">
         <LobbyBootOrbWrap
           className="lobby-screen__orb-wrap lobby-screen__orb-root"
-          bootIntroActive={bootIntroActive}
-          introPrimed={introPrimed}
-          scalePending={scalePending}
-          scaleActive={scaleIntroActive}
-          scaleDone={scaleDone}
-          ringBaseActive={ringBootBaseActive}
-          ringActive={ringIntroActive}
-          ringCatchupActive={ringCatchupActive}
+          introActive={introActive}
           ringTarget={ringTargetCss}
-          onScaleAnimationEnd={onScaleAnimationEnd}
-          onRingAnimationEnd={onRingAnimationEnd}
+          onIntroEnd={onIntroEnd}
         >
           <LobbyIdleOrb
             ringPercent={ringDisplayPercent}
-            ringCatchupActive={ringCatchupActive}
             bootCssFillActive={bootCssFillActive}
           />
         </LobbyBootOrbWrap>

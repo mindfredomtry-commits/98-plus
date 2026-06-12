@@ -1,27 +1,12 @@
-/* GPU-friendly boot lobby orb intro — inner scale layer + SVG stroke */
+/* Boot lobby orb intro — one class, parallel scale + ring fill (550ms) */
 
-/* Pre-hydration / post-hydration gate (mirrors LobbyOrbPrehydrateStyle in layout head) */
 html:not([data-app-hydrated]) .lobby-screen__orb-root .instant-ban-arena-lobby-orb__ring-layer {
   visibility: hidden !important;
 }
 
 html:not([data-app-hydrated]) .lobby-screen__orb-root .lobby-boot-orb-scale-layer {
-  transform: scale(var(--boot-orb-initial-scale, 0.15));
+  transform: scale(0.15);
   transform-origin: center center;
-}
-
-html[data-app-hydrated]
-  .lobby-screen__orb-root:not([data-boot-intro-active]):not(.lobby-boot-intro-primed):not(
-    .lobby-boot-intro-ring-base
-  )
-  .instant-ban-arena-lobby-orb__ring-layer {
-  visibility: hidden !important;
-}
-
-@property --boot-ring-target-ratio {
-  syntax: '<number>';
-  inherits: true;
-  initial-value: 0;
 }
 
 .lobby-screen--boot-intro-active .lobby-screen__particle {
@@ -40,28 +25,19 @@ html[data-app-hydrated]
   overflow: visible;
 }
 
-.lobby-screen__orb-root[data-boot-intro-active]:not(.lobby-boot-intro-ring-base)
-  .instant-ban-arena-lobby-orb__ring-layer {
-  visibility: hidden;
+.lobby-boot-intro-active {
+  overflow: visible;
+  contain: none;
 }
 
-.lobby-boot-orb-scale-layer.lobby-boot-intro-scale-pending,
-.lobby-boot-orb-scale-layer.lobby-boot-intro-scale-active {
-  transform: scale(var(--boot-orb-scale-factor, 0.15));
+.lobby-boot-intro-active .lobby-boot-orb-scale-layer {
+  transform: scale(0.15);
   will-change: transform;
   backface-visibility: hidden;
+  animation: boot-orb-scale 550ms ease-out both;
 }
 
-.lobby-boot-orb-scale-layer.lobby-boot-intro-scale-active {
-  animation: lobby-boot-scale-in 450ms cubic-bezier(0.33, 1, 0.68, 1) both;
-}
-
-.lobby-boot-orb-scale-layer.lobby-boot-intro-scale-done {
-  transform: scale(var(--boot-orb-scale-factor, 1));
-  will-change: auto;
-}
-
-@keyframes lobby-boot-scale-in {
+@keyframes boot-orb-scale {
   from {
     transform: scale(0.15);
   }
@@ -70,122 +46,60 @@ html[data-app-hydrated]
   }
 }
 
-.lobby-screen__orb-root[data-boot-intro-active],
-.lobby-screen__orb-root[data-boot-intro-primed] {
-  overflow: visible;
-  contain: none;
+.lobby-boot-intro-active .instant-ban-arena-lobby-orb__ring-layer {
+  opacity: 1;
+  visibility: visible;
 }
 
-.lobby-screen__orb-root[data-boot-intro-active].lobby-boot-intro-ring-base
+.lobby-boot-intro-active
   .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
   transform: scale(var(--98-confirm-ring-lobby-scale));
   transition: none !important;
 }
 
-.lobby-screen__orb-root[data-boot-intro-active].lobby-boot-intro-ring-base
-  .instant-ban-arena-lobby-orb__ring-layer,
-.lobby-boot-intro-ring-base .instant-ban-arena-lobby-orb__ring-layer {
-  opacity: 1;
-  visibility: visible;
-}
-
-/* Track = empty ring; progress arc starts hidden until fill animation */
-.influence-ring--boot-css-fill .influence-ring__progress,
-.lobby-boot-intro-ring-base .influence-ring__progress {
-  --ring-circ: 871.87;
-  stroke-dasharray: var(--ring-circ);
-  transition: none !important;
-  opacity: 1;
-  visibility: visible;
-}
-
-.lobby-boot-intro-ring-base .influence-ring__track {
+.lobby-boot-intro-active .influence-ring__track {
   stroke: rgba(var(--98-purple-deep-rgb), 0.55);
   stroke-width: 2.5;
   opacity: 1;
   visibility: visible;
 }
 
-.lobby-boot-intro-ring-base .influence-ring__progress {
+.lobby-boot-intro-active .influence-ring__progress {
   stroke: rgba(var(--98-power-rgb), 0.92);
   stroke-width: 2.5;
+  stroke-dasharray: var(--circ);
+  stroke-dashoffset: var(--circ);
+  transition: none !important;
+  opacity: 1;
+  visibility: visible;
   filter: drop-shadow(0 0 8px var(--98-power-glow))
     drop-shadow(0 0 16px var(--98-power-glow-soft));
+  animation: boot-ring-fill 550ms ease-out both;
 }
 
-/* Empty progress arc — only when fill animation is not running yet */
-.lobby-boot-intro-ring-base:not(.lobby-boot-intro-ring-active) .influence-ring__progress {
-  stroke-dashoffset: var(--ring-circ);
-}
-
-/* Parallel with scale — fill 0 → target ratio */
-.lobby-boot-intro-ring-active .influence-ring__progress {
-  animation: lobby-boot-ring-fill 450ms cubic-bezier(0.33, 1, 0.68, 1) both;
-}
-
-@keyframes lobby-boot-ring-fill {
+@keyframes boot-ring-fill {
   from {
-    stroke-dashoffset: var(--ring-circ);
+    stroke-dashoffset: var(--circ);
   }
   to {
-    stroke-dashoffset: calc(var(--ring-circ) * (1 - var(--boot-ring-target-ratio)));
+    stroke-dashoffset: var(--target-dash);
   }
 }
 
-.lobby-boot-intro-ring-catchup .influence-ring__progress {
-  transition: stroke-dashoffset 550ms cubic-bezier(0.33, 1, 0.68, 1);
-  filter: drop-shadow(0 0 8px var(--98-power-glow))
-    drop-shadow(0 0 16px var(--98-power-glow-soft));
-}
-
-.lobby-boot-intro-scale-active .lobby-screen__title,
-.lobby-boot-intro-scale-done .lobby-screen__title,
-.lobby-boot-intro-ring-active .lobby-screen__title {
+.lobby-boot-intro-active .lobby-screen__title {
   text-shadow:
     0 0 24px rgba(var(--98-accent-rgb), 0.9),
     0 0 48px rgba(var(--98-accent-rgb), 0.55);
 }
 
-.lobby-screen__orb-root.lobby-boot-intro-primed .lobby-boot-orb-scale-layer,
-.lobby-screen__orb-root.lobby-orb-normal-visible .lobby-boot-orb-scale-layer {
-  transform: none;
-  will-change: auto;
-  animation: none;
-}
-
-.lobby-screen__orb-root.lobby-boot-intro-primed .instant-ban-arena-lobby-orb__face,
-.lobby-screen__orb-root.lobby-boot-intro-primed .instant-ban-arena-lobby-orb__ring-layer,
-.lobby-screen__orb-root.lobby-boot-intro-primed .lobby-screen__orb,
-.lobby-screen__orb-root.lobby-boot-intro-primed .lobby-screen__title {
-  opacity: 1;
-  visibility: visible;
-}
-
-.lobby-screen__orb-root.lobby-boot-intro-primed
-  .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
-  transform: scale(var(--98-confirm-ring-lobby-scale));
-  transition: transform 950ms cubic-bezier(0.34, 1.12, 0.64, 1);
-}
-
-.lobby-screen__orb-root.lobby-boot-intro-primed .influence-ring__progress {
-  animation: none;
-  transition: stroke-dashoffset 0.65s ease, stroke 900ms ease, filter 900ms ease;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .lobby-boot-orb-scale-layer.lobby-boot-intro-scale-pending,
-  .lobby-boot-orb-scale-layer.lobby-boot-intro-scale-active,
-  .lobby-boot-orb-scale-layer.lobby-boot-intro-scale-done {
+  .lobby-boot-intro-active .lobby-boot-orb-scale-layer {
     animation: none;
     transform: scale(1);
   }
 
-  .lobby-boot-intro-ring-active .influence-ring__progress {
+  .lobby-boot-intro-active .influence-ring__progress {
     animation: none;
-    stroke-dashoffset: calc(var(--ring-circ) * (1 - var(--boot-ring-target-ratio)));
-  }
-
-  .lobby-boot-intro-ring-catchup .influence-ring__progress {
-    transition: none;
+    stroke-dashoffset: var(--target-dash);
   }
 }

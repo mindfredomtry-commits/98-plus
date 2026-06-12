@@ -2150,39 +2150,9 @@
   transition: opacity 360ms ease;
 }
 
-.lobby-boot-orb-scale-layer.lobby-boot-intro-scale-pending,
-.lobby-boot-orb-scale-layer.lobby-boot-intro-scale-active {
-  transform: scale(var(--boot-orb-scale-factor, 0.15));
-}
-
-.lobby-boot-orb-scale-layer.lobby-boot-intro-scale-done {
-  transform: scale(var(--boot-orb-scale-factor, 1));
-}
-
-.lobby-screen__orb-root[data-boot-intro-active]:not(.lobby-boot-intro-ring-base)
-  .instant-ban-arena-lobby-orb__ring-layer {
-  visibility: hidden;
-}
-
-.lobby-screen__orb-root.lobby-boot-intro-primed .lobby-boot-orb-scale-layer {
-  transform: none;
-  animation: none;
-}
-
-.lobby-screen__orb-root.lobby-boot-intro-primed .instant-ban-arena-lobby-orb__ring-layer {
-  opacity: 1;
-  visibility: visible;
-}
-
 .influence-ring--boot-css-fill .influence-ring__progress {
-  --ring-circ: 871.87;
-  stroke-dasharray: var(--ring-circ);
-  stroke-dashoffset: var(--ring-circ);
-  transition: none !important;
-}
-
-.lobby-boot-intro-ring-active .instant-ban-confirm-influence-ring .influence-ring__progress,
-.lobby-boot-intro-ring-active .influence-ring__progress {
+  stroke-dasharray: var(--circ, 871.87);
+  stroke-dashoffset: var(--circ, 871.87);
   transition: none !important;
 }
 
