@@ -62,6 +62,86 @@ export function canReplyFastEnableButtons(
   return true;
 }
 
+export type IncomingCardReadyFields = {
+  id: boolean;
+  text: boolean;
+  senderDisplayName: boolean;
+  senderAvatarOrFallback: boolean;
+  duration: boolean;
+  shell: boolean;
+};
+
+function hasIncomingSenderDisplayName(
+  sender: BanInteraction['sender'] | null | undefined,
+): boolean {
+  if (!sender) return false;
+  const username = sender.username?.replace(/^@/, '').trim();
+  if (username) return true;
+  return Boolean(sender.firstName?.trim());
+}
+
+function hasIncomingSenderAvatarOrFallback(
+  sender: BanInteraction['sender'] | null | undefined,
+): boolean {
+  if (!sender) return false;
+  if (sender.avatarUrl || sender.photoUrl) return true;
+  return hasIncomingSenderDisplayName(sender);
+}
+
+function hasIncomingDuration(ban: BanInteraction | null | undefined): boolean {
+  return (
+    typeof ban?.durationMinutes === 'number' && ban.durationMinutes > 0
+  );
+}
+
+export function inspectIncomingCardReady(
+  ban: BanInteraction | null | undefined,
+): IncomingCardReadyFields {
+  return {
+    id: Boolean(ban?.id),
+    text: hasReplyFastDisplayText(ban),
+    senderDisplayName: hasIncomingSenderDisplayName(ban?.sender),
+    senderAvatarOrFallback: hasIncomingSenderAvatarOrFallback(ban?.sender),
+    duration: hasIncomingDuration(ban),
+    shell: isReplyDeeplinkShellBan(ban),
+  };
+}
+
+/** Incoming notification card may render only when every display field is real. */
+export function isIncomingCardFullyReady(
+  ban: BanInteraction | null | undefined,
+  viewerId: string | null | undefined,
+): boolean {
+  if (!ban?.id || !viewerId) return false;
+  if (isReplyDeeplinkShellBan(ban)) return false;
+  const fields = inspectIncomingCardReady(ban);
+  return (
+    fields.id &&
+    fields.text &&
+    fields.senderDisplayName &&
+    fields.senderAvatarOrFallback &&
+    fields.duration
+  );
+}
+
+let lastIncomingCardDebugKey = '';
+
+export function logIncomingCardReady(
+  ban: BanInteraction | null | undefined,
+  viewerId: string | null | undefined,
+): void {
+  const fields = inspectIncomingCardReady(ban);
+  const ready = isIncomingCardFullyReady(ban, viewerId);
+  const key = `${ban?.id ?? 'none'}:${ready}:${JSON.stringify(fields)}`;
+  if (key === lastIncomingCardDebugKey) return;
+  lastIncomingCardDebugKey = key;
+  if (ready) {
+    console.log('[incoming-card-debug] ready true', { banId: ban?.id ?? null });
+  } else {
+    console.log('[incoming-card-debug] ready false fields', fields);
+  }
+}
+
 export type ReplyFastCacheLookup = {
   banId: string;
   viewerId: string;

@@ -32,7 +32,7 @@ import { ModalShell } from './ModalShell';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
 import {
   canReplyFastEnableButtons,
-  hasReplyFastDisplayText,
+  isIncomingCardFullyReady,
   isReplyDeeplinkShellBan,
 } from '@/lib/reply-deeplink-fast';
 
@@ -510,7 +510,15 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     return null;
   }
 
-  if (!isReplyDeeplinkShell && !incomingBan.text?.trim()) {
+  if (
+    isReplyDeeplinkShellBan(incomingBan) ||
+    !isIncomingCardFullyReady(incomingBan, viewerId)
+  ) {
+    console.log('INCOMING OVERLAY RENDER', {
+      banId: incomingBan.id,
+      skipped: true,
+      reason: 'incoming-card-not-ready',
+    });
     return null;
   }
 
@@ -527,37 +535,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     contentOnly,
   });
 
-  const body = isReplyDeeplinkShell ? (
-    <div
-      className="incoming-modal-body text-center incoming-modal-body--shell"
-      aria-busy="true"
-      aria-live="polite"
-    >
-      <p className="incoming-modal-title text-xl font-black text-glow mb-3">
-        тебе запретили!
-      </p>
-
-      <div className="incoming-modal-sender mb-3">
-        <div
-          className="w-20 h-20 mx-auto rounded-full bg-white/10 animate-pulse"
-          aria-hidden
-        />
-        <div className="h-4 w-24 mx-auto mt-2 rounded bg-white/10 animate-pulse" />
-      </div>
-
-      <div className="incoming-modal-text mb-4 px-6 space-y-2">
-        <div className="h-5 w-full rounded bg-white/10 animate-pulse" />
-        <div className="h-5 w-4/5 mx-auto rounded bg-white/10 animate-pulse" />
-      </div>
-
-      <div className="incoming-modal-actions space-y-2.5">
-        <BigButton disabled>🚫 Запретить в ответ</BigButton>
-        <BigButton variant="ghost" disabled>
-          🫷 Перебор!
-        </BigButton>
-      </div>
-    </div>
-  ) : (
+  const body = (
     <div className="incoming-modal-body text-center">
       <p className="incoming-modal-title text-xl font-black text-glow mb-3">
         тебе запретили!

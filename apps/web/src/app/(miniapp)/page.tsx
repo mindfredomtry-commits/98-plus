@@ -103,16 +103,15 @@ export default function HomePage() {
     resultReplyPending,
     replyDeeplinkFastShell,
     abortReplyDeepLinkFast,
+    incomingCardFullyReady,
+    incomingCardDisplayBan,
   } = useApp();
   const { ready } = useTelegram();
   const deepLinkRouteBootPending = useDeepLinkRouteBootPending();
   const showBootScreen = loading || deepLinkRouteBootPending;
-
   useBootRouteRelease(showBootScreen, deepLinkRouteBootPending, {
-    incomingCardReady:
-      activeOverlayKind === 'incoming' &&
-      (incomingGateActive || replyDeepLinkBanId != null),
-    incomingBanId: deepLinkSelectedBanId ?? replyDeepLinkBanId,
+    incomingCardReady: incomingCardFullyReady,
+    incomingBanId: incomingCardDisplayBan?.id ?? null,
     checkOverlayReady: activeOverlayKind === 'check' && checkGateActive,
     checkBanId:
       activeOverlayKind === 'check' ? deepLinkSelectedBanId : null,
