@@ -108,6 +108,16 @@ export function isIncomingCardDisplayReady(
   return getIncomingCardNotReadyReason(ban, viewerId) === 'ok';
 }
 
+/** Reply deeplink direct overlay — id + real text, no shell; sender may hydrate after. */
+export function isReplyIncomingDisplayBan(
+  ban: BanInteraction | null | undefined,
+  viewerId: string | null | undefined,
+): boolean {
+  if (!ban?.id || !viewerId) return false;
+  if (isReplyDeeplinkShellBan(ban)) return false;
+  return hasReplyFastDisplayText(ban);
+}
+
 /** @deprecated Use isIncomingCardDisplayReady */
 export const isIncomingCardFullyReady = isIncomingCardDisplayReady;
 

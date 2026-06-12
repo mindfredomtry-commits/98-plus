@@ -32,19 +32,30 @@ import { ModalShell } from './ModalShell';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
 import {
   canReplyFastEnableButtons,
+  hasReplyFastDisplayText,
   isReplyDeeplinkShellBan,
 } from '@/lib/reply-deeplink-fast';
+import { reportIncomingDirectOverlayMounted } from '@/lib/incoming-direct-debug';
 
 type VerifyPhase = 'idle' | 'pending' | 'ok' | 'failed';
 
 interface Props {
+  /** Explicit ban for reply deeplink direct overlay (bypasses context timing). */
+  ban?: BanInteraction | null;
+  /** Reply deeplink direct path — relax show guards. */
+  replyDirect?: boolean;
   /** Render inside GlobalOverlayHost instead of a separate body portal. */
   embedded?: boolean;
   /** Body only — shell provided by NotificationQueueShell. */
   contentOnly?: boolean;
 }
 
-function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Props) {
+function IncomingBanOverlayInner({
+  ban: banProp,
+  replyDirect = false,
+  embedded = false,
+  contentOnly = false,
+}: Props) {
   const {
     token,
     user,
@@ -74,6 +85,13 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
   const blockingLayerLoggedRef = useRef(false);
 
   const viewerId = user?.id ?? null;
+  const activeIncomingBan = banProp ?? incomingBan;
+
+  useEffect(() => {
+    if (!replyDirect) {
+      reportIncomingDirectOverlayMounted(false);
+    }
+  }, [replyDirect]);
 
   const closeOnVerifyFail = useCallback(
     (reason: string, banId: string) => {
@@ -88,30 +106,54 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
 
   useEffect(() => {
     setActionLoading(false);
-  }, [incomingBan?.id]);
+  }, [activeIncomingBan?.id]);
 
   const isReplyDeeplinkShell =
-    replyDeeplinkFastShell || isReplyDeeplinkShellBan(incomingBan);
+    !replyDirect &&
+    (replyDeeplinkFastShell || isReplyDeeplinkShellBan(activeIncomingBan));
   const isReplyDeeplinkFastPath =
-    replyDeepLinkBanId != null && incomingBan?.id === replyDeepLinkBanId;
-  const hasKnownReplyActors = canReplyFastEnableButtons(incomingBan, viewerId);
+    replyDeepLinkBanId != null &&
+    activeIncomingBan?.id === replyDeepLinkBanId;
+  const hasKnownReplyActors = canReplyFastEnableButtons(
+    activeIncomingBan,
+    viewerId,
+  );
 
   useEffect(() => {
-    if (!incomingBan?.id || !token || !viewerId) {
+    if (!activeIncomingBan?.id || !viewerId) {
       setVerifiedBan(null);
       setVerifyPhase('idle');
       return;
     }
-    if (!shouldShowIncomingBanModal(incomingBan, viewerId, new Set())) {
+
+    if (replyDirect) {
+      setVerifiedBan(activeIncomingBan);
+      setVerifyPhase('ok');
+      const unbindBack = bindBack(() => {
+        if (activeIncomingBan.status === 'pending') return;
+        void acknowledgeIncomingSeen(activeIncomingBan.id);
+      }, true);
+      return () => {
+        unbindBack?.();
+      };
+    }
+
+    if (!token) {
+      setVerifiedBan(null);
+      setVerifyPhase('idle');
+      return;
+    }
+
+    if (!shouldShowIncomingBanModal(activeIncomingBan, viewerId, new Set())) {
       return;
     }
 
     if (isReplyDeeplinkShell) {
-      replyShellBanIdRef.current = incomingBan.id;
+      replyShellBanIdRef.current = activeIncomingBan.id;
       blockingLayerLoggedRef.current = false;
       console.log('[incoming-overlay]', {
         event: 'reply-deeplink-shell',
-        banId: incomingBan.id,
+        banId: activeIncomingBan.id,
         source: 'reply-deeplink-fast',
         hasKnownReplyActors,
       });
@@ -122,26 +164,26 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
 
     if (
       isReplyDeeplinkFastPath &&
-      hasReplyFastDisplayText(incomingBan) &&
+      hasReplyFastDisplayText(activeIncomingBan) &&
       hasKnownReplyActors
     ) {
-      setVerifiedBan(incomingBan);
+      setVerifiedBan(activeIncomingBan);
       setVerifyPhase('ok');
       console.log('[INCOMING CARD OPENED WITH PREFILL]', {
-        banId: incomingBan.id,
+        banId: activeIncomingBan.id,
         source: 'overlay-ui',
-        textLen: incomingBan.text?.length ?? 0,
-        senderId: incomingBan.sender?.id ?? null,
+        textLen: activeIncomingBan.text?.length ?? 0,
+        senderId: activeIncomingBan.sender?.id ?? null,
       });
       console.log('[INCOMING CARD OPENED WITH PREFETCHED DATA]', {
-        banId: incomingBan.id,
+        banId: activeIncomingBan.id,
         source: 'overlay-ui',
-        textLen: incomingBan.text?.length ?? 0,
-        senderId: incomingBan.sender?.id ?? null,
+        textLen: activeIncomingBan.text?.length ?? 0,
+        senderId: activeIncomingBan.sender?.id ?? null,
       });
       const unbindBack = bindBack(() => {
-        if (incomingBan.status === 'pending') return;
-        void acknowledgeIncomingSeen(incomingBan.id);
+        if (activeIncomingBan.status === 'pending') return;
+        void acknowledgeIncomingSeen(activeIncomingBan.id);
       }, true);
       return () => {
         unbindBack?.();
@@ -150,20 +192,20 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
 
     if (
       replyShellBanIdRef.current &&
-      incomingBan.id === replyShellBanIdRef.current
+      activeIncomingBan.id === replyShellBanIdRef.current
     ) {
       replyShellBanIdRef.current = null;
-      setVerifiedBan(incomingBan);
+      setVerifiedBan(activeIncomingBan);
       setVerifyPhase('ok');
       console.log('[INCOMING CARD HYDRATED FROM API]', {
-        banId: incomingBan.id,
+        banId: activeIncomingBan.id,
         source: 'overlay-ui',
-        textLen: incomingBan.text?.length ?? 0,
-        senderId: incomingBan.sender?.id ?? null,
+        textLen: activeIncomingBan.text?.length ?? 0,
+        senderId: activeIncomingBan.sender?.id ?? null,
       });
       const unbindBack = bindBack(() => {
-        if (incomingBan.status === 'pending') return;
-        void acknowledgeIncomingSeen(incomingBan.id);
+        if (activeIncomingBan.status === 'pending') return;
+        void acknowledgeIncomingSeen(activeIncomingBan.id);
       }, true);
       return () => {
         unbindBack?.();
@@ -172,13 +214,13 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
 
     console.log('[incoming-overlay]', {
       event: 'optimistic-show',
-      banId: incomingBan.id,
+      banId: activeIncomingBan.id,
     });
     setVerifiedBan(null);
     setVerifyPhase('pending');
 
     const gen = ++verifyGenRef.current;
-    const banId = incomingBan.id;
+    const banId = activeIncomingBan.id;
 
     const runVerify = async () => {
       try {
@@ -203,8 +245,8 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     void runVerify();
 
     const unbindBack = bindBack(() => {
-      if (incomingBan.status === 'pending') return;
-      void acknowledgeIncomingSeen(incomingBan.id);
+      if (activeIncomingBan.status === 'pending') return;
+      void acknowledgeIncomingSeen(activeIncomingBan.id);
     }, true);
 
     return () => {
@@ -212,7 +254,8 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
       unbindBack?.();
     };
   }, [
-    incomingBan,
+    activeIncomingBan,
+    replyDirect,
     isReplyDeeplinkShell,
     isReplyDeeplinkFastPath,
     hasKnownReplyActors,
@@ -224,27 +267,29 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
   ]);
 
   const resolvedIncoming = useMemo(() => {
-    if (!incomingBan) return null;
-    if (incomingBan.sender?.id) return incomingBan;
-    const username = incomingBan.sender?.username?.replace(/^@/, '').trim();
-    if (!username) return incomingBan;
+    if (!activeIncomingBan) return null;
+    if (activeIncomingBan.sender?.id) return activeIncomingBan;
+    const username = activeIncomingBan.sender?.username
+      ?.replace(/^@/, '')
+      .trim();
+    if (!username) return activeIncomingBan;
     const friend = findFriendByUsername(friends, username);
     const senderId = friend?.id ?? friend?.userId;
-    if (!senderId) return incomingBan;
+    if (!senderId) return activeIncomingBan;
     const friendAvatar =
       friend.avatarUrl ?? friend.photoUrl ?? null;
     return {
-      ...incomingBan,
+      ...activeIncomingBan,
       sender: {
-        ...incomingBan.sender!,
+        ...activeIncomingBan.sender!,
         id: senderId,
-        avatarUrl: incomingBan.sender?.avatarUrl ?? friendAvatar,
-        photoUrl: incomingBan.sender?.photoUrl ?? friendAvatar,
+        avatarUrl: activeIncomingBan.sender?.avatarUrl ?? friendAvatar,
+        photoUrl: activeIncomingBan.sender?.photoUrl ?? friendAvatar,
       },
     };
-  }, [friends, incomingBan]);
+  }, [friends, activeIncomingBan]);
 
-  const displayBan = verifiedBan ?? resolvedIncoming ?? incomingBan;
+  const displayBan = verifiedBan ?? resolvedIncoming ?? activeIncomingBan;
 
   const senderAvatarSrc = useMemo(() => {
     if (displayBan?.sender?.id) {
@@ -267,26 +312,28 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
   }, [displayBan?.sender]);
 
   const isQueueHead = activeOverlayKind === 'incoming';
-  const shouldShow = incomingBan
-    ? isQueueHead ||
+  const shouldShow = activeIncomingBan
+    ? replyDirect ||
+      banProp != null ||
+      isQueueHead ||
       incomingGateActive ||
       replyDeeplinkFastShell ||
       isReplyDeeplinkShell ||
-      shouldShowIncomingBanModal(incomingBan, viewerId, new Set())
+      shouldShowIncomingBanModal(activeIncomingBan, viewerId, new Set())
     : false;
 
   const canAct = canReplyFastEnableButtons(displayBan, viewerId);
   const buttonsEnabled =
     verifyPhase !== 'failed' &&
-    !!incomingBan?.id &&
-    (!isReplyDeeplinkShell || hasKnownReplyActors);
-  const counterEnabled = buttonsEnabled && canAct;
-  const overboardEnabled = buttonsEnabled;
+    !!activeIncomingBan?.id &&
+    (replyDirect || !isReplyDeeplinkShell || hasKnownReplyActors);
+  const counterEnabled = buttonsEnabled && canAct && !!token;
+  const overboardEnabled = buttonsEnabled && !!token;
 
   const logClickTest = useCallback(
     (action: 'counter' | 'overboard') => {
       console.log('[INCOMING CARD CLICK TEST]', {
-        banId: incomingBan?.id ?? null,
+        banId: activeIncomingBan?.id ?? null,
         action,
         buttonsEnabled,
         counterEnabled,
@@ -295,7 +342,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
       });
     },
     [
-      incomingBan?.id,
+      activeIncomingBan?.id,
       buttonsEnabled,
       counterEnabled,
       overboardEnabled,
@@ -305,7 +352,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
 
   const handleCounter = useCallback(() => {
     logClickTest('counter');
-    const actBan = verifiedBan ?? resolvedIncoming ?? incomingBan;
+    const actBan = verifiedBan ?? resolvedIncoming ?? activeIncomingBan;
     if (!actBan?.id || !actBan.sender?.id || actionLoading) return;
     markOverlayUserAction('incoming', actBan.id);
     haptic('medium');
@@ -315,7 +362,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
   }, [
     verifiedBan,
     resolvedIncoming,
-    incomingBan,
+    activeIncomingBan,
     haptic,
     actionLoading,
     markOverlayUserAction,
@@ -325,7 +372,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
 
   const handleOverboard = useCallback(() => {
     logClickTest('overboard');
-    const actBan = verifiedBan ?? resolvedIncoming ?? incomingBan;
+    const actBan = verifiedBan ?? resolvedIncoming ?? activeIncomingBan;
     if (!actBan?.id || actionLoading || overboardClickLockRef.current) {
       logResultPath('local-overboard-click', 'path-skip', {
         banId: actBan?.id ?? null,
@@ -355,7 +402,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     hapticSuccess();
 
     const opened = openIncomingOverboardOptimistic(actBan, clickTs, {
-      fallbackBans: [verifiedBan, resolvedIncoming, incomingBan].filter(
+      fallbackBans: [verifiedBan, resolvedIncoming, activeIncomingBan].filter(
         (row): row is BanInteraction => !!row?.id,
       ),
     });
@@ -385,7 +432,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
   }, [
     verifiedBan,
     resolvedIncoming,
-    incomingBan,
+    activeIncomingBan,
     hapticSuccess,
     actionLoading,
     markOverlayUserAction,
@@ -397,10 +444,10 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
   ]);
 
   useLayoutEffect(() => {
-    if (!incomingBan?.id || !shouldShow || verifyPhase === 'failed') return;
-    reportOverlayRendered('incoming', incomingBan.id, buttonsEnabled);
+    if (!activeIncomingBan?.id || !shouldShow || verifyPhase === 'failed') return;
+    reportOverlayRendered('incoming', activeIncomingBan.id, buttonsEnabled);
   }, [
-    incomingBan?.id,
+    activeIncomingBan?.id,
     shouldShow,
     verifyPhase,
     buttonsEnabled,
@@ -408,7 +455,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
   ]);
 
   useLayoutEffect(() => {
-    if (!incomingBan?.id || isReplyDeeplinkShell || !shouldShow) return;
+    if (!activeIncomingBan?.id || isReplyDeeplinkShell || !shouldShow) return;
     if (typeof document === 'undefined') return;
 
     const card =
@@ -426,13 +473,13 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     if (hitCard) {
       if (blockingLayerLoggedRef.current) {
         console.log('[BLOCKING LAYER REMOVED]', {
-          banId: incomingBan.id,
+          banId: activeIncomingBan.id,
           topTag: top?.tagName ?? null,
         });
         blockingLayerLoggedRef.current = false;
       }
       console.log('[INCOMING CARD CLICK TEST]', {
-        banId: incomingBan.id,
+        banId: activeIncomingBan.id,
         ok: true,
         buttonsEnabled,
         verifyPhase,
@@ -446,7 +493,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     if (!blockingLayerLoggedRef.current) {
       blockingLayerLoggedRef.current = true;
       console.log('[BLOCKING LAYER FOUND]', {
-        banId: incomingBan.id,
+        banId: activeIncomingBan.id,
         buttonsEnabled,
         verifyPhase,
         topTag: top?.tagName ?? null,
@@ -468,32 +515,48 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
       });
     }
   }, [
-    incomingBan?.id,
-    incomingBan?.text,
+    activeIncomingBan?.id,
+    activeIncomingBan?.text,
     isReplyDeeplinkShell,
     shouldShow,
     buttonsEnabled,
     verifyPhase,
   ]);
 
-  if (incomingBan?.id) {
+  const canRenderBody =
+    !!activeIncomingBan && !!viewerId && (replyDirect || !!token);
+  const replyDirectBodyReady =
+    replyDirect &&
+    canRenderBody &&
+    shouldShow &&
+    verifyPhase !== 'failed' &&
+    !isReplyDeeplinkShellBan(activeIncomingBan);
+
+  useLayoutEffect(() => {
+    if (!replyDirect) return;
+    reportIncomingDirectOverlayMounted(replyDirectBodyReady);
+    return () => reportIncomingDirectOverlayMounted(false);
+  }, [replyDirect, replyDirectBodyReady, activeIncomingBan?.id]);
+
+  if (activeIncomingBan?.id) {
     logIncomingDebug({
       authUserId: viewerId,
-      incomingId: incomingBan.id,
-      incomingReceiverId: incomingBan.receiver?.id,
-      incomingAcknowledged: incomingBan.incomingAcknowledged,
+      incomingId: activeIncomingBan.id,
+      incomingReceiverId: activeIncomingBan.receiver?.id,
+      incomingAcknowledged: activeIncomingBan.incomingAcknowledged,
       shouldShow,
       reason: shouldShow ? 'shown' : 'session-dismissed',
       extra: { verifyPhase, isQueueHead },
     });
   }
 
-  if (!incomingBan || !token || !viewerId) {
-    if (incomingBan?.id) {
+  if (!canRenderBody) {
+    if (activeIncomingBan?.id) {
       console.log('INCOMING OVERLAY RENDER', {
-        banId: incomingBan.id,
+        banId: activeIncomingBan.id,
         skipped: true,
-        reason: !token ? 'no-token' : 'no-viewer',
+        reason: !viewerId ? 'no-viewer' : 'no-token',
+        replyDirect,
       });
     }
     return null;
@@ -501,7 +564,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
 
   if (!shouldShow || verifyPhase === 'failed') {
     console.log('INCOMING OVERLAY RENDER', {
-      banId: incomingBan.id,
+      banId: activeIncomingBan.id,
       skipped: true,
       reason: !shouldShow ? 'guard-rejected' : 'verify-failed',
       verifyPhase,
@@ -509,22 +572,22 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     return null;
   }
 
-  if (isReplyDeeplinkShellBan(incomingBan)) {
+  if (!replyDirect && isReplyDeeplinkShellBan(activeIncomingBan)) {
     console.log('[incoming-card-debug] ready false reason: shell-ban', {
-      banId: incomingBan.id,
+      banId: activeIncomingBan.id,
     });
     return null;
   }
 
   const senderLetter = (
-    incomingBan.sender?.firstName?.[0] ??
-    incomingBan.sender?.username?.[0] ??
+    activeIncomingBan.sender?.firstName?.[0] ??
+    activeIncomingBan.sender?.username?.[0] ??
     '?'
   ).toUpperCase();
 
   console.log(
-    `[incoming-card-debug] rendering full incoming overlay banId=${incomingBan.id}`,
-    { verifyPhase, buttonsEnabled, contentOnly },
+    `[incoming-card-debug] rendering full incoming overlay banId=${activeIncomingBan.id}`,
+    { verifyPhase, buttonsEnabled, contentOnly, replyDirect },
   );
 
   const body = (
@@ -545,7 +608,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
       </div>
 
       <p className="incoming-modal-text text-lg font-semibold leading-snug mb-4 px-1">
-        «{incomingBan.text}»
+        «{activeIncomingBan.text}»
       </p>
 
       <div className="incoming-modal-actions space-y-2.5">
@@ -577,7 +640,7 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
       zIndex={APP_NOTIFICATION_Z_INDEX}
       closeOnBackdrop={false}
       ariaLabel="Входящий запрет"
-      onClose={() => void acknowledgeIncomingSeen(incomingBan.id)}
+      onClose={() => void acknowledgeIncomingSeen(activeIncomingBan.id)}
       cardClassName="modal-card--incoming"
     >
       {body}
