@@ -20,18 +20,15 @@ type Props = {
 export function AppBootScreen({ influencePercent, energyKnown }: Props) {
   const ringTarget = Math.min(100, Math.max(0, influencePercent));
 
-  const {
-    ringDisplayPercent,
-    ringTarget: ringTargetCss,
-    introActive,
-    bootCssFillActive,
-    onIntroEnd,
-  } = useLobbyBootIntro(ringTarget, {
-    phase: 'idle',
-    sendStarted: false,
-    energyKnown,
-    enabled: true,
-  });
+  const { ringDisplayPercent, introActive, onIntroEnd } = useLobbyBootIntro(
+    ringTarget,
+    {
+      phase: 'idle',
+      sendStarted: false,
+      energyKnown,
+      enabled: true,
+    },
+  );
 
   return (
     <div
@@ -48,13 +45,9 @@ export function AppBootScreen({ influencePercent, energyKnown }: Props) {
         <LobbyBootOrbWrap
           className="lobby-screen__orb-wrap lobby-screen__orb-root"
           introActive={introActive}
-          ringTarget={ringTargetCss}
           onIntroEnd={onIntroEnd}
         >
-          <LobbyIdleOrb
-            ringPercent={ringDisplayPercent}
-            bootCssFillActive={bootCssFillActive}
-          />
+          <LobbyIdleOrb ringPercent={ringDisplayPercent} />
         </LobbyBootOrbWrap>
       </div>
     </div>

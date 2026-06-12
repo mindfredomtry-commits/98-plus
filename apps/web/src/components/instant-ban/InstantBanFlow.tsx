@@ -3124,10 +3124,7 @@ export function InstantBanFlow({
 
   const {
     ringDisplayPercent: lobbyRingDisplayPercent,
-    ringTarget: lobbyRingTarget,
     introActive: lobbyBootVisualActive,
-    bootCssFillActive: lobbyRingBootCssFillActive,
-    isFilling: lobbyRingIntroFilling,
     onIntroEnd: onLobbyBootIntroEnd,
   } = useLobbyBootIntro(lobbyInfluencePercent, {
     phase,
@@ -3261,7 +3258,6 @@ export function InstantBanFlow({
               !confirmActive &&
               !orbCompressActive
             }
-            ringTarget={lobbyRingTarget}
             onIntroEnd={onLobbyBootIntroEnd}
           >
             <ArenaLobbyOrb
@@ -3270,9 +3266,8 @@ export function InstantBanFlow({
               orbCompressActive={orbCompressActive}
               confirmOrb={confirmOrb}
               lobbyRingDisplayPercent={lobbyRingDisplayPercent}
-              lobbyRingIntroFilling={lobbyRingIntroFilling}
-              lobbyRingBootCssFillActive={
-                lobbyRingBootCssFillActive &&
+              lobbyBootIntroActive={
+                lobbyBootVisualActive &&
                 phase === 'idle' &&
                 !confirmActive &&
                 !orbCompressActive
@@ -3416,7 +3411,7 @@ export function InstantBanFlow({
         <ArenaLobbyIdle
           influencePercent={lobbyInfluencePercent}
           energyLoaded={energyLoaded}
-          lobbyRingIntroFilling={lobbyRingIntroFilling}
+          lobbyRingIntroFilling={lobbyBootVisualActive}
           ctaState={ctaState}
           ctaInteractive={ctaInteractive}
           lowInfluenceRevealed={lowInfluenceRevealed}

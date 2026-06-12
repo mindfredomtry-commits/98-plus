@@ -16,9 +16,8 @@ type Props = {
   confirmOrb: ConfirmOrb;
   /** Lobby ring fill (0 → actual on first open); ignored during confirm/compress. */
   lobbyRingDisplayPercent: number;
-  lobbyRingIntroFilling?: boolean;
-  /** Boot intro CSS keyframes drive ring stroke — omit inline SVG dash attrs. */
-  lobbyRingBootCssFillActive?: boolean;
+  /** Boot scale intro running — suppress low-energy hint. */
+  lobbyBootIntroActive?: boolean;
   senderUser: UserPublic | null | undefined;
   selectedUser: FriendCard | null;
   banText: string;
@@ -30,14 +29,10 @@ const ArenaInfluenceRing = memo(function ArenaInfluenceRing({
   value,
   debugId,
   disableTransition = false,
-  introFilling = false,
-  bootCssFillActive = false,
 }: {
   value: number;
   debugId: string;
   disableTransition?: boolean;
-  introFilling?: boolean;
-  bootCssFillActive?: boolean;
 }) {
   const ringMountLogged = useRef(false);
 
@@ -53,11 +48,8 @@ const ArenaInfluenceRing = memo(function ArenaInfluenceRing({
   return (
     <InfluenceRing
       value={value}
-      className={`instant-ban-confirm-influence-ring${
-        introFilling ? ' influence-ring--intro-filling' : ''
-      }`}
-      disableTransition={disableTransition || introFilling || bootCssFillActive}
-      bootCssFillActive={bootCssFillActive}
+      className="instant-ban-confirm-influence-ring"
+      disableTransition={disableTransition}
     />
   );
 });
@@ -68,8 +60,7 @@ export function ArenaLobbyOrb({
   orbCompressActive,
   confirmOrb,
   lobbyRingDisplayPercent,
-  lobbyRingIntroFilling = false,
-  lobbyRingBootCssFillActive = false,
+  lobbyBootIntroActive = false,
   senderUser,
   selectedUser,
   banText,
@@ -158,12 +149,7 @@ export function ArenaLobbyOrb({
                 <ArenaInfluenceRing
                   value={ringDisplayValue}
                   debugId={debugIdRef.current}
-                  disableTransition={
-                    useLobbyRingDisplay &&
-                    (lobbyRingIntroFilling || lobbyRingBootCssFillActive)
-                  }
-                  introFilling={false}
-                  bootCssFillActive={useLobbyRingDisplay && lobbyRingBootCssFillActive}
+                  disableTransition={useLobbyRingDisplay && lobbyBootIntroActive}
                 />
               }
             />

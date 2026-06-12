@@ -43,9 +43,7 @@ function resolveInitiallyPrimed(options: Options): boolean {
   return isLobbyBootIntroPrimed() || !shouldRunLobbyBootIntroVisualSync();
 }
 
-/**
- * Boot lobby intro — one CSS class, parallel scale + ring fill (550ms), no per-frame setState.
- */
+/** Boot lobby intro — scale only (550ms), progress ring appears after intro ends. */
 export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
   const target = clampPercent(targetRingPercent);
   const enabled = options.enabled !== false;
@@ -110,19 +108,12 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
     ? energyKnown
       ? target
       : getLobbyBootIntroPrimedSnapshot().ringPercent
-    : energyKnown
-      ? target
-      : 0;
-
-  const bootCssFillActive = introActive;
+    : 0;
 
   return {
     ringDisplayPercent,
-    ringTarget: target,
     introActive,
     introPrimed,
-    bootCssFillActive,
-    isFilling: bootCssFillActive,
     onIntroEnd,
   };
 }

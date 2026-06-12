@@ -1,4 +1,4 @@
-/* Boot lobby orb intro — one class, parallel scale + ring fill (550ms) */
+/* Boot lobby orb intro — scale only (550ms) */
 
 html:not([data-app-hydrated]) .lobby-screen__orb-root .instant-ban-arena-lobby-orb__ring-layer {
   visibility: hidden !important;
@@ -28,7 +28,6 @@ html:not([data-app-hydrated]) .lobby-screen__orb-root .lobby-boot-orb-scale-laye
 .lobby-boot-intro-active {
   overflow: visible;
   contain: none;
-  --ring-circumference: 871.87;
 }
 
 .lobby-boot-intro-active .lobby-boot-orb-scale-layer {
@@ -65,30 +64,11 @@ html:not([data-app-hydrated]) .lobby-screen__orb-root .lobby-boot-orb-scale-laye
   visibility: visible;
 }
 
-/* Empty arc on first frame — no inline SVG dash attrs during boot */
-.lobby-boot-progress-stroke {
-  stroke-dasharray: var(--ring-circumference);
-  stroke-dashoffset: var(--ring-circumference);
+/* Track only during intro — progress appears after scale ends */
+.lobby-boot-intro-active .influence-ring__progress {
+  opacity: 0;
+  visibility: hidden;
   transition: none !important;
-}
-
-.lobby-boot-intro-active .lobby-boot-progress-stroke {
-  stroke: rgba(var(--98-power-rgb), 0.92);
-  stroke-width: 2.5;
-  opacity: 1;
-  visibility: visible;
-  filter: drop-shadow(0 0 8px var(--98-power-glow))
-    drop-shadow(0 0 16px var(--98-power-glow-soft));
-  animation: boot-ring-fill 550ms ease-out both;
-}
-
-@keyframes boot-ring-fill {
-  from {
-    stroke-dashoffset: var(--ring-circumference);
-  }
-  to {
-    stroke-dashoffset: var(--boot-ring-target-dashoffset);
-  }
 }
 
 .lobby-boot-intro-active .lobby-screen__title {
@@ -101,10 +81,5 @@ html:not([data-app-hydrated]) .lobby-screen__orb-root .lobby-boot-orb-scale-laye
   .lobby-boot-intro-active .lobby-boot-orb-scale-layer {
     animation: none;
     transform: scale(1);
-  }
-
-  .lobby-boot-intro-active .lobby-boot-progress-stroke {
-    animation: none;
-    stroke-dashoffset: var(--boot-ring-target-dashoffset);
   }
 }

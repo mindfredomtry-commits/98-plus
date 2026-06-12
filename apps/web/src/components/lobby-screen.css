@@ -107,9 +107,8 @@
   transition: stroke-dashoffset 0.65s ease;
 }
 
-.influence-ring--no-transition .influence-ring__progress,
-.lobby-boot-progress-stroke {
-  transition: none !important;
+.influence-ring--no-transition .influence-ring__progress {
+  transition: none;
 }
 
 .influence-ring--intro-filling .influence-ring__progress {
