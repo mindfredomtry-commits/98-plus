@@ -16,9 +16,9 @@ html:not([data-app-hydrated]) .lobby-screen__orb-root .lobby-boot-orb-scale-laye
   transform: scale(0.15);
   transform-origin: center center;
 }
-.influence-ring--boot-css-fill .influence-ring__progress {
-  stroke-dasharray: var(--circ, 871.87);
-  stroke-dashoffset: var(--circ, 871.87);
+.lobby-boot-progress-stroke {
+  stroke-dasharray: var(--ring-circumference, 871.87);
+  stroke-dashoffset: var(--ring-circumference, 871.87);
   transition: none !important;
 }
 `,

@@ -6,9 +6,9 @@ type Props = {
   /** Influence level 0–100 (from internal energy, not shown as number). */
   value: number;
   className?: string;
-  /** Disable CSS transition while RAF-driven intro fill runs. */
+  /** Disable CSS transition while boot intro fill runs. */
   disableTransition?: boolean;
-  /** Boot intro: CSS keyframes drive stroke-dashoffset — no inline dash attrs. */
+  /** Boot intro: CSS keyframes drive stroke — no inline dash attrs. */
   bootCssFillActive?: boolean;
 };
 
@@ -26,15 +26,24 @@ export function InfluenceRing({
   bootCssFillActive = false,
 }: Props) {
   const clamped = Math.min(100, Math.max(0, value));
-  const dashOffset = CIRCUMFERENCE - (clamped / 100) * CIRCUMFERENCE;
+  const targetRatio = clamped / 100;
+  const targetDashoffset = CIRCUMFERENCE * (1 - targetRatio);
+  const dashOffset = CIRCUMFERENCE - targetRatio * CIRCUMFERENCE;
+
+  const bootProgressStyle = bootCssFillActive
+    ? ({
+        transition: 'none',
+        '--ring-circumference': CIRCUMFERENCE,
+        '--boot-ring-target-dashoffset': targetDashoffset,
+        '--boot-ring-target-ratio': targetRatio,
+      } satisfies CSSProperties)
+    : undefined;
 
   return (
     <svg
       className={`influence-ring${
         disableTransition ? ' influence-ring--no-transition' : ''
-      }${bootCssFillActive ? ' influence-ring--boot-css-fill' : ''}${
-        className ? ` ${className}` : ''
-      }`}
+      }${className ? ` ${className}` : ''}`}
       viewBox={`0 0 ${SIZE} ${SIZE}`}
       aria-hidden
     >
@@ -45,22 +54,24 @@ export function InfluenceRing({
         r={RADIUS}
       />
       <circle
-        className="influence-ring__progress"
+        className={`influence-ring__progress${
+          bootCssFillActive ? ' lobby-boot-progress-stroke' : ''
+        }`}
         cx={SIZE / 2}
         cy={SIZE / 2}
         r={RADIUS}
         {...(bootCssFillActive
-          ? {
-              strokeDasharray: CIRCUMFERENCE,
-            }
+          ? {}
           : {
               strokeDasharray: CIRCUMFERENCE,
               strokeDashoffset: dashOffset,
             })}
         style={
-          disableTransition || bootCssFillActive
-            ? ({ transition: 'none' } satisfies CSSProperties)
-            : undefined
+          bootCssFillActive
+            ? bootProgressStyle
+            : disableTransition
+              ? ({ transition: 'none' } satisfies CSSProperties)
+              : undefined
         }
       />
     </svg>

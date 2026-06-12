@@ -2150,9 +2150,13 @@
   transition: opacity 360ms ease;
 }
 
-.influence-ring--boot-css-fill .influence-ring__progress {
-  stroke-dasharray: var(--circ, 871.87);
-  stroke-dashoffset: var(--circ, 871.87);
+.lobby-boot-progress-stroke {
+  stroke-dasharray: var(--ring-circumference, 871.87);
+  stroke-dashoffset: var(--ring-circumference, 871.87);
+  transition: none !important;
+}
+
+.instant-ban-confirm-influence-ring .lobby-boot-progress-stroke {
   transition: none !important;
 }
 

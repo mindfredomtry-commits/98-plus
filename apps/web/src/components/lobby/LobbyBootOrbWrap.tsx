@@ -57,8 +57,8 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
 
     const mergedStyle = {
       ...style,
-      '--circ': circ,
-      '--target-dash': circ * (1 - targetRatio),
+      '--ring-circumference': circ,
+      '--boot-ring-target-dashoffset': circ * (1 - targetRatio),
       '--boot-ring-target-ratio': targetRatio,
     } as CSSProperties;
 
