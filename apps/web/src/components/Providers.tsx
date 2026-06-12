@@ -77,6 +77,7 @@ import {
   clearLocalOverboardBypass,
   getLocalOverboardBypassBanId,
   getNotificationQueueLockReason,
+  unlockNotificationQueue,
   isLocalOverboardBypassForBan,
   isNotificationQueueLocked,
   lockNotificationQueue,
@@ -87,7 +88,6 @@ import {
   runWithExplicitResultUnlock,
   shouldBlockResultOpen,
   tryLockFromStartParam,
-  unlockNotificationQueue,
 } from '@/lib/overlay-priority';
 import {
   logOverboardDirectState,
@@ -110,6 +110,7 @@ import {
   armPendingDeepLinkRouteFromStartParam,
   logOpenActiveBanCard,
   resolvePendingDeepLinkRoute,
+  dismissActiveBanDeepLinkRoute,
 } from '@/lib/deep-link-route-boot';
 import {
   incomingShowDecision,
@@ -277,6 +278,8 @@ interface AppContextValue {
   deepLinkActiveBan: BanInteraction | null;
   openDeepLinkActive: (b: BanInteraction) => void;
   clearDeepLinkActiveBan: () => void;
+  /** Exit active-ban deep link shell when user sends another ban from that card. */
+  clearActiveBanDeepLinkShell: (source?: string) => void;
   /** Sender "Ты запретил" deep link — block lobby until active card is visible. */
   activeBanUiShellActive: boolean;
   activeBanDeepLinkBanId: string | null;
@@ -2775,6 +2778,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, []);
 
   const clearDeepLinkActiveBan = useCallback(() => {
+    setDeepLinkActiveBan(null);
+  }, []);
+
+  const clearActiveBanDeepLinkShell = useCallback((source = 'unknown') => {
+    const banId = activeBanDeepLinkBanIdRef.current;
+    if (
+      !banId &&
+      !activeBanCardVisibleRef.current &&
+      !bufferedActiveDeepLinkRef.current
+    ) {
+      return;
+    }
+    console.log('[active-repeat-debug] clear active deep link shell', {
+      source,
+      banId,
+      hadCardVisible: activeBanCardVisibleRef.current,
+    });
+    if (getNotificationQueueLockReason() === 'deep-link-active-ban') {
+      unlockNotificationQueue(`active-repeat:${source}`);
+    }
+    dismissActiveBanDeepLinkRoute(source);
+    bufferedActiveDeepLinkRef.current = null;
+    activeBanCardVisibleRef.current = false;
+    setActiveBanCardReady(true);
+    setActiveBanDeepLinkBanId(null);
     setDeepLinkActiveBan(null);
   }, []);
 
@@ -7143,6 +7171,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       deepLinkActiveBan,
       openDeepLinkActive,
       clearDeepLinkActiveBan,
+      clearActiveBanDeepLinkShell,
       activeBanUiShellActive,
       activeBanDeepLinkBanId,
       notifyActiveBanCardVisible,
@@ -7281,6 +7310,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       deepLinkActiveBan,
       openDeepLinkActive,
       clearDeepLinkActiveBan,
+      clearActiveBanDeepLinkShell,
       overlayQueue.length,
       deepLinkSelectedBanId,
       sendFlowOpen,
@@ -7389,6 +7419,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       activeBanUiShellActive,
       activeBanDeepLinkBanId,
       notifyActiveBanCardVisible,
+      clearActiveBanDeepLinkShell,
       openBansOverlayRequest,
       bansCtaQueueSuppress,
       clearBansCtaQueueSuppress,

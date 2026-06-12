@@ -109,6 +109,19 @@ export function logOpenActiveBanCard(banId: string, source: string): void {
   console.log('[deep-link] open active ban card', { banId, source });
 }
 
+/** Leave active-ban deep link route after user starts a new send from that card. */
+export function dismissActiveBanDeepLinkRoute(source: string): void {
+  if (boot.pendingDeepLinkRoute !== 'active-ban') return;
+  boot = {
+    ...boot,
+    bootingFromBotLink: false,
+    pendingDeepLinkRoute: null,
+    pendingBanId: null,
+    initialRouteResolved: true,
+  };
+  console.log('[active-repeat-debug] dismiss active ban route', { source });
+}
+
 if (typeof window !== 'undefined') {
   armPendingDeepLinkRouteFromStartParam('module-init');
 }

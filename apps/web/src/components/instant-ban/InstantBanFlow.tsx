@@ -271,6 +271,7 @@ export function InstantBanFlow({
     clearDeepLinkReplyBan,
     deepLinkActiveBan,
     clearDeepLinkActiveBan,
+    clearActiveBanDeepLinkShell,
     incomingReplyBanId,
     replyToBanId,
     replyComposeActive,
@@ -377,6 +378,9 @@ export function InstantBanFlow({
   const lobbyCtaBootSpringRef = useRef(false);
   const prevSendStartedRef = useRef(sendStarted);
   const skipActiveDeepLinkEntryRef = useRef(false);
+  const activeBanRepeatComposeRef = useRef(false);
+  const lastDeepLinkActiveBanIdRef = useRef<string | null>(null);
+  const lastEarlyActiveBanIdRef = useRef<string | null>(null);
   const [bansOverlayOpen, setBansOverlayOpen] = useState(false);
   const [lowInfluenceRevealed, setLowInfluenceRevealed] = useState(false);
   const [lowEnergyBlockedSignal, setLowEnergyBlockedSignal] = useState(0);
@@ -1592,17 +1596,37 @@ export function InstantBanFlow({
 
   const handleBanMore = useCallback(
     (ban: BanInteraction) => {
+      console.log('[active-repeat-debug] repeat clicked', {
+        banId: ban.id,
+        activeBanDeepLinkBanId,
+      });
+      activeBanRepeatComposeRef.current = true;
+      lastEarlyActiveBanIdRef.current = ban.id;
+      lastDeepLinkActiveBanIdRef.current = ban.id;
+      clearActiveBanDeepLinkShell('repeat-clicked');
       beginRepeatBanFlow(ban, {
         goToConfirm: true,
         bansOverlayTab: bansTab,
       });
     },
-    [beginRepeatBanFlow, bansTab],
+    [
+      activeBanDeepLinkBanId,
+      beginRepeatBanFlow,
+      bansTab,
+      clearActiveBanDeepLinkShell,
+    ],
   );
 
   const handleSuccessExitComplete = useCallback(() => {
+    console.log('[active-repeat-debug] release to queue', {
+      fromActiveRepeat: activeBanRepeatComposeRef.current,
+    });
     logOverlayPriority('send-success-unlock', {});
     unlockNotificationQueueAndFlush('send-success-unlock');
+    clearActiveBanDeepLinkShell('success-exit');
+    activeBanRepeatComposeRef.current = false;
+    setBansOverlayOpen(false);
+    setSelectedBanForDetails(null);
     setBanSentSuccess(false);
     sendSnapshotRef.current = null;
     confirmEntrySourceRef.current = 'send-flow';
@@ -1622,6 +1646,7 @@ export function InstantBanFlow({
     beginCtaSpringIn();
   }, [
     beginCtaSpringIn,
+    clearActiveBanDeepLinkShell,
     unlockNotificationQueueAndFlush,
     setCrossScreenProgressImmediate,
     stopCrossScreenAnim,
@@ -1650,6 +1675,12 @@ export function InstantBanFlow({
       if (!banId.trim()) return;
 
       logSendFlow('open-success', { banId, attemptId: attemptId ?? currentAttempt });
+      console.log('[active-repeat-debug] send success', {
+        banId,
+        fromActiveRepeat: activeBanRepeatComposeRef.current,
+      });
+      clearActiveBanDeepLinkShell('send-success');
+      console.log('[active-repeat-debug] show success card', { banId });
       setSendError(null);
       markSessionBanSendSuccess();
       instantBanSendSuccessDebug({
@@ -1659,7 +1690,7 @@ export function InstantBanFlow({
       });
       setBanSentSuccess(true);
     },
-    [markSessionBanSendSuccess],
+    [clearActiveBanDeepLinkShell, markSessionBanSendSuccess],
   );
 
   const { send, inFlight, sharing } = useSendChallenge({
@@ -1801,11 +1832,38 @@ export function InstantBanFlow({
   const whatVisibleNotifiedRef = useRef(false);
   const resultReplyWhatNotifiedRef = useRef(false);
   const lastResultReplyRequestRef = useRef(0);
-  const lastDeepLinkActiveBanIdRef = useRef<string | null>(null);
-  const lastEarlyActiveBanIdRef = useRef<string | null>(null);
 
   useLayoutEffect(() => {
     if (deepLinkActiveBan?.id || !activeBanDeepLinkBanId || !user?.id) return;
+    if (activeBanRepeatComposeRef.current || banSentSuccess) {
+      console.log(
+        '[active-repeat-debug] blocked restore active card after success',
+        {
+          reason: activeBanRepeatComposeRef.current
+            ? 'repeat-compose'
+            : 'success-visible',
+          banId: activeBanDeepLinkBanId,
+          phase,
+        },
+      );
+      return;
+    }
+    if (
+      selectedUser != null ||
+      phase === 'confirming' ||
+      phase === 'composingBan' ||
+      phase === 'selectingTarget'
+    ) {
+      console.log(
+        '[active-repeat-debug] blocked restore active card after success',
+        {
+          reason: 'send-flow-active',
+          banId: activeBanDeepLinkBanId,
+          phase,
+        },
+      );
+      return;
+    }
     if (lastEarlyActiveBanIdRef.current === activeBanDeepLinkBanId) return;
     const ban = activeBans.find((b) => b.id === activeBanDeepLinkBanId);
     if (!ban) return;
@@ -1820,9 +1878,12 @@ export function InstantBanFlow({
   }, [
     activeBanDeepLinkBanId,
     activeBans,
+    banSentSuccess,
     beginActiveBanFromDeepLink,
     deepLinkActiveBan?.id,
     notifyActiveBanCardVisible,
+    phase,
+    selectedUser,
     user?.id,
   ]);
 
@@ -2106,6 +2167,17 @@ export function InstantBanFlow({
 
   useLayoutEffect(() => {
     if (!deepLinkActiveBan?.id || !user?.id) return;
+    if (activeBanRepeatComposeRef.current || banSentSuccess) {
+      console.log(
+        '[active-repeat-debug] blocked restore active card after success',
+        {
+          reason: 'repeat-compose-or-success',
+          banId: deepLinkActiveBan.id,
+        },
+      );
+      clearDeepLinkActiveBan();
+      return;
+    }
     if (lastDeepLinkActiveBanIdRef.current === deepLinkActiveBan.id) return;
     lastDeepLinkActiveBanIdRef.current = deepLinkActiveBan.id;
     skipActiveDeepLinkEntryRef.current = true;
@@ -2136,10 +2208,11 @@ export function InstantBanFlow({
     });
     if (ok) clearDeepLinkActiveBan();
   }, [
+    banSentSuccess,
+    clearDeepLinkActiveBan,
     deepLinkActiveBan,
     user?.id,
     beginActiveBanFromDeepLink,
-    clearDeepLinkActiveBan,
     notifyActiveBanCardVisible,
     sendStarted,
     sendFlowOpen,
