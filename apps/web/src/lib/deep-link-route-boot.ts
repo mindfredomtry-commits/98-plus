@@ -10,6 +10,19 @@ export type PendingDeepLinkRoute =
   | 'result'
   | null;
 
+export type BootRouteReleaseReason =
+  | 'reply-card-ready'
+  | 'incoming-queued'
+  | 'check-queued'
+  | 'result-queued'
+  | 'repeat-ready'
+  | 'active-ban-ready'
+  | 'route-handled'
+  | 'timeout-fallback'
+  | 'abort';
+
+export const BOOT_ROUTE_FALLBACK_MS = 1500;
+
 type DeepLinkRouteBoot = {
   bootingFromBotLink: boolean;
   pendingDeepLinkRoute: PendingDeepLinkRoute;
@@ -73,6 +86,17 @@ function banIdFromAction(
   return action.banId;
 }
 
+/** Reply deeplink surfaces an incoming overlay — both resolve the same boot gate. */
+function routeResolvesPending(
+  pending: PendingDeepLinkRoute,
+  route: PendingDeepLinkRoute,
+): boolean {
+  if (!pending || !route) return false;
+  if (pending === route) return true;
+  if (pending === 'reply' && route === 'incoming') return true;
+  return false;
+}
+
 export function readDeepLinkRouteBoot(): DeepLinkRouteBoot {
   return boot;
 }
@@ -82,6 +106,29 @@ export function isActiveBanDeepLinkBooting(): boolean {
     boot.pendingDeepLinkRoute === 'active-ban' && !boot.initialRouteResolved
   );
 }
+
+/** Force-release boot overlay (card ready, queue armed, timeout, abort). */
+export function releaseDeepLinkRouteBoot(
+  reason: BootRouteReleaseReason,
+  banId?: string | null,
+): void {
+  if (!boot.bootingFromBotLink || boot.initialRouteResolved) return;
+  const route = boot.pendingDeepLinkRoute;
+  boot = {
+    ...boot,
+    bootingFromBotLink: false,
+    initialRouteResolved: true,
+    pendingBanId: banId ?? boot.pendingBanId,
+  };
+  notifyDeepLinkRouteBoot();
+  console.log(`[boot-route-debug] resolved by ${reason}`, {
+    route,
+    banId: banId ?? boot.pendingBanId,
+  });
+}
+
+/** @alias releaseDeepLinkRouteBoot */
+export const resolveDeepLinkRouteBoot = releaseDeepLinkRouteBoot;
 
 export function armPendingDeepLinkRouteFromStartParam(
   source: string,
@@ -107,6 +154,7 @@ export function armPendingDeepLinkRouteFromStartParam(
     initialRouteResolved: false,
   };
   notifyDeepLinkRouteBoot();
+  console.log('[boot-route-debug] pending start', { source, route, banId });
   if (route === 'active-ban') {
     console.log('[deep-link] suppress default screen', {
       route,
@@ -120,10 +168,7 @@ export function armPendingDeepLinkRouteFromStartParam(
 /** End boot for the armed pending route (abort / reject paths). */
 export function resolveActiveDeepLinkRouteBoot(banId?: string | null): void {
   if (!boot.pendingDeepLinkRoute) return;
-  resolvePendingDeepLinkRoute(
-    boot.pendingDeepLinkRoute,
-    banId ?? boot.pendingBanId,
-  );
+  releaseDeepLinkRouteBoot('abort', banId ?? boot.pendingBanId);
 }
 
 export function resolvePendingDeepLinkRoute(
@@ -133,19 +178,24 @@ export function resolvePendingDeepLinkRoute(
   if (!route) return;
   if (boot.initialRouteResolved) return;
   if (!boot.bootingFromBotLink) return;
-  if (boot.pendingDeepLinkRoute !== route) return;
-  boot = {
-    ...boot,
-    bootingFromBotLink: false,
-    initialRouteResolved: true,
-    pendingDeepLinkRoute: route,
-    pendingBanId: banId ?? boot.pendingBanId,
-  };
-  notifyDeepLinkRouteBoot();
-  console.log('[deep-link] initial route resolved', {
-    route,
-    banId: banId ?? boot.pendingBanId,
-  });
+  if (!routeResolvesPending(boot.pendingDeepLinkRoute, route)) return;
+
+  const reason: BootRouteReleaseReason =
+    route === 'reply' || boot.pendingDeepLinkRoute === 'reply'
+      ? 'reply-card-ready'
+      : route === 'incoming'
+        ? 'incoming-queued'
+        : route === 'check'
+          ? 'check-queued'
+          : route === 'result'
+            ? 'result-queued'
+            : route === 'repeat'
+              ? 'repeat-ready'
+              : route === 'active-ban'
+                ? 'active-ban-ready'
+                : 'route-handled';
+
+  releaseDeepLinkRouteBoot(reason, banId);
 }
 
 export function logOpenActiveBanCard(banId: string, source: string): void {

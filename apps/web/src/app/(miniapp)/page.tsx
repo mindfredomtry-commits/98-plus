@@ -10,6 +10,7 @@ import {
 import dynamic from 'next/dynamic';
 import { useApp } from '@/components/Providers';
 import { useDeepLinkRouteBootPending } from '@/hooks/useDeepLinkRouteBootPending';
+import { useBootRouteRelease } from '@/hooks/useBootRouteRelease';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSocialBoot } from '@/hooks/useSocialBoot';
 import { AppBootScreen } from '@/components/AppBootScreen';
@@ -106,6 +107,23 @@ export default function HomePage() {
   const { ready } = useTelegram();
   const deepLinkRouteBootPending = useDeepLinkRouteBootPending();
   const showBootScreen = loading || deepLinkRouteBootPending;
+
+  useBootRouteRelease(showBootScreen, deepLinkRouteBootPending, {
+    incomingCardReady:
+      activeOverlayKind === 'incoming' &&
+      (incomingGateActive || replyDeepLinkBanId != null),
+    incomingBanId: deepLinkSelectedBanId ?? replyDeepLinkBanId,
+    checkOverlayReady: activeOverlayKind === 'check' && checkGateActive,
+    checkBanId:
+      activeOverlayKind === 'check' ? deepLinkSelectedBanId : null,
+    resultOverlayReady: activeOverlayKind === 'result',
+    resultBanId:
+      activeOverlayKind === 'result' ? deepLinkSelectedBanId : null,
+    repeatReady: deepLinkRepeatBan != null,
+    repeatBanId: deepLinkRepeatBan?.id ?? null,
+    activeBanReady: deepLinkActiveBan != null,
+    activeBanId: deepLinkActiveBan?.id ?? null,
+  });
   const deepLinkBoot = useSyncExternalStore(
     subscribeDeepLinkBootDebug,
     getDeepLinkBootDebug,

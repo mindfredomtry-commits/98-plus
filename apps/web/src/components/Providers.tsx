@@ -112,7 +112,9 @@ import {
 } from '@/lib/queue-debug';
 import {
   armPendingDeepLinkRouteFromStartParam,
+  isDeepLinkRouteBootPending,
   logOpenActiveBanCard,
+  releaseDeepLinkRouteBoot,
   resolveActiveDeepLinkRouteBoot,
   resolvePendingDeepLinkRoute,
   dismissActiveBanDeepLinkRoute,
@@ -4742,7 +4744,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId,
       });
 
-      resolvePendingDeepLinkRoute('reply', banId);
+      releaseDeepLinkRouteBoot('reply-card-ready', banId);
       scheduleReplyFastTimeout(banId);
 
       return true;
@@ -4958,7 +4960,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         hydratedInPlace,
       });
       console.log('[reply-deeplink]', { banId: b.id, queued: 'incoming-overlay' });
-      resolvePendingDeepLinkRoute('reply', b.id);
+      releaseDeepLinkRouteBoot('reply-card-ready', b.id);
       logDeepLinkHandlerResult({
         type: 'reply',
         banId: b.id,
@@ -7415,6 +7417,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId: effectiveScopedIncomingBan.id,
         source: incomingJsxRenderSource,
       });
+      if (isDeepLinkRouteBootPending()) {
+        releaseDeepLinkRouteBoot(
+          'reply-card-ready',
+          effectiveScopedIncomingBan.id,
+        );
+      }
       return;
     }
     const nullReason = !effectiveShouldRenderIncoming
@@ -7445,6 +7453,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     shouldRenderIncomingOverlay,
     showDirectOverboardLayer,
   ]);
+
+  useLayoutEffect(() => {
+    if (!isDeepLinkRouteBootPending()) return;
+    if (!checkGateActive || !checkBan?.id) return;
+    releaseDeepLinkRouteBoot('check-queued', checkBan.id);
+  }, [checkGateActive, checkBan?.id]);
+
+  useLayoutEffect(() => {
+    if (!isDeepLinkRouteBootPending()) return;
+    if (activeOverlayKind !== 'result' || !displayResult?.id) return;
+    releaseDeepLinkRouteBoot('result-queued', displayResult.id);
+  }, [activeOverlayKind, displayResult?.id]);
 
   const contextValue = useMemo(
     () => ({
