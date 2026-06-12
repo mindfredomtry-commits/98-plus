@@ -15,11 +15,29 @@ let introFullyPrimed = false;
 let primedSnapshot: PrimedSnapshot = { scale: 1, ringPercent: 0 };
 let handoffSnapshot: HandoffSnapshot | null = null;
 
+const sessionListeners = new Set<() => void>();
+
 function clampPercent(value: number): number {
   return Math.min(100, Math.max(0, value));
 }
 
+function notifyLobbyBootIntroSession(): void {
+  sessionListeners.forEach((listener) => listener());
+}
+
+export function subscribeLobbyBootIntroSession(listener: () => void): () => void {
+  sessionListeners.add(listener);
+  return () => {
+    sessionListeners.delete(listener);
+  };
+}
+
 export function isLobbyBootIntroPrimed(): boolean {
+  return introFullyPrimed;
+}
+
+/** One cold start = at most one scale intro. Survives remount / StrictMode. */
+export function hasPlayedLobbyBootIntroThisSession(): boolean {
   return introFullyPrimed;
 }
 
@@ -47,6 +65,7 @@ export function markLobbyBootIntroPrimed(ringPercent: number, scale = 1): void {
     ringPercent: clampPercent(ringPercent),
   };
   handoffSnapshot = null;
+  notifyLobbyBootIntroSession();
 }
 
 export function snapshotLobbyBootIntroHandoff(

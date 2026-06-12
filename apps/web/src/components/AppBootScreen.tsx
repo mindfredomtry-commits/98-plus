@@ -1,55 +1,22 @@
 'use client';
 
-import { LobbyBootOrbWrap } from '@/components/lobby/LobbyBootOrbWrap';
-import { LobbyIdleOrb } from '@/components/lobby/LobbyIdleOrb';
 import { LobbyScreenAtmosphere } from '@/components/lobby/LobbyScreenAtmosphere';
-import { useLobbyBootIntro } from '@/components/instant-ban/useLobbyBootIntro';
 import './instant-ban/instant-ban.css';
 import './lobby-screen.css';
-import './lobby-boot-intro.css';
 import './app-boot-screen.css';
 
-type Props = {
-  influencePercent: number;
-  energyKnown: boolean;
-};
-
 /**
- * Deep-link / chrome-hidden boot placeholder — same lobby background + orb as InstantBanFlow.
+ * Deep-link boot veil — atmosphere only. Orb + intro live in InstantBanFlow when mounted.
  */
-export function AppBootScreen({ influencePercent, energyKnown }: Props) {
-  const ringTarget = Math.min(100, Math.max(0, influencePercent));
-
-  const { ringDisplayPercent, introActive, onIntroEnd } = useLobbyBootIntro(
-    ringTarget,
-    {
-      phase: 'idle',
-      sendStarted: false,
-      energyKnown,
-      enabled: true,
-    },
-  );
-
+export function AppBootScreen() {
   return (
     <div
-      className={`app-boot-screen lobby-screen${
-        introActive ? ' lobby-screen--boot-intro-active' : ''
-      }`}
+      className="app-boot-screen lobby-screen"
       data-app-boot-screen=""
       data-boot-part="root"
       aria-hidden
     >
       <LobbyScreenAtmosphere />
-
-      <div className="app-boot-screen__stage" data-boot-part="extra">
-        <LobbyBootOrbWrap
-          className="lobby-screen__orb-wrap lobby-screen__orb-root"
-          introActive={introActive}
-          onIntroEnd={onIntroEnd}
-        >
-          <LobbyIdleOrb ringPercent={ringDisplayPercent} />
-        </LobbyBootOrbWrap>
-      </div>
     </div>
   );
 }

@@ -83,6 +83,10 @@ import { useConfirmOrbController } from './useConfirmOrbController';
 import { LobbyBootOrbWrap } from '@/components/lobby/LobbyBootOrbWrap';
 import { LobbyScreenAtmosphere } from '@/components/lobby/LobbyScreenAtmosphere';
 import { useLobbyBootIntro } from './useLobbyBootIntro';
+import {
+  isLobbyBootIntroPrimed,
+  subscribeLobbyBootIntroSession,
+} from '@/lib/lobby-boot-intro-session';
 import '@/components/lobby-boot-intro.css';
 import { triggerLobbyBlockedHaptic } from './lobby-cta-haptics';
 import {
@@ -323,6 +327,11 @@ export function InstantBanFlow({
     isDeepLinkRouteBootPending,
     () => false,
   );
+  const lobbyBootIntroPrimed = useSyncExternalStore(
+    subscribeLobbyBootIntroSession,
+    isLobbyBootIntroPrimed,
+    () => false,
+  );
 
   const [phase, setPhase] = useState<SendFlowPhase>(() => {
     if (activeBanDeepLinkBanId) return 'idle';
@@ -465,7 +474,10 @@ export function InstantBanFlow({
       replyUiShellActive);
   const lobbyChromeHidden =
     replyLobbyBlocked || deepLinkRouteBootPending || replyIncomingDeeplinkPending;
+  /** Orb stays mounted during route boot — only hide for reply/incoming block. */
+  const lobbyOrbVisible = !replyIncomingDeeplinkPending && !replyLobbyBlocked;
   const showLobbyCta =
+    lobbyBootIntroPrimed &&
     !replyIncomingDeeplinkPending &&
     (!replyLobbyBlocked || bansReturnToLobbyLatch) &&
     !deepLinkRouteBootPending &&
@@ -807,6 +819,7 @@ export function InstantBanFlow({
 
   /** First lobby open only — dismiss re-entry uses beginCtaSpringIn. */
   useEffect(() => {
+    if (!lobbyBootIntroPrimed) return;
     if (replyIncomingDeeplinkPending) return;
     if (replyUiShellActive) return;
     if (lobbyCtaBootSpringRef.current) return;
@@ -825,6 +838,7 @@ export function InstantBanFlow({
     sendStarted,
     replyUiShellActive,
     replyIncomingDeeplinkPending,
+    lobbyBootIntroPrimed,
   ]);
 
   /** Only enter who-step when send flow opens — not when user dismisses back to lobby idle. */
@@ -933,6 +947,7 @@ export function InstantBanFlow({
     notificationSessionActive || notificationOverlayActive;
   const effectiveBansOverlayOpen = bansLayerUiOpen;
   const showLobbyTopNav =
+    lobbyBootIntroPrimed &&
     phase === 'idle' &&
     !banSentSuccess &&
     !effectiveBansOverlayOpen &&
@@ -3130,7 +3145,7 @@ export function InstantBanFlow({
     phase,
     sendStarted,
     energyKnown: energyLoaded,
-    enabled: !lobbyChromeHidden,
+    enabled: lobbyOrbVisible,
   });
 
   const liteMode = isInstantBanLiteMode();
@@ -3246,7 +3261,7 @@ export function InstantBanFlow({
       {!lobbyChromeHidden ? <LobbyScreenAtmosphere /> : null}
 
       <div className="instant-ban-arena-send__stage">
-        {!lobbyChromeHidden ? (
+        {lobbyOrbVisible ? (
           <LobbyBootOrbWrap
             ref={lobbyOrbMountRef}
             className={`lobby-screen__orb-wrap lobby-screen__orb-root${
@@ -3411,7 +3426,7 @@ export function InstantBanFlow({
         <ArenaLobbyIdle
           influencePercent={lobbyInfluencePercent}
           energyLoaded={energyLoaded}
-          lobbyRingIntroFilling={lobbyBootVisualActive}
+          lobbyRingIntroFilling={!lobbyBootIntroPrimed}
           ctaState={ctaState}
           ctaInteractive={ctaInteractive}
           lowInfluenceRevealed={lowInfluenceRevealed}

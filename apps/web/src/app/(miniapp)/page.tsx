@@ -27,6 +27,7 @@ import {
   logLobbyInfluenceDebug,
   resolveLobbyInfluencePercent,
 } from '@/lib/lobby-influence';
+import { isLobbyBootIntroPrimed, subscribeLobbyBootIntroSession } from '@/lib/lobby-boot-intro-session';
 import { instantBanDebug } from '@/lib/instant-ban-debug';
 import {
   getDeepLinkBootDebug,
@@ -112,12 +113,16 @@ export default function HomePage() {
   } = useApp();
   const { ready } = useTelegram();
   const deepLinkRouteBootPending = useDeepLinkRouteBootPending();
+  const hasAuthSession = !!user?.id && !!token;
+  const lobbyPrefetch = loading && !hasAuthSession;
+  /** v2 arena shell — never drop to legacy HomeArena while session is active. */
+  const arenaVisible = lobbyPrefetch || hasAuthSession;
   const showBootScreen = loading || deepLinkRouteBootPending;
   /** Auth boot — real InstantBanFlow lobby chrome; no duplicate overlay. */
   const bootUsesRealLobbyChrome =
     showBootScreen && loading && !deepLinkRouteBootPending;
   const showBootPlaceholder =
-    showBootScreen && !bootUsesRealLobbyChrome;
+    showBootScreen && !bootUsesRealLobbyChrome && !arenaVisible;
   const replyDeeplinkPending =
     !incomingCardFullyReady &&
     Boolean(
@@ -243,15 +248,18 @@ export default function HomePage() {
 
   const lobbyInfluence = resolveLobbyInfluencePercent(user);
 
+  const lobbyBootIntroDone = useSyncExternalStore(
+    subscribeLobbyBootIntroSession,
+    isLobbyBootIntroPrimed,
+    () => false,
+  );
+
   useEffect(() => {
     if (!lobbyOpen) return;
     logLobbyInfluenceDebug(user, lobbyInfluence);
   }, [lobbyOpen, user, lobbyInfluence.influencePercent, lobbyInfluence.fromFallback]);
 
-  const hasAuthSession = !!user?.id && !!token;
-  const lobbyPrefetch = loading && !hasAuthSession;
-  /** v2 arena shell — never drop to legacy HomeArena while session is active. */
-  const arenaVisible = lobbyPrefetch || hasAuthSession;
+
   const legacyHomeVisible = hasAuthSession && !arenaVisible;
   const shellModeForDebug = !arenaVisible
     ? 'legacy-home'
@@ -370,12 +378,7 @@ export default function HomePage() {
         <ArenaAmbience />
       </ShellErrorBoundary>
 
-      {showBootPlaceholder ? (
-        <AppBootScreen
-          influencePercent={lobbyInfluence.influencePercent}
-          energyKnown={hasAuthSession && !lobbyInfluence.fromFallback}
-        />
-      ) : null}
+      {showBootPlaceholder ? <AppBootScreen /> : null}
 
       {!lobbyPrefetch ? (
         <ConnectionBanner state={connectionUiState} onRetry={reloadPending} />
@@ -409,7 +412,7 @@ export default function HomePage() {
         </ShellErrorBoundary>
       ) : null}
 
-      {!lobbyPrefetch ? (
+      {!lobbyPrefetch && lobbyBootIntroDone ? (
         <BottomNav tab={tab} onChange={setTab} />
       ) : null}
 

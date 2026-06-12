@@ -3,12 +3,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   getLobbyBootIntroPrimedSnapshot,
+  hasPlayedLobbyBootIntroThisSession,
   isLobbyBootIntroPrimed,
-  LOBBY_BOOT_INTRO_SCALE_START,
   markLobbyBootIntroPrimed,
   shouldRunLobbyBootIntroVisualSync,
-  snapshotLobbyBootIntroHandoff,
-  takeLobbyBootIntroHandoff,
 } from '@/lib/lobby-boot-intro-session';
 
 type LobbyPhase = 'idle' | 'selectingTarget' | 'composingBan' | 'confirming';
@@ -30,7 +28,6 @@ function clampPercent(value: number): number {
 }
 
 function shouldSkipBootIntro(options: Options): boolean {
-  if (options.enabled === false) return true;
   return (
     options.sendStarted ||
     options.phase !== 'idle' ||
@@ -38,22 +35,22 @@ function shouldSkipBootIntro(options: Options): boolean {
   );
 }
 
-function resolveInitiallyPrimed(options: Options): boolean {
-  if (shouldSkipBootIntro(options)) return true;
-  return isLobbyBootIntroPrimed() || !shouldRunLobbyBootIntroVisualSync();
+function resolveInitialIntroPrimed(options: Options): boolean {
+  if (hasPlayedLobbyBootIntroThisSession()) return true;
+  return shouldSkipBootIntro(options);
 }
 
-/** Boot lobby intro — scale only (550ms), progress ring appears after intro ends. */
+/** Boot lobby intro — scale only (550ms), once per session. */
 export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
   const target = clampPercent(targetRingPercent);
   const enabled = options.enabled !== false;
   const energyKnown = options.energyKnown;
 
-  const initiallyPrimed = resolveInitiallyPrimed({ ...options, enabled });
-
-  const [introPrimed, setIntroPrimed] = useState(initiallyPrimed);
+  const [introPrimed, setIntroPrimed] = useState(() =>
+    resolveInitialIntroPrimed(options),
+  );
   const ringRef = useRef(
-    initiallyPrimed
+    introPrimed
       ? energyKnown
         ? target
         : getLobbyBootIntroPrimedSnapshot().ringPercent
@@ -61,11 +58,10 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
   );
 
   const introActive =
-    enabled && !introPrimed && shouldRunLobbyBootIntroVisualSync();
-
-  useLayoutEffect(() => {
-    takeLobbyBootIntroHandoff();
-  }, []);
+    enabled &&
+    !introPrimed &&
+    shouldRunLobbyBootIntroVisualSync() &&
+    !shouldSkipBootIntro(options);
 
   const finishPrimed = useCallback(
     (ring: number) => {
@@ -77,10 +73,26 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
     [],
   );
 
+  useLayoutEffect(() => {
+    if (!shouldSkipBootIntro(options) || isLobbyBootIntroPrimed()) return;
+    finishPrimed(energyKnown ? target : ringRef.current);
+  }, [energyKnown, target, finishPrimed, options.sendStarted, options.phase]);
+
+  useLayoutEffect(() => {
+    if (!isLobbyBootIntroPrimed() || introPrimed) return;
+    const snap = getLobbyBootIntroPrimedSnapshot();
+    ringRef.current = energyKnown ? target : snap.ringPercent;
+    setIntroPrimed(true);
+  }, [introPrimed, energyKnown, target]);
+
   useEffect(() => {
-    if (!enabled) return;
-    if (shouldSkipBootIntro({ ...options, enabled })) {
+    if (shouldSkipBootIntro(options) && !isLobbyBootIntroPrimed()) {
       finishPrimed(energyKnown ? target : ringRef.current);
+      return;
+    }
+    if (!enabled) return;
+    if (isLobbyBootIntroPrimed() && !introPrimed) {
+      finishPrimed(energyKnown ? target : getLobbyBootIntroPrimedSnapshot().ringPercent);
     }
   }, [
     enabled,
@@ -88,17 +100,9 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
     target,
     options.sendStarted,
     options.phase,
-    options.enabled,
+    introPrimed,
     finishPrimed,
   ]);
-
-  useEffect(
-    () => () => {
-      if (isLobbyBootIntroPrimed() || introPrimed) return;
-      snapshotLobbyBootIntroHandoff(LOBBY_BOOT_INTRO_SCALE_START, ringRef.current);
-    },
-    [introPrimed],
-  );
 
   const onIntroEnd = useCallback(() => {
     finishPrimed(energyKnown ? target : ringRef.current);
@@ -114,6 +118,7 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
     ringDisplayPercent,
     introActive,
     introPrimed,
+    skipIntro: introPrimed || hasPlayedLobbyBootIntroThisSession(),
     onIntroEnd,
   };
 }
