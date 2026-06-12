@@ -18,6 +18,12 @@ export type LobbyBootIntroDebug = {
   bootIntroInitial: boolean;
   introPrimed: boolean;
   appHydrated: boolean;
+  circumference: string;
+  targetRatio: string;
+  initialDashoffset: string;
+  targetDashoffset: string;
+  currentDashoffset: string;
+  progressStrokeVisible: boolean;
 };
 
 let current: LobbyBootIntroDebug = {
@@ -38,6 +44,12 @@ let current: LobbyBootIntroDebug = {
   bootIntroInitial: false,
   introPrimed: false,
   appHydrated: false,
+  circumference: '—',
+  targetRatio: '—',
+  initialDashoffset: '—',
+  targetDashoffset: '—',
+  currentDashoffset: '—',
+  progressStrokeVisible: false,
 };
 
 const listeners = new Set<() => void>();
@@ -64,7 +76,13 @@ function isSame(a: LobbyBootIntroDebug, b: LobbyBootIntroDebug): boolean {
     a.hasPaintedOnce === b.hasPaintedOnce &&
     a.bootIntroInitial === b.bootIntroInitial &&
     a.introPrimed === b.introPrimed &&
-    a.appHydrated === b.appHydrated
+    a.appHydrated === b.appHydrated &&
+    a.circumference === b.circumference &&
+    a.targetRatio === b.targetRatio &&
+    a.initialDashoffset === b.initialDashoffset &&
+    a.targetDashoffset === b.targetDashoffset &&
+    a.currentDashoffset === b.currentDashoffset &&
+    a.progressStrokeVisible === b.progressStrokeVisible
   );
 }
 
@@ -83,6 +101,12 @@ export function reportLobbyBootIntroDebug(
       | 'bootIntroInitial'
       | 'introPrimed'
       | 'appHydrated'
+      | 'circumference'
+      | 'targetRatio'
+      | 'initialDashoffset'
+      | 'targetDashoffset'
+      | 'currentDashoffset'
+      | 'progressStrokeVisible'
     >
   >,
 ): void {
@@ -93,14 +117,18 @@ export function reportLobbyBootIntroDebug(
 }
 
 export function patchLobbyBootIntroDebugGeometry(
-  next: Pick<
-    LobbyBootIntroDebug,
-    | 'ringBox'
-    | 'scaleLayerTransform'
-    | 'ringTransform'
-    | 'wrapperTransform'
-    | 'scaleLayerClass'
-    | 'ringRootClass'
+  next: Partial<
+    Pick<
+      LobbyBootIntroDebug,
+      | 'ringBox'
+      | 'scaleLayerTransform'
+      | 'ringTransform'
+      | 'wrapperTransform'
+      | 'scaleLayerClass'
+      | 'ringRootClass'
+      | 'currentDashoffset'
+      | 'progressStrokeVisible'
+    >
   >,
 ): void {
   const merged = { ...current, ...next };

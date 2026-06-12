@@ -2174,6 +2174,18 @@
   visibility: visible;
 }
 
+.influence-ring--boot-css-fill .influence-ring__progress {
+  --ring-circ: 871.87;
+  stroke-dasharray: var(--ring-circ);
+  stroke-dashoffset: var(--ring-circ);
+  transition: none !important;
+}
+
+.lobby-boot-intro-ring-active .instant-ban-confirm-influence-ring .influence-ring__progress,
+.lobby-boot-intro-ring-active .influence-ring__progress {
+  transition: none !important;
+}
+
 .lobby-screen__orb-root.lobby-screen__orb-wrap--overlay-dim {
   opacity: 0.72;
   transform: translate(-50%, -50%) scale(0.94);

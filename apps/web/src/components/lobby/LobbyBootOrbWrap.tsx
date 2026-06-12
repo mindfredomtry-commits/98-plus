@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { LOBBY_BOOT_INTRO_SCALE_START } from '@/lib/lobby-boot-intro-session';
+import { INFLUENCE_RING_CIRCUMFERENCE } from '@/components/lobby/InfluenceRing';
 import { patchLobbyBootIntroDebugGeometry } from '@/lib/lobby-boot-intro-debug';
 
 type Props = {
@@ -104,6 +105,23 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
       const scaleLayer = scaleLayerRef.current;
       const ringSvg = root?.querySelector('.influence-ring');
       const ringLayer = root?.querySelector('.instant-ban-arena-lobby-orb__ring-layer');
+      const progressEl = root?.querySelector(
+        '.influence-ring__progress',
+      ) as SVGCircleElement | null;
+
+      const targetRatio = Math.min(1, Math.max(0, ringTarget / 100));
+      const circ = INFLUENCE_RING_CIRCUMFERENCE;
+      const initialDash = circ;
+      const targetDash = circ * (1 - targetRatio);
+      let currentDash = '—';
+      let progressVisible = false;
+      if (progressEl && typeof window !== 'undefined') {
+        const computed = window.getComputedStyle(progressEl);
+        currentDash = computed.strokeDashoffset || '—';
+        const dashOff = parseFloat(computed.strokeDashoffset);
+        progressVisible =
+          Number.isFinite(dashOff) && dashOff < circ - 0.5;
+      }
 
       patchLobbyBootIntroDebugGeometry({
         ringBox: readBox(ringSvg),
@@ -114,6 +132,8 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
         ringRootClass: introPrimed
           ? 'lobby-boot-intro-primed'
           : ringRootClass || '—',
+        currentDashoffset: currentDash,
+        progressStrokeVisible: progressVisible,
       });
     }, [
       ref,
@@ -127,6 +147,7 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
       ringBaseActive,
       ringActive,
       ringCatchupActive,
+      ringTarget,
     ]);
 
     useEffect(() => {
@@ -158,9 +179,11 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
       };
     }, [ref, ringCatchupActive]);
 
+    const targetRatio = Math.min(1, Math.max(0, ringTarget / 100));
+
     const mergedStyle = {
       ...style,
-      '--boot-ring-target-progress': ringTarget,
+      '--boot-ring-target-ratio': targetRatio,
     } as CSSProperties;
 
     const scaleLayerStyle = {

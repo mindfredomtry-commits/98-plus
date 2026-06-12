@@ -8,7 +8,7 @@ type Props = {
   className?: string;
   /** Disable CSS transition while RAF-driven intro fill runs. */
   disableTransition?: boolean;
-  /** Boot intro: CSS keyframes drive stroke-dashoffset — omit inline SVG attrs. */
+  /** Boot intro: CSS keyframes drive stroke-dashoffset — no inline dash attrs. */
   bootCssFillActive?: boolean;
 };
 
@@ -50,13 +50,15 @@ export function InfluenceRing({
         cy={SIZE / 2}
         r={RADIUS}
         {...(bootCssFillActive
-          ? {}
+          ? {
+              strokeDasharray: CIRCUMFERENCE,
+            }
           : {
               strokeDasharray: CIRCUMFERENCE,
               strokeDashoffset: dashOffset,
             })}
         style={
-          disableTransition
+          disableTransition || bootCssFillActive
             ? ({ transition: 'none' } satisfies CSSProperties)
             : undefined
         }

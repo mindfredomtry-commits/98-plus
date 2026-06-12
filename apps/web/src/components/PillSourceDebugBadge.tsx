@@ -71,6 +71,12 @@ export function PillSourceDebugBadge() {
         <div>bootIntroInitial={String(ringIntro.bootIntroInitial)}</div>
         <div>introPrimed={String(ringIntro.introPrimed)}</div>
         <div>appHydrated={String(ringIntro.appHydrated)}</div>
+        <div>circ={ringIntro.circumference}</div>
+        <div>targetRatio={ringIntro.targetRatio}</div>
+        <div>initialDash={ringIntro.initialDashoffset}</div>
+        <div>targetDash={ringIntro.targetDashoffset}</div>
+        <div>currentDash={ringIntro.currentDashoffset}</div>
+        <div>progressVisible={String(ringIntro.progressStrokeVisible)}</div>
       </div>
     </div>,
     document.body,

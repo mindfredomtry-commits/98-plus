@@ -26,6 +26,12 @@ html[data-app-hydrated] .lobby-screen__orb-root.lobby-boot-intro-primed .instant
 html[data-app-hydrated] .lobby-screen__orb-root[data-boot-intro-active].lobby-boot-intro-ring-base .instant-ban-arena-lobby-orb__ring-layer {
   visibility: visible !important;
 }
+.influence-ring--boot-css-fill .influence-ring__progress {
+  --ring-circ: 871.87;
+  stroke-dasharray: var(--ring-circ);
+  stroke-dashoffset: var(--ring-circ);
+  transition: none !important;
+}
 `,
       }}
     />

@@ -289,12 +289,11 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
 
   useLayoutEffect(() => {
     if (!enabled) return;
+    const circ = INFLUENCE_RING_CIRCUMFERENCE;
+    const targetRatio = target / 100;
     const strokeDashoffset = bootCssFillActive
       ? 'css-driven'
-      : String(
-          INFLUENCE_RING_CIRCUMFERENCE -
-            (ringDisplayPercent / 100) * INFLUENCE_RING_CIRCUMFERENCE,
-        );
+      : String(circ - targetRatio * circ);
     reportLobbyBootIntroDebug({
       ringIntroState: uiState,
       energyKnown,
@@ -309,6 +308,10 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
       appHydrated:
         typeof document !== 'undefined' &&
         document.documentElement.dataset.appHydrated === 'true',
+      circumference: String(Math.round(circ * 100) / 100),
+      targetRatio: String(Math.round(targetRatio * 1000) / 1000),
+      initialDashoffset: String(Math.round(circ * 100) / 100),
+      targetDashoffset: String(Math.round(circ * (1 - targetRatio) * 100) / 100),
     });
   }, [
     enabled,

@@ -18,7 +18,7 @@ html[data-app-hydrated]
   visibility: hidden !important;
 }
 
-@property --boot-ring-target-progress {
+@property --boot-ring-target-ratio {
   syntax: '<number>';
   inherits: true;
   initial-value: 0;
@@ -40,7 +40,6 @@ html[data-app-hydrated]
   overflow: visible;
 }
 
-/* Boot intro only — hide ring until boot ring-base is on (avoids full-size flash) */
 .lobby-screen__orb-root[data-boot-intro-active]:not(.lobby-boot-intro-ring-base)
   .instant-ban-arena-lobby-orb__ring-layer {
   visibility: hidden;
@@ -90,9 +89,12 @@ html[data-app-hydrated]
   visibility: visible;
 }
 
-.lobby-boot-intro-ring-base .influence-ring,
-.lobby-boot-intro-ring-base .influence-ring__track,
+/* Track = empty ring; progress arc starts hidden until fill animation */
+.influence-ring--boot-css-fill .influence-ring__progress,
 .lobby-boot-intro-ring-base .influence-ring__progress {
+  --ring-circ: 871.87;
+  stroke-dasharray: var(--ring-circ);
+  transition: none !important;
   opacity: 1;
   visibility: visible;
 }
@@ -100,22 +102,25 @@ html[data-app-hydrated]
 .lobby-boot-intro-ring-base .influence-ring__track {
   stroke: rgba(var(--98-purple-deep-rgb), 0.55);
   stroke-width: 2.5;
+  opacity: 1;
+  visibility: visible;
 }
 
 .lobby-boot-intro-ring-base .influence-ring__progress {
-  --ring-circ: 871.87;
   stroke: rgba(var(--98-power-rgb), 0.92);
   stroke-width: 2.5;
-  stroke-dasharray: var(--ring-circ);
-  stroke-dashoffset: var(--ring-circ);
-  opacity: 1;
-  transition: none;
   filter: drop-shadow(0 0 8px var(--98-power-glow))
     drop-shadow(0 0 16px var(--98-power-glow-soft));
 }
 
+/* Empty progress arc — only when fill animation is not running yet */
+.lobby-boot-intro-ring-base:not(.lobby-boot-intro-ring-active) .influence-ring__progress {
+  stroke-dashoffset: var(--ring-circ);
+}
+
+/* Parallel with scale — fill 0 → target ratio */
 .lobby-boot-intro-ring-active .influence-ring__progress {
-  animation: lobby-boot-ring-fill 550ms cubic-bezier(0.33, 1, 0.68, 1) forwards;
+  animation: lobby-boot-ring-fill 450ms cubic-bezier(0.33, 1, 0.68, 1) both;
 }
 
 @keyframes lobby-boot-ring-fill {
@@ -123,9 +128,7 @@ html[data-app-hydrated]
     stroke-dashoffset: var(--ring-circ);
   }
   to {
-    stroke-dashoffset: calc(
-      var(--ring-circ) * (1 - var(--boot-ring-target-progress) / 100)
-    );
+    stroke-dashoffset: calc(var(--ring-circ) * (1 - var(--boot-ring-target-ratio)));
   }
 }
 
@@ -143,7 +146,6 @@ html[data-app-hydrated]
     0 0 48px rgba(var(--98-accent-rgb), 0.55);
 }
 
-/* After primed — restore normal lobby orb/ring (no boot transforms) */
 .lobby-screen__orb-root.lobby-boot-intro-primed .lobby-boot-orb-scale-layer,
 .lobby-screen__orb-root.lobby-orb-normal-visible .lobby-boot-orb-scale-layer {
   transform: none;
@@ -165,6 +167,11 @@ html[data-app-hydrated]
   transition: transform 950ms cubic-bezier(0.34, 1.12, 0.64, 1);
 }
 
+.lobby-screen__orb-root.lobby-boot-intro-primed .influence-ring__progress {
+  animation: none;
+  transition: stroke-dashoffset 0.65s ease, stroke 900ms ease, filter 900ms ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .lobby-boot-orb-scale-layer.lobby-boot-intro-scale-pending,
   .lobby-boot-orb-scale-layer.lobby-boot-intro-scale-active,
@@ -175,9 +182,7 @@ html[data-app-hydrated]
 
   .lobby-boot-intro-ring-active .influence-ring__progress {
     animation: none;
-    stroke-dashoffset: calc(
-      var(--ring-circ) * (1 - var(--boot-ring-target-progress) / 100)
-    );
+    stroke-dashoffset: calc(var(--ring-circ) * (1 - var(--boot-ring-target-ratio)));
   }
 
   .lobby-boot-intro-ring-catchup .influence-ring__progress {
