@@ -66,4 +66,17 @@ export function takeLobbyBootIntroHandoff(): HandoffSnapshot | null {
   return snap;
 }
 
+export function peekLobbyBootIntroHandoff(): HandoffSnapshot | null {
+  return handoffSnapshot;
+}
+
+/** Sync check for first-paint scale(0.15) before React effects run. */
+export function shouldLobbyBootIntroScalePending(): boolean {
+  if (introFullyPrimed) return false;
+  if (scaleIntroDone) return false;
+  const handoff = handoffSnapshot;
+  if (handoff && handoff.scale >= 0.999) return false;
+  return true;
+}
+
 export const LOBBY_BOOT_INTRO_SCALE_START = SCALE_START;

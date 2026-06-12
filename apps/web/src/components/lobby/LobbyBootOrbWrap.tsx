@@ -11,6 +11,7 @@ import {
 type Props = {
   className?: string;
   style?: CSSProperties;
+  scalePending: boolean;
   scaleActive: boolean;
   ringBaseActive: boolean;
   ringActive: boolean;
@@ -27,6 +28,7 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
     {
       className = '',
       style,
+      scalePending,
       scaleActive,
       ringBaseActive,
       ringActive,
@@ -78,6 +80,7 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
     } as CSSProperties;
 
     const introClass = [
+      scalePending ? 'lobby-boot-intro-scale-pending' : '',
       scaleActive ? 'lobby-boot-intro-scale-active' : '',
       ringBaseActive ? 'lobby-boot-intro-ring-base' : '',
       ringActive ? 'lobby-boot-intro-ring-active' : '',

@@ -1,12 +1,15 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   getLobbyBootIntroPrimedSnapshot,
   isLobbyBootIntroPrimed,
   isLobbyBootScaleIntroDone,
+  LOBBY_BOOT_INTRO_SCALE_START,
   markLobbyBootIntroPrimed,
   markLobbyBootScaleIntroDone,
+  peekLobbyBootIntroHandoff,
+  shouldLobbyBootIntroScalePending,
   snapshotLobbyBootIntroHandoff,
   takeLobbyBootIntroHandoff,
 } from '@/lib/lobby-boot-intro-session';
@@ -47,7 +50,7 @@ function resolveIntroUiState(
     };
   }
 
-  const handoff = takeLobbyBootIntroHandoff();
+  const handoff = peekLobbyBootIntroHandoff();
   if (handoff) {
     if (handoff.scale < 0.999) {
       return { ringPercent: handoff.ringPercent, ui: 'scale' };
@@ -70,12 +73,14 @@ function resolveIntroUiState(
 }
 
 function buildRingClass(
+  scalePending: boolean,
   scaleActive: boolean,
   ringBaseActive: boolean,
   ringFillActive: boolean,
   ringCatchupActive: boolean,
 ): string {
   return [
+    scalePending ? 'lobby-boot-intro-scale-pending' : '',
     scaleActive ? 'lobby-boot-intro-scale-active' : '',
     ringBaseActive ? 'lobby-boot-intro-ring-base' : '',
     ringFillActive ? 'lobby-boot-intro-ring-active' : '',
@@ -99,8 +104,14 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
 
   const ringRef = useRef(ringDisplayPercent);
   ringRef.current = ringDisplayPercent;
+  const uiStateRef = useRef(uiState);
+  uiStateRef.current = uiState;
   const targetRef = useRef(target);
   targetRef.current = target;
+
+  useLayoutEffect(() => {
+    takeLobbyBootIntroHandoff();
+  }, []);
 
   const finishPrimed = useCallback((ring: number) => {
     const clamped = clampPercent(ring);
@@ -163,7 +174,10 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
   useEffect(
     () => () => {
       if (isLobbyBootIntroPrimed()) return;
-      snapshotLobbyBootIntroHandoff(1, ringRef.current);
+      const state = uiStateRef.current;
+      const scale =
+        state === 'scale' ? LOBBY_BOOT_INTRO_SCALE_START : 1;
+      snapshotLobbyBootIntroHandoff(scale, ringRef.current);
     },
     [],
   );
@@ -181,6 +195,8 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
     finishPrimed(targetRef.current);
   }, [finishPrimed]);
 
+  const skipIntro = uiState === 'primed' || isLobbyBootIntroPrimed();
+
   const introActive =
     uiState === 'scale' ||
     uiState === 'ring-fill' ||
@@ -188,13 +204,21 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
     uiState === 'idle';
 
   const scaleIntroActive = uiState === 'scale';
+  const scalePending =
+    !skipIntro &&
+    (scaleIntroActive || shouldLobbyBootIntroScalePending());
   const ringCatchupActive = uiState === 'ring-catchup';
   const ringCssFillActive =
     energyKnown && (uiState === 'scale' || uiState === 'ring-fill');
-  const ringBootBaseActive = introActive;
-  const bootCssFillActive = introActive && !ringCatchupActive;
+  const ringBootBaseActive =
+    scalePending ||
+    scaleIntroActive ||
+    uiState === 'ring-fill' ||
+    ringCatchupActive;
+  const bootCssFillActive = ringBootBaseActive && !ringCatchupActive;
 
   const ringClass = buildRingClass(
+    scalePending,
     scaleIntroActive,
     ringBootBaseActive,
     ringCssFillActive,
@@ -231,16 +255,17 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
     ringTarget: target,
     introActive,
     scaleIntroActive,
+    scalePending,
     ringBootBaseActive,
     ringIntroActive: ringCssFillActive,
     ringCssFillActive,
     bootCssFillActive,
     ringCatchupActive,
-    skipIntro: uiState === 'primed',
+    skipIntro,
     isAnimating: introActive,
     isFilling: ringCssFillActive,
     onScaleAnimationEnd,
     onRingAnimationEnd,
-    introPrimed: uiState === 'primed' || isLobbyBootIntroPrimed(),
+    introPrimed: skipIntro,
   };
 }
