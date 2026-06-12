@@ -3128,6 +3128,7 @@ export function InstantBanFlow({
     introActive: lobbyBootIntroActive,
     scaleIntroActive: lobbyScaleIntroActive,
     scalePending: lobbyScalePending,
+    scaleDone: lobbyScaleDone,
     ringBootBaseActive: lobbyRingBootBaseActive,
     ringIntroActive: lobbyRingIntroActive,
     bootCssFillActive: lobbyRingBootCssFillActive,
@@ -3269,6 +3270,12 @@ export function InstantBanFlow({
             }
             scaleActive={
               lobbyScaleIntroActive &&
+              phase === 'idle' &&
+              !confirmActive &&
+              !orbCompressActive
+            }
+            scaleDone={
+              lobbyScaleDone &&
               phase === 'idle' &&
               !confirmActive &&
               !orbCompressActive

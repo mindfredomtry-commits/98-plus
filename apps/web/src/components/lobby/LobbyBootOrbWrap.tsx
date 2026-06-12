@@ -15,6 +15,7 @@ type Props = {
   style?: CSSProperties;
   scalePending: boolean;
   scaleActive: boolean;
+  scaleDone: boolean;
   ringBaseActive: boolean;
   ringActive: boolean;
   ringCatchupActive: boolean;
@@ -44,6 +45,7 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
       style,
       scalePending,
       scaleActive,
+      scaleDone,
       ringBaseActive,
       ringActive,
       ringCatchupActive,
@@ -63,6 +65,7 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
     const scaleLayerClass = [
       scalePending ? 'lobby-boot-intro-scale-pending' : '',
       scaleActive ? 'lobby-boot-intro-scale-active' : '',
+      scaleDone ? 'lobby-boot-intro-scale-done' : '',
     ]
       .filter(Boolean)
       .join(' ');
@@ -96,6 +99,7 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
       ringRootClass,
       scalePending,
       scaleActive,
+      scaleDone,
       ringBaseActive,
       ringActive,
       ringCatchupActive,

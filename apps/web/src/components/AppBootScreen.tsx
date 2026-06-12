@@ -26,6 +26,7 @@ export function AppBootScreen({ influencePercent, energyKnown }: Props) {
     introActive,
     scaleIntroActive,
     scalePending,
+    scaleDone,
     ringBootBaseActive,
     ringIntroActive,
     bootCssFillActive,
@@ -55,6 +56,7 @@ export function AppBootScreen({ influencePercent, energyKnown }: Props) {
           className="lobby-screen__orb-wrap lobby-screen__orb-root"
           scalePending={scalePending}
           scaleActive={scaleIntroActive}
+          scaleDone={scaleDone}
           ringBaseActive={ringBootBaseActive}
           ringActive={ringIntroActive}
           ringCatchupActive={ringCatchupActive}

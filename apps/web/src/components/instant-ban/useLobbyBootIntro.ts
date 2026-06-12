@@ -9,7 +9,6 @@ import {
   markLobbyBootIntroPrimed,
   markLobbyBootScaleIntroDone,
   peekLobbyBootIntroHandoff,
-  shouldLobbyBootIntroScalePending,
   snapshotLobbyBootIntroHandoff,
   takeLobbyBootIntroHandoff,
 } from '@/lib/lobby-boot-intro-session';
@@ -75,6 +74,7 @@ function resolveIntroUiState(
 function buildRingClass(
   scalePending: boolean,
   scaleActive: boolean,
+  scaleDone: boolean,
   ringBaseActive: boolean,
   ringFillActive: boolean,
   ringCatchupActive: boolean,
@@ -82,6 +82,7 @@ function buildRingClass(
   const scaleLayer = [
     scalePending ? 'lobby-boot-intro-scale-pending' : '',
     scaleActive ? 'lobby-boot-intro-scale-active' : '',
+    scaleDone ? 'lobby-boot-intro-scale-done' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -210,23 +211,28 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
     uiState === 'ring-catchup' ||
     uiState === 'idle';
 
-  const scaleIntroActive = uiState === 'scale';
-  const scalePending =
-    !skipIntro &&
-    (scaleIntroActive || shouldLobbyBootIntroScalePending());
+  const scaleIntroDone = !skipIntro && isLobbyBootScaleIntroDone();
+  const scaleLayerHeld = !skipIntro && introActive;
+  const scaleAnimating = scaleLayerHeld && uiState === 'scale' && !scaleIntroDone;
+  const scalePending = scaleAnimating;
+  const scaleActive = scaleAnimating;
+  const scaleDone = scaleLayerHeld && scaleIntroDone;
+
   const ringCatchupActive = uiState === 'ring-catchup';
   const ringCssFillActive =
     energyKnown && (uiState === 'scale' || uiState === 'ring-fill');
   const ringBootBaseActive =
     scalePending ||
-    scaleIntroActive ||
+    scaleActive ||
+    scaleDone ||
     uiState === 'ring-fill' ||
     ringCatchupActive;
   const bootCssFillActive = ringBootBaseActive && !ringCatchupActive;
 
   const ringClass = buildRingClass(
     scalePending,
-    scaleIntroActive,
+    scaleActive,
+    scaleDone,
     ringBootBaseActive,
     ringCssFillActive,
     ringCatchupActive,
@@ -261,8 +267,10 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
     ringDisplayPercent,
     ringTarget: target,
     introActive,
-    scaleIntroActive,
+    scaleIntroActive: scaleActive,
     scalePending,
+    scaleActive,
+    scaleDone,
     ringBootBaseActive,
     ringIntroActive: ringCssFillActive,
     ringCssFillActive,

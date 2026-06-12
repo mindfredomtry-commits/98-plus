@@ -31,7 +31,12 @@
 }
 
 .lobby-boot-orb-scale-layer.lobby-boot-intro-scale-active {
-  animation: lobby-boot-scale-in 450ms cubic-bezier(0.33, 1, 0.68, 1) forwards;
+  animation: lobby-boot-scale-in 450ms cubic-bezier(0.33, 1, 0.68, 1) both;
+}
+
+.lobby-boot-orb-scale-layer.lobby-boot-intro-scale-done {
+  transform: scale(1);
+  will-change: auto;
 }
 
 @keyframes lobby-boot-scale-in {
@@ -46,7 +51,8 @@
 .lobby-screen__orb-root:has(.lobby-boot-intro-ring-base),
 .lobby-screen__orb-root:has(.lobby-boot-intro-ring-active),
 .lobby-screen__orb-root:has(.lobby-boot-intro-ring-catchup),
-.lobby-screen__orb-root:has(.lobby-boot-intro-scale-pending) {
+.lobby-screen__orb-root:has(.lobby-boot-intro-scale-pending),
+.lobby-screen__orb-root:has(.lobby-boot-intro-scale-done) {
   overflow: visible;
   contain: none;
 }
@@ -65,8 +71,8 @@
 }
 
 .lobby-screen__orb-root.lobby-boot-intro-ring-base:not(:has(.lobby-boot-intro-scale-pending)):not(
-    :has(.lobby-boot-intro-ring-active)
-  ):not(:has(.lobby-boot-intro-ring-catchup))
+    :has(.lobby-boot-intro-scale-done)
+  ):not(:has(.lobby-boot-intro-ring-active)):not(:has(.lobby-boot-intro-ring-catchup))
   .instant-ban-arena-lobby-orb__ring-layer {
   visibility: hidden;
 }
@@ -116,6 +122,7 @@
     drop-shadow(0 0 16px var(--98-power-glow-soft));
 }
 
+.lobby-boot-intro-scale-done .lobby-screen__title,
 .lobby-boot-intro-scale-active .lobby-screen__title,
 .lobby-boot-intro-ring-active .lobby-screen__title {
   text-shadow:
@@ -125,7 +132,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .lobby-boot-orb-scale-layer.lobby-boot-intro-scale-pending,
-  .lobby-boot-orb-scale-layer.lobby-boot-intro-scale-active {
+  .lobby-boot-orb-scale-layer.lobby-boot-intro-scale-active,
+  .lobby-boot-orb-scale-layer.lobby-boot-intro-scale-done {
     animation: none;
     transform: scale(1);
   }
