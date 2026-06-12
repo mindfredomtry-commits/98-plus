@@ -16,6 +16,8 @@ type Props = {
   /** Lobby ring fill (0 → actual on first open); ignored during confirm/compress. */
   lobbyRingDisplayPercent: number;
   lobbyRingIntroFilling?: boolean;
+  /** Boot intro CSS keyframes drive ring stroke — omit inline SVG dash attrs. */
+  lobbyRingBootCssFillActive?: boolean;
   senderUser: UserPublic | null | undefined;
   selectedUser: FriendCard | null;
   banText: string;
@@ -28,11 +30,13 @@ const ArenaInfluenceRing = memo(function ArenaInfluenceRing({
   debugId,
   disableTransition = false,
   introFilling = false,
+  bootCssFillActive = false,
 }: {
   value: number;
   debugId: string;
   disableTransition?: boolean;
   introFilling?: boolean;
+  bootCssFillActive?: boolean;
 }) {
   const ringMountLogged = useRef(false);
 
@@ -51,7 +55,8 @@ const ArenaInfluenceRing = memo(function ArenaInfluenceRing({
       className={`instant-ban-confirm-influence-ring${
         introFilling ? ' influence-ring--intro-filling' : ''
       }`}
-      disableTransition={disableTransition || introFilling}
+      disableTransition={disableTransition || introFilling || bootCssFillActive}
+      bootCssFillActive={bootCssFillActive}
     />
   );
 });
@@ -63,6 +68,7 @@ export function ArenaLobbyOrb({
   confirmOrb,
   lobbyRingDisplayPercent,
   lobbyRingIntroFilling = false,
+  lobbyRingBootCssFillActive = false,
   senderUser,
   selectedUser,
   banText,
@@ -154,8 +160,12 @@ export function ArenaLobbyOrb({
               <ArenaInfluenceRing
                 value={ringDisplayValue}
                 debugId={debugIdRef.current}
-                disableTransition={useLobbyRingDisplay && lobbyRingIntroFilling}
+                disableTransition={
+                  useLobbyRingDisplay &&
+                  (lobbyRingIntroFilling || lobbyRingBootCssFillActive)
+                }
                 introFilling={false}
+                bootCssFillActive={useLobbyRingDisplay && lobbyRingBootCssFillActive}
               />
             </span>
             <span className="instant-ban-arena-lobby-orb__title-layer">

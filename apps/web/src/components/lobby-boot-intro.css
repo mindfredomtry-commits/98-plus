@@ -1,6 +1,6 @@
 /* GPU-friendly boot lobby orb intro — transform + SVG stroke only */
 
-@property --lobby-boot-ring-target {
+@property --boot-ring-target-progress {
   syntax: '<number>';
   inherits: true;
   initial-value: 0;
@@ -28,20 +28,28 @@
   }
 }
 
-.lobby-boot-intro-ring-active .influence-ring__progress {
+/* Empty ring visible from frame 1 — progress 0, no hide/fill-mode tricks */
+.lobby-boot-intro-ring-base .influence-ring__progress {
   --ring-circ: 871.87;
   stroke-dasharray: var(--ring-circ);
   stroke-dashoffset: var(--ring-circ);
+  opacity: 1;
   transition: none;
   filter: drop-shadow(0 0 8px var(--98-power-glow))
     drop-shadow(0 0 16px var(--98-power-glow-soft));
+}
+
+.lobby-boot-intro-ring-active .influence-ring__progress {
   animation: lobby-boot-ring-fill 550ms cubic-bezier(0.33, 1, 0.68, 1) forwards;
 }
 
 @keyframes lobby-boot-ring-fill {
+  from {
+    stroke-dashoffset: var(--ring-circ);
+  }
   to {
     stroke-dashoffset: calc(
-      var(--ring-circ) * (1 - var(--lobby-boot-ring-target) / 100)
+      var(--ring-circ) * (1 - var(--boot-ring-target-progress) / 100)
     );
   }
 }
@@ -68,7 +76,7 @@
   .lobby-boot-intro-ring-active .influence-ring__progress {
     animation: none;
     stroke-dashoffset: calc(
-      var(--ring-circ) * (1 - var(--lobby-boot-ring-target) / 100)
+      var(--ring-circ) * (1 - var(--boot-ring-target-progress) / 100)
     );
   }
 

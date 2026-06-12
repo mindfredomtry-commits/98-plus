@@ -10,10 +10,12 @@ import {
   snapshotLobbyBootIntroHandoff,
   takeLobbyBootIntroHandoff,
 } from '@/lib/lobby-boot-intro-session';
+import { INFLUENCE_RING_CIRCUMFERENCE } from '@/components/lobby/InfluenceRing';
+import { reportLobbyBootIntroDebug } from '@/lib/lobby-boot-intro-debug';
 
 type LobbyPhase = 'idle' | 'selectingTarget' | 'composingBan' | 'confirming';
 
-type IntroUiState = 'primed' | 'scale' | 'ring-catchup' | 'idle';
+type IntroUiState = 'primed' | 'scale' | 'ring-fill' | 'ring-catchup' | 'idle';
 
 function prefersReducedMotion(): boolean {
   if (typeof window === 'undefined') return false;
@@ -65,6 +67,22 @@ function resolveIntroUiState(
   }
 
   return { ringPercent: 0, ui: 'scale' };
+}
+
+function buildRingClass(
+  scaleActive: boolean,
+  ringBaseActive: boolean,
+  ringFillActive: boolean,
+  ringCatchupActive: boolean,
+): string {
+  return [
+    scaleActive ? 'lobby-boot-intro-scale-active' : '',
+    ringBaseActive ? 'lobby-boot-intro-ring-base' : '',
+    ringFillActive ? 'lobby-boot-intro-ring-active' : '',
+    ringCatchupActive ? 'lobby-boot-intro-ring-catchup' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 /**
@@ -132,9 +150,13 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
       finishPrimed(target);
       return;
     }
+    if (uiState === 'ring-catchup') return;
     setUiState('ring-catchup');
+    setRingDisplayPercent(ringRef.current);
     requestAnimationFrame(() => {
-      setRingDisplayPercent(target);
+      requestAnimationFrame(() => {
+        setRingDisplayPercent(target);
+      });
     });
   }, [enabled, energyKnown, target, finishPrimed, uiState]);
 
@@ -148,7 +170,9 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
 
   const onScaleAnimationEnd = useCallback(() => {
     markLobbyBootScaleIntroDone(ringRef.current);
-    if (!energyKnown) {
+    if (energyKnown) {
+      setUiState('ring-fill');
+    } else {
       setUiState('idle');
     }
   }, [energyKnown]);
@@ -158,21 +182,63 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
   }, [finishPrimed]);
 
   const introActive =
-    uiState === 'scale' || uiState === 'ring-catchup';
+    uiState === 'scale' ||
+    uiState === 'ring-fill' ||
+    uiState === 'ring-catchup' ||
+    uiState === 'idle';
 
   const scaleIntroActive = uiState === 'scale';
-  const ringIntroActive = uiState === 'scale' && energyKnown;
+  const ringCatchupActive = uiState === 'ring-catchup';
+  const ringCssFillActive =
+    energyKnown && (uiState === 'scale' || uiState === 'ring-fill');
+  const bootCssFillActive = ringCssFillActive;
+  const ringBootBaseActive = bootCssFillActive;
+
+  const ringClass = buildRingClass(
+    scaleIntroActive,
+    ringBootBaseActive,
+    ringCssFillActive,
+    ringCatchupActive,
+  );
+
+  useEffect(() => {
+    if (!enabled) return;
+    const strokeDashoffset = bootCssFillActive
+      ? 'css-driven'
+      : String(
+          INFLUENCE_RING_CIRCUMFERENCE -
+            (ringDisplayPercent / 100) * INFLUENCE_RING_CIRCUMFERENCE,
+        );
+    reportLobbyBootIntroDebug({
+      ringIntroState: uiState,
+      energyKnown,
+      targetProgress: target,
+      ringClass,
+      strokeDashoffset,
+    });
+  }, [
+    enabled,
+    uiState,
+    energyKnown,
+    target,
+    ringClass,
+    bootCssFillActive,
+    ringDisplayPercent,
+  ]);
 
   return {
     ringDisplayPercent,
     ringTarget: target,
     introActive,
     scaleIntroActive,
-    ringIntroActive,
-    ringCatchupActive: uiState === 'ring-catchup',
+    ringBootBaseActive,
+    ringIntroActive: ringCssFillActive,
+    ringCssFillActive,
+    bootCssFillActive,
+    ringCatchupActive,
     skipIntro: uiState === 'primed',
     isAnimating: introActive,
-    isFilling: ringIntroActive,
+    isFilling: ringCssFillActive,
     onScaleAnimationEnd,
     onRingAnimationEnd,
     introPrimed: uiState === 'primed' || isLobbyBootIntroPrimed(),

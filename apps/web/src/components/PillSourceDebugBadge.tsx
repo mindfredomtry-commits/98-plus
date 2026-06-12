@@ -7,6 +7,10 @@ import {
   getIncomingDirectDebug,
   subscribeIncomingDirectDebug,
 } from '@/lib/incoming-direct-debug';
+import {
+  getLobbyBootIntroDebug,
+  subscribeLobbyBootIntroDebug,
+} from '@/lib/lobby-boot-intro-debug';
 
 export function PillSourceDebugBadge() {
   const mounted = useSyncExternalStore(
@@ -23,6 +27,11 @@ export function PillSourceDebugBadge() {
     subscribeIncomingDirectDebug,
     getIncomingDirectDebug,
     () => getIncomingDirectDebug(),
+  );
+  const ringIntro = useSyncExternalStore(
+    subscribeLobbyBootIntroDebug,
+    getLobbyBootIntroDebug,
+    () => getLobbyBootIntroDebug(),
   );
 
   if (!mounted || typeof document === 'undefined') return null;
@@ -42,6 +51,14 @@ export function PillSourceDebugBadge() {
         <div>ready={String(incomingDirect.ready)}</div>
         <div>overlayMounted={String(incomingDirect.overlayMounted)}</div>
         <div>reason={incomingDirect.reason}</div>
+      </div>
+      <div className="pill-source-debug-badge pill-source-debug-badge--ring-intro">
+        <div>ring-intro:</div>
+        <div>state={ringIntro.ringIntroState}</div>
+        <div>energyKnown={String(ringIntro.energyKnown)}</div>
+        <div>target={ringIntro.targetProgress}</div>
+        <div>class={ringIntro.ringClass || '—'}</div>
+        <div>dashoffset={ringIntro.strokeDashoffset}</div>
       </div>
     </div>,
     document.body,

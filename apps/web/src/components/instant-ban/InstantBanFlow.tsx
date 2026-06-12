@@ -3127,7 +3127,9 @@ export function InstantBanFlow({
     ringTarget: lobbyRingTarget,
     introActive: lobbyBootIntroActive,
     scaleIntroActive: lobbyScaleIntroActive,
+    ringBootBaseActive: lobbyRingBootBaseActive,
     ringIntroActive: lobbyRingIntroActive,
+    bootCssFillActive: lobbyRingBootCssFillActive,
     ringCatchupActive: lobbyRingCatchupActive,
     isFilling: lobbyRingIntroFilling,
     onScaleAnimationEnd: onLobbyScaleIntroEnd,
@@ -3264,6 +3266,12 @@ export function InstantBanFlow({
               !confirmActive &&
               !orbCompressActive
             }
+            ringBaseActive={
+              lobbyRingBootBaseActive &&
+              phase === 'idle' &&
+              !confirmActive &&
+              !orbCompressActive
+            }
             ringActive={
               lobbyRingIntroActive &&
               phase === 'idle' &&
@@ -3287,6 +3295,12 @@ export function InstantBanFlow({
               confirmOrb={confirmOrb}
               lobbyRingDisplayPercent={lobbyRingDisplayPercent}
               lobbyRingIntroFilling={lobbyRingIntroFilling}
+              lobbyRingBootCssFillActive={
+                lobbyRingBootCssFillActive &&
+                phase === 'idle' &&
+                !confirmActive &&
+                !orbCompressActive
+              }
               senderUser={user}
               selectedUser={selectedUser}
               banText={banText}
