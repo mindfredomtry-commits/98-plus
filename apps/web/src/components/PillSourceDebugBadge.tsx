@@ -65,6 +65,10 @@ export function PillSourceDebugBadge() {
         <div>wrapper={ringIntro.wrapperTransform}</div>
         <div>scaleClass={ringIntro.scaleLayerClass}</div>
         <div>ringClass={ringIntro.ringRootClass}</div>
+        <div>firstRenderIntro={String(ringIntro.firstRenderIntro)}</div>
+        <div>initialState={ringIntro.initialState}</div>
+        <div>hasPaintedOnce={String(ringIntro.hasPaintedOnce)}</div>
+        <div>bootIntroInitial={String(ringIntro.bootIntroInitial)}</div>
       </div>
     </div>,
     document.body,

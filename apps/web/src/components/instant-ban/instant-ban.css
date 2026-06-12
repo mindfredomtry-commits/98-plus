@@ -2150,6 +2150,21 @@
   transition: opacity 360ms ease;
 }
 
+/* Boot intro critical path — same rules as lobby-boot-intro.css for first paint */
+.lobby-screen__orb-root:not(.lobby-boot-intro-ring-base):not(.lobby-boot-intro-orb-root)
+  .instant-ban-arena-lobby-orb__ring-layer {
+  visibility: hidden;
+}
+
+.lobby-boot-orb-scale-layer.lobby-boot-intro-scale-pending,
+.lobby-boot-orb-scale-layer.lobby-boot-intro-scale-active {
+  transform: scale(var(--boot-orb-scale-factor, 0.15));
+}
+
+.lobby-boot-orb-scale-layer.lobby-boot-intro-scale-done {
+  transform: scale(var(--boot-orb-scale-factor, 1));
+}
+
 .lobby-screen__orb-root.lobby-screen__orb-wrap--overlay-dim {
   opacity: 0.72;
   transform: translate(-50%, -50%) scale(0.94);

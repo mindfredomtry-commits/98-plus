@@ -3126,6 +3126,7 @@ export function InstantBanFlow({
     ringDisplayPercent: lobbyRingDisplayPercent,
     ringTarget: lobbyRingTarget,
     introActive: lobbyBootIntroActive,
+    bootIntroInitial: lobbyBootIntroInitial,
     scaleIntroActive: lobbyScaleIntroActive,
     scalePending: lobbyScalePending,
     scaleDone: lobbyScaleDone,
@@ -3262,6 +3263,12 @@ export function InstantBanFlow({
             className={`lobby-screen__orb-wrap lobby-screen__orb-root${
               confirmLayoutActive ? ' lobby-screen__orb-wrap--confirm' : ''
             }${orbOverlayDim ? ' lobby-screen__orb-wrap--overlay-dim' : ''}`}
+            bootIntroInitial={
+              lobbyBootIntroInitial &&
+              phase === 'idle' &&
+              !confirmActive &&
+              !orbCompressActive
+            }
             scalePending={
               lobbyScalePending &&
               phase === 'idle' &&

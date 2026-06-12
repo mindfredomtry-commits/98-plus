@@ -12,6 +12,10 @@ export type LobbyBootIntroDebug = {
   wrapperTransform: string;
   scaleLayerClass: string;
   ringRootClass: string;
+  firstRenderIntro: boolean;
+  initialState: string;
+  hasPaintedOnce: boolean;
+  bootIntroInitial: boolean;
 };
 
 let current: LobbyBootIntroDebug = {
@@ -26,6 +30,10 @@ let current: LobbyBootIntroDebug = {
   wrapperTransform: '—',
   scaleLayerClass: '—',
   ringRootClass: '—',
+  firstRenderIntro: false,
+  initialState: '—',
+  hasPaintedOnce: false,
+  bootIntroInitial: false,
 };
 
 const listeners = new Set<() => void>();
@@ -46,14 +54,28 @@ function isSame(a: LobbyBootIntroDebug, b: LobbyBootIntroDebug): boolean {
     a.ringTransform === b.ringTransform &&
     a.wrapperTransform === b.wrapperTransform &&
     a.scaleLayerClass === b.scaleLayerClass &&
-    a.ringRootClass === b.ringRootClass
+    a.ringRootClass === b.ringRootClass &&
+    a.firstRenderIntro === b.firstRenderIntro &&
+    a.initialState === b.initialState &&
+    a.hasPaintedOnce === b.hasPaintedOnce &&
+    a.bootIntroInitial === b.bootIntroInitial
   );
 }
 
 export function reportLobbyBootIntroDebug(
-  next: Pick<
-    LobbyBootIntroDebug,
-    'ringIntroState' | 'energyKnown' | 'targetProgress' | 'ringClass' | 'strokeDashoffset'
+  next: Partial<
+    Pick<
+      LobbyBootIntroDebug,
+      | 'ringIntroState'
+      | 'energyKnown'
+      | 'targetProgress'
+      | 'ringClass'
+      | 'strokeDashoffset'
+      | 'firstRenderIntro'
+      | 'initialState'
+      | 'hasPaintedOnce'
+      | 'bootIntroInitial'
+    >
   >,
 ): void {
   const merged = { ...current, ...next };

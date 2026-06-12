@@ -70,6 +70,11 @@ export function peekLobbyBootIntroHandoff(): HandoffSnapshot | null {
   return handoffSnapshot;
 }
 
+/** Sync — intro visual mode until session primed. */
+export function shouldRunLobbyBootIntroVisualSync(): boolean {
+  return !introFullyPrimed;
+}
+
 /** Sync check for first-paint scale(0.15) before React effects run. */
 export function shouldLobbyBootIntroScalePending(): boolean {
   if (introFullyPrimed) return false;

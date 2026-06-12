@@ -9,6 +9,7 @@ import {
   markLobbyBootIntroPrimed,
   markLobbyBootScaleIntroDone,
   peekLobbyBootIntroHandoff,
+  shouldRunLobbyBootIntroVisualSync,
   snapshotLobbyBootIntroHandoff,
   takeLobbyBootIntroHandoff,
 } from '@/lib/lobby-boot-intro-session';
@@ -34,6 +35,15 @@ type Options = {
   energyKnown: boolean;
   enabled?: boolean;
 };
+
+function shouldSkipBootIntroSync(options: Options): boolean {
+  if (options.enabled === false) return true;
+  return (
+    options.sendStarted ||
+    options.phase !== 'idle' ||
+    prefersReducedMotion()
+  );
+}
 
 function resolveIntroUiState(
   targetRingPercent: number,
@@ -71,6 +81,22 @@ function resolveIntroUiState(
   return { ringPercent: 0, ui: 'scale' };
 }
 
+function resolveInitialIntroState(
+  targetRingPercent: number,
+  energyKnown: boolean,
+  options: Options,
+): { ringPercent: number; ui: IntroUiState } {
+  if (shouldSkipBootIntroSync(options)) {
+    return {
+      ringPercent: energyKnown
+        ? clampPercent(targetRingPercent)
+        : 0,
+      ui: 'primed',
+    };
+  }
+  return resolveIntroUiState(targetRingPercent, energyKnown);
+}
+
 function buildRingClass(
   scalePending: boolean,
   scaleActive: boolean,
@@ -106,9 +132,29 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
   const enabled = options.enabled !== false;
   const energyKnown = options.energyKnown;
 
-  const initial = useRef(resolveIntroUiState(target, energyKnown)).current;
-  const [uiState, setUiState] = useState<IntroUiState>(initial.ui);
-  const [ringDisplayPercent, setRingDisplayPercent] = useState(initial.ringPercent);
+  const initialMetaRef = useRef<{
+    ui: IntroUiState;
+    ringPercent: number;
+    initialState: IntroUiState;
+  } | null>(null);
+  if (initialMetaRef.current === null) {
+    const resolved = resolveInitialIntroState(target, energyKnown, {
+      ...options,
+      enabled,
+    });
+    initialMetaRef.current = {
+      ui: resolved.ui,
+      ringPercent: resolved.ringPercent,
+      initialState: resolved.ui,
+    };
+  }
+
+  const [uiState, setUiState] = useState<IntroUiState>(
+    () => initialMetaRef.current!.ui,
+  );
+  const [ringDisplayPercent, setRingDisplayPercent] = useState(
+    () => initialMetaRef.current!.ringPercent,
+  );
 
   const ringRef = useRef(ringDisplayPercent);
   ringRef.current = ringDisplayPercent;
@@ -116,9 +162,15 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
   uiStateRef.current = uiState;
   const targetRef = useRef(target);
   targetRef.current = target;
+  const firstRenderIntroRef = useRef(
+    initialMetaRef.current!.ui !== 'primed' &&
+      shouldRunLobbyBootIntroVisualSync(),
+  );
+  const hasPaintedOnceRef = useRef(false);
 
   useLayoutEffect(() => {
     takeLobbyBootIntroHandoff();
+    hasPaintedOnceRef.current = true;
   }, []);
 
   const finishPrimed = useCallback((ring: number) => {
@@ -142,12 +194,7 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
       return;
     }
 
-    const skip =
-      options.sendStarted ||
-      options.phase !== 'idle' ||
-      prefersReducedMotion();
-
-    if (skip) {
+    if (shouldSkipBootIntroSync({ ...options, enabled })) {
       skipToFinal();
     }
   }, [
@@ -156,6 +203,7 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
     target,
     options.sendStarted,
     options.phase,
+    options.enabled,
     skipToFinal,
     uiState,
   ]);
@@ -211,22 +259,23 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
     uiState === 'ring-catchup' ||
     uiState === 'idle';
 
-  const scaleIntroDone = !skipIntro && isLobbyBootScaleIntroDone();
-  const scaleLayerHeld = !skipIntro && introActive;
-  const scaleAnimating = scaleLayerHeld && uiState === 'scale' && !scaleIntroDone;
+  const bootIntroInitial =
+    enabled && !skipIntro && introActive && shouldRunLobbyBootIntroVisualSync();
+
+  const scaleIntroDone = bootIntroInitial && isLobbyBootScaleIntroDone();
+  const scaleLayerHeld = bootIntroInitial;
+  const scaleAnimating =
+    scaleLayerHeld && uiState === 'scale' && !scaleIntroDone;
   const scalePending = scaleAnimating;
   const scaleActive = scaleAnimating;
   const scaleDone = scaleLayerHeld && scaleIntroDone;
 
   const ringCatchupActive = uiState === 'ring-catchup';
   const ringCssFillActive =
-    energyKnown && (uiState === 'scale' || uiState === 'ring-fill');
-  const ringBootBaseActive =
-    scalePending ||
-    scaleActive ||
-    scaleDone ||
-    uiState === 'ring-fill' ||
-    ringCatchupActive;
+    bootIntroInitial &&
+    energyKnown &&
+    (uiState === 'scale' || uiState === 'ring-fill');
+  const ringBootBaseActive = bootIntroInitial;
   const bootCssFillActive = ringBootBaseActive && !ringCatchupActive;
 
   const ringClass = buildRingClass(
@@ -238,7 +287,7 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
     ringCatchupActive,
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!enabled) return;
     const strokeDashoffset = bootCssFillActive
       ? 'css-driven'
@@ -252,6 +301,10 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
       targetProgress: target,
       ringClass,
       strokeDashoffset,
+      firstRenderIntro: firstRenderIntroRef.current,
+      initialState: initialMetaRef.current!.initialState,
+      hasPaintedOnce: hasPaintedOnceRef.current,
+      bootIntroInitial,
     });
   }, [
     enabled,
@@ -261,12 +314,14 @@ export function useLobbyBootIntro(targetRingPercent: number, options: Options) {
     ringClass,
     bootCssFillActive,
     ringDisplayPercent,
+    bootIntroInitial,
   ]);
 
   return {
     ringDisplayPercent,
     ringTarget: target,
     introActive,
+    bootIntroInitial,
     scaleIntroActive: scaleActive,
     scalePending,
     scaleActive,
