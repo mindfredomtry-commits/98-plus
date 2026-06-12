@@ -6,6 +6,12 @@ export type LobbyBootIntroDebug = {
   targetProgress: number;
   ringClass: string;
   strokeDashoffset: string;
+  ringBox: string;
+  scaleLayerTransform: string;
+  ringTransform: string;
+  wrapperTransform: string;
+  scaleLayerClass: string;
+  ringRootClass: string;
 };
 
 let current: LobbyBootIntroDebug = {
@@ -14,6 +20,12 @@ let current: LobbyBootIntroDebug = {
   targetProgress: 0,
   ringClass: '',
   strokeDashoffset: '—',
+  ringBox: '—',
+  scaleLayerTransform: '—',
+  ringTransform: '—',
+  wrapperTransform: '—',
+  scaleLayerClass: '—',
+  ringRootClass: '—',
 };
 
 const listeners = new Set<() => void>();
@@ -22,15 +34,48 @@ function notify(): void {
   listeners.forEach((listener) => listener());
 }
 
-export function reportLobbyBootIntroDebug(next: LobbyBootIntroDebug): void {
-  const same =
-    current.ringIntroState === next.ringIntroState &&
-    current.energyKnown === next.energyKnown &&
-    current.targetProgress === next.targetProgress &&
-    current.ringClass === next.ringClass &&
-    current.strokeDashoffset === next.strokeDashoffset;
-  if (same) return;
-  current = next;
+function isSame(a: LobbyBootIntroDebug, b: LobbyBootIntroDebug): boolean {
+  return (
+    a.ringIntroState === b.ringIntroState &&
+    a.energyKnown === b.energyKnown &&
+    a.targetProgress === b.targetProgress &&
+    a.ringClass === b.ringClass &&
+    a.strokeDashoffset === b.strokeDashoffset &&
+    a.ringBox === b.ringBox &&
+    a.scaleLayerTransform === b.scaleLayerTransform &&
+    a.ringTransform === b.ringTransform &&
+    a.wrapperTransform === b.wrapperTransform &&
+    a.scaleLayerClass === b.scaleLayerClass &&
+    a.ringRootClass === b.ringRootClass
+  );
+}
+
+export function reportLobbyBootIntroDebug(
+  next: Pick<
+    LobbyBootIntroDebug,
+    'ringIntroState' | 'energyKnown' | 'targetProgress' | 'ringClass' | 'strokeDashoffset'
+  >,
+): void {
+  const merged = { ...current, ...next };
+  if (isSame(current, merged)) return;
+  current = merged;
+  notify();
+}
+
+export function patchLobbyBootIntroDebugGeometry(
+  next: Pick<
+    LobbyBootIntroDebug,
+    | 'ringBox'
+    | 'scaleLayerTransform'
+    | 'ringTransform'
+    | 'wrapperTransform'
+    | 'scaleLayerClass'
+    | 'ringRootClass'
+  >,
+): void {
+  const merged = { ...current, ...next };
+  if (isSame(current, merged)) return;
+  current = merged;
   notify();
 }
 

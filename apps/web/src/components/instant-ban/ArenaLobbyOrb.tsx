@@ -3,6 +3,7 @@
 import { memo, useEffect, useRef } from 'react';
 import type { FriendCard, UserPublic } from '@98plus/shared';
 import { InfluenceRing } from '../lobby/InfluenceRing';
+import { LobbyOrbFace } from '../lobby/LobbyOrbFace';
 import { SuccessPayoffReveal } from './SuccessPayoffReveal';
 import type { useConfirmOrbController } from './useConfirmOrbController';
 
@@ -151,29 +152,21 @@ export function ArenaLobbyOrb({
           onPointerCancel={confirmActive ? handlePointerCancel : undefined}
           onPointerLeave={confirmActive ? handlePointerLeave : undefined}
         >
-          <span
-            className={`instant-ban-arena-lobby-orb__face instant-ban-confirm-orb-face${
-              showOrbFace ? '' : ' instant-ban-arena-lobby-orb__face--hidden'
-            }`}
-          >
-            <span className="instant-ban-arena-lobby-orb__ring-layer instant-ban-confirm-orb-ring">
-              <ArenaInfluenceRing
-                value={ringDisplayValue}
-                debugId={debugIdRef.current}
-                disableTransition={
-                  useLobbyRingDisplay &&
-                  (lobbyRingIntroFilling || lobbyRingBootCssFillActive)
-                }
-                introFilling={false}
-                bootCssFillActive={useLobbyRingDisplay && lobbyRingBootCssFillActive}
-              />
-            </span>
-            <span className="instant-ban-arena-lobby-orb__title-layer">
-              <span className="lobby-screen__orb" data-orb-core>
-                <span className="lobby-screen__title">98+</span>
-              </span>
-            </span>
-          </span>
+            <LobbyOrbFace
+              hidden={!showOrbFace}
+              ring={
+                <ArenaInfluenceRing
+                  value={ringDisplayValue}
+                  debugId={debugIdRef.current}
+                  disableTransition={
+                    useLobbyRingDisplay &&
+                    (lobbyRingIntroFilling || lobbyRingBootCssFillActive)
+                  }
+                  introFilling={false}
+                  bootCssFillActive={useLobbyRingDisplay && lobbyRingBootCssFillActive}
+                />
+              }
+            />
           {showPayoffContent && selectedUser ? (
             <SuccessPayoffReveal
               senderUser={senderUser}

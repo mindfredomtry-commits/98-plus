@@ -1,6 +1,7 @@
 'use client';
 
 import { InfluenceRing } from '@/components/lobby/InfluenceRing';
+import { LobbyOrbFace } from '@/components/lobby/LobbyOrbFace';
 
 type Props = {
   ringPercent: number;
@@ -22,21 +23,16 @@ export function LobbyIdleOrb({
     <div className="instant-ban-arena-lobby-orb" data-arena-lobby-orb>
       <div className="instant-ban-arena-lobby-orb__stage">
         <div className="instant-ban-arena-lobby-orb__btn">
-          <span className="instant-ban-arena-lobby-orb__face">
-            <span className="instant-ban-arena-lobby-orb__ring-layer instant-ban-confirm-orb-ring">
+          <LobbyOrbFace
+            ring={
               <InfluenceRing
                 value={clamped}
                 className="instant-ban-confirm-influence-ring"
                 disableTransition={!ringCatchupActive}
                 bootCssFillActive={bootCssFillActive}
               />
-            </span>
-            <span className="instant-ban-arena-lobby-orb__title-layer">
-              <span className="lobby-screen__orb" data-orb-core>
-                <span className="lobby-screen__title">98+</span>
-              </span>
-            </span>
-          </span>
+            }
+          />
         </div>
       </div>
     </div>

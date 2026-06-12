@@ -59,6 +59,12 @@ export function PillSourceDebugBadge() {
         <div>target={ringIntro.targetProgress}</div>
         <div>class={ringIntro.ringClass || '—'}</div>
         <div>dashoffset={ringIntro.strokeDashoffset}</div>
+        <div>ringBox={ringIntro.ringBox}</div>
+        <div>scaleLayer={ringIntro.scaleLayerTransform}</div>
+        <div>ringTransform={ringIntro.ringTransform}</div>
+        <div>wrapper={ringIntro.wrapperTransform}</div>
+        <div>scaleClass={ringIntro.scaleLayerClass}</div>
+        <div>ringClass={ringIntro.ringRootClass}</div>
       </div>
     </div>,
     document.body,

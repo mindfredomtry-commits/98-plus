@@ -1,4 +1,4 @@
-/* GPU-friendly boot lobby orb intro — transform + SVG stroke only */
+/* GPU-friendly boot lobby orb intro — inner scale layer + SVG stroke */
 
 @property --boot-ring-target-progress {
   syntax: '<number>';
@@ -14,48 +14,59 @@
   opacity: 0.22;
 }
 
-/* First paint + scale phase — orb + ring share one parent transform */
-.lobby-boot-intro-scale-pending.lobby-screen__orb-root,
-.lobby-boot-intro-scale-active.lobby-screen__orb-root {
-  transform: translate3d(-50%, -50%, 0) scale(0.15);
+.lobby-boot-orb-scale-layer {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-origin: center center;
   overflow: visible;
-  contain: none;
+}
+
+/* Boot scale only on shared inner layer — orb-root keeps translate positioning */
+.lobby-boot-orb-scale-layer.lobby-boot-intro-scale-pending,
+.lobby-boot-orb-scale-layer.lobby-boot-intro-scale-active {
+  transform: scale(0.15);
   will-change: transform;
   backface-visibility: hidden;
 }
 
-.lobby-boot-intro-scale-active.lobby-screen__orb-root {
+.lobby-boot-orb-scale-layer.lobby-boot-intro-scale-active {
   animation: lobby-boot-scale-in 450ms cubic-bezier(0.33, 1, 0.68, 1) forwards;
 }
 
 @keyframes lobby-boot-scale-in {
   from {
-    transform: translate3d(-50%, -50%, 0) scale(0.15);
+    transform: scale(0.15);
   }
   to {
-    transform: translate3d(-50%, -50%, 0) scale(1);
+    transform: scale(1);
   }
 }
 
-/* Ring fill / catchup at full orb size — never clip */
-.lobby-boot-intro-ring-base.lobby-screen__orb-root,
-.lobby-boot-intro-ring-active.lobby-screen__orb-root,
-.lobby-boot-intro-ring-catchup.lobby-screen__orb-root {
+.lobby-screen__orb-root:has(.lobby-boot-intro-ring-base),
+.lobby-screen__orb-root:has(.lobby-boot-intro-ring-active),
+.lobby-screen__orb-root:has(.lobby-boot-intro-ring-catchup),
+.lobby-screen__orb-root:has(.lobby-boot-intro-scale-pending) {
   overflow: visible;
   contain: none;
 }
 
-/* Ring visible only once scale-pending is active — never full-size flash */
+/* Ring + center share one scale stack — no animated transform on ring-layer during intro */
+.lobby-screen__orb-root:has(.lobby-boot-intro-ring-base)
+  .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
+  transform: scale(var(--98-confirm-ring-lobby-scale));
+  transition: none !important;
+}
+
 .lobby-boot-intro-scale-pending .instant-ban-arena-lobby-orb__ring-layer,
 .lobby-boot-intro-ring-base .instant-ban-arena-lobby-orb__ring-layer {
   opacity: 1;
   visibility: visible;
 }
 
-/* Never paint full-size ring before scale-pending is on orb-root */
-.lobby-boot-intro-ring-base:not(.lobby-boot-intro-scale-pending):not(
-    .lobby-boot-intro-ring-active
-  ):not(.lobby-boot-intro-ring-catchup)
+.lobby-screen__orb-root.lobby-boot-intro-ring-base:not(:has(.lobby-boot-intro-scale-pending)):not(
+    :has(.lobby-boot-intro-ring-active)
+  ):not(:has(.lobby-boot-intro-ring-catchup))
   .instant-ban-arena-lobby-orb__ring-layer {
   visibility: hidden;
 }
@@ -72,7 +83,6 @@
   stroke-width: 2.5;
 }
 
-/* Empty ring — progress 0 */
 .lobby-boot-intro-ring-base .influence-ring__progress {
   --ring-circ: 871.87;
   stroke: rgba(var(--98-power-rgb), 0.92);
@@ -114,10 +124,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .lobby-boot-intro-scale-pending.lobby-screen__orb-root,
-  .lobby-boot-intro-scale-active.lobby-screen__orb-root {
+  .lobby-boot-orb-scale-layer.lobby-boot-intro-scale-pending,
+  .lobby-boot-orb-scale-layer.lobby-boot-intro-scale-active {
     animation: none;
-    transform: translate3d(-50%, -50%, 0) scale(1);
+    transform: scale(1);
   }
 
   .lobby-boot-intro-ring-active .influence-ring__progress {

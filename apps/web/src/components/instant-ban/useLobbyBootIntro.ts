@@ -79,15 +79,22 @@ function buildRingClass(
   ringFillActive: boolean,
   ringCatchupActive: boolean,
 ): string {
-  return [
+  const scaleLayer = [
     scalePending ? 'lobby-boot-intro-scale-pending' : '',
     scaleActive ? 'lobby-boot-intro-scale-active' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const ringRoot = [
     ringBaseActive ? 'lobby-boot-intro-ring-base' : '',
     ringFillActive ? 'lobby-boot-intro-ring-active' : '',
     ringCatchupActive ? 'lobby-boot-intro-ring-catchup' : '',
   ]
     .filter(Boolean)
     .join(' ');
+  return [scaleLayer ? `scale:${scaleLayer}` : '', ringRoot ? `ring:${ringRoot}` : '']
+    .filter(Boolean)
+    .join(' | ');
 }
 
 /**
