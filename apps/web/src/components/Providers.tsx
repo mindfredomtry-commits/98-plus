@@ -232,9 +232,10 @@ import {
   buildReplyPrefillMissDetail,
   canReplyFastEnableButtons,
   hasReplyFastDisplayText,
-  isIncomingCardFullyReady,
+  isIncomingCardDisplayReady,
   isReplyDeeplinkShellBan,
-  logIncomingCardReady,
+  logIncomingCardDisplayState,
+  pickIncomingCardDisplayBan,
 } from '@/lib/reply-deeplink-fast';
 import {
   resolveConnectionUiState,
@@ -4913,6 +4914,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         replyDeeplinkFastHydratedRef.current = true;
         clearReplyDeeplinkFastTimeout();
         flushSync(() => {
+          setIncomingBan(enriched);
           replyDeeplinkFastShellRef.current = false;
           replyDeeplinkPrefetchRef.current = false;
           setReplyDeeplinkFastShell(false);
@@ -4964,7 +4966,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         hydratedInPlace,
       });
       console.log('[reply-deeplink]', { banId: b.id, queued: 'incoming-overlay' });
-      if (isIncomingCardFullyReady(enriched, auth.user?.id)) {
+      if (!hadFastOpen) {
+        flushSync(() => {
+          setIncomingBan(enriched);
+        });
+      }
+      if (isIncomingCardDisplayReady(enriched, auth.user?.id)) {
         releaseDeepLinkRouteBoot('reply-card-ready', b.id);
       }
       logDeepLinkHandlerResult({
@@ -7094,25 +7101,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const viewerId = auth.user?.id;
     if (!viewerId || auth.loading) return null;
 
-    const tryReady = (ban: BanInteraction | null | undefined) =>
-      ban && isIncomingCardFullyReady(ban, viewerId) ? ban : null;
-
     const fastBanId =
       replyDeepLinkBanId ?? replyDeeplinkPendingBanIdRef.current;
+    const candidates: BanInteraction[] = [];
+    const addCandidate = (ban: BanInteraction | null | undefined) => {
+      if (!ban?.id) return;
+      if (candidates.some((row) => row.id === ban.id)) return;
+      candidates.push(ban);
+    };
+
     if (fastBanId) {
-      const fromQueue =
-        overlayQueue.find(
-          (q) => q.kind === 'incoming' && q.ban.id === fastBanId,
-        ) ??
-        overlayQueueRef.current.find(
-          (q) => q.kind === 'incoming' && q.ban.id === fastBanId,
-        );
-      const fromQueueReady =
-        fromQueue?.kind === 'incoming' ? tryReady(fromQueue.ban) : null;
-      if (fromQueueReady) return fromQueueReady;
+      for (const q of overlayQueue) {
+        if (q.kind === 'incoming' && q.ban.id === fastBanId) {
+          addCandidate(q.ban);
+        }
+      }
+      for (const q of overlayQueueRef.current) {
+        if (q.kind === 'incoming' && q.ban.id === fastBanId) {
+          addCandidate(q.ban);
+        }
+      }
+    } else {
+      const head = overlayQueue[0] ?? overlayQueueRef.current[0];
+      if (head?.kind === 'incoming') addCandidate(head.ban);
     }
 
-    return tryReady(incomingBan) ?? tryReady(scopedIncomingBan);
+    addCandidate(incomingBanRef.current);
+    addCandidate(incomingBan);
+    if (scopedIncomingBan && !isReplyDeeplinkShellBan(scopedIncomingBan)) {
+      addCandidate(scopedIncomingBan);
+    }
+
+    return pickIncomingCardDisplayBan(candidates, viewerId);
   }, [
     auth.user?.id,
     auth.loading,
@@ -7150,11 +7170,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const viewerId = auth.user?.id ?? null;
-    const debugBan =
-      incomingCardDisplayBan ?? scopedIncomingBan ?? incomingBan ?? null;
-    if (!debugBan?.id) return;
-    logIncomingCardReady(debugBan, viewerId);
-  }, [incomingCardDisplayBan, scopedIncomingBan, incomingBan, auth.user?.id]);
+    const probeBan =
+      incomingBan ??
+      scopedIncomingBan ??
+      incomingBanRef.current ??
+      null;
+    logIncomingCardDisplayState(incomingCardDisplayBan, probeBan, viewerId);
+  }, [
+    incomingCardDisplayBan,
+    scopedIncomingBan,
+    incomingBan,
+    auth.user?.id,
+  ]);
 
   const scopedCheckBan = checkGateActive ? checkBan : null;
 

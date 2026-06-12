@@ -32,7 +32,6 @@ import { ModalShell } from './ModalShell';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
 import {
   canReplyFastEnableButtons,
-  isIncomingCardFullyReady,
   isReplyDeeplinkShellBan,
 } from '@/lib/reply-deeplink-fast';
 
@@ -510,14 +509,9 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     return null;
   }
 
-  if (
-    isReplyDeeplinkShellBan(incomingBan) ||
-    !isIncomingCardFullyReady(incomingBan, viewerId)
-  ) {
-    console.log('INCOMING OVERLAY RENDER', {
+  if (isReplyDeeplinkShellBan(incomingBan)) {
+    console.log('[incoming-card-debug] ready false reason: shell-ban', {
       banId: incomingBan.id,
-      skipped: true,
-      reason: 'incoming-card-not-ready',
     });
     return null;
   }
@@ -528,12 +522,10 @@ function IncomingBanOverlayInner({ embedded = false, contentOnly = false }: Prop
     '?'
   ).toUpperCase();
 
-  console.log('INCOMING OVERLAY RENDER', {
-    banId: incomingBan.id,
-    verifyPhase,
-    buttonsEnabled,
-    contentOnly,
-  });
+  console.log(
+    `[incoming-card-debug] rendering full incoming overlay banId=${incomingBan.id}`,
+    { verifyPhase, buttonsEnabled, contentOnly },
+  );
 
   const body = (
     <div className="incoming-modal-body text-center">
