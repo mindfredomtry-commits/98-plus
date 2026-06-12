@@ -13,8 +13,7 @@ import { useDeepLinkRouteBootPending } from '@/hooks/useDeepLinkRouteBootPending
 import { useBootRouteRelease } from '@/hooks/useBootRouteRelease';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSocialBoot } from '@/hooks/useSocialBoot';
-import { AppBootScreen } from '@/components/AppBootScreen';
-import '@/components/app-boot-screen.css';
+import { BootScene } from '@/components/BootScene';
 import { PillSourceDebugBadge } from '@/components/PillSourceDebugBadge';
 import { HomeArena } from '@/components/HomeArena';
 import { InstantBanFlow } from '@/components/instant-ban/InstantBanFlow';
@@ -117,12 +116,13 @@ export default function HomePage() {
   const lobbyPrefetch = loading && !hasAuthSession;
   /** v2 arena shell — never drop to legacy HomeArena while session is active. */
   const arenaVisible = lobbyPrefetch || hasAuthSession;
+  const lobbyBootIntroDone = useSyncExternalStore(
+    subscribeLobbyBootIntroSession,
+    isLobbyBootIntroPrimed,
+    () => false,
+  );
   const showBootScreen = loading || deepLinkRouteBootPending;
-  /** Auth boot — real InstantBanFlow lobby chrome; no duplicate overlay. */
-  const bootUsesRealLobbyChrome =
-    showBootScreen && loading && !deepLinkRouteBootPending;
-  const showBootPlaceholder =
-    showBootScreen && !bootUsesRealLobbyChrome && !arenaVisible;
+  const showBootScene = !lobbyBootIntroDone;
   const replyDeeplinkPending =
     !incomingCardFullyReady &&
     Boolean(
@@ -248,12 +248,6 @@ export default function HomePage() {
 
   const lobbyInfluence = resolveLobbyInfluencePercent(user);
 
-  const lobbyBootIntroDone = useSyncExternalStore(
-    subscribeLobbyBootIntroSession,
-    isLobbyBootIntroPrimed,
-    () => false,
-  );
-
   useEffect(() => {
     if (!lobbyOpen) return;
     logLobbyInfluenceDebug(user, lobbyInfluence);
@@ -378,7 +372,12 @@ export default function HomePage() {
         <ArenaAmbience />
       </ShellErrorBoundary>
 
-      {showBootPlaceholder ? <AppBootScreen /> : null}
+      {showBootScene ? (
+        <BootScene
+          influencePercent={lobbyInfluence.influencePercent}
+          energyKnown={hasAuthSession && !lobbyInfluence.fromFallback}
+        />
+      ) : null}
 
       {!lobbyPrefetch ? (
         <ConnectionBanner state={connectionUiState} onRetry={reloadPending} />

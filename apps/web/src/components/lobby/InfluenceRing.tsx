@@ -8,6 +8,8 @@ type Props = {
   className?: string;
   /** Disable CSS transition on progress stroke. */
   disableTransition?: boolean;
+  /** Boot scene only — CSS keyframes drive stroke, no inline dash attrs. */
+  bootFillActive?: boolean;
 };
 
 export const INFLUENCE_RING_CIRCUMFERENCE = 2 * Math.PI * ((280 - 2.5) / 2);
@@ -21,9 +23,21 @@ export function InfluenceRing({
   value,
   className = '',
   disableTransition = false,
+  bootFillActive = false,
 }: Props) {
   const clamped = Math.min(100, Math.max(0, value));
-  const dashOffset = CIRCUMFERENCE - (clamped / 100) * CIRCUMFERENCE;
+  const targetRatio = clamped / 100;
+  const targetDashoffset = CIRCUMFERENCE * (1 - targetRatio);
+  const dashOffset = CIRCUMFERENCE - targetRatio * CIRCUMFERENCE;
+
+  const bootProgressStyle = bootFillActive
+    ? ({
+        transition: 'none',
+        '--ring-circumference': CIRCUMFERENCE,
+        '--boot-ring-target-dashoffset': targetDashoffset,
+        '--boot-ring-target-ratio': targetRatio,
+      } satisfies CSSProperties)
+    : undefined;
 
   return (
     <svg
@@ -40,16 +54,24 @@ export function InfluenceRing({
         r={RADIUS}
       />
       <circle
-        className="influence-ring__progress"
+        className={`influence-ring__progress${
+          bootFillActive ? ' lobby-boot-progress-stroke' : ''
+        }`}
         cx={SIZE / 2}
         cy={SIZE / 2}
         r={RADIUS}
-        strokeDasharray={CIRCUMFERENCE}
-        strokeDashoffset={dashOffset}
+        {...(bootFillActive
+          ? {}
+          : {
+              strokeDasharray: CIRCUMFERENCE,
+              strokeDashoffset: dashOffset,
+            })}
         style={
-          disableTransition
-            ? ({ transition: 'none' } satisfies CSSProperties)
-            : undefined
+          bootFillActive
+            ? bootProgressStyle
+            : disableTransition
+              ? ({ transition: 'none' } satisfies CSSProperties)
+              : undefined
         }
       />
     </svg>

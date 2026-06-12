@@ -1,6 +1,6 @@
 /**
  * Critical CSS in <head> — runs before React/hydration paint.
- * Prevents full-size lobby ring flash on cold start (Telegram WebView).
+ * Boot scene only — lobby orb is not pre-scaled.
  */
 export function LobbyOrbPrehydrateStyle() {
   return (
@@ -9,12 +9,17 @@ export function LobbyOrbPrehydrateStyle() {
       // eslint-disable-next-line react/no-danger
       dangerouslySetInnerHTML={{
         __html: `
-html:not([data-app-hydrated]) .lobby-screen__orb-root .instant-ban-arena-lobby-orb__ring-layer {
-  visibility: hidden !important;
-}
-html:not([data-app-hydrated]) .lobby-screen__orb-root .lobby-boot-orb-scale-layer {
+html:not([data-app-hydrated]) [data-boot-scene] .lobby-boot-orb-scale-layer {
   transform: scale(0.15);
   transform-origin: center center;
+}
+html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ring-layer {
+  visibility: hidden !important;
+}
+.lobby-boot-progress-stroke {
+  stroke-dasharray: var(--ring-circumference, 871.87);
+  stroke-dashoffset: var(--ring-circumference, 871.87);
+  transition: none !important;
 }
 `,
       }}

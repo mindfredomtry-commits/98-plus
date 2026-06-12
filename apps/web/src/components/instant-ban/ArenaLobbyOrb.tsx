@@ -16,8 +16,6 @@ type Props = {
   confirmOrb: ConfirmOrb;
   /** Lobby ring fill (0 → actual on first open); ignored during confirm/compress. */
   lobbyRingDisplayPercent: number;
-  /** Boot scale intro running — suppress low-energy hint. */
-  lobbyBootIntroActive?: boolean;
   senderUser: UserPublic | null | undefined;
   selectedUser: FriendCard | null;
   banText: string;
@@ -60,7 +58,6 @@ export function ArenaLobbyOrb({
   orbCompressActive,
   confirmOrb,
   lobbyRingDisplayPercent,
-  lobbyBootIntroActive = false,
   senderUser,
   selectedUser,
   banText,
@@ -149,7 +146,6 @@ export function ArenaLobbyOrb({
                 <ArenaInfluenceRing
                   value={ringDisplayValue}
                   debugId={debugIdRef.current}
-                  disableTransition={useLobbyRingDisplay && lobbyBootIntroActive}
                 />
               }
             />

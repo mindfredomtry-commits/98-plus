@@ -2150,6 +2150,12 @@
   transition: opacity 360ms ease;
 }
 
+.lobby-boot-progress-stroke {
+  stroke-dasharray: var(--ring-circumference, 871.87);
+  stroke-dashoffset: var(--ring-circumference, 871.87);
+  transition: none !important;
+}
+
 
 .lobby-screen__orb-root.lobby-screen__orb-wrap--overlay-dim {
   opacity: 0.72;

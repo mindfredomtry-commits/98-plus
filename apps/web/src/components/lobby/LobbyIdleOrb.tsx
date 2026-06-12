@@ -5,12 +5,14 @@ import { LobbyOrbFace } from '@/components/lobby/LobbyOrbFace';
 
 type Props = {
   ringPercent: number;
+  /** Boot scene only — CSS fill animation. */
+  bootFillActive?: boolean;
 };
 
 /**
  * Idle lobby orb shell — same DOM/CSS as ArenaLobbyOrb lobby face, no interactions.
  */
-export function LobbyIdleOrb({ ringPercent }: Props) {
+export function LobbyIdleOrb({ ringPercent, bootFillActive = false }: Props) {
   const clamped = Math.min(100, Math.max(0, ringPercent));
 
   return (
@@ -22,6 +24,8 @@ export function LobbyIdleOrb({ ringPercent }: Props) {
               <InfluenceRing
                 value={clamped}
                 className="instant-ban-confirm-influence-ring"
+                disableTransition={bootFillActive}
+                bootFillActive={bootFillActive}
               />
             }
           />

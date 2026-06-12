@@ -7,19 +7,21 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
+import { INFLUENCE_RING_CIRCUMFERENCE } from '@/components/lobby/InfluenceRing';
 
 type Props = {
   className?: string;
   style?: CSSProperties;
   introActive: boolean;
+  ringTarget: number;
   onIntroEnd?: () => void;
   children: ReactNode;
 };
 
-/** Orb mount — boot scale on inner layer only. */
+/** Boot scene orb — scale + ring fill via CSS only. */
 export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
   function LobbyBootOrbWrap(
-    { className = '', style, introActive, onIntroEnd, children },
+    { className = '', style, introActive, ringTarget, onIntroEnd, children },
     ref,
   ) {
     const onIntroEndRef = useRef(onIntroEnd);
@@ -37,7 +39,8 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
       if (!root) return;
 
       const handleAnimationEnd = (event: AnimationEvent) => {
-        if (event.animationName !== 'boot-orb-scale') return;
+        const name = event.animationName;
+        if (name !== 'boot-orb-scale' && name !== 'boot-ring-fill') return;
         if (introEndedRef.current) return;
         introEndedRef.current = true;
         onIntroEndRef.current?.();
@@ -49,6 +52,16 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
       };
     }, [ref, introActive]);
 
+    const targetRatio = Math.min(1, Math.max(0, ringTarget / 100));
+    const circ = INFLUENCE_RING_CIRCUMFERENCE;
+
+    const mergedStyle = {
+      ...style,
+      '--ring-circumference': circ,
+      '--boot-ring-target-dashoffset': circ * (1 - targetRatio),
+      '--boot-ring-target-ratio': targetRatio,
+    } as CSSProperties;
+
     const rootClass = [
       className,
       introActive ? 'lobby-boot-intro-active' : '',
@@ -57,7 +70,7 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
       .join(' ');
 
     return (
-      <div ref={ref} className={rootClass} style={style} data-orb-root>
+      <div ref={ref} className={rootClass} style={mergedStyle} data-orb-root>
         <div className="lobby-boot-orb-scale-layer" data-boot-scale-layer>
           {children}
         </div>

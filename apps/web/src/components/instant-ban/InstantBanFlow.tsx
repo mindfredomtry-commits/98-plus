@@ -80,14 +80,13 @@ import {
   resolveOpponentFriendCard,
 } from './bans-overlay-utils';
 import { useConfirmOrbController } from './useConfirmOrbController';
-import { LobbyBootOrbWrap } from '@/components/lobby/LobbyBootOrbWrap';
+import { LobbyOrbWrap } from '@/components/lobby/LobbyOrbWrap';
 import { LobbyScreenAtmosphere } from '@/components/lobby/LobbyScreenAtmosphere';
-import { useLobbyBootIntro } from './useLobbyBootIntro';
 import {
+  getLobbyBootIntroPrimedSnapshot,
   isLobbyBootIntroPrimed,
   subscribeLobbyBootIntroSession,
 } from '@/lib/lobby-boot-intro-session';
-import '@/components/lobby-boot-intro.css';
 import { triggerLobbyBlockedHaptic } from './lobby-cta-haptics';
 import {
   evaluateConfirmSubmitEnergy,
@@ -3137,16 +3136,14 @@ export function InstantBanFlow({
     [influencePercent],
   );
 
-  const {
-    ringDisplayPercent: lobbyRingDisplayPercent,
-    introActive: lobbyBootVisualActive,
-    onIntroEnd: onLobbyBootIntroEnd,
-  } = useLobbyBootIntro(lobbyInfluencePercent, {
-    phase,
-    sendStarted,
-    energyKnown: energyLoaded,
-    enabled: lobbyOrbVisible,
-  });
+  const lobbyRingDisplayPercent = useMemo(() => {
+    if (!energyLoaded) {
+      return getLobbyBootIntroPrimedSnapshot().ringPercent;
+    }
+    return lobbyInfluencePercent;
+  }, [energyLoaded, lobbyInfluencePercent]);
+
+  const showLobbyOrb = lobbyOrbVisible && lobbyBootIntroPrimed;
 
   const liteMode = isInstantBanLiteMode();
   /** What layout in pager — from friend pick, not from phase commit (avoids vertical jump). */
@@ -3228,9 +3225,7 @@ export function InstantBanFlow({
         whatMobileSafe ? ' instant-ban-flow--what-mobile-safe' : ''
       }${liteMode ? ' instant-ban-debug-lite' : ''}${
         replyUiShellActive ? ' instant-ban-flow--reply-ui-shell' : ''
-      }${
-        activeBanUiShellActive ? ' instant-ban-flow--active-ban-ui-shell' : ''
-      }${lobbyBootVisualActive ? ' lobby-screen--boot-intro-active' : ''}`}
+      }${activeBanUiShellActive ? ' instant-ban-flow--active-ban-ui-shell' : ''}`}
       style={arenaOverlayStyle}
       role="dialog"
       aria-modal="true"
@@ -3261,19 +3256,12 @@ export function InstantBanFlow({
       {!lobbyChromeHidden ? <LobbyScreenAtmosphere /> : null}
 
       <div className="instant-ban-arena-send__stage">
-        {lobbyOrbVisible ? (
-          <LobbyBootOrbWrap
+        {showLobbyOrb ? (
+          <LobbyOrbWrap
             ref={lobbyOrbMountRef}
             className={`lobby-screen__orb-wrap lobby-screen__orb-root${
               confirmLayoutActive ? ' lobby-screen__orb-wrap--confirm' : ''
             }${orbOverlayDim ? ' lobby-screen__orb-wrap--overlay-dim' : ''}`}
-            introActive={
-              lobbyBootVisualActive &&
-              phase === 'idle' &&
-              !confirmActive &&
-              !orbCompressActive
-            }
-            onIntroEnd={onLobbyBootIntroEnd}
           >
             <ArenaLobbyOrb
               sendPhase={phase}
@@ -3281,18 +3269,12 @@ export function InstantBanFlow({
               orbCompressActive={orbCompressActive}
               confirmOrb={confirmOrb}
               lobbyRingDisplayPercent={lobbyRingDisplayPercent}
-              lobbyBootIntroActive={
-                lobbyBootVisualActive &&
-                phase === 'idle' &&
-                !confirmActive &&
-                !orbCompressActive
-              }
               senderUser={user}
               selectedUser={selectedUser}
               banText={banText}
               durationMinutes={durationMinutes}
             />
-          </LobbyBootOrbWrap>
+          </LobbyOrbWrap>
         ) : null}
 
         {banSentSuccess && successSnapshot ? (

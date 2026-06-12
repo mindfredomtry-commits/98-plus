@@ -1,12 +1,12 @@
-/* Boot lobby orb intro — scale only (550ms) */
+/* Boot scene intro only — parallel scale + ring fill (550ms). Lobby orb never uses these rules. */
 
-html:not([data-app-hydrated]) .lobby-screen__orb-root .instant-ban-arena-lobby-orb__ring-layer {
-  visibility: hidden !important;
-}
-
-html:not([data-app-hydrated]) .lobby-screen__orb-root .lobby-boot-orb-scale-layer {
+html:not([data-app-hydrated]) [data-boot-scene] .lobby-boot-orb-scale-layer {
   transform: scale(0.15);
   transform-origin: center center;
+}
+
+html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ring-layer {
+  visibility: hidden !important;
 }
 
 .lobby-screen--boot-intro-active .lobby-screen__particle {
@@ -64,11 +64,27 @@ html:not([data-app-hydrated]) .lobby-screen__orb-root .lobby-boot-orb-scale-laye
   visibility: visible;
 }
 
-/* Track only during intro — progress appears after scale ends */
-.lobby-boot-intro-active .influence-ring__progress {
-  opacity: 0;
-  visibility: hidden;
+.lobby-boot-progress-stroke {
+  stroke-dasharray: var(--ring-circumference);
+  stroke-dashoffset: var(--ring-circumference);
   transition: none !important;
+}
+
+.lobby-boot-intro-active .lobby-boot-progress-stroke {
+  stroke: rgba(var(--98-power-rgb), 0.92);
+  stroke-width: 2.5;
+  opacity: 1;
+  visibility: visible;
+  animation: boot-ring-fill 550ms ease-out both;
+}
+
+@keyframes boot-ring-fill {
+  from {
+    stroke-dashoffset: var(--ring-circumference);
+  }
+  to {
+    stroke-dashoffset: var(--boot-ring-target-dashoffset);
+  }
 }
 
 .lobby-boot-intro-active .lobby-screen__title {
@@ -77,9 +93,20 @@ html:not([data-app-hydrated]) .lobby-screen__orb-root .lobby-boot-orb-scale-laye
     0 0 48px rgba(var(--98-accent-rgb), 0.55);
 }
 
+/* Lobby orb — always full size, no boot animation */
+.lobby-orb-ready {
+  overflow: visible;
+  contain: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .lobby-boot-intro-active .lobby-boot-orb-scale-layer {
     animation: none;
     transform: scale(1);
+  }
+
+  .lobby-boot-intro-active .lobby-boot-progress-stroke {
+    animation: none;
+    stroke-dashoffset: var(--boot-ring-target-dashoffset);
   }
 }
