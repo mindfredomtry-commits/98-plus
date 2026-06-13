@@ -142,6 +142,7 @@ export function ArenaLobbyOrb({
         >
             <LobbyOrbFace
               hidden={!showOrbFace}
+              hideTitle={useLobbyRingDisplay}
               ring={
                 <ArenaInfluenceRing
                   value={ringDisplayValue}

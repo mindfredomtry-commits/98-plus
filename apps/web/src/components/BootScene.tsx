@@ -2,6 +2,7 @@
 
 import { LobbyBootOrbWrap } from '@/components/lobby/LobbyBootOrbWrap';
 import { LobbyIdleOrb } from '@/components/lobby/LobbyIdleOrb';
+import { LobbyPersistentLogoSlot } from '@/components/lobby/LobbyPersistentLogoSlot';
 import { LobbyScreenAtmosphere } from '@/components/lobby/LobbyScreenAtmosphere';
 import { useBootSceneIntro } from '@/components/instant-ban/useBootSceneIntro';
 import './instant-ban/instant-ban.css';
@@ -43,15 +44,18 @@ export function BootScene({ influencePercent, energyKnown }: Props) {
       <LobbyScreenAtmosphere />
 
       <div className="boot-scene__stage instant-ban-arena-send__stage">
-        <LobbyBootOrbWrap
+        <LobbyPersistentLogoSlot
           className="lobby-screen__orb-wrap lobby-screen__orb-root"
           logoScaleActive={logoScaleActive}
+          logoLocked={logoLocked}
+          onLogoScaleEnd={onLogoScaleEnd}
+        />
+        <LobbyBootOrbWrap
+          className="lobby-screen__orb-wrap lobby-screen__orb-root"
           ringScaleActive={ringScaleActive}
           fillActive={fillActive}
-          logoLocked={logoLocked}
           ringScaleLocked={ringScaleLocked}
           ringTarget={fillTargetPercent}
-          onLogoScaleEnd={onLogoScaleEnd}
           onRingScaleEnd={onRingScaleEnd}
           onFillEnd={onFillEnd}
         >

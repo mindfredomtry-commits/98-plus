@@ -10,21 +10,16 @@ import {
   type Ref,
 } from 'react';
 import { INFLUENCE_RING_CIRCUMFERENCE } from '@/components/lobby/InfluenceRing';
-import { LobbyLaunchLogo } from '@/components/lobby/LobbyLaunchLogo';
 
 type Props = {
   className?: string;
   style?: CSSProperties;
-  logoScaleActive: boolean;
   ringScaleActive: boolean;
   fillActive: boolean;
-  logoLocked: boolean;
   ringScaleLocked: boolean;
   ringTarget: number;
-  onLogoScaleEnd?: () => void;
   onRingScaleEnd?: () => void;
   onFillEnd?: () => void;
-  logoScaleMs?: number;
   ringScaleMs?: number;
   fillMs?: number;
   children: ReactNode;
@@ -38,22 +33,18 @@ function assignRef<T>(ref: Ref<T> | undefined, value: T | null): void {
   }
 }
 
-/** Boot launch orb — logo scale, then ring scale, then energy fill (CSS only). */
+/** Boot launch ring shell — logo lives in LobbyPersistentLogoSlot. */
 export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
   function LobbyBootOrbWrap(
     {
       className = '',
       style,
-      logoScaleActive,
       ringScaleActive,
       fillActive,
-      logoLocked,
       ringScaleLocked,
       ringTarget,
-      onLogoScaleEnd,
       onRingScaleEnd,
       onFillEnd,
-      logoScaleMs = 550,
       ringScaleMs = 550,
       fillMs = 550,
       children,
@@ -62,44 +53,12 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
     ref,
   ) {
     const rootRef = useRef<HTMLDivElement>(null);
-    const onLogoScaleEndRef = useRef(onLogoScaleEnd);
     const onRingScaleEndRef = useRef(onRingScaleEnd);
     const onFillEndRef = useRef(onFillEnd);
-    const logoEndedRef = useRef(false);
     const ringEndedRef = useRef(false);
     const fillEndedRef = useRef(false);
-    onLogoScaleEndRef.current = onLogoScaleEnd;
     onRingScaleEndRef.current = onRingScaleEnd;
     onFillEndRef.current = onFillEnd;
-
-    useEffect(() => {
-      if (!logoScaleActive) {
-        logoEndedRef.current = false;
-        return;
-      }
-
-      const root = rootRef.current;
-      if (!root) return;
-
-      const finish = () => {
-        if (logoEndedRef.current) return;
-        logoEndedRef.current = true;
-        onLogoScaleEndRef.current?.();
-      };
-
-      const handleAnimationEnd = (event: AnimationEvent) => {
-        if (event.animationName !== 'boot-logo-scale') return;
-        finish();
-      };
-
-      const fallbackTimer = window.setTimeout(finish, logoScaleMs + 30);
-
-      root.addEventListener('animationend', handleAnimationEnd);
-      return () => {
-        window.clearTimeout(fallbackTimer);
-        root.removeEventListener('animationend', handleAnimationEnd);
-      };
-    }, [logoScaleActive, logoScaleMs]);
 
     useEffect(() => {
       if (!ringScaleActive) {
@@ -172,8 +131,6 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
     const rootClass = [
       className,
       'lobby-boot-orb-root',
-      logoScaleActive ? 'lobby-boot-logo-intro-active' : '',
-      logoLocked ? 'lobby-boot-logo-ready' : '',
       ringScaleActive ? 'lobby-boot-intro-active' : '',
       ringScaleLocked ? 'lobby-boot-scale-done' : '',
       fillActive ? 'lobby-boot-fill-active' : '',
@@ -192,9 +149,6 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
         data-orb-root
         {...rest}
       >
-        <div className="lobby-boot-logo-layer" data-boot-logo-layer>
-          <LobbyLaunchLogo />
-        </div>
         <div className="lobby-boot-ring-shell" data-boot-ring-shell>
           <div className="lobby-boot-orb-scale-layer" data-boot-scale-layer>
             {children}

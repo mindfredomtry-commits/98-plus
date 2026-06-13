@@ -24,7 +24,38 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   overflow: visible;
 }
 
-.lobby-boot-logo-intro-active:not(.lobby-boot-scale-done) .lobby-boot-ring-shell {
+.lobby-persistent-logo-slot {
+  position: absolute;
+  left: 50%;
+  top: var(--98-arena-orb-anchor-top);
+  z-index: 5;
+  width: var(--98-confirm-orb-size);
+  height: var(--98-confirm-orb-size);
+  margin: 0;
+  overflow: visible;
+  transform: translate(-50%, -50%);
+  transform-origin: center center;
+  pointer-events: none;
+}
+
+.lobby-persistent-logo-slot .lobby-boot-logo-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: none !important;
+}
+
+.lobby-persistent-logo-slot.lobby-boot-logo-ready .lobby-screen__title {
+  opacity: 1;
+  transform: scale(1);
+  transition: none !important;
+}
+
+.lobby-persistent-logo-slot.lobby-boot-logo-intro-active:not(.lobby-boot-logo-ready)
+  + .lobby-boot-orb-root
+  .lobby-boot-ring-shell {
   visibility: hidden;
   opacity: 0;
 }

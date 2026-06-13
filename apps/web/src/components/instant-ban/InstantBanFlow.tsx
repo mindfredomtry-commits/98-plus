@@ -81,6 +81,7 @@ import {
 } from './bans-overlay-utils';
 import { useConfirmOrbController } from './useConfirmOrbController';
 import { LobbyBootOrbWrap } from '@/components/lobby/LobbyBootOrbWrap';
+import { LobbyPersistentLogoSlot } from '@/components/lobby/LobbyPersistentLogoSlot';
 import { LobbyIdleOrb } from '@/components/lobby/LobbyIdleOrb';
 import { LobbyOrbWrap } from '@/components/lobby/LobbyOrbWrap';
 import { LobbyScreenAtmosphere } from '@/components/lobby/LobbyScreenAtmosphere';
@@ -3242,6 +3243,9 @@ export function InstantBanFlow({
 
   const showBootOrb = lobbyOrbVisible && !lobbyBootIntroPrimed;
   const showLobbyOrb = lobbyOrbVisible && lobbyBootIntroPrimed;
+  const showPersistentLogo =
+    lobbyOrbVisible &&
+    (showBootOrb || (showLobbyOrb && !confirmActive && !orbCompressActive));
 
   useLayoutEffect(() => {
     patchBootHandoffDebug({
@@ -3315,16 +3319,22 @@ export function InstantBanFlow({
       {!lobbyChromeHidden ? <LobbyScreenAtmosphere /> : null}
 
       <div className="instant-ban-arena-send__stage">
+        {showPersistentLogo ? (
+          <LobbyPersistentLogoSlot
+            className="lobby-screen__orb-wrap lobby-screen__orb-root"
+            logoScaleActive={bootLogoScaleActive}
+            logoLocked={bootLogoLocked || lobbyBootIntroPrimed}
+            onLogoScaleEnd={onBootLogoScaleEnd}
+          />
+        ) : null}
+
         {showBootOrb ? (
           <LobbyBootOrbWrap
             className="lobby-screen__orb-wrap lobby-screen__orb-root"
-            logoScaleActive={bootLogoScaleActive}
             ringScaleActive={bootRingScaleActive}
             fillActive={bootFillActive}
-            logoLocked={bootLogoLocked}
             ringScaleLocked={bootRingScaleLocked}
             ringTarget={fillTargetPercent}
-            onLogoScaleEnd={onBootLogoScaleEnd}
             onRingScaleEnd={onBootRingScaleEnd}
             onFillEnd={onBootFillEnd}
             data-boot-orb
