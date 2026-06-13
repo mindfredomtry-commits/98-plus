@@ -38,6 +38,23 @@ html[data-route-overlay-active] .instant-ban-arena-send__bans-layer .instant-ban
   pointer-events: auto;
 }
 
+html[data-hide-lobby-boot-logo-only] #lobby-boot-shell-early,
+html[data-hide-lobby-boot-logo-only] #lobby-boot-logo-prehydrate,
+html[data-hide-lobby-boot-logo-only] .lobby-boot-logo-shell,
+.lobby-boot-logo-shell--logo-hidden {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+html[data-hide-lobby-boot-logo-only] .lobby-persistent-logo-slot {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 .lobby-boot-logo-shell__stage {
   position: relative;
   width: 100%;

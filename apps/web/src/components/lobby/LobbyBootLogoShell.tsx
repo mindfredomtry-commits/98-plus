@@ -9,6 +9,8 @@ type Props = {
   onLogoScaleEnd?: () => void;
   /** Route card/overlay is above boot — boot stays as background placeholder. */
   bootBackground?: boolean;
+  /** Compose flow — hide only the 98+ logo layer, not boot ring/orb. */
+  hideLobbyBootLogoOnly?: boolean;
 };
 
 /** Early boot logo — mounts before heavy InstantBanFlow paint, same anchor as arena orb. */
@@ -17,13 +19,15 @@ export function LobbyBootLogoShell({
   logoLocked,
   onLogoScaleEnd,
   bootBackground = false,
+  hideLobbyBootLogoOnly = false,
 }: Props) {
   return (
     <div
       className={`lobby-boot-logo-shell${
         bootBackground ? ' lobby-boot-logo-shell--background' : ''
-      }`}
+      }${hideLobbyBootLogoOnly ? ' lobby-boot-logo-shell--logo-hidden' : ''}`}
       data-lobby-boot-logo-shell
+      data-hide-lobby-boot-logo-only={hideLobbyBootLogoOnly ? 'true' : undefined}
       aria-hidden
     >
       <div className="lobby-boot-logo-shell__stage">
@@ -31,7 +35,7 @@ export function LobbyBootLogoShell({
           key="lobby-persistent-logo"
           logoScaleActive={logoScaleActive}
           logoLocked={logoLocked}
-          visible
+          visible={!hideLobbyBootLogoOnly}
           onLogoScaleEnd={onLogoScaleEnd}
           diagContext="early-boot-shell"
         />

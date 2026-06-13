@@ -85,6 +85,8 @@ import { LobbyPersistentLogoSlot } from '@/components/lobby/LobbyPersistentLogoS
 import { LobbyIdleOrb } from '@/components/lobby/LobbyIdleOrb';
 import { LobbyOrbWrap } from '@/components/lobby/LobbyOrbWrap';
 import { LobbyScreenAtmosphere } from '@/components/lobby/LobbyScreenAtmosphere';
+import { LobbyBootLogoHideMarker } from '@/components/LobbyBootLogoHideMarker';
+import { shouldHideLobbyBootLogoOnly } from '@/lib/lobby-boot-logo-hide';
 import type { BootSceneIntroController } from './useBootSceneIntro';
 import {
   getLobbyBootIntroPrimedSnapshot,
@@ -3217,6 +3219,11 @@ export function InstantBanFlow({
   const orbCompressActive =
     !banSentSuccess &&
     (composeDismissing || (phase === 'confirming' && selectedUser != null));
+  const hideLobbyBootLogoOnly = shouldHideLobbyBootLogoOnly({
+    phase,
+    replyComposeActive,
+    sendStarted,
+  });
   const confirmLayoutActive = orbCompressActive;
   const successSnapshot = sendSnapshotRef.current;
 
@@ -3263,7 +3270,8 @@ export function InstantBanFlow({
   const showBootOrb = lobbyOrbVisible && !lobbyBootIntroPrimed;
   const showLobbyOrb = lobbyOrbVisible && lobbyBootIntroPrimed;
   const persistentLobbyLogoActive = !confirmActive && !orbCompressActive;
-  const persistentLogoVisible = persistentLobbyLogoActive;
+  const persistentLogoVisible =
+    persistentLobbyLogoActive && !hideLobbyBootLogoOnly;
 
   useLayoutEffect(() => {
     patchBootHandoffDebug({
@@ -3328,7 +3336,9 @@ export function InstantBanFlow({
   }, [phase, confirmEnterKey, composeDismissing, confirmLayoutActive]);
 
   return (
-    <div
+    <>
+      <LobbyBootLogoHideMarker active={hideLobbyBootLogoOnly} />
+      <div
       className={`lobby-screen instant-ban-arena-send instant-ban-flow${
         whatMobileSafe ? ' instant-ban-flow--what-mobile-safe' : ''
       }${liteMode ? ' instant-ban-debug-lite' : ''}${
@@ -3603,5 +3613,6 @@ export function InstantBanFlow({
         </div>
       ) : null}
     </div>
+    </>
   );
 }
