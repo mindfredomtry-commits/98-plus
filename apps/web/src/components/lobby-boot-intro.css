@@ -9,6 +9,13 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   visibility: hidden !important;
 }
 
+html:not([data-app-hydrated]) .lobby-persistent-logo-slot:not(.lobby-boot-logo-enter-done) .lobby-persistent-logo-anchor {
+  transform: translate(-50%, -50%) scale(0.15);
+  transform-origin: center center;
+  opacity: 1;
+  visibility: visible;
+}
+
 .lobby-screen--boot-intro-active .lobby-screen__particle {
   animation-play-state: paused !important;
 }
@@ -49,11 +56,19 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   display: flex;
   align-items: center;
   justify-content: center;
-  transform: translate(-50%, -50%) scale(1);
+  transform: translate(-50%, -50%) scale(0.15);
   transform-origin: center center;
   pointer-events: none;
   transition: none !important;
   animation: none !important;
+  opacity: 1;
+  visibility: visible;
+}
+
+.lobby-persistent-logo-slot:not(.lobby-boot-logo-enter-done):not(.lobby-boot-logo-ready)
+  .lobby-persistent-logo-anchor {
+  opacity: 1;
+  visibility: visible;
 }
 
 /* Persistent logo must never inherit orb-root opacity transitions. */

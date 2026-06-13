@@ -14,7 +14,6 @@ import { useBootRouteRelease } from '@/hooks/useBootRouteRelease';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSocialBoot } from '@/hooks/useSocialBoot';
 import { BootHandoffDebugBadge } from '@/components/BootHandoffDebugBadge';
-import { LobbyLogoSourceDebugOverlay } from '@/components/LobbyLogoSourceDebugOverlay';
 import { PillSourceDebugBadge } from '@/components/PillSourceDebugBadge';
 import { HomeArena } from '@/components/HomeArena';
 import { InstantBanFlow } from '@/components/instant-ban/InstantBanFlow';
@@ -376,7 +375,6 @@ export default function HomePage() {
     >
       <PillSourceDebugBadge />
       <BootHandoffDebugBadge />
-      <LobbyLogoSourceDebugOverlay />
       <ShellErrorBoundary name="ambience" fallback={null}>
         <ArenaAmbience />
       </ShellErrorBoundary>

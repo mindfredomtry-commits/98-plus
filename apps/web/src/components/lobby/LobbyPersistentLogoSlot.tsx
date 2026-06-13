@@ -34,6 +34,7 @@ export function LobbyPersistentLogoSlot({
 
   const logoLockedVisible = logoEnterDone || logoLocked;
   const runLogoIntro = logoScaleActive && !logoLockedVisible;
+  const bootLogoPending = !logoLockedVisible;
   const logoSource = logoLockedVisible ? 'persistent' : 'boot';
 
   useEffect(() => {
@@ -77,7 +78,17 @@ export function LobbyPersistentLogoSlot({
     root.style.transition = 'none';
     root.style.animation = 'none';
 
-    if (!logoLockedVisible) return;
+    if (!logoLockedVisible) {
+      anchor.style.removeProperty('transform');
+      anchor.style.removeProperty('animation');
+      anchor.style.removeProperty('transition');
+      title.style.opacity = '1';
+      title.style.visibility = 'visible';
+      title.style.transform = 'none';
+      title.style.animation = 'none';
+      title.style.transition = 'none';
+      return;
+    }
 
     anchor.style.transform = 'translate(-50%, -50%) scale(1)';
     anchor.style.animation = 'none';
@@ -103,6 +114,7 @@ export function LobbyPersistentLogoSlot({
 
   const rootClass = [
     'lobby-persistent-logo-slot',
+    bootLogoPending ? 'lobby-boot-logo-pending' : '',
     runLogoIntro ? 'lobby-boot-logo-intro-active' : '',
     logoLockedVisible ? 'lobby-boot-logo-ready lobby-boot-logo-enter-done' : '',
     showHiddenClass ? 'lobby-persistent-logo-slot--hidden' : '',

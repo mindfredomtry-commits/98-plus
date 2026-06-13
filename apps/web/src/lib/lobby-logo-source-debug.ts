@@ -1,5 +1,5 @@
-/** Temporary — visible in production builds until logo hiccup source is identified. */
-export const LOGO_SOURCE_DEBUG_ENABLED = true;
+/** Set true locally to re-enable on-screen logo source diagnostics. */
+export const LOGO_SOURCE_DEBUG_ENABLED = false;
 
 export type LobbyLogoSource = 'persistent' | 'boot' | 'orb-face' | 'arena';
 
