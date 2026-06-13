@@ -85,6 +85,8 @@ import { LobbyPersistentLogoSlot } from '@/components/lobby/LobbyPersistentLogoS
 import { LobbyIdleOrb } from '@/components/lobby/LobbyIdleOrb';
 import { LobbyOrbWrap } from '@/components/lobby/LobbyOrbWrap';
 import { LobbyScreenAtmosphere } from '@/components/lobby/LobbyScreenAtmosphere';
+import { ComposeBootHideMarker } from '@/components/ComposeBootHideMarker';
+import { shouldHideBootVisualForCompose } from '@/lib/lobby-boot-compose-hide';
 import type { BootSceneIntroController } from './useBootSceneIntro';
 import {
   getLobbyBootIntroPrimedSnapshot,
@@ -989,7 +991,8 @@ export function InstantBanFlow({
     routeOverlayAboveBoot &&
     !lobbyBootIntroPrimed &&
     !replyComposeActive &&
-    phase === 'idle';
+    phase === 'idle' &&
+    !sendStarted;
 
   useLayoutEffect(() => {
     patchBootHandoffDebug({
@@ -3217,6 +3220,13 @@ export function InstantBanFlow({
   const orbCompressActive =
     !banSentSuccess &&
     (composeDismissing || (phase === 'confirming' && selectedUser != null));
+  const hideBootVisualForCompose = shouldHideBootVisualForCompose({
+    phase,
+    replyComposeActive,
+    sendStarted,
+    confirmActive,
+    orbCompressActive,
+  });
   const confirmLayoutActive = orbCompressActive;
   const successSnapshot = sendSnapshotRef.current;
 
@@ -3260,10 +3270,10 @@ export function InstantBanFlow({
     return lobbyInfluencePercent;
   }, [energyLoaded, lobbyInfluencePercent]);
 
-  const showBootOrb = lobbyOrbVisible && !lobbyBootIntroPrimed;
+  const showBootOrb =
+    lobbyOrbVisible && !lobbyBootIntroPrimed && !hideBootVisualForCompose;
   const showLobbyOrb = lobbyOrbVisible && lobbyBootIntroPrimed;
-  const persistentLobbyLogoActive = !confirmActive && !orbCompressActive;
-  const persistentLogoVisible = persistentLobbyLogoActive;
+  const persistentLobbyLogoActive = !hideBootVisualForCompose;
 
   useLayoutEffect(() => {
     patchBootHandoffDebug({
@@ -3328,7 +3338,9 @@ export function InstantBanFlow({
   }, [phase, confirmEnterKey, composeDismissing, confirmLayoutActive]);
 
   return (
-    <div
+    <>
+      <ComposeBootHideMarker active={hideBootVisualForCompose} />
+      <div
       className={`lobby-screen instant-ban-arena-send instant-ban-flow${
         whatMobileSafe ? ' instant-ban-flow--what-mobile-safe' : ''
       }${liteMode ? ' instant-ban-debug-lite' : ''}${
@@ -3361,6 +3373,9 @@ export function InstantBanFlow({
         launchStage === 'logoEnter' || bootLogoScaleActive ? 'true' : undefined
       }
       data-boot-background={bootBackgroundUnderRouteOverlay ? 'true' : undefined}
+      data-hide-boot-visual-for-compose={
+        hideBootVisualForCompose ? 'true' : undefined
+      }
     >
       {showLobbyTopNav ? (
         <ArenaLobbyTopNav
@@ -3376,12 +3391,12 @@ export function InstantBanFlow({
           persistentLobbyLogoActive ? 'true' : undefined
         }
       >
-        {lobbyBootIntroPrimed ? (
+        {lobbyBootIntroPrimed && !hideBootVisualForCompose ? (
           <LobbyPersistentLogoSlot
             key="lobby-persistent-logo"
             logoScaleActive={bootLogoScaleActive}
             logoLocked={bootLogoLocked || lobbyBootIntroPrimed}
-            visible={persistentLogoVisible}
+            visible
             onLogoScaleEnd={onBootLogoScaleEnd}
             diagContext={`stage=${launchStage} boot=${showBootOrb} lobby=${showLobbyOrb} primed=${lobbyBootIntroPrimed}`}
           />
@@ -3603,5 +3618,6 @@ export function InstantBanFlow({
         </div>
       ) : null}
     </div>
+    </>
   );
 }
