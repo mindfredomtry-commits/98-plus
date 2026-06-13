@@ -6112,6 +6112,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       replyDeepLinkBanIdRef.current = ban.id;
       setDeepLinkReplyBan(enriched);
       setLobbyOpen(false);
+      openSendFlow();
       logReplyFlow('reply-compose-open', {
         banId: ban.id,
         lockActive: false,
@@ -6124,7 +6125,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         action: 'card-reply-start',
       });
     },
-    [pinReplyToBanId],
+    [pinReplyToBanId, openSendFlow],
   );
 
   const acknowledgeIncomingSeen = useCallback(async (banId: string) => {
@@ -6168,6 +6169,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       beginReplyHandoff(banId);
       startIncomingReply(ban);
       dismissIncomingCardForReplyCompose(banId);
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[reply-click]', {
+          incomingBanId: banId,
+          senderId: ban.sender?.id ?? null,
+          setPhaseWhat: 'composingBan',
+          selectedTarget:
+            ban.sender?.id ??
+            ban.sender?.username ??
+            null,
+        });
+        console.log('[reply-click] hide route overlay / showBansLayer false', {
+          replyComposeActive: true,
+          routeOverlayAboveBoot: false,
+        });
+      }
 
       console.log('[queue-reply-debug] replyToBanId', { banId });
       console.log('[queue-reply-debug] selectedUser', {
@@ -7266,6 +7283,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     replyIncomingDirectPath &&
     replyDirectOverlayBan != null &&
     !showDirectOverboardLayer &&
+    !replyComposeActive &&
     Boolean(auth.user?.id ?? userIdRef.current);
 
   const replyIncomingOverlayBlockReason = useMemo(() => {
@@ -7565,6 +7583,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         displayResult,
         activeBanCardReady,
         showReplyIncomingOverlayDirect,
+        replyComposeActive,
       }),
     [
       replyDeepLinkBanId,
@@ -7582,6 +7601,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       displayResult,
       activeBanCardReady,
       showReplyIncomingOverlayDirect,
+      replyComposeActive,
     ],
   );
 
@@ -7663,6 +7683,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const incomingJsxWillRender =
     !showDirectOverboardLayer &&
+    !replyComposeActive &&
     incomingCardDisplayBan != null &&
     (showReplyIncomingOverlayDirect ||
       (notificationQueueShellKind === 'incoming' &&

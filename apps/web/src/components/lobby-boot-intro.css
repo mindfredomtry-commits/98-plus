@@ -25,6 +25,10 @@ html[data-route-overlay-active] .lobby-boot-logo-shell--background {
 html[data-route-overlay-active] .instant-ban-arena-send[data-boot-background='true'] {
   pointer-events: none;
 }
+html[data-route-overlay-active]:not([data-reply-compose-active])
+  .instant-ban-send-overlay {
+  pointer-events: auto;
+}
 
 html[data-route-overlay-active] .instant-ban-arena-send__bans-layer {
   z-index: 90;

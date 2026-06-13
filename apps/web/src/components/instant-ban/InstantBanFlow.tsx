@@ -478,6 +478,7 @@ export function InstantBanFlow({
   /** Reply/incoming deeplink — block lobby pill until real incoming card is mounted. */
   const replyIncomingDeeplinkPending =
     !bansReturnToLobbyLatch &&
+    !replyComposeActive &&
     !replyComposeUiActive &&
     !incomingCardFullyReady &&
     (deepLinkRouteBootPending ||
@@ -885,7 +886,7 @@ export function InstantBanFlow({
         if (entryPhase === 'composingBan') {
           setCrossScreenProgressImmediate(1);
         }
-      } else if (incomingReplyBanId) {
+      } else if (incomingReplyBanId || replyComposeActive) {
         if (phase !== 'composingBan') {
           setPhase('composingBan');
         } else {
@@ -902,6 +903,7 @@ export function InstantBanFlow({
     bansCtaQueueSuppress,
     clearCtaBootDelayTimer,
     incomingReplyBanId,
+    replyComposeActive,
     phase,
     sendStarted,
     activeBanDeepLinkBooting,
@@ -977,11 +979,17 @@ export function InstantBanFlow({
     !deepLinkRouteBootPending;
   const showBansLayer =
     effectiveBansOverlayOpen &&
+    !replyComposeActive &&
     (bansCtaQueueSuppress ||
       resultCtaBansOverlayOpen ||
-      routeOverlayAboveBoot ||
+      (routeOverlayAboveBoot && phase === 'idle') ||
       activeBanDeepLinkBooting ||
       (phase === 'idle' && !notificationQueueUiLock));
+  const bootBackgroundUnderRouteOverlay =
+    routeOverlayAboveBoot &&
+    !lobbyBootIntroPrimed &&
+    !replyComposeActive &&
+    phase === 'idle';
 
   useLayoutEffect(() => {
     patchBootHandoffDebug({
@@ -3352,9 +3360,7 @@ export function InstantBanFlow({
       data-boot-logo-intro={
         launchStage === 'logoEnter' || bootLogoScaleActive ? 'true' : undefined
       }
-      data-boot-background={
-        routeOverlayAboveBoot && !lobbyBootIntroPrimed ? 'true' : undefined
-      }
+      data-boot-background={bootBackgroundUnderRouteOverlay ? 'true' : undefined}
     >
       {showLobbyTopNav ? (
         <ArenaLobbyTopNav

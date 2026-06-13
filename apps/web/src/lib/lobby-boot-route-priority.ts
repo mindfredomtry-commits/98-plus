@@ -18,6 +18,8 @@ export type RouteOverlayBootPriorityInput = {
   displayResult: BanResult | null;
   activeBanCardReady: boolean;
   showReplyIncomingOverlayDirect: boolean;
+  /** Reply compose from incoming card — boot yields, overlay must not block What. */
+  replyComposeActive: boolean;
 };
 
 export function isRouteOverlayEntryPending(
@@ -73,5 +75,6 @@ export function isRouteOverlayReady(
 export function shouldBootYieldToRouteOverlay(
   input: RouteOverlayBootPriorityInput,
 ): boolean {
+  if (input.replyComposeActive) return false;
   return isRouteOverlayEntryPending(input) && isRouteOverlayReady(input);
 }

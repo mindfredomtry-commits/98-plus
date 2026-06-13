@@ -113,6 +113,7 @@ export default function HomePage() {
     incomingCardDisplayBan,
     routeOverlayAboveBoot,
     replyHandoffLock,
+    replyComposeActive,
   } = useApp();
   const { ready } = useTelegram();
   const deepLinkRouteBootPending = useDeepLinkRouteBootPending();
@@ -133,6 +134,7 @@ export default function HomePage() {
     });
   }, [lobbyBootIntroDone, lobbyPrefetch]);
   const replyDeeplinkPending =
+    !replyComposeActive &&
     !incomingCardFullyReady &&
     Boolean(
       replyDeepLinkBanId ||
