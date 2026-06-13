@@ -45,9 +45,10 @@ export function BootScene({ influencePercent, energyKnown }: Props) {
 
       <div className="boot-scene__stage instant-ban-arena-send__stage">
         <LobbyPersistentLogoSlot
-          className="lobby-screen__orb-wrap lobby-screen__orb-root"
+          key="lobby-persistent-logo"
           logoScaleActive={logoScaleActive}
           logoLocked={logoLocked}
+          visible
           onLogoScaleEnd={onLogoScaleEnd}
         />
         <LobbyBootOrbWrap

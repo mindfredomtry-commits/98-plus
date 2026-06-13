@@ -92,6 +92,12 @@ import {
   subscribeLobbyBootIntroSession,
 } from '@/lib/lobby-boot-intro-session';
 import { patchBootHandoffDebug } from '@/lib/boot-handoff-debug';
+import {
+  formatVisibleLogoSources,
+  logPersistentLogoComputedStyles,
+  logVisibleLobbyLogoSources,
+  scanVisibleLobbyLogoSources,
+} from '@/lib/lobby-logo-debug';
 import '@/components/lobby-boot-intro.css';
 import { triggerLobbyBlockedHaptic } from './lobby-cta-haptics';
 import {
@@ -3243,9 +3249,8 @@ export function InstantBanFlow({
 
   const showBootOrb = lobbyOrbVisible && !lobbyBootIntroPrimed;
   const showLobbyOrb = lobbyOrbVisible && lobbyBootIntroPrimed;
-  const showPersistentLogo =
-    lobbyOrbVisible &&
-    (showBootOrb || (showLobbyOrb && !confirmActive && !orbCompressActive));
+  const persistentLobbyLogoActive =
+    lobbyOrbVisible && !confirmActive && !orbCompressActive;
 
   useLayoutEffect(() => {
     patchBootHandoffDebug({
@@ -3257,6 +3262,7 @@ export function InstantBanFlow({
           ? lobbyOrbInstanceId
           : '',
       launchStage: showBootOrb ? launchStage : 'done',
+      persistentLogoActive: persistentLobbyLogoActive,
     });
   }, [
     showBootOrb,
@@ -3264,6 +3270,36 @@ export function InstantBanFlow({
     bootOrbInstanceId,
     lobbyOrbInstanceId,
     launchStage,
+    persistentLobbyLogoActive,
+  ]);
+
+  useLayoutEffect(() => {
+    if (typeof document === 'undefined') return;
+    const stage = document.querySelector(
+      '[data-instant-ban-view="InstantBanFlow"] .instant-ban-arena-send__stage',
+    );
+    const sources = scanVisibleLobbyLogoSources(stage ?? document);
+    const formatted = formatVisibleLogoSources(sources);
+    const rows = logPersistentLogoComputedStyles(
+      `handoff boot=${showBootOrb} lobby=${showLobbyOrb} primed=${lobbyBootIntroPrimed} stage=${launchStage}`,
+    );
+    const title = rows[0];
+    patchBootHandoffDebug({
+      visibleLogoSources: formatted,
+      logoTransform: title?.transform ?? '',
+      logoOpacity: title?.opacity ?? '',
+    });
+  }, [
+    showBootOrb,
+    showLobbyOrb,
+    lobbyBootIntroPrimed,
+    launchStage,
+    persistentLobbyLogoActive,
+    bootLogoScaleActive,
+    bootRingScaleActive,
+    bootFillActive,
+    confirmActive,
+    orbCompressActive,
   ]);
 
   useEffect(() => {
@@ -3287,7 +3323,7 @@ export function InstantBanFlow({
         replyUiShellActive ? ' instant-ban-flow--reply-ui-shell' : ''
       }${activeBanUiShellActive ? ' instant-ban-flow--active-ban-ui-shell' : ''}${
         bootIntroActive ? ' lobby-screen--boot-intro-active' : ''
-      }`}
+      }${persistentLobbyLogoActive ? ' instant-ban-flow--persistent-lobby-logo' : ''}`}
       style={arenaOverlayStyle}
       role="dialog"
       aria-modal="true"
@@ -3318,13 +3354,20 @@ export function InstantBanFlow({
       ) : null}
       {!lobbyChromeHidden ? <LobbyScreenAtmosphere /> : null}
 
-      <div className="instant-ban-arena-send__stage">
-        {showPersistentLogo ? (
+      <div
+        className="instant-ban-arena-send__stage"
+        data-persistent-lobby-logo-active={
+          persistentLobbyLogoActive ? 'true' : undefined
+        }
+      >
+        {lobbyOrbVisible ? (
           <LobbyPersistentLogoSlot
-            className="lobby-screen__orb-wrap lobby-screen__orb-root"
+            key="lobby-persistent-logo"
             logoScaleActive={bootLogoScaleActive}
             logoLocked={bootLogoLocked || lobbyBootIntroPrimed}
+            visible={persistentLobbyLogoActive}
             onLogoScaleEnd={onBootLogoScaleEnd}
+            diagContext={`stage=${launchStage} boot=${showBootOrb} lobby=${showLobbyOrb} primed=${lobbyBootIntroPrimed}`}
           />
         ) : null}
 
@@ -3362,6 +3405,7 @@ export function InstantBanFlow({
               orbCompressActive={orbCompressActive}
               confirmOrb={confirmOrb}
               lobbyRingDisplayPercent={lobbyRingDisplayPercent}
+              suppressOrbFaceTitle={persistentLobbyLogoActive}
               senderUser={user}
               selectedUser={selectedUser}
               banText={banText}

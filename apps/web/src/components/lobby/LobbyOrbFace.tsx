@@ -6,7 +6,7 @@ type Props = {
   ring: ReactNode;
   hidden?: boolean;
   faceClassName?: string;
-  /** Boot ring slot — logo rendered in separate overlay layer. */
+  /** Suppress orb-face title — persistent logo owns 98+ in lobby idle/boot handoff. */
   hideTitle?: boolean;
 };
 
@@ -22,6 +22,7 @@ export function LobbyOrbFace({
       className={`instant-ban-arena-lobby-orb__face instant-ban-confirm-orb-face${
         hidden ? ' instant-ban-arena-lobby-orb__face--hidden' : ''
       }${faceClassName ? ` ${faceClassName}` : ''}`}
+      data-lobby-title-suppressed={hideTitle ? 'true' : undefined}
     >
       <span className="instant-ban-arena-lobby-orb__ring-layer instant-ban-confirm-orb-ring">
         {ring}
@@ -29,7 +30,9 @@ export function LobbyOrbFace({
       {hideTitle ? null : (
         <span className="instant-ban-arena-lobby-orb__title-layer">
           <span className="lobby-screen__orb" data-orb-core>
-            <span className="lobby-screen__title">98+</span>
+            <span className="lobby-screen__title" data-logo-source="orb-face">
+              98+
+            </span>
           </span>
         </span>
       )}

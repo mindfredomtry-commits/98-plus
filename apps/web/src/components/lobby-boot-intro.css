@@ -36,6 +36,9 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   transform: translate(-50%, -50%);
   transform-origin: center center;
   pointer-events: none;
+  transition: none !important;
+  opacity: 1;
+  animation: none !important;
 }
 
 .lobby-persistent-logo-slot .lobby-boot-logo-layer {
@@ -45,12 +48,47 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   align-items: center;
   justify-content: center;
   transform: none !important;
+  transition: none !important;
+  opacity: 1;
+  animation: none !important;
 }
 
-.lobby-persistent-logo-slot.lobby-boot-logo-ready .lobby-screen__title {
-  opacity: 1;
-  transform: scale(1);
+/* Persistent logo must never inherit orb-root opacity transitions. */
+.lobby-persistent-logo-slot.lobby-screen__orb-root,
+.lobby-persistent-logo-slot.lobby-screen__orb-wrap {
   transition: none !important;
+}
+
+.lobby-persistent-logo-slot--hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.instant-ban-flow--persistent-lobby-logo [data-logo-source='orb-face'],
+.instant-ban-arena-send__stage[data-persistent-lobby-logo-active='true']
+  [data-logo-source='orb-face'],
+.instant-ban-arena-send__stage[data-persistent-lobby-logo-active='true']
+  .instant-ban-arena-lobby-orb__title-layer {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+  transform: none !important;
+  animation: none !important;
+  transition: none !important;
+}
+
+.lobby-persistent-logo-slot.lobby-boot-logo-ready .lobby-screen__title,
+.lobby-persistent-logo-slot.lobby-boot-logo-enter-done .lobby-screen__title,
+.lobby-persistent-logo-slot[data-logo-enter-done='true'] .lobby-screen__title {
+  opacity: 1 !important;
+  transform: scale(1) !important;
+  animation: none !important;
+  transition: none !important;
+  will-change: auto;
 }
 
 .lobby-persistent-logo-slot.lobby-boot-logo-intro-active:not(.lobby-boot-logo-ready)
@@ -79,7 +117,9 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   justify-content: center;
 }
 
-.lobby-boot-logo-intro-active .lobby-boot-logo-layer .lobby-screen__title {
+.lobby-persistent-logo-slot.lobby-boot-logo-intro-active:not(.lobby-boot-logo-enter-done):not(.lobby-boot-logo-ready)
+  .lobby-boot-logo-layer
+  .lobby-screen__title {
   display: inline-block;
   transform: scale(0.15);
   transform-origin: center center;
@@ -88,9 +128,12 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   animation: boot-logo-scale 550ms ease-out both;
 }
 
-.lobby-boot-logo-ready .lobby-boot-logo-layer .lobby-screen__title {
-  transform: scale(1);
-  animation: none;
+.lobby-boot-logo-ready .lobby-boot-logo-layer .lobby-screen__title,
+.lobby-boot-logo-enter-done .lobby-boot-logo-layer .lobby-screen__title {
+  transform: scale(1) !important;
+  animation: none !important;
+  transition: none !important;
+  opacity: 1 !important;
   will-change: auto;
 }
 
@@ -211,7 +254,9 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .lobby-boot-logo-intro-active .lobby-boot-logo-layer .lobby-screen__title {
+  .lobby-persistent-logo-slot.lobby-boot-logo-intro-active:not(.lobby-boot-logo-enter-done)
+    .lobby-boot-logo-layer
+    .lobby-screen__title {
     animation: none;
     transform: scale(1);
   }

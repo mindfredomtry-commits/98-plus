@@ -13,6 +13,10 @@ type BootHandoffDebugSnapshot = {
   introRunCount: number;
   orbInstanceId: string;
   launchStage: string;
+  visibleLogoSources: string;
+  persistentLogoActive: boolean;
+  logoTransform: string;
+  logoOpacity: string;
 };
 
 let snapshot: BootHandoffDebugSnapshot = {
@@ -30,6 +34,10 @@ let snapshot: BootHandoffDebugSnapshot = {
   introRunCount: 0,
   orbInstanceId: '',
   launchStage: 'done',
+  visibleLogoSources: 'none',
+  persistentLogoActive: false,
+  logoTransform: '',
+  logoOpacity: '',
 };
 
 const listeners = new Set<() => void>();

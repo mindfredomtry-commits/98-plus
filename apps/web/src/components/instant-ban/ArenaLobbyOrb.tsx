@@ -16,6 +16,8 @@ type Props = {
   confirmOrb: ConfirmOrb;
   /** Lobby ring fill (0 → actual on first open); ignored during confirm/compress. */
   lobbyRingDisplayPercent: number;
+  /** When true, 98+ is rendered by LobbyPersistentLogoSlot — never duplicate in face. */
+  suppressOrbFaceTitle?: boolean;
   senderUser: UserPublic | null | undefined;
   selectedUser: FriendCard | null;
   banText: string;
@@ -58,6 +60,7 @@ export function ArenaLobbyOrb({
   orbCompressActive,
   confirmOrb,
   lobbyRingDisplayPercent,
+  suppressOrbFaceTitle = false,
   senderUser,
   selectedUser,
   banText,
@@ -113,6 +116,7 @@ export function ArenaLobbyOrb({
   const ringDisplayValue = useLobbyRingDisplay
     ? lobbyRingDisplayPercent
     : ringValue;
+  const hideOrbFaceTitle = suppressOrbFaceTitle || useLobbyRingDisplay;
 
   return (
     <div
@@ -142,7 +146,7 @@ export function ArenaLobbyOrb({
         >
             <LobbyOrbFace
               hidden={!showOrbFace}
-              hideTitle={useLobbyRingDisplay}
+              hideTitle={hideOrbFaceTitle}
               ring={
                 <ArenaInfluenceRing
                   value={ringDisplayValue}
