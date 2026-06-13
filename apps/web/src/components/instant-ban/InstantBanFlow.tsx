@@ -3222,7 +3222,6 @@ export function InstantBanFlow({
   const hideLobbyBootLogoOnly = shouldHideLobbyBootLogoOnly({
     phase,
     replyComposeActive,
-    sendStarted,
   });
   const confirmLayoutActive = orbCompressActive;
   const successSnapshot = sendSnapshotRef.current;
@@ -3431,7 +3430,7 @@ export function InstantBanFlow({
               orbCompressActive={orbCompressActive}
               confirmOrb={confirmOrb}
               lobbyRingDisplayPercent={lobbyRingDisplayPercent}
-              suppressOrbFaceTitle={persistentLobbyLogoActive}
+              suppressOrbFaceTitle={persistentLogoVisible}
               senderUser={user}
               selectedUser={selectedUser}
               banText={banText}

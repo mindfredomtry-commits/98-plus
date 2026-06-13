@@ -7,17 +7,19 @@ export type SendFlowPhase =
 export type HideLobbyBootLogoOnlyInput = {
   phase: SendFlowPhase;
   replyComposeActive: boolean;
-  sendStarted: boolean;
 };
 
 /** Hide only the 98+ lobby boot logo layer — never confirm orb / boot ring. */
 export function shouldHideLobbyBootLogoOnly(
   input: HideLobbyBootLogoOnlyInput,
 ): boolean {
+  if (input.phase === 'idle') {
+    return input.replyComposeActive;
+  }
   return (
+    input.phase === 'selectingTarget' ||
     input.phase === 'composingBan' ||
     input.phase === 'confirming' ||
-    input.replyComposeActive ||
-    input.sendStarted
+    input.replyComposeActive
   );
 }

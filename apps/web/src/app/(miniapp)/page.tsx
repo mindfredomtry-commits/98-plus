@@ -197,7 +197,6 @@ export default function HomePage() {
   const hideLobbyBootLogoOnly = shouldHideLobbyBootLogoOnly({
     phase: 'idle',
     replyComposeActive,
-    sendStarted,
   });
   const replyTargetBanId = replyDeepLinkBanId ?? deepLinkBoot.parsedBanId;
   const replyIncomingReady =
