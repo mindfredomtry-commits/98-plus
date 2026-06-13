@@ -15,7 +15,7 @@ type Props = {
   diagContext?: string;
 };
 
-/** Single 98+ logo layer — stable mount, no orb-root/shared opacity transitions. */
+/** Single 98+ overlay — stable scene anchor, scale intro on inner anchor only. */
 export function LobbyPersistentLogoSlot({
   logoScaleActive,
   logoLocked,
@@ -25,6 +25,7 @@ export function LobbyPersistentLogoSlot({
   diagContext = 'persistent',
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const anchorRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLSpanElement>(null);
   const onLogoScaleEndRef = useRef(onLogoScaleEnd);
   const logoEndedRef = useRef(false);
@@ -34,7 +35,6 @@ export function LobbyPersistentLogoSlot({
   const logoLockedVisible = logoEnterDone || logoLocked;
   const runLogoIntro = logoScaleActive && !logoLockedVisible;
   const logoSource = logoLockedVisible ? 'persistent' : 'boot';
-  const bootLayerRetired = logoLockedVisible;
 
   useEffect(() => {
     if (!runLogoIntro) {
@@ -53,8 +53,8 @@ export function LobbyPersistentLogoSlot({
     };
 
     const handleAnimationEnd = (event: AnimationEvent) => {
-      if (event.target !== titleRef.current) return;
-      if (event.animationName !== 'boot-logo-scale') return;
+      if (event.target !== anchorRef.current) return;
+      if (event.animationName !== 'boot-logo-anchor-scale') return;
       finish();
     };
 
@@ -68,12 +68,23 @@ export function LobbyPersistentLogoSlot({
   }, [runLogoIntro, logoScaleActive, logoScaleMs]);
 
   useLayoutEffect(() => {
-    if (!logoLockedVisible) return;
+    const root = rootRef.current;
+    const anchor = anchorRef.current;
     const title = titleRef.current;
-    if (!title) return;
+    if (!root || !anchor || !title) return;
+
+    root.style.transform = 'translate(-50%, -50%)';
+    root.style.transition = 'none';
+    root.style.animation = 'none';
+
+    if (!logoLockedVisible) return;
+
+    anchor.style.transform = 'translate(-50%, -50%) scale(1)';
+    anchor.style.animation = 'none';
+    anchor.style.transition = 'none';
     title.style.opacity = '1';
     title.style.visibility = 'visible';
-    title.style.transform = 'scale(1)';
+    title.style.transform = 'none';
     title.style.animation = 'none';
     title.style.transition = 'none';
   }, [logoLockedVisible]);
@@ -81,10 +92,10 @@ export function LobbyPersistentLogoSlot({
   useLayoutEffect(() => {
     if (process.env.NODE_ENV !== 'development') return;
     const rows = logPersistentLogoComputedStyles(diagContext, rootRef.current);
-    const title = rows[0];
-    if (!title) return;
-    rootRef.current?.setAttribute('data-logo-transform', title.transform);
-    rootRef.current?.setAttribute('data-logo-opacity', title.opacity);
+    const anchorRow = rows.find((row) => row.label === 'anchor') ?? rows[0];
+    if (!anchorRow) return;
+    rootRef.current?.setAttribute('data-logo-transform', anchorRow.transform);
+    rootRef.current?.setAttribute('data-logo-opacity', anchorRow.opacity);
   }, [diagContext, runLogoIntro, logoLockedVisible, visible]);
 
   const hideForConfirm = !visible;
@@ -109,16 +120,7 @@ export function LobbyPersistentLogoSlot({
       data-logo-locked-visible={logoLockedVisible ? 'true' : undefined}
       aria-hidden={showHiddenClass ? true : undefined}
     >
-      <div
-        className={[
-          'lobby-boot-logo-layer',
-          bootLayerRetired ? 'lobby-boot-logo-layer--retired' : '',
-        ]
-          .filter(Boolean)
-          .join(' ')}
-        data-boot-logo-layer
-        data-boot-layer-retired={bootLayerRetired ? 'true' : undefined}
-      >
+      <div ref={anchorRef} className="lobby-persistent-logo-anchor" data-logo-anchor>
         <LobbyLaunchLogo ref={titleRef} logoSource={logoSource} />
       </div>
     </div>

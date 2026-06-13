@@ -10,6 +10,12 @@ export type PersistentLogoStyleSnapshot = {
   transition: string;
 };
 
+function readClassName(el: Element): string {
+  const value = el.className;
+  if (typeof value === 'string') return value;
+  return '';
+}
+
 export function scanVisibleLobbyLogoSources(
   root: ParentNode | Document = document,
 ): LobbyLogoSource[] {
@@ -53,25 +59,29 @@ export function snapshotPersistentLogoStyles(
 ): PersistentLogoStyleSnapshot[] {
   if (typeof document === 'undefined') return [];
 
-  const title =
-    root?.querySelector('[data-logo-source="persistent"]') ??
-    document.querySelector(
-      '[data-lobby-persistent-logo] [data-logo-source="persistent"]',
-    );
+  const slot =
+    root ??
+    document.querySelector('[data-lobby-persistent-logo]');
 
-  if (!title) return [];
+  if (!slot) return [];
+
+  const anchor = slot.querySelector('[data-logo-anchor]') as HTMLElement | null;
+  const start = anchor ?? (slot.querySelector('[data-logo-source]') as HTMLElement | null);
+  if (!start) return [];
 
   const rows: PersistentLogoStyleSnapshot[] = [];
-  let el: HTMLElement | null = title as HTMLElement;
+  let el: HTMLElement | null = start;
   let depth = 0;
 
   while (el && depth < 8) {
     const style = getComputedStyle(el);
     const label =
-      el.getAttribute('data-logo-source') ??
-      el.getAttribute('data-logo-layer') ??
-      (typeof el.className === 'string' && el.className ? el.className : null) ??
-      el.tagName.toLowerCase();
+      el.hasAttribute('data-logo-anchor')
+        ? 'anchor'
+        : el.getAttribute('data-logo-source') ??
+          el.getAttribute('data-logo-layer') ??
+          (readClassName(el) ? readClassName(el) : null) ??
+          el.tagName.toLowerCase();
     rows.push({
       context,
       depth,
@@ -95,9 +105,9 @@ export function logPersistentLogoComputedStyles(
   const rows = snapshotPersistentLogoStyles(context, root);
   if (process.env.NODE_ENV !== 'development' || rows.length === 0) return rows;
 
-  const title = rows[0];
-  console.log('logo transform', title.transform);
-  console.log('logo opacity', title.opacity);
+  const anchor = rows.find((row) => row.label === 'anchor') ?? rows[0];
+  console.log('logo transform', anchor.transform);
+  console.log('logo opacity', anchor.opacity);
   console.log('[lobby-logo-diag]', context, rows);
 
   return rows;

@@ -29,9 +29,10 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   left: 50%;
   top: var(--98-arena-orb-anchor-top);
   z-index: 5;
-  width: var(--98-confirm-orb-size);
-  height: var(--98-confirm-orb-size);
+  width: 0;
+  height: 0;
   margin: 0;
+  padding: 0;
   overflow: visible;
   transform: translate(-50%, -50%);
   transform-origin: center center;
@@ -41,15 +42,17 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   animation: none !important;
 }
 
-.lobby-persistent-logo-slot .lobby-boot-logo-layer {
+.lobby-persistent-logo-anchor {
   position: absolute;
-  inset: 0;
+  left: 0;
+  top: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  transform: none !important;
+  transform: translate(-50%, -50%) scale(1);
+  transform-origin: center center;
+  pointer-events: none;
   transition: none !important;
-  opacity: 1;
   animation: none !important;
 }
 
@@ -69,6 +72,7 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
 .lobby-persistent-logo-slot[data-logo-locked-visible='true']:not(.lobby-persistent-logo-slot--hidden) {
   opacity: 1 !important;
   visibility: visible !important;
+  transform: translate(-50%, -50%) !important;
   transition: none !important;
   animation: none !important;
 }
@@ -92,9 +96,19 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
 
 .lobby-persistent-logo-slot.lobby-boot-logo-ready .lobby-screen__title,
 .lobby-persistent-logo-slot.lobby-boot-logo-enter-done .lobby-screen__title,
-.lobby-persistent-logo-slot[data-logo-enter-done='true'] .lobby-screen__title {
+.lobby-persistent-logo-slot[data-logo-enter-done='true'] .lobby-screen__title,
+.lobby-persistent-logo-slot .lobby-persistent-logo-anchor .lobby-screen__title {
   opacity: 1 !important;
-  transform: scale(1) !important;
+  transform: none !important;
+  animation: none !important;
+  transition: none !important;
+  will-change: auto;
+}
+
+.lobby-persistent-logo-slot.lobby-boot-logo-enter-done .lobby-persistent-logo-anchor,
+.lobby-persistent-logo-slot[data-logo-enter-done='true'] .lobby-persistent-logo-anchor,
+.lobby-persistent-logo-slot[data-logo-locked-visible='true'] .lobby-persistent-logo-anchor {
+  transform: translate(-50%, -50%) scale(1) !important;
   animation: none !important;
   transition: none !important;
   will-change: auto;
@@ -107,33 +121,6 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   opacity: 0;
 }
 
-.lobby-boot-logo-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  transform: none !important;
-}
-
-/* After logoEnter — boot wrapper must not be a second visible logo layer. */
-.lobby-persistent-logo-slot.lobby-boot-logo-enter-done .lobby-boot-logo-layer--retired,
-.lobby-persistent-logo-slot[data-logo-enter-done='true'] .lobby-boot-logo-layer--retired,
-.lobby-boot-logo-layer--retired[data-boot-layer-retired='true'] {
-  display: contents;
-  position: static;
-  inset: auto;
-  width: auto;
-  height: auto;
-  opacity: 1;
-  visibility: visible;
-  pointer-events: none;
-  animation: none !important;
-  transform: none !important;
-}
-
 .lobby-boot-logo-layer__inner {
   position: relative;
   inset: auto;
@@ -143,31 +130,21 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
 }
 
 .lobby-persistent-logo-slot.lobby-boot-logo-intro-active:not(.lobby-boot-logo-enter-done):not(.lobby-boot-logo-ready)
-  .lobby-boot-logo-layer
-  .lobby-screen__title {
-  display: inline-block;
-  transform: scale(0.15);
+  .lobby-persistent-logo-anchor {
+  transform: translate(-50%, -50%) scale(0.15);
   transform-origin: center center;
   will-change: transform;
   backface-visibility: hidden;
-  animation: boot-logo-scale 550ms ease-out both;
+  animation: boot-logo-anchor-scale 550ms ease-out both;
 }
 
-.lobby-boot-logo-ready .lobby-boot-logo-layer .lobby-screen__title,
-.lobby-boot-logo-enter-done .lobby-boot-logo-layer .lobby-screen__title {
-  transform: scale(1) !important;
-  animation: none !important;
-  transition: none !important;
-  opacity: 1 !important;
-  will-change: auto;
-}
-
-@keyframes boot-logo-scale {
+@keyframes boot-logo-anchor-scale {
   from {
-    transform: scale(0.15);
+    transform: translate(-50%, -50%) scale(0.15);
   }
+
   to {
-    transform: scale(1);
+    transform: translate(-50%, -50%) scale(1);
   }
 }
 
@@ -280,10 +257,9 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
 
 @media (prefers-reduced-motion: reduce) {
   .lobby-persistent-logo-slot.lobby-boot-logo-intro-active:not(.lobby-boot-logo-enter-done)
-    .lobby-boot-logo-layer
-    .lobby-screen__title {
+    .lobby-persistent-logo-anchor {
     animation: none;
-    transform: scale(1);
+    transform: translate(-50%, -50%) scale(1);
   }
 
   .lobby-boot-intro-active .lobby-boot-orb-scale-layer {
