@@ -124,7 +124,9 @@ export function LobbyScreen({
       <div className="lobby-screen__orb-wrap">
         <InfluenceRing value={influence} />
         <div className="lobby-screen__orb">
-          <span className="lobby-screen__title">98+</span>
+          <span className="lobby-screen__title" data-logo-source="arena">
+            98+
+          </span>
         </div>
       </div>
 

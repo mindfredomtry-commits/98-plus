@@ -98,6 +98,7 @@ import {
   logVisibleLobbyLogoSources,
   scanVisibleLobbyLogoSources,
 } from '@/lib/lobby-logo-debug';
+import { logLogoSourceDiagnostics } from '@/lib/lobby-logo-source-debug';
 import '@/components/lobby-boot-intro.css';
 import { triggerLobbyBlockedHaptic } from './lobby-cta-haptics';
 import {
@@ -3278,11 +3279,11 @@ export function InstantBanFlow({
     const stage = document.querySelector(
       '[data-instant-ban-view="InstantBanFlow"] .instant-ban-arena-send__stage',
     );
+    const context = `handoff boot=${showBootOrb} lobby=${showLobbyOrb} primed=${lobbyBootIntroPrimed} stage=${launchStage}`;
+    logLogoSourceDiagnostics(context, stage ?? document);
     const sources = scanVisibleLobbyLogoSources(stage ?? document);
     const formatted = formatVisibleLogoSources(sources);
-    const rows = logPersistentLogoComputedStyles(
-      `handoff boot=${showBootOrb} lobby=${showLobbyOrb} primed=${lobbyBootIntroPrimed} stage=${launchStage}`,
-    );
+    const rows = logPersistentLogoComputedStyles(context);
     const title = rows[0];
     patchBootHandoffDebug({
       visibleLogoSources: formatted,

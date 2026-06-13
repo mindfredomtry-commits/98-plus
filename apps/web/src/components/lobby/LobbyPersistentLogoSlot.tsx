@@ -107,7 +107,7 @@ export function LobbyPersistentLogoSlot({
       data-logo-locked-visible={logoLockedVisible ? 'true' : undefined}
       aria-hidden={showHiddenClass ? true : undefined}
     >
-      <div className="lobby-boot-logo-layer" data-boot-logo-layer>
+      <div className="lobby-boot-logo-layer" data-boot-logo-layer data-logo-source="boot">
         <LobbyLaunchLogo ref={titleRef} />
       </div>
     </div>
