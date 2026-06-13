@@ -9,10 +9,6 @@ export default function MiniAppLayout({
 }) {
   return (
     <>
-      <Script
-        src="https://telegram.org/js/telegram-web-app.js"
-        strategy="beforeInteractive"
-      />
       <Script id="tg-lobby-shell-init" strategy="beforeInteractive">
         {`(function(){var t=window.Telegram&&window.Telegram.WebApp;if(!t)return;t.ready();t.expand();try{t.setHeaderColor("#050308");t.setBackgroundColor("#050308");}catch(e){}})();`}
       </Script>
@@ -20,9 +16,6 @@ export default function MiniAppLayout({
         {`(function(){try{document.documentElement.style.setProperty('--boot-orb-initial-scale','0.15');}catch(e){}})();`}
       </Script>
       <Providers>
-        <div id="lobby-boot-logo-prehydrate" aria-hidden="true">
-          98+
-        </div>
         <AppHydrationMarker />
         {children}
       </Providers>

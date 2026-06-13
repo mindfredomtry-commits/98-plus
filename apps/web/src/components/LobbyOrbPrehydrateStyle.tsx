@@ -1,7 +1,21 @@
 /**
- * Critical CSS in <head> — runs before React/hydration paint.
- * Boot scene only — lobby orb is not pre-scaled.
+ * Critical CSS in <head> — first paint before globals.css / Tailwind / React.
+ * Covers Telegram webview gray flash and square placeholder stage.
  */
+const LOBBY_BOOT_SCENE_BG = `
+  radial-gradient(
+    ellipse 120% 80% at 50% 20%,
+    rgba(108, 52, 131, 0.35),
+    transparent 55%
+  ),
+  radial-gradient(
+    ellipse 90% 60% at 50% 100%,
+    rgba(59, 7, 100, 0.45),
+    transparent 50%
+  ),
+  radial-gradient(circle at 50% 50%, #120818 0%, #050308 45%, #0f0f0f 100%)
+`;
+
 export function LobbyOrbPrehydrateStyle() {
   return (
     <style
@@ -9,6 +23,32 @@ export function LobbyOrbPrehydrateStyle() {
       // eslint-disable-next-line react/no-danger
       dangerouslySetInnerHTML={{
         __html: `
+html {
+  margin: 0;
+  min-height: 100%;
+  color-scheme: dark;
+  background-color: #0f0f0f;
+  background-image: ${LOBBY_BOOT_SCENE_BG};
+}
+body {
+  margin: 0;
+  min-height: 100%;
+  background-color: #0f0f0f;
+  background-image: ${LOBBY_BOOT_SCENE_BG};
+}
+#lobby-boot-shell-early {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483645;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  background-color: #0f0f0f;
+  background-image: ${LOBBY_BOOT_SCENE_BG};
+}
 #lobby-boot-logo-prehydrate {
   position: fixed;
   left: 50%;
@@ -33,7 +73,7 @@ export function LobbyOrbPrehydrateStyle() {
   opacity: 1;
   visibility: visible;
 }
-html[data-lobby-logo-live] #lobby-boot-logo-prehydrate {
+html[data-lobby-logo-live] #lobby-boot-shell-early {
   display: none !important;
 }
 html:not([data-app-hydrated]) [data-boot-scene] .lobby-boot-orb-scale-layer {
