@@ -31,6 +31,10 @@ export function BootScene({ influencePercent, energyKnown }: Props) {
     onLogoScaleEnd,
     onRingScaleEnd,
     onFillEnd,
+    logoScaleMs,
+    logoScaleDelayMs,
+    ringScaleMs,
+    fillMs,
   } = useBootSceneIntro(ringTarget, energyKnown);
 
   return (
@@ -49,6 +53,8 @@ export function BootScene({ influencePercent, energyKnown }: Props) {
           logoScaleActive={logoScaleActive}
           logoLocked={logoLocked}
           visible
+          logoScaleMs={logoScaleMs}
+          logoScaleDelayMs={logoScaleDelayMs}
           onLogoScaleEnd={onLogoScaleEnd}
         />
         <LobbyBootOrbWrap
@@ -57,6 +63,8 @@ export function BootScene({ influencePercent, energyKnown }: Props) {
           fillActive={fillActive}
           ringScaleLocked={ringScaleLocked}
           ringTarget={fillTargetPercent}
+          ringScaleMs={ringScaleMs}
+          fillMs={fillMs}
           onRingScaleEnd={onRingScaleEnd}
           onFillEnd={onFillEnd}
         >

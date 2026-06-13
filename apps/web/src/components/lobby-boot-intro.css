@@ -212,7 +212,8 @@ html:not([data-app-hydrated]) .lobby-persistent-logo-slot:not(.lobby-boot-logo-e
   transform-origin: center center;
   will-change: transform;
   backface-visibility: hidden;
-  animation: boot-logo-anchor-scale 550ms ease-out both !important;
+  animation: boot-logo-anchor-scale 350ms ease-out both !important;
+  animation-delay: 50ms;
 }
 
 @keyframes boot-logo-anchor-scale {
@@ -253,7 +254,7 @@ html:not([data-app-hydrated]) .lobby-persistent-logo-slot:not(.lobby-boot-logo-e
   transform: scale(0.15);
   will-change: transform, opacity;
   backface-visibility: hidden;
-  animation: boot-orb-scale 550ms ease-out both;
+  animation: boot-orb-scale 450ms ease-out both;
 }
 
 .lobby-boot-intro-active .lobby-boot-ring-shell {
@@ -318,7 +319,7 @@ html:not([data-app-hydrated]) .lobby-persistent-logo-slot:not(.lobby-boot-logo-e
   opacity: 1;
   visibility: visible;
   will-change: stroke-dashoffset;
-  animation: boot-ring-fill 550ms ease-out both;
+  animation: boot-ring-fill 450ms ease-out both;
 }
 
 @keyframes boot-ring-fill {

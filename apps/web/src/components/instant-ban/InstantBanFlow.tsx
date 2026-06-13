@@ -143,7 +143,7 @@ function logHoldBlocked(reason: string, extra?: Record<string, unknown>): void {
 const CTA_EXIT_MS = 200;
 const CTA_ENTER_MS = 400;
 /** Extra wait before first CTA spring-in on cold app open (Who return unchanged). */
-const LOBBY_CTA_COLD_START_DELAY_MS = 200;
+const LOBBY_CTA_COLD_START_DELAY_MS = 50;
 const WHO_PANEL_ENTER_MS = 220;
 const WHO_OVERLAY_TITLE = 'КОМУ ЗАПРЕЩАЕШЬ?';
 const WHAT_OVERLAY_TITLE = 'ЧТО ЗАПРЕЩАЕШЬ?';
@@ -3257,6 +3257,10 @@ export function InstantBanFlow({
     onLogoScaleEnd: onBootLogoScaleEnd,
     onRingScaleEnd: onBootRingScaleEnd,
     onFillEnd: onBootFillEnd,
+    logoScaleMs: bootLogoScaleMs,
+    logoScaleDelayMs: bootLogoScaleDelayMs,
+    ringScaleMs: bootRingScaleMs,
+    fillMs: bootFillMs,
   } = bootIntro;
 
   const lobbyRingDisplayPercent = useMemo(() => {
@@ -3391,6 +3395,8 @@ export function InstantBanFlow({
             logoScaleActive={bootLogoScaleActive}
             logoLocked={bootLogoLocked || lobbyBootIntroPrimed}
             visible={persistentLogoVisible}
+            logoScaleMs={bootLogoScaleMs}
+            logoScaleDelayMs={bootLogoScaleDelayMs}
             onLogoScaleEnd={onBootLogoScaleEnd}
             diagContext={`stage=${launchStage} boot=${showBootOrb} lobby=${showLobbyOrb} primed=${lobbyBootIntroPrimed}`}
           />
@@ -3403,6 +3409,8 @@ export function InstantBanFlow({
             fillActive={bootFillActive}
             ringScaleLocked={bootRingScaleLocked}
             ringTarget={fillTargetPercent}
+            ringScaleMs={bootRingScaleMs}
+            fillMs={bootFillMs}
             onRingScaleEnd={onBootRingScaleEnd}
             onFillEnd={onBootFillEnd}
             data-boot-orb

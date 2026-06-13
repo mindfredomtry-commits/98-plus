@@ -45,8 +45,8 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
       ringTarget,
       onRingScaleEnd,
       onFillEnd,
-      ringScaleMs = 550,
-      fillMs = 550,
+      ringScaleMs = 450,
+      fillMs = 450,
       children,
       ...rest
     },

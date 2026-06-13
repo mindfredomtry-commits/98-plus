@@ -12,6 +12,7 @@ type Props = {
   visible?: boolean;
   onLogoScaleEnd?: () => void;
   logoScaleMs?: number;
+  logoScaleDelayMs?: number;
   diagContext?: string;
 };
 
@@ -21,7 +22,8 @@ export function LobbyPersistentLogoSlot({
   logoLocked,
   visible = true,
   onLogoScaleEnd,
-  logoScaleMs = 550,
+  logoScaleMs = 350,
+  logoScaleDelayMs = 50,
   diagContext = 'persistent',
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -81,14 +83,17 @@ export function LobbyPersistentLogoSlot({
       finish();
     };
 
-    const fallbackTimer = window.setTimeout(finish, logoScaleMs + 30);
+    const fallbackTimer = window.setTimeout(
+      finish,
+      logoScaleDelayMs + logoScaleMs + 30,
+    );
 
     root.addEventListener('animationend', handleAnimationEnd);
     return () => {
       window.clearTimeout(fallbackTimer);
       root.removeEventListener('animationend', handleAnimationEnd);
     };
-  }, [runLogoIntro, logoScaleMs]);
+  }, [runLogoIntro, logoScaleMs, logoScaleDelayMs]);
 
   useLayoutEffect(() => {
     const root = rootRef.current;

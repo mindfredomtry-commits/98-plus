@@ -151,7 +151,7 @@ export function ArenaLobbyOrb({
                 <ArenaInfluenceRing
                   value={ringDisplayValue}
                   debugId={debugIdRef.current}
-                  disableTransition={useLobbyRingDisplay}
+                  disableTransition={confirmActive || orbCompressActive}
                 />
               }
             />

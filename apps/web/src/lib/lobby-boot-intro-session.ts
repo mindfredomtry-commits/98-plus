@@ -15,6 +15,8 @@ let logoIntroDone = false;
 let introFullyPrimed = false;
 let primedSnapshot: PrimedSnapshot = { scale: 1, ringPercent: 0 };
 let handoffSnapshot: HandoffSnapshot | null = null;
+let lastKnownRingPercent = 0;
+let hasCachedRingPercent = false;
 
 const sessionListeners = new Set<() => void>();
 
@@ -58,6 +60,27 @@ export function getLobbyBootIntroPrimedSnapshot(): PrimedSnapshot {
   return primedSnapshot;
 }
 
+export function getLastKnownLobbyRingPercent(): number {
+  return lastKnownRingPercent;
+}
+
+export function rememberLobbyRingPercent(ringPercent: number): void {
+  lastKnownRingPercent = clampPercent(ringPercent);
+  hasCachedRingPercent = true;
+}
+
+/** Boot fill target — real API value, cached session value, or null (empty ring). */
+export function resolveBootFillTarget(
+  energyKnown: boolean,
+  apiTarget: number,
+): number | null {
+  if (energyKnown) return clampPercent(apiTarget);
+  if (hasCachedRingPercent) return lastKnownRingPercent;
+  const handoff = handoffSnapshot;
+  if (handoff) return clampPercent(handoff.ringPercent);
+  return null;
+}
+
 export function markLobbyBootScaleIntroDone(ringPercent: number): void {
   scaleIntroDone = true;
   primedSnapshot = {
@@ -75,6 +98,7 @@ export function markLobbyBootIntroPrimed(ringPercent: number, scale = 1): void {
     scale: Math.min(1, Math.max(SCALE_START, scale)),
     ringPercent: clampPercent(ringPercent),
   };
+  rememberLobbyRingPercent(ringPercent);
   handoffSnapshot = null;
   notifyLobbyBootIntroSession();
 }

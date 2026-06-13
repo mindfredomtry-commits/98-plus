@@ -7,6 +7,8 @@ type Props = {
   logoScaleActive: boolean;
   logoLocked: boolean;
   onLogoScaleEnd?: () => void;
+  logoScaleMs?: number;
+  logoScaleDelayMs?: number;
   /** Route card/overlay is above boot — boot stays as background placeholder. */
   bootBackground?: boolean;
   /** Compose flow — hide only the 98+ logo layer, not boot ring/orb. */
@@ -18,6 +20,8 @@ export function LobbyBootLogoShell({
   logoScaleActive,
   logoLocked,
   onLogoScaleEnd,
+  logoScaleMs = 350,
+  logoScaleDelayMs = 50,
   bootBackground = false,
   hideLobbyBootLogoOnly = false,
 }: Props) {
@@ -36,6 +40,8 @@ export function LobbyBootLogoShell({
           logoScaleActive={logoScaleActive}
           logoLocked={logoLocked}
           visible={!hideLobbyBootLogoOnly}
+          logoScaleMs={logoScaleMs}
+          logoScaleDelayMs={logoScaleDelayMs}
           onLogoScaleEnd={onLogoScaleEnd}
           diagContext="early-boot-shell"
         />

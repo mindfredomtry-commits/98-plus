@@ -394,6 +394,8 @@ export default function HomePage() {
         <LobbyBootLogoShell
           logoScaleActive={bootIntro.logoScaleActive}
           logoLocked={bootIntro.logoLocked}
+          logoScaleMs={bootIntro.logoScaleMs}
+          logoScaleDelayMs={bootIntro.logoScaleDelayMs}
           onLogoScaleEnd={bootIntro.onLogoScaleEnd}
           bootBackground={routeOverlayAboveBoot}
           hideLobbyBootLogoOnly={hideLobbyBootLogoOnly}
