@@ -12,6 +12,7 @@ type BootHandoffDebugSnapshot = {
   orbSource: 'BootScene' | 'Lobby' | 'none';
   introRunCount: number;
   orbInstanceId: string;
+  launchStage: string;
 };
 
 let snapshot: BootHandoffDebugSnapshot = {
@@ -28,6 +29,7 @@ let snapshot: BootHandoffDebugSnapshot = {
   orbSource: 'none',
   introRunCount: 0,
   orbInstanceId: '',
+  launchStage: 'done',
 };
 
 const listeners = new Set<() => void>();

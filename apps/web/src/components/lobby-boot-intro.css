@@ -1,4 +1,4 @@
-/* Boot scene intro only — parallel scale + ring fill (550ms). Lobby orb never uses these rules. */
+/* Launch intro — orbEnter (scale) then energyFill (ring), sequential. Lobby orb never uses these. */
 
 html:not([data-app-hydrated]) [data-boot-scene] .lobby-boot-orb-scale-layer {
   transform: scale(0.15);
@@ -30,11 +30,17 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   contain: none;
 }
 
+/* Phase orbEnter — scale only, ring stays empty */
 .lobby-boot-intro-active .lobby-boot-orb-scale-layer {
   transform: scale(0.15);
   will-change: transform;
   backface-visibility: hidden;
   animation: boot-orb-scale 550ms ease-out both;
+}
+
+.lobby-boot-intro-active .lobby-boot-progress-stroke {
+  stroke-dashoffset: var(--ring-circumference);
+  animation: none;
 }
 
 @keyframes boot-orb-scale {
@@ -46,18 +52,25 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   }
 }
 
-.lobby-boot-intro-active .instant-ban-arena-lobby-orb__ring-layer {
+/* Scale locked after orbEnter — no second growth during energyFill */
+.lobby-boot-scale-done .lobby-boot-orb-scale-layer {
+  transform: scale(1);
+  animation: none;
+  will-change: auto;
+}
+
+.lobby-boot-fill-active .instant-ban-arena-lobby-orb__ring-layer {
   opacity: 1;
   visibility: visible;
 }
 
-.lobby-boot-intro-active
+.lobby-boot-fill-active
   .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
   transform: scale(var(--98-confirm-ring-lobby-scale));
   transition: none !important;
 }
 
-.lobby-boot-intro-active .influence-ring__track {
+.lobby-boot-fill-active .influence-ring__track {
   stroke: rgba(var(--98-purple-deep-rgb), 0.55);
   stroke-width: 2.5;
   opacity: 1;
@@ -70,7 +83,8 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   transition: none !important;
 }
 
-.lobby-boot-intro-active .lobby-boot-progress-stroke {
+/* Phase energyFill — ring 0 → target, scale unchanged */
+.lobby-boot-fill-active .lobby-boot-progress-stroke {
   stroke: rgba(var(--98-power-rgb), 0.92);
   stroke-width: 2.5;
   opacity: 1;
@@ -87,12 +101,6 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   }
 }
 
-.lobby-boot-intro-active .lobby-screen__title {
-  text-shadow:
-    0 0 24px rgba(var(--98-accent-rgb), 0.9),
-    0 0 48px rgba(var(--98-accent-rgb), 0.55);
-}
-
 /* Lobby orb — always full size, no boot animation */
 .lobby-orb-ready {
   overflow: visible;
@@ -105,7 +113,7 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
     transform: scale(1);
   }
 
-  .lobby-boot-intro-active .lobby-boot-progress-stroke {
+  .lobby-boot-fill-active .lobby-boot-progress-stroke {
     animation: none;
     stroke-dashoffset: var(--boot-ring-target-dashoffset);
   }

@@ -31,6 +31,7 @@ export function BootHandoffDebugBadge() {
       <div>showBottomNav={String(debug.showBottomNav)}</div>
       <div>showBootScene={String(debug.showBootScene)}</div>
       <div>hasPlayedIntro={String(debug.hasPlayedIntro)}</div>
+      <div>launchStage={debug.launchStage}</div>
       <div>orbSource={debug.orbSource}</div>
       <div>introRunCount={debug.introRunCount}</div>
       <div>orbInstanceId={debug.orbInstanceId || '—'}</div>

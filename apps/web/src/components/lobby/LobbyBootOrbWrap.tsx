@@ -11,14 +11,17 @@ import {
 } from 'react';
 import { INFLUENCE_RING_CIRCUMFERENCE } from '@/components/lobby/InfluenceRing';
 
-const BOOT_INTRO_MS = 580;
-
 type Props = {
   className?: string;
   style?: CSSProperties;
-  introActive: boolean;
+  scaleActive: boolean;
+  fillActive: boolean;
+  scaleLocked: boolean;
   ringTarget: number;
-  onIntroEnd?: () => void;
+  onScaleEnd?: () => void;
+  onFillEnd?: () => void;
+  scaleMs?: number;
+  fillMs?: number;
   children: ReactNode;
 } & Record<string, unknown>;
 
@@ -30,20 +33,36 @@ function assignRef<T>(ref: Ref<T> | undefined, value: T | null): void {
   }
 }
 
-/** Boot scene orb — scale + ring fill via CSS only. */
+/** Boot launch orb — scale (orbEnter) then ring fill (energyFill), CSS only. */
 export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
   function LobbyBootOrbWrap(
-    { className = '', style, introActive, ringTarget, onIntroEnd, children, ...rest },
+    {
+      className = '',
+      style,
+      scaleActive,
+      fillActive,
+      scaleLocked,
+      ringTarget,
+      onScaleEnd,
+      onFillEnd,
+      scaleMs = 550,
+      fillMs = 550,
+      children,
+      ...rest
+    },
     ref,
   ) {
     const rootRef = useRef<HTMLDivElement>(null);
-    const onIntroEndRef = useRef(onIntroEnd);
-    const introEndedRef = useRef(false);
-    onIntroEndRef.current = onIntroEnd;
+    const onScaleEndRef = useRef(onScaleEnd);
+    const onFillEndRef = useRef(onFillEnd);
+    const scaleEndedRef = useRef(false);
+    const fillEndedRef = useRef(false);
+    onScaleEndRef.current = onScaleEnd;
+    onFillEndRef.current = onFillEnd;
 
     useEffect(() => {
-      if (!introActive) {
-        introEndedRef.current = false;
+      if (!scaleActive) {
+        scaleEndedRef.current = false;
         return;
       }
 
@@ -51,25 +70,53 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
       if (!root) return;
 
       const finish = () => {
-        if (introEndedRef.current) return;
-        introEndedRef.current = true;
-        onIntroEndRef.current?.();
+        if (scaleEndedRef.current) return;
+        scaleEndedRef.current = true;
+        onScaleEndRef.current?.();
       };
 
       const handleAnimationEnd = (event: AnimationEvent) => {
-        const name = event.animationName;
-        if (name !== 'boot-orb-scale' && name !== 'boot-ring-fill') return;
+        if (event.animationName !== 'boot-orb-scale') return;
         finish();
       };
 
-      const fallbackTimer = window.setTimeout(finish, BOOT_INTRO_MS);
+      const fallbackTimer = window.setTimeout(finish, scaleMs + 30);
 
       root.addEventListener('animationend', handleAnimationEnd);
       return () => {
         window.clearTimeout(fallbackTimer);
         root.removeEventListener('animationend', handleAnimationEnd);
       };
-    }, [introActive]);
+    }, [scaleActive, scaleMs]);
+
+    useEffect(() => {
+      if (!fillActive) {
+        fillEndedRef.current = false;
+        return;
+      }
+
+      const root = rootRef.current;
+      if (!root) return;
+
+      const finish = () => {
+        if (fillEndedRef.current) return;
+        fillEndedRef.current = true;
+        onFillEndRef.current?.();
+      };
+
+      const handleAnimationEnd = (event: AnimationEvent) => {
+        if (event.animationName !== 'boot-ring-fill') return;
+        finish();
+      };
+
+      const fallbackTimer = window.setTimeout(finish, fillMs + 30);
+
+      root.addEventListener('animationend', handleAnimationEnd);
+      return () => {
+        window.clearTimeout(fallbackTimer);
+        root.removeEventListener('animationend', handleAnimationEnd);
+      };
+    }, [fillActive, fillMs]);
 
     const targetRatio = Math.min(1, Math.max(0, ringTarget / 100));
     const circ = INFLUENCE_RING_CIRCUMFERENCE;
@@ -83,7 +130,9 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
 
     const rootClass = [
       className,
-      introActive ? 'lobby-boot-intro-active' : '',
+      scaleActive ? 'lobby-boot-intro-active' : '',
+      scaleLocked ? 'lobby-boot-scale-done' : '',
+      fillActive ? 'lobby-boot-fill-active' : '',
     ]
       .filter(Boolean)
       .join(' ');

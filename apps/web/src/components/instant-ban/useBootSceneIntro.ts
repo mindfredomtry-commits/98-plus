@@ -6,6 +6,8 @@ import {
   hasPlayedLobbyBootIntroThisSession,
   isLobbyBootIntroPrimed,
   markLobbyBootIntroPrimed,
+  markLobbyBootScaleIntroDone,
+  isLobbyBootScaleIntroDone,
   shouldRunLobbyBootIntroVisualSync,
 } from '@/lib/lobby-boot-intro-session';
 import {
@@ -15,7 +17,14 @@ import {
   recordBootMarkPrimedCall,
 } from '@/lib/boot-handoff-debug';
 
-const BOOT_INTRO_MS = 580;
+const SCALE_MS = 550;
+const FILL_MS = 550;
+
+export type LaunchStage =
+  | 'done'
+  | 'orbEnter'
+  | 'energyWait'
+  | 'energyFill';
 
 function prefersReducedMotion(): boolean {
   if (typeof window === 'undefined') return false;
@@ -30,37 +39,71 @@ function shouldSkipBootSceneIntro(): boolean {
   return prefersReducedMotion() || hasPlayedLobbyBootIntroThisSession();
 }
 
+function resolveInitialStage(): LaunchStage {
+  if (isLobbyBootIntroPrimed() || shouldSkipBootSceneIntro()) return 'done';
+  if (isLobbyBootScaleIntroDone()) return 'energyWait';
+  return 'orbEnter';
+}
+
 /**
- * Boot scene intro only — parallel CSS scale + ring fill (550ms), once per session.
- * Lobby orb never uses this hook.
+ * Launch intro state machine: orbEnter → energyFill → lobbyReveal (primed).
+ * Scale runs once; ring fill runs after scale locks, separately.
  */
 export function useBootSceneIntro(targetRingPercent: number, energyKnown: boolean) {
   const target = clampPercent(targetRingPercent);
 
-  const [introPrimed, setIntroPrimed] = useState(() =>
-    isLobbyBootIntroPrimed() || shouldSkipBootSceneIntro(),
-  );
+  const [launchStage, setLaunchStage] = useState<LaunchStage>(resolveInitialStage);
 
-  const introActive =
-    !introPrimed &&
+  const scaleActive =
+    launchStage === 'orbEnter' &&
     shouldRunLobbyBootIntroVisualSync() &&
     !shouldSkipBootSceneIntro();
 
-  const bootFillActive = introActive;
+  const fillActive = launchStage === 'energyFill';
+  const waitingEnergy = launchStage === 'energyWait';
+  const scaleLocked =
+    launchStage === 'energyWait' ||
+    launchStage === 'energyFill' ||
+    launchStage === 'done';
+
+  const introPrimed =
+    launchStage === 'done' || isLobbyBootIntroPrimed();
 
   const finishPrimed = useCallback(
     (ring: number) => {
       if (isLobbyBootIntroPrimed()) {
-        setIntroPrimed(true);
+        setLaunchStage('done');
         return;
       }
       const clamped = clampPercent(ring);
-      setIntroPrimed(true);
       markLobbyBootIntroPrimed(clamped, 1);
       recordBootMarkPrimedCall();
+      setLaunchStage('done');
     },
     [],
   );
+
+  const onScaleEnd = useCallback(() => {
+    if (launchStage !== 'orbEnter') return;
+    recordBootIntroEndCall();
+    markLobbyBootScaleIntroDone(energyKnown ? target : 0);
+
+    if (!energyKnown) {
+      setLaunchStage('energyWait');
+      return;
+    }
+    if (target <= 0) {
+      finishPrimed(0);
+      return;
+    }
+    setLaunchStage('energyFill');
+  }, [launchStage, energyKnown, target, finishPrimed]);
+
+  const onFillEnd = useCallback(() => {
+    if (launchStage !== 'energyFill') return;
+    recordBootIntroEndCall();
+    finishPrimed(energyKnown ? target : getLobbyBootIntroPrimedSnapshot().ringPercent);
+  }, [launchStage, energyKnown, target, finishPrimed]);
 
   useLayoutEffect(() => {
     if (shouldSkipBootSceneIntro() && !isLobbyBootIntroPrimed()) {
@@ -69,37 +112,51 @@ export function useBootSceneIntro(targetRingPercent: number, energyKnown: boolea
   }, [energyKnown, target, finishPrimed]);
 
   useLayoutEffect(() => {
-    if (!isLobbyBootIntroPrimed() || introPrimed) return;
-    setIntroPrimed(true);
-  }, [introPrimed]);
-
-  const onIntroEnd = useCallback(() => {
-    recordBootIntroEndCall();
-    finishPrimed(energyKnown ? target : getLobbyBootIntroPrimedSnapshot().ringPercent);
-  }, [energyKnown, target, finishPrimed]);
+    if (isLobbyBootIntroPrimed() && launchStage !== 'done') {
+      setLaunchStage('done');
+    }
+  }, [launchStage]);
 
   useEffect(() => {
-    if (!introActive) return;
+    if (launchStage !== 'energyWait' || !energyKnown) return;
+    if (target <= 0) {
+      finishPrimed(0);
+      return;
+    }
+    setLaunchStage('energyFill');
+  }, [launchStage, energyKnown, target, finishPrimed]);
+
+  useEffect(() => {
+    if (!scaleActive) return;
     recordBootIntroRun();
-  }, [introActive]);
+  }, [scaleActive]);
 
   useEffect(() => {
     patchBootHandoffDebug({
-      bootSceneVisible: introActive,
+      bootSceneVisible: scaleActive || fillActive || waitingEnergy,
       introPrimed: isLobbyBootIntroPrimed() || introPrimed,
       hasPlayedIntro: isLobbyBootIntroPrimed(),
       showBootScene: !isLobbyBootIntroPrimed(),
+      launchStage,
     });
-  }, [introActive, introPrimed]);
+  }, [scaleActive, fillActive, waitingEnergy, introPrimed, launchStage]);
 
   const ringTargetPercent = energyKnown ? target : 0;
+  const visualRingPercent = fillActive ? ringTargetPercent : 0;
 
   return {
-    introActive,
+    launchStage,
+    scaleActive,
+    fillActive,
+    waitingEnergy,
+    scaleLocked,
     introPrimed,
-    bootFillActive,
+    bootIntroActive: scaleActive || fillActive || waitingEnergy,
     ringTargetPercent,
-    onIntroEnd,
-    bootIntroMs: BOOT_INTRO_MS,
+    visualRingPercent,
+    onScaleEnd,
+    onFillEnd,
+    scaleMs: SCALE_MS,
+    fillMs: FILL_MS,
   };
 }

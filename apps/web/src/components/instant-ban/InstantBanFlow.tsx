@@ -3219,9 +3219,15 @@ export function InstantBanFlow({
   });
 
   const {
-    introActive: bootIntroActive,
+    launchStage,
+    scaleActive: bootScaleActive,
+    fillActive: bootFillActive,
+    scaleLocked: bootScaleLocked,
+    bootIntroActive,
     ringTargetPercent,
-    onIntroEnd: onBootIntroEnd,
+    visualRingPercent,
+    onScaleEnd: onBootScaleEnd,
+    onFillEnd: onBootFillEnd,
   } = useBootSceneIntro(lobbyInfluencePercent, energyLoaded);
 
   const lobbyRingDisplayPercent = useMemo(() => {
@@ -3243,8 +3249,15 @@ export function InstantBanFlow({
         : showLobbyOrb
           ? lobbyOrbInstanceId
           : '',
+      launchStage: showBootOrb ? launchStage : 'done',
     });
-  }, [showBootOrb, showLobbyOrb, bootOrbInstanceId, lobbyOrbInstanceId]);
+  }, [
+    showBootOrb,
+    showLobbyOrb,
+    bootOrbInstanceId,
+    lobbyOrbInstanceId,
+    launchStage,
+  ]);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== 'development') return;
@@ -3302,13 +3315,19 @@ export function InstantBanFlow({
         {showBootOrb ? (
           <LobbyBootOrbWrap
             className="lobby-screen__orb-wrap lobby-screen__orb-root"
-            introActive={bootIntroActive}
+            scaleActive={bootScaleActive}
+            fillActive={bootFillActive}
+            scaleLocked={bootScaleLocked}
             ringTarget={ringTargetPercent}
-            onIntroEnd={onBootIntroEnd}
+            onScaleEnd={onBootScaleEnd}
+            onFillEnd={onBootFillEnd}
             data-boot-orb
             data-orb-instance={bootOrbInstanceId}
           >
-            <LobbyIdleOrb ringPercent={ringTargetPercent} bootFillActive={false} />
+            <LobbyIdleOrb
+              ringPercent={visualRingPercent}
+              bootFillActive={bootFillActive}
+            />
           </LobbyBootOrbWrap>
         ) : null}
 
