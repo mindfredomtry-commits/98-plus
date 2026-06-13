@@ -64,6 +64,15 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   pointer-events: none;
 }
 
+.lobby-persistent-logo-slot.lobby-boot-logo-enter-done:not(.lobby-persistent-logo-slot--hidden),
+.lobby-persistent-logo-slot[data-logo-enter-done='true']:not(.lobby-persistent-logo-slot--hidden),
+.lobby-persistent-logo-slot[data-logo-locked-visible='true']:not(.lobby-persistent-logo-slot--hidden) {
+  opacity: 1 !important;
+  visibility: visible !important;
+  transition: none !important;
+  animation: none !important;
+}
+
 .instant-ban-flow--persistent-lobby-logo [data-logo-source='orb-face'],
 .instant-ban-arena-send__stage[data-persistent-lobby-logo-active='true']
   [data-logo-source='orb-face'],

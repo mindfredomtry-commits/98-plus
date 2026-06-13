@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { isLobbyBootLogoIntroDone } from '@/lib/lobby-boot-intro-session';
 import { logPersistentLogoComputedStyles } from '@/lib/lobby-logo-debug';
 import { LobbyLaunchLogo } from '@/components/lobby/LobbyLaunchLogo';
@@ -8,6 +8,7 @@ import { LobbyLaunchLogo } from '@/components/lobby/LobbyLaunchLogo';
 type Props = {
   logoScaleActive: boolean;
   logoLocked: boolean;
+  /** False only for confirm/compress — never during boot → lobby handoff. */
   visible?: boolean;
   onLogoScaleEnd?: () => void;
   logoScaleMs?: number;
@@ -27,11 +28,11 @@ export function LobbyPersistentLogoSlot({
   const titleRef = useRef<HTMLSpanElement>(null);
   const onLogoScaleEndRef = useRef(onLogoScaleEnd);
   const logoEndedRef = useRef(false);
-  const logoEnterDoneRef = useRef(isLobbyBootLogoIntroDone());
+  const [logoEnterDone, setLogoEnterDone] = useState(() => isLobbyBootLogoIntroDone());
   onLogoScaleEndRef.current = onLogoScaleEnd;
 
-  const runLogoIntro = logoScaleActive && !logoEnterDoneRef.current;
-  const logoEnterDone = logoEnterDoneRef.current || logoLocked;
+  const logoLockedVisible = logoEnterDone || logoLocked;
+  const runLogoIntro = logoScaleActive && !logoLockedVisible;
 
   useEffect(() => {
     if (!runLogoIntro) {
@@ -45,7 +46,7 @@ export function LobbyPersistentLogoSlot({
     const finish = () => {
       if (logoEndedRef.current) return;
       logoEndedRef.current = true;
-      logoEnterDoneRef.current = true;
+      setLogoEnterDone(true);
       onLogoScaleEndRef.current?.();
     };
 
@@ -65,19 +66,33 @@ export function LobbyPersistentLogoSlot({
   }, [runLogoIntro, logoScaleActive, logoScaleMs]);
 
   useLayoutEffect(() => {
+    if (!logoLockedVisible) return;
+    const title = titleRef.current;
+    if (!title) return;
+    title.style.opacity = '1';
+    title.style.visibility = 'visible';
+    title.style.transform = 'scale(1)';
+    title.style.animation = 'none';
+    title.style.transition = 'none';
+  }, [logoLockedVisible]);
+
+  useLayoutEffect(() => {
     if (process.env.NODE_ENV !== 'development') return;
     const rows = logPersistentLogoComputedStyles(diagContext, rootRef.current);
     const title = rows[0];
     if (!title) return;
     rootRef.current?.setAttribute('data-logo-transform', title.transform);
     rootRef.current?.setAttribute('data-logo-opacity', title.opacity);
-  }, [diagContext, runLogoIntro, logoEnterDone, visible]);
+  }, [diagContext, runLogoIntro, logoLockedVisible, visible]);
+
+  const hideForConfirm = !visible;
+  const showHiddenClass = hideForConfirm;
 
   const rootClass = [
     'lobby-persistent-logo-slot',
     runLogoIntro ? 'lobby-boot-logo-intro-active' : '',
-    logoEnterDone ? 'lobby-boot-logo-ready lobby-boot-logo-enter-done' : '',
-    visible ? '' : 'lobby-persistent-logo-slot--hidden',
+    logoLockedVisible ? 'lobby-boot-logo-ready lobby-boot-logo-enter-done' : '',
+    showHiddenClass ? 'lobby-persistent-logo-slot--hidden' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -88,8 +103,9 @@ export function LobbyPersistentLogoSlot({
       className={rootClass}
       data-lobby-persistent-logo
       data-logo-layer="persistent"
-      data-logo-enter-done={logoEnterDone ? 'true' : undefined}
-      aria-hidden={visible ? undefined : true}
+      data-logo-enter-done={logoLockedVisible ? 'true' : undefined}
+      data-logo-locked-visible={logoLockedVisible ? 'true' : undefined}
+      aria-hidden={showHiddenClass ? true : undefined}
     >
       <div className="lobby-boot-logo-layer" data-boot-logo-layer>
         <LobbyLaunchLogo ref={titleRef} />

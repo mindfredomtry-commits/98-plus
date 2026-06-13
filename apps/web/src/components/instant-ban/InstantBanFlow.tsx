@@ -3249,8 +3249,8 @@ export function InstantBanFlow({
 
   const showBootOrb = lobbyOrbVisible && !lobbyBootIntroPrimed;
   const showLobbyOrb = lobbyOrbVisible && lobbyBootIntroPrimed;
-  const persistentLobbyLogoActive =
-    lobbyOrbVisible && !confirmActive && !orbCompressActive;
+  const persistentLobbyLogoActive = !confirmActive && !orbCompressActive;
+  const persistentLogoVisible = persistentLobbyLogoActive;
 
   useLayoutEffect(() => {
     patchBootHandoffDebug({
@@ -3360,16 +3360,14 @@ export function InstantBanFlow({
           persistentLobbyLogoActive ? 'true' : undefined
         }
       >
-        {lobbyOrbVisible ? (
-          <LobbyPersistentLogoSlot
-            key="lobby-persistent-logo"
-            logoScaleActive={bootLogoScaleActive}
-            logoLocked={bootLogoLocked || lobbyBootIntroPrimed}
-            visible={persistentLobbyLogoActive}
-            onLogoScaleEnd={onBootLogoScaleEnd}
-            diagContext={`stage=${launchStage} boot=${showBootOrb} lobby=${showLobbyOrb} primed=${lobbyBootIntroPrimed}`}
-          />
-        ) : null}
+        <LobbyPersistentLogoSlot
+          key="lobby-persistent-logo"
+          logoScaleActive={bootLogoScaleActive}
+          logoLocked={bootLogoLocked || lobbyBootIntroPrimed}
+          visible={persistentLogoVisible}
+          onLogoScaleEnd={onBootLogoScaleEnd}
+          diagContext={`stage=${launchStage} boot=${showBootOrb} lobby=${showLobbyOrb} primed=${lobbyBootIntroPrimed}`}
+        />
 
         {showBootOrb ? (
           <LobbyBootOrbWrap

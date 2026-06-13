@@ -19,6 +19,7 @@ export function BootHandoffDebugBadge() {
     getBootHandoffDebug,
   );
 
+  if (process.env.NODE_ENV !== 'development') return null;
   if (!mounted || typeof document === 'undefined') return null;
 
   return createPortal(
