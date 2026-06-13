@@ -3,8 +3,15 @@
 /** Incoming ban DM — counter-challenge via WebApp. */
 export const REPLY_BAN_WEBAPP_BUTTON_LABEL = '🚫 запретить в ответ';
 
-/** Check / status question DM — honest answer via WebApp (same check deeplink). */
-export const CHECK_BAN_STATUS_WEBAPP_BUTTON_LABEL = '🚫 Выдержал?';
+/** Check / status question DM — receiver answers about their own endurance. */
+export const CHECK_BAN_RECEIVER_WEBAPP_BUTTON_LABEL = '🚫 Ты выдержал(а)?';
+
+/** Check / status question DM — sender asks if counterparty held out. */
+export const CHECK_BAN_SENDER_WEBAPP_BUTTON_LABEL = '🚫 Выдержал(а)?';
+
+/** @deprecated Use role-specific CHECK_BAN_*_WEBAPP_BUTTON_LABEL */
+export const CHECK_BAN_STATUS_WEBAPP_BUTTON_LABEL =
+  CHECK_BAN_RECEIVER_WEBAPP_BUTTON_LABEL;
 
 /** Retention DM — opens send flow to a friend. */
 export const RETENTION_BAN_WEBAPP_BUTTON_LABEL = '🚫 запретить';
@@ -232,7 +239,67 @@ export function formatBotStartChallengeMessage(params: {
   return formatIncomingBanMessage(params);
 }
 
-/** Check DM — personal challenge block; CTA lives in WebApp button only. */
+/** Shared ban essence block — person header + «Запрещаю … на …». */
+export function formatCheckChallengeBanBlock(params: {
+  person: TelegramPersonFields;
+  banText: string;
+  durationMinutes: number;
+}): string {
+  const header = formatPersonalChallengePersonHeader(params.person);
+  const essence = banTextEssence(params.banText);
+  const dur = formatDurationLabel(params.durationMinutes);
+  return `${header}\n\nЗапрещаю ${essence}\nна ${dur}.`;
+}
+
+export function checkBanWebAppButtonLabel(
+  role: 'receiver' | 'sender',
+): string {
+  return role === 'receiver'
+    ? CHECK_BAN_RECEIVER_WEBAPP_BUTTON_LABEL
+    : CHECK_BAN_SENDER_WEBAPP_BUTTON_LABEL;
+}
+
+/** Check DM for ban receiver — ban was imposed on them. */
+export function formatBotCheckChallengeMessageForReceiver(params: {
+  senderUsername?: string | null;
+  senderFirstName?: string | null;
+  senderDisplayName?: string | null;
+  banText: string;
+  durationMinutes: number;
+}): string {
+  const block = formatCheckChallengeBanBlock({
+    person: {
+      username: params.senderUsername,
+      firstName: params.senderFirstName,
+      displayName: params.senderDisplayName,
+    },
+    banText: params.banText,
+    durationMinutes: params.durationMinutes,
+  });
+  return `Был запрет тебе от\n\n${block}`;
+}
+
+/** Check DM for ban sender — their ban toward the counterparty. */
+export function formatBotCheckChallengeMessageForSender(params: {
+  receiverUsername?: string | null;
+  receiverFirstName?: string | null;
+  receiverDisplayName?: string | null;
+  banText: string;
+  durationMinutes: number;
+}): string {
+  const block = formatCheckChallengeBanBlock({
+    person: {
+      username: params.receiverUsername,
+      firstName: params.receiverFirstName,
+      displayName: params.receiverDisplayName,
+    },
+    banText: params.banText,
+    durationMinutes: params.durationMinutes,
+  });
+  return `Был твой запрет для\n\n${block}`;
+}
+
+/** @deprecated Use role-specific formatBotCheckChallengeMessageFor* */
 export function formatBotCheckChallengeMessage(params: {
   senderUsername?: string | null;
   senderFirstName?: string | null;
@@ -240,7 +307,7 @@ export function formatBotCheckChallengeMessage(params: {
   banText: string;
   durationMinutes: number;
 }): string {
-  return formatPersonalChallengeBlock(params);
+  return formatBotCheckChallengeMessageForReceiver(params);
 }
 
 /** Sender DM when receiver accepted the ban — shows receiver identity. */

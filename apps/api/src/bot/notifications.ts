@@ -2,7 +2,9 @@ import { Markup } from 'telegraf';
 import type { BanResult } from '@98plus/shared';
 import {
   formatBotBanAcceptedSenderMessage,
-  formatBotCheckChallengeMessage,
+  formatBotCheckChallengeMessageForReceiver,
+  formatBotCheckChallengeMessageForSender,
+  checkBanWebAppButtonLabel,
   formatBotResultMessage,
   formatChallengeShareMessage,
   formatDurationLabel,
@@ -12,7 +14,6 @@ import {
   isTelegramResultOutcome,
   OPEN_BAN_WEBAPP_BUTTON_LABEL,
   REPEAT_BAN_WEBAPP_BUTTON_LABEL,
-  CHECK_BAN_STATUS_WEBAPP_BUTTON_LABEL,
   REPLY_BAN_WEBAPP_BUTTON_LABEL,
   RETENTION_BAN_WEBAPP_BUTTON_LABEL,
   SENDER_BAN_CONFIRMED_WEBAPP_BUTTON_LABEL,
@@ -475,36 +476,49 @@ export async function sendBotStartInviteChallenge(
   }
 }
 
-export async function sendCheckNotification(
-  telegramId: bigint,
-  banText: string,
-  banId: string,
-  senderUsername?: string | null,
-  senderFirstName?: string | null,
-  durationMinutes?: number,
-) {
+export async function sendCheckNotification(params: {
+  telegramId: bigint;
+  banText: string;
+  banId: string;
+  durationMinutes?: number;
+  role: 'receiver' | 'sender';
+  counterpartyUsername?: string | null;
+  counterpartyFirstName?: string | null;
+  counterpartyDisplayName?: string | null;
+}) {
   const bot = getBot();
   if (!bot) return;
 
+  const buttonLabel = checkBanWebAppButtonLabel(params.role);
   const url = notificationDeepLink(
-    { type: 'check', banId },
+    { type: 'check', banId: params.banId },
     {
       source: 'sendCheckNotification',
-      buttonLabel: CHECK_BAN_STATUS_WEBAPP_BUTTON_LABEL,
+      buttonLabel,
     },
   );
-  const message = formatBotCheckChallengeMessage({
-    senderUsername,
-    senderFirstName,
-    banText,
-    durationMinutes: durationMinutes ?? 10,
-  });
+  const message =
+    params.role === 'receiver'
+      ? formatBotCheckChallengeMessageForReceiver({
+          senderUsername: params.counterpartyUsername,
+          senderFirstName: params.counterpartyFirstName,
+          senderDisplayName: params.counterpartyDisplayName,
+          banText: params.banText,
+          durationMinutes: params.durationMinutes ?? 10,
+        })
+      : formatBotCheckChallengeMessageForSender({
+          receiverUsername: params.counterpartyUsername,
+          receiverFirstName: params.counterpartyFirstName,
+          receiverDisplayName: params.counterpartyDisplayName,
+          banText: params.banText,
+          durationMinutes: params.durationMinutes ?? 10,
+        });
 
   try {
     await bot.telegram.sendMessage(
-      telegramId.toString(),
+      params.telegramId.toString(),
       message,
-      replyBanKeyboard(url, CHECK_BAN_STATUS_WEBAPP_BUTTON_LABEL),
+      replyBanKeyboard(url, buttonLabel),
     );
   } catch {
     /* ignore */

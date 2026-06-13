@@ -1875,15 +1875,24 @@ export async function processSingleDueCheck(banId: string): Promise<boolean> {
     include: { sender: true, receiver: true },
   });
   if (full) {
-    const checkArgs = [
-      ban.text,
-      ban.id,
-      full.sender.username,
-      full.sender.firstName,
-      ban.durationMinutes,
-    ] as const;
-    await sendCheckNotification(full.sender.telegramId, ...checkArgs);
-    await sendCheckNotification(full.receiver.telegramId, ...checkArgs);
+    await sendCheckNotification({
+      telegramId: full.receiver.telegramId,
+      banText: ban.text,
+      banId: ban.id,
+      durationMinutes: ban.durationMinutes,
+      role: 'receiver',
+      counterpartyUsername: full.sender.username,
+      counterpartyFirstName: full.sender.firstName,
+    });
+    await sendCheckNotification({
+      telegramId: full.sender.telegramId,
+      banText: ban.text,
+      banId: ban.id,
+      durationMinutes: ban.durationMinutes,
+      role: 'sender',
+      counterpartyUsername: full.receiver.username,
+      counterpartyFirstName: full.receiver.firstName,
+    });
   }
   await syncSession(ban.senderId);
   await syncSession(ban.receiverId);
