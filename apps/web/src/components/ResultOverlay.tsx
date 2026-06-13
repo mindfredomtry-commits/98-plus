@@ -28,6 +28,9 @@ import { useApp } from './Providers';
 import { BigButton } from './BigButton';
 import { useTelegram } from '@/hooks/useTelegram';
 import { ModalShell } from './ModalShell';
+
+/** Testing: hide «Запретить другим!» on status cards — handlers/mechanics unchanged. */
+const SHOW_BAN_OTHERS_BUTTON_UI = false;
 import { AvatarImage } from './AvatarImage';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
 import {
@@ -282,6 +285,7 @@ function ResultOverlayInner({
       ? overboardPresentation.subline
       : result.subline;
     const showBanOthers =
+      SHOW_BAN_OTHERS_BUTTON_UI &&
       !isOverboard &&
       showFreeModeBanOthersAction(result.farmSkipped, result.outcome);
 
