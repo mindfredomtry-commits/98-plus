@@ -1825,6 +1825,18 @@ export function InstantBanFlow({
     [clearActiveBanDeepLinkShell, markSessionBanSendSuccess],
   );
 
+  const showOptimisticSendSuccess = useCallback(() => {
+    if (sendFailedRef.current || banSentSuccess) return;
+    logSendFlow('optimistic-success', {
+      attemptId: flowSendAttemptRef.current,
+    });
+    setSendError(null);
+    markSessionBanSendSuccess();
+    triggerConfirmHaptic();
+    haptic('medium');
+    setBanSentSuccess(true);
+  }, [banSentSuccess, haptic, markSessionBanSendSuccess]);
+
   const { send, inFlight, sharing } = useSendChallenge({
     token,
     friends: safeFriends,
@@ -2884,8 +2896,6 @@ export function InstantBanFlow({
     if (!banSentSuccess) {
       setSendError(null);
     }
-    triggerConfirmHaptic();
-    haptic('medium');
 
     console.info('[98+] sendBan payload', {
       textLength: text.length,
@@ -2902,134 +2912,146 @@ export function InstantBanFlow({
       openSendFlow();
     }
 
-    try {
-      if (effectiveReplyBanId) {
-        if (replySending) {
-          logHoldBlocked('reply-in-flight');
-          instantBanDebug('send-skipped', { reason: 'reply-in-flight' });
-          return 'skipped';
-        }
-        setReplySending(true);
-        const endpoint = `/bans/${effectiveReplyBanId}/reply`;
-        const replyPayload = {
-          text,
-          durationMinutes: snapDuration,
-        };
-        console.log('[reply-send-debug] send payload', {
-          endpoint,
-          payload: replyPayload,
-        });
-        logSendFlow('api-request', { endpoint, attemptId });
-        try {
-          const res = await api<{
-            parentId: string;
-            replyBan: BanInteraction;
-            session: SessionState;
-          }>(endpoint, {
-            method: 'POST',
-            token,
-            body: JSON.stringify(replyPayload),
-            retries: 0,
-            timeoutMs: DEFAULT_SEND_TIMEOUT_MS,
+    if (effectiveReplyBanId && replySending) {
+      logHoldBlocked('reply-in-flight');
+      instantBanDebug('send-skipped', { reason: 'reply-in-flight' });
+      return 'skipped';
+    }
+    if (!effectiveReplyBanId && inFlight) {
+      logHoldBlocked('send-in-flight');
+      instantBanDebug('send-skipped', { reason: 'hook-in-flight' });
+      return 'skipped';
+    }
+
+    showOptimisticSendSuccess();
+
+    void (async () => {
+      try {
+        if (effectiveReplyBanId) {
+          setReplySending(true);
+          const endpoint = `/bans/${effectiveReplyBanId}/reply`;
+          const replyPayload = {
+            text,
+            durationMinutes: snapDuration,
+          };
+          console.log('[reply-send-debug] send payload', {
+            endpoint,
+            payload: replyPayload,
           });
-          logSendFlow('api-response', {
-            status: 'ok',
-            banId: res.replyBan?.id ?? null,
-            attemptId,
-          });
-          if (!res.replyBan?.id) {
-            throw new Error('Сервер не подтвердил запрет');
+          logSendFlow('api-request', { endpoint, attemptId });
+          try {
+            const res = await api<{
+              parentId: string;
+              replyBan: BanInteraction;
+              session: SessionState;
+            }>(endpoint, {
+              method: 'POST',
+              token,
+              body: JSON.stringify(replyPayload),
+              retries: 0,
+              timeoutMs: DEFAULT_SEND_TIMEOUT_MS,
+            });
+            logSendFlow('api-response', {
+              status: 'ok',
+              banId: res.replyBan?.id ?? null,
+              attemptId,
+            });
+            if (!res.replyBan?.id) {
+              throw new Error('Сервер не подтвердил запрет');
+            }
+            if (res.session) applySession(res.session);
+            scheduleDeferredSync();
+            clearIncomingReply({ finalizeBanId: effectiveReplyBanId });
+            openSuccess(res.replyBan.id, attemptId);
+          } finally {
+            setReplySending(false);
+            if (openedSendFlowForReplyPost) {
+              closeSendFlow();
+            }
           }
-          if (res.session) applySession(res.session);
-          scheduleDeferredSync();
-          clearIncomingReply({ finalizeBanId: effectiveReplyBanId });
-          openSuccess(res.replyBan.id, attemptId);
-          return 'started';
-        } finally {
-          setReplySending(false);
+          return;
+        }
+
+        if (pinnedReplyToBanId || isReplyFlow) {
           if (openedSendFlowForReplyPost) {
             closeSendFlow();
           }
+          logHoldBlocked('reply-context-fell-through-to-normal-send', {
+            pinnedReplyToBanId,
+            effectiveReplyBanId,
+            isReplyFlow,
+            source,
+          });
+          console.error('[reply-send-debug] WRONG_ENDPOINT', {
+            reason: 'reply-context-fell-through-to-normal-send',
+            pinnedReplyToBanId,
+            effectiveReplyBanId,
+            isReplyFlow,
+            source,
+          });
+          setSendError('Не получилось отправить запрет');
+          setBanSentSuccess(false);
+          confirmAbortReleaseRef.current?.();
+          return;
         }
-      }
 
-      if (pinnedReplyToBanId || isReplyFlow) {
-        if (openedSendFlowForReplyPost) {
-          closeSendFlow();
+        logSendFlow('api-request', { endpoint: '/bans/send', attemptId });
+        const outcome = await send({
+          text,
+          receiverUsername: receiverUsernameForApi,
+          receiverUserId: sendTarget.receiverUserId,
+          receiverTelegramId: sendTarget.receiverTelegramId,
+          durationMinutes: snapDuration,
+        });
+        if (outcome === 'skipped') {
+          instantBanDebug('send-skipped', { reason: 'hook-in-flight' });
         }
-        logHoldBlocked('reply-context-fell-through-to-normal-send', {
-          pinnedReplyToBanId,
-          effectiveReplyBanId,
+      } catch (e) {
+        logSendFlow('api-error', {
+          status: (e as { status?: number }).status,
+          message: e instanceof Error ? e.message : String(e),
+          attemptId,
+        });
+        if (isLowEnergySendFailure(e)) {
+          logEnergyGate('insufficientEnergyRedirect', {
+            source,
+            energyBefore: energyGate.influencePercent,
+            canSend: false,
+            apiResult: 'INSUFFICIENT_ENERGY',
+          });
+          setBanSentSuccess(false);
+          returnToLobbyAfterLowEnergy({
+            source,
+            apiResult: 'INSUFFICIENT_ENERGY',
+          });
+          return;
+        }
+        const message =
+          e instanceof Error ? e.message : 'Не получилось отправить запрет';
+        console.log('[reply-send-debug] send error response', {
+          message,
+          status: (e as { status?: number }).status,
+          error: e,
+          source,
           isReplyFlow,
+          effectiveReplyBanId,
+          pinnedReplyToBanId: snap.replyToBanId ?? getPinnedReplyToBanId(),
+        });
+        console.info('[98+] sendBan failed', {
+          stage: 'request',
+          message,
+          error: e instanceof Error ? e.name : typeof e,
+          status: (e as { status?: number }).status,
           source,
         });
-        console.error('[reply-send-debug] WRONG_ENDPOINT', {
-          reason: 'reply-context-fell-through-to-normal-send',
-          pinnedReplyToBanId,
-          effectiveReplyBanId,
-          isReplyFlow,
-          source,
-        });
-        setSendError('Не получилось отправить запрет');
+        instantBanSendErrorDebug({ message, error: e });
+        setSendError(message);
+        setBanSentSuccess(false);
         confirmAbortReleaseRef.current?.();
-        return 'rejected';
       }
+    })();
 
-      logSendFlow('api-request', { endpoint: '/bans/send', attemptId });
-      const outcome = await send({
-        text,
-        receiverUsername: receiverUsernameForApi,
-        receiverUserId: sendTarget.receiverUserId,
-        receiverTelegramId: sendTarget.receiverTelegramId,
-        durationMinutes: snapDuration,
-      });
-      if (outcome === 'skipped') {
-        instantBanDebug('send-skipped', { reason: 'hook-in-flight' });
-        return 'skipped';
-      }
-      return 'started';
-    } catch (e) {
-      logSendFlow('api-error', {
-        status: (e as { status?: number }).status,
-        message: e instanceof Error ? e.message : String(e),
-        attemptId,
-      });
-      if (isLowEnergySendFailure(e)) {
-        logEnergyGate('insufficientEnergyRedirect', {
-          source,
-          energyBefore: energyGate.influencePercent,
-          canSend: false,
-          apiResult: 'INSUFFICIENT_ENERGY',
-        });
-        returnToLobbyAfterLowEnergy({
-          source,
-          apiResult: 'INSUFFICIENT_ENERGY',
-        });
-        return 'rejected';
-      }
-      const message =
-        e instanceof Error ? e.message : 'Не получилось отправить запрет';
-      console.log('[reply-send-debug] send error response', {
-        message,
-        status: (e as { status?: number }).status,
-        error: e,
-        source,
-        isReplyFlow,
-        effectiveReplyBanId,
-        pinnedReplyToBanId: snap.replyToBanId ?? getPinnedReplyToBanId(),
-      });
-      console.info('[98+] sendBan failed', {
-        stage: 'request',
-        message,
-        error: e instanceof Error ? e.name : typeof e,
-        status: (e as { status?: number }).status,
-        source,
-      });
-      instantBanSendErrorDebug({ message, error: e });
-      setSendError(message);
-      confirmAbortReleaseRef.current?.();
-      return 'rejected';
-    }
+    return 'started';
   }, [
     token,
     haptic,
@@ -3056,6 +3078,7 @@ export function InstantBanFlow({
     scheduleDeferredSync,
     clearIncomingReply,
     openSuccess,
+    showOptimisticSendSuccess,
     energyLoaded,
     influencePercent,
     refreshUser,
