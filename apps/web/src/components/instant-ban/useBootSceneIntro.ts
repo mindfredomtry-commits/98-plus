@@ -63,11 +63,13 @@ export function useBootSceneIntro(targetRingPercent: number, energyKnown: boolea
 
   const [launchStage, setLaunchStage] = useState<LaunchStage>(resolveInitialStage);
 
-  const canRunVisual =
+  const canRunLogoVisual =
+    shouldRunLobbyBootIntroVisualSync() && !prefersReducedMotion();
+  const canRunRingVisual =
     shouldRunLobbyBootIntroVisualSync() && !shouldSkipBootSceneIntro();
 
-  const logoScaleActive = launchStage === 'logoEnter' && canRunVisual;
-  const ringScaleActive = launchStage === 'ringEnter' && canRunVisual;
+  const logoScaleActive = launchStage === 'logoEnter' && canRunLogoVisual;
+  const ringScaleActive = launchStage === 'ringEnter' && canRunRingVisual;
   const fillActive = launchStage === 'energyFill';
   const waitingEnergy = launchStage === 'energyWait';
   const logoLocked =
@@ -189,7 +191,11 @@ export function useBootSceneIntro(targetRingPercent: number, energyKnown: boolea
     ringScaleLocked,
     introPrimed,
     bootIntroActive:
-      logoScaleActive || ringScaleActive || fillActive || waitingEnergy,
+      launchStage === 'logoEnter' ||
+      logoScaleActive ||
+      ringScaleActive ||
+      fillActive ||
+      waitingEnergy,
     fillTargetPercent,
     visualRingPercent,
     onLogoScaleEnd,
@@ -200,3 +206,5 @@ export function useBootSceneIntro(targetRingPercent: number, energyKnown: boolea
     fillMs: FILL_MS,
   };
 }
+
+export type BootSceneIntroController = ReturnType<typeof useBootSceneIntro>;

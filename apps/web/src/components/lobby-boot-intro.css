@@ -1,5 +1,20 @@
 /* Launch intro — logoEnter → ringEnter → energyFill. Lobby orb never uses these. */
 
+.lobby-boot-logo-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 66;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.lobby-boot-logo-shell__stage {
+  position: relative;
+  width: 100%;
+  height: var(--instant-ban-vh, var(--app-stable-height, 100dvh));
+  overflow: visible;
+}
+
 html:not([data-app-hydrated]) [data-boot-scene] .lobby-boot-orb-scale-layer {
   transform: scale(0.15);
   transform-origin: center center;
@@ -129,6 +144,7 @@ html:not([data-app-hydrated]) .lobby-persistent-logo-slot:not(.lobby-boot-logo-e
   will-change: auto;
 }
 
+.instant-ban-arena-send[data-boot-logo-intro='true'] .lobby-boot-orb-root .lobby-boot-ring-shell,
 .lobby-persistent-logo-slot.lobby-boot-logo-intro-active:not(.lobby-boot-logo-ready)
   + .lobby-boot-orb-root
   .lobby-boot-ring-shell {

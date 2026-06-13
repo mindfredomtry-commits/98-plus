@@ -20,6 +20,9 @@ export default function MiniAppLayout({
         {`(function(){try{document.documentElement.style.setProperty('--boot-orb-initial-scale','0.15');}catch(e){}})();`}
       </Script>
       <Providers>
+        <div id="lobby-boot-logo-prehydrate" aria-hidden="true">
+          98+
+        </div>
         <AppHydrationMarker />
         {children}
       </Providers>

@@ -37,6 +37,11 @@ export function LobbyPersistentLogoSlot({
   const bootLogoPending = !logoLockedVisible;
   const logoSource = logoLockedVisible ? 'persistent' : 'boot';
 
+  useLayoutEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.documentElement.dataset.lobbyLogoLive = 'true';
+  }, []);
+
   useEffect(() => {
     if (!runLogoIntro) {
       if (!logoScaleActive) logoEndedRef.current = false;

@@ -85,7 +85,7 @@ import { LobbyPersistentLogoSlot } from '@/components/lobby/LobbyPersistentLogoS
 import { LobbyIdleOrb } from '@/components/lobby/LobbyIdleOrb';
 import { LobbyOrbWrap } from '@/components/lobby/LobbyOrbWrap';
 import { LobbyScreenAtmosphere } from '@/components/lobby/LobbyScreenAtmosphere';
-import { useBootSceneIntro } from './useBootSceneIntro';
+import type { BootSceneIntroController } from './useBootSceneIntro';
 import {
   getLobbyBootIntroPrimedSnapshot,
   isLobbyBootIntroPrimed,
@@ -212,6 +212,7 @@ type Props = {
   energyLoaded?: boolean;
   inviteUsername?: string | null;
   onClose?: () => void;
+  bootIntro: BootSceneIntroController;
 };
 
 function legacyStepFromPhase(phase: SendFlowPhase): LegacyStep {
@@ -256,6 +257,7 @@ export function InstantBanFlow({
   energyLoaded = false,
   inviteUsername = null,
   onClose,
+  bootIntro,
 }: Props) {
   const flowId = useId();
   const renderCountRef = useRef(0);
@@ -3238,7 +3240,7 @@ export function InstantBanFlow({
     onLogoScaleEnd: onBootLogoScaleEnd,
     onRingScaleEnd: onBootRingScaleEnd,
     onFillEnd: onBootFillEnd,
-  } = useBootSceneIntro(lobbyInfluencePercent, energyLoaded);
+  } = bootIntro;
 
   const lobbyRingDisplayPercent = useMemo(() => {
     if (!energyLoaded) {
@@ -3344,6 +3346,9 @@ export function InstantBanFlow({
       }
       data-debug-slow-orb={process.env.NODE_ENV === 'development' ? '' : undefined}
       data-boot-scene={showBootOrb ? '' : undefined}
+      data-boot-logo-intro={
+        launchStage === 'logoEnter' || bootLogoScaleActive ? 'true' : undefined
+      }
     >
       {showLobbyTopNav ? (
         <ArenaLobbyTopNav
@@ -3359,14 +3364,16 @@ export function InstantBanFlow({
           persistentLobbyLogoActive ? 'true' : undefined
         }
       >
-        <LobbyPersistentLogoSlot
-          key="lobby-persistent-logo"
-          logoScaleActive={bootLogoScaleActive}
-          logoLocked={bootLogoLocked || lobbyBootIntroPrimed}
-          visible={persistentLogoVisible}
-          onLogoScaleEnd={onBootLogoScaleEnd}
-          diagContext={`stage=${launchStage} boot=${showBootOrb} lobby=${showLobbyOrb} primed=${lobbyBootIntroPrimed}`}
-        />
+        {lobbyBootIntroPrimed ? (
+          <LobbyPersistentLogoSlot
+            key="lobby-persistent-logo"
+            logoScaleActive={bootLogoScaleActive}
+            logoLocked={bootLogoLocked || lobbyBootIntroPrimed}
+            visible={persistentLogoVisible}
+            onLogoScaleEnd={onBootLogoScaleEnd}
+            diagContext={`stage=${launchStage} boot=${showBootOrb} lobby=${showLobbyOrb} primed=${lobbyBootIntroPrimed}`}
+          />
+        ) : null}
 
         {showBootOrb ? (
           <LobbyBootOrbWrap

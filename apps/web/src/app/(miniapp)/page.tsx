@@ -17,6 +17,8 @@ import { BootHandoffDebugBadge } from '@/components/BootHandoffDebugBadge';
 import { PillSourceDebugBadge } from '@/components/PillSourceDebugBadge';
 import { HomeArena } from '@/components/HomeArena';
 import { InstantBanFlow } from '@/components/instant-ban/InstantBanFlow';
+import { useBootSceneIntro } from '@/components/instant-ban/useBootSceneIntro';
+import { LobbyBootLogoShell } from '@/components/lobby/LobbyBootLogoShell';
 import { SendBanDock } from '@/components/SendBanDock';
 import { ConnectionBanner } from '@/components/ConnectionBanner';
 import { BottomNav, type Tab } from '@/components/BottomNav';
@@ -253,6 +255,10 @@ export default function HomePage() {
   }, [token, reloadPending]);
 
   const lobbyInfluence = resolveLobbyInfluencePercent(user);
+  const bootIntro = useBootSceneIntro(
+    hasAuthSession ? lobbyInfluence.influencePercent : 0,
+    hasAuthSession && !lobbyInfluence.fromFallback,
+  );
 
   useEffect(() => {
     if (!lobbyOpen) return;
@@ -375,6 +381,15 @@ export default function HomePage() {
     >
       <PillSourceDebugBadge />
       <BootHandoffDebugBadge />
+
+      {!lobbyBootIntroDone ? (
+        <LobbyBootLogoShell
+          logoScaleActive={bootIntro.logoScaleActive}
+          logoLocked={bootIntro.logoLocked}
+          onLogoScaleEnd={bootIntro.onLogoScaleEnd}
+        />
+      ) : null}
+
       <ShellErrorBoundary name="ambience" fallback={null}>
         <ArenaAmbience />
       </ShellErrorBoundary>
@@ -432,6 +447,7 @@ export default function HomePage() {
 
       {arenaVisible ? (
         <InstantBanFlow
+          bootIntro={bootIntro}
           sendStarted={sendStarted}
           onStartSend={handleLobbyEnter}
           influencePercent={
