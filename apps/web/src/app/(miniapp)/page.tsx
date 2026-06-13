@@ -111,6 +111,7 @@ export default function HomePage() {
     abortReplyDeepLinkFast,
     incomingCardFullyReady,
     incomingCardDisplayBan,
+    routeOverlayAboveBoot,
     replyHandoffLock,
   } = useApp();
   const { ready } = useTelegram();
@@ -387,6 +388,7 @@ export default function HomePage() {
           logoScaleActive={bootIntro.logoScaleActive}
           logoLocked={bootIntro.logoLocked}
           onLogoScaleEnd={bootIntro.onLogoScaleEnd}
+          bootBackground={routeOverlayAboveBoot}
         />
       ) : null}
 

@@ -8,6 +8,32 @@
   overflow: visible;
 }
 
+.lobby-boot-logo-shell--background {
+  z-index: 50;
+  opacity: 0.88;
+}
+
+html[data-route-overlay-active] .lobby-boot-logo-shell {
+  z-index: 50;
+  pointer-events: none;
+}
+
+html[data-route-overlay-active] .lobby-boot-logo-shell--background {
+  opacity: 0.72;
+}
+
+html[data-route-overlay-active] .instant-ban-arena-send[data-boot-background='true'] {
+  pointer-events: none;
+}
+
+html[data-route-overlay-active] .instant-ban-arena-send__bans-layer {
+  z-index: 90;
+}
+
+html[data-route-overlay-active] .instant-ban-arena-send__bans-layer .instant-ban-bans-overlay {
+  pointer-events: auto;
+}
+
 .lobby-boot-logo-shell__stage {
   position: relative;
   width: 100%;

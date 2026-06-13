@@ -39,7 +39,7 @@ body {
 #lobby-boot-shell-early {
   position: fixed;
   inset: 0;
-  z-index: 2147483645;
+  z-index: 64;
   margin: 0;
   padding: 0;
   border: 0;
@@ -53,7 +53,7 @@ body {
   position: fixed;
   left: 50%;
   top: 45%;
-  z-index: 2147483646;
+  z-index: 65;
   margin: 0;
   padding: 0;
   border: 0;
@@ -75,6 +75,30 @@ body {
 }
 html[data-lobby-logo-live] #lobby-boot-shell-early {
   display: none !important;
+}
+html[data-route-overlay-active] #lobby-boot-shell-early {
+  z-index: 50;
+  opacity: 0.88;
+  pointer-events: none;
+}
+html[data-route-overlay-active] .lobby-boot-logo-shell {
+  z-index: 50;
+  pointer-events: none;
+  opacity: 0.88;
+}
+html[data-route-overlay-active] .lobby-boot-logo-shell--background {
+  opacity: 0.72;
+}
+html[data-route-overlay-active] .instant-ban-arena-send[data-boot-background='true'] {
+  pointer-events: none;
+}
+html[data-route-overlay-active] .instant-ban-arena-send__bans-layer {
+  z-index: 90;
+  pointer-events: none;
+}
+html[data-route-overlay-active] .instant-ban-arena-send__bans-layer .instant-ban-bans-overlay,
+html[data-route-overlay-active] .instant-ban-arena-send__bans-layer .instant-ban-active-ban-card-layer {
+  pointer-events: auto;
 }
 html:not([data-app-hydrated]) [data-boot-scene] .lobby-boot-orb-scale-layer {
   transform: scale(0.15);

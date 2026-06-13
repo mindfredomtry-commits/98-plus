@@ -7,6 +7,8 @@ type Props = {
   logoScaleActive: boolean;
   logoLocked: boolean;
   onLogoScaleEnd?: () => void;
+  /** Route card/overlay is above boot — boot stays as background placeholder. */
+  bootBackground?: boolean;
 };
 
 /** Early boot logo — mounts before heavy InstantBanFlow paint, same anchor as arena orb. */
@@ -14,10 +16,13 @@ export function LobbyBootLogoShell({
   logoScaleActive,
   logoLocked,
   onLogoScaleEnd,
+  bootBackground = false,
 }: Props) {
   return (
     <div
-      className="lobby-boot-logo-shell"
+      className={`lobby-boot-logo-shell${
+        bootBackground ? ' lobby-boot-logo-shell--background' : ''
+      }`}
       data-lobby-boot-logo-shell
       aria-hidden
     >

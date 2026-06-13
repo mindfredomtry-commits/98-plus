@@ -45,6 +45,7 @@ import { CheckOverlay } from './CheckOverlay';
 import { ResultOverlay } from './ResultOverlay';
 import { GlobalOverlayHost } from './GlobalOverlayHost';
 import { NotificationQueueShell } from './NotificationQueueShell';
+import { RouteOverlayBootPriorityMarker } from './RouteOverlayBootPriorityMarker';
 import { DirectOverboardResultLayer } from './DirectOverboardResultLayer';
 import {
   overlayDelayCause,
@@ -119,6 +120,7 @@ import {
   resolvePendingDeepLinkRoute,
   dismissActiveBanDeepLinkRoute,
 } from '@/lib/deep-link-route-boot';
+import { shouldBootYieldToRouteOverlay } from '@/lib/lobby-boot-route-priority';
 import {
   incomingShowDecision,
   isValidIncomingOverlayPayload,
@@ -276,6 +278,8 @@ interface AppContextValue {
   /** Incoming card with all display fields — null until fully ready (no shell). */
   incomingCardDisplayBan: BanInteraction | null;
   incomingCardFullyReady: boolean;
+  /** Route card/overlay ready — boot stays as background under it (not a gate). */
+  routeOverlayAboveBoot: boolean;
   setIncomingBan: (b: BanInteraction | null) => void;
   dismissIncoming: (banId?: string) => void;
   acknowledgeIncomingAndStartReply: (ban: BanInteraction) => void;
@@ -7543,6 +7547,44 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [activeBanDeepLinkBanId, activeBanCardReady],
   );
 
+  const routeOverlayAboveBoot = useMemo(
+    () =>
+      shouldBootYieldToRouteOverlay({
+        replyDeepLinkBanId,
+        replyDeeplinkFastShell,
+        deepLinkReplyBooting,
+        replyHandoffLock,
+        replyUiShellActive,
+        activeBanDeepLinkBanId,
+        activeBanUiShellActive,
+        incomingGateActive,
+        checkGateActive,
+        incomingCardFullyReady,
+        incomingCardDisplayBan,
+        checkBan: scopedCheckBan,
+        displayResult,
+        activeBanCardReady,
+        showReplyIncomingOverlayDirect,
+      }),
+    [
+      replyDeepLinkBanId,
+      replyDeeplinkFastShell,
+      deepLinkReplyBooting,
+      replyHandoffLock,
+      replyUiShellActive,
+      activeBanDeepLinkBanId,
+      activeBanUiShellActive,
+      incomingGateActive,
+      checkGateActive,
+      incomingCardFullyReady,
+      incomingCardDisplayBan,
+      scopedCheckBan,
+      displayResult,
+      activeBanCardReady,
+      showReplyIncomingOverlayDirect,
+    ],
+  );
+
   useEffect(() => {
     deepLinkBlockedRef.current =
       isNotificationQueueLocked() ||
@@ -7732,6 +7774,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       incomingBan: incomingCardDisplayBan,
       incomingCardDisplayBan,
       incomingCardFullyReady,
+      routeOverlayAboveBoot,
       setIncomingBan: setIncomingBanSafe,
       dismissIncoming,
       checkBan: scopedCheckBan,
@@ -7874,6 +7917,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       effectiveScopedIncomingBan,
       incomingCardDisplayBan,
       incomingCardFullyReady,
+      routeOverlayAboveBoot,
       setIncomingBanSafe,
       dismissIncoming,
       scopedCheckBan,
@@ -8017,6 +8061,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext.Provider value={contextValue}>
+      <RouteOverlayBootPriorityMarker active={routeOverlayAboveBoot} />
       <ShellErrorBoundary name="app">
         {children}
         {!showDirectOverboardLayer ? (

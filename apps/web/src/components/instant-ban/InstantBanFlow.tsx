@@ -322,6 +322,7 @@ export function InstantBanFlow({
     replyHandoffLock,
     replyDeepLinkBanId,
     incomingCardFullyReady,
+    routeOverlayAboveBoot,
     notifyReplyWhatVisible,
     releaseReplyHandoffLock,
     activeBanUiShellActive,
@@ -978,6 +979,8 @@ export function InstantBanFlow({
     effectiveBansOverlayOpen &&
     (bansCtaQueueSuppress ||
       resultCtaBansOverlayOpen ||
+      routeOverlayAboveBoot ||
+      activeBanDeepLinkBooting ||
       (phase === 'idle' && !notificationQueueUiLock));
 
   useLayoutEffect(() => {
@@ -3348,6 +3351,9 @@ export function InstantBanFlow({
       data-boot-scene={showBootOrb ? '' : undefined}
       data-boot-logo-intro={
         launchStage === 'logoEnter' || bootLogoScaleActive ? 'true' : undefined
+      }
+      data-boot-background={
+        routeOverlayAboveBoot && !lobbyBootIntroPrimed ? 'true' : undefined
       }
     >
       {showLobbyTopNav ? (
