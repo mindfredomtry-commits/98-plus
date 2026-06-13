@@ -20,7 +20,7 @@ type Props = {
   ringTarget: number;
   onIntroEnd?: () => void;
   children: ReactNode;
-};
+} & Record<string, unknown>;
 
 function assignRef<T>(ref: Ref<T> | undefined, value: T | null): void {
   if (typeof ref === 'function') {
@@ -33,7 +33,7 @@ function assignRef<T>(ref: Ref<T> | undefined, value: T | null): void {
 /** Boot scene orb — scale + ring fill via CSS only. */
 export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
   function LobbyBootOrbWrap(
-    { className = '', style, introActive, ringTarget, onIntroEnd, children },
+    { className = '', style, introActive, ringTarget, onIntroEnd, children, ...rest },
     ref,
   ) {
     const rootRef = useRef<HTMLDivElement>(null);
@@ -97,6 +97,7 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
         className={rootClass}
         style={mergedStyle}
         data-orb-root
+        {...rest}
       >
         <div className="lobby-boot-orb-scale-layer" data-boot-scale-layer>
           {children}

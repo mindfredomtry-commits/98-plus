@@ -13,7 +13,6 @@ import { useDeepLinkRouteBootPending } from '@/hooks/useDeepLinkRouteBootPending
 import { useBootRouteRelease } from '@/hooks/useBootRouteRelease';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSocialBoot } from '@/hooks/useSocialBoot';
-import { BootScene } from '@/components/BootScene';
 import { BootHandoffDebugBadge } from '@/components/BootHandoffDebugBadge';
 import { PillSourceDebugBadge } from '@/components/PillSourceDebugBadge';
 import { HomeArena } from '@/components/HomeArena';
@@ -124,16 +123,12 @@ export default function HomePage() {
     () => false,
   );
   const showBootScreen = loading || deepLinkRouteBootPending;
-  const showBootScene = !lobbyBootIntroDone;
 
   useLayoutEffect(() => {
     patchBootHandoffDebug({
-      showBootScene,
       showBottomNav: !lobbyPrefetch && lobbyBootIntroDone,
-      hasPlayedIntro: lobbyBootIntroDone,
-      bootSceneVisible: showBootScene,
     });
-  }, [showBootScene, lobbyBootIntroDone, lobbyPrefetch]);
+  }, [lobbyBootIntroDone, lobbyPrefetch]);
   const replyDeeplinkPending =
     !incomingCardFullyReady &&
     Boolean(
@@ -383,13 +378,6 @@ export default function HomePage() {
       <ShellErrorBoundary name="ambience" fallback={null}>
         <ArenaAmbience />
       </ShellErrorBoundary>
-
-      {showBootScene ? (
-        <BootScene
-          influencePercent={lobbyInfluence.influencePercent}
-          energyKnown={hasAuthSession && !lobbyInfluence.fromFallback}
-        />
-      ) : null}
 
       {!lobbyPrefetch ? (
         <ConnectionBanner state={connectionUiState} onRetry={reloadPending} />

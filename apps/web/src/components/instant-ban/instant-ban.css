@@ -8,6 +8,18 @@
   height: var(--instant-ban-vh, var(--app-stable-height, 100dvh));
   max-height: var(--instant-ban-vh, var(--app-stable-height, 100dvh));
   min-height: var(--instant-ban-vh, var(--app-stable-height, 100dvh));
+  background:
+    radial-gradient(
+      ellipse 120% 80% at 50% -12%,
+      rgba(var(--98-purple-cold-rgb), 0.26),
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse 90% 55% at 50% 100%,
+      rgba(var(--98-purple-deep-rgb), 0.32),
+      transparent 50%
+    ),
+    var(--98-bg-black);
 }
 
 .instant-ban-flow {

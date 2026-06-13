@@ -80,14 +80,18 @@ import {
   resolveOpponentFriendCard,
 } from './bans-overlay-utils';
 import { useConfirmOrbController } from './useConfirmOrbController';
+import { LobbyBootOrbWrap } from '@/components/lobby/LobbyBootOrbWrap';
+import { LobbyIdleOrb } from '@/components/lobby/LobbyIdleOrb';
 import { LobbyOrbWrap } from '@/components/lobby/LobbyOrbWrap';
 import { LobbyScreenAtmosphere } from '@/components/lobby/LobbyScreenAtmosphere';
+import { useBootSceneIntro } from './useBootSceneIntro';
 import {
   getLobbyBootIntroPrimedSnapshot,
   isLobbyBootIntroPrimed,
   subscribeLobbyBootIntroSession,
 } from '@/lib/lobby-boot-intro-session';
 import { patchBootHandoffDebug } from '@/lib/boot-handoff-debug';
+import '@/components/lobby-boot-intro.css';
 import { triggerLobbyBlockedHaptic } from './lobby-cta-haptics';
 import {
   evaluateConfirmSubmitEnergy,
@@ -366,6 +370,8 @@ export function InstantBanFlow({
   /** Where Confirm was opened from — drives ← back navigation. */
   const confirmEntrySourceRef = useRef<ConfirmEntrySource>('send-flow');
   const lobbyOrbMountRef = useRef<HTMLDivElement>(null);
+  const bootOrbInstanceId = useId();
+  const lobbyOrbInstanceId = useId();
   const [composeExitProgress, setComposeExitProgress] = useState(0);
   const [composeDismissing, setComposeDismissing] = useState(false);
   const whoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3151,15 +3157,6 @@ export function InstantBanFlow({
     [influencePercent],
   );
 
-  const lobbyRingDisplayPercent = useMemo(() => {
-    if (!energyLoaded) {
-      return getLobbyBootIntroPrimedSnapshot().ringPercent;
-    }
-    return lobbyInfluencePercent;
-  }, [energyLoaded, lobbyInfluencePercent]);
-
-  const showLobbyOrb = lobbyOrbVisible && lobbyBootIntroPrimed;
-
   const liteMode = isInstantBanLiteMode();
   /** What layout in pager — from friend pick, not from phase commit (avoids vertical jump). */
   const whatMobileSafe = Boolean(selectedUser) && showCrossScreenPager;
@@ -3221,6 +3218,34 @@ export function InstantBanFlow({
     onBindAbortRelease: handleBindAbortRelease,
   });
 
+  const {
+    introActive: bootIntroActive,
+    ringTargetPercent,
+    onIntroEnd: onBootIntroEnd,
+  } = useBootSceneIntro(lobbyInfluencePercent, energyLoaded);
+
+  const lobbyRingDisplayPercent = useMemo(() => {
+    if (!energyLoaded) {
+      return getLobbyBootIntroPrimedSnapshot().ringPercent;
+    }
+    return lobbyInfluencePercent;
+  }, [energyLoaded, lobbyInfluencePercent]);
+
+  const showBootOrb = lobbyOrbVisible && !lobbyBootIntroPrimed;
+  const showLobbyOrb = lobbyOrbVisible && lobbyBootIntroPrimed;
+
+  useLayoutEffect(() => {
+    patchBootHandoffDebug({
+      bootSceneVisible: showBootOrb,
+      orbSource: showBootOrb ? 'BootScene' : showLobbyOrb ? 'Lobby' : 'none',
+      orbInstanceId: showBootOrb
+        ? bootOrbInstanceId
+        : showLobbyOrb
+          ? lobbyOrbInstanceId
+          : '',
+    });
+  }, [showBootOrb, showLobbyOrb, bootOrbInstanceId, lobbyOrbInstanceId]);
+
   useEffect(() => {
     if (process.env.NODE_ENV !== 'development') return;
     const roots = document.querySelectorAll('[data-orb-root]');
@@ -3240,7 +3265,9 @@ export function InstantBanFlow({
         whatMobileSafe ? ' instant-ban-flow--what-mobile-safe' : ''
       }${liteMode ? ' instant-ban-debug-lite' : ''}${
         replyUiShellActive ? ' instant-ban-flow--reply-ui-shell' : ''
-      }${activeBanUiShellActive ? ' instant-ban-flow--active-ban-ui-shell' : ''}`}
+      }${activeBanUiShellActive ? ' instant-ban-flow--active-ban-ui-shell' : ''}${
+        bootIntroActive ? ' lobby-screen--boot-intro-active' : ''
+      }`}
       style={arenaOverlayStyle}
       role="dialog"
       aria-modal="true"
@@ -3261,6 +3288,7 @@ export function InstantBanFlow({
           : undefined
       }
       data-debug-slow-orb={process.env.NODE_ENV === 'development' ? '' : undefined}
+      data-boot-scene={showBootOrb ? '' : undefined}
     >
       {showLobbyTopNav ? (
         <ArenaLobbyTopNav
@@ -3268,12 +3296,26 @@ export function InstantBanFlow({
           bansNeedAttention={pendingStartupInteractions}
         />
       ) : null}
-      {!lobbyChromeHidden && showLobbyChrome ? <LobbyScreenAtmosphere /> : null}
+      {!lobbyChromeHidden ? <LobbyScreenAtmosphere /> : null}
 
       <div className="instant-ban-arena-send__stage">
+        {showBootOrb ? (
+          <LobbyBootOrbWrap
+            className="lobby-screen__orb-wrap lobby-screen__orb-root"
+            introActive={bootIntroActive}
+            ringTarget={ringTargetPercent}
+            onIntroEnd={onBootIntroEnd}
+            data-boot-orb
+            data-orb-instance={bootOrbInstanceId}
+          >
+            <LobbyIdleOrb ringPercent={ringTargetPercent} bootFillActive={false} />
+          </LobbyBootOrbWrap>
+        ) : null}
+
         {showLobbyOrb ? (
           <LobbyOrbWrap
             ref={lobbyOrbMountRef}
+            data-orb-instance={lobbyOrbInstanceId}
             className={`lobby-screen__orb-wrap lobby-screen__orb-root${
               confirmLayoutActive ? ' lobby-screen__orb-wrap--confirm' : ''
             }${orbOverlayDim ? ' lobby-screen__orb-wrap--overlay-dim' : ''}`}
@@ -3423,7 +3465,7 @@ export function InstantBanFlow({
         <ArenaLobbyIdle
           influencePercent={lobbyInfluencePercent}
           energyLoaded={energyLoaded}
-          lobbyRingIntroFilling={!lobbyBootIntroPrimed}
+          lobbyRingIntroFilling={false}
           ctaState={ctaState}
           ctaInteractive={ctaInteractive}
           lowInfluenceRevealed={lowInfluenceRevealed}

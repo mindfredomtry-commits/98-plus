@@ -11,6 +11,7 @@ import {
 import {
   patchBootHandoffDebug,
   recordBootIntroEndCall,
+  recordBootIntroRun,
   recordBootMarkPrimedCall,
 } from '@/lib/boot-handoff-debug';
 
@@ -76,6 +77,11 @@ export function useBootSceneIntro(targetRingPercent: number, energyKnown: boolea
     recordBootIntroEndCall();
     finishPrimed(energyKnown ? target : getLobbyBootIntroPrimedSnapshot().ringPercent);
   }, [energyKnown, target, finishPrimed]);
+
+  useEffect(() => {
+    if (!introActive) return;
+    recordBootIntroRun();
+  }, [introActive]);
 
   useEffect(() => {
     patchBootHandoffDebug({

@@ -9,6 +9,9 @@ type BootHandoffDebugSnapshot = {
   hasPlayedIntro: boolean;
   onIntroEndCalls: number;
   markPrimedCalls: number;
+  orbSource: 'BootScene' | 'Lobby' | 'none';
+  introRunCount: number;
+  orbInstanceId: string;
 };
 
 let snapshot: BootHandoffDebugSnapshot = {
@@ -22,6 +25,9 @@ let snapshot: BootHandoffDebugSnapshot = {
   hasPlayedIntro: false,
   onIntroEndCalls: 0,
   markPrimedCalls: 0,
+  orbSource: 'none',
+  introRunCount: 0,
+  orbInstanceId: '',
 };
 
 const listeners = new Set<() => void>();
@@ -44,6 +50,12 @@ export function patchBootHandoffDebug(
 ): void {
   snapshot = { ...snapshot, ...patch };
   notify();
+}
+
+export function recordBootIntroRun(): void {
+  patchBootHandoffDebug({
+    introRunCount: snapshot.introRunCount + 1,
+  });
 }
 
 export function recordBootIntroEndCall(): void {
