@@ -65,13 +65,11 @@ body {
   letter-spacing: -0.04em;
   line-height: 1;
   color: #ffffff;
-  text-shadow:
-    0 0 24px rgba(174, 92, 219, 0.9),
-    0 0 48px rgba(174, 92, 219, 0.55);
+  text-shadow: none;
   pointer-events: none;
   user-select: none;
-  opacity: 1;
-  visibility: visible;
+  opacity: 0;
+  visibility: hidden;
 }
 html[data-lobby-logo-live] #lobby-boot-shell-early {
   display: none !important;
@@ -117,7 +115,7 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
 html:not([data-app-hydrated]) .lobby-persistent-logo-slot:not(.lobby-boot-logo-enter-done) .lobby-persistent-logo-anchor {
   transform: translate(-50%, -50%) scale(0.15);
   transform-origin: center center;
-  opacity: 1;
+  opacity: 0;
   visibility: visible;
 }
 .lobby-boot-progress-stroke {

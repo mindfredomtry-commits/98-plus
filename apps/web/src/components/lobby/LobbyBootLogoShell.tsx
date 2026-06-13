@@ -20,8 +20,8 @@ export function LobbyBootLogoShell({
   logoScaleActive,
   logoLocked,
   onLogoScaleEnd,
-  logoScaleMs = 350,
-  logoScaleDelayMs = 50,
+  logoScaleMs = 400,
+  logoScaleDelayMs = 0,
   bootBackground = false,
   hideLobbyBootLogoOnly = false,
 }: Props) {
