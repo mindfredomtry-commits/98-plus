@@ -38,26 +38,6 @@ html[data-route-overlay-active] .instant-ban-arena-send__bans-layer .instant-ban
   pointer-events: auto;
 }
 
-html[data-hide-boot-visual-for-compose] #lobby-boot-shell-early,
-html[data-hide-boot-visual-for-compose] #lobby-boot-logo-prehydrate,
-html[data-hide-boot-visual-for-compose] .lobby-boot-logo-shell,
-html[data-hide-boot-visual-for-compose] .lobby-boot-logo-shell--background,
-html[data-hide-boot-visual-for-compose] .instant-ban-arena-send[data-boot-background='true'],
-html[data-hide-boot-visual-for-compose] [data-boot-scene] .lobby-persistent-logo-slot,
-html[data-hide-boot-visual-for-compose] [data-boot-scene] .lobby-boot-orb-root {
-  display: none !important;
-  opacity: 0 !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
-}
-
-.lobby-boot-logo-shell--compose-hidden {
-  display: none !important;
-  opacity: 0 !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
-}
-
 .lobby-boot-logo-shell__stage {
   position: relative;
   width: 100%;

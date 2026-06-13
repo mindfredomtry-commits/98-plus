@@ -19,7 +19,6 @@ import { HomeArena } from '@/components/HomeArena';
 import { InstantBanFlow } from '@/components/instant-ban/InstantBanFlow';
 import { useBootSceneIntro } from '@/components/instant-ban/useBootSceneIntro';
 import { LobbyBootLogoShell } from '@/components/lobby/LobbyBootLogoShell';
-import { shouldHideBootVisualForCompose } from '@/lib/lobby-boot-compose-hide';
 import { SendBanDock } from '@/components/SendBanDock';
 import { ConnectionBanner } from '@/components/ConnectionBanner';
 import { BottomNav, type Tab } from '@/components/BottomNav';
@@ -194,13 +193,6 @@ export default function HomePage() {
   });
 
   const sendStarted = instantBanOpen || sendFlowOpen;
-  const hideBootVisualForCompose = shouldHideBootVisualForCompose({
-    phase: 'idle',
-    replyComposeActive,
-    sendStarted,
-    confirmActive: false,
-    orbCompressActive: false,
-  });
   const replyTargetBanId = replyDeepLinkBanId ?? deepLinkBoot.parsedBanId;
   const replyIncomingReady =
     activeOverlayKind === 'incoming' &&
@@ -398,8 +390,7 @@ export default function HomePage() {
           logoScaleActive={bootIntro.logoScaleActive}
           logoLocked={bootIntro.logoLocked}
           onLogoScaleEnd={bootIntro.onLogoScaleEnd}
-          bootBackground={routeOverlayAboveBoot && !hideBootVisualForCompose}
-          hideVisualForCompose={hideBootVisualForCompose}
+          bootBackground={routeOverlayAboveBoot}
         />
       ) : null}
 
