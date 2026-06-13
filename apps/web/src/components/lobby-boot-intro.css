@@ -118,6 +118,22 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   transform: none !important;
 }
 
+/* After logoEnter — boot wrapper must not be a second visible logo layer. */
+.lobby-persistent-logo-slot.lobby-boot-logo-enter-done .lobby-boot-logo-layer--retired,
+.lobby-persistent-logo-slot[data-logo-enter-done='true'] .lobby-boot-logo-layer--retired,
+.lobby-boot-logo-layer--retired[data-boot-layer-retired='true'] {
+  display: contents;
+  position: static;
+  inset: auto;
+  width: auto;
+  height: auto;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: none;
+  animation: none !important;
+  transform: none !important;
+}
+
 .lobby-boot-logo-layer__inner {
   position: relative;
   inset: auto;

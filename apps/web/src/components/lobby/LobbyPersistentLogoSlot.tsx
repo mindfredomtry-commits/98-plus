@@ -33,6 +33,8 @@ export function LobbyPersistentLogoSlot({
 
   const logoLockedVisible = logoEnterDone || logoLocked;
   const runLogoIntro = logoScaleActive && !logoLockedVisible;
+  const logoSource = logoLockedVisible ? 'persistent' : 'boot';
+  const bootLayerRetired = logoLockedVisible;
 
   useEffect(() => {
     if (!runLogoIntro) {
@@ -107,8 +109,17 @@ export function LobbyPersistentLogoSlot({
       data-logo-locked-visible={logoLockedVisible ? 'true' : undefined}
       aria-hidden={showHiddenClass ? true : undefined}
     >
-      <div className="lobby-boot-logo-layer" data-boot-logo-layer data-logo-source="boot">
-        <LobbyLaunchLogo ref={titleRef} />
+      <div
+        className={[
+          'lobby-boot-logo-layer',
+          bootLayerRetired ? 'lobby-boot-logo-layer--retired' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        data-boot-logo-layer
+        data-boot-layer-retired={bootLayerRetired ? 'true' : undefined}
+      >
+        <LobbyLaunchLogo ref={titleRef} logoSource={logoSource} />
       </div>
     </div>
   );
