@@ -1,7 +1,10 @@
 /** Telegram challenge copy — personal confrontation, not app broadcast. */
 
-/** Incoming ban + check DM — counter-challenge via WebApp. */
+/** Incoming ban DM — counter-challenge via WebApp. */
 export const REPLY_BAN_WEBAPP_BUTTON_LABEL = '🚫 запретить в ответ';
+
+/** Check / status question DM — honest answer via WebApp (same check deeplink). */
+export const CHECK_BAN_STATUS_WEBAPP_BUTTON_LABEL = '🚫 Выдержал?';
 
 /** Retention DM — opens send flow to a friend. */
 export const RETENTION_BAN_WEBAPP_BUTTON_LABEL = '🚫 запретить';
@@ -229,7 +232,7 @@ export function formatBotStartChallengeMessage(params: {
   return formatIncomingBanMessage(params);
 }
 
-/** Check DM — same personal block + honest answer prompt. */
+/** Check DM — personal challenge block; CTA lives in WebApp button only. */
 export function formatBotCheckChallengeMessage(params: {
   senderUsername?: string | null;
   senderFirstName?: string | null;
@@ -237,11 +240,7 @@ export function formatBotCheckChallengeMessage(params: {
   banText: string;
   durationMinutes: number;
 }): string {
-  return (
-    `Пора честно ответить.\n\n` +
-    `${formatPersonalChallengeBlock(params)}\n\n` +
-    `Выдержал?`
-  );
+  return formatPersonalChallengeBlock(params);
 }
 
 /** Sender DM when receiver accepted the ban — shows receiver identity. */

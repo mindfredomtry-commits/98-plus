@@ -12,6 +12,7 @@ import {
   isTelegramResultOutcome,
   OPEN_BAN_WEBAPP_BUTTON_LABEL,
   REPEAT_BAN_WEBAPP_BUTTON_LABEL,
+  CHECK_BAN_STATUS_WEBAPP_BUTTON_LABEL,
   REPLY_BAN_WEBAPP_BUTTON_LABEL,
   RETENTION_BAN_WEBAPP_BUTTON_LABEL,
   SENDER_BAN_CONFIRMED_WEBAPP_BUTTON_LABEL,
@@ -489,7 +490,7 @@ export async function sendCheckNotification(
     { type: 'check', banId },
     {
       source: 'sendCheckNotification',
-      buttonLabel: REPLY_BAN_WEBAPP_BUTTON_LABEL,
+      buttonLabel: CHECK_BAN_STATUS_WEBAPP_BUTTON_LABEL,
     },
   );
   const message = formatBotCheckChallengeMessage({
@@ -503,7 +504,7 @@ export async function sendCheckNotification(
     await bot.telegram.sendMessage(
       telegramId.toString(),
       message,
-      replyBanKeyboard(url, REPLY_BAN_WEBAPP_BUTTON_LABEL),
+      replyBanKeyboard(url, CHECK_BAN_STATUS_WEBAPP_BUTTON_LABEL),
     );
   } catch {
     /* ignore */
