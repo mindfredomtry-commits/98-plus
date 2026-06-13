@@ -1,4 +1,4 @@
-/* Launch intro — logoEnter → ringEnter → energyFill. Lobby orb never uses these. */
+/* Launch intro — logoEnter → ringAndFill (parallel ring scale + energy fill). */
 
 .lobby-boot-logo-shell {
   position: fixed;
@@ -201,17 +201,25 @@ html:not([data-app-hydrated]) .lobby-persistent-logo-slot:not(.lobby-boot-logo-e
   contain: none;
 }
 
-/* Phase ringEnter — ring container scale only, logo stays final size */
+/* Phase ringAndFill — ring scale + energy fill in parallel */
 .lobby-boot-intro-active .lobby-boot-orb-scale-layer {
   transform: scale(0.15);
-  will-change: transform;
+  will-change: transform, opacity;
   backface-visibility: hidden;
   animation: boot-orb-scale 550ms ease-out both;
 }
 
-.lobby-boot-intro-active .lobby-boot-progress-stroke {
+.lobby-boot-intro-active .lobby-boot-ring-shell {
+  will-change: transform, opacity;
+}
+
+.lobby-boot-intro-active:not(.lobby-boot-fill-active) .lobby-boot-progress-stroke {
   stroke-dashoffset: var(--ring-circumference);
   animation: none;
+}
+
+.lobby-boot-intro-active.lobby-boot-fill-active .lobby-boot-orb-scale-layer {
+  will-change: transform, opacity;
 }
 
 @keyframes boot-orb-scale {
@@ -256,12 +264,13 @@ html:not([data-app-hydrated]) .lobby-persistent-logo-slot:not(.lobby-boot-logo-e
   transition: none !important;
 }
 
-/* Phase energyFill — ring 0 → frozen target, no container scale change */
+/* energyFill — stroke 0 → frozen target (runs with ring scale when combined) */
 .lobby-boot-fill-active .lobby-boot-progress-stroke {
   stroke: rgba(var(--98-power-rgb), 0.92);
   stroke-width: 2.5;
   opacity: 1;
   visibility: visible;
+  will-change: stroke-dashoffset;
   animation: boot-ring-fill 550ms ease-out both;
 }
 

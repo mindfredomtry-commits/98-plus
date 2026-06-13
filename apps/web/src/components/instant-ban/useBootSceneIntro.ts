@@ -6,7 +6,6 @@ import {
   hasPlayedLobbyBootIntroThisSession,
   isLobbyBootIntroPrimed,
   isLobbyBootLogoIntroDone,
-  isLobbyBootScaleIntroDone,
   markLobbyBootIntroPrimed,
   markLobbyBootLogoIntroDone,
   markLobbyBootScaleIntroDone,
@@ -26,9 +25,8 @@ const FILL_MS = 550;
 export type LaunchStage =
   | 'done'
   | 'logoEnter'
-  | 'ringEnter'
   | 'energyWait'
-  | 'energyFill';
+  | 'ringAndFill';
 
 function prefersReducedMotion(): boolean {
   if (typeof window === 'undefined') return false;
@@ -45,14 +43,12 @@ function shouldSkipBootSceneIntro(): boolean {
 
 function resolveInitialStage(): LaunchStage {
   if (isLobbyBootIntroPrimed() || shouldSkipBootSceneIntro()) return 'done';
-  if (isLobbyBootScaleIntroDone()) return 'energyWait';
-  if (isLobbyBootLogoIntroDone()) return 'ringEnter';
+  if (isLobbyBootLogoIntroDone()) return 'energyWait';
   return 'logoEnter';
 }
 
 /**
- * Launch intro: logoEnter → ringEnter → energyFill → lobbyReveal (primed).
- * Logo and ring scale separately; energy target frozen when fill starts.
+ * Launch intro: logoEnter → ringAndFill (parallel ring scale + energy fill) → primed.
  */
 export function useBootSceneIntro(targetRingPercent: number, energyKnown: boolean) {
   const target = clampPercent(targetRingPercent);
@@ -63,24 +59,19 @@ export function useBootSceneIntro(targetRingPercent: number, energyKnown: boolea
 
   const [launchStage, setLaunchStage] = useState<LaunchStage>(resolveInitialStage);
 
-  const canRunLogoVisual =
-    shouldRunLobbyBootIntroVisualSync() && !prefersReducedMotion();
   const canRunRingVisual =
     shouldRunLobbyBootIntroVisualSync() && !shouldSkipBootSceneIntro();
 
-  const logoScaleActive = launchStage === 'logoEnter' && canRunLogoVisual;
-  const ringScaleActive = launchStage === 'ringEnter' && canRunRingVisual;
-  const fillActive = launchStage === 'energyFill';
+  const logoScaleActive = launchStage === 'logoEnter' && !prefersReducedMotion();
+  const ringAndFillActive = launchStage === 'ringAndFill';
+  const ringScaleActive = ringAndFillActive && canRunRingVisual;
+  const fillActive = ringAndFillActive && frozenFillTarget !== null;
   const waitingEnergy = launchStage === 'energyWait';
   const logoLocked =
-    launchStage === 'ringEnter' ||
     launchStage === 'energyWait' ||
-    launchStage === 'energyFill' ||
+    launchStage === 'ringAndFill' ||
     launchStage === 'done';
-  const ringScaleLocked =
-    launchStage === 'energyWait' ||
-    launchStage === 'energyFill' ||
-    launchStage === 'done';
+  const ringScaleLocked = launchStage === 'done' || isLobbyBootIntroPrimed();
 
   const introPrimed =
     launchStage === 'done' || isLobbyBootIntroPrimed();
@@ -97,25 +88,16 @@ export function useBootSceneIntro(targetRingPercent: number, energyKnown: boolea
     setLaunchStage('done');
   }, []);
 
-  const beginEnergyFill = useCallback((frozenTarget: number) => {
-    setFrozenFillTarget((prev) =>
-      prev === null ? clampPercent(frozenTarget) : prev,
-    );
-    setLaunchStage('energyFill');
+  const beginRingAndFill = useCallback((energyTarget: number) => {
+    const clamped = clampPercent(energyTarget);
+    setFrozenFillTarget((prev) => (prev === null ? clamped : prev));
+    setLaunchStage('ringAndFill');
   }, []);
 
   const onLogoScaleEnd = useCallback(() => {
     if (launchStage !== 'logoEnter') return;
     recordBootIntroEndCall();
     markLobbyBootLogoIntroDone();
-    setLaunchStage('ringEnter');
-  }, [launchStage]);
-
-  const onRingScaleEnd = useCallback(() => {
-    if (launchStage !== 'ringEnter') return;
-    recordBootIntroEndCall();
-    markLobbyBootScaleIntroDone(0);
-
     if (!energyKnown) {
       setLaunchStage('energyWait');
       return;
@@ -124,14 +106,19 @@ export function useBootSceneIntro(targetRingPercent: number, energyKnown: boolea
       finishPrimed(0);
       return;
     }
-    beginEnergyFill(target);
-  }, [launchStage, energyKnown, target, finishPrimed, beginEnergyFill]);
+    beginRingAndFill(target);
+  }, [launchStage, energyKnown, target, finishPrimed, beginRingAndFill]);
+
+  const onRingScaleEnd = useCallback(() => {
+    if (launchStage !== 'ringAndFill') return;
+    markLobbyBootScaleIntroDone(frozenFillTarget ?? 0);
+  }, [launchStage, frozenFillTarget]);
 
   const onFillEnd = useCallback(() => {
-    if (launchStage !== 'energyFill') return;
+    if (launchStage !== 'ringAndFill') return;
     recordBootIntroEndCall();
     finishPrimed(frozenFillTarget ?? target);
-  }, [launchStage, target, finishPrimed, frozenFillTarget]);
+  }, [launchStage, frozenFillTarget, target, finishPrimed]);
 
   useLayoutEffect(() => {
     if (!shouldSkipBootSceneIntro() || isLobbyBootIntroPrimed()) return;
@@ -152,8 +139,8 @@ export function useBootSceneIntro(targetRingPercent: number, energyKnown: boolea
       finishPrimed(0);
       return;
     }
-    beginEnergyFill(target);
-  }, [launchStage, energyKnown, target, finishPrimed, beginEnergyFill]);
+    beginRingAndFill(target);
+  }, [launchStage, energyKnown, target, finishPrimed, beginRingAndFill]);
 
   useEffect(() => {
     if (!logoScaleActive) return;
@@ -163,7 +150,7 @@ export function useBootSceneIntro(targetRingPercent: number, energyKnown: boolea
   useEffect(() => {
     patchBootHandoffDebug({
       bootSceneVisible:
-        logoScaleActive || ringScaleActive || fillActive || waitingEnergy,
+        logoScaleActive || ringAndFillActive || waitingEnergy,
       introPrimed: isLobbyBootIntroPrimed() || introPrimed,
       hasPlayedIntro: isLobbyBootIntroPrimed(),
       showBootScene: !isLobbyBootIntroPrimed(),
@@ -171,15 +158,14 @@ export function useBootSceneIntro(targetRingPercent: number, energyKnown: boolea
     });
   }, [
     logoScaleActive,
-    ringScaleActive,
-    fillActive,
+    ringAndFillActive,
     waitingEnergy,
     introPrimed,
     launchStage,
   ]);
 
   const fillTargetPercent = frozenFillTarget ?? 0;
-  const visualRingPercent = fillActive ? fillTargetPercent : 0;
+  const visualRingPercent = ringAndFillActive ? fillTargetPercent : 0;
 
   return {
     launchStage,
@@ -192,9 +178,7 @@ export function useBootSceneIntro(targetRingPercent: number, energyKnown: boolea
     introPrimed,
     bootIntroActive:
       launchStage === 'logoEnter' ||
-      logoScaleActive ||
-      ringScaleActive ||
-      fillActive ||
+      ringAndFillActive ||
       waitingEnergy,
     fillTargetPercent,
     visualRingPercent,

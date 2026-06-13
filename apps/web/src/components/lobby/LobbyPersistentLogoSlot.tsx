@@ -43,20 +43,20 @@ export function LobbyPersistentLogoSlot({
     document.documentElement.dataset.lobbyLogoLive = 'true';
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!logoScaleActive || logoLockedVisible) {
       setIntroAnimating(false);
       if (!logoScaleActive) logoEndedRef.current = false;
       return;
     }
 
-    setIntroAnimating(false);
-    let rafId = 0;
-    rafId = requestAnimationFrame(() => {
-      setIntroAnimating(true);
+    let alive = true;
+    const rafId = requestAnimationFrame(() => {
+      if (alive) setIntroAnimating(true);
     });
 
     return () => {
+      alive = false;
       cancelAnimationFrame(rafId);
     };
   }, [logoScaleActive, logoLockedVisible]);
