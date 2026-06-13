@@ -11,6 +11,7 @@ type PrimedSnapshot = {
 };
 
 let scaleIntroDone = false;
+let logoIntroDone = false;
 let introFullyPrimed = false;
 let primedSnapshot: PrimedSnapshot = { scale: 1, ringPercent: 0 };
 let handoffSnapshot: HandoffSnapshot | null = null;
@@ -45,6 +46,14 @@ export function isLobbyBootScaleIntroDone(): boolean {
   return scaleIntroDone || introFullyPrimed;
 }
 
+export function isLobbyBootLogoIntroDone(): boolean {
+  return logoIntroDone || introFullyPrimed;
+}
+
+export function markLobbyBootLogoIntroDone(): void {
+  logoIntroDone = true;
+}
+
 export function getLobbyBootIntroPrimedSnapshot(): PrimedSnapshot {
   return primedSnapshot;
 }
@@ -59,6 +68,7 @@ export function markLobbyBootScaleIntroDone(ringPercent: number): void {
 
 export function markLobbyBootIntroPrimed(ringPercent: number, scale = 1): void {
   if (introFullyPrimed) return;
+  logoIntroDone = true;
   scaleIntroDone = true;
   introFullyPrimed = true;
   primedSnapshot = {

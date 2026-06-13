@@ -6,10 +6,17 @@ type Props = {
   ring: ReactNode;
   hidden?: boolean;
   faceClassName?: string;
+  /** Boot ring slot — logo rendered in separate overlay layer. */
+  hideTitle?: boolean;
 };
 
-/** Shared lobby orb face — ring + 98+ center inside one subtree for boot scale. */
-export function LobbyOrbFace({ ring, hidden = false, faceClassName = '' }: Props) {
+/** Shared lobby orb face — ring + optional 98+ center. */
+export function LobbyOrbFace({
+  ring,
+  hidden = false,
+  faceClassName = '',
+  hideTitle = false,
+}: Props) {
   return (
     <span
       className={`instant-ban-arena-lobby-orb__face instant-ban-confirm-orb-face${
@@ -19,11 +26,13 @@ export function LobbyOrbFace({ ring, hidden = false, faceClassName = '' }: Props
       <span className="instant-ban-arena-lobby-orb__ring-layer instant-ban-confirm-orb-ring">
         {ring}
       </span>
-      <span className="instant-ban-arena-lobby-orb__title-layer">
-        <span className="lobby-screen__orb" data-orb-core>
-          <span className="lobby-screen__title">98+</span>
+      {hideTitle ? null : (
+        <span className="instant-ban-arena-lobby-orb__title-layer">
+          <span className="lobby-screen__orb" data-orb-core>
+            <span className="lobby-screen__title">98+</span>
+          </span>
         </span>
-      </span>
+      )}
     </span>
   );
 }

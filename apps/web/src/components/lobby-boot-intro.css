@@ -1,4 +1,4 @@
-/* Launch intro — orbEnter (scale) then energyFill (ring), sequential. Lobby orb never uses these. */
+/* Launch intro — logoEnter → ringEnter → energyFill. Lobby orb never uses these. */
 
 html:not([data-app-hydrated]) [data-boot-scene] .lobby-boot-orb-scale-layer {
   transform: scale(0.15);
@@ -17,6 +17,71 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   opacity: 0.22;
 }
 
+.lobby-boot-orb-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.lobby-boot-logo-intro-active:not(.lobby-boot-scale-done) .lobby-boot-ring-shell {
+  visibility: hidden;
+  opacity: 0;
+}
+
+.lobby-boot-logo-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  transform: none !important;
+}
+
+.lobby-boot-logo-layer__inner {
+  position: relative;
+  inset: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lobby-boot-logo-intro-active .lobby-boot-logo-layer .lobby-screen__title {
+  display: inline-block;
+  transform: scale(0.15);
+  transform-origin: center center;
+  will-change: transform;
+  backface-visibility: hidden;
+  animation: boot-logo-scale 550ms ease-out both;
+}
+
+.lobby-boot-logo-ready .lobby-boot-logo-layer .lobby-screen__title {
+  transform: scale(1);
+  animation: none;
+  will-change: auto;
+}
+
+@keyframes boot-logo-scale {
+  from {
+    transform: scale(0.15);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+.lobby-boot-ring-shell {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.lobby-boot-ring-shell .instant-ban-arena-lobby-orb__title-layer {
+  visibility: hidden !important;
+}
+
 .lobby-boot-orb-scale-layer {
   position: relative;
   width: 100%;
@@ -30,7 +95,7 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   contain: none;
 }
 
-/* Phase orbEnter — scale only, ring stays empty */
+/* Phase ringEnter — ring container scale only, logo stays final size */
 .lobby-boot-intro-active .lobby-boot-orb-scale-layer {
   transform: scale(0.15);
   will-change: transform;
@@ -52,11 +117,14 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   }
 }
 
-/* Scale locked after orbEnter — no second growth during energyFill */
 .lobby-boot-scale-done .lobby-boot-orb-scale-layer {
   transform: scale(1);
   animation: none;
   will-change: auto;
+}
+
+.lobby-boot-orb-root .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
+  transition: none !important;
 }
 
 .lobby-boot-fill-active .instant-ban-arena-lobby-orb__ring-layer {
@@ -67,7 +135,6 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
 .lobby-boot-fill-active
   .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
   transform: scale(var(--98-confirm-ring-lobby-scale));
-  transition: none !important;
 }
 
 .lobby-boot-fill-active .influence-ring__track {
@@ -83,7 +150,7 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   transition: none !important;
 }
 
-/* Phase energyFill — ring 0 → target, scale unchanged */
+/* Phase energyFill — ring 0 → frozen target, no container scale change */
 .lobby-boot-fill-active .lobby-boot-progress-stroke {
   stroke: rgba(var(--98-power-rgb), 0.92);
   stroke-width: 2.5;
@@ -107,7 +174,17 @@ html:not([data-app-hydrated]) [data-boot-scene] .instant-ban-arena-lobby-orb__ri
   contain: none;
 }
 
+.lobby-orb-ready:not([data-enter-phase])
+  .instant-ban-arena-lobby-orb__ring-layer.instant-ban-confirm-orb-ring {
+  transition: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .lobby-boot-logo-intro-active .lobby-boot-logo-layer .lobby-screen__title {
+    animation: none;
+    transform: scale(1);
+  }
+
   .lobby-boot-intro-active .lobby-boot-orb-scale-layer {
     animation: none;
     transform: scale(1);

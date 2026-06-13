@@ -19,13 +19,16 @@ export function BootScene({ influencePercent, energyKnown }: Props) {
   const ringTarget = Math.min(100, Math.max(0, influencePercent));
 
   const {
-    scaleActive,
+    logoScaleActive,
+    ringScaleActive,
     fillActive,
-    scaleLocked,
+    logoLocked,
+    ringScaleLocked,
     bootIntroActive,
-    ringTargetPercent,
+    fillTargetPercent,
     visualRingPercent,
-    onScaleEnd,
+    onLogoScaleEnd,
+    onRingScaleEnd,
     onFillEnd,
   } = useBootSceneIntro(ringTarget, energyKnown);
 
@@ -42,16 +45,20 @@ export function BootScene({ influencePercent, energyKnown }: Props) {
       <div className="boot-scene__stage instant-ban-arena-send__stage">
         <LobbyBootOrbWrap
           className="lobby-screen__orb-wrap lobby-screen__orb-root"
-          scaleActive={scaleActive}
+          logoScaleActive={logoScaleActive}
+          ringScaleActive={ringScaleActive}
           fillActive={fillActive}
-          scaleLocked={scaleLocked}
-          ringTarget={ringTargetPercent}
-          onScaleEnd={onScaleEnd}
+          logoLocked={logoLocked}
+          ringScaleLocked={ringScaleLocked}
+          ringTarget={fillTargetPercent}
+          onLogoScaleEnd={onLogoScaleEnd}
+          onRingScaleEnd={onRingScaleEnd}
           onFillEnd={onFillEnd}
         >
           <LobbyIdleOrb
             ringPercent={visualRingPercent}
             bootFillActive={fillActive}
+            hideTitle
           />
         </LobbyBootOrbWrap>
       </div>
