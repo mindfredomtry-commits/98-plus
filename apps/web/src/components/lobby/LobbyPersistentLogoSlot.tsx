@@ -30,11 +30,12 @@ export function LobbyPersistentLogoSlot({
   const onLogoScaleEndRef = useRef(onLogoScaleEnd);
   const logoEndedRef = useRef(false);
   const [logoEnterDone, setLogoEnterDone] = useState(() => isLobbyBootLogoIntroDone());
+  const [introAnimating, setIntroAnimating] = useState(false);
   onLogoScaleEndRef.current = onLogoScaleEnd;
 
   const logoLockedVisible = logoEnterDone || logoLocked;
-  const runLogoIntro = logoScaleActive && !logoLockedVisible;
   const bootLogoPending = !logoLockedVisible;
+  const runLogoIntro = introAnimating && !logoLockedVisible;
   const logoSource = logoLockedVisible ? 'persistent' : 'boot';
 
   useLayoutEffect(() => {
@@ -43,10 +44,25 @@ export function LobbyPersistentLogoSlot({
   }, []);
 
   useEffect(() => {
-    if (!runLogoIntro) {
+    if (!logoScaleActive || logoLockedVisible) {
+      setIntroAnimating(false);
       if (!logoScaleActive) logoEndedRef.current = false;
       return;
     }
+
+    setIntroAnimating(false);
+    let rafId = 0;
+    rafId = requestAnimationFrame(() => {
+      setIntroAnimating(true);
+    });
+
+    return () => {
+      cancelAnimationFrame(rafId);
+    };
+  }, [logoScaleActive, logoLockedVisible]);
+
+  useEffect(() => {
+    if (!runLogoIntro) return;
 
     const root = rootRef.current;
     if (!root) return;
@@ -54,6 +70,7 @@ export function LobbyPersistentLogoSlot({
     const finish = () => {
       if (logoEndedRef.current) return;
       logoEndedRef.current = true;
+      setIntroAnimating(false);
       setLogoEnterDone(true);
       onLogoScaleEndRef.current?.();
     };
@@ -71,7 +88,7 @@ export function LobbyPersistentLogoSlot({
       window.clearTimeout(fallbackTimer);
       root.removeEventListener('animationend', handleAnimationEnd);
     };
-  }, [runLogoIntro, logoScaleActive, logoScaleMs]);
+  }, [runLogoIntro, logoScaleMs]);
 
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -83,26 +100,19 @@ export function LobbyPersistentLogoSlot({
     root.style.transition = 'none';
     root.style.animation = 'none';
 
+    title.style.opacity = '1';
+    title.style.visibility = 'visible';
+    title.style.transform = 'none';
+    title.style.animation = 'none';
+    title.style.transition = 'none';
+
     if (!logoLockedVisible) {
-      anchor.style.removeProperty('transform');
-      anchor.style.removeProperty('animation');
-      anchor.style.removeProperty('transition');
-      title.style.opacity = '1';
-      title.style.visibility = 'visible';
-      title.style.transform = 'none';
-      title.style.animation = 'none';
-      title.style.transition = 'none';
       return;
     }
 
     anchor.style.transform = 'translate(-50%, -50%) scale(1)';
     anchor.style.animation = 'none';
     anchor.style.transition = 'none';
-    title.style.opacity = '1';
-    title.style.visibility = 'visible';
-    title.style.transform = 'none';
-    title.style.animation = 'none';
-    title.style.transition = 'none';
   }, [logoLockedVisible]);
 
   useLayoutEffect(() => {
@@ -112,7 +122,7 @@ export function LobbyPersistentLogoSlot({
     if (!anchorRow) return;
     rootRef.current?.setAttribute('data-logo-transform', anchorRow.transform);
     rootRef.current?.setAttribute('data-logo-opacity', anchorRow.opacity);
-  }, [diagContext, runLogoIntro, logoLockedVisible, visible]);
+  }, [diagContext, runLogoIntro, logoLockedVisible, visible, introAnimating]);
 
   const hideForConfirm = !visible;
   const showHiddenClass = hideForConfirm;

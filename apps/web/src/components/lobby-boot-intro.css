@@ -75,7 +75,6 @@ html:not([data-app-hydrated]) .lobby-persistent-logo-slot:not(.lobby-boot-logo-e
   transform-origin: center center;
   pointer-events: none;
   transition: none !important;
-  animation: none !important;
   opacity: 1;
   visibility: visible;
 }
@@ -166,7 +165,7 @@ html:not([data-app-hydrated]) .lobby-persistent-logo-slot:not(.lobby-boot-logo-e
   transform-origin: center center;
   will-change: transform;
   backface-visibility: hidden;
-  animation: boot-logo-anchor-scale 550ms ease-out both;
+  animation: boot-logo-anchor-scale 550ms ease-out both !important;
 }
 
 @keyframes boot-logo-anchor-scale {
