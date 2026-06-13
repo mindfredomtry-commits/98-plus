@@ -67,14 +67,15 @@ export function snapshotPersistentLogoStyles(
 
   while (el && depth < 8) {
     const style = getComputedStyle(el);
+    const label =
+      el.getAttribute('data-logo-source') ??
+      el.getAttribute('data-logo-layer') ??
+      (typeof el.className === 'string' && el.className ? el.className : null) ??
+      el.tagName.toLowerCase();
     rows.push({
       context,
       depth,
-      label:
-        el.getAttribute('data-logo-source') ??
-        el.getAttribute('data-logo-layer') ??
-        el.className ||
-        el.tagName.toLowerCase(),
+      label,
       transform: style.transform,
       opacity: style.opacity,
       animation: style.animationName,
