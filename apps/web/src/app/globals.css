@@ -1386,6 +1386,26 @@ html.scroll-lock body {
   border-color: rgba(129, 140, 248, 0.45);
 }
 
+.boot-handoff-debug {
+  position: fixed;
+  left: 0.5rem;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
+  z-index: 2147483645;
+  max-width: min(92vw, 18rem);
+  padding: 0.35rem 0.55rem;
+  border-radius: 0.45rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.58rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #ecfdf5;
+  background: rgba(6, 78, 59, 0.92);
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  user-select: none;
+}
+
 /* First-ban viral onboarding */
 .first-ban-hero h2 {
   text-shadow: 0 0 24px rgba(var(--98-accent-rgb), 0.35);

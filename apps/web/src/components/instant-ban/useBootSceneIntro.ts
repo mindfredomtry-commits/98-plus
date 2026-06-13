@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import {
   getLobbyBootIntroPrimedSnapshot,
   hasPlayedLobbyBootIntroThisSession,
@@ -8,6 +8,13 @@ import {
   markLobbyBootIntroPrimed,
   shouldRunLobbyBootIntroVisualSync,
 } from '@/lib/lobby-boot-intro-session';
+import {
+  patchBootHandoffDebug,
+  recordBootIntroEndCall,
+  recordBootMarkPrimedCall,
+} from '@/lib/boot-handoff-debug';
+
+const BOOT_INTRO_MS = 580;
 
 function prefersReducedMotion(): boolean {
   if (typeof window === 'undefined') return false;
@@ -29,7 +36,9 @@ function shouldSkipBootSceneIntro(): boolean {
 export function useBootSceneIntro(targetRingPercent: number, energyKnown: boolean) {
   const target = clampPercent(targetRingPercent);
 
-  const [introPrimed, setIntroPrimed] = useState(() => shouldSkipBootSceneIntro());
+  const [introPrimed, setIntroPrimed] = useState(() =>
+    isLobbyBootIntroPrimed() || shouldSkipBootSceneIntro(),
+  );
 
   const introActive =
     !introPrimed &&
@@ -40,16 +49,22 @@ export function useBootSceneIntro(targetRingPercent: number, energyKnown: boolea
 
   const finishPrimed = useCallback(
     (ring: number) => {
+      if (isLobbyBootIntroPrimed()) {
+        setIntroPrimed(true);
+        return;
+      }
       const clamped = clampPercent(ring);
       setIntroPrimed(true);
       markLobbyBootIntroPrimed(clamped, 1);
+      recordBootMarkPrimedCall();
     },
     [],
   );
 
   useLayoutEffect(() => {
-    if (!shouldSkipBootSceneIntro() || isLobbyBootIntroPrimed()) return;
-    finishPrimed(energyKnown ? target : 0);
+    if (shouldSkipBootSceneIntro() && !isLobbyBootIntroPrimed()) {
+      finishPrimed(energyKnown ? target : 0);
+    }
   }, [energyKnown, target, finishPrimed]);
 
   useLayoutEffect(() => {
@@ -57,15 +72,19 @@ export function useBootSceneIntro(targetRingPercent: number, energyKnown: boolea
     setIntroPrimed(true);
   }, [introPrimed]);
 
-  useEffect(() => {
-    if (shouldSkipBootSceneIntro() && !isLobbyBootIntroPrimed()) {
-      finishPrimed(energyKnown ? target : 0);
-    }
-  }, [energyKnown, target, finishPrimed]);
-
   const onIntroEnd = useCallback(() => {
+    recordBootIntroEndCall();
     finishPrimed(energyKnown ? target : getLobbyBootIntroPrimedSnapshot().ringPercent);
   }, [energyKnown, target, finishPrimed]);
+
+  useEffect(() => {
+    patchBootHandoffDebug({
+      bootSceneVisible: introActive,
+      introPrimed: isLobbyBootIntroPrimed() || introPrimed,
+      hasPlayedIntro: isLobbyBootIntroPrimed(),
+      showBootScene: !isLobbyBootIntroPrimed(),
+    });
+  }, [introActive, introPrimed]);
 
   const ringTargetPercent = energyKnown ? target : 0;
 
@@ -75,5 +94,6 @@ export function useBootSceneIntro(targetRingPercent: number, energyKnown: boolea
     bootFillActive,
     ringTargetPercent,
     onIntroEnd,
+    bootIntroMs: BOOT_INTRO_MS,
   };
 }

@@ -58,6 +58,7 @@ export function markLobbyBootScaleIntroDone(ringPercent: number): void {
 }
 
 export function markLobbyBootIntroPrimed(ringPercent: number, scale = 1): void {
+  if (introFullyPrimed) return;
   scaleIntroDone = true;
   introFullyPrimed = true;
   primedSnapshot = {

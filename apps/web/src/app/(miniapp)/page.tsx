@@ -14,6 +14,7 @@ import { useBootRouteRelease } from '@/hooks/useBootRouteRelease';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSocialBoot } from '@/hooks/useSocialBoot';
 import { BootScene } from '@/components/BootScene';
+import { BootHandoffDebugBadge } from '@/components/BootHandoffDebugBadge';
 import { PillSourceDebugBadge } from '@/components/PillSourceDebugBadge';
 import { HomeArena } from '@/components/HomeArena';
 import { InstantBanFlow } from '@/components/instant-ban/InstantBanFlow';
@@ -27,6 +28,7 @@ import {
   resolveLobbyInfluencePercent,
 } from '@/lib/lobby-influence';
 import { isLobbyBootIntroPrimed, subscribeLobbyBootIntroSession } from '@/lib/lobby-boot-intro-session';
+import { patchBootHandoffDebug } from '@/lib/boot-handoff-debug';
 import { instantBanDebug } from '@/lib/instant-ban-debug';
 import {
   getDeepLinkBootDebug,
@@ -123,6 +125,15 @@ export default function HomePage() {
   );
   const showBootScreen = loading || deepLinkRouteBootPending;
   const showBootScene = !lobbyBootIntroDone;
+
+  useLayoutEffect(() => {
+    patchBootHandoffDebug({
+      showBootScene,
+      showBottomNav: !lobbyPrefetch && lobbyBootIntroDone,
+      hasPlayedIntro: lobbyBootIntroDone,
+      bootSceneVisible: showBootScene,
+    });
+  }, [showBootScene, lobbyBootIntroDone, lobbyPrefetch]);
   const replyDeeplinkPending =
     !incomingCardFullyReady &&
     Boolean(
@@ -368,6 +379,7 @@ export default function HomePage() {
       data-shell-build={APP_SHELL_BUILD}
     >
       <PillSourceDebugBadge />
+      <BootHandoffDebugBadge />
       <ShellErrorBoundary name="ambience" fallback={null}>
         <ArenaAmbience />
       </ShellErrorBoundary>

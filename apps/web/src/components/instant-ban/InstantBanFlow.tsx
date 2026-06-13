@@ -87,6 +87,7 @@ import {
   isLobbyBootIntroPrimed,
   subscribeLobbyBootIntroSession,
 } from '@/lib/lobby-boot-intro-session';
+import { patchBootHandoffDebug } from '@/lib/boot-handoff-debug';
 import { triggerLobbyBlockedHaptic } from './lobby-cta-haptics';
 import {
   evaluateConfirmSubmitEnergy,
@@ -473,6 +474,7 @@ export function InstantBanFlow({
       replyUiShellActive);
   const lobbyChromeHidden =
     replyLobbyBlocked || deepLinkRouteBootPending || replyIncomingDeeplinkPending;
+  const showLobbyChrome = lobbyBootIntroPrimed && !lobbyChromeHidden;
   /** Orb stays mounted during route boot — only hide for reply/incoming block. */
   const lobbyOrbVisible = !replyIncomingDeeplinkPending && !replyLobbyBlocked;
   const showLobbyCta =
@@ -823,7 +825,11 @@ export function InstantBanFlow({
     if (replyUiShellActive) return;
     if (lobbyCtaBootSpringRef.current) return;
     if (sendStarted) return;
-    if (prefersReducedMotion()) return;
+    if (prefersReducedMotion()) {
+      lobbyCtaBootSpringRef.current = true;
+      setCtaState('visible');
+      return;
+    }
     lobbyCtaBootSpringRef.current = true;
     ctaBootDelayTimerRef.current = setTimeout(() => {
       ctaBootDelayTimerRef.current = null;
@@ -958,6 +964,15 @@ export function InstantBanFlow({
     (bansCtaQueueSuppress ||
       resultCtaBansOverlayOpen ||
       (phase === 'idle' && !notificationQueueUiLock));
+
+  useLayoutEffect(() => {
+    patchBootHandoffDebug({
+      introPrimed: lobbyBootIntroPrimed,
+      showLobbyChrome,
+      showLobbyCta,
+      hasPlayedIntro: lobbyBootIntroPrimed,
+    });
+  }, [lobbyBootIntroPrimed, showLobbyChrome, showLobbyCta]);
 
   useEffect(() => {
     console.log('[LOBBY NAV STATE]', {
@@ -3253,7 +3268,7 @@ export function InstantBanFlow({
           bansNeedAttention={pendingStartupInteractions}
         />
       ) : null}
-      {!lobbyChromeHidden ? <LobbyScreenAtmosphere /> : null}
+      {!lobbyChromeHidden && showLobbyChrome ? <LobbyScreenAtmosphere /> : null}
 
       <div className="instant-ban-arena-send__stage">
         {showLobbyOrb ? (

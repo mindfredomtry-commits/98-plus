@@ -5,9 +5,13 @@ import {
   useEffect,
   useRef,
   type CSSProperties,
+  type MutableRefObject,
   type ReactNode,
+  type Ref,
 } from 'react';
 import { INFLUENCE_RING_CIRCUMFERENCE } from '@/components/lobby/InfluenceRing';
+
+const BOOT_INTRO_MS = 580;
 
 type Props = {
   className?: string;
@@ -18,12 +22,21 @@ type Props = {
   children: ReactNode;
 };
 
+function assignRef<T>(ref: Ref<T> | undefined, value: T | null): void {
+  if (typeof ref === 'function') {
+    ref(value);
+  } else if (ref && typeof ref === 'object') {
+    (ref as MutableRefObject<T | null>).current = value;
+  }
+}
+
 /** Boot scene orb — scale + ring fill via CSS only. */
 export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
   function LobbyBootOrbWrap(
     { className = '', style, introActive, ringTarget, onIntroEnd, children },
     ref,
   ) {
+    const rootRef = useRef<HTMLDivElement>(null);
     const onIntroEndRef = useRef(onIntroEnd);
     const introEndedRef = useRef(false);
     onIntroEndRef.current = onIntroEnd;
@@ -34,23 +47,29 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
         return;
       }
 
-      const root =
-        ref && typeof ref === 'object' && 'current' in ref ? ref.current : null;
+      const root = rootRef.current;
       if (!root) return;
 
-      const handleAnimationEnd = (event: AnimationEvent) => {
-        const name = event.animationName;
-        if (name !== 'boot-orb-scale' && name !== 'boot-ring-fill') return;
+      const finish = () => {
         if (introEndedRef.current) return;
         introEndedRef.current = true;
         onIntroEndRef.current?.();
       };
 
+      const handleAnimationEnd = (event: AnimationEvent) => {
+        const name = event.animationName;
+        if (name !== 'boot-orb-scale' && name !== 'boot-ring-fill') return;
+        finish();
+      };
+
+      const fallbackTimer = window.setTimeout(finish, BOOT_INTRO_MS);
+
       root.addEventListener('animationend', handleAnimationEnd);
       return () => {
+        window.clearTimeout(fallbackTimer);
         root.removeEventListener('animationend', handleAnimationEnd);
       };
-    }, [ref, introActive]);
+    }, [introActive]);
 
     const targetRatio = Math.min(1, Math.max(0, ringTarget / 100));
     const circ = INFLUENCE_RING_CIRCUMFERENCE;
@@ -70,7 +89,15 @@ export const LobbyBootOrbWrap = forwardRef<HTMLDivElement, Props>(
       .join(' ');
 
     return (
-      <div ref={ref} className={rootClass} style={mergedStyle} data-orb-root>
+      <div
+        ref={(node) => {
+          rootRef.current = node;
+          assignRef(ref, node);
+        }}
+        className={rootClass}
+        style={mergedStyle}
+        data-orb-root
+      >
         <div className="lobby-boot-orb-scale-layer" data-boot-scale-layer>
           {children}
         </div>
