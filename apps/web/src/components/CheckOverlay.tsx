@@ -125,6 +125,7 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
         <p className="check-modal-title text-xl font-black text-glow">
           {modalView.title}
         </p>
+        <p className="check-modal-role-context">{modalView.roleContext}</p>
         {checkBan.remainingMs != null ? (
           <div className="check-modal-timer">
             <BanTimer remainingMs={checkBan.remainingMs} />

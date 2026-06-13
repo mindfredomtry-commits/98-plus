@@ -14,8 +14,13 @@ export function getCheckViewerRole(
 }
 
 export const CHECK_MODAL_TITLE: Record<CheckViewerRole, string> = {
-  receiver: 'Ты выдержал?',
-  sender: 'Он выдержал?',
+  receiver: 'Ты выдержал(а)?',
+  sender: 'Выдержал(а)?',
+};
+
+export const CHECK_MODAL_ROLE_CONTEXT: Record<CheckViewerRole, string> = {
+  receiver: 'Был запрет тебе от',
+  sender: 'Был твой запрет для',
 };
 
 export function getCheckModalDisplayedUser(
@@ -31,6 +36,7 @@ export function getCheckModalView(
 ): {
   role: CheckViewerRole;
   title: string;
+  roleContext: string;
   displayedUser: UserPublic;
 } | null {
   const role = getCheckViewerRole(
@@ -42,6 +48,7 @@ export function getCheckModalView(
   return {
     role,
     title: CHECK_MODAL_TITLE[role],
+    roleContext: CHECK_MODAL_ROLE_CONTEXT[role],
     displayedUser: getCheckModalDisplayedUser(ban, role),
   };
 }
