@@ -343,6 +343,11 @@ export function formatInviteToBanBotMessage(params: {
   return `${header}\n\nЗапрети мне то, что давно хотел!`;
 }
 
+/** Viral invite history — single-line question (no colon). */
+export function formatInviteRetentionQuestion(essence: string): string {
+  return `Сегодня снова можно ${essence}?`;
+}
+
 /** Viral invite /start — pair has ban history. */
 export function formatInviteRetentionBotMessage(params: {
   inviterUsername?: string | null;
@@ -356,7 +361,7 @@ export function formatInviteRetentionBotMessage(params: {
     displayName: params.inviterDisplayName,
   });
   const essence = banTextEssence(params.banText);
-  return `${header}\n\nСегодня снова можно ${essence}?`;
+  return `${header}\n\n${formatInviteRetentionQuestion(essence)}`;
 }
 
 /** Retention DM — re-engage with a prior ban to this friend. */
