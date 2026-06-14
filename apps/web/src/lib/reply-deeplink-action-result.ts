@@ -103,6 +103,11 @@ export function markReplyDeeplinkOverboard(
   if (typeof window === 'undefined') return;
   const key = storageKey(uid, bid);
   localStorage.setItem(key, 'reply_ban_overboard');
+  console.log('[reply-mark-only]', {
+    kind: 'reply_ban_overboard',
+    userId: uid,
+    banId: bid,
+  });
   console.log('[reply-result-write]', {
     kind: 'reply_ban_overboard',
     userId: uid,
@@ -121,6 +126,11 @@ export function markReplyDeeplinkSent(
   if (typeof window === 'undefined') return;
   const key = storageKey(uid, bid);
   localStorage.setItem(key, 'reply_ban_sent');
+  console.log('[reply-mark-only]', {
+    kind: 'reply_ban_sent',
+    userId: uid,
+    banId: bid,
+  });
   console.log('[reply-result-write]', {
     kind: 'reply_ban_sent',
     userId: uid,

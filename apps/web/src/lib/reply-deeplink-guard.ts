@@ -1,8 +1,6 @@
 import type { BanInteraction } from '@98plus/shared';
 import {
   getReplyDeeplinkActionResult,
-  markReplyDeeplinkOverboard,
-  markReplyDeeplinkSent,
 } from './reply-deeplink-action-result';
 
 export type ReplyDeeplinkEntry =
@@ -100,31 +98,6 @@ export function resolveReplyDeeplinkEntry(
       decision: 'open_card',
     });
     return 'open_card';
-  }
-
-  if (ban.status === 'overboard') {
-    markReplyDeeplinkOverboard(viewer, storageBanId);
-    console.log('[reply-guard-resolve]', {
-      viewerId: viewer,
-      banId: ban.id ?? null,
-      deeplinkBanId: storageBanId,
-      banStatus: ban.status,
-      storedResult: null,
-      decision: 'lobby_overboard',
-    });
-    return 'lobby_overboard';
-  }
-  if (ban.status === 'replied' || ban.status === 'countered') {
-    markReplyDeeplinkSent(viewer, storageBanId);
-    console.log('[reply-guard-resolve]', {
-      viewerId: viewer,
-      banId: ban.id ?? null,
-      deeplinkBanId: storageBanId,
-      banStatus: ban.status,
-      storedResult: null,
-      decision: 'lobby_sent',
-    });
-    return 'lobby_sent';
   }
 
   if (!ban.receiver?.id || ban.receiver.id !== viewer) {
