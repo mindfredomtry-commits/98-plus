@@ -26,6 +26,9 @@ export const SENDER_BAN_CONFIRMED_WEBAPP_BUTTON_LABEL =
 /** First-time /start after viral link — opens Mini App. */
 export const OPEN_BAN_WEBAPP_BUTTON_LABEL = '🚫 Открыть запрет';
 
+/** Incoming card BigButton «Перебор!» — reuse in repeat-deeplink toast. */
+export const INCOMING_OVERBOARD_BUTTON_EMOJI = '🫷';
+
 /** @deprecated Use REPLY_BAN_WEBAPP_BUTTON_LABEL */
 export const TELEGRAM_REPLY_BUTTON_LABEL = REPLY_BAN_WEBAPP_BUTTON_LABEL;
 

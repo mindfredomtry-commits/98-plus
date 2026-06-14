@@ -11,7 +11,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import type { BanInteraction } from '@98plus/shared';
-import { findFriendByUsername, formatSenderDisplayName } from '@98plus/shared';
+import { findFriendByUsername, formatSenderDisplayName, INCOMING_OVERBOARD_BUTTON_EMOJI } from '@98plus/shared';
 import {
   formatDeliveryError,
   validateReplyTarget,
@@ -624,7 +624,7 @@ function IncomingBanOverlayInner({
           onClick={handleOverboard}
           disabled={actionLoading || !overboardEnabled}
         >
-          🫷 Перебор!
+          {INCOMING_OVERBOARD_BUTTON_EMOJI} Перебор!
         </BigButton>
       </div>
     </div>
