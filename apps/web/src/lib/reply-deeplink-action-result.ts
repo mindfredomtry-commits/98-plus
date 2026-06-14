@@ -5,8 +5,15 @@ export const REPLY_DEEPLINK_TOAST_SENT = '🚫 Запрет уже отправ�
 
 const LEGACY_STORAGE_PREFIX = '98plus_reply_deeplink_action:';
 
+export function replyDeeplinkStorageKey(
+  userId: string,
+  banId: string,
+): string {
+  return `${LEGACY_STORAGE_PREFIX}${userId.trim()}:${banId.trim()}`;
+}
+
 function storageKey(userId: string, banId: string): string {
-  return `${LEGACY_STORAGE_PREFIX}${userId}:${banId}`;
+  return replyDeeplinkStorageKey(userId, banId);
 }
 
 function isReplyDeeplinkActionResult(
@@ -21,7 +28,7 @@ function readLegacyRow(
 ): ReplyDeeplinkActionResult | null {
   if (typeof window === 'undefined') return null;
   try {
-    const raw = localStorage.getItem(`${LEGACY_STORAGE_PREFIX}${userId}`);
+    const raw = localStorage.getItem(`${LEGACY_STORAGE_PREFIX}${userId.trim()}`);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return null;
@@ -29,7 +36,7 @@ function readLegacyRow(
       (item) =>
         !!item &&
         typeof item === 'object' &&
-        (item as { banId?: string }).banId === banId,
+        (item as { banId?: string }).banId === banId.trim(),
     ) as { result?: unknown } | undefined;
     return isReplyDeeplinkActionResult(row?.result) ? row.result : null;
   } catch {
@@ -50,49 +57,85 @@ export function getReplyDeeplinkActionResult(
   userId: string | null | undefined,
   banId: string | null | undefined,
 ): ReplyDeeplinkActionResult | null {
-  if (!userId?.trim() || !banId?.trim()) return null;
+  const uid = userId?.trim() ?? '';
+  const bid = banId?.trim() ?? '';
+  if (!uid || !bid) return null;
 
   if (typeof window === 'undefined') return null;
 
+  const key = storageKey(uid, bid);
+  let result: ReplyDeeplinkActionResult | null = null;
+
   try {
-    const direct = localStorage.getItem(storageKey(userId, banId));
+    const direct = localStorage.getItem(key);
     if (isReplyDeeplinkActionResult(direct)) {
-      return direct;
+      result = direct;
     }
   } catch {
     /* ignore */
   }
 
-  const legacy = readLegacyRow(userId, banId);
-  if (legacy) {
-    migrateLegacyRow(userId, banId, legacy);
+  if (!result) {
+    const legacy = readLegacyRow(uid, bid);
+    if (legacy) {
+      migrateLegacyRow(uid, bid, legacy);
+      result = legacy;
+    }
   }
-  return legacy;
+
+  console.log('[reply-result-read]', {
+    userId: uid,
+    banId: bid,
+    key,
+    result,
+  });
+
+  return result;
 }
 
 export function markReplyDeeplinkOverboard(
   userId: string | null | undefined,
   banId: string | null | undefined,
 ): void {
-  if (!userId?.trim() || !banId?.trim()) return;
+  const uid = userId?.trim() ?? '';
+  const bid = banId?.trim() ?? '';
+  if (!uid || !bid) return;
   if (typeof window === 'undefined') return;
-  localStorage.setItem(storageKey(userId, banId), 'reply_ban_overboard');
+  const key = storageKey(uid, bid);
+  localStorage.setItem(key, 'reply_ban_overboard');
+  console.log('[reply-result-write]', {
+    kind: 'reply_ban_overboard',
+    userId: uid,
+    banId: bid,
+    key,
+  });
 }
 
 export function markReplyDeeplinkSent(
   userId: string | null | undefined,
   banId: string | null | undefined,
 ): void {
-  if (!userId?.trim() || !banId?.trim()) return;
+  const uid = userId?.trim() ?? '';
+  const bid = banId?.trim() ?? '';
+  if (!uid || !bid) return;
   if (typeof window === 'undefined') return;
-  localStorage.setItem(storageKey(userId, banId), 'reply_ban_sent');
+  const key = storageKey(uid, bid);
+  localStorage.setItem(key, 'reply_ban_sent');
+  console.log('[reply-result-write]', {
+    kind: 'reply_ban_sent',
+    userId: uid,
+    banId: bid,
+    key,
+  });
 }
 
 export function clearReplyDeeplinkActionResult(
   userId: string | null | undefined,
   banId: string | null | undefined,
 ): void {
-  if (!userId?.trim() || !banId?.trim()) return;
+  const uid = userId?.trim() ?? '';
+  const bid = banId?.trim() ?? '';
+  if (!uid || !bid) return;
   if (typeof window === 'undefined') return;
-  localStorage.removeItem(storageKey(userId, banId));
+  localStorage.removeItem(storageKey(uid, bid));
 }

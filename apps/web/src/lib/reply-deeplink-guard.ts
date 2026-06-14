@@ -14,34 +14,161 @@ export type ReplyDeeplinkEntry =
 export function resolveReplyDeeplinkEntry(
   ban: Pick<BanInteraction, 'id' | 'status' | 'receiver' | 'text' | 'sender'>,
   viewerId: string | null | undefined,
+  deeplinkBanId?: string | null,
 ): ReplyDeeplinkEntry {
-  if (!viewerId) return 'reject';
-
-  const banId = ban.id?.trim() ?? '';
-  if (!banId) {
-    if (!ban.receiver?.id || ban.receiver.id !== viewerId) return 'reject';
-    if (ban.status !== 'pending') return 'reject';
-    if (!ban.text?.trim() || !ban.sender?.id) return 'reject';
-    return 'open_card';
+  const viewer = viewerId?.trim() ?? '';
+  if (!viewer) {
+    console.log('[reply-guard-resolve]', {
+      viewerId: null,
+      banId: ban.id ?? null,
+      deeplinkBanId: deeplinkBanId ?? null,
+      banStatus: ban.status,
+      storedResult: null,
+      decision: 'reject',
+    });
+    return 'reject';
   }
 
-  const stored = getReplyDeeplinkActionResult(viewerId, banId);
-  if (stored === 'reply_ban_overboard') return 'lobby_overboard';
-  if (stored === 'reply_ban_sent') return 'lobby_sent';
+  const storageBanId = (deeplinkBanId ?? ban.id)?.trim() ?? '';
+  const stored = storageBanId
+    ? getReplyDeeplinkActionResult(viewer, storageBanId)
+    : null;
 
-  if (ban.status === 'overboard') {
-    markReplyDeeplinkOverboard(viewerId, banId);
+  if (stored === 'reply_ban_overboard') {
+    console.log('[reply-guard-resolve]', {
+      viewerId: viewer,
+      banId: ban.id ?? null,
+      deeplinkBanId: storageBanId || null,
+      banStatus: ban.status,
+      storedResult: stored,
+      decision: 'lobby_overboard',
+    });
     return 'lobby_overboard';
   }
-  if (ban.status === 'replied' || ban.status === 'countered') {
-    markReplyDeeplinkSent(viewerId, banId);
+  if (stored === 'reply_ban_sent') {
+    console.log('[reply-guard-resolve]', {
+      viewerId: viewer,
+      banId: ban.id ?? null,
+      deeplinkBanId: storageBanId || null,
+      banStatus: ban.status,
+      storedResult: stored,
+      decision: 'lobby_sent',
+    });
     return 'lobby_sent';
   }
 
-  if (!ban.receiver?.id || ban.receiver.id !== viewerId) return 'reject';
-  if (ban.status !== 'pending') return 'reject';
-  if (!ban.text?.trim() || !ban.sender?.id) return 'reject';
+  if (!storageBanId) {
+    if (!ban.receiver?.id || ban.receiver.id !== viewer) {
+      console.log('[reply-guard-resolve]', {
+        viewerId: viewer,
+        banId: ban.id ?? null,
+        deeplinkBanId: null,
+        banStatus: ban.status,
+        storedResult: null,
+        decision: 'reject',
+      });
+      return 'reject';
+    }
+    if (ban.status !== 'pending') {
+      console.log('[reply-guard-resolve]', {
+        viewerId: viewer,
+        banId: ban.id ?? null,
+        deeplinkBanId: null,
+        banStatus: ban.status,
+        storedResult: null,
+        decision: 'reject',
+      });
+      return 'reject';
+    }
+    if (!ban.text?.trim() || !ban.sender?.id) {
+      console.log('[reply-guard-resolve]', {
+        viewerId: viewer,
+        banId: ban.id ?? null,
+        deeplinkBanId: null,
+        banStatus: ban.status,
+        storedResult: null,
+        decision: 'reject',
+      });
+      return 'reject';
+    }
+    console.log('[reply-guard-resolve]', {
+      viewerId: viewer,
+      banId: ban.id ?? null,
+      deeplinkBanId: null,
+      banStatus: ban.status,
+      storedResult: null,
+      decision: 'open_card',
+    });
+    return 'open_card';
+  }
 
+  if (ban.status === 'overboard') {
+    markReplyDeeplinkOverboard(viewer, storageBanId);
+    console.log('[reply-guard-resolve]', {
+      viewerId: viewer,
+      banId: ban.id ?? null,
+      deeplinkBanId: storageBanId,
+      banStatus: ban.status,
+      storedResult: null,
+      decision: 'lobby_overboard',
+    });
+    return 'lobby_overboard';
+  }
+  if (ban.status === 'replied' || ban.status === 'countered') {
+    markReplyDeeplinkSent(viewer, storageBanId);
+    console.log('[reply-guard-resolve]', {
+      viewerId: viewer,
+      banId: ban.id ?? null,
+      deeplinkBanId: storageBanId,
+      banStatus: ban.status,
+      storedResult: null,
+      decision: 'lobby_sent',
+    });
+    return 'lobby_sent';
+  }
+
+  if (!ban.receiver?.id || ban.receiver.id !== viewer) {
+    console.log('[reply-guard-resolve]', {
+      viewerId: viewer,
+      banId: ban.id ?? null,
+      deeplinkBanId: storageBanId,
+      banStatus: ban.status,
+      storedResult: null,
+      decision: 'reject',
+    });
+    return 'reject';
+  }
+  if (ban.status !== 'pending') {
+    console.log('[reply-guard-resolve]', {
+      viewerId: viewer,
+      banId: ban.id ?? null,
+      deeplinkBanId: storageBanId,
+      banStatus: ban.status,
+      storedResult: null,
+      decision: 'reject',
+    });
+    return 'reject';
+  }
+  if (!ban.text?.trim() || !ban.sender?.id) {
+    console.log('[reply-guard-resolve]', {
+      viewerId: viewer,
+      banId: ban.id ?? null,
+      deeplinkBanId: storageBanId,
+      banStatus: ban.status,
+      storedResult: null,
+      decision: 'reject',
+    });
+    return 'reject';
+  }
+
+  console.log('[reply-guard-resolve]', {
+    viewerId: viewer,
+    banId: ban.id ?? null,
+    deeplinkBanId: storageBanId,
+    banStatus: ban.status,
+    storedResult: null,
+    decision: 'open_card',
+  });
   return 'open_card';
 }
 
@@ -56,12 +183,14 @@ export function prepareReplyDeeplinkReopen(
     fastOpenedRef: { current: boolean };
   },
 ): void {
-  if (!banId.trim() || !viewerId.trim()) return;
-  if (getReplyDeeplinkActionResult(viewerId, banId)) return;
+  const bid = banId.trim();
+  const viewer = viewerId.trim();
+  if (!bid || !viewer) return;
+  if (getReplyDeeplinkActionResult(viewer, bid)) return;
 
-  opts.dismissedIncoming.delete(banId);
-  opts.consumedAfterAnswer.delete(banId);
-  opts.locallyAckedIncoming.delete(banId);
-  opts.replyComposeDismissed.delete(banId);
+  opts.dismissedIncoming.delete(bid);
+  opts.consumedAfterAnswer.delete(bid);
+  opts.locallyAckedIncoming.delete(bid);
+  opts.replyComposeDismissed.delete(bid);
   opts.fastOpenedRef.current = false;
 }
