@@ -15,7 +15,7 @@ function pairBanWhere(userId: string, friendId: string) {
   };
 }
 
-function isUsablePairBanText(raw: string): boolean {
+export function isUsablePairBanText(raw: string): boolean {
   const text = raw.trim();
   if (text.length < MIN_PAIR_BAN_TEXT_LEN) return false;
   const essence = banTextEssence(text);
