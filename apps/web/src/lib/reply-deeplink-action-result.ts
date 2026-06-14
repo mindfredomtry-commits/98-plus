@@ -3,7 +3,7 @@ import { INCOMING_OVERBOARD_BUTTON_EMOJI } from '@98plus/shared';
 export type ReplyDeeplinkActionResult = 'reply_ban_overboard' | 'reply_ban_sent';
 
 export const REPLY_DEEPLINK_TOAST_OVERBOARD = `${INCOMING_OVERBOARD_BUTTON_EMOJI} Был перебор`;
-export const REPLY_DEEPLINK_TOAST_SENT = '🚫 Запрет уже отправлен';
+export const REPLY_DEEPLINK_TOAST_SENT = 'Запрет уже отправлен';
 
 const LEGACY_STORAGE_PREFIX = '98plus_reply_deeplink_action:';
 

@@ -110,6 +110,8 @@ import {
   resolveSendFlowSource,
 } from '@/lib/energy-gate';
 import { isReplyDeeplinkShellBan } from '@/lib/reply-deeplink-fast';
+import { REPLY_DEEPLINK_TOAST_SENT } from '@/lib/reply-deeplink-action-result';
+import { BanGlyph } from './SuccessBanCardBody';
 import { logSendFlow } from '@/lib/send-flow-debug';
 import { DEFAULT_SEND_TIMEOUT_MS } from '@/lib/request-timeout';
 import {
@@ -3441,8 +3443,27 @@ export function InstantBanFlow({
       ) : null}
       {!lobbyChromeHidden ? <LobbyScreenAtmosphere /> : null}
       {lobbyOpen && lobbyDeeplinkToast ? (
-        <div className="lobby-deeplink-toast" role="status" aria-live="polite">
-          {lobbyDeeplinkToast}
+        <div
+          className={`lobby-deeplink-toast${
+            lobbyDeeplinkToast === REPLY_DEEPLINK_TOAST_SENT
+              ? ' lobby-deeplink-toast--sent'
+              : ''
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          {lobbyDeeplinkToast === REPLY_DEEPLINK_TOAST_SENT ? (
+            <>
+              <span className="lobby-deeplink-toast__ban-icon" aria-hidden>
+                <BanGlyph strokeWidth={2.75} />
+              </span>
+              <span className="lobby-deeplink-toast__label">
+                {REPLY_DEEPLINK_TOAST_SENT}
+              </span>
+            </>
+          ) : (
+            lobbyDeeplinkToast
+          )}
         </div>
       ) : null}
 
