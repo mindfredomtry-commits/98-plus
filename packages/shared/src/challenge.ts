@@ -356,7 +356,7 @@ export function formatInviteRetentionBotMessage(params: {
     displayName: params.inviterDisplayName,
   });
   const essence = banTextEssence(params.banText);
-  return `${header}\n\nСегодня снова можно:\n${essence}?`;
+  return `${header}\n\nСегодня снова можно ${essence}?`;
 }
 
 /** Retention DM — re-engage with a prior ban to this friend. */
