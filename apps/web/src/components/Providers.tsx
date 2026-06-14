@@ -791,7 +791,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     kind: 'overboard' | 'sent';
     banId: string;
   } | null>(null);
+  const replyDeeplinkCompletedRouteBanIdRef = useRef<string | null>(null);
   const [lobbyIntroPrimedEpoch, setLobbyIntroPrimedEpoch] = useState(0);
+  const [replyCompletedRouteEpoch, setReplyCompletedRouteEpoch] = useState(0);
   const replyDeeplinkFastOpenedRef = useRef(false);
   const replyDeeplinkFastShellRef = useRef(false);
   const replyDeeplinkPrefetchRef = useRef(false);
@@ -849,6 +851,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const armReplyDeepLink = useCallback((banId: string) => {
+    if (replyDeeplinkCompletedRouteBanIdRef.current === banId.trim()) {
+      logReplyFlowLoopGuard('skip arm after completed route');
+      return;
+    }
     if (activeBanDeepLinkBanId != null || activeBanCardVisibleRef.current) {
       logActiveBanDeeplink('wrong-reply-flow-blocked', {
         payload: `a_${activeBanDeepLinkBanId ?? banId}`,
@@ -4428,15 +4434,65 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const routeReplyDeeplinkCompleted = useCallback(
     (kind: 'overboard' | 'sent', banId: string) => {
-      if (!replyDeeplinkRepeatEntryRef.current) {
-        console.log('[reply-toast-blocked]', {
+      const normalizedBanId = banId.trim();
+      const viewerId = userIdRef.current?.trim() ?? '';
+      const stored = viewerId
+        ? getReplyDeeplinkActionResult(viewerId, normalizedBanId)
+        : null;
+      const isRepeatEntry = replyDeeplinkRepeatEntryRef.current;
+      const isStoredCompleted =
+        stored === 'reply_ban_overboard' || stored === 'reply_ban_sent';
+
+      if (!isRepeatEntry && !isStoredCompleted) {
+        console.log('[reply-toast-skip]', {
           source: 'routeReplyDeeplinkCompleted',
-          reason: 'not-telegram-repeat-entry',
+          reason: 'not-repeat-entry',
+          kind,
+          banId: normalizedBanId,
         });
         return;
       }
 
+      const alreadyRouted =
+        replyDeeplinkCompletedRouteBanIdRef.current === normalizedBanId;
+      const shouldQueueToast = isRepeatEntry && !alreadyRouted;
+
+      console.log('[reply-completed-route-start]', {
+        kind,
+        banId: normalizedBanId,
+        isRepeatEntry,
+        isStoredCompleted,
+        alreadyRouted,
+      });
+
+      const clearedFastPath =
+        replyDeeplinkFastOpenedRef.current || replyDeeplinkFastShellRef.current;
+      const clearedBooting =
+        deepLinkReplyBooting || replyDeeplinkPendingBanIdRef.current != null;
+      const clearedShell = replyDeeplinkFastShellRef.current;
+
+      replyDeeplinkCompletedRouteBanIdRef.current = normalizedBanId;
+
       abortReplyDeepLinkFast(`reply-deeplink-${kind}`);
+      clearReplyDeeplinkFastTimeout();
+
+      incomingConsumedAfterAnswerRef.current.add(normalizedBanId);
+      dismissedIncomingRef.current.add(normalizedBanId);
+      locallyAckedIncomingRef.current.add(normalizedBanId);
+
+      const beforeQueue = overlayQueueRef.current;
+      const nextQueue = removeOverlaysForBan(beforeQueue, normalizedBanId, [
+        'incoming',
+      ]);
+      if (nextQueue.length !== beforeQueue.length) {
+        applyOverlayQueue(nextQueue);
+      } else if (
+        overlayQueueRef.current[0]?.kind === 'incoming' &&
+        overlayQueueRef.current[0].ban.id === normalizedBanId
+      ) {
+        dismissCurrentOverlay('reply-completed-route', nextQueue);
+      }
+
       pinReplyToBanId(null);
       setReplyDeepLinkBanId(null);
       setIncomingReplyBanId(null);
@@ -4451,13 +4507,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       replyLockReleasedRef.current = false;
       replyDeeplinkPendingBanIdRef.current = null;
       replyDeeplinkFastOpenedRef.current = false;
+      replyDeeplinkFastShellRef.current = false;
+      replyDeeplinkPrefetchRef.current = false;
+      replyDeeplinkFastHydratedRef.current = false;
+      replyDeeplinkFastWrittenAtRef.current = null;
+      replyDeeplinkFastWrittenBanIdRef.current = null;
+      replyDeeplinkPrefillBanRef.current = null;
+      replyDeepLinkBanIdRef.current = null;
       replyDeeplinkRepeatEntryRef.current = false;
 
-      resolveActiveDeepLinkRouteBoot(banId);
-      releaseDeepLinkRouteBoot('reply-completed-route', banId);
+      if (incomingBanRef.current?.id === normalizedBanId) {
+        incomingBanRef.current = null;
+      }
+      setIncomingBan((prev) => (prev?.id === normalizedBanId ? null : prev));
+
+      resolveActiveDeepLinkRouteBoot(normalizedBanId);
+      releaseDeepLinkRouteBoot('reply-completed-route', normalizedBanId);
 
       if (!isLobbyBootIntroPrimed()) {
         markLobbyBootIntroPrimed(getLastKnownLobbyRingPercent(), 1);
+        setLobbyIntroPrimedEpoch((n) => n + 1);
       }
 
       flushSync(() => {
@@ -4467,19 +4536,37 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       openLobbyRef.current(`reply-deeplink-${kind}`);
 
-      pendingReplyDeeplinkToastRef.current = { kind, banId };
-      console.log('[reply-completed-route]', {
-        kind,
-        banId,
-        openedLobby: lobbyOpenRef.current,
+      if (shouldQueueToast) {
+        pendingReplyDeeplinkToastRef.current = { kind, banId: normalizedBanId };
+      }
+
+      setReplyCompletedRouteEpoch((n) => n + 1);
+
+      console.log('[reply-completed-route-clear]', {
+        clearedFastPath,
+        clearedBooting,
+        clearedShell,
+      });
+      console.log('[reply-completed-route-open-lobby]', {
+        lobbyOpen: lobbyOpenRef.current,
+        homeSnapshotReady,
+        lobbyBootIntroPrimed: isLobbyBootIntroPrimed(),
       });
       console.log('[reply-deeplink]', {
-        banId,
+        banId: normalizedBanId,
         action: 'completed-route',
         kind,
       });
     },
-    [abortReplyDeepLinkFast, pinReplyToBanId],
+    [
+      abortReplyDeepLinkFast,
+      applyOverlayQueue,
+      clearReplyDeeplinkFastTimeout,
+      deepLinkReplyBooting,
+      dismissCurrentOverlay,
+      homeSnapshotReady,
+      pinReplyToBanId,
+    ],
   );
 
   const hydrateReplyDeeplinkIncomingBan = useCallback(
@@ -4720,17 +4807,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const openReplyDeepLinkFast = useCallback(
     (banId: string, optionalPrefilledBan?: BanInteraction | null) => {
       const normalizedBanId = banId.trim();
+      if (replyDeeplinkCompletedRouteBanIdRef.current === normalizedBanId) {
+        return false;
+      }
       const viewerId = userIdRef.current?.trim() ?? null;
       if (viewerId && normalizedBanId) {
         const stored = getReplyDeeplinkActionResult(viewerId, normalizedBanId);
         if (stored === 'reply_ban_overboard' || stored === 'reply_ban_sent') {
-          if (!replyDeeplinkRepeatEntryRef.current) {
-            console.log('[reply-toast-blocked]', {
-              source: 'openReplyDeepLinkFast',
-              reason: 'stored-not-repeat-entry',
-            });
-            return false;
-          }
           const routeKind =
             stored === 'reply_ban_overboard' ? 'overboard' : 'sent';
           console.log('[reply-deeplink-route]', {
@@ -4889,24 +4972,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         path: 'openReplyDeepLinkFast-resolve',
       });
       if (entry === 'lobby_overboard') {
-        if (!replyDeeplinkRepeatEntryRef.current) {
-          console.log('[reply-toast-blocked]', {
-            source: 'openReplyDeepLinkFast-resolve',
-            reason: 'stored-not-repeat-entry',
-          });
-          return false;
-        }
         routeReplyDeeplinkCompleted('overboard', normalizedBanId);
         return false;
       }
       if (entry === 'lobby_sent') {
-        if (!replyDeeplinkRepeatEntryRef.current) {
-          console.log('[reply-toast-blocked]', {
-            source: 'openReplyDeepLinkFast-resolve',
-            reason: 'stored-not-repeat-entry',
-          });
-          return false;
-        }
         routeReplyDeeplinkCompleted('sent', normalizedBanId);
         return false;
       }
@@ -5048,14 +5117,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
     const stored = getReplyDeeplinkActionResult(viewerId, banId);
     if (stored === 'reply_ban_overboard' || stored === 'reply_ban_sent') {
-      if (!replyDeeplinkRepeatEntryRef.current) {
-        console.log('[reply-toast-blocked]', {
-          source: 'prefill-effect',
-          reason: 'stored-not-repeat-entry',
-        });
-        replyDeeplinkPrefillBanRef.current = null;
-        return;
-      }
       const routeKind =
         stored === 'reply_ban_overboard' ? 'overboard' : 'sent';
       routeReplyDeeplinkCompleted(routeKind, banId);
@@ -5158,13 +5219,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         path: 'openDeepLinkReply',
       });
       if (entry === 'lobby_overboard') {
-        if (!replyDeeplinkRepeatEntryRef.current) {
-          console.log('[reply-toast-blocked]', {
-            source: 'openDeepLinkReply',
-            reason: 'stored-not-repeat-entry',
-          });
-          return;
-        }
         routeReplyDeeplinkCompleted('overboard', deeplinkBanId);
         logDeepLinkHandlerResult({
           type: 'reply',
@@ -5179,13 +5233,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
       if (entry === 'lobby_sent') {
-        if (!replyDeeplinkRepeatEntryRef.current) {
-          console.log('[reply-toast-blocked]', {
-            source: 'openDeepLinkReply',
-            reason: 'stored-not-repeat-entry',
-          });
-          return;
-        }
         routeReplyDeeplinkCompleted('sent', deeplinkBanId);
         logDeepLinkHandlerResult({
           type: 'reply',
@@ -5359,20 +5406,58 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const pending = pendingReplyDeeplinkToastRef.current;
     if (!pending) return;
-    if (!lobbyOpen || !isLobbyBootIntroPrimed()) return;
+
+    const lobbyBootIntroPrimed = isLobbyBootIntroPrimed();
+    const bootPending = isDeepLinkRouteBootPending();
+    const replyBootActive =
+      replyDeepLinkBanId != null ||
+      deepLinkReplyBooting ||
+      replyDeeplinkFastShell ||
+      replyHandoffLock;
+
+    if (
+      !lobbyOpen ||
+      !lobbyBootIntroPrimed ||
+      bootPending ||
+      replyBootActive
+    ) {
+      console.log('[reply-toast-skip]', {
+        reason: !lobbyOpen
+          ? 'lobby-closed'
+          : !lobbyBootIntroPrimed
+            ? 'intro-not-primed'
+            : bootPending
+              ? 'deeplink-boot-pending'
+              : 'reply-boot-active',
+        kind: pending.kind,
+        banId: pending.banId,
+        lobbyOpen,
+        homeSnapshotReady,
+        lobbyBootIntroPrimed,
+      });
+      return;
+    }
 
     const toast =
       pending.kind === 'overboard'
         ? REPLY_DEEPLINK_TOAST_OVERBOARD
         : REPLY_DEEPLINK_TOAST_SENT;
-    console.log('[reply-toast-set]', {
-      source: 'routeReplyDeeplinkCompleted',
+    console.log('[reply-toast-show]', {
       kind: pending.kind,
       banId: pending.banId,
     });
     setLobbyDeeplinkToast(toast);
     pendingReplyDeeplinkToastRef.current = null;
-  }, [lobbyOpen, lobbyIntroPrimedEpoch]);
+  }, [
+    lobbyOpen,
+    lobbyIntroPrimedEpoch,
+    replyCompletedRouteEpoch,
+    replyDeepLinkBanId,
+    deepLinkReplyBooting,
+    replyDeeplinkFastShell,
+    replyHandoffLock,
+    homeSnapshotReady,
+  ]);
 
   useEffect(() => {
     if (!lobbyDeeplinkToast) return;
@@ -7172,6 +7257,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     console.log('[lobby-closed]', { userId: userIdRef.current ?? null });
   }, []);
 
+  const setDeepLinkReplyBootingGuarded = useCallback((value: boolean) => {
+    if (value && replyDeeplinkCompletedRouteBanIdRef.current) {
+      console.log('[reply-completed-route]', {
+        action: 'skip-set-reply-booting',
+        banId: replyDeeplinkCompletedRouteBanIdRef.current,
+      });
+      return;
+    }
+    setDeepLinkReplyBooting(value);
+  }, []);
+
   const openLobby = useCallback((source?: string) => {
     setLobbyOpen(true);
     lobbyOpenRef.current = true;
@@ -8195,7 +8291,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       openSendFlow,
       closeSendFlow,
       deepLinkReplyBooting,
-      setDeepLinkReplyBooting,
+      setDeepLinkReplyBooting: setDeepLinkReplyBootingGuarded,
       replyDeeplinkFastShell,
       abortReplyDeepLinkFast,
       replyUiShellActive,
@@ -8341,7 +8437,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       openSendFlow,
       closeSendFlow,
       deepLinkReplyBooting,
-      setDeepLinkReplyBooting,
+      setDeepLinkReplyBooting: setDeepLinkReplyBootingGuarded,
       replyDeeplinkFastShell,
       abortReplyDeepLinkFast,
       replyUiShellActive,

@@ -12,6 +12,7 @@ export type PendingDeepLinkRoute =
 
 export type BootRouteReleaseReason =
   | 'reply-card-ready'
+  | 'reply-completed-route'
   | 'incoming-queued'
   | 'check-queued'
   | 'result-queued'
