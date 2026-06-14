@@ -8238,7 +8238,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     releaseDeepLinkRouteBoot('result-queued', displayResult.id);
   }, [activeOverlayKind, displayResult?.id]);
 
-  const contextValue = useMemo(
+  const contextValue = useMemo<AppContextValue>(
     () => ({
       token: auth.token,
       user: auth.user,
@@ -8437,7 +8437,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       openSendFlow,
       closeSendFlow,
       deepLinkReplyBooting,
-      setDeepLinkReplyBooting: setDeepLinkReplyBootingGuarded,
+      setDeepLinkReplyBooting,
       replyDeeplinkFastShell,
       abortReplyDeepLinkFast,
       replyUiShellActive,
