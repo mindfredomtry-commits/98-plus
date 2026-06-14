@@ -63,6 +63,7 @@ function IncomingBanOverlayInner({
     friends,
     incomingBan,
     dismissIncoming,
+    dismissIncomingSoft,
     acknowledgeIncomingAndStartReply,
     acknowledgeIncomingSeen,
     openIncomingOverboardOptimistic,
@@ -640,7 +641,13 @@ function IncomingBanOverlayInner({
       zIndex={APP_NOTIFICATION_Z_INDEX}
       closeOnBackdrop={false}
       ariaLabel="Входящий запрет"
-      onClose={() => void acknowledgeIncomingSeen(activeIncomingBan.id)}
+      onClose={() => {
+        if (activeIncomingBan.status === 'pending') {
+          dismissIncomingSoft(activeIncomingBan.id);
+          return;
+        }
+        void acknowledgeIncomingSeen(activeIncomingBan.id);
+      }}
       cardClassName="modal-card--incoming"
     >
       {body}

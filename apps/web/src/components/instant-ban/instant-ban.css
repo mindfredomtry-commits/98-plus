@@ -3552,6 +3552,27 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
   }
 }
 
+.lobby-deeplink-toast {
+  position: fixed;
+  top: calc(3.75rem + env(safe-area-inset-top, 0px));
+  left: 50%;
+  z-index: 130;
+  transform: translateX(-50%);
+  max-width: calc(100% - 2rem);
+  padding: 0.55rem 0.95rem;
+  border-radius: 999px;
+  background: rgba(18, 10, 28, 0.94);
+  border: 1px solid rgba(var(--98-accent-rgb), 0.45);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  color: var(--98-text-primary);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-align: center;
+  pointer-events: none;
+  animation: instant-ban-archive-toast-in 180ms ease;
+}
+
 .instant-ban-active-ban-card-layer {
   position: absolute;
   inset: 0;

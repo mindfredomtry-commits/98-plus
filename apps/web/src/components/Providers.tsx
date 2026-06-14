@@ -241,6 +241,17 @@ import {
   logIncomingCardDisplayState,
   pickIncomingCardDisplayBan,
 } from '@/lib/reply-deeplink-fast';
+import {
+  REPLY_DEEPLINK_TOAST_OVERBOARD,
+  REPLY_DEEPLINK_TOAST_SENT,
+  getReplyDeeplinkActionResult,
+  markReplyDeeplinkOverboard,
+  markReplyDeeplinkSent,
+} from '@/lib/reply-deeplink-action-result';
+import {
+  prepareReplyDeeplinkReopen,
+  resolveReplyDeeplinkEntry,
+} from '@/lib/reply-deeplink-guard';
 import { updateIncomingDirectDebug } from '@/lib/incoming-direct-debug';
 import {
   resolveConnectionUiState,
@@ -282,6 +293,8 @@ interface AppContextValue {
   routeOverlayAboveBoot: boolean;
   setIncomingBan: (b: BanInteraction | null) => void;
   dismissIncoming: (banId?: string) => void;
+  /** Close incoming card without server ack — pending deeplink can reopen. */
+  dismissIncomingSoft: (banId: string) => void;
   acknowledgeIncomingAndStartReply: (ban: BanInteraction) => void;
   acknowledgeIncomingSeen: (banId: string) => Promise<void>;
   checkBan: BanInteraction | null;
@@ -431,6 +444,7 @@ interface AppContextValue {
   lobbyOpen: boolean;
   closeLobby: () => void;
   openLobby: (source?: string) => void;
+  lobbyDeeplinkToast: string | null;
   /** Full reset of reply deep-link latch (ban id, handoff, incoming reply). */
   clearReplyDeepLinkState: () => void;
   /** Opens InstantBan Who screen for a new ban (increments on each request). */
@@ -605,6 +619,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [sessionBootstrapped, setSessionBootstrapped] = useState(false);
   const [homeSnapshotReady, setHomeSnapshotReady] = useState(false);
   const [lobbyOpen, setLobbyOpen] = useState(true);
+  const [lobbyDeeplinkToast, setLobbyDeeplinkToast] = useState<string | null>(
+    null,
+  );
   const [openBansOverlayRequest, setOpenBansOverlayRequest] = useState(0);
   const [closeBansOverlayRequest, setCloseBansOverlayRequest] = useState(0);
   const [resultCtaBansOverlayOpen, setResultCtaBansOverlayOpen] =
@@ -3658,6 +3675,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
       }
 
+      const uid = userIdRef.current;
+      if (uid) {
+        if (answer === 'overboard') {
+          markReplyDeeplinkOverboard(uid, banId);
+        }
+      }
+
       const beforeQueue = overlayQueueRef.current;
       const beforeLen = beforeQueue.length;
       const nextQueue = removeOverlaysForBan(beforeQueue, banId, ['incoming']);
@@ -3724,6 +3748,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const finalizeIncomingReplyAfterSend = useCallback(
     (banId: string) => {
+      const uid = userIdRef.current;
+      if (uid) {
+        markReplyDeeplinkSent(uid, banId);
+      }
       incomingConsumedAfterAnswerRef.current.add(banId);
       dismissedIncomingRef.current.add(banId);
       locallyAckedIncomingRef.current.add(banId);
@@ -4363,6 +4391,37 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [clearReplyDeeplinkFastTimeout, dismissCurrentOverlay, pinReplyToBanId, replyDeepLinkBanId],
   );
 
+  const routeReplyDeeplinkCompleted = useCallback(
+    (kind: 'overboard' | 'sent', banId: string) => {
+      abortReplyDeepLinkFast(`reply-deeplink-${kind}`);
+      pinReplyToBanId(null);
+      setReplyDeepLinkBanId(null);
+      setIncomingReplyBanId(null);
+      setDeepLinkReplyBan(null);
+      setReplyHandoffLock(false);
+      setReplyWhatReady(false);
+      setDeepLinkReplyBooting(false);
+      setReplyIncomingDisplayBan(null);
+      replyIncomingDisplayBanRef.current = null;
+      replyFlowArmedBanIdRef.current = null;
+      replyLockReleasedRef.current = false;
+      resolveActiveDeepLinkRouteBoot(banId);
+      releaseDeepLinkRouteBoot('route-handled', banId);
+      openLobbyRef.current(`reply-deeplink-${kind}`);
+      setLobbyDeeplinkToast(
+        kind === 'overboard'
+          ? REPLY_DEEPLINK_TOAST_OVERBOARD
+          : REPLY_DEEPLINK_TOAST_SENT,
+      );
+      console.log('[reply-deeplink]', {
+        banId,
+        action: 'completed-route',
+        kind,
+      });
+    },
+    [abortReplyDeepLinkFast, pinReplyToBanId],
+  );
+
   const hydrateReplyDeeplinkIncomingBan = useCallback(
     (enriched: BanInteraction): boolean => {
       const prev = overlayQueueRef.current;
@@ -4600,14 +4659,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const openReplyDeepLinkFast = useCallback(
     (banId: string, optionalPrefilledBan?: BanInteraction | null) => {
-      if (replyDeeplinkFastOpenedRef.current) return false;
+      const viewerId = userIdRef.current;
+      const token = tokenRef.current;
+      if (!viewerId || !token || auth.loading) return false;
+
       if (incomingConsumedAfterAnswerRef.current.has(banId)) {
-        console.log('[INCOMING REOPEN BLOCKED AFTER ANSWER]', { banId });
-        markVisibleOverboardTrace('[INCOMING REOPEN BLOCKED AFTER ANSWER]', {
-          banId,
-        });
-        return false;
+        const stored = getReplyDeeplinkActionResult(viewerId, banId);
+        if (stored === 'reply_ban_overboard') {
+          routeReplyDeeplinkCompleted('overboard', banId);
+          return false;
+        }
+        if (stored === 'reply_ban_sent') {
+          routeReplyDeeplinkCompleted('sent', banId);
+          return false;
+        }
+        incomingConsumedAfterAnswerRef.current.delete(banId);
       }
+
+      if (replyDeeplinkFastOpenedRef.current) return false;
       if (
         incomingReplyComposeDismissedRef.current.has(banId) &&
         replyToBanIdPersistRef.current === banId
@@ -4618,9 +4687,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return false;
       }
-      const viewerId = userIdRef.current;
-      const token = tokenRef.current;
-      if (!viewerId || !token || auth.loading) return false;
 
       console.log('[REPLY FAST SHELL OPEN ATTEMPT]', { banId });
       markVisibleOverboardTrace('[REPLY FAST SHELL OPEN ATTEMPT]', { banId });
@@ -4740,6 +4806,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const openBan = cacheHit
         ? enrichBanInteraction(cacheHit.ban)
         : buildReplyDeeplinkShellBan(banId, viewerId);
+      const entry = resolveReplyDeeplinkEntry(openBan, viewerId);
+      if (entry === 'lobby_overboard') {
+        routeReplyDeeplinkCompleted('overboard', banId);
+        return false;
+      }
+      if (entry === 'lobby_sent') {
+        routeReplyDeeplinkCompleted('sent', banId);
+        return false;
+      }
+      if (entry === 'reject') {
+        return false;
+      }
+
+      prepareReplyDeeplinkReopen(banId, viewerId, {
+        dismissedIncoming: dismissedIncomingRef.current,
+        consumedAfterAnswer: incomingConsumedAfterAnswerRef.current,
+        locallyAckedIncoming: locallyAckedIncomingRef.current,
+        replyComposeDismissed: incomingReplyComposeDismissedRef.current,
+        fastOpenedRef: replyDeeplinkFastOpenedRef,
+      });
+
       const usingPrefetch = cacheHit != null;
 
       replyDeeplinkFastOpenedRef.current = true;
@@ -4851,6 +4938,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       auth.loading,
       buildReplyFastLookupCtx,
       commitReplyIncomingDisplayBan,
+      routeReplyDeeplinkCompleted,
       scheduleReplyFastTimeout,
     ],
   );
@@ -4942,13 +5030,36 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
       const viewerId = userIdRef.current;
-      if (
-        !shouldShowIncomingBanModal(
-          enriched,
-          viewerId,
-          dismissedIncomingRef.current,
-        )
-      ) {
+      const entry = resolveReplyDeeplinkEntry(enriched, viewerId);
+      if (entry === 'lobby_overboard') {
+        routeReplyDeeplinkCompleted('overboard', enriched.id);
+        logDeepLinkHandlerResult({
+          type: 'reply',
+          banId: b.id,
+          instantBanOpen: false,
+          sendFlowOpen: false,
+          selectedBanId: b.id,
+          overlayQueueLength: overlayQueueRef.current.length,
+          ok: true,
+          reason: 'reply-deeplink-overboard',
+        });
+        return;
+      }
+      if (entry === 'lobby_sent') {
+        routeReplyDeeplinkCompleted('sent', enriched.id);
+        logDeepLinkHandlerResult({
+          type: 'reply',
+          banId: b.id,
+          instantBanOpen: false,
+          sendFlowOpen: false,
+          selectedBanId: b.id,
+          overlayQueueLength: overlayQueueRef.current.length,
+          ok: true,
+          reason: 'reply-deeplink-sent',
+        });
+        return;
+      }
+      if (entry === 'reject') {
         const why = explainIncomingHidden(
           enriched,
           viewerId,
@@ -4983,6 +5094,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         resolveActiveDeepLinkRouteBoot(b.id);
         return;
       }
+
+      prepareReplyDeeplinkReopen(enriched.id, viewerId!, {
+        dismissedIncoming: dismissedIncomingRef.current,
+        consumedAfterAnswer: incomingConsumedAfterAnswerRef.current,
+        locallyAckedIncoming: locallyAckedIncomingRef.current,
+        replyComposeDismissed: incomingReplyComposeDismissedRef.current,
+        fastOpenedRef: replyDeeplinkFastOpenedRef,
+      });
+      pinReplyToBanId(null);
+      setIncomingReplyBanId(null);
+
       const wasShell = replyDeeplinkFastShellRef.current;
       const wasPrefetch = replyDeeplinkPrefetchRef.current;
       const onReplyRoute =
@@ -5084,8 +5206,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       enqueueNotification,
       hydrateReplyDeeplinkIncomingBan,
       replyDeepLinkBanId,
+      routeReplyDeeplinkCompleted,
     ],
   );
+
+  useEffect(() => {
+    if (!lobbyDeeplinkToast) return;
+    const timer = window.setTimeout(() => setLobbyDeeplinkToast(null), 3500);
+    return () => window.clearTimeout(timer);
+  }, [lobbyDeeplinkToast]);
 
   useEffect(
     () => () => clearReplyDeeplinkFastTimeout(),
@@ -6296,6 +6425,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       dismissIncomingCardForReplyCompose,
       startIncomingReply,
     ],
+  );
+
+  const dismissIncomingSoft = useCallback(
+    (banId: string) => {
+      removeIncomingFromQueue(banId);
+      setViralOnboarding(false);
+      if (incomingBanRef.current?.id === banId) {
+        setIncomingBan(null);
+      }
+      challengeLog('incoming:soft-dismiss', { banId });
+    },
+    [removeIncomingFromQueue],
   );
 
   const dismissIncoming = useCallback(
@@ -7862,6 +8003,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       routeOverlayAboveBoot,
       setIncomingBan: setIncomingBanSafe,
       dismissIncoming,
+      dismissIncomingSoft,
       checkBan: scopedCheckBan,
       checkGateActive,
       setCheckBan: setCheckBanSafe,
@@ -7963,6 +8105,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       lobbyOpen,
       closeLobby,
       openLobby,
+      lobbyDeeplinkToast,
       clearReplyDeepLinkState,
       newBanWhoFlowRequest,
       openNewBanWhoFlow,
@@ -8009,6 +8152,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       routeOverlayAboveBoot,
       setIncomingBanSafe,
       dismissIncoming,
+      dismissIncomingSoft,
       scopedCheckBan,
       checkGateActive,
       setCheckBanSafe,
@@ -8103,6 +8247,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       lobbyOpen,
       closeLobby,
       openLobby,
+      lobbyDeeplinkToast,
       clearReplyDeepLinkState,
       newBanWhoFlowRequest,
       openNewBanWhoFlow,

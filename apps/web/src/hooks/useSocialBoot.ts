@@ -99,10 +99,10 @@ export function useSocialBoot(h: BootHandlers) {
       return;
     }
 
-    if (!bootKey || processedRef.current === bootKey) {
+    if (!bootKey) {
       patchDeepLinkBootDebug({
-        deepLinkConsumed: processedRef.current === bootKey,
-        bootBlocker: !bootKey ? 'no-boot-key' : 'dup-boot-key',
+        deepLinkConsumed: false,
+        bootBlocker: 'no-boot-key',
       });
       return;
     }
@@ -112,6 +112,14 @@ export function useSocialBoot(h: BootHandlers) {
       patchDeepLinkBootDebug({
         deepLinkConsumed: false,
         bootBlocker: 'parse-null',
+      });
+      return;
+    }
+
+    if (processedRef.current === bootKey && action.type !== 'reply') {
+      patchDeepLinkBootDebug({
+        deepLinkConsumed: processedRef.current === bootKey,
+        bootBlocker: 'dup-boot-key',
       });
       return;
     }

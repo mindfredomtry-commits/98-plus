@@ -291,6 +291,7 @@ export function InstantBanFlow({
     setBansReturnToLobbyLatch,
     completeBansOverlayCloseFromResultCta,
     lobbyOpen,
+    lobbyDeeplinkToast,
     deepLinkRepeatBan,
     deepLinkRepeatGoToConfirm,
     clearDeepLinkRepeatBan,
@@ -3439,6 +3440,11 @@ export function InstantBanFlow({
         />
       ) : null}
       {!lobbyChromeHidden ? <LobbyScreenAtmosphere /> : null}
+      {lobbyOpen && lobbyDeeplinkToast ? (
+        <div className="lobby-deeplink-toast" role="status" aria-live="polite">
+          {lobbyDeeplinkToast}
+        </div>
+      ) : null}
 
       <div
         className="instant-ban-arena-send__stage"
