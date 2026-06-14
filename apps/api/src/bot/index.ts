@@ -8,7 +8,9 @@ import {
 } from '../services/invite.service';
 import { botWebAppButtonUrl, botWebAppPlainOpenUrl } from '../lib/deeplink';
 import { OPEN_BAN_WEBAPP_BUTTON_LABEL } from '@98plus/shared';
-import { sendBotStartInviteChallenge } from './notifications';
+import { sendBotStartInviteChallenge, sendViralInviteBootNotification } from './notifications';
+import { findUserByUsername } from '../services/ban.service';
+import { resolveViralInviteBootContext } from '../services/invite-deeplink.service';
 
 let bot: Telegraf | null = null;
 
@@ -61,6 +63,51 @@ export function startBot(): Telegraf | null {
           lastSeenAt: new Date(),
         },
       });
+
+      if (payload.startsWith('u_')) {
+        const inviterUsername = payload.slice(2).replace('@', '').trim();
+        const inviter = inviterUsername
+          ? await findUserByUsername(inviterUsername)
+          : null;
+
+        if (inviter && inviter.id !== user.id) {
+          const bootContext = await resolveViralInviteBootContext(
+            user.id,
+            inviter.id,
+          );
+          const delivery = await sendViralInviteBootNotification({
+            telegramId: chatId,
+            inviterId: inviter.id,
+            inviterUsername: inviter.username,
+            inviterFirstName: inviter.firstName,
+            mode: bootContext.mode,
+            banText:
+              bootContext.mode === 'history' ? bootContext.banText : undefined,
+            historyBanId:
+              bootContext.mode === 'history' ? bootContext.banId : undefined,
+          });
+          console.log('[98+] bot start viral invite processed', {
+            telegramId: tgUser.id,
+            inviterId: inviter.id,
+            inviterUsername,
+            mode: bootContext.mode,
+            historyBanId:
+              bootContext.mode === 'history' ? bootContext.banId : null,
+            delivery,
+          });
+          return;
+        }
+
+        console.warn('[98+] bot start viral invite fallback', {
+          telegramId: tgUser.id,
+          inviterUsername: inviterUsername || null,
+          reason: !inviter
+            ? 'inviter_not_found'
+            : inviter.id === user.id
+              ? 'self_invite'
+              : 'unknown',
+        });
+      }
 
       if (payload.startsWith('invite_')) {
         const inviteToken = payload.slice(7);

@@ -7,6 +7,8 @@ import {
 export type DeepLinkAction =
   | { type: 'invite'; username: string }
   | { type: 'invite_token'; token: string }
+  | { type: 'invite_to_ban'; inviterId: string }
+  | { type: 'repeat_ban_from_invite'; banId: string }
   | { type: 'result'; banId: string }
   | { type: 'repeat'; banId: string }
   | { type: 'check'; banId: string }
@@ -28,6 +30,14 @@ export function parseStartParam(raw?: string | null): DeepLinkAction | null {
   if (!raw?.trim()) return null;
   const p = raw.trim();
 
+  if (p.startsWith('itb_')) {
+    const inviterId = p.slice(4).trim();
+    return inviterId ? { type: 'invite_to_ban', inviterId } : null;
+  }
+  if (p.startsWith('rbi_')) {
+    const banId = p.slice(4).trim();
+    return banId ? { type: 'repeat_ban_from_invite', banId } : null;
+  }
   if (p.startsWith('invite_')) {
     const rest = p.slice(7);
     if (rest.length >= 8 && !rest.includes('_')) {
@@ -85,6 +95,10 @@ export function buildStartParam(action: DeepLinkAction): string {
       return `u_${action.username.replace('@', '')}`;
     case 'invite_token':
       return `invite_${action.token}`;
+    case 'invite_to_ban':
+      return `itb_${action.inviterId}`;
+    case 'repeat_ban_from_invite':
+      return `rbi_${action.banId}`;
     case 'result':
       return `res_${action.banId}`;
     case 'repeat':

@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { buildStartParam, parseStartParam } from '@98plus/shared';
 import { isValidIncomingOverlayPayload } from '@/lib/incoming-challenge';
-import type { BanResult, BanInteraction } from '@98plus/shared';
+import type { BanResult, BanInteraction, UserPublic } from '@98plus/shared';
 import { api } from '@/lib/api';
 import {
   patchDeepLinkBootDebug,
@@ -27,7 +27,11 @@ interface BootHandlers {
   ready: boolean;
   setIncomingBan: (ban: BanInteraction | null) => void;
   openDeepLinkCheck: (ban: BanInteraction) => void;
-  openDeepLinkRepeat: (ban: BanInteraction) => void;
+  openDeepLinkRepeat: (
+    ban: BanInteraction,
+    options?: { goToConfirm?: boolean },
+  ) => void;
+  openDeepLinkInviteToBan: (inviter: UserPublic) => void;
   openDeepLinkReply: (ban: BanInteraction) => Promise<void>;
   openDeepLinkActive: (ban: BanInteraction) => void;
   armActiveBanDeepLinkEarly: (banId: string) => void;
@@ -50,9 +54,12 @@ function deepLinkBootKey(startParam: string | undefined): string | null {
     case 'check':
     case 'result':
     case 'repeat':
+    case 'repeat_ban_from_invite':
     case 'reply':
     case 'active':
       return `${action.type}:${action.banId}`;
+    case 'invite_to_ban':
+      return `invite_to_ban:${action.inviterId}`;
     default:
       return null;
   }
@@ -168,6 +175,24 @@ export function useSocialBoot(h: BootHandlers) {
           if (ban) h.openDeepLinkRepeat(ban);
           break;
         }
+        case 'repeat_ban_from_invite': {
+          lockNotificationQueue('repeat-ban-flow', action.banId);
+          logOverlayPriority('repeat-flow-start', { banId: action.banId });
+          const { ban } = await api<{ ban: BanInteraction }>(
+            `/bans/${action.banId}/open`,
+            { token: h.token! },
+          );
+          if (ban) h.openDeepLinkRepeat(ban, { goToConfirm: false });
+          break;
+        }
+        case 'invite_to_ban': {
+          const { user: inviter } = await api<{ user: UserPublic }>(
+            `/users/card/${action.inviterId}`,
+            { token: h.token! },
+          );
+          if (inviter) h.openDeepLinkInviteToBan(inviter);
+          break;
+        }
         case 'reply': {
           const fastPathAlreadyOpen = h.replyDeepLinkBanId === action.banId;
           if (!fastPathAlreadyOpen) {
@@ -235,6 +260,7 @@ export function useSocialBoot(h: BootHandlers) {
     h.setIncomingBan,
     h.openDeepLinkCheck,
     h.openDeepLinkRepeat,
+    h.openDeepLinkInviteToBan,
     h.openDeepLinkReply,
     h.openDeepLinkActive,
     h.armActiveBanDeepLinkEarly,

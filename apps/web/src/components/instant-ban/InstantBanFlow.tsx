@@ -292,7 +292,10 @@ export function InstantBanFlow({
     completeBansOverlayCloseFromResultCta,
     lobbyOpen,
     deepLinkRepeatBan,
+    deepLinkRepeatGoToConfirm,
     clearDeepLinkRepeatBan,
+    deepLinkInviteToBanInviter,
+    clearDeepLinkInviteToBan,
     deepLinkReplyBan,
     clearDeepLinkReplyBan,
     deepLinkActiveBan,
@@ -1970,6 +1973,7 @@ export function InstantBanFlow({
 
   const lastNewBanWhoFlowRequestRef = useRef(0);
   const lastDeepLinkRepeatBanIdRef = useRef<string | null>(null);
+  const lastDeepLinkInviteToBanInviterIdRef = useRef<string | null>(null);
   const lastDeepLinkReplyBanIdRef = useRef<string | null>(null);
   const phaseSetFromReplyRef = useRef<string | null>(null);
   const lockReleasedRef = useRef(false);
@@ -2168,20 +2172,49 @@ export function InstantBanFlow({
   }, [bansCtaQueueSuppress, result, scheduleBansVisibleCheck]);
 
   useLayoutEffect(() => {
+    if (!deepLinkInviteToBanInviter?.id || !user?.id) return;
+    if (
+      lastDeepLinkInviteToBanInviterIdRef.current ===
+      deepLinkInviteToBanInviter.id
+    ) {
+      return;
+    }
+    lastDeepLinkInviteToBanInviterIdRef.current = deepLinkInviteToBanInviter.id;
+    console.log('[invite-to-ban-deeplink]', {
+      inviterId: deepLinkInviteToBanInviter.id,
+      action: 'begin-what',
+    });
+    const ok = beginComposingBanForOpponent(deepLinkInviteToBanInviter);
+    if (ok) clearDeepLinkInviteToBan();
+  }, [
+    beginComposingBanForOpponent,
+    clearDeepLinkInviteToBan,
+    deepLinkInviteToBanInviter,
+    user?.id,
+  ]);
+
+  useLayoutEffect(() => {
     if (!deepLinkRepeatBan?.id || !user?.id) return;
     if (lastDeepLinkRepeatBanIdRef.current === deepLinkRepeatBan.id) return;
     lastDeepLinkRepeatBanIdRef.current = deepLinkRepeatBan.id;
     console.log('[repeat-deeplink]', {
       banId: deepLinkRepeatBan.id,
       action: 'begin-flow',
+      goToConfirm: deepLinkRepeatGoToConfirm,
     });
-    const ok = beginRepeatBanFlow(deepLinkRepeatBan, { goToConfirm: true });
+    const ok = beginRepeatBanFlow(deepLinkRepeatBan, {
+      goToConfirm: deepLinkRepeatGoToConfirm,
+    });
     logDeepLinkHandlerResult({
       type: 'repeat',
       banId: deepLinkRepeatBan.id,
       instantBanOpen: sendStarted,
       sendFlowOpen,
-      phase: ok ? 'confirming' : 'idle',
+      phase: ok
+        ? deepLinkRepeatGoToConfirm
+          ? 'confirming'
+          : 'composingBan'
+        : 'idle',
       selectedUserId: selectedUser?.userId ?? selectedUser?.id ?? null,
       selectedBanId: deepLinkRepeatBan.id,
       overlayQueueLength,
@@ -2191,6 +2224,7 @@ export function InstantBanFlow({
     if (ok) clearDeepLinkRepeatBan();
   }, [
     deepLinkRepeatBan,
+    deepLinkRepeatGoToConfirm,
     user?.id,
     beginRepeatBanFlow,
     clearDeepLinkRepeatBan,

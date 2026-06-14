@@ -55,7 +55,7 @@ export function shareDeepLink(action: DeepLinkAction, text: string) {
   openTelegramShareLink(link);
 }
 
-export const LOBBY_ASK_SHARE_MESSAGE = 'Запретите мне что-нибудь в 98+';
+export const LOBBY_ASK_SHARE_MESSAGE = '🚫 Запретите мне это в 98+';
 
 /** Lobby low-influence CTA — ask friends to ban via invite deep link. */
 export function shareLobbyAskInvite(username: string | null | undefined): void {

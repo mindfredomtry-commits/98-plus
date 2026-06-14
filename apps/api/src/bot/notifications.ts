@@ -9,6 +9,8 @@ import {
   formatChallengeShareMessage,
   formatDurationLabel,
   formatIncomingBanMessage,
+  formatInviteRetentionBotMessage,
+  formatInviteToBanBotMessage,
   formatRetentionBanMessage,
   formatTelegramResultHeadline,
   isTelegramResultOutcome,
@@ -649,6 +651,61 @@ export async function sendRetentionNotification(params: {
     );
   } catch {
     /* user may not have started bot */
+  }
+}
+
+/** Viral lobby share /start — fresh invite or pair-history retention card. */
+export async function sendViralInviteBootNotification(params: {
+  telegramId: bigint;
+  inviterId: string;
+  inviterUsername?: string | null;
+  inviterFirstName?: string | null;
+  mode: 'fresh' | 'history';
+  banText?: string;
+  historyBanId?: string;
+}): Promise<'sent' | 'failed'> {
+  if (isDevTelegramId(params.telegramId)) return 'sent';
+
+  const bot = getBot();
+  if (!bot) return 'failed';
+
+  const deepLinkAction =
+    params.mode === 'history' && params.historyBanId
+      ? ({
+          type: 'repeat_ban_from_invite',
+          banId: params.historyBanId,
+        } as const)
+      : ({
+          type: 'invite_to_ban',
+          inviterId: params.inviterId,
+        } as const);
+
+  const url = notificationDeepLink(deepLinkAction, {
+    source: 'sendViralInviteBootNotification',
+    buttonLabel: RETENTION_BAN_WEBAPP_BUTTON_LABEL,
+  });
+
+  const message =
+    params.mode === 'history' && params.banText
+      ? formatInviteRetentionBotMessage({
+          inviterUsername: params.inviterUsername,
+          inviterFirstName: params.inviterFirstName,
+          banText: params.banText,
+        })
+      : formatInviteToBanBotMessage({
+          inviterUsername: params.inviterUsername,
+          inviterFirstName: params.inviterFirstName,
+        });
+
+  try {
+    await bot.telegram.sendMessage(
+      params.telegramId.toString(),
+      message,
+      replyBanKeyboard(url, RETENTION_BAN_WEBAPP_BUTTON_LABEL),
+    );
+    return 'sent';
+  } catch {
+    return 'failed';
   }
 }
 

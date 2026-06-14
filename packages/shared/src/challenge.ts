@@ -329,6 +329,36 @@ export function formatBotBanAcceptedSenderMessage(params: {
   return `🚫 Ты запретил\n\n${person}\n\n${essence}\nна ${dur}.`;
 }
 
+/** Viral invite /start — no pair history yet. */
+export function formatInviteToBanBotMessage(params: {
+  inviterUsername?: string | null;
+  inviterFirstName?: string | null;
+  inviterDisplayName?: string | null;
+}): string {
+  const header = formatPersonalChallengePersonHeader({
+    username: params.inviterUsername,
+    firstName: params.inviterFirstName,
+    displayName: params.inviterDisplayName,
+  });
+  return `${header}\n\nЗапрети мне то, что давно хотел!`;
+}
+
+/** Viral invite /start — pair has ban history. */
+export function formatInviteRetentionBotMessage(params: {
+  inviterUsername?: string | null;
+  inviterFirstName?: string | null;
+  inviterDisplayName?: string | null;
+  banText: string;
+}): string {
+  const header = formatPersonalChallengePersonHeader({
+    username: params.inviterUsername,
+    firstName: params.inviterFirstName,
+    displayName: params.inviterDisplayName,
+  });
+  const essence = banTextEssence(params.banText);
+  return `${header}\n\nСегодня снова можно:\n${essence}?`;
+}
+
 /** Retention DM — re-engage with a prior ban to this friend. */
 export function formatRetentionBanMessage(params: {
   friendUsername?: string | null;

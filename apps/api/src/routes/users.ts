@@ -29,6 +29,18 @@ usersRouter.post('/onboard', async (req: AuthRequest, res) => {
   res.json({ user: mapUser(user) });
 });
 
+usersRouter.get('/card/:id', async (req: AuthRequest, res) => {
+  const id = typeof req.params.id === 'string' ? req.params.id : req.params.id[0];
+  const user = await prisma.user.findUnique({
+    where: { id },
+  });
+  if (!user) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+  res.json({ user: mapUser(user) });
+});
+
 usersRouter.get('/profile/:id', async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.params.id },

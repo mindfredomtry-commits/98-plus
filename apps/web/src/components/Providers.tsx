@@ -291,8 +291,16 @@ interface AppContextValue {
   openDeepLinkCheck: (b: BanInteraction) => void;
   /** Telegram repeat-ban deep link — opens confirm for the same challenge. */
   deepLinkRepeatBan: BanInteraction | null;
-  openDeepLinkRepeat: (b: BanInteraction) => void;
+  deepLinkRepeatGoToConfirm: boolean;
+  openDeepLinkRepeat: (
+    b: BanInteraction,
+    options?: { goToConfirm?: boolean },
+  ) => void;
   clearDeepLinkRepeatBan: () => void;
+  /** Viral invite — opens What with inviter pre-selected. */
+  deepLinkInviteToBanInviter: UserPublic | null;
+  openDeepLinkInviteToBan: (inviter: UserPublic) => void;
+  clearDeepLinkInviteToBan: () => void;
   /** Telegram reply-ban deep link — opens What with sender pre-selected. */
   deepLinkReplyBan: BanInteraction | null;
   openDeepLinkReply: (b: BanInteraction) => Promise<void>;
@@ -726,11 +734,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const bufferedIncomingRef = useRef<BanInteraction | null>(null);
   const bufferedCheckDeepLinkRef = useRef<BanInteraction | null>(null);
   const bufferedRepeatDeepLinkRef = useRef<BanInteraction | null>(null);
+  const bufferedRepeatGoToConfirmRef = useRef(true);
+  const bufferedInviteToBanInviterRef = useRef<UserPublic | null>(null);
   const bufferedReplyDeepLinkRef = useRef<BanInteraction | null>(null);
   const bufferedActiveDeepLinkRef = useRef<BanInteraction | null>(null);
   const [deepLinkRepeatBan, setDeepLinkRepeatBan] = useState<BanInteraction | null>(
     null,
   );
+  const [deepLinkRepeatGoToConfirm, setDeepLinkRepeatGoToConfirm] =
+    useState(true);
+  const [deepLinkInviteToBanInviter, setDeepLinkInviteToBanInviter] =
+    useState<UserPublic | null>(null);
   const [deepLinkReplyBan, setDeepLinkReplyBan] = useState<BanInteraction | null>(
     null,
   );
@@ -2889,10 +2903,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const clearDeepLinkRepeatBan = useCallback(() => {
     setDeepLinkRepeatBan(null);
+    setDeepLinkRepeatGoToConfirm(true);
   }, []);
 
+  const clearDeepLinkInviteToBan = useCallback(() => {
+    setDeepLinkInviteToBanInviter(null);
+  }, []);
+
+  const openDeepLinkInviteToBan = useCallback(
+    (inviter: UserPublic) => {
+      noteDeepLinkHandlerOpened('openDeepLinkInviteToBan', inviter.id);
+      if (!userIdRef.current || auth.loading) {
+        bufferedInviteToBanInviterRef.current = inviter;
+        console.log('[invite-to-ban-deeplink]', {
+          inviterId: inviter.id,
+          buffered: true,
+          reason: 'auth-not-ready',
+        });
+        return;
+      }
+      openSendFlow();
+      setDeepLinkInviteToBanInviter(inviter);
+      console.log('[invite-to-ban-deeplink]', {
+        inviterId: inviter.id,
+        queued: true,
+      });
+    },
+    [auth.loading, openSendFlow],
+  );
+
   const openDeepLinkRepeat = useCallback(
-    (b: BanInteraction) => {
+    (b: BanInteraction, options?: { goToConfirm?: boolean }) => {
+      const goToConfirm = options?.goToConfirm ?? true;
       noteDeepLinkHandlerOpened('openDeepLinkRepeat', b.id);
       lockNotificationQueue('repeat-ban-flow', b.id);
       logOverlayPriority('repeat-flow-start', { banId: b.id });
@@ -2900,17 +2942,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const enriched = enrichBanInteraction(b);
       if (!userIdRef.current || auth.loading) {
         bufferedRepeatDeepLinkRef.current = enriched;
+        bufferedRepeatGoToConfirmRef.current = goToConfirm;
         console.log('[repeat-deeplink]', {
           banId: b.id,
           buffered: true,
+          goToConfirm,
           reason: 'auth-not-ready',
         });
         return;
       }
       openSendFlow();
+      setDeepLinkRepeatGoToConfirm(goToConfirm);
       setDeepLinkRepeatBan(enriched);
       resolvePendingDeepLinkRoute('repeat', b.id);
-      console.log('[repeat-deeplink]', { banId: b.id, queued: true });
+      console.log('[repeat-deeplink]', {
+        banId: b.id,
+        queued: true,
+        goToConfirm,
+      });
       logDeepLinkHandlerResult({
         type: 'repeat',
         banId: b.id,
@@ -2929,9 +2978,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const buffered = bufferedRepeatDeepLinkRef.current;
     if (!buffered) return;
     bufferedRepeatDeepLinkRef.current = null;
+    setDeepLinkRepeatGoToConfirm(bufferedRepeatGoToConfirmRef.current);
     console.log('[repeat-deeplink]', {
       banId: buffered.id,
       action: 'apply-buffered',
+      goToConfirm: bufferedRepeatGoToConfirmRef.current,
     });
     openSendFlow();
     setDeepLinkRepeatBan(buffered);
@@ -2945,6 +2996,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ok: true,
       reason: 'buffered',
     });
+  }, [auth.user?.id, auth.loading, openSendFlow]);
+
+  useEffect(() => {
+    if (!auth.user?.id || auth.loading) return;
+    const buffered = bufferedInviteToBanInviterRef.current;
+    if (!buffered) return;
+    bufferedInviteToBanInviterRef.current = null;
+    console.log('[invite-to-ban-deeplink]', {
+      inviterId: buffered.id,
+      action: 'apply-buffered',
+    });
+    openSendFlow();
+    setDeepLinkInviteToBanInviter(buffered);
   }, [auth.user?.id, auth.loading, openSendFlow]);
 
   const clearDeepLinkReplyBan = useCallback(() => {
@@ -7803,8 +7867,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setCheckBan: setCheckBanSafe,
       openDeepLinkCheck,
       deepLinkRepeatBan,
+      deepLinkRepeatGoToConfirm,
       openDeepLinkRepeat,
       clearDeepLinkRepeatBan,
+      deepLinkInviteToBanInviter,
+      openDeepLinkInviteToBan,
+      clearDeepLinkInviteToBan,
       deepLinkReplyBan,
       openDeepLinkReply,
       clearDeepLinkReplyBan,
@@ -7946,8 +8014,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setCheckBanSafe,
       openDeepLinkCheck,
       deepLinkRepeatBan,
+      deepLinkRepeatGoToConfirm,
       openDeepLinkRepeat,
       clearDeepLinkRepeatBan,
+      deepLinkInviteToBanInviter,
+      openDeepLinkInviteToBan,
+      clearDeepLinkInviteToBan,
       deepLinkReplyBan,
       openDeepLinkReply,
       clearDeepLinkReplyBan,

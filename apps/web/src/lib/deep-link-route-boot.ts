@@ -69,6 +69,7 @@ function routeFromAction(
     case 'ban':
       return 'incoming';
     case 'repeat':
+    case 'repeat_ban_from_invite':
       return 'repeat';
     case 'check':
       return 'check';
