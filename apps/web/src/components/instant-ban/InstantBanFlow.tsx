@@ -317,10 +317,10 @@ export function InstantBanFlow({
     unlockNotificationQueueAndFlush,
     markSessionBanSendSuccess,
     resolveReplyParentActiveBanImmediate,
+    ensureReplyParentActiveBanForSuccess,
     refreshReplyParentActiveBanInBackground,
     hasReplyParentActivePriorityPending,
     getReplyParentActiveBanId,
-    fetchReplyParentActiveBanFallback,
     markReplyParentActivePriorityShown,
     isReplyParentActivePriorityActive,
     releaseNotificationQueueAfterReplyParentActive,
@@ -1858,15 +1858,17 @@ export function InstantBanFlow({
 
     const parentBan = resolveReplyParentActiveBanImmediate();
     if (parentBan) {
+      const delayMs = Math.round(performance.now() - successExitStartedAt);
+      console.log('[reply-parent-active-show-immediate]', {
+        parentBanId: parentBan.id,
+        delayMs,
+      });
       flushSync(() => {
         prepareLobbyBaseAfterSuccess('reply-parent-active');
         markReplyParentActivePriorityShown(parentBan.id);
         lockNotificationQueue('deep-link-active-ban', parentBan.id);
         setLobbyActiveBanOverlay(parentBan);
         logOpenActiveBanCard(parentBan.id, 'reply-parent-active-on-lobby');
-      });
-      console.log('[reply-parent-active-delay-ms]', {
-        ms: Math.round(performance.now() - successExitStartedAt),
       });
       notifyActiveBanCardVisible(parentBan.id);
       beginCtaSpringIn();
@@ -1878,15 +1880,15 @@ export function InstantBanFlow({
       ? getReplyParentActiveBanId()
       : null;
     if (parentBanId) {
-      console.log('[reply-parent-active-fetch-blocked]', {
-        reason: 'no-immediate-cache',
-        parentBanId,
-      });
       void (async () => {
-        const fetchedBan = await fetchReplyParentActiveBanFallback(parentBanId);
-        console.log('[reply-parent-active-delay-ms]', {
-          ms: Math.round(performance.now() - successExitStartedAt),
-        });
+        const fetchedBan = await ensureReplyParentActiveBanForSuccess();
+        const delayMs = Math.round(performance.now() - successExitStartedAt);
+        if (fetchedBan) {
+          console.log('[reply-parent-active-show-immediate]', {
+            parentBanId: fetchedBan.id,
+            delayMs,
+          });
+        }
         if (!fetchedBan) {
           flushSync(() => {
             prepareLobbyBaseAfterSuccess('send-success');
@@ -1921,7 +1923,7 @@ export function InstantBanFlow({
     beginCtaSpringIn,
     clearActiveBanDeepLinkShell,
     closeSendFlow,
-    fetchReplyParentActiveBanFallback,
+    ensureReplyParentActiveBanForSuccess,
     getReplyParentActiveBanId,
     hasReplyParentActivePriorityPending,
     markReplyParentActivePriorityShown,
