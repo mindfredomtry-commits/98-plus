@@ -2,6 +2,7 @@ import type { BanInteraction, BanResult } from '@98plus/shared';
 import { shouldShowBanResult } from '@/lib/ban-result-flow';
 import { shouldShowCheckOverlay } from '@/lib/check-overlay';
 import { shouldShowIncomingBanModal } from '@/lib/incoming-challenge';
+import { normalizeId } from '@/lib/normalize-json';
 
 export type QueuedOverlay =
   | { kind: 'incoming'; ban: BanInteraction }
@@ -22,7 +23,10 @@ export type OverlayQueueGuards = {
 };
 
 export function overlayQueueKey(item: QueuedOverlay): string {
-  const id = item.kind === 'result' ? item.result.id : item.ban.id;
+  const id =
+    item.kind === 'result'
+      ? normalizeId(item.result.id)
+      : normalizeId(item.ban.id);
   return `${item.kind}:${id}`;
 }
 
@@ -92,7 +96,9 @@ export function enqueueWithActiveLock(
 }
 
 export function overlayBanId(item: QueuedOverlay): string {
-  return item.kind === 'result' ? item.result.id : item.ban.id;
+  return item.kind === 'result'
+    ? normalizeId(item.result.id)
+    : normalizeId(item.ban.id);
 }
 
 /** FIFO enqueue with dedup; result supersedes pending check/incoming for same ban. */

@@ -1,6 +1,7 @@
 import type { BanInteraction, BanResult } from '@98plus/shared';
 import type { QueuedOverlay } from './overlay-queue';
 import { overlayQueueKey } from './overlay-queue';
+import { normalizeId } from './normalize-json';
 
 /** Auto-show TTL for incoming / check / result overlays. */
 export const OVERLAY_AUTO_SHOW_TTL_MS = 10 * 60 * 1000;
@@ -89,7 +90,10 @@ export function isOverlayDismissedLocally(
     | 'locallyAckedIncoming'
   >,
 ): boolean {
-  const banId = item.kind === 'result' ? item.result.id : item.ban.id;
+  const banId =
+    item.kind === 'result'
+      ? normalizeId(item.result.id)
+      : normalizeId(item.ban.id);
   if (item.kind === 'incoming') {
     if (ctx.dismissedIncoming.has(banId)) return true;
     if (ctx.locallyAckedIncoming.has(banId)) return true;
@@ -111,7 +115,10 @@ export function evaluateOverlayEnqueue(
   ctx: OverlayArbiterContext,
 ): OverlayArbiterDecision {
   const key = overlayQueueKey(item);
-  const banId = item.kind === 'result' ? item.result.id : item.ban.id;
+  const banId =
+    item.kind === 'result'
+      ? normalizeId(item.result.id)
+      : normalizeId(item.ban.id);
   const now = ctx.now ?? Date.now();
 
   /** Block stale WS/poll/session overlays during deep-link handoff; deeplink source may enqueue. */

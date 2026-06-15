@@ -5,6 +5,7 @@ import {
   isValidBanResultPayload,
 } from '@98plus/shared';
 import { api } from './api';
+import { normalizeId } from './normalize-json';
 import {
   isDismissedResultLocally,
   markDismissedResultLocally,
@@ -16,7 +17,7 @@ export function diagnoseResultShow(
   authUserId: string | null | undefined,
   banId?: string | null,
 ): { shouldShow: boolean; reason: string } {
-  const id = banId ?? result?.id ?? null;
+  const id = normalizeId(banId ?? result?.id ?? null);
   const viewer = authUserId ?? result?.viewerId ?? null;
 
   if (!id) return { shouldShow: false, reason: 'no-ban-id' };

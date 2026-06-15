@@ -167,6 +167,11 @@ import { writeFriendsCache, readFriendsCache } from '@/lib/friends-cache';
 import { readHomeSnapshot, writeHomeSnapshot } from '@/lib/home-snapshot';
 import { enrichBanInteraction } from '@/lib/user-public-avatar';
 import {
+  normalizeBanResult,
+  normalizeId,
+  normalizeQueuedOverlay,
+} from '@/lib/normalize-json';
+import {
   getAuthReplyPreviewStash,
   subscribeAuthReplyPreviewEarly,
 } from '@/lib/auth-reply-preview-stash';
@@ -1602,8 +1607,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         setDirectResultOverlayActive(false);
         resultOpenRef.current = true;
         setResult(active.result);
-        resultDeliveredBanIdsRef.current.add(active.result.id);
-        shownOverlayKeysRef.current.add(`result:${active.result.id}`);
+        const deliveredId = normalizeId(active.result.id);
+        resultDeliveredBanIdsRef.current.add(deliveredId);
+        shownOverlayKeysRef.current.add(`result:${deliveredId}`);
         if (active.result.outcome === 'overboard') {
           console.log('[overboard-repeat-debug] status shown', {
             banId: active.result.id,
@@ -2052,21 +2058,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       },
     ) => {
       const live = isOverlayLive(opts);
-      const banId = item.kind === 'result' ? item.result.id : item.ban.id;
-      const key = overlayQueueKey(item);
+      const normalizedItem = normalizeQueuedOverlay(item);
+      const banId =
+        normalizedItem.kind === 'result'
+          ? normalizeId(normalizedItem.result.id)
+          : normalizeId(normalizedItem.ban.id);
+      const key = overlayQueueKey(normalizedItem);
 
       if (
-        (item.kind === 'check' ||
-          item.kind === 'incoming' ||
-          item.kind === 'result') &&
-        blocksMountedNotificationOverlay('enqueueNotification', item.kind, banId)
+        (normalizedItem.kind === 'check' ||
+          normalizedItem.kind === 'incoming' ||
+          normalizedItem.kind === 'result') &&
+        blocksMountedNotificationOverlay('enqueueNotification', normalizedItem.kind, banId)
       ) {
-        deferNotificationToPendingStartup(item);
+        deferNotificationToPendingStartup(normalizedItem);
         return;
       }
 
-      if (item.kind === 'result') {
-        const resultId = item.result.id;
+      if (normalizedItem.kind === 'result') {
+        const resultId = normalizedItem.result.id;
         const uid = userIdRef.current;
         if (isResultBlockedForNotificationChain(resultId, opts?.source ?? 'enqueueNotification')) {
           return;
@@ -2074,11 +2084,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
         const block = shouldBlockResultOpen({
           source: 'enqueueNotification',
-          resultBanId: item.result.id,
+          resultBanId: normalizedItem.result.id,
           overboardInFlightBanId: overboardInFlightRef.current,
         });
         logResultOpenAttempt('enqueueNotification', {
-          resultId: item.result.id,
+          resultId: normalizedItem.result.id,
           allowed: !block.blocked,
           blockReason: block.reason,
           bypassPriorityLock: block.bypassPriorityLock,
@@ -2089,7 +2099,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       }
 
-      const decision = evaluateOverlayEnqueue(item, {
+      const decision = evaluateOverlayEnqueue(normalizedItem, {
         viewerId: userIdRef.current,
         deepLinkBlocked:
           deepLinkBlockedRef.current || isNotificationQueueLocked(),
@@ -2116,7 +2126,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               : decision.reason === 'blocked-by-deeplink'
                 ? 'blocked-by-deeplink'
                 : 'dedup-skip',
-          { key, kind: item.kind, banId, source: opts?.source ?? null },
+          { key, kind: normalizedItem.kind, banId, source: opts?.source ?? null },
         );
         return;
       }
@@ -2124,13 +2134,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (startupInteractionsHoldRef.current && !live) {
         const prevPending = pendingStartupInteractionsRef.current;
         const nextPending = replyDeeplinkChainHoldRef.current
-          ? mergeStartupPendingChain(prevPending, [item])
-          : mergeStartupPendingSingle(prevPending, item);
+          ? mergeStartupPendingChain(prevPending, [normalizedItem])
+          : mergeStartupPendingSingle(prevPending, normalizedItem);
         pendingStartupInteractionsRef.current = nextPending;
         syncPendingStartupCount();
         logOverlayArbiter('enqueue', {
           key,
-          kind: item.kind,
+          kind: normalizedItem.kind,
           banId,
           source: opts?.source ?? null,
           scope: 'startup-pending',
@@ -2142,19 +2152,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const prev = overlayQueueRef.current;
       const activeKey = getActiveOverlayKey(prev);
       const newKey = key;
-      const { queue: next, changed, action } = enqueueWithActiveLock(prev, item);
+      const { queue: next, changed, action } = enqueueWithActiveLock(
+        prev,
+        normalizedItem,
+      );
 
       if (!changed) {
-        if (item.kind === 'incoming') {
+        if (normalizedItem.kind === 'incoming') {
           console.log('INCOMING QUEUE PUSH', {
-            banId: item.ban.id,
+            banId: normalizedItem.ban.id,
             skipped: true,
             reason: 'dedup',
             source: opts?.source ?? null,
           });
-        } else if (item.kind === 'check') {
+        } else if (normalizedItem.kind === 'check') {
           console.log('[CHECK QUEUE DEDUP]', {
-            banId: item.ban.id,
+            banId: normalizedItem.ban.id,
             skipped: true,
             reason: 'unchanged',
             source: opts?.source ?? null,
@@ -2166,19 +2179,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (action === 'same-key-refresh') {
         console.log('[OVERLAY SAME_KEY_REFRESH]', {
           key: newKey,
-          kind: item.kind,
+          kind: normalizedItem.kind,
           source: opts?.source ?? null,
         });
       } else if (action === 'enqueue-waiting') {
         logOverlayArbiter('blocked-by-current-overlay', {
           activeKey,
           newKey,
-          kind: item.kind,
+          kind: normalizedItem.kind,
           source: opts?.source ?? null,
         });
         logOverlayArbiter('enqueue', {
           key: newKey,
-          kind: item.kind,
+          kind: normalizedItem.kind,
           banId,
           source: opts?.source ?? null,
           scope: 'queue-tail',
@@ -2187,22 +2200,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       } else if (action === 'display-new') {
         logOverlayArbiter('enqueue', {
           key: newKey,
-          kind: item.kind,
+          kind: normalizedItem.kind,
           banId,
           source: opts?.source ?? null,
           scope: 'display-new',
         });
-        if (item.kind === 'incoming') {
+        if (normalizedItem.kind === 'incoming') {
           console.log('INCOMING QUEUE PUSH', {
-            banId: item.ban.id,
+            banId: normalizedItem.ban.id,
             skipped: false,
             reason: 'display-new',
             source: opts?.source ?? null,
             live,
           });
-        } else if (item.kind === 'check') {
+        } else if (normalizedItem.kind === 'check') {
           console.log('[CHECK QUEUE PUSH]', {
-            banId: item.ban.id,
+            banId: normalizedItem.ban.id,
             source: opts?.source ?? null,
             live,
           });
@@ -2529,69 +2542,93 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const overlayQueueItemId = useCallback((item: QueuedOverlay): string => {
     return item.kind === 'result'
-      ? `result:${item.result.id}`
-      : `${item.kind}:${item.ban.id}`;
+      ? `result:${normalizeId(item.result.id)}`
+      : `${item.kind}:${normalizeId(item.ban.id)}`;
   }, []);
 
   const isResultBlockedForNotificationChain = useCallback(
     (banId: string, source: string, skipBanId?: string | null): boolean => {
-      const normalizedSkip = skipBanId?.trim() ?? '';
+      const key = normalizeId(banId);
+      const normalizedSkip = normalizeId(skipBanId);
       const viewerId = userIdRef.current?.trim() ?? '';
-      if (normalizedSkip && banId === normalizedSkip) {
+      const consumed = resultCtaConsumedBanIdsRef.current.has(key);
+      const delivered = resultDeliveredBanIdsRef.current.has(key);
+      const dismissed =
+        viewerId.length > 0 && isDismissedResultLocally(key, viewerId);
+      const shown = shownOverlayKeysRef.current.has(`result:${key}`);
+
+      console.log('[result-stale-key-check]', {
+        banId,
+        key,
+        consumed,
+        delivered,
+        dismissed,
+        shown,
+      });
+
+      if (!key) {
+        console.log('[result-stale-blocked]', { banId, key, source });
+        return true;
+      }
+      if (normalizedSkip && key === normalizedSkip) {
         console.log('[result-overlay-enqueue-skip]', {
-          banId,
+          banId: key,
           source,
           reason: 'skip-ban',
         });
         return true;
       }
-      if (resultCtaConsumedBanIdsRef.current.has(banId)) {
+      if (consumed) {
+        console.log('[result-stale-blocked]', { banId: key, key, source });
         console.log('[result-overlay-stale-blocked]', {
-          banId,
+          banId: key,
           source,
           reason: 'consumed',
         });
         console.log('[result-overlay-enqueue-skip]', {
-          banId,
+          banId: key,
           source,
           reason: 'consumed',
         });
         return true;
       }
-      if (resultDeliveredBanIdsRef.current.has(banId)) {
+      if (delivered) {
+        console.log('[result-stale-blocked]', { banId: key, key, source });
         console.log('[result-overlay-stale-blocked]', {
-          banId,
+          banId: key,
           source,
           reason: 'delivered',
         });
         console.log('[result-overlay-enqueue-skip]', {
-          banId,
+          banId: key,
           source,
           reason: 'delivered',
         });
         return true;
       }
-      if (shownOverlayKeysRef.current.has(`result:${banId}`)) {
+      if (shown) {
+        console.log('[result-stale-blocked]', { banId: key, key, source });
         console.log('[result-overlay-stale-blocked]', {
-          banId,
+          banId: key,
           source,
           reason: 'shown-overlay-key',
         });
         console.log('[result-overlay-enqueue-skip]', {
-          banId,
+          banId: key,
           source,
           reason: 'shown-overlay-key',
         });
         return true;
       }
-      if (viewerId && isDismissedResultLocally(banId, viewerId)) {
+      if (dismissed) {
+        console.log('[result-stale-blocked]', { banId: key, key, source });
         console.log('[result-overlay-stale-blocked]', {
-          banId,
+          banId: key,
           source,
           reason: 'dismissed-local',
         });
         console.log('[result-overlay-enqueue-skip]', {
-          banId,
+          banId: key,
           source,
           reason: 'dismissed-local',
         });
@@ -2604,12 +2641,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const markResultOverlayConsumed = useCallback(
     (banId: string, source: string) => {
+      const key = normalizeId(banId);
+      if (!key) return;
       const viewerId = userIdRef.current;
-      resultCtaConsumedBanIdsRef.current.add(banId);
-      resultDeliveredBanIdsRef.current.add(banId);
-      shownOverlayKeysRef.current.add(`result:${banId}`);
-      dismissBanResultLocally(banId, viewerId);
-      console.log('[result-overlay-consumed]', { banId, source });
+      resultCtaConsumedBanIdsRef.current.add(key);
+      resultDeliveredBanIdsRef.current.add(key);
+      shownOverlayKeysRef.current.add(`result:${key}`);
+      dismissBanResultLocally(key, viewerId);
+      console.log('[result-overlay-consumed]', { banId: key, source });
     },
     [],
   );
@@ -2990,7 +3029,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
 
         if (prefetched.result?.id) {
-          const r = prefetched.result;
+          const r = normalizeBanResult(prefetched.result);
           if (
             !isResultBlockedForNotificationChain(
               r.id,
@@ -3427,9 +3466,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       answeredCheckRef.current.add(id);
     }
     for (const id of hydrateDismissedResultIds(uid)) {
-      resultCtaConsumedBanIdsRef.current.add(id);
-      resultDeliveredBanIdsRef.current.add(id);
-      shownOverlayKeysRef.current.add(`result:${id}`);
+      const key = normalizeId(id);
+      if (!key) continue;
+      resultCtaConsumedBanIdsRef.current.add(key);
+      resultDeliveredBanIdsRef.current.add(key);
+      shownOverlayKeysRef.current.add(`result:${key}`);
     }
   }, [auth.user?.id, auth.loading]);
 
@@ -3721,9 +3762,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       payload: BanResult | null | undefined,
       source: 'ws' | 'http' | 'poll',
     ) => {
-      const banId = payload?.id ?? null;
+      if (!payload) return;
+      const normalized = normalizeBanResult(payload);
+      const banId = normalizeId(normalized.id);
       const uid = userIdRef.current;
-      if (!banId || !payload) return;
+      if (!banId) return;
 
       const block = shouldBlockResultOpen({
         resultBanId: banId,
@@ -3751,7 +3794,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const role = resultParticipantRole(uid, payload);
+      const role = resultParticipantRole(uid, normalized);
       const elapsedMs = resultElapsedSinceSubmit(
         banId,
         checkSubmitAtRef.current,
@@ -3806,7 +3849,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       const mode = source === 'poll' ? 'auto' : 'live';
-      const decision = diagnoseResultShow(payload, mode, uid, banId);
+      const decision = diagnoseResultShow(normalized, mode, uid, banId);
 
       if (!decision.shouldShow) {
         logResultLatency('[result-show-decision]', {
@@ -3818,7 +3861,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           shouldShow: false,
           reason: decision.reason,
         });
-        dismissBanResultLocally(banId, payload.viewerId ?? uid);
+        dismissBanResultLocally(banId, normalized.viewerId ?? uid);
         void acknowledgeBanResultOnServer(banId, tokenRef.current);
         return;
       }
@@ -3837,7 +3880,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         mode,
         extra: { wsOrHttpSource: source },
       });
-      openBanResult(payload, mode);
+      openBanResult(normalized, mode);
 
       logResultLatency('[result-show-decision]', {
         banId,
@@ -4321,44 +4364,60 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const submitCheckAnswer = useCallback(
     async (banId: string, completed: boolean) => {
+      const normalizedBanId = normalizeId(banId);
       const uid = userIdRef.current;
       const token = tokenRef.current;
       if (!uid || !token) {
         return { ok: false, error: 'Нет авторизации' };
       }
+      if (!normalizedBanId) {
+        return { ok: false, error: 'Некорректный запрет' };
+      }
 
-      console.log('[check-overlay-submit-start]', { banId, answer: completed });
-      dismissedCheckSessionRef.current.add(banId);
-      answeredCheckRef.current.add(banId);
-      markCheckAnsweredLocally(uid, banId);
-      checkAnswerInFlightRef.current.add(banId);
+      const payload = { completed: Boolean(completed) };
+      console.log('[check-submit-payload]', {
+        banId: normalizedBanId,
+        answer: completed,
+        payloadTypes: {
+          banId: typeof normalizedBanId,
+          completed: typeof payload.completed,
+        },
+      });
+      console.log('[check-overlay-submit-start]', {
+        banId: normalizedBanId,
+        answer: completed,
+      });
+      dismissedCheckSessionRef.current.add(normalizedBanId);
+      answeredCheckRef.current.add(normalizedBanId);
+      markCheckAnsweredLocally(uid, normalizedBanId);
+      checkAnswerInFlightRef.current.add(normalizedBanId);
       console.log('[check-overlay-user-answer]', {
-        banId,
+        banId: normalizedBanId,
         answer: completed,
       });
       console.log('[CHECK OVERLAY DISMISSED]', {
-        banId,
+        banId: normalizedBanId,
         reason: 'user-answer',
         completed,
       });
       const t0 = performance.now();
-      checkSubmitAtRef.current.set(banId, t0);
+      checkSubmitAtRef.current.set(normalizedBanId, t0);
       const role = resultParticipantRole(uid, checkBanRef.current);
       logResultLatency('[result-click-answer]', {
-        banId,
+        banId: normalizedBanId,
         authUserId: uid,
         role,
         elapsedMs: 0,
       });
       dismissCurrentOverlay(
         'user-answer',
-        removeOverlaysForBan(overlayQueueRef.current, banId, ['check']),
+        removeOverlaysForBan(overlayQueueRef.current, normalizedBanId, ['check']),
       );
       setCheckWaiting(false);
 
       try {
         logResultLatency('[result-http-start]', {
-          banId,
+          banId: normalizedBanId,
           authUserId: uid,
           role,
           elapsedMs: Math.round(performance.now() - t0),
@@ -4367,16 +4426,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           done: boolean;
           waiting?: boolean;
           result?: BanResult;
-        }>(`/bans/${banId}/check`, {
+        }>(`/bans/${normalizedBanId}/check`, {
           method: 'POST',
           token,
-          body: JSON.stringify({ completed }),
+          body: JSON.stringify(payload),
           retries: 0,
         });
 
         const elapsedMs = Math.round(performance.now() - t0);
         logResultLatency('[result-http-response]', {
-          banId,
+          banId: normalizedBanId,
           authUserId: uid,
           role,
           source: 'http',
@@ -4387,30 +4446,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
 
         if (res.done && res.result) {
-          challengeLog('check:done', { banId });
-          receiveResult(res.result, 'http');
+          challengeLog('check:done', { banId: normalizedBanId });
+          receiveResult(normalizeBanResult(res.result), 'http');
           queueMicrotask(() => {
             setOverlayQueue((prev) =>
-              removeOverlaysForBan(prev, banId, ['check', 'incoming']),
+              removeOverlaysForBan(prev, normalizedBanId, ['check', 'incoming']),
             );
             void refreshUserRef.current().catch(() => {});
           });
         } else if (res.waiting) {
-          challengeLog('check:waiting-partner', { banId });
+          challengeLog('check:waiting-partner', { banId: normalizedBanId });
           scheduleResultPollBurst();
         } else if (res.done) {
           scheduleResultPollBurst();
         }
 
-        console.log('[check-overlay-submit-success]', { banId });
+        console.log('[check-submit-success]', { banId: normalizedBanId });
+        console.log('[check-overlay-submit-success]', { banId: normalizedBanId });
         return { ok: true };
       } catch (e) {
         const message = e instanceof Error ? e.message : 'Ошибка отправки';
-        console.log('[check-overlay-submit-error]', { banId, error: message });
-        challengeLog('check:submit-failed', { banId, message });
+        console.log('[check-submit-error]', { banId: normalizedBanId, error: message });
+        console.log('[check-overlay-submit-error]', {
+          banId: normalizedBanId,
+          error: message,
+        });
+        challengeLog('check:submit-failed', {
+          banId: normalizedBanId,
+          message,
+        });
         return { ok: false, error: message };
       } finally {
-        checkAnswerInFlightRef.current.delete(banId);
+        checkAnswerInFlightRef.current.delete(normalizedBanId);
       }
     },
     [dismissCurrentOverlay, receiveResult, scheduleResultPollBurst],
@@ -7999,40 +8066,41 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const consumeResultBanForResultCta = useCallback(
     (banId: string) => {
+      const key = normalizeId(banId);
+      if (!key) return;
       const viewerId =
         resultRef.current?.viewerId ?? userIdRef.current ?? null;
       const outcome = resultRef.current?.outcome ?? result?.outcome ?? null;
 
-      if (outcome === 'overboard' && !incomingConsumedAfterAnswerRef.current.has(banId)) {
-        consumeIncomingAfterAnswer(banId, 'overboard');
+      if (
+        outcome === 'overboard' &&
+        !incomingConsumedAfterAnswerRef.current.has(key)
+      ) {
+        consumeIncomingAfterAnswer(key, 'overboard');
       }
 
       console.log('[overboard-repeat-debug] local dismiss resultId', {
-        banId,
+        banId: key,
         viewerId,
         outcome,
       });
-      console.log('[RESULT CTA CONSUME]', { banId });
-      markVisibleOverboardTrace('[RESULT CTA CONSUME]', { banId });
+      console.log('[RESULT CTA CONSUME]', { banId: key });
+      markVisibleOverboardTrace('[RESULT CTA CONSUME]', { banId: key });
 
-      resultCtaConsumedBanIdsRef.current.add(banId);
-      resultDeliveredBanIdsRef.current.add(banId);
-      shownOverlayKeysRef.current.add(`result:${banId}`);
-      dismissBanResultLocally(banId, viewerId);
-      console.log('[result-overlay-consumed]', { banId, source: 'consumeResultBanForResultCta' });
+      markResultOverlayConsumed(key, 'consumeResultBanForResultCta');
 
       const token = tokenRef.current;
-      console.log('[overboard-repeat-debug] ack result start', { banId });
+      console.log('[overboard-repeat-debug] ack result start', { banId: key });
       void (async () => {
-        await acknowledgeBanResultOnServer(banId, token);
-        console.log('[overboard-repeat-debug] ack result done', { banId });
+        await acknowledgeBanResultOnServer(key, token);
+        console.log('[overboard-repeat-debug] ack result done', { banId: key });
       })();
 
       const { removedOverlay, removedStartup } =
-        pruneResultFromNotificationChain(banId);
+        pruneResultFromNotificationChain(key);
       sanitizeNotificationChainQueues('status-cta-consume');
       console.log('[status-cta-consume-current]', {
-        banId,
+        banId: key,
         removedOverlay,
         removedStartup,
       });

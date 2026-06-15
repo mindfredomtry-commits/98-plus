@@ -21,6 +21,7 @@ import { BigButton } from './BigButton';
 import { useTelegram } from '@/hooks/useTelegram';
 import { BanTimer } from './BanTimer';
 import { challengeLog } from '@/lib/challenge-log';
+import { normalizeId } from '@/lib/normalize-json';
 import { ModalShell } from './ModalShell';
 import { AvatarImage } from './AvatarImage';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
@@ -105,7 +106,7 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
         completed,
         role: modalView.role,
       });
-      const res = await submitCheckAnswer(checkBan.id, completed);
+      const res = await submitCheckAnswer(normalizeId(checkBan.id), completed);
       if (!res.ok && res.error) {
         setSubmitError(res.error);
       }

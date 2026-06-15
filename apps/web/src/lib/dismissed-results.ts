@@ -1,3 +1,5 @@
+import { normalizeId } from './normalize-json';
+
 const STORAGE_KEY_PREFIX = '98plus_dismissed_results';
 const MAX_IDS = 80;
 
@@ -28,15 +30,17 @@ export function isDismissedResultLocally(
   banId: string,
   scopeUserId?: string | null,
 ): boolean {
-  return readIds(scopeUserId).has(banId);
+  return readIds(scopeUserId).has(normalizeId(banId));
 }
 
 export function markDismissedResultLocally(
   banId: string,
   scopeUserId?: string | null,
 ) {
+  const key = normalizeId(banId);
+  if (!key) return;
   const ids = readIds(scopeUserId);
-  ids.add(banId);
+  ids.add(key);
   writeIds(ids, scopeUserId);
 }
 

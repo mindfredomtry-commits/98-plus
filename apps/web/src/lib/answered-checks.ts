@@ -1,3 +1,5 @@
+import { normalizeId } from './normalize-json';
+
 const MAX_IDS = 200;
 
 function storageKey(userId: string): string {
@@ -26,12 +28,14 @@ function writeIds(ids: Set<string>, userId: string) {
 }
 
 export function isCheckAnsweredLocally(userId: string, banId: string): boolean {
-  return readIdsForUser(userId).has(banId);
+  return readIdsForUser(userId).has(normalizeId(banId));
 }
 
 export function markCheckAnsweredLocally(userId: string, banId: string) {
+  const key = normalizeId(banId);
+  if (!key) return;
   const ids = readIdsForUser(userId);
-  ids.add(banId);
+  ids.add(key);
   writeIds(ids, userId);
 }
 

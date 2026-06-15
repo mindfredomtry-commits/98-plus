@@ -468,7 +468,14 @@ bansRouter.post('/:id/check', async (req: AuthRequest, res) => {
         banId: paramId(req),
       });
     }
-    res.json(result);
+    res.json({
+      done: result.done,
+      outcome: result.outcome ?? null,
+      result: result.result ?? null,
+      waiting: 'waiting' in result ? !!result.waiting : false,
+      checkState: 'checkState' in result ? result.checkState : undefined,
+      farmSkipped: 'farmSkipped' in result ? result.farmSkipped : undefined,
+    });
   } catch (e) {
     res.status(400).json({ error: (e as Error).message });
   }
