@@ -8500,6 +8500,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const notificationChainReplyComposePaused =
     notificationChainReplyComposeActiveRef.current ||
     replyComposeActiveRef.current ||
+    replyComposeActive ||
     chainReplyParentBanIdRef.current != null;
   const shouldRenderIncomingOverlay =
     !showDirectOverboardLayer &&
@@ -8526,6 +8527,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     replyIncomingDirectPath &&
     (replyDeeplinkFastShell || deepLinkReplyBooting);
   const hasQueuedOverlayShell =
+    !notificationChainReplyComposePaused &&
     !replyIncomingQueueShellDeferred &&
     (overlayQueue.length > 0 ||
       replyFastIncomingActive ||
@@ -8539,6 +8541,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       hasQueuedOverlayShell);
 
   const incomingGateActive = useMemo(() => {
+    if (notificationChainReplyComposePaused) return false;
     if (priorityBlocksResult) return false;
     if (!auth.user?.id || auth.loading) return false;
     if (replyFastIncomingActive) return true;
@@ -8549,6 +8552,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       dismissedIncomingRef.current,
     );
   }, [
+    notificationChainReplyComposePaused,
     priorityBlocksResult,
     replyFastIncomingActive,
     activeOverlayKind,
@@ -9553,6 +9557,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       (notificationQueueShellKind === 'incoming' &&
         !replyIncomingDirectPath));
 
+  const notificationHostLayerActive =
+    !notificationChainReplyComposePaused &&
+    (notificationSessionActive ||
+      incomingJsxWillRender ||
+      showReplyIncomingOverlayDirect);
+  const notificationHostSessionBackdrop =
+    !notificationChainReplyComposePaused &&
+    (notificationSessionActive || incomingJsxWillRender);
+
+  useLayoutEffect(() => {
+    if (!notificationChainReplyComposePaused) return;
+    console.log('[chain-reply-overlay-suppressed]', {
+      parentBanId: chainReplyParentBanIdRef.current,
+      notificationSessionActive,
+      notificationHostLayerActive,
+      notificationHostSessionBackdrop,
+      queueLen: overlayQueue.length,
+      overlayQueueHead: overlayQueue[0]
+        ? overlayQueueItemId(overlayQueue[0])
+        : null,
+    });
+  }, [
+    notificationChainReplyComposePaused,
+    notificationSessionActive,
+    notificationHostLayerActive,
+    notificationHostSessionBackdrop,
+    overlayQueue,
+  ]);
+
   useLayoutEffect(() => {
     const jsxBranch = {
       activeOverlayKind: effectiveIncomingOverlayDisplayKind,
@@ -9995,14 +10028,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               </ChallengeErrorBoundary>
             ) : null}
             <GlobalOverlayHost
-              active={
-                notificationSessionActive ||
-                incomingJsxWillRender ||
-                showReplyIncomingOverlayDirect
-              }
-              queueSessionActive={
-                notificationSessionActive || incomingJsxWillRender
-              }
+              active={notificationHostLayerActive}
+              queueSessionActive={notificationHostSessionBackdrop}
               activeOverlayKind={
                 showReplyIncomingOverlayDirect
                   ? 'incoming'
@@ -10019,9 +10046,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 kind={notificationQueueShellKind}
                 displayBanId={incomingCardDisplayBan?.id ?? null}
                 incomingCardReady={incomingCardFullyReady}
-                sessionActive={
-                  notificationSessionActive || incomingJsxWillRender
-                }
+                sessionActive={notificationHostSessionBackdrop}
                 contentKey={
                   overlayQueue[0]
                     ? overlayQueueKey(overlayQueue[0])
