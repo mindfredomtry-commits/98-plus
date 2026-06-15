@@ -480,6 +480,8 @@ interface AppContextValue {
   completeBansOverlayCloseFromResultCta: (source?: string) => boolean;
   /** Accumulated pre-open interactions waiting for ritual release. */
   pendingStartupInteractions: boolean;
+  /** True while overlay queue or startup hold still has pending notifications. */
+  hasPendingNotificationChain: () => boolean;
   /** Release queued startup interactions (e.g. after opening «Твои запреты»). */
   releaseStartupInteractions: (opts?: {
     requireBanSend?: boolean;
@@ -2202,6 +2204,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [enqueueNotification, syncDisplayFromQueue, syncPendingStartupCount],
   );
+
+  const hasPendingNotificationChain = useCallback(() => {
+    return (
+      overlayQueueRef.current.length > 0 ||
+      pendingStartupInteractionsRef.current.length > 0 ||
+      startupInteractionsHoldRef.current
+    );
+  }, []);
+
+  const clearNotificationChainReturnLatch = useCallback((source: string) => {
+    if (!bansReturnToLobbyLatchRef.current) return;
+    bansReturnToLobbyLatchRef.current = false;
+    setBansReturnToLobbyLatch(false);
+    console.log('[notification-chain-latch-clear]', { source });
+  }, []);
 
   const releaseNotificationQueueAfterReplyParentActive = useCallback(() => {
     if (!replyParentActivePriorityActiveRef.current) return;
@@ -6651,6 +6668,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const armOpenBansOverlayFromResultCta = useCallback(
     (banId: string | null) => {
+      if (hasPendingNotificationChain()) {
+        console.log('[notification-chain-open-bans-deferred]', {
+          source: 'armOpenBansOverlayFromResultCta',
+          reason: 'queue-not-empty',
+          queueLength: overlayQueueRef.current.length,
+          startupPending: pendingStartupInteractionsRef.current.length,
+          startupHold: startupInteractionsHoldRef.current,
+        });
+        return;
+      }
+
       closeSendFlow();
       clearIncomingReply();
       clearDeepLinkReplyBan();
@@ -6698,7 +6726,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         lobbyOpen: lobbyOpenRef.current,
       });
     },
-    [clearDeepLinkReplyBan, clearIncomingReply, closeSendFlow],
+    [clearDeepLinkReplyBan, clearIncomingReply, closeSendFlow, hasPendingNotificationChain],
   );
 
   const notifyResultReplyWhatVisible = useCallback(
@@ -6888,29 +6916,40 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     markOverlayUserAction('result-nav', banId ?? undefined);
 
     const showNextPendingOrOpenBans = (source: string) => {
-      const nextHead = overlayQueueRef.current[0] ?? null;
-      if (nextHead) {
-        const nextBanId =
-          nextHead.kind === 'result'
-            ? nextHead.result.id
-            : nextHead.ban.id;
-        console.log('[overboard-status-debug] queue has next pending', {
-          kind: nextHead.kind,
-          banId: nextBanId,
-          queueLength: overlayQueueRef.current.length,
-        });
-        console.log(
-          '[overboard-status-debug] open next pending instead of persistent bans intent',
-          { source },
-        );
-        clearBansOverlayNavigationIntent(source);
-        syncDisplayFromQueue(overlayQueueRef.current);
-        logResultNav('next-overlay', {
-          remaining: overlayQueueRef.current.length,
-        });
-        return true;
+      const queueLen = overlayQueueRef.current.length;
+      const startupLen = pendingStartupInteractionsRef.current.length;
+      const startupHold = startupInteractionsHoldRef.current;
+      const hasNext = queueLen > 0 || startupLen > 0 || startupHold;
+
+      console.log('[notification-chain-next-check]', {
+        source,
+        hasNext,
+        queueLen,
+        startupLen,
+        startupHold,
+        latch: bansReturnToLobbyLatchRef.current,
+      });
+
+      if (!hasNext) return false;
+
+      clearBansOverlayNavigationIntent(source);
+      clearNotificationChainReturnLatch(source);
+
+      if (startupHold || startupLen > 0) {
+        releaseStartupInteractions({ force: true });
       }
-      return false;
+
+      const head = overlayQueueRef.current[0] ?? null;
+      console.log('[notification-chain-next-show]', {
+        source,
+        nextKind: head?.kind ?? (startupLen > 0 ? 'startup-flush' : null),
+      });
+
+      syncDisplayFromQueue(overlayQueueRef.current);
+      logResultNav('next-overlay', {
+        remaining: overlayQueueRef.current.length,
+      });
+      return true;
     };
 
     if (banId) {
@@ -6932,6 +6971,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    console.log('[notification-chain-open-bans-final]', {
+      source: wasDirect ? 'overboard-status-direct' : 'navigate-from-result-non-direct',
+      reason: 'queue-empty',
+    });
     logResultNav('open-bans-overlay', { direct: wasDirect, banId, wasDirect });
     armOpenBansOverlayFromResultCta(banId);
   }, [
@@ -6939,9 +6982,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     armOpenBansOverlayFromResultCta,
     cancelResultPollBurst,
     clearBansOverlayNavigationIntent,
+    clearNotificationChainReturnLatch,
     consumeResultBanForResultCta,
     directResultOverlayActive,
     markOverlayUserAction,
+    releaseStartupInteractions,
     result?.id,
     syncDisplayFromQueue,
   ]);
@@ -8843,6 +8888,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setBansReturnToLobbyLatch,
       completeBansOverlayCloseFromResultCta,
       pendingStartupInteractions,
+      hasPendingNotificationChain,
       releaseStartupInteractions,
       markSessionBanSendSuccess,
       armActiveBanDeepLinkEarly,
@@ -8994,6 +9040,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setBansReturnToLobbyLatch,
       completeBansOverlayCloseFromResultCta,
       pendingStartupInteractions,
+      hasPendingNotificationChain,
       releaseStartupInteractions,
       markSessionBanSendSuccess,
       armActiveBanDeepLinkEarly,

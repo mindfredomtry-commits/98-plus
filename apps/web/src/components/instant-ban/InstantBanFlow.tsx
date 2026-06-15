@@ -313,6 +313,7 @@ export function InstantBanFlow({
     closeSendFlow,
     applySession,
     pendingStartupInteractions,
+    hasPendingNotificationChain,
     releaseStartupInteractions,
     unlockNotificationQueueAndFlush,
     markSessionBanSendSuccess,
@@ -479,7 +480,8 @@ export function InstantBanFlow({
     overlayHandoffFromActiveCard ||
     notificationOverlayActive ||
     (bansReturnToLobbyLatch &&
-      (overlayQueueLength > 0 ||
+      (hasPendingNotificationChain() ||
+        overlayQueueLength > 0 ||
         pendingStartupInteractions ||
         isNotificationQueueLocked()));
   const bansLayerUiOpen =
@@ -523,7 +525,10 @@ export function InstantBanFlow({
       incomingReplyBanId != null ||
       replyUiShellActive);
   const lobbyChromeHidden =
-    replyLobbyBlocked || deepLinkRouteBootPending || replyIncomingDeeplinkPending;
+    replyLobbyBlocked ||
+    deepLinkRouteBootPending ||
+    replyIncomingDeeplinkPending ||
+    overlayHandoffLobbySuppressed;
   const showLobbyChrome = lobbyBootIntroPrimed && !lobbyChromeHidden;
   /** Orb stays mounted during route boot — only hide for reply/incoming block. */
   const lobbyOrbVisible =
@@ -1047,6 +1052,29 @@ export function InstantBanFlow({
   ]);
 
   useEffect(() => {
+    if (!overlayHandoffLobbySuppressed) return;
+    if (
+      overlayHandoffFromActiveCard ||
+      (bansReturnToLobbyLatch && hasPendingNotificationChain())
+    ) {
+      console.log('[notification-chain-lobby-frame-blocked]', {
+        source: overlayHandoffFromActiveCard
+          ? 'active-card-close'
+          : 'notification-chain',
+        overlayQueueLength,
+        pendingStartupInteractions,
+      });
+    }
+  }, [
+    bansReturnToLobbyLatch,
+    hasPendingNotificationChain,
+    overlayHandoffFromActiveCard,
+    overlayHandoffLobbySuppressed,
+    overlayQueueLength,
+    pendingStartupInteractions,
+  ]);
+
+  useEffect(() => {
     const wasSuppressed = prevOverlayHandoffSuppressedRef.current;
     prevOverlayHandoffSuppressedRef.current = overlayHandoffLobbySuppressed;
     if (wasSuppressed && !overlayHandoffLobbySuppressed) {
@@ -1092,11 +1120,12 @@ export function InstantBanFlow({
       notificationSessionActive ||
       incomingGateActive ||
       checkGateActive ||
-      overlayQueueLength > 0
+      overlayQueueLength > 0 ||
+      hasPendingNotificationChain()
     ) {
       setOverlayHandoffFromActiveCard(false);
       console.log('[overlay-handoff-complete]', {
-        toOverlay: activeOverlayKind,
+        toOverlay: activeOverlayKind ?? 'notification-queue',
         overlayQueueLength,
       });
       return;
@@ -1117,6 +1146,7 @@ export function InstantBanFlow({
     activeOverlayKind,
     bansReturnToLobbyLatch,
     checkGateActive,
+    hasPendingNotificationChain,
     incomingGateActive,
     notificationSessionActive,
     overlayHandoffFromActiveCard,
@@ -1643,6 +1673,13 @@ export function InstantBanFlow({
   }, [resetSendUiForBansCta]);
 
   const handleOpenBansFromResultCta = useCallback((): boolean => {
+    if (hasPendingNotificationChain()) {
+      console.log('[notification-chain-open-bans-deferred]', {
+        source: 'handleOpenBansFromResultCta',
+        reason: 'queue-not-empty',
+      });
+      return false;
+    }
     if (banSentSuccess) {
       console.log('[BANS OVERLAY OPENED]', {
         ok: false,
@@ -1671,6 +1708,10 @@ export function InstantBanFlow({
     setBansTab('yours');
     setSelectedBanForDetails(null);
     setBansOverlayOpen(true);
+    console.log('[notification-chain-open-bans-final]', {
+      source: 'handleOpenBansFromResultCta',
+      reason: 'queue-empty',
+    });
     console.log('[BANS OVERLAY OPENED]', {
       ok: true,
       tab: 'yours',
@@ -1681,6 +1722,7 @@ export function InstantBanFlow({
   }, [
     banSentSuccess,
     bansCtaQueueSuppress,
+    hasPendingNotificationChain,
     notificationSessionActive,
     notificationOverlayActive,
     phase,
@@ -1871,16 +1913,28 @@ export function InstantBanFlow({
   }, [handleCloseBansOverlay]);
 
   const handleLobbyActiveBanOverlayBack = useCallback(() => {
+    const hasNext = hasPendingNotificationChain();
+    console.log('[notification-chain-next-check]', {
+      source: 'active-timer-card-close',
+      hasNext,
+      queueLen: overlayQueueLength,
+      pendingStartupInteractions,
+    });
     console.log('[overlay-handoff-start]', {
       fromOverlay: 'reply-parent-active',
-      toOverlay: 'notification-queue',
+      toOverlay: hasNext ? 'notification-queue' : 'lobby',
     });
     flushSync(() => {
       setOverlayHandoffFromActiveCard(true);
       setLobbyActiveBanOverlay(null);
     });
     releaseNotificationQueueAfterReplyParentActive();
-  }, [releaseNotificationQueueAfterReplyParentActive]);
+  }, [
+    hasPendingNotificationChain,
+    overlayQueueLength,
+    pendingStartupInteractions,
+    releaseNotificationQueueAfterReplyParentActive,
+  ]);
 
   const handleActiveBanBackToBansList = useCallback(() => {
     if (lobbyActiveBanOverlay) {
