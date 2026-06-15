@@ -487,8 +487,8 @@ interface AppContextValue {
   armActiveBanDeepLinkEarly: (banId: string) => void;
   /** Unlock overlay queue and flush deferred pending overlays. */
   unlockNotificationQueueAndFlush: (reason: string) => void;
-  /** Reply deeplink: show accepted parent active ban after success card, before other notifications. */
-  resolveReplyParentActiveBanForSuccess: () => BanInteraction | null;
+  /** Reply deeplink: fetch accepted parent active ban after success card. */
+  fetchReplyParentActiveBanForSuccess: () => Promise<BanInteraction | null>;
   markReplyParentActivePriorityShown: (parentBanId: string) => void;
   isReplyParentActivePriorityActive: () => boolean;
   releaseNotificationQueueAfterReplyParentActive: () => void;
@@ -799,7 +799,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const replyDeeplinkCompletedRouteBanIdRef = useRef<string | null>(null);
   const replyDeeplinkParentBanIdRef = useRef<string | null>(null);
   const acceptedParentBanAfterReplyRef = useRef<string | null>(null);
-  const acceptedParentBanSnapshotRef = useRef<BanInteraction | null>(null);
+  const acceptedParentBanActiveRef = useRef<BanInteraction | null>(null);
   const replyParentActivePriorityPendingRef = useRef(false);
   const replyParentActivePriorityActiveRef = useRef(false);
   const replyFlowStartedForBanIdRef = useRef<string | null>(null);
@@ -1940,7 +1940,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const clearReplyParentActivePriority = useCallback((reason?: string) => {
     const parentBanId = acceptedParentBanAfterReplyRef.current;
     acceptedParentBanAfterReplyRef.current = null;
-    acceptedParentBanSnapshotRef.current = null;
+    acceptedParentBanActiveRef.current = null;
     replyParentActivePriorityPendingRef.current = false;
     replyParentActivePriorityActiveRef.current = false;
     if (parentBanId) {
@@ -1951,11 +1951,53 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const resolveReplyParentActiveBanForSuccess = useCallback((): BanInteraction | null => {
-    if (!replyParentActivePriorityPendingRef.current) {
+  const pickAcceptedParentActiveBan = useCallback(
+    (parentBanId: string): BanInteraction | null => {
+      const bid = parentBanId.trim();
+      if (!bid) return null;
+
+      const fromSession = sessionActiveBansRef.current.find(
+        (row) => row.id === bid && row.status === 'active',
+      );
+      if (fromSession) {
+        const enriched = enrichBanInteraction(fromSession);
+        console.log('[reply-parent-active-resolve]', {
+          parentBanId: bid,
+          source: 'session-active',
+          status: enriched.status,
+          hasExpiresAt: !!enriched.expiresAt,
+          hasCheckDueAt: !!enriched.checkDueAt,
+        });
+        return enriched;
+      }
+
+      const fromAccept = acceptedParentBanActiveRef.current;
+      if (fromAccept?.id === bid && fromAccept.status === 'active') {
+        const enriched = enrichBanInteraction(fromAccept);
+        console.log('[reply-parent-active-resolve]', {
+          parentBanId: bid,
+          source: 'accept-ref',
+          status: enriched.status,
+          hasExpiresAt: !!enriched.expiresAt,
+          hasCheckDueAt: !!enriched.checkDueAt,
+        });
+        return enriched;
+      }
+
+      return null;
+    },
+    [],
+  );
+
+  const fetchReplyParentActiveBanForSuccess = useCallback(async (): Promise<BanInteraction | null> => {
+    if (
+      !replyParentActivePriorityPendingRef.current &&
+      !replyParentActivePriorityActiveRef.current
+    ) {
       console.log('[reply-parent-active-priority-skip]', { reason: 'not-pending' });
       return null;
     }
+
     const parentBanId = acceptedParentBanAfterReplyRef.current?.trim() ?? '';
     if (!parentBanId) {
       console.log('[reply-parent-active-priority-skip]', {
@@ -1965,26 +2007,59 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return null;
     }
 
-    let ban =
-      sessionActiveBansRef.current.find((row) => row.id === parentBanId) ??
-      null;
-    if (
-      !ban &&
-      acceptedParentBanSnapshotRef.current?.id === parentBanId
-    ) {
-      ban = acceptedParentBanSnapshotRef.current;
-    }
-    if (!ban) {
+    const cached = pickAcceptedParentActiveBan(parentBanId);
+    if (cached) return cached;
+
+    const token = tokenRef.current?.trim();
+    if (!token) {
       console.log('[reply-parent-active-priority-skip]', {
-        reason: 'ban-not-in-active-list',
+        reason: 'no-token',
         parentBanId,
       });
-      clearReplyParentActivePriority('ban-not-found');
       return null;
     }
 
-    return enrichBanInteraction(ban);
-  }, [clearReplyParentActivePriority]);
+    try {
+      const { ban: fetched } = await api<{ ban: BanInteraction }>(
+        `/bans/${parentBanId}/open`,
+        { token },
+      );
+      if (!fetched || fetched.status !== 'active') {
+        console.log('[reply-parent-active-priority-skip]', {
+          reason: 'fetched-not-active',
+          parentBanId,
+          status: fetched?.status ?? null,
+        });
+        return null;
+      }
+
+      const enriched = enrichBanInteraction(fetched);
+      acceptedParentBanActiveRef.current = enriched;
+      setActiveBans((prev) => {
+        if (prev.some((row) => row.id === enriched.id)) {
+          return prev.map((row) =>
+            row.id === enriched.id ? enriched : row,
+          );
+        }
+        return [enriched, ...prev];
+      });
+      console.log('[reply-parent-active-resolve]', {
+        parentBanId,
+        source: 'api-open',
+        status: enriched.status,
+        hasExpiresAt: !!enriched.expiresAt,
+        hasCheckDueAt: !!enriched.checkDueAt,
+      });
+      return enriched;
+    } catch (e) {
+      console.log('[reply-parent-active-priority-skip]', {
+        reason: 'api-open-failed',
+        parentBanId,
+        message: (e as Error).message,
+      });
+      return null;
+    }
+  }, [clearReplyParentActivePriority, pickAcceptedParentActiveBan]);
 
   const markReplyParentActivePriorityShown = useCallback((parentBanId: string) => {
     replyParentActivePriorityPendingRef.current = false;
@@ -2037,10 +2112,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (!replyParentActivePriorityActiveRef.current) return;
     console.log('[notification-queue-release-after-parent-active]');
     clearReplyParentActivePriority('queue-release');
-    setBansReturnToLobbyLatch(true);
-    bansReturnToLobbyLatchRef.current = true;
+    activeBanCardVisibleRef.current = false;
+    activeBanDeepLinkBanIdRef.current = null;
     setLobbyOpen(true);
     lobbyOpenRef.current = true;
+    deepLinkBlockedRef.current = false;
     unlockNotificationQueueAndFlush(
       'notification-queue-release-after-parent-active',
     );
@@ -6839,7 +6915,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       replyDeeplinkParentBanIdRef.current = banId;
       replyFlowStartedForBanIdRef.current = banId;
       acceptedParentBanAfterReplyRef.current = banId;
-      acceptedParentBanSnapshotRef.current = enrichBanInteraction(ban);
       replyParentActivePriorityPendingRef.current = true;
       console.log('[reply-parent-active-priority-set]', { parentBanId: banId });
       dismissIncomingCardForReplyCompose(banId);
@@ -6888,7 +6963,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             );
             if (acceptedBan) {
               const enrichedAccepted = enrichBanInteraction(acceptedBan);
-              acceptedParentBanSnapshotRef.current = enrichedAccepted;
+              if (enrichedAccepted.status === 'active') {
+                acceptedParentBanActiveRef.current = enrichedAccepted;
+                console.log('[reply-parent-active-accept-ready]', {
+                  parentBanId: banId,
+                  status: enrichedAccepted.status,
+                  hasExpiresAt: !!enrichedAccepted.expiresAt,
+                  hasCheckDueAt: !!enrichedAccepted.checkDueAt,
+                });
+              }
               setActiveBans((prev) => {
                 if (prev.some((row) => row.id === enrichedAccepted.id)) {
                   return prev.map((row) =>
@@ -7381,7 +7464,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const queueHeadKind =
     overlayQueue[0]?.kind ?? overlayQueueRef.current[0]?.kind ?? null;
   const notificationShellSuppressedForBansLobby =
-    bansCtaQueueSuppressRef.current || bansReturnToLobbyLatchRef.current;
+    bansCtaQueueSuppressRef.current;
   const incomingAnswerBlockId =
     replyDeepLinkBanId ?? replyDeeplinkPendingBanIdRef.current;
   const incomingBlockedAfterAnswer =
@@ -8635,7 +8718,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       markSessionBanSendSuccess,
       armActiveBanDeepLinkEarly,
       unlockNotificationQueueAndFlush,
-      resolveReplyParentActiveBanForSuccess,
+      fetchReplyParentActiveBanForSuccess,
       markReplyParentActivePriorityShown,
       isReplyParentActivePriorityActive,
       releaseNotificationQueueAfterReplyParentActive,
@@ -8781,7 +8864,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       markSessionBanSendSuccess,
       armActiveBanDeepLinkEarly,
       unlockNotificationQueueAndFlush,
-      resolveReplyParentActiveBanForSuccess,
+      fetchReplyParentActiveBanForSuccess,
       markReplyParentActivePriorityShown,
       isReplyParentActivePriorityActive,
       releaseNotificationQueueAfterReplyParentActive,
