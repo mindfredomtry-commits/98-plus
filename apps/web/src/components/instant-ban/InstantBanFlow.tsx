@@ -440,6 +440,8 @@ export function InstantBanFlow({
   const [bansTab, setBansTab] = useState<BansTab>('yours');
   const [selectedBanForDetails, setSelectedBanForDetails] =
     useState<BanInteraction | null>(null);
+  const [lobbyActiveBanOverlay, setLobbyActiveBanOverlay] =
+    useState<BanInteraction | null>(null);
   const [historyBans, setHistoryBans] = useState<BanInteraction[]>([]);
   const [savedBans, setSavedBans] = useState<BanInteraction[]>([]);
   const [archiveToast, setArchiveToast] = useState<string | null>(null);
@@ -1424,6 +1426,45 @@ export function InstantBanFlow({
     [onStartSend],
   );
 
+  const prepareLobbyBaseAfterSuccess = useCallback(
+    (source: string) => {
+      const closedBansOverlay =
+        bansOverlayOpen ||
+        selectedBanForDetails != null ||
+        lobbyActiveBanOverlay != null ||
+        bansCtaQueueSuppress ||
+        resultCtaBansOverlayOpen;
+      if (closedBansOverlay) {
+        console.log('[bans-overlay-force-close-after-success]', { reason: source });
+      }
+      setBansOverlayOpen(false);
+      setSelectedBanForDetails(null);
+      setLobbyActiveBanOverlay(null);
+      if (bansCtaQueueSuppress) clearBansCtaQueueSuppress();
+      if (resultCtaBansOverlayOpen) clearResultCtaBansOverlayOpen();
+      resetBansNavState();
+      setBansReturnToLobbyLatch(true);
+      openLobby(`success-exit-${source}`);
+      console.log('[success-exit-base-lobby]', {
+        source,
+        closedBansOverlay,
+        lobbyOpen: true,
+      });
+    },
+    [
+      bansCtaQueueSuppress,
+      bansOverlayOpen,
+      clearBansCtaQueueSuppress,
+      clearResultCtaBansOverlayOpen,
+      lobbyActiveBanOverlay,
+      openLobby,
+      resetBansNavState,
+      resultCtaBansOverlayOpen,
+      selectedBanForDetails,
+      setBansReturnToLobbyLatch,
+    ],
+  );
+
   const handleRepeatBanFromArchive = useCallback(
     (ban: BanInteraction) => {
       console.info('[98+] ARCHIVE REPEAT CLICK', { banId: ban.id });
@@ -1717,7 +1758,16 @@ export function InstantBanFlow({
     handleCloseBansOverlayRef.current = handleCloseBansOverlay;
   }, [handleCloseBansOverlay]);
 
+  const handleLobbyActiveBanOverlayBack = useCallback(() => {
+    setLobbyActiveBanOverlay(null);
+    releaseNotificationQueueAfterReplyParentActive();
+  }, [releaseNotificationQueueAfterReplyParentActive]);
+
   const handleActiveBanBackToBansList = useCallback(() => {
+    if (lobbyActiveBanOverlay) {
+      handleLobbyActiveBanOverlayBack();
+      return;
+    }
     if (isReplyParentActivePriorityActive()) {
       setSelectedBanForDetails(null);
       releaseNotificationQueueAfterReplyParentActive();
@@ -1727,7 +1777,9 @@ export function InstantBanFlow({
     unlockNotificationQueueAndFlush('explicit-bans-open-unlock');
     setSelectedBanForDetails(null);
   }, [
+    handleLobbyActiveBanOverlayBack,
     isReplyParentActivePriorityActive,
+    lobbyActiveBanOverlay,
     releaseNotificationQueueAfterReplyParentActive,
     unlockNotificationQueueAndFlush,
   ]);
@@ -1771,33 +1823,41 @@ export function InstantBanFlow({
       fromActiveRepeat: activeBanRepeatComposeRef.current,
       pendingStartupInteractions,
     });
-    clearActiveBanDeepLinkShell('success-exit');
-    activeBanRepeatComposeRef.current = false;
-    closeSendFlow();
-    setBansOverlayOpen(false);
-    setSelectedBanForDetails(null);
-    setBanSentSuccess(false);
-    sendSnapshotRef.current = null;
-    confirmEntrySourceRef.current = 'send-flow';
-    stopCrossScreenAnim();
-    screenTransitionRef.current = null;
-    setScreenTransition(null);
-    setSelectedUser(null);
-    setBanText('');
-    setDurationMinutes(DEFAULT_DURATION_MINUTES);
-    setSendError(null);
-    setWhoExitActive(false);
-    setWhoDismissProgress(0);
-    setComposeExitProgress(0);
-    setComposeDismissing(false);
-    setCrossScreenProgressImmediate(0);
-    setPhase('idle');
-
     const parentBan = resolveReplyParentActiveBanForSuccess();
+    const successSource = parentBan ? 'reply-parent-active' : 'send-success';
+
+    flushSync(() => {
+      clearActiveBanDeepLinkShell('success-exit');
+      activeBanRepeatComposeRef.current = false;
+      closeSendFlow();
+      setBansOverlayOpen(false);
+      setSelectedBanForDetails(null);
+      setBanSentSuccess(false);
+      sendSnapshotRef.current = null;
+      confirmEntrySourceRef.current = 'send-flow';
+      stopCrossScreenAnim();
+      screenTransitionRef.current = null;
+      setScreenTransition(null);
+      setSelectedUser(null);
+      setBanText('');
+      setDurationMinutes(DEFAULT_DURATION_MINUTES);
+      setSendError(null);
+      setWhoExitActive(false);
+      setWhoDismissProgress(0);
+      setComposeExitProgress(0);
+      setComposeDismissing(false);
+      setCrossScreenProgressImmediate(0);
+      setPhase('idle');
+      prepareLobbyBaseAfterSuccess(successSource);
+      if (parentBan) {
+        markReplyParentActivePriorityShown(parentBan.id);
+        lockNotificationQueue('deep-link-active-ban', parentBan.id);
+        setLobbyActiveBanOverlay(parentBan);
+        logOpenActiveBanCard(parentBan.id, 'reply-parent-active-on-lobby');
+      }
+    });
+
     if (parentBan) {
-      markReplyParentActivePriorityShown(parentBan.id);
-      lockNotificationQueue('deep-link-active-ban', parentBan.id);
-      beginActiveBanFromDeepLink(parentBan);
       notifyActiveBanCardVisible(parentBan.id);
       beginCtaSpringIn();
       return;
@@ -1808,13 +1868,13 @@ export function InstantBanFlow({
     releaseStartupInteractions({ force: true });
     beginCtaSpringIn();
   }, [
-    beginActiveBanFromDeepLink,
     beginCtaSpringIn,
     clearActiveBanDeepLinkShell,
     closeSendFlow,
     markReplyParentActivePriorityShown,
     notifyActiveBanCardVisible,
     pendingStartupInteractions,
+    prepareLobbyBaseAfterSuccess,
     releaseStartupInteractions,
     resolveReplyParentActiveBanForSuccess,
     unlockNotificationQueueAndFlush,
@@ -3705,6 +3765,21 @@ export function InstantBanFlow({
           onBeginSend={handleBeginSend}
           onLowEnergyAsk={handleLowEnergyAsk}
         />
+      ) : null}
+
+      {lobbyActiveBanOverlay ? (
+        <div className="instant-ban-arena-send__lobby-active-ban-layer">
+          <ActiveBanCardOverlay
+            ban={lobbyActiveBanOverlay}
+            viewerUserId={user?.id ?? null}
+            isHistory={false}
+            saved={savedBanIds.has(lobbyActiveBanOverlay.id)}
+            onBack={handleLobbyActiveBanOverlayBack}
+            onBanMore={() => handleBanMore(lobbyActiveBanOverlay)}
+            onShare={() => handleBanShare(lobbyActiveBanOverlay)}
+            onToggleSave={() => handleToggleSave(lobbyActiveBanOverlay)}
+          />
+        </div>
       ) : null}
 
       {showBansLayer ? (

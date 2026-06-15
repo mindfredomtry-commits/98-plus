@@ -3209,6 +3209,15 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
   flex-direction: column;
 }
 
+.instant-ban-arena-send__lobby-active-ban-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 13;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+}
+
 .instant-ban-bans-overlay {
   position: absolute;
   inset: 0;

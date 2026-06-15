@@ -1207,6 +1207,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setCheckBan(active?.kind === 'check' ? active.ban : null);
     }
 
+    if (bansReturnToLobbyLatchRef.current && active) {
+      console.log('[notification-overlay-base]', {
+        kind: active.kind,
+        baseScreen: 'lobby',
+      });
+    }
+
     const shouldSkipResultQueueSync =
       bansCtaQueueSuppressRef.current ||
       bansReturnToLobbyLatchRef.current ||
@@ -1638,6 +1645,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             overlayQueueDrainActiveRef.current = false;
             console.log('[OVERLAY QUEUE DRAIN END]', { ts: selectTs });
           }
+          if (bansReturnToLobbyLatchRef.current) {
+            console.log('[notification-queue-final-base]', {
+              baseScreen: 'lobby',
+              lobbyOpen: lobbyOpenRef.current,
+            });
+            setBansReturnToLobbyLatch(false);
+            bansReturnToLobbyLatchRef.current = false;
+            setLobbyOpen(true);
+            lobbyOpenRef.current = true;
+          }
         }
       };
 
@@ -1896,6 +1913,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
         } else {
           logQueueDebug('no pending -> lobby', { reason: 'empty-queue-reload' });
+          if (bansReturnToLobbyLatchRef.current) {
+            console.log('[notification-queue-final-base]', {
+              baseScreen: 'lobby',
+              lobbyOpen: lobbyOpenRef.current,
+            });
+            setBansReturnToLobbyLatch(false);
+            bansReturnToLobbyLatchRef.current = false;
+            setLobbyOpen(true);
+            lobbyOpenRef.current = true;
+          }
         }
 
         if (head?.kind === 'result') {
@@ -1962,7 +1989,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const markReplyParentActivePriorityShown = useCallback((parentBanId: string) => {
     replyParentActivePriorityPendingRef.current = false;
     replyParentActivePriorityActiveRef.current = true;
-    console.log('[reply-parent-active-priority-show]', { parentBanId });
+    console.log('[reply-parent-active-priority-show]', {
+      parentBanId,
+      baseScreen: 'lobby',
+    });
   }, []);
 
   const isReplyParentActivePriorityActive = useCallback(
@@ -2007,6 +2037,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (!replyParentActivePriorityActiveRef.current) return;
     console.log('[notification-queue-release-after-parent-active]');
     clearReplyParentActivePriority('queue-release');
+    setBansReturnToLobbyLatch(true);
+    bansReturnToLobbyLatchRef.current = true;
+    setLobbyOpen(true);
+    lobbyOpenRef.current = true;
     unlockNotificationQueueAndFlush(
       'notification-queue-release-after-parent-active',
     );
