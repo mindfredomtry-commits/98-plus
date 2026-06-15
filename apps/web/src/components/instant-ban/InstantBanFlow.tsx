@@ -3239,20 +3239,22 @@ export function InstantBanFlow({
     }
 
     const pinnedReplyToBanId =
-      snap.replyToBanId ?? getPinnedReplyToBanId() ?? replyToBanId ?? null;
+      snap.replyToBanId ??
+      getPinnedReplyToBanId() ??
+      replyToBanId ??
+      incomingReplyBanId ??
+      deepLinkReplyBan?.id ??
+      replyDeepLinkBanId ??
+      getReplyParentActiveBanId() ??
+      null;
     const source = resolveSendFlowSource({
       replyToBanId: pinnedReplyToBanId,
-      incomingReplyBanId,
+      incomingReplyBanId: incomingReplyBanId ?? getReplyParentActiveBanId(),
       deepLinkReplyBanId: deepLinkReplyBan?.id ?? null,
       replyDeepLinkBanId,
     });
     const isReplyFlow = source === 'reply_from_bot';
-    const effectiveReplyBanId =
-      pinnedReplyToBanId ??
-      incomingReplyBanId ??
-      deepLinkReplyBan?.id ??
-      replyDeepLinkBanId ??
-      null;
+    const effectiveReplyBanId = pinnedReplyToBanId;
     const receiverId =
       sendTarget.receiverUserId ?? snapUser.userId ?? snapUser.id ?? null;
     const selectedUserId = snapUser.userId ?? snapUser.id ?? null;
@@ -3347,6 +3349,14 @@ export function InstantBanFlow({
       setSendError(null);
     }
 
+    console.log('[send-ban-start]', {
+      attemptId,
+      parentBanId: effectiveReplyBanId,
+      recipientId: receiverId,
+      text,
+      duration: snapDuration,
+    });
+
     console.info('[98+] sendBan payload', {
       textLength: text.length,
       durationMinutes: snapDuration,
@@ -3405,6 +3415,11 @@ export function InstantBanFlow({
               status: 'ok',
               banId: res.replyBan?.id ?? null,
               attemptId,
+            });
+            console.log('[send-ban-success]', {
+              attemptId,
+              banId: res.replyBan?.id ?? null,
+              parentBanId: effectiveReplyBanId,
             });
             if (!res.replyBan?.id) {
               throw new Error('Сервер не подтвердил запрет');
@@ -3480,6 +3495,12 @@ export function InstantBanFlow({
         }
         const message =
           e instanceof Error ? e.message : 'Не получилось отправить запрет';
+        console.log('[send-ban-error]', {
+          attemptId,
+          parentBanId: effectiveReplyBanId,
+          error: message,
+          status: (e as { status?: number }).status,
+        });
         console.log('[reply-send-debug] send error response', {
           message,
           status: (e as { status?: number }).status,
@@ -3516,6 +3537,7 @@ export function InstantBanFlow({
     replyToBanId,
     replyComposeActive,
     getPinnedReplyToBanId,
+    getReplyParentActiveBanId,
     replySending,
     openSendFlow,
     closeSendFlow,
@@ -3560,7 +3582,14 @@ export function InstantBanFlow({
       logHoldBlocked('no-selectedUser');
       return false;
     }
-    const pinnedReplyId = getPinnedReplyToBanId() ?? replyToBanId ?? null;
+    const pinnedReplyId =
+      getPinnedReplyToBanId() ??
+      replyToBanId ??
+      incomingReplyBanId ??
+      deepLinkReplyBan?.id ??
+      replyDeepLinkBanId ??
+      getReplyParentActiveBanId() ??
+      null;
     sendSnapshotRef.current = {
       banText,
       selectedUser,
@@ -3578,7 +3607,11 @@ export function InstantBanFlow({
     selectedUser,
     durationMinutes,
     getPinnedReplyToBanId,
+    getReplyParentActiveBanId,
     replyToBanId,
+    incomingReplyBanId,
+    deepLinkReplyBan?.id,
+    replyDeepLinkBanId,
     phase,
     sendStarted,
     sendFlowOpen,

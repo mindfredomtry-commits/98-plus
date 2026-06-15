@@ -764,6 +764,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const statusCtaNavigateGenerationRef = useRef(0);
   const notificationChainHandoffRef = useRef(false);
   const notificationChainAwaitingUserRef = useRef(false);
+  const notificationChainReplyComposeActiveRef = useRef(false);
   const chainAdvanceExplicitRef = useRef(false);
 
   const isDirectOverboardLocallyActive = useCallback(() => {
@@ -1210,6 +1211,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
     }
+    if (
+      (notificationChainReplyComposeActiveRef.current ||
+        replyComposeActiveRef.current) &&
+      active
+    ) {
+      const composeParentId = replyDeeplinkParentBanIdRef.current?.trim() ?? '';
+      const activeBanId =
+        active.kind === 'result' ? active.result.id : active.ban.id;
+      if (!composeParentId || activeBanId !== composeParentId) {
+        console.log('[chain-reply-block-next-notification]', {
+          parentBanId: composeParentId || null,
+          reason: 'reply-compose',
+          activeBanId,
+          activeKind: active.kind,
+        });
+        return;
+      }
+    }
     const replyFastBanId = replyDeeplinkFastOpenedRef.current
       ? (replyDeepLinkBanIdRef.current ??
         replyDeeplinkPendingBanIdRef.current)
@@ -1565,6 +1584,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return;
       }
+      if (
+        (notificationChainReplyComposeActiveRef.current ||
+          replyComposeActiveRef.current) &&
+        prevKey &&
+        nextKey &&
+        prevKey !== nextKey
+      ) {
+        console.log('[chain-reply-block-next-notification]', {
+          parentBanId: replyDeeplinkParentBanIdRef.current,
+          reason: 'reply-compose',
+          prevKey,
+          nextKey,
+        });
+        return;
+      }
       chainAdvanceExplicitRef.current = false;
       activeOverlayLockRef.current = nextKey;
       if (nextKey) {
@@ -1703,6 +1737,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ) {
           console.log('[chain-drain-continue-blocked]', {
             reason: 'active-overlay-mounted',
+            source: 'dismissCurrentOverlay-commit',
+            dismissReason: reason,
+            remainingLen: remaining.length,
+          });
+          return;
+        }
+        if (
+          (notificationChainReplyComposeActiveRef.current ||
+            replyComposeActiveRef.current) &&
+          remaining.length > 0
+        ) {
+          console.log('[chain-reply-block-next-notification]', {
+            parentBanId: replyDeeplinkParentBanIdRef.current,
+            reason: 'reply-compose',
             source: 'dismissCurrentOverlay-commit',
             dismissReason: reason,
             remainingLen: remaining.length,
@@ -2346,6 +2394,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [isResultBlockedForNotificationChain, syncPendingStartupCount],
   );
 
+  const isNotificationChainPausedForReply = useCallback(() => {
+    return (
+      notificationChainReplyComposeActiveRef.current ||
+      replyComposeActiveRef.current
+    );
+  }, []);
+
+  const clearNotificationChainReplyCompose = useCallback((source: string) => {
+    if (!notificationChainReplyComposeActiveRef.current) return;
+    notificationChainReplyComposeActiveRef.current = false;
+    console.log('[chain-reply-compose-end]', { source });
+  }, []);
+
   const hasActiveNotificationOverlayMounted = useCallback(() => {
     if (incomingBanRef.current?.id) return true;
     if (checkBanRef.current?.id) return true;
@@ -2441,6 +2502,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         syncPendingStartupCount();
         return;
       }
+      if (isNotificationChainPausedForReply()) {
+        console.log('[chain-reply-block-next-notification]', {
+          parentBanId: replyDeeplinkParentBanIdRef.current,
+          reason: 'reply-compose',
+          source: 'releaseStartupInteractions',
+          pendingCount: releasable.length,
+        });
+        pendingStartupInteractionsRef.current = releasable;
+        syncPendingStartupCount();
+        return;
+      }
 
       deepLinkBlockedRef.current = isNotificationQueueLocked();
       for (const item of releasable) {
@@ -2451,6 +2523,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [
       enqueueNotification,
       hasActiveNotificationOverlayMounted,
+      isNotificationChainPausedForReply,
       isResultBlockedForNotificationChain,
       syncDisplayFromQueue,
       syncPendingStartupCount,
@@ -2464,6 +2537,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (checkBanRef.current?.id) return true;
     if (notificationChainHandoffRef.current) return true;
     if (notificationChainAwaitingUserRef.current) return true;
+    if (notificationChainReplyComposeActiveRef.current) return true;
+    if (replyComposeActiveRef.current) return true;
     if (
       directResultOverlayRef.current ||
       directResultOverlayActiveRef.current
@@ -4492,43 +4567,49 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (banId: string) => {
       incomingReplyComposeDismissedRef.current.add(banId);
 
+      console.log('[chain-reply-handoff-start]', {
+        parentBanId: banId,
+        stopChain: true,
+      });
+      console.log('[chain-reply-block-next-notification]', {
+        parentBanId: banId,
+        reason: 'reply-compose',
+      });
+
+      notificationChainReplyComposeActiveRef.current = true;
+      notificationChainAwaitingUserRef.current = false;
+      notificationChainHandoffRef.current = true;
+      chainAdvanceExplicitRef.current = false;
+
       const beforeQueue = overlayQueueRef.current;
-      const beforeLen = beforeQueue.length;
       const nextQueue = removeOverlaysForBan(beforeQueue, banId, ['incoming']);
-      const removedFromQueue = nextQueue.length !== beforeLen;
-      if (removedFromQueue) {
-        applyOverlayQueue(nextQueue);
-      } else if (overlayQueueRef.current !== nextQueue) {
-        overlayQueueRef.current = nextQueue;
-        setOverlayQueue(nextQueue);
-      }
+      overlayQueueRef.current = nextQueue;
+      setOverlayQueue(nextQueue);
 
-      if (
-        overlayQueueRef.current[0]?.kind === 'incoming' &&
-        overlayQueueRef.current[0].ban.id === banId
-      ) {
-        dismissCurrentOverlay('reply-compose-dismiss', nextQueue);
-      }
-
-      if (incomingBanRef.current?.id === banId) {
-        setIncomingBan(null);
-      }
+      incomingBanRef.current = null;
+      checkBanRef.current = null;
+      setIncomingBan(null);
+      setCheckBan(null);
 
       clearReplyFastSessionAfterAnswer(banId, { preserveReplySendIds: true });
       setReplyHandoffLock(false);
       setReplyWhatReady(true);
       setDeepLinkReplyBooting(false);
 
+      console.log('[chain-reply-compose-active]', { parentBanId: banId });
       console.log('[reply-card-close-before-what]', {
         parentBanId: banId,
-        removedFromQueue,
+        removedFromQueue: nextQueue.length !== beforeQueue.length,
+        remainingIds: nextQueue.map((item) =>
+          item.kind === 'result' ? `result:${item.result.id}` : `${item.kind}:${item.ban.id}`,
+        ),
       });
       console.log('[INCOMING CARD DISMISSED FOR REPLY COMPOSE]', { banId });
       markVisibleOverboardTrace('[INCOMING CARD DISMISSED FOR REPLY COMPOSE]', {
         banId,
       });
     },
-    [applyOverlayQueue, clearReplyFastSessionAfterAnswer, dismissCurrentOverlay],
+    [clearReplyFastSessionAfterAnswer],
   );
 
   const finalizeIncomingReplyAfterSend = useCallback(
@@ -4550,21 +4631,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const beforeQueue = overlayQueueRef.current;
       const nextQueue = removeOverlaysForBan(beforeQueue, parentBanId, ['incoming']);
       if (nextQueue.length !== beforeQueue.length) {
-        applyOverlayQueue(nextQueue);
+        overlayQueueRef.current = nextQueue;
+        setOverlayQueue(nextQueue);
       }
 
       if (incomingBanRef.current?.id === parentBanId) {
+        incomingBanRef.current = null;
         setIncomingBan(null);
       }
 
       clearReplyFastSessionAfterAnswer(parentBanId);
+      clearNotificationChainReplyCompose('reply-send-finalize');
 
       console.log('[INCOMING REPLY FINALIZED AFTER SEND]', { banId: parentBanId });
       markVisibleOverboardTrace('[INCOMING REPLY FINALIZED AFTER SEND]', {
         banId: parentBanId,
       });
     },
-    [applyOverlayQueue, clearReplyFastSessionAfterAnswer],
+    [clearNotificationChainReplyCompose, clearReplyFastSessionAfterAnswer],
   );
 
   const openIncomingOverboardOptimistic = useCallback(
@@ -7244,6 +7328,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return true;
       }
+      if (isNotificationChainPausedForReply()) {
+        console.log('[chain-reply-block-next-notification]', {
+          parentBanId: replyDeeplinkParentBanIdRef.current,
+          reason: 'reply-compose',
+          source: 'showNextNotificationFromChainSync',
+        });
+        return false;
+      }
 
       const skipBanId =
         replyDeeplinkParentBanIdRef.current?.trim() ??
@@ -7376,6 +7468,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearNotificationChainReturnLatch,
       getNotificationChainDebugSnapshot,
       hasActiveNotificationOverlayMounted,
+      isNotificationChainPausedForReply,
       isResultBlockedForNotificationChain,
       mergeStartupIntoOverlayQueueOnly,
       overlayQueueItemId,
@@ -7743,7 +7836,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const acknowledgeIncomingAndStartReply = useCallback(
     (ban: BanInteraction) => {
       const banId = ban.id;
+      const senderId = ban.sender?.id ?? null;
       const viewerId = userIdRef.current?.trim() ?? null;
+      console.log('[chain-incoming-reply-click]', { banId, senderId });
       console.log('[reply-card-action]', {
         action: 'reply',
         parentBanId: banId,
@@ -7776,9 +7871,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const optimisticActive = buildActiveParentBanForSuccess(ban);
       storeAcceptedParentActiveBan(optimisticActive, 'optimistic-on-reply-click');
       console.log('[reply-parent-active-priority-set]', { parentBanId: banId });
+
       dismissIncomingCardForReplyCompose(banId);
       beginReplyHandoff(banId);
       startIncomingReply(ban);
+
+      console.log('[chain-reply-open-what]', {
+        parentBanId: banId,
+        recipientId: senderId,
+      });
 
       if (process.env.NODE_ENV === 'development') {
         console.log('[reply-click]', {
