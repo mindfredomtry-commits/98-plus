@@ -355,6 +355,11 @@ function IncomingBanOverlayInner({
     logClickTest('counter');
     const actBan = verifiedBan ?? resolvedIncoming ?? activeIncomingBan;
     if (!actBan?.id || !actBan.sender?.id || actionLoading) return;
+    console.log('[incoming-reply-button-click]', {
+      banId: actBan.id,
+      source: 'IncomingBanOverlay',
+      senderId: actBan.sender?.id ?? null,
+    });
     markOverlayUserAction('incoming', actBan.id);
     haptic('medium');
     setActionLoading(true);

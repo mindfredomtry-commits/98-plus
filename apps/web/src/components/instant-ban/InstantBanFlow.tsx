@@ -3262,6 +3262,17 @@ export function InstantBanFlow({
       ? `/bans/${effectiveReplyBanId}/reply`
       : null;
 
+    console.log('[reply-context-snapshot]', {
+      parentBanId: effectiveReplyBanId,
+      replyToBanId,
+      incomingReplyBanId,
+      selectedTargetId: selectedUserId,
+      recipientId: receiverId,
+      pinnedReplyToBanId: getPinnedReplyToBanId(),
+      replyDeepLinkBanId,
+      deepLinkReplyBanId: deepLinkReplyBan?.id ?? null,
+    });
+
     console.log('[reply-send-debug] endpoint', replyEndpoint ?? '/bans/send');
     console.log('[reply-send-debug] replyToBanId', pinnedReplyToBanId);
     console.log('[reply-send-debug] selectedUser.id', selectedUserId);
@@ -3351,11 +3362,25 @@ export function InstantBanFlow({
 
     console.log('[send-ban-start]', {
       attemptId,
+      replyMode: effectiveReplyBanId ? 'reply' : 'normal',
       parentBanId: effectiveReplyBanId,
       recipientId: receiverId,
       text,
       duration: snapDuration,
     });
+
+    if (effectiveReplyBanId && (!receiverId || text.length < 3)) {
+      console.log('[send-ban-error]', {
+        attemptId,
+        parentBanId: effectiveReplyBanId,
+        error: 'invalid-reply-payload',
+        recipientId: receiverId,
+        textLength: text.length,
+      });
+      setSendError('Не получилось отправить запрет');
+      confirmAbortReleaseRef.current?.();
+      return 'rejected';
+    }
 
     console.info('[98+] sendBan payload', {
       textLength: text.length,
@@ -3394,6 +3419,12 @@ export function InstantBanFlow({
             text,
             durationMinutes: snapDuration,
           };
+          console.log('[send-ban-payload]', {
+            attemptId,
+            payload: replyPayload,
+            endpoint,
+            parentBanId: effectiveReplyBanId,
+          });
           console.log('[reply-send-debug] send payload', {
             endpoint,
             payload: replyPayload,
@@ -3500,6 +3531,7 @@ export function InstantBanFlow({
           parentBanId: effectiveReplyBanId,
           error: message,
           status: (e as { status?: number }).status,
+          responseBody: message,
         });
         console.log('[reply-send-debug] send error response', {
           message,
