@@ -312,7 +312,7 @@ export function InstantBanFlow({
     clearIncomingReply,
     openSendFlow,
     closeSendFlow,
-    setSendComposePhase,
+    setComposeFlowState,
     applySession,
     pendingStartupInteractions,
     hasPendingNotificationChain,
@@ -367,10 +367,20 @@ export function InstantBanFlow({
     () => false,
   );
 
-  const [phase, setPhase] = useState<SendFlowPhase>(() => {
+  const [phase, setPhaseState] = useState<SendFlowPhase>(() => {
     if (activeBanDeepLinkBanId) return 'idle';
     return sendStarted ? 'selectingTarget' : 'idle';
   });
+  const setPhase = useCallback(
+    (next: SendFlowPhase, source = 'instant-ban') => {
+      setComposeFlowState({ phase: next, source });
+      setPhaseState(next);
+    },
+    [setComposeFlowState],
+  );
+  useLayoutEffect(() => {
+    setComposeFlowState({ phase, source: 'instant-ban-mount' });
+  }, []);
   const [selectedUser, setSelectedUser] = useState<FriendCard | null>(null);
   const [banText, setBanText] = useState('');
   const [durationMinutes, setDurationMinutes] = useState(DEFAULT_DURATION_MINUTES);
@@ -381,10 +391,6 @@ export function InstantBanFlow({
     if (banSentSuccess) return;
     setSendSuccessCardMounted(false, { source: 'ban-sent-success-cleared' });
   }, [banSentSuccess, setSendSuccessCardMounted]);
-
-  useEffect(() => {
-    setSendComposePhase(sendFlowOpen ? phase : 'idle');
-  }, [phase, sendFlowOpen, setSendComposePhase]);
   const [replySending, setReplySending] = useState(false);
   const sendSnapshotRef = useRef<{
     banText: string;
