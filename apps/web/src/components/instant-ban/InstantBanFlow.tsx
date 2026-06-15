@@ -317,6 +317,7 @@ export function InstantBanFlow({
     releaseStartupInteractions,
     unlockNotificationQueueAndFlush,
     markSessionBanSendSuccess,
+    setSendSuccessCardMounted,
     resolveReplyParentActiveBanImmediate,
     ensureReplyParentActiveBanForSuccess,
     refreshReplyParentActiveBanInBackground,
@@ -374,6 +375,10 @@ export function InstantBanFlow({
   const [sendError, setSendError] = useState<string | null>(null);
   const [confirmEnterKey, setConfirmEnterKey] = useState(0);
   const [banSentSuccess, setBanSentSuccess] = useState(false);
+  useEffect(() => {
+    if (banSentSuccess) return;
+    setSendSuccessCardMounted(false, { source: 'ban-sent-success-cleared' });
+  }, [banSentSuccess, setSendSuccessCardMounted]);
   const [replySending, setReplySending] = useState(false);
   const sendSnapshotRef = useRef<{
     banText: string;
@@ -2080,6 +2085,7 @@ export function InstantBanFlow({
   );
 
   const handleSuccessExitComplete = useCallback(() => {
+    setSendSuccessCardMounted(false, { source: 'user-close' });
     const successExitStartedAt = performance.now();
     console.log('[queue-debug] success exit', {
       fromActiveRepeat: activeBanRepeatComposeRef.current,
@@ -2098,6 +2104,9 @@ export function InstantBanFlow({
 
     if (parentBan) {
       const delayMs = Math.round(performance.now() - successExitStartedAt);
+      console.log('[success-to-active-after-user-action]', {
+        parentBanId: parentBan.id,
+      });
       commitSendSuccessExit({
         parentActiveBan: parentBan,
         lobbySource: 'reply-parent-active',
@@ -2133,6 +2142,9 @@ export function InstantBanFlow({
           lobbySource: 'reply-parent-active',
           committedSameTick: false,
         });
+        console.log('[success-to-active-after-user-action]', {
+          parentBanId: fetchedBan.id,
+        });
         console.log('[reply-parent-active-show-immediate]', {
           parentBanId: fetchedBan.id,
           delayMs,
@@ -2163,6 +2175,7 @@ export function InstantBanFlow({
     releaseStartupInteractions,
     resolveReplyParentActiveBanImmediate,
     setSuccessToActiveLobbyBlockedState,
+    setSendSuccessCardMounted,
     unlockNotificationQueueAndFlush,
   ]);
 
@@ -2221,8 +2234,9 @@ export function InstantBanFlow({
         payoffPhase: confirmSendContextRef.current.payoffPhase,
       });
       setBanSentSuccess(true);
+      setSendSuccessCardMounted(true, { banId, source: 'open-success' });
     },
-    [clearActiveBanDeepLinkShell, markSessionBanSendSuccess],
+    [clearActiveBanDeepLinkShell, markSessionBanSendSuccess, setSendSuccessCardMounted],
   );
 
   const showOptimisticSendSuccess = useCallback(() => {
@@ -2235,7 +2249,8 @@ export function InstantBanFlow({
     triggerConfirmHaptic();
     haptic('medium');
     setBanSentSuccess(true);
-  }, [banSentSuccess, haptic, markSessionBanSendSuccess]);
+    setSendSuccessCardMounted(true, { source: 'optimistic-send-success' });
+  }, [banSentSuccess, haptic, markSessionBanSendSuccess, setSendSuccessCardMounted]);
 
   const { send, inFlight, sharing } = useSendChallenge({
     token,
@@ -2516,6 +2531,10 @@ export function InstantBanFlow({
 
   const openBansFromResultCtaProviderRequest = useCallback(
     (source: string) => {
+      if (banSentSuccess) {
+        console.log('[queue-reply-debug] blocked by success card', { source });
+        return false;
+      }
       if (replyComposeActive || deepLinkReplyBan?.id) {
         console.log('[queue-reply-debug] blocked by bans overlay intent', {
           source,
@@ -2541,7 +2560,7 @@ export function InstantBanFlow({
       }
       return ok;
     },
-    [deepLinkReplyBan?.id, replyComposeActive, scheduleBansVisibleCheck],
+    [banSentSuccess, deepLinkReplyBan?.id, replyComposeActive, scheduleBansVisibleCheck],
   );
 
   useLayoutEffect(() => {
