@@ -837,6 +837,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
   const replyParentActivePriorityPendingRef = useRef(false);
   const replyParentActivePriorityActiveRef = useRef(false);
+  const [replyParentActivePriorityActive, setReplyParentActivePriorityActive] =
+    useState(false);
   const replyFlowStartedForBanIdRef = useRef<string | null>(null);
   const replyComposeActiveRef = useRef(false);
   const [lobbyIntroPrimedEpoch, setLobbyIntroPrimedEpoch] = useState(0);
@@ -1561,27 +1563,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       } else {
         const resultId = active.result.id;
         const viewerId = active.result.viewerId ?? userIdRef.current ?? null;
-        if (
-          resultCtaConsumedBanIdsRef.current.has(resultId) ||
-          isDismissedResultLocally(resultId, viewerId)
-        ) {
-          console.log('[overboard-repeat-debug] duplicate result blocked', {
-            banId: resultId,
-            source: 'syncDisplayFromQueue',
-            consumed: resultCtaConsumedBanIdsRef.current.has(resultId),
-            dismissedLocal: viewerId
-              ? isDismissedResultLocally(resultId, viewerId)
-              : false,
-          });
-          console.log('[DIRECT RESULT REOPEN BLOCKED]', {
-            reason: 'dismissed-after-result-cta',
-            banId: resultId,
-          });
-          markVisibleOverboardTrace('[DIRECT RESULT REOPEN BLOCKED]', {
-            reason: 'dismissed-after-result-cta',
+        if (isResultBlockedForNotificationChain(resultId, 'syncDisplayFromQueue')) {
+          console.log('[result-overlay-pruned-before-show]', {
             banId: resultId,
             source: 'syncDisplayFromQueue',
           });
+          markResultOverlayConsumed(resultId, 'syncDisplayFromQueue-stale');
           const pruned = removeOverlaysForBan(queue, resultId, ['result']);
           if (pruned.length !== queue.length) {
             overlayQueueRef.current = pruned;
@@ -1592,12 +1579,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             setResult(null);
             setDirectResultOverlayActive(false);
           }
-          logResultPath('syncDisplayFromQueue', 'path-skip', {
-            banId: resultId,
-            resultId,
-            allowed: false,
-            reason: 'dismissed-after-result-cta',
-          });
           if (pruned.length !== queue.length) {
             syncDisplayFromQueue(pruned);
           }
@@ -1621,6 +1602,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         setDirectResultOverlayActive(false);
         resultOpenRef.current = true;
         setResult(active.result);
+        resultDeliveredBanIdsRef.current.add(active.result.id);
+        shownOverlayKeysRef.current.add(`result:${active.result.id}`);
         if (active.result.outcome === 'overboard') {
           console.log('[overboard-repeat-debug] status shown', {
             banId: active.result.id,
@@ -2085,22 +2068,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (item.kind === 'result') {
         const resultId = item.result.id;
         const uid = userIdRef.current;
-        if (
-          resultCtaConsumedBanIdsRef.current.has(resultId) ||
-          resultDeliveredBanIdsRef.current.has(resultId) ||
-          (uid && isDismissedResultLocally(resultId, uid))
-        ) {
-          console.log('[status-cta-duplicate-result-blocked]', {
-            banId: resultId,
-            source: opts?.source ?? 'enqueueNotification',
-            consumed: resultCtaConsumedBanIdsRef.current.has(resultId),
-            delivered: resultDeliveredBanIdsRef.current.has(resultId),
-          });
-          console.log('[overboard-repeat-debug] duplicate result blocked', {
-            banId: resultId,
-            source: 'enqueueNotification',
-            enqueueSource: opts?.source ?? null,
-          });
+        if (isResultBlockedForNotificationChain(resultId, opts?.source ?? 'enqueueNotification')) {
           return;
         }
 
@@ -2396,6 +2364,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     replyParentAcceptPromiseRef.current = null;
     replyParentActivePriorityPendingRef.current = false;
     replyParentActivePriorityActiveRef.current = false;
+    setReplyParentActivePriorityActive(false);
     if (parentBanId) {
       console.log('[reply-parent-active-priority-clear]', {
         parentBanId,
@@ -2569,7 +2538,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const normalizedSkip = skipBanId?.trim() ?? '';
       const viewerId = userIdRef.current?.trim() ?? '';
       if (normalizedSkip && banId === normalizedSkip) {
-        console.log('[status-cta-duplicate-result-blocked]', {
+        console.log('[result-overlay-enqueue-skip]', {
           banId,
           source,
           reason: 'skip-ban',
@@ -2577,23 +2546,51 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return true;
       }
       if (resultCtaConsumedBanIdsRef.current.has(banId)) {
-        console.log('[status-cta-duplicate-result-blocked]', {
+        console.log('[result-overlay-stale-blocked]', {
           banId,
           source,
-          reason: 'consumed-cta',
+          reason: 'consumed',
+        });
+        console.log('[result-overlay-enqueue-skip]', {
+          banId,
+          source,
+          reason: 'consumed',
         });
         return true;
       }
       if (resultDeliveredBanIdsRef.current.has(banId)) {
-        console.log('[status-cta-duplicate-result-blocked]', {
+        console.log('[result-overlay-stale-blocked]', {
+          banId,
+          source,
+          reason: 'delivered',
+        });
+        console.log('[result-overlay-enqueue-skip]', {
           banId,
           source,
           reason: 'delivered',
         });
         return true;
       }
+      if (shownOverlayKeysRef.current.has(`result:${banId}`)) {
+        console.log('[result-overlay-stale-blocked]', {
+          banId,
+          source,
+          reason: 'shown-overlay-key',
+        });
+        console.log('[result-overlay-enqueue-skip]', {
+          banId,
+          source,
+          reason: 'shown-overlay-key',
+        });
+        return true;
+      }
       if (viewerId && isDismissedResultLocally(banId, viewerId)) {
-        console.log('[status-cta-duplicate-result-blocked]', {
+        console.log('[result-overlay-stale-blocked]', {
+          banId,
+          source,
+          reason: 'dismissed-local',
+        });
+        console.log('[result-overlay-enqueue-skip]', {
           banId,
           source,
           reason: 'dismissed-local',
@@ -2605,8 +2602,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const markResultOverlayConsumed = useCallback(
+    (banId: string, source: string) => {
+      const viewerId = userIdRef.current;
+      resultCtaConsumedBanIdsRef.current.add(banId);
+      resultDeliveredBanIdsRef.current.add(banId);
+      shownOverlayKeysRef.current.add(`result:${banId}`);
+      dismissBanResultLocally(banId, viewerId);
+      console.log('[result-overlay-consumed]', { banId, source });
+    },
+    [],
+  );
+
   const pruneResultFromNotificationChain = useCallback(
-    (banId: string): { removedOverlay: number; removedStartup: number } => {
+    (banId: string, source = 'prune'): { removedOverlay: number; removedStartup: number } => {
       const beforeOverlay = overlayQueueRef.current;
       const beforeStartup = pendingStartupInteractionsRef.current;
       const nextOverlay = removeOverlaysForBan(beforeOverlay, banId, ['result']);
@@ -2614,6 +2623,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const removedOverlay = beforeOverlay.length - nextOverlay.length;
       const removedStartup = beforeStartup.length - nextStartup.length;
       if (removedOverlay > 0 || removedStartup > 0) {
+        console.log('[result-overlay-pruned-before-show]', {
+          banId,
+          source,
+          removedOverlay,
+          removedStartup,
+        });
         overlayQueueRef.current = nextOverlay;
         pendingStartupInteractionsRef.current = nextStartup;
         setOverlayQueue(nextOverlay);
@@ -3210,11 +3225,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ? (head.result.viewerId ?? userIdRef.current)
         : (result?.viewerId ?? userIdRef.current);
     if (banId) {
-      console.log('[result-dismiss-local]', {
-        banId,
-        authUserId: viewerId,
-      });
-      dismissBanResultLocally(banId, viewerId ?? null);
+      markResultOverlayConsumed(banId, 'dismissBanResult');
       void acknowledgeBanResultOnServer(banId, tokenRef.current);
     }
     clearLocalOverboardBypass();
@@ -3418,6 +3429,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     for (const id of hydrateDismissedResultIds(uid)) {
       resultCtaConsumedBanIdsRef.current.add(id);
       resultDeliveredBanIdsRef.current.add(id);
+      shownOverlayKeysRef.current.add(`result:${id}`);
     }
   }, [auth.user?.id, auth.loading]);
 
@@ -7727,9 +7739,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             skipBanId,
           )
         ) {
-          pruneResultFromNotificationChain(blockedHead.result.id);
+          pruneResultFromNotificationChain(blockedHead.result.id, source);
           continue;
         }
+        const candidate = overlayQueueRef.current[0] ?? null;
+        const candidateBanId =
+          candidate?.kind === 'result'
+            ? candidate.result.id
+            : candidate?.kind === 'incoming' || candidate?.kind === 'check'
+              ? candidate.ban.id
+              : null;
+        const candidateAllowed =
+          candidate?.kind !== 'result' ||
+          !isResultBlockedForNotificationChain(
+            candidate.result.id,
+            source,
+            skipBanId,
+          );
+        console.log('[notification-next-candidate]', {
+          kind: candidate?.kind ?? null,
+          banId: candidateBanId,
+          source,
+          allowed: candidateAllowed,
+        });
         break;
       }
 
@@ -7804,6 +7836,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       sanitizeNotificationChainQueues(source);
 
+      const mountedResultId = resultRef.current?.id?.trim() ?? '';
+      if (
+        mountedResultId &&
+        isResultBlockedForNotificationChain(mountedResultId, source, skipBanId)
+      ) {
+        console.log('[result-overlay-pruned-before-show]', {
+          banId: mountedResultId,
+          source: `${source}-mounted-result`,
+        });
+        markResultOverlayConsumed(mountedResultId, `${source}-mounted-result`);
+        resultOpenRef.current = false;
+        setResult(null);
+        setDirectResultOverlayActive(false);
+      }
+
       notificationChainHandoffRef.current = true;
       notificationChainAwaitingUserRef.current = true;
       chainAdvanceExplicitRef.current = true;
@@ -7844,6 +7891,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       hasActiveNotificationOverlayMounted,
       isNotificationChainPausedForReply,
       isResultBlockedForNotificationChain,
+      markResultOverlayConsumed,
       mergeStartupIntoOverlayQueueOnly,
       overlayQueueItemId,
       pruneResultFromNotificationChain,
@@ -7941,6 +7989,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const markReplyParentActivePriorityShown = useCallback((parentBanId: string) => {
     replyParentActivePriorityPendingRef.current = false;
     replyParentActivePriorityActiveRef.current = true;
+    setReplyParentActivePriorityActive(true);
     void prefetchPendingNotificationChain(parentBanId, 'reply-parent-active-shown');
     console.log('[reply-parent-active-priority-show]', {
       parentBanId,
@@ -7968,8 +8017,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       resultCtaConsumedBanIdsRef.current.add(banId);
       resultDeliveredBanIdsRef.current.add(banId);
-      dismissBanResultLocally(banId, viewerId);
       shownOverlayKeysRef.current.add(`result:${banId}`);
+      dismissBanResultLocally(banId, viewerId);
+      console.log('[result-overlay-consumed]', { banId, source: 'consumeResultBanForResultCta' });
 
       const token = tokenRef.current;
       console.log('[overboard-repeat-debug] ack result start', { banId });
@@ -8954,7 +9004,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const checkGateActive = useMemo(
     () => {
       if (sendSuccessCardActive) return false;
-      if (activeBanCardReady || replyParentActivePriorityActiveRef.current) {
+      if (activeBanCardReady || replyParentActivePriorityActive) {
         return false;
       }
       if (priorityBlocksResult) return false;
@@ -8968,8 +9018,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         !!result,
       );
     },
-    [priorityBlocksResult, activeOverlayKind, checkBan, auth.user?.id, result, activeBanCardReady, sendSuccessCardActive],
+    [priorityBlocksResult, activeOverlayKind, checkBan, auth.user?.id, result, activeBanCardReady, sendSuccessCardActive, replyParentActivePriorityActive],
   );
+
+  const checkOverlayMounted = !!checkBan?.id && queueHeadKind === 'check';
 
   const notificationOverlayActive =
     notificationSessionActive ||
@@ -9502,7 +9554,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ) {
       return 'incoming' as const;
     }
-    if (incomingOverlayDisplayKind === 'check' && checkGateActive) {
+    if (incomingOverlayDisplayKind === 'check' && checkBan && (checkGateActive || queueHeadKind === 'check')) {
       return 'check' as const;
     }
     if (incomingOverlayDisplayKind === 'result' && displayResult) {
@@ -9516,6 +9568,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     incomingOverlayDisplayKind,
     checkGateActive,
     displayResult,
+    checkBan,
+    queueHeadKind,
   ]);
 
   const notificationQueueShellKind = useMemo(() => {
@@ -9594,7 +9648,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     auth.user?.id,
   ]);
 
-  const scopedCheckBan = checkGateActive ? checkBan : null;
+  const scopedCheckBan =
+    checkGateActive || checkOverlayMounted ? checkBan : null;
 
   const connectionUiState = useMemo(
     () =>
@@ -9953,13 +10008,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       (notificationQueueShellKind === 'incoming' &&
         !replyIncomingDirectPath));
 
-  const checkOverlayInteractive =
-    checkGateActive &&
-    notificationQueueShellKind === 'check' &&
-    !!checkBan?.id;
+  const checkOverlayInteractive = checkOverlayMounted;
   const notificationHostBlockedByActiveBanShell =
-    !checkOverlayInteractive &&
-    (activeBanCardReady || replyParentActivePriorityActiveRef.current);
+    !checkOverlayMounted &&
+    (activeBanCardReady || replyParentActivePriorityActive);
   const notificationHostLayerActive =
     !sendSuccessCardActive &&
     !notificationChainReplyComposePaused &&
@@ -9967,33 +10019,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (notificationSessionActive ||
       incomingJsxWillRender ||
       showReplyIncomingOverlayDirect ||
-      checkOverlayInteractive);
+      checkOverlayMounted);
+  const notificationHostPointerActive =
+    notificationHostLayerActive || checkOverlayMounted;
   const notificationHostSessionBackdrop =
     !sendSuccessCardActive &&
     !notificationChainReplyComposePaused &&
     !notificationHostBlockedByActiveBanShell &&
     (notificationSessionActive ||
       incomingJsxWillRender ||
-      checkOverlayInteractive);
+      checkOverlayMounted);
 
   useLayoutEffect(() => {
-    if (!checkOverlayInteractive || !checkBan?.id) return;
+    if (!checkOverlayMounted || !checkBan?.id) return;
+    const host = document.querySelector('[data-notification-layer]');
+    const hostStyle = host ? window.getComputedStyle(host) : null;
     console.log('[check-overlay-layer-debug]', {
-      topLayer: 'GlobalOverlayHost',
-      hostActive: notificationHostLayerActive,
+      banId: checkBan.id,
+      hostActive: notificationHostPointerActive,
       backdropActive: notificationHostSessionBackdrop,
-      activeTimerMounted: isActiveTimerOverlayMounted(),
-      successMounted: sendSuccessCardActiveRef.current,
-      checkBanId: checkBan.id,
-      activeBanCardReady,
-      replyParentActivePriority: replyParentActivePriorityActiveRef.current,
+      topLayer: 'GlobalOverlayHost',
+      pointerEvents: hostStyle?.pointerEvents ?? null,
     });
   }, [
     activeBanCardReady,
     checkBan?.id,
-    checkOverlayInteractive,
-    notificationHostLayerActive,
+    checkOverlayMounted,
+    notificationHostPointerActive,
     notificationHostSessionBackdrop,
+    replyParentActivePriorityActive,
   ]);
 
   useLayoutEffect(() => {
@@ -10460,9 +10514,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               </ChallengeErrorBoundary>
             ) : null}
             <GlobalOverlayHost
-              active={notificationHostLayerActive}
+              active={notificationHostPointerActive}
               queueSessionActive={notificationHostSessionBackdrop}
-              checkInteractive={checkOverlayInteractive}
+              checkInteractive={checkOverlayMounted}
               activeOverlayKind={
                 showReplyIncomingOverlayDirect
                   ? 'incoming'

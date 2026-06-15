@@ -113,6 +113,16 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
     [checkBan?.id, haptic, modalView, markOverlayUserAction, submitCheckAnswer, token],
   );
 
+  const handleAnswerPointer = useCallback(
+    (completed: boolean) => (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void answer(completed);
+    },
+    [answer],
+  );
+
   const isQueueHead = activeOverlayKind === 'check';
   const canRender =
     (checkGateActive || (isQueueHead && !!checkBan)) &&
@@ -126,7 +136,13 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
     const yesBtn = actionsRef.current?.querySelector<HTMLButtonElement>(
       '.check-answer-btn',
     );
+    const noBtn = actionsRef.current?.querySelectorAll<HTMLButtonElement>(
+      '.check-answer-btn',
+    )?.[1];
     const yesStyle = yesBtn ? window.getComputedStyle(yesBtn) : null;
+    const noStyle = noBtn ? window.getComputedStyle(noBtn) : null;
+    const host = document.querySelector('[data-notification-layer]');
+    const hostStyle = host ? window.getComputedStyle(host) : null;
     console.log('[check-overlay-mounted]', {
       banId: checkBan.id,
       hasOnClick: yesBtn != null,
@@ -138,14 +154,21 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
       pointerEvents: yesStyle?.pointerEvents ?? null,
       zIndex: yesStyle?.zIndex ?? null,
     });
-    console.log('[check-overlay-pointer-layer]', {
+    console.log('[check-overlay-button-pointer]', {
       banId: checkBan.id,
-      hasBackdrop: notificationSessionActive,
-      queueSessionActive: notificationSessionActive,
+      button: 'no',
+      pointerEvents: noStyle?.pointerEvents ?? null,
+      zIndex: noStyle?.zIndex ?? null,
+    });
+    console.log('[check-overlay-layer-debug]', {
+      banId: checkBan.id,
+      hostActive: host?.classList.contains('app-notification-layer--active') ?? false,
+      backdropActive: host?.classList.contains('app-notification-layer--session') ?? false,
       topLayer: 'GlobalOverlayHost',
+      pointerEvents: hostStyle?.pointerEvents ?? null,
     });
     reportOverlayRendered('check', checkBan.id, true);
-  }, [canRender, checkBan?.id, notificationSessionActive, reportOverlayRendered]);
+  }, [canRender, checkBan?.id, reportOverlayRendered]);
 
   if (!canRender) {
     return null;
@@ -190,6 +213,7 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
           className="check-answer-btn"
           aria-label={yesLabel}
           onClick={() => void answer(true)}
+          onPointerDown={handleAnswerPointer(true)}
         >
           ✅
         </BigButton>
@@ -198,6 +222,7 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
           className="check-answer-btn"
           aria-label={noLabel}
           onClick={() => void answer(false)}
+          onPointerDown={handleAnswerPointer(false)}
         >
           ❌
         </BigButton>

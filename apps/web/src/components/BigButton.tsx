@@ -10,6 +10,7 @@ import {
 interface Props {
   children: React.ReactNode;
   onClick?: () => void;
+  onPointerDown?: React.PointerEventHandler<HTMLButtonElement>;
   variant?: 'primary' | 'danger' | 'ghost';
   disabled?: boolean;
   className?: string;
@@ -18,6 +19,7 @@ interface Props {
 export function BigButton({
   children,
   onClick,
+  onPointerDown,
   variant = 'primary',
   disabled,
   className = '',
@@ -39,6 +41,7 @@ export function BigButton({
       type="button"
       whileTap={{ scale: disabled ? 1 : 0.97 }}
       onClick={onClick}
+      onPointerDown={onPointerDown}
       disabled={disabled}
       data-pill-source="BigButton"
       className={`w-full py-4 px-6 rounded-2xl text-lg font-semibold transition-all disabled:opacity-40 ${styles[variant]} ${className}`}

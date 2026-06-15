@@ -954,6 +954,13 @@ html.scroll-lock body {
   pointer-events: auto;
 }
 
+.app-notification-layer--check-interactive .modal-backdrop,
+.app-notification-layer--check-interactive .modal-card,
+.app-notification-layer--check-interactive .modal-card--check,
+.app-notification-layer--check-interactive .check-answer-btn {
+  pointer-events: auto !important;
+}
+
 .app-notification-layer__session-backdrop {
   position: fixed;
   inset: 0;
