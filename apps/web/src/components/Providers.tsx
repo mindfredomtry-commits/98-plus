@@ -761,6 +761,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const openLobbyRef = useRef<(source?: string) => void>(() => {});
   const resultCtaBansOverlayOpenRef = useRef(false);
   const openBansOverlayRequestRef = useRef(0);
+  const statusCtaNavigateGenerationRef = useRef(0);
+  const notificationChainHandoffRef = useRef(false);
 
   const isDirectOverboardLocallyActive = useCallback(() => {
     return (
@@ -1211,6 +1213,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId: replyFastBanId,
         });
         setIncomingBan(ban);
+        incomingBanRef.current = ban;
+        checkBanRef.current = null;
         setCheckBan(null);
         return;
       }
@@ -1222,11 +1226,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
 
     if (isNotificationQueueLocked()) {
+      incomingBanRef.current = null;
+      checkBanRef.current = null;
       setIncomingBan(null);
       setCheckBan(null);
     } else {
-      setIncomingBan(active?.kind === 'incoming' ? active.ban : null);
-      setCheckBan(active?.kind === 'check' ? active.ban : null);
+      const nextIncoming = active?.kind === 'incoming' ? active.ban : null;
+      const nextCheck = active?.kind === 'check' ? active.ban : null;
+      incomingBanRef.current = nextIncoming;
+      checkBanRef.current = nextCheck;
+      setIncomingBan(nextIncoming);
+      setCheckBan(nextCheck);
     }
 
     if (bansReturnToLobbyLatchRef.current && active) {
@@ -2329,10 +2339,59 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const hasPendingNotificationChain = useCallback(() => {
-    return (
-      overlayQueueRef.current.length > 0 ||
-      pendingStartupInteractionsRef.current.length > 0
-    );
+    if (overlayQueueRef.current.length > 0) return true;
+    if (pendingStartupInteractionsRef.current.length > 0) return true;
+    if (incomingBanRef.current?.id) return true;
+    if (checkBanRef.current?.id) return true;
+    if (notificationChainHandoffRef.current) return true;
+    if (
+      directResultOverlayRef.current ||
+      directResultOverlayActiveRef.current
+    ) {
+      return true;
+    }
+    const resultId = resultRef.current?.id ?? null;
+    const viewerId = userIdRef.current?.trim() ?? '';
+    if (
+      resultId &&
+      !resultCtaConsumedBanIdsRef.current.has(resultId) &&
+      !(viewerId && isDismissedResultLocally(resultId, viewerId))
+    ) {
+      return true;
+    }
+    return false;
+  }, []);
+
+  const getNotificationChainDebugSnapshot = useCallback(() => {
+    const head = overlayQueueRef.current[0] ?? null;
+    const activeKind =
+      directResultOverlayRef.current || directResultOverlayActiveRef.current
+        ? 'result-direct'
+        : (head?.kind ??
+          (incomingBanRef.current
+            ? 'incoming'
+            : checkBanRef.current
+              ? 'check'
+              : null));
+    const activeBanId =
+      head?.kind === 'result'
+        ? head.result.id
+        : head?.kind === 'incoming' || head?.kind === 'check'
+          ? head.ban.id
+          : (incomingBanRef.current?.id ??
+            checkBanRef.current?.id ??
+            resultRef.current?.id ??
+            null);
+    return {
+      overlayLen: overlayQueueRef.current.length,
+      startupLen: pendingStartupInteractionsRef.current.length,
+      activeKind,
+      activeBanId,
+      incomingBanId: incomingBanRef.current?.id ?? null,
+      checkBanId: checkBanRef.current?.id ?? null,
+      resultId: resultRef.current?.id ?? null,
+      handoff: notificationChainHandoffRef.current,
+    };
   }, []);
 
   const clearNotificationChainReturnLatch = useCallback((source: string) => {
@@ -6881,7 +6940,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const armOpenBansOverlayFromResultCta = useCallback(
     (banId: string | null) => {
+      const chainSnapshot = getNotificationChainDebugSnapshot();
       if (hasPendingNotificationChain()) {
+        console.log('[chain-debug-bans-open-called]', {
+          source: 'armOpenBansOverlayFromResultCta',
+          reason: 'chain-active',
+          ...chainSnapshot,
+        });
         console.log('[notification-chain-open-bans-deferred]', {
           source: 'armOpenBansOverlayFromResultCta',
           reason: 'queue-not-empty',
@@ -6895,6 +6960,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         syncDisplayFromQueue(overlayQueueRef.current);
         return;
       }
+
+      console.log('[chain-debug-bans-open-called]', {
+        source: 'armOpenBansOverlayFromResultCta-final',
+        banId,
+        ...chainSnapshot,
+      });
 
       closeSendFlow();
       clearIncomingReply();
@@ -6944,7 +7015,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         lobbyOpen: lobbyOpenRef.current,
       });
     },
-    [clearDeepLinkReplyBan, clearIncomingReply, closeSendFlow, hasPendingNotificationChain, releaseStartupInteractions, syncDisplayFromQueue, clearNotificationChainReturnLatch],
+    [clearDeepLinkReplyBan, clearIncomingReply, closeSendFlow, getNotificationChainDebugSnapshot, hasPendingNotificationChain, releaseStartupInteractions, syncDisplayFromQueue, clearNotificationChainReturnLatch],
   );
 
   const notifyResultReplyWhatVisible = useCallback(
@@ -7009,6 +7080,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearDirectOverboardLayerRefs();
       resultOpenRef.current = false;
       setDirectResultOverlayActive(false);
+      console.log('[chain-debug-clear-overlay]', {
+        source: 'applyDirectOverboardCloseState',
+        banId,
+        kind: 'result',
+      });
       setResult(null);
       resultRef.current = null;
     },
@@ -7105,14 +7181,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       sanitizeNotificationChainQueues(source);
 
+      notificationChainHandoffRef.current = true;
       setLobbyOpen(false);
       lobbyOpenRef.current = false;
       syncDisplayFromQueue(overlayQueueRef.current);
+      console.log('[chain-debug-next-mounted]', {
+        source,
+        nextKind,
+        nextBanId,
+      });
+      console.log('[chain-debug-after-sync]', {
+        source,
+        ...getNotificationChainDebugSnapshot(),
+      });
       return true;
     },
     [
       applyDirectOverboardCloseState,
       clearNotificationChainReturnLatch,
+      getNotificationChainDebugSnapshot,
       isResultBlockedForNotificationChain,
       overlayQueueItemId,
       pruneResultFromNotificationChain,
@@ -7141,6 +7228,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       console.log('[pending-chain-empty-final]', { source });
       replyDeeplinkChainHoldRef.current = false;
+      notificationChainHandoffRef.current = false;
       return false;
     },
     [
@@ -7183,6 +7271,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source: 'active-timer-close',
       });
       replyDeeplinkChainHoldRef.current = false;
+      notificationChainHandoffRef.current = false;
       setLobbyOpen(true);
       lobbyOpenRef.current = true;
       unlockNotificationQueueAndFlush(
@@ -7304,12 +7393,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const navigateFromResult = useCallback(() => {
+    const generation = ++statusCtaNavigateGenerationRef.current;
     const banId = result?.id ?? resultRef.current?.id ?? null;
     const wasDirect =
       directResultOverlayRef.current ||
       directResultOverlayActiveRef.current ||
       directResultOverlayActive;
 
+    console.log('[chain-debug-status-cta-start]', { banId, generation });
     console.log('[status-cta-click]', {
       source: 'result-status',
       banId,
@@ -7349,6 +7440,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
     markOverlayUserAction('result-nav', banId ?? undefined);
 
+    clearBansOverlayNavigationIntent(
+      wasDirect ? 'overboard-status-direct' : 'navigate-from-result-queue',
+    );
+
     if (banId) {
       consumeResultBanForResultCta(banId);
     } else if (wasDirect) {
@@ -7380,18 +7475,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
     }
 
-    clearBansOverlayNavigationIntent(
-      wasDirect ? 'overboard-status-direct' : 'navigate-from-result-queue',
-    );
-
     const chainSource = wasDirect ? 'overboard-status-direct' : 'status-cta';
     if (showNextNotificationFromChainSync(chainSource)) {
       return;
     }
 
     void (async () => {
+      if (statusCtaNavigateGenerationRef.current !== generation) return;
       const primed = await primeNextNotificationAfterStatusCta(chainSource);
+      if (statusCtaNavigateGenerationRef.current !== generation) return;
       if (primed) return;
+      if (hasPendingNotificationChain()) {
+        console.log('[chain-debug-final-lobby-blocked]', {
+          source: 'status-cta-async',
+          reason: 'chain-active-after-prime',
+          ...getNotificationChainDebugSnapshot(),
+        });
+        return;
+      }
 
       console.log('[notification-chain-open-bans-final]', {
         source: 'status-cta',
@@ -7408,6 +7509,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     clearNotificationChainReturnLatch,
     consumeResultBanForResultCta,
     directResultOverlayActive,
+    getNotificationChainDebugSnapshot,
+    hasPendingNotificationChain,
     markOverlayUserAction,
     overlayQueueItemId,
     primeNextNotificationAfterStatusCta,
@@ -8200,6 +8303,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, []);
 
   const openLobby = useCallback((source?: string) => {
+    const snapshot = getNotificationChainDebugSnapshot();
+    if (hasPendingNotificationChain()) {
+      console.log('[chain-debug-final-lobby-blocked]', {
+        source: source ?? 'default',
+        reason: 'chain-active',
+        ...snapshot,
+      });
+      return;
+    }
+    console.log('[chain-debug-open-lobby-called]', {
+      source: source ?? 'default',
+      stackHint: 'openLobby',
+      ...snapshot,
+    });
     setLobbyOpen(true);
     lobbyOpenRef.current = true;
     lobbyShownLoggedRef.current = false;
@@ -8208,7 +8325,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       source: source ?? 'default',
       lobbyOpen: true,
     });
-  }, []);
+  }, [getNotificationChainDebugSnapshot, hasPendingNotificationChain]);
 
   useLayoutEffect(() => {
     openLobbyRef.current = openLobby;
@@ -9042,11 +9159,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       activeBanUiShellActive ||
       incomingGateActive ||
       checkGateActive ||
+      hasPendingNotificationChain() ||
       result
     ) {
       return;
     }
-    setLobbyOpen(true);
+    console.log('[chain-debug-session-ended]', {
+      source: 'providers-auto-lobby-effect',
+      ...getNotificationChainDebugSnapshot(),
+    });
+    openLobby('providers-auto-lobby-effect');
     lobbyShownLoggedRef.current = false;
   }, [
     auth.user?.id,
@@ -9062,6 +9184,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     activeBanUiShellActive,
     incomingGateActive,
     checkGateActive,
+    getNotificationChainDebugSnapshot,
+    hasPendingNotificationChain,
+    openLobby,
     result,
   ]);
 

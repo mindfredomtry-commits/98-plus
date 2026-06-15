@@ -2473,6 +2473,16 @@ export function InstantBanFlow({
           effectiveBansOverlayOpenRef.current &&
           !showBansLayerRef.current
         ) {
+          if (hasPendingNotificationChain() || notificationOverlayActive) {
+            console.log('[chain-debug-final-lobby-blocked]', {
+              source,
+              reason: 'chain-active-or-overlay',
+              notificationOverlayActive,
+            });
+            clearResultCtaBansOverlayOpen();
+            clearBansCtaQueueSuppress();
+            return;
+          }
           console.log('[BANS OPEN FALLBACK LOBBY]', visibleCheck);
           markVisibleOverboardTrace('[BANS OPEN FALLBACK LOBBY]', visibleCheck);
           setBansOverlayOpen(false);
@@ -2489,7 +2499,9 @@ export function InstantBanFlow({
     [
       beginCtaSpringIn,
       bansCtaQueueSuppress,
+      clearBansCtaQueueSuppress,
       clearResultCtaBansOverlayOpen,
+      hasPendingNotificationChain,
       lobbyOpen,
       notificationOverlayActive,
       notificationSessionActive,
@@ -2565,8 +2577,15 @@ export function InstantBanFlow({
   useLayoutEffect(() => {
     if (!bansCtaQueueSuppress) return;
     if (result != null) return;
+    if (hasPendingNotificationChain()) {
+      console.log('[chain-debug-session-ended-blocked]', {
+        source: 'direct-result-cleanup',
+        reason: 'chain-active',
+      });
+      return;
+    }
     scheduleBansVisibleCheck('direct-result-cleanup');
-  }, [bansCtaQueueSuppress, result, scheduleBansVisibleCheck]);
+  }, [bansCtaQueueSuppress, hasPendingNotificationChain, result, scheduleBansVisibleCheck]);
 
   useLayoutEffect(() => {
     if (!deepLinkInviteToBanInviter?.id || !user?.id) return;
