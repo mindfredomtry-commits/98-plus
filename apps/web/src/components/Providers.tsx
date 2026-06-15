@@ -351,6 +351,13 @@ interface AppContextValue {
   sendFlowOpen: boolean;
   openSendFlow: () => void;
   closeSendFlow: () => void;
+  /** Instant-ban compose phase — synced from InstantBanFlow for overlay guards. */
+  sendComposePhase: 'idle' | 'selectingTarget' | 'composingBan' | 'confirming';
+  setSendComposePhase: (
+    phase: 'idle' | 'selectingTarget' | 'composingBan' | 'confirming',
+  ) => void;
+  isWhatOrConfirmActive: () => boolean;
+  isSendComposeActive: () => boolean;
   deepLinkReplyBooting: boolean;
   setDeepLinkReplyBooting: (v: boolean) => void;
   /** Reply deep link: optimistic incoming card shell before /open returns. */
@@ -438,6 +445,8 @@ interface AppContextValue {
   completeBanSendSuccess: () => void;
   /** Queue session/friends refresh until success modal closes. */
   scheduleDeferredSync: () => void;
+  /** Run deferred reloadPending/friends refresh immediately (e.g. after success exit). */
+  flushDeferredSync: () => Promise<void>;
   optimisticSendWait: OptimisticSendWait | null;
   applyOptimisticSend: (params: {
     username: string;
@@ -821,6 +830,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const sendSuccessCardBanIdRef = useRef<string | null>(null);
   const [sendSuccessCardActive, setSendSuccessCardActiveState] = useState(false);
   const [sendFlowOpen, setSendFlowOpen] = useState(false);
+  const sendFlowOpenRef = useRef(false);
+  const sendComposePhaseRef = useRef<
+    'idle' | 'selectingTarget' | 'composingBan' | 'confirming'
+  >('idle');
+  const [sendComposePhase, setSendComposePhaseState] = useState<
+    'idle' | 'selectingTarget' | 'composingBan' | 'confirming'
+  >('idle');
   const [deepLinkReplyBooting, setDeepLinkReplyBooting] = useState(false);
   const [replyDeeplinkFastShell, setReplyDeeplinkFastShell] = useState(false);
   const [replyIncomingDisplayBan, setReplyIncomingDisplayBan] =
@@ -889,10 +905,33 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const replyLockReleasedRef = useRef(false);
   const openSendFlow = useCallback(() => {
     setSendFlowOpen(true);
+    sendFlowOpenRef.current = true;
     setLobbyOpen(false);
   }, []);
   const closeSendFlow = useCallback(() => {
     setSendFlowOpen(false);
+    sendFlowOpenRef.current = false;
+  }, []);
+  const setSendComposePhase = useCallback(
+    (phase: 'idle' | 'selectingTarget' | 'composingBan' | 'confirming') => {
+      sendComposePhaseRef.current = phase;
+      setSendComposePhaseState(phase);
+    },
+    [],
+  );
+  const isWhatOrConfirmActive = useCallback(() => {
+    if (!sendFlowOpenRef.current) return false;
+    const phase = sendComposePhaseRef.current;
+    return phase === 'composingBan' || phase === 'confirming';
+  }, []);
+  const isSendComposeActive = useCallback(() => {
+    if (!sendFlowOpenRef.current) return false;
+    const phase = sendComposePhaseRef.current;
+    return (
+      phase === 'selectingTarget' ||
+      phase === 'composingBan' ||
+      phase === 'confirming'
+    );
   }, []);
 
   const pinReplyToBanId = useCallback((banId: string | null) => {
@@ -1114,6 +1153,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
     if (isActiveTimerOverlayMounted()) {
       logActiveTimerBlocksNotification(source, attemptedKind, attemptedBanId);
+      return true;
+    }
+    if (isWhatOrConfirmActive()) {
+      console.log('[compose-flow-notification-blocked]', {
+        phase: sendComposePhaseRef.current,
+        queuedKind: attemptedKind,
+        queuedBanId: attemptedBanId,
+        source,
+      });
+      console.log('[notification-overlay-suppressed-on-compose]', {
+        phase: sendComposePhaseRef.current,
+      });
       return true;
     }
     return false;
@@ -1356,6 +1407,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const syncDisplayFromQueue = useCallback((queue: QueuedOverlay[]) => {
     const active = queue[0] ?? null;
+    if (isWhatOrConfirmActive() && active) {
+      console.log('[notification-overlay-suppressed-on-compose]', {
+        phase: sendComposePhaseRef.current,
+      });
+      console.log('[notification-queue-deferred-until-compose-exit]', {
+        queueLen: queue.length,
+        headKind: active.kind,
+        headBanId:
+          active.kind === 'result' ? active.result.id : active.ban.id,
+      });
+      return;
+    }
     if (
       active &&
       blocksMountedNotificationOverlay(
@@ -9437,9 +9500,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [bansReturnToLobbyLatch]);
 
   const openNewBanWhoFlow = useCallback(() => {
+    if (hasPendingNotificationChain()) {
+      console.log('[success-exit-open-what-blocked]', {
+        reason: 'pending-notifications',
+        source: 'openNewBanWhoFlow',
+      });
+      void flushDeferredSync().then(() => {
+        releaseStartupInteractions({ force: true });
+        unlockNotificationQueueAndFlush('new-ban-who-provider-drain');
+      });
+      return;
+    }
     closeLobby();
     setNewBanWhoFlowRequest((n) => n + 1);
-  }, [closeLobby]);
+  }, [
+    closeLobby,
+    flushDeferredSync,
+    hasPendingNotificationChain,
+    releaseStartupInteractions,
+    unlockNotificationQueueAndFlush,
+  ]);
 
   useEffect(() => {
     if (!lobbyOpen || lobbyShownLoggedRef.current) return;
@@ -10080,10 +10160,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const notificationHostBlockedByActiveBanShell =
     !checkOverlayMounted &&
     (activeBanCardReady || replyParentActivePriorityActive);
+  const composeFlowBlocksNotificationHost = isWhatOrConfirmActive();
   const notificationHostLayerActive =
     !sendSuccessCardActive &&
     !notificationChainReplyComposePaused &&
     !notificationHostBlockedByActiveBanShell &&
+    !composeFlowBlocksNotificationHost &&
     (notificationSessionActive ||
       incomingJsxWillRender ||
       showReplyIncomingOverlayDirect ||
@@ -10094,6 +10176,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     !sendSuccessCardActive &&
     !notificationChainReplyComposePaused &&
     !notificationHostBlockedByActiveBanShell &&
+    !composeFlowBlocksNotificationHost &&
     (notificationSessionActive ||
       incomingJsxWillRender ||
       checkOverlayMounted);
@@ -10116,6 +10199,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationHostPointerActive,
     notificationHostSessionBackdrop,
     replyParentActivePriorityActive,
+  ]);
+
+  const prevWhatOrConfirmActiveRef = useRef(false);
+  useEffect(() => {
+    const active = isWhatOrConfirmActive();
+    const wasActive = prevWhatOrConfirmActiveRef.current;
+    prevWhatOrConfirmActiveRef.current = active;
+    if (wasActive && !active) {
+      const queueLen = overlayQueueRef.current.length;
+      const startupLen = pendingStartupInteractionsRef.current.length;
+      if (queueLen > 0 || startupLen > 0) {
+        console.log('[notification-queue-flush-after-compose-exit]', {
+          queueLen,
+          startupLen,
+        });
+        unlockNotificationQueueAndFlush('compose-exit');
+      }
+    }
+  }, [
+    isWhatOrConfirmActive,
+    sendComposePhase,
+    sendFlowOpen,
+    unlockNotificationQueueAndFlush,
   ]);
 
   useLayoutEffect(() => {
@@ -10274,6 +10380,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       sendFlowOpen,
       openSendFlow,
       closeSendFlow,
+      sendComposePhase,
+      setSendComposePhase,
+      isWhatOrConfirmActive,
+      isSendComposeActive,
       deepLinkReplyBooting,
       setDeepLinkReplyBooting: setDeepLinkReplyBootingGuarded,
       replyDeeplinkFastShell,
@@ -10335,6 +10445,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setBanSentOpen,
       completeBanSendSuccess,
       scheduleDeferredSync,
+      flushDeferredSync,
       optimisticSendWait: optimisticForUi,
       applyOptimisticSend,
       confirmOptimisticSend,
@@ -10431,6 +10542,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       sendFlowOpen,
       openSendFlow,
       closeSendFlow,
+      sendComposePhase,
+      setSendComposePhase,
+      isWhatOrConfirmActive,
+      isSendComposeActive,
       deepLinkReplyBooting,
       setDeepLinkReplyBooting,
       replyDeeplinkFastShell,
@@ -10488,6 +10603,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       uiFreeze,
       optimisticForUi,
       scheduleDeferredSync,
+      flushDeferredSync,
       setBanSentOpen,
       completeBanSendSuccess,
       applyOptimisticSend,

@@ -276,6 +276,7 @@ export function InstantBanFlow({
     refreshUser,
     onboard,
     scheduleDeferredSync,
+    flushDeferredSync,
     applyOptimisticSend,
     confirmOptimisticSend,
     rollbackOptimisticSend,
@@ -311,6 +312,7 @@ export function InstantBanFlow({
     clearIncomingReply,
     openSendFlow,
     closeSendFlow,
+    setSendComposePhase,
     applySession,
     pendingStartupInteractions,
     hasPendingNotificationChain,
@@ -379,6 +381,10 @@ export function InstantBanFlow({
     if (banSentSuccess) return;
     setSendSuccessCardMounted(false, { source: 'ban-sent-success-cleared' });
   }, [banSentSuccess, setSendSuccessCardMounted]);
+
+  useEffect(() => {
+    setSendComposePhase(sendFlowOpen ? phase : 'idle');
+  }, [phase, sendFlowOpen, setSendComposePhase]);
   const [replySending, setReplySending] = useState(false);
   const sendSnapshotRef = useRef<{
     banText: string;
@@ -386,6 +392,8 @@ export function InstantBanFlow({
     durationMinutes: number;
     replyToBanId: string | null;
   } | null>(null);
+  const lastSendSuccessBanIdRef = useRef<string | null>(null);
+  const successExitAwaitingNotificationDrainRef = useRef(false);
   const confirmSendContextRef = useRef<{
     payoffPhase: string;
     sendTriggered: boolean;
@@ -2084,12 +2092,55 @@ export function InstantBanFlow({
     ],
   );
 
+  const finishSendSuccessLobbyExit = useCallback(
+    async (banId: string | null) => {
+      console.log('[success-exit-notification-check]', {
+        banId,
+        queueLen: overlayQueueLength,
+        startupLen: pendingStartupInteractions ? 1 : 0,
+        hasPending: hasPendingNotificationChain(),
+      });
+      await flushDeferredSync();
+      releaseStartupInteractions({ force: true });
+      logOverlayPriority('send-success-unlock', {});
+      unlockNotificationQueueAndFlush('send-success-unlock');
+
+      const hasPending = hasPendingNotificationChain();
+      console.log('[success-exit-notification-check]', {
+        banId,
+        queueLen: overlayQueueLength,
+        startupLen: pendingStartupInteractions ? 1 : 0,
+        hasPending,
+        phase: 'after-flush',
+      });
+
+      if (hasPending) {
+        console.log('[success-exit-drain-notifications]', { banId });
+        successExitAwaitingNotificationDrainRef.current = true;
+        return;
+      }
+      successExitAwaitingNotificationDrainRef.current = false;
+      beginCtaSpringIn();
+    },
+    [
+      beginCtaSpringIn,
+      flushDeferredSync,
+      hasPendingNotificationChain,
+      overlayQueueLength,
+      pendingStartupInteractions,
+      releaseStartupInteractions,
+      unlockNotificationQueueAndFlush,
+    ],
+  );
+
   const handleSuccessExitComplete = useCallback(() => {
     setSendSuccessCardMounted(false, { source: 'user-close' });
     const successExitStartedAt = performance.now();
+    const successBanId = lastSendSuccessBanIdRef.current;
     console.log('[queue-debug] success exit', {
       fromActiveRepeat: activeBanRepeatComposeRef.current,
       pendingStartupInteractions,
+      successBanId,
     });
 
     const parentBan = resolveReplyParentActiveBanImmediate();
@@ -2131,10 +2182,7 @@ export function InstantBanFlow({
             lobbySource: 'send-success',
             committedSameTick: false,
           });
-          logOverlayPriority('send-success-unlock', {});
-          unlockNotificationQueueAndFlush('send-success-unlock');
-          releaseStartupInteractions({ force: true });
-          beginCtaSpringIn();
+          await finishSendSuccessLobbyExit(successBanId);
           return;
         }
         commitSendSuccessExit({
@@ -2159,24 +2207,20 @@ export function InstantBanFlow({
       lobbySource: 'send-success',
       committedSameTick: true,
     });
-    logOverlayPriority('send-success-unlock', {});
-    unlockNotificationQueueAndFlush('send-success-unlock');
-    releaseStartupInteractions({ force: true });
-    beginCtaSpringIn();
+    void finishSendSuccessLobbyExit(successBanId);
   }, [
     beginCtaSpringIn,
     commitSendSuccessExit,
     ensureReplyParentActiveBanForSuccess,
+    finishSendSuccessLobbyExit,
     getReplyParentActiveBanId,
     hasReplyParentActivePriorityPending,
     notifyActiveBanCardVisible,
     pendingStartupInteractions,
     refreshReplyParentActiveBanInBackground,
-    releaseStartupInteractions,
     resolveReplyParentActiveBanImmediate,
     setSuccessToActiveLobbyBlockedState,
     setSendSuccessCardMounted,
-    unlockNotificationQueueAndFlush,
   ]);
 
   useEffect(() => {
@@ -2219,6 +2263,7 @@ export function InstantBanFlow({
       }
       if (!banId.trim()) return;
 
+      lastSendSuccessBanIdRef.current = banId;
       logSendFlow('open-success', { banId, attemptId: attemptId ?? currentAttempt });
       console.log('[active-repeat-debug] send success', {
         banId,
@@ -2331,8 +2376,33 @@ export function InstantBanFlow({
     unlockNotificationQueueAndFlush,
   ]);
 
+  useEffect(() => {
+    if (!successExitAwaitingNotificationDrainRef.current) return;
+    if (hasPendingNotificationChain() || notificationSessionActive) return;
+    successExitAwaitingNotificationDrainRef.current = false;
+    beginCtaSpringIn();
+  }, [
+    beginCtaSpringIn,
+    hasPendingNotificationChain,
+    notificationSessionActive,
+    overlayQueueLength,
+    pendingStartupInteractions,
+  ]);
+
   const handleBeginSend = useCallback(() => {
     if (phase !== 'idle' || ctaState !== 'visible') return;
+
+    if (hasPendingNotificationChain()) {
+      console.log('[success-exit-open-what-blocked]', {
+        reason: 'pending-notifications',
+        source: 'handleBeginSend',
+      });
+      void flushDeferredSync().then(() => {
+        releaseStartupInteractions({ force: true });
+        unlockNotificationQueueAndFlush('begin-send-drain');
+      });
+      return;
+    }
 
     clearCtaExitTimer();
     clearWhoPanelEnterTimer();
@@ -2354,11 +2424,26 @@ export function InstantBanFlow({
     clearCtaExitTimer,
     clearWhoPanelEnterTimer,
     ctaState,
+    flushDeferredSync,
+    hasPendingNotificationChain,
     onStartSend,
     phase,
+    releaseStartupInteractions,
+    unlockNotificationQueueAndFlush,
   ]);
 
   const beginNewBanWhoFlow = useCallback(() => {
+    if (hasPendingNotificationChain()) {
+      console.log('[success-exit-open-what-blocked]', {
+        reason: 'pending-notifications',
+        source: 'beginNewBanWhoFlow',
+      });
+      void flushDeferredSync().then(() => {
+        releaseStartupInteractions({ force: true });
+        unlockNotificationQueueAndFlush('new-ban-who-drain');
+      });
+      return;
+    }
     sendEntryPhaseRef.current = 'selectingTarget';
     setBansOverlayOpen(false);
     setSelectedBanForDetails(null);
@@ -2379,8 +2464,12 @@ export function InstantBanFlow({
   }, [
     clearCtaExitTimer,
     clearWhoPanelEnterTimer,
+    flushDeferredSync,
+    hasPendingNotificationChain,
     onStartSend,
+    releaseStartupInteractions,
     setCrossScreenProgressImmediate,
+    unlockNotificationQueueAndFlush,
   ]);
 
   const lastNewBanWhoFlowRequestRef = useRef(0);
