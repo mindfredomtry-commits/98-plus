@@ -80,7 +80,21 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
 
   const answer = useCallback(
     async (completed: boolean) => {
-      if (!checkBan?.id || !token || !modalView) return;
+      if (!checkBan?.id || !token || !modalView) {
+        console.log('[check-overlay-click-blocked]', {
+          banId: checkBan?.id ?? null,
+          reason: !checkBan?.id
+            ? 'no-ban'
+            : !token
+              ? 'no-token'
+              : 'no-modal-view',
+        });
+        return;
+      }
+      console.log('[check-overlay-click]', {
+        banId: checkBan.id,
+        answer: completed,
+      });
       markOverlayUserAction('check', checkBan.id);
       haptic('light');
       setSubmitError(null);
@@ -111,8 +125,14 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
       banId: checkBan.id,
       source: 'CheckOverlay',
     });
+    console.log('[check-overlay-pointer-layer]', {
+      banId: checkBan.id,
+      hasBackdrop: notificationSessionActive,
+      queueSessionActive: notificationSessionActive,
+      topLayer: 'GlobalOverlayHost',
+    });
     reportOverlayRendered('check', checkBan.id, true);
-  }, [canRender, checkBan?.id, reportOverlayRendered]);
+  }, [canRender, checkBan?.id, notificationSessionActive, reportOverlayRendered]);
 
   if (!canRender) {
     return null;

@@ -1027,6 +1027,48 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return head?.kind === 'check' && head.ban.id === banId;
   };
 
+  const isActiveTimerOverlayMounted = () =>
+    activeBanCardVisibleRef.current ||
+    replyParentActivePriorityActiveRef.current;
+
+  const getActiveTimerBanId = () =>
+    acceptedParentBanAfterReplyRef.current?.trim() ??
+    activeBanDeepLinkBanIdRef.current?.trim() ??
+    null;
+
+  const logActiveTimerBlocksNotification = (
+    source: string,
+    attemptedKind: QueuedOverlay['kind'] | null,
+    attemptedBanId: string | null,
+  ) => {
+    console.log('[active-timer-blocks-notification]', {
+      activeBanId: getActiveTimerBanId(),
+      attemptedKind,
+      attemptedBanId,
+      source,
+    });
+    console.log('[notification-flush-blocked]', {
+      reason: 'active-timer-mounted',
+      source,
+    });
+    if (attemptedKind === 'check') {
+      console.log('[chain-auto-advance-bug]', {
+        activeKind: 'active-timer',
+        attemptedKind: 'check',
+        attemptedBanId,
+        source,
+      });
+    }
+  };
+
+  const deferNotificationToPendingStartup = (item: QueuedOverlay) => {
+    pendingStartupInteractionsRef.current = mergeStartupPendingChain(
+      pendingStartupInteractionsRef.current,
+      [item],
+    );
+    syncPendingStartupCount();
+  };
+
   const shouldBlockActiveCheckOverlayAutoClose = (
     source: string,
     reason: string,
@@ -1226,6 +1268,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const syncDisplayFromQueue = useCallback((queue: QueuedOverlay[]) => {
     const active = queue[0] ?? null;
+    if (isActiveTimerOverlayMounted() && active) {
+      const attemptedBanId =
+        active.kind === 'result' ? active.result.id : active.ban.id;
+      logActiveTimerBlocksNotification(
+        'syncDisplayFromQueue',
+        active.kind,
+        attemptedBanId,
+      );
+      incomingBanRef.current = null;
+      checkBanRef.current = null;
+      setIncomingBan(null);
+      setCheckBan(null);
+      return;
+    }
     if (
       notificationChainAwaitingUserRef.current &&
       !chainAdvanceExplicitRef.current &&
@@ -1680,6 +1736,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ) {
         return;
       }
+      if (
+        isActiveTimerOverlayMounted() &&
+        nextHead &&
+        prevKey !== nextKey &&
+        (nextHead.kind === 'check' ||
+          nextHead.kind === 'incoming' ||
+          nextHead.kind === 'result')
+      ) {
+        logActiveTimerBlocksNotification(
+          'applyOverlayQueue',
+          nextHead.kind,
+          nextHead.kind === 'result'
+            ? nextHead.result.id
+            : nextHead.ban.id,
+        );
+        return;
+      }
       chainAdvanceExplicitRef.current = false;
       activeOverlayLockRef.current = nextKey;
       if (nextKey) {
@@ -1919,6 +1992,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const banId = item.kind === 'result' ? item.result.id : item.ban.id;
       const key = overlayQueueKey(item);
 
+      if (
+        isActiveTimerOverlayMounted() &&
+        (item.kind === 'check' || item.kind === 'incoming' || item.kind === 'result')
+      ) {
+        logActiveTimerBlocksNotification(
+          'enqueueNotification',
+          item.kind,
+          banId,
+        );
+        deferNotificationToPendingStartup(item);
+        return;
+      }
+
       if (item.kind === 'result') {
         const resultId = item.result.id;
         const uid = userIdRef.current;
@@ -2085,6 +2171,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const unlockNotificationQueueAndFlush = useCallback(
     (reason: string) => {
+      if (isActiveTimerOverlayMounted()) {
+        console.log('[notification-flush-blocked]', {
+          reason: 'active-timer-mounted',
+          source: `unlockNotificationQueueAndFlush:${reason}`,
+        });
+        return;
+      }
       const prevLock = getNotificationQueueLockReason();
       const startupPending = pendingStartupInteractionsRef.current;
       const startupCounts = countQueuedOverlaysByKind(startupPending);
@@ -2503,6 +2596,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, []);
 
   const hasActiveNotificationOverlayMounted = useCallback(() => {
+    if (activeBanCardVisibleRef.current) return true;
+    if (replyParentActivePriorityActiveRef.current) return true;
     if (incomingBanRef.current?.id) return true;
     if (checkBanRef.current?.id) return true;
     if (resultRef.current?.id) return true;
@@ -2514,6 +2609,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const mergeStartupIntoOverlayQueueOnly = useCallback(
     (source: string) => {
+      if (isActiveTimerOverlayMounted()) {
+        console.log('[notification-flush-blocked]', {
+          reason: 'active-timer-mounted',
+          source: `mergeStartupIntoOverlayQueueOnly:${source}`,
+        });
+        return 0;
+      }
       const pending = pendingStartupInteractionsRef.current;
       if (pending.length === 0) return 0;
 
@@ -2562,6 +2664,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       syncPendingStartupCount();
 
       if (!opts?.force && !hadHold && pending.length === 0) return;
+
+      if (isActiveTimerOverlayMounted()) {
+        console.log('[notification-flush-blocked]', {
+          reason: 'active-timer-mounted',
+          source: 'releaseStartupInteractions',
+        });
+        if (pending.length > 0) {
+          pendingStartupInteractionsRef.current = pending;
+          syncPendingStartupCount();
+        }
+        return;
+      }
 
       console.log('[startup-interactions-release]', {
         count: pending.length,
@@ -3184,6 +3298,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
         next = restoredQueue;
       }
+    }
+
+    if (isActiveTimerOverlayMounted()) {
+      console.log('[notification-flush-blocked]', {
+        reason: 'active-timer-mounted',
+        source: 'pruneAndSyncOverlayQueue',
+      });
+      return;
     }
 
     applyOverlayQueue(next);
@@ -4033,6 +4155,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (activeBanCardVisibleRef.current) return;
     activeBanCardVisibleRef.current = true;
     setActiveBanCardReady(true);
+    console.log('[active-timer-mounted]', { banId });
     logOverlayPriority('active-ban-opened', { banId });
     logActiveBanDeeplink('active-card-visible', {
       banId,
@@ -6853,6 +6976,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
       if (!check) return;
 
+      if (isActiveTimerOverlayMounted()) {
+        logActiveTimerBlocksNotification('receiveCheckBan', 'check', check.id);
+        deferNotificationToPendingStartup({ kind: 'check', ban: check });
+        return;
+      }
+
       if (source === 'session' && !checkWsSeenRef.current.has(check.id)) {
         console.log('[check-recovery-session]', { banId: check.id });
       }
@@ -7440,6 +7569,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const showNextNotificationFromChainSync = useCallback(
     (source: string): boolean => {
+      if (isActiveTimerOverlayMounted()) {
+        console.log('[notification-flush-blocked]', {
+          reason: 'active-timer-mounted',
+          source: `showNextNotificationFromChainSync:${source}`,
+        });
+        return true;
+      }
       if (
         notificationChainAwaitingUserRef.current &&
         hasActiveNotificationOverlayMounted()
@@ -7641,9 +7777,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const releaseNotificationQueueAfterReplyParentActive = useCallback(() => {
     if (!replyParentActivePriorityActiveRef.current) return;
+    console.log('[active-timer-user-close]', {
+      banId: getActiveTimerBanId(),
+    });
     console.log('[notification-queue-release-after-parent-active]');
     clearReplyParentActivePriority('queue-release');
     activeBanCardVisibleRef.current = false;
+    setActiveBanCardReady(false);
     activeBanDeepLinkBanIdRef.current = null;
     deepLinkBlockedRef.current = false;
 
@@ -8701,6 +8841,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const checkGateActive = useMemo(
     () => {
+      if (activeBanCardReady || replyParentActivePriorityActiveRef.current) {
+        return false;
+      }
       if (priorityBlocksResult) return false;
       if (activeOverlayKind === 'check' && checkBan) return true;
       return shouldShowCheckOverlay(
@@ -8712,7 +8855,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         !!result,
       );
     },
-    [priorityBlocksResult, activeOverlayKind, checkBan, auth.user?.id, result],
+    [priorityBlocksResult, activeOverlayKind, checkBan, auth.user?.id, result, activeBanCardReady],
   );
 
   const notificationOverlayActive =
@@ -8749,6 +8892,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const openLobby = useCallback((source?: string) => {
     const snapshot = getNotificationChainDebugSnapshot();
+    if (isActiveTimerOverlayMounted()) {
+      console.log('[chain-open-lobby-blocked]', {
+        source: source ?? 'default',
+        reason: 'active-timer-mounted',
+        activeBanId: getActiveTimerBanId(),
+        ...snapshot,
+      });
+      return;
+    }
     if (isActiveCheckOverlayMounted()) {
       console.log('[chain-open-lobby-blocked]', {
         source: source ?? 'default',
@@ -9679,11 +9831,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const notificationHostLayerActive =
     !notificationChainReplyComposePaused &&
+    !activeBanCardReady &&
+    !replyParentActivePriorityActiveRef.current &&
     (notificationSessionActive ||
       incomingJsxWillRender ||
       showReplyIncomingOverlayDirect);
   const notificationHostSessionBackdrop =
     !notificationChainReplyComposePaused &&
+    !activeBanCardReady &&
+    !replyParentActivePriorityActiveRef.current &&
     (notificationSessionActive || incomingJsxWillRender);
 
   useLayoutEffect(() => {
