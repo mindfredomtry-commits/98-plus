@@ -763,6 +763,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const openBansOverlayRequestRef = useRef(0);
   const statusCtaNavigateGenerationRef = useRef(0);
   const notificationChainHandoffRef = useRef(false);
+  const notificationChainAwaitingUserRef = useRef(false);
+  const chainAdvanceExplicitRef = useRef(false);
 
   const isDirectOverboardLocallyActive = useCallback(() => {
     return (
@@ -1187,6 +1189,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const syncDisplayFromQueue = useCallback((queue: QueuedOverlay[]) => {
     const active = queue[0] ?? null;
+    if (
+      notificationChainAwaitingUserRef.current &&
+      !chainAdvanceExplicitRef.current &&
+      active
+    ) {
+      const mountedIncomingId = incomingBanRef.current?.id ?? null;
+      const mountedCheckId = checkBanRef.current?.id ?? null;
+      const mountedResultId = resultRef.current?.id ?? null;
+      const activeBanId =
+        active.kind === 'result' ? active.result.id : active.ban.id;
+      const mountedId = mountedIncomingId ?? mountedCheckId ?? mountedResultId;
+      if (mountedId && activeBanId !== mountedId) {
+        console.log('[chain-drain-continue-blocked]', {
+          reason: 'active-overlay-mounted',
+          mountedId,
+          activeBanId,
+          activeKind: active.kind,
+        });
+        return;
+      }
+    }
     const replyFastBanId = replyDeeplinkFastOpenedRef.current
       ? (replyDeepLinkBanIdRef.current ??
         replyDeeplinkPendingBanIdRef.current)
@@ -1524,6 +1547,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const nextHead = next[0] ?? null;
       const prevKey = prevHead ? overlayQueueKey(prevHead) : null;
       const nextKey = nextHead ? overlayQueueKey(nextHead) : null;
+      if (
+        notificationChainAwaitingUserRef.current &&
+        prevKey &&
+        nextKey &&
+        prevKey !== nextKey &&
+        !chainAdvanceExplicitRef.current
+      ) {
+        console.log('[chain-drain-continue-blocked]', {
+          reason: 'active-overlay-mounted',
+          prevKey,
+          nextKey,
+        });
+        console.log('[chain-auto-advance-bug]', {
+          previousShown: prevKey,
+          nextShownSameTick: nextKey,
+        });
+        return;
+      }
+      chainAdvanceExplicitRef.current = false;
       activeOverlayLockRef.current = nextKey;
       if (nextKey) {
         console.log('[OVERLAY ACTIVE LOCK]', {
@@ -1654,6 +1696,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       const commit = () => {
+        if (
+          notificationChainAwaitingUserRef.current &&
+          remaining.length > 0 &&
+          !chainAdvanceExplicitRef.current
+        ) {
+          console.log('[chain-drain-continue-blocked]', {
+            reason: 'active-overlay-mounted',
+            source: 'dismissCurrentOverlay-commit',
+            dismissReason: reason,
+            remainingLen: remaining.length,
+          });
+          return;
+        }
         applyOverlayQueue(remaining);
         const selectTs = overlayTs();
         if (remaining.length > 0) {
@@ -1673,6 +1728,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         if (remaining.length === 0) {
           overlayActionTsRef.current = null;
           overlayHandoffTsRef.current = null;
+          notificationChainAwaitingUserRef.current = false;
+          notificationChainHandoffRef.current = false;
           if (overlayQueueDrainActiveRef.current) {
             overlayQueueDrainActiveRef.current = false;
             console.log('[OVERLAY QUEUE DRAIN END]', { ts: selectTs });
@@ -1692,7 +1749,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       if (remaining.length > 0) {
         const chainDrainInstant =
-          replyDeeplinkChainHoldRef.current && remaining.length > 0;
+          replyDeeplinkChainHoldRef.current &&
+          !notificationChainAwaitingUserRef.current &&
+          remaining.length > 0;
         if (chainDrainInstant) {
           commit();
         } else {
@@ -2287,6 +2346,51 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [isResultBlockedForNotificationChain, syncPendingStartupCount],
   );
 
+  const hasActiveNotificationOverlayMounted = useCallback(() => {
+    if (incomingBanRef.current?.id) return true;
+    if (checkBanRef.current?.id) return true;
+    if (resultRef.current?.id) return true;
+    if (directResultOverlayRef.current || directResultOverlayActiveRef.current) {
+      return true;
+    }
+    return false;
+  }, []);
+
+  const mergeStartupIntoOverlayQueueOnly = useCallback(
+    (source: string) => {
+      const pending = pendingStartupInteractionsRef.current;
+      if (pending.length === 0) return 0;
+
+      const skipBanId =
+        replyDeeplinkParentBanIdRef.current?.trim() ??
+        replyDeepLinkBanIdRef.current?.trim() ??
+        null;
+      const releasable = pending.filter((item) => {
+        if (item.kind !== 'result') return true;
+        return !isResultBlockedForNotificationChain(
+          item.result.id,
+          source,
+          skipBanId,
+        );
+      });
+
+      startupInteractionsHoldRef.current = false;
+      pendingStartupInteractionsRef.current = [];
+      syncPendingStartupCount();
+
+      if (releasable.length === 0) return 0;
+
+      let next = overlayQueueRef.current;
+      for (const item of releasable) {
+        next = enqueueWithActiveLock(next, item).queue;
+      }
+      overlayQueueRef.current = next;
+      setOverlayQueue(next);
+      return releasable.length;
+    },
+    [isResultBlockedForNotificationChain, syncPendingStartupCount],
+  );
+
   const releaseStartupInteractions = useCallback(
     (opts?: { requireBanSend?: boolean; force?: boolean }) => {
       if (!opts?.force && isNotificationQueueLocked()) {
@@ -2324,6 +2428,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
       });
 
+      if (
+        notificationChainAwaitingUserRef.current &&
+        hasActiveNotificationOverlayMounted()
+      ) {
+        console.log('[chain-drain-continue-blocked]', {
+          reason: 'active-overlay-mounted',
+          source: 'releaseStartupInteractions',
+          pendingCount: releasable.length,
+        });
+        pendingStartupInteractionsRef.current = releasable;
+        syncPendingStartupCount();
+        return;
+      }
+
       deepLinkBlockedRef.current = isNotificationQueueLocked();
       for (const item of releasable) {
         enqueueNotification(item, { source: 'session' });
@@ -2332,6 +2450,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [
       enqueueNotification,
+      hasActiveNotificationOverlayMounted,
       isResultBlockedForNotificationChain,
       syncDisplayFromQueue,
       syncPendingStartupCount,
@@ -2344,6 +2463,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (incomingBanRef.current?.id) return true;
     if (checkBanRef.current?.id) return true;
     if (notificationChainHandoffRef.current) return true;
+    if (notificationChainAwaitingUserRef.current) return true;
     if (
       directResultOverlayRef.current ||
       directResultOverlayActiveRef.current
@@ -2391,6 +2511,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       checkBanId: checkBanRef.current?.id ?? null,
       resultId: resultRef.current?.id ?? null,
       handoff: notificationChainHandoffRef.current,
+      awaitingUser: notificationChainAwaitingUserRef.current,
     };
   }, []);
 
@@ -4310,6 +4431,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       replyDeeplinkPendingBanIdRef.current = null;
       replyDeeplinkFastOpenedRef.current = false;
 
+      chainAdvanceExplicitRef.current = true;
+      notificationChainAwaitingUserRef.current = false;
+
       const beforeQueue = overlayQueueRef.current;
       const beforeLen = beforeQueue.length;
       const nextQueue = removeOverlaysForBan(beforeQueue, banId, ['incoming']);
@@ -4985,14 +5109,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const removeIncomingFromQueue = useCallback(
-    (banId: string) => {
+    (banId: string, opts?: { explicitUserAction?: boolean }) => {
       const prev = overlayQueueRef.current;
       const next = prev.filter(
         (q) => !(q.kind === 'incoming' && q.ban.id === banId),
       );
       const headWasTarget =
         prev[0]?.kind === 'incoming' && prev[0].ban.id === banId;
+      if (
+        headWasTarget &&
+        notificationChainAwaitingUserRef.current &&
+        !opts?.explicitUserAction
+      ) {
+        console.log('[chain-drain-continue-blocked]', {
+          reason: 'active-overlay-mounted',
+          banId,
+          source: 'removeIncomingFromQueue',
+        });
+        return;
+      }
       if (headWasTarget) {
+        chainAdvanceExplicitRef.current = true;
+        notificationChainAwaitingUserRef.current = false;
         dismissCurrentOverlay('incoming-seen', next);
       } else {
         applyOverlayQueue(next);
@@ -6971,6 +7109,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearIncomingReply();
       clearDeepLinkReplyBan();
       replyDeeplinkChainHoldRef.current = false;
+      notificationChainHandoffRef.current = false;
+      notificationChainAwaitingUserRef.current = false;
       logResultNav('block-send-flow', {
         reason: 'open-bans-cta',
         direct: true,
@@ -7093,6 +7233,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const showNextNotificationFromChainSync = useCallback(
     (source: string): boolean => {
+      if (
+        notificationChainAwaitingUserRef.current &&
+        hasActiveNotificationOverlayMounted()
+      ) {
+        console.log('[chain-drain-continue-blocked]', {
+          reason: 'active-overlay-mounted',
+          source,
+          ...getNotificationChainDebugSnapshot(),
+        });
+        return true;
+      }
+
       const skipBanId =
         replyDeeplinkParentBanIdRef.current?.trim() ??
         replyDeepLinkBanIdRef.current?.trim() ??
@@ -7115,12 +7267,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         break;
       }
 
-      const overlayLen = overlayQueueRef.current.length;
-      const startupLen = pendingStartupInteractionsRef.current.length;
-      const hold = startupInteractionsHoldRef.current;
       const overlayIds = overlayQueueRef.current.map(overlayQueueItemId);
       const startupIds =
         pendingStartupInteractionsRef.current.map(overlayQueueItemId);
+      const overlayLen = overlayQueueRef.current.length;
+      const startupLen = pendingStartupInteractionsRef.current.length;
+      const hold = startupInteractionsHoldRef.current;
       const head = overlayQueueRef.current[0] ?? null;
       const startupHead =
         pendingStartupInteractionsRef.current.find(
@@ -7141,6 +7293,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 ? startupHead.result.id
                 : null;
 
+      console.log('[chain-drain-start]', {
+        source,
+        overlayIds,
+        startupIds,
+      });
       console.log('[notification-chain-next-check]', {
         source,
         overlayLen,
@@ -7176,15 +7333,33 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       if (startupLen > 0) {
-        releaseStartupInteractions({ force: true });
+        mergeStartupIntoOverlayQueueOnly(source);
       }
 
       sanitizeNotificationChainQueues(source);
 
       notificationChainHandoffRef.current = true;
+      notificationChainAwaitingUserRef.current = true;
+      chainAdvanceExplicitRef.current = true;
       setLobbyOpen(false);
       lobbyOpenRef.current = false;
       syncDisplayFromQueue(overlayQueueRef.current);
+      chainAdvanceExplicitRef.current = false;
+
+      const remainingIds = overlayQueueRef.current
+        .slice(1)
+        .map(overlayQueueItemId);
+      console.log('[chain-show-one]', {
+        source,
+        shownKind: nextKind,
+        shownBanId: nextBanId,
+        remainingIds,
+      });
+      console.log('[chain-drain-stop-active-mounted]', {
+        activeKind: nextKind,
+        activeBanId: nextBanId,
+        remainingIds,
+      });
       console.log('[chain-debug-next-mounted]', {
         source,
         nextKind,
@@ -7200,10 +7375,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       applyDirectOverboardCloseState,
       clearNotificationChainReturnLatch,
       getNotificationChainDebugSnapshot,
+      hasActiveNotificationOverlayMounted,
       isResultBlockedForNotificationChain,
+      mergeStartupIntoOverlayQueueOnly,
       overlayQueueItemId,
       pruneResultFromNotificationChain,
-      releaseStartupInteractions,
       sanitizeNotificationChainQueues,
       syncDisplayFromQueue,
     ],
@@ -7229,6 +7405,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       console.log('[pending-chain-empty-final]', { source });
       replyDeeplinkChainHoldRef.current = false;
       notificationChainHandoffRef.current = false;
+      notificationChainAwaitingUserRef.current = false;
       return false;
     },
     [
@@ -7272,6 +7449,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       replyDeeplinkChainHoldRef.current = false;
       notificationChainHandoffRef.current = false;
+      notificationChainAwaitingUserRef.current = false;
       setLobbyOpen(true);
       lobbyOpenRef.current = true;
       unlockNotificationQueueAndFlush(
@@ -7549,7 +7727,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const acknowledgeIncomingSeen = useCallback(async (banId: string) => {
     dismissedIncomingRef.current.add(banId);
     setViralOnboarding(false);
-    removeIncomingFromQueue(banId);
+    removeIncomingFromQueue(banId, { explicitUserAction: true });
     console.log('[incoming-cleared]', {
       banId,
       reason: 'receiver-dismiss',
@@ -7712,7 +7890,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const dismissIncomingSoft = useCallback(
     (banId: string) => {
-      removeIncomingFromQueue(banId);
+      removeIncomingFromQueue(banId, { explicitUserAction: true });
       setViralOnboarding(false);
       if (incomingBanRef.current?.id === banId) {
         setIncomingBan(null);
@@ -7725,6 +7903,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const dismissIncoming = useCallback(
     (banId?: string) => {
       if (banId) {
+        if (
+          notificationChainAwaitingUserRef.current &&
+          incomingBanRef.current?.id === banId
+        ) {
+          console.log('[chain-drain-continue-blocked]', {
+            reason: 'active-overlay-mounted',
+            banId,
+            source: 'dismissIncoming-auto',
+          });
+          return;
+        }
         void acknowledgeIncomingSeen(banId);
         return;
       }
@@ -8305,6 +8494,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const openLobby = useCallback((source?: string) => {
     const snapshot = getNotificationChainDebugSnapshot();
     if (hasPendingNotificationChain()) {
+      console.log('[chain-open-lobby-blocked]', {
+        source: source ?? 'default',
+        reason: 'active-overlay-mounted-or-queue-not-empty',
+        ...snapshot,
+      });
       console.log('[chain-debug-final-lobby-blocked]', {
         source: source ?? 'default',
         reason: 'chain-active',
