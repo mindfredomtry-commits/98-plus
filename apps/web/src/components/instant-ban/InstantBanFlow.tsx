@@ -446,6 +446,9 @@ export function InstantBanFlow({
     useState<BanInteraction | null>(null);
   const [lobbyActiveBanOverlay, setLobbyActiveBanOverlay] =
     useState<BanInteraction | null>(null);
+  const [successToActiveLobbyBlocked, setSuccessToActiveLobbyBlocked] =
+    useState(false);
+  const successToActiveLobbyBlockedRef = useRef(false);
   const [historyBans, setHistoryBans] = useState<BanInteraction[]>([]);
   const [savedBans, setSavedBans] = useState<BanInteraction[]>([]);
   const [archiveToast, setArchiveToast] = useState<string | null>(null);
@@ -511,10 +514,14 @@ export function InstantBanFlow({
     replyLobbyBlocked || deepLinkRouteBootPending || replyIncomingDeeplinkPending;
   const showLobbyChrome = lobbyBootIntroPrimed && !lobbyChromeHidden;
   /** Orb stays mounted during route boot — only hide for reply/incoming block. */
-  const lobbyOrbVisible = !replyIncomingDeeplinkPending && !replyLobbyBlocked;
+  const lobbyOrbVisible =
+    !replyIncomingDeeplinkPending &&
+    !replyLobbyBlocked &&
+    !successToActiveLobbyBlocked;
   const showLobbyCta =
     lobbyBootIntroPrimed &&
     !replyIncomingDeeplinkPending &&
+    !successToActiveLobbyBlocked &&
     (!replyLobbyBlocked || bansReturnToLobbyLatch) &&
     !deepLinkRouteBootPending &&
     !deepLinkReplyBooting &&
@@ -991,6 +998,7 @@ export function InstantBanFlow({
     lobbyBootIntroPrimed &&
     phase === 'idle' &&
     !banSentSuccess &&
+    !successToActiveLobbyBlocked &&
     !effectiveBansOverlayOpen &&
     (!notificationQueueUiLock || bansReturnToLobbyLatch) &&
     !replyUiShellActive &&
@@ -1431,11 +1439,11 @@ export function InstantBanFlow({
   );
 
   const prepareLobbyBaseAfterSuccess = useCallback(
-    (source: string) => {
+    (source: string, opts?: { preserveActiveOverlay?: boolean }) => {
       const closedBansOverlay =
         bansOverlayOpen ||
         selectedBanForDetails != null ||
-        lobbyActiveBanOverlay != null ||
+        (!opts?.preserveActiveOverlay && lobbyActiveBanOverlay != null) ||
         bansCtaQueueSuppress ||
         resultCtaBansOverlayOpen;
       if (closedBansOverlay) {
@@ -1443,7 +1451,9 @@ export function InstantBanFlow({
       }
       setBansOverlayOpen(false);
       setSelectedBanForDetails(null);
-      setLobbyActiveBanOverlay(null);
+      if (!opts?.preserveActiveOverlay) {
+        setLobbyActiveBanOverlay(null);
+      }
       if (bansCtaQueueSuppress) clearBansCtaQueueSuppress();
       if (resultCtaBansOverlayOpen) clearResultCtaBansOverlayOpen();
       resetBansNavState();
@@ -1824,6 +1834,84 @@ export function InstantBanFlow({
     ],
   );
 
+  const setSuccessToActiveLobbyBlockedState = useCallback(
+    (blocked: boolean, reason?: string) => {
+      successToActiveLobbyBlockedRef.current = blocked;
+      setSuccessToActiveLobbyBlocked(blocked);
+      if (blocked) {
+        console.log('[success-to-active-lobby-frame-blocked]', {
+          reason: reason ?? null,
+        });
+      }
+    },
+    [],
+  );
+
+  const commitSendSuccessExit = useCallback(
+    (opts: {
+      parentActiveBan?: BanInteraction | null;
+      lobbySource: 'send-success' | 'reply-parent-active';
+      committedSameTick: boolean;
+    }) => {
+      flushSync(() => {
+        clearActiveBanDeepLinkShell('success-exit');
+        activeBanRepeatComposeRef.current = false;
+        closeSendFlow();
+        setBansOverlayOpen(false);
+        setSelectedBanForDetails(null);
+        sendSnapshotRef.current = null;
+        confirmEntrySourceRef.current = 'send-flow';
+        stopCrossScreenAnim();
+        screenTransitionRef.current = null;
+        setScreenTransition(null);
+        setSelectedUser(null);
+        setBanText('');
+        setDurationMinutes(DEFAULT_DURATION_MINUTES);
+        setSendError(null);
+        setWhoExitActive(false);
+        setWhoDismissProgress(0);
+        setComposeExitProgress(0);
+        setComposeDismissing(false);
+        setCrossScreenProgressImmediate(0);
+        setPhase('idle');
+
+        if (opts.lobbySource === 'reply-parent-active' && opts.parentActiveBan) {
+          prepareLobbyBaseAfterSuccess('reply-parent-active', {
+            preserveActiveOverlay: true,
+          });
+          markReplyParentActivePriorityShown(opts.parentActiveBan.id);
+          lockNotificationQueue('deep-link-active-ban', opts.parentActiveBan.id);
+          setLobbyActiveBanOverlay(opts.parentActiveBan);
+          logOpenActiveBanCard(
+            opts.parentActiveBan.id,
+            'reply-parent-active-on-lobby',
+          );
+        } else {
+          setLobbyActiveBanOverlay(null);
+          prepareLobbyBaseAfterSuccess('send-success');
+        }
+
+        setBanSentSuccess(false);
+        successToActiveLobbyBlockedRef.current = false;
+        setSuccessToActiveLobbyBlocked(false);
+      });
+
+      console.log('[success-to-active-atomic]', {
+        hasParentActive: !!opts.parentActiveBan,
+        activeBanId: opts.parentActiveBan?.id ?? null,
+        committedSameTick: opts.committedSameTick,
+      });
+    },
+    [
+      clearActiveBanDeepLinkShell,
+      closeSendFlow,
+      markReplyParentActivePriorityShown,
+      prepareLobbyBaseAfterSuccess,
+      setCrossScreenProgressImmediate,
+      stopCrossScreenAnim,
+    ],
+  );
+
   const handleSuccessExitComplete = useCallback(() => {
     const successExitStartedAt = performance.now();
     console.log('[queue-debug] success exit', {
@@ -1831,44 +1919,26 @@ export function InstantBanFlow({
       pendingStartupInteractions,
     });
 
-    flushSync(() => {
-      clearActiveBanDeepLinkShell('success-exit');
-      activeBanRepeatComposeRef.current = false;
-      closeSendFlow();
-      setBansOverlayOpen(false);
-      setSelectedBanForDetails(null);
-      setLobbyActiveBanOverlay(null);
-      setBanSentSuccess(false);
-      sendSnapshotRef.current = null;
-      confirmEntrySourceRef.current = 'send-flow';
-      stopCrossScreenAnim();
-      screenTransitionRef.current = null;
-      setScreenTransition(null);
-      setSelectedUser(null);
-      setBanText('');
-      setDurationMinutes(DEFAULT_DURATION_MINUTES);
-      setSendError(null);
-      setWhoExitActive(false);
-      setWhoDismissProgress(0);
-      setComposeExitProgress(0);
-      setComposeDismissing(false);
-      setCrossScreenProgressImmediate(0);
-      setPhase('idle');
-    });
-
     const parentBan = resolveReplyParentActiveBanImmediate();
+    const parentBanIdPending =
+      !parentBan && hasReplyParentActivePriorityPending()
+        ? getReplyParentActiveBanId()
+        : null;
+
+    if (parentBanIdPending && !parentBan) {
+      setSuccessToActiveLobbyBlockedState(true, 'pending-parent-active');
+    }
+
     if (parentBan) {
       const delayMs = Math.round(performance.now() - successExitStartedAt);
+      commitSendSuccessExit({
+        parentActiveBan: parentBan,
+        lobbySource: 'reply-parent-active',
+        committedSameTick: true,
+      });
       console.log('[reply-parent-active-show-immediate]', {
         parentBanId: parentBan.id,
         delayMs,
-      });
-      flushSync(() => {
-        prepareLobbyBaseAfterSuccess('reply-parent-active');
-        markReplyParentActivePriorityShown(parentBan.id);
-        lockNotificationQueue('deep-link-active-ban', parentBan.id);
-        setLobbyActiveBanOverlay(parentBan);
-        logOpenActiveBanCard(parentBan.id, 'reply-parent-active-on-lobby');
       });
       notifyActiveBanCardVisible(parentBan.id);
       beginCtaSpringIn();
@@ -1876,22 +1946,14 @@ export function InstantBanFlow({
       return;
     }
 
-    const parentBanId = hasReplyParentActivePriorityPending()
-      ? getReplyParentActiveBanId()
-      : null;
-    if (parentBanId) {
+    if (parentBanIdPending) {
       void (async () => {
         const fetchedBan = await ensureReplyParentActiveBanForSuccess();
         const delayMs = Math.round(performance.now() - successExitStartedAt);
-        if (fetchedBan) {
-          console.log('[reply-parent-active-show-immediate]', {
-            parentBanId: fetchedBan.id,
-            delayMs,
-          });
-        }
         if (!fetchedBan) {
-          flushSync(() => {
-            prepareLobbyBaseAfterSuccess('send-success');
+          commitSendSuccessExit({
+            lobbySource: 'send-success',
+            committedSameTick: false,
           });
           logOverlayPriority('send-success-unlock', {});
           unlockNotificationQueueAndFlush('send-success-unlock');
@@ -1899,12 +1961,14 @@ export function InstantBanFlow({
           beginCtaSpringIn();
           return;
         }
-        flushSync(() => {
-          prepareLobbyBaseAfterSuccess('reply-parent-active');
-          markReplyParentActivePriorityShown(fetchedBan.id);
-          lockNotificationQueue('deep-link-active-ban', fetchedBan.id);
-          setLobbyActiveBanOverlay(fetchedBan);
-          logOpenActiveBanCard(fetchedBan.id, 'reply-parent-active-on-lobby');
+        commitSendSuccessExit({
+          parentActiveBan: fetchedBan,
+          lobbySource: 'reply-parent-active',
+          committedSameTick: false,
+        });
+        console.log('[reply-parent-active-show-immediate]', {
+          parentBanId: fetchedBan.id,
+          delayMs,
         });
         notifyActiveBanCardVisible(fetchedBan.id);
         beginCtaSpringIn();
@@ -1912,8 +1976,9 @@ export function InstantBanFlow({
       return;
     }
 
-    flushSync(() => {
-      prepareLobbyBaseAfterSuccess('send-success');
+    commitSendSuccessExit({
+      lobbySource: 'send-success',
+      committedSameTick: true,
     });
     logOverlayPriority('send-success-unlock', {});
     unlockNotificationQueueAndFlush('send-success-unlock');
@@ -1921,21 +1986,17 @@ export function InstantBanFlow({
     beginCtaSpringIn();
   }, [
     beginCtaSpringIn,
-    clearActiveBanDeepLinkShell,
-    closeSendFlow,
+    commitSendSuccessExit,
     ensureReplyParentActiveBanForSuccess,
     getReplyParentActiveBanId,
     hasReplyParentActivePriorityPending,
-    markReplyParentActivePriorityShown,
     notifyActiveBanCardVisible,
     pendingStartupInteractions,
-    prepareLobbyBaseAfterSuccess,
     refreshReplyParentActiveBanInBackground,
     releaseStartupInteractions,
     resolveReplyParentActiveBanImmediate,
+    setSuccessToActiveLobbyBlockedState,
     unlockNotificationQueueAndFlush,
-    setCrossScreenProgressImmediate,
-    stopCrossScreenAnim,
   ]);
 
   useEffect(() => {
@@ -3576,7 +3637,11 @@ export function InstantBanFlow({
         replyUiShellActive ? ' instant-ban-flow--reply-ui-shell' : ''
       }${activeBanUiShellActive ? ' instant-ban-flow--active-ban-ui-shell' : ''}${
         bootIntroActive ? ' lobby-screen--boot-intro-active' : ''
-      }${persistentLobbyLogoActive ? ' instant-ban-flow--persistent-lobby-logo' : ''}`}
+      }${persistentLobbyLogoActive ? ' instant-ban-flow--persistent-lobby-logo' : ''}${
+        successToActiveLobbyBlocked
+          ? ' instant-ban-flow--success-to-active-lobby-blocked'
+          : ''
+      }`}
       style={arenaOverlayStyle}
       role="dialog"
       aria-modal="true"
