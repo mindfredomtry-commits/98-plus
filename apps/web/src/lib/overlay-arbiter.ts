@@ -140,14 +140,12 @@ export function evaluateOverlayEnqueue(
   return { accept: true, reason: 'enqueue' };
 }
 
-/** Keep only the single most relevant pending item during app launch hold. */
-export function mergeStartupPendingSingle(
-  current: QueuedOverlay[],
-  incoming: QueuedOverlay,
+function mergeStartupPendingDeduped(
+  items: readonly QueuedOverlay[],
   now = Date.now(),
 ): QueuedOverlay[] {
   const byKey = new Map<string, QueuedOverlay>();
-  for (const item of [...current, incoming]) {
+  for (const item of items) {
     const key = overlayQueueKey(item);
     const prev = byKey.get(key);
     if (
@@ -157,15 +155,31 @@ export function mergeStartupPendingSingle(
       byKey.set(key, item);
     }
   }
-  const candidates = [...byKey.values()];
-  if (candidates.length === 0) return [];
-  candidates.sort((a, b) => {
-    const dt =
-      overlayEventTimestamp(b, now) - overlayEventTimestamp(a, now);
+  return [...byKey.values()].sort((a, b) => {
+    const dt = overlayEventTimestamp(b, now) - overlayEventTimestamp(a, now);
     if (dt !== 0) return dt;
     return overlayKindPriority(b.kind) - overlayKindPriority(a.kind);
   });
+}
+
+/** Keep only the single most relevant pending item during app launch hold. */
+export function mergeStartupPendingSingle(
+  current: QueuedOverlay[],
+  incoming: QueuedOverlay,
+  now = Date.now(),
+): QueuedOverlay[] {
+  const candidates = mergeStartupPendingDeduped([...current, incoming], now);
+  if (candidates.length === 0) return [];
   return [candidates[0]!];
+}
+
+/** Keep all pending items during reply-deeplink notification-chain prefetch. */
+export function mergeStartupPendingChain(
+  current: readonly QueuedOverlay[],
+  incoming: readonly QueuedOverlay[],
+  now = Date.now(),
+): QueuedOverlay[] {
+  return mergeStartupPendingDeduped([...current, ...incoming], now);
 }
 
 /** Drop auto-show-expired items from the notification queue (history endpoints unaffected). */

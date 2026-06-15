@@ -23,6 +23,7 @@ import {
   unsaveBanForUser,
   getPendingIncoming,
   getPendingIncomingForPoll,
+  getAllPendingIncomingForPoll,
   getPendingCheck,
   getPendingCheckForPoll,
   getPendingResultForPoll,
@@ -95,6 +96,11 @@ bansRouter.get('/pending/incoming', async (req: AuthRequest, res) => {
 bansRouter.get('/incoming/pending', async (req: AuthRequest, res) => {
   const ban = await getPendingIncomingForPoll(req.userId!);
   res.json({ ban });
+});
+
+bansRouter.get('/incoming/pending-all', async (req: AuthRequest, res) => {
+  const bans = await getAllPendingIncomingForPoll(req.userId!);
+  res.json({ bans });
 });
 
 bansRouter.get('/pending/check', async (req: AuthRequest, res) => {

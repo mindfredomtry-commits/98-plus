@@ -1611,6 +1611,44 @@ export async function getPendingIncomingForPoll(userId: string) {
   return mapBanToInteraction(ban.id, userId);
 }
 
+/** All offerable pending incoming rows (newest first) — for client notification-chain prefetch. */
+export async function getAllPendingIncomingForPoll(
+  userId: string,
+): Promise<BanInteraction[]> {
+  const cutoff = new Date(Date.now() - INCOMING_PENDING_MAX_AGE_MS);
+
+  const rows = await prisma.ban.findMany({
+    where: {
+      receiverId: userId,
+      status: 'PENDING',
+      receiverIncomingAckAt: null,
+      isOverboard: false,
+      handledAt: null,
+      createdAt: { gte: cutoff },
+      counterBans: { none: {} },
+    },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      _count: { select: { counterBans: true } },
+    },
+  });
+
+  const out: BanInteraction[] = [];
+  for (const ban of rows) {
+    const reject = pendingIncomingRejectReason(ban, userId, cutoff);
+    if (reject) continue;
+    out.push(await mapBanToInteraction(ban.id, userId));
+  }
+
+  console.log('[incoming-pending-all]', {
+    userId,
+    count: out.length,
+    banIds: out.map((b) => b.id),
+  });
+
+  return out;
+}
+
 /** Receiver dismissed incoming UI — does not activate ban (status stays PENDING). */
 export async function acknowledgeIncomingBan(
   banId: string,
