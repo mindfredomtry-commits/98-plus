@@ -316,7 +316,11 @@ export function InstantBanFlow({
     releaseStartupInteractions,
     unlockNotificationQueueAndFlush,
     markSessionBanSendSuccess,
-    fetchReplyParentActiveBanForSuccess,
+    resolveReplyParentActiveBanImmediate,
+    refreshReplyParentActiveBanInBackground,
+    hasReplyParentActivePriorityPending,
+    getReplyParentActiveBanId,
+    fetchReplyParentActiveBanFallback,
     markReplyParentActivePriorityShown,
     isReplyParentActivePriorityActive,
     releaseNotificationQueueAfterReplyParentActive,
@@ -1821,6 +1825,7 @@ export function InstantBanFlow({
   );
 
   const handleSuccessExitComplete = useCallback(() => {
+    const successExitStartedAt = performance.now();
     console.log('[queue-debug] success exit', {
       fromActiveRepeat: activeBanRepeatComposeRef.current,
       pendingStartupInteractions,
@@ -1851,39 +1856,81 @@ export function InstantBanFlow({
       setPhase('idle');
     });
 
-    void (async () => {
-      const parentBan = await fetchReplyParentActiveBanForSuccess();
-      if (parentBan) {
+    const parentBan = resolveReplyParentActiveBanImmediate();
+    if (parentBan) {
+      flushSync(() => {
+        prepareLobbyBaseAfterSuccess('reply-parent-active');
+        markReplyParentActivePriorityShown(parentBan.id);
+        lockNotificationQueue('deep-link-active-ban', parentBan.id);
+        setLobbyActiveBanOverlay(parentBan);
+        logOpenActiveBanCard(parentBan.id, 'reply-parent-active-on-lobby');
+      });
+      console.log('[reply-parent-active-delay-ms]', {
+        ms: Math.round(performance.now() - successExitStartedAt),
+      });
+      notifyActiveBanCardVisible(parentBan.id);
+      beginCtaSpringIn();
+      refreshReplyParentActiveBanInBackground(parentBan.id);
+      return;
+    }
+
+    const parentBanId = hasReplyParentActivePriorityPending()
+      ? getReplyParentActiveBanId()
+      : null;
+    if (parentBanId) {
+      console.log('[reply-parent-active-fetch-blocked]', {
+        reason: 'no-immediate-cache',
+        parentBanId,
+      });
+      void (async () => {
+        const fetchedBan = await fetchReplyParentActiveBanFallback(parentBanId);
+        console.log('[reply-parent-active-delay-ms]', {
+          ms: Math.round(performance.now() - successExitStartedAt),
+        });
+        if (!fetchedBan) {
+          flushSync(() => {
+            prepareLobbyBaseAfterSuccess('send-success');
+          });
+          logOverlayPriority('send-success-unlock', {});
+          unlockNotificationQueueAndFlush('send-success-unlock');
+          releaseStartupInteractions({ force: true });
+          beginCtaSpringIn();
+          return;
+        }
         flushSync(() => {
           prepareLobbyBaseAfterSuccess('reply-parent-active');
-          markReplyParentActivePriorityShown(parentBan.id);
-          lockNotificationQueue('deep-link-active-ban', parentBan.id);
-          setLobbyActiveBanOverlay(parentBan);
-          logOpenActiveBanCard(parentBan.id, 'reply-parent-active-on-lobby');
+          markReplyParentActivePriorityShown(fetchedBan.id);
+          lockNotificationQueue('deep-link-active-ban', fetchedBan.id);
+          setLobbyActiveBanOverlay(fetchedBan);
+          logOpenActiveBanCard(fetchedBan.id, 'reply-parent-active-on-lobby');
         });
-        notifyActiveBanCardVisible(parentBan.id);
+        notifyActiveBanCardVisible(fetchedBan.id);
         beginCtaSpringIn();
-        return;
-      }
+      })();
+      return;
+    }
 
-      flushSync(() => {
-        prepareLobbyBaseAfterSuccess('send-success');
-      });
-      logOverlayPriority('send-success-unlock', {});
-      unlockNotificationQueueAndFlush('send-success-unlock');
-      releaseStartupInteractions({ force: true });
-      beginCtaSpringIn();
-    })();
+    flushSync(() => {
+      prepareLobbyBaseAfterSuccess('send-success');
+    });
+    logOverlayPriority('send-success-unlock', {});
+    unlockNotificationQueueAndFlush('send-success-unlock');
+    releaseStartupInteractions({ force: true });
+    beginCtaSpringIn();
   }, [
     beginCtaSpringIn,
     clearActiveBanDeepLinkShell,
     closeSendFlow,
-    fetchReplyParentActiveBanForSuccess,
+    fetchReplyParentActiveBanFallback,
+    getReplyParentActiveBanId,
+    hasReplyParentActivePriorityPending,
     markReplyParentActivePriorityShown,
     notifyActiveBanCardVisible,
     pendingStartupInteractions,
     prepareLobbyBaseAfterSuccess,
+    refreshReplyParentActiveBanInBackground,
     releaseStartupInteractions,
+    resolveReplyParentActiveBanImmediate,
     unlockNotificationQueueAndFlush,
     setCrossScreenProgressImmediate,
     stopCrossScreenAnim,
