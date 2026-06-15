@@ -1017,6 +1017,37 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     null,
   );
 
+  const isUserAllowedCheckOverlayCloseReason = (reason: string) =>
+    reason === 'user-answer' || reason === 'clear-check-overlay';
+
+  const isActiveCheckOverlayMounted = () => {
+    const banId = checkBanRef.current?.id?.trim() ?? '';
+    if (!banId) return false;
+    const head = overlayQueueRef.current[0];
+    return head?.kind === 'check' && head.ban.id === banId;
+  };
+
+  const shouldBlockActiveCheckOverlayAutoClose = (
+    source: string,
+    reason: string,
+  ): boolean => {
+    const banId = checkBanRef.current?.id?.trim() ?? '';
+    if (!banId || isUserAllowedCheckOverlayCloseReason(reason)) return false;
+    if (!isActiveCheckOverlayMounted()) return false;
+    console.log('[check-overlay-auto-close-attempt]', { banId, source, reason });
+    console.log('[check-overlay-close-blocked]', {
+      banId,
+      reason: 'no-user-action',
+    });
+    console.log('[chain-auto-advance-bug]', {
+      activeKind: 'check',
+      banId,
+      source,
+      autoCloseReason: reason,
+    });
+    return true;
+  };
+
   const activeBanDeepLinkBanIdRef = useRef<string | null>(null);
   useEffect(() => {
     activeBanDeepLinkBanIdRef.current = activeBanDeepLinkBanId;
@@ -1277,13 +1308,33 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
 
     if (isNotificationQueueLocked()) {
+      if (!shouldBlockActiveCheckOverlayAutoClose('syncDisplayFromQueue', 'queue-locked')) {
+        checkBanRef.current = null;
+        setCheckBan(null);
+      }
       incomingBanRef.current = null;
-      checkBanRef.current = null;
       setIncomingBan(null);
-      setCheckBan(null);
     } else {
       const nextIncoming = active?.kind === 'incoming' ? active.ban : null;
-      const nextCheck = active?.kind === 'check' ? active.ban : null;
+      let nextCheck = active?.kind === 'check' ? active.ban : null;
+      const mountedCheckId = checkBanRef.current?.id?.trim() ?? '';
+      if (
+        mountedCheckId &&
+        !nextCheck &&
+        overlayQueueRef.current[0]?.kind === 'check' &&
+        overlayQueueRef.current[0].ban.id === mountedCheckId
+      ) {
+        console.log('[check-overlay-auto-close-attempt]', {
+          banId: mountedCheckId,
+          source: 'syncDisplayFromQueue',
+          reason: 'clear-mounted-check',
+        });
+        console.log('[check-overlay-close-blocked]', {
+          banId: mountedCheckId,
+          reason: 'no-user-action',
+        });
+        nextCheck = checkBanRef.current;
+      }
       incomingBanRef.current = nextIncoming;
       checkBanRef.current = nextCheck;
       setIncomingBan(nextIncoming);
@@ -1621,6 +1672,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return;
       }
+      if (
+        prevHead?.kind === 'check' &&
+        prevHead.ban.id === checkBanRef.current?.id &&
+        prevKey !== nextKey &&
+        shouldBlockActiveCheckOverlayAutoClose('applyOverlayQueue', 'head-change')
+      ) {
+        return;
+      }
       chainAdvanceExplicitRef.current = false;
       activeOverlayLockRef.current = nextKey;
       if (nextKey) {
@@ -1721,6 +1780,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (reason: string, nextQueue?: QueuedOverlay[]) => {
       const prev = overlayQueueRef.current;
       const prevKey = prev[0] ? overlayQueueKey(prev[0]) : null;
+      if (
+        prev[0]?.kind === 'check' &&
+        prev[0].ban.id === checkBanRef.current?.id &&
+        shouldBlockActiveCheckOverlayAutoClose('dismissCurrentOverlay', reason)
+      ) {
+        return;
+      }
       const remaining = nextQueue ?? popOverlayHead(prev);
       const drainTotal = prev.length;
       const dismissTs = overlayTs();
@@ -2531,6 +2597,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         syncPendingStartupCount();
         return;
       }
+      if (isActiveCheckOverlayMounted()) {
+        console.log('[check-overlay-close-blocked]', {
+          banId: checkBanRef.current?.id ?? null,
+          reason: 'no-user-action',
+        });
+        console.log('[chain-drain-continue-blocked]', {
+          reason: 'active-check-mounted',
+          source: 'releaseStartupInteractions',
+          pendingCount: releasable.length,
+        });
+        pendingStartupInteractionsRef.current = releasable;
+        syncPendingStartupCount();
+        return;
+      }
       if (isNotificationChainPausedForReply()) {
         console.log('[chain-reply-block-next-notification]', {
           parentBanId: replyDeeplinkParentBanIdRef.current,
@@ -3077,6 +3157,33 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       const { queue: restoredQueue } = enqueueWithActiveLock(next, removed);
       next = restoredQueue;
+    }
+
+    const mountedCheckId = checkBanRef.current?.id?.trim() ?? '';
+    if (mountedCheckId && !hasCheckInQueue(next, mountedCheckId)) {
+      const mountedCheckItem =
+        prev.find(
+          (q) => q.kind === 'check' && q.ban.id === mountedCheckId,
+        ) ??
+        (checkBanRef.current
+          ? ({ kind: 'check' as const, ban: checkBanRef.current })
+          : null);
+      if (mountedCheckItem) {
+        console.log('[check-overlay-auto-close-attempt]', {
+          banId: mountedCheckId,
+          source: 'pruneAndSyncOverlayQueue',
+          reason: 'ttl-or-prune-removed-mounted-check',
+        });
+        console.log('[check-overlay-close-blocked]', {
+          banId: mountedCheckId,
+          reason: 'no-user-action',
+        });
+        const { queue: restoredQueue } = enqueueWithActiveLock(
+          next,
+          mountedCheckItem,
+        );
+        next = restoredQueue;
+      }
     }
 
     applyOverlayQueue(next);
@@ -4004,6 +4111,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       answeredCheckRef.current.add(banId);
       markCheckAnsweredLocally(uid, banId);
       checkAnswerInFlightRef.current.add(banId);
+      console.log('[check-overlay-user-answer]', {
+        banId,
+        answer: completed,
+      });
       console.log('[CHECK OVERLAY DISMISSED]', {
         banId,
         reason: 'user-answer',
@@ -8638,6 +8749,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const openLobby = useCallback((source?: string) => {
     const snapshot = getNotificationChainDebugSnapshot();
+    if (isActiveCheckOverlayMounted()) {
+      console.log('[chain-open-lobby-blocked]', {
+        source: source ?? 'default',
+        reason: 'active-check-mounted',
+        checkBanId: checkBanRef.current?.id ?? null,
+        ...snapshot,
+      });
+      return;
+    }
     if (hasPendingNotificationChain()) {
       console.log('[chain-open-lobby-blocked]', {
         source: source ?? 'default',

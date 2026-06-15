@@ -107,6 +107,10 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
 
   useLayoutEffect(() => {
     if (!canRender || !checkBan?.id) return;
+    console.log('[check-overlay-mounted]', {
+      banId: checkBan.id,
+      source: 'CheckOverlay',
+    });
     reportOverlayRendered('check', checkBan.id, true);
   }, [canRender, checkBan?.id, reportOverlayRendered]);
 
