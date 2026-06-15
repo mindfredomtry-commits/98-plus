@@ -4315,6 +4315,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return { ok: false, error: 'Нет авторизации' };
       }
 
+      console.log('[check-overlay-submit-start]', { banId, answer: completed });
       dismissedCheckSessionRef.current.add(banId);
       answeredCheckRef.current.add(banId);
       markCheckAnsweredLocally(uid, banId);
@@ -4389,9 +4390,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           scheduleResultPollBurst();
         }
 
+        console.log('[check-overlay-submit-success]', { banId });
         return { ok: true };
       } catch (e) {
         const message = e instanceof Error ? e.message : 'Ошибка отправки';
+        console.log('[check-overlay-submit-error]', { banId, error: message });
         challengeLog('check:submit-failed', { banId, message });
         return { ok: false, error: message };
       } finally {
@@ -7879,16 +7882,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const releaseNotificationQueueAfterReplyParentActive = useCallback(() => {
-    if (!replyParentActivePriorityActiveRef.current) return;
+    const hadPriority = replyParentActivePriorityActiveRef.current;
     console.log('[active-timer-user-close]', {
       banId: getActiveTimerBanId(),
+      hadPriority,
     });
-    console.log('[notification-queue-release-after-parent-active]');
     clearReplyParentActivePriority('queue-release');
     activeBanCardVisibleRef.current = false;
     setActiveBanCardReady(false);
     activeBanDeepLinkBanIdRef.current = null;
+    setActiveBanDeepLinkBanId(null);
     deepLinkBlockedRef.current = false;
+    console.log('[notification-queue-release-after-parent-active]', {
+      hadPriority,
+    });
 
     if (isNotificationQueueLocked()) {
       unlockNotificationQueue('notification-queue-release-after-parent-active');
@@ -9946,20 +9953,48 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       (notificationQueueShellKind === 'incoming' &&
         !replyIncomingDirectPath));
 
+  const checkOverlayInteractive =
+    checkGateActive &&
+    notificationQueueShellKind === 'check' &&
+    !!checkBan?.id;
+  const notificationHostBlockedByActiveBanShell =
+    !checkOverlayInteractive &&
+    (activeBanCardReady || replyParentActivePriorityActiveRef.current);
   const notificationHostLayerActive =
     !sendSuccessCardActive &&
     !notificationChainReplyComposePaused &&
-    !activeBanCardReady &&
-    !replyParentActivePriorityActiveRef.current &&
+    !notificationHostBlockedByActiveBanShell &&
     (notificationSessionActive ||
       incomingJsxWillRender ||
-      showReplyIncomingOverlayDirect);
+      showReplyIncomingOverlayDirect ||
+      checkOverlayInteractive);
   const notificationHostSessionBackdrop =
     !sendSuccessCardActive &&
     !notificationChainReplyComposePaused &&
-    !activeBanCardReady &&
-    !replyParentActivePriorityActiveRef.current &&
-    (notificationSessionActive || incomingJsxWillRender);
+    !notificationHostBlockedByActiveBanShell &&
+    (notificationSessionActive ||
+      incomingJsxWillRender ||
+      checkOverlayInteractive);
+
+  useLayoutEffect(() => {
+    if (!checkOverlayInteractive || !checkBan?.id) return;
+    console.log('[check-overlay-layer-debug]', {
+      topLayer: 'GlobalOverlayHost',
+      hostActive: notificationHostLayerActive,
+      backdropActive: notificationHostSessionBackdrop,
+      activeTimerMounted: isActiveTimerOverlayMounted(),
+      successMounted: sendSuccessCardActiveRef.current,
+      checkBanId: checkBan.id,
+      activeBanCardReady,
+      replyParentActivePriority: replyParentActivePriorityActiveRef.current,
+    });
+  }, [
+    activeBanCardReady,
+    checkBan?.id,
+    checkOverlayInteractive,
+    notificationHostLayerActive,
+    notificationHostSessionBackdrop,
+  ]);
 
   useLayoutEffect(() => {
     if (!notificationChainReplyComposePaused) return;
@@ -10427,6 +10462,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             <GlobalOverlayHost
               active={notificationHostLayerActive}
               queueSessionActive={notificationHostSessionBackdrop}
+              checkInteractive={checkOverlayInteractive}
               activeOverlayKind={
                 showReplyIncomingOverlayDirect
                   ? 'incoming'

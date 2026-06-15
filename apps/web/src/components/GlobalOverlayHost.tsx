@@ -12,6 +12,8 @@ interface Props {
   children: ReactNode;
   /** Keeps session backdrop visible between queued cards. */
   queueSessionActive?: boolean;
+  /** Check card mounted — force pointer-events on notification host. */
+  checkInteractive?: boolean;
   /** Only one notification overlay kind is mounted at a time. */
   activeOverlayKind?: ActiveOverlayKind | null;
   activeIncomingBanId?: string | null;
@@ -25,6 +27,7 @@ export function GlobalOverlayHost({
   active,
   children,
   queueSessionActive = false,
+  checkInteractive = false,
   activeOverlayKind = null,
   activeIncomingBanId = null,
 }: Props) {
@@ -48,7 +51,7 @@ export function GlobalOverlayHost({
     <div
       className={`app-notification-layer${active ? ' app-notification-layer--active' : ''}${
         queueSessionActive ? ' app-notification-layer--session' : ''
-      }`}
+      }${checkInteractive ? ' app-notification-layer--check-interactive' : ''}`}
       style={{ zIndex: APP_NOTIFICATION_Z_INDEX }}
       data-notification-layer=""
       aria-hidden={!active}

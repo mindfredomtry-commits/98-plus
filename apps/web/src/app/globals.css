@@ -946,13 +946,21 @@ html.scroll-lock body {
   isolation: isolate;
 }
 
+.app-notification-layer--check-interactive {
+  pointer-events: auto;
+}
+
+.app-notification-layer--check-interactive .app-notification-layer__content {
+  pointer-events: auto;
+}
+
 .app-notification-layer__session-backdrop {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.78);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  pointer-events: auto;
+  pointer-events: none;
   z-index: 0;
 }
 

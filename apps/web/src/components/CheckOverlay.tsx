@@ -6,6 +6,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -44,6 +45,7 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
   } = useApp();
   const { haptic } = useTelegram();
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const actionsRef = useRef<HTMLDivElement>(null);
 
   const modalView = useMemo(() => {
     if (!checkBan) return null;
@@ -81,7 +83,7 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
   const answer = useCallback(
     async (completed: boolean) => {
       if (!checkBan?.id || !token || !modalView) {
-        console.log('[check-overlay-click-blocked]', {
+        console.log('[check-overlay-click-missed]', {
           banId: checkBan?.id ?? null,
           reason: !checkBan?.id
             ? 'no-ban'
@@ -121,9 +123,20 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
 
   useLayoutEffect(() => {
     if (!canRender || !checkBan?.id) return;
+    const yesBtn = actionsRef.current?.querySelector<HTMLButtonElement>(
+      '.check-answer-btn',
+    );
+    const yesStyle = yesBtn ? window.getComputedStyle(yesBtn) : null;
     console.log('[check-overlay-mounted]', {
       banId: checkBan.id,
-      source: 'CheckOverlay',
+      hasOnClick: yesBtn != null,
+      disabled: yesBtn?.disabled ?? null,
+    });
+    console.log('[check-overlay-button-pointer]', {
+      banId: checkBan.id,
+      button: 'yes',
+      pointerEvents: yesStyle?.pointerEvents ?? null,
+      zIndex: yesStyle?.zIndex ?? null,
     });
     console.log('[check-overlay-pointer-layer]', {
       banId: checkBan.id,
@@ -172,7 +185,7 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
         </p>
       ) : null}
 
-      <div className="check-modal-actions space-y-2.5">
+      <div className="check-modal-actions space-y-2.5" ref={actionsRef}>
         <BigButton
           className="check-answer-btn"
           aria-label={yesLabel}
