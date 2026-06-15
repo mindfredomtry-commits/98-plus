@@ -316,6 +316,10 @@ export function InstantBanFlow({
     releaseStartupInteractions,
     unlockNotificationQueueAndFlush,
     markSessionBanSendSuccess,
+    resolveReplyParentActiveBanForSuccess,
+    markReplyParentActivePriorityShown,
+    isReplyParentActivePriorityActive,
+    releaseNotificationQueueAfterReplyParentActive,
     incomingGateActive,
     checkGateActive,
     notificationSessionActive,
@@ -1679,7 +1683,9 @@ export function InstantBanFlow({
       if (wasBansCta) {
         clearBansCtaQueueSuppress();
       }
-      if (isNotificationQueueLocked() || wasBansCta) {
+      if (isReplyParentActivePriorityActive()) {
+        releaseNotificationQueueAfterReplyParentActive();
+      } else if (isNotificationQueueLocked() || wasBansCta) {
         unlockNotificationQueueAndFlush(
           wasBansCta ? 'result-cta-bans-closed' : 'target-flow-closed',
         );
@@ -1692,10 +1698,12 @@ export function InstantBanFlow({
       clearCtaEnterTimer,
       clearResultCtaBansOverlayOpen,
       completeBansOverlayCloseFromResultCta,
+      isReplyParentActivePriorityActive,
       onClose,
       lobbyOpen,
       notificationOverlayActive,
       notificationSessionActive,
+      releaseNotificationQueueAfterReplyParentActive,
       resetSendUiForBansCta,
       scheduleCtaBecomeVisible,
       scheduleLobbyVisibilityCheck,
@@ -1710,10 +1718,19 @@ export function InstantBanFlow({
   }, [handleCloseBansOverlay]);
 
   const handleActiveBanBackToBansList = useCallback(() => {
+    if (isReplyParentActivePriorityActive()) {
+      setSelectedBanForDetails(null);
+      releaseNotificationQueueAfterReplyParentActive();
+      return;
+    }
     logOverlayPriority('explicit-bans-open-unlock', { source: 'active-ban-back' });
     unlockNotificationQueueAndFlush('explicit-bans-open-unlock');
     setSelectedBanForDetails(null);
-  }, [unlockNotificationQueueAndFlush]);
+  }, [
+    isReplyParentActivePriorityActive,
+    releaseNotificationQueueAfterReplyParentActive,
+    unlockNotificationQueueAndFlush,
+  ]);
 
   const handleBanShare = useCallback(
     (ban: BanInteraction) => {
@@ -1775,16 +1792,31 @@ export function InstantBanFlow({
     setComposeDismissing(false);
     setCrossScreenProgressImmediate(0);
     setPhase('idle');
+
+    const parentBan = resolveReplyParentActiveBanForSuccess();
+    if (parentBan) {
+      markReplyParentActivePriorityShown(parentBan.id);
+      lockNotificationQueue('deep-link-active-ban', parentBan.id);
+      beginActiveBanFromDeepLink(parentBan);
+      notifyActiveBanCardVisible(parentBan.id);
+      beginCtaSpringIn();
+      return;
+    }
+
     logOverlayPriority('send-success-unlock', {});
     unlockNotificationQueueAndFlush('send-success-unlock');
     releaseStartupInteractions({ force: true });
     beginCtaSpringIn();
   }, [
+    beginActiveBanFromDeepLink,
     beginCtaSpringIn,
     clearActiveBanDeepLinkShell,
     closeSendFlow,
+    markReplyParentActivePriorityShown,
+    notifyActiveBanCardVisible,
     pendingStartupInteractions,
     releaseStartupInteractions,
+    resolveReplyParentActiveBanForSuccess,
     unlockNotificationQueueAndFlush,
     setCrossScreenProgressImmediate,
     stopCrossScreenAnim,
