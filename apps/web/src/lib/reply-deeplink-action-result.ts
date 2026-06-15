@@ -86,8 +86,8 @@ export function getReplyDeeplinkActionResult(
   }
 
   console.log('[reply-result-read]', {
-    userId: uid,
-    banId: bid,
+    viewerId: uid,
+    deeplinkBanId: bid,
     key,
     result,
   });
@@ -132,6 +132,11 @@ export function markReplyDeeplinkSent(
     kind: 'reply_ban_sent',
     userId: uid,
     banId: bid,
+  });
+  console.log('[reply-sent-write]', {
+    viewerId: uid,
+    parentBanId: bid,
+    key,
   });
   console.log('[reply-result-write]', {
     kind: 'reply_ban_sent',

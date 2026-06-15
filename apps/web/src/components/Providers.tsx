@@ -792,6 +792,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     banId: string;
   } | null>(null);
   const replyDeeplinkCompletedRouteBanIdRef = useRef<string | null>(null);
+  const replyDeeplinkParentBanIdRef = useRef<string | null>(null);
+  const replyFlowStartedForBanIdRef = useRef<string | null>(null);
+  const replyComposeActiveRef = useRef(false);
   const [lobbyIntroPrimedEpoch, setLobbyIntroPrimedEpoch] = useState(0);
   const [replyCompletedRouteEpoch, setReplyCompletedRouteEpoch] = useState(0);
   const replyDeeplinkFastOpenedRef = useRef(false);
@@ -817,6 +820,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const incomingReplyComposeDismissedRef = useRef<Set<string>>(new Set());
   const [replyToBanId, setReplyToBanId] = useState<string | null>(null);
   const [replyComposeActive, setReplyComposeActive] = useState(false);
+  useEffect(() => {
+    replyComposeActiveRef.current = replyComposeActive;
+  }, [replyComposeActive]);
   const [replyDeepLinkBanId, setReplyDeepLinkBanId] = useState<string | null>(null);
   const [replyHandoffLock, setReplyHandoffLock] = useState(false);
   const [replyWhatReady, setReplyWhatReady] = useState(false);
@@ -851,8 +857,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const armReplyDeepLink = useCallback((banId: string) => {
-    if (replyDeeplinkCompletedRouteBanIdRef.current === banId.trim()) {
+    const bid = banId.trim();
+    if (replyDeeplinkCompletedRouteBanIdRef.current === bid) {
       logReplyFlowLoopGuard('skip arm after completed route');
+      return;
+    }
+    if (replyFlowStartedForBanIdRef.current === bid) {
+      logReplyFlowLoopGuard('skip arm after reply flow started');
+      return;
+    }
+    if (incomingReplyComposeDismissedRef.current.has(bid)) {
+      logReplyFlowLoopGuard('skip arm after compose dismiss');
       return;
     }
     if (activeBanDeepLinkBanId != null || activeBanCardVisibleRef.current) {
@@ -1047,6 +1062,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       if (action?.type === 'reply') {
         replyDeeplinkPendingBanIdRef.current = action.banId;
+        replyDeeplinkParentBanIdRef.current = action.banId;
         const viewerId = userIdRef.current ?? auth.user?.id ?? null;
         replyDeeplinkRepeatEntryRef.current = Boolean(
           viewerId &&
@@ -1061,6 +1077,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const action = parseStartParam(readPriorityStartParamRaw() ?? undefined);
       if (action?.type === 'reply') {
         replyDeeplinkPendingBanIdRef.current = action.banId;
+        replyDeeplinkParentBanIdRef.current = action.banId;
         const viewerId = userIdRef.current ?? auth.user?.id ?? null;
         replyDeeplinkRepeatEntryRef.current = Boolean(
           viewerId &&
@@ -3752,6 +3769,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [applyOverlayQueue, clearReplyFastSessionAfterAnswer],
   );
 
+  const shouldBlockIncomingCardReopen = useCallback(
+    (parentBanId: string): string | null => {
+      const bid = parentBanId.trim();
+      if (!bid) return null;
+      if (replyFlowStartedForBanIdRef.current === bid) {
+        return 'reply-flow-started';
+      }
+      if (incomingReplyComposeDismissedRef.current.has(bid)) {
+        return 'reply-compose-dismissed';
+      }
+      if (
+        replyComposeActiveRef.current &&
+        replyToBanIdPersistRef.current === bid
+      ) {
+        return 'reply-compose-active';
+      }
+      return null;
+    },
+    [],
+  );
+
   const dismissIncomingCardForReplyCompose = useCallback(
     (banId: string) => {
       incomingReplyComposeDismissedRef.current.add(banId);
@@ -3759,11 +3797,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const beforeQueue = overlayQueueRef.current;
       const beforeLen = beforeQueue.length;
       const nextQueue = removeOverlaysForBan(beforeQueue, banId, ['incoming']);
-      if (nextQueue.length !== beforeLen) {
+      const removedFromQueue = nextQueue.length !== beforeLen;
+      if (removedFromQueue) {
         applyOverlayQueue(nextQueue);
       } else if (overlayQueueRef.current !== nextQueue) {
         overlayQueueRef.current = nextQueue;
         setOverlayQueue(nextQueue);
+      }
+
+      if (
+        overlayQueueRef.current[0]?.kind === 'incoming' &&
+        overlayQueueRef.current[0].ban.id === banId
+      ) {
+        dismissCurrentOverlay('reply-compose-dismiss', nextQueue);
       }
 
       if (incomingBanRef.current?.id === banId) {
@@ -3775,44 +3821,49 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setReplyWhatReady(true);
       setDeepLinkReplyBooting(false);
 
+      console.log('[reply-card-close-before-what]', {
+        parentBanId: banId,
+        removedFromQueue,
+      });
       console.log('[INCOMING CARD DISMISSED FOR REPLY COMPOSE]', { banId });
       markVisibleOverboardTrace('[INCOMING CARD DISMISSED FOR REPLY COMPOSE]', {
         banId,
       });
     },
-    [applyOverlayQueue, clearReplyFastSessionAfterAnswer],
+    [applyOverlayQueue, clearReplyFastSessionAfterAnswer, dismissCurrentOverlay],
   );
 
   const finalizeIncomingReplyAfterSend = useCallback(
     (banId: string) => {
       const uid = userIdRef.current?.trim();
-      const parentBanId = banId.trim();
+      const parentBanId = (replyDeeplinkParentBanIdRef.current ?? banId).trim();
       if (uid && parentBanId) {
         markReplyDeeplinkSent(uid, parentBanId);
       }
+      replyFlowStartedForBanIdRef.current = null;
       replyDeeplinkRepeatEntryRef.current = false;
       replyDeeplinkPendingBanIdRef.current = null;
       replyDeeplinkFastOpenedRef.current = false;
-      incomingConsumedAfterAnswerRef.current.add(banId);
-      dismissedIncomingRef.current.add(banId);
-      locallyAckedIncomingRef.current.add(banId);
-      incomingReplyComposeDismissedRef.current.delete(banId);
+      incomingConsumedAfterAnswerRef.current.add(parentBanId);
+      dismissedIncomingRef.current.add(parentBanId);
+      locallyAckedIncomingRef.current.add(parentBanId);
+      incomingReplyComposeDismissedRef.current.delete(parentBanId);
 
       const beforeQueue = overlayQueueRef.current;
-      const nextQueue = removeOverlaysForBan(beforeQueue, banId, ['incoming']);
+      const nextQueue = removeOverlaysForBan(beforeQueue, parentBanId, ['incoming']);
       if (nextQueue.length !== beforeQueue.length) {
         applyOverlayQueue(nextQueue);
       }
 
-      if (incomingBanRef.current?.id === banId) {
+      if (incomingBanRef.current?.id === parentBanId) {
         setIncomingBan(null);
       }
 
-      clearReplyFastSessionAfterAnswer(banId);
+      clearReplyFastSessionAfterAnswer(parentBanId);
 
-      console.log('[INCOMING REPLY FINALIZED AFTER SEND]', { banId });
+      console.log('[INCOMING REPLY FINALIZED AFTER SEND]', { banId: parentBanId });
       markVisibleOverboardTrace('[INCOMING REPLY FINALIZED AFTER SEND]', {
-        banId,
+        banId: parentBanId,
       });
     },
     [applyOverlayQueue, clearReplyFastSessionAfterAnswer],
@@ -4832,13 +4883,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (!viewerId || !token || auth.loading) return false;
 
       if (replyDeeplinkFastOpenedRef.current) return false;
-      if (
-        incomingReplyComposeDismissedRef.current.has(banId) &&
-        replyToBanIdPersistRef.current === banId
-      ) {
-        console.log('[INCOMING REOPEN BLOCKED REPLY COMPOSE ACTIVE]', { banId });
+      const reopenBlockReason = shouldBlockIncomingCardReopen(normalizedBanId);
+      if (reopenBlockReason) {
+        console.log('[reply-card-reopen-blocked]', {
+          parentBanId: normalizedBanId,
+          reason: reopenBlockReason,
+        });
         markVisibleOverboardTrace('[INCOMING REOPEN BLOCKED REPLY COMPOSE ACTIVE]', {
-          banId,
+          banId: normalizedBanId,
+          reason: reopenBlockReason,
         });
         return false;
       }
@@ -4995,6 +5048,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       replyDeeplinkFastOpenedRef.current = true;
       replyDeeplinkPendingBanIdRef.current = normalizedBanId;
+      replyDeeplinkParentBanIdRef.current = normalizedBanId;
       replyDeeplinkFastHydratedRef.current = usingPrefetch;
 
       let cardMounted = false;
@@ -5104,6 +5158,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       commitReplyIncomingDisplayBan,
       routeReplyDeeplinkCompleted,
       scheduleReplyFastTimeout,
+      shouldBlockIncomingCardReopen,
     ],
   );
 
@@ -5124,6 +5179,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
 
     if (incomingConsumedAfterAnswerRef.current.has(banId)) {
+      replyDeeplinkPrefillBanRef.current = null;
+      return;
+    }
+    if (
+      replyFlowStartedForBanIdRef.current === banId ||
+      incomingReplyComposeDismissedRef.current.has(banId)
+    ) {
+      console.log('[reply-card-reopen-blocked]', {
+        parentBanId: banId,
+        reason: 'prefill-effect-compose-active',
+      });
       replyDeeplinkPrefillBanRef.current = null;
       return;
     }
@@ -5206,13 +5272,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       const viewerId = userIdRef.current?.trim() ?? null;
       const deeplinkBanId = (
-        replyDeeplinkPendingBanIdRef.current ?? enriched.id
+        replyDeeplinkParentBanIdRef.current ??
+        replyDeeplinkPendingBanIdRef.current ??
+        enriched.id
       ).trim();
       const entry = resolveReplyDeeplinkEntry(
         enriched,
         viewerId,
         deeplinkBanId,
       );
+      const routeDecision =
+        entry === 'lobby_overboard'
+          ? 'completed_overboard'
+          : entry === 'lobby_sent'
+            ? 'completed_sent'
+            : entry === 'open_card'
+              ? 'open_card'
+              : 'reject';
+      console.log('[reply-route-decision]', {
+        decision: routeDecision,
+        deeplinkBanId,
+        banId: enriched.id,
+      });
       console.log('[reply-deeplink-route]', {
         entry,
         banId: deeplinkBanId,
@@ -5279,6 +5360,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason: why.reason,
         });
         resolveActiveDeepLinkRouteBoot(b.id);
+        return;
+      }
+
+      const reopenBlockReason = shouldBlockIncomingCardReopen(deeplinkBanId);
+      if (reopenBlockReason) {
+        console.log('[reply-card-reopen-blocked]', {
+          parentBanId: deeplinkBanId,
+          reason: reopenBlockReason,
+        });
+        logDeepLinkHandlerResult({
+          type: 'reply',
+          banId: b.id,
+          instantBanOpen: false,
+          sendFlowOpen: false,
+          selectedBanId: b.id,
+          overlayQueueLength: overlayQueueRef.current.length,
+          ok: true,
+          reason: `reply-compose-blocked:${reopenBlockReason}`,
+        });
         return;
       }
 
@@ -5394,6 +5494,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       hydrateReplyDeeplinkIncomingBan,
       replyDeepLinkBanId,
       routeReplyDeeplinkCompleted,
+      shouldBlockIncomingCardReopen,
     ],
   );
 
@@ -6548,6 +6649,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (ban: BanInteraction) => {
       const enriched = enrichBanInteraction(ban);
       pinReplyToBanId(ban.id);
+      replyComposeActiveRef.current = true;
       setReplyComposeActive(true);
       setIncomingReplyBanId(ban.id);
       setReplyDeepLinkBanId(ban.id);
@@ -6589,6 +6691,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const acknowledgeIncomingAndStartReply = useCallback(
     (ban: BanInteraction) => {
       const banId = ban.id;
+      const viewerId = userIdRef.current?.trim() ?? null;
+      console.log('[reply-card-action]', {
+        action: 'reply',
+        parentBanId: banId,
+        viewerId,
+      });
       console.log('[queue-reply-debug] reply clicked from queued incoming', {
         banId,
       });
@@ -6608,9 +6716,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setViralOnboarding(false);
       challengeLog('incoming:reply-open', { banId });
 
+      replyDeeplinkParentBanIdRef.current = banId;
+      replyFlowStartedForBanIdRef.current = banId;
+      dismissIncomingCardForReplyCompose(banId);
       beginReplyHandoff(banId);
       startIncomingReply(ban);
-      dismissIncomingCardForReplyCompose(banId);
 
       if (process.env.NODE_ENV === 'development') {
         console.log('[reply-click]', {

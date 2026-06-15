@@ -2998,7 +2998,9 @@ export function InstantBanFlow({
             }
             if (res.session) applySession(res.session);
             scheduleDeferredSync();
-            clearIncomingReply({ finalizeBanId: effectiveReplyBanId });
+            const parentBanIdForStorage =
+              res.parentId?.trim() || effectiveReplyBanId;
+            clearIncomingReply({ finalizeBanId: parentBanIdForStorage });
             openSuccess(res.replyBan.id, attemptId);
           } finally {
             setReplySending(false);

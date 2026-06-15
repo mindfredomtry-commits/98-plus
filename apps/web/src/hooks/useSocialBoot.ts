@@ -10,6 +10,7 @@ import {
   readStartParamRawFromLocation,
 } from '@/lib/deep-link-boot-debug';
 import { logReplyFlow } from '@/lib/reply-handoff-debug';
+import { getReplyDeeplinkActionResult } from '@/lib/reply-deeplink-action-result';
 import { logActiveBanDeeplink } from '@/lib/active-ban-deeplink-debug';
 import { armPendingDeepLinkRouteFromStartParam } from '@/lib/deep-link-route-boot';
 import {
@@ -202,16 +203,20 @@ export function useSocialBoot(h: BootHandlers) {
           break;
         }
         case 'reply': {
+          const storedResult = h.userId
+            ? getReplyDeeplinkActionResult(h.userId, action.banId)
+            : null;
           const fastPathAlreadyOpen = h.replyDeepLinkBanId === action.banId;
-          if (!fastPathAlreadyOpen) {
+          if (!storedResult && !fastPathAlreadyOpen) {
             h.armReplyDeepLink(action.banId);
             h.setDeepLinkReplyBooting(true);
           }
           logReplyFlow('incoming-loading', {
             banId: action.banId,
-            lockActive: true,
+            lockActive: !storedResult,
             fastPathAlreadyOpen,
             fastShell: h.replyDeeplinkFastShell,
+            storedResult,
           });
           try {
             const { ban } = await api<{ ban: BanInteraction }>(

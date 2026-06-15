@@ -1,6 +1,7 @@
 import type { BanInteraction } from '@98plus/shared';
 import {
   getReplyDeeplinkActionResult,
+  replyDeeplinkStorageKey,
 } from './reply-deeplink-action-result';
 
 export type ReplyDeeplinkEntry =
@@ -28,6 +29,10 @@ export function resolveReplyDeeplinkEntry(
   }
 
   const storageBanId = (deeplinkBanId ?? ban.id)?.trim() ?? '';
+  const storageKey =
+    viewer && storageBanId
+      ? replyDeeplinkStorageKey(viewer, storageBanId)
+      : null;
   const stored = storageBanId
     ? getReplyDeeplinkActionResult(viewer, storageBanId)
     : null;
@@ -35,8 +40,8 @@ export function resolveReplyDeeplinkEntry(
   if (stored === 'reply_ban_overboard') {
     console.log('[reply-guard-resolve]', {
       viewerId: viewer,
-      banId: ban.id ?? null,
       deeplinkBanId: storageBanId || null,
+      key: storageKey,
       banStatus: ban.status,
       storedResult: stored,
       decision: 'lobby_overboard',
@@ -46,8 +51,8 @@ export function resolveReplyDeeplinkEntry(
   if (stored === 'reply_ban_sent') {
     console.log('[reply-guard-resolve]', {
       viewerId: viewer,
-      banId: ban.id ?? null,
       deeplinkBanId: storageBanId || null,
+      key: storageKey,
       banStatus: ban.status,
       storedResult: stored,
       decision: 'lobby_sent',
@@ -164,6 +169,5 @@ export function prepareReplyDeeplinkReopen(
   opts.dismissedIncoming.delete(bid);
   opts.consumedAfterAnswer.delete(bid);
   opts.locallyAckedIncoming.delete(bid);
-  opts.replyComposeDismissed.delete(bid);
   opts.fastOpenedRef.current = false;
 }
