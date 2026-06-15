@@ -449,6 +449,10 @@ export function InstantBanFlow({
   const [successToActiveLobbyBlocked, setSuccessToActiveLobbyBlocked] =
     useState(false);
   const successToActiveLobbyBlockedRef = useRef(false);
+  const [overlayHandoffFromActiveCard, setOverlayHandoffFromActiveCard] =
+    useState(false);
+  const prevOverlayHandoffSuppressedRef = useRef(false);
+  const prevBansReturnToLobbyLatchRef = useRef(false);
   const [historyBans, setHistoryBans] = useState<BanInteraction[]>([]);
   const [savedBans, setSavedBans] = useState<BanInteraction[]>([]);
   const [archiveToast, setArchiveToast] = useState<string | null>(null);
@@ -464,12 +468,20 @@ export function InstantBanFlow({
     !activeBanDeepLinkBooting &&
     (phase === 'selectingTarget' || phase === 'composingBan');
   const overlayOpen = showCrossScreenPager;
-  const notificationOverlayActive = bansReturnToLobbyLatch
-    ? false
-    : notificationSessionActive ||
-      incomingGateActive ||
-      checkGateActive ||
-      !!result;
+  const notificationOverlayActive =
+    notificationSessionActive ||
+    incomingGateActive ||
+    checkGateActive ||
+    !!result;
+  const overlayHandoffLobbySuppressed =
+    lobbyActiveBanOverlay != null ||
+    successToActiveLobbyBlocked ||
+    overlayHandoffFromActiveCard ||
+    notificationOverlayActive ||
+    (bansReturnToLobbyLatch &&
+      (overlayQueueLength > 0 ||
+        pendingStartupInteractions ||
+        isNotificationQueueLocked()));
   const bansLayerUiOpen =
     !bansReturnToLobbyLatch &&
     (bansOverlayOpen || bansCtaQueueSuppress || resultCtaBansOverlayOpen);
@@ -517,11 +529,13 @@ export function InstantBanFlow({
   const lobbyOrbVisible =
     !replyIncomingDeeplinkPending &&
     !replyLobbyBlocked &&
-    !successToActiveLobbyBlocked;
+    !successToActiveLobbyBlocked &&
+    !overlayHandoffLobbySuppressed;
   const showLobbyCta =
     lobbyBootIntroPrimed &&
     !replyIncomingDeeplinkPending &&
     !successToActiveLobbyBlocked &&
+    !overlayHandoffLobbySuppressed &&
     (!replyLobbyBlocked || bansReturnToLobbyLatch) &&
     !deepLinkRouteBootPending &&
     !deepLinkReplyBooting &&
@@ -999,8 +1013,9 @@ export function InstantBanFlow({
     phase === 'idle' &&
     !banSentSuccess &&
     !successToActiveLobbyBlocked &&
+    !overlayHandoffLobbySuppressed &&
     !effectiveBansOverlayOpen &&
-    (!notificationQueueUiLock || bansReturnToLobbyLatch) &&
+    !notificationQueueUiLock &&
     !replyUiShellActive &&
     !deepLinkRouteBootPending;
   const showBansLayer =
@@ -1024,7 +1039,90 @@ export function InstantBanFlow({
       showLobbyCta,
       hasPlayedIntro: lobbyBootIntroPrimed,
     });
-  }, [lobbyBootIntroPrimed, showLobbyChrome, showLobbyCta]);
+  }, [
+    lobbyBootIntroPrimed,
+    showLobbyChrome,
+    showLobbyCta,
+    overlayHandoffLobbySuppressed,
+  ]);
+
+  useEffect(() => {
+    const wasSuppressed = prevOverlayHandoffSuppressedRef.current;
+    prevOverlayHandoffSuppressedRef.current = overlayHandoffLobbySuppressed;
+    if (wasSuppressed && !overlayHandoffLobbySuppressed) {
+      console.log('[overlay-handoff-lobby-visible]', {
+        reason: 'handoff-suppress-cleared',
+        bansReturnToLobbyLatch,
+        overlayQueueLength,
+        pendingStartupInteractions,
+        lobbyActiveBanOverlayId: lobbyActiveBanOverlay?.id ?? null,
+      });
+    }
+  }, [
+    bansReturnToLobbyLatch,
+    lobbyActiveBanOverlay?.id,
+    overlayHandoffLobbySuppressed,
+    overlayQueueLength,
+    pendingStartupInteractions,
+  ]);
+
+  useEffect(() => {
+    const wasLatch = prevBansReturnToLobbyLatchRef.current;
+    prevBansReturnToLobbyLatchRef.current = bansReturnToLobbyLatch;
+    if (
+      wasLatch &&
+      !bansReturnToLobbyLatch &&
+      overlayQueueLength === 0 &&
+      !pendingStartupInteractions
+    ) {
+      console.log('[overlay-handoff-queue-empty]', {
+        overlayQueueLength,
+        pendingStartupInteractions,
+      });
+    }
+  }, [
+    bansReturnToLobbyLatch,
+    overlayQueueLength,
+    pendingStartupInteractions,
+  ]);
+
+  useEffect(() => {
+    if (!overlayHandoffFromActiveCard) return;
+    if (
+      notificationSessionActive ||
+      incomingGateActive ||
+      checkGateActive ||
+      overlayQueueLength > 0
+    ) {
+      setOverlayHandoffFromActiveCard(false);
+      console.log('[overlay-handoff-complete]', {
+        toOverlay: activeOverlayKind,
+        overlayQueueLength,
+      });
+      return;
+    }
+    if (
+      !bansReturnToLobbyLatch &&
+      overlayQueueLength === 0 &&
+      !pendingStartupInteractions &&
+      !isNotificationQueueLocked()
+    ) {
+      setOverlayHandoffFromActiveCard(false);
+      console.log('[overlay-handoff-complete]', {
+        toOverlay: 'lobby',
+        overlayQueueLength,
+      });
+    }
+  }, [
+    activeOverlayKind,
+    bansReturnToLobbyLatch,
+    checkGateActive,
+    incomingGateActive,
+    notificationSessionActive,
+    overlayHandoffFromActiveCard,
+    overlayQueueLength,
+    pendingStartupInteractions,
+  ]);
 
   useEffect(() => {
     console.log('[LOBBY NAV STATE]', {
@@ -1773,7 +1871,12 @@ export function InstantBanFlow({
   }, [handleCloseBansOverlay]);
 
   const handleLobbyActiveBanOverlayBack = useCallback(() => {
+    console.log('[overlay-handoff-start]', {
+      fromOverlay: 'reply-parent-active',
+      toOverlay: 'notification-queue',
+    });
     flushSync(() => {
+      setOverlayHandoffFromActiveCard(true);
       setLobbyActiveBanOverlay(null);
     });
     releaseNotificationQueueAfterReplyParentActive();
@@ -1876,6 +1979,10 @@ export function InstantBanFlow({
         setPhase('idle');
 
         if (opts.lobbySource === 'reply-parent-active' && opts.parentActiveBan) {
+          console.log('[overlay-handoff-start]', {
+            fromOverlay: 'success',
+            toOverlay: 'reply-parent-active',
+          });
           prepareLobbyBaseAfterSuccess('reply-parent-active', {
             preserveActiveOverlay: true,
           });
@@ -1901,6 +2008,12 @@ export function InstantBanFlow({
         activeBanId: opts.parentActiveBan?.id ?? null,
         committedSameTick: opts.committedSameTick,
       });
+      if (opts.lobbySource === 'reply-parent-active' && opts.parentActiveBan) {
+        console.log('[overlay-handoff-complete]', {
+          toOverlay: 'reply-parent-active',
+          activeBanId: opts.parentActiveBan.id,
+        });
+      }
     },
     [
       clearActiveBanDeepLinkShell,
@@ -3641,6 +3754,10 @@ export function InstantBanFlow({
         successToActiveLobbyBlocked
           ? ' instant-ban-flow--success-to-active-lobby-blocked'
           : ''
+      }${
+        overlayHandoffLobbySuppressed
+          ? ' instant-ban-flow--overlay-handoff-lobby-blocked'
+          : ''
       }`}
       style={arenaOverlayStyle}
       role="dialog"
@@ -3891,7 +4008,7 @@ export function InstantBanFlow({
 
       {showLobbyCta &&
       !effectiveBansOverlayOpen &&
-      (!notificationQueueUiLock || bansReturnToLobbyLatch) ? (
+      !notificationQueueUiLock ? (
         <ArenaLobbyIdle
           influencePercent={lobbyInfluencePercent}
           energyLoaded={energyLoaded}

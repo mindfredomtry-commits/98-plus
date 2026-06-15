@@ -3220,7 +3220,9 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
 
 /* Hide naked lobby between success exit and active timer overlay (async fallback). */
 .instant-ban-flow--success-to-active-lobby-blocked .lobby-screen__orb-wrap,
-.instant-ban-flow--success-to-active-lobby-blocked .lobby-screen__cta-wrap {
+.instant-ban-flow--success-to-active-lobby-blocked .lobby-screen__cta-wrap,
+.instant-ban-flow--overlay-handoff-lobby-blocked .lobby-screen__orb-wrap,
+.instant-ban-flow--overlay-handoff-lobby-blocked .lobby-screen__cta-wrap {
   visibility: hidden;
   pointer-events: none;
 }
