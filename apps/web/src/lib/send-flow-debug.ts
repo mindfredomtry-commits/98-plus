@@ -11,7 +11,8 @@ export type SendFlowLogStage =
   | 'lobby-hint-shown'
   | 'blocked-late-success'
   | 'open-success'
-  | 'await-api-success';
+  | 'await-api-success'
+  | 'send-success-open';
 
 export function logSendFlow(
   stage: SendFlowLogStage,

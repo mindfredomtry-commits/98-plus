@@ -109,7 +109,9 @@ import {
   isLowEnergySendFailure,
   logEnergyGate,
   resolveSendFlowSource,
+  type ConfirmSubmitEnergyDecision,
 } from '@/lib/energy-gate';
+import { canLobbySendBan } from '@/lib/lobby-influence';
 import { isReplyDeeplinkShellBan } from '@/lib/reply-deeplink-fast';
 import { REPLY_DEEPLINK_TOAST_SENT } from '@/lib/reply-deeplink-action-result';
 import { BanGlyph } from './SuccessBanCardBody';
@@ -412,6 +414,7 @@ export function InstantBanFlow({
   /** Blocks late success after INSUFFICIENT_ENERGY or stale send attempts. */
   const sendFailedRef = useRef(false);
   const flowSendAttemptRef = useRef(0);
+  const sendStartedAtRef = useRef<number | null>(null);
   const returnToLobbyAfterLowEnergyRef = useRef<
     ((opts?: { source?: string; apiResult?: string }) => void) | null
   >(null);
@@ -1720,6 +1723,12 @@ export function InstantBanFlow({
       });
       return false;
     }
+    const targetTab = openBansOverlayTabRequest ?? 'yours';
+    console.log('[go-to-bans-target-tab]', {
+      source: 'handleOpenBansFromResultCta',
+      targetTab,
+      openBansOverlayTabRequest,
+    });
     console.log('[open-bans-from-result-cta]', {
       action: 'open',
       direct: true,
@@ -1727,8 +1736,9 @@ export function InstantBanFlow({
       phase,
       notificationQueueUiLock:
         notificationSessionActive || notificationOverlayActive,
+      targetTab,
     });
-    setBansTab('yours');
+    setBansTab(targetTab);
     setSelectedBanForDetails(null);
     setBansOverlayOpen(true);
     console.log('[notification-chain-open-bans-final]', {
@@ -2105,16 +2115,36 @@ export function InstantBanFlow({
 
   const finishSendSuccessLobbyExit = useCallback(
     async (banId: string | null) => {
+      console.log('[success-exit-start]', {
+        banId,
+        queueLen: overlayQueueLength,
+        pendingStartupInteractions,
+        notificationOverlayVisible,
+      });
       await flushDeferredSync();
       releaseStartupInteractions({ force: true });
       logOverlayPriority('send-success-unlock', {});
       unlockNotificationQueueAndFlush('send-success-unlock');
+      setBansReturnToLobbyLatch(false);
 
+      console.log('[success-exit-drain-attempt]', {
+        banId,
+        queueLen: overlayQueueLength,
+        pendingStartupInteractions,
+      });
       const drained = await drainNextNotificationAfterSuccess(banId);
       if (drained) {
+        console.log('[success-exit-drain-success]', {
+          banId,
+          notificationOverlayVisible,
+        });
         successExitAwaitingNotificationDrainRef.current = true;
       } else {
         successExitAwaitingNotificationDrainRef.current = false;
+        console.log('[success-exit-open-lobby]', {
+          banId,
+          reason: 'drain-missed',
+        });
         beginCtaSpringIn();
       }
 
@@ -2129,8 +2159,11 @@ export function InstantBanFlow({
       beginCtaSpringIn,
       drainNextNotificationAfterSuccess,
       flushDeferredSync,
+      notificationOverlayVisible,
       overlayQueueLength,
+      pendingStartupInteractions,
       releaseStartupInteractions,
+      setBansReturnToLobbyLatch,
       unlockNotificationQueueAndFlush,
     ],
   );
@@ -2267,6 +2300,14 @@ export function InstantBanFlow({
 
       lastSendSuccessBanIdRef.current = banId;
       logSendFlow('open-success', { banId, attemptId: attemptId ?? currentAttempt });
+      console.log('[send-success-open]', {
+        banId,
+        attemptId: attemptId ?? currentAttempt,
+        elapsedSinceSendStartMs:
+          sendStartedAtRef.current != null
+            ? Math.round(performance.now() - sendStartedAtRef.current)
+            : null,
+      });
       console.log('[active-repeat-debug] send success', {
         banId,
         fromActiveRepeat: activeBanRepeatComposeRef.current,
@@ -3532,10 +3573,26 @@ export function InstantBanFlow({
       energyLoaded,
     });
 
-    const energyGate = await evaluateConfirmSubmitEnergy(token, {
-      energyLoaded,
-      influencePercent,
-    });
+    const canUseCachedEnergyGate =
+      energyLoaded && canLobbySendBan(energyLoaded, influencePercent);
+    let energyGate: ConfirmSubmitEnergyDecision;
+    if (canUseCachedEnergyGate) {
+      energyGate = {
+        allowed: true,
+        influencePercent,
+        energyLoaded: true,
+        energyBefore: influencePercent,
+      };
+      void evaluateConfirmSubmitEnergy(token, {
+        energyLoaded,
+        influencePercent,
+      }).catch(() => {});
+    } else {
+      energyGate = await evaluateConfirmSubmitEnergy(token, {
+        energyLoaded,
+        influencePercent,
+      });
+    }
     void refreshUser().catch(() => {});
 
     logEnergyGate('confirm-hold', {
@@ -3620,6 +3677,15 @@ export function InstantBanFlow({
     }
 
     logSendFlow('await-api-success', { attemptId });
+    sendStartedAtRef.current = performance.now();
+    console.log('[send-start]', {
+      attemptId,
+      replyMode: effectiveReplyBanId ? 'reply' : 'normal',
+      endpoint: effectiveReplyBanId
+        ? `/bans/${effectiveReplyBanId}/reply`
+        : '/bans/send',
+      cachedEnergyGate: canUseCachedEnergyGate,
+    });
 
     void (async () => {
       try {
@@ -3657,6 +3723,15 @@ export function InstantBanFlow({
               status: 'ok',
               banId: res.replyBan?.id ?? null,
               attemptId,
+            });
+            console.log('[send-response]', {
+              attemptId,
+              banId: res.replyBan?.id ?? null,
+              elapsedMs:
+                sendStartedAtRef.current != null
+                  ? Math.round(performance.now() - sendStartedAtRef.current)
+                  : null,
+              endpoint: 'reply',
             });
             console.log('[send-ban-success]', {
               attemptId,

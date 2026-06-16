@@ -172,6 +172,11 @@ export function useSendChallenge(opts: {
             throw new Error('Сервер не подтвердил запрет');
           }
           timingLog('sendBan confirmed', performance.now() - requestStarted);
+          console.log('[send-response]', {
+            banId: res.ban!.id,
+            elapsedMs: Math.round(performance.now() - requestStarted),
+            endpoint: '/bans/send',
+          });
           onOptimisticApplyRef.current({ ...params, username });
           onConfirmRef.current?.({ ...params, username });
           onSuccessRef.current(res.ban!.id);

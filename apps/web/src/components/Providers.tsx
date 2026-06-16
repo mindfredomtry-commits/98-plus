@@ -8116,7 +8116,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           null,
         )
       ) {
-        return true;
+        console.log('[success-exit-drain-attempt]', {
+          source,
+          blocked: true,
+          reason: 'mounted-overlay-blocks',
+        });
+        return false;
       }
       if (
         notificationChainAwaitingUserRef.current &&
@@ -8288,6 +8293,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       notificationChainHandoffRef.current = true;
       notificationChainAwaitingUserRef.current = true;
       chainAdvanceExplicitRef.current = true;
+      console.log('[notification-next-selected]', {
+        source,
+        nextKind,
+        nextBanId,
+      });
       setLobbyOpen(false);
       lobbyOpenRef.current = false;
       syncDisplayFromQueue(overlayQueueRef.current);
@@ -8414,6 +8424,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             : head?.kind === 'incoming' || head?.kind === 'check'
               ? head.ban.id
               : null;
+        console.log('[notification-next-selected]', {
+          source,
+          nextKind,
+          nextBanId,
+        });
+        console.log('[success-exit-drain-success]', { nextKind, nextBanId, source });
         console.log('[success-exit-drain-one]', { nextKind, nextBanId });
         return true;
       };
@@ -8750,6 +8766,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           : lastProcessedKind === 'incoming'
             ? 'toYou'
             : 'yours';
+      console.log('[go-to-bans-target-tab]', {
+        source: 'navigateFromResult',
+        targetTab,
+        lastProcessedKind,
+        previousTab,
+      });
       console.log('[go-to-bans-open-section]', {
         source: 'status-cta',
         targetTab,
