@@ -1288,6 +1288,33 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     syncPendingStartupCount();
   };
 
+  const deferResultWhileSuccessCardMounted = (
+    source: string,
+    item?: QueuedOverlay,
+  ): boolean => {
+    if (!isSuccessCardMounted()) return false;
+    const banId =
+      item?.kind === 'result'
+        ? item.result.id
+        : item?.kind === 'incoming' || item?.kind === 'check'
+          ? item.ban.id
+          : null;
+    if (item) {
+      blocksMountedNotificationOverlay(source, item.kind, banId);
+      deferNotificationToPendingStartup(item);
+    } else {
+      logSuccessCardBlocksNotification(source, 'result', banId);
+    }
+    window.__debug98log?.('[SUCCESS CARD BLOCKS RESULT]', {
+      source,
+      banId,
+      kind: item?.kind ?? 'result',
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+    });
+    return true;
+  };
+
   const shouldBlockActiveCheckOverlayAutoClose = (
     source: string,
     reason: string,
@@ -1500,6 +1527,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       queueLen: queue.length,
     });
     console.log('[queue-head-kind]', { headKind });
+    if (
+      active &&
+      isSuccessCardMounted() &&
+      (active.kind === 'result' ||
+        active.kind === 'incoming' ||
+        active.kind === 'check')
+    ) {
+      deferResultWhileSuccessCardMounted(
+        'syncDisplayFromQueue-early',
+        active,
+      );
+      return;
+    }
     if (isWhatOrConfirmActive() && active) {
       const banId =
         active.kind === 'result' ? active.result.id : active.ban.id;
@@ -1794,6 +1834,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           bypassPriorityLock: resultBlock.bypassPriorityLock,
           extra: { phase: 'queue-head-result-applied' },
         });
+        if (isSuccessCardMounted()) {
+          deferResultWhileSuccessCardMounted(
+            'syncDisplayFromQueue-setResult',
+            active,
+          );
+          return;
+        }
         logResultPath('syncDisplayFromQueue', 'state-written', {
           banId: active.result.id,
           resultId: active.result.id,
@@ -3374,6 +3421,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const queueHeadKind = overlayQueueRef.current[0]?.kind ?? null;
       const resultKey = r?.id ? `result:${r.id}` : null;
 
+      if (
+        r &&
+        deferResultWhileSuccessCardMounted(`openBanResult:${mode}`, {
+          kind: 'result',
+          result: r,
+        })
+      ) {
+        return;
+      }
+
       if (r) {
         const uid = userIdRef.current;
         if (
@@ -4094,6 +4151,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const uid = userIdRef.current;
       if (!banId) return;
 
+      if (
+        deferResultWhileSuccessCardMounted('receiveResult', {
+          kind: 'result',
+          result: normalized,
+        })
+      ) {
+        return;
+      }
+
       if (whatOrConfirmActiveRef.current) {
         console.log('[compose-flow-notification-blocked]', {
           source: 'receiveResult',
@@ -4273,6 +4339,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         logResultPath('pollPendingResultOnce', 'path-skip', {
           allowed: false,
           reason: 'no-auth',
+          extra: { pollSource: source },
+        });
+        return;
+      }
+      if (isSuccessCardMounted()) {
+        window.__debug98log?.('[RESULT POLL SKIPPED SUCCESS]', {
+          pollSource: source,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+        logResultPath('pollPendingResultOnce', 'path-skip', {
+          allowed: false,
+          reason: 'success-card-mounted',
           extra: { pollSource: source },
         });
         return;
@@ -4973,6 +5052,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId,
           reason: 'no-auth-user',
           guard: 'uid',
+        });
+        return false;
+      }
+
+      if (
+        deferResultWhileSuccessCardMounted('forceOpenOverboardResult', {
+          kind: 'result',
+          result: payload,
+        })
+      ) {
+        logForceOverboard('early-return', {
+          banId,
+          reason: 'success-card-mounted',
+          guard: 'sendSuccessCardActiveRef',
         });
         return false;
       }
@@ -7623,6 +7716,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         console.log('[result-poll-skip]', { reason: 'hidden' });
         return;
       }
+      if (sendSuccessCardActiveRef.current) {
+        window.__debug98log?.('[RESULT POLL SKIPPED SUCCESS]', {
+          pollSource: 'interval',
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+        return;
+      }
       if (result?.id) {
         console.log('[result-poll-skip]', {
           reason: 'already-open',
@@ -9555,9 +9656,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     !directResultOverlayActive &&
     notificationQueueLocked &&
     !isLocalOverboardBypassForBan(result?.id ?? null);
-  const displayResult = priorityBlocksResult ? null : result;
+  const displayResult =
+    priorityBlocksResult || sendSuccessCardActive ? null : result;
   const showDirectOverboardLayer =
-    directResultOverlayActive && displayResult != null;
+    directResultOverlayActive && displayResult != null && !sendSuccessCardActive;
 
   useLayoutEffect(() => {
     directResultOverlayActiveRef.current = directResultOverlayActive;
