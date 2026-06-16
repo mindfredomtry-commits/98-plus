@@ -2137,7 +2137,6 @@ export function InstantBanFlow({
         pendingStartupInteractions,
         notificationOverlayVisible,
       });
-      await flushDeferredSync();
       releaseStartupInteractions({ force: true });
       logOverlayPriority('send-success-unlock', {});
       unlockNotificationQueueAndFlush('send-success-unlock');
@@ -2153,6 +2152,45 @@ export function InstantBanFlow({
         queueLen: overlayQueueLength,
         pendingStartupInteractions,
       });
+
+      // Deferred sync must never block success-exit drain.
+      // Start it in background with a timeout so it can't "hang" the UI flow.
+      void (async () => {
+        const timeoutMs = 5000;
+        const startedAt = Date.now();
+        window.__debug98log?.('[success-exit-deferred-sync-start]', {
+          timeoutMs,
+        });
+
+        try {
+          let timedOut = false;
+          const timeout = new Promise<'timeout'>((resolve) => {
+            window.setTimeout(() => {
+              timedOut = true;
+              resolve('timeout');
+            }, timeoutMs);
+          });
+
+          const result = await Promise.race([
+            flushDeferredSync().then(() => 'finished' as const),
+            timeout,
+          ]);
+
+          if (result === 'finished' && !timedOut) {
+            window.__debug98log?.('[success-exit-deferred-sync-finished]', {
+              ms: Date.now() - startedAt,
+            });
+          } else if (result === 'timeout') {
+            window.__debug98log?.('[success-exit-deferred-sync-timeout]', {
+              ms: Date.now() - startedAt,
+            });
+          }
+        } catch (err) {
+          console.warn('[success-exit-deferred-sync-error]', err);
+          // Intentionally not logging extra debug event: allowlist is limited.
+        }
+      })();
+
       const drained = await drainNextNotificationAfterSuccess(banId);
       if (drained) {
         console.log('[success-exit-drain-success]', {
