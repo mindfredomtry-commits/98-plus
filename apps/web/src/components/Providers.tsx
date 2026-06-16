@@ -550,8 +550,6 @@ interface AppContextValue {
     mounted: boolean,
     opts?: { banId?: string | null; source?: string },
   ) => void;
-  /** Post-success queue drain — bypass success-card overlay block, suppress stale result. */
-  setSuccessExitDraining: (active: boolean) => void;
 }
 
 export type BansNavOrigin = 'lobby' | 'result-cta';
@@ -878,9 +876,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
   const [activeBanCardReady, setActiveBanCardReady] = useState(false);
   const activeBanCardVisibleRef = useRef(false);
-  const successExitDrainingRef = useRef(false);
-  const [successExitDrainingActive, setSuccessExitDrainingActiveState] =
-    useState(false);
   const sendSuccessCardActiveRef = useRef(false);
   const sendSuccessCardBanIdRef = useRef<string | null>(null);
   const [sendSuccessCardActive, setSendSuccessCardActiveState] = useState(false);
@@ -1169,11 +1164,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     activeBanCardVisibleRef.current ||
     replyParentActivePriorityActiveRef.current;
 
-  const setSuccessExitDraining = useCallback((active: boolean) => {
-    successExitDrainingRef.current = active;
-    setSuccessExitDrainingActiveState(active);
-  }, []);
-
   const setSendSuccessCardMounted = useCallback(
     (
       mounted: boolean,
@@ -1249,7 +1239,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     attemptedKind: QueuedOverlay['kind'] | null,
     attemptedBanId: string | null,
   ): boolean => {
-    if (isSuccessCardMounted() && !successExitDrainingRef.current) {
+    if (isSuccessCardMounted()) {
       logSuccessCardBlocksNotification(source, attemptedKind, attemptedBanId);
       return true;
     }
@@ -8942,11 +8932,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       cancelResultPollBurst();
     }
 
-    clearNotificationChainReturnLatch('navigateFromResult');
-    if (pendingStartupInteractionsRef.current.length > 0) {
-      releaseStartupInteractions({ force: true });
-    }
-
     const afterConsume = {
       overlayLen: overlayQueueRef.current.length,
       startupLen: pendingStartupInteractionsRef.current.length,
@@ -9015,7 +9000,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         if (showNextNotificationFromChainSync('status-cta-after-prime')) {
           return;
         }
-        syncDisplayFromQueue(overlayQueueRef.current);
         return;
       }
 
@@ -9059,7 +9043,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     markOverlayUserAction,
     overlayQueueItemId,
     primeNextNotificationAfterStatusCta,
-    releaseStartupInteractions,
     result?.id,
     showNextNotificationFromChainSync,
     syncDisplayFromQueue,
@@ -9694,9 +9677,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationQueueLocked &&
     !isLocalOverboardBypassForBan(result?.id ?? null);
   const displayResult =
-    priorityBlocksResult || sendSuccessCardActive || successExitDrainingActive
-      ? null
-      : result;
+    priorityBlocksResult || sendSuccessCardActive ? null : result;
   const showDirectOverboardLayer =
     directResultOverlayActive && displayResult != null && !sendSuccessCardActive;
 
@@ -9927,14 +9908,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       return;
     }
-    if (successExitDrainingRef.current) {
-      console.log('[chain-open-lobby-blocked]', {
-        source: source ?? 'default',
-        reason: 'success-exit-draining',
-        ...snapshot,
-      });
-      return;
-    }
     if (isActiveTimerOverlayMounted()) {
       console.log('[chain-open-lobby-blocked]', {
         source: source ?? 'default',
@@ -10037,35 +10010,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       });
 
-      clearNotificationChainReturnLatch('requestOpenBansFromResultCta');
-      if (pendingStartupInteractionsRef.current.length > 0) {
-        releaseStartupInteractions({ force: true });
-      }
-      if (showNextNotificationFromChainSync('requestOpenBansFromResultCta')) {
-        return;
-      }
-      if (hasPendingNotificationChain()) {
-        void (async () => {
-          const primed = await primeNextNotificationAfterStatusCta(
-            'requestOpenBansFromResultCta',
-          );
-          if (primed) return;
-          if (hasPendingNotificationChain()) {
-            if (
-              showNextNotificationFromChainSync(
-                'requestOpenBansFromResultCta-after-prime',
-              )
-            ) {
-              return;
-            }
-            syncDisplayFromQueue(overlayQueueRef.current);
-            return;
-          }
-          armOpenBansOverlayFromResultCta(banId);
-        })();
-        return;
-      }
-
       armOpenBansOverlayFromResultCta(banId);
 
       logDirectOverboardStateReset({
@@ -10090,14 +10034,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       applyDirectOverboardCloseState,
       armOpenBansOverlayFromResultCta,
       cancelResultPollBurst,
-      clearNotificationChainReturnLatch,
       consumeResultBanForResultCta,
-      hasPendingNotificationChain,
-      primeNextNotificationAfterStatusCta,
-      releaseStartupInteractions,
-      showNextNotificationFromChainSync,
       snapshotDirectOverboardGate,
-      syncDisplayFromQueue,
     ],
   );
 
@@ -10896,7 +10834,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       resultReplyUiShellActive ||
       activeBanUiShellActive ||
       sendSuccessCardActive ||
-      successExitDrainingActive ||
       incomingGateActive ||
       checkGateActive ||
       hasPendingNotificationChain() ||
@@ -10923,7 +10860,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     resultReplyUiShellActive,
     activeBanUiShellActive,
     sendSuccessCardActive,
-    successExitDrainingActive,
     incomingGateActive,
     checkGateActive,
     getNotificationChainDebugSnapshot,
@@ -11339,7 +11275,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       isReplyParentActivePriorityActive,
       releaseNotificationQueueAfterReplyParentActive,
       setSendSuccessCardMounted,
-      setSuccessExitDraining,
     }),
     [
       auth.token,
@@ -11501,7 +11436,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       isReplyParentActivePriorityActive,
       releaseNotificationQueueAfterReplyParentActive,
       setSendSuccessCardMounted,
-      setSuccessExitDraining,
       replyDeeplinkFastShell,
       abortReplyDeepLinkFast,
       replyUiShellActive,
