@@ -177,6 +177,11 @@ export function useSendChallenge(opts: {
             elapsedMs: Math.round(performance.now() - requestStarted),
             endpoint: '/bans/send',
           });
+          window.__debug98log?.('[send-response]', {
+            banId: res.ban!.id,
+            elapsedMs: Math.round(performance.now() - requestStarted),
+            endpoint: '/bans/send',
+          });
           onOptimisticApplyRef.current({ ...params, username });
           onConfirmRef.current?.({ ...params, username });
           onSuccessRef.current(res.ban!.id);

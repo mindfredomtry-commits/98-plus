@@ -1521,12 +1521,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             reason: 'preserve-mounted-empty-queue',
             mountedId,
           });
+          window.__debug98log?.('[chain-drain-continue-blocked]', {
+            reason: 'preserve-mounted-empty-queue',
+            mountedId,
+          });
           return;
         }
         const activeBanId =
           active.kind === 'result' ? active.result.id : active.ban.id;
         if (activeBanId !== mountedId) {
           console.log('[chain-drain-continue-blocked]', {
+            reason: 'active-overlay-mounted',
+            mountedId,
+            activeBanId,
+            activeKind: active.kind,
+          });
+          window.__debug98log?.('[chain-drain-continue-blocked]', {
             reason: 'active-overlay-mounted',
             mountedId,
             activeBanId,
@@ -1965,6 +1975,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           prevKey,
           nextKey,
         });
+        window.__debug98log?.('[chain-drain-continue-blocked]', {
+          reason: 'active-overlay-mounted',
+          prevKey,
+          nextKey,
+        });
         console.log('[chain-auto-advance-bug]', {
           previousShown: prevKey,
           nextShownSameTick: nextKey,
@@ -2175,6 +2190,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           !chainAdvanceExplicitRef.current
         ) {
           console.log('[chain-drain-continue-blocked]', {
+            reason: 'active-overlay-mounted',
+            source: 'dismissCurrentOverlay-commit',
+            dismissReason: reason,
+            remainingLen: remaining.length,
+          });
+          window.__debug98log?.('[chain-drain-continue-blocked]', {
             reason: 'active-overlay-mounted',
             source: 'dismissCurrentOverlay-commit',
             dismissReason: reason,
@@ -3075,6 +3096,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source: 'releaseStartupInteractions',
           pendingCount: releasable.length,
         });
+        window.__debug98log?.('[chain-drain-continue-blocked]', {
+          reason: 'active-overlay-mounted',
+          source: 'releaseStartupInteractions',
+          pendingCount: releasable.length,
+        });
         pendingStartupInteractionsRef.current = releasable;
         syncPendingStartupCount();
         return;
@@ -3085,6 +3111,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason: 'no-user-action',
         });
         console.log('[chain-drain-continue-blocked]', {
+          reason: 'active-check-mounted',
+          source: 'releaseStartupInteractions',
+          pendingCount: releasable.length,
+        });
+        window.__debug98log?.('[chain-drain-continue-blocked]', {
           reason: 'active-check-mounted',
           source: 'releaseStartupInteractions',
           pendingCount: releasable.length,
@@ -7533,6 +7564,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
     console.log('[result-poll-start]', { userId });
+    window.__debug98log?.('[result-poll-start]', { userId });
 
     let stopped = false;
     const tick = () => {
@@ -8121,6 +8153,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           blocked: true,
           reason: 'mounted-overlay-blocks',
         });
+        window.__debug98log?.('[success-exit-drain-attempt]', {
+          source,
+          blocked: true,
+          reason: 'mounted-overlay-blocks',
+        });
         return false;
       }
       if (
@@ -8128,6 +8165,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         hasActiveNotificationOverlayMounted()
       ) {
         console.log('[chain-drain-continue-blocked]', {
+          reason: 'active-overlay-mounted',
+          source,
+          ...getNotificationChainDebugSnapshot(),
+        });
+        window.__debug98log?.('[chain-drain-continue-blocked]', {
           reason: 'active-overlay-mounted',
           source,
           ...getNotificationChainDebugSnapshot(),
@@ -8298,6 +8340,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         nextKind,
         nextBanId,
       });
+      window.__debug98log?.('[notification-next-selected]', {
+        source,
+        nextKind,
+        nextBanId,
+      });
       setLobbyOpen(false);
       lobbyOpenRef.current = false;
       syncDisplayFromQueue(overlayQueueRef.current);
@@ -8390,6 +8437,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         console.log('[success-exit-no-notifications]', {
           reason: 'compose-active',
         });
+        window.__debug98log?.('[success-exit-no-notifications]', {
+          reason: 'compose-active',
+        });
         return false;
       }
 
@@ -8402,6 +8452,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           )
         ) {
           console.log('[success-exit-no-notifications]', {
+            reason: 'overlay-blocked',
+            source,
+          });
+          window.__debug98log?.('[success-exit-no-notifications]', {
             reason: 'overlay-blocked',
             source,
           });
@@ -8429,7 +8483,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           nextKind,
           nextBanId,
         });
+        window.__debug98log?.('[notification-next-selected]', {
+          source,
+          nextKind,
+          nextBanId,
+        });
         console.log('[success-exit-drain-success]', { nextKind, nextBanId, source });
+        window.__debug98log?.('[success-exit-drain-success]', {
+          nextKind,
+          nextBanId,
+          source,
+        });
         console.log('[success-exit-drain-one]', { nextKind, nextBanId });
         return true;
       };
@@ -8442,6 +8506,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const finalQueueLen = overlayQueueRef.current.length;
       const finalStartupLen = pendingStartupInteractionsRef.current.length;
       console.log('[success-exit-no-notifications]', {
+        reason:
+          finalQueueLen === 0 && finalStartupLen === 0
+            ? 'queue-empty-after-prefetch'
+            : 'drain-not-shown',
+        queueLen: finalQueueLen,
+        startupLen: finalStartupLen,
+      });
+      window.__debug98log?.('[success-exit-no-notifications]', {
         reason:
           finalQueueLen === 0 && finalStartupLen === 0
             ? 'queue-empty-after-prefetch'
@@ -8636,6 +8708,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
     console.log('[chain-debug-status-cta-start]', { banId, generation });
     console.log('[go-to-bans-click]', {
+      source: 'result-status',
+      banId,
+      wasDirect,
+    });
+    window.__debug98log?.('[go-to-bans-click]', {
       source: 'result-status',
       banId,
       wasDirect,
@@ -9033,6 +9110,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           incomingBanRef.current?.id === banId
         ) {
           console.log('[chain-drain-continue-blocked]', {
+            reason: 'active-overlay-mounted',
+            banId,
+            source: 'dismissIncoming-auto',
+          });
+          window.__debug98log?.('[chain-drain-continue-blocked]', {
             reason: 'active-overlay-mounted',
             banId,
             source: 'dismissIncoming-auto',

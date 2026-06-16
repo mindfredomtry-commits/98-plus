@@ -41,4 +41,7 @@ export function logResultLatency(
   },
 ): void {
   console.log(event, fields);
+  if (typeof window !== 'undefined') {
+    window.__debug98log?.(event, fields);
+  }
 }

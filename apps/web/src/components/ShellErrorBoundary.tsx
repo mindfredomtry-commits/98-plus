@@ -31,6 +31,12 @@ export class ShellErrorBoundary extends Component<Props, State> {
       stack: error.stack,
       componentStack: info.componentStack,
     });
+    window.__debug98log?.('[98+ ShellErrorBoundary]', {
+      layer: this.props.name,
+      message: error.message,
+      stack: error.stack,
+      componentStack: info.componentStack,
+    });
     challengeLog('shell:crash', {
       layer: this.props.name,
       message: error.message,

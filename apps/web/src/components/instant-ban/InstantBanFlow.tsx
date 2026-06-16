@@ -1617,6 +1617,11 @@ export function InstantBanFlow({
         closedBansOverlay,
         lobbyOpen: true,
       });
+      window.__debug98log?.('[success-exit-base-lobby]', {
+        source,
+        closedBansOverlay,
+        lobbyOpen: true,
+      });
     },
     [
       bansCtaQueueSuppress,
@@ -1725,6 +1730,11 @@ export function InstantBanFlow({
     }
     const targetTab = openBansOverlayTabRequest ?? 'yours';
     console.log('[go-to-bans-target-tab]', {
+      source: 'handleOpenBansFromResultCta',
+      targetTab,
+      openBansOverlayTabRequest,
+    });
+    window.__debug98log?.('[go-to-bans-target-tab]', {
       source: 'handleOpenBansFromResultCta',
       targetTab,
       openBansOverlayTabRequest,
@@ -2121,6 +2131,12 @@ export function InstantBanFlow({
         pendingStartupInteractions,
         notificationOverlayVisible,
       });
+      window.__debug98log?.('[success-exit-start]', {
+        banId,
+        queueLen: overlayQueueLength,
+        pendingStartupInteractions,
+        notificationOverlayVisible,
+      });
       await flushDeferredSync();
       releaseStartupInteractions({ force: true });
       logOverlayPriority('send-success-unlock', {});
@@ -2132,9 +2148,18 @@ export function InstantBanFlow({
         queueLen: overlayQueueLength,
         pendingStartupInteractions,
       });
+      window.__debug98log?.('[success-exit-drain-attempt]', {
+        banId,
+        queueLen: overlayQueueLength,
+        pendingStartupInteractions,
+      });
       const drained = await drainNextNotificationAfterSuccess(banId);
       if (drained) {
         console.log('[success-exit-drain-success]', {
+          banId,
+          notificationOverlayVisible,
+        });
+        window.__debug98log?.('[success-exit-drain-success]', {
           banId,
           notificationOverlayVisible,
         });
@@ -2142,6 +2167,10 @@ export function InstantBanFlow({
       } else {
         successExitAwaitingNotificationDrainRef.current = false;
         console.log('[success-exit-open-lobby]', {
+          banId,
+          reason: 'drain-missed',
+        });
+        window.__debug98log?.('[success-exit-open-lobby]', {
           banId,
           reason: 'drain-missed',
         });
@@ -2301,6 +2330,14 @@ export function InstantBanFlow({
       lastSendSuccessBanIdRef.current = banId;
       logSendFlow('open-success', { banId, attemptId: attemptId ?? currentAttempt });
       console.log('[send-success-open]', {
+        banId,
+        attemptId: attemptId ?? currentAttempt,
+        elapsedSinceSendStartMs:
+          sendStartedAtRef.current != null
+            ? Math.round(performance.now() - sendStartedAtRef.current)
+            : null,
+      });
+      window.__debug98log?.('[send-success-open]', {
         banId,
         attemptId: attemptId ?? currentAttempt,
         elapsedSinceSendStartMs:
@@ -3686,6 +3723,14 @@ export function InstantBanFlow({
         : '/bans/send',
       cachedEnergyGate: canUseCachedEnergyGate,
     });
+    window.__debug98log?.('[send-start]', {
+      attemptId,
+      replyMode: effectiveReplyBanId ? 'reply' : 'normal',
+      endpoint: effectiveReplyBanId
+        ? `/bans/${effectiveReplyBanId}/reply`
+        : '/bans/send',
+      cachedEnergyGate: canUseCachedEnergyGate,
+    });
 
     void (async () => {
       try {
@@ -3725,6 +3770,15 @@ export function InstantBanFlow({
               attemptId,
             });
             console.log('[send-response]', {
+              attemptId,
+              banId: res.replyBan?.id ?? null,
+              elapsedMs:
+                sendStartedAtRef.current != null
+                  ? Math.round(performance.now() - sendStartedAtRef.current)
+                  : null,
+              endpoint: 'reply',
+            });
+            window.__debug98log?.('[send-response]', {
               attemptId,
               banId: res.replyBan?.id ?? null,
               elapsedMs:
