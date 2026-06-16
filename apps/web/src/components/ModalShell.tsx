@@ -3,6 +3,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { acquireScrollLock, releaseScrollLock } from '@/lib/scroll-lock';
+import { logOverlayTransition } from '@/lib/overlay-transition-debug';
 
 interface Props {
   open: boolean;
@@ -50,8 +51,18 @@ export function ModalShell({
   useEffect(() => {
     if (!open) return;
     acquireScrollLock();
+    if (!instant) {
+      const ms = light ? 160 : 320;
+      logOverlayTransition('[TRANSITION DELAY USED]', {
+        source: 'ModalShell-framer-enter',
+        ms,
+        light,
+        handoff,
+        stable,
+      });
+    }
     return () => releaseScrollLock();
-  }, [open]);
+  }, [handoff, instant, light, open, stable]);
 
   if (handoff && open) {
     return (

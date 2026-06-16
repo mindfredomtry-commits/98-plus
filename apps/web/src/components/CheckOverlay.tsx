@@ -42,6 +42,7 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
     notificationSessionActive,
     activeOverlayKind,
     markOverlayUserAction,
+    logCardCloseClick,
     reportOverlayRendered,
   } = useApp();
   const { haptic } = useTelegram();
@@ -98,6 +99,11 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
         banId: checkBan.id,
         answer: completed,
       });
+      logCardCloseClick({
+        kind: 'check',
+        banId: checkBan.id,
+        source: completed ? 'check-answer-yes' : 'check-answer-no',
+      });
       markOverlayUserAction('check', checkBan.id);
       haptic('light');
       setSubmitError(null);
@@ -111,7 +117,7 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
         setSubmitError(res.error);
       }
     },
-    [checkBan?.id, haptic, modalView, markOverlayUserAction, submitCheckAnswer, token],
+    [checkBan?.id, haptic, logCardCloseClick, modalView, markOverlayUserAction, submitCheckAnswer, token],
   );
 
   const handleAnswerPointer = useCallback(

@@ -90,6 +90,7 @@ function ResultOverlayInner({
     user,
     notificationSessionActive,
     markOverlayUserAction,
+    logCardCloseClick,
     reportOverlayRendered,
     bansCtaQueueSuppress,
     resultCtaBansOverlayOpen,
@@ -150,8 +151,13 @@ function ResultOverlayInner({
 
   const guardedOnClose = useCallback(() => {
     if (skipResultOverlayCleanup('onClose')) return;
+    logCardCloseClick({
+      kind: 'result',
+      banId: result.id,
+      source: 'result-close',
+    });
     onClose();
-  }, [onClose, skipResultOverlayCleanup]);
+  }, [logCardCloseClick, onClose, result.id, skipResultOverlayCleanup]);
 
   traceResultOverlayLifecycle('RESULT OVERLAY ENTER', tracePropsRef.current, {
     returnsNullReason,
@@ -185,6 +191,11 @@ function ResultOverlayInner({
 
     let rafId = 0;
     rafId = requestAnimationFrame(() => {
+      logOverlayTransition('[TRANSITION DELAY USED]', {
+        source: 'ResultOverlay-directPaint-raf',
+        ms: 0,
+        banId: result.id,
+      });
       traceResultOverlayLifecycle('RESULT OVERLAY RAF RUN', tracePropsRef.current);
 
       const layer = document.querySelector('[data-direct-overboard-result]');

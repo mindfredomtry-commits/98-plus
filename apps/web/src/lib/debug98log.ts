@@ -9,7 +9,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 2;
+export const DEBUG98_LOGGER_VERSION = 3;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -53,6 +53,14 @@ const ALLOWED_EVENTS = new Set([
   '[SUCCESS CARD UNMOUNTED]',
   '[SUCCESS PAYOFF CTA CLICK]',
   '[SUCCESS EXIT HANDLER CALLED]',
+  '[CARD CLOSE CLICK]',
+  '[DISMISS START]',
+  '[DISMISS COMMIT DONE]',
+  '[SHOW NEXT START]',
+  '[SHOW NEXT SELECTED]',
+  '[OVERLAY STATE SET]',
+  '[CARD MOUNTED]',
+  '[TRANSITION DELAY USED]',
 ]);
 
 export type Debug98LatchSnapshot = {

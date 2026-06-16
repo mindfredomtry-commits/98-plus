@@ -72,6 +72,7 @@ function IncomingBanOverlayInner({
     activeOverlayKind,
     incomingGateActive,
     markOverlayUserAction,
+    logCardCloseClick,
     reportOverlayRendered,
     replyDeeplinkFastShell,
     replyDeepLinkBanId,
@@ -647,6 +648,14 @@ function IncomingBanOverlayInner({
       closeOnBackdrop={false}
       ariaLabel="Входящий запрет"
       onClose={() => {
+        logCardCloseClick({
+          kind: 'incoming',
+          banId: activeIncomingBan.id,
+          source:
+            activeIncomingBan.status === 'pending'
+              ? 'incoming-soft-close'
+              : 'incoming-seen-close',
+        });
         if (activeIncomingBan.status === 'pending') {
           dismissIncomingSoft(activeIncomingBan.id);
           return;
