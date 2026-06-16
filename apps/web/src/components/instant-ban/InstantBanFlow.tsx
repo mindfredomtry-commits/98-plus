@@ -2100,9 +2100,10 @@ export function InstantBanFlow({
       unlockNotificationQueueAndFlush('send-success-unlock');
 
       const drained = await drainNextNotificationAfterSuccess(banId);
-      successExitAwaitingNotificationDrainRef.current = false;
-
-      if (!drained) {
+      if (drained) {
+        successExitAwaitingNotificationDrainRef.current = true;
+      } else {
+        successExitAwaitingNotificationDrainRef.current = false;
         beginCtaSpringIn();
       }
 
@@ -2368,12 +2369,33 @@ export function InstantBanFlow({
 
   useEffect(() => {
     if (!successExitAwaitingNotificationDrainRef.current) return;
-    if (hasPendingNotificationChain() || notificationSessionActive) return;
-    successExitAwaitingNotificationDrainRef.current = false;
-    beginCtaSpringIn();
+    if (notificationOverlayVisible) {
+      successExitAwaitingNotificationDrainRef.current = false;
+      return;
+    }
+    if (!hasPendingNotificationChain() && !notificationSessionActive) {
+      successExitAwaitingNotificationDrainRef.current = false;
+      beginCtaSpringIn();
+      return;
+    }
+    const t = window.setTimeout(() => {
+      if (!successExitAwaitingNotificationDrainRef.current) return;
+      if (notificationOverlayVisible) {
+        successExitAwaitingNotificationDrainRef.current = false;
+        return;
+      }
+      console.log('[success-exit-overlay-lost-recover-lobby]', {
+        queueLen: overlayQueueLength,
+        notificationSessionActive,
+      });
+      successExitAwaitingNotificationDrainRef.current = false;
+      beginCtaSpringIn();
+    }, 200);
+    return () => window.clearTimeout(t);
   }, [
     beginCtaSpringIn,
     hasPendingNotificationChain,
+    notificationOverlayVisible,
     notificationSessionActive,
     overlayQueueLength,
     pendingStartupInteractions,

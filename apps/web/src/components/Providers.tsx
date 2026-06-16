@@ -1452,6 +1452,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const syncDisplayFromQueue = useCallback((queue: QueuedOverlay[]) => {
     const active = queue[0] ?? null;
+    const headKind = active?.kind ?? null;
+    const headBanId =
+      active?.kind === 'result'
+        ? active.result.id
+        : active?.kind === 'incoming' || active?.kind === 'check'
+          ? active.ban.id
+          : null;
+    console.log('[queue-head-selection]', {
+      headKind,
+      headBanId,
+      queueLen: queue.length,
+    });
+    console.log('[queue-head-kind]', { headKind });
     if (isWhatOrConfirmActive() && active) {
       const banId =
         active.kind === 'result' ? active.result.id : active.ban.id;
@@ -1486,23 +1499,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
     if (
       notificationChainAwaitingUserRef.current &&
-      !chainAdvanceExplicitRef.current &&
-      active
+      !chainAdvanceExplicitRef.current
     ) {
       const mountedIncomingId = incomingBanRef.current?.id ?? null;
       const mountedCheckId = checkBanRef.current?.id ?? null;
       const mountedResultId = resultRef.current?.id ?? null;
-      const activeBanId =
-        active.kind === 'result' ? active.result.id : active.ban.id;
       const mountedId = mountedIncomingId ?? mountedCheckId ?? mountedResultId;
-      if (mountedId && activeBanId !== mountedId) {
-        console.log('[chain-drain-continue-blocked]', {
-          reason: 'active-overlay-mounted',
-          mountedId,
-          activeBanId,
-          activeKind: active.kind,
-        });
-        return;
+      if (mountedId) {
+        if (!active) {
+          console.log('[chain-drain-continue-blocked]', {
+            reason: 'preserve-mounted-empty-queue',
+            mountedId,
+          });
+          return;
+        }
+        const activeBanId =
+          active.kind === 'result' ? active.result.id : active.ban.id;
+        if (activeBanId !== mountedId) {
+          console.log('[chain-drain-continue-blocked]', {
+            reason: 'active-overlay-mounted',
+            mountedId,
+            activeBanId,
+            activeKind: active.kind,
+          });
+          return;
+        }
       }
     }
     if (
@@ -1806,6 +1827,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         bansReturnToLobbyLatchRef.current ||
         (bansNavStateRef.current.origin === 'result-cta' &&
           bansNavStateRef.current.returnTarget === 'lobby');
+      const mountedIncomingId = incomingBanRef.current?.id?.trim() ?? '';
+      const mountedCheckId = checkBanRef.current?.id?.trim() ?? '';
+      const mountedResultId = resultRef.current?.id?.trim() ?? '';
+      const hasMountedNotificationOverlay =
+        mountedIncomingId.length > 0 ||
+        mountedCheckId.length > 0 ||
+        mountedResultId.length > 0;
+      const headMatchesMounted =
+        (headKind === 'incoming' && headBanId === mountedIncomingId) ||
+        (headKind === 'check' && headBanId === mountedCheckId) ||
+        (headKind === 'result' && headBanId === mountedResultId);
+      const chainProtectsMounted =
+        (notificationChainAwaitingUserRef.current ||
+          chainAdvanceExplicitRef.current ||
+          notificationChainHandoffRef.current) &&
+        hasMountedNotificationOverlay &&
+        (headKind === null || headMatchesMounted);
+      const recentResultOpen =
+        mountedResultId.length > 0 &&
+        (resultOpenRef.current ||
+          freshOverboardActionBanIdsRef.current.has(
+            normalizeId(mountedResultId),
+          ));
       if (returningFromResultCtaBans) {
         console.log('[QUEUE SYNC SKIPPED] reason=result-cta-return-lobby', {
           headKind: active?.kind ?? null,
@@ -1816,7 +1860,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason: 'result-cta-return-lobby',
           headKind: active?.kind ?? null,
         });
+      } else if (chainProtectsMounted || recentResultOpen) {
+        console.log('[overboard-reset-blocked-active-overlay]', {
+          chainProtectsMounted,
+          recentResultOpen,
+          mountedIncomingId: mountedIncomingId || null,
+          mountedCheckId: mountedCheckId || null,
+          mountedResultId: mountedResultId || null,
+          headKind,
+          headBanId,
+          chainAwaiting: notificationChainAwaitingUserRef.current,
+          chainExplicit: chainAdvanceExplicitRef.current,
+        });
+        if (mountedResultId) {
+          resultOpenRef.current = true;
+        }
       } else {
+      console.log('[overlay-state-before-reset]', {
+        mountedIncomingId: mountedIncomingId || null,
+        mountedCheckId: mountedCheckId || null,
+        mountedResultId: mountedResultId || null,
+        headKind,
+        headBanId,
+        resultOpen: resultOpenRef.current,
+        chainAwaiting: notificationChainAwaitingUserRef.current,
+      });
       resultOpenRef.current = false;
       logResultPath('syncDisplayFromQueue', 'state-cleared', {
         banId:
@@ -1839,6 +1907,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           showDirectOverboardLayer: gateBefore.showDirectOverboardLayer,
           hasResult: false,
         },
+      });
+      console.log('[overlay-state-after-reset]', {
+        headKind,
+        headBanId,
+        clearedResult: true,
       });
       }
     } else {
@@ -2456,7 +2529,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             resultId: head.result.id,
           });
         } else if (!head && !replyDeeplinkChainHoldRef.current) {
-          void reloadPendingRef.current().catch(() => {});
+          if (notificationChainAwaitingUserRef.current) {
+            console.log('[reload-pending-deferred]', {
+              reason: 'notification-chain-awaiting-user',
+            });
+          } else {
+            void reloadPendingRef.current().catch(() => {});
+          }
         }
       });
     },
@@ -3581,6 +3660,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    if (
+      notificationChainAwaitingUserRef.current &&
+      (incomingBanRef.current?.id ||
+        checkBanRef.current?.id ||
+        resultRef.current?.id)
+    ) {
+      console.log('[prune-sync-blocked]', {
+        reason: 'notification-chain-awaiting-mounted',
+        mountedIncomingId: incomingBanRef.current?.id ?? null,
+        mountedCheckId: checkBanRef.current?.id ?? null,
+        mountedResultId: resultRef.current?.id ?? null,
+      });
+      return;
+    }
+
     applyOverlayQueue(next);
   }, [applyOverlayQueue]);
 
@@ -3923,6 +4017,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           },
         );
         return;
+      }
+
+      if (notificationChainAwaitingUserRef.current) {
+        const head = overlayQueueRef.current[0];
+        const mountedIncomingId = incomingBanRef.current?.id ?? null;
+        const mountedCheckId = checkBanRef.current?.id ?? null;
+        if (
+          head?.kind === 'incoming' ||
+          head?.kind === 'check' ||
+          mountedIncomingId ||
+          mountedCheckId
+        ) {
+          console.log('[receive-result-blocked]', {
+            reason: 'notification-chain-non-result-active',
+            banId,
+            headKind: head?.kind ?? null,
+            mountedIncomingId,
+            mountedCheckId,
+          });
+          enqueueNotification(
+            { kind: 'result', result: normalized },
+            {
+              live: source === 'ws' || source === 'http',
+              source: source === 'poll' ? 'poll' : 'ws',
+            },
+          );
+          return;
+        }
       }
 
       const block = shouldBlockResultOpen({
@@ -7660,6 +7782,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       if (session.pendingResultId) {
         const pendingId = session.pendingResultId;
+        if (notificationChainAwaitingUserRef.current) {
+          console.log('[reload-pending-result-blocked]', {
+            reason: 'notification-chain-awaiting-user',
+            pendingId,
+          });
+        } else {
         logResultLatency('[result-diag-reload-pending]', {
           banId: pendingId,
           authUserId: requestUserId,
@@ -7723,6 +7851,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           } catch {
             /* result not ready */
           }
+        }
         }
       }
 
