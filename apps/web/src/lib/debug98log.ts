@@ -8,6 +8,13 @@ export type Debug98Event = {
 
 const MAX_EVENTS = 30;
 
+/** Bump when allowlist / install behavior changes. */
+export const DEBUG98_LOGGER_VERSION = 2;
+
+/** When this bundle chunk was first evaluated in the browser session. */
+const DEBUG98_BUNDLE_LOADED_AT =
+  typeof window !== 'undefined' ? Date.now() : 0;
+
 const ALLOWED_EVENTS = new Set([
   '[send-start]',
   '[send-response]',
@@ -29,6 +36,7 @@ const ALLOWED_EVENTS = new Set([
   '[go-to-bans-target-tab]',
   '[98+ ShellErrorBoundary]',
   '[debug98-overlay-mounted]',
+  '[debug98-logger-installed]',
   '[LATCH ON]',
   '[LATCH OFF]',
   '[QUEUE SYNC SKIPPED]',
@@ -62,6 +70,7 @@ declare global {
   interface Window {
     __debug98events?: Debug98Event[];
     __debug98log?: (event: string, data?: unknown) => void;
+    __debug98LoggerVersion?: number;
   }
 }
 
@@ -69,18 +78,37 @@ function dispatchDebugEvent(ev: Debug98Event) {
   window.dispatchEvent(new CustomEvent('__debug98log', { detail: ev }));
 }
 
+function appendDebug98Event(event: string, data?: unknown) {
+  const ev: Debug98Event = { t: Date.now(), event, data };
+  window.__debug98events = [...(window.__debug98events ?? []), ev].slice(
+    -MAX_EVENTS,
+  );
+  dispatchDebugEvent(ev);
+}
+
 export function installDebug98log() {
   if (typeof window === 'undefined') return;
-  if (window.__debug98log) return;
+
+  const hadPreviousHandler = typeof window.__debug98log === 'function';
+  const previousBufferLen = window.__debug98events?.length ?? 0;
+  const previousVersion = window.__debug98LoggerVersion ?? null;
 
   window.__debug98events = [];
+  window.__debug98LoggerVersion = DEBUG98_LOGGER_VERSION;
   window.__debug98log = (event: string, data?: unknown) => {
     if (!ALLOWED_EVENTS.has(event)) return;
-    const ev: Debug98Event = { t: Date.now(), event, data };
-    const prev = window.__debug98events ?? [];
-    window.__debug98events = [...prev, ev].slice(-MAX_EVENTS);
-    dispatchDebugEvent(ev);
+    appendDebug98Event(event, data);
   };
+
+  appendDebug98Event('[debug98-logger-installed]', {
+    version: DEBUG98_LOGGER_VERSION,
+    installedAt: Date.now(),
+    bundleLoadedAt: DEBUG98_BUNDLE_LOADED_AT,
+    replacedPreviousHandler: hadPreviousHandler,
+    previousVersion,
+    previousBufferLen,
+    bufferReset: true,
+  });
 }
 
 export function getDebug98Events(): Debug98Event[] {
@@ -91,4 +119,3 @@ export function getDebug98Events(): Debug98Event[] {
 if (typeof window !== 'undefined') {
   installDebug98log();
 }
-
