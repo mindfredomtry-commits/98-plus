@@ -2267,6 +2267,8 @@ export function InstantBanFlow({
       console.log('[active-repeat-debug] show success card', { banId });
       setSendError(null);
       markSessionBanSendSuccess();
+      triggerConfirmHaptic();
+      haptic('medium');
       instantBanSendSuccessDebug({
         banId,
         payoffPending: confirmSendContextRef.current.sendTriggered,
@@ -2275,21 +2277,13 @@ export function InstantBanFlow({
       setBanSentSuccess(true);
       setSendSuccessCardMounted(true, { banId, source: 'open-success' });
     },
-    [clearActiveBanDeepLinkShell, markSessionBanSendSuccess, setSendSuccessCardMounted],
+    [
+      clearActiveBanDeepLinkShell,
+      haptic,
+      markSessionBanSendSuccess,
+      setSendSuccessCardMounted,
+    ],
   );
-
-  const showOptimisticSendSuccess = useCallback(() => {
-    if (sendFailedRef.current || banSentSuccess) return;
-    logSendFlow('optimistic-success', {
-      attemptId: flowSendAttemptRef.current,
-    });
-    setSendError(null);
-    markSessionBanSendSuccess();
-    triggerConfirmHaptic();
-    haptic('medium');
-    setBanSentSuccess(true);
-    setSendSuccessCardMounted(true, { source: 'optimistic-send-success' });
-  }, [banSentSuccess, haptic, markSessionBanSendSuccess, setSendSuccessCardMounted]);
 
   const { send, inFlight, sharing } = useSendChallenge({
     token,
@@ -3548,7 +3542,7 @@ export function InstantBanFlow({
       return 'skipped';
     }
 
-    showOptimisticSendSuccess();
+    logSendFlow('await-api-success', { attemptId });
 
     void (async () => {
       try {
@@ -3657,7 +3651,6 @@ export function InstantBanFlow({
             canSend: false,
             apiResult: 'INSUFFICIENT_ENERGY',
           });
-          setBanSentSuccess(false);
           returnToLobbyAfterLowEnergy({
             source,
             apiResult: 'INSUFFICIENT_ENERGY',
@@ -3699,7 +3692,6 @@ export function InstantBanFlow({
     return 'started';
   }, [
     token,
-    haptic,
     safeFriends,
     user?.username,
     user?.id,
@@ -3724,7 +3716,6 @@ export function InstantBanFlow({
     scheduleDeferredSync,
     clearIncomingReply,
     openSuccess,
-    showOptimisticSendSuccess,
     energyLoaded,
     influencePercent,
     refreshUser,

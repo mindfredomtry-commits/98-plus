@@ -8,7 +8,8 @@ export type SendFlowLogStage =
   | 'suppress-confirm-error-for-low-energy'
   | 'lobby-hint-shown'
   | 'blocked-late-success'
-  | 'open-success';
+  | 'open-success'
+  | 'await-api-success';
 
 export function logSendFlow(
   stage: SendFlowLogStage,
