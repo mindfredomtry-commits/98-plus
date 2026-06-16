@@ -25,6 +25,7 @@ const ALLOWED_EVENTS = new Set([
   '[go-to-bans-click]',
   '[go-to-bans-target-tab]',
   '[98+ ShellErrorBoundary]',
+  '[debug98-overlay-mounted]',
 ]);
 
 declare global {
@@ -57,7 +58,6 @@ export function getDebug98Events(): Debug98Event[] {
 }
 
 // Install eagerly in browser so `window.__debug98log` is always available.
-// The UI overlay is still gated by `enabled`.
 if (typeof window !== 'undefined') {
   installDebug98log();
 }

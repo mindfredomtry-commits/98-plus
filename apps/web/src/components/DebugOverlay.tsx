@@ -1,19 +1,21 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   getDebug98Events,
   installDebug98log,
   type Debug98Event,
 } from '@/lib/debug98log';
 
-export function DebugOverlay({ enabled }: { enabled: boolean }) {
+export function DebugOverlay() {
   const [events, setEvents] = useState<Debug98Event[]>([]);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (!enabled) return;
-
+    setMounted(true);
     installDebug98log();
+    window.__debug98log?.('[debug98-overlay-mounted]');
     setEvents(getDebug98Events());
 
     const onEvent = (e: Event) => {
@@ -24,7 +26,7 @@ export function DebugOverlay({ enabled }: { enabled: boolean }) {
 
     window.addEventListener('__debug98log', onEvent);
     return () => window.removeEventListener('__debug98log', onEvent);
-  }, [enabled]);
+  }, []);
 
   const lines = useMemo(() => {
     const now = Date.now();
@@ -44,11 +46,12 @@ export function DebugOverlay({ enabled }: { enabled: boolean }) {
     });
   }, [events]);
 
-  if (!enabled) return null;
+  if (!mounted) return null;
 
-  return (
+  return createPortal(
     <div
       className="debug98-overlay"
+      data-debug98-overlay="1"
       style={{
         position: 'fixed',
         top: 0,
@@ -70,7 +73,8 @@ export function DebugOverlay({ enabled }: { enabled: boolean }) {
       }}
     >
       {lines.length ? lines.join('\n') : 'debug98: waiting…'}
-    </div>
+    </div>,
+    document.body,
   );
 }
 

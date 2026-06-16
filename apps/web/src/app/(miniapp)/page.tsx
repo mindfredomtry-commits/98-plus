@@ -24,7 +24,6 @@ import { SendBanDock } from '@/components/SendBanDock';
 import { ConnectionBanner } from '@/components/ConnectionBanner';
 import { BottomNav, type Tab } from '@/components/BottomNav';
 import { ShellErrorBoundary } from '@/components/ShellErrorBoundary';
-import { DebugOverlay } from '@/components/DebugOverlay';
 import { getApiUrl } from '@/lib/config';
 import {
   logLobbyInfluenceDebug,
@@ -168,8 +167,6 @@ export default function HomePage() {
   );
   const [tab, setTab] = useState<Tab>('home');
   const [debugOpen, setDebugOpen] = useState(false);
-  const debugOverlayEnabled =
-    debugOpen || process.env.NODE_ENV === 'development';
   const [instantBanOpen, setInstantBanOpen] = useState(false);
   const [apiUrlDisplay, setApiUrlDisplay] = useState('');
 
@@ -450,8 +447,6 @@ export default function HomePage() {
       <ShellErrorBoundary name="overlays" fallback={null}>
         <ChallengeOverlays />
       </ShellErrorBoundary>
-
-      <DebugOverlay enabled={debugOverlayEnabled} />
 
       {token ? (
         <DebugPanel

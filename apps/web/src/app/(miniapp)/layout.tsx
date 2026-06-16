@@ -1,6 +1,7 @@
 import Script from 'next/script';
 import { Providers } from '@/components/Providers';
 import { AppHydrationMarker } from '@/components/AppHydrationMarker';
+import { DebugOverlay } from '@/components/DebugOverlay';
 
 export default function MiniAppLayout({
   children,
@@ -19,6 +20,7 @@ export default function MiniAppLayout({
         <AppHydrationMarker />
         {children}
       </Providers>
+      <DebugOverlay />
     </>
   );
 }
