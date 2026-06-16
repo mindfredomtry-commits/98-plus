@@ -66,7 +66,22 @@ export function hasEnoughInfluenceToSendBan(influencePercent: number): boolean {
 
 export const INSUFFICIENT_ENERGY_ERROR = 'INSUFFICIENT_ENERGY' as const;
 
+/** Low-energy daily ban cap — returned as HTTP 400 `{ error }` from /bans/send. */
+export const LOW_ENERGY_DAILY_LIMIT_ERROR =
+  '⚡ Энергия снижена. Лимит на сегодня.' as const;
+
 export type CanSendBanCode = typeof INSUFFICIENT_ENERGY_ERROR;
+
+export function isLowEnergySendRejectionMessage(message: string): boolean {
+  const trimmed = message.trim();
+  if (!trimmed) return false;
+  if (trimmed === INSUFFICIENT_ENERGY_ERROR) return true;
+  if (trimmed === LOW_ENERGY_DAILY_LIMIT_ERROR) return true;
+  if (trimmed.includes('Выполни пару запретов')) return true;
+  if (trimmed.includes('Лимит на сегодня')) return true;
+  if (trimmed.startsWith('⚡ Энергия снижена')) return true;
+  return false;
+}
 
 export type CheckOutcome = 'both_yes' | 'both_no' | 'split';
 

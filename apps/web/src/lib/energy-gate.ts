@@ -1,6 +1,7 @@
 import {
   hasEnoughInfluenceToSendBan,
   INSUFFICIENT_ENERGY_ERROR,
+  isLowEnergySendRejectionMessage,
   type UserPublic,
 } from '@98plus/shared';
 import { api, ApiError } from '@/lib/api';
@@ -116,23 +117,27 @@ export async function evaluateConfirmSubmitEnergy(
   }
 }
 
-const LOW_ENERGY_HINT_FRAGMENT = 'Выполни пару запретов';
-
 export function isLowEnergyHintMessage(message: string): boolean {
-  return (
-    message === INSUFFICIENT_ENERGY_ERROR ||
-    message.includes(LOW_ENERGY_HINT_FRAGMENT)
-  );
+  return isLowEnergySendRejectionMessage(message);
 }
 
 export function isInsufficientEnergyApiError(err: unknown): boolean {
   if (err instanceof ApiError) {
+    const matched = isLowEnergySendRejectionMessage(err.message);
+    if (matched && process.env.NODE_ENV === 'development') {
+      console.log('[ENERGY GATE] insufficient-energy-api-error', {
+        status: err.status,
+        message: err.message,
+        code: err.code ?? null,
+        redirectToLobby: err.redirectToLobby ?? null,
+      });
+    }
     return (
       err.code === INSUFFICIENT_ENERGY_ERROR ||
       err.message === INSUFFICIENT_ENERGY_ERROR ||
       err.status === 402 ||
       err.redirectToLobby === true ||
-      isLowEnergyHintMessage(err.message)
+      matched
     );
   }
   if (err instanceof Error) {

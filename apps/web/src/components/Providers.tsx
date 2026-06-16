@@ -483,6 +483,8 @@ interface AppContextValue {
   openNewBanWhoFlow: () => void;
   /** Opens BansOverlay from result card «К запретам» (increments on each request). */
   openBansOverlayRequest: number;
+  /** Preferred tab for BansOverlay opened from result CTA. */
+  openBansOverlayTabRequest: 'yours' | 'toYou' | 'history' | 'archive' | null;
   /** Closes BansOverlay when result-cta navigation intent is cleared. */
   closeBansOverlayRequest: number;
   /** Provider latch: InstantBanFlow must open BansOverlay while direct result closes. */
@@ -546,6 +548,8 @@ export type BansNavState = {
   previousScreen: 'lobby';
   returnTarget: 'lobby';
 };
+
+type BansOverlayTabTarget = 'yours' | 'toYou' | 'history' | 'archive';
 
 export const DEFAULT_BANS_NAV: BansNavState = {
   origin: 'lobby',
@@ -679,6 +683,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     null,
   );
   const [openBansOverlayRequest, setOpenBansOverlayRequest] = useState(0);
+  const [openBansOverlayTabRequest, setOpenBansOverlayTabRequest] =
+    useState<BansOverlayTabTarget | null>(null);
   const [closeBansOverlayRequest, setCloseBansOverlayRequest] = useState(0);
   const [resultCtaBansOverlayOpen, setResultCtaBansOverlayOpen] =
     useState(false);
@@ -790,12 +796,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const openLobbyRef = useRef<(source?: string) => void>(() => {});
   const resultCtaBansOverlayOpenRef = useRef(false);
   const openBansOverlayRequestRef = useRef(0);
+  const openBansOverlayTabRequestRef = useRef<BansOverlayTabTarget | null>(null);
   const statusCtaNavigateGenerationRef = useRef(0);
   const notificationChainHandoffRef = useRef(false);
   const notificationChainAwaitingUserRef = useRef(false);
   const notificationChainReplyComposeActiveRef = useRef(false);
   const chainReplyParentBanIdRef = useRef<string | null>(null);
   const chainAdvanceExplicitRef = useRef(false);
+  const lastProcessedOverlayKindForBansRef = useRef<
+    'incoming' | 'check' | 'result' | null
+  >(null);
 
   const isDirectOverboardLocallyActive = useCallback(() => {
     return (
@@ -5229,6 +5239,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const consumeIncomingAfterAnswer = useCallback(
     (banId: string, answer: 'overboard' | 'reply') => {
+      lastProcessedOverlayKindForBansRef.current = 'incoming';
       const alreadyConsumed = incomingConsumedAfterAnswerRef.current.has(banId);
       incomingConsumedAfterAnswerRef.current.add(banId);
       dismissedIncomingRef.current.add(banId);
@@ -7927,6 +7938,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setResultCtaBansOverlayOpen(false);
     setOpenBansOverlayRequest(0);
     openBansOverlayRequestRef.current = 0;
+    openBansOverlayTabRequestRef.current = null;
+    setOpenBansOverlayTabRequest(null);
     bansNavStateRef.current = DEFAULT_BANS_NAV;
     setBansNavState(DEFAULT_BANS_NAV);
     setBansReturnToLobbyLatch(false);
@@ -7935,7 +7948,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, []);
 
   const armOpenBansOverlayFromResultCta = useCallback(
-    (banId: string | null) => {
+    (banId: string | null, targetTab: BansOverlayTabTarget = 'yours') => {
       const chainSnapshot = getNotificationChainDebugSnapshot();
       if (hasPendingNotificationChain()) {
         console.log('[chain-debug-bans-open-called]', {
@@ -7993,6 +8006,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         setBansNavState(bansNavStateRef.current);
         setLobbyOpen(true);
         lobbyOpenRef.current = true;
+        setOpenBansOverlayTabRequest(targetTab);
+        openBansOverlayTabRequestRef.current = targetTab;
         setOpenBansOverlayRequest((n) => {
           nextBansRequest = n + 1;
           openBansOverlayRequestRef.current = n + 1;
@@ -8004,11 +8019,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       markVisibleOverboardTrace('[BANS OPEN REQUESTED]', {
         openBansOverlayRequest: nextBansRequest,
+        targetTab,
         resultCtaBansOverlayOpen: true,
         bansCtaQueueSuppress: true,
       });
       console.log('[BANS OPEN REQUESTED]', {
         openBansOverlayRequest: nextBansRequest,
+        targetTab,
         resultCtaBansOverlayOpen: true,
         lobbyOpen: lobbyOpenRef.current,
       });
@@ -8495,6 +8512,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const consumeResultBanForResultCta = useCallback(
     (banId: string) => {
+      lastProcessedOverlayKindForBansRef.current = 'result';
       const key = normalizeId(banId);
       if (!key) return;
       const viewerId =
@@ -8601,9 +8619,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       directResultOverlayActive;
 
     console.log('[chain-debug-status-cta-start]', { banId, generation });
-    console.log('[status-cta-click]', {
+    console.log('[go-to-bans-click]', {
       source: 'result-status',
       banId,
+      wasDirect,
     });
 
     const beforeConsume = {
@@ -8676,7 +8695,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
 
     const chainSource = wasDirect ? 'overboard-status-direct' : 'status-cta';
+    const queueHead = overlayQueueRef.current[0] ?? null;
+    const queueHeadKind = queueHead?.kind ?? null;
+    const queueHeadBanId =
+      queueHead?.kind === 'result'
+        ? queueHead.result.id
+        : queueHead?.kind === 'incoming' || queueHead?.kind === 'check'
+          ? queueHead.ban.id
+          : null;
+    console.log('[go-to-bans-queue-check]', {
+      chainSource,
+      queueLen: overlayQueueRef.current.length,
+      startupLen: pendingStartupInteractionsRef.current.length,
+      queueHeadKind,
+      queueHeadBanId,
+    });
     if (showNextNotificationFromChainSync(chainSource)) {
+      console.log('[go-to-bans-show-next-overlay]', {
+        source: 'sync',
+        chainSource,
+      });
       return;
     }
 
@@ -8684,7 +8722,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (statusCtaNavigateGenerationRef.current !== generation) return;
       const primed = await primeNextNotificationAfterStatusCta(chainSource);
       if (statusCtaNavigateGenerationRef.current !== generation) return;
-      if (primed) return;
+      if (primed) {
+        console.log('[go-to-bans-show-next-overlay]', {
+          source: 'prime',
+          chainSource,
+        });
+        return;
+      }
       if (hasPendingNotificationChain()) {
         console.log('[chain-debug-final-lobby-blocked]', {
           source: 'status-cta-async',
@@ -8698,8 +8742,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source: 'status-cta',
         reason: 'queue-empty',
       });
+      const lastProcessedKind = lastProcessedOverlayKindForBansRef.current;
+      const previousTab = openBansOverlayTabRequestRef.current;
+      const targetTab: BansOverlayTabTarget =
+        previousTab === 'history' || previousTab === 'archive'
+          ? previousTab
+          : lastProcessedKind === 'incoming'
+            ? 'toYou'
+            : 'yours';
+      console.log('[go-to-bans-open-section]', {
+        source: 'status-cta',
+        targetTab,
+        lastProcessedKind,
+        previousTab,
+      });
       logResultNav('open-bans-overlay', { direct: wasDirect, banId, wasDirect });
-      armOpenBansOverlayFromResultCta(banId);
+      armOpenBansOverlayFromResultCta(banId, targetTab);
     })();
   }, [
     applyDirectOverboardCloseState,
@@ -8747,6 +8805,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const acknowledgeIncomingSeen = useCallback(async (banId: string) => {
+    lastProcessedOverlayKindForBansRef.current = 'incoming';
     dismissedIncomingRef.current.add(banId);
     setViralOnboarding(false);
     removeIncomingFromQueue(banId, { explicitUserAction: true });
@@ -9865,6 +9924,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     openBansOverlayRequestRef.current = openBansOverlayRequest;
   }, [openBansOverlayRequest]);
+  useEffect(() => {
+    openBansOverlayTabRequestRef.current = openBansOverlayTabRequest;
+  }, [openBansOverlayTabRequest]);
 
   useEffect(() => {
     bansCtaQueueSuppressRef.current = bansCtaQueueSuppress;
@@ -10894,6 +10956,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       newBanWhoFlowRequest,
       openNewBanWhoFlow,
       openBansOverlayRequest,
+      openBansOverlayTabRequest,
       closeBansOverlayRequest,
       resultCtaBansOverlayOpen,
       clearResultCtaBansOverlayOpen,
@@ -11054,6 +11117,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       newBanWhoFlowRequest,
       openNewBanWhoFlow,
       openBansOverlayRequest,
+      openBansOverlayTabRequest,
       closeBansOverlayRequest,
       resultCtaBansOverlayOpen,
       clearResultCtaBansOverlayOpen,

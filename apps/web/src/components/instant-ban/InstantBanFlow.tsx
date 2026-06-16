@@ -283,6 +283,7 @@ export function InstantBanFlow({
     activeBans,
     newBanWhoFlowRequest,
     openBansOverlayRequest,
+    openBansOverlayTabRequest,
     closeBansOverlayRequest,
     resultCtaBansOverlayOpen,
     clearResultCtaBansOverlayOpen,
@@ -1648,7 +1649,8 @@ export function InstantBanFlow({
       return;
     }
     resetBansNavState();
-    setBansTab('yours');
+    const targetTab = openBansOverlayTabRequest ?? 'yours';
+    setBansTab(targetTab);
     setSelectedBanForDetails(null);
     setBansOverlayOpen(true);
   }, [
@@ -1727,7 +1729,7 @@ export function InstantBanFlow({
     });
     console.log('[BANS OVERLAY OPENED]', {
       ok: true,
-      tab: 'yours',
+      tab: targetTab,
       bansCtaQueueSuppress,
       phase,
     });
@@ -1738,6 +1740,7 @@ export function InstantBanFlow({
     hasPendingNotificationChain,
     notificationSessionActive,
     notificationOverlayActive,
+    openBansOverlayTabRequest,
     phase,
     resetSendUiForBansCta,
   ]);
@@ -3159,6 +3162,7 @@ export function InstantBanFlow({
       confirmAbortReleaseRef.current?.();
       setConfirmEnterKey((k) => k + 1);
       setBanSentSuccess(false);
+      setSendSuccessCardMounted(false, { source: 'low-energy-redirect' });
       sendSnapshotRef.current = null;
       confirmEntrySourceRef.current = 'send-flow';
       stopCrossScreenAnim();
@@ -3206,6 +3210,7 @@ export function InstantBanFlow({
       releaseReplyHandoffLock,
       setCrossScreenProgressImmediate,
       setDeepLinkReplyBooting,
+      setSendSuccessCardMounted,
       stopCrossScreenAnim,
     ],
   );

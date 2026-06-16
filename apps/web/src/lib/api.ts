@@ -1,4 +1,8 @@
-import { INSUFFICIENT_ENERGY_ERROR, SYSTEM_VOICE } from '@98plus/shared';
+import {
+  INSUFFICIENT_ENERGY_ERROR,
+  isLowEnergySendRejectionMessage,
+  SYSTEM_VOICE,
+} from '@98plus/shared';
 import { getApiUrl, isApiConfiguredForProduction } from './config';
 import {
   fetchWithTimeout,
@@ -106,14 +110,18 @@ export async function api<T>(
           res.statusText ||
           `HTTP ${res.status}`;
         console.error('[98+ api]', res.status, url, data);
+        const insufficientEnergy =
+          res.status === 402 ||
+          errorField === INSUFFICIENT_ENERGY_ERROR ||
+          isLowEnergySendRejectionMessage(errMsg);
         throw new ApiError(
           errMsg,
           res.status,
           url,
-          res.status === 402 || errorField === INSUFFICIENT_ENERGY_ERROR
+          insufficientEnergy
             ? {
                 code: INSUFFICIENT_ENERGY_ERROR,
-                redirectToLobby: data.redirectToLobby === true,
+                redirectToLobby: data.redirectToLobby === true || res.status !== 402,
               }
             : undefined,
         );
