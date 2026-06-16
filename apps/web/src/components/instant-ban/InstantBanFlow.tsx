@@ -343,6 +343,8 @@ export function InstantBanFlow({
     checkGateActive,
     notificationSessionActive,
     notificationOverlayVisible,
+    notificationChainTransitioning,
+    setNotificationChainTransitioning,
     activeOverlayKind,
     result,
     sendFlowOpen,
@@ -563,7 +565,8 @@ export function InstantBanFlow({
     deepLinkRouteBootPending ||
     replyIncomingDeeplinkPending ||
     overlayHandoffLobbySuppressed ||
-    successExitDraining;
+    successExitDraining ||
+    notificationChainTransitioning;
   const showLobbyChrome = lobbyBootIntroPrimed && !lobbyChromeHidden;
   /** Orb stays mounted during route boot — only hide for reply/incoming block. */
   const lobbyOrbVisible =
@@ -571,13 +574,15 @@ export function InstantBanFlow({
     !replyLobbyBlocked &&
     !successToActiveLobbyBlocked &&
     !overlayHandoffLobbySuppressed &&
-    !successExitDraining;
+    !successExitDraining &&
+    !notificationChainTransitioning;
   const showLobbyCta =
     lobbyBootIntroPrimed &&
     !replyIncomingDeeplinkPending &&
     !successToActiveLobbyBlocked &&
     !overlayHandoffLobbySuppressed &&
     !successExitDraining &&
+    !notificationChainTransitioning &&
     (!replyLobbyBlocked || bansReturnToLobbyLatch) &&
     !deepLinkRouteBootPending &&
     !deepLinkReplyBooting &&
@@ -2171,6 +2176,9 @@ export function InstantBanFlow({
 
   const finishSendSuccessLobbyExit = useCallback(
     async (banId: string | null) => {
+      if (hasPendingNotificationChain()) {
+        setNotificationChainTransitioning(true);
+      }
       setSuccessExitDraining(true);
       setCtaState('hidden');
       try {
@@ -2264,6 +2272,7 @@ export function InstantBanFlow({
           banId,
           reason: 'drain-missed',
         });
+        setNotificationChainTransitioning(false);
         openLobby('success-exit-empty-queue');
         beginCtaSpringIn();
       }
@@ -2289,6 +2298,7 @@ export function InstantBanFlow({
       pendingStartupInteractions,
       releaseStartupInteractions,
       setBansReturnToLobbyLatch,
+      setNotificationChainTransitioning,
       unlockNotificationQueueAndFlush,
     ],
   );
