@@ -1610,7 +1610,9 @@ export function InstantBanFlow({
       if (bansCtaQueueSuppress) clearBansCtaQueueSuppress();
       if (resultCtaBansOverlayOpen) clearResultCtaBansOverlayOpen();
       resetBansNavState();
-      setBansReturnToLobbyLatch(true);
+      setBansReturnToLobbyLatch(true, {
+        source: `prepareLobbyBaseAfterSuccess:${source}`,
+      });
       openLobby(`success-exit-${source}`);
       console.log('[success-exit-base-lobby]', {
         source,
@@ -2140,7 +2142,10 @@ export function InstantBanFlow({
       releaseStartupInteractions({ force: true });
       logOverlayPriority('send-success-unlock', {});
       unlockNotificationQueueAndFlush('send-success-unlock');
-      setBansReturnToLobbyLatch(false);
+      setBansReturnToLobbyLatch(false, {
+        source: 'finishSendSuccessLobbyExit',
+        banId,
+      });
 
       console.log('[success-exit-drain-attempt]', {
         banId,

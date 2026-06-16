@@ -29,7 +29,34 @@ const ALLOWED_EVENTS = new Set([
   '[go-to-bans-target-tab]',
   '[98+ ShellErrorBoundary]',
   '[debug98-overlay-mounted]',
+  '[LATCH ON]',
+  '[LATCH OFF]',
+  '[QUEUE SYNC SKIPPED]',
+  '[DISMISS RESULT SKIPPED]',
+  '[RESULT ACK SENT]',
 ]);
+
+export type Debug98LatchSnapshot = {
+  bansReturnToLobbyLatchRef: boolean;
+  queueLen: number;
+};
+
+let latchSnapshotReader: (() => Debug98LatchSnapshot) | null = null;
+
+export function registerDebug98LatchSnapshot(
+  reader: (() => Debug98LatchSnapshot) | null,
+): void {
+  latchSnapshotReader = reader;
+}
+
+export function readDebug98LatchSnapshot(): Debug98LatchSnapshot {
+  return (
+    latchSnapshotReader?.() ?? {
+      bansReturnToLobbyLatchRef: false,
+      queueLen: 0,
+    }
+  );
+}
 
 declare global {
   interface Window {

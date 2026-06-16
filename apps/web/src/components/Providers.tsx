@@ -217,6 +217,9 @@ import { getCheckViewerRole } from '@98plus/shared';
 import { timingLog, timingStart } from '@/lib/timing-log';
 import { logFriendsTiming } from '@/lib/boot-timing';
 import {
+  registerDebug98LatchSnapshot,
+} from '@/lib/debug98log';
+import {
   acknowledgeBanResultOnServer,
   diagnoseResultShow,
   dismissBanResultLocally,
@@ -498,7 +501,10 @@ interface AppContextValue {
   resetBansNavState: () => void;
   /** Blocks page shell effects from closing lobby during bans→lobby return. */
   bansReturnToLobbyLatch: boolean;
-  setBansReturnToLobbyLatch: (active: boolean) => void;
+  setBansReturnToLobbyLatch: (
+    active: boolean,
+    debug?: { source: string; banId?: string | null },
+  ) => void;
   /** Closes result-cta bans session: open lobby before queue/result reset. */
   completeBansOverlayCloseFromResultCta: (source?: string) => boolean;
   /** Accumulated pre-open interactions waiting for ritual release. */
@@ -690,7 +696,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     useState(false);
   const [bansCtaQueueSuppress, setBansCtaQueueSuppress] = useState(false);
   const [bansNavState, setBansNavState] = useState<BansNavState>(DEFAULT_BANS_NAV);
-  const [bansReturnToLobbyLatch, setBansReturnToLobbyLatch] = useState(false);
+  const [bansReturnToLobbyLatch, setBansReturnToLobbyLatchState] =
+    useState(false);
   const lobbyOpenRef = useRef(true);
   const lobbyShownLoggedRef = useRef(false);
   const [, setAvatarPreloadEpoch] = useState(0);
@@ -789,6 +796,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const bansNavStateRef = useRef<BansNavState>(DEFAULT_BANS_NAV);
   const bansCtaQueueSuppressRef = useRef(false);
   const bansReturnToLobbyLatchRef = useRef(false);
+  const setBansReturnToLobbyLatch = useCallback(
+    (
+      active: boolean,
+      debug?: { source: string; banId?: string | null },
+    ) => {
+      const event = active ? '[LATCH ON]' : '[LATCH OFF]';
+      window.__debug98log?.(event, {
+        banId: debug?.banId ?? resultRef.current?.id ?? null,
+        bansReturnToLobbyLatchRef: bansReturnToLobbyLatchRef.current,
+        latchNext: active,
+        source: debug?.source ?? 'unknown',
+        queueLen: overlayQueueRef.current.length,
+      });
+      bansReturnToLobbyLatchRef.current = active;
+      setBansReturnToLobbyLatchState(active);
+    },
+    [],
+  );
   const completeBansCloseFromResultCtaRef = useRef<() => boolean>(() => false);
   const requestOpenBansFromResultCtaRef = useRef<(banId: string | null) => void>(
     () => {},
@@ -1654,6 +1679,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       resultCtaBansOverlayOpenRef.current;
 
     if (shouldSkipResultQueueSync) {
+      if (bansReturnToLobbyLatchRef.current) {
+        const skipBanId =
+          active?.kind === 'result'
+            ? active.result.id
+            : active?.kind === 'incoming' || active?.kind === 'check'
+              ? active.ban.id
+              : (resultRef.current?.id ?? null);
+        window.__debug98log?.('[QUEUE SYNC SKIPPED]', {
+          banId: skipBanId,
+          bansReturnToLobbyLatchRef: true,
+          source: 'syncDisplayFromQueue',
+          reason: 'bansReturnToLobbyLatch',
+          queueLen: queue.length,
+        });
+      }
       console.log('[QUEUE SYNC SKIPPED] reason=result-cta-bans-open', {
         bansCtaSuppress: bansCtaQueueSuppressRef.current,
         navOrigin: bansNavStateRef.current.origin,
@@ -2247,8 +2287,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               baseScreen: 'lobby',
               lobbyOpen: lobbyOpenRef.current,
             });
-            setBansReturnToLobbyLatch(false);
-            bansReturnToLobbyLatchRef.current = false;
+            setBansReturnToLobbyLatch(false, {
+              source: 'dismissCurrentOverlay-queue-empty',
+            });
             setLobbyOpen(true);
             lobbyOpenRef.current = true;
           }
@@ -2548,8 +2589,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               baseScreen: 'lobby',
               lobbyOpen: lobbyOpenRef.current,
             });
-            setBansReturnToLobbyLatch(false);
-            bansReturnToLobbyLatchRef.current = false;
+            setBansReturnToLobbyLatch(false, {
+              source: 'unlockNotificationQueueAndFlush-empty-queue',
+            });
             setLobbyOpen(true);
             lobbyOpenRef.current = true;
           }
@@ -3215,10 +3257,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const clearNotificationChainReturnLatch = useCallback((source: string) => {
     if (!bansReturnToLobbyLatchRef.current) return;
-    bansReturnToLobbyLatchRef.current = false;
-    setBansReturnToLobbyLatch(false);
+    setBansReturnToLobbyLatch(false, {
+      source: `clearNotificationChainReturnLatch:${source}`,
+    });
     console.log('[notification-chain-latch-clear]', { source });
-  }, []);
+  }, [setBansReturnToLobbyLatch]);
 
   const prefetchPendingNotificationChain = useCallback(
     async (
@@ -3497,6 +3540,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
     if (bansReturnToLobbyLatchRef.current) {
       console.log('[DISMISS RESULT] skipped reason=bans-return-latch');
+      window.__debug98log?.('[DISMISS RESULT SKIPPED]', {
+        banId: result?.id ?? resultRef.current?.id ?? null,
+        bansReturnToLobbyLatchRef: true,
+        source: 'dismissBanResult',
+        reason: 'bans-return-latch',
+        queueLen: overlayQueueRef.current.length,
+      });
       return;
     }
     if (
@@ -7974,10 +8024,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setOpenBansOverlayTabRequest(null);
     bansNavStateRef.current = DEFAULT_BANS_NAV;
     setBansNavState(DEFAULT_BANS_NAV);
-    setBansReturnToLobbyLatch(false);
-    bansReturnToLobbyLatchRef.current = false;
+    setBansReturnToLobbyLatch(false, {
+      source: `clearBansOverlayNavigationIntent:${source}`,
+    });
     setCloseBansOverlayRequest((n) => n + 1);
-  }, []);
+  }, [setBansReturnToLobbyLatch]);
 
   const armOpenBansOverlayFromResultCta = useCallback(
     (banId: string | null, targetTab: BansOverlayTabTarget = 'yours') => {
@@ -9931,8 +9982,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       flushSync(() => {
-        setBansReturnToLobbyLatch(true);
-        bansReturnToLobbyLatchRef.current = true;
+        setBansReturnToLobbyLatch(true, {
+          source: `completeBansOverlayCloseFromResultCta:${lobbySource}`,
+          banId: resultRef.current?.id ?? result?.id ?? null,
+        });
         setLobbyOpen(true);
         lobbyOpenRef.current = true;
         lobbyShownLoggedRef.current = false;
@@ -9992,8 +10045,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           );
         }
         requestAnimationFrame(() => {
-          setBansReturnToLobbyLatch(false);
-          bansReturnToLobbyLatchRef.current = false;
+          setBansReturnToLobbyLatch(false, {
+            source: `completeBansOverlayCloseFromResultCta-timeout:${closeSource}`,
+            banId: resultRef.current?.id ?? null,
+          });
         });
       }, 400);
 
@@ -10039,6 +10094,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     bansReturnToLobbyLatchRef.current = bansReturnToLobbyLatch;
   }, [bansReturnToLobbyLatch]);
+
+  useEffect(() => {
+    registerDebug98LatchSnapshot(() => ({
+      bansReturnToLobbyLatchRef: bansReturnToLobbyLatchRef.current,
+      queueLen: overlayQueueRef.current.length,
+    }));
+    return () => registerDebug98LatchSnapshot(null);
+  }, []);
 
   const openNewBanWhoFlow = useCallback(() => {
     if (hasPendingNotificationChain()) {

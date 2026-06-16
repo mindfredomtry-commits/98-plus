@@ -5,6 +5,7 @@ import {
   isValidBanResultPayload,
 } from '@98plus/shared';
 import { api } from './api';
+import { readDebug98LatchSnapshot } from './debug98log';
 import { normalizeId } from './normalize-json';
 import {
   isDismissedResultLocally,
@@ -51,8 +52,18 @@ export function shouldShowBanResult(
 export async function acknowledgeBanResultOnServer(
   banId: string,
   token: string | null,
+  debugSource?: string,
 ): Promise<void> {
   if (!token || !banId) return;
+  const snap = readDebug98LatchSnapshot();
+  if (typeof window !== 'undefined') {
+    window.__debug98log?.('[RESULT ACK SENT]', {
+      banId,
+      bansReturnToLobbyLatchRef: snap.bansReturnToLobbyLatchRef,
+      source: debugSource ?? 'acknowledgeBanResultOnServer',
+      queueLen: snap.queueLen,
+    });
+  }
   try {
     await api(`/bans/${banId}/result/ack`, { method: 'POST', token });
   } catch {
