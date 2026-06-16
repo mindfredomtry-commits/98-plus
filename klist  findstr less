@@ -1,0 +1,162 @@
+[1mdiff --git a/apps/web/src/components/Providers.tsx b/apps/web/src/components/Providers.tsx[m
+[1mindex 0b88973..1fd9ad4 100644[m
+[1m--- a/apps/web/src/components/Providers.tsx[m
+[1m+++ b/apps/web/src/components/Providers.tsx[m
+[36m@@ -219,6 +219,11 @@[m [mimport { logFriendsTiming } from '@/lib/boot-timing';[m
+ import {[m
+   registerDebug98LatchSnapshot,[m
+ } from '@/lib/debug98log';[m
+[32m+[m[32mimport {[m
+[32m+[m[32m  traceSuccessCardUnmounted,[m
+[32m+[m[32m  traceSuccessHide,[m
+[32m+[m[32m  traceSuccessStateReset,[m
+[32m+[m[32m} from '@/lib/success-card-trace';[m
+ import {[m
+   acknowledgeBanResultOnServer,[m
+   diagnoseResultShow,[m
+[36m@@ -1177,6 +1182,13 @@[m [mfunction ProvidersBody({ children }: { children: React.ReactNode }) {[m
+         });[m
+         return;[m
+       }[m
+[32m+[m[32m      traceSuccessHide(opts?.source ?? 'setSendSuccessCardMounted-false', {[m
+[32m+[m[32m        banId: sendSuccessCardBanIdRef.current,[m
+[32m+[m[32m      });[m
+[32m+[m[32m      traceSuccessCardUnmounted({[m
+[32m+[m[32m        source: opts?.source ?? 'setSendSuccessCardMounted-false',[m
+[32m+[m[32m        banId: sendSuccessCardBanIdRef.current,[m
+[32m+[m[32m      });[m
+       const banId = sendSuccessCardBanIdRef.current;[m
+       if (opts?.source === 'user-close') {[m
+         console.log('[success-card-user-close]', { banId });[m
+[36m@@ -3971,6 +3983,8 @@[m [mfunction ProvidersBody({ children }: { children: React.ReactNode }) {[m
+     pendingStartupInteractionsRef.current = [];[m
+     startupInteractionsHoldRef.current = true;[m
+     sessionBanSendSuccessRef.current = false;[m
+[32m+[m[32m    traceSuccessHide('providers-auth-reset');[m
+[32m+[m[32m    traceSuccessCardUnmounted({ source: 'providers-auth-reset' });[m
+     sendSuccessCardActiveRef.current = false;[m
+     sendSuccessCardBanIdRef.current = null;[m
+     setSendSuccessCardActiveState(false);[m
+[36m@@ -8150,6 +8164,9 @@[m [mfunction ProvidersBody({ children }: { children: React.ReactNode }) {[m
+         if (pendingStartupInteractionsRef.current.length > 0) {[m
+           releaseStartupInteractions({ force: true });[m
+         }[m
+[32m+[m[32m        if (showNextNotificationFromChainSync('armOpenBansOverlayFromResultCta')) {[m
+[32m+[m[32m          return;[m
+[32m+[m[32m        }[m
+         syncDisplayFromQueue(overlayQueueRef.current);[m
+         return;[m
+       }[m
+[36m@@ -8214,7 +8231,7 @@[m [mfunction ProvidersBody({ children }: { children: React.ReactNode }) {[m
+         lobbyOpen: lobbyOpenRef.current,[m
+       });[m
+     },[m
+[31m-    [clearDeepLinkReplyBan, clearIncomingReply, closeSendFlow, getNotificationChainDebugSnapshot, hasPendingNotificationChain, releaseStartupInteractions, syncDisplayFromQueue, clearNotificationChainReturnLatch],[m
+[32m+[m[32m    [clearDeepLinkReplyBan, clearIncomingReply, closeSendFlow, getNotificationChainDebugSnapshot, hasPendingNotificationChain, releaseStartupInteractions, showNextNotificationFromChainSync, syncDisplayFromQueue, clearNotificationChainReturnLatch],[m
+   );[m
+ [m
+   const notifyResultReplyWhatVisible = useCallback([m
+[36m@@ -8980,6 +8997,9 @@[m [mfunction ProvidersBody({ children }: { children: React.ReactNode }) {[m
+           reason: 'chain-active-after-prime',[m
+           ...getNotificationChainDebugSnapshot(),[m
+         });[m
+[32m+[m[32m        if (showNextNotificationFromChainSync('status-cta-after-prime')) {[m
+[32m+[m[32m          return;[m
+[32m+[m[32m        }[m
+         return;[m
+       }[m
+ [m
+[36m@@ -10217,6 +10237,7 @@[m [mfunction ProvidersBody({ children }: { children: React.ReactNode }) {[m
+       });[m
+       return;[m
+     }[m
+[32m+[m[32m    traceSuccessStateReset('openNewBanWhoFlow-provider');[m
+     closeLobby();[m
+     setNewBanWhoFlowRequest((n) => n + 1);[m
+   }, [[m
+[1mdiff --git a/apps/web/src/components/instant-ban/InstantBanFlow.tsx b/apps/web/src/components/instant-ban/InstantBanFlow.tsx[m
+[1mindex 9ebde59..68d5f1b 100644[m
+[1m--- a/apps/web/src/components/instant-ban/InstantBanFlow.tsx[m
+[1m+++ b/apps/web/src/components/instant-ban/InstantBanFlow.tsx[m
+[36m@@ -35,6 +35,12 @@[m [mimport {[m
+   instantBanSendSuccessDebug,[m
+   isInstantBanLiteMode,[m
+ } from '@/lib/instant-ban-debug';[m
+[32m+[m[32mimport {[m
+[32m+[m[32m  traceSuccessExitHandler,[m
+[32m+[m[32m  traceSuccessHide,[m
+[32m+[m[32m  traceSuccessSnapshotCleared,[m
+[32m+[m[32m  traceSuccessStateReset,[m
+[32m+[m[32m} from '@/lib/success-card-trace';[m
+ import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';[m
+ import { logDeepLinkHandlerResult } from '@/lib/deep-link-boot-debug';[m
+ import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';[m
+[36m@@ -395,6 +401,7 @@[m [mexport function InstantBanFlow({[m
+   const [banSentSuccess, setBanSentSuccess] = useState(false);[m
+   useEffect(() => {[m
+     if (banSentSuccess) return;[m
+[32m+[m[32m    traceSuccessHide('ban-sent-success-cleared-effect');[m
+     setSendSuccessCardMounted(false, { source: 'ban-sent-success-cleared' });[m
+   }, [banSentSuccess, setSendSuccessCardMounted]);[m
+   const [replySending, setReplySending] = useState(false);[m
+[36m@@ -406,6 +413,7 @@[m [mexport function InstantBanFlow({[m
+   } | null>(null);[m
+   const lastSendSuccessBanIdRef = useRef<string | null>(null);[m
+   const successExitAwaitingNotificationDrainRef = useRef(false);[m
+[32m+[m[32m  const [successExitDraining, setSuccessExitDraining] = useState(false);[m
+   const confirmSendContextRef = useRef<{[m
+     payoffPhase: string;[m
+     sendTriggered: boolean;[m
+[36m@@ -554,19 +562,22 @@[m [mexport function InstantBanFlow({[m
+     replyLobbyBlocked ||[m
+     deepLinkRouteBootPending ||[m
+     replyIncomingDeeplinkPending ||[m
+[31m-    overlayHandoffLobbySuppressed;[m
+[32m+[m[32m    overlayHandoffLobbySuppressed ||[m
+[32m+[m[32m    successExitDraining;[m
+   const showLobbyChrome = lobbyBootIntroPrimed && !lobbyChromeHidden;[m
+   /** Orb stays mounted during route boot — only hide for reply/incoming block. */[m
+   const lobbyOrbVisible =[m
+     !replyIncomingDeeplinkPending &&[m
+     !replyLobbyBlocked &&[m
+     !successToActiveLobbyBlocked &&[m
+[31m-    !overlayHandoffLobbySuppressed;[m
+[32m+[m[32m    !overlayHandoffLobbySuppressed &&[m
+[32m+[m[32m    !successExitDraining;[m
+   const showLobbyCta =[m
+     lobbyBootIntroPrimed &&[m
+     !replyIncomingDeeplinkPending &&[m
+     !successToActiveLobbyBlocked &&[m
+     !overlayHandoffLobbySuppressed &&[m
+[32m+[m[32m    !successExitDraining &&[m
+     (!replyLobbyBlocked || bansReturnToLobbyLatch) &&[m
+     !deepLinkRouteBootPending &&[m
+     !deepLinkReplyBooting &&[m
+[36m@@ -1483,7 +1494,10 @@[m [mexport function InstantBanFlow({[m
+       setSendError(null);[m
+       setComposeExitProgress(0);[m
+       setComposeDismissing(false);[m
+[32m+[m[32m      traceSuccessStateReset('beginRepeatBanFlow', { targetPhase });[m
+[32m+[m[32m      traceSuccessHide('beginRepeatBanFlow');[m
+       setBanSentSuccess(false);[m
+[32m+[m[32m      traceSuccessSnapshotCleared('beginRepeatBanFlow');[m
+       sendSnapshotRef.current = null;[m
+       setCrossScreenProgressImmediate(1);[m
+ [m
+[36m@@ -1537,7 +1551,10 @@[m [mexport function InstantBanFlow({[m
+       setSendError(null);[m
+       setComposeExitProgress(0);[m
+       setComposeDismissing(false);[m
+[32m+[m[32m      traceSuccessStateReset('beginComposingBanForOpponent');[m
+[32m+[m[32m      traceSuccessHide('beginComposingBanForOpponent');[m
+       setBanSentSuccess(false);[m
+[32m+[m[32m      traceSuccessSnapshotCleared('beginComposingBanForOpponent');[m
+       sendSnapshotRef.current = null;[m
+       if (phase !== 'composingBan') {[m
+         setPhase('composingBan');[m
+[36m@@ -1592,7 +1609,10 @@[m [mexport function InstantBanFlow({[m
+   );[m
+ [m
+   const prepareLobbyBaseAfterSuccess = useCallback([m
+[31m-    (source: string, opts?: { preserveActiveOverlay?: boolean }) => {[m
+[32m+[m[32m    (

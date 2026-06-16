@@ -331,6 +331,7 @@ export function InstantBanFlow({
     drainNextNotificationAfterSuccess,
     markSessionBanSendSuccess,
     setSendSuccessCardMounted,
+    setSuccessExitDraining: setProvidersSuccessExitDraining,
     resolveReplyParentActiveBanImmediate,
     ensureReplyParentActiveBanForSuccess,
     refreshReplyParentActiveBanInBackground,
@@ -401,9 +402,10 @@ export function InstantBanFlow({
   const [banSentSuccess, setBanSentSuccess] = useState(false);
   useEffect(() => {
     if (banSentSuccess) return;
+    if (successExitDraining) return;
     traceSuccessHide('ban-sent-success-cleared-effect');
     setSendSuccessCardMounted(false, { source: 'ban-sent-success-cleared' });
-  }, [banSentSuccess, setSendSuccessCardMounted]);
+  }, [banSentSuccess, successExitDraining, setSendSuccessCardMounted]);
   const [replySending, setReplySending] = useState(false);
   const sendSnapshotRef = useRef<{
     banText: string;
@@ -2139,7 +2141,6 @@ export function InstantBanFlow({
           );
         } else {
           setLobbyActiveBanOverlay(null);
-          prepareLobbyBaseAfterSuccess('send-success', { deferLobbyOpen: true });
         }
 
         setBanSentSuccess(false);
@@ -2172,6 +2173,7 @@ export function InstantBanFlow({
   const finishSendSuccessLobbyExit = useCallback(
     async (banId: string | null) => {
       setSuccessExitDraining(true);
+      setProvidersSuccessExitDraining(true);
       setCtaState('hidden');
       try {
       console.log('[success-exit-start]', {
@@ -2243,7 +2245,8 @@ export function InstantBanFlow({
         }
       })();
 
-      const drained = await drainNextNotificationAfterSuccess(banId);
+      let drained = false;
+      drained = await drainNextNotificationAfterSuccess(banId);
       if (drained) {
         console.log('[success-exit-drain-success]', {
           banId,
@@ -2254,6 +2257,7 @@ export function InstantBanFlow({
           notificationOverlayVisible,
         });
         successExitAwaitingNotificationDrainRef.current = true;
+        setSendSuccessCardMounted(false, { source: 'user-close' });
       } else {
         successExitAwaitingNotificationDrainRef.current = false;
         console.log('[success-exit-open-lobby]', {
@@ -2264,7 +2268,8 @@ export function InstantBanFlow({
           banId,
           reason: 'drain-missed',
         });
-        openLobby('success-exit-empty-queue');
+        setSendSuccessCardMounted(false, { source: 'user-close' });
+        prepareLobbyBaseAfterSuccess('send-success');
         beginCtaSpringIn();
       }
 
@@ -2275,6 +2280,7 @@ export function InstantBanFlow({
         queueLen: overlayQueueLength,
       });
       } finally {
+        setProvidersSuccessExitDraining(false);
         setSuccessExitDraining(false);
       }
     },
@@ -2283,11 +2289,13 @@ export function InstantBanFlow({
       drainNextNotificationAfterSuccess,
       flushDeferredSync,
       notificationOverlayVisible,
-      openLobby,
       overlayQueueLength,
       pendingStartupInteractions,
+      prepareLobbyBaseAfterSuccess,
       releaseStartupInteractions,
       setBansReturnToLobbyLatch,
+      setProvidersSuccessExitDraining,
+      setSendSuccessCardMounted,
       unlockNotificationQueueAndFlush,
     ],
   );
@@ -2296,7 +2304,6 @@ export function InstantBanFlow({
     traceSuccessExitHandler('handleSuccessExitComplete', {
       banId: lastSendSuccessBanIdRef.current,
     });
-    setSendSuccessCardMounted(false, { source: 'user-close' });
     const successExitStartedAt = performance.now();
     const successBanId = lastSendSuccessBanIdRef.current;
     console.log('[queue-debug] success exit', {
@@ -2316,6 +2323,7 @@ export function InstantBanFlow({
     }
 
     if (parentBan) {
+      setSendSuccessCardMounted(false, { source: 'user-close' });
       const delayMs = Math.round(performance.now() - successExitStartedAt);
       console.log('[success-to-active-after-user-action]', {
         parentBanId: parentBan.id,
@@ -2340,6 +2348,9 @@ export function InstantBanFlow({
         const fetchedBan = await ensureReplyParentActiveBanForSuccess();
         const delayMs = Math.round(performance.now() - successExitStartedAt);
         if (!fetchedBan) {
+          setSuccessExitDraining(true);
+          setProvidersSuccessExitDraining(true);
+          setCtaState('hidden');
           commitSendSuccessExit({
             lobbySource: 'send-success',
             committedSameTick: false,
@@ -2347,6 +2358,7 @@ export function InstantBanFlow({
           await finishSendSuccessLobbyExit(successBanId);
           return;
         }
+        setSendSuccessCardMounted(false, { source: 'user-close' });
         commitSendSuccessExit({
           parentActiveBan: fetchedBan,
           lobbySource: 'reply-parent-active',
@@ -2365,6 +2377,9 @@ export function InstantBanFlow({
       return;
     }
 
+    setSuccessExitDraining(true);
+    setProvidersSuccessExitDraining(true);
+    setCtaState('hidden');
     commitSendSuccessExit({
       lobbySource: 'send-success',
       committedSameTick: true,
@@ -2381,6 +2396,7 @@ export function InstantBanFlow({
     pendingStartupInteractions,
     refreshReplyParentActiveBanInBackground,
     resolveReplyParentActiveBanImmediate,
+    setProvidersSuccessExitDraining,
     setSuccessToActiveLobbyBlockedState,
     setSendSuccessCardMounted,
   ]);
