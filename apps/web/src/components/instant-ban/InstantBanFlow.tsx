@@ -104,6 +104,7 @@ import '@/components/lobby-boot-intro.css';
 import { triggerLobbyBlockedHaptic } from './lobby-cta-haptics';
 import {
   evaluateConfirmSubmitEnergy,
+  isDailyBanLimitSendFailure,
   isInsufficientEnergyApiError,
   isLowEnergySendFailure,
   logEnergyGate,
@@ -414,6 +415,9 @@ export function InstantBanFlow({
   const returnToLobbyAfterLowEnergyRef = useRef<
     ((opts?: { source?: string; apiResult?: string }) => void) | null
   >(null);
+  const returnToLobbyAfterDailyLimitRef = useRef<
+    ((opts?: { source?: string; apiResult?: string }) => void) | null
+  >(null);
   /** Phase to enter when sendStarted flips false→true (archive repeat / ban-more). */
   const sendEntryPhaseRef = useRef<SendFlowPhase | null>(null);
   /** Where Confirm was opened from — drives ← back navigation. */
@@ -462,7 +466,11 @@ export function InstantBanFlow({
   const [bansOverlayOpen, setBansOverlayOpen] = useState(false);
   const [lowInfluenceRevealed, setLowInfluenceRevealed] = useState(false);
   const [lowEnergyBlockedSignal, setLowEnergyBlockedSignal] = useState(0);
-  /** Suppresses confirm inline error/retry during low-energy lobby redirect. */
+  const [dailyLimitBlockedSignal, setDailyLimitBlockedSignal] = useState(0);
+  const [lobbySendBlockReason, setLobbySendBlockReason] = useState<
+    'low-energy' | 'daily-limit' | null
+  >(null);
+  /** Suppresses confirm inline error/retry during lobby redirect after send block. */
   const [lowEnergyRedirecting, setLowEnergyRedirecting] = useState(false);
   const [bansTab, setBansTab] = useState<BansTab>('yours');
   const [selectedBanForDetails, setSelectedBanForDetails] =
@@ -2307,7 +2315,21 @@ export function InstantBanFlow({
       confirmAbortReleaseRef.current?.();
     },
     onFail: (p) => {
-      if (sendFailedRef.current || isLowEnergySendFailure(p.message)) {
+      if (sendFailedRef.current) {
+        return;
+      }
+      if (isDailyBanLimitSendFailure(p.message)) {
+        logSendFlow('suppress-confirm-error-for-daily-limit', {
+          source: 'send-hook-on-fail',
+          message: p.message,
+        });
+        returnToLobbyAfterDailyLimitRef.current?.({
+          source: 'send-hook',
+          apiResult: 'DAILY_BAN_LIMIT',
+        });
+        return;
+      }
+      if (isLowEnergySendFailure(p.message)) {
         logSendFlow('suppress-confirm-error-for-low-energy', {
           source: 'send-hook-on-fail',
           message: p.message,
@@ -2427,6 +2449,7 @@ export function InstantBanFlow({
 
     console.log('[lobby-cta-open-what]', { allowed: true });
 
+    setLobbySendBlockReason(null);
     clearCtaExitTimer();
     clearWhoPanelEnterTimer();
     setCtaState('exiting');
@@ -3127,23 +3150,35 @@ export function InstantBanFlow({
     confirmAbortReleaseRef.current = abort;
   }, []);
 
-  const returnToLobbyAfterLowEnergy = useCallback(
-    (opts?: { source?: string; apiResult?: string }) => {
+  const returnToLobbyAfterSendBlock = useCallback(
+    (opts: {
+      source?: string;
+      apiResult?: string;
+      blockReason: 'low-energy' | 'daily-limit';
+    }) => {
       sendFailedRef.current = true;
       setLowEnergyRedirecting(true);
       setReplySending(false);
-      logSendFlow('insufficient-energy-stop', {
-        source: opts?.source,
-        apiResult: opts?.apiResult,
-        attemptId: flowSendAttemptRef.current,
-      });
-      logSendFlow('insufficient-energy-redirect-to-lobby', {
-        source: opts?.source,
-        apiResult: opts?.apiResult,
-      });
-      logSendFlow('suppress-confirm-error-for-low-energy', {
-        source: opts?.source,
-      });
+      setLobbySendBlockReason(opts.blockReason);
+      if (opts.blockReason === 'daily-limit') {
+        logSendFlow('daily-limit-redirect-to-lobby', {
+          source: opts.source,
+          apiResult: opts.apiResult,
+        });
+      } else {
+        logSendFlow('insufficient-energy-stop', {
+          source: opts.source,
+          apiResult: opts.apiResult,
+          attemptId: flowSendAttemptRef.current,
+        });
+        logSendFlow('insufficient-energy-redirect-to-lobby', {
+          source: opts.source,
+          apiResult: opts.apiResult,
+        });
+        logSendFlow('suppress-confirm-error-for-low-energy', {
+          source: opts?.source,
+        });
+      }
 
       closeSendFlow();
       onClose?.();
@@ -3156,7 +3191,12 @@ export function InstantBanFlow({
       confirmAbortReleaseRef.current?.();
       setConfirmEnterKey((k) => k + 1);
       setBanSentSuccess(false);
-      setSendSuccessCardMounted(false, { source: 'low-energy-redirect' });
+      setSendSuccessCardMounted(false, {
+        source:
+          opts.blockReason === 'daily-limit'
+            ? 'daily-limit-redirect'
+            : 'low-energy-redirect',
+      });
       sendSnapshotRef.current = null;
       confirmEntrySourceRef.current = 'send-flow';
       stopCrossScreenAnim();
@@ -3175,19 +3215,35 @@ export function InstantBanFlow({
       setSelectedBanForDetails(null);
       setPhase('idle');
       setCtaState('hidden');
-      setLowInfluenceRevealed(true);
-      setLowEnergyBlockedSignal((n) => n + 1);
+      setLowInfluenceRevealed(opts.blockReason === 'low-energy');
+      if (opts.blockReason === 'daily-limit') {
+        setDailyLimitBlockedSignal((n) => n + 1);
+      } else {
+        setLowEnergyBlockedSignal((n) => n + 1);
+      }
       openLobby();
       triggerLobbyBlockedHaptic();
-      logSendFlow('lobby-hint-shown', { source: opts?.source });
+      logSendFlow('lobby-hint-shown', {
+        source: opts.source,
+        blockReason: opts.blockReason,
+      });
       logEnergyGate('return-to-lobby', {
         phase: 'idle',
         incomingReplyBanId: null,
         sendFlowOpen: false,
-        source: opts?.source,
-        apiResult: opts?.apiResult,
+        source: opts.source,
+        apiResult: opts.apiResult,
+        blockReason: opts.blockReason,
       });
-      logEnergyGate('low-energy-hint-visible', {});
+      if (opts.blockReason === 'daily-limit') {
+        logEnergyGate('dailyLimitRedirect', {
+          source: opts.source,
+          apiResult: opts.apiResult,
+        });
+        logEnergyGate('daily-limit-hint-visible', {});
+      } else {
+        logEnergyGate('low-energy-hint-visible', {});
+      }
       lockNotificationQueue('low-energy-gate');
       logOverlayPriority('low-energy-keep-locked', {});
       beginCtaSpringIn();
@@ -3209,7 +3265,28 @@ export function InstantBanFlow({
     ],
   );
 
+  const returnToLobbyAfterLowEnergy = useCallback(
+    (opts?: { source?: string; apiResult?: string }) => {
+      returnToLobbyAfterSendBlock({
+        ...opts,
+        blockReason: 'low-energy',
+      });
+    },
+    [returnToLobbyAfterSendBlock],
+  );
+
+  const returnToLobbyAfterDailyLimit = useCallback(
+    (opts?: { source?: string; apiResult?: string }) => {
+      returnToLobbyAfterSendBlock({
+        ...opts,
+        blockReason: 'daily-limit',
+      });
+    },
+    [returnToLobbyAfterSendBlock],
+  );
+
   returnToLobbyAfterLowEnergyRef.current = returnToLobbyAfterLowEnergy;
+  returnToLobbyAfterDailyLimitRef.current = returnToLobbyAfterDailyLimit;
 
   const executeSend = useCallback(async (): Promise<'started' | 'skipped' | 'rejected'> => {
     logHoldDebug('entered executeSend', {
@@ -3644,6 +3721,19 @@ export function InstantBanFlow({
           message: e instanceof Error ? e.message : String(e),
           attemptId,
         });
+        if (isDailyBanLimitSendFailure(e)) {
+          logEnergyGate('dailyLimitRedirect', {
+            source,
+            energyBefore: energyGate.influencePercent,
+            canSend: false,
+            apiResult: 'DAILY_BAN_LIMIT',
+          });
+          returnToLobbyAfterDailyLimit({
+            source,
+            apiResult: 'DAILY_BAN_LIMIT',
+          });
+          return;
+        }
         if (isLowEnergySendFailure(e)) {
           logEnergyGate('insufficientEnergyRedirect', {
             source,
@@ -3720,6 +3810,7 @@ export function InstantBanFlow({
     influencePercent,
     refreshUser,
     returnToLobbyAfterLowEnergy,
+    returnToLobbyAfterDailyLimit,
     deepLinkReplyBan,
     replyDeepLinkBanId,
     clearDeepLinkReplyBan,
@@ -4287,6 +4378,8 @@ export function InstantBanFlow({
           lowInfluenceRevealed={lowInfluenceRevealed}
           onLowInfluenceRevealedChange={setLowInfluenceRevealed}
           lowEnergyBlockedSignal={lowEnergyBlockedSignal}
+          dailyLimitBlockedSignal={dailyLimitBlockedSignal}
+          sendBlockReason={lobbySendBlockReason}
           onBeginSend={handleBeginSend}
           onLowEnergyAsk={handleLowEnergyAsk}
         />

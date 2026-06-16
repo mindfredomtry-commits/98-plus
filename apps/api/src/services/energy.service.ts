@@ -6,11 +6,15 @@ import {
   calcSelfBanReward,
   type CheckOutcome,
   type EnergyDelta,
+  DAILY_BAN_LIMIT_ERROR,
+  DAILY_BAN_LIMIT_ERROR_CODE,
   hasEnoughEnergyToSendBan,
+  influencePercentFromEnergy,
   INSUFFICIENT_ENERGY_ERROR,
   isLowEnergy,
   isPairDailyFreeMode,
   LOW_ENERGY_DAILY_BAN_LIMIT,
+  LOW_ENERGY_THRESHOLD,
   ANTI_FARM_DAILY_SUCCESS_LIMIT,
   type CanSendBanCode,
 } from '@98plus/shared';
@@ -98,7 +102,33 @@ export async function canSendBan(userId: string): Promise<{
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return { allowed: false, reason: 'User not found' };
 
-  if (!hasEnoughEnergyToSendBan(user.energy)) {
+  const sendCost = Math.abs(calcSendCost().sender);
+  const userEnergy = user.energy;
+
+  console.log('[send-ban-user-energy]', { userId, energy: userEnergy });
+  console.log('[send-ban-cost]', { userId, sendCost });
+
+  const enoughInfluence = hasEnoughEnergyToSendBan(userEnergy);
+  const canAffordSend = userEnergy >= sendCost;
+
+  console.log('[send-ban-energy-check]', {
+    userId,
+    energy: userEnergy,
+    sendCost,
+    enoughInfluence,
+    canAffordSend,
+    influencePercent: influencePercentFromEnergy(userEnergy),
+    lowEnergyThreshold: LOW_ENERGY_THRESHOLD,
+    isLowEnergyBand: isLowEnergy(userEnergy),
+  });
+
+  if (!enoughInfluence || !canAffordSend) {
+    console.log('[send-ban-reject-reason]', {
+      userId,
+      reason: 'insufficient_energy',
+      enoughInfluence,
+      canAffordSend,
+    });
     return {
       allowed: false,
       code: INSUFFICIENT_ENERGY_ERROR,
@@ -107,13 +137,39 @@ export async function canSendBan(userId: string): Promise<{
     };
   }
 
-  if (isLowEnergy(user.energy)) {
+  if (isLowEnergy(userEnergy)) {
     const key = `daily:ban:${userId}`;
     const count = await getDailyCount(key);
+    console.log('[send-ban-today-count]', { userId, count });
+    console.log('[send-ban-daily-limit-check]', {
+      userId,
+      countToday: count,
+      limit: LOW_ENERGY_DAILY_BAN_LIMIT,
+      energy: userEnergy,
+      sendCost,
+      skippedBecauseEnergyCoversCost: userEnergy >= sendCost,
+    });
+
+    // When energy covers send cost, allow — daily cap must not masquerade as low energy.
+    if (userEnergy >= sendCost) {
+      return { allowed: true };
+    }
+
     if (count >= LOW_ENERGY_DAILY_BAN_LIMIT) {
-      return { allowed: false, reason: '⚡ Энергия снижена. Лимит на сегодня.' };
+      console.log('[send-ban-reject-reason]', {
+        userId,
+        reason: 'daily_ban_limit',
+        countToday: count,
+        limit: LOW_ENERGY_DAILY_BAN_LIMIT,
+      });
+      return {
+        allowed: false,
+        code: DAILY_BAN_LIMIT_ERROR_CODE,
+        reason: DAILY_BAN_LIMIT_ERROR,
+      };
     }
   }
+
   return { allowed: true };
 }
 

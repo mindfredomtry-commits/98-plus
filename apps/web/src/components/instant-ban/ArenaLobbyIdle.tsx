@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { DAILY_BAN_LIMIT_ERROR } from '@98plus/shared';
 import { isLobbyLowEnergy } from '@/lib/lobby-influence';
 import {
   clearPillSourceIf,
@@ -23,6 +24,10 @@ type Props = {
   onLowInfluenceRevealedChange: (revealed: boolean) => void;
   /** Increment to replay hint pulse (e.g. repeat-ban blocked). */
   lowEnergyBlockedSignal?: number;
+  /** Increment to replay daily-limit hint pulse. */
+  dailyLimitBlockedSignal?: number;
+  /** Lobby hint after send was blocked server-side. */
+  sendBlockReason?: 'low-energy' | 'daily-limit' | null;
   onBeginSend: () => void;
   onLowEnergyAsk: () => void;
 };
@@ -57,6 +62,8 @@ export function ArenaLobbyIdle({
   lowInfluenceRevealed,
   onLowInfluenceRevealedChange,
   lowEnergyBlockedSignal = 0,
+  dailyLimitBlockedSignal = 0,
+  sendBlockReason = null,
   onBeginSend,
   onLowEnergyAsk,
 }: Props) {
@@ -68,8 +75,11 @@ export function ArenaLobbyIdle({
     [influencePercent],
   );
   const lowInfluence = isLobbyLowEnergy(energyLoaded, influence);
-  const showLowEnergyHint = lowInfluence && !lobbyRingIntroFilling;
-  const askMode = lowInfluence && lowInfluenceRevealed;
+  const dailyLimitMode = sendBlockReason === 'daily-limit';
+  const showDailyLimitHint = dailyLimitMode && !lobbyRingIntroFilling;
+  const showLowEnergyHint =
+    !dailyLimitMode && lowInfluence && !lobbyRingIntroFilling;
+  const askMode = !dailyLimitMode && lowInfluence && lowInfluenceRevealed;
 
   useEffect(() => {
     if (!lowInfluence) {
@@ -88,6 +98,17 @@ export function ArenaLobbyIdle({
     return () => window.clearTimeout(t);
   }, [lowEnergyBlockedSignal]);
 
+  useEffect(() => {
+    if (dailyLimitBlockedSignal <= 0) return;
+    setHintPulse(true);
+    setCtaNudge(true);
+    const t = window.setTimeout(() => {
+      setHintPulse(false);
+      setCtaNudge(false);
+    }, 900);
+    return () => window.clearTimeout(t);
+  }, [dailyLimitBlockedSignal]);
+
   const revealLowEnergy = () => {
     triggerLobbyBlockedHaptic();
     onLowInfluenceRevealedChange(true);
@@ -100,6 +121,17 @@ export function ArenaLobbyIdle({
   };
 
   const handleEnter = () => {
+    if (dailyLimitMode) {
+      triggerLobbyBlockedHaptic();
+      setHintPulse(true);
+      setCtaNudge(true);
+      window.setTimeout(() => {
+        setHintPulse(false);
+        setCtaNudge(false);
+      }, 900);
+      return;
+    }
+
     if (!lowInfluence) {
       if (!ctaInteractive) return;
       triggerEnterHaptic();
@@ -127,7 +159,15 @@ export function ArenaLobbyIdle({
       className={`lobby-screen__cta-wrap instant-ban-lobby-cta instant-ban-lobby-cta--${ctaState}`}
       data-pill-source="ArenaLobbyIdle"
     >
-      {showLowEnergyHint ? (
+      {showDailyLimitHint ? (
+        <p
+          className={`lobby-screen__cta-hint lobby-screen__cta-hint--daily-limit${
+            hintPulse ? ' lobby-screen__cta-hint--pulse' : ''
+          }`}
+        >
+          {DAILY_BAN_LIMIT_ERROR}
+        </p>
+      ) : showLowEnergyHint ? (
         <p
           className={`lobby-screen__cta-hint${
             !lowInfluenceRevealed ? ' lobby-screen__cta-hint--muted' : ''
@@ -140,7 +180,7 @@ export function ArenaLobbyIdle({
       <button
         type="button"
         className={`btn-98-primary lobby-screen__cta${ctaNudge ? ' lobby-screen__cta--nudge' : ''}`}
-        disabled={!ctaInteractive && !lowInfluence}
+        disabled={!ctaInteractive && !lowInfluence && !dailyLimitMode}
         onClick={handleEnter}
       >
         {buttonLabel}

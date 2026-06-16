@@ -1,6 +1,9 @@
 import {
   hasEnoughInfluenceToSendBan,
   INSUFFICIENT_ENERGY_ERROR,
+  DAILY_BAN_LIMIT_ERROR_CODE,
+  isDailyBanLimitMessage,
+  isInsufficientEnergyMessage,
   isLowEnergySendRejectionMessage,
   type UserPublic,
 } from '@98plus/shared';
@@ -15,9 +18,12 @@ export type EnergyGateLogStage =
   | 'confirm-hold'
   | 'enough-energy'
   | 'low-energy-block-submit'
+  | 'daily-limit-block-submit'
   | 'return-to-lobby'
+  | 'daily-limit-hint-visible'
   | 'low-energy-hint-visible'
-  | 'insufficientEnergyRedirect';
+  | 'insufficientEnergyRedirect'
+  | 'dailyLimitRedirect';
 
 export type SendFlowSource = 'normal' | 'reply_from_bot';
 
@@ -123,7 +129,8 @@ export function isLowEnergyHintMessage(message: string): boolean {
 
 export function isInsufficientEnergyApiError(err: unknown): boolean {
   if (err instanceof ApiError) {
-    const matched = isLowEnergySendRejectionMessage(err.message);
+    if (err.code === DAILY_BAN_LIMIT_ERROR_CODE) return false;
+    const matched = isInsufficientEnergyMessage(err.message);
     if (matched && process.env.NODE_ENV === 'development') {
       console.log('[ENERGY GATE] insufficient-energy-api-error', {
         status: err.status,
@@ -136,8 +143,7 @@ export function isInsufficientEnergyApiError(err: unknown): boolean {
       err.code === INSUFFICIENT_ENERGY_ERROR ||
       err.message === INSUFFICIENT_ENERGY_ERROR ||
       err.status === 402 ||
-      err.redirectToLobby === true ||
-      matched
+      (err.redirectToLobby === true && matched)
     );
   }
   if (err instanceof Error) {
@@ -149,7 +155,28 @@ export function isInsufficientEnergyApiError(err: unknown): boolean {
   return false;
 }
 
+export function isDailyBanLimitApiError(err: unknown): boolean {
+  if (err instanceof ApiError) {
+    return (
+      err.code === DAILY_BAN_LIMIT_ERROR_CODE ||
+      isDailyBanLimitMessage(err.message)
+    );
+  }
+  if (err instanceof Error) {
+    return isDailyBanLimitMessage(err.message);
+  }
+  if (typeof err === 'string') {
+    return isDailyBanLimitMessage(err);
+  }
+  return false;
+}
+
 /** Client-side gate / API / hook failures that must redirect to lobby, not confirm error. */
 export function isLowEnergySendFailure(err: unknown): boolean {
   return isInsufficientEnergyApiError(err);
+}
+
+/** Daily ban quota — lobby daily-limit hint, not low-energy hint. */
+export function isDailyBanLimitSendFailure(err: unknown): boolean {
+  return isDailyBanLimitApiError(err);
 }

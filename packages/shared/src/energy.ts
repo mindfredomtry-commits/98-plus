@@ -66,21 +66,41 @@ export function hasEnoughInfluenceToSendBan(influencePercent: number): boolean {
 
 export const INSUFFICIENT_ENERGY_ERROR = 'INSUFFICIENT_ENERGY' as const;
 
-/** Low-energy daily ban cap — returned as HTTP 400 `{ error }` from /bans/send. */
+/** Low-energy band daily ban cap — legacy human message (do not use for new API errors). */
 export const LOW_ENERGY_DAILY_LIMIT_ERROR =
   '⚡ Энергия снижена. Лимит на сегодня.' as const;
 
-export type CanSendBanCode = typeof INSUFFICIENT_ENERGY_ERROR;
+/** Daily ban quota exhausted for low-energy band — distinct from insufficient energy. */
+export const DAILY_BAN_LIMIT_ERROR_CODE = 'DAILY_BAN_LIMIT' as const;
 
-export function isLowEnergySendRejectionMessage(message: string): boolean {
+export const DAILY_BAN_LIMIT_ERROR =
+  '📅 Дневной лимит запретов исчерпан. Попробуй завтра.' as const;
+
+export type CanSendBanCode =
+  | typeof INSUFFICIENT_ENERGY_ERROR
+  | typeof DAILY_BAN_LIMIT_ERROR_CODE;
+
+export function isInsufficientEnergyMessage(message: string): boolean {
   const trimmed = message.trim();
   if (!trimmed) return false;
   if (trimmed === INSUFFICIENT_ENERGY_ERROR) return true;
-  if (trimmed === LOW_ENERGY_DAILY_LIMIT_ERROR) return true;
   if (trimmed.includes('Выполни пару запретов')) return true;
-  if (trimmed.includes('Лимит на сегодня')) return true;
-  if (trimmed.startsWith('⚡ Энергия снижена')) return true;
   return false;
+}
+
+export function isDailyBanLimitMessage(message: string): boolean {
+  const trimmed = message.trim();
+  if (!trimmed) return false;
+  if (trimmed === DAILY_BAN_LIMIT_ERROR_CODE) return true;
+  if (trimmed === DAILY_BAN_LIMIT_ERROR) return true;
+  if (trimmed === LOW_ENERGY_DAILY_LIMIT_ERROR) return true;
+  if (trimmed.includes('Дневной лимит запретов')) return true;
+  return false;
+}
+
+/** Redirect-to-lobby on send failure — insufficient influence / energy only. */
+export function isLowEnergySendRejectionMessage(message: string): boolean {
+  return isInsufficientEnergyMessage(message);
 }
 
 export type CheckOutcome = 'both_yes' | 'both_no' | 'split';

@@ -2,11 +2,12 @@ import { Router } from 'express';
 import { z } from 'zod';
 import {
   ANALYTICS_EVENTS,
+  DAILY_BAN_LIMIT_ERROR_CODE,
   INSUFFICIENT_ENERGY_ERROR,
   isValidDurationMinutes,
 } from '@98plus/shared';
 import { requireAuth, type AuthRequest } from '../middleware/auth';
-import { isInsufficientEnergyError } from '../lib/ban-send-errors';
+import { isInsufficientEnergyError, isDailyBanLimitError } from '../lib/ban-send-errors';
 import {
   sendBan,
   acceptBan,
@@ -46,6 +47,14 @@ function respondBanSendError(res: import('express').Response, e: unknown): void 
   if (isInsufficientEnergyError(e)) {
     res.status(402).json({
       error: INSUFFICIENT_ENERGY_ERROR,
+      redirectToLobby: true,
+      message: e.message,
+    });
+    return;
+  }
+  if (isDailyBanLimitError(e)) {
+    res.status(400).json({
+      error: DAILY_BAN_LIMIT_ERROR_CODE,
       redirectToLobby: true,
       message: e.message,
     });
@@ -291,7 +300,11 @@ bansRouter.post('/send', async (req: AuthRequest, res) => {
       receiverTelegramId: parsed.data.receiverTelegramId,
       durationMinutes,
       reason,
-      code: isInsufficientEnergyError(e) ? INSUFFICIENT_ENERGY_ERROR : undefined,
+      code: isInsufficientEnergyError(e)
+        ? INSUFFICIENT_ENERGY_ERROR
+        : isDailyBanLimitError(e)
+          ? DAILY_BAN_LIMIT_ERROR_CODE
+          : undefined,
     });
     respondBanSendError(res, e);
   }

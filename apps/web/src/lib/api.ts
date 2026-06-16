@@ -1,6 +1,8 @@
 import {
+  DAILY_BAN_LIMIT_ERROR_CODE,
   INSUFFICIENT_ENERGY_ERROR,
-  isLowEnergySendRejectionMessage,
+  isDailyBanLimitMessage,
+  isInsufficientEnergyMessage,
   SYSTEM_VOICE,
 } from '@98plus/shared';
 import { getApiUrl, isApiConfiguredForProduction } from './config';
@@ -110,20 +112,30 @@ export async function api<T>(
           res.statusText ||
           `HTTP ${res.status}`;
         console.error('[98+ api]', res.status, url, data);
+        const dailyBanLimit =
+          errorField === DAILY_BAN_LIMIT_ERROR_CODE ||
+          isDailyBanLimitMessage(errMsg);
         const insufficientEnergy =
-          res.status === 402 ||
-          errorField === INSUFFICIENT_ENERGY_ERROR ||
-          isLowEnergySendRejectionMessage(errMsg);
+          !dailyBanLimit &&
+          (res.status === 402 ||
+            errorField === INSUFFICIENT_ENERGY_ERROR ||
+            isInsufficientEnergyMessage(errMsg));
         throw new ApiError(
           errMsg,
           res.status,
           url,
-          insufficientEnergy
+          dailyBanLimit
             ? {
-                code: INSUFFICIENT_ENERGY_ERROR,
-                redirectToLobby: data.redirectToLobby === true || res.status !== 402,
+                code: DAILY_BAN_LIMIT_ERROR_CODE,
+                redirectToLobby: data.redirectToLobby === true,
               }
-            : undefined,
+            : insufficientEnergy
+              ? {
+                  code: INSUFFICIENT_ENERGY_ERROR,
+                  redirectToLobby:
+                    data.redirectToLobby === true || res.status !== 402,
+                }
+              : undefined,
         );
       }
 

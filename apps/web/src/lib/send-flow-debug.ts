@@ -6,6 +6,8 @@ export type SendFlowLogStage =
   | 'insufficient-energy-stop'
   | 'insufficient-energy-redirect-to-lobby'
   | 'suppress-confirm-error-for-low-energy'
+  | 'suppress-confirm-error-for-daily-limit'
+  | 'daily-limit-redirect-to-lobby'
   | 'lobby-hint-shown'
   | 'blocked-late-success'
   | 'open-success'

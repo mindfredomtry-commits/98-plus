@@ -12,7 +12,7 @@ import { handleShareChallenge } from '@/lib/share';
 import { ctaLog } from '@/lib/cta-log';
 import { instantBanDebug } from '@/lib/instant-ban-debug';
 import { timingLog } from '@/lib/timing-log';
-import { isInsufficientEnergyApiError } from '@/lib/energy-gate';
+import { isDailyBanLimitApiError, isInsufficientEnergyApiError } from '@/lib/energy-gate';
 import { SHARE_PICKER_USERNAME } from '@98plus/shared';
 
 export type SendChallengeParams = {
@@ -181,7 +181,7 @@ export function useSendChallenge(opts: {
         ctaLog('mutation:success');
         return 'started';
       } catch (e) {
-        if (isInsufficientEnergyApiError(e)) {
+        if (isInsufficientEnergyApiError(e) || isDailyBanLimitApiError(e)) {
           throw e;
         }
         const message = formatDeliveryError(e);
