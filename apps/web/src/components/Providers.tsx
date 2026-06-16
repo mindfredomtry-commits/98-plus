@@ -8145,95 +8145,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setCloseBansOverlayRequest((n) => n + 1);
   }, [setBansReturnToLobbyLatch]);
 
-  const armOpenBansOverlayFromResultCta = useCallback(
-    (banId: string | null, targetTab: BansOverlayTabTarget = 'yours') => {
-      const chainSnapshot = getNotificationChainDebugSnapshot();
-      if (hasPendingNotificationChain()) {
-        console.log('[chain-debug-bans-open-called]', {
-          source: 'armOpenBansOverlayFromResultCta',
-          reason: 'chain-active',
-          ...chainSnapshot,
-        });
-        console.log('[notification-chain-open-bans-deferred]', {
-          source: 'armOpenBansOverlayFromResultCta',
-          reason: 'queue-not-empty',
-          queueLength: overlayQueueRef.current.length,
-          startupPending: pendingStartupInteractionsRef.current.length,
-        });
-        clearNotificationChainReturnLatch('armOpenBansOverlayFromResultCta');
-        if (pendingStartupInteractionsRef.current.length > 0) {
-          releaseStartupInteractions({ force: true });
-        }
-        if (showNextNotificationFromChainSync('armOpenBansOverlayFromResultCta')) {
-          return;
-        }
-        syncDisplayFromQueue(overlayQueueRef.current);
-        return;
-      }
-
-      console.log('[chain-debug-bans-open-called]', {
-        source: 'armOpenBansOverlayFromResultCta-final',
-        banId,
-        ...chainSnapshot,
-      });
-
-      closeSendFlow();
-      clearIncomingReply();
-      clearDeepLinkReplyBan();
-      replyDeeplinkChainHoldRef.current = false;
-      notificationChainHandoffRef.current = false;
-      notificationChainAwaitingUserRef.current = false;
-      logResultNav('block-send-flow', {
-        reason: 'open-bans-cta',
-        direct: true,
-        banId,
-      });
-      markVisibleOverboardTrace('RESULT NAV BLOCK SEND FLOW', {
-        reason: 'open-bans-cta',
-        direct: true,
-        banId,
-      });
-
-      bansCtaQueueSuppressRef.current = true;
-      bansNavStateRef.current = {
-        origin: 'result-cta',
-        previousScreen: 'lobby',
-        returnTarget: 'lobby',
-      };
-
-      let nextBansRequest = 0;
-      flushSync(() => {
-        setBansCtaQueueSuppress(true);
-        setBansNavState(bansNavStateRef.current);
-        setLobbyOpen(true);
-        lobbyOpenRef.current = true;
-        setOpenBansOverlayTabRequest(targetTab);
-        openBansOverlayTabRequestRef.current = targetTab;
-        setOpenBansOverlayRequest((n) => {
-          nextBansRequest = n + 1;
-          openBansOverlayRequestRef.current = n + 1;
-          return nextBansRequest;
-        });
-        setResultCtaBansOverlayOpen(true);
-        resultCtaBansOverlayOpenRef.current = true;
-      });
-
-      markVisibleOverboardTrace('[BANS OPEN REQUESTED]', {
-        openBansOverlayRequest: nextBansRequest,
-        targetTab,
-        resultCtaBansOverlayOpen: true,
-        bansCtaQueueSuppress: true,
-      });
-      console.log('[BANS OPEN REQUESTED]', {
-        openBansOverlayRequest: nextBansRequest,
-        targetTab,
-        resultCtaBansOverlayOpen: true,
-        lobbyOpen: lobbyOpenRef.current,
-      });
-    },
-    [clearDeepLinkReplyBan, clearIncomingReply, closeSendFlow, getNotificationChainDebugSnapshot, hasPendingNotificationChain, releaseStartupInteractions, showNextNotificationFromChainSync, syncDisplayFromQueue, clearNotificationChainReturnLatch],
-  );
-
   const notifyResultReplyWhatVisible = useCallback(
     (banId: string, selectedUserId: string | null) => {
       setResultReplyWhatReady(true);
@@ -8558,6 +8469,95 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       sanitizeNotificationChainQueues,
       syncDisplayFromQueue,
     ],
+  );
+
+  const armOpenBansOverlayFromResultCta = useCallback(
+    (banId: string | null, targetTab: BansOverlayTabTarget = 'yours') => {
+      const chainSnapshot = getNotificationChainDebugSnapshot();
+      if (hasPendingNotificationChain()) {
+        console.log('[chain-debug-bans-open-called]', {
+          source: 'armOpenBansOverlayFromResultCta',
+          reason: 'chain-active',
+          ...chainSnapshot,
+        });
+        console.log('[notification-chain-open-bans-deferred]', {
+          source: 'armOpenBansOverlayFromResultCta',
+          reason: 'queue-not-empty',
+          queueLength: overlayQueueRef.current.length,
+          startupPending: pendingStartupInteractionsRef.current.length,
+        });
+        clearNotificationChainReturnLatch('armOpenBansOverlayFromResultCta');
+        if (pendingStartupInteractionsRef.current.length > 0) {
+          releaseStartupInteractions({ force: true });
+        }
+        if (showNextNotificationFromChainSync('armOpenBansOverlayFromResultCta')) {
+          return;
+        }
+        syncDisplayFromQueue(overlayQueueRef.current);
+        return;
+      }
+
+      console.log('[chain-debug-bans-open-called]', {
+        source: 'armOpenBansOverlayFromResultCta-final',
+        banId,
+        ...chainSnapshot,
+      });
+
+      closeSendFlow();
+      clearIncomingReply();
+      clearDeepLinkReplyBan();
+      replyDeeplinkChainHoldRef.current = false;
+      notificationChainHandoffRef.current = false;
+      notificationChainAwaitingUserRef.current = false;
+      logResultNav('block-send-flow', {
+        reason: 'open-bans-cta',
+        direct: true,
+        banId,
+      });
+      markVisibleOverboardTrace('RESULT NAV BLOCK SEND FLOW', {
+        reason: 'open-bans-cta',
+        direct: true,
+        banId,
+      });
+
+      bansCtaQueueSuppressRef.current = true;
+      bansNavStateRef.current = {
+        origin: 'result-cta',
+        previousScreen: 'lobby',
+        returnTarget: 'lobby',
+      };
+
+      let nextBansRequest = 0;
+      flushSync(() => {
+        setBansCtaQueueSuppress(true);
+        setBansNavState(bansNavStateRef.current);
+        setLobbyOpen(true);
+        lobbyOpenRef.current = true;
+        setOpenBansOverlayTabRequest(targetTab);
+        openBansOverlayTabRequestRef.current = targetTab;
+        setOpenBansOverlayRequest((n) => {
+          nextBansRequest = n + 1;
+          openBansOverlayRequestRef.current = n + 1;
+          return nextBansRequest;
+        });
+        setResultCtaBansOverlayOpen(true);
+        resultCtaBansOverlayOpenRef.current = true;
+      });
+
+      markVisibleOverboardTrace('[BANS OPEN REQUESTED]', {
+        openBansOverlayRequest: nextBansRequest,
+        targetTab,
+        resultCtaBansOverlayOpen: true,
+        bansCtaQueueSuppress: true,
+      });
+      console.log('[BANS OPEN REQUESTED]', {
+        openBansOverlayRequest: nextBansRequest,
+        targetTab,
+        resultCtaBansOverlayOpen: true,
+        lobbyOpen: lobbyOpenRef.current,
+      });
+    },
+    [clearDeepLinkReplyBan, clearIncomingReply, closeSendFlow, getNotificationChainDebugSnapshot, hasPendingNotificationChain, releaseStartupInteractions, showNextNotificationFromChainSync, syncDisplayFromQueue, clearNotificationChainReturnLatch],
   );
 
   const primeNextNotificationAfterStatusCta = useCallback(
