@@ -7738,10 +7738,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return;
       }
-      if (result?.id) {
+      if (result?.id || resultRef.current?.id || resultOpenRef.current) {
         console.log('[result-poll-skip]', {
           reason: 'already-open',
-          banId: result.id,
+          banId: result?.id ?? resultRef.current?.id ?? null,
         });
         return;
       }
@@ -8196,9 +8196,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const viewerId =
         resultRef.current?.viewerId ?? userIdRef.current ?? null;
       if (banId) {
-        freshOverboardActionBanIdsRef.current.delete(normalizeId(banId));
-        dismissBanResultLocally(banId, viewerId);
-        void acknowledgeBanResultOnServer(banId, tokenRef.current);
+        const key = normalizeId(banId);
+        if (
+          key &&
+          !resultCtaConsumedBanIdsRef.current.has(key) &&
+          !resultDeliveredBanIdsRef.current.has(key)
+        ) {
+          freshOverboardActionBanIdsRef.current.delete(key);
+          dismissBanResultLocally(banId, viewerId);
+        }
       }
 
       if (overboardInFlightRef.current === banId) {
@@ -8767,82 +8773,62 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
   }, [prefetchPendingNotificationChain]);
 
-  const consumeResultBanForResultCta = useCallback(
+  const finalizeResultForGoToBans = useCallback(
     (banId: string) => {
-      lastProcessedOverlayKindForBansRef.current = 'result';
       const key = normalizeId(banId);
       if (!key) return;
-      const viewerId =
-        resultRef.current?.viewerId ?? userIdRef.current ?? null;
       const outcome = resultRef.current?.outcome ?? result?.outcome ?? null;
+
+      markResultOverlayConsumed(key, 'go-to-bans');
+      cancelResultPollBurst();
+      void acknowledgeBanResultOnServer(key, tokenRef.current, 'go-to-bans');
 
       if (
         outcome === 'overboard' &&
         !incomingConsumedAfterAnswerRef.current.has(key)
       ) {
-        consumeIncomingAfterAnswer(key, 'overboard');
+        consumeIncomingAfterAnswer(key, 'go-to-bans');
       }
 
-      console.log('[overboard-repeat-debug] local dismiss resultId', {
-        banId: key,
-        viewerId,
-        outcome,
-      });
-      console.log('[RESULT CTA CONSUME]', { banId: key });
-      markVisibleOverboardTrace('[RESULT CTA CONSUME]', { banId: key });
-
-      markResultOverlayConsumed(key, 'consumeResultBanForResultCta');
-
-      const token = tokenRef.current;
-      console.log('[overboard-repeat-debug] ack result start', { banId: key });
-      void (async () => {
-        await acknowledgeBanResultOnServer(key, token);
-        console.log('[overboard-repeat-debug] ack result done', { banId: key });
-      })();
-
-      const { removedOverlay, removedStartup } =
-        pruneResultFromNotificationChain(key);
-      sanitizeNotificationChainQueues('status-cta-consume');
-      console.log('[status-cta-consume-current]', {
-        banId: key,
-        removedOverlay,
-        removedStartup,
-      });
+      pruneResultFromNotificationChain(key, 'go-to-bans');
+      sanitizeNotificationChainQueues('go-to-bans');
 
       const beforeQueue = overlayQueueRef.current;
-      const beforeLen = beforeQueue.length;
-      const nextQueue = removeOverlaysForBan(beforeQueue, banId, ['result']);
-      if (nextQueue.length !== beforeLen) {
+      const nextQueue = removeOverlaysForBan(beforeQueue, key, ['result']);
+      if (nextQueue.length !== beforeQueue.length) {
         overlayQueueRef.current = nextQueue;
         setOverlayQueue(nextQueue);
       }
 
-      console.log('[QUEUE POP RESULT CTA]', {
-        banId,
-        before: beforeLen,
-        after: nextQueue.length,
-        beforeHeadKind: beforeQueue[0]?.kind ?? null,
-        afterHeadKind: nextQueue[0]?.kind ?? null,
-      });
-      markVisibleOverboardTrace('[QUEUE POP RESULT CTA]', {
-        banId,
-        before: beforeLen,
-        after: nextQueue.length,
-        beforeHeadKind: beforeQueue[0]?.kind ?? null,
-        afterHeadKind: nextQueue[0]?.kind ?? null,
-      });
+      if (overboardInFlightRef.current === key) {
+        overboardInFlightRef.current = null;
+      }
+      freshOverboardActionBanIdsRef.current.delete(key);
+      clearLocalOverboardBypass();
+      clearDirectOverboardLayerRefs();
+      resultOpenRef.current = false;
+      setDirectResultOverlayActive(false);
+      setResult(null);
+      resultRef.current = null;
 
-      cancelResultPollBurst();
-      applyDirectOverboardCloseState(banId);
+      lastProcessedOverlayKindForBansRef.current = 'result';
     },
     [
-      applyDirectOverboardCloseState,
       cancelResultPollBurst,
+      clearDirectOverboardLayerRefs,
       consumeIncomingAfterAnswer,
+      markResultOverlayConsumed,
       pruneResultFromNotificationChain,
       result?.outcome,
       sanitizeNotificationChainQueues,
     ],
+  );
+
+  const consumeResultBanForResultCta = useCallback(
+    (banId: string) => {
+      finalizeResultForGoToBans(banId);
+    },
+    [finalizeResultForGoToBans],
   );
 
   const closeDirectOverboardForCta = useCallback(
@@ -8926,10 +8912,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     );
 
     if (banId) {
-      consumeResultBanForResultCta(banId);
+      flushSync(() => {
+        finalizeResultForGoToBans(banId);
+      });
     } else if (wasDirect) {
-      applyDirectOverboardCloseState(null);
-      cancelResultPollBurst();
+      flushSync(() => {
+        cancelResultPollBurst();
+        applyDirectOverboardCloseState(null);
+      });
     }
 
     const afterConsume = {
@@ -8972,16 +8962,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       queueHeadKind,
       queueHeadBanId,
     });
-    if (showNextNotificationFromChainSync(chainSource)) {
-      console.log('[go-to-bans-show-next-overlay]', {
-        source: 'sync',
-        chainSource,
-      });
-      return;
-    }
 
     void (async () => {
+      if (banId) {
+        await acknowledgeBanResultOnServer(banId, tokenRef.current, 'go-to-bans');
+      }
       if (statusCtaNavigateGenerationRef.current !== generation) return;
+
+      clearNotificationChainReturnLatch('navigateFromResult');
+      if (pendingStartupInteractionsRef.current.length > 0) {
+        releaseStartupInteractions({ force: true });
+      }
+
+      if (showNextNotificationFromChainSync(chainSource)) {
+        console.log('[go-to-bans-show-next-overlay]', {
+          source: 'sync',
+          chainSource,
+        });
+        return;
+      }
+
       const primed = await primeNextNotificationAfterStatusCta(chainSource);
       if (statusCtaNavigateGenerationRef.current !== generation) return;
       if (primed) {
@@ -9000,6 +9000,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         if (showNextNotificationFromChainSync('status-cta-after-prime')) {
           return;
         }
+        syncDisplayFromQueue(overlayQueueRef.current);
         return;
       }
 
@@ -9036,13 +9037,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     cancelResultPollBurst,
     clearBansOverlayNavigationIntent,
     clearNotificationChainReturnLatch,
-    consumeResultBanForResultCta,
     directResultOverlayActive,
+    finalizeResultForGoToBans,
     getNotificationChainDebugSnapshot,
     hasPendingNotificationChain,
     markOverlayUserAction,
     overlayQueueItemId,
     primeNextNotificationAfterStatusCta,
+    releaseStartupInteractions,
     result?.id,
     showNextNotificationFromChainSync,
     syncDisplayFromQueue,
@@ -9990,53 +9992,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [newBanWhoFlowRequest, setNewBanWhoFlowRequest] = useState(0);
 
   const requestOpenBansFromResultCta = useCallback(
-    (banId: string | null) => {
-      console.log('[RESULT CTA OPEN BANS]', { banId, click: true });
-      markVisibleOverboardTrace('[RESULT CTA OPEN BANS]', {
-        banId,
-        click: true,
-      });
-
-      const gateBefore = snapshotDirectOverboardGate();
-
-      flushSync(() => {
-        if (banId) {
-          console.log('[RESULT CTA OPEN BANS PRIORITY]', { banId });
-          markVisibleOverboardTrace('[RESULT CTA OPEN BANS PRIORITY]', { banId });
-          consumeResultBanForResultCta(banId);
-        } else {
-          applyDirectOverboardCloseState(null);
-          cancelResultPollBurst();
-        }
-      });
-
-      armOpenBansOverlayFromResultCta(banId);
-
-      logDirectOverboardStateReset({
-        source: 'open-bans-cta',
-        reason: 'user-open-bans-sync-consume',
-        before: gateBefore,
-        after: {
-          directResultOverlayActive: false,
-          directResultOverlayRef: false,
-          resultBanId: null,
-          showDirectOverboardLayer: false,
-          hasResult: false,
-        },
-      });
-      markVisibleOverboardTrace('[DIRECT RESULT CLEANUP DONE]', {
-        banId,
-        bansCtaQueueSuppress: bansCtaQueueSuppressRef.current,
-        resultCtaBansOverlayOpen: resultCtaBansOverlayOpenRef.current,
-      });
+    (_banId: string | null) => {
+      navigateFromResult();
     },
-    [
-      applyDirectOverboardCloseState,
-      armOpenBansOverlayFromResultCta,
-      cancelResultPollBurst,
-      consumeResultBanForResultCta,
-      snapshotDirectOverboardGate,
-    ],
+    [navigateFromResult],
   );
 
   const armBansNavFromResultCta = useCallback(() => {
