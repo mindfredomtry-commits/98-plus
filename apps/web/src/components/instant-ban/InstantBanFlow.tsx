@@ -35,6 +35,12 @@ import {
   instantBanSendSuccessDebug,
   isInstantBanLiteMode,
 } from '@/lib/instant-ban-debug';
+import {
+  traceSuccessExitHandler,
+  traceSuccessHide,
+  traceSuccessSnapshotCleared,
+  traceSuccessStateReset,
+} from '@/lib/success-card-trace';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { logDeepLinkHandlerResult } from '@/lib/deep-link-boot-debug';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
@@ -395,6 +401,7 @@ export function InstantBanFlow({
   const [banSentSuccess, setBanSentSuccess] = useState(false);
   useEffect(() => {
     if (banSentSuccess) return;
+    traceSuccessHide('ban-sent-success-cleared-effect');
     setSendSuccessCardMounted(false, { source: 'ban-sent-success-cleared' });
   }, [banSentSuccess, setSendSuccessCardMounted]);
   const [replySending, setReplySending] = useState(false);
@@ -406,6 +413,7 @@ export function InstantBanFlow({
   } | null>(null);
   const lastSendSuccessBanIdRef = useRef<string | null>(null);
   const successExitAwaitingNotificationDrainRef = useRef(false);
+  const [successExitDraining, setSuccessExitDraining] = useState(false);
   const confirmSendContextRef = useRef<{
     payoffPhase: string;
     sendTriggered: boolean;
@@ -554,19 +562,22 @@ export function InstantBanFlow({
     replyLobbyBlocked ||
     deepLinkRouteBootPending ||
     replyIncomingDeeplinkPending ||
-    overlayHandoffLobbySuppressed;
+    overlayHandoffLobbySuppressed ||
+    successExitDraining;
   const showLobbyChrome = lobbyBootIntroPrimed && !lobbyChromeHidden;
   /** Orb stays mounted during route boot — only hide for reply/incoming block. */
   const lobbyOrbVisible =
     !replyIncomingDeeplinkPending &&
     !replyLobbyBlocked &&
     !successToActiveLobbyBlocked &&
-    !overlayHandoffLobbySuppressed;
+    !overlayHandoffLobbySuppressed &&
+    !successExitDraining;
   const showLobbyCta =
     lobbyBootIntroPrimed &&
     !replyIncomingDeeplinkPending &&
     !successToActiveLobbyBlocked &&
     !overlayHandoffLobbySuppressed &&
+    !successExitDraining &&
     (!replyLobbyBlocked || bansReturnToLobbyLatch) &&
     !deepLinkRouteBootPending &&
     !deepLinkReplyBooting &&
@@ -1483,7 +1494,10 @@ export function InstantBanFlow({
       setSendError(null);
       setComposeExitProgress(0);
       setComposeDismissing(false);
+      traceSuccessStateReset('beginRepeatBanFlow', { targetPhase });
+      traceSuccessHide('beginRepeatBanFlow');
       setBanSentSuccess(false);
+      traceSuccessSnapshotCleared('beginRepeatBanFlow');
       sendSnapshotRef.current = null;
       setCrossScreenProgressImmediate(1);
 
@@ -1537,7 +1551,10 @@ export function InstantBanFlow({
       setSendError(null);
       setComposeExitProgress(0);
       setComposeDismissing(false);
+      traceSuccessStateReset('beginComposingBanForOpponent');
+      traceSuccessHide('beginComposingBanForOpponent');
       setBanSentSuccess(false);
+      traceSuccessSnapshotCleared('beginComposingBanForOpponent');
       sendSnapshotRef.current = null;
       if (phase !== 'composingBan') {
         setPhase('composingBan');
@@ -1592,7 +1609,10 @@ export function InstantBanFlow({
   );
 
   const prepareLobbyBaseAfterSuccess = useCallback(
-    (source: string, opts?: { preserveActiveOverlay?: boolean }) => {
+    (
+      source: string,
+      opts?: { preserveActiveOverlay?: boolean; deferLobbyOpen?: boolean },
+    ) => {
       const closedBansOverlay =
         bansOverlayOpen ||
         selectedBanForDetails != null ||
@@ -1613,17 +1633,32 @@ export function InstantBanFlow({
       setBansReturnToLobbyLatch(true, {
         source: `prepareLobbyBaseAfterSuccess:${source}`,
       });
-      openLobby(`success-exit-${source}`);
-      console.log('[success-exit-base-lobby]', {
-        source,
-        closedBansOverlay,
-        lobbyOpen: true,
-      });
-      window.__debug98log?.('[success-exit-base-lobby]', {
-        source,
-        closedBansOverlay,
-        lobbyOpen: true,
-      });
+      if (!opts?.deferLobbyOpen) {
+        openLobby(`success-exit-${source}`);
+        console.log('[success-exit-base-lobby]', {
+          source,
+          closedBansOverlay,
+          lobbyOpen: true,
+        });
+        window.__debug98log?.('[success-exit-base-lobby]', {
+          source,
+          closedBansOverlay,
+          lobbyOpen: true,
+        });
+      } else {
+        console.log('[success-exit-base-lobby]', {
+          source,
+          closedBansOverlay,
+          lobbyOpen: false,
+          deferred: true,
+        });
+        window.__debug98log?.('[success-exit-base-lobby]', {
+          source,
+          closedBansOverlay,
+          lobbyOpen: false,
+          deferred: true,
+        });
+      }
     },
     [
       bansCtaQueueSuppress,
@@ -1695,7 +1730,10 @@ export function InstantBanFlow({
     setComposeExitProgress(0);
     setComposeDismissing(false);
     setCrossScreenProgressImmediate(0);
+    traceSuccessStateReset('resetSendUiForBansCta', { nextPhase: 'idle' });
+    traceSuccessHide('resetSendUiForBansCta');
     setBanSentSuccess(false);
+    traceSuccessSnapshotCleared('resetSendUiForBansCta');
     sendSnapshotRef.current = null;
     setCtaState('hidden');
     setPhase('idle');
@@ -2057,6 +2095,12 @@ export function InstantBanFlow({
       committedSameTick: boolean;
     }) => {
       flushSync(() => {
+        traceSuccessStateReset('commitSendSuccessExit', {
+          lobbySource: opts.lobbySource,
+          hasParentActive: !!opts.parentActiveBan,
+        });
+        traceSuccessSnapshotCleared('commitSendSuccessExit');
+        traceSuccessHide('commitSendSuccessExit');
         clearActiveBanDeepLinkShell('success-exit');
         activeBanRepeatComposeRef.current = false;
         closeSendFlow();
@@ -2095,7 +2139,7 @@ export function InstantBanFlow({
           );
         } else {
           setLobbyActiveBanOverlay(null);
-          prepareLobbyBaseAfterSuccess('send-success');
+          prepareLobbyBaseAfterSuccess('send-success', { deferLobbyOpen: true });
         }
 
         setBanSentSuccess(false);
@@ -2127,6 +2171,9 @@ export function InstantBanFlow({
 
   const finishSendSuccessLobbyExit = useCallback(
     async (banId: string | null) => {
+      setSuccessExitDraining(true);
+      setCtaState('hidden');
+      try {
       console.log('[success-exit-start]', {
         banId,
         queueLen: overlayQueueLength,
@@ -2217,6 +2264,7 @@ export function InstantBanFlow({
           banId,
           reason: 'drain-missed',
         });
+        openLobby('success-exit-empty-queue');
         beginCtaSpringIn();
       }
 
@@ -2226,12 +2274,16 @@ export function InstantBanFlow({
         drained,
         queueLen: overlayQueueLength,
       });
+      } finally {
+        setSuccessExitDraining(false);
+      }
     },
     [
       beginCtaSpringIn,
       drainNextNotificationAfterSuccess,
       flushDeferredSync,
       notificationOverlayVisible,
+      openLobby,
       overlayQueueLength,
       pendingStartupInteractions,
       releaseStartupInteractions,
@@ -2241,6 +2293,9 @@ export function InstantBanFlow({
   );
 
   const handleSuccessExitComplete = useCallback(() => {
+    traceSuccessExitHandler('handleSuccessExitComplete', {
+      banId: lastSendSuccessBanIdRef.current,
+    });
     setSendSuccessCardMounted(false, { source: 'user-close' });
     const successExitStartedAt = performance.now();
     const successBanId = lastSendSuccessBanIdRef.current;
@@ -2432,6 +2487,7 @@ export function InstantBanFlow({
       confirmOptimisticSend(p.username);
     },
     onRequiresShare: () => {
+      traceSuccessHide('send-hook-onRequiresShare');
       setBanSentSuccess(false);
       confirmAbortReleaseRef.current?.();
     },
@@ -2465,6 +2521,7 @@ export function InstantBanFlow({
         username: p.username,
         message: p.message,
       });
+      traceSuccessHide('send-hook-onFail');
       setBanSentSuccess(false);
       confirmAbortReleaseRef.current?.();
       const message = p.message || 'Не получилось отправить запрет';
@@ -2624,7 +2681,10 @@ export function InstantBanFlow({
     setSendError(null);
     setComposeExitProgress(0);
     setComposeDismissing(false);
+    traceSuccessStateReset('beginNewBanWhoFlow', { nextPhase: 'selectingTarget' });
+    traceSuccessHide('beginNewBanWhoFlow');
     setBanSentSuccess(false);
+    traceSuccessSnapshotCleared('beginNewBanWhoFlow');
     sendSnapshotRef.current = null;
     setCrossScreenProgressImmediate(0);
     onStartSend();
@@ -3208,7 +3268,10 @@ export function InstantBanFlow({
     setComposeDismissing(false);
     setBanText(text);
     setDurationMinutes(duration);
+    traceSuccessStateReset('handleWhatSubmit', { nextPhase: 'confirming' });
+    traceSuccessHide('handleWhatSubmit');
     setBanSentSuccess(false);
+    traceSuccessSnapshotCleared('handleWhatSubmit');
     sendSnapshotRef.current = null;
     confirmEntrySourceRef.current = 'send-flow';
     setPhase('confirming');
@@ -3230,8 +3293,11 @@ export function InstantBanFlow({
   const handleConfirmBack = useCallback(() => {
     setComposeExitProgress(0);
     setComposeDismissing(false);
+    traceSuccessStateReset('handleConfirmBack');
+    traceSuccessHide('handleConfirmBack');
     setBanSentSuccess(false);
     setSendError(null);
+    traceSuccessSnapshotCleared('handleConfirmBack');
     sendSnapshotRef.current = null;
     confirmAbortReleaseRef.current?.();
 
@@ -3311,6 +3377,11 @@ export function InstantBanFlow({
 
       confirmAbortReleaseRef.current?.();
       setConfirmEnterKey((k) => k + 1);
+      traceSuccessStateReset('returnToLobbyAfterBlock', {
+        blockReason: opts.blockReason,
+        nextPhase: 'idle',
+      });
+      traceSuccessHide('returnToLobbyAfterBlock');
       setBanSentSuccess(false);
       setSendSuccessCardMounted(false, {
         source:
@@ -3318,6 +3389,7 @@ export function InstantBanFlow({
             ? 'daily-limit-redirect'
             : 'low-energy-redirect',
       });
+      traceSuccessSnapshotCleared('returnToLobbyAfterBlock');
       sendSnapshotRef.current = null;
       confirmEntrySourceRef.current = 'send-flow';
       stopCrossScreenAnim();
@@ -3871,6 +3943,7 @@ export function InstantBanFlow({
             source,
           });
           setSendError('Не получилось отправить запрет');
+          traceSuccessHide('executeSend-reply-fell-through');
           setBanSentSuccess(false);
           confirmAbortReleaseRef.current?.();
           return;
@@ -3946,6 +4019,7 @@ export function InstantBanFlow({
         });
         instantBanSendErrorDebug({ message, error: e });
         setSendError(message);
+        traceSuccessHide('executeSend-catch');
         setBanSentSuccess(false);
         confirmAbortReleaseRef.current?.();
       }

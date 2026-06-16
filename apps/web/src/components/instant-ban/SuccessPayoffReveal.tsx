@@ -4,6 +4,7 @@ import type { FriendCard, UserPublic } from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
 import { AvatarImage } from '../AvatarImage';
+import { traceSuccessPayoffCtaClick } from '@/lib/success-card-trace';
 
 function formatDurationMinutes(minutes: number): string {
   const m = Math.max(1, Math.round(minutes));
@@ -74,7 +75,12 @@ export function SuccessPayoffReveal({
         <button
           type="button"
           className="btn-98-primary instant-ban-payoff-reveal__cta"
-          onClick={onAgain}
+          onClick={() => {
+            traceSuccessPayoffCtaClick({
+              hasOnAgain: typeof onAgain === 'function',
+            });
+            onAgain?.();
+          }}
         >
           Запретить ещё!
         </button>

@@ -4,6 +4,7 @@ import { memo } from 'react';
 import { createPortal } from 'react-dom';
 import { BigButton } from './BigButton';
 import { ModalShell } from './ModalShell';
+import { traceSuccessHide, traceSuccessPayoffCtaClick } from '@/lib/success-card-trace';
 
 interface Props {
   open: boolean;
@@ -32,8 +33,22 @@ function BanSentSuccessOverlayInner({ open, onDone, onAgain }: Props) {
         </p>
       </div>
       <div className="modal-card-actions space-y-3">
-        <BigButton onClick={onDone}>Готово</BigButton>
-        <BigButton variant="ghost" onClick={onAgain}>
+        <BigButton
+          onClick={() => {
+            traceSuccessHide('BanSentSuccessOverlay-onDone');
+            onDone();
+          }}
+        >
+          Готово
+        </BigButton>
+        <BigButton
+          variant="ghost"
+          onClick={() => {
+            traceSuccessPayoffCtaClick({ component: 'BanSentSuccessOverlay' });
+            traceSuccessHide('BanSentSuccessOverlay-onAgain');
+            onAgain();
+          }}
+        >
           Запретить ещё
         </BigButton>
       </div>

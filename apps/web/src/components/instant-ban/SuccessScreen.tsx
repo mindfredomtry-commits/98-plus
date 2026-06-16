@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { FriendCard, UserPublic } from '@98plus/shared';
 import { BigButton } from '../BigButton';
 import { LobbyBanMark, SuccessBanCardBody } from './SuccessBanCardBody';
+import { traceSuccessCardUnmounted } from '@/lib/success-card-trace';
 
 const SUCCESS_CARD_EXIT_MS = 220;
 
@@ -33,6 +34,9 @@ export function SuccessScreen({
       hasHandler: typeof onExitComplete === 'function',
       handlerName: onExitComplete.name || 'anonymous',
     });
+    return () => {
+      traceSuccessCardUnmounted({ component: 'SuccessScreen' });
+    };
   }, [onExitComplete]);
 
   const callOnExitComplete = useCallback(

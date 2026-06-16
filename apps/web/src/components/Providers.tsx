@@ -220,6 +220,11 @@ import {
   registerDebug98LatchSnapshot,
 } from '@/lib/debug98log';
 import {
+  traceSuccessCardUnmounted,
+  traceSuccessHide,
+  traceSuccessStateReset,
+} from '@/lib/success-card-trace';
+import {
   acknowledgeBanResultOnServer,
   diagnoseResultShow,
   dismissBanResultLocally,
@@ -1177,6 +1182,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return;
       }
+      traceSuccessHide(opts?.source ?? 'setSendSuccessCardMounted-false', {
+        banId: sendSuccessCardBanIdRef.current,
+      });
+      traceSuccessCardUnmounted({
+        source: opts?.source ?? 'setSendSuccessCardMounted-false',
+        banId: sendSuccessCardBanIdRef.current,
+      });
       const banId = sendSuccessCardBanIdRef.current;
       if (opts?.source === 'user-close') {
         console.log('[success-card-user-close]', { banId });
@@ -3971,6 +3983,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     pendingStartupInteractionsRef.current = [];
     startupInteractionsHoldRef.current = true;
     sessionBanSendSuccessRef.current = false;
+    traceSuccessHide('providers-auth-reset');
+    traceSuccessCardUnmounted({ source: 'providers-auth-reset' });
     sendSuccessCardActiveRef.current = false;
     sendSuccessCardBanIdRef.current = null;
     setSendSuccessCardActiveState(false);
@@ -8150,6 +8164,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         if (pendingStartupInteractionsRef.current.length > 0) {
           releaseStartupInteractions({ force: true });
         }
+        if (showNextNotificationFromChainSync('armOpenBansOverlayFromResultCta')) {
+          return;
+        }
         syncDisplayFromQueue(overlayQueueRef.current);
         return;
       }
@@ -8214,7 +8231,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         lobbyOpen: lobbyOpenRef.current,
       });
     },
-    [clearDeepLinkReplyBan, clearIncomingReply, closeSendFlow, getNotificationChainDebugSnapshot, hasPendingNotificationChain, releaseStartupInteractions, syncDisplayFromQueue, clearNotificationChainReturnLatch],
+    [clearDeepLinkReplyBan, clearIncomingReply, closeSendFlow, getNotificationChainDebugSnapshot, hasPendingNotificationChain, releaseStartupInteractions, showNextNotificationFromChainSync, syncDisplayFromQueue, clearNotificationChainReturnLatch],
   );
 
   const notifyResultReplyWhatVisible = useCallback(
@@ -8980,6 +8997,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason: 'chain-active-after-prime',
           ...getNotificationChainDebugSnapshot(),
         });
+        if (showNextNotificationFromChainSync('status-cta-after-prime')) {
+          return;
+        }
         return;
       }
 
@@ -10217,6 +10237,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       return;
     }
+    traceSuccessStateReset('openNewBanWhoFlow-provider');
     closeLobby();
     setNewBanWhoFlowRequest((n) => n + 1);
   }, [
