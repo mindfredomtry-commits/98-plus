@@ -2592,6 +2592,9 @@ export function InstantBanFlow({
         successExitAwaitingNotificationDrainRef.current = false;
         return;
       }
+      if (hasPendingNotificationChain() || notificationSessionActive) {
+        return;
+      }
       console.log('[success-exit-overlay-lost-recover-lobby]', {
         queueLen: overlayQueueLength,
         notificationSessionActive,
