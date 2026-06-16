@@ -218,6 +218,7 @@ import { logFriendsTiming } from '@/lib/boot-timing';
 import {
   registerDebug98LatchSnapshot,
 } from '@/lib/debug98log';
+import { logOverlayTransition } from '@/lib/overlay-transition-debug';
 import {
   traceSuccessCardUnmounted,
   traceSuccessHide,
@@ -309,6 +310,11 @@ interface AppContextValue {
   notificationOverlayVisible: boolean;
   activeOverlayKind: 'incoming' | 'check' | 'result' | null;
   markOverlayUserAction: (kind: string, banId?: string) => void;
+  logCardCloseClick: (opts: {
+    kind: 'incoming' | 'check' | 'result';
+    banId: string | null;
+    source: string;
+  }) => void;
   reportOverlayRendered: (kind: string, banId: string, buttonsReady?: boolean) => void;
   /** Dev-only: last overlay handoff timing from reportOverlayRendered. */
   overlayHandoffDebug: { delayMs: number; cause: string } | null;
@@ -1528,6 +1534,36 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
+  const logTransitionFromRefs = (
+    event: string,
+    extra?: Record<string, unknown>,
+  ) => {
+    logOverlayTransition(event, {
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      hasResult: resultRef.current != null,
+      activeKind: resultRef.current
+        ? 'result'
+        : incomingBanRef.current
+          ? 'incoming'
+          : checkBanRef.current
+            ? 'check'
+            : null,
+      ...extra,
+    });
+  };
+
+  const logCardCloseClick = useCallback(
+    (opts: {
+      kind: 'incoming' | 'check' | 'result';
+      banId: string | null;
+      source: string;
+    }) => {
+      logTransitionFromRefs('[CARD CLOSE CLICK]', opts);
+    },
+    [],
+  );
+
   const isOverlayLive = useCallback(
     (opts?: { live?: boolean; source?: 'ws' | 'session' | 'poll' }) => {
       if (opts?.live === true) return true;
@@ -1730,6 +1766,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       checkBanRef.current = nextCheck;
       setIncomingBan(nextIncoming);
       setCheckBan(nextCheck);
+      if (nextIncoming) {
+        logTransitionFromRefs('[OVERLAY STATE SET]', {
+          kind: 'incoming',
+          banId: nextIncoming.id,
+        });
+      }
+      if (nextCheck) {
+        logTransitionFromRefs('[OVERLAY STATE SET]', {
+          kind: 'check',
+          banId: nextCheck.id,
+        });
+      }
     }
 
     if (bansReturnToLobbyLatchRef.current && active) {
@@ -1880,6 +1928,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         setDirectResultOverlayActive(false);
         resultOpenRef.current = true;
         setResult(active.result);
+        logTransitionFromRefs('[OVERLAY STATE SET]', {
+          kind: 'result',
+          banId: active.result.id,
+        });
         const deliveredId = normalizeId(active.result.id);
         resultDeliveredBanIdsRef.current.add(deliveredId);
         shownOverlayKeysRef.current.add(`result:${deliveredId}`);
@@ -2220,6 +2272,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const ts = overlayTs();
       const delayFromAction = overlayDelayMs(overlayActionTsRef.current);
       const delayFromHandoff = overlayDelayMs(overlayHandoffTsRef.current);
+      logTransitionFromRefs('[CARD MOUNTED]', { kind, banId, buttonsReady });
       console.log('[OVERLAY NEXT RENDERED]', {
         ts,
         kind,
@@ -2246,6 +2299,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           cause,
           from: 'action-click',
         });
+        logTransitionFromRefs('[TRANSITION DELAY USED]', {
+          source: 'reportOverlayRendered-action-to-mount',
+          ms: delayFromAction,
+          kind,
+          banId,
+          cause,
+        });
         if (delayFromAction > 150) {
           console.log('[OVERLAY HANDOFF SLOW]', {
             delayMs: delayFromAction,
@@ -2267,6 +2327,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (reason: string, nextQueue?: QueuedOverlay[]) => {
       const prev = overlayQueueRef.current;
       const prevKey = prev[0] ? overlayQueueKey(prev[0]) : null;
+      const dismissKind = prev[0]?.kind ?? null;
+      const dismissBanId =
+        prev[0]?.kind === 'result'
+          ? prev[0].result.id
+          : prev[0]?.kind === 'incoming' || prev[0]?.kind === 'check'
+            ? prev[0].ban.id
+            : null;
+      logTransitionFromRefs('[DISMISS START]', {
+        kind: dismissKind,
+        banId: dismissBanId,
+        source: reason,
+      });
       if (
         prev[0]?.kind === 'check' &&
         prev[0].ban.id === checkBanRef.current?.id &&
@@ -2382,6 +2454,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             setNotificationChainTransitioning(false);
           }
         }
+        logTransitionFromRefs('[DISMISS COMMIT DONE]', {
+          source: reason,
+        });
       };
 
       if (remaining.length > 0) {
@@ -3654,6 +3729,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const hasMoreInChain =
       overlayQueueRef.current.length > 1 ||
       pendingStartupInteractionsRef.current.length > 0;
+
+    const head = overlayQueueRef.current[0];
+    const dismissKind = head?.kind ?? 'result';
+    const dismissBanId =
+      head?.kind === 'result'
+        ? head.result.id
+        : head?.kind === 'incoming' || head?.kind === 'check'
+          ? head.ban.id
+          : (result?.id ?? resultRef.current?.id ?? null);
+    logTransitionFromRefs('[DISMISS START]', {
+      kind: dismissKind,
+      banId: dismissBanId,
+      source: 'dismissBanResult',
+    });
 
     const runDismiss = () => {
       if (hasMoreInChain) {
@@ -8311,6 +8400,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return false;
       }
 
+      logTransitionFromRefs('[SHOW NEXT START]', { source });
+
       const skipBanId =
         replyDeeplinkParentBanIdRef.current?.trim() ??
         replyDeepLinkBanIdRef.current?.trim() ??
@@ -8433,6 +8524,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         nextKind,
         nextBanId,
       });
+      logTransitionFromRefs('[SHOW NEXT SELECTED]', {
+        source,
+        kind: nextKind,
+        banId: nextBanId,
+        queueLenAfter: overlayQueueRef.current.length,
+      });
       setLobbyOpen(false);
       lobbyOpenRef.current = false;
       flushSync(() => {
@@ -8461,6 +8558,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         syncDisplayFromQueue(overlayQueueRef.current);
       });
       chainAdvanceExplicitRef.current = false;
+      logTransitionFromRefs('[DISMISS COMMIT DONE]', {
+        source: `${source}-showNext-flushSync`,
+      });
 
       const remainingIds = overlayQueueRef.current
         .slice(1)
@@ -8907,6 +9007,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       banId,
       wasDirect,
     });
+    logCardCloseClick({
+      kind: 'result',
+      banId,
+      source: 'go-to-bans',
+    });
 
     const beforeConsume = {
       overlayLen: overlayQueueRef.current.length,
@@ -9099,6 +9204,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     finalizeResultForGoToBans,
     getNotificationChainDebugSnapshot,
     hasPendingNotificationChain,
+    logCardCloseClick,
     markOverlayUserAction,
     overlayQueueItemId,
     primeNextNotificationAfterStatusCta,
@@ -11189,8 +11295,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setNotificationChainTransitioning,
       notificationOverlayVisible,
       activeOverlayKind: incomingOverlayDisplayKind,
-      markOverlayUserAction,
-      reportOverlayRendered,
+    logCardCloseClick,
+    markOverlayUserAction,
+    reportOverlayRendered,
       overlayHandoffDebug,
       error: auth.error,
       refreshUser: auth.refreshUser,
@@ -11358,8 +11465,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setNotificationChainTransitioning,
       notificationOverlayVisible,
       incomingOverlayDisplayKind,
-      markOverlayUserAction,
-      reportOverlayRendered,
+    logCardCloseClick,
+    markOverlayUserAction,
+    reportOverlayRendered,
       overlayHandoffDebug,
       auth.error,
       auth.refreshUser,

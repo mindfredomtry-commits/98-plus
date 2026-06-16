@@ -41,6 +41,7 @@ import {
   traceSuccessSnapshotCleared,
   traceSuccessStateReset,
 } from '@/lib/success-card-trace';
+import { logOverlayTransition } from '@/lib/overlay-transition-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { logDeepLinkHandlerResult } from '@/lib/deep-link-boot-debug';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
@@ -2587,6 +2588,10 @@ export function InstantBanFlow({
       return;
     }
     const t = window.setTimeout(() => {
+      logOverlayTransition('[TRANSITION DELAY USED]', {
+        source: 'success-exit-awaiting-overlay-recover',
+        ms: 200,
+      });
       if (!successExitAwaitingNotificationDrainRef.current) return;
       if (notificationOverlayVisible) {
         successExitAwaitingNotificationDrainRef.current = false;
