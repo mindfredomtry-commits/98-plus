@@ -318,6 +318,7 @@ export function InstantBanFlow({
     hasPendingNotificationChain,
     releaseStartupInteractions,
     unlockNotificationQueueAndFlush,
+    drainNextNotificationAfterSuccess,
     markSessionBanSendSuccess,
     setSendSuccessCardMounted,
     resolveReplyParentActiveBanImmediate,
@@ -2093,44 +2094,30 @@ export function InstantBanFlow({
 
   const finishSendSuccessLobbyExit = useCallback(
     async (banId: string | null) => {
-      console.log('[success-exit-notification-check]', {
-        banId,
-        queueLen: overlayQueueLength,
-        startupLen: pendingStartupInteractions ? 1 : 0,
-        hasPending: hasPendingNotificationChain(),
-      });
       await flushDeferredSync();
       releaseStartupInteractions({ force: true });
       logOverlayPriority('send-success-unlock', {});
       unlockNotificationQueueAndFlush('send-success-unlock');
 
-      const hasPending = hasPendingNotificationChain();
-      console.log('[success-exit-notification-check]', {
-        banId,
-        queueLen: overlayQueueLength,
-        startupLen: pendingStartupInteractions ? 1 : 0,
-        hasPending,
-        phase: 'after-flush',
-      });
-
-      if (hasPending) {
-        console.log('[success-exit-drain-notifications]', { banId });
-      }
+      const drained = await drainNextNotificationAfterSuccess(banId);
       successExitAwaitingNotificationDrainRef.current = false;
-      beginCtaSpringIn();
+
+      if (!drained) {
+        beginCtaSpringIn();
+      }
+
       console.log('[success-exit-cleanup-state]', {
         successMounted: false,
         composeActive: false,
-        hasPending,
+        drained,
         queueLen: overlayQueueLength,
       });
     },
     [
       beginCtaSpringIn,
+      drainNextNotificationAfterSuccess,
       flushDeferredSync,
-      hasPendingNotificationChain,
       overlayQueueLength,
-      pendingStartupInteractions,
       releaseStartupInteractions,
       unlockNotificationQueueAndFlush,
     ],

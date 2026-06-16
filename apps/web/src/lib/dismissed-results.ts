@@ -44,6 +44,17 @@ export function markDismissedResultLocally(
   writeIds(ids, scopeUserId);
 }
 
+export function clearDismissedResultLocally(
+  banId: string,
+  scopeUserId?: string | null,
+) {
+  const key = normalizeId(banId);
+  if (!key) return;
+  const ids = readIds(scopeUserId);
+  if (!ids.delete(key)) return;
+  writeIds(ids, scopeUserId);
+}
+
 /** Restore in-memory consumed sets after auth ref reset. */
 export function hydrateDismissedResultIds(
   scopeUserId?: string | null,

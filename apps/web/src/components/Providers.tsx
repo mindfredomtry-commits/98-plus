@@ -228,6 +228,7 @@ import {
   resultParticipantRole,
 } from '@/lib/result-latency-diag';
 import {
+  clearDismissedResultLocally,
   hydrateDismissedResultIds,
   isDismissedResultLocally,
 } from '@/lib/dismissed-results';
@@ -513,6 +514,10 @@ interface AppContextValue {
   armActiveBanDeepLinkEarly: (banId: string) => void;
   /** Unlock overlay queue and flush deferred pending overlays. */
   unlockNotificationQueueAndFlush: (reason: string) => void;
+  /** After send-success exit: drain one pending notification over lobby. */
+  drainNextNotificationAfterSuccess: (
+    successBanId?: string | null,
+  ) => Promise<boolean>;
   /** Reply deeplink: resolve accepted parent active ban synchronously after success. */
   resolveReplyParentActiveBanImmediate: () => BanInteraction | null;
   /** Reply deeplink: await in-flight accept then short fallback fetch if ref still empty. */
@@ -706,6 +711,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const checkAnswerInFlightRef = useRef<Set<string>>(new Set());
   const resultOpenRef = useRef(false);
   const overboardInFlightRef = useRef<string | null>(null);
+  const freshOverboardActionBanIdsRef = useRef<Set<string>>(new Set());
   type ForceOpenOverboardFn = (
     payload: BanResult,
     banId: string,
@@ -1676,7 +1682,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       } else {
         const resultId = active.result.id;
         const viewerId = active.result.viewerId ?? userIdRef.current ?? null;
-        if (isResultBlockedForNotificationChain(resultId, 'syncDisplayFromQueue')) {
+        const normalizedResultId = normalizeId(resultId);
+        if (
+          !freshOverboardActionBanIdsRef.current.has(normalizedResultId) &&
+          isResultBlockedForNotificationChain(resultId, 'syncDisplayFromQueue')
+        ) {
           console.log('[result-overlay-pruned-before-show]', {
             banId: resultId,
             source: 'syncDisplayFromQueue',
@@ -2677,10 +2687,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const dismissed =
         viewerId.length > 0 && isDismissedResultLocally(key, viewerId);
       const shown = shownOverlayKeysRef.current.has(`result:${key}`);
+      const freshAction = freshOverboardActionBanIdsRef.current.has(key);
 
-      console.log('[result-stale-key-check]', {
+      console.log('[result-stale-guard-check]', {
         banId,
         key,
+        freshAction,
         consumed,
         delivered,
         dismissed,
@@ -2688,7 +2700,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       if (!key) {
-        console.log('[result-stale-blocked]', { banId, key, source });
+        console.log('[result-card-blocked]', { banId, reason: 'no-key', source });
         return true;
       }
       if (normalizedSkip && key === normalizedSkip) {
@@ -2698,6 +2710,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason: 'skip-ban',
         });
         return true;
+      }
+      if (freshAction) {
+        console.log('[result-stale-guard-bypass-fresh]', {
+          banId: key,
+          source,
+        });
+        return false;
       }
       if (consumed) {
         console.log('[result-stale-blocked]', { banId: key, key, source });
@@ -2765,6 +2784,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const key = normalizeId(banId);
       if (!key) return;
       const viewerId = userIdRef.current;
+      freshOverboardActionBanIdsRef.current.delete(key);
       resultCtaConsumedBanIdsRef.current.add(key);
       resultDeliveredBanIdsRef.current.add(key);
       shownOverlayKeysRef.current.add(`result:${key}`);
@@ -4744,27 +4764,47 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return false;
       }
 
-      if (
-        resultCtaConsumedBanIdsRef.current.has(banId) ||
-        isDismissedResultLocally(banId, uid)
+      const normalizedBanId = normalizeId(banId);
+      if (isLocalForce) {
+        freshOverboardActionBanIdsRef.current.add(normalizedBanId);
+        resultCtaConsumedBanIdsRef.current.delete(normalizedBanId);
+        resultDeliveredBanIdsRef.current.delete(normalizedBanId);
+        shownOverlayKeysRef.current.delete(`result:${normalizedBanId}`);
+        clearDismissedResultLocally(normalizedBanId, uid);
+        console.log('[incoming-overboard-result-start]', { banId: normalizedBanId });
+        console.log('[result-stale-guard-bypass-fresh]', {
+          banId: normalizedBanId,
+          source: 'overboard-action',
+        });
+        console.log('[incoming-overboard-result-fresh]', {
+          banId: normalizedBanId,
+          resultKey: `result:${normalizedBanId}`,
+        });
+      } else if (
+        resultCtaConsumedBanIdsRef.current.has(normalizedBanId) ||
+        isDismissedResultLocally(normalizedBanId, uid)
       ) {
         console.log('[overboard-repeat-debug] duplicate result blocked', {
-          banId,
+          banId: normalizedBanId,
           source: 'forceOpenOverboardResult',
-          consumed: resultCtaConsumedBanIdsRef.current.has(banId),
-          dismissedLocal: isDismissedResultLocally(banId, uid),
+          consumed: resultCtaConsumedBanIdsRef.current.has(normalizedBanId),
+          dismissedLocal: isDismissedResultLocally(normalizedBanId, uid),
+        });
+        console.log('[result-card-blocked]', {
+          banId: normalizedBanId,
+          reason: 'dismissed-after-result-cta',
         });
         console.log('[DIRECT RESULT REOPEN BLOCKED]', {
           reason: 'dismissed-after-result-cta',
-          banId,
+          banId: normalizedBanId,
         });
         markVisibleOverboardTrace('[DIRECT RESULT REOPEN BLOCKED]', {
           reason: 'dismissed-after-result-cta',
-          banId,
+          banId: normalizedBanId,
           source: 'forceOpenOverboardResult',
         });
         logForceOverboard('early-return', {
-          banId,
+          banId: normalizedBanId,
           reason: 'dismissed-after-result-cta',
           guard: 'result-cta-consumed',
         });
@@ -4970,6 +5010,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source: opts?.source ?? null,
         outcome: normalized.outcome,
       });
+      if (isLocalForce) {
+        console.log('[result-card-mounted]', {
+          banId: normalized.id,
+          source: 'overboard-action',
+        });
+      }
 
       logResultUi(normalized.outcome, {
         overlayKind: 'result',
@@ -5221,6 +5267,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ): boolean => {
       const banId = ban.id;
       const uid = userIdRef.current;
+      console.log('[incoming-overboard-click]', { banId });
       logOverboardDirectState('before', readDirectOverboardSnapshot(), {
         banId,
         step: 'openIncomingOverboardOptimistic',
@@ -5410,8 +5457,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           viewerId: payload.viewerId ?? uid,
         };
         if (
-          resultCtaConsumedBanIdsRef.current.has(banId) ||
-          isDismissedResultLocally(banId, uid)
+          !isLocalOverboardBypassForBan(banId) &&
+          overboardInFlightRef.current !== banId &&
+          (resultCtaConsumedBanIdsRef.current.has(banId) ||
+            isDismissedResultLocally(banId, uid))
         ) {
           console.log('[overboard-repeat-debug] duplicate result blocked', {
             banId,
@@ -7889,6 +7938,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const viewerId =
         resultRef.current?.viewerId ?? userIdRef.current ?? null;
       if (banId) {
+        freshOverboardActionBanIdsRef.current.delete(normalizeId(banId));
         dismissBanResultLocally(banId, viewerId);
         void acknowledgeBanResultOnServer(banId, tokenRef.current);
       }
@@ -8050,10 +8100,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       clearNotificationChainReturnLatch(source);
 
+      const mountedResultIdForProtect = normalizeId(resultRef.current?.id ?? '');
+      const protectFreshDirect =
+        mountedResultIdForProtect.length > 0 &&
+        (freshOverboardActionBanIdsRef.current.has(mountedResultIdForProtect) ||
+          isLocalOverboardBypassForBan(mountedResultIdForProtect) ||
+          overboardInFlightRef.current === mountedResultIdForProtect);
+
       if (
-        directResultOverlayRef.current ||
-        directResultOverlayActiveRef.current ||
-        resultRef.current
+        (directResultOverlayRef.current ||
+          directResultOverlayActiveRef.current ||
+          resultRef.current) &&
+        !protectFreshDirect
       ) {
         applyDirectOverboardCloseState(resultRef.current?.id ?? null);
       }
@@ -8065,8 +8123,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       sanitizeNotificationChainQueues(source);
 
       const mountedResultId = resultRef.current?.id?.trim() ?? '';
+      const normalizedMountedResultId = normalizeId(mountedResultId);
       if (
         mountedResultId &&
+        !protectFreshDirect &&
         isResultBlockedForNotificationChain(mountedResultId, source, skipBanId)
       ) {
         console.log('[result-overlay-pruned-before-show]', {
@@ -8152,6 +8212,85 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return false;
     },
     [
+      prefetchPendingNotificationChain,
+      showNextNotificationFromChainSync,
+    ],
+  );
+
+  const drainNextNotificationAfterSuccess = useCallback(
+    async (successBanId?: string | null): Promise<boolean> => {
+      const queueLen = overlayQueueRef.current.length;
+      const startupLen = pendingStartupInteractionsRef.current.length;
+      const composeActive = whatOrConfirmActiveRef.current;
+
+      console.log('[success-exit-notification-check]', {
+        banId: successBanId ?? null,
+        queueLen,
+        startupLen,
+        composeActive,
+      });
+
+      if (composeActive) {
+        console.log('[success-exit-no-notifications]', {
+          reason: 'compose-active',
+        });
+        return false;
+      }
+
+      const tryDrain = (source: string): boolean => {
+        if (
+          blocksMountedNotificationOverlay(
+            `drainNextNotificationAfterSuccess:${source}`,
+            null,
+            null,
+          )
+        ) {
+          console.log('[success-exit-no-notifications]', {
+            reason: 'overlay-blocked',
+            source,
+          });
+          return false;
+        }
+
+        const beforeLen = overlayQueueRef.current.length;
+        const beforeStartup = pendingStartupInteractionsRef.current.length;
+        const hasPending = beforeLen > 0 || beforeStartup > 0;
+        if (!hasPending) return false;
+
+        const shown = showNextNotificationFromChainSync(source);
+        if (!shown) return false;
+
+        const head = overlayQueueRef.current[0] ?? null;
+        const nextKind = head?.kind ?? null;
+        const nextBanId =
+          head?.kind === 'result'
+            ? head.result.id
+            : head?.kind === 'incoming' || head?.kind === 'check'
+              ? head.ban.id
+              : null;
+        console.log('[success-exit-drain-one]', { nextKind, nextBanId });
+        return true;
+      };
+
+      if (tryDrain('success-exit')) return true;
+
+      await prefetchPendingNotificationChain(null, 'success-exit');
+      if (tryDrain('success-exit-retry')) return true;
+
+      const finalQueueLen = overlayQueueRef.current.length;
+      const finalStartupLen = pendingStartupInteractionsRef.current.length;
+      console.log('[success-exit-no-notifications]', {
+        reason:
+          finalQueueLen === 0 && finalStartupLen === 0
+            ? 'queue-empty-after-prefetch'
+            : 'drain-not-shown',
+        queueLen: finalQueueLen,
+        startupLen: finalStartupLen,
+      });
+      return false;
+    },
+    [
+      blocksMountedNotificationOverlay,
       prefetchPendingNotificationChain,
       showNextNotificationFromChainSync,
     ],
@@ -10332,6 +10471,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       overlayQueue.length > 0 ||
       pendingStartupInteractionsRef.current.length > 0
     ) {
+      console.log('[queue-only-no-overlay]', { queueLen: overlayQueue.length });
       console.log('[global-overlay-host-suppressed]', {
         reason: 'lobby-idle',
         queueLen: overlayQueue.length,
@@ -10642,6 +10782,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       markSessionBanSendSuccess,
       armActiveBanDeepLinkEarly,
       unlockNotificationQueueAndFlush,
+      drainNextNotificationAfterSuccess,
       resolveReplyParentActiveBanImmediate,
       ensureReplyParentActiveBanForSuccess,
       refreshReplyParentActiveBanInBackground,
@@ -10801,6 +10942,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       markSessionBanSendSuccess,
       armActiveBanDeepLinkEarly,
       unlockNotificationQueueAndFlush,
+      drainNextNotificationAfterSuccess,
       resolveReplyParentActiveBanImmediate,
       ensureReplyParentActiveBanForSuccess,
       refreshReplyParentActiveBanInBackground,
