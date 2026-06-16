@@ -42,6 +42,9 @@ const ALLOWED_EVENTS = new Set([
   '[QUEUE SYNC SKIPPED]',
   '[DISMISS RESULT SKIPPED]',
   '[RESULT ACK SENT]',
+  '[SUCCESS CTA CLICK]',
+  '[SUCCESS EXIT COMPLETE CALLED]',
+  '[SUCCESS ON_EXIT_COMPLETE PROP]',
 ]);
 
 export type Debug98LatchSnapshot = {

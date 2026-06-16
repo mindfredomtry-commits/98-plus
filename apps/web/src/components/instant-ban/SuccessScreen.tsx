@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FriendCard, UserPublic } from '@98plus/shared';
 import { BigButton } from '../BigButton';
 import { LobbyBanMark, SuccessBanCardBody } from './SuccessBanCardBody';
@@ -28,6 +28,21 @@ export function SuccessScreen({
   const exitingRef = useRef(false);
   const [isExiting, setIsExiting] = useState(false);
 
+  useEffect(() => {
+    window.__debug98log?.('[SUCCESS ON_EXIT_COMPLETE PROP]', {
+      hasHandler: typeof onExitComplete === 'function',
+      handlerName: onExitComplete.name || 'anonymous',
+    });
+  }, [onExitComplete]);
+
+  const callOnExitComplete = useCallback(
+    (source: string) => {
+      window.__debug98log?.('[SUCCESS EXIT COMPLETE CALLED]', { source });
+      onExitComplete();
+    },
+    [onExitComplete],
+  );
+
   useLayoutEffect(() => {
     const node = cardRef.current;
     if (!node) return;
@@ -54,12 +69,17 @@ export function SuccessScreen({
   }, []);
 
   const handleAgain = useCallback(() => {
+    window.__debug98log?.('[SUCCESS CTA CLICK]', {
+      exitingRef: exitingRef.current,
+      isExiting,
+      hasCardNode: Boolean(cardRef.current),
+    });
     if (exitingRef.current) return;
     exitingRef.current = true;
 
     const node = cardRef.current;
     if (!node) {
-      onExitComplete();
+      callOnExitComplete('no-card-node');
       return;
     }
 
@@ -70,7 +90,7 @@ export function SuccessScreen({
     node.classList.add('instant-ban-success-card--exit');
 
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      onExitComplete();
+      callOnExitComplete('reduced-motion');
       return;
     }
 
@@ -78,7 +98,7 @@ export function SuccessScreen({
     const finish = () => {
       if (finished) return;
       finished = true;
-      onExitComplete();
+      callOnExitComplete('exit-animation');
     };
 
     const onEnd = (event: AnimationEvent) => {
@@ -93,7 +113,7 @@ export function SuccessScreen({
       node.removeEventListener('animationend', onEnd);
       finish();
     }, SUCCESS_CARD_EXIT_MS + 80);
-  }, [onExitComplete]);
+  }, [callOnExitComplete, isExiting]);
 
   return (
     <div className="instant-ban-success-screen">
