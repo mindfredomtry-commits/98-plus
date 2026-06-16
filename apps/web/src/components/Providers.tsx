@@ -294,6 +294,8 @@ interface AppContextValue {
   incomingGateActive: boolean;
   /** True while overlay queue has items — keeps notification session (dim) between cards. */
   notificationSessionActive: boolean;
+  /** True only when a notification modal is actually rendered (blocks lobby pointer). */
+  notificationOverlayVisible: boolean;
   activeOverlayKind: 'incoming' | 'check' | 'result' | null;
   markOverlayUserAction: (kind: string, banId?: string) => void;
   reportOverlayRendered: (kind: string, banId: string, buttonsReady?: boolean) => void;
@@ -1139,6 +1141,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         console.log('[success-card-user-close]', { banId });
       }
       sendSuccessCardBanIdRef.current = null;
+      console.log('[success-exit-cleanup-state]', {
+        successMounted: false,
+        composeActive: whatOrConfirmActiveRef.current,
+        sendComposeActive: sendComposeActiveRef.current,
+        queueLen: overlayQueueRef.current.length,
+        startupLen: pendingStartupInteractionsRef.current.length,
+        source: opts?.source ?? null,
+      });
     },
     [],
   );
@@ -10259,39 +10269,81 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       (notificationQueueShellKind === 'incoming' &&
         !replyIncomingDirectPath));
 
+  const notificationOverlayVisible = useMemo(() => {
+    if (composeBlocksNotificationHost) return false;
+    if (sendSuccessCardActive) return false;
+    if (showDirectOverboardLayer) return true;
+    if (checkOverlayMounted) return true;
+    if (showReplyIncomingOverlayDirect && replyDirectOverlayBan != null) {
+      return true;
+    }
+    if (notificationQueueShellKind === 'check' && checkBan?.id) return true;
+    if (notificationQueueShellKind === 'result' && displayResult) return true;
+    if (
+      notificationQueueShellKind === 'incoming' &&
+      incomingCardDisplayBan &&
+      incomingCardFullyReady
+    ) {
+      return true;
+    }
+    return false;
+  }, [
+    checkBan?.id,
+    checkOverlayMounted,
+    composeBlocksNotificationHost,
+    displayResult,
+    incomingCardDisplayBan,
+    incomingCardFullyReady,
+    notificationQueueShellKind,
+    replyDirectOverlayBan,
+    sendSuccessCardActive,
+    showDirectOverboardLayer,
+    showReplyIncomingOverlayDirect,
+  ]);
+
   const checkOverlayInteractive = checkOverlayMounted;
-  const notificationHostBlockedByActiveBanShell =
-    !checkOverlayMounted &&
-    (activeBanCardReady || replyParentActivePriorityActive);
-  const notificationHostLayerActive =
-    !composeBlocksNotificationHost &&
-    !sendSuccessCardActive &&
-    !notificationChainReplyComposePaused &&
-    !notificationHostBlockedByActiveBanShell &&
-    (notificationSessionActive ||
-      incomingJsxWillRender ||
-      showReplyIncomingOverlayDirect ||
-      checkOverlayMounted);
-  const notificationHostPointerActive = notificationHostLayerActive;
+  const notificationHostLayerActive = notificationOverlayVisible;
+  const notificationHostPointerActive = notificationOverlayVisible;
   const notificationHostSessionBackdrop =
-    !composeBlocksNotificationHost &&
-    !sendSuccessCardActive &&
-    !notificationChainReplyComposePaused &&
-    !notificationHostBlockedByActiveBanShell &&
-    (notificationSessionActive ||
-      incomingJsxWillRender ||
-      checkOverlayMounted);
+    notificationOverlayVisible && notificationSessionActive;
 
   useLayoutEffect(() => {
-    console.log('[notification-host-active-check]', {
-      hostActive: notificationHostPointerActive,
-      composeActive: composeBlocksNotificationHost,
+    console.log('[lobby-interactive-state]', {
+      source: 'providers-host',
+      notificationHostActive: notificationHostLayerActive,
+      notificationPointerActive: notificationHostPointerActive,
+      notificationOverlayVisible,
+      successMounted: sendSuccessCardActiveRef.current,
+      composeActive: whatOrConfirmActiveRef.current,
+      sendComposeActive: sendComposeActiveRef.current,
+      activeTimerMounted: isActiveTimerOverlayMounted(),
       queueLen: overlayQueue.length,
-      activeKind: notificationQueueShellKind,
+      startupLen: pendingStartupInteractionsRef.current.length,
     });
+    if (notificationOverlayVisible) {
+      console.log('[global-overlay-host-render]', {
+        active: notificationHostPointerActive,
+        pointerActive: notificationHostPointerActive,
+        backdropActive: notificationHostSessionBackdrop,
+        queueLen: overlayQueue.length,
+        activeKind: notificationQueueShellKind,
+      });
+    } else if (
+      overlayQueue.length > 0 ||
+      pendingStartupInteractionsRef.current.length > 0
+    ) {
+      console.log('[global-overlay-host-suppressed]', {
+        reason: 'lobby-idle',
+        queueLen: overlayQueue.length,
+        startupLen: pendingStartupInteractionsRef.current.length,
+        activeKind: notificationQueueShellKind,
+      });
+    }
   }, [
-    composeBlocksNotificationHost,
+    notificationHostLayerActive,
     notificationHostPointerActive,
+    notificationHostSessionBackdrop,
+    notificationOverlayVisible,
     notificationQueueShellKind,
     overlayQueue.length,
   ]);
@@ -10447,6 +10499,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       sessionReady,
       incomingGateActive,
       notificationSessionActive,
+      notificationOverlayVisible,
       activeOverlayKind: incomingOverlayDisplayKind,
       markOverlayUserAction,
       reportOverlayRendered,
@@ -10611,6 +10664,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       sessionReady,
       incomingGateActive,
       notificationSessionActive,
+      notificationOverlayVisible,
       incomingOverlayDisplayKind,
       markOverlayUserAction,
       reportOverlayRendered,
@@ -10804,7 +10858,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 />
               </ChallengeErrorBoundary>
             ) : null}
-            {!composeBlocksNotificationHost ? (
+            {!composeBlocksNotificationHost && notificationOverlayVisible ? (
             <GlobalOverlayHost
               active={notificationHostPointerActive}
               queueSessionActive={notificationHostSessionBackdrop}

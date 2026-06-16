@@ -38,6 +38,16 @@ export function GlobalOverlayHost({
   );
 
   useEffect(() => {
+    console.log('[global-overlay-host-render]', {
+      active,
+      pointerActive: active,
+      backdropActive: queueSessionActive,
+      checkInteractive,
+      activeKind: activeOverlayKind,
+    });
+  }, [active, queueSessionActive, checkInteractive, activeOverlayKind]);
+
+  useEffect(() => {
     if (!activeOverlayKind) return;
     console.log('[OVERLAY ACTIVE LOCK]', {
       hostKind: activeOverlayKind,

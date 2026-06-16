@@ -331,6 +331,7 @@ export function InstantBanFlow({
     incomingGateActive,
     checkGateActive,
     notificationSessionActive,
+    notificationOverlayVisible,
     activeOverlayKind,
     result,
     sendFlowOpen,
@@ -489,20 +490,13 @@ export function InstantBanFlow({
     (phase === 'selectingTarget' || phase === 'composingBan');
   const overlayOpen = showCrossScreenPager;
   const notificationOverlayActive =
-    notificationSessionActive ||
-    incomingGateActive ||
-    checkGateActive ||
-    !!result;
+    notificationOverlayVisible || incomingGateActive || checkGateActive || !!result;
   const overlayHandoffLobbySuppressed =
     lobbyActiveBanOverlay != null ||
     successToActiveLobbyBlocked ||
     overlayHandoffFromActiveCard ||
-    notificationOverlayActive ||
-    (bansReturnToLobbyLatch &&
-      (hasPendingNotificationChain() ||
-        overlayQueueLength > 0 ||
-        pendingStartupInteractions ||
-        isNotificationQueueLocked()));
+    notificationOverlayVisible ||
+    (bansReturnToLobbyLatch && notificationOverlayVisible);
   const bansLayerUiOpen =
     !bansReturnToLobbyLatch &&
     (bansOverlayOpen || bansCtaQueueSuppress || resultCtaBansOverlayOpen);
@@ -1029,8 +1023,7 @@ export function InstantBanFlow({
     [activeBans, historyBans, savedBans, bansTab, user?.id],
   );
 
-  const notificationQueueUiLock =
-    notificationSessionActive || notificationOverlayActive;
+  const notificationQueueUiLock = notificationOverlayVisible || !!result;
   const effectiveBansOverlayOpen = bansLayerUiOpen;
   const showLobbyTopNav =
     lobbyBootIntroPrimed &&
@@ -2122,11 +2115,15 @@ export function InstantBanFlow({
 
       if (hasPending) {
         console.log('[success-exit-drain-notifications]', { banId });
-        successExitAwaitingNotificationDrainRef.current = true;
-        return;
       }
       successExitAwaitingNotificationDrainRef.current = false;
       beginCtaSpringIn();
+      console.log('[success-exit-cleanup-state]', {
+        successMounted: false,
+        composeActive: false,
+        hasPending,
+        queueLen: overlayQueueLength,
+      });
     },
     [
       beginCtaSpringIn,
@@ -2396,12 +2393,24 @@ export function InstantBanFlow({
   ]);
 
   const handleBeginSend = useCallback(() => {
-    if (phase !== 'idle' || ctaState !== 'visible') return;
+    console.log('[lobby-click-attempt]', { source: 'ban-cta' });
 
-    if (hasPendingNotificationChain()) {
-      console.log('[success-exit-open-what-blocked]', {
-        reason: 'pending-notifications',
-        source: 'handleBeginSend',
+    if (phase !== 'idle' || ctaState !== 'visible') {
+      console.log('[lobby-click-blocked]', {
+        topLayer: 'lobby-cta',
+        pointerEvents: 'cta-not-ready',
+        reason: phase !== 'idle' ? 'phase-not-idle' : 'cta-not-visible',
+        phase,
+        ctaState,
+      });
+      return;
+    }
+
+    if (hasPendingNotificationChain() && notificationOverlayVisible) {
+      console.log('[lobby-click-blocked]', {
+        topLayer: 'notification-overlay',
+        pointerEvents: 'auto',
+        reason: 'visible-notification-overlay',
       });
       void flushDeferredSync().then(() => {
         releaseStartupInteractions({ force: true });
@@ -2409,6 +2418,8 @@ export function InstantBanFlow({
       });
       return;
     }
+
+    console.log('[lobby-cta-open-what]', { allowed: true });
 
     clearCtaExitTimer();
     clearWhoPanelEnterTimer();
@@ -2436,6 +2447,7 @@ export function InstantBanFlow({
     phase,
     releaseStartupInteractions,
     unlockNotificationQueueAndFlush,
+    notificationOverlayVisible,
   ]);
 
   const beginNewBanWhoFlow = useCallback(() => {
