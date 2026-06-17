@@ -36,7 +36,7 @@ import {
   isReplyDeeplinkShellBan,
 } from '@/lib/reply-deeplink-fast';
 import { reportIncomingDirectOverlayMounted } from '@/lib/incoming-direct-debug';
-import { logReplyCardMounted } from '@/lib/reply-deeplink-startup-debug';
+import { logReplyCardMounted, logReplyCardTopLayerOk } from '@/lib/reply-deeplink-startup-debug';
 
 type VerifyPhase = 'idle' | 'pending' | 'ok' | 'failed';
 
@@ -548,6 +548,10 @@ function IncomingBanOverlayInner({
         banId: activeIncomingBan.id,
         source: 'reply-direct-overlay',
       });
+      logReplyCardTopLayerOk({
+        banId: activeIncomingBan.id,
+        source: 'reply-direct-overlay-mounted',
+      });
     }
     return () => reportIncomingDirectOverlayMounted(false);
   }, [replyDirect, replyDirectBodyReady, activeIncomingBan?.id]);
@@ -650,7 +654,7 @@ function IncomingBanOverlayInner({
       open
       light
       stable
-      handoff={notificationSessionActive}
+      handoff={replyDirect || notificationSessionActive}
       zIndex={APP_NOTIFICATION_Z_INDEX}
       closeOnBackdrop={false}
       ariaLabel="Входящий запрет"

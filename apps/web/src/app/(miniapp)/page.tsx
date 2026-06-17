@@ -10,7 +10,6 @@ import {
 import dynamic from 'next/dynamic';
 import { useApp } from '@/components/Providers';
 import { useDeepLinkRouteBootPending } from '@/hooks/useDeepLinkRouteBootPending';
-import { useCheckDeeplinkBootHoldPending } from '@/hooks/useCheckDeeplinkBootHoldPending';
 import { useBootRouteRelease } from '@/hooks/useBootRouteRelease';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSocialBoot } from '@/hooks/useSocialBoot';
@@ -117,10 +116,12 @@ export default function HomePage() {
     routeOverlayAboveBoot,
     replyHandoffLock,
     replyComposeActive,
+    checkDeepLinkBanId,
+    checkOverlayMounted,
+    checkDeeplinkDirectPending,
   } = useApp();
   const { ready } = useTelegram();
   const deepLinkRouteBootPending = useDeepLinkRouteBootPending();
-  const checkDeeplinkBootPending = useCheckDeeplinkBootHoldPending();
   const hasAuthSession = !!user?.id && !!token;
   const lobbyPrefetch = loading && !hasAuthSession;
   /** v2 arena shell — never drop to legacy HomeArena while session is active. */
@@ -130,8 +131,7 @@ export default function HomePage() {
     isLobbyBootIntroPrimed,
     () => false,
   );
-  const showBootScreen =
-    loading || deepLinkRouteBootPending || checkDeeplinkBootPending;
+  const showBootScreen = loading || deepLinkRouteBootPending;
 
   useLayoutEffect(() => {
     patchBootHandoffDebug({
@@ -211,14 +211,26 @@ export default function HomePage() {
   const replyDeepLinkLobbyHidden =
     replyIncomingReady || activeBanUiShellActive;
 
+  const checkDeepLinkLobbyHidden =
+    Boolean(checkDeepLinkBanId) &&
+    (checkOverlayMounted || checkDeeplinkDirectPending);
+
+  /** Reply deeplink incoming card is top layer — suppress page dim/blur shells. */
+  const replyIncomingDirectDimSuppressed =
+    Boolean(replyDeepLinkBanId) && incomingCardFullyReady;
+
+  /** Check deeplink card is top layer — suppress page dim/blur shells. */
+  const checkDirectDimSuppressed =
+    Boolean(checkDeepLinkBanId) && checkOverlayMounted;
+
   /** Parent layout effect runs before InstantBanFlow effects — latch send UI early. */
   const shellBlocksLobbyClose =
     bansCtaQueueSuppress || bansReturnToLobbyLatch;
 
   useLayoutEffect(() => {
     if (shellBlocksLobbyClose) return;
-    if (replyDeepLinkLobbyHidden) closeLobby();
-  }, [shellBlocksLobbyClose, replyDeepLinkLobbyHidden, closeLobby]);
+    if (replyDeepLinkLobbyHidden || checkDeepLinkLobbyHidden) closeLobby();
+  }, [shellBlocksLobbyClose, replyDeepLinkLobbyHidden, checkDeepLinkLobbyHidden, closeLobby]);
 
   useLayoutEffect(() => {
     if (shellBlocksLobbyClose) return;
@@ -373,19 +385,29 @@ export default function HomePage() {
   return (
     <div
       className={`app-page min-h-[100dvh]${
-        incomingGateActive ? ' app-page--incoming-overlay-active' : ''
+        incomingGateActive && !replyIncomingDirectDimSuppressed
+          ? ' app-page--incoming-overlay-active'
+          : ''
       }${
-        checkGateActive ? ' app-page--check-overlay-active' : ''
+        checkGateActive && !checkDirectDimSuppressed
+          ? ' app-page--check-overlay-active'
+          : ''
       }${banSentOpen ? ' app-page--success-modal' : ''}${
-        replyUiShellDark ? ' app-page--reply-deeplink-loading' : ''
+        replyUiShellDark && !replyIncomingDirectDimSuppressed
+          ? ' app-page--reply-deeplink-loading'
+          : ''
       }${
-        replyUiShellActive ? ' app-page--reply-ui-shell' : ''
+        replyUiShellActive && !replyIncomingDirectDimSuppressed
+          ? ' app-page--reply-ui-shell'
+          : ''
       }${
         activeBanUiShellActive ? ' app-page--active-ban-deeplink-loading' : ''
       }${
         arenaVisible ? ' app-page--instant-ban-active' : ''
       }${
-        replyDeeplinkPending ? ' app-page--reply-deeplink-pending' : ''
+        replyDeeplinkPending && !replyIncomingDirectDimSuppressed
+          ? ' app-page--reply-deeplink-pending'
+          : ''
       }${showBootScreen ? ' app-page--boot-active' : ''}`}
       data-shell-view={shellView}
       data-shell-mode={shellModeForDebug}

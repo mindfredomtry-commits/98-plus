@@ -22,6 +22,10 @@ export function logReplyDeeplinkStart(data: Record<string, unknown>): void {
   window.__debug98log?.('[REPLY DEEPLINK START]', data);
 }
 
+export function logReplyCardSelected(data: Record<string, unknown>): void {
+  window.__debug98log?.('[REPLY CARD SELECTED]', data);
+}
+
 export function logStartupBlockersClear(data: Record<string, unknown>): void {
   window.__debug98log?.('[STARTUP BLOCKERS CLEAR]', data);
 }
@@ -32,4 +36,8 @@ export function logReplyCardOverlaySet(data: Record<string, unknown>): void {
 
 export function logReplyCardMounted(data: Record<string, unknown>): void {
   window.__debug98log?.('[REPLY CARD MOUNTED]', data);
+}
+
+export function logReplyCardTopLayerOk(data: Record<string, unknown>): void {
+  window.__debug98log?.('[REPLY CARD TOP LAYER OK]', data);
 }

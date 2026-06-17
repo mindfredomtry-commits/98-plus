@@ -28,12 +28,20 @@ import { userAvatarSrc } from '@/lib/user-public-avatar';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
 import { logCheckAnswerClick } from '@/lib/check-chain-drain-debug';
 
+import { logCheckCardMounted, logCheckCardTopLayerOk } from '@/lib/check-deeplink-startup-debug';
+
 interface Props {
   embedded?: boolean;
   contentOnly?: boolean;
+  /** Check deeplink direct path — render as top layer outside GlobalOverlayHost. */
+  checkDirect?: boolean;
 }
 
-function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
+function CheckOverlayInner({
+  embedded = false,
+  contentOnly = false,
+  checkDirect = false,
+}: Props) {
   const {
     token,
     user,
@@ -138,7 +146,9 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
 
   const isQueueHead = activeOverlayKind === 'check';
   const canRender =
-    (checkGateActive || (isQueueHead && !!checkBan)) &&
+    (checkDirect ||
+      checkGateActive ||
+      (isQueueHead && !!checkBan)) &&
     !!checkBan &&
     !!token &&
     !!user?.id &&
@@ -146,6 +156,10 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
 
   useLayoutEffect(() => {
     if (!canRender || !checkBan?.id) return;
+    if (checkDirect) {
+      logCheckCardMounted({ banId: checkBan.id, source: 'check-direct' });
+      logCheckCardTopLayerOk({ banId: checkBan.id, source: 'check-direct-mounted' });
+    }
     const yesBtn = actionsRef.current?.querySelector<HTMLButtonElement>(
       '.check-answer-btn',
     );
@@ -181,7 +195,7 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
       pointerEvents: hostStyle?.pointerEvents ?? null,
     });
     reportOverlayRendered('check', checkBan.id, true);
-  }, [canRender, checkBan?.id, reportOverlayRendered]);
+  }, [canRender, checkBan?.id, checkDirect, reportOverlayRendered]);
 
   if (!canRender) {
     return null;
@@ -250,7 +264,7 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
       open
       light
       stable
-      handoff={notificationSessionActive}
+      handoff={checkDirect || notificationSessionActive}
       zIndex={APP_NOTIFICATION_Z_INDEX}
       closeOnBackdrop={false}
       ariaLabel={modalView.title}

@@ -930,6 +930,45 @@ html.scroll-lock body {
   pointer-events: none;
 }
 
+html[data-reply-incoming-direct] .app-page--incoming-overlay-active::before,
+html[data-reply-incoming-direct] .app-page--reply-deeplink-loading::before,
+html[data-reply-incoming-direct] .app-page--reply-deeplink-pending::before {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+html[data-reply-incoming-direct] .app-page--incoming-overlay-active .app-main,
+html[data-reply-incoming-direct] .app-page--incoming-overlay-active .home-arena,
+html[data-reply-incoming-direct] .app-page--incoming-overlay-active .cta-dock,
+html[data-reply-incoming-direct] .app-page--incoming-overlay-active .bottom-nav,
+html[data-reply-incoming-direct] .app-page--reply-deeplink-loading .arena-ambience,
+html[data-reply-incoming-direct] .app-page--reply-deeplink-loading .instant-ban-flow,
+html[data-reply-incoming-direct] .app-page--reply-deeplink-pending .instant-ban-flow {
+  filter: none !important;
+  opacity: 1 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+html[data-check-direct] .app-page--check-overlay-active::before {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+html[data-check-direct] .app-page--check-overlay-active .app-main,
+html[data-check-direct] .app-page--check-overlay-active .home-arena,
+html[data-check-direct] .app-page--check-overlay-active .cta-dock,
+html[data-check-direct] .app-page--check-overlay-active .bottom-nav {
+  filter: none !important;
+  opacity: 1 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 /* Global notification layer — incoming / check / result above all app screens */
 .app-notification-layer {
   position: fixed;
