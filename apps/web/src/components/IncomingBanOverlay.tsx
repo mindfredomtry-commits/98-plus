@@ -36,6 +36,7 @@ import {
   isReplyDeeplinkShellBan,
 } from '@/lib/reply-deeplink-fast';
 import { reportIncomingDirectOverlayMounted } from '@/lib/incoming-direct-debug';
+import { logReplyCardMounted } from '@/lib/reply-deeplink-startup-debug';
 
 type VerifyPhase = 'idle' | 'pending' | 'ok' | 'failed';
 
@@ -542,6 +543,12 @@ function IncomingBanOverlayInner({
   useLayoutEffect(() => {
     if (!replyDirect) return;
     reportIncomingDirectOverlayMounted(replyDirectBodyReady);
+    if (replyDirectBodyReady && activeIncomingBan?.id) {
+      logReplyCardMounted({
+        banId: activeIncomingBan.id,
+        source: 'reply-direct-overlay',
+      });
+    }
     return () => reportIncomingDirectOverlayMounted(false);
   }, [replyDirect, replyDirectBodyReady, activeIncomingBan?.id]);
 

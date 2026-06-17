@@ -9,7 +9,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 5;
+export const DEBUG98_LOGGER_VERSION = 7;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -74,6 +74,11 @@ const ALLOWED_EVENTS = new Set([
   '[GO TO BANS NEXT READY]',
   '[GO TO BANS NEXT WAITING]',
   '[GO TO BANS NEXT MOUNTED]',
+  '[REPLY DEEPLINK START]',
+  '[STARTUP BLOCKERS CLEAR]',
+  '[REPLY CARD OVERLAY SET]',
+  '[REPLY CARD MOUNTED]',
+  '[ACTIVE BLOCKERS]',
 ]);
 
 export type Debug98LatchSnapshot = {

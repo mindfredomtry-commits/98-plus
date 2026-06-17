@@ -199,6 +199,14 @@ import {
   mergeStartupPendingChain,
 } from '@/lib/overlay-arbiter';
 import { fetchPendingChainPrefetch } from '@/lib/pending-chain-prefetch';
+import {
+  logReplyCardMounted,
+  logReplyCardOverlaySet,
+  logReplyDeeplinkStart,
+  logReplyStartupBlockers,
+  logStartupBlockersClear,
+  type ReplyStartupBlockersSnapshot,
+} from '@/lib/reply-deeplink-startup-debug';
 import { installOverlayDismissCacheDevHelper } from '@/lib/overlay-dismiss-cache-dev';
 import { logResultNav, logResultReply } from '@/lib/result-reply-debug';
 import { resolveResultReplyOpponent } from '@/lib/result-reply-flow';
@@ -1137,6 +1145,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       lockActive: true,
       lobbyOpen: lobbyOpen,
     });
+    logReplyDeeplinkStart({ banId, source: 'armReplyDeepLink' });
   }, [lobbyOpen, activeBanDeepLinkBanId, pinReplyToBanId]);
 
   const beginReplyHandoff = useCallback((banId: string) => {
@@ -6706,6 +6715,56 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [applyOverlayQueue],
   );
 
+  const collectReplyStartupBlockers =
+    useCallback((): ReplyStartupBlockersSnapshot => {
+      const replyDirectActive =
+        replyDeepLinkBanIdRef.current != null &&
+        (replyDeeplinkFastOpenedRef.current || replyHandoffLock);
+      return {
+        isBooting: deepLinkReplyBooting || replyDeeplinkFastShell,
+        isLobbyBootVisible: lobbyOpenRef.current && !replyDirectActive,
+        isRouteTransitioning: isDeepLinkRouteBootPending(),
+        isOverlayLocked: isNotificationQueueLocked(),
+        isNotificationQueueLocked: isNotificationQueueLocked(),
+        isAdvancingQueue:
+          notificationChainTransitioningRef.current ||
+          chainAdvanceWaitingRef.current,
+        dimVisible:
+          replyDeeplinkFastShellRef.current ||
+          deepLinkReplyBooting ||
+          (notificationChainTransitioningRef.current &&
+            !replyDirectActive),
+        blurVisible:
+          replyDeeplinkFastShellRef.current ||
+          deepLinkReplyBooting ||
+          replyHandoffLock,
+      };
+    }, [deepLinkReplyBooting, replyDeeplinkFastShell, replyHandoffLock]);
+
+  const clearStartupBlockingLayersForIncomingCard = useCallback(
+    (banId: string, source: string) => {
+      logReplyStartupBlockers(collectReplyStartupBlockers(), {
+        phase: 'before-clear',
+        banId,
+        source,
+      });
+      flushSync(() => {
+        setDeepLinkReplyBooting(false);
+        setReplyDeeplinkFastShell(false);
+        replyDeeplinkFastShellRef.current = false;
+        setStartupGraceActive(false);
+      });
+      logStartupBlockersClear({ banId, source });
+      logReplyCardOverlaySet({ banId, source });
+      logReplyStartupBlockers(collectReplyStartupBlockers(), {
+        phase: 'after-clear',
+        banId,
+        source,
+      });
+    },
+    [collectReplyStartupBlockers],
+  );
+
   const commitReplyIncomingDisplayBan = useCallback(
     (ban: BanInteraction | null | undefined): boolean => {
       if (!ban?.id || isReplyDeeplinkShellBan(ban)) return false;
@@ -6717,9 +6776,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (isDeepLinkRouteBootPending()) {
         releaseDeepLinkRouteBoot('reply-card-ready', enriched.id);
       }
+      if (
+        replyDeeplinkFastOpenedRef.current ||
+        replyDeepLinkBanIdRef.current === enriched.id
+      ) {
+        clearStartupBlockingLayersForIncomingCard(
+          enriched.id,
+          'commitReplyIncomingDisplayBan',
+        );
+      }
       return true;
     },
-    [],
+    [clearStartupBlockingLayersForIncomingCard],
   );
 
   const applyAuthReplyPreviewHydration = useCallback(
@@ -6969,6 +7037,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       console.log('[REPLY FAST SHELL OPEN ATTEMPT]', { banId });
       markVisibleOverboardTrace('[REPLY FAST SHELL OPEN ATTEMPT]', { banId });
+      logReplyDeeplinkStart({ banId, source: 'openReplyDeepLinkFast' });
       console.log('[REPLY DEEPLINK FAST OPEN]', { banId });
       markVisibleOverboardTrace('[REPLY DEEPLINK FAST OPEN]', { banId });
 
@@ -10222,6 +10291,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const notificationSessionActive =
     !priorityBlocksResult &&
     !notificationShellSuppressedForBansLobby &&
+    !(replyIncomingDirectPath && replyDeepLinkBanId != null) &&
     (notificationChainTransitioning ||
       showDirectOverboardLayer ||
       overboardTransitionActive ||
@@ -11330,6 +11400,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setDeepLinkReplyBooting(false);
   }, [deepLinkReplyBooting, replyIncomingReady]);
 
+  useLayoutEffect(() => {
+    const banId = replyDirectOverlayBan?.id ?? replyDeepLinkBanId ?? null;
+    if (!showReplyIncomingOverlayDirect || !banId) return;
+    clearStartupBlockingLayersForIncomingCard(
+      banId,
+      'reply-direct-overlay-visible',
+    );
+  }, [
+    clearStartupBlockingLayersForIncomingCard,
+    replyDeepLinkBanId,
+    replyDirectOverlayBan?.id,
+    showReplyIncomingOverlayDirect,
+  ]);
+
   const incomingJsxRenderSource =
     isReplyFastShellRequested || isReplyFastPendingOpen
       ? 'reply-fast-shell-fallback'
@@ -11349,13 +11433,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const notificationOverlayVisible = useMemo(() => {
     if (composeBlocksNotificationHost) return false;
     if (sendSuccessCardActive) return false;
+    // Reply deeplink renders IncomingBanOverlay outside GlobalOverlayHost — empty host + session backdrop would sit on top.
+    if (showReplyIncomingOverlayDirect && replyDirectOverlayBan != null) {
+      return false;
+    }
     if (chainAdvanceWaiting) return true;
     if (notificationChainTransitioning) return true;
     if (showDirectOverboardLayer) return true;
     if (checkOverlayMounted) return true;
-    if (showReplyIncomingOverlayDirect && replyDirectOverlayBan != null) {
-      return true;
-    }
     if (notificationQueueShellKind === 'check' && checkBan?.id) return true;
     if (notificationQueueShellKind === 'result' && displayResult) return true;
     if (
