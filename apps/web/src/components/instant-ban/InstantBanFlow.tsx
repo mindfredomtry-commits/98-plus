@@ -2176,9 +2176,6 @@ export function InstantBanFlow({
 
   const finishSendSuccessLobbyExit = useCallback(
     async (banId: string | null) => {
-      if (hasPendingNotificationChain()) {
-        setNotificationChainTransitioning(true);
-      }
       setSuccessExitDraining(true);
       setCtaState('hidden');
       try {
@@ -2194,13 +2191,9 @@ export function InstantBanFlow({
         pendingStartupInteractions,
         notificationOverlayVisible,
       });
+
       releaseStartupInteractions({ force: true });
       logOverlayPriority('send-success-unlock', {});
-      unlockNotificationQueueAndFlush('send-success-unlock');
-      setBansReturnToLobbyLatch(false, {
-        source: 'finishSendSuccessLobbyExit',
-        banId,
-      });
 
       console.log('[success-exit-drain-attempt]', {
         banId,
@@ -2252,6 +2245,15 @@ export function InstantBanFlow({
       })();
 
       const drained = await drainNextNotificationAfterSuccess(banId);
+
+      unlockNotificationQueueAndFlush('send-success-unlock', {
+        suppressLobbyOpen: drained,
+      });
+      setBansReturnToLobbyLatch(false, {
+        source: 'finishSendSuccessLobbyExit',
+        banId,
+      });
+
       if (drained) {
         console.log('[success-exit-drain-success]', {
           banId,
@@ -2264,6 +2266,7 @@ export function InstantBanFlow({
         successExitAwaitingNotificationDrainRef.current = true;
       } else {
         successExitAwaitingNotificationDrainRef.current = false;
+        setNotificationChainTransitioning(false);
         console.log('[success-exit-open-lobby]', {
           banId,
           reason: 'drain-missed',
@@ -2272,7 +2275,6 @@ export function InstantBanFlow({
           banId,
           reason: 'drain-missed',
         });
-        setNotificationChainTransitioning(false);
         openLobby('success-exit-empty-queue');
         beginCtaSpringIn();
       }
@@ -2291,7 +2293,6 @@ export function InstantBanFlow({
       beginCtaSpringIn,
       drainNextNotificationAfterSuccess,
       flushDeferredSync,
-      hasPendingNotificationChain,
       notificationOverlayVisible,
       openLobby,
       overlayQueueLength,
@@ -2351,6 +2352,8 @@ export function InstantBanFlow({
         const fetchedBan = await ensureReplyParentActiveBanForSuccess();
         const delayMs = Math.round(performance.now() - successExitStartedAt);
         if (!fetchedBan) {
+          setSuccessExitDraining(true);
+          setNotificationChainTransitioning(true);
           commitSendSuccessExit({
             lobbySource: 'send-success',
             committedSameTick: false,
@@ -2376,6 +2379,8 @@ export function InstantBanFlow({
       return;
     }
 
+    setSuccessExitDraining(true);
+    setNotificationChainTransitioning(true);
     commitSendSuccessExit({
       lobbySource: 'send-success',
       committedSameTick: true,
@@ -2392,6 +2397,7 @@ export function InstantBanFlow({
     pendingStartupInteractions,
     refreshReplyParentActiveBanInBackground,
     resolveReplyParentActiveBanImmediate,
+    setNotificationChainTransitioning,
     setSuccessToActiveLobbyBlockedState,
     setSendSuccessCardMounted,
   ]);
