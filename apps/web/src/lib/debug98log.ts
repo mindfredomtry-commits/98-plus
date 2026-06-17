@@ -19,7 +19,6 @@ const ALLOWED_EVENTS = new Set([
   '[send-start]',
   '[send-response]',
   '[send-success-open]',
-  '[success-exit-prefetch-start]',
   '[success-exit-start]',
   '[success-exit-base-lobby]',
   '[success-exit-drain-attempt]',

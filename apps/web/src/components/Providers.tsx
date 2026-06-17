@@ -534,10 +534,7 @@ interface AppContextValue {
   /** Lock overlay queue before active-ban API returns (start_param a_*). */
   armActiveBanDeepLinkEarly: (banId: string) => void;
   /** Unlock overlay queue and flush deferred pending overlays. */
-  unlockNotificationQueueAndFlush: (
-    reason: string,
-    opts?: { suppressLobbyOpen?: boolean },
-  ) => void;
+  unlockNotificationQueueAndFlush: (reason: string) => void;
   /** After send-success exit: drain one pending notification over lobby. */
   drainNextNotificationAfterSuccess: (
     successBanId?: string | null,
@@ -2666,7 +2663,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const unlockNotificationQueueAndFlush = useCallback(
-    (reason: string, opts?: { suppressLobbyOpen?: boolean }) => {
+    (reason: string) => {
       if (
         blocksMountedNotificationOverlay(
           `unlockNotificationQueueAndFlush:${reason}`,
@@ -2746,10 +2743,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
         } else {
           logQueueDebug('no pending -> lobby', { reason: 'empty-queue-reload' });
-          if (
-            !opts?.suppressLobbyOpen &&
-            bansReturnToLobbyLatchRef.current
-          ) {
+          if (bansReturnToLobbyLatchRef.current) {
             console.log('[notification-queue-final-base]', {
               baseScreen: 'lobby',
               lobbyOpen: lobbyOpenRef.current,
@@ -3533,11 +3527,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [isResultBlockedForNotificationChain, syncPendingStartupCount],
   );
-
-  useEffect(() => {
-    if (!sendSuccessCardActive) return;
-    void prefetchPendingNotificationChain(null, 'success-overlay-prime');
-  }, [sendSuccessCardActive, prefetchPendingNotificationChain]);
 
   const primePendingChainAfterResultAck = useCallback(
     async (consumedBanId: string | null, source: string): Promise<boolean> => {
@@ -8846,7 +8835,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return false;
       }
 
-      const prepareAndShow = (source: string): boolean => {
+      const tryDrain = (source: string): boolean => {
         if (
           blocksMountedNotificationOverlay(
             `drainNextNotificationAfterSuccess:${source}`,
@@ -8863,10 +8852,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             source,
           });
           return false;
-        }
-
-        if (pendingStartupInteractionsRef.current.length > 0) {
-          mergeStartupIntoOverlayQueueOnly(`${source}-merge`);
         }
 
         const beforeLen = overlayQueueRef.current.length;
@@ -8905,21 +8890,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return true;
       };
 
-      if (prepareAndShow('success-exit')) return true;
+      if (tryDrain('success-exit')) return true;
 
-      console.log('[success-exit-prefetch-start]', {
-        banId: successBanId ?? null,
-      });
-      window.__debug98log?.('[success-exit-prefetch-start]', {
-        banId: successBanId ?? null,
-      });
       await prefetchPendingNotificationChain(null, 'success-exit');
-
-      if (pendingStartupInteractionsRef.current.length > 0) {
-        mergeStartupIntoOverlayQueueOnly('success-exit-prime');
-      }
-
-      if (prepareAndShow('success-exit-retry')) return true;
+      if (tryDrain('success-exit-retry')) return true;
 
       const finalQueueLen = overlayQueueRef.current.length;
       const finalStartupLen = pendingStartupInteractionsRef.current.length;
@@ -8943,7 +8917,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [
       blocksMountedNotificationOverlay,
-      mergeStartupIntoOverlayQueueOnly,
       prefetchPendingNotificationChain,
       showNextNotificationFromChainSync,
     ],
