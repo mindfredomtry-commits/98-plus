@@ -10,6 +10,7 @@ import {
 import dynamic from 'next/dynamic';
 import { useApp } from '@/components/Providers';
 import { useDeepLinkRouteBootPending } from '@/hooks/useDeepLinkRouteBootPending';
+import { useCheckDeeplinkBootHoldPending } from '@/hooks/useCheckDeeplinkBootHoldPending';
 import { useBootRouteRelease } from '@/hooks/useBootRouteRelease';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSocialBoot } from '@/hooks/useSocialBoot';
@@ -119,6 +120,7 @@ export default function HomePage() {
   } = useApp();
   const { ready } = useTelegram();
   const deepLinkRouteBootPending = useDeepLinkRouteBootPending();
+  const checkDeeplinkBootPending = useCheckDeeplinkBootHoldPending();
   const hasAuthSession = !!user?.id && !!token;
   const lobbyPrefetch = loading && !hasAuthSession;
   /** v2 arena shell — never drop to legacy HomeArena while session is active. */
@@ -128,7 +130,8 @@ export default function HomePage() {
     isLobbyBootIntroPrimed,
     () => false,
   );
-  const showBootScreen = loading || deepLinkRouteBootPending;
+  const showBootScreen =
+    loading || deepLinkRouteBootPending || checkDeeplinkBootPending;
 
   useLayoutEffect(() => {
     patchBootHandoffDebug({

@@ -35,6 +35,7 @@ import {
   SYSTEM_VOICE,
 } from '@98plus/shared';
 import { useAuth } from '@/hooks/useAuth';
+import { useCheckDeeplinkBootHoldPending } from '@/hooks/useCheckDeeplinkBootHoldPending';
 import { useTelegram } from '@/hooks/useTelegram';
 import { isUserDataScoped } from '@/lib/user-data-scope';
 import { explainIncomingHidden, logIncomingDebug } from '@/lib/incoming-debug';
@@ -238,12 +239,23 @@ import {
   logCheckDeeplinkFetchError,
   logCheckDeeplinkFetchOk,
   logCheckDeeplinkFetchStart,
+  logCheckDeeplinkLobbyFlashBug,
+  logCheckDeeplinkLobbySuppressed,
   logCheckDeeplinkOverlaySet,
   logCheckDeeplinkPayloadParsed,
   logCheckDeeplinkResumeSkip,
   logCheckDeeplinkStart,
 } from '@/lib/check-deeplink-startup-debug';
-import { readCheckDeepLinkBanIdFromStartParam } from '@/lib/check-deeplink-startup';
+import {
+  isCheckDeepLinkStartParamPending,
+  readCheckDeepLinkBanIdFromStartParam,
+} from '@/lib/check-deeplink-startup';
+import {
+  isCheckDeeplinkBootHoldActive,
+  readCheckDeeplinkBootHoldBanId,
+  releaseCheckDeeplinkBootHold,
+  startCheckDeeplinkBootHold,
+} from '@/lib/check-deeplink-boot-hold';
 import {
   logReplyCardMounted,
   logReplyCardOverlaySet,
@@ -390,6 +402,7 @@ interface AppContextValue {
   incomingCardFullyReady: boolean;
   /** Route card/overlay ready — boot stays as background under it (not a gate). */
   routeOverlayAboveBoot: boolean;
+  checkDeeplinkBootPending: boolean;
   setIncomingBan: (b: BanInteraction | null) => void;
   dismissIncoming: (banId?: string) => void;
   /** Close incoming card without server ack — pending deeplink can reopen. */
@@ -700,6 +713,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
 function ProvidersBody({ children }: { children: React.ReactNode }) {
   const auth = useAuth();
+  const checkDeeplinkBootPending = useCheckDeeplinkBootHoldPending();
   console.log('[providers-render]', {
     userId: auth.user?.id ?? null,
     authReady: auth.authReady,
@@ -787,13 +801,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [friendsBootstrapped, setFriendsBootstrapped] = useState(false);
   const [sessionBootstrapped, setSessionBootstrapped] = useState(false);
   const [homeSnapshotReady, setHomeSnapshotReady] = useState(false);
-  const [lobbyOpen, setLobbyOpenState] = useState(true);
+  const [lobbyOpen, setLobbyOpenState] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return !isCheckDeepLinkStartParamPending();
+  });
   const setLobbyOpen = useCallback((value: React.SetStateAction<boolean>) => {
     setLobbyOpenState((prev) => {
       const next =
         typeof value === 'function'
           ? (value as (previous: boolean) => boolean)(prev)
           : value;
+      if (next && isCheckDeeplinkBootHoldActive()) {
+        logCheckDeeplinkLobbyFlashBug({
+          reason: 'setLobbyOpen-while-boot-hold',
+          banId: readCheckDeepLinkBanIdFromStartParam(),
+        });
+        return prev;
+      }
       if (next && !prev) {
         if (shouldSuppressLobbyOpenDuringSuccessExit()) {
           logSuccessExitLobbyOpenAttempt({
@@ -1630,6 +1654,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId: action.banId,
         });
         logCheckDeeplinkPayloadParsed({ banId: action.banId });
+        startCheckDeeplinkBootHold(action.banId);
+        logCheckDeeplinkLobbySuppressed({ banId: action.banId, source: 'payload-parsed' });
       }
     } else {
       const action = parseStartParam(readPriorityStartParamRaw() ?? undefined);
@@ -1658,6 +1684,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId: action.banId,
         });
         logCheckDeeplinkPayloadParsed({ banId: action.banId });
+        startCheckDeeplinkBootHold(action.banId);
+        logCheckDeeplinkLobbySuppressed({ banId: action.banId, source: 'payload-parsed' });
       }
     }
   }, [armActiveBanDeepLinkEarly, auth.user?.id]);
@@ -5411,6 +5439,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         setLobbyOpen(false);
         lobbyOpenRef.current = false;
         logCheckDeeplinkOverlaySet({ banId });
+        releaseCheckDeeplinkBootHold('overlay-set', banId);
       }
       return mounted;
     },
@@ -5436,6 +5465,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const viewerId = userIdRef.current;
       if (!normalizedBanId) {
         logCheckDeeplinkFallbackLobby({ reason: 'no-ban-id' });
+        releaseCheckDeeplinkBootHold('fallback-lobby');
         clearCheckDeepLinkRoute(source);
         return false;
       }
@@ -5454,6 +5484,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       logCheckDeeplinkFetchStart({ banId: normalizedBanId, source });
+      logCheckDeeplinkLobbySuppressed({
+        banId: normalizedBanId,
+        source: 'fetch-start',
+      });
       try {
         let ban = prefilled ? enrichBanInteraction(prefilled) : null;
         if (!ban?.id || ban.id !== normalizedBanId) {
@@ -5468,6 +5502,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             banId: normalizedBanId,
             reason: 'fetch-empty',
           });
+          releaseCheckDeeplinkBootHold('fallback-lobby', normalizedBanId);
           clearCheckDeepLinkRoute(source);
           return false;
         }
@@ -5503,6 +5538,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   shown = true;
                 }
                 if (shown) {
+                  releaseCheckDeeplinkBootHold('overlay-set', normalizedBanId);
                   clearCheckDeepLinkRoute(source);
                   resolvePendingDeepLinkRoute('result', normalizedBanId);
                   return true;
@@ -5516,6 +5552,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             banId: normalizedBanId,
             reason: decision.reason,
           });
+          releaseCheckDeeplinkBootHold('fallback-lobby', normalizedBanId);
           clearCheckDeepLinkRoute(source);
           setLobbyOpen(true);
           lobbyOpenRef.current = true;
@@ -5550,6 +5587,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId: normalizedBanId,
           reason: 'overlay-not-mounted',
         });
+        releaseCheckDeeplinkBootHold('fallback-lobby', normalizedBanId);
         clearCheckDeepLinkRoute(source);
         setLobbyOpen(true);
         lobbyOpenRef.current = true;
@@ -5563,6 +5601,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId: normalizedBanId,
           reason: 'fetch-error',
         });
+        releaseCheckDeeplinkBootHold('fallback-lobby', normalizedBanId);
         clearCheckDeepLinkRoute(source);
         setLobbyOpen(true);
         lobbyOpenRef.current = true;
@@ -11246,6 +11285,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       return;
     }
+    if (isCheckDeeplinkBootHoldActive()) {
+      logCheckDeeplinkLobbyFlashBug({
+        reason: 'openLobby-while-boot-hold',
+        banId: readCheckDeeplinkBootHoldBanId(),
+        source: source ?? 'default',
+      });
+      return;
+    }
     console.log('[chain-debug-open-lobby-called]', {
       source: source ?? 'default',
       stackHint: 'openLobby',
@@ -12123,6 +12170,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       notificationChainTransitioning ||
       incomingGateActive ||
       checkGateActive ||
+      checkDeeplinkBootPending ||
       hasPendingNotificationChain() ||
       result
     ) {
@@ -12150,6 +12198,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationChainTransitioning,
     incomingGateActive,
     checkGateActive,
+    checkDeeplinkBootPending,
     getNotificationChainDebugSnapshot,
     hasPendingNotificationChain,
     openLobby,
@@ -12469,6 +12518,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       incomingCardDisplayBan,
       incomingCardFullyReady,
       routeOverlayAboveBoot,
+      checkDeeplinkBootPending,
       setIncomingBan: setIncomingBanSafe,
       dismissIncoming,
       dismissIncomingSoft,
@@ -12640,6 +12690,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       incomingCardDisplayBan,
       incomingCardFullyReady,
       routeOverlayAboveBoot,
+      checkDeeplinkBootPending,
       setIncomingBanSafe,
       dismissIncoming,
       dismissIncomingSoft,

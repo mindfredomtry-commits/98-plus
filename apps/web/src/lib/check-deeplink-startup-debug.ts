@@ -57,3 +57,33 @@ export function logCheckDeeplinkResumeSkip(
 ): void {
   window.__debug98log?.('[CHECK DEEPLINK RESUME SKIP]', data);
 }
+
+export function logCheckDeeplinkBootHoldStart(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK DEEPLINK BOOT HOLD START]', data);
+}
+
+export function logCheckDeeplinkBootHoldActive(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK DEEPLINK BOOT HOLD ACTIVE]', data);
+}
+
+export function logCheckDeeplinkBootHoldRelease(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK DEEPLINK BOOT HOLD RELEASE]', data);
+}
+
+export function logCheckDeeplinkLobbySuppressed(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK DEEPLINK LOBBY SUPPRESSED]', data);
+}
+
+export function logCheckDeeplinkLobbyFlashBug(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK DEEPLINK LOBBY FLASH BUG]', data);
+}

@@ -6,6 +6,7 @@ import {
   isDeepLinkRouteBootPending,
   releaseDeepLinkRouteBoot,
 } from '@/lib/deep-link-route-boot';
+import { isCheckDeeplinkBootHoldActive } from '@/lib/check-deeplink-boot-hold';
 
 type OverlayBootReleaseSignal = {
   incomingCardReady: boolean;
@@ -46,6 +47,7 @@ export function useBootRouteRelease(
     if (!deepLinkRouteBootPending) return;
     const timer = window.setTimeout(() => {
       if (!isDeepLinkRouteBootPending()) return;
+      if (isCheckDeeplinkBootHoldActive()) return;
       releaseDeepLinkRouteBoot('timeout-fallback');
     }, BOOT_ROUTE_FALLBACK_MS);
     return () => window.clearTimeout(timer);

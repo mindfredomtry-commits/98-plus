@@ -96,7 +96,7 @@ import {
   opponentForBan,
   resolveOpponentFriendCard,
 } from './bans-overlay-utils';
-import { useConfirmOrbController } from './useConfirmOrbController';
+import { useCheckDeeplinkBootHoldPending } from '@/hooks/useCheckDeeplinkBootHoldPending';
 import { LobbyBootOrbWrap } from '@/components/lobby/LobbyBootOrbWrap';
 import { LobbyPersistentLogoSlot } from '@/components/lobby/LobbyPersistentLogoSlot';
 import { LobbyIdleOrb } from '@/components/lobby/LobbyIdleOrb';
@@ -386,6 +386,7 @@ export function InstantBanFlow({
     isDeepLinkRouteBootPending,
     () => false,
   );
+  const checkDeeplinkBootPending = useCheckDeeplinkBootHoldPending();
   const lobbyBootIntroPrimed = useSyncExternalStore(
     subscribeLobbyBootIntroSession,
     isLobbyBootIntroPrimed,
@@ -574,6 +575,7 @@ export function InstantBanFlow({
   const lobbyChromeHidden =
     replyLobbyBlocked ||
     deepLinkRouteBootPending ||
+    checkDeeplinkBootPending ||
     replyIncomingDeeplinkPending ||
     overlayHandoffLobbySuppressed ||
     successExitDraining ||
@@ -582,6 +584,7 @@ export function InstantBanFlow({
   /** Orb stays mounted during route boot — only hide for reply/incoming block. */
   const lobbyOrbVisible =
     !replyIncomingDeeplinkPending &&
+    !checkDeeplinkBootPending &&
     !replyLobbyBlocked &&
     !successToActiveLobbyBlocked &&
     !overlayHandoffLobbySuppressed &&
@@ -590,6 +593,7 @@ export function InstantBanFlow({
   const showLobbyCta =
     lobbyBootIntroPrimed &&
     !replyIncomingDeeplinkPending &&
+    !checkDeeplinkBootPending &&
     !successToActiveLobbyBlocked &&
     !overlayHandoffLobbySuppressed &&
     !successExitDraining &&
@@ -1090,7 +1094,8 @@ export function InstantBanFlow({
     !effectiveBansOverlayOpen &&
     !notificationQueueUiLock &&
     !replyUiShellActive &&
-    !deepLinkRouteBootPending;
+    !deepLinkRouteBootPending &&
+    !checkDeeplinkBootPending;
   const showBansLayer =
     effectiveBansOverlayOpen &&
     !replyComposeActive &&
