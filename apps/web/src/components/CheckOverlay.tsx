@@ -28,8 +28,8 @@ import { userAvatarSrc } from '@/lib/user-public-avatar';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
 import { logCheckAnswerClick } from '@/lib/check-chain-drain-debug';
 import {
-  overlayInputCaptureGuard,
   setOverlayInputLock,
+  shouldBlockOverlayUserTap,
 } from '@/lib/overlay-input-guard';
 
 import { acquireScrollLock, releaseScrollLock } from '@/lib/scroll-lock';
@@ -67,7 +67,6 @@ function CheckOverlayInner({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
   const directBackdropRootRef = useRef<HTMLDivElement>(null);
-  const directCardRootRef = useRef<HTMLDivElement>(null);
   const directCardRef = useRef<HTMLDivElement>(null);
 
   const modalView = useMemo(() => {
@@ -105,6 +104,7 @@ function CheckOverlayInner({
 
   const answer = useCallback(
     async (completed: boolean) => {
+      if (shouldBlockOverlayUserTap('check-answer')) return;
       if (!checkBan?.id || !token || !modalView) {
         console.log('[check-overlay-click-missed]', {
           banId: checkBan?.id ?? null,
@@ -180,7 +180,6 @@ function CheckOverlayInner({
       logCheckCardTopLayerOk({ banId: checkBan.id, source: 'check-direct-mounted' });
       verifyCheckDirectSplitLayers(
         directBackdropRootRef.current,
-        directCardRootRef.current,
         directCardRef.current,
         checkBan.id,
       );
@@ -265,8 +264,6 @@ function CheckOverlayInner({
       <div
         className="check-modal-actions space-y-2.5"
         ref={actionsRef}
-        onPointerDownCapture={overlayInputCaptureGuard}
-        onClickCapture={overlayInputCaptureGuard}
       >
         <BigButton
           className="check-answer-btn"
@@ -310,21 +307,17 @@ function CheckOverlayInner({
         )}
         {createPortal(
           <div
-            ref={directCardRootRef}
-            className="check-direct-card-root"
-            style={{ zIndex: cardZ }}
+            ref={directCardRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={modalView.title}
+            data-overlay-user-card=""
             data-notification-layer=""
+            className="modal-card modal-card--check modal-card--session-hosted modal-card--handoff check-direct-card"
+            style={{ zIndex: cardZ }}
+            onClick={(e) => e.stopPropagation()}
           >
-            <div
-              ref={directCardRef}
-              role="dialog"
-              aria-modal="true"
-              aria-label={modalView.title}
-              className="modal-card modal-card--check modal-card--session-hosted modal-card--handoff"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {body}
-            </div>
+            {body}
           </div>,
           document.body,
         )}

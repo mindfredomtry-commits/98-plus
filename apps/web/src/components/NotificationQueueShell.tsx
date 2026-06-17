@@ -2,7 +2,6 @@
 
 import { Children, isValidElement, useEffect, type ReactNode } from 'react';
 import { ModalShell } from './ModalShell';
-import { overlayInputCaptureGuard } from '@/lib/overlay-input-guard';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
 
 type OverlayKind = 'incoming' | 'check' | 'result';
@@ -154,8 +153,6 @@ export function NotificationQueueShell({
       <div
         key={handoff ? undefined : (contentKey ?? kind)}
         className="notification-queue-shell__content"
-        onPointerDownCapture={overlayInputCaptureGuard}
-        onClickCapture={overlayInputCaptureGuard}
       >
         {children}
       </div>

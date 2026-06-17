@@ -205,7 +205,7 @@ function collectCardAncestorFilterBugs(
   let found = false;
   while (node && node !== document.documentElement) {
     const style = window.getComputedStyle(node);
-    const isCardRoot = node.classList.contains('check-direct-card-root');
+    const isCardRoot = node.classList.contains('check-direct-card');
     if (
       ancestorHasVisualFilterContext(style, {
         allowCardRoot: true,
@@ -235,16 +235,14 @@ function collectCardAncestorFilterBugs(
 /** Backdrop + card are separate body portals — card must not share a filtered ancestor. */
 export function verifyCheckDirectSplitLayers(
   backdropRoot: HTMLElement | null,
-  cardRoot: HTMLElement | null,
   card: HTMLElement | null,
   banId: string,
 ): void {
-  if (!backdropRoot || !cardRoot || !card) {
+  if (!backdropRoot || !card) {
     logCheckDirectBackdropMissingBug({
       banId,
       reason: 'split-layer-missing',
       hasBackdropRoot: Boolean(backdropRoot),
-      hasCardRoot: Boolean(cardRoot),
       hasCard: Boolean(card),
     });
     return;
@@ -255,14 +253,14 @@ export function verifyCheckDirectSplitLayers(
     return;
   }
 
-  if (cardRoot.parentElement !== document.body) {
+  if (card.parentElement !== document.body) {
     logCheckCardParentFilterBug({
       banId,
-      reason: 'card-root-not-body-child',
-      parentTag: cardRoot.parentElement?.tagName ?? null,
+      reason: 'card-not-body-child',
+      parentTag: card.parentElement?.tagName ?? null,
       parentClass:
-        cardRoot.parentElement instanceof HTMLElement
-          ? cardRoot.parentElement.className.slice(0, 160)
+        card.parentElement instanceof HTMLElement
+          ? card.parentElement.className.slice(0, 160)
           : null,
     });
     return;

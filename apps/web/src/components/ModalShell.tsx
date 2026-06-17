@@ -74,6 +74,7 @@ export function ModalShell({
         aria-modal="true"
         aria-label={ariaLabel}
         className={`modal-card modal-card--session-hosted modal-card--handoff${cardClassName ? ` ${cardClassName}` : ''}`}
+        data-overlay-user-card=""
         onClick={(e) => e.stopPropagation()}
       >
         {children}

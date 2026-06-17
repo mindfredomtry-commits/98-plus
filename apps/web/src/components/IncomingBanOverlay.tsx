@@ -30,7 +30,12 @@ import { AvatarImage } from './AvatarImage';
 import { useTelegram } from '@/hooks/useTelegram';
 import { ModalShell } from './ModalShell';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
-import { overlayInputCaptureGuard } from '@/lib/overlay-input-guard';
+import { shouldBlockOverlayUserTap } from '@/lib/overlay-input-guard';
+import {
+  logOverlayButtonClick,
+  logOverlayButtonPointerDown,
+  verifyOverlayCardPointerHit,
+} from '@/lib/overlay-pointer-debug';
 import {
   canReplyFastEnableButtons,
   hasReplyFastDisplayText,
@@ -87,6 +92,8 @@ function IncomingBanOverlayInner({
   const overboardClickLockRef = useRef(false);
   const replyShellBanIdRef = useRef<string | null>(null);
   const blockingLayerLoggedRef = useRef(false);
+  const cardBodyRef = useRef<HTMLDivElement>(null);
+  const actionsRef = useRef<HTMLDivElement>(null);
 
   const viewerId = user?.id ?? null;
   const activeIncomingBan = banProp ?? incomingBan;
@@ -355,6 +362,11 @@ function IncomingBanOverlayInner({
   );
 
   const handleCounter = useCallback(() => {
+    logOverlayButtonClick({
+      banId: activeIncomingBan?.id ?? null,
+      action: 'counter',
+    });
+    if (shouldBlockOverlayUserTap('incoming-counter')) return;
     logClickTest('counter');
     const actBan = verifiedBan ?? resolvedIncoming ?? activeIncomingBan;
     if (!actBan?.id || !actBan.sender?.id || actionLoading) return;
@@ -380,6 +392,11 @@ function IncomingBanOverlayInner({
   ]);
 
   const handleOverboard = useCallback(() => {
+    logOverlayButtonClick({
+      banId: activeIncomingBan?.id ?? null,
+      action: 'overboard',
+    });
+    if (shouldBlockOverlayUserTap('incoming-overboard')) return;
     logClickTest('overboard');
     const actBan = verifiedBan ?? resolvedIncoming ?? activeIncomingBan;
     if (!actBan?.id || actionLoading || overboardClickLockRef.current) {
@@ -455,6 +472,14 @@ function IncomingBanOverlayInner({
   useLayoutEffect(() => {
     if (!activeIncomingBan?.id || !shouldShow || verifyPhase === 'failed') return;
     reportOverlayRendered('incoming', activeIncomingBan.id, buttonsEnabled);
+    const cardEl =
+      cardBodyRef.current?.closest('.modal-card') ??
+      cardBodyRef.current;
+    verifyOverlayCardPointerHit(
+      cardEl instanceof HTMLElement ? cardEl : null,
+      activeIncomingBan.id,
+      'incoming',
+    );
   }, [
     activeIncomingBan?.id,
     shouldShow,
@@ -610,7 +635,11 @@ function IncomingBanOverlayInner({
   );
 
   const body = (
-    <div className="incoming-modal-body text-center">
+    <div
+      ref={cardBodyRef}
+      className="incoming-modal-body text-center"
+      data-overlay-user-card=""
+    >
       <p className="incoming-modal-title text-xl font-black text-glow mb-3">
         тебе запретили!
       </p>
@@ -632,10 +661,15 @@ function IncomingBanOverlayInner({
 
       <div
         className="incoming-modal-actions space-y-2.5"
-        onPointerDownCapture={overlayInputCaptureGuard}
-        onClickCapture={overlayInputCaptureGuard}
+        ref={actionsRef}
       >
         <BigButton
+          onPointerDown={() => {
+            logOverlayButtonPointerDown({
+              banId: activeIncomingBan?.id ?? null,
+              action: 'counter',
+            });
+          }}
           onClick={handleCounter}
           disabled={actionLoading || !counterEnabled}
         >
@@ -643,6 +677,12 @@ function IncomingBanOverlayInner({
         </BigButton>
         <BigButton
           variant="ghost"
+          onPointerDown={() => {
+            logOverlayButtonPointerDown({
+              banId: activeIncomingBan?.id ?? null,
+              action: 'overboard',
+            });
+          }}
           onClick={handleOverboard}
           disabled={actionLoading || !overboardEnabled}
         >

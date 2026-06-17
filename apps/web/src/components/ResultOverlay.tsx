@@ -37,7 +37,7 @@ import {
   APP_NOTIFICATION_Z_INDEX,
   DIRECT_OVERBOARD_RESULT_Z_INDEX,
 } from '@/lib/overlay-queue';
-import { overlayInputCaptureGuard } from '@/lib/overlay-input-guard';
+import { shouldBlockOverlayUserTap } from '@/lib/overlay-input-guard';
 import {
   getOverboardClickTs,
   logOverboardPaint,
@@ -332,6 +332,7 @@ function ResultOverlayInner({
   }, [haptic, result.id, result.text, token, view.displayHeadline]);
 
   const replyFromResult = useCallback(() => {
+    if (shouldBlockOverlayUserTap('result-reply')) return;
     markOverlayUserAction('result-reply', result.id);
     haptic('medium');
     startReplyFromResult(result);
@@ -345,6 +346,7 @@ function ResultOverlayInner({
   ]);
 
   const goToBans = useCallback(() => {
+    if (shouldBlockOverlayUserTap('result-go-to-bans')) return;
     haptic('light');
     if (directPaint) {
       markVisibleOverboardTrace('RESULT CTA OPEN BANS click', {
@@ -359,6 +361,7 @@ function ResultOverlayInner({
   }, [directPaint, haptic, navigateFromResult, result.id, result.outcome]);
 
   const banOthers = useCallback(() => {
+    if (shouldBlockOverlayUserTap('result-ban-others')) return;
     markOverlayUserAction('result', result.id);
     haptic('medium');
     onClose();
@@ -525,11 +528,7 @@ function ResultOverlayInner({
       </div>
 
       {hasActions ? (
-        <div
-          className="modal-card-actions result-card-actions space-y-2.5"
-          onPointerDownCapture={overlayInputCaptureGuard}
-          onClickCapture={overlayInputCaptureGuard}
-        >
+        <div className="modal-card-actions result-card-actions space-y-2.5">
           <BigButton onClick={replyFromResult}>{view.primaryLabel}</BigButton>
           {view.showBanOthers ? (
             <BigButton variant="ghost" onClick={banOthers}>
