@@ -96,6 +96,7 @@ import {
   opponentForBan,
   resolveOpponentFriendCard,
 } from './bans-overlay-utils';
+import { useConfirmOrbController } from './useConfirmOrbController';
 import { useCheckDeeplinkBootHoldPending } from '@/hooks/useCheckDeeplinkBootHoldPending';
 import { LobbyBootOrbWrap } from '@/components/lobby/LobbyBootOrbWrap';
 import { LobbyPersistentLogoSlot } from '@/components/lobby/LobbyPersistentLogoSlot';
