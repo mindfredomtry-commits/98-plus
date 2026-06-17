@@ -36,7 +36,6 @@ import { acquireScrollLock, releaseScrollLock } from '@/lib/scroll-lock';
 import {
   logCheckCardMounted,
   logCheckCardTopLayerOk,
-  verifyCheckDirectBackdropLayers,
 } from '@/lib/check-deeplink-startup-debug';
 
 interface Props {
@@ -66,8 +65,6 @@ function CheckOverlayInner({
   const { haptic } = useTelegram();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
-  const directBackdropRef = useRef<HTMLDivElement>(null);
-  const directCardRef = useRef<HTMLDivElement>(null);
 
   const modalView = useMemo(() => {
     if (!checkBan) return null;
@@ -177,11 +174,6 @@ function CheckOverlayInner({
     if (checkDirect) {
       logCheckCardMounted({ banId: checkBan.id, source: 'check-direct' });
       logCheckCardTopLayerOk({ banId: checkBan.id, source: 'check-direct-mounted' });
-      verifyCheckDirectBackdropLayers(
-        directBackdropRef.current,
-        directCardRef.current,
-        checkBan.id,
-      );
       reportOverlayRendered('check', checkBan.id, true);
       return;
     }
@@ -292,23 +284,24 @@ function CheckOverlayInner({
   if (checkDirect) {
     const directModal = (
       <div
-        className="check-direct-overlay"
-        role="dialog"
-        aria-modal="true"
-        aria-label={modalView.title}
+        className="app-notification-layer app-notification-layer--active app-notification-layer--session"
         style={{ zIndex: APP_NOTIFICATION_Z_INDEX }}
       >
-        <div
-          ref={directBackdropRef}
-          className="check-direct-backdrop"
-          aria-hidden
-        />
-        <div
-          ref={directCardRef}
-          className="check-direct-card modal-card modal-card--check"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {body}
+        <div className="app-notification-layer__session-backdrop" aria-hidden />
+        <div className="app-notification-layer__content">
+          <ModalShell
+            open
+            light
+            stable
+            handoff
+            zIndex={APP_NOTIFICATION_Z_INDEX}
+            closeOnBackdrop={false}
+            ariaLabel={modalView.title}
+            onClose={() => {}}
+            cardClassName="modal-card--check modal-card--handoff"
+          >
+            {body}
+          </ModalShell>
         </div>
       </div>
     );
