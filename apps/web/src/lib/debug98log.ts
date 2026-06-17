@@ -9,7 +9,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 4;
+export const DEBUG98_LOGGER_VERSION = 5;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -68,6 +68,9 @@ const ALLOWED_EVENTS = new Set([
   '[SUCCESS EXIT DRAIN RESULT]',
   '[FIRST NOTIFICATION SELECTED]',
   '[FIRST NOTIFICATION MOUNTED]',
+  '[success-post-send-prime-start]',
+  '[pending-chain-prefetch-success]',
+  '[pending-chain-enqueue-ready]',
 ]);
 
 export type Debug98LatchSnapshot = {

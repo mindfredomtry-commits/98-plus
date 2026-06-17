@@ -548,6 +548,12 @@ interface AppContextValue {
   drainNextNotificationAfterSuccess: (
     successBanId?: string | null,
   ) => Promise<boolean>;
+  /** Success path: prime first notification chain after send is completed. */
+  primeFirstNotificationAfterSuccessPostSend: () => Promise<boolean>;
+  /** Success-exit path: synchronously show already primed first notification. */
+  tryShowPrimedFirstNotificationAfterSuccessExitSync: (
+    source: string,
+  ) => boolean;
   /** Reply deeplink: resolve accepted parent active ban synchronously after success. */
   resolveReplyParentActiveBanImmediate: () => BanInteraction | null;
   /** Reply deeplink: await in-flight accept then short fallback fetch if ref still empty. */
@@ -677,6 +683,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     cause: string;
   } | null>(null);
   const pendingStartupInteractionsRef = useRef<QueuedOverlay[]>([]);
+  const successPostSendPrimeInFlightRef = useRef(false);
   const notificationSessionActiveForDebugRef = useRef(false);
   const hasPendingNotificationChainFnRef = useRef<() => boolean>(() => false);
   const startupInteractionsHoldRef = useRef(true);
@@ -8989,6 +8996,94 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ],
   );
 
+  const primeFirstNotificationAfterSuccessPostSend = useCallback(
+    async (): Promise<boolean> => {
+      if (!sendSuccessCardActiveRef.current) return false;
+      if (successPostSendPrimeInFlightRef.current) return false;
+      if (
+        overlayQueueRef.current.length > 0 ||
+        pendingStartupInteractionsRef.current.length > 0
+      ) {
+        return true;
+      }
+
+      successPostSendPrimeInFlightRef.current = true;
+      const banId = sendSuccessCardBanIdRef.current;
+      window.__debug98log?.('[success-post-send-prime-start]', {
+        banId,
+        queueLen: overlayQueueRef.current.length,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+      });
+
+      try {
+        const prefetched = await prefetchPendingNotificationChain(
+          null,
+          'success-post-send-prime',
+        );
+        if (!sendSuccessCardActiveRef.current) return false;
+        if (!prefetched) return false;
+
+        const pendingLen = pendingStartupInteractionsRef.current.length;
+        const queueLen = overlayQueueRef.current.length;
+        const startupIds = pendingStartupInteractionsRef.current.map(
+          overlayQueueItemId,
+        );
+        window.__debug98log?.('[pending-chain-prefetch-success]', {
+          source: 'success-post-send-prime',
+          banId,
+          queueLen,
+          pendingLen,
+          startupIds,
+        });
+        window.__debug98log?.('[pending-chain-enqueue-ready]', {
+          source: 'success-post-send-prime',
+          banId,
+          pendingLen,
+          startupIds,
+        });
+        return true;
+      } finally {
+        successPostSendPrimeInFlightRef.current = false;
+      }
+    },
+    [overlayQueueItemId, prefetchPendingNotificationChain],
+  );
+
+  const tryShowPrimedFirstNotificationAfterSuccessExitSync = useCallback(
+    (source: string): boolean => {
+      if (
+        blocksMountedNotificationOverlay(
+          `tryShowPrimedFirstNotificationAfterSuccessExitSync:${source}`,
+          null,
+          null,
+        )
+      ) {
+        return false;
+      }
+
+      if (pendingStartupInteractionsRef.current.length > 0) {
+        mergeStartupIntoOverlayQueueOnly(`${source}-merge`);
+      }
+      if (overlayQueueRef.current.length === 0) {
+        return false;
+      }
+
+      setNotificationChainTransitioning(true);
+      const shown = showNextNotificationFromChainSync(source);
+      if (!shown) {
+        setNotificationChainTransitioning(false);
+        return false;
+      }
+      return true;
+    },
+    [
+      blocksMountedNotificationOverlay,
+      mergeStartupIntoOverlayQueueOnly,
+      setNotificationChainTransitioning,
+      showNextNotificationFromChainSync,
+    ],
+  );
+
   const releaseNotificationQueueAfterReplyParentActive = useCallback(() => {
     const hadPriority = replyParentActivePriorityActiveRef.current;
     console.log('[active-timer-user-close]', {
@@ -11591,6 +11686,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       armActiveBanDeepLinkEarly,
       unlockNotificationQueueAndFlush,
       drainNextNotificationAfterSuccess,
+      primeFirstNotificationAfterSuccessPostSend,
+      tryShowPrimedFirstNotificationAfterSuccessExitSync,
       resolveReplyParentActiveBanImmediate,
       ensureReplyParentActiveBanForSuccess,
       refreshReplyParentActiveBanInBackground,
@@ -11755,6 +11852,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       armActiveBanDeepLinkEarly,
       unlockNotificationQueueAndFlush,
       drainNextNotificationAfterSuccess,
+      primeFirstNotificationAfterSuccessPostSend,
+      tryShowPrimedFirstNotificationAfterSuccessExitSync,
       resolveReplyParentActiveBanImmediate,
       ensureReplyParentActiveBanForSuccess,
       refreshReplyParentActiveBanInBackground,
