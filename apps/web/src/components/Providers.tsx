@@ -200,6 +200,13 @@ import {
 } from '@/lib/overlay-arbiter';
 import { fetchPendingChainPrefetch } from '@/lib/pending-chain-prefetch';
 import {
+  logChainDrainContinue,
+  logChainDrainUserAnswerAllowed,
+  logChainEmptyFallbackLobby,
+  logOverlayActiveCleared,
+  logOverlayMarkDismissing,
+} from '@/lib/check-chain-drain-debug';
+import {
   logReplyCardMounted,
   logReplyCardOverlaySet,
   logReplyDeeplinkStart,
@@ -1228,6 +1235,51 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const isUserAllowedCheckOverlayCloseReason = (reason: string) =>
     reason === 'user-answer' || reason === 'clear-check-overlay';
+
+  const clearActiveOverlayStateForDismiss = (
+    kind: QueuedOverlay['kind'] | null,
+    banId: string | null,
+  ) => {
+    if (!banId) return;
+    if (kind === 'check' && checkBanRef.current?.id === banId) {
+      checkBanRef.current = null;
+      setCheckBan(null);
+      return;
+    }
+    if (kind === 'incoming' && incomingBanRef.current?.id === banId) {
+      incomingBanRef.current = null;
+      setIncomingBan(null);
+    }
+  };
+
+  const prepareUserAnswerChainAdvance = (
+    reason: string,
+    dismissKind: QueuedOverlay['kind'] | null,
+    dismissBanId: string | null,
+    remainingLen: number,
+  ): boolean => {
+    if (!isUserAllowedCheckOverlayCloseReason(reason)) return false;
+    logOverlayMarkDismissing({
+      reason,
+      kind: dismissKind,
+      banId: dismissBanId,
+      remainingLen,
+    });
+    clearActiveOverlayStateForDismiss(dismissKind, dismissBanId);
+    logOverlayActiveCleared({
+      reason,
+      kind: dismissKind,
+      banId: dismissBanId,
+    });
+    chainAdvanceExplicitRef.current = true;
+    logChainDrainUserAnswerAllowed({
+      reason,
+      kind: dismissKind,
+      banId: dismissBanId,
+      remainingLen,
+    });
+    return true;
+  };
 
   const isActiveCheckOverlayMounted = () => {
     const banId = checkBanRef.current?.id?.trim() ?? '';
@@ -2475,6 +2527,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       const commit = () => {
+        const userChainAdvance = prepareUserAnswerChainAdvance(
+          reason,
+          dismissKind,
+          dismissBanId,
+          remaining.length,
+        );
+
         if (
           notificationChainAwaitingUserRef.current &&
           remaining.length > 0 &&
@@ -2512,6 +2571,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         const selectTs = overlayTs();
         if (remaining.length > 0) {
           const nextKey = remaining[0] ? overlayQueueKey(remaining[0]) : null;
+          const nextHead = remaining[0] ?? null;
           logOverlayArbiter('show-next', {
             prevKey,
             nextKey,
@@ -2523,12 +2583,39 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             nextKey,
             commitDelayMs: overlayDelayMs(dismissTs),
           });
+          if (userChainAdvance) {
+            logChainDrainContinue({
+              reason,
+              remainingLen: remaining.length,
+              nextKind: nextHead?.kind ?? null,
+              nextBanId:
+                nextHead?.kind === 'result'
+                  ? nextHead.result.id
+                  : nextHead?.kind === 'incoming' || nextHead?.kind === 'check'
+                    ? nextHead.ban.id
+                    : null,
+            });
+            logTransitionFromRefs('[SHOW NEXT SELECTED]', {
+              source: reason,
+              kind: nextHead?.kind ?? null,
+              banId:
+                nextHead?.kind === 'result'
+                  ? nextHead.result.id
+                  : nextHead?.kind === 'incoming' || nextHead?.kind === 'check'
+                    ? nextHead.ban.id
+                    : null,
+            });
+          }
         }
         if (remaining.length === 0) {
           overlayActionTsRef.current = null;
           overlayHandoffTsRef.current = null;
           notificationChainAwaitingUserRef.current = false;
           notificationChainHandoffRef.current = false;
+          if (userChainAdvance) {
+            clearActiveOverlayStateForDismiss(dismissKind, dismissBanId);
+            logChainEmptyFallbackLobby({ reason, dismissKind, dismissBanId });
+          }
           if (overlayQueueDrainActiveRef.current) {
             overlayQueueDrainActiveRef.current = false;
             console.log('[OVERLAY QUEUE DRAIN END]', { ts: selectTs });

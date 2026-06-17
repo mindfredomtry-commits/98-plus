@@ -26,6 +26,7 @@ import { ModalShell } from './ModalShell';
 import { AvatarImage } from './AvatarImage';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
+import { logCheckAnswerClick } from '@/lib/check-chain-drain-debug';
 
 interface Props {
   embedded?: boolean;
@@ -98,6 +99,11 @@ function CheckOverlayInner({ embedded = false, contentOnly = false }: Props) {
       console.log('[check-overlay-click]', {
         banId: checkBan.id,
         answer: completed,
+      });
+      logCheckAnswerClick({
+        banId: checkBan.id,
+        answer: completed,
+        role: modalView.role,
       });
       logCardCloseClick({
         kind: 'check',

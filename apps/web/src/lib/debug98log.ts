@@ -9,7 +9,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 7;
+export const DEBUG98_LOGGER_VERSION = 9;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -79,6 +79,12 @@ const ALLOWED_EVENTS = new Set([
   '[REPLY CARD OVERLAY SET]',
   '[REPLY CARD MOUNTED]',
   '[ACTIVE BLOCKERS]',
+  '[CHECK ANSWER CLICK]',
+  '[OVERLAY MARK DISMISSING]',
+  '[OVERLAY ACTIVE CLEARED]',
+  '[CHAIN DRAIN USER ANSWER ALLOWED]',
+  '[CHAIN DRAIN CONTINUE]',
+  '[CHAIN EMPTY FALLBACK LOBBY]',
 ]);
 
 export type Debug98LatchSnapshot = {
