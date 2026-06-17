@@ -9,7 +9,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 3;
+export const DEBUG98_LOGGER_VERSION = 4;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -61,6 +61,13 @@ const ALLOWED_EVENTS = new Set([
   '[OVERLAY STATE SET]',
   '[CARD MOUNTED]',
   '[TRANSITION DELAY USED]',
+  '[SUCCESS EXIT CLICK]',
+  '[SUCCESS EXIT START]',
+  '[SUCCESS EXIT LOBBY OPEN ATTEMPT]',
+  '[SUCCESS EXIT DRAIN START]',
+  '[SUCCESS EXIT DRAIN RESULT]',
+  '[FIRST NOTIFICATION SELECTED]',
+  '[FIRST NOTIFICATION MOUNTED]',
 ]);
 
 export type Debug98LatchSnapshot = {

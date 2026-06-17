@@ -5,6 +5,7 @@ import type { FriendCard, UserPublic } from '@98plus/shared';
 import { BigButton } from '../BigButton';
 import { LobbyBanMark, SuccessBanCardBody } from './SuccessBanCardBody';
 import { traceSuccessCardUnmounted } from '@/lib/success-card-trace';
+import { logSuccessExitClick } from '@/lib/success-exit-first-notification-debug';
 
 const SUCCESS_CARD_EXIT_MS = 220;
 
@@ -79,6 +80,7 @@ export function SuccessScreen({
       hasCardNode: Boolean(cardRef.current),
     });
     if (exitingRef.current) return;
+    logSuccessExitClick();
     exitingRef.current = true;
 
     const node = cardRef.current;

@@ -41,6 +41,13 @@ import {
   traceSuccessSnapshotCleared,
   traceSuccessStateReset,
 } from '@/lib/success-card-trace';
+import {
+  endSuccessExitInstrumentation,
+  logSuccessExitLobbyOpenAttempt,
+  logSuccessExitStart,
+  setSuccessExitDrainingForDebug,
+  isSuccessExitInstrumentationActive,
+} from '@/lib/success-exit-first-notification-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { logDeepLinkHandlerResult } from '@/lib/deep-link-boot-debug';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
@@ -885,6 +892,12 @@ export function InstantBanFlow({
   }, [clearCtaEnterTimer]);
 
   const beginCtaSpringIn = useCallback(() => {
+    if (isSuccessExitInstrumentationActive()) {
+      logSuccessExitLobbyOpenAttempt({
+        source: 'beginCtaSpringIn',
+        via: 'beginCtaSpringIn',
+      });
+    }
     clearCtaEnterTimer();
     setCtaState('entering');
     scheduleCtaBecomeVisible();
@@ -1639,6 +1652,10 @@ export function InstantBanFlow({
         source: `prepareLobbyBaseAfterSuccess:${source}`,
       });
       if (!opts?.deferLobbyOpen) {
+        logSuccessExitLobbyOpenAttempt({
+          source: `prepareLobbyBaseAfterSuccess:${source}`,
+          via: 'openLobby',
+        });
         openLobby(`success-exit-${source}`);
         console.log('[success-exit-base-lobby]', {
           source,
@@ -2099,6 +2116,10 @@ export function InstantBanFlow({
       lobbySource: 'send-success' | 'reply-parent-active';
       committedSameTick: boolean;
     }) => {
+      logSuccessExitStart({
+        phase: 'commit-send-success-exit',
+        lobbySource: opts.lobbySource,
+      });
       flushSync(() => {
         traceSuccessStateReset('commitSendSuccessExit', {
           lobbySource: opts.lobbySource,
@@ -2264,6 +2285,7 @@ export function InstantBanFlow({
         successExitAwaitingNotificationDrainRef.current = true;
       } else {
         successExitAwaitingNotificationDrainRef.current = false;
+        endSuccessExitInstrumentation();
         console.log('[success-exit-open-lobby]', {
           banId,
           reason: 'drain-missed',
@@ -2307,6 +2329,7 @@ export function InstantBanFlow({
     traceSuccessExitHandler('handleSuccessExitComplete', {
       banId: lastSendSuccessBanIdRef.current,
     });
+    logSuccessExitStart({ phase: 'handle-success-exit-complete' });
     setSendSuccessCardMounted(false, { source: 'user-close' });
     const successExitStartedAt = performance.now();
     const successBanId = lastSendSuccessBanIdRef.current;
@@ -2574,6 +2597,10 @@ export function InstantBanFlow({
     pendingStartupInteractions,
     unlockNotificationQueueAndFlush,
   ]);
+
+  useEffect(() => {
+    setSuccessExitDrainingForDebug(successExitDraining);
+  }, [successExitDraining]);
 
   useEffect(() => {
     if (!successExitAwaitingNotificationDrainRef.current) return;

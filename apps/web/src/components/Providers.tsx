@@ -220,6 +220,15 @@ import {
 } from '@/lib/debug98log';
 import { logOverlayTransition } from '@/lib/overlay-transition-debug';
 import {
+  isSuccessExitInstrumentationActive,
+  logFirstNotificationMounted,
+  logFirstNotificationSelected,
+  logSuccessExitDrainResult,
+  logSuccessExitDrainStart,
+  logSuccessExitLobbyOpenAttempt,
+  registerSuccessExitDebugSnapshot,
+} from '@/lib/success-exit-first-notification-debug';
+import {
   traceSuccessCardUnmounted,
   traceSuccessHide,
   traceSuccessStateReset,
@@ -668,6 +677,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     cause: string;
   } | null>(null);
   const pendingStartupInteractionsRef = useRef<QueuedOverlay[]>([]);
+  const notificationSessionActiveForDebugRef = useRef(false);
+  const hasPendingNotificationChainFnRef = useRef<() => boolean>(() => false);
   const startupInteractionsHoldRef = useRef(true);
   const sessionBanSendSuccessRef = useRef(false);
   const [pendingStartupInteractionsCount, setPendingStartupInteractionsCount] =
@@ -703,7 +714,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [friendsBootstrapped, setFriendsBootstrapped] = useState(false);
   const [sessionBootstrapped, setSessionBootstrapped] = useState(false);
   const [homeSnapshotReady, setHomeSnapshotReady] = useState(false);
-  const [lobbyOpen, setLobbyOpen] = useState(true);
+  const [lobbyOpen, setLobbyOpenState] = useState(true);
+  const setLobbyOpen = useCallback((value: React.SetStateAction<boolean>) => {
+    setLobbyOpenState((prev) => {
+      const next =
+        typeof value === 'function'
+          ? (value as (previous: boolean) => boolean)(prev)
+          : value;
+      if (next && !prev) {
+        logSuccessExitLobbyOpenAttempt({
+          source: 'setLobbyOpen-state',
+          via: 'setLobbyOpen(true)',
+        });
+      }
+      lobbyOpenRef.current = next;
+      return next;
+    });
+  }, []);
   const [lobbyDeeplinkToast, setLobbyDeeplinkToast] = useState<string | null>(
     null,
   );
@@ -2280,6 +2307,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const delayFromAction = overlayDelayMs(overlayActionTsRef.current);
       const delayFromHandoff = overlayDelayMs(overlayHandoffTsRef.current);
       logTransitionFromRefs('[CARD MOUNTED]', { kind, banId, buttonsReady });
+      if (isSuccessExitInstrumentationActive()) {
+        logFirstNotificationMounted({ kind, banId });
+      }
       console.log('[OVERLAY NEXT RENDERED]', {
         ts,
         kind,
@@ -2750,6 +2780,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             });
             setBansReturnToLobbyLatch(false, {
               source: 'unlockNotificationQueueAndFlush-empty-queue',
+            });
+            logSuccessExitLobbyOpenAttempt({
+              source: 'unlockNotificationQueueAndFlush-empty-queue',
+              via: 'setLobbyOpen(true)',
             });
             setLobbyOpen(true);
             lobbyOpenRef.current = true;
@@ -3380,6 +3414,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
     return false;
   }, []);
+
+  hasPendingNotificationChainFnRef.current = hasPendingNotificationChain;
 
   const getNotificationChainDebugSnapshot = useCallback(() => {
     const head = overlayQueueRef.current[0] ?? null;
@@ -8818,12 +8854,32 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const startupLen = pendingStartupInteractionsRef.current.length;
       const composeActive = whatOrConfirmActiveRef.current;
 
+      logSuccessExitDrainStart();
+
       console.log('[success-exit-notification-check]', {
         banId: successBanId ?? null,
         queueLen,
         startupLen,
         composeActive,
       });
+
+      const logDrainResult = (
+        drained: boolean,
+        extra?: {
+          selectedKind?: string | null;
+          selectedBanId?: string | null;
+          reason?: string;
+        },
+      ) => {
+        logSuccessExitDrainResult({
+          drained,
+          queueLenAfter: overlayQueueRef.current.length,
+          pendingLenAfter: pendingStartupInteractionsRef.current.length,
+          selectedKind: extra?.selectedKind ?? null,
+          selectedBanId: extra?.selectedBanId ?? null,
+          reason: extra?.reason,
+        });
+      };
 
       if (composeActive) {
         console.log('[success-exit-no-notifications]', {
@@ -8832,6 +8888,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         window.__debug98log?.('[success-exit-no-notifications]', {
           reason: 'compose-active',
         });
+        logDrainResult(false, { reason: 'compose-active' });
         return false;
       }
 
@@ -8870,6 +8927,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             : head?.kind === 'incoming' || head?.kind === 'check'
               ? head.ban.id
               : null;
+        if (source === 'success-exit' || source === 'success-exit-retry') {
+          logFirstNotificationSelected({
+            kind: nextKind,
+            banId: nextBanId,
+            source,
+          });
+        }
         console.log('[notification-next-selected]', {
           source,
           nextKind,
@@ -8887,6 +8951,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
         });
         console.log('[success-exit-drain-one]', { nextKind, nextBanId });
+        logDrainResult(true, {
+          selectedKind: nextKind,
+          selectedBanId: nextBanId,
+        });
         return true;
       };
 
@@ -8897,22 +8965,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       const finalQueueLen = overlayQueueRef.current.length;
       const finalStartupLen = pendingStartupInteractionsRef.current.length;
+      const drainMissReason =
+        finalQueueLen === 0 && finalStartupLen === 0
+          ? 'queue-empty-after-prefetch'
+          : 'drain-not-shown';
       console.log('[success-exit-no-notifications]', {
-        reason:
-          finalQueueLen === 0 && finalStartupLen === 0
-            ? 'queue-empty-after-prefetch'
-            : 'drain-not-shown',
+        reason: drainMissReason,
         queueLen: finalQueueLen,
         startupLen: finalStartupLen,
       });
       window.__debug98log?.('[success-exit-no-notifications]', {
-        reason:
-          finalQueueLen === 0 && finalStartupLen === 0
-            ? 'queue-empty-after-prefetch'
-            : 'drain-not-shown',
+        reason: drainMissReason,
         queueLen: finalQueueLen,
         startupLen: finalStartupLen,
       });
+      logDrainResult(false, { reason: drainMissReason });
       return false;
     },
     [
@@ -10017,6 +10084,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       overboardTransitionActive ||
       hasQueuedOverlayShell);
 
+  notificationSessionActiveForDebugRef.current = notificationSessionActive;
+
   const composeBlocksNotificationHost =
     sendComposePhase === 'composingBan' || sendComposePhase === 'confirming';
 
@@ -10129,6 +10198,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, []);
 
   const openLobby = useCallback((source?: string) => {
+    if (isSuccessExitInstrumentationActive()) {
+      logSuccessExitLobbyOpenAttempt({
+        source: source ?? 'default',
+        via: 'openLobby',
+      });
+    }
     const snapshot = getNotificationChainDebugSnapshot();
     if (isSuccessCardMounted()) {
       console.log('[chain-open-lobby-blocked]', {
@@ -11023,6 +11098,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     activeBanDeepLinkBanId,
     suppressQueuedOverlayDisplay,
   ]);
+
+  useLayoutEffect(() => {
+    registerSuccessExitDebugSnapshot(() => ({
+      banId: sendSuccessCardBanIdRef.current,
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      notificationSessionActive: notificationSessionActiveForDebugRef.current,
+      hasPendingNotificationChain: hasPendingNotificationChainFnRef.current(),
+      latch: bansReturnToLobbyLatchRef.current,
+      successExitDraining: false,
+    }));
+    return () => registerSuccessExitDebugSnapshot(null);
+  }, []);
 
   useEffect(() => {
     if (!auth.user?.id) return;
