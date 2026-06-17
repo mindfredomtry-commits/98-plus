@@ -27,6 +27,10 @@ import { AvatarImage } from './AvatarImage';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
 import { logCheckAnswerClick } from '@/lib/check-chain-drain-debug';
+import {
+  overlayInputCaptureGuard,
+  setOverlayInputLock,
+} from '@/lib/overlay-input-guard';
 
 import { acquireScrollLock, releaseScrollLock } from '@/lib/scroll-lock';
 import {
@@ -144,11 +148,12 @@ function CheckOverlayInner({
   const handleAnswerPointer = useCallback(
     (completed: boolean) => (event: React.PointerEvent<HTMLButtonElement>) => {
       if (event.button !== 0) return;
+      setOverlayInputLock(`check:pointerdown:${checkBan?.id ?? 'unknown'}`);
       event.preventDefault();
       event.stopPropagation();
       void answer(completed);
     },
-    [answer],
+    [answer, checkBan?.id],
   );
 
   const isQueueHead = activeOverlayKind === 'check';
@@ -255,7 +260,12 @@ function CheckOverlayInner({
         </p>
       ) : null}
 
-      <div className="check-modal-actions space-y-2.5" ref={actionsRef}>
+      <div
+        className="check-modal-actions space-y-2.5"
+        ref={actionsRef}
+        onPointerDownCapture={overlayInputCaptureGuard}
+        onClickCapture={overlayInputCaptureGuard}
+      >
         <BigButton
           className="check-answer-btn"
           aria-label={yesLabel}

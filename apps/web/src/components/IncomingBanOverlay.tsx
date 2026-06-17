@@ -30,6 +30,7 @@ import { AvatarImage } from './AvatarImage';
 import { useTelegram } from '@/hooks/useTelegram';
 import { ModalShell } from './ModalShell';
 import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
+import { overlayInputCaptureGuard } from '@/lib/overlay-input-guard';
 import {
   canReplyFastEnableButtons,
   hasReplyFastDisplayText,
@@ -629,7 +630,11 @@ function IncomingBanOverlayInner({
         «{activeIncomingBan.text}»
       </p>
 
-      <div className="incoming-modal-actions space-y-2.5">
+      <div
+        className="incoming-modal-actions space-y-2.5"
+        onPointerDownCapture={overlayInputCaptureGuard}
+        onClickCapture={overlayInputCaptureGuard}
+      >
         <BigButton
           onClick={handleCounter}
           disabled={actionLoading || !counterEnabled}

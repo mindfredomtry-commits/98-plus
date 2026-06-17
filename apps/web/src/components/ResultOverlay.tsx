@@ -37,6 +37,7 @@ import {
   APP_NOTIFICATION_Z_INDEX,
   DIRECT_OVERBOARD_RESULT_Z_INDEX,
 } from '@/lib/overlay-queue';
+import { overlayInputCaptureGuard } from '@/lib/overlay-input-guard';
 import {
   getOverboardClickTs,
   logOverboardPaint,
@@ -524,7 +525,11 @@ function ResultOverlayInner({
       </div>
 
       {hasActions ? (
-        <div className="modal-card-actions result-card-actions space-y-2.5">
+        <div
+          className="modal-card-actions result-card-actions space-y-2.5"
+          onPointerDownCapture={overlayInputCaptureGuard}
+          onClickCapture={overlayInputCaptureGuard}
+        >
           <BigButton onClick={replyFromResult}>{view.primaryLabel}</BigButton>
           {view.showBanOthers ? (
             <BigButton variant="ghost" onClick={banOthers}>
