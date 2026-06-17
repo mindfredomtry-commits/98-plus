@@ -952,13 +952,6 @@ html[data-reply-incoming-direct] .app-page--reply-deeplink-pending .instant-ban-
   pointer-events: none !important;
 }
 
-html[data-check-direct] .app-page--check-overlay-active::before {
-  display: none !important;
-  opacity: 0 !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
-}
-
 html[data-check-direct] .app-page--check-overlay-active .app-main,
 html[data-check-direct] .app-page--check-overlay-active .home-arena,
 html[data-check-direct] .app-page--check-overlay-active .cta-dock,
@@ -967,6 +960,22 @@ html[data-check-direct] .app-page--check-overlay-active .bottom-nav {
   opacity: 1 !important;
   visibility: hidden !important;
   pointer-events: none !important;
+}
+
+html[data-check-direct] .app-page::before,
+html[data-check-direct] .app-page--check-overlay-active::before {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+html[data-check-direct] .app-page .app-main,
+html[data-check-direct] .app-page .home-arena,
+html[data-check-direct] .app-page .cta-dock,
+html[data-check-direct] .app-page .bottom-nav {
+  filter: none !important;
+  opacity: 1 !important;
 }
 
 /* Global notification layer — incoming / check / result above all app screens */
@@ -1034,6 +1043,47 @@ html[data-check-direct] .app-page--check-overlay-active .bottom-nav {
 .app-notification-layer__content--card-host > .modal-card {
   pointer-events: auto;
   flex-shrink: 0;
+  filter: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.check-direct-backdrop-root {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.check-direct-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.check-direct-card-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
+  filter: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  opacity: 1;
+  transform: none;
+  isolation: auto;
+}
+
+.check-direct-card-root > .modal-card {
+  pointer-events: auto;
+  position: relative;
+  z-index: 1;
   filter: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;

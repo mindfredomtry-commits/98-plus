@@ -168,6 +168,166 @@ export function logCheckCardInsideBlurBug(data: Record<string, unknown>): void {
   window.__debug98log?.('[CHECK CARD INSIDE BLUR BUG]', data);
 }
 
+export function logCheckCardParentFilterBug(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK CARD PARENT FILTER BUG]', data);
+}
+
+export function logCheckCardVisualRootClean(data: Record<string, unknown>): void {
+  window.__debug98log?.('[CHECK CARD VISUAL ROOT CLEAN]', data);
+}
+
+function ancestorHasVisualFilterContext(
+  style: CSSStyleDeclaration,
+  opts?: { allowCardRoot?: boolean; isCardRoot?: boolean },
+): boolean {
+  if (style.filter !== 'none' && style.filter !== '') return true;
+  if (style.backdropFilter !== 'none' && style.webkitBackdropFilter !== 'none') {
+    return true;
+  }
+  const opacity = Number.parseFloat(style.opacity);
+  if (Number.isFinite(opacity) && opacity < 0.99 && !opts?.isCardRoot) {
+    return true;
+  }
+  if (!opts?.allowCardRoot && style.isolation === 'isolate') return true;
+  if (style.transform !== 'none' && style.transform !== 'matrix(1, 0, 0, 1, 0, 0)') {
+    return true;
+  }
+  return false;
+}
+
+function collectCardAncestorFilterBugs(
+  card: HTMLElement,
+  banId: string,
+): boolean {
+  let node: HTMLElement | null = card;
+  let found = false;
+  while (node && node !== document.documentElement) {
+    const style = window.getComputedStyle(node);
+    const isCardRoot = node.classList.contains('check-direct-card-root');
+    if (
+      ancestorHasVisualFilterContext(style, {
+        allowCardRoot: true,
+        isCardRoot,
+      })
+    ) {
+      logCheckCardParentFilterBug({
+        banId,
+        element: node.tagName,
+        className:
+          typeof node.className === 'string'
+            ? node.className.slice(0, 160)
+            : null,
+        filter: style.filter,
+        backdropFilter: style.backdropFilter,
+        opacity: style.opacity,
+        transform: style.transform,
+        isolation: style.isolation,
+      });
+      found = true;
+    }
+    node = node.parentElement;
+  }
+  return found;
+}
+
+/** Backdrop + card are separate body portals — card must not share a filtered ancestor. */
+export function verifyCheckDirectSplitLayers(
+  backdropRoot: HTMLElement | null,
+  cardRoot: HTMLElement | null,
+  card: HTMLElement | null,
+  banId: string,
+): void {
+  if (!backdropRoot || !cardRoot || !card) {
+    logCheckDirectBackdropMissingBug({
+      banId,
+      reason: 'split-layer-missing',
+      hasBackdropRoot: Boolean(backdropRoot),
+      hasCardRoot: Boolean(cardRoot),
+      hasCard: Boolean(card),
+    });
+    return;
+  }
+
+  if (backdropRoot.contains(card)) {
+    logCheckCardInsideBlurBug({ banId, reason: 'card-inside-backdrop-root' });
+    return;
+  }
+
+  if (cardRoot.parentElement !== document.body) {
+    logCheckCardParentFilterBug({
+      banId,
+      reason: 'card-root-not-body-child',
+      parentTag: cardRoot.parentElement?.tagName ?? null,
+      parentClass:
+        cardRoot.parentElement instanceof HTMLElement
+          ? cardRoot.parentElement.className.slice(0, 160)
+          : null,
+    });
+    return;
+  }
+
+  if (backdropRoot.parentElement !== document.body) {
+    logCheckCardParentFilterBug({
+      banId,
+      reason: 'backdrop-root-not-body-child',
+      parentTag: backdropRoot.parentElement?.tagName ?? null,
+    });
+    return;
+  }
+
+  if (collectCardAncestorFilterBugs(card, banId)) {
+    return;
+  }
+
+  const cardRect = card.getBoundingClientRect();
+  const probeX = cardRect.left + cardRect.width / 2;
+  const probeY = cardRect.top + Math.min(cardRect.height * 0.35, 120);
+  const topEl = document.elementFromPoint(probeX, probeY);
+  const cardOnTop =
+    topEl != null && (card === topEl || card.contains(topEl));
+
+  if (!cardOnTop) {
+    logCheckBackdropAboveCardBug({
+      banId,
+      probeX,
+      probeY,
+      topTag: topEl?.tagName ?? null,
+      topClass:
+        topEl instanceof HTMLElement ? topEl.className.slice(0, 120) : null,
+    });
+    logCheckDirectBackdropAboveCardBug({
+      banId,
+      probeX,
+      probeY,
+      topTag: topEl?.tagName ?? null,
+    });
+    return;
+  }
+
+  const cardStyle = window.getComputedStyle(card);
+  if (
+    cardStyle.filter !== 'none' ||
+    cardStyle.backdropFilter !== 'none' ||
+    Number.parseFloat(cardStyle.opacity) < 0.95
+  ) {
+    logCheckCardInsideBlurBug({
+      banId,
+      reason: 'card-self-filter',
+      filter: cardStyle.filter,
+      backdropFilter: cardStyle.backdropFilter,
+      opacity: cardStyle.opacity,
+    });
+    return;
+  }
+
+  logCheckCardVisualRootClean({ banId });
+  logCheckBackdropBelowCard({ banId });
+  logCheckCardNotBlurred({ banId });
+  logCheckDirectBackdropUnderCardOk({ banId });
+}
+
 export function verifyCheckDirectBackdropLayers(
   backdropEl: HTMLElement | null,
   cardEl: HTMLElement | null,

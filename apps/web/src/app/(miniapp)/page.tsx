@@ -221,7 +221,8 @@ export default function HomePage() {
 
   /** Check deeplink card is top layer — suppress page dim/blur shells. */
   const checkDirectDimSuppressed =
-    Boolean(checkDeepLinkBanId) && checkOverlayMounted;
+    Boolean(checkDeepLinkBanId) &&
+    (checkOverlayMounted || checkDeeplinkDirectPending);
 
   /** Parent layout effect runs before InstantBanFlow effects — latch send UI early. */
   const shellBlocksLobbyClose =

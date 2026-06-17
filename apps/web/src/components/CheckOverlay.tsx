@@ -36,7 +36,7 @@ import { acquireScrollLock, releaseScrollLock } from '@/lib/scroll-lock';
 import {
   logCheckCardMounted,
   logCheckCardTopLayerOk,
-  verifyCheckSessionBackdropLayers,
+  verifyCheckDirectSplitLayers,
 } from '@/lib/check-deeplink-startup-debug';
 
 interface Props {
@@ -66,7 +66,9 @@ function CheckOverlayInner({
   const { haptic } = useTelegram();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
-  const directLayerRef = useRef<HTMLDivElement>(null);
+  const directBackdropRootRef = useRef<HTMLDivElement>(null);
+  const directCardRootRef = useRef<HTMLDivElement>(null);
+  const directCardRef = useRef<HTMLDivElement>(null);
 
   const modalView = useMemo(() => {
     if (!checkBan) return null;
@@ -176,7 +178,12 @@ function CheckOverlayInner({
     if (checkDirect) {
       logCheckCardMounted({ banId: checkBan.id, source: 'check-direct' });
       logCheckCardTopLayerOk({ banId: checkBan.id, source: 'check-direct-mounted' });
-      verifyCheckSessionBackdropLayers(directLayerRef.current, checkBan.id);
+      verifyCheckDirectSplitLayers(
+        directBackdropRootRef.current,
+        directCardRootRef.current,
+        directCardRef.current,
+        checkBan.id,
+      );
       reportOverlayRendered('check', checkBan.id, true);
       return;
     }
@@ -285,31 +292,44 @@ function CheckOverlayInner({
   if (contentOnly) return body;
 
   if (checkDirect) {
-    const directModal = (
-      <div
-        ref={directLayerRef}
-        className="app-notification-layer app-notification-layer--active app-notification-layer--session app-notification-layer--check-direct"
-        style={{ zIndex: APP_NOTIFICATION_Z_INDEX }}
-        data-notification-layer=""
-      >
-        <div className="app-notification-layer__session-backdrop" aria-hidden />
-        <div className="app-notification-layer__content app-notification-layer__content--card-host">
-          <ModalShell
-            open
-            sessionHosted
-            stable
-            closeOnBackdrop={false}
-            ariaLabel={modalView.title}
-            onClose={() => {}}
-            cardClassName="modal-card--check"
-          >
-            {body}
-          </ModalShell>
-        </div>
-      </div>
-    );
+    const backdropZ = APP_NOTIFICATION_Z_INDEX;
+    const cardZ = APP_NOTIFICATION_Z_INDEX + 1;
     if (typeof document === 'undefined') return null;
-    return createPortal(directModal, document.body);
+    return (
+      <>
+        {createPortal(
+          <div
+            ref={directBackdropRootRef}
+            className="check-direct-backdrop-root"
+            style={{ zIndex: backdropZ }}
+            aria-hidden
+          >
+            <div className="check-direct-backdrop" />
+          </div>,
+          document.body,
+        )}
+        {createPortal(
+          <div
+            ref={directCardRootRef}
+            className="check-direct-card-root"
+            style={{ zIndex: cardZ }}
+            data-notification-layer=""
+          >
+            <div
+              ref={directCardRef}
+              role="dialog"
+              aria-modal="true"
+              aria-label={modalView.title}
+              className="modal-card modal-card--check modal-card--session-hosted modal-card--handoff"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {body}
+            </div>
+          </div>,
+          document.body,
+        )}
+      </>
+    );
   }
 
   const modal = (
