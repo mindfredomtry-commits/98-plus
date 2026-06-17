@@ -272,6 +272,16 @@ import {
   type ReplyStartupBlockersSnapshot,
 } from '@/lib/reply-deeplink-startup-debug';
 import { setOverlayInputLock } from '@/lib/overlay-input-guard';
+import {
+  getMountedBlockingUserOverlay,
+  isBlockingUserOverlayKind,
+  logActiveUserCardHold,
+  logChainAdvanceBlockedActiveUserCard,
+  logChainLookaheadOnlyActiveUserCard,
+  logIncomingReplacedBug,
+  overlayItemBanId,
+  shouldBlockChainAdvanceOverActiveUserCard,
+} from '@/lib/overlay-user-card-guard';
 import { installOverlayDismissCacheDevHelper } from '@/lib/overlay-dismiss-cache-dev';
 import { logResultNav, logResultReply } from '@/lib/result-reply-debug';
 import { resolveResultReplyOpponent } from '@/lib/result-reply-flow';
@@ -1371,6 +1381,44 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return head?.kind === 'check' && head.ban.id === banId;
   };
 
+  const getActiveMountedUserCard = () =>
+    getMountedBlockingUserOverlay({
+      incomingBanId: incomingBanRef.current?.id ?? null,
+      checkBanId: checkBanRef.current?.id ?? null,
+      resultBanId: resultRef.current?.id ?? null,
+    });
+
+  const blockOverlayReplaceWithoutUserAction = (
+    source: string,
+    nextHead: QueuedOverlay | null,
+    opts?: { explicitUserAction?: boolean },
+  ): boolean => {
+    const active = getActiveMountedUserCard();
+    if (!active) return false;
+    const nextKind = nextHead?.kind ?? null;
+    const nextBanId = nextHead ? overlayItemBanId(nextHead) : null;
+    if (
+      !shouldBlockChainAdvanceOverActiveUserCard(active, nextKind, nextBanId, opts)
+    ) {
+      return false;
+    }
+    logChainAdvanceBlockedActiveUserCard({
+      activeKind: active.kind,
+      activeBanId: active.banId,
+      nextKind,
+      nextBanId,
+      source,
+    });
+    if (active.kind === 'incoming') {
+      logIncomingReplacedBug({
+        activeBanId: active.banId,
+        nextBanId,
+        source,
+      });
+    }
+    return true;
+  };
+
   const isSuccessCardMounted = () => sendSuccessCardActiveRef.current;
 
   const isActiveTimerOverlayMounted = () =>
@@ -1839,6 +1887,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         if (
           prevHead &&
           nextHead &&
+          overlayQueueKey(nextHead) !== overlayQueueKey(prevHead) &&
+          blockOverlayReplaceWithoutUserAction(
+            'syncDisplayFromQueue-result-priority',
+            nextHead,
+            { explicitUserAction: chainAdvanceExplicitRef.current },
+          )
+        ) {
+          break;
+        }
+        if (
+          prevHead &&
+          nextHead &&
           overlayQueueKey(nextHead) !== overlayQueueKey(prevHead)
         ) {
           logResultPollDropStaleCheck({
@@ -1931,43 +1991,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
     if (
-      notificationChainAwaitingUserRef.current &&
-      !chainAdvanceExplicitRef.current
+      active &&
+      blockOverlayReplaceWithoutUserAction('syncDisplayFromQueue', active, {
+        explicitUserAction: chainAdvanceExplicitRef.current,
+      })
     ) {
-      const mountedIncomingId = incomingBanRef.current?.id ?? null;
-      const mountedCheckId = checkBanRef.current?.id ?? null;
-      const mountedResultId = resultRef.current?.id ?? null;
-      const mountedId = mountedIncomingId ?? mountedCheckId ?? mountedResultId;
-      if (mountedId) {
-        if (!active) {
-          console.log('[chain-drain-continue-blocked]', {
-            reason: 'preserve-mounted-empty-queue',
-            mountedId,
-          });
-          window.__debug98log?.('[chain-drain-continue-blocked]', {
-            reason: 'preserve-mounted-empty-queue',
-            mountedId,
-          });
-          return;
-        }
-        const activeBanId =
-          active.kind === 'result' ? active.result.id : active.ban.id;
-        if (activeBanId !== mountedId) {
-          console.log('[chain-drain-continue-blocked]', {
-            reason: 'active-overlay-mounted',
-            mountedId,
-            activeBanId,
-            activeKind: active.kind,
-          });
-          window.__debug98log?.('[chain-drain-continue-blocked]', {
-            reason: 'active-overlay-mounted',
-            mountedId,
-            activeBanId,
-            activeKind: active.kind,
-          });
-          return;
-        }
-      }
+      return;
     }
     if (
       (notificationChainReplyComposeActiveRef.current ||
@@ -2469,6 +2498,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const prevKey = prevHead ? overlayQueueKey(prevHead) : null;
       const nextKey = nextHead ? overlayQueueKey(nextHead) : null;
       if (
+        prevKey !== nextKey &&
+        nextHead &&
+        blockOverlayReplaceWithoutUserAction('applyOverlayQueue', nextHead, {
+          explicitUserAction: chainAdvanceExplicitRef.current,
+        })
+      ) {
+        return;
+      }
+      if (
         notificationChainAwaitingUserRef.current &&
         prevKey &&
         nextKey &&
@@ -2605,6 +2643,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const ts = overlayTs();
       const delayFromAction = overlayDelayMs(overlayActionTsRef.current);
       const delayFromHandoff = overlayDelayMs(overlayHandoffTsRef.current);
+      if (isBlockingUserOverlayKind(kind) && buttonsReady) {
+        notificationChainAwaitingUserRef.current = true;
+        notificationChainHandoffRef.current = false;
+        logActiveUserCardHold({ kind, banId });
+      }
       logTransitionFromRefs('[CARD MOUNTED]', { kind, banId, buttonsReady });
       if (
         kind === 'check' &&
@@ -3644,11 +3687,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
       });
 
+      if (releasable.length === 0) return 0;
+
+      if (overlayQueueRef.current.length === 0) {
+        const wouldHead = releasable[0] ?? null;
+        if (
+          wouldHead &&
+          blockOverlayReplaceWithoutUserAction(
+            'mergeStartupIntoOverlayQueueOnly',
+            wouldHead,
+          )
+        ) {
+          return 0;
+        }
+      }
+
       startupInteractionsHoldRef.current = false;
       pendingStartupInteractionsRef.current = [];
       syncPendingStartupCount();
-
-      if (releasable.length === 0) return 0;
 
       let next = overlayQueueRef.current;
       for (const item of releasable) {
@@ -3971,6 +4027,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const runChainLookaheadPrefetch = useCallback(
     (skipBanId: string | null, source: string): void => {
+      const mounted = getMountedBlockingUserOverlay({
+        incomingBanId: incomingBanRef.current?.id ?? null,
+        checkBanId: checkBanRef.current?.id ?? null,
+        resultBanId: resultRef.current?.id ?? null,
+      });
+      if (mounted) {
+        logChainLookaheadOnlyActiveUserCard({
+          activeKind: mounted.kind,
+          activeBanId: mounted.banId,
+          source,
+          skipBanId,
+        });
+      }
       const normalizedSkip = normalizeId(skipBanId);
       if (
         source === 'check-overlay-prime' &&
@@ -4520,18 +4589,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    const nextHead = next[0] ?? null;
+    const prevHead = prev[0] ?? null;
     if (
-      notificationChainAwaitingUserRef.current &&
-      (incomingBanRef.current?.id ||
-        checkBanRef.current?.id ||
-        resultRef.current?.id)
+      nextHead &&
+      prevHead &&
+      overlayQueueKey(prevHead) !== overlayQueueKey(nextHead) &&
+      blockOverlayReplaceWithoutUserAction(
+        'pruneAndSyncOverlayQueue',
+        nextHead,
+      )
     ) {
-      console.log('[prune-sync-blocked]', {
-        reason: 'notification-chain-awaiting-mounted',
-        mountedIncomingId: incomingBanRef.current?.id ?? null,
-        mountedCheckId: checkBanRef.current?.id ?? null,
-        mountedResultId: resultRef.current?.id ?? null,
-      });
       return;
     }
 
