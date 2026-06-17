@@ -227,6 +227,7 @@ import {
   logSuccessExitDrainStart,
   logSuccessExitLobbyOpenAttempt,
   registerSuccessExitDebugSnapshot,
+  shouldSuppressLobbyOpenDuringSuccessExit,
 } from '@/lib/success-exit-first-notification-debug';
 import {
   traceSuccessCardUnmounted,
@@ -722,6 +723,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ? (value as (previous: boolean) => boolean)(prev)
           : value;
       if (next && !prev) {
+        if (shouldSuppressLobbyOpenDuringSuccessExit()) {
+          logSuccessExitLobbyOpenAttempt({
+            source: 'setLobbyOpen-state',
+            via: 'setLobbyOpen(true)',
+            blocked: 'success-exit-in-progress',
+          });
+          return prev;
+        }
         logSuccessExitLobbyOpenAttempt({
           source: 'setLobbyOpen-state',
           via: 'setLobbyOpen(true)',
@@ -10198,13 +10207,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, []);
 
   const openLobby = useCallback((source?: string) => {
+    const snapshot = getNotificationChainDebugSnapshot();
+    if (shouldSuppressLobbyOpenDuringSuccessExit()) {
+      if (isSuccessExitInstrumentationActive()) {
+        logSuccessExitLobbyOpenAttempt({
+          source: source ?? 'default',
+          via: 'openLobby',
+          blocked: 'success-exit-in-progress',
+        });
+      }
+      console.log('[chain-open-lobby-blocked]', {
+        source: source ?? 'default',
+        reason: 'success-exit-in-progress',
+        ...snapshot,
+      });
+      return;
+    }
     if (isSuccessExitInstrumentationActive()) {
       logSuccessExitLobbyOpenAttempt({
         source: source ?? 'default',
         via: 'openLobby',
       });
     }
-    const snapshot = getNotificationChainDebugSnapshot();
     if (isSuccessCardMounted()) {
       console.log('[chain-open-lobby-blocked]', {
         source: source ?? 'default',

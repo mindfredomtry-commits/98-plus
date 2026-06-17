@@ -42,11 +42,15 @@ import {
   traceSuccessStateReset,
 } from '@/lib/success-card-trace';
 import {
+  allowSuccessExitLobbyOpen,
+  beginSuccessExitInProgress,
+  endSuccessExitInProgress,
   endSuccessExitInstrumentation,
   logSuccessExitLobbyOpenAttempt,
   logSuccessExitStart,
   setSuccessExitDrainingForDebug,
   isSuccessExitInstrumentationActive,
+  shouldSuppressLobbyOpenDuringSuccessExit,
 } from '@/lib/success-exit-first-notification-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { logDeepLinkHandlerResult } from '@/lib/deep-link-boot-debug';
@@ -892,6 +896,16 @@ export function InstantBanFlow({
   }, [clearCtaEnterTimer]);
 
   const beginCtaSpringIn = useCallback(() => {
+    if (shouldSuppressLobbyOpenDuringSuccessExit()) {
+      if (isSuccessExitInstrumentationActive()) {
+        logSuccessExitLobbyOpenAttempt({
+          source: 'beginCtaSpringIn',
+          via: 'beginCtaSpringIn',
+          blocked: 'success-exit-in-progress',
+        });
+      }
+      return;
+    }
     if (isSuccessExitInstrumentationActive()) {
       logSuccessExitLobbyOpenAttempt({
         source: 'beginCtaSpringIn',
@@ -2202,6 +2216,7 @@ export function InstantBanFlow({
       }
       setSuccessExitDraining(true);
       setCtaState('hidden');
+      beginSuccessExitInProgress();
       try {
       console.log('[success-exit-start]', {
         banId,
@@ -2295,6 +2310,7 @@ export function InstantBanFlow({
           reason: 'drain-missed',
         });
         setNotificationChainTransitioning(false);
+        allowSuccessExitLobbyOpen();
         openLobby('success-exit-empty-queue');
         beginCtaSpringIn();
       }
@@ -2306,6 +2322,7 @@ export function InstantBanFlow({
         queueLen: overlayQueueLength,
       });
       } finally {
+        endSuccessExitInProgress();
         setSuccessExitDraining(false);
       }
     },

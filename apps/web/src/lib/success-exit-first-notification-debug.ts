@@ -13,6 +13,8 @@ export type SuccessExitDebugSnapshot = {
 let snapshotReader: (() => SuccessExitDebugSnapshot) | null = null;
 let instrumentationActive = false;
 let successExitDrainingExtra = false;
+let successExitInProgress = false;
+let successExitAllowLobbyOpen = false;
 
 export function registerSuccessExitDebugSnapshot(
   reader: (() => SuccessExitDebugSnapshot) | null,
@@ -22,6 +24,25 @@ export function registerSuccessExitDebugSnapshot(
 
 export function setSuccessExitDrainingForDebug(active: boolean): void {
   successExitDrainingExtra = active;
+}
+
+export function beginSuccessExitInProgress(): void {
+  successExitInProgress = true;
+  successExitAllowLobbyOpen = false;
+}
+
+export function allowSuccessExitLobbyOpen(): void {
+  successExitAllowLobbyOpen = true;
+}
+
+export function endSuccessExitInProgress(): void {
+  successExitInProgress = false;
+  successExitAllowLobbyOpen = false;
+}
+
+/** Blocks visual lobby open during success-exit until drain finishes (or explicit allow). */
+export function shouldSuppressLobbyOpenDuringSuccessExit(): boolean {
+  return successExitInProgress && !successExitAllowLobbyOpen;
 }
 
 export function readSuccessExitDebugSnapshot(): SuccessExitDebugSnapshot {
