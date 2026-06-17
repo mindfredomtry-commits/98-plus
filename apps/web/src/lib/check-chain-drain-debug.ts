@@ -71,3 +71,48 @@ export function logCheckAnswerResultSkippedBug(
 ): void {
   window.__debug98log?.('[CHECK ANSWER RESULT SKIPPED BUG]', data);
 }
+
+/** v21 — check dismiss / advance after user answer */
+export function logCheckDismissStart(data: Record<string, unknown>): void {
+  window.__debug98log?.('[CHECK DISMISS START]', data);
+}
+
+export function logCheckDismissCurrentConsumed(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK DISMISS CURRENT CONSUMED]', data);
+}
+
+export function logCheckDismissRemainingQueue(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK DISMISS REMAINING QUEUE]', data);
+}
+
+export function logCheckDismissShowNext(data: Record<string, unknown>): void {
+  window.__debug98log?.('[CHECK DISMISS SHOW NEXT]', data);
+}
+
+export function logCheckDismissEmptyOpenLobby(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK DISMISS EMPTY OPEN LOBBY]', data);
+}
+
+export function logCheckDismissBootReleased(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK DISMISS BOOT RELEASED]', data);
+}
+
+export function logCheckDismissStuckOnBootBug(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK DISMISS STUCK ON BOOT BUG]', data);
+}
+
+export function logLobbyOpenAfterCheckEmpty(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[LOBBY OPEN AFTER CHECK EMPTY]', data);
+}

@@ -216,6 +216,14 @@ import {
   logCheckAnswerFinalResultShow,
   logCheckAnswerResultSkippedBug,
   logCheckAnswerSubmitOk,
+  logCheckDismissBootReleased,
+  logCheckDismissCurrentConsumed,
+  logCheckDismissEmptyOpenLobby,
+  logCheckDismissRemainingQueue,
+  logCheckDismissShowNext,
+  logCheckDismissStart,
+  logCheckDismissStuckOnBootBug,
+  logLobbyOpenAfterCheckEmpty,
   logOverlayActiveCleared,
   logOverlayMarkDismissing,
 } from '@/lib/check-chain-drain-debug';
@@ -745,6 +753,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const showNextNotificationFromChainSyncRef = useRef<
     (source: string) => boolean
   >(() => false);
+  const openLobbyAfterCheckDismissIfEmptyRef = useRef<
+    (reason: string, banId: string | null) => void
+  >(() => {});
+  const finalizeCheckDismissAfterUserAnswerRef = useRef<
+    (banId: string, remaining: QueuedOverlay[]) => void
+  >(() => {});
   const [notificationChainTransitioning, setNotificationChainTransitioningState] =
     useState(false);
   const [chainAdvanceWaiting, setChainAdvanceWaitingState] = useState(false);
@@ -1046,6 +1060,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [checkDeepLinkBanId, setCheckDeepLinkBanId] = useState<string | null>(null);
   const checkDeepLinkBanIdRef = useRef<string | null>(null);
   const checkDeeplinkPendingBanIdRef = useRef<string | null>(null);
+  const checkDeeplinkCompletedRouteBanIdRef = useRef<string | null>(null);
   const checkDeeplinkResumeInflightRef = useRef<string | null>(null);
   const replyDeeplinkRepeatEntryRef = useRef(false);
   const pendingReplyDeeplinkToastRef = useRef<{
@@ -1644,6 +1659,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       }
       if (action?.type === 'check') {
+        if (checkDeeplinkCompletedRouteBanIdRef.current === action.banId) {
+          logCheckDeeplinkResumeSkip({
+            banId: action.banId,
+            reason: 'completed-route',
+            source: 'start-param-layout',
+          });
+          return;
+        }
         checkDeeplinkPendingBanIdRef.current = action.banId;
         checkDeepLinkBanIdRef.current = action.banId;
         setCheckDeepLinkBanId(action.banId);
@@ -1673,6 +1696,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       }
       if (action?.type === 'check') {
+        if (checkDeeplinkCompletedRouteBanIdRef.current === action.banId) {
+          logCheckDeeplinkResumeSkip({
+            banId: action.banId,
+            reason: 'completed-route',
+            source: 'start-param-layout',
+          });
+          return;
+        }
         checkDeeplinkPendingBanIdRef.current = action.banId;
         checkDeepLinkBanIdRef.current = action.banId;
         setCheckDeepLinkBanId(action.banId);
@@ -2815,6 +2846,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           if (userChainAdvance) {
             clearActiveOverlayStateForDismiss(dismissKind, dismissBanId);
             logChainEmptyFallbackLobby({ reason, dismissKind, dismissBanId });
+            if (dismissKind === 'check' && reason === 'user-answer') {
+              openLobbyAfterCheckDismissIfEmptyRef.current(reason, dismissBanId);
+            }
           }
           if (overlayQueueDrainActiveRef.current) {
             overlayQueueDrainActiveRef.current = false;
@@ -4686,6 +4720,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     checkSubmitAtRef.current = new Map();
     if (realUserChange) {
       checkDeeplinkPendingBanIdRef.current = null;
+      checkDeeplinkCompletedRouteBanIdRef.current = null;
       checkDeepLinkBanIdRef.current = null;
       setCheckDeepLinkBanId(null);
       bufferedCheckDeepLinkRef.current = null;
@@ -5512,6 +5547,100 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     console.log('[check-deeplink-route-clear]', { source });
   }, []);
 
+  const finalizeCheckDismissAfterUserAnswer = useCallback(
+    (banId: string, remaining: QueuedOverlay[]) => {
+      const normalizedBanId = normalizeId(banId);
+      if (!normalizedBanId) return;
+
+      const wasCheckDeeplink =
+        checkDeepLinkBanIdRef.current != null &&
+        normalizeId(checkDeepLinkBanIdRef.current) === normalizedBanId;
+
+      logCheckDismissStart({
+        banId: normalizedBanId,
+        remainingLen: remaining.length,
+        checkDeeplink: wasCheckDeeplink,
+      });
+
+      if (wasCheckDeeplink) {
+        checkDeeplinkCompletedRouteBanIdRef.current = normalizedBanId;
+        checkDeeplinkPendingBanIdRef.current = null;
+        checkDeeplinkResumeInflightRef.current = null;
+        clearCheckDeepLinkRoute('user-answer');
+        logCheckDismissCurrentConsumed({
+          banId: normalizedBanId,
+          kind: 'check',
+        });
+        if (isDeepLinkRouteBootPending()) {
+          releaseDeepLinkRouteBoot('route-handled', normalizedBanId);
+          logCheckDismissBootReleased({ banId: normalizedBanId });
+        }
+      }
+
+      logCheckDismissRemainingQueue({
+        banId: normalizedBanId,
+        remainingLen: remaining.length,
+      });
+
+      if (remaining.length > 0) {
+        logCheckDismissShowNext({
+          banId: normalizedBanId,
+          remainingLen: remaining.length,
+          nextKind: remaining[0]?.kind ?? null,
+          nextBanId:
+            remaining[0]?.kind === 'result'
+              ? remaining[0].result.id
+              : remaining[0]?.kind === 'incoming' ||
+                  remaining[0]?.kind === 'check'
+                ? remaining[0].ban.id
+                : null,
+        });
+      }
+    },
+    [clearCheckDeepLinkRoute],
+  );
+
+  const openLobbyAfterCheckDismissIfEmpty = useCallback(
+    (reason: string, banId: string | null) => {
+      queueMicrotask(() => {
+        if (checkAnswerInFlightRef.current.size > 0) {
+          return;
+        }
+        if (showNextNotificationFromChainSyncRef.current('check-dismiss-empty')) {
+          logCheckDismissShowNext({
+            banId,
+            source: 'pending-chain-drain',
+            reason,
+          });
+          return;
+        }
+        if (
+          overlayQueueRef.current.length > 0 ||
+          pendingStartupInteractionsRef.current.length > 0 ||
+          checkBanRef.current?.id ||
+          resultRef.current?.id ||
+          incomingBanRef.current?.id
+        ) {
+          return;
+        }
+        logCheckDismissEmptyOpenLobby({ reason, banId });
+        setLobbyOpen(true);
+        lobbyOpenRef.current = true;
+        lobbyShownLoggedRef.current = false;
+        logLobbyOpenAfterCheckEmpty({ reason, banId });
+        console.log('[LOBBY OPEN]', {
+          source: `check-dismiss-empty:${reason}`,
+          lobbyOpenBefore: false,
+        });
+      });
+    },
+    [],
+  );
+  openLobbyAfterCheckDismissIfEmptyRef.current =
+    openLobbyAfterCheckDismissIfEmpty;
+  finalizeCheckDismissAfterUserAnswerRef.current =
+    finalizeCheckDismissAfterUserAnswer;
+
   const openCheckDeepLinkDirect = useCallback(
     async (
       banId: string,
@@ -5523,6 +5652,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const viewerId = userIdRef.current;
       if (!normalizedBanId) {
         logCheckDeeplinkFallbackLobby({ reason: 'no-ban-id' });
+        clearCheckDeepLinkRoute(source);
+        return false;
+      }
+      if (checkDeeplinkCompletedRouteBanIdRef.current === normalizedBanId) {
+        logCheckDeeplinkResumeSkip({
+          banId: normalizedBanId,
+          reason: 'completed-route',
+          source,
+        });
+        clearCheckDeepLinkRoute(source);
+        return false;
+      }
+      if (
+        answeredCheckRef.current.has(normalizedBanId) ||
+        dismissedCheckSessionRef.current.has(normalizedBanId)
+      ) {
+        logCheckDeeplinkResumeSkip({
+          banId: normalizedBanId,
+          reason: 'already-answered',
+          source,
+        });
         clearCheckDeepLinkRoute(source);
         return false;
       }
@@ -5680,6 +5830,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         logCheckDeeplinkResumeSkip({ reason: 'no-pending-banId', source });
         return;
       }
+      if (checkDeeplinkCompletedRouteBanIdRef.current === banId) {
+        logCheckDeeplinkResumeSkip({
+          banId,
+          reason: 'completed-route',
+          source,
+        });
+        clearCheckDeepLinkRoute(source);
+        return;
+      }
+      if (
+        answeredCheckRef.current.has(banId) ||
+        dismissedCheckSessionRef.current.has(banId)
+      ) {
+        logCheckDeeplinkResumeSkip({
+          banId,
+          reason: 'already-answered',
+          source,
+        });
+        clearCheckDeepLinkRoute(source);
+        return;
+      }
       if (!checkDeeplinkPendingBanIdRef.current) {
         checkDeeplinkPendingBanIdRef.current = banId;
       }
@@ -5727,6 +5898,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       auth.user?.id,
       openCheckDeepLinkDirect,
       resolvePendingCheckDeepLinkBanId,
+      clearCheckDeepLinkRoute,
     ],
   );
 
@@ -5740,6 +5912,48 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   useLayoutEffect(() => {
     void resumeCheckDeepLinkAfterAuth('check-deeplink-auth-layout');
   }, [auth.token, auth.user?.id, resumeCheckDeepLinkAfterAuth]);
+
+  useLayoutEffect(() => {
+    const banId = checkDeepLinkBanIdRef.current?.trim() ?? '';
+    if (!banId || !checkDeepLinkBanId) return;
+    const head = overlayQueueRef.current[0];
+    const checkMounted =
+      head?.kind === 'check' &&
+      head.ban.id === banId &&
+      checkBanRef.current?.id === banId;
+    if (checkMounted) return;
+    const answered =
+      answeredCheckRef.current.has(banId) ||
+      dismissedCheckSessionRef.current.has(banId) ||
+      checkDeeplinkCompletedRouteBanIdRef.current === banId;
+    if (!answered) return;
+    logCheckDismissStuckOnBootBug({
+      banId,
+      reason: 'answered-but-deeplink-route-active',
+      checkDeeplinkDirectPending: true,
+    });
+    checkDeeplinkCompletedRouteBanIdRef.current = banId;
+    checkDeeplinkPendingBanIdRef.current = null;
+    checkDeeplinkResumeInflightRef.current = null;
+    clearCheckDeepLinkRoute('stuck-boot-heal');
+    if (isDeepLinkRouteBootPending()) {
+      releaseDeepLinkRouteBoot('route-handled', banId);
+      logCheckDismissBootReleased({ banId, source: 'stuck-boot-heal' });
+    }
+    if (
+      overlayQueueRef.current.length === 0 &&
+      pendingStartupInteractionsRef.current.length === 0
+    ) {
+      setLobbyOpen(true);
+      lobbyOpenRef.current = true;
+      logLobbyOpenAfterCheckEmpty({
+        reason: 'stuck-boot-heal',
+        banId,
+      });
+    } else {
+      void showNextNotificationFromChainSyncRef.current('stuck-boot-heal');
+    }
+  }, [checkDeepLinkBanId, clearCheckDeepLinkRoute]);
 
   useEffect(() => {
     void resumeCheckDeepLinkAfterAuth('check-deeplink-auth-effect');
@@ -6009,6 +6223,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         reason: 'user-answer',
         completed,
       });
+      const remaining = removeOverlaysForBan(
+        overlayQueueRef.current,
+        normalizedBanId,
+        ['check'],
+      );
+      finalizeCheckDismissAfterUserAnswerRef.current(normalizedBanId, remaining);
       const t0 = performance.now();
       checkSubmitAtRef.current.set(normalizedBanId, t0);
       const role = resultParticipantRole(uid, checkBanRef.current);
@@ -6018,10 +6238,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         role,
         elapsedMs: 0,
       });
-      dismissCurrentOverlay(
-        'user-answer',
-        removeOverlaysForBan(overlayQueueRef.current, normalizedBanId, ['check']),
-      );
+      dismissCurrentOverlay('user-answer', remaining);
       setCheckWaiting(false);
 
       try {
@@ -6126,6 +6343,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return { ok: false, error: message };
       } finally {
         checkAnswerInFlightRef.current.delete(normalizedBanId);
+        if (
+          overlayQueueRef.current.length === 0 &&
+          pendingStartupInteractionsRef.current.length === 0 &&
+          !resultRef.current?.id &&
+          !checkBanRef.current?.id &&
+          !incomingBanRef.current?.id
+        ) {
+          openLobbyAfterCheckDismissIfEmptyRef.current(
+            'check-http-finally',
+            normalizedBanId,
+          );
+        }
       }
     },
     [dismissCurrentOverlay, showCheckAnswerFinalResult, scheduleResultPollBurst],
