@@ -9,7 +9,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 9;
+export const DEBUG98_LOGGER_VERSION = 10;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -85,6 +85,14 @@ const ALLOWED_EVENTS = new Set([
   '[CHAIN DRAIN USER ANSWER ALLOWED]',
   '[CHAIN DRAIN CONTINUE]',
   '[CHAIN EMPTY FALLBACK LOBBY]',
+  '[CHECK ANSWER SUBMIT OK]',
+  '[CHECK ANSWER FINAL RESULT FOUND]',
+  '[CHECK ANSWER FINAL RESULT FETCH START]',
+  '[CHECK ANSWER FINAL RESULT FETCH OK]',
+  '[CHECK ANSWER FINAL RESULT ENQUEUED]',
+  '[CHECK ANSWER FINAL RESULT SHOW]',
+  '[CHECK ANSWER FINAL RESULT MISSING]',
+  '[CHECK ANSWER RESULT SKIPPED BUG]',
 ]);
 
 export type Debug98LatchSnapshot = {

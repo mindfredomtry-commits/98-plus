@@ -203,6 +203,14 @@ import {
   logChainDrainContinue,
   logChainDrainUserAnswerAllowed,
   logChainEmptyFallbackLobby,
+  logCheckAnswerFinalResultEnqueued,
+  logCheckAnswerFinalResultFetchOk,
+  logCheckAnswerFinalResultFetchStart,
+  logCheckAnswerFinalResultFound,
+  logCheckAnswerFinalResultMissing,
+  logCheckAnswerFinalResultShow,
+  logCheckAnswerResultSkippedBug,
+  logCheckAnswerSubmitOk,
   logOverlayActiveCleared,
   logOverlayMarkDismissing,
 } from '@/lib/check-chain-drain-debug';
@@ -4772,6 +4780,141 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [openBanResult, enqueueNotification],
   );
 
+  const showCheckAnswerFinalResult = useCallback(
+    (payload: BanResult, source: 'http' | 'poll'): boolean => {
+      const normalized = normalizeBanResult(payload);
+      const banId = normalizeId(normalized.id);
+      const uid = userIdRef.current;
+      const statusLabel = normalized.headline || normalized.outcome;
+      if (!banId) {
+        logCheckAnswerFinalResultMissing({ banId: null, reason: 'no-ban-id' });
+        return false;
+      }
+
+      if (
+        deferResultWhileSuccessCardMounted('showCheckAnswerFinalResult', {
+          kind: 'result',
+          result: normalized,
+        })
+      ) {
+        logCheckAnswerResultSkippedBug({
+          banId,
+          reason: 'success-card-mounted',
+        });
+        return false;
+      }
+
+      if (whatOrConfirmActiveRef.current) {
+        logCheckAnswerResultSkippedBug({ banId, reason: 'compose-active' });
+        enqueueNotification(
+          { kind: 'result', result: normalized },
+          {
+            live: source === 'http',
+            source: source === 'poll' ? 'poll' : 'ws',
+          },
+        );
+        return false;
+      }
+
+      if (
+        !resultDeliveredBanIdsRef.current.has(banId) &&
+        !resultCtaConsumedBanIdsRef.current.has(banId)
+      ) {
+        shownOverlayKeysRef.current.delete(`result:${banId}`);
+      }
+
+      if (
+        isResultBlockedForNotificationChain(banId, 'check-answer-final')
+      ) {
+        logCheckAnswerResultSkippedBug({
+          banId,
+          reason: 'notification-chain-blocked',
+        });
+        return false;
+      }
+
+      const block = shouldBlockResultOpen({
+        resultBanId: banId,
+        overboardInFlightBanId: overboardInFlightRef.current,
+      });
+      if (block.blocked) {
+        logCheckAnswerResultSkippedBug({
+          banId,
+          reason: block.reason ?? 'priority-lock',
+        });
+        return false;
+      }
+
+      if (overboardInFlightRef.current === banId) {
+        logCheckAnswerResultSkippedBug({ banId, reason: 'overboard-in-flight' });
+        return false;
+      }
+
+      if (
+        resultCtaConsumedBanIdsRef.current.has(banId) ||
+        (uid && isDismissedResultLocally(banId, uid))
+      ) {
+        logCheckAnswerResultSkippedBug({
+          banId,
+          reason: 'consumed-or-dismissed',
+        });
+        return false;
+      }
+
+      const mode = source === 'poll' ? 'auto' : 'live';
+      const decision = diagnoseResultShow(normalized, mode, uid, banId);
+      if (!decision.shouldShow) {
+        logCheckAnswerFinalResultMissing({
+          banId,
+          reason: decision.reason,
+        });
+        dismissBanResultLocally(banId, normalized.viewerId ?? uid);
+        void acknowledgeBanResultOnServer(banId, tokenRef.current);
+        return false;
+      }
+
+      setLobbyOpen(false);
+      const resultItem: QueuedOverlay = { kind: 'result', result: normalized };
+      const cleaned = removeOverlaysForBan(overlayQueueRef.current, banId);
+      const nextQueue = [resultItem, ...cleaned];
+
+      logCheckAnswerFinalResultEnqueued({
+        banId,
+        queueLen: nextQueue.length,
+        status: statusLabel,
+      });
+      chainAdvanceExplicitRef.current = true;
+      setNotificationChainTransitioning(true);
+      flushSync(() => {
+        applyOverlayQueue(nextQueue);
+      });
+
+      const head = overlayQueueRef.current[0];
+      const shown = head?.kind === 'result' && normalizeId(head.result.id) === banId;
+      if (shown) {
+        resultDeliveredBanIdsRef.current.add(banId);
+        logCheckAnswerFinalResultShow({ banId, status: statusLabel });
+        logTransitionFromRefs('[OVERLAY STATE SET]', {
+          kind: 'result',
+          banId,
+        });
+        return true;
+      }
+
+      logCheckAnswerResultSkippedBug({
+        banId,
+        reason: 'apply-overlay-not-head',
+      });
+      return false;
+    },
+    [
+      applyOverlayQueue,
+      enqueueNotification,
+      isResultBlockedForNotificationChain,
+      setNotificationChainTransitioning,
+    ],
+  );
+
   const pollPendingResultOnce = useCallback(
     async (source: 'interval' | 'burst') => {
       const requestUserId = userIdRef.current;
@@ -5347,21 +5490,60 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           hasResult: !!res.result,
         });
 
-        if (res.done && res.result) {
-          challengeLog('check:done', { banId: normalizedBanId });
-          receiveResult(normalizeBanResult(res.result), 'http');
-          queueMicrotask(() => {
-            setOverlayQueue((prev) =>
-              removeOverlaysForBan(prev, normalizedBanId, ['check', 'incoming']),
-            );
-            void refreshUserRef.current().catch(() => {});
+        logCheckAnswerSubmitOk({
+          banId: normalizedBanId,
+          answer: completed,
+          done: res.done,
+          waiting: !!res.waiting,
+          hasResult: !!res.result,
+        });
+
+        if (res.result) {
+          const normalized = normalizeBanResult(res.result);
+          logCheckAnswerFinalResultFound({
+            banId: normalizedBanId,
+            status: normalized.headline || normalized.outcome,
           });
+          const shown = showCheckAnswerFinalResult(normalized, 'http');
+          if (!shown && res.done) {
+            scheduleResultPollBurst();
+          }
+        } else if (res.done) {
+          logCheckAnswerFinalResultFetchStart({ banId: normalizedBanId });
+          try {
+            const fetched = await api<{ result: BanResult | null }>(
+              `/bans/${normalizedBanId}/result`,
+              { token, retries: 0, timeoutMs: 5000 },
+            );
+            if (fetched.result) {
+              const normalized = normalizeBanResult(fetched.result);
+              logCheckAnswerFinalResultFetchOk({
+                banId: normalizedBanId,
+                status: normalized.headline || normalized.outcome,
+              });
+              const shown = showCheckAnswerFinalResult(normalized, 'http');
+              if (!shown) {
+                scheduleResultPollBurst();
+              }
+            } else {
+              logCheckAnswerFinalResultMissing({ banId: normalizedBanId });
+              scheduleResultPollBurst();
+            }
+          } catch {
+            logCheckAnswerFinalResultMissing({
+              banId: normalizedBanId,
+              reason: 'fetch-failed',
+            });
+            scheduleResultPollBurst();
+          }
         } else if (res.waiting) {
           challengeLog('check:waiting-partner', { banId: normalizedBanId });
           scheduleResultPollBurst();
-        } else if (res.done) {
-          scheduleResultPollBurst();
         }
+
+        queueMicrotask(() => {
+          void refreshUserRef.current().catch(() => {});
+        });
 
         console.log('[check-submit-success]', { banId: normalizedBanId });
         console.log('[check-overlay-submit-success]', { banId: normalizedBanId });
@@ -5382,7 +5564,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         checkAnswerInFlightRef.current.delete(normalizedBanId);
       }
     },
-    [dismissCurrentOverlay, receiveResult, scheduleResultPollBurst],
+    [dismissCurrentOverlay, showCheckAnswerFinalResult, scheduleResultPollBurst],
   );
 
   const readDirectOverboardSnapshot =
