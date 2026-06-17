@@ -29,7 +29,8 @@ import { BigButton } from './BigButton';
 import { AvatarImage } from './AvatarImage';
 import { useTelegram } from '@/hooks/useTelegram';
 import { ModalShell } from './ModalShell';
-import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
+import { APP_NOTIFICATION_BACKDROP_Z_INDEX, APP_NOTIFICATION_CARD_Z_INDEX } from '@/lib/overlay-queue';
+import { installOverlayHitTestProbe } from '@/lib/overlay-hit-test-debug';
 import { shouldBlockOverlayUserTap } from '@/lib/overlay-input-guard';
 import {
   logOverlayButtonClick,
@@ -488,6 +489,17 @@ function IncomingBanOverlayInner({
     reportOverlayRendered,
   ]);
 
+  useEffect(() => {
+    if (!activeIncomingBan?.id || !shouldShow || verifyPhase === 'failed') {
+      return;
+    }
+    return installOverlayHitTestProbe({
+      banId: activeIncomingBan.id,
+      kind: replyDirect ? 'incoming-reply-direct' : 'incoming-queue',
+      isCardVisible: () => Boolean(cardBodyRef.current),
+    });
+  }, [activeIncomingBan?.id, replyDirect, shouldShow, verifyPhase]);
+
   useLayoutEffect(() => {
     if (!activeIncomingBan?.id || isReplyDeeplinkShell || !shouldShow) return;
     if (typeof document === 'undefined') return;
@@ -694,13 +706,47 @@ function IncomingBanOverlayInner({
 
   if (contentOnly) return body;
 
+  if (replyDirect) {
+    if (typeof document === 'undefined') return null;
+    return (
+      <>
+        {createPortal(
+          <div
+            className="check-direct-backdrop-root incoming-reply-direct-backdrop-root"
+            style={{ zIndex: APP_NOTIFICATION_BACKDROP_Z_INDEX }}
+            aria-hidden
+          >
+            <div className="check-direct-backdrop" />
+          </div>,
+          document.body,
+        )}
+        {createPortal(
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Входящий запрет"
+            data-overlay-user-card=""
+            data-notification-layer=""
+            className="modal-card modal-card--incoming modal-card--session-hosted modal-card--handoff check-direct-card"
+            style={{ zIndex: APP_NOTIFICATION_CARD_Z_INDEX }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {body}
+          </div>,
+          document.body,
+        )}
+      </>
+    );
+  }
+
   const modal = (
     <ModalShell
       open
       light
       stable
-      handoff={replyDirect || notificationSessionActive}
-      zIndex={APP_NOTIFICATION_Z_INDEX}
+      handoff={notificationSessionActive}
+      sessionHosted={notificationSessionActive}
+      zIndex={APP_NOTIFICATION_CARD_Z_INDEX}
       closeOnBackdrop={false}
       ariaLabel="Входящий запрет"
       onClose={() => {

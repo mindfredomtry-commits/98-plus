@@ -2,7 +2,7 @@
 
 import { useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
+import { APP_NOTIFICATION_BACKDROP_Z_INDEX } from '@/lib/overlay-queue';
 
 type ActiveOverlayKind = 'incoming' | 'check' | 'result';
 
@@ -62,10 +62,13 @@ export function GlobalOverlayHost({
       className={`app-notification-layer${active ? ' app-notification-layer--active' : ''}${
         queueSessionActive ? ' app-notification-layer--session' : ''
       }${checkInteractive ? ' app-notification-layer--check-interactive' : ''}`}
-      style={{ zIndex: APP_NOTIFICATION_Z_INDEX }}
+      style={{ zIndex: APP_NOTIFICATION_BACKDROP_Z_INDEX }}
       data-notification-layer=""
       aria-hidden={!active}
     >
+      {active ? (
+        <div className="app-notification-layer__hit-blocker" aria-hidden />
+      ) : null}
       {queueSessionActive ? (
         <div className="app-notification-layer__session-backdrop" aria-hidden />
       ) : null}

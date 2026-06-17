@@ -2,7 +2,7 @@
 
 import { Children, isValidElement, useEffect, type ReactNode } from 'react';
 import { ModalShell } from './ModalShell';
-import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
+import { APP_NOTIFICATION_CARD_Z_INDEX } from '@/lib/overlay-queue';
 
 type OverlayKind = 'incoming' | 'check' | 'result';
 
@@ -124,7 +124,7 @@ export function NotificationQueueShell({
         stable
         handoff={handoff}
         sessionHosted={sessionActive}
-        zIndex={APP_NOTIFICATION_Z_INDEX}
+        zIndex={APP_NOTIFICATION_CARD_Z_INDEX}
         closeOnBackdrop={false}
         ariaLabel={ARIA[shellKind]}
         onClose={() => {}}
@@ -144,7 +144,7 @@ export function NotificationQueueShell({
       stable
       handoff={handoff}
       sessionHosted={sessionActive}
-      zIndex={APP_NOTIFICATION_Z_INDEX}
+      zIndex={APP_NOTIFICATION_CARD_Z_INDEX}
       closeOnBackdrop={false}
       ariaLabel={ARIA[shellKind]}
       onClose={() => {}}

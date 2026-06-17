@@ -25,7 +25,7 @@ import { normalizeId } from '@/lib/normalize-json';
 import { ModalShell } from './ModalShell';
 import { AvatarImage } from './AvatarImage';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
-import { APP_NOTIFICATION_Z_INDEX } from '@/lib/overlay-queue';
+import { APP_NOTIFICATION_BACKDROP_Z_INDEX, APP_NOTIFICATION_CARD_Z_INDEX } from '@/lib/overlay-queue';
 import { logCheckAnswerClick } from '@/lib/check-chain-drain-debug';
 import {
   setOverlayInputLock,
@@ -289,8 +289,8 @@ function CheckOverlayInner({
   if (contentOnly) return body;
 
   if (checkDirect) {
-    const backdropZ = APP_NOTIFICATION_Z_INDEX;
-    const cardZ = APP_NOTIFICATION_Z_INDEX + 1;
+    const backdropZ = APP_NOTIFICATION_BACKDROP_Z_INDEX;
+    const cardZ = APP_NOTIFICATION_CARD_Z_INDEX;
     if (typeof document === 'undefined') return null;
     return (
       <>
@@ -331,7 +331,7 @@ function CheckOverlayInner({
       light
       stable
       handoff={notificationSessionActive}
-      zIndex={APP_NOTIFICATION_Z_INDEX}
+      zIndex={APP_NOTIFICATION_CARD_Z_INDEX}
       closeOnBackdrop={false}
       ariaLabel={modalView.title}
       onClose={() => {}}

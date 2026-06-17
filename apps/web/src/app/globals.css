@@ -986,20 +986,27 @@ html[data-check-direct] .app-page .bottom-nav {
 }
 
 .app-notification-layer--active {
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 .app-notification-layer--session {
-  pointer-events: auto;
+  pointer-events: none;
   isolation: isolate;
 }
 
-.app-notification-layer--check-interactive {
+.app-notification-layer__hit-blocker {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
   pointer-events: auto;
 }
 
+.app-notification-layer--check-interactive {
+  pointer-events: none;
+}
+
 .app-notification-layer--check-interactive .app-notification-layer__content {
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 .app-notification-layer--check-interactive .modal-backdrop,
@@ -1025,7 +1032,7 @@ html[data-check-direct] .app-page .bottom-nav {
 
 .app-notification-layer__content {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   width: 100%;
   height: 100%;
   pointer-events: none;
@@ -1048,11 +1055,16 @@ html[data-check-direct] .app-page .bottom-nav {
   -webkit-backdrop-filter: none;
 }
 
-.check-direct-backdrop-root {
+.check-direct-backdrop-root,
+.incoming-reply-direct-backdrop-root {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 100;
+}
+
+.check-direct-card,
+.modal-card.check-direct-card {
+  z-index: 110;
 }
 
 .check-direct-backdrop {
@@ -1086,13 +1098,19 @@ html[data-check-direct] .app-page .bottom-nav {
   .app-notification-layer__content--card-host
   .modal-card,
 .app-notification-layer--session .modal-card[data-overlay-user-card],
-.app-notification-layer--session .modal-card--session-hosted {
+.app-notification-layer--session .modal-card--session-hosted,
+.app-notification-layer--session .modal-card--incoming,
+.app-notification-layer--session .modal-card--check,
+.app-notification-layer--session .modal-card--result {
   pointer-events: auto;
+  position: relative;
+  z-index: 3;
 }
 
 .app-notification-layer--session .modal-card button,
 .app-notification-layer--session .incoming-modal-actions,
-.app-notification-layer--session .check-modal-actions {
+.app-notification-layer--session .check-modal-actions,
+.app-notification-layer--session .result-card-actions {
   pointer-events: auto;
 }
 
@@ -1100,8 +1118,20 @@ html[data-check-direct] .app-page .bottom-nav {
   pointer-events: none;
 }
 
-.app-notification-layer__content > * {
+.app-notification-layer__content > .modal-backdrop {
+  pointer-events: none;
+}
+
+.app-notification-layer__content > .modal-backdrop .modal-card {
   pointer-events: auto;
+  position: relative;
+  z-index: 3;
+}
+
+.app-notification-layer__content > .modal-card {
+  pointer-events: auto;
+  position: relative;
+  z-index: 3;
 }
 
 .direct-overboard-result-layer {
@@ -1210,6 +1240,7 @@ html[data-check-direct] .app-page .bottom-nav {
   background: transparent;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  pointer-events: none;
 }
 
 .app-notification-layer__content .modal-backdrop--handoff {
