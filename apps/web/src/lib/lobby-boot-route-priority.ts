@@ -4,6 +4,7 @@ import { isDeepLinkRouteBootPending } from '@/lib/deep-link-route-boot';
 /** Route/deeplink entry — boot is background placeholder only, not a gate. */
 export type RouteOverlayBootPriorityInput = {
   replyDeepLinkBanId: string | null;
+  checkDeepLinkBanId: string | null;
   replyDeeplinkFastShell: boolean;
   deepLinkReplyBooting: boolean;
   replyHandoffLock: boolean;
@@ -26,6 +27,7 @@ export function isRouteOverlayEntryPending(
   input: Pick<
     RouteOverlayBootPriorityInput,
     | 'replyDeepLinkBanId'
+    | 'checkDeepLinkBanId'
     | 'replyDeeplinkFastShell'
     | 'deepLinkReplyBooting'
     | 'replyHandoffLock'
@@ -38,6 +40,7 @@ export function isRouteOverlayEntryPending(
 ): boolean {
   return (
     isDeepLinkRouteBootPending() ||
+    input.checkDeepLinkBanId != null ||
     input.replyDeepLinkBanId != null ||
     input.replyDeeplinkFastShell ||
     input.deepLinkReplyBooting ||

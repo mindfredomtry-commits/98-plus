@@ -150,8 +150,7 @@ export default function HomePage() {
     incomingCardReady: incomingCardFullyReady,
     incomingBanId: incomingCardDisplayBan?.id ?? null,
     checkOverlayReady: activeOverlayKind === 'check' && checkGateActive,
-    checkBanId:
-      activeOverlayKind === 'check' ? deepLinkSelectedBanId : null,
+    checkBanId: deepLinkSelectedBanId,
     resultOverlayReady: activeOverlayKind === 'result',
     resultBanId:
       activeOverlayKind === 'result' ? deepLinkSelectedBanId : null,

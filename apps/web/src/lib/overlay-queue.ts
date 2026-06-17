@@ -188,6 +188,17 @@ export function removeOverlaysForBan(
   });
 }
 
+/** Check for banId replaces stale check/incoming and becomes queue head. */
+export function buildCheckPriorityQueue(
+  queue: QueuedOverlay[],
+  banId: string,
+  checkItem: QueuedOverlay,
+): QueuedOverlay[] {
+  const cleaned = removeOverlaysForBan(queue, banId, ['check', 'incoming']);
+  const checkKey = overlayQueueKey(checkItem);
+  return [checkItem, ...cleaned.filter((q) => overlayQueueKey(q) !== checkKey)];
+}
+
 /** Result for banId replaces any stale check/incoming and becomes queue head. */
 export function buildResultPriorityQueue(
   queue: QueuedOverlay[],

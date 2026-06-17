@@ -25,6 +25,7 @@ import {
   isDirectOverboardOpenable,
   isValidBanResultPayload,
   parseStartParam,
+  buildStartParam,
   buildBanInteractionFromReplyPreview,
 } from '@98plus/shared';
 import {
@@ -54,6 +55,7 @@ import {
 } from '@/lib/overlay-timing';
 import {
   enqueueWithActiveLock,
+  buildCheckPriorityQueue,
   buildResultPriorityQueue,
   getActiveOverlayKey,
   hasCheckInQueue,
@@ -227,6 +229,18 @@ import {
   logResultPollPrioritySet,
   logResultPollShowResultCard,
 } from '@/lib/result-poll-priority-debug';
+import {
+  logCheckDeeplinkAuthWait,
+  logCheckDeeplinkCardMounted,
+  logCheckDeeplinkCardSelected,
+  logCheckDeeplinkFallbackLobby,
+  logCheckDeeplinkFetchError,
+  logCheckDeeplinkFetchOk,
+  logCheckDeeplinkFetchStart,
+  logCheckDeeplinkOverlaySet,
+  logCheckDeeplinkPayloadParsed,
+  logCheckDeeplinkStart,
+} from '@/lib/check-deeplink-startup-debug';
 import {
   logReplyCardMounted,
   logReplyCardOverlaySet,
@@ -1001,6 +1015,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     useState<BanInteraction | null>(null);
   const replyIncomingDisplayBanRef = useRef<BanInteraction | null>(null);
   const replyDeeplinkPendingBanIdRef = useRef<string | null>(null);
+  const [checkDeepLinkBanId, setCheckDeepLinkBanId] = useState<string | null>(null);
+  const checkDeepLinkBanIdRef = useRef<string | null>(null);
+  const checkDeeplinkPendingBanIdRef = useRef<string | null>(null);
   const replyDeeplinkRepeatEntryRef = useRef(false);
   const pendingReplyDeeplinkToastRef = useRef<{
     kind: 'overboard' | 'sent';
@@ -1597,6 +1614,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           syncReplyStartParamPreview(viewerId);
         }
       }
+      if (action?.type === 'check') {
+        checkDeeplinkPendingBanIdRef.current = action.banId;
+        checkDeepLinkBanIdRef.current = action.banId;
+        setCheckDeepLinkBanId(action.banId);
+        setLobbyOpen(false);
+        lobbyOpenRef.current = false;
+        setStartupGraceActive(false);
+        logCheckDeeplinkStart({
+          payload: buildStartParam(action),
+          banId: action.banId,
+        });
+        logCheckDeeplinkPayloadParsed({ banId: action.banId });
+      }
     } else {
       const action = parseStartParam(readPriorityStartParamRaw() ?? undefined);
       if (action?.type === 'reply') {
@@ -1611,6 +1641,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           replyStartParamPreviewRawRef.current = action.preview;
           syncReplyStartParamPreview(viewerId);
         }
+      }
+      if (action?.type === 'check') {
+        checkDeeplinkPendingBanIdRef.current = action.banId;
+        checkDeepLinkBanIdRef.current = action.banId;
+        setCheckDeepLinkBanId(action.banId);
+        setLobbyOpen(false);
+        lobbyOpenRef.current = false;
+        setStartupGraceActive(false);
+        logCheckDeeplinkStart({
+          payload: buildStartParam(action),
+          banId: action.banId,
+        });
+        logCheckDeeplinkPayloadParsed({ banId: action.banId });
       }
     }
   }, [armActiveBanDeepLinkEarly, auth.user?.id]);
@@ -2511,6 +2554,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       if (kind === 'result') {
         logResultCardMounted({ banId });
+      }
+      if (
+        kind === 'check' &&
+        checkDeepLinkBanIdRef.current &&
+        normalizeId(checkDeepLinkBanIdRef.current) === normalizeId(banId)
+      ) {
+        logCheckDeeplinkCardMounted({ banId });
       }
       if (goToBansAdvancePendingRef.current) {
         goToBansAdvancePendingRef.current = false;
@@ -4602,6 +4652,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     resultDeliveredBanIdsRef.current = new Set();
     resultCtaConsumedBanIdsRef.current = new Set();
     checkSubmitAtRef.current = new Map();
+    checkDeeplinkPendingBanIdRef.current = null;
+    checkDeepLinkBanIdRef.current = null;
+    setCheckDeepLinkBanId(null);
+    bufferedCheckDeepLinkRef.current = null;
 
     const uid = auth.user?.id;
     if (!uid) return;
@@ -5323,67 +5377,210 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [auth.user?.id, applyOverlayQueue, enqueueNotification],
   );
 
-  const openDeepLinkCheck = useCallback(
-    (b: BanInteraction) => {
-      noteDeepLinkHandlerOpened('openDeepLinkCheck', b.id);
-      const viewerId = userIdRef.current;
-      if (!viewerId || auth.loading) {
-        bufferedCheckDeepLinkRef.current = enrichBanInteraction(b);
-        console.log('[check-deeplink]', {
-          banId: b.id,
-          buffered: true,
-          reason: 'auth-not-ready',
-        });
-        return;
+  const applyCheckDeeplinkDirectOverlay = useCallback(
+    (ban: BanInteraction): boolean => {
+      const enriched = enrichBanInteraction(ban);
+      const banId = enriched.id;
+      const item: QueuedOverlay = { kind: 'check', ban: enriched };
+      startupInteractionsHoldRef.current = false;
+      chainAdvanceExplicitRef.current = true;
+      setNotificationChainTransitioning(true);
+      const next = buildCheckPriorityQueue(overlayQueueRef.current, banId, item);
+      flushSync(() => {
+        applyOverlayQueue(next);
+      });
+      const head = overlayQueueRef.current[0];
+      const mounted = head?.kind === 'check' && head.ban.id === banId;
+      if (mounted) {
+        checkBanRef.current = enriched;
+        setCheckBan(enriched);
+        setLobbyOpen(false);
+        lobbyOpenRef.current = false;
+        logCheckDeeplinkOverlaySet({ banId });
       }
-      if (
-        !shouldShowCheckOverlay(
-          b,
+      return mounted;
+    },
+    [applyOverlayQueue, setNotificationChainTransitioning],
+  );
+
+  const clearCheckDeepLinkRoute = useCallback((source: string) => {
+    checkDeeplinkPendingBanIdRef.current = null;
+    checkDeepLinkBanIdRef.current = null;
+    setCheckDeepLinkBanId(null);
+    bufferedCheckDeepLinkRef.current = null;
+    console.log('[check-deeplink-route-clear]', { source });
+  }, []);
+
+  const openCheckDeepLinkDirect = useCallback(
+    async (
+      banId: string,
+      prefilled?: BanInteraction | null,
+      source = 'check-deeplink-direct',
+    ): Promise<boolean> => {
+      const normalizedBanId = banId.trim();
+      const token = tokenRef.current;
+      const viewerId = userIdRef.current;
+      if (!normalizedBanId) {
+        logCheckDeeplinkFallbackLobby({ reason: 'no-ban-id' });
+        clearCheckDeepLinkRoute(source);
+        return false;
+      }
+      if (!viewerId || !token || auth.loading) {
+        logCheckDeeplinkAuthWait({ banId: normalizedBanId });
+        if (prefilled) {
+          bufferedCheckDeepLinkRef.current = enrichBanInteraction(prefilled);
+        } else {
+          checkDeeplinkPendingBanIdRef.current = normalizedBanId;
+        }
+        return false;
+      }
+
+      logCheckDeeplinkFetchStart({ banId: normalizedBanId, source });
+      try {
+        let ban = prefilled ? enrichBanInteraction(prefilled) : null;
+        if (!ban?.id || ban.id !== normalizedBanId) {
+          const res = await api<{ ban: BanInteraction }>(
+            `/bans/${normalizedBanId}/open`,
+            { token, retries: 0 },
+          );
+          ban = res.ban ? enrichBanInteraction(res.ban) : null;
+        }
+        if (!ban) {
+          logCheckDeeplinkFallbackLobby({
+            banId: normalizedBanId,
+            reason: 'fetch-empty',
+          });
+          clearCheckDeepLinkRoute(source);
+          return false;
+        }
+        logCheckDeeplinkFetchOk({
+          banId: normalizedBanId,
+          status: ban.status,
+        });
+
+        const decision = checkShowDecision(
+          ban,
           viewerId,
           dismissedCheckSessionRef.current,
           answeredCheckRef.current,
           checkAnswerInFlightRef.current,
           resultOpenRef.current,
-        )
-      ) {
-        console.log('[check-deeplink]', {
-          banId: b.id,
-          rejected: true,
-          authUserId: viewerId,
+        );
+
+        if (!decision.shouldShow) {
+          if (
+            ban.status !== 'checking' ||
+            decision.reason === 'answered-locally'
+          ) {
+            try {
+              const { result } = await api<{ result: BanResult | null }>(
+                `/bans/${normalizedBanId}/result`,
+                { token, retries: 0, timeoutMs: 5000 },
+              );
+              if (result) {
+                const normalized = normalizeBanResult(result);
+                let shown = showCheckAnswerFinalResult(normalized, 'http');
+                if (!shown) {
+                  openBanResult(normalized, 'explicit');
+                  shown = true;
+                }
+                if (shown) {
+                  clearCheckDeepLinkRoute(source);
+                  resolvePendingDeepLinkRoute('result', normalizedBanId);
+                  return true;
+                }
+              }
+            } catch {
+              /* fall through to lobby */
+            }
+          }
+          logCheckDeeplinkFallbackLobby({
+            banId: normalizedBanId,
+            reason: decision.reason,
+          });
+          clearCheckDeepLinkRoute(source);
+          setLobbyOpen(true);
+          lobbyOpenRef.current = true;
+          return false;
+        }
+
+        logCheckDeeplinkCardSelected({
+          banId: normalizedBanId,
+          status: ban.status,
         });
-        return;
+        noteDeepLinkHandlerOpened('openCheckDeepLinkDirect', ban.id);
+        setLobbyOpen(false);
+        lobbyOpenRef.current = false;
+        const mounted = applyCheckDeeplinkDirectOverlay(ban);
+        if (mounted) {
+          checkDeeplinkPendingBanIdRef.current = null;
+          resolvePendingDeepLinkRoute('check', ban.id);
+          logDeepLinkHandlerResult({
+            type: 'check',
+            banId: ban.id,
+            instantBanOpen: false,
+            sendFlowOpen: false,
+            selectedBanId: ban.id,
+            overlayQueueLength: overlayQueueRef.current.length,
+            ok: true,
+          });
+          challengeLog('check:deeplink', { id: ban.id, status: ban.status });
+          return true;
+        }
+
+        logCheckDeeplinkFallbackLobby({
+          banId: normalizedBanId,
+          reason: 'overlay-not-mounted',
+        });
+        clearCheckDeepLinkRoute(source);
+        setLobbyOpen(true);
+        lobbyOpenRef.current = true;
+        return false;
+      } catch (e) {
+        logCheckDeeplinkFetchError({
+          banId: normalizedBanId,
+          error: e instanceof Error ? e.message : 'fetch-failed',
+        });
+        logCheckDeeplinkFallbackLobby({
+          banId: normalizedBanId,
+          reason: 'fetch-error',
+        });
+        clearCheckDeepLinkRoute(source);
+        setLobbyOpen(true);
+        lobbyOpenRef.current = true;
+        return false;
       }
-      setLobbyOpen(false);
-      challengeLog('check:deeplink', { id: b.id, status: b.status });
-      enqueueNotification(
-        { kind: 'check', ban: enrichBanInteraction(b) },
-        { live: true, source: 'deeplink' },
-      );
-      resolvePendingDeepLinkRoute('check', b.id);
-      logDeepLinkHandlerResult({
-        type: 'check',
-        banId: b.id,
-        instantBanOpen: false,
-        sendFlowOpen: false,
-        selectedBanId: b.id,
-        overlayQueueLength: overlayQueueRef.current.length + 1,
-        ok: true,
-      });
     },
-    [auth.loading, enqueueNotification],
+    [
+      applyCheckDeeplinkDirectOverlay,
+      auth.loading,
+      clearCheckDeepLinkRoute,
+      openBanResult,
+      showCheckAnswerFinalResult,
+    ],
   );
 
-  useEffect(() => {
-    if (!auth.user?.id || auth.loading) return;
-    const buffered = bufferedCheckDeepLinkRef.current;
-    if (!buffered) return;
-    bufferedCheckDeepLinkRef.current = null;
-    console.log('[check-deeplink]', {
-      banId: buffered.id,
-      action: 'apply-buffered',
-    });
-    openDeepLinkCheck(buffered);
-  }, [auth.user?.id, auth.loading, openDeepLinkCheck]);
+  const openDeepLinkCheck = useCallback(
+    (b: BanInteraction) => {
+      void openCheckDeepLinkDirect(b.id, b, 'openDeepLinkCheck');
+    },
+    [openCheckDeepLinkDirect],
+  );
+
+  useLayoutEffect(() => {
+    const banId = checkDeeplinkPendingBanIdRef.current?.trim() ?? '';
+    if (!banId) return;
+    const viewerId = auth.user?.id?.trim() ?? '';
+    if (!viewerId || auth.loading || !auth.token) {
+      logCheckDeeplinkAuthWait({ banId });
+      return;
+    }
+    void openCheckDeepLinkDirect(
+      banId,
+      bufferedCheckDeepLinkRef.current,
+      'check-deeplink-auth-ready',
+    );
+  }, [auth.loading, auth.token, auth.user?.id, openCheckDeepLinkDirect]);
 
   const clearDeepLinkRepeatBan = useCallback(() => {
     setDeepLinkRepeatBan(null);
@@ -10841,6 +11038,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return false;
       }
       if (priorityBlocksResult) return false;
+      if (checkDeepLinkBanId && checkDeeplinkPendingBanIdRef.current) {
+        return true;
+      }
       if (activeOverlayKind === 'check' && checkBan) return true;
       return shouldShowCheckOverlay(
         checkBan,
@@ -10851,7 +11051,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         !!result,
       );
     },
-    [composeBlocksNotificationHost, priorityBlocksResult, activeOverlayKind, checkBan, auth.user?.id, result, activeBanCardReady, sendSuccessCardActive, replyParentActivePriorityActive],
+    [composeBlocksNotificationHost, priorityBlocksResult, activeOverlayKind, checkBan, auth.user?.id, result, activeBanCardReady, sendSuccessCardActive, replyParentActivePriorityActive, checkDeepLinkBanId],
   );
 
   const checkOverlayMounted =
@@ -11587,6 +11787,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const deepLinkSelectedBanId = useMemo(
     () =>
+      checkDeepLinkBanId ??
       replyDeepLinkBanId ??
       deepLinkReplyBan?.id ??
       deepLinkActiveBan?.id ??
@@ -11596,6 +11797,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       result?.id ??
       null,
     [
+      checkDeepLinkBanId,
       replyDeepLinkBanId,
       deepLinkReplyBan?.id,
       deepLinkActiveBan?.id,
@@ -11751,6 +11953,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     () =>
       shouldBootYieldToRouteOverlay({
         replyDeepLinkBanId,
+        checkDeepLinkBanId,
         replyDeeplinkFastShell,
         deepLinkReplyBooting,
         replyHandoffLock,
@@ -11769,6 +11972,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }),
     [
       replyDeepLinkBanId,
+      checkDeepLinkBanId,
       replyDeeplinkFastShell,
       deepLinkReplyBooting,
       replyHandoffLock,

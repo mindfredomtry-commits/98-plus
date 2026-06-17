@@ -9,7 +9,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 11;
+export const DEBUG98_LOGGER_VERSION = 12;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -101,6 +101,16 @@ const ALLOWED_EVENTS = new Set([
   '[CHECK PRIME SKIP STALE BECAUSE RESULT EXISTS]',
   '[RESULT CARD MOUNTED]',
   '[CHECK CARD MOUNTED BUG]',
+  '[CHECK DEEPLINK START]',
+  '[CHECK DEEPLINK PAYLOAD PARSED]',
+  '[CHECK DEEPLINK AUTH WAIT]',
+  '[CHECK DEEPLINK FETCH START]',
+  '[CHECK DEEPLINK FETCH OK]',
+  '[CHECK DEEPLINK FETCH ERROR]',
+  '[CHECK DEEPLINK CARD SELECTED]',
+  '[CHECK DEEPLINK OVERLAY SET]',
+  '[CHECK DEEPLINK CARD MOUNTED]',
+  '[CHECK DEEPLINK FALLBACK LOBBY]',
 ]);
 
 export type Debug98LatchSnapshot = {

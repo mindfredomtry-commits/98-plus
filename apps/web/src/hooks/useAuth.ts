@@ -29,6 +29,7 @@ import {
   isReplyDeepLinkStartParamPending,
   stashAuthReplyPreviewEarly,
 } from '@/lib/auth-reply-preview-stash';
+import { isCheckDeepLinkStartParamPending } from '@/lib/check-deeplink-startup';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
 
 const TOKEN_KEY_LEGACY = '98plus_token';
@@ -273,6 +274,7 @@ export function useAuth() {
     const warmSession = !!(token && user) && !inviteOpen;
 
     const replyDeepLinkPending = isReplyDeepLinkStartParamPending();
+    const checkDeepLinkPending = isCheckDeepLinkStartParamPending();
 
     if (!warmSession) {
       setLoading(true);
@@ -281,7 +283,7 @@ export function useAuth() {
       setUser(null);
       setBoot(null);
     } else {
-      if (!replyDeepLinkPending) {
+      if (!replyDeepLinkPending && !checkDeepLinkPending) {
         setLoading(false);
       }
       setError(null);

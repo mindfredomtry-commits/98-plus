@@ -45,8 +45,8 @@ interface BootHandlers {
   abortReplyDeepLinkFast: (reason: string) => void;
 }
 
-function deepLinkBootKey(startParam: string | undefined): string | null {
-  const action = parseStartParam(startParam);
+function deepLinkBootKey(startParam: string | undefined | null): string | null {
+  const action = parseStartParam(startParam ?? undefined);
   if (!action) return null;
   switch (action.type) {
     case 'invite_token':
@@ -72,9 +72,11 @@ export function useSocialBoot(h: BootHandlers) {
 
   useEffect(() => {
     const startParamRaw = readStartParamRawFromLocation();
+    const resolvedStartParam =
+      startParam ?? startParamRaw ?? undefined;
     const actionFromHook = parseStartParam(startParam);
     const actionFromRaw = parseStartParam(startParamRaw ?? undefined);
-    const bootKey = deepLinkBootKey(startParam);
+    const bootKey = deepLinkBootKey(resolvedStartParam);
 
     patchDeepLinkBootDebug({
       startParamRaw,
@@ -108,7 +110,7 @@ export function useSocialBoot(h: BootHandlers) {
       return;
     }
 
-    const action = parseStartParam(startParam);
+    const action = parseStartParam(resolvedStartParam);
     if (!action) {
       patchDeepLinkBootDebug({
         deepLinkConsumed: false,
@@ -163,7 +165,9 @@ export function useSocialBoot(h: BootHandlers) {
             `/bans/${action.banId}/open`,
             { token: h.token! },
           );
-          if (ban) h.openDeepLinkCheck(ban);
+          if (ban) {
+            h.openDeepLinkCheck(ban);
+          }
           break;
         }
         case 'ban': {
