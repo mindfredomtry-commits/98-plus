@@ -45,3 +45,15 @@ export function logCheckDeeplinkFallbackLobby(
 ): void {
   window.__debug98log?.('[CHECK DEEPLINK FALLBACK LOBBY]', data);
 }
+
+export function logCheckDeeplinkAuthReadyResume(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK DEEPLINK AUTH READY RESUME]', data);
+}
+
+export function logCheckDeeplinkResumeSkip(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK DEEPLINK RESUME SKIP]', data);
+}

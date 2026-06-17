@@ -29,7 +29,6 @@ import {
   isReplyDeepLinkStartParamPending,
   stashAuthReplyPreviewEarly,
 } from '@/lib/auth-reply-preview-stash';
-import { isCheckDeepLinkStartParamPending } from '@/lib/check-deeplink-startup';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
 
 const TOKEN_KEY_LEGACY = '98plus_token';
@@ -265,16 +264,16 @@ export function useAuth() {
     const inviteOpen = isInviteTokenStartParam(startParam);
     const identityChanged = lastAuthIdentityRef.current !== identity;
 
-    // If Telegram user is the same and we already have auth loaded, avoid re-clearing UI.
-    if (!identityChanged && !inviteOpen && token && user) return;
+    // Session already bound — do not re-run login; still release loading for deeplink resume.
+    if (!identityChanged && !inviteOpen && token && user) {
+      setLoading(false);
+      return;
+    }
 
     lastAuthIdentityRef.current = identity;
     identityRef.current = identity;
 
     const warmSession = !!(token && user) && !inviteOpen;
-
-    const replyDeepLinkPending = isReplyDeepLinkStartParamPending();
-    const checkDeepLinkPending = isCheckDeepLinkStartParamPending();
 
     if (!warmSession) {
       setLoading(true);
@@ -283,9 +282,7 @@ export function useAuth() {
       setUser(null);
       setBoot(null);
     } else {
-      if (!replyDeepLinkPending && !checkDeepLinkPending) {
-        setLoading(false);
-      }
+      setLoading(false);
       setError(null);
     }
 
@@ -316,9 +313,7 @@ export function useAuth() {
             localStorage.getItem(TOKEN_KEY_LEGACY);
           if (saved) setToken(saved);
           setUser(enrichUserPublic(cachedProfile));
-          if (!replyDeepLinkPending) {
-            setLoading(false);
-          }
+          setLoading(false);
           logAuthTiming('auth-user-set', {
             userId: cachedProfile.id,
             telegramId: cachedProfile.telegramId,
@@ -341,9 +336,7 @@ export function useAuth() {
         const cachedProfile = tgId != null ? readAuthProfileCache(tgId) : null;
         if (cachedProfile?.id) {
           setUser(enrichUserPublic(cachedProfile));
-          if (!replyDeepLinkPending) {
-            setLoading(false);
-          }
+          setLoading(false);
           logAuthTiming('auth-user-set', {
             userId: cachedProfile.id,
             telegramId: cachedProfile.telegramId,

@@ -9,7 +9,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 12;
+export const DEBUG98_LOGGER_VERSION = 13;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -111,6 +111,8 @@ const ALLOWED_EVENTS = new Set([
   '[CHECK DEEPLINK OVERLAY SET]',
   '[CHECK DEEPLINK CARD MOUNTED]',
   '[CHECK DEEPLINK FALLBACK LOBBY]',
+  '[CHECK DEEPLINK AUTH READY RESUME]',
+  '[CHECK DEEPLINK RESUME SKIP]',
 ]);
 
 export type Debug98LatchSnapshot = {

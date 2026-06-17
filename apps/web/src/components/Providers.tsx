@@ -230,6 +230,7 @@ import {
   logResultPollShowResultCard,
 } from '@/lib/result-poll-priority-debug';
 import {
+  logCheckDeeplinkAuthReadyResume,
   logCheckDeeplinkAuthWait,
   logCheckDeeplinkCardMounted,
   logCheckDeeplinkCardSelected,
@@ -239,8 +240,10 @@ import {
   logCheckDeeplinkFetchStart,
   logCheckDeeplinkOverlaySet,
   logCheckDeeplinkPayloadParsed,
+  logCheckDeeplinkResumeSkip,
   logCheckDeeplinkStart,
 } from '@/lib/check-deeplink-startup-debug';
+import { readCheckDeepLinkBanIdFromStartParam } from '@/lib/check-deeplink-startup';
 import {
   logReplyCardMounted,
   logReplyCardOverlaySet,
@@ -1018,6 +1021,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [checkDeepLinkBanId, setCheckDeepLinkBanId] = useState<string | null>(null);
   const checkDeepLinkBanIdRef = useRef<string | null>(null);
   const checkDeeplinkPendingBanIdRef = useRef<string | null>(null);
+  const checkDeeplinkResumeInflightRef = useRef<string | null>(null);
   const replyDeeplinkRepeatEntryRef = useRef(false);
   const pendingReplyDeeplinkToastRef = useRef<{
     kind: 'overboard' | 'sent';
@@ -4652,10 +4656,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     resultDeliveredBanIdsRef.current = new Set();
     resultCtaConsumedBanIdsRef.current = new Set();
     checkSubmitAtRef.current = new Map();
-    checkDeeplinkPendingBanIdRef.current = null;
-    checkDeepLinkBanIdRef.current = null;
-    setCheckDeepLinkBanId(null);
-    bufferedCheckDeepLinkRef.current = null;
+    if (realUserChange) {
+      checkDeeplinkPendingBanIdRef.current = null;
+      checkDeepLinkBanIdRef.current = null;
+      setCheckDeepLinkBanId(null);
+      bufferedCheckDeepLinkRef.current = null;
+      checkDeeplinkResumeInflightRef.current = null;
+    } else {
+      const checkBanId = readCheckDeepLinkBanIdFromStartParam();
+      if (checkBanId) {
+        checkDeeplinkPendingBanIdRef.current = checkBanId;
+        checkDeepLinkBanIdRef.current = checkBanId;
+        setCheckDeepLinkBanId(checkBanId);
+      }
+    }
 
     const uid = auth.user?.id;
     if (!uid) return;
@@ -5425,8 +5439,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         clearCheckDeepLinkRoute(source);
         return false;
       }
-      if (!viewerId || !token || auth.loading) {
-        logCheckDeeplinkAuthWait({ banId: normalizedBanId });
+      if (!viewerId || !token) {
+        logCheckDeeplinkAuthWait({
+          banId: normalizedBanId,
+          userId: viewerId || null,
+          hasToken: !!token,
+        });
         if (prefilled) {
           bufferedCheckDeepLinkRef.current = enrichBanInteraction(prefilled);
         } else {
@@ -5553,10 +5571,75 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [
       applyCheckDeeplinkDirectOverlay,
-      auth.loading,
       clearCheckDeepLinkRoute,
       openBanResult,
       showCheckAnswerFinalResult,
+    ],
+  );
+
+  const resolvePendingCheckDeepLinkBanId = useCallback((): string => {
+    return (
+      checkDeeplinkPendingBanIdRef.current?.trim() ||
+      readCheckDeepLinkBanIdFromStartParam() ||
+      checkDeepLinkBanIdRef.current?.trim() ||
+      ''
+    );
+  }, []);
+
+  const resumeCheckDeepLinkAfterAuth = useCallback(
+    async (source: string) => {
+      const banId = resolvePendingCheckDeepLinkBanId();
+      if (!banId) {
+        logCheckDeeplinkResumeSkip({ reason: 'no-pending-banId', source });
+        return;
+      }
+      if (!checkDeeplinkPendingBanIdRef.current) {
+        checkDeeplinkPendingBanIdRef.current = banId;
+      }
+      const viewerId = userIdRef.current?.trim() ?? auth.user?.id?.trim() ?? '';
+      const token = tokenRef.current ?? auth.token ?? null;
+      if (!viewerId || !token) {
+        logCheckDeeplinkAuthWait({
+          banId,
+          userId: viewerId || null,
+          hasToken: !!token,
+          source,
+        });
+        return;
+      }
+      if (checkDeeplinkResumeInflightRef.current === banId) {
+        logCheckDeeplinkResumeSkip({ banId, reason: 'resume-in-flight', source });
+        return;
+      }
+      const head = overlayQueueRef.current[0];
+      if (
+        head?.kind === 'check' &&
+        head.ban.id === banId &&
+        checkBanRef.current?.id === banId
+      ) {
+        logCheckDeeplinkResumeSkip({ banId, reason: 'check-already-mounted', source });
+        checkDeeplinkPendingBanIdRef.current = null;
+        return;
+      }
+      checkDeeplinkResumeInflightRef.current = banId;
+      logCheckDeeplinkAuthReadyResume({ banId, userId: viewerId, source });
+      try {
+        await openCheckDeepLinkDirect(
+          banId,
+          bufferedCheckDeepLinkRef.current,
+          source,
+        );
+      } finally {
+        if (checkDeeplinkResumeInflightRef.current === banId) {
+          checkDeeplinkResumeInflightRef.current = null;
+        }
+      }
+    },
+    [
+      auth.token,
+      auth.user?.id,
+      openCheckDeepLinkDirect,
+      resolvePendingCheckDeepLinkBanId,
     ],
   );
 
@@ -5568,19 +5651,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   useLayoutEffect(() => {
-    const banId = checkDeeplinkPendingBanIdRef.current?.trim() ?? '';
-    if (!banId) return;
-    const viewerId = auth.user?.id?.trim() ?? '';
-    if (!viewerId || auth.loading || !auth.token) {
-      logCheckDeeplinkAuthWait({ banId });
-      return;
-    }
-    void openCheckDeepLinkDirect(
-      banId,
-      bufferedCheckDeepLinkRef.current,
-      'check-deeplink-auth-ready',
-    );
-  }, [auth.loading, auth.token, auth.user?.id, openCheckDeepLinkDirect]);
+    void resumeCheckDeepLinkAfterAuth('check-deeplink-auth-layout');
+  }, [auth.token, auth.user?.id, resumeCheckDeepLinkAfterAuth]);
+
+  useEffect(() => {
+    void resumeCheckDeepLinkAfterAuth('check-deeplink-auth-effect');
+  }, [auth.token, auth.user?.id, resumeCheckDeepLinkAfterAuth]);
 
   const clearDeepLinkRepeatBan = useCallback(() => {
     setDeepLinkRepeatBan(null);
