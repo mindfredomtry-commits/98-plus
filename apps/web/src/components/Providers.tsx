@@ -548,6 +548,10 @@ interface AppContextValue {
   drainNextNotificationAfterSuccess: (
     successBanId?: string | null,
   ) => Promise<boolean>;
+  /** Merge primed pending chain into overlay queue before success-exit unlock. */
+  preparePrimedFirstNotificationForSuccessExit: () => boolean;
+  /** Show already-primed first notification synchronously on success-exit click. */
+  tryShowPrimedFirstNotificationAfterSuccessExitSync: (source: string) => boolean;
   /** Reply deeplink: resolve accepted parent active ban synchronously after success. */
   resolveReplyParentActiveBanImmediate: () => BanInteraction | null;
   /** Reply deeplink: await in-flight accept then short fallback fetch if ref still empty. */
@@ -677,6 +681,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     cause: string;
   } | null>(null);
   const pendingStartupInteractionsRef = useRef<QueuedOverlay[]>([]);
+  const successOverlayPrimeInFlightRef = useRef(false);
+  const successOverlayPrimeReadyRef = useRef(false);
+  const primeFirstNotificationWhileSuccessMountedRef = useRef<
+    () => Promise<boolean>
+  >(async () => false);
   const notificationSessionActiveForDebugRef = useRef(false);
   const hasPendingNotificationChainFnRef = useRef<() => boolean>(() => false);
   const startupInteractionsHoldRef = useRef(true);
@@ -1221,8 +1230,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId: sendSuccessCardBanIdRef.current,
           source: opts?.source ?? null,
         });
+        void primeFirstNotificationWhileSuccessMountedRef.current();
         return;
       }
+      successOverlayPrimeInFlightRef.current = false;
+      successOverlayPrimeReadyRef.current = false;
       traceSuccessHide(opts?.source ?? 'setSendSuccessCardMounted-false', {
         banId: sendSuccessCardBanIdRef.current,
       });
@@ -3563,6 +3575,87 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [isResultBlockedForNotificationChain, syncPendingStartupCount],
   );
+
+  const primeFirstNotificationWhileSuccessMounted = useCallback(
+    async (): Promise<boolean> => {
+      if (!sendSuccessCardActiveRef.current) return false;
+      if (successOverlayPrimeInFlightRef.current) return false;
+      if (
+        pendingStartupInteractionsRef.current.length > 0 ||
+        overlayQueueRef.current.length > 0
+      ) {
+        console.log('[success-overlay-prime-skip]', {
+          reason: 'already-prepared',
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+        successOverlayPrimeReadyRef.current = true;
+        return true;
+      }
+
+      successOverlayPrimeInFlightRef.current = true;
+      const banId = sendSuccessCardBanIdRef.current;
+      console.log('[success-overlay-prime-start]', { banId });
+      window.__debug98log?.('[success-overlay-prime-start]', {
+        banId,
+        queueLen: overlayQueueRef.current.length,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+      });
+
+      try {
+        const ok = await prefetchPendingNotificationChain(
+          null,
+          'success-overlay-prime',
+        );
+        if (!sendSuccessCardActiveRef.current) return false;
+        if (ok) {
+          const pendingLen = pendingStartupInteractionsRef.current.length;
+          const queueLen = overlayQueueRef.current.length;
+          const startupIds = pendingStartupInteractionsRef.current.map(
+            overlayQueueItemId,
+          );
+          console.log('[pending-chain-prefetch-success]', {
+            banId,
+            queueLen,
+            pendingLen,
+            startupIds,
+          });
+          window.__debug98log?.('[pending-chain-prefetch-success]', {
+            banId,
+            queueLen,
+            pendingLen,
+            startupIds,
+          });
+          console.log('[pending-chain-enqueue-ready]', {
+            banId,
+            pendingLen,
+            startupIds,
+          });
+          window.__debug98log?.('[pending-chain-enqueue-ready]', {
+            banId,
+            pendingLen,
+            startupIds,
+          });
+          successOverlayPrimeReadyRef.current = true;
+        }
+        return ok;
+      } finally {
+        successOverlayPrimeInFlightRef.current = false;
+      }
+    },
+    [prefetchPendingNotificationChain, overlayQueueItemId],
+  );
+  primeFirstNotificationWhileSuccessMountedRef.current =
+    primeFirstNotificationWhileSuccessMounted;
+
+  useEffect(() => {
+    if (!sendSuccessCardActive) {
+      successOverlayPrimeInFlightRef.current = false;
+      successOverlayPrimeReadyRef.current = false;
+      return;
+    }
+    void primeFirstNotificationWhileSuccessMounted();
+  }, [sendSuccessCardActive, primeFirstNotificationWhileSuccessMounted]);
 
   const primePendingChainAfterResultAck = useCallback(
     async (consumedBanId: string | null, source: string): Promise<boolean> => {
@@ -8989,6 +9082,76 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ],
   );
 
+  const preparePrimedFirstNotificationForSuccessExit = useCallback((): boolean => {
+    if (overlayQueueRef.current.length > 0) return true;
+    if (pendingStartupInteractionsRef.current.length === 0) return false;
+    const merged = mergeStartupIntoOverlayQueueOnly(
+      'success-exit-primed-pre-release',
+    );
+    return merged > 0 || overlayQueueRef.current.length > 0;
+  }, [mergeStartupIntoOverlayQueueOnly]);
+
+  const tryShowPrimedFirstNotificationAfterSuccessExitSync = useCallback(
+    (source: string): boolean => {
+      if (
+        blocksMountedNotificationOverlay(
+          `tryShowPrimedFirstNotificationAfterSuccessExitSync:${source}`,
+          null,
+          null,
+        )
+      ) {
+        return false;
+      }
+
+      if (
+        overlayQueueRef.current.length === 0 &&
+        pendingStartupInteractionsRef.current.length === 0
+      ) {
+        return false;
+      }
+
+      setNotificationChainTransitioning(true);
+
+      if (pendingStartupInteractionsRef.current.length > 0) {
+        mergeStartupIntoOverlayQueueOnly(`${source}-merge`);
+      }
+
+      if (
+        overlayQueueRef.current.length === 0 &&
+        pendingStartupInteractionsRef.current.length === 0
+      ) {
+        return false;
+      }
+
+      const shown = showNextNotificationFromChainSync(source);
+      if (!shown) {
+        setNotificationChainTransitioning(false);
+        return false;
+      }
+
+      const head = overlayQueueRef.current[0] ?? null;
+      const nextKind = head?.kind ?? null;
+      const nextBanId =
+        head?.kind === 'result'
+          ? head.result.id
+          : head?.kind === 'incoming' || head?.kind === 'check'
+            ? head.ban.id
+            : null;
+      logFirstNotificationSelected({
+        kind: nextKind,
+        banId: nextBanId,
+        source,
+      });
+      return true;
+    },
+    [
+      blocksMountedNotificationOverlay,
+      mergeStartupIntoOverlayQueueOnly,
+      setNotificationChainTransitioning,
+      showNextNotificationFromChainSync,
+    ],
+  );
+
   const releaseNotificationQueueAfterReplyParentActive = useCallback(() => {
     const hadPriority = replyParentActivePriorityActiveRef.current;
     console.log('[active-timer-user-close]', {
@@ -11591,6 +11754,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       armActiveBanDeepLinkEarly,
       unlockNotificationQueueAndFlush,
       drainNextNotificationAfterSuccess,
+      preparePrimedFirstNotificationForSuccessExit,
+      tryShowPrimedFirstNotificationAfterSuccessExitSync,
       resolveReplyParentActiveBanImmediate,
       ensureReplyParentActiveBanForSuccess,
       refreshReplyParentActiveBanInBackground,
@@ -11755,6 +11920,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       armActiveBanDeepLinkEarly,
       unlockNotificationQueueAndFlush,
       drainNextNotificationAfterSuccess,
+      preparePrimedFirstNotificationForSuccessExit,
+      tryShowPrimedFirstNotificationAfterSuccessExitSync,
       resolveReplyParentActiveBanImmediate,
       ensureReplyParentActiveBanForSuccess,
       refreshReplyParentActiveBanInBackground,

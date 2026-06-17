@@ -336,6 +336,7 @@ export function InstantBanFlow({
     releaseStartupInteractions,
     unlockNotificationQueueAndFlush,
     drainNextNotificationAfterSuccess,
+    tryShowPrimedFirstNotificationAfterSuccessExitSync,
     markSessionBanSendSuccess,
     setSendSuccessCardMounted,
     resolveReplyParentActiveBanImmediate,
@@ -2215,6 +2216,10 @@ export function InstantBanFlow({
         pendingStartupInteractions,
         notificationOverlayVisible,
       });
+      const primedShown =
+        tryShowPrimedFirstNotificationAfterSuccessExitSync(
+          'success-exit-primed-pre-release',
+        );
       releaseStartupInteractions({ force: true });
       logOverlayPriority('send-success-unlock', {});
       unlockNotificationQueueAndFlush('send-success-unlock');
@@ -2273,7 +2278,7 @@ export function InstantBanFlow({
       })();
 
       const drained = await drainNextNotificationAfterSuccess(banId);
-      if (drained) {
+      if (drained || primedShown) {
         console.log('[success-exit-drain-success]', {
           banId,
           notificationOverlayVisible,
@@ -2321,6 +2326,7 @@ export function InstantBanFlow({
       releaseStartupInteractions,
       setBansReturnToLobbyLatch,
       setNotificationChainTransitioning,
+      tryShowPrimedFirstNotificationAfterSuccessExitSync,
       unlockNotificationQueueAndFlush,
     ],
   );
