@@ -666,11 +666,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const activeOverlayLockRef = useRef<string | null>(null);
   const overlayQueueDrainActiveRef = useRef(false);
   const notificationChainTransitioningRef = useRef(false);
+  const chainLookaheadInflightRef = useRef<Map<string, Promise<boolean>>>(
+    new Map(),
+  );
+  const runChainLookaheadPrefetchRef = useRef<
+    (skipBanId: string | null, source: string) => void
+  >(() => {});
+  const chainAdvanceWaitingRef = useRef(false);
+  const goToBansAdvancePendingRef = useRef(false);
   const showNextNotificationFromChainSyncRef = useRef<
     (source: string) => boolean
   >(() => false);
   const [notificationChainTransitioning, setNotificationChainTransitioningState] =
     useState(false);
+  const [chainAdvanceWaiting, setChainAdvanceWaitingState] = useState(false);
+  const [chainAdvancePlaceholderKind, setChainAdvancePlaceholderKind] = useState<
+    'incoming' | 'check' | 'result' | null
+  >(null);
+  const setChainAdvanceWaiting = useCallback((active: boolean) => {
+    chainAdvanceWaitingRef.current = active;
+    setChainAdvanceWaitingState(active);
+    if (!active) {
+      setChainAdvancePlaceholderKind(null);
+    }
+  }, []);
   const overlayActionTsRef = useRef<number | null>(null);
   const overlayHandoffTsRef = useRef<number | null>(null);
   const [overlayHandoffDebug, setOverlayHandoffDebug] = useState<{
@@ -1810,12 +1829,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           kind: 'incoming',
           banId: nextIncoming.id,
         });
+        runChainLookaheadPrefetchRef.current(
+          nextIncoming.id,
+          'incoming-overlay-prime',
+        );
       }
       if (nextCheck) {
         logTransitionFromRefs('[OVERLAY STATE SET]', {
           kind: 'check',
           banId: nextCheck.id,
         });
+        runChainLookaheadPrefetchRef.current(
+          nextCheck.id,
+          'check-overlay-prime',
+        );
       }
     }
 
@@ -1992,7 +2019,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             hasResult: true,
           },
         });
-        void prefetchPendingNotificationChain(
+        runChainLookaheadPrefetchRef.current(
           active.result.id,
           'result-overlay-prime',
         );
@@ -2316,8 +2343,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const delayFromAction = overlayDelayMs(overlayActionTsRef.current);
       const delayFromHandoff = overlayDelayMs(overlayHandoffTsRef.current);
       logTransitionFromRefs('[CARD MOUNTED]', { kind, banId, buttonsReady });
+      if (goToBansAdvancePendingRef.current) {
+        goToBansAdvancePendingRef.current = false;
+        setChainAdvanceWaiting(false);
+        window.__debug98log?.('[GO TO BANS NEXT MOUNTED]', { kind, banId });
+        console.log('[GO TO BANS NEXT MOUNTED]', { kind, banId });
+      }
       if (isSuccessExitInstrumentationActive()) {
         logFirstNotificationMounted({ kind, banId });
+      }
+      if (
+        notificationChainAwaitingUserRef.current ||
+        notificationChainHandoffRef.current
+      ) {
+        runChainLookaheadPrefetchRef.current(banId, `overlay-mounted:${kind}`);
       }
       console.log('[OVERLAY NEXT RENDERED]', {
         ts,
@@ -3572,6 +3611,56 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [isResultBlockedForNotificationChain, syncPendingStartupCount],
   );
+
+  const runChainLookaheadPrefetch = useCallback(
+    (skipBanId: string | null, source: string): void => {
+      const key = skipBanId?.trim() || '__none__';
+      const alreadyHasNext =
+        overlayQueueRef.current.length > 1 ||
+        pendingStartupInteractionsRef.current.length > 0;
+      if (alreadyHasNext) {
+        window.__debug98log?.('[CHAIN LOOKAHEAD READY]', {
+          source,
+          skipBanId,
+          reason: 'already-queued',
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+        return;
+      }
+      if (chainLookaheadInflightRef.current.has(key)) return;
+
+      window.__debug98log?.('[CHAIN LOOKAHEAD START]', { source, skipBanId });
+      console.log('[CHAIN LOOKAHEAD START]', { source, skipBanId });
+
+      const task = (async () => {
+        const prefetched = await prefetchPendingNotificationChain(
+          skipBanId || null,
+          source,
+        );
+        window.__debug98log?.('[CHAIN LOOKAHEAD READY]', {
+          source,
+          skipBanId,
+          prefetched,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+        console.log('[CHAIN LOOKAHEAD READY]', {
+          source,
+          skipBanId,
+          prefetched,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+        return prefetched;
+      })().finally(() => {
+        chainLookaheadInflightRef.current.delete(key);
+      });
+
+      chainLookaheadInflightRef.current.set(key, task);
+    },
+    [prefetchPendingNotificationChain],
+  );
+  runChainLookaheadPrefetchRef.current = runChainLookaheadPrefetch;
 
   const primePendingChainAfterResultAck = useCallback(
     async (consumedBanId: string | null, source: string): Promise<boolean> => {
@@ -9219,92 +9308,136 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
     const chainSource = wasDirect ? 'overboard-status-direct' : 'status-cta';
 
-    void (async () => {
-      setNotificationChainTransitioning(true);
+    const lookaheadReady =
+      overlayQueueRef.current.length > 1 ||
+      pendingStartupInteractionsRef.current.length > 0;
 
-      if (banId) {
-        await primePendingChainAfterResultAck(
-          banId,
-          `${chainSource}-before-consume`,
-        );
-        if (statusCtaNavigateGenerationRef.current !== generation) return;
-
-        flushSync(() => {
-          finalizeResultForGoToBans(banId);
-        });
-      } else if (wasDirect) {
-        flushSync(() => {
-          cancelResultPollBurst();
-          applyDirectOverboardCloseState(null);
-        });
-      }
-
-      const afterConsume = {
-        overlayLen: overlayQueueRef.current.length,
-        startupLen: pendingStartupInteractionsRef.current.length,
-        overlayIds: overlayQueueRef.current.map(overlayQueueItemId),
-        startupIds:
-          pendingStartupInteractionsRef.current.map(overlayQueueItemId),
-      };
-      if (
-        beforeConsume.overlayIds.some((id) => id.startsWith('result:')) &&
-        !afterConsume.overlayIds.some((id) => id.startsWith('result:')) &&
-        beforeConsume.startupIds.join(',') === afterConsume.startupIds.join(',')
-      ) {
-        console.log('[notification-chain-queue-lost]', {
-          source: 'status-cta',
-          beforeIds: {
-            overlay: beforeConsume.overlayIds,
-            startup: beforeConsume.startupIds,
-          },
-          afterIds: {
-            overlay: afterConsume.overlayIds,
-            startup: afterConsume.startupIds,
-          },
-        });
-      }
-
-      const queueHead = overlayQueueRef.current[0] ?? null;
-      const queueHeadKind = queueHead?.kind ?? null;
-      const queueHeadBanId =
-        queueHead?.kind === 'result'
-          ? queueHead.result.id
-          : queueHead?.kind === 'incoming' || queueHead?.kind === 'check'
-            ? queueHead.ban.id
-            : null;
-      console.log('[go-to-bans-queue-check]', {
-        chainSource,
-        queueLen: overlayQueueRef.current.length,
-        startupLen: pendingStartupInteractionsRef.current.length,
-        queueHeadKind,
-        queueHeadBanId,
+    window.__debug98log?.('[GO TO BANS CLICK]', {
+      source: 'result-status',
+      banId,
+      wasDirect,
+      lookaheadReady,
+      queueLen: beforeConsume.overlayLen,
+      pendingLen: beforeConsume.startupLen,
+    });
+    goToBansAdvancePendingRef.current = true;
+    const placeholderKind: 'incoming' | 'check' | 'result' = checkBanRef.current
+      ? 'check'
+      : incomingBanRef.current
+        ? 'incoming'
+        : 'result';
+    if (lookaheadReady) {
+      window.__debug98log?.('[GO TO BANS NEXT READY]', {
+        banId,
+        queueLen: beforeConsume.overlayLen,
+        pendingLen: beforeConsume.startupLen,
       });
+    } else {
+      window.__debug98log?.('[GO TO BANS NEXT WAITING]', { banId });
+      setChainAdvancePlaceholderKind(placeholderKind);
+      setChainAdvanceWaiting(true);
+    }
 
-      clearNotificationChainReturnLatch('navigateFromResult');
+    setNotificationChainTransitioning(true);
 
-      if (showNextNotificationFromChainSync(chainSource)) {
-        console.log('[go-to-bans-show-next-overlay]', {
-          source: 'primed-after-consume',
-          chainSource,
-        });
+    if (banId) {
+      flushSync(() => {
+        finalizeResultForGoToBans(banId);
+      });
+    } else if (wasDirect) {
+      flushSync(() => {
+        cancelResultPollBurst();
+        applyDirectOverboardCloseState(null);
+      });
+    }
+
+    const afterConsume = {
+      overlayLen: overlayQueueRef.current.length,
+      startupLen: pendingStartupInteractionsRef.current.length,
+      overlayIds: overlayQueueRef.current.map(overlayQueueItemId),
+      startupIds:
+        pendingStartupInteractionsRef.current.map(overlayQueueItemId),
+    };
+    if (
+      beforeConsume.overlayIds.some((id) => id.startsWith('result:')) &&
+      !afterConsume.overlayIds.some((id) => id.startsWith('result:')) &&
+      beforeConsume.startupIds.join(',') === afterConsume.startupIds.join(',')
+    ) {
+      console.log('[notification-chain-queue-lost]', {
+        source: 'status-cta',
+        beforeIds: {
+          overlay: beforeConsume.overlayIds,
+          startup: beforeConsume.startupIds,
+        },
+        afterIds: {
+          overlay: afterConsume.overlayIds,
+          startup: afterConsume.startupIds,
+        },
+      });
+    }
+
+    const queueHead = overlayQueueRef.current[0] ?? null;
+    const queueHeadKind = queueHead?.kind ?? null;
+    const queueHeadBanId =
+      queueHead?.kind === 'result'
+        ? queueHead.result.id
+        : queueHead?.kind === 'incoming' || queueHead?.kind === 'check'
+          ? queueHead.ban.id
+          : null;
+    console.log('[go-to-bans-queue-check]', {
+      chainSource,
+      queueLen: overlayQueueRef.current.length,
+      startupLen: pendingStartupInteractionsRef.current.length,
+      queueHeadKind,
+      queueHeadBanId,
+    });
+
+    clearNotificationChainReturnLatch('navigateFromResult');
+
+    if (showNextNotificationFromChainSync(chainSource)) {
+      setChainAdvanceWaiting(false);
+      goToBansAdvancePendingRef.current = false;
+      console.log('[go-to-bans-show-next-overlay]', {
+        source: 'primed-after-consume',
+        chainSource,
+      });
+      return;
+    }
+
+    void (async () => {
+      if (!lookaheadReady) {
+        await prefetchPendingNotificationChain(
+          banId,
+          `${chainSource}-after-consume`,
+        );
+      }
+      if (statusCtaNavigateGenerationRef.current !== generation) return;
+
+      if (showNextNotificationFromChainSync('status-cta-after-prefetch')) {
+        setChainAdvanceWaiting(false);
+        goToBansAdvancePendingRef.current = false;
         return;
       }
-
-      if (statusCtaNavigateGenerationRef.current !== generation) return;
 
       if (hasPendingNotificationChain()) {
         console.log('[chain-debug-final-lobby-blocked]', {
           source: 'status-cta-after-consume',
-          reason: 'chain-active-after-prime',
+          reason: 'chain-active-after-prefetch',
           ...getNotificationChainDebugSnapshot(),
         });
-        if (showNextNotificationFromChainSync('status-cta-after-prime')) {
+        if (showNextNotificationFromChainSync('status-cta-after-prefetch-retry')) {
+          setChainAdvanceWaiting(false);
+          goToBansAdvancePendingRef.current = false;
           return;
         }
         syncDisplayFromQueue(overlayQueueRef.current);
+        setChainAdvanceWaiting(false);
+        goToBansAdvancePendingRef.current = false;
         return;
       }
 
+      setChainAdvanceWaiting(false);
+      goToBansAdvancePendingRef.current = false;
       setNotificationChainTransitioning(false);
 
       console.log('[notification-chain-open-bans-final]', {
@@ -9347,8 +9480,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     logCardCloseClick,
     markOverlayUserAction,
     overlayQueueItemId,
-    primePendingChainAfterResultAck,
+    prefetchPendingNotificationChain,
     result?.id,
+    setChainAdvanceWaiting,
     setNotificationChainTransitioning,
     showNextNotificationFromChainSync,
     syncDisplayFromQueue,
@@ -10752,6 +10886,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const notificationQueueShellKind = useMemo(() => {
     if (composeBlocksNotificationHost) return null;
+    if (chainAdvanceWaiting && chainAdvancePlaceholderKind) {
+      return chainAdvancePlaceholderKind;
+    }
     if (!incomingNotificationShellKind) return null;
     if (
       incomingNotificationShellKind === 'incoming' &&
@@ -10761,6 +10898,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
     return incomingNotificationShellKind;
   }, [
+    chainAdvancePlaceholderKind,
+    chainAdvanceWaiting,
     composeBlocksNotificationHost,
     incomingNotificationShellKind,
     replyIncomingDirectPath,
@@ -11210,6 +11349,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const notificationOverlayVisible = useMemo(() => {
     if (composeBlocksNotificationHost) return false;
     if (sendSuccessCardActive) return false;
+    if (chainAdvanceWaiting) return true;
     if (notificationChainTransitioning) return true;
     if (showDirectOverboardLayer) return true;
     if (checkOverlayMounted) return true;
@@ -11227,6 +11367,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
     return false;
   }, [
+    chainAdvanceWaiting,
     checkBan?.id,
     checkOverlayMounted,
     composeBlocksNotificationHost,
@@ -11858,6 +11999,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 displayBanId={incomingCardDisplayBan?.id ?? null}
                 incomingCardReady={incomingCardFullyReady}
                 sessionActive={notificationHostSessionBackdrop}
+                advanceWaiting={chainAdvanceWaiting}
                 contentKey={
                   overlayQueue[0]
                     ? overlayQueueKey(overlayQueue[0])

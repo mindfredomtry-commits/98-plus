@@ -1109,6 +1109,13 @@ html.scroll-lock body {
   width: 100%;
 }
 
+.notification-queue-shell__advance-wait {
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  font-size: 0.95rem;
+  opacity: 0.75;
+}
+
 .modal-avatars {
   display: flex;
   align-items: center;

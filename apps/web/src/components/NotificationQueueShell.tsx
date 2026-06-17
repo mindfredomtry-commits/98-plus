@@ -26,6 +26,8 @@ type Props = {
   /** Incoming card display ban id — debug + incoming guard. */
   displayBanId?: string | null;
   incomingCardReady?: boolean;
+  /** Waiting for next chain card after «К запретам». */
+  advanceWaiting?: boolean;
 };
 
 function hasRenderableChildren(children: ReactNode): boolean {
@@ -42,6 +44,7 @@ export function NotificationQueueShell({
   children,
   displayBanId = null,
   incomingCardReady = false,
+  advanceWaiting = false,
 }: Props) {
   const hasContent = hasRenderableChildren(children);
 
@@ -102,16 +105,36 @@ export function NotificationQueueShell({
 
   if (!kind) return null;
 
-  if (kind === 'incoming' && !incomingCardReady) {
+  if (kind === 'incoming' && !incomingCardReady && !advanceWaiting) {
     return null;
   }
 
-  if (!hasContent) {
+  if (!hasContent && !advanceWaiting) {
     return null;
   }
 
   const handoff = sessionActive;
   const shellKind = kind ?? 'incoming';
+
+  if (advanceWaiting && !hasContent) {
+    return (
+      <ModalShell
+        open
+        light
+        stable
+        handoff={handoff}
+        zIndex={APP_NOTIFICATION_Z_INDEX}
+        closeOnBackdrop={false}
+        ariaLabel={ARIA[shellKind]}
+        onClose={() => {}}
+        cardClassName={`${CARD_CLASS[shellKind]} modal-card--handoff`}
+      >
+        <div className="notification-queue-shell__advance-wait">
+          Следующий запрет…
+        </div>
+      </ModalShell>
+    );
+  }
 
   return (
     <ModalShell
