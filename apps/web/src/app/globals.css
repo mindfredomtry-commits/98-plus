@@ -1031,25 +1031,41 @@ html[data-check-direct] .app-page .bottom-nav {
 }
 
 .app-notification-layer__content {
-  position: relative;
+  position: fixed;
+  inset: 0;
   z-index: 2;
   width: 100%;
   height: 100%;
+  min-height: 100dvh;
   pointer-events: none;
   isolation: isolate;
+  box-sizing: border-box;
 }
 
-.app-notification-layer__content--card-host {
+.app-notification-layer__content--card-host,
+.overlay-card-portal-host {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1.25rem;
-  padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  padding-top: max(1.25rem, env(safe-area-inset-top, 0px));
+  padding-right: 1.25rem;
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));
+  padding-left: 1.25rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
-.app-notification-layer__content--card-host > .modal-card {
+.app-notification-layer__content--card-host > .modal-card,
+.overlay-card-portal-host > .modal-card {
   pointer-events: auto;
   flex-shrink: 0;
+  margin: auto;
+  width: 100%;
+  max-height: calc(
+    100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) -
+      2.5rem
+  );
   filter: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -1076,18 +1092,11 @@ html[data-check-direct] .app-page .bottom-nav {
   pointer-events: none;
 }
 
-.check-direct-card {
+.overlay-card-portal-host {
   position: fixed;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: calc(100% - 2.5rem);
-  max-width: 22rem;
-  max-height: min(88dvh, 640px);
-  pointer-events: auto;
-  filter: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  inset: 0;
+  pointer-events: none;
+  box-sizing: border-box;
 }
 
 .app-notification-layer--session .app-notification-layer__content--card-host {

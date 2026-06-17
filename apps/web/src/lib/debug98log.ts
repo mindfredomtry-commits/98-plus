@@ -164,6 +164,8 @@ const ALLOWED_EVENTS = new Set([
   '[OVERLAY HIT TEST TARGET]',
   '[OVERLAY HIT TEST PATH]',
   '[OVERLAY HIT BLOCKER FOUND]',
+  '[OVERLAY CARD LAYOUT OK]',
+  '[OVERLAY CARD CLIPPED BUG]',
 ]);
 
 export type Debug98LatchSnapshot = {

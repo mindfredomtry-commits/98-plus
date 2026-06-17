@@ -30,6 +30,7 @@ import { AvatarImage } from './AvatarImage';
 import { useTelegram } from '@/hooks/useTelegram';
 import { ModalShell } from './ModalShell';
 import { APP_NOTIFICATION_BACKDROP_Z_INDEX, APP_NOTIFICATION_CARD_Z_INDEX } from '@/lib/overlay-queue';
+import { verifyOverlayCardLayout } from '@/lib/overlay-card-layout-debug';
 import { installOverlayHitTestProbe } from '@/lib/overlay-hit-test-debug';
 import { shouldBlockOverlayUserTap } from '@/lib/overlay-input-guard';
 import {
@@ -481,8 +482,13 @@ function IncomingBanOverlayInner({
       activeIncomingBan.id,
       'incoming',
     );
+    verifyOverlayCardLayout(cardEl instanceof HTMLElement ? cardEl : null, {
+      banId: activeIncomingBan.id,
+      kind: replyDirect ? 'incoming-reply-direct' : 'incoming-queue',
+    });
   }, [
     activeIncomingBan?.id,
+    replyDirect,
     shouldShow,
     verifyPhase,
     buttonsEnabled,
@@ -722,16 +728,20 @@ function IncomingBanOverlayInner({
         )}
         {createPortal(
           <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Входящий запрет"
-            data-overlay-user-card=""
-            data-notification-layer=""
-            className="modal-card modal-card--incoming modal-card--session-hosted modal-card--handoff check-direct-card"
+            className="overlay-card-portal-host"
             style={{ zIndex: APP_NOTIFICATION_CARD_Z_INDEX }}
-            onClick={(e) => e.stopPropagation()}
           >
-            {body}
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Входящий запрет"
+              data-overlay-user-card=""
+              data-notification-layer=""
+              className="modal-card modal-card--incoming modal-card--session-hosted modal-card--handoff"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {body}
+            </div>
           </div>,
           document.body,
         )}

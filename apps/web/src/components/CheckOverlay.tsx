@@ -307,17 +307,21 @@ function CheckOverlayInner({
         )}
         {createPortal(
           <div
-            ref={directCardRef}
-            role="dialog"
-            aria-modal="true"
-            aria-label={modalView.title}
-            data-overlay-user-card=""
-            data-notification-layer=""
-            className="modal-card modal-card--check modal-card--session-hosted modal-card--handoff check-direct-card"
+            className="overlay-card-portal-host"
             style={{ zIndex: cardZ }}
-            onClick={(e) => e.stopPropagation()}
           >
-            {body}
+            <div
+              ref={directCardRef}
+              role="dialog"
+              aria-modal="true"
+              aria-label={modalView.title}
+              data-overlay-user-card=""
+              data-notification-layer=""
+              className="modal-card modal-card--check modal-card--session-hosted modal-card--handoff"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {body}
+            </div>
           </div>,
           document.body,
         )}
