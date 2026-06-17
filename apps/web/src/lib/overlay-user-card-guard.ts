@@ -1,14 +1,24 @@
 'use client';
 
+import type { BanInteraction, BanResult } from '@98plus/shared';
 import type { QueuedOverlay } from '@/lib/overlay-queue';
 import { normalizeId } from '@/lib/normalize-json';
 
 export type BlockingUserOverlayKind = 'incoming' | 'check' | 'result';
 
+export type HeldUserCardOverlay =
+  | { kind: 'incoming'; ban: BanInteraction }
+  | { kind: 'check'; ban: BanInteraction }
+  | { kind: 'result'; result: BanResult };
+
 export type ActiveBlockingUserOverlay = {
   kind: BlockingUserOverlayKind;
   banId: string;
 };
+
+export function heldUserCardBanId(held: HeldUserCardOverlay): string {
+  return held.kind === 'result' ? held.result.id : held.ban.id;
+}
 
 export function isBlockingUserOverlayKind(
   kind: string | null | undefined,
@@ -53,6 +63,15 @@ export function shouldBlockChainAdvanceOverActiveUserCard(
   return isBlockingUserOverlayKind(active.kind);
 }
 
+/** Block clearing mounted overlay while user card awaits action. */
+export function shouldBlockOverlayClearWhileUserCardHeld(
+  active: ActiveBlockingUserOverlay | null,
+  opts?: { explicitUserAction?: boolean },
+): boolean {
+  if (!active || opts?.explicitUserAction) return false;
+  return isBlockingUserOverlayKind(active.kind);
+}
+
 export function logActiveUserCardHold(data: Record<string, unknown>): void {
   window.__debug98log?.('[ACTIVE USER CARD HOLD]', data);
 }
@@ -71,4 +90,38 @@ export function logChainLookaheadOnlyActiveUserCard(
 
 export function logIncomingReplacedBug(data: Record<string, unknown>): void {
   window.__debug98log?.('[INCOMING REPLACED BUG]', data);
+}
+
+export function logActiveUserCardPreserveCurrent(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[ACTIVE USER CARD PRESERVE CURRENT]', data);
+}
+
+export function logActiveUserCardBlockedNextButKeptCurrent(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[ACTIVE USER CARD BLOCKED NEXT BUT KEPT CURRENT]', data);
+}
+
+export function logActiveUserCardLostBug(data: Record<string, unknown>): void {
+  window.__debug98log?.('[ACTIVE USER CARD LOST BUG]', data);
+}
+
+export function logActiveUserCardPreventLobbyFallback(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[ACTIVE USER CARD PREVENT LOBBY FALLBACK]', data);
+}
+
+export function logActiveUserCardPreventOverlayClear(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[ACTIVE USER CARD PREVENT OVERLAY CLEAR]', data);
+}
+
+export function logTransitionDelaySkippedActiveUserCard(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[TRANSITION DELAY SKIPPED ACTIVE USER CARD]', data);
 }
