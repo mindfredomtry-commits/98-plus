@@ -1020,6 +1020,27 @@ html[data-check-direct] .app-page--check-overlay-active .bottom-nav {
   width: 100%;
   height: 100%;
   pointer-events: none;
+  isolation: isolate;
+}
+
+.app-notification-layer__content--card-host {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+}
+
+.app-notification-layer__content--card-host > .modal-card {
+  pointer-events: auto;
+  flex-shrink: 0;
+  filter: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.app-notification-layer--check-direct .app-notification-layer__session-backdrop {
+  pointer-events: none;
 }
 
 .app-notification-layer__content > * {
@@ -1130,6 +1151,20 @@ html[data-check-direct] .app-page--check-overlay-active .bottom-nav {
 
 .modal-backdrop--handoff {
   background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.app-notification-layer__content .modal-backdrop--handoff {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.modal-card--session-hosted {
+  position: relative;
+  z-index: 1;
+  filter: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }

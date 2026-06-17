@@ -36,6 +36,7 @@ import { acquireScrollLock, releaseScrollLock } from '@/lib/scroll-lock';
 import {
   logCheckCardMounted,
   logCheckCardTopLayerOk,
+  verifyCheckSessionBackdropLayers,
 } from '@/lib/check-deeplink-startup-debug';
 
 interface Props {
@@ -65,6 +66,7 @@ function CheckOverlayInner({
   const { haptic } = useTelegram();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
+  const directLayerRef = useRef<HTMLDivElement>(null);
 
   const modalView = useMemo(() => {
     if (!checkBan) return null;
@@ -174,6 +176,7 @@ function CheckOverlayInner({
     if (checkDirect) {
       logCheckCardMounted({ banId: checkBan.id, source: 'check-direct' });
       logCheckCardTopLayerOk({ banId: checkBan.id, source: 'check-direct-mounted' });
+      verifyCheckSessionBackdropLayers(directLayerRef.current, checkBan.id);
       reportOverlayRendered('check', checkBan.id, true);
       return;
     }
@@ -284,21 +287,21 @@ function CheckOverlayInner({
   if (checkDirect) {
     const directModal = (
       <div
-        className="app-notification-layer app-notification-layer--active app-notification-layer--session"
+        ref={directLayerRef}
+        className="app-notification-layer app-notification-layer--active app-notification-layer--session app-notification-layer--check-direct"
         style={{ zIndex: APP_NOTIFICATION_Z_INDEX }}
+        data-notification-layer=""
       >
         <div className="app-notification-layer__session-backdrop" aria-hidden />
-        <div className="app-notification-layer__content">
+        <div className="app-notification-layer__content app-notification-layer__content--card-host">
           <ModalShell
             open
-            light
+            sessionHosted
             stable
-            handoff
-            zIndex={APP_NOTIFICATION_Z_INDEX}
             closeOnBackdrop={false}
             ariaLabel={modalView.title}
             onClose={() => {}}
-            cardClassName="modal-card--check modal-card--handoff"
+            cardClassName="modal-card--check"
           >
             {body}
           </ModalShell>

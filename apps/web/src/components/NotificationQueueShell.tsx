@@ -124,11 +124,12 @@ export function NotificationQueueShell({
         light
         stable
         handoff={handoff}
+        sessionHosted={sessionActive}
         zIndex={APP_NOTIFICATION_Z_INDEX}
         closeOnBackdrop={false}
         ariaLabel={ARIA[shellKind]}
         onClose={() => {}}
-        cardClassName={`${CARD_CLASS[shellKind]} modal-card--handoff`}
+        cardClassName={CARD_CLASS[shellKind]}
       >
         <div className="notification-queue-shell__advance-wait">
           Следующий запрет…
@@ -143,11 +144,12 @@ export function NotificationQueueShell({
       light
       stable
       handoff={handoff}
+      sessionHosted={sessionActive}
       zIndex={APP_NOTIFICATION_Z_INDEX}
       closeOnBackdrop={false}
       ariaLabel={ARIA[shellKind]}
       onClose={() => {}}
-      cardClassName={`${CARD_CLASS[shellKind]} modal-card--handoff`}
+      cardClassName={CARD_CLASS[shellKind]}
     >
       <div
         key={handoff ? undefined : (contentKey ?? kind)}

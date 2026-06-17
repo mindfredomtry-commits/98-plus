@@ -22,6 +22,8 @@ interface Props {
   stable?: boolean;
   /** Instant swap during notification queue handoff — no enter/exit delay. */
   handoff?: boolean;
+  /** Card only — parent `app-notification-layer` provides session backdrop. */
+  sessionHosted?: boolean;
 }
 
 export function ModalShell({
@@ -35,8 +37,9 @@ export function ModalShell({
   cardClassName = '',
   stable = false,
   handoff = false,
+  sessionHosted = false,
 }: Props) {
-  const instant = stable || handoff;
+  const instant = stable || handoff || sessionHosted;
   const cardTransition = instant
     ? { duration: 0 }
     : light
@@ -62,7 +65,21 @@ export function ModalShell({
       });
     }
     return () => releaseScrollLock();
-  }, [handoff, instant, light, open, stable]);
+  }, [handoff, instant, light, open, sessionHosted, stable]);
+
+  if (sessionHosted && open) {
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={ariaLabel}
+        className={`modal-card modal-card--session-hosted modal-card--handoff${cardClassName ? ` ${cardClassName}` : ''}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    );
+  }
 
   if (handoff && open) {
     return (

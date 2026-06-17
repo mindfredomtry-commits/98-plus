@@ -69,7 +69,13 @@ export function GlobalOverlayHost({
       {queueSessionActive ? (
         <div className="app-notification-layer__session-backdrop" aria-hidden />
       ) : null}
-      <div className="app-notification-layer__content">{children}</div>
+      <div
+        className={`app-notification-layer__content${
+          queueSessionActive ? ' app-notification-layer__content--card-host' : ''
+        }`}
+      >
+        {children}
+      </div>
     </div>,
     document.body,
   );
