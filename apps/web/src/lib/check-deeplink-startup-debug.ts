@@ -125,3 +125,75 @@ export function logCheckDeeplinkLobbyFlashBug(
 ): void {
   logCheckFullLobbyFlashBug(data);
 }
+
+export function logCheckDirectBackdropRendered(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK DIRECT BACKDROP RENDERED]', data);
+}
+
+export function logCheckDirectBackdropUnderCardOk(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK DIRECT BACKDROP UNDER CARD OK]', data);
+}
+
+export function logCheckDirectBackdropMissingBug(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK DIRECT BACKDROP MISSING BUG]', data);
+}
+
+export function logCheckDirectBackdropAboveCardBug(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK DIRECT BACKDROP ABOVE CARD BUG]', data);
+}
+
+export function verifyCheckDirectBackdropLayers(
+  backdropEl: HTMLElement | null,
+  cardEl: HTMLElement | null,
+  banId: string,
+): void {
+  if (!backdropEl || !cardEl) {
+    logCheckDirectBackdropMissingBug({
+      banId,
+      reason: !backdropEl ? 'no-backdrop-el' : 'no-card-el',
+    });
+    return;
+  }
+  logCheckDirectBackdropRendered({ banId });
+  const backdropStyle = window.getComputedStyle(backdropEl);
+  const bg = backdropStyle.backgroundColor;
+  const opacity = Number.parseFloat(backdropStyle.opacity);
+  const backdropVisible =
+    opacity > 0.05 &&
+    bg !== 'transparent' &&
+    bg !== 'rgba(0, 0, 0, 0)';
+  if (!backdropVisible) {
+    logCheckDirectBackdropMissingBug({
+      banId,
+      reason: 'backdrop-not-visible',
+      bg,
+      opacity,
+    });
+    return;
+  }
+  const cardRect = cardEl.getBoundingClientRect();
+  const probeX = cardRect.left + cardRect.width / 2;
+  const probeY = cardRect.top + Math.min(cardRect.height * 0.35, 120);
+  const topEl = document.elementFromPoint(probeX, probeY);
+  const cardOnTop =
+    topEl != null && (cardEl === topEl || cardEl.contains(topEl));
+  if (!cardOnTop) {
+    logCheckDirectBackdropAboveCardBug({
+      banId,
+      probeX,
+      probeY,
+      topTag: topEl?.tagName ?? null,
+      topClass: topEl?.className ?? null,
+    });
+    return;
+  }
+  logCheckDirectBackdropUnderCardOk({ banId });
+}

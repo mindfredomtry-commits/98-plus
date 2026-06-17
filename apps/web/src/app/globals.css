@@ -969,6 +969,31 @@ html[data-check-direct] .app-page--check-overlay-active .bottom-nav {
   pointer-events: none !important;
 }
 
+.check-direct-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
+}
+
+.check-direct-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: rgba(0, 0, 0, 0.78);
+  pointer-events: auto;
+}
+
+.check-direct-card {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+}
+
 /* Global notification layer — incoming / check / result above all app screens */
 .app-notification-layer {
   position: fixed;
