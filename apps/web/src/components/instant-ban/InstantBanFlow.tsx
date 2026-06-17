@@ -41,7 +41,6 @@ import {
   traceSuccessSnapshotCleared,
   traceSuccessStateReset,
 } from '@/lib/success-card-trace';
-import { logOverlayTransition } from '@/lib/overlay-transition-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { logDeepLinkHandlerResult } from '@/lib/deep-link-boot-debug';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
@@ -2582,32 +2581,26 @@ export function InstantBanFlow({
       successExitAwaitingNotificationDrainRef.current = false;
       return;
     }
-    if (!hasPendingNotificationChain() && !notificationSessionActive) {
+
+    const queueLen = overlayQueueLength;
+    const pendingLen = pendingStartupInteractions;
+    const hasPending = hasPendingNotificationChain();
+    const sessionActive = notificationSessionActive;
+
+    if (
+      queueLen === 0 &&
+      pendingLen === 0 &&
+      !hasPending &&
+      !sessionActive
+    ) {
       successExitAwaitingNotificationDrainRef.current = false;
-      beginCtaSpringIn();
-      return;
-    }
-    const t = window.setTimeout(() => {
-      logOverlayTransition('[TRANSITION DELAY USED]', {
-        source: 'success-exit-awaiting-overlay-recover',
-        ms: 200,
-      });
-      if (!successExitAwaitingNotificationDrainRef.current) return;
-      if (notificationOverlayVisible) {
-        successExitAwaitingNotificationDrainRef.current = false;
-        return;
-      }
-      if (hasPendingNotificationChain() || notificationSessionActive) {
-        return;
-      }
       console.log('[success-exit-overlay-lost-recover-lobby]', {
-        queueLen: overlayQueueLength,
-        notificationSessionActive,
+        queueLen,
+        pendingLen,
+        notificationSessionActive: sessionActive,
       });
-      successExitAwaitingNotificationDrainRef.current = false;
       beginCtaSpringIn();
-    }, 200);
-    return () => window.clearTimeout(t);
+    }
   }, [
     beginCtaSpringIn,
     hasPendingNotificationChain,
