@@ -9,7 +9,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 10;
+export const DEBUG98_LOGGER_VERSION = 11;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -93,6 +93,14 @@ const ALLOWED_EVENTS = new Set([
   '[CHECK ANSWER FINAL RESULT SHOW]',
   '[CHECK ANSWER FINAL RESULT MISSING]',
   '[CHECK ANSWER RESULT SKIPPED BUG]',
+  '[RESULT POLL HIT]',
+  '[RESULT POLL ITEM BUILT]',
+  '[RESULT POLL DROP STALE CHECK]',
+  '[RESULT POLL PRIORITY SET]',
+  '[RESULT POLL SHOW RESULT CARD]',
+  '[CHECK PRIME SKIP STALE BECAUSE RESULT EXISTS]',
+  '[RESULT CARD MOUNTED]',
+  '[CHECK CARD MOUNTED BUG]',
 ]);
 
 export type Debug98LatchSnapshot = {

@@ -54,8 +54,11 @@ import {
 } from '@/lib/overlay-timing';
 import {
   enqueueWithActiveLock,
+  buildResultPriorityQueue,
   getActiveOverlayKey,
   hasCheckInQueue,
+  hasStaleCheckOverlayForBan,
+  overlayBanId,
   overlayQueueKey,
   popOverlayHead,
   pruneOverlayQueue,
@@ -214,6 +217,16 @@ import {
   logOverlayActiveCleared,
   logOverlayMarkDismissing,
 } from '@/lib/check-chain-drain-debug';
+import {
+  logCheckCardMountedBug,
+  logCheckPrimeSkipStaleBecauseResultExists,
+  logResultCardMounted,
+  logResultPollDropStaleCheck,
+  logResultPollHit,
+  logResultPollItemBuilt,
+  logResultPollPrioritySet,
+  logResultPollShowResultCard,
+} from '@/lib/result-poll-priority-debug';
 import {
   logReplyCardMounted,
   logReplyCardOverlaySet,
@@ -818,6 +831,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const dismissedIncomingRef = useRef<Set<string>>(new Set());
   const dismissedCheckSessionRef = useRef<Set<string>>(new Set());
   const answeredCheckRef = useRef<Set<string>>(new Set());
+  const resultPriorityBanIdsRef = useRef<Set<string>>(new Set());
   const checkAnswerInFlightRef = useRef<Set<string>>(new Set());
   const resultOpenRef = useRef(false);
   const overboardInFlightRef = useRef<string | null>(null);
@@ -1703,6 +1717,55 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const syncDisplayFromQueue = useCallback((queue: QueuedOverlay[]) => {
+    for (const priorityBanId of [...resultPriorityBanIdsRef.current]) {
+      const norm = normalizeId(priorityBanId);
+      if (!norm) continue;
+      const resultItem = queue.find(
+        (q) => q.kind === 'result' && normalizeId(overlayBanId(q)) === norm,
+      );
+      if (
+        resultItem &&
+        (queue[0]?.kind !== 'result' ||
+          normalizeId(overlayBanId(queue[0])) !== norm)
+      ) {
+        const nextQueue = buildResultPriorityQueue(queue, norm, resultItem);
+        const prevHead = queue[0];
+        const nextHead = nextQueue[0];
+        if (
+          prevHead &&
+          nextHead &&
+          overlayQueueKey(nextHead) !== overlayQueueKey(prevHead)
+        ) {
+          logResultPollDropStaleCheck({
+            banId: norm,
+            source: 'syncDisplayFromQueue',
+          });
+          overlayQueueRef.current = nextQueue;
+          setOverlayQueue(nextQueue);
+          queue = nextQueue;
+        }
+        break;
+      }
+      if (
+        !resultItem &&
+        queue[0]?.kind === 'check' &&
+        normalizeId(queue[0].ban.id) === norm
+      ) {
+        const nextQueue = removeOverlaysForBan(queue, norm, [
+          'check',
+          'incoming',
+        ]);
+        logResultPollDropStaleCheck({
+          banId: norm,
+          source: 'sync-priority-suppress-check',
+        });
+        overlayQueueRef.current = nextQueue;
+        setOverlayQueue(nextQueue);
+        queue = nextQueue;
+        break;
+      }
+    }
+
     const active = queue[0] ?? null;
     const headKind = active?.kind ?? null;
     const headBanId =
@@ -1873,6 +1936,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       let nextCheck = active?.kind === 'check' ? active.ban : null;
       const mountedCheckId = checkBanRef.current?.id?.trim() ?? '';
       if (
+        nextCheck &&
+        resultPriorityBanIdsRef.current.has(normalizeId(nextCheck.id))
+      ) {
+        logCheckPrimeSkipStaleBecauseResultExists({
+          banId: nextCheck.id,
+          source: 'syncDisplayFromQueue',
+        });
+        nextCheck = null;
+      }
+      if (
+        mountedCheckId &&
+        resultPriorityBanIdsRef.current.has(normalizeId(mountedCheckId))
+      ) {
+        checkBanRef.current = null;
+      }
+      if (
         mountedCheckId &&
         !nextCheck &&
         overlayQueueRef.current[0]?.kind === 'check' &&
@@ -1908,10 +1987,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           kind: 'check',
           banId: nextCheck.id,
         });
-        runChainLookaheadPrefetchRef.current(
-          nextCheck.id,
-          'check-overlay-prime',
-        );
+        if (
+          !resultPriorityBanIdsRef.current.has(normalizeId(nextCheck.id))
+        ) {
+          runChainLookaheadPrefetchRef.current(
+            nextCheck.id,
+            'check-overlay-prime',
+          );
+        } else {
+          logCheckPrimeSkipStaleBecauseResultExists({
+            banId: nextCheck.id,
+            source: 'check-overlay-prime',
+          });
+        }
       }
     }
 
@@ -2412,6 +2500,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const delayFromAction = overlayDelayMs(overlayActionTsRef.current);
       const delayFromHandoff = overlayDelayMs(overlayHandoffTsRef.current);
       logTransitionFromRefs('[CARD MOUNTED]', { kind, banId, buttonsReady });
+      if (
+        kind === 'check' &&
+        resultPriorityBanIdsRef.current.has(normalizeId(banId))
+      ) {
+        logCheckCardMountedBug({
+          banId,
+          reason: 'result-priority-active',
+        });
+      }
+      if (kind === 'result') {
+        logResultCardMounted({ banId });
+      }
       if (goToBansAdvancePendingRef.current) {
         goToBansAdvancePendingRef.current = false;
         setChainAdvanceWaiting(false);
@@ -2425,7 +2525,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         notificationChainAwaitingUserRef.current ||
         notificationChainHandoffRef.current
       ) {
-        runChainLookaheadPrefetchRef.current(banId, `overlay-mounted:${kind}`);
+        if (
+          kind === 'check' &&
+          resultPriorityBanIdsRef.current.has(normalizeId(banId))
+        ) {
+          logCheckPrimeSkipStaleBecauseResultExists({
+            banId,
+            source: `overlay-mounted:${kind}`,
+          });
+        } else {
+          runChainLookaheadPrefetchRef.current(banId, `overlay-mounted:${kind}`);
+        }
       }
       console.log('[OVERLAY NEXT RENDERED]', {
         ts,
@@ -2676,6 +2786,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ? normalizeId(normalizedItem.result.id)
           : normalizeId(normalizedItem.ban.id);
       const key = overlayQueueKey(normalizedItem);
+
+      if (
+        normalizedItem.kind === 'check' &&
+        resultPriorityBanIdsRef.current.has(banId)
+      ) {
+        logCheckPrimeSkipStaleBecauseResultExists({
+          banId,
+          source: opts?.source ?? 'enqueueNotification',
+        });
+        return;
+      }
 
       if (
         (normalizedItem.kind === 'check' ||
@@ -3281,6 +3402,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const key = normalizeId(banId);
       if (!key) return;
       const viewerId = userIdRef.current;
+      resultPriorityBanIdsRef.current.delete(key);
       freshOverboardActionBanIdsRef.current.delete(key);
       resultCtaConsumedBanIdsRef.current.add(key);
       resultDeliveredBanIdsRef.current.add(key);
@@ -3646,6 +3768,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         const toEnqueue: QueuedOverlay[] = [];
         const enqueuedIds: string[] = [];
         const skipBanId = deeplinkBanId?.trim() ?? '';
+        const prefetchedResultId = prefetched.result?.id
+          ? normalizeId(prefetched.result.id)
+          : '';
 
         for (const ban of prefetched.incoming) {
           const enriched = enrichBanInteraction(ban);
@@ -3665,17 +3790,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
         if (prefetched.check?.id) {
           const check = enrichBanInteraction(prefetched.check);
-          const picked = pickCheckForOverlay(
-            check,
-            viewerId,
-            dismissedCheckSessionRef.current,
-            answeredCheckRef.current,
-            checkAnswerInFlightRef.current,
-            resultOpenRef.current,
-          );
-          if (picked) {
-            toEnqueue.push({ kind: 'check', ban: picked });
-            enqueuedIds.push(picked.id);
+          const checkId = normalizeId(check.id);
+          if (
+            resultPriorityBanIdsRef.current.has(checkId) ||
+            (prefetchedResultId && checkId === prefetchedResultId)
+          ) {
+            logCheckPrimeSkipStaleBecauseResultExists({
+              banId: checkId,
+              source: 'pending-chain-prefetch',
+            });
+          } else {
+            const picked = pickCheckForOverlay(
+              check,
+              viewerId,
+              dismissedCheckSessionRef.current,
+              answeredCheckRef.current,
+              checkAnswerInFlightRef.current,
+              resultOpenRef.current,
+            );
+            if (picked) {
+              toEnqueue.push({ kind: 'check', ban: picked });
+              enqueuedIds.push(picked.id);
+            }
           }
         }
 
@@ -3688,6 +3824,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               skipBanId,
             )
           ) {
+            resultPriorityBanIdsRef.current.add(normalizeId(r.id));
             toEnqueue.push({ kind: 'result', result: r });
             enqueuedIds.push(r.id);
           }
@@ -3718,6 +3855,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const runChainLookaheadPrefetch = useCallback(
     (skipBanId: string | null, source: string): void => {
+      const normalizedSkip = normalizeId(skipBanId);
+      if (
+        source === 'check-overlay-prime' &&
+        normalizedSkip &&
+        resultPriorityBanIdsRef.current.has(normalizedSkip)
+      ) {
+        logCheckPrimeSkipStaleBecauseResultExists({
+          banId: normalizedSkip,
+          source,
+        });
+        return;
+      }
       const key = skipBanId?.trim() || '__none__';
       const alreadyHasNext =
         overlayQueueRef.current.length > 1 ||
@@ -4874,9 +5023,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       setLobbyOpen(false);
+      resultPriorityBanIdsRef.current.add(banId);
+      logResultPollPrioritySet({ banId });
+
+      const staleInQueue = hasStaleCheckOverlayForBan(
+        overlayQueueRef.current,
+        banId,
+      );
+      const staleInPending = hasStaleCheckOverlayForBan(
+        pendingStartupInteractionsRef.current,
+        banId,
+      );
+      if (staleInQueue || staleInPending) {
+        logResultPollDropStaleCheck({ banId });
+      }
+
+      const cleanedPending = removeOverlaysForBan(
+        pendingStartupInteractionsRef.current,
+        banId,
+      );
+      if (
+        cleanedPending.length !== pendingStartupInteractionsRef.current.length
+      ) {
+        pendingStartupInteractionsRef.current = cleanedPending;
+        syncPendingStartupCount();
+      }
+
       const resultItem: QueuedOverlay = { kind: 'result', result: normalized };
-      const cleaned = removeOverlaysForBan(overlayQueueRef.current, banId);
-      const nextQueue = [resultItem, ...cleaned];
+      const nextQueue = buildResultPriorityQueue(
+        overlayQueueRef.current,
+        banId,
+        resultItem,
+      );
 
       logCheckAnswerFinalResultEnqueued({
         banId,
@@ -4893,7 +5071,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const shown = head?.kind === 'result' && normalizeId(head.result.id) === banId;
       if (shown) {
         resultDeliveredBanIdsRef.current.add(banId);
-        logCheckAnswerFinalResultShow({ banId, status: statusLabel });
+        if (source === 'poll') {
+          logResultPollShowResultCard({ banId, status: statusLabel });
+        } else {
+          logCheckAnswerFinalResultShow({ banId, status: statusLabel });
+        }
         logTransitionFromRefs('[OVERLAY STATE SET]', {
           kind: 'result',
           banId,
@@ -4912,6 +5094,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       enqueueNotification,
       isResultBlockedForNotificationChain,
       setNotificationChainTransitioning,
+      syncPendingStartupCount,
     ],
   );
 
@@ -5019,6 +5202,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             : undefined;
 
         const role = resultParticipantRole(requestUserId, pendingResult);
+        const normalized = normalizeBanResult(pendingResult);
+        const hitBanId = normalizeId(normalized.id);
+        const statusLabel = normalized.headline || normalized.outcome;
+
+        logResultPollHit({
+          banId: hitBanId,
+          pollSource: source,
+          status: statusLabel,
+        });
+        window.__debug98log?.('[result-poll-hit]', {
+          banId: hitBanId,
+          pollSource: source,
+        });
+
         if (source === 'burst') {
           logResultLatency('[result-poll-burst]', {
             banId: pendingResult.id,
@@ -5036,18 +5233,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             elapsedMs: elapsedClientMs,
           });
         }
+        logResultPollItemBuilt({
+          banId: hitBanId,
+          status: statusLabel,
+        });
         logResultPath('pollPendingResultOnce', 'poll-hit', {
           banId: pendingResult.id,
           resultId: pendingResult.id,
           allowed: true,
           extra: { pollSource: source },
         });
-        receiveResult(pendingResult, 'poll');
+        const shown = showCheckAnswerFinalResult(normalized, 'poll');
+        if (!shown) {
+          receiveResult(pendingResult, 'poll');
+        }
       } catch {
         /* fallback only */
       }
     },
-    [receiveResult],
+    [receiveResult, showCheckAnswerFinalResult],
   );
 
   const scheduleResultPollBurst = useCallback(() => {
@@ -8302,6 +8506,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (payload: BanInteraction, source: 'ws' | 'session' | 'poll') => {
       const b = enrichBanInteraction(payload);
       const viewerId = userIdRef.current;
+
+      if (resultPriorityBanIdsRef.current.has(normalizeId(b.id))) {
+        logCheckPrimeSkipStaleBecauseResultExists({
+          banId: b.id,
+          source: `receiveCheckBan:${source}`,
+        });
+        return;
+      }
 
       if (source === 'ws') {
         checkWsSeenRef.current.add(b.id);

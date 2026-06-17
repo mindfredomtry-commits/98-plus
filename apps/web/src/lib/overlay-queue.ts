@@ -188,6 +188,29 @@ export function removeOverlaysForBan(
   });
 }
 
+/** Result for banId replaces any stale check/incoming and becomes queue head. */
+export function buildResultPriorityQueue(
+  queue: QueuedOverlay[],
+  banId: string,
+  resultItem: QueuedOverlay,
+): QueuedOverlay[] {
+  const cleaned = removeOverlaysForBan(queue, banId);
+  const resultKey = overlayQueueKey(resultItem);
+  return [resultItem, ...cleaned.filter((q) => overlayQueueKey(q) !== resultKey)];
+}
+
+export function hasStaleCheckOverlayForBan(
+  queue: readonly QueuedOverlay[],
+  banId: string,
+): boolean {
+  const norm = banId.trim();
+  if (!norm) return false;
+  return queue.some(
+    (q) =>
+      (q.kind === 'check' || q.kind === 'incoming') && overlayBanId(q) === norm,
+  );
+}
+
 export function removeOverlayByKey(
   queue: QueuedOverlay[],
   key: string,
