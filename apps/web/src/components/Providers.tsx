@@ -656,6 +656,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const activeOverlayLockRef = useRef<string | null>(null);
   const overlayQueueDrainActiveRef = useRef(false);
   const notificationChainTransitioningRef = useRef(false);
+  const showNextNotificationFromChainSyncRef = useRef<
+    (source: string) => boolean
+  >(() => false);
   const [notificationChainTransitioning, setNotificationChainTransitioningState] =
     useState(false);
   const overlayActionTsRef = useRef<number | null>(null);
@@ -1953,6 +1956,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             hasResult: true,
           },
         });
+        void prefetchPendingNotificationChain(
+          active.result.id,
+          'result-overlay-prime',
+        );
       }
       }
     } else if (directResultOverlayRef.current) {
@@ -3521,6 +3528,47 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [isResultBlockedForNotificationChain, syncPendingStartupCount],
   );
 
+  const primePendingChainAfterResultAck = useCallback(
+    async (consumedBanId: string | null, source: string): Promise<boolean> => {
+      const hasNextAlready =
+        overlayQueueRef.current.length > 1 ||
+        pendingStartupInteractionsRef.current.length > 0;
+      if (hasNextAlready) {
+        console.log('[pending-chain-prime-skip]', {
+          source,
+          reason: 'next-already-queued',
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+        return true;
+      }
+
+      const key = consumedBanId?.trim() ?? '';
+      if (key) {
+        console.log('[pending-chain-prime-ack]', { source, banId: key });
+        await acknowledgeBanResultOnServer(key, tokenRef.current, source);
+      }
+
+      const prefetched = await prefetchPendingNotificationChain(
+        key || null,
+        source,
+      );
+      const ready =
+        prefetched ||
+        overlayQueueRef.current.length > 0 ||
+        pendingStartupInteractionsRef.current.length > 0;
+      console.log('[pending-chain-prime-ready]', {
+        source,
+        prefetched,
+        ready,
+        queueLen: overlayQueueRef.current.length,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+      });
+      return ready;
+    },
+    [prefetchPendingNotificationChain],
+  );
+
   const openBanResult = useCallback(
     (r: BanResult | null | undefined, mode: ResultOpenMode) => {
       const queueHeadKind = overlayQueueRef.current[0]?.kind ?? null;
@@ -3726,10 +3774,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const hasMoreInChain =
-      overlayQueueRef.current.length > 1 ||
-      pendingStartupInteractionsRef.current.length > 0;
-
     const head = overlayQueueRef.current[0];
     const dismissKind = head?.kind ?? 'result';
     const dismissBanId =
@@ -3738,68 +3782,101 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         : head?.kind === 'incoming' || head?.kind === 'check'
           ? head.ban.id
           : (result?.id ?? resultRef.current?.id ?? null);
-    logTransitionFromRefs('[DISMISS START]', {
-      kind: dismissKind,
-      banId: dismissBanId,
-      source: 'dismissBanResult',
-    });
 
-    const runDismiss = () => {
-      if (hasMoreInChain) {
+    const needsPrime =
+      overlayQueueRef.current.length <= 1 &&
+      pendingStartupInteractionsRef.current.length === 0;
+
+    void (async () => {
+      if (needsPrime && dismissBanId) {
         setNotificationChainTransitioning(true);
+        await primePendingChainAfterResultAck(
+          dismissBanId,
+          'dismissBanResult-before-close',
+        );
       }
 
-      const head = overlayQueueRef.current[0];
-      const wasDirect = directResultOverlayRef.current;
-      const banId =
-        head?.kind === 'result'
-          ? head.result.id
-          : (result?.id ?? null);
-      if (banId) {
-        markResultOverlayConsumed(banId, 'dismissBanResult');
-        void acknowledgeBanResultOnServer(banId, tokenRef.current);
+      if (pendingStartupInteractionsRef.current.length > 0) {
+        mergeStartupIntoOverlayQueueOnly('dismissBanResult-prime');
       }
-      clearLocalOverboardBypass();
-      if (wasDirect) {
-        overboardInFlightRef.current = null;
-      }
-      const gateBefore = snapshotDirectOverboardGate();
-      clearDirectOverboardLayerRefs();
-      setDirectResultOverlayActive(false);
-      const clearsResult = wasDirect || head?.kind !== 'result';
-      if (clearsResult) {
-        logResultStateCleared('dismissBanResult', {
-          banId,
-          resultId: banId,
-          wasDirect,
-        });
-        setResult(null);
-      }
-      logDirectOverboardStateReset({
+
+      const hasMoreInChain =
+        overlayQueueRef.current.length > 1 ||
+        pendingStartupInteractionsRef.current.length > 0;
+
+      logTransitionFromRefs('[DISMISS START]', {
+        kind: dismissKind,
+        banId: dismissBanId,
         source: 'dismissBanResult',
-        reason: clearsResult ? 'dismiss-clear-result' : 'dismiss-keep-queue-result',
-        before: gateBefore,
-        after: {
-          directResultOverlayActive: false,
-          directResultOverlayRef: false,
-          resultBanId: clearsResult ? null : banId,
-          showDirectOverboardLayer: false,
-          hasResult: !clearsResult,
-        },
       });
-      if (head?.kind === 'result') {
-        dismissCurrentOverlay('result-dismiss');
-      }
-    };
 
-    if (hasMoreInChain) {
-      flushSync(runDismiss);
-    } else {
-      runDismiss();
-    }
+      const runDismiss = () => {
+        if (hasMoreInChain) {
+          setNotificationChainTransitioning(true);
+        }
+
+        const headNow = overlayQueueRef.current[0];
+        const wasDirect = directResultOverlayRef.current;
+        const banId =
+          headNow?.kind === 'result'
+            ? headNow.result.id
+            : (result?.id ?? null);
+        if (banId) {
+          markResultOverlayConsumed(banId, 'dismissBanResult');
+          void acknowledgeBanResultOnServer(banId, tokenRef.current);
+        }
+        clearLocalOverboardBypass();
+        if (wasDirect) {
+          overboardInFlightRef.current = null;
+        }
+        const gateBefore = snapshotDirectOverboardGate();
+        clearDirectOverboardLayerRefs();
+        setDirectResultOverlayActive(false);
+        const clearsResult = wasDirect || headNow?.kind !== 'result';
+        if (clearsResult) {
+          logResultStateCleared('dismissBanResult', {
+            banId,
+            resultId: banId,
+            wasDirect,
+          });
+          setResult(null);
+        }
+        logDirectOverboardStateReset({
+          source: 'dismissBanResult',
+          reason: clearsResult ? 'dismiss-clear-result' : 'dismiss-keep-queue-result',
+          before: gateBefore,
+          after: {
+            directResultOverlayActive: false,
+            directResultOverlayRef: false,
+            resultBanId: clearsResult ? null : banId,
+            showDirectOverboardLayer: false,
+            hasResult: !clearsResult,
+          },
+        });
+        if (headNow?.kind === 'result') {
+          dismissCurrentOverlay('result-dismiss');
+        }
+      };
+
+      if (hasMoreInChain) {
+        flushSync(runDismiss);
+        if (
+          overlayQueueRef.current.length === 0 &&
+          pendingStartupInteractionsRef.current.length > 0
+        ) {
+          showNextNotificationFromChainSyncRef.current(
+            'dismissBanResult-pending-after-pop',
+          );
+        }
+      } else {
+        runDismiss();
+      }
+    })();
   }, [
     clearDirectOverboardLayerRefs,
     dismissCurrentOverlay,
+    mergeStartupIntoOverlayQueueOnly,
+    primePendingChainAfterResultAck,
     result,
     setNotificationChainTransitioning,
     snapshotDirectOverboardGate,
@@ -7858,6 +7935,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return;
       }
+      if (notificationChainTransitioningRef.current) {
+        console.log('[result-poll-skip]', { reason: 'chain-transitioning' });
+        return;
+      }
+      if (
+        overlayQueueRef.current.length > 0 ||
+        pendingStartupInteractionsRef.current.length > 0
+      ) {
+        console.log('[result-poll-skip]', { reason: 'pending-chain-queued' });
+        return;
+      }
       if (result?.id || resultRef.current?.id || resultOpenRef.current) {
         console.log('[result-poll-skip]', {
           reason: 'already-open',
@@ -8603,6 +8691,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       syncDisplayFromQueue,
     ],
   );
+  showNextNotificationFromChainSyncRef.current =
+    showNextNotificationFromChainSync;
 
   const armOpenBansOverlayFromResultCta = useCallback(
     (banId: string | null, targetTab: BansOverlayTabTarget = 'yours') => {
@@ -9052,111 +9142,83 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     );
 
     const chainSource = wasDirect ? 'overboard-status-direct' : 'status-cta';
-    let chainAdvancedSync = false;
-
-    if (banId) {
-      flushSync(() => {
-        finalizeResultForGoToBans(banId);
-      });
-      const hasNextInChain =
-        overlayQueueRef.current.length > 0 ||
-        pendingStartupInteractionsRef.current.length > 0;
-      if (hasNextInChain) {
-        clearNotificationChainReturnLatch('navigateFromResult');
-        if (pendingStartupInteractionsRef.current.length > 0) {
-          releaseStartupInteractions({ force: true });
-        }
-        chainAdvancedSync = showNextNotificationFromChainSync(chainSource);
-      }
-    } else if (wasDirect) {
-      flushSync(() => {
-        cancelResultPollBurst();
-        applyDirectOverboardCloseState(null);
-      });
-    }
-
-    const afterConsume = {
-      overlayLen: overlayQueueRef.current.length,
-      startupLen: pendingStartupInteractionsRef.current.length,
-      overlayIds: overlayQueueRef.current.map(overlayQueueItemId),
-      startupIds: pendingStartupInteractionsRef.current.map(overlayQueueItemId),
-    };
-    if (
-      beforeConsume.overlayIds.some((id) => id.startsWith('result:')) &&
-      !afterConsume.overlayIds.some((id) => id.startsWith('result:')) &&
-      beforeConsume.startupIds.join(',') === afterConsume.startupIds.join(',')
-    ) {
-      console.log('[notification-chain-queue-lost]', {
-        source: 'status-cta',
-        beforeIds: {
-          overlay: beforeConsume.overlayIds,
-          startup: beforeConsume.startupIds,
-        },
-        afterIds: {
-          overlay: afterConsume.overlayIds,
-          startup: afterConsume.startupIds,
-        },
-      });
-    }
-
-    const queueHead = overlayQueueRef.current[0] ?? null;
-    const queueHeadKind = queueHead?.kind ?? null;
-    const queueHeadBanId =
-      queueHead?.kind === 'result'
-        ? queueHead.result.id
-        : queueHead?.kind === 'incoming' || queueHead?.kind === 'check'
-          ? queueHead.ban.id
-          : null;
-    console.log('[go-to-bans-queue-check]', {
-      chainSource,
-      queueLen: overlayQueueRef.current.length,
-      startupLen: pendingStartupInteractionsRef.current.length,
-      queueHeadKind,
-      queueHeadBanId,
-    });
 
     void (async () => {
-      if (chainAdvancedSync) {
-        console.log('[go-to-bans-show-next-overlay]', {
-          source: 'sync-immediate',
-          chainSource,
-        });
-        return;
-      }
-
-      clearNotificationChainReturnLatch('navigateFromResult');
-      if (pendingStartupInteractionsRef.current.length > 0) {
-        releaseStartupInteractions({ force: true });
-      }
-
-      if (showNextNotificationFromChainSync(chainSource)) {
-        if (banId) {
-          void acknowledgeBanResultOnServer(banId, tokenRef.current, 'go-to-bans');
-        }
-        console.log('[go-to-bans-show-next-overlay]', {
-          source: 'sync',
-          chainSource,
-        });
-        return;
-      }
+      setNotificationChainTransitioning(true);
 
       if (banId) {
-        await acknowledgeBanResultOnServer(banId, tokenRef.current, 'go-to-bans');
-      }
-      if (statusCtaNavigateGenerationRef.current !== generation) return;
+        await primePendingChainAfterResultAck(
+          banId,
+          `${chainSource}-before-consume`,
+        );
+        if (statusCtaNavigateGenerationRef.current !== generation) return;
 
-      const primed = await primeNextNotificationAfterStatusCta(chainSource);
-      if (statusCtaNavigateGenerationRef.current !== generation) return;
-      if (primed) {
+        flushSync(() => {
+          finalizeResultForGoToBans(banId);
+        });
+      } else if (wasDirect) {
+        flushSync(() => {
+          cancelResultPollBurst();
+          applyDirectOverboardCloseState(null);
+        });
+      }
+
+      const afterConsume = {
+        overlayLen: overlayQueueRef.current.length,
+        startupLen: pendingStartupInteractionsRef.current.length,
+        overlayIds: overlayQueueRef.current.map(overlayQueueItemId),
+        startupIds:
+          pendingStartupInteractionsRef.current.map(overlayQueueItemId),
+      };
+      if (
+        beforeConsume.overlayIds.some((id) => id.startsWith('result:')) &&
+        !afterConsume.overlayIds.some((id) => id.startsWith('result:')) &&
+        beforeConsume.startupIds.join(',') === afterConsume.startupIds.join(',')
+      ) {
+        console.log('[notification-chain-queue-lost]', {
+          source: 'status-cta',
+          beforeIds: {
+            overlay: beforeConsume.overlayIds,
+            startup: beforeConsume.startupIds,
+          },
+          afterIds: {
+            overlay: afterConsume.overlayIds,
+            startup: afterConsume.startupIds,
+          },
+        });
+      }
+
+      const queueHead = overlayQueueRef.current[0] ?? null;
+      const queueHeadKind = queueHead?.kind ?? null;
+      const queueHeadBanId =
+        queueHead?.kind === 'result'
+          ? queueHead.result.id
+          : queueHead?.kind === 'incoming' || queueHead?.kind === 'check'
+            ? queueHead.ban.id
+            : null;
+      console.log('[go-to-bans-queue-check]', {
+        chainSource,
+        queueLen: overlayQueueRef.current.length,
+        startupLen: pendingStartupInteractionsRef.current.length,
+        queueHeadKind,
+        queueHeadBanId,
+      });
+
+      clearNotificationChainReturnLatch('navigateFromResult');
+
+      if (showNextNotificationFromChainSync(chainSource)) {
         console.log('[go-to-bans-show-next-overlay]', {
-          source: 'prime',
+          source: 'primed-after-consume',
           chainSource,
         });
         return;
       }
+
+      if (statusCtaNavigateGenerationRef.current !== generation) return;
+
       if (hasPendingNotificationChain()) {
         console.log('[chain-debug-final-lobby-blocked]', {
-          source: 'status-cta-async',
+          source: 'status-cta-after-consume',
           reason: 'chain-active-after-prime',
           ...getNotificationChainDebugSnapshot(),
         });
@@ -9166,6 +9228,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         syncDisplayFromQueue(overlayQueueRef.current);
         return;
       }
+
+      setNotificationChainTransitioning(false);
 
       console.log('[notification-chain-open-bans-final]', {
         source: 'status-cta',
@@ -9207,9 +9271,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     logCardCloseClick,
     markOverlayUserAction,
     overlayQueueItemId,
-    primeNextNotificationAfterStatusCta,
-    releaseStartupInteractions,
+    primePendingChainAfterResultAck,
     result?.id,
+    setNotificationChainTransitioning,
     showNextNotificationFromChainSync,
     syncDisplayFromQueue,
   ]);
