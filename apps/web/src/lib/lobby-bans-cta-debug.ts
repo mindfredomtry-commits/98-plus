@@ -20,6 +20,24 @@ export function logLobbyBansCtaStartDrain(data: Record<string, unknown>): void {
   emit('[LOBBY BANS CTA START DRAIN]', data);
 }
 
+export function logLobbyBansCtaPendingSnapshot(
+  data: Record<string, unknown>,
+): void {
+  emit('[LOBBY BANS CTA PENDING SNAPSHOT]', data);
+}
+
+export function logLobbyBansCtaPendingMerged(
+  data: Record<string, unknown>,
+): void {
+  emit('[LOBBY BANS CTA PENDING MERGED]', data);
+}
+
+export function logLobbyBansCtaPendingLostBug(
+  data: Record<string, unknown>,
+): void {
+  emit('[LOBBY BANS CTA PENDING LOST BUG]', data);
+}
+
 export function logLobbyBansCtaShowNext(data: Record<string, unknown>): void {
   emit('[LOBBY BANS CTA SHOW NEXT]', data);
 }
