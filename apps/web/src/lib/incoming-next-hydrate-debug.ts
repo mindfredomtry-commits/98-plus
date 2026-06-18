@@ -1,5 +1,7 @@
 'use client';
 
+import { markIncomingNextPayloadReadyBan } from './incoming-overlay-mount-debug';
+
 function emit(event: string, data?: Record<string, unknown>): void {
   const payload = { t: performance.now(), ...data };
   console.log(event, payload);
@@ -10,6 +12,9 @@ export function logIncomingNextPayloadReady(
   data: Record<string, unknown>,
 ): void {
   emit('[INCOMING NEXT PAYLOAD READY]', data);
+  if (data.ready === true && data.banId) {
+    markIncomingNextPayloadReadyBan(String(data.banId), true);
+  }
 }
 
 export function logIncomingNextPayloadMissingBug(

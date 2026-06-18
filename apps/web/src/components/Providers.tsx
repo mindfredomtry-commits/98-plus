@@ -483,6 +483,14 @@ import {
   logIncomingNextPayloadMissingBug,
   logIncomingNextPayloadReady,
 } from '@/lib/incoming-next-hydrate-debug';
+import {
+  logIncomingCardMounted,
+  logIncomingOverlayJsxReturn,
+  logIncomingOverlayReturnNull,
+  logIncomingOverlayStateSet,
+  logIncomingReadyButBanLostBug,
+  peekLastIncomingPayloadReadyBanId,
+} from '@/lib/incoming-overlay-mount-debug';
 import { verifyIncomingChallenge } from '@/lib/deliver-challenge';
 import {
   getLastKnownLobbyRingPercent,
@@ -2692,6 +2700,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setIncomingBan(null);
     } else {
       if (isActiveUserCardHold()) {
+        logIncomingOverlayBlocked({
+          reason: 'active-user-card-hold-before-state-set',
+          source: 'syncDisplayFromQueue',
+          queueLen: queue.length,
+          headKind: queue[0]?.kind ?? null,
+          headBanId:
+            queue[0]?.kind === 'incoming' || queue[0]?.kind === 'check'
+              ? queue[0].ban.id
+              : queue[0]?.kind === 'result'
+                ? queue[0].result.id
+                : null,
+          heldKind: heldUserCardOverlayRef.current?.kind ?? null,
+        });
         restoreHeldUserCardOverlay('syncDisplayFromQueue-hold-before-state-set');
         return;
       }
@@ -2736,6 +2757,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setIncomingBan(nextIncoming);
       setCheckBan(nextCheck);
       if (nextIncoming) {
+        logIncomingOverlayStateSet({
+          banId: nextIncoming.id,
+          source: 'syncDisplayFromQueue',
+          textLen: nextIncoming.text?.length ?? 0,
+          senderId: nextIncoming.sender?.id ?? null,
+          heldUserCard: heldUserCardOverlayRef.current?.kind ?? null,
+        });
         logTransitionFromRefs('[OVERLAY STATE SET]', {
           kind: 'incoming',
           banId: nextIncoming.id,
@@ -3351,6 +3379,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
           return;
         }
+        logIncomingCardMounted({
+          banId,
+          source: 'reportOverlayRendered',
+          refBanId: ban.id,
+        });
       }
       const ts = overlayTs();
       const delayFromAction = overlayDelayMs(overlayActionTsRef.current);
@@ -11662,6 +11695,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               },
             });
             beginIncomingNextHydrate(incomingBanId, `${source}-flush`);
+          } else {
+            logIncomingOverlayStateSet({
+              banId: incomingBanId,
+              source: `${source}-flush-payload-ready-pre-sync`,
+              payloadReady: true,
+              incomingBanRefId: incomingBanRef.current?.id ?? null,
+              incomingBanStateId: incomingBan?.id ?? null,
+            });
           }
         } else if (headAfterMerge?.kind === 'result') {
           const resultRow = headAfterMerge.result;
@@ -15197,6 +15238,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source: incomingJsxRenderSource,
         replyDirect: showReplyIncomingOverlayDirect,
       });
+      logIncomingOverlayJsxReturn({
+        banId: incomingCardDisplayBan.id,
+        source: incomingJsxRenderSource,
+        willRender: true,
+      });
       markVisibleOverboardTrace('[INCOMING JSX RENDER CARD]', {
         banId: incomingCardDisplayBan.id,
         source: incomingJsxRenderSource,
@@ -15218,6 +15264,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           : !incomingCardDisplayBan
             ? 'incoming-card-not-ready'
             : 'unknown';
+    logIncomingOverlayReturnNull({
+      reason: nullReason,
+      ...jsxBranch,
+      incomingBanId: incomingBan?.id ?? null,
+      incomingBanRefId: incomingBanRef.current?.id ?? null,
+      heldUserCardKind: heldUserCardOverlay?.kind ?? null,
+      heldUserCardBanId:
+        heldUserCardOverlay?.kind === 'incoming'
+          ? heldUserCardOverlay.ban.id
+          : heldUserCardOverlay?.kind === 'check'
+            ? heldUserCardOverlay.ban.id
+            : heldUserCardOverlay?.kind === 'result'
+              ? heldUserCardOverlay.result.id
+              : null,
+      notificationQueueShellKind,
+      shouldMountNotificationOverlayHost,
+      notificationOverlayVisible,
+      sendSuccessCardActive,
+    });
     console.log('[INCOMING JSX RETURN NULL]', { reason: nullReason, ...jsxBranch });
     markVisibleOverboardTrace('[INCOMING JSX RETURN NULL]', {
       reason: nullReason,
@@ -15226,18 +15291,76 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [
     effectiveIncomingBanId,
     effectiveIncomingOverlayDisplayKind,
+    incomingBan,
     incomingCardDisplayBan,
     effectiveShouldRenderIncoming,
+    heldUserCardOverlay,
     incomingJsxRenderSource,
     incomingJsxWillRender,
     isReplyFastPendingOpen,
     isReplyFastShellRequested,
-    notificationSessionActive,
+    notificationOverlayVisible,
     notificationQueueShellKind,
+    notificationSessionActive,
     queueHeadKind,
+    sendSuccessCardActive,
+    shouldMountNotificationOverlayHost,
     shouldRenderIncomingOverlay,
     showDirectOverboardLayer,
     showReplyIncomingOverlayDirect,
+  ]);
+
+  useLayoutEffect(() => {
+    const readyBanId = peekLastIncomingPayloadReadyBanId();
+    if (!readyBanId) return;
+    if (incomingCardDisplayBan?.id === readyBanId) return;
+    logIncomingReadyButBanLostBug({
+      readyBanId,
+      incomingCardDisplayBanId: incomingCardDisplayBan?.id ?? null,
+      incomingBanId: incomingBan?.id ?? null,
+      incomingBanRefId: incomingBanRef.current?.id ?? null,
+      activeIncomingBanId:
+        heldUserCardOverlay?.kind === 'incoming'
+          ? heldUserCardOverlay.ban.id
+          : null,
+      heldUserCardKind: heldUserCardOverlay?.kind ?? null,
+      heldUserCardBanId:
+        heldUserCardOverlay?.kind === 'incoming'
+          ? heldUserCardOverlay.ban.id
+          : heldUserCardOverlay?.kind === 'check'
+            ? heldUserCardOverlay.ban.id
+            : heldUserCardOverlay?.kind === 'result'
+              ? heldUserCardOverlay.result.id
+              : null,
+      notificationQueueShellKind,
+      incomingNotificationShellKind,
+      shouldMountNotificationOverlayHost,
+      notificationOverlayVisible,
+      notificationOverlayMounted,
+      effectiveShouldRenderIncoming,
+      incomingJsxWillRender,
+      sendSuccessCardActive,
+      notificationChainTransitioning,
+      composeBlocksNotificationHost,
+      queueHeadKind,
+      queueLen: overlayQueue.length,
+    });
+  }, [
+    composeBlocksNotificationHost,
+    effectiveShouldRenderIncoming,
+    heldUserCardOverlay,
+    incomingBan,
+    incomingCardDisplayBan,
+    incomingJsxWillRender,
+    incomingNotificationShellKind,
+    notificationChainTransitioning,
+    notificationOverlayMounted,
+    notificationOverlayVisible,
+    notificationQueueShellKind,
+    overlayQueue.length,
+    queueHeadKind,
+    sendSuccessCardActive,
+    shouldMountNotificationOverlayHost,
   ]);
 
   useLayoutEffect(() => {

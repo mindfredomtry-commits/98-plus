@@ -34,6 +34,11 @@ import { verifyOverlayCardLayout } from '@/lib/overlay-card-layout-debug';
 import { installOverlayHitTestProbe } from '@/lib/overlay-hit-test-debug';
 import { allowOverlayUserTap } from '@/lib/overlay-input-guard';
 import {
+  logIncomingOverlayHasBan,
+  logIncomingOverlayRenderEnter,
+  logIncomingOverlayReturnNull,
+} from '@/lib/incoming-overlay-mount-debug';
+import {
   logOverlayButtonClick,
   logOverlayButtonPointerDown,
   verifyOverlayCardPointerHit,
@@ -99,6 +104,24 @@ function IncomingBanOverlayInner({
 
   const viewerId = user?.id ?? null;
   const activeIncomingBan = banProp ?? incomingBan;
+
+  logIncomingOverlayRenderEnter({
+    banPropId: banProp?.id ?? null,
+    incomingBanId: incomingBan?.id ?? null,
+    activeIncomingBanId: activeIncomingBan?.id ?? null,
+    replyDirect,
+    contentOnly,
+    embedded,
+  });
+
+  if (activeIncomingBan?.id) {
+    logIncomingOverlayHasBan({
+      banId: activeIncomingBan.id,
+      source: banProp?.id ? 'ban-prop' : 'incoming-ban-context',
+      textLen: activeIncomingBan.text?.length ?? 0,
+      senderId: activeIncomingBan.sender?.id ?? null,
+    });
+  }
 
   useEffect(() => {
     if (!replyDirect) {
@@ -614,17 +637,41 @@ function IncomingBanOverlayInner({
 
   if (!canRenderBody) {
     if (activeIncomingBan?.id) {
+      logIncomingOverlayReturnNull({
+        banId: activeIncomingBan.id,
+        reason: !viewerId ? 'no-viewer' : 'no-token',
+        replyDirect,
+        contentOnly,
+        verifyPhase,
+        shouldShow,
+      });
       console.log('INCOMING OVERLAY RENDER', {
         banId: activeIncomingBan.id,
         skipped: true,
         reason: !viewerId ? 'no-viewer' : 'no-token',
         replyDirect,
       });
+    } else {
+      logIncomingOverlayReturnNull({
+        reason: 'no-active-incoming-ban',
+        replyDirect,
+        contentOnly,
+      });
     }
     return null;
   }
 
   if (!shouldShow || verifyPhase === 'failed') {
+    logIncomingOverlayReturnNull({
+      banId: activeIncomingBan?.id ?? null,
+      reason: !shouldShow ? 'guard-rejected' : 'verify-failed',
+      verifyPhase,
+      shouldShow,
+      contentOnly,
+      banPropId: banProp?.id ?? null,
+      isQueueHead,
+      incomingGateActive,
+    });
     console.log('INCOMING OVERLAY RENDER', {
       banId: activeIncomingBan.id,
       skipped: true,
@@ -635,6 +682,11 @@ function IncomingBanOverlayInner({
   }
 
   if (!replyDirect && isReplyDeeplinkShellBan(activeIncomingBan)) {
+    logIncomingOverlayReturnNull({
+      banId: activeIncomingBan.id,
+      reason: 'shell-ban',
+      contentOnly,
+    });
     console.log('[incoming-card-debug] ready false reason: shell-ban', {
       banId: activeIncomingBan.id,
     });
