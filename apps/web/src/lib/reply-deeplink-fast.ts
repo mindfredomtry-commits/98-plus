@@ -137,6 +137,14 @@ function incomingBanDisplayScore(ban: BanInteraction): number {
   return score;
 }
 
+/** Prefer the ban object with more display fields (text, sender, avatar). */
+export function pickRicherIncomingBan(
+  a: BanInteraction,
+  b: BanInteraction,
+): BanInteraction {
+  return incomingBanDisplayScore(a) >= incomingBanDisplayScore(b) ? a : b;
+}
+
 /** Pick best hydrated ban from candidates — never returns shell placeholders. */
 export function pickIncomingCardDisplayBan(
   candidates: readonly (BanInteraction | null | undefined)[],

@@ -435,8 +435,10 @@ import {
   isReplyDeeplinkShellBan,
   isReplyIncomingDisplayBan,
   getIncomingCardNotReadyReason,
+  hasIncomingSenderIdentity,
   logIncomingCardDisplayState,
   pickIncomingCardDisplayBan,
+  pickRicherIncomingBan,
 } from '@/lib/reply-deeplink-fast';
 import {
   REPLY_DEEPLINK_TOAST_OVERBOARD,
@@ -454,6 +456,15 @@ import {
   hasActiveParentTimerFields,
 } from '@/lib/reply-parent-active-ban';
 import { updateIncomingDirectDebug } from '@/lib/incoming-direct-debug';
+import {
+  logEmptyIncomingShellBug,
+  logIncomingCardRenderBlockedBug,
+  logIncomingNextHydrateOk,
+  logIncomingNextHydrateStart,
+  logIncomingNextPayloadMissingBug,
+  logIncomingNextPayloadReady,
+} from '@/lib/incoming-next-hydrate-debug';
+import { verifyIncomingChallenge } from '@/lib/deliver-challenge';
 import {
   getLastKnownLobbyRingPercent,
   isLobbyBootIntroPrimed,
@@ -851,6 +862,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const chainLookaheadInflightRef = useRef<Map<string, Promise<boolean>>>(
     new Map(),
   );
+  const incomingNextHydrateInflightRef = useRef<
+    Map<string, Promise<BanInteraction | null>>
+  >(new Map());
+  const [incomingNextHydrateBanId, setIncomingNextHydrateBanId] = useState<
+    string | null
+  >(null);
   const runChainLookaheadPrefetchRef = useRef<
     (skipBanId: string | null, source: string) => void
   >(() => {});
@@ -3236,6 +3253,33 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const reportOverlayRendered = useCallback(
     (kind: string, banId: string, buttonsReady = true) => {
+      if (kind === 'incoming') {
+        const viewerId = userIdRef.current?.trim() ?? '';
+        const ban = incomingBanRef.current;
+        if (!ban?.id || normalizeId(ban.id) !== normalizeId(banId)) {
+          logIncomingCardRenderBlockedBug({
+            banId,
+            reason: 'incoming-ban-ref-mismatch',
+            refBanId: ban?.id ?? null,
+          });
+          logEmptyIncomingShellBug({
+            banId,
+            reason: 'card-mounted-without-incoming-state',
+          });
+          return;
+        }
+        if (!isIncomingCardDisplayReady(ban, viewerId)) {
+          logIncomingCardRenderBlockedBug({
+            banId,
+            reason: getIncomingCardNotReadyReason(ban, viewerId),
+          });
+          logEmptyIncomingShellBug({
+            banId,
+            reason: 'card-mounted-without-payload',
+          });
+          return;
+        }
+      }
       const ts = overlayTs();
       const delayFromAction = overlayDelayMs(overlayActionTsRef.current);
       const delayFromHandoff = overlayDelayMs(overlayHandoffTsRef.current);
@@ -4496,7 +4540,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       let next = overlayQueueRef.current;
       for (const item of releasable) {
-        next = enqueueWithActiveLock(next, item).queue;
+        let nextItem = item;
+        if (item.kind === 'incoming') {
+          const itemId = normalizeId(item.ban.id);
+          const existing = next.find(
+            (q) =>
+              q.kind === 'incoming' && normalizeId(q.ban.id) === itemId,
+          );
+          if (existing?.kind === 'incoming') {
+            nextItem = {
+              kind: 'incoming',
+              ban: pickRicherIncomingBan(existing.ban, item.ban),
+            };
+          }
+        }
+        next = enqueueWithActiveLock(next, nextItem).queue;
       }
       if (next.length === overlayQueueRef.current.length) {
         return 0;
@@ -11000,6 +11058,149 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [clearDirectOverboardLayerRefs],
   );
 
+  const collectIncomingBanCandidatesForId = useCallback(
+    (banId: string): BanInteraction[] => {
+      const norm = normalizeId(banId);
+      if (!norm) return [];
+      const out: BanInteraction[] = [];
+      const add = (ban: BanInteraction | null | undefined) => {
+        if (!ban?.id || normalizeId(ban.id) !== norm) return;
+        if (out.some((row) => row.id === ban.id)) return;
+        out.push(ban);
+      };
+      add(incomingBanRef.current);
+      for (const item of overlayQueueRef.current) {
+        if (item.kind === 'incoming') add(item.ban);
+      }
+      for (const item of pendingStartupInteractionsRef.current) {
+        if (item.kind === 'incoming') add(item.ban);
+      }
+      const held = heldUserCardOverlayRef.current;
+      if (held?.kind === 'incoming') add(held.ban);
+      return out;
+    },
+    [],
+  );
+
+  const applyIncomingBanToQueueHead = useCallback(
+    (ban: BanInteraction): BanInteraction => {
+      const norm = normalizeId(ban.id);
+      const head = overlayQueueRef.current[0];
+      const enriched = enrichBanInteraction(ban);
+      const richer =
+        head?.kind === 'incoming' && normalizeId(head.ban.id) === norm
+          ? pickRicherIncomingBan(head.ban, enriched)
+          : enriched;
+      if (
+        head?.kind === 'incoming' &&
+        normalizeId(head.ban.id) === norm &&
+        (richer !== head.ban ||
+          incomingBanRef.current?.id !== richer.id ||
+          incomingBanRef.current.text !== richer.text)
+      ) {
+        const next = [...overlayQueueRef.current];
+        next[0] = { kind: 'incoming', ban: richer };
+        overlayQueueRef.current = next;
+        setOverlayQueue(next);
+      }
+      incomingBanRef.current = richer;
+      setIncomingBan(richer);
+      return richer;
+    },
+    [],
+  );
+
+  const upgradeIncomingQueueHeadFromMemory = useCallback(
+    (banId: string, source: string): BanInteraction | null => {
+      const viewerId = userIdRef.current?.trim() ?? '';
+      const candidates = collectIncomingBanCandidatesForId(banId);
+      if (candidates.length === 0) return null;
+      let best = candidates[0]!;
+      for (let i = 1; i < candidates.length; i++) {
+        best = pickRicherIncomingBan(best, candidates[i]!);
+      }
+      const richer = applyIncomingBanToQueueHead(best);
+      const ready = isIncomingCardDisplayReady(richer, viewerId);
+      logIncomingNextPayloadReady({
+        banId: richer.id,
+        hasBan: true,
+        hasSender: hasIncomingSenderIdentity(richer.sender),
+        hasText: hasReplyFastDisplayText(richer),
+        source,
+        ready,
+        reason: ready
+          ? 'memory-upgrade'
+          : getIncomingCardNotReadyReason(richer, viewerId),
+      });
+      return richer;
+    },
+    [applyIncomingBanToQueueHead, collectIncomingBanCandidatesForId],
+  );
+
+  const beginIncomingNextHydrate = useCallback(
+    (banId: string, source: string): void => {
+      const norm = normalizeId(banId);
+      const token = tokenRef.current;
+      if (!norm || !token) return;
+      if (incomingNextHydrateInflightRef.current.has(norm)) return;
+
+      logIncomingNextHydrateStart({ banId: norm, source });
+      setIncomingNextHydrateBanId(norm);
+
+      const task = (async () => {
+        try {
+          const fetched = await verifyIncomingChallenge(token, norm);
+          if (tokenRef.current !== token) return null;
+          const enriched = enrichBanInteraction(fetched);
+          const head = overlayQueueRef.current[0];
+          if (
+            head?.kind !== 'incoming' ||
+            normalizeId(head.ban.id) !== norm
+          ) {
+            return null;
+          }
+          const richer = applyIncomingBanToQueueHead(enriched);
+          const viewerId = userIdRef.current?.trim() ?? '';
+          const ready = isIncomingCardDisplayReady(richer, viewerId);
+          logIncomingNextHydrateOk({
+            banId: norm,
+            hasBan: true,
+            hasSender: hasIncomingSenderIdentity(richer.sender),
+            hasText: hasReplyFastDisplayText(richer),
+            ready,
+            source,
+          });
+          if (ready) {
+            setIncomingNextHydrateBanId((cur) => (cur === norm ? null : cur));
+            syncDisplayFromQueue(overlayQueueRef.current);
+          } else {
+            logEmptyIncomingShellBug({
+              banId: norm,
+              source,
+              reason: 'hydrate-incomplete',
+            });
+            setIncomingNextHydrateBanId((cur) => (cur === norm ? null : cur));
+          }
+          return richer;
+        } catch (e) {
+          logEmptyIncomingShellBug({
+            banId: norm,
+            source,
+            reason: 'hydrate-failed',
+            error: e instanceof Error ? e.message : String(e),
+          });
+          setIncomingNextHydrateBanId((cur) => (cur === norm ? null : cur));
+          return null;
+        } finally {
+          incomingNextHydrateInflightRef.current.delete(norm);
+        }
+      })();
+
+      incomingNextHydrateInflightRef.current.set(norm, task);
+    },
+    [applyIncomingBanToQueueHead, syncDisplayFromQueue],
+  );
+
   const showNextNotificationFromChainSync = useCallback(
     (source: string): boolean => {
       if (
@@ -11256,6 +11457,37 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           setResult(null);
           setDirectResultOverlayActive(false);
         }
+        const headAfterMerge = overlayQueueRef.current[0];
+        if (headAfterMerge?.kind === 'incoming') {
+          const incomingBanId = headAfterMerge.ban.id;
+          const viewerId = userIdRef.current?.trim() ?? '';
+          const richer = upgradeIncomingQueueHeadFromMemory(
+            incomingBanId,
+            `${source}-flush`,
+          );
+          const payload = richer ?? headAfterMerge.ban;
+          const payloadReady =
+            isIncomingCardDisplayReady(payload, viewerId) &&
+            shouldShowIncomingBanModal(
+              payload,
+              viewerId,
+              dismissedIncomingRef.current,
+            );
+          if (!payloadReady) {
+            logIncomingNextPayloadMissingBug({
+              banId: incomingBanId,
+              source: `${source}-flush`,
+              queueItem: {
+                kind: 'incoming',
+                id: payload.id,
+                textLen: payload.text?.length ?? 0,
+                senderId: payload.sender?.id ?? null,
+                reason: getIncomingCardNotReadyReason(payload, viewerId),
+              },
+            });
+            beginIncomingNextHydrate(incomingBanId, `${source}-flush`);
+          }
+        }
         syncDisplayFromQueue(overlayQueueRef.current);
       });
       chainAdvanceExplicitRef.current = false;
@@ -11290,6 +11522,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [
       applyDirectOverboardCloseState,
+      beginIncomingNextHydrate,
       clearNotificationChainReturnLatch,
       getNotificationChainDebugSnapshot,
       hasActiveNotificationOverlayMounted,
@@ -11302,6 +11535,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       sanitizeNotificationChainQueues,
       setNotificationChainTransitioning,
       syncDisplayFromQueue,
+      upgradeIncomingQueueHeadFromMemory,
     ],
   );
   showNextNotificationFromChainSyncRef.current =
@@ -13546,7 +13780,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     };
 
     if (heldUserCardOverlay?.kind === 'incoming' && heldUserCardOverlay.ban.id) {
-      return heldUserCardOverlay.ban;
+      const heldBan = heldUserCardOverlay.ban;
+      if (isIncomingCardDisplayReady(heldBan, viewerId)) {
+        return heldBan;
+      }
     }
 
     if (acceptReplyDisplay(replyIncomingDisplayBan)) {
@@ -13624,12 +13861,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const incomingCardFullyReady = incomingCardDisplayBan != null;
 
+  const incomingShellHydrating = useMemo(() => {
+    const hydrateId = incomingNextHydrateBanId?.trim() ?? '';
+    if (!hydrateId) return false;
+    const head = overlayQueue[0] ?? overlayQueueRef.current[0];
+    return (
+      head?.kind === 'incoming' &&
+      normalizeId(head.ban.id) === normalizeId(hydrateId)
+    );
+  }, [incomingNextHydrateBanId, overlayQueue]);
+
   const incomingNotificationShellKind = useMemo(() => {
     if (heldUserCardOverlay?.kind === 'result' && displayResult) {
       return 'result' as const;
     }
     if (
-      incomingCardDisplayBan &&
+      (incomingCardDisplayBan || incomingShellHydrating) &&
       effectiveShouldRenderIncoming &&
       !showDirectOverboardLayer
     ) {
@@ -13644,6 +13891,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return null;
   }, [
     incomingCardDisplayBan,
+    incomingShellHydrating,
     effectiveShouldRenderIncoming,
     showDirectOverboardLayer,
     incomingOverlayDisplayKind,
@@ -13699,8 +13947,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (checkOverlayMounted) return true;
     if (
       notificationQueueShellKind === 'incoming' &&
-      incomingCardDisplayBan &&
-      incomingCardFullyReady
+      (incomingCardDisplayBan || incomingShellHydrating) &&
+      (incomingCardFullyReady || incomingShellHydrating)
     ) {
       return true;
     }
@@ -13717,6 +13965,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     heldUserCardOverlay,
     incomingCardDisplayBan,
     incomingCardFullyReady,
+    incomingShellHydrating,
     notificationQueueShellKind,
     sendSuccessCardActive,
     showCheckOverlayDirect,
@@ -14293,6 +14542,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         heldUserCardOverlay != null ||
         showDirectOverboardLayer ||
         checkOverlayMounted ||
+        incomingShellHydrating ||
         (notificationQueueShellKind === 'check' && !!checkBan?.id) ||
         (notificationQueueShellKind === 'result' && !!displayResult) ||
         (notificationQueueShellKind === 'incoming' &&
@@ -14330,8 +14580,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (notificationQueueShellKind === 'result' && displayResult) return true;
     if (
       notificationQueueShellKind === 'incoming' &&
-      incomingCardDisplayBan &&
-      incomingCardFullyReady
+      (incomingCardDisplayBan || incomingShellHydrating) &&
+      (incomingCardFullyReady || incomingShellHydrating)
     ) {
       return true;
     }
@@ -14346,6 +14596,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     heldUserCardOverlay,
     incomingCardDisplayBan,
     incomingCardFullyReady,
+    incomingShellHydrating,
     notificationQueueShellKind,
     overlayQueue.length,
     pendingStartupInteractionsCount,
@@ -14380,8 +14631,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (notificationQueueShellKind === 'result' && displayResult) return true;
     if (
       notificationQueueShellKind === 'incoming' &&
-      incomingCardDisplayBan &&
-      incomingCardFullyReady
+      (incomingCardDisplayBan || incomingShellHydrating) &&
+      (incomingCardFullyReady || incomingShellHydrating)
     ) {
       return true;
     }
@@ -15172,7 +15423,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 displayBanId={incomingCardDisplayBan?.id ?? null}
                 incomingCardReady={incomingCardFullyReady}
                 sessionActive={notificationHostSessionBackdrop}
-                advanceWaiting={chainAdvanceWaiting}
+                advanceWaiting={chainAdvanceWaiting || incomingShellHydrating}
                 contentKey={
                   overlayQueue[0]
                     ? overlayQueueKey(overlayQueue[0])
@@ -15182,13 +15433,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 }
               >
                 {notificationQueueShellKind === 'incoming' &&
-                incomingCardDisplayBan ? (
-                  <ChallengeErrorBoundary
-                    name="incoming"
-                    onRecover={() => dismissIncoming()}
-                  >
-                    <IncomingBanOverlay contentOnly />
-                  </ChallengeErrorBoundary>
+                (incomingCardDisplayBan || incomingShellHydrating) ? (
+                  incomingCardDisplayBan ? (
+                    <ChallengeErrorBoundary
+                      name="incoming"
+                      onRecover={() => dismissIncoming()}
+                    >
+                      <IncomingBanOverlay
+                        contentOnly
+                        ban={incomingCardDisplayBan}
+                      />
+                    </ChallengeErrorBoundary>
+                  ) : (
+                    <div className="notification-queue-shell__advance-wait">
+                      Загрузка запрета…
+                    </div>
+                  )
                 ) : null}
                 {notificationQueueShellKind === 'check' &&
                 !showCheckOverlayDirect ? (
