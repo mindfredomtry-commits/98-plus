@@ -270,6 +270,15 @@ import {
   logResultGoToBansShowNext,
 } from '@/lib/result-go-to-bans-debug';
 import {
+  isSuccessExitDrainSource,
+  logLobbyCtaHiddenBug,
+  logResultCardAutoClearedBug,
+  logResultNextPayloadMissingBug,
+  logResultNextPayloadReady,
+  logSuccessDrainResultCardMounted,
+  logSuccessDrainResultLostBug,
+} from '@/lib/result-next-chain-debug';
+import {
   clearLobbyNotificationAttentionHint,
   persistLobbyNotificationAttentionHint,
   readLobbyNotificationAttentionHint,
@@ -2391,6 +2400,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return true;
   };
 
+  const isResultNotificationPayloadReady = useCallback(
+    (row: BanResult | null | undefined): boolean => {
+      if (!row?.id?.trim()) return false;
+      if (!row.outcome) return false;
+      return true;
+    },
+    [],
+  );
+
+  const holdResultForActiveNotificationChain = useCallback(
+    (banId: string, source: string) => {
+      const key = normalizeId(banId);
+      if (!key) return;
+      freshOverboardActionBanIdsRef.current.add(key);
+      resultCtaConsumedBanIdsRef.current.delete(key);
+      resultDeliveredBanIdsRef.current.delete(key);
+      shownOverlayKeysRef.current.delete(`result:${key}`);
+      logResultCardStableHold({ banId: key, source });
+    },
+    [],
+  );
+
   const syncDisplayFromQueue = useCallback((queue: QueuedOverlay[]) => {
     const atomicBanId = incomingOverboardAtomicBanIdRef.current;
     if (atomicBanId && resultRef.current?.id === atomicBanId) {
@@ -2833,6 +2864,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           !freshOverboardActionBanIdsRef.current.has(normalizedResultId) &&
           isResultBlockedForNotificationChain(resultId, 'syncDisplayFromQueue')
         ) {
+          logResultCardAutoClearedBug({
+            banId: resultId,
+            source: 'syncDisplayFromQueue-stale-prune',
+            awaitingUser: notificationChainAwaitingUserRef.current,
+            handoff: notificationChainHandoffRef.current,
+          });
           console.log('[result-overlay-pruned-before-show]', {
             banId: resultId,
             source: 'syncDisplayFromQueue',
@@ -2877,14 +2914,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         clearDirectOverboardLayerRefs();
         setDirectResultOverlayActive(false);
         resultOpenRef.current = true;
+        holdResultForActiveNotificationChain(
+          active.result.id,
+          'syncDisplayFromQueue-chain-applied',
+        );
         setResult(active.result);
         logTransitionFromRefs('[OVERLAY STATE SET]', {
           kind: 'result',
           banId: active.result.id,
         });
         const deliveredId = normalizeId(active.result.id);
-        resultDeliveredBanIdsRef.current.add(deliveredId);
-        shownOverlayKeysRef.current.add(`result:${deliveredId}`);
+        if (
+          !notificationChainAwaitingUserRef.current &&
+          !notificationChainHandoffRef.current
+        ) {
+          resultDeliveredBanIdsRef.current.add(deliveredId);
+          shownOverlayKeysRef.current.add(`result:${deliveredId}`);
+        }
         if (active.result.outcome === 'overboard') {
           console.log('[overboard-repeat-debug] status shown', {
             banId: active.result.id,
@@ -3298,6 +3344,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       if (kind === 'result') {
         logResultCardMounted({ banId });
+        const mounted = resultRef.current;
+        if (!mounted?.id || normalizeId(mounted.id) !== normalizeId(banId)) {
+          logResultCardAutoClearedBug({
+            banId,
+            reason: 'result-ref-mismatch',
+            refBanId: mounted?.id ?? null,
+          });
+          return;
+        }
+        if (!isResultNotificationPayloadReady(mounted)) {
+          logResultCardAutoClearedBug({
+            banId,
+            reason: 'result-payload-not-ready',
+            outcome: mounted.outcome ?? null,
+          });
+          return;
+        }
+        if (isSuccessExitInstrumentationActive()) {
+          logSuccessDrainResultCardMounted({
+            banId,
+            outcome: mounted.outcome,
+            source: 'report-overlay-rendered',
+          });
+        }
       }
       if (
         kind === 'check' &&
@@ -11320,6 +11390,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             skipBanId,
           )
         ) {
+          if (
+            isExplicitNotificationDrainSource(source) ||
+            isSuccessExitDrainSource(source)
+          ) {
+            holdResultForActiveNotificationChain(
+              blockedHead.result.id,
+              `${source}-preflight`,
+            );
+            break;
+          }
           pruneResultFromNotificationChain(blockedHead.result.id, source);
           continue;
         }
@@ -11435,13 +11515,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setLobbyOpen(false);
       lobbyOpenRef.current = false;
       flushSync(() => {
+        const queueHeadBeforeFlush = overlayQueueRef.current[0] ?? null;
+        const willShowQueueResult = queueHeadBeforeFlush?.kind === 'result';
+        const willShowQueueResultId =
+          willShowQueueResult && queueHeadBeforeFlush.kind === 'result'
+            ? normalizeId(queueHeadBeforeFlush.result.id)
+            : '';
         if (
           (directResultOverlayRef.current ||
             directResultOverlayActiveRef.current ||
             resultRef.current) &&
           !protectFreshDirect
         ) {
-          applyDirectOverboardCloseState(resultRef.current?.id ?? null);
+          const mountedId = normalizeId(resultRef.current?.id ?? '');
+          if (
+            !willShowQueueResult ||
+            (mountedId && mountedId !== willShowQueueResultId)
+          ) {
+            applyDirectOverboardCloseState(resultRef.current?.id ?? null);
+          }
         }
         if (startupLen > 0) {
           mergeStartupIntoOverlayQueueOnly(source);
@@ -11452,10 +11544,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           !protectFreshDirect &&
           isResultBlockedForNotificationChain(mountedResultId, source, skipBanId)
         ) {
-          markResultOverlayConsumed(mountedResultId, `${source}-mounted-result`);
-          resultOpenRef.current = false;
-          setResult(null);
-          setDirectResultOverlayActive(false);
+          const headAfterSanitize = overlayQueueRef.current[0];
+          const headResultId =
+            headAfterSanitize?.kind === 'result'
+              ? normalizeId(headAfterSanitize.result.id)
+              : '';
+          if (
+            !headResultId ||
+            headResultId !== normalizeId(mountedResultId)
+          ) {
+            markResultOverlayConsumed(mountedResultId, `${source}-mounted-result`);
+            resultOpenRef.current = false;
+            setResult(null);
+            setDirectResultOverlayActive(false);
+          }
         }
         const headAfterMerge = overlayQueueRef.current[0];
         if (headAfterMerge?.kind === 'incoming') {
@@ -11486,6 +11588,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               },
             });
             beginIncomingNextHydrate(incomingBanId, `${source}-flush`);
+          }
+        } else if (headAfterMerge?.kind === 'result') {
+          const resultRow = headAfterMerge.result;
+          holdResultForActiveNotificationChain(
+            resultRow.id,
+            `${source}-flush`,
+          );
+          if (isResultNotificationPayloadReady(resultRow)) {
+            logResultNextPayloadReady({
+              banId: resultRow.id,
+              hasResult: true,
+              status: resultRow.outcome,
+              source,
+            });
+          } else {
+            logResultNextPayloadMissingBug({
+              banId: resultRow.id,
+              source,
+              queueItem: {
+                id: resultRow.id,
+                outcome: resultRow.outcome ?? null,
+                viewerId: resultRow.viewerId ?? null,
+              },
+            });
           }
         }
         syncDisplayFromQueue(overlayQueueRef.current);
@@ -11526,8 +11652,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearNotificationChainReturnLatch,
       getNotificationChainDebugSnapshot,
       hasActiveNotificationOverlayMounted,
+      holdResultForActiveNotificationChain,
       isNotificationChainPausedForReply,
       isResultBlockedForNotificationChain,
+      isResultNotificationPayloadReady,
       markResultOverlayConsumed,
       mergeStartupIntoOverlayQueueOnly,
       overlayQueueItemId,

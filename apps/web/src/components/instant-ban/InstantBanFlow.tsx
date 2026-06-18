@@ -68,6 +68,10 @@ import {
   shouldSuppressLobbyOpenDuringSuccessExit,
 } from '@/lib/success-exit-first-notification-debug';
 import {
+  logLobbyCtaHiddenBug,
+  logSuccessDrainResultLostBug,
+} from '@/lib/result-next-chain-debug';
+import {
   logLobbyChromeHidden,
   logLobbyChromeHiddenBug,
   logLobbyChromeVisible,
@@ -2816,6 +2820,16 @@ export function InstantBanFlow({
     const hasPending = hasPendingNotificationChain();
     const sessionActive = notificationSessionActive;
 
+    if (hasPending && (queueLen > 0 || pendingLen > 0)) {
+      logSuccessDrainResultLostBug({
+        queueLen,
+        pendingLen,
+        sessionActive,
+        reason: 'overlay-lost-with-pending-queue',
+      });
+      return;
+    }
+
     if (
       queueLen === 0 &&
       pendingLen === 0 &&
@@ -2828,6 +2842,8 @@ export function InstantBanFlow({
         pendingLen,
         notificationSessionActive: sessionActive,
       });
+      allowSuccessExitLobbyOpen();
+      openLobby('success-exit-overlay-lost');
       beginCtaSpringIn();
     }
   }, [
@@ -2835,8 +2851,48 @@ export function InstantBanFlow({
     hasPendingNotificationChain,
     notificationOverlayVisible,
     notificationSessionActive,
+    openLobby,
     overlayQueueLength,
     pendingStartupInteractions,
+  ]);
+
+  useEffect(() => {
+    if (!lobbyOpen || !lobbyBootIntroPrimed || showLobbyCta) return;
+    if (notificationOverlayVisible || notificationSessionActive) return;
+    logLobbyCtaHiddenBug({
+      blockers: {
+        ctaState,
+        phase,
+        successExitDraining,
+        successToActiveLobbyBlocked,
+        notificationChainTransitioning,
+        notificationOverlayMounted,
+        replyLobbyBlocked,
+        replyIncomingDeeplinkPending,
+        overlayHandoffLobbySuppressed,
+        deepLinkRouteBootPending,
+        incomingGateActive,
+        bansReturnToLobbyLatch,
+      },
+    });
+  }, [
+    bansReturnToLobbyLatch,
+    ctaState,
+    deepLinkRouteBootPending,
+    incomingGateActive,
+    lobbyBootIntroPrimed,
+    lobbyOpen,
+    notificationChainTransitioning,
+    notificationOverlayMounted,
+    notificationOverlayVisible,
+    notificationSessionActive,
+    overlayHandoffLobbySuppressed,
+    phase,
+    replyIncomingDeeplinkPending,
+    replyLobbyBlocked,
+    showLobbyCta,
+    successExitDraining,
+    successToActiveLobbyBlocked,
   ]);
 
   const handleBeginSend = useCallback(() => {
