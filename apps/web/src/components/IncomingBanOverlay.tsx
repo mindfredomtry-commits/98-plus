@@ -32,7 +32,7 @@ import { ModalShell } from './ModalShell';
 import { APP_NOTIFICATION_BACKDROP_Z_INDEX, APP_NOTIFICATION_CARD_Z_INDEX } from '@/lib/overlay-queue';
 import { verifyOverlayCardLayout } from '@/lib/overlay-card-layout-debug';
 import { installOverlayHitTestProbe } from '@/lib/overlay-hit-test-debug';
-import { shouldBlockOverlayUserTap } from '@/lib/overlay-input-guard';
+import { allowOverlayUserTap } from '@/lib/overlay-input-guard';
 import {
   logOverlayButtonClick,
   logOverlayButtonPointerDown,
@@ -368,7 +368,7 @@ function IncomingBanOverlayInner({
       banId: activeIncomingBan?.id ?? null,
       action: 'counter',
     });
-    if (shouldBlockOverlayUserTap('incoming-counter')) return;
+    if (!allowOverlayUserTap('incoming-counter')) return;
     logClickTest('counter');
     const actBan = verifiedBan ?? resolvedIncoming ?? activeIncomingBan;
     if (!actBan?.id || !actBan.sender?.id || actionLoading) return;
@@ -398,7 +398,7 @@ function IncomingBanOverlayInner({
       banId: activeIncomingBan?.id ?? null,
       action: 'overboard',
     });
-    if (shouldBlockOverlayUserTap('incoming-overboard')) return;
+    if (!allowOverlayUserTap('incoming-overboard')) return;
     logClickTest('overboard');
     const actBan = verifiedBan ?? resolvedIncoming ?? activeIncomingBan;
     if (!actBan?.id || actionLoading || overboardClickLockRef.current) {

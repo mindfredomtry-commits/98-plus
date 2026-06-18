@@ -11,12 +11,18 @@ declare global {
   }
 }
 
-export function setOverlayInputLock(source?: string): void {
+/** Set carryover lock only after a user action was accepted — not on pointerdown. */
+export function setOverlayInputLockAfterAction(source?: string): void {
   if (typeof window === 'undefined') return;
   const until = Date.now() + OVERLAY_INPUT_LOCK_MS;
   window.__overlayInputLockedUntil = until;
   window.__overlayInputLockSource = source ?? 'unknown';
-  window.__debug98log?.('[OVERLAY INPUT LOCK SET]', { until, source });
+  window.__debug98log?.('[OVERLAY INPUT LOCK SET AFTER ACTION]', { until, source });
+}
+
+/** @deprecated Use setOverlayInputLockAfterAction — lock belongs after action, not pointerdown. */
+export function setOverlayInputLock(source?: string): void {
+  setOverlayInputLockAfterAction(source);
 }
 
 export function clearOverlayInputLock(source?: string): void {
@@ -43,7 +49,7 @@ export function shouldBlockOverlayUserTap(source: string): boolean {
   if (!isOverlayInputLocked()) return false;
   const now = Date.now();
   const until = window.__overlayInputLockedUntil ?? 0;
-  window.__debug98log?.('[OVERLAY INPUT BLOCKED]', {
+  window.__debug98log?.('[OVERLAY INPUT BLOCKED CARRYOVER]', {
     reason: 'input-lock-active',
     source,
     lockSource: window.__overlayInputLockSource ?? null,
@@ -54,12 +60,19 @@ export function shouldBlockOverlayUserTap(source: string): boolean {
   return true;
 }
 
-/** @deprecated Prefer shouldBlockOverlayUserTap in button handlers — capture guards block real clicks. */
+/** Returns false when tap should be ignored (carryover lock). Logs allow on success. */
+export function allowOverlayUserTap(source: string): boolean {
+  if (shouldBlockOverlayUserTap(source)) return false;
+  window.__debug98log?.('[OVERLAY INPUT CURRENT ACTION ALLOWED]', { source });
+  return true;
+}
+
+/** @deprecated Prefer allowOverlayUserTap in button handlers — capture guards block real clicks. */
 export function overlayInputCaptureGuard(event: SyntheticEvent): void {
   if (!isOverlayInputLocked()) return;
   const now = Date.now();
   const until = window.__overlayInputLockedUntil ?? 0;
-  window.__debug98log?.('[OVERLAY INPUT BLOCKED]', {
+  window.__debug98log?.('[OVERLAY INPUT BLOCKED CARRYOVER]', {
     type: event.type,
     reason: 'capture-guard',
     lockSource: window.__overlayInputLockSource ?? null,

@@ -37,7 +37,7 @@ import {
   APP_NOTIFICATION_Z_INDEX,
   DIRECT_OVERBOARD_RESULT_Z_INDEX,
 } from '@/lib/overlay-queue';
-import { shouldBlockOverlayUserTap } from '@/lib/overlay-input-guard';
+import { allowOverlayUserTap } from '@/lib/overlay-input-guard';
 import {
   getOverboardClickTs,
   logOverboardPaint,
@@ -332,7 +332,7 @@ function ResultOverlayInner({
   }, [haptic, result.id, result.text, token, view.displayHeadline]);
 
   const replyFromResult = useCallback(() => {
-    if (shouldBlockOverlayUserTap('result-reply')) return;
+    if (!allowOverlayUserTap('result-reply')) return;
     markOverlayUserAction('result-reply', result.id);
     haptic('medium');
     startReplyFromResult(result);
@@ -346,7 +346,8 @@ function ResultOverlayInner({
   ]);
 
   const goToBans = useCallback(() => {
-    if (shouldBlockOverlayUserTap('result-go-to-bans')) return;
+    if (!allowOverlayUserTap('result-go-to-bans')) return;
+    markOverlayUserAction('result-go-to-bans', result.id);
     haptic('light');
     if (directPaint) {
       markVisibleOverboardTrace('RESULT CTA OPEN BANS click', {
@@ -358,10 +359,10 @@ function ResultOverlayInner({
       });
     }
     navigateFromResult();
-  }, [directPaint, haptic, navigateFromResult, result.id, result.outcome]);
+  }, [directPaint, haptic, markOverlayUserAction, navigateFromResult, result.id, result.outcome]);
 
   const banOthers = useCallback(() => {
-    if (shouldBlockOverlayUserTap('result-ban-others')) return;
+    if (!allowOverlayUserTap('result-ban-others')) return;
     markOverlayUserAction('result', result.id);
     haptic('medium');
     onClose();

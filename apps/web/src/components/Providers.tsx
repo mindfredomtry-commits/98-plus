@@ -271,7 +271,7 @@ import {
   logStartupBlockersClear,
   type ReplyStartupBlockersSnapshot,
 } from '@/lib/reply-deeplink-startup-debug';
-import { setOverlayInputLock } from '@/lib/overlay-input-guard';
+import { setOverlayInputLockAfterAction } from '@/lib/overlay-input-guard';
 import {
   getMountedBlockingUserOverlay,
   heldUserCardBanId,
@@ -2871,7 +2871,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const markOverlayUserAction = useCallback((kind: string, banId?: string) => {
-    setOverlayInputLock(`${kind}:${banId ?? 'unknown'}`);
+    setOverlayInputLockAfterAction(`${kind}:${banId ?? 'unknown'}`);
     const ts = overlayTs();
     overlayActionTsRef.current = ts;
     console.log('[OVERLAY ACTION CLICK]', { ts, kind, banId: banId ?? null });

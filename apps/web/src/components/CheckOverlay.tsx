@@ -27,10 +27,7 @@ import { AvatarImage } from './AvatarImage';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
 import { APP_NOTIFICATION_BACKDROP_Z_INDEX, APP_NOTIFICATION_CARD_Z_INDEX } from '@/lib/overlay-queue';
 import { logCheckAnswerClick } from '@/lib/check-chain-drain-debug';
-import {
-  setOverlayInputLock,
-  shouldBlockOverlayUserTap,
-} from '@/lib/overlay-input-guard';
+import { allowOverlayUserTap } from '@/lib/overlay-input-guard';
 
 import { acquireScrollLock, releaseScrollLock } from '@/lib/scroll-lock';
 import {
@@ -104,7 +101,7 @@ function CheckOverlayInner({
 
   const answer = useCallback(
     async (completed: boolean) => {
-      if (shouldBlockOverlayUserTap('check-answer')) return;
+      if (!allowOverlayUserTap('check-answer')) return;
       if (!checkBan?.id || !token || !modalView) {
         console.log('[check-overlay-click-missed]', {
           banId: checkBan?.id ?? null,
@@ -144,17 +141,6 @@ function CheckOverlayInner({
       }
     },
     [checkBan?.id, haptic, logCardCloseClick, modalView, markOverlayUserAction, submitCheckAnswer, token],
-  );
-
-  const handleAnswerPointer = useCallback(
-    (completed: boolean) => (event: React.PointerEvent<HTMLButtonElement>) => {
-      if (event.button !== 0) return;
-      setOverlayInputLock(`check:pointerdown:${checkBan?.id ?? 'unknown'}`);
-      event.preventDefault();
-      event.stopPropagation();
-      void answer(completed);
-    },
-    [answer, checkBan?.id],
   );
 
   const isQueueHead = activeOverlayKind === 'check';
@@ -269,7 +255,6 @@ function CheckOverlayInner({
           className="check-answer-btn"
           aria-label={yesLabel}
           onClick={() => void answer(true)}
-          onPointerDown={handleAnswerPointer(true)}
         >
           ✅
         </BigButton>
@@ -278,7 +263,6 @@ function CheckOverlayInner({
           className="check-answer-btn"
           aria-label={noLabel}
           onClick={() => void answer(false)}
-          onPointerDown={handleAnswerPointer(false)}
         >
           ❌
         </BigButton>
