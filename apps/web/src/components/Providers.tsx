@@ -13157,10 +13157,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (composeBlocksNotificationHost) return false;
     if (sendSuccessCardActive) return false;
 
+    const replyParentTimerOwnsTop =
+      replyParentActivePriorityActive &&
+      !showDirectOverboardLayer &&
+      !checkOverlayMounted &&
+      heldUserCardOverlay == null;
+
+    if (replyParentTimerOwnsTop) {
+      logEmptyOverlayHostBlocked({
+        reason: 'reply-parent-active-timer-owns-top',
+        queueLen: overlayQueue.length,
+        startupLen: pendingStartupInteractionsCount,
+        shellKind: notificationQueueShellKind,
+        chainAdvanceWaiting,
+        notificationChainTransitioning,
+      });
+      return false;
+    }
+
     const queueEmpty =
       overlayQueue.length === 0 && pendingStartupInteractionsCount === 0;
     const timerCardOwnsNotificationTop =
-      (replyParentActivePriorityActive || activeBanCardReady) &&
+      activeBanCardReady &&
       !chainAdvanceWaiting &&
       heldUserCardOverlay == null &&
       !checkOverlayMounted &&
@@ -13172,7 +13190,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         reason: queueEmpty
           ? 'timer-card-top-empty-queue'
           : 'timer-card-top-pending-queue',
-        replyParentActive: replyParentActivePriorityActive,
         activeBanCardReady,
         queueLen: overlayQueue.length,
         startupLen: pendingStartupInteractionsCount,
@@ -13190,6 +13207,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
     if (chainAdvanceWaiting) return true;
     if (notificationChainTransitioning) {
+      if (replyParentActivePriorityActive && heldUserCardOverlay == null) {
+        logEmptyOverlayHostBlocked({
+          reason: 'reply-parent-timer-blocks-chain-transition-overlay',
+          queueLen: overlayQueue.length,
+        });
+        return false;
+      }
       if (queueEmpty && heldUserCardOverlay == null) {
         logEmptyOverlayHostBlocked({
           reason: 'stale-chain-transitioning-empty-queue',
@@ -13234,6 +13258,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   ]);
 
   const shouldMountNotificationOverlayHost = useMemo(() => {
+    if (
+      replyParentActivePriorityActive &&
+      !showDirectOverboardLayer &&
+      heldUserCardOverlay == null
+    ) {
+      logEmptyOverlayHostBlocked({
+        reason: 'reply-parent-active-timer-no-host',
+        queueLen: overlayQueue.length,
+        shellKind: notificationQueueShellKind,
+      });
+      return false;
+    }
     if (!notificationOverlayVisible) return false;
     if (heldUserCardOverlay != null) return true;
     if (chainAdvanceWaiting) return true;
@@ -13271,16 +13307,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationOverlayVisible,
     notificationQueueShellKind,
     overlayQueue.length,
+    replyParentActivePriorityActive,
     showDirectOverboardLayer,
-    notificationQueueShellKind,
   ]);
 
+  const replyParentTimerOwnsTopLayer =
+    replyParentActivePriorityActive &&
+    !showDirectOverboardLayer &&
+    heldUserCardOverlay == null;
+
+  useLayoutEffect(() => {
+    if (!replyParentTimerOwnsTopLayer) {
+      delete document.documentElement.dataset.replyParentActivePriorityActive;
+      return;
+    }
+    document.documentElement.dataset.replyParentActivePriorityActive = 'true';
+    return () => {
+      delete document.documentElement.dataset.replyParentActivePriorityActive;
+    };
+  }, [replyParentTimerOwnsTopLayer]);
+
   const checkOverlayInteractive = checkOverlayMounted;
-  const notificationHostLayerActive = notificationOverlayVisible;
-  const notificationHostPointerActive = notificationOverlayVisible;
+  const notificationHostLayerActive =
+    notificationOverlayVisible && !replyParentTimerOwnsTopLayer;
+  const notificationHostPointerActive =
+    notificationOverlayVisible && !replyParentTimerOwnsTopLayer;
   const notificationHostSessionBackdrop =
-    notificationChainTransitioning ||
-    (notificationOverlayVisible && notificationSessionActive);
+    !replyParentTimerOwnsTopLayer &&
+    (notificationChainTransitioning ||
+      (notificationOverlayVisible && notificationSessionActive));
 
   useLayoutEffect(() => {
     if (!notificationChainTransitioningRef.current) return;

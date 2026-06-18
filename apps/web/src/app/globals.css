@@ -1001,6 +1001,38 @@ html[data-check-direct] .app-page .bottom-nav {
   pointer-events: auto;
 }
 
+/* Reply-parent-active timer after success — notification shell must not steal taps. */
+html[data-reply-parent-active-timer] .app-notification-layer,
+html[data-reply-parent-active-priority-active] .app-notification-layer,
+html[data-reply-parent-active-timer] [data-notification-layer],
+html[data-reply-parent-active-priority-active] [data-notification-layer] {
+  pointer-events: none !important;
+}
+
+html[data-reply-parent-active-timer] .app-notification-layer__hit-blocker,
+html[data-reply-parent-active-priority-active] .app-notification-layer__hit-blocker,
+html[data-reply-parent-active-timer] .app-notification-layer__session-backdrop,
+html[data-reply-parent-active-priority-active] .app-notification-layer__session-backdrop,
+html[data-reply-parent-active-timer] .app-notification-layer__content,
+html[data-reply-parent-active-priority-active] .app-notification-layer__content,
+html[data-reply-parent-active-timer] .modal-backdrop,
+html[data-reply-parent-active-priority-active] .modal-backdrop {
+  pointer-events: none !important;
+  display: none !important;
+}
+
+html[data-reply-parent-active-timer] .instant-ban-active-ban-card-layer--portaled,
+html[data-reply-parent-active-timer] .instant-ban-arena-send__lobby-active-ban-layer--portaled {
+  z-index: 120;
+  pointer-events: auto;
+}
+
+html[data-reply-parent-active-timer] .instant-ban-active-ban-card,
+html[data-reply-parent-active-timer] .instant-ban-active-ban-card button,
+html[data-reply-parent-active-timer] .instant-ban-active-ban-card .modal-card-actions {
+  pointer-events: auto !important;
+}
+
 .app-notification-layer--check-interactive {
   pointer-events: none;
 }

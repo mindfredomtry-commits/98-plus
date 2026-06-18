@@ -3224,6 +3224,16 @@ html[data-reply-parent-active-timer] .instant-ban-arena-send__lobby-active-ban-l
   pointer-events: auto;
 }
 
+.instant-ban-arena-send__lobby-active-ban-layer--portaled {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
 html[data-reply-parent-active-timer] .instant-ban-active-ban-card-layer,
 html[data-reply-parent-active-timer] .instant-ban-active-ban-card {
   pointer-events: auto;

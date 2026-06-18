@@ -11,7 +11,7 @@ import {
   useSyncExternalStore,
   type CSSProperties,
 } from 'react';
-import { flushSync } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import {
   coerceFriendList,
   findFriendByUsername,
@@ -29,6 +29,7 @@ import {
   logResultTimerReplyClick,
 } from '@/lib/result-timer-card-debug';
 import { allowOverlayUserTap } from '@/lib/overlay-input-guard';
+import { installResultTimerHitTestProbe } from '@/lib/result-timer-hit-test-debug';
 import { useApp } from '../Providers';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSendChallenge } from '@/hooks/useSendChallenge';
@@ -543,6 +544,16 @@ export function InstantBanFlow({
     return () => {
       delete document.documentElement.dataset.replyParentActiveTimer;
     };
+  }, [lobbyActiveBanOverlay?.id]);
+
+  useEffect(() => {
+    if (!lobbyActiveBanOverlay?.id) return;
+    const banId = lobbyActiveBanOverlay.id;
+    return installResultTimerHitTestProbe({
+      banId,
+      isTimerVisible: () =>
+        document.documentElement.dataset.replyParentActiveTimer === banId,
+    });
   }, [lobbyActiveBanOverlay?.id]);
 
   const legacyStep = legacyStepFromPhase(phase);
@@ -4797,20 +4808,23 @@ export function InstantBanFlow({
         />
       ) : null}
 
-      {lobbyActiveBanOverlay ? (
-        <div className="instant-ban-arena-send__lobby-active-ban-layer">
-          <ActiveBanCardOverlay
-            ban={lobbyActiveBanOverlay}
-            viewerUserId={user?.id ?? null}
-            isHistory={false}
-            saved={savedBanIds.has(lobbyActiveBanOverlay.id)}
-            onBack={handleLobbyActiveBanOverlayBack}
-            onBanMore={() => handleBanMore(lobbyActiveBanOverlay)}
-            onShare={() => handleBanShare(lobbyActiveBanOverlay)}
-            onToggleSave={() => handleToggleSave(lobbyActiveBanOverlay)}
-          />
-        </div>
-      ) : null}
+      {lobbyActiveBanOverlay && typeof document !== 'undefined'
+        ? createPortal(
+            <div className="instant-ban-arena-send__lobby-active-ban-layer instant-ban-arena-send__lobby-active-ban-layer--portaled">
+              <ActiveBanCardOverlay
+                ban={lobbyActiveBanOverlay}
+                viewerUserId={user?.id ?? null}
+                isHistory={false}
+                saved={savedBanIds.has(lobbyActiveBanOverlay.id)}
+                onBack={handleLobbyActiveBanOverlayBack}
+                onBanMore={() => handleBanMore(lobbyActiveBanOverlay)}
+                onShare={() => handleBanShare(lobbyActiveBanOverlay)}
+                onToggleSave={() => handleToggleSave(lobbyActiveBanOverlay)}
+              />
+            </div>,
+            document.body,
+          )
+        : null}
 
       {showBansLayer ? (
         <div className="instant-ban-arena-send__bans-layer">
