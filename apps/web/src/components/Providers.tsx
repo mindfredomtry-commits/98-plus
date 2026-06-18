@@ -273,6 +273,17 @@ import {
 } from '@/lib/reply-deeplink-startup-debug';
 import { setOverlayInputLockAfterAction } from '@/lib/overlay-input-guard';
 import {
+  allowDeeplinkExplicitNotificationDrain,
+  completeDeeplinkSingleCardMode,
+  enableDeeplinkSingleCardMode,
+  isDeeplinkSingleCardCompleting,
+  isDeeplinkSingleCardModeActive,
+  logDeeplinkAutoDrainBlocked,
+  logDeeplinkAutoDrainBug,
+  logDeeplinkReturnLobby,
+  shouldBlockDeeplinkAutoDrain,
+} from '@/lib/deeplink-single-card-mode';
+import {
   getMountedBlockingUserOverlay,
   heldUserCardBanId,
   isBlockingUserOverlayKind,
@@ -2737,6 +2748,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const prevKey = prevHead ? overlayQueueKey(prevHead) : null;
       const nextKey = nextHead ? overlayQueueKey(nextHead) : null;
       if (
+        isDeeplinkSingleCardModeActive() &&
+        prevKey !== nextKey &&
+        nextHead &&
+        !chainAdvanceExplicitRef.current &&
+        shouldBlockDeeplinkAutoDrain('applyOverlayQueue')
+      ) {
+        logDeeplinkAutoDrainBug({
+          nextKind: nextHead.kind,
+          nextBanId:
+            nextHead.kind === 'result'
+              ? nextHead.result.id
+              : nextHead.ban.id,
+          source: 'applyOverlayQueue',
+        });
+        overlayQueueRef.current = next;
+        setOverlayQueue(next);
+        return;
+      }
+      if (
         prevKey !== nextKey &&
         nextHead &&
         blockAndPreserveActiveUserCard('applyOverlayQueue', nextHead, {
@@ -3058,6 +3088,48 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
       const remaining = nextQueue ?? popOverlayHead(prev);
+
+      if (
+        isDeeplinkSingleCardModeActive() &&
+        isDeeplinkSingleCardCompleting(dismissKind, dismissBanId)
+      ) {
+        const nextHead = remaining[0] ?? null;
+        if (nextHead) {
+          logDeeplinkAutoDrainBug({
+            nextKind: nextHead.kind,
+            nextBanId:
+              nextHead.kind === 'result'
+                ? nextHead.result.id
+                : nextHead.ban.id,
+            source: reason,
+          });
+        }
+        overlayQueueRef.current = remaining;
+        setOverlayQueue(remaining);
+        clearActiveUserCardHold(`deeplink-single-card:${reason}`);
+        clearActiveOverlayStateForDismiss(dismissKind, dismissBanId, {
+          explicitUserAction: true,
+        });
+        completeDeeplinkSingleCardMode(`dismiss:${reason}`);
+        logDeeplinkReturnLobby({
+          reason,
+          banId: dismissBanId,
+          remainingLen: remaining.length,
+        });
+        overlayActionTsRef.current = null;
+        overlayHandoffTsRef.current = null;
+        notificationChainAwaitingUserRef.current = false;
+        notificationChainHandoffRef.current = false;
+        setNotificationChainTransitioning(false);
+        setLobbyOpen(true);
+        lobbyOpenRef.current = true;
+        lobbyShownLoggedRef.current = false;
+        logTransitionFromRefs('[DISMISS COMMIT DONE]', {
+          source: `${reason}-deeplink-single-card`,
+        });
+        return;
+      }
+
       const drainTotal = prev.length;
       const dismissTs = overlayTs();
       overlayHandoffTsRef.current = dismissTs;
@@ -4027,6 +4099,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const releaseStartupInteractions = useCallback(
     (opts?: { requireBanSend?: boolean; force?: boolean }) => {
+      if (opts?.force) {
+        allowDeeplinkExplicitNotificationDrain('releaseStartupInteractions');
+      }
       if (!opts?.force && isNotificationQueueLocked()) {
         return;
       }
@@ -5899,6 +5974,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         setCheckBan(enriched);
         setLobbyOpen(false);
         lobbyOpenRef.current = false;
+        enableDeeplinkSingleCardMode('check', banId);
       }
       return mounted;
     },
@@ -5980,6 +6056,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           return;
         }
         if (checkAnswerInFlightRef.current.size > 0) {
+          return;
+        }
+        if (shouldBlockDeeplinkAutoDrain(`check-dismiss-empty:${reason}`)) {
+          logDeeplinkAutoDrainBlocked({
+            source: reason,
+            banId,
+            queueLen: overlayQueueRef.current.length,
+            startupLen: pendingStartupInteractionsRef.current.length,
+          });
+          logDeeplinkReturnLobby({ reason, banId });
+          setLobbyOpen(true);
+          lobbyOpenRef.current = true;
+          lobbyShownLoggedRef.current = false;
           return;
         }
         if (showNextNotificationFromChainSyncRef.current('check-dismiss-empty')) {
@@ -8055,7 +8144,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         'incoming',
       ]);
       if (nextQueue.length !== beforeQueue.length) {
-        applyOverlayQueue(nextQueue);
+        if (isDeeplinkSingleCardModeActive()) {
+          overlayQueueRef.current = nextQueue;
+          setOverlayQueue(nextQueue);
+          completeDeeplinkSingleCardMode('reply-completed-route');
+          logDeeplinkReturnLobby({
+            reason: 'reply-completed-route',
+            banId: normalizedBanId,
+            remainingLen: nextQueue.length,
+          });
+        } else {
+          applyOverlayQueue(nextQueue);
+        }
       } else if (
         overlayQueueRef.current[0]?.kind === 'incoming' &&
         overlayQueueRef.current[0].ban.id === normalizedBanId
@@ -8746,6 +8846,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       scheduleReplyFastTimeout(normalizedBanId);
 
       replyDeeplinkChainHoldRef.current = true;
+      enableDeeplinkSingleCardMode('reply', normalizedBanId);
       void prefetchPendingNotificationChain(normalizedBanId, 'reply-deeplink');
 
       return true;
@@ -10104,6 +10205,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const showNextNotificationFromChainSync = useCallback(
     (source: string): boolean => {
+      if (shouldBlockDeeplinkAutoDrain(source)) {
+        const head = overlayQueueRef.current[0] ?? null;
+        const startupHead = pendingStartupInteractionsRef.current[0] ?? null;
+        const nextKind = head?.kind ?? startupHead?.kind ?? null;
+        const nextBanId =
+          head?.kind === 'result'
+            ? head.result.id
+            : head?.kind === 'incoming' || head?.kind === 'check'
+              ? head.ban.id
+              : startupHead?.kind === 'result'
+                ? startupHead.result.id
+                : startupHead?.kind === 'incoming' ||
+                    startupHead?.kind === 'check'
+                  ? startupHead.ban.id
+                  : null;
+        logDeeplinkAutoDrainBlocked({
+          source,
+          nextKind,
+          nextBanId,
+          queueLen: overlayQueueRef.current.length,
+          startupLen: pendingStartupInteractionsRef.current.length,
+        });
+        return false;
+      }
       if (
         blocksMountedNotificationOverlay(
           `showNextNotificationFromChainSync:${source}`,
@@ -10365,6 +10490,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const armOpenBansOverlayFromResultCta = useCallback(
     (banId: string | null, targetTab: BansOverlayTabTarget = 'yours') => {
+      allowDeeplinkExplicitNotificationDrain('armOpenBansOverlayFromResultCta');
       const chainSnapshot = getNotificationChainDebugSnapshot();
       if (hasPendingNotificationChain()) {
         console.log('[chain-debug-bans-open-called]', {
@@ -10483,6 +10609,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const drainNextNotificationAfterSuccess = useCallback(
     async (successBanId?: string | null): Promise<boolean> => {
+      allowDeeplinkExplicitNotificationDrain('drainNextNotificationAfterSuccess');
       const queueLen = overlayQueueRef.current.length;
       const startupLen = pendingStartupInteractionsRef.current.length;
       const composeActive = whatOrConfirmActiveRef.current;
