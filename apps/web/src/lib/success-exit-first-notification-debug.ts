@@ -144,3 +144,23 @@ export function logFirstNotificationMounted(data: {
   emit('[FIRST NOTIFICATION MOUNTED]', data);
   endSuccessExitInstrumentation();
 }
+
+export function logSuccessExitEmptyQueueClearOverlay(data: {
+  source: string;
+  queueLen: number;
+  startupLen: number;
+}): void {
+  emit('[SUCCESS EXIT EMPTY QUEUE CLEAR OVERLAY]', data);
+}
+
+export function logEmptyOverlayHostBlocked(data: Record<string, unknown>): void {
+  emit('[EMPTY OVERLAY HOST BLOCKED]', data);
+}
+
+export function logSuccessExitTimerCardTopOk(data: Record<string, unknown>): void {
+  emit('[SUCCESS EXIT TIMER CARD TOP OK]', data);
+}
+
+export function logEmptyBackdropBug(data: Record<string, unknown>): void {
+  emit('[EMPTY BACKDROP BUG]', data);
+}

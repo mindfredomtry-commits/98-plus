@@ -357,6 +357,7 @@ export function InstantBanFlow({
     notificationOverlayVisible,
     notificationChainTransitioning,
     setNotificationChainTransitioning,
+    clearNotificationOverlayForEmptyQueueAfterSuccessExit,
     activeOverlayKind,
     result,
     sendFlowOpen,
@@ -2192,6 +2193,12 @@ export function InstantBanFlow({
         setSuccessToActiveLobbyBlocked(false);
       });
 
+      clearNotificationOverlayForEmptyQueueAfterSuccessExit(
+        opts.lobbySource === 'reply-parent-active'
+          ? 'reply-parent-active'
+          : 'send-success',
+      );
+
       console.log('[success-to-active-atomic]', {
         hasParentActive: !!opts.parentActiveBan,
         activeBanId: opts.parentActiveBan?.id ?? null,
@@ -2206,6 +2213,7 @@ export function InstantBanFlow({
     },
     [
       clearActiveBanDeepLinkShell,
+      clearNotificationOverlayForEmptyQueueAfterSuccessExit,
       closeSendFlow,
       markReplyParentActivePriorityShown,
       prepareLobbyBaseAfterSuccess,
@@ -2315,6 +2323,9 @@ export function InstantBanFlow({
           reason: 'drain-missed',
         });
         setNotificationChainTransitioning(false);
+        clearNotificationOverlayForEmptyQueueAfterSuccessExit(
+          'success-exit-empty-queue',
+        );
         allowSuccessExitLobbyOpen();
         openLobby('success-exit-empty-queue');
         beginCtaSpringIn();
@@ -2333,6 +2344,7 @@ export function InstantBanFlow({
     },
     [
       beginCtaSpringIn,
+      clearNotificationOverlayForEmptyQueueAfterSuccessExit,
       drainNextNotificationAfterSuccess,
       flushDeferredSync,
       hasPendingNotificationChain,

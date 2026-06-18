@@ -319,6 +319,10 @@ import {
   logSuccessExitDrainResult,
   logSuccessExitDrainStart,
   logSuccessExitLobbyOpenAttempt,
+  logSuccessExitEmptyQueueClearOverlay,
+  logEmptyOverlayHostBlocked,
+  logSuccessExitTimerCardTopOk,
+  logEmptyBackdropBug,
   registerSuccessExitDebugSnapshot,
   shouldSuppressLobbyOpenDuringSuccessExit,
 } from '@/lib/success-exit-first-notification-debug';
@@ -409,6 +413,8 @@ interface AppContextValue {
   /** True while swapping queued notification cards — blocks lobby flash between overlays. */
   notificationChainTransitioning: boolean;
   setNotificationChainTransitioning: (active: boolean) => void;
+  /** Clears stale notification overlay/session when queue is empty after success exit. */
+  clearNotificationOverlayForEmptyQueueAfterSuccessExit: (source: string) => boolean;
   /** True only when a notification modal is actually rendered (blocks lobby pointer). */
   notificationOverlayVisible: boolean;
   activeOverlayKind: 'incoming' | 'check' | 'result' | null;
@@ -2004,6 +2010,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       lobbyOpenRef.current = false;
     }
   }, []);
+
+  const clearNotificationOverlayForEmptyQueueAfterSuccessExit = useCallback(
+    (source: string): boolean => {
+      const queueLen = overlayQueueRef.current.length;
+      const startupLen = pendingStartupInteractionsRef.current.length;
+      if (queueLen > 0 || startupLen > 0) {
+        return false;
+      }
+
+      logSuccessExitEmptyQueueClearOverlay({ source, queueLen, startupLen });
+      clearActiveUserCardHold(`success-exit-empty-queue:${source}`);
+      setChainAdvanceWaiting(false);
+      chainAdvanceExplicitRef.current = false;
+      setNotificationChainTransitioning(false);
+      notificationChainHandoffRef.current = false;
+      notificationChainAwaitingUserRef.current = false;
+      return true;
+    },
+    [setChainAdvanceWaiting, setNotificationChainTransitioning],
+  );
 
   const syncPendingStartupCount = useCallback(() => {
     setPendingStartupInteractionsCount(
@@ -11704,6 +11730,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     !notificationShellSuppressedForBansLobby &&
     !incomingBlockedAfterAnswer &&
     !notificationChainReplyComposePaused &&
+    !replyParentActivePriorityActive &&
     (heldUserCardOverlay?.kind === 'incoming' ||
       displayActiveOverlayKind === 'incoming' ||
       activeOverlayKind === 'incoming' ||
@@ -11738,6 +11765,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     !notificationShellSuppressedForBansLobby &&
     !(replyIncomingDirectPath && replyDeepLinkBanId != null) &&
     !(checkDeeplinkDirectPath && checkDeepLinkBanId != null) &&
+    !(
+      overlayQueue.length === 0 &&
+      pendingStartupInteractionsCount === 0 &&
+      !chainAdvanceWaiting &&
+      !notificationChainTransitioning &&
+      !heldUserCardOverlay &&
+      !showDirectOverboardLayer &&
+      !overboardTransitionActive &&
+      (replyParentActivePriorityActive || activeBanCardReady)
+    ) &&
     (notificationChainTransitioning ||
       showDirectOverboardLayer ||
       overboardTransitionActive ||
@@ -12952,6 +12989,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const notificationOverlayVisible = useMemo(() => {
     if (composeBlocksNotificationHost) return false;
     if (sendSuccessCardActive) return false;
+
+    const queueEmpty =
+      overlayQueue.length === 0 && pendingStartupInteractionsCount === 0;
+    const timerCardTopWithoutQueue =
+      queueEmpty &&
+      (replyParentActivePriorityActive || activeBanCardReady) &&
+      !chainAdvanceWaiting &&
+      heldUserCardOverlay == null &&
+      !checkOverlayMounted &&
+      !showDirectOverboardLayer;
+
+    if (timerCardTopWithoutQueue) {
+      logEmptyOverlayHostBlocked({
+        reason: 'timer-card-top-empty-queue',
+        replyParentActive: replyParentActivePriorityActive,
+        activeBanCardReady,
+        queueLen: overlayQueue.length,
+        startupLen: pendingStartupInteractionsCount,
+      });
+      return false;
+    }
+
     if (heldUserCardOverlay != null) return true;
     // Reply deeplink renders IncomingBanOverlay outside GlobalOverlayHost — empty host + session backdrop would sit on top.
     if (showReplyIncomingOverlayDirect && replyDirectOverlayBan != null) {
@@ -12961,7 +13020,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return false;
     }
     if (chainAdvanceWaiting) return true;
-    if (notificationChainTransitioning) return true;
+    if (notificationChainTransitioning) {
+      if (queueEmpty && heldUserCardOverlay == null) {
+        logEmptyOverlayHostBlocked({
+          reason: 'stale-chain-transitioning-empty-queue',
+          queueLen: overlayQueue.length,
+        });
+        return false;
+      }
+      return true;
+    }
     if (showDirectOverboardLayer) return true;
     if (checkOverlayMounted) return true;
     if (notificationQueueShellKind === 'check' && checkBan?.id) return true;
@@ -12975,21 +13043,50 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
     return false;
   }, [
+    activeBanCardReady,
     chainAdvanceWaiting,
     checkBan?.id,
     checkOverlayMounted,
     composeBlocksNotificationHost,
     displayResult,
+    heldUserCardOverlay,
     incomingCardDisplayBan,
     incomingCardFullyReady,
     notificationQueueShellKind,
+    overlayQueue.length,
+    pendingStartupInteractionsCount,
     replyDirectOverlayBan,
+    replyParentActivePriorityActive,
     sendSuccessCardActive,
     notificationChainTransitioning,
     showDirectOverboardLayer,
     showReplyIncomingOverlayDirect,
     showCheckOverlayDirect,
+  ]);
+
+  const shouldMountNotificationOverlayHost = useMemo(() => {
+    if (!notificationOverlayVisible) return false;
+    if (heldUserCardOverlay != null) return true;
+    if (chainAdvanceWaiting) return true;
+    if (checkOverlayMounted) return true;
+    if (showDirectOverboardLayer) return true;
+    if (notificationQueueShellKind != null) return true;
+    if (notificationChainTransitioning && overlayQueue.length > 0) return true;
+    logEmptyOverlayHostBlocked({
+      reason: 'no-renderable-shell-content',
+      shellKind: notificationQueueShellKind,
+      queueLen: overlayQueue.length,
+    });
+    return false;
+  }, [
+    chainAdvanceWaiting,
+    checkOverlayMounted,
     heldUserCardOverlay,
+    notificationChainTransitioning,
+    notificationOverlayVisible,
+    notificationQueueShellKind,
+    overlayQueue.length,
+    showDirectOverboardLayer,
   ]);
 
   const checkOverlayInteractive = checkOverlayMounted;
@@ -13032,6 +13129,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       notificationHostActive: notificationHostLayerActive,
       notificationPointerActive: notificationHostPointerActive,
       notificationOverlayVisible,
+      shouldMountNotificationOverlayHost,
       successMounted: sendSuccessCardActiveRef.current,
       composeActive: whatOrConfirmActiveRef.current,
       sendComposeActive: sendComposeActiveRef.current,
@@ -13046,6 +13144,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         backdropActive: notificationHostSessionBackdrop,
         queueLen: overlayQueue.length,
         activeKind: notificationQueueShellKind,
+        shouldMount: shouldMountNotificationOverlayHost,
       });
     } else if (
       overlayQueue.length > 0 ||
@@ -13066,6 +13165,52 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationOverlayVisible,
     notificationQueueShellKind,
     overlayQueue.length,
+    shouldMountNotificationOverlayHost,
+  ]);
+
+  useLayoutEffect(() => {
+    const queueLen = overlayQueue.length;
+    if (
+      replyParentActivePriorityActive &&
+      queueLen === 0 &&
+      pendingStartupInteractionsCount === 0 &&
+      !notificationOverlayVisible &&
+      !shouldMountNotificationOverlayHost
+    ) {
+      logSuccessExitTimerCardTopOk({
+        activeBanCardReady,
+        replyParentActive: true,
+        queueLen,
+      });
+    }
+
+    if (
+      (notificationOverlayVisible || notificationHostSessionBackdrop) &&
+      shouldMountNotificationOverlayHost === false &&
+      notificationQueueShellKind == null &&
+      !chainAdvanceWaiting &&
+      heldUserCardOverlay == null &&
+      queueLen === 0
+    ) {
+      logEmptyBackdropBug({
+        notificationOverlayVisible,
+        sessionBackdrop: notificationHostSessionBackdrop,
+        shellKind: notificationQueueShellKind,
+        queueLen,
+        replyParentActive: replyParentActivePriorityActive,
+      });
+    }
+  }, [
+    activeBanCardReady,
+    chainAdvanceWaiting,
+    heldUserCardOverlay,
+    notificationHostSessionBackdrop,
+    notificationOverlayVisible,
+    notificationQueueShellKind,
+    overlayQueue.length,
+    pendingStartupInteractionsCount,
+    replyParentActivePriorityActive,
+    shouldMountNotificationOverlayHost,
   ]);
 
   useLayoutEffect(() => {
@@ -13221,6 +13366,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       notificationSessionActive,
       notificationChainTransitioning,
       setNotificationChainTransitioning,
+      clearNotificationOverlayForEmptyQueueAfterSuccessExit,
       notificationOverlayVisible,
       activeOverlayKind: incomingOverlayDisplayKind,
     logCardCloseClick,
@@ -13394,6 +13540,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       notificationSessionActive,
       notificationChainTransitioning,
       setNotificationChainTransitioning,
+      clearNotificationOverlayForEmptyQueueAfterSuccessExit,
       notificationOverlayVisible,
       incomingOverlayDisplayKind,
     logCardCloseClick,
@@ -13602,7 +13749,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 />
               </ChallengeErrorBoundary>
             ) : null}
-            {!composeBlocksNotificationHost && notificationOverlayVisible ? (
+            {!composeBlocksNotificationHost && shouldMountNotificationOverlayHost ? (
             <GlobalOverlayHost
               active={notificationHostPointerActive}
               queueSessionActive={notificationHostSessionBackdrop}
