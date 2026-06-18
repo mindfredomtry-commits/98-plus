@@ -3218,6 +3218,17 @@ html.instant-ban-resuming .instant-ban-arena-send__confirm-layer {
   flex-direction: column;
 }
 
+/* Reply-parent-active timer after success — must sit above notification hit-blocker (z-index 100). */
+html[data-reply-parent-active-timer] .instant-ban-arena-send__lobby-active-ban-layer {
+  z-index: 120;
+  pointer-events: auto;
+}
+
+html[data-reply-parent-active-timer] .instant-ban-active-ban-card-layer,
+html[data-reply-parent-active-timer] .instant-ban-active-ban-card {
+  pointer-events: auto;
+}
+
 /* Hide naked lobby between success exit and active timer overlay (async fallback). */
 .instant-ban-flow--success-to-active-lobby-blocked .lobby-screen__orb-wrap,
 .instant-ban-flow--success-to-active-lobby-blocked .lobby-screen__cta-wrap,

@@ -21,6 +21,14 @@ import {
   type SessionState,
   type UserPublic,
 } from '@98plus/shared';
+import {
+  logResultTimerActionAllowed,
+  logResultTimerDismissContinueQueue,
+  logResultTimerGoToBansClick,
+  logResultTimerInputBlockedBug,
+  logResultTimerReplyClick,
+} from '@/lib/result-timer-card-debug';
+import { allowOverlayUserTap } from '@/lib/overlay-input-guard';
 import { useApp } from '../Providers';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSendChallenge } from '@/hooks/useSendChallenge';
@@ -356,6 +364,7 @@ export function InstantBanFlow({
     markReplyParentActivePriorityShown,
     isReplyParentActivePriorityActive,
     releaseNotificationQueueAfterReplyParentActive,
+    markOverlayUserAction,
     incomingGateActive,
     checkGateActive,
     checkDeeplinkDirectPending,
@@ -523,6 +532,18 @@ export function InstantBanFlow({
   const historyFetchGenRef = useRef(0);
   const savedFetchGenRef = useRef(0);
   const historyUserIdRef = useRef<string | null>(null);
+
+  useLayoutEffect(() => {
+    const banId = lobbyActiveBanOverlay?.id ?? null;
+    if (!banId) {
+      delete document.documentElement.dataset.replyParentActiveTimer;
+      return;
+    }
+    document.documentElement.dataset.replyParentActiveTimer = banId;
+    return () => {
+      delete document.documentElement.dataset.replyParentActiveTimer;
+    };
+  }, [lobbyActiveBanOverlay?.id]);
 
   const legacyStep = legacyStepFromPhase(phase);
   const activeBanDeepLinkBooting =
@@ -2046,7 +2067,29 @@ export function InstantBanFlow({
   }, [handleCloseBansOverlay]);
 
   const handleLobbyActiveBanOverlayBack = useCallback(() => {
+    const banId = lobbyActiveBanOverlay?.id ?? null;
+    if (!allowOverlayUserTap('result-timer-go-to-bans')) {
+      logResultTimerInputBlockedBug({
+        action: 'go-to-bans',
+        banId,
+        source: 'handleLobbyActiveBanOverlayBack',
+      });
+      return;
+    }
+    logResultTimerActionAllowed({
+      action: 'go-to-bans',
+      banId,
+      source: 'handleLobbyActiveBanOverlayBack',
+    });
+    logResultTimerGoToBansClick({ banId, source: 'reply-parent-active-timer' });
+    markOverlayUserAction('result-timer-go-to-bans', banId ?? undefined);
     const hasNext = hasPendingNotificationChain();
+    logResultTimerDismissContinueQueue({
+      banId,
+      hasNext,
+      queueLen: overlayQueueLength,
+      pendingStartupInteractions,
+    });
     console.log('[notification-chain-next-check]', {
       source: 'active-timer-card-close',
       hasNext,
@@ -2064,6 +2107,8 @@ export function InstantBanFlow({
     releaseNotificationQueueAfterReplyParentActive();
   }, [
     hasPendingNotificationChain,
+    lobbyActiveBanOverlay?.id,
+    markOverlayUserAction,
     overlayQueueLength,
     pendingStartupInteractions,
     releaseNotificationQueueAfterReplyParentActive,
@@ -2103,6 +2148,21 @@ export function InstantBanFlow({
 
   const handleBanMore = useCallback(
     (ban: BanInteraction) => {
+      if (!allowOverlayUserTap('result-timer-reply')) {
+        logResultTimerInputBlockedBug({
+          action: 'reply',
+          banId: ban.id,
+          source: 'handleBanMore',
+        });
+        return;
+      }
+      logResultTimerActionAllowed({
+        action: 'reply',
+        banId: ban.id,
+        source: 'handleBanMore',
+      });
+      logResultTimerReplyClick({ banId: ban.id, source: 'reply-parent-active-timer' });
+      markOverlayUserAction('result-timer-reply', ban.id);
       console.log('[active-repeat-debug] repeat clicked', {
         banId: ban.id,
         activeBanDeepLinkBanId,
@@ -2121,6 +2181,7 @@ export function InstantBanFlow({
       beginRepeatBanFlow,
       bansTab,
       clearActiveBanDeepLinkShell,
+      markOverlayUserAction,
     ],
   );
 

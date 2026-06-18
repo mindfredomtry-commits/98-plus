@@ -1,6 +1,6 @@
 'use client';
 
-import { useLayoutEffect, useMemo } from 'react';
+import { useLayoutEffect, useMemo, useCallback } from 'react';
 import type { BanInteraction } from '@98plus/shared';
 import { AvatarImage } from '../AvatarImage';
 import { BigButton } from '../BigButton';
@@ -13,6 +13,10 @@ import { banHistoryStatusLabel, banStatusLabel } from './bans-overlay-utils';
 import { BanSaveStar } from './BanSaveStar';
 import { ResultShareIcon } from './ResultShareIcon';
 import { logResultPresentation } from '@/lib/result-ui-debug';
+import {
+  logResultTimerButtonClick,
+  logResultTimerButtonPointerDown,
+} from '@/lib/result-timer-card-debug';
 import './instant-ban.css';
 
 type Props = {
@@ -96,6 +100,38 @@ export function ActiveBanCardOverlay({
     });
   }, [ban.id, ban.status, view.headline]);
 
+  const handleBanMorePointerDown = useCallback(() => {
+    logResultTimerButtonPointerDown({
+      action: 'reply',
+      banId: ban.id,
+      label: banMoreLabel,
+    });
+  }, [ban.id, banMoreLabel]);
+
+  const handleBanMoreClick = useCallback(() => {
+    logResultTimerButtonClick({
+      action: 'reply',
+      banId: ban.id,
+      label: banMoreLabel,
+    });
+    onBanMore();
+  }, [ban.id, banMoreLabel, onBanMore]);
+
+  const handleBackPointerDown = useCallback(() => {
+    logResultTimerButtonPointerDown({
+      action: 'go-to-bans',
+      banId: ban.id,
+    });
+  }, [ban.id]);
+
+  const handleBackClick = useCallback(() => {
+    logResultTimerButtonClick({
+      action: 'go-to-bans',
+      banId: ban.id,
+    });
+    onBack();
+  }, [ban.id, onBack]);
+
   return (
     <div
       className="instant-ban-active-ban-card-layer"
@@ -157,8 +193,13 @@ export function ActiveBanCardOverlay({
         </div>
 
         <div className="modal-card-actions result-card-actions space-y-2.5">
-          <BigButton onClick={onBanMore}>{banMoreLabel}</BigButton>
-          <BigButton variant="ghost" onClick={onBack}>
+          <BigButton
+            onPointerDown={handleBanMorePointerDown}
+            onClick={handleBanMoreClick}
+          >
+            {banMoreLabel}
+          </BigButton>
+          <BigButton variant="ghost" onPointerDown={handleBackPointerDown} onClick={handleBackClick}>
             К запретам
           </BigButton>
         </div>

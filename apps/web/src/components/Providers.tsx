@@ -271,7 +271,7 @@ import {
   logStartupBlockersClear,
   type ReplyStartupBlockersSnapshot,
 } from '@/lib/reply-deeplink-startup-debug';
-import { setOverlayInputLockAfterAction } from '@/lib/overlay-input-guard';
+import { setOverlayInputLockAfterAction, clearOverlayInputLock } from '@/lib/overlay-input-guard';
 import {
   allowDeeplinkExplicitNotificationDrain,
   completeDeeplinkSingleCardMode,
@@ -10849,6 +10849,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     replyParentActivePriorityPendingRef.current = false;
     replyParentActivePriorityActiveRef.current = true;
     setReplyParentActivePriorityActive(true);
+    clearOverlayInputLock('reply-parent-active-shown');
     void prefetchPendingNotificationChain(parentBanId, 'reply-parent-active-shown');
     console.log('[reply-parent-active-priority-show]', {
       parentBanId,
@@ -13158,17 +13159,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
     const queueEmpty =
       overlayQueue.length === 0 && pendingStartupInteractionsCount === 0;
-    const timerCardTopWithoutQueue =
-      queueEmpty &&
+    const timerCardOwnsNotificationTop =
       (replyParentActivePriorityActive || activeBanCardReady) &&
       !chainAdvanceWaiting &&
       heldUserCardOverlay == null &&
       !checkOverlayMounted &&
-      !showDirectOverboardLayer;
+      !showDirectOverboardLayer &&
+      notificationQueueShellKind == null;
 
-    if (timerCardTopWithoutQueue) {
+    if (timerCardOwnsNotificationTop) {
       logEmptyOverlayHostBlocked({
-        reason: 'timer-card-top-empty-queue',
+        reason: queueEmpty
+          ? 'timer-card-top-empty-queue'
+          : 'timer-card-top-pending-queue',
         replyParentActive: replyParentActivePriorityActive,
         activeBanCardReady,
         queueLen: overlayQueue.length,
@@ -13237,7 +13240,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (checkOverlayMounted) return true;
     if (showDirectOverboardLayer) return true;
     if (notificationQueueShellKind != null) return true;
-    if (notificationChainTransitioning && overlayQueue.length > 0) return true;
+    if (notificationChainTransitioning && overlayQueue.length > 0) {
+      const timerBlocksEmptyHost =
+        (replyParentActivePriorityActive || activeBanCardReady) &&
+        heldUserCardOverlay == null &&
+        !showDirectOverboardLayer &&
+        notificationQueueShellKind == null;
+      if (timerBlocksEmptyHost) {
+        logEmptyOverlayHostBlocked({
+          reason: 'timer-card-top-blocks-empty-transition-host',
+          queueLen: overlayQueue.length,
+          replyParentActive: replyParentActivePriorityActive,
+          activeBanCardReady,
+        });
+        return false;
+      }
+      return true;
+    }
     logEmptyOverlayHostBlocked({
       reason: 'no-renderable-shell-content',
       shellKind: notificationQueueShellKind,
@@ -13253,6 +13272,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationQueueShellKind,
     overlayQueue.length,
     showDirectOverboardLayer,
+    notificationQueueShellKind,
   ]);
 
   const checkOverlayInteractive = checkOverlayMounted;
