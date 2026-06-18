@@ -239,6 +239,7 @@ import {
 } from '@/lib/result-poll-priority-debug';
 import {
   logCheckDeeplinkSkipNoUiChange,
+  logLobbyChromeHiddenBug,
   logResultPollDoesNotHideLobby,
 } from '@/lib/lobby-chrome-debug';
 import {
@@ -246,10 +247,12 @@ import {
   isLobbyIndicatorPrimeOnlySource,
   logLobbyIndicatorDelayBug,
   logLobbyIndicatorOpenedCardBug,
+  logLobbyIndicatorOpenedEmptyHostBug,
   logLobbyIndicatorPrefetchNoOverlay,
   logLobbyIndicatorPrimeOnly,
   logLobbyIndicatorPrimeReady,
   logLobbyIndicatorPrimeStart,
+  logResultPollOpenedEmptyHostBug,
 } from '@/lib/lobby-bans-indicator-debug';
 import {
   logIncomingOverboardAtomicResult,
@@ -2360,6 +2363,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [],
   );
+
+  const shouldDeferNotificationOverlayDisplay = (source: string): boolean => {
+    if (!startupInteractionsHoldRef.current) return false;
+    if (chainAdvanceExplicitRef.current) return false;
+    if (isExplicitNotificationDrainSource(source)) return false;
+    return true;
+  };
 
   const syncDisplayFromQueue = useCallback((queue: QueuedOverlay[]) => {
     const atomicBanId = incomingOverboardAtomicBanIdRef.current;
@@ -5793,6 +5803,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (!banId) return;
 
       if (
+        source === 'poll' &&
+        shouldDeferNotificationOverlayDisplay('receiveResult-poll')
+      ) {
+        enqueueNotification(
+          { kind: 'result', result: normalized },
+          { source: 'poll' },
+        );
+        primeLobbyBansAttentionHintSyncRef.current('receiveResult-poll-deferred');
+        logResultPollDoesNotHideLobby({
+          banId,
+          source: 'receiveResult-poll',
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          queueLen: overlayQueueRef.current.length,
+        });
+        return;
+      }
+
+      if (
         deferResultWhileSuccessCardMounted('receiveResult', {
           kind: 'result',
           result: normalized,
@@ -5980,6 +6008,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const statusLabel = normalized.headline || normalized.outcome;
       if (!banId) {
         logCheckAnswerFinalResultMissing({ banId: null, reason: 'no-ban-id' });
+        return false;
+      }
+
+      if (shouldDeferNotificationOverlayDisplay('check-answer-final')) {
+        enqueueNotification(
+          { kind: 'result', result: normalized },
+          { source: source === 'poll' ? 'poll' : 'ws' },
+        );
+        primeLobbyBansAttentionHintSyncRef.current(
+          source === 'poll'
+            ? 'result-poll-deferred'
+            : 'showCheckAnswerFinalResult-deferred',
+        );
+        logResultPollDoesNotHideLobby({
+          banId,
+          source,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          queueLen: overlayQueueRef.current.length,
+        });
         return false;
       }
 
@@ -6298,6 +6345,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           allowed: true,
           extra: { pollSource: source },
         });
+
+        if (shouldDeferNotificationOverlayDisplay('pollPendingResultOnce')) {
+          enqueueNotification(
+            { kind: 'result', result: normalized },
+            { source: 'poll' },
+          );
+          primeLobbyBansAttentionHintSyncRef.current('result-poll-pending-only');
+          logResultPollDoesNotHideLobby({
+            banId: hitBanId,
+            pollSource: source,
+            pendingLen: pendingStartupInteractionsRef.current.length,
+            queueLen: overlayQueueRef.current.length,
+          });
+          return;
+        }
+
         const shown = showCheckAnswerFinalResult(normalized, 'poll');
         if (!shown) {
           receiveResult(pendingResult, 'poll');
@@ -14111,10 +14174,36 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return false;
       }
-      if (queueEmpty && heldUserCardOverlay == null) {
+      const hasRenderableCard =
+        heldUserCardOverlay != null ||
+        showDirectOverboardLayer ||
+        checkOverlayMounted ||
+        (notificationQueueShellKind === 'check' && !!checkBan?.id) ||
+        (notificationQueueShellKind === 'result' && !!displayResult) ||
+        (notificationQueueShellKind === 'incoming' &&
+          !!incomingCardDisplayBan &&
+          incomingCardFullyReady);
+      if (!hasRenderableCard) {
+        if (startupInteractionsHoldRef.current) {
+          logLobbyIndicatorOpenedEmptyHostBug({
+            reason: 'chain-transitioning-without-card-startup-hold',
+            queueLen: overlayQueue.length,
+            pendingLen: pendingStartupInteractionsCount,
+            shellKind: notificationQueueShellKind,
+          });
+        } else {
+          logResultPollOpenedEmptyHostBug({
+            reason: 'chain-transitioning-without-renderable-card',
+            queueLen: overlayQueue.length,
+            pendingLen: pendingStartupInteractionsCount,
+            shellKind: notificationQueueShellKind,
+          });
+        }
         logEmptyOverlayHostBlocked({
-          reason: 'stale-chain-transitioning-empty-queue',
+          reason: 'chain-transitioning-without-renderable-card',
           queueLen: overlayQueue.length,
+          pendingLen: pendingStartupInteractionsCount,
+          shellKind: notificationQueueShellKind,
         });
         return false;
       }
@@ -14172,23 +14261,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (chainAdvanceWaiting) return true;
     if (checkOverlayMounted) return true;
     if (showDirectOverboardLayer) return true;
-    if (notificationQueueShellKind != null) return true;
-    if (notificationChainTransitioning && overlayQueue.length > 0) {
-      const timerBlocksEmptyHost =
-        (replyParentActivePriorityActive || activeBanCardReady) &&
-        heldUserCardOverlay == null &&
-        !showDirectOverboardLayer &&
-        notificationQueueShellKind == null;
-      if (timerBlocksEmptyHost) {
-        logEmptyOverlayHostBlocked({
-          reason: 'timer-card-top-blocks-empty-transition-host',
-          queueLen: overlayQueue.length,
-          replyParentActive: replyParentActivePriorityActive,
-          activeBanCardReady,
-        });
-        return false;
-      }
+    if (notificationQueueShellKind === 'check' && checkBan?.id) return true;
+    if (notificationQueueShellKind === 'result' && displayResult) return true;
+    if (
+      notificationQueueShellKind === 'incoming' &&
+      incomingCardDisplayBan &&
+      incomingCardFullyReady
+    ) {
       return true;
+    }
+    if (notificationChainTransitioning) {
+      logEmptyOverlayHostBlocked({
+        reason: 'transitioning-without-renderable-shell',
+        shellKind: notificationQueueShellKind,
+        queueLen: overlayQueue.length,
+        pendingLen: pendingStartupInteractionsCount,
+      });
+      return false;
     }
     logEmptyOverlayHostBlocked({
       reason: 'no-renderable-shell-content',
@@ -14198,12 +14287,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return false;
   }, [
     chainAdvanceWaiting,
+    checkBan?.id,
     checkOverlayMounted,
+    displayResult,
     heldUserCardOverlay,
+    incomingCardDisplayBan,
+    incomingCardFullyReady,
     notificationChainTransitioning,
     notificationOverlayVisible,
     notificationQueueShellKind,
     overlayQueue.length,
+    pendingStartupInteractionsCount,
     replyParentActivePriorityActive,
     showDirectOverboardLayer,
   ]);
@@ -14233,6 +14327,54 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     !replyParentTimerOwnsTopLayer &&
     (notificationChainTransitioning ||
       (notificationOverlayVisible && notificationSessionActive));
+
+  useLayoutEffect(() => {
+    if (!notificationChainTransitioning) return;
+    if (heldUserCardOverlay != null) return;
+    if (chainAdvanceWaiting) return;
+    const hasRenderableCard =
+      showDirectOverboardLayer ||
+      checkOverlayMounted ||
+      (notificationQueueShellKind === 'check' && !!checkBan?.id) ||
+      (notificationQueueShellKind === 'result' && !!displayResult) ||
+      (notificationQueueShellKind === 'incoming' &&
+        !!incomingCardDisplayBan &&
+        incomingCardFullyReady);
+    if (hasRenderableCard) return;
+    if (
+      startupInteractionsHoldRef.current &&
+      !chainAdvanceExplicitRef.current
+    ) {
+      logResultPollOpenedEmptyHostBug({
+        reason: 'clear-stale-transitioning-startup-hold',
+        queueLen: overlayQueueRef.current.length,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+        shellKind: notificationQueueShellKind,
+      });
+      setNotificationChainTransitioning(false);
+      return;
+    }
+    if (overlayQueueRef.current.length > 0 && !hasRenderableCard) {
+      logResultPollOpenedEmptyHostBug({
+        reason: 'clear-stale-transitioning-queued-without-card',
+        queueLen: overlayQueueRef.current.length,
+        shellKind: notificationQueueShellKind,
+      });
+      setNotificationChainTransitioning(false);
+    }
+  }, [
+    chainAdvanceWaiting,
+    checkBan?.id,
+    checkOverlayMounted,
+    displayResult,
+    heldUserCardOverlay,
+    incomingCardDisplayBan,
+    incomingCardFullyReady,
+    notificationChainTransitioning,
+    notificationQueueShellKind,
+    setNotificationChainTransitioning,
+    showDirectOverboardLayer,
+  ]);
 
   useLayoutEffect(() => {
     if (!notificationChainTransitioningRef.current) return;

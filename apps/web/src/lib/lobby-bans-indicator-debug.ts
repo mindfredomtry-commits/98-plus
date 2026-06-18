@@ -54,6 +54,18 @@ export function logLobbyIndicatorOpenedCardBug(
   emit('[LOBBY INDICATOR OPENED CARD BUG]', data);
 }
 
+export function logLobbyIndicatorOpenedEmptyHostBug(
+  data: Record<string, unknown>,
+): void {
+  emit('[LOBBY INDICATOR OPENED EMPTY HOST BUG]', data);
+}
+
+export function logResultPollOpenedEmptyHostBug(
+  data: Record<string, unknown>,
+): void {
+  emit('[RESULT POLL OPENED EMPTY HOST BUG]', data);
+}
+
 export function logLobbyIndicatorDelayBug(data: Record<string, unknown>): void {
   emit('[LOBBY INDICATOR DELAY BUG]', data);
 }
