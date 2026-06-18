@@ -27,7 +27,7 @@ const EXPLICIT_DRAIN_MARKERS = [
   'manual flush from lobby button',
 ];
 
-function isExplicitDrainSource(source: string): boolean {
+export function isExplicitNotificationDrainSource(source: string): boolean {
   return EXPLICIT_DRAIN_MARKERS.some((marker) => source.includes(marker));
 }
 
@@ -72,7 +72,7 @@ export function allowDeeplinkExplicitNotificationDrain(source: string): void {
 export function shouldBlockDeeplinkAutoDrain(source: string): boolean {
   if (!mode) return false;
   if (explicitDrainAllowed) return false;
-  if (isExplicitDrainSource(source)) return false;
+  if (isExplicitNotificationDrainSource(source)) return false;
   return true;
 }
 

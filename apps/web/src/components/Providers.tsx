@@ -242,7 +242,12 @@ import {
   logResultPollDoesNotHideLobby,
 } from '@/lib/lobby-chrome-debug';
 import {
+  isLobbyIndicatorPrefetchSource,
+  isLobbyIndicatorPrimeOnlySource,
   logLobbyIndicatorDelayBug,
+  logLobbyIndicatorOpenedCardBug,
+  logLobbyIndicatorPrefetchNoOverlay,
+  logLobbyIndicatorPrimeOnly,
   logLobbyIndicatorPrimeReady,
   logLobbyIndicatorPrimeStart,
 } from '@/lib/lobby-bans-indicator-debug';
@@ -308,6 +313,7 @@ import {
   enableDeeplinkSingleCardMode,
   isDeeplinkSingleCardCompleting,
   isDeeplinkSingleCardModeActive,
+  isExplicitNotificationDrainSource,
   logDeeplinkAutoDrainBlocked,
   logDeeplinkAutoDrainBug,
   logDeeplinkReturnLobby,
@@ -2356,6 +2362,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       return;
     }
+    if (
+      startupInteractionsHoldRef.current &&
+      !chainAdvanceExplicitRef.current &&
+      queue.length > 0
+    ) {
+      logLobbyIndicatorPrefetchNoOverlay({
+        source: 'syncDisplayFromQueue',
+        queueLen: queue.length,
+        headKind: queue[0]?.kind ?? null,
+        startupHold: true,
+      });
+      return;
+    }
     for (const priorityBanId of [...resultPriorityBanIdsRef.current]) {
       const norm = normalizeId(priorityBanId);
       if (!norm) continue;
@@ -3716,6 +3735,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           : mergeStartupPendingSingle(prevPending, normalizedItem);
         pendingStartupInteractionsRef.current = nextPending;
         syncPendingStartupCount();
+        primeLobbyBansAttentionHintSyncRef.current(
+          `enqueue-pending:${opts?.source ?? 'unknown'}`,
+        );
         logOverlayArbiter('enqueue', {
           key,
           kind: normalizedItem.kind,
@@ -4697,7 +4719,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
         if (toEnqueue.length === 0) return false;
 
-        startupInteractionsHoldRef.current = false;
+        const indicatorPrimeOnly = isLobbyIndicatorPrefetchSource(source);
+        if (indicatorPrimeOnly) {
+          logLobbyIndicatorPrefetchNoOverlay({
+            source,
+            enqueuedIds,
+            pendingOnly: true,
+          });
+        } else {
+          startupInteractionsHoldRef.current = false;
+        }
+
         const nextPending = mergeStartupPendingChain(
           pendingStartupInteractionsRef.current,
           toEnqueue,
@@ -4708,6 +4740,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         console.log('[pending-chain-enqueue-rest]', {
           deeplinkBanId: skipBanId || null,
           enqueuedIds,
+          indicatorPrimeOnly,
         });
 
         return true;
@@ -4759,13 +4792,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         persistLobbyNotificationAttentionHint(uid, hint);
       }
 
-      logLobbyIndicatorPrimeReady({
+      const payload = {
         pendingLen,
         queueLen,
         hasIncoming: countLobbyPendingHasIncoming(),
         source,
         hint,
-      });
+      };
+      if (isLobbyIndicatorPrimeOnlySource(source)) {
+        logLobbyIndicatorPrimeOnly(payload);
+      } else {
+        logLobbyIndicatorPrimeReady(payload);
+      }
     },
     [countLobbyPendingHasIncoming, syncPendingStartupCount],
   );
@@ -10829,6 +10867,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const showNextNotificationFromChainSync = useCallback(
     (source: string): boolean => {
+      if (
+        startupInteractionsHoldRef.current &&
+        !isExplicitNotificationDrainSource(source)
+      ) {
+        logLobbyIndicatorOpenedCardBug({
+          source,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          reason: 'startup-hold-blocks-auto-drain',
+        });
+        return false;
+      }
       if (shouldBlockDeeplinkAutoDrain(source)) {
         const head = overlayQueueRef.current[0] ?? null;
         const startupHead = pendingStartupInteractionsRef.current[0] ?? null;
