@@ -17,6 +17,7 @@ const EXPLICIT_DRAIN_MARKERS = [
   'armOpenBansOverlayFromResultCta',
   'explicit-bans',
   'lobby-bans',
+  'lobby-bans-cta',
   'status-cta',
   'releaseStartupInteractions',
   'drainNextNotificationAfterSuccess',

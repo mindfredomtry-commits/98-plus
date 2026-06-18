@@ -360,6 +360,7 @@ export function InstantBanFlow({
     hasPendingNotificationChain,
     releaseStartupInteractions,
     unlockNotificationQueueAndFlush,
+    startLobbyBansNotificationDrain,
     drainNextNotificationAfterSuccess,
     markSessionBanSendSuccess,
     setSendSuccessCardMounted,
@@ -1851,16 +1852,10 @@ export function InstantBanFlow({
 
   const handleOpenBansOverlay = useCallback(() => {
     if (phase !== 'idle' || banSentSuccess) return;
-    const hadPendingIndicator = pendingStartupInteractions;
-    console.log('[queue-debug] manual flush from lobby button', {
-      pendingStartupInteractions: hadPendingIndicator,
-    });
-    logOverlayPriority('explicit-bans-open-unlock', {});
     clearActiveBanDeepLinkShell('lobby-bans-button');
     closeSendFlow();
-    unlockNotificationQueueAndFlush('explicit-bans-open-unlock');
-    releaseStartupInteractions({ force: true });
-    if (hadPendingIndicator) {
+    const outcome = startLobbyBansNotificationDrain();
+    if (outcome !== 'empty') {
       return;
     }
     resetBansNavState();
@@ -1872,11 +1867,9 @@ export function InstantBanFlow({
     banSentSuccess,
     clearActiveBanDeepLinkShell,
     closeSendFlow,
-    pendingStartupInteractions,
     phase,
-    releaseStartupInteractions,
     resetBansNavState,
-    unlockNotificationQueueAndFlush,
+    startLobbyBansNotificationDrain,
   ]);
 
   const resetSendUiForBansCta = useCallback(() => {

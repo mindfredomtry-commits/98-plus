@@ -242,6 +242,15 @@ import {
   logResultPollDoesNotHideLobby,
 } from '@/lib/lobby-chrome-debug';
 import {
+  logLobbyBansCtaClick,
+  logLobbyBansCtaDrainBug,
+  logLobbyBansCtaEmptyOpenSection,
+  logLobbyBansCtaHasNotifications,
+  logLobbyBansCtaShowNext,
+  logLobbyBansCtaStartDrain,
+  type LobbyBansNotificationDrainOutcome,
+} from '@/lib/lobby-bans-cta-debug';
+import {
   logCheckCardMounted,
   logCheckCardOverlaySet,
   logCheckCardSelected,
@@ -679,6 +688,8 @@ interface AppContextValue {
   armActiveBanDeepLinkEarly: (banId: string) => void;
   /** Unlock overlay queue and flush deferred pending overlays. */
   unlockNotificationQueueAndFlush: (reason: string) => void;
+  /** Lobby «Твои запреты»: drain notification queue or open empty section. */
+  startLobbyBansNotificationDrain: () => LobbyBansNotificationDrainOutcome;
   /** After send-success exit: drain one pending notification over lobby. */
   drainNextNotificationAfterSuccess: (
     successBanId?: string | null,
@@ -10678,6 +10689,78 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   showNextNotificationFromChainSyncRef.current =
     showNextNotificationFromChainSync;
 
+  const startLobbyBansNotificationDrain =
+    useCallback((): LobbyBansNotificationDrainOutcome => {
+      const queueLen = overlayQueueRef.current.length;
+      const pendingLen = pendingStartupInteractionsRef.current.length;
+      const needAttention =
+        pendingLen > 0 || queueLen > 0 || hasPendingNotificationChain();
+
+      logLobbyBansCtaClick({
+        queueLen,
+        pendingLen,
+        lobbyBansNeedAttention: needAttention,
+        lobbyOpen: lobbyOpenRef.current,
+      });
+
+      if (!needAttention) {
+        logLobbyBansCtaEmptyOpenSection({ queueLen, pendingLen });
+        return 'empty';
+      }
+
+      logLobbyBansCtaHasNotifications({
+        queueLen,
+        pendingLen,
+        startupHold: startupInteractionsHoldRef.current,
+      });
+      allowDeeplinkExplicitNotificationDrain('lobby-bans-cta');
+      logLobbyBansCtaStartDrain({ queueLen, pendingLen });
+
+      logOverlayPriority('explicit-bans-open-unlock', {
+        source: 'lobby-bans-cta',
+      });
+      clearNotificationChainReturnLatch('lobby-bans-cta');
+      releaseStartupInteractions({ force: true });
+      unlockNotificationQueueAndFlush('lobby-bans-cta');
+
+      const shown = showNextNotificationFromChainSync('lobby-bans-cta');
+      if (shown) {
+        logLobbyBansCtaShowNext({
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          headKind: overlayQueueRef.current[0]?.kind ?? null,
+        });
+        return 'drained';
+      }
+
+      syncDisplayFromQueue(overlayQueueRef.current);
+      const stillPending =
+        overlayQueueRef.current.length > 0 ||
+        pendingStartupInteractionsRef.current.length > 0;
+      if (stillPending) {
+        logLobbyBansCtaDrainBug({
+          reason: 'show-next-failed',
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+        return 'drain-failed';
+      }
+
+      logLobbyBansCtaEmptyOpenSection({
+        queueLen: 0,
+        pendingLen: 0,
+        reason: 'drain-consumed-queue',
+      });
+      return 'empty';
+    }, [
+      clearNotificationChainReturnLatch,
+      hasPendingNotificationChain,
+      releaseStartupInteractions,
+      showNextNotificationFromChainSync,
+      syncDisplayFromQueue,
+      unlockNotificationQueueAndFlush,
+    ]);
+
   const armOpenBansOverlayFromResultCta = useCallback(
     (banId: string | null, targetTab: BansOverlayTabTarget = 'yours') => {
       allowDeeplinkExplicitNotificationDrain('armOpenBansOverlayFromResultCta');
@@ -13979,6 +14062,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       markSessionBanSendSuccess,
       armActiveBanDeepLinkEarly,
       unlockNotificationQueueAndFlush,
+      startLobbyBansNotificationDrain,
       drainNextNotificationAfterSuccess,
       resolveReplyParentActiveBanImmediate,
       ensureReplyParentActiveBanForSuccess,
@@ -14149,6 +14233,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       markSessionBanSendSuccess,
       armActiveBanDeepLinkEarly,
       unlockNotificationQueueAndFlush,
+      startLobbyBansNotificationDrain,
       drainNextNotificationAfterSuccess,
       resolveReplyParentActiveBanImmediate,
       ensureReplyParentActiveBanForSuccess,

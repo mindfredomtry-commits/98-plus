@@ -1,0 +1,40 @@
+'use client';
+
+function emit(event: string, data?: Record<string, unknown>): void {
+  const payload = { t: performance.now(), ...data };
+  console.log(event, payload);
+  window.__debug98log?.(event, payload);
+}
+
+export function logLobbyBansCtaClick(data: Record<string, unknown>): void {
+  emit('[LOBBY BANS CTA CLICK]', data);
+}
+
+export function logLobbyBansCtaHasNotifications(
+  data: Record<string, unknown>,
+): void {
+  emit('[LOBBY BANS CTA HAS NOTIFICATIONS]', data);
+}
+
+export function logLobbyBansCtaStartDrain(data: Record<string, unknown>): void {
+  emit('[LOBBY BANS CTA START DRAIN]', data);
+}
+
+export function logLobbyBansCtaShowNext(data: Record<string, unknown>): void {
+  emit('[LOBBY BANS CTA SHOW NEXT]', data);
+}
+
+export function logLobbyBansCtaEmptyOpenSection(
+  data: Record<string, unknown>,
+): void {
+  emit('[LOBBY BANS CTA EMPTY OPEN SECTION]', data);
+}
+
+export function logLobbyBansCtaDrainBug(data: Record<string, unknown>): void {
+  emit('[LOBBY BANS CTA DRAIN BUG]', data);
+}
+
+export type LobbyBansNotificationDrainOutcome =
+  | 'drained'
+  | 'empty'
+  | 'drain-failed';
