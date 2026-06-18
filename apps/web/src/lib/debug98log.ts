@@ -9,7 +9,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 14;
+export const DEBUG98_LOGGER_VERSION = 15;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -117,6 +117,15 @@ const ALLOWED_EVENTS = new Set([
   '[LOBBY CHROME HIDDEN]',
   '[LOBBY CHROME HIDDEN BUG]',
   '[LOBBY INDICATOR STATE]',
+  '[LOBBY INDICATOR PRIME START]',
+  '[LOBBY INDICATOR PRIME READY]',
+  '[LOBBY INDICATOR DELAY BUG]',
+  '[INCOMING OVERBOARD ATOMIC RESULT]',
+  '[RESULT CARD STABLE HOLD]',
+  '[RESULT CARD REMOUNT BUG]',
+  '[RESULT CARD CLEARED BUG]',
+  '[RESULT CARD FLICKER BUG]',
+  '[RESULT CARD PRESERVE DOM OK]',
   '[RESULT POLL DOES NOT HIDE LOBBY]',
   '[CHECK DEEPLINK SKIP NO UI CHANGE]',
   '[LOBBY BANS CTA CLICK]',
