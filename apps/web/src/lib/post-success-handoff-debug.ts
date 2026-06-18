@@ -6,6 +6,8 @@ export type PostSuccessHandoffSelectedNext = {
 };
 
 let handoffInProgress = false;
+let earlyArmDone = false;
+let successExitWindowOpen = false;
 let selectedNext: PostSuccessHandoffSelectedNext | null = null;
 const listeners = new Set<() => void>();
 
@@ -40,11 +42,84 @@ export function getPostSuccessHandoffSelectedNext(): PostSuccessHandoffSelectedN
   return selectedNext;
 }
 
-export function beginPostSuccessHandoff(data: Record<string, unknown>): void {
+export function markPostSuccessExitWindowOpen(
+  data?: Record<string, unknown>,
+): void {
+  successExitWindowOpen = true;
+  if (data) {
+    emit('[POST SUCCESS EXIT WINDOW OPEN]', data);
+  }
+}
+
+export function clearPostSuccessExitWindow(): void {
+  successExitWindowOpen = false;
+  earlyArmDone = false;
+}
+
+export function armPostSuccessHandoffEarly(
+  data: Record<string, unknown>,
+): boolean {
+  const queueLen = Number(data.queueLen ?? 0);
+  const pendingLen = Number(data.pendingLen ?? 0);
+  const hasPendingChain = data.hasPendingChain === true;
+  const hasQueue = queueLen > 0 || pendingLen > 0 || hasPendingChain;
+  if (!hasQueue) return false;
   handoffInProgress = true;
+  earlyArmDone = true;
+  selectedNext = null;
+  emit('[POST SUCCESS HANDOFF EARLY ARM]', data);
+  notify();
+  return true;
+}
+
+export function beginPostSuccessHandoff(data: Record<string, unknown>): void {
+  if (handoffInProgress) {
+    emit('[POST SUCCESS HANDOFF START]', {
+      ...data,
+      alreadyArmedEarly: earlyArmDone,
+    });
+    return;
+  }
+  handoffInProgress = true;
+  earlyArmDone = false;
   selectedNext = null;
   emit('[POST SUCCESS HANDOFF START]', data);
   notify();
+}
+
+export function logPostSuccessHandoffPreventBaseLobby(
+  data: Record<string, unknown>,
+): void {
+  if (!handoffInProgress) return;
+  emit('[POST SUCCESS HANDOFF PREVENT BASE LOBBY]', {
+    selectedKind: selectedNext?.kind ?? null,
+    selectedBanId: selectedNext?.banId ?? null,
+    ...data,
+  });
+}
+
+export function logPostSuccessHandoffPreventDeferredLobby(
+  data: Record<string, unknown>,
+): void {
+  if (!handoffInProgress) return;
+  emit('[POST SUCCESS HANDOFF PREVENT DEFERRED LOBBY]', {
+    selectedKind: selectedNext?.kind ?? null,
+    selectedBanId: selectedNext?.banId ?? null,
+    ...data,
+  });
+}
+
+export function logPostSuccessHandoffStartTooLateBug(
+  data: Record<string, unknown>,
+): void {
+  if (earlyArmDone || handoffInProgress) return;
+  if (!successExitWindowOpen) return;
+  const queueLen = Number(data.queueLen ?? 0);
+  const pendingStartup = data.pendingStartup === true;
+  const expectedHandoff =
+    data.expectedHandoff === true || queueLen > 0 || pendingStartup;
+  if (!expectedHandoff) return;
+  emit('[POST SUCCESS HANDOFF START TOO LATE BUG]', data);
 }
 
 export function setPostSuccessHandoffSelectedNext(
@@ -71,13 +146,15 @@ export function shouldBlockLobbyOpenForPostSuccessHandoff(
   if (!handoffInProgress) return false;
   const hasSelected = selectedNext != null;
   const hasQueue = queueLen > 0 || pendingLen > 0;
-  if (hasSelected || hasQueue) {
+  const awaitingDrain = earlyArmDone && !hasSelected && !hasQueue;
+  if (hasSelected || hasQueue || awaitingDrain) {
     emit('[POST SUCCESS HANDOFF PREVENT LOBBY]', {
       source: source ?? null,
       queueLen,
       pendingLen,
       selectedKind: selectedNext?.kind ?? null,
       selectedBanId: selectedNext?.banId ?? null,
+      awaitingDrain,
     });
     emit('[LOBBY OPEN BLOCKED BY POST SUCCESS HANDOFF]', {
       source: source ?? null,
@@ -85,6 +162,7 @@ export function shouldBlockLobbyOpenForPostSuccessHandoff(
       pendingLen,
       selectedKind: selectedNext?.kind ?? null,
       selectedBanId: selectedNext?.banId ?? null,
+      awaitingDrain,
     });
     return true;
   }
@@ -126,6 +204,8 @@ export function completePostSuccessHandoffOnCardMounted(
   });
   handoffInProgress = false;
   selectedNext = null;
+  earlyArmDone = false;
+  successExitWindowOpen = false;
   notify();
 }
 
@@ -136,6 +216,8 @@ export function completePostSuccessHandoffEmptyOpenLobby(
   emit('[POST SUCCESS HANDOFF EMPTY OPEN LOBBY]', data);
   handoffInProgress = false;
   selectedNext = null;
+  earlyArmDone = false;
+  successExitWindowOpen = false;
   notify();
 }
 
@@ -143,6 +225,8 @@ export function abortPostSuccessHandoff(source: string): void {
   if (!handoffInProgress) return;
   handoffInProgress = false;
   selectedNext = null;
+  earlyArmDone = false;
+  successExitWindowOpen = false;
   notify();
   emit('[POST SUCCESS HANDOFF LOST BUG]', { source, reason: 'aborted' });
 }

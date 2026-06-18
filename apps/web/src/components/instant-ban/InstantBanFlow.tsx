@@ -74,9 +74,12 @@ import {
 import {
   completePostSuccessHandoffEmptyOpenLobby,
   getPostSuccessHandoffSnapshot,
-  getPostSuccessHandoffSelectedNext,
   isPostSuccessHandoffInProgress,
+  logPostSuccessHandoffPreventBaseLobby,
+  logPostSuccessHandoffPreventDeferredLobby,
+  logPostSuccessHandoffStartTooLateBug,
   logPostSuccessHandoffWaitingMount,
+  markPostSuccessExitWindowOpen,
   subscribePostSuccessHandoff,
 } from '@/lib/post-success-handoff-debug';
 import {
@@ -370,6 +373,7 @@ export function InstantBanFlow({
     applySession,
     pendingStartupInteractions,
     hasPendingNotificationChain,
+    armPostSuccessHandoffEarlyIfPending,
     releaseStartupInteractions,
     unlockNotificationQueueAndFlush,
     startLobbyBansNotificationDrain,
@@ -473,6 +477,8 @@ export function InstantBanFlow({
     getPostSuccessHandoffSnapshot,
     () => false,
   );
+  const postSuccessHandoffBlocking =
+    postSuccessHandoffActive || isPostSuccessHandoffInProgress();
   const confirmSendContextRef = useRef<{
     payoffPhase: string;
     sendTriggered: boolean;
@@ -646,7 +652,7 @@ export function InstantBanFlow({
     replyIncomingDeeplinkPending ||
     overlayHandoffLobbySuppressed ||
     successExitDraining ||
-    postSuccessHandoffActive ||
+    postSuccessHandoffBlocking ||
     notificationChainTransitioning;
   const showLobbyChrome = lobbyBootIntroPrimed && !lobbyChromeHidden;
   /** Orb stays mounted during route boot — only hide for reply/incoming block. */
@@ -657,7 +663,7 @@ export function InstantBanFlow({
     !successToActiveLobbyBlocked &&
     !overlayHandoffLobbySuppressed &&
     !successExitDraining &&
-    !postSuccessHandoffActive &&
+    !postSuccessHandoffBlocking &&
     !notificationChainTransitioning;
   const showLobbyCta =
     lobbyBootIntroPrimed &&
@@ -666,7 +672,7 @@ export function InstantBanFlow({
     !successToActiveLobbyBlocked &&
     !overlayHandoffLobbySuppressed &&
     !successExitDraining &&
-    !postSuccessHandoffActive &&
+    !postSuccessHandoffBlocking &&
     !notificationChainTransitioning &&
     (!replyLobbyBlocked || bansReturnToLobbyLatch) &&
     !deepLinkRouteBootPending &&
@@ -1162,7 +1168,7 @@ export function InstantBanFlow({
     !successToActiveLobbyBlocked &&
     !overlayHandoffLobbySuppressed &&
     !successExitDraining &&
-    !postSuccessHandoffActive &&
+    !postSuccessHandoffBlocking &&
     (!notificationChainTransitioning || notificationOverlayMounted) &&
     !effectiveBansOverlayOpen &&
     !notificationQueueUiLock &&
@@ -1176,7 +1182,7 @@ export function InstantBanFlow({
     replyIncomingDeeplinkPending,
     overlayHandoffLobbySuppressed,
     successExitDraining,
-    postSuccessHandoffActive,
+    postSuccessHandoffBlocking,
     notificationChainTransitioning,
     notificationOverlayMounted,
     notificationOverlayVisible,
@@ -1209,6 +1215,13 @@ export function InstantBanFlow({
     const wasVisible = prevShowLobbyTopNavRef.current;
     prevShowLobbyTopNavRef.current = showLobbyTopNav;
     if (showLobbyTopNav) {
+      logPostSuccessHandoffStartTooLateBug({
+        reason: 'lobby-chrome-visible',
+        showLobbyTopNav,
+        showLobbyChrome,
+        queueLen: overlayQueueLength,
+        pendingStartup: pendingStartupInteractions,
+      });
       logLobbyChromeVisible({
         showLobbyTopNav,
         showLobbyChrome,
@@ -1235,6 +1248,8 @@ export function InstantBanFlow({
     showLobbyChrome,
     lobbyBansNeedAttention,
     lobbyOpen,
+    overlayQueueLength,
+    pendingStartupInteractions,
     phase,
     notificationOverlayMounted,
     notificationOverlayVisible,
@@ -1818,26 +1833,13 @@ export function InstantBanFlow({
         source: `prepareLobbyBaseAfterSuccess:${source}`,
       });
       if (!opts?.deferLobbyOpen) {
-        if (
-          isPostSuccessHandoffInProgress() &&
-          (overlayQueueLength > 0 ||
-            pendingStartupInteractions ||
-            hasPendingNotificationChain() ||
-            getPostSuccessHandoffSelectedNext() != null)
-        ) {
-          console.log('[success-exit-base-lobby]', {
+        if (isPostSuccessHandoffInProgress()) {
+          logPostSuccessHandoffPreventBaseLobby({
             source,
+            deferLobbyOpen: false,
             closedBansOverlay,
-            lobbyOpen: false,
-            deferred: true,
-            reason: 'post-success-handoff-active',
-          });
-          window.__debug98log?.('[success-exit-base-lobby]', {
-            source,
-            closedBansOverlay,
-            lobbyOpen: false,
-            deferred: true,
-            reason: 'post-success-handoff-active',
+            queueLen: overlayQueueLength,
+            pendingStartup: pendingStartupInteractions,
           });
           return;
         }
@@ -1857,6 +1859,15 @@ export function InstantBanFlow({
           lobbyOpen: true,
         });
       } else {
+        if (isPostSuccessHandoffInProgress()) {
+          logPostSuccessHandoffPreventBaseLobby({
+            source,
+            deferLobbyOpen: true,
+            closedBansOverlay,
+            queueLen: overlayQueueLength,
+            pendingStartup: pendingStartupInteractions,
+          });
+        }
         console.log('[success-exit-base-lobby]', {
           source,
           closedBansOverlay,
@@ -2334,6 +2345,22 @@ export function InstantBanFlow({
     [],
   );
 
+  const startSendSuccessHandoffEarly = useCallback(() => {
+    const armed = armPostSuccessHandoffEarlyIfPending('success-exit-early');
+    if (!armed) return false;
+    setSuccessExitDraining(true);
+    setCtaState('hidden');
+    beginSuccessExitInProgress();
+    if (hasPendingNotificationChain()) {
+      setNotificationChainTransitioning(true);
+    }
+    return true;
+  }, [
+    armPostSuccessHandoffEarlyIfPending,
+    hasPendingNotificationChain,
+    setNotificationChainTransitioning,
+  ]);
+
   const commitSendSuccessExit = useCallback(
     (opts: {
       parentActiveBan?: BanInteraction | null;
@@ -2436,9 +2463,11 @@ export function InstantBanFlow({
       if (hasPendingNotificationChain()) {
         setNotificationChainTransitioning(true);
       }
-      setSuccessExitDraining(true);
-      setCtaState('hidden');
-      beginSuccessExitInProgress();
+      if (!isPostSuccessHandoffInProgress()) {
+        setSuccessExitDraining(true);
+        setCtaState('hidden');
+        beginSuccessExitInProgress();
+      }
       try {
       console.log('[success-exit-start]', {
         banId,
@@ -2476,8 +2505,16 @@ export function InstantBanFlow({
       void (async () => {
         const timeoutMs = 5000;
         const startedAt = Date.now();
+        if (isPostSuccessHandoffInProgress()) {
+          logPostSuccessHandoffPreventDeferredLobby({
+            timeoutMs,
+            queueLen: overlayQueueLength,
+            pendingStartup: pendingStartupInteractions,
+          });
+        }
         window.__debug98log?.('[success-exit-deferred-sync-start]', {
           timeoutMs,
+          handoffActive: isPostSuccessHandoffInProgress(),
         });
 
         try {
@@ -2582,7 +2619,10 @@ export function InstantBanFlow({
       return;
     }
     logSuccessExitStart({ phase: 'handle-success-exit-complete' });
-    setSendSuccessCardMounted(false, { source: 'user-close' });
+    markPostSuccessExitWindowOpen({
+      queueLen: overlayQueueLength,
+      pendingStartup: pendingStartupInteractions,
+    });
     const successExitStartedAt = performance.now();
     const successBanId = lastSendSuccessBanIdRef.current;
     console.log('[queue-debug] success exit', {
@@ -2606,6 +2646,7 @@ export function InstantBanFlow({
       console.log('[success-to-active-after-user-action]', {
         parentBanId: parentBan.id,
       });
+      setSendSuccessCardMounted(false, { source: 'user-close' });
       commitSendSuccessExit({
         parentActiveBan: parentBan,
         lobbySource: 'reply-parent-active',
@@ -2626,6 +2667,10 @@ export function InstantBanFlow({
         const fetchedBan = await ensureReplyParentActiveBanForSuccess();
         const delayMs = Math.round(performance.now() - successExitStartedAt);
         if (!fetchedBan) {
+          flushSync(() => {
+            startSendSuccessHandoffEarly();
+            setSendSuccessCardMounted(false, { source: 'user-close' });
+          });
           commitSendSuccessExit({
             lobbySource: 'send-success',
             committedSameTick: false,
@@ -2633,6 +2678,9 @@ export function InstantBanFlow({
           await finishSendSuccessLobbyExit(successBanId);
           return;
         }
+        flushSync(() => {
+          setSendSuccessCardMounted(false, { source: 'user-close' });
+        });
         commitSendSuccessExit({
           parentActiveBan: fetchedBan,
           lobbySource: 'reply-parent-active',
@@ -2651,6 +2699,10 @@ export function InstantBanFlow({
       return;
     }
 
+    flushSync(() => {
+      startSendSuccessHandoffEarly();
+      setSendSuccessCardMounted(false, { source: 'user-close' });
+    });
     commitSendSuccessExit({
       lobbySource: 'send-success',
       committedSameTick: true,
@@ -2664,11 +2716,13 @@ export function InstantBanFlow({
     getReplyParentActiveBanId,
     hasReplyParentActivePriorityPending,
     notifyActiveBanCardVisible,
+    overlayQueueLength,
     pendingStartupInteractions,
     refreshReplyParentActiveBanInBackground,
     resolveReplyParentActiveBanImmediate,
     setSuccessToActiveLobbyBlockedState,
     setSendSuccessCardMounted,
+    startSendSuccessHandoffEarly,
   ]);
 
   useEffect(() => {
@@ -2880,7 +2934,7 @@ export function InstantBanFlow({
     notificationSessionActive,
     overlayQueueLength,
     pendingStartupInteractions,
-    postSuccessHandoffActive,
+    postSuccessHandoffBlocking,
     successExitDraining,
   ]);
 
@@ -2937,12 +2991,18 @@ export function InstantBanFlow({
   useEffect(() => {
     if (!lobbyOpen || !lobbyBootIntroPrimed || showLobbyCta) return;
     if (notificationOverlayVisible || notificationSessionActive) return;
+    logPostSuccessHandoffStartTooLateBug({
+      reason: 'lobby-cta-hidden-bug',
+      queueLen: overlayQueueLength,
+      pendingStartup: pendingStartupInteractions,
+      ctaState,
+    });
     logLobbyCtaHiddenBug({
       blockers: {
         ctaState,
         phase,
         successExitDraining,
-        postSuccessHandoffActive,
+        postSuccessHandoffBlocking,
         successToActiveLobbyBlocked,
         notificationChainTransitioning,
         notificationOverlayMounted,
@@ -2966,12 +3026,14 @@ export function InstantBanFlow({
     notificationOverlayVisible,
     notificationSessionActive,
     overlayHandoffLobbySuppressed,
+    overlayQueueLength,
+    pendingStartupInteractions,
     phase,
     replyIncomingDeeplinkPending,
     replyLobbyBlocked,
     showLobbyCta,
     successExitDraining,
-    postSuccessHandoffActive,
+    postSuccessHandoffBlocking,
     successToActiveLobbyBlocked,
   ]);
 

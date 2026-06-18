@@ -280,6 +280,7 @@ import {
 } from '@/lib/result-next-chain-debug';
 import {
   beginPostSuccessHandoff,
+  armPostSuccessHandoffEarly,
   completePostSuccessHandoffEmptyOpenLobby,
   completePostSuccessHandoffOnCardMounted,
   isPostSuccessHandoffInProgress,
@@ -743,6 +744,8 @@ interface AppContextValue {
   pendingStartupInteractions: boolean;
   /** True while overlay queue or startup hold still has pending notifications. */
   hasPendingNotificationChain: () => boolean;
+  /** Arm post-success handoff before lobby fallback when queue/pending exist. */
+  armPostSuccessHandoffEarlyIfPending: (source?: string) => boolean;
   /** Release queued startup interactions (e.g. after opening «Твои запреты»). */
   releaseStartupInteractions: (opts?: {
     requireBanSend?: boolean;
@@ -4836,6 +4839,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, []);
 
   hasPendingNotificationChainFnRef.current = hasPendingNotificationChain;
+
+  const armPostSuccessHandoffEarlyIfPending = useCallback(
+    (source = 'success-exit-early'): boolean => {
+      const queueLen = overlayQueueRef.current.length;
+      const pendingLen = pendingStartupInteractionsRef.current.length;
+      const hasPendingChain = hasPendingNotificationChain();
+      return armPostSuccessHandoffEarly({
+        source,
+        queueLen,
+        pendingLen,
+        hasPendingChain,
+      });
+    },
+    [hasPendingNotificationChain],
+  );
 
   const getNotificationChainDebugSnapshot = useCallback(() => {
     const head = overlayQueueRef.current[0] ?? null;
@@ -15395,6 +15413,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       completeBansOverlayCloseFromResultCta,
       pendingStartupInteractions,
       hasPendingNotificationChain,
+      armPostSuccessHandoffEarlyIfPending,
       releaseStartupInteractions,
       markSessionBanSendSuccess,
       armActiveBanDeepLinkEarly,
@@ -15566,6 +15585,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       completeBansOverlayCloseFromResultCta,
       pendingStartupInteractions,
       hasPendingNotificationChain,
+      armPostSuccessHandoffEarlyIfPending,
       releaseStartupInteractions,
       markSessionBanSendSuccess,
       armActiveBanDeepLinkEarly,
