@@ -279,6 +279,15 @@ import {
   logSuccessDrainResultLostBug,
 } from '@/lib/result-next-chain-debug';
 import {
+  beginPostSuccessHandoff,
+  completePostSuccessHandoffEmptyOpenLobby,
+  completePostSuccessHandoffOnCardMounted,
+  isPostSuccessHandoffInProgress,
+  logPostSuccessHandoffLostBug,
+  setPostSuccessHandoffSelectedNext,
+  shouldBlockLobbyOpenForPostSuccessHandoff,
+} from '@/lib/post-success-handoff-debug';
+import {
   clearLobbyNotificationAttentionHint,
   persistLobbyNotificationAttentionHint,
   readLobbyNotificationAttentionHint,
@@ -971,6 +980,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId: checkDeeplinkPendingBanIdRef.current,
         });
         return prev;
+      }
+      if (next && !prev && isPostSuccessHandoffInProgress()) {
+        if (
+          shouldBlockLobbyOpenForPostSuccessHandoff(
+            overlayQueueRef.current.length,
+            pendingStartupInteractionsRef.current.length,
+            'setLobbyOpen-state',
+          )
+        ) {
+          return prev;
+        }
+        completePostSuccessHandoffEmptyOpenLobby({
+          source: 'setLobbyOpen-state',
+        });
       }
       if (next && !prev) {
         if (shouldSuppressLobbyOpenDuringSuccessExit()) {
@@ -3382,6 +3405,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         window.__debug98log?.('[GO TO BANS NEXT MOUNTED]', { kind, banId });
         console.log('[GO TO BANS NEXT MOUNTED]', { kind, banId });
       }
+      if (isPostSuccessHandoffInProgress()) {
+        completePostSuccessHandoffOnCardMounted(kind, banId, {
+          buttonsReady,
+        });
+      }
       if (isSuccessExitInstrumentationActive()) {
         logFirstNotificationMounted({ kind, banId });
       }
@@ -3732,16 +3760,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               console.log('[OVERLAY QUEUE DRAIN END]', { ts: selectTs });
             }
             if (bansReturnToLobbyLatchRef.current) {
-              console.log('[notification-queue-final-base]', {
-                baseScreen: 'lobby',
-                lobbyOpen: lobbyOpenRef.current,
-              });
-              setBansReturnToLobbyLatch(false, {
-                source: 'dismissCurrentOverlay-queue-empty',
-              });
-              setNotificationChainTransitioning(false);
-              setLobbyOpen(true);
-              lobbyOpenRef.current = true;
+              if (
+                isPostSuccessHandoffInProgress() &&
+                shouldBlockLobbyOpenForPostSuccessHandoff(
+                  overlayQueueRef.current.length,
+                  pendingStartupInteractionsRef.current.length,
+                  'dismissCurrentOverlay-queue-empty',
+                )
+              ) {
+                setNotificationChainTransitioning(false);
+              } else {
+                console.log('[notification-queue-final-base]', {
+                  baseScreen: 'lobby',
+                  lobbyOpen: lobbyOpenRef.current,
+                });
+                setBansReturnToLobbyLatch(false, {
+                  source: 'dismissCurrentOverlay-queue-empty',
+                });
+                setNotificationChainTransitioning(false);
+                setLobbyOpen(true);
+                lobbyOpenRef.current = true;
+              }
             } else {
               setNotificationChainTransitioning(false);
             }
@@ -4044,6 +4083,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         } else {
           logQueueDebug('no pending -> lobby', { reason: 'empty-queue-reload' });
           if (bansReturnToLobbyLatchRef.current) {
+            if (
+              isPostSuccessHandoffInProgress() &&
+              shouldBlockLobbyOpenForPostSuccessHandoff(
+                overlayQueueRef.current.length,
+                pendingStartupInteractionsRef.current.length,
+                'unlockNotificationQueueAndFlush-empty-queue',
+              )
+            ) {
+              return;
+            }
             console.log('[notification-queue-final-base]', {
               baseScreen: 'lobby',
               lobbyOpen: lobbyOpenRef.current,
@@ -11512,6 +11561,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId: nextBanId,
         queueLenAfter: overlayQueueRef.current.length,
       });
+      if (isSuccessExitDrainSource(source)) {
+        setPostSuccessHandoffSelectedNext(nextKind, nextBanId, {
+          source,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+      }
       setLobbyOpen(false);
       lobbyOpenRef.current = false;
       flushSync(() => {
@@ -12009,8 +12065,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         const hasPending = beforeLen > 0 || beforeStartup > 0;
         if (!hasPending) return false;
 
+        beginPostSuccessHandoff({
+          source,
+          queueLen: beforeLen,
+          pendingLen: beforeStartup,
+        });
         const shown = showNextNotificationFromChainSync(source);
-        if (!shown) return false;
+        if (!shown) {
+          const afterQueue = overlayQueueRef.current.length;
+          const afterPending = pendingStartupInteractionsRef.current.length;
+          if (afterQueue === 0 && afterPending === 0) {
+            completePostSuccessHandoffEmptyOpenLobby({
+              source,
+              reason: 'show-next-false-empty',
+            });
+          } else {
+            logPostSuccessHandoffLostBug({
+              source,
+              reason: 'show-next-false',
+              queueLen: afterQueue,
+              pendingLen: afterPending,
+            });
+          }
+          return false;
+        }
 
         const head = overlayQueueRef.current[0] ?? null;
         const nextKind = head?.kind ?? null;
@@ -12073,6 +12151,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         startupLen: finalStartupLen,
       });
       logDrainResult(false, { reason: drainMissReason });
+      if (finalQueueLen === 0 && finalStartupLen === 0) {
+        completePostSuccessHandoffEmptyOpenLobby({
+          reason: drainMissReason,
+          queueLen: finalQueueLen,
+          pendingLen: finalStartupLen,
+        });
+      } else if (isPostSuccessHandoffInProgress()) {
+        logPostSuccessHandoffLostBug({
+          reason: drainMissReason,
+          queueLen: finalQueueLen,
+          pendingLen: finalStartupLen,
+        });
+      }
       return false;
     },
     [
@@ -13446,6 +13537,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const openLobby = useCallback((source?: string) => {
     const snapshot = getNotificationChainDebugSnapshot();
+    if (isPostSuccessHandoffInProgress()) {
+      if (
+        shouldBlockLobbyOpenForPostSuccessHandoff(
+          overlayQueueRef.current.length,
+          pendingStartupInteractionsRef.current.length,
+          source ?? 'openLobby',
+        )
+      ) {
+        return;
+      }
+      completePostSuccessHandoffEmptyOpenLobby({
+        source: source ?? 'openLobby',
+        reason: 'empty-queue-lobby-open',
+      });
+    }
     if (shouldSuppressLobbyOpenDuringSuccessExit()) {
       if (isSuccessExitInstrumentationActive()) {
         logSuccessExitLobbyOpenAttempt({
@@ -14490,6 +14596,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!auth.user?.id) return;
+    if (isPostSuccessHandoffInProgress()) return;
     if (
       deepLinkReplyBan ||
       deepLinkRepeatBan ||
@@ -14502,6 +14609,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       resultReplyUiShellActive ||
       activeBanUiShellActive ||
       sendSuccessCardActive ||
+      isPostSuccessHandoffInProgress() ||
       notificationChainTransitioning ||
       incomingGateActive ||
       checkGateActive ||
