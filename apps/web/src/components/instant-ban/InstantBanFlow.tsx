@@ -67,6 +67,12 @@ import {
   isSuccessExitInstrumentationActive,
   shouldSuppressLobbyOpenDuringSuccessExit,
 } from '@/lib/success-exit-first-notification-debug';
+import {
+  logLobbyChromeHidden,
+  logLobbyChromeHiddenBug,
+  logLobbyChromeVisible,
+  logLobbyIndicatorState,
+} from '@/lib/lobby-chrome-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { logDeepLinkHandlerResult } from '@/lib/deep-link-boot-debug';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
@@ -370,6 +376,8 @@ export function InstantBanFlow({
     checkGateActive,
     checkDeeplinkDirectPending,
     notificationSessionActive,
+    notificationOverlayMounted,
+    lobbyBansNeedAttention,
     notificationOverlayVisible,
     notificationChainTransitioning,
     setNotificationChainTransitioning,
@@ -570,8 +578,8 @@ export function InstantBanFlow({
     lobbyActiveBanOverlay != null ||
     successToActiveLobbyBlocked ||
     overlayHandoffFromActiveCard ||
-    notificationOverlayVisible ||
-    (bansReturnToLobbyLatch && notificationOverlayVisible);
+    notificationOverlayMounted ||
+    (bansReturnToLobbyLatch && notificationOverlayMounted);
   const bansLayerUiOpen =
     !bansReturnToLobbyLatch &&
     (bansOverlayOpen || bansCtaQueueSuppress || resultCtaBansOverlayOpen);
@@ -619,7 +627,7 @@ export function InstantBanFlow({
     replyIncomingDeeplinkPending ||
     overlayHandoffLobbySuppressed ||
     successExitDraining ||
-    notificationChainTransitioning;
+    (notificationChainTransitioning && notificationOverlayMounted);
   const showLobbyChrome = lobbyBootIntroPrimed && !lobbyChromeHidden;
   /** Orb stays mounted during route boot — only hide for reply/incoming block. */
   const lobbyOrbVisible =
@@ -629,7 +637,7 @@ export function InstantBanFlow({
     !successToActiveLobbyBlocked &&
     !overlayHandoffLobbySuppressed &&
     !successExitDraining &&
-    !notificationChainTransitioning;
+    !(notificationChainTransitioning && notificationOverlayMounted);
   const showLobbyCta =
     lobbyBootIntroPrimed &&
     !replyIncomingDeeplinkPending &&
@@ -637,7 +645,7 @@ export function InstantBanFlow({
     !successToActiveLobbyBlocked &&
     !overlayHandoffLobbySuppressed &&
     !successExitDraining &&
-    !notificationChainTransitioning &&
+    !(notificationChainTransitioning && notificationOverlayMounted) &&
     (!replyLobbyBlocked || bansReturnToLobbyLatch) &&
     !deepLinkRouteBootPending &&
     !deepLinkReplyBooting &&
@@ -1123,7 +1131,7 @@ export function InstantBanFlow({
     [activeBans, historyBans, savedBans, bansTab, user?.id],
   );
 
-  const notificationQueueUiLock = notificationOverlayVisible || !!result;
+  const notificationQueueUiLock = notificationOverlayMounted;
   const effectiveBansOverlayOpen = bansLayerUiOpen;
   const showLobbyTopNav =
     lobbyBootIntroPrimed &&
@@ -1136,6 +1144,79 @@ export function InstantBanFlow({
     !replyUiShellActive &&
     !deepLinkRouteBootPending &&
     !checkDeeplinkDirectPending;
+  const lobbyChromeBlockers = {
+    replyLobbyBlocked,
+    deepLinkRouteBootPending,
+    checkDeeplinkDirectPending,
+    replyIncomingDeeplinkPending,
+    overlayHandoffLobbySuppressed,
+    successExitDraining,
+    notificationChainTransitioning,
+    notificationOverlayMounted,
+    notificationOverlayVisible,
+    notificationSessionActive,
+    notificationQueueUiLock,
+    lobbyChromeHidden,
+    phase,
+    banSentSuccess,
+    successToActiveLobbyBlocked,
+    effectiveBansOverlayOpen,
+    replyUiShellActive,
+  };
+
+  useEffect(() => {
+    logLobbyIndicatorState({
+      pendingStartupInteractions,
+      queueLen: overlayQueueLength,
+      hasIncoming: incomingGateActive,
+      lobbyBansNeedAttention,
+    });
+  }, [
+    incomingGateActive,
+    lobbyBansNeedAttention,
+    overlayQueueLength,
+    pendingStartupInteractions,
+  ]);
+
+  const prevShowLobbyTopNavRef = useRef(showLobbyTopNav);
+  useEffect(() => {
+    const wasVisible = prevShowLobbyTopNavRef.current;
+    prevShowLobbyTopNavRef.current = showLobbyTopNav;
+    if (showLobbyTopNav) {
+      logLobbyChromeVisible({
+        showLobbyTopNav,
+        showLobbyChrome,
+        lobbyBansNeedAttention,
+      });
+      return;
+    }
+    if (!wasVisible) return;
+    const blockers = lobbyChromeBlockers;
+    logLobbyChromeHidden({ reason: 'top-nav-hidden', blockers });
+    if (
+      lobbyOpen &&
+      phase === 'idle' &&
+      !notificationOverlayMounted &&
+      (notificationOverlayVisible ||
+        notificationSessionActive ||
+        notificationChainTransitioning ||
+        !!result)
+    ) {
+      logLobbyChromeHiddenBug({ blockers });
+    }
+  }, [
+    showLobbyTopNav,
+    showLobbyChrome,
+    lobbyBansNeedAttention,
+    lobbyOpen,
+    phase,
+    notificationOverlayMounted,
+    notificationOverlayVisible,
+    notificationSessionActive,
+    notificationChainTransitioning,
+    result,
+  ]);
+
   const showBansLayer =
     effectiveBansOverlayOpen &&
     !replyComposeActive &&
@@ -4555,7 +4636,7 @@ export function InstantBanFlow({
       data-bans-overlay-open={effectiveBansOverlayOpen ? '' : undefined}
       data-bans-cta-session={bansCtaQueueSuppress ? '' : undefined}
       data-notification-session={
-        notificationSessionActive &&
+        notificationOverlayMounted &&
         !bansCtaQueueSuppress &&
         !bansReturnToLobbyLatch
           ? ''
@@ -4571,7 +4652,7 @@ export function InstantBanFlow({
       {showLobbyTopNav ? (
         <ArenaLobbyTopNav
           onOpenBans={handleOpenBansOverlay}
-          bansNeedAttention={pendingStartupInteractions}
+          bansNeedAttention={lobbyBansNeedAttention}
         />
       ) : null}
       {!lobbyChromeHidden ? <LobbyScreenAtmosphere /> : null}

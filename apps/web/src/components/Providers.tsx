@@ -238,6 +238,10 @@ import {
   logResultPollShowResultCard,
 } from '@/lib/result-poll-priority-debug';
 import {
+  logCheckDeeplinkSkipNoUiChange,
+  logResultPollDoesNotHideLobby,
+} from '@/lib/lobby-chrome-debug';
+import {
   logCheckCardMounted,
   logCheckCardOverlaySet,
   logCheckCardSelected,
@@ -434,6 +438,10 @@ interface AppContextValue {
   incomingGateActive: boolean;
   /** True while overlay queue has items — keeps notification session (dim) between cards. */
   notificationSessionActive: boolean;
+  /** True only when a notification card is actually mounted on screen. */
+  notificationOverlayMounted: boolean;
+  /** Lobby “твои запреты” attention dot — pending startup + queued overlays. */
+  lobbyBansNeedAttention: boolean;
   /** True while swapping queued notification cards — blocks lobby flash between overlays. */
   notificationChainTransitioning: boolean;
   setNotificationChainTransitioning: (active: boolean) => void;
@@ -4816,6 +4824,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           : false,
       });
 
+      if (source === 'poll' && !fullOverlay) {
+        logResultPollDoesNotHideLobby({
+          banId: r.id,
+          mode,
+          queueLen: overlayQueueRef.current.length,
+          headKind: head?.kind ?? null,
+        });
+      }
+
       if (mode === 'explicit' && fullOverlay) {
         resolvePendingDeepLinkRoute('result', r.id);
       }
@@ -6439,6 +6456,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const banId = resolvePendingCheckDeepLinkBanId();
       if (!banId) {
         logCheckDeeplinkResumeSkip({ reason: 'no-pending-banId', source });
+        logCheckDeeplinkSkipNoUiChange({ reason: 'no-pending-banId', source });
         return;
       }
       if (checkDeeplinkCompletedRouteBanIdRef.current === banId) {
@@ -12097,28 +12115,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       shouldRenderIncomingOverlay ||
       heldUserCardOverlay != null) &&
     (incomingOverlayDisplayKind != null || heldUserCardOverlay != null);
-  const notificationSessionActive =
-    !priorityBlocksResult &&
-    !notificationShellSuppressedForBansLobby &&
-    !(replyIncomingDirectPath && replyDeepLinkBanId != null) &&
-    !(checkDeeplinkDirectPath && checkDeepLinkBanId != null) &&
-    !(
-      overlayQueue.length === 0 &&
-      pendingStartupInteractionsCount === 0 &&
-      !chainAdvanceWaiting &&
-      !notificationChainTransitioning &&
-      !heldUserCardOverlay &&
-      !showDirectOverboardLayer &&
-      !overboardTransitionActive &&
-      (replyParentActivePriorityActive || activeBanCardReady)
-    ) &&
-    (notificationChainTransitioning ||
-      showDirectOverboardLayer ||
-      overboardTransitionActive ||
-      hasQueuedOverlayShell ||
-      heldUserCardOverlay != null);
-
-  notificationSessionActiveForDebugRef.current = notificationSessionActive;
 
   const composeBlocksNotificationHost =
     sendComposePhase === 'composingBan' || sendComposePhase === 'confirming';
@@ -12203,19 +12199,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     queueHeadKind === 'check';
 
   const checkDeeplinkDirectPending =
-    checkDeeplinkDirectPath && !checkOverlayMounted;
+    checkDeeplinkDirectPath &&
+    !checkOverlayMounted &&
+    (checkDeeplinkPendingBanIdRef.current != null ||
+      isDeepLinkRouteBootPending());
   const showCheckOverlayDirect =
     checkDeeplinkDirectPath &&
     checkBan != null &&
     checkOverlayMounted &&
     !showDirectOverboardLayer &&
     Boolean(auth.user?.id ?? userIdRef.current);
-
-  const notificationOverlayActive =
-    notificationSessionActive ||
-    incomingGateActive ||
-    checkGateActive ||
-    !!displayResult;
 
   const overlayActiveKinds = useMemo(() => {
     const kinds: string[] = [];
@@ -12842,6 +12835,64 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     !showDirectOverboardLayer &&
     !replyComposeActive &&
     Boolean(auth.user?.id ?? userIdRef.current);
+
+  const notificationOverlayMounted = useMemo(() => {
+    if (composeBlocksNotificationHost) return false;
+    if (sendSuccessCardActive) return false;
+    if (showDirectOverboardLayer) return true;
+    if (heldUserCardOverlay != null) return true;
+    if (chainAdvanceWaiting && chainAdvancePlaceholderKind) return true;
+    if (showReplyIncomingOverlayDirect && incomingCardFullyReady) return true;
+    if (showCheckOverlayDirect) return true;
+    if (checkOverlayMounted) return true;
+    if (
+      notificationQueueShellKind === 'incoming' &&
+      incomingCardDisplayBan &&
+      incomingCardFullyReady
+    ) {
+      return true;
+    }
+    if (notificationQueueShellKind === 'result' && displayResult) return true;
+    if (notificationQueueShellKind === 'check' && checkBan?.id) return true;
+    return false;
+  }, [
+    chainAdvancePlaceholderKind,
+    chainAdvanceWaiting,
+    checkBan?.id,
+    checkOverlayMounted,
+    composeBlocksNotificationHost,
+    displayResult,
+    heldUserCardOverlay,
+    incomingCardDisplayBan,
+    incomingCardFullyReady,
+    notificationQueueShellKind,
+    sendSuccessCardActive,
+    showCheckOverlayDirect,
+    showDirectOverboardLayer,
+    showReplyIncomingOverlayDirect,
+  ]);
+
+  const notificationSessionActive =
+    notificationOverlayMounted &&
+    !priorityBlocksResult &&
+    !notificationShellSuppressedForBansLobby &&
+    !(replyIncomingDirectPath && replyDeepLinkBanId != null) &&
+    !(checkDeeplinkDirectPath && checkDeepLinkBanId != null) &&
+    !(
+      overlayQueue.length === 0 &&
+      pendingStartupInteractionsCount === 0 &&
+      !chainAdvanceWaiting &&
+      !notificationChainTransitioning &&
+      !heldUserCardOverlay &&
+      !showDirectOverboardLayer &&
+      !overboardTransitionActive &&
+      (replyParentActivePriorityActive || activeBanCardReady)
+    );
+
+  notificationSessionActiveForDebugRef.current = notificationSessionActive;
+
+  const lobbyBansNeedAttention =
+    pendingStartupInteractionsCount > 0 || overlayQueue.length > 0;
 
   const replyIncomingOverlayBlockReason = useMemo(() => {
     if (!replyIncomingDirectPath) return 'not-reply-route';
@@ -13775,6 +13826,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       sessionReady,
       incomingGateActive,
       notificationSessionActive,
+      notificationOverlayMounted,
+      lobbyBansNeedAttention,
       notificationChainTransitioning,
       setNotificationChainTransitioning,
       clearNotificationOverlayForEmptyQueueAfterSuccessExit,
@@ -13949,6 +14002,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       sessionReady,
       incomingGateActive,
       notificationSessionActive,
+      notificationOverlayMounted,
+      lobbyBansNeedAttention,
       notificationChainTransitioning,
       setNotificationChainTransitioning,
       clearNotificationOverlayForEmptyQueueAfterSuccessExit,
