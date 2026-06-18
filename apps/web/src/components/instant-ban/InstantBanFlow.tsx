@@ -43,9 +43,15 @@ import {
 } from '@/lib/success-card-trace';
 import {
   allowSuccessExitLobbyOpen,
+  authorizeSuccessExitDrain,
+  beginSendSuccessCardSession,
   beginSuccessExitInProgress,
+  canDrainNotificationAfterSuccess,
+  clearStaleSuccessExitLatch,
   endSuccessExitInProgress,
   endSuccessExitInstrumentation,
+  logSendSuccessCardShowRequired,
+  logSuccessCardSkippedBug,
   logSuccessExitLobbyOpenAttempt,
   logSuccessExitStart,
   setSuccessExitDrainingForDebug,
@@ -428,6 +434,7 @@ export function InstantBanFlow({
   } | null>(null);
   const lastSendSuccessBanIdRef = useRef<string | null>(null);
   const successExitAwaitingNotificationDrainRef = useRef(false);
+  const successCardSessionRef = useRef(0);
   const [successExitDraining, setSuccessExitDraining] = useState(false);
   const confirmSendContextRef = useRef<{
     payoffPhase: string;
@@ -2224,6 +2231,11 @@ export function InstantBanFlow({
 
   const finishSendSuccessLobbyExit = useCallback(
     async (banId: string | null) => {
+      if (!canDrainNotificationAfterSuccess()) {
+        setSuccessExitDraining(false);
+        endSuccessExitInProgress();
+        return;
+      }
       if (hasPendingNotificationChain()) {
         setNotificationChainTransitioning(true);
       }
@@ -2363,6 +2375,9 @@ export function InstantBanFlow({
     traceSuccessExitHandler('handleSuccessExitComplete', {
       banId: lastSendSuccessBanIdRef.current,
     });
+    if (!authorizeSuccessExitDrain(successCardSessionRef.current)) {
+      return;
+    }
     logSuccessExitStart({ phase: 'handle-success-exit-complete' });
     setSendSuccessCardMounted(false, { source: 'user-close' });
     const successExitStartedAt = performance.now();
@@ -2492,6 +2507,13 @@ export function InstantBanFlow({
         return;
       }
       if (!banId.trim()) return;
+
+      clearStaleSuccessExitLatch('open-success');
+      successExitAwaitingNotificationDrainRef.current = false;
+      setSuccessExitDraining(false);
+      const sessionId = beginSendSuccessCardSession(banId);
+      successCardSessionRef.current = sessionId;
+      logSendSuccessCardShowRequired({ banId, sessionId });
 
       lastSendSuccessBanIdRef.current = banId;
       logSendFlow('open-success', { banId, attemptId: attemptId ?? currentAttempt });
@@ -4306,6 +4328,16 @@ export function InstantBanFlow({
   });
   const confirmLayoutActive = orbCompressActive;
   const successSnapshot = sendSnapshotRef.current;
+
+  useLayoutEffect(() => {
+    if (banSentSuccess && !successSnapshot) {
+      logSuccessCardSkippedBug({
+        reason: 'missing-snapshot',
+        sessionId: successCardSessionRef.current,
+        lastSendSuccessBanId: lastSendSuccessBanIdRef.current,
+      });
+    }
+  }, [banSentSuccess, successSnapshot]);
 
   const confirmSendError =
     sendError && !lowEnergyRedirecting && !sendFailedRef.current

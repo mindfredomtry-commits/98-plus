@@ -15,6 +15,89 @@ let instrumentationActive = false;
 let successExitDrainingExtra = false;
 let successExitInProgress = false;
 let successExitAllowLobbyOpen = false;
+let successCardSessionId = 0;
+let authorizedDrainSessionId: number | null = null;
+
+export function beginSendSuccessCardSession(banId: string): number {
+  if (successExitInProgress || successExitDrainingExtra) {
+    emit('[SEND SUCCESS STALE EXIT LATCH CLEARED]', {
+      banId,
+      successExitInProgress,
+      successExitDraining: successExitDrainingExtra,
+    });
+    endSuccessExitInProgress();
+    successExitDrainingExtra = false;
+  }
+  authorizedDrainSessionId = null;
+  successCardSessionId += 1;
+  return successCardSessionId;
+}
+
+export function getSendSuccessCardSessionId(): number {
+  return successCardSessionId;
+}
+
+export function authorizeSuccessExitDrain(sessionId: number): boolean {
+  if (sessionId !== successCardSessionId) {
+    emit('[SUCCESS EXIT RETRY BLOCKED BEFORE CARD]', {
+      reason: 'stale-session',
+      sessionId,
+      activeSessionId: successCardSessionId,
+    });
+    return false;
+  }
+  authorizedDrainSessionId = sessionId;
+  return true;
+}
+
+export function canDrainNotificationAfterSuccess(): boolean {
+  return (
+    authorizedDrainSessionId !== null &&
+    authorizedDrainSessionId === successCardSessionId
+  );
+}
+
+export function clearStaleSuccessExitLatch(source: string): void {
+  if (successExitInProgress || successExitDrainingExtra) {
+    emit('[SEND SUCCESS STALE EXIT LATCH CLEARED]', {
+      source,
+      successExitInProgress,
+      successExitDraining: successExitDrainingExtra,
+    });
+    endSuccessExitInProgress();
+    successExitDrainingExtra = false;
+  }
+  authorizedDrainSessionId = null;
+}
+
+export function logSendSuccessCardShowRequired(data: {
+  banId: string;
+  sessionId: number;
+}): void {
+  emit('[SEND SUCCESS CARD SHOW REQUIRED]', data);
+}
+
+export function logSuccessCardMountedDebug(data: {
+  banId: string | null;
+  source?: string | null;
+  sessionId?: number;
+}): void {
+  emit('[SUCCESS CARD MOUNTED]', data);
+}
+
+export function logSuccessExitRetryBlockedBeforeCard(
+  data: Record<string, unknown>,
+): void {
+  emit('[SUCCESS EXIT RETRY BLOCKED BEFORE CARD]', data);
+}
+
+export function logSuccessDrainOnlyAfterExit(data: Record<string, unknown>): void {
+  emit('[SUCCESS DRAIN ONLY AFTER EXIT]', data);
+}
+
+export function logSuccessCardSkippedBug(data: Record<string, unknown>): void {
+  emit('[SUCCESS CARD SKIPPED BUG]', data);
+}
 
 export function registerSuccessExitDebugSnapshot(
   reader: (() => SuccessExitDebugSnapshot) | null,

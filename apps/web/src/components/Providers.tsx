@@ -325,11 +325,16 @@ import {
 import { logOverlayTransition } from '@/lib/overlay-transition-debug';
 import {
   isSuccessExitInstrumentationActive,
+  canDrainNotificationAfterSuccess,
+  getSendSuccessCardSessionId,
   logFirstNotificationMounted,
   logFirstNotificationSelected,
+  logSuccessCardMountedDebug,
+  logSuccessDrainOnlyAfterExit,
   logSuccessExitDrainResult,
   logSuccessExitDrainStart,
   logSuccessExitLobbyOpenAttempt,
+  logSuccessExitRetryBlockedBeforeCard,
   logSuccessExitEmptyQueueClearOverlay,
   logEmptyOverlayHostBlocked,
   logSuccessExitTimerCardTopOk,
@@ -1640,6 +1645,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         console.log('[success-card-mounted]', {
           banId: sendSuccessCardBanIdRef.current,
           source: opts?.source ?? null,
+        });
+        logSuccessCardMountedDebug({
+          banId: sendSuccessCardBanIdRef.current,
+          source: opts?.source ?? null,
+          sessionId: getSendSuccessCardSessionId(),
         });
         return;
       }
@@ -10609,6 +10619,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const drainNextNotificationAfterSuccess = useCallback(
     async (successBanId?: string | null): Promise<boolean> => {
+      if (!canDrainNotificationAfterSuccess()) {
+        logSuccessExitRetryBlockedBeforeCard({
+          successBanId: successBanId ?? null,
+          successCardMounted: isSuccessCardMounted(),
+          queueLen: overlayQueueRef.current.length,
+          startupLen: pendingStartupInteractionsRef.current.length,
+        });
+        logSuccessExitDrainResult({
+          drained: false,
+          queueLenAfter: overlayQueueRef.current.length,
+          pendingLenAfter: pendingStartupInteractionsRef.current.length,
+          reason: 'success-exit-not-authorized',
+        });
+        return false;
+      }
+      if (isSuccessCardMounted()) {
+        logSuccessDrainOnlyAfterExit({
+          successBanId: successBanId ?? null,
+          queueLen: overlayQueueRef.current.length,
+        });
+        logSuccessExitDrainResult({
+          drained: false,
+          queueLenAfter: overlayQueueRef.current.length,
+          pendingLenAfter: pendingStartupInteractionsRef.current.length,
+          reason: 'success-card-still-mounted',
+        });
+        return false;
+      }
+
       allowDeeplinkExplicitNotificationDrain('drainNextNotificationAfterSuccess');
       const queueLen = overlayQueueRef.current.length;
       const startupLen = pendingStartupInteractionsRef.current.length;
