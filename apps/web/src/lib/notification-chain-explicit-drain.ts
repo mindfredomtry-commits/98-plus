@@ -1,0 +1,76 @@
+'use client';
+
+function emit(event: string, data?: Record<string, unknown>): void {
+  const payload = { t: performance.now(), ...data };
+  console.log(event, payload);
+  window.__debug98log?.(event, payload);
+}
+
+const EXPLICIT_NOTIFICATION_DRAIN_MARKERS = [
+  'success-exit',
+  'lobby-bans-cta',
+  'lobby-bans',
+  'explicit-bans',
+  'status-cta',
+  'go-to-bans',
+  'overboard-status-direct',
+  'navigateFromResult',
+  'finalizeResultForGoToBans',
+  'drainNextNotificationAfterSuccess',
+  'active-timer-close',
+  'timer-go-to-bans',
+  'user-answer',
+  'check-dismiss',
+  'dismiss:',
+  'dismissBanResult',
+  'armOpenBansOverlayFromResultCta',
+  'releaseStartupInteractions',
+  'primeNextNotificationAfterStatusCta',
+  'openBansOverlay',
+  'provider-openBansOverlayRequest',
+  'manual flush from lobby button',
+  'check-deeplink',
+  'reply-deeplink',
+  'openDeepLink',
+  'applyCheckDeeplink',
+  'applyIncoming',
+  'bot-deeplink',
+  'deeplink-direct',
+  'stuck-boot-heal',
+] as const;
+
+export function isExplicitNotificationDrainSource(source: string): boolean {
+  return EXPLICIT_NOTIFICATION_DRAIN_MARKERS.some((marker) =>
+    source.includes(marker),
+  );
+}
+
+/** Block showNext / continue / merge-to-overlay unless source is an explicit user/bot drain. */
+export function shouldBlockNonExplicitNotificationDrain(
+  source: string,
+  startupHoldActive: boolean,
+): boolean {
+  if (isExplicitNotificationDrainSource(source)) return false;
+  void startupHoldActive;
+  return true;
+}
+
+export function logNonExplicitDrainBlocked(data: Record<string, unknown>): void {
+  emit('[NON EXPLICIT DRAIN BLOCKED]', data);
+}
+
+export function logStartupAutoShowCardBug(data: Record<string, unknown>): void {
+  emit('[STARTUP AUTO SHOW CARD BUG]', data);
+}
+
+export function logSyncDisplayBlockedStartupHold(
+  data: Record<string, unknown>,
+): void {
+  emit('[SYNC DISPLAY BLOCKED STARTUP HOLD]', data);
+}
+
+export function logLobbyIndicatorOnlyNoCard(
+  data: Record<string, unknown>,
+): void {
+  emit('[LOBBY INDICATOR ONLY NO CARD]', data);
+}

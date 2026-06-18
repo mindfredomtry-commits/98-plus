@@ -351,8 +351,16 @@ import {
   logDeeplinkAutoDrainBug,
   logDeeplinkReturnLobby,
   shouldBlockDeeplinkAutoDrain,
+  shouldBlockNonExplicitNotificationDrain,
 } from '@/lib/deeplink-single-card-mode';
 import {
+  logLobbyIndicatorOnlyNoCard,
+  logNonExplicitDrainBlocked,
+  logStartupAutoShowCardBug,
+  logSyncDisplayBlockedStartupHold,
+} from '@/lib/notification-chain-explicit-drain';
+import {
+  logChainContinueBlockedNonExplicitStartup,
   getMountedBlockingUserOverlay,
   heldUserCardBanId,
   isBlockingUserOverlayKind,
@@ -2604,6 +2612,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       !chainAdvanceExplicitRef.current &&
       queue.length > 0
     ) {
+      logSyncDisplayBlockedStartupHold({
+        source: 'syncDisplayFromQueue',
+        queueLen: queue.length,
+        headKind: queue[0]?.kind ?? null,
+        headBanId:
+          queue[0]?.kind === 'result'
+            ? queue[0].result.id
+            : queue[0]?.kind === 'incoming' || queue[0]?.kind === 'check'
+              ? queue[0].ban.id
+              : null,
+        startupHold: true,
+      });
       logLobbyIndicatorPrefetchNoOverlay({
         source: 'syncDisplayFromQueue',
         queueLen: queue.length,
@@ -4784,6 +4804,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const mergeStartupIntoOverlayQueueOnly = useCallback(
     (source: string) => {
       if (
+        shouldBlockNonExplicitNotificationDrain(
+          source,
+          startupInteractionsHoldRef.current,
+        )
+      ) {
+        logNonExplicitDrainBlocked({
+          source,
+          reason: 'merge-startup-into-overlay',
+          startupHold: startupInteractionsHoldRef.current,
+        });
+        return 0;
+      }
+      if (
         blocksMountedNotificationOverlay(
           `mergeStartupIntoOverlayQueueOnly:${source}`,
           null,
@@ -4841,6 +4874,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const mergePendingSnapshotIntoOverlayQueue = useCallback(
     (snapshot: QueuedOverlay[], source: string): number => {
       if (snapshot.length === 0) return 0;
+      if (
+        shouldBlockNonExplicitNotificationDrain(
+          source,
+          startupInteractionsHoldRef.current,
+        )
+      ) {
+        logNonExplicitDrainBlocked({
+          source,
+          reason: 'merge-pending-snapshot',
+          startupHold: startupInteractionsHoldRef.current,
+          snapshotLen: snapshot.length,
+        });
+        return 0;
+      }
 
       const explicitLobbyDrain = source.includes('lobby-bans-cta');
       const skipBanId =
@@ -11542,6 +11589,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const showNextNotificationFromChainSync = useCallback(
     (source: string): boolean => {
       if (
+        shouldBlockNonExplicitNotificationDrain(
+          source,
+          startupInteractionsHoldRef.current,
+        )
+      ) {
+        logNonExplicitDrainBlocked({
+          source,
+          reason: 'show-next',
+          startupHold: startupInteractionsHoldRef.current,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+        logStartupAutoShowCardBug({
+          source,
+          reason: 'non-explicit-show-next',
+          startupHold: startupInteractionsHoldRef.current,
+        });
+        return false;
+      }
+      if (
         startupInteractionsHoldRef.current &&
         !isExplicitNotificationDrainSource(source)
       ) {
@@ -12002,8 +12069,58 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [syncPendingStartupCount],
   );
 
+  const snapshotPendingNotificationChain =
+    useCallback((): NotificationChainCollectedSnapshot => {
+      const queueLen = overlayQueueRef.current.length;
+      const pendingLen = pendingStartupInteractionsRef.current.length;
+      const queueCounts = countNotificationChainKinds(overlayQueueRef.current);
+      const pendingCounts = countNotificationChainKinds(
+        pendingStartupInteractionsRef.current,
+      );
+      const bufferedIncomingId = bufferedIncomingRef.current?.id?.trim() ?? null;
+      const held = heldUserCardOverlayRef.current;
+      const heldNextKind = held?.kind ?? null;
+      let heldIncoming = 0;
+      let heldCheck = 0;
+      let heldResult = 0;
+      if (held?.kind === 'incoming') heldIncoming = 1;
+      else if (held?.kind === 'check') heldCheck = 1;
+      else if (held?.kind === 'result') heldResult = 1;
+
+      return {
+        queueLen,
+        pendingLen,
+        incomingLen:
+          queueCounts.incomingLen +
+          pendingCounts.incomingLen +
+          (bufferedIncomingId ? 1 : 0) +
+          heldIncoming,
+        checkLen: queueCounts.checkLen + pendingCounts.checkLen + heldCheck,
+        resultLen: queueCounts.resultLen + pendingCounts.resultLen + heldResult,
+        bufferedIncomingId,
+        heldNextKind,
+        mergedFromPending: 0,
+        finalQueueLen: queueLen,
+        finalPendingLen: pendingLen,
+      };
+    }, [countNotificationChainKinds]);
+
   const collectPendingNotificationChain = useCallback(
     (source: string): NotificationChainCollectedSnapshot => {
+      if (
+        shouldBlockNonExplicitNotificationDrain(
+          source,
+          startupInteractionsHoldRef.current,
+        )
+      ) {
+        logNonExplicitDrainBlocked({
+          source,
+          reason: 'collect-pending',
+          startupHold: startupInteractionsHoldRef.current,
+        });
+        return snapshotPendingNotificationChain();
+      }
+
       sanitizeNotificationChainQueues(`${source}-collect`);
       const queueLen = overlayQueueRef.current.length;
       const pendingLen = pendingStartupInteractionsRef.current.length;
@@ -12053,6 +12170,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       countNotificationChainKinds,
       mergeStartupIntoOverlayQueueOnly,
       sanitizeNotificationChainQueues,
+      snapshotPendingNotificationChain,
     ],
   );
 
@@ -12081,6 +12199,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       source: string,
       opts?: ContinueNotificationChainOptions,
     ): ContinueNotificationChainOutcome => {
+      if (
+        shouldBlockNonExplicitNotificationDrain(
+          source,
+          startupInteractionsHoldRef.current,
+        )
+      ) {
+        logChainContinueBlockedNonExplicitStartup({
+          source,
+          startupHold: startupInteractionsHoldRef.current,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+        return 'blocked';
+      }
+
       prepareNotificationChainContinue(source, opts);
       const collected = collectPendingNotificationChain(source);
       logChainContinueCollected({
@@ -12240,7 +12373,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return finalizeNotificationChainContinueEmpty(
           source,
           opts,
-          collectPendingNotificationChain(`${source}-prefetch-skip`),
+          snapshotPendingNotificationChain(),
         ) === 'open-lobby';
       }
 
@@ -12263,15 +12396,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         finalizeNotificationChainContinueEmpty(
           source,
           opts,
-          collectPendingNotificationChain(`${source}-final-empty`),
+          snapshotPendingNotificationChain(),
         ) === 'open-lobby'
       );
     },
     [
-      collectPendingNotificationChain,
       continueNotificationChainOrOpenLobbySync,
       finalizeNotificationChainContinueEmpty,
       prefetchPendingNotificationChain,
+      snapshotPendingNotificationChain,
     ],
   );
   continueNotificationChainOrOpenLobbyRef.current =
@@ -12672,9 +12805,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       await prefetchPendingNotificationChain(null, 'success-exit');
       if (await tryDrain('success-exit-retry')) return true;
 
-      const finalCollected = collectPendingNotificationChain(
-        'success-exit-final-empty',
-      );
+      const finalCollected = snapshotPendingNotificationChain();
       const finalQueueLen = finalCollected.finalQueueLen;
       const finalStartupLen = finalCollected.finalPendingLen;
       const drainMissReason =
@@ -12709,8 +12840,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [
       blocksMountedNotificationOverlay,
-      collectPendingNotificationChain,
       prefetchPendingNotificationChain,
+      snapshotPendingNotificationChain,
     ],
   );
 
@@ -13054,9 +13185,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const collected = collectPendingNotificationChain(
-        `${chainSource}-after-continue`,
-      );
+      const collected = snapshotPendingNotificationChain();
       if (collected.finalQueueLen > 0 || collected.finalPendingLen > 0) {
         logResultGoToBansEmptyScreenBug({
           banId,
@@ -13093,7 +13222,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     cancelResultPollBurst,
     clearBansOverlayNavigationIntent,
     clearNotificationChainReturnLatch,
-    collectPendingNotificationChain,
+    snapshotPendingNotificationChain,
     directResultOverlayActive,
     finalizeResultForGoToBans,
     logCardCloseClick,
@@ -14104,25 +14233,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       return;
     }
-    const collected = collectPendingNotificationChain(
-      `${source ?? 'openLobby'}-pre-open`,
-    );
-    if (collected.finalQueueLen > 0 || collected.finalPendingLen > 0) {
-      logLobbyOpenBlockedChainNotEmpty({
-        source: source ?? 'openLobby',
-        finalQueueLen: collected.finalQueueLen,
-        finalPendingLen: collected.finalPendingLen,
-        queueLen: collected.queueLen,
-        pendingLen: collected.pendingLen,
-        incomingLen: collected.incomingLen,
-        checkLen: collected.checkLen,
-        resultLen: collected.resultLen,
-      });
-      void continueNotificationChainOrOpenLobbyRef.current(
-        `${source ?? 'openLobby'}-blocked`,
-        { clearActiveHold: false, openLobbyIfEmpty: false },
-      );
-      return;
+    if (startupInteractionsHoldRef.current) {
+      const pendingLen = pendingStartupInteractionsRef.current.length;
+      const queueLen = overlayQueueRef.current.length;
+      if (pendingLen > 0 || queueLen > 0) {
+        logLobbyIndicatorOnlyNoCard({
+          source: source ?? 'openLobby',
+          queueLen,
+          pendingLen,
+          startupHold: true,
+        });
+      }
     }
     console.log('[chain-debug-open-lobby-called]', {
       source: source ?? 'default',
@@ -14137,7 +14258,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       source: source ?? 'default',
       lobbyOpen: true,
     });
-  }, [collectPendingNotificationChain, getNotificationChainDebugSnapshot, hasPendingNotificationChain]);
+  }, [getNotificationChainDebugSnapshot, hasPendingNotificationChain]);
 
   useLayoutEffect(() => {
     openLobbyRef.current = openLobby;

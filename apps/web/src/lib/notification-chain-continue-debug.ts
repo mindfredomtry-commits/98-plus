@@ -37,3 +37,9 @@ export function logLobbyOpenBlockedChainNotEmpty(
 ): void {
   emit('[LOBBY OPEN BLOCKED CHAIN NOT EMPTY]', data);
 }
+
+export function logChainContinueBlockedNonExplicitStartup(
+  data: Record<string, unknown>,
+): void {
+  emit('[CHAIN CONTINUE BLOCKED NON EXPLICIT STARTUP]', data);
+}

@@ -1,6 +1,15 @@
 'use client';
 
 import { normalizeId } from '@/lib/normalize-json';
+import {
+  isExplicitNotificationDrainSource,
+  shouldBlockNonExplicitNotificationDrain,
+} from '@/lib/notification-chain-explicit-drain';
+
+export {
+  isExplicitNotificationDrainSource,
+  shouldBlockNonExplicitNotificationDrain,
+} from '@/lib/notification-chain-explicit-drain';
 
 export type DeeplinkSingleCardKind = 'check' | 'reply';
 
@@ -11,29 +20,6 @@ type DeeplinkSingleCardMode = {
 
 let mode: DeeplinkSingleCardMode | null = null;
 let explicitDrainAllowed = false;
-
-const EXPLICIT_DRAIN_MARKERS = [
-  'success-exit',
-  'armOpenBansOverlayFromResultCta',
-  'explicit-bans',
-  'lobby-bans',
-  'lobby-bans-cta',
-  'status-cta',
-  'go-to-bans',
-  'overboard-status-direct',
-  'navigateFromResult',
-  'finalizeResultForGoToBans',
-  'releaseStartupInteractions',
-  'drainNextNotificationAfterSuccess',
-  'primeNextNotificationAfterStatusCta',
-  'openBansOverlay',
-  'provider-openBansOverlayRequest',
-  'manual flush from lobby button',
-];
-
-export function isExplicitNotificationDrainSource(source: string): boolean {
-  return EXPLICIT_DRAIN_MARKERS.some((marker) => source.includes(marker));
-}
 
 export function enableDeeplinkSingleCardMode(
   kind: DeeplinkSingleCardKind,
