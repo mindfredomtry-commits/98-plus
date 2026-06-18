@@ -303,6 +303,14 @@ import {
   type BlockingUserOverlayKind,
   type HeldUserCardOverlay,
 } from '@/lib/overlay-user-card-guard';
+import {
+  logConfirmBlockedByActiveUserCardBug,
+  logConfirmEnterNotificationGuardClear,
+  logIncomingReplyActionStart,
+  logIncomingReplyClearActiveHold,
+  logIncomingReplyFlowStart,
+  logIncomingReplyOverlayClosed,
+} from '@/lib/incoming-reply-compose-debug';
 import { installOverlayDismissCacheDevHelper } from '@/lib/overlay-dismiss-cache-dev';
 import { logResultNav, logResultReply } from '@/lib/result-reply-debug';
 import { resolveResultReplyOpponent } from '@/lib/result-reply-flow';
@@ -1211,8 +1219,66 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           setDirectResultOverlayActive(false);
         }
       }
+
+      if (phase === 'confirming') {
+        const parentBanId = normalizeId(
+          chainReplyParentBanIdRef.current ??
+            replyDeeplinkParentBanIdRef.current ??
+            '',
+        );
+        const held = heldUserCardOverlayRef.current;
+        const heldBanId = held ? heldUserCardBanId(held) : null;
+        const consumed =
+          heldBanId != null &&
+          incomingReplyComposeDismissedRef.current.has(normalizeId(heldBanId));
+        const staleIncomingHold =
+          held?.kind === 'incoming' &&
+          (parentBanId.length === 0 ||
+            normalizeId(heldBanId ?? '') === parentBanId ||
+            consumed);
+        if (
+          staleIncomingHold ||
+          (notificationChainAwaitingUserRef.current && held != null)
+        ) {
+          if (heldUserCardOverlayRef.current) {
+            heldUserCardOverlayRef.current = null;
+            setHeldUserCardOverlay(null);
+          }
+          notificationChainAwaitingUserRef.current = false;
+          console.log('[active-user-card-hold-clear]', {
+            source: `${source}:confirm-enter`,
+          });
+        }
+        notificationChainAwaitingUserRef.current = false;
+        notificationChainHandoffRef.current = false;
+        setNotificationChainTransitioning(false);
+        setChainAdvanceWaiting(false);
+        logConfirmEnterNotificationGuardClear({
+          source,
+          parentBanId: parentBanId || null,
+          heldKind: held?.kind ?? null,
+          heldBanId,
+          awaitingUser: notificationChainAwaitingUserRef.current,
+        });
+        const stillHeld = heldUserCardOverlayRef.current;
+        if (
+          stillHeld?.kind === 'incoming' &&
+          (parentBanId.length === 0 ||
+            normalizeId(heldUserCardBanId(stillHeld)) === parentBanId ||
+            incomingReplyComposeDismissedRef.current.has(
+              normalizeId(heldUserCardBanId(stillHeld)),
+            ))
+        ) {
+          logConfirmBlockedByActiveUserCardBug({
+            source,
+            activeKind: stillHeld.kind,
+            activeBanId: heldUserCardBanId(stillHeld),
+            parentBanId: parentBanId || null,
+          });
+        }
+      }
     },
-    [],
+    [setChainAdvanceWaiting, setNotificationChainTransitioning],
   );
   const isWhatOrConfirmActive = useCallback(
     () => whatOrConfirmActiveRef.current,
@@ -1444,8 +1510,39 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
 
   const getActiveUserCardForGuard = () => {
+    if (isReplyComposeBlockingNotificationGuards()) {
+      const parentId = normalizeId(
+        chainReplyParentBanIdRef.current ??
+          replyDeeplinkParentBanIdRef.current ??
+          '',
+      );
+      const held = heldUserCardOverlayRef.current;
+      if (
+        held?.kind === 'incoming' &&
+        (parentId.length === 0 ||
+          normalizeId(heldUserCardBanId(held)) === parentId ||
+          isIncomingConsumedForReplyCompose(heldUserCardBanId(held)))
+      ) {
+        return null;
+      }
+      const mounted = getActiveMountedUserCard();
+      if (
+        mounted?.kind === 'incoming' &&
+        (parentId.length === 0 ||
+          mounted.banId === parentId ||
+          isIncomingConsumedForReplyCompose(mounted.banId))
+      ) {
+        return null;
+      }
+    }
     const held = heldUserCardOverlayRef.current;
     if (held && notificationChainAwaitingUserRef.current) {
+      if (
+        held.kind === 'incoming' &&
+        isIncomingConsumedForReplyCompose(heldUserCardBanId(held))
+      ) {
+        return null;
+      }
       return { kind: held.kind, banId: heldUserCardBanId(held) };
     }
     return getActiveMountedUserCard();
@@ -1490,7 +1587,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     kind: BlockingUserOverlayKind,
     source: string,
   ) => {
+    if (isReplyComposeBlockingNotificationGuards()) return;
     if (kind === 'incoming' && incomingBanRef.current?.id) {
+      if (isIncomingConsumedForReplyCompose(incomingBanRef.current.id)) {
+        return;
+      }
       const held: HeldUserCardOverlay = {
         kind: 'incoming',
         ban: incomingBanRef.current,
@@ -1539,8 +1640,54 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     console.log('[active-user-card-hold-clear]', { source });
   };
 
+  const isIncomingConsumedForReplyCompose = (banId: string | null | undefined) => {
+    const norm = normalizeId(banId ?? '');
+    if (!norm) return false;
+    return incomingReplyComposeDismissedRef.current.has(norm);
+  };
+
+  const isReplyComposeBlockingNotificationGuards = () =>
+    notificationChainReplyComposeActiveRef.current ||
+    replyComposeActiveRef.current ||
+    chainReplyParentBanIdRef.current != null;
+
+  const releaseIncomingOverlayForReplyCompose = useCallback(
+    (banId: string, source: string) => {
+      const norm = normalizeId(banId);
+      incomingReplyComposeDismissedRef.current.add(norm);
+      heldUserCardOverlayRef.current = null;
+      setHeldUserCardOverlay(null);
+      notificationChainAwaitingUserRef.current = false;
+      notificationChainHandoffRef.current = false;
+      logIncomingReplyClearActiveHold({ banId: norm, source });
+      chainAdvanceExplicitRef.current = false;
+      setNotificationChainTransitioning(false);
+      setChainAdvanceWaiting(false);
+      goToBansAdvancePendingRef.current = false;
+      incomingBanRef.current = null;
+      checkBanRef.current = null;
+      setIncomingBan(null);
+      setCheckBan(null);
+      logIncomingReplyOverlayClosed({
+        banId: norm,
+        source,
+        queueLen: overlayQueueRef.current.length,
+      });
+    },
+    [setChainAdvanceWaiting, setNotificationChainTransitioning],
+  );
+
   const restoreHeldUserCardOverlay = (source: string): boolean => {
     const held = heldUserCardOverlayRef.current;
+    if (
+      held?.kind === 'incoming' &&
+      isIncomingConsumedForReplyCompose(heldUserCardBanId(held))
+    ) {
+      return false;
+    }
+    if (isReplyComposeBlockingNotificationGuards()) {
+      return false;
+    }
     if (!held || !notificationChainAwaitingUserRef.current) {
       const mounted = getActiveMountedUserCard();
       if (mounted) {
@@ -1585,6 +1732,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     nextHead: QueuedOverlay | null,
     opts?: { explicitUserAction?: boolean },
   ): boolean => {
+    if (isReplyComposeBlockingNotificationGuards()) {
+      return false;
+    }
     const held = heldUserCardOverlayRef.current;
     const active =
       held != null && notificationChainAwaitingUserRef.current
@@ -11239,6 +11389,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const banId = ban.id;
       const senderId = ban.sender?.id ?? null;
       const viewerId = userIdRef.current?.trim() ?? null;
+      logIncomingReplyActionStart({ banId, senderId, viewerId });
       console.log('[chain-incoming-reply-click]', { banId, senderId });
       console.log('[reply-card-action]', {
         action: 'reply',
@@ -11266,8 +11417,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       chainReplyParentBanIdRef.current = banId;
       notificationChainReplyComposeActiveRef.current = true;
-      notificationChainAwaitingUserRef.current = false;
-      notificationChainHandoffRef.current = true;
       chainAdvanceExplicitRef.current = false;
       replyDeeplinkParentBanIdRef.current = banId;
       replyFlowStartedForBanIdRef.current = banId;
@@ -11276,6 +11425,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       acceptedParentIncomingSnapshotRef.current = enrichBanInteraction(ban);
       const optimisticActive = buildActiveParentBanForSuccess(ban);
       storeAcceptedParentActiveBan(optimisticActive, 'optimistic-on-reply-click');
+
+      releaseIncomingOverlayForReplyCompose(banId, 'incoming-reply-click');
+      dismissIncomingCardForReplyCompose(banId);
+
       console.log('[reply-parent-active-priority-set]', { parentBanId: banId });
       console.log('[chain-reply-handoff-start]', {
         parentBanId: banId,
@@ -11287,8 +11440,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       startIncomingReply(ban);
-      dismissIncomingCardForReplyCompose(banId);
       beginReplyHandoff(banId);
+      logIncomingReplyFlowStart({
+        banId,
+        parentBanId: banId,
+        recipientId: senderId,
+      });
 
       console.log('[chain-reply-open-what]', {
         parentBanId: banId,
@@ -11399,6 +11556,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       beginReplyHandoff,
       clearBansOverlayNavigationIntent,
       dismissIncomingCardForReplyCompose,
+      releaseIncomingOverlayForReplyCompose,
       startIncomingReply,
       storeAcceptedParentActiveBan,
     ],
