@@ -488,7 +488,13 @@ import {
   logIncomingOverlayJsxReturn,
   logIncomingOverlayReturnNull,
   logIncomingOverlayStateSet,
+  logIncomingOverlayBlocked,
   logIncomingReadyButBanLostBug,
+  logIncomingReadyButStableBanLostBug,
+  logIncomingStableBanClearBlocked,
+  logIncomingStableBanCleared,
+  logIncomingStableBanSet,
+  logIncomingStableBanUsed,
   peekLastIncomingPayloadReadyBanId,
 } from '@/lib/incoming-overlay-mount-debug';
 import { verifyIncomingChallenge } from '@/lib/deliver-challenge';
@@ -549,6 +555,8 @@ interface AppContextValue {
   incomingBan: BanInteraction | null;
   /** Incoming card with all display fields — null until fully ready (no shell). */
   incomingCardDisplayBan: BanInteraction | null;
+  /** Stable incoming ban pinned at payload-ready until user action. */
+  activeIncomingOverlayBan: BanInteraction | null;
   incomingCardFullyReady: boolean;
   /** Route card/overlay ready — boot stays as background under it (not a gate). */
   routeOverlayAboveBoot: boolean;
@@ -1559,6 +1567,62 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const incomingWsSeenRef = useRef<Set<string>>(new Set());
   const incomingBanRef = useRef<BanInteraction | null>(null);
+  const activeIncomingOverlayBanRef = useRef<BanInteraction | null>(null);
+  const [activeIncomingOverlayBan, setActiveIncomingOverlayBanState] =
+    useState<BanInteraction | null>(null);
+  const stableIncomingOverlayBan =
+    activeIncomingOverlayBan ?? activeIncomingOverlayBanRef.current;
+
+  const setActiveIncomingOverlayBanStable = useCallback(
+    (ban: BanInteraction, source: string) => {
+      const enriched = enrichBanInteraction(ban);
+      activeIncomingOverlayBanRef.current = enriched;
+      setActiveIncomingOverlayBanState(enriched);
+      logIncomingStableBanSet({ banId: enriched.id, source });
+    },
+    [],
+  );
+
+  const clearActiveIncomingOverlayBanStable = useCallback(
+    (reason: string, banId?: string | null) => {
+      const current = activeIncomingOverlayBanRef.current;
+      if (!current?.id) return;
+      if (banId && normalizeId(current.id) !== normalizeId(banId)) return;
+      logIncomingStableBanCleared({ banId: current.id, reason });
+      activeIncomingOverlayBanRef.current = null;
+      setActiveIncomingOverlayBanState(null);
+    },
+    [],
+  );
+
+  const blockClearActiveIncomingOverlayBan = useCallback(
+    (banId: string | null | undefined, source: string): boolean => {
+      const stable = activeIncomingOverlayBanRef.current;
+      if (!stable?.id || !banId) return false;
+      if (normalizeId(stable.id) !== normalizeId(banId)) return false;
+      logIncomingStableBanClearBlocked({ banId: stable.id, source });
+      return true;
+    },
+    [],
+  );
+
+  const resolveStableIncomingForQueueHead = useCallback(
+    (active: QueuedOverlay | null | undefined): BanInteraction | null => {
+      const stable = activeIncomingOverlayBanRef.current;
+      if (!stable?.id) return null;
+      const headId =
+        active?.kind === 'incoming'
+          ? active.ban.id
+          : overlayQueueRef.current[0]?.kind === 'incoming'
+            ? overlayQueueRef.current[0].ban.id
+            : null;
+      if (!headId || normalizeId(headId) !== normalizeId(stable.id)) {
+        return null;
+      }
+      return stable;
+    },
+    [],
+  );
   const checkBanRef = useRef<BanInteraction | null>(null);
   const checkWsSeenRef = useRef<Set<string>>(new Set());
   const resultDeliveredBanIdsRef = useRef<Set<string>>(new Set());
@@ -1617,6 +1681,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
     if (kind === 'incoming' && incomingBanRef.current?.id === banId) {
+      if (
+        !opts?.explicitUserAction &&
+        blockClearActiveIncomingOverlayBan(banId, 'clearActiveOverlayStateForDismiss')
+      ) {
+        return;
+      }
+      if (opts?.explicitUserAction) {
+        clearActiveIncomingOverlayBanStable('user-dismiss', banId);
+      }
       incomingBanRef.current = null;
       setIncomingBan(null);
     }
@@ -1857,8 +1930,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     } else if (held.kind === 'check') {
       checkBanRef.current = held.ban;
       setCheckBan(held.ban);
-      incomingBanRef.current = null;
-      setIncomingBan(null);
+      if (
+        !blockClearActiveIncomingOverlayBan(
+          incomingBanRef.current?.id,
+          `restoreHeldUserCardOverlay:${source}`,
+        )
+      ) {
+        incomingBanRef.current = null;
+        setIncomingBan(null);
+      }
     } else {
       if (resultRef.current?.id === held.result.id) {
         if (incomingOverboardAtomicBanIdRef.current === banId) {
@@ -1870,8 +1950,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       resultRef.current = held.result;
       setResult(held.result);
       resultOpenRef.current = true;
-      incomingBanRef.current = null;
-      setIncomingBan(null);
+      if (
+        !blockClearActiveIncomingOverlayBan(
+          incomingBanRef.current?.id,
+          `restoreHeldUserCardOverlay-result:${source}`,
+        )
+      ) {
+        incomingBanRef.current = null;
+        setIncomingBan(null);
+      }
       checkBanRef.current = null;
       setCheckBan(null);
     }
@@ -2609,9 +2696,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         active.kind === 'result' ? active.result.id : active.ban.id,
       )
     ) {
-      incomingBanRef.current = null;
+      if (
+        !blockClearActiveIncomingOverlayBan(
+          incomingBanRef.current?.id,
+          'syncDisplayFromQueue-blocked',
+        )
+      ) {
+        const stable = resolveStableIncomingForQueueHead(active);
+        if (stable) {
+          incomingBanRef.current = stable;
+          setIncomingBan(stable);
+        } else {
+          incomingBanRef.current = null;
+          setIncomingBan(null);
+        }
+      }
       checkBanRef.current = null;
-      setIncomingBan(null);
       setCheckBan(null);
       return;
     }
@@ -2696,8 +2796,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         checkBanRef.current = null;
         setCheckBan(null);
       }
-      incomingBanRef.current = null;
-      setIncomingBan(null);
+      if (
+        !blockClearActiveIncomingOverlayBan(
+          incomingBanRef.current?.id,
+          'syncDisplayFromQueue-queue-locked',
+        )
+      ) {
+        const stable = resolveStableIncomingForQueueHead(active);
+        if (stable) {
+          incomingBanRef.current = stable;
+          setIncomingBan(stable);
+        } else {
+          incomingBanRef.current = null;
+          setIncomingBan(null);
+        }
+      }
     } else {
       if (isActiveUserCardHold()) {
         logIncomingOverlayBlocked({
@@ -2716,7 +2829,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         restoreHeldUserCardOverlay('syncDisplayFromQueue-hold-before-state-set');
         return;
       }
-      const nextIncoming = active?.kind === 'incoming' ? active.ban : null;
+      const stableIncoming = resolveStableIncomingForQueueHead(active);
+      let nextIncoming =
+        active?.kind === 'incoming' ? active.ban : stableIncoming;
+      if (nextIncoming && stableIncoming) {
+        nextIncoming = pickRicherIncomingBan(nextIncoming, stableIncoming);
+      } else if (!nextIncoming && stableIncoming) {
+        nextIncoming = stableIncoming;
+      }
       let nextCheck = active?.kind === 'check' ? active.ban : null;
       const mountedCheckId = checkBanRef.current?.id?.trim() ?? '';
       if (
@@ -3067,7 +3187,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         bansReturnToLobbyLatchRef.current ||
         (bansNavStateRef.current.origin === 'result-cta' &&
           bansNavStateRef.current.returnTarget === 'lobby');
-      const mountedIncomingId = incomingBanRef.current?.id?.trim() ?? '';
+      const mountedIncomingId =
+        activeIncomingOverlayBanRef.current?.id?.trim() ??
+        incomingBanRef.current?.id?.trim() ??
+        '';
       const mountedCheckId = checkBanRef.current?.id?.trim() ?? '';
       const mountedResultId = resultRef.current?.id?.trim() ?? '';
       const hasMountedNotificationOverlay =
@@ -3355,12 +3478,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (kind: string, banId: string, buttonsReady = true) => {
       if (kind === 'incoming') {
         const viewerId = userIdRef.current?.trim() ?? '';
-        const ban = incomingBanRef.current;
+        const ban = activeIncomingOverlayBanRef.current ?? incomingBanRef.current;
         if (!ban?.id || normalizeId(ban.id) !== normalizeId(banId)) {
           logIncomingCardRenderBlockedBug({
             banId,
             reason: 'incoming-ban-ref-mismatch',
             refBanId: ban?.id ?? null,
+            stableBanId: activeIncomingOverlayBanRef.current?.id ?? null,
           });
           logEmptyIncomingShellBug({
             banId,
@@ -8222,6 +8346,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       overlayQueueRef.current = nextQueue;
       setOverlayQueue(nextQueue);
 
+      clearActiveIncomingOverlayBanStable('reply-compose', banId);
       incomingBanRef.current = null;
       checkBanRef.current = null;
       setIncomingBan(null);
@@ -8241,7 +8366,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId,
       });
     },
-    [clearReplyFastSessionAfterAnswer],
+    [clearReplyFastSessionAfterAnswer, clearActiveIncomingOverlayBanStable],
   );
 
   const releaseIncomingOverlayForReplyCompose = useCallback(
@@ -8429,6 +8554,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ): boolean => {
       const banId = ban.id;
       const uid = userIdRef.current;
+      clearActiveIncomingOverlayBanStable('overboard', banId);
       console.log('[incoming-overboard-click]', { banId });
       logOverboardDirectState('before', readDirectOverboardSnapshot(), {
         banId,
@@ -8601,6 +8727,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [
       collectOverboardFallbackBans,
+      clearActiveIncomingOverlayBanStable,
       consumeIncomingAfterAnswer,
       isChainIncomingOverboardContext,
       readDirectOverboardSnapshot,
@@ -11302,9 +11429,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ? 'memory-upgrade'
           : getIncomingCardNotReadyReason(richer, viewerId),
       });
+      if (ready) {
+        setActiveIncomingOverlayBanStable(richer, source);
+      }
       return richer;
     },
-    [applyIncomingBanToQueueHead, collectIncomingBanCandidatesForId],
+    [
+      applyIncomingBanToQueueHead,
+      collectIncomingBanCandidatesForId,
+      setActiveIncomingOverlayBanStable,
+    ],
   );
 
   const beginIncomingNextHydrate = useCallback(
@@ -11341,6 +11475,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             source,
           });
           if (ready) {
+            setActiveIncomingOverlayBanStable(richer, source);
             setIncomingNextHydrateBanId((cur) => (cur === norm ? null : cur));
             syncDisplayFromQueue(overlayQueueRef.current);
           } else {
@@ -11368,7 +11503,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       incomingNextHydrateInflightRef.current.set(norm, task);
     },
-    [applyIncomingBanToQueueHead, syncDisplayFromQueue],
+    [applyIncomingBanToQueueHead, setActiveIncomingOverlayBanStable, syncDisplayFromQueue],
   );
 
   const showNextNotificationFromChainSync = useCallback(
@@ -11696,12 +11831,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             });
             beginIncomingNextHydrate(incomingBanId, `${source}-flush`);
           } else {
+            setActiveIncomingOverlayBanStable(payload, `${source}-flush-payload-ready-pre-sync`);
             logIncomingOverlayStateSet({
               banId: incomingBanId,
               source: `${source}-flush-payload-ready-pre-sync`,
               payloadReady: true,
               incomingBanRefId: incomingBanRef.current?.id ?? null,
-              incomingBanStateId: incomingBan?.id ?? null,
+              stableBanId: activeIncomingOverlayBanRef.current?.id ?? null,
             });
           }
         } else if (headAfterMerge?.kind === 'result') {
@@ -11776,6 +11912,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       overlayQueueItemId,
       pruneResultFromNotificationChain,
       sanitizeNotificationChainQueues,
+      setActiveIncomingOverlayBanStable,
       setNotificationChainTransitioning,
       syncDisplayFromQueue,
       upgradeIncomingQueueHeadFromMemory,
@@ -12935,12 +13072,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (banId: string) => {
       removeIncomingFromQueue(banId, { explicitUserAction: true });
       setViralOnboarding(false);
+      clearActiveIncomingOverlayBanStable('soft-dismiss', banId);
       if (incomingBanRef.current?.id === banId) {
         setIncomingBan(null);
       }
       challengeLog('incoming:soft-dismiss', { banId });
     },
-    [removeIncomingFromQueue],
+    [clearActiveIncomingOverlayBanStable, removeIncomingFromQueue],
   );
 
   const dismissIncoming = useCallback(
@@ -13444,7 +13582,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     !incomingBlockedAfterAnswer &&
     !notificationChainReplyComposePaused &&
     !replyParentActivePriorityActive &&
-    (heldUserCardOverlay?.kind === 'incoming' ||
+    (stableIncomingOverlayBan?.id ||
+      heldUserCardOverlay?.kind === 'incoming' ||
       displayActiveOverlayKind === 'incoming' ||
       activeOverlayKind === 'incoming' ||
       queueHeadKind === 'incoming' ||
@@ -14054,6 +14193,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const incomingCardDisplayBan = useMemo(() => {
     const viewerId = auth.user?.id ?? userIdRef.current;
+    if (stableIncomingOverlayBan?.id) {
+      logIncomingStableBanUsed({
+        banId: stableIncomingOverlayBan.id,
+        source: 'incomingCardDisplayBan',
+      });
+      return stableIncomingOverlayBan;
+    }
     if (!viewerId) return null;
 
     if (
@@ -14141,6 +14287,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
     return null;
   }, [
+    stableIncomingOverlayBan,
     auth.user?.id,
     auth.loading,
     incomingBan,
@@ -14169,6 +14316,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return 'result' as const;
     }
     if (
+      stableIncomingOverlayBan?.id &&
+      !showDirectOverboardLayer &&
+      !replyIncomingDirectPath
+    ) {
+      return 'incoming' as const;
+    }
+    if (
       (incomingCardDisplayBan || incomingShellHydrating) &&
       effectiveShouldRenderIncoming &&
       !showDirectOverboardLayer
@@ -14186,7 +14340,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     incomingCardDisplayBan,
     incomingShellHydrating,
     effectiveShouldRenderIncoming,
+    replyIncomingDirectPath,
     showDirectOverboardLayer,
+    stableIncomingOverlayBan?.id,
     incomingOverlayDisplayKind,
     checkGateActive,
     displayResult,
@@ -14587,6 +14743,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         checkGateActive,
         incomingCardFullyReady,
         incomingCardDisplayBan,
+      activeIncomingOverlayBan,
         checkBan: scopedCheckBan,
         displayResult,
         activeBanCardReady,
@@ -14606,6 +14763,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       checkGateActive,
       incomingCardFullyReady,
       incomingCardDisplayBan,
+      activeIncomingOverlayBan,
       scopedCheckBan,
       displayResult,
       activeBanCardReady,
@@ -14767,13 +14925,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     !composeBlocksNotificationHost &&
     !showDirectOverboardLayer &&
     !replyComposeActive &&
-    incomingCardDisplayBan != null &&
+    (incomingCardDisplayBan != null || stableIncomingOverlayBan?.id) &&
     (showReplyIncomingOverlayDirect ||
+      stableIncomingOverlayBan?.id ||
       (notificationQueueShellKind === 'incoming' &&
         !replyIncomingDirectPath));
 
   const notificationOverlayVisible = useMemo(() => {
     if (composeBlocksNotificationHost) return false;
+    if (stableIncomingOverlayBan?.id) return true;
     if (sendSuccessCardActive) return false;
 
     const replyParentTimerOwnsTop =
@@ -14834,6 +14994,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return false;
       }
       const hasRenderableCard =
+        stableIncomingOverlayBan?.id != null ||
         heldUserCardOverlay != null ||
         showDirectOverboardLayer ||
         checkOverlayMounted ||
@@ -14883,6 +15044,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return false;
   }, [
     activeBanCardReady,
+    stableIncomingOverlayBan?.id,
     chainAdvanceWaiting,
     checkBan?.id,
     checkOverlayMounted,
@@ -14917,6 +15079,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       return false;
     }
+    if (stableIncomingOverlayBan?.id) {
+      return true;
+    }
     if (!notificationOverlayVisible) return false;
     if (heldUserCardOverlay != null) return true;
     if (chainAdvanceWaiting) return true;
@@ -14947,6 +15112,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
     return false;
   }, [
+    stableIncomingOverlayBan?.id,
     chainAdvanceWaiting,
     checkBan?.id,
     checkOverlayMounted,
@@ -14954,6 +15120,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     heldUserCardOverlay,
     incomingCardDisplayBan,
     incomingCardFullyReady,
+    incomingShellHydrating,
     notificationChainTransitioning,
     notificationOverlayVisible,
     notificationQueueShellKind,
@@ -14996,6 +15163,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const hasRenderableCard =
       showDirectOverboardLayer ||
       checkOverlayMounted ||
+      stableIncomingOverlayBan?.id ||
       (notificationQueueShellKind === 'check' && !!checkBan?.id) ||
       (notificationQueueShellKind === 'result' && !!displayResult) ||
       (notificationQueueShellKind === 'incoming' &&
@@ -15035,6 +15203,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationQueueShellKind,
     setNotificationChainTransitioning,
     showDirectOverboardLayer,
+    stableIncomingOverlayBan?.id,
   ]);
 
   useLayoutEffect(() => {
@@ -15049,6 +15218,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       head.kind === 'result' ? head.result.id : head.ban.id;
     const mountedId =
       resultRef.current?.id ??
+      activeIncomingOverlayBanRef.current?.id ??
       incomingBanRef.current?.id ??
       checkBanRef.current?.id ??
       null;
@@ -15062,6 +15232,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     overlayQueue,
     result?.id,
     setNotificationChainTransitioning,
+    stableIncomingOverlayBan?.id,
   ]);
 
   useLayoutEffect(() => {
@@ -15232,25 +15403,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId: incomingCardDisplayBan?.id ?? null,
       });
     }
-    if (incomingJsxWillRender && incomingCardDisplayBan?.id) {
+    if (incomingJsxWillRender && (incomingCardDisplayBan?.id || stableIncomingOverlayBan?.id)) {
+      const jsxBanId =
+        stableIncomingOverlayBan?.id ?? incomingCardDisplayBan?.id ?? null;
       console.log('[INCOMING JSX RENDER CARD]', {
-        banId: incomingCardDisplayBan.id,
+        banId: jsxBanId,
         source: incomingJsxRenderSource,
         replyDirect: showReplyIncomingOverlayDirect,
+        stableBanId: stableIncomingOverlayBan?.id ?? null,
       });
       logIncomingOverlayJsxReturn({
-        banId: incomingCardDisplayBan.id,
+        banId: jsxBanId,
         source: incomingJsxRenderSource,
         willRender: true,
+        stableBanId: stableIncomingOverlayBan?.id ?? null,
       });
       markVisibleOverboardTrace('[INCOMING JSX RENDER CARD]', {
-        banId: incomingCardDisplayBan.id,
+        banId: jsxBanId,
         source: incomingJsxRenderSource,
+        stableBanId: stableIncomingOverlayBan?.id ?? null,
       });
       if (isDeepLinkRouteBootPending()) {
         releaseDeepLinkRouteBoot(
           'reply-card-ready',
-          incomingCardDisplayBan.id,
+          jsxBanId ?? undefined,
         );
       }
       return;
@@ -15308,57 +15484,52 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     shouldRenderIncomingOverlay,
     showDirectOverboardLayer,
     showReplyIncomingOverlayDirect,
+    stableIncomingOverlayBan?.id,
   ]);
 
   useLayoutEffect(() => {
     const readyBanId = peekLastIncomingPayloadReadyBanId();
     if (!readyBanId) return;
-    if (incomingCardDisplayBan?.id === readyBanId) return;
+    const displayBanId =
+      incomingCardDisplayBan?.id ?? stableIncomingOverlayBan?.id ?? null;
+    if (displayBanId === readyBanId) {
+      return;
+    }
+    logIncomingReadyButStableBanLostBug({
+      readyBanId,
+      incomingCardDisplayBanId: incomingCardDisplayBan?.id ?? null,
+      activeIncomingOverlayBanId: stableIncomingOverlayBan?.id ?? null,
+      incomingBanId: incomingBan?.id ?? null,
+      incomingBanRefId: incomingBanRef.current?.id ?? null,
+      notificationQueueShellKind,
+      shouldMountNotificationOverlayHost,
+      notificationOverlayVisible,
+    });
     logIncomingReadyButBanLostBug({
       readyBanId,
       incomingCardDisplayBanId: incomingCardDisplayBan?.id ?? null,
+      activeIncomingOverlayBanId: stableIncomingOverlayBan?.id ?? null,
       incomingBanId: incomingBan?.id ?? null,
       incomingBanRefId: incomingBanRef.current?.id ?? null,
-      activeIncomingBanId:
-        heldUserCardOverlay?.kind === 'incoming'
-          ? heldUserCardOverlay.ban.id
-          : null,
       heldUserCardKind: heldUserCardOverlay?.kind ?? null,
-      heldUserCardBanId:
-        heldUserCardOverlay?.kind === 'incoming'
-          ? heldUserCardOverlay.ban.id
-          : heldUserCardOverlay?.kind === 'check'
-            ? heldUserCardOverlay.ban.id
-            : heldUserCardOverlay?.kind === 'result'
-              ? heldUserCardOverlay.result.id
-              : null,
       notificationQueueShellKind,
-      incomingNotificationShellKind,
       shouldMountNotificationOverlayHost,
       notificationOverlayVisible,
-      notificationOverlayMounted,
       effectiveShouldRenderIncoming,
       incomingJsxWillRender,
       sendSuccessCardActive,
       notificationChainTransitioning,
-      composeBlocksNotificationHost,
-      queueHeadKind,
-      queueLen: overlayQueue.length,
     });
   }, [
-    composeBlocksNotificationHost,
+    stableIncomingOverlayBan?.id,
     effectiveShouldRenderIncoming,
     heldUserCardOverlay,
     incomingBan,
     incomingCardDisplayBan,
     incomingJsxWillRender,
-    incomingNotificationShellKind,
     notificationChainTransitioning,
-    notificationOverlayMounted,
     notificationOverlayVisible,
     notificationQueueShellKind,
-    overlayQueue.length,
-    queueHeadKind,
     sendSuccessCardActive,
     shouldMountNotificationOverlayHost,
   ]);
@@ -15403,6 +15574,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       onboard: auth.onboard,
       incomingBan: incomingCardDisplayBan,
       incomingCardDisplayBan,
+      activeIncomingOverlayBan,
       incomingCardFullyReady,
       routeOverlayAboveBoot,
       checkDeepLinkBanId,
@@ -15582,6 +15754,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       scopedIncomingBan,
       effectiveScopedIncomingBan,
       incomingCardDisplayBan,
+      activeIncomingOverlayBan,
       incomingCardFullyReady,
       routeOverlayAboveBoot,
       checkDeepLinkBanId,
@@ -15788,39 +15961,63 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               activeOverlayKind={
                 showReplyIncomingOverlayDirect
                   ? 'incoming'
-                  : notificationQueueShellKind
+                  : stableIncomingOverlayBan?.id
+                    ? 'incoming'
+                    : notificationQueueShellKind
               }
               activeIncomingBanId={
                 showReplyIncomingOverlayDirect ||
+                stableIncomingOverlayBan?.id ||
                 notificationQueueShellKind === 'incoming'
-                  ? (incomingCardDisplayBan?.id ?? null)
+                  ? (stableIncomingOverlayBan?.id ??
+                      incomingCardDisplayBan?.id ??
+                      null)
                   : null
               }
             >
               <NotificationQueueShell
-                kind={notificationQueueShellKind}
-                displayBanId={incomingCardDisplayBan?.id ?? null}
-                incomingCardReady={incomingCardFullyReady}
+                kind={
+                  stableIncomingOverlayBan?.id
+                    ? 'incoming'
+                    : notificationQueueShellKind
+                }
+                displayBanId={
+                  stableIncomingOverlayBan?.id ??
+                  incomingCardDisplayBan?.id ??
+                  null
+                }
+                incomingCardReady={
+                  incomingCardFullyReady || !!stableIncomingOverlayBan?.id
+                }
                 sessionActive={notificationHostSessionBackdrop}
                 advanceWaiting={chainAdvanceWaiting || incomingShellHydrating}
                 contentKey={
                   overlayQueue[0]
                     ? overlayQueueKey(overlayQueue[0])
-                    : incomingCardDisplayBan?.id
-                      ? `incoming:${incomingCardDisplayBan.id}`
-                      : null
+                    : stableIncomingOverlayBan?.id
+                      ? `incoming:${stableIncomingOverlayBan.id}`
+                      : incomingCardDisplayBan?.id
+                        ? `incoming:${incomingCardDisplayBan.id}`
+                        : null
                 }
               >
-                {notificationQueueShellKind === 'incoming' &&
-                (incomingCardDisplayBan || incomingShellHydrating) ? (
-                  incomingCardDisplayBan ? (
+                {(notificationQueueShellKind === 'incoming' ||
+                  stableIncomingOverlayBan?.id) &&
+                (incomingCardDisplayBan ||
+                  stableIncomingOverlayBan ||
+                  incomingShellHydrating) ? (
+                  incomingCardDisplayBan || stableIncomingOverlayBan ? (
                     <ChallengeErrorBoundary
                       name="incoming"
                       onRecover={() => dismissIncoming()}
                     >
                       <IncomingBanOverlay
                         contentOnly
-                        ban={incomingCardDisplayBan}
+                        ban={
+                          stableIncomingOverlayBan ??
+                          incomingCardDisplayBan ??
+                          undefined
+                        }
                       />
                     </ChallengeErrorBoundary>
                   ) : (

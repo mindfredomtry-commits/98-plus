@@ -76,6 +76,7 @@ function IncomingBanOverlayInner({
     loading: authLoading,
     friends,
     incomingBan,
+    activeIncomingOverlayBan,
     dismissIncoming,
     dismissIncomingSoft,
     acknowledgeIncomingAndStartReply,
@@ -103,7 +104,8 @@ function IncomingBanOverlayInner({
   const actionsRef = useRef<HTMLDivElement>(null);
 
   const viewerId = user?.id ?? null;
-  const activeIncomingBan = banProp ?? incomingBan;
+  const activeIncomingBan =
+    banProp ?? activeIncomingOverlayBan ?? incomingBan;
 
   logIncomingOverlayRenderEnter({
     banPropId: banProp?.id ?? null,
@@ -117,7 +119,11 @@ function IncomingBanOverlayInner({
   if (activeIncomingBan?.id) {
     logIncomingOverlayHasBan({
       banId: activeIncomingBan.id,
-      source: banProp?.id ? 'ban-prop' : 'incoming-ban-context',
+      source: banProp?.id
+        ? 'ban-prop'
+        : activeIncomingOverlayBan?.id
+          ? 'active-incoming-overlay-ban'
+          : 'incoming-ban-context',
       textLen: activeIncomingBan.text?.length ?? 0,
       senderId: activeIncomingBan.sender?.id ?? null,
     });

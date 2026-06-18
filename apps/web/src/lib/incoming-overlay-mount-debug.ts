@@ -1,5 +1,7 @@
 'use client';
 
+import { normalizeId } from './normalize-json';
+
 function emit(event: string, data?: Record<string, unknown>): void {
   const payload = { t: performance.now(), ...data };
   console.log(event, payload);
@@ -9,6 +11,7 @@ function emit(event: string, data?: Record<string, unknown>): void {
 let lastPayloadReadyBanId: string | null = null;
 let lastPayloadReadyAt = 0;
 let banLostBugLoggedFor: string | null = null;
+let stableBanLostBugLoggedFor: string | null = null;
 
 export function markIncomingNextPayloadReadyBan(
   banId: string,
@@ -18,6 +21,7 @@ export function markIncomingNextPayloadReadyBan(
   lastPayloadReadyBanId = banId.trim();
   lastPayloadReadyAt = performance.now();
   banLostBugLoggedFor = null;
+  stableBanLostBugLoggedFor = null;
 }
 
 export function peekLastIncomingPayloadReadyBanId(): string | null {
@@ -30,7 +34,33 @@ export function clearIncomingPayloadReadyTrack(banId?: string | null): void {
     lastPayloadReadyBanId = null;
     lastPayloadReadyAt = 0;
     banLostBugLoggedFor = null;
+    stableBanLostBugLoggedFor = null;
   }
+}
+
+export function logIncomingStableBanSet(data: Record<string, unknown>): void {
+  emit('[INCOMING STABLE BAN SET]', data);
+  const banId = String(data.banId ?? '').trim();
+  if (banId) {
+    lastPayloadReadyBanId = banId;
+    lastPayloadReadyAt = performance.now();
+    banLostBugLoggedFor = null;
+    stableBanLostBugLoggedFor = null;
+  }
+}
+
+export function logIncomingStableBanUsed(data: Record<string, unknown>): void {
+  emit('[INCOMING STABLE BAN USED]', data);
+}
+
+export function logIncomingStableBanCleared(data: Record<string, unknown>): void {
+  emit('[INCOMING STABLE BAN CLEARED]', data);
+}
+
+export function logIncomingStableBanClearBlocked(
+  data: Record<string, unknown>,
+): void {
+  emit('[INCOMING STABLE BAN CLEAR BLOCKED]', data);
 }
 
 export function logIncomingOverlayStateSet(
@@ -78,10 +108,33 @@ export function logIncomingReadyButBanLostBug(
     String(data.readyBanId ?? lastPayloadReadyBanId ?? '').trim() || null;
   if (!readyBanId) return;
   const displayBanId = String(data.incomingCardDisplayBanId ?? '').trim();
-  if (displayBanId === readyBanId) return;
+  const stableBanId = String(data.activeIncomingOverlayBanId ?? '').trim();
+  if (
+    normalizeId(displayBanId) === normalizeId(readyBanId) ||
+    normalizeId(stableBanId) === normalizeId(readyBanId)
+  ) {
+    return;
+  }
   if (banLostBugLoggedFor === readyBanId) return;
   banLostBugLoggedFor = readyBanId;
   emit('[INCOMING READY BUT BAN LOST BUG]', {
+    readyBanId,
+    readyAgeMs: Math.round(performance.now() - lastPayloadReadyAt),
+    ...data,
+  });
+}
+
+export function logIncomingReadyButStableBanLostBug(
+  data: Record<string, unknown>,
+): void {
+  const readyBanId =
+    String(data.readyBanId ?? lastPayloadReadyBanId ?? '').trim() || null;
+  if (!readyBanId) return;
+  const stableBanId = String(data.activeIncomingOverlayBanId ?? '').trim();
+  if (normalizeId(stableBanId) === normalizeId(readyBanId)) return;
+  if (stableBanLostBugLoggedFor === readyBanId) return;
+  stableBanLostBugLoggedFor = readyBanId;
+  emit('[INCOMING READY BUT STABLE BAN LOST BUG]', {
     readyBanId,
     readyAgeMs: Math.round(performance.now() - lastPayloadReadyAt),
     ...data,
