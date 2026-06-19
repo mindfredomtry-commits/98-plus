@@ -74,6 +74,7 @@ import {
 import {
   completePostSuccessHandoffEmptyOpenLobby,
   getPostSuccessHandoffSnapshot,
+  abortPostSuccessHandoffForReplyCompose,
   isPostSuccessHandoffInProgress,
   logPostSuccessHandoffPreventBaseLobby,
   logPostSuccessHandoffPreventDeferredLobby,
@@ -1747,6 +1748,20 @@ export function InstantBanFlow({
     ) => {
       if (!user?.id) return false;
       if (!opponent?.id && !opponent?.username) return false;
+
+      const replyBanId = incomingReplyBanId ?? null;
+      if (replyBanId) {
+        const queueDebug = getConfirmOrbQueueDebugSnapshot();
+        abortPostSuccessHandoffForReplyCompose(
+          'beginComposingBanForOpponent',
+          replyBanId,
+          {
+            pendingLen: queueDebug.pendingLen,
+            queueLen: queueDebug.queueLen,
+            flowMode: 'incoming-reply',
+          },
+        );
+      }
 
       const { card: friend } = resolveOpponentFriendCard(opponent, safeFriends);
       const friendKey =

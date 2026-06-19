@@ -312,3 +312,41 @@ export function abortPostSuccessHandoff(source: string): void {
   notify();
   emit('[POST SUCCESS HANDOFF LOST BUG]', { source, reason: 'aborted' });
 }
+
+/** End mount-wait handoff when user starts reply compose from an incoming card. */
+export function abortPostSuccessHandoffForReplyCompose(
+  source: string,
+  banId: string,
+  extra?: Record<string, unknown>,
+): boolean {
+  if (!handoffInProgress) return false;
+
+  const normBanId = banId.trim();
+  const selectedKindBefore = selectedNext?.kind ?? null;
+  const selectedBanIdBefore = selectedNext?.banId ?? null;
+  const selectedRelatesToReply =
+    selectedNext == null ||
+    selectedKindBefore === 'incoming' ||
+    (selectedBanIdBefore != null &&
+      normBanId.length > 0 &&
+      selectedBanIdBefore === normBanId);
+
+  handoffInProgress = false;
+  selectedNext = null;
+  earlyArmDone = false;
+  successExitWindowOpen = false;
+  notify();
+
+  emit('[POST SUCCESS HANDOFF ABORTED FOR REPLY]', {
+    source,
+    banId: normBanId || banId,
+    selectedKindBefore,
+    selectedBanIdBefore,
+    selectedRelatesToReply,
+    pendingLen: extra?.pendingLen ?? null,
+    queueLen: extra?.queueLen ?? null,
+    reason: 'incoming-reply-compose-start',
+    ...extra,
+  });
+  return true;
+}

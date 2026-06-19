@@ -280,6 +280,7 @@ import {
 } from '@/lib/result-next-chain-debug';
 import {
   beginPostSuccessHandoff,
+  abortPostSuccessHandoffForReplyCompose,
   armPostSuccessHandoffEarly,
   completePostSuccessHandoffEmptyOpenLobby,
   completePostSuccessHandoffOnCardMounted,
@@ -13530,6 +13531,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const senderId = ban.sender?.id ?? null;
       const viewerId = userIdRef.current?.trim() ?? null;
       logIncomingReplyActionStart({ banId, senderId, viewerId });
+      abortPostSuccessHandoffForReplyCompose('incoming-reply-click', banId, {
+        pendingLen: pendingStartupInteractionsRef.current.length,
+        queueLen: overlayQueueRef.current.length,
+      });
       logIncomingReplyCleanupSnapshot({
         stage: 'before',
         step: 'reply-compose-cleanup-start',
