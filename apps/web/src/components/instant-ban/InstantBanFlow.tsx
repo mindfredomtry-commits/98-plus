@@ -92,6 +92,12 @@ import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { logDeepLinkHandlerResult } from '@/lib/deep-link-boot-debug';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
 import { logReplyFlow, logReplyFlowLoopGuard } from '@/lib/reply-handoff-debug';
+import {
+  buildConfirmHoldNullReason,
+  logBeginComposingReplyState,
+  logConfirmHoldRenderCheck,
+  logConfirmHoldReturnNull,
+} from '@/lib/confirm-hold-render-debug';
 import { logActiveBanDeeplink } from '@/lib/active-ban-deeplink-debug';
 import {
   isDeepLinkRouteBootPending,
@@ -321,6 +327,7 @@ export function InstantBanFlow({
 }: Props) {
   const flowId = useId();
   const renderCountRef = useRef(0);
+  const confirmHoldDiagSigRef = useRef('');
   renderCountRef.current += 1;
 
   const {
@@ -422,6 +429,7 @@ export function InstantBanFlow({
     notifyResultReplyWhatVisible,
     openLobby,
     clearReplyDeepLinkState,
+    getConfirmHoldDebugSnapshot,
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
   const deepLinkRouteBootPending = useSyncExternalStore(
@@ -1765,14 +1773,40 @@ export function InstantBanFlow({
       if (!options?.skipLobbyStart && !sendStarted) {
         onStartSend();
       }
+      const holdDebug = getConfirmHoldDebugSnapshot();
+      logBeginComposingReplyState({
+        source: 'beginComposingBanForOpponent',
+        banId: getPinnedReplyToBanId() ?? incomingReplyBanId ?? null,
+        replyBanId: getPinnedReplyToBanId() ?? incomingReplyBanId ?? null,
+        opponentId:
+          friend.userId ?? friend.id ?? friend.username ?? null,
+        text: '',
+        duration: DEFAULT_DURATION_MINUTES,
+        durationMinutes: DEFAULT_DURATION_MINUTES,
+        successVisible: false,
+        successSnapshotExists: false,
+        activeUserCardHold: holdDebug.activeUserCardHold,
+        activeOverlayKind,
+        instantBanOpen: sendFlowOpen || sendStarted,
+        confirmStep: 'composingBan',
+        priorPhase: phase,
+        overlayInputLocked: holdDebug.overlayInputLocked,
+        overlayInputLockSource: holdDebug.overlayInputLockSource,
+        notificationChainAwaitingUser: holdDebug.notificationChainAwaitingUser,
+      });
       return true;
     },
     [
+      activeOverlayKind,
       clearCtaExitTimer,
       clearWhoPanelEnterTimer,
+      getConfirmHoldDebugSnapshot,
+      getPinnedReplyToBanId,
+      incomingReplyBanId,
       onStartSend,
       phase,
       safeFriends,
+      sendFlowOpen,
       sendStarted,
       setCrossScreenProgressImmediate,
       user?.id,
@@ -4732,6 +4766,151 @@ export function InstantBanFlow({
   const persistentLobbyLogoActive = !confirmActive && !orbCompressActive;
   const persistentLogoVisible =
     persistentLobbyLogoActive && !hideLobbyBootLogoOnly;
+
+  useLayoutEffect(() => {
+    const shouldDiag =
+      phase === 'confirming' ||
+      confirmActive ||
+      (orbCompressActive && selectedUser != null) ||
+      (replyComposeActive &&
+        (phase === 'composingBan' || phase === 'confirming'));
+    if (!shouldDiag) return;
+
+    const useLobbyRingDisplay = !confirmActive && !orbCompressActive;
+    const hideOrbFaceTitle = persistentLogoVisible || useLobbyRingDisplay;
+    const title98Visible =
+      showLobbyOrb && confirmOrb.showOrbFace && !hideOrbFaceTitle;
+    const holdButtonVisible = showLobbyOrb && confirmOrb.showOrbFace;
+
+    let holdBlockReason: string | null = null;
+    if (!confirmActive) {
+      if (phase !== 'confirming') holdBlockReason = `phase:${phase}`;
+    } else if (inFlight || sharing || replySending) {
+      holdBlockReason = 'sending';
+    } else if (!confirmOrb.enterComplete) {
+      holdBlockReason = `enterPhase:${confirmOrb.enterPhase}`;
+    }
+
+    const holdDebug = getConfirmHoldDebugSnapshot();
+    if (holdDebug.overlayInputLocked && confirmActive) {
+      holdBlockReason =
+        holdBlockReason ??
+        `overlay-input-lock:${holdDebug.overlayInputLockSource ?? 'unknown'}`;
+    }
+
+    const opponentId =
+      selectedUser?.userId ?? selectedUser?.id ?? selectedUser?.username ?? null;
+    const flowMode = replyComposeActive
+      ? incomingReplyBanId || replyToBanId
+        ? 'incoming-reply'
+        : 'reply'
+      : deepLinkReplyBan?.id
+        ? 'deeplink-reply'
+        : 'standard';
+
+    const payload = {
+      source: 'InstantBanFlow-layout',
+      flowMode,
+      replyBanId: getPinnedReplyToBanId() ?? incomingReplyBanId ?? null,
+      opponentId,
+      hasOpponent: selectedUser != null,
+      hasText: banText.trim().length > 0,
+      durationMinutes,
+      confirmVisible: confirmActive,
+      successVisible: banSentSuccess,
+      successSnapshotExists: successSnapshot != null,
+      holdButtonVisible,
+      holdDisabled: confirmOrb.buttonDisabled,
+      holdBlockReason,
+      activeUserCardHold: holdDebug.activeUserCardHold,
+      incomingOverlayVisible:
+        notificationOverlayVisible &&
+        (activeOverlayKind === 'incoming' || incomingGateActive),
+      activeOverlayKind,
+      isComposingReply:
+        replyComposeActive &&
+        (phase === 'composingBan' || phase === 'confirming'),
+      isTransitioningFromIncoming:
+        replyHandoffLock || notificationChainTransitioning,
+      renderedOrb: title98Visible
+        ? '98+'
+        : showBootOrb
+          ? 'boot-orb-hide-title'
+          : showLobbyOrb
+            ? 'lobby-orb-no-title'
+            : 'none',
+      renderedHoldText: confirmActive ? confirmOrb.statusLabel : null,
+      suppressOrbFaceTitle: persistentLogoVisible,
+      hideOrbFaceTitle,
+      useLobbyRingDisplay,
+      showLobbyOrb,
+      showBootOrb,
+      enterPhase: confirmOrb.enterPhase,
+      enterComplete: confirmOrb.enterComplete,
+      holdPhase: confirmOrb.holdPhase,
+      orbCompressActive,
+      persistentLogoVisible,
+      lobbyOrbVisible,
+      overlayInputLocked: holdDebug.overlayInputLocked,
+      overlayInputLockSource: holdDebug.overlayInputLockSource,
+    };
+
+    const sig = JSON.stringify(payload);
+    if (sig === confirmHoldDiagSigRef.current) return;
+    confirmHoldDiagSigRef.current = sig;
+
+    logConfirmHoldRenderCheck(payload);
+
+    if ((confirmActive || phase === 'confirming') && !title98Visible) {
+      logConfirmHoldReturnNull({
+        reason: buildConfirmHoldNullReason({
+          showLobbyOrb,
+          showBootOrb,
+          showOrbFace: confirmOrb.showOrbFace,
+          hideOrbFaceTitle,
+          suppressOrbFaceTitle: persistentLogoVisible,
+          useLobbyRingDisplay,
+          confirmActive,
+          phase,
+        }),
+        ...payload,
+      });
+    }
+  }, [
+    activeOverlayKind,
+    banSentSuccess,
+    banText,
+    confirmActive,
+    confirmOrb.buttonDisabled,
+    confirmOrb.enterComplete,
+    confirmOrb.enterPhase,
+    confirmOrb.holdPhase,
+    confirmOrb.showOrbFace,
+    confirmOrb.statusLabel,
+    deepLinkReplyBan?.id,
+    durationMinutes,
+    getConfirmHoldDebugSnapshot,
+    getPinnedReplyToBanId,
+    incomingGateActive,
+    incomingReplyBanId,
+    inFlight,
+    lobbyOrbVisible,
+    notificationChainTransitioning,
+    notificationOverlayVisible,
+    orbCompressActive,
+    persistentLogoVisible,
+    phase,
+    replyComposeActive,
+    replyHandoffLock,
+    replySending,
+    replyToBanId,
+    selectedUser,
+    sendFlowOpen,
+    sharing,
+    showBootOrb,
+    showLobbyOrb,
+    successSnapshot,
+  ]);
 
   useLayoutEffect(() => {
     patchBootHandoffDebug({

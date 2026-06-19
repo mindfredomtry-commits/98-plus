@@ -41,3 +41,5 @@ export function logConfirmBlockedByActiveUserCardBug(
 ): void {
   emit('[CONFIRM BLOCKED BY ACTIVE USER CARD BUG]', data);
 }
+
+export { logIncomingReplyCleanupSnapshot } from '@/lib/confirm-hold-render-debug';
