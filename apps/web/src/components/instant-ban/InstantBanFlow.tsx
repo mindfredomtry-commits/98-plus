@@ -105,6 +105,7 @@ import {
   logPostSuccessHandoffStillActiveDuringReply,
   logQueueStateDuringConfirm,
 } from '@/lib/confirm-hold-render-debug';
+import { patchConfirmOrbDebugSnapshot } from '@/lib/confirm-orb-snapshot-debug';
 import { logActiveBanDeeplink } from '@/lib/active-ban-deeplink-debug';
 import {
   isDeepLinkRouteBootPending,
@@ -4984,6 +4985,21 @@ export function InstantBanFlow({
         logPostSuccessHandoffStillActiveDuringReply(handoffPayload);
       }
     }
+
+    patchConfirmOrbDebugSnapshot({
+      lobbyOrbVisible: mountDecision.lobbyOrbVisible,
+      primaryBlocker: mountDecision.primaryBlocker,
+      showLobbyOrb: mountDecision.showLobbyOrb,
+      showBootOrb: mountDecision.showBootOrb,
+      postSuccessHandoffBlocking,
+      postSuccessHandoffActive,
+      notificationChainTransitioning,
+      overlayHandoffLobbySuppressed,
+      successExitDraining,
+      confirmActive,
+      phase,
+      sendComposePhase: queueState.sendComposePhase,
+    });
   }, [
     activeOverlayKind,
     bansReturnToLobbyLatch,

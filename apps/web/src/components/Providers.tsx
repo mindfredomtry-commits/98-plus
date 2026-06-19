@@ -406,6 +406,13 @@ import {
   type ConfirmOrbQueueDebugSnapshot,
   logLobbyIndicatorDuringConfirm,
 } from '@/lib/confirm-hold-render-debug';
+import {
+  logResultPollBlockerCheck,
+  logResultPollComposeDiagnostics,
+  logConfirmOrbAfterResultPoll,
+  logResultPollSkippedDuringCompose,
+  shouldSkipResultPollDuringActiveCompose,
+} from '@/lib/result-poll-compose-debug';
 import { installOverlayDismissCacheDevHelper } from '@/lib/overlay-dismiss-cache-dev';
 import { logResultNav, logResultReply } from '@/lib/result-reply-debug';
 import { resolveResultReplyOpponent } from '@/lib/result-reply-flow';
@@ -6659,6 +6666,33 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [openBanResult, enqueueNotification],
   );
 
+  const buildResultPollComposeFields = () => {
+    const sendComposePhase = sendComposePhaseRef.current;
+    const replyBanId =
+      chainReplyParentBanIdRef.current ??
+      replyToBanIdPersistRef.current ??
+      null;
+    const queueHead = overlayQueueRef.current[0] ?? null;
+    return {
+      sendComposePhase,
+      confirmActive: sendComposePhase === 'confirming',
+      whatOrConfirmActive: whatOrConfirmActiveRef.current,
+      instantBanOpen: sendFlowOpenRef.current,
+      flowMode:
+        replyComposeActiveRef.current && replyBanId
+          ? 'incoming-reply'
+          : replyComposeActiveRef.current
+            ? 'reply'
+            : 'standard',
+      replyBanId,
+      replyComposeActive: replyComposeActiveRef.current,
+      activeOverlayKind: queueHead?.kind ?? null,
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      notificationChainTransitioning: notificationChainTransitioningRef.current,
+    };
+  };
+
   const showCheckAnswerFinalResult = useCallback(
     (payload: BanResult, source: 'http' | 'poll'): boolean => {
       const normalized = normalizeBanResult(payload);
@@ -6704,6 +6738,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       if (whatOrConfirmActiveRef.current) {
         logCheckAnswerResultSkippedBug({ banId, reason: 'compose-active' });
+        logResultPollComposeDiagnostics(
+          'showCheckAnswerFinalResult-compose-skipped',
+          banId,
+          statusLabel,
+          buildResultPollComposeFields(),
+          { resultSource: source, reason: 'compose-active' },
+        );
         enqueueNotification(
           { kind: 'result', result: normalized },
           {
@@ -6812,6 +6853,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       chainAdvanceExplicitRef.current = true;
       setNotificationChainTransitioning(true);
+      if (whatOrConfirmActiveRef.current || sendComposePhaseRef.current !== 'idle') {
+        logResultPollComposeDiagnostics(
+          'showCheckAnswerFinalResult-chain-transition',
+          banId,
+          statusLabel,
+          buildResultPollComposeFields(),
+          { resultSource: source, reason: 'set-notification-chain-transitioning' },
+        );
+      }
       flushSync(() => {
         applyOverlayQueue(nextQueue);
       });
@@ -6859,6 +6909,65 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return;
       }
+      const composeFields = buildResultPollComposeFields();
+      if (shouldSkipResultPollDuringActiveCompose(composeFields)) {
+        logResultPollSkippedDuringCompose({
+          source: 'pollPendingResultOnce',
+          stage: 'pre-api',
+          pollSource: source,
+          whatOrConfirmActive: composeFields.whatOrConfirmActive,
+          sendComposePhase: composeFields.sendComposePhase,
+          confirmActive: composeFields.confirmActive,
+          instantBanOpen: composeFields.instantBanOpen,
+          flowMode: composeFields.flowMode,
+          replyBanId: composeFields.replyBanId,
+          replyComposeActive: composeFields.replyComposeActive,
+          reason: 'compose-active-pre-api',
+        });
+        logResultPath('pollPendingResultOnce', 'path-skip', {
+          allowed: false,
+          reason: 'compose-active-pre-api',
+          extra: { pollSource: source },
+        });
+        return;
+      }
+      const pollBlockPre = shouldBlockResultOpen({
+        overboardInFlightBanId: overboardInFlightRef.current,
+      });
+      logResultPollBlockerCheck({
+        source: 'pollPendingResultOnce',
+        pollSource: source,
+        stage: 'pre-api',
+        ...composeFields,
+        guards: {
+          hasAuth: true,
+          successCardMounted: isSuccessCardMounted(),
+          atomicResultHold: Boolean(
+            incomingOverboardAtomicBanIdRef.current &&
+              notificationChainAwaitingUserRef.current,
+          ),
+          resultAlreadyOpen: resultOpenRef.current,
+          pollPriorityBlocked: pollBlockPre.blocked,
+          pollPriorityBlockReason: pollBlockPre.reason ?? null,
+          whatOrConfirmActiveGuardBeforeApi: true,
+          whatOrConfirmActive: whatOrConfirmActiveRef.current,
+          sendComposePhase: sendComposePhaseRef.current,
+          instantBanOpen: sendFlowOpenRef.current,
+          shouldDeferNotificationOverlay: shouldDeferNotificationOverlayDisplay(
+            'pollPendingResultOnce',
+          ),
+          startupInteractionsHold: startupInteractionsHoldRef.current,
+          composeActiveWouldBlockShow: whatOrConfirmActiveRef.current,
+        },
+        pollWillProceed:
+          !isSuccessCardMounted() &&
+          !(
+            incomingOverboardAtomicBanIdRef.current &&
+            notificationChainAwaitingUserRef.current
+          ) &&
+          !resultOpenRef.current &&
+          !pollBlockPre.blocked,
+      });
       if (isSuccessCardMounted()) {
         window.__debug98log?.('[RESULT POLL SKIPPED SUCCESS]', {
           pollSource: source,
@@ -6998,6 +7107,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId: hitBanId,
           status: statusLabel,
         });
+        logResultPollBlockerCheck({
+          source: 'pollPendingResultOnce',
+          pollSource: source,
+          stage: 'post-api-hit',
+          banId: hitBanId,
+          status: statusLabel,
+          ...composeFields,
+          guards: {
+            whatOrConfirmActive: whatOrConfirmActiveRef.current,
+            shouldDeferNotificationOverlay: shouldDeferNotificationOverlayDisplay(
+              'pollPendingResultOnce',
+            ),
+            composeActiveWouldBlockShow: whatOrConfirmActiveRef.current,
+            showCheckAnswerFinalResultNext: !shouldDeferNotificationOverlayDisplay(
+              'pollPendingResultOnce',
+            ),
+          },
+        });
+        logResultPollComposeDiagnostics(
+          'pollPendingResultOnce-hit',
+          hitBanId,
+          statusLabel,
+          composeFields,
+          { pollSource: source },
+        );
         logResultPath('pollPendingResultOnce', 'poll-hit', {
           banId: pendingResult.id,
           resultId: pendingResult.id,
@@ -7011,6 +7145,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             { source: 'poll' },
           );
           primeLobbyBansAttentionHintSyncRef.current('result-poll-pending-only');
+          logResultPollComposeDiagnostics(
+            'pollPendingResultOnce-deferred-pending',
+            hitBanId,
+            statusLabel,
+            composeFields,
+            { pollSource: source, deferred: true },
+          );
           logResultPollDoesNotHideLobby({
             banId: hitBanId,
             pollSource: source,
@@ -15753,6 +15894,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             pendingLen: pendingStartupInteractionsCount,
             shellKind: notificationQueueShellKind,
           });
+          if (
+            whatOrConfirmActiveRef.current ||
+            sendComposePhaseRef.current === 'composingBan' ||
+            sendComposePhaseRef.current === 'confirming'
+          ) {
+            logConfirmOrbAfterResultPoll({
+              source: 'resultPollOpenedEmptyHostBug',
+              reason: 'chain-transitioning-without-renderable-card',
+              ...buildResultPollComposeFields(),
+            });
+          }
         }
         logEmptyOverlayHostBlocked({
           reason: 'chain-transitioning-without-renderable-card',
