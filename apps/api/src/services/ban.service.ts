@@ -11,6 +11,16 @@ import {
 } from '@98plus/shared';
 import type { BanInteraction, CheckState, BanResult } from '@98plus/shared';
 import { prisma } from '../lib/prisma';
+import {
+  buildPendingRejectDiagnostic,
+  incomingPendingCutoff,
+  logApiDirectBanOpenQuery,
+  logApiPendingBansQuery,
+  pendingRejectInclude,
+  pendingSqlExcludeReason,
+  type PendingRejectDiagnostic,
+  viewerTelegramId,
+} from '../lib/pending-queue-api-debug';
 import { getDailyCount, hasCooldown, incrDaily, setCooldown } from '../lib/redis';
 import {
   applyOverboard,
@@ -1289,6 +1299,21 @@ export async function getBanResult(banId: string, viewerId: string) {
 /** Read-only ban view for verify/deep-link — never activates PENDING bans. */
 export async function resolveDeepLinkBan(banId: string, userId: string) {
   const ban = await prisma.ban.findUnique({ where: { id: banId } });
+  const telegramUserId = await viewerTelegramId(userId);
+  logApiDirectBanOpenQuery({
+    viewerId: userId,
+    telegramUserId,
+    banId,
+    found: Boolean(ban),
+    status: ban?.status ?? null,
+    receiverId: ban?.receiverId ?? null,
+    senderId: ban?.senderId ?? null,
+    isIncomingForViewer: ban
+      ? ban.receiverId === userId &&
+        ban.status === 'PENDING' &&
+        !ban.checkDueAt
+      : false,
+  });
   if (!ban) return null;
   const isParticipant =
     ban.senderId === userId || ban.receiverId === userId;
@@ -1555,9 +1580,7 @@ async function findFreshPendingIncomingRow(userId: string) {
       counterBans: { none: {} },
     },
     orderBy: { createdAt: 'desc' },
-    include: {
-      _count: { select: { counterBans: true } },
-    },
+    include: pendingRejectInclude,
   });
 
   if (!ban) {
@@ -1599,7 +1622,41 @@ export async function getPendingIncoming(userId: string) {
 
 /** Lightweight poll read — same rules as session incoming, poll-specific logs only. */
 export async function getPendingIncomingForPoll(userId: string) {
-  const { ban, reject } = await findFreshPendingIncomingRow(userId);
+  const { ban, reject, cutoff } = await findFreshPendingIncomingRow(userId);
+  const telegramUserId = await viewerTelegramId(userId);
+  const rejectDebug =
+    ban && reject
+      ? [
+          buildPendingRejectDiagnostic(
+            ban,
+            userId,
+            cutoff,
+            reject,
+          ),
+        ]
+      : [];
+  logApiPendingBansQuery({
+    route: 'GET /bans/incoming/pending',
+    viewerId: userId,
+    telegramUserId,
+    whereFilters: {
+      receiverId: userId,
+      status: 'PENDING',
+      receiverIncomingAckAt: null,
+      isOverboard: false,
+      handledAt: null,
+      createdAtGte: cutoff.toISOString(),
+      counterBansNone: true,
+    },
+    rawRowCount: ban ? 1 : 0,
+    count: ban && !reject ? 1 : 0,
+    banIds: ban && !reject ? [ban.id] : [],
+    statuses: ban ? [ban.status] : [],
+    receiverIds: ban ? [ban.receiverId] : [],
+    senderIds: ban ? [ban.senderId] : [],
+    rejected: rejectDebug,
+    rejectReason: reject ?? (ban ? null : 'no pending bans'),
+  });
 
   console.log('BACKEND POLL INCOMING', {
     userId,
@@ -1614,8 +1671,11 @@ export async function getPendingIncomingForPoll(userId: string) {
 /** All offerable pending incoming rows (newest first) — for client notification-chain prefetch. */
 export async function getAllPendingIncomingForPoll(
   userId: string,
-): Promise<BanInteraction[]> {
-  const cutoff = new Date(Date.now() - INCOMING_PENDING_MAX_AGE_MS);
+): Promise<{
+  bans: BanInteraction[];
+  rejectDebug: PendingRejectDiagnostic[];
+}> {
+  const cutoff = incomingPendingCutoff();
 
   const rows = await prisma.ban.findMany({
     where: {
@@ -1628,25 +1688,73 @@ export async function getAllPendingIncomingForPoll(
       counterBans: { none: {} },
     },
     orderBy: { createdAt: 'desc' },
-    include: {
-      _count: { select: { counterBans: true } },
-    },
+    include: pendingRejectInclude,
   });
 
   const out: BanInteraction[] = [];
+  const rejectDebug: PendingRejectDiagnostic[] = [];
+  const rowIds = new Set<string>();
   for (const ban of rows) {
+    rowIds.add(ban.id);
     const reject = pendingIncomingRejectReason(ban, userId, cutoff);
-    if (reject) continue;
-    out.push(await mapBanToInteraction(ban.id, userId));
+    if (reject) {
+      rejectDebug.push(
+        buildPendingRejectDiagnostic(ban, userId, cutoff, reject),
+      );
+      continue;
+    }
+    const mapped = await mapBanToInteraction(ban.id, userId);
+    if (mapped) out.push(mapped);
   }
+
+  const sqlCandidateRows = await prisma.ban.findMany({
+    where: {
+      receiverId: userId,
+      status: 'PENDING',
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 30,
+    include: pendingRejectInclude,
+  });
+
+  for (const ban of sqlCandidateRows) {
+    if (rowIds.has(ban.id)) continue;
+    const reason = pendingSqlExcludeReason(ban, userId, cutoff);
+    if (!reason) continue;
+    rejectDebug.push(buildPendingRejectDiagnostic(ban, userId, cutoff, reason));
+  }
+
+  const telegramUserId = await viewerTelegramId(userId);
+  logApiPendingBansQuery({
+    route: 'GET /bans/incoming/pending-all',
+    viewerId: userId,
+    telegramUserId,
+    whereFilters: {
+      receiverId: userId,
+      status: 'PENDING',
+      receiverIncomingAckAt: null,
+      isOverboard: false,
+      handledAt: null,
+      createdAtGte: cutoff.toISOString(),
+      counterBansNone: true,
+    },
+    rawRowCount: rows.length,
+    count: out.length,
+    banIds: out.map((b) => b.id),
+    statuses: out.map((b) => b.status ?? null),
+    receiverIds: rows.map((b) => b.receiverId),
+    senderIds: rows.map((b) => b.senderId),
+    rejected: rejectDebug,
+  });
 
   console.log('[incoming-pending-all]', {
     userId,
     count: out.length,
     banIds: out.map((b) => b.id),
+    rejectDebugCount: rejectDebug.length,
   });
 
-  return out;
+  return { bans: out, rejectDebug };
 }
 
 /** Receiver dismissed incoming UI — does not activate ban (status stays PENDING). */

@@ -25,6 +25,7 @@ import {
   buildBanViewerRoleFlags,
   logDeeplinkBanSourceSnapshot,
 } from '@/lib/queue-source-comparison-debug';
+import { noteKnownDirectBanId } from '@/lib/queue-api-fetch-debug';
 
 interface BootHandlers {
   token: string | null;
@@ -241,6 +242,7 @@ export function useSocialBoot(h: BootHandlers) {
                 loadedFrom: 'useSocialBoot-api',
                 ...buildBanViewerRoleFlags(ban, h.userId),
               });
+              noteKnownDirectBanId(ban.id);
               await h.openDeepLinkReply(ban);
             } else if (h.replyDeeplinkFastShell) {
               h.abortReplyDeepLinkFast('api-empty-ban');

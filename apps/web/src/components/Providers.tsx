@@ -203,6 +203,13 @@ import {
   mergeStartupPendingSingle,
   mergeStartupPendingChain,
 } from '@/lib/overlay-arbiter';
+import {
+  logQueueApiFetchResult,
+  logQueueApiFetchStart,
+  maybeLogQueueApiEmptyButDirectBanExists,
+  noteKnownDirectBanId,
+  readKnownDirectBanId,
+} from '@/lib/queue-api-fetch-debug';
 import { fetchPendingChainPrefetch } from '@/lib/pending-chain-prefetch';
 import {
   logChainDrainContinue,
@@ -5344,7 +5351,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       try {
-        const prefetched = await fetchPendingChainPrefetch(token);
+        const prefetched = await fetchPendingChainPrefetch(token, {
+          source,
+          telegramUserId: viewerId,
+          reason: 'prefetchPendingNotificationChain',
+          knownDirectBanId:
+            deeplinkBanId?.trim() ||
+            replyDeepLinkBanIdRef.current?.trim() ||
+            readKnownDirectBanId(),
+          hasLobbyBansAttentionHint: lobbyBansAttentionHint > 0,
+          restoreStateFound:
+            lobbyBansAttentionHint > 0 ||
+            (viewerId
+              ? readLobbyNotificationAttentionHint(viewerId) > 0
+              : false) ||
+            Boolean(lastSessionIncomingRef.current?.id) ||
+            Boolean(bufferedIncomingRef.current?.id),
+        });
         if (
           tokenRef.current !== token ||
           userIdRef.current?.trim() !== viewerId
@@ -5458,7 +5481,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return false;
       }
     },
-    [isResultBlockedForNotificationChain, syncPendingStartupCount],
+    [isResultBlockedForNotificationChain, lobbyBansAttentionHint, syncPendingStartupCount],
   );
 
   const countLobbyPendingHasIncoming = useCallback((): boolean => {
@@ -10124,6 +10147,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           loadedFrom: 'applyReplyDeeplinkFastOverlay-queue-head',
           ...buildBanViewerRoleFlags(ban, viewerId),
         });
+        noteKnownDirectBanId(ban.id);
       }
       return mounted;
     },
@@ -10394,6 +10418,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             cacheHit?.source ?? 'reply-deeplink-shell-no-queue-head',
           ...buildBanViewerRoleFlags(openBan, viewerIdForLog),
         });
+        noteKnownDirectBanId(openBan.id);
       } else {
         logReplyCardSelected({
           banId: normalizedBanId,
@@ -10411,6 +10436,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           loadedFrom: cacheHit?.source ?? 'reply-deeplink-shell',
           ...buildBanViewerRoleFlags(openBan, viewerIdForLog),
         });
+        noteKnownDirectBanId(openBan.id);
         if (!usingPrefetch) {
           clearStartupBlockingLayersForIncomingCard(
             normalizedBanId,
@@ -10744,19 +10770,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       lobbyOpenRef.current = false;
       challengeLog('incoming:reply-deeplink', { id: b.id, status: b.status });
 
-      logDeeplinkBanSourceSnapshot({
-        source: 'openDeepLinkReply',
-        telegramUserId: viewerId,
-        banId: enriched.id,
-        kind: 'incoming',
-        apiEndpoint: `/bans/${enriched.id}/open`,
-        loadedFrom: wasShell
-          ? 'openDeepLinkReply-api-hydrate-shell'
-          : wasPrefetch
-            ? 'openDeepLinkReply-api-hydrate-prefetch'
-            : 'openDeepLinkReply-api-hydrate',
-        ...buildBanViewerRoleFlags(enriched, viewerId),
-      });
+        logDeeplinkBanSourceSnapshot({
+          source: 'openDeepLinkReply',
+          telegramUserId: viewerId,
+          banId: enriched.id,
+          kind: 'incoming',
+          apiEndpoint: `/bans/${enriched.id}/open`,
+          loadedFrom: wasShell
+            ? 'openDeepLinkReply-api-hydrate-shell'
+            : wasPrefetch
+              ? 'openDeepLinkReply-api-hydrate-prefetch'
+              : 'openDeepLinkReply-api-hydrate',
+          ...buildBanViewerRoleFlags(enriched, viewerId),
+        });
+      noteKnownDirectBanId(enriched.id);
 
       const prevHead = overlayQueueRef.current.find(
         (q) => q.kind === 'incoming' && q.ban.id === enriched.id,
@@ -11604,6 +11631,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         authUserId: requestUserId,
         requestedAt,
       });
+      logQueueApiFetchStart({
+        source: 'reloadPending',
+        endpoint: '/bans/session',
+        telegramUserId: requestUserId,
+        reason: 'reloadPending-session-bootstrap',
+      });
       const session = await fetchSession(token);
       // Discard if user/token switched while request in-flight.
       if (tokenRef.current !== token) return;
@@ -11616,6 +11649,59 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         incomingId: session.incoming?.id ?? null,
         incomingReceiverId: session.incoming?.receiver?.id ?? null,
       });
+      const sessionItems: Array<{
+        id: string;
+        status: string | null;
+        kind: string;
+      }> = [];
+      if (session.incoming?.id) {
+        sessionItems.push({
+          id: session.incoming.id,
+          status: session.incoming.status ?? null,
+          kind: 'incoming',
+        });
+      }
+      if (session.check?.id) {
+        sessionItems.push({
+          id: session.check.id,
+          status: session.check.status ?? null,
+          kind: 'check',
+        });
+      }
+      logQueueApiFetchResult({
+        source: 'reloadPending',
+        endpoint: '/bans/session',
+        telegramUserId: requestUserId,
+        count: sessionItems.length,
+        incomingCount: session.incoming?.id ? 1 : 0,
+        checkCount: session.check?.id ? 1 : 0,
+        resultCount: session.pendingResultId ? 1 : 0,
+        banIds: [
+          ...sessionItems.map((i) => i.id),
+          ...(session.pendingResultId ? [session.pendingResultId] : []),
+        ],
+        statuses: sessionItems.map((i) => i.status),
+        kinds: [
+          ...sessionItems.map((i) => i.kind),
+          ...(session.pendingResultId ? ['result-pending-id'] : []),
+        ],
+      });
+      maybeLogQueueApiEmptyButDirectBanExists(
+        '/bans/session',
+        sessionItems.length,
+        {
+          source: 'reloadPending',
+          telegramUserId: requestUserId,
+          knownDirectBanId:
+            replyDeepLinkBanIdRef.current?.trim() || readKnownDirectBanId(),
+          hasLobbyBansAttentionHint: lobbyBansAttentionHint > 0,
+          restoreStateFound:
+            lobbyBansAttentionHint > 0 ||
+            readLobbyNotificationAttentionHint(requestUserId) > 0 ||
+            Boolean(lastSessionIncomingRef.current?.id) ||
+            Boolean(bufferedIncomingRef.current?.id),
+        },
+      );
       applySession(session);
 
       if (session.pendingResultId) {

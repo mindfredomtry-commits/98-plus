@@ -9,7 +9,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 17;
+export const DEBUG98_LOGGER_VERSION = 19;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -224,6 +224,11 @@ const ALLOWED_EVENTS = new Set([
   '[LOBBY BANS CTA CLICK TRACE]',
   '[LOBBY BANS DRAIN ENTERED]',
   '[LOBBY BANS DRAIN NOT ENTERED]',
+  '[QUEUE API FETCH START]',
+  '[QUEUE API FETCH RESULT]',
+  '[QUEUE API FETCH EMPTY BUT DIRECT BAN EXISTS]',
+  '[PENDING REJECTED BAN]',
+  '[PENDING REJECTED BAN 872]',
   '[ACTIVE USER CARD PRESERVE CURRENT]',
   '[ACTIVE USER CARD BLOCKED NEXT BUT KEPT CURRENT]',
   '[ACTIVE USER CARD LOST BUG]',

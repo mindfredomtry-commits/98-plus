@@ -108,8 +108,8 @@ bansRouter.get('/incoming/pending', async (req: AuthRequest, res) => {
 });
 
 bansRouter.get('/incoming/pending-all', async (req: AuthRequest, res) => {
-  const bans = await getAllPendingIncomingForPoll(req.userId!);
-  res.json({ bans });
+  const { bans, rejectDebug } = await getAllPendingIncomingForPoll(req.userId!);
+  res.json({ bans, rejectDebug });
 });
 
 bansRouter.get('/pending/check', async (req: AuthRequest, res) => {

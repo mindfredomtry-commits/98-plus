@@ -4,6 +4,12 @@ import { useEffect, type MutableRefObject } from 'react';
 import type { BanInteraction } from '@98plus/shared';
 import { api } from '@/lib/api';
 import { shouldShowIncomingBanModal } from '@/lib/incoming-challenge';
+import {
+  logQueueApiFetchResult,
+  logQueueApiFetchStart,
+  maybeLogQueueApiEmptyButDirectBanExists,
+  readKnownDirectBanId,
+} from '@/lib/queue-api-fetch-debug';
 
 /** Receiver-side safety net when WS delivery fails. */
 export const INCOMING_POLL_INTERVAL_MS = 2500;
@@ -71,6 +77,12 @@ export function useIncomingPoll(params: {
 
       inFlight = true;
       try {
+        logQueueApiFetchStart({
+          source: 'useIncomingPoll',
+          endpoint: '/bans/incoming/pending',
+          telegramUserId: viewerId,
+          reason: 'incoming-poll-tick',
+        });
         const { ban } = await api<{ ban: BanInteraction | null }>(
           '/bans/incoming/pending',
           { token: activeToken },
@@ -83,6 +95,27 @@ export function useIncomingPoll(params: {
         }
 
         if (!ban?.id) {
+          logQueueApiFetchResult({
+            source: 'useIncomingPoll',
+            endpoint: '/bans/incoming/pending',
+            telegramUserId: viewerId,
+            count: 0,
+            incomingCount: 0,
+            checkCount: 0,
+            resultCount: 0,
+            banIds: [],
+            statuses: [],
+            kinds: [],
+          });
+          maybeLogQueueApiEmptyButDirectBanExists(
+            '/bans/incoming/pending',
+            0,
+            {
+              source: 'useIncomingPoll',
+              telegramUserId: viewerId,
+              knownDirectBanId: readKnownDirectBanId(),
+            },
+          );
           console.log('INCOMING POLL RECEIVED', {
             banId: null,
             skipped: true,
@@ -100,6 +133,18 @@ export function useIncomingPoll(params: {
           return;
         }
 
+        logQueueApiFetchResult({
+          source: 'useIncomingPoll',
+          endpoint: '/bans/incoming/pending',
+          telegramUserId: viewerId,
+          count: 1,
+          incomingCount: 1,
+          checkCount: 0,
+          resultCount: 0,
+          banIds: [ban.id],
+          statuses: [ban.status ?? null],
+          kinds: ['incoming'],
+        });
         console.log('INCOMING POLL RECEIVED', { banId: ban.id });
         receiveIncomingBan(ban, 'poll');
       } catch {
