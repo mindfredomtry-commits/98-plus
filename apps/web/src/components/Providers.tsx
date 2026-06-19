@@ -446,12 +446,15 @@ import {
   logSuccessExitLobbyOpenAttempt,
   logSuccessExitRetryBlockedBeforeCard,
   logSuccessExitEmptyQueueClearOverlay,
-  logEmptyOverlayHostBlocked,
   logSuccessExitTimerCardTopOk,
   logEmptyBackdropBug,
   registerSuccessExitDebugSnapshot,
   shouldSuppressLobbyOpenDuringSuccessExit,
 } from '@/lib/success-exit-first-notification-debug';
+import {
+  logChainEmptyFinalizeCheck,
+  logEmptyOverlayHostBlockedState,
+} from '@/lib/lobby-cta-render-debug';
 import {
   traceSuccessCardUnmounted,
   traceSuccessHide,
@@ -12524,6 +12527,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ],
   );
 
+  const buildChainEmptyFinalizeSnapshot = useCallback(
+    (extra?: Record<string, unknown>) => ({
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      lobbyOpen: lobbyOpenRef.current,
+      notificationChainTransitioning:
+        notificationChainTransitioningRef.current,
+      activeOverlayKind:
+        overlayQueueRef.current[0]?.kind ??
+        heldUserCardOverlayRef.current?.kind ??
+        null,
+      ...extra,
+    }),
+    [],
+  );
+
   const prepareNotificationChainContinue = useCallback(
     (source: string, opts?: ContinueNotificationChainOptions) => {
       logChainContinueStart({ source });
@@ -12598,6 +12617,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const hasLocalItems =
         collected.finalQueueLen > 0 || collected.finalPendingLen > 0;
 
+      if (!hasLocalItems) {
+        logChainEmptyFinalizeCheck(
+          buildChainEmptyFinalizeSnapshot({
+            source,
+            stage: 'after-collected-empty',
+            outcome: 'pending-routing',
+            notificationChainTransitioningBefore:
+              notificationChainTransitioningRef.current,
+            notificationChainTransitioningAfter:
+              notificationChainTransitioningRef.current,
+            openLobbyCalled: false,
+            overlayHostMounted: null,
+            reason: 'queue-and-pending-empty-after-collect',
+            collectedQueueLen: collected.queueLen,
+            collectedPendingLen: collected.pendingLen,
+          }),
+        );
+      }
+
       if (hasLocalItems) {
         const shown = showNextNotificationFromChainSync(source);
         if (shown) {
@@ -12638,21 +12676,64 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             pendingLen: collected.pendingLen,
           });
           setNotificationChainTransitioning(true);
+          logChainEmptyFinalizeCheck(
+            buildChainEmptyFinalizeSnapshot({
+              source,
+              stage: 'lost-pending',
+              outcome: 'lost-pending',
+              notificationChainTransitioningBefore: false,
+              notificationChainTransitioningAfter: true,
+              openLobbyCalled: false,
+              overlayHostMounted: null,
+              reason: 'show-next-failed-with-remaining-items',
+              finalQueueLen,
+              finalPendingLen,
+            }),
+          );
           return 'lost-pending';
         }
       }
 
       if (opts?.prefetchIfEmpty !== false) {
+        logChainEmptyFinalizeCheck(
+          buildChainEmptyFinalizeSnapshot({
+            source,
+            stage: 'needs-prefetch',
+            outcome: 'needs-prefetch',
+            notificationChainTransitioningBefore:
+              notificationChainTransitioningRef.current,
+            notificationChainTransitioningAfter:
+              notificationChainTransitioningRef.current,
+            openLobbyCalled: false,
+            overlayHostMounted: null,
+            reason: 'prefetch-if-empty',
+          }),
+        );
         return 'needs-prefetch';
       }
 
       if (opts?.openLobbyIfEmpty === false) {
+        logChainEmptyFinalizeCheck(
+          buildChainEmptyFinalizeSnapshot({
+            source,
+            stage: 'open-lobby-blocked',
+            outcome: 'blocked',
+            notificationChainTransitioningBefore:
+              notificationChainTransitioningRef.current,
+            notificationChainTransitioningAfter:
+              notificationChainTransitioningRef.current,
+            openLobbyCalled: false,
+            overlayHostMounted: null,
+            reason: 'openLobbyIfEmpty-false',
+          }),
+        );
         return 'blocked';
       }
 
       return finalizeNotificationChainContinueEmpty(source, opts, collected);
     },
     [
+      buildChainEmptyFinalizeSnapshot,
       collectPendingNotificationChain,
       prepareNotificationChainContinue,
       setChainAdvanceWaiting,
@@ -12668,6 +12749,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       opts: ContinueNotificationChainOptions | undefined,
       collected: NotificationChainCollectedSnapshot,
     ): ContinueNotificationChainOutcome => {
+      const transitioningBefore = notificationChainTransitioningRef.current;
       const finalQueueLen = overlayQueueRef.current.length;
       const finalPendingLen = pendingStartupInteractionsRef.current.length;
       if (finalQueueLen > 0 || finalPendingLen > 0) {
@@ -12678,6 +12760,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           finalPendingLen,
         });
         setNotificationChainTransitioning(true);
+        logChainEmptyFinalizeCheck(
+          buildChainEmptyFinalizeSnapshot({
+            source,
+            stage: 'finalize-empty-blocked',
+            outcome: 'lost-pending',
+            notificationChainTransitioningBefore: transitioningBefore,
+            notificationChainTransitioningAfter: true,
+            openLobbyCalled: false,
+            overlayHostMounted: null,
+            reason: 'empty-fallback-with-items',
+            finalQueueLen,
+            finalPendingLen,
+          }),
+        );
         return 'lost-pending';
       }
 
@@ -12697,31 +12793,53 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       const emptyFallback = opts?.emptyFallback ?? 'lobby';
+      let outcome: ContinueNotificationChainOutcome = 'open-lobby';
+      let openLobbyCalled = false;
       if (emptyFallback === 'none') {
-        return 'blocked';
-      }
-      if (emptyFallback === 'bans-section') {
+        outcome = 'blocked';
+      } else if (emptyFallback === 'bans-section') {
         const targetTab = opts?.openBansTab ?? 'yours';
         armOpenBansOverlayFromResultCtaRef.current(
           opts?.openBansBanId ?? null,
           targetTab,
         );
-        return 'open-bans';
-      }
-
-      if (isPostSuccessHandoffInProgress()) {
+        outcome = 'open-bans';
+      } else if (isPostSuccessHandoffInProgress()) {
         completePostSuccessHandoffEmptyOpenLobby({
           source,
           reason: 'chain-continue-empty',
           queueLen: finalQueueLen,
           pendingLen: finalPendingLen,
         });
+        openLobbyCalled = true;
       } else {
         openLobbyRef.current(source);
+        openLobbyCalled = true;
       }
-      return 'open-lobby';
+
+      logChainEmptyFinalizeCheck(
+        buildChainEmptyFinalizeSnapshot({
+          source,
+          stage: 'finalize-empty-done',
+          outcome,
+          notificationChainTransitioningBefore: transitioningBefore,
+          notificationChainTransitioningAfter: false,
+          openLobbyCalled,
+          overlayHostMounted: null,
+          reason: 'chain-continue-empty-finalized',
+          emptyFallback,
+          finalQueueLen,
+          finalPendingLen,
+        }),
+      );
+
+      return outcome;
     },
-    [setChainAdvanceWaiting, setNotificationChainTransitioning],
+    [
+      buildChainEmptyFinalizeSnapshot,
+      setChainAdvanceWaiting,
+      setNotificationChainTransitioning,
+    ],
   );
 
   const continueNotificationChainOrOpenLobby = useCallback(
@@ -15818,7 +15936,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       heldUserCardOverlay == null;
 
     if (replyParentTimerOwnsTop) {
-      logEmptyOverlayHostBlocked({
+      logEmptyOverlayHostBlockedState({
         reason: 'reply-parent-active-timer-owns-top',
         queueLen: overlayQueue.length,
         startupLen: pendingStartupInteractionsCount,
@@ -15840,7 +15958,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       notificationQueueShellKind == null;
 
     if (timerCardOwnsNotificationTop) {
-      logEmptyOverlayHostBlocked({
+      logEmptyOverlayHostBlockedState({
         reason: queueEmpty
           ? 'timer-card-top-empty-queue'
           : 'timer-card-top-pending-queue',
@@ -15862,7 +15980,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (chainAdvanceWaiting) return true;
     if (notificationChainTransitioning) {
       if (replyParentActivePriorityActive && heldUserCardOverlay == null) {
-        logEmptyOverlayHostBlocked({
+        logEmptyOverlayHostBlockedState({
           reason: 'reply-parent-timer-blocks-chain-transition-overlay',
           queueLen: overlayQueue.length,
         });
@@ -15906,11 +16024,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             });
           }
         }
-        logEmptyOverlayHostBlocked({
+        logEmptyOverlayHostBlockedState({
           reason: 'chain-transitioning-without-renderable-card',
           queueLen: overlayQueue.length,
           pendingLen: pendingStartupInteractionsCount,
           shellKind: notificationQueueShellKind,
+          notificationChainTransitioning,
+          activeOverlayKind: displayActiveOverlayKind ?? activeOverlayKind,
+          hasRenderableOverlay: hasRenderableCard,
+          lobbyOpen: lobbyOpenRef.current,
+          emptyOverlayHostBlocked: true,
         });
         return false;
       }
@@ -15958,7 +16081,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       !showDirectOverboardLayer &&
       heldUserCardOverlay == null
     ) {
-      logEmptyOverlayHostBlocked({
+      logEmptyOverlayHostBlockedState({
         reason: 'reply-parent-active-timer-no-host',
         queueLen: overlayQueue.length,
         shellKind: notificationQueueShellKind,
@@ -15983,7 +16106,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return true;
     }
     if (notificationChainTransitioning) {
-      logEmptyOverlayHostBlocked({
+      logEmptyOverlayHostBlockedState({
         reason: 'transitioning-without-renderable-shell',
         shellKind: notificationQueueShellKind,
         queueLen: overlayQueue.length,
@@ -15991,7 +16114,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       return false;
     }
-    logEmptyOverlayHostBlocked({
+        logEmptyOverlayHostBlockedState({
       reason: 'no-renderable-shell-content',
       shellKind: notificationQueueShellKind,
       queueLen: overlayQueue.length,

@@ -89,6 +89,13 @@ import {
   logLobbyChromeVisible,
   logLobbyIndicatorState,
 } from '@/lib/lobby-chrome-debug';
+import {
+  buildLobbyCtaNullReason,
+  computeLobbyCtaGuardDecision,
+  logLobbyCtaRenderCheck,
+  logLobbyCtaReturnNull,
+} from '@/lib/lobby-cta-render-debug';
+import { patchLobbyCtaDebugSnapshot } from '@/lib/lobby-cta-snapshot-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { logDeepLinkHandlerResult } from '@/lib/deep-link-boot-debug';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
@@ -339,6 +346,7 @@ export function InstantBanFlow({
   const confirmOrbMountDiagSigRef = useRef('');
   const confirmQueueStateDiagSigRef = useRef('');
   const postSuccessHandoffDuringReplySigRef = useRef('');
+  const lobbyCtaDiagSigRef = useRef('');
   renderCountRef.current += 1;
 
   const {
@@ -1304,6 +1312,119 @@ export function InstantBanFlow({
     showLobbyChrome,
     showLobbyCta,
     overlayHandoffLobbySuppressed,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!lobbyOpen || !lobbyBootIntroPrimed) return;
+
+    const ctaDecision = computeLobbyCtaGuardDecision({
+      lobbyBootIntroPrimed,
+      replyIncomingDeeplinkPending,
+      checkDeeplinkDirectPending,
+      successToActiveLobbyBlocked,
+      overlayHandoffLobbySuppressed,
+      successExitDraining,
+      postSuccessHandoffBlocking,
+      notificationChainTransitioning,
+      replyLobbyBlocked,
+      bansReturnToLobbyLatch,
+      deepLinkRouteBootPending,
+      deepLinkReplyBooting,
+      incomingReplyBanId,
+      incomingGateActive,
+      ctaState,
+      effectiveBansOverlayOpen,
+      notificationQueueUiLock,
+    });
+
+    const ctaShellVisible = ctaDecision.ctaShellVisible;
+    const emptyOverlayHostBlocked =
+      notificationChainTransitioning && !notificationOverlayMounted;
+
+    patchLobbyCtaDebugSnapshot({
+      showLobbyChrome,
+      showTopNav: showLobbyTopNav,
+      ctaVisible: ctaDecision.showLobbyCta,
+      ctaShellVisible,
+      ctaState,
+      instantBanOpen: sendFlowOpen || sendStarted,
+      phase,
+    });
+
+    const payload = {
+      source: 'InstantBanFlow-lobbyCta',
+      lobbyOpen,
+      showLobbyChrome,
+      showTopNav: showLobbyTopNav,
+      ctaVisible: ctaShellVisible,
+      ctaHiddenReason: ctaDecision.primaryBlocker,
+      instantBanOpen: sendFlowOpen || sendStarted,
+      activeOverlayKind,
+      notificationChainTransitioning,
+      overlayQueueLen: overlayQueueLength,
+      pendingLen: pendingStartupInteractions,
+      pendingStartupInteractions,
+      incomingLen: incomingGateActive ? 1 : 0,
+      checkLen: checkGateActive ? 1 : 0,
+      resultLen: result ? 1 : 0,
+      hasRenderableOverlay: notificationOverlayMounted,
+      emptyOverlayHostBlocked,
+      lobbyIndicatorActive: lobbyBansNeedAttention,
+      pendingStartupInteractions,
+      ctaState,
+      showLobbyCtaGuard: ctaDecision.showLobbyCta,
+      mountBlockers: ctaDecision.blockers,
+      phase,
+      notificationOverlayVisible,
+      notificationSessionActive,
+      notificationOverlayMounted,
+    };
+
+    const sig = JSON.stringify(payload);
+    if (sig === lobbyCtaDiagSigRef.current) return;
+    lobbyCtaDiagSigRef.current = sig;
+
+    logLobbyCtaRenderCheck(payload);
+
+    if (!ctaShellVisible && lobbyOpen && phase === 'idle') {
+      logLobbyCtaReturnNull({
+        reason: buildLobbyCtaNullReason(ctaDecision),
+        ...payload,
+      });
+    }
+  }, [
+    activeOverlayKind,
+    bansReturnToLobbyLatch,
+    checkDeeplinkDirectPending,
+    checkGateActive,
+    ctaState,
+    deepLinkReplyBooting,
+    deepLinkRouteBootPending,
+    effectiveBansOverlayOpen,
+    incomingGateActive,
+    incomingReplyBanId,
+    lobbyBansNeedAttention,
+    lobbyBootIntroPrimed,
+    lobbyOpen,
+    notificationChainTransitioning,
+    notificationOverlayMounted,
+    notificationOverlayVisible,
+    notificationQueueUiLock,
+    notificationSessionActive,
+    overlayHandoffLobbySuppressed,
+    overlayQueueLength,
+    pendingStartupInteractions,
+    phase,
+    postSuccessHandoffBlocking,
+    replyIncomingDeeplinkPending,
+    replyLobbyBlocked,
+    result,
+    sendFlowOpen,
+    sendStarted,
+    showLobbyChrome,
+    showLobbyTopNav,
+    successExitDraining,
+    successToActiveLobbyBlocked,
   ]);
 
   useEffect(() => {
