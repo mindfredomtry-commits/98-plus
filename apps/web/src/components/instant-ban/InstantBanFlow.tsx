@@ -404,6 +404,8 @@ export function InstantBanFlow({
     unlockNotificationQueueAndFlush,
     startLobbyBansNotificationDrain,
     drainNextNotificationAfterSuccess,
+    logPostSuccessQueueSnapshotBeforeRelease,
+    logPostSuccessReleaseStartupResult,
     markSessionBanSendSuccess,
     setSendSuccessCardMounted,
     resolveReplyParentActiveBanImmediate,
@@ -2674,9 +2676,14 @@ export function InstantBanFlow({
         pendingStartupInteractions,
         notificationOverlayVisible,
       });
+      logPostSuccessQueueSnapshotBeforeRelease('success-exit');
       releaseStartupInteractions({ force: true });
       logOverlayPriority('send-success-unlock', {});
       unlockNotificationQueueAndFlush('send-success-unlock');
+      logPostSuccessReleaseStartupResult(
+        'success-exit',
+        'releaseStartupInteractions+unlockNotificationQueueAndFlush',
+      );
       setBansReturnToLobbyLatch(false, {
         source: 'finishSendSuccessLobbyExit',
         banId,
@@ -2801,6 +2808,8 @@ export function InstantBanFlow({
       setBansReturnToLobbyLatch,
       setNotificationChainTransitioning,
       unlockNotificationQueueAndFlush,
+      logPostSuccessQueueSnapshotBeforeRelease,
+      logPostSuccessReleaseStartupResult,
     ],
   );
 

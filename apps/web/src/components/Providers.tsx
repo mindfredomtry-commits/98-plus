@@ -296,6 +296,18 @@ import {
   shouldBlockPostSuccessPrefetchAfterEmpty,
 } from '@/lib/post-success-handoff-debug';
 import {
+  buildPostSuccessQueueSnapshotBase,
+  logLobbyBansQueueStartSnapshot,
+  logPostSuccessEmptyQueueButUserHasBansIndicator,
+  logPostSuccessQueueSnapshotBeforeRelease as emitPostSuccessQueueSnapshotBeforeRelease,
+  logPostSuccessReleaseStartupResult as emitPostSuccessReleaseStartupResult,
+  noteLastBansIndicatorReason,
+  noteNotificationEnqueueSource,
+  readLastBansIndicatorReason,
+  readLastNotificationSources,
+  type PostSuccessQueueSnapshotFields,
+} from '@/lib/post-success-queue-snapshot-debug';
+import {
   clearLobbyNotificationAttentionHint,
   persistLobbyNotificationAttentionHint,
   readLobbyNotificationAttentionHint,
@@ -841,6 +853,10 @@ interface AppContextValue {
   getConfirmHoldDebugSnapshot: () => ConfirmHoldDebugSnapshot;
   /** Diagnostics only — queue/handoff snapshot during confirm orb mount checks. */
   getConfirmOrbQueueDebugSnapshot: () => ConfirmOrbQueueDebugSnapshot;
+  /** Diagnostics only — post-success queue snapshot before releaseStartupInteractions. */
+  logPostSuccessQueueSnapshotBeforeRelease: (source: string) => void;
+  /** Diagnostics only — post-success queue snapshot after release + unlock. */
+  logPostSuccessReleaseStartupResult: (source: string, reason: string) => void;
   /** Success card blocks notification overlay sync until user closes it. */
   setSendSuccessCardMounted: (
     mounted: boolean,
@@ -1365,6 +1381,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     import('@98plus/shared').ReplyStartParamPreview | null
   >(null);
   const lastSessionIncomingRef = useRef<BanInteraction | null>(null);
+  const postSuccessReleaseBeforeRef = useRef<PostSuccessQueueSnapshotFields | null>(
+    null,
+  );
+  const logPostSuccessEmptyQueueIfMisalignedRef = useRef<
+    ((source: string) => void) | null
+  >(null);
   const replyDeeplinkFastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -2614,6 +2636,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (!uid) return;
     const total = pendingLen + queueLen;
     if (total > 0) {
+      noteLastBansIndicatorReason('syncPendingStartupCount');
       persistLobbyNotificationAttentionHint(uid, total);
       setLobbyBansAttentionHint(total);
     } else if (sessionBootstrappedRef.current) {
@@ -4176,6 +4199,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       },
     ) => {
       const live = isOverlayLive(opts);
+      noteNotificationEnqueueSource(opts?.source ?? 'enqueueNotification');
       const normalizedItem = normalizeQueuedOverlay(item);
       const banId =
         normalizedItem.kind === 'result'
@@ -4454,6 +4478,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 'unlockNotificationQueueAndFlush-empty-queue',
               )
             ) {
+              logPostSuccessEmptyQueueIfMisalignedRef.current?.(
+                'unlockNotificationQueueAndFlush-empty-queue',
+              );
               return;
             }
             console.log('[notification-queue-final-base]', {
@@ -5462,6 +5489,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       if (hint > 0) {
+        noteLastBansIndicatorReason(source);
         setLobbyBansAttentionHint((prev) => Math.max(prev, hint));
         persistLobbyNotificationAttentionHint(uid, hint);
       }
@@ -12451,6 +12479,122 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       };
     }, [countNotificationChainKinds]);
 
+  const buildPostSuccessQueueDiagnosticSnapshot = useCallback(
+    (source: string): PostSuccessQueueSnapshotFields => {
+      const chainSnap = snapshotPendingNotificationChain();
+      const head = overlayQueueRef.current[0] ?? null;
+      const selectedNext = getPostSuccessHandoffSelectedNext();
+      const headBanId =
+        head?.kind === 'result'
+          ? head.result.id
+          : head?.kind === 'incoming' || head?.kind === 'check'
+            ? head.ban.id
+            : null;
+      return buildPostSuccessQueueSnapshotBase({
+        source,
+        telegramUserId: userIdRef.current?.trim() ?? auth.user?.id ?? null,
+        queueLen: chainSnap.queueLen,
+        pendingLen: chainSnap.pendingLen,
+        bufferedIncomingLen: chainSnap.bufferedIncomingId ? 1 : 0,
+        incomingLen: chainSnap.incomingLen,
+        checkLen: chainSnap.checkLen,
+        resultLen: chainSnap.resultLen,
+        startupLen: pendingStartupInteractionsRef.current.length,
+        selectedKind: selectedNext?.kind ?? head?.kind ?? null,
+        selectedBanId: selectedNext?.banId ?? headBanId,
+        heldNextKind: chainSnap.heldNextKind,
+        hasPendingNotificationChain: hasPendingNotificationChain(),
+        shouldBlockNonExplicitDrain: shouldBlockNonExplicitNotificationDrain(
+          source,
+          startupInteractionsHoldRef.current,
+        ),
+        bufferedIncomingId: chainSnap.bufferedIncomingId,
+      });
+    },
+    [hasPendingNotificationChain, snapshotPendingNotificationChain, auth.user?.id],
+  );
+
+  const logPostSuccessEmptyQueueIfMisaligned = useCallback(
+    (source: string) => {
+      const uid = userIdRef.current?.trim() ?? '';
+      const pendingSnapshot = pendingStartupInteractionsRef.current;
+      const hasLobbyIndicator =
+        lobbyBansAttentionHint > 0 ||
+        (uid ? readLobbyNotificationAttentionHint(uid) > 0 : false) ||
+        hasPendingNotificationChain();
+      if (!hasLobbyIndicator) return;
+
+      logPostSuccessEmptyQueueButUserHasBansIndicator({
+        source,
+        traceId: getPostSuccessHandoffTraceId(),
+        telegramUserId: uid || auth.user?.id || null,
+        hasLobbyIndicator: true,
+        pendingStartupInteractions: {
+          len: pendingSnapshot.length,
+          kinds: pendingSnapshot.map((item) => item.kind),
+        },
+        lastBansIndicatorReason: readLastBansIndicatorReason(),
+        lastNotificationSources: readLastNotificationSources(),
+        restoreFlags: {
+          sessionBootstrapped: sessionBootstrappedRef.current,
+          startupInteractionsHold: startupInteractionsHoldRef.current,
+          persistedAttentionHint: uid
+            ? readLobbyNotificationAttentionHint(uid)
+            : 0,
+          lobbyBansAttentionHint,
+          lastSessionIncomingId: lastSessionIncomingRef.current?.id ?? null,
+          bufferedIncomingId: bufferedIncomingRef.current?.id ?? null,
+          heldNextKind: heldUserCardOverlayRef.current?.kind ?? null,
+          hasPendingNotificationChain: hasPendingNotificationChain(),
+        },
+      });
+    },
+    [hasPendingNotificationChain, lobbyBansAttentionHint, auth.user?.id],
+  );
+  logPostSuccessEmptyQueueIfMisalignedRef.current =
+    logPostSuccessEmptyQueueIfMisaligned;
+
+  const logPostSuccessQueueSnapshotBeforeRelease = useCallback(
+    (source: string) => {
+      const snap = buildPostSuccessQueueDiagnosticSnapshot(source);
+      postSuccessReleaseBeforeRef.current = snap;
+      emitPostSuccessQueueSnapshotBeforeRelease(snap);
+    },
+    [buildPostSuccessQueueDiagnosticSnapshot],
+  );
+
+  const logPostSuccessReleaseStartupResult = useCallback(
+    (source: string, reason: string) => {
+      const before = postSuccessReleaseBeforeRef.current;
+      const after = buildPostSuccessQueueDiagnosticSnapshot(source);
+      const beforePending = before?.pendingLen ?? 0;
+      const beforeQueue = before?.queueLen ?? 0;
+      emitPostSuccessReleaseStartupResult({
+        source,
+        traceId: getPostSuccessHandoffTraceId(),
+        beforeQueueLen: beforeQueue,
+        beforePendingLen: beforePending,
+        afterQueueLen: after.queueLen,
+        afterPendingLen: after.pendingLen,
+        movedCount: Math.max(0, beforePending - after.pendingLen),
+        bufferedCount: before?.bufferedIncomingLen ?? 0,
+        selectedKind: after.selectedKind,
+        selectedBanId: after.selectedBanId,
+        reason,
+      });
+      if (
+        after.queueLen === 0 &&
+        after.pendingLen === 0 &&
+        (source.includes('success-exit') ||
+          reason.includes('send-success') ||
+          reason.includes('unlockNotificationQueueAndFlush-empty-queue'))
+      ) {
+        logPostSuccessEmptyQueueIfMisaligned(source);
+      }
+    },
+    [buildPostSuccessQueueDiagnosticSnapshot, logPostSuccessEmptyQueueIfMisaligned],
+  );
+
   const collectPendingNotificationChain = useCallback(
     (source: string): NotificationChainCollectedSnapshot => {
       if (shouldBlockSingleCardChainContinuation(source)) {
@@ -12955,6 +13099,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       const queueLenAfter = overlayQueueRef.current.length;
+      const pendingLenAfter = pendingStartupInteractionsRef.current.length;
+      const chainSnapAfter = snapshotPendingNotificationChain();
+      const head = overlayQueueRef.current[0] ?? null;
+      const headBanId =
+        head?.kind === 'result'
+          ? head.result.id
+          : head?.kind === 'incoming' || head?.kind === 'check'
+            ? head.ban.id
+            : null;
+      logLobbyBansQueueStartSnapshot({
+        telegramUserId: userIdRef.current?.trim() ?? auth.user?.id ?? null,
+        queueLenBefore,
+        pendingLenBefore: pendingLen,
+        queueLenAfter,
+        pendingLenAfter,
+        incomingLen: chainSnapAfter.incomingLen,
+        checkLen: chainSnapAfter.checkLen,
+        resultLen: chainSnapAfter.resultLen,
+        selectedKind: head?.kind ?? null,
+        selectedBanId: headBanId,
+        source: 'lobby-bans-cta',
+      });
       logLobbyBansCtaPendingMerged({
         pendingLen,
         mergedCount,
@@ -13012,8 +13178,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       hasPendingNotificationChain,
       mergePendingSnapshotIntoOverlayQueue,
       showNextNotificationFromChainSync,
+      snapshotPendingNotificationChain,
       syncDisplayFromQueue,
       syncPendingStartupCount,
+      auth.user?.id,
     ]);
 
   const armOpenBansOverlayFromResultCta = useCallback(
@@ -16735,6 +16903,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       releaseNotificationQueueAfterReplyParentActive,
       getConfirmHoldDebugSnapshot,
       getConfirmOrbQueueDebugSnapshot,
+      logPostSuccessQueueSnapshotBeforeRelease,
+      logPostSuccessReleaseStartupResult,
       setSendSuccessCardMounted,
     }),
     [
@@ -16911,6 +17081,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setSendSuccessCardMounted,
       getConfirmHoldDebugSnapshot,
       getConfirmOrbQueueDebugSnapshot,
+      logPostSuccessQueueSnapshotBeforeRelease,
+      logPostSuccessReleaseStartupResult,
       replyDeeplinkFastShell,
       abortReplyDeepLinkFast,
       replyUiShellActive,
