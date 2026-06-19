@@ -210,6 +210,13 @@ import {
   noteKnownDirectBanId,
   readKnownDirectBanId,
 } from '@/lib/queue-api-fetch-debug';
+import {
+  buildMergeSkippedFlags,
+  logIncomingPendingAllMergeSkipped,
+  logLobbyBansPendingFetchMissing,
+  logPendingStartupToOverlayMergeDecision,
+  logQueueApiResultApplyDecision,
+} from '@/lib/queue-api-result-apply-debug';
 import { fetchPendingChainPrefetch } from '@/lib/pending-chain-prefetch';
 import {
   logChainDrainContinue,
@@ -844,7 +851,7 @@ interface AppContextValue {
   /** Unlock overlay queue and flush deferred pending overlays. */
   unlockNotificationQueueAndFlush: (reason: string) => void;
   /** Lobby «Твои запреты»: drain notification queue or open empty section. */
-  startLobbyBansNotificationDrain: () => LobbyBansNotificationDrainOutcome;
+  startLobbyBansNotificationDrain: () => Promise<LobbyBansNotificationDrainOutcome>;
   /** After send-success exit: drain one pending notification over lobby. */
   drainNextNotificationAfterSuccess: (
     successBanId?: string | null,
@@ -4964,10 +4971,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const mergeStartupIntoOverlayQueueOnly = useCallback(
     (source: string) => {
+      const queueLenBefore = overlayQueueRef.current.length;
+      const pendingLenBefore = pendingStartupInteractionsRef.current.length;
+
       if (shouldBlockSingleCardChainContinuation(source)) {
         logDeeplinkSingleCardChainBlocked({
           source,
           reason: 'merge-startup-single-card',
+        });
+        logPendingStartupToOverlayMergeDecision({
+          source,
+          pendingLenBefore,
+          queueLenBefore,
+          mergedCount: 0,
+          queueLenAfter: queueLenBefore,
+          pendingLenAfter: pendingLenBefore,
+          skipReason: 'single-card-chain-blocked',
+          startupHold: startupInteractionsHoldRef.current,
         });
         return 0;
       }
@@ -4982,6 +5002,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason: 'merge-startup-into-overlay',
           startupHold: startupInteractionsHoldRef.current,
         });
+        logPendingStartupToOverlayMergeDecision({
+          source,
+          pendingLenBefore,
+          queueLenBefore,
+          mergedCount: 0,
+          queueLenAfter: queueLenBefore,
+          pendingLenAfter: pendingLenBefore,
+          skipReason: 'non-explicit-drain-blocked',
+          startupHold: startupInteractionsHoldRef.current,
+        });
         return 0;
       }
       if (
@@ -4991,10 +5021,32 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           null,
         )
       ) {
+        logPendingStartupToOverlayMergeDecision({
+          source,
+          pendingLenBefore,
+          queueLenBefore,
+          mergedCount: 0,
+          queueLenAfter: queueLenBefore,
+          pendingLenAfter: pendingLenBefore,
+          skipReason: 'mounted-overlay-blocks',
+          startupHold: startupInteractionsHoldRef.current,
+        });
         return 0;
       }
       const pending = pendingStartupInteractionsRef.current;
-      if (pending.length === 0) return 0;
+      if (pending.length === 0) {
+        logPendingStartupToOverlayMergeDecision({
+          source,
+          pendingLenBefore: 0,
+          queueLenBefore,
+          mergedCount: 0,
+          queueLenAfter: queueLenBefore,
+          pendingLenAfter: 0,
+          skipReason: 'pending-empty',
+          startupHold: startupInteractionsHoldRef.current,
+        });
+        return 0;
+      }
 
       const skipBanId =
         replyDeeplinkParentBanIdRef.current?.trim() ??
@@ -5009,7 +5061,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
       });
 
-      if (releasable.length === 0) return 0;
+      if (releasable.length === 0) {
+        logPendingStartupToOverlayMergeDecision({
+          source,
+          pendingLenBefore,
+          queueLenBefore,
+          mergedCount: 0,
+          queueLenAfter: queueLenBefore,
+          pendingLenAfter: pendingLenBefore,
+          skipReason: 'all-pending-results-blocked',
+          startupHold: startupInteractionsHoldRef.current,
+        });
+        return 0;
+      }
 
       if (overlayQueueRef.current.length === 0) {
         const wouldHead = releasable[0] ?? null;
@@ -5020,6 +5084,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             wouldHead,
           )
         ) {
+          logPendingStartupToOverlayMergeDecision({
+            source,
+            pendingLenBefore,
+            queueLenBefore,
+            mergedCount: 0,
+            queueLenAfter: queueLenBefore,
+            pendingLenAfter: pendingLenBefore,
+            skipReason: 'active-user-card-blocks-head',
+            startupHold: startupInteractionsHoldRef.current,
+          });
           return 0;
         }
       }
@@ -5034,6 +5108,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       overlayQueueRef.current = next;
       setOverlayQueue(next);
+
+      logPendingStartupToOverlayMergeDecision({
+        source,
+        pendingLenBefore,
+        queueLenBefore,
+        mergedCount: releasable.length,
+        queueLenAfter: overlayQueueRef.current.length,
+        pendingLenAfter: pendingStartupInteractionsRef.current.length,
+        skipReason: null,
+        startupHold: startupInteractionsHoldRef.current,
+      });
       return releasable.length;
     },
     [isResultBlockedForNotificationChain, syncPendingStartupCount],
@@ -5338,12 +5423,54 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       deeplinkBanId: string | null,
       source: string,
     ): Promise<boolean> => {
+      const queueLenBefore = overlayQueueRef.current.length;
+      const pendingLenBefore = pendingStartupInteractionsRef.current.length;
+
       if (shouldBlockPostSuccessPrefetchAfterEmpty(source)) {
+        logQueueApiResultApplyDecision({
+          source,
+          endpoint: '/bans/incoming/pending-all',
+          count: 0,
+          banIds: [],
+          willMergeToOverlayQueue: false,
+          willMergeToPendingStartup: false,
+          willOnlyPrimeIndicator: false,
+          skipReason: 'post-success-prefetch-blocked-after-empty',
+          queueLenBefore,
+          pendingLenBefore,
+          queueLenAfter: queueLenBefore,
+          pendingLenAfter: pendingLenBefore,
+        });
+        logIncomingPendingAllMergeSkipped({
+          source,
+          banIds: [],
+          reason: 'post-success-prefetch-blocked-after-empty',
+          ...buildMergeSkippedFlags(
+            source,
+            notificationChainTransitioningRef.current,
+          ),
+        });
         return false;
       }
       const token = tokenRef.current;
       const viewerId = userIdRef.current?.trim() ?? '';
-      if (!token || !viewerId) return false;
+      if (!token || !viewerId) {
+        logQueueApiResultApplyDecision({
+          source,
+          endpoint: '/bans/incoming/pending-all',
+          count: 0,
+          banIds: [],
+          willMergeToOverlayQueue: false,
+          willMergeToPendingStartup: false,
+          willOnlyPrimeIndicator: false,
+          skipReason: 'no-token-or-viewer',
+          queueLenBefore,
+          pendingLenBefore,
+          queueLenAfter: queueLenBefore,
+          pendingLenAfter: pendingLenBefore,
+        });
+        return false;
+      }
 
       console.log('[pending-chain-prefetch-start]', {
         source,
@@ -5372,6 +5499,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           tokenRef.current !== token ||
           userIdRef.current?.trim() !== viewerId
         ) {
+          logQueueApiResultApplyDecision({
+            source,
+            endpoint: '/bans/incoming/pending-all',
+            count: prefetched.incoming.length,
+            banIds: prefetched.incoming.map((b) => b.id),
+            willMergeToOverlayQueue: false,
+            willMergeToPendingStartup: false,
+            willOnlyPrimeIndicator: false,
+            skipReason: 'stale-auth-after-fetch',
+            queueLenBefore,
+            pendingLenBefore,
+            queueLenAfter: overlayQueueRef.current.length,
+            pendingLenAfter: pendingStartupInteractionsRef.current.length,
+          });
           return false;
         }
 
@@ -5387,6 +5528,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
         const toEnqueue: QueuedOverlay[] = [];
         const enqueuedIds: string[] = [];
+        const skipDetails: Array<{ banId: string; reason: string }> = [];
         const skipBanId = deeplinkBanId?.trim() ?? '';
         const prefetchedResultId = prefetched.result?.id
           ? normalizeId(prefetched.result.id)
@@ -5399,11 +5541,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               banId: enriched.id,
               reason: 'current-deeplink',
             });
+            skipDetails.push({ banId: enriched.id, reason: 'current-deeplink' });
             continue;
           }
-          if (dismissedIncomingRef.current.has(enriched.id)) continue;
-          if (incomingConsumedAfterAnswerRef.current.has(enriched.id)) continue;
-          if (locallyAckedIncomingRef.current.has(enriched.id)) continue;
+          if (dismissedIncomingRef.current.has(enriched.id)) {
+            skipDetails.push({ banId: enriched.id, reason: 'dismissed-incoming' });
+            continue;
+          }
+          if (incomingConsumedAfterAnswerRef.current.has(enriched.id)) {
+            skipDetails.push({
+              banId: enriched.id,
+              reason: 'consumed-after-answer',
+            });
+            continue;
+          }
+          if (locallyAckedIncomingRef.current.has(enriched.id)) {
+            skipDetails.push({ banId: enriched.id, reason: 'locally-acked' });
+            continue;
+          }
           toEnqueue.push({ kind: 'incoming', ban: enriched });
           enqueuedIds.push(enriched.id);
         }
@@ -5431,6 +5586,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             if (picked) {
               toEnqueue.push({ kind: 'check', ban: picked });
               enqueuedIds.push(picked.id);
+            } else {
+              skipDetails.push({ banId: checkId, reason: 'check-not-picked' });
             }
           }
         }
@@ -5447,12 +5604,54 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             resultPriorityBanIdsRef.current.add(normalizeId(r.id));
             toEnqueue.push({ kind: 'result', result: r });
             enqueuedIds.push(r.id);
+          } else {
+            skipDetails.push({
+              banId: normalizeId(r.id),
+              reason: 'result-blocked-for-chain',
+            });
           }
         }
 
-        if (toEnqueue.length === 0) return false;
-
         const indicatorPrimeOnly = isLobbyIndicatorPrefetchSource(source);
+        const apiIncomingCount = prefetched.incoming.length;
+
+        if (toEnqueue.length === 0) {
+          const mergeSkipReason =
+            skipDetails.length > 0
+              ? skipDetails.map((s) => `${s.banId}:${s.reason}`).join(',')
+              : apiIncomingCount === 0
+                ? 'api-incoming-empty'
+                : 'all-items-filtered-unknown';
+
+          logIncomingPendingAllMergeSkipped({
+            source,
+            banIds: incomingIds,
+            reason: mergeSkipReason,
+            skipDetails,
+            ...buildMergeSkippedFlags(
+              source,
+              notificationChainTransitioningRef.current,
+            ),
+          });
+          logQueueApiResultApplyDecision({
+            source,
+            endpoint: '/bans/incoming/pending-all',
+            count: apiIncomingCount,
+            banIds: incomingIds,
+            willMergeToOverlayQueue: false,
+            willMergeToPendingStartup: false,
+            willOnlyPrimeIndicator: indicatorPrimeOnly,
+            skipReason: mergeSkipReason,
+            queueLenBefore,
+            pendingLenBefore,
+            queueLenAfter: overlayQueueRef.current.length,
+            pendingLenAfter: pendingStartupInteractionsRef.current.length,
+            toEnqueueLen: 0,
+            enqueuedIds: [],
+          });
+          return false;
+        }
+
         if (indicatorPrimeOnly) {
           logLobbyIndicatorPrefetchNoOverlay({
             source,
@@ -5470,6 +5669,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         pendingStartupInteractionsRef.current = nextPending;
         syncPendingStartupCount();
 
+        const queueLenAfter = overlayQueueRef.current.length;
+        const pendingLenAfter = pendingStartupInteractionsRef.current.length;
+
+        logQueueApiResultApplyDecision({
+          source,
+          endpoint: '/bans/incoming/pending-all',
+          count: apiIncomingCount,
+          banIds: incomingIds,
+          willMergeToOverlayQueue: false,
+          willMergeToPendingStartup: true,
+          willOnlyPrimeIndicator: indicatorPrimeOnly,
+          skipReason: skipDetails.length > 0 ? 'partial-incoming-skipped' : null,
+          queueLenBefore,
+          pendingLenBefore,
+          queueLenAfter,
+          pendingLenAfter,
+          toEnqueueLen: toEnqueue.length,
+          enqueuedIds,
+        });
+
         console.log('[pending-chain-enqueue-rest]', {
           deeplinkBanId: skipBanId || null,
           enqueuedIds,
@@ -5478,6 +5697,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
         return true;
       } catch {
+        logQueueApiResultApplyDecision({
+          source,
+          endpoint: '/bans/incoming/pending-all',
+          count: 0,
+          banIds: [],
+          willMergeToOverlayQueue: false,
+          willMergeToPendingStartup: false,
+          willOnlyPrimeIndicator: false,
+          skipReason: 'prefetch-threw',
+          queueLenBefore,
+          pendingLenBefore,
+          queueLenAfter: overlayQueueRef.current.length,
+          pendingLenAfter: pendingStartupInteractionsRef.current.length,
+        });
         return false;
       }
     },
@@ -13241,10 +13474,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     continueNotificationChainOrOpenLobby;
 
   const startLobbyBansNotificationDrain =
-    useCallback((): LobbyBansNotificationDrainOutcome => {
-      const queueLenBefore = overlayQueueRef.current.length;
+    useCallback(async (): Promise<LobbyBansNotificationDrainOutcome> => {
+      let queueLenBefore = overlayQueueRef.current.length;
+      let pendingLen = pendingStartupInteractionsRef.current.length;
+
+      if (pendingLen === 0 && queueLenBefore === 0) {
+        await prefetchPendingNotificationChain(null, 'lobby-bans-cta');
+        queueLenBefore = overlayQueueRef.current.length;
+        pendingLen = pendingStartupInteractionsRef.current.length;
+      }
+
       const pendingSnapshot = [...pendingStartupInteractionsRef.current];
-      const pendingLen = pendingSnapshot.length;
       const chainSnap = snapshotPendingNotificationChain();
       const needAttention =
         pendingLen > 0 || queueLenBefore > 0 || hasPendingNotificationChain();
@@ -13255,6 +13495,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         (userIdRef.current?.trim()
           ? readLobbyNotificationAttentionHint(userIdRef.current.trim()) > 0
           : false);
+
+      logLobbyBansPendingFetchMissing({
+        reason:
+          pendingLen === 0 && queueLenBefore === 0
+            ? 'lobby-bans-cta-refs-only-no-pending-all-fetch'
+            : 'lobby-bans-cta-uses-existing-refs-no-pending-all-fetch',
+        queueLen: queueLenBefore,
+        pendingLen,
+        hasLobbyBansAttentionHint: lobbyBansAttentionHint > 0,
+        needAttention,
+      });
 
       logLobbyBansDrainEntered({
         telegramUserId: userIdRef.current?.trim() ?? auth.user?.id ?? null,
@@ -13423,6 +13674,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       hasPendingNotificationChain,
       lobbyBansAttentionHint,
       mergePendingSnapshotIntoOverlayQueue,
+      prefetchPendingNotificationChain,
       showNextNotificationFromChainSync,
       snapshotPendingNotificationChain,
       syncDisplayFromQueue,

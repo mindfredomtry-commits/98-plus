@@ -2112,7 +2112,7 @@ export function InstantBanFlow({
     [beginRepeatBanFlow, haptic],
   );
 
-  const handleOpenBansOverlay = useCallback(() => {
+  const handleOpenBansOverlay = useCallback(async () => {
     const blockedReason =
       phase !== 'idle'
         ? 'phase-not-idle'
@@ -2150,7 +2150,7 @@ export function InstantBanFlow({
 
     clearActiveBanDeepLinkShell('lobby-bans-button');
     closeSendFlow();
-    const outcome = startLobbyBansNotificationDrain();
+    const outcome = await startLobbyBansNotificationDrain();
     if (outcome !== 'empty') {
       return;
     }
