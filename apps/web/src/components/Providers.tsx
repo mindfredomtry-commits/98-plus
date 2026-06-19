@@ -308,6 +308,13 @@ import {
   type PostSuccessQueueSnapshotFields,
 } from '@/lib/post-success-queue-snapshot-debug';
 import {
+  buildBanViewerRoleFlags,
+  logDeeplinkBanSourceSnapshot,
+  logLobbyBansDrainEntered,
+  logLobbyBansDrainNotEntered,
+  logQueueSourceComparisonSnapshot,
+} from '@/lib/queue-source-comparison-debug';
+import {
   clearLobbyNotificationAttentionHint,
   persistLobbyNotificationAttentionHint,
   readLobbyNotificationAttentionHint,
@@ -857,6 +864,8 @@ interface AppContextValue {
   logPostSuccessQueueSnapshotBeforeRelease: (source: string) => void;
   /** Diagnostics only — post-success queue snapshot after release + unlock. */
   logPostSuccessReleaseStartupResult: (source: string, reason: string) => void;
+  /** Diagnostics only — compare queue refs across success/lobby/deeplink paths. */
+  logQueueSourceComparisonSnapshot: (source: string) => void;
   /** Success card blocks notification overlay sync until user closes it. */
   setSendSuccessCardMounted: (
     mounted: boolean,
@@ -10105,10 +10114,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const mounted = isReplyFastQueueHeadValid(ban.id);
       if (mounted) {
         setIncomingBan(ban);
+        const viewerId = userIdRef.current?.trim() ?? auth.user?.id ?? null;
+        logDeeplinkBanSourceSnapshot({
+          source: 'applyReplyDeeplinkFastOverlay',
+          telegramUserId: viewerId,
+          banId: ban.id,
+          kind: 'incoming',
+          apiEndpoint: null,
+          loadedFrom: 'applyReplyDeeplinkFastOverlay-queue-head',
+          ...buildBanViewerRoleFlags(ban, viewerId),
+        });
       }
       return mounted;
     },
-    [applyOverlayQueue, isReplyFastQueueHeadValid],
+    [applyOverlayQueue, isReplyFastQueueHeadValid, auth.user?.id],
   );
 
   const buildReplyFastLookupCtx = useCallback(
@@ -10363,11 +10382,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         markVisibleOverboardTrace('[REPLY FAST DIRECT PATH WITHOUT QUEUE HEAD]', {
           banId,
         });
+        const viewerIdForLog =
+          userIdRef.current?.trim() ?? auth.user?.id ?? null;
+        logDeeplinkBanSourceSnapshot({
+          source: 'openReplyDeepLinkFast',
+          telegramUserId: viewerIdForLog,
+          banId: openBan.id,
+          kind: 'incoming',
+          apiEndpoint: usingPrefetch ? null : `/bans/${normalizedBanId}/open`,
+          loadedFrom:
+            cacheHit?.source ?? 'reply-deeplink-shell-no-queue-head',
+          ...buildBanViewerRoleFlags(openBan, viewerIdForLog),
+        });
       } else {
         logReplyCardSelected({
           banId: normalizedBanId,
           usingPrefetch,
           source: 'openReplyDeepLinkFast',
+        });
+        const viewerIdForLog =
+          userIdRef.current?.trim() ?? auth.user?.id ?? null;
+        logDeeplinkBanSourceSnapshot({
+          source: 'openReplyDeepLinkFast',
+          telegramUserId: viewerIdForLog,
+          banId: openBan.id,
+          kind: 'incoming',
+          apiEndpoint: usingPrefetch ? null : `/bans/${normalizedBanId}/open`,
+          loadedFrom: cacheHit?.source ?? 'reply-deeplink-shell',
+          ...buildBanViewerRoleFlags(openBan, viewerIdForLog),
         });
         if (!usingPrefetch) {
           clearStartupBlockingLayersForIncomingCard(
@@ -10701,6 +10743,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setLobbyOpen(false);
       lobbyOpenRef.current = false;
       challengeLog('incoming:reply-deeplink', { id: b.id, status: b.status });
+
+      logDeeplinkBanSourceSnapshot({
+        source: 'openDeepLinkReply',
+        telegramUserId: viewerId,
+        banId: enriched.id,
+        kind: 'incoming',
+        apiEndpoint: `/bans/${enriched.id}/open`,
+        loadedFrom: wasShell
+          ? 'openDeepLinkReply-api-hydrate-shell'
+          : wasPrefetch
+            ? 'openDeepLinkReply-api-hydrate-prefetch'
+            : 'openDeepLinkReply-api-hydrate',
+        ...buildBanViewerRoleFlags(enriched, viewerId),
+      });
 
       const prevHead = overlayQueueRef.current.find(
         (q) => q.kind === 'incoming' && q.ban.id === enriched.id,
@@ -12554,13 +12610,60 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   logPostSuccessEmptyQueueIfMisalignedRef.current =
     logPostSuccessEmptyQueueIfMisaligned;
 
+  const buildQueueSourceComparisonSnapshot = useCallback(
+    (source: string) => {
+      const chainSnap = snapshotPendingNotificationChain();
+      const uid = userIdRef.current?.trim() ?? auth.user?.id ?? null;
+      const queueLen = chainSnap.queueLen;
+      const pendingLen = chainSnap.pendingLen;
+      const hasPendingChain = hasPendingNotificationChain();
+      const persistedHint = uid ? readLobbyNotificationAttentionHint(uid) > 0 : false;
+      const restoreStateFound =
+        persistedHint ||
+        lobbyBansAttentionHint > 0 ||
+        Boolean(lastSessionIncomingRef.current?.id) ||
+        Boolean(bufferedIncomingRef.current?.id) ||
+        Boolean(bufferedReplyDeepLinkRef.current?.id) ||
+        Boolean(incomingBanRef.current?.id) ||
+        Boolean(replyDeepLinkBanIdRef.current);
+      return {
+        source,
+        telegramUserId: uid,
+        queueLen,
+        pendingLen,
+        incomingLen: chainSnap.incomingLen,
+        checkLen: chainSnap.checkLen,
+        resultLen: chainSnap.resultLen,
+        bufferedIncomingLen: chainSnap.bufferedIncomingId ? 1 : 0,
+        lastSessionIncomingLen: lastSessionIncomingRef.current?.id ? 1 : 0,
+        hasIncomingBanRef: Boolean(incomingBanRef.current?.id),
+        incomingBanRefId: incomingBanRef.current?.id ?? null,
+        resultRefId: resultRef.current?.id ?? null,
+        checkRefId: checkBanRef.current?.id ?? null,
+        hasPendingNotificationChain: hasPendingChain,
+        hasLobbyBansAttentionHint: lobbyBansAttentionHint > 0,
+        needAttention: pendingLen > 0 || queueLen > 0 || hasPendingChain,
+        restoreStateFound,
+      };
+    },
+    [
+      auth.user?.id,
+      hasPendingNotificationChain,
+      lobbyBansAttentionHint,
+      snapshotPendingNotificationChain,
+    ],
+  );
+
   const logPostSuccessQueueSnapshotBeforeRelease = useCallback(
     (source: string) => {
       const snap = buildPostSuccessQueueDiagnosticSnapshot(source);
       postSuccessReleaseBeforeRef.current = snap;
       emitPostSuccessQueueSnapshotBeforeRelease(snap);
+      logQueueSourceComparisonSnapshot(
+        buildQueueSourceComparisonSnapshot(source),
+      );
     },
-    [buildPostSuccessQueueDiagnosticSnapshot],
+    [buildPostSuccessQueueDiagnosticSnapshot, buildQueueSourceComparisonSnapshot],
   );
 
   const logPostSuccessReleaseStartupResult = useCallback(
@@ -12582,6 +12685,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         selectedBanId: after.selectedBanId,
         reason,
       });
+      logQueueSourceComparisonSnapshot(
+        buildQueueSourceComparisonSnapshot(`${source}-after-release`),
+      );
       if (
         after.queueLen === 0 &&
         after.pendingLen === 0 &&
@@ -12592,7 +12698,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         logPostSuccessEmptyQueueIfMisaligned(source);
       }
     },
-    [buildPostSuccessQueueDiagnosticSnapshot, logPostSuccessEmptyQueueIfMisaligned],
+    [
+      buildPostSuccessQueueDiagnosticSnapshot,
+      buildQueueSourceComparisonSnapshot,
+      logPostSuccessEmptyQueueIfMisaligned,
+    ],
+  );
+
+  const logQueueSourceComparisonSnapshotContext = useCallback(
+    (source: string) => {
+      logQueueSourceComparisonSnapshot(buildQueueSourceComparisonSnapshot(source));
+    },
+    [buildQueueSourceComparisonSnapshot],
   );
 
   const collectPendingNotificationChain = useCallback(
@@ -13042,8 +13159,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const queueLenBefore = overlayQueueRef.current.length;
       const pendingSnapshot = [...pendingStartupInteractionsRef.current];
       const pendingLen = pendingSnapshot.length;
+      const chainSnap = snapshotPendingNotificationChain();
       const needAttention =
         pendingLen > 0 || queueLenBefore > 0 || hasPendingNotificationChain();
+      const hasPendingChain = hasPendingNotificationChain();
+      const hasLobbyIndicator =
+        lobbyBansAttentionHint > 0 ||
+        needAttention ||
+        (userIdRef.current?.trim()
+          ? readLobbyNotificationAttentionHint(userIdRef.current.trim()) > 0
+          : false);
+
+      logLobbyBansDrainEntered({
+        telegramUserId: userIdRef.current?.trim() ?? auth.user?.id ?? null,
+        source: 'lobby-bans-cta',
+        pendingSnapshotLen: pendingSnapshot.length,
+        queueLenBefore,
+        pendingLenBefore: pendingLen,
+        incomingLen: chainSnap.incomingLen,
+        checkLen: chainSnap.checkLen,
+        resultLen: chainSnap.resultLen,
+        needAttention,
+        hasLobbyIndicator,
+        hasPendingNotificationChain: hasPendingChain,
+        hasLobbyBansAttentionHint: lobbyBansAttentionHint > 0,
+      });
+      logQueueSourceComparisonSnapshot(
+        buildQueueSourceComparisonSnapshot('lobby-bans-drain-entered'),
+      );
 
       logLobbyBansCtaClick({
         queueLen: queueLenBefore,
@@ -13053,6 +13196,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       if (!needAttention) {
+        const comparison = buildQueueSourceComparisonSnapshot(
+          'lobby-bans-cta-need-attention-false',
+        );
+        logLobbyBansDrainNotEntered({
+          reason: 'need-attention-false',
+          telegramUserId: userIdRef.current?.trim() ?? auth.user?.id ?? null,
+          source: 'lobby-bans-cta',
+          queueLen: comparison.queueLen,
+          pendingLen: comparison.pendingLen,
+          hasPendingNotificationChain: comparison.hasPendingNotificationChain,
+          hasLobbyBansAttentionHint: comparison.hasLobbyBansAttentionHint,
+          needAttention: comparison.needAttention,
+          restoreStateFound: comparison.restoreStateFound,
+        });
         logLobbyBansCtaEmptyOpenSection({
           queueLen: queueLenBefore,
           pendingLen,
@@ -13174,14 +13331,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       return 'empty';
     }, [
+      auth.user?.id,
+      buildQueueSourceComparisonSnapshot,
       clearNotificationChainReturnLatch,
       hasPendingNotificationChain,
+      lobbyBansAttentionHint,
       mergePendingSnapshotIntoOverlayQueue,
       showNextNotificationFromChainSync,
       snapshotPendingNotificationChain,
       syncDisplayFromQueue,
       syncPendingStartupCount,
-      auth.user?.id,
     ]);
 
   const armOpenBansOverlayFromResultCta = useCallback(
@@ -16905,6 +17064,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       getConfirmOrbQueueDebugSnapshot,
       logPostSuccessQueueSnapshotBeforeRelease,
       logPostSuccessReleaseStartupResult,
+      logQueueSourceComparisonSnapshot: logQueueSourceComparisonSnapshotContext,
       setSendSuccessCardMounted,
     }),
     [
@@ -17083,6 +17243,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       getConfirmOrbQueueDebugSnapshot,
       logPostSuccessQueueSnapshotBeforeRelease,
       logPostSuccessReleaseStartupResult,
+      logQueueSourceComparisonSnapshotContext,
       replyDeeplinkFastShell,
       abortReplyDeepLinkFast,
       replyUiShellActive,

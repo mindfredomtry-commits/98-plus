@@ -1,13 +1,17 @@
 'use client';
 
+import { logLobbyBansCtaClickTrace } from '@/lib/queue-source-comparison-debug';
+
 type Props = {
   onOpenBans: () => void;
   bansNeedAttention?: boolean;
+  telegramUserId?: string | null;
 };
 
 export function ArenaLobbyTopNav({
   onOpenBans,
   bansNeedAttention = false,
+  telegramUserId = null,
 }: Props) {
   return (
     <nav
@@ -29,7 +33,25 @@ export function ArenaLobbyTopNav({
             ? ' instant-ban-arena-lobby-nav__item--attention'
             : ''
         }`}
-        onClick={onOpenBans}
+        onClick={() => {
+          logLobbyBansCtaClickTrace({
+            clickSurface: 'ArenaLobbyTopNav-button',
+            clicked: true,
+            telegramUserId,
+            bansNeedAttention,
+            showLobbyTopNav: true,
+            ctaState: 'n/a-topnav',
+            showLobbyCta: false,
+            lobbyOpen: false,
+            instantBanOpen: false,
+            notificationChainTransitioning: false,
+            notificationQueueUiLock: false,
+            activeOverlayKind: null,
+            willCallStartLobbyBansNotificationDrain: true,
+            blockedReason: null,
+          });
+          onOpenBans();
+        }}
         aria-label={
           bansNeedAttention
             ? 'Твои запреты — есть непрочитанные события'

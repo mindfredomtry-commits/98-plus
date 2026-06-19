@@ -188,6 +188,10 @@ import {
 import { canLobbySendBan } from '@/lib/lobby-influence';
 import { isReplyDeeplinkShellBan } from '@/lib/reply-deeplink-fast';
 import { REPLY_DEEPLINK_TOAST_SENT } from '@/lib/reply-deeplink-action-result';
+import {
+  logLobbyBansCtaClickTrace,
+  logLobbyBansDrainNotEntered,
+} from '@/lib/queue-source-comparison-debug';
 import { BanGlyph } from './SuccessBanCardBody';
 import { logSendFlow } from '@/lib/send-flow-debug';
 import { DEFAULT_SEND_TIMEOUT_MS } from '@/lib/request-timeout';
@@ -406,6 +410,7 @@ export function InstantBanFlow({
     drainNextNotificationAfterSuccess,
     logPostSuccessQueueSnapshotBeforeRelease,
     logPostSuccessReleaseStartupResult,
+    logQueueSourceComparisonSnapshot,
     markSessionBanSendSuccess,
     setSendSuccessCardMounted,
     resolveReplyParentActiveBanImmediate,
@@ -2108,7 +2113,41 @@ export function InstantBanFlow({
   );
 
   const handleOpenBansOverlay = useCallback(() => {
-    if (phase !== 'idle' || banSentSuccess) return;
+    const blockedReason =
+      phase !== 'idle'
+        ? 'phase-not-idle'
+        : banSentSuccess
+          ? 'ban-sent-success'
+          : null;
+    const willCallDrain = blockedReason == null;
+
+    logLobbyBansCtaClickTrace({
+      clickSurface: 'handleOpenBansOverlay',
+      telegramUserId: user?.id ?? null,
+      clicked: true,
+      ctaState,
+      showLobbyCta,
+      showLobbyTopNav,
+      bansNeedAttention: lobbyBansNeedAttention,
+      lobbyOpen,
+      instantBanOpen: sendFlowOpen || sendStarted,
+      notificationChainTransitioning,
+      notificationQueueUiLock,
+      activeOverlayKind: activeOverlayKind ?? null,
+      willCallStartLobbyBansNotificationDrain: willCallDrain,
+      blockedReason,
+    });
+    logQueueSourceComparisonSnapshot('lobby-bans-cta-click');
+
+    if (!willCallDrain) {
+      logLobbyBansDrainNotEntered({
+        reason: blockedReason ?? 'unknown',
+        telegramUserId: user?.id ?? null,
+        source: 'handleOpenBansOverlay',
+      });
+      return;
+    }
+
     clearActiveBanDeepLinkShell('lobby-bans-button');
     closeSendFlow();
     const outcome = startLobbyBansNotificationDrain();
@@ -2121,12 +2160,24 @@ export function InstantBanFlow({
     setSelectedBanForDetails(null);
     setBansOverlayOpen(true);
   }, [
+    activeOverlayKind,
     banSentSuccess,
     clearActiveBanDeepLinkShell,
     closeSendFlow,
+    ctaState,
+    lobbyOpen,
+    logQueueSourceComparisonSnapshot,
+    notificationChainTransitioning,
+    notificationQueueUiLock,
     phase,
     resetBansNavState,
+    sendFlowOpen,
+    sendStarted,
+    showLobbyCta,
+    showLobbyTopNav,
+    lobbyBansNeedAttention,
     startLobbyBansNotificationDrain,
+    user?.id,
   ]);
 
   const resetSendUiForBansCta = useCallback(() => {
@@ -2651,6 +2702,7 @@ export function InstantBanFlow({
   const finishSendSuccessLobbyExit = useCallback(
     async (banId: string | null) => {
       if (!canDrainNotificationAfterSuccess()) {
+        logQueueSourceComparisonSnapshot('success-exit-blocked-not-authorized');
         setSuccessExitDraining(false);
         endSuccessExitInProgress();
         return;
@@ -2804,6 +2856,7 @@ export function InstantBanFlow({
       openLobby,
       overlayQueueLength,
       pendingStartupInteractions,
+      logQueueSourceComparisonSnapshot,
       releaseStartupInteractions,
       setBansReturnToLobbyLatch,
       setNotificationChainTransitioning,
@@ -5427,6 +5480,7 @@ export function InstantBanFlow({
         <ArenaLobbyTopNav
           onOpenBans={handleOpenBansOverlay}
           bansNeedAttention={lobbyBansNeedAttention}
+          telegramUserId={user?.id ?? null}
         />
       ) : null}
       {!lobbyChromeHidden ? <LobbyScreenAtmosphere /> : null}

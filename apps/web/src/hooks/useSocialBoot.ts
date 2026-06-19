@@ -21,6 +21,10 @@ import {
   tryLockFromStartParam,
 } from '@/lib/overlay-priority';
 import { useTelegram } from './useTelegram';
+import {
+  buildBanViewerRoleFlags,
+  logDeeplinkBanSourceSnapshot,
+} from '@/lib/queue-source-comparison-debug';
 
 interface BootHandlers {
   token: string | null;
@@ -228,6 +232,15 @@ export function useSocialBoot(h: BootHandlers) {
               { token: h.token! },
             );
             if (ban) {
+              logDeeplinkBanSourceSnapshot({
+                source: 'useSocialBoot-reply',
+                telegramUserId: h.userId,
+                banId: ban.id,
+                kind: 'incoming',
+                apiEndpoint: `/bans/${action.banId}/open`,
+                loadedFrom: 'useSocialBoot-api',
+                ...buildBanViewerRoleFlags(ban, h.userId),
+              });
               await h.openDeepLinkReply(ban);
             } else if (h.replyDeeplinkFastShell) {
               h.abortReplyDeepLinkFast('api-empty-ban');
