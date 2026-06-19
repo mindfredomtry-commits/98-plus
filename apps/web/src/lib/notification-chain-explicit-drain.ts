@@ -74,3 +74,28 @@ export function logLobbyIndicatorOnlyNoCard(
 ): void {
   emit('[LOBBY INDICATOR ONLY NO CARD]', data);
 }
+
+export type LobbyOpenQueuedNotificationsSnapshot = {
+  chainTransitioning: boolean;
+  hasMountedOverlay: boolean;
+  startupHold: boolean;
+  pendingLen: number;
+  queueLen: number;
+};
+
+/** Pending-only on startup hold must not block lobby; mounted overlays and live queue still do. */
+export function shouldBlockLobbyOpenForQueuedNotifications(
+  snapshot: LobbyOpenQueuedNotificationsSnapshot,
+): boolean {
+  if (snapshot.chainTransitioning) return true;
+  if (snapshot.hasMountedOverlay) return true;
+  if (
+    snapshot.startupHold &&
+    snapshot.pendingLen > 0 &&
+    snapshot.queueLen === 0
+  ) {
+    return false;
+  }
+  if (snapshot.queueLen > 0 || snapshot.pendingLen > 0) return true;
+  return false;
+}

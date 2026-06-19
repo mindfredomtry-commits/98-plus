@@ -358,6 +358,7 @@ import {
   logNonExplicitDrainBlocked,
   logStartupAutoShowCardBug,
   logSyncDisplayBlockedStartupHold,
+  shouldBlockLobbyOpenForQueuedNotifications,
 } from '@/lib/notification-chain-explicit-drain';
 import {
   logChainContinueBlockedNonExplicitStartup,
@@ -14193,7 +14194,33 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       return;
     }
-    if (hasPendingNotificationChain()) {
+    const resultId = resultRef.current?.id ?? null;
+    const viewerId = userIdRef.current?.trim() ?? '';
+    const hasMountedOverlayForLobbyBlock =
+      !!notificationChainHandoffRef.current ||
+      !!notificationChainAwaitingUserRef.current ||
+      !!notificationChainReplyComposeActiveRef.current ||
+      !!chainReplyParentBanIdRef.current ||
+      !!replyComposeActiveRef.current ||
+      !!(
+        directResultOverlayRef.current || directResultOverlayActiveRef.current
+      ) ||
+      !!incomingBanRef.current?.id ||
+      !!checkBanRef.current?.id ||
+      !!(
+        resultId &&
+        !resultCtaConsumedBanIdsRef.current.has(resultId) &&
+        !(viewerId && isDismissedResultLocally(resultId, viewerId))
+      );
+    if (
+      shouldBlockLobbyOpenForQueuedNotifications({
+        chainTransitioning: notificationChainTransitioningRef.current,
+        hasMountedOverlay: hasMountedOverlayForLobbyBlock,
+        startupHold: startupInteractionsHoldRef.current,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+        queueLen: overlayQueueRef.current.length,
+      })
+    ) {
       console.log('[chain-open-lobby-blocked]', {
         source: source ?? 'default',
         reason: 'active-overlay-mounted-or-queue-not-empty',
@@ -14258,7 +14285,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       source: source ?? 'default',
       lobbyOpen: true,
     });
-  }, [getNotificationChainDebugSnapshot, hasPendingNotificationChain]);
+  }, [getNotificationChainDebugSnapshot]);
 
   useLayoutEffect(() => {
     openLobbyRef.current = openLobby;
@@ -15235,7 +15262,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       incomingGateActive ||
       checkGateActive ||
       checkDeeplinkDirectPending ||
-      hasPendingNotificationChain() ||
+      shouldBlockLobbyOpenForQueuedNotifications({
+        chainTransitioning: notificationChainTransitioning,
+        hasMountedOverlay: false,
+        startupHold: startupInteractionsHoldRef.current,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+        queueLen: overlayQueueRef.current.length,
+      }) ||
       result
     ) {
       return;
@@ -15264,7 +15297,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     checkGateActive,
     checkDeeplinkDirectPending,
     getNotificationChainDebugSnapshot,
-    hasPendingNotificationChain,
     openLobby,
     result,
   ]);
