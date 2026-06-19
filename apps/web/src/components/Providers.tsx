@@ -344,14 +344,17 @@ import {
   allowDeeplinkExplicitNotificationDrain,
   completeDeeplinkSingleCardMode,
   enableDeeplinkSingleCardMode,
+  getDeeplinkSingleCardMode,
   isDeeplinkSingleCardCompleting,
   isDeeplinkSingleCardModeActive,
   isExplicitNotificationDrainSource,
   logDeeplinkAutoDrainBlocked,
-  logDeeplinkAutoDrainBug,
   logDeeplinkReturnLobby,
+  logDeeplinkSingleCardChainBlocked,
+  logSyncDisplayBlockedSingleCard,
   shouldBlockDeeplinkAutoDrain,
   shouldBlockNonExplicitNotificationDrain,
+  shouldBlockSingleCardChainContinuation,
 } from '@/lib/deeplink-single-card-mode';
 import {
   logLobbyIndicatorOnlyNoCard,
@@ -2600,6 +2603,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const syncDisplayFromQueue = useCallback((queue: QueuedOverlay[]) => {
+    if (isDeeplinkSingleCardModeActive()) {
+      const cardMode = getDeeplinkSingleCardMode();
+      const head = queue[0] ?? null;
+      if (cardMode && head) {
+        const headBanId =
+          head.kind === 'result' ? head.result.id : head.ban.id;
+        if (normalizeId(headBanId) !== cardMode.banId) {
+          logSyncDisplayBlockedSingleCard({
+            source: 'syncDisplayFromQueue',
+            modeKind: cardMode.kind,
+            modeBanId: cardMode.banId,
+            headKind: head.kind,
+            headBanId,
+            queueLen: queue.length,
+          });
+          return;
+        }
+      }
+    }
     const atomicBanId = incomingOverboardAtomicBanIdRef.current;
     if (atomicBanId && resultRef.current?.id === atomicBanId) {
       logResultCardStableHold({
@@ -3389,16 +3411,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         !chainAdvanceExplicitRef.current &&
         shouldBlockDeeplinkAutoDrain('applyOverlayQueue')
       ) {
-        logDeeplinkAutoDrainBug({
+        logDeeplinkSingleCardChainBlocked({
           nextKind: nextHead.kind,
           nextBanId:
             nextHead.kind === 'result'
               ? nextHead.result.id
               : nextHead.ban.id,
           source: 'applyOverlayQueue',
+          reason: 'single-card-queue-advance-blocked',
         });
-        overlayQueueRef.current = next;
-        setOverlayQueue(next);
         return;
       }
       if (
@@ -3807,19 +3828,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         isDeeplinkSingleCardModeActive() &&
         isDeeplinkSingleCardCompleting(dismissKind, dismissBanId)
       ) {
-        const nextHead = remaining[0] ?? null;
-        if (nextHead) {
-          logDeeplinkAutoDrainBug({
-            nextKind: nextHead.kind,
-            nextBanId:
-              nextHead.kind === 'result'
-                ? nextHead.result.id
-                : nextHead.ban.id,
+        if (remaining.length > 0) {
+          pendingStartupInteractionsRef.current = mergeStartupPendingChain(
+            pendingStartupInteractionsRef.current,
+            remaining,
+          );
+          syncPendingStartupCount();
+          primeLobbyBansAttentionHintSyncRef.current(
+            `deeplink-single-card-defer:${reason}`,
+          );
+          logDeeplinkSingleCardChainBlocked({
             source: reason,
+            banId: dismissBanId,
+            deferredLen: remaining.length,
+            deferredHeadKind: remaining[0]?.kind ?? null,
+            reason: 'single-card-deferred-to-pending',
           });
         }
-        overlayQueueRef.current = remaining;
-        setOverlayQueue(remaining);
+        overlayQueueRef.current = [];
+        setOverlayQueue([]);
         clearActiveUserCardHold(`deeplink-single-card:${reason}`);
         clearActiveOverlayStateForDismiss(dismissKind, dismissBanId, {
           explicitUserAction: true,
@@ -4804,6 +4831,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const mergeStartupIntoOverlayQueueOnly = useCallback(
     (source: string) => {
+      if (shouldBlockSingleCardChainContinuation(source)) {
+        logDeeplinkSingleCardChainBlocked({
+          source,
+          reason: 'merge-startup-single-card',
+        });
+        return 0;
+      }
       if (
         shouldBlockNonExplicitNotificationDrain(
           source,
@@ -7128,6 +7162,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           return;
         }
         if (checkAnswerInFlightRef.current.size > 0) {
+          return;
+        }
+        const normalizedBanId = banId ? normalizeId(banId) : '';
+        const completedDeeplinkCheck =
+          normalizedBanId.length > 0 &&
+          checkDeeplinkCompletedRouteBanIdRef.current === normalizedBanId;
+        if (completedDeeplinkCheck || isDeeplinkSingleCardModeActive()) {
+          logDeeplinkReturnLobby({
+            reason: `check-dismiss-empty:${reason}`,
+            banId: normalizedBanId || null,
+            source: 'openLobbyAfterCheckDismissIfEmpty',
+          });
+          openLobbyRef.current(`check-dismiss-empty:${reason}`);
           return;
         }
         void continueNotificationChainOrOpenLobbyRef.current(
@@ -11609,6 +11656,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return false;
       }
+      if (shouldBlockSingleCardChainContinuation(source)) {
+        const cardMode = getDeeplinkSingleCardMode();
+        logDeeplinkSingleCardChainBlocked({
+          source,
+          reason: 'show-next-single-card',
+          modeKind: cardMode?.kind ?? null,
+          modeBanId: cardMode?.banId ?? null,
+        });
+        return false;
+      }
       if (
         startupInteractionsHoldRef.current &&
         !isExplicitNotificationDrainSource(source)
@@ -12108,6 +12165,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const collectPendingNotificationChain = useCallback(
     (source: string): NotificationChainCollectedSnapshot => {
+      if (shouldBlockSingleCardChainContinuation(source)) {
+        logDeeplinkSingleCardChainBlocked({
+          source,
+          reason: 'collect-pending-single-card',
+        });
+        return snapshotPendingNotificationChain();
+      }
       if (
         shouldBlockNonExplicitNotificationDrain(
           source,
@@ -12209,6 +12273,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         logChainContinueBlockedNonExplicitStartup({
           source,
           startupHold: startupInteractionsHoldRef.current,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+        return 'blocked';
+      }
+      if (shouldBlockSingleCardChainContinuation(source)) {
+        const cardMode = getDeeplinkSingleCardMode();
+        logDeeplinkSingleCardChainBlocked({
+          source,
+          reason: 'continue-single-card',
+          modeKind: cardMode?.kind ?? null,
+          modeBanId: cardMode?.banId ?? null,
           queueLen: overlayQueueRef.current.length,
           pendingLen: pendingStartupInteractionsRef.current.length,
         });

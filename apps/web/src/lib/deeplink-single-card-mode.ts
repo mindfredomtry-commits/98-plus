@@ -2,7 +2,6 @@
 
 import { normalizeId } from '@/lib/normalize-json';
 import {
-  isExplicitNotificationDrainSource,
   shouldBlockNonExplicitNotificationDrain,
 } from '@/lib/notification-chain-explicit-drain';
 
@@ -11,15 +10,44 @@ export {
   shouldBlockNonExplicitNotificationDrain,
 } from '@/lib/notification-chain-explicit-drain';
 
-export type DeeplinkSingleCardKind = 'check' | 'reply';
+export type DeeplinkSingleCardKind = 'check' | 'reply' | 'incoming' | 'result';
 
 type DeeplinkSingleCardMode = {
   kind: DeeplinkSingleCardKind;
   banId: string;
 };
 
+/** Only these sources may drain the notification queue while single-card mode is active. */
+const NOTIFICATION_QUEUE_DRAIN_SOURCES = [
+  'success-exit',
+  'success-exit-retry',
+  'success-exit-retry-flush',
+  'lobby-bans',
+  'lobby-bans-cta',
+  'open-bans',
+  'user-bans-button',
+  'explicit-bans',
+  'armOpenBansOverlayFromResultCta',
+  'go-to-bans',
+  'navigateFromResult',
+  'finalizeResultForGoToBans',
+  'status-cta',
+  'overboard-status-direct',
+  'primeNextNotificationAfterStatusCta',
+  'openBansOverlay',
+  'provider-openBansOverlayRequest',
+  'manual flush from lobby button',
+  'drainNextNotificationAfterSuccess',
+  'releaseStartupInteractions',
+] as const;
+
 let mode: DeeplinkSingleCardMode | null = null;
-let explicitDrainAllowed = false;
+
+export function isNotificationQueueDrainSource(source: string): boolean {
+  return NOTIFICATION_QUEUE_DRAIN_SOURCES.some((marker) =>
+    source.includes(marker),
+  );
+}
 
 export function enableDeeplinkSingleCardMode(
   kind: DeeplinkSingleCardKind,
@@ -28,7 +56,6 @@ export function enableDeeplinkSingleCardMode(
   const normalized = normalizeId(banId);
   if (!normalized) return;
   mode = { kind, banId: normalized };
-  explicitDrainAllowed = false;
   window.__debug98log?.('[DEEPLINK SINGLE CARD MODE ON]', {
     kind,
     banId: normalized,
@@ -43,7 +70,6 @@ export function completeDeeplinkSingleCardMode(source: string): void {
     source,
   });
   mode = null;
-  explicitDrainAllowed = false;
 }
 
 export function getDeeplinkSingleCardMode(): DeeplinkSingleCardMode | null {
@@ -54,16 +80,24 @@ export function isDeeplinkSingleCardModeActive(): boolean {
   return mode != null;
 }
 
+/** @deprecated Use isNotificationQueueDrainSource; kept for call-site compatibility. */
 export function allowDeeplinkExplicitNotificationDrain(source: string): void {
-  explicitDrainAllowed = true;
+  if (!isNotificationQueueDrainSource(source)) return;
   window.__debug98log?.('[DEEPLINK EXPLICIT DRAIN ALLOWED]', { source });
 }
 
+/**
+ * While a Telegram deep-link single-card route is active, block queue drain unless
+ * the source is an explicit post-success or lobby-bans queue start.
+ */
 export function shouldBlockDeeplinkAutoDrain(source: string): boolean {
   if (!mode) return false;
-  if (explicitDrainAllowed) return false;
-  if (isExplicitNotificationDrainSource(source)) return false;
+  if (isNotificationQueueDrainSource(source)) return false;
   return true;
+}
+
+export function shouldBlockSingleCardChainContinuation(source: string): boolean {
+  return shouldBlockDeeplinkAutoDrain(source);
 }
 
 export function isDeeplinkSingleCardCompleting(
@@ -74,11 +108,19 @@ export function isDeeplinkSingleCardCompleting(
   if (normalizeId(banId) !== mode.banId) return false;
   if (mode.kind === 'check' && overlayKind === 'check') return true;
   if (mode.kind === 'reply' && overlayKind === 'incoming') return true;
+  if (mode.kind === 'incoming' && overlayKind === 'incoming') return true;
+  if (mode.kind === 'result' && overlayKind === 'result') return true;
   return false;
 }
 
 export function logDeeplinkAutoDrainBlocked(data: Record<string, unknown>): void {
   window.__debug98log?.('[DEEPLINK AUTO DRAIN BLOCKED]', data);
+}
+
+export function logDeeplinkSingleCardChainBlocked(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[DEEPLINK SINGLE CARD CHAIN BLOCKED]', data);
 }
 
 export function logDeeplinkReturnLobby(data: Record<string, unknown>): void {
@@ -87,4 +129,10 @@ export function logDeeplinkReturnLobby(data: Record<string, unknown>): void {
 
 export function logDeeplinkAutoDrainBug(data: Record<string, unknown>): void {
   window.__debug98log?.('[DEEPLINK AUTO DRAIN BUG]', data);
+}
+
+export function logSyncDisplayBlockedSingleCard(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[SYNC DISPLAY BLOCKED SINGLE CARD]', data);
 }
