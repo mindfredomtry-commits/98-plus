@@ -283,10 +283,14 @@ import {
   armPostSuccessHandoffEarly,
   completePostSuccessHandoffEmptyOpenLobby,
   completePostSuccessHandoffOnCardMounted,
+  finalizePostSuccessHandoffEmptyNoRetry,
   isPostSuccessHandoffInProgress,
+  isSuccessExitChainFullyEmpty,
   logPostSuccessHandoffLostBug,
   setPostSuccessHandoffSelectedNext,
   shouldBlockLobbyOpenForPostSuccessHandoff,
+  shouldBlockPostSuccessEmptyRetry,
+  shouldBlockPostSuccessPrefetchAfterEmpty,
 } from '@/lib/post-success-handoff-debug';
 import {
   clearLobbyNotificationAttentionHint,
@@ -5205,6 +5209,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       deeplinkBanId: string | null,
       source: string,
     ): Promise<boolean> => {
+      if (shouldBlockPostSuccessPrefetchAfterEmpty(source)) {
+        return false;
+      }
       const token = tokenRef.current;
       const viewerId = userIdRef.current?.trim() ?? '';
       if (!token || !viewerId) return false;
@@ -12290,6 +12297,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return 'blocked';
       }
+      if (shouldBlockPostSuccessEmptyRetry(source)) {
+        return 'blocked';
+      }
 
       prepareNotificationChainContinue(source, opts);
       const collected = collectPendingNotificationChain(source);
@@ -12879,7 +12889,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       if (await tryDrain('success-exit')) return true;
 
+      const primaryEmptySnapshot = snapshotPendingNotificationChain();
+      if (isSuccessExitChainFullyEmpty(primaryEmptySnapshot)) {
+        if (isPostSuccessHandoffInProgress()) {
+          finalizePostSuccessHandoffEmptyNoRetry({
+            source: 'success-exit',
+            queueLen: primaryEmptySnapshot.queueLen,
+            pendingLen: primaryEmptySnapshot.pendingLen,
+            incomingLen: primaryEmptySnapshot.incomingLen,
+            checkLen: primaryEmptySnapshot.checkLen,
+            resultLen: primaryEmptySnapshot.resultLen,
+            bufferedIncomingId: primaryEmptySnapshot.bufferedIncomingId,
+            heldNextKind: primaryEmptySnapshot.heldNextKind,
+            finalQueueLen: primaryEmptySnapshot.finalQueueLen,
+            finalPendingLen: primaryEmptySnapshot.finalPendingLen,
+          });
+        }
+        logDrainResult(false, { reason: 'success-exit-empty-no-retry' });
+        return false;
+      }
+
       await prefetchPendingNotificationChain(null, 'success-exit');
+      if (shouldBlockPostSuccessEmptyRetry('success-exit-retry')) {
+        logDrainResult(false, { reason: 'success-exit-retry-blocked-empty' });
+        return false;
+      }
       if (await tryDrain('success-exit-retry')) return true;
 
       const finalCollected = snapshotPendingNotificationChain();

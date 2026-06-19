@@ -9,6 +9,8 @@ let handoffInProgress = false;
 let earlyArmDone = false;
 let successExitWindowOpen = false;
 let selectedNext: PostSuccessHandoffSelectedNext | null = null;
+let handoffTraceId = 0;
+let emptyFinalizedTraceId: number | null = null;
 const listeners = new Set<() => void>();
 
 function notify(): void {
@@ -40,6 +42,83 @@ export function isPostSuccessHandoffInProgress(): boolean {
 
 export function getPostSuccessHandoffSelectedNext(): PostSuccessHandoffSelectedNext | null {
   return selectedNext;
+}
+
+export function getPostSuccessHandoffTraceId(): number {
+  return handoffTraceId;
+}
+
+export type SuccessExitChainEmptySnapshot = {
+  queueLen: number;
+  pendingLen: number;
+  incomingLen: number;
+  checkLen: number;
+  resultLen: number;
+  bufferedIncomingId?: string | null;
+  heldNextKind?: string | null;
+  finalQueueLen?: number;
+  finalPendingLen?: number;
+};
+
+export function isSuccessExitChainFullyEmpty(
+  collected: SuccessExitChainEmptySnapshot,
+): boolean {
+  return (
+    collected.queueLen === 0 &&
+    collected.pendingLen === 0 &&
+    collected.incomingLen === 0 &&
+    collected.checkLen === 0 &&
+    collected.resultLen === 0 &&
+    (collected.bufferedIncomingId ?? null) == null &&
+    (collected.heldNextKind ?? null) == null &&
+    (collected.finalQueueLen ?? 0) === 0 &&
+    (collected.finalPendingLen ?? 0) === 0
+  );
+}
+
+export function finalizePostSuccessHandoffEmptyNoRetry(
+  data: Record<string, unknown>,
+): void {
+  emptyFinalizedTraceId = handoffTraceId;
+  emit('[POST SUCCESS EMPTY FINALIZED]', {
+    traceId: handoffTraceId,
+    reason: 'success-exit-empty-no-retry',
+    ...data,
+  });
+  completePostSuccessHandoffEmptyOpenLobby({
+    reason: 'success-exit-empty-no-retry',
+    traceId: handoffTraceId,
+    ...data,
+  });
+}
+
+export function shouldBlockPostSuccessEmptyRetry(source: string): boolean {
+  if (emptyFinalizedTraceId == null) return false;
+  if (emptyFinalizedTraceId !== handoffTraceId) return false;
+  if (
+    !source.includes('success-exit-retry') &&
+    !source.includes('success-exit-retry-flush')
+  ) {
+    return false;
+  }
+  emit('[POST SUCCESS RETRY BLOCKED EMPTY]', {
+    source,
+    traceId: handoffTraceId,
+    reason: 'primary-success-exit-empty-finalized',
+  });
+  return true;
+}
+
+export function shouldBlockPostSuccessPrefetchAfterEmpty(source: string): boolean {
+  if (emptyFinalizedTraceId == null) return false;
+  if (emptyFinalizedTraceId !== handoffTraceId) return false;
+  if (!source.includes('success-exit')) return false;
+  emit('[POST SUCCESS RETRY BLOCKED EMPTY]', {
+    source,
+    traceId: handoffTraceId,
+    reason: 'primary-success-exit-empty-finalized',
+  });
+  return true;
 }
 
 export function markPostSuccessExitWindowOpen(
@@ -77,13 +156,16 @@ export function beginPostSuccessHandoff(data: Record<string, unknown>): void {
     emit('[POST SUCCESS HANDOFF START]', {
       ...data,
       alreadyArmedEarly: earlyArmDone,
+      traceId: handoffTraceId,
     });
     return;
   }
+  handoffTraceId += 1;
+  emptyFinalizedTraceId = null;
   handoffInProgress = true;
   earlyArmDone = false;
   selectedNext = null;
-  emit('[POST SUCCESS HANDOFF START]', data);
+  emit('[POST SUCCESS HANDOFF START]', { traceId: handoffTraceId, ...data });
   notify();
 }
 
