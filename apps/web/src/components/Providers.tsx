@@ -284,6 +284,8 @@ import {
   completePostSuccessHandoffEmptyOpenLobby,
   completePostSuccessHandoffOnCardMounted,
   finalizePostSuccessHandoffEmptyNoRetry,
+  getPostSuccessHandoffSelectedNext,
+  getPostSuccessHandoffTraceId,
   isPostSuccessHandoffInProgress,
   isSuccessExitChainFullyEmpty,
   logPostSuccessHandoffLostBug,
@@ -400,6 +402,8 @@ import {
 import {
   readOverlayInputLockFields,
   type ConfirmHoldDebugSnapshot,
+  type ConfirmOrbQueueDebugSnapshot,
+  logLobbyIndicatorDuringConfirm,
 } from '@/lib/confirm-hold-render-debug';
 import { installOverlayDismissCacheDevHelper } from '@/lib/overlay-dismiss-cache-dev';
 import { logResultNav, logResultReply } from '@/lib/result-reply-debug';
@@ -824,6 +828,8 @@ interface AppContextValue {
   releaseNotificationQueueAfterReplyParentActive: () => void;
   /** Diagnostics only — confirm hold button / incoming-reply cleanup snapshots. */
   getConfirmHoldDebugSnapshot: () => ConfirmHoldDebugSnapshot;
+  /** Diagnostics only — queue/handoff snapshot during confirm orb mount checks. */
+  getConfirmOrbQueueDebugSnapshot: () => ConfirmOrbQueueDebugSnapshot;
   /** Success card blocks notification overlay sync until user closes it. */
   setSendSuccessCardMounted: (
     mounted: boolean,
@@ -1992,6 +1998,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [],
   );
+
+  const getConfirmOrbQueueDebugSnapshot =
+    useCallback((): ConfirmOrbQueueDebugSnapshot => {
+      const selectedNext = getPostSuccessHandoffSelectedNext();
+      return {
+        pendingLen: pendingStartupInteractionsRef.current.length,
+        queueLen: overlayQueueRef.current.length,
+        selectedNextKind: selectedNext?.kind ?? null,
+        selectedNextBanId: selectedNext?.banId ?? null,
+        isPostSuccessHandoffInProgress: isPostSuccessHandoffInProgress(),
+        postSuccessHandoffTraceId: getPostSuccessHandoffTraceId(),
+        sendComposePhase: sendComposePhaseRef.current,
+        replyComposeActive: replyComposeActiveRef.current,
+        notificationChainTransitioning:
+          notificationChainTransitioningRef.current,
+        notificationChainReplyComposeActive:
+          notificationChainReplyComposeActiveRef.current,
+        chainReplyParentBanId: chainReplyParentBanIdRef.current,
+        incomingBanId: incomingBanRef.current?.id ?? null,
+        heldUserCardKind: heldUserCardOverlayRef.current?.kind ?? null,
+        notificationChainHandoff: notificationChainHandoffRef.current,
+        notificationChainAwaitingUser:
+          notificationChainAwaitingUserRef.current,
+      };
+    }, []);
 
   const restoreHeldUserCardOverlay = (source: string): boolean => {
     const held = heldUserCardOverlayRef.current;
@@ -5431,6 +5462,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source,
         hint,
       };
+      const composePhase = sendComposePhaseRef.current;
+      const confirmComposeActive =
+        composePhase === 'confirming' || composePhase === 'composingBan';
+      if (confirmComposeActive && isLobbyIndicatorPrimeOnlySource(source)) {
+        logLobbyIndicatorDuringConfirm({
+          ...payload,
+          sendComposePhase: composePhase,
+          replyComposeActive: replyComposeActiveRef.current,
+          isPostSuccessHandoffInProgress: isPostSuccessHandoffInProgress(),
+          selectedNextKind:
+            getPostSuccessHandoffSelectedNext()?.kind ?? null,
+          selectedNextBanId:
+            getPostSuccessHandoffSelectedNext()?.banId ?? null,
+        });
+      }
       if (isLobbyIndicatorPrimeOnlySource(source)) {
         logLobbyIndicatorPrimeOnly(payload);
       } else {
@@ -16408,6 +16454,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       isReplyParentActivePriorityActive,
       releaseNotificationQueueAfterReplyParentActive,
       getConfirmHoldDebugSnapshot,
+      getConfirmOrbQueueDebugSnapshot,
       setSendSuccessCardMounted,
     }),
     [
@@ -16583,6 +16630,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       releaseNotificationQueueAfterReplyParentActive,
       setSendSuccessCardMounted,
       getConfirmHoldDebugSnapshot,
+      getConfirmOrbQueueDebugSnapshot,
       replyDeeplinkFastShell,
       abortReplyDeepLinkFast,
       replyUiShellActive,

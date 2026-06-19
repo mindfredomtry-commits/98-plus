@@ -16,6 +16,56 @@ export type ConfirmHoldDebugSnapshot = {
   overlayInputLockSource: string | null;
 };
 
+export type ConfirmOrbQueueDebugSnapshot = {
+  pendingLen: number;
+  queueLen: number;
+  selectedNextKind: string | null;
+  selectedNextBanId: string | null;
+  isPostSuccessHandoffInProgress: boolean;
+  postSuccessHandoffTraceId: number;
+  sendComposePhase: string;
+  replyComposeActive: boolean;
+  notificationChainTransitioning: boolean;
+  notificationChainReplyComposeActive: boolean;
+  chainReplyParentBanId: string | null;
+  incomingBanId: string | null;
+  heldUserCardKind: string | null;
+  notificationChainHandoff: boolean;
+  notificationChainAwaitingUser: boolean;
+};
+
+export type LobbyOrbMountInputs = {
+  replyIncomingDeeplinkPending: boolean;
+  checkDeeplinkDirectPending: boolean;
+  replyLobbyBlocked: boolean;
+  successToActiveLobbyBlocked: boolean;
+  overlayHandoffLobbySuppressed: boolean;
+  overlayHandoffBreakdown?: Record<string, boolean>;
+  replyIncomingDeeplinkBreakdown?: Record<string, boolean>;
+  replyLobbyBlockedBreakdown?: Record<string, boolean>;
+  successExitDraining: boolean;
+  postSuccessHandoffBlocking: boolean;
+  postSuccessHandoffActive: boolean;
+  notificationChainTransitioning: boolean;
+  lobbyBootIntroPrimed: boolean;
+};
+
+export type LobbyOrbMountDecision = {
+  lobbyOrbVisible: boolean;
+  showLobbyOrb: boolean;
+  showBootOrb: boolean;
+  blockers: string[];
+  primaryBlocker: string | null;
+};
+
+const QUEUE_HANDOFF_ORB_BLOCKERS = new Set([
+  'postSuccessHandoffBlocking',
+  'notificationChainTransitioning',
+  'overlayHandoffLobbySuppressed',
+  'successExitDraining',
+  'replyIncomingDeeplinkPending',
+]);
+
 export function readOverlayInputLockFields(): {
   overlayInputLocked: boolean;
   overlayInputLockSource: string | null;
@@ -27,6 +77,48 @@ export function readOverlayInputLockFields(): {
     overlayInputLocked: isOverlayInputLocked(),
     overlayInputLockSource: window.__overlayInputLockSource ?? null,
   };
+}
+
+export function computeLobbyOrbMountDecision(
+  input: LobbyOrbMountInputs,
+): LobbyOrbMountDecision {
+  const blockers: string[] = [];
+  if (input.replyIncomingDeeplinkPending) {
+    blockers.push('replyIncomingDeeplinkPending');
+  }
+  if (input.checkDeeplinkDirectPending) {
+    blockers.push('checkDeeplinkDirectPending');
+  }
+  if (input.replyLobbyBlocked) blockers.push('replyLobbyBlocked');
+  if (input.successToActiveLobbyBlocked) {
+    blockers.push('successToActiveLobbyBlocked');
+  }
+  if (input.overlayHandoffLobbySuppressed) {
+    blockers.push('overlayHandoffLobbySuppressed');
+  }
+  if (input.successExitDraining) blockers.push('successExitDraining');
+  if (input.postSuccessHandoffBlocking) {
+    blockers.push('postSuccessHandoffBlocking');
+  }
+  if (input.notificationChainTransitioning) {
+    blockers.push('notificationChainTransitioning');
+  }
+
+  const lobbyOrbVisible = blockers.length === 0;
+  const showLobbyOrb = lobbyOrbVisible && input.lobbyBootIntroPrimed;
+  const showBootOrb = lobbyOrbVisible && !input.lobbyBootIntroPrimed;
+
+  return {
+    lobbyOrbVisible,
+    showLobbyOrb,
+    showBootOrb,
+    blockers,
+    primaryBlocker: blockers[0] ?? null,
+  };
+}
+
+export function isQueueHandoffOrbBlocker(blocker: string | null): boolean {
+  return blocker != null && QUEUE_HANDOFF_ORB_BLOCKERS.has(blocker);
 }
 
 export function buildConfirmHoldNullReason(input: {
@@ -88,4 +180,34 @@ export function logIncomingReplyCleanupSnapshot(
   data: Record<string, unknown>,
 ): void {
   emit('[INCOMING REPLY CLEANUP SNAPSHOT]', data);
+}
+
+export function logConfirmOrbMountDecision(
+  data: Record<string, unknown>,
+): void {
+  emit('[CONFIRM ORB MOUNT DECISION]', data);
+}
+
+export function logConfirmOrbBlockedByQueueState(
+  data: Record<string, unknown>,
+): void {
+  emit('[CONFIRM ORB BLOCKED BY QUEUE STATE]', data);
+}
+
+export function logPostSuccessHandoffStillActiveDuringReply(
+  data: Record<string, unknown>,
+): void {
+  emit('[POST SUCCESS HANDOFF STILL ACTIVE DURING REPLY]', data);
+}
+
+export function logLobbyIndicatorDuringConfirm(
+  data: Record<string, unknown>,
+): void {
+  emit('[LOBBY INDICATOR DURING CONFIRM]', data);
+}
+
+export function logQueueStateDuringConfirm(
+  data: Record<string, unknown>,
+): void {
+  emit('[QUEUE STATE DURING CONFIRM]', data);
 }
