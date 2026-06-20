@@ -1742,6 +1742,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const setActiveIncomingOverlayBanStable = useCallback(
     (ban: BanInteraction, source: string) => {
+      logChainHeadSwitchTrace(source, 'incoming', ban.id);
       const enriched = enrichBanInteraction(ban);
       activeIncomingOverlayBanRef.current = enriched;
       setActiveIncomingOverlayBanState(enriched);
@@ -2053,6 +2054,51 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
 
     return pending;
+  };
+
+  const logChainHeadSwitchTrace = (
+    source: string,
+    toKind: QueuedOverlay['kind'] | null,
+    toBanId: string | null,
+  ) => {
+    const fromHead = overlayQueueRef.current[0] ?? null;
+    const fromKind =
+      fromHead?.kind ??
+      (incomingBanRef.current
+        ? 'incoming'
+        : resultRef.current
+          ? 'result'
+          : checkBanRef.current
+            ? 'check'
+            : null);
+    const fromBanId =
+      fromHead?.kind === 'result'
+        ? fromHead.result.id
+        : fromHead?.kind === 'incoming' || fromHead?.kind === 'check'
+          ? fromHead.ban.id
+          : (incomingBanRef.current?.id ??
+            resultRef.current?.id ??
+            checkBanRef.current?.id ??
+            null);
+    const held = heldUserCardOverlayRef.current;
+    const payload = {
+      source,
+      fromKind,
+      fromBanId,
+      toKind,
+      toBanId,
+      atomicId: incomingOverboardAtomicBanIdRef.current,
+      heldKind: held?.kind ?? null,
+      heldBanId: held ? heldUserCardBanId(held) : null,
+      resultRefId: resultRef.current?.id ?? null,
+      displayResultId: result?.id ?? null,
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      notificationChainAwaitingUser: notificationChainAwaitingUserRef.current,
+      chainAdvanceExplicit: chainAdvanceExplicitRef.current,
+    };
+    console.log('[CHAIN HEAD SWITCH TRACE]', payload);
+    window.__debug98log?.('[CHAIN HEAD SWITCH TRACE]', payload);
   };
 
   const captureActiveUserCardHold = (
@@ -3012,6 +3058,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const syncDisplayFromQueue = useCallback((queue: QueuedOverlay[]) => {
+    const headAtEnter = queue[0] ?? null;
+    if (headAtEnter?.kind === 'incoming') {
+      logChainHeadSwitchTrace(
+        'syncDisplayFromQueue:enter',
+        'incoming',
+        headAtEnter.ban.id,
+      );
+    }
     if (isDeeplinkSingleCardModeActive()) {
       const cardMode = getDeeplinkSingleCardMode();
       const head = queue[0] ?? null;
@@ -3373,6 +3427,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       incomingBanRef.current = nextIncoming;
       checkBanRef.current = nextCheck;
+      if (nextIncoming) {
+        logChainHeadSwitchTrace(
+          'syncDisplayFromQueue:setIncomingBan',
+          'incoming',
+          nextIncoming.id,
+        );
+      }
       setIncomingBan(nextIncoming);
       setCheckBan(nextCheck);
       if (nextIncoming) {
@@ -4046,6 +4107,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           queueLength: next.length,
           nextKind: nextHead?.kind ?? null,
         });
+        if (nextHead?.kind === 'incoming') {
+          logChainHeadSwitchTrace(
+            'applyOverlayQueue',
+            'incoming',
+            nextHead.ban.id,
+          );
+        }
         console.log('[OVERLAY QUEUE NEXT]', {
           prevKey,
           nextKey,
@@ -12774,6 +12842,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         setOverlayQueue(next);
       }
       incomingBanRef.current = richer;
+      logChainHeadSwitchTrace(
+        'applyIncomingBanToQueueHead:setIncomingBan',
+        'incoming',
+        richer.id,
+      );
       setIncomingBan(richer);
       return richer;
     },
@@ -13193,6 +13266,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setLobbyOpen(false);
       lobbyOpenRef.current = false;
       flushSync(() => {
+        logChainHeadSwitchTrace(
+          `${source}:showNext-flushSync`,
+          nextKind,
+          nextBanId,
+        );
         if (protectHeldOverboardResult) {
           freshOverboardActionBanIdsRef.current.add(heldProtectResultId);
         }
