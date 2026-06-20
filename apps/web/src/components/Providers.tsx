@@ -753,6 +753,10 @@ interface AppContextValue {
     resultId: string | null | undefined,
     source: string,
   ) => boolean;
+  /** Queue notification shell: allow atomic overboard result-card render. */
+  isQueueAtomicOverboardResultShowable: (
+    resultId: string | null | undefined,
+  ) => boolean;
   /** Result card → What with opponent pre-selected (overboard / check outcomes). */
   startReplyFromResult: (r: BanResult) => void;
   /** Result card → next overlay or lobby («К запретам»). */
@@ -2031,6 +2035,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
     return normalizeId(resultRef.current?.id ?? '') === norm;
   };
+
+  const isQueueAtomicOverboardResultShowable = useCallback(
+    (resultId: string | null | undefined): boolean =>
+      shouldBlockAutoDismissAtomicOverboardResult(resultId),
+    [],
+  );
 
   const blockAutoDismissAtomicOverboardResult = useCallback(
     (resultId: string | null | undefined, source: string): boolean => {
@@ -17022,6 +17032,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     showDirectOverboardLayer,
   ]);
 
+  const queueResultShellContentReady = useMemo((): boolean | undefined => {
+    if (effectiveNotificationQueueShellKind !== 'result' || !activeResultPayload) {
+      return undefined;
+    }
+    if (isQueueAtomicOverboardResultShowable(activeResultPayload.id)) {
+      return Boolean(activeResultPayload.text?.trim());
+    }
+    return undefined;
+  }, [
+    activeResultPayload,
+    effectiveNotificationQueueShellKind,
+    isQueueAtomicOverboardResultShowable,
+  ]);
+
   useLayoutEffect(() => {
     const queueHead =
       overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
@@ -18417,6 +18441,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       openBanResult,
       dismissBanResult,
       blockAutoDismissAtomicOverboardResult,
+      isQueueAtomicOverboardResultShowable,
       startReplyFromResult,
       navigateFromResult,
       resultReplyPending,
@@ -18600,6 +18625,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       openBanResult,
       dismissBanResult,
       blockAutoDismissAtomicOverboardResult,
+      isQueueAtomicOverboardResultShowable,
       startReplyFromResult,
       navigateFromResult,
       resultReplyPending,
@@ -18768,6 +18794,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             >
               <NotificationQueueShell
                 kind={effectiveNotificationQueueShellKind}
+                shellContentReady={queueResultShellContentReady}
                 displayBanId={
                   stableIncomingOverlayBan?.id ??
                   incomingCardDisplayBan?.id ??

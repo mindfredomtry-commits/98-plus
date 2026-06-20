@@ -97,17 +97,25 @@ function ResultOverlayInner({
     resultCtaBansOverlayOpen,
     bansNavState,
     blockAutoDismissAtomicOverboardResult,
+    isQueueAtomicOverboardResultShowable,
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
   const [archiveSaved, setArchiveSaved] = useState(false);
 
   const viewerId = result.viewerId ?? user?.id ?? null;
+  const queueAtomicOverboardShowable =
+    contentOnly &&
+    !directPaint &&
+    isQueueAtomicOverboardResultShowable(result.id) &&
+    Boolean(result.id?.trim()) &&
+    Boolean(result.text?.trim());
   const returnsNullReason = (() => {
     if (directPaint) {
       if (isDirectOverboardOpenable(result, viewerId)) return null;
       if (isValidBanResultPayload(result)) return null;
       return 'directPaint-not-openable';
     }
+    if (queueAtomicOverboardShowable) return null;
     if (!isValidBanResultPayload(result)) return 'invalid-payload';
     if (!isResultParticipant(result, viewerId)) return 'not-participant';
     return null;

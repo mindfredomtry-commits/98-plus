@@ -28,6 +28,8 @@ type Props = {
   incomingCardReady?: boolean;
   /** Waiting for next chain card after «К запретам». */
   advanceWaiting?: boolean;
+  /** Overrides child-element probe — e.g. atomic queue result without wrapper false-positive. */
+  shellContentReady?: boolean;
 };
 
 function hasRenderableChildren(children: ReactNode): boolean {
@@ -45,8 +47,12 @@ export function NotificationQueueShell({
   displayBanId = null,
   incomingCardReady = false,
   advanceWaiting = false,
+  shellContentReady,
 }: Props) {
-  const hasContent = hasRenderableChildren(children);
+  const hasContent =
+    shellContentReady !== undefined
+      ? shellContentReady
+      : hasRenderableChildren(children);
 
   useEffect(() => {
     console.log('[notification-shell-debug] mounted', {
