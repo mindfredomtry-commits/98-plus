@@ -2010,9 +2010,49 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return norm === refNorm || norm === atomicNorm;
   };
 
-  const isPendingAtomicOverboardResultAwaitingDismiss = (): boolean => {
+  const isPendingAtomicOverboardResultAwaitingDismiss = (
+    source?: string,
+  ): boolean => {
     const atomicId = incomingOverboardAtomicBanIdRef.current;
-    return atomicId != null && isHeldOverboardResultProtected(atomicId);
+    if (!atomicId) return false;
+
+    const normAtomic = normalizeId(atomicId);
+    if (!normAtomic) return false;
+
+    const held = heldUserCardOverlayRef.current;
+    const heldKind = held?.kind ?? null;
+    const heldResultId =
+      held?.kind === 'result' ? normalizeId(held.result.id) : null;
+    const resultRefId = normalizeId(resultRef.current?.id ?? '');
+    const resultStateId = normalizeId(result?.id ?? '');
+    const queueHead = overlayQueueRef.current[0] ?? null;
+    const queueHeadKind = queueHead?.kind ?? null;
+    const queueHeadResultId =
+      queueHead?.kind === 'result'
+        ? normalizeId(queueHead.result.id)
+        : null;
+
+    const pending =
+      (heldKind === 'result' && heldResultId === normAtomic) ||
+      resultRefId === normAtomic ||
+      resultStateId === normAtomic ||
+      (queueHeadKind === 'result' && queueHeadResultId === normAtomic);
+
+    if (!pending && source) {
+      const payload = {
+        source,
+        atomicId: normAtomic,
+        heldKind,
+        heldResultId,
+        resultRefId: resultRefId || null,
+        queueHeadKind,
+        queueHeadResultId,
+      };
+      console.log('[atomic-overboard-guard-miss]', payload);
+      window.__debug98log?.('[atomic-overboard-guard-miss]', payload);
+    }
+
+    return pending;
   };
 
   const captureActiveUserCardHold = (
@@ -12926,7 +12966,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return false;
       }
-      if (isPendingAtomicOverboardResultAwaitingDismiss()) {
+      if (isPendingAtomicOverboardResultAwaitingDismiss(source)) {
         const atomicBanId = incomingOverboardAtomicBanIdRef.current;
         logResultCardPreserveDomOk({
           banId: atomicBanId,
@@ -13743,7 +13783,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (shouldBlockPostSuccessEmptyRetry(source)) {
         return 'blocked';
       }
-      if (isPendingAtomicOverboardResultAwaitingDismiss()) {
+      if (isPendingAtomicOverboardResultAwaitingDismiss(source)) {
         const atomicBanId = incomingOverboardAtomicBanIdRef.current;
         logResultCardPreserveDomOk({
           banId: atomicBanId,
