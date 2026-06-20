@@ -56,6 +56,8 @@ interface Props {
   contentOnly?: boolean;
   /** Fresh shell + paint timing for direct overboard layer. */
   directPaint?: boolean;
+  /** Atomic overboard mandatory queue step — skip auto onClose when !showable. */
+  preserveMandatoryResult?: boolean;
 };
 
 type ResultOverlayTraceProps = {
@@ -81,6 +83,7 @@ function ResultOverlayInner({
   embedded = false,
   contentOnly = false,
   directPaint = false,
+  preserveMandatoryResult = false,
 }: Props) {
   const {
     openNewBanWhoFlow,
@@ -192,6 +195,7 @@ function ResultOverlayInner({
 
   useEffect(() => {
     if (directPaint) return;
+    if (preserveMandatoryResult) return;
     if (!showable) guardedOnClose();
     return () => {
       if (skipResultOverlayCleanup('onClose-guard')) return;
@@ -199,7 +203,13 @@ function ResultOverlayInner({
         effect: 'onClose-guard',
       });
     };
-  }, [directPaint, guardedOnClose, showable, skipResultOverlayCleanup]);
+  }, [
+    directPaint,
+    guardedOnClose,
+    preserveMandatoryResult,
+    showable,
+    skipResultOverlayCleanup,
+  ]);
 
   useLayoutEffect(() => {
     if (!directPaint || !showable) return;

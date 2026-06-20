@@ -2011,6 +2011,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return norm === refNorm || norm === atomicNorm;
   };
 
+  const shouldSkipResultJanitorForAtomicOverboard = (
+    resultId: string | null | undefined,
+  ): boolean => {
+    const norm = normalizeId(resultId ?? '');
+    if (!norm) return false;
+    const atomicId = normalizeId(incomingOverboardAtomicBanIdRef.current ?? '');
+    if (atomicId && atomicId === norm) return true;
+    if (freshOverboardActionBanIdsRef.current.has(norm)) return true;
+    const held = heldUserCardOverlayRef.current;
+    return (
+      notificationChainAwaitingUserRef.current &&
+      held?.kind === 'result' &&
+      normalizeId(held.result.id) === norm
+    );
+  };
+
+  const logResultJanitorSkipAtomicOverboard = (
+    resultId: string | null | undefined,
+  ) => {
+    const norm = normalizeId(resultId ?? '');
+    const held = heldUserCardOverlayRef.current;
+    window.__debug98log?.('[RESULT JANITOR SKIP ATOMIC OVERBOARD]', {
+      resultId: norm || null,
+      atomicId: normalizeId(incomingOverboardAtomicBanIdRef.current ?? '') || null,
+      fresh: norm ? freshOverboardActionBanIdsRef.current.has(norm) : false,
+      awaitingUser: notificationChainAwaitingUserRef.current,
+      heldKind: held?.kind ?? null,
+      heldResultId:
+        held?.kind === 'result' ? normalizeId(held.result.id) || null : null,
+    });
+  };
+
   const isPendingAtomicOverboardResultAwaitingDismiss = (
     source?: string,
   ): boolean => {
@@ -15651,6 +15683,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       isDismissedResultLocally(result.id, result.viewerId ?? null) ||
       !isValidBanResultPayload(result)
     ) {
+      if (shouldSkipResultJanitorForAtomicOverboard(result.id)) {
+        logResultJanitorSkipAtomicOverboard(result.id);
+        return;
+      }
       dismissBanResult();
     }
   }, [result, dismissBanResult]);
@@ -18626,6 +18662,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                       result={activeResultPayload}
                       onClose={dismissBanResult}
                       contentOnly
+                      preserveMandatoryResult={shouldSkipResultJanitorForAtomicOverboard(
+                        activeResultPayload.id,
+                      )}
                     />
                   </ChallengeErrorBoundary>
                 ) : null}
