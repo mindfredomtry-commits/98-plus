@@ -281,6 +281,7 @@ import {
   logChainAdvanceBlockedActiveUserCardDetail,
   logOverboardActionResult,
   logOverboardActionStart,
+  logOverboardPathPick,
   logQueueItemBuiltAfterOverboard,
   logResultCardRenderDecision,
   logResultDisplaySourcePick,
@@ -9741,35 +9742,151 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [clearNotificationChainReplyCompose, clearReplyFastSessionAfterAnswer],
   );
 
-  const isChainIncomingOverboardContext = useCallback((banId: string): boolean => {
+  const queueHasIncomingForBan = useCallback((banId: string): boolean => {
     const norm = normalizeId(banId);
     if (!norm) return false;
-    const held = heldUserCardOverlayRef.current;
-    if (
-      notificationChainAwaitingUserRef.current &&
-      held?.kind === 'incoming' &&
-      heldUserCardBanId(held) === norm
-    ) {
-      return true;
-    }
-    if (
-      incomingBanRef.current?.id === norm &&
-      (isActiveUserCardHold() || notificationChainAwaitingUserRef.current)
-    ) {
-      return true;
-    }
-    const head = overlayQueueRef.current[0];
-    if (
-      head?.kind === 'incoming' &&
-      head.ban.id === norm &&
-      (notificationChainAwaitingUserRef.current ||
-        notificationChainTransitioningRef.current ||
-        overlayQueueRef.current.length > 0)
-    ) {
-      return true;
-    }
-    return false;
+    return (
+      overlayQueueRef.current.some(
+        (q) => q.kind === 'incoming' && normalizeId(q.ban.id) === norm,
+      ) ||
+      pendingStartupInteractionsRef.current.some(
+        (q) => q.kind === 'incoming' && normalizeId(q.ban.id) === norm,
+      )
+    );
   }, []);
+
+  const resolveIncomingOverboardPathPick = useCallback(
+    (banId: string, stableIncomingBanIdBeforeClear: string | null) => {
+      const norm = normalizeId(banId);
+      const head = overlayQueueRef.current[0] ?? null;
+      const held = heldUserCardOverlayRef.current;
+      const heldKind = held?.kind ?? null;
+      const heldBanId = held ? normalizeId(heldUserCardBanId(held)) : null;
+      const incomingBanId = incomingBanRef.current?.id ?? null;
+      const incomingBanNorm = normalizeId(incomingBanId);
+      const stableNorm = normalizeId(stableIncomingBanIdBeforeClear ?? '');
+      const drainActive = overlayQueueDrainActiveRef.current;
+      const awaitingUser = notificationChainAwaitingUserRef.current;
+      const transitioning = notificationChainTransitioningRef.current;
+      const queueLen = overlayQueueRef.current.length;
+      const pendingLen = pendingStartupInteractionsRef.current.length;
+      const queueHasIncoming = queueHasIncomingForBan(banId);
+      const replyDirectBanId =
+        replyDeepLinkBanIdRef.current ?? replyDeeplinkPendingBanIdRef.current;
+      const isReplyDirectOutsideQueue =
+        replyDeeplinkFastOpenedRef.current &&
+        normalizeId(replyDirectBanId ?? '') === norm &&
+        !drainActive &&
+        !queueHasIncoming &&
+        queueLen === 0 &&
+        pendingLen === 0 &&
+        !awaitingUser &&
+        !transitioning;
+
+      const snapshot = {
+        banId: norm,
+        queueHeadKind: head?.kind ?? null,
+        queueHeadBanId:
+          head?.kind === 'result'
+            ? head.result.id
+            : head?.kind === 'incoming' || head?.kind === 'check'
+              ? head.ban.id
+              : null,
+        heldKind,
+        heldBanId: heldBanId || null,
+        incomingBanId: incomingBanId ?? null,
+        stableIncomingBanId: stableIncomingBanIdBeforeClear ?? null,
+        drainActive,
+        awaitingUser,
+      };
+
+      if (!norm) {
+        return {
+          path: 'direct' as const,
+          reason: 'invalid-ban-id',
+          ...snapshot,
+        };
+      }
+
+      if (isReplyDirectOutsideQueue) {
+        return {
+          path: 'direct' as const,
+          reason: 'reply-deeplink-outside-queue',
+          ...snapshot,
+        };
+      }
+
+      const reasons: string[] = [];
+
+      if (
+        awaitingUser &&
+        held?.kind === 'incoming' &&
+        heldBanId === norm
+      ) {
+        reasons.push('held-incoming-awaiting');
+      }
+      if (
+        incomingBanNorm === norm &&
+        (isActiveUserCardHold() || awaitingUser)
+      ) {
+        reasons.push('incoming-ban-ref-active-hold');
+      }
+      if (
+        head?.kind === 'incoming' &&
+        normalizeId(head.ban.id) === norm &&
+        (awaitingUser || transitioning || queueLen > 0)
+      ) {
+        reasons.push('queue-head-incoming');
+      }
+      if (heldKind === 'incoming' && heldBanId === norm) {
+        reasons.push('held-incoming');
+      }
+      if (
+        incomingBanNorm === norm &&
+        (queueHasIncoming ||
+          drainActive ||
+          awaitingUser ||
+          transitioning ||
+          queueLen > 0 ||
+          pendingLen > 0 ||
+          stableNorm === norm)
+      ) {
+        reasons.push('incoming-ban-ref-queue-context');
+      }
+      if (stableNorm === norm) {
+        reasons.push('stable-incoming');
+      }
+      if (
+        drainActive &&
+        (queueHasIncoming ||
+          stableNorm === norm ||
+          heldBanId === norm ||
+          incomingBanNorm === norm)
+      ) {
+        reasons.push('queue-drain-active');
+      }
+      if (queueHasIncoming) {
+        reasons.push('queue-incoming-for-ban');
+      }
+      if (
+        (queueLen > 0 || pendingLen > 0) &&
+        (incomingBanNorm === norm ||
+          heldBanId === norm ||
+          stableNorm === norm ||
+          queueHasIncoming)
+      ) {
+        reasons.push('displayed-queue-card');
+      }
+
+      const path = reasons.length > 0 ? ('atomic' as const) : ('direct' as const);
+      return {
+        path,
+        reason: reasons.length > 0 ? reasons.join('+') : 'no-queue-context',
+        ...snapshot,
+      };
+    },
+    [queueHasIncomingForBan],
+  );
 
   const replaceIncomingWithOverboardResultAtomic = useCallback(
     (optimistic: BanResult, banId: string): boolean => {
@@ -9891,6 +10008,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const banId = ban.id;
       const uid = userIdRef.current;
       const mounted = getActiveMountedUserCard();
+      const stableIncomingBanIdBeforeClear =
+        activeIncomingOverlayBanRef.current?.id ?? null;
       logOverboardActionStart({
         banId,
         activeKind: mounted?.kind ?? heldUserCardOverlayRef.current?.kind ?? null,
@@ -9980,7 +10099,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       overboardInFlightRef.current = banId;
       dismissedIncomingRef.current.add(banId);
 
-      if (isChainIncomingOverboardContext(banId)) {
+      const pathPick = resolveIncomingOverboardPathPick(
+        banId,
+        stableIncomingBanIdBeforeClear,
+      );
+      logOverboardPathPick({
+        banId,
+        path: pathPick.path,
+        reason: pathPick.reason,
+        queueHeadKind: pathPick.queueHeadKind,
+        queueHeadBanId: pathPick.queueHeadBanId,
+        heldKind: pathPick.heldKind,
+        heldBanId: pathPick.heldBanId,
+        incomingBanId: pathPick.incomingBanId,
+        stableIncomingBanId: pathPick.stableIncomingBanId,
+        drainActive: pathPick.drainActive,
+        awaitingUser: pathPick.awaitingUser,
+      });
+
+      if (pathPick.path === 'atomic') {
         const atomicOk = replaceIncomingWithOverboardResultAtomic(
           optimistic,
           banId,
@@ -10078,9 +10215,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       collectOverboardFallbackBans,
       clearActiveIncomingOverlayBanStable,
       consumeIncomingAfterAnswer,
-      isChainIncomingOverboardContext,
       readDirectOverboardSnapshot,
       replaceIncomingWithOverboardResultAtomic,
+      resolveIncomingOverboardPathPick,
     ],
   );
 

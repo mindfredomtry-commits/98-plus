@@ -17,6 +17,22 @@ export function logOverboardActionStart(data: {
   emit('[OVERBOARD ACTION START]', data);
 }
 
+export function logOverboardPathPick(data: {
+  banId: string;
+  path: 'atomic' | 'direct';
+  reason: string;
+  queueHeadKind: string | null;
+  queueHeadBanId: string | null;
+  heldKind: string | null;
+  heldBanId: string | null;
+  incomingBanId: string | null;
+  stableIncomingBanId: string | null;
+  drainActive: boolean;
+  awaitingUser: boolean;
+}): void {
+  emit('[OVERBOARD PATH PICK]', data);
+}
+
 export function logOverboardActionResult(data: {
   banId: string;
   apiStatus?: string | null;
