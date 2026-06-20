@@ -1996,6 +1996,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationChainAwaitingUserRef.current &&
     heldUserCardOverlayRef.current != null;
 
+  const isHeldOverboardResultProtected = (
+    resultId: string | null | undefined,
+  ): boolean => {
+    const norm = normalizeId(resultId ?? '');
+    if (!norm) return false;
+    const held = heldUserCardOverlayRef.current;
+    if (held?.kind !== 'result' || normalizeId(held.result.id) !== norm) {
+      return false;
+    }
+    const refNorm = normalizeId(resultRef.current?.id ?? '');
+    const atomicNorm = normalizeId(incomingOverboardAtomicBanIdRef.current ?? '');
+    return norm === refNorm || norm === atomicNorm;
+  };
+
   const captureActiveUserCardHold = (
     kind: BlockingUserOverlayKind,
     source: string,
@@ -3757,6 +3771,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         normalizeId(heldFreshOverboard.result.id) === freshMountedId;
       if (
         freshMountedId.length > 0 &&
+        isHeldOverboardResultProtected(freshMountedId)
+      ) {
+        freshOverboardActionBanIdsRef.current.add(freshMountedId);
+        logResultCardStableHold({
+          banId: freshMountedId,
+          source: 'syncDisplayFromQueue-not-result-held-overboard',
+        });
+        resultOpenRef.current = true;
+        if (heldFreshOverboard?.kind === 'result') {
+          if (normalizeId(resultRef.current?.id ?? '') !== freshMountedId) {
+            resultRef.current = heldFreshOverboard.result;
+            setResult(heldFreshOverboard.result);
+          }
+        }
+        return;
+      }
+      if (
+        freshMountedId.length > 0 &&
         freshOverboardActionBanIdsRef.current.has(freshMountedId) &&
         (stillHeldFreshOverboard || resultOpenRef.current)
       ) {
@@ -5217,7 +5249,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         norm &&
         head?.kind === 'result' &&
         normalizeId(head.result.id) === norm &&
-        freshOverboardActionBanIdsRef.current.has(norm)
+        (freshOverboardActionBanIdsRef.current.has(norm) ||
+          isHeldOverboardResultProtected(norm))
       ) {
         return { removedOverlay: 0, removedStartup: 0 };
       }
@@ -5276,6 +5309,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             itemId === preserveHeadFreshResultId &&
             freshOverboardActionBanIdsRef.current.has(itemId)
           ) {
+            return true;
+          }
+          if (isHeldOverboardResultProtected(itemId)) {
             return true;
           }
           return !isResultBlockedForNotificationChain(
@@ -12936,6 +12972,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         replyDeepLinkBanIdRef.current?.trim() ??
         null;
 
+      const heldProtectResultId =
+        heldUserCardOverlayRef.current?.kind === 'result'
+          ? normalizeId(heldUserCardOverlayRef.current.result.id)
+          : '';
+      const protectHeldOverboardResult =
+        heldProtectResultId.length > 0 &&
+        isHeldOverboardResultProtected(heldProtectResultId);
+
       while (true) {
         sanitizeNotificationChainQueues(source);
         const blockedHead = overlayQueueRef.current[0];
@@ -12955,6 +12999,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               blockedHead.result.id,
               `${source}-preflight`,
             );
+            break;
+          }
+          if (
+            protectHeldOverboardResult &&
+            normalizeId(blockedHead.result.id) === heldProtectResultId
+          ) {
+            freshOverboardActionBanIdsRef.current.add(heldProtectResultId);
             break;
           }
           pruneResultFromNotificationChain(blockedHead.result.id, source);
@@ -13048,6 +13099,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         (freshOverboardActionBanIdsRef.current.has(mountedResultIdForProtect) ||
           isLocalOverboardBypassForBan(mountedResultIdForProtect) ||
           overboardInFlightRef.current === mountedResultIdForProtect);
+      const protectMountedOverboardResult =
+        protectFreshDirect || protectHeldOverboardResult;
       const mountedResultId = resultRef.current?.id?.trim() ?? '';
 
       notificationChainHandoffRef.current = true;
@@ -13079,6 +13132,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setLobbyOpen(false);
       lobbyOpenRef.current = false;
       flushSync(() => {
+        if (protectHeldOverboardResult) {
+          freshOverboardActionBanIdsRef.current.add(heldProtectResultId);
+        }
         const queueHeadBeforeFlush = overlayQueueRef.current[0] ?? null;
         const willShowQueueResult = queueHeadBeforeFlush?.kind === 'result';
         const willShowQueueResultId =
@@ -13089,7 +13145,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           (directResultOverlayRef.current ||
             directResultOverlayActiveRef.current ||
             resultRef.current) &&
-          !protectFreshDirect
+          !protectMountedOverboardResult
         ) {
           const mountedId = normalizeId(resultRef.current?.id ?? '');
           if (
@@ -13105,7 +13161,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         sanitizeNotificationChainQueues(source);
         if (
           mountedResultId &&
-          !protectFreshDirect &&
+          !protectMountedOverboardResult &&
           isResultBlockedForNotificationChain(mountedResultId, source, skipBanId)
         ) {
           const headAfterSanitize = overlayQueueRef.current[0];
