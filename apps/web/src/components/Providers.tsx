@@ -283,7 +283,15 @@ import {
   logOverboardActionStart,
   logQueueItemBuiltAfterOverboard,
   logResultCardRenderDecision,
+  logResultDisplaySourcePick,
+  logResultOverlayJsxDecision,
 } from '@/lib/overboard-action-queue-debug';
+import {
+  logResultAutoClearDecision,
+  logResultClearCallsite,
+  logResultHeldStillPresentAfterClear,
+  logResultStaleGuardBlocked,
+} from '@/lib/result-clear-debug';
 import {
   logResultGoToBansClearActiveHold,
   logResultGoToBansClick,
@@ -1510,7 +1518,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         if (!directResultOverlayRef.current) {
           resultOpenRef.current = false;
           resultRef.current = null;
+          emitResultClearCallsite({
+            source: 'compose-state-change',
+            reason: 'compose-enter-clear-result',
+            willClearResult: true,
+          });
           setResult(null);
+          emitResultHeldStillPresentAfterClear(
+            'compose-state-change',
+            'compose-enter-clear-result',
+          );
           setDirectResultOverlayActive(false);
         }
       }
@@ -1536,8 +1553,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           (notificationChainAwaitingUserRef.current && held != null)
         ) {
           if (heldUserCardOverlayRef.current) {
+            emitResultClearCallsite({
+              source: 'compose-state-change',
+              reason: 'confirm-enter-clear-held',
+              willClearHeld: true,
+            });
             heldUserCardOverlayRef.current = null;
             setHeldUserCardOverlay(null);
+            emitResultHeldStillPresentAfterClear(
+              'compose-state-change',
+              'confirm-enter-clear-held',
+            );
           }
           notificationChainAwaitingUserRef.current = false;
           console.log('[active-user-card-hold-clear]', {
@@ -2062,6 +2088,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const clearActiveUserCardHold = (source: string) => {
     if (!heldUserCardOverlayRef.current) return;
+    const held = heldUserCardOverlayRef.current;
+    emitResultClearCallsite({
+      source,
+      reason: 'clear-active-user-card-hold',
+      willClearHeld: true,
+    });
     logActiveUserCardHoldState({
       source,
       activeUserCardHold: heldUserCardOverlayRef.current.kind,
@@ -2075,7 +2107,106 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setHeldUserCardOverlay(null);
     notificationChainAwaitingUserRef.current = false;
     console.log('[active-user-card-hold-clear]', { source });
+    emitResultHeldStillPresentAfterClear(source, 'clear-active-user-card-hold');
   };
+
+  const emitResultClearCallsite = useCallback(
+    (params: {
+      source: string;
+      reason: string;
+      resultIdBefore?: string | null;
+      willClearResult?: boolean;
+      willClearHeld?: boolean;
+      willPruneQueue?: boolean;
+    }) => {
+      const queueHead = overlayQueueRef.current[0] ?? null;
+      const held = heldUserCardOverlayRef.current;
+      logResultClearCallsite({
+        source: params.source,
+        reason: params.reason,
+        resultIdBefore:
+          params.resultIdBefore ?? result?.id ?? resultRef.current?.id ?? null,
+        heldKindBefore: held?.kind ?? null,
+        heldResultIdBefore:
+          held?.kind === 'result' ? held.result.id : null,
+        queueHeadKindBefore: queueHead?.kind ?? null,
+        queueHeadBanIdBefore:
+          queueHead?.kind === 'result'
+            ? queueHead.result.id
+            : queueHead?.kind === 'incoming' || queueHead?.kind === 'check'
+              ? queueHead.ban.id
+              : null,
+        activeOverlayKind:
+          held?.kind ??
+          queueHead?.kind ??
+          (resultRef.current ? 'result' : null),
+        notificationQueueLocked: isNotificationQueueLocked(),
+        notificationChainAwaitingUser:
+          notificationChainAwaitingUserRef.current,
+        willClearResult: params.willClearResult ?? false,
+        willClearHeld: params.willClearHeld ?? false,
+        willPruneQueue: params.willPruneQueue ?? false,
+      });
+    },
+    [result?.id],
+  );
+
+  const emitResultHeldStillPresentAfterClear = useCallback(
+    (source: string, reason: string) => {
+      const queueHead = overlayQueueRef.current[0] ?? null;
+      const held = heldUserCardOverlayRef.current;
+      const resultIdAfter = result?.id ?? null;
+      const resultRefIdAfter = resultRef.current?.id ?? null;
+      logResultHeldStillPresentAfterClear({
+        source,
+        reason,
+        resultIdAfter,
+        resultRefIdAfter,
+        heldKindAfter: held?.kind ?? null,
+        heldResultIdAfter:
+          held?.kind === 'result' ? held.result.id : null,
+        queueHeadKindAfter: queueHead?.kind ?? null,
+        queueHeadBanIdAfter:
+          queueHead?.kind === 'result'
+            ? queueHead.result.id
+            : queueHead?.kind === 'incoming' || queueHead?.kind === 'check'
+              ? queueHead.ban.id
+              : null,
+        resultStateStillPresent:
+          resultIdAfter != null || resultRefIdAfter != null,
+        heldStillPresent: held != null,
+        queueHeadResultStillPresent: queueHead?.kind === 'result',
+      });
+    },
+    [result?.id],
+  );
+
+  const emitResultAutoClearDecision = useCallback(
+    (params: {
+      banId: string | null;
+      reason: string;
+      refMismatch: boolean;
+      willClear: boolean;
+    }) => {
+      const queueHead = overlayQueueRef.current[0] ?? null;
+      const held = heldUserCardOverlayRef.current;
+      logResultAutoClearDecision({
+        currentResultId: result?.id ?? null,
+        resultRefId: resultRef.current?.id ?? null,
+        heldResultId:
+          held?.kind === 'result' ? held.result.id : null,
+        queueHeadId:
+          queueHead?.kind === 'result' ? queueHead.result.id : null,
+        activeOverlayKind:
+          held?.kind ?? queueHead?.kind ?? (resultRef.current ? 'result' : null),
+        activeOverlayBanId: params.banId,
+        reason: params.reason,
+        refMismatch: params.refMismatch,
+        willClear: params.willClear,
+      });
+    },
+    [result?.id],
+  );
 
   const getConfirmHoldDebugSnapshot = useCallback((): ConfirmHoldDebugSnapshot => {
     const held = heldUserCardOverlayRef.current;
@@ -2511,10 +2642,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       banId: result?.id ?? null,
       reason: 'suppress-queued-display',
     });
+    emitResultAutoClearDecision({
+      banId: result?.id ?? null,
+      reason: 'suppress-queued-display',
+      refMismatch: false,
+      willClear: true,
+    });
+    emitResultClearCallsite({
+      source: 'suppressQueuedOverlayDisplay',
+      reason: 'suppress-queued-display',
+      willClearResult: true,
+    });
     const gateBefore = snapshotDirectOverboardGate();
     clearDirectOverboardLayerRefs();
     setResult(null);
     setDirectResultOverlayActive(false);
+    emitResultHeldStillPresentAfterClear(
+      'suppressQueuedOverlayDisplay',
+      'suppress-queued-display',
+    );
     logDirectOverboardStateReset({
       source: 'suppressQueuedOverlayDisplay',
       reason: 'suppress-queued-display',
@@ -2527,7 +2673,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         hasResult: false,
       },
     });
-  }, [clearDirectOverboardLayerRefs, result?.id, snapshotDirectOverboardGate]);
+  }, [clearDirectOverboardLayerRefs, emitResultAutoClearDecision, emitResultClearCallsite, emitResultHeldStillPresentAfterClear, result?.id, snapshotDirectOverboardGate]);
 
   const armActiveBanDeepLinkEarly = useCallback((banId: string) => {
     armPendingDeepLinkRouteFromStartParam('armActiveBanDeepLinkEarly');
@@ -3288,9 +3434,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             resultId: active.result.id,
             reason: resultBlock.reason ?? 'queue-head-blocked',
           });
+          emitResultAutoClearDecision({
+            banId: active.result.id,
+            reason: resultBlock.reason ?? 'queue-head-blocked',
+            refMismatch: false,
+            willClear: true,
+          });
+          emitResultClearCallsite({
+            source: 'syncDisplayFromQueue',
+            reason: resultBlock.reason ?? 'queue-head-blocked',
+            resultIdBefore: active.result.id,
+            willClearResult: true,
+          });
           const gateBefore = snapshotDirectOverboardGate();
           setResult(null);
           setDirectResultOverlayActive(false);
+          emitResultHeldStillPresentAfterClear(
+            'syncDisplayFromQueue',
+            resultBlock.reason ?? 'queue-head-blocked',
+          );
           logDirectOverboardStateReset({
             source: 'syncDisplayFromQueue',
             reason: resultBlock.reason ?? 'queue-head-blocked',
@@ -3338,6 +3500,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             awaitingUser: notificationChainAwaitingUserRef.current,
             handoff: notificationChainHandoffRef.current,
           });
+          emitResultAutoClearDecision({
+            banId: resultId,
+            reason: 'syncDisplayFromQueue-stale-prune',
+            refMismatch: false,
+            willClear: true,
+          });
+          emitResultClearCallsite({
+            source: 'syncDisplayFromQueue-stale-prune',
+            reason: 'stale-prune-before',
+            resultIdBefore: resultId,
+            willClearResult: true,
+            willPruneQueue: true,
+          });
           console.log('[result-overlay-pruned-before-show]', {
             banId: resultId,
             source: 'syncDisplayFromQueue',
@@ -3353,6 +3528,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             setResult(null);
             setDirectResultOverlayActive(false);
           }
+          emitResultHeldStillPresentAfterClear(
+            'syncDisplayFromQueue-stale-prune',
+            'stale-prune-after',
+          );
           if (pruned.length !== queue.length) {
             syncDisplayFromQueue(pruned);
           }
@@ -3456,10 +3635,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           resultId: directBanId,
           reason: directBlock.reason ?? 'direct-blocked',
         });
+        emitResultClearCallsite({
+          source: 'syncDisplayFromQueue-direct',
+          reason: directBlock.reason ?? 'direct-blocked',
+          willClearResult: true,
+        });
         const gateBefore = snapshotDirectOverboardGate();
         clearDirectOverboardLayerRefs();
         setResult(null);
         setDirectResultOverlayActive(false);
+        emitResultHeldStillPresentAfterClear(
+          'syncDisplayFromQueue-direct',
+          directBlock.reason ?? 'direct-blocked',
+        );
         logDirectOverboardStateReset({
           source: 'syncDisplayFromQueue-direct',
           reason: directBlock.reason ?? 'direct-blocked',
@@ -3551,8 +3739,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         extra: { headKind: active?.kind ?? null },
       });
       const gateBefore = snapshotDirectOverboardGate();
+      emitResultClearCallsite({
+        source: 'syncDisplayFromQueue',
+        reason: 'queue-head-not-result',
+        willClearResult: true,
+      });
       setResult(null);
       setDirectResultOverlayActive(false);
+      emitResultHeldStillPresentAfterClear(
+        'syncDisplayFromQueue',
+        'queue-head-not-result',
+      );
       logDirectOverboardStateReset({
         source: 'syncDisplayFromQueue',
         reason: 'queue-head-not-result',
@@ -3821,15 +4018,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (kind === 'result') {
         logResultCardMounted({ banId });
         const mounted = resultRef.current;
-        if (!mounted?.id || normalizeId(mounted.id) !== normalizeId(banId)) {
+        const refMismatch =
+          !mounted?.id || normalizeId(mounted.id) !== normalizeId(banId);
+        if (refMismatch) {
+          emitResultAutoClearDecision({
+            banId,
+            reason: 'result-ref-mismatch',
+            refMismatch: true,
+            willClear: false,
+          });
           logResultCardAutoClearedBug({
             banId,
             reason: 'result-ref-mismatch',
             refBanId: mounted?.id ?? null,
+            refMismatch: true,
           });
           return;
         }
         if (!isResultNotificationPayloadReady(mounted)) {
+          emitResultAutoClearDecision({
+            banId,
+            reason: 'result-payload-not-ready',
+            refMismatch: false,
+            willClear: false,
+          });
           logResultCardAutoClearedBug({
             banId,
             reason: 'result-payload-not-ready',
@@ -3940,7 +4152,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       }
     },
-    [],
+    [emitResultAutoClearDecision],
   );
 
   const isExplicitUserOverlayDismissReason = (
@@ -4834,6 +5046,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const shown = shownOverlayKeysRef.current.has(`result:${key}`);
       const freshAction = freshOverboardActionBanIdsRef.current.has(key);
 
+      const logBlocked = (blockReason: string): true => {
+        logResultStaleGuardBlocked({
+          banId: key,
+          source,
+          blockReason,
+          freshAction,
+          consumed,
+          delivered,
+          dismissed,
+          shown,
+        });
+        return true;
+      };
+
       console.log('[result-stale-guard-check]', {
         banId,
         key,
@@ -4846,7 +5072,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       if (!key) {
         console.log('[result-card-blocked]', { banId, reason: 'no-key', source });
-        return true;
+        return logBlocked('no-key');
       }
       if (
         incomingOverboardAtomicBanIdRef.current === key &&
@@ -4860,7 +5086,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
           reason: 'skip-ban',
         });
-        return true;
+        return logBlocked('skip-ban');
       }
       if (freshAction) {
         console.log('[result-stale-guard-bypass-fresh]', {
@@ -4881,7 +5107,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
           reason: 'consumed',
         });
-        return true;
+        return logBlocked('consumed');
       }
       if (delivered) {
         console.log('[result-stale-blocked]', { banId: key, key, source });
@@ -4895,7 +5121,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
           reason: 'delivered',
         });
-        return true;
+        return logBlocked('delivered');
       }
       if (shown) {
         console.log('[result-stale-blocked]', { banId: key, key, source });
@@ -4909,7 +5135,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
           reason: 'shown-overlay-key',
         });
-        return true;
+        return logBlocked('shown-overlay-key');
       }
       if (dismissed) {
         console.log('[result-stale-blocked]', { banId: key, key, source });
@@ -4923,7 +5149,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
           reason: 'dismissed-local',
         });
-        return true;
+        return logBlocked('dismissed-local');
       }
       return false;
     },
@@ -4955,6 +5181,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const removedOverlay = beforeOverlay.length - nextOverlay.length;
       const removedStartup = beforeStartup.length - nextStartup.length;
       if (removedOverlay > 0 || removedStartup > 0) {
+        emitResultClearCallsite({
+          source,
+          reason: 'prune-result-from-notification-chain',
+          resultIdBefore: banId,
+          willPruneQueue: true,
+        });
         console.log('[result-overlay-pruned-before-show]', {
           banId,
           source,
@@ -4965,10 +5197,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         pendingStartupInteractionsRef.current = nextStartup;
         setOverlayQueue(nextOverlay);
         syncPendingStartupCount();
+        emitResultHeldStillPresentAfterClear(
+          source,
+          'prune-result-from-notification-chain',
+        );
       }
       return { removedOverlay, removedStartup };
     },
-    [syncPendingStartupCount],
+    [emitResultClearCallsite, emitResultHeldStillPresentAfterClear, syncPendingStartupCount],
   );
 
   const sanitizeNotificationChainQueues = useCallback(
@@ -6300,7 +6536,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             resultId: banId,
             wasDirect,
           });
+          emitResultClearCallsite({
+            source: 'dismissBanResult',
+            reason: clearsResult ? 'dismiss-clear-result' : 'dismiss-keep-queue-result',
+            resultIdBefore: banId,
+            willClearResult: clearsResult,
+          });
           setResult(null);
+          emitResultHeldStillPresentAfterClear(
+            'dismissBanResult',
+            clearsResult ? 'dismiss-clear-result' : 'dismiss-keep-queue-result',
+          );
         }
         logDirectOverboardStateReset({
           source: 'dismissBanResult',
@@ -6613,9 +6859,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
     } else {
       const gateBefore = snapshotDirectOverboardGate();
+      emitResultClearCallsite({
+        source: 'providers-reset',
+        reason: 'auth-user-changed',
+        willClearResult: true,
+      });
       setResult(null);
       clearDirectOverboardLayerRefs();
       setDirectResultOverlayActive(false);
+      emitResultHeldStillPresentAfterClear(
+        'providers-reset',
+        'auth-user-changed',
+      );
       logDirectOverboardStateReset({
         source: 'providers-reset',
         reason: 'auth-user-changed',
@@ -9138,8 +9393,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source,
         ...buildIncomingReplyCleanupSnapshot(),
       });
+      emitResultClearCallsite({
+        source,
+        reason: 'release-incoming-overlay-for-reply-compose',
+        willClearHeld: true,
+      });
       heldUserCardOverlayRef.current = null;
       setHeldUserCardOverlay(null);
+      emitResultHeldStillPresentAfterClear(
+        source,
+        'release-incoming-overlay-for-reply-compose',
+      );
       notificationChainAwaitingUserRef.current = false;
       notificationChainHandoffRef.current = false;
       logIncomingReplyCleanupSnapshot({
@@ -12302,8 +12566,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId,
         kind: 'result',
       });
+      emitResultClearCallsite({
+        source: 'applyDirectOverboardCloseState',
+        reason: 'direct-overboard-close',
+        resultIdBefore: banId,
+        willClearResult: true,
+      });
       setResult(null);
       resultRef.current = null;
+      emitResultHeldStillPresentAfterClear(
+        'applyDirectOverboardCloseState',
+        'direct-overboard-close',
+      );
     },
     [clearDirectOverboardLayerRefs],
   );
@@ -12780,8 +13054,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ) {
             markResultOverlayConsumed(mountedResultId, `${source}-mounted-result`);
             resultOpenRef.current = false;
+            emitResultAutoClearDecision({
+              banId: mountedResultId,
+              reason: `${source}-mounted-result-stale`,
+              refMismatch: false,
+              willClear: true,
+            });
+          emitResultClearCallsite({
+            source,
+            reason: 'mounted-result-stale-clear',
+            resultIdBefore: mountedResultId,
+            willClearResult: true,
+          });
             setResult(null);
             setDirectResultOverlayActive(false);
+            emitResultHeldStillPresentAfterClear(
+              source,
+              'mounted-result-stale-clear',
+            );
           }
         }
         const headAfterMerge = overlayQueueRef.current[0];
@@ -14248,8 +14538,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearDirectOverboardLayerRefs();
       resultOpenRef.current = false;
       setDirectResultOverlayActive(false);
+      emitResultClearCallsite({
+        source: 'finalizeResultForGoToBans',
+        reason: 'go-to-bans-finalize',
+        resultIdBefore: key,
+        willClearResult: true,
+      });
       setResult(null);
       resultRef.current = null;
+      emitResultHeldStillPresentAfterClear(
+        'finalizeResultForGoToBans',
+        'go-to-bans-finalize',
+      );
 
       lastProcessedOverlayKindForBansRef.current = 'result';
     },
@@ -15249,6 +15549,53 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     !isLocalOverboardBypassForBan(result?.id ?? null);
   const displayResult =
     priorityBlocksResult || sendSuccessCardActive ? null : result;
+
+  useLayoutEffect(() => {
+    const queueHead =
+      overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
+    const heldResult =
+      heldUserCardOverlay?.kind === 'result' ? heldUserCardOverlay.result : null;
+    const queueHeadResult =
+      queueHead?.kind === 'result' ? queueHead.result : null;
+    const refResult = resultRef.current;
+    const fromDisplayResult = displayResult != null;
+    const fromHeldResult = heldResult != null;
+    const fromQueueHeadResult = queueHeadResult != null;
+    const fromResultRef = refResult != null;
+
+    let sourcePicked = 'none';
+    if (displayResult) {
+      sourcePicked = 'displayResult-via-result-state';
+    } else if (priorityBlocksResult) {
+      sourcePicked = 'blocked-priorityBlocksResult';
+    } else if (sendSuccessCardActive) {
+      sourcePicked = 'blocked-sendSuccessCardActive';
+    } else if (!result) {
+      sourcePicked = 'no-result-state';
+    }
+
+    const finalPayload = displayResult ?? refResult ?? heldResult ?? queueHeadResult;
+    logResultDisplaySourcePick({
+      sourcePicked,
+      fromDisplayResult,
+      fromHeldResult,
+      fromQueueHeadResult,
+      fromResultRef,
+      finalExists: finalPayload != null,
+      finalStatus: finalPayload?.status ?? null,
+      finalOutcome: finalPayload?.outcome ?? null,
+      priorityBlocksResult,
+      sendSuccessCardActive,
+    });
+  }, [
+    displayResult,
+    heldUserCardOverlay,
+    overlayQueue,
+    priorityBlocksResult,
+    result,
+    sendSuccessCardActive,
+  ]);
+
   const showDirectOverboardLayer =
     directResultOverlayActive && displayResult != null && !sendSuccessCardActive;
 
@@ -15788,8 +16135,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
         }
         resultOpenRef.current = false;
+        emitResultClearCallsite({
+          source: 'completeBansOverlayCloseFromResultCta',
+          reason: 'result-cta-bans-close',
+          willClearResult: true,
+        });
         setResult(null);
         resultRef.current = null;
+        emitResultHeldStillPresentAfterClear(
+          'completeBansOverlayCloseFromResultCta',
+          'result-cta-bans-close',
+        );
         clearDirectOverboardLayerRefs();
         setDirectResultOverlayActive(false);
         restoreLobbyShellForResultCtaReturn();
@@ -16098,15 +16454,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     );
   }, [incomingNextHydrateBanId, overlayQueue]);
 
+  const activeResultPayload = useMemo(() => {
+    const queueHead =
+      overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
+    const heldIsResult = heldUserCardOverlay?.kind === 'result';
+    const queueHeadIsResult = queueHead?.kind === 'result';
+    return (
+      displayResult ??
+      (heldIsResult ? heldUserCardOverlay.result : null) ??
+      (queueHeadIsResult ? queueHead.result : null)
+    );
+  }, [displayResult, heldUserCardOverlay, overlayQueue]);
+
   const incomingNotificationShellKind = useMemo(() => {
     const queueHead =
       overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
     const heldIsResult = heldUserCardOverlay?.kind === 'result';
     const queueHeadIsResult = queueHead?.kind === 'result';
-    const activeResultPayload =
-      displayResult ??
-      (heldIsResult ? heldUserCardOverlay.result : null) ??
-      (queueHeadIsResult ? queueHead.result : null);
 
     if (
       !showDirectOverboardLayer &&
@@ -16147,6 +16511,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     heldUserCardOverlay,
     checkBan,
     queueHeadKind,
+    activeResultPayload,
   ]);
 
   const notificationQueueShellKind = useMemo(() => {
@@ -16170,6 +16535,50 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     heldUserCardOverlay,
     incomingNotificationShellKind,
     replyIncomingDirectPath,
+  ]);
+
+  useLayoutEffect(() => {
+    const queueHead =
+      overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
+    const heldResult =
+      heldUserCardOverlay?.kind === 'result' ? heldUserCardOverlay.result : null;
+    const activeOverlayBanId =
+      activeOverlayKind === 'result'
+        ? displayResult?.id ??
+          heldResult?.id ??
+          (queueHead?.kind === 'result' ? queueHead.result.id : null) ??
+          resultRef.current?.id ??
+          null
+        : activeOverlayKind === 'incoming'
+          ? incomingBan?.id ?? null
+          : activeOverlayKind === 'check'
+            ? checkBan?.id ?? null
+            : null;
+
+    logResultOverlayJsxDecision({
+      shellKind: notificationQueueShellKind,
+      willRenderResultOverlay:
+        notificationQueueShellKind === 'result' && Boolean(activeResultPayload),
+      displayResultExists: Boolean(displayResult),
+      displayResultStatus: displayResult?.status ?? null,
+      displayResultOutcome: displayResult?.outcome ?? null,
+      heldKind: heldUserCardOverlay?.kind ?? null,
+      heldResultExists: Boolean(heldResult),
+      heldResultStatus: heldResult?.status ?? null,
+      resultRefExists: Boolean(resultRef.current),
+      resultRefStatus: resultRef.current?.status ?? null,
+      activeOverlayKind,
+      activeOverlayBanId,
+    });
+  }, [
+    activeOverlayKind,
+    activeResultPayload,
+    checkBan?.id,
+    displayResult,
+    heldUserCardOverlay,
+    incomingBan?.id,
+    notificationQueueShellKind,
+    overlayQueue,
   ]);
 
   useLayoutEffect(() => {
@@ -17932,13 +18341,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     <CheckOverlay contentOnly />
                   </ChallengeErrorBoundary>
                 ) : null}
-                {notificationQueueShellKind === 'result' && displayResult ? (
+                {notificationQueueShellKind === 'result' && activeResultPayload ? (
                   <ChallengeErrorBoundary
                     name="result"
                     onRecover={() => dismissBanResult()}
                   >
                     <ResultOverlay
-                      result={displayResult}
+                      result={activeResultPayload}
                       onClose={dismissBanResult}
                       contentOnly
                     />

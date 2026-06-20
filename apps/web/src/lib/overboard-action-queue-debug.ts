@@ -88,3 +88,48 @@ export function logChainAdvanceBlockedActiveUserCardDetail(data: {
 }): void {
   emit('[CHAIN ADVANCE BLOCKED ACTIVE USER CARD DETAIL]', data);
 }
+
+export function logResultOverlayJsxDecision(data: {
+  shellKind: string | null;
+  willRenderResultOverlay: boolean;
+  displayResultExists: boolean;
+  displayResultStatus: string | null;
+  displayResultOutcome: string | null;
+  heldKind: string | null;
+  heldResultExists: boolean;
+  heldResultStatus: string | null;
+  resultRefExists: boolean;
+  resultRefStatus: string | null;
+  activeOverlayKind: string | null;
+  activeOverlayBanId: string | null;
+}): void {
+  emit('[RESULT OVERLAY JSX DECISION]', data);
+}
+
+export function logResultOverlayContentCheck(data: {
+  banId: string;
+  status: string | null;
+  headline: string | null;
+  outcome: string | null;
+  hasTitle: boolean;
+  hasBody: boolean;
+  hasButtons: boolean;
+  returnNullReason: string | null;
+}): void {
+  emit('[RESULT OVERLAY CONTENT CHECK]', data);
+}
+
+export function logResultDisplaySourcePick(data: {
+  sourcePicked: string;
+  fromDisplayResult: boolean;
+  fromHeldResult: boolean;
+  fromQueueHeadResult: boolean;
+  fromResultRef: boolean;
+  finalExists: boolean;
+  finalStatus: string | null;
+  finalOutcome: string | null;
+  priorityBlocksResult?: boolean;
+  sendSuccessCardActive?: boolean;
+}): void {
+  emit('[RESULT DISPLAY SOURCE PICK]', data);
+}

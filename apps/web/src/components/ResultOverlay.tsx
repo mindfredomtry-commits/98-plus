@@ -44,7 +44,7 @@ import {
 } from '@/lib/overboard-timing-debug';
 import { logResultFunMode } from '@/lib/result-fun-mode-debug';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
-import { logResultCardRenderDecision } from '@/lib/overboard-action-queue-debug';
+import { logResultCardRenderDecision, logResultOverlayContentCheck } from '@/lib/overboard-action-queue-debug';
 import { BanSaveStar } from './instant-ban/BanSaveStar';
 import { ResultShareIcon } from './instant-ban/ResultShareIcon';
 import './instant-ban/instant-ban.css';
@@ -412,6 +412,17 @@ function ResultOverlayInner({
   const senderStatus = result.confirmations?.sender;
   const receiverStatus = result.confirmations?.receiver;
   const hasActions = view.isSender || view.isReceiver;
+
+  logResultOverlayContentCheck({
+    banId: result.id,
+    status: result.status ?? null,
+    headline: view.displayHeadline ?? null,
+    outcome: result.outcome ?? null,
+    hasTitle: Boolean(view.displayHeadline?.trim()),
+    hasBody: Boolean(result.text?.trim()),
+    hasButtons: hasActions,
+    returnNullReason: returnsNullReason,
+  });
 
   useLayoutEffect(() => {
     if (!showable || !result.id) return;
