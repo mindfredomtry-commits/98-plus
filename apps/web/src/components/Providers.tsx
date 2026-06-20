@@ -3427,6 +3427,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           resultOpenRef.current = true;
           return;
         }
+        const held = heldUserCardOverlayRef.current;
+        const isFreshOverboardResult =
+          freshOverboardActionBanIdsRef.current.has(blockedResultId);
+        const isHeldQueueHeadResult =
+          (held?.kind === 'result' &&
+            normalizeId(held.result.id) === blockedResultId) ||
+          blockedResultId === normalizeId(active.result.id);
+        if (isFreshOverboardResult && isHeldQueueHeadResult) {
+          logResultCardStableHold({
+            banId: blockedResultId,
+            source: 'syncDisplayFromQueue-blocked-fresh-overboard',
+          });
+          resultOpenRef.current = true;
+          if (normalizeId(resultRef.current?.id ?? '') !== blockedResultId) {
+            resultRef.current = active.result;
+            setResult(active.result);
+          }
+          return;
+        }
         if (!directResultOverlayRef.current) {
           resultOpenRef.current = false;
           logResultStateCleared('syncDisplayFromQueue', {
