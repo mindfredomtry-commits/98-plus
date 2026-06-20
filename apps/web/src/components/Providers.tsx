@@ -9951,6 +9951,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           setChainAdvanceWaiting(false);
           setLobbyOpen(false);
           lobbyOpenRef.current = false;
+          clearActiveIncomingOverlayBanStable('atomic-result');
         });
       } catch {
         incomingOverboardAtomicBanIdRef.current = null;
@@ -9992,6 +9993,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return true;
     },
     [
+      clearActiveIncomingOverlayBanStable,
       clearDirectOverboardLayerRefs,
       clearReplyParentActivePriority,
       setChainAdvanceWaiting,
@@ -16941,7 +16943,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (
       stableIncomingOverlayBan?.id &&
       !showDirectOverboardLayer &&
-      !replyIncomingDirectPath
+      !replyIncomingDirectPath &&
+      !heldIsResult &&
+      !queueHeadIsResult
     ) {
       return 'incoming' as const;
     }
@@ -18745,7 +18749,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             >
               <NotificationQueueShell
                 kind={
-                  stableIncomingOverlayBan?.id
+                  stableIncomingOverlayBan?.id &&
+                  notificationQueueShellKind !== 'result' &&
+                  heldUserCardOverlay?.kind !== 'result'
                     ? 'incoming'
                     : notificationQueueShellKind
                 }
