@@ -1,5 +1,11 @@
 'use client';
 
+import {
+  appendChainTraceEvent,
+  installChainTraceHelpers,
+  resetChainTraceEvents,
+} from './debug98-chain-trace';
+
 export type Debug98Event = {
   t: number;
   event: string;
@@ -9,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 24;
+export const DEBUG98_LOGGER_VERSION = 25;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -235,6 +241,10 @@ const ALLOWED_EVENTS = new Set([
   '[OVERBOARD ACTION START]',
   '[OVERBOARD ACTION RESULT]',
   '[QUEUE ITEM BUILT AFTER OVERBOARD]',
+  '[CHAIN HEAD SWITCH TRACE]',
+  '[atomic-overboard-guard-miss]',
+  '[show-next-blocked-atomic-overboard]',
+  '[chain-continue-blocked-atomic-overboard]',
   '[RESULT CARD RENDER DECISION]',
   '[ACTIVE USER CARD HOLD STATE]',
   '[CHAIN ADVANCE BLOCKED ACTIVE USER CARD DETAIL]',
@@ -362,6 +372,8 @@ declare global {
     __debug98events?: Debug98Event[];
     __debug98log?: (event: string, data?: unknown) => void;
     __debug98LoggerVersion?: number;
+    __dump98ChainTrace?: () => string[];
+    __copy98ChainTrace?: () => Promise<string>;
   }
 }
 
@@ -385,11 +397,14 @@ export function installDebug98log() {
   const previousVersion = window.__debug98LoggerVersion ?? null;
 
   window.__debug98events = [];
+  resetChainTraceEvents();
   window.__debug98LoggerVersion = DEBUG98_LOGGER_VERSION;
   window.__debug98log = (event: string, data?: unknown) => {
+    appendChainTraceEvent(event, data);
     if (!ALLOWED_EVENTS.has(event)) return;
     appendDebug98Event(event, data);
   };
+  installChainTraceHelpers();
 
   appendDebug98Event('[debug98-logger-installed]', {
     version: DEBUG98_LOGGER_VERSION,

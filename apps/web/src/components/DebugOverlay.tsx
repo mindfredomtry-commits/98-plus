@@ -46,6 +46,15 @@ export function DebugOverlay() {
     });
   }, [events]);
 
+  const copyChainTrace = () => {
+    const text = window.__dump98ChainTrace?.().join('\n') ?? '';
+    if (typeof copy === 'function') {
+      copy(text);
+      return;
+    }
+    void window.__copy98ChainTrace?.();
+  };
+
   if (!mounted) return null;
 
   return createPortal(
@@ -73,6 +82,28 @@ export function DebugOverlay() {
       }}
     >
       {lines.length ? lines.join('\n') : 'debug98: waiting…'}
+      <button
+        type="button"
+        data-debug98-copy-chain="1"
+        onClick={() => {
+          void copyChainTrace();
+        }}
+        style={{
+          display: 'block',
+          marginTop: 6,
+          pointerEvents: 'auto',
+          cursor: 'pointer',
+          fontSize: 10,
+          lineHeight: '14px',
+          padding: '2px 6px',
+          borderRadius: 4,
+          border: '1px solid rgba(255,255,255,0.35)',
+          background: 'rgba(255,255,255,0.12)',
+          color: '#fff',
+        }}
+      >
+        Copy chain trace
+      </button>
     </div>,
     document.body,
   );
