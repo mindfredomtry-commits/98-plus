@@ -3749,6 +3749,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         resultOpen: resultOpenRef.current,
         chainAwaiting: notificationChainAwaitingUserRef.current,
       });
+      const freshMountedId = normalizeId(mountedResultId);
+      const heldFreshOverboard = heldUserCardOverlayRef.current;
+      const stillHeldFreshOverboard =
+        heldFreshOverboard?.kind === 'result' &&
+        freshMountedId.length > 0 &&
+        normalizeId(heldFreshOverboard.result.id) === freshMountedId;
+      if (
+        freshMountedId.length > 0 &&
+        freshOverboardActionBanIdsRef.current.has(freshMountedId) &&
+        (stillHeldFreshOverboard || resultOpenRef.current)
+      ) {
+        logResultCardStableHold({
+          banId: freshMountedId,
+          source: 'syncDisplayFromQueue-not-result-fresh-overboard',
+        });
+        resultOpenRef.current = true;
+        return;
+      }
       resultOpenRef.current = false;
       logResultPath('syncDisplayFromQueue', 'state-cleared', {
         banId:
@@ -5099,6 +5117,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ) {
         return false;
       }
+      if (freshAction) {
+        console.log('[result-stale-guard-bypass-fresh]', {
+          banId: key,
+          source,
+        });
+        return false;
+      }
       if (normalizedSkip && key === normalizedSkip) {
         console.log('[result-overlay-enqueue-skip]', {
           banId: key,
@@ -5106,13 +5131,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason: 'skip-ban',
         });
         return logBlocked('skip-ban');
-      }
-      if (freshAction) {
-        console.log('[result-stale-guard-bypass-fresh]', {
-          banId: key,
-          source,
-        });
-        return false;
       }
       if (consumed) {
         console.log('[result-stale-blocked]', { banId: key, key, source });
@@ -5193,6 +5211,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const pruneResultFromNotificationChain = useCallback(
     (banId: string, source = 'prune'): { removedOverlay: number; removedStartup: number } => {
+      const norm = normalizeId(banId);
+      const head = overlayQueueRef.current[0];
+      if (
+        norm &&
+        head?.kind === 'result' &&
+        normalizeId(head.result.id) === norm &&
+        freshOverboardActionBanIdsRef.current.has(norm)
+      ) {
+        return { removedOverlay: 0, removedStartup: 0 };
+      }
       const beforeOverlay = overlayQueueRef.current;
       const beforeStartup = pendingStartupInteractionsRef.current;
       const nextOverlay = removeOverlaysForBan(beforeOverlay, banId, ['result']);
@@ -5232,17 +5260,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         replyDeeplinkParentBanIdRef.current?.trim() ??
         replyDeepLinkBanIdRef.current?.trim() ??
         null;
-      const filterQueue = (queue: QueuedOverlay[]) =>
+      const overlayHeadFreshResultId =
+        overlayQueueRef.current[0]?.kind === 'result'
+          ? normalizeId(overlayQueueRef.current[0].result.id)
+          : null;
+      const filterQueue = (
+        queue: QueuedOverlay[],
+        preserveHeadFreshResultId: string | null,
+      ) =>
         queue.filter((item) => {
           if (item.kind !== 'result') return true;
+          const itemId = normalizeId(item.result.id);
+          if (
+            preserveHeadFreshResultId &&
+            itemId === preserveHeadFreshResultId &&
+            freshOverboardActionBanIdsRef.current.has(itemId)
+          ) {
+            return true;
+          }
           return !isResultBlockedForNotificationChain(
             item.result.id,
             source,
             skipBanId,
           );
         });
-      const nextOverlay = filterQueue(overlayQueueRef.current);
-      const nextStartup = filterQueue(pendingStartupInteractionsRef.current);
+      const nextOverlay = filterQueue(
+        overlayQueueRef.current,
+        overlayHeadFreshResultId,
+      );
+      const nextStartup = filterQueue(pendingStartupInteractionsRef.current, null);
       if (
         nextOverlay.length !== overlayQueueRef.current.length ||
         nextStartup.length !== pendingStartupInteractionsRef.current.length
