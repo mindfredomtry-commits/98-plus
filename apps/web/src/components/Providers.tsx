@@ -16952,7 +16952,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (
       (incomingCardDisplayBan || incomingShellHydrating) &&
       effectiveShouldRenderIncoming &&
-      !showDirectOverboardLayer
+      !showDirectOverboardLayer &&
+      !heldIsResult &&
+      !queueHeadIsResult
     ) {
       return 'incoming' as const;
     }
@@ -16998,6 +17000,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     heldUserCardOverlay,
     incomingNotificationShellKind,
     replyIncomingDirectPath,
+  ]);
+
+  const effectiveNotificationQueueShellKind = useMemo(() => {
+    const queueHead =
+      overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
+    const heldIsResult = heldUserCardOverlay?.kind === 'result';
+    const queueHeadIsResult = queueHead?.kind === 'result';
+    if (
+      !showDirectOverboardLayer &&
+      (heldIsResult || queueHeadIsResult || activeResultPayload)
+    ) {
+      return 'result' as const;
+    }
+    return notificationQueueShellKind;
+  }, [
+    activeResultPayload,
+    heldUserCardOverlay,
+    notificationQueueShellKind,
+    overlayQueue,
+    showDirectOverboardLayer,
   ]);
 
   useLayoutEffect(() => {
@@ -18733,14 +18755,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               activeOverlayKind={
                 showReplyIncomingOverlayDirect
                   ? 'incoming'
-                  : stableIncomingOverlayBan?.id
-                    ? 'incoming'
-                    : notificationQueueShellKind
+                  : effectiveNotificationQueueShellKind
               }
               activeIncomingBanId={
                 showReplyIncomingOverlayDirect ||
-                stableIncomingOverlayBan?.id ||
-                notificationQueueShellKind === 'incoming'
+                effectiveNotificationQueueShellKind === 'incoming'
                   ? (stableIncomingOverlayBan?.id ??
                       incomingCardDisplayBan?.id ??
                       null)
@@ -18748,13 +18767,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               }
             >
               <NotificationQueueShell
-                kind={
-                  stableIncomingOverlayBan?.id &&
-                  notificationQueueShellKind !== 'result' &&
-                  heldUserCardOverlay?.kind !== 'result'
-                    ? 'incoming'
-                    : notificationQueueShellKind
-                }
+                kind={effectiveNotificationQueueShellKind}
                 displayBanId={
                   stableIncomingOverlayBan?.id ??
                   incomingCardDisplayBan?.id ??
@@ -18775,7 +18788,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                         : null
                 }
               >
-                {(notificationQueueShellKind === 'incoming') &&
+                {(effectiveNotificationQueueShellKind === 'incoming') &&
                 (incomingCardDisplayBan ||
                   stableIncomingOverlayBan ||
                   incomingShellHydrating) ? (
@@ -18808,7 +18821,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     <CheckOverlay contentOnly />
                   </ChallengeErrorBoundary>
                 ) : null}
-                {notificationQueueShellKind === 'result' && activeResultPayload ? (
+                {effectiveNotificationQueueShellKind === 'result' && activeResultPayload ? (
                   <ChallengeErrorBoundary
                     name="result"
                     onRecover={() => dismissBanResult()}
