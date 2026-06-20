@@ -16099,7 +16099,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [incomingNextHydrateBanId, overlayQueue]);
 
   const incomingNotificationShellKind = useMemo(() => {
-    if (heldUserCardOverlay?.kind === 'result' && displayResult) {
+    const queueHead =
+      overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
+    const heldIsResult = heldUserCardOverlay?.kind === 'result';
+    const queueHeadIsResult = queueHead?.kind === 'result';
+    const activeResultPayload =
+      displayResult ??
+      (heldIsResult ? heldUserCardOverlay.result : null) ??
+      (queueHeadIsResult ? queueHead.result : null);
+
+    if (
+      !showDirectOverboardLayer &&
+      activeResultPayload &&
+      (heldIsResult || queueHeadIsResult || incomingOverlayDisplayKind === 'result')
+    ) {
       return 'result' as const;
     }
     if (
@@ -16119,14 +16132,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (incomingOverlayDisplayKind === 'check' && checkBan && (checkGateActive || queueHeadKind === 'check')) {
       return 'check' as const;
     }
-    if (incomingOverlayDisplayKind === 'result' && displayResult) {
-      return 'result' as const;
-    }
     return null;
   }, [
     incomingCardDisplayBan,
     incomingShellHydrating,
     effectiveShouldRenderIncoming,
+    overlayQueue,
     replyIncomingDirectPath,
     showDirectOverboardLayer,
     stableIncomingOverlayBan?.id,
@@ -17888,8 +17899,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                         : null
                 }
               >
-                {(notificationQueueShellKind === 'incoming' ||
-                  stableIncomingOverlayBan?.id) &&
+                {(notificationQueueShellKind === 'incoming') &&
                 (incomingCardDisplayBan ||
                   stableIncomingOverlayBan ||
                   incomingShellHydrating) ? (
