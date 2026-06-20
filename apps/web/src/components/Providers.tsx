@@ -22,6 +22,7 @@ import type {
 } from '@98plus/shared';
 import {
   ensureDirectOverboardOptimisticResult,
+  getResultCardHeadline,
   isDirectOverboardOpenable,
   isValidBanResultPayload,
   parseStartParam,
@@ -275,6 +276,14 @@ import {
   logResultCardRemountBug,
   logResultCardStableHold,
 } from '@/lib/incoming-overboard-atomic-debug';
+import {
+  logActiveUserCardHoldState,
+  logChainAdvanceBlockedActiveUserCardDetail,
+  logOverboardActionResult,
+  logOverboardActionStart,
+  logQueueItemBuiltAfterOverboard,
+  logResultCardRenderDecision,
+} from '@/lib/overboard-action-queue-debug';
 import {
   logResultGoToBansClearActiveHold,
   logResultGoToBansClick,
@@ -1933,6 +1942,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       nextBanId,
       source,
     });
+    logChainAdvanceBlockedActiveUserCardDetail({
+      activeKind: active.kind,
+      activeBanId: active.banId,
+      nextKind,
+      nextBanId,
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      blockReason: 'chain-advance-over-active-user-card',
+      heldKind: heldUserCardOverlayRef.current?.kind ?? null,
+      heldBanId: heldUserCardOverlayRef.current
+        ? heldUserCardBanId(heldUserCardOverlayRef.current)
+        : null,
+      source,
+    });
     if (active.kind === 'incoming') {
       logIncomingReplacedBug({
         activeBanId: active.banId,
@@ -1983,6 +2006,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId: held.ban.id,
         source,
       });
+      logActiveUserCardHoldState({
+        source,
+        activeUserCardHold: kind,
+        heldKind: kind,
+        heldBanId: held.ban.id,
+        notificationChainWaitingUser: notificationChainAwaitingUserRef.current,
+        willClear: false,
+        willPreserve: true,
+      });
       return;
     }
     if (kind === 'check' && checkBanRef.current?.id) {
@@ -1995,6 +2027,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       notificationChainAwaitingUserRef.current = true;
       notificationChainHandoffRef.current = false;
       logActiveUserCardHold({ kind, banId: held.ban.id, source });
+      logActiveUserCardHoldState({
+        source,
+        activeUserCardHold: kind,
+        heldKind: kind,
+        heldBanId: held.ban.id,
+        notificationChainWaitingUser: notificationChainAwaitingUserRef.current,
+        willClear: false,
+        willPreserve: true,
+      });
       return;
     }
     if (kind === 'result' && resultRef.current?.id) {
@@ -2007,11 +2048,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       notificationChainAwaitingUserRef.current = true;
       notificationChainHandoffRef.current = false;
       logActiveUserCardHold({ kind, banId: held.result.id, source });
+      logActiveUserCardHoldState({
+        source,
+        activeUserCardHold: kind,
+        heldKind: kind,
+        heldBanId: held.result.id,
+        notificationChainWaitingUser: notificationChainAwaitingUserRef.current,
+        willClear: false,
+        willPreserve: true,
+      });
     }
   };
 
   const clearActiveUserCardHold = (source: string) => {
     if (!heldUserCardOverlayRef.current) return;
+    logActiveUserCardHoldState({
+      source,
+      activeUserCardHold: heldUserCardOverlayRef.current.kind,
+      heldKind: heldUserCardOverlayRef.current.kind,
+      heldBanId: heldUserCardBanId(heldUserCardOverlayRef.current),
+      notificationChainWaitingUser: notificationChainAwaitingUserRef.current,
+      willClear: true,
+      willPreserve: false,
+    });
     heldUserCardOverlayRef.current = null;
     setHeldUserCardOverlay(null);
     notificationChainAwaitingUserRef.current = false;
@@ -2115,6 +2174,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return false;
     }
     const banId = heldUserCardBanId(held);
+    logActiveUserCardHoldState({
+      source,
+      activeUserCardHold: held.kind,
+      heldKind: held.kind,
+      heldBanId: banId,
+      notificationChainWaitingUser: notificationChainAwaitingUserRef.current,
+      willClear: false,
+      willPreserve: true,
+    });
     logActiveUserCardPreserveCurrent({ kind: held.kind, banId, source });
     if (held.kind === 'incoming') {
       incomingBanRef.current = held.ban;
@@ -7147,6 +7215,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         queueLen: nextQueue.length,
         status: statusLabel,
       });
+      logQueueItemBuiltAfterOverboard({
+        kind: 'result',
+        banId,
+        status: normalized.outcome ?? normalized.status ?? statusLabel,
+        headline: getResultCardHeadline(normalized),
+        verifyPhase: null,
+        renderable: isValidBanResultPayload(normalized),
+        source: `showCheckAnswerFinalResult:${source}`,
+      });
       chainAdvanceExplicitRef.current = true;
       setNotificationChainTransitioning(true);
       if (whatOrConfirmActiveRef.current || sendComposePhaseRef.current !== 'idle') {
@@ -9245,6 +9322,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       resultDeliveredBanIdsRef.current.add(norm);
       shownOverlayKeysRef.current.add(`result:${norm}`);
       logResultCardStableHold({ banId: norm, source: 'incoming-overboard-atomic' });
+      logOverboardActionResult({
+        banId: norm,
+        resultKind: 'result',
+        resultStatus: optimistic.status ?? optimistic.outcome ?? null,
+        resultBanId: norm,
+        shouldEnqueueResult: true,
+        shouldShowResultImmediately: true,
+        source: 'replaceIncomingWithOverboardResultAtomic',
+        atomic: true,
+        ok: true,
+      });
+      logQueueItemBuiltAfterOverboard({
+        kind: 'result',
+        banId: norm,
+        status: optimistic.status ?? optimistic.outcome ?? null,
+        headline: getResultCardHeadline(optimistic),
+        verifyPhase: null,
+        renderable: isValidBanResultPayload(optimistic),
+        source: 'replaceIncomingWithOverboardResultAtomic',
+      });
+      logActiveUserCardHoldState({
+        source: 'replaceIncomingWithOverboardResultAtomic',
+        activeUserCardHold: 'result',
+        heldKind: 'result',
+        heldBanId: norm,
+        notificationChainWaitingUser: notificationChainAwaitingUserRef.current,
+        willClear: false,
+        willPreserve: true,
+      });
       return true;
     },
     [
@@ -9263,6 +9369,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ): boolean => {
       const banId = ban.id;
       const uid = userIdRef.current;
+      const mounted = getActiveMountedUserCard();
+      logOverboardActionStart({
+        banId,
+        activeKind: mounted?.kind ?? heldUserCardOverlayRef.current?.kind ?? null,
+        activeBanId:
+          mounted?.banId ??
+          (heldUserCardOverlayRef.current
+            ? heldUserCardBanId(heldUserCardOverlayRef.current)
+            : null),
+        queueLen: overlayQueueRef.current.length,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+        source: 'openIncomingOverboardOptimistic',
+      });
       clearActiveIncomingOverlayBanStable('overboard', banId);
       console.log('[incoming-overboard-click]', { banId });
       logOverboardDirectState('before', readDirectOverboardSnapshot(), {
@@ -9543,6 +9662,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       const finishOverboardSuccess = (payload: BanResult, source: string) => {
         syncOverboardResultFromApi(payload, source);
+        logOverboardActionResult({
+          banId,
+          apiStatus: payload.status ?? null,
+          resultKind: 'result',
+          resultStatus: payload.outcome ?? payload.status ?? null,
+          resultBanId: payload.id,
+          shouldEnqueueResult:
+            incomingOverboardAtomicBanIdRef.current === banId ||
+            overlayQueueRef.current.some(
+              (item) => item.kind === 'result' && item.result.id === banId,
+            ),
+          shouldShowResultImmediately: resultRef.current?.id === banId,
+          source: `finishOverboardSuccess:${source}`,
+          ok: true,
+        });
         void acknowledgeIncomingFully(banId, token, uid).catch(() => {});
         queueMicrotask(() => {
           void refreshUserRef.current().catch(() => {});
@@ -16025,6 +16159,75 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     heldUserCardOverlay,
     incomingNotificationShellKind,
     replyIncomingDirectPath,
+  ]);
+
+  useLayoutEffect(() => {
+    const held = heldUserCardOverlayRef.current;
+    const shellKind = notificationQueueShellKind;
+    if (shellKind == null && held?.kind !== 'result') return;
+
+    const resultBan =
+      displayResult ??
+      (held?.kind === 'result' ? held.result : null) ??
+      (result?.id ? result : null);
+    const incomingBanId =
+      incomingCardDisplayBan?.id ?? stableIncomingOverlayBan?.id ?? null;
+
+    if (shellKind === 'result' || held?.kind === 'result') {
+      logResultCardRenderDecision({
+        kind: 'result',
+        banId: resultBan?.id ?? null,
+        status: resultBan?.outcome ?? resultBan?.status ?? null,
+        shouldRender: shellKind === 'result' && Boolean(displayResult),
+        returnNullReason:
+          shellKind === 'result' && !displayResult
+            ? priorityBlocksResult
+              ? 'displayResult-null-priorityBlocksResult'
+              : sendSuccessCardActive
+                ? 'displayResult-null-success-card-active'
+                : 'displayResult-null'
+            : shellKind !== 'result'
+              ? 'shell-kind-not-result'
+              : null,
+        isInNotificationQueue: overlayQueue.length > 0,
+        activeOverlayKind,
+        activeUserCardHold: heldUserCardOverlay?.kind ?? null,
+        source: 'notification-shell-layout',
+        shellKind,
+        displayResultBlocked: result != null && displayResult == null,
+        priorityBlocksResult,
+      });
+    }
+
+    if (shellKind === 'incoming' || held?.kind === 'incoming') {
+      logResultCardRenderDecision({
+        kind: 'incoming',
+        banId: incomingBanId,
+        verifyPhase: null,
+        shouldRender: Boolean(
+          incomingCardDisplayBan || stableIncomingOverlayBan?.id,
+        ),
+        returnNullReason: !incomingCardDisplayBan && !stableIncomingOverlayBan?.id
+          ? 'incoming-card-not-ready'
+          : null,
+        isInNotificationQueue: overlayQueue.length > 0,
+        activeOverlayKind,
+        activeUserCardHold: heldUserCardOverlay?.kind ?? null,
+        source: 'notification-shell-layout-incoming',
+        shellKind,
+      });
+    }
+  }, [
+    activeOverlayKind,
+    displayResult,
+    heldUserCardOverlay,
+    incomingCardDisplayBan,
+    notificationQueueShellKind,
+    overlayQueue.length,
+    priorityBlocksResult,
+    result,
+    sendSuccessCardActive,
+    stableIncomingOverlayBan?.id,
   ]);
 
   const replyDirectOverlayBan =

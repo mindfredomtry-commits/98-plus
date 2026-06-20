@@ -44,7 +44,7 @@ import {
 } from '@/lib/overboard-timing-debug';
 import { logResultFunMode } from '@/lib/result-fun-mode-debug';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
-import { logResultPresentation } from '@/lib/result-ui-debug';
+import { logResultCardRenderDecision } from '@/lib/overboard-action-queue-debug';
 import { BanSaveStar } from './instant-ban/BanSaveStar';
 import { ResultShareIcon } from './instant-ban/ResultShareIcon';
 import './instant-ban/instant-ban.css';
@@ -163,6 +163,22 @@ function ResultOverlayInner({
   traceResultOverlayLifecycle('RESULT OVERLAY ENTER', tracePropsRef.current, {
     returnsNullReason,
     viewerId,
+  });
+
+  logResultCardRenderDecision({
+    kind: 'result',
+    banId: result.id,
+    status: result.outcome ?? result.status ?? null,
+    shouldRender: showable,
+    returnNullReason: returnsNullReason,
+    isInNotificationQueue: contentOnly && !directPaint,
+    activeOverlayKind: 'result',
+    activeUserCardHold: null,
+    source: directPaint
+      ? 'ResultOverlay.directPaint'
+      : contentOnly
+        ? 'ResultOverlay.contentOnly'
+        : 'ResultOverlay.modal',
   });
 
   useEffect(() => {

@@ -9,7 +9,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 20;
+export const DEBUG98_LOGGER_VERSION = 21;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -232,6 +232,12 @@ const ALLOWED_EVENTS = new Set([
   '[LOBBY BANS PENDING FETCH MISSING]',
   '[PENDING REJECTED BAN]',
   '[PENDING REJECTED BAN 872]',
+  '[OVERBOARD ACTION START]',
+  '[OVERBOARD ACTION RESULT]',
+  '[QUEUE ITEM BUILT AFTER OVERBOARD]',
+  '[RESULT CARD RENDER DECISION]',
+  '[ACTIVE USER CARD HOLD STATE]',
+  '[CHAIN ADVANCE BLOCKED ACTIVE USER CARD DETAIL]',
   '[ACTIVE USER CARD PRESERVE CURRENT]',
   '[ACTIVE USER CARD BLOCKED NEXT BUT KEPT CURRENT]',
   '[ACTIVE USER CARD LOST BUG]',

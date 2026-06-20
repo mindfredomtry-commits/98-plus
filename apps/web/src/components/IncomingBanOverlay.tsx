@@ -34,6 +34,10 @@ import { verifyOverlayCardLayout } from '@/lib/overlay-card-layout-debug';
 import { installOverlayHitTestProbe } from '@/lib/overlay-hit-test-debug';
 import { allowOverlayUserTap } from '@/lib/overlay-input-guard';
 import {
+  logOverboardActionStart,
+  logResultCardRenderDecision,
+} from '@/lib/overboard-action-queue-debug';
+import {
   logIncomingOverlayHasBan,
   logIncomingOverlayRenderEnter,
   logIncomingOverlayReturnNull,
@@ -85,6 +89,7 @@ function IncomingBanOverlayInner({
     runIncomingOverboardApi,
     notificationSessionActive,
     activeOverlayKind,
+    overlayQueueLength,
     incomingGateActive,
     markOverlayUserAction,
     logCardCloseClick,
@@ -430,6 +435,14 @@ function IncomingBanOverlayInner({
     if (!allowOverlayUserTap('incoming-overboard')) return;
     logClickTest('overboard');
     const actBan = verifiedBan ?? resolvedIncoming ?? activeIncomingBan;
+    logOverboardActionStart({
+      banId: actBan?.id ?? activeIncomingBan?.id ?? '',
+      activeKind: activeOverlayKind,
+      activeBanId: actBan?.id ?? activeIncomingBan?.id ?? null,
+      queueLen: overlayQueueLength,
+      pendingLen: 0,
+      source: 'IncomingBanOverlay.handleOverboard',
+    });
     if (!actBan?.id || actionLoading || overboardClickLockRef.current) {
       logResultPath('local-overboard-click', 'path-skip', {
         banId: actBan?.id ?? null,
@@ -498,6 +511,8 @@ function IncomingBanOverlayInner({
     verifyPhase,
     verifiedBan?.id,
     logClickTest,
+    activeOverlayKind,
+    overlayQueueLength,
   ]);
 
   useLayoutEffect(() => {
@@ -668,15 +683,28 @@ function IncomingBanOverlayInner({
   }
 
   if (!shouldShow || verifyPhase === 'failed') {
+    const nullReason = !shouldShow ? 'guard-rejected' : 'verify-failed';
     logIncomingOverlayReturnNull({
       banId: activeIncomingBan?.id ?? null,
-      reason: !shouldShow ? 'guard-rejected' : 'verify-failed',
+      reason: nullReason,
       verifyPhase,
       shouldShow,
       contentOnly,
       banPropId: banProp?.id ?? null,
       isQueueHead,
       incomingGateActive,
+    });
+    logResultCardRenderDecision({
+      kind: 'incoming',
+      banId: activeIncomingBan?.id ?? null,
+      status: activeIncomingBan?.status ?? null,
+      verifyPhase,
+      shouldRender: false,
+      returnNullReason: nullReason,
+      isInNotificationQueue: isQueueHead,
+      activeOverlayKind,
+      activeUserCardHold: null,
+      source: 'IncomingBanOverlay.contentOnly',
     });
     console.log('INCOMING OVERLAY RENDER', {
       banId: activeIncomingBan.id,
