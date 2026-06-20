@@ -747,6 +747,11 @@ interface AppContextValue {
   result: BanResult | null;
   openBanResult: (r: BanResult | null | undefined, mode: ResultOpenMode) => void;
   dismissBanResult: () => void;
+  /** Block janitor / ResultOverlay auto-dismiss for atomic overboard result. */
+  blockAutoDismissAtomicOverboardResult: (
+    resultId: string | null | undefined,
+    source: string,
+  ) => boolean;
   /** Result card → What with opponent pre-selected (overboard / check outcomes). */
   startReplyFromResult: (r: BanResult) => void;
   /** Result card → next overlay or lobby («К запретам»). */
@@ -2011,7 +2016,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return norm === refNorm || norm === atomicNorm;
   };
 
-  const shouldSkipResultJanitorForAtomicOverboard = (
+  const shouldBlockAutoDismissAtomicOverboardResult = (
     resultId: string | null | undefined,
   ): boolean => {
     const norm = normalizeId(resultId ?? '');
@@ -2020,28 +2025,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (atomicId && atomicId === norm) return true;
     if (freshOverboardActionBanIdsRef.current.has(norm)) return true;
     const held = heldUserCardOverlayRef.current;
-    return (
-      notificationChainAwaitingUserRef.current &&
-      held?.kind === 'result' &&
-      normalizeId(held.result.id) === norm
-    );
+    if (held?.kind === 'result' && normalizeId(held.result.id) === norm) {
+      return true;
+    }
+    return normalizeId(resultRef.current?.id ?? '') === norm;
   };
 
-  const logResultJanitorSkipAtomicOverboard = (
-    resultId: string | null | undefined,
-  ) => {
-    const norm = normalizeId(resultId ?? '');
-    const held = heldUserCardOverlayRef.current;
-    window.__debug98log?.('[RESULT JANITOR SKIP ATOMIC OVERBOARD]', {
-      resultId: norm || null,
-      atomicId: normalizeId(incomingOverboardAtomicBanIdRef.current ?? '') || null,
-      fresh: norm ? freshOverboardActionBanIdsRef.current.has(norm) : false,
-      awaitingUser: notificationChainAwaitingUserRef.current,
-      heldKind: held?.kind ?? null,
-      heldResultId:
-        held?.kind === 'result' ? normalizeId(held.result.id) || null : null,
-    });
-  };
+  const blockAutoDismissAtomicOverboardResult = useCallback(
+    (resultId: string | null | undefined, source: string): boolean => {
+      if (!shouldBlockAutoDismissAtomicOverboardResult(resultId)) {
+        return false;
+      }
+      const norm = normalizeId(resultId ?? '');
+      const held = heldUserCardOverlayRef.current;
+      window.__debug98log?.('[RESULT AUTO DISMISS BLOCKED ATOMIC OVERBOARD]', {
+        resultId: norm || null,
+        source,
+        atomicId:
+          normalizeId(incomingOverboardAtomicBanIdRef.current ?? '') || null,
+        fresh: norm ? freshOverboardActionBanIdsRef.current.has(norm) : false,
+        heldKind: held?.kind ?? null,
+        heldResultId:
+          held?.kind === 'result' ? normalizeId(held.result.id) || null : null,
+        resultRefId: normalizeId(resultRef.current?.id ?? '') || null,
+      });
+      return true;
+    },
+    [],
+  );
 
   const isPendingAtomicOverboardResultAwaitingDismiss = (
     source?: string,
@@ -15683,13 +15694,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       isDismissedResultLocally(result.id, result.viewerId ?? null) ||
       !isValidBanResultPayload(result)
     ) {
-      if (shouldSkipResultJanitorForAtomicOverboard(result.id)) {
-        logResultJanitorSkipAtomicOverboard(result.id);
+      if (blockAutoDismissAtomicOverboardResult(result.id, 'janitor-useEffect')) {
         return;
       }
       dismissBanResult();
     }
-  }, [result, dismissBanResult]);
+  }, [result, dismissBanResult, blockAutoDismissAtomicOverboardResult]);
 
   useEffect(() => {
     resetScrollLock();
@@ -18243,6 +18253,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       result,
       openBanResult,
       dismissBanResult,
+      blockAutoDismissAtomicOverboardResult,
       startReplyFromResult,
       navigateFromResult,
       resultReplyPending,
@@ -18425,6 +18436,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       result,
       openBanResult,
       dismissBanResult,
+      blockAutoDismissAtomicOverboardResult,
       startReplyFromResult,
       navigateFromResult,
       resultReplyPending,
@@ -18662,9 +18674,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                       result={activeResultPayload}
                       onClose={dismissBanResult}
                       contentOnly
-                      preserveMandatoryResult={shouldSkipResultJanitorForAtomicOverboard(
-                        activeResultPayload.id,
-                      )}
                     />
                   </ChallengeErrorBoundary>
                 ) : null}

@@ -56,8 +56,6 @@ interface Props {
   contentOnly?: boolean;
   /** Fresh shell + paint timing for direct overboard layer. */
   directPaint?: boolean;
-  /** Atomic overboard mandatory queue step — skip auto onClose when !showable. */
-  preserveMandatoryResult?: boolean;
 };
 
 type ResultOverlayTraceProps = {
@@ -83,7 +81,6 @@ function ResultOverlayInner({
   embedded = false,
   contentOnly = false,
   directPaint = false,
-  preserveMandatoryResult = false,
 }: Props) {
   const {
     openNewBanWhoFlow,
@@ -99,6 +96,7 @@ function ResultOverlayInner({
     bansCtaQueueSuppress,
     resultCtaBansOverlayOpen,
     bansNavState,
+    blockAutoDismissAtomicOverboardResult,
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
   const [archiveSaved, setArchiveSaved] = useState(false);
@@ -195,8 +193,17 @@ function ResultOverlayInner({
 
   useEffect(() => {
     if (directPaint) return;
-    if (preserveMandatoryResult) return;
-    if (!showable) guardedOnClose();
+    if (!showable) {
+      if (
+        blockAutoDismissAtomicOverboardResult(
+          result.id,
+          'ResultOverlay-showable-guard',
+        )
+      ) {
+        return;
+      }
+      guardedOnClose();
+    }
     return () => {
       if (skipResultOverlayCleanup('onClose-guard')) return;
       traceResultOverlayLifecycle('RESULT OVERLAY EFFECT CLEANUP', tracePropsRef.current, {
@@ -204,9 +211,10 @@ function ResultOverlayInner({
       });
     };
   }, [
+    blockAutoDismissAtomicOverboardResult,
     directPaint,
     guardedOnClose,
-    preserveMandatoryResult,
+    result.id,
     showable,
     skipResultOverlayCleanup,
   ]);
