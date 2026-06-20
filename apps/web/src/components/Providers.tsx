@@ -2010,6 +2010,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return norm === refNorm || norm === atomicNorm;
   };
 
+  const isPendingAtomicOverboardResultAwaitingDismiss = (): boolean => {
+    const atomicId = incomingOverboardAtomicBanIdRef.current;
+    return atomicId != null && isHeldOverboardResultProtected(atomicId);
+  };
+
   const captureActiveUserCardHold = (
     kind: BlockingUserOverlayKind,
     source: string,
@@ -12921,6 +12926,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return false;
       }
+      if (isPendingAtomicOverboardResultAwaitingDismiss()) {
+        const atomicBanId = incomingOverboardAtomicBanIdRef.current;
+        logResultCardPreserveDomOk({
+          banId: atomicBanId,
+          source: `showNextNotificationFromChainSync:${source}`,
+        });
+        console.log('[show-next-blocked-atomic-overboard]', {
+          source,
+          banId: atomicBanId,
+        });
+        window.__debug98log?.('[show-next-blocked-atomic-overboard]', {
+          source,
+          banId: atomicBanId,
+        });
+        return false;
+      }
       if (
         notificationChainAwaitingUserRef.current &&
         (hasActiveNotificationOverlayMounted() || isActiveUserCardHold())
@@ -13720,6 +13741,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return 'blocked';
       }
       if (shouldBlockPostSuccessEmptyRetry(source)) {
+        return 'blocked';
+      }
+      if (isPendingAtomicOverboardResultAwaitingDismiss()) {
+        const atomicBanId = incomingOverboardAtomicBanIdRef.current;
+        logResultCardPreserveDomOk({
+          banId: atomicBanId,
+          source: `continueNotificationChain:${source}`,
+        });
+        console.log('[chain-continue-blocked-atomic-overboard]', {
+          source,
+          banId: atomicBanId,
+        });
+        window.__debug98log?.('[chain-continue-blocked-atomic-overboard]', {
+          source,
+          banId: atomicBanId,
+        });
         return 'blocked';
       }
 
