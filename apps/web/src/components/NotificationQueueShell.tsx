@@ -1,8 +1,9 @@
 'use client';
 
-import { Children, isValidElement, useEffect, type ReactNode } from 'react';
+import { Children, isValidElement, useEffect, useLayoutEffect, type ReactNode } from 'react';
 import { ModalShell } from './ModalShell';
 import { APP_NOTIFICATION_CARD_Z_INDEX } from '@/lib/overlay-queue';
+import { logCheckTransitionPlaceholderDecision, logCheckTransitionPlaceholderShown } from '@/lib/check-chain-drain-debug';
 
 type OverlayKind = 'incoming' | 'check' | 'result';
 
@@ -121,6 +122,32 @@ export function NotificationQueueShell({
 
   const handoff = sessionActive;
   const shellKind = kind ?? 'incoming';
+
+  useLayoutEffect(() => {
+    if (!advanceWaiting && hasContent) return;
+    logCheckTransitionPlaceholderDecision({
+      source: 'NotificationQueueShell-render',
+      chainAdvanceWaiting: advanceWaiting,
+      notificationChainTransitioning: sessionActive,
+      shouldShowPlaceholder: advanceWaiting && !hasContent,
+      reason:
+        advanceWaiting && !hasContent
+          ? 'advance-waiting-no-content'
+          : advanceWaiting && hasContent
+            ? 'advance-waiting-but-has-content'
+            : 'no-advance-waiting',
+      kind: shellKind,
+      hasContent,
+      displayBanId,
+    });
+    if (advanceWaiting && !hasContent) {
+      logCheckTransitionPlaceholderShown({
+        source: 'NotificationQueueShell-render',
+        chainAdvanceWaiting: advanceWaiting,
+        reason: 'advance-waiting-no-display-ready-content',
+      });
+    }
+  }, [advanceWaiting, displayBanId, hasContent, sessionActive, shellKind]);
 
   if (advanceWaiting && !hasContent) {
     return (

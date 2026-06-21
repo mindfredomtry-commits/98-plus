@@ -244,6 +244,13 @@ import {
   logCheckAnswerRetryContinue,
   logCheckAnswerRetryExhaustedOpenLobby,
   logCheckAnswerTransitionReleased,
+  logCheckAnswerWaitingForNext,
+  logCheckTransitionPlaceholderDecision,
+  logCheckTransitionPlaceholderShown,
+  logEmptyOverlayShellDiag,
+  logResultDisplayReadyCheck,
+  logResultShellSuppressedNotReady,
+  logResultShellWithoutPayload,
   logCheckContinueBlocked,
   logCheckContinueCall,
   logCheckContinueDecision,
@@ -255,6 +262,10 @@ import {
   logOverlayActiveCleared,
   logOverlayMarkDismissing,
 } from '@/lib/check-chain-drain-debug';
+import {
+  getResultDisplayReadySnapshot,
+  isResultDisplayReady,
+} from '@/lib/result-display-ready';
 import {
   logCheckCardMountedBug,
   logCheckPrimeSkipStaleBecauseResultExists,
@@ -15156,6 +15167,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           outcome: formatCheckAnswerContinueOutcomeLog(outcome),
           retryCount,
         });
+        logCheckAnswerWaitingForNext({
+          source,
+          banId,
+          retryCount,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          waitingForResult:
+            Boolean(resultRef.current?.id) ||
+            overlayQueueRef.current[0]?.kind === 'result',
+          waitingForIncoming:
+            overlayQueueRef.current[0]?.kind === 'incoming' ||
+            pendingStartupInteractionsRef.current[0]?.kind === 'incoming',
+          waitingForPrefetch:
+            outcome === 'needs-prefetch' || outcome === 'lost-pending',
+        });
         setChainAdvanceWaiting(true);
         setNotificationChainTransitioning(true);
 
@@ -17782,6 +17808,48 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   ): boolean =>
     shouldBlockPassiveResultShellDisplay(buildPassiveResultGateContext(banId));
 
+  const checkResultShellDisplayReady = useCallback(
+    (payload: BanResult | null | undefined, source: string): boolean => {
+      if (!payload?.id?.trim()) return false;
+      const ready = isResultDisplayReady({
+        result: payload,
+        viewerId: userIdRef.current ?? auth.user?.id ?? null,
+        atomicOverboardShowable: isQueueAtomicOverboardResultShowable(
+          payload.id,
+        ),
+      });
+      const snap = getResultDisplayReadySnapshot(payload);
+      logResultDisplayReadyCheck({
+        source,
+        banId: snap.banId || null,
+        resultId: snap.resultId || null,
+        hasTitle: snap.hasTitle,
+        hasBody: snap.hasBody,
+        hasOutcome: snap.hasOutcome,
+        hasStatus: snap.hasStatus,
+        waiting: snap.waiting,
+        isReady: ready,
+      });
+      if (!ready && chainAdvanceWaitingRef.current) {
+        logResultShellSuppressedNotReady({
+          source,
+          banId: snap.banId || null,
+          resultId: snap.resultId || null,
+          chainAdvanceWaiting: true,
+          reason: snap.waiting
+            ? 'waiting-or-partial'
+            : !snap.hasBody
+              ? 'missing-body'
+              : !snap.hasOutcome
+                ? 'missing-outcome'
+                : 'not-display-ready',
+        });
+      }
+      return ready;
+    },
+    [auth.user?.id, isQueueAtomicOverboardResultShowable],
+  );
+
   const activeResultPayload = useMemo(() => {
     const queueHead =
       overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
@@ -17845,13 +17913,49 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         heldUserCardOverlay!.result.id,
       );
 
+    const activePayloadShellReady = checkResultShellDisplayReady(
+      activeResultPayload,
+      'incomingShell-activeResultPayload',
+    );
+    const heldResultShellReady =
+      heldIsResult &&
+      !heldResultSuppressed &&
+      checkResultShellDisplayReady(
+        heldUserCardOverlay!.result,
+        'incomingShell-held',
+      );
+    const queueHeadResultShellReady =
+      queueHeadIsResult &&
+      !queueHeadResultSuppressed &&
+      checkResultShellDisplayReady(
+        queueHead?.kind === 'result' ? queueHead.result : null,
+        'incomingShell-queueHead',
+      );
+    const atomicOverboardShellReady =
+      atomicOverboardResultLive &&
+      (refResultNorm === atomicNorm
+        ? checkResultShellDisplayReady(
+            resultRef.current,
+            'incomingShell-atomicOverboardRef',
+          )
+        : heldResultNorm === atomicNorm
+          ? checkResultShellDisplayReady(
+              heldIsResult
+                ? heldUserCardOverlay!.result
+                : heldUserCardOverlayRef.current?.kind === 'result'
+                  ? heldUserCardOverlayRef.current.result
+                  : null,
+              'incomingShell-atomicOverboardHeld',
+            )
+          : isQueueAtomicOverboardResultShowable(atomicNorm));
+
     if (
       !showDirectOverboardLayer &&
-      (activeResultPayload || atomicOverboardResultLive) &&
-      (heldIsResult && !heldResultSuppressed ||
-        (queueHeadIsResult && !queueHeadResultSuppressed) ||
-        atomicOverboardResultLive ||
-        incomingOverlayDisplayKind === 'result')
+      (activePayloadShellReady || atomicOverboardShellReady) &&
+      (heldResultShellReady ||
+        queueHeadResultShellReady ||
+        atomicOverboardShellReady ||
+        (incomingOverlayDisplayKind === 'result' && activePayloadShellReady))
     ) {
       return 'result' as const;
     }
@@ -17892,6 +17996,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     checkBan,
     queueHeadKind,
     activeResultPayload,
+    checkResultShellDisplayReady,
+    isQueueAtomicOverboardResultShowable,
   ]);
 
   const notificationQueueShellKind = useMemo(() => {
@@ -17942,14 +18048,50 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const heldResultSuppressed =
       heldUserCardOverlay?.kind === 'result' &&
       shouldSuppressPassiveLobbyResultBan(heldUserCardOverlay.result.id);
+    const activePayloadShellReady = checkResultShellDisplayReady(
+      activeResultPayload,
+      'effectiveShell-activeResultPayload',
+    );
+    const heldResultShellReady =
+      heldUserCardOverlay?.kind === 'result' &&
+      !heldResultSuppressed &&
+      checkResultShellDisplayReady(
+        heldUserCardOverlay.result,
+        'effectiveShell-held',
+      );
+    const queueHeadResultShellReady =
+      queueHead?.kind === 'result' &&
+      !queueHeadResultSuppressed &&
+      checkResultShellDisplayReady(queueHead.result, 'effectiveShell-queueHead');
+    const refResultShellReady =
+      Boolean(resultRef.current?.id) &&
+      !shouldSuppressPassiveLobbyResultBan(resultRef.current?.id) &&
+      !chainAdvanceWaiting &&
+      checkResultShellDisplayReady(resultRef.current, 'effectiveShell-resultRef');
+    const atomicOverboardShellReady =
+      atomicOverboardResultLive &&
+      (refResultNorm === atomicNorm
+        ? checkResultShellDisplayReady(
+            resultRef.current,
+            'effectiveShell-atomicOverboardRef',
+          )
+        : heldResultNorm === atomicNorm
+          ? checkResultShellDisplayReady(
+              heldUserCardOverlay?.kind === 'result'
+                ? heldUserCardOverlay.result
+                : heldUserCardOverlayRef.current?.kind === 'result'
+                  ? heldUserCardOverlayRef.current.result
+                  : null,
+              'effectiveShell-atomicOverboardHeld',
+            )
+          : isQueueAtomicOverboardResultShowable(atomicNorm));
     const queueResultActive =
       !showDirectOverboardLayer &&
-      (Boolean(activeResultPayload) ||
-        (heldUserCardOverlay?.kind === 'result' && !heldResultSuppressed) ||
-        (queueHead?.kind === 'result' && !queueHeadResultSuppressed) ||
-        (Boolean(resultRef.current?.id) &&
-          !shouldSuppressPassiveLobbyResultBan(resultRef.current?.id)) ||
-        atomicOverboardResultLive);
+      (activePayloadShellReady ||
+        heldResultShellReady ||
+        queueHeadResultShellReady ||
+        refResultShellReady ||
+        atomicOverboardShellReady);
 
     if (queueResultActive) {
       return 'result' as const;
@@ -17958,8 +18100,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return notificationQueueShellKind;
   }, [
     activeResultPayload,
+    chainAdvanceWaiting,
+    checkResultShellDisplayReady,
     composeBlocksNotificationHost,
     heldUserCardOverlay,
+    isQueueAtomicOverboardResultShowable,
     notificationQueueShellKind,
     overlayQueue,
     showDirectOverboardLayer,
@@ -17969,12 +18114,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (effectiveNotificationQueueShellKind !== 'result' || !activeResultPayload) {
       return undefined;
     }
+    if (
+      !checkResultShellDisplayReady(
+        activeResultPayload,
+        'queueResultShellContentReady',
+      )
+    ) {
+      return undefined;
+    }
     if (isQueueAtomicOverboardResultShowable(activeResultPayload.id)) {
       return Boolean(activeResultPayload.id?.trim());
     }
-    return undefined;
+    return true;
   }, [
     activeResultPayload,
+    checkResultShellDisplayReady,
     effectiveNotificationQueueShellKind,
     isQueueAtomicOverboardResultShowable,
   ]);
@@ -18651,7 +18805,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const queueShellShowsResult =
     effectiveNotificationQueueShellKind === 'result' &&
-    activeResultPayload != null;
+    activeResultPayload != null &&
+    checkResultShellDisplayReady(
+      activeResultPayload,
+      'queueShellShowsResult',
+    );
 
   const incomingJsxWillRender =
     !queueShellShowsResult &&
@@ -18813,6 +18971,101 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     showDirectOverboardLayer,
     showReplyIncomingOverlayDirect,
     showCheckOverlayDirect,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!chainAdvanceWaiting && !notificationChainTransitioning) return;
+    const head = overlayQueueRef.current[0];
+    const hasRenderableCard =
+      Boolean(checkBan?.id) ||
+      Boolean(incomingCardDisplayBan?.id) ||
+      Boolean(displayResult?.id) ||
+      Boolean(stableIncomingOverlayBan?.id);
+    const shouldShowPlaceholder =
+      chainAdvanceWaiting &&
+      !queueShellShowsResult &&
+      effectiveNotificationQueueShellKind != null;
+    logEmptyOverlayShellDiag({
+      source: 'chain-transition-active',
+      notificationOverlayVisible,
+      chainAdvanceWaiting,
+      notificationChainTransitioning,
+      activeKind: activeOverlayKind,
+      heldKind: heldUserCardOverlay?.kind ?? null,
+      shellKind: notificationQueueShellKind,
+      effectiveKind: effectiveNotificationQueueShellKind,
+      checkBanId: checkBan?.id ?? null,
+      incomingBanId: incomingCardDisplayBan?.id ?? incomingBan?.id ?? null,
+      resultBanId: result?.id ?? resultRef.current?.id ?? null,
+      displayResultId: displayResult?.id ?? null,
+      queueLen: overlayQueue.length,
+      pendingLen: pendingStartupInteractionsCount,
+      hasRenderableCard,
+      hasPlaceholder: shouldShowPlaceholder,
+      queueShellShowsResult,
+      chainAdvancePlaceholderKind,
+    });
+    logCheckTransitionPlaceholderDecision({
+      source: 'chain-transition-active',
+      chainAdvanceWaiting,
+      notificationChainTransitioning,
+      shouldShowPlaceholder,
+      reason: queueShellShowsResult
+        ? 'queueShellShowsResult-blocks-advanceWaiting'
+        : !chainAdvanceWaiting
+          ? 'chainAdvanceWaiting-false'
+          : effectiveNotificationQueueShellKind == null
+            ? 'shellKind-null'
+            : 'placeholder-eligible',
+    });
+    if (effectiveNotificationQueueShellKind === 'result') {
+      const payload = activeResultPayload;
+      logResultShellWithoutPayload({
+        source: 'chain-transition-active',
+        shellKind: notificationQueueShellKind,
+        effectiveKind: effectiveNotificationQueueShellKind,
+        resultId: result?.id ?? resultRef.current?.id ?? null,
+        displayResultId: displayResult?.id ?? null,
+        heldResultId:
+          heldUserCardOverlay?.kind === 'result'
+            ? heldUserCardOverlay.result.id
+            : null,
+        queueHeadKind: head?.kind ?? null,
+        queueHeadBanId:
+          head?.kind === 'result'
+            ? head.result.id
+            : head?.kind === 'incoming' || head?.kind === 'check'
+              ? head.ban.id
+              : null,
+        hasTitle: Boolean(
+          payload?.headline?.trim() || payload?.outcome?.trim(),
+        ),
+        hasBody: Boolean(payload?.text?.trim()),
+        outcome: payload?.outcome ?? null,
+        status:
+          (payload as { status?: string | null } | null)?.status ?? null,
+        queueShellShowsResult,
+      });
+    }
+  }, [
+    activeOverlayKind,
+    activeResultPayload,
+    chainAdvancePlaceholderKind,
+    chainAdvanceWaiting,
+    checkBan?.id,
+    displayResult?.id,
+    effectiveNotificationQueueShellKind,
+    heldUserCardOverlay,
+    incomingBan?.id,
+    incomingCardDisplayBan?.id,
+    notificationChainTransitioning,
+    notificationOverlayVisible,
+    notificationQueueShellKind,
+    overlayQueue.length,
+    pendingStartupInteractionsCount,
+    queueShellShowsResult,
+    result?.id,
+    stableIncomingOverlayBan?.id,
   ]);
 
   const shouldMountNotificationOverlayHost = useMemo(() => {

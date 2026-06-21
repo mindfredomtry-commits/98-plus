@@ -188,3 +188,45 @@ export function logCheckAnswerRetryExhaustedOpenLobby(
 ): void {
   window.__debug98log?.('[CHECK ANSWER RETRY EXHAUSTED OPEN LOBBY]', data);
 }
+
+export function logEmptyOverlayShellDiag(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[EMPTY OVERLAY SHELL DIAG]', data);
+}
+
+export function logCheckTransitionPlaceholderDecision(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK TRANSITION PLACEHOLDER DECISION]', data);
+}
+
+export function logResultShellWithoutPayload(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[RESULT SHELL WITHOUT PAYLOAD]', data);
+}
+
+export function logCheckAnswerWaitingForNext(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK ANSWER WAITING FOR NEXT]', data);
+}
+
+export function logResultDisplayReadyCheck(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[RESULT DISPLAY READY CHECK]', data);
+}
+
+export function logResultShellSuppressedNotReady(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[RESULT SHELL SUPPRESSED NOT READY]', data);
+}
+
+export function logCheckTransitionPlaceholderShown(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK TRANSITION PLACEHOLDER SHOWN]', data);
+}
