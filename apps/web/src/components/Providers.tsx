@@ -423,7 +423,9 @@ import {
 } from '@/lib/notification-chain-explicit-drain';
 import {
   isPassiveResultOpenSource,
+  logPassiveResultLookaheadBlocked,
   logPassiveResultOverlayBlocked,
+  shouldBlockPassiveResultLookaheadDisplay,
   shouldBlockPassiveResultOverlayOpen,
 } from '@/lib/result-overlay-explicit-open';
 import {
@@ -3131,7 +3133,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (banId: string, source: string) => {
       const key = normalizeId(banId);
       if (!key) return;
-      freshOverboardActionBanIdsRef.current.add(key);
+      const marksFreshOverboard = [
+        'incoming-overboard-atomic',
+        'replaceIncomingWithOverboardResultAtomic',
+        'openIncomingOverboardOptimistic',
+        'syncDisplayFromQueue-atomic-hold',
+        'syncDisplayFromQueue-blocked-atomic',
+        'syncDisplayFromQueue-blocked-fresh-overboard',
+        'forceOpenOverboardResult',
+        'overboard-action',
+        'preserveAtomicOverboard',
+      ].some((marker) => source.includes(marker));
+      if (marksFreshOverboard) {
+        freshOverboardActionBanIdsRef.current.add(key);
+      }
       resultCtaConsumedBanIdsRef.current.delete(key);
       resultDeliveredBanIdsRef.current.delete(key);
       shownOverlayKeysRef.current.delete(`result:${key}`);
@@ -3140,13 +3155,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  const shouldBlockPassiveResultOverlayOpenForBan = (
-    source: string,
+  const buildPassiveResultGateContext = (
     banId: string | null | undefined,
-  ): boolean => {
+  ): Parameters<typeof shouldBlockPassiveResultOverlayOpen>[1] => {
     const norm = normalizeId(banId ?? '');
-    return shouldBlockPassiveResultOverlayOpen(source, {
+    return {
       lobbyOpen: lobbyOpenRef.current,
+      bansReturnToLobbyLatch: bansReturnToLobbyLatchRef.current,
       freshOverboardAction:
         norm.length > 0 && freshOverboardActionBanIdsRef.current.has(norm),
       atomicOverboardHold:
@@ -3162,7 +3177,65 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         normalizeId(resultRef.current?.id ?? '') === norm,
       directOverboardInFlight:
         norm.length > 0 && overboardInFlightRef.current === norm,
+    };
+  };
+
+  const shouldBlockPassiveResultOverlayOpenForBan = (
+    source: string,
+    banId: string | null | undefined,
+  ): boolean =>
+    shouldBlockPassiveResultOverlayOpen(
+      source,
+      buildPassiveResultGateContext(banId),
+    );
+
+  const deferPassiveResultQueueHeadOnLobby = (
+    source: string,
+    queue: QueuedOverlay[],
+    active: Extract<QueuedOverlay, { kind: 'result' }>,
+  ): boolean => {
+    if (
+      !shouldBlockPassiveResultLookaheadDisplay(
+        source,
+        buildPassiveResultGateContext(active.result.id),
+      )
+    ) {
+      return false;
+    }
+    const held = heldUserCardOverlayRef.current;
+    logPassiveResultLookaheadBlocked({
+      source,
+      banId: active.result.id,
+      lobbyOpen: lobbyOpenRef.current,
+      activeDrain:
+        chainAdvanceExplicitRef.current ||
+        notificationChainTransitioningRef.current,
+      activeKind: held?.kind ?? null,
     });
+    primeLobbyBansAttentionHintSyncRef.current(
+      'passive-result-lookahead-blocked',
+    );
+    if (
+      held?.kind === 'result' &&
+      normalizeId(held.result.id) === normalizeId(active.result.id)
+    ) {
+      clearActiveUserCardHold('passive-result-lookahead-blocked');
+    }
+    pendingStartupInteractionsRef.current = mergeStartupPendingSingle(
+      pendingStartupInteractionsRef.current,
+      active,
+    );
+    syncPendingStartupCount();
+    const rest = queue.slice(1);
+    overlayQueueRef.current = rest;
+    setOverlayQueue(rest);
+    resultOpenRef.current = false;
+    setResult(null);
+    setDirectResultOverlayActive(false);
+    if (rest.length > 0) {
+      syncDisplayFromQueue(rest);
+    }
+    return true;
   };
 
   const syncDisplayFromQueue = useCallback((queue: QueuedOverlay[]) => {
@@ -3620,6 +3693,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
 
     if (active?.kind === 'result') {
+      if (deferPassiveResultQueueHeadOnLobby('syncDisplayFromQueue', queue, active)) {
+        return;
+      }
       const inFlightId = overboardInFlightRef.current;
       if (
         directResultOverlayRef.current &&
@@ -3790,38 +3866,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             'syncDisplayFromQueue-setResult',
             active,
           );
-          return;
-        }
-        if (
-          shouldBlockPassiveResultOverlayOpenForBan(
-            'syncDisplayFromQueue',
-            active.result.id,
-          )
-        ) {
-          logPassiveResultOverlayBlocked({
-            source: 'syncDisplayFromQueue',
-            banId: active.result.id,
-            phase: 'setResult-blocked',
-            passiveSource: isPassiveResultOpenSource('syncDisplayFromQueue'),
-            lobbyOpen: lobbyOpenRef.current,
-          });
-          primeLobbyBansAttentionHintSyncRef.current(
-            'passive-result-sync-blocked',
-          );
-          pendingStartupInteractionsRef.current = mergeStartupPendingSingle(
-            pendingStartupInteractionsRef.current,
-            active,
-          );
-          syncPendingStartupCount();
-          const rest = queue.slice(1);
-          overlayQueueRef.current = rest;
-          setOverlayQueue(rest);
-          resultOpenRef.current = false;
-          setResult(null);
-          setDirectResultOverlayActive(false);
-          if (rest.length > 0) {
-            syncDisplayFromQueue(rest);
-          }
           return;
         }
         logResultPath('syncDisplayFromQueue', 'state-written', {
@@ -6287,19 +6331,40 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
         if (prefetched.result?.id) {
           const r = normalizeBanResult(prefetched.result);
+          const resultNorm = normalizeId(r.id);
           if (
+            source.includes('result-overlay-prime') &&
+            shouldBlockPassiveResultLookaheadDisplay(
+              source,
+              buildPassiveResultGateContext(resultNorm),
+            )
+          ) {
+            logPassiveResultLookaheadBlocked({
+              source,
+              banId: r.id,
+              lobbyOpen: lobbyOpenRef.current,
+              activeDrain:
+                chainAdvanceExplicitRef.current ||
+                notificationChainTransitioningRef.current,
+              activeKind: heldUserCardOverlayRef.current?.kind ?? null,
+            });
+            skipDetails.push({
+              banId: resultNorm,
+              reason: 'passive-result-lookahead-blocked',
+            });
+          } else if (
             !isResultBlockedForNotificationChain(
               r.id,
               'pending-chain-prefetch',
               skipBanId,
             )
           ) {
-            resultPriorityBanIdsRef.current.add(normalizeId(r.id));
+            resultPriorityBanIdsRef.current.add(resultNorm);
             toEnqueue.push({ kind: 'result', result: r });
             enqueuedIds.push(r.id);
           } else {
             skipDetails.push({
-              banId: normalizeId(r.id),
+              banId: resultNorm,
               reason: 'result-blocked-for-chain',
             });
           }
@@ -6533,6 +6598,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const runChainLookaheadPrefetch = useCallback(
     (skipBanId: string | null, source: string): void => {
+      if (
+        source.includes('result-overlay-prime') &&
+        shouldBlockPassiveResultLookaheadDisplay(
+          source,
+          buildPassiveResultGateContext(skipBanId),
+        )
+      ) {
+        const held = heldUserCardOverlayRef.current;
+        logPassiveResultLookaheadBlocked({
+          source,
+          banId: skipBanId,
+          lobbyOpen: lobbyOpenRef.current,
+          activeDrain:
+            chainAdvanceExplicitRef.current ||
+            notificationChainTransitioningRef.current,
+          activeKind: held?.kind ?? null,
+        });
+        primeLobbyBansAttentionHintSyncRef.current(
+          'passive-result-lookahead-blocked',
+        );
+        return;
+      }
       const mounted = getActiveUserCardForGuard();
       if (mounted) {
         logChainLookaheadOnlyActiveUserCard({
