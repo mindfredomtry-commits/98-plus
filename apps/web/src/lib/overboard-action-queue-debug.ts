@@ -142,6 +142,9 @@ export function logResultOverlayBodyDecision(data: {
   outcome: string | null;
   bodyKind: 'overboard' | 'default' | 'none';
   title: string | null;
+  hasText: boolean;
+  hasSender: boolean;
+  hasReceiver: boolean;
   willRenderBody: boolean;
   returnNullReason: string | null;
 }): void {

@@ -16,7 +16,6 @@ import {
   isDirectOverboardOpenable,
   isResultFunMode,
   isValidBanResultPayload,
-  isResultParticipant,
   RESULT_COPY,
   showFreeModeBanOthersAction,
 } from '@98plus/shared';
@@ -43,6 +42,7 @@ import {
   logOverboardPaint,
 } from '@/lib/overboard-timing-debug';
 import { logResultFunMode } from '@/lib/result-fun-mode-debug';
+import { logResultPresentation } from '@/lib/result-ui-debug';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
 import {
   logResultCardRenderDecision,
@@ -123,6 +123,17 @@ function buildSafeQueueAtomicOverboardResult(
   };
 }
 
+function isResultParticipantSafe(
+  payload: BanResult,
+  activeViewerId: string | null | undefined,
+): boolean {
+  if (!activeViewerId?.trim()) return false;
+  const senderId = payload.sender?.id?.trim() ?? '';
+  const receiverId = payload.receiver?.id?.trim() ?? '';
+  if (!senderId || !receiverId) return false;
+  return activeViewerId === senderId || activeViewerId === receiverId;
+}
+
 function traceResultOverlayLifecycle(
   stage: string,
   props: ResultOverlayTraceProps,
@@ -162,8 +173,10 @@ function ResultOverlayInner({
   const resultStatus =
     (result as BanResult & { status?: string | null }).status ?? null;
   const isOverboardStatusOrOutcome =
-    result.outcome === 'overboard' || resultStatus === 'overboard';
-  const queueAtomicOverboardShowable =
+    result.outcome === 'overboard' ||
+    resultStatus === 'overboard' ||
+    result.headline?.trim().toUpperCase().startsWith('ПЕРЕБОР') === true;
+  const overboardQueueBody =
     contentOnly &&
     !directPaint &&
     Boolean(result.id?.trim()) &&
@@ -183,19 +196,26 @@ function ResultOverlayInner({
       if (isValidBanResultPayload(result)) return null;
       return 'directPaint-not-openable';
     }
-    if (queueAtomicOverboardShowable) return null;
+    if (overboardQueueBody) return null;
     if (!isValidBanResultPayload(result)) return 'invalid-payload';
-    if (!isResultParticipant(result, viewerId)) return 'not-participant';
+    if (!isResultParticipantSafe(result, viewerId)) return 'not-participant';
     return null;
   })();
   const showable = returnsNullReason == null;
+  const effectiveShowable =
+    showable ||
+    (contentOnly &&
+      !directPaint &&
+      Boolean(result.id?.trim()) &&
+      (isQueueAtomicOverboardResultShowable(result.id) ||
+        isOverboardStatusOrOutcome));
 
   const renderResult = useMemo((): BanResult => {
-    if (!queueAtomicOverboardShowable) {
+    if (!overboardQueueBody) {
       return result;
     }
     return buildSafeQueueAtomicOverboardResult(result, resolvedViewerId);
-  }, [queueAtomicOverboardShowable, resolvedViewerId, result]);
+  }, [overboardQueueBody, resolvedViewerId, result]);
 
   const tracePropsRef = useRef<ResultOverlayTraceProps>({
     showable,
@@ -252,9 +272,9 @@ function ResultOverlayInner({
   logResultCardRenderDecision({
     kind: 'result',
     banId: result.id,
-    status: result.outcome ?? result.status ?? null,
-    shouldRender: showable,
-    returnNullReason: returnsNullReason,
+    status: result.outcome ?? resultStatus ?? null,
+    shouldRender: effectiveShowable,
+    returnNullReason: overboardQueueBody ? null : returnsNullReason,
     isInNotificationQueue: contentOnly && !directPaint,
     activeOverlayKind: 'result',
     activeUserCardHold: null,
@@ -381,7 +401,7 @@ function ResultOverlayInner({
   }, [result.id, skipResultOverlayCleanup, token]);
 
   const isOverboard =
-    queueAtomicOverboardShowable ||
+    overboardQueueBody ||
     renderResult.outcome === 'overboard' ||
     resultStatus === 'overboard';
   const isFunMode = isResultFunMode(renderResult);
@@ -397,7 +417,7 @@ function ResultOverlayInner({
       ? renderResult.energy?.sender ?? null
       : isReceiver
         ? renderResult.energy?.receiver ?? null
-        : queueAtomicOverboardShowable
+        : overboardQueueBody
           ? (renderResult.energy?.receiver ?? renderResult.energy?.sender ?? -8)
           : null;
     const primaryLabel = isOverboard
@@ -412,7 +432,7 @@ function ResultOverlayInner({
         renderResult.outcome === 'split');
 
     const displayHeadline = isOverboard
-      ? queueAtomicOverboardShowable
+      ? overboardQueueBody
         ? QUEUE_ATOMIC_OVERBOARD_TITLE
         : renderResult.headline?.trim() || overboardPresentation.headline
       : getResultCardHeadline(
@@ -442,7 +462,7 @@ function ResultOverlayInner({
     isOverboard,
     overboardPresentation.headline,
     overboardPresentation.subline,
-    queueAtomicOverboardShowable,
+    overboardQueueBody,
     renderResult,
     resolvedViewerId,
   ]);
@@ -530,31 +550,37 @@ function ResultOverlayInner({
   const senderStatus = renderResult.confirmations?.sender;
   const receiverStatus = renderResult.confirmations?.receiver;
   const hasParticipantActions = view.isSender || view.isReceiver;
-  const hasActions = queueAtomicOverboardShowable
+  const hasActions = overboardQueueBody
     ? true
     : hasParticipantActions;
   const showParticipantCompare =
     Boolean(renderResult.sender) || Boolean(renderResult.receiver);
-  const banText = renderResult.text?.trim() ?? '';
-  const bodyKind: 'overboard' | 'default' | 'none' = !showable
+  const banText =
+    renderResult.text?.trim() ||
+    (result as BanResult & { ban?: { text?: string | null } }).ban?.text?.trim() ||
+    '';
+  const bodyKind: 'overboard' | 'default' | 'none' = !effectiveShowable
     ? 'none'
     : isOverboard
       ? 'overboard'
       : 'default';
-  const bodyReturnNullReason = queueAtomicOverboardShowable
-    ? null
-    : returnsNullReason;
+  const bodyReturnNullReason = overboardQueueBody ? null : returnsNullReason;
+  const bodyHasSender = Boolean(renderResult.sender?.id?.trim());
+  const bodyHasReceiver = Boolean(renderResult.receiver?.id?.trim());
 
   logResultOverlayBodyDecision({
     resultId: renderResult.id,
     status: resultStatus,
     outcome: renderResult.outcome ?? null,
     bodyKind,
-    title: queueAtomicOverboardShowable
+    title: overboardQueueBody
       ? QUEUE_ATOMIC_OVERBOARD_TITLE
       : view.displayHeadline ?? null,
+    hasText: Boolean(banText),
+    hasSender: bodyHasSender,
+    hasReceiver: bodyHasReceiver,
     willRenderBody:
-      showable &&
+      effectiveShowable &&
       (bodyKind === 'overboard'
         ? true
         : Boolean(view.displayHeadline?.trim())),
@@ -573,9 +599,9 @@ function ResultOverlayInner({
   });
 
   useLayoutEffect(() => {
-    if (!showable || !result.id) return;
+    if (!effectiveShowable || !result.id) return;
     reportOverlayRendered('result', result.id, hasActions);
-  }, [showable, result.id, hasActions, reportOverlayRendered]);
+  }, [effectiveShowable, result.id, hasActions, reportOverlayRendered]);
 
   useLayoutEffect(() => {
     if (!directPaint || !showable || !result.id) return;
@@ -613,7 +639,7 @@ function ResultOverlayInner({
     view.displayHeadline,
   ]);
 
-  if (!showable) return null;
+  if (!effectiveShowable) return null;
 
   const cardHead = (
     <div className="result-card-head">
@@ -647,7 +673,7 @@ function ResultOverlayInner({
         data-result-branch={isOverboard ? 'overboard' : undefined}
       >
         <p className="result-headline text-2xl font-black text-glow mb-1">
-          {queueAtomicOverboardShowable
+          {overboardQueueBody
             ? QUEUE_ATOMIC_OVERBOARD_TITLE
             : view.displayHeadline}
         </p>
