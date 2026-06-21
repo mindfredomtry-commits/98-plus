@@ -193,12 +193,14 @@ export function ActiveBanCardOverlay({
         </div>
 
         <div className="modal-card-actions result-card-actions space-y-2.5">
-          <BigButton
-            onPointerDown={handleBanMorePointerDown}
-            onClick={handleBanMoreClick}
-          >
-            {banMoreLabel}
-          </BigButton>
+          {isHistory ? (
+            <BigButton
+              onPointerDown={handleBanMorePointerDown}
+              onClick={handleBanMoreClick}
+            >
+              {banMoreLabel}
+            </BigButton>
+          ) : null}
           <BigButton variant="ghost" onPointerDown={handleBackPointerDown} onClick={handleBackClick}>
             К запретам
           </BigButton>
