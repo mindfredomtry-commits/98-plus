@@ -107,8 +107,7 @@ function ResultOverlayInner({
     contentOnly &&
     !directPaint &&
     isQueueAtomicOverboardResultShowable(result.id) &&
-    Boolean(result.id?.trim()) &&
-    Boolean(result.text?.trim());
+    Boolean(result.id?.trim());
   const returnsNullReason = (() => {
     if (directPaint) {
       if (isDirectOverboardOpenable(result, viewerId)) return null;

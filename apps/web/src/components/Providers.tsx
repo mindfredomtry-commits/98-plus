@@ -2009,16 +2009,40 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const isHeldOverboardResultProtected = (
     resultId: string | null | undefined,
+  ): boolean => shouldBlockAutoDismissAtomicOverboardResult(resultId);
+
+  const preserveAtomicOverboardResultDuringSync = (
+    source: string,
   ): boolean => {
-    const norm = normalizeId(resultId ?? '');
-    if (!norm) return false;
-    const held = heldUserCardOverlayRef.current;
-    if (held?.kind !== 'result' || normalizeId(held.result.id) !== norm) {
+    if (!isPendingAtomicOverboardResultAwaitingDismiss(source)) {
       return false;
     }
-    const refNorm = normalizeId(resultRef.current?.id ?? '');
     const atomicNorm = normalizeId(incomingOverboardAtomicBanIdRef.current ?? '');
-    return norm === refNorm || norm === atomicNorm;
+    if (!atomicNorm) return false;
+    freshOverboardActionBanIdsRef.current.add(atomicNorm);
+    logResultCardStableHold({
+      banId: atomicNorm,
+      source: `${source}-atomic-preserve`,
+    });
+    resultOpenRef.current = true;
+    const held = heldUserCardOverlayRef.current;
+    const heldNorm =
+      held?.kind === 'result' ? normalizeId(held.result.id) : '';
+    if (heldNorm === atomicNorm) {
+      if (normalizeId(resultRef.current?.id ?? '') !== atomicNorm) {
+        resultRef.current = held!.result;
+      }
+      setResult(held!.result);
+      return true;
+    }
+    if (
+      resultRef.current &&
+      normalizeId(resultRef.current.id) === atomicNorm
+    ) {
+      setResult(resultRef.current);
+      return true;
+    }
+    return true;
   };
 
   const shouldBlockAutoDismissAtomicOverboardResult = (
@@ -3139,12 +3163,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       }
     }
-    const atomicBanId = incomingOverboardAtomicBanIdRef.current;
-    if (atomicBanId && resultRef.current?.id === atomicBanId) {
-      logResultCardStableHold({
-        banId: atomicBanId,
-        source: 'syncDisplayFromQueue-skip',
-      });
+    if (preserveAtomicOverboardResultDuringSync('syncDisplayFromQueue')) {
       return;
     }
     if (
@@ -3959,6 +3978,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         resultOpenRef.current = true;
         return;
       }
+      const heldResultNorm =
+        heldFreshOverboard?.kind === 'result'
+          ? normalizeId(heldFreshOverboard.result.id)
+          : '';
+      if (
+        shouldBlockAutoDismissAtomicOverboardResult(freshMountedId) ||
+        shouldBlockAutoDismissAtomicOverboardResult(heldResultNorm) ||
+        preserveAtomicOverboardResultDuringSync(
+          'syncDisplayFromQueue-queue-head-not-result',
+        )
+      ) {
+        return;
+      }
       resultOpenRef.current = false;
       logResultPath('syncDisplayFromQueue', 'state-cleared', {
         banId:
@@ -4187,7 +4219,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       }
       overlayQueueRef.current = next;
-      syncDisplayFromQueue(next);
+      if (!preserveAtomicOverboardResultDuringSync('applyOverlayQueue')) {
+        syncDisplayFromQueue(next);
+      }
       setOverlayQueue(next);
     },
     [syncDisplayFromQueue],
@@ -13458,6 +13492,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setLobbyOpen(false);
       lobbyOpenRef.current = false;
       flushSync(() => {
+        if (
+          isPendingAtomicOverboardResultAwaitingDismiss(
+            `${source}:showNext-flushSync`,
+          )
+        ) {
+          return;
+        }
         logChainHeadSwitchTrace(
           `${source}:showNext-flushSync`,
           nextKind,
@@ -14022,7 +14063,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const prepareNotificationChainContinue = useCallback(
     (source: string, opts?: ContinueNotificationChainOptions) => {
       logChainContinueStart({ source });
-      if (opts?.clearActiveHold !== false) {
+      if (
+        opts?.clearActiveHold !== false &&
+        !isPendingAtomicOverboardResultAwaitingDismiss(source)
+      ) {
         clearActiveUserCardHold(`continueNotificationChain:${source}`);
       }
       notificationChainAwaitingUserRef.current = false;
@@ -16966,11 +17010,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
     const heldIsResult = heldUserCardOverlay?.kind === 'result';
     const queueHeadIsResult = queueHead?.kind === 'result';
+    const atomicNorm = normalizeId(incomingOverboardAtomicBanIdRef.current ?? '');
+    const refResultNorm = normalizeId(resultRef.current?.id ?? '');
+    const heldResultNorm =
+      heldIsResult
+        ? normalizeId(heldUserCardOverlay!.result.id)
+        : heldUserCardOverlayRef.current?.kind === 'result'
+          ? normalizeId(heldUserCardOverlayRef.current.result.id)
+          : '';
+    const atomicOverboardResultLive =
+      Boolean(atomicNorm) &&
+      (refResultNorm === atomicNorm ||
+        heldResultNorm === atomicNorm ||
+        freshOverboardActionBanIdsRef.current.has(atomicNorm));
 
     if (
       !showDirectOverboardLayer &&
-      activeResultPayload &&
-      (heldIsResult || queueHeadIsResult || incomingOverlayDisplayKind === 'result')
+      (activeResultPayload || atomicOverboardResultLive) &&
+      (heldIsResult ||
+        queueHeadIsResult ||
+        atomicOverboardResultLive ||
+        incomingOverlayDisplayKind === 'result')
     ) {
       return 'result' as const;
     }
@@ -17041,12 +17101,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
     const queueHead =
       overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
+    const atomicNorm = normalizeId(incomingOverboardAtomicBanIdRef.current ?? '');
+    const refResultNorm = normalizeId(resultRef.current?.id ?? '');
+    const heldResultNorm =
+      heldUserCardOverlay?.kind === 'result'
+        ? normalizeId(heldUserCardOverlay.result.id)
+        : heldUserCardOverlayRef.current?.kind === 'result'
+          ? normalizeId(heldUserCardOverlayRef.current.result.id)
+          : '';
+    const atomicOverboardResultLive =
+      Boolean(atomicNorm) &&
+      (refResultNorm === atomicNorm ||
+        heldResultNorm === atomicNorm ||
+        freshOverboardActionBanIdsRef.current.has(atomicNorm));
     const queueResultActive =
       !showDirectOverboardLayer &&
       (Boolean(activeResultPayload) ||
         heldUserCardOverlay?.kind === 'result' ||
         queueHead?.kind === 'result' ||
-        Boolean(resultRef.current?.id));
+        Boolean(resultRef.current?.id) ||
+        atomicOverboardResultLive);
 
     if (queueResultActive) {
       return 'result' as const;
@@ -17067,7 +17141,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return undefined;
     }
     if (isQueueAtomicOverboardResultShowable(activeResultPayload.id)) {
-      return Boolean(activeResultPayload.text?.trim());
+      return Boolean(activeResultPayload.id?.trim());
     }
     return undefined;
   }, [
