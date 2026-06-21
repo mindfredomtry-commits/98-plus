@@ -67,6 +67,17 @@ function isPartialOrWaitingResult(result: BanResult): boolean {
   return false;
 }
 
+/** Final check status — not interim state after only one partner answered. */
+function isTerminalCheckResult(result: BanResult): boolean {
+  if (result.outcome?.trim()) return true;
+  const confirmations = result.confirmations;
+  if (confirmations == null) return false;
+  return (
+    typeof confirmations.sender === 'boolean' &&
+    typeof confirmations.receiver === 'boolean'
+  );
+}
+
 export function getResultDisplayReadySnapshot(
   result: BanResult | null | undefined,
 ): ResultDisplayReadySnapshot {
@@ -116,6 +127,10 @@ export function isResultDisplayReady(input: ResultDisplayReadyInput): boolean {
 
   if (isOverboardStatusOrOutcome(result)) {
     return true;
+  }
+
+  if (!isTerminalCheckResult(result)) {
+    return false;
   }
 
   if (!isValidBanResultPayload(result)) return false;
