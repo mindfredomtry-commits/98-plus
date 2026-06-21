@@ -422,11 +422,13 @@ import {
   shouldBlockLobbyOpenForQueuedNotifications,
 } from '@/lib/notification-chain-explicit-drain';
 import {
+  isInteractiveOverboardResultContext,
   isPassiveResultOpenSource,
   logPassiveResultLookaheadBlocked,
   logPassiveResultOverlayBlocked,
   shouldBlockPassiveResultLookaheadDisplay,
   shouldBlockPassiveResultOverlayOpen,
+  shouldBlockPassiveResultShellDisplay,
 } from '@/lib/result-overlay-explicit-open';
 import {
   logChainContinueBlockedNonExplicitStartup,
@@ -3155,6 +3157,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const isInteractiveOverboardResultBanId = (norm: string): boolean => {
+    if (!norm) return false;
+    if (incomingOverboardAtomicBanIdRef.current === norm) return true;
+    if (freshOverboardActionBanIdsRef.current.has(norm)) return true;
+    if (overboardInFlightRef.current === norm) return true;
+    const held = heldUserCardOverlayRef.current;
+    if (
+      held?.kind === 'result' &&
+      normalizeId(held.result.id) === norm &&
+      notificationChainAwaitingUserRef.current
+    ) {
+      return true;
+    }
+    return false;
+  };
+
   const buildPassiveResultGateContext = (
     banId: string | null | undefined,
   ): Parameters<typeof shouldBlockPassiveResultOverlayOpen>[1] => {
@@ -3177,6 +3195,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         normalizeId(resultRef.current?.id ?? '') === norm,
       directOverboardInFlight:
         norm.length > 0 && overboardInFlightRef.current === norm,
+      interactiveResultBan: isInteractiveOverboardResultBanId(norm),
     };
   };
 
@@ -3191,15 +3210,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const deferPassiveResultQueueHeadOnLobby = (
     source: string,
-    queue: QueuedOverlay[],
+    _queue: QueuedOverlay[],
     active: Extract<QueuedOverlay, { kind: 'result' }>,
   ): boolean => {
-    if (
-      !shouldBlockPassiveResultLookaheadDisplay(
-        source,
-        buildPassiveResultGateContext(active.result.id),
-      )
-    ) {
+    const gateCtx = buildPassiveResultGateContext(active.result.id);
+    if (isInteractiveOverboardResultContext(gateCtx)) return false;
+    if (!shouldBlockPassiveResultLookaheadDisplay(source, gateCtx)) {
       return false;
     }
     const held = heldUserCardOverlayRef.current;
@@ -3215,25 +3231,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     primeLobbyBansAttentionHintSyncRef.current(
       'passive-result-lookahead-blocked',
     );
-    if (
-      held?.kind === 'result' &&
-      normalizeId(held.result.id) === normalizeId(active.result.id)
-    ) {
-      clearActiveUserCardHold('passive-result-lookahead-blocked');
-    }
     pendingStartupInteractionsRef.current = mergeStartupPendingSingle(
       pendingStartupInteractionsRef.current,
       active,
     );
     syncPendingStartupCount();
-    const rest = queue.slice(1);
-    overlayQueueRef.current = rest;
-    setOverlayQueue(rest);
     resultOpenRef.current = false;
-    setResult(null);
+    if (
+      normalizeId(resultRef.current?.id ?? '') ===
+      normalizeId(active.result.id)
+    ) {
+      setResult(null);
+    }
     setDirectResultOverlayActive(false);
-    if (rest.length > 0) {
-      syncDisplayFromQueue(rest);
+    if (
+      held?.kind === 'result' &&
+      normalizeId(held.result.id) === normalizeId(active.result.id)
+    ) {
+      clearActiveUserCardHold('passive-result-lookahead-blocked');
     }
     return true;
   };
@@ -3693,9 +3708,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
 
     if (active?.kind === 'result') {
-      if (deferPassiveResultQueueHeadOnLobby('syncDisplayFromQueue', queue, active)) {
-        return;
-      }
       const inFlightId = overboardInFlightRef.current;
       if (
         directResultOverlayRef.current &&
@@ -3866,6 +3878,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             'syncDisplayFromQueue-setResult',
             active,
           );
+          return;
+        }
+        if (
+          deferPassiveResultQueueHeadOnLobby(
+            'syncDisplayFromQueue',
+            queue,
+            active,
+          )
+        ) {
           return;
         }
         logResultPath('syncDisplayFromQueue', 'state-written', {
@@ -17211,18 +17232,40 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     );
   }, [heldUserCardOverlay, incomingNextHydrateBanId, overlayQueue]);
 
+  const shouldSuppressPassiveLobbyResultBan = (
+    banId: string | null | undefined,
+  ): boolean =>
+    shouldBlockPassiveResultShellDisplay(buildPassiveResultGateContext(banId));
+
   const activeResultPayload = useMemo(() => {
     const queueHead =
       overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
     const heldIsResult = heldUserCardOverlay?.kind === 'result';
     const queueHeadIsResult = queueHead?.kind === 'result';
     const refResult = resultRef.current;
+    const heldResult =
+      heldIsResult && !shouldSuppressPassiveLobbyResultBan(heldUserCardOverlay.result.id)
+        ? heldUserCardOverlay.result
+        : null;
+    const queueHeadResult =
+      queueHeadIsResult &&
+      !shouldSuppressPassiveLobbyResultBan(queueHead.result.id)
+        ? queueHead.result
+        : null;
+    const refResultPayload =
+      refResult?.id && !shouldSuppressPassiveLobbyResultBan(refResult.id)
+        ? refResult
+        : null;
+    const stateResult =
+      result?.id && !shouldSuppressPassiveLobbyResultBan(result.id)
+        ? result
+        : null;
     return (
       displayResult ??
-      (heldIsResult ? heldUserCardOverlay.result : null) ??
-      (queueHeadIsResult ? queueHead.result : null) ??
-      refResult ??
-      (result?.id ? result : null)
+      heldResult ??
+      queueHeadResult ??
+      refResultPayload ??
+      stateResult
     );
   }, [displayResult, heldUserCardOverlay, overlayQueue, result]);
 
@@ -17241,15 +17284,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           : '';
     const atomicOverboardResultLive =
       Boolean(atomicNorm) &&
+      !shouldSuppressPassiveLobbyResultBan(atomicNorm) &&
       (refResultNorm === atomicNorm ||
         heldResultNorm === atomicNorm ||
         freshOverboardActionBanIdsRef.current.has(atomicNorm));
 
+    const queueHeadResultSuppressed =
+      queueHeadIsResult &&
+      shouldSuppressPassiveLobbyResultBan(
+        queueHead?.kind === 'result' ? queueHead.result.id : null,
+      );
+    const heldResultSuppressed =
+      heldIsResult &&
+      shouldSuppressPassiveLobbyResultBan(
+        heldUserCardOverlay!.result.id,
+      );
+
     if (
       !showDirectOverboardLayer &&
       (activeResultPayload || atomicOverboardResultLive) &&
-      (heldIsResult ||
-        queueHeadIsResult ||
+      (heldIsResult && !heldResultSuppressed ||
+        (queueHeadIsResult && !queueHeadResultSuppressed) ||
         atomicOverboardResultLive ||
         incomingOverlayDisplayKind === 'result')
     ) {
@@ -17332,15 +17387,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           : '';
     const atomicOverboardResultLive =
       Boolean(atomicNorm) &&
+      !shouldSuppressPassiveLobbyResultBan(atomicNorm) &&
       (refResultNorm === atomicNorm ||
         heldResultNorm === atomicNorm ||
         freshOverboardActionBanIdsRef.current.has(atomicNorm));
+    const queueHeadResultSuppressed =
+      queueHead?.kind === 'result' &&
+      shouldSuppressPassiveLobbyResultBan(queueHead.result.id);
+    const heldResultSuppressed =
+      heldUserCardOverlay?.kind === 'result' &&
+      shouldSuppressPassiveLobbyResultBan(heldUserCardOverlay.result.id);
     const queueResultActive =
       !showDirectOverboardLayer &&
       (Boolean(activeResultPayload) ||
-        heldUserCardOverlay?.kind === 'result' ||
-        queueHead?.kind === 'result' ||
-        Boolean(resultRef.current?.id) ||
+        (heldUserCardOverlay?.kind === 'result' && !heldResultSuppressed) ||
+        (queueHead?.kind === 'result' && !queueHeadResultSuppressed) ||
+        (Boolean(resultRef.current?.id) &&
+          !shouldSuppressPassiveLobbyResultBan(resultRef.current?.id)) ||
         atomicOverboardResultLive);
 
     if (queueResultActive) {

@@ -52,6 +52,7 @@ export type PassiveResultOverlayGateContext = {
   notificationChainAwaitingUser: boolean;
   resultAlreadyMountedForBan: boolean;
   directOverboardInFlight: boolean;
+  interactiveResultBan: boolean;
 };
 
 export function isExplicitResultOpenSource(source: string): boolean {
@@ -65,15 +66,28 @@ export function isPassiveResultOpenSource(source: string): boolean {
 }
 
 export function isPassiveResultLookaheadSource(source: string): boolean {
-  return (
-    source.includes('result-overlay-prime') ||
-    source === 'syncDisplayFromQueue' ||
-    source.startsWith('syncDisplayFromQueue:')
-  );
+  return source.includes('result-overlay-prime');
 }
 
-function isOnLobbySurface(ctx: PassiveResultOverlayGateContext): boolean {
+/** Lobby idle surface: user on lobby without an active notification-chain card. */
+export function isPassiveLobbyIdleSurface(
+  ctx: PassiveResultOverlayGateContext,
+): boolean {
+  if (ctx.notificationChainAwaitingUser) return false;
   return Boolean(ctx.lobbyOpen || ctx.bansReturnToLobbyLatch);
+}
+
+export function isInteractiveOverboardResultContext(
+  ctx: PassiveResultOverlayGateContext,
+): boolean {
+  return (
+    ctx.interactiveResultBan ||
+    ctx.freshOverboardAction ||
+    ctx.atomicOverboardHold ||
+    ctx.directOverboardInFlight ||
+    (ctx.notificationChainAwaitingUser &&
+      (ctx.resultAlreadyMountedForBan || ctx.interactiveResultBan))
+  );
 }
 
 /** Passive lobby prime/lookahead must not mount result overlay over lobby. */
@@ -82,27 +96,40 @@ export function shouldBlockPassiveResultOverlayOpen(
   ctx: PassiveResultOverlayGateContext,
 ): boolean {
   if (isExplicitResultOpenSource(source)) return false;
-  if (ctx.atomicOverboardHold) return false;
-  if (ctx.directOverboardInFlight) return false;
-  if (ctx.chainAdvanceExplicit && !isOnLobbySurface(ctx)) return false;
+  if (isInteractiveOverboardResultContext(ctx)) return false;
+  if (ctx.chainAdvanceExplicit && !isPassiveLobbyIdleSurface(ctx)) return false;
   if (ctx.resultAlreadyMountedForBan && ctx.notificationChainAwaitingUser) {
     return false;
   }
-  if (!isOnLobbySurface(ctx)) return false;
+  if (!isPassiveLobbyIdleSurface(ctx)) return false;
   return true;
 }
 
-/** Block result-overlay-prime / sync queue-head from creating result display on lobby. */
+/** Block passive prime/sync from creating result display on lobby idle. */
 export function shouldBlockPassiveResultLookaheadDisplay(
   source: string,
   ctx: PassiveResultOverlayGateContext,
 ): boolean {
   if (isExplicitResultOpenSource(source)) return false;
-  if (ctx.atomicOverboardHold) return false;
-  if (ctx.directOverboardInFlight) return false;
-  if (!isOnLobbySurface(ctx)) return false;
+  if (isInteractiveOverboardResultContext(ctx)) return false;
+  if (!isPassiveLobbyIdleSurface(ctx)) return false;
+  if (source.includes('result-overlay-prime')) return true;
+  if (
+    source === 'syncDisplayFromQueue' ||
+    source.startsWith('syncDisplayFromQueue')
+  ) {
+    return true;
+  }
   if (isPassiveResultLookaheadSource(source)) return true;
   return shouldBlockPassiveResultOverlayOpen(source, ctx);
+}
+
+/** Suppress result shell from queue head / held overlay on passive lobby idle. */
+export function shouldBlockPassiveResultShellDisplay(
+  ctx: PassiveResultOverlayGateContext,
+): boolean {
+  if (isInteractiveOverboardResultContext(ctx)) return false;
+  return isPassiveLobbyIdleSurface(ctx);
 }
 
 export function logPassiveResultOverlayBlocked(data: {
