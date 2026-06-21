@@ -422,6 +422,11 @@ import {
   shouldBlockLobbyOpenForQueuedNotifications,
 } from '@/lib/notification-chain-explicit-drain';
 import {
+  isPassiveResultOpenSource,
+  logPassiveResultOverlayBlocked,
+  shouldBlockPassiveResultOverlayOpen,
+} from '@/lib/result-overlay-explicit-open';
+import {
   logChainContinueBlockedNonExplicitStartup,
   getMountedBlockingUserOverlay,
   heldUserCardBanId,
@@ -3135,6 +3140,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const shouldBlockPassiveResultOverlayOpenForBan = (
+    source: string,
+    banId: string | null | undefined,
+  ): boolean => {
+    const norm = normalizeId(banId ?? '');
+    return shouldBlockPassiveResultOverlayOpen(source, {
+      lobbyOpen: lobbyOpenRef.current,
+      freshOverboardAction:
+        norm.length > 0 && freshOverboardActionBanIdsRef.current.has(norm),
+      atomicOverboardHold:
+        norm.length > 0 &&
+        incomingOverboardAtomicBanIdRef.current === norm &&
+        notificationChainAwaitingUserRef.current,
+      chainAdvanceExplicit: chainAdvanceExplicitRef.current,
+      notificationChainAwaitingUser:
+        notificationChainAwaitingUserRef.current,
+      resultAlreadyMountedForBan:
+        norm.length > 0 &&
+        resultOpenRef.current &&
+        normalizeId(resultRef.current?.id ?? '') === norm,
+      directOverboardInFlight:
+        norm.length > 0 && overboardInFlightRef.current === norm,
+    });
+  };
+
   const syncDisplayFromQueue = useCallback((queue: QueuedOverlay[]) => {
     const headAtEnter = queue[0] ?? null;
     if (headAtEnter?.kind === 'incoming') {
@@ -3760,6 +3790,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             'syncDisplayFromQueue-setResult',
             active,
           );
+          return;
+        }
+        if (
+          shouldBlockPassiveResultOverlayOpenForBan(
+            'syncDisplayFromQueue',
+            active.result.id,
+          )
+        ) {
+          logPassiveResultOverlayBlocked({
+            source: 'syncDisplayFromQueue',
+            banId: active.result.id,
+            phase: 'setResult-blocked',
+            passiveSource: isPassiveResultOpenSource('syncDisplayFromQueue'),
+            lobbyOpen: lobbyOpenRef.current,
+          });
+          primeLobbyBansAttentionHintSyncRef.current(
+            'passive-result-sync-blocked',
+          );
+          pendingStartupInteractionsRef.current = mergeStartupPendingSingle(
+            pendingStartupInteractionsRef.current,
+            active,
+          );
+          syncPendingStartupCount();
+          const rest = queue.slice(1);
+          overlayQueueRef.current = rest;
+          setOverlayQueue(rest);
+          resultOpenRef.current = false;
+          setResult(null);
+          setDirectResultOverlayActive(false);
+          if (rest.length > 0) {
+            syncDisplayFromQueue(rest);
+          }
           return;
         }
         logResultPath('syncDisplayFromQueue', 'state-written', {
@@ -4826,6 +4888,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           extra: { enqueueSource: opts?.source ?? null, live },
         });
         if (block.blocked) {
+          return;
+        }
+        if (
+          shouldBlockPassiveResultOverlayOpenForBan(
+            `enqueueNotification:${opts?.source ?? 'unknown'}`,
+            normalizedItem.result.id,
+          )
+        ) {
+          logPassiveResultOverlayBlocked({
+            source: opts?.source ?? 'enqueueNotification',
+            banId: normalizedItem.result.id,
+            phase: 'enqueue-blocked',
+            passiveSource: isPassiveResultOpenSource(
+              opts?.source ?? 'enqueueNotification',
+            ),
+            lobbyOpen: lobbyOpenRef.current,
+          });
+          pendingStartupInteractionsRef.current = mergeStartupPendingSingle(
+            pendingStartupInteractionsRef.current,
+            normalizedItem,
+          );
+          syncPendingStartupCount();
+          primeLobbyBansAttentionHintSyncRef.current(
+            `passive-result-deferred:${opts?.source ?? 'unknown'}`,
+          );
           return;
         }
       }
@@ -6621,6 +6708,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         noteDeepLinkHandlerOpened('openBanResult', r.id);
       }
 
+      if (
+        mode === 'auto' &&
+        shouldBlockPassiveResultOverlayOpenForBan('openBanResult:auto', r.id)
+      ) {
+        logPassiveResultOverlayBlocked({
+          source: 'openBanResult:auto',
+          banId: r.id,
+          phase: 'open-blocked',
+          passiveSource: true,
+          lobbyOpen: lobbyOpenRef.current,
+        });
+        pendingStartupInteractionsRef.current = mergeStartupPendingSingle(
+          pendingStartupInteractionsRef.current,
+          { kind: 'result', result: r },
+        );
+        syncPendingStartupCount();
+        primeLobbyBansAttentionHintSyncRef.current(
+          'passive-result-openBanResult-blocked',
+        );
+        return;
+      }
+
       if (resultDeliveredBanIdsRef.current.has(r.id)) {
         logResultUi(r.outcome, {
           overlayKind: queueHeadKind,
@@ -7572,6 +7681,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         mode,
         extra: { wsOrHttpSource: source },
       });
+      if (
+        shouldBlockPassiveResultOverlayOpenForBan(
+          `receiveResult:${source}`,
+          banId,
+        )
+      ) {
+        logPassiveResultOverlayBlocked({
+          source: `receiveResult:${source}`,
+          banId,
+          phase: 'receive-blocked',
+          passiveSource: isPassiveResultOpenSource(`receiveResult:${source}`),
+          lobbyOpen: lobbyOpenRef.current,
+        });
+        enqueueNotification(
+          { kind: 'result', result: normalized },
+          {
+            live: false,
+            source: source === 'poll' ? 'poll' : 'ws',
+          },
+        );
+        primeLobbyBansAttentionHintSyncRef.current(
+          `receiveResult-deferred:${source}`,
+        );
+        return;
+      }
       openBanResult(normalized, mode);
 
       logResultLatency('[result-show-decision]', {
