@@ -17820,7 +17820,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ? 'normal'
         : null;
 
+  const queueShellShowsResult =
+    effectiveNotificationQueueShellKind === 'result' &&
+    activeResultPayload != null;
+
   const incomingJsxWillRender =
+    !queueShellShowsResult &&
     !composeBlocksNotificationHost &&
     !showDirectOverboardLayer &&
     !replyComposeActive &&
@@ -18296,6 +18301,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   ]);
 
   useLayoutEffect(() => {
+    if (queueShellShowsResult) {
+      return;
+    }
     const jsxBranch = {
       activeOverlayKind: effectiveIncomingOverlayDisplayKind,
       selectedBanId: effectiveIncomingBanId,
@@ -18382,6 +18390,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [
     effectiveIncomingBanId,
     effectiveIncomingOverlayDisplayKind,
+    effectiveNotificationQueueShellKind,
+    activeResultPayload,
+    queueShellShowsResult,
     incomingBan,
     incomingCardDisplayBan,
     effectiveShouldRenderIncoming,
@@ -18905,29 +18916,62 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 kind={effectiveNotificationQueueShellKind}
                 shellContentReady={queueResultShellContentReady}
                 displayBanId={
-                  stableIncomingOverlayBan?.id ??
-                  incomingCardDisplayBan?.id ??
-                  null
+                  queueShellShowsResult
+                    ? activeResultPayload?.id ?? null
+                    : effectiveNotificationQueueShellKind === 'incoming'
+                      ? (stableIncomingOverlayBan?.id ??
+                          incomingCardDisplayBan?.id ??
+                          null)
+                      : null
                 }
                 incomingCardReady={
-                  incomingCardFullyReady || !!stableIncomingOverlayBan?.id
+                  queueShellShowsResult
+                    ? undefined
+                    : incomingCardFullyReady || !!stableIncomingOverlayBan?.id
                 }
                 sessionActive={notificationHostSessionBackdrop}
-                advanceWaiting={chainAdvanceWaiting || incomingShellHydrating}
+                advanceWaiting={
+                  queueShellShowsResult
+                    ? false
+                    : chainAdvanceWaiting || incomingShellHydrating
+                }
                 contentKey={
-                  overlayQueue[0]
-                    ? overlayQueueKey(overlayQueue[0])
-                    : stableIncomingOverlayBan?.id
-                      ? `incoming:${stableIncomingOverlayBan.id}`
-                      : incomingCardDisplayBan?.id
-                        ? `incoming:${incomingCardDisplayBan.id}`
-                        : null
+                  queueShellShowsResult && activeResultPayload
+                    ? `result:${activeResultPayload.id}`
+                    : overlayQueue[0]
+                      ? overlayQueueKey(overlayQueue[0])
+                      : effectiveNotificationQueueShellKind === 'incoming' &&
+                          stableIncomingOverlayBan?.id
+                        ? `incoming:${stableIncomingOverlayBan.id}`
+                        : effectiveNotificationQueueShellKind === 'incoming' &&
+                            incomingCardDisplayBan?.id
+                          ? `incoming:${incomingCardDisplayBan.id}`
+                          : null
                 }
               >
-                {(effectiveNotificationQueueShellKind === 'incoming') &&
-                (incomingCardDisplayBan ||
-                  stableIncomingOverlayBan ||
-                  incomingShellHydrating) ? (
+                {queueShellShowsResult && activeResultPayload ? (
+                  <ChallengeErrorBoundary
+                    name="result"
+                    onRecover={() => dismissBanResult()}
+                  >
+                    <ResultOverlay
+                      result={activeResultPayload}
+                      onClose={dismissBanResult}
+                      contentOnly
+                    />
+                  </ChallengeErrorBoundary>
+                ) : effectiveNotificationQueueShellKind === 'check' &&
+                  !showCheckOverlayDirect ? (
+                  <ChallengeErrorBoundary
+                    name="check"
+                    onRecover={() => clearCheckOverlay()}
+                  >
+                    <CheckOverlay contentOnly />
+                  </ChallengeErrorBoundary>
+                ) : effectiveNotificationQueueShellKind === 'incoming' &&
+                  (incomingCardDisplayBan ||
+                    stableIncomingOverlayBan ||
+                    incomingShellHydrating) ? (
                   incomingCardDisplayBan || stableIncomingOverlayBan ? (
                     <ChallengeErrorBoundary
                       name="incoming"
@@ -18947,27 +18991,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                       Загрузка запрета…
                     </div>
                   )
-                ) : null}
-                {effectiveNotificationQueueShellKind === 'check' &&
-                !showCheckOverlayDirect ? (
-                  <ChallengeErrorBoundary
-                    name="check"
-                    onRecover={() => clearCheckOverlay()}
-                  >
-                    <CheckOverlay contentOnly />
-                  </ChallengeErrorBoundary>
-                ) : null}
-                {effectiveNotificationQueueShellKind === 'result' && activeResultPayload ? (
-                  <ChallengeErrorBoundary
-                    name="result"
-                    onRecover={() => dismissBanResult()}
-                  >
-                    <ResultOverlay
-                      result={activeResultPayload}
-                      onClose={dismissBanResult}
-                      contentOnly
-                    />
-                  </ChallengeErrorBoundary>
                 ) : null}
               </NotificationQueueShell>
             </GlobalOverlayHost>
