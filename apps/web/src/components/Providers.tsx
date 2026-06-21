@@ -16930,12 +16930,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
     const heldIsResult = heldUserCardOverlay?.kind === 'result';
     const queueHeadIsResult = queueHead?.kind === 'result';
+    const refResult = resultRef.current;
     return (
       displayResult ??
       (heldIsResult ? heldUserCardOverlay.result : null) ??
-      (queueHeadIsResult ? queueHead.result : null)
+      (queueHeadIsResult ? queueHead.result : null) ??
+      refResult ??
+      (result?.id ? result : null)
     );
-  }, [displayResult, heldUserCardOverlay, overlayQueue]);
+  }, [displayResult, heldUserCardOverlay, overlayQueue, result]);
 
   const incomingNotificationShellKind = useMemo(() => {
     const queueHead =
@@ -17013,19 +17016,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   ]);
 
   const effectiveNotificationQueueShellKind = useMemo(() => {
+    if (composeBlocksNotificationHost) return null;
+
     const queueHead =
       overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
-    const heldIsResult = heldUserCardOverlay?.kind === 'result';
-    const queueHeadIsResult = queueHead?.kind === 'result';
-    if (
+    const queueResultActive =
       !showDirectOverboardLayer &&
-      (heldIsResult || queueHeadIsResult || activeResultPayload)
-    ) {
+      (Boolean(activeResultPayload) ||
+        heldUserCardOverlay?.kind === 'result' ||
+        queueHead?.kind === 'result' ||
+        Boolean(resultRef.current?.id));
+
+    if (queueResultActive) {
       return 'result' as const;
     }
+
     return notificationQueueShellKind;
   }, [
     activeResultPayload,
+    composeBlocksNotificationHost,
     heldUserCardOverlay,
     notificationQueueShellKind,
     overlayQueue,
@@ -17066,8 +17075,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
     logResultOverlayJsxDecision({
       shellKind: notificationQueueShellKind,
+      effectiveKind: effectiveNotificationQueueShellKind,
       willRenderResultOverlay:
-        notificationQueueShellKind === 'result' && Boolean(activeResultPayload),
+        effectiveNotificationQueueShellKind === 'result' &&
+        Boolean(activeResultPayload),
       displayResultExists: Boolean(displayResult),
       displayResultStatus: displayResult?.status ?? null,
       displayResultOutcome: displayResult?.outcome ?? null,
@@ -17084,6 +17095,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     activeResultPayload,
     checkBan?.id,
     displayResult,
+    effectiveNotificationQueueShellKind,
     heldUserCardOverlay,
     incomingBan?.id,
     notificationQueueShellKind,
@@ -17092,10 +17104,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   useLayoutEffect(() => {
     const held = heldUserCardOverlayRef.current;
-    const shellKind = notificationQueueShellKind;
+    const shellKind = effectiveNotificationQueueShellKind;
     if (shellKind == null && held?.kind !== 'result') return;
 
     const resultBan =
+      activeResultPayload ??
       displayResult ??
       (held?.kind === 'result' ? held.result : null) ??
       (result?.id ? result : null);
@@ -17107,14 +17120,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         kind: 'result',
         banId: resultBan?.id ?? null,
         status: resultBan?.outcome ?? resultBan?.status ?? null,
-        shouldRender: shellKind === 'result' && Boolean(displayResult),
+        shouldRender: shellKind === 'result' && Boolean(activeResultPayload),
         returnNullReason:
-          shellKind === 'result' && !displayResult
+          shellKind === 'result' && !activeResultPayload
             ? priorityBlocksResult
               ? 'displayResult-null-priorityBlocksResult'
               : sendSuccessCardActive
                 ? 'displayResult-null-success-card-active'
-                : 'displayResult-null'
+                : 'activeResultPayload-null'
             : shellKind !== 'result'
               ? 'shell-kind-not-result'
               : null,
@@ -17128,7 +17141,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
     }
 
-    if (shellKind === 'incoming' || held?.kind === 'incoming') {
+    if (shellKind === 'incoming') {
       logResultCardRenderDecision({
         kind: 'incoming',
         banId: incomingBanId,
@@ -17148,10 +17161,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
   }, [
     activeOverlayKind,
+    activeResultPayload,
     displayResult,
+    effectiveNotificationQueueShellKind,
     heldUserCardOverlay,
     incomingCardDisplayBan,
-    notificationQueueShellKind,
     overlayQueue.length,
     priorityBlocksResult,
     result,
@@ -18839,7 +18853,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     </div>
                   )
                 ) : null}
-                {notificationQueueShellKind === 'check' &&
+                {effectiveNotificationQueueShellKind === 'check' &&
                 !showCheckOverlayDirect ? (
                   <ChallengeErrorBoundary
                     name="check"

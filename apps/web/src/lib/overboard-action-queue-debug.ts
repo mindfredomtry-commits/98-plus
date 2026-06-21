@@ -107,6 +107,7 @@ export function logChainAdvanceBlockedActiveUserCardDetail(data: {
 
 export function logResultOverlayJsxDecision(data: {
   shellKind: string | null;
+  effectiveKind?: string | null;
   willRenderResultOverlay: boolean;
   displayResultExists: boolean;
   displayResultStatus: string | null;
