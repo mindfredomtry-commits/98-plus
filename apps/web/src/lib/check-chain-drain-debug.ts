@@ -116,3 +116,75 @@ export function logLobbyOpenAfterCheckEmpty(
 ): void {
   window.__debug98log?.('[LOBBY OPEN AFTER CHECK EMPTY]', data);
 }
+
+export function logCheckQueueBeforeRemove(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK QUEUE BEFORE REMOVE]', data);
+}
+
+export function logCheckQueueAfterRemove(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK QUEUE AFTER REMOVE]', data);
+}
+
+export function logCheckContinueDecision(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK CONTINUE DECISION]', data);
+}
+
+export function logCheckContinueCall(data: Record<string, unknown>): void {
+  window.__debug98log?.('[CHECK CONTINUE CALL]', data);
+}
+
+export function logCheckContinueBlocked(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK CONTINUE BLOCKED]', data);
+}
+
+export function logCheckNextSelected(data: Record<string, unknown>): void {
+  window.__debug98log?.('[CHECK NEXT SELECTED]', data);
+}
+
+export function logCheckNextEmpty(data: Record<string, unknown>): void {
+  window.__debug98log?.('[CHECK NEXT EMPTY]', data);
+}
+
+export function logOverlayHostVisibilityDecision(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[OVERLAY HOST VISIBILITY DECISION]', data);
+}
+
+export function logCheckAnswerContinueOutcome(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK ANSWER CONTINUE OUTCOME]', data);
+}
+
+export function logCheckAnswerKeepTransition(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK ANSWER KEEP TRANSITION]', data);
+}
+
+export function logCheckAnswerRetryContinue(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK ANSWER RETRY CONTINUE]', data);
+}
+
+export function logCheckAnswerTransitionReleased(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK ANSWER TRANSITION RELEASED]', data);
+}
+
+export function logCheckAnswerRetryExhaustedOpenLobby(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK ANSWER RETRY EXHAUSTED OPEN LOBBY]', data);
+}
