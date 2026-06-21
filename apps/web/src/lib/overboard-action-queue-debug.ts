@@ -136,6 +136,21 @@ export function logResultOverlayContentCheck(data: {
   emit('[RESULT OVERLAY CONTENT CHECK]', data);
 }
 
+export function logResultOverlayBodyDecision(data: {
+  resultId: string;
+  status: string | null;
+  outcome: string | null;
+  hasText: boolean;
+  hasSender: boolean;
+  hasReceiver: boolean;
+  title: string | null;
+  bodyKind: 'overboard' | 'default' | 'none';
+  willRenderBody: boolean;
+  returnNullReason: string | null;
+}): void {
+  emit('[RESULT OVERLAY BODY DECISION]', data);
+}
+
 export function logResultDisplaySourcePick(data: {
   sourcePicked: string;
   fromDisplayResult: boolean;
