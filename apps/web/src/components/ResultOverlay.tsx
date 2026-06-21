@@ -12,7 +12,6 @@ import {
 import { createPortal } from 'react-dom';
 import type { BanResult, UserPublic } from '@98plus/shared';
 import {
-  ensureDirectOverboardOptimisticResult,
   getResultCardHeadline,
   isDirectOverboardOpenable,
   isResultFunMode,
@@ -71,6 +70,58 @@ type ResultOverlayTraceProps = {
   resultBanId: string;
   embedded: boolean;
 };
+
+const QUEUE_ATOMIC_OVERBOARD_TITLE = 'ПЕРЕБОР 🤙';
+
+function buildSafeQueueAtomicOverboardResult(
+  source: BanResult,
+  viewerId: string,
+): BanResult {
+  const banId = source.id.trim();
+  const uid = viewerId.trim() || `opt:viewer:${banId}`;
+  const stubUser = (id: string, partial?: UserPublic | null): UserPublic => ({
+    id,
+    telegramId: partial?.telegramId?.trim() || id,
+    username: partial?.username ?? null,
+    firstName:
+      partial?.firstName?.trim() ||
+      partial?.username?.replace(/^@/, '').trim() ||
+      'Игрок',
+    avatarUrl: partial?.avatarUrl ?? partial?.photoUrl ?? null,
+    photoUrl: partial?.photoUrl ?? partial?.avatarUrl ?? null,
+    aura: partial?.aura ?? 'stable',
+    auraLabel: partial?.auraLabel ?? '',
+    energyPercent: partial?.energyPercent ?? 50,
+    streak: partial?.streak ?? 0,
+    isOnboarded: partial?.isOnboarded ?? true,
+  });
+  const senderId =
+    source.sender?.id?.trim() ||
+    source.sender?.telegramId?.trim() ||
+    `opt:sender:${banId}`;
+  const sender = stubUser(senderId, source.sender);
+  const receiver = stubUser(uid, { ...source.receiver, id: uid });
+  const overboardCopy = RESULT_COPY.overboard;
+  return {
+    ...source,
+    id: banId,
+    text: source.text?.trim() ?? '',
+    outcome: 'overboard',
+    headline: QUEUE_ATOMIC_OVERBOARD_TITLE,
+    subline: source.subline?.trim() || overboardCopy.subline,
+    viewerId: uid,
+    sender,
+    receiver,
+    opponent: uid === senderId ? receiver : sender,
+    confirmations: source.confirmations ?? null,
+    energy: source.energy ?? { sender: -8, receiver: -8 },
+    farmSkipped: source.farmSkipped ?? false,
+    completedAt: source.completedAt || new Date().toISOString(),
+    deepLink: source.deepLink ?? '',
+    shareLink: source.shareLink ?? '',
+    inviteOpponentLink: source.inviteOpponentLink ?? '',
+  };
+}
 
 function traceResultOverlayLifecycle(
   stage: string,
@@ -143,26 +194,7 @@ function ResultOverlayInner({
     if (!queueAtomicOverboardShowable) {
       return result;
     }
-    const uid =
-      resolvedViewerId || `opt:viewer:${result.id.trim()}`;
-    const overboardCopy = RESULT_COPY.overboard;
-    return ensureDirectOverboardOptimisticResult(
-      {
-        ...result,
-        outcome: 'overboard',
-        headline: result.headline?.trim() || overboardCopy.headline,
-        subline: result.subline?.trim() || overboardCopy.subline,
-        text: result.text?.trim() || ' ',
-        energy: result.energy ?? { sender: -8, receiver: -8 },
-        confirmations: result.confirmations ?? null,
-        farmSkipped: result.farmSkipped ?? false,
-        completedAt: result.completedAt || new Date().toISOString(),
-        deepLink: result.deepLink ?? '',
-        shareLink: result.shareLink ?? '',
-        inviteOpponentLink: result.inviteOpponentLink ?? '',
-      },
-      uid,
-    );
+    return buildSafeQueueAtomicOverboardResult(result, resolvedViewerId);
   }, [queueAtomicOverboardShowable, resolvedViewerId, result]);
 
   const tracePropsRef = useRef<ResultOverlayTraceProps>({
@@ -362,10 +394,12 @@ function ResultOverlayInner({
     const isSender = Boolean(viewer && senderId && viewer === senderId);
     const isReceiver = Boolean(viewer && receiverId && viewer === receiverId);
     const myDelta = isSender
-      ? renderResult.energy.sender
+      ? renderResult.energy?.sender ?? null
       : isReceiver
-        ? renderResult.energy.receiver
-        : null;
+        ? renderResult.energy?.receiver ?? null
+        : queueAtomicOverboardShowable
+          ? (renderResult.energy?.receiver ?? renderResult.energy?.sender ?? -8)
+          : null;
     const primaryLabel = isOverboard
       ? '🚫 Запретить в ответ'
       : isReceiver
@@ -379,7 +413,7 @@ function ResultOverlayInner({
 
     const displayHeadline = isOverboard
       ? queueAtomicOverboardShowable
-        ? overboardPresentation.headline
+        ? QUEUE_ATOMIC_OVERBOARD_TITLE
         : renderResult.headline?.trim() || overboardPresentation.headline
       : getResultCardHeadline(
           renderResult.outcome,
@@ -497,32 +531,34 @@ function ResultOverlayInner({
   const receiverStatus = renderResult.confirmations?.receiver;
   const hasParticipantActions = view.isSender || view.isReceiver;
   const hasActions = queueAtomicOverboardShowable
-    ? Boolean(
-        renderResult.sender?.id?.trim() && renderResult.receiver?.id?.trim(),
-      )
+    ? true
     : hasParticipantActions;
+  const showParticipantCompare =
+    Boolean(renderResult.sender) || Boolean(renderResult.receiver);
   const banText = renderResult.text?.trim() ?? '';
   const bodyKind: 'overboard' | 'default' | 'none' = !showable
     ? 'none'
     : isOverboard
       ? 'overboard'
       : 'default';
+  const bodyReturnNullReason = queueAtomicOverboardShowable
+    ? null
+    : returnsNullReason;
 
   logResultOverlayBodyDecision({
     resultId: renderResult.id,
     status: resultStatus,
     outcome: renderResult.outcome ?? null,
-    hasText: Boolean(banText),
-    hasSender: Boolean(renderResult.sender?.id?.trim()),
-    hasReceiver: Boolean(renderResult.receiver?.id?.trim()),
-    title: view.displayHeadline ?? null,
     bodyKind,
+    title: queueAtomicOverboardShowable
+      ? QUEUE_ATOMIC_OVERBOARD_TITLE
+      : view.displayHeadline ?? null,
     willRenderBody:
       showable &&
       (bodyKind === 'overboard'
         ? true
         : Boolean(view.displayHeadline?.trim())),
-    returnNullReason: returnsNullReason,
+    returnNullReason: bodyReturnNullReason,
   });
 
   logResultOverlayContentCheck({
@@ -611,7 +647,9 @@ function ResultOverlayInner({
         data-result-branch={isOverboard ? 'overboard' : undefined}
       >
         <p className="result-headline text-2xl font-black text-glow mb-1">
-          {view.displayHeadline}
+          {queueAtomicOverboardShowable
+            ? QUEUE_ATOMIC_OVERBOARD_TITLE
+            : view.displayHeadline}
         </p>
         {view.displaySubline ? (
           <p className="text-muted text-sm mb-4 leading-snug px-1">
@@ -621,27 +659,29 @@ function ResultOverlayInner({
           <div className="mb-4" />
         )}
 
-        <div className="result-compare mx-auto mb-4">
-          <div className="result-party">
-            <Avatar user={renderResult.sender} priority={directPaint} />
-            {view.showStatuses ? (
-              <span className="result-status" aria-hidden>
-                {senderStatus ? '✅' : '❌'}
-              </span>
-            ) : null}
+        {showParticipantCompare ? (
+          <div className="result-compare mx-auto mb-4">
+            <div className="result-party">
+              <Avatar user={renderResult.sender} priority={directPaint} />
+              {view.showStatuses ? (
+                <span className="result-status" aria-hidden>
+                  {senderStatus ? '✅' : '❌'}
+                </span>
+              ) : null}
+            </div>
+            <span className="result-arrow text-accent" aria-hidden>
+              →
+            </span>
+            <div className="result-party">
+              <Avatar user={renderResult.receiver} />
+              {view.showStatuses ? (
+                <span className="result-status" aria-hidden>
+                  {receiverStatus ? '✅' : '❌'}
+                </span>
+              ) : null}
+            </div>
           </div>
-          <span className="result-arrow text-accent" aria-hidden>
-            →
-          </span>
-          <div className="result-party">
-            <Avatar user={renderResult.receiver} />
-            {view.showStatuses ? (
-              <span className="result-status" aria-hidden>
-                {receiverStatus ? '✅' : '❌'}
-              </span>
-            ) : null}
-          </div>
-        </div>
+        ) : null}
 
         {banText ? (
           <p className="text-base font-semibold leading-snug mb-3 px-1">
@@ -718,9 +758,16 @@ function Avatar({
   user,
   priority = false,
 }: {
-  user: UserPublic;
+  user?: UserPublic | null;
   priority?: boolean;
 }) {
+  if (!user) {
+    return (
+      <div className="modal-avatar overflow-hidden" aria-hidden>
+        <span className="text-lg">?</span>
+      </div>
+    );
+  }
   const letter = (user.firstName?.[0] ?? '?').toUpperCase();
   return (
     <div className="modal-avatar overflow-hidden" aria-hidden>
