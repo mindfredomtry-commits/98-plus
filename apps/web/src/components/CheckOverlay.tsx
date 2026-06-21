@@ -27,7 +27,10 @@ import { AvatarImage } from './AvatarImage';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
 import { APP_NOTIFICATION_BACKDROP_Z_INDEX, APP_NOTIFICATION_CARD_Z_INDEX } from '@/lib/overlay-queue';
 import { logCheckAnswerClick } from '@/lib/check-chain-drain-debug';
-import { allowOverlayUserTap } from '@/lib/overlay-input-guard';
+import {
+  allowOverlayUserTap,
+  clearCheckOverlayInputLock,
+} from '@/lib/overlay-input-guard';
 
 import { acquireScrollLock, releaseScrollLock } from '@/lib/scroll-lock';
 import {
@@ -161,6 +164,9 @@ function CheckOverlayInner({
 
   useLayoutEffect(() => {
     if (!canRender || !checkBan?.id) return;
+    if (!checkDirect) {
+      clearCheckOverlayInputLock(checkBan.id);
+    }
     if (checkDirect) {
       logCheckCardMounted({ banId: checkBan.id, source: 'check-direct' });
       logCheckCardTopLayerOk({ banId: checkBan.id, source: 'check-direct-mounted' });

@@ -466,6 +466,7 @@ import {
   type ConfirmOrbQueueDebugSnapshot,
   logLobbyIndicatorDuringConfirm,
   logNotificationDisplayBlockedDuringCompose,
+  logStaleComposeClearedBeforeBansNav,
 } from '@/lib/confirm-hold-render-debug';
 import {
   logResultPollBlockerCheck,
@@ -720,6 +721,10 @@ interface AppContextValue {
   }) => void;
   isWhatOrConfirmActive: () => boolean;
   isSendComposeActive: () => boolean;
+  /** Reset InstantBanFlow send UI when leaving overlay for bans/queue navigation. */
+  registerResetSendUiForBansNavigation: (fn: (() => void) | null) => void;
+  /** Clear stale WHO/WHAT/CONFIRM/reply state before «К запретам» / chain continue. */
+  clearStaleComposeStateBeforeBansNavigation: (source: string) => void;
   deepLinkReplyBooting: boolean;
   setDeepLinkReplyBooting: (v: boolean) => void;
   /** Reply deep link: optimistic incoming card shell before /open returns. */
@@ -1233,6 +1238,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const answeredCheckRef = useRef<Set<string>>(new Set());
   const resultPriorityBanIdsRef = useRef<Set<string>>(new Set());
   const checkAnswerInFlightRef = useRef<Set<string>>(new Set());
+  /** submitCheckAnswer owns empty-queue continue — skip dismiss microtask duplicate. */
+  const checkAnswerDismissChainOwnedRef = useRef(false);
   const resultOpenRef = useRef(false);
   const overboardInFlightRef = useRef<string | null>(null);
   const freshOverboardActionBanIdsRef = useRef<Set<string>>(new Set());
@@ -1395,6 +1402,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   >('idle');
   const whatOrConfirmActiveRef = useRef(false);
   const sendComposeActiveRef = useRef(false);
+  const resetSendUiForBansNavigationRef = useRef<(() => void) | null>(null);
   const [sendComposePhase, setSendComposePhaseState] = useState<
     'idle' | 'selectingTarget' | 'composingBan' | 'confirming'
   >('idle');
@@ -4845,15 +4853,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               overlayQueueDrainActiveRef.current = false;
               console.log('[OVERLAY QUEUE DRAIN END]', { ts: selectTs });
             }
-            queueMicrotask(() => {
-              void continueNotificationChainOrOpenLobbyRef.current(
-                `dismiss:${reason}`,
-                {
-                  clearActiveHold: false,
-                  prefetchSkipBanId: dismissBanId,
-                },
-              );
-            });
+            const checkAnswerOwnsContinue =
+              checkAnswerDismissChainOwnedRef.current &&
+              isUserAllowedCheckOverlayCloseReason(reason);
+            if (!checkAnswerOwnsContinue) {
+              queueMicrotask(() => {
+                void continueNotificationChainOrOpenLobbyRef.current(
+                  `dismiss:${reason}`,
+                  {
+                    clearActiveHold: false,
+                    prefetchSkipBanId: dismissBanId,
+                  },
+                );
+              });
+            }
           } else {
             notificationChainAwaitingUserRef.current = false;
             notificationChainHandoffRef.current = false;
@@ -9218,6 +9231,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId: normalizedBanId,
         answer: completed,
       });
+      const remaining = removeOverlaysForBan(
+        overlayQueueRef.current,
+        normalizedBanId,
+        ['check'],
+      );
+      const pendingHead = pendingStartupInteractionsRef.current[0] ?? null;
+      const advanceHead = remaining[0] ?? pendingHead;
+      const placeholderKind: 'incoming' | 'check' | 'result' =
+        advanceHead?.kind === 'check' ||
+        advanceHead?.kind === 'result' ||
+        advanceHead?.kind === 'incoming'
+          ? advanceHead.kind
+          : 'incoming';
+      checkAnswerDismissChainOwnedRef.current = remaining.length === 0;
+      setChainAdvancePlaceholderKind(placeholderKind);
+      setChainAdvanceWaiting(true);
+      setNotificationChainTransitioning(true);
       dismissedCheckSessionRef.current.add(normalizedBanId);
       answeredCheckRef.current.add(normalizedBanId);
       markCheckAnsweredLocally(uid, normalizedBanId);
@@ -9231,11 +9261,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         reason: 'user-answer',
         completed,
       });
-      const remaining = removeOverlaysForBan(
-        overlayQueueRef.current,
-        normalizedBanId,
-        ['check'],
-      );
       finalizeCheckDismissAfterUserAnswerRef.current(normalizedBanId, remaining);
       const t0 = performance.now();
       checkSubmitAtRef.current.set(normalizedBanId, t0);
@@ -9248,6 +9273,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       dismissCurrentOverlay('user-answer', remaining);
       setCheckWaiting(false);
+
+      let chainContinuePromise: Promise<boolean> | null = null;
+      if (remaining.length === 0) {
+        chainContinuePromise = continueNotificationChainOrOpenLobbyRef.current(
+          'check-answer-submit',
+          {
+            clearActiveHold: false,
+            prefetchSkipBanId: normalizedBanId,
+          },
+        );
+      } else {
+        checkAnswerDismissChainOwnedRef.current = false;
+        queueMicrotask(() => {
+          const head = overlayQueueRef.current[0];
+          const nextReady =
+            !head ||
+            (head.kind === 'check' && !!checkBanRef.current?.id) ||
+            (head.kind === 'result' && !!resultRef.current?.id) ||
+            (head.kind === 'incoming' && !!incomingBanRef.current?.id);
+          if (nextReady) {
+            setChainAdvanceWaiting(false);
+          }
+        });
+      }
 
       try {
         logResultLatency('[result-http-start]', {
@@ -9351,7 +9400,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return { ok: false, error: message };
       } finally {
         checkAnswerInFlightRef.current.delete(normalizedBanId);
-        if (
+        if (chainContinuePromise) {
+          try {
+            await chainContinuePromise;
+          } catch {
+            // chain continue logs its own errors
+          }
+          setChainAdvanceWaiting(false);
+          checkAnswerDismissChainOwnedRef.current = false;
+        } else if (
           overlayQueueRef.current.length === 0 &&
           pendingStartupInteractionsRef.current.length === 0 &&
           !resultRef.current?.id &&
@@ -9365,7 +9422,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       }
     },
-    [dismissCurrentOverlay, showCheckAnswerFinalResult, scheduleResultPollBurst],
+    [
+      dismissCurrentOverlay,
+      showCheckAnswerFinalResult,
+      scheduleResultPollBurst,
+      setChainAdvanceWaiting,
+      setNotificationChainTransitioning,
+    ],
   );
 
   const readDirectOverboardSnapshot =
@@ -13183,6 +13246,75 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [clearReplyParentActivePriority, finalizeIncomingReplyAfterSend, pinReplyToBanId],
   );
 
+  const registerResetSendUiForBansNavigation = useCallback(
+    (fn: (() => void) | null) => {
+      resetSendUiForBansNavigationRef.current = fn;
+    },
+    [],
+  );
+
+  const isBansNavigationChainSource = (source: string): boolean =>
+    [
+      'active-timer-close',
+      'active-timer-card-close',
+      'status-cta',
+      'overboard-status-direct',
+      'navigateFromResult',
+      'finalizeResultForGoToBans',
+      'go-to-bans',
+      'result-status',
+      'result-timer-go-to-bans',
+      'lobby-bans-cta',
+      'lobby-bans',
+      'timer-go-to-bans',
+      'reply-parent-active-timer',
+    ].some((marker) => source.includes(marker));
+
+  const clearStaleComposeStateBeforeBansNavigation = useCallback(
+    (source: string) => {
+      if (sendSuccessCardActiveRef.current) {
+        return;
+      }
+      const sendComposePhaseBefore = sendComposePhaseRef.current;
+      const replyComposePhaseBefore = replyComposeActiveRef.current;
+      const hadStaleCompose =
+        sendComposePhaseBefore !== 'idle' || replyComposePhaseBefore;
+      const queueHead = overlayQueueRef.current[0] ?? null;
+      const held = heldUserCardOverlayRef.current;
+      const activeKind =
+        held?.kind ?? queueHead?.kind ?? null;
+      const activeBanId =
+        held != null
+          ? heldUserCardBanId(held)
+          : queueHead?.kind === 'result'
+            ? queueHead.result.id
+            : queueHead?.kind === 'incoming' || queueHead?.kind === 'check'
+              ? queueHead.ban.id
+              : null;
+      if (hadStaleCompose) {
+        logStaleComposeClearedBeforeBansNav({
+          source,
+          sendComposePhaseBefore,
+          replyComposePhaseBefore,
+          activeKind,
+          activeBanId,
+          lobbyOpen: lobbyOpenRef.current,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+        closeSendFlow();
+        clearIncomingReply();
+        setReplyComposeActive(false);
+        setComposeFlowState({
+          phase: 'idle',
+          source: `clearStaleComposeBeforeBansNav:${source}`,
+        });
+      }
+      resetSendUiForBansNavigationRef.current?.();
+    },
+    [clearIncomingReply, closeSendFlow, setComposeFlowState],
+  );
+
   const clearBansCtaQueueSuppress = useCallback(() => {
     bansCtaQueueSuppressRef.current = false;
     setBansCtaQueueSuppress(false);
@@ -14377,7 +14509,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (
       source: string,
       opts?: ContinueNotificationChainOptions,
-    ): ContinueNotificationChainOutcome => {
+    ):     ContinueNotificationChainOutcome => {
+      if (isBansNavigationChainSource(source)) {
+        clearStaleComposeStateBeforeBansNavigation(source);
+      }
       if (isSendComposeFlowActive()) {
         logNotificationDisplayBlockedDuringComposeGuard(source, null);
         return 'blocked';
@@ -14564,6 +14699,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [
       buildChainEmptyFinalizeSnapshot,
+      clearStaleComposeStateBeforeBansNavigation,
       collectPendingNotificationChain,
       prepareNotificationChainContinue,
       setChainAdvanceWaiting,
@@ -14725,6 +14861,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const startLobbyBansNotificationDrain =
     useCallback(async (): Promise<LobbyBansNotificationDrainOutcome> => {
+      clearStaleComposeStateBeforeBansNavigation('lobby-bans-cta');
       let queueLenBefore = overlayQueueRef.current.length;
       let pendingLen = pendingStartupInteractionsRef.current.length;
 
@@ -14921,6 +15058,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       auth.user?.id,
       buildQueueSourceComparisonSnapshot,
       clearNotificationChainReturnLatch,
+      clearStaleComposeStateBeforeBansNavigation,
       hasPendingNotificationChain,
       lobbyBansAttentionHint,
       mergePendingSnapshotIntoOverlayQueue,
@@ -15273,6 +15411,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       banId: getActiveTimerBanId(),
       hadPriority,
     });
+    clearStaleComposeStateBeforeBansNavigation('active-timer-close');
     clearReplyParentActivePriority('queue-release');
     activeBanCardVisibleRef.current = false;
     setActiveBanCardReady(false);
@@ -15290,7 +15429,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     void continueNotificationChainOrOpenLobbyRef.current('active-timer-close', {
       clearActiveHold: true,
     });
-  }, [clearReplyParentActivePriority]);
+  }, [clearReplyParentActivePriority, clearStaleComposeStateBeforeBansNavigation]);
 
   const markReplyParentActivePriorityShown = useCallback((parentBanId: string) => {
     replyParentActivePriorityPendingRef.current = false;
@@ -15306,6 +15445,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const finalizeResultForGoToBans = useCallback(
     (banId: string) => {
+      clearStaleComposeStateBeforeBansNavigation('finalizeResultForGoToBans');
       const key = normalizeId(banId);
       if (!key) return;
       const outcome = resultRef.current?.outcome ?? result?.outcome ?? null;
@@ -15382,6 +15522,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [
       cancelResultPollBurst,
       clearDirectOverboardLayerRefs,
+      clearStaleComposeStateBeforeBansNavigation,
       consumeIncomingAfterAnswer,
       markResultOverlayConsumed,
       pruneResultFromNotificationChain,
@@ -15421,6 +15562,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const navigateFromResult = useCallback(() => {
+    clearStaleComposeStateBeforeBansNavigation('navigateFromResult');
     const generation = ++statusCtaNavigateGenerationRef.current;
     const banId = result?.id ?? resultRef.current?.id ?? null;
     const wasDirect =
@@ -15656,6 +15798,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     clearNotificationChainReturnLatch,
     snapshotPendingNotificationChain,
     directResultOverlayActive,
+    clearStaleComposeStateBeforeBansNavigation,
     finalizeResultForGoToBans,
     logCardCloseClick,
     markOverlayUserAction,
@@ -18487,6 +18630,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       null;
     if (mountedId === headBanId) {
       setNotificationChainTransitioning(false);
+      if (chainAdvanceWaitingRef.current) {
+        setChainAdvanceWaiting(false);
+      }
     }
   }, [
     checkBan?.id,
@@ -18494,6 +18640,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationChainTransitioning,
     overlayQueue,
     result?.id,
+    setChainAdvanceWaiting,
     setNotificationChainTransitioning,
     stableIncomingOverlayBan?.id,
   ]);
@@ -18880,6 +19027,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       closeSendFlow,
       sendComposePhase,
       setComposeFlowState,
+      registerResetSendUiForBansNavigation,
+      clearStaleComposeStateBeforeBansNavigation,
       isWhatOrConfirmActive,
       isSendComposeActive,
       deepLinkReplyBooting,
@@ -19064,6 +19213,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       closeSendFlow,
       sendComposePhase,
       setComposeFlowState,
+      registerResetSendUiForBansNavigation,
+      clearStaleComposeStateBeforeBansNavigation,
       isWhatOrConfirmActive,
       isSendComposeActive,
       deepLinkReplyBooting,

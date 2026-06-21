@@ -218,6 +218,19 @@ export function logNotificationDisplayBlockedDuringCompose(data: {
   emit('[NOTIFICATION DISPLAY BLOCKED DURING COMPOSE]', data);
 }
 
+export function logStaleComposeClearedBeforeBansNav(data: {
+  source: string;
+  sendComposePhaseBefore: string;
+  replyComposePhaseBefore: boolean;
+  activeKind: string | null;
+  activeBanId: string | null;
+  lobbyOpen: boolean;
+  queueLen: number;
+  pendingLen: number;
+}): void {
+  emit('[STALE COMPOSE CLEARED BEFORE BANS NAV]', data);
+}
+
 export function logQueueStateDuringConfirm(
   data: Record<string, unknown>,
 ): void {

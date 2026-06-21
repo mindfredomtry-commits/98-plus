@@ -400,6 +400,8 @@ export function InstantBanFlow({
     openSendFlow,
     closeSendFlow,
     setComposeFlowState,
+    registerResetSendUiForBansNavigation,
+    clearStaleComposeStateBeforeBansNavigation,
     applySession,
     pendingStartupInteractions,
     hasPendingNotificationChain,
@@ -2182,6 +2184,7 @@ export function InstantBanFlow({
 
   const resetSendUiForBansCta = useCallback(() => {
     sendEntryPhaseRef.current = null;
+    activeBanRepeatComposeRef.current = false;
     stopCrossScreenAnim();
     screenTransitionRef.current = null;
     setScreenTransition(null);
@@ -2205,6 +2208,11 @@ export function InstantBanFlow({
   useLayoutEffect(() => {
     resetSendUiForBansCtaRef.current = resetSendUiForBansCta;
   }, [resetSendUiForBansCta]);
+
+  useLayoutEffect(() => {
+    registerResetSendUiForBansNavigation(resetSendUiForBansCta);
+    return () => registerResetSendUiForBansNavigation(null);
+  }, [registerResetSendUiForBansNavigation, resetSendUiForBansCta]);
 
   const handleOpenBansFromResultCta = useCallback((): boolean => {
     if (hasPendingNotificationChain()) {
@@ -2476,6 +2484,7 @@ export function InstantBanFlow({
     });
     logResultTimerGoToBansClick({ banId, source: 'reply-parent-active-timer' });
     markOverlayUserAction('result-timer-go-to-bans', banId ?? undefined);
+    clearStaleComposeStateBeforeBansNavigation('active-timer-card-close');
     const hasNext = hasPendingNotificationChain();
     logResultTimerDismissContinueQueue({
       banId,
@@ -2499,6 +2508,7 @@ export function InstantBanFlow({
     });
     releaseNotificationQueueAfterReplyParentActive();
   }, [
+    clearStaleComposeStateBeforeBansNavigation,
     hasPendingNotificationChain,
     lobbyActiveBanOverlay?.id,
     markOverlayUserAction,
