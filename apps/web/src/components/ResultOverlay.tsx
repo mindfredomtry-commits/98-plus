@@ -108,11 +108,24 @@ function ResultOverlayInner({
   const [archiveSaved, setArchiveSaved] = useState(false);
 
   const viewerId = result.viewerId ?? user?.id ?? null;
+  const resultStatus =
+    (result as BanResult & { status?: string | null }).status ?? null;
+  const isOverboardStatusOrOutcome =
+    result.outcome === 'overboard' || resultStatus === 'overboard';
   const queueAtomicOverboardShowable =
     contentOnly &&
     !directPaint &&
-    isQueueAtomicOverboardResultShowable(result.id) &&
-    Boolean(result.id?.trim());
+    Boolean(result.id?.trim()) &&
+    (isQueueAtomicOverboardResultShowable(result.id) ||
+      isOverboardStatusOrOutcome);
+  const resolvedViewerId = (
+    viewerId ??
+    result.viewerId ??
+    user?.id ??
+    result.receiver?.id ??
+    result.sender?.id ??
+    ''
+  ).trim();
   const returnsNullReason = (() => {
     if (directPaint) {
       if (isDirectOverboardOpenable(result, viewerId)) return null;
@@ -127,16 +140,19 @@ function ResultOverlayInner({
   const showable = returnsNullReason == null;
 
   const renderResult = useMemo((): BanResult => {
-    if (!queueAtomicOverboardShowable || !viewerId?.trim()) {
+    if (!queueAtomicOverboardShowable) {
       return result;
     }
+    const uid =
+      resolvedViewerId || `opt:viewer:${result.id.trim()}`;
+    const overboardCopy = RESULT_COPY.overboard;
     return ensureDirectOverboardOptimisticResult(
       {
         ...result,
-        outcome: result.outcome ?? 'overboard',
-        headline: result.headline?.trim() || RESULT_COPY.overboard.headline,
-        subline: result.subline?.trim() || RESULT_COPY.overboard.subline,
-        text: result.text?.trim() ?? '',
+        outcome: 'overboard',
+        headline: result.headline?.trim() || overboardCopy.headline,
+        subline: result.subline?.trim() || overboardCopy.subline,
+        text: result.text?.trim() || ' ',
         energy: result.energy ?? { sender: -8, receiver: -8 },
         confirmations: result.confirmations ?? null,
         farmSkipped: result.farmSkipped ?? false,
@@ -145,9 +161,9 @@ function ResultOverlayInner({
         shareLink: result.shareLink ?? '',
         inviteOpponentLink: result.inviteOpponentLink ?? '',
       },
-      viewerId,
+      uid,
     );
-  }, [queueAtomicOverboardShowable, result, viewerId]);
+  }, [queueAtomicOverboardShowable, resolvedViewerId, result]);
 
   const tracePropsRef = useRef<ResultOverlayTraceProps>({
     showable,
@@ -333,14 +349,18 @@ function ResultOverlayInner({
   }, [result.id, skipResultOverlayCleanup, token]);
 
   const isOverboard =
-    renderResult.outcome === 'overboard' || queueAtomicOverboardShowable;
+    queueAtomicOverboardShowable ||
+    renderResult.outcome === 'overboard' ||
+    resultStatus === 'overboard';
   const isFunMode = isResultFunMode(renderResult);
   const overboardPresentation = RESULT_COPY.overboard;
 
   const view = useMemo(() => {
-    const viewer = renderResult.viewerId ?? viewerId;
-    const isSender = viewer === renderResult.sender.id;
-    const isReceiver = viewer === renderResult.receiver.id;
+    const viewer = (renderResult.viewerId ?? resolvedViewerId ?? '').trim();
+    const senderId = renderResult.sender?.id?.trim() ?? '';
+    const receiverId = renderResult.receiver?.id?.trim() ?? '';
+    const isSender = Boolean(viewer && senderId && viewer === senderId);
+    const isReceiver = Boolean(viewer && receiverId && viewer === receiverId);
     const myDelta = isSender
       ? renderResult.energy.sender
       : isReceiver
@@ -358,7 +378,9 @@ function ResultOverlayInner({
         renderResult.outcome === 'split');
 
     const displayHeadline = isOverboard
-      ? renderResult.headline?.trim() || overboardPresentation.headline
+      ? queueAtomicOverboardShowable
+        ? overboardPresentation.headline
+        : renderResult.headline?.trim() || overboardPresentation.headline
       : getResultCardHeadline(
           renderResult.outcome,
           renderResult.farmSkipped,
@@ -388,7 +410,7 @@ function ResultOverlayInner({
     overboardPresentation.subline,
     queueAtomicOverboardShowable,
     renderResult,
-    viewerId,
+    resolvedViewerId,
   ]);
 
   const share = useCallback(() => {
@@ -473,9 +495,12 @@ function ResultOverlayInner({
 
   const senderStatus = renderResult.confirmations?.sender;
   const receiverStatus = renderResult.confirmations?.receiver;
-  const hasActions = view.isSender || view.isReceiver;
-  const resultStatus =
-    (result as BanResult & { status?: string | null }).status ?? null;
+  const hasParticipantActions = view.isSender || view.isReceiver;
+  const hasActions = queueAtomicOverboardShowable
+    ? Boolean(
+        renderResult.sender?.id?.trim() && renderResult.receiver?.id?.trim(),
+      )
+    : hasParticipantActions;
   const banText = renderResult.text?.trim() ?? '';
   const bodyKind: 'overboard' | 'default' | 'none' = !showable
     ? 'none'
@@ -492,7 +517,11 @@ function ResultOverlayInner({
     hasReceiver: Boolean(renderResult.receiver?.id?.trim()),
     title: view.displayHeadline ?? null,
     bodyKind,
-    willRenderBody: showable && Boolean(view.displayHeadline?.trim()),
+    willRenderBody:
+      showable &&
+      (bodyKind === 'overboard'
+        ? true
+        : Boolean(view.displayHeadline?.trim())),
     returnNullReason: returnsNullReason,
   });
 
