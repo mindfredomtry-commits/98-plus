@@ -206,6 +206,18 @@ export function logLobbyIndicatorDuringConfirm(
   emit('[LOBBY INDICATOR DURING CONFIRM]', data);
 }
 
+export function logNotificationDisplayBlockedDuringCompose(data: {
+  source: string;
+  activeKind?: string | null;
+  queueLen: number;
+  pendingLen: number;
+  sendComposePhase: string;
+  replyComposeActive: boolean;
+  lobbyOpen: boolean;
+}): void {
+  emit('[NOTIFICATION DISPLAY BLOCKED DURING COMPOSE]', data);
+}
+
 export function logQueueStateDuringConfirm(
   data: Record<string, unknown>,
 ): void {

@@ -465,6 +465,7 @@ import {
   type ConfirmHoldDebugSnapshot,
   type ConfirmOrbQueueDebugSnapshot,
   logLobbyIndicatorDuringConfirm,
+  logNotificationDisplayBlockedDuringCompose,
 } from '@/lib/confirm-hold-render-debug';
 import {
   logResultPollBlockerCheck,
@@ -1624,8 +1625,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     () => whatOrConfirmActiveRef.current,
     [],
   );
+  const isSendComposeFlowActive = (): boolean =>
+    sendComposePhaseRef.current !== 'idle' ||
+    replyComposeActiveRef.current;
+  const logNotificationDisplayBlockedDuringComposeGuard = (
+    source: string,
+    activeKind: string | null = null,
+  ): void => {
+    logNotificationDisplayBlockedDuringCompose({
+      source,
+      activeKind,
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      sendComposePhase: sendComposePhaseRef.current,
+      replyComposeActive: replyComposeActiveRef.current,
+      lobbyOpen: lobbyOpenRef.current,
+    });
+  };
   const isSendComposeActive = useCallback(
-    () => sendComposeActiveRef.current,
+    () => isSendComposeFlowActive(),
     [],
   );
 
@@ -2707,7 +2725,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       logActiveTimerBlocksNotification(source, attemptedKind, attemptedBanId);
       return true;
     }
-    if (isWhatOrConfirmActive()) {
+    if (isSendComposeFlowActive()) {
+      logNotificationDisplayBlockedDuringComposeGuard(
+        source,
+        attemptedKind,
+      );
       console.log('[compose-flow-notification-blocked]', {
         source,
         kind: attemptedKind,
@@ -3414,9 +3436,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
       return;
     }
-    if (isWhatOrConfirmActive() && active) {
+    if (isSendComposeFlowActive() && active) {
       const banId =
         active.kind === 'result' ? active.result.id : active.ban.id;
+      logNotificationDisplayBlockedDuringComposeGuard(
+        'syncDisplayFromQueue',
+        active.kind,
+      );
       console.log('[sync-display-blocked-compose]', {
         kind: active.kind,
         banId,
@@ -4293,11 +4319,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             : nextHead.ban.id,
         )
       ) {
-        if (whatOrConfirmActiveRef.current) {
+        if (isSendComposeFlowActive()) {
           overlayQueueRef.current = next;
           setOverlayQueue(next);
+          logNotificationDisplayBlockedDuringComposeGuard(
+            'applyOverlayQueue',
+            nextHead.kind,
+          );
           console.log('[global-overlay-blocked-compose]', {
-            active: false,
+            active: true,
             queueLen: next.length,
           });
         }
@@ -4928,6 +4958,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           'enqueueNotification',
           normalizedItem.kind,
           banId,
+        );
+        deferNotificationToPendingStartup(normalizedItem);
+        return;
+      }
+
+      if (
+        live &&
+        isSendComposeFlowActive() &&
+        (normalizedItem.kind === 'check' ||
+          normalizedItem.kind === 'incoming' ||
+          normalizedItem.kind === 'result')
+      ) {
+        logNotificationDisplayBlockedDuringComposeGuard(
+          `enqueueNotification:${opts?.source ?? 'unknown'}`,
+          normalizedItem.kind,
         );
         deferNotificationToPendingStartup(normalizedItem);
         return;
@@ -6546,9 +6591,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         hint,
       };
       const composePhase = sendComposePhaseRef.current;
-      const confirmComposeActive =
-        composePhase === 'confirming' || composePhase === 'composingBan';
-      if (confirmComposeActive && isLobbyIndicatorPrimeOnlySource(source)) {
+      const composeFlowActive = isSendComposeFlowActive();
+      if (composeFlowActive && isLobbyIndicatorPrimeOnlySource(source)) {
         logLobbyIndicatorDuringConfirm({
           ...payload,
           sendComposePhase: composePhase,
@@ -13422,6 +13466,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const showNextNotificationFromChainSync = useCallback(
     (source: string): boolean => {
+      if (isSendComposeFlowActive()) {
+        logNotificationDisplayBlockedDuringComposeGuard(source, null);
+        return false;
+      }
       if (
         shouldBlockNonExplicitNotificationDrain(
           source,
@@ -14330,6 +14378,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       source: string,
       opts?: ContinueNotificationChainOptions,
     ): ContinueNotificationChainOutcome => {
+      if (isSendComposeFlowActive()) {
+        logNotificationDisplayBlockedDuringComposeGuard(source, null);
+        return 'blocked';
+      }
       if (
         shouldBlockNonExplicitNotificationDrain(
           source,
@@ -16482,7 +16534,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (incomingOverlayDisplayKind != null || heldUserCardOverlay != null);
 
   const composeBlocksNotificationHost =
-    sendComposePhase === 'composingBan' || sendComposePhase === 'confirming';
+    sendComposePhase !== 'idle' || replyComposeActive;
 
   const incomingGateActive = useMemo(() => {
     if (composeBlocksNotificationHost) return false;
@@ -17119,6 +17171,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source: 'incomingCardDisplayBan',
       });
       return stableIncomingOverlayBan;
+    }
+    if (isSendComposeFlowActive()) {
+      return null;
     }
     if (!viewerId) return null;
 
@@ -18271,6 +18326,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   ]);
 
   const shouldMountNotificationOverlayHost = useMemo(() => {
+    if (composeBlocksNotificationHost) {
+      return false;
+    }
     if (
       replyParentActivePriorityActive &&
       !showDirectOverboardLayer &&
@@ -18316,6 +18374,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
     return false;
   }, [
+    composeBlocksNotificationHost,
     stableIncomingOverlayBan?.id,
     chainAdvanceWaiting,
     checkBan?.id,
@@ -18549,11 +18608,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     replyParentActivePriorityActive,
   ]);
 
-  const prevWhatOrConfirmActiveRef = useRef(false);
+  const prevSendComposeActiveRef = useRef(false);
   useEffect(() => {
-    const active = whatOrConfirmActiveRef.current;
-    const wasActive = prevWhatOrConfirmActiveRef.current;
-    prevWhatOrConfirmActiveRef.current = active;
+    const active = sendComposeActiveRef.current;
+    const wasActive = prevSendComposeActiveRef.current;
+    prevSendComposeActiveRef.current = active;
     if (wasActive && !active) {
       const queueLen = overlayQueueRef.current.length;
       const startupLen = pendingStartupInteractionsRef.current.length;
@@ -18562,7 +18621,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         unlockNotificationQueueAndFlush('compose-exit');
       }
     }
-  }, [sendComposePhase, unlockNotificationQueueAndFlush]);
+  }, [sendComposePhase, replyComposeActive, unlockNotificationQueueAndFlush]);
 
   useLayoutEffect(() => {
     if (!notificationChainReplyComposePaused) return;
