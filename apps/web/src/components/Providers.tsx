@@ -13466,67 +13466,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         if (protectHeldOverboardResult) {
           freshOverboardActionBanIdsRef.current.add(heldProtectResultId);
         }
-        const queueHeadBeforeFlush = overlayQueueRef.current[0] ?? null;
-        const willShowQueueResult = queueHeadBeforeFlush?.kind === 'result';
-        const willShowQueueResultId =
-          willShowQueueResult && queueHeadBeforeFlush.kind === 'result'
-            ? normalizeId(queueHeadBeforeFlush.result.id)
-            : '';
-        if (
-          (directResultOverlayRef.current ||
-            directResultOverlayActiveRef.current ||
-            resultRef.current) &&
-          !protectMountedOverboardResult
-        ) {
-          const mountedId = normalizeId(resultRef.current?.id ?? '');
-          if (
-            !willShowQueueResult ||
-            (mountedId && mountedId !== willShowQueueResultId)
-          ) {
-            applyDirectOverboardCloseState(resultRef.current?.id ?? null);
-          }
-        }
         if (startupLen > 0) {
           mergeStartupIntoOverlayQueueOnly(source);
         }
         sanitizeNotificationChainQueues(source);
-        if (
-          mountedResultId &&
-          !protectMountedOverboardResult &&
-          isResultBlockedForNotificationChain(mountedResultId, source, skipBanId)
-        ) {
-          const headAfterSanitize = overlayQueueRef.current[0];
-          const headResultId =
-            headAfterSanitize?.kind === 'result'
-              ? normalizeId(headAfterSanitize.result.id)
-              : '';
-          if (
-            !headResultId ||
-            headResultId !== normalizeId(mountedResultId)
-          ) {
-            markResultOverlayConsumed(mountedResultId, `${source}-mounted-result`);
-            resultOpenRef.current = false;
-            emitResultAutoClearDecision({
-              banId: mountedResultId,
-              reason: `${source}-mounted-result-stale`,
-              refMismatch: false,
-              willClear: true,
-            });
-          emitResultClearCallsite({
-            source,
-            reason: 'mounted-result-stale-clear',
-            resultIdBefore: mountedResultId,
-            willClearResult: true,
-          });
-            setResult(null);
-            setDirectResultOverlayActive(false);
-            emitResultHeldStillPresentAfterClear(
-              source,
-              'mounted-result-stale-clear',
-            );
-          }
-        }
+
         const headAfterMerge = overlayQueueRef.current[0];
+        let deferIncomingDisplaySync = false;
+
         if (headAfterMerge?.kind === 'incoming') {
           const incomingBanId = headAfterMerge.ban.id;
           const viewerId = userIdRef.current?.trim() ?? '';
@@ -13555,6 +13502,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               },
             });
             beginIncomingNextHydrate(incomingBanId, `${source}-flush`);
+            deferIncomingDisplaySync = true;
+            if (heldUserCardOverlayRef.current?.kind === 'result') {
+              restoreHeldUserCardOverlay(
+                `${source}-flush-defer-incoming-hydrate`,
+              );
+            }
           } else {
             setActiveIncomingOverlayBanStable(payload, `${source}-flush-payload-ready-pre-sync`);
             logIncomingOverlayStateSet({
@@ -13590,7 +13543,73 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             });
           }
         }
-        syncDisplayFromQueue(overlayQueueRef.current);
+
+        if (!deferIncomingDisplaySync) {
+          const queueHeadBeforeClose = overlayQueueRef.current[0] ?? null;
+          const willShowQueueResult = queueHeadBeforeClose?.kind === 'result';
+          const willShowQueueResultId =
+            willShowQueueResult && queueHeadBeforeClose.kind === 'result'
+              ? normalizeId(queueHeadBeforeClose.result.id)
+              : '';
+          if (
+            (directResultOverlayRef.current ||
+              directResultOverlayActiveRef.current ||
+              resultRef.current) &&
+            !protectMountedOverboardResult
+          ) {
+            const mountedId = normalizeId(resultRef.current?.id ?? '');
+            if (
+              !willShowQueueResult ||
+              (mountedId && mountedId !== willShowQueueResultId)
+            ) {
+              applyDirectOverboardCloseState(resultRef.current?.id ?? null);
+            }
+          }
+          if (
+            mountedResultId &&
+            !protectMountedOverboardResult &&
+            isResultBlockedForNotificationChain(
+              mountedResultId,
+              source,
+              skipBanId,
+            )
+          ) {
+            const headAfterSanitize = overlayQueueRef.current[0];
+            const headResultId =
+              headAfterSanitize?.kind === 'result'
+                ? normalizeId(headAfterSanitize.result.id)
+                : '';
+            if (
+              !headResultId ||
+              headResultId !== normalizeId(mountedResultId)
+            ) {
+              markResultOverlayConsumed(
+                mountedResultId,
+                `${source}-mounted-result`,
+              );
+              resultOpenRef.current = false;
+              emitResultAutoClearDecision({
+                banId: mountedResultId,
+                reason: `${source}-mounted-result-stale`,
+                refMismatch: false,
+                willClear: true,
+              });
+              emitResultClearCallsite({
+                source,
+                reason: 'mounted-result-stale-clear',
+                resultIdBefore: mountedResultId,
+                willClearResult: true,
+              });
+              setResult(null);
+              setDirectResultOverlayActive(false);
+              emitResultHeldStillPresentAfterClear(
+                source,
+                'mounted-result-stale-clear',
+              );
+            }
+          }
+          syncDisplayFromQueue(overlayQueueRef.current);
+        }
       });
       chainAdvanceExplicitRef.current = false;
       logTransitionFromRefs('[DISMISS COMMIT DONE]', {
@@ -13636,6 +13655,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       mergeStartupIntoOverlayQueueOnly,
       overlayQueueItemId,
       pruneResultFromNotificationChain,
+      restoreHeldUserCardOverlay,
       sanitizeNotificationChainQueues,
       setActiveIncomingOverlayBanStable,
       setNotificationChainTransitioning,
@@ -16918,12 +16938,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const incomingShellHydrating = useMemo(() => {
     const hydrateId = incomingNextHydrateBanId?.trim() ?? '';
     if (!hydrateId) return false;
+    if (heldUserCardOverlay?.kind === 'result') return false;
     const head = overlayQueue[0] ?? overlayQueueRef.current[0];
     return (
       head?.kind === 'incoming' &&
       normalizeId(head.ban.id) === normalizeId(hydrateId)
     );
-  }, [incomingNextHydrateBanId, overlayQueue]);
+  }, [heldUserCardOverlay, incomingNextHydrateBanId, overlayQueue]);
 
   const activeResultPayload = useMemo(() => {
     const queueHead =
