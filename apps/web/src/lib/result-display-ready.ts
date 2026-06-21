@@ -1,10 +1,35 @@
-import type { BanResult } from '@98plus/shared';
+import type { BanResult, InteractionOutcome } from '@98plus/shared';
 import {
+  formatResultHeadline,
   getResultCardHeadline,
   isAutoShowResultOutcome,
   isResultParticipant,
   isValidBanResultPayload,
 } from '@98plus/shared';
+
+/** Non-overboard modal title — payload headline, then outcome copy from shared helpers. */
+export function resolveResultDisplayHeadline(
+  outcome: InteractionOutcome | null | undefined,
+  farmSkipped: boolean,
+  headlineRaw: string,
+): string {
+  const trimmedHeadline = headlineRaw.trim();
+  if (outcome == null) {
+    return trimmedHeadline;
+  }
+  const fromCardHeadline = getResultCardHeadline(
+    outcome,
+    farmSkipped,
+    trimmedHeadline,
+  ).trim();
+  if (fromCardHeadline) {
+    return fromCardHeadline;
+  }
+  if (isAutoShowResultOutcome(outcome)) {
+    return formatResultHeadline(outcome).trim();
+  }
+  return trimmedHeadline;
+}
 
 export type ResultDisplayReadySnapshot = {
   banId: string;
@@ -57,7 +82,7 @@ export function getResultDisplayReadySnapshot(
   const headlineRaw = result?.headline?.trim() ?? '';
   const displayHeadline =
     outcome != null
-      ? getResultCardHeadline(outcome, farmSkipped, headlineRaw)
+      ? resolveResultDisplayHeadline(outcome, farmSkipped, headlineRaw)
       : headlineRaw;
   const hasTitle =
     Boolean(displayHeadline.trim()) ||
@@ -100,5 +125,11 @@ export function isResultDisplayReady(input: ResultDisplayReadyInput): boolean {
 
   if (!isAutoShowResultOutcome(result.outcome)) return false;
 
-  return snap.hasTitle && snap.hasBody && snap.hasOutcome;
+  const hasParticipants =
+    Boolean(result.sender?.id?.trim()) &&
+    Boolean(result.receiver?.id?.trim());
+  const hasDisplayableContent =
+    snap.hasBody || hasParticipants || snap.hasTitle;
+
+  return snap.hasOutcome && snap.hasTitle && hasDisplayableContent;
 }

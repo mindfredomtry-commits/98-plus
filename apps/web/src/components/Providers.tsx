@@ -17819,16 +17819,36 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ),
       });
       const snap = getResultDisplayReadySnapshot(payload);
+      const payloadStatus =
+        (payload as BanResult & { status?: string | null }).status ?? null;
+      const readyReason = ready
+        ? 'ready'
+        : snap.waiting
+          ? 'waiting-or-partial'
+          : !snap.hasOutcome
+            ? 'missing-outcome'
+            : !snap.hasTitle
+              ? 'missing-title'
+              : !snap.hasBody &&
+                  !(
+                    Boolean(payload.sender?.id?.trim()) &&
+                    Boolean(payload.receiver?.id?.trim())
+                  )
+                ? 'missing-content'
+                : 'not-display-ready';
       logResultDisplayReadyCheck({
         source,
         banId: snap.banId || null,
         resultId: snap.resultId || null,
+        status: payloadStatus,
+        outcome: payload.outcome ?? null,
         hasTitle: snap.hasTitle,
         hasBody: snap.hasBody,
         hasOutcome: snap.hasOutcome,
         hasStatus: snap.hasStatus,
         waiting: snap.waiting,
         isReady: ready,
+        reason: readyReason,
       });
       if (!ready && chainAdvanceWaitingRef.current) {
         logResultShellSuppressedNotReady({

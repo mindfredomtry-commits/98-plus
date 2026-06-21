@@ -12,13 +12,13 @@ import {
 import { createPortal } from 'react-dom';
 import type { BanResult, UserPublic } from '@98plus/shared';
 import {
-  getResultCardHeadline,
   isDirectOverboardOpenable,
   isResultFunMode,
   isValidBanResultPayload,
   RESULT_COPY,
   showFreeModeBanOthersAction,
 } from '@98plus/shared';
+import { resolveResultDisplayHeadline } from '@/lib/result-display-ready';
 import { ANALYTICS_EVENTS } from '@98plus/shared';
 import { shareDeepLink } from '@/lib/share';
 import { api } from '@/lib/api';
@@ -45,6 +45,7 @@ import { logResultFunMode } from '@/lib/result-fun-mode-debug';
 import { logResultPresentation } from '@/lib/result-ui-debug';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
 import {
+  logFinalStatusModalViewDecision,
   logResultCardRenderDecision,
   logResultOverlayBodyDecision,
   logResultOverlayContentCheck,
@@ -435,10 +436,10 @@ function ResultOverlayInner({
       ? overboardQueueBody
         ? QUEUE_ATOMIC_OVERBOARD_TITLE
         : renderResult.headline?.trim() || overboardPresentation.headline
-      : getResultCardHeadline(
+      : resolveResultDisplayHeadline(
           renderResult.outcome,
           renderResult.farmSkipped,
-          renderResult.headline,
+          renderResult.headline ?? '',
         );
     const displaySubline = isOverboard
       ? renderResult.subline?.trim() || overboardPresentation.subline
@@ -597,6 +598,23 @@ function ResultOverlayInner({
     hasButtons: hasActions,
     returnNullReason: returnsNullReason,
   });
+
+  if (!isOverboard && effectiveShowable) {
+    logFinalStatusModalViewDecision({
+      banId: result.id,
+      status: resultStatus,
+      outcome: renderResult.outcome ?? null,
+      viewKind: bodyKind === 'none' ? 'none' : 'default',
+      hasTitle: Boolean(view.displayHeadline?.trim()),
+      hasBody: Boolean(banText),
+      hasButtons: hasActions,
+      reason: !view.displayHeadline?.trim()
+        ? 'missing-derived-title'
+        : !banText
+          ? 'missing-ban-text'
+          : null,
+    });
+  }
 
   useLayoutEffect(() => {
     if (!effectiveShowable || !result.id) return;

@@ -136,6 +136,19 @@ export function logResultOverlayContentCheck(data: {
   emit('[RESULT OVERLAY CONTENT CHECK]', data);
 }
 
+export function logFinalStatusModalViewDecision(data: {
+  banId: string;
+  status: string | null;
+  outcome: string | null;
+  viewKind: 'overboard' | 'default' | 'none';
+  hasTitle: boolean;
+  hasBody: boolean;
+  hasButtons: boolean;
+  reason: string | null;
+}): void {
+  emit('[FINAL STATUS MODAL VIEW DECISION]', data);
+}
+
 export function logResultOverlayBodyDecision(data: {
   resultId: string;
   status: string | null;
