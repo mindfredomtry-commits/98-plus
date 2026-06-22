@@ -18,7 +18,11 @@ import {
   RESULT_COPY,
   showFreeModeBanOthersAction,
 } from '@98plus/shared';
-import { resolveResultDisplayHeadline } from '@/lib/result-display-ready';
+import {
+  hasVisibleResultOverlayContent,
+  resolveResultDisplayHeadline,
+  resolveResultOverlayViewerId,
+} from '@/lib/result-display-ready';
 import { logResultCardUnmounted } from '@/lib/check-chain-drain-debug';
 import { ANALYTICS_EVENTS } from '@98plus/shared';
 import { shareDeepLink } from '@/lib/share';
@@ -50,6 +54,7 @@ import {
   logResultCardRenderDecision,
   logResultOverlayBodyDecision,
   logResultOverlayContentCheck,
+  logResultOverlayEmptyContentBlocked,
 } from '@/lib/overboard-action-queue-debug';
 import { BanSaveStar } from './instant-ban/BanSaveStar';
 import { ResultShareIcon } from './instant-ban/ResultShareIcon';
@@ -172,7 +177,7 @@ function ResultOverlayInner({
   const { haptic, hapticSuccess } = useTelegram();
   const [archiveSaved, setArchiveSaved] = useState(false);
 
-  const viewerId = result.viewerId ?? user?.id ?? null;
+  const viewerId = resolveResultOverlayViewerId(result, user?.id ?? null);
   const resultStatus =
     (result as BanResult & { status?: string | null }).status ?? null;
   const isOverboardStatusOrOutcome =
@@ -186,12 +191,7 @@ function ResultOverlayInner({
     (isQueueAtomicOverboardResultShowable(result.id) ||
       isOverboardStatusOrOutcome);
   const resolvedViewerId = (
-    viewerId ??
-    result.viewerId ??
-    user?.id ??
-    result.receiver?.id ??
-    result.sender?.id ??
-    ''
+    viewerId ?? result.receiver?.id ?? result.sender?.id ?? ''
   ).trim();
   const returnsNullReason = (() => {
     if (directPaint) {
@@ -585,6 +585,17 @@ function ResultOverlayInner({
   const bodyReturnNullReason = overboardQueueBody ? null : returnsNullReason;
   const bodyHasSender = Boolean(renderResult.sender?.id?.trim());
   const bodyHasReceiver = Boolean(renderResult.receiver?.id?.trim());
+  const willRenderBody =
+    effectiveShowable &&
+    (bodyKind === 'overboard'
+      ? true
+      : Boolean(view.displayHeadline?.trim()) || Boolean(banText));
+  const overlayVisibleContent = hasVisibleResultOverlayContent({
+    result: renderResult,
+    viewerId: user?.id ?? null,
+    atomicOverboardShowable:
+      overboardQueueBody || isQueueAtomicOverboardResultShowable(result.id),
+  });
 
   logResultOverlayBodyDecision({
     resultId: renderResult.id,
@@ -597,11 +608,7 @@ function ResultOverlayInner({
     hasText: Boolean(banText),
     hasSender: bodyHasSender,
     hasReceiver: bodyHasReceiver,
-    willRenderBody:
-      effectiveShowable &&
-      (bodyKind === 'overboard'
-        ? true
-        : Boolean(view.displayHeadline?.trim())),
+    willRenderBody,
     returnNullReason: bodyReturnNullReason,
   });
 
@@ -675,6 +682,23 @@ function ResultOverlayInner({
   ]);
 
   if (!effectiveShowable) return null;
+
+  if (!isOverboard && !overlayVisibleContent) {
+    logResultOverlayEmptyContentBlocked({
+      banId: result.id,
+      status: resultStatus,
+      outcome: renderResult.outcome ?? null,
+      hasTitle: Boolean(view.displayHeadline?.trim()),
+      willRenderBody: Boolean(banText) || Boolean(view.displayHeadline?.trim()),
+      hasActions,
+      source: directPaint
+        ? 'ResultOverlay.directPaint'
+        : contentOnly
+          ? 'ResultOverlay.contentOnly'
+          : 'ResultOverlay.modal',
+    });
+    return null;
+  }
 
   const cardHead = (
     <div className="result-card-head">

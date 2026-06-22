@@ -64,7 +64,24 @@ function isOverboardStatusOrOutcome(result: BanResult): boolean {
   );
 }
 
+function isFinalDisplayableOutcome(result: BanResult): boolean {
+  if (isFinalCheckStatusOutcome(result.outcome)) return true;
+  return isOverboardStatusOrOutcome(result);
+}
+
+/** Auth user wins over stale result.viewerId for participant/actions checks. */
+export function resolveResultOverlayViewerId(
+  result: BanResult,
+  authUserId?: string | null,
+): string | null {
+  const auth = authUserId?.trim();
+  if (auth) return auth;
+  const fromResult = result.viewerId?.trim();
+  return fromResult || null;
+}
+
 function isPartialOrWaitingResult(result: BanResult): boolean {
+  if (isFinalDisplayableOutcome(result)) return false;
   const status =
     (result as BanResult & { status?: string | null }).status ?? null;
   if (status === 'waiting') return true;
@@ -155,7 +172,7 @@ export function isResultDisplayReady(input: ResultDisplayReadyInput): boolean {
 
   if (!isValidBanResultPayload(result)) return false;
 
-  const resolvedViewerId = viewerId ?? result.viewerId ?? null;
+  const resolvedViewerId = resolveResultOverlayViewerId(result, viewerId);
   if (!isResultParticipant(result, resolvedViewerId)) return false;
 
   if (!isAutoShowResultOutcome(result.outcome)) return false;
@@ -167,6 +184,60 @@ export function isResultDisplayReady(input: ResultDisplayReadyInput): boolean {
     snap.hasBody || hasParticipants || snap.hasTitle;
 
   return snap.hasOutcome && snap.hasTitle && hasDisplayableContent;
+}
+
+export type HasVisibleResultOverlayContentInput = {
+  result: BanResult;
+  viewerId?: string | null;
+  /** Atomic interactive overboard in queue — always renderable when id present. */
+  atomicOverboardShowable?: boolean;
+};
+
+/** Whether ResultOverlay has title, quote body, or participant actions to show. */
+export function hasVisibleResultOverlayContent(
+  input: HasVisibleResultOverlayContentInput,
+): boolean {
+  const { result, viewerId, atomicOverboardShowable } = input;
+  if (!result?.id?.trim()) return false;
+
+  if (atomicOverboardShowable) {
+    return true;
+  }
+
+  if (isOverboardStatusOrOutcome(result)) {
+    return true;
+  }
+
+  const resolvedViewerId =
+    resolveResultOverlayViewerId(result, viewerId)?.trim() ?? '';
+  const senderId = result.sender?.id?.trim() ?? '';
+  const receiverId = result.receiver?.id?.trim() ?? '';
+  const isSender = Boolean(
+    resolvedViewerId && senderId && resolvedViewerId === senderId,
+  );
+  const isReceiver = Boolean(
+    resolvedViewerId && receiverId && resolvedViewerId === receiverId,
+  );
+  const hasActions = isSender || isReceiver;
+
+  const outcome = result.outcome ?? null;
+  const farmSkipped = Boolean(
+    (result as { farmSkipped?: boolean | null })?.farmSkipped,
+  );
+  const headlineRaw = result.headline?.trim() ?? '';
+  const displayHeadline =
+    outcome != null
+      ? resolveResultDisplayHeadline(outcome, farmSkipped, headlineRaw)
+      : headlineRaw;
+  const banText =
+    result.text?.trim() ||
+    (result as BanResult & { ban?: { text?: string | null } }).ban?.text
+      ?.trim() ||
+    '';
+
+  return (
+    Boolean(displayHeadline.trim()) || Boolean(banText) || hasActions
+  );
 }
 
 /** Terminal split/both_yes/both_no — hold until user dismisses. */

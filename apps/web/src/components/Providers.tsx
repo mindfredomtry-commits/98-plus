@@ -267,7 +267,9 @@ import {
 } from '@/lib/check-chain-drain-debug';
 import {
   getResultDisplayReadySnapshot,
+  hasVisibleResultOverlayContent,
   isAtomicOverboardShellReady,
+  resolveResultOverlayViewerId,
   isFinalCheckStatusOutcome,
   isResultDisplayReady,
 } from '@/lib/result-display-ready';
@@ -2226,6 +2228,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (resultId: string | null | undefined): boolean =>
       shouldBlockAutoDismissAtomicOverboardResult(resultId),
     [],
+  );
+
+  const isQueueResultShellVisibleContentReady = useCallback(
+    (payload: BanResult | null | undefined): boolean => {
+      if (!payload?.id?.trim()) return false;
+      if (isQueueAtomicOverboardResultShowable(payload.id)) {
+        return true;
+      }
+      return hasVisibleResultOverlayContent({
+        result: payload,
+        viewerId: resolveResultOverlayViewerId(
+          payload,
+          userIdRef.current ?? auth.user?.id ?? null,
+        ),
+        atomicOverboardShowable: isAtomicOverboardShellReady(payload, {
+          freshOverboardBanId: freshOverboardActionBanIdsRef.current.has(
+            normalizeId(payload.id),
+          ),
+          atomicOverboardBanId:
+            incomingOverboardAtomicBanIdRef.current ===
+            normalizeId(payload.id),
+        }),
+      });
+    },
+    [auth.user?.id, isQueueAtomicOverboardResultShowable],
   );
 
   const blockAutoDismissAtomicOverboardResult = useCallback(
@@ -18588,12 +18615,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (isQueueAtomicOverboardResultShowable(activeResultPayload.id)) {
       return Boolean(activeResultPayload.id?.trim());
     }
-    return true;
+    return isQueueResultShellVisibleContentReady(activeResultPayload);
   }, [
     activeResultPayload,
     checkResultShellDisplayReady,
     effectiveNotificationQueueShellKind,
     isQueueAtomicOverboardResultShowable,
+    isQueueResultShellVisibleContentReady,
   ]);
 
   useLayoutEffect(() => {
@@ -19272,7 +19300,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     checkResultShellDisplayReady(
       activeResultPayload,
       'queueShellShowsResult',
-    );
+    ) &&
+    isQueueResultShellVisibleContentReady(activeResultPayload);
 
   const incomingJsxWillRender =
     !queueShellShowsResult &&
