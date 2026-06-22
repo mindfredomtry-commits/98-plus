@@ -73,6 +73,10 @@ export function logCheckAnswerResultSkippedBug(
 }
 
 /** v21 — check dismiss / advance after user answer */
+export function logCheckAnswerAdvanceTrace(data: Record<string, unknown>): void {
+  window.__debug98log?.('[CHECK ANSWER ADVANCE TRACE]', data);
+}
+
 export function logCheckDismissStart(data: Record<string, unknown>): void {
   window.__debug98log?.('[CHECK DISMISS START]', data);
 }

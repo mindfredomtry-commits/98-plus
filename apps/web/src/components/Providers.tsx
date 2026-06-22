@@ -236,6 +236,7 @@ import {
   logCheckDismissEmptyOpenLobby,
   logCheckDismissRemainingQueue,
   logCheckDismissShowNext,
+  logCheckAnswerAdvanceTrace,
   logCheckDismissStart,
   logCheckDismissStuckOnBootBug,
   logLobbyOpenAfterCheckEmpty,
@@ -1971,23 +1972,105 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const snapshotCheckAnswerAdvanceSide = () => {
+    const held = heldUserCardOverlayRef.current;
+    const queueHead = overlayQueueRef.current[0] ?? null;
+    return {
+      queueRefHeadKind: queueHead?.kind ?? null,
+      queueRefHeadBanId: queueHead ? overlayItemBanId(queueHead) : null,
+      heldKind: held?.kind ?? null,
+      heldBanId: held ? heldUserCardBanId(held) : null,
+      checkBanRefId: checkBanRef.current?.id ?? null,
+      resultRefBanId: resultRef.current?.id ?? null,
+      activeUserCardHold:
+        held && notificationChainAwaitingUserRef.current ? held.kind : null,
+    };
+  };
+
+  const resolveChainAdvancePlaceholderKindForTrace = (
+    remaining: QueuedOverlay[],
+  ): 'incoming' | 'check' | 'result' | null => {
+    if (!chainAdvanceWaitingRef.current) return null;
+    const advanceHead =
+      remaining[0] ?? pendingStartupInteractionsRef.current[0] ?? null;
+    return advanceHead?.kind === 'check' ||
+      advanceHead?.kind === 'result' ||
+      advanceHead?.kind === 'incoming'
+      ? advanceHead.kind
+      : 'incoming';
+  };
+
+  const emitCheckAnswerAdvanceTrace = (
+    phase:
+      | 'before-clear'
+      | 'after-clear'
+      | 'before-apply-queue'
+      | 'after-apply-queue',
+    dismissBanId: string | null,
+    remaining: QueuedOverlay[],
+    before?: ReturnType<typeof snapshotCheckAnswerAdvanceSide>,
+  ) => {
+    const after = snapshotCheckAnswerAdvanceSide();
+    const sideBefore = before ?? after;
+    const remainingHead = remaining[0] ?? null;
+    logCheckAnswerAdvanceTrace({
+      phase,
+      checkBanId: dismissBanId ?? checkBanRef.current?.id ?? null,
+      dismissBanId,
+      remainingLen: remaining.length,
+      remainingHeadKind: remainingHead?.kind ?? null,
+      remainingHeadBanId: remainingHead ? overlayItemBanId(remainingHead) : null,
+      queueRefHeadKindBefore: sideBefore.queueRefHeadKind,
+      queueRefHeadBanIdBefore: sideBefore.queueRefHeadBanId,
+      queueRefHeadKindAfter: after.queueRefHeadKind,
+      queueRefHeadBanIdAfter: after.queueRefHeadBanId,
+      heldKindBefore: sideBefore.heldKind,
+      heldBanIdBefore: sideBefore.heldBanId,
+      heldKindAfter: after.heldKind,
+      heldBanIdAfter: after.heldBanId,
+      checkBanRefBefore: sideBefore.checkBanRefId,
+      checkBanRefAfter: after.checkBanRefId,
+      resultRefBanIdBefore: sideBefore.resultRefBanId,
+      resultRefBanIdAfter: after.resultRefBanId,
+      activeUserCardHoldBefore: sideBefore.activeUserCardHold,
+      activeUserCardHoldAfter: after.activeUserCardHold,
+      chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+      chainAdvancePlaceholderKind:
+        resolveChainAdvancePlaceholderKindForTrace(remaining),
+      notificationChainTransitioning: notificationChainTransitioningRef.current,
+    });
+  };
+
   const prepareUserAnswerChainAdvance = (
     reason: string,
     dismissKind: QueuedOverlay['kind'] | null,
     dismissBanId: string | null,
-    remainingLen: number,
+    remaining: QueuedOverlay[],
   ): boolean => {
     if (!isUserAllowedCheckOverlayCloseReason(reason)) return false;
+    const beforeClear = snapshotCheckAnswerAdvanceSide();
+    emitCheckAnswerAdvanceTrace(
+      'before-clear',
+      dismissBanId,
+      remaining,
+      beforeClear,
+    );
     logOverlayMarkDismissing({
       reason,
       kind: dismissKind,
       banId: dismissBanId,
-      remainingLen,
+      remainingLen: remaining.length,
     });
     clearActiveUserCardHold(`prepareUserAnswerChainAdvance:${reason}`);
     clearActiveOverlayStateForDismiss(dismissKind, dismissBanId, {
       explicitUserAction: true,
     });
+    emitCheckAnswerAdvanceTrace(
+      'after-clear',
+      dismissBanId,
+      remaining,
+      beforeClear,
+    );
     logOverlayActiveCleared({
       reason,
       kind: dismissKind,
@@ -1998,7 +2081,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       reason,
       kind: dismissKind,
       banId: dismissBanId,
-      remainingLen,
+      remainingLen: remaining.length,
     });
     return true;
   };
@@ -5089,8 +5172,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason,
           dismissKind,
           dismissBanId,
-          remaining.length,
+          remaining,
         );
+        const beforeApplyQueue = userChainAdvance
+          ? snapshotCheckAnswerAdvanceSide()
+          : null;
 
         if (
           notificationChainAwaitingUserRef.current &&
@@ -5125,7 +5211,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
           return;
         }
+        if (userChainAdvance && beforeApplyQueue) {
+          emitCheckAnswerAdvanceTrace(
+            'before-apply-queue',
+            dismissBanId,
+            remaining,
+            beforeApplyQueue,
+          );
+        }
         applyOverlayQueue(remaining);
+        if (userChainAdvance && beforeApplyQueue) {
+          emitCheckAnswerAdvanceTrace(
+            'after-apply-queue',
+            dismissBanId,
+            remaining,
+            beforeApplyQueue,
+          );
+        }
         const selectTs = overlayTs();
         if (remaining.length > 0) {
           const nextKey = remaining[0] ? overlayQueueKey(remaining[0]) : null;
