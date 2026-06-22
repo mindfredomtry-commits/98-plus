@@ -8270,25 +8270,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return false;
       }
 
-      if (shouldDeferNotificationOverlayDisplay('check-answer-final')) {
-        enqueueNotification(
-          { kind: 'result', result: normalized },
-          { source: source === 'poll' ? 'poll' : 'ws' },
-        );
-        primeLobbyBansAttentionHintSyncRef.current(
-          source === 'poll'
-            ? 'result-poll-deferred'
-            : 'showCheckAnswerFinalResult-deferred',
-        );
-        logResultPollDoesNotHideLobby({
-          banId,
-          source,
-          pendingLen: pendingStartupInteractionsRef.current.length,
-          queueLen: overlayQueueRef.current.length,
-        });
-        return false;
-      }
-
       if (
         deferResultWhileSuccessCardMounted('showCheckAnswerFinalResult', {
           kind: 'result',
@@ -8375,6 +8356,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         dismissBanResultLocally(banId, normalized.viewerId ?? uid);
         void acknowledgeBanResultOnServer(banId, tokenRef.current);
+        return false;
+      }
+
+      chainAdvanceExplicitRef.current = true;
+
+      if (shouldDeferNotificationOverlayDisplay('check-answer-final')) {
+        enqueueNotification(
+          { kind: 'result', result: normalized },
+          { source: source === 'poll' ? 'poll' : 'ws' },
+        );
+        primeLobbyBansAttentionHintSyncRef.current(
+          source === 'poll'
+            ? 'result-poll-deferred'
+            : 'showCheckAnswerFinalResult-deferred',
+        );
+        logResultPollDoesNotHideLobby({
+          banId,
+          source,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          queueLen: overlayQueueRef.current.length,
+        });
         return false;
       }
 
@@ -8480,6 +8482,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           'showCheckAnswerFinalResult-shown',
           normalized,
         );
+        setChainAdvanceWaiting(false);
         if (source === 'poll') {
           logResultPollShowResultCard({ banId, status: statusLabel });
         } else {
@@ -8503,6 +8506,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       enqueueNotification,
       holdResultForActiveNotificationChain,
       isResultBlockedForNotificationChain,
+      setChainAdvanceWaiting,
       setNotificationChainTransitioning,
       syncPendingStartupCount,
     ],
