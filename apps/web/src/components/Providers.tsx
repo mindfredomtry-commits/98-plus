@@ -14165,6 +14165,42 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             isExplicitNotificationDrainSource(source) ||
             isSuccessExitDrainSource(source)
           ) {
+            const consumedHeadId = normalizeId(blockedHead.result.id);
+            if (
+              consumedHeadId &&
+              resultCtaConsumedBanIdsRef.current.has(consumedHeadId)
+            ) {
+              const prunePayload = {
+                banId: consumedHeadId,
+                source,
+                overlayLenBefore: overlayQueueRef.current.length,
+                pendingLenBefore: pendingStartupInteractionsRef.current.length,
+              };
+              console.log('[RESULT CONSUMED HEAD PRUNED]', prunePayload);
+              window.__debug98log?.('[RESULT CONSUMED HEAD PRUNED]', prunePayload);
+              const nextOverlay = removeOverlaysForBan(
+                overlayQueueRef.current,
+                consumedHeadId,
+                ['result'],
+              );
+              const nextPending = removeOverlaysForBan(
+                pendingStartupInteractionsRef.current,
+                consumedHeadId,
+                ['result'],
+              );
+              if (nextOverlay.length !== overlayQueueRef.current.length) {
+                overlayQueueRef.current = nextOverlay;
+                setOverlayQueue(nextOverlay);
+              }
+              if (
+                nextPending.length !==
+                pendingStartupInteractionsRef.current.length
+              ) {
+                pendingStartupInteractionsRef.current = nextPending;
+                syncPendingStartupCount();
+              }
+              continue;
+            }
             holdResultForActiveNotificationChain(
               blockedHead.result.id,
               `${source}-preflight`,
