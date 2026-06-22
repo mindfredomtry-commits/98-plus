@@ -272,6 +272,10 @@ import {
   isResultDisplayReady,
 } from '@/lib/result-display-ready';
 import {
+  shouldBlockResultShellOverHeldIncomingOrCheck,
+  type ResultShellHeldCardGuardContext,
+} from '@/lib/result-shell-held-card-guard';
+import {
   logCheckCardMountedBug,
   logCheckPrimeSkipStaleBecauseResultExists,
   logResultCardMounted,
@@ -2124,6 +2128,53 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return true;
     }
     return isHeldFinalStatusResultProtected(norm);
+  };
+
+  const buildResultShellHeldCardGuardContext = (
+    resultBanId: string | null | undefined,
+    result?: BanResult | null,
+  ): ResultShellHeldCardGuardContext => {
+    const queueHead = overlayQueueRef.current[0] ?? null;
+    return {
+      awaitingUser: notificationChainAwaitingUserRef.current,
+      held: heldUserCardOverlayRef.current,
+      incomingBanId: incomingBanRef.current?.id ?? null,
+      checkBanId: checkBanRef.current?.id ?? null,
+      atomicOverboardBanId: incomingOverboardAtomicBanIdRef.current,
+      freshOverboardBanIds: freshOverboardActionBanIdsRef.current,
+      freshFinalStatusBanIds: freshFinalStatusBanIdsRef.current,
+      resultPriorityBanIds: resultPriorityBanIdsRef.current,
+      overboardInFlightBanId: overboardInFlightRef.current,
+      chainAdvanceExplicit: chainAdvanceExplicitRef.current,
+      resultBanId,
+      result,
+      queueHeadKind: queueHead?.kind ?? null,
+      queueHeadResultBanId:
+        queueHead?.kind === 'result' ? queueHead.result.id : null,
+    };
+  };
+
+  const shouldBlockPassiveResultShell = (
+    resultBanId: string | null | undefined,
+    result?: BanResult | null,
+    source?: string,
+  ): boolean => {
+    const blocked = shouldBlockResultShellOverHeldIncomingOrCheck(
+      buildResultShellHeldCardGuardContext(resultBanId, result),
+    );
+    if (blocked) {
+      logResultShellSuppressedNotReady({
+        source: source ?? 'result-shell-held-card-block',
+        banId: normalizeId(resultBanId ?? '') || null,
+        heldKind: heldUserCardOverlayRef.current?.kind ?? null,
+        heldBanId:
+          heldUserCardOverlayRef.current != null
+            ? heldUserCardBanId(heldUserCardOverlayRef.current)
+            : null,
+        reason: 'passive-result-blocked-over-held-incoming-check',
+      });
+    }
+    return blocked;
   };
 
   const preserveAtomicOverboardResultDuringSync = (
@@ -8164,6 +8215,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             live: source === 'http',
             source: source === 'poll' ? 'poll' : 'ws',
           },
+        );
+        return false;
+      }
+
+      if (
+        source === 'poll' &&
+        shouldBlockResultShellOverHeldIncomingOrCheck(
+          buildResultShellHeldCardGuardContext(banId, normalized),
+        )
+      ) {
+        logResultShellSuppressedNotReady({
+          source: 'showCheckAnswerFinalResult-poll-held-card',
+          banId,
+          heldKind: heldUserCardOverlayRef.current?.kind ?? null,
+          heldBanId:
+            heldUserCardOverlayRef.current != null
+              ? heldUserCardBanId(heldUserCardOverlayRef.current)
+              : null,
+          reason: 'poll-final-deferred-over-held-incoming-check',
+        });
+        enqueueNotification(
+          { kind: 'result', result: normalized },
+          { source: 'poll' },
         );
         return false;
       }
@@ -18062,6 +18136,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const heldIsResult = heldUserCardOverlay?.kind === 'result';
     const queueHeadIsResult = queueHead?.kind === 'result';
     const refResult = resultRef.current;
+    const pickResultPayload = (
+      payload: BanResult | null | undefined,
+      source: string,
+    ): BanResult | null => {
+      if (!payload?.id?.trim()) return null;
+      if (shouldSuppressPassiveLobbyResultBan(payload.id)) return null;
+      if (shouldBlockPassiveResultShell(payload.id, payload, source)) {
+        return null;
+      }
+      return payload;
+    };
     const heldResult =
       heldIsResult && !shouldSuppressPassiveLobbyResultBan(heldUserCardOverlay.result.id)
         ? heldUserCardOverlay.result
@@ -18080,11 +18165,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ? result
         : null;
     return (
-      displayResult ??
-      heldResult ??
-      queueHeadResult ??
-      refResultPayload ??
-      stateResult
+      pickResultPayload(displayResult, 'activePayload-display') ??
+      pickResultPayload(heldResult, 'activePayload-held') ??
+      pickResultPayload(queueHeadResult, 'activePayload-queueHead') ??
+      pickResultPayload(refResultPayload, 'activePayload-ref') ??
+      pickResultPayload(stateResult, 'activePayload-state')
     );
   }, [displayResult, heldUserCardOverlay, overlayQueue, result]);
 
@@ -18133,6 +18218,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const queueHeadResultShellReady =
       queueHeadIsResult &&
       !queueHeadResultSuppressed &&
+      !shouldBlockPassiveResultShell(
+        queueHead?.kind === 'result' ? queueHead.result.id : null,
+        queueHead?.kind === 'result' ? queueHead.result : null,
+        'incomingShell-queueHead',
+      ) &&
       checkResultShellDisplayReady(
         queueHead?.kind === 'result' ? queueHead.result : null,
         'incomingShell-queueHead',
@@ -18268,11 +18358,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const queueHeadResultShellReady =
       queueHead?.kind === 'result' &&
       !queueHeadResultSuppressed &&
+      !shouldBlockPassiveResultShell(
+        queueHead.result.id,
+        queueHead.result,
+        'effectiveShell-queueHead',
+      ) &&
       checkResultShellDisplayReady(queueHead.result, 'effectiveShell-queueHead');
     const refResultShellReady =
       Boolean(resultRef.current?.id) &&
       !shouldSuppressPassiveLobbyResultBan(resultRef.current?.id) &&
       !chainAdvanceWaiting &&
+      !shouldBlockPassiveResultShell(
+        resultRef.current?.id ?? null,
+        resultRef.current,
+        'effectiveShell-resultRef',
+      ) &&
       checkResultShellDisplayReady(resultRef.current, 'effectiveShell-resultRef');
     const atomicOverboardShellReady =
       atomicOverboardResultLive &&
