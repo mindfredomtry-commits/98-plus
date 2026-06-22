@@ -1073,27 +1073,6 @@ function logResultPayloadSelectionTrace(data: Record<string, unknown>): void {
   window.__debug98log?.('[RESULT PAYLOAD SELECTION TRACE]', data);
 }
 
-function logCheckDismissOverlayStateTrace(data: Record<string, unknown>): void {
-  if (typeof window === 'undefined') return;
-  window.__debug98log?.('[CHECK DISMISS OVERLAY STATE TRACE]', data);
-}
-
-function logEmptyShellRenderBlocked(data: Record<string, unknown>): void {
-  if (typeof window === 'undefined') return;
-  window.__debug98log?.('[EMPTY SHELL RENDER BLOCKED]', data);
-}
-
-function overlayQueueHeadBanId(
-  head: { kind: string; ban?: { id: string }; result?: { id: string } } | null,
-): string | null {
-  if (!head) return null;
-  if (head.kind === 'result') return head.result?.id ?? null;
-  if (head.kind === 'incoming' || head.kind === 'check') {
-    return head.ban?.id ?? null;
-  }
-  return null;
-}
-
 /** Hard remount on Telegram account switch — wipes in-memory friends/session. */
 export function Providers({ children }: { children: React.ReactNode }) {
   const { telegramId } = useTelegram();
@@ -1999,30 +1978,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     remainingLen: number,
   ): boolean => {
     if (!isUserAllowedCheckOverlayCloseReason(reason)) return false;
-    const queueHeadBefore = overlayQueueRef.current[0] ?? null;
-    const heldBefore = heldUserCardOverlayRef.current;
-    const expectedResultBanId =
-      dismissBanId && resultPriorityBanIdsRef.current.has(normalizeId(dismissBanId))
-        ? dismissBanId
-        : [...resultPriorityBanIdsRef.current].find(
-              (id) => normalizeId(id) === normalizeId(dismissBanId ?? ''),
-            ) ?? dismissBanId;
-    logCheckDismissOverlayStateTrace({
-      phase: 'prepareUserAnswerChainAdvance:before-clear',
-      reason,
-      dismissKind,
-      checkCardBanId: dismissBanId,
-      expectedResultBanIdAfterAnswer: expectedResultBanId,
-      queueHeadKindBefore: queueHeadBefore?.kind ?? null,
-      queueHeadBanIdBefore: overlayQueueHeadBanId(queueHeadBefore),
-      heldRefKindBefore: heldBefore?.kind ?? null,
-      heldRefBanIdBefore: heldBefore ? heldUserCardBanId(heldBefore) : null,
-      resultRefBanIdBefore: resultRef.current?.id ?? null,
-      resultStateBanIdBefore: result?.id ?? null,
-      setResultNullWillRun: false,
-      remainingLen,
-      chainAdvanceWaiting: chainAdvanceWaitingRef.current,
-    });
     logOverlayMarkDismissing({
       reason,
       kind: dismissKind,
@@ -2032,24 +1987,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     clearActiveUserCardHold(`prepareUserAnswerChainAdvance:${reason}`);
     clearActiveOverlayStateForDismiss(dismissKind, dismissBanId, {
       explicitUserAction: true,
-    });
-    const queueHeadAfter = overlayQueueRef.current[0] ?? null;
-    const heldAfter = heldUserCardOverlayRef.current;
-    logCheckDismissOverlayStateTrace({
-      phase: 'prepareUserAnswerChainAdvance:after-clear',
-      reason,
-      dismissKind,
-      checkCardBanId: dismissBanId,
-      expectedResultBanIdAfterAnswer: expectedResultBanId,
-      queueHeadKindAfter: queueHeadAfter?.kind ?? null,
-      queueHeadBanIdAfter: overlayQueueHeadBanId(queueHeadAfter),
-      heldRefKindAfter: heldAfter?.kind ?? null,
-      heldRefBanIdAfter: heldAfter ? heldUserCardBanId(heldAfter) : null,
-      resultRefBanIdAfter: resultRef.current?.id ?? null,
-      resultStateBanIdAfter: result?.id ?? null,
-      checkBanRefAfter: checkBanRef.current?.id ?? null,
-      setResultNullRan: false,
-      notificationChainAwaitingUser: notificationChainAwaitingUserRef.current,
     });
     logOverlayActiveCleared({
       reason,
@@ -2578,18 +2515,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const clearActiveUserCardHold = (source: string) => {
     if (!heldUserCardOverlayRef.current) return;
     const held = heldUserCardOverlayRef.current;
-    const queueHeadBefore = overlayQueueRef.current[0] ?? null;
-    logCheckDismissOverlayStateTrace({
-      phase: 'clearActiveUserCardHold:before',
-      source,
-      heldRefKindBefore: held.kind,
-      heldRefBanIdBefore: heldUserCardBanId(held),
-      queueHeadKindBefore: queueHeadBefore?.kind ?? null,
-      queueHeadBanIdBefore: overlayQueueHeadBanId(queueHeadBefore),
-      resultRefBanIdBefore: resultRef.current?.id ?? null,
-      resultStateBanIdBefore: result?.id ?? null,
-      setResultNullWillRun: false,
-    });
     emitResultClearCallsite({
       source,
       reason: 'clear-active-user-card-hold',
@@ -2608,19 +2533,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setHeldUserCardOverlay(null);
     notificationChainAwaitingUserRef.current = false;
     console.log('[active-user-card-hold-clear]', { source });
-    const queueHeadAfter = overlayQueueRef.current[0] ?? null;
-    logCheckDismissOverlayStateTrace({
-      phase: 'clearActiveUserCardHold:after',
-      source,
-      heldRefKindAfter: null,
-      heldRefBanIdAfter: null,
-      queueHeadKindAfter: queueHeadAfter?.kind ?? null,
-      queueHeadBanIdAfter: overlayQueueHeadBanId(queueHeadAfter),
-      resultRefBanIdAfter: resultRef.current?.id ?? null,
-      resultStateBanIdAfter: result?.id ?? null,
-      setResultNullRan: false,
-      notificationChainAwaitingUser: notificationChainAwaitingUserRef.current,
-    });
     emitResultHeldStillPresentAfterClear(source, 'clear-active-user-card-hold');
   };
 
@@ -5213,46 +5125,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
           return;
         }
-        if (reason === 'user-answer' && dismissBanId) {
-          logCheckDismissOverlayStateTrace({
-            phase: 'dismissCurrentOverlay-commit:before-applyOverlayQueue',
-            reason,
-            checkCardBanId: dismissBanId,
-            expectedResultBanIdAfterAnswer: resultPriorityBanIdsRef.current.has(
-              normalizeId(dismissBanId),
-            )
-              ? dismissBanId
-              : [...resultPriorityBanIdsRef.current].at(-1) ?? dismissBanId,
-            remainingLen: remaining.length,
-            remainingHeadKind: remaining[0]?.kind ?? null,
-            remainingHeadBanId: overlayQueueHeadBanId(remaining[0] ?? null),
-            queueHeadKindBeforeApply: overlayQueueRef.current[0]?.kind ?? null,
-            queueHeadBanIdBeforeApply: overlayQueueHeadBanId(
-              overlayQueueRef.current[0] ?? null,
-            ),
-            resultRefBanIdBeforeApply: resultRef.current?.id ?? null,
-            heldRefKindBeforeApply:
-              heldUserCardOverlayRef.current?.kind ?? null,
-            checkBanRefBeforeApply: checkBanRef.current?.id ?? null,
-            chainAdvanceWaiting: chainAdvanceWaitingRef.current,
-          });
-        }
         applyOverlayQueue(remaining);
-        if (reason === 'user-answer' && dismissBanId) {
-          const headAfter = overlayQueueRef.current[0] ?? null;
-          logCheckDismissOverlayStateTrace({
-            phase: 'dismissCurrentOverlay-commit:after-applyOverlayQueue',
-            reason,
-            checkCardBanId: dismissBanId,
-            queueHeadKindAfterApply: headAfter?.kind ?? null,
-            queueHeadBanIdAfterApply: overlayQueueHeadBanId(headAfter),
-            resultRefBanIdAfterApply: resultRef.current?.id ?? null,
-            resultStateBanIdAfterApply: result?.id ?? null,
-            checkBanRefAfterApply: checkBanRef.current?.id ?? null,
-            heldRefKindAfterApply:
-              heldUserCardOverlayRef.current?.kind ?? null,
-          });
-        }
         const selectTs = overlayTs();
         if (remaining.length > 0) {
           const nextKey = remaining[0] ? overlayQueueKey(remaining[0]) : null;
@@ -19674,182 +19547,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ) &&
     isQueueResultShellVisibleContentReady(activeResultPayload);
 
-  const hasCheckBanForShell = Boolean(
-    checkBan?.id ?? checkBanRef.current?.id,
-  );
-
-  const notificationQueueShellRenderable = useMemo(() => {
-    const kind = effectiveNotificationQueueShellKind;
-    if (!kind) return false;
-    if (kind === 'check') {
-      if (showCheckOverlayDirect) return false;
-      return hasCheckBanForShell;
-    }
-    if (kind === 'result') {
-      return queueShellShowsResult;
-    }
-    if (kind === 'incoming') {
-      return Boolean(
-        incomingCardDisplayBan ||
-          stableIncomingOverlayBan ||
-          incomingShellHydrating,
-      );
-    }
-    return false;
-  }, [
-    effectiveNotificationQueueShellKind,
-    hasCheckBanForShell,
-    incomingCardDisplayBan,
-    incomingShellHydrating,
-    queueShellShowsResult,
-    showCheckOverlayDirect,
-    stableIncomingOverlayBan,
-  ]);
-
-  useLayoutEffect(() => {
-    const shellKind = effectiveNotificationQueueShellKind;
-    const placeholderKind = chainAdvancePlaceholderKind;
-    const checkBranchActive =
-      shellKind === 'check' &&
-      !showCheckOverlayDirect &&
-      !queueShellShowsResult;
-    const resultBranchActive = shellKind === 'result' && !queueShellShowsResult;
-    const advancePlaceholderActive =
-      chainAdvanceWaiting &&
-      !queueShellShowsResult &&
-      (placeholderKind === 'check' ? !checkBan?.id : !activeResultPayload);
-    const emptyShellLikely =
-      shouldMountNotificationOverlayHost &&
-      notificationOverlayVisible &&
-      !queueShellShowsResult &&
-      (checkBranchActive ||
-        resultBranchActive ||
-        advancePlaceholderActive);
-    if (!emptyShellLikely) return;
-
-    let emptyShellCreator = 'unknown';
-    if (chainAdvanceWaiting && placeholderKind === 'check' && !checkBan?.id) {
-      emptyShellCreator = 'chainAdvanceWaiting-placeholder-check-without-checkBan';
-    } else if (chainAdvanceWaiting && placeholderKind === 'result' && !activeResultPayload) {
-      emptyShellCreator = 'chainAdvanceWaiting-placeholder-result-without-payload';
-    } else if (shellKind === 'check' && !checkBan?.id) {
-      emptyShellCreator = 'effectiveKind-check-without-checkBan';
-    } else if (shellKind === 'result' && !activeResultPayload) {
-      emptyShellCreator = 'effectiveKind-result-without-activeResultPayload';
-    } else if (shellKind === 'result' && activeResultPayload && !queueShellShowsResult) {
-      emptyShellCreator = 'effectiveKind-result-payload-not-shell-ready';
-    } else if (heldUserCardOverlayRef.current?.kind === 'check') {
-      emptyShellCreator = 'heldUserCardOverlayRef-still-check';
-    }
-
-    logCheckDismissOverlayStateTrace({
-      phase: 'empty-result-shell-detected',
-      checkCardBanId: checkBanRef.current?.id ?? checkBan?.id ?? null,
-      expectedResultBanIdAfterAnswer:
-        [...resultPriorityBanIdsRef.current].at(-1) ??
-        [...checkAnswerInFlightRef.current].at(-1) ??
-        null,
-      queueHeadKind: (overlayQueue[0] ?? overlayQueueRef.current[0])?.kind ?? null,
-      queueHeadBanId: overlayQueueHeadBanId(
-        overlayQueue[0] ?? overlayQueueRef.current[0] ?? null,
-      ),
-      heldRefKind: heldUserCardOverlayRef.current?.kind ?? null,
-      heldRefBanId: heldUserCardOverlayRef.current
-        ? heldUserCardBanId(heldUserCardOverlayRef.current)
-        : null,
-      heldStateKind: heldUserCardOverlay?.kind ?? null,
-      resultRefBanId: resultRef.current?.id ?? null,
-      displayResultBanId: displayResult?.id ?? null,
-      activeResultPayloadBanId: activeResultPayload?.id ?? null,
-      setResultNullInThisPath: false,
-      emptyShellCreator,
-      shellKind,
-      notificationQueueShellKind,
-      effectiveNotificationQueueShellKind: shellKind,
-      queueShellShowsResult,
-      chainAdvanceWaiting,
-      chainAdvancePlaceholderKind: placeholderKind,
-      shouldMountNotificationOverlayHost,
-      notificationOverlayVisible,
-      resultOverlayWouldMount: queueShellShowsResult && Boolean(activeResultPayload),
-      checkOverlayWouldMount: checkBranchActive && Boolean(checkBan?.id),
-      advanceWaitingOnShell:
-        !queueShellShowsResult && (chainAdvanceWaiting || incomingShellHydrating),
-    });
-  }, [
-    activeResultPayload,
-    chainAdvancePlaceholderKind,
-    chainAdvanceWaiting,
-    checkBan?.id,
-    displayResult?.id,
-    effectiveNotificationQueueShellKind,
-    heldUserCardOverlay,
-    incomingShellHydrating,
-    notificationOverlayVisible,
-    notificationQueueShellKind,
-    overlayQueue,
-    queueShellShowsResult,
-    shouldMountNotificationOverlayHost,
-    showCheckOverlayDirect,
-  ]);
-
-  useLayoutEffect(() => {
-    const effectiveKind = effectiveNotificationQueueShellKind;
-    if (notificationQueueShellRenderable || !shouldMountNotificationOverlayHost) {
-      return;
-    }
-    if (!effectiveKind) return;
-    const placeholderKind = chainAdvancePlaceholderKind;
-    const blockedEmptyShell =
-      (effectiveKind === 'check' &&
-        !showCheckOverlayDirect &&
-        !hasCheckBanForShell) ||
-      (effectiveKind === 'result' && !queueShellShowsResult);
-    if (!blockedEmptyShell) return;
-
-    let emptyShellCreator = 'unknown';
-    if (chainAdvanceWaiting && placeholderKind === 'check' && !hasCheckBanForShell) {
-      emptyShellCreator = 'chainAdvanceWaiting-placeholder-check-without-checkBan';
-    } else if (
-      chainAdvanceWaiting &&
-      placeholderKind === 'result' &&
-      !activeResultPayload
-    ) {
-      emptyShellCreator = 'chainAdvanceWaiting-placeholder-result-without-payload';
-    } else if (effectiveKind === 'check' && !hasCheckBanForShell) {
-      emptyShellCreator = 'effectiveKind-check-without-checkBan';
-    } else if (effectiveKind === 'result' && !activeResultPayload) {
-      emptyShellCreator = 'effectiveKind-result-without-activeResultPayload';
-    } else if (
-      effectiveKind === 'result' &&
-      activeResultPayload &&
-      !queueShellShowsResult
-    ) {
-      emptyShellCreator = 'effectiveKind-result-payload-not-shell-ready';
-    }
-
-    logEmptyShellRenderBlocked({
-      effectiveKind,
-      queueShellShowsResult,
-      hasCheckBan: hasCheckBanForShell,
-      hasActiveResultPayload: Boolean(activeResultPayload?.id),
-      chainAdvanceWaiting,
-      notificationChainTransitioning,
-      emptyShellCreator,
-    });
-  }, [
-    activeResultPayload,
-    chainAdvancePlaceholderKind,
-    chainAdvanceWaiting,
-    effectiveNotificationQueueShellKind,
-    hasCheckBanForShell,
-    notificationChainTransitioning,
-    notificationQueueShellRenderable,
-    queueShellShowsResult,
-    shouldMountNotificationOverlayHost,
-    showCheckOverlayDirect,
-  ]);
-
   useLayoutEffect(() => {
     const queueHead =
       overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
@@ -21080,9 +20777,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 />
               </ChallengeErrorBoundary>
             ) : null}
-            {!composeBlocksNotificationHost &&
-            shouldMountNotificationOverlayHost &&
-            notificationQueueShellRenderable ? (
+            {!composeBlocksNotificationHost && shouldMountNotificationOverlayHost ? (
             <GlobalOverlayHost
               active={notificationHostPointerActive}
               queueSessionActive={notificationHostSessionBackdrop}
@@ -21150,8 +20845,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     />
                   </ChallengeErrorBoundary>
                 ) : effectiveNotificationQueueShellKind === 'check' &&
-                  !showCheckOverlayDirect &&
-                  checkBan ? (
+                  !showCheckOverlayDirect ? (
                   <ChallengeErrorBoundary
                     name="check"
                     onRecover={() => clearCheckOverlay()}
