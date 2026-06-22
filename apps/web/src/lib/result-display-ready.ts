@@ -48,6 +48,12 @@ export type ResultDisplayReadyInput = {
   atomicOverboardShowable?: boolean;
 };
 
+export function isFinalCheckStatusOutcome(
+  outcome: InteractionOutcome | null | undefined,
+): boolean {
+  return outcome === 'split' || outcome === 'both_yes' || outcome === 'both_no';
+}
+
 function isOverboardStatusOrOutcome(result: BanResult): boolean {
   const status =
     (result as BanResult & { status?: string | null }).status ?? null;
@@ -67,8 +73,22 @@ function isPartialOrWaitingResult(result: BanResult): boolean {
   return false;
 }
 
+/** True atomic overboard shell — not any resultRef id match. */
+export function isAtomicOverboardShellReady(
+  result: BanResult | null | undefined,
+  opts?: {
+    freshOverboardBanId?: boolean;
+    atomicOverboardBanId?: boolean;
+  },
+): boolean {
+  if (!result?.id?.trim()) return false;
+  if (isOverboardStatusOrOutcome(result)) return true;
+  if (opts?.freshOverboardBanId || opts?.atomicOverboardBanId) return true;
+  return false;
+}
+
 /** Final check status — not interim state after only one partner answered. */
-function isTerminalCheckResult(result: BanResult): boolean {
+export function isTerminalCheckResult(result: BanResult): boolean {
   if (result.outcome?.trim()) return true;
   const confirmations = result.confirmations;
   if (confirmations == null) return false;
@@ -147,4 +167,13 @@ export function isResultDisplayReady(input: ResultDisplayReadyInput): boolean {
     snap.hasBody || hasParticipants || snap.hasTitle;
 
   return snap.hasOutcome && snap.hasTitle && hasDisplayableContent;
+}
+
+/** Terminal split/both_yes/both_no — hold until user dismisses. */
+export function isTerminalFinalStatusResult(
+  result: BanResult | null | undefined,
+): boolean {
+  if (!result?.id?.trim()) return false;
+  if (!isFinalCheckStatusOutcome(result.outcome)) return false;
+  return isTerminalCheckResult(result);
 }

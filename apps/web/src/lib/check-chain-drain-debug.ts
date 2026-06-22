@@ -230,3 +230,27 @@ export function logCheckTransitionPlaceholderShown(
 ): void {
   window.__debug98log?.('[CHECK TRANSITION PLACEHOLDER SHOWN]', data);
 }
+
+export function logFinalStatusHoldDecision(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[FINAL STATUS HOLD DECISION]', data);
+}
+
+export function logResultStalePruneDecision(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[RESULT STALE PRUNE DECISION]', data);
+}
+
+export function logResultDismissRequiredCheck(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[RESULT DISMISS REQUIRED CHECK]', data);
+}
+
+export function logResultCardUnmounted(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[RESULT CARD UNMOUNTED]', data);
+}

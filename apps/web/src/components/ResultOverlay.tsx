@@ -19,6 +19,7 @@ import {
   showFreeModeBanOthersAction,
 } from '@98plus/shared';
 import { resolveResultDisplayHeadline } from '@/lib/result-display-ready';
+import { logResultCardUnmounted } from '@/lib/check-chain-drain-debug';
 import { ANALYTICS_EVENTS } from '@98plus/shared';
 import { shareDeepLink } from '@/lib/share';
 import { api } from '@/lib/api';
@@ -165,6 +166,7 @@ function ResultOverlayInner({
     resultCtaBansOverlayOpen,
     bansNavState,
     blockAutoDismissAtomicOverboardResult,
+    blockAutoDismissTerminalFinalStatus,
     isQueueAtomicOverboardResultShowable,
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
@@ -289,6 +291,12 @@ function ResultOverlayInner({
   useEffect(() => {
     traceResultOverlayLifecycle('RESULT OVERLAY MOUNT', tracePropsRef.current);
     return () => {
+      logResultCardUnmounted({
+        banId: result.id,
+        outcome: result.outcome ?? null,
+        contentOnly,
+        directPaint,
+      });
       traceResultOverlayLifecycle('RESULT OVERLAY UNMOUNT', tracePropsRef.current, {
         resultCtaBansSession: resultCtaBansSessionRef.current,
       });
@@ -306,6 +314,14 @@ function ResultOverlayInner({
       ) {
         return;
       }
+      if (
+        blockAutoDismissTerminalFinalStatus(
+          result.id,
+          'ResultOverlay-showable-guard',
+        )
+      ) {
+        return;
+      }
       guardedOnClose();
     }
     return () => {
@@ -316,6 +332,7 @@ function ResultOverlayInner({
     };
   }, [
     blockAutoDismissAtomicOverboardResult,
+    blockAutoDismissTerminalFinalStatus,
     directPaint,
     guardedOnClose,
     result.id,
