@@ -4458,6 +4458,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ) {
         return;
       }
+      const resultIdBeforeClear = normalizeId(
+        result?.id ?? resultRef.current?.id ?? '',
+      );
+      if (
+        heldFreshOverboard?.kind === 'result' &&
+        resultIdBeforeClear.length > 0 &&
+        normalizeId(heldFreshOverboard.result.id) === resultIdBeforeClear
+      ) {
+        window.__debug98log?.('[RESULT CLEAR BLOCKED HELD RESULT]', {
+          source: 'syncDisplayFromQueue',
+          reason: 'queue-head-not-result',
+          heldBanId: heldFreshOverboard.result.id,
+          resultIdBefore: result?.id ?? null,
+          resultRefIdBefore: resultRef.current?.id ?? null,
+        });
+        resultOpenRef.current = true;
+        return;
+      }
       resultOpenRef.current = false;
       logResultPath('syncDisplayFromQueue', 'state-cleared', {
         banId:
