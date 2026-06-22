@@ -2504,6 +2504,54 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     emitResultHeldStillPresentAfterClear(source, 'clear-active-user-card-hold');
   };
 
+  const clearStaleUserCardHoldForNextHead = (
+    nextHead: QueuedOverlay | null,
+    source: string,
+  ) => {
+    const held = heldUserCardOverlayRef.current;
+    if (!held || !nextHead) return;
+
+    const heldBanId = normalizeId(heldUserCardBanId(held));
+    const nextBanId =
+      nextHead.kind === 'result'
+        ? normalizeId(nextHead.result.id)
+        : normalizeId(nextHead.ban.id);
+    if (!heldBanId || !nextBanId) return;
+    if (held.kind === nextHead.kind && heldBanId === nextBanId) return;
+
+    const heldKindBefore = held.kind;
+    clearActiveUserCardHold('show-next-head-mismatch');
+    const logPayload = {
+      source,
+      heldKind: heldKindBefore,
+      heldBanId,
+      nextKind: nextHead.kind,
+      nextBanId,
+    };
+    console.log('[ACTIVE USER CARD HOLD CLEARED HEAD MISMATCH]', logPayload);
+    window.__debug98log?.(
+      '[ACTIVE USER CARD HOLD CLEARED HEAD MISMATCH]',
+      logPayload,
+    );
+
+    if (heldKindBefore === 'incoming') {
+      const incomingId = incomingBanRef.current?.id;
+      if (
+        !incomingId ||
+        !blockClearActiveIncomingOverlayBan(
+          incomingId,
+          `${source}-show-next-head-mismatch`,
+        )
+      ) {
+        incomingBanRef.current = null;
+        setIncomingBan(null);
+      }
+    } else if (heldKindBefore === 'check') {
+      checkBanRef.current = null;
+      setCheckBan(null);
+    }
+  };
+
   const emitResultClearCallsite = useCallback(
     (params: {
       source: string;
@@ -14349,6 +14397,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       setLobbyOpen(false);
       lobbyOpenRef.current = false;
+      const nextHead: QueuedOverlay | null = head ?? startupHead;
+      clearStaleUserCardHoldForNextHead(nextHead, source);
       flushSync(() => {
         if (
           isPendingAtomicOverboardResultAwaitingDismiss(
