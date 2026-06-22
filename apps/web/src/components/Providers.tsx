@@ -4647,7 +4647,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
         return;
       }
-      chainAdvanceExplicitRef.current = false;
       activeOverlayLockRef.current = nextKey;
       if (nextKey) {
         console.log('[OVERLAY ACTIVE LOCK]', {
@@ -4693,6 +4692,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (!preserveAtomicOverboardResultDuringSync('applyOverlayQueue')) {
         syncDisplayFromQueue(next);
       }
+      chainAdvanceExplicitRef.current = false;
       setOverlayQueue(next);
     },
     [syncDisplayFromQueue],
