@@ -1068,6 +1068,11 @@ function applySessionToState(
   }
 }
 
+function logResultPayloadSelectionTrace(data: Record<string, unknown>): void {
+  if (typeof window === 'undefined') return;
+  window.__debug98log?.('[RESULT PAYLOAD SELECTION TRACE]', data);
+}
+
 /** Hard remount on Telegram account switch — wipes in-memory friends/session. */
 export function Providers({ children }: { children: React.ReactNode }) {
   const { telegramId } = useTelegram();
@@ -8432,9 +8437,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           overlayQueueRef.current[0] ?? null,
         );
         if (isHeldOrMountedIncomingOrCheckActive(pollGuardCtx)) {
-          enqueueNotification(
-            { kind: 'result', result: normalized },
-            { source: 'poll' },
+          const nextQueue = buildResultPriorityQueue(
+            overlayQueueRef.current,
+            banId,
+            resultItem,
           );
           logResultShellSuppressedNotReady({
             banId,
@@ -8443,7 +8449,44 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             heldKind: pollGuardCtx.heldKind,
             heldBanId: pollGuardCtx.heldBanId,
           });
-          return false;
+          chainAdvanceExplicitRef.current = true;
+          if (
+            isFinalCheckStatusOutcome(normalized.outcome) ||
+            normalized.outcome === 'overboard'
+          ) {
+            holdResultForActiveNotificationChain(
+              banId,
+              'showCheckAnswerFinalResult-poll-defer-pre-apply',
+              normalized,
+            );
+          }
+          logCheckAnswerFinalResultEnqueued({
+            banId,
+            queueLen: nextQueue.length,
+            status: statusLabel,
+          });
+          logResultPayloadSelectionTrace({
+            phase: 'showCheckAnswerFinalResult-poll-defer-priority-queue',
+            freshPollPriorityBanId: banId,
+            freshPriorityBanIds: [...resultPriorityBanIdsRef.current],
+            checkCardBanId: checkBanRef.current?.id ?? null,
+            resultRefBanId: resultRef.current?.id ?? null,
+            displayResultBanId: result?.id ?? null,
+            queueHeadKind: nextQueue[0]?.kind ?? null,
+            queueHeadBanId:
+              nextQueue[0]?.kind === 'result' ? nextQueue[0].result.id : null,
+            freshPriorityRejectedBecause: null,
+            heldKind: pollGuardCtx.heldKind,
+            heldBanId: pollGuardCtx.heldBanId,
+            passiveShellBlocked: true,
+          });
+          flushSync(() => {
+            applyOverlayQueue(nextQueue);
+          });
+          const head = overlayQueueRef.current[0];
+          return (
+            head?.kind === 'result' && normalizeId(head.result.id) === banId
+          );
         }
       }
 
@@ -17363,8 +17406,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       fromQueueHeadResult,
       fromResultRef,
       finalExists: finalPayload != null,
+      finalBanId: finalPayload?.id ?? null,
       finalStatus: finalPayload?.status ?? null,
       finalOutcome: finalPayload?.outcome ?? null,
+      displayResultBanId: displayResult?.id ?? null,
+      resultRefBanId: refResult?.id ?? null,
+      heldResultBanId: heldResult?.id ?? null,
+      queueHeadResultBanId: queueHeadResult?.id ?? null,
+      queueHeadKind: queueHead?.kind ?? null,
+      freshPriorityBanIds: [...resultPriorityBanIdsRef.current],
       priorityBlocksResult,
       sendSuccessCardActive,
     });
@@ -18324,42 +18374,203 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const queueHead =
       overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
     const guardCtx = buildResultShellHeldCardGuardContext(queueHead);
-    const pickResultPayload = (
+    const pickResultPayloadWithReason = (
       payload: BanResult | null | undefined,
       logSource: string,
-    ): BanResult | null => {
-      if (!payload?.id) return null;
-      if (shouldSuppressPassiveLobbyResultBan(payload.id)) return null;
-      if (shouldBlockPassiveResultShell(payload, guardCtx, logSource)) {
-        return null;
+    ): {
+      payload: BanResult | null;
+      rejectReason: string | null;
+      banId: string | null;
+    } => {
+      const banId = payload?.id?.trim() ?? null;
+      if (!banId) {
+        return { payload: null, rejectReason: 'missing-id', banId: null };
       }
-      return payload;
+      if (shouldSuppressPassiveLobbyResultBan(banId)) {
+        return {
+          payload: null,
+          rejectReason: 'suppressed-passive-lobby-ban',
+          banId,
+        };
+      }
+      if (shouldBlockPassiveResultShell(payload, guardCtx, logSource)) {
+        return {
+          payload: null,
+          rejectReason: 'passive-shell-blocked-over-held-incoming-check',
+          banId,
+        };
+      }
+      return { payload: payload ?? null, rejectReason: null, banId };
     };
-    const heldIsResult = heldUserCardOverlay?.kind === 'result';
-    const queueHeadIsResult = queueHead?.kind === 'result';
-    const refResult = resultRef.current;
-    const heldResult =
-      heldIsResult
-        ? pickResultPayload(heldUserCardOverlay.result, 'activeResult-held')
-        : null;
-    const queueHeadResult =
-      queueHeadIsResult
-        ? pickResultPayload(queueHead.result, 'activeResult-queueHead')
-        : null;
-    const refResultPayload = pickResultPayload(refResult, 'activeResult-ref');
-    const stateResult = pickResultPayload(result, 'activeResult-state');
-    const displayResultPayload = pickResultPayload(
+    const displayPick = pickResultPayloadWithReason(
       displayResult,
       'activeResult-display',
     );
-    return (
-      displayResultPayload ??
-      heldResult ??
-      queueHeadResult ??
-      refResultPayload ??
-      stateResult
+    const heldPick =
+      heldUserCardOverlay?.kind === 'result'
+        ? pickResultPayloadWithReason(
+            heldUserCardOverlay.result,
+            'activeResult-held',
+          )
+        : {
+            payload: null,
+            rejectReason: heldUserCardOverlay
+              ? `held-kind-${heldUserCardOverlay.kind}`
+              : 'no-held-state',
+            banId:
+              heldUserCardOverlay && heldUserCardOverlay.kind !== 'result'
+                ? heldUserCardBanId(heldUserCardOverlay)
+                : null,
+          };
+    const queueHeadPick =
+      queueHead?.kind === 'result'
+        ? pickResultPayloadWithReason(queueHead.result, 'activeResult-queueHead')
+        : {
+            payload: null,
+            rejectReason: queueHead
+              ? `queue-head-kind-${queueHead.kind}`
+              : 'empty-queue',
+            banId:
+              queueHead?.kind === 'incoming' || queueHead?.kind === 'check'
+                ? queueHead.ban.id
+                : null,
+          };
+    const refPick = pickResultPayloadWithReason(
+      resultRef.current,
+      'activeResult-ref',
     );
-  }, [displayResult, heldUserCardOverlay, overlayQueue, result]);
+    const statePick = pickResultPayloadWithReason(result, 'activeResult-state');
+
+    type WinnerSource = 'display' | 'held' | 'queueHead' | 'ref' | 'state' | 'none';
+    let winnerSource: WinnerSource = 'none';
+    let winner: BanResult | null = null;
+    for (const [source, pick] of [
+      ['display', displayPick],
+      ['held', heldPick],
+      ['queueHead', queueHeadPick],
+      ['ref', refPick],
+      ['state', statePick],
+    ] as const) {
+      if (pick.payload) {
+        winnerSource = source;
+        winner = pick.payload;
+        break;
+      }
+    }
+
+    const freshPriorityBanIds = [...resultPriorityBanIdsRef.current];
+    const freshPollPriorityBanId =
+      freshPriorityBanIds.length > 0
+        ? freshPriorityBanIds[freshPriorityBanIds.length - 1]!
+        : null;
+    const priorityNorm = freshPollPriorityBanId
+      ? normalizeId(freshPollPriorityBanId)
+      : '';
+    const winnerNorm = winner?.id ? normalizeId(winner.id) : '';
+    const queueHasPriorityResult =
+      priorityNorm.length > 0 &&
+      (overlayQueue.some(
+        (q) => q.kind === 'result' && normalizeId(q.result.id) === priorityNorm,
+      ) ||
+        overlayQueueRef.current.some(
+          (q) =>
+            q.kind === 'result' && normalizeId(q.result.id) === priorityNorm,
+        ));
+    const queueHeadIsPriorityResult =
+      queueHead?.kind === 'result' &&
+      priorityNorm.length > 0 &&
+      normalizeId(queueHead.result.id) === priorityNorm;
+
+    let freshPriorityRejectedBecause: string | null = null;
+    if (priorityNorm && winnerNorm && priorityNorm !== winnerNorm) {
+      if (!queueHasPriorityResult) {
+        freshPriorityRejectedBecause =
+          'poll-priority-set-but-result-not-enqueued-in-queue';
+      } else if (!queueHeadIsPriorityResult) {
+        freshPriorityRejectedBecause = 'poll-priority-result-not-queue-head';
+      } else if (displayPick.payload && normalizeId(displayPick.payload.id) !== priorityNorm) {
+        freshPriorityRejectedBecause =
+          'activeResultPayload-pick-order-displayResult-before-queueHead';
+      } else if (heldPick.payload && normalizeId(heldPick.payload.id) !== priorityNorm) {
+        freshPriorityRejectedBecause =
+          'activeResultPayload-pick-order-heldResult-before-queueHead';
+      } else if (queueHeadPick.rejectReason) {
+        freshPriorityRejectedBecause = `queueHead-priority-blocked:${queueHeadPick.rejectReason}`;
+      } else if (refPick.payload && normalizeId(refPick.payload.id) !== priorityNorm) {
+        freshPriorityRejectedBecause =
+          'activeResultPayload-pick-order-resultRef-before-priority-queueHead';
+      } else {
+        freshPriorityRejectedBecause =
+          'priority-banId-lost-to-earlier-activeResultPayload-source';
+      }
+    } else if (priorityNorm && !winnerNorm && queueHasPriorityResult) {
+      freshPriorityRejectedBecause =
+        queueHeadPick.rejectReason ??
+        displayPick.rejectReason ??
+        refPick.rejectReason ??
+        'priority-result-in-queue-but-all-candidates-rejected';
+    }
+
+    const heldRef = heldUserCardOverlayRef.current;
+    logResultPayloadSelectionTrace({
+      checkCardBanId: checkBanRef.current?.id ?? null,
+      checkCardStateBanId: checkBan?.id ?? null,
+      checkAnswerInFlightBanIds: [...checkAnswerInFlightRef.current],
+      answeredCheckBanIds: [...answeredCheckRef.current],
+      freshPollPriorityBanId,
+      freshPriorityBanIds,
+      resultRefBanId: resultRef.current?.id ?? null,
+      resultOpenRef: resultOpenRef.current,
+      displayResultBanId: displayResult?.id ?? null,
+      resultStateBanId: result?.id ?? null,
+      activeResultPayloadBanId: winner?.id ?? null,
+      heldUserCardOverlayKind: heldUserCardOverlay?.kind ?? null,
+      heldUserCardOverlayBanId: heldUserCardOverlay
+        ? heldUserCardBanId(heldUserCardOverlay)
+        : null,
+      heldUserCardOverlayRefKind: heldRef?.kind ?? null,
+      heldUserCardOverlayRefBanId: heldRef ? heldUserCardBanId(heldRef) : null,
+      queueHeadKind: queueHead?.kind ?? null,
+      queueHeadBanId:
+        queueHead?.kind === 'result'
+          ? queueHead.result.id
+          : queueHead?.kind === 'incoming' || queueHead?.kind === 'check'
+            ? queueHead.ban.id
+            : null,
+      queueHasPriorityResult,
+      queueHeadIsPriorityResult,
+      sourcePicked: winnerSource,
+      winnerBanId: winner?.id ?? null,
+      winnerPickReason:
+        winnerSource === 'none'
+          ? 'all-candidates-null-or-blocked'
+          : `activeResultPayload-pick-order-${winnerSource}`,
+      freshPriorityRejectedBecause,
+      candidateRejectReasons: {
+        display: displayPick.rejectReason,
+        held: heldPick.rejectReason,
+        queueHead: queueHeadPick.rejectReason,
+        ref: refPick.rejectReason,
+        state: statePick.rejectReason,
+      },
+      candidateBanIds: {
+        display: displayPick.banId,
+        held: heldPick.banId,
+        queueHead: queueHeadPick.banId,
+        ref: refPick.banId,
+        state: statePick.banId,
+      },
+      guardCtx: {
+        heldKind: guardCtx.heldKind,
+        heldBanId: guardCtx.heldBanId,
+        awaitingUser: guardCtx.awaitingUser,
+        chainAdvanceExplicit: guardCtx.chainAdvanceExplicit,
+        freshFinalStatusBanIds: [...freshFinalStatusBanIdsRef.current],
+      },
+    });
+
+    return winner;
+  }, [displayResult, heldUserCardOverlay, overlayQueue, result, checkBan]);
 
   const incomingNotificationShellKind = useMemo(() => {
     const queueHead =
@@ -19335,6 +19546,58 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       'queueShellShowsResult',
     ) &&
     isQueueResultShellVisibleContentReady(activeResultPayload);
+
+  useLayoutEffect(() => {
+    const queueHead =
+      overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
+    const queueHeadBanId =
+      queueHead?.kind === 'result'
+        ? queueHead.result.id
+        : queueHead?.kind === 'incoming' || queueHead?.kind === 'check'
+          ? queueHead.ban.id
+          : null;
+    logResultPayloadSelectionTrace({
+      phase: 'queueShellShowsResult-eval',
+      checkCardBanId: checkBanRef.current?.id ?? checkBan?.id ?? null,
+      freshPollPriorityBanId:
+        [...resultPriorityBanIdsRef.current].at(-1) ?? null,
+      resultRefBanId: resultRef.current?.id ?? null,
+      displayResultBanId: displayResult?.id ?? null,
+      activeResultPayloadBanId: activeResultPayload?.id ?? null,
+      heldUserCardOverlayRefBanId: heldUserCardOverlayRef.current
+        ? heldUserCardBanId(heldUserCardOverlayRef.current)
+        : null,
+      queueHeadKind: queueHead?.kind ?? null,
+      queueHeadBanId,
+      effectiveNotificationQueueShellKind,
+      notificationQueueShellKind,
+      queueShellShowsResult,
+      queueShellBlockedBecause: queueShellShowsResult
+        ? null
+        : effectiveNotificationQueueShellKind !== 'result'
+          ? `effectiveKind-${effectiveNotificationQueueShellKind ?? 'null'}`
+          : !activeResultPayload
+            ? 'activeResultPayload-null'
+            : !checkResultShellDisplayReady(
+                  activeResultPayload,
+                  'queueShellShowsResult-trace',
+                )
+              ? 'display-ready-false'
+              : !isQueueResultShellVisibleContentReady(activeResultPayload)
+                ? 'visible-content-not-ready'
+                : 'unknown',
+    });
+  }, [
+    activeResultPayload,
+    checkBan?.id,
+    checkResultShellDisplayReady,
+    displayResult?.id,
+    effectiveNotificationQueueShellKind,
+    isQueueResultShellVisibleContentReady,
+    notificationQueueShellKind,
+    overlayQueue,
+    queueShellShowsResult,
+  ]);
 
   const incomingJsxWillRender =
     !queueShellShowsResult &&
