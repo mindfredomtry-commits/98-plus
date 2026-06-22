@@ -272,6 +272,11 @@ import {
   isResultDisplayReady,
 } from '@/lib/result-display-ready';
 import {
+  buildResultShellHeldCardGuardContextFromHeld,
+  isHeldOrMountedIncomingOrCheckActive,
+  shouldBlockResultShellOverHeldIncomingOrCheck,
+} from '@/lib/result-shell-held-card-guard';
+import {
   logCheckCardMountedBug,
   logCheckPrimeSkipStaleBecauseResultExists,
   logResultCardMounted,
@@ -2107,6 +2112,48 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return false;
     }
     return isFinalCheckStatusOutcome(held.result.outcome);
+  };
+
+  const buildResultShellHeldCardGuardContext = (
+    queueHead: QueuedOverlay | null,
+  ) =>
+    buildResultShellHeldCardGuardContextFromHeld(
+      heldUserCardOverlayRef.current ?? heldUserCardOverlay,
+      {
+        awaitingUser: notificationChainAwaitingUserRef.current,
+        mountedIncomingBanId: incomingBanRef.current?.id ?? null,
+        mountedCheckBanId: checkBanRef.current?.id ?? null,
+        atomicOverboardBanId: incomingOverboardAtomicBanIdRef.current,
+        freshOverboardBanIds: freshOverboardActionBanIdsRef.current,
+        overboardInFlightBanId: overboardInFlightRef.current,
+        freshFinalStatusBanIds: freshFinalStatusBanIdsRef.current,
+        resultPriorityBanIds: resultPriorityBanIdsRef.current,
+        chainAdvanceExplicit: chainAdvanceExplicitRef.current,
+        queueHead,
+      },
+    );
+
+  const shouldBlockPassiveResultShell = (
+    resultPayload: BanResult | null | undefined,
+    guardCtx: ReturnType<typeof buildResultShellHeldCardGuardContext>,
+    logSource?: string,
+  ): boolean => {
+    if (!resultPayload?.id?.trim()) return false;
+    const blocked = shouldBlockResultShellOverHeldIncomingOrCheck(
+      resultPayload.id,
+      resultPayload,
+      guardCtx,
+    );
+    if (blocked && logSource) {
+      logResultShellSuppressedNotReady({
+        banId: normalizeId(resultPayload.id),
+        reason: 'passive-result-blocked-over-held-incoming-check',
+        source: logSource,
+        heldKind: guardCtx.heldKind,
+        heldBanId: guardCtx.heldBanId,
+      });
+    }
+    return blocked;
   };
 
   const shouldPreserveFinalStatusResult = (
@@ -8284,6 +8331,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       const resultItem: QueuedOverlay = { kind: 'result', result: normalized };
+
+      if (source === 'poll') {
+        const pollGuardCtx = buildResultShellHeldCardGuardContext(
+          overlayQueueRef.current[0] ?? null,
+        );
+        if (isHeldOrMountedIncomingOrCheckActive(pollGuardCtx)) {
+          enqueueNotification(
+            { kind: 'result', result: normalized },
+            { source: 'poll' },
+          );
+          logResultShellSuppressedNotReady({
+            banId,
+            reason: 'passive-result-blocked-over-held-incoming-check',
+            source: 'showCheckAnswerFinalResult-poll-defer',
+            heldKind: pollGuardCtx.heldKind,
+            heldBanId: pollGuardCtx.heldBanId,
+          });
+          return false;
+        }
+      }
+
       const nextQueue = buildResultPriorityQueue(
         overlayQueueRef.current,
         banId,
@@ -18109,28 +18177,37 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const activeResultPayload = useMemo(() => {
     const queueHead =
       overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
+    const guardCtx = buildResultShellHeldCardGuardContext(queueHead);
+    const pickResultPayload = (
+      payload: BanResult | null | undefined,
+      logSource: string,
+    ): BanResult | null => {
+      if (!payload?.id) return null;
+      if (shouldSuppressPassiveLobbyResultBan(payload.id)) return null;
+      if (shouldBlockPassiveResultShell(payload, guardCtx, logSource)) {
+        return null;
+      }
+      return payload;
+    };
     const heldIsResult = heldUserCardOverlay?.kind === 'result';
     const queueHeadIsResult = queueHead?.kind === 'result';
     const refResult = resultRef.current;
     const heldResult =
-      heldIsResult && !shouldSuppressPassiveLobbyResultBan(heldUserCardOverlay.result.id)
-        ? heldUserCardOverlay.result
+      heldIsResult
+        ? pickResultPayload(heldUserCardOverlay.result, 'activeResult-held')
         : null;
     const queueHeadResult =
-      queueHeadIsResult &&
-      !shouldSuppressPassiveLobbyResultBan(queueHead.result.id)
-        ? queueHead.result
+      queueHeadIsResult
+        ? pickResultPayload(queueHead.result, 'activeResult-queueHead')
         : null;
-    const refResultPayload =
-      refResult?.id && !shouldSuppressPassiveLobbyResultBan(refResult.id)
-        ? refResult
-        : null;
-    const stateResult =
-      result?.id && !shouldSuppressPassiveLobbyResultBan(result.id)
-        ? result
-        : null;
+    const refResultPayload = pickResultPayload(refResult, 'activeResult-ref');
+    const stateResult = pickResultPayload(result, 'activeResult-state');
+    const displayResultPayload = pickResultPayload(
+      displayResult,
+      'activeResult-display',
+    );
     return (
-      displayResult ??
+      displayResultPayload ??
       heldResult ??
       queueHeadResult ??
       refResultPayload ??
@@ -18141,6 +18218,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const incomingNotificationShellKind = useMemo(() => {
     const queueHead =
       overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
+    const guardCtx = buildResultShellHeldCardGuardContext(queueHead);
     const heldIsResult = heldUserCardOverlay?.kind === 'result';
     const queueHeadIsResult = queueHead?.kind === 'result';
     const atomicNorm = normalizeId(incomingOverboardAtomicBanIdRef.current ?? '');
@@ -18176,6 +18254,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const heldResultShellReady =
       heldIsResult &&
       !heldResultSuppressed &&
+      !shouldBlockPassiveResultShell(
+        heldUserCardOverlay!.result,
+        guardCtx,
+        'incomingShell-held',
+      ) &&
       checkResultShellDisplayReady(
         heldUserCardOverlay!.result,
         'incomingShell-held',
@@ -18183,6 +18266,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const queueHeadResultShellReady =
       queueHeadIsResult &&
       !queueHeadResultSuppressed &&
+      !shouldBlockPassiveResultShell(
+        queueHead?.kind === 'result' ? queueHead.result : null,
+        guardCtx,
+        'incomingShell-queueHead',
+      ) &&
       checkResultShellDisplayReady(
         queueHead?.kind === 'result' ? queueHead.result : null,
         'incomingShell-queueHead',
@@ -18301,6 +18389,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
     const queueHead =
       overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
+    const guardCtx = buildResultShellHeldCardGuardContext(queueHead);
     const atomicNorm = normalizeId(incomingOverboardAtomicBanIdRef.current ?? '');
     const refResultNorm = normalizeId(resultRef.current?.id ?? '');
     const heldResultNorm =
@@ -18328,6 +18417,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const heldResultShellReady =
       heldUserCardOverlay?.kind === 'result' &&
       !heldResultSuppressed &&
+      !shouldBlockPassiveResultShell(
+        heldUserCardOverlay.result,
+        guardCtx,
+        'effectiveShell-held',
+      ) &&
       checkResultShellDisplayReady(
         heldUserCardOverlay.result,
         'effectiveShell-held',
@@ -18335,11 +18429,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const queueHeadResultShellReady =
       queueHead?.kind === 'result' &&
       !queueHeadResultSuppressed &&
+      !shouldBlockPassiveResultShell(
+        queueHead.result,
+        guardCtx,
+        'effectiveShell-queueHead',
+      ) &&
       checkResultShellDisplayReady(queueHead.result, 'effectiveShell-queueHead');
     const refResultShellReady =
       Boolean(resultRef.current?.id) &&
       !shouldSuppressPassiveLobbyResultBan(resultRef.current?.id) &&
       !chainAdvanceWaiting &&
+      !shouldBlockPassiveResultShell(
+        resultRef.current,
+        guardCtx,
+        'effectiveShell-resultRef',
+      ) &&
       checkResultShellDisplayReady(resultRef.current, 'effectiveShell-resultRef');
     const atomicOverboardShellReady =
       atomicOverboardResultLive &&
