@@ -236,6 +236,7 @@ import {
   logCheckDismissEmptyOpenLobby,
   logCheckDismissRemainingQueue,
   logCheckDismissShowNext,
+  logCheckAnswerEmptyRemainingDeferred,
   logCheckAnswerAdvanceTrace,
   logCheckDismissStart,
   logCheckDismissStuckOnBootBug,
@@ -2039,6 +2040,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         resolveChainAdvancePlaceholderKindForTrace(remaining),
       notificationChainTransitioning: notificationChainTransitioningRef.current,
     });
+  };
+
+  const shouldDeferCheckAnswerEmptyRemainingApplyQueue = (
+    reason: string,
+    dismissBanId: string | null,
+    remaining: QueuedOverlay[],
+  ): boolean => {
+    if (reason !== 'user-answer') return false;
+    if (remaining.length > 0) return false;
+    if (!dismissBanId) return false;
+    const normalizedBanId = normalizeId(dismissBanId);
+    if (!normalizedBanId) return false;
+    if (!checkAnswerDismissChainOwnedRef.current) return false;
+    return checkAnswerInFlightRef.current.has(normalizedBanId);
   };
 
   const prepareUserAnswerChainAdvance = (
@@ -5219,14 +5234,39 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             beforeApplyQueue,
           );
         }
-        applyOverlayQueue(remaining);
-        if (userChainAdvance && beforeApplyQueue) {
-          emitCheckAnswerAdvanceTrace(
-            'after-apply-queue',
+        const deferCheckAnswerEmptyRemainingApply =
+          userChainAdvance &&
+          shouldDeferCheckAnswerEmptyRemainingApplyQueue(
+            reason,
             dismissBanId,
             remaining,
-            beforeApplyQueue,
           );
+        if (deferCheckAnswerEmptyRemainingApply) {
+          const normalizedCheckBanId = normalizeId(dismissBanId ?? '');
+          logCheckAnswerEmptyRemainingDeferred({
+            checkBanId: dismissBanId,
+            pendingLen: pendingStartupInteractionsRef.current.length,
+            hasResultAnswer:
+              normalizedCheckBanId.length > 0 &&
+              checkAnswerInFlightRef.current.has(normalizedCheckBanId),
+            remainingLen: remaining.length,
+            reason: 'user-answer-empty-remaining-wait-result-poll',
+          });
+          overlayQueueRef.current = [];
+          activeOverlayLockRef.current = null;
+          setOverlayQueue([]);
+          setChainAdvanceWaiting(false);
+          setNotificationChainTransitioning(false);
+        } else {
+          applyOverlayQueue(remaining);
+          if (userChainAdvance && beforeApplyQueue) {
+            emitCheckAnswerAdvanceTrace(
+              'after-apply-queue',
+              dismissBanId,
+              remaining,
+              beforeApplyQueue,
+            );
+          }
         }
         const selectTs = overlayTs();
         if (remaining.length > 0) {
@@ -5357,7 +5397,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         commit();
       }
     },
-    [applyOverlayQueue, setNotificationChainTransitioning],
+    [applyOverlayQueue, setChainAdvanceWaiting, setNotificationChainTransitioning],
   );
 
   const markSessionBanSendSuccess = useCallback(() => {

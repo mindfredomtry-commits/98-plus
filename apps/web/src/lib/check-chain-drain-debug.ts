@@ -73,6 +73,12 @@ export function logCheckAnswerResultSkippedBug(
 }
 
 /** v21 — check dismiss / advance after user answer */
+export function logCheckAnswerEmptyRemainingDeferred(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK ANSWER EMPTY REMAINING DEFERRED]', data);
+}
+
 export function logCheckAnswerAdvanceTrace(data: Record<string, unknown>): void {
   window.__debug98log?.('[CHECK ANSWER ADVANCE TRACE]', data);
 }
