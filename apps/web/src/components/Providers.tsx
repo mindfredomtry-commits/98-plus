@@ -3763,6 +3763,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         nextIncoming = stableIncoming;
       }
       let nextCheck = active?.kind === 'check' ? active.ban : null;
+      if (nextCheck) {
+        const viewerId = userIdRef.current?.trim() ?? '';
+        if (
+          !shouldShowCheckOverlay(
+            nextCheck,
+            viewerId,
+            dismissedCheckSessionRef.current,
+            answeredCheckRef.current,
+            checkAnswerInFlightRef.current,
+            resultOpenRef.current,
+          )
+        ) {
+          nextCheck = null;
+        }
+      }
       const mountedCheckId = checkBanRef.current?.id?.trim() ?? '';
       if (
         nextCheck &&
@@ -5831,13 +5846,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const pruneResultFromNotificationChain = useCallback(
-    (banId: string, source = 'prune'): { removedOverlay: number; removedStartup: number } => {
+    (
+      banId: string,
+      source = 'prune',
+      kinds: QueuedOverlay['kind'][] = ['result'],
+    ): { removedOverlay: number; removedStartup: number } => {
       const norm = normalizeId(banId);
       const head = overlayQueueRef.current[0];
       if (
         norm &&
         head?.kind === 'result' &&
         normalizeId(head.result.id) === norm &&
+        kinds.includes('result') &&
         (freshOverboardActionBanIdsRef.current.has(norm) ||
           isHeldOverboardResultProtected(norm) ||
           freshFinalStatusBanIdsRef.current.has(norm) ||
@@ -5847,8 +5867,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       const beforeOverlay = overlayQueueRef.current;
       const beforeStartup = pendingStartupInteractionsRef.current;
-      const nextOverlay = removeOverlaysForBan(beforeOverlay, banId, ['result']);
-      const nextStartup = removeOverlaysForBan(beforeStartup, banId, ['result']);
+      const nextOverlay = removeOverlaysForBan(beforeOverlay, banId, kinds);
+      const nextStartup = removeOverlaysForBan(beforeStartup, banId, kinds);
       const removedOverlay = beforeOverlay.length - nextOverlay.length;
       const removedStartup = beforeStartup.length - nextStartup.length;
       if (removedOverlay > 0 || removedStartup > 0) {
@@ -6061,7 +6081,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         replyDeeplinkParentBanIdRef.current?.trim() ??
         replyDeepLinkBanIdRef.current?.trim() ??
         null;
+      const viewerId = userIdRef.current?.trim() ?? null;
       const releasable = pending.filter((item) => {
+        if (item.kind === 'check') {
+          return shouldShowCheckOverlay(
+            item.ban,
+            viewerId,
+            dismissedCheckSessionRef.current,
+            answeredCheckRef.current,
+            checkAnswerInFlightRef.current,
+            resultOpenRef.current,
+          );
+        }
         if (item.kind !== 'result') return true;
         return !isResultBlockedForNotificationChain(
           item.result.id,
@@ -16024,14 +16055,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         consumeIncomingAfterAnswer(key, 'go-to-bans');
       }
 
-      pruneResultFromNotificationChain(key, 'go-to-bans');
+      pruneResultFromNotificationChain(key, 'go-to-bans', ['check', 'result']);
       sanitizeNotificationChainQueues('go-to-bans');
 
       const beforeQueue = overlayQueueRef.current;
-      const nextQueue = removeOverlaysForBan(beforeQueue, key, ['result']);
+      const nextQueue = removeOverlaysForBan(beforeQueue, key, ['check', 'result']);
       if (nextQueue.length !== beforeQueue.length) {
         overlayQueueRef.current = nextQueue;
         setOverlayQueue(nextQueue);
+      }
+      const beforePending = pendingStartupInteractionsRef.current;
+      const nextPending = removeOverlaysForBan(beforePending, key, [
+        'check',
+        'result',
+      ]);
+      if (nextPending.length !== beforePending.length) {
+        pendingStartupInteractionsRef.current = nextPending;
+        syncPendingStartupCount();
       }
 
       const remainingLen = overlayQueueRef.current.length;
@@ -16077,6 +16117,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       result?.outcome,
       sanitizeNotificationChainQueues,
       setNotificationChainTransitioning,
+      syncPendingStartupCount,
     ],
   );
 
@@ -17294,7 +17335,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (checkDeepLinkBanId && checkDeeplinkPendingBanIdRef.current) {
         return true;
       }
-      if (activeOverlayKind === 'check' && checkBan) return true;
+      if (activeOverlayKind === 'check' && checkBan) {
+        return shouldShowCheckOverlay(
+          checkBan,
+          auth.user?.id ?? null,
+          dismissedCheckSessionRef.current,
+          answeredCheckRef.current,
+          checkAnswerInFlightRef.current,
+          !!result,
+        );
+      }
       return shouldShowCheckOverlay(
         checkBan,
         auth.user?.id ?? null,
@@ -18183,7 +18233,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ) {
       return 'incoming' as const;
     }
-    if (incomingOverlayDisplayKind === 'check' && checkBan && (checkGateActive || queueHeadKind === 'check')) {
+    const queueHeadCheckShowable =
+      queueHeadKind === 'check' &&
+      Boolean(checkBan) &&
+      shouldShowCheckOverlay(
+        checkBan,
+        auth.user?.id ?? null,
+        dismissedCheckSessionRef.current,
+        answeredCheckRef.current,
+        checkAnswerInFlightRef.current,
+        !!result,
+      );
+    if (
+      incomingOverlayDisplayKind === 'check' &&
+      checkBan &&
+      (checkGateActive || queueHeadCheckShowable)
+    ) {
       return 'check' as const;
     }
     return null;
@@ -18201,6 +18266,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     heldUserCardOverlay,
     checkBan,
     queueHeadKind,
+    auth.user?.id,
+    result,
     activeResultPayload,
     checkResultShellDisplayReady,
     isQueueAtomicOverboardResultShowable,
