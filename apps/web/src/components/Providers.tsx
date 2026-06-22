@@ -237,6 +237,8 @@ import {
   logCheckDismissRemainingQueue,
   logCheckDismissShowNext,
   logCheckAnswerEmptyRemainingDeferred,
+  logCheckAnswerWaitingResultHold,
+  logCheckAnswerWaitingResultReleased,
   logCheckAnswerAdvanceTrace,
   logCheckDismissStart,
   logCheckDismissStuckOnBootBug,
@@ -1259,6 +1261,36 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return next;
     });
   }, []);
+
+  const setCheckAnswerWaitingResultHold = useCallback((banId: string | null) => {
+    const normalized = banId ? normalizeId(banId) || null : null;
+    checkAnswerWaitingResultHoldBanIdRef.current = normalized;
+    setCheckAnswerWaitingResultHoldBanIdState(normalized);
+  }, []);
+
+  const isCheckAnswerWaitingResultHoldActive = useCallback(
+    (banId?: string | null) => {
+      const held = checkAnswerWaitingResultHoldBanIdRef.current;
+      if (!held) return false;
+      if (banId != null && normalizeId(banId) !== held) return false;
+      return true;
+    },
+    [],
+  );
+
+  const releaseCheckAnswerWaitingResultHold = useCallback(
+    (resultBanId: string, source: string) => {
+      const normalized = normalizeId(resultBanId);
+      if (!normalized || !isCheckAnswerWaitingResultHoldActive(normalized)) {
+        return false;
+      }
+      logCheckAnswerWaitingResultReleased({ banId: normalized, source });
+      setCheckAnswerWaitingResultHold(null);
+      return true;
+    },
+    [isCheckAnswerWaitingResultHoldActive, setCheckAnswerWaitingResultHold],
+  );
+
   const [lobbyDeeplinkToast, setLobbyDeeplinkToast] = useState<string | null>(
     null,
   );
@@ -1299,6 +1331,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const checkAnswerInFlightRef = useRef<Set<string>>(new Set());
   /** submitCheckAnswer owns empty-queue continue — skip dismiss microtask duplicate. */
   const checkAnswerDismissChainOwnedRef = useRef(false);
+  const checkAnswerWaitingResultHoldBanIdRef = useRef<string | null>(null);
+  const [checkAnswerWaitingResultHoldBanId, setCheckAnswerWaitingResultHoldBanIdState] =
+    useState<string | null>(null);
   const checkAnswerChainRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -5243,20 +5278,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           );
         if (deferCheckAnswerEmptyRemainingApply) {
           const normalizedCheckBanId = normalizeId(dismissBanId ?? '');
-          logCheckAnswerEmptyRemainingDeferred({
+          logCheckAnswerWaitingResultHold({
             checkBanId: dismissBanId,
+            remainingLen: remaining.length,
             pendingLen: pendingStartupInteractionsRef.current.length,
             hasResultAnswer:
               normalizedCheckBanId.length > 0 &&
               checkAnswerInFlightRef.current.has(normalizedCheckBanId),
-            remainingLen: remaining.length,
+            chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+            notificationChainTransitioning:
+              notificationChainTransitioningRef.current,
             reason: 'user-answer-empty-remaining-wait-result-poll',
           });
+          if (normalizedCheckBanId) {
+            setCheckAnswerWaitingResultHold(normalizedCheckBanId);
+          }
           overlayQueueRef.current = [];
           activeOverlayLockRef.current = null;
           setOverlayQueue([]);
-          setChainAdvanceWaiting(false);
-          setNotificationChainTransitioning(false);
+          setChainAdvancePlaceholderKind('check');
+          setChainAdvanceWaiting(true);
+          setNotificationChainTransitioning(true);
+          setLobbyOpen(false);
         } else {
           applyOverlayQueue(remaining);
           if (userChainAdvance && beforeApplyQueue) {
@@ -5397,7 +5440,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         commit();
       }
     },
-    [applyOverlayQueue, setChainAdvanceWaiting, setNotificationChainTransitioning],
+    [applyOverlayQueue, setChainAdvanceWaiting, setChainAdvancePlaceholderKind, setCheckAnswerWaitingResultHold, setLobbyOpen, setNotificationChainTransitioning],
   );
 
   const markSessionBanSendSuccess = useCallback(() => {
@@ -8435,6 +8478,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return false;
       }
 
+      releaseCheckAnswerWaitingResultHold(
+        banId,
+        `showCheckAnswerFinalResult:${source}`,
+      );
+
       if (
         deferResultWhileSuccessCardMounted('showCheckAnswerFinalResult', {
           kind: 'result',
@@ -8709,6 +8757,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       enqueueNotification,
       holdResultForActiveNotificationChain,
       isResultBlockedForNotificationChain,
+      releaseCheckAnswerWaitingResultHold,
       setChainAdvanceWaiting,
       setNotificationChainTransitioning,
       syncPendingStartupCount,
@@ -9221,6 +9270,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         if (checkAnswerInFlightRef.current.size > 0) {
           return;
         }
+        if (isCheckAnswerWaitingResultHoldActive(banId)) {
+          return;
+        }
         const normalizedBanId = banId ? normalizeId(banId) : '';
         const completedDeeplinkCheck =
           normalizedBanId.length > 0 &&
@@ -9243,7 +9295,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
       });
     },
-    [],
+    [isCheckAnswerWaitingResultHoldActive],
   );
   openLobbyAfterCheckDismissIfEmptyRef.current =
     openLobbyAfterCheckDismissIfEmpty;
@@ -15243,6 +15295,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ):     ContinueNotificationChainOutcome => {
       const isCheckAnswerChainSource =
         source.includes('check-answer') || source.includes('check-dismiss');
+      if (checkAnswerWaitingResultHoldBanIdRef.current) {
+        if (isCheckAnswerChainSource) {
+          logCheckContinueBlocked({
+            source,
+            reason: 'waiting-result-hold',
+            overlayQueueLen: overlayQueueRef.current.length,
+            pendingLen: pendingStartupInteractionsRef.current.length,
+            lobbyOpen: lobbyOpenRef.current,
+          });
+        }
+        return 'blocked';
+      }
       if (isCheckAnswerChainSource) {
         logCheckContinueCall({ source, reason: 'continue-sync-enter' });
       }
@@ -15541,6 +15605,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       opts: ContinueNotificationChainOptions | undefined,
       collected: NotificationChainCollectedSnapshot,
     ): ContinueNotificationChainOutcome => {
+      if (checkAnswerWaitingResultHoldBanIdRef.current) {
+        logChainEmptyFinalizeCheck(
+          buildChainEmptyFinalizeSnapshot({
+            source,
+            stage: 'waiting-result-hold',
+            outcome: 'blocked',
+            notificationChainTransitioningBefore:
+              notificationChainTransitioningRef.current,
+            notificationChainTransitioningAfter:
+              notificationChainTransitioningRef.current,
+            openLobbyCalled: false,
+            overlayHostMounted: null,
+            reason: 'waiting-result-hold-active',
+            finalQueueLen: overlayQueueRef.current.length,
+            finalPendingLen: pendingStartupInteractionsRef.current.length,
+          }),
+        );
+        return 'blocked';
+      }
       const transitioningBefore = notificationChainTransitioningRef.current;
       const finalQueueLen = overlayQueueRef.current.length;
       const finalPendingLen = pendingStartupInteractionsRef.current.length;
@@ -15755,6 +15838,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       if (outcome === 'open-lobby' || outcome === 'open-bans') {
+        if (isCheckAnswerWaitingResultHoldActive(banId)) {
+          logCheckAnswerKeepTransition({
+            reason: 'waiting-result-hold',
+            outcome: formatCheckAnswerContinueOutcomeLog(outcome),
+            retryCount,
+          });
+          return;
+        }
         releaseCheckAnswerTransition('opened-lobby-empty', outcome);
         return;
       }
@@ -15794,6 +15885,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             queueLen: overlayQueueRef.current.length,
             pendingLen: pendingStartupInteractionsRef.current.length,
           });
+          if (isCheckAnswerWaitingResultHoldActive(banId)) {
+            logCheckAnswerKeepTransition({
+              reason: 'waiting-result-hold-retry-exhausted',
+              outcome: formatCheckAnswerContinueOutcomeLog(outcome),
+              retryCount,
+            });
+            return;
+          }
           releaseCheckAnswerTransition('retry-exhausted', outcome);
           if (!hasCheckAnswerNextCardMounted()) {
             openLobbyRef.current('check-answer-retry-exhausted');
@@ -15831,6 +15930,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
     },
     [
+      isCheckAnswerWaitingResultHoldActive,
       releaseCheckAnswerTransition,
       setChainAdvanceWaiting,
       setNotificationChainTransitioning,
@@ -18862,6 +18962,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const notificationQueueShellKind = useMemo(() => {
     if (composeBlocksNotificationHost) return null;
+    if (checkAnswerWaitingResultHoldBanId) {
+      return 'check' as const;
+    }
     if (chainAdvanceWaiting && chainAdvancePlaceholderKind) {
       return chainAdvancePlaceholderKind;
     }
@@ -18876,6 +18979,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [
     chainAdvancePlaceholderKind,
     chainAdvanceWaiting,
+    checkAnswerWaitingResultHoldBanId,
     composeBlocksNotificationHost,
     displayResult,
     heldUserCardOverlay,
@@ -19754,6 +19858,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const notificationOverlayVisible = useMemo(() => {
     if (composeBlocksNotificationHost) return false;
+    if (checkAnswerWaitingResultHoldBanId) return true;
     if (stableIncomingOverlayBan?.id) return true;
     if (sendSuccessCardActive) return false;
 
@@ -19881,6 +19986,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return false;
   }, [
     activeBanCardReady,
+    checkAnswerWaitingResultHoldBanId,
     stableIncomingOverlayBan?.id,
     chainAdvanceWaiting,
     checkBan?.id,
@@ -20002,6 +20108,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (composeBlocksNotificationHost) {
       return false;
     }
+    if (checkAnswerWaitingResultHoldBanId) {
+      return true;
+    }
     if (
       replyParentActivePriorityActive &&
       !showDirectOverboardLayer &&
@@ -20048,6 +20157,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return false;
   }, [
     composeBlocksNotificationHost,
+    checkAnswerWaitingResultHoldBanId,
     stableIncomingOverlayBan?.id,
     chainAdvanceWaiting,
     checkBan?.id,

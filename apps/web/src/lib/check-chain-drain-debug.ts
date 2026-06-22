@@ -79,6 +79,18 @@ export function logCheckAnswerEmptyRemainingDeferred(
   window.__debug98log?.('[CHECK ANSWER EMPTY REMAINING DEFERRED]', data);
 }
 
+export function logCheckAnswerWaitingResultHold(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK ANSWER WAITING RESULT HOLD]', data);
+}
+
+export function logCheckAnswerWaitingResultReleased(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK ANSWER WAITING RESULT RELEASED]', data);
+}
+
 export function logCheckAnswerAdvanceTrace(data: Record<string, unknown>): void {
   window.__debug98log?.('[CHECK ANSWER ADVANCE TRACE]', data);
 }
