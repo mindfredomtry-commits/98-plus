@@ -164,6 +164,12 @@ export function logResultOverlayBodyDecision(data: {
   emit('[RESULT OVERLAY BODY DECISION]', data);
 }
 
+export function logResultOverlayVisibleContentTrace(
+  data: Record<string, unknown>,
+): void {
+  emit('[RESULT OVERLAY VISIBLE CONTENT TRACE]', data);
+}
+
 export function logResultDisplaySourcePick(data: {
   sourcePicked: string;
   fromDisplayResult: boolean;

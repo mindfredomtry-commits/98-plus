@@ -53,6 +53,7 @@ import {
   logFinalStatusModalViewDecision,
   logResultCardRenderDecision,
   logResultOverlayBodyDecision,
+  logResultOverlayVisibleContentTrace,
   logResultOverlayContentCheck,
   logResultOverlayEmptyContentBlocked,
 } from '@/lib/overboard-action-queue-debug';
@@ -176,6 +177,14 @@ function ResultOverlayInner({
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
   const [archiveSaved, setArchiveSaved] = useState(false);
+  const resultOverlayMountedRef = useRef(false);
+
+  useEffect(() => {
+    resultOverlayMountedRef.current = true;
+    return () => {
+      resultOverlayMountedRef.current = false;
+    };
+  }, []);
 
   const viewerId = resolveResultOverlayViewerId(result, user?.id ?? null);
   const resultStatus =
@@ -681,6 +690,161 @@ function ResultOverlayInner({
     view.displayHeadline,
   ]);
 
+  const resolvedTitle = overboardQueueBody
+    ? QUEUE_ATOMIC_OVERBOARD_TITLE
+    : view.displayHeadline ?? '';
+  const shouldRenderTitle = Boolean(resolvedTitle?.trim()) || effectiveShowable;
+  const shouldRenderBody = Boolean(banText);
+  const shouldRenderOutcome = view.showStatuses;
+  const shouldRenderCta = hasActions;
+  const computedBranchName = contentOnly
+    ? isOverboard
+      ? 'render-contentOnly-overboard'
+      : 'render-contentOnly-default'
+    : embedded
+      ? 'render-embedded-modal'
+      : 'render-portal-modal';
+  const rootClassName = contentOnly
+    ? 'contentOnly-no-modal-root'
+    : `modal-card modal-card--result${notificationSessionActive ? ' modal-card--handoff' : ''}`;
+  const bodyClassName = 'modal-card-body text-center result-card-body';
+  const titleClassName = 'result-headline text-2xl font-black text-glow mb-1';
+  const revealState = contentOnly
+    ? notificationSessionActive
+      ? 'queue-shell-session-hosted'
+      : 'queue-shell-card-only'
+    : notificationSessionActive
+      ? 'modal-handoff-session'
+      : directPaint
+        ? 'direct-paint-modal'
+        : 'standalone-modal';
+  const animationState =
+    contentOnly || notificationSessionActive || directPaint
+      ? 'instant-no-enter'
+      : 'framer-enter';
+  const willRenderVisibleContent =
+    effectiveShowable && (isOverboard || overlayVisibleContent);
+
+  const emitVisibleContentTrace = (
+    phase: 'jsx-pre-return' | 'layout-dom',
+    dom?: Record<string, unknown>,
+  ) => {
+    logResultOverlayVisibleContentTrace({
+      phase,
+      banId: result.id,
+      resultId: renderResult.id,
+      status: resultStatus,
+      outcome: renderResult.outcome ?? null,
+      hasTitle: Boolean(resolvedTitle?.trim()),
+      title: resolvedTitle || null,
+      hasBody: shouldRenderBody,
+      body: banText || null,
+      hasOutcome: Boolean(renderResult.outcome),
+      ctaLabel: view.primaryLabel,
+      shouldRenderTitle,
+      shouldRenderBody,
+      shouldRenderOutcome,
+      shouldRenderCta,
+      contentOnly,
+      isDismissing: false,
+      isMounted: resultOverlayMountedRef.current,
+      revealState,
+      animationState,
+      rootClassName,
+      bodyClassName,
+      titleClassName,
+      computedBranchName,
+      overboardQueueBody,
+      effectiveShowable,
+      overlayVisibleContent,
+      bodyKind,
+      willRenderBody,
+      hasParticipantActions,
+      showParticipantCompare,
+      displaySubline: view.displaySubline ?? null,
+      embedded,
+      directPaint,
+      notificationSessionActive,
+      ...dom,
+    });
+  };
+
+  useLayoutEffect(() => {
+    if (!willRenderVisibleContent) return;
+
+    const layer = document.querySelector('.app-notification-layer');
+    const cardEl =
+      layer?.querySelector('.modal-card--result') ??
+      layer?.querySelector('.modal-card--session-hosted') ??
+      layer?.querySelector('.modal-card') ??
+      null;
+    const headlineEl = layer?.querySelector('.result-headline') ?? null;
+    const bodyEl = layer?.querySelector('.result-card-body') ?? null;
+    const actionsEl = layer?.querySelector('.result-card-actions') ?? null;
+    const shellContentEl =
+      layer?.querySelector('.notification-queue-shell__content') ?? null;
+
+    const styleOf = (el: Element | null) => {
+      if (!el) return null;
+      const cs = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return {
+        opacity: cs.opacity,
+        visibility: cs.visibility,
+        display: cs.display,
+        color: cs.color,
+        fontSize: cs.fontSize,
+        height: cs.height,
+        maxHeight: cs.maxHeight,
+        overflow: cs.overflow,
+        transform: cs.transform,
+        textContentLen: (el.textContent ?? '').trim().length,
+        rectHeight: rect.height,
+        rectWidth: rect.width,
+      };
+    };
+
+    emitVisibleContentTrace('layout-dom', {
+      domLayerFound: layer != null,
+      domCardFound: cardEl != null,
+      domHeadlineFound: headlineEl != null,
+      domBodyFound: bodyEl != null,
+      domActionsFound: actionsEl != null,
+      domShellContentFound: shellContentEl != null,
+      domHeadlineText: headlineEl?.textContent?.trim().slice(0, 120) ?? null,
+      domBodyTextPreview: bodyEl?.textContent?.trim().slice(0, 200) ?? null,
+      domCardStyle: styleOf(cardEl),
+      domHeadlineStyle: styleOf(headlineEl),
+      domBodyStyle: styleOf(bodyEl),
+      domActionsStyle: styleOf(actionsEl),
+      domShellContentStyle: styleOf(shellContentEl),
+    });
+  }, [
+    banText,
+    bodyKind,
+    computedBranchName,
+    contentOnly,
+    directPaint,
+    effectiveShowable,
+    embedded,
+    hasActions,
+    hasParticipantActions,
+    isOverboard,
+    notificationSessionActive,
+    overlayVisibleContent,
+    renderResult.id,
+    renderResult.outcome,
+    resolvedTitle,
+    result.id,
+    resultStatus,
+    showParticipantCompare,
+    view.displaySubline,
+    view.primaryLabel,
+    view.showStatuses,
+    willRenderBody,
+    willRenderVisibleContent,
+  ]);
+
   if (!effectiveShowable) return null;
 
   if (!isOverboard && !overlayVisibleContent) {
@@ -699,6 +863,8 @@ function ResultOverlayInner({
     });
     return null;
   }
+
+  emitVisibleContentTrace('jsx-pre-return');
 
   const cardHead = (
     <div className="result-card-head">
