@@ -8458,6 +8458,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           { resultSource: source, reason: 'set-notification-chain-transitioning' },
         );
       }
+      if (
+        isFinalCheckStatusOutcome(normalized.outcome) ||
+        normalized.outcome === 'overboard'
+      ) {
+        holdResultForActiveNotificationChain(
+          banId,
+          'showCheckAnswerFinalResult-pre-apply',
+          normalized,
+        );
+      }
       flushSync(() => {
         applyOverlayQueue(nextQueue);
       });
@@ -8491,6 +8501,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [
       applyOverlayQueue,
       enqueueNotification,
+      holdResultForActiveNotificationChain,
       isResultBlockedForNotificationChain,
       setNotificationChainTransitioning,
       syncPendingStartupCount,
