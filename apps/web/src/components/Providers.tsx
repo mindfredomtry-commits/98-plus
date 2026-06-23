@@ -2352,6 +2352,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return true;
   };
 
+  const resolveMountedResultPayloadForBanId = (
+    banId: string,
+  ): BanResult | null => {
+    const norm = normalizeId(banId);
+    if (!norm) return null;
+    const refPayload = resultRef.current;
+    if (refPayload && normalizeId(refPayload.id) === norm) {
+      return refPayload;
+    }
+    const held = heldUserCardOverlayRef.current;
+    if (held?.kind === 'result' && normalizeId(held.result.id) === norm) {
+      return held.result;
+    }
+    return null;
+  };
+
   const shouldBlockAutoDismissAtomicOverboardResult = (
     resultId: string | null | undefined,
   ): boolean => {
@@ -2360,6 +2376,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const atomicId = normalizeId(incomingOverboardAtomicBanIdRef.current ?? '');
     if (atomicId && atomicId === norm) return true;
     if (freshOverboardActionBanIdsRef.current.has(norm)) return true;
+    const payload = resolveMountedResultPayloadForBanId(norm);
+    if (payload && isFinalCheckStatusOutcome(payload.outcome)) {
+      return false;
+    }
     const held = heldUserCardOverlayRef.current;
     if (held?.kind === 'result' && normalizeId(held.result.id) === norm) {
       return true;
@@ -2368,8 +2388,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   };
 
   const isQueueAtomicOverboardResultShowable = useCallback(
-    (resultId: string | null | undefined): boolean =>
-      shouldBlockAutoDismissAtomicOverboardResult(resultId),
+    (resultId: string | null | undefined): boolean => {
+      const norm = normalizeId(resultId ?? '');
+      if (!norm) return false;
+      const payload = resolveMountedResultPayloadForBanId(norm);
+      if (payload && isFinalCheckStatusOutcome(payload.outcome)) {
+        return false;
+      }
+      if (
+        incomingOverboardAtomicBanIdRef.current === norm ||
+        freshOverboardActionBanIdsRef.current.has(norm)
+      ) {
+        return true;
+      }
+      if (!payload) return false;
+      return isAtomicOverboardShellReady(payload, {
+        freshOverboardBanId: freshOverboardActionBanIdsRef.current.has(norm),
+        atomicOverboardBanId: incomingOverboardAtomicBanIdRef.current === norm,
+      });
+    },
     [],
   );
 
