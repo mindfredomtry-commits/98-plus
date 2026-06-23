@@ -236,6 +236,12 @@ export function logResultShellWithoutPayload(
   window.__debug98log?.('[RESULT SHELL WITHOUT PAYLOAD]', data);
 }
 
+export function logResultShellKindBlockedUntilChild(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[RESULT SHELL KIND BLOCKED UNTIL CHILD]', data);
+}
+
 export function logResultShellWaitingChildBlocked(
   data: Record<string, unknown>,
 ): void {

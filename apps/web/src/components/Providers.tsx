@@ -259,6 +259,7 @@ import {
   logResultStalePruneDecision,
   logResultDismissRequiredCheck,
   logResultShellWithoutPayload,
+  logResultShellKindBlockedUntilChild,
   logResultShellWaitingChildBlocked,
   logResultShellReleasedWithChild,
   logCheckContinueBlocked,
@@ -20261,18 +20262,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     checkAnswerPendingResultShowRef.current.size > 0 ||
     (chainAdvanceWaiting && checkAnswerInFlightRef.current.size > 0);
 
-  const resultShellBlockedWithoutChild =
-    effectiveNotificationQueueShellKind === 'result' &&
-    !renderableResultShell &&
-    isCheckAnswerWaitingResultPath;
+  const resultShellKindBlockedUntilChild =
+    effectiveNotificationQueueShellKind === 'result' && !renderableResultShell;
 
-  const notificationQueueShellDisplayKind = resultShellBlockedWithoutChild
-    ? checkAnswerWaitingResultHoldBanId
-      ? ('check' as const)
-      : notificationQueueShellKind === 'result'
+  const resultShellBlockedWithoutChild =
+    resultShellKindBlockedUntilChild && isCheckAnswerWaitingResultPath;
+
+  const notificationQueueShellDisplayKind = renderableResultShell
+    ? ('result' as const)
+    : effectiveNotificationQueueShellKind === 'result'
+      ? checkAnswerWaitingResultHoldBanId
         ? ('check' as const)
-        : notificationQueueShellKind
-    : effectiveNotificationQueueShellKind;
+        : notificationQueueShellKind === 'result'
+          ? ('check' as const)
+          : notificationQueueShellKind
+      : effectiveNotificationQueueShellKind;
 
   useLayoutEffect(() => {
     const queueHead =
@@ -20283,6 +20287,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         : queueHead?.kind === 'incoming' || queueHead?.kind === 'check'
           ? queueHead.ban.id
           : null;
+    if (resultShellKindBlockedUntilChild) {
+      logResultShellKindBlockedUntilChild({
+        effectiveKind: effectiveNotificationQueueShellKind,
+        displayKind: notificationQueueShellDisplayKind,
+        queueShellShowsResult,
+        hasActiveResultPayload: Boolean(activeResultPayload),
+        activeResultPayloadBanId: activeResultPayload?.id ?? null,
+        queueHeadKind: queueHead?.kind ?? null,
+        queueHeadBanId,
+        chainAdvanceWaiting,
+        checkAnswerWaitingResultHoldBanId,
+        isCheckAnswerWaitingResultPath,
+      });
+    }
     if (resultShellBlockedWithoutChild) {
       logResultShellWaitingChildBlocked({
         effectiveKind: effectiveNotificationQueueShellKind,
@@ -20352,6 +20370,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     overlayQueue,
     queueShellShowsResult,
     resultShellBlockedWithoutChild,
+    resultShellKindBlockedUntilChild,
   ]);
 
   const incomingJsxWillRender =
@@ -21560,9 +21579,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               <NotificationQueueShell
                 kind={notificationQueueShellDisplayKind}
                 shellContentReady={
-                  resultShellBlockedWithoutChild
-                    ? undefined
-                    : queueResultShellContentReady
+                  renderableResultShell ? queueResultShellContentReady : undefined
                 }
                 displayBanId={
                   queueShellShowsResult
