@@ -333,6 +333,7 @@ import {
   logResultHeldStillPresentAfterClear,
   logResultStaleGuardBlocked,
   logResultStaleGuardBypassedFreshCheckAnswer,
+  logFreshResultOverlayStackTrace,
 } from '@/lib/result-clear-debug';
 import {
   logResultGoToBansClearActiveHold,
@@ -6047,6 +6048,116 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const snapshotFreshResultOverlayStack = useCallback(
+    (freshBanId: string | null) => {
+      const queueHead =
+        overlayQueueRef.current[0] ?? overlayQueue[0] ?? null;
+      const held = heldUserCardOverlayRef.current;
+      const heldResultId =
+        held?.kind === 'result' ? normalizeId(heldUserCardBanId(held)) : null;
+      const mountedResultBanId = normalizeId(
+        resultRef.current?.id ?? result?.id ?? '',
+      );
+      return {
+        freshBanId,
+        mountedResultBanId: mountedResultBanId || null,
+        heldKind: held?.kind ?? null,
+        heldBanId: held ? heldUserCardBanId(held) : null,
+        heldResultId,
+        resultRefBanId: resultRef.current?.id ?? null,
+        displayResultBanId: result?.id ?? null,
+        activeResultPayloadBanId: null as string | null,
+        queueHeadKind: queueHead?.kind ?? null,
+        queueHeadBanId:
+          queueHead?.kind === 'result'
+            ? queueHead.result.id
+            : queueHead?.kind === 'incoming' || queueHead?.kind === 'check'
+              ? queueHead.ban.id
+              : null,
+        activeUserCardHold:
+          held && notificationChainAwaitingUserRef.current ? held.kind : null,
+      };
+    },
+    [overlayQueue, result?.id],
+  );
+
+  const suppressStaleResultOverlayForFreshCheckAnswer = useCallback(
+    (freshBanId: string, freshPayload: BanResult, source: string) => {
+      const freshNorm = normalizeId(freshBanId);
+      if (!freshNorm || !isFreshCheckAnswerResultPendingFirstShow(freshNorm)) {
+        return;
+      }
+
+      const held = heldUserCardOverlayRef.current;
+      const heldResultNorm =
+        held?.kind === 'result' ? normalizeId(heldUserCardBanId(held)) : '';
+      const mountedNorm = normalizeId(
+        resultRef.current?.id ?? result?.id ?? '',
+      );
+      const hasStaleHeldResult =
+        held?.kind === 'result' &&
+        heldResultNorm.length > 0 &&
+        heldResultNorm !== freshNorm;
+      const hasStaleMountedResult =
+        mountedNorm.length > 0 && mountedNorm !== freshNorm;
+
+      let decision: 'replace-stale-held' | 'keep-current' | 'suppress-stale' | 'unknown' =
+        'unknown';
+      if (!hasStaleHeldResult && !hasStaleMountedResult) {
+        decision = 'keep-current';
+      } else if (hasStaleHeldResult) {
+        decision = 'replace-stale-held';
+      } else {
+        decision = 'suppress-stale';
+      }
+
+      const traceBase = snapshotFreshResultOverlayStack(freshNorm);
+
+      if (decision === 'keep-current') {
+        logFreshResultOverlayStackTrace({ ...traceBase, source, decision });
+        return;
+      }
+
+      if (hasStaleHeldResult) {
+        freshFinalStatusBanIdsRef.current.delete(heldResultNorm);
+        clearActiveUserCardHold(
+          `suppressStaleResultForFreshCheckAnswer:${source}`,
+        );
+      }
+
+      if (hasStaleMountedResult) {
+        freshFinalStatusBanIdsRef.current.delete(mountedNorm);
+        freshOverboardActionBanIdsRef.current.delete(mountedNorm);
+        resultOpenRef.current = false;
+        emitResultClearCallsite({
+          source: `suppressStaleResultForFreshCheckAnswer:${source}`,
+          reason: 'stale-result-over-fresh-check-answer',
+          resultIdBefore: mountedNorm,
+          willClearResult: true,
+        });
+        setResult(null);
+        resultRef.current = null;
+      }
+
+      resultRef.current = freshPayload;
+      resultOpenRef.current = true;
+      setResult(freshPayload);
+
+      logFreshResultOverlayStackTrace({
+        ...traceBase,
+        source,
+        decision,
+        resultRefBanIdAfter: freshPayload.id,
+        displayResultBanIdAfter: freshPayload.id,
+      });
+    },
+    [
+      clearActiveUserCardHold,
+      isFreshCheckAnswerResultPendingFirstShow,
+      snapshotFreshResultOverlayStack,
+    ],
+  );
+
   const clearStaleResultGuardForFreshCheckAnswer = useCallback(
     (banId: string, source: string, blockReason?: string) => {
       const key = normalizeId(banId);
@@ -8736,6 +8847,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             heldBanId: pollGuardCtx.heldBanId,
             passiveShellBlocked: true,
           });
+          suppressStaleResultOverlayForFreshCheckAnswer(
+            banId,
+            normalized,
+            `showCheckAnswerFinalResult:${source}-poll-defer`,
+          );
           flushSync(() => {
             applyOverlayQueue(nextQueue);
           });
@@ -8790,6 +8906,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           normalized,
         );
       }
+      suppressStaleResultOverlayForFreshCheckAnswer(
+        banId,
+        normalized,
+        `showCheckAnswerFinalResult:${source}`,
+      );
       flushSync(() => {
         applyOverlayQueue(nextQueue);
       });
@@ -8832,6 +8953,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       releaseCheckAnswerWaitingResultHold,
       setChainAdvanceWaiting,
       setNotificationChainTransitioning,
+      suppressStaleResultOverlayForFreshCheckAnswer,
       syncPendingStartupCount,
     ],
   );
@@ -18759,6 +18881,40 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     type WinnerSource = 'display' | 'held' | 'queueHead' | 'ref' | 'state' | 'none';
     let winnerSource: WinnerSource = 'none';
     let winner: BanResult | null = null;
+
+    const freshCheckAnswerBanId = [...checkAnswerPendingResultShowRef.current]
+      .map((id) => normalizeId(id))
+      .find((id) => id.length > 0) ?? null;
+    if (
+      freshCheckAnswerBanId &&
+      queueHead?.kind === 'result' &&
+      normalizeId(queueHead.result.id) === freshCheckAnswerBanId &&
+      queueHeadPick.payload
+    ) {
+      const hasStaleOverlaySource =
+        (displayPick.payload &&
+          normalizeId(displayPick.payload.id) !== freshCheckAnswerBanId) ||
+        (heldPick.payload &&
+          normalizeId(heldPick.payload.id) !== freshCheckAnswerBanId) ||
+        (refPick.payload &&
+          normalizeId(refPick.payload.id) !== freshCheckAnswerBanId) ||
+        (statePick.payload &&
+          normalizeId(statePick.payload.id) !== freshCheckAnswerBanId);
+      if (hasStaleOverlaySource) {
+        logFreshResultOverlayStackTrace({
+          ...snapshotFreshResultOverlayStack(freshCheckAnswerBanId),
+          activeResultPayloadBanId: queueHeadPick.payload.id,
+          source: 'activeResultPayload-fresh-check-answer-override',
+          decision:
+            heldPick.payload &&
+            normalizeId(heldPick.payload.id) !== freshCheckAnswerBanId
+              ? 'replace-stale-held'
+              : 'suppress-stale',
+        });
+        return queueHeadPick.payload;
+      }
+    }
+
     for (const [source, pick] of [
       ['display', displayPick],
       ['held', heldPick],
@@ -18885,7 +19041,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
 
     return winner;
-  }, [displayResult, heldUserCardOverlay, overlayQueue, result, checkBan]);
+  }, [displayResult, heldUserCardOverlay, overlayQueue, result, checkBan, snapshotFreshResultOverlayStack]);
 
   const incomingNotificationShellKind = useMemo(() => {
     const queueHead =

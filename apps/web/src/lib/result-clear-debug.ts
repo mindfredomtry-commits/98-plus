@@ -72,3 +72,9 @@ export function logResultStaleGuardBypassedFreshCheckAnswer(
 ): void {
   emit('[RESULT STALE GUARD BYPASSED FRESH CHECK ANSWER]', data);
 }
+
+export function logFreshResultOverlayStackTrace(
+  data: Record<string, unknown>,
+): void {
+  emit('[FRESH RESULT OVERLAY STACK TRACE]', data);
+}
