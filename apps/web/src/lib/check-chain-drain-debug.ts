@@ -249,6 +249,12 @@ export function logNotificationQueueShellRenderTrace(
   window.__debug98log?.('[NOTIFICATION QUEUE SHELL RENDER TRACE]', data);
 }
 
+export function logCheckAnswerPlaceholderSuppressed(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK ANSWER PLACEHOLDER SUPPRESSED]', data);
+}
+
 export function logResultShellWaitingChildBlocked(
   data: Record<string, unknown>,
 ): void {
