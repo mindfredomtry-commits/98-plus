@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 25;
+export const DEBUG98_LOGGER_VERSION = 26;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -106,6 +106,7 @@ const ALLOWED_EVENTS = new Set([
   '[CHECK ANSWER WAITING RESULT HOLD]',
   '[CHECK ANSWER WAITING RESULT RELEASED]',
   '[CHECK ANSWER ADVANCE TRACE]',
+  '[CHECK CARD HOLD LIFECYCLE TRACE]',
   '[CHECK DISMISS START]',
   '[CHECK DISMISS CURRENT CONSUMED]',
   '[CHECK DISMISS REMAINING QUEUE]',
