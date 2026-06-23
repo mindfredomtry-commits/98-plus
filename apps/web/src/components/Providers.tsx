@@ -240,6 +240,7 @@ import {
   logCheckAnswerWaitingResultHold,
   logCheckAnswerWaitingResultReleased,
   logCheckAnswerAdvanceTrace,
+  logCheckCardHoldLifecycleTrace,
   logCheckDismissStart,
   logCheckDismissStuckOnBootBug,
   logLobbyOpenAfterCheckEmpty,
@@ -2128,6 +2129,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       remaining,
       beforeClear,
     );
+    const dismissNorm = normalizeId(dismissBanId ?? '');
+    if (dismissKind === 'check' && dismissNorm.length > 0) {
+      if (heldUserCardOverlayRef.current?.kind === 'check') {
+        traceCheckCardHoldLifecycle('hold-still-present-after-clear', {
+          source: `prepareUserAnswerChainAdvance:${reason}`,
+          reason: 'after-clear-still-held',
+          banId: dismissNorm,
+          checkBanId: dismissNorm,
+        });
+      }
+      if (
+        checkBanRef.current?.id &&
+        normalizeId(checkBanRef.current.id) === dismissNorm
+      ) {
+        traceCheckCardHoldLifecycle('check-re-mounted-after-answer', {
+          source: `prepareUserAnswerChainAdvance:${reason}`,
+          reason: 'check-ban-ref-still-mounted-after-clear',
+          banId: dismissNorm,
+          checkBanId: dismissNorm,
+        });
+      }
+    }
     logOverlayActiveCleared({
       reason,
       kind: dismissKind,
@@ -2587,6 +2610,95 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     window.__debug98log?.('[CHAIN HEAD SWITCH TRACE]', payload);
   };
 
+  type CheckCardHoldLifecyclePhase =
+    | 'hold-created'
+    | 'hold-preserved'
+    | 'hold-blocked-next'
+    | 'hold-cleared'
+    | 'hold-still-present-after-clear'
+    | 'check-re-mounted-after-answer';
+
+  const getActiveOverlaySnapshotForHoldTrace = () => {
+    if (checkBanRef.current?.id) {
+      return {
+        activeOverlayKind: 'check' as const,
+        activeOverlayBanId: checkBanRef.current.id,
+      };
+    }
+    if (incomingBanRef.current?.id) {
+      return {
+        activeOverlayKind: 'incoming' as const,
+        activeOverlayBanId: incomingBanRef.current.id,
+      };
+    }
+    if (resultRef.current?.id) {
+      return {
+        activeOverlayKind: 'result' as const,
+        activeOverlayBanId: resultRef.current.id,
+      };
+    }
+    return { activeOverlayKind: null, activeOverlayBanId: null };
+  };
+
+  const traceCheckCardHoldLifecycle = (
+    phase: CheckCardHoldLifecyclePhase,
+    opts: {
+      source: string;
+      reason?: string;
+      banId?: string | null;
+      checkBanId?: string | null;
+    },
+  ) => {
+    const held = heldUserCardOverlayRef.current;
+    const queueHead = overlayQueueRef.current[0] ?? null;
+    const banNorm = normalizeId(opts.banId ?? opts.checkBanId ?? '');
+    const checkBanNorm = normalizeId(
+      opts.checkBanId ?? checkBanRef.current?.id ?? '',
+    );
+    const overlay = getActiveOverlaySnapshotForHoldTrace();
+    const isCheckLifecycle =
+      phase === 'check-re-mounted-after-answer' ||
+      held?.kind === 'check' ||
+      overlay.activeOverlayKind === 'check' ||
+      queueHead?.kind === 'check' ||
+      checkBanNorm.length > 0;
+    if (!isCheckLifecycle) return;
+
+    const traceBanId =
+      banNorm.length > 0
+        ? banNorm
+        : checkBanNorm.length > 0
+          ? checkBanNorm
+          : '';
+    logCheckCardHoldLifecycleTrace({
+      phase,
+      banId: banNorm || null,
+      checkBanId: checkBanNorm || checkBanRef.current?.id || null,
+      heldKind: held?.kind ?? null,
+      heldBanId: held ? heldUserCardBanId(held) : null,
+      activeOverlayKind: overlay.activeOverlayKind,
+      activeOverlayBanId: overlay.activeOverlayBanId,
+      activeUserCardHold:
+        held && notificationChainAwaitingUserRef.current ? held.kind : null,
+      reason: opts.reason ?? null,
+      source: opts.source,
+      answeredCheckBanIds: [...answeredCheckRef.current],
+      answeredContainsBanId:
+        traceBanId.length > 0
+          ? answeredCheckRef.current.has(traceBanId)
+          : false,
+      checkAnswerInFlight: [...checkAnswerInFlightRef.current],
+      checkAnswerInFlightContains:
+        traceBanId.length > 0
+          ? checkAnswerInFlightRef.current.has(traceBanId)
+          : false,
+      queueHeadKind: queueHead?.kind ?? null,
+      queueHeadBanId: queueHead ? overlayItemBanId(queueHead) : null,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      queueLen: overlayQueueRef.current.length,
+    });
+  };
+
   const captureActiveUserCardHold = (
     kind: BlockingUserOverlayKind,
     source: string,
@@ -2632,6 +2744,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         willClear: false,
         willPreserve: true,
       });
+      traceCheckCardHoldLifecycle('hold-created', {
+        source,
+        banId: held.ban.id,
+        checkBanId: held.ban.id,
+      });
       return;
     }
     if (kind === 'check' && checkBanRef.current?.id) {
@@ -2652,6 +2769,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         notificationChainWaitingUser: notificationChainAwaitingUserRef.current,
         willClear: false,
         willPreserve: true,
+      });
+      traceCheckCardHoldLifecycle('hold-created', {
+        source,
+        banId: held.ban.id,
+        checkBanId: held.ban.id,
       });
       return;
     }
@@ -2692,6 +2814,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const clearActiveUserCardHold = (source: string) => {
     if (!heldUserCardOverlayRef.current) return;
     const held = heldUserCardOverlayRef.current;
+    const wasCheckHold = held.kind === 'check';
+    const clearedCheckBanId = wasCheckHold ? heldUserCardBanId(held) : null;
     emitResultClearCallsite({
       source,
       reason: 'clear-active-user-card-hold',
@@ -2710,7 +2834,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setHeldUserCardOverlay(null);
     notificationChainAwaitingUserRef.current = false;
     console.log('[active-user-card-hold-clear]', { source });
+    if (wasCheckHold) {
+      traceCheckCardHoldLifecycle('hold-cleared', {
+        source,
+        banId: clearedCheckBanId,
+        checkBanId: clearedCheckBanId,
+      });
+    }
     emitResultHeldStillPresentAfterClear(source, 'clear-active-user-card-hold');
+    if (wasCheckHold && heldUserCardOverlayRef.current?.kind === 'check') {
+      traceCheckCardHoldLifecycle('hold-still-present-after-clear', {
+        source,
+        reason: 'clear-active-user-card-hold',
+        banId: clearedCheckBanId,
+        checkBanId: clearedCheckBanId,
+      });
+    }
   };
 
   const clearStaleUserCardHoldForNextHead = (
@@ -2828,6 +2967,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         heldStillPresent: held != null,
         queueHeadResultStillPresent: queueHead?.kind === 'result',
       });
+      if (held?.kind === 'check') {
+        traceCheckCardHoldLifecycle('hold-still-present-after-clear', {
+          source,
+          reason,
+          banId: heldUserCardBanId(held),
+          checkBanId: heldUserCardBanId(held),
+        });
+      }
     },
     [result?.id],
   );
@@ -2966,6 +3113,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       willPreserve: true,
     });
     logActiveUserCardPreserveCurrent({ kind: held.kind, banId, source });
+    if (held.kind === 'check') {
+      traceCheckCardHoldLifecycle('hold-preserved', {
+        source,
+        banId,
+        checkBanId: banId,
+      });
+    }
     if (held.kind === 'incoming') {
       incomingBanRef.current = held.ban;
       setIncomingBan(held.ban);
@@ -3061,6 +3215,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         nextBanId,
         source,
       });
+      if (active?.kind === 'check' || held?.kind === 'check') {
+        traceCheckCardHoldLifecycle('hold-blocked-next', {
+          source,
+          reason: 'block-replace',
+          banId: active?.banId ?? (held ? heldUserCardBanId(held) : null),
+          checkBanId: active?.banId ?? (held ? heldUserCardBanId(held) : null),
+        });
+      }
     } else {
       logActiveUserCardPreventOverlayClear({
         activeKind: active?.kind ?? null,
@@ -4115,6 +4277,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason: 'no-user-action',
         });
         nextCheck = checkBanRef.current;
+        traceCheckCardHoldLifecycle('check-re-mounted-after-answer', {
+          source: 'syncDisplayFromQueue',
+          reason: 'check-overlay-close-blocked-no-user-action',
+          banId: mountedCheckId,
+          checkBanId: mountedCheckId,
+        });
       }
       incomingBanRef.current = nextIncoming;
       checkBanRef.current = nextCheck;
@@ -4127,6 +4295,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       setIncomingBan(nextIncoming);
       setCheckBan(nextCheck);
+      if (nextCheck) {
+        const nextCheckNorm = normalizeId(nextCheck.id);
+        if (answeredCheckRef.current.has(nextCheckNorm)) {
+          traceCheckCardHoldLifecycle('check-re-mounted-after-answer', {
+            source: 'syncDisplayFromQueue:setCheckBan',
+            reason: 'answered-check-still-selected',
+            banId: nextCheckNorm,
+            checkBanId: nextCheckNorm,
+          });
+        }
+      }
       if (nextIncoming) {
         logIncomingOverlayStateSet({
           banId: nextIncoming.id,
@@ -4945,6 +5124,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const delayFromHandoff = overlayDelayMs(overlayHandoffTsRef.current);
       if (isBlockingUserOverlayKind(kind) && buttonsReady) {
         captureActiveUserCardHold(kind as BlockingUserOverlayKind, 'card-mounted');
+        if (
+          kind === 'check' &&
+          answeredCheckRef.current.has(normalizeId(banId))
+        ) {
+          traceCheckCardHoldLifecycle('check-re-mounted-after-answer', {
+            source: 'reportOverlayRendered',
+            reason: 'card-mounted-after-answered',
+            banId,
+            checkBanId: banId,
+          });
+        }
       }
       logTransitionFromRefs('[CARD MOUNTED]', { kind, banId, buttonsReady });
       if (

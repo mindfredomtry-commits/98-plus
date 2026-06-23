@@ -95,6 +95,13 @@ export function logCheckAnswerAdvanceTrace(data: Record<string, unknown>): void 
   window.__debug98log?.('[CHECK ANSWER ADVANCE TRACE]', data);
 }
 
+/** v22 — active check-card hold create / preserve / clear / remount */
+export function logCheckCardHoldLifecycleTrace(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK CARD HOLD LIFECYCLE TRACE]', data);
+}
+
 export function logCheckDismissStart(data: Record<string, unknown>): void {
   window.__debug98log?.('[CHECK DISMISS START]', data);
 }
