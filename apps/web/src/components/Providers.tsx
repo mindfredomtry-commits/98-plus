@@ -258,6 +258,8 @@ import {
   logResultStalePruneDecision,
   logResultDismissRequiredCheck,
   logResultShellWithoutPayload,
+  logResultShellWaitingChildBlocked,
+  logResultShellReleasedWithChild,
   logCheckContinueBlocked,
   logCheckContinueCall,
   logCheckContinueDecision,
@@ -473,7 +475,6 @@ import {
   shouldBlockPassiveResultShellDisplay,
 } from '@/lib/result-overlay-explicit-open';
 import {
-  logChainContinueBlockedNonExplicitStartup,
   getMountedBlockingUserOverlay,
   heldUserCardBanId,
   isBlockingUserOverlayKind,
@@ -638,6 +639,7 @@ import {
   peekLastIncomingPayloadReadyBanId,
 } from '@/lib/incoming-overlay-mount-debug';
 import {
+  logChainContinueBlockedNonExplicitStartup,
   logChainContinueCollected,
   logChainContinueEmptyOpenLobby,
   logChainContinueLostPendingBug,
@@ -20059,6 +20061,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ) &&
     isQueueResultShellVisibleContentReady(activeResultPayload);
 
+  const renderableResultShell =
+    effectiveNotificationQueueShellKind === 'result' &&
+    queueShellShowsResult &&
+    activeResultPayload != null;
+
+  const isCheckAnswerWaitingResultPath =
+    Boolean(checkAnswerWaitingResultHoldBanId) ||
+    checkAnswerPendingResultShowRef.current.size > 0 ||
+    (chainAdvanceWaiting && checkAnswerInFlightRef.current.size > 0);
+
+  const resultShellBlockedWithoutChild =
+    effectiveNotificationQueueShellKind === 'result' &&
+    !renderableResultShell &&
+    isCheckAnswerWaitingResultPath;
+
+  const notificationQueueShellDisplayKind = resultShellBlockedWithoutChild
+    ? checkAnswerWaitingResultHoldBanId
+      ? ('check' as const)
+      : notificationQueueShellKind === 'result'
+        ? ('check' as const)
+        : notificationQueueShellKind
+    : effectiveNotificationQueueShellKind;
+
   useLayoutEffect(() => {
     const queueHead =
       overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
@@ -20068,6 +20093,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         : queueHead?.kind === 'incoming' || queueHead?.kind === 'check'
           ? queueHead.ban.id
           : null;
+    if (resultShellBlockedWithoutChild) {
+      logResultShellWaitingChildBlocked({
+        effectiveKind: effectiveNotificationQueueShellKind,
+        queueShellShowsResult,
+        hasActiveResultPayload: Boolean(activeResultPayload),
+        queueHeadKind: queueHead?.kind ?? null,
+        queueHeadBanId,
+        chainAdvanceWaiting,
+        checkAnswerWaitingResultHoldBanId,
+        reason: 'result-shell-without-child',
+      });
+    }
+    if (queueShellShowsResult && activeResultPayload) {
+      logResultShellReleasedWithChild({
+        effectiveKind: effectiveNotificationQueueShellKind,
+        displayKind: notificationQueueShellDisplayKind,
+        queueShellShowsResult,
+        activeResultPayloadBanId: activeResultPayload.id,
+        queueHeadKind: queueHead?.kind ?? null,
+        queueHeadBanId,
+        chainAdvanceWaiting,
+        checkAnswerWaitingResultHoldBanId,
+      });
+    }
     logResultPayloadSelectionTrace({
       phase: 'queueShellShowsResult-eval',
       checkCardBanId: checkBanRef.current?.id ?? checkBan?.id ?? null,
@@ -20101,14 +20150,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
   }, [
     activeResultPayload,
+    checkAnswerWaitingResultHoldBanId,
     checkBan?.id,
+    chainAdvanceWaiting,
     checkResultShellDisplayReady,
     displayResult?.id,
     effectiveNotificationQueueShellKind,
     isQueueResultShellVisibleContentReady,
+    notificationQueueShellDisplayKind,
     notificationQueueShellKind,
     overlayQueue,
     queueShellShowsResult,
+    resultShellBlockedWithoutChild,
   ]);
 
   const incomingJsxWillRender =
@@ -21303,11 +21356,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               activeOverlayKind={
                 showReplyIncomingOverlayDirect
                   ? 'incoming'
-                  : effectiveNotificationQueueShellKind
+                  : notificationQueueShellDisplayKind
               }
               activeIncomingBanId={
                 showReplyIncomingOverlayDirect ||
-                effectiveNotificationQueueShellKind === 'incoming'
+                notificationQueueShellDisplayKind === 'incoming'
                   ? (stableIncomingOverlayBan?.id ??
                       incomingCardDisplayBan?.id ??
                       null)
@@ -21315,12 +21368,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               }
             >
               <NotificationQueueShell
-                kind={effectiveNotificationQueueShellKind}
-                shellContentReady={queueResultShellContentReady}
+                kind={notificationQueueShellDisplayKind}
+                shellContentReady={
+                  resultShellBlockedWithoutChild
+                    ? undefined
+                    : queueResultShellContentReady
+                }
                 displayBanId={
                   queueShellShowsResult
                     ? activeResultPayload?.id ?? null
-                    : effectiveNotificationQueueShellKind === 'incoming'
+                    : notificationQueueShellDisplayKind === 'incoming'
                       ? (stableIncomingOverlayBan?.id ??
                           incomingCardDisplayBan?.id ??
                           null)
@@ -21342,10 +21399,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     ? `result:${activeResultPayload.id}`
                     : overlayQueue[0]
                       ? overlayQueueKey(overlayQueue[0])
-                      : effectiveNotificationQueueShellKind === 'incoming' &&
+                      : notificationQueueShellDisplayKind === 'incoming' &&
                           stableIncomingOverlayBan?.id
                         ? `incoming:${stableIncomingOverlayBan.id}`
-                        : effectiveNotificationQueueShellKind === 'incoming' &&
+                        : notificationQueueShellDisplayKind === 'incoming' &&
                             incomingCardDisplayBan?.id
                           ? `incoming:${incomingCardDisplayBan.id}`
                           : null
@@ -21362,7 +21419,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                       contentOnly
                     />
                   </ChallengeErrorBoundary>
-                ) : effectiveNotificationQueueShellKind === 'check' &&
+                ) : notificationQueueShellDisplayKind === 'check' &&
                   !showCheckOverlayDirect ? (
                   <ChallengeErrorBoundary
                     name="check"
@@ -21370,7 +21427,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   >
                     <CheckOverlay contentOnly />
                   </ChallengeErrorBoundary>
-                ) : effectiveNotificationQueueShellKind === 'incoming' &&
+                ) : notificationQueueShellDisplayKind === 'incoming' &&
                   (incomingCardDisplayBan ||
                     stableIncomingOverlayBan ||
                     incomingShellHydrating) ? (

@@ -229,6 +229,18 @@ export function logResultShellWithoutPayload(
   window.__debug98log?.('[RESULT SHELL WITHOUT PAYLOAD]', data);
 }
 
+export function logResultShellWaitingChildBlocked(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[RESULT SHELL WAITING CHILD BLOCKED]', data);
+}
+
+export function logResultShellReleasedWithChild(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[RESULT SHELL RELEASED WITH CHILD]', data);
+}
+
 export function logCheckAnswerWaitingForNext(
   data: Record<string, unknown>,
 ): void {
