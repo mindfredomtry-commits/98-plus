@@ -240,7 +240,6 @@ import {
   logCheckAnswerWaitingResultHold,
   logCheckAnswerWaitingResultReleased,
   logCheckAnswerAdvanceTrace,
-  logCheckAnswerPlaceholderSuppressed,
   logCheckCardHoldLifecycleTrace,
   logCheckDismissStart,
   logCheckDismissStuckOnBootBug,
@@ -20283,44 +20282,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     checkBan?.id?.trim() || checkBanRef.current?.id?.trim() || '';
   const checkShellKindWithoutBan =
     notificationQueueShellDisplayKind === 'check' && !checkShellBanId;
-  const checkAnswerPlaceholderSuppressed =
-    checkShellKindWithoutBan && isCheckAnswerWaitingResultPath;
   const notificationQueueShellAdvanceWaiting = queueShellShowsResult
     ? false
-    : checkAnswerPlaceholderSuppressed
-      ? false
-      : chainAdvanceWaiting || incomingShellHydrating;
-
-  useLayoutEffect(() => {
-    if (!checkAnswerPlaceholderSuppressed) return;
-    const waitingBanId =
-      checkAnswerWaitingResultHoldBanId ??
-      [...checkAnswerPendingResultShowRef.current]
-        .map((id) => normalizeId(id))
-        .find((id) => id.length > 0) ??
-      [...checkAnswerInFlightRef.current]
-        .map((id) => normalizeId(id))
-        .find((id) => id.length > 0) ??
-      null;
-    logCheckAnswerPlaceholderSuppressed({
-      banId: waitingBanId,
-      displayKind: notificationQueueShellDisplayKind,
-      checkBanId: checkShellBanId || null,
-      isCheckAnswerWaitingResultPath,
-      chainAdvanceWaiting,
-      queueLen: overlayQueue.length,
-      pendingLen: pendingStartupInteractionsCount,
-    });
-  }, [
-    checkAnswerPlaceholderSuppressed,
-    checkAnswerWaitingResultHoldBanId,
-    checkShellBanId,
-    chainAdvanceWaiting,
-    isCheckAnswerWaitingResultPath,
-    notificationQueueShellDisplayKind,
-    overlayQueue.length,
-    pendingStartupInteractionsCount,
-  ]);
+    : chainAdvanceWaiting ||
+      incomingShellHydrating ||
+      (checkShellKindWithoutBan && isCheckAnswerWaitingResultPath);
 
   useLayoutEffect(() => {
     const queueHead =
@@ -21654,7 +21620,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   checkBanId: checkBan?.id ?? checkBanRef.current?.id ?? null,
                   checkCardReady: Boolean(checkShellBanId),
                   checkShellKindWithoutBan,
-                  checkAnswerPlaceholderSuppressed,
                   notificationQueueShellAdvanceWaiting,
                   checkOverlayMounted,
                   shouldMountNotificationOverlayHost,
