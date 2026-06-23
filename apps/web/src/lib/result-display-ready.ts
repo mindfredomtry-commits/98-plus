@@ -193,32 +193,95 @@ export type HasVisibleResultOverlayContentInput = {
   atomicOverboardShowable?: boolean;
 };
 
-/** Whether ResultOverlay has title, quote body, or participant actions to show. */
-export function hasVisibleResultOverlayContent(
+export type OverlayVisibleContentGate = {
+  visible: boolean;
+  reason: string | null;
+  displayHeadline: string;
+  banText: string;
+  hasActions: boolean;
+  hasSender: boolean;
+  hasReceiver: boolean;
+  resolvedViewerId: string;
+  viewerIdInput: string | null;
+  resultViewerId: string | null;
+  atomicOverboardShowable: boolean;
+  hasDisplayHeadline: boolean;
+  hasBanText: boolean;
+};
+
+/** Decomposed visibility gate — same rules as hasVisibleResultOverlayContent. */
+export function evaluateOverlayVisibleContentGate(
   input: HasVisibleResultOverlayContentInput,
-): boolean {
+): OverlayVisibleContentGate {
   const { result, viewerId, atomicOverboardShowable } = input;
-  if (!result?.id?.trim()) return false;
+  const viewerIdInput = viewerId?.trim() || null;
+  const resultViewerId = result.viewerId?.trim() || null;
+
+  if (!result?.id?.trim()) {
+    return {
+      visible: false,
+      reason: 'missing-result-id',
+      displayHeadline: '',
+      banText: '',
+      hasActions: false,
+      hasSender: false,
+      hasReceiver: false,
+      resolvedViewerId: '',
+      viewerIdInput,
+      resultViewerId,
+      atomicOverboardShowable: Boolean(atomicOverboardShowable),
+      hasDisplayHeadline: false,
+      hasBanText: false,
+    };
+  }
 
   if (atomicOverboardShowable) {
-    return true;
+    return {
+      visible: true,
+      reason: null,
+      displayHeadline: '',
+      banText: '',
+      hasActions: false,
+      hasSender: false,
+      hasReceiver: false,
+      resolvedViewerId: '',
+      viewerIdInput,
+      resultViewerId,
+      atomicOverboardShowable: true,
+      hasDisplayHeadline: false,
+      hasBanText: false,
+    };
   }
 
   if (isOverboardStatusOrOutcome(result)) {
-    return true;
+    return {
+      visible: true,
+      reason: null,
+      displayHeadline: result.headline?.trim() ?? '',
+      banText: result.text?.trim() ?? '',
+      hasActions: false,
+      hasSender: false,
+      hasReceiver: false,
+      resolvedViewerId: '',
+      viewerIdInput,
+      resultViewerId,
+      atomicOverboardShowable: false,
+      hasDisplayHeadline: Boolean(result.headline?.trim()),
+      hasBanText: Boolean(result.text?.trim()),
+    };
   }
 
   const resolvedViewerId =
     resolveResultOverlayViewerId(result, viewerId)?.trim() ?? '';
   const senderId = result.sender?.id?.trim() ?? '';
   const receiverId = result.receiver?.id?.trim() ?? '';
-  const isSender = Boolean(
+  const hasSender = Boolean(
     resolvedViewerId && senderId && resolvedViewerId === senderId,
   );
-  const isReceiver = Boolean(
+  const hasReceiver = Boolean(
     resolvedViewerId && receiverId && resolvedViewerId === receiverId,
   );
-  const hasActions = isSender || isReceiver;
+  const hasActions = hasSender || hasReceiver;
 
   const outcome = result.outcome ?? null;
   const farmSkipped = Boolean(
@@ -234,10 +297,45 @@ export function hasVisibleResultOverlayContent(
     (result as BanResult & { ban?: { text?: string | null } }).ban?.text
       ?.trim() ||
     '';
+  const hasDisplayHeadline = Boolean(displayHeadline.trim());
+  const hasBanText = Boolean(banText);
+  const visible = hasDisplayHeadline || hasBanText || hasActions;
 
-  return (
-    Boolean(displayHeadline.trim()) || Boolean(banText) || hasActions
-  );
+  let reason: string | null = null;
+  if (!visible) {
+    if (!outcome?.trim() && !headlineRaw) {
+      reason = 'missing-outcome-and-headline';
+    } else if (!hasDisplayHeadline && !hasBanText && !resolvedViewerId) {
+      reason = 'missing-viewer-and-text-and-headline';
+    } else if (!hasDisplayHeadline && !hasBanText && !hasActions) {
+      reason = 'missing-headline-text-and-participant-actions';
+    } else {
+      reason = 'no-visible-content';
+    }
+  }
+
+  return {
+    visible,
+    reason,
+    displayHeadline,
+    banText,
+    hasActions,
+    hasSender,
+    hasReceiver,
+    resolvedViewerId,
+    viewerIdInput,
+    resultViewerId,
+    atomicOverboardShowable: false,
+    hasDisplayHeadline,
+    hasBanText,
+  };
+}
+
+/** Whether ResultOverlay has title, quote body, or participant actions to show. */
+export function hasVisibleResultOverlayContent(
+  input: HasVisibleResultOverlayContentInput,
+): boolean {
+  return evaluateOverlayVisibleContentGate(input).visible;
 }
 
 /** Terminal split/both_yes/both_no — hold until user dismisses. */

@@ -170,6 +170,24 @@ export function logResultOverlayVisibleContentTrace(
   emit('[RESULT OVERLAY VISIBLE CONTENT TRACE]', data);
 }
 
+export function logResultOverlayVisibilityGateTrace(
+  data: Record<string, unknown>,
+): void {
+  emit('[RESULT OVERLAY VISIBILITY GATE TRACE]', data);
+}
+
+export function logResultOverlayEmptyContentBlocked(data: {
+  banId: string;
+  status: string | null;
+  outcome: string | null;
+  hasTitle: boolean;
+  willRenderBody: boolean;
+  hasActions: boolean;
+  source: string;
+}): void {
+  emit('[RESULT OVERLAY EMPTY CONTENT BLOCKED]', data);
+}
+
 export function logResultDisplaySourcePick(data: {
   sourcePicked: string;
   fromDisplayResult: boolean;

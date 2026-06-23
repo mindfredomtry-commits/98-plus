@@ -19,6 +19,7 @@ import {
   showFreeModeBanOthersAction,
 } from '@98plus/shared';
 import {
+  evaluateOverlayVisibleContentGate,
   hasVisibleResultOverlayContent,
   resolveResultDisplayHeadline,
   resolveResultOverlayViewerId,
@@ -54,6 +55,7 @@ import {
   logResultCardRenderDecision,
   logResultOverlayBodyDecision,
   logResultOverlayVisibleContentTrace,
+  logResultOverlayVisibilityGateTrace,
   logResultOverlayContentCheck,
   logResultOverlayEmptyContentBlocked,
 } from '@/lib/overboard-action-queue-debug';
@@ -599,12 +601,16 @@ function ResultOverlayInner({
     (bodyKind === 'overboard'
       ? true
       : Boolean(view.displayHeadline?.trim()) || Boolean(banText));
-  const overlayVisibleContent = hasVisibleResultOverlayContent({
+  const overlayVisibleContentInput = {
     result: renderResult,
     viewerId: user?.id ?? null,
     atomicOverboardShowable:
       overboardQueueBody || isQueueAtomicOverboardResultShowable(result.id),
-  });
+  } as const;
+  const overlayVisibleContentGate = evaluateOverlayVisibleContentGate(
+    overlayVisibleContentInput,
+  );
+  const overlayVisibleContent = overlayVisibleContentGate.visible;
 
   logResultOverlayBodyDecision({
     resultId: renderResult.id,
@@ -846,6 +852,47 @@ function ResultOverlayInner({
   ]);
 
   if (!effectiveShowable) return null;
+
+  if (
+    contentOnly &&
+    !directPaint &&
+    !isOverboard &&
+    !overlayVisibleContent &&
+    Boolean(result.id?.trim())
+  ) {
+    logResultOverlayVisibilityGateTrace({
+      banId: result.id,
+      resultId: renderResult.id,
+      outcome: renderResult.outcome ?? null,
+      headline: overlayVisibleContentGate.displayHeadline || null,
+      title: view.displayHeadline ?? null,
+      hasText: overlayVisibleContentGate.hasBanText,
+      hasSender: overlayVisibleContentGate.hasSender,
+      hasReceiver: overlayVisibleContentGate.hasReceiver,
+      contentOnly,
+      directPaint,
+      isOverboard,
+      overlayVisibleContent,
+      effectiveShowable,
+      showable,
+      mounted: resultOverlayMountedRef.current,
+      revealed: notificationSessionActive,
+      visible: willRenderVisibleContent,
+      hasBody: Boolean(banText),
+      computedBranchName,
+      returnsNullReason,
+      viewerIdInput: overlayVisibleContentGate.viewerIdInput,
+      resultViewerId: overlayVisibleContentGate.resultViewerId,
+      resolvedViewerId: overlayVisibleContentGate.resolvedViewerId,
+      atomicOverboardShowable: overlayVisibleContentGate.atomicOverboardShowable,
+      hasDisplayHeadline: overlayVisibleContentGate.hasDisplayHeadline,
+      overboardQueueBody,
+      isQueueAtomicOverboardShowable: isQueueAtomicOverboardResultShowable(
+        result.id,
+      ),
+      reason: overlayVisibleContentGate.reason,
+    });
+  }
 
   if (!isOverboard && !overlayVisibleContent) {
     logResultOverlayEmptyContentBlocked({
