@@ -8,6 +8,7 @@ import {
   readKnownDirectBanId,
   type QueueApiFetchDebugContext,
 } from './queue-api-fetch-debug';
+import { logChainPlaceholderStuckTrace } from './check-chain-drain-debug';
 
 export type PendingChainPrefetch = {
   incoming: BanInteraction[];
@@ -39,6 +40,19 @@ function logPendingRejectDebug(
       (knownId != null && rej.banId === knownId);
     if (!shouldLog) continue;
     logPendingRejectedBan(rej);
+    logChainPlaceholderStuckTrace({
+      phase: 'pending-rejected-ban',
+      source: ctx.source,
+      blockReason: rej.reason,
+      banId: rej.banId,
+      pendingRejectStatus: rej.status,
+      hasCounterBan: rej.hasCounterBan,
+      handledAtSet: rej.handledAtSet,
+      acked: rej.acked,
+      tooOld: rej.tooOld,
+      isOverboard: rej.isOverboard,
+      incomingCount,
+    });
   }
 }
 

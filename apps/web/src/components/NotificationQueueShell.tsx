@@ -3,7 +3,7 @@
 import { Children, isValidElement, useEffect, useLayoutEffect, type ReactNode } from 'react';
 import { ModalShell } from './ModalShell';
 import { APP_NOTIFICATION_CARD_Z_INDEX } from '@/lib/overlay-queue';
-import { logCheckTransitionPlaceholderDecision, logCheckTransitionPlaceholderShown, logNotificationQueueShellRenderTrace } from '@/lib/check-chain-drain-debug';
+import { logCheckTransitionPlaceholderDecision, logCheckTransitionPlaceholderShown, logChainPlaceholderStuckTrace, logNotificationQueueShellRenderTrace } from '@/lib/check-chain-drain-debug';
 
 type OverlayKind = 'incoming' | 'check' | 'result';
 
@@ -211,8 +211,40 @@ export function NotificationQueueShell({
         chainAdvanceWaiting: advanceWaiting,
         reason: 'advance-waiting-no-display-ready-content',
       });
+      logChainPlaceholderStuckTrace({
+        phase: 'placeholder-shown',
+        source: 'NotificationQueueShell-render',
+        blockReason: 'advance-waiting-no-content',
+        chainAdvanceWaiting: advanceWaiting,
+        hasContent,
+        hasRenderableChildren: hasRenderableChildrenProbe,
+        childProbeRenderable,
+        checkCardReady,
+        incomingCardReady,
+        kind: shellKind,
+        displayBanId,
+        renderBranch,
+        ...renderTrace,
+      });
     }
-  }, [advanceWaiting, displayBanId, hasContent, sessionActive, shellKind]);
+    if (advanceWaiting && hasContent && !hasRenderableChildrenProbe) {
+      logChainPlaceholderStuckTrace({
+        phase: 'shell-has-content-no-children',
+        source: 'NotificationQueueShell-render',
+        blockReason: 'advance-waiting-hasContent-but-no-renderable-children',
+        chainAdvanceWaiting: advanceWaiting,
+        hasContent,
+        hasRenderableChildren: hasRenderableChildrenProbe,
+        childProbeRenderable,
+        checkCardReady,
+        incomingCardReady,
+        kind: shellKind,
+        displayBanId,
+        renderBranch,
+        ...renderTrace,
+      });
+    }
+  }, [advanceWaiting, displayBanId, hasContent, hasRenderableChildrenProbe, childProbeRenderable, checkCardReady, incomingCardReady, renderTrace, sessionActive, shellKind]);
 
   if (advanceWaiting && !hasContent) {
     return (

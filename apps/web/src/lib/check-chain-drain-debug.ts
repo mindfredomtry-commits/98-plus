@@ -91,6 +91,13 @@ export function logCheckAnswerWaitingResultReleased(
   window.__debug98log?.('[CHECK ANSWER WAITING RESULT RELEASED]', data);
 }
 
+/** v30 — res.waiting partner response: release empty-remaining hold and resume chain */
+export function logCheckAnswerWaitingHoldReleased(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK ANSWER WAITING HOLD RELEASED]', data);
+}
+
 export function logCheckAnswerAdvanceTrace(data: Record<string, unknown>): void {
   window.__debug98log?.('[CHECK ANSWER ADVANCE TRACE]', data);
 }
@@ -283,6 +290,13 @@ export function logCheckTransitionPlaceholderShown(
   data: Record<string, unknown>,
 ): void {
   window.__debug98log?.('[CHECK TRANSITION PLACEHOLDER SHOWN]', data);
+}
+
+/** Placeholder «Следующий запрет…» stuck — full chain/shell snapshot for diagnosis. */
+export function logChainPlaceholderStuckTrace(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHAIN PLACEHOLDER STUCK TRACE]', data);
 }
 
 export function logFinalStatusHoldDecision(
