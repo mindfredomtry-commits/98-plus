@@ -3,7 +3,7 @@
 import { Children, isValidElement, useEffect, useLayoutEffect, type ReactNode } from 'react';
 import { ModalShell } from './ModalShell';
 import { APP_NOTIFICATION_CARD_Z_INDEX } from '@/lib/overlay-queue';
-import { logCheckTransitionPlaceholderDecision, logCheckTransitionPlaceholderShown, logChainPlaceholderStuckTrace, logNotificationQueueShellRenderTrace } from '@/lib/check-chain-drain-debug';
+import { logCheckTransitionPlaceholderDecision, logCheckTransitionPlaceholderShown, logChainPlaceholderDecisionDiag, logChainPlaceholderStuckTrace, logNotificationQueueShellRenderTrace } from '@/lib/check-chain-drain-debug';
 
 type OverlayKind = 'incoming' | 'check' | 'result';
 
@@ -205,6 +205,41 @@ export function NotificationQueueShell({
       hasContent,
       displayBanId,
     });
+    logChainPlaceholderDecisionDiag({
+      source: 'NotificationQueueShell-render',
+      phase:
+        advanceWaiting && !hasContent
+          ? 'placeholder-advance-wait'
+          : renderBranch,
+      shellKind,
+      effectiveKind:
+        (renderTrace?.effectiveNotificationQueueShellKind as string | null | undefined) ??
+        kind,
+      advanceWaiting,
+      hasContent,
+      hasRenderableChildren: hasRenderableChildrenProbe,
+      queueLen: (renderTrace?.queueLen as number | null | undefined) ?? null,
+      pendingLen: (renderTrace?.pendingLen as number | null | undefined) ?? null,
+      overlayHeadKind:
+        (renderTrace?.overlayQueueHeadKind as string | null | undefined) ?? null,
+      overlayHeadBanId:
+        (renderTrace?.overlayQueueHeadBanId as string | null | undefined) ?? null,
+      pendingHeadKind:
+        (renderTrace?.pendingStartupHeadKind as string | null | undefined) ?? null,
+      pendingHeadBanId:
+        (renderTrace?.pendingStartupHeadBanId as string | null | undefined) ?? null,
+      blockReason:
+        advanceWaiting && !hasContent
+          ? 'advance-waiting-no-content'
+          : advanceWaiting && hasContent && !hasRenderableChildrenProbe
+            ? 'advance-waiting-hasContent-but-no-renderable-children'
+            : null,
+      renderBranch,
+      checkCardReady,
+      incomingCardReady,
+      chainAdvancePlaceholderKind:
+        renderTrace?.chainAdvancePlaceholderKind ?? null,
+    });
     if (advanceWaiting && !hasContent) {
       logCheckTransitionPlaceholderShown({
         source: 'NotificationQueueShell-render',
@@ -244,7 +279,7 @@ export function NotificationQueueShell({
         ...renderTrace,
       });
     }
-  }, [advanceWaiting, displayBanId, hasContent, hasRenderableChildrenProbe, childProbeRenderable, checkCardReady, incomingCardReady, renderTrace, sessionActive, shellKind]);
+  }, [advanceWaiting, displayBanId, hasContent, hasRenderableChildrenProbe, childProbeRenderable, checkCardReady, incomingCardReady, kind, renderBranch, renderTrace, sessionActive, shellKind]);
 
   if (advanceWaiting && !hasContent) {
     return (

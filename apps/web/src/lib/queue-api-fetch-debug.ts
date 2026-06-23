@@ -24,6 +24,18 @@ export type QueueApiFetchDebugContext = {
   knownDirectBanId?: string | null;
   hasLobbyBansAttentionHint?: boolean;
   restoreStateFound?: boolean;
+  /** Snapshot for [CHAIN REJECTED PENDING DIAG] — queue/guard state at fetch time. */
+  rejectedPendingDiag?: ChainRejectedPendingDiagSnapshot;
+};
+
+export type ChainRejectedPendingDiagSnapshot = {
+  queueLenBefore: number;
+  pendingLenBefore: number;
+  queueBanIds: string[];
+  pendingBanIds: string[];
+  dismissedIncoming: string[];
+  locallyAckedIncoming: string[];
+  incomingConsumedAfterAnswer: string[];
 };
 
 export function logQueueApiFetchStart(data: {

@@ -6,14 +6,19 @@ import {
   logQueueApiFetchStart,
   maybeLogQueueApiEmptyButDirectBanExists,
   readKnownDirectBanId,
+  type ChainRejectedPendingDiagSnapshot,
   type QueueApiFetchDebugContext,
 } from './queue-api-fetch-debug';
-import { logChainPlaceholderStuckTrace } from './check-chain-drain-debug';
+import {
+  logChainPlaceholderStuckTrace,
+  logChainRejectedPendingDiag,
+} from './check-chain-drain-debug';
 
 export type PendingChainPrefetch = {
   incoming: BanInteraction[];
   check: BanInteraction | null;
   result: BanResult | null;
+  rejectDebug: PendingRejectDiagnostic[];
 };
 
 type PendingRejectDiagnostic = {
@@ -22,10 +27,25 @@ type PendingRejectDiagnostic = {
   status: string;
   hasCounterBan: boolean;
   handledAtSet: boolean;
+  handledAt?: string | null;
   acked: boolean;
   tooOld: boolean;
   isOverboard: boolean;
 };
+
+function resolveRejectedPendingGuardHit(
+  banId: string,
+  snap: ChainRejectedPendingDiagSnapshot | undefined,
+): string | null {
+  if (!snap) return null;
+  const norm = banId.trim();
+  if (snap.dismissedIncoming.includes(norm)) return 'dismissed-incoming';
+  if (snap.incomingConsumedAfterAnswer.includes(norm)) {
+    return 'consumed-after-answer';
+  }
+  if (snap.locallyAckedIncoming.includes(norm)) return 'locally-acked';
+  return null;
+}
 
 function logPendingRejectDebug(
   rejectDebug: PendingRejectDiagnostic[],
@@ -33,6 +53,9 @@ function logPendingRejectDebug(
   incomingCount: number,
 ): void {
   const knownId = ctx.knownDirectBanId?.trim() || readKnownDirectBanId() || null;
+  const snap = ctx.rejectedPendingDiag;
+  const queueLenAfter = snap?.queueLenBefore ?? null;
+  const pendingLenAfter = snap?.pendingLenBefore ?? null;
   for (const rej of rejectDebug) {
     const shouldLog =
       rej.banId === '872' ||
@@ -40,6 +63,26 @@ function logPendingRejectDebug(
       (knownId != null && rej.banId === knownId);
     if (!shouldLog) continue;
     logPendingRejectedBan(rej);
+    logChainRejectedPendingDiag({
+      banId: rej.banId,
+      reason: rej.reason,
+      source: ctx.source,
+      endpoint: '/bans/incoming/pending-all',
+      status: rej.status,
+      handledAt: rej.handledAt ?? (rej.handledAtSet ? 'set' : null),
+      acked: rej.acked,
+      tooOld: rej.tooOld,
+      hasCounterBan: rej.hasCounterBan,
+      wasInPendingStartup: snap?.pendingBanIds.includes(rej.banId) ?? false,
+      wasInOverlayQueue: snap?.queueBanIds.includes(rej.banId) ?? false,
+      willRetry: true,
+      willDrop: true,
+      guardHit: resolveRejectedPendingGuardHit(rej.banId, snap),
+      pendingLenBefore: snap?.pendingLenBefore ?? null,
+      pendingLenAfter,
+      queueLenBefore: snap?.queueLenBefore ?? null,
+      queueLenAfter,
+    });
     logChainPlaceholderStuckTrace({
       phase: 'pending-rejected-ban',
       source: ctx.source,
@@ -157,5 +200,5 @@ export async function fetchPendingChainPrefetch(
     result ? [{ id: result.id, status: result.status ?? null, kind: 'result' }] : [],
   );
 
-  return { incoming, check, result };
+  return { incoming, check, result, rejectDebug };
 }

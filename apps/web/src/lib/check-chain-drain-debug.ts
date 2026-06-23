@@ -299,6 +299,34 @@ export function logChainPlaceholderStuckTrace(
   window.__debug98log?.('[CHAIN PLACEHOLDER STUCK TRACE]', data);
 }
 
+/** v31 — server rejected pending ban during prefetch (why placeholder / empty finalize). */
+export function logChainRejectedPendingDiag(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHAIN REJECTED PENDING DIAG]', data);
+}
+
+/** v31 — chain empty finalize decision (lobby / bans section). */
+export function logChainFinalizeDiag(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHAIN FINALIZE DIAG]', data);
+}
+
+/** v31 — NotificationQueueShell placeholder vs content branch. */
+export function logChainPlaceholderDecisionDiag(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHAIN PLACEHOLDER DECISION DIAG]', data);
+}
+
+/** v32 — prefetch rejected-only: clear stale chainAdvanceWaiting (no mountable card). */
+export function logChainAdvanceWaitingClearedRejectedOnly(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHAIN ADVANCE WAITING CLEARED REJECTED ONLY]', data);
+}
+
 export function logFinalStatusHoldDecision(
   data: Record<string, unknown>,
 ): void {
