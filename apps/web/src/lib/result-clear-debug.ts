@@ -66,3 +66,9 @@ export function logResultStaleGuardBlocked(data: {
 }): void {
   emit('[RESULT STALE GUARD BLOCKED]', data);
 }
+
+export function logResultStaleGuardBypassedFreshCheckAnswer(
+  data: Record<string, unknown>,
+): void {
+  emit('[RESULT STALE GUARD BYPASSED FRESH CHECK ANSWER]', data);
+}

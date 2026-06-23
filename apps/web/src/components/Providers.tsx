@@ -332,6 +332,7 @@ import {
   logResultClearCallsite,
   logResultHeldStillPresentAfterClear,
   logResultStaleGuardBlocked,
+  logResultStaleGuardBypassedFreshCheckAnswer,
 } from '@/lib/result-clear-debug';
 import {
   logResultGoToBansClearActiveHold,
@@ -1329,6 +1330,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const answeredCheckRef = useRef<Set<string>>(new Set());
   const resultPriorityBanIdsRef = useRef<Set<string>>(new Set());
   const checkAnswerInFlightRef = useRef<Set<string>>(new Set());
+  /** Result pending first show after user answered check-card in this session. */
+  const checkAnswerPendingResultShowRef = useRef<Set<string>>(new Set());
+  const resultOverlayRenderedBanIdsRef = useRef<Set<string>>(new Set());
   /** submitCheckAnswer owns empty-queue continue — skip dismiss microtask duplicate. */
   const checkAnswerDismissChainOwnedRef = useRef(false);
   const checkAnswerWaitingResultHoldBanIdRef = useRef<string | null>(null);
@@ -4953,6 +4957,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             source: 'report-overlay-rendered',
           });
         }
+        resultOverlayRenderedBanIdsRef.current.add(normalizeId(banId));
+        checkAnswerPendingResultShowRef.current.delete(normalizeId(banId));
       }
       if (
         kind === 'check' &&
@@ -6028,6 +6034,45 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       : `${item.kind}:${normalizeId(item.ban.id)}`;
   }, []);
 
+  const isFreshCheckAnswerResultPendingFirstShow = useCallback(
+    (banId: string): boolean => {
+      const key = normalizeId(banId);
+      if (!key) return false;
+      if (resultOverlayRenderedBanIdsRef.current.has(key)) return false;
+      return (
+        checkAnswerInFlightRef.current.has(key) ||
+        checkAnswerPendingResultShowRef.current.has(key)
+      );
+    },
+    [],
+  );
+
+  const clearStaleResultGuardForFreshCheckAnswer = useCallback(
+    (banId: string, source: string, blockReason?: string) => {
+      const key = normalizeId(banId);
+      if (!key || !isFreshCheckAnswerResultPendingFirstShow(key)) return false;
+      const viewerId = userIdRef.current?.trim() ?? '';
+      resultCtaConsumedBanIdsRef.current.delete(key);
+      resultDeliveredBanIdsRef.current.delete(key);
+      shownOverlayKeysRef.current.delete(`result:${key}`);
+      if (viewerId) {
+        clearDismissedResultLocally(key, viewerId);
+      }
+      logResultStaleGuardBypassedFreshCheckAnswer({
+        banId: key,
+        blockReason: blockReason ?? 'fresh-check-answer-pending-first-show',
+        source,
+        checkAnswerInFlightBanId: checkAnswerInFlightRef.current.has(key)
+          ? key
+          : null,
+        answeredFresh: checkAnswerPendingResultShowRef.current.has(key),
+        resultAlreadyRendered: resultOverlayRenderedBanIdsRef.current.has(key),
+      });
+      return true;
+    },
+    [isFreshCheckAnswerResultPendingFirstShow],
+  );
+
   const isResultBlockedForNotificationChain = useCallback(
     (banId: string, source: string, skipBanId?: string | null): boolean => {
       const key = normalizeId(banId);
@@ -6041,7 +6086,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const freshAction = freshOverboardActionBanIdsRef.current.has(key);
       const freshFinalStatus = freshFinalStatusBanIdsRef.current.has(key);
 
-      const logBlocked = (blockReason: string): true => {
+      const maybeBlockStale = (blockReason: string): boolean => {
+        if (
+          isFreshCheckAnswerResultPendingFirstShow(key) &&
+          (blockReason === 'consumed' ||
+            blockReason === 'delivered' ||
+            blockReason === 'shown-overlay-key' ||
+            blockReason === 'dismissed-local')
+        ) {
+          clearStaleResultGuardForFreshCheckAnswer(key, source, blockReason);
+          return false;
+        }
         logResultStaleGuardBlocked({
           banId: key,
           source,
@@ -6067,7 +6122,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       if (!key) {
         console.log('[result-card-blocked]', { banId, reason: 'no-key', source });
-        return logBlocked('no-key');
+        return maybeBlockStale('no-key');
       }
       if (
         incomingOverboardAtomicBanIdRef.current === key &&
@@ -6095,7 +6150,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
           reason: 'skip-ban',
         });
-        return logBlocked('skip-ban');
+        return maybeBlockStale('skip-ban');
       }
       if (consumed) {
         console.log('[result-stale-blocked]', { banId: key, key, source });
@@ -6109,7 +6164,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
           reason: 'consumed',
         });
-        return logBlocked('consumed');
+        return maybeBlockStale('consumed');
       }
       if (delivered) {
         console.log('[result-stale-blocked]', { banId: key, key, source });
@@ -6123,7 +6178,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
           reason: 'delivered',
         });
-        return logBlocked('delivered');
+        return maybeBlockStale('delivered');
       }
       if (shown) {
         console.log('[result-stale-blocked]', { banId: key, key, source });
@@ -6137,7 +6192,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
           reason: 'shown-overlay-key',
         });
-        return logBlocked('shown-overlay-key');
+        return maybeBlockStale('shown-overlay-key');
       }
       if (dismissed) {
         console.log('[result-stale-blocked]', { banId: key, key, source });
@@ -6151,11 +6206,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
           reason: 'dismissed-local',
         });
-        return logBlocked('dismissed-local');
+        return maybeBlockStale('dismissed-local');
       }
       return false;
     },
-    [],
+    [clearStaleResultGuardForFreshCheckAnswer, isFreshCheckAnswerResultPendingFirstShow],
   );
 
   const markResultOverlayConsumed = useCallback(
@@ -7881,6 +7936,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     dismissedCheckSessionRef.current = new Set();
     answeredCheckRef.current = new Set();
     checkAnswerInFlightRef.current = new Set();
+    checkAnswerPendingResultShowRef.current = new Set();
+    resultOverlayRenderedBanIdsRef.current = new Set();
     resultDeliveredBanIdsRef.current = new Set();
     resultCtaConsumedBanIdsRef.current = new Set();
     checkSubmitAtRef.current = new Map();
@@ -8052,6 +8109,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     locallyAckedIncomingRef.current = new Set();
     shownOverlayKeysRef.current = new Set();
     checkAnswerInFlightRef.current = new Set();
+    checkAnswerPendingResultShowRef.current = new Set();
+    resultOverlayRenderedBanIdsRef.current = new Set();
     resultDeliveredBanIdsRef.current = new Set();
     resultCtaConsumedBanIdsRef.current = new Set();
     checkSubmitAtRef.current = new Map();
@@ -8516,10 +8575,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       if (
+        !isFreshCheckAnswerResultPendingFirstShow(banId) &&
         !resultDeliveredBanIdsRef.current.has(banId) &&
         !resultCtaConsumedBanIdsRef.current.has(banId)
       ) {
         shownOverlayKeysRef.current.delete(`result:${banId}`);
+      } else {
+        clearStaleResultGuardForFreshCheckAnswer(
+          banId,
+          `showCheckAnswerFinalResult:${source}`,
+        );
       }
 
       if (
@@ -8550,8 +8615,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       if (
-        resultCtaConsumedBanIdsRef.current.has(banId) ||
-        (uid && isDismissedResultLocally(banId, uid))
+        !isFreshCheckAnswerResultPendingFirstShow(banId) &&
+        (resultCtaConsumedBanIdsRef.current.has(banId) ||
+          (uid && isDismissedResultLocally(banId, uid)))
       ) {
         logCheckAnswerResultSkippedBug({
           banId,
@@ -8674,9 +8740,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             applyOverlayQueue(nextQueue);
           });
           const head = overlayQueueRef.current[0];
-          return (
-            head?.kind === 'result' && normalizeId(head.result.id) === banId
-          );
+          const pollShown =
+            head?.kind === 'result' && normalizeId(head.result.id) === banId;
+          if (pollShown) {
+            checkAnswerPendingResultShowRef.current.delete(banId);
+          }
+          return pollShown;
         }
       }
 
@@ -8728,6 +8797,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const head = overlayQueueRef.current[0];
       const shown = head?.kind === 'result' && normalizeId(head.result.id) === banId;
       if (shown) {
+        checkAnswerPendingResultShowRef.current.delete(banId);
         holdResultForActiveNotificationChain(
           banId,
           'showCheckAnswerFinalResult-shown',
@@ -8754,8 +8824,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [
       applyOverlayQueue,
+      clearStaleResultGuardForFreshCheckAnswer,
       enqueueNotification,
       holdResultForActiveNotificationChain,
+      isFreshCheckAnswerResultPendingFirstShow,
       isResultBlockedForNotificationChain,
       releaseCheckAnswerWaitingResultHold,
       setChainAdvanceWaiting,
@@ -9958,6 +10030,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       answeredCheckRef.current.add(normalizedBanId);
       markCheckAnsweredLocally(uid, normalizedBanId);
       checkAnswerInFlightRef.current.add(normalizedBanId);
+      checkAnswerPendingResultShowRef.current.add(normalizedBanId);
       console.log('[check-overlay-user-answer]', {
         banId: normalizedBanId,
         answer: completed,
