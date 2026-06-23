@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 32;
+export const DEBUG98_LOGGER_VERSION = 34;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -183,6 +183,9 @@ const ALLOWED_EVENTS = new Set([
   '[LOBBY BANS CTA SHOW NEXT]',
   '[LOBBY BANS CTA EMPTY OPEN SECTION]',
   '[LOBBY BANS CTA DRAIN BUG]',
+  '[LOBBY BANS CTA ROUTE DIAG]',
+  '[LOBBY BANS CTA EMPTY DELAY DIAG]',
+  '[LOBBY BANS DIRECT OPEN]',
   '[INCOMING NEXT PAYLOAD READY]',
   '[INCOMING NEXT PAYLOAD MISSING BUG]',
   '[INCOMING NEXT HYDRATE START]',

@@ -192,6 +192,7 @@ import {
   logLobbyBansCtaClickTrace,
   logLobbyBansDrainNotEntered,
 } from '@/lib/queue-source-comparison-debug';
+import { logLobbyBansCtaEmptyDelayDiag } from '@/lib/lobby-bans-cta-debug';
 import { BanGlyph } from './SuccessBanCardBody';
 import { logSendFlow } from '@/lib/send-flow-debug';
 import { DEFAULT_SEND_TIMEOUT_MS } from '@/lib/request-timeout';
@@ -2154,6 +2155,19 @@ export function InstantBanFlow({
     closeSendFlow();
     const outcome = await startLobbyBansNotificationDrain();
     if (outcome !== 'empty') {
+      logLobbyBansCtaEmptyDelayDiag({
+        source: 'handleOpenBansOverlay',
+        rejectedCount: null,
+        toEnqueueLen: null,
+        chainAdvanceWaiting: null,
+        notificationChainTransitioning,
+        shouldOpenBansSection: true,
+        delayReason: `drain-outcome-${outcome}`,
+        openSectionBlockedBy:
+          outcome === 'drained'
+            ? 'notification-shown-instead-of-section'
+            : 'drain-failed',
+      });
       return;
     }
     resetBansNavState();

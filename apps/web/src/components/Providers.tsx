@@ -404,11 +404,14 @@ import {
 import {
   logLobbyBansCtaClick,
   logLobbyBansCtaDrainBug,
+  logLobbyBansCtaEmptyDelayDiag,
   logLobbyBansCtaEmptyOpenSection,
+  logLobbyBansDirectOpen,
   logLobbyBansCtaHasNotifications,
   logLobbyBansCtaPendingLostBug,
   logLobbyBansCtaPendingMerged,
   logLobbyBansCtaPendingSnapshot,
+  logLobbyBansCtaRouteDiag,
   logLobbyBansCtaShowNext,
   logLobbyBansCtaStartDrain,
   type LobbyBansNotificationDrainOutcome,
@@ -1599,6 +1602,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const pendingChainPrefetchInFlightRef = useRef(0);
   /** Diag-only: last prefetch returned rejects but merged nothing. */
   const lastChainRejectOnlyPrefetchRef = useRef(false);
+  /** Diag-only: rejectDebug count from last prefetch. */
+  const lastPrefetchRejectDebugCountRef = useRef(0);
   const replyToBanIdPersistRef = useRef<string | null>(null);
   const incomingReplyComposeDismissedRef = useRef<Set<string>>(new Set());
 
@@ -7468,6 +7473,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
         const indicatorPrimeOnly = isLobbyIndicatorPrefetchSource(source);
         const apiIncomingCount = prefetched.incoming.length;
+        lastPrefetchRejectDebugCountRef.current = prefetched.rejectDebug.length;
 
         if (toEnqueue.length === 0) {
           const mergeSkipReason =
@@ -7539,6 +7545,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             apiIncomingCount,
             skipDetails,
           });
+
+          if (
+            source.includes('lobby-bans-cta') ||
+            source.includes('lobby-indicator-prime')
+          ) {
+            logLobbyBansCtaEmptyDelayDiag({
+              source,
+              rejectedCount: prefetched.rejectDebug.length,
+              toEnqueueLen: 0,
+              chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+              notificationChainTransitioning:
+                notificationChainTransitioningRef.current,
+              shouldOpenBansSection: source.includes('lobby-bans-cta'),
+              delayReason:
+                prefetched.rejectDebug.length > 0
+                  ? 'prefetch-rejected-only-empty'
+                  : mergeSkipReason,
+              openSectionBlockedBy:
+                source.includes('lobby-bans-cta') &&
+                (overlayQueueRef.current.length > 0 ||
+                  pendingStartupInteractionsRef.current.length > 0 ||
+                  hasPendingNotificationChainFnRef.current())
+                  ? 'local-queue-or-chain-active'
+                  : source.includes('lobby-bans-cta') &&
+                      prefetched.rejectDebug.length > 0
+                    ? 'prefetch-await-before-route-decision'
+                    : null,
+            });
+          }
 
           logIncomingPendingAllMergeSkipped({
             source,
@@ -16764,19 +16799,74 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const startLobbyBansNotificationDrain =
     useCallback(async (): Promise<LobbyBansNotificationDrainOutcome> => {
       clearStaleComposeStateBeforeBansNavigation('lobby-bans-cta');
-      let queueLenBefore = overlayQueueRef.current.length;
-      let pendingLen = pendingStartupInteractionsRef.current.length;
+      const queueLenBefore = overlayQueueRef.current.length;
+      const pendingLen = pendingStartupInteractionsRef.current.length;
+      const incomingPresent = Boolean(incomingBanRef.current?.id);
+      const checkPresent = Boolean(checkBanRef.current?.id);
+      const resultPresent = Boolean(resultRef.current?.id);
 
-      if (pendingLen === 0 && queueLenBefore === 0) {
+      if (
+        queueLenBefore === 0 &&
+        pendingLen === 0 &&
+        !incomingPresent &&
+        !checkPresent &&
+        !resultPresent
+      ) {
+        logLobbyBansDirectOpen({
+          queueLen: queueLenBefore,
+          pendingLen,
+          incomingPresent,
+          checkPresent,
+          resultPresent,
+          reason: 'no-local-mountable-notification',
+        });
+        logLobbyBansCtaEmptyOpenSection({
+          queueLen: queueLenBefore,
+          pendingLen,
+          reason: 'direct-open-no-prefetch',
+        });
+        return 'empty';
+      }
+
+      let queueLen = queueLenBefore;
+      let pendingLenAfterPrefetch = pendingLen;
+      const chainSnapEnter = snapshotPendingNotificationChain();
+      const needAttentionEnter =
+        pendingLenAfterPrefetch > 0 ||
+        queueLen > 0 ||
+        hasPendingNotificationChain();
+
+      logLobbyBansCtaRouteDiag({
+        source: 'lobby-bans-cta-enter',
+        pendingLen: pendingLenAfterPrefetch,
+        queueLen,
+        incomingCount: chainSnapEnter.incomingLen,
+        checkCount: chainSnapEnter.checkLen,
+        resultCount: chainSnapEnter.resultLen,
+        hasValidNotification: needAttentionEnter,
+        hasRejectedOnly: lastChainRejectOnlyPrefetchRef.current,
+        willOpenSection:
+          !needAttentionEnter && pendingLenAfterPrefetch === 0 && queueLen === 0,
+        willStartDrain: needAttentionEnter,
+        willShowPlaceholder: chainAdvanceWaitingRef.current,
+        reason: 'drain-entered',
+        willRunPrefetch: pendingLenAfterPrefetch === 0 && queueLen === 0,
+        lobbyBansAttentionHint,
+        hasPendingNotificationChain: hasPendingNotificationChain(),
+      });
+
+      if (pendingLenAfterPrefetch === 0 && queueLen === 0) {
         await prefetchPendingNotificationChain(null, 'lobby-bans-cta');
-        queueLenBefore = overlayQueueRef.current.length;
-        pendingLen = pendingStartupInteractionsRef.current.length;
+        queueLen = overlayQueueRef.current.length;
+        pendingLenAfterPrefetch = pendingStartupInteractionsRef.current.length;
       }
 
       const pendingSnapshot = [...pendingStartupInteractionsRef.current];
       const chainSnap = snapshotPendingNotificationChain();
       const needAttention =
-        pendingLen > 0 || queueLenBefore > 0 || hasPendingNotificationChain();
+        pendingLenAfterPrefetch > 0 ||
+        queueLen > 0 ||
+        hasPendingNotificationChain();
       const hasPendingChain = hasPendingNotificationChain();
       const hasLobbyIndicator =
         lobbyBansAttentionHint > 0 ||
@@ -16790,8 +16880,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           pendingLen === 0 && queueLenBefore === 0
             ? 'lobby-bans-cta-refs-only-no-pending-all-fetch'
             : 'lobby-bans-cta-uses-existing-refs-no-pending-all-fetch',
-        queueLen: queueLenBefore,
-        pendingLen,
+        queueLen,
+        pendingLen: pendingLenAfterPrefetch,
         hasLobbyBansAttentionHint: lobbyBansAttentionHint > 0,
         needAttention,
       });
@@ -16801,7 +16891,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source: 'lobby-bans-cta',
         pendingSnapshotLen: pendingSnapshot.length,
         queueLenBefore,
-        pendingLenBefore: pendingLen,
+        pendingLenBefore: pendingLenAfterPrefetch,
         incomingLen: chainSnap.incomingLen,
         checkLen: chainSnap.checkLen,
         resultLen: chainSnap.resultLen,
@@ -16810,13 +16900,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         hasPendingNotificationChain: hasPendingChain,
         hasLobbyBansAttentionHint: lobbyBansAttentionHint > 0,
       });
+
+      logLobbyBansCtaRouteDiag({
+        source: 'lobby-bans-cta-after-prefetch',
+        pendingLen: pendingLenAfterPrefetch,
+        queueLen,
+        incomingCount: chainSnap.incomingLen,
+        checkCount: chainSnap.checkLen,
+        resultCount: chainSnap.resultLen,
+        hasValidNotification: needAttention,
+        hasRejectedOnly: lastChainRejectOnlyPrefetchRef.current,
+        willOpenSection: !needAttention,
+        willStartDrain: needAttention,
+        willShowPlaceholder: chainAdvanceWaitingRef.current,
+        reason: needAttention
+          ? 'need-attention-true-start-drain'
+          : 'need-attention-false-open-section',
+        rejectedCount: lastPrefetchRejectDebugCountRef.current,
+        lobbyBansAttentionHint,
+        hasPendingNotificationChain: hasPendingChain,
+      });
+
       logQueueSourceComparisonSnapshot(
         buildQueueSourceComparisonSnapshot('lobby-bans-drain-entered'),
       );
 
       logLobbyBansCtaClick({
-        queueLen: queueLenBefore,
-        pendingLen,
+        queueLen,
+        pendingLen: pendingLenAfterPrefetch,
         lobbyBansNeedAttention: needAttention,
         lobbyOpen: lobbyOpenRef.current,
       });
@@ -16825,6 +16936,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         const comparison = buildQueueSourceComparisonSnapshot(
           'lobby-bans-cta-need-attention-false',
         );
+        logLobbyBansCtaEmptyDelayDiag({
+          source: 'lobby-bans-cta',
+          rejectedCount: lastPrefetchRejectDebugCountRef.current,
+          toEnqueueLen: 0,
+          chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+          notificationChainTransitioning:
+            notificationChainTransitioningRef.current,
+          shouldOpenBansSection: true,
+          delayReason: 'prefetch-completed-empty-route',
+          openSectionBlockedBy: null,
+        });
         logLobbyBansDrainNotEntered({
           reason: 'need-attention-false',
           telegramUserId: userIdRef.current?.trim() ?? auth.user?.id ?? null,
@@ -16837,27 +16959,45 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           restoreStateFound: comparison.restoreStateFound,
         });
         logLobbyBansCtaEmptyOpenSection({
-          queueLen: queueLenBefore,
-          pendingLen,
+          queueLen,
+          pendingLen: pendingLenAfterPrefetch,
         });
         return 'empty';
       }
 
+      logLobbyBansCtaRouteDiag({
+        source: 'lobby-bans-cta-drain-branch',
+        pendingLen: pendingLenAfterPrefetch,
+        queueLen,
+        incomingCount: chainSnap.incomingLen,
+        checkCount: chainSnap.checkLen,
+        resultCount: chainSnap.resultLen,
+        hasValidNotification: true,
+        hasRejectedOnly: lastChainRejectOnlyPrefetchRef.current,
+        willOpenSection: false,
+        willStartDrain: true,
+        willShowPlaceholder: chainAdvanceWaitingRef.current,
+        reason: 'need-attention-drain-before-show-next',
+        rejectedCount: lastPrefetchRejectDebugCountRef.current,
+        lobbyBansAttentionHint,
+        hasPendingNotificationChain: hasPendingChain,
+      });
+
       logLobbyBansCtaHasNotifications({
-        queueLen: queueLenBefore,
-        pendingLen,
+        queueLen,
+        pendingLen: pendingLenAfterPrefetch,
         startupHold: startupInteractionsHoldRef.current,
       });
       logLobbyBansCtaPendingSnapshot({
-        pendingLen,
-        queueLen: queueLenBefore,
+        pendingLen: pendingLenAfterPrefetch,
+        queueLen,
         kinds: pendingSnapshot.map((item) => item.kind),
       });
 
       allowDeeplinkExplicitNotificationDrain('lobby-bans-cta');
       logLobbyBansCtaStartDrain({
-        queueLen: queueLenBefore,
-        pendingLen,
+        queueLen,
+        pendingLen: pendingLenAfterPrefetch,
       });
 
       logOverlayPriority('explicit-bans-open-unlock', {
@@ -16935,6 +17075,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       if (queueLenAfter > 0 || pendingLen > 0) {
         syncDisplayFromQueue(overlayQueueRef.current);
+        logLobbyBansCtaEmptyDelayDiag({
+          source: 'lobby-bans-cta',
+          rejectedCount: lastPrefetchRejectDebugCountRef.current,
+          toEnqueueLen: 0,
+          chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+          notificationChainTransitioning:
+            notificationChainTransitioningRef.current,
+          shouldOpenBansSection: true,
+          delayReason: 'show-next-failed-with-local-queue',
+          openSectionBlockedBy: 'show-next-failed-after-merge',
+        });
         logLobbyBansCtaPendingLostBug({
           reason: 'show-next-failed-after-merge',
           queueLen: overlayQueueRef.current.length,
@@ -16950,6 +17101,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return 'drain-failed';
       }
 
+      logLobbyBansCtaEmptyDelayDiag({
+        source: 'lobby-bans-cta',
+        rejectedCount: lastPrefetchRejectDebugCountRef.current,
+        toEnqueueLen: 0,
+        chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+        notificationChainTransitioning:
+          notificationChainTransitioningRef.current,
+        shouldOpenBansSection: true,
+        delayReason: 'drain-consumed-empty-queue',
+        openSectionBlockedBy: null,
+      });
       logLobbyBansCtaEmptyOpenSection({
         queueLen: 0,
         pendingLen: 0,
