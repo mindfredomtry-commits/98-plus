@@ -242,6 +242,13 @@ export function logResultShellKindBlockedUntilChild(
   window.__debug98log?.('[RESULT SHELL KIND BLOCKED UNTIL CHILD]', data);
 }
 
+/** NotificationQueueShell render branch — empty frame between hold-cleared and result. */
+export function logNotificationQueueShellRenderTrace(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[NOTIFICATION QUEUE SHELL RENDER TRACE]', data);
+}
+
 export function logResultShellWaitingChildBlocked(
   data: Record<string, unknown>,
 ): void {

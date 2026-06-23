@@ -20278,6 +20278,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           : notificationQueueShellKind
       : effectiveNotificationQueueShellKind;
 
+  const checkShellBanId =
+    checkBan?.id?.trim() || checkBanRef.current?.id?.trim() || '';
+  const checkShellKindWithoutBan =
+    notificationQueueShellDisplayKind === 'check' && !checkShellBanId;
+  const notificationQueueShellAdvanceWaiting = queueShellShowsResult
+    ? false
+    : chainAdvanceWaiting ||
+      incomingShellHydrating ||
+      (checkShellKindWithoutBan && isCheckAnswerWaitingResultPath);
+
   useLayoutEffect(() => {
     const queueHead =
       overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
@@ -21581,6 +21591,52 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 shellContentReady={
                   renderableResultShell ? queueResultShellContentReady : undefined
                 }
+                renderTrace={{
+                  effectiveNotificationQueueShellKind,
+                  notificationQueueShellKind,
+                  queueShellShowsResult,
+                  activeResultPayloadBanId: activeResultPayload?.id ?? null,
+                  chainAdvanceWaiting,
+                  checkAnswerWaitingResultHoldBanId:
+                    checkAnswerWaitingResultHoldBanId ?? null,
+                  checkAnswerInFlight: [...checkAnswerInFlightRef.current],
+                  checkAnswerInFlightContainsBanId: (() => {
+                    const bid = normalizeId(
+                      checkBanRef.current?.id ?? checkBan?.id ?? '',
+                    );
+                    return bid.length > 0
+                      ? checkAnswerInFlightRef.current.has(bid)
+                      : false;
+                  })(),
+                  activeUserCardHold:
+                    heldUserCardOverlayRef.current &&
+                    notificationChainAwaitingUserRef.current
+                      ? heldUserCardOverlayRef.current.kind
+                      : null,
+                  heldKind: heldUserCardOverlayRef.current?.kind ?? null,
+                  heldBanId: heldUserCardOverlayRef.current
+                    ? heldUserCardBanId(heldUserCardOverlayRef.current)
+                    : null,
+                  checkBanId: checkBan?.id ?? checkBanRef.current?.id ?? null,
+                  checkCardReady: Boolean(checkShellBanId),
+                  checkShellKindWithoutBan,
+                  notificationQueueShellAdvanceWaiting,
+                  checkOverlayMounted,
+                  shouldMountNotificationOverlayHost,
+                  notificationOverlayVisible,
+                  notificationHostSessionBackdrop,
+                  incomingShellHydrating,
+                  chainAdvancePlaceholderKind,
+                  childrenBranch: queueShellShowsResult
+                    ? 'result'
+                    : notificationQueueShellDisplayKind === 'check'
+                      ? checkShellBanId
+                        ? 'check'
+                        : 'check-without-ban'
+                      : notificationQueueShellDisplayKind === 'incoming'
+                        ? 'incoming'
+                        : 'null',
+                }}
                 displayBanId={
                   queueShellShowsResult
                     ? activeResultPayload?.id ?? null
@@ -21595,12 +21651,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     ? undefined
                     : incomingCardFullyReady || !!stableIncomingOverlayBan?.id
                 }
-                sessionActive={notificationHostSessionBackdrop}
-                advanceWaiting={
+                checkCardReady={
                   queueShellShowsResult
                     ? false
-                    : chainAdvanceWaiting || incomingShellHydrating
+                    : Boolean(checkShellBanId)
                 }
+                sessionActive={notificationHostSessionBackdrop}
+                advanceWaiting={notificationQueueShellAdvanceWaiting}
                 contentKey={
                   queueShellShowsResult && activeResultPayload
                     ? `result:${activeResultPayload.id}`
@@ -21627,7 +21684,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     />
                   </ChallengeErrorBoundary>
                 ) : notificationQueueShellDisplayKind === 'check' &&
-                  !showCheckOverlayDirect ? (
+                  !showCheckOverlayDirect &&
+                  checkShellBanId ? (
                   <ChallengeErrorBoundary
                     name="check"
                     onRecover={() => clearCheckOverlay()}

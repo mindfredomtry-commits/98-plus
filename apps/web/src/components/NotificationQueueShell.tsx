@@ -3,7 +3,7 @@
 import { Children, isValidElement, useEffect, useLayoutEffect, type ReactNode } from 'react';
 import { ModalShell } from './ModalShell';
 import { APP_NOTIFICATION_CARD_Z_INDEX } from '@/lib/overlay-queue';
-import { logCheckTransitionPlaceholderDecision, logCheckTransitionPlaceholderShown } from '@/lib/check-chain-drain-debug';
+import { logCheckTransitionPlaceholderDecision, logCheckTransitionPlaceholderShown, logNotificationQueueShellRenderTrace } from '@/lib/check-chain-drain-debug';
 
 type OverlayKind = 'incoming' | 'check' | 'result';
 
@@ -27,10 +27,14 @@ type Props = {
   /** Incoming card display ban id — debug + incoming guard. */
   displayBanId?: string | null;
   incomingCardReady?: boolean;
+  /** Check card has ban payload — blocks empty boundary false-positive. */
+  checkCardReady?: boolean;
   /** Waiting for next chain card after «К запретам». */
   advanceWaiting?: boolean;
   /** Overrides child-element probe — e.g. atomic queue result without wrapper false-positive. */
   shellContentReady?: boolean;
+  /** Providers-side shell state for empty-frame diagnostics. */
+  renderTrace?: Record<string, unknown>;
 };
 
 function hasRenderableChildren(children: ReactNode): boolean {
@@ -47,13 +51,70 @@ export function NotificationQueueShell({
   children,
   displayBanId = null,
   incomingCardReady = false,
+  checkCardReady = false,
   advanceWaiting = false,
   shellContentReady,
+  renderTrace,
 }: Props) {
+  const hasRenderableChildrenProbe = hasRenderableChildren(children);
+  const childProbeRenderable =
+    kind === 'check'
+      ? checkCardReady && hasRenderableChildrenProbe
+      : hasRenderableChildrenProbe;
   const hasContent =
-    shellContentReady !== undefined
-      ? shellContentReady
-      : hasRenderableChildren(children);
+    shellContentReady !== undefined ? shellContentReady : childProbeRenderable;
+
+  const resolveRenderBranch = (): string => {
+    if (!kind) return 'return-null-no-kind';
+    if (kind === 'incoming' && !incomingCardReady && !advanceWaiting) {
+      return 'return-null-incoming-not-ready';
+    }
+    if (kind === 'check' && !checkCardReady && !advanceWaiting) {
+      return 'return-null-check-not-ready';
+    }
+    if (!hasContent && !advanceWaiting) {
+      return 'return-null-no-content-no-advance';
+    }
+    if (advanceWaiting && !hasContent) {
+      return 'placeholder-advance-wait';
+    }
+    return 'modal-shell-content-wrapper';
+  };
+
+  const renderBranch = resolveRenderBranch();
+
+  useLayoutEffect(() => {
+    logNotificationQueueShellRenderTrace({
+      kind,
+      displayKind: kind,
+      shellContentReady: shellContentReady ?? null,
+      hasRenderableChildren: hasRenderableChildrenProbe,
+      hasContent,
+      advanceWaiting,
+      renderBranch,
+      sessionActive,
+      displayBanId,
+      contentKey,
+      incomingCardReady,
+      checkCardReady,
+      childProbeRenderable,
+      ...renderTrace,
+    });
+  }, [
+    advanceWaiting,
+    checkCardReady,
+    childProbeRenderable,
+    contentKey,
+    displayBanId,
+    hasContent,
+    hasRenderableChildrenProbe,
+    incomingCardReady,
+    kind,
+    renderBranch,
+    renderTrace,
+    sessionActive,
+    shellContentReady,
+  ]);
 
   useEffect(() => {
     console.log('[notification-shell-debug] mounted', {
@@ -113,6 +174,10 @@ export function NotificationQueueShell({
   if (!kind) return null;
 
   if (kind === 'incoming' && !incomingCardReady && !advanceWaiting) {
+    return null;
+  }
+
+  if (kind === 'check' && !checkCardReady && !advanceWaiting) {
     return null;
   }
 
