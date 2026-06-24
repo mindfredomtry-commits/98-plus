@@ -99,11 +99,10 @@ import {
   logLobbyIndicatorState,
 } from '@/lib/lobby-chrome-debug';
 import {
-  buildLobbyCtaNullReason,
-  computeLobbyCtaGuardDecision,
-  logLobbyCtaRenderCheck,
-  logLobbyCtaReturnNull,
-} from '@/lib/lobby-cta-render-debug';
+  logLobbyCtaRestoreAfterSectionClose,
+  logLobbyCtaVisibilityState,
+  resolveLobbyCtaHiddenReason,
+} from '@/lib/lobby-cta-visibility-debug';
 import { patchLobbyCtaDebugSnapshot } from '@/lib/lobby-cta-snapshot-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { logDeepLinkHandlerResult } from '@/lib/deep-link-boot-debug';
@@ -1373,6 +1372,28 @@ export function InstantBanFlow({
   useLayoutEffect(() => {
     if (!lobbyOpen || !lobbyBootIntroPrimed) return;
 
+    const ctaHiddenReason = resolveLobbyCtaHiddenReason({
+      ctaState,
+      showLobbyCta,
+      effectiveBansOverlayOpen,
+      notificationQueueUiLock,
+      lobbyBootIntroPrimed,
+    });
+    const ctaVisible =
+      showLobbyCta &&
+      !effectiveBansOverlayOpen &&
+      !notificationQueueUiLock &&
+      (ctaState === 'visible' ||
+        ctaState === 'entering' ||
+        ctaState === 'exiting');
+    logLobbyCtaVisibilityState({
+      phase,
+      sectionOpen: showBansLayer,
+      overlayOpen: effectiveBansOverlayOpen,
+      ctaHiddenReason,
+      ctaVisible,
+    });
+
     const ctaDecision = computeLobbyCtaGuardDecision({
       lobbyBootIntroPrimed,
       replyIncomingDeeplinkPending,
@@ -1477,7 +1498,9 @@ export function InstantBanFlow({
     result,
     sendFlowOpen,
     sendStarted,
+    showBansLayer,
     showLobbyChrome,
+    showLobbyCta,
     showLobbyTopNav,
     successExitDraining,
     successToActiveLobbyBlocked,
@@ -2285,14 +2308,49 @@ export function InstantBanFlow({
     setPhase('idle');
   }, [logReplyQueueHandoffDiag, setCrossScreenProgressImmediate, stopCrossScreenAnim]);
 
+  const resetSendUiForBansNavigation = useCallback(() => {
+    const needsComposeReset =
+      phase !== 'idle' ||
+      sendStarted ||
+      sendFlowOpen ||
+      banSentSuccess ||
+      replyComposeActive;
+    if (!needsComposeReset) {
+      return;
+    }
+    resetSendUiForBansCta();
+  }, [
+    banSentSuccess,
+    phase,
+    replyComposeActive,
+    resetSendUiForBansCta,
+    sendFlowOpen,
+    sendStarted,
+  ]);
+
+  const restoreLobbyCtaAfterBansSectionClose = useCallback(
+    (previousSection: string) => {
+      if (phase !== 'idle' || banSentSuccess || replyComposeActive) {
+        return;
+      }
+      beginCtaSpringIn();
+      logLobbyCtaRestoreAfterSectionClose({
+        previousSection,
+        nextPhase: 'idle',
+        ctaVisible: true,
+      });
+    },
+    [banSentSuccess, beginCtaSpringIn, phase, replyComposeActive],
+  );
+
   useLayoutEffect(() => {
     resetSendUiForBansCtaRef.current = resetSendUiForBansCta;
   }, [resetSendUiForBansCta]);
 
   useLayoutEffect(() => {
-    registerResetSendUiForBansNavigation(resetSendUiForBansCta);
+    registerResetSendUiForBansNavigation(resetSendUiForBansNavigation);
     return () => registerResetSendUiForBansNavigation(null);
-  }, [registerResetSendUiForBansNavigation, resetSendUiForBansCta]);
+  }, [registerResetSendUiForBansNavigation, resetSendUiForBansNavigation]);
 
   const handleOpenBansFromResultCta = useCallback((): boolean => {
     if (hasPendingNotificationChain()) {
@@ -2520,6 +2578,7 @@ export function InstantBanFlow({
           wasBansCta ? 'result-cta-bans-closed' : 'target-flow-closed',
         );
       }
+      restoreLobbyCtaAfterBansSectionClose('bans-overlay');
     },
     [
       bansCtaQueueSuppress,
@@ -2535,6 +2594,7 @@ export function InstantBanFlow({
       notificationSessionActive,
       releaseNotificationQueueAfterReplyParentActive,
       resetSendUiForBansCta,
+      restoreLobbyCtaAfterBansSectionClose,
       scheduleCtaBecomeVisible,
       scheduleLobbyVisibilityCheck,
       sendFlowOpen,
@@ -3702,10 +3762,11 @@ export function InstantBanFlow({
     resultCtaBansOpenTickRef.current = 0;
     setBansOverlayOpen(false);
     setSelectedBanForDetails(null);
+    restoreLobbyCtaAfterBansSectionClose('provider-close-bans-overlay-request');
     console.log('[queue-reply-debug] close local bans overlay', {
       closeBansOverlayRequest,
     });
-  }, [closeBansOverlayRequest]);
+  }, [closeBansOverlayRequest, restoreLobbyCtaAfterBansSectionClose]);
 
   useLayoutEffect(() => {
     if (!resultCtaBansOverlayOpen && openBansOverlayRequest === 0) return;
