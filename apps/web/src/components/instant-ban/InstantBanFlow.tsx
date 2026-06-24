@@ -130,6 +130,13 @@ import {
 import { traceZazhmiRenderSourceDiag } from '@/lib/zazhmi-render-source-debug';
 import { patchZazhmiDomProbeFields } from '@/lib/zazhmi-dom-probe-debug';
 import {
+  collectConfirmOrbContainerMeasures,
+  logConfirmHoldButtonDecision,
+  logConfirmHoldComponentReturnNull,
+  logConfirmOrbContainerMeasure,
+  logConfirmRenderState,
+} from '@/lib/confirm-hold-render-diag';
+import {
   logConfirmHoldProtectionActive,
   readHoldOwnerRoute,
 } from '@/lib/hold-owner-debug';
@@ -5088,6 +5095,10 @@ export function InstantBanFlow({
 
   const showBootOrb = lobbyOrbVisible && !lobbyBootIntroPrimed;
   const showLobbyOrb = lobbyOrbVisible && lobbyBootIntroPrimed;
+  const shouldRenderConfirmHoldOrb =
+    phase === 'confirming' && selectedUser != null && !banSentSuccess;
+  const showLobbyOrbIdle = showLobbyOrb && !shouldRenderConfirmHoldOrb;
+  const showBootOrbIdle = showBootOrb && !shouldRenderConfirmHoldOrb;
   const confirmStripRenderOrbBlockers = buildRenderLobbyOrbBlockers({
     replyIncomingDeeplinkPending,
     checkDeeplinkDirectPending,
@@ -5111,6 +5122,189 @@ export function InstantBanFlow({
   const persistentLobbyLogoActive = !confirmActive && !orbCompressActive;
   const persistentLogoVisible =
     persistentLobbyLogoActive && !hideLobbyBootLogoOnly;
+
+  useLayoutEffect(() => {
+    if (!confirmActive && phase !== 'confirming') return;
+
+    const queueDebug = getConfirmOrbQueueDebugSnapshot();
+    const holdDebug = getConfirmHoldDebugSnapshot();
+    const trimmedBanText = banText.trim();
+    const selectedReceiverId =
+      selectedUser?.userId ?? selectedUser?.id ?? null;
+    const selectedReceiverLabel =
+      selectedUser?.firstName ?? selectedUser?.username ?? null;
+    const sending = inFlight || sharing || replySending;
+
+    let holdBlockReason: string | null = null;
+    if (!confirmActive) {
+      if (phase !== 'confirming') holdBlockReason = `phase:${phase}`;
+      else if (!selectedUser) holdBlockReason = 'selectedUser-null';
+      else if (banSentSuccess) holdBlockReason = 'banSentSuccess';
+    } else if (sending) {
+      holdBlockReason = 'sending';
+    } else if (!confirmOrb.enterComplete) {
+      holdBlockReason = `enterPhase:${confirmOrb.enterPhase}`;
+    } else if (holdDebug.overlayInputLocked) {
+      holdBlockReason = `overlay-input-lock:${holdDebug.overlayInputLockSource ?? 'unknown'}`;
+    }
+
+    const holdOrbMountBranch: 'confirm' | 'showLobbyOrb' | 'showBootOrb' | 'none' =
+      shouldRenderConfirmHoldOrb
+        ? 'confirm'
+        : showLobbyOrbIdle
+          ? 'showLobbyOrb'
+          : showBootOrbIdle
+            ? 'showBootOrb'
+            : 'none';
+
+    logConfirmRenderState({
+      source: 'InstantBanFlow-confirm-hold-render',
+      phase,
+      screen: confirmActive
+        ? 'confirm-active'
+        : phase === 'confirming'
+          ? 'confirm-phase-partial'
+          : `phase:${phase}`,
+      sendComposePhase: queueDebug.sendComposePhase,
+      confirmActive,
+      orbCompressActive,
+      composeDismissing,
+      selectedReceiverId,
+      selectedReceiverLabel,
+      selectedBanText: trimmedBanText,
+      customTextLen: trimmedBanText.length,
+      durationMinutes,
+      sendStarted,
+      sending,
+      success: banSentSuccess,
+      error: confirmSendError,
+      lowEnergyRedirecting,
+      lowEnergyBlockedSignal,
+      energyLoaded,
+      influencePercent: lobbyInfluencePercent,
+      canLobbySendBan: canLobbySendBan(energyLoaded, lobbyInfluencePercent),
+      replyComposeActive,
+      replySending,
+      inFlight,
+      sharing,
+      banSentSuccess,
+      lobbyBootIntroPrimed,
+      lobbyOrbVisible,
+      showLobbyOrb,
+      showBootOrb,
+      shouldRenderConfirmHoldOrb,
+      queueClaimsNotificationScreen,
+      overlayQueueLength,
+      queueLen: queueDebug.queueLen,
+      pendingLen: queueDebug.pendingLen,
+      statusLabel: confirmOrb.statusLabel,
+      enterPhase: confirmOrb.enterPhase,
+      holdPhase: confirmOrb.holdPhase,
+      enterComplete: confirmOrb.enterComplete,
+      holdButtonDisabled: confirmOrb.buttonDisabled,
+      renderOrbBlockers: confirmStripRenderOrbBlockers,
+      orbMountBlockedReason: confirmStripOrbMountBlockedReason,
+    });
+
+    logConfirmHoldButtonDecision({
+      source: 'InstantBanFlow-confirm-hold-render',
+      willRenderLobbyOrbWrap: showLobbyOrbIdle,
+      willRenderConfirmHoldOrb: shouldRenderConfirmHoldOrb,
+      willRenderBootOrbWrap: showBootOrbIdle,
+      willRenderArenaLobbyOrb:
+        shouldRenderConfirmHoldOrb || showLobbyOrbIdle,
+      willRenderHoldStrip: confirmActive,
+      willRenderHoldTextZazhmi:
+        confirmActive && (confirmOrb.statusLabel?.includes('Зажми') ?? false),
+      holdOrbMountBranch,
+      lobbyOrbVisible,
+      showLobbyOrb,
+      showBootOrb,
+      lobbyBootIntroPrimed,
+      queueClaimsNotificationScreen,
+      renderOrbBlockers: confirmStripRenderOrbBlockers,
+      orbMountBlockedReason: confirmStripOrbMountBlockedReason,
+      confirmActive,
+      persistentLogoVisible,
+      confirmLayoutActive,
+      orbOverlayDim,
+      enterPhase: confirmOrb.enterPhase,
+      holdDisabled: confirmOrb.buttonDisabled,
+      holdBlockReason,
+    });
+
+    if (confirmActive && !shouldRenderConfirmHoldOrb) {
+      logConfirmHoldComponentReturnNull({
+        source: 'InstantBanFlow-confirm-hold-render',
+        reason: 'confirmActive-but-shouldRenderConfirmHoldOrb-false',
+        component: 'LobbyOrbWrap/ArenaLobbyOrb',
+        confirmActive,
+        phase,
+        showLobbyOrb,
+        showBootOrb,
+        lobbyOrbVisible,
+        renderOrbBlockers: confirmStripRenderOrbBlockers,
+        orbMountBlockedReason: confirmStripOrbMountBlockedReason,
+        statusLabel: confirmOrb.statusLabel,
+      });
+    }
+
+    const mountEl = lobbyOrbMountRef.current;
+    requestAnimationFrame(() => {
+      const collected = collectConfirmOrbContainerMeasures(mountEl);
+      logConfirmOrbContainerMeasure({
+        source: 'InstantBanFlow-confirm-hold-render',
+        confirmActive,
+        showLobbyOrb: shouldRenderConfirmHoldOrb || showLobbyOrbIdle,
+        showBootOrb: showBootOrbIdle,
+        lobbyOrbMountRefAttached: mountEl != null,
+        measures: collected.measures,
+        title98PlusCount: collected.title98PlusCount,
+        zeroSizeTitle98Count: collected.zeroSizeTitle98Count,
+      });
+    });
+  }, [
+    banSentSuccess,
+    banText,
+    composeDismissing,
+    confirmActive,
+    confirmLayoutActive,
+    confirmOrb.buttonDisabled,
+    confirmOrb.enterComplete,
+    confirmOrb.enterPhase,
+    confirmOrb.holdPhase,
+    confirmOrb.showOrbFace,
+    confirmOrb.statusLabel,
+    confirmSendError,
+    confirmStripOrbMountBlockedReason,
+    confirmStripRenderOrbBlockers,
+    durationMinutes,
+    energyLoaded,
+    getConfirmHoldDebugSnapshot,
+    getConfirmOrbQueueDebugSnapshot,
+    inFlight,
+    lobbyBootIntroPrimed,
+    lobbyInfluencePercent,
+    lobbyOrbVisible,
+    lowEnergyBlockedSignal,
+    lowEnergyRedirecting,
+    orbCompressActive,
+    orbOverlayDim,
+    overlayQueueLength,
+    persistentLogoVisible,
+    phase,
+    queueClaimsNotificationScreen,
+    replyComposeActive,
+    replySending,
+    selectedUser,
+    sendStarted,
+    sharing,
+    showBootOrb,
+    showLobbyOrb,
+    shouldRenderConfirmHoldOrb,
+    showBootOrbIdle,
+    showLobbyOrbIdle,
+  ]);
 
   const prevConfirmingPhaseRef = useRef(false);
 
@@ -5298,7 +5492,7 @@ export function InstantBanFlow({
     patchZazhmiDomProbeFields({
       phase,
       confirmActive,
-      showLobbyOrb,
+      showLobbyOrb: shouldRenderConfirmHoldOrb || showLobbyOrbIdle,
       lobbyOrbVisible,
       overlayQueueLength,
       queueClaimsNotificationScreen,
@@ -5462,9 +5656,11 @@ export function InstantBanFlow({
 
     const useLobbyRingDisplay = !confirmActive && !orbCompressActive;
     const hideOrbFaceTitle = persistentLogoVisible || useLobbyRingDisplay;
+    const confirmHoldOrbMounted =
+      shouldRenderConfirmHoldOrb || showLobbyOrbIdle;
     const title98Visible =
-      showLobbyOrb && confirmOrb.showOrbFace && !hideOrbFaceTitle;
-    const holdButtonVisible = showLobbyOrb && confirmOrb.showOrbFace;
+      confirmHoldOrbMounted && confirmOrb.showOrbFace && !hideOrbFaceTitle;
+    const holdButtonVisible = confirmHoldOrbMounted && confirmOrb.showOrbFace;
 
     let holdBlockReason: string | null = null;
     if (!confirmActive) {
@@ -5693,24 +5889,33 @@ export function InstantBanFlow({
     sharing,
     showBootOrb,
     showLobbyOrb,
+    shouldRenderConfirmHoldOrb,
+    showLobbyOrbIdle,
     successSnapshot,
   ]);
 
   useLayoutEffect(() => {
     patchBootHandoffDebug({
-      bootSceneVisible: showBootOrb,
-      orbSource: showBootOrb ? 'BootScene' : showLobbyOrb ? 'Lobby' : 'none',
-      orbInstanceId: showBootOrb
+      bootSceneVisible: showBootOrbIdle,
+      orbSource: showBootOrbIdle
+        ? 'BootScene'
+        : shouldRenderConfirmHoldOrb
+          ? 'Confirm'
+          : showLobbyOrbIdle
+            ? 'Lobby'
+            : 'none',
+      orbInstanceId: showBootOrbIdle
         ? bootOrbInstanceId
-        : showLobbyOrb
+        : shouldRenderConfirmHoldOrb || showLobbyOrbIdle
           ? lobbyOrbInstanceId
           : '',
-      launchStage: showBootOrb ? launchStage : 'done',
+      launchStage: showBootOrbIdle ? launchStage : 'done',
       persistentLogoActive: persistentLobbyLogoActive,
     });
   }, [
-    showBootOrb,
-    showLobbyOrb,
+    showBootOrbIdle,
+    showLobbyOrbIdle,
+    shouldRenderConfirmHoldOrb,
     bootOrbInstanceId,
     lobbyOrbInstanceId,
     launchStage,
@@ -5878,7 +6083,7 @@ export function InstantBanFlow({
           />
         ) : null}
 
-        {showBootOrb ? (
+        {showBootOrbIdle ? (
           <LobbyBootOrbWrap
             className="lobby-screen__orb-wrap lobby-screen__orb-root"
             ringScaleActive={bootRingScaleActive}
@@ -5900,18 +6105,40 @@ export function InstantBanFlow({
           </LobbyBootOrbWrap>
         ) : null}
 
-        {showLobbyOrb ? (
+        {shouldRenderConfirmHoldOrb ? (
           <LobbyOrbWrap
             ref={lobbyOrbMountRef}
             data-orb-instance={lobbyOrbInstanceId}
-            className={`lobby-screen__orb-wrap lobby-screen__orb-root${
-              confirmLayoutActive ? ' lobby-screen__orb-wrap--confirm' : ''
-            }${orbOverlayDim ? ' lobby-screen__orb-wrap--overlay-dim' : ''}`}
+            data-confirm-hold-orb
+            className={`lobby-screen__orb-wrap lobby-screen__orb-root lobby-screen__orb-wrap--confirm${
+              orbOverlayDim ? ' lobby-screen__orb-wrap--overlay-dim' : ''
+            }`}
           >
             <ArenaLobbyOrb
               sendPhase={phase}
               confirmActive={confirmActive}
               orbCompressActive={orbCompressActive}
+              confirmOrb={confirmOrb}
+              lobbyRingDisplayPercent={lobbyRingDisplayPercent}
+              suppressOrbFaceTitle={persistentLogoVisible}
+              senderUser={user}
+              selectedUser={selectedUser}
+              banText={banText}
+              durationMinutes={durationMinutes}
+            />
+          </LobbyOrbWrap>
+        ) : showLobbyOrbIdle ? (
+          <LobbyOrbWrap
+            ref={lobbyOrbMountRef}
+            data-orb-instance={lobbyOrbInstanceId}
+            className={`lobby-screen__orb-wrap lobby-screen__orb-root${
+              orbOverlayDim ? ' lobby-screen__orb-wrap--overlay-dim' : ''
+            }`}
+          >
+            <ArenaLobbyOrb
+              sendPhase={phase}
+              confirmActive={false}
+              orbCompressActive={false}
               confirmOrb={confirmOrb}
               lobbyRingDisplayPercent={lobbyRingDisplayPercent}
               suppressOrbFaceTitle={persistentLogoVisible}
@@ -5954,7 +6181,7 @@ export function InstantBanFlow({
                   getConfirmOrbQueueDebugSnapshot().sendComposePhase,
                 confirmActive,
                 statusLabel: confirmOrb.statusLabel,
-                showLobbyOrb,
+                showLobbyOrb: shouldRenderConfirmHoldOrb,
                 lobbyOrbVisible,
                 queueLen: getConfirmOrbQueueDebugSnapshot().queueLen,
                 pendingLen: pendingStartupInteractions,
@@ -5967,7 +6194,7 @@ export function InstantBanFlow({
                 sendComposePhase:
                   getConfirmOrbQueueDebugSnapshot().sendComposePhase,
                 statusLabel: confirmOrb.statusLabel,
-                showLobbyOrb,
+                showLobbyOrb: shouldRenderConfirmHoldOrb,
                 lobbyOrbVisible,
                 queueClaimsNotificationScreen,
                 overlayQueueLength,

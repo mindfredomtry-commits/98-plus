@@ -3,6 +3,7 @@
 import { memo, useEffect, useRef } from 'react';
 import type { FriendCard, UserPublic } from '@98plus/shared';
 import { traceZazhmiRenderSourceDiag } from '@/lib/zazhmi-render-source-debug';
+import { logConfirmHoldComponentMounted } from '@/lib/confirm-hold-render-diag';
 import { InfluenceRing } from '../lobby/InfluenceRing';
 import { LobbyOrbFace } from '../lobby/LobbyOrbFace';
 import { SuccessPayoffReveal } from './SuccessPayoffReveal';
@@ -102,7 +103,20 @@ export function ArenaLobbyOrb({
       confirmActive,
       enterPhase: confirmOrb.enterPhase,
     });
-  }, [sendPhase, confirmActive, confirmOrb.enterPhase]);
+    if (confirmActive) {
+      logConfirmHoldComponentMounted({
+        source: 'ArenaLobbyOrb',
+        component: 'ArenaLobbyOrb',
+        confirmActive,
+        sendPhase,
+        enterPhase: confirmOrb.enterPhase,
+        holdPhase: confirmOrb.holdPhase,
+        showOrbFace,
+        buttonDisabled,
+        orbDebugId: debugIdRef.current,
+      });
+    }
+  }, [sendPhase, confirmActive, confirmOrb.enterPhase, confirmOrb.holdPhase, showOrbFace, buttonDisabled]);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== 'development') return;
