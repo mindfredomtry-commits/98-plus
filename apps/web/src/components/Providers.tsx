@@ -629,6 +629,12 @@ import {
   type ReplyQueueHandoffPhase,
 } from '@/lib/reply-queue-handoff-debug';
 import {
+  isNotificationQueueHandoffDrainSource,
+  logQueueHandoffEmptyLobby,
+  logQueueHandoffFetchResult,
+  logQueueHandoffOpenNext,
+} from '@/lib/queue-handoff-debug';
+import {
   buildActiveParentBanForSuccess,
   hasActiveParentTimerFields,
 } from '@/lib/reply-parent-active-ban';
@@ -1176,6 +1182,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       opts?: ContinueNotificationChainOptions,
     ) => Promise<ContinueNotificationChainOutcome>
   >(async () => 'blocked');
+  const openNextNotificationAfterQueueHandoffRef = useRef<
+    (
+      source: string,
+      opts?: { prefetchIfLocalEmpty?: boolean },
+    ) => Promise<boolean>
+  >(async () => false);
   const handleCheckAnswerChainOutcomeRef = useRef<
     (
       outcome: ContinueNotificationChainOutcome,
@@ -7036,7 +7048,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return 0;
       }
 
-      const explicitLobbyDrain = source.includes('lobby-bans-cta');
+      const explicitLobbyDrain =
+        source.includes('lobby-bans-cta') ||
+        isNotificationQueueHandoffDrainSource(source);
       const skipBanId =
         replyDeeplinkParentBanIdRef.current?.trim() ??
         replyDeepLinkBanIdRef.current?.trim() ??
@@ -7718,6 +7732,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           enqueuedIds,
           indicatorPrimeOnly,
         });
+
+        if (isNotificationQueueHandoffDrainSource(source)) {
+          logQueueHandoffFetchResult({
+            source,
+            phase: 'prefetch-enqueued',
+            queueLen: queueLenAfter,
+            pendingLen: pendingLenAfter,
+            toEnqueueLen: toEnqueue.length,
+          });
+          if (
+            await openNextNotificationAfterQueueHandoffRef.current(source, {
+              prefetchIfLocalEmpty: false,
+            })
+          ) {
+            return true;
+          }
+        }
 
         return true;
       } catch {
@@ -16142,6 +16173,162 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [clearActiveUserCardHold, clearNotificationChainReturnLatch],
   );
 
+  const hasActiveNotificationShellForHandoff = useCallback((): boolean => {
+    if (incomingBanRef.current?.id) return true;
+    if (checkBanRef.current?.id) return true;
+    if (resultRef.current?.id) return true;
+    if (heldUserCardOverlayRef.current) return true;
+    if (directResultOverlayActiveRef.current) return true;
+    if (directResultOverlayRef.current) return true;
+    return false;
+  }, []);
+
+  const openNextNotificationAfterQueueHandoff = useCallback(
+    async (
+      source: string,
+      opts?: { prefetchIfLocalEmpty?: boolean },
+    ): Promise<boolean> => {
+      if (
+        !isNotificationQueueHandoffDrainSource(source) &&
+        !isReplyQueueHandoffSessionActive()
+      ) {
+        return false;
+      }
+
+      clearNotificationChainReplyCompose(`${source}-handoff`);
+      allowDeeplinkExplicitNotificationDrain(source);
+      prepareNotificationChainContinue(source, { clearActiveHold: true });
+      chainAdvanceExplicitRef.current = true;
+      startupInteractionsHoldRef.current = false;
+      notificationChainAwaitingUserRef.current = false;
+      notificationChainHandoffRef.current = false;
+      deepLinkBlockedRef.current = false;
+      if (isNotificationQueueLocked()) {
+        unlockNotificationQueue(`${source}-handoff`);
+      }
+
+      let queueLen = overlayQueueRef.current.length;
+      let pendingLen = pendingStartupInteractionsRef.current.length;
+
+      if (
+        (opts?.prefetchIfLocalEmpty ?? false) &&
+        queueLen === 0 &&
+        pendingLen === 0
+      ) {
+        await prefetchPendingNotificationChain(
+          null,
+          `${source}-handoff-prefetch`,
+        );
+        queueLen = overlayQueueRef.current.length;
+        pendingLen = pendingStartupInteractionsRef.current.length;
+        const pendingHead = pendingStartupInteractionsRef.current[0] ?? null;
+        const headId =
+          pendingHead?.kind === 'result'
+            ? pendingHead.result.id
+            : pendingHead?.kind === 'incoming' || pendingHead?.kind === 'check'
+              ? pendingHead.ban.id
+              : null;
+        logQueueHandoffFetchResult({
+          source,
+          phase: 'handoff-prefetch-complete',
+          queueLen,
+          pendingLen,
+          headId,
+        });
+      }
+
+      const pendingSnapshot = [...pendingStartupInteractionsRef.current];
+      if (pendingSnapshot.length > 0) {
+        const mergedCount = mergePendingSnapshotIntoOverlayQueue(
+          pendingSnapshot,
+          source,
+        );
+        if (mergedCount > 0) {
+          pendingStartupInteractionsRef.current = [];
+          syncPendingStartupCount();
+        } else {
+          mergeStartupIntoOverlayQueueOnly(`${source}-handoff-merge`);
+        }
+      } else if (pendingStartupInteractionsRef.current.length > 0) {
+        mergeStartupIntoOverlayQueueOnly(`${source}-handoff-merge`);
+      }
+
+      queueLen = overlayQueueRef.current.length;
+      pendingLen = pendingStartupInteractionsRef.current.length;
+
+      if (
+        queueLen === 0 &&
+        pendingLen === 0 &&
+        !hasActiveNotificationShellForHandoff()
+      ) {
+        logQueueHandoffEmptyLobby({
+          source,
+          phase: 'drain-empty',
+          queueLen: 0,
+          pendingLen: 0,
+          headId: null,
+        });
+        return false;
+      }
+
+      const tryShowNext = (showSource: string): boolean => {
+        if (!showNextNotificationFromChainSync(showSource)) {
+          return false;
+        }
+        setLobbyOpen(false);
+        lobbyOpenRef.current = false;
+        setBansReturnToLobbyLatch(false, {
+          source: `${showSource}-handoff-open-next`,
+        });
+        setNotificationChainTransitioning(false);
+        setChainAdvanceWaiting(false);
+        const shownHead = overlayQueueRef.current[0] ?? null;
+        const shownHeadId =
+          shownHead?.kind === 'result'
+            ? shownHead.result.id
+            : shownHead?.kind === 'incoming' || shownHead?.kind === 'check'
+              ? shownHead.ban.id
+              : null;
+        logQueueHandoffOpenNext({
+          source: showSource,
+          phase: 'show-next',
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          headId: shownHeadId,
+        });
+        return true;
+      };
+
+      if (tryShowNext(source)) {
+        return true;
+      }
+
+      syncDisplayFromQueue(overlayQueueRef.current);
+      if (tryShowNext(`${source}-retry`)) {
+        return true;
+      }
+
+      return false;
+    },
+    [
+      clearNotificationChainReplyCompose,
+      hasActiveNotificationShellForHandoff,
+      mergePendingSnapshotIntoOverlayQueue,
+      mergeStartupIntoOverlayQueueOnly,
+      prefetchPendingNotificationChain,
+      prepareNotificationChainContinue,
+      setBansReturnToLobbyLatch,
+      setChainAdvanceWaiting,
+      setNotificationChainTransitioning,
+      setLobbyOpen,
+      showNextNotificationFromChainSync,
+      syncDisplayFromQueue,
+      syncPendingStartupCount,
+    ],
+  );
+  openNextNotificationAfterQueueHandoffRef.current =
+    openNextNotificationAfterQueueHandoff;
+
   const continueNotificationChainOrOpenLobbySync = useCallback(
     (
       source: string,
@@ -16649,6 +16836,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         opts?.prefetchSkipBanId ?? null,
         `${source}-prefetch`,
       );
+      if (isNotificationQueueHandoffDrainSource(source)) {
+        logQueueHandoffFetchResult({
+          source,
+          phase: 'continue-after-prefetch',
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+        if (
+          await openNextNotificationAfterQueueHandoff(`${source}-after-prefetch`, {
+            prefetchIfLocalEmpty: false,
+          })
+        ) {
+          return 'show-next';
+        }
+      }
       outcome = continueNotificationChainOrOpenLobbySync(
         `${source}-after-prefetch`,
         {
@@ -16669,6 +16871,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [
       continueNotificationChainOrOpenLobbySync,
       finalizeNotificationChainContinueEmpty,
+      openNextNotificationAfterQueueHandoff,
       prefetchPendingNotificationChain,
       snapshotPendingNotificationChain,
     ],
@@ -17642,49 +17845,110 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const continueOpts: ContinueNotificationChainOptions = {
-      clearActiveHold: true,
-      ...(isReplyQueueHandoffSessionActive()
-        ? { openLobbyIfEmpty: false as const }
-        : {}),
-    };
-
-    void continueNotificationChainOrOpenLobbyRef
-      .current('active-timer-close', continueOpts)
-      .then((outcome) => {
-        const live = buildReplyQueueHandoffLiveSnapshot({
-          handoffBlockedReason: outcome,
-          openedLobbyReason:
-            outcome === 'open-lobby' || outcome === 'open-bans'
-              ? 'active-timer-close'
-              : null,
-        });
-        logReplyQueueHandoffDiagContext(
-          'post-timer-handoff-result',
-          'active-timer-close',
-          live,
-        );
+    void (async () => {
+      if (isReplyQueueHandoffSessionActive()) {
         if (
-          (outcome === 'open-lobby' || outcome === 'open-bans') &&
-          (live.queueLen > 0 || live.pendingLen > 0)
+          await openNextNotificationAfterQueueHandoff('active-timer-close', {
+            prefetchIfLocalEmpty: true,
+          })
         ) {
           logReplyQueueHandoffDiagContext(
-            'lobby-opened-instead-of-drain',
-            'active-timer-close',
+            'post-timer-handoff-result',
+            'active-timer-close-handoff-open-next',
             {
-              ...live,
-              openedLobbyReason: `chain-outcome-${outcome}`,
+              handoffBlockedReason: 'handoff-open-next',
+              handoffShouldResume: true,
             },
           );
+          return;
         }
+
+        const queueLenAfter = overlayQueueRef.current.length;
+        const pendingLenAfter = pendingStartupInteractionsRef.current.length;
+        if (
+          queueLenAfter === 0 &&
+          pendingLenAfter === 0 &&
+          !hasActiveNotificationShellForHandoff()
+        ) {
+          logQueueHandoffEmptyLobby({
+            source: 'active-timer-close',
+            phase: 'handoff-exhausted',
+            queueLen: queueLenAfter,
+            pendingLen: pendingLenAfter,
+          });
+          const outcome = await continueNotificationChainOrOpenLobbyRef.current(
+            'active-timer-close',
+            { clearActiveHold: true, prefetchIfEmpty: false },
+          );
+          const live = buildReplyQueueHandoffLiveSnapshot({
+            handoffBlockedReason: outcome,
+            openedLobbyReason:
+              outcome === 'open-lobby' || outcome === 'open-bans'
+                ? 'active-timer-close'
+                : null,
+          });
+          logReplyQueueHandoffDiagContext(
+            'post-timer-handoff-result',
+            'active-timer-close',
+            live,
+          );
+          return;
+        }
+
+        logReplyQueueHandoffDiagContext(
+          'post-timer-handoff-result',
+          'active-timer-close-handoff-still-pending',
+          buildReplyQueueHandoffLiveSnapshot({
+            handoffBlockedReason: 'handoff-open-next-failed',
+            handoffShouldResume: true,
+          }),
+        );
+        return;
+      }
+
+      const continueOpts: ContinueNotificationChainOptions = {
+        clearActiveHold: true,
+      };
+
+      const outcome = await continueNotificationChainOrOpenLobbyRef.current(
+        'active-timer-close',
+        continueOpts,
+      );
+      const live = buildReplyQueueHandoffLiveSnapshot({
+        handoffBlockedReason: outcome,
+        openedLobbyReason:
+          outcome === 'open-lobby' || outcome === 'open-bans'
+            ? 'active-timer-close'
+            : null,
       });
+      logReplyQueueHandoffDiagContext(
+        'post-timer-handoff-result',
+        'active-timer-close',
+        live,
+      );
+      if (
+        (outcome === 'open-lobby' || outcome === 'open-bans') &&
+        (live.queueLen > 0 || live.pendingLen > 0)
+      ) {
+        logReplyQueueHandoffDiagContext(
+          'lobby-opened-instead-of-drain',
+          'active-timer-close',
+          {
+            ...live,
+            openedLobbyReason: `chain-outcome-${outcome}`,
+          },
+        );
+      }
+    })();
   }, [
     buildReplyQueueHandoffLiveSnapshot,
     clearNotificationChainReplyCompose,
     clearReplyParentActivePriority,
     clearStaleComposeStateBeforeBansNavigation,
+    hasActiveNotificationShellForHandoff,
     logReplyQueueHandoffDiagContext,
     mergeStartupIntoOverlayQueueOnly,
+    openNextNotificationAfterQueueHandoff,
     prepareNotificationChainContinue,
     setBansReturnToLobbyLatch,
     setChainAdvanceWaiting,
