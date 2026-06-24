@@ -62,7 +62,7 @@ const DebugPanel = dynamic(
 );
 
 /** Bump when diagnosing shell / deploy mismatches. */
-const APP_SHELL_BUILD = 'arena-v2@zazhmi-render-source-diag-v52';
+const APP_SHELL_BUILD = 'arena-v2@zazhmi-dom-probe-diag-v53';
 
 export default function HomePage() {
   const {

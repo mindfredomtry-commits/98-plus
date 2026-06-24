@@ -128,6 +128,7 @@ import {
   traceConfirmStripRenderDiag,
 } from '@/lib/confirm-orb-missing-debug';
 import { traceZazhmiRenderSourceDiag } from '@/lib/zazhmi-render-source-debug';
+import { patchZazhmiDomProbeFields } from '@/lib/zazhmi-dom-probe-debug';
 import {
   logConfirmHoldProtectionActive,
   readHoldOwnerRoute,
@@ -5292,6 +5293,17 @@ export function InstantBanFlow({
       successExitDraining,
       confirmActive,
       phase,
+      sendComposePhase: queueState.sendComposePhase,
+    });
+    patchZazhmiDomProbeFields({
+      phase,
+      confirmActive,
+      showLobbyOrb,
+      lobbyOrbVisible,
+      overlayQueueLength,
+      queueClaimsNotificationScreen,
+      queueLen: queueState.queueLen,
+      pendingLen: queueState.pendingLen,
       sendComposePhase: queueState.sendComposePhase,
     });
 

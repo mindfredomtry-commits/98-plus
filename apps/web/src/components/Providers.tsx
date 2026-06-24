@@ -568,6 +568,7 @@ import {
   shouldSkipResultPollDuringActiveCompose,
 } from '@/lib/result-poll-compose-debug';
 import { installOverlayDismissCacheDevHelper } from '@/lib/overlay-dismiss-cache-dev';
+import { installZazhmiDomProbe } from '@/lib/zazhmi-dom-probe-debug';
 import { logResultNav, logResultReply } from '@/lib/result-reply-debug';
 import { resolveResultReplyOpponent } from '@/lib/result-reply-flow';
 import {
@@ -9409,6 +9410,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     friendsRef.current = friends;
     friendsBootstrappedRef.current = friendsBootstrapped;
   }, [friends, friendsBootstrapped]);
+
+  useEffect(() => {
+    installZazhmiDomProbe(() => ({
+      sendComposePhase: sendComposePhaseRef.current,
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      overlayQueueLength: overlayQueueRef.current.length,
+      queueClaimsNotificationScreen:
+        overlayQueueRef.current.length > 0 ||
+        shouldBlockLobbyForActiveQueue(),
+    }));
+  }, []);
 
   /** Owner is confirmed auth user — friends may load later (empty until fetch). */
   useEffect(() => {
