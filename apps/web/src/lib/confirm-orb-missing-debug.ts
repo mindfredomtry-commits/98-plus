@@ -142,3 +142,44 @@ export function resolveOrbMountBlockedReason(input: {
   if (input.holdBlockReason) return input.holdBlockReason;
   return input.mountPrimaryBlocker;
 }
+
+export type ConfirmStripRenderDiagInput = {
+  confirmActive: boolean;
+  phase: string;
+  sendComposePhase: string | null;
+  statusLabel: string | null;
+  showLobbyOrb: boolean;
+  lobbyOrbVisible: boolean;
+  queueClaimsNotificationScreen: boolean;
+  overlayQueueLength: number;
+  pendingLen: number;
+  queueLen: number;
+  hasIncoming: boolean;
+  notificationChainTransitioning: boolean;
+  notificationChainAwaitingUser: boolean;
+  renderOrbBlockers: string[];
+  orbMountBlockedReason: string | null;
+};
+
+let lastConfirmStripRenderDiagSig = '';
+
+/** Render-path diagnostic: call from JSX when confirm strip is painted. */
+export function traceConfirmStripRenderDiag(
+  input: ConfirmStripRenderDiagInput,
+): null {
+  if (
+    !input.confirmActive ||
+    input.statusLabel !== 'Зажми' ||
+    input.showLobbyOrb
+  ) {
+    return null;
+  }
+  const sig = JSON.stringify(input);
+  if (sig === lastConfirmStripRenderDiagSig) return null;
+  lastConfirmStripRenderDiagSig = sig;
+  emit('[CONFIRM ORB MISSING DIAG]', {
+    source: 'confirm-strip-render',
+    ...input,
+  });
+  return null;
+}

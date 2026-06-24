@@ -125,6 +125,7 @@ import {
   buildRenderLobbyOrbBlockers,
   logConfirmOrbMissingDiag,
   resolveOrbMountBlockedReason,
+  traceConfirmStripRenderDiag,
 } from '@/lib/confirm-orb-missing-debug';
 import {
   logConfirmHoldProtectionActive,
@@ -5085,6 +5086,26 @@ export function InstantBanFlow({
 
   const showBootOrb = lobbyOrbVisible && !lobbyBootIntroPrimed;
   const showLobbyOrb = lobbyOrbVisible && lobbyBootIntroPrimed;
+  const confirmStripRenderOrbBlockers = buildRenderLobbyOrbBlockers({
+    replyIncomingDeeplinkPending,
+    checkDeeplinkDirectPending,
+    replyLobbyBlocked,
+    successToActiveLobbyBlocked,
+    overlayHandoffLobbySuppressed,
+    successExitDraining,
+    postSuccessHandoffBlocking,
+    notificationChainTransitioning,
+    queueClaimsNotificationScreen,
+    overlayQueueLength,
+    queueLobbyGuardActive: shouldBlockLobbyForActiveQueue(),
+  });
+  const confirmStripOrbMountBlockedReason = resolveOrbMountBlockedReason({
+    lobbyOrbVisible,
+    showLobbyOrb,
+    lobbyBootIntroPrimed,
+    renderOrbBlockers: confirmStripRenderOrbBlockers,
+    mountPrimaryBlocker: null,
+  });
   const persistentLobbyLogoActive = !confirmActive && !orbCompressActive;
   const persistentLogoVisible =
     persistentLobbyLogoActive && !hideLobbyBootLogoOnly;
@@ -5888,6 +5909,26 @@ export function InstantBanFlow({
             data-enter-phase={confirmOrb.enterPhase}
           >
             <div className="instant-ban-confirm-hold-strip">
+              {traceConfirmStripRenderDiag({
+                confirmActive,
+                phase,
+                sendComposePhase:
+                  getConfirmOrbQueueDebugSnapshot().sendComposePhase,
+                statusLabel: confirmOrb.statusLabel,
+                showLobbyOrb,
+                lobbyOrbVisible,
+                queueClaimsNotificationScreen,
+                overlayQueueLength,
+                pendingLen: pendingStartupInteractions,
+                queueLen: overlayQueueLength,
+                hasIncoming: incomingGateActive,
+                notificationChainTransitioning,
+                notificationChainAwaitingUser:
+                  getConfirmOrbQueueDebugSnapshot()
+                    .notificationChainAwaitingUser,
+                renderOrbBlockers: confirmStripRenderOrbBlockers,
+                orbMountBlockedReason: confirmStripOrbMountBlockedReason,
+              })}
               <p
                 className={`instant-ban-status instant-ban-confirm-enter instant-ban-confirm-enter--5${
                   confirmSendError ? ' instant-ban-status--error' : ''
