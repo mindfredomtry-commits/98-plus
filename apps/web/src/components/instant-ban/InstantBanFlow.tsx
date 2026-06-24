@@ -1,4 +1,7 @@
-'use client';
+import {
+  isReplyQueueHandoffSessionActive,
+  patchReplyQueueHandoffSession,
+} from '@/lib/reply-queue-handoff-debug';
 
 import {
   useCallback,
@@ -413,6 +416,7 @@ export function InstantBanFlow({
     drainNextNotificationAfterSuccess,
     logPostSuccessQueueSnapshotBeforeRelease,
     logPostSuccessReleaseStartupResult,
+    logReplyQueueHandoffDiag,
     logQueueSourceComparisonSnapshot,
     markSessionBanSendSuccess,
     setSendSuccessCardMounted,
@@ -2197,6 +2201,11 @@ export function InstantBanFlow({
   ]);
 
   const resetSendUiForBansCta = useCallback(() => {
+    if (isReplyQueueHandoffSessionActive()) {
+      logReplyQueueHandoffDiag('after-reply-success', 'resetSendUiForBansCta', {
+        handoffBlockedReason: 'reset-send-ui-for-bans-cta',
+      });
+    }
     sendEntryPhaseRef.current = null;
     activeBanRepeatComposeRef.current = false;
     stopCrossScreenAnim();
@@ -2217,7 +2226,7 @@ export function InstantBanFlow({
     sendSnapshotRef.current = null;
     setCtaState('hidden');
     setPhase('idle');
-  }, [setCrossScreenProgressImmediate, stopCrossScreenAnim]);
+  }, [logReplyQueueHandoffDiag, setCrossScreenProgressImmediate, stopCrossScreenAnim]);
 
   useLayoutEffect(() => {
     resetSendUiForBansCtaRef.current = resetSendUiForBansCta;
@@ -2498,6 +2507,11 @@ export function InstantBanFlow({
     });
     logResultTimerGoToBansClick({ banId, source: 'reply-parent-active-timer' });
     markOverlayUserAction('result-timer-go-to-bans', banId ?? undefined);
+    patchReplyQueueHandoffSession({
+      queueLenAfterTimer: overlayQueueLength,
+      pendingLenAfterTimer: pendingStartupInteractions,
+    });
+    logReplyQueueHandoffDiag('timer-card-dismissed', 'active-timer-card-close');
     clearStaleComposeStateBeforeBansNavigation('active-timer-card-close');
     const hasNext = hasPendingNotificationChain();
     logResultTimerDismissContinueQueue({
@@ -2525,6 +2539,7 @@ export function InstantBanFlow({
     clearStaleComposeStateBeforeBansNavigation,
     hasPendingNotificationChain,
     lobbyActiveBanOverlay?.id,
+    logReplyQueueHandoffDiag,
     markOverlayUserAction,
     overlayQueueLength,
     pendingStartupInteractions,
@@ -3086,11 +3101,22 @@ export function InstantBanFlow({
       });
       setBanSentSuccess(true);
       setSendSuccessCardMounted(true, { banId, source: 'open-success' });
+      if (isReplyQueueHandoffSessionActive()) {
+        patchReplyQueueHandoffSession({
+          createdBanId: banId,
+          queueLenAfterSuccess: overlayQueueLength,
+          pendingLenAfterSuccess: pendingStartupInteractions,
+        });
+        logReplyQueueHandoffDiag('after-reply-success', 'openSuccess');
+      }
     },
     [
       clearActiveBanDeepLinkShell,
       haptic,
+      logReplyQueueHandoffDiag,
       markSessionBanSendSuccess,
+      overlayQueueLength,
+      pendingStartupInteractions,
       setSendSuccessCardMounted,
     ],
   );

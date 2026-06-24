@@ -621,6 +621,14 @@ import {
   resolveReplyDeeplinkEntry,
 } from '@/lib/reply-deeplink-guard';
 import {
+  beginReplyQueueHandoffSession,
+  isReplyQueueHandoffSessionActive,
+  logReplyQueueHandoffDiag as emitReplyQueueHandoffDiag,
+  patchReplyQueueHandoffSession,
+  type ReplyQueueHandoffLiveSnapshot,
+  type ReplyQueueHandoffPhase,
+} from '@/lib/reply-queue-handoff-debug';
+import {
   buildActiveParentBanForSuccess,
   hasActiveParentTimerFields,
 } from '@/lib/reply-parent-active-ban';
@@ -978,6 +986,12 @@ interface AppContextValue {
   logPostSuccessQueueSnapshotBeforeRelease: (source: string) => void;
   /** Diagnostics only — post-success queue snapshot after release + unlock. */
   logPostSuccessReleaseStartupResult: (source: string, reason: string) => void;
+  /** Diagnostics only — reply-from-queue handoff through success/timer/chain resume. */
+  logReplyQueueHandoffDiag: (
+    phase: ReplyQueueHandoffPhase,
+    source: string,
+    patch?: Partial<ReplyQueueHandoffLiveSnapshot>,
+  ) => void;
   /** Diagnostics only — compare queue refs across success/lobby/deeplink paths. */
   logQueueSourceComparisonSnapshot: (source: string) => void;
   /** Success card blocks notification overlay sync until user closes it. */
@@ -3058,6 +3072,58 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const buildReplyQueueHandoffLiveSnapshot = useCallback(
+    (
+      patch?: Partial<ReplyQueueHandoffLiveSnapshot>,
+    ): ReplyQueueHandoffLiveSnapshot => {
+      const head = overlayQueueRef.current[0] ?? null;
+      const pendingHead = pendingStartupInteractionsRef.current[0] ?? null;
+      const held = heldUserCardOverlayRef.current;
+      const queueLen = overlayQueueRef.current.length;
+      const pendingLen = pendingStartupInteractionsRef.current.length;
+      return {
+        queueLen,
+        pendingLen,
+        overlayHeadKind: head?.kind ?? null,
+        overlayHeadBanId:
+          head?.kind === 'result'
+            ? head.result.id
+            : head?.kind === 'incoming' || head?.kind === 'check'
+              ? head.ban.id
+              : null,
+        pendingHeadKind: pendingHead?.kind ?? null,
+        pendingHeadBanId:
+          pendingHead?.kind === 'result'
+            ? pendingHead.result.id
+            : pendingHead?.kind === 'incoming' || pendingHead?.kind === 'check'
+              ? pendingHead.ban.id
+              : null,
+        activeUserCardHoldKind: held?.kind ?? null,
+        activeUserCardHoldBanId: held ? heldUserCardBanId(held) : null,
+        resultCardStableHoldBanId: incomingOverboardAtomicBanIdRef.current,
+        notificationChainTransitioning: notificationChainTransitioningRef.current,
+        chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+        ...patch,
+      };
+    },
+    [],
+  );
+
+  const logReplyQueueHandoffDiagContext = useCallback(
+    (
+      phase: ReplyQueueHandoffPhase,
+      source: string,
+      patch?: Partial<ReplyQueueHandoffLiveSnapshot>,
+    ) => {
+      emitReplyQueueHandoffDiag(
+        phase,
+        source,
+        buildReplyQueueHandoffLiveSnapshot(patch),
+      );
+    },
+    [buildReplyQueueHandoffLiveSnapshot],
+  );
+
   const buildIncomingReplyCleanupSnapshot = useCallback(
     (extra?: Record<string, unknown>) => {
       const held = heldUserCardOverlayRef.current;
@@ -3935,6 +4001,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   };
 
   const syncDisplayFromQueue = useCallback((queue: QueuedOverlay[]) => {
+    if (isReplyQueueHandoffSessionActive()) {
+      logReplyQueueHandoffDiagContext(
+        'post-timer-handoff-result',
+        'syncDisplayFromQueue-enter',
+      );
+    }
     const traceSyncDisplayBlocked = (blockReason: string) => {
       traceChainPlaceholderStuckRef.current(
         'sync-display-blocked',
@@ -4961,7 +5033,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ) {
       setNotificationChainTransitioning(false);
     }
-  }, [setNotificationChainTransitioning, snapshotDirectOverboardGate]);
+  }, [setNotificationChainTransitioning, snapshotDirectOverboardGate, logReplyQueueHandoffDiagContext]);
 
   const applyOverlayQueue = useCallback(
     (next: QueuedOverlay[]) => {
@@ -11475,11 +11547,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       markVisibleOverboardTrace('[INCOMING CARD DISMISSED FOR REPLY COMPOSE]', {
         banId,
       });
+      logReplyQueueHandoffDiagContext(
+        'after-reply-compose-dismiss',
+        'dismissIncomingCardForReplyCompose',
+      );
     },
     [
       buildIncomingReplyCleanupSnapshot,
       clearReplyFastSessionAfterAnswer,
       clearActiveIncomingOverlayBanStable,
+      logReplyQueueHandoffDiagContext,
     ],
   );
 
@@ -17469,6 +17546,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const releaseNotificationQueueAfterReplyParentActive = useCallback(() => {
     const hadPriority = replyParentActivePriorityActiveRef.current;
+    patchReplyQueueHandoffSession({
+      queueLenAfterTimer: overlayQueueRef.current.length,
+      pendingLenAfterTimer: pendingStartupInteractionsRef.current.length,
+    });
+    logReplyQueueHandoffDiagContext(
+      'post-timer-handoff-start',
+      'releaseNotificationQueueAfterReplyParentActive',
+    );
     console.log('[active-timer-user-close]', {
       banId: getActiveTimerBanId(),
       hadPriority,
@@ -17488,10 +17573,126 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       unlockNotificationQueue('notification-queue-release-after-parent-active');
     }
 
-    void continueNotificationChainOrOpenLobbyRef.current('active-timer-close', {
+    const resumeReplyQueueAfterParentActiveTimerClose = (): boolean => {
+      if (!isReplyQueueHandoffSessionActive()) return false;
+
+      const queueLen = overlayQueueRef.current.length;
+      const pendingLen = pendingStartupInteractionsRef.current.length;
+      if (queueLen === 0 && pendingLen === 0) return false;
+
+      clearNotificationChainReplyCompose('active-timer-close-reply-queue-resume');
+      chainAdvanceExplicitRef.current = true;
+      startupInteractionsHoldRef.current = false;
+      notificationChainAwaitingUserRef.current = false;
+      notificationChainHandoffRef.current = false;
+      deepLinkBlockedRef.current = false;
+
+      if (isNotificationQueueLocked()) {
+        unlockNotificationQueue('active-timer-close-reply-queue-resume');
+      }
+
+      prepareNotificationChainContinue('active-timer-close', {
+        clearActiveHold: true,
+      });
+
+      if (pendingStartupInteractionsRef.current.length > 0) {
+        mergeStartupIntoOverlayQueueOnly('active-timer-close-reply-queue-resume');
+      }
+
+      const tryShowNext = (source: string): boolean => {
+        if (!showNextNotificationFromChainSync(source)) {
+          return false;
+        }
+        setLobbyOpen(false);
+        lobbyOpenRef.current = false;
+        setBansReturnToLobbyLatch(false, {
+          source: 'active-timer-close-reply-queue-resume',
+        });
+        setNotificationChainTransitioning(false);
+        setChainAdvanceWaiting(false);
+        return true;
+      };
+
+      if (tryShowNext('active-timer-close')) {
+        logReplyQueueHandoffDiagContext(
+          'post-timer-handoff-result',
+          'active-timer-close-direct-drain',
+          { handoffBlockedReason: 'show-next', handoffShouldResume: true },
+        );
+        return true;
+      }
+
+      syncDisplayFromQueue(overlayQueueRef.current);
+      if (tryShowNext('active-timer-close-retry')) {
+        logReplyQueueHandoffDiagContext(
+          'post-timer-handoff-result',
+          'active-timer-close-retry-drain',
+          {
+            handoffBlockedReason: 'show-next-retry',
+            handoffShouldResume: true,
+          },
+        );
+        return true;
+      }
+
+      return false;
+    };
+
+    if (resumeReplyQueueAfterParentActiveTimerClose()) {
+      return;
+    }
+
+    const continueOpts: ContinueNotificationChainOptions = {
       clearActiveHold: true,
-    });
-  }, [clearReplyParentActivePriority, clearStaleComposeStateBeforeBansNavigation]);
+      ...(isReplyQueueHandoffSessionActive()
+        ? { openLobbyIfEmpty: false as const }
+        : {}),
+    };
+
+    void continueNotificationChainOrOpenLobbyRef
+      .current('active-timer-close', continueOpts)
+      .then((outcome) => {
+        const live = buildReplyQueueHandoffLiveSnapshot({
+          handoffBlockedReason: outcome,
+          openedLobbyReason:
+            outcome === 'open-lobby' || outcome === 'open-bans'
+              ? 'active-timer-close'
+              : null,
+        });
+        logReplyQueueHandoffDiagContext(
+          'post-timer-handoff-result',
+          'active-timer-close',
+          live,
+        );
+        if (
+          (outcome === 'open-lobby' || outcome === 'open-bans') &&
+          (live.queueLen > 0 || live.pendingLen > 0)
+        ) {
+          logReplyQueueHandoffDiagContext(
+            'lobby-opened-instead-of-drain',
+            'active-timer-close',
+            {
+              ...live,
+              openedLobbyReason: `chain-outcome-${outcome}`,
+            },
+          );
+        }
+      });
+  }, [
+    buildReplyQueueHandoffLiveSnapshot,
+    clearNotificationChainReplyCompose,
+    clearReplyParentActivePriority,
+    clearStaleComposeStateBeforeBansNavigation,
+    logReplyQueueHandoffDiagContext,
+    mergeStartupIntoOverlayQueueOnly,
+    prepareNotificationChainContinue,
+    setBansReturnToLobbyLatch,
+    setChainAdvanceWaiting,
+    setNotificationChainTransitioning,
+    setLobbyOpen,
+    showNextNotificationFromChainSync,
+    syncDisplayFromQueue,
+  ]);
 
   const markReplyParentActivePriorityShown = useCallback((parentBanId: string) => {
     replyParentActivePriorityPendingRef.current = false;
@@ -17503,7 +17704,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       parentBanId,
       baseScreen: 'lobby',
     });
-  }, [prefetchPendingNotificationChain]);
+    logReplyQueueHandoffDiagContext('timer-card-mounted', 'markReplyParentActivePriorityShown', {
+      handoffBlockedReason: 'reply-parent-active-timer-shown',
+    });
+  }, [logReplyQueueHandoffDiagContext, prefetchPendingNotificationChain]);
 
   const finalizeResultForGoToBans = useCallback(
     (banId: string) => {
@@ -17928,6 +18132,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const banId = ban.id;
       const senderId = ban.sender?.id ?? null;
       const viewerId = userIdRef.current?.trim() ?? null;
+      const queueLenBeforeReply = overlayQueueRef.current.length;
+      const pendingLenBeforeReply = pendingStartupInteractionsRef.current.length;
+      const replyFromQueue =
+        notificationChainAwaitingUserRef.current ||
+        notificationChainHandoffRef.current ||
+        queueLenBeforeReply > 0 ||
+        pendingLenBeforeReply > 0 ||
+        heldUserCardOverlayRef.current?.kind === 'incoming';
+      beginReplyQueueHandoffSession({
+        replyBanId: banId,
+        replyFromQueue,
+        queueLenBeforeReply,
+        pendingLenBeforeReply,
+      });
+      logReplyQueueHandoffDiagContext('before-reply-compose', 'incoming-reply-click');
       logIncomingReplyActionStart({ banId, senderId, viewerId });
       abortPostSuccessHandoffForReplyCompose('incoming-reply-click', banId, {
         pendingLen: pendingStartupInteractionsRef.current.length,
@@ -18146,6 +18365,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       buildIncomingReplyCleanupSnapshot,
       clearBansOverlayNavigationIntent,
       dismissIncomingCardForReplyCompose,
+      logReplyQueueHandoffDiagContext,
       releaseIncomingOverlayForReplyCompose,
       startIncomingReply,
       storeAcceptedParentActiveBan,
@@ -19047,6 +19267,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       stackHint: 'openLobby',
       ...snapshot,
     });
+    if (isReplyQueueHandoffSessionActive()) {
+      const queueLen = overlayQueueRef.current.length;
+      const pendingLen = pendingStartupInteractionsRef.current.length;
+      if (queueLen > 0 || pendingLen > 0) {
+        logReplyQueueHandoffDiagContext('lobby-opened-instead-of-drain', source ?? 'openLobby', {
+          openedLobbyReason: source ?? 'openLobby',
+        });
+      }
+    }
     setLobbyOpen(true);
     lobbyOpenRef.current = true;
     lobbyShownLoggedRef.current = false;
@@ -19055,7 +19284,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       source: source ?? 'default',
       lobbyOpen: true,
     });
-  }, [getNotificationChainDebugSnapshot]);
+  }, [getNotificationChainDebugSnapshot, logReplyQueueHandoffDiagContext]);
 
   useLayoutEffect(() => {
     openLobbyRef.current = openLobby;
@@ -21978,6 +22207,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       getConfirmOrbQueueDebugSnapshot,
       logPostSuccessQueueSnapshotBeforeRelease,
       logPostSuccessReleaseStartupResult,
+      logReplyQueueHandoffDiag: logReplyQueueHandoffDiagContext,
       logQueueSourceComparisonSnapshot: logQueueSourceComparisonSnapshotContext,
       setSendSuccessCardMounted,
     }),
@@ -22162,6 +22392,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       getConfirmOrbQueueDebugSnapshot,
       logPostSuccessQueueSnapshotBeforeRelease,
       logPostSuccessReleaseStartupResult,
+      logReplyQueueHandoffDiagContext,
       logQueueSourceComparisonSnapshotContext,
       replyDeeplinkFastShell,
       abortReplyDeepLinkFast,

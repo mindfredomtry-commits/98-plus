@@ -39,6 +39,7 @@ const NOTIFICATION_QUEUE_DRAIN_SOURCES = [
   'manual flush from lobby button',
   'drainNextNotificationAfterSuccess',
   'releaseStartupInteractions',
+  'active-timer-close',
 ] as const;
 
 let mode: DeeplinkSingleCardMode | null = null;

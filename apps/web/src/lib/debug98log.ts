@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 34;
+export const DEBUG98_LOGGER_VERSION = 37;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -129,6 +129,7 @@ const ALLOWED_EVENTS = new Set([
   '[INCOMING REPLY CLEAR ACTIVE HOLD]',
   '[INCOMING REPLY OVERLAY CLOSED]',
   '[INCOMING REPLY FLOW START]',
+  '[REPLY QUEUE HANDOFF DIAG]',
   '[CONFIRM HOLD RENDER CHECK]',
   '[CONFIRM HOLD RETURN NULL]',
   '[BEGIN COMPOSING REPLY STATE]',
