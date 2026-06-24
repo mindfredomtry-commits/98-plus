@@ -121,6 +121,10 @@ import {
   logPostSuccessHandoffStillActiveDuringReply,
   logQueueStateDuringConfirm,
 } from '@/lib/confirm-hold-render-debug';
+import {
+  logConfirmHoldProtectionActive,
+  readHoldOwnerRoute,
+} from '@/lib/hold-owner-debug';
 import { patchConfirmOrbDebugSnapshot } from '@/lib/confirm-orb-snapshot-debug';
 import { logActiveBanDeeplink } from '@/lib/active-ban-deeplink-debug';
 import {
@@ -5394,6 +5398,23 @@ export function InstantBanFlow({
 
     logConfirmHoldRenderCheck(payload);
 
+    if (confirmActive || phase === 'confirming') {
+      const queueDebug = getConfirmOrbQueueDebugSnapshot();
+      logConfirmHoldProtectionActive({
+        route: readHoldOwnerRoute(),
+        screen: `compose:${phase}`,
+        queueLen: queueDebug.queueLen,
+        pendingLen: queueDebug.pendingLen,
+        hasConfirmHoldButton: holdButtonVisible,
+        selectedReplyBanId:
+          getPinnedReplyToBanId() ?? incomingReplyBanId ?? replyToBanId ?? null,
+        owner: 'confirm-hold-protection',
+        kind: holdDebug.activeUserCardHold,
+        banId: holdDebug.activeUserCardHoldBanId,
+        reason: holdBlockReason ?? 'confirm-hold-layout-active',
+      });
+    }
+
     if ((confirmActive || phase === 'confirming') && !title98Visible) {
       logConfirmHoldReturnNull({
         reason: buildConfirmHoldNullReason({
@@ -5423,6 +5444,7 @@ export function InstantBanFlow({
     deepLinkReplyBan?.id,
     durationMinutes,
     getConfirmHoldDebugSnapshot,
+    getConfirmOrbQueueDebugSnapshot,
     getPinnedReplyToBanId,
     incomingGateActive,
     incomingReplyBanId,

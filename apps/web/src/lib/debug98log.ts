@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 43;
+export const DEBUG98_LOGGER_VERSION = 44;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -307,6 +307,10 @@ const ALLOWED_EVENTS = new Set([
   '[ACTIVE HOLD BLOCK DIAG]',
   '[NO CONNECTION FALLBACK RENDERED]',
   '[CONNECTION STATE CHANGE]',
+  '[HOLD OWNER SET]',
+  '[HOLD OWNER BLOCK]',
+  '[CONFIRM HOLD PROTECTION ACTIVE]',
+  '[QUEUE HOLD ACTIVE]',
   '[QUEUE DISPLAY ATTEMPT DIAG]',
   '[ACTIVE USER CARD PREVENT LOBBY FALLBACK]',
   '[ACTIVE USER CARD PREVENT OVERLAY CLEAR]',

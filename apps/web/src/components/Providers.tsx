@@ -517,6 +517,16 @@ import {
   patchQueueDisplayDiagSnapshot,
 } from '@/lib/active-hold-diag-debug';
 import {
+  buildHoldOwnerScreenLabel,
+  inferHoldOwner,
+  logConfirmHoldProtectionActive,
+  logHoldOwnerBlock,
+  logHoldOwnerSet,
+  logQueueHoldActive,
+  readHoldOwnerRoute,
+  type HoldOwnerScreenContext,
+} from '@/lib/hold-owner-debug';
+import {
   logConfirmBlockedByActiveUserCardBug,
   logConfirmEnterNotificationGuardClear,
   logIncomingReplyActionStart,
@@ -1705,6 +1715,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     );
   }
 
+  const buildHoldOwnerScreenContext = (): HoldOwnerScreenContext => {
+    const held = heldUserCardOverlayRef.current;
+    const overlayKind =
+      held?.kind ??
+      (incomingBanRef.current?.id
+        ? 'incoming'
+        : checkBanRef.current?.id
+          ? 'check'
+          : resultRef.current?.id
+            ? 'result'
+            : null);
+    return {
+      route: readHoldOwnerRoute(),
+      screen: buildHoldOwnerScreenLabel({
+        sendComposePhase: sendComposePhaseRef.current,
+        activeOverlayKind: overlayKind,
+        replyComposeActive: replyComposeActiveRef.current,
+        lobbyOpen: lobbyOpenRef.current,
+        notificationChainAwaitingUser: notificationChainAwaitingUserRef.current,
+      }),
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+    };
+  };
+
   function clearNotificationChainTransitioningInline(): void {
     if (!notificationChainTransitioningRef.current) return;
     notificationChainTransitioningRef.current = false;
@@ -1830,6 +1865,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           heldKind: held?.kind ?? null,
           heldBanId,
           awaitingUser: notificationChainAwaitingUserRef.current,
+        });
+        logConfirmHoldProtectionActive({
+          ...buildHoldOwnerScreenContext(),
+          hasConfirmHoldButton: true,
+          selectedReplyBanId: parentBanId || null,
+          owner: 'confirm-hold-protection',
+          kind: held?.kind ?? null,
+          banId: heldBanId,
+          reason: staleIncomingHold
+            ? 'confirm-enter-stale-incoming-hold-cleared'
+            : held != null
+              ? 'confirm-enter-clear-queue-held'
+              : 'confirm-enter-no-prior-held',
         });
         const stillHeld = heldUserCardOverlayRef.current;
         if (
@@ -2582,6 +2630,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       bootVisible: snap.bootVisible,
       errorFallbackVisible: snap.errorFallbackVisible,
     });
+    logHoldOwnerSet({
+      ...buildHoldOwnerScreenContext(),
+      owner: inferHoldOwner(source, {
+        kind,
+        composePhase: sendComposePhaseRef.current,
+        replyComposeActive: replyComposeActiveRef.current,
+      }),
+      source,
+      kind,
+      banId,
+      reason,
+    });
   };
 
   const blockOverlayReplaceWithoutUserAction = (
@@ -2620,6 +2680,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       nextBanId,
     });
     logActiveHoldBlockDiagForActive(source, active, nextKind, nextBanId);
+    logHoldOwnerBlock({
+      ...buildHoldOwnerScreenContext(),
+      owner: inferHoldOwner(source, {
+        kind: active.kind,
+        composePhase: sendComposePhaseRef.current,
+        replyComposeActive: replyComposeActiveRef.current,
+      }),
+      source,
+      kind: active.kind,
+      banId: active.banId,
+      requestedNextKind: nextKind,
+      requestedNextBanId: nextBanId,
+      reason: 'block-overlay-replace-without-user-action',
+    });
     logChainAdvanceBlockedActiveUserCard({
       activeKind: active.kind,
       activeBanId: active.banId,
@@ -2715,6 +2789,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source: logSource,
         heldKind: guardCtx.heldKind,
         heldBanId: guardCtx.heldBanId,
+      });
+      logQueueHoldActive({
+        ...buildHoldOwnerScreenContext(),
+        activeKind: guardCtx.heldKind,
+        activeBanId: guardCtx.heldBanId,
+        owner: 'result-shell-guard',
+        source: logSource,
+        reason: 'passive-result-blocked-over-held-incoming-check',
       });
     }
     return blocked;
@@ -3693,6 +3775,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
     }
     restoreHeldUserCardOverlay(source);
+    if (active) {
+      logHoldOwnerBlock({
+        ...buildHoldOwnerScreenContext(),
+        owner: inferHoldOwner(source, {
+          kind: active.kind,
+          composePhase: sendComposePhaseRef.current,
+          replyComposeActive: replyComposeActiveRef.current,
+        }),
+        source,
+        kind: active.kind,
+        banId: active.banId,
+        requestedNextKind: nextHead?.kind ?? null,
+        requestedNextBanId: nextHead ? overlayItemBanId(nextHead) : null,
+        reason: blockReplace ? 'block-and-preserve-replace' : 'block-and-preserve-clear',
+      });
+    }
     return true;
   };
 
@@ -4557,6 +4655,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         !held ||
         active.kind !== held.kind ||
         normalizeId(headBanId) !== normalizeId(heldBanId);
+      logQueueHoldActive({
+        ...buildHoldOwnerScreenContext(),
+        activeKind: held?.kind ?? null,
+        activeBanId: heldBanId,
+        owner: inferHoldOwner('syncDisplayFromQueue-early-hold', {
+          kind: held?.kind ?? null,
+        }),
+        source: 'syncDisplayFromQueue-early-hold',
+        reason: headDiverges
+          ? 'head-diverges-from-held'
+          : 'held-matches-queue-head',
+      });
       if (
         headDiverges &&
         blockAndPreserveActiveUserCard('syncDisplayFromQueue-early-hold', active, {
