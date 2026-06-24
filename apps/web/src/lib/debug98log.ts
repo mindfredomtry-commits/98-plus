@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 39;
+export const DEBUG98_LOGGER_VERSION = 40;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -299,6 +299,9 @@ const ALLOWED_EVENTS = new Set([
   '[ACTIVE USER CARD PRESERVE CURRENT]',
   '[ACTIVE USER CARD BLOCKED NEXT BUT KEPT CURRENT]',
   '[ACTIVE USER CARD LOST BUG]',
+  '[ACTIVE USER CARD STALE LOCK CLEARED]',
+  '[CHAIN ADVANCE AFTER STALE ACTIVE CLEAR]',
+  '[ACTIVE USER CARD BLOCK VALID]',
   '[ACTIVE USER CARD PREVENT LOBBY FALLBACK]',
   '[ACTIVE USER CARD PREVENT OVERLAY CLEAR]',
   '[TRANSITION DELAY SKIPPED ACTIVE USER CARD]',

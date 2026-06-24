@@ -488,18 +488,23 @@ import {
   heldUserCardBanId,
   isBlockingUserOverlayKind,
   logActiveUserCardBlockedNextButKeptCurrent,
+  logActiveUserCardBlockValid,
   logActiveUserCardHold,
   logActiveUserCardLostBug,
   logActiveUserCardPreserveCurrent,
   logActiveUserCardPreventLobbyFallback,
   logActiveUserCardPreventOverlayClear,
+  logActiveUserCardStaleLockCleared,
+  logChainAdvanceAfterStaleActiveClear,
   logChainAdvanceBlockedActiveUserCard,
   logChainLookaheadOnlyActiveUserCard,
   logIncomingReplacedBug,
   logTransitionDelaySkippedActiveUserCard,
+  isActiveUserCardActuallyVisible,
   overlayItemBanId,
   shouldBlockChainAdvanceOverActiveUserCard,
   shouldBlockOverlayClearWhileUserCardHeld,
+  type ActiveBlockingUserOverlay,
   type BlockingUserOverlayKind,
   type HeldUserCardOverlay,
 } from '@/lib/overlay-user-card-guard';
@@ -1418,6 +1423,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   /** Result pending first show after user answered check-card in this session. */
   const checkAnswerPendingResultShowRef = useRef<Set<string>>(new Set());
   const resultOverlayRenderedBanIdsRef = useRef<Set<string>>(new Set());
+  const visibleUserCardOverlayRef = useRef<ActiveBlockingUserOverlay | null>(
+    null,
+  );
   /** submitCheckAnswer owns empty-queue continue — skip dismiss microtask duplicate. */
   const checkAnswerDismissChainOwnedRef = useRef(false);
   const checkAnswerWaitingResultHoldBanIdRef = useRef<string | null>(null);
@@ -2312,11 +2320,182 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return getActiveMountedUserCard();
   };
 
+  const buildActiveUserCardVisibilityContext = (
+    active: ActiveBlockingUserOverlay,
+  ) => {
+    const held = heldUserCardOverlayRef.current;
+    const banId = normalizeId(active.banId);
+    return {
+      active,
+      incomingBanId: incomingBanRef.current?.id ?? null,
+      checkBanId: checkBanRef.current?.id ?? null,
+      resultBanId: resultRef.current?.id ?? null,
+      visibleOverlay: visibleUserCardOverlayRef.current,
+      heldKind: held?.kind ?? null,
+      heldBanId: held ? heldUserCardBanId(held) : null,
+      awaitingUser: notificationChainAwaitingUserRef.current,
+      activeTimerVisible: activeBanCardVisibleRef.current,
+      replyParentActivePriority: replyParentActivePriorityActiveRef.current,
+      activeTimerBanId: getActiveTimerBanId(),
+      atomicOverboardBanId: incomingOverboardAtomicBanIdRef.current,
+      resultConsumed:
+        active.kind === 'result' &&
+        banId.length > 0 &&
+        resultCtaConsumedBanIdsRef.current.has(banId),
+      chainHandoff: notificationChainHandoffRef.current,
+      chainTransitioning: notificationChainTransitioningRef.current,
+    };
+  };
+
+  const clearStaleOverlayRefsForActive = (
+    active: ActiveBlockingUserOverlay,
+    source: string,
+  ) => {
+    const banId = normalizeId(active.banId);
+    if (!banId) return;
+    if (
+      active.kind === 'incoming' &&
+      normalizeId(incomingBanRef.current?.id ?? '') === banId
+    ) {
+      if (
+        !blockClearActiveIncomingOverlayBan(
+          banId,
+          `clearStaleOverlayRefsForActive:${source}`,
+        )
+      ) {
+        incomingBanRef.current = null;
+        setIncomingBan(null);
+      }
+    }
+    if (
+      active.kind === 'check' &&
+      normalizeId(checkBanRef.current?.id ?? '') === banId
+    ) {
+      checkBanRef.current = null;
+      setCheckBan(null);
+    }
+    if (
+      active.kind === 'result' &&
+      normalizeId(resultRef.current?.id ?? '') === banId
+    ) {
+      if (incomingOverboardAtomicBanIdRef.current === banId) {
+        return;
+      }
+      resultRef.current = null;
+      setResult(null);
+      resultOpenRef.current = false;
+      resultOverlayRenderedBanIdsRef.current.delete(banId);
+      emitResultClearCallsite({
+        source: `clearStaleOverlayRefsForActive:${source}`,
+        reason: 'stale-active-user-card-lock',
+        resultIdBefore: banId,
+        willClearResult: true,
+      });
+    }
+    const visible = visibleUserCardOverlayRef.current;
+    if (
+      visible &&
+      visible.kind === active.kind &&
+      normalizeId(visible.banId) === banId
+    ) {
+      visibleUserCardOverlayRef.current = null;
+    }
+  };
+
+  const tryClearStaleActiveUserCardLock = (
+    source: string,
+    nextHead?: QueuedOverlay | null,
+  ): boolean => {
+    const queueLen = overlayQueueRef.current.length;
+    const pendingLen = pendingStartupInteractionsRef.current.length;
+    if (queueLen === 0 && pendingLen === 0) return false;
+
+    if (isSuccessCardMounted()) return false;
+    if (isActiveTimerOverlayMounted() && activeBanCardVisibleRef.current) {
+      return false;
+    }
+
+    if (isActiveUserCardHold() && !getActiveUserCardForGuard()) {
+      const held = heldUserCardOverlayRef.current;
+      logActiveUserCardStaleLockCleared({
+        source,
+        activeKind: held?.kind ?? null,
+        activeBanId: held ? heldUserCardBanId(held) : null,
+        queueLen,
+        pendingLen,
+        hasShell: false,
+        hasOverlay: false,
+        reason: 'orphan-hold-without-active',
+        nextKind: nextHead?.kind ?? null,
+        nextBanId: nextHead ? overlayItemBanId(nextHead) : null,
+      });
+      clearActiveUserCardHold(`stale-orphan-hold:${source}`);
+      logChainAdvanceAfterStaleActiveClear({
+        source,
+        queueLen,
+        pendingLen,
+        activeKind: held?.kind ?? null,
+        activeBanId: held ? heldUserCardBanId(held) : null,
+      });
+      return true;
+    }
+
+    const active = getActiveUserCardForGuard();
+    if (!active) return false;
+
+    const visibility = isActiveUserCardActuallyVisible(
+      buildActiveUserCardVisibilityContext(active),
+    );
+
+    if (visibility.visible) {
+      logActiveUserCardBlockValid({
+        source,
+        activeKind: active.kind,
+        activeBanId: active.banId,
+        queueLen,
+        pendingLen,
+        hasShell: visibility.hasShell,
+        hasOverlay: visibility.hasOverlay,
+        nextKind: nextHead?.kind ?? null,
+        nextBanId: nextHead ? overlayItemBanId(nextHead) : null,
+      });
+      return false;
+    }
+
+    logActiveUserCardStaleLockCleared({
+      source,
+      activeKind: active.kind,
+      activeBanId: active.banId,
+      queueLen,
+      pendingLen,
+      hasShell: visibility.hasShell,
+      hasOverlay: visibility.hasOverlay,
+      reason: 'active-card-not-visible',
+      nextKind: nextHead?.kind ?? null,
+      nextBanId: nextHead ? overlayItemBanId(nextHead) : null,
+    });
+    clearActiveUserCardHold(`stale-active-lock:${source}`);
+    clearStaleOverlayRefsForActive(active, source);
+    logChainAdvanceAfterStaleActiveClear({
+      source,
+      queueLen,
+      pendingLen,
+      activeKind: active.kind,
+      activeBanId: active.banId,
+      nextKind: nextHead?.kind ?? null,
+      nextBanId: nextHead ? overlayItemBanId(nextHead) : null,
+    });
+    return true;
+  };
+
   const blockOverlayReplaceWithoutUserAction = (
     source: string,
     nextHead: QueuedOverlay | null,
     opts?: { explicitUserAction?: boolean },
   ): boolean => {
+    if (tryClearStaleActiveUserCardLock(source, nextHead)) {
+      return false;
+    }
     const active = getActiveUserCardForGuard();
     if (!active) return false;
     const nextKind = nextHead?.kind ?? null;
@@ -2326,6 +2505,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ) {
       return false;
     }
+    const visibility = isActiveUserCardActuallyVisible(
+      buildActiveUserCardVisibilityContext(active),
+    );
+    if (!visibility.visible) {
+      tryClearStaleActiveUserCardLock(source, nextHead);
+      return false;
+    }
+    logActiveUserCardBlockValid({
+      source,
+      activeKind: active.kind,
+      activeBanId: active.banId,
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      hasShell: visibility.hasShell,
+      hasOverlay: visibility.hasOverlay,
+      nextKind,
+      nextBanId,
+    });
     logChainAdvanceBlockedActiveUserCard({
       activeKind: active.kind,
       activeBanId: active.banId,
@@ -2926,6 +3123,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     heldUserCardOverlayRef.current = null;
     setHeldUserCardOverlay(null);
     notificationChainAwaitingUserRef.current = false;
+    visibleUserCardOverlayRef.current = null;
     console.log('[active-user-card-hold-clear]', { source });
     if (wasCheckHold) {
       traceCheckCardHoldLifecycle('hold-cleared', {
@@ -3244,6 +3442,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
           reason: 'hold-missing',
         });
+        if (
+          overlayQueueRef.current.length > 0 ||
+          pendingStartupInteractionsRef.current.length > 0
+        ) {
+          tryClearStaleActiveUserCardLock(source);
+        }
       }
       return false;
     }
@@ -3320,6 +3524,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     opts?: { explicitUserAction?: boolean },
   ): boolean => {
     if (isReplyComposeBlockingNotificationGuards()) {
+      return false;
+    }
+    if (tryClearStaleActiveUserCardLock(source, nextHead)) {
       return false;
     }
     const held = heldUserCardOverlayRef.current;
@@ -4060,6 +4267,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
     };
     const headAtEnter = queue[0] ?? null;
+    if (
+      queue.length > 0 ||
+      pendingStartupInteractionsRef.current.length > 0
+    ) {
+      tryClearStaleActiveUserCardLock('syncDisplayFromQueue', headAtEnter);
+    }
     if (headAtEnter?.kind === 'incoming') {
       logChainHeadSwitchTrace(
         'syncDisplayFromQueue:enter',
@@ -5293,6 +5506,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const delayFromAction = overlayDelayMs(overlayActionTsRef.current);
       const delayFromHandoff = overlayDelayMs(overlayHandoffTsRef.current);
       if (isBlockingUserOverlayKind(kind) && buttonsReady) {
+        visibleUserCardOverlayRef.current = {
+          kind: kind as BlockingUserOverlayKind,
+          banId: normalizeId(banId),
+        };
         captureActiveUserCardHold(kind as BlockingUserOverlayKind, 'card-mounted');
         if (
           kind === 'check' &&
@@ -15281,6 +15498,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return false;
       }
+      tryClearStaleActiveUserCardLock(source);
       if (
         notificationChainAwaitingUserRef.current &&
         (hasActiveNotificationOverlayMounted() || isActiveUserCardHold())
@@ -15305,7 +15523,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
           ...getNotificationChainDebugSnapshot(),
         });
-        return true;
+        const queueHead = overlayQueueRef.current[0] ?? null;
+        if (tryClearStaleActiveUserCardLock(source, queueHead)) {
+          return false;
+        }
+        return false;
       }
       if (isNotificationChainPausedForReply()) {
         console.log('[chain-reply-block-next-notification]', {
@@ -17792,6 +18014,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     clearStaleComposeStateBeforeBansNavigation('active-timer-close');
     clearReplyParentActivePriority('queue-release');
     activeBanCardVisibleRef.current = false;
+    visibleUserCardOverlayRef.current = null;
     setActiveBanCardReady(false);
     activeBanDeepLinkBanIdRef.current = null;
     setActiveBanDeepLinkBanId(null);

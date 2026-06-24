@@ -125,3 +125,107 @@ export function logTransitionDelaySkippedActiveUserCard(
 ): void {
   window.__debug98log?.('[TRANSITION DELAY SKIPPED ACTIVE USER CARD]', data);
 }
+
+export type ActiveUserCardVisibilityContext = {
+  active: ActiveBlockingUserOverlay;
+  incomingBanId?: string | null;
+  checkBanId?: string | null;
+  resultBanId?: string | null;
+  visibleOverlay?: ActiveBlockingUserOverlay | null;
+  heldKind?: string | null;
+  heldBanId?: string | null;
+  awaitingUser?: boolean;
+  activeTimerVisible?: boolean;
+  replyParentActivePriority?: boolean;
+  activeTimerBanId?: string | null;
+  atomicOverboardBanId?: string | null;
+  resultConsumed?: boolean;
+  chainHandoff?: boolean;
+  chainTransitioning?: boolean;
+};
+
+export function isActiveUserCardActuallyVisible(
+  ctx: ActiveUserCardVisibilityContext,
+): { visible: boolean; hasShell: boolean; hasOverlay: boolean } {
+  const active = ctx.active;
+  const banId = normalizeId(active.banId);
+  if (!banId) {
+    return { visible: false, hasShell: false, hasOverlay: false };
+  }
+
+  if (ctx.resultConsumed) {
+    const hasOverlay =
+      (active.kind === 'incoming' &&
+        normalizeId(ctx.incomingBanId ?? '') === banId) ||
+      (active.kind === 'check' && normalizeId(ctx.checkBanId ?? '') === banId) ||
+      (active.kind === 'result' && normalizeId(ctx.resultBanId ?? '') === banId);
+    return { visible: false, hasShell: false, hasOverlay };
+  }
+
+  if (ctx.atomicOverboardBanId && normalizeId(ctx.atomicOverboardBanId) === banId) {
+    return { visible: true, hasShell: true, hasOverlay: true };
+  }
+
+  const timerBanId = ctx.activeTimerBanId?.trim()
+    ? normalizeId(ctx.activeTimerBanId)
+    : '';
+  if (
+    timerBanId &&
+    timerBanId === banId &&
+    (ctx.activeTimerVisible || ctx.replyParentActivePriority)
+  ) {
+    return { visible: true, hasShell: true, hasOverlay: true };
+  }
+
+  const hasOverlay =
+    (active.kind === 'incoming' &&
+      normalizeId(ctx.incomingBanId ?? '') === banId) ||
+    (active.kind === 'check' && normalizeId(ctx.checkBanId ?? '') === banId) ||
+    (active.kind === 'result' && normalizeId(ctx.resultBanId ?? '') === banId);
+
+  const visibleOverlay = ctx.visibleOverlay;
+  const hasShell = !!(
+    visibleOverlay &&
+    visibleOverlay.kind === active.kind &&
+    normalizeId(visibleOverlay.banId) === banId
+  );
+
+  if (ctx.chainHandoff || ctx.chainTransitioning) {
+    const heldBanId = ctx.heldBanId?.trim() ? normalizeId(ctx.heldBanId) : '';
+    if (
+      ctx.awaitingUser &&
+      heldBanId === banId &&
+      ctx.heldKind === active.kind
+    ) {
+      return { visible: true, hasShell: hasShell || hasOverlay, hasOverlay };
+    }
+  }
+
+  return { visible: hasShell, hasShell, hasOverlay };
+}
+
+function emitActiveUserCardDiag(
+  event: string,
+  data: Record<string, unknown>,
+): void {
+  console.log(event, data);
+  window.__debug98log?.(event, data);
+}
+
+export function logActiveUserCardStaleLockCleared(
+  data: Record<string, unknown>,
+): void {
+  emitActiveUserCardDiag('[ACTIVE USER CARD STALE LOCK CLEARED]', data);
+}
+
+export function logChainAdvanceAfterStaleActiveClear(
+  data: Record<string, unknown>,
+): void {
+  emitActiveUserCardDiag('[CHAIN ADVANCE AFTER STALE ACTIVE CLEAR]', data);
+}
+
+export function logActiveUserCardBlockValid(
+  data: Record<string, unknown>,
+): void {
+  emitActiveUserCardDiag('[ACTIVE USER CARD BLOCK VALID]', data);
+}
