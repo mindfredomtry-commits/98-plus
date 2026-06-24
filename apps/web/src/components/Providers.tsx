@@ -510,6 +510,13 @@ import {
   type HeldUserCardOverlay,
 } from '@/lib/overlay-user-card-guard';
 import {
+  getQueueDisplayDiagSnapshot,
+  logActiveHoldBlockDiag,
+  logActiveHoldSet,
+  logQueueDisplayAttemptDiag,
+  patchQueueDisplayDiagSnapshot,
+} from '@/lib/active-hold-diag-debug';
+import {
   logConfirmBlockedByActiveUserCardBug,
   logConfirmEnterNotificationGuardClear,
   logIncomingReplyActionStart,
@@ -1431,6 +1438,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const visibleUserCardOverlayRef = useRef<ActiveBlockingUserOverlay | null>(
     null,
   );
+  const activeUserCardHoldSetAtRef = useRef<number | null>(null);
   /** submitCheckAnswer owns empty-queue continue — skip dismiss microtask duplicate. */
   const checkAnswerDismissChainOwnedRef = useRef(false);
   const checkAnswerWaitingResultHoldBanIdRef = useRef<string | null>(null);
@@ -2479,6 +2487,97 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return true;
   };
 
+  const buildQueueDisplayAttemptDiagPayload = (
+    branch: string,
+    pipeline: 'syncDisplayFromQueue' | 'showNextNotificationFromChainSync',
+    source: string,
+    extra?: Record<string, unknown>,
+  ) => {
+    const guardActive = getActiveUserCardForGuard();
+    const queueHead = overlayQueueRef.current[0] ?? null;
+    const snap = getQueueDisplayDiagSnapshot();
+    const headBanId =
+      queueHead?.kind === 'result'
+        ? queueHead.result.id
+        : queueHead?.kind === 'incoming' || queueHead?.kind === 'check'
+          ? queueHead.ban.id
+          : (extra?.headBanId as string | null | undefined) ?? null;
+    return {
+      pipeline,
+      source,
+      branch,
+      returnReason: branch,
+      headKind: queueHead?.kind ?? (extra?.headKind as string | null) ?? null,
+      headBanId,
+      activeKind: guardActive?.kind ?? null,
+      activeBanId: guardActive?.banId ?? null,
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      overlayQueueLen: overlayQueueRef.current.length,
+      notificationQueueLen: overlayQueueRef.current.length,
+      hasShell:
+        snap.hasNotificationShell ||
+        snap.hasIncomingShell ||
+        snap.hasResultShell,
+      ...snap,
+      ...extra,
+    };
+  };
+
+  const logActiveHoldBlockDiagForActive = (
+    source: string,
+    active: ActiveBlockingUserOverlay,
+    nextKind: QueuedOverlay['kind'] | null,
+    nextBanId: string | null,
+  ) => {
+    const snap = getQueueDisplayDiagSnapshot();
+    const holdAgeMs =
+      activeUserCardHoldSetAtRef.current != null
+        ? Math.round(performance.now() - activeUserCardHoldSetAtRef.current)
+        : null;
+    logActiveHoldBlockDiag({
+      source,
+      activeKind: active.kind,
+      activeBanId: active.banId,
+      nextKind,
+      nextBanId,
+      holdAgeMs,
+      hasVisibleUserCardOverlay: Boolean(visibleUserCardOverlayRef.current),
+      hasNotificationShell: snap.hasNotificationShell,
+      hasIncomingShell: snap.hasIncomingShell,
+      hasResultShell: snap.hasResultShell,
+      errorFallbackVisible: snap.errorFallbackVisible,
+      lobbyOpen: snap.lobbyOpen,
+      bootVisible: snap.bootVisible,
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+    });
+  };
+
+  const logActiveHoldSetForKind = (
+    kind: BlockingUserOverlayKind,
+    banId: string,
+    source: string,
+    reason: string,
+  ) => {
+    activeUserCardHoldSetAtRef.current = performance.now();
+    const snap = getQueueDisplayDiagSnapshot();
+    logActiveHoldSet({
+      source,
+      activeKind: kind,
+      activeBanId: banId,
+      reason,
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      hasNotificationShell: snap.hasNotificationShell,
+      hasResultShell: snap.hasResultShell,
+      hasIncomingShell: snap.hasIncomingShell,
+      lobbyOpen: snap.lobbyOpen,
+      bootVisible: snap.bootVisible,
+      errorFallbackVisible: snap.errorFallbackVisible,
+    });
+  };
+
   const blockOverlayReplaceWithoutUserAction = (
     source: string,
     nextHead: QueuedOverlay | null,
@@ -2514,6 +2613,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       nextKind,
       nextBanId,
     });
+    logActiveHoldBlockDiagForActive(source, active, nextKind, nextBanId);
     logChainAdvanceBlockedActiveUserCard({
       activeKind: active.kind,
       activeBanId: active.banId,
@@ -2536,9 +2636,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       source,
     });
     if (active.kind === 'incoming') {
+      const snap = getQueueDisplayDiagSnapshot();
       logIncomingReplacedBug({
         activeBanId: active.banId,
-        nextBanId,
+        currentIncomingBanId: incomingBanRef.current?.id ?? null,
+        replacingWithBanId: nextBanId,
+        reason: 'chain-advance-over-active-incoming',
+        hasVisibleUserCardOverlay: Boolean(visibleUserCardOverlayRef.current),
+        hasIncomingShell: snap.hasIncomingShell,
+        queueLen: overlayQueueRef.current.length,
+        pendingLen: pendingStartupInteractionsRef.current.length,
         source,
       });
     }
@@ -3016,6 +3123,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId: held.ban.id,
         source,
       });
+      logActiveHoldSetForKind(kind, held.ban.id, source, source);
       logActiveUserCardHoldState({
         source,
         activeUserCardHold: kind,
@@ -3042,6 +3150,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       notificationChainAwaitingUserRef.current = true;
       notificationChainHandoffRef.current = false;
       logActiveUserCardHold({ kind, banId: held.ban.id, source });
+      logActiveHoldSetForKind(kind, held.ban.id, source, source);
       logActiveUserCardHoldState({
         source,
         activeUserCardHold: kind,
@@ -3080,6 +3189,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
       }
       logActiveUserCardHold({ kind, banId: held.result.id, source });
+      logActiveHoldSetForKind(kind, held.result.id, source, source);
       logActiveUserCardHoldState({
         source,
         activeUserCardHold: kind,
@@ -3551,6 +3661,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (blockReplace) {
       const nextKind = nextHead?.kind ?? null;
       const nextBanId = nextHead ? overlayItemBanId(nextHead) : null;
+      if (active) {
+        logActiveHoldBlockDiagForActive(source, active, nextKind, nextBanId);
+      }
       logActiveUserCardBlockedNextButKeptCurrent({
         activeKind: active?.kind ?? null,
         activeBanId: active?.banId ?? null,
@@ -4247,6 +4360,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
     }
     const traceSyncDisplayBlocked = (blockReason: string) => {
+      logQueueDisplayAttemptDiag(
+        buildQueueDisplayAttemptDiagPayload(
+          blockReason,
+          'syncDisplayFromQueue',
+          'syncDisplayFromQueue',
+          {
+            headKind: queue[0]?.kind ?? null,
+            headBanId:
+              queue[0]?.kind === 'result'
+                ? queue[0].result.id
+                : queue[0]?.kind === 'incoming' || queue[0]?.kind === 'check'
+                  ? queue[0].ban.id
+                  : null,
+          },
+        ),
+      );
       traceChainPlaceholderStuckRef.current(
         'sync-display-blocked',
         'syncDisplayFromQueue',
@@ -4255,6 +4384,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           queueLen: queue.length,
           headKind: queue[0]?.kind ?? null,
         },
+      );
+    };
+    const syncDisplayDiagReturn = (
+      branch: string,
+      extra?: Record<string, unknown>,
+    ): void => {
+      logQueueDisplayAttemptDiag(
+        buildQueueDisplayAttemptDiagPayload(
+          branch,
+          'syncDisplayFromQueue',
+          'syncDisplayFromQueue',
+          {
+            headKind: queue[0]?.kind ?? null,
+            headBanId:
+              queue[0]?.kind === 'result'
+                ? queue[0].result.id
+                : queue[0]?.kind === 'incoming' || queue[0]?.kind === 'check'
+                  ? queue[0].ban.id
+                  : null,
+            ...extra,
+          },
+        ),
       );
     };
     const headAtEnter = queue[0] ?? null;
@@ -4346,6 +4497,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             { explicitUserAction: chainAdvanceExplicitRef.current },
           )
         ) {
+          syncDisplayDiagReturn('result-priority-active-user-card-block');
           return;
         }
         if (
@@ -4490,6 +4642,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
     if (isActiveUserCardHold() && !active) {
+      syncDisplayDiagReturn('empty-queue-head-restore-held');
       restoreHeldUserCardOverlay('syncDisplayFromQueue-empty-queue-head');
       return;
     }
@@ -4512,6 +4665,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           activeBanId,
           activeKind: active.kind,
         });
+        syncDisplayDiagReturn('reply-compose-block');
         return;
       }
     }
@@ -4544,6 +4698,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         incomingBanRef.current = ban;
         checkBanRef.current = null;
         setCheckBan(null);
+        syncDisplayDiagReturn('reply-fast-incoming-active');
         return;
       }
     }
@@ -4555,6 +4710,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
     if (isNotificationQueueLocked()) {
       if (isActiveUserCardHold()) {
+        syncDisplayDiagReturn('queue-locked-hold-restore');
         restoreHeldUserCardOverlay('syncDisplayFromQueue-queue-locked-hold');
         return;
       }
@@ -4592,6 +4748,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 : null,
           heldKind: heldUserCardOverlayRef.current?.kind ?? null,
         });
+        syncDisplayDiagReturn('hold-before-state-set-restore');
         restoreHeldUserCardOverlay('syncDisplayFromQueue-hold-before-state-set');
         return;
       }
@@ -5279,6 +5436,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ) {
       setNotificationChainTransitioning(false);
     }
+    syncDisplayDiagReturn('completed');
   }, [setNotificationChainTransitioning, snapshotDirectOverboardGate, logReplyQueueHandoffDiagContext]);
 
   const applyOverlayQueue = useCallback(
@@ -15385,9 +15543,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const showNextNotificationFromChainSync = useCallback(
     (source: string): boolean => {
+      const showNextDiagReturn = (
+        branch: string,
+        result: boolean,
+        extra?: Record<string, unknown>,
+      ): boolean => {
+        logQueueDisplayAttemptDiag(
+          buildQueueDisplayAttemptDiagPayload(
+            branch,
+            'showNextNotificationFromChainSync',
+            source,
+            { returned: result, ...extra },
+          ),
+        );
+        return result;
+      };
       if (isSendComposeFlowActive()) {
         logNotificationDisplayBlockedDuringComposeGuard(source, null);
-        return false;
+        return showNextDiagReturn('compose-flow-active', false);
       }
       if (
         shouldBlockNonExplicitNotificationDrain(
@@ -15407,7 +15580,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason: 'non-explicit-show-next',
           startupHold: startupInteractionsHoldRef.current,
         });
-        return false;
+        return showNextDiagReturn('non-explicit-drain', false);
       }
       if (shouldBlockSingleCardChainContinuation(source)) {
         const cardMode = getDeeplinkSingleCardMode();
@@ -15417,7 +15590,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           modeKind: cardMode?.kind ?? null,
           modeBanId: cardMode?.banId ?? null,
         });
-        return false;
+        return showNextDiagReturn('show-next-single-card', false);
       }
       if (
         startupInteractionsHoldRef.current &&
@@ -15429,7 +15602,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           pendingLen: pendingStartupInteractionsRef.current.length,
           reason: 'startup-hold-blocks-auto-drain',
         });
-        return false;
+        return showNextDiagReturn('startup-hold-blocks-auto-drain', false);
       }
       if (shouldBlockDeeplinkAutoDrain(source)) {
         const head = overlayQueueRef.current[0] ?? null;
@@ -15453,7 +15626,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           queueLen: overlayQueueRef.current.length,
           startupLen: pendingStartupInteractionsRef.current.length,
         });
-        return false;
+        return showNextDiagReturn('deeplink-auto-drain-blocked', false);
       }
       if (
         blocksMountedNotificationOverlay(
@@ -15472,7 +15645,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           blocked: true,
           reason: 'mounted-overlay-blocks',
         });
-        return false;
+        return showNextDiagReturn('mounted-overlay-blocks', false);
       }
       if (isPendingAtomicOverboardResultAwaitingDismiss(source)) {
         const atomicBanId = incomingOverboardAtomicBanIdRef.current;
@@ -15488,7 +15661,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
           banId: atomicBanId,
         });
-        return false;
+        return showNextDiagReturn('atomic-overboard-awaiting-dismiss', false);
       }
       tryClearStaleActiveUserCardLock(source);
       if (
@@ -15503,7 +15676,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             queueLen: overlayQueueRef.current.length,
             pendingLen: pendingStartupInteractionsRef.current.length,
           });
-          return false;
+          return showNextDiagReturn('active-user-card-blocks-explicit-drain', false);
         }
         console.log('[chain-drain-continue-blocked]', {
           reason: 'active-overlay-mounted',
@@ -15517,9 +15690,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         const queueHead = overlayQueueRef.current[0] ?? null;
         if (tryClearStaleActiveUserCardLock(source, queueHead)) {
-          return false;
+          return showNextDiagReturn('stale-clear-retry-needed', false);
         }
-        return false;
+        return showNextDiagReturn('active-overlay-mounted', false);
       }
       if (isNotificationChainPausedForReply()) {
         console.log('[chain-reply-block-next-notification]', {
@@ -15536,7 +15709,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason: 'reply-compose-active',
           source: 'showNextNotificationFromChainSync',
         });
-        return false;
+        return showNextDiagReturn('reply-compose-paused', false);
       }
 
       logTransitionFromRefs('[SHOW NEXT START]', { source });
@@ -15700,7 +15873,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         startupIds,
       });
 
-      if (!hasNext) return false;
+      if (!hasNext) return showNextDiagReturn('no-next-in-queue', false);
 
       setNotificationChainTransitioning(true);
 
@@ -15947,7 +16120,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source,
         ...getNotificationChainDebugSnapshot(),
       });
-      return true;
+      return showNextDiagReturn('show-next-success', true);
     },
     [
       applyDirectOverboardCloseState,
@@ -21896,11 +22069,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setLobbyOpen(false);
     }
     queueLobbyGuardActiveRef.current = queueActive;
+    patchQueueDisplayDiagSnapshot({
+      hasNotificationShell: Boolean(
+        effectiveNotificationQueueShellKind &&
+          notificationSessionActiveForDebugRef.current,
+      ),
+      hasIncomingShell: Boolean(
+        incomingJsxRenderSource && shouldRenderIncomingOverlay,
+      ),
+      hasResultShell: Boolean(renderableResultShell || queueShellShowsResult),
+      lobbyOpen: lobbyOpenRef.current,
+      bootVisible: auth.loading || isDeepLinkRouteBootPending(),
+      errorFallbackVisible: connectionUiState === 'offline',
+      hasVisibleUserCardOverlay: Boolean(visibleUserCardOverlayRef.current),
+      currentIncomingBanId:
+        incomingBanRef.current?.id ?? incomingCardDisplayBan?.id ?? null,
+      overlayQueueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+    });
   }, [
+    auth.loading,
+    connectionUiState,
     effectiveNotificationQueueShellKind,
+    incomingCardDisplayBan?.id,
+    incomingJsxRenderSource,
     overlayQueue,
     queueShellShowsResult,
+    renderableResultShell,
     setLobbyOpen,
+    shouldRenderIncomingOverlay,
   ]);
 
   const incomingJsxWillRender =

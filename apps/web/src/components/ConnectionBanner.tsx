@@ -1,7 +1,13 @@
 'use client';
 
+import { useEffect } from 'react';
 import { SYSTEM_VOICE } from '@98plus/shared';
+import { useApp } from '@/components/Providers';
 import type { ConnectionUiState } from '@/lib/connection-ui';
+import {
+  getQueueDisplayDiagSnapshot,
+  logNoConnectionFallbackRendered,
+} from '@/lib/active-hold-diag-debug';
 
 export function ConnectionBanner({
   state,
@@ -10,6 +16,34 @@ export function ConnectionBanner({
   state: ConnectionUiState;
   onRetry?: () => void;
 }) {
+  const {
+    lobbyOpen,
+    connectionUiState,
+  } = useApp();
+
+  useEffect(() => {
+    if (state !== 'offline') return;
+    const snap = getQueueDisplayDiagSnapshot();
+    logNoConnectionFallbackRendered({
+      reason: 'connection-ui-offline',
+      currentRoute:
+        typeof window !== 'undefined' ? window.location.pathname : null,
+      lobbyOpen,
+      bootVisible: snap.bootVisible,
+      activeKind: null,
+      activeBanId: snap.currentIncomingBanId,
+      notificationQueueLen: snap.overlayQueueLen,
+      overlayQueueLen: snap.overlayQueueLen,
+      pendingLen: snap.pendingLen,
+      hasNotificationShell: snap.hasNotificationShell,
+      hasIncomingShell: snap.hasIncomingShell,
+      hasResultShell: snap.hasResultShell,
+      errorFallbackVisible: true,
+      connectionUiState,
+      offlineMessage: SYSTEM_VOICE.offline,
+    });
+  }, [connectionUiState, lobbyOpen, state]);
+
   if (state === 'hidden') return null;
 
   return (
