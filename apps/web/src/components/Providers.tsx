@@ -529,7 +529,16 @@ import {
 import {
   logIncomingMountOwnerDiag,
   tracePostIncomingAdvance,
+  getLastIncomingMountSession,
 } from '@/lib/post-incoming-advance-debug';
+import {
+  computeWillBlockBecauseActiveHold,
+  getHeadSwitchPipelineStack,
+  logChainHeadSwitchTraceExtended,
+  pushHeadSwitchPipelineFrame,
+  runWithHeadSwitchPipelineFrame,
+  snapshotQueueHead,
+} from '@/lib/chain-head-switch-debug';
 import {
   logConfirmBlockedByActiveUserCardBug,
   logConfirmEnterNotificationGuardClear,
@@ -2061,7 +2070,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const setActiveIncomingOverlayBanStable = useCallback(
     (ban: BanInteraction, source: string) => {
-      logChainHeadSwitchTrace(source, 'incoming', ban.id);
+      logChainHeadSwitchTrace(source, 'incoming', ban.id, {
+        pipeline: 'setActiveIncomingOverlayBanStable',
+        reason: 'stable-incoming-overlay-ban-set',
+        calledFrom: 'setActiveIncomingOverlayBanStable',
+      });
       const enriched = enrichBanInteraction(ban);
       activeIncomingOverlayBanRef.current = enriched;
       setActiveIncomingOverlayBanState(enriched);
@@ -3086,45 +3099,87 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     source: string,
     toKind: QueuedOverlay['kind'] | null,
     toBanId: string | null,
+    opts?: {
+      pipeline?: string;
+      reason?: string;
+      calledFrom?: string;
+      queueHeadBefore?: QueuedOverlay | null;
+      queueHeadAfter?: QueuedOverlay | null;
+      previousHeadKind?: string | null;
+      previousHeadBanId?: string | null;
+    },
   ) => {
-    const fromHead = overlayQueueRef.current[0] ?? null;
-    const fromKind =
-      fromHead?.kind ??
-      (incomingBanRef.current
-        ? 'incoming'
-        : resultRef.current
-          ? 'result'
-          : checkBanRef.current
-            ? 'check'
-            : null);
-    const fromBanId =
-      fromHead?.kind === 'result'
-        ? fromHead.result.id
-        : fromHead?.kind === 'incoming' || fromHead?.kind === 'check'
-          ? fromHead.ban.id
-          : (incomingBanRef.current?.id ??
-            resultRef.current?.id ??
-            checkBanRef.current?.id ??
-            null);
     const held = heldUserCardOverlayRef.current;
-    const payload = {
+    const visible = visibleUserCardOverlayRef.current;
+    const mountedIncomingBanId =
+      visible?.kind === 'incoming'
+        ? visible.banId
+        : (incomingBanRef.current?.id ??
+          getLastIncomingMountSession()?.banId ??
+          null);
+    const activeHoldKind =
+      held && notificationChainAwaitingUserRef.current ? held.kind : null;
+    const activeHoldBanId =
+      held && notificationChainAwaitingUserRef.current
+        ? heldUserCardBanId(held)
+        : null;
+    const activeHold: ActiveBlockingUserOverlay | null =
+      activeHoldKind && activeHoldBanId
+        ? { kind: activeHoldKind, banId: activeHoldBanId }
+        : null;
+    const nextHeadBanId = toBanId;
+    const willBlockBecauseActiveHold = computeWillBlockBecauseActiveHold({
+      activeHold,
+      nextHeadKind: toKind,
+      nextHeadBanId,
+      awaitingUser: notificationChainAwaitingUserRef.current,
+    });
+    const queueBefore =
+      opts?.queueHeadBefore ?? overlayQueueRef.current[0] ?? null;
+    logChainHeadSwitchTraceExtended({
       source,
-      fromKind,
-      fromBanId,
-      toKind,
-      toBanId,
-      atomicId: incomingOverboardAtomicBanIdRef.current,
-      heldKind: held?.kind ?? null,
-      heldBanId: held ? heldUserCardBanId(held) : null,
-      resultRefId: resultRef.current?.id ?? null,
-      displayResultId: result?.id ?? null,
+      pipeline: opts?.pipeline ?? null,
+      reason: opts?.reason ?? null,
+      calledFrom: opts?.calledFrom ?? null,
+      previousHeadKind:
+        opts?.previousHeadKind ??
+        snapshotQueueHead(queueBefore)?.kind ??
+        (incomingBanRef.current
+          ? 'incoming'
+          : resultRef.current
+            ? 'result'
+            : checkBanRef.current
+              ? 'check'
+              : null),
+      previousHeadBanId:
+        opts?.previousHeadBanId ??
+        snapshotQueueHead(queueBefore)?.banId ??
+        (incomingBanRef.current?.id ??
+          resultRef.current?.id ??
+          checkBanRef.current?.id ??
+          null),
+      nextHeadKind: toKind,
+      nextHeadBanId,
+      queueHeadBefore: snapshotQueueHead(queueBefore),
+      queueHeadAfter:
+        opts?.queueHeadAfter != null
+          ? snapshotQueueHead(opts.queueHeadAfter)
+          : toKind && toBanId
+            ? { kind: toKind, banId: normalizeId(toBanId) }
+            : null,
+      mountedIncomingBanId,
+      activeHoldKind,
+      activeHoldBanId,
       queueLen: overlayQueueRef.current.length,
       pendingLen: pendingStartupInteractionsRef.current.length,
+      resultPriorityBanIds: [...resultPriorityBanIdsRef.current],
       notificationChainAwaitingUser: notificationChainAwaitingUserRef.current,
-      chainAdvanceExplicit: chainAdvanceExplicitRef.current,
-    };
-    console.log('[CHAIN HEAD SWITCH TRACE]', payload);
-    window.__debug98log?.('[CHAIN HEAD SWITCH TRACE]', payload);
+      willBlockBecauseActiveHold,
+      stack: [
+        ...getHeadSwitchPipelineStack(),
+        ...(opts?.calledFrom ? [opts.calledFrom] : []),
+      ],
+    });
   };
 
   type CheckCardHoldLifecyclePhase =
@@ -4497,7 +4552,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return true;
   };
 
-  const syncDisplayFromQueue = useCallback((queue: QueuedOverlay[]) => {
+  const syncDisplayFromQueue = useCallback(
+    (queue: QueuedOverlay[]) =>
+      runWithHeadSwitchPipelineFrame('syncDisplayFromQueue', () => {
     tracePostIncomingAdvanceDiag(
       'syncDisplayFromQueue',
       'syncDisplayFromQueue',
@@ -4580,6 +4637,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         'syncDisplayFromQueue:enter',
         'incoming',
         headAtEnter.ban.id,
+        {
+          pipeline: 'syncDisplayFromQueue',
+          reason: 'sync-display-enter-incoming-head',
+          calledFrom: 'syncDisplayEnter',
+          queueHeadBefore: headAtEnter,
+        },
       );
     }
     if (isDeeplinkSingleCardModeActive()) {
@@ -4643,6 +4706,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         (queue[0]?.kind !== 'result' ||
           normalizeId(overlayBanId(queue[0])) !== norm)
       ) {
+        const popReorder = pushHeadSwitchPipelineFrame('resultPriorityReorder');
+        try {
         const nextQueue = buildResultPriorityQueue(queue, norm, resultItem);
         const prevHead = queue[0];
         const nextHead = nextQueue[0];
@@ -4656,6 +4721,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             { explicitUserAction: chainAdvanceExplicitRef.current },
           )
         ) {
+          logChainHeadSwitchTrace(
+            'syncDisplayFromQueue-result-priority-blocked',
+            nextHead.kind,
+            nextHead.kind === 'result'
+              ? nextHead.result.id
+              : nextHead.ban.id,
+            {
+              pipeline: 'syncDisplayFromQueue',
+              reason: 'result-priority-reorder-blocked-by-active-hold',
+              calledFrom: 'resultPriorityReorderBlocked',
+              queueHeadBefore: prevHead,
+              queueHeadAfter: nextHead,
+            },
+          );
           syncDisplayDiagReturn('result-priority-active-user-card-block');
           return;
         }
@@ -4664,6 +4743,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           nextHead &&
           overlayQueueKey(nextHead) !== overlayQueueKey(prevHead)
         ) {
+          logChainHeadSwitchTrace(
+            'syncDisplayFromQueue-result-priority-reorder',
+            nextHead.kind,
+            nextHead.kind === 'result'
+              ? nextHead.result.id
+              : nextHead.ban.id,
+            {
+              pipeline: 'syncDisplayFromQueue',
+              reason: 'result-priority-reorder',
+              calledFrom: 'resultPriorityReorder',
+              queueHeadBefore: prevHead,
+              queueHeadAfter: nextHead,
+            },
+          );
           logResultPollDropStaleCheck({
             banId: norm,
             source: 'syncDisplayFromQueue',
@@ -4673,6 +4766,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           queue = nextQueue;
         }
         break;
+        } finally {
+          popReorder();
+        }
       }
       if (
         !resultItem &&
@@ -4728,6 +4824,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           explicitUserAction: chainAdvanceExplicitRef.current,
         })
       ) {
+        logChainHeadSwitchTrace(
+          'syncDisplayFromQueue-early-hold',
+          active?.kind ?? null,
+          headBanId,
+          {
+            pipeline: 'syncDisplayFromQueue',
+            reason: 'head-diverges-from-held-user-card',
+            calledFrom: 'syncDisplayEarlyHold',
+            queueHeadBefore: queue[0] ?? active,
+            previousHeadKind: held?.kind ?? null,
+            previousHeadBanId: heldBanId,
+          },
+        );
         traceSyncDisplayBlocked('active-user-card-hold-early');
         return;
       }
@@ -4994,6 +5103,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           'syncDisplayFromQueue:setIncomingBan',
           'incoming',
           nextIncoming.id,
+          {
+            pipeline: 'syncDisplayFromQueue',
+            reason: 'set-incoming-ban-state',
+            calledFrom: 'syncDisplaySetIncomingBan',
+            queueHeadBefore: active,
+          },
         );
       }
       setIncomingBan(nextIncoming);
@@ -5090,6 +5205,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
 
     if (active?.kind === 'result') {
+      logChainHeadSwitchTrace(
+        'syncDisplayFromQueue:apply-result-head',
+        'result',
+        active.result.id,
+        {
+          pipeline: 'syncDisplayFromQueue',
+          reason: 'queue-head-is-result',
+          calledFrom: 'applyResultHead',
+          queueHeadBefore: active,
+        },
+      );
       const inFlightId = overboardInFlightRef.current;
       if (
         directResultOverlayRef.current &&
@@ -5608,10 +5734,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setNotificationChainTransitioning(false);
     }
     syncDisplayDiagReturn('completed');
-  }, [setNotificationChainTransitioning, snapshotDirectOverboardGate, logReplyQueueHandoffDiagContext]);
+      }),
+    [setNotificationChainTransitioning, snapshotDirectOverboardGate, logReplyQueueHandoffDiagContext],
+  );
 
   const applyOverlayQueue = useCallback(
-    (next: QueuedOverlay[]) => {
+    (next: QueuedOverlay[]) =>
+      runWithHeadSwitchPipelineFrame('applyOverlayQueue', () => {
       const prevHead = overlayQueueRef.current[0] ?? null;
       const nextHead = next[0] ?? null;
       const prevKey = prevHead ? overlayQueueKey(prevHead) : null;
@@ -5751,6 +5880,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             'applyOverlayQueue',
             'incoming',
             nextHead.ban.id,
+            {
+              pipeline: 'applyOverlayQueue',
+              reason: 'overlay-queue-head-changed',
+              calledFrom: 'applyOverlayQueue',
+              queueHeadBefore: overlayQueueRef.current[0] ?? null,
+              queueHeadAfter: nextHead,
+            },
           );
         }
         console.log('[OVERLAY QUEUE NEXT]', {
@@ -5777,7 +5913,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       chainAdvanceExplicitRef.current = false;
       setOverlayQueue(next);
-    },
+      }),
     [syncDisplayFromQueue],
   );
 
@@ -15593,6 +15729,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const applyIncomingBanToQueueHead = useCallback(
     (ban: BanInteraction): BanInteraction => {
+      return runWithHeadSwitchPipelineFrame('applyIncomingBanToQueueHead', () => {
       const norm = normalizeId(ban.id);
       const head = overlayQueueRef.current[0];
       const enriched = enrichBanInteraction(ban);
@@ -15617,9 +15754,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         'applyIncomingBanToQueueHead:setIncomingBan',
         'incoming',
         richer.id,
+        {
+          pipeline: 'applyIncomingBanToQueueHead',
+          reason: 'upgrade-incoming-queue-head',
+          calledFrom: 'applyIncomingBanToQueueHead',
+        },
       );
       setIncomingBan(richer);
       return richer;
+      });
     },
     [],
   );
@@ -15724,7 +15867,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const showNextNotificationFromChainSync = useCallback(
-    (source: string): boolean => {
+    (source: string): boolean =>
+      runWithHeadSwitchPipelineFrame('showNextNotificationFromChainSync', () => {
       const headAtEnter = overlayQueueRef.current[0] ?? null;
       tracePostIncomingAdvanceDiag(
         'showNextNotificationFromChainSync',
@@ -16124,6 +16268,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const nextHead: QueuedOverlay | null = head ?? startupHead;
       clearStaleUserCardHoldForNextHead(nextHead, source);
       flushSync(() => {
+        const popFlushSync = pushHeadSwitchPipelineFrame('showNextFlushSync');
+        try {
         if (
           isPendingAtomicOverboardResultAwaitingDismiss(
             `${source}:showNext-flushSync`,
@@ -16135,6 +16281,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           `${source}:showNext-flushSync`,
           nextKind,
           nextBanId,
+          {
+            pipeline: 'showNextNotificationFromChainSync',
+            reason: 'show-next-flushSync',
+            calledFrom: 'showNextFlushSync',
+            queueHeadBefore: overlayQueueRef.current[0] ?? null,
+          },
         );
         if (protectHeldOverboardResult) {
           freshOverboardActionBanIdsRef.current.add(heldProtectResultId);
@@ -16283,6 +16435,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           }
           syncDisplayFromQueue(overlayQueueRef.current);
         }
+        } finally {
+          popFlushSync();
+        }
       });
       chainAdvanceExplicitRef.current = false;
       logTransitionFromRefs('[DISMISS COMMIT DONE]', {
@@ -16313,7 +16468,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ...getNotificationChainDebugSnapshot(),
       });
       return showNextDiagReturn('show-next-success', true);
-    },
+      }),
     [
       applyDirectOverboardCloseState,
       beginIncomingNextHydrate,
@@ -16791,7 +16946,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     async (
       source: string,
       opts?: { prefetchIfLocalEmpty?: boolean },
-    ): Promise<boolean> => {
+    ): Promise<boolean> =>
+      runWithHeadSwitchPipelineFrame('openNextNotificationAfterQueueHandoff', async () => {
       tracePostIncomingAdvanceDiag(
         'openNextNotificationAfterQueueHandoff',
         source,
@@ -16927,7 +17083,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       return false;
-    },
+      }),
     [
       clearNotificationChainReplyCompose,
       hasActiveNotificationShellForHandoff,
@@ -16951,7 +17107,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (
       source: string,
       opts?: ContinueNotificationChainOptions,
-    ):     ContinueNotificationChainOutcome => {
+    ):     ContinueNotificationChainOutcome =>
+      runWithHeadSwitchPipelineFrame('continueNotificationChainOrOpenLobbySync', () => {
       tracePostIncomingAdvanceDiag(
         'continueNotificationChainOrOpenLobbySync',
         source,
@@ -17290,7 +17447,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       return finalizeNotificationChainContinueEmpty(source, opts, collected);
-    },
+      }),
     [
       buildChainEmptyFinalizeSnapshot,
       clearStaleComposeStateBeforeBansNavigation,
@@ -17517,7 +17674,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, []);
 
   const runQueueDrainAfterStaleActiveClearSync = useCallback(
-    (source: string, attempt: 'initial' | 'retry'): boolean => {
+    (source: string, attempt: 'initial' | 'retry'): boolean =>
+      runWithHeadSwitchPipelineFrame('runQueueDrainAfterStaleActiveClearSync', () => {
       tracePostIncomingAdvanceDiag(
         'chain-advance-retry',
         source,
@@ -17573,7 +17731,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       } finally {
         staleClearDrainActiveRef.current = false;
       }
-    },
+      }),
     [
       mergeStartupIntoOverlayQueueOnly,
       setBansReturnToLobbyLatch,
