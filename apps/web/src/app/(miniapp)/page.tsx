@@ -62,7 +62,7 @@ const DebugPanel = dynamic(
 );
 
 /** Bump when diagnosing shell / deploy mismatches. */
-const APP_SHELL_BUILD = 'arena-v2@confirm-orb-missing-diag-v51';
+const APP_SHELL_BUILD = 'arena-v2@zazhmi-render-source-diag-v52';
 
 export default function HomePage() {
   const {

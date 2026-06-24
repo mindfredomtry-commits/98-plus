@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 50;
+export const DEBUG98_LOGGER_VERSION = 51;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -135,6 +135,7 @@ const ALLOWED_EVENTS = new Set([
   '[BEGIN COMPOSING REPLY STATE]',
   '[INCOMING REPLY CLEANUP SNAPSHOT]',
   '[CONFIRM ORB MISSING DIAG]',
+  '[ZAZHMI RENDER SOURCE DIAG]',
   '[CONFIRM ORB MOUNT DECISION]',
   '[CONFIRM ORB BLOCKED BY QUEUE STATE]',
   '[POST SUCCESS HANDOFF STILL ACTIVE DURING REPLY]',

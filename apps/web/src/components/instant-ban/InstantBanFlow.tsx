@@ -127,6 +127,7 @@ import {
   resolveOrbMountBlockedReason,
   traceConfirmStripRenderDiag,
 } from '@/lib/confirm-orb-missing-debug';
+import { traceZazhmiRenderSourceDiag } from '@/lib/zazhmi-render-source-debug';
 import {
   logConfirmHoldProtectionActive,
   readHoldOwnerRoute,
@@ -5745,6 +5746,28 @@ export function InstantBanFlow({
     });
   }, [phase, confirmEnterKey, composeDismissing, confirmLayoutActive]);
 
+  const zazhmiQueueDebug = getConfirmOrbQueueDebugSnapshot();
+  const zazhmiRenderProbe =
+    phase === 'confirming' ||
+    confirmActive ||
+    zazhmiQueueDebug.sendComposePhase === 'confirming'
+      ? traceZazhmiRenderSourceDiag({
+          file: 'InstantBanFlow.tsx',
+          component: 'InstantBanFlow',
+          source: 'render-body-confirm-probe',
+          phase,
+          sendComposePhase: zazhmiQueueDebug.sendComposePhase,
+          confirmActive,
+          statusLabel: confirmOrb.statusLabel,
+          showLobbyOrb,
+          lobbyOrbVisible,
+          queueLen: zazhmiQueueDebug.queueLen,
+          pendingLen: zazhmiQueueDebug.pendingLen,
+          overlayQueueLength,
+          queueClaimsNotificationScreen,
+        })
+      : null;
+
   return (
     <>
       <LobbyBootLogoHideMarker active={hideLobbyBootLogoOnly} />
@@ -5790,6 +5813,7 @@ export function InstantBanFlow({
       }
       data-boot-background={bootBackgroundUnderRouteOverlay ? 'true' : undefined}
     >
+      {zazhmiRenderProbe}
       {showLobbyTopNav ? (
         <ArenaLobbyTopNav
           onOpenBans={handleOpenBansOverlay}
@@ -5909,6 +5933,22 @@ export function InstantBanFlow({
             data-enter-phase={confirmOrb.enterPhase}
           >
             <div className="instant-ban-confirm-hold-strip">
+              {traceZazhmiRenderSourceDiag({
+                file: 'InstantBanFlow.tsx',
+                component: 'InstantBanFlow',
+                source: 'confirm-hold-strip-statusLabel',
+                phase,
+                sendComposePhase:
+                  getConfirmOrbQueueDebugSnapshot().sendComposePhase,
+                confirmActive,
+                statusLabel: confirmOrb.statusLabel,
+                showLobbyOrb,
+                lobbyOrbVisible,
+                queueLen: getConfirmOrbQueueDebugSnapshot().queueLen,
+                pendingLen: pendingStartupInteractions,
+                overlayQueueLength,
+                queueClaimsNotificationScreen,
+              })}
               {traceConfirmStripRenderDiag({
                 confirmActive,
                 phase,

@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useRef } from 'react';
 import type { FriendCard, UserPublic } from '@98plus/shared';
+import { traceZazhmiRenderSourceDiag } from '@/lib/zazhmi-render-source-debug';
 import { InfluenceRing } from '../lobby/InfluenceRing';
 import { LobbyOrbFace } from '../lobby/LobbyOrbFace';
 import { SuccessPayoffReveal } from './SuccessPayoffReveal';
@@ -117,6 +118,24 @@ export function ArenaLobbyOrb({
     ? lobbyRingDisplayPercent
     : ringValue;
   const hideOrbFaceTitle = suppressOrbFaceTitle || useLobbyRingDisplay;
+
+  if (confirmActive) {
+    traceZazhmiRenderSourceDiag({
+      file: 'ArenaLobbyOrb.tsx',
+      component: 'ArenaLobbyOrb',
+      source: 'arena-lobby-orb-confirm-active',
+      phase: sendPhase,
+      sendComposePhase: null,
+      confirmActive,
+      statusLabel: 'Зажми 98+ чтобы отправить запрет',
+      showLobbyOrb: true,
+      lobbyOrbVisible: true,
+      queueLen: -1,
+      pendingLen: -1,
+      overlayQueueLength: -1,
+      queueClaimsNotificationScreen: false,
+    });
+  }
 
   return (
     <div

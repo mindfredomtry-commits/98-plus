@@ -10,6 +10,7 @@ import {
   type PointerEvent,
   type RefObject,
 } from 'react';
+import { traceZazhmiRenderSourceDiag } from '@/lib/zazhmi-render-source-debug';
 const HOLD_MS = 650;
 /** Stage 1: lobby ring shrinks toward mini-core (ring layer only). */
 export const CONFIRM_COMPRESS_SHRINK_MS = 420;
@@ -406,6 +407,24 @@ export function useConfirmOrbController({
         : holdPhase === 'holding'
           ? 'Держи…'
           : 'Зажми';
+
+  if (active && statusLabel.includes('Зажми')) {
+    traceZazhmiRenderSourceDiag({
+      file: 'useConfirmOrbController.ts',
+      component: 'useConfirmOrbController',
+      source: 'hook-statusLabel',
+      phase: enterPhase,
+      sendComposePhase: null,
+      confirmActive: active,
+      statusLabel,
+      showLobbyOrb: false,
+      lobbyOrbVisible: false,
+      queueLen: -1,
+      pendingLen: -1,
+      overlayQueueLength: -1,
+      queueClaimsNotificationScreen: false,
+    });
+  }
 
   const ringValue = compressActive ? ringProgress : influenceStart;
 
