@@ -11,6 +11,7 @@ import {
   isAbortError,
   RequestTimeoutError,
 } from './request-timeout';
+import { patchConnectionFetchOutcome } from './connection-state-debug';
 
 export class ApiError extends Error {
   public readonly code?: string;
@@ -139,6 +140,11 @@ export async function api<T>(
         );
       }
 
+      patchConnectionFetchOutcome({
+        endpoint: path,
+        ok: true,
+        status: res.status,
+      });
       return data as T;
     } catch (e) {
       if (e instanceof ApiError) {
@@ -156,7 +162,14 @@ export async function api<T>(
     }
   }
 
-  throw lastErr ?? new NetworkError(SYSTEM_VOICE.offline, url);
+  const finalErr = lastErr ?? new NetworkError(SYSTEM_VOICE.offline, url);
+  patchConnectionFetchOutcome({
+    endpoint: path,
+    ok: false,
+    status: finalErr instanceof ApiError ? finalErr.status : undefined,
+    error: finalErr.message,
+  });
+  throw finalErr;
 }
 
 /** User-facing message for UI alerts */

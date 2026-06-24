@@ -8,6 +8,8 @@ export type QueueDisplayDiagSnapshot = {
   bootVisible: boolean;
   errorFallbackVisible: boolean;
   hasVisibleUserCardOverlay: boolean;
+  activeKind: string | null;
+  activeBanId: string | null;
   currentIncomingBanId: string | null;
   overlayQueueLen: number;
   pendingLen: number;
@@ -21,6 +23,8 @@ const defaultSnapshot: QueueDisplayDiagSnapshot = {
   bootVisible: false,
   errorFallbackVisible: false,
   hasVisibleUserCardOverlay: false,
+  activeKind: null,
+  activeBanId: null,
   currentIncomingBanId: null,
   overlayQueueLen: 0,
   pendingLen: 0,

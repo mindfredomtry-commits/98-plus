@@ -1,5 +1,10 @@
 'use client';
 
+import {
+  noteConnectionFetchStart,
+  patchConnectionFetchOutcome,
+} from '@/lib/connection-state-debug';
+
 function emit(event: string, data?: Record<string, unknown>): void {
   const payload = { t: performance.now(), ...data };
   console.log(event, payload);
@@ -44,6 +49,10 @@ export function logQueueApiFetchStart(data: {
   telegramUserId: string | null;
   reason?: string;
 }): void {
+  noteConnectionFetchStart({
+    endpoint: data.endpoint,
+    source: `${data.source}${data.reason ? `:${data.reason}` : ''}`,
+  });
   emit('[QUEUE API FETCH START]', data);
 }
 
@@ -59,6 +68,12 @@ export function logQueueApiFetchResult(data: {
   statuses: (string | null)[];
   kinds: string[];
 }): void {
+  patchConnectionFetchOutcome({
+    endpoint: data.endpoint,
+    ok: true,
+    status: 'ok',
+    source: data.source,
+  });
   emit('[QUEUE API FETCH RESULT]', data);
 }
 

@@ -700,9 +700,14 @@ import {
 } from '@/lib/lobby-boot-intro-session';
 import {
   resolveConnectionUiState,
+  explainConnectionUiState,
   STARTUP_GRACE_MS,
   type ConnectionUiState,
 } from '@/lib/connection-ui';
+import {
+  getConnectionFetchSnapshot,
+  logConnectionStateChange,
+} from '@/lib/connection-state-debug';
 
 interface AppContextValue {
   token: string | null;
@@ -1421,6 +1426,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [navigatorOffline, setNavigatorOffline] = useState(() =>
     typeof navigator !== 'undefined' ? !navigator.onLine : false,
   );
+  const prevConnectionUiStateRef = useRef<ConnectionUiState>('hidden');
 
   const triggerBanInputShake = useCallback(() => {
     setBanInputShake(true);
@@ -21495,6 +21501,59 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   useEffect(() => {
+    const prevState = prevConnectionUiStateRef.current;
+    const nextState = connectionUiState;
+    if (prevState === nextState) return;
+
+    const { reason } = explainConnectionUiState({
+      wsStatus,
+      startupGraceActive,
+      networkBootstrapCompleted,
+      hasSuccessfulNetworkSync,
+      wsHasConnectedOnce,
+      navigatorOffline,
+    });
+    const fetchSnap = getConnectionFetchSnapshot();
+    const active = getActiveUserCardForGuard();
+    const snap = getQueueDisplayDiagSnapshot();
+
+    if (nextState === 'offline' || prevState === 'offline') {
+      logConnectionStateChange({
+        prevState,
+        nextState,
+        reason,
+        wsStatus,
+        startupGraceActive,
+        networkBootstrapCompleted,
+        hasSuccessfulNetworkSync,
+        wsHasConnectedOnce,
+        navigatorOffline,
+        endpoint: fetchSnap.endpoint,
+        lastFetchStatus: fetchSnap.lastFetchStatus,
+        lastFetchError: fetchSnap.lastFetchError,
+        lastFetchSource: fetchSnap.source,
+        activeKind: active?.kind ?? snap.activeKind,
+        activeBanId: active?.banId ?? snap.activeBanId,
+        queueLen: overlayQueueRef.current.length,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+        hasVisibleUserCardOverlay: Boolean(visibleUserCardOverlayRef.current),
+        hasIncomingShell: snap.hasIncomingShell,
+        hasNotificationShell: snap.hasNotificationShell,
+      });
+    }
+
+    prevConnectionUiStateRef.current = nextState;
+  }, [
+    connectionUiState,
+    wsStatus,
+    startupGraceActive,
+    networkBootstrapCompleted,
+    hasSuccessfulNetworkSync,
+    wsHasConnectedOnce,
+    navigatorOffline,
+  ]);
+
+  useEffect(() => {
     if (!auth.user?.id) {
       logFriendsTiming('why-not-rendered', { reason: 'no-user-id' });
       return;
@@ -22069,6 +22128,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setLobbyOpen(false);
     }
     queueLobbyGuardActiveRef.current = queueActive;
+    const activeGuard = getActiveUserCardForGuard();
     patchQueueDisplayDiagSnapshot({
       hasNotificationShell: Boolean(
         effectiveNotificationQueueShellKind &&
@@ -22082,6 +22142,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       bootVisible: auth.loading || isDeepLinkRouteBootPending(),
       errorFallbackVisible: connectionUiState === 'offline',
       hasVisibleUserCardOverlay: Boolean(visibleUserCardOverlayRef.current),
+      activeKind: activeGuard?.kind ?? null,
+      activeBanId: activeGuard?.banId ?? null,
       currentIncomingBanId:
         incomingBanRef.current?.id ?? incomingCardDisplayBan?.id ?? null,
       overlayQueueLen: overlayQueueRef.current.length,
