@@ -527,6 +527,10 @@ import {
   type HoldOwnerScreenContext,
 } from '@/lib/hold-owner-debug';
 import {
+  logIncomingMountOwnerDiag,
+  tracePostIncomingAdvance,
+} from '@/lib/post-incoming-advance-debug';
+import {
   logConfirmBlockedByActiveUserCardBug,
   logConfirmEnterNotificationGuardClear,
   logIncomingReplyActionStart,
@@ -2385,6 +2389,43 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return { kind: held.kind, banId: heldUserCardBanId(held) };
     }
     return getActiveMountedUserCard();
+  };
+
+  const tracePostIncomingAdvanceDiag = (
+    pipeline: string,
+    source: string,
+    reason: string,
+    opts?: {
+      requestedNextKind?: string | null;
+      requestedNextBanId?: string | null;
+      displayKind?: string | null;
+    },
+  ) => {
+    const held = heldUserCardOverlayRef.current;
+    const head = overlayQueueRef.current[0] ?? null;
+    const requestedNextKind =
+      opts?.requestedNextKind ?? (head?.kind ?? null);
+    const requestedNextBanId =
+      opts?.requestedNextBanId ??
+      (head ? overlayItemBanId(head) : null);
+    const active = getActiveUserCardForGuard();
+    tracePostIncomingAdvance({
+      source,
+      reason,
+      pipeline,
+      activeKind: active?.kind ?? null,
+      activeBanId: active?.banId ?? null,
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      currentIncomingBanId: incomingBanRef.current?.id ?? null,
+      requestedNextKind,
+      requestedNextBanId,
+      notificationChainTransitioning: notificationChainTransitioningRef.current,
+      chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+      displayKind: opts?.displayKind ?? null,
+      heldKind: held?.kind ?? null,
+      heldBanId: held ? heldUserCardBanId(held) : null,
+    });
   };
 
   const buildActiveUserCardVisibilityContext = (
@@ -4457,6 +4498,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   };
 
   const syncDisplayFromQueue = useCallback((queue: QueuedOverlay[]) => {
+    tracePostIncomingAdvanceDiag(
+      'syncDisplayFromQueue',
+      'syncDisplayFromQueue',
+      'sync-display-enter',
+      {
+        requestedNextKind: queue[0]?.kind ?? null,
+        requestedNextBanId:
+          queue[0]?.kind === 'result'
+            ? queue[0].result.id
+            : queue[0]?.kind === 'incoming' || queue[0]?.kind === 'check'
+              ? queue[0].ban.id
+              : null,
+      },
+    );
     if (isReplyQueueHandoffSessionActive()) {
       logReplyQueueHandoffDiagContext(
         'post-timer-handoff-result',
@@ -5777,6 +5832,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId: normalizeId(banId),
         };
         captureActiveUserCardHold(kind as BlockingUserOverlayKind, 'card-mounted');
+        if (kind === 'incoming' && buttonsReady) {
+          const heldAfter = heldUserCardOverlayRef.current;
+          logIncomingMountOwnerDiag({
+            banId,
+            queueLen: overlayQueueRef.current.length,
+            pendingLen: pendingStartupInteractionsRef.current.length,
+            heldKind: heldAfter?.kind ?? kind,
+            heldBanId: heldAfter ? heldUserCardBanId(heldAfter) : banId,
+            source: 'reportOverlayRendered',
+          });
+        }
         if (
           kind === 'check' &&
           answeredCheckRef.current.has(normalizeId(banId))
@@ -15659,6 +15725,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const showNextNotificationFromChainSync = useCallback(
     (source: string): boolean => {
+      const headAtEnter = overlayQueueRef.current[0] ?? null;
+      tracePostIncomingAdvanceDiag(
+        'showNextNotificationFromChainSync',
+        source,
+        'show-next-enter',
+        {
+          requestedNextKind: headAtEnter?.kind ?? null,
+          requestedNextBanId: headAtEnter ? overlayItemBanId(headAtEnter) : null,
+        },
+      );
       const showNextDiagReturn = (
         branch: string,
         result: boolean,
@@ -16675,6 +16751,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const prepareNotificationChainContinue = useCallback(
     (source: string, opts?: ContinueNotificationChainOptions) => {
+      tracePostIncomingAdvanceDiag(
+        'prepareNotificationChainContinue',
+        source,
+        'prepare-continue-enter',
+      );
       logChainContinueStart({ source });
       if (
         opts?.clearActiveHold !== false &&
@@ -16711,6 +16792,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       source: string,
       opts?: { prefetchIfLocalEmpty?: boolean },
     ): Promise<boolean> => {
+      tracePostIncomingAdvanceDiag(
+        'openNextNotificationAfterQueueHandoff',
+        source,
+        'handoff-open-next-enter',
+      );
       if (
         !isNotificationQueueHandoffDrainSource(source) &&
         !isReplyQueueHandoffSessionActive()
@@ -16866,6 +16952,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       source: string,
       opts?: ContinueNotificationChainOptions,
     ):     ContinueNotificationChainOutcome => {
+      tracePostIncomingAdvanceDiag(
+        'continueNotificationChainOrOpenLobbySync',
+        source,
+        'continue-sync-enter',
+      );
       const isCheckAnswerChainSource =
         source.includes('check-answer') || source.includes('check-dismiss');
       const traceContinueBlocked = (blockReason: string) => {
@@ -17351,6 +17442,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       source: string,
       opts?: ContinueNotificationChainOptions,
     ): Promise<ContinueNotificationChainOutcome> => {
+      tracePostIncomingAdvanceDiag(
+        'continueNotificationChainOrOpenLobby',
+        source,
+        'continue-async-enter',
+      );
       let outcome = continueNotificationChainOrOpenLobbySync(source, opts);
       if (outcome !== 'needs-prefetch') {
         return outcome;
@@ -17422,6 +17518,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const runQueueDrainAfterStaleActiveClearSync = useCallback(
     (source: string, attempt: 'initial' | 'retry'): boolean => {
+      tracePostIncomingAdvanceDiag(
+        'chain-advance-retry',
+        source,
+        attempt === 'retry' ? 'stale-clear-drain-retry' : 'stale-clear-drain-enter',
+      );
       const drainSource =
         attempt === 'retry'
           ? `stale-active-clear-drain-retry:${source}`
@@ -17486,6 +17587,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const scheduleQueueDrainAfterStaleActiveClear = useCallback(
     (source: string) => {
+      tracePostIncomingAdvanceDiag(
+        'scheduleQueueDrainAfterStaleActiveClear',
+        source,
+        'schedule-stale-clear-drain',
+      );
       const queueLen = overlayQueueRef.current.length;
       const pendingLen = pendingStartupInteractionsRef.current.length;
       if (queueLen === 0 && pendingLen === 0) return;

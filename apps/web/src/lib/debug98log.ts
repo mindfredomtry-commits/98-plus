@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 44;
+export const DEBUG98_LOGGER_VERSION = 45;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -311,6 +311,9 @@ const ALLOWED_EVENTS = new Set([
   '[HOLD OWNER BLOCK]',
   '[CONFIRM HOLD PROTECTION ACTIVE]',
   '[QUEUE HOLD ACTIVE]',
+  '[POST INCOMING ADVANCE DIAG]',
+  '[INCOMING MOUNT OWNER DIAG]',
+  '[ADVANCE AFTER INCOMING MOUNT]',
   '[QUEUE DISPLAY ATTEMPT DIAG]',
   '[ACTIVE USER CARD PREVENT LOBBY FALLBACK]',
   '[ACTIVE USER CARD PREVENT OVERLAY CLEAR]',
