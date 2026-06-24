@@ -8,14 +8,32 @@ import {
   type Debug98Event,
 } from '@/lib/debug98log';
 
+const DEBUG98_OVERLAY_STORAGE_KEY = 'debug98Overlay';
+
+function readDebug98OverlayEnabled(): boolean {
+  try {
+    return window.localStorage.getItem(DEBUG98_OVERLAY_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export function DebugOverlay() {
   const [events, setEvents] = useState<Debug98Event[]>([]);
-  const [mounted, setMounted] = useState(false);
+  const [overlayVisible, setOverlayVisible] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
     installDebug98log();
-    window.__debug98log?.('[debug98-overlay-mounted]');
+    const enabled = readDebug98OverlayEnabled();
+    setOverlayVisible(enabled);
+    if (enabled) {
+      window.__debug98log?.('[debug98-overlay-mounted]');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!overlayVisible) return;
+
     setEvents(getDebug98Events());
 
     const onEvent = (e: Event) => {
@@ -26,7 +44,7 @@ export function DebugOverlay() {
 
     window.addEventListener('__debug98log', onEvent);
     return () => window.removeEventListener('__debug98log', onEvent);
-  }, []);
+  }, [overlayVisible]);
 
   const lines = useMemo(() => {
     const now = Date.now();
@@ -55,7 +73,7 @@ export function DebugOverlay() {
     void window.__copy98ChainTrace?.();
   };
 
-  if (!mounted) return null;
+  if (!overlayVisible) return null;
 
   return createPortal(
     <div

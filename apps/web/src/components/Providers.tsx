@@ -12527,6 +12527,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
       }
 
+      const beforePending = pendingStartupInteractionsRef.current;
+      const beforePendingLen = beforePending.length;
+      const nextPending = removeOverlaysForBan(beforePending, parentBanId, [
+        'incoming',
+      ]);
+      const removedPendingIncomingCount = beforePendingLen - nextPending.length;
+      if (removedPendingIncomingCount > 0) {
+        pendingStartupInteractionsRef.current = nextPending;
+        syncPendingStartupCount();
+      }
+      window.__debug98log?.('[INCOMING REPLY FINALIZE PENDING PRUNE]', {
+        parentBanId,
+        beforePendingLen,
+        afterPendingLen: nextPending.length,
+        removedPendingIncomingCount,
+      });
+
       if (incomingBanRef.current?.id === parentBanId) {
         incomingBanRef.current = null;
         setIncomingBan(null);
@@ -12536,11 +12553,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearNotificationChainReplyCompose('reply-send-finalize');
 
       console.log('[INCOMING REPLY FINALIZED AFTER SEND]', { banId: parentBanId });
+      window.__debug98log?.('[INCOMING REPLY FINALIZED AFTER SEND]', {
+        banId: parentBanId,
+      });
       markVisibleOverboardTrace('[INCOMING REPLY FINALIZED AFTER SEND]', {
         banId: parentBanId,
       });
     },
-    [clearNotificationChainReplyCompose, clearReplyFastSessionAfterAnswer],
+    [
+      clearNotificationChainReplyCompose,
+      clearReplyFastSessionAfterAnswer,
+      syncPendingStartupCount,
+    ],
   );
 
   const queueHasIncomingForBan = useCallback((banId: string): boolean => {
