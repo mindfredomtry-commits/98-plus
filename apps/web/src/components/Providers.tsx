@@ -635,6 +635,14 @@ import {
   logQueueHandoffOpenNext,
 } from '@/lib/queue-handoff-debug';
 import {
+  getQueueLobbyGuardSnapshot,
+  logLobbyOpenRejectedQueueActive,
+  logQueueBlockedByLobby,
+  logQueueClaimedScreen,
+  shouldBlockLobbyForActiveQueue,
+  syncQueueLobbyGuardState,
+} from '@/lib/queue-lobby-guard';
+import {
   buildActiveParentBanForSuccess,
   hasActiveParentTimerFields,
 } from '@/lib/reply-parent-active-ban';
@@ -1138,6 +1146,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [result]);
   const [overlayQueue, setOverlayQueue] = useState<QueuedOverlay[]>([]);
   const overlayQueueRef = useRef<QueuedOverlay[]>([]);
+  const displayResultSourcePickedRef = useRef('none');
+  const queueShellShowsResultRef = useRef(false);
+  const queueLobbyGuardActiveRef = useRef(false);
   const activeOverlayLockRef = useRef<string | null>(null);
   const overlayQueueDrainActiveRef = useRef(false);
   const notificationChainTransitioningRef = useRef(false);
@@ -1285,6 +1296,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId: checkDeeplinkPendingBanIdRef.current,
         });
         return prev;
+      }
+      if (next && !prev) {
+        const queueHead = overlayQueueRef.current[0] ?? null;
+        syncQueueLobbyGuardState({
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          fromQueueResult:
+            queueShellShowsResultRef.current || queueHead?.kind === 'result',
+          queueShellShowsResult: queueShellShowsResultRef.current,
+          displayResultSourcePicked: displayResultSourcePickedRef.current,
+        });
+        if (shouldBlockLobbyForActiveQueue()) {
+          logLobbyOpenRejectedQueueActive({
+            source: 'setLobbyOpen-state',
+            ...getQueueLobbyGuardSnapshot(),
+          });
+          return prev;
+        }
       }
       if (next && !prev && isPostSuccessHandoffInProgress()) {
         if (
@@ -5553,7 +5582,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         notificationChainHandoffRef.current = false;
         setNotificationChainTransitioning(false);
         setLobbyOpen(true);
-        lobbyOpenRef.current = true;
         lobbyShownLoggedRef.current = false;
         logTransitionFromRefs('[DISMISS COMMIT DONE]', {
           source: `${reason}-deeplink-single-card`,
@@ -6169,7 +6197,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               via: 'setLobbyOpen(true)',
             });
             setLobbyOpen(true);
-            lobbyOpenRef.current = true;
           }
         }
 
@@ -10122,7 +10149,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
           clearCheckDeepLinkRoute(source);
           setLobbyOpen(true);
-          lobbyOpenRef.current = true;
           return false;
         }
 
@@ -10152,7 +10178,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         clearCheckDeepLinkRoute(source);
         setLobbyOpen(true);
-        lobbyOpenRef.current = true;
         return false;
       } catch (e) {
         logCheckDeeplinkFetchError({
@@ -10165,7 +10190,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         clearCheckDeepLinkRoute(source);
         setLobbyOpen(true);
-        lobbyOpenRef.current = true;
         return false;
       }
     },
@@ -10309,7 +10333,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       pendingStartupInteractionsRef.current.length === 0
     ) {
       setLobbyOpen(true);
-      lobbyOpenRef.current = true;
       logLobbyOpenAfterCheckEmpty({
         reason: 'stuck-boot-heal',
         banId,
@@ -12389,7 +12412,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ]),
         );
         setLobbyOpen(true);
-        lobbyOpenRef.current = true;
         lobbyShownLoggedRef.current = false;
         setOverboardEmergencyHint('перебор сохранён');
         window.setTimeout(() => setOverboardEmergencyHint(null), 5000);
@@ -12689,7 +12711,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       replyLockReleasedRef.current = false;
 
       setLobbyOpen(true);
-      lobbyOpenRef.current = true;
       lobbyShownLoggedRef.current = false;
       resolveActiveDeepLinkRouteBoot(banId);
     },
@@ -12806,7 +12827,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       flushSync(() => {
         setLobbyOpen(true);
-        lobbyOpenRef.current = true;
         lobbyShownLoggedRef.current = false;
       });
       openLobbyRef.current(`reply-deeplink-${kind}`);
@@ -16296,6 +16316,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           pendingLen: pendingStartupInteractionsRef.current.length,
           headId: shownHeadId,
         });
+        logQueueClaimedScreen({
+          source: showSource,
+          phase: 'show-next',
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          headId: shownHeadId,
+          fromQueueResult: shownHead?.kind === 'result',
+          queueShellShowsResult: false,
+        });
         return true;
       };
 
@@ -17475,7 +17504,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         setBansCtaQueueSuppress(true);
         setBansNavState(bansNavStateRef.current);
         setLobbyOpen(true);
-        lobbyOpenRef.current = true;
         setOpenBansOverlayTabRequest(targetTab);
         openBansOverlayTabRequestRef.current = targetTab;
         setOpenBansOverlayRequest((n) => {
@@ -19110,6 +19138,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
 
     const finalPayload = displayResult ?? refResult ?? heldResult ?? queueHeadResult;
+    displayResultSourcePickedRef.current = sourcePicked;
     logResultDisplaySourcePick({
       sourcePicked,
       fromDisplayResult,
@@ -19377,6 +19406,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const openLobby = useCallback((source?: string) => {
     const snapshot = getNotificationChainDebugSnapshot();
+    const queueHead = overlayQueueRef.current[0] ?? null;
+    syncQueueLobbyGuardState({
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      fromQueueResult:
+        queueShellShowsResultRef.current || queueHead?.kind === 'result',
+      queueShellShowsResult: queueShellShowsResultRef.current,
+      displayResultSourcePicked: displayResultSourcePickedRef.current,
+    });
+    if (shouldBlockLobbyForActiveQueue()) {
+      logLobbyOpenRejectedQueueActive({
+        source: source ?? 'openLobby',
+        ...getQueueLobbyGuardSnapshot(),
+      });
+      console.log('[chain-open-lobby-blocked]', {
+        source: source ?? 'default',
+        reason: 'queue-active',
+        ...snapshot,
+        ...getQueueLobbyGuardSnapshot(),
+      });
+      return;
+    }
     if (isPostSuccessHandoffInProgress()) {
       if (
         shouldBlockLobbyOpenForPostSuccessHandoff(
@@ -19541,7 +19592,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
     }
     setLobbyOpen(true);
-    lobbyOpenRef.current = true;
     lobbyShownLoggedRef.current = false;
     console.log('[lobby-opened]', {
       userId: userIdRef.current ?? null,
@@ -19667,7 +19717,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId: resultRef.current?.id ?? result?.id ?? null,
         });
         setLobbyOpen(true);
-        lobbyOpenRef.current = true;
         lobbyShownLoggedRef.current = false;
         if (wasBansCta) {
           bansCtaQueueSuppressRef.current = false;
@@ -21208,6 +21257,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         pendingLen: pendingStartupInteractionsRef.current.length,
         queueLen: overlayQueueRef.current.length,
       }) ||
+      shouldBlockLobbyForActiveQueue() ||
       result
     ) {
       return;
@@ -21434,6 +21484,44 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     queueShellShowsResult,
     resultShellBlockedWithoutChild,
     resultShellKindBlockedUntilChild,
+  ]);
+
+  useLayoutEffect(() => {
+    const queueHead = overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
+    const queueLen = overlayQueueRef.current.length;
+    const pendingLen = pendingStartupInteractionsRef.current.length;
+    const fromQueueResult =
+      queueShellShowsResult ||
+      queueHead?.kind === 'result' ||
+      (effectiveNotificationQueueShellKind === 'result' && queueLen > 0);
+    const guardSnapshot = syncQueueLobbyGuardState({
+      queueLen,
+      pendingLen,
+      fromQueueResult,
+      queueShellShowsResult,
+      displayResultSourcePicked: displayResultSourcePickedRef.current,
+    });
+    queueShellShowsResultRef.current = queueShellShowsResult;
+    const queueActive = shouldBlockLobbyForActiveQueue(guardSnapshot);
+    if (queueActive && !queueLobbyGuardActiveRef.current) {
+      logQueueClaimedScreen({
+        source: 'queue-lobby-guard-sync',
+        ...guardSnapshot,
+      });
+    }
+    if (queueActive && lobbyOpenRef.current) {
+      logQueueBlockedByLobby({
+        source: 'queue-lobby-guard-force-close',
+        ...guardSnapshot,
+      });
+      setLobbyOpen(false);
+    }
+    queueLobbyGuardActiveRef.current = queueActive;
+  }, [
+    effectiveNotificationQueueShellKind,
+    overlayQueue,
+    queueShellShowsResult,
+    setLobbyOpen,
   ]);
 
   const incomingJsxWillRender =

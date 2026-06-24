@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 38;
+export const DEBUG98_LOGGER_VERSION = 39;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -253,6 +253,9 @@ const ALLOWED_EVENTS = new Set([
   '[QUEUE HANDOFF FETCH RESULT]',
   '[QUEUE HANDOFF OPEN NEXT]',
   '[QUEUE HANDOFF EMPTY -> LOBBY]',
+  '[QUEUE BLOCKED BY LOBBY]',
+  '[QUEUE CLAIMED SCREEN]',
+  '[LOBBY OPEN REJECTED QUEUE ACTIVE]',
   '[QUEUE API RESULT APPLY DECISION]',
   '[INCOMING PENDING ALL MERGE SKIPPED]',
   '[LOBBY BANS PENDING FETCH MISSING]',

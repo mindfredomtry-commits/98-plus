@@ -87,6 +87,12 @@ import {
   subscribePostSuccessHandoff,
 } from '@/lib/post-success-handoff-debug';
 import {
+  getQueueLobbyGuardSnapshot,
+  logLobbyOpenRejectedQueueActive,
+  shouldBlockLobbyForActiveQueue,
+  syncQueueLobbyGuardState,
+} from '@/lib/queue-lobby-guard';
+import {
   logLobbyChromeHidden,
   logLobbyChromeHiddenBug,
   logLobbyChromeVisible,
@@ -687,6 +693,8 @@ export function InstantBanFlow({
       deepLinkReplyBan != null ||
       incomingReplyBanId != null ||
       replyUiShellActive);
+  const queueClaimsNotificationScreen =
+    overlayQueueLength > 0 || shouldBlockLobbyForActiveQueue();
   const lobbyChromeHidden =
     replyLobbyBlocked ||
     deepLinkRouteBootPending ||
@@ -695,7 +703,8 @@ export function InstantBanFlow({
     overlayHandoffLobbySuppressed ||
     successExitDraining ||
     postSuccessHandoffBlocking ||
-    notificationChainTransitioning;
+    notificationChainTransitioning ||
+    queueClaimsNotificationScreen;
   const showLobbyChrome = lobbyBootIntroPrimed && !lobbyChromeHidden;
   /** Orb stays mounted during route boot — only hide for reply/incoming block. */
   const lobbyOrbVisible =
@@ -706,7 +715,8 @@ export function InstantBanFlow({
     !overlayHandoffLobbySuppressed &&
     !successExitDraining &&
     !postSuccessHandoffBlocking &&
-    !notificationChainTransitioning;
+    !notificationChainTransitioning &&
+    !queueClaimsNotificationScreen;
   const showLobbyCta =
     lobbyBootIntroPrimed &&
     !replyIncomingDeeplinkPending &&
@@ -716,6 +726,7 @@ export function InstantBanFlow({
     !successExitDraining &&
     !postSuccessHandoffBlocking &&
     !notificationChainTransitioning &&
+    !queueClaimsNotificationScreen &&
     (!replyLobbyBlocked || bansReturnToLobbyLatch) &&
     !deepLinkRouteBootPending &&
     !deepLinkReplyBooting &&
@@ -2040,6 +2051,21 @@ export function InstantBanFlow({
         source: `prepareLobbyBaseAfterSuccess:${source}`,
       });
       if (!opts?.deferLobbyOpen) {
+        if (
+          overlayQueueLength > 0 ||
+          shouldBlockLobbyForActiveQueue()
+        ) {
+          syncQueueLobbyGuardState({
+            queueLen: overlayQueueLength,
+            pendingLen: pendingStartupInteractions,
+            fromQueueResult: overlayQueueLength > 0,
+          });
+          logLobbyOpenRejectedQueueActive({
+            source: `prepareLobbyBaseAfterSuccess:${source}`,
+            ...getQueueLobbyGuardSnapshot(),
+          });
+          return;
+        }
         if (isPostSuccessHandoffInProgress()) {
           logPostSuccessHandoffPreventBaseLobby({
             source,
