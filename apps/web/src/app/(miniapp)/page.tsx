@@ -62,7 +62,7 @@ const DebugPanel = dynamic(
 );
 
 /** Bump when diagnosing shell / deploy mismatches. */
-const APP_SHELL_BUILD = 'arena-v2@chain-head-switch-diag-v48';
+const APP_SHELL_BUILD = 'arena-v2@confirm-orb-missing-diag-v50';
 
 export default function HomePage() {
   const {

@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 47;
+export const DEBUG98_LOGGER_VERSION = 49;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -134,6 +134,7 @@ const ALLOWED_EVENTS = new Set([
   '[CONFIRM HOLD RETURN NULL]',
   '[BEGIN COMPOSING REPLY STATE]',
   '[INCOMING REPLY CLEANUP SNAPSHOT]',
+  '[CONFIRM ORB MISSING DIAG]',
   '[CONFIRM ORB MOUNT DECISION]',
   '[CONFIRM ORB BLOCKED BY QUEUE STATE]',
   '[POST SUCCESS HANDOFF STILL ACTIVE DURING REPLY]',
@@ -266,7 +267,8 @@ const ALLOWED_EVENTS = new Set([
   '[OVERBOARD ACTION RESULT]',
   '[QUEUE ITEM BUILT AFTER OVERBOARD]',
   '[CHAIN HEAD SWITCH TRACE]',
-  '[atomic-overboard-guard-miss]',
+  '[QUEUE HEAD BECAME RESULT TRACE]',
+  '[HEAD SWITCH OVER MOUNTED INCOMING]',
   '[show-next-blocked-atomic-overboard]',
   '[chain-continue-blocked-atomic-overboard]',
   '[RESULT CARD RENDER DECISION]',

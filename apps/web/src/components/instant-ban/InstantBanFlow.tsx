@@ -111,7 +111,7 @@ import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
 import { logReplyFlow, logReplyFlowLoopGuard } from '@/lib/reply-handoff-debug';
 import {
   buildConfirmHoldNullReason,
-  computeLobbyOrbMountDecision,
+  computeLobbyOrbMountDecisionWithDiag,
   isQueueHandoffOrbBlocker,
   logBeginComposingReplyState,
   logConfirmHoldRenderCheck,
@@ -121,6 +121,11 @@ import {
   logPostSuccessHandoffStillActiveDuringReply,
   logQueueStateDuringConfirm,
 } from '@/lib/confirm-hold-render-debug';
+import {
+  buildRenderLobbyOrbBlockers,
+  logConfirmOrbMissingDiag,
+  resolveOrbMountBlockedReason,
+} from '@/lib/confirm-orb-missing-debug';
 import {
   logConfirmHoldProtectionActive,
   readHoldOwnerRoute,
@@ -362,6 +367,7 @@ export function InstantBanFlow({
   const renderCountRef = useRef(0);
   const confirmHoldDiagSigRef = useRef('');
   const confirmOrbMountDiagSigRef = useRef('');
+  const confirmOrbMissingDiagSigRef = useRef('');
   const confirmQueueStateDiagSigRef = useRef('');
   const postSuccessHandoffDuringReplySigRef = useRef('');
   const lobbyCtaDiagSigRef = useRef('');
@@ -5083,6 +5089,8 @@ export function InstantBanFlow({
   const persistentLogoVisible =
     persistentLobbyLogoActive && !hideLobbyBootLogoOnly;
 
+  const prevConfirmingPhaseRef = useRef(false);
+
   useLayoutEffect(() => {
     const shouldDiag =
       phase === 'confirming' ||
@@ -5126,7 +5134,7 @@ export function InstantBanFlow({
         replyDeepLinkBanId != null &&
         activeOverlayKind === 'incoming',
     };
-    const mountDecision = computeLobbyOrbMountDecision({
+    const mountDecision = computeLobbyOrbMountDecisionWithDiag({
       replyIncomingDeeplinkPending,
       checkDeeplinkDirectPending,
       replyLobbyBlocked,
@@ -5140,6 +5148,7 @@ export function InstantBanFlow({
       postSuccessHandoffActive,
       notificationChainTransitioning,
       lobbyBootIntroPrimed,
+      diagSource: shouldDiag ? 'InstantBanFlow-mount' : null,
     });
     const queueState = getConfirmOrbQueueDebugSnapshot();
     const flowMode = replyComposeActive
@@ -5263,11 +5272,109 @@ export function InstantBanFlow({
       phase,
       sendComposePhase: queueState.sendComposePhase,
     });
+
+    const enteringConfirming =
+      phase === 'confirming' && !prevConfirmingPhaseRef.current;
+    if (phase === 'confirming') {
+      prevConfirmingPhaseRef.current = true;
+    } else {
+      prevConfirmingPhaseRef.current = false;
+    }
+
+    const renderOrbBlockers = buildRenderLobbyOrbBlockers({
+      replyIncomingDeeplinkPending,
+      checkDeeplinkDirectPending,
+      replyLobbyBlocked,
+      successToActiveLobbyBlocked,
+      overlayHandoffLobbySuppressed,
+      successExitDraining,
+      postSuccessHandoffBlocking,
+      notificationChainTransitioning,
+      queueClaimsNotificationScreen,
+      overlayQueueLength,
+      queueLobbyGuardActive: shouldBlockLobbyForActiveQueue(),
+    });
+    const shouldRenderConfirmOrb = showLobbyOrb && confirmActive;
+    const shouldRenderHoldOrb = showLobbyOrb && confirmOrb.showOrbFace;
+    const orbMountBlockedReason = resolveOrbMountBlockedReason({
+      lobbyOrbVisible,
+      showLobbyOrb,
+      lobbyBootIntroPrimed,
+      renderOrbBlockers,
+      mountPrimaryBlocker: mountDecision.primaryBlocker,
+    });
+    const shouldEmitMissingDiag =
+      enteringConfirming ||
+      phase === 'confirming' ||
+      confirmActive ||
+      (confirmOrb.statusLabel === 'Зажми' && !showLobbyOrb) ||
+      !lobbyOrbVisible ||
+      !mountDecision.lobbyOrbVisible ||
+      (mountDecision.lobbyOrbVisible && !lobbyOrbVisible);
+
+    if (shouldEmitMissingDiag) {
+      const missingSource = enteringConfirming
+        ? 'phase-enter-confirming'
+        : confirmOrb.statusLabel === 'Зажми' && !showLobbyOrb
+          ? 'zazhmi-text-without-orb'
+          : !mountDecision.lobbyOrbVisible
+            ? 'compute-lobby-orb-false'
+            : mountDecision.lobbyOrbVisible && !lobbyOrbVisible
+              ? 'render-vs-mount-decision-mismatch'
+              : 'confirm-mount-decision';
+      const missingPayload = {
+        source: missingSource,
+        phase,
+        sendComposePhase: queueState.sendComposePhase,
+        confirmActive,
+        lobbyOrbVisible,
+        shouldRenderConfirmOrb,
+        shouldRenderHoldOrb,
+        confirmHoldReady:
+          confirmActive &&
+          confirmOrb.enterComplete &&
+          shouldRenderHoldOrb,
+        orbMountBlockedReason,
+        notificationChainTransitioning:
+          queueState.notificationChainTransitioning,
+        notificationChainAwaitingUser:
+          queueState.notificationChainAwaitingUser,
+        pendingLen: queueState.pendingLen,
+        queueLen: queueState.queueLen,
+        hasIncoming:
+          incomingGateActive ||
+          queueState.selectedNextKind === 'incoming' ||
+          queueState.incomingBanId != null,
+        activeKind: activeOverlayKind,
+        activeBanId:
+          getPinnedReplyToBanId() ?? incomingReplyBanId ?? replyToBanId ?? null,
+        overlayVisible: notificationOverlayVisible,
+        notificationOverlayVisible,
+        lobbyIndicatorVisible: lobbyBansNeedAttention,
+        mountDecisionLobbyOrbVisible: mountDecision.lobbyOrbVisible,
+        mountDecisionPrimaryBlocker: mountDecision.primaryBlocker,
+        renderOrbBlockers,
+        mountDecisionBlockers: mountDecision.blockers,
+        queueClaimsNotificationScreen,
+        statusLabel: confirmOrb.statusLabel,
+        showLobbyOrb,
+        showBootOrb,
+        lobbyBootIntroPrimed,
+      };
+      const missingSig = JSON.stringify(missingPayload);
+      if (missingSig !== confirmOrbMissingDiagSigRef.current) {
+        confirmOrbMissingDiagSigRef.current = missingSig;
+        logConfirmOrbMissingDiag(missingPayload);
+      }
+    }
   }, [
     activeOverlayKind,
     bansReturnToLobbyLatch,
     checkDeeplinkDirectPending,
     confirmActive,
+    confirmOrb.enterComplete,
+    confirmOrb.showOrbFace,
+    confirmOrb.statusLabel,
     deepLinkReplyBan,
     deepLinkReplyBooting,
     deepLinkRouteBootPending,
@@ -5277,17 +5384,21 @@ export function InstantBanFlow({
     incomingGateActive,
     incomingReplyBanId,
     lobbyActiveBanOverlay,
+    lobbyBansNeedAttention,
     lobbyBootIntroPrimed,
+    lobbyOrbVisible,
     notificationChainTransitioning,
     notificationOverlayMounted,
     notificationOverlayVisible,
     orbCompressActive,
     overlayHandoffFromActiveCard,
     overlayHandoffLobbySuppressed,
+    overlayQueueLength,
     persistentLogoVisible,
     phase,
     postSuccessHandoffActive,
     postSuccessHandoffBlocking,
+    queueClaimsNotificationScreen,
     replyComposeActive,
     replyComposeUiActive,
     replyDeepLinkBanId,
@@ -5300,6 +5411,8 @@ export function InstantBanFlow({
     selectedUser,
     sendFlowOpen,
     sendStarted,
+    showBootOrb,
+    showLobbyOrb,
     successExitDraining,
     successToActiveLobbyBlocked,
   ]);
@@ -5429,6 +5542,80 @@ export function InstantBanFlow({
         }),
         ...payload,
       });
+
+      if (phase === 'confirming' || confirmActive) {
+        const queueDebug = getConfirmOrbQueueDebugSnapshot();
+        const renderOrbBlockers = buildRenderLobbyOrbBlockers({
+          replyIncomingDeeplinkPending,
+          checkDeeplinkDirectPending,
+          replyLobbyBlocked,
+          successToActiveLobbyBlocked,
+          overlayHandoffLobbySuppressed,
+          successExitDraining,
+          postSuccessHandoffBlocking,
+          notificationChainTransitioning,
+          queueClaimsNotificationScreen,
+          overlayQueueLength,
+          queueLobbyGuardActive: shouldBlockLobbyForActiveQueue(),
+        });
+        const renderMissingPayload = {
+          source:
+            confirmOrb.statusLabel === 'Зажми' && !showLobbyOrb
+              ? 'confirm-render-zazhmi-without-orb'
+              : 'confirm-render',
+          phase,
+          sendComposePhase: queueDebug.sendComposePhase,
+          confirmActive,
+          lobbyOrbVisible,
+          shouldRenderConfirmOrb: showLobbyOrb && confirmActive,
+          shouldRenderHoldOrb: holdButtonVisible,
+          confirmHoldReady:
+            confirmActive &&
+            confirmOrb.enterComplete &&
+            !holdBlockReason &&
+            holdButtonVisible,
+          orbMountBlockedReason: resolveOrbMountBlockedReason({
+            lobbyOrbVisible,
+            showLobbyOrb,
+            lobbyBootIntroPrimed,
+            renderOrbBlockers,
+            mountPrimaryBlocker: null,
+            holdBlockReason,
+          }),
+          notificationChainTransitioning:
+            queueDebug.notificationChainTransitioning,
+          notificationChainAwaitingUser:
+            queueDebug.notificationChainAwaitingUser,
+          pendingLen: queueDebug.pendingLen,
+          queueLen: queueDebug.queueLen,
+          hasIncoming:
+            incomingGateActive ||
+            queueDebug.selectedNextKind === 'incoming' ||
+            queueDebug.incomingBanId != null,
+          activeKind: activeOverlayKind,
+          activeBanId:
+            getPinnedReplyToBanId() ??
+            incomingReplyBanId ??
+            replyToBanId ??
+            null,
+          overlayVisible: notificationOverlayVisible,
+          notificationOverlayVisible,
+          lobbyIndicatorVisible: lobbyBansNeedAttention,
+          renderOrbBlockers,
+          queueClaimsNotificationScreen,
+          statusLabel: confirmOrb.statusLabel,
+          showLobbyOrb,
+          showBootOrb,
+          lobbyBootIntroPrimed,
+          holdBlockReason,
+          title98Visible,
+        };
+        const renderSig = JSON.stringify(renderMissingPayload);
+        if (renderSig !== confirmOrbMissingDiagSigRef.current) {
+          confirmOrbMissingDiagSigRef.current = renderSig;
+          logConfirmOrbMissingDiag(renderMissingPayload);
+        }
+      }
     }
   }, [
     activeOverlayKind,
@@ -5449,14 +5636,22 @@ export function InstantBanFlow({
     incomingGateActive,
     incomingReplyBanId,
     inFlight,
+    lobbyBansNeedAttention,
+    lobbyBootIntroPrimed,
     lobbyOrbVisible,
     notificationChainTransitioning,
     notificationOverlayVisible,
     orbCompressActive,
+    overlayHandoffLobbySuppressed,
+    overlayQueueLength,
     persistentLogoVisible,
     phase,
+    postSuccessHandoffBlocking,
+    queueClaimsNotificationScreen,
     replyComposeActive,
     replyHandoffLock,
+    replyIncomingDeeplinkPending,
+    replyLobbyBlocked,
     replySending,
     replyToBanId,
     selectedUser,

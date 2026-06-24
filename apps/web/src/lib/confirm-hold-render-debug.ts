@@ -1,6 +1,7 @@
 'use client';
 
 import { isOverlayInputLocked } from '@/lib/overlay-input-guard';
+import { logConfirmOrbMissingDiagFromMountDecision } from '@/lib/confirm-orb-missing-debug';
 
 function emit(event: string, data?: Record<string, unknown>): void {
   const payload = { t: performance.now(), ...data };
@@ -115,6 +116,21 @@ export function computeLobbyOrbMountDecision(
     blockers,
     primaryBlocker: blockers[0] ?? null,
   };
+}
+
+export function computeLobbyOrbMountDecisionWithDiag(
+  input: LobbyOrbMountInputs & { diagSource?: string | null },
+): LobbyOrbMountDecision {
+  const decision = computeLobbyOrbMountDecision(input);
+  if (!decision.lobbyOrbVisible && input.diagSource) {
+    logConfirmOrbMissingDiagFromMountDecision({
+      source: `${input.diagSource}:computeLobbyOrbMountDecision`,
+      lobbyOrbVisible: false,
+      primaryBlocker: decision.primaryBlocker,
+      blockers: decision.blockers,
+    });
+  }
+  return decision;
 }
 
 export function isQueueHandoffOrbBlocker(blocker: string | null): boolean {
