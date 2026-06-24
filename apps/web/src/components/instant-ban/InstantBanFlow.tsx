@@ -103,6 +103,12 @@ import {
   logLobbyCtaVisibilityState,
   resolveLobbyCtaHiddenReason,
 } from '@/lib/lobby-cta-visibility-debug';
+import {
+  buildLobbyCtaNullReason,
+  computeLobbyCtaGuardDecision,
+  logLobbyCtaRenderCheck,
+  logLobbyCtaReturnNull,
+} from '@/lib/lobby-cta-render-debug';
 import { patchLobbyCtaDebugSnapshot } from '@/lib/lobby-cta-snapshot-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { logDeepLinkHandlerResult } from '@/lib/deep-link-boot-debug';
