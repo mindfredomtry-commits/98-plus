@@ -9,7 +9,7 @@ export default function OpenLandingPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [blockedHint, setBlockedHint] = useState(false);
   const [opening, setOpening] = useState(false);
-  const blockedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const blockedTimerRef = useRef<number | null>(null);
 
   const closeModal = useCallback(() => {
     if (blockedTimerRef.current) {
