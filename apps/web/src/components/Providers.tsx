@@ -496,6 +496,7 @@ import {
   logActiveUserCardPreventOverlayClear,
   logActiveUserCardStaleLockCleared,
   logChainAdvanceAfterStaleActiveClear,
+  logChainAdvanceRetryAfterStaleClear,
   logChainAdvanceBlockedActiveUserCard,
   logChainLookaheadOnlyActiveUserCard,
   logIncomingReplacedBug,
@@ -1204,6 +1205,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       opts?: { prefetchIfLocalEmpty?: boolean },
     ) => Promise<boolean>
   >(async () => false);
+  const scheduleQueueDrainAfterStaleActiveClearRef = useRef<
+    (source: string) => void
+  >(() => {});
+  const staleClearDrainActiveRef = useRef(false);
   const handleCheckAnswerChainOutcomeRef = useRef<
     (
       outcome: ContinueNotificationChainOutcome,
@@ -2430,13 +2435,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         nextBanId: nextHead ? overlayItemBanId(nextHead) : null,
       });
       clearActiveUserCardHold(`stale-orphan-hold:${source}`);
-      logChainAdvanceAfterStaleActiveClear({
-        source,
-        queueLen,
-        pendingLen,
-        activeKind: held?.kind ?? null,
-        activeBanId: held ? heldUserCardBanId(held) : null,
-      });
+      scheduleQueueDrainAfterStaleActiveClearRef.current(source);
       return true;
     }
 
@@ -2476,15 +2475,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
     clearActiveUserCardHold(`stale-active-lock:${source}`);
     clearStaleOverlayRefsForActive(active, source);
-    logChainAdvanceAfterStaleActiveClear({
-      source,
-      queueLen,
-      pendingLen,
-      activeKind: active.kind,
-      activeBanId: active.banId,
-      nextKind: nextHead?.kind ?? null,
-      nextBanId: nextHead ? overlayItemBanId(nextHead) : null,
-    });
+    scheduleQueueDrainAfterStaleActiveClearRef.current(source);
     return true;
   };
 
@@ -4268,8 +4259,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     };
     const headAtEnter = queue[0] ?? null;
     if (
-      queue.length > 0 ||
-      pendingStartupInteractionsRef.current.length > 0
+      !staleClearDrainActiveRef.current &&
+      (queue.length > 0 ||
+        pendingStartupInteractionsRef.current.length > 0)
     ) {
       tryClearStaleActiveUserCardLock('syncDisplayFromQueue', headAtEnter);
     }
@@ -17129,6 +17121,170 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
   continueNotificationChainOrOpenLobbyRef.current =
     continueNotificationChainOrOpenLobby;
+
+  const getNotificationQueueHeadId = useCallback((): string | null => {
+    const head =
+      overlayQueueRef.current[0] ??
+      pendingStartupInteractionsRef.current[0] ??
+      null;
+    if (!head) return null;
+    return head.kind === 'result' ? head.result.id : head.ban.id;
+  }, []);
+
+  const runQueueDrainAfterStaleActiveClearSync = useCallback(
+    (source: string, attempt: 'initial' | 'retry'): boolean => {
+      const drainSource =
+        attempt === 'retry'
+          ? `stale-active-clear-drain-retry:${source}`
+          : `stale-active-clear-drain:${source}`;
+
+      if (
+        overlayQueueRef.current.length === 0 &&
+        pendingStartupInteractionsRef.current.length === 0
+      ) {
+        return false;
+      }
+
+      staleClearDrainActiveRef.current = true;
+      try {
+        setLobbyOpen(false);
+        lobbyOpenRef.current = false;
+        setBansReturnToLobbyLatch(false, { source: drainSource });
+        chainAdvanceExplicitRef.current = true;
+        startupInteractionsHoldRef.current = false;
+        notificationChainAwaitingUserRef.current = false;
+        notificationChainHandoffRef.current = false;
+        deepLinkBlockedRef.current = false;
+        allowDeeplinkExplicitNotificationDrain(drainSource);
+        if (isNotificationQueueLocked()) {
+          unlockNotificationQueue(drainSource);
+        }
+
+        if (pendingStartupInteractionsRef.current.length > 0) {
+          mergeStartupIntoOverlayQueueOnly(drainSource);
+        }
+
+        setNotificationChainTransitioning(true);
+
+        if (showNextNotificationFromChainSync(drainSource)) {
+          setNotificationChainTransitioning(false);
+          setChainAdvanceWaiting(false);
+          return true;
+        }
+
+        syncDisplayFromQueue(overlayQueueRef.current);
+        if (showNextNotificationFromChainSync(`${drainSource}-show-next-retry`)) {
+          setNotificationChainTransitioning(false);
+          setChainAdvanceWaiting(false);
+          return true;
+        }
+
+        return false;
+      } finally {
+        staleClearDrainActiveRef.current = false;
+      }
+    },
+    [
+      mergeStartupIntoOverlayQueueOnly,
+      setBansReturnToLobbyLatch,
+      setChainAdvanceWaiting,
+      setNotificationChainTransitioning,
+      setLobbyOpen,
+      showNextNotificationFromChainSync,
+      syncDisplayFromQueue,
+    ],
+  );
+
+  const scheduleQueueDrainAfterStaleActiveClear = useCallback(
+    (source: string) => {
+      const queueLen = overlayQueueRef.current.length;
+      const pendingLen = pendingStartupInteractionsRef.current.length;
+      if (queueLen === 0 && pendingLen === 0) return;
+
+      const logAdvanceSuccess = (attempt: string) => {
+        logChainAdvanceAfterStaleActiveClear({
+          source,
+          drainSource: `stale-active-clear-drain:${source}`,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          headId: getNotificationQueueHeadId(),
+          attempt,
+        });
+      };
+
+      const runAsyncDrain = async (): Promise<boolean> => {
+        if (isReplyQueueHandoffSessionActive()) {
+          return openNextNotificationAfterQueueHandoff(
+            `stale-active-clear:${source}`,
+            { prefetchIfLocalEmpty: false },
+          );
+        }
+        const outcome = await continueNotificationChainOrOpenLobby(
+          `stale-active-clear:${source}`,
+          { prefetchIfEmpty: false, clearActiveHold: false },
+        );
+        return outcome === 'show-next';
+      };
+
+      if (runQueueDrainAfterStaleActiveClearSync(source, 'initial')) {
+        logAdvanceSuccess('sync');
+        return;
+      }
+
+      queueMicrotask(() => {
+        if (
+          overlayQueueRef.current.length === 0 &&
+          pendingStartupInteractionsRef.current.length === 0
+        ) {
+          return;
+        }
+        logChainAdvanceRetryAfterStaleClear({
+          source,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          headId: getNotificationQueueHeadId(),
+          phase: 'microtask',
+        });
+        if (runQueueDrainAfterStaleActiveClearSync(source, 'retry')) {
+          logAdvanceSuccess('microtask-retry');
+          return;
+        }
+
+        setTimeout(() => {
+          if (
+            overlayQueueRef.current.length === 0 &&
+            pendingStartupInteractionsRef.current.length === 0
+          ) {
+            return;
+          }
+          logChainAdvanceRetryAfterStaleClear({
+            source,
+            queueLen: overlayQueueRef.current.length,
+            pendingLen: pendingStartupInteractionsRef.current.length,
+            headId: getNotificationQueueHeadId(),
+            phase: 'timeout-0',
+          });
+          if (runQueueDrainAfterStaleActiveClearSync(source, 'retry')) {
+            logAdvanceSuccess('timeout-0-retry');
+            return;
+          }
+          void runAsyncDrain().then((shown) => {
+            if (shown) {
+              logAdvanceSuccess('async-handoff');
+            }
+          });
+        }, 0);
+      });
+    },
+    [
+      continueNotificationChainOrOpenLobby,
+      getNotificationQueueHeadId,
+      openNextNotificationAfterQueueHandoff,
+      runQueueDrainAfterStaleActiveClearSync,
+    ],
+  );
+  scheduleQueueDrainAfterStaleActiveClearRef.current =
+    scheduleQueueDrainAfterStaleActiveClear;
 
   const formatCheckAnswerContinueOutcomeLog = (
     outcome: ContinueNotificationChainOutcome,

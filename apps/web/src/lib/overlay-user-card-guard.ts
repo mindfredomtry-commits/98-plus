@@ -224,6 +224,12 @@ export function logChainAdvanceAfterStaleActiveClear(
   emitActiveUserCardDiag('[CHAIN ADVANCE AFTER STALE ACTIVE CLEAR]', data);
 }
 
+export function logChainAdvanceRetryAfterStaleClear(
+  data: Record<string, unknown>,
+): void {
+  emitActiveUserCardDiag('[CHAIN ADVANCE RETRY AFTER STALE CLEAR]', data);
+}
+
 export function logActiveUserCardBlockValid(
   data: Record<string, unknown>,
 ): void {

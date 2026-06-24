@@ -18,6 +18,8 @@ const EXPLICIT_NOTIFICATION_DRAIN_MARKERS = [
   'finalizeResultForGoToBans',
   'drainNextNotificationAfterSuccess',
   'active-timer-close',
+  'stale-active-clear',
+  'stale-active-clear-drain',
   'timer-go-to-bans',
   'user-answer',
   'check-dismiss',

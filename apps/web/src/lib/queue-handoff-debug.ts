@@ -13,6 +13,8 @@ const QUEUE_HANDOFF_DRAIN_MARKERS = [
   'reply-queue-resume',
   'timer-close-showNext',
   'releaseNotificationQueueAfterReplyParentActive',
+  'stale-active-clear',
+  'stale-active-clear-drain',
   'status-cta',
   'overboard-status-direct',
 ] as const;
