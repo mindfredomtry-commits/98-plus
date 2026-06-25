@@ -689,6 +689,13 @@ import {
   syncQueueLobbyGuardState,
 } from '@/lib/queue-lobby-guard';
 import {
+  logQueueOverlayCleared,
+  logQueueOverlayMounted,
+  logQueueOverlayNoMountFallback,
+  logQueueOverlayReplaced,
+  logQueueOverlayUnmountRequest,
+} from '@/lib/queue-overlay-lifecycle-debug';
+import {
   buildActiveParentBanForSuccess,
   hasActiveParentTimerFields,
 } from '@/lib/reply-parent-active-ban';
@@ -2186,8 +2193,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
     if (kind === 'check' && checkBanRef.current?.id === banId) {
+      const before = requestQueueOverlayUnmount(
+        'clearActiveOverlayStateForDismiss',
+        'dismiss-check-state',
+      );
       checkBanRef.current = null;
       setCheckBan(null);
+      emitQueueOverlayCleared(
+        'clearActiveOverlayStateForDismiss',
+        'dismiss-check-state',
+        before,
+      );
       return;
     }
     if (kind === 'incoming' && incomingBanRef.current?.id === banId) {
@@ -2200,8 +2216,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (opts?.explicitUserAction) {
         clearActiveIncomingOverlayBanStable('user-dismiss', banId);
       }
+      const before = requestQueueOverlayUnmount(
+        'clearActiveOverlayStateForDismiss',
+        'dismiss-incoming-state',
+      );
       incomingBanRef.current = null;
       setIncomingBan(null);
+      emitQueueOverlayCleared(
+        'clearActiveOverlayStateForDismiss',
+        'dismiss-incoming-state',
+        before,
+      );
     }
   };
 
@@ -2494,16 +2519,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           `clearStaleOverlayRefsForActive:${source}`,
         )
       ) {
+        const before = requestQueueOverlayUnmount(
+          `clearStaleOverlayRefsForActive:${source}`,
+          'clear-stale-incoming-ref',
+        );
         incomingBanRef.current = null;
         setIncomingBan(null);
+        emitQueueOverlayCleared(
+          `clearStaleOverlayRefsForActive:${source}`,
+          'clear-stale-incoming-ref',
+          before,
+        );
       }
     }
     if (
       active.kind === 'check' &&
       normalizeId(checkBanRef.current?.id ?? '') === banId
     ) {
+      const before = requestQueueOverlayUnmount(
+        `clearStaleOverlayRefsForActive:${source}`,
+        'clear-stale-check-ref',
+      );
       checkBanRef.current = null;
       setCheckBan(null);
+      emitQueueOverlayCleared(
+        `clearStaleOverlayRefsForActive:${source}`,
+        'clear-stale-check-ref',
+        before,
+      );
     }
     if (
       active.kind === 'result' &&
@@ -2512,6 +2555,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (incomingOverboardAtomicBanIdRef.current === banId) {
         return;
       }
+      const before = requestQueueOverlayUnmount(
+        `clearStaleOverlayRefsForActive:${source}`,
+        'clear-stale-result-ref',
+      );
       resultRef.current = null;
       setResult(null);
       resultOpenRef.current = false;
@@ -2522,6 +2569,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         resultIdBefore: banId,
         willClearResult: true,
       });
+      emitQueueOverlayCleared(
+        `clearStaleOverlayRefsForActive:${source}`,
+        'clear-stale-result-ref',
+        before,
+      );
     }
     const visible = visibleUserCardOverlayRef.current;
     if (
@@ -3359,10 +3411,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (isIncomingConsumedForReplyCompose(incomingBanRef.current.id)) {
         return;
       }
+      const priorSnap = buildQueueOverlayLifecycleSnap();
       const held: HeldUserCardOverlay = {
         kind: 'incoming',
         ban: incomingBanRef.current,
       };
+      if (
+        priorSnap.mountedOverlayId &&
+        normalizeId(priorSnap.mountedOverlayId) !== normalizeId(held.ban.id)
+      ) {
+        logQueueOverlayReplaced({
+          caller: source,
+          reason: 'capture-active-user-card-hold',
+          previousOverlay: {
+            kind: priorSnap.mountedOverlayKind ?? 'unknown',
+            id: priorSnap.mountedOverlayId,
+          },
+          newOverlay: { kind: 'incoming', id: held.ban.id },
+          ...priorSnap,
+        });
+      }
       heldUserCardOverlayRef.current = held;
       setHeldUserCardOverlay(held);
       notificationChainAwaitingUserRef.current = true;
@@ -3390,10 +3458,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
     if (kind === 'check' && checkBanRef.current?.id) {
+      const priorSnap = buildQueueOverlayLifecycleSnap();
       const held: HeldUserCardOverlay = {
         kind: 'check',
         ban: checkBanRef.current,
       };
+      if (
+        priorSnap.mountedOverlayId &&
+        normalizeId(priorSnap.mountedOverlayId) !== normalizeId(held.ban.id)
+      ) {
+        logQueueOverlayReplaced({
+          caller: source,
+          reason: 'capture-active-user-card-hold',
+          previousOverlay: {
+            kind: priorSnap.mountedOverlayKind ?? 'unknown',
+            id: priorSnap.mountedOverlayId,
+          },
+          newOverlay: { kind: 'check', id: held.ban.id },
+          ...priorSnap,
+        });
+      }
       heldUserCardOverlayRef.current = held;
       setHeldUserCardOverlay(held);
       notificationChainAwaitingUserRef.current = true;
@@ -3417,10 +3501,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
     if (kind === 'result' && resultRef.current?.id) {
+      const priorSnap = buildQueueOverlayLifecycleSnap();
       const held: HeldUserCardOverlay = {
         kind: 'result',
         result: resultRef.current,
       };
+      if (
+        priorSnap.mountedOverlayId &&
+        normalizeId(priorSnap.mountedOverlayId) !== normalizeId(held.result.id)
+      ) {
+        logQueueOverlayReplaced({
+          caller: source,
+          reason: 'capture-active-user-card-hold',
+          previousOverlay: {
+            kind: priorSnap.mountedOverlayKind ?? 'unknown',
+            id: priorSnap.mountedOverlayId,
+          },
+          newOverlay: { kind: 'result', id: held.result.id },
+          ...priorSnap,
+        });
+      }
       heldUserCardOverlayRef.current = held;
       setHeldUserCardOverlay(held);
       notificationChainAwaitingUserRef.current = true;
@@ -3454,6 +3554,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const clearActiveUserCardHold = (source: string) => {
     if (!heldUserCardOverlayRef.current) return;
     const held = heldUserCardOverlayRef.current;
+    const beforeUnmount =
+      requestQueueOverlayUnmount(source, 'clear-active-user-card-hold') ?? {
+        kind: held.kind,
+        id: heldUserCardBanId(held),
+      };
     const wasCheckHold = held.kind === 'check';
     const clearedCheckBanId = wasCheckHold ? heldUserCardBanId(held) : null;
     emitResultClearCallsite({
@@ -3474,6 +3579,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setHeldUserCardOverlay(null);
     notificationChainAwaitingUserRef.current = false;
     visibleUserCardOverlayRef.current = null;
+    emitQueueOverlayCleared(
+      source,
+      'clear-active-user-card-hold',
+      beforeUnmount,
+    );
     console.log('[active-user-card-hold-clear]', { source });
     if (wasCheckHold) {
       traceCheckCardHoldLifecycle('hold-cleared', {
@@ -3509,6 +3619,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (held.kind === nextHead.kind && heldBanId === nextBanId) return;
 
     const heldKindBefore = held.kind;
+    logQueueOverlayReplaced({
+      caller: source,
+      reason: 'show-next-head-mismatch',
+      previousOverlay: { kind: heldKindBefore, id: heldBanId },
+      newOverlay: { kind: nextHead.kind, id: nextBanId },
+      ...buildQueueOverlayLifecycleSnap(),
+    });
     clearActiveUserCardHold('show-next-head-mismatch');
     const logPayload = {
       source,
@@ -4391,6 +4508,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return false;
       }
 
+      emitQueueOverlayNoMountFallback(
+        `clearNotificationOverlayForEmptyQueueAfterSuccessExit:${source}`,
+        'success-exit-empty-queue-clear-overlay',
+      );
       logSuccessExitEmptyQueueClearOverlay({ source, queueLen, startupLen });
       clearActiveUserCardHold(`success-exit-empty-queue:${source}`);
       setChainAdvanceWaiting(false);
@@ -4436,6 +4557,85 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             ? 'check'
             : null,
       ...extra,
+    });
+  };
+
+  const buildQueueOverlayLifecycleSnap = () => {
+    const head = overlayQueueRef.current[0] ?? null;
+    const queueHeadId = head ? overlayItemBanId(head) : null;
+    const visible = visibleUserCardOverlayRef.current;
+    const held = heldUserCardOverlayRef.current;
+    const mounted = visible?.banId
+      ? { kind: visible.kind, id: visible.banId }
+      : held
+        ? { kind: held.kind, id: heldUserCardBanId(held) }
+        : incomingBanRef.current?.id
+          ? { kind: 'incoming' as const, id: incomingBanRef.current.id }
+          : checkBanRef.current?.id
+            ? { kind: 'check' as const, id: checkBanRef.current.id }
+            : resultRef.current?.id
+              ? { kind: 'result' as const, id: resultRef.current.id }
+              : null;
+    return {
+      queueHeadKind: head?.kind ?? null,
+      queueHeadId,
+      overlayQueueRefLen: overlayQueueRef.current.length,
+      pendingNotificationCount: pendingStartupInteractionsRef.current.length,
+      hasPendingNotificationChain: hasPendingNotificationChainFnRef.current(),
+      overlayKind: mounted?.kind ?? null,
+      overlayId: mounted?.id ?? null,
+      mountedOverlayKind: mounted?.kind ?? null,
+      mountedOverlayId: mounted?.id ?? null,
+    };
+  };
+
+  const requestQueueOverlayUnmount = (
+    caller: string,
+    reason: string,
+  ): { kind: string; id: string } | null => {
+    const snap = buildQueueOverlayLifecycleSnap();
+    if (!snap.mountedOverlayId) return null;
+    logQueueOverlayUnmountRequest({
+      caller,
+      reason,
+      currentHeadId: snap.queueHeadId,
+      currentHeadKind: snap.queueHeadKind,
+      mountedOverlayId: snap.mountedOverlayId,
+      ...snap,
+    });
+    return { kind: snap.mountedOverlayKind!, id: snap.mountedOverlayId! };
+  };
+
+  const emitQueueOverlayCleared = (
+    caller: string,
+    reason: string,
+    before: { kind: string | null; id: string | null } | null,
+  ) => {
+    if (!before?.id) return;
+    logQueueOverlayCleared({
+      caller,
+      reason,
+      activeOverlayIdBefore: before.id,
+      activeOverlayKindBefore: before.kind,
+      ...buildQueueOverlayLifecycleSnap(),
+    });
+  };
+
+  const emitQueueOverlayNoMountFallback = (caller: string, why: string) => {
+    const snap = buildQueueOverlayLifecycleSnap();
+    logQueueOverlayNoMountFallback({
+      caller,
+      why,
+      pendingNotificationState: {
+        hasPendingNotificationChain: snap.hasPendingNotificationChain,
+        pendingLen: snap.pendingNotificationCount,
+        queueLen: snap.overlayQueueRefLen,
+      },
+      mountedOverlayState: {
+        kind: snap.mountedOverlayKind,
+        id: snap.mountedOverlayId,
+      },
+      ...snap,
     });
   };
 
@@ -4969,6 +5169,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           'syncDisplayFromQueue-blocked',
         )
       ) {
+        const before = requestQueueOverlayUnmount(
+          'syncDisplayFromQueue',
+          'blocks-mounted-notification-overlay',
+        );
         const stable = resolveStableIncomingForQueueHead(active);
         if (stable) {
           incomingBanRef.current = stable;
@@ -4977,9 +5181,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           incomingBanRef.current = null;
           setIncomingBan(null);
         }
+        emitQueueOverlayCleared(
+          'syncDisplayFromQueue',
+          'blocks-mounted-notification-overlay',
+          before,
+        );
       }
+      const beforeCheck = requestQueueOverlayUnmount(
+        'syncDisplayFromQueue',
+        'blocks-mounted-notification-overlay-check',
+      );
       checkBanRef.current = null;
       setCheckBan(null);
+      emitQueueOverlayCleared(
+        'syncDisplayFromQueue',
+        'blocks-mounted-notification-overlay-check',
+        beforeCheck,
+      );
       traceSyncDisplayBlocked('blocks-mounted-notification-overlay');
       return;
     }
@@ -5066,8 +5284,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
       if (!shouldBlockActiveCheckOverlayAutoClose('syncDisplayFromQueue', 'queue-locked')) {
+        const beforeCheck = requestQueueOverlayUnmount(
+          'syncDisplayFromQueue',
+          'queue-locked-clear-check',
+        );
         checkBanRef.current = null;
         setCheckBan(null);
+        emitQueueOverlayCleared(
+          'syncDisplayFromQueue',
+          'queue-locked-clear-check',
+          beforeCheck,
+        );
       }
       if (
         !blockClearActiveIncomingOverlayBan(
@@ -5075,6 +5302,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           'syncDisplayFromQueue-queue-locked',
         )
       ) {
+        const before = requestQueueOverlayUnmount(
+          'syncDisplayFromQueue',
+          'queue-locked-clear-incoming',
+        );
         const stable = resolveStableIncomingForQueueHead(active);
         if (stable) {
           incomingBanRef.current = stable;
@@ -5083,6 +5314,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           incomingBanRef.current = null;
           setIncomingBan(null);
         }
+        emitQueueOverlayCleared(
+          'syncDisplayFromQueue',
+          'queue-locked-clear-incoming',
+          before,
+        );
       }
     } else {
       if (isActiveUserCardHold()) {
@@ -5167,8 +5403,42 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           checkBanId: mountedCheckId,
         });
       }
+      const prevIncomingId = incomingBanRef.current?.id ?? null;
+      const prevCheckId = checkBanRef.current?.id ?? null;
+      if (!nextIncoming && prevIncomingId) {
+        const before = requestQueueOverlayUnmount(
+          'syncDisplayFromQueue',
+          'sync-head-clears-incoming',
+        );
+        incomingBanRef.current = nextIncoming;
+        checkBanRef.current = nextCheck;
+        setIncomingBan(nextIncoming);
+        setCheckBan(nextCheck);
+        emitQueueOverlayCleared(
+          'syncDisplayFromQueue',
+          'sync-head-clears-incoming',
+          before ?? { kind: 'incoming', id: prevIncomingId },
+        );
+      } else if (!nextCheck && prevCheckId) {
+        const before = requestQueueOverlayUnmount(
+          'syncDisplayFromQueue',
+          'sync-head-clears-check',
+        );
+        incomingBanRef.current = nextIncoming;
+        checkBanRef.current = nextCheck;
+        setIncomingBan(nextIncoming);
+        setCheckBan(nextCheck);
+        emitQueueOverlayCleared(
+          'syncDisplayFromQueue',
+          'sync-head-clears-check',
+          before ?? { kind: 'check', id: prevCheckId },
+        );
+      } else {
       incomingBanRef.current = nextIncoming;
       checkBanRef.current = nextCheck;
+      setIncomingBan(nextIncoming);
+      setCheckBan(nextCheck);
+      }
       if (nextIncoming) {
         logChainHeadSwitchTrace(
           'syncDisplayFromQueue:setIncomingBan',
@@ -5182,8 +5452,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           },
         );
       }
-      setIncomingBan(nextIncoming);
-      setCheckBan(nextCheck);
       if (nextCheck) {
         const nextCheckNorm = normalizeId(nextCheck.id);
         if (answeredCheckRef.current.has(nextCheckNorm)) {
@@ -5356,8 +5624,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             willClearResult: true,
           });
           const gateBefore = snapshotDirectOverboardGate();
+          const beforeResult = requestQueueOverlayUnmount(
+            'syncDisplayFromQueue',
+            resultBlock.reason ?? 'queue-head-blocked',
+          );
           setResult(null);
           setDirectResultOverlayActive(false);
+          emitQueueOverlayCleared(
+            'syncDisplayFromQueue',
+            resultBlock.reason ?? 'queue-head-blocked',
+            beforeResult,
+          );
           emitResultHeldStillPresentAfterClear(
             'syncDisplayFromQueue',
             resultBlock.reason ?? 'queue-head-blocked',
@@ -5448,8 +5725,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           }
           if (!directResultOverlayRef.current) {
             resultOpenRef.current = false;
+            const beforeResult = requestQueueOverlayUnmount(
+              'syncDisplayFromQueue-stale-prune',
+              'stale-prune-before',
+            );
             setResult(null);
             setDirectResultOverlayActive(false);
+            emitQueueOverlayCleared(
+              'syncDisplayFromQueue-stale-prune',
+              'stale-prune-before',
+              beforeResult,
+            );
           }
           emitResultHeldStillPresentAfterClear(
             'syncDisplayFromQueue-stale-prune',
@@ -6059,6 +6345,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const delayFromAction = overlayDelayMs(overlayActionTsRef.current);
       const delayFromHandoff = overlayDelayMs(overlayHandoffTsRef.current);
       if (isBlockingUserOverlayKind(kind) && buttonsReady) {
+        const mountSnap = buildQueueOverlayLifecycleSnap();
+        logQueueOverlayMounted({
+          notificationId: banId,
+          overlayKind: kind,
+          queueHeadId: mountSnap.queueHeadId,
+          ...mountSnap,
+        });
         visibleUserCardOverlayRef.current = {
           kind: kind as BlockingUserOverlayKind,
           banId: normalizeId(banId),
@@ -12459,8 +12752,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         reason: 'release-incoming-overlay-for-reply-compose',
         willClearHeld: true,
       });
+      const before = requestQueueOverlayUnmount(
+        source,
+        'release-incoming-overlay-for-reply-compose',
+      );
       heldUserCardOverlayRef.current = null;
       setHeldUserCardOverlay(null);
+      emitQueueOverlayCleared(
+        source,
+        'release-incoming-overlay-for-reply-compose',
+        before,
+      );
       emitResultHeldStillPresentAfterClear(
         source,
         'release-incoming-overlay-for-reply-compose',
@@ -17757,6 +18059,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       let outcome: ContinueNotificationChainOutcome = 'open-lobby';
       let openLobbyCalled = false;
       if (emptyFallback === 'none') {
+        emitQueueOverlayNoMountFallback(
+          source,
+          'chain-continue-empty-fallback-none',
+        );
         outcome = 'blocked';
       } else if (emptyFallback === 'bans-section') {
         const targetTab = opts?.openBansTab ?? 'yours';
@@ -17766,6 +18072,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
         outcome = 'open-bans';
       } else if (isPostSuccessHandoffInProgress()) {
+        emitQueueOverlayNoMountFallback(
+          source,
+          'chain-continue-empty-post-success-handoff',
+        );
         completePostSuccessHandoffEmptyOpenLobby({
           source,
           reason: 'chain-continue-empty',
@@ -17774,6 +18084,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         openLobbyCalled = true;
       } else {
+        emitQueueOverlayNoMountFallback(
+          source,
+          'chain-continue-empty-open-lobby',
+        );
         openLobbyRef.current(source);
         openLobbyCalled = true;
       }
