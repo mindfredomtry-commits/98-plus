@@ -9,11 +9,12 @@
     "dev": "npm run dev --workspaces --if-present",
     "dev:web": "npm run dev -w @98plus/web",
     "dev:api": "npm run dev -w @98plus/api",
-    "build": "npm run build -w @98plus/shared && npm run build -w @98plus/api && npm run build -w @98plus/web",
-    "build:api": "npm run build -w @98plus/api && npm run build:verify -w @98plus/api",
-    "db:generate": "npm run db:generate -w @98plus/api",
-    "db:migrate": "npm run db:migrate -w @98plus/api",
-    "db:push": "npm run db:push -w @98plus/api",
+    "build": "npm run build --prefix packages/shared && npm run build --prefix apps/api && npm run build --prefix apps/web",
+    "build:api": "npm run build --prefix packages/shared && npm run db:generate --prefix apps/api && npm run build --prefix apps/api && npm run build:verify --prefix apps/api",
+    "start:api": "node apps/api/dist/index.js",
+    "db:generate": "npm run db:generate --prefix apps/api",
+    "db:migrate": "npm run db:migrate --prefix apps/api",
+    "db:push": "npm run db:push --prefix apps/api",
     "lint": "npm run lint --workspaces --if-present"
   },
   "engines": {
