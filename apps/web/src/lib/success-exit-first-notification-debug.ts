@@ -17,6 +17,8 @@ let successExitInProgress = false;
 let successExitAllowLobbyOpen = false;
 let successCardSessionId = 0;
 let authorizedDrainSessionId: number | null = null;
+let lastSuccessExitDrainReason: string | null = null;
+let lastSuccessExitDrainDetail: string | null = null;
 
 export function beginSendSuccessCardSession(banId: string): number {
   if (successExitInProgress || successExitDrainingExtra) {
@@ -196,9 +198,72 @@ export function logSuccessExitLobbyOpenAttempt(data: {
 }
 
 export function logSuccessExitDrainStart(): void {
+  lastSuccessExitDrainReason = null;
+  lastSuccessExitDrainDetail = null;
   emit('[SUCCESS EXIT DRAIN START]', {
     ...readSuccessExitDebugSnapshot(),
   });
+}
+
+export function recordSuccessExitDrainFailure(
+  reason: string,
+  detail?: string,
+): void {
+  lastSuccessExitDrainReason = reason;
+  lastSuccessExitDrainDetail = detail ?? null;
+}
+
+export function readLastSuccessExitDrainDiagnostic(): {
+  drainedReasonRaw: string | null;
+  drainedReasonDetail: string | null;
+  drainedReason: string;
+} {
+  return {
+    drainedReasonRaw: lastSuccessExitDrainReason,
+    drainedReasonDetail: lastSuccessExitDrainDetail,
+    drainedReason: formatSuccessExitDrainedReasonLabel(
+      lastSuccessExitDrainReason,
+    ),
+  };
+}
+
+export function formatSuccessExitDrainedReasonLabel(
+  raw: string | null | undefined,
+): string {
+  const reason = raw ?? '';
+  if (reason === 'show-next-blocked' || reason === 'drain-not-shown') {
+    return 'showNextNotificationFromChainSync returned blocked';
+  }
+  if (
+    reason === 'continue-blocked' ||
+    reason.startsWith('continue-outcome-')
+  ) {
+    return 'continueNotificationChainOrOpenLobby returned false';
+  }
+  if (
+    reason === 'success-exit-empty-no-retry' ||
+    reason === 'queue-empty-after-prefetch'
+  ) {
+    return 'no queue head selected';
+  }
+  if (
+    reason === 'try-drain-overlay-blocked' ||
+    reason === 'overlay-blocked'
+  ) {
+    return 'tryDrain aborted';
+  }
+  if (
+    reason === 'compose-active' ||
+    reason === 'success-card-still-mounted' ||
+    reason === 'success-exit-retry-blocked-empty' ||
+    reason === 'success-exit-not-authorized'
+  ) {
+    return 'stale handoff / active lock / transition guard';
+  }
+  if (reason.length === 0) {
+    return 'unknown';
+  }
+  return 'unknown';
 }
 
 export function logSuccessExitDrainResult(data: {
@@ -209,6 +274,10 @@ export function logSuccessExitDrainResult(data: {
   selectedBanId?: string | null;
   reason?: string;
 }): void {
+  if (!data.drained) {
+    lastSuccessExitDrainReason = data.reason ?? 'unknown';
+    lastSuccessExitDrainDetail = null;
+  }
   emit('[SUCCESS EXIT DRAIN RESULT]', data);
 }
 

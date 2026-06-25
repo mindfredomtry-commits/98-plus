@@ -69,6 +69,7 @@ import {
   setSuccessExitDrainingForDebug,
   isSuccessExitInstrumentationActive,
   shouldSuppressLobbyOpenDuringSuccessExit,
+  readLastSuccessExitDrainDiagnostic,
 } from '@/lib/success-exit-first-notification-debug';
 import {
   logLobbyCtaHiddenBug,
@@ -2863,8 +2864,49 @@ export function InstantBanFlow({
 
   const finishSendSuccessLobbyExit = useCallback(
     async (banId: string | null) => {
+      const logFinishSendSuccessLobbyExitDecision = (
+        exit: string,
+        decision:
+          | 'mount-overlay'
+          | 'preserve-pending'
+          | 'stay-on-lobby'
+          | 'early-abort',
+        drained: boolean | null,
+        drainDiagnostic?: ReturnType<typeof readLastSuccessExitDrainDiagnostic>,
+      ) => {
+        const overlayQueueRefLen = getConfirmOrbQueueDebugSnapshot().queueLen;
+        const hasPending = hasPendingNotificationChain();
+        const overlayQueueLengthVsRefMismatch =
+          overlayQueueRefLen > 0 && overlayQueueLength === 0;
+        const payload = {
+          exit,
+          decision,
+          drained,
+          overlayQueueLength,
+          hasPendingNotificationChain: hasPending,
+          overlayQueueRefLen,
+          pendingVsEmptyMismatch:
+            decision === 'stay-on-lobby' && hasPending,
+          overlayQueueLengthVsRefMismatch,
+          ...(drained === false && drainDiagnostic
+            ? {
+                drainedReason: drainDiagnostic.drainedReason,
+                drainedReasonRaw: drainDiagnostic.drainedReasonRaw,
+                drainedReasonDetail: drainDiagnostic.drainedReasonDetail,
+              }
+            : {}),
+        };
+        console.log('[FINISH SEND SUCCESS LOBBY EXIT]', payload);
+        window.__debug98log?.('[FINISH SEND SUCCESS LOBBY EXIT]', payload);
+      };
+
       if (!canDrainNotificationAfterSuccess()) {
         logQueueSourceComparisonSnapshot('success-exit-blocked-not-authorized');
+        logFinishSendSuccessLobbyExitDecision(
+          'blocked-not-authorized',
+          'early-abort',
+          null,
+        );
         setSuccessExitDraining(false);
         endSuccessExitInProgress();
         return;
@@ -2971,6 +3013,11 @@ export function InstantBanFlow({
           notificationOverlayVisible,
         });
         successExitAwaitingNotificationDrainRef.current = true;
+        logFinishSendSuccessLobbyExitDecision(
+          'drain-ok',
+          'mount-overlay',
+          true,
+        );
       } else {
         successExitAwaitingNotificationDrainRef.current = false;
         endSuccessExitInstrumentation();
@@ -2995,6 +3042,12 @@ export function InstantBanFlow({
         allowSuccessExitLobbyOpen();
         openLobby('success-exit-empty-queue');
         beginCtaSpringIn();
+        logFinishSendSuccessLobbyExitDecision(
+          'drain-false-open-lobby',
+          'stay-on-lobby',
+          false,
+          readLastSuccessExitDrainDiagnostic(),
+        );
       }
 
       console.log('[success-exit-cleanup-state]', {
@@ -3025,6 +3078,7 @@ export function InstantBanFlow({
       unlockNotificationQueueAndFlush,
       logPostSuccessQueueSnapshotBeforeRelease,
       logPostSuccessReleaseStartupResult,
+      getConfirmOrbQueueDebugSnapshot,
     ],
   );
 

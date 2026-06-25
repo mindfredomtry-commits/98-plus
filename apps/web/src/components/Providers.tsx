@@ -378,7 +378,11 @@ import {
   shouldBlockPostSuccessPrefetchAfterEmpty,
 } from '@/lib/post-success-handoff-debug';
 import {
-  buildPostSuccessQueueSnapshotBase,
+  logExplicitDrainFinalDecision,
+  logExplicitDrainPendingSnapshot,
+  logExplicitDrainStart,
+} from '@/lib/post-success-explicit-drain-debug';
+import {
   logLobbyBansQueueStartSnapshot,
   logPostSuccessEmptyQueueButUserHasBansIndicator,
   logPostSuccessQueueSnapshotBeforeRelease as emitPostSuccessQueueSnapshotBeforeRelease,
@@ -603,6 +607,7 @@ import {
   logSuccessExitEmptyQueueClearOverlay,
   logSuccessExitTimerCardTopOk,
   logEmptyBackdropBug,
+  recordSuccessExitDrainFailure,
   registerSuccessExitDebugSnapshot,
   shouldSuppressLobbyOpenDuringSuccessExit,
 } from '@/lib/success-exit-first-notification-debug';
@@ -18743,6 +18748,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       logSuccessExitDrainStart();
 
+      logExplicitDrainStart({
+        path: 'success-exit',
+        source: 'drainNextNotificationAfterSuccess',
+        queueLen,
+        pendingLen: startupLen,
+        hasPendingNotificationChain: hasPendingNotificationChain(),
+      });
+
       console.log('[success-exit-notification-check]', {
         banId: successBanId ?? null,
         queueLen,
@@ -18795,6 +18808,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             reason: 'overlay-blocked',
             source,
           });
+          recordSuccessExitDrainFailure(
+            'try-drain-overlay-blocked',
+            `tryDrain:${source}:overlay-blocked`,
+          );
           return false;
         }
 
@@ -18803,12 +18820,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           queueLen: overlayQueueRef.current.length,
           pendingLen: pendingStartupInteractionsRef.current.length,
         });
-        const shown =
-          (await continueNotificationChainOrOpenLobbyRef.current(source, {
+        const outcome =
+          await continueNotificationChainOrOpenLobbyRef.current(source, {
             prefetchIfEmpty: false,
             openLobbyIfEmpty: false,
-          })) === 'show-next';
-        if (!shown) {
+          });
+        if (outcome !== 'show-next') {
+          const drainFailureReason =
+            outcome === 'blocked'
+              ? 'continue-blocked'
+              : outcome === 'lost-pending'
+                ? 'show-next-blocked'
+                : `continue-outcome-${outcome}`;
+          recordSuccessExitDrainFailure(
+            drainFailureReason,
+            `tryDrain:${source}:${outcome}`,
+          );
           return false;
         }
 
@@ -18851,9 +18878,33 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return true;
       };
 
-      if (await tryDrain('success-exit')) return true;
+      if (await tryDrain('success-exit')) {
+        logExplicitDrainFinalDecision({
+          path: 'success-exit',
+          decision: 'mount-overlay',
+          drained: true,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          hasPendingNotificationChain: hasPendingNotificationChain(),
+          reason: 'success-exit-primary',
+        });
+        return true;
+      }
 
       const primaryEmptySnapshot = snapshotPendingNotificationChain();
+      logExplicitDrainPendingSnapshot({
+        source: 'success-exit-after-primary',
+        phase: 'after-primary-tryDrain',
+        queueLen: primaryEmptySnapshot.queueLen,
+        pendingLen: primaryEmptySnapshot.pendingLen,
+        incomingLen: primaryEmptySnapshot.incomingLen,
+        checkLen: primaryEmptySnapshot.checkLen,
+        resultLen: primaryEmptySnapshot.resultLen,
+        bufferedIncomingId: primaryEmptySnapshot.bufferedIncomingId,
+        heldNextKind: primaryEmptySnapshot.heldNextKind,
+        hasPendingNotificationChain: hasPendingNotificationChain(),
+        isChainSnapshotEmpty: isSuccessExitChainFullyEmpty(primaryEmptySnapshot),
+      });
       if (
         isSuccessExitChainFullyEmpty(primaryEmptySnapshot) &&
         !hasPendingNotificationChain()
@@ -18873,23 +18924,79 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
         }
         logDrainResult(false, { reason: 'success-exit-empty-no-retry' });
+        logExplicitDrainFinalDecision({
+          path: 'success-exit',
+          decision: 'stay-on-lobby-empty',
+          drained: false,
+          queueLen: primaryEmptySnapshot.finalQueueLen ?? primaryEmptySnapshot.queueLen,
+          pendingLen: primaryEmptySnapshot.finalPendingLen ?? primaryEmptySnapshot.pendingLen,
+          hasPendingNotificationChain: false,
+          reason: 'success-exit-empty-no-retry',
+        });
         return false;
       }
 
-      await prefetchPendingNotificationChain(null, 'success-exit');
+      const localQueueLen = primaryEmptySnapshot.finalQueueLen ?? primaryEmptySnapshot.queueLen;
+      const localPendingLen =
+        primaryEmptySnapshot.finalPendingLen ?? primaryEmptySnapshot.pendingLen;
+      if (localQueueLen === 0 && localPendingLen === 0) {
+        await prefetchPendingNotificationChain(null, 'success-exit');
+      } else {
+        logExplicitDrainPendingSnapshot({
+          source: 'success-exit',
+          phase: 'skip-prefetch-local-queue',
+          queueLen: localQueueLen,
+          pendingLen: localPendingLen,
+          hasPendingNotificationChain: hasPendingNotificationChain(),
+        });
+      }
       if (shouldBlockPostSuccessEmptyRetry('success-exit-retry')) {
         logDrainResult(false, { reason: 'success-exit-retry-blocked-empty' });
+        logExplicitDrainFinalDecision({
+          path: 'success-exit',
+          decision: 'stay-on-lobby-empty',
+          drained: false,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          hasPendingNotificationChain: hasPendingNotificationChain(),
+          reason: 'success-exit-retry-blocked-empty',
+        });
         return false;
       }
-      if (await tryDrain('success-exit-retry')) return true;
+      if (await tryDrain('success-exit-retry')) {
+        logExplicitDrainFinalDecision({
+          path: 'success-exit',
+          decision: 'mount-overlay',
+          drained: true,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          hasPendingNotificationChain: hasPendingNotificationChain(),
+          reason: 'success-exit-retry',
+        });
+        return true;
+      }
 
       const finalCollected = snapshotPendingNotificationChain();
       const finalQueueLen = finalCollected.finalQueueLen;
       const finalStartupLen = finalCollected.finalPendingLen;
+      const stillPending = hasPendingNotificationChain();
       const drainMissReason =
         finalQueueLen === 0 && finalStartupLen === 0
           ? 'queue-empty-after-prefetch'
           : 'drain-not-shown';
+      logExplicitDrainPendingSnapshot({
+        source: 'success-exit-final',
+        phase: 'drain-miss',
+        queueLen: finalQueueLen,
+        pendingLen: finalStartupLen,
+        incomingLen: finalCollected.incomingLen,
+        checkLen: finalCollected.checkLen,
+        resultLen: finalCollected.resultLen,
+        bufferedIncomingId: finalCollected.bufferedIncomingId,
+        heldNextKind: finalCollected.heldNextKind,
+        hasPendingNotificationChain: stillPending,
+        isChainSnapshotEmpty: isSuccessExitChainFullyEmpty(finalCollected),
+      });
       console.log('[success-exit-no-notifications]', {
         reason: drainMissReason,
         queueLen: finalQueueLen,
@@ -18907,11 +19014,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           queueLen: finalQueueLen,
           pendingLen: finalStartupLen,
         });
+        logExplicitDrainFinalDecision({
+          path: 'success-exit',
+          decision: 'stay-on-lobby-empty',
+          drained: false,
+          queueLen: finalQueueLen,
+          pendingLen: finalStartupLen,
+          hasPendingNotificationChain: stillPending,
+          reason: drainMissReason,
+        });
       } else if (isPostSuccessHandoffInProgress()) {
         logPostSuccessHandoffLostBug({
           reason: drainMissReason,
           queueLen: finalQueueLen,
           pendingLen: finalStartupLen,
+        });
+        logExplicitDrainFinalDecision({
+          path: 'success-exit',
+          decision: 'preserve-pending',
+          drained: false,
+          queueLen: finalQueueLen,
+          pendingLen: finalStartupLen,
+          hasPendingNotificationChain: stillPending,
+          reason: drainMissReason,
         });
       }
       return false;
@@ -18926,9 +19051,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const releaseNotificationQueueAfterReplyParentActive = useCallback(() => {
     const hadPriority = replyParentActivePriorityActiveRef.current;
+    const queueLen = overlayQueueRef.current.length;
+    const pendingLen = pendingStartupInteractionsRef.current.length;
+    logExplicitDrainStart({
+      path: 'timer-exit',
+      source: 'releaseNotificationQueueAfterReplyParentActive',
+      queueLen,
+      pendingLen,
+      hasPendingNotificationChain: hasPendingNotificationChain(),
+    });
     patchReplyQueueHandoffSession({
-      queueLenAfterTimer: overlayQueueRef.current.length,
-      pendingLenAfterTimer: pendingStartupInteractionsRef.current.length,
+      queueLenAfterTimer: queueLen,
+      pendingLenAfterTimer: pendingLen,
     });
     logReplyQueueHandoffDiagContext(
       'post-timer-handoff-start',
@@ -19000,6 +19134,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           'active-timer-close-direct-drain',
           { handoffBlockedReason: 'show-next', handoffShouldResume: true },
         );
+        logExplicitDrainFinalDecision({
+          path: 'timer-exit',
+          decision: 'mount-overlay',
+          drained: true,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          hasPendingNotificationChain: hasPendingNotificationChain(),
+          reason: 'active-timer-close-direct-drain',
+        });
         return true;
       }
 
@@ -19013,15 +19156,41 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             handoffShouldResume: true,
           },
         );
+        logExplicitDrainFinalDecision({
+          path: 'timer-exit',
+          decision: 'mount-overlay',
+          drained: true,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          hasPendingNotificationChain: hasPendingNotificationChain(),
+          reason: 'active-timer-close-retry-drain',
+        });
         return true;
       }
 
+      logExplicitDrainFinalDecision({
+        path: 'timer-exit',
+        decision: 'preserve-pending',
+        drained: false,
+        queueLen: overlayQueueRef.current.length,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+        hasPendingNotificationChain: hasPendingNotificationChain(),
+        reason: 'active-timer-close-reply-queue-resume-miss',
+      });
       return false;
     };
 
     if (resumeReplyQueueAfterParentActiveTimerClose()) {
       return;
     }
+
+    logExplicitDrainPendingSnapshot({
+      source: 'active-timer-close',
+      phase: 'no-local-queue-resume',
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      hasPendingNotificationChain: hasPendingNotificationChain(),
+    });
 
     void (async () => {
       if (isReplyQueueHandoffSessionActive()) {
@@ -19104,6 +19273,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         'active-timer-close',
         live,
       );
+      logExplicitDrainFinalDecision({
+        path: 'timer-exit',
+        decision:
+          outcome === 'show-next'
+            ? 'mount-overlay'
+            : outcome === 'open-lobby' || outcome === 'open-bans'
+              ? 'stay-on-lobby-empty'
+              : live.queueLen > 0 || live.pendingLen > 0
+                ? 'preserve-pending'
+                : 'stay-on-lobby-empty',
+        drained: outcome === 'show-next',
+        outcome,
+        queueLen: live.queueLen,
+        pendingLen: live.pendingLen,
+        hasPendingNotificationChain: hasPendingNotificationChain(),
+        reason: 'active-timer-close-async',
+      });
       if (
         (outcome === 'open-lobby' || outcome === 'open-bans') &&
         (live.queueLen > 0 || live.pendingLen > 0)
@@ -19124,6 +19310,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     clearReplyParentActivePriority,
     clearStaleComposeStateBeforeBansNavigation,
     hasActiveNotificationShellForHandoff,
+    hasPendingNotificationChain,
     logReplyQueueHandoffDiagContext,
     mergeStartupIntoOverlayQueueOnly,
     openNextNotificationAfterQueueHandoff,
