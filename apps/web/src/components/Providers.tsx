@@ -17956,6 +17956,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const scheduleQueueDrainAfterStaleActiveClear = useCallback(
     (source: string) => {
+      if (staleClearDrainActiveRef.current) {
+        return;
+      }
       tracePostIncomingAdvanceDiag(
         'scheduleQueueDrainAfterStaleActiveClear',
         source,
