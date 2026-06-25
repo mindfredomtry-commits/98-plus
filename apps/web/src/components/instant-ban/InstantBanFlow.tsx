@@ -500,6 +500,7 @@ export function InstantBanFlow({
     clearReplyDeepLinkState,
     getConfirmHoldDebugSnapshot,
     getConfirmOrbQueueDebugSnapshot,
+    tryClearExplicitNotificationDrainGuarded,
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
   const deepLinkRouteBootPending = useSyncExternalStore(
@@ -3039,6 +3040,10 @@ export function InstantBanFlow({
         clearNotificationOverlayForEmptyQueueAfterSuccessExit(
           'success-exit-empty-queue',
         );
+        tryClearExplicitNotificationDrainGuarded(
+          'finishSendSuccessLobbyExit',
+          'success-exit-drain-missed',
+        );
         allowSuccessExitLobbyOpen();
         openLobby('success-exit-empty-queue');
         beginCtaSpringIn();
@@ -3079,6 +3084,7 @@ export function InstantBanFlow({
       logPostSuccessQueueSnapshotBeforeRelease,
       logPostSuccessReleaseStartupResult,
       getConfirmOrbQueueDebugSnapshot,
+      tryClearExplicitNotificationDrainGuarded,
     ],
   );
 

@@ -6,6 +6,97 @@ function emit(event: string, data?: Record<string, unknown>): void {
   window.__debug98log?.(event, payload);
 }
 
+export type ExplicitNotificationDrainSource =
+  | 'lobby_tvoi_zaprety'
+  | 'post_success'
+  | 'post_timer';
+
+let explicitDrainSource: ExplicitNotificationDrainSource | null = null;
+
+export function beginExplicitNotificationDrain(
+  source: ExplicitNotificationDrainSource,
+  pendingCount?: number,
+): void {
+  explicitDrainSource = source;
+  emit('[QUEUE EXPLICIT DRAIN START]', { source, pendingCount: pendingCount ?? null });
+}
+
+export function clearExplicitNotificationDrain(reason?: string): void {
+  explicitDrainSource = null;
+  if (reason) {
+    emit('[QUEUE EXPLICIT DRAIN CLEARED]', { reason });
+  }
+}
+
+export type ExplicitDrainClearSnapshot = {
+  pendingCount: number;
+  queueHeadKind: string | null;
+  queueHeadId: string | null;
+  activeKind: string | null;
+  activeOverlayId: string | null;
+  hasScheduledNext: boolean;
+};
+
+export function tryClearExplicitNotificationDrain(
+  source: string,
+  reason: string,
+  snapshot: ExplicitDrainClearSnapshot,
+): boolean {
+  if (explicitDrainSource == null) {
+    return false;
+  }
+  if (snapshot.pendingCount > 0) {
+    emit('[QUEUE EXPLICIT DRAIN CLEAR SKIPPED]', {
+      reason: 'pending-remaining',
+      source,
+      pendingCount: snapshot.pendingCount,
+      queueHead: snapshot.queueHeadId,
+      activeKind: snapshot.activeKind,
+      hasScheduledNext: snapshot.hasScheduledNext,
+    });
+    return false;
+  }
+  if (snapshot.queueHeadId) {
+    emit('[QUEUE EXPLICIT DRAIN CLEAR SKIPPED]', {
+      reason: 'queue-head-present',
+      source,
+      pendingCount: snapshot.pendingCount,
+      queueHead: snapshot.queueHeadId,
+      activeKind: snapshot.activeKind,
+      hasScheduledNext: snapshot.hasScheduledNext,
+    });
+    return false;
+  }
+  if (snapshot.activeOverlayId) {
+    emit('[QUEUE EXPLICIT DRAIN CLEAR SKIPPED]', {
+      reason: 'active-overlay-present',
+      source,
+      pendingCount: snapshot.pendingCount,
+      queueHead: snapshot.queueHeadId,
+      activeKind: snapshot.activeKind,
+      hasScheduledNext: snapshot.hasScheduledNext,
+    });
+    return false;
+  }
+  if (snapshot.hasScheduledNext) {
+    emit('[QUEUE EXPLICIT DRAIN CLEAR SKIPPED]', {
+      reason: 'scheduled-next',
+      source,
+      pendingCount: snapshot.pendingCount,
+      queueHead: snapshot.queueHeadId,
+      activeKind: snapshot.activeKind,
+      hasScheduledNext: snapshot.hasScheduledNext,
+    });
+    return false;
+  }
+  clearExplicitNotificationDrain(reason);
+  return true;
+}
+
+export function getExplicitNotificationDrainSource(): ExplicitNotificationDrainSource | null {
+  return explicitDrainSource;
+}
+
 const EXPLICIT_NOTIFICATION_DRAIN_MARKERS = [
   'success-exit',
   'lobby-bans-cta',
@@ -47,14 +138,48 @@ export function isExplicitNotificationDrainSource(source: string): boolean {
   );
 }
 
-/** Block showNext / continue / merge-to-overlay unless source is an explicit user/bot drain. */
+/** Block overlay display unless an explicit user flow started the queue drain. */
 export function shouldBlockNonExplicitNotificationDrain(
   source: string,
   startupHoldActive: boolean,
 ): boolean {
-  if (isExplicitNotificationDrainSource(source)) return false;
+  void source;
   void startupHoldActive;
-  return true;
+  return explicitDrainSource == null;
+}
+
+export function logQueueAutoStartBlocked(data: {
+  reason: string;
+  currentScreen?: string | null;
+  explicitDrainSource?: ExplicitNotificationDrainSource | null;
+  pendingCount?: number;
+}): void {
+  emit('[QUEUE AUTO START BLOCKED]', {
+    explicitDrainSource,
+    ...data,
+  });
+}
+
+export function logQueueDisplayDenied(data: {
+  reason: string;
+  currentScreen?: string | null;
+  explicitDrainSource?: ExplicitNotificationDrainSource | null;
+}): void {
+  emit('[QUEUE DISPLAY DENIED]', {
+    explicitDrainSource,
+    ...data,
+  });
+}
+
+export function logQueueDisplayAllowed(data: {
+  source: string;
+  headKind: string | null;
+  headBanId: string | null;
+}): void {
+  emit('[QUEUE DISPLAY ALLOWED]', {
+    explicitDrainSource,
+    ...data,
+  });
 }
 
 export function logNonExplicitDrainBlocked(data: Record<string, unknown>): void {

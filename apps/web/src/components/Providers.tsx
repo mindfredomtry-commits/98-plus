@@ -473,8 +473,14 @@ import {
   shouldBlockSingleCardChainContinuation,
 } from '@/lib/deeplink-single-card-mode';
 import {
+  beginExplicitNotificationDrain,
+  tryClearExplicitNotificationDrain,
+  type ExplicitDrainClearSnapshot,
   logLobbyIndicatorOnlyNoCard,
   logNonExplicitDrainBlocked,
+  logQueueAutoStartBlocked,
+  logQueueDisplayAllowed,
+  logQueueDisplayDenied,
   logStartupAutoShowCardBug,
   logSyncDisplayBlockedStartupHold,
   shouldBlockLobbyOpenForQueuedNotifications,
@@ -1048,6 +1054,11 @@ interface AppContextValue {
   getConfirmHoldDebugSnapshot: () => ConfirmHoldDebugSnapshot;
   /** Diagnostics only — queue/handoff snapshot during confirm orb mount checks. */
   getConfirmOrbQueueDebugSnapshot: () => ConfirmOrbQueueDebugSnapshot;
+  /** Clear explicit drain only when queue chain is fully passive. */
+  tryClearExplicitNotificationDrainGuarded: (
+    source: string,
+    reason: string,
+  ) => boolean;
   /** Diagnostics only — post-success queue snapshot before releaseStartupInteractions. */
   logPostSuccessQueueSnapshotBeforeRelease: (source: string) => void;
   /** Diagnostics only — post-success queue snapshot after release + unlock. */
@@ -3762,6 +3773,56 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       };
     }, []);
 
+  const buildExplicitDrainClearSnapshot =
+    useCallback((): ExplicitDrainClearSnapshot => {
+      const head = overlayQueueRef.current[0] ?? null;
+      const visible = visibleUserCardOverlayRef.current;
+      const held = heldUserCardOverlayRef.current;
+      let activeKind: string | null = null;
+      let activeOverlayId: string | null = null;
+      if (visible?.banId) {
+        activeKind = visible.kind;
+        activeOverlayId = visible.banId;
+      } else if (held) {
+        activeKind = held.kind;
+        activeOverlayId = heldUserCardBanId(held);
+      } else if (incomingBanRef.current?.id) {
+        activeKind = 'incoming';
+        activeOverlayId = incomingBanRef.current.id;
+      } else if (checkBanRef.current?.id) {
+        activeKind = 'check';
+        activeOverlayId = checkBanRef.current.id;
+      } else if (resultRef.current?.id) {
+        activeKind = 'result';
+        activeOverlayId = resultRef.current.id;
+      }
+      return {
+        pendingCount:
+          overlayQueueRef.current.length +
+          pendingStartupInteractionsRef.current.length,
+        queueHeadKind: head?.kind ?? null,
+        queueHeadId: head ? overlayItemBanId(head) : null,
+        activeKind,
+        activeOverlayId,
+        hasScheduledNext:
+          chainAdvanceWaitingRef.current ||
+          notificationChainTransitioningRef.current ||
+          goToBansAdvancePendingRef.current ||
+          notificationChainAwaitingUserRef.current ||
+          notificationChainHandoffRef.current,
+      };
+    }, []);
+
+  const tryClearExplicitNotificationDrainGuarded = useCallback(
+    (source: string, reason: string): boolean =>
+      tryClearExplicitNotificationDrain(
+        source,
+        reason,
+        buildExplicitDrainClearSnapshot(),
+      ),
+    [buildExplicitDrainClearSnapshot],
+  );
+
   const restoreHeldUserCardOverlay = (source: string): boolean => {
     const held = heldUserCardOverlayRef.current;
     if (
@@ -4691,6 +4752,32 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
     };
     const headAtEnter = queue[0] ?? null;
+    if (
+      headAtEnter &&
+      (headAtEnter.kind === 'incoming' ||
+        headAtEnter.kind === 'check' ||
+        headAtEnter.kind === 'result') &&
+      shouldBlockNonExplicitNotificationDrain(
+        'syncDisplayFromQueue',
+        startupInteractionsHoldRef.current,
+      )
+    ) {
+      const pendingCount =
+        overlayQueueRef.current.length +
+        pendingStartupInteractionsRef.current.length;
+      const currentScreen = lobbyOpenRef.current ? 'lobby' : 'app';
+      logQueueAutoStartBlocked({
+        reason: 'passive-lobby-no-explicit-drain',
+        currentScreen,
+        pendingCount,
+      });
+      logQueueDisplayDenied({
+        reason: 'passive-lobby-no-explicit-drain',
+        currentScreen,
+      });
+      traceSyncDisplayBlocked('passive-lobby-no-explicit-drain');
+      return;
+    }
     if (
       !staleClearDrainActiveRef.current &&
       (queue.length > 0 ||
@@ -16098,6 +16185,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           startupInteractionsHoldRef.current,
         )
       ) {
+        const pendingCount =
+          overlayQueueRef.current.length +
+          pendingStartupInteractionsRef.current.length;
+        const currentScreen = lobbyOpenRef.current ? 'lobby' : 'app';
+        logQueueAutoStartBlocked({
+          reason: 'non-explicit-show-next',
+          currentScreen,
+          pendingCount,
+        });
+        logQueueDisplayDenied({
+          reason: 'non-explicit-show-next',
+          currentScreen,
+        });
         logNonExplicitDrainBlocked({
           source,
           reason: 'show-next',
@@ -16663,6 +16763,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       console.log('[chain-debug-after-sync]', {
         source,
         ...getNotificationChainDebugSnapshot(),
+      });
+      logQueueDisplayAllowed({
+        source,
+        headKind: nextKind,
+        headBanId: nextBanId,
       });
       return showNextDiagReturn('show-next-success', true);
       }),
@@ -17379,6 +17484,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           startupInteractionsHoldRef.current,
         )
       ) {
+        const pendingCount =
+          overlayQueueRef.current.length +
+          pendingStartupInteractionsRef.current.length;
+        const currentScreen = lobbyOpenRef.current ? 'lobby' : 'app';
+        logQueueAutoStartBlocked({
+          reason: 'non-explicit-continue',
+          currentScreen,
+          pendingCount,
+        });
+        logQueueDisplayDenied({
+          reason: 'non-explicit-continue',
+          currentScreen,
+        });
         logChainContinueBlockedNonExplicitStartup({
           source,
           startupHold: startupInteractionsHoldRef.current,
@@ -17779,6 +17897,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         openLobbyCalled = true;
       }
 
+      if (finalQueueLen === 0 && finalPendingLen === 0) {
+        tryClearExplicitNotificationDrainGuarded(
+          source,
+          'chain-continue-empty-finalized',
+        );
+      }
+
       logChainEmptyFinalizeWithDiag(
         buildChainEmptyFinalizeSnapshot({
           source,
@@ -17808,6 +17933,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       logChainEmptyFinalizeWithDiag,
       setChainAdvanceWaiting,
       setNotificationChainTransitioning,
+      tryClearExplicitNotificationDrainGuarded,
     ],
   );
 
@@ -18454,6 +18580,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         kinds: pendingSnapshot.map((item) => item.kind),
       });
 
+      beginExplicitNotificationDrain(
+        'lobby_tvoi_zaprety',
+        queueLen + pendingLenAfterPrefetch,
+      );
       allowDeeplinkExplicitNotificationDrain('lobby-bans-cta');
       logLobbyBansCtaStartDrain({
         queueLen,
@@ -18518,6 +18648,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           mergedCount,
           kinds: pendingSnapshot.map((item) => item.kind),
         });
+        tryClearExplicitNotificationDrainGuarded(
+          'startLobbyBansNotificationDrain',
+          'lobby-bans-pending-merge-failed',
+        );
         return 'drain-failed';
       }
 
@@ -18558,6 +18692,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           pendingLen,
           mergedCount,
         });
+        tryClearExplicitNotificationDrainGuarded(
+          'startLobbyBansNotificationDrain',
+          'lobby-bans-show-next-failed',
+        );
         return 'drain-failed';
       }
 
@@ -18577,6 +18715,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         pendingLen: 0,
         reason: 'drain-consumed-queue',
       });
+      tryClearExplicitNotificationDrainGuarded(
+        'startLobbyBansNotificationDrain',
+        'lobby-bans-drain-consumed-empty',
+      );
       return 'empty';
     }, [
       auth.user?.id,
@@ -18792,6 +18934,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         logDrainResult(false, { reason: 'compose-active' });
         return false;
       }
+
+      beginExplicitNotificationDrain('post_success', queueLen + startupLen);
 
       const tryDrain = async (source: string): Promise<boolean> => {
         if (
@@ -19054,6 +19198,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const hadPriority = replyParentActivePriorityActiveRef.current;
     const queueLen = overlayQueueRef.current.length;
     const pendingLen = pendingStartupInteractionsRef.current.length;
+    beginExplicitNotificationDrain('post_timer', queueLen + pendingLen);
     logExplicitDrainStart({
       path: 'timer-exit',
       source: 'releaseNotificationQueueAfterReplyParentActive',
@@ -23981,6 +24126,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       releaseNotificationQueueAfterReplyParentActive,
       getConfirmHoldDebugSnapshot,
       getConfirmOrbQueueDebugSnapshot,
+      tryClearExplicitNotificationDrainGuarded,
       logPostSuccessQueueSnapshotBeforeRelease,
       logPostSuccessReleaseStartupResult,
       logReplyQueueHandoffDiag: logReplyQueueHandoffDiagContext,
@@ -24166,6 +24312,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setSendSuccessCardMounted,
       getConfirmHoldDebugSnapshot,
       getConfirmOrbQueueDebugSnapshot,
+      tryClearExplicitNotificationDrainGuarded,
       logPostSuccessQueueSnapshotBeforeRelease,
       logPostSuccessReleaseStartupResult,
       logReplyQueueHandoffDiagContext,
