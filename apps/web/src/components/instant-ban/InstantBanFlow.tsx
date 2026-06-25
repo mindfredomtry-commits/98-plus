@@ -91,8 +91,6 @@ import {
   logPostSuccessDrainEmpty,
   logPostSuccessDrainStart,
 } from '@/lib/post-success-drain-debug';
-import {
-  getQueueLobbyGuardSnapshot,
   logLobbyOpenRejectedQueueActive,
   shouldBlockLobbyForActiveQueue,
   syncQueueLobbyGuardState,
