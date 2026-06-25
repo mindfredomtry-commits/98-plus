@@ -1,5 +1,6 @@
 import { parseStartParam } from '@98plus/shared';
 import { readPriorityStartParamRaw } from '@/lib/overlay-priority';
+import { armFreshDeepLinkEntry } from '@/lib/fresh-deeplink-entry';
 
 export type PendingDeepLinkRoute =
   | 'active-ban'
@@ -155,6 +156,9 @@ export function armPendingDeepLinkRouteFromStartParam(
     pendingBanId: banId,
     initialRouteResolved: false,
   };
+  if (banId) {
+    armFreshDeepLinkEntry(banId, `start-param:${source}`);
+  }
   notifyDeepLinkRouteBoot();
   console.log('[boot-route-debug] pending start', { source, route, banId });
   if (route === 'active-ban') {

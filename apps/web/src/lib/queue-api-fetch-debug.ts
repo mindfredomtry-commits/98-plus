@@ -18,6 +18,10 @@ export function noteKnownDirectBanId(banId: string | null | undefined): void {
   lastKnownDirectBanId = norm || null;
 }
 
+export function clearKnownDirectBanId(): void {
+  lastKnownDirectBanId = null;
+}
+
 export function readKnownDirectBanId(): string | null {
   return lastKnownDirectBanId;
 }

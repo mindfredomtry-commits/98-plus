@@ -484,7 +484,18 @@ import {
   shouldBlockPassiveNotificationDisplay,
 } from '@/lib/live-overlay-single-event';
 import {
+  armFreshDeepLinkEntry,
+  consumeFreshDeepLinkEntry,
+  getFreshDeepLinkLaunchSource,
+  isFreshDeepLinkDisplayAllowed,
+  logDeeplinkDisplayAllowed,
+  logFreshDeeplinkEntryAllowed,
+  logStaleDeeplinkBlockedAtSource,
+  shouldBlockNormalModeLobbyOverlay,
+} from '@/lib/fresh-deeplink-entry';
+import {
   evaluateLiveOverlayDisplay,
+  resolveLiveOverlayScreen,
   type LiveOverlayScreenContext,
 } from '@/lib/live-overlay-screen';
 import {
@@ -4802,6 +4813,80 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
     };
     const headAtEnter = queue[0] ?? null;
+    const headBanIdAtEnter =
+      headAtEnter?.kind === 'result'
+        ? headAtEnter.result.id
+        : headAtEnter?.kind === 'incoming' || headAtEnter?.kind === 'check'
+          ? headAtEnter.ban.id
+          : null;
+    const liveOverlayScreenCtx = buildLiveOverlayScreenContext();
+    const notificationModeAtEnter = notificationModeRef.current;
+    const isFreshDeeplinkHead =
+      headBanIdAtEnter != null &&
+      isFreshDeepLinkDisplayAllowed(
+        headBanIdAtEnter,
+        'syncDisplayFromQueue',
+        liveOverlayScreenCtx,
+      );
+    if (isFreshDeeplinkHead && headBanIdAtEnter) {
+      logFreshDeeplinkEntryAllowed({
+        mode: notificationModeAtEnter,
+        banId: headBanIdAtEnter,
+        launchSource: 'syncDisplayFromQueue',
+        openedAt: performance.now(),
+        currentScreen: resolveLiveOverlayScreen(liveOverlayScreenCtx),
+        source: 'syncDisplayFromQueue',
+      });
+      logDeeplinkDisplayAllowed({
+        banId: headBanIdAtEnter,
+        mode: notificationModeAtEnter,
+        reason: 'fresh-deeplink-launch',
+        launchSource: 'syncDisplayFromQueue',
+        isFreshLaunch: true,
+        source: 'syncDisplayFromQueue',
+      });
+    }
+    if (
+      headAtEnter &&
+      headBanIdAtEnter &&
+      (headAtEnter.kind === 'incoming' ||
+        headAtEnter.kind === 'check' ||
+        headAtEnter.kind === 'result') &&
+      shouldBlockNormalModeLobbyOverlay(
+        notificationModeAtEnter,
+        headBanIdAtEnter,
+        'syncDisplayFromQueue',
+        liveOverlayScreenCtx,
+      )
+    ) {
+      const currentScreen = resolveLiveOverlayScreen(liveOverlayScreenCtx);
+      logStaleDeeplinkBlockedAtSource(
+        notificationModeAtEnter,
+        headBanIdAtEnter,
+        'syncDisplayFromQueue',
+        liveOverlayScreenCtx,
+        'stale-current-deeplink-on-lobby',
+      );
+      pendingStartupInteractionsRef.current = mergeStartupPendingSingle(
+        pendingStartupInteractionsRef.current,
+        headAtEnter,
+      );
+      syncPendingStartupCount();
+      primeLobbyBansAttentionHintSyncRef.current(
+        'normal-mode-stale-deeplink-sync-display',
+      );
+      logLobbyIndicatorOnlyNoCard({
+        reason: 'stale-current-deeplink',
+        mode: notificationModeAtEnter,
+        kind: headAtEnter.kind,
+        banId: headBanIdAtEnter,
+      });
+      const remaining = queue.slice(1);
+      overlayQueueRef.current = remaining;
+      setOverlayQueue(remaining);
+      traceSyncDisplayBlocked('normal-mode-stale-deeplink');
+      return;
+    }
     if (
       headAtEnter &&
       (headAtEnter.kind === 'incoming' ||
@@ -4810,7 +4895,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       shouldBlockPassiveNotificationDisplay(
         'syncDisplayFromQueue',
         startupInteractionsHoldRef.current,
-      )
+      ) &&
+      !isFreshDeeplinkHead
     ) {
       const pendingCount =
         overlayQueueRef.current.length +
@@ -5305,6 +5391,46 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           checkBanId: mountedCheckId,
         });
       }
+      if (nextIncoming) {
+        const incomingScreenCtx = buildLiveOverlayScreenContext();
+        const incomingMode = notificationModeRef.current;
+        const incomingBanId = normalizeId(nextIncoming.id);
+        if (
+          incomingBanId &&
+          shouldBlockNormalModeLobbyOverlay(
+            incomingMode,
+            incomingBanId,
+            'incoming-overlay-prime',
+            incomingScreenCtx,
+          )
+        ) {
+          logStaleDeeplinkBlockedAtSource(
+            incomingMode,
+            incomingBanId,
+            'incoming-overlay-prime',
+            incomingScreenCtx,
+            'stale-current-deeplink-on-lobby',
+          );
+          pendingStartupInteractionsRef.current = mergeStartupPendingSingle(
+            pendingStartupInteractionsRef.current,
+            { kind: 'incoming', ban: nextIncoming },
+          );
+          syncPendingStartupCount();
+          primeLobbyBansAttentionHintSyncRef.current(
+            'normal-mode-stale-deeplink-incoming-prime',
+          );
+          logLobbyIndicatorOnlyNoCard({
+            reason: 'stale-current-deeplink',
+            mode: incomingMode,
+            kind: 'incoming',
+            banId: incomingBanId,
+          });
+          nextIncoming = null;
+          const remaining = overlayQueueRef.current.slice(1);
+          overlayQueueRef.current = remaining;
+          setOverlayQueue(remaining);
+        }
+      }
       incomingBanRef.current = nextIncoming;
       checkBanRef.current = nextCheck;
       if (nextIncoming) {
@@ -5319,6 +5445,37 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             queueHeadBefore: active,
           },
         );
+        const displayScreenCtx = buildLiveOverlayScreenContext();
+        const displayBanId = normalizeId(nextIncoming.id);
+        if (
+          displayBanId &&
+          isFreshDeepLinkDisplayAllowed(
+            displayBanId,
+            'syncDisplayFromQueue:setIncomingBan',
+            displayScreenCtx,
+          )
+        ) {
+          logFreshDeeplinkEntryAllowed({
+            mode: notificationModeRef.current,
+            banId: displayBanId,
+            launchSource: getFreshDeepLinkLaunchSource(displayBanId),
+            openedAt: performance.now(),
+            currentScreen: resolveLiveOverlayScreen(displayScreenCtx),
+            source: 'syncDisplayFromQueue:setIncomingBan',
+          });
+          logDeeplinkDisplayAllowed({
+            banId: displayBanId,
+            mode: notificationModeRef.current,
+            reason: 'fresh-deeplink-launch',
+            launchSource: getFreshDeepLinkLaunchSource(displayBanId),
+            isFreshLaunch: true,
+            source: 'syncDisplayFromQueue:setIncomingBan',
+          });
+          consumeFreshDeepLinkEntry(
+            displayBanId,
+            'syncDisplayFromQueue:incoming-displayed',
+          );
+        }
       }
       setIncomingBan(nextIncoming);
       setCheckBan(nextCheck);
@@ -6965,16 +7122,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           normalizedItem.kind === 'result')
       ) {
         const mode = notificationModeRef.current;
+        const liveScreenCtx = buildLiveOverlayScreenContext();
+        const isFreshDeeplinkLive = isFreshDeepLinkDisplayAllowed(
+          banId,
+          opts?.source ?? 'enqueueNotification',
+          liveScreenCtx,
+        );
         const displayDecision = evaluateLiveOverlayDisplay(
           mode,
-          buildLiveOverlayScreenContext(),
+          liveScreenCtx,
           normalizedItem.kind,
           banId,
         );
         const pendingCount =
           overlayQueueRef.current.length +
           pendingStartupInteractionsRef.current.length;
-        if (!displayDecision.allowed) {
+        if (!displayDecision.allowed && !isFreshDeeplinkLive) {
           logLiveOverlayBlocked({
             mode,
             kind: normalizedItem.kind,
@@ -6995,12 +7158,32 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
           return;
         }
+        if (isFreshDeeplinkLive) {
+          logFreshDeeplinkEntryAllowed({
+            mode,
+            banId,
+            launchSource: getFreshDeepLinkLaunchSource(banId),
+            openedAt: performance.now(),
+            currentScreen: resolveLiveOverlayScreen(liveScreenCtx),
+            source: opts?.source ?? 'enqueueNotification',
+          });
+          logDeeplinkDisplayAllowed({
+            banId,
+            mode,
+            reason: 'fresh-deeplink-launch',
+            launchSource: getFreshDeepLinkLaunchSource(banId),
+            isFreshLaunch: true,
+            source: opts?.source ?? 'enqueueNotification',
+          });
+        }
         beginLiveOverlaySingleEvent(normalizedItem.kind, banId);
         logLiveOverlayDisplayAllowed({
           mode,
           kind: normalizedItem.kind,
           banId,
-          reason: displayDecision.reason,
+          reason: isFreshDeeplinkLive
+            ? 'fresh-deeplink-launch'
+            : displayDecision.reason,
           currentScreen: displayDecision.currentScreen,
         });
       }
@@ -9004,6 +9187,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
         });
         return;
+      }
+      if (source === 'incoming-overlay-prime' && normalizedSkip) {
+        const primeScreenCtx = buildLiveOverlayScreenContext();
+        const primeMode = notificationModeRef.current;
+        if (
+          shouldBlockNormalModeLobbyOverlay(
+            primeMode,
+            normalizedSkip,
+            source,
+            primeScreenCtx,
+          )
+        ) {
+          logStaleDeeplinkBlockedAtSource(
+            primeMode,
+            normalizedSkip,
+            source,
+            primeScreenCtx,
+            'stale-current-deeplink-on-lobby',
+          );
+          primeLobbyBansAttentionHintSyncRef.current(
+            'normal-mode-stale-deeplink-incoming-prime-prefetch',
+          );
+          return;
+        }
       }
       const key = skipBanId?.trim() || '__none__';
       const alreadyHasNext =
@@ -14232,6 +14439,41 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   /** Reply deeplink: force incoming at queue head — bypass overlay arbiter. */
   const applyReplyDeeplinkFastOverlay = useCallback(
     (ban: BanInteraction): boolean => {
+      const banId = normalizeId(ban.id);
+      const screenCtx = buildLiveOverlayScreenContext();
+      const mode = notificationModeRef.current;
+      if (
+        banId &&
+        shouldBlockNormalModeLobbyOverlay(
+          mode,
+          banId,
+          'applyReplyDeeplinkFastOverlay',
+          screenCtx,
+        )
+      ) {
+        logStaleDeeplinkBlockedAtSource(
+          mode,
+          banId,
+          'applyReplyDeeplinkFastOverlay',
+          screenCtx,
+          'stale-current-deeplink-on-lobby',
+        );
+        pendingStartupInteractionsRef.current = mergeStartupPendingSingle(
+          pendingStartupInteractionsRef.current,
+          { kind: 'incoming', ban },
+        );
+        syncPendingStartupCount();
+        primeLobbyBansAttentionHintSyncRef.current(
+          'normal-mode-stale-deeplink-reply-fast-overlay',
+        );
+        logLobbyIndicatorOnlyNoCard({
+          reason: 'stale-current-deeplink',
+          mode,
+          kind: 'incoming',
+          banId,
+        });
+        return false;
+      }
       const item: QueuedOverlay = { kind: 'incoming', ban };
       const prev = overlayQueueRef.current;
       const key = overlayQueueKey(item);
@@ -14254,10 +14496,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ...buildBanViewerRoleFlags(ban, viewerId),
         });
         noteKnownDirectBanId(ban.id);
+        if (
+          isFreshDeepLinkDisplayAllowed(
+            banId,
+            'applyReplyDeeplinkFastOverlay',
+            screenCtx,
+          )
+        ) {
+          consumeFreshDeepLinkEntry(
+            banId,
+            'applyReplyDeeplinkFastOverlay:incoming-displayed',
+          );
+        }
       }
       return mounted;
     },
-    [applyOverlayQueue, isReplyFastQueueHeadValid, auth.user?.id],
+    [
+      applyOverlayQueue,
+      isReplyFastQueueHeadValid,
+      auth.user?.id,
+      syncPendingStartupCount,
+    ],
   );
 
   const buildReplyFastLookupCtx = useCallback(
@@ -14323,6 +14582,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return false;
       }
+
+      armFreshDeepLinkEntry(normalizedBanId, 'openReplyDeepLinkFast');
 
       console.log('[REPLY FAST SHELL OPEN ATTEMPT]', { banId });
       markVisibleOverboardTrace('[REPLY FAST SHELL OPEN ATTEMPT]', { banId });
@@ -14733,6 +14994,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     async (b: BanInteraction) => {
       noteDeepLinkHandlerOpened('openDeepLinkReply', b.id);
       const enriched = enrichBanInteraction(b);
+      armFreshDeepLinkEntry(enriched.id, 'openDeepLinkReply');
       if (!userIdRef.current || auth.loading) {
         bufferedReplyDeepLinkRef.current = enriched;
         console.log('[reply-deeplink]', {
@@ -14912,6 +15174,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         setReplyDeeplinkFastShell(false);
         setDeepLinkReplyBooting(false);
       });
+      consumeFreshDeepLinkEntry(
+        enriched.id,
+        'openDeepLinkReply:incoming-displayed',
+      );
       const headBan = overlayQueueRef.current[0];
       console.log('[INCOMING CARD DATA READY]', {
         banId: b.id,
@@ -16307,6 +16573,40 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             source,
           });
           if (ready) {
+            const hydrateScreenCtx = buildLiveOverlayScreenContext();
+            const hydrateMode = notificationModeRef.current;
+            if (
+              shouldBlockNormalModeLobbyOverlay(
+                hydrateMode,
+                norm,
+                source,
+                hydrateScreenCtx,
+              )
+            ) {
+              logStaleDeeplinkBlockedAtSource(
+                hydrateMode,
+                norm,
+                source,
+                hydrateScreenCtx,
+                'stale-current-deeplink-on-lobby',
+              );
+              pendingStartupInteractionsRef.current = mergeStartupPendingSingle(
+                pendingStartupInteractionsRef.current,
+                { kind: 'incoming', ban: richer },
+              );
+              syncPendingStartupCount();
+              primeLobbyBansAttentionHintSyncRef.current(
+                'normal-mode-stale-deeplink-hydrate',
+              );
+              logLobbyIndicatorOnlyNoCard({
+                reason: 'stale-current-deeplink',
+                mode: hydrateMode,
+                kind: 'incoming',
+                banId: norm,
+              });
+              setIncomingNextHydrateBanId((cur) => (cur === norm ? null : cur));
+              return richer;
+            }
             setActiveIncomingOverlayBanStable(richer, source);
             setIncomingNextHydrateBanId((cur) => (cur === norm ? null : cur));
             syncDisplayFromQueue(overlayQueueRef.current);
