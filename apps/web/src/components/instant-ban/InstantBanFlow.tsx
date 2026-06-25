@@ -69,6 +69,7 @@ import {
   setSuccessExitDrainingForDebug,
   isSuccessExitInstrumentationActive,
   shouldSuppressLobbyOpenDuringSuccessExit,
+  readLastSuccessExitDrainDiagnostic,
 } from '@/lib/success-exit-first-notification-debug';
 import {
   logLobbyCtaHiddenBug,
@@ -2863,19 +2864,49 @@ export function InstantBanFlow({
 
   const finishSendSuccessLobbyExit = useCallback(
     async (banId: string | null) => {
+      const logFinishSendSuccessLobbyExitDecision = (
+        exit: string,
+        decision:
+          | 'mount-overlay'
+          | 'preserve-pending'
+          | 'stay-on-lobby'
+          | 'early-abort',
+        drained: boolean | null,
+        drainDiagnostic?: ReturnType<typeof readLastSuccessExitDrainDiagnostic>,
+      ) => {
+        const overlayQueueRefLen = getConfirmOrbQueueDebugSnapshot().queueLen;
+        const hasPending = hasPendingNotificationChain();
+        const overlayQueueLengthVsRefMismatch =
+          overlayQueueRefLen > 0 && overlayQueueLength === 0;
+        const payload = {
+          exit,
+          decision,
+          drained,
+          overlayQueueLength,
+          hasPendingNotificationChain: hasPending,
+          overlayQueueRefLen,
+          pendingVsEmptyMismatch:
+            decision === 'stay-on-lobby' && hasPending,
+          overlayQueueLengthVsRefMismatch,
+          ...(drained === false && drainDiagnostic
+            ? {
+                drainedReason: drainDiagnostic.drainedReason,
+                drainedReasonRaw: drainDiagnostic.drainedReasonRaw,
+                drainedReasonDetail: drainDiagnostic.drainedReasonDetail,
+              }
+            : {}),
+        };
+        console.log('[FINISH SEND SUCCESS LOBBY EXIT]', payload);
+        window.__debug98log?.('[FINISH SEND SUCCESS LOBBY EXIT]', payload);
+      };
+
       if (!canDrainNotificationAfterSuccess()) {
         logQueueSourceComparisonSnapshot('success-exit-blocked-not-authorized');
-        const bug1Early = {
-          function: 'finishSendSuccessLobbyExit',
-          stage: 'blocked-not-authorized',
-          drained: null,
-          overlayQueueLength,
-          overlayQueueRefLen: getConfirmOrbQueueDebugSnapshot().queueLen,
-          hasPendingNotificationChain: hasPendingNotificationChain(),
-          decision: 'early-abort',
-        };
-        console.log('[BUG1 SUCCESS EXIT]', bug1Early);
-        window.__debug98log?.('[BUG1 SUCCESS EXIT]', bug1Early);
+        logFinishSendSuccessLobbyExitDecision(
+          'blocked-not-authorized',
+          'early-abort',
+          null,
+        );
         setSuccessExitDraining(false);
         endSuccessExitInProgress();
         return;
@@ -2982,17 +3013,11 @@ export function InstantBanFlow({
           notificationOverlayVisible,
         });
         successExitAwaitingNotificationDrainRef.current = true;
-        const bug1DrainOk = {
-          function: 'finishSendSuccessLobbyExit',
-          stage: 'drain-ok',
-          drained: true,
-          overlayQueueLength,
-          overlayQueueRefLen: getConfirmOrbQueueDebugSnapshot().queueLen,
-          hasPendingNotificationChain: hasPendingNotificationChain(),
-          decision: 'mount-overlay',
-        };
-        console.log('[BUG1 SUCCESS EXIT]', bug1DrainOk);
-        window.__debug98log?.('[BUG1 SUCCESS EXIT]', bug1DrainOk);
+        logFinishSendSuccessLobbyExitDecision(
+          'drain-ok',
+          'mount-overlay',
+          true,
+        );
       } else {
         successExitAwaitingNotificationDrainRef.current = false;
         endSuccessExitInstrumentation();
@@ -3017,17 +3042,12 @@ export function InstantBanFlow({
         allowSuccessExitLobbyOpen();
         openLobby('success-exit-empty-queue');
         beginCtaSpringIn();
-        const bug1StayLobby = {
-          function: 'finishSendSuccessLobbyExit',
-          stage: 'drain-false-open-lobby',
-          drained: false,
-          overlayQueueLength,
-          overlayQueueRefLen: getConfirmOrbQueueDebugSnapshot().queueLen,
-          hasPendingNotificationChain: hasPendingNotificationChain(),
-          decision: 'stay-on-lobby',
-        };
-        console.log('[BUG1 SUCCESS EXIT]', bug1StayLobby);
-        window.__debug98log?.('[BUG1 SUCCESS EXIT]', bug1StayLobby);
+        logFinishSendSuccessLobbyExitDecision(
+          'drain-false-open-lobby',
+          'stay-on-lobby',
+          false,
+          readLastSuccessExitDrainDiagnostic(),
+        );
       }
 
       console.log('[success-exit-cleanup-state]', {
