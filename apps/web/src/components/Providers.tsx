@@ -4391,6 +4391,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return false;
       }
 
+      const held = heldUserCardOverlayRef.current;
+      const bug1Clear = {
+        function: 'clearNotificationOverlayForEmptyQueueAfterSuccessExit',
+        reason: source,
+        overlayQueueRefLen: queueLen,
+        hasPendingNotificationChain: hasPendingNotificationChain(),
+        ...(held
+          ? { activeOverlayId: heldUserCardBanId(held) }
+          : {}),
+      };
+      console.log('[BUG1 CLEAR OVERLAY]', bug1Clear);
+      window.__debug98log?.('[BUG1 CLEAR OVERLAY]', bug1Clear);
+
       logSuccessExitEmptyQueueClearOverlay({ source, queueLen, startupLen });
       clearActiveUserCardHold(`success-exit-empty-queue:${source}`);
       setChainAdvanceWaiting(false);
@@ -16077,6 +16090,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         result: boolean,
         extra?: Record<string, unknown>,
       ): boolean => {
+        const head = overlayQueueRef.current[0] ?? null;
+        const bug1ShowNext = {
+          function: 'showNextNotificationFromChainSync',
+          selectedHeadId: head ? overlayItemBanId(head) : null,
+          selectedKind: head?.kind ?? null,
+          result,
+          ...(result ? {} : { blockedReason: branch }),
+        };
+        console.log('[BUG1 SHOW NEXT]', bug1ShowNext);
+        window.__debug98log?.('[BUG1 SHOW NEXT]', bug1ShowNext);
         logQueueDisplayAttemptDiag(
           buildQueueDisplayAttemptDiagPayload(
             branch,
@@ -18725,6 +18748,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           pendingLenAfter: pendingStartupInteractionsRef.current.length,
           reason: 'success-exit-not-authorized',
         });
+        {
+          const bug1 = {
+            function: 'drainNextNotificationAfterSuccess',
+            stage: 'not-authorized',
+            drained: false,
+            overlayQueueRefLen: overlayQueueRef.current.length,
+            hasPendingNotificationChain: hasPendingNotificationChain(),
+            decision: 'stay-on-lobby',
+          };
+          console.log('[BUG1 SUCCESS EXIT]', bug1);
+          window.__debug98log?.('[BUG1 SUCCESS EXIT]', bug1);
+        }
         return false;
       }
       if (isSuccessCardMounted()) {
@@ -18738,6 +18773,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           pendingLenAfter: pendingStartupInteractionsRef.current.length,
           reason: 'success-card-still-mounted',
         });
+        {
+          const bug1 = {
+            function: 'drainNextNotificationAfterSuccess',
+            stage: 'success-card-still-mounted',
+            drained: false,
+            overlayQueueRefLen: overlayQueueRef.current.length,
+            hasPendingNotificationChain: hasPendingNotificationChain(),
+            decision: 'stay-on-lobby',
+          };
+          console.log('[BUG1 SUCCESS EXIT]', bug1);
+          window.__debug98log?.('[BUG1 SUCCESS EXIT]', bug1);
+        }
         return false;
       }
 
@@ -18789,6 +18836,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason: 'compose-active',
         });
         logDrainResult(false, { reason: 'compose-active' });
+        {
+          const bug1 = {
+            function: 'drainNextNotificationAfterSuccess',
+            stage: 'compose-active',
+            drained: false,
+            overlayQueueRefLen: overlayQueueRef.current.length,
+            hasPendingNotificationChain: hasPendingNotificationChain(),
+            decision: 'stay-on-lobby',
+          };
+          console.log('[BUG1 SUCCESS EXIT]', bug1);
+          window.__debug98log?.('[BUG1 SUCCESS EXIT]', bug1);
+        }
         return false;
       }
 
@@ -18888,6 +18947,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           hasPendingNotificationChain: hasPendingNotificationChain(),
           reason: 'success-exit-primary',
         });
+        {
+          const bug1 = {
+            function: 'drainNextNotificationAfterSuccess',
+            stage: 'primary-drain-ok',
+            drained: true,
+            overlayQueueRefLen: overlayQueueRef.current.length,
+            hasPendingNotificationChain: hasPendingNotificationChain(),
+            decision: 'mount-overlay',
+          };
+          console.log('[BUG1 SUCCESS EXIT]', bug1);
+          window.__debug98log?.('[BUG1 SUCCESS EXIT]', bug1);
+        }
         return true;
       }
 
@@ -18933,6 +19004,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           hasPendingNotificationChain: false,
           reason: 'success-exit-empty-no-retry',
         });
+        {
+          const bug1 = {
+            function: 'drainNextNotificationAfterSuccess',
+            stage: 'empty-no-retry',
+            drained: false,
+            overlayQueueRefLen: overlayQueueRef.current.length,
+            hasPendingNotificationChain: hasPendingNotificationChain(),
+            decision: 'stay-on-lobby',
+          };
+          console.log('[BUG1 SUCCESS EXIT]', bug1);
+          window.__debug98log?.('[BUG1 SUCCESS EXIT]', bug1);
+        }
         return false;
       }
 
@@ -18961,6 +19044,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           hasPendingNotificationChain: hasPendingNotificationChain(),
           reason: 'success-exit-retry-blocked-empty',
         });
+        {
+          const bug1 = {
+            function: 'drainNextNotificationAfterSuccess',
+            stage: 'retry-blocked-empty',
+            drained: false,
+            overlayQueueRefLen: overlayQueueRef.current.length,
+            hasPendingNotificationChain: hasPendingNotificationChain(),
+            decision: 'stay-on-lobby',
+          };
+          console.log('[BUG1 SUCCESS EXIT]', bug1);
+          window.__debug98log?.('[BUG1 SUCCESS EXIT]', bug1);
+        }
         return false;
       }
       if (await tryDrain('success-exit-retry')) {
@@ -18973,6 +19068,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           hasPendingNotificationChain: hasPendingNotificationChain(),
           reason: 'success-exit-retry',
         });
+        {
+          const bug1 = {
+            function: 'drainNextNotificationAfterSuccess',
+            stage: 'retry-drain-ok',
+            drained: true,
+            overlayQueueRefLen: overlayQueueRef.current.length,
+            hasPendingNotificationChain: hasPendingNotificationChain(),
+            decision: 'mount-overlay',
+          };
+          console.log('[BUG1 SUCCESS EXIT]', bug1);
+          window.__debug98log?.('[BUG1 SUCCESS EXIT]', bug1);
+        }
         return true;
       }
 
@@ -19038,6 +19145,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           hasPendingNotificationChain: stillPending,
           reason: drainMissReason,
         });
+      }
+      {
+        const bug1 = {
+          function: 'drainNextNotificationAfterSuccess',
+          stage: 'drain-miss',
+          drained: false,
+          overlayQueueRefLen: overlayQueueRef.current.length,
+          hasPendingNotificationChain: stillPending,
+          decision: stillPending ? 'preserve-pending' : 'stay-on-lobby',
+        };
+        console.log('[BUG1 SUCCESS EXIT]', bug1);
+        window.__debug98log?.('[BUG1 SUCCESS EXIT]', bug1);
       }
       return false;
     },
