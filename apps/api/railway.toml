@@ -1,6 +1,6 @@
-# Monorepo API service — build from repo root so workspace deps + tsc (devDeps) are available.
+# Service root: apps/api — build from monorepo root so workspaces + devDeps (tsc, prisma) resolve.
 [build]
-buildCommand = "cd ../.. && npm ci --include=dev && npm run build -w @98plus/api"
+buildCommand = "cd ../.. && npm ci --include=dev && npm run build:api"
 
 [deploy]
 startCommand = "node dist/index.js"

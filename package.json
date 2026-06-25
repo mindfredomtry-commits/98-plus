@@ -10,7 +10,7 @@
     "dev:web": "npm run dev -w @98plus/web",
     "dev:api": "npm run dev -w @98plus/api",
     "build": "npm run build -w @98plus/shared && npm run build -w @98plus/api && npm run build -w @98plus/web",
-    "build:api": "npm run build -w @98plus/api",
+    "build:api": "npm run build -w @98plus/api && npm run build:verify -w @98plus/api",
     "db:generate": "npm run db:generate -w @98plus/api",
     "db:migrate": "npm run db:migrate -w @98plus/api",
     "db:push": "npm run db:push -w @98plus/api",

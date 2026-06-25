@@ -68,7 +68,7 @@ export async function getSessionState(
   ]);
   log('parallel queries done', {
     checkBanId: pending?.id ?? null,
-    waitingBanId: waiting?.id ?? null,
+    waitingBanId: waiting?.ban?.id ?? null,
     activeCount: active.length,
     pendingResultId,
   });

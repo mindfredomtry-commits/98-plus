@@ -89,6 +89,7 @@ function scheduleEnd(minutes: number): Date {
 
 type BanWithUsers = {
   id: string;
+  senderId: string;
   text: string;
   status: BanStatus;
   durationMinutes: number;

@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "npm run build -w @98plus/shared && prisma generate && tsc --noEmitOnError false || true",
+    "build": "npm run build -w @98plus/shared && prisma generate && tsc",
+    "build:verify": "node -e \"require('node:fs').accessSync('dist/index.js')\"",
     "start": "node dist/index.js",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
