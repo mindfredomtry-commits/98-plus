@@ -383,6 +383,7 @@ import {
   logExplicitDrainStart,
 } from '@/lib/post-success-explicit-drain-debug';
 import {
+  buildPostSuccessQueueSnapshotBase,
   logLobbyBansQueueStartSnapshot,
   logPostSuccessEmptyQueueButUserHasBansIndicator,
   logPostSuccessQueueSnapshotBeforeRelease as emitPostSuccessQueueSnapshotBeforeRelease,
