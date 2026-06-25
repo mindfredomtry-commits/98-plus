@@ -18851,7 +18851,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (await tryDrain('success-exit')) return true;
 
       const primaryEmptySnapshot = snapshotPendingNotificationChain();
-      if (isSuccessExitChainFullyEmpty(primaryEmptySnapshot)) {
+      if (
+        isSuccessExitChainFullyEmpty(primaryEmptySnapshot) &&
+        !hasPendingNotificationChain()
+      ) {
         if (isPostSuccessHandoffInProgress()) {
           finalizePostSuccessHandoffEmptyNoRetry({
             source: 'success-exit',
@@ -18912,6 +18915,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [
       blocksMountedNotificationOverlay,
+      hasPendingNotificationChain,
       prefetchPendingNotificationChain,
       snapshotPendingNotificationChain,
     ],
