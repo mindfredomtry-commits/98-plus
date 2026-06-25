@@ -87,10 +87,7 @@ import {
   subscribePostSuccessHandoff,
 } from '@/lib/post-success-handoff-debug';
 import {
-  logPostSuccessDrainDecision,
-  logPostSuccessDrainEmpty,
-  logPostSuccessDrainStart,
-} from '@/lib/post-success-drain-debug';
+  getQueueLobbyGuardSnapshot,
   logLobbyOpenRejectedQueueActive,
   shouldBlockLobbyForActiveQueue,
   syncQueueLobbyGuardState,
@@ -2868,22 +2865,10 @@ export function InstantBanFlow({
     async (banId: string | null) => {
       if (!canDrainNotificationAfterSuccess()) {
         logQueueSourceComparisonSnapshot('success-exit-blocked-not-authorized');
-        logPostSuccessDrainDecision({
-          phase: 'finish-send-success-lobby-exit',
-          decision: 'abort',
-          reason: 'not-authorized',
-          banId,
-        });
         setSuccessExitDraining(false);
         endSuccessExitInProgress();
         return;
       }
-      logPostSuccessDrainStart({
-        banId,
-        queueLen: overlayQueueLength,
-        pendingLen: pendingStartupInteractions,
-        handoffActive: isPostSuccessHandoffInProgress(),
-      });
       if (hasPendingNotificationChain()) {
         setNotificationChainTransitioning(true);
       }
@@ -2976,14 +2961,6 @@ export function InstantBanFlow({
       })();
 
       const drained = await drainNextNotificationAfterSuccess(banId);
-      logPostSuccessDrainDecision({
-        phase: 'finish-send-success-lobby-exit',
-        decision: drained ? 'drained' : 'missed',
-        banId,
-        queueLen: overlayQueueLength,
-        pendingLen: pendingStartupInteractions,
-        notificationOverlayVisible,
-      });
       if (drained) {
         console.log('[success-exit-drain-success]', {
           banId,
@@ -2997,13 +2974,6 @@ export function InstantBanFlow({
       } else {
         successExitAwaitingNotificationDrainRef.current = false;
         endSuccessExitInstrumentation();
-        logPostSuccessDrainEmpty({
-          phase: 'finish-send-success-lobby-exit',
-          reason: 'drain-missed',
-          banId,
-          queueLen: overlayQueueLength,
-          pendingLen: pendingStartupInteractions,
-        });
         console.log('[success-exit-open-lobby]', {
           banId,
           reason: 'drain-missed',

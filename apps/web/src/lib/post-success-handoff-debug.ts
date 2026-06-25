@@ -135,10 +135,6 @@ export function clearPostSuccessExitWindow(): void {
   earlyArmDone = false;
 }
 
-export function isPostSuccessExitWindowOpen(): boolean {
-  return successExitWindowOpen;
-}
-
 export function armPostSuccessHandoffEarly(
   data: Record<string, unknown>,
 ): boolean {
@@ -147,7 +143,6 @@ export function armPostSuccessHandoffEarly(
   const hasPendingChain = data.hasPendingChain === true;
   const hasQueue = queueLen > 0 || pendingLen > 0 || hasPendingChain;
   if (!hasQueue) return false;
-  emptyFinalizedTraceId = null;
   handoffInProgress = true;
   earlyArmDone = true;
   selectedNext = null;
@@ -158,10 +153,6 @@ export function armPostSuccessHandoffEarly(
 
 export function beginPostSuccessHandoff(data: Record<string, unknown>): void {
   if (handoffInProgress) {
-    const source = String(data.source ?? '');
-    if (source.includes('success-exit')) {
-      emptyFinalizedTraceId = null;
-    }
     emit('[POST SUCCESS HANDOFF START]', {
       ...data,
       alreadyArmedEarly: earlyArmDone,
@@ -309,7 +300,6 @@ export function completePostSuccessHandoffEmptyOpenLobby(
   selectedNext = null;
   earlyArmDone = false;
   successExitWindowOpen = false;
-  emptyFinalizedTraceId = null;
   notify();
 }
 

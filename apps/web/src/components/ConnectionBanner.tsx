@@ -5,11 +5,9 @@ import { SYSTEM_VOICE } from '@98plus/shared';
 import { useApp } from '@/components/Providers';
 import type { ConnectionUiState } from '@/lib/connection-ui';
 import {
-  isPostSuccessExitWindowOpen,
-  isPostSuccessHandoffInProgress,
-} from '@/lib/post-success-handoff-debug';
-import { isSuccessExitInstrumentationActive } from '@/lib/success-exit-first-notification-debug';
-import { logPostSuccessNoAccessRoute } from '@/lib/post-success-drain-debug';
+  getQueueDisplayDiagSnapshot,
+  logNoConnectionFallbackRendered,
+} from '@/lib/active-hold-diag-debug';
 import { shouldSuppressFullConnectionFallback } from '@/lib/connection-state-debug';
 
 export function ConnectionBanner({
@@ -70,25 +68,6 @@ export function ConnectionBanner({
       offlineMessage: SYSTEM_VOICE.offline,
       suppressed,
     });
-    if (
-      !suppressed &&
-      (isPostSuccessExitWindowOpen() ||
-        isPostSuccessHandoffInProgress() ||
-        isSuccessExitInstrumentationActive())
-    ) {
-      logPostSuccessNoAccessRoute({
-        reason: 'connection-ui-offline',
-        offlineMessage: SYSTEM_VOICE.offline,
-        lobbyOpen,
-        queueLen: snap.overlayQueueLen,
-        pendingLen: snap.pendingLen,
-        activeKind: snap.activeKind,
-        hasVisibleUserCardOverlay: snap.hasVisibleUserCardOverlay,
-        postSuccessExitWindowOpen: isPostSuccessExitWindowOpen(),
-        postSuccessHandoffActive: isPostSuccessHandoffInProgress(),
-        successExitInstrumentationActive: isSuccessExitInstrumentationActive(),
-      });
-    }
   }, [
     connectionUiState,
     lobbyOpen,
