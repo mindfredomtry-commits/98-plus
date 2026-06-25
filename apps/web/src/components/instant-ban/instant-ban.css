@@ -3677,3 +3677,124 @@ html[data-reply-parent-active-timer] .instant-ban-active-ban-card {
   visibility: hidden;
   pointer-events: none;
 }
+
+.instant-ban-arena-send[data-settings-overlay-open] .instant-ban-arena-lobby-nav,
+.instant-ban-arena-send[data-settings-overlay-open] > .instant-ban-lobby-cta {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.instant-ban-arena-send__settings-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  min-height: 0;
+}
+
+.instant-ban-settings-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.instant-ban-settings-overlay__dim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: auto;
+  background: linear-gradient(
+    180deg,
+    rgba(5, 3, 8, 0.55) 0%,
+    rgba(5, 3, 8, 0.82) 28%,
+    rgba(5, 3, 8, 0.96) 52%,
+    rgba(5, 3, 8, 0.98) 100%
+  );
+  backdrop-filter: blur(6px);
+}
+
+.instant-ban-settings-overlay__panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: calc(0.75rem + env(safe-area-inset-top, 0px)) 1.1rem
+    calc(1rem + env(safe-area-inset-bottom, 0px));
+}
+
+.instant-ban-settings-overlay__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.instant-ban-settings-overlay__back {
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.instant-ban-settings-overlay__title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  color: var(--98-text-primary);
+}
+
+.instant-ban-settings-overlay__section-label {
+  margin: 0 0 0.65rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(var(--98-purple-soft-rgb), 0.72);
+}
+
+.instant-ban-settings-overlay__mode-toggle {
+  display: flex;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+}
+
+.instant-ban-settings-overlay__mode-btn {
+  flex: 1 1 0;
+  min-height: 2.5rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--98-purple-soft-rgb), 0.22);
+  background: rgba(8, 5, 12, 0.55);
+  color: rgba(var(--98-purple-soft-rgb), 0.85);
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.instant-ban-settings-overlay__mode-btn--active {
+  border-color: rgba(var(--98-purple-soft-rgb), 0.55);
+  background: rgba(var(--98-purple-soft-rgb), 0.16);
+  color: var(--98-text-primary);
+}
+
+.instant-ban-settings-overlay__hint {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: rgba(var(--98-text-primary-rgb, 255, 255, 255), 0.72);
+}

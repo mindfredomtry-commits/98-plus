@@ -2,6 +2,7 @@ import {
   ENERGY_MAX_DISPLAY,
   getAuraLevel,
   AURA_LABELS,
+  normalizeNotificationMode,
   type UserPublic,
 } from '@98plus/shared';
 import type { User } from '@prisma/client';
@@ -24,5 +25,6 @@ export function mapUser(user: User): UserPublic {
     ),
     streak: user.streak,
     isOnboarded: user.isOnboarded,
+    notificationMode: normalizeNotificationMode(user.notificationMode),
   };
 }

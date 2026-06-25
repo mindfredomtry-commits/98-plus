@@ -1,6 +1,7 @@
 import type { BanInteraction, UserPublic } from './types';
 import type { BanDurationMinutes } from './constants';
 import { AURA_LABELS } from './energy';
+import { DEFAULT_NOTIFICATION_MODE } from './notification-mode';
 
 /** Visual-only preview embedded in reply start_param or auth boot — not for server decisions. */
 export type ReplyStartParamPreview = {
@@ -30,6 +31,7 @@ function minimalPreviewUser(
     energyPercent: 0,
     streak: 0,
     isOnboarded: true,
+    notificationMode: DEFAULT_NOTIFICATION_MODE,
   };
 }
 

@@ -4,13 +4,17 @@ import { logLobbyBansCtaClickTrace } from '@/lib/queue-source-comparison-debug';
 
 type Props = {
   onOpenBans: () => void;
+  onOpenSettings: () => void;
   bansNeedAttention?: boolean;
+  settingsActive?: boolean;
   telegramUserId?: string | null;
 };
 
 export function ArenaLobbyTopNav({
   onOpenBans,
+  onOpenSettings,
   bansNeedAttention = false,
+  settingsActive = false,
   telegramUserId = null,
 }: Props) {
   return (
@@ -20,9 +24,13 @@ export function ArenaLobbyTopNav({
     >
       <button
         type="button"
-        className="instant-ban-arena-lobby-nav__item instant-ban-arena-lobby-nav__item--muted"
-        disabled
-        aria-disabled="true"
+        className={`instant-ban-arena-lobby-nav__item${
+          settingsActive
+            ? ' instant-ban-arena-lobby-nav__item--active'
+            : ' instant-ban-arena-lobby-nav__item--muted'
+        }`}
+        onClick={onOpenSettings}
+        aria-label="Настройки"
       >
         Настройки
       </button>

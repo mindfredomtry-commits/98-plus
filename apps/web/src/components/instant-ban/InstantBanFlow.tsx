@@ -21,6 +21,7 @@ import {
   isValidDurationMinutes,
   type BanInteraction,
   type FriendCard,
+  type NotificationMode,
   type SessionState,
   type UserPublic,
 } from '@98plus/shared';
@@ -183,6 +184,7 @@ import { WhatScreen } from './WhatScreen';
 import { ConfirmScreen } from './ConfirmScreen';
 import { SuccessScreen } from './SuccessScreen';
 import { ArenaLobbyTopNav } from './ArenaLobbyTopNav';
+import { ArenaSettingsPanel } from './ArenaSettingsPanel';
 import { BansOverlay } from './BansOverlay';
 import { ActiveBanCardOverlay } from './ActiveBanCardOverlay';
 import {
@@ -442,6 +444,9 @@ export function InstantBanFlow({
     setComposeFlowState,
     registerResetSendUiForBansNavigation,
     clearStaleComposeStateBeforeBansNavigation,
+    notificationMode,
+    updateNotificationMode,
+    setArenaOverlayGuardState,
     applySession,
     pendingStartupInteractions,
     hasPendingNotificationChain,
@@ -619,6 +624,8 @@ export function InstantBanFlow({
   const lastDeepLinkActiveBanIdRef = useRef<string | null>(null);
   const lastEarlyActiveBanIdRef = useRef<string | null>(null);
   const [bansOverlayOpen, setBansOverlayOpen] = useState(false);
+  const [settingsOverlayOpen, setSettingsOverlayOpen] = useState(false);
+  const [settingsModeSaving, setSettingsModeSaving] = useState(false);
   const [lowInfluenceRevealed, setLowInfluenceRevealed] = useState(false);
   const [lowEnergyBlockedSignal, setLowEnergyBlockedSignal] = useState(0);
   const [dailyLimitBlockedSignal, setDailyLimitBlockedSignal] = useState(0);
@@ -1262,6 +1269,7 @@ export function InstantBanFlow({
     !postSuccessHandoffBlocking &&
     (!notificationChainTransitioning || notificationOverlayMounted) &&
     !effectiveBansOverlayOpen &&
+    !settingsOverlayOpen &&
     !notificationQueueUiLock &&
     !replyUiShellActive &&
     !deepLinkRouteBootPending &&
@@ -2286,6 +2294,35 @@ export function InstantBanFlow({
     lobbyBansNeedAttention,
     startLobbyBansNotificationDrain,
     user?.id,
+  ]);
+
+  const handleOpenSettings = useCallback(() => {
+    if (phase !== 'idle' || banSentSuccess) return;
+    setSettingsOverlayOpen(true);
+  }, [banSentSuccess, phase]);
+
+  const handleCloseSettings = useCallback(() => {
+    setSettingsOverlayOpen(false);
+  }, []);
+
+  const handleNotificationModeChange = useCallback(
+    async (mode: NotificationMode) => {
+      setSettingsModeSaving(true);
+      await updateNotificationMode(mode);
+      setSettingsModeSaving(false);
+    },
+    [updateNotificationMode],
+  );
+
+  useEffect(() => {
+    setArenaOverlayGuardState({
+      bansOverlayOpen: effectiveBansOverlayOpen,
+      settingsOverlayOpen,
+    });
+  }, [
+    effectiveBansOverlayOpen,
+    settingsOverlayOpen,
+    setArenaOverlayGuardState,
   ]);
 
   const resetSendUiForBansCta = useCallback(() => {
@@ -6141,6 +6178,7 @@ export function InstantBanFlow({
       data-orb-compress-active={orbCompressActive ? '' : undefined}
       data-instant-ban-step={legacyStep}
       data-bans-overlay-open={effectiveBansOverlayOpen ? '' : undefined}
+      data-settings-overlay-open={settingsOverlayOpen ? '' : undefined}
       data-bans-cta-session={bansCtaQueueSuppress ? '' : undefined}
       data-notification-session={
         notificationOverlayMounted &&
@@ -6160,6 +6198,8 @@ export function InstantBanFlow({
       {showLobbyTopNav ? (
         <ArenaLobbyTopNav
           onOpenBans={handleOpenBansOverlay}
+          onOpenSettings={handleOpenSettings}
+          settingsActive={settingsOverlayOpen}
           bansNeedAttention={lobbyBansNeedAttention}
           telegramUserId={user?.id ?? null}
         />
@@ -6483,6 +6523,17 @@ export function InstantBanFlow({
               onToggleSave={() => handleToggleSave(selectedBanForDetails)}
             />
           ) : null}
+        </div>
+      ) : null}
+
+      {settingsOverlayOpen && phase === 'idle' ? (
+        <div className="instant-ban-arena-send__settings-layer">
+          <ArenaSettingsPanel
+            mode={notificationMode}
+            saving={settingsModeSaving}
+            onClose={handleCloseSettings}
+            onModeChange={handleNotificationModeChange}
+          />
         </div>
       ) : null}
     </div>

@@ -17,8 +17,10 @@ model User {
   photoUrl    String?
   energy      Int       @default(100)
   streak      Int       @default(0)
-  isOnboarded Boolean   @default(false)
-  lastSeenAt  DateTime?
+  isOnboarded       Boolean   @default(false)
+  /// "real-time" | "normal" — live overlay vs queued-only notifications.
+  notificationMode  String    @default("real-time")
+  lastSeenAt        DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

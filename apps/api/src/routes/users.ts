@@ -1,5 +1,8 @@
 import { Router } from 'express';
-import { SELF_BAN_DAILY_LIMIT } from '@98plus/shared';
+import {
+  isNotificationMode,
+  SELF_BAN_DAILY_LIMIT,
+} from '@98plus/shared';
 import { prisma } from '../lib/prisma';
 import { requireAuth, type AuthRequest } from '../middleware/auth';
 import { mapUser } from '../services/user-mapper';
@@ -18,6 +21,19 @@ usersRouter.get('/me', async (req: AuthRequest, res) => {
     res.status(404).json({ error: 'Not found' });
     return;
   }
+  res.json({ user: mapUser(user) });
+});
+
+usersRouter.patch('/notification-mode', async (req: AuthRequest, res) => {
+  const { notificationMode } = req.body as { notificationMode?: unknown };
+  if (!isNotificationMode(notificationMode)) {
+    res.status(400).json({ error: 'notificationMode must be real-time or normal' });
+    return;
+  }
+  const user = await prisma.user.update({
+    where: { id: req.userId },
+    data: { notificationMode },
+  });
   res.json({ user: mapUser(user) });
 });
 

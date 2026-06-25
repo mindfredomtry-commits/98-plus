@@ -1,4 +1,5 @@
 export * from './constants';
+export * from './notification-mode';
 export * from './energy';
 export * from './types';
 export * from './deeplink';

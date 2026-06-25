@@ -1,5 +1,6 @@
 import type { UserPublic } from './types';
 import type { BanResult, InteractionOutcome } from './result';
+import { DEFAULT_NOTIFICATION_MODE } from './notification-mode';
 
 /** Outcomes that may auto-open after session boot or live check (not stale timeout noise). */
 export const AUTO_SHOW_RESULT_OUTCOMES: readonly InteractionOutcome[] = [
@@ -39,6 +40,8 @@ function minimalUserPublic(
     energyPercent: partial?.energyPercent ?? 50,
     streak: partial?.streak ?? 0,
     isOnboarded: partial?.isOnboarded ?? true,
+    notificationMode:
+      partial?.notificationMode ?? DEFAULT_NOTIFICATION_MODE,
   };
 }
 

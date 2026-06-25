@@ -1,4 +1,5 @@
 import type { BanInteraction, BanResult, UserPublic } from '@98plus/shared';
+import { normalizeNotificationMode } from '@98plus/shared';
 
 /** Coerce ban/user ids to stable string keys for Sets, localStorage, and JSON. */
 export function normalizeId(value: unknown): string {
@@ -21,6 +22,7 @@ export function normalizeUserPublic(user: UserPublic): UserPublic {
     ...user,
     id: normalizeId(user.id),
     telegramId: normalizeId(user.telegramId),
+    notificationMode: normalizeNotificationMode(user.notificationMode),
   };
 }
 

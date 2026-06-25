@@ -1,4 +1,5 @@
 import type { AuraLevel } from './energy';
+import type { NotificationMode } from './notification-mode';
 import type { BanDurationMinutes } from './constants';
 import type { InteractionOutcome } from './result';
 import {
@@ -40,6 +41,8 @@ export interface UserPublic {
   energyPercent: number;
   streak: number;
   isOnboarded: boolean;
+  /** Live notification display preference — synced across devices. */
+  notificationMode: NotificationMode;
 }
 
 export interface BanInteraction {

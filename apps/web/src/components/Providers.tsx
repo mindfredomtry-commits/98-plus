@@ -25,9 +25,12 @@ import {
   getResultCardHeadline,
   isDirectOverboardOpenable,
   isValidBanResultPayload,
+  normalizeNotificationMode,
+  DEFAULT_NOTIFICATION_MODE,
   parseStartParam,
   buildStartParam,
   buildBanInteractionFromReplyPreview,
+  type NotificationMode,
 } from '@98plus/shared';
 import {
   ANALYTICS_EVENTS,
@@ -469,9 +472,27 @@ import {
   logDeeplinkSingleCardChainBlocked,
   logSyncDisplayBlockedSingleCard,
   shouldBlockDeeplinkAutoDrain,
-  shouldBlockNonExplicitNotificationDrain,
   shouldBlockSingleCardChainContinuation,
 } from '@/lib/deeplink-single-card-mode';
+import {
+  beginLiveOverlaySingleEvent,
+  completeLiveOverlaySingleEvent,
+  getLiveOverlaySingleEvent,
+  isLiveOverlaySingleEventActive,
+  isLiveOverlaySingleEventCompleting,
+  shouldBlockLiveOverlayChainContinuation,
+  shouldBlockPassiveNotificationDisplay,
+} from '@/lib/live-overlay-single-event';
+import {
+  evaluateLiveOverlayDisplay,
+  type LiveOverlayScreenContext,
+} from '@/lib/live-overlay-screen';
+import {
+  logLiveOverlayBlocked,
+  logLiveOverlayConsumed,
+  logLiveOverlayDisplayAllowed,
+  logNotificationMode,
+} from '@/lib/notification-mode-debug';
 import {
   beginExplicitNotificationDrain,
   tryClearExplicitNotificationDrain,
@@ -771,6 +792,14 @@ interface AppContextValue {
   notificationOverlayMounted: boolean;
   /** Lobby “твои запреты” attention dot — pending startup + queued overlays. */
   lobbyBansNeedAttention: boolean;
+  /** Server-synced notification display mode. */
+  notificationMode: NotificationMode;
+  updateNotificationMode: (mode: NotificationMode) => Promise<boolean>;
+  /** Sync arena overlay state for live-notification screen guards. */
+  setArenaOverlayGuardState: (opts: {
+    bansOverlayOpen?: boolean;
+    settingsOverlayOpen?: boolean;
+  }) => void;
   /** True while swapping queued notification cards — blocks lobby flash between overlays. */
   notificationChainTransitioning: boolean;
   setNotificationChainTransitioning: (active: boolean) => void;
@@ -1574,6 +1603,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const armBansNavFromResultCtaRef = useRef<() => void>(() => {});
   const bansNavStateRef = useRef<BansNavState>(DEFAULT_BANS_NAV);
   const bansCtaQueueSuppressRef = useRef(false);
+  const arenaBansOverlayOpenRef = useRef(false);
+  const settingsOverlayOpenRef = useRef(false);
+  const notificationModeRef = useRef<NotificationMode>(DEFAULT_NOTIFICATION_MODE);
   const bansReturnToLobbyLatchRef = useRef(false);
   const setBansReturnToLobbyLatch = useCallback(
     (
@@ -4599,6 +4631,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return false;
   };
 
+  const buildLiveOverlayScreenContext = (): LiveOverlayScreenContext => ({
+    lobbyOpen: lobbyOpenRef.current,
+    sendComposePhase: sendComposePhaseRef.current,
+    replyComposeActive: replyComposeActiveRef.current,
+    sendFlowOpen: sendFlowOpenRef.current,
+    notificationOverlayMounted: isActiveUserCardHold(),
+    notificationChainTransitioning: notificationChainTransitioningRef.current,
+    notificationChainAwaitingUser: notificationChainAwaitingUserRef.current,
+    bansOverlayOpen: arenaBansOverlayOpenRef.current,
+    bansReturnToLobbyLatch: bansReturnToLobbyLatchRef.current,
+    resultCtaBansOverlayOpen: resultCtaBansOverlayOpenRef.current,
+    bansCtaQueueSuppress: bansCtaQueueSuppressRef.current,
+    settingsOverlayOpen: settingsOverlayOpenRef.current,
+    profileOverlayOpen: false,
+    successCardMounted: isSuccessCardMounted(),
+    activeTimerOverlayMounted: isActiveTimerOverlayMounted(),
+  });
+
   const buildPassiveResultGateContext = (
     banId: string | null | undefined,
   ): Parameters<typeof shouldBlockPassiveResultOverlayOpen>[1] => {
@@ -4757,7 +4807,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       (headAtEnter.kind === 'incoming' ||
         headAtEnter.kind === 'check' ||
         headAtEnter.kind === 'result') &&
-      shouldBlockNonExplicitNotificationDrain(
+      shouldBlockPassiveNotificationDisplay(
         'syncDisplayFromQueue',
         startupInteractionsHoldRef.current,
       )
@@ -6458,6 +6508,54 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      const liveEvent = getLiveOverlaySingleEvent();
+      const remainingIsSameEventResult =
+        liveEvent != null &&
+        remaining.length === 1 &&
+        remaining[0].kind === 'result' &&
+        normalizeId(remaining[0].result.id) === liveEvent.banId &&
+        (liveEvent.kind === 'incoming' || liveEvent.kind === 'check');
+
+      if (
+        isLiveOverlaySingleEventActive() &&
+        isLiveOverlaySingleEventCompleting(dismissKind, dismissBanId) &&
+        !remainingIsSameEventResult
+      ) {
+        if (remaining.length > 0) {
+          pendingStartupInteractionsRef.current = mergeStartupPendingChain(
+            pendingStartupInteractionsRef.current,
+            remaining,
+          );
+          syncPendingStartupCount();
+          primeLobbyBansAttentionHintSyncRef.current(
+            `live-overlay-single-defer:${reason}`,
+          );
+        }
+        overlayQueueRef.current = [];
+        setOverlayQueue([]);
+        clearActiveUserCardHold(`live-overlay-single:${reason}`);
+        clearActiveOverlayStateForDismiss(dismissKind, dismissBanId, {
+          explicitUserAction: true,
+        });
+        logLiveOverlayConsumed({
+          kind: dismissKind ?? liveEvent?.kind ?? 'unknown',
+          banId: dismissBanId ?? liveEvent?.banId ?? '',
+          action: reason,
+        });
+        completeLiveOverlaySingleEvent(`dismiss:${reason}`);
+        overlayActionTsRef.current = null;
+        overlayHandoffTsRef.current = null;
+        notificationChainAwaitingUserRef.current = false;
+        notificationChainHandoffRef.current = false;
+        setNotificationChainTransitioning(false);
+        setLobbyOpen(true);
+        lobbyShownLoggedRef.current = false;
+        logTransitionFromRefs('[DISMISS COMMIT DONE]', {
+          source: `${reason}-live-overlay-single`,
+        });
+        return;
+      }
+
       const drainTotal = prev.length;
       const dismissTs = overlayTs();
       overlayHandoffTsRef.current = dismissTs;
@@ -6858,6 +6956,53 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           { key, kind: normalizedItem.kind, banId, source: opts?.source ?? null },
         );
         return;
+      }
+
+      if (
+        live &&
+        (normalizedItem.kind === 'check' ||
+          normalizedItem.kind === 'incoming' ||
+          normalizedItem.kind === 'result')
+      ) {
+        const mode = notificationModeRef.current;
+        const displayDecision = evaluateLiveOverlayDisplay(
+          mode,
+          buildLiveOverlayScreenContext(),
+          normalizedItem.kind,
+          banId,
+        );
+        const pendingCount =
+          overlayQueueRef.current.length +
+          pendingStartupInteractionsRef.current.length;
+        if (!displayDecision.allowed) {
+          logLiveOverlayBlocked({
+            mode,
+            kind: normalizedItem.kind,
+            banId,
+            reason: displayDecision.reason,
+            currentScreen: displayDecision.currentScreen,
+            pendingCount,
+          });
+          deferNotificationToPendingStartup(normalizedItem);
+          primeLobbyBansAttentionHintSyncRef.current(
+            `live-overlay-blocked:${displayDecision.reason}`,
+          );
+          logLobbyIndicatorOnlyNoCard({
+            reason: displayDecision.reason,
+            mode,
+            kind: normalizedItem.kind,
+            banId,
+          });
+          return;
+        }
+        beginLiveOverlaySingleEvent(normalizedItem.kind, banId);
+        logLiveOverlayDisplayAllowed({
+          mode,
+          kind: normalizedItem.kind,
+          banId,
+          reason: displayDecision.reason,
+          currentScreen: displayDecision.currentScreen,
+        });
       }
 
       if (startupInteractionsHoldRef.current && !live) {
@@ -7789,7 +7934,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return 0;
       }
       if (
-        shouldBlockNonExplicitNotificationDrain(
+        shouldBlockPassiveNotificationDisplay(
           source,
           startupInteractionsHoldRef.current,
         )
@@ -7939,7 +8084,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (snapshot: QueuedOverlay[], source: string): number => {
       if (snapshot.length === 0) return 0;
       if (
-        shouldBlockNonExplicitNotificationDrain(
+        shouldBlockPassiveNotificationDisplay(
           source,
           startupInteractionsHoldRef.current,
         )
@@ -15794,6 +15939,52 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const setArenaOverlayGuardState = useCallback(
+    (opts: { bansOverlayOpen?: boolean; settingsOverlayOpen?: boolean }) => {
+      if (opts.bansOverlayOpen !== undefined) {
+        arenaBansOverlayOpenRef.current = opts.bansOverlayOpen;
+      }
+      if (opts.settingsOverlayOpen !== undefined) {
+        settingsOverlayOpenRef.current = opts.settingsOverlayOpen;
+      }
+    },
+    [],
+  );
+
+  const notificationMode = normalizeNotificationMode(auth.user?.notificationMode);
+
+  useEffect(() => {
+    const mode = normalizeNotificationMode(auth.user?.notificationMode);
+    notificationModeRef.current = mode;
+    if (auth.user?.id) {
+      logNotificationMode({ mode, userId: auth.user.id });
+    }
+  }, [auth.user?.id, auth.user?.notificationMode]);
+
+  const updateNotificationMode = useCallback(
+    async (mode: NotificationMode): Promise<boolean> => {
+      const token = tokenRef.current;
+      if (!token) return false;
+      const prev = notificationModeRef.current;
+      notificationModeRef.current = mode;
+      try {
+        await api<{ user: UserPublic }>('/users/notification-mode', {
+          method: 'PATCH',
+          token,
+          body: JSON.stringify({ notificationMode: mode }),
+        });
+        await auth.refreshUser();
+        logNotificationMode({ mode, userId: auth.user?.id ?? null });
+        return true;
+      } catch (e) {
+        notificationModeRef.current = prev;
+        console.error('[notification-mode-update-failed]', e);
+        return false;
+      }
+    },
+    [auth],
+  );
+
   const isBansNavigationChainSource = (source: string): boolean =>
     [
       'active-timer-close',
@@ -16180,7 +16371,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return showNextDiagReturn('compose-flow-active', false);
       }
       if (
-        shouldBlockNonExplicitNotificationDrain(
+        shouldBlockPassiveNotificationDisplay(
           source,
           startupInteractionsHoldRef.current,
         )
@@ -16221,6 +16412,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           modeBanId: cardMode?.banId ?? null,
         });
         return showNextDiagReturn('show-next-single-card', false);
+      }
+      if (shouldBlockLiveOverlayChainContinuation(source)) {
+        const liveEvent = getLiveOverlaySingleEvent();
+        logDeeplinkSingleCardChainBlocked({
+          source,
+          reason: 'show-next-live-overlay-single',
+          modeKind: liveEvent?.kind ?? null,
+          modeBanId: liveEvent?.banId ?? null,
+        });
+        return showNextDiagReturn('show-next-live-overlay-single', false);
       }
       if (
         startupInteractionsHoldRef.current &&
@@ -16905,7 +17106,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         selectedBanId: selectedNext?.banId ?? headBanId,
         heldNextKind: chainSnap.heldNextKind,
         hasPendingNotificationChain: hasPendingNotificationChain(),
-        shouldBlockNonExplicitDrain: shouldBlockNonExplicitNotificationDrain(
+        shouldBlockNonExplicitDrain:         shouldBlockPassiveNotificationDisplay(
           source,
           startupInteractionsHoldRef.current,
         ),
@@ -17067,7 +17268,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return snapshotPendingNotificationChain();
       }
       if (
-        shouldBlockNonExplicitNotificationDrain(
+        shouldBlockPassiveNotificationDisplay(
           source,
           startupInteractionsHoldRef.current,
         )
@@ -17479,7 +17680,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return 'blocked';
       }
       if (
-        shouldBlockNonExplicitNotificationDrain(
+        shouldBlockPassiveNotificationDisplay(
           source,
           startupInteractionsHoldRef.current,
         )
@@ -17536,6 +17737,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
         }
         traceContinueBlocked('single-card-mode');
+        return 'blocked';
+      }
+      if (shouldBlockLiveOverlayChainContinuation(source)) {
+        const liveEvent = getLiveOverlaySingleEvent();
+        logDeeplinkSingleCardChainBlocked({
+          source,
+          reason: 'continue-live-overlay-single',
+          modeKind: liveEvent?.kind ?? null,
+          modeBanId: liveEvent?.banId ?? null,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+        if (isCheckAnswerChainSource) {
+          logCheckContinueBlocked({
+            source,
+            reason: 'live-overlay-single',
+            overlayQueueLen: overlayQueueRef.current.length,
+            pendingLen: pendingStartupInteractionsRef.current.length,
+            lobbyOpen: lobbyOpenRef.current,
+          });
+        }
+        traceContinueBlocked('live-overlay-single');
         return 'blocked';
       }
       if (shouldBlockPostSuccessEmptyRetry(source)) {
@@ -23955,6 +24178,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       notificationSessionActive,
       notificationOverlayMounted,
       lobbyBansNeedAttention,
+      notificationMode,
+      updateNotificationMode,
+      setArenaOverlayGuardState,
       notificationChainTransitioning,
       setNotificationChainTransitioning,
       clearNotificationOverlayForEmptyQueueAfterSuccessExit,
@@ -24146,6 +24372,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       notificationSessionActive,
       notificationOverlayMounted,
       lobbyBansNeedAttention,
+      notificationMode,
+      updateNotificationMode,
+      setArenaOverlayGuardState,
       notificationChainTransitioning,
       setNotificationChainTransitioning,
       clearNotificationOverlayForEmptyQueueAfterSuccessExit,
