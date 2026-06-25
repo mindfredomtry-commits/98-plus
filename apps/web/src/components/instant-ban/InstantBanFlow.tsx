@@ -109,8 +109,6 @@ import {
   resolveLobbyCtaHiddenReason,
 } from '@/lib/lobby-cta-visibility-debug';
 import {
-  buildLobbyCtaNullReason,
-  computeLobbyCtaGuardDecision,
   logLobbyCtaRenderCheck,
   logLobbyCtaReturnNull,
 } from '@/lib/lobby-cta-render-debug';
@@ -1405,34 +1403,14 @@ export function InstantBanFlow({
       ctaVisible,
     });
 
-    const ctaDecision = computeLobbyCtaGuardDecision({
-      lobbyBootIntroPrimed,
-      replyIncomingDeeplinkPending,
-      checkDeeplinkDirectPending,
-      successToActiveLobbyBlocked,
-      overlayHandoffLobbySuppressed,
-      successExitDraining,
-      postSuccessHandoffBlocking,
-      notificationChainTransitioning,
-      replyLobbyBlocked,
-      bansReturnToLobbyLatch,
-      deepLinkRouteBootPending,
-      deepLinkReplyBooting,
-      incomingReplyBanId,
-      incomingGateActive,
-      ctaState,
-      effectiveBansOverlayOpen,
-      notificationQueueUiLock,
-    });
-
-    const ctaShellVisible = ctaDecision.ctaShellVisible;
+    const ctaShellVisible = ctaVisible;
     const emptyOverlayHostBlocked =
       notificationChainTransitioning && !notificationOverlayMounted;
 
     patchLobbyCtaDebugSnapshot({
       showLobbyChrome,
       showTopNav: showLobbyTopNav,
-      ctaVisible: ctaDecision.showLobbyCta,
+      ctaVisible: showLobbyCta,
       ctaShellVisible,
       ctaState,
       instantBanOpen: sendFlowOpen || sendStarted,
@@ -1445,7 +1423,7 @@ export function InstantBanFlow({
       showLobbyChrome,
       showTopNav: showLobbyTopNav,
       ctaVisible: ctaShellVisible,
-      ctaHiddenReason: ctaDecision.primaryBlocker,
+      ctaHiddenReason,
       instantBanOpen: sendFlowOpen || sendStarted,
       activeOverlayKind,
       notificationChainTransitioning,
@@ -1458,10 +1436,9 @@ export function InstantBanFlow({
       hasRenderableOverlay: notificationOverlayMounted,
       emptyOverlayHostBlocked,
       lobbyIndicatorActive: lobbyBansNeedAttention,
-      pendingStartupInteractions,
       ctaState,
-      showLobbyCtaGuard: ctaDecision.showLobbyCta,
-      mountBlockers: ctaDecision.blockers,
+      showLobbyCtaGuard: showLobbyCta,
+      mountBlockers: ctaHiddenReason ? [ctaHiddenReason] : [],
       phase,
       notificationOverlayVisible,
       notificationSessionActive,
@@ -1476,7 +1453,7 @@ export function InstantBanFlow({
 
     if (!ctaShellVisible && lobbyOpen && phase === 'idle') {
       logLobbyCtaReturnNull({
-        reason: buildLobbyCtaNullReason(ctaDecision),
+        reason: ctaHiddenReason ?? 'unknown',
         ...payload,
       });
     }
