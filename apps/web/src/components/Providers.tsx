@@ -454,10 +454,12 @@ import {
   logReplyCardSelected,
   logReplyCardTopLayerOk,
   logReplyDeeplinkStart,
+  logReplyDeeplinkToSendFlowState,
   logReplyStartupBlockers,
   logStartupBlockersClear,
   type ReplyStartupBlockersSnapshot,
 } from '@/lib/reply-deeplink-startup-debug';
+import { readLobbyCtaDebugSnapshot } from '@/lib/lobby-cta-snapshot-debug';
 import { setOverlayInputLockAfterAction, clearOverlayInputLock } from '@/lib/overlay-input-guard';
 import {
   allowDeeplinkExplicitNotificationDrain,
@@ -20630,6 +20632,43 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       startIncomingReply(ban);
       beginReplyHandoff(banId);
+      const isReplyDeeplinkEntry =
+        replyDeeplinkPendingBanIdRef.current === banId ||
+        replyDeepLinkBanIdRef.current === banId ||
+        isDeeplinkSingleCardModeActive();
+      if (isReplyDeeplinkEntry) {
+        const ctaSnapshot = readLobbyCtaDebugSnapshot();
+        logReplyDeeplinkToSendFlowState({
+          incomingBanId: banId,
+          replyDeepLinkBanId: replyDeepLinkBanIdRef.current,
+          replyDeeplinkPendingBanId: replyDeeplinkPendingBanIdRef.current,
+          deepLinkReplyBooting,
+          replyIncomingDeeplinkSignals: {
+            replyDeeplinkPendingBanId: replyDeeplinkPendingBanIdRef.current,
+            replyDeepLinkBanId: replyDeepLinkBanIdRef.current,
+            deepLinkReplyBooting,
+            replyDeeplinkFastShell: replyDeeplinkFastShellRef.current,
+            incomingReplyBanId: incomingReplyBanId,
+          },
+          lobbyOpen: lobbyOpenRef.current,
+          ctaState: ctaSnapshot?.ctaState ?? null,
+          shellMode: sendFlowOpenRef.current
+            ? 'arena-send'
+            : lobbyOpenRef.current
+              ? 'arena-lobby'
+              : 'arena-deep-link',
+          stage: ctaSnapshot?.phase ?? null,
+          activeOverlayKind:
+            heldUserCardOverlayRef.current?.kind ??
+            (incomingBanRef.current ? 'incoming' : null),
+          overlayQueueLength: overlayQueueRef.current.length,
+          pendingStartupInteractionsLen:
+            pendingStartupInteractionsRef.current.length,
+          chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+          deeplinkSingleCardActive: isDeeplinkSingleCardModeActive(),
+          deeplinkSingleCardMode: getDeeplinkSingleCardMode(),
+        });
+      }
       logIncomingReplyFlowStart({
         banId,
         parentBanId: banId,

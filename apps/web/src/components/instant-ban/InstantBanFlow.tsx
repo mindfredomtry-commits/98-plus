@@ -229,6 +229,10 @@ import { canLobbySendBan } from '@/lib/lobby-influence';
 import { isReplyDeeplinkShellBan } from '@/lib/reply-deeplink-fast';
 import { REPLY_DEEPLINK_TOAST_SENT } from '@/lib/reply-deeplink-action-result';
 import {
+  logPostSuccessReplyDeeplinkLobbyState,
+  logReplyDeeplinkSuccessState,
+} from '@/lib/reply-deeplink-startup-debug';
+import {
   logLobbyBansCtaClickTrace,
   logLobbyBansDrainNotEntered,
 } from '@/lib/queue-source-comparison-debug';
@@ -619,6 +623,11 @@ export function InstantBanFlow({
   const [screenTransition, setScreenTransition] = useState<ScreenTransition>(null);
   const [crossScreenProgress, setCrossScreenProgress] = useState(0);
   const lobbyCtaBootSpringRef = useRef(false);
+  const postSuccessReplyDeeplinkBeforeRef = useRef<{
+    lobbyOpen: boolean;
+    sendStarted: boolean;
+    ctaState: string;
+  } | null>(null);
   const prevSendStartedRef = useRef(sendStarted);
   const skipActiveDeepLinkEntryRef = useRef(false);
   const activeBanRepeatComposeRef = useRef(false);
@@ -1435,6 +1444,8 @@ export function InstantBanFlow({
       chainAdvanceWaiting: queueDebug.chainAdvanceWaiting,
       replyIncomingDeeplinkPending,
       queueClaimsNotificationScreen: queueClaimsNotificationScreenGuard,
+      deepLinkReplyBooting,
+      replyDeepLinkBanId,
       shellMode,
       stage: phase,
       activeOverlayKind,
@@ -2944,6 +2955,117 @@ export function InstantBanFlow({
     ],
   );
 
+  const isReplyDeeplinkSendContext = useCallback(() => {
+    return (
+      isReplyQueueHandoffSessionActive() ||
+      replyDeepLinkBanId != null ||
+      deepLinkReplyBan != null ||
+      Boolean(replyToBanId ?? getPinnedReplyToBanId())
+    );
+  }, [
+    deepLinkReplyBan,
+    getPinnedReplyToBanId,
+    replyDeepLinkBanId,
+    replyToBanId,
+  ]);
+
+  const logPostSuccessReplyDeeplinkLobbyStateDiag = useCallback(
+    (source: string) => {
+      if (!isReplyDeeplinkSendContext()) return;
+      const before = postSuccessReplyDeeplinkBeforeRef.current;
+      const queueDebug = getConfirmOrbQueueDebugSnapshot();
+      const queueClaimsNotificationScreenGuard =
+        overlayQueueLength > 0 || shouldBlockLobbyForActiveQueue();
+      const guardDecision = computeLobbyCtaGuardDecision({
+        lobbyBootIntroPrimed,
+        replyIncomingDeeplinkPending,
+        checkDeeplinkDirectPending,
+        successToActiveLobbyBlocked,
+        overlayHandoffLobbySuppressed,
+        successExitDraining,
+        postSuccessHandoffBlocking,
+        notificationChainTransitioning,
+        queueClaimsNotificationScreen: queueClaimsNotificationScreenGuard,
+        replyLobbyBlocked,
+        bansReturnToLobbyLatch,
+        deepLinkRouteBootPending,
+        deepLinkReplyBooting,
+        incomingReplyBanId,
+        incomingGateActive,
+        ctaState,
+        effectiveBansOverlayOpen,
+        notificationQueueUiLock,
+      });
+      const ctaJsxVisible =
+        showLobbyCta &&
+        !effectiveBansOverlayOpen &&
+        !notificationQueueUiLock;
+      logPostSuccessReplyDeeplinkLobbyState({
+        source,
+        parentIncomingBanId: getPinnedReplyToBanId() ?? replyToBanId,
+        createdReplyBanId: lastSendSuccessBanIdRef.current,
+        lobbyOpenBefore: before?.lobbyOpen ?? null,
+        lobbyOpenAfter: lobbyOpen,
+        sendStartedBefore: before?.sendStarted ?? null,
+        sendStartedAfter: sendStarted,
+        ctaStateBefore: before?.ctaState ?? null,
+        ctaStateAfter: ctaState,
+        showLobbyCta,
+        ctaVisible: ctaJsxVisible,
+        canShowCta: showLobbyCta,
+        replyDeepLinkBanId,
+        deepLinkReplyBanId: deepLinkReplyBan?.id ?? null,
+        deepLinkReplyBooting,
+        replyIncomingDeeplinkPending,
+        queueClaimsNotificationScreen: queueClaimsNotificationScreenGuard,
+        notificationOverlayActive,
+        overlayQueueLength,
+        pendingStartupInteractionsLen: queueDebug.pendingLen,
+        chainAdvanceWaiting: queueDebug.chainAdvanceWaiting,
+        shouldBlockLobbyForActiveQueue: shouldBlockLobbyForActiveQueue(),
+        primaryBlocker: guardDecision.primaryBlocker,
+        blockReasons: guardDecision.blockers,
+        replyQueueHandoffActive: isReplyQueueHandoffSessionActive(),
+        banSentSuccess,
+        phase,
+        activeOverlayKind,
+      });
+    },
+    [
+      activeOverlayKind,
+      banSentSuccess,
+      bansReturnToLobbyLatch,
+      checkDeeplinkDirectPending,
+      ctaState,
+      deepLinkReplyBan,
+      deepLinkReplyBooting,
+      deepLinkRouteBootPending,
+      effectiveBansOverlayOpen,
+      getConfirmOrbQueueDebugSnapshot,
+      getPinnedReplyToBanId,
+      incomingGateActive,
+      incomingReplyBanId,
+      isReplyDeeplinkSendContext,
+      lobbyBootIntroPrimed,
+      lobbyOpen,
+      notificationChainTransitioning,
+      notificationOverlayActive,
+      notificationQueueUiLock,
+      overlayHandoffLobbySuppressed,
+      overlayQueueLength,
+      phase,
+      postSuccessHandoffBlocking,
+      replyDeepLinkBanId,
+      replyIncomingDeeplinkPending,
+      replyLobbyBlocked,
+      replyToBanId,
+      sendStarted,
+      showLobbyCta,
+      successExitDraining,
+      successToActiveLobbyBlocked,
+    ],
+  );
+
   const finishSendSuccessLobbyExit = useCallback(
     async (banId: string | null) => {
       const logFinishSendSuccessLobbyExitDecision = (
@@ -3128,6 +3250,11 @@ export function InstantBanFlow({
         allowSuccessExitLobbyOpen();
         openLobby('success-exit-empty-queue');
         beginCtaSpringIn();
+        queueMicrotask(() =>
+          logPostSuccessReplyDeeplinkLobbyStateDiag(
+            'finish-send-success-lobby-exit-drain-missed',
+          ),
+        );
         logFinishSendSuccessLobbyExitDecision(
           'drain-false-open-lobby',
           'stay-on-lobby',
@@ -3166,6 +3293,7 @@ export function InstantBanFlow({
       logPostSuccessReleaseStartupResult,
       getConfirmOrbQueueDebugSnapshot,
       tryClearExplicitNotificationDrainGuarded,
+      logPostSuccessReplyDeeplinkLobbyStateDiag,
     ],
   );
 
@@ -3176,6 +3304,11 @@ export function InstantBanFlow({
     if (!authorizeSuccessExitDrain(successCardSessionRef.current)) {
       return;
     }
+    postSuccessReplyDeeplinkBeforeRef.current = {
+      lobbyOpen,
+      sendStarted,
+      ctaState,
+    };
     logSuccessExitStart({ phase: 'handle-success-exit-complete' });
     markPostSuccessExitWindowOpen({
       queueLen: overlayQueueLength,
@@ -3217,6 +3350,11 @@ export function InstantBanFlow({
       notifyActiveBanCardVisible(parentBan.id);
       beginCtaSpringIn();
       refreshReplyParentActiveBanInBackground(parentBan.id);
+      queueMicrotask(() =>
+        logPostSuccessReplyDeeplinkLobbyStateDiag(
+          'reply-parent-active-immediate',
+        ),
+      );
       return;
     }
 
@@ -3253,6 +3391,11 @@ export function InstantBanFlow({
         });
         notifyActiveBanCardVisible(fetchedBan.id);
         beginCtaSpringIn();
+        queueMicrotask(() =>
+          logPostSuccessReplyDeeplinkLobbyStateDiag(
+            'reply-parent-active-fetched',
+          ),
+        );
       })();
       return;
     }
@@ -3269,15 +3412,19 @@ export function InstantBanFlow({
   }, [
     beginCtaSpringIn,
     commitSendSuccessExit,
+    ctaState,
     ensureReplyParentActiveBanForSuccess,
     finishSendSuccessLobbyExit,
     getReplyParentActiveBanId,
     hasReplyParentActivePriorityPending,
+    lobbyOpen,
+    logPostSuccessReplyDeeplinkLobbyStateDiag,
     notifyActiveBanCardVisible,
     overlayQueueLength,
     pendingStartupInteractions,
     refreshReplyParentActiveBanInBackground,
     resolveReplyParentActiveBanImmediate,
+    sendStarted,
     setSuccessToActiveLobbyBlockedState,
     setSendSuccessCardMounted,
     startSendSuccessHandoffEarly,
@@ -3365,6 +3512,28 @@ export function InstantBanFlow({
       });
       setBanSentSuccess(true);
       setSendSuccessCardMounted(true, { banId, source: 'open-success' });
+      if (isReplyDeeplinkSendContext()) {
+        const queueDebug = getConfirmOrbQueueDebugSnapshot();
+        logReplyDeeplinkSuccessState({
+          parentIncomingBanId: getPinnedReplyToBanId() ?? replyToBanId,
+          createdReplyBanId: banId,
+          sendStarted,
+          successVisible: true,
+          successStage: 'ban-sent-success',
+          banSentSuccess: true,
+          ctaState,
+          replyDeepLinkBanId,
+          deepLinkReplyBanId: deepLinkReplyBan?.id ?? null,
+          deepLinkReplyBooting,
+          replyIncomingDeeplinkPending,
+          queueGuard: getQueueLobbyGuardSnapshot(),
+          chainAdvanceWaiting: queueDebug.chainAdvanceWaiting,
+          overlayQueueLength,
+          pendingStartupInteractionsLen: queueDebug.pendingLen,
+          replyQueueHandoffActive: isReplyQueueHandoffSessionActive(),
+          phase,
+        });
+      }
       if (isReplyQueueHandoffSessionActive()) {
         patchReplyQueueHandoffSession({
           createdBanId: banId,
@@ -3376,11 +3545,22 @@ export function InstantBanFlow({
     },
     [
       clearActiveBanDeepLinkShell,
+      ctaState,
+      deepLinkReplyBan,
+      deepLinkReplyBooting,
+      getConfirmOrbQueueDebugSnapshot,
+      getPinnedReplyToBanId,
       haptic,
+      isReplyDeeplinkSendContext,
       logReplyQueueHandoffDiag,
       markSessionBanSendSuccess,
       overlayQueueLength,
       pendingStartupInteractions,
+      phase,
+      replyDeepLinkBanId,
+      replyIncomingDeeplinkPending,
+      replyToBanId,
+      sendStarted,
       setSendSuccessCardMounted,
     ],
   );

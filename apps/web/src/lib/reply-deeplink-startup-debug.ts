@@ -41,3 +41,27 @@ export function logReplyCardMounted(data: Record<string, unknown>): void {
 export function logReplyCardTopLayerOk(data: Record<string, unknown>): void {
   window.__debug98log?.('[REPLY CARD TOP LAYER OK]', data);
 }
+
+function emitReplyDeeplinkDiag(event: string, data: Record<string, unknown>): void {
+  const payload = { t: performance.now(), ...data };
+  console.log(event, payload);
+  window.__debug98log?.(event, payload);
+}
+
+export function logReplyDeeplinkToSendFlowState(
+  data: Record<string, unknown>,
+): void {
+  emitReplyDeeplinkDiag('REPLY_DEEPLINK_TO_SEND_FLOW_STATE', data);
+}
+
+export function logReplyDeeplinkSuccessState(
+  data: Record<string, unknown>,
+): void {
+  emitReplyDeeplinkDiag('REPLY_DEEPLINK_SUCCESS_STATE', data);
+}
+
+export function logPostSuccessReplyDeeplinkLobbyState(
+  data: Record<string, unknown>,
+): void {
+  emitReplyDeeplinkDiag('POST_SUCCESS_REPLY_DEEPLINK_LOBBY_STATE', data);
+}
