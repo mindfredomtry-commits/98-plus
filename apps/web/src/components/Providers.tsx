@@ -152,6 +152,18 @@ import {
   getOptimisticOverboardBuildDiagnostics,
   mergeOverboardResultUsers,
 } from '@/lib/optimistic-overboard-result';
+import {
+  isOverkillTerminalOutcome,
+  preserveOverkillTerminalFields,
+  resolveBanResultOutcome,
+  shouldAllowTerminalResultForBan,
+} from '@/lib/overkill-terminal-lock';
+import {
+  logDuplicateTerminalResultAttempt,
+  logNormalResultSkippedAfterOverkill,
+  logOverkillTerminalLock,
+  logResultTypeConflict,
+} from '@/lib/overkill-terminal-lock-debug';
 import type { OptimisticOverboardBuildContext } from '@/lib/optimistic-overboard-result';
 import {
   logOverboardPaint,
@@ -1548,6 +1560,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const resultOpenRef = useRef(false);
   const overboardInFlightRef = useRef<string | null>(null);
   const freshOverboardActionBanIdsRef = useRef<Set<string>>(new Set());
+  const overkillTerminalBanIdsRef = useRef<Set<string>>(new Set());
   const freshFinalStatusBanIdsRef = useRef<Set<string>>(new Set());
   type ForceOpenOverboardFn = (
     payload: BanResult,
@@ -1658,6 +1671,105 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const heldUserCardOverlayRef = useRef<HeldUserCardOverlay | null>(null);
   const [heldUserCardOverlay, setHeldUserCardOverlay] =
     useState<HeldUserCardOverlay | null>(null);
+  const buildOverkillTerminalLockLogFields = (
+    banId: string,
+    requestedOutcome: string | null | undefined,
+    sourceFunction: string,
+    opts?: { incomingId?: string | null; resultId?: string | null },
+  ) => {
+    const norm = normalizeId(banId);
+    const currentResult =
+      heldUserCardOverlayRef.current?.kind === 'result'
+        ? heldUserCardOverlayRef.current.result
+        : resultRef.current;
+    const currentOutcome = resolveBanResultOutcome(currentResult);
+    return {
+      banId: norm,
+      incomingId: opts?.incomingId ?? null,
+      resultId: opts?.resultId ?? norm,
+      currentResultType: currentOutcome || null,
+      requestedResultType: requestedOutcome ?? null,
+      sourceFunction,
+      queueLength: overlayQueueRef.current.length,
+    };
+  };
+  const lockOverkillTerminal = (
+    banId: string,
+    sourceFunction: string,
+    incomingId?: string | null,
+  ) => {
+    const norm = normalizeId(banId);
+    if (!norm) return;
+    if (overkillTerminalBanIdsRef.current.has(norm)) {
+      logDuplicateTerminalResultAttempt(
+        buildOverkillTerminalLockLogFields(norm, 'overboard', sourceFunction, {
+          incomingId,
+        }),
+      );
+      return;
+    }
+    overkillTerminalBanIdsRef.current.add(norm);
+    logOverkillTerminalLock(
+      buildOverkillTerminalLockLogFields(norm, 'overboard', sourceFunction, {
+        incomingId,
+      }),
+    );
+    const pruneConflictingQueuedResults = (queue: QueuedOverlay[]): QueuedOverlay[] =>
+      queue.filter((item) => {
+        if (item.kind !== 'result') return true;
+        const itemId = normalizeId(item.result.id);
+        if (itemId !== norm) return true;
+        const outcome = resolveBanResultOutcome(item.result);
+        if (isOverkillTerminalOutcome(outcome)) return true;
+        logNormalResultSkippedAfterOverkill(
+          buildOverkillTerminalLockLogFields(
+            itemId,
+            outcome,
+            `${sourceFunction}:prune-queued-conflict`,
+            { resultId: itemId, incomingId },
+          ),
+        );
+        return false;
+      });
+    const nextOverlay = pruneConflictingQueuedResults(overlayQueueRef.current);
+    const nextPending = pruneConflictingQueuedResults(
+      pendingStartupInteractionsRef.current,
+    );
+    if (nextOverlay.length !== overlayQueueRef.current.length) {
+      overlayQueueRef.current = nextOverlay;
+      setOverlayQueue(nextOverlay);
+    }
+    if (nextPending.length !== pendingStartupInteractionsRef.current.length) {
+      pendingStartupInteractionsRef.current = nextPending;
+      setPendingStartupInteractionsCount(nextPending.length);
+    }
+  };
+  const rejectNonOverkillTerminalResult = (
+    banId: string,
+    requestedOutcome: string | null | undefined,
+    sourceFunction: string,
+    opts?: { incomingId?: string | null; resultId?: string | null },
+  ): boolean => {
+    const norm = normalizeId(banId);
+    if (!norm) return false;
+    const { allowed } = shouldAllowTerminalResultForBan(
+      norm,
+      requestedOutcome,
+      overkillTerminalBanIdsRef.current,
+    );
+    if (allowed) return false;
+    const fields = buildOverkillTerminalLockLogFields(
+      norm,
+      requestedOutcome,
+      sourceFunction,
+      opts,
+    );
+    if (isOverkillTerminalOutcome(fields.currentResultType)) {
+      logResultTypeConflict(fields);
+    }
+    logNormalResultSkippedAfterOverkill(fields);
+    return true;
+  };
   const lastProcessedOverlayKindForBansRef = useRef<
     'incoming' | 'check' | 'result' | null
   >(null);
@@ -7124,6 +7236,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       if (normalizedItem.kind === 'result') {
         const resultId = normalizedItem.result.id;
+        const resultOutcome = resolveBanResultOutcome(normalizedItem.result);
+        if (
+          rejectNonOverkillTerminalResult(
+            banId,
+            resultOutcome,
+            `enqueueNotification:${opts?.source ?? 'unknown'}`,
+            { resultId },
+          )
+        ) {
+          return;
+        }
         const uid = userIdRef.current;
         if (isResultBlockedForNotificationChain(resultId, opts?.source ?? 'enqueueNotification')) {
           return;
@@ -8097,6 +8220,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         queue.filter((item) => {
           if (item.kind !== 'result') return true;
           const itemId = normalizeId(item.result.id);
+          if (overkillTerminalBanIdsRef.current.has(itemId)) {
+            const outcome = resolveBanResultOutcome(item.result);
+            if (!isOverkillTerminalOutcome(outcome)) {
+              logNormalResultSkippedAfterOverkill(
+                buildOverkillTerminalLockLogFields(
+                  itemId,
+                  outcome,
+                  `sanitizeNotificationChainQueues:${source}`,
+                  { resultId: itemId },
+                ),
+              );
+              return false;
+            }
+          }
           if (
             preserveHeadFreshResultId &&
             itemId === preserveHeadFreshResultId &&
@@ -8869,6 +9006,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               r.id,
               'pending-chain-prefetch',
               skipBanId,
+            ) &&
+            !rejectNonOverkillTerminalResult(
+              r.id,
+              resolveBanResultOutcome(r),
+              'pending-chain-prefetch',
+              { resultId: r.id },
             )
           ) {
             resultPriorityBanIdsRef.current.add(resultNorm);
@@ -9407,6 +9550,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       if (r) {
         const uid = userIdRef.current;
+        if (
+          rejectNonOverkillTerminalResult(
+            r.id,
+            resolveBanResultOutcome(r),
+            `openBanResult:${mode}`,
+            { resultId: r.id },
+          )
+        ) {
+          return;
+        }
         if (
           resultCtaConsumedBanIdsRef.current.has(r.id) ||
           (uid && isDismissedResultLocally(r.id, uid))
@@ -10088,6 +10241,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setOptimisticSendWait(null);
     dismissedIncomingRef.current = new Set();
     incomingConsumedAfterAnswerRef.current = new Set();
+    overkillTerminalBanIdsRef.current = new Set();
     incomingReplyComposeDismissedRef.current = new Set();
     dismissedCheckSessionRef.current = new Set();
     answeredCheckRef.current = new Set();
@@ -10260,6 +10414,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const banId = normalizeId(normalized.id);
       const uid = userIdRef.current;
       if (!banId) return;
+
+      if (
+        rejectNonOverkillTerminalResult(
+          banId,
+          resolveBanResultOutcome(normalized),
+          `receiveResult:${source}`,
+          { resultId: banId },
+        )
+      ) {
+        return;
+      }
 
       if (
         source === 'poll' &&
@@ -10519,6 +10684,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const statusLabel = normalized.headline || normalized.outcome;
       if (!banId) {
         logCheckAnswerFinalResultMissing({ banId: null, reason: 'no-ban-id' });
+        return false;
+      }
+
+      if (
+        rejectNonOverkillTerminalResult(
+          banId,
+          resolveBanResultOutcome(normalized),
+          `showCheckAnswerFinalResult:${source}`,
+          { resultId: banId },
+        )
+      ) {
         return false;
       }
 
@@ -12478,6 +12654,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       const normalizedBanId = normalizeId(banId);
+      if (
+        rejectNonOverkillTerminalResult(
+          normalizedBanId,
+          resolveBanResultOutcome(payload),
+          'forceOpenOverboardResult',
+          { resultId: normalizedBanId },
+        )
+      ) {
+        logForceOverboard('early-return', {
+          banId: normalizedBanId,
+          reason: 'overkill-terminal-locked',
+          guard: 'rejectNonOverkillTerminalResult',
+        });
+        return false;
+      }
       if (isLocalForce) {
         freshOverboardActionBanIdsRef.current.add(normalizedBanId);
         resultCtaConsumedBanIdsRef.current.delete(normalizedBanId);
@@ -12755,6 +12946,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       logForceOverboard('exit', { banId, ok: true });
+      if (isLocalForce) {
+        lockOverkillTerminal(banId, 'forceOpenOverboardResult', banId);
+      }
       return true;
     },
     [
@@ -12840,6 +13034,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId,
           answer,
         });
+      }
+
+      if (answer === 'overboard') {
+        lockOverkillTerminal(banId, 'consumeIncomingAfterAnswer', banId);
       }
 
       const uid = userIdRef.current?.trim();
@@ -13252,6 +13450,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const norm = normalizeId(banId);
       if (!norm) return false;
 
+      lockOverkillTerminal(norm, 'replaceIncomingWithOverboardResultAtomic', norm);
+
       incomingOverboardAtomicBanIdRef.current = norm;
       logIncomingOverboardAtomicResult({ banId: norm });
 
@@ -13625,6 +13825,54 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ...payload,
           viewerId: payload.viewerId ?? uid,
         };
+        const apiOutcome = resolveBanResultOutcome(normalized);
+        const applyAvatarOnlyOverkillSync = (): boolean => {
+          const prev = resultRef.current;
+          if (!prev || normalizeId(prev.id) !== normalizeId(banId)) {
+            return false;
+          }
+          if (!isOverkillTerminalOutcome(resolveBanResultOutcome(prev))) {
+            return false;
+          }
+          const merged = preserveOverkillTerminalFields(
+            prev,
+            mergeOverboardResultUsers(prev, normalized),
+          );
+          resultRef.current = merged;
+          setResult(merged);
+          const held: HeldUserCardOverlay = { kind: 'result', result: merged };
+          heldUserCardOverlayRef.current = held;
+          setHeldUserCardOverlay(held);
+          const q = overlayQueueRef.current;
+          const nextQ = q.map((item) =>
+            item.kind === 'result' && item.result.id === banId
+              ? { kind: 'result' as const, result: merged }
+              : item,
+          );
+          commitOverlayQueueTraced(
+            nextQ,
+            `sync-atomic-${source}-avatar-only`,
+            'optimistic-sync-api-atomic-avatar-only-queue-commit',
+          );
+          return true;
+        };
+        if (
+          rejectNonOverkillTerminalResult(
+            banId,
+            apiOutcome,
+            `syncOverboardResultFromApi:${source}`,
+            { resultId: banId },
+          )
+        ) {
+          if (applyAvatarOnlyOverkillSync()) {
+            traceOverboardFlow('optimistic-sync-api-avatar-only', {
+              banId,
+              source,
+              apiOutcome,
+            });
+          }
+          return true;
+        }
         if (
           !isLocalOverboardBypassForBan(banId) &&
           overboardInFlightRef.current !== banId &&
@@ -13653,9 +13901,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           incomingOverboardAtomicBanIdRef.current === banId &&
           resultRef.current?.id === banId
         ) {
-          const merged = mergeOverboardResultUsers(
+          const merged = preserveOverkillTerminalFields(
             resultRef.current,
-            normalized,
+            mergeOverboardResultUsers(resultRef.current, normalized),
           );
           resultRef.current = merged;
           setResult(merged);
@@ -13683,7 +13931,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ) {
           setResult((prev) =>
             prev
-              ? mergeOverboardResultUsers(prev, normalized)
+              ? preserveOverkillTerminalFields(
+                  prev,
+                  mergeOverboardResultUsers(prev, normalized),
+                )
               : normalized,
           );
           traceOverboardFlow('optimistic-sync-api', { banId, source });
