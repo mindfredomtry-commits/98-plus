@@ -1,0 +1,6 @@
+# @98plus/web — Railway service Root Directory: repo root ("." / blank).
+# Set Config as Code file path on this service to: /apps/web/railway.toml
+# (Railway does not auto-read this file; both services share the repo root.)
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "apps/web/Dockerfile"
