@@ -727,7 +727,6 @@ import {
   shouldBlockLobbyForActiveQueue,
   syncQueueLobbyGuardState,
 } from '@/lib/queue-lobby-guard';
-import { logNormalModeReturnLobbyCtaState } from '@/lib/lobby-cta-render-debug';
 import {
   buildActiveParentBanForSuccess,
   hasActiveParentTimerFields,
@@ -815,8 +814,6 @@ interface AppContextValue {
   /** True while swapping queued notification cards — blocks lobby flash between overlays. */
   notificationChainTransitioning: boolean;
   setNotificationChainTransitioning: (active: boolean) => void;
-  /** True while chain advance placeholder is shown between notification cards. */
-  chainAdvanceWaiting: boolean;
   /** Clears stale notification overlay/session when queue is empty after success exit. */
   clearNotificationOverlayForEmptyQueueAfterSuccessExit: (source: string) => boolean;
   /** True only when a notification modal is actually rendered (blocks lobby pointer). */
@@ -1028,8 +1025,6 @@ interface AppContextValue {
   closeLobby: () => void;
   openLobby: (source?: string) => void;
   lobbyDeeplinkToast: string | null;
-  /** Bumped after normal-mode deeplink single-card dismiss to restore lobby CTA. */
-  lobbyCtaRestoreEpoch: number;
   /** Full reset of reply deep-link latch (ban id, handoff, incoming reply). */
   clearReplyDeepLinkState: () => void;
   /** Opens InstantBan Who screen for a new ban (increments on each request). */
@@ -1746,7 +1741,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const replyFlowStartedForBanIdRef = useRef<string | null>(null);
   const replyComposeActiveRef = useRef(false);
   const [lobbyIntroPrimedEpoch, setLobbyIntroPrimedEpoch] = useState(0);
-  const [lobbyCtaRestoreEpoch, setLobbyCtaRestoreEpoch] = useState(0);
   const [replyCompletedRouteEpoch, setReplyCompletedRouteEpoch] = useState(0);
   const replyDeeplinkFastOpenedRef = useRef(false);
   const replyDeeplinkFastShellRef = useRef(false);
@@ -6690,75 +6684,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         notificationChainAwaitingUserRef.current = false;
         notificationChainHandoffRef.current = false;
         setNotificationChainTransitioning(false);
-        setChainAdvanceWaiting(false);
-        chainAdvanceExplicitRef.current = false;
-        checkAnswerDismissChainOwnedRef.current = false;
-        syncQueueLobbyGuardState({
-          queueLen: 0,
-          pendingLen: pendingStartupInteractionsRef.current.length,
-          fromQueueResult: false,
-          queueShellShowsResult: false,
-          source: `deeplink-single-card-dismiss:${reason}`,
-        });
-        if (dismissKind === 'incoming' && dismissBanId) {
-          const normalizedIncomingBanId = normalizeId(dismissBanId);
-          pinReplyToBanId(null);
-          setReplyDeepLinkBanId(null);
-          setIncomingReplyBanId(null);
-          setDeepLinkReplyBan(null);
-          setReplyHandoffLock(false);
-          setDeepLinkReplyBooting(false);
-          setReplyDeeplinkFastShell(false);
-          setReplyIncomingDisplayBan(null);
-          replyIncomingDisplayBanRef.current = null;
-          replyDeeplinkPendingBanIdRef.current = null;
-          replyDeeplinkFastShellRef.current = false;
-          replyDeepLinkBanIdRef.current = null;
-          replyDeeplinkFastOpenedRef.current = false;
-          if (normalizedIncomingBanId) {
-            releaseDeepLinkRouteBoot(
-              'deeplink-single-card-dismiss',
-              normalizedIncomingBanId,
-            );
-          }
-        }
-        if (dismissKind === 'check' && dismissBanId) {
-          const normalizedCheckBanId = normalizeId(dismissBanId);
-          if (
-            normalizedCheckBanId &&
-            checkDeepLinkBanIdRef.current &&
-            normalizeId(checkDeepLinkBanIdRef.current) === normalizedCheckBanId
-          ) {
-            checkDeeplinkPendingBanIdRef.current = null;
-            checkDeepLinkBanIdRef.current = null;
-            setCheckDeepLinkBanId(null);
-          }
-          if (normalizedCheckBanId && isDeepLinkRouteBootPending()) {
-            releaseDeepLinkRouteBoot(
-              'deeplink-single-card-dismiss',
-              normalizedCheckBanId,
-            );
-          }
-        }
         setLobbyOpen(true);
         lobbyShownLoggedRef.current = false;
-        setLobbyCtaRestoreEpoch((epoch) => epoch + 1);
         console.log('LOBBY_RESTORE_AFTER_DEEPLINK_CARD', {
           reason,
           banId: dismissBanId,
           lobbyOpen: true,
-        });
-        logNormalModeReturnLobbyCtaState({
-          source: 'deeplink-single-card-dismiss',
-          reason,
-          dismissKind,
-          dismissBanId,
-          lobbyOpen: true,
-          chainAdvanceWaiting: chainAdvanceWaitingRef.current,
-          notificationChainTransitioning:
-            notificationChainTransitioningRef.current,
-          pendingLen: pendingStartupInteractionsRef.current.length,
-          queueGuard: getQueueLobbyGuardSnapshot(),
         });
         logTransitionFromRefs('[DISMISS COMMIT DONE]', {
           source: `${reason}-deeplink-single-card`,
@@ -7070,7 +7001,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         commit();
       }
     },
-    [applyOverlayQueue, pinReplyToBanId, setChainAdvanceWaiting, setCheckAnswerWaitingResultHold, setCheckDeepLinkBanId, setDeepLinkReplyBan, setDeepLinkReplyBooting, setIncomingReplyBanId, setLobbyOpen, setNotificationChainTransitioning, setReplyDeepLinkBanId, setReplyDeeplinkFastShell, setReplyHandoffLock, setReplyIncomingDisplayBan],
+    [applyOverlayQueue, setChainAdvanceWaiting, setChainAdvancePlaceholderKind, setCheckAnswerWaitingResultHold, setLobbyOpen, setNotificationChainTransitioning],
   );
 
   const markSessionBanSendSuccess = useCallback(() => {
@@ -24584,7 +24515,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setArenaOverlayGuardState,
       notificationChainTransitioning,
       setNotificationChainTransitioning,
-      chainAdvanceWaiting,
       clearNotificationOverlayForEmptyQueueAfterSuccessExit,
       notificationOverlayVisible,
       activeOverlayKind: incomingOverlayDisplayKind,
@@ -24718,7 +24648,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       closeLobby,
       openLobby,
       lobbyDeeplinkToast,
-      lobbyCtaRestoreEpoch,
       clearReplyDeepLinkState,
       newBanWhoFlowRequest,
       openNewBanWhoFlow,
@@ -24780,7 +24709,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setArenaOverlayGuardState,
       notificationChainTransitioning,
       setNotificationChainTransitioning,
-      chainAdvanceWaiting,
       clearNotificationOverlayForEmptyQueueAfterSuccessExit,
       notificationOverlayVisible,
       incomingOverlayDisplayKind,
@@ -24908,7 +24836,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       closeLobby,
       openLobby,
       lobbyDeeplinkToast,
-      lobbyCtaRestoreEpoch,
       clearReplyDeepLinkState,
       newBanWhoFlowRequest,
       openNewBanWhoFlow,
