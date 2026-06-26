@@ -325,6 +325,24 @@ export default function HomePage() {
   }, [bansReturnToLobbyLatch, closeSendFlow]);
 
   useEffect(() => {
+    console.log('SHELL_RENDER_BRANCH', {
+      shellMode: shellModeForDebug,
+      lobbyOpen,
+      activeOverlayKind,
+      checkDeepLinkBanId,
+      replyDeepLinkBanId,
+      instantBanOpen,
+    });
+  }, [
+    shellModeForDebug,
+    lobbyOpen,
+    activeOverlayKind,
+    checkDeepLinkBanId,
+    replyDeepLinkBanId,
+    instantBanOpen,
+  ]);
+
+  useEffect(() => {
     if (process.env.NODE_ENV !== 'development') return;
     if (lobbyPrefetch) {
       instantBanDebug('shell-view', { view: 'LobbyPrefetch' });

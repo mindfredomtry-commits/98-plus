@@ -171,24 +171,14 @@ export function NotificationQueueShell({
     });
   }, [kind, incomingCardReady, hasContent, displayBanId]);
 
-  if (!kind) return null;
-
-  if (kind === 'incoming' && !incomingCardReady && !advanceWaiting) {
-    return null;
-  }
-
-  if (kind === 'check' && !checkCardReady && !advanceWaiting) {
-    return null;
-  }
-
-  if (!hasContent && !advanceWaiting) {
-    return null;
-  }
-
   const handoff = sessionActive;
   const shellKind = kind ?? 'incoming';
 
   useLayoutEffect(() => {
+    if (!kind) return;
+    if (kind === 'incoming' && !incomingCardReady && !advanceWaiting) return;
+    if (kind === 'check' && !checkCardReady && !advanceWaiting) return;
+    if (!hasContent && !advanceWaiting) return;
     if (!advanceWaiting && hasContent) return;
     logCheckTransitionPlaceholderDecision({
       source: 'NotificationQueueShell-render',
@@ -280,6 +270,20 @@ export function NotificationQueueShell({
       });
     }
   }, [advanceWaiting, displayBanId, hasContent, hasRenderableChildrenProbe, childProbeRenderable, checkCardReady, incomingCardReady, kind, renderBranch, renderTrace, sessionActive, shellKind]);
+
+  if (!kind) return null;
+
+  if (kind === 'incoming' && !incomingCardReady && !advanceWaiting) {
+    return null;
+  }
+
+  if (kind === 'check' && !checkCardReady && !advanceWaiting) {
+    return null;
+  }
+
+  if (!hasContent && !advanceWaiting) {
+    return null;
+  }
 
   if (advanceWaiting && !hasContent) {
     return (

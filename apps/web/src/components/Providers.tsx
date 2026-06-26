@@ -6623,6 +6623,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         isDeeplinkSingleCardModeActive() &&
         isDeeplinkSingleCardCompleting(dismissKind, dismissBanId)
       ) {
+        console.log('NORMAL_MODE_CARD_ACTION_COMPLETE', {
+          dismissKind,
+          dismissBanId,
+          reason,
+          checkBanId: checkBanRef.current?.id ?? null,
+          incomingBanId: incomingBanRef.current?.id ?? null,
+          lobbyOpen: lobbyOpenRef.current,
+        });
+        console.log('ACTIVE_OVERLAY_KIND_BEFORE_CLEAR', {
+          kind: dismissKind,
+          banId: dismissBanId,
+          checkBanId: checkBanRef.current?.id ?? null,
+          incomingBanId: incomingBanRef.current?.id ?? null,
+          queueLen: overlayQueueRef.current.length,
+        });
         if (remaining.length > 0) {
           pendingStartupInteractionsRef.current = mergeStartupPendingChain(
             pendingStartupInteractionsRef.current,
@@ -6652,6 +6667,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId: dismissBanId,
           remainingLen: remaining.length,
         });
+        console.log('ACTIVE_OVERLAY_KIND_AFTER_CLEAR', {
+          kind: dismissKind,
+          banId: dismissBanId,
+          checkBanId: checkBanRef.current?.id ?? null,
+          incomingBanId: incomingBanRef.current?.id ?? null,
+          queueLen: overlayQueueRef.current.length,
+        });
+        console.log('NORMAL_MODE_NO_DRAIN_RETURN_TO_LOBBY', {
+          reason,
+          banId: dismissBanId,
+          remainingDeferred: remaining.length,
+        });
         overlayActionTsRef.current = null;
         overlayHandoffTsRef.current = null;
         notificationChainAwaitingUserRef.current = false;
@@ -6659,6 +6686,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         setNotificationChainTransitioning(false);
         setLobbyOpen(true);
         lobbyShownLoggedRef.current = false;
+        console.log('LOBBY_RESTORE_AFTER_DEEPLINK_CARD', {
+          reason,
+          banId: dismissBanId,
+          lobbyOpen: true,
+        });
         logTransitionFromRefs('[DISMISS COMMIT DONE]', {
           source: `${reason}-deeplink-single-card`,
         });
