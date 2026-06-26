@@ -3,7 +3,14 @@
 import { Children, isValidElement, useEffect, useLayoutEffect, type ReactNode } from 'react';
 import { ModalShell } from './ModalShell';
 import { APP_NOTIFICATION_CARD_Z_INDEX } from '@/lib/overlay-queue';
-import { logCheckTransitionPlaceholderDecision, logCheckTransitionPlaceholderShown, logChainPlaceholderDecisionDiag, logChainPlaceholderStuckTrace, logNotificationQueueShellRenderTrace } from '@/lib/check-chain-drain-debug';
+import {
+  logChainPlaceholderDecisionDiag,
+  logChainPlaceholderStuckTrace,
+  logCheckTransitionPlaceholderDecision,
+  logNotificationQueueShellRenderTrace,
+  logQueueHeadNotReady,
+  logQueuePlaceholderBlocked,
+} from '@/lib/check-chain-drain-debug';
 
 type OverlayKind = 'incoming' | 'check' | 'result';
 
@@ -43,6 +50,17 @@ function hasRenderableChildren(children: ReactNode): boolean {
   );
 }
 
+function isAdvanceHeadReady(
+  kind: OverlayKind,
+  incomingCardReady: boolean,
+  checkCardReady: boolean,
+  shellContentReady: boolean | undefined,
+): boolean {
+  if (kind === 'incoming') return incomingCardReady;
+  if (kind === 'check') return checkCardReady;
+  return shellContentReady === true;
+}
+
 /** Single persistent modal shell for queued notification handoff. */
 export function NotificationQueueShell({
   kind,
@@ -64,6 +82,10 @@ export function NotificationQueueShell({
   const hasContent =
     shellContentReady !== undefined ? shellContentReady : childProbeRenderable;
 
+  const advanceHeadReady =
+    kind != null &&
+    isAdvanceHeadReady(kind, incomingCardReady, checkCardReady, shellContentReady);
+
   const resolveRenderBranch = (): string => {
     if (!kind) return 'return-null-no-kind';
     if (kind === 'incoming' && !incomingCardReady && !advanceWaiting) {
@@ -72,11 +94,14 @@ export function NotificationQueueShell({
     if (kind === 'check' && !checkCardReady && !advanceWaiting) {
       return 'return-null-check-not-ready';
     }
+    if (advanceWaiting && !advanceHeadReady) {
+      return 'return-null-advance-head-not-ready';
+    }
     if (!hasContent && !advanceWaiting) {
       return 'return-null-no-content-no-advance';
     }
     if (advanceWaiting && !hasContent) {
-      return 'placeholder-advance-wait';
+      return 'return-null-advance-no-content';
     }
     return 'modal-shell-content-wrapper';
   };
@@ -91,6 +116,7 @@ export function NotificationQueueShell({
       hasRenderableChildren: hasRenderableChildrenProbe,
       hasContent,
       advanceWaiting,
+      advanceHeadReady,
       renderBranch,
       sessionActive,
       displayBanId,
@@ -101,6 +127,7 @@ export function NotificationQueueShell({
       ...renderTrace,
     });
   }, [
+    advanceHeadReady,
     advanceWaiting,
     checkCardReady,
     childProbeRenderable,
@@ -178,35 +205,64 @@ export function NotificationQueueShell({
     if (!kind) return;
     if (kind === 'incoming' && !incomingCardReady && !advanceWaiting) return;
     if (kind === 'check' && !checkCardReady && !advanceWaiting) return;
+    if (advanceWaiting && !advanceHeadReady) {
+      logQueueHeadNotReady({
+        source: 'NotificationQueueShell-render',
+        reason: !hasContent ? 'advance-waiting-no-content' : 'advance-waiting-head-not-ready',
+        kind: shellKind,
+        hasContent,
+        advanceHeadReady,
+        displayBanId,
+        queueLen: (renderTrace?.queueLen as number | null | undefined) ?? null,
+        currentHead:
+          (renderTrace?.overlayQueueHeadKind as string | null | undefined) ?? null,
+        nextHead:
+          (renderTrace?.pendingStartupHeadKind as string | null | undefined) ?? null,
+        banId: displayBanId,
+        renderBranch,
+        ...renderTrace,
+      });
+      if (!hasContent) {
+        logQueuePlaceholderBlocked({
+          source: 'NotificationQueueShell-render',
+          reason: 'advance-waiting-no-content',
+          kind: shellKind,
+          queueLen: (renderTrace?.queueLen as number | null | undefined) ?? null,
+          currentHead:
+            (renderTrace?.overlayQueueHeadKind as string | null | undefined) ?? null,
+          nextHead:
+            (renderTrace?.pendingStartupHeadKind as string | null | undefined) ?? null,
+          banId: displayBanId,
+          renderBranch,
+        });
+      }
+      return;
+    }
     if (!hasContent && !advanceWaiting) return;
     if (!advanceWaiting && hasContent) return;
     logCheckTransitionPlaceholderDecision({
       source: 'NotificationQueueShell-render',
       chainAdvanceWaiting: advanceWaiting,
       notificationChainTransitioning: sessionActive,
-      shouldShowPlaceholder: advanceWaiting && !hasContent,
+      shouldShowPlaceholder: false,
       reason:
-        advanceWaiting && !hasContent
-          ? 'advance-waiting-no-content'
-          : advanceWaiting && hasContent
-            ? 'advance-waiting-but-has-content'
-            : 'no-advance-waiting',
+        advanceWaiting && hasContent
+          ? 'advance-waiting-with-ready-content'
+          : 'no-advance-waiting',
       kind: shellKind,
       hasContent,
       displayBanId,
     });
     logChainPlaceholderDecisionDiag({
       source: 'NotificationQueueShell-render',
-      phase:
-        advanceWaiting && !hasContent
-          ? 'placeholder-advance-wait'
-          : renderBranch,
+      phase: renderBranch,
       shellKind,
       effectiveKind:
         (renderTrace?.effectiveNotificationQueueShellKind as string | null | undefined) ??
         kind,
       advanceWaiting,
       hasContent,
+      advanceHeadReady,
       hasRenderableChildren: hasRenderableChildrenProbe,
       queueLen: (renderTrace?.queueLen as number | null | undefined) ?? null,
       pendingLen: (renderTrace?.pendingLen as number | null | undefined) ?? null,
@@ -218,40 +274,13 @@ export function NotificationQueueShell({
         (renderTrace?.pendingStartupHeadKind as string | null | undefined) ?? null,
       pendingHeadBanId:
         (renderTrace?.pendingStartupHeadBanId as string | null | undefined) ?? null,
-      blockReason:
-        advanceWaiting && !hasContent
-          ? 'advance-waiting-no-content'
-          : advanceWaiting && hasContent && !hasRenderableChildrenProbe
-            ? 'advance-waiting-hasContent-but-no-renderable-children'
-            : null,
+      blockReason: advanceWaiting && !advanceHeadReady ? 'advance-head-not-ready' : null,
       renderBranch,
       checkCardReady,
       incomingCardReady,
       chainAdvancePlaceholderKind:
         renderTrace?.chainAdvancePlaceholderKind ?? null,
     });
-    if (advanceWaiting && !hasContent) {
-      logCheckTransitionPlaceholderShown({
-        source: 'NotificationQueueShell-render',
-        chainAdvanceWaiting: advanceWaiting,
-        reason: 'advance-waiting-no-display-ready-content',
-      });
-      logChainPlaceholderStuckTrace({
-        phase: 'placeholder-shown',
-        source: 'NotificationQueueShell-render',
-        blockReason: 'advance-waiting-no-content',
-        chainAdvanceWaiting: advanceWaiting,
-        hasContent,
-        hasRenderableChildren: hasRenderableChildrenProbe,
-        childProbeRenderable,
-        checkCardReady,
-        incomingCardReady,
-        kind: shellKind,
-        displayBanId,
-        renderBranch,
-        ...renderTrace,
-      });
-    }
     if (advanceWaiting && hasContent && !hasRenderableChildrenProbe) {
       logChainPlaceholderStuckTrace({
         phase: 'shell-has-content-no-children',
@@ -269,7 +298,21 @@ export function NotificationQueueShell({
         ...renderTrace,
       });
     }
-  }, [advanceWaiting, displayBanId, hasContent, hasRenderableChildrenProbe, childProbeRenderable, checkCardReady, incomingCardReady, kind, renderBranch, renderTrace, sessionActive, shellKind]);
+  }, [
+    advanceHeadReady,
+    advanceWaiting,
+    checkCardReady,
+    displayBanId,
+    hasContent,
+    hasRenderableChildrenProbe,
+    childProbeRenderable,
+    incomingCardReady,
+    kind,
+    renderBranch,
+    renderTrace,
+    sessionActive,
+    shellKind,
+  ]);
 
   if (!kind) return null;
 
@@ -281,29 +324,16 @@ export function NotificationQueueShell({
     return null;
   }
 
+  if (advanceWaiting && !advanceHeadReady) {
+    return null;
+  }
+
   if (!hasContent && !advanceWaiting) {
     return null;
   }
 
   if (advanceWaiting && !hasContent) {
-    return (
-      <ModalShell
-        open
-        light
-        stable
-        handoff={handoff}
-        sessionHosted={sessionActive}
-        zIndex={APP_NOTIFICATION_CARD_Z_INDEX}
-        closeOnBackdrop={false}
-        ariaLabel={ARIA[shellKind]}
-        onClose={() => {}}
-        cardClassName={CARD_CLASS[shellKind]}
-      >
-        <div className="notification-queue-shell__advance-wait">
-          Следующий запрет…
-        </div>
-      </ModalShell>
-    );
+    return null;
   }
 
   return (

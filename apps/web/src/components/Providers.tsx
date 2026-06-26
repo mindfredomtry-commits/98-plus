@@ -64,11 +64,13 @@ import {
   getActiveOverlayKey,
   hasCheckInQueue,
   hasStaleCheckOverlayForBan,
+  isValidQueuedOverlay,
   overlayBanId,
   overlayQueueKey,
   popOverlayHead,
   pruneOverlayQueue,
   removeOverlaysForBan,
+  sanitizeOverlayQueue,
   type QueuedOverlay,
 } from '@/lib/overlay-queue';
 import { ChallengeErrorBoundary } from './ChallengeErrorBoundary';
@@ -6114,11 +6116,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const applyOverlayQueue = useCallback(
     (next: QueuedOverlay[]) =>
       runWithHeadSwitchPipelineFrame('applyOverlayQueue', () => {
+      const sanitizedNext = sanitizeOverlayQueue(next, 'applyOverlayQueue');
       const prevQueueAtApplyEnter = overlayQueueRef.current;
-      if (next[0]?.kind === 'result') {
+      if (sanitizedNext[0]?.kind === 'result') {
         traceQueueHeadBecameResultIfNeeded(
           prevQueueAtApplyEnter,
-          next,
+          sanitizedNext,
           buildQueueHeadResultTraceContext(
             'applyOverlayQueue',
             'apply-overlay-queue-enter-result-head',
@@ -6126,7 +6129,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
       }
       const prevHead = overlayQueueRef.current[0] ?? null;
-      const nextHead = next[0] ?? null;
+      const nextHead = sanitizedNext[0] ?? null;
       const prevKey = prevHead ? overlayQueueKey(prevHead) : null;
       const nextKey = nextHead ? overlayQueueKey(nextHead) : null;
       if (
@@ -6231,7 +6234,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ) {
         if (isSendComposeFlowActive()) {
           commitOverlayQueueTraced(
-            next,
+            sanitizedNext,
             'applyOverlayQueue',
             'apply-overlay-queue-compose-block-commit',
           );
@@ -6241,7 +6244,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           );
           console.log('[global-overlay-blocked-compose]', {
             active: true,
-            queueLen: next.length,
+            queueLen: sanitizedNext.length,
           });
         }
         return;
@@ -6259,7 +6262,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         console.log('[OVERLAY DISPLAY NEXT]', {
           prevKey,
           nextKey,
-          queueLength: next.length,
+          queueLength: sanitizedNext.length,
           nextKind: nextHead?.kind ?? null,
         });
         if (nextHead?.kind === 'incoming') {
@@ -6279,7 +6282,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         console.log('[OVERLAY QUEUE NEXT]', {
           prevKey,
           nextKey,
-          queueLength: next.length,
+          queueLength: sanitizedNext.length,
           nextKind: nextHead?.kind ?? null,
         });
         if (nextKey) {
@@ -6296,18 +6299,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       traceQueueHeadBecameResultIfNeeded(
         prevQueueAtApplyEnter,
-        next,
+        sanitizedNext,
         buildQueueHeadResultTraceContext(
           'applyOverlayQueue',
           'apply-overlay-queue-commit',
         ),
       );
-      overlayQueueRef.current = next;
+      overlayQueueRef.current = sanitizedNext;
       if (!preserveAtomicOverboardResultDuringSync('applyOverlayQueue')) {
-        syncDisplayFromQueue(next);
+        syncDisplayFromQueue(sanitizedNext);
       }
       chainAdvanceExplicitRef.current = false;
-      setOverlayQueue(next);
+      setOverlayQueue(sanitizedNext);
       }),
     [syncDisplayFromQueue, commitOverlayQueueTraced],
   );
@@ -7069,6 +7072,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const live = isOverlayLive(opts);
       noteNotificationEnqueueSource(opts?.source ?? 'enqueueNotification');
       const normalizedItem = normalizeQueuedOverlay(item);
+      if (!isValidQueuedOverlay(normalizedItem)) {
+        return;
+      }
       const banId =
         normalizedItem.kind === 'result'
           ? normalizeId(normalizedItem.result.id)
@@ -7297,6 +7303,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const { queue: next, changed, action } = enqueueWithActiveLock(
         prev,
         normalizedItem,
+        { source: opts?.source ?? 'enqueueNotification' },
       );
 
       if (!changed) {
@@ -22658,7 +22665,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return 'check' as const;
     }
     if (chainAdvanceWaiting && chainAdvancePlaceholderKind) {
-      return chainAdvancePlaceholderKind;
+      const queueHead =
+        overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
+      if (!queueHead) return null;
+      return queueHead.kind;
     }
     if (!incomingNotificationShellKind) return null;
     if (
@@ -22676,6 +22686,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     displayResult,
     heldUserCardOverlay,
     incomingNotificationShellKind,
+    overlayQueue,
     replyIncomingDirectPath,
   ]);
 
@@ -23569,6 +23580,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     checkBan?.id?.trim() || checkBanRef.current?.id?.trim() || '';
   const checkShellKindWithoutBan =
     notificationQueueShellDisplayKind === 'check' && !checkShellBanId;
+  const overlayQueueHeadForShell =
+    overlayQueue[0] ?? overlayQueueRef.current[0] ?? null;
+  const notificationQueueShellCheckCardReady =
+    Boolean(checkShellBanId) &&
+    (!chainAdvanceWaiting ||
+      (overlayQueueHeadForShell?.kind === 'check' &&
+        normalizeId(overlayQueueHeadForShell.ban.id) ===
+          normalizeId(checkShellBanId)));
+  const notificationQueueShellIncomingCardReady =
+    (incomingCardFullyReady || !!stableIncomingOverlayBan?.id) &&
+    (!chainAdvanceWaiting ||
+      (overlayQueueHeadForShell?.kind === 'incoming' &&
+        normalizeId(
+          overlayQueueHeadForShell.ban.id,
+        ) ===
+          normalizeId(
+            stableIncomingOverlayBan?.id ??
+              incomingCardDisplayBan?.id ??
+              '',
+          )));
   const notificationQueueShellAdvanceWaiting = queueShellShowsResult
     ? false
     : chainAdvanceWaiting ||
@@ -25121,12 +25152,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 incomingCardReady={
                   queueShellShowsResult
                     ? undefined
-                    : incomingCardFullyReady || !!stableIncomingOverlayBan?.id
+                    : notificationQueueShellIncomingCardReady
                 }
                 checkCardReady={
                   queueShellShowsResult
                     ? false
-                    : Boolean(checkShellBanId)
+                    : notificationQueueShellCheckCardReady
                 }
                 sessionActive={notificationHostSessionBackdrop}
                 advanceWaiting={notificationQueueShellAdvanceWaiting}
@@ -25165,28 +25196,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     <CheckOverlay contentOnly />
                   </ChallengeErrorBoundary>
                 ) : notificationQueueShellDisplayKind === 'incoming' &&
-                  (incomingCardDisplayBan ||
-                    stableIncomingOverlayBan ||
-                    incomingShellHydrating) ? (
-                  incomingCardDisplayBan || stableIncomingOverlayBan ? (
-                    <ChallengeErrorBoundary
-                      name="incoming"
-                      onRecover={() => dismissIncoming()}
-                    >
-                      <IncomingBanOverlay
-                        contentOnly
-                        ban={
-                          stableIncomingOverlayBan ??
-                          incomingCardDisplayBan ??
-                          undefined
-                        }
-                      />
-                    </ChallengeErrorBoundary>
-                  ) : (
-                    <div className="notification-queue-shell__advance-wait">
-                      Загрузка запрета…
-                    </div>
-                  )
+                  (incomingCardDisplayBan || stableIncomingOverlayBan) ? (
+                  <ChallengeErrorBoundary
+                    name="incoming"
+                    onRecover={() => dismissIncoming()}
+                  >
+                    <IncomingBanOverlay
+                      contentOnly
+                      ban={
+                        stableIncomingOverlayBan ??
+                        incomingCardDisplayBan ??
+                        undefined
+                      }
+                    />
+                  </ChallengeErrorBoundary>
                 ) : null}
               </NotificationQueueShell>
             </GlobalOverlayHost>

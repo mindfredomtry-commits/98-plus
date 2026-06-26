@@ -2,12 +2,91 @@ import type { BanInteraction, BanResult } from '@98plus/shared';
 import { shouldShowBanResult } from '@/lib/ban-result-flow';
 import { shouldShowCheckOverlay } from '@/lib/check-overlay';
 import { shouldShowIncomingBanModal } from '@/lib/incoming-challenge';
+import { logEmptyOverlayItemRejected } from '@/lib/check-chain-drain-debug';
 import { normalizeId } from '@/lib/normalize-json';
 
 export type QueuedOverlay =
   | { kind: 'incoming'; ban: BanInteraction }
   | { kind: 'check'; ban: BanInteraction }
   | { kind: 'result'; result: BanResult };
+
+const VALID_OVERLAY_KINDS = new Set<QueuedOverlay['kind']>([
+  'incoming',
+  'check',
+  'result',
+]);
+
+export type OverlayQueueRejectContext = {
+  source: string;
+  queueLen?: number;
+  currentHead?: string | null;
+  nextHead?: string | null;
+  reason?: string;
+  banId?: string | null;
+};
+
+function overlayItemBanIdFromUnknown(item: unknown): string | null {
+  if (!item || typeof item !== 'object') return null;
+  const row = item as { kind?: unknown; ban?: { id?: unknown }; result?: { id?: unknown } };
+  if (row.kind === 'result' && row.result) {
+    const id = normalizeId(row.result.id);
+    return id || null;
+  }
+  if (row.ban) {
+    const id = normalizeId(row.ban.id);
+    return id || null;
+  }
+  return null;
+}
+
+function invalidOverlayRejectReason(item: unknown): string {
+  if (item == null) return 'null-item';
+  if (typeof item !== 'object') return 'non-object-item';
+  const kind = (item as { kind?: unknown }).kind;
+  if (typeof kind !== 'string' || !VALID_OVERLAY_KINDS.has(kind as QueuedOverlay['kind'])) {
+    return typeof kind === 'string' ? `invalid-kind:${kind}` : 'missing-kind';
+  }
+  if (kind === 'result') {
+    const result = (item as { result?: unknown }).result;
+    if (!result || typeof result !== 'object') return 'result-missing-payload';
+    const id = normalizeId((result as { id?: unknown }).id);
+    return id ? 'valid' : 'result-missing-id';
+  }
+  const ban = (item as { ban?: unknown }).ban;
+  if (!ban || typeof ban !== 'object') return `${kind}-missing-ban`;
+  const id = normalizeId((ban as { id?: unknown }).id);
+  return id ? 'valid' : `${kind}-missing-ban-id`;
+}
+
+/** Reject unknown/empty overlay items — only real notification card types are allowed. */
+export function isValidQueuedOverlay(item: unknown): item is QueuedOverlay {
+  return invalidOverlayRejectReason(item) === 'valid';
+}
+
+export function sanitizeOverlayQueue(
+  queue: QueuedOverlay[],
+  source: string,
+): QueuedOverlay[] {
+  const valid: QueuedOverlay[] = [];
+  for (let index = 0; index < queue.length; index += 1) {
+    const item = queue[index];
+    if (isValidQueuedOverlay(item)) {
+      valid.push(item);
+      continue;
+    }
+    const nextValid = queue.slice(index + 1).find((candidate) => isValidQueuedOverlay(candidate));
+    logEmptyOverlayItemRejected({
+      source,
+      queueLen: queue.length,
+      currentHead: valid[0] ? overlayQueueKey(valid[0]) : null,
+      nextHead: nextValid ? overlayQueueKey(nextValid) : null,
+      reason: invalidOverlayRejectReason(item),
+      banId: overlayItemBanIdFromUnknown(item),
+      index,
+    });
+  }
+  return valid;
+}
 
 export const APP_NOTIFICATION_BACKDROP_Z_INDEX = 100;
 /** Cards must sit above backdrop and any stale check-direct layers. */
@@ -66,7 +145,19 @@ export type EnqueueOverlayAction =
 export function enqueueWithActiveLock(
   queue: QueuedOverlay[],
   item: QueuedOverlay,
+  rejectCtx?: Pick<OverlayQueueRejectContext, 'source'>,
 ): { queue: QueuedOverlay[]; changed: boolean; action: EnqueueOverlayAction } {
+  if (!isValidQueuedOverlay(item)) {
+    logEmptyOverlayItemRejected({
+      source: rejectCtx?.source ?? 'enqueueWithActiveLock',
+      queueLen: queue.length,
+      currentHead: queue[0] ? overlayQueueKey(queue[0]) : null,
+      nextHead: null,
+      reason: invalidOverlayRejectReason(item),
+      banId: overlayItemBanIdFromUnknown(item),
+    });
+    return { queue, changed: false, action: 'dedup' };
+  }
   const newKey = overlayQueueKey(item);
   const activeKey = getActiveOverlayKey(queue);
   const existingIdx = queue.findIndex((q) => overlayQueueKey(q) === newKey);
@@ -108,7 +199,19 @@ export function overlayBanId(item: QueuedOverlay): string {
 export function enqueueOverlay(
   queue: QueuedOverlay[],
   item: QueuedOverlay,
+  rejectCtx?: Pick<OverlayQueueRejectContext, 'source'>,
 ): QueuedOverlay[] {
+  if (!isValidQueuedOverlay(item)) {
+    logEmptyOverlayItemRejected({
+      source: rejectCtx?.source ?? 'enqueueOverlay',
+      queueLen: queue.length,
+      currentHead: queue[0] ? overlayQueueKey(queue[0]) : null,
+      nextHead: null,
+      reason: invalidOverlayRejectReason(item),
+      banId: overlayItemBanIdFromUnknown(item),
+    });
+    return queue;
+  }
   if (queue.some((q) => overlayQueueKey(q) === overlayQueueKey(item))) {
     return queue;
   }
@@ -129,7 +232,19 @@ export function enqueueOverlay(
 export function prependOverlay(
   queue: QueuedOverlay[],
   item: QueuedOverlay,
+  rejectCtx?: Pick<OverlayQueueRejectContext, 'source'>,
 ): QueuedOverlay[] {
+  if (!isValidQueuedOverlay(item)) {
+    logEmptyOverlayItemRejected({
+      source: rejectCtx?.source ?? 'prependOverlay',
+      queueLen: queue.length,
+      currentHead: queue[0] ? overlayQueueKey(queue[0]) : null,
+      nextHead: null,
+      reason: invalidOverlayRejectReason(item),
+      banId: overlayItemBanIdFromUnknown(item),
+    });
+    return queue;
+  }
   if (queue.some((q) => overlayQueueKey(q) === overlayQueueKey(item))) {
     return queue;
   }
@@ -253,9 +368,9 @@ export function mergeOverlayQueues(
   display: QueuedOverlay[],
   pending: QueuedOverlay[],
 ): QueuedOverlay[] {
-  let next = display;
-  for (const item of pending) {
-    next = enqueueWithActiveLock(next, item).queue;
+  let next = sanitizeOverlayQueue(display, 'mergeOverlayQueues-display');
+  for (const item of sanitizeOverlayQueue(pending, 'mergeOverlayQueues-pending')) {
+    next = enqueueWithActiveLock(next, item, { source: 'mergeOverlayQueues' }).queue;
   }
   return next;
 }

@@ -320,6 +320,24 @@ export function logChainPlaceholderDecisionDiag(
   window.__debug98log?.('[CHAIN PLACEHOLDER DECISION DIAG]', data);
 }
 
+export function logQueuePlaceholderBlocked(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[QUEUE PLACEHOLDER BLOCKED]', data);
+}
+
+export function logEmptyOverlayItemRejected(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[EMPTY OVERLAY ITEM REJECTED]', data);
+}
+
+export function logQueueHeadNotReady(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[QUEUE HEAD NOT READY]', data);
+}
+
 /** v32 — prefetch rejected-only: clear stale chainAdvanceWaiting (no mountable card). */
 export function logChainAdvanceWaitingClearedRejectedOnly(
   data: Record<string, unknown>,
