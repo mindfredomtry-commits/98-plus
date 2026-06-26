@@ -1,7 +1,6 @@
-# @98plus/api — Railway service Root Directory must be repo root ("." / blank).
-# Installs devDependencies (prisma, typescript) during build, then builds shared + api.
+# @98plus/web — Railway service at repo root ("." / blank).
+# Builds via Dockerfile; Next standalone CMD is defined in apps/web/Dockerfile.
+# Do NOT set build:api / start:api here — those are for @98plus/api only.
 [build]
-buildCommand = "npm ci --include=dev && npm run build:api"
-
-[deploy]
-startCommand = "npm run start:api"
+builder = "DOCKERFILE"
+dockerfilePath = "apps/web/Dockerfile"
