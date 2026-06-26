@@ -1,4 +1,4 @@
-import { Telegraf } from 'telegraf';
+import { Telegraf, type Context } from 'telegraf';
 import { Markup } from 'telegraf';
 import { prisma } from '../lib/prisma';
 import {
@@ -7,7 +7,7 @@ import {
   getInvitePreview,
 } from '../services/invite.service';
 import { botWebAppButtonUrl, botWebAppPlainOpenUrl } from '../lib/deeplink';
-import { OPEN_BAN_WEBAPP_BUTTON_LABEL } from '@98plus/shared';
+import { OPEN_BAN_WEBAPP_BUTTON_LABEL, WELCOME_WEBAPP_BUTTON_LABEL } from '@98plus/shared';
 import { sendBotStartInviteChallenge, sendViralInviteBootNotification } from './notifications';
 import { findUserByUsername } from '../services/ban.service';
 import { resolveViralInviteBootContext } from '../services/invite-deeplink.service';
@@ -22,6 +22,29 @@ function webAppUrl() {
   return (
     process.env.WEBAPP_URL ?? process.env.CORS_ORIGIN ?? 'http://localhost:3000'
   );
+}
+
+/** Last message on /start — refreshes chat-list preview web_app button URL. */
+async function sendStartWelcomePreviewMessage(
+  ctx: Context,
+  meta: { payload?: string | null },
+): Promise<void> {
+  const defaultAppUrl = botWebAppPlainOpenUrl({
+    source: 'botStartWelcomePreview',
+    buttonLabel: WELCOME_WEBAPP_BUTTON_LABEL,
+  });
+  await ctx.reply(
+    '🚫 98+\n\nКто-то мог отправить тебе запрет.\nОткрой, чтобы увидеть вызовы и ответить.',
+    Markup.inlineKeyboard([
+      Markup.button.webApp(WELCOME_WEBAPP_BUTTON_LABEL, defaultAppUrl),
+    ]),
+  );
+  console.log('[98+] bot start welcome preview sent', {
+    telegramId: ctx.from?.id ?? null,
+    payload: meta.payload ?? null,
+    webAppUrl: defaultAppUrl,
+    buttonLabel: WELCOME_WEBAPP_BUTTON_LABEL,
+  });
 }
 
 export function startBot(): Telegraf | null {
@@ -179,21 +202,9 @@ export function startBot(): Telegraf | null {
 
       await claimInvitesForUser(user.id, user.username);
 
-      const defaultAppUrl = botWebAppPlainOpenUrl({
-        source: 'botStartDefault',
-        buttonLabel: OPEN_BAN_WEBAPP_BUTTON_LABEL,
-      });
-      await ctx.reply(
-        '🚫 98+\n\nКто-то мог отправить тебе запрет.\nОткрой, чтобы увидеть вызовы и ответить.',
-        Markup.inlineKeyboard([
-          Markup.button.webApp(OPEN_BAN_WEBAPP_BUTTON_LABEL, defaultAppUrl),
-        ]),
-      );
-      console.log('[98+] bot start webapp button sent', {
-        telegramId: tgUser.id,
-        payload: payload || null,
-        default: true,
-      });
+      if (!payload) {
+        await sendStartWelcomePreviewMessage(ctx, { payload: null });
+      }
     } catch (e) {
       console.error('[98+] bot start failed', {
         telegramId: tgUser.id,
