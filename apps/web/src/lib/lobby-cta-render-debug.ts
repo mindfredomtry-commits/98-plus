@@ -17,6 +17,7 @@ export type LobbyCtaGuardInputs = {
   successExitDraining: boolean;
   postSuccessHandoffBlocking: boolean;
   notificationChainTransitioning: boolean;
+  queueClaimsNotificationScreen?: boolean;
   replyLobbyBlocked: boolean;
   bansReturnToLobbyLatch: boolean;
   deepLinkRouteBootPending: boolean;
@@ -59,6 +60,9 @@ export function computeLobbyCtaGuardDecision(
   }
   if (input.notificationChainTransitioning) {
     blockers.push('notificationChainTransitioning');
+  }
+  if (input.queueClaimsNotificationScreen) {
+    blockers.push('queueClaimsNotificationScreen');
   }
   if (input.replyLobbyBlocked && !input.bansReturnToLobbyLatch) {
     blockers.push('replyLobbyBlocked');
@@ -106,6 +110,70 @@ export function logLobbyCtaRenderCheck(
   data: Record<string, unknown>,
 ): void {
   emit('[LOBBY CTA RENDER CHECK]', data);
+}
+
+export function logLobbyCtaRenderDecision(
+  data: Record<string, unknown>,
+): void {
+  emit('LOBBY_CTA_RENDER_DECISION', data);
+}
+
+export function logLobbyCtaBlockedReason(
+  data: Record<string, unknown>,
+): void {
+  emit('LOBBY_CTA_BLOCKED_REASON', data);
+}
+
+export function logNormalModeReturnLobbyCtaState(
+  data: Record<string, unknown>,
+): void {
+  emit('NORMAL_MODE_RETURN_LOBBY_CTA_STATE', data);
+}
+
+export function logDeeplinkCardDismissCtaRestore(
+  data: Record<string, unknown>,
+): void {
+  emit('DEEPLINK_CARD_DISMISS_CTA_RESTORE', data);
+}
+
+export type CtaRestoreGuardInputs = {
+  shellMode: string;
+  hasOverlay: boolean;
+  hasNotificationQueue: boolean;
+  chainAdvanceWaiting: boolean;
+};
+
+export type CtaRestoreGuardDecision = {
+  decision: 'restore' | 'skip';
+  skipReasons: string[];
+};
+
+export function evaluateCtaRestoreGuard(
+  input: CtaRestoreGuardInputs,
+): CtaRestoreGuardDecision {
+  const skipReasons: string[] = [];
+  if (input.shellMode !== 'arena-lobby') {
+    skipReasons.push(`shellMode:${input.shellMode}`);
+  }
+  if (input.hasOverlay) {
+    skipReasons.push('hasOverlay');
+  }
+  if (input.hasNotificationQueue) {
+    skipReasons.push('hasNotificationQueue');
+  }
+  if (input.chainAdvanceWaiting) {
+    skipReasons.push('chainAdvanceWaiting');
+  }
+  return {
+    decision: skipReasons.length === 0 ? 'restore' : 'skip',
+    skipReasons,
+  };
+}
+
+export function logCtaRestoreGuard(
+  data: CtaRestoreGuardInputs & CtaRestoreGuardDecision,
+): void {
+  emit('CTA_RESTORE_GUARD', data);
 }
 
 export function logLobbyCtaReturnNull(

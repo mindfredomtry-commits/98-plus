@@ -108,6 +108,13 @@ import {
 import {
   logLobbyCtaRenderCheck,
   logLobbyCtaReturnNull,
+  computeLobbyCtaGuardDecision,
+  logLobbyCtaRenderDecision,
+  logLobbyCtaBlockedReason,
+  logNormalModeReturnLobbyCtaState,
+  logDeeplinkCardDismissCtaRestore,
+  evaluateCtaRestoreGuard,
+  logCtaRestoreGuard,
 } from '@/lib/lobby-cta-render-debug';
 import { patchLobbyCtaDebugSnapshot } from '@/lib/lobby-cta-snapshot-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
@@ -476,6 +483,7 @@ export function InstantBanFlow({
     lobbyBansNeedAttention,
     notificationOverlayVisible,
     notificationChainTransitioning,
+    chainAdvanceWaiting,
     setNotificationChainTransitioning,
     clearNotificationOverlayForEmptyQueueAfterSuccessExit,
     activeOverlayKind,
@@ -500,6 +508,7 @@ export function InstantBanFlow({
     resultReplyHandoffLock,
     notifyResultReplyWhatVisible,
     openLobby,
+    lobbyCtaRestoreEpoch,
     clearReplyDeepLinkState,
     getConfirmHoldDebugSnapshot,
     getConfirmOrbQueueDebugSnapshot,
@@ -616,6 +625,7 @@ export function InstantBanFlow({
   const [screenTransition, setScreenTransition] = useState<ScreenTransition>(null);
   const [crossScreenProgress, setCrossScreenProgress] = useState(0);
   const lobbyCtaBootSpringRef = useRef(false);
+  const lobbyCtaRestoreHandledEpochRef = useRef(0);
   const prevSendStartedRef = useRef(sendStarted);
   const skipActiveDeepLinkEntryRef = useRef(false);
   const activeBanRepeatComposeRef = useRef(false);
@@ -1152,6 +1162,129 @@ export function InstantBanFlow({
     lobbyBootIntroPrimed,
   ]);
 
+  useEffect(() => {
+    if (lobbyCtaRestoreEpoch <= lobbyCtaRestoreHandledEpochRef.current) return;
+
+    const shellMode = sendStarted
+      ? 'arena-send'
+      : lobbyOpen
+        ? 'arena-lobby'
+        : 'arena-deep-link';
+    const hasNotificationQueue =
+      overlayQueueLength > 0 ||
+      pendingStartupInteractions ||
+      shouldBlockLobbyForActiveQueue();
+    const restoreGuard = evaluateCtaRestoreGuard({
+      shellMode,
+      hasOverlay: notificationOverlayActive,
+      hasNotificationQueue,
+      chainAdvanceWaiting,
+    });
+    logCtaRestoreGuard({
+      shellMode,
+      hasOverlay: notificationOverlayActive,
+      hasNotificationQueue,
+      chainAdvanceWaiting,
+      ...restoreGuard,
+    });
+    if (restoreGuard.decision === 'skip') {
+      return;
+    }
+
+    if (!lobbyOpen || !lobbyBootIntroPrimed) return;
+    if (phase !== 'idle' || sendStarted) return;
+
+    const queueClaimsNotificationScreenGuard =
+      overlayQueueLength > 0 || shouldBlockLobbyForActiveQueue();
+    const guardInputs = {
+      lobbyBootIntroPrimed,
+      replyIncomingDeeplinkPending,
+      checkDeeplinkDirectPending,
+      successToActiveLobbyBlocked,
+      overlayHandoffLobbySuppressed,
+      successExitDraining,
+      postSuccessHandoffBlocking,
+      notificationChainTransitioning,
+      queueClaimsNotificationScreen: queueClaimsNotificationScreenGuard,
+      replyLobbyBlocked,
+      bansReturnToLobbyLatch,
+      deepLinkRouteBootPending,
+      deepLinkReplyBooting,
+      incomingReplyBanId,
+      incomingGateActive,
+      ctaState,
+      effectiveBansOverlayOpen,
+      notificationQueueUiLock,
+    };
+    const decision = computeLobbyCtaGuardDecision(guardInputs);
+
+    logNormalModeReturnLobbyCtaState({
+      source: 'InstantBanFlow-lobbyCtaRestoreEpoch',
+      lobbyCtaRestoreEpoch,
+      lobbyOpen,
+      ctaState,
+      showLobbyCta,
+      decision,
+      queueClaimsNotificationScreen: queueClaimsNotificationScreenGuard,
+      ...getQueueLobbyGuardSnapshot(),
+    });
+    logLobbyCtaRenderDecision({
+      ...decision,
+      source: 'InstantBanFlow-lobbyCtaRestoreEpoch',
+      lobbyCtaRestoreEpoch,
+      ctaState,
+    });
+    if (decision.blockers.length > 0) {
+      logLobbyCtaBlockedReason({
+        primaryBlocker: decision.primaryBlocker,
+        blockers: decision.blockers,
+        source: 'InstantBanFlow-lobbyCtaRestoreEpoch',
+        lobbyCtaRestoreEpoch,
+        ctaState,
+      });
+      return;
+    }
+    if (ctaState !== 'hidden') {
+      lobbyCtaRestoreHandledEpochRef.current = lobbyCtaRestoreEpoch;
+      return;
+    }
+    lobbyCtaRestoreHandledEpochRef.current = lobbyCtaRestoreEpoch;
+    beginCtaSpringIn();
+    logDeeplinkCardDismissCtaRestore({
+      via: 'lobbyCtaRestoreEpoch',
+      epoch: lobbyCtaRestoreEpoch,
+      ctaStateBefore: 'hidden',
+    });
+  }, [
+    bansReturnToLobbyLatch,
+    beginCtaSpringIn,
+    chainAdvanceWaiting,
+    checkDeeplinkDirectPending,
+    ctaState,
+    deepLinkReplyBooting,
+    deepLinkRouteBootPending,
+    effectiveBansOverlayOpen,
+    incomingGateActive,
+    incomingReplyBanId,
+    lobbyBootIntroPrimed,
+    lobbyCtaRestoreEpoch,
+    lobbyOpen,
+    notificationChainTransitioning,
+    notificationOverlayActive,
+    notificationQueueUiLock,
+    overlayHandoffLobbySuppressed,
+    overlayQueueLength,
+    pendingStartupInteractions,
+    phase,
+    postSuccessHandoffBlocking,
+    replyIncomingDeeplinkPending,
+    replyLobbyBlocked,
+    sendStarted,
+    showLobbyCta,
+    successExitDraining,
+    successToActiveLobbyBlocked,
+  ]);
+
   /** Only enter who-step when send flow opens — not when user dismisses back to lobby idle. */
   useEffect(() => {
     if (bansCtaQueueSuppress) return;
@@ -1454,6 +1587,43 @@ export function InstantBanFlow({
     const sig = JSON.stringify(payload);
     if (sig === lobbyCtaDiagSigRef.current) return;
     lobbyCtaDiagSigRef.current = sig;
+
+    const queueClaimsNotificationScreenGuard =
+      overlayQueueLength > 0 || shouldBlockLobbyForActiveQueue();
+    const guardDecision = computeLobbyCtaGuardDecision({
+      lobbyBootIntroPrimed,
+      replyIncomingDeeplinkPending,
+      checkDeeplinkDirectPending,
+      successToActiveLobbyBlocked,
+      overlayHandoffLobbySuppressed,
+      successExitDraining,
+      postSuccessHandoffBlocking,
+      notificationChainTransitioning,
+      queueClaimsNotificationScreen: queueClaimsNotificationScreenGuard,
+      replyLobbyBlocked,
+      bansReturnToLobbyLatch,
+      deepLinkRouteBootPending,
+      deepLinkReplyBooting,
+      incomingReplyBanId,
+      incomingGateActive,
+      ctaState,
+      effectiveBansOverlayOpen,
+      notificationQueueUiLock,
+    });
+    logLobbyCtaRenderDecision({
+      ...guardDecision,
+      source: 'InstantBanFlow-lobbyCta',
+      lobbyOpen,
+      ctaState,
+    });
+    if (!guardDecision.showLobbyCta && lobbyOpen && phase === 'idle') {
+      logLobbyCtaBlockedReason({
+        primaryBlocker: guardDecision.primaryBlocker,
+        blockers: guardDecision.blockers,
+        source: 'InstantBanFlow-lobbyCta',
+        ctaState,
+      });
+    }
 
     logLobbyCtaRenderCheck(payload);
 
