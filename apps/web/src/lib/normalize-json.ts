@@ -1,5 +1,5 @@
 import type { BanInteraction, BanResult, UserPublic } from '@98plus/shared';
-import { normalizeNotificationMode } from '@98plus/shared';
+import { normalizeBanTone, normalizeNotificationMode } from '@98plus/shared';
 
 /** Coerce ban/user ids to stable string keys for Sets, localStorage, and JSON. */
 export function normalizeId(value: unknown): string {
@@ -31,6 +31,7 @@ export function normalizeBanInteraction(ban: BanInteraction): BanInteraction {
     ...ban,
     id: normalizeId(ban.id),
     threadId: normalizeId(ban.threadId),
+    tone: ban.tone === undefined ? ban.tone : normalizeBanTone(ban.tone),
     sender: normalizeUserPublic(ban.sender),
     receiver: normalizeUserPublic(ban.receiver),
   };
@@ -41,6 +42,7 @@ export function normalizeBanResult(result: BanResult): BanResult {
     ...result,
     id: normalizeId(result.id),
     viewerId: result.viewerId ? normalizeId(result.viewerId) : null,
+    tone: result.tone === undefined ? result.tone : normalizeBanTone(result.tone),
     sender: normalizeUserPublic(result.sender),
     receiver: normalizeUserPublic(result.receiver),
     opponent: normalizeUserPublic(result.opponent),

@@ -1,4 +1,5 @@
 import type { AuraLevel } from './energy';
+import type { BanTone } from './ban-tone';
 import type { NotificationMode } from './notification-mode';
 import type { BanDurationMinutes } from './constants';
 import type { InteractionOutcome } from './result';
@@ -69,6 +70,8 @@ export interface BanInteraction {
   economyMode?: 'normal' | 'fun';
   /** Bans between pair in rolling day window (for optimistic UI). */
   pairBanCount24h?: number | null;
+  /** Optional delivery tone/character — not used in UI yet. */
+  tone?: BanTone | null;
 }
 
 export interface CheckState {

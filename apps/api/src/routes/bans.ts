@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import {
   ANALYTICS_EVENTS,
+  BAN_TONES,
   DAILY_BAN_LIMIT_ERROR_CODE,
   INSUFFICIENT_ENERGY_ERROR,
   isValidDurationMinutes,
@@ -80,6 +81,7 @@ const sendSchema = z.object({
   receiverTelegramId: z.string().optional(),
   receiverUserId: z.string().optional(),
   receiverUsername: z.string().optional(),
+  tone: z.enum(BAN_TONES).optional().nullable(),
 });
 
 bansRouter.get('/active', async (req: AuthRequest, res) => {
@@ -288,6 +290,7 @@ bansRouter.post('/send', async (req: AuthRequest, res) => {
         ? BigInt(receiverTelegramId)
         : undefined,
       receiverUsername,
+      tone: parsed.data.tone ?? null,
     });
     console.log(`[98+] /bans/send in ${Date.now() - t0}ms`);
     res.json(result);

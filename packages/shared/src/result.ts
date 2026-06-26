@@ -1,5 +1,6 @@
 import type { CheckOutcome } from './energy';
 import { isPairDailyFreeMode } from './energy';
+import type { BanTone } from './ban-tone';
 import type { UserPublic } from './types';
 import { formatSenderDisplayName } from './challenge';
 
@@ -40,6 +41,8 @@ export interface BanResult {
   deepLink: string;
   shareLink: string;
   inviteOpponentLink: string;
+  /** Optional delivery tone/character — not used in UI yet. */
+  tone?: BanTone | null;
 }
 
 /** Fun mode from incoming ban payload — never infer from energy delta alone. */

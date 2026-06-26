@@ -1,4 +1,5 @@
 import type { BanInteraction } from '@98plus/shared';
+import { normalizeBanTone } from '@98plus/shared';
 import type { Ban, User } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { isDevAuthEnabled } from '../lib/dev-auth';
@@ -154,5 +155,6 @@ export function buildDevBanInteractionFallback(
     threadId: ban.threadId,
     remainingMs: ban.durationMinutes * 60_000,
     serverNow: new Date().toISOString(),
+    tone: normalizeBanTone(ban.tone),
   };
 }

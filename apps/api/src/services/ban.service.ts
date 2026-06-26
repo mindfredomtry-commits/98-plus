@@ -8,6 +8,7 @@ import {
   CHECK_TIMEOUT_MINUTES,
   COOLDOWN_CHECK_SECONDS,
   INCOMING_PENDING_MAX_AGE_MS,
+  normalizeBanTone,
 } from '@98plus/shared';
 import type { BanInteraction, CheckState, BanResult } from '@98plus/shared';
 import { prisma } from '../lib/prisma';
@@ -94,6 +95,7 @@ type BanWithUsers = {
   status: BanStatus;
   durationMinutes: number;
   threadId: string;
+  tone: string | null;
   createdAt: Date;
   expiresAt: Date | null;
   checkDueAt: Date | null;
@@ -134,6 +136,7 @@ function mapBanRecordToInteraction(
     remainingMs: inProgress ? remainingMs : undefined,
     serverNow: new Date().toISOString(),
     outcome: mapPrismaOutcomeToShared(ban.outcome),
+    tone: normalizeBanTone(ban.tone),
   };
 }
 
@@ -381,6 +384,7 @@ export async function sendBan(params: {
   receiverUsername?: string;
   text: string;
   durationMinutes: number;
+  tone?: string | null;
 }) {
   const { senderId, text, durationMinutes } = params;
   const devMode = await isDevModeUser(senderId);
@@ -473,6 +477,7 @@ export async function sendBan(params: {
       receiverId: receiver.id,
       text: text.trim(),
       durationMinutes,
+      tone: normalizeBanTone(params.tone),
       status: 'PENDING',
       expiresAt: null,
       checkDueAt: null,

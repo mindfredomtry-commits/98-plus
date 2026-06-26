@@ -121,6 +121,7 @@ model Ban {
   inviteId            String?             @unique
   text                String
   durationMinutes     Int                 @default(30)
+  tone                String?
   status              BanStatus           @default(PENDING)
   parentBanId         String?
   parentBan           Ban?                @relation("CounterBan", fields: [parentBanId], references: [id])

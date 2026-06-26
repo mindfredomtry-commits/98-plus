@@ -4,6 +4,7 @@ import {
 } from '@prisma/client';
 import {
   buildResultPresentation,
+  normalizeBanTone,
   type BanCheckConfirmations,
   type BanResult,
   type CheckOutcome,
@@ -140,6 +141,7 @@ export function mapBanRowToResult(
       `${copy.headline}\n«${ban.text}»\n\n98+`,
     ),
     inviteOpponentLink,
+    tone: normalizeBanTone(ban.tone),
   };
 }
 
