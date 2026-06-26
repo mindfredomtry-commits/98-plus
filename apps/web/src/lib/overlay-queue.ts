@@ -195,6 +195,31 @@ export function overlayBanId(item: QueuedOverlay): string {
     : normalizeId(item.ban.id);
 }
 
+export type ConsumedIncomingGuard = {
+  consumedAfterAnswer: ReadonlySet<string>;
+  dismissedIncoming: ReadonlySet<string>;
+  locallyAckedIncoming: ReadonlySet<string>;
+};
+
+/** Parent incoming already answered (overboard/reply) — must not become queue head again. */
+export function isConsumedIncomingQueueItem(
+  item: QueuedOverlay,
+  guard: ConsumedIncomingGuard,
+): boolean {
+  if (item.kind !== 'incoming') return false;
+  const id = normalizeId(item.ban.id);
+  if (!id) return true;
+  return (
+    guard.consumedAfterAnswer.has(id) ||
+    guard.dismissedIncoming.has(id) ||
+    guard.locallyAckedIncoming.has(id)
+  );
+}
+
+export function queueOverlayItemIds(queue: readonly QueuedOverlay[]): string[] {
+  return queue.map((item) => overlayQueueKey(item));
+}
+
 /** FIFO enqueue with dedup; result supersedes pending check/incoming for same ban. */
 export function enqueueOverlay(
   queue: QueuedOverlay[],
