@@ -64,13 +64,11 @@ import {
   getActiveOverlayKey,
   hasCheckInQueue,
   hasStaleCheckOverlayForBan,
-  isConsumedIncomingQueueItem,
   isValidQueuedOverlay,
   overlayBanId,
   overlayQueueKey,
   popOverlayHead,
   pruneOverlayQueue,
-  queueOverlayItemIds,
   removeOverlaysForBan,
   sanitizeOverlayQueue,
   type QueuedOverlay,
@@ -343,13 +341,7 @@ import {
   logResultOverlayJsxDecision,
 } from '@/lib/overboard-action-queue-debug';
 import {
-  logIncomingConsumedAfterOverkill,
-  logOverkillParentIncomingRejected,
-  logOverkillParentIncomingStillInQueue,
-  logQueueHeadAfterResultContinue,
-  logResultContinueAfterOverkill,
-} from '@/lib/overkill-incoming-queue-debug';
-import {
+  logResultAutoClearDecision,
   logResultClearCallsite,
   logResultHeldStillPresentAfterClear,
   logResultStaleGuardBlocked,
@@ -5342,51 +5334,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
       const stableIncoming = resolveStableIncomingForQueueHead(active);
-      if (
-        active?.kind === 'incoming' &&
-        (isConsumedIncomingQueueItem(active, consumedIncomingGuard()) ||
-          !shouldShowIncomingBanModal(
-            active.ban,
-            userIdRef.current?.trim() ?? '',
-            dismissedIncomingRef.current,
-          ))
-      ) {
-        const rejectedBanId = normalizeId(active.ban.id);
-        logOverkillParentIncomingRejected({
-          source: 'syncDisplayFromQueue',
-          banId: rejectedBanId,
-          incomingBanId: rejectedBanId,
-          action: 'overkill',
-          reason: 'consumed-incoming-head-sync-display',
-          queueLen: queue.length,
-          pendingLen: pendingStartupInteractionsRef.current.length,
-          queueIds: queueOverlayItemIds(queue),
-          pendingIds: queueOverlayItemIds(
-            pendingStartupInteractionsRef.current,
-          ),
-          currentHead: overlayQueueKey(active),
-        });
-        const nextQueue = popOverlayHead(queue);
-        pendingStartupInteractionsRef.current = removeOverlaysForBan(
-          pendingStartupInteractionsRef.current,
-          rejectedBanId,
-          ['incoming'],
-        );
-        syncPendingStartupCount();
-        clearActiveIncomingOverlayBanStable(
-          'sync-display-consumed-incoming',
-          rejectedBanId,
-        );
-        incomingBanRef.current = null;
-        setIncomingBan(null);
-        commitOverlayQueueTraced(
-          nextQueue,
-          'syncDisplayFromQueue',
-          'sync-display-consumed-incoming-prune-commit',
-        );
-        syncDisplayFromQueue(nextQueue);
-        return;
-      }
       let nextIncoming =
         active?.kind === 'incoming' ? active.ban : stableIncoming;
       if (nextIncoming && stableIncoming) {
@@ -12879,83 +12826,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [pinReplyToBanId],
   );
 
-  const consumedIncomingGuard = useCallback(
-    () => ({
-      consumedAfterAnswer: incomingConsumedAfterAnswerRef.current,
-      dismissedIncoming: dismissedIncomingRef.current,
-      locallyAckedIncoming: locallyAckedIncomingRef.current,
-    }),
-    [],
-  );
-
-  const pruneParentIncomingAfterOverkill = useCallback(
-    (banId: string, source: string) => {
-      const norm = normalizeId(banId);
-      if (!norm) return { overlayRemoved: 0, pendingRemoved: 0 };
-
-      const beforeOverlay = overlayQueueRef.current;
-      const beforePending = pendingStartupInteractionsRef.current;
-      const nextOverlay = removeOverlaysForBan(beforeOverlay, norm, ['incoming']);
-      const nextPending = removeOverlaysForBan(beforePending, norm, ['incoming']);
-
-      const overlayRemoved = beforeOverlay.length - nextOverlay.length;
-      const pendingRemoved = beforePending.length - nextPending.length;
-
-      if (nextOverlay.length !== beforeOverlay.length) {
-        commitOverlayQueueTraced(
-          nextOverlay,
-          source,
-          'prune-parent-incoming-after-overkill-overlay',
-        );
-      }
-      if (pendingRemoved > 0) {
-        pendingStartupInteractionsRef.current = nextPending;
-        syncPendingStartupCount();
-      }
-
-      clearActiveIncomingOverlayBanStable('overkill-parent-consumed', norm);
-      if (incomingBanRef.current?.id === norm) {
-        incomingBanRef.current = null;
-        setIncomingBan(null);
-      }
-
-      if (overlayRemoved > 0 || pendingRemoved > 0) {
-        logIncomingConsumedAfterOverkill({
-          source,
-          banId: norm,
-          action: 'overkill',
-          incomingBanId: norm,
-          overlayRemoved,
-          pendingRemoved,
-          queueLen: overlayQueueRef.current.length,
-          pendingLen: pendingStartupInteractionsRef.current.length,
-          queueIds: queueOverlayItemIds(overlayQueueRef.current),
-          pendingIds: queueOverlayItemIds(pendingStartupInteractionsRef.current),
-        });
-      }
-      if (pendingRemoved > 0) {
-        logOverkillParentIncomingStillInQueue({
-          source,
-          banId: norm,
-          action: 'overkill',
-          incomingBanId: norm,
-          pendingRemoved,
-          queueLen: overlayQueueRef.current.length,
-          pendingLen: pendingStartupInteractionsRef.current.length,
-          queueIds: queueOverlayItemIds(overlayQueueRef.current),
-          pendingIds: queueOverlayItemIds(pendingStartupInteractionsRef.current),
-        });
-      }
-
-      return { overlayRemoved, pendingRemoved };
-    },
-    [
-      clearActiveIncomingOverlayBanStable,
-      commitOverlayQueueTraced,
-      syncPendingStartupCount,
-    ],
-  );
-
   const consumeIncomingAfterAnswer = useCallback(
     (banId: string, answer: 'overboard' | 'reply') => {
       lastProcessedOverlayKindForBansRef.current = 'incoming';
@@ -13000,14 +12870,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
       }
 
-      const beforePending = pendingStartupInteractionsRef.current;
-      const nextPending = removeOverlaysForBan(beforePending, banId, ['incoming']);
-      if (nextPending.length !== beforePending.length) {
-        pendingStartupInteractionsRef.current = nextPending;
-        syncPendingStartupCount();
-      }
-      clearActiveIncomingOverlayBanStable(`incoming-answer-${answer}`, banId);
-
       console.log('[INCOMING QUEUE POP AFTER ANSWER]', {
         banId,
         before: beforeLen,
@@ -13028,7 +12890,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         preserveReplySendIds: answer === 'reply',
       });
     },
-    [applyOverlayQueue, clearReplyFastSessionAfterAnswer, clearReplyParentActivePriority, clearActiveIncomingOverlayBanStable, syncPendingStartupCount],
+    [applyOverlayQueue, clearReplyFastSessionAfterAnswer, clearReplyParentActivePriority],
   );
 
   const shouldBlockIncomingCardReopen = useCallback(
@@ -13500,14 +13362,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         willClear: false,
         willPreserve: true,
       });
-      pruneParentIncomingAfterOverkill(norm, 'replaceIncomingWithOverboardResultAtomic');
       return true;
     },
     [
       clearActiveIncomingOverlayBanStable,
       clearDirectOverboardLayerRefs,
       clearReplyParentActivePriority,
-      pruneParentIncomingAfterOverkill,
       setChainAdvanceWaiting,
       setNotificationChainTransitioning,
     ],
@@ -17092,47 +16952,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       while (true) {
         sanitizeNotificationChainQueues(source);
-        const consumedIncomingHead = overlayQueueRef.current[0];
-        if (
-          consumedIncomingHead?.kind === 'incoming' &&
-          isConsumedIncomingQueueItem(
-            consumedIncomingHead,
-            consumedIncomingGuard(),
-          )
-        ) {
-          const rejectedBanId = normalizeId(consumedIncomingHead.ban.id);
-          logOverkillParentIncomingRejected({
-            source,
-            banId: rejectedBanId,
-            incomingBanId: rejectedBanId,
-            action: 'overkill',
-            reason: 'consumed-incoming-head-preflight',
-            queueLen: overlayQueueRef.current.length,
-            pendingLen: pendingStartupInteractionsRef.current.length,
-            queueIds: queueOverlayItemIds(overlayQueueRef.current),
-            pendingIds: queueOverlayItemIds(
-              pendingStartupInteractionsRef.current,
-            ),
-            currentHead: overlayQueueKey(consumedIncomingHead),
-          });
-          const nextOverlay = popOverlayHead(overlayQueueRef.current);
-          commitOverlayQueueTraced(
-            nextOverlay,
-            `${source}-preflight`,
-            'show-next-preflight-consumed-incoming-prune-commit',
-          );
-          pendingStartupInteractionsRef.current = removeOverlaysForBan(
-            pendingStartupInteractionsRef.current,
-            rejectedBanId,
-            ['incoming'],
-          );
-          syncPendingStartupCount();
-          clearActiveIncomingOverlayBanStable(
-            'show-next-consumed-incoming',
-            rejectedBanId,
-          );
-          continue;
-        }
         const blockedHead = overlayQueueRef.current[0];
         if (
           blockedHead?.kind === 'result' &&
@@ -17545,9 +17364,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [
       applyDirectOverboardCloseState,
       beginIncomingNextHydrate,
-      clearActiveIncomingOverlayBanStable,
       clearNotificationChainReturnLatch,
-      consumedIncomingGuard,
       getNotificationChainDebugSnapshot,
       hasActiveNotificationOverlayMounted,
       holdResultForActiveNotificationChain,
@@ -17563,7 +17380,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setActiveIncomingOverlayBanStable,
       setNotificationChainTransitioning,
       syncDisplayFromQueue,
-      syncPendingStartupCount,
       upgradeIncomingQueueHeadFromMemory,
     ],
   );
@@ -20307,22 +20123,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       cancelResultPollBurst();
       void acknowledgeBanResultOnServer(key, tokenRef.current, 'go-to-bans');
 
-      const outcomeIsOverboard = outcome === 'overboard';
-      if (!incomingConsumedAfterAnswerRef.current.has(key)) {
-        consumeIncomingAfterAnswer(key, 'overboard');
-      } else {
-        pruneParentIncomingAfterOverkill(key, 'finalizeResultForGoToBans');
+      if (
+        outcome === 'overboard' &&
+        !incomingConsumedAfterAnswerRef.current.has(key)
+      ) {
+        consumeIncomingAfterAnswer(key, 'go-to-bans');
       }
 
       pruneResultFromNotificationChain(key, 'go-to-bans', ['check', 'result']);
       sanitizeNotificationChainQueues('go-to-bans');
 
       const beforeQueue = overlayQueueRef.current;
-      const nextQueue = removeOverlaysForBan(beforeQueue, key, [
-        'incoming',
-        'check',
-        'result',
-      ]);
+      const nextQueue = removeOverlaysForBan(beforeQueue, key, ['check', 'result']);
       if (nextQueue.length !== beforeQueue.length) {
         commitOverlayQueueTraced(
           nextQueue,
@@ -20332,7 +20144,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       const beforePending = pendingStartupInteractionsRef.current;
       const nextPending = removeOverlaysForBan(beforePending, key, [
-        'incoming',
         'check',
         'result',
       ]);
@@ -20344,26 +20155,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const remainingLen = overlayQueueRef.current.length;
       const pendingLen = pendingStartupInteractionsRef.current.length;
       logResultGoToBansRemainingQueue({ banId: key, remainingLen, pendingLen });
-      logResultContinueAfterOverkill({
-        source: 'finalizeResultForGoToBans',
-        banId: key,
-        resultBanId: key,
-        incomingBanId: key,
-        action: 'overkill',
-        outcome: outcomeIsOverboard ? 'overboard' : outcome,
-        queueLen: remainingLen,
-        pendingLen,
-        queueIds: queueOverlayItemIds(overlayQueueRef.current),
-        pendingIds: queueOverlayItemIds(pendingStartupInteractionsRef.current),
-        currentHeadKind: overlayQueueRef.current[0]?.kind ?? null,
-        currentHeadBanId:
-          overlayQueueRef.current[0]?.kind === 'result'
-            ? overlayQueueRef.current[0].result.id
-            : overlayQueueRef.current[0]?.kind === 'incoming' ||
-                overlayQueueRef.current[0]?.kind === 'check'
-              ? overlayQueueRef.current[0].ban.id
-              : null,
-      });
 
       const hasNextInChain = remainingLen > 0 || pendingLen > 0;
       if (hasNextInChain) {
@@ -20400,7 +20191,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearStaleComposeStateBeforeBansNavigation,
       consumeIncomingAfterAnswer,
       markResultOverlayConsumed,
-      pruneParentIncomingAfterOverkill,
       pruneResultFromNotificationChain,
       result?.outcome,
       sanitizeNotificationChainQueues,
@@ -20626,26 +20416,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           queueLen: overlayQueueRef.current.length,
           pendingLen: pendingStartupInteractionsRef.current.length,
           headKind: overlayQueueRef.current[0]?.kind ?? null,
-        });
-        logQueueHeadAfterResultContinue({
-          source: chainSource,
-          banId,
-          resultBanId: banId,
-          action: 'overkill',
-          queueLen: overlayQueueRef.current.length,
-          pendingLen: pendingStartupInteractionsRef.current.length,
-          queueIds: queueOverlayItemIds(overlayQueueRef.current),
-          pendingIds: queueOverlayItemIds(
-            pendingStartupInteractionsRef.current,
-          ),
-          currentHeadKind: overlayQueueRef.current[0]?.kind ?? null,
-          currentHeadBanId:
-            overlayQueueRef.current[0]?.kind === 'result'
-              ? overlayQueueRef.current[0].result.id
-              : overlayQueueRef.current[0]?.kind === 'incoming' ||
-                  overlayQueueRef.current[0]?.kind === 'check'
-                ? overlayQueueRef.current[0].ban.id
-                : null,
         });
         console.log('[go-to-bans-show-next-overlay]', {
           source: 'chain-continue',
