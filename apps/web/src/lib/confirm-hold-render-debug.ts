@@ -33,6 +33,7 @@ export type ConfirmOrbQueueDebugSnapshot = {
   heldUserCardKind: string | null;
   notificationChainHandoff: boolean;
   notificationChainAwaitingUser: boolean;
+  chainAdvanceWaiting: boolean;
 };
 
 export type LobbyOrbMountInputs = {

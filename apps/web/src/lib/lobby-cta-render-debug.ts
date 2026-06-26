@@ -17,6 +17,7 @@ export type LobbyCtaGuardInputs = {
   successExitDraining: boolean;
   postSuccessHandoffBlocking: boolean;
   notificationChainTransitioning: boolean;
+  queueClaimsNotificationScreen?: boolean;
   replyLobbyBlocked: boolean;
   bansReturnToLobbyLatch: boolean;
   deepLinkRouteBootPending: boolean;
@@ -59,6 +60,9 @@ export function computeLobbyCtaGuardDecision(
   }
   if (input.notificationChainTransitioning) {
     blockers.push('notificationChainTransitioning');
+  }
+  if (input.queueClaimsNotificationScreen) {
+    blockers.push('queueClaimsNotificationScreen');
   }
   if (input.replyLobbyBlocked && !input.bansReturnToLobbyLatch) {
     blockers.push('replyLobbyBlocked');
@@ -106,6 +110,18 @@ export function logLobbyCtaRenderCheck(
   data: Record<string, unknown>,
 ): void {
   emit('[LOBBY CTA RENDER CHECK]', data);
+}
+
+export function logCtaRenderDecisionDiag(
+  data: Record<string, unknown>,
+): void {
+  emit('CTA_RENDER_DECISION_DIAG', data);
+}
+
+export function logNormalDeeplinkDismissLobbyState(
+  data: Record<string, unknown>,
+): void {
+  emit('NORMAL_DEEPLINK_DISMISS_LOBBY_STATE', data);
 }
 
 export function logLobbyCtaReturnNull(

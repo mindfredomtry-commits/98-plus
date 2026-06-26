@@ -108,6 +108,8 @@ import {
 import {
   logLobbyCtaRenderCheck,
   logLobbyCtaReturnNull,
+  computeLobbyCtaGuardDecision,
+  logCtaRenderDecisionDiag,
 } from '@/lib/lobby-cta-render-debug';
 import { patchLobbyCtaDebugSnapshot } from '@/lib/lobby-cta-snapshot-debug';
 import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
@@ -391,6 +393,7 @@ export function InstantBanFlow({
   const confirmQueueStateDiagSigRef = useRef('');
   const postSuccessHandoffDuringReplySigRef = useRef('');
   const lobbyCtaDiagSigRef = useRef('');
+  const ctaRenderDecisionDiagSigRef = useRef('');
   renderCountRef.current += 1;
 
   const {
@@ -1384,7 +1387,69 @@ export function InstantBanFlow({
   ]);
 
   useLayoutEffect(() => {
-    if (!lobbyOpen || !lobbyBootIntroPrimed) return;
+    if (!lobbyOpen) return;
+
+    const queueDebug = getConfirmOrbQueueDebugSnapshot();
+    const queueClaimsNotificationScreenGuard =
+      overlayQueueLength > 0 || shouldBlockLobbyForActiveQueue();
+    const guardDecision = computeLobbyCtaGuardDecision({
+      lobbyBootIntroPrimed,
+      replyIncomingDeeplinkPending,
+      checkDeeplinkDirectPending,
+      successToActiveLobbyBlocked,
+      overlayHandoffLobbySuppressed,
+      successExitDraining,
+      postSuccessHandoffBlocking,
+      notificationChainTransitioning,
+      queueClaimsNotificationScreen: queueClaimsNotificationScreenGuard,
+      replyLobbyBlocked,
+      bansReturnToLobbyLatch,
+      deepLinkRouteBootPending,
+      deepLinkReplyBooting,
+      incomingReplyBanId,
+      incomingGateActive,
+      ctaState,
+      effectiveBansOverlayOpen,
+      notificationQueueUiLock,
+    });
+    const ctaJsxVisible =
+      showLobbyCta &&
+      !effectiveBansOverlayOpen &&
+      !notificationQueueUiLock;
+    const shellMode = sendStarted
+      ? 'arena-send'
+      : lobbyOpen
+        ? 'arena-lobby'
+        : 'arena-deep-link';
+    const diagPayload = {
+      ctaState,
+      ctaVisible: ctaJsxVisible,
+      showLobbyCta,
+      lobbyOpen,
+      lobbyReady: lobbyBootIntroPrimed,
+      sendStarted,
+      notificationOverlayActive,
+      overlayQueueLength,
+      pendingStartupInteractionsLen: queueDebug.pendingLen,
+      shouldBlockLobbyForActiveQueue: shouldBlockLobbyForActiveQueue(),
+      chainAdvanceWaiting: queueDebug.chainAdvanceWaiting,
+      replyIncomingDeeplinkPending,
+      queueClaimsNotificationScreen: queueClaimsNotificationScreenGuard,
+      shellMode,
+      stage: phase,
+      activeOverlayKind,
+      finalDecision: ctaJsxVisible ? 'render' : 'hide',
+      primaryBlocker: guardDecision.primaryBlocker,
+      blockReasons: guardDecision.blockers,
+      queueGuard: getQueueLobbyGuardSnapshot(),
+    };
+    const diagSig = JSON.stringify(diagPayload);
+    if (diagSig !== ctaRenderDecisionDiagSigRef.current) {
+      ctaRenderDecisionDiagSigRef.current = diagSig;
+      logCtaRenderDecisionDiag(diagPayload);
+    }
+
+    if (!lobbyBootIntroPrimed) return;
 
     const ctaHiddenReason = resolveLobbyCtaHiddenReason({
       ctaState,
@@ -1478,6 +1543,7 @@ export function InstantBanFlow({
     lobbyBootIntroPrimed,
     lobbyOpen,
     notificationChainTransitioning,
+    notificationOverlayActive,
     notificationOverlayMounted,
     notificationOverlayVisible,
     notificationQueueUiLock,

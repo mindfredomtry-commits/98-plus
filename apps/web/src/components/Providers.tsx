@@ -653,6 +653,7 @@ import {
 import {
   logChainEmptyFinalizeCheck,
   logEmptyOverlayHostBlockedState,
+  logNormalDeeplinkDismissLobbyState,
 } from '@/lib/lobby-cta-render-debug';
 import {
   traceSuccessCardUnmounted,
@@ -3813,6 +3814,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         notificationChainHandoff: notificationChainHandoffRef.current,
         notificationChainAwaitingUser:
           notificationChainAwaitingUserRef.current,
+        chainAdvanceWaiting: chainAdvanceWaitingRef.current,
       };
     }, []);
 
@@ -6623,6 +6625,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         isDeeplinkSingleCardModeActive() &&
         isDeeplinkSingleCardCompleting(dismissKind, dismissBanId)
       ) {
+        const deeplinkCardMode = getDeeplinkSingleCardMode();
+        const lobbyOpenBefore = lobbyOpenRef.current;
+        const queueGuardBefore = getQueueLobbyGuardSnapshot();
+        const activeOverlayBefore = {
+          kind: dismissKind,
+          banId: dismissBanId,
+          checkBanId: checkBanRef.current?.id ?? null,
+          incomingBanId: incomingBanRef.current?.id ?? null,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        };
         console.log('NORMAL_MODE_CARD_ACTION_COMPLETE', {
           dismissKind,
           dismissBanId,
@@ -6690,6 +6703,41 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason,
           banId: dismissBanId,
           lobbyOpen: true,
+        });
+        logNormalDeeplinkDismissLobbyState({
+          mode: notificationModeRef.current,
+          deeplinkKind: deeplinkCardMode?.kind ?? dismissKind,
+          activeOverlayBefore,
+          activeOverlayAfter: {
+            kind: overlayQueueRef.current[0]?.kind ?? null,
+            banId:
+              overlayQueueRef.current[0] != null
+                ? overlayItemBanId(overlayQueueRef.current[0])
+                : null,
+            checkBanId: checkBanRef.current?.id ?? null,
+            incomingBanId: incomingBanRef.current?.id ?? null,
+            queueLen: overlayQueueRef.current.length,
+            pendingLen: pendingStartupInteractionsRef.current.length,
+          },
+          lobbyOpenBefore,
+          lobbyOpenAfter: lobbyOpenRef.current,
+          sendStarted: sendFlowOpenRef.current,
+          chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+          notificationChainTransitioning:
+            notificationChainTransitioningRef.current,
+          queueGuardBefore,
+          queueGuardAfter: getQueueLobbyGuardSnapshot(),
+          replyDeeplinkFlags: {
+            replyDeepLinkBanId: replyDeepLinkBanIdRef.current,
+            replyDeeplinkPendingBanId: replyDeeplinkPendingBanIdRef.current,
+            replyDeeplinkFastShell: replyDeeplinkFastShellRef.current,
+            replyDeeplinkFastOpened: replyDeeplinkFastOpenedRef.current,
+          },
+          checkDeeplinkFlags: {
+            checkDeepLinkBanId: checkDeepLinkBanIdRef.current,
+            checkDeeplinkPendingBanId: checkDeeplinkPendingBanIdRef.current,
+          },
+          reason,
         });
         logTransitionFromRefs('[DISMISS COMMIT DONE]', {
           source: `${reason}-deeplink-single-card`,
