@@ -1,0 +1,7 @@
+# @98plus/api — Railway service Root Directory must be repo root ("." / blank).
+# Installs devDependencies (prisma, typescript) during build, then builds shared + api.
+[build]
+buildCommand = "npm ci --include=dev && npm run build:api"
+
+[deploy]
+startCommand = "npm run start:api"
