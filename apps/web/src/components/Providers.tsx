@@ -164,6 +164,20 @@ import {
   logOverkillTerminalLock,
   logResultTypeConflict,
 } from '@/lib/overkill-terminal-lock-debug';
+import {
+  isOverboardResultInActiveNotificationQueue,
+  resolveOverboardResultOutcome,
+  shouldKeepQueueSessionForChainAdvance,
+  type OverboardResultChainContext,
+} from '@/lib/overboard-result-chain';
+import {
+  logOverboardResultChainContext,
+  logOverboardResultContinueNext,
+  logOverboardResultContinueRequested,
+  logOverboardResultEndedChain,
+  logOverboardResultOpenedLobby,
+  logOverboardResultQueueSessionDropped,
+} from '@/lib/overboard-result-chain-debug';
 import type { OptimisticOverboardBuildContext } from '@/lib/optimistic-overboard-result';
 import {
   logOverboardPaint,
@@ -1769,6 +1783,99 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
     logNormalResultSkippedAfterOverkill(fields);
     return true;
+  };
+  const buildOverboardResultChainDebugFields = (
+    banId: string | null | undefined,
+    sourceFunction: string,
+    opts?: {
+      queueLenBefore?: number;
+      queueLenAfter?: number;
+      resultId?: string | null;
+      incomingId?: string | null;
+    },
+  ): Record<string, unknown> => {
+    const norm = normalizeId(banId ?? '');
+    const queueBefore =
+      opts?.queueLenBefore ?? overlayQueueRef.current.length;
+    const queueAfter = opts?.queueLenAfter ?? overlayQueueRef.current.length;
+    const head = overlayQueueRef.current[0] ?? null;
+    const nextHead = overlayQueueRef.current[1] ?? null;
+    const held =
+      heldUserCardOverlayRef.current?.kind === 'result'
+        ? heldUserCardOverlayRef.current.result
+        : null;
+    const ctx: OverboardResultChainContext = {
+      banId: norm,
+      resultOutcome: resolveOverboardResultOutcome(
+        resultRef.current ?? held ?? result,
+      ),
+      incomingOverboardAtomicBanId: incomingOverboardAtomicBanIdRef.current,
+      overlayQueueDrainActive: overlayQueueDrainActiveRef.current,
+      queueLen: queueAfter,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      directResultOverlay: directResultOverlayRef.current,
+      directResultOverlayActive: directResultOverlayActiveRef.current,
+      heldResultBanId:
+        heldUserCardOverlayRef.current?.kind === 'result'
+          ? heldUserCardOverlayRef.current.result.id
+          : null,
+      goToBansAdvancePending: goToBansAdvancePendingRef.current,
+      notificationChainTransitioning: notificationChainTransitioningRef.current,
+      chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+      notificationMode: notificationModeRef.current,
+      startedFromSection: overlayQueueDrainActiveRef.current,
+      startedFromDeepLink: isDeeplinkSingleCardModeActive(),
+      startedFromSuccess: isPostSuccessHandoffInProgress(),
+    };
+    return {
+      banId: norm,
+      resultId: opts?.resultId ?? norm,
+      incomingId: opts?.incomingId ?? norm,
+      sourceFunction,
+      queueLengthBefore: queueBefore,
+      queueLengthAfter: queueAfter,
+      currentHeadKind: head?.kind ?? null,
+      currentHeadBanId:
+        head?.kind === 'result'
+          ? head.result.id
+          : head?.kind === 'incoming' || head?.kind === 'check'
+            ? head.ban.id
+            : null,
+      nextHeadKind: nextHead?.kind ?? null,
+      nextHeadBanId:
+        nextHead?.kind === 'result'
+          ? nextHead.result.id
+          : nextHead?.kind === 'incoming' || nextHead?.kind === 'check'
+            ? nextHead.ban.id
+            : null,
+      queueSessionActive: shouldKeepQueueSessionForChainAdvance(
+        queueAfter,
+        pendingStartupInteractionsRef.current.length,
+        chainAdvanceWaitingRef.current,
+        notificationChainTransitioningRef.current,
+      ),
+      notificationChainTransitioning: notificationChainTransitioningRef.current,
+      chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+      isNormalMode: notificationModeRef.current === 'normal',
+      startedFromSection: ctx.startedFromSection,
+      startedFromDeepLink: ctx.startedFromDeepLink,
+      startedFromSuccess: ctx.startedFromSuccess,
+      inActiveOverboardQueue: isOverboardResultInActiveNotificationQueue(ctx),
+    };
+  };
+  const snapshotOverboardResultChainContext = (
+    banId: string | null | undefined,
+    sourceFunction: string,
+    opts?: {
+      queueLenBefore?: number;
+      queueLenAfter?: number;
+      resultId?: string | null;
+      incomingId?: string | null;
+    },
+  ) => {
+    logOverboardResultChainContext(
+      buildOverboardResultChainDebugFields(banId, sourceFunction, opts),
+    );
   };
   const lastProcessedOverlayKindForBansRef = useRef<
     'incoming' | 'check' | 'result' | null
@@ -18519,6 +18626,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             setChainAdvanceWaiting(false);
           }
           goToBansAdvancePendingRef.current = false;
+          if (
+            source.includes('status-cta') ||
+            source.includes('overboard-status')
+          ) {
+            logOverboardResultContinueNext(
+              buildOverboardResultChainDebugFields(
+                head?.kind === 'result'
+                  ? head.result.id
+                  : head?.kind === 'incoming' || head?.kind === 'check'
+                    ? head.ban.id
+                    : null,
+                `continueNotificationChainOrOpenLobbySync:${source}`,
+              ),
+            );
+          }
           return 'show-next';
         }
 
@@ -18724,6 +18846,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setChainAdvanceWaiting(false);
       goToBansAdvancePendingRef.current = false;
       overlayQueueDrainActiveRef.current = false;
+      if (
+        source.includes('status-cta') ||
+        source.includes('overboard-status') ||
+        source.includes('finalizeResultForGoToBans')
+      ) {
+        logOverboardResultQueueSessionDropped(
+          buildOverboardResultChainDebugFields(null, source, {
+            queueLenAfter: finalQueueLen,
+          }),
+        );
+      }
       notificationChainAwaitingUserRef.current = false;
       notificationChainHandoffRef.current = false;
 
@@ -18758,6 +18891,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       } else {
         openLobbyRef.current(source);
         openLobbyCalled = true;
+      }
+
+      if (
+        openLobbyCalled &&
+        (source.includes('status-cta') ||
+          source.includes('overboard-status') ||
+          source.includes('finalizeResultForGoToBans'))
+      ) {
+        logOverboardResultOpenedLobby(
+          buildOverboardResultChainDebugFields(null, source, {
+            queueLenAfter: finalQueueLen,
+          }),
+        );
       }
 
       if (finalQueueLen === 0 && finalPendingLen === 0) {
@@ -20352,7 +20498,40 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearStaleComposeStateBeforeBansNavigation('finalizeResultForGoToBans');
       const key = normalizeId(banId);
       if (!key) return;
-      const outcome = resultRef.current?.outcome ?? result?.outcome ?? null;
+      const queueLenBefore = overlayQueueRef.current.length;
+      const outcome = resolveOverboardResultOutcome(
+        resultRef.current ??
+          result ??
+          (heldUserCardOverlayRef.current?.kind === 'result'
+            ? heldUserCardOverlayRef.current.result
+            : null),
+      );
+      const inActiveOverboardQueue = isOverboardResultInActiveNotificationQueue({
+        banId: key,
+        resultOutcome: outcome,
+        incomingOverboardAtomicBanId: incomingOverboardAtomicBanIdRef.current,
+        overlayQueueDrainActive: overlayQueueDrainActiveRef.current,
+        queueLen: queueLenBefore,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+        directResultOverlay: directResultOverlayRef.current,
+        directResultOverlayActive: directResultOverlayActiveRef.current,
+        heldResultBanId:
+          heldUserCardOverlayRef.current?.kind === 'result'
+            ? heldUserCardOverlayRef.current.result.id
+            : null,
+        goToBansAdvancePending: goToBansAdvancePendingRef.current,
+        notificationChainTransitioning: notificationChainTransitioningRef.current,
+        chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+        notificationMode: notificationModeRef.current,
+        startedFromSection: overlayQueueDrainActiveRef.current,
+        startedFromDeepLink: isDeeplinkSingleCardModeActive(),
+        startedFromSuccess: isPostSuccessHandoffInProgress(),
+      });
+      snapshotOverboardResultChainContext(key, 'finalizeResultForGoToBans', {
+        queueLenBefore,
+        resultId: key,
+        incomingId: key,
+      });
 
       const heldBefore = heldUserCardOverlayRef.current;
       chainAdvanceExplicitRef.current = true;
@@ -20410,6 +20589,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const hasNextInChain = remainingLen > 0 || pendingLen > 0;
       if (hasNextInChain) {
         setNotificationChainTransitioning(true);
+      } else if (inActiveOverboardQueue) {
+        logOverboardResultEndedChain(
+          buildOverboardResultChainDebugFields(key, 'finalizeResultForGoToBans', {
+            queueLenBefore,
+            queueLenAfter: remainingLen,
+            resultId: key,
+          }),
+        );
+      }
+
+      if (!hasNextInChain && !inActiveOverboardQueue) {
+        if (overlayQueueDrainActiveRef.current) {
+          overlayQueueDrainActiveRef.current = false;
+          logOverboardResultQueueSessionDropped(
+            buildOverboardResultChainDebugFields(key, 'finalizeResultForGoToBans', {
+              queueLenBefore,
+              queueLenAfter: remainingLen,
+            }),
+          );
+        }
       }
 
       if (overboardInFlightRef.current === key) {
@@ -20443,7 +20642,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       consumeIncomingAfterAnswer,
       markResultOverlayConsumed,
       pruneResultFromNotificationChain,
-      result?.outcome,
       sanitizeNotificationChainQueues,
       setNotificationChainTransitioning,
       syncPendingStartupCount,
@@ -20482,11 +20680,47 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const navigateFromResult = useCallback(() => {
     clearStaleComposeStateBeforeBansNavigation('navigateFromResult');
     const generation = ++statusCtaNavigateGenerationRef.current;
-    const banId = result?.id ?? resultRef.current?.id ?? null;
+    const banId =
+      result?.id ??
+      resultRef.current?.id ??
+      (heldUserCardOverlayRef.current?.kind === 'result'
+        ? heldUserCardOverlayRef.current.result.id
+        : null);
+    const queueLenBefore = overlayQueueRef.current.length;
+    const pendingLenBefore = pendingStartupInteractionsRef.current.length;
+    const resultOutcome = resolveOverboardResultOutcome(
+      resultRef.current ??
+        result ??
+        (heldUserCardOverlayRef.current?.kind === 'result'
+          ? heldUserCardOverlayRef.current.result
+          : null),
+    );
+    const inActiveOverboardQueue = isOverboardResultInActiveNotificationQueue({
+      banId,
+      resultOutcome,
+      incomingOverboardAtomicBanId: incomingOverboardAtomicBanIdRef.current,
+      overlayQueueDrainActive: overlayQueueDrainActiveRef.current,
+      queueLen: queueLenBefore,
+      pendingLen: pendingLenBefore,
+      directResultOverlay: directResultOverlayRef.current,
+      directResultOverlayActive: directResultOverlayActiveRef.current,
+      heldResultBanId:
+        heldUserCardOverlayRef.current?.kind === 'result'
+          ? heldUserCardOverlayRef.current.result.id
+          : null,
+      goToBansAdvancePending: goToBansAdvancePendingRef.current,
+      notificationChainTransitioning: notificationChainTransitioningRef.current,
+      chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+      notificationMode: notificationModeRef.current,
+      startedFromSection: overlayQueueDrainActiveRef.current,
+      startedFromDeepLink: isDeeplinkSingleCardModeActive(),
+      startedFromSuccess: isPostSuccessHandoffInProgress(),
+    });
     const wasDirect =
-      directResultOverlayRef.current ||
-      directResultOverlayActiveRef.current ||
-      directResultOverlayActive;
+      !inActiveOverboardQueue &&
+      (directResultOverlayRef.current ||
+        directResultOverlayActiveRef.current ||
+        directResultOverlayActive);
 
     logResultGoToBansClick({
       banId,
@@ -20514,11 +20748,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
 
     const beforeConsume = {
-      overlayLen: overlayQueueRef.current.length,
-      startupLen: pendingStartupInteractionsRef.current.length,
+      overlayLen: queueLenBefore,
+      startupLen: pendingLenBefore,
       overlayIds: overlayQueueRef.current.map(overlayQueueItemId),
       startupIds: pendingStartupInteractionsRef.current.map(overlayQueueItemId),
     };
+
+    snapshotOverboardResultChainContext(banId, 'navigateFromResult', {
+      queueLenBefore,
+      resultId: banId,
+      incomingId: banId,
+    });
 
     console.log('[overboard-repeat-debug] to bans clicked', {
       banId,
@@ -20553,14 +20793,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
     const chainSource = wasDirect ? 'overboard-status-direct' : 'status-cta';
 
-    const lookaheadReady =
-      overlayQueueRef.current.length > 1 ||
-      pendingStartupInteractionsRef.current.length > 0;
+    const hasRemainingChain =
+      beforeConsume.overlayLen > 1 || beforeConsume.startupLen > 0;
+    const lookaheadReady = hasRemainingChain;
+    const shouldChainAdvanceWait = hasRemainingChain || !lookaheadReady;
 
     window.__debug98log?.('[GO TO BANS CLICK]', {
       source: 'result-status',
       banId,
       wasDirect,
+      inActiveOverboardQueue,
       lookaheadReady,
       queueLen: beforeConsume.overlayLen,
       pendingLen: beforeConsume.startupLen,
@@ -20571,14 +20813,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       : incomingBanRef.current
         ? 'incoming'
         : 'result';
-    if (lookaheadReady) {
-      window.__debug98log?.('[GO TO BANS NEXT READY]', {
-        banId,
-        queueLen: beforeConsume.overlayLen,
-        pendingLen: beforeConsume.startupLen,
-      });
+    if (hasRemainingChain || inActiveOverboardQueue) {
+      logOverboardResultContinueRequested(
+        buildOverboardResultChainDebugFields(banId, 'navigateFromResult', {
+          queueLenBefore,
+          resultId: banId,
+        }),
+      );
     } else {
       window.__debug98log?.('[GO TO BANS NEXT WAITING]', { banId });
+    }
+    if (shouldChainAdvanceWait) {
       setChainAdvancePlaceholderKind(placeholderKind);
       setChainAdvanceWaiting(true);
     }
@@ -24084,6 +24329,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
     if (chainAdvanceWaiting) return true;
     if (notificationChainTransitioning) {
+      if (
+        shouldKeepQueueSessionForChainAdvance(
+          overlayQueue.length,
+          pendingStartupInteractionsCount,
+          chainAdvanceWaiting,
+          notificationChainTransitioning,
+        )
+      ) {
+        return true;
+      }
       if (replyParentActivePriorityActive && heldUserCardOverlay == null) {
         logEmptyOverlayHostBlockedState({
           reason: 'reply-parent-timer-blocks-chain-transition-overlay',
@@ -24296,6 +24551,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return false;
     }
     if (stableIncomingOverlayBan?.id) {
+      return true;
+    }
+    if (
+      notificationChainTransitioning &&
+      shouldKeepQueueSessionForChainAdvance(
+        overlayQueue.length,
+        pendingStartupInteractionsCount,
+        chainAdvanceWaiting,
+        notificationChainTransitioning,
+      )
+    ) {
       return true;
     }
     if (!notificationOverlayVisible) return false;
