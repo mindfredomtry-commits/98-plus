@@ -1,3 +1,4 @@
+/** Helpers for overboard result inside notification queue drain (no runtime side effects). */
 import { normalizeId } from '@/lib/normalize-json';
 import { isOverkillTerminalOutcome, resolveBanResultOutcome } from '@/lib/overkill-terminal-lock';
 
