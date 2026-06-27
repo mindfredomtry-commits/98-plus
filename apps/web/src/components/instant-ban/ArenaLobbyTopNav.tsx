@@ -1,6 +1,8 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { logLobbyBansCtaClickTrace } from '@/lib/queue-source-comparison-debug';
+import { logLobbyIndicatorRenderHydrateTrace } from '@/lib/lobby-indicator-hydrate-trace-debug';
 
 type Props = {
   onOpenBans: () => void;
@@ -17,6 +19,22 @@ export function ArenaLobbyTopNav({
   settingsActive = false,
   telegramUserId = null,
 }: Props) {
+  const prevAttentionRef = useRef(bansNeedAttention);
+  useEffect(() => {
+    if (prevAttentionRef.current === bansNeedAttention) return;
+    prevAttentionRef.current = bansNeedAttention;
+    logLobbyIndicatorRenderHydrateTrace({
+      t: performance.now(),
+      pendingOverlaysCount: 0,
+      queueLength: 0,
+      ownerDisplayKind: null,
+      ownerQueueHead: null,
+      updateSource: 'bootstrap',
+      bansNeedAttention,
+      telegramUserId,
+    });
+  }, [bansNeedAttention, telegramUserId]);
+
   return (
     <nav
       className="instant-ban-arena-lobby-nav"

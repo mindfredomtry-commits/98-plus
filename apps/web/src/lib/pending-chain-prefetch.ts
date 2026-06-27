@@ -142,13 +142,35 @@ export async function fetchPendingChainPrefetch(
     telegramUserId: ctx.telegramUserId ?? null,
     reason: ctx.reason,
   });
-  const incomingRes = await api<{
-    bans: BanInteraction[];
-    rejectDebug?: PendingRejectDiagnostic[];
-  }>('/bans/incoming/pending-all', { token }).catch(() => ({
-    bans: [] as BanInteraction[],
-    rejectDebug: [] as PendingRejectDiagnostic[],
-  }));
+  logQueueApiFetchStart({
+    source: ctx.source,
+    endpoint: '/bans/check/pending',
+    telegramUserId: ctx.telegramUserId ?? null,
+    reason: ctx.reason,
+  });
+  logQueueApiFetchStart({
+    source: ctx.source,
+    endpoint: '/bans/result/pending',
+    telegramUserId: ctx.telegramUserId ?? null,
+    reason: ctx.reason,
+  });
+
+  const [incomingRes, checkRes, resultRes] = await Promise.all([
+    api<{
+      bans: BanInteraction[];
+      rejectDebug?: PendingRejectDiagnostic[];
+    }>('/bans/incoming/pending-all', { token }).catch(() => ({
+      bans: [] as BanInteraction[],
+      rejectDebug: [] as PendingRejectDiagnostic[],
+    })),
+    api<{ ban: BanInteraction | null }>('/bans/check/pending', { token }).catch(
+      () => ({ ban: null as BanInteraction | null }),
+    ),
+    api<{ result: BanResult | null }>('/bans/result/pending', { token }).catch(
+      () => ({ result: null as BanResult | null }),
+    ),
+  ]);
+
   const incoming = Array.isArray(incomingRes.bans) ? incomingRes.bans : [];
   const rejectDebug = Array.isArray(incomingRes.rejectDebug)
     ? incomingRes.rejectDebug
@@ -164,16 +186,6 @@ export async function fetchPendingChainPrefetch(
     })),
   );
 
-  logQueueApiFetchStart({
-    source: ctx.source,
-    endpoint: '/bans/check/pending',
-    telegramUserId: ctx.telegramUserId ?? null,
-    reason: ctx.reason,
-  });
-  const checkRes = await api<{ ban: BanInteraction | null }>(
-    '/bans/check/pending',
-    { token },
-  ).catch(() => ({ ban: null as BanInteraction | null }));
   const check = checkRes.ban ?? null;
   logEndpointResult(
     '/bans/check/pending',
@@ -183,16 +195,6 @@ export async function fetchPendingChainPrefetch(
       : [],
   );
 
-  logQueueApiFetchStart({
-    source: ctx.source,
-    endpoint: '/bans/result/pending',
-    telegramUserId: ctx.telegramUserId ?? null,
-    reason: ctx.reason,
-  });
-  const resultRes = await api<{ result: BanResult | null }>(
-    '/bans/result/pending',
-    { token },
-  ).catch(() => ({ result: null as BanResult | null }));
   const result = resultRes.result ?? null;
   logEndpointResult(
     '/bans/result/pending',

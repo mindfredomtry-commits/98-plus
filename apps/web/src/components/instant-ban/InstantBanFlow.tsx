@@ -100,6 +100,7 @@ import {
   logLobbyChromeVisible,
   logLobbyIndicatorState,
 } from '@/lib/lobby-chrome-debug';
+import { logLobbyMountHydrateTrace } from '@/lib/lobby-indicator-hydrate-trace-debug';
 import {
   logLobbyCtaRestoreAfterSectionClose,
   logLobbyCtaVisibilityState,
@@ -1335,6 +1336,16 @@ export function InstantBanFlow({
         showLobbyTopNav,
         showLobbyChrome,
         lobbyBansNeedAttention,
+      });
+      logLobbyMountHydrateTrace({
+        t: performance.now(),
+        pendingOverlaysCount: pendingStartupInteractions,
+        queueLength: overlayQueueLength,
+        ownerDisplayKind: null,
+        ownerQueueHead: null,
+        updateSource: 'bootstrap',
+        lobbyBansNeedAttention,
+        showLobbyTopNav,
       });
       return;
     }

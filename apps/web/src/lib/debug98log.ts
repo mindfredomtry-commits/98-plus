@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 63;
+export const DEBUG98_LOGGER_VERSION = 64;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -182,6 +182,14 @@ const ALLOWED_EVENTS = new Set([
   '[LOBBY INDICATOR OPENED EMPTY HOST BUG]',
   '[RESULT POLL OPENED EMPTY HOST BUG]',
   '[LOBBY INDICATOR DELAY BUG]',
+  '[APP BOOT]',
+  '[LOBBY MOUNT]',
+  '[QUEUE HYDRATE START]',
+  '[QUEUE HYDRATE END]',
+  '[OWNER QUEUE UPDATED]',
+  '[OWNER DISPLAY UPDATED]',
+  '[LOBBY INDICATOR COMPUTE]',
+  '[LOBBY INDICATOR RENDER]',
   '[INCOMING OVERBOARD ATOMIC RESULT]',
   '[RESULT CARD STABLE HOLD]',
   '[RESULT CARD REMOUNT BUG]',

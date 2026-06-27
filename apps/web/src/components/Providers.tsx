@@ -467,6 +467,16 @@ import {
   logResultPollOpenedEmptyHostBug,
 } from '@/lib/lobby-bans-indicator-debug';
 import {
+  buildLobbyIndicatorHydrateTracePayload,
+  logAppBootHydrateTrace,
+  logLobbyIndicatorComputeHydrateTrace,
+  logOwnerDisplayUpdatedHydrateTrace,
+  logOwnerQueueUpdatedHydrateTrace,
+  logQueueHydrateEndTrace,
+  logQueueHydrateStartTrace,
+  type LobbyIndicatorHydrateUpdateSource,
+} from '@/lib/lobby-indicator-hydrate-trace-debug';
+import {
   logIncomingOverboardAtomicResult,
   logResultCardClearedBug,
   logResultCardPreserveDomOk,
@@ -2941,6 +2951,46 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         stateActive,
       },
     );
+  const buildLobbyHydrateTraceSnapshot = (
+    updateSource: LobbyIndicatorHydrateUpdateSource,
+    extra?: Record<string, unknown>,
+  ) => {
+    const owner = ownerShadowRef.current.getState();
+    const head = owner.queue[0] ?? null;
+    const display = owner.display;
+    const ownerDisplayKind = display.directResultOverlay ||
+      display.directResultOverlayActive
+      ? 'result-direct'
+      : display.result?.id
+        ? 'result'
+        : display.incomingBan?.id
+          ? 'incoming'
+          : display.checkBan?.id
+            ? 'check'
+            : null;
+    return buildLobbyIndicatorHydrateTracePayload(
+      updateSource,
+      {
+        pendingOverlaysCount: owner.pending.length,
+        queueLength: owner.queue.length,
+        ownerDisplayKind,
+        ownerQueueHead: head
+          ? {
+              kind: head.kind,
+              banId:
+                head.kind === 'result' ? head.result.id : head.ban.id,
+            }
+          : null,
+        lobbyBansAttentionHint,
+        sessionBootstrapped: sessionBootstrappedRef.current,
+        pendingStartupInteractionsCount:
+          pendingStartupInteractionsRef.current.length,
+        refQueueLen: overlayQueueRef.current.length,
+        refPendingLen: pendingStartupInteractionsRef.current.length,
+      },
+      extra,
+    );
+  };
   const buildOwnerShadowProductionSnapshot = (): OwnerProductionSnapshot => {
     const queue = overlayQueueRef.current;
     const head = queue[0] ?? null;
@@ -5833,7 +5883,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       noteLastBansIndicatorReason('syncPendingStartupCount');
       persistLobbyNotificationAttentionHint(uid, total);
       setLobbyBansAttentionHint(total);
-    } else if (sessionBootstrappedRef.current) {
+    } else if (
+      sessionBootstrappedRef.current &&
+      pendingChainPrefetchInFlightRef.current <= 0
+    ) {
       clearLobbyNotificationAttentionHint(uid);
       setLobbyBansAttentionHint(0);
     }
@@ -5844,11 +5897,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     mirrorLegacyQueue: (queue, source, silent) => {
       overlayQueueRef.current = queue;
       setOverlayQueue(queue);
+      logOwnerQueueUpdatedHydrateTrace(
+        buildLobbyHydrateTraceSnapshot('mirror', {
+          source,
+          silent: silent ?? false,
+          target: 'queue',
+        }),
+      );
     },
     mirrorLegacyPending: (pending, source) => {
       // Step 11B.1 documented pending exception: sole mirror target write for pendingStartupInteractionsRef.
       pendingStartupInteractionsRef.current = pending;
       syncPendingStartupCountRef.current();
+      logOwnerQueueUpdatedHydrateTrace(
+        buildLobbyHydrateTraceSnapshot('mirror', {
+          source,
+          target: 'pending',
+        }),
+      );
     },
     compareQueueIntegrity: (source, ownerQueue, ownerPending) => {
       const ownerQueueKeys = ownerQueue.map(overlayQueueKey).join('|');
@@ -5907,6 +5973,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setCheckBan(display.checkBan);
       setResult(display.result);
       setDirectResultOverlayActive(display.directResultOverlayActive);
+      logOwnerDisplayUpdatedHydrateTrace(
+        buildLobbyHydrateTraceSnapshot('mirror', { source }),
+      );
     },
     compareActiveDisplayIntegrity: (source, display) => {
       const mismatches: string[] = [];
@@ -10784,6 +10853,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         deeplinkBanId,
       });
 
+      logQueueHydrateStartTrace(
+        buildLobbyHydrateTraceSnapshot('api', {
+          source,
+          endpoint: '/bans/incoming/pending-all',
+          deeplinkBanId,
+        }),
+      );
+
       pendingChainPrefetchInFlightRef.current += 1;
       try {
         const prefetched = await fetchPendingChainPrefetch(token, {
@@ -11196,6 +11273,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           0,
           pendingChainPrefetchInFlightRef.current - 1,
         );
+        logQueueHydrateEndTrace(
+          buildLobbyHydrateTraceSnapshot('api', {
+            source,
+            endpoint: '/bans/incoming/pending-all',
+            deeplinkBanId,
+          }),
+        );
       }
     },
     [
@@ -11285,6 +11369,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       } else {
         logLobbyIndicatorPrimeReady(payload);
       }
+      logLobbyIndicatorComputeHydrateTrace(
+        buildLobbyHydrateTraceSnapshot(
+          source.includes('prime') || source.includes('prefetch')
+            ? 'api'
+            : source.includes('session') || source.includes('apply-session')
+              ? 'hydrate'
+              : 'bootstrap',
+          { source, ...payload },
+        ),
+      );
     },
     [countLobbyPendingHasIncoming, syncPendingStartupCount],
   );
@@ -18748,6 +18842,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         telegramUserId: requestUserId,
         reason: 'reloadPending-session-bootstrap',
       });
+      logQueueHydrateStartTrace(
+        buildLobbyHydrateTraceSnapshot('hydrate', {
+          source: 'reloadPending',
+          endpoint: '/bans/session',
+        }),
+      );
       const session = await fetchSession(token);
       // Discard if user/token switched while request in-flight.
       if (tokenRef.current !== token) return;
@@ -18912,6 +19012,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     } finally {
       setSessionBootstrapped(true);
       setInitialNetworkBootstrapAttempted(true);
+      logQueueHydrateEndTrace(
+        buildLobbyHydrateTraceSnapshot('hydrate', {
+          source: 'reloadPending',
+          endpoint: '/bans/session',
+        }),
+      );
     }
   }, [applySession, receiveResult]);
 
@@ -24184,6 +24290,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [auth.user?.id, auth.token, auth.loading, primeLobbyBansAttentionHintSync, primeLobbyBansIndicator]);
 
   useEffect(() => {
+    logAppBootHydrateTrace(
+      buildLobbyHydrateTraceSnapshot('bootstrap', {
+        phase: 'providers-body-mounted',
+        authUserId: auth.user?.id ?? null,
+        authLoading: auth.loading,
+      }),
+    );
+  }, []);
+
+  useEffect(() => {
     lobbyIndicatorPrimedForUserRef.current = null;
   }, [auth.user?.id]);
 
@@ -26325,6 +26441,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ownerPrimaryShellPendingLen > 0 ||
     ownerPrimaryShellQueueLen > 0 ||
     lobbyBansAttentionHint > 0;
+
+  useLayoutEffect(() => {
+    logLobbyIndicatorComputeHydrateTrace(
+      buildLobbyHydrateTraceSnapshot('bootstrap', {
+        lobbyBansNeedAttention,
+        ownerPrimaryShellPendingLen,
+        ownerPrimaryShellQueueLen,
+        lobbyBansAttentionHint,
+      }),
+    );
+  }, [
+    lobbyBansNeedAttention,
+    ownerPrimaryShellPendingLen,
+    ownerPrimaryShellQueueLen,
+    lobbyBansAttentionHint,
+  ]);
 
   const replyIncomingOverlayBlockReason = useMemo(() => {
     if (!replyIncomingDirectPath) return 'not-reply-route';
