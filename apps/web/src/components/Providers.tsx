@@ -477,6 +477,11 @@ import {
   type LobbyIndicatorHydrateUpdateSource,
 } from '@/lib/lobby-indicator-hydrate-trace-debug';
 import {
+  logLobbyBansClick,
+  logLobbyBansClickDecision,
+  logQueueReadyForDrain,
+} from '@/lib/lobby-bans-click-diag-debug';
+import {
   logIncomingOverboardAtomicResult,
   logResultCardClearedBug,
   logResultCardPreserveDomOk,
@@ -2375,6 +2380,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const incomingConsumedAfterAnswerRef = useRef<Set<string>>(new Set());
   /** Diag-only: prefetch in flight count for [CHAIN FINALIZE DIAG]. */
   const pendingChainPrefetchInFlightRef = useRef(0);
+  /** Shared in-flight prefetch — lobby-indicator-prime and lobby-bans-cta await the same Promise. */
+  const pendingChainPrefetchSharedPromiseRef = useRef<Promise<boolean> | null>(
+    null,
+  );
   /** Diag-only: last prefetch returned rejects but merged nothing. */
   const lastChainRejectOnlyPrefetchRef = useRef(false);
   /** Diag-only: rejectDebug count from last prefetch. */
@@ -5915,6 +5924,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           target: 'pending',
         }),
       );
+      const owner = ownerShadowRef.current.getState();
+      const ownerQueueHead = owner.queue[0] ?? pending[0] ?? null;
+      const queueLen = overlayQueueRef.current.length;
+      const pendingLen = pending.length;
+      const canDrainFromLobbyClick = pendingLen > 0 || queueLen > 0;
+      if (
+        pendingLen > 0 ||
+        source.includes('prefetch') ||
+        source.includes('lobby-indicator')
+      ) {
+        logQueueReadyForDrain({
+          source: `mirrorLegacyPending:${source}`,
+          queueLength: queueLen,
+          pendingLength: pendingLen,
+          ownerQueueHead: ownerQueueHead
+            ? {
+                kind: ownerQueueHead.kind,
+                banId:
+                  ownerQueueHead.kind === 'result'
+                    ? ownerQueueHead.result.id
+                    : ownerQueueHead.ban.id,
+              }
+            : null,
+          canDrainFromLobbyClick,
+          pendingChainPrefetchInFlight:
+            pendingChainPrefetchInFlightRef.current,
+          lobbyBansAttentionHint,
+        });
+      }
     },
     compareQueueIntegrity: (source, ownerQueue, ownerPending) => {
       const ownerQueueKeys = ownerQueue.map(overlayQueueKey).join('|');
@@ -10848,6 +10886,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return false;
       }
 
+      const sharedInflight = pendingChainPrefetchSharedPromiseRef.current;
+      if (sharedInflight) {
+        logLobbyBansClickDecision({
+          decisionPoint: 'prefetch-shared-promise-dedupe',
+          source,
+          deeplinkBanId,
+          reason: 'await-existing-in-flight-prefetch',
+          pendingChainPrefetchInFlight:
+            pendingChainPrefetchInFlightRef.current,
+          selectedAction: 'pending-drain-call',
+        });
+        return sharedInflight;
+      }
+
+      const runPrefetch = async (): Promise<boolean> => {
       console.log('[pending-chain-prefetch-start]', {
         source,
         deeplinkBanId,
@@ -11273,6 +11326,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           0,
           pendingChainPrefetchInFlightRef.current - 1,
         );
+        const ownerAfterHydrate = ownerShadowRef.current.getState();
+        const queueLenHydrate = overlayQueueRef.current.length;
+        const pendingLenHydrate = pendingStartupInteractionsRef.current.length;
+        const headHydrate =
+          ownerAfterHydrate.queue[0] ?? ownerAfterHydrate.pending[0] ?? null;
+        logQueueReadyForDrain({
+          source: `prefetchPendingNotificationChain-finally:${source}`,
+          queueLength: queueLenHydrate,
+          pendingLength: pendingLenHydrate,
+          ownerQueueHead: headHydrate
+            ? {
+                kind: headHydrate.kind,
+                banId:
+                  headHydrate.kind === 'result'
+                    ? headHydrate.result.id
+                    : headHydrate.ban.id,
+              }
+            : null,
+          canDrainFromLobbyClick:
+            pendingLenHydrate > 0 || queueLenHydrate > 0,
+          pendingChainPrefetchInFlight:
+            pendingChainPrefetchInFlightRef.current,
+          lobbyBansAttentionHint,
+        });
         logQueueHydrateEndTrace(
           buildLobbyHydrateTraceSnapshot('api', {
             source,
@@ -11280,6 +11357,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             deeplinkBanId,
           }),
         );
+      }
+      };
+
+      const sharedPromise = runPrefetch();
+      pendingChainPrefetchSharedPromiseRef.current = sharedPromise;
+      try {
+        return await sharedPromise;
+      } finally {
+        if (pendingChainPrefetchSharedPromiseRef.current === sharedPromise) {
+          pendingChainPrefetchSharedPromiseRef.current = null;
+        }
       }
     },
     [
@@ -22055,15 +22143,174 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const startLobbyBansNotificationDrain =
     useCallback(async (): Promise<LobbyBansNotificationDrainOutcome> => {
       clearStaleComposeStateBeforeBansNavigation('lobby-bans-cta');
-      const queueLenBefore = overlayQueueRef.current.length;
-      const pendingLen = pendingStartupInteractionsRef.current.length;
-      const incomingPresent = Boolean(incomingBanRef.current?.id);
-      const checkPresent = Boolean(checkBanRef.current?.id);
-      const resultPresent = readOwnerC3HasMountedResult(
-        readOwnerC3Decision('lobbyBansDrainEnter').display,
-        'lobbyBansDrainEnter',
+
+      const ownerAtClick = ownerShadowRef.current.getState();
+      let queueLenBefore = overlayQueueRef.current.length;
+      let pendingLen = pendingStartupInteractionsRef.current.length;
+      let incomingPresent = Boolean(incomingBanRef.current?.id);
+      let checkPresent = Boolean(checkBanRef.current?.id);
+      let resultPresent = readOwnerC3HasMountedResult(
+        readOwnerC3Decision('lobbyBansClickDiag').display,
+        'lobbyBansClickDiag',
         { resultRef: resultRef.current },
       );
+      const readLocalDrainMountEmpty = (): boolean =>
+        overlayQueueRef.current.length === 0 &&
+        pendingStartupInteractionsRef.current.length === 0 &&
+        !incomingBanRef.current?.id &&
+        !checkBanRef.current?.id &&
+        !readOwnerC3HasMountedResult(
+          readOwnerC3Decision('lobbyBansClickDiag').display,
+          'lobbyBansClickDiag',
+          { resultRef: resultRef.current },
+        );
+      const ownerQueueHeadAtClick =
+        ownerAtClick.queue[0] ?? ownerAtClick.pending[0] ?? null;
+      const needAttentionRunnableAtClick =
+        pendingLen > 0 ||
+        queueLenBefore > 0 ||
+        hasPendingNotificationChain();
+      const canDrainFromLobbyClickAtClick =
+        needAttentionRunnableAtClick ||
+        incomingPresent ||
+        checkPresent ||
+        resultPresent;
+      const lobbyBansNeedAttentionAtClick =
+        pendingLen > 0 ||
+        queueLenBefore > 0 ||
+        lobbyBansAttentionHint > 0;
+      const clickDiagBase = {
+        lobbyBansNeedAttention: lobbyBansNeedAttentionAtClick,
+        lobbyBansAttentionHint,
+        ownerPrimaryShellPendingLen: ownerAtClick.pending.length,
+        ownerPrimaryShellQueueLen: ownerAtClick.queue.length,
+        ownerPendingLen: ownerAtClick.pending.length,
+        ownerQueueLen: ownerAtClick.queue.length,
+        pendingStartupInteractionsLen: pendingLen,
+        refQueueLen: queueLenBefore,
+        refPendingLen: pendingLen,
+        pendingChainPrefetchInFlight:
+          pendingChainPrefetchInFlightRef.current,
+        notificationDrainActive:
+          chainAdvanceExplicitRef.current ||
+          notificationChainTransitioningRef.current,
+        incomingPresent,
+        checkPresent,
+        resultPresent,
+        needAttentionRunnable: needAttentionRunnableAtClick,
+        canDrainFromLobbyClick: canDrainFromLobbyClickAtClick,
+        indicatorTrueButQueueEmpty:
+          lobbyBansAttentionHint > 0 &&
+          pendingLen === 0 &&
+          queueLenBefore === 0,
+        ownerQueueHead: ownerQueueHeadAtClick
+          ? {
+              kind: ownerQueueHeadAtClick.kind,
+              banId:
+                ownerQueueHeadAtClick.kind === 'result'
+                  ? ownerQueueHeadAtClick.result.id
+                  : ownerQueueHeadAtClick.ban.id,
+            }
+          : null,
+      };
+
+      logLobbyBansClick({
+        ...clickDiagBase,
+        phase: 'startLobbyBansNotificationDrain-entry',
+        selectedAction: 'pending-drain-call',
+        reason: 'click-entered-drain-handler',
+      });
+      logQueueReadyForDrain({
+        source: 'lobby-bans-cta-click-entry',
+        queueLength: queueLenBefore,
+        pendingLength: pendingLen,
+        ownerQueueHead: clickDiagBase.ownerQueueHead,
+        canDrainFromLobbyClick: canDrainFromLobbyClickAtClick,
+        pendingChainPrefetchInFlight:
+          pendingChainPrefetchInFlightRef.current,
+        lobbyBansAttentionHint,
+      });
+
+      if (readLocalDrainMountEmpty()) {
+        const sharedPrefetch = pendingChainPrefetchSharedPromiseRef.current;
+        if (
+          pendingChainPrefetchInFlightRef.current > 0 &&
+          sharedPrefetch
+        ) {
+          logLobbyBansClickDecision({
+            decisionPoint: 'await-shared-prefetch-before-routing',
+            sourceOfTruth:
+              'pendingChainPrefetchSharedPromiseRef + pendingChainPrefetchInFlightRef',
+            ...clickDiagBase,
+            selectedAction: 'pending-drain-call',
+            reason: 'prefetch-in-flight-await-shared-promise',
+            indicatorTrueButQueueEmpty: clickDiagBase.indicatorTrueButQueueEmpty,
+            pendingChainPrefetchInFlight:
+              pendingChainPrefetchInFlightRef.current,
+          });
+          logLobbyBansClick({
+            ...clickDiagBase,
+            phase: 'startLobbyBansNotificationDrain-await-shared-prefetch',
+            selectedAction: 'pending-drain-call',
+            reason: 'await-shared-in-flight-prefetch',
+          });
+          await sharedPrefetch;
+          queueLenBefore = overlayQueueRef.current.length;
+          pendingLen = pendingStartupInteractionsRef.current.length;
+          incomingPresent = Boolean(incomingBanRef.current?.id);
+          checkPresent = Boolean(checkBanRef.current?.id);
+          resultPresent = readOwnerC3HasMountedResult(
+            readOwnerC3Decision('lobbyBansClickDiag').display,
+            'lobbyBansClickDiag',
+            { resultRef: resultRef.current },
+          );
+          const ownerAfterAwait = ownerShadowRef.current.getState();
+          const headAfterAwait =
+            ownerAfterAwait.queue[0] ?? ownerAfterAwait.pending[0] ?? null;
+          const canDrainAfterAwait =
+            pendingLen > 0 ||
+            queueLenBefore > 0 ||
+            incomingPresent ||
+            checkPresent ||
+            resultPresent ||
+            hasPendingNotificationChain();
+          logQueueReadyForDrain({
+            source: 'lobby-bans-cta-after-shared-prefetch-await',
+            queueLength: queueLenBefore,
+            pendingLength: pendingLen,
+            ownerQueueHead: headAfterAwait
+              ? {
+                  kind: headAfterAwait.kind,
+                  banId:
+                    headAfterAwait.kind === 'result'
+                      ? headAfterAwait.result.id
+                      : headAfterAwait.ban.id,
+                }
+              : null,
+            canDrainFromLobbyClick: canDrainAfterAwait,
+            pendingChainPrefetchInFlight:
+              pendingChainPrefetchInFlightRef.current,
+            lobbyBansAttentionHint,
+          });
+          logLobbyBansClickDecision({
+            decisionPoint: 'after-shared-prefetch-await',
+            sourceOfTruth:
+              'overlayQueueRef + pendingStartupInteractionsRef + display refs re-read',
+            queueLenAfterAwait: queueLenBefore,
+            pendingLenAfterAwait: pendingLen,
+            incomingPresentAfterAwait: incomingPresent,
+            checkPresentAfterAwait: checkPresent,
+            resultPresentAfterAwait: resultPresent,
+            canDrainFromLobbyClick: canDrainAfterAwait,
+            selectedAction: canDrainAfterAwait ? 'drain' : 'open-section',
+            reason: canDrainAfterAwait
+              ? 'shared-prefetch-hydrated-queue-ready'
+              : 'shared-prefetch-completed-still-empty',
+            pendingChainPrefetchInFlight:
+              pendingChainPrefetchInFlightRef.current,
+          });
+        }
+      }
 
       if (
         queueLenBefore === 0 &&
@@ -22072,6 +22319,39 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         !checkPresent &&
         !resultPresent
       ) {
+        const whyOpenSectionDespiteIndicator =
+          lobbyBansAttentionHint > 0 &&
+          pendingChainPrefetchInFlightRef.current > 0
+            ? 'hint-true-prefetch-still-in-flight-after-await'
+            : lobbyBansAttentionHint > 0
+              ? 'hint-true-but-no-runnable-pending-or-display-refs'
+              : 'no-hint-no-queue-no-display-refs';
+        logLobbyBansClickDecision({
+          decisionPoint: 'early-direct-open-after-shared-prefetch-check',
+          sourceOfTruth:
+            'overlayQueueRef.length + pendingStartupInteractionsRef.length + incomingBanRef/checkBanRef/resultRef — lobbyBansAttentionHint excluded',
+          ...clickDiagBase,
+          queueLenBefore,
+          pendingLen,
+          incomingPresent,
+          checkPresent,
+          resultPresent,
+          selectedAction: 'open-section',
+          reason: 'no-local-mountable-notification',
+          whyOpenSectionDespiteIndicator,
+          willRunPrefetch: false,
+          skippedPrefetchBecauseEarlyReturn: false,
+          awaitedSharedPrefetch:
+            pendingChainPrefetchSharedPromiseRef.current != null ||
+            pendingChainPrefetchInFlightRef.current > 0,
+        });
+        logLobbyBansClick({
+          ...clickDiagBase,
+          phase: 'startLobbyBansNotificationDrain-early-return',
+          selectedAction: 'open-section',
+          reason: 'no-local-mountable-notification',
+          whyOpenSectionDespiteIndicator,
+        });
         logLobbyBansDirectOpen({
           queueLen: queueLenBefore,
           pendingLen,
@@ -22116,9 +22396,43 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       if (pendingLenAfterPrefetch === 0 && queueLen === 0) {
+        logLobbyBansClickDecision({
+          decisionPoint: 'before-lobby-bans-cta-prefetch',
+          sourceOfTruth: 'pendingStartupInteractionsRef + overlayQueueRef both zero',
+          ...clickDiagBase,
+          selectedAction: 'pending-drain-call',
+          reason: 'will-await-prefetchPendingNotificationChain',
+          pendingChainPrefetchInFlightBefore:
+            pendingChainPrefetchInFlightRef.current,
+        });
         await prefetchPendingNotificationChain(null, 'lobby-bans-cta');
         queueLen = overlayQueueRef.current.length;
         pendingLenAfterPrefetch = pendingStartupInteractionsRef.current.length;
+        const ownerAfterPrefetch = ownerShadowRef.current.getState();
+        const headAfterPrefetch =
+          ownerAfterPrefetch.queue[0] ?? ownerAfterPrefetch.pending[0] ?? null;
+        const canDrainAfterPrefetch =
+          pendingLenAfterPrefetch > 0 ||
+          queueLen > 0 ||
+          hasPendingNotificationChain();
+        logQueueReadyForDrain({
+          source: 'lobby-bans-cta-after-prefetch',
+          queueLength: queueLen,
+          pendingLength: pendingLenAfterPrefetch,
+          ownerQueueHead: headAfterPrefetch
+            ? {
+                kind: headAfterPrefetch.kind,
+                banId:
+                  headAfterPrefetch.kind === 'result'
+                    ? headAfterPrefetch.result.id
+                    : headAfterPrefetch.ban.id,
+              }
+            : null,
+          canDrainFromLobbyClick: canDrainAfterPrefetch,
+          pendingChainPrefetchInFlight:
+            pendingChainPrefetchInFlightRef.current,
+          lobbyBansAttentionHint,
+        });
       }
 
       const pendingSnapshot = [...pendingStartupInteractionsRef.current];
@@ -22193,6 +22507,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       if (!needAttention) {
+        logLobbyBansClickDecision({
+          decisionPoint: 'after-prefetch-need-attention-false',
+          sourceOfTruth:
+            'needAttention = pendingLen>0 || queueLen>0 || hasPendingNotificationChain() — lobbyBansAttentionHint excluded',
+          ...clickDiagBase,
+          queueLenAfterDecision: queueLen,
+          pendingLenAfterDecision: pendingLenAfterPrefetch,
+          needAttention,
+          hasLobbyIndicator,
+          selectedAction: 'open-section',
+          reason: 'prefetch-completed-empty-route',
+          whyOpenSectionDespiteIndicator:
+            lobbyBansAttentionHint > 0
+              ? 'hint-not-in-needAttention-formula'
+              : 'no-hint-and-no-runnable-queue',
+        });
+        logLobbyBansClick({
+          ...clickDiagBase,
+          phase: 'startLobbyBansNotificationDrain-open-section',
+          queueLen,
+          pendingLen: pendingLenAfterPrefetch,
+          selectedAction: 'open-section',
+          reason: 'need-attention-false-after-prefetch',
+        });
         const comparison = buildQueueSourceComparisonSnapshot(
           'lobby-bans-cta-need-attention-false',
         );
@@ -22224,6 +22562,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return 'empty';
       }
+
+      logLobbyBansClickDecision({
+        decisionPoint: 'drain-branch-entered',
+        sourceOfTruth:
+          'needAttention = pendingLen>0 || queueLen>0 || hasPendingNotificationChain()',
+        ...clickDiagBase,
+        queueLenAfterDecision: queueLen,
+        pendingLenAfterDecision: pendingLenAfterPrefetch,
+        needAttention,
+        selectedAction: 'drain',
+        reason: 'need-attention-true-start-drain',
+      });
+      logLobbyBansClick({
+        ...clickDiagBase,
+        phase: 'startLobbyBansNotificationDrain-drain',
+        queueLen,
+        pendingLen: pendingLenAfterPrefetch,
+        selectedAction: 'drain',
+        reason: 'need-attention-true',
+      });
 
       logLobbyBansCtaRouteDiag({
         source: 'lobby-bans-cta-drain-branch',

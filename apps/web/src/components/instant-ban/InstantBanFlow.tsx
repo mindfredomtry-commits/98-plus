@@ -238,6 +238,7 @@ import {
   logLobbyBansDrainNotEntered,
 } from '@/lib/queue-source-comparison-debug';
 import { logLobbyBansCtaEmptyDelayDiag } from '@/lib/lobby-bans-cta-debug';
+import { logLobbyBansClick } from '@/lib/lobby-bans-click-diag-debug';
 import { BanGlyph } from './SuccessBanCardBody';
 import { logSendFlow } from '@/lib/send-flow-debug';
 import { DEFAULT_SEND_TIMEOUT_MS } from '@/lib/request-timeout';
@@ -2306,6 +2307,15 @@ export function InstantBanFlow({
       willCallStartLobbyBansNotificationDrain: willCallDrain,
       blockedReason,
     });
+    logLobbyBansClick({
+      phase: 'handleOpenBansOverlay-entry',
+      lobbyBansNeedAttention,
+      pendingStartupInteractionsLen: pendingStartupInteractions,
+      refQueueLen: overlayQueueLength,
+      selectedAction: willCallDrain ? 'pending-drain-call' : 'ignored',
+      reason: blockedReason ?? 'calling-startLobbyBansNotificationDrain',
+      notificationDrainActive: notificationChainTransitioning,
+    });
     logQueueSourceComparisonSnapshot('lobby-bans-cta-click');
 
     if (!willCallDrain) {
@@ -2360,6 +2370,8 @@ export function InstantBanFlow({
     lobbyBansNeedAttention,
     startLobbyBansNotificationDrain,
     user?.id,
+    pendingStartupInteractions,
+    overlayQueueLength,
   ]);
 
   const handleOpenSettings = useCallback(() => {

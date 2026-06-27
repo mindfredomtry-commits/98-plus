@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { logLobbyBansCtaClickTrace } from '@/lib/queue-source-comparison-debug';
+import { logLobbyBansClick } from '@/lib/lobby-bans-click-diag-debug';
 import { logLobbyIndicatorRenderHydrateTrace } from '@/lib/lobby-indicator-hydrate-trace-debug';
 
 type Props = {
@@ -60,6 +61,13 @@ export function ArenaLobbyTopNav({
             : ''
         }`}
         onClick={() => {
+          logLobbyBansClick({
+            phase: 'ArenaLobbyTopNav-button',
+            lobbyBansNeedAttention: bansNeedAttention,
+            selectedAction: 'pending-drain-call',
+            reason: 'topnav-click-before-onOpenBans',
+            telegramUserId,
+          });
           logLobbyBansCtaClickTrace({
             clickSurface: 'ArenaLobbyTopNav-button',
             clicked: true,
