@@ -6,6 +6,7 @@ import {
   overlayQueueKey,
 } from '@/lib/overlay-queue';
 import type { HeldUserCardOverlay } from '@/lib/overlay-user-card-guard';
+import { heldUserCardBanId } from '@/lib/overlay-user-card-guard';
 import { normalizeId } from '@/lib/normalize-json';
 import {
   isOverkillTerminalOutcome,
@@ -20,6 +21,57 @@ export type NotificationOverlayActiveSource =
   | 'direct-overboard'
   | null;
 
+export type NotificationOwnerComposePhase =
+  | 'idle'
+  | 'selectingTarget'
+  | 'composingBan'
+  | 'confirming';
+
+export type NotificationOwnerDeeplinkSingleCardContext = {
+  kind: 'check' | 'reply' | 'incoming' | 'result';
+  banId: string;
+};
+
+export type NotificationOwnerFreshDeeplinkEntry = {
+  banId: string;
+  launchSource: string;
+  openedAt: number;
+  consumed: boolean;
+};
+
+export type NotificationOwnerDisplayState = {
+  incomingBan: BanInteraction | null;
+  /** Phase 11B.3 — pinned incoming overlay ban (legacy stableIncomingOverlayBan mirror target). */
+  stableIncomingBan: BanInteraction | null;
+  /** Phase 11B.4 — reply deeplink incoming display ban (legacy replyIncomingDisplayBan mirror target). */
+  replyIncomingBan: BanInteraction | null;
+  /** Phase 11B.5 — user-data scoped incoming display (legacy scopedIncomingBan mirror target). */
+  scopedIncomingBan: BanInteraction | null;
+  checkBan: BanInteraction | null;
+  result: BanResult | null;
+  directResultOverlay: boolean;
+  directResultOverlayActive: boolean;
+};
+
+/** Step 3 Phase 9 — partial active display payload patch. */
+export type OwnerActiveDisplayPatch = {
+  incomingBan?: BanInteraction | null;
+  stableIncomingBan?: BanInteraction | null;
+  replyIncomingBan?: BanInteraction | null;
+  scopedIncomingBan?: BanInteraction | null;
+  checkBan?: BanInteraction | null;
+  result?: BanResult | null;
+  directResultOverlay?: boolean;
+  directResultOverlayActive?: boolean;
+};
+
+/** Phase 11B.3 — shadow mirror patch for stable incoming (no legacy reverse mirror). */
+export type OwnerDisplayMirrorPatch = {
+  stableIncomingBan?: BanInteraction | null;
+  replyIncomingBan?: BanInteraction | null;
+  scopedIncomingBan?: BanInteraction | null;
+};
+
 export type NotificationOverlayOwnerState = {
   queue: QueuedOverlay[];
   pending: QueuedOverlay[];
@@ -31,6 +83,9 @@ export type NotificationOverlayOwnerState = {
     source: NotificationOverlayActiveSource;
   };
 
+  /** Step 3 Phase 9 — source of truth for mounted display payloads. */
+  display: NotificationOwnerDisplayState;
+
   session: {
     lobbyOpen: boolean;
     chainAdvanceWaiting: boolean;
@@ -38,6 +93,16 @@ export type NotificationOverlayOwnerState = {
     startupHold: boolean;
     overlayVisible: boolean;
     shellKind: 'incoming' | 'check' | 'result' | null;
+    chainAdvanceExplicit: boolean;
+    awaitingUser: boolean;
+    chainHandoff: boolean;
+    drainActive: boolean;
+    goToBansAdvancePending: boolean;
+    shownOverlayKeys: Set<string>;
+    dismissedIncomingIds: Set<string>;
+    dismissedCheckIds: Set<string>;
+    answeredCheckIds: Set<string>;
+    checkAnswerPendingResultShowIds: Set<string>;
   };
 
   holds: {
@@ -51,6 +116,8 @@ export type NotificationOverlayOwnerState = {
     atomicOverboardBanId: string | null;
     overkillTerminalBanIds: Set<string>;
     resultPriorityBanIds: Set<string>;
+    checkAnswerInFlight: Set<string>;
+    overboardInFlightBanId: string | null;
   };
 
   meta: {
@@ -58,7 +125,56 @@ export type NotificationOverlayOwnerState = {
     deeplinkSingleCard: boolean;
     composeBlocking: boolean;
     successCardMounted: boolean;
+    composePhase: NotificationOwnerComposePhase;
+    replyComposeActive: boolean;
+    notificationChainReplyComposeActive: boolean;
+    chainReplyParentBanId: string | null;
+    activeTimerMounted: boolean;
+    deeplinkSingleCardContext: NotificationOwnerDeeplinkSingleCardContext | null;
+    freshDeeplinkEntry: NotificationOwnerFreshDeeplinkEntry | null;
   };
+};
+
+/** Step 3 Phase 0 — mirror-write patches (shadow only, not wired to production). */
+export type OwnerSessionMirrorPatch = {
+  startupHold?: boolean;
+  chainAdvanceExplicit?: boolean;
+  awaitingUser?: boolean;
+  chainHandoff?: boolean;
+  drainActive?: boolean;
+  goToBansAdvancePending?: boolean;
+  lobbyOpen?: boolean;
+  chainAdvanceWaiting?: boolean;
+  notificationChainTransitioning?: boolean;
+  shownOverlayKeys?: ReadonlySet<string>;
+  dismissedIncomingIds?: ReadonlySet<string>;
+  dismissedCheckIds?: ReadonlySet<string>;
+  answeredCheckIds?: ReadonlySet<string>;
+  checkAnswerPendingResultShowIds?: ReadonlySet<string>;
+};
+
+export type OwnerHoldsMirrorPatch = {
+  checkAnswerInFlight?: ReadonlySet<string>;
+  overkillTerminalBanIds?: ReadonlySet<string>;
+  resultPriorityBanIds?: ReadonlySet<string>;
+  atomicOverboardBanId?: string | null;
+  overboardInFlightBanId?: string | null;
+  userCard?: HeldUserCardOverlay | null;
+  checkResultWait?: NotificationOverlayOwnerState['holds']['checkResultWait'];
+};
+
+export type OwnerMetaMirrorPatch = {
+  notificationMode?: string | null;
+  composePhase?: NotificationOwnerComposePhase;
+  replyComposeActive?: boolean;
+  notificationChainReplyComposeActive?: boolean;
+  chainReplyParentBanId?: string | null;
+  successCardMounted?: boolean;
+  activeTimerMounted?: boolean;
+  deeplinkSingleCard?: boolean;
+  deeplinkSingleCardContext?: NotificationOwnerDeeplinkSingleCardContext | null;
+  freshDeeplinkEntry?: NotificationOwnerFreshDeeplinkEntry | null;
+  composeBlocking?: boolean;
 };
 
 export type NotificationOverlayOwnerEvent =
@@ -131,6 +247,30 @@ export type NotificationOverlayOwnerEvent =
       banId: string;
       reason?: string;
     }
+  /** Step 3 Phase 9 — owner authority: sync active display payload from syncDisplayFromQueue. */
+  | {
+      type: 'ACTIVE_DISPLAY_SYNC';
+      patch: OwnerActiveDisplayPatch;
+      source?: string;
+    }
+  /** Step 3 Phase 8 — owner authority: full overlay queue replace (display path). */
+  | {
+      type: 'QUEUE_APPLIED';
+      queue: QueuedOverlay[];
+      source?: string;
+    }
+  /** Step 3 Phase 8 — owner authority: silent full overlay queue replace. */
+  | {
+      type: 'QUEUE_SILENT_UPDATED';
+      queue: QueuedOverlay[];
+      source?: string;
+    }
+  /** Step 3 Phase 8 — owner authority: full pending startup queue replace. */
+  | {
+      type: 'PENDING_QUEUE_APPLIED';
+      pending: QueuedOverlay[];
+      source?: string;
+    }
   /** Step-1 shadow bridge: production committed a full overlay queue replace. */
   | {
       type: 'SHADOW_QUEUE_APPLIED';
@@ -140,10 +280,49 @@ export type NotificationOverlayOwnerEvent =
   | {
       type: 'SHADOW_PRODUCTION_SNAPSHOT';
       snapshot: OwnerProductionSnapshot;
+    }
+  /** Step 3 Phase 0 — mirror session fields without production side effects. */
+  | {
+      type: 'SHADOW_MIRROR_SESSION';
+      patch: OwnerSessionMirrorPatch;
+      source?: string;
+    }
+  /** Step 3 Phase 0 — mirror holds fields without production side effects. */
+  | {
+      type: 'SHADOW_MIRROR_HOLDS';
+      patch: OwnerHoldsMirrorPatch;
+      source?: string;
+    }
+  /** Step 3 Phase 0 — mirror meta fields without production side effects. */
+  | {
+      type: 'SHADOW_MIRROR_META';
+      patch: OwnerMetaMirrorPatch;
+      source?: string;
+    }
+  | {
+      type: 'SHADOW_MIRROR_DISPLAY';
+      patch: OwnerDisplayMirrorPatch;
+      source?: string;
     };
 
 export type NotificationOverlayOwnerEffect =
   | { type: 'APPLY_DISPLAY' }
+  | {
+      type: 'MIRROR_LEGACY_QUEUE';
+      queue: QueuedOverlay[];
+      source: string;
+      silent: boolean;
+    }
+  | {
+      type: 'MIRROR_LEGACY_PENDING';
+      pending: QueuedOverlay[];
+      source: string;
+    }
+  | {
+      type: 'MIRROR_LEGACY_ACTIVE';
+      display: NotificationOwnerDisplayState;
+      source: string;
+    }
   | { type: 'SCHEDULE_HOLD_TIMEOUT'; banId: string; ms: number }
   | { type: 'CLEAR_HOLD_TIMEOUT'; banId: string }
   | { type: 'OPEN_LOBBY'; source: string }
@@ -156,8 +335,13 @@ export type OwnerProductionSnapshot = {
   realHeadKind: QueuedOverlay['kind'] | null;
   realHeadBanId: string | null;
   activeIncomingBanId: string | null;
+  stableIncomingBanId: string | null;
+  replyIncomingBanId: string | null;
+  scopedIncomingBanId: string | null;
   activeCheckBanId: string | null;
   activeResultBanId: string | null;
+  directResultOverlay: boolean;
+  directResultOverlayActive: boolean;
   lobbyOpen: boolean;
   chainAdvanceWaiting: boolean;
   notificationChainTransitioning: boolean;
@@ -165,9 +349,35 @@ export type OwnerProductionSnapshot = {
   overlayVisible: boolean;
   shellKind: 'incoming' | 'check' | 'result' | null;
   checkResultHoldBanId: string | null;
+  checkResultHoldDeferredQueue: readonly QueuedOverlay[];
   heldUserCardKind: HeldUserCardOverlay['kind'] | null;
   heldUserCardBanId: string | null;
   atomicOverboardBanId: string | null;
+  chainAdvanceExplicit: boolean;
+  awaitingUser: boolean;
+  chainHandoff: boolean;
+  drainActive: boolean;
+  goToBansAdvancePending: boolean;
+  shownOverlayKeys: ReadonlySet<string>;
+  dismissedIncomingIds: ReadonlySet<string>;
+  dismissedCheckIds: ReadonlySet<string>;
+  answeredCheckIds: ReadonlySet<string>;
+  checkAnswerPendingResultShowIds: ReadonlySet<string>;
+  checkAnswerInFlight: ReadonlySet<string>;
+  overkillTerminalBanIds: ReadonlySet<string>;
+  resultPriorityBanIds: ReadonlySet<string>;
+  overboardInFlightBanId: string | null;
+  composePhase: NotificationOwnerComposePhase;
+  replyComposeActive: boolean;
+  notificationChainReplyComposeActive: boolean;
+  chainReplyParentBanId: string | null;
+  successCardMounted: boolean;
+  activeTimerMounted: boolean;
+  notificationMode: string | null;
+  deeplinkSingleCard: boolean;
+  deeplinkSingleCardContext: NotificationOwnerDeeplinkSingleCardContext | null;
+  freshDeeplinkEntry: NotificationOwnerFreshDeeplinkEntry | null;
+  composeBlocking: boolean;
 };
 
 export type NotificationOverlayOwnerReducerResult = {
@@ -185,6 +395,16 @@ export function createInitialNotificationOverlayOwnerState(): NotificationOverla
       payload: null,
       source: null,
     },
+    display: {
+      incomingBan: null,
+      stableIncomingBan: null,
+      replyIncomingBan: null,
+      scopedIncomingBan: null,
+      checkBan: null,
+      result: null,
+      directResultOverlay: false,
+      directResultOverlayActive: false,
+    },
     session: {
       lobbyOpen: true,
       chainAdvanceWaiting: false,
@@ -192,6 +412,16 @@ export function createInitialNotificationOverlayOwnerState(): NotificationOverla
       startupHold: false,
       overlayVisible: false,
       shellKind: null,
+      chainAdvanceExplicit: false,
+      awaitingUser: false,
+      chainHandoff: false,
+      drainActive: false,
+      goToBansAdvancePending: false,
+      shownOverlayKeys: new Set(),
+      dismissedIncomingIds: new Set(),
+      dismissedCheckIds: new Set(),
+      answeredCheckIds: new Set(),
+      checkAnswerPendingResultShowIds: new Set(),
     },
     holds: {
       userCard: null,
@@ -199,12 +429,21 @@ export function createInitialNotificationOverlayOwnerState(): NotificationOverla
       atomicOverboardBanId: null,
       overkillTerminalBanIds: new Set(),
       resultPriorityBanIds: new Set(),
+      checkAnswerInFlight: new Set(),
+      overboardInFlightBanId: null,
     },
     meta: {
       notificationMode: null,
       deeplinkSingleCard: false,
       composeBlocking: false,
       successCardMounted: false,
+      composePhase: 'idle',
+      replyComposeActive: false,
+      notificationChainReplyComposeActive: false,
+      chainReplyParentBanId: null,
+      activeTimerMounted: false,
+      deeplinkSingleCardContext: null,
+      freshDeeplinkEntry: null,
     },
   };
 }
@@ -216,7 +455,17 @@ function cloneOwnerState(
     queue: [...state.queue],
     pending: [...state.pending],
     active: { ...state.active },
-    session: { ...state.session },
+    display: { ...state.display },
+    session: {
+      ...state.session,
+      shownOverlayKeys: new Set(state.session.shownOverlayKeys),
+      dismissedIncomingIds: new Set(state.session.dismissedIncomingIds),
+      dismissedCheckIds: new Set(state.session.dismissedCheckIds),
+      answeredCheckIds: new Set(state.session.answeredCheckIds),
+      checkAnswerPendingResultShowIds: new Set(
+        state.session.checkAnswerPendingResultShowIds,
+      ),
+    },
     holds: {
       userCard: state.holds.userCard,
       checkResultWait: state.holds.checkResultWait
@@ -228,9 +477,208 @@ function cloneOwnerState(
       atomicOverboardBanId: state.holds.atomicOverboardBanId,
       overkillTerminalBanIds: new Set(state.holds.overkillTerminalBanIds),
       resultPriorityBanIds: new Set(state.holds.resultPriorityBanIds),
+      checkAnswerInFlight: new Set(state.holds.checkAnswerInFlight),
+      overboardInFlightBanId: state.holds.overboardInFlightBanId,
     },
-    meta: { ...state.meta },
+    meta: {
+      ...state.meta,
+      deeplinkSingleCardContext: state.meta.deeplinkSingleCardContext
+        ? { ...state.meta.deeplinkSingleCardContext }
+        : null,
+      freshDeeplinkEntry: state.meta.freshDeeplinkEntry
+        ? { ...state.meta.freshDeeplinkEntry }
+        : null,
+    },
   };
+}
+
+function cloneStringSet(source?: ReadonlySet<string>): Set<string> {
+  return new Set(source ?? []);
+}
+
+function applySessionMirrorPatch(
+  session: NotificationOverlayOwnerState['session'],
+  patch: OwnerSessionMirrorPatch,
+): NotificationOverlayOwnerState['session'] {
+  return {
+    ...session,
+    ...(patch.startupHold !== undefined ? { startupHold: patch.startupHold } : {}),
+    ...(patch.chainAdvanceExplicit !== undefined
+      ? { chainAdvanceExplicit: patch.chainAdvanceExplicit }
+      : {}),
+    ...(patch.awaitingUser !== undefined ? { awaitingUser: patch.awaitingUser } : {}),
+    ...(patch.chainHandoff !== undefined ? { chainHandoff: patch.chainHandoff } : {}),
+    ...(patch.drainActive !== undefined ? { drainActive: patch.drainActive } : {}),
+    ...(patch.goToBansAdvancePending !== undefined
+      ? { goToBansAdvancePending: patch.goToBansAdvancePending }
+      : {}),
+    ...(patch.lobbyOpen !== undefined ? { lobbyOpen: patch.lobbyOpen } : {}),
+    ...(patch.chainAdvanceWaiting !== undefined
+      ? { chainAdvanceWaiting: patch.chainAdvanceWaiting }
+      : {}),
+    ...(patch.notificationChainTransitioning !== undefined
+      ? { notificationChainTransitioning: patch.notificationChainTransitioning }
+      : {}),
+    ...(patch.shownOverlayKeys !== undefined
+      ? { shownOverlayKeys: cloneStringSet(patch.shownOverlayKeys) }
+      : {}),
+    ...(patch.dismissedIncomingIds !== undefined
+      ? { dismissedIncomingIds: cloneStringSet(patch.dismissedIncomingIds) }
+      : {}),
+    ...(patch.dismissedCheckIds !== undefined
+      ? { dismissedCheckIds: cloneStringSet(patch.dismissedCheckIds) }
+      : {}),
+    ...(patch.answeredCheckIds !== undefined
+      ? { answeredCheckIds: cloneStringSet(patch.answeredCheckIds) }
+      : {}),
+    ...(patch.checkAnswerPendingResultShowIds !== undefined
+      ? {
+          checkAnswerPendingResultShowIds: cloneStringSet(
+            patch.checkAnswerPendingResultShowIds,
+          ),
+        }
+      : {}),
+  };
+}
+
+function applyHoldsMirrorPatch(
+  holds: NotificationOverlayOwnerState['holds'],
+  patch: OwnerHoldsMirrorPatch,
+): NotificationOverlayOwnerState['holds'] {
+  return {
+    ...holds,
+    ...(patch.checkAnswerInFlight !== undefined
+      ? { checkAnswerInFlight: cloneStringSet(patch.checkAnswerInFlight) }
+      : {}),
+    ...(patch.overkillTerminalBanIds !== undefined
+      ? { overkillTerminalBanIds: cloneStringSet(patch.overkillTerminalBanIds) }
+      : {}),
+    ...(patch.resultPriorityBanIds !== undefined
+      ? { resultPriorityBanIds: cloneStringSet(patch.resultPriorityBanIds) }
+      : {}),
+    ...(patch.atomicOverboardBanId !== undefined
+      ? { atomicOverboardBanId: patch.atomicOverboardBanId }
+      : {}),
+    ...(patch.overboardInFlightBanId !== undefined
+      ? { overboardInFlightBanId: patch.overboardInFlightBanId }
+      : {}),
+    ...(patch.userCard !== undefined ? { userCard: patch.userCard } : {}),
+    ...(patch.checkResultWait !== undefined
+      ? {
+          checkResultWait: patch.checkResultWait
+            ? {
+                ...patch.checkResultWait,
+                deferredQueue: [...patch.checkResultWait.deferredQueue],
+              }
+            : null,
+        }
+      : {}),
+  };
+}
+
+function applyMetaMirrorPatch(
+  meta: NotificationOverlayOwnerState['meta'],
+  patch: OwnerMetaMirrorPatch,
+): NotificationOverlayOwnerState['meta'] {
+  return {
+    ...meta,
+    ...(patch.notificationMode !== undefined
+      ? { notificationMode: patch.notificationMode }
+      : {}),
+    ...(patch.composePhase !== undefined ? { composePhase: patch.composePhase } : {}),
+    ...(patch.replyComposeActive !== undefined
+      ? { replyComposeActive: patch.replyComposeActive }
+      : {}),
+    ...(patch.notificationChainReplyComposeActive !== undefined
+      ? {
+          notificationChainReplyComposeActive:
+            patch.notificationChainReplyComposeActive,
+        }
+      : {}),
+    ...(patch.chainReplyParentBanId !== undefined
+      ? { chainReplyParentBanId: patch.chainReplyParentBanId }
+      : {}),
+    ...(patch.successCardMounted !== undefined
+      ? { successCardMounted: patch.successCardMounted }
+      : {}),
+    ...(patch.activeTimerMounted !== undefined
+      ? { activeTimerMounted: patch.activeTimerMounted }
+      : {}),
+    ...(patch.deeplinkSingleCard !== undefined
+      ? { deeplinkSingleCard: patch.deeplinkSingleCard }
+      : {}),
+    ...(patch.deeplinkSingleCardContext !== undefined
+      ? {
+          deeplinkSingleCardContext: patch.deeplinkSingleCardContext
+            ? { ...patch.deeplinkSingleCardContext }
+            : null,
+        }
+      : {}),
+    ...(patch.freshDeeplinkEntry !== undefined
+      ? {
+          freshDeeplinkEntry: patch.freshDeeplinkEntry
+            ? { ...patch.freshDeeplinkEntry }
+            : null,
+        }
+      : {}),
+    ...(patch.composeBlocking !== undefined
+      ? { composeBlocking: patch.composeBlocking }
+      : {}),
+  };
+}
+
+function compareStringSets(
+  label: string,
+  ownerSet: ReadonlySet<string>,
+  realSet: ReadonlySet<string>,
+  mismatches: string[],
+): void {
+  if (ownerSet.size !== realSet.size) {
+    mismatches.push(
+      `${label} size owner=${ownerSet.size} real=${realSet.size}`,
+    );
+    return;
+  }
+  for (const id of ownerSet) {
+    if (!realSet.has(id)) {
+      mismatches.push(`${label} missing in real: ${id}`);
+      return;
+    }
+  }
+  for (const id of realSet) {
+    if (!ownerSet.has(id)) {
+      mismatches.push(`${label} missing in owner: ${id}`);
+      return;
+    }
+  }
+}
+
+function compareQueuedOverlayKeys(
+  label: string,
+  ownerQueue: readonly QueuedOverlay[],
+  snapshotQueue: readonly QueuedOverlay[],
+  mismatches: string[],
+): void {
+  const ownerKeys = ownerQueue.map((item) => overlayQueueKey(item)).join('|');
+  const snapshotKeys = snapshotQueue.map((item) => overlayQueueKey(item)).join('|');
+  if (ownerKeys !== snapshotKeys) {
+    mismatches.push(
+      `${label} owner=${ownerKeys || '(empty)'} real=${snapshotKeys || '(empty)'}`,
+    );
+  }
+}
+
+function compareNullableJson(
+  label: string,
+  ownerValue: unknown,
+  realValue: unknown,
+  mismatches: string[],
+): void {
+  const ownerJson = JSON.stringify(ownerValue ?? null);
+  const realJson = JSON.stringify(realValue ?? null);
+  if (ownerJson !== realJson) {
+    mismatches.push(`${label} owner=${ownerJson} real=${realJson}`);
+  }
 }
 
 function mergePendingUnique(
@@ -305,13 +753,84 @@ function popQueueHeadForBan(
   return queue.slice(1);
 }
 
+function applyDisplayMirrorPatch(
+  display: NotificationOwnerDisplayState,
+  patch: OwnerDisplayMirrorPatch,
+): NotificationOwnerDisplayState {
+  return {
+    ...display,
+    stableIncomingBan:
+      patch.stableIncomingBan !== undefined
+        ? patch.stableIncomingBan
+        : display.stableIncomingBan,
+    replyIncomingBan:
+      patch.replyIncomingBan !== undefined
+        ? patch.replyIncomingBan
+        : display.replyIncomingBan,
+    scopedIncomingBan:
+      patch.scopedIncomingBan !== undefined
+        ? patch.scopedIncomingBan
+        : display.scopedIncomingBan,
+  };
+}
+
+function applyActiveDisplayPatch(
+  display: NotificationOwnerDisplayState,
+  patch: OwnerActiveDisplayPatch,
+): NotificationOwnerDisplayState {
+  return {
+    incomingBan:
+      patch.incomingBan !== undefined ? patch.incomingBan : display.incomingBan,
+    stableIncomingBan:
+      patch.stableIncomingBan !== undefined
+        ? patch.stableIncomingBan
+        : display.stableIncomingBan,
+    replyIncomingBan:
+      patch.replyIncomingBan !== undefined
+        ? patch.replyIncomingBan
+        : display.replyIncomingBan,
+    scopedIncomingBan:
+      patch.scopedIncomingBan !== undefined
+        ? patch.scopedIncomingBan
+        : display.scopedIncomingBan,
+    checkBan: patch.checkBan !== undefined ? patch.checkBan : display.checkBan,
+    result: patch.result !== undefined ? patch.result : display.result,
+    directResultOverlay:
+      patch.directResultOverlay !== undefined
+        ? patch.directResultOverlay
+        : display.directResultOverlay,
+    directResultOverlayActive:
+      patch.directResultOverlayActive !== undefined
+        ? patch.directResultOverlayActive
+        : display.directResultOverlayActive,
+  };
+}
+
 function applyProductionSnapshot(
   state: NotificationOverlayOwnerState,
   snapshot: OwnerProductionSnapshot,
+  opts?: {
+    preserveQueuePendingAuthority?: boolean;
+    preserveDisplayAuthority?: boolean;
+  },
 ): NotificationOverlayOwnerState {
   let next = cloneOwnerState(state);
-  next.queue = [...snapshot.queue];
-  next.pending = [...snapshot.pending];
+  if (!opts?.preserveQueuePendingAuthority) {
+    next.queue = [...snapshot.queue];
+    next.pending = [...snapshot.pending];
+  }
+  if (!opts?.preserveDisplayAuthority) {
+    next.display = {
+      incomingBan: null,
+      stableIncomingBan: null,
+      replyIncomingBan: null,
+      scopedIncomingBan: null,
+      checkBan: null,
+      result: null,
+      directResultOverlay: snapshot.directResultOverlay,
+      directResultOverlayActive: snapshot.directResultOverlayActive,
+    };
+  }
   next.session.lobbyOpen = snapshot.lobbyOpen;
   next.session.chainAdvanceWaiting = snapshot.chainAdvanceWaiting;
   next.session.notificationChainTransitioning =
@@ -319,12 +838,44 @@ function applyProductionSnapshot(
   next.session.startupHold = snapshot.startupHold;
   next.session.overlayVisible = snapshot.overlayVisible;
   next.session.shellKind = snapshot.shellKind;
+  next.session.chainAdvanceExplicit = snapshot.chainAdvanceExplicit;
+  next.session.awaitingUser = snapshot.awaitingUser;
+  next.session.chainHandoff = snapshot.chainHandoff;
+  next.session.drainActive = snapshot.drainActive;
+  next.session.goToBansAdvancePending = snapshot.goToBansAdvancePending;
+  next.session.shownOverlayKeys = cloneStringSet(snapshot.shownOverlayKeys);
+  next.session.dismissedIncomingIds = cloneStringSet(snapshot.dismissedIncomingIds);
+  next.session.dismissedCheckIds = cloneStringSet(snapshot.dismissedCheckIds);
+  next.session.answeredCheckIds = cloneStringSet(snapshot.answeredCheckIds);
+  next.session.checkAnswerPendingResultShowIds = cloneStringSet(
+    snapshot.checkAnswerPendingResultShowIds,
+  );
   next.holds.atomicOverboardBanId = snapshot.atomicOverboardBanId;
+  next.holds.checkAnswerInFlight = cloneStringSet(snapshot.checkAnswerInFlight);
+  next.holds.overkillTerminalBanIds = cloneStringSet(snapshot.overkillTerminalBanIds);
+  next.holds.resultPriorityBanIds = cloneStringSet(snapshot.resultPriorityBanIds);
+  next.holds.overboardInFlightBanId = snapshot.overboardInFlightBanId;
+  next.meta.notificationMode = snapshot.notificationMode;
+  next.meta.composePhase = snapshot.composePhase;
+  next.meta.replyComposeActive = snapshot.replyComposeActive;
+  next.meta.notificationChainReplyComposeActive =
+    snapshot.notificationChainReplyComposeActive;
+  next.meta.chainReplyParentBanId = snapshot.chainReplyParentBanId;
+  next.meta.successCardMounted = snapshot.successCardMounted;
+  next.meta.activeTimerMounted = snapshot.activeTimerMounted;
+  next.meta.deeplinkSingleCard = snapshot.deeplinkSingleCard;
+  next.meta.deeplinkSingleCardContext = snapshot.deeplinkSingleCardContext
+    ? { ...snapshot.deeplinkSingleCardContext }
+    : null;
+  next.meta.freshDeeplinkEntry = snapshot.freshDeeplinkEntry
+    ? { ...snapshot.freshDeeplinkEntry }
+    : null;
+  next.meta.composeBlocking = snapshot.composeBlocking;
 
   if (snapshot.checkResultHoldBanId) {
     next.holds.checkResultWait = {
       banId: snapshot.checkResultHoldBanId,
-      deferredQueue: next.holds.checkResultWait?.deferredQueue ?? [],
+      deferredQueue: [...snapshot.checkResultHoldDeferredQueue],
       startedAt: next.holds.checkResultWait?.startedAt ?? Date.now(),
       timeoutMs: NOTIFICATION_OWNER_CHECK_RESULT_HOLD_MS,
     };
@@ -403,9 +954,89 @@ export function compareOwnerShadowWithProduction(
       `headBanId owner=${ownerHead.banId ?? 'null'} real=${realHeadBanId ?? 'null'}`,
     );
   }
+  const ownerIncomingId = ownerState.display.incomingBan?.id
+    ? normalizeId(ownerState.display.incomingBan.id)
+    : null;
+  const ownerCheckId = ownerState.display.checkBan?.id
+    ? normalizeId(ownerState.display.checkBan.id)
+    : null;
+  const ownerResultId = ownerState.display.result?.id
+    ? normalizeId(ownerState.display.result.id)
+    : null;
+  if ((ownerIncomingId ?? null) !== (snapshot.activeIncomingBanId ?? null)) {
+    mismatches.push(
+      `displayIncomingBanId owner=${ownerIncomingId ?? 'null'} real=${snapshot.activeIncomingBanId ?? 'null'}`,
+    );
+  }
+  const ownerStableIncomingId = ownerState.display.stableIncomingBan?.id
+    ? normalizeId(ownerState.display.stableIncomingBan.id)
+    : null;
+  if (
+    (ownerStableIncomingId ?? null) !== (snapshot.stableIncomingBanId ?? null)
+  ) {
+    mismatches.push(
+      `displayStableIncomingBanId owner=${ownerStableIncomingId ?? 'null'} real=${snapshot.stableIncomingBanId ?? 'null'}`,
+    );
+  }
+  const ownerReplyIncomingId = ownerState.display.replyIncomingBan?.id
+    ? normalizeId(ownerState.display.replyIncomingBan.id)
+    : null;
+  if (
+    (ownerReplyIncomingId ?? null) !== (snapshot.replyIncomingBanId ?? null)
+  ) {
+    mismatches.push(
+      `displayReplyIncomingBanId owner=${ownerReplyIncomingId ?? 'null'} real=${snapshot.replyIncomingBanId ?? 'null'}`,
+    );
+  }
+  const ownerScopedIncomingId = ownerState.display.scopedIncomingBan?.id
+    ? normalizeId(ownerState.display.scopedIncomingBan.id)
+    : null;
+  if (
+    (ownerScopedIncomingId ?? null) !== (snapshot.scopedIncomingBanId ?? null)
+  ) {
+    mismatches.push(
+      `displayScopedIncomingBanId owner=${ownerScopedIncomingId ?? 'null'} real=${snapshot.scopedIncomingBanId ?? 'null'}`,
+    );
+  }
+  if ((ownerCheckId ?? null) !== (snapshot.activeCheckBanId ?? null)) {
+    mismatches.push(
+      `displayCheckBanId owner=${ownerCheckId ?? 'null'} real=${snapshot.activeCheckBanId ?? 'null'}`,
+    );
+  }
+  if ((ownerResultId ?? null) !== (snapshot.activeResultBanId ?? null)) {
+    mismatches.push(
+      `displayResultBanId owner=${ownerResultId ?? 'null'} real=${snapshot.activeResultBanId ?? 'null'}`,
+    );
+  }
+  if (ownerState.display.directResultOverlay !== snapshot.directResultOverlay) {
+    mismatches.push(
+      `directResultOverlay owner=${ownerState.display.directResultOverlay} real=${snapshot.directResultOverlay}`,
+    );
+  }
+  if (
+    ownerState.display.directResultOverlayActive !==
+    snapshot.directResultOverlayActive
+  ) {
+    mismatches.push(
+      `directResultOverlayActive owner=${ownerState.display.directResultOverlayActive} real=${snapshot.directResultOverlayActive}`,
+    );
+  }
   if (ownerState.session.lobbyOpen !== snapshot.lobbyOpen) {
     mismatches.push(
       `lobbyOpen owner=${ownerState.session.lobbyOpen} real=${snapshot.lobbyOpen}`,
+    );
+  }
+  if (ownerState.session.chainAdvanceWaiting !== snapshot.chainAdvanceWaiting) {
+    mismatches.push(
+      `chainAdvanceWaiting owner=${ownerState.session.chainAdvanceWaiting} real=${snapshot.chainAdvanceWaiting}`,
+    );
+  }
+  if (
+    ownerState.session.notificationChainTransitioning !==
+    snapshot.notificationChainTransitioning
+  ) {
+    mismatches.push(
+      `notificationChainTransitioning owner=${ownerState.session.notificationChainTransitioning} real=${snapshot.notificationChainTransitioning}`,
     );
   }
   if (ownerState.session.overlayVisible !== snapshot.overlayVisible) {
@@ -420,7 +1051,191 @@ export function compareOwnerShadowWithProduction(
     mismatches.push(
       `checkResultHold owner=${ownerState.holds.checkResultWait?.banId ?? 'null'} real=${snapshot.checkResultHoldBanId ?? 'null'}`,
     );
+  } else if (
+    (ownerState.holds.checkResultWait?.banId ?? null) !==
+    (snapshot.checkResultHoldBanId ?? null)
+  ) {
+    mismatches.push(
+      `checkResultHoldBanId owner=${ownerState.holds.checkResultWait?.banId ?? 'null'} real=${snapshot.checkResultHoldBanId ?? 'null'}`,
+    );
   }
+  compareQueuedOverlayKeys(
+    'checkResultHoldDeferredQueue',
+    ownerState.holds.checkResultWait?.deferredQueue ?? [],
+    snapshot.checkResultHoldDeferredQueue,
+    mismatches,
+  );
+  if (ownerState.session.startupHold !== snapshot.startupHold) {
+    mismatches.push(
+      `startupHold owner=${ownerState.session.startupHold} real=${snapshot.startupHold}`,
+    );
+  }
+  if (ownerState.session.chainAdvanceExplicit !== snapshot.chainAdvanceExplicit) {
+    mismatches.push(
+      `chainAdvanceExplicit owner=${ownerState.session.chainAdvanceExplicit} real=${snapshot.chainAdvanceExplicit}`,
+    );
+  }
+  if (ownerState.session.awaitingUser !== snapshot.awaitingUser) {
+    mismatches.push(
+      `awaitingUser owner=${ownerState.session.awaitingUser} real=${snapshot.awaitingUser}`,
+    );
+  }
+  if (ownerState.session.chainHandoff !== snapshot.chainHandoff) {
+    mismatches.push(
+      `chainHandoff owner=${ownerState.session.chainHandoff} real=${snapshot.chainHandoff}`,
+    );
+  }
+  if (ownerState.session.drainActive !== snapshot.drainActive) {
+    mismatches.push(
+      `drainActive owner=${ownerState.session.drainActive} real=${snapshot.drainActive}`,
+    );
+  }
+  if (
+    ownerState.session.goToBansAdvancePending !== snapshot.goToBansAdvancePending
+  ) {
+    mismatches.push(
+      `goToBansAdvancePending owner=${ownerState.session.goToBansAdvancePending} real=${snapshot.goToBansAdvancePending}`,
+    );
+  }
+  compareStringSets(
+    'shownOverlayKeys',
+    ownerState.session.shownOverlayKeys,
+    snapshot.shownOverlayKeys,
+    mismatches,
+  );
+  compareStringSets(
+    'dismissedIncomingIds',
+    ownerState.session.dismissedIncomingIds,
+    snapshot.dismissedIncomingIds,
+    mismatches,
+  );
+  compareStringSets(
+    'dismissedCheckIds',
+    ownerState.session.dismissedCheckIds,
+    snapshot.dismissedCheckIds,
+    mismatches,
+  );
+  compareStringSets(
+    'answeredCheckIds',
+    ownerState.session.answeredCheckIds,
+    snapshot.answeredCheckIds,
+    mismatches,
+  );
+  compareStringSets(
+    'checkAnswerPendingResultShowIds',
+    ownerState.session.checkAnswerPendingResultShowIds,
+    snapshot.checkAnswerPendingResultShowIds,
+    mismatches,
+  );
+  compareStringSets(
+    'checkAnswerInFlight',
+    ownerState.holds.checkAnswerInFlight,
+    snapshot.checkAnswerInFlight,
+    mismatches,
+  );
+  compareStringSets(
+    'overkillTerminalBanIds',
+    ownerState.holds.overkillTerminalBanIds,
+    snapshot.overkillTerminalBanIds,
+    mismatches,
+  );
+  compareStringSets(
+    'resultPriorityBanIds',
+    ownerState.holds.resultPriorityBanIds,
+    snapshot.resultPriorityBanIds,
+    mismatches,
+  );
+  if (
+    (ownerState.holds.atomicOverboardBanId ?? null) !==
+    (snapshot.atomicOverboardBanId ?? null)
+  ) {
+    mismatches.push(
+      `atomicOverboardBanId owner=${ownerState.holds.atomicOverboardBanId ?? 'null'} real=${snapshot.atomicOverboardBanId ?? 'null'}`,
+    );
+  }
+  if (
+    (ownerState.holds.overboardInFlightBanId ?? null) !==
+    (snapshot.overboardInFlightBanId ?? null)
+  ) {
+    mismatches.push(
+      `overboardInFlightBanId owner=${ownerState.holds.overboardInFlightBanId ?? 'null'} real=${snapshot.overboardInFlightBanId ?? 'null'}`,
+    );
+  }
+  const ownerHeldKind = ownerState.holds.userCard?.kind ?? null;
+  const ownerHeldBanId = ownerState.holds.userCard
+    ? heldUserCardBanId(ownerState.holds.userCard)
+    : null;
+  if (
+    ownerHeldKind !== (snapshot.heldUserCardKind ?? null) ||
+    (ownerHeldBanId ?? null) !== (snapshot.heldUserCardBanId ?? null)
+  ) {
+    mismatches.push(
+      `heldUserCard owner=${ownerHeldKind ?? 'null'}:${ownerHeldBanId ?? 'null'} real=${snapshot.heldUserCardKind ?? 'null'}:${snapshot.heldUserCardBanId ?? 'null'}`,
+    );
+  }
+  if (ownerState.meta.composePhase !== snapshot.composePhase) {
+    mismatches.push(
+      `composePhase owner=${ownerState.meta.composePhase} real=${snapshot.composePhase}`,
+    );
+  }
+  if (ownerState.meta.replyComposeActive !== snapshot.replyComposeActive) {
+    mismatches.push(
+      `replyComposeActive owner=${ownerState.meta.replyComposeActive} real=${snapshot.replyComposeActive}`,
+    );
+  }
+  if (
+    ownerState.meta.notificationChainReplyComposeActive !==
+    snapshot.notificationChainReplyComposeActive
+  ) {
+    mismatches.push(
+      `notificationChainReplyComposeActive owner=${ownerState.meta.notificationChainReplyComposeActive} real=${snapshot.notificationChainReplyComposeActive}`,
+    );
+  }
+  if (
+    (ownerState.meta.chainReplyParentBanId ?? null) !==
+    (snapshot.chainReplyParentBanId ?? null)
+  ) {
+    mismatches.push(
+      `chainReplyParentBanId owner=${ownerState.meta.chainReplyParentBanId ?? 'null'} real=${snapshot.chainReplyParentBanId ?? 'null'}`,
+    );
+  }
+  if (ownerState.meta.successCardMounted !== snapshot.successCardMounted) {
+    mismatches.push(
+      `successCardMounted owner=${ownerState.meta.successCardMounted} real=${snapshot.successCardMounted}`,
+    );
+  }
+  if (ownerState.meta.activeTimerMounted !== snapshot.activeTimerMounted) {
+    mismatches.push(
+      `activeTimerMounted owner=${ownerState.meta.activeTimerMounted} real=${snapshot.activeTimerMounted}`,
+    );
+  }
+  if (ownerState.meta.composeBlocking !== snapshot.composeBlocking) {
+    mismatches.push(
+      `composeBlocking owner=${ownerState.meta.composeBlocking} real=${snapshot.composeBlocking}`,
+    );
+  }
+  if ((ownerState.meta.notificationMode ?? null) !== (snapshot.notificationMode ?? null)) {
+    mismatches.push(
+      `notificationMode owner=${ownerState.meta.notificationMode ?? 'null'} real=${snapshot.notificationMode ?? 'null'}`,
+    );
+  }
+  if (ownerState.meta.deeplinkSingleCard !== snapshot.deeplinkSingleCard) {
+    mismatches.push(
+      `deeplinkSingleCard owner=${ownerState.meta.deeplinkSingleCard} real=${snapshot.deeplinkSingleCard}`,
+    );
+  }
+  compareNullableJson(
+    'deeplinkSingleCardContext',
+    ownerState.meta.deeplinkSingleCardContext,
+    snapshot.deeplinkSingleCardContext,
+    mismatches,
+  );
+  compareNullableJson(
+    'freshDeeplinkEntry',
+    ownerState.meta.freshDeeplinkEntry,
+    snapshot.freshDeeplinkEntry,
+    mismatches,
+  );
   return mismatches;
 }
 
@@ -433,11 +1248,94 @@ export function notificationOverlayOwnerReducer(
 
   switch (event.type) {
     case 'SHADOW_PRODUCTION_SNAPSHOT': {
-      next = applyProductionSnapshot(next, event.snapshot);
+      next = applyProductionSnapshot(next, event.snapshot, {
+        preserveQueuePendingAuthority: true,
+        preserveDisplayAuthority: true,
+      });
       effects.push({
         type: 'LOG',
         tag: 'shadow-production-snapshot',
         fields: { queueLen: next.queue.length, pendingLen: next.pending.length },
+      });
+      break;
+    }
+
+    case 'QUEUE_APPLIED': {
+      next.queue = [...event.queue];
+      next = syncActiveFromQueueHead(next);
+      effects.push({
+        type: 'MIRROR_LEGACY_QUEUE',
+        queue: [...next.queue],
+        source: event.source ?? 'QUEUE_APPLIED',
+        silent: false,
+      });
+      effects.push({
+        type: 'LOG',
+        tag: 'queue-applied',
+        fields: {
+          source: event.source ?? null,
+          queueLen: next.queue.length,
+        },
+      });
+      break;
+    }
+
+    case 'QUEUE_SILENT_UPDATED': {
+      next.queue = [...event.queue];
+      next = syncActiveFromQueueHead(next);
+      effects.push({
+        type: 'MIRROR_LEGACY_QUEUE',
+        queue: [...next.queue],
+        source: event.source ?? 'QUEUE_SILENT_UPDATED',
+        silent: true,
+      });
+      effects.push({
+        type: 'LOG',
+        tag: 'queue-silent-updated',
+        fields: {
+          source: event.source ?? null,
+          queueLen: next.queue.length,
+        },
+      });
+      break;
+    }
+
+    case 'PENDING_QUEUE_APPLIED': {
+      next.pending = [...event.pending];
+      effects.push({
+        type: 'MIRROR_LEGACY_PENDING',
+        pending: [...next.pending],
+        source: event.source ?? 'PENDING_QUEUE_APPLIED',
+      });
+      effects.push({
+        type: 'LOG',
+        tag: 'pending-queue-applied',
+        fields: {
+          source: event.source ?? null,
+          pendingLen: next.pending.length,
+        },
+      });
+      break;
+    }
+
+    case 'ACTIVE_DISPLAY_SYNC': {
+      next.display = applyActiveDisplayPatch(next.display, event.patch);
+      effects.push({
+        type: 'MIRROR_LEGACY_ACTIVE',
+        display: { ...next.display },
+        source: event.source ?? 'ACTIVE_DISPLAY_SYNC',
+      });
+      effects.push({
+        type: 'LOG',
+        tag: 'active-display-sync',
+        fields: {
+          source: event.source ?? null,
+          incomingBanId: next.display.incomingBan?.id ?? null,
+          checkBanId: next.display.checkBan?.id ?? null,
+          resultBanId: next.display.result?.id ?? null,
+          directResultOverlay: next.display.directResultOverlay,
+          directResultOverlayActive: next.display.directResultOverlayActive,
+        },
       });
       break;
     }
@@ -453,6 +1351,11 @@ export function notificationOverlayOwnerReducer(
       const scope = event.scope ?? 'queue';
       if (scope === 'pending') {
         next.pending = mergePendingUnique(next.pending, event.item);
+        effects.push({
+          type: 'MIRROR_LEGACY_PENDING',
+          pending: [...next.pending],
+          source: 'NOTIFICATION_ENQUEUED:pending',
+        });
         effects.push({
           type: 'LOG',
           tag: 'enqueued-pending',
@@ -471,6 +1374,12 @@ export function notificationOverlayOwnerReducer(
         next.queue = [...withoutDup, event.item];
       }
       next = syncActiveFromQueueHead(next);
+      effects.push({
+        type: 'MIRROR_LEGACY_QUEUE',
+        queue: [...next.queue],
+        source: 'NOTIFICATION_ENQUEUED:queue',
+        silent: false,
+      });
       effects.push({ type: 'APPLY_DISPLAY' });
       break;
     }
@@ -685,6 +1594,60 @@ export function notificationOverlayOwnerReducer(
       }
       next = syncActiveFromQueueHead(next);
       effects.push({ type: 'APPLY_DISPLAY' });
+      break;
+    }
+
+    case 'SHADOW_MIRROR_SESSION': {
+      next.session = applySessionMirrorPatch(next.session, event.patch);
+      effects.push({
+        type: 'LOG',
+        tag: 'shadow-mirror-session',
+        fields: {
+          source: event.source ?? null,
+          patchKeys: Object.keys(event.patch),
+        },
+      });
+      break;
+    }
+
+    case 'SHADOW_MIRROR_HOLDS': {
+      next.holds = applyHoldsMirrorPatch(next.holds, event.patch);
+      effects.push({
+        type: 'LOG',
+        tag: 'shadow-mirror-holds',
+        fields: {
+          source: event.source ?? null,
+          patchKeys: Object.keys(event.patch),
+        },
+      });
+      break;
+    }
+
+    case 'SHADOW_MIRROR_META': {
+      next.meta = applyMetaMirrorPatch(next.meta, event.patch);
+      effects.push({
+        type: 'LOG',
+        tag: 'shadow-mirror-meta',
+        fields: {
+          source: event.source ?? null,
+          patchKeys: Object.keys(event.patch),
+        },
+      });
+      break;
+    }
+
+    case 'SHADOW_MIRROR_DISPLAY': {
+      next.display = applyDisplayMirrorPatch(next.display, event.patch);
+      effects.push({
+        type: 'LOG',
+        tag: 'shadow-mirror-display',
+        fields: {
+          source: event.source ?? null,
+          stableIncomingBanId: next.display.stableIncomingBan?.id ?? null,
+          replyIncomingBanId: next.display.replyIncomingBan?.id ?? null,
+          scopedIncomingBanId: next.display.scopedIncomingBan?.id ?? null,
+        },
+      });
       break;
     }
 

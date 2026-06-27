@@ -2,6 +2,7 @@
 
 import { normalizeId } from '@/lib/normalize-json';
 import { armFreshDeepLinkEntry, consumeFreshDeepLinkEntry } from '@/lib/fresh-deeplink-entry';
+import { mirrorOwnerDeeplinkMetaWrite } from '@/lib/notification-overlay-owner-deeplink-mirror';
 import {
   shouldBlockNonExplicitNotificationDrain,
 } from '@/lib/notification-chain-explicit-drain';
@@ -59,6 +60,7 @@ export function enableDeeplinkSingleCardMode(
   if (!normalized) return;
   mode = { kind, banId: normalized };
   armFreshDeepLinkEntry(normalized, `single-card:${kind}`);
+  mirrorOwnerDeeplinkMetaWrite(`enableDeeplinkSingleCardMode:${kind}`);
   window.__debug98log?.('[DEEPLINK SINGLE CARD MODE ON]', {
     kind,
     banId: normalized,
@@ -74,6 +76,7 @@ export function completeDeeplinkSingleCardMode(source: string): void {
     source,
   });
   mode = null;
+  mirrorOwnerDeeplinkMetaWrite(`completeDeeplinkSingleCardMode:${source}`);
 }
 
 export function getDeeplinkSingleCardMode(): DeeplinkSingleCardMode | null {
