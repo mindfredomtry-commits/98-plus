@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 65;
+export const DEBUG98_LOGGER_VERSION = 67;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -193,6 +193,9 @@ const ALLOWED_EVENTS = new Set([
   '[LOBBY BANS CLICK]',
   '[LOBBY BANS CLICK DECISION]',
   '[QUEUE READY FOR DRAIN]',
+  '[SHARED PREFETCH LIFECYCLE]',
+  '[COMMIT PENDING QUEUE VIA OWNER]',
+  '[DRAIN GATE SOURCE]',
   '[INCOMING OVERBOARD ATOMIC RESULT]',
   '[RESULT CARD STABLE HOLD]',
   '[RESULT CARD REMOUNT BUG]',
