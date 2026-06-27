@@ -178,6 +178,11 @@ import {
   logOverboardResultOpenedLobby,
   logOverboardResultQueueSessionDropped,
 } from '@/lib/overboard-result-chain-debug';
+import type {
+  NotificationOverlayOwnerEvent,
+  OwnerProductionSnapshot,
+} from '@/lib/notification-overlay-owner';
+import { createNotificationOverlayOwnerShadow } from '@/lib/notification-overlay-owner-shadow';
 import type { OptimisticOverboardBuildContext } from '@/lib/optimistic-overboard-result';
 import {
   logOverboardPaint,
@@ -2425,6 +2430,73 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const overlayShowNextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+
+  /** Step-1 Single Owner shadow — does not drive UI or production queue. */
+  const ownerShadowRef = useRef(createNotificationOverlayOwnerShadow());
+  const buildOwnerShadowProductionSnapshot = (): OwnerProductionSnapshot => {
+    const queue = overlayQueueRef.current;
+    const head = queue[0] ?? null;
+    const held = heldUserCardOverlayRef.current;
+    return {
+      queue: [...queue],
+      pending: [...pendingStartupInteractionsRef.current],
+      realHeadKind: head?.kind ?? null,
+      realHeadBanId: head ? normalizeId(overlayBanId(head)) || null : null,
+      activeIncomingBanId: incomingBanRef.current?.id
+        ? normalizeId(incomingBanRef.current.id) || null
+        : null,
+      activeCheckBanId: checkBanRef.current?.id
+        ? normalizeId(checkBanRef.current.id) || null
+        : null,
+      activeResultBanId: resultRef.current?.id
+        ? normalizeId(resultRef.current.id) || null
+        : null,
+      lobbyOpen: lobbyOpenRef.current,
+      chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+      notificationChainTransitioning:
+        notificationChainTransitioningRef.current,
+      startupHold: startupInteractionsHoldRef.current,
+      overlayVisible:
+        Boolean(checkAnswerWaitingResultHoldBanIdRef.current) ||
+        Boolean(held) ||
+        chainAdvanceWaitingRef.current ||
+        notificationChainTransitioningRef.current ||
+        Boolean(head) ||
+        Boolean(incomingBanRef.current?.id) ||
+        Boolean(checkBanRef.current?.id) ||
+        Boolean(resultRef.current?.id),
+      shellKind: checkAnswerWaitingResultHoldBanIdRef.current
+        ? 'check'
+        : (head?.kind ??
+          (checkBanRef.current?.id
+            ? 'check'
+            : incomingBanRef.current?.id
+              ? 'incoming'
+              : resultRef.current?.id
+                ? 'result'
+                : null)),
+      checkResultHoldBanId: checkAnswerWaitingResultHoldBanIdRef.current,
+      heldUserCardKind: held?.kind ?? null,
+      heldUserCardBanId: held ? heldUserCardBanId(held) : null,
+      atomicOverboardBanId: incomingOverboardAtomicBanIdRef.current,
+    };
+  };
+  const ownerShadowDispatch = (
+    event: NotificationOverlayOwnerEvent,
+    source: string,
+  ) => {
+    ownerShadowRef.current.dispatch(
+      event,
+      source,
+      buildOwnerShadowProductionSnapshot(),
+    );
+  };
+  const ownerShadowSyncFromProduction = (source: string) => {
+    ownerShadowRef.current.syncFromProduction(
+      buildOwnerShadowProductionSnapshot(),
+      source,
+    );
+  };
 
   const isUserAllowedCheckOverlayCloseReason = (reason: string) =>
     reason === 'user-answer' || reason === 'clear-check-overlay';
@@ -6530,6 +6602,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       chainAdvanceExplicitRef.current = false;
       setOverlayQueue(sanitizedNext);
+      ownerShadowSyncFromProduction('applyOverlayQueue');
       }),
     [syncDisplayFromQueue, commitOverlayQueueTraced],
   );
@@ -6822,6 +6895,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId: dismissBanId,
         source: reason,
       });
+      ownerShadowDispatch(
+        {
+          type: 'NOTIFICATION_DISMISSED',
+          banId: dismissBanId,
+          reason,
+        },
+        `dismissCurrentOverlay:${reason}`,
+      );
       if (
         isActiveUserCardHold() &&
         !isExplicitUserOverlayDismissReason(reason, dismissKind, dismissBanId)
@@ -7323,6 +7404,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId,
         );
         deferNotificationToPendingStartup(normalizedItem);
+        ownerShadowDispatch(
+          {
+            type: 'NOTIFICATION_ENQUEUED',
+            item: normalizedItem,
+            scope: 'pending',
+          },
+          `enqueueNotification:${opts?.source ?? 'unknown'}:mounted-block`,
+        );
         return;
       }
 
@@ -7338,6 +7427,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           normalizedItem.kind,
         );
         deferNotificationToPendingStartup(normalizedItem);
+        ownerShadowDispatch(
+          {
+            type: 'NOTIFICATION_ENQUEUED',
+            item: normalizedItem,
+            scope: 'pending',
+          },
+          `enqueueNotification:${opts?.source ?? 'unknown'}:compose-block`,
+        );
         return;
       }
 
@@ -7524,6 +7621,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           scope: 'startup-pending',
           queueLength: nextPending.length,
         });
+        ownerShadowDispatch(
+          {
+            type: 'NOTIFICATION_ENQUEUED',
+            item: normalizedItem,
+            scope: 'pending',
+          },
+          `enqueueNotification:${opts?.source ?? 'unknown'}:startup-hold`,
+        );
         return;
       }
 
@@ -7601,6 +7706,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       }
 
+      ownerShadowDispatch(
+        {
+          type: 'NOTIFICATION_ENQUEUED',
+          item: normalizedItem,
+          scope: 'queue',
+        },
+        `enqueueNotification:${opts?.source ?? 'unknown'}:${action ?? 'enqueue'}`,
+      );
       applyOverlayQueue(next);
     },
     [applyOverlayQueue, isOverlayLive, syncPendingStartupCount],
@@ -10533,6 +10646,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      ownerShadowDispatch(
+        checkAnswerInFlightRef.current.has(banId)
+          ? {
+              type: 'CHECK_RESULT_ARRIVED',
+              banId,
+              result: normalized,
+            }
+          : {
+              type: 'LATE_RESULT_ARRIVED',
+              banId,
+              result: normalized,
+            },
+        `receiveResult:${source}`,
+      );
+
       if (
         source === 'poll' &&
         shouldDeferNotificationOverlayDisplay('receiveResult-poll')
@@ -10804,6 +10932,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ) {
         return false;
       }
+
+      ownerShadowDispatch(
+        {
+          type: 'CHECK_RESULT_ARRIVED',
+          banId,
+          result: normalized,
+        },
+        `showCheckAnswerFinalResult:${source}`,
+      );
 
       releaseCheckAnswerWaitingResultHold(
         banId,
@@ -18956,6 +19093,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source,
         'continue-async-enter',
       );
+      ownerShadowDispatch(
+        { type: 'CHAIN_CONTINUE_REQUESTED', source },
+        `continueNotificationChainOrOpenLobby:${source}`,
+      );
       let outcome = continueNotificationChainOrOpenLobbySync(source, opts);
       if (outcome !== 'needs-prefetch') {
         return outcome;
@@ -20498,6 +20639,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearStaleComposeStateBeforeBansNavigation('finalizeResultForGoToBans');
       const key = normalizeId(banId);
       if (!key) return;
+      ownerShadowDispatch(
+        { type: 'RESULT_GO_TO_BANS', banId: key },
+        'finalizeResultForGoToBans',
+      );
       const queueLenBefore = overlayQueueRef.current.length;
       const outcome = resolveOverboardResultOutcome(
         resultRef.current ??
@@ -22229,6 +22374,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       source: source ?? 'default',
       lobbyOpen: true,
     });
+    ownerShadowDispatch(
+      { type: 'LOBBY_OPEN_REQUESTED', source: source ?? 'openLobby' },
+      `openLobby:${source ?? 'default'}`,
+    );
   }, [getNotificationChainDebugSnapshot, logReplyQueueHandoffDiagContext]);
 
   useLayoutEffect(() => {

@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 54;
+export const DEBUG98_LOGGER_VERSION = 55;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -311,6 +311,10 @@ const ALLOWED_EVENTS = new Set([
   '[OVERBOARD RESULT OPENED LOBBY]',
   '[OVERBOARD RESULT QUEUE SESSION DROPPED]',
   '[NORMAL RESULT SKIPPED AFTER OVERKILL]',
+  '[OWNER SHADOW EVENT]',
+  '[OWNER SHADOW STATE]',
+  '[OWNER SHADOW EFFECT]',
+  '[OWNER SHADOW MISMATCH]',
   '[DUPLICATE TERMINAL RESULT ATTEMPT]',
   '[RESULT TYPE CONFLICT]',
   '[CHAIN HEAD SWITCH TRACE]',
