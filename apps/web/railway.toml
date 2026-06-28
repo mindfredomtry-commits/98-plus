@@ -1,6 +1,10 @@
 # @98plus/web — Railway service Root Directory: repo root ("." / blank).
 # Set Config as Code file path on this service to: /apps/web/railway.toml
 # (Railway does not auto-read this file; both services share the repo root.)
+#
+# Build-time (Docker): declare NEXT_PUBLIC_* in apps/web/Dockerfile ARG/ENV.
+# Set on the Web service before deploy, then redeploy (not runtime-only):
+#   NEXT_PUBLIC_PHASE12_DIAG=1
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "apps/web/Dockerfile"

@@ -1,15 +1,17 @@
 'use client';
 
 import { isPhase12DiagEnabled } from '@/lib/notification-overlay-owner-phase12-smoke-env';
+import { PHASE12_BUILD_MARKER } from '@/lib/phase12-build-marker';
 
 export function logPhase12DiagBoot(): void {
   if (typeof window === 'undefined') return;
   const payload = {
     t: performance.now(),
-    NEXT_PUBLIC_PHASE12_DIAG: process.env.NEXT_PUBLIC_PHASE12_DIAG ?? null,
+    NEXT_PUBLIC_PHASE12_DIAG: PHASE12_BUILD_MARKER.diag,
     isPhase12DiagEnabled: isPhase12DiagEnabled(),
-    NODE_ENV: process.env.NODE_ENV ?? null,
-    buildTimestamp: process.env.NEXT_PUBLIC_BUILD_TIMESTAMP ?? null,
+    NODE_ENV: PHASE12_BUILD_MARKER.nodeEnv,
+    buildTimestamp: PHASE12_BUILD_MARKER.buildTimestamp,
+    buildCommit: PHASE12_BUILD_MARKER.buildCommit,
     typeofWindow: typeof window,
   };
   console.log('[PHASE12 DIAG BOOT]', payload);
@@ -26,10 +28,11 @@ export function logPhase12TraceReached(
     t: performance.now(),
     site,
     phase,
-    NEXT_PUBLIC_PHASE12_DIAG: process.env.NEXT_PUBLIC_PHASE12_DIAG ?? null,
+    NEXT_PUBLIC_PHASE12_DIAG: PHASE12_BUILD_MARKER.diag,
     isPhase12DiagEnabled: isPhase12DiagEnabled(),
-    NODE_ENV: process.env.NODE_ENV ?? null,
-    buildTimestamp: process.env.NEXT_PUBLIC_BUILD_TIMESTAMP ?? null,
+    NODE_ENV: PHASE12_BUILD_MARKER.nodeEnv,
+    buildTimestamp: PHASE12_BUILD_MARKER.buildTimestamp,
+    buildCommit: PHASE12_BUILD_MARKER.buildCommit,
     typeofWindow: typeof window,
     ...extra,
   };

@@ -1,9 +1,25 @@
 import path from "path";
 import type { NextConfig } from "next";
 
+const phase12DiagRaw = process.env.NEXT_PUBLIC_PHASE12_DIAG ?? "";
+const phase12BuildTimestamp =
+  process.env.NEXT_PUBLIC_BUILD_TIMESTAMP ?? new Date().toISOString();
+const phase12BuildCommit =
+  process.env.NEXT_PUBLIC_BUILD_COMMIT ??
+  process.env.RAILWAY_GIT_COMMIT_SHA ??
+  process.env.GITHUB_SHA ??
+  "";
+
 const phase12DiagEnabled =
-  process.env.NODE_ENV !== "production" ||
-  process.env.NEXT_PUBLIC_PHASE12_DIAG === "1";
+  process.env.NODE_ENV !== "production" || phase12DiagRaw === "1";
+
+console.log("[phase12-build-config]", {
+  NODE_ENV: process.env.NODE_ENV,
+  NEXT_PUBLIC_PHASE12_DIAG: phase12DiagRaw || null,
+  phase12DiagEnabled,
+  NEXT_PUBLIC_BUILD_TIMESTAMP: phase12BuildTimestamp,
+  NEXT_PUBLIC_BUILD_COMMIT: phase12BuildCommit || null,
+});
 
 const phase12TelegramFrameAncestorsCsp =
   "frame-ancestors 'self' https://web.telegram.org https://telegram.org https://*.telegram.org http://localhost:* http://127.0.0.1:* https://*.trycloudflare.com";
@@ -12,8 +28,9 @@ const nextConfig: NextConfig = {
   output: "standalone",
 
   env: {
-    NEXT_PUBLIC_BUILD_TIMESTAMP:
-      process.env.NEXT_PUBLIC_BUILD_TIMESTAMP ?? new Date().toISOString(),
+    NEXT_PUBLIC_PHASE12_DIAG: phase12DiagRaw,
+    NEXT_PUBLIC_BUILD_TIMESTAMP: phase12BuildTimestamp,
+    NEXT_PUBLIC_BUILD_COMMIT: phase12BuildCommit,
   },
 
   transpilePackages: ["@98plus/shared"],

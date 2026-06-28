@@ -46,17 +46,8 @@ function captureOwnerDirectWriteCallerStack(minLines = 8): string[] {
     .filter(Boolean);
 }
 
-function phase12DiagStructuralEnabled(): boolean {
-  return isPhase12DiagEnabled();
-}
-
-function phase12DiagClientLogEnabled(): boolean {
-  return typeof window !== 'undefined' && isPhase12DiagEnabled();
-}
-
-/** @deprecated internal alias — use structural vs client log helpers */
 function ownerDirectWriteDetectEnabled(): boolean {
-  return phase12DiagClientLogEnabled();
+  return typeof window !== 'undefined' && isPhase12DiagEnabled();
 }
 
 export function logOwnerDirectWriteDetected(args: {
@@ -169,126 +160,21 @@ type OwnerWriteDetectContext = {
   eventType?: string;
 };
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return (
-    value != null &&
-    typeof value === 'object' &&
-    !Array.isArray(value) &&
-    !(value instanceof Set) &&
-    !(value instanceof Map) &&
-    !(value instanceof Date)
-  );
-}
-
-function wrapMutableValue<T>(
-  value: T,
-  readTrackedSnapshot: () => OwnerTrackedFieldSnapshot,
-  context: OwnerWriteDetectContext,
-  path: string,
-): T {
-  if (!phase12DiagStructuralEnabled()) return value;
-  if (value == null || typeof value !== 'object') return value;
-
-  if (Array.isArray(value)) {
-    return new Proxy(value, {
-      set(target, prop, newValue, receiver) {
-        const before = readTrackedSnapshot();
-        const result = Reflect.set(target, prop, newValue, receiver);
-        const after = readTrackedSnapshot();
-        logTrackedSnapshotDiff({
-          previous: before,
-          next: after,
-          file: context.file,
-          function: `${context.function}:${path}.${String(prop)}`,
-          writePath: context.writePath,
-          eventType: context.eventType,
-        });
-        return result;
-      },
-    }) as T;
-  }
-
-  if (!isPlainObject(value)) return value;
-
-  return new Proxy(value, {
-    set(target, prop, newValue, receiver) {
-      const before = readTrackedSnapshot();
-      const result = Reflect.set(target, prop, newValue, receiver);
-      const after = readTrackedSnapshot();
-      logTrackedSnapshotDiff({
-        previous: before,
-        next: after,
-        file: context.file,
-        function: `${context.function}:${path}.${String(prop)}`,
-        writePath: context.writePath,
-        eventType: context.eventType,
-      });
-      return result;
-    },
-  }) as T;
-}
-
-const OWNER_STATE_RAW = Symbol('ownerStateRaw');
-
 export type OwnerStateWriteDetectHandle = {
   wrapped: NotificationOverlayOwnerState;
   unwrap: () => NotificationOverlayOwnerState;
   readTrackedSnapshot: () => OwnerTrackedFieldSnapshot;
 };
 
+/** Plain-state handle only — Proxy wrappers break SSR/client hydration parity. */
 export function attachOwnerStateWriteDetect(
   state: NotificationOverlayOwnerState,
-  context: OwnerWriteDetectContext,
+  _context: OwnerWriteDetectContext,
 ): OwnerStateWriteDetectHandle {
-  if (!phase12DiagStructuralEnabled()) {
-    return {
-      wrapped: state,
-      unwrap: () => state,
-      readTrackedSnapshot: () => readOwnerTrackedWriteFields(state),
-    };
-  }
-
-  const rawState = state;
-  let trackedSnapshot = readOwnerTrackedWriteFields(rawState);
-
-  const readTrackedSnapshot = () => readOwnerTrackedWriteFields(rawState);
-
-  const wrapped = new Proxy(rawState, {
-    set(target, prop, newValue, receiver) {
-      const propName = String(prop);
-      const before = readTrackedSnapshot();
-      const result = Reflect.set(target, prop, newValue, receiver);
-      const after = readTrackedSnapshot();
-      logTrackedSnapshotDiff({
-        previous: before,
-        next: after,
-        file: context.file,
-        function: `${context.function}:${propName}`,
-        writePath: context.writePath,
-        eventType: context.eventType,
-      });
-      trackedSnapshot = after;
-      return result;
-    },
-    get(target, prop, receiver) {
-      if (prop === OWNER_STATE_RAW) return target;
-      const value = Reflect.get(target, prop, receiver);
-      if (prop === 'active' || prop === 'display' || prop === 'queue') {
-        return wrapMutableValue(
-          value,
-          readTrackedSnapshot,
-          context,
-          String(prop),
-        );
-      }
-      return value;
-    },
-  });
-
   return {
-    wrapped,
-    unwrap: () => rawState,
-    readTrackedSnapshot: () => trackedSnapshot,
+    wrapped: state,
+    unwrap: () => state,
+    readTrackedSnapshot: () => readOwnerTrackedWriteFields(state),
   };
 }
 

@@ -270,7 +270,7 @@ export function createNotificationOverlayOwnerShadow(
   };
 
   return {
-    getState: () => stateHandle.wrapped,
+    getState: () => stateHandle.unwrap(),
     dispatch(event, source, snapshot) {
       const state = currentState();
       if (QUEUE_AUTHORITY_EVENT_TYPES.has(event.type)) {
@@ -335,7 +335,7 @@ export function createNotificationOverlayOwnerShadow(
       if (snapshot) {
         compareWithProduction(snapshot, source);
       }
-      return stateHandle.wrapped;
+      return stateHandle.unwrap();
     },
     syncFromProduction(snapshot, source) {
       return this.dispatch(
