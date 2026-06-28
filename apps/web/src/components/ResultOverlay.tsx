@@ -12,7 +12,6 @@ import {
 import { createPortal } from 'react-dom';
 import type { BanResult, UserPublic } from '@98plus/shared';
 import {
-  isDirectOverboardOpenable,
   isResultFunMode,
   isValidBanResultPayload,
   RESULT_COPY,
@@ -75,6 +74,11 @@ interface Props {
   contentOnly?: boolean;
   /** Fresh shell + paint timing for direct overboard layer. */
   directPaint?: boolean;
+  /** Phase 12.1b: owner-derived architectural visibility — sole render gate. */
+  visible: boolean;
+  visibilityReason?: string;
+  returnsNullReason?: string | null;
+  overboardQueueBody?: boolean;
 };
 
 type ResultOverlayTraceProps = {
@@ -163,6 +167,10 @@ function ResultOverlayInner({
   embedded = false,
   contentOnly = false,
   directPaint = false,
+  visible,
+  visibilityReason,
+  returnsNullReason: returnsNullReasonProp = null,
+  overboardQueueBody: overboardQueueBodyProp,
 }: Props) {
   const {
     openNewBanWhoFlow,
@@ -180,7 +188,6 @@ function ResultOverlayInner({
     bansNavState,
     blockAutoDismissAtomicOverboardResult,
     blockAutoDismissTerminalFinalStatus,
-    isQueueAtomicOverboardResultShowable,
   } = useApp();
   const { haptic, hapticSuccess } = useTelegram();
   const [archiveSaved, setArchiveSaved] = useState(false);
@@ -201,33 +208,19 @@ function ResultOverlayInner({
     resultStatus === 'overboard' ||
     result.headline?.trim().toUpperCase().startsWith('ПЕРЕБОР') === true;
   const overboardQueueBody =
-    contentOnly &&
-    !directPaint &&
-    Boolean(result.id?.trim()) &&
-    (isQueueAtomicOverboardResultShowable(result.id) ||
-      isOverboardStatusOrOutcome);
-  const resolvedViewerId = (
-    viewerId ?? result.receiver?.id ?? result.sender?.id ?? ''
-  ).trim();
-  const returnsNullReason = (() => {
-    if (directPaint) {
-      if (isDirectOverboardOpenable(result, viewerId)) return null;
-      if (isValidBanResultPayload(result)) return null;
-      return 'directPaint-not-openable';
-    }
-    if (overboardQueueBody) return null;
-    if (!isValidBanResultPayload(result)) return 'invalid-payload';
-    if (!isResultParticipantSafe(result, viewerId)) return 'not-participant';
-    return null;
-  })();
-  const showable = returnsNullReason == null;
-  const effectiveShowable =
-    showable ||
+    overboardQueueBodyProp ??
     (contentOnly &&
       !directPaint &&
       Boolean(result.id?.trim()) &&
-      (isQueueAtomicOverboardResultShowable(result.id) ||
+      (visibilityReason === 'overboard-queue-body' ||
+        visibilityReason === 'atomic-overboard-fallback' ||
         isOverboardStatusOrOutcome));
+  const resolvedViewerId = (
+    viewerId ?? result.receiver?.id ?? result.sender?.id ?? ''
+  ).trim();
+  const returnsNullReason = returnsNullReasonProp;
+  const showable = visible;
+  const effectiveShowable = visible;
 
   const renderResult = useMemo((): BanResult => {
     if (!overboardQueueBody) {
@@ -652,7 +645,9 @@ function ResultOverlayInner({
     result: renderResult,
     viewerId: user?.id ?? null,
     atomicOverboardShowable:
-      overboardQueueBody || isQueueAtomicOverboardResultShowable(result.id),
+      overboardQueueBody ||
+      visibilityReason === 'atomic-overboard-fallback' ||
+      visibilityReason === 'overboard-queue-body',
   } as const;
   const overlayVisibleContentGate = evaluateOverlayVisibleContentGate(
     overlayVisibleContentInput,
@@ -934,9 +929,9 @@ function ResultOverlayInner({
       atomicOverboardShowable: overlayVisibleContentGate.atomicOverboardShowable,
       hasDisplayHeadline: overlayVisibleContentGate.hasDisplayHeadline,
       overboardQueueBody,
-      isQueueAtomicOverboardShowable: isQueueAtomicOverboardResultShowable(
-        result.id,
-      ),
+      isQueueAtomicOverboardShowable:
+        visibilityReason === 'atomic-overboard-fallback' ||
+        visibilityReason === 'overboard-queue-body',
       reason: overlayVisibleContentGate.reason,
     });
   }

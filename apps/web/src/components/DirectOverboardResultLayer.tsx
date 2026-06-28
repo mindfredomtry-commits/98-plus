@@ -4,10 +4,6 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { useApp } from './Providers';
 import { createPortal } from 'react-dom';
 import type { BanResult } from '@98plus/shared';
-import {
-  isDirectOverboardOpenable,
-  isValidBanResultPayload,
-} from '@98plus/shared';
 import { DIRECT_OVERBOARD_RESULT_Z_INDEX } from '@/lib/overlay-queue';
 import {
   isLocalOverboardBypassForBan,
@@ -22,6 +18,13 @@ import { ResultOverlay } from './ResultOverlay';
 type Props = {
   result: BanResult;
   onClose: () => void;
+  /** Phase 12.1b: owner-derived architectural visibility. */
+  visible: boolean;
+  visibilityReason?: string;
+  resultVisible: boolean;
+  resultVisibilityReason?: string;
+  resultReturnsNullReason?: string | null;
+  resultOverboardQueueBody?: boolean;
 };
 
 function traceDirectLayerJsxBranch(
@@ -34,7 +37,16 @@ function traceDirectLayerJsxBranch(
 /**
  * Fresh portal layer for optimistic overboard — does not reuse NotificationQueueShell DOM.
  */
-export function DirectOverboardResultLayer({ result, onClose }: Props) {
+export function DirectOverboardResultLayer({
+  result,
+  onClose,
+  visible,
+  visibilityReason,
+  resultVisible,
+  resultVisibilityReason,
+  resultReturnsNullReason,
+  resultOverboardQueueBody,
+}: Props) {
   const {
     bansCtaQueueSuppress,
     resultCtaBansOverlayOpen,
@@ -49,18 +61,16 @@ export function DirectOverboardResultLayer({ result, onClose }: Props) {
       bansNavState.returnTarget === 'lobby');
 
   const viewerId = result.viewerId ?? null;
-  const showable =
-    isDirectOverboardOpenable(result, viewerId) ||
-    isValidBanResultPayload(result);
 
   const jsxFields = {
-    active: true,
+    active: visible,
     hasResult: true,
     resultBanId: result.id,
-    refActive: true,
-    willRender: true,
+    refActive: visible,
+    willRender: visible,
     outcome: result.outcome,
-    showable,
+    showable: visible,
+    visibilityReason: visibilityReason ?? null,
     contentOnly: false,
     embedded: true,
     portalReady: portalTarget != null,
@@ -129,6 +139,11 @@ export function DirectOverboardResultLayer({ result, onClose }: Props) {
     };
   }, [result.id]);
 
+  if (!visible) {
+    traceDirectLayerJsxBranch('return-null-not-visible', jsxFields);
+    return null;
+  }
+
   if (!portalTarget) {
     traceDirectLayerJsxBranch('return-null-no-portal-target', jsxFields);
     return null;
@@ -143,7 +158,7 @@ export function DirectOverboardResultLayer({ result, onClose }: Props) {
     refActive: jsxFields.refActive,
     willRender: jsxFields.willRender,
     outcome: result.outcome,
-    showable,
+    showable: visible,
     contentOnly: false,
     embedded: true,
     directPaint: true,
@@ -163,6 +178,10 @@ export function DirectOverboardResultLayer({ result, onClose }: Props) {
         onClose={onClose}
         embedded
         directPaint
+        visible={resultVisible}
+        visibilityReason={resultVisibilityReason}
+        returnsNullReason={resultReturnsNullReason}
+        overboardQueueBody={resultOverboardQueueBody}
       />
     </div>,
     portalTarget,

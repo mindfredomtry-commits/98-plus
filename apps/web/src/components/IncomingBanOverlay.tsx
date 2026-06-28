@@ -66,6 +66,9 @@ interface Props {
   embedded?: boolean;
   /** Body only — shell provided by NotificationQueueShell. */
   contentOnly?: boolean;
+  /** Phase 12.1b: owner-derived architectural visibility — sole render gate. */
+  visible: boolean;
+  visibilityReason?: string;
 }
 
 function IncomingBanOverlayInner({
@@ -73,14 +76,14 @@ function IncomingBanOverlayInner({
   replyDirect = false,
   embedded = false,
   contentOnly = false,
+  visible,
+  visibilityReason,
 }: Props) {
   const {
     token,
     user,
     loading: authLoading,
     friends,
-    incomingBan,
-    activeIncomingOverlayBan,
     dismissIncoming,
     dismissIncomingSoft,
     acknowledgeIncomingAndStartReply,
@@ -90,7 +93,6 @@ function IncomingBanOverlayInner({
     notificationSessionActive,
     activeOverlayKind,
     overlayQueueLength,
-    incomingGateActive,
     markOverlayUserAction,
     logCardCloseClick,
     reportOverlayRendered,
@@ -109,12 +111,12 @@ function IncomingBanOverlayInner({
   const actionsRef = useRef<HTMLDivElement>(null);
 
   const viewerId = user?.id ?? null;
-  const activeIncomingBan =
-    banProp ?? activeIncomingOverlayBan ?? incomingBan;
+  /** Phase 12.1: owner-derived ban from Providers prop only — no context fallback for render. */
+  const activeIncomingBan = banProp ?? null;
 
   logIncomingOverlayRenderEnter({
     banPropId: banProp?.id ?? null,
-    incomingBanId: incomingBan?.id ?? null,
+    incomingBanId: null,
     activeIncomingBanId: activeIncomingBan?.id ?? null,
     replyDirect,
     contentOnly,
@@ -124,14 +126,22 @@ function IncomingBanOverlayInner({
   if (activeIncomingBan?.id) {
     logIncomingOverlayHasBan({
       banId: activeIncomingBan.id,
-      source: banProp?.id
-        ? 'ban-prop'
-        : activeIncomingOverlayBan?.id
-          ? 'active-incoming-overlay-ban'
-          : 'incoming-ban-context',
+      source: 'ban-prop-owner-derived',
       textLen: activeIncomingBan.text?.length ?? 0,
       senderId: activeIncomingBan.sender?.id ?? null,
     });
+  } else if (!visible && banProp == null) {
+    if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
+      console.log('[PHASE12 RENDER FALLBACK]', {
+        selector: 'IncomingBanOverlay',
+        reason: 'legacy-context-ban-suppressed',
+        ownerVisible: visible,
+        visibilityReason: visibilityReason ?? null,
+        contentOnly,
+        replyDirect,
+        embedded,
+      });
+    }
   }
 
   useEffect(() => {
@@ -359,15 +369,6 @@ function IncomingBanOverlayInner({
   }, [displayBan?.sender]);
 
   const isQueueHead = activeOverlayKind === 'incoming';
-  const shouldShow = activeIncomingBan
-    ? replyDirect ||
-      banProp != null ||
-      isQueueHead ||
-      incomingGateActive ||
-      replyDeeplinkFastShell ||
-      isReplyDeeplinkShell ||
-      shouldShowIncomingBanModal(activeIncomingBan, viewerId, new Set())
-    : false;
 
   const canAct = canReplyFastEnableButtons(displayBan, viewerId);
   const buttonsEnabled =
@@ -516,7 +517,7 @@ function IncomingBanOverlayInner({
   ]);
 
   useLayoutEffect(() => {
-    if (!activeIncomingBan?.id || !shouldShow || verifyPhase === 'failed') return;
+    if (!activeIncomingBan?.id || !visible || verifyPhase === 'failed') return;
     reportOverlayRendered('incoming', activeIncomingBan.id, buttonsEnabled);
     const cardEl =
       cardBodyRef.current?.closest('.modal-card') ??
@@ -533,14 +534,14 @@ function IncomingBanOverlayInner({
   }, [
     activeIncomingBan?.id,
     replyDirect,
-    shouldShow,
+    visible,
     verifyPhase,
     buttonsEnabled,
     reportOverlayRendered,
   ]);
 
   useEffect(() => {
-    if (!activeIncomingBan?.id || !shouldShow || verifyPhase === 'failed') {
+    if (!activeIncomingBan?.id || !visible || verifyPhase === 'failed') {
       return;
     }
     return installOverlayHitTestProbe({
@@ -548,10 +549,10 @@ function IncomingBanOverlayInner({
       kind: replyDirect ? 'incoming-reply-direct' : 'incoming-queue',
       isCardVisible: () => Boolean(cardBodyRef.current),
     });
-  }, [activeIncomingBan?.id, replyDirect, shouldShow, verifyPhase]);
+  }, [activeIncomingBan?.id, replyDirect, visible, verifyPhase]);
 
   useLayoutEffect(() => {
-    if (!activeIncomingBan?.id || isReplyDeeplinkShell || !shouldShow) return;
+    if (!activeIncomingBan?.id || isReplyDeeplinkShell || !visible) return;
     if (typeof document === 'undefined') return;
 
     const card =
@@ -614,17 +615,14 @@ function IncomingBanOverlayInner({
     activeIncomingBan?.id,
     activeIncomingBan?.text,
     isReplyDeeplinkShell,
-    shouldShow,
+    visible,
     buttonsEnabled,
     verifyPhase,
   ]);
 
-  const canRenderBody =
-    !!activeIncomingBan && !!viewerId && (replyDirect || !!token);
   const replyDirectBodyReady =
     replyDirect &&
-    canRenderBody &&
-    shouldShow &&
+    visible &&
     verifyPhase !== 'failed' &&
     !isReplyDeeplinkShellBan(activeIncomingBan);
 
@@ -650,31 +648,31 @@ function IncomingBanOverlayInner({
       incomingId: activeIncomingBan.id,
       incomingReceiverId: activeIncomingBan.receiver?.id,
       incomingAcknowledged: activeIncomingBan.incomingAcknowledged,
-      shouldShow,
-      reason: shouldShow ? 'shown' : 'session-dismissed',
+      shouldShow: visible,
+      reason: visible ? (visibilityReason ?? 'shown') : (visibilityReason ?? 'hidden'),
       extra: { verifyPhase, isQueueHead },
     });
   }
 
-  if (!canRenderBody) {
+  if (!visible) {
     if (activeIncomingBan?.id) {
       logIncomingOverlayReturnNull({
         banId: activeIncomingBan.id,
-        reason: !viewerId ? 'no-viewer' : 'no-token',
+        reason: visibilityReason ?? 'owner-visible-false',
         replyDirect,
         contentOnly,
         verifyPhase,
-        shouldShow,
+        shouldShow: false,
       });
       console.log('INCOMING OVERLAY RENDER', {
         banId: activeIncomingBan.id,
         skipped: true,
-        reason: !viewerId ? 'no-viewer' : 'no-token',
+        reason: visibilityReason ?? 'owner-visible-false',
         replyDirect,
       });
     } else {
       logIncomingOverlayReturnNull({
-        reason: 'no-active-incoming-ban',
+        reason: visibilityReason ?? 'no-active-incoming-ban',
         replyDirect,
         contentOnly,
       });
@@ -682,17 +680,15 @@ function IncomingBanOverlayInner({
     return null;
   }
 
-  if (!shouldShow || verifyPhase === 'failed') {
-    const nullReason = !shouldShow ? 'guard-rejected' : 'verify-failed';
+  if (verifyPhase === 'failed') {
     logIncomingOverlayReturnNull({
       banId: activeIncomingBan?.id ?? null,
-      reason: nullReason,
+      reason: 'verify-failed',
       verifyPhase,
-      shouldShow,
+      shouldShow: visible,
       contentOnly,
       banPropId: banProp?.id ?? null,
       isQueueHead,
-      incomingGateActive,
     });
     logResultCardRenderDecision({
       kind: 'incoming',
@@ -700,30 +696,22 @@ function IncomingBanOverlayInner({
       status: activeIncomingBan?.status ?? null,
       verifyPhase,
       shouldRender: false,
-      returnNullReason: nullReason,
+      returnNullReason: 'verify-failed',
       isInNotificationQueue: isQueueHead,
       activeOverlayKind,
       activeUserCardHold: null,
       source: 'IncomingBanOverlay.contentOnly',
     });
     console.log('INCOMING OVERLAY RENDER', {
-      banId: activeIncomingBan.id,
+      banId: activeIncomingBan?.id ?? null,
       skipped: true,
-      reason: !shouldShow ? 'guard-rejected' : 'verify-failed',
+      reason: 'verify-failed',
       verifyPhase,
     });
     return null;
   }
 
-  if (!replyDirect && isReplyDeeplinkShellBan(activeIncomingBan)) {
-    logIncomingOverlayReturnNull({
-      banId: activeIncomingBan.id,
-      reason: 'shell-ban',
-      contentOnly,
-    });
-    console.log('[incoming-card-debug] ready false reason: shell-ban', {
-      banId: activeIncomingBan.id,
-    });
+  if (!activeIncomingBan?.id) {
     return null;
   }
 

@@ -216,16 +216,24 @@ import {
 import { readOwnerOnlyUserCard } from '@/lib/notification-overlay-owner-held-read-selectors';
 import { readOwnerOnlyStableIncomingBan } from '@/lib/notification-overlay-owner-stable-incoming-read-selectors';
 import { readOwnerOnlyReplyIncomingBan } from '@/lib/notification-overlay-owner-reply-read-selectors';
+import { readOwnerOnlyScopedIncomingBan } from '@/lib/notification-overlay-owner-scoped-read-selectors';
 import {
-  readOwnerOnlyScopedIncomingBan,
-  readOwnerScopedIncomingWithLegacyFallback,
-} from '@/lib/notification-overlay-owner-scoped-read-selectors';
+  readOwnerShellQueueHeadKindForRender,
+  readOwnerScopedIncomingForRender,
+} from '@/lib/notification-overlay-owner-phase12-render-read-selectors';
+import { logPhase12RenderFallback } from '@/lib/notification-overlay-owner-phase12-render-debug';
+import { logPhase12VisibilityGate } from '@/lib/notification-overlay-owner-phase12-visibility-debug';
+import {
+  computeCheckOverlayVisibility,
+  computeDirectOverboardVisibility,
+  computeIncomingOverlayVisibility,
+  computeNotificationQueueShellReadiness,
+  computeResultOverlayVisibility,
+} from '@/lib/notification-overlay-owner-phase12-visibility-read-selectors';
 import {
   readOwnerOnlyShellPendingLen,
   readOwnerOnlyShellQueueHeadIncomingBanId,
-  readOwnerOnlyShellQueueHeadKind,
   readOwnerOnlyShellQueueLen,
-  readOwnerShellQueueHeadKindWithLegacyFallback,
   resolveOwnerShellActiveOverlayKind,
 } from '@/lib/notification-overlay-owner-shell-read-selectors';
 import {
@@ -26085,11 +26093,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     queue: overlayQueue,
     refQueue: overlayQueueRef.current,
   };
-  const ownerPrimaryShellQueueHeadKind = readOwnerShellQueueHeadKindWithLegacyFallback(
+  const ownerPrimaryShellQueueHeadKind = readOwnerShellQueueHeadKindForRender(
     ownerReadQueue,
     ownerShellQueueLegacy,
     'queueHeadKind',
-    'PHASE11B6_SHELL_FALLBACK',
+    'PHASE11B6_SHELL_FALLBACK-suppressed',
   );
   const ownerPrimaryShellQueueLen = readOwnerOnlyShellQueueLen(
     ownerReadQueue.length,
@@ -26138,6 +26146,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
     const finalPayload = displayResult ?? refResult ?? heldResult ?? queueHeadResult;
     displayResultSourcePickedRef.current = sourcePicked;
+    const legacyRenderPayload = finalPayload;
+    const ownerRenderPayloadCompare =
+      ownerPrimaryDisplayResultForShell ??
+      (ownerPrimaryHeldUserCard?.kind === 'result'
+        ? ownerPrimaryHeldUserCard.result
+        : null) ??
+      (queueHead?.kind === 'result' ? queueHead.result : null);
+    if (
+      (legacyRenderPayload?.id ?? null) !==
+      (ownerRenderPayloadCompare?.id ?? null)
+    ) {
+      logPhase12RenderFallback({
+        selector: 'ownerRenderResultPayload',
+        reason: 'legacy-displayResult-chain-vs-owner-render',
+        legacyBanId: legacyRenderPayload?.id ?? null,
+        ownerBanId: ownerRenderPayloadCompare?.id ?? null,
+        sourcePicked,
+      });
+    }
     logResultDisplaySourcePick({
       sourcePicked,
       fromDisplayResult,
@@ -26159,6 +26186,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
   }, [
     displayResult,
+    ownerPrimaryDisplayResultForShell,
     ownerPrimaryHeldUserCard,
     overlayQueue,
     priorityBlocksResult,
@@ -26166,8 +26194,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     sendSuccessCardActive,
   ]);
 
-  const showDirectOverboardLayer =
+  const legacyShowDirectOverboardLayerForCompare =
     directResultOverlayActive && displayResult != null && !sendSuccessCardActive;
+  const showDirectOverboardLayer =
+    ownerPrimaryDirectResultOverlayActive &&
+    ownerPrimaryDisplayResultForShell != null &&
+    !sendSuccessCardActive;
+  if (legacyShowDirectOverboardLayerForCompare !== showDirectOverboardLayer) {
+    logPhase12RenderFallback({
+      selector: 'showDirectOverboardLayer',
+      reason: 'legacy-react-state-vs-owner-display',
+      legacyWouldRender: legacyShowDirectOverboardLayerForCompare,
+      ownerRender: showDirectOverboardLayer,
+      legacyDirectActive: directResultOverlayActive,
+      ownerDirectActive: ownerPrimaryDirectResultOverlayActive,
+      legacyDisplayResultBanId: displayResult?.id ?? null,
+      ownerDisplayResultBanId: ownerPrimaryDisplayResultForShell?.id ?? null,
+    });
+  }
 
   useLayoutEffect(() => {
     directResultOverlayActiveRef.current = directResultOverlayActive;
@@ -27406,6 +27450,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     snapshotFreshResultOverlayStack,
   ]);
 
+  /** Phase 12.1: owner-state render payload for ResultOverlay (display → holds → queue). */
+  const ownerRenderResultPayload = activeResultPayload;
+
+  /** Phase 12.1: owner-derived incoming ban for IncomingBanOverlay JSX. */
+  const ownerRenderIncomingBan =
+    ownerPrimaryStableIncomingBan ??
+    ownerPrimaryIncomingBan ??
+    incomingCardDisplayBan;
+
   const incomingNotificationShellKind = useMemo(() => {
     const queueHead = readOwnerOnlyQueueHead(
       ownerReadQueue,
@@ -28166,14 +28219,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     auth.loading,
   ]);
 
-  const effectiveScopedIncomingBan = readOwnerScopedIncomingWithLegacyFallback(
+  const effectiveScopedIncomingBan = readOwnerScopedIncomingForRender(
     ownerReadDisplay,
     {
       ref: scopedIncomingBanRef.current,
       state: legacyEffectiveScopedIncomingBan,
     },
     'effectiveScopedIncomingBan',
-    'PHASE11B5_SCOPED_FALLBACK',
+    'PHASE11B5_SCOPED_FALLBACK-suppressed',
   );
 
   const replyIncomingCardMounted = useMemo(() => {
@@ -28487,17 +28540,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const queueShellShowsResult =
     effectiveNotificationQueueShellKind === 'result' &&
-    activeResultPayload != null &&
+    ownerRenderResultPayload != null &&
     checkResultShellDisplayReady(
-      activeResultPayload,
+      ownerRenderResultPayload,
       'queueShellShowsResult',
     ) &&
-    isQueueResultShellVisibleContentReady(activeResultPayload);
+    isQueueResultShellVisibleContentReady(ownerRenderResultPayload);
 
   const renderableResultShell =
     effectiveNotificationQueueShellKind === 'result' &&
     queueShellShowsResult &&
-    activeResultPayload != null;
+    ownerRenderResultPayload != null;
 
   const isCheckAnswerWaitingResultPath =
     Boolean(checkAnswerWaitingResultHoldBanId) ||
@@ -28524,29 +28577,436 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const checkShellKindWithoutBan =
     notificationQueueShellDisplayKind === 'check' && !checkShellBanId;
   const overlayQueueHeadForShell = ownerPrimaryQueueHead;
-  const notificationQueueShellCheckCardReady =
-    Boolean(checkShellBanId) &&
-    (!chainAdvanceWaiting ||
-      (overlayQueueHeadForShell?.kind === 'check' &&
-        normalizeId(overlayQueueHeadForShell.ban.id) ===
-          normalizeId(checkShellBanId)));
+  const ownerShellQueueHeadBanId =
+    overlayQueueHeadForShell?.kind === 'result'
+      ? overlayQueueHeadForShell.result.id
+      : overlayQueueHeadForShell?.kind === 'incoming' ||
+          overlayQueueHeadForShell?.kind === 'check'
+        ? overlayQueueHeadForShell.ban.id
+        : null;
+
+  const phase12ViewerId = auth.user?.id ?? userIdRef.current ?? null;
+  const phase12Token = auth.token ?? null;
+
+  const ownerCheckDirectVisibility = useMemo(
+    () =>
+      computeCheckOverlayVisibility({
+        checkBan: ownerPrimaryCheckBan,
+        viewerId: phase12ViewerId,
+        token: phase12Token,
+        checkDirect: true,
+        checkGateActive,
+        activeOverlayKind,
+      }),
+    [
+      ownerPrimaryCheckBan,
+      phase12ViewerId,
+      phase12Token,
+      checkGateActive,
+      activeOverlayKind,
+    ],
+  );
+
+  const legacyCheckDirectVisibility = useMemo(
+    () =>
+      computeCheckOverlayVisibility({
+        checkBan: checkBan,
+        viewerId: phase12ViewerId,
+        token: phase12Token,
+        checkDirect: true,
+        checkGateActive,
+        activeOverlayKind,
+      }),
+    [
+      checkBan,
+      phase12ViewerId,
+      phase12Token,
+      checkGateActive,
+      activeOverlayKind,
+    ],
+  );
+
+  const ownerCheckQueueVisibility = useMemo(
+    () =>
+      computeCheckOverlayVisibility({
+        checkBan: ownerPrimaryCheckBan,
+        viewerId: phase12ViewerId,
+        token: phase12Token,
+        checkDirect: false,
+        checkGateActive,
+        activeOverlayKind,
+      }),
+    [
+      ownerPrimaryCheckBan,
+      phase12ViewerId,
+      phase12Token,
+      checkGateActive,
+      activeOverlayKind,
+    ],
+  );
+
+  const legacyCheckQueueVisibility = useMemo(
+    () =>
+      computeCheckOverlayVisibility({
+        checkBan: scopedCheckBan ?? checkBan,
+        viewerId: phase12ViewerId,
+        token: phase12Token,
+        checkDirect: false,
+        checkGateActive,
+        activeOverlayKind,
+      }),
+    [
+      scopedCheckBan,
+      checkBan,
+      phase12ViewerId,
+      phase12Token,
+      checkGateActive,
+      activeOverlayKind,
+    ],
+  );
+
+  const ownerIncomingReplyDirectVisibility = useMemo(
+    () =>
+      computeIncomingOverlayVisibility({
+        ban: replyDirectOverlayBan,
+        viewerId: phase12ViewerId,
+        token: phase12Token,
+        replyDirect: true,
+        banPropProvided: replyDirectOverlayBan != null,
+        activeOverlayKind,
+        incomingGateActive,
+        replyDeeplinkFastShell,
+        sessionDismissed: dismissedIncomingRef.current,
+      }),
+    [
+      replyDirectOverlayBan,
+      phase12ViewerId,
+      phase12Token,
+      activeOverlayKind,
+      incomingGateActive,
+      replyDeeplinkFastShell,
+    ],
+  );
+
+  const legacyIncomingReplyDirectVisibility = useMemo(() => {
+    const legacyBan =
+      incomingCardDisplayBan ?? incomingBanRef.current ?? incomingBan;
+    return computeIncomingOverlayVisibility({
+      ban: legacyBan,
+      viewerId: phase12ViewerId,
+      token: phase12Token,
+      replyDirect: true,
+      banPropProvided: legacyBan != null,
+      activeOverlayKind,
+      incomingGateActive,
+      replyDeeplinkFastShell,
+      sessionDismissed: dismissedIncomingRef.current,
+    });
+  }, [
+    incomingCardDisplayBan,
+    incomingBan,
+    phase12ViewerId,
+    phase12Token,
+    activeOverlayKind,
+    incomingGateActive,
+    replyDeeplinkFastShell,
+  ]);
+
+  const ownerIncomingQueueVisibility = useMemo(
+    () =>
+      computeIncomingOverlayVisibility({
+        ban: ownerRenderIncomingBan,
+        viewerId: phase12ViewerId,
+        token: phase12Token,
+        replyDirect: false,
+        banPropProvided: ownerRenderIncomingBan != null,
+        activeOverlayKind,
+        incomingGateActive,
+        replyDeeplinkFastShell,
+        sessionDismissed: dismissedIncomingRef.current,
+      }),
+    [
+      ownerRenderIncomingBan,
+      phase12ViewerId,
+      phase12Token,
+      activeOverlayKind,
+      incomingGateActive,
+      replyDeeplinkFastShell,
+    ],
+  );
+
+  const legacyIncomingQueueVisibility = useMemo(() => {
+    const legacyBan =
+      incomingCardDisplayBan ?? incomingBanRef.current ?? incomingBan;
+    return computeIncomingOverlayVisibility({
+      ban: legacyBan,
+      viewerId: phase12ViewerId,
+      token: phase12Token,
+      replyDirect: false,
+      banPropProvided: legacyBan != null,
+      activeOverlayKind,
+      incomingGateActive,
+      replyDeeplinkFastShell,
+      sessionDismissed: dismissedIncomingRef.current,
+    });
+  }, [
+    incomingCardDisplayBan,
+    incomingBan,
+    phase12ViewerId,
+    phase12Token,
+    activeOverlayKind,
+    incomingGateActive,
+    replyDeeplinkFastShell,
+  ]);
+
+  const ownerResultQueueVisibility = useMemo(
+    () =>
+      ownerRenderResultPayload
+        ? computeResultOverlayVisibility({
+            result: ownerRenderResultPayload,
+            viewerId: phase12ViewerId,
+            contentOnly: true,
+            directPaint: false,
+            isQueueAtomicOverboardResultShowable,
+          })
+        : {
+            visible: false,
+            reason: 'no-payload',
+            returnsNullReason: 'no-payload',
+            resultId: '',
+            overboardQueueBody: false,
+          },
+    [
+      ownerRenderResultPayload,
+      phase12ViewerId,
+      isQueueAtomicOverboardResultShowable,
+    ],
+  );
+
+  const legacyResultQueueVisibility = useMemo(
+    () =>
+      (resultRef.current ?? result)
+        ? computeResultOverlayVisibility({
+            result: (resultRef.current ?? result)!,
+            viewerId: phase12ViewerId,
+            contentOnly: true,
+            directPaint: false,
+            isQueueAtomicOverboardResultShowable,
+          })
+        : {
+            visible: false,
+            reason: 'no-payload',
+            returnsNullReason: 'no-payload',
+            resultId: '',
+            overboardQueueBody: false,
+          },
+    [result, phase12ViewerId, isQueueAtomicOverboardResultShowable],
+  );
+
+  const ownerDirectOverboardVisibility = useMemo(
+    () =>
+      ownerPrimaryDisplayResultForShell
+        ? computeDirectOverboardVisibility({
+            result: ownerPrimaryDisplayResultForShell,
+            viewerId:
+              ownerPrimaryDisplayResultForShell.viewerId ??
+              phase12ViewerId,
+          })
+        : {
+            visible: false,
+            reason: 'no-payload',
+            resultId: '',
+          },
+    [ownerPrimaryDisplayResultForShell, phase12ViewerId],
+  );
+
+  const legacyDirectOverboardVisibility = useMemo(
+    () =>
+      (resultRef.current ?? result)
+        ? computeDirectOverboardVisibility({
+            result: (resultRef.current ?? result)!,
+            viewerId:
+              (resultRef.current ?? result)!.viewerId ?? phase12ViewerId,
+          })
+        : {
+            visible: false,
+            reason: 'no-payload',
+            resultId: '',
+          },
+    [result, phase12ViewerId],
+  );
+
+  const ownerDirectResultVisibility = useMemo(
+    () =>
+      ownerPrimaryDisplayResultForShell
+        ? computeResultOverlayVisibility({
+            result: ownerPrimaryDisplayResultForShell,
+            viewerId: phase12ViewerId,
+            contentOnly: false,
+            directPaint: true,
+            isQueueAtomicOverboardResultShowable,
+          })
+        : {
+            visible: false,
+            reason: 'no-payload',
+            returnsNullReason: 'no-payload',
+            resultId: '',
+            overboardQueueBody: false,
+          },
+    [
+      ownerPrimaryDisplayResultForShell,
+      phase12ViewerId,
+      isQueueAtomicOverboardResultShowable,
+    ],
+  );
+
+  const ownerShellReadiness = useMemo(
+    () =>
+      computeNotificationQueueShellReadiness({
+        kind: notificationQueueShellDisplayKind,
+        ownerCheckBanId: ownerPrimaryCheckBan?.id ?? null,
+        ownerStableIncomingBanId: ownerPrimaryStableIncomingBan?.id ?? null,
+        ownerIncomingDisplayBanId:
+          ownerRenderIncomingBan?.id ?? incomingCardDisplayBan?.id ?? null,
+        incomingCardFullyReady,
+        chainAdvanceWaiting,
+        queueHeadKind: overlayQueueHeadForShell?.kind ?? null,
+        queueHeadBanId: ownerShellQueueHeadBanId,
+        resultShellContentReady: queueResultShellContentReady,
+        renderableResultShell,
+      }),
+    [
+      notificationQueueShellDisplayKind,
+      ownerPrimaryCheckBan?.id,
+      ownerPrimaryStableIncomingBan?.id,
+      ownerRenderIncomingBan?.id,
+      incomingCardDisplayBan?.id,
+      incomingCardFullyReady,
+      chainAdvanceWaiting,
+      overlayQueueHeadForShell?.kind,
+      ownerShellQueueHeadBanId,
+      queueResultShellContentReady,
+      renderableResultShell,
+    ],
+  );
+
+  const notificationQueueShellCheckCardReady = ownerShellReadiness.checkCardReady;
   const notificationQueueShellIncomingCardReady =
-    (incomingCardFullyReady || !!ownerPrimaryStableIncomingBan?.id) &&
-    (!chainAdvanceWaiting ||
-      (overlayQueueHeadForShell?.kind === 'incoming' &&
-        normalizeId(
-          overlayQueueHeadForShell.ban.id,
-        ) ===
-          normalizeId(
-            ownerPrimaryStableIncomingBan?.id ??
-              incomingCardDisplayBan?.id ??
-              '',
-          )));
+    ownerShellReadiness.incomingCardReady;
+  const ownerShellContentReady = ownerShellReadiness.shellContentReady;
+
   const notificationQueueShellAdvanceWaiting = queueShellShowsResult
     ? false
     : chainAdvanceWaiting ||
       incomingShellHydrating ||
       (checkShellKindWithoutBan && isCheckAnswerWaitingResultPath);
+
+  useLayoutEffect(() => {
+    const gates = [
+      {
+        component: 'CheckOverlay-direct',
+        ownerVisible: ownerCheckDirectVisibility.visible,
+        legacyWouldVisible: legacyCheckDirectVisibility.visible,
+        reason: ownerCheckDirectVisibility.reason,
+        payloadKind: 'check' as const,
+        banId: ownerCheckDirectVisibility.banId,
+        source: 'Providers.ownerCheckDirectVisibility',
+      },
+      {
+        component: 'CheckOverlay-queue',
+        ownerVisible: ownerCheckQueueVisibility.visible,
+        legacyWouldVisible: legacyCheckQueueVisibility.visible,
+        reason: ownerCheckQueueVisibility.reason,
+        payloadKind: 'check' as const,
+        banId: ownerCheckQueueVisibility.banId,
+        source: 'Providers.ownerCheckQueueVisibility',
+      },
+      {
+        component: 'IncomingBanOverlay-reply-direct',
+        ownerVisible: ownerIncomingReplyDirectVisibility.visible,
+        legacyWouldVisible: legacyIncomingReplyDirectVisibility.visible,
+        reason: ownerIncomingReplyDirectVisibility.reason,
+        payloadKind: 'incoming' as const,
+        banId: ownerIncomingReplyDirectVisibility.banId,
+        source: 'Providers.ownerIncomingReplyDirectVisibility',
+      },
+      {
+        component: 'IncomingBanOverlay-queue',
+        ownerVisible: ownerIncomingQueueVisibility.visible,
+        legacyWouldVisible: legacyIncomingQueueVisibility.visible,
+        reason: ownerIncomingQueueVisibility.reason,
+        payloadKind: 'incoming' as const,
+        banId: ownerIncomingQueueVisibility.banId,
+        source: 'Providers.ownerIncomingQueueVisibility',
+      },
+      {
+        component: 'ResultOverlay-queue',
+        ownerVisible: ownerResultQueueVisibility.visible,
+        legacyWouldVisible: legacyResultQueueVisibility.visible,
+        reason: ownerResultQueueVisibility.reason,
+        payloadKind: 'result' as const,
+        resultId: ownerResultQueueVisibility.resultId || null,
+        source: 'Providers.ownerResultQueueVisibility',
+      },
+      {
+        component: 'DirectOverboardResultLayer',
+        ownerVisible: ownerDirectOverboardVisibility.visible,
+        legacyWouldVisible: legacyDirectOverboardVisibility.visible,
+        reason: ownerDirectOverboardVisibility.reason,
+        payloadKind: 'direct-result' as const,
+        resultId: ownerDirectOverboardVisibility.resultId || null,
+        source: 'Providers.ownerDirectOverboardVisibility',
+      },
+      {
+        component: 'NotificationQueueShell',
+        ownerVisible:
+          notificationQueueShellDisplayKind != null &&
+          (notificationQueueShellDisplayKind !== 'incoming' ||
+            notificationQueueShellIncomingCardReady) &&
+          (notificationQueueShellDisplayKind !== 'check' ||
+            notificationQueueShellCheckCardReady) &&
+          (notificationQueueShellDisplayKind !== 'result' ||
+            ownerShellContentReady === true ||
+            notificationQueueShellAdvanceWaiting),
+        legacyWouldVisible:
+          notificationQueueShellDisplayKind != null &&
+          (notificationQueueShellDisplayKind !== 'incoming' ||
+            notificationQueueShellIncomingCardReady) &&
+          (notificationQueueShellDisplayKind !== 'check' ||
+            notificationQueueShellCheckCardReady) &&
+          (notificationQueueShellDisplayKind !== 'result' ||
+            ownerShellContentReady === true ||
+            notificationQueueShellAdvanceWaiting),
+        reason: 'owner-shell-readiness',
+        payloadKind: 'shell' as const,
+        source: 'Providers.ownerShellReadiness',
+      },
+    ];
+    for (const gate of gates) {
+      logPhase12VisibilityGate({
+        ...gate,
+        mismatch: gate.ownerVisible !== gate.legacyWouldVisible,
+      });
+    }
+  }, [
+    ownerCheckDirectVisibility,
+    legacyCheckDirectVisibility,
+    ownerCheckQueueVisibility,
+    legacyCheckQueueVisibility,
+    ownerIncomingReplyDirectVisibility,
+    legacyIncomingReplyDirectVisibility,
+    ownerIncomingQueueVisibility,
+    legacyIncomingQueueVisibility,
+    ownerResultQueueVisibility,
+    legacyResultQueueVisibility,
+    ownerDirectOverboardVisibility,
+    legacyDirectOverboardVisibility,
+    notificationQueueShellDisplayKind,
+    notificationQueueShellIncomingCardReady,
+    notificationQueueShellCheckCardReady,
+    ownerShellContentReady,
+    notificationQueueShellAdvanceWaiting,
+  ]);
 
   useLayoutEffect(() => {
     const queueHead = ownerPrimaryQueueHead;
@@ -30035,7 +30495,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 name="check-deeplink-direct"
                 onRecover={() => clearCheckOverlay()}
               >
-                <CheckOverlay checkDirect />
+                <CheckOverlay
+                  checkDirect
+                  visible={ownerCheckDirectVisibility.visible}
+                  checkBan={ownerPrimaryCheckBan}
+                  visibilityReason={ownerCheckDirectVisibility.reason}
+                />
               </ChallengeErrorBoundary>
             ) : null}
             {showReplyIncomingOverlayDirect && replyDirectOverlayBan ? (
@@ -30046,6 +30511,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 <IncomingBanOverlay
                   ban={replyDirectOverlayBan}
                   replyDirect
+                  visible={ownerIncomingReplyDirectVisibility.visible}
+                  visibilityReason={ownerIncomingReplyDirectVisibility.reason}
                 />
               </ChallengeErrorBoundary>
             ) : null}
@@ -30062,17 +30529,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               activeIncomingBanId={
                 showReplyIncomingOverlayDirect ||
                 notificationQueueShellDisplayKind === 'incoming'
-                  ? (ownerPrimaryStableIncomingBan?.id ??
-                      ownerPrimaryIncomingBan?.id ??
-                      incomingCardDisplayBan?.id ??
-                      null)
+                  ? (ownerRenderIncomingBan?.id ?? null)
                   : null
               }
             >
               <NotificationQueueShell
                 kind={notificationQueueShellDisplayKind}
                 shellContentReady={
-                  renderableResultShell ? queueResultShellContentReady : undefined
+                  renderableResultShell ? ownerShellContentReady : undefined
                 }
                 renderTrace={{
                   effectiveNotificationQueueShellKind,
@@ -30177,15 +30641,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                           : null
                 }
               >
-                {queueShellShowsResult && activeResultPayload ? (
+                {queueShellShowsResult && ownerRenderResultPayload ? (
                   <ChallengeErrorBoundary
                     name="result"
                     onRecover={() => dismissBanResult()}
                   >
                     <ResultOverlay
-                      result={activeResultPayload}
+                      result={ownerRenderResultPayload}
                       onClose={dismissBanResult}
                       contentOnly
+                      visible={ownerResultQueueVisibility.visible}
+                      visibilityReason={ownerResultQueueVisibility.reason}
+                      returnsNullReason={ownerResultQueueVisibility.returnsNullReason}
+                      overboardQueueBody={ownerResultQueueVisibility.overboardQueueBody}
                     />
                   </ChallengeErrorBoundary>
                 ) : notificationQueueShellDisplayKind === 'check' &&
@@ -30195,24 +30663,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     name="check"
                     onRecover={() => clearCheckOverlay()}
                   >
-                    <CheckOverlay contentOnly />
+                    <CheckOverlay
+                      contentOnly
+                      visible={ownerCheckQueueVisibility.visible}
+                      checkBan={ownerPrimaryCheckBan}
+                      visibilityReason={ownerCheckQueueVisibility.reason}
+                    />
                   </ChallengeErrorBoundary>
                 ) : notificationQueueShellDisplayKind === 'incoming' &&
-                  (incomingCardDisplayBan ||
-                    ownerPrimaryIncomingBan ||
-                    ownerPrimaryStableIncomingBan) ? (
+                  ownerRenderIncomingBan ? (
                   <ChallengeErrorBoundary
                     name="incoming"
                     onRecover={() => dismissIncoming()}
                   >
                     <IncomingBanOverlay
                       contentOnly
-                      ban={
-                        ownerPrimaryStableIncomingBan ??
-                        ownerPrimaryIncomingBan ??
-                        incomingCardDisplayBan ??
-                        undefined
-                      }
+                      ban={ownerRenderIncomingBan}
+                      visible={ownerIncomingQueueVisibility.visible}
+                      visibilityReason={ownerIncomingQueueVisibility.reason}
                     />
                   </ChallengeErrorBoundary>
                 ) : null}
@@ -30222,17 +30690,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           </>
         ) : null}
         {(() => {
-          const ownerDirectDisplayResult =
-            priorityBlocksResult || sendSuccessCardActive
-              ? null
-              : readOwnerOnlyResult(
-                  ownerReadDisplay,
-                  'ResultOverlay',
-                  { ref: resultRef.current, state: result },
-                );
-          const directOverboardRenderResult = ownerDirectDisplayResult;
+          const directOverboardRenderResult = ownerPrimaryDisplayResultForShell;
           const directJsxFields = {
-            active: directResultOverlayActive,
+            active: ownerPrimaryDirectResultOverlayActive,
             ownerDirectActive: ownerPrimaryDirectResultOverlayActive,
             hasResult: directOverboardRenderResult != null,
             resultBanId: directOverboardRenderResult?.id ?? null,
@@ -30330,6 +30790,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               <DirectOverboardResultLayer
                 result={directOverboardRenderResult}
                 onClose={dismissBanResult}
+                visible={ownerDirectOverboardVisibility.visible}
+                visibilityReason={ownerDirectOverboardVisibility.reason}
+                resultVisible={ownerDirectResultVisibility.visible}
+                resultVisibilityReason={ownerDirectResultVisibility.reason}
+                resultReturnsNullReason={ownerDirectResultVisibility.returnsNullReason}
+                resultOverboardQueueBody={ownerDirectResultVisibility.overboardQueueBody}
               />
             </ChallengeErrorBoundary>
           );

@@ -44,21 +44,26 @@ interface Props {
   contentOnly?: boolean;
   /** Check deeplink direct path — render as top layer outside GlobalOverlayHost. */
   checkDirect?: boolean;
+  /** Phase 12.1b: owner-derived architectural visibility — sole render gate. */
+  visible: boolean;
+  /** Phase 12.1b: owner-derived check ban payload. */
+  checkBan: BanInteraction | null;
+  visibilityReason?: string;
 }
 
 function CheckOverlayInner({
   embedded = false,
   contentOnly = false,
   checkDirect = false,
+  visible,
+  checkBan,
+  visibilityReason,
 }: Props) {
   const {
     token,
     user,
-    checkBan,
-    checkGateActive,
     submitCheckAnswer,
     notificationSessionActive,
-    activeOverlayKind,
     markOverlayUserAction,
     logCardCloseClick,
     reportOverlayRendered,
@@ -79,7 +84,7 @@ function CheckOverlayInner({
   }, [checkBan?.id]);
 
   useEffect(() => {
-    if (!checkBan?.id) return;
+    if (!checkBan?.id || !visible) return;
     const role = getCheckViewerRole(
       user?.id ?? null,
       checkBan.sender.id,
@@ -89,10 +94,10 @@ function CheckOverlayInner({
       authUserId: user?.id ?? null,
       checkBanId: checkBan.id,
       role,
-      shouldShow: checkGateActive,
-      reason: checkGateActive ? 'render' : 'guard-rejected',
+      shouldShow: visible,
+      reason: visibilityReason ?? (visible ? 'render' : 'guard-rejected'),
     });
-  }, [checkBan, user?.id, checkGateActive]);
+  }, [checkBan, user?.id, visible, visibilityReason]);
 
   const displayedLabel = useMemo(() => {
     if (!modalView) return '';
@@ -146,24 +151,14 @@ function CheckOverlayInner({
     [checkBan?.id, haptic, logCardCloseClick, modalView, markOverlayUserAction, submitCheckAnswer, token],
   );
 
-  const isQueueHead = activeOverlayKind === 'check';
-  const canRender =
-    (checkDirect ||
-      checkGateActive ||
-      (isQueueHead && !!checkBan)) &&
-    !!checkBan &&
-    !!token &&
-    !!user?.id &&
-    !!modalView;
-
   useEffect(() => {
-    if (!checkDirect || !canRender) return;
+    if (!checkDirect || !visible) return;
     acquireScrollLock();
     return () => releaseScrollLock();
-  }, [canRender, checkDirect]);
+  }, [visible, checkDirect]);
 
   useLayoutEffect(() => {
-    if (!canRender || !checkBan?.id) return;
+    if (!visible || !checkBan?.id) return;
     if (!checkDirect) {
       clearCheckOverlayInputLock(checkBan.id);
     }
@@ -213,9 +208,13 @@ function CheckOverlayInner({
       pointerEvents: hostStyle?.pointerEvents ?? null,
     });
     reportOverlayRendered('check', checkBan.id, true);
-  }, [canRender, checkBan?.id, checkDirect, reportOverlayRendered]);
+  }, [visible, checkBan?.id, checkDirect, reportOverlayRendered]);
 
-  if (!canRender) {
+  if (!visible) {
+    return null;
+  }
+
+  if (!checkBan || !modalView) {
     return null;
   }
 

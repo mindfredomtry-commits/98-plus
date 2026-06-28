@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 70;
+export const DEBUG98_LOGGER_VERSION = 71;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -395,6 +395,8 @@ const ALLOWED_EVENTS = new Set([
   '[OWNER PHASE11C3 DECISION READ]',
   '[OWNER PHASE11C3 DECISION MISMATCH]',
   '[OWNER PHASE11C3 DECISION FALLBACK]',
+  '[PHASE12 RENDER FALLBACK]',
+  '[PHASE12 VISIBILITY GATE]',
   '[DUPLICATE TERMINAL RESULT ATTEMPT]',
   '[RESULT TYPE CONFLICT]',
   '[CHAIN HEAD SWITCH TRACE]',
