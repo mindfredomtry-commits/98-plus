@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 67;
+export const DEBUG98_LOGGER_VERSION = 69;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -196,6 +196,15 @@ const ALLOWED_EVENTS = new Set([
   '[SHARED PREFETCH LIFECYCLE]',
   '[COMMIT PENDING QUEUE VIA OWNER]',
   '[DRAIN GATE SOURCE]',
+  '[RESULT CARD CTA CLICK]',
+  '[RESULT DISMISS REQUEST]',
+  '[RESULT DISMISS COMMIT]',
+  '[QUEUE CONTINUE AFTER RESULT]',
+  '[RESULT OVERLAY STILL MOUNTED]',
+  '[QUEUE HEAD SELECTED FOR DISPLAY]',
+  '[OWNER DISPLAY SET FROM QUEUE]',
+  '[RESULT RENDER VS OWNER ACTIVE]',
+  '[GO TO BANS ACTIVE MISMATCH]',
   '[INCOMING OVERBOARD ATOMIC RESULT]',
   '[RESULT CARD STABLE HOLD]',
   '[RESULT CARD REMOUNT BUG]',

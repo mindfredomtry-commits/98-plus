@@ -25,6 +25,7 @@ import {
   resolveResultOverlayViewerId,
 } from '@/lib/result-display-ready';
 import { logResultCardUnmounted } from '@/lib/check-chain-drain-debug';
+import { logResultCardCtaClick } from '@/lib/result-card-dismiss-diag-debug';
 import { ANALYTICS_EVENTS } from '@98plus/shared';
 import { shareDeepLink } from '@/lib/share';
 import { api } from '@/lib/api';
@@ -541,6 +542,12 @@ function ResultOverlayInner({
         outcome: result.outcome,
       });
     }
+    logResultCardCtaClick({
+      source: 'ResultOverlay.goToBans',
+      banId: result.id,
+      resultId: result.id,
+      overlayKey: `result:${result.id}`,
+    });
     navigateFromResult();
   }, [directPaint, haptic, markOverlayUserAction, navigateFromResult, result.id, result.outcome]);
 
