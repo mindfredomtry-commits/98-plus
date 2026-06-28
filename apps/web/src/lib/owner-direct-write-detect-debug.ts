@@ -46,8 +46,17 @@ function captureOwnerDirectWriteCallerStack(minLines = 8): string[] {
     .filter(Boolean);
 }
 
-function ownerDirectWriteDetectEnabled(): boolean {
+function phase12DiagStructuralEnabled(): boolean {
+  return isPhase12DiagEnabled();
+}
+
+function phase12DiagClientLogEnabled(): boolean {
   return typeof window !== 'undefined' && isPhase12DiagEnabled();
+}
+
+/** @deprecated internal alias — use structural vs client log helpers */
+function ownerDirectWriteDetectEnabled(): boolean {
+  return phase12DiagClientLogEnabled();
 }
 
 export function logOwnerDirectWriteDetected(args: {
@@ -177,7 +186,7 @@ function wrapMutableValue<T>(
   context: OwnerWriteDetectContext,
   path: string,
 ): T {
-  if (!ownerDirectWriteDetectEnabled()) return value;
+  if (!phase12DiagStructuralEnabled()) return value;
   if (value == null || typeof value !== 'object') return value;
 
   if (Array.isArray(value)) {
@@ -231,7 +240,7 @@ export function attachOwnerStateWriteDetect(
   state: NotificationOverlayOwnerState,
   context: OwnerWriteDetectContext,
 ): OwnerStateWriteDetectHandle {
-  if (!ownerDirectWriteDetectEnabled()) {
+  if (!phase12DiagStructuralEnabled()) {
     return {
       wrapped: state,
       unwrap: () => state,

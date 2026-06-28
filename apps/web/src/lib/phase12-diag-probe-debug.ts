@@ -3,8 +3,9 @@
 import { isPhase12DiagEnabled } from '@/lib/notification-overlay-owner-phase12-smoke-env';
 
 export function logPhase12DiagBoot(): void {
+  if (typeof window === 'undefined') return;
   const payload = {
-    t: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+    t: performance.now(),
     NEXT_PUBLIC_PHASE12_DIAG: process.env.NEXT_PUBLIC_PHASE12_DIAG ?? null,
     isPhase12DiagEnabled: isPhase12DiagEnabled(),
     NODE_ENV: process.env.NODE_ENV ?? null,
@@ -20,8 +21,9 @@ export function logPhase12TraceReached(
   phase: 'before-gate' | 'after-gate',
   extra: Record<string, unknown> = {},
 ): void {
+  if (typeof window === 'undefined') return;
   const payload = {
-    t: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+    t: performance.now(),
     site,
     phase,
     NEXT_PUBLIC_PHASE12_DIAG: process.env.NEXT_PUBLIC_PHASE12_DIAG ?? null,

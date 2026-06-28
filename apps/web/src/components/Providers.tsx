@@ -1553,9 +1553,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     authReady: auth.authReady,
     loading: auth.loading,
   });
-  useEffect(() => {
-    logPhase12DiagBoot();
-  }, []);
   const [dataOwnerUserId, setDataOwnerUserId] = useState<string | null>(null);
   const [incomingBan, setIncomingBan] = useState<BanInteraction | null>(null);
   const [checkBan, setCheckBan] = useState<BanInteraction | null>(null);
@@ -1565,6 +1562,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     resultRef.current = result;
   }, [result]);
+  useEffect(() => {
+    logPhase12DiagBoot();
+  }, []);
   const [overlayQueue, setOverlayQueue] = useState<QueuedOverlay[]>([]);
   const overlayQueueRef = useRef<QueuedOverlay[]>([]);
   const displayResultSourcePickedRef = useRef('none');
