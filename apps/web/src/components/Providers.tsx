@@ -534,6 +534,12 @@ import {
   logResultRenderVsOwnerActive,
 } from '@/lib/result-render-owner-mismatch-diag-debug';
 import {
+  logDirectOverboardCloseCommit,
+  logDirectOverboardCloseRequest,
+  logDirectOverboardShowableDecision,
+  logOverboardResultCtaClick,
+} from '@/lib/direct-overboard-close-diag-debug';
+import {
   isSuccessExitDrainSource,
   logLobbyCtaHiddenBug,
   logResultCardAutoClearedBug,
@@ -3174,6 +3180,119 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       incomingBanRef.current?.id ??
       null,
   });
+  const buildDirectOverboardCloseDiagSnapshot = () => {
+    const owner = ownerShadowRef.current.getState();
+    const held = heldUserCardOverlayRef.current;
+    const queueHead = overlayQueueRef.current[0] ?? null;
+    const ownerDisplayResultId = owner.display.result?.id ?? null;
+    const heldResultId = held?.kind === 'result' ? held.result.id : null;
+    const queueHeadResultId =
+      queueHead?.kind === 'result' ? queueHead.result.id : null;
+    const resultRefBanId = resultRef.current?.id ?? null;
+    const activeResultPayloadBanId =
+      ownerDisplayResultId ??
+      heldResultId ??
+      queueHeadResultId ??
+      resultRefBanId;
+    return {
+      directResultOverlay: directResultOverlayRef.current,
+      directResultOverlayActive: directResultOverlayActiveRef.current,
+      ownerDirectActive:
+        owner.display.directResultOverlayActive ||
+        owner.display.directResultOverlay,
+      overboardInFlightBanId: overboardInFlightRef.current,
+      ownerDisplayResultBanId: ownerDisplayResultId,
+      resultRefBanId,
+      activeResultPayloadBanId,
+      heldUserCardKind: held?.kind ?? null,
+      heldUserCardBanId: held ? heldUserCardBanId(held) : null,
+      queueHead: resolveOverlayHeadSnapshot(queueHead),
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      atomicOverboardBanId: incomingOverboardAtomicBanIdRef.current,
+      showDirectOverboardLayerRef: showDirectOverboardLayerRef.current,
+    };
+  };
+  const resolveActiveResultPayloadSource = (
+    banId: string | null | undefined,
+  ):
+    | 'ownerDisplay'
+    | 'held'
+    | 'queueHead'
+    | 'resultRef'
+    | 'directOverboard'
+    | 'none' => {
+    const norm = normalizeId(banId ?? '');
+    if (!norm) {
+      if (
+        directResultOverlayRef.current ||
+        directResultOverlayActiveRef.current
+      ) {
+        return 'directOverboard';
+      }
+      return 'none';
+    }
+    const owner = ownerShadowRef.current.getState();
+    if (normalizeId(owner.display.result?.id ?? '') === norm) {
+      return 'ownerDisplay';
+    }
+    const held = heldUserCardOverlayRef.current;
+    if (held?.kind === 'result' && normalizeId(held.result.id) === norm) {
+      return 'held';
+    }
+    const head = overlayQueueRef.current[0];
+    if (head?.kind === 'result' && normalizeId(head.result.id) === norm) {
+      return 'queueHead';
+    }
+    if (normalizeId(resultRef.current?.id ?? '') === norm) {
+      return 'resultRef';
+    }
+    if (
+      directResultOverlayRef.current ||
+      directResultOverlayActiveRef.current
+    ) {
+      return 'directOverboard';
+    }
+    return 'none';
+  };
+  const logDirectOverboardShowableDecisionFromSnapshot = (
+    banId: string | null,
+    extra: Record<string, unknown>,
+  ) => {
+    const snap = buildDirectOverboardCloseDiagSnapshot();
+    const showable =
+      Boolean(extra.showable) ||
+      (directResultOverlayActiveRef.current &&
+        (resultRef.current?.id ?? result?.id) != null) ||
+      Boolean(banId);
+    const sourcesAlive = [
+      snap.ownerDisplayResultBanId ? 'ownerDisplay' : null,
+      snap.heldUserCardKind === 'result' ? 'heldUserCard' : null,
+      snap.queueHead?.kind === 'result' ? 'queueHead' : null,
+      snap.resultRefBanId ? 'resultRef' : null,
+      snap.directResultOverlay || snap.directResultOverlayActive
+        ? 'directOverboard'
+        : null,
+      snap.overboardInFlightBanId ? 'overboardInFlight' : null,
+      snap.atomicOverboardBanId ? 'atomicOverboard' : null,
+    ]
+      .filter(Boolean)
+      .join('|');
+    logDirectOverboardShowableDecision({
+      banId,
+      hasResult: Boolean(banId ?? snap.activeResultPayloadBanId),
+      showable,
+      ownerDirectActive: snap.ownerDirectActive,
+      overboardInFlightBanId: snap.overboardInFlightBanId,
+      directResultOverlayExists: snap.directResultOverlay,
+      resultSource: resolveActiveResultPayloadSource(
+        banId ?? snap.activeResultPayloadBanId,
+      ),
+      sourceStillAlive: sourcesAlive || null,
+      ...snap,
+      ...extra,
+    });
+  };
   const resolveActiveDisplayPatchKind = (patch: OwnerActiveDisplayPatch) => {
     if (patch.result !== undefined) {
       return patch.result
@@ -5198,6 +5317,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         held != null ||
         queueHead?.kind === 'result';
       if (stillMounted) {
+        const snap = buildDirectOverboardCloseDiagSnapshot();
+        const outcome =
+          result?.outcome ??
+          resultRef.current?.outcome ??
+          (held?.kind === 'result' ? held.result.outcome : null) ??
+          (queueHead?.kind === 'result' ? queueHead.result.outcome : null);
+        const sourceStillAlive = [
+          resultIdAfter != null ? 'react-result-state' : null,
+          resultRefIdAfter != null ? 'result-ref' : null,
+          held != null ? `held-${held.kind}` : null,
+          queueHead?.kind === 'result' ? 'queue-head-result' : null,
+          snap.directResultOverlay || snap.directResultOverlayActive
+            ? 'direct-overboard-ref'
+            : null,
+          snap.overboardInFlightBanId ? 'overboard-in-flight' : null,
+          snap.atomicOverboardBanId ? 'atomic-overboard' : null,
+          snap.ownerDisplayResultBanId ? 'owner-display-result' : null,
+          snap.showDirectOverboardLayerRef ? 'show-direct-layer-ref' : null,
+        ]
+          .filter(Boolean)
+          .join('|');
         const whyStillMounted = [
           resultIdAfter != null ? 'react-result-state' : null,
           resultRefIdAfter != null ? 'result-ref' : null,
@@ -5211,7 +5351,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason,
           resultId: resultIdAfter ?? resultRefIdAfter,
           banId: resultIdAfter ?? resultRefIdAfter,
+          outcome,
           whyStillMounted,
+          sourceStillAlive,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
           legacyResultRef: resultRefIdAfter,
           queueHeadKind: queueHead?.kind ?? null,
           queueHeadBanId:
@@ -5224,6 +5368,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           notificationChainTransitioning:
             notificationChainTransitioningRef.current,
           goToBansAdvancePending: goToBansAdvancePendingRef.current,
+          ...snap,
           ...buildResultDismissDiagSnapshot(),
         });
       }
@@ -19732,6 +19877,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const applyDirectOverboardCloseState = useCallback(
     (banId: string | null) => {
+      const closeBefore = buildDirectOverboardCloseDiagSnapshot();
+      logDirectOverboardCloseRequest({
+        clickedBanId: banId,
+        currentDirectResultBanId:
+          resultRef.current?.id ?? result?.id ?? null,
+        ...closeBefore,
+      });
       const c3Close = readOwnerC3Decision('applyDirectOverboardClose');
       console.log('[DIRECT OVERBOARD CLOSE FROM CTA]', {
         banId,
@@ -19800,6 +19952,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         'applyDirectOverboardCloseState',
         'direct-overboard-close',
       );
+      const closeAfter = buildDirectOverboardCloseDiagSnapshot();
+      logDirectOverboardCloseCommit({
+        clickedBanId: banId,
+        before: closeBefore,
+        after: closeAfter,
+      });
     },
     [clearDirectOverboardLayerRefs],
   );
@@ -24202,9 +24360,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (!key) return;
       const overlayKey = `result:${key}`;
       const ownerBefore = ownerShadowRef.current.getState();
+      const closeBefore = buildDirectOverboardCloseDiagSnapshot();
       const legacyResultBefore = resultRef.current?.id ?? result?.id ?? null;
       const overlayQueueBefore = [...overlayQueueRef.current];
       const pendingBeforeSnapshot = [...pendingStartupInteractionsRef.current];
+      const resolvedResultPayload =
+        resultRef.current ??
+        result ??
+        (heldUserCardOverlayRef.current?.kind === 'result'
+          ? heldUserCardOverlayRef.current.result
+          : null);
+      const outcome = resolveOverboardResultOutcome(resolvedResultPayload);
+      const isQueueOverboardResultDismiss =
+        outcome === 'overboard' &&
+        !closeBefore.directResultOverlay &&
+        !closeBefore.directResultOverlayActive;
       logResultDismissRequest({
         source: 'finalizeResultForGoToBans',
         banId: key,
@@ -24214,18 +24384,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         removeOverlayCalled: false,
         ...buildOwnerQueuePendingSnapshot(ownerBefore),
       });
+      if (isQueueOverboardResultDismiss) {
+        freshOverboardActionBanIdsRef.current.delete(key);
+        freshFinalStatusBanIdsRef.current.delete(key);
+      }
       ownerShadowDispatch(
         { type: 'RESULT_GO_TO_BANS', banId: key },
         'finalizeResultForGoToBans',
       );
       const queueLenBefore = overlayQueueRef.current.length;
-      const outcome = resolveOverboardResultOutcome(
-        resultRef.current ??
-          result ??
-          (heldUserCardOverlayRef.current?.kind === 'result'
-            ? heldUserCardOverlayRef.current.result
-            : null),
-      );
       const inActiveOverboardQueue = isOverboardResultInActiveNotificationQueue({
         banId: key,
         resultOutcome: outcome,
@@ -24247,6 +24414,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         startedFromDeepLink: isDeeplinkSingleCardModeActive(),
         startedFromSuccess: isPostSuccessHandoffInProgress(),
       });
+      if (
+        outcome === 'overboard' ||
+        closeBefore.directResultOverlay ||
+        closeBefore.directResultOverlayActive ||
+        inActiveOverboardQueue
+      ) {
+        logDirectOverboardCloseRequest({
+          source: 'finalizeResultForGoToBans',
+          clickedBanId: key,
+          outcome,
+          inActiveOverboardQueue,
+          currentDirectResultBanId: legacyResultBefore,
+          ...closeBefore,
+        });
+      }
       snapshotOverboardResultChainContext(key, 'finalizeResultForGoToBans', {
         queueLenBefore,
         resultId: key,
@@ -24277,14 +24459,50 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           atomicOverboardBanId: null,
         });
       }
-      if (heldBefore) {
-        logResultGoToBansClearActiveHold({
-          banId: key,
-          heldKind: heldBefore.kind,
-          heldBanId: heldUserCardBanId(heldBefore),
-        });
+      if (isQueueOverboardResultDismiss) {
+        const heldMatch = heldUserCardOverlayRef.current;
+        if (
+          heldMatch?.kind === 'result' &&
+          normalizeId(heldMatch.result.id) === key
+        ) {
+          if (heldBefore) {
+            logResultGoToBansClearActiveHold({
+              banId: key,
+              heldKind: heldBefore.kind,
+              heldBanId: heldUserCardBanId(heldBefore),
+            });
+          }
+          emitResultClearCallsite({
+            source: 'finalizeResultForGoToBans',
+            reason: 'queue-overboard-clear-held-result',
+            resultIdBefore: key,
+            willClearHeld: true,
+          });
+          heldUserCardOverlayRef.current = null;
+          setHeldUserCardOverlay(null);
+          mirrorHeldUserCardHold(
+            'finalizeResultForGoToBans:queue-overboard-held-result',
+          );
+          notificationChainAwaitingUserRef.current = false;
+          mirrorOwnerChainSessionGatesRef.current(
+            'finalizeResultForGoToBans:queue-overboard-held-result',
+            { awaitingUser: false },
+          );
+          visibleUserCardOverlayRef.current = null;
+          console.log('[active-user-card-hold-clear]', {
+            source: 'finalizeResultForGoToBans:queue-overboard-held-result',
+          });
+        }
+      } else {
+        if (heldBefore) {
+          logResultGoToBansClearActiveHold({
+            banId: key,
+            heldKind: heldBefore.kind,
+            heldBanId: heldUserCardBanId(heldBefore),
+          });
+        }
+        clearActiveUserCardHold('finalizeResultForGoToBans');
       }
-      clearActiveUserCardHold('finalizeResultForGoToBans');
 
       markResultOverlayConsumed(key, 'go-to-bans');
       let markConsumedCalled = true;
@@ -24299,31 +24517,76 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         consumeIncomingAfterAnswer(key, 'go-to-bans');
       }
 
-      pruneResultFromNotificationChain(key, 'go-to-bans', ['check', 'result']);
-      sanitizeNotificationChainQueues('go-to-bans');
+      if (isQueueOverboardResultDismiss) {
+        const beforeQueue = overlayQueueRef.current;
+        const beforePending = pendingStartupInteractionsRef.current;
+        const queueHeadIsClickedResult =
+          beforeQueue[0]?.kind === 'result' &&
+          normalizeId(beforeQueue[0].result.id) === key;
+        if (queueHeadIsClickedResult) {
+          const nextQueue = removeOverlaysForBan(beforeQueue, key, ['result']);
+          if (nextQueue.length !== beforeQueue.length) {
+            removeOverlayCalled = true;
+            commitOverlayQueueViaApply(
+              nextQueue,
+              'go-to-bans',
+              'queue-overboard-go-to-bans-queue',
+            );
+          }
+        }
+        const nextPending = removeOverlaysForBan(beforePending, key, ['result']);
+        if (nextPending.length !== beforePending.length) {
+          removeOverlayCalled = true;
+          commitPendingQueueViaOwner(
+            nextPending,
+            'go-to-bans',
+            'queue-overboard-go-to-bans-pending',
+          );
+        }
+        const ownerDisplayResultId =
+          ownerShadowRef.current.getState().display.result?.id ?? null;
+        if (
+          normalizeId(ownerDisplayResultId) === key ||
+          normalizeId(resultRef.current?.id ?? '') === key ||
+          normalizeId(result?.id ?? '') === key
+        ) {
+          commitSyncDisplayActivePayload(
+            {
+              result: null,
+              checkBan: null,
+              incomingBan: null,
+              stableIncomingBan: null,
+            },
+            'finalizeResultForGoToBans:queue-overboard-clear-display',
+          );
+        }
+      } else {
+        pruneResultFromNotificationChain(key, 'go-to-bans', ['check', 'result']);
+        sanitizeNotificationChainQueues('go-to-bans');
 
-      const beforeQueue = overlayQueueRef.current;
-      const nextQueue = removeOverlaysForBan(beforeQueue, key, ['check', 'result']);
-      if (nextQueue.length !== beforeQueue.length) {
-        removeOverlayCalled = true;
-        commitOverlayQueueViaApply(
-          nextQueue,
-          'go-to-bans',
-          'go-to-bans-queue-prune-commit',
-        );
-      }
-      const beforePending = pendingStartupInteractionsRef.current;
-      const nextPending = removeOverlaysForBan(beforePending, key, [
-        'check',
-        'result',
-      ]);
-      if (nextPending.length !== beforePending.length) {
-        removeOverlayCalled = true;
-        commitPendingQueueViaOwner(
-          nextPending,
-          'go-to-bans',
-          'pending-prune',
-        );
+        const beforeQueue = overlayQueueRef.current;
+        const nextQueue = removeOverlaysForBan(beforeQueue, key, ['check', 'result']);
+        if (nextQueue.length !== beforeQueue.length) {
+          removeOverlayCalled = true;
+          commitOverlayQueueViaApply(
+            nextQueue,
+            'go-to-bans',
+            'go-to-bans-queue-prune-commit',
+          );
+        }
+        const beforePending = pendingStartupInteractionsRef.current;
+        const nextPending = removeOverlaysForBan(beforePending, key, [
+          'check',
+          'result',
+        ]);
+        if (nextPending.length !== beforePending.length) {
+          removeOverlayCalled = true;
+          commitPendingQueueViaOwner(
+            nextPending,
+            'go-to-bans',
+            'pending-prune',
+          );
+        }
       }
 
       const remainingLen = overlayQueueRef.current.length;
@@ -24421,6 +24684,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           pendingLen: pendingStartupInteractionsRef.current.length,
         },
       });
+      if (
+        outcome === 'overboard' ||
+        closeBefore.directResultOverlay ||
+        closeBefore.directResultOverlayActive ||
+        inActiveOverboardQueue
+      ) {
+        logDirectOverboardCloseCommit({
+          source: 'finalizeResultForGoToBans',
+          clickedBanId: key,
+          outcome,
+          before: closeBefore,
+          after: buildDirectOverboardCloseDiagSnapshot(),
+        });
+      }
 
       lastProcessedOverlayKindForBansRef.current = 'result';
     },
@@ -24428,9 +24705,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       cancelResultPollBurst,
       clearDirectOverboardLayerRefs,
       clearStaleComposeStateBeforeBansNavigation,
+      commitSyncDisplayActivePayload,
       consumeIncomingAfterAnswer,
       markResultOverlayConsumed,
       pruneResultFromNotificationChain,
+      result,
       sanitizeNotificationChainQueues,
       setNotificationChainTransitioning,
       syncPendingStartupCount,
@@ -24562,6 +24841,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           stateActive: directResultOverlayActive,
         },
       );
+
+    if (
+      resultOutcome === 'overboard' ||
+      wasDirect ||
+      inActiveOverboardQueue ||
+      directResultOverlayRef.current ||
+      directResultOverlayActiveRef.current
+    ) {
+      const ownerAtOverboardCta = ownerShadowRef.current.getState();
+      logOverboardResultCtaClick({
+        banId,
+        resultId: banId,
+        outcome: resultOutcome,
+        contentOnly: !wasDirect,
+        embedded: true,
+        showableBeforeClick: Boolean(
+          result?.id ?? resultRef.current?.id ?? banId,
+        ),
+        ownerDirectActive:
+          ownerAtOverboardCta.display.directResultOverlayActive ||
+          ownerAtOverboardCta.display.directResultOverlay,
+        hasResult: Boolean(result?.id ?? resultRef.current?.id ?? banId),
+        wasDirect,
+        inActiveOverboardQueue,
+        chainSource: wasDirect ? 'overboard-status-direct' : 'status-cta',
+        ...buildDirectOverboardCloseDiagSnapshot(),
+      });
+    }
 
     logResultGoToBansClick({
       banId,
@@ -25867,10 +26174,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (directResultOverlayActive && result?.id) {
       commitDirectOverboardLayerRefs(result.id, true);
     }
+    if (
+      directResultOverlayActive ||
+      result?.outcome === 'overboard' ||
+      directResultOverlayRef.current
+    ) {
+      logDirectOverboardShowableDecisionFromSnapshot(result?.id ?? null, {
+        phase: 'direct-layer-render-check',
+        showable: showDirectOverboardLayer,
+        contentOnly: false,
+        embedded: true,
+        willRender: showDirectOverboardLayer,
+        reason: showDirectOverboardLayer
+          ? 'directResultOverlayActive-and-displayResult'
+          : 'direct-layer-not-showable',
+      });
+    }
   }, [
     commitDirectOverboardLayerRefs,
     directResultOverlayActive,
     result?.id,
+    result?.outcome,
+    showDirectOverboardLayer,
   ]);
 
   useLayoutEffect(() => {
@@ -27056,6 +27381,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         mismatch,
         winnerSource,
       });
+      if (
+        winner.outcome === 'overboard' ||
+        isFinalCheckStatusOutcome(winner.outcome)
+      ) {
+        logDirectOverboardShowableDecisionFromSnapshot(winner.id, {
+          phase: 'activeResultPayload-pick',
+          showable: true,
+          contentOnly: true,
+          embedded: true,
+          winnerSource,
+          reason: 'activeResultPayload-selected-overboard-result',
+        });
+      }
     }
 
     return winner;
@@ -29907,6 +30245,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             embedded: true,
           };
           if (!showDirectOverboardLayer) {
+            logDirectOverboardShowableDecisionFromSnapshot(
+              directOverboardRenderResult?.id ?? null,
+              {
+                phase: 'direct-jsx-branch',
+                branch: 'providers-return-null-not-active',
+                showable: directJsxFields.showable,
+                contentOnly: false,
+                embedded: true,
+                willRender: false,
+                reason: 'showDirectOverboardLayer-false',
+                ...directJsxFields,
+              },
+            );
             markVisibleOverboardTrace('DIRECT OVERBOARD JSX BRANCH', {
               branch: 'providers-return-null-not-active',
               ...directJsxFields,
@@ -29914,12 +30265,36 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             return null;
           }
           if (!directOverboardRenderResult) {
+            logDirectOverboardShowableDecisionFromSnapshot(null, {
+              phase: 'direct-jsx-branch',
+              branch: 'providers-return-null-no-result',
+              showable: false,
+              contentOnly: false,
+              embedded: true,
+              willRender: false,
+              reason: 'directOverboardRenderResult-null',
+              ...directJsxFields,
+            });
             markVisibleOverboardTrace('DIRECT OVERBOARD JSX BRANCH', {
               branch: 'providers-return-null-no-result',
               ...directJsxFields,
             });
             return null;
           }
+          logDirectOverboardShowableDecisionFromSnapshot(
+            directOverboardRenderResult.id,
+            {
+              phase: 'direct-jsx-branch',
+              branch: 'providers-render-direct-layer',
+              showable: true,
+              contentOnly: false,
+              embedded: true,
+              willRender: true,
+              reason: 'direct-layer-will-render',
+              outcome: directOverboardRenderResult.outcome ?? null,
+              ...directJsxFields,
+            },
+          );
           markVisibleOverboardTrace('DIRECT OVERBOARD JSX BRANCH', {
             branch: 'providers-render-direct-layer',
             ...directJsxFields,

@@ -52,6 +52,10 @@ import { logResultFunMode } from '@/lib/result-fun-mode-debug';
 import { logResultPresentation } from '@/lib/result-ui-debug';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
 import {
+  logDirectOverboardShowableDecision,
+  logOverboardResultCtaClick,
+} from '@/lib/direct-overboard-close-diag-debug';
+import {
   logFinalStatusModalViewDecision,
   logResultCardRenderDecision,
   logResultOverlayBodyDecision,
@@ -283,6 +287,28 @@ function ResultOverlayInner({
     returnsNullReason,
     viewerId,
   });
+
+  if (isOverboardStatusOrOutcome || overboardQueueBody || directPaint) {
+    logDirectOverboardShowableDecision({
+      banId: result.id,
+      resultId: result.id,
+      outcome: result.outcome ?? resultStatus,
+      hasResult: Boolean(result.id?.trim()),
+      showable: effectiveShowable,
+      contentOnly,
+      embedded,
+      directPaint,
+      overboardQueueBody,
+      returnsNullReason,
+      reason: effectiveShowable
+        ? overboardQueueBody
+          ? 'overboard-queue-body'
+          : directPaint
+            ? 'direct-paint'
+            : 'overboard-status-or-outcome'
+        : returnsNullReason ?? 'not-showable',
+    });
+  }
 
   logResultCardRenderDecision({
     kind: 'result',
@@ -548,8 +574,22 @@ function ResultOverlayInner({
       resultId: result.id,
       overlayKey: `result:${result.id}`,
     });
+    if (isOverboardStatusOrOutcome || overboardQueueBody || directPaint) {
+      logOverboardResultCtaClick({
+        source: 'ResultOverlay.goToBans',
+        banId: result.id,
+        resultId: result.id,
+        outcome: result.outcome ?? resultStatus,
+        contentOnly,
+        embedded,
+        directPaint,
+        showableBeforeClick: effectiveShowable,
+        hasResult: Boolean(result.id?.trim()),
+        overboardQueueBody,
+      });
+    }
     navigateFromResult();
-  }, [directPaint, haptic, markOverlayUserAction, navigateFromResult, result.id, result.outcome]);
+  }, [directPaint, effectiveShowable, haptic, markOverlayUserAction, navigateFromResult, overboardQueueBody, result.id, result.outcome, resultStatus, contentOnly, embedded]);
 
   const banOthers = useCallback(() => {
     if (!allowOverlayUserTap('result-ban-others')) return;
