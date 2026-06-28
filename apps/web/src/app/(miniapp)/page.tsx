@@ -9,7 +9,10 @@ import {
 } from 'react';
 import dynamic from 'next/dynamic';
 import { useApp } from '@/components/Providers';
-import { useDeepLinkRouteBootPending } from '@/hooks/useDeepLinkRouteBootPending';
+import {
+  isDeepLinkRouteBootPending,
+  subscribeDeepLinkRouteBoot,
+} from '@/lib/deep-link-route-boot';
 import { useBootRouteRelease } from '@/hooks/useBootRouteRelease';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSocialBoot } from '@/hooks/useSocialBoot';
@@ -121,7 +124,11 @@ export default function HomePage() {
     checkDeeplinkDirectPending,
   } = useApp();
   const { ready } = useTelegram();
-  const deepLinkRouteBootPending = useDeepLinkRouteBootPending();
+  const deepLinkRouteBootPending = useSyncExternalStore(
+    subscribeDeepLinkRouteBoot,
+    isDeepLinkRouteBootPending,
+    () => false,
+  );
   const hasAuthSession = !!user?.id && !!token;
   const lobbyPrefetch = loading && !hasAuthSession;
   /** v2 arena shell — never drop to legacy HomeArena while session is active. */
@@ -131,7 +138,12 @@ export default function HomePage() {
     isLobbyBootIntroPrimed,
     () => false,
   );
-  const showBootScreen = loading || deepLinkRouteBootPending;
+  /** SSR + hydration: auth starts loading=true, deeplink boot pending=false. */
+  const showBootScreen = useSyncExternalStore(
+    subscribeDeepLinkRouteBoot,
+    () => loading || deepLinkRouteBootPending,
+    () => true,
+  );
 
   useLayoutEffect(() => {
     patchBootHandoffDebug({

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { UserPublic, BanInteraction } from '@98plus/shared';
 import {
   isInviteTokenStartParam,
@@ -58,12 +58,19 @@ export interface AuthBoot {
 export function useAuth() {
   const { initData, ready, user: tgUser, startParam, telegramId } =
     useTelegram();
-  const [initialSession] = useState(readInitialAuthSession);
-  const [token, setToken] = useState<string | null>(initialSession.token);
-  const [user, setUser] = useState<UserPublic | null>(initialSession.user);
-  const [loading, setLoading] = useState(initialSession.loading);
+  /** SSR + first client render must match — never read localStorage in useState init. */
+  const [token, setToken] = useState<string | null>(null);
+  const [user, setUser] = useState<UserPublic | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [boot, setBoot] = useState<AuthBoot | null>(null);
+
+  useLayoutEffect(() => {
+    const session = readInitialAuthSession();
+    setToken(session.token);
+    setUser(session.user);
+    setLoading(session.loading);
+  }, []);
 
   // Used to discard in-flight auth/session results when Telegram user changes.
   const identityRef = useRef<number | null>(null);

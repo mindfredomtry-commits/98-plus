@@ -14,7 +14,7 @@ export type InitialAuthSession = {
   loading: boolean;
 };
 
-/** Sync session for first paint — avoids BootLobby flash on repeat opens. */
+/** Sync session — call from useLayoutEffect only (not useState init) to avoid hydration mismatch. */
 export function readInitialAuthSession(): InitialAuthSession {
   if (typeof window === 'undefined') {
     return { token: null, user: null, loading: true };
