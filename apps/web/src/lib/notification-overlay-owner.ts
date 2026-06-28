@@ -12,6 +12,11 @@ import {
   isOverkillTerminalOutcome,
   shouldAllowTerminalResultForBan,
 } from '@/lib/overkill-terminal-lock';
+import {
+  logOwnerDirectWriteDetected,
+  logOwnerFunctionTrackedFieldWrite,
+  logOwnerReducerTrackedFieldAssignments,
+} from '@/lib/owner-direct-write-detect-debug';
 /** Bounded wait for check-answer final result (matches production constant). */
 export const NOTIFICATION_OWNER_CHECK_RESULT_HOLD_MS = 2250;
 
@@ -692,19 +697,28 @@ function mergePendingUnique(
 
 function syncActiveFromQueueHead(
   state: NotificationOverlayOwnerState,
+  eventType?: string,
 ): NotificationOverlayOwnerState {
   const head = state.queue[0];
   if (!head) {
     if (state.active.source === 'direct-overboard') {
-      return {
+      const next = {
         ...state,
         session: {
           ...state.session,
           shellKind: state.active.kind,
         },
       };
+      logOwnerFunctionTrackedFieldWrite({
+        previousState: state,
+        nextState: next,
+        file: 'notification-overlay-owner.ts',
+        function: 'syncActiveFromQueueHead',
+        eventType,
+      });
+      return next;
     }
-    return {
+    const next = {
       ...state,
       active: {
         kind: null,
@@ -717,19 +731,27 @@ function syncActiveFromQueueHead(
         shellKind: null,
       },
     };
+    logOwnerFunctionTrackedFieldWrite({
+      previousState: state,
+      nextState: next,
+      file: 'notification-overlay-owner.ts',
+      function: 'syncActiveFromQueueHead',
+      eventType,
+    });
+    return next;
   }
 
   const banId = normalizeId(overlayBanId(head)) || null;
   const payload =
     head.kind === 'result' ? head.result : (head.ban as BanInteraction);
 
-  return {
+  const next = {
     ...state,
     active: {
       kind: head.kind,
       banId,
       payload,
-      source: 'queue',
+      source: 'queue' as const,
     },
     session: {
       ...state.session,
@@ -737,6 +759,14 @@ function syncActiveFromQueueHead(
       overlayVisible: true,
     },
   };
+  logOwnerFunctionTrackedFieldWrite({
+    previousState: state,
+    nextState: next,
+    file: 'notification-overlay-owner.ts',
+    function: 'syncActiveFromQueueHead',
+    eventType,
+  });
+  return next;
 }
 
 function popQueueHeadForBan(
@@ -778,7 +808,8 @@ function applyActiveDisplayPatch(
   display: NotificationOwnerDisplayState,
   patch: OwnerActiveDisplayPatch,
 ): NotificationOwnerDisplayState {
-  return {
+  const previousResultId = display.result?.id ?? null;
+  const next = {
     incomingBan:
       patch.incomingBan !== undefined ? patch.incomingBan : display.incomingBan,
     stableIncomingBan:
@@ -804,6 +835,18 @@ function applyActiveDisplayPatch(
         ? patch.directResultOverlayActive
         : display.directResultOverlayActive,
   };
+  const nextResultId = next.result?.id ?? null;
+  if (previousResultId !== nextResultId) {
+    logOwnerDirectWriteDetected({
+      file: 'notification-overlay-owner.ts',
+      function: 'applyActiveDisplayPatch',
+      field: 'displayResultBanId',
+      oldValue: previousResultId,
+      newValue: nextResultId,
+      writePath: 'reducer-draft',
+    });
+  }
+  return next;
 }
 
 function applyProductionSnapshot(
@@ -908,6 +951,13 @@ function applyProductionSnapshot(
     payload: null,
     source: activeKind ? 'queue' : null,
   };
+
+  logOwnerFunctionTrackedFieldWrite({
+    previousState: state,
+    nextState: next,
+    file: 'notification-overlay-owner.ts',
+    function: 'applyProductionSnapshot',
+  });
 
   return next;
 }
@@ -1660,6 +1710,13 @@ export function notificationOverlayOwnerReducer(
       });
     }
   }
+
+  logOwnerReducerTrackedFieldAssignments({
+    previous: state,
+    next,
+    function: 'notificationOverlayOwnerReducer',
+    eventType: event.type,
+  });
 
   return { state: next, effects };
 }

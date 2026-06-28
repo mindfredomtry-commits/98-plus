@@ -26,6 +26,10 @@ import {
   buildOwnerDisplayWriteTraceSnapshot,
   logOwnerDisplayWriteTrace,
 } from '@/lib/owner-display-write-trace-debug';
+import {
+  attachOwnerStateWriteDetect,
+  type OwnerStateWriteDetectHandle,
+} from '@/lib/owner-direct-write-detect-debug';
 
 const QUEUE_AUTHORITY_EVENT_TYPES = new Set<NotificationOverlayOwnerEvent['type']>([
   'QUEUE_APPLIED',
@@ -79,13 +83,22 @@ export type NotificationOverlayOwnerShadowHandle = {
 export function createNotificationOverlayOwnerShadow(
   mirrorHandlers?: NotificationOverlayOwnerShadowMirrorHandlers,
 ): NotificationOverlayOwnerShadowHandle {
-  let state = createInitialNotificationOverlayOwnerState();
+  let stateHandle: OwnerStateWriteDetectHandle = attachOwnerStateWriteDetect(
+    createInitialNotificationOverlayOwnerState(),
+    {
+      file: 'notification-overlay-owner-shadow.ts',
+      function: 'createNotificationOverlayOwnerShadow',
+      writePath: 'shadow-state-in-place',
+    },
+  );
+  const currentState = () => stateHandle.unwrap();
 
   const logSnapshotFields = (
     eventType: string,
     source: string,
     snapshot?: OwnerProductionSnapshot,
   ) => {
+    const state = currentState();
     const ownerHead = resolveOwnerHeadBanId(state.queue);
     logOwnerShadowEvent({
       eventType,
@@ -106,6 +119,7 @@ export function createNotificationOverlayOwnerShadow(
   const logStateAndEffects = (
     effects: ReturnType<typeof notificationOverlayOwnerReducer>['effects'],
   ) => {
+    const state = currentState();
     const ownerHead = resolveOwnerHeadBanId(state.queue);
     logOwnerShadowState({
       activeKind: state.active.kind,
@@ -166,6 +180,7 @@ export function createNotificationOverlayOwnerShadow(
     snapshot: OwnerProductionSnapshot,
     source: string,
   ) => {
+    const state = currentState();
     const mismatches = compareOwnerShadowWithProduction(state, snapshot);
     if (mismatches.length === 0) return;
     const ownerHead = resolveOwnerHeadBanId(state.queue);
@@ -189,6 +204,7 @@ export function createNotificationOverlayOwnerShadow(
     effects: ReturnType<typeof notificationOverlayOwnerReducer>['effects'],
     source: string,
   ) => {
+    const state = currentState();
     for (const effect of effects) {
       if (effect.type === 'MIRROR_LEGACY_QUEUE') {
         logOwnerPhase8LegacyMirror({
@@ -254,8 +270,9 @@ export function createNotificationOverlayOwnerShadow(
   };
 
   return {
-    getState: () => state,
+    getState: () => stateHandle.wrapped,
     dispatch(event, source, snapshot) {
+      const state = currentState();
       if (QUEUE_AUTHORITY_EVENT_TYPES.has(event.type)) {
         logOwnerPhase8QueueDispatch({
           eventType: event.type,
@@ -300,10 +317,15 @@ export function createNotificationOverlayOwnerShadow(
       logSnapshotFields(event.type, source, snapshot);
       const previousWriteTrace = buildOwnerDisplayWriteTraceSnapshot(state);
       const result = notificationOverlayOwnerReducer(state, event);
-      state = result.state;
+      stateHandle = attachOwnerStateWriteDetect(result.state, {
+        file: 'notification-overlay-owner-shadow.ts',
+        function: 'dispatch',
+        writePath: 'shadow-state-in-place',
+      });
+      const nextState = stateHandle.unwrap();
       logOwnerDisplayWriteTrace({
         previous: previousWriteTrace,
-        next: buildOwnerDisplayWriteTraceSnapshot(state),
+        next: buildOwnerDisplayWriteTraceSnapshot(nextState),
         reason: event.type,
         source,
         eventType: event.type,
@@ -313,7 +335,7 @@ export function createNotificationOverlayOwnerShadow(
       if (snapshot) {
         compareWithProduction(snapshot, source);
       }
-      return state;
+      return stateHandle.wrapped;
     },
     syncFromProduction(snapshot, source) {
       return this.dispatch(
