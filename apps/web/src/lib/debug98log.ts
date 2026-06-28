@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 72;
+export const DEBUG98_LOGGER_VERSION = 73;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -209,6 +209,8 @@ const ALLOWED_EVENTS = new Set([
   '[OWNER DISPLAY WRITE TRACE]',
   '[OWNER DIRECT WRITE DETECTED]',
   '[OWNER STATE REPLACE BYPASS]',
+  '[PHASE12 DIAG BOOT]',
+  '[PHASE12 TRACE REACHED]',
   '[OVERBOARD RESULT CTA CLICK]',
   '[DIRECT OVERBOARD CLOSE REQUEST]',
   '[DIRECT OVERBOARD CLOSE COMMIT]',

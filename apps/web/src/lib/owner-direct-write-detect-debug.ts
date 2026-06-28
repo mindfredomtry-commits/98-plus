@@ -3,6 +3,7 @@
 import type { NotificationOverlayOwnerState } from '@/lib/notification-overlay-owner';
 import { resolveOwnerHeadBanId } from '@/lib/notification-overlay-owner';
 import { isPhase12DiagEnabled } from '@/lib/notification-overlay-owner-phase12-smoke-env';
+import { logPhase12TraceReached } from '@/lib/phase12-diag-probe-debug';
 
 export type OwnerTrackedWriteField =
   | 'activeKind'
@@ -59,7 +60,19 @@ export function logOwnerDirectWriteDetected(args: {
   callerStack?: string[];
   eventType?: string;
 }): void {
-  if (!ownerDirectWriteDetectEnabled()) return;
+  logPhase12TraceReached('OWNER DIRECT WRITE DETECTED', 'before-gate', {
+    field: args.field,
+    writePath: args.writePath,
+    function: args.function,
+  });
+  const enabled = ownerDirectWriteDetectEnabled();
+  logPhase12TraceReached('OWNER DIRECT WRITE DETECTED', 'after-gate', {
+    gatePassed: enabled,
+    field: args.field,
+    writePath: args.writePath,
+    function: args.function,
+  });
+  if (!enabled) return;
   if (args.oldValue === args.newValue) return;
 
   const payload = {
@@ -276,7 +289,17 @@ export function logOwnerReducerTrackedFieldAssignments(args: {
   function: string;
   eventType: string;
 }): void {
-  if (!ownerDirectWriteDetectEnabled()) return;
+  logPhase12TraceReached('OWNER DIRECT WRITE DETECTED', 'before-gate', {
+    upstream: 'logOwnerReducerTrackedFieldAssignments',
+    eventType: args.eventType,
+  });
+  const enabled = ownerDirectWriteDetectEnabled();
+  logPhase12TraceReached('OWNER DIRECT WRITE DETECTED', 'after-gate', {
+    gatePassed: enabled,
+    upstream: 'logOwnerReducerTrackedFieldAssignments',
+    eventType: args.eventType,
+  });
+  if (!enabled) return;
   logTrackedSnapshotDiff({
     previous: readOwnerTrackedWriteFields(args.previous),
     next: readOwnerTrackedWriteFields(args.next),
@@ -294,7 +317,19 @@ export function logOwnerFunctionTrackedFieldWrite(args: {
   function: string;
   eventType?: string;
 }): void {
-  if (!ownerDirectWriteDetectEnabled()) return;
+  logPhase12TraceReached('OWNER DIRECT WRITE DETECTED', 'before-gate', {
+    upstream: 'logOwnerFunctionTrackedFieldWrite',
+    function: args.function,
+    eventType: args.eventType ?? null,
+  });
+  const enabled = ownerDirectWriteDetectEnabled();
+  logPhase12TraceReached('OWNER DIRECT WRITE DETECTED', 'after-gate', {
+    gatePassed: enabled,
+    upstream: 'logOwnerFunctionTrackedFieldWrite',
+    function: args.function,
+    eventType: args.eventType ?? null,
+  });
+  if (!enabled) return;
   logTrackedSnapshotDiff({
     previous: readOwnerTrackedWriteFields(args.previousState),
     next: readOwnerTrackedWriteFields(args.nextState),

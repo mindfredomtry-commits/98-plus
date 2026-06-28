@@ -240,6 +240,7 @@ import {
   mapOverlayQueueItemIds,
 } from '@/lib/notification-overlay-owner-phase12-decision-read-selectors';
 import { logPhase12WriteAuthority } from '@/lib/notification-overlay-owner-phase12-write-authority-debug';
+import { logPhase12DiagBoot } from '@/lib/phase12-diag-probe-debug';
 import {
   buildPhase12WriteAuthoritySnapshotFromLegacy,
   buildPhase12WriteAuthoritySnapshotFromOwner,
@@ -1552,6 +1553,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     authReady: auth.authReady,
     loading: auth.loading,
   });
+  useEffect(() => {
+    logPhase12DiagBoot();
+  }, []);
   const [dataOwnerUserId, setDataOwnerUserId] = useState<string | null>(null);
   const [incomingBan, setIncomingBan] = useState<BanInteraction | null>(null);
   const [checkBan, setCheckBan] = useState<BanInteraction | null>(null);

@@ -8,6 +8,7 @@ import {
   getOwnerDisplayWriteTraceContext,
   patchOwnerDisplayWriteTraceContext,
 } from '@/lib/owner-display-write-trace-context';
+import { logPhase12TraceReached } from '@/lib/phase12-diag-probe-debug';
 
 export type OwnerDisplayWriteTraceSnapshot = {
   activeKind: string | null;
@@ -79,7 +80,19 @@ export function logOwnerDisplayWriteTrace(args: {
   source: string;
   eventType: string;
 }): void {
-  if (!ownerDisplayWriteTraceEnabled()) return;
+  logPhase12TraceReached('OWNER DISPLAY WRITE TRACE', 'before-gate', {
+    reason: args.reason,
+    source: args.source,
+    eventType: args.eventType,
+  });
+  const enabled = ownerDisplayWriteTraceEnabled();
+  logPhase12TraceReached('OWNER DISPLAY WRITE TRACE', 'after-gate', {
+    gatePassed: enabled,
+    reason: args.reason,
+    source: args.source,
+    eventType: args.eventType,
+  });
+  if (!enabled) return;
   const changedFields = diffOwnerDisplayWriteTraceSnapshots(
     args.previous,
     args.next,
@@ -113,7 +126,15 @@ export function logGoToBansActiveMismatchPreSnapshot(
   ownerState: NotificationOverlayOwnerState,
   extra: Record<string, unknown> = {},
 ): void {
-  if (!ownerDisplayWriteTraceEnabled()) return;
+  logPhase12TraceReached('GO TO BANS ACTIVE MISMATCH PRE-SNAPSHOT', 'before-gate', {
+    clickedResultBanId: extra.clickedResultBanId ?? null,
+  });
+  const enabled = ownerDisplayWriteTraceEnabled();
+  logPhase12TraceReached('GO TO BANS ACTIVE MISMATCH PRE-SNAPSHOT', 'after-gate', {
+    gatePassed: enabled,
+    clickedResultBanId: extra.clickedResultBanId ?? null,
+  });
+  if (!enabled) return;
   const snap = buildOwnerDisplayWriteTraceSnapshot(ownerState);
   const ctx = getOwnerDisplayWriteTraceContext();
   const payload = {

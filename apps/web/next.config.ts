@@ -11,6 +11,11 @@ const phase12TelegramFrameAncestorsCsp =
 const nextConfig: NextConfig = {
   output: "standalone",
 
+  env: {
+    NEXT_PUBLIC_BUILD_TIMESTAMP:
+      process.env.NEXT_PUBLIC_BUILD_TIMESTAMP ?? new Date().toISOString(),
+  },
+
   transpilePackages: ["@98plus/shared"],
 
   typescript: {
