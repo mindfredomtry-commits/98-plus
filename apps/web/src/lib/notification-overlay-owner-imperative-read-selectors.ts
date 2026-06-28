@@ -507,30 +507,3 @@ export function readOwnerImperativeDirectResultOverlayActive(
   }
   return ownerActive;
 }
-
-export function ownerImperativeHasSetMember(
-  ownerSet: ReadonlySet<string>,
-  legacySet: ReadonlySet<string>,
-  banId: string,
-  selector: OwnerImperativeReadSelector,
-  field: string,
-): boolean {
-  const norm = normalizeId(banId) || banId;
-  const ownerHas = ownerSet.has(norm);
-  const legacyHas = legacySet.has(norm);
-  logOwnerPhase11B7ImperativeRead({
-    selector,
-    field,
-    banId: norm,
-    value: ownerHas,
-  });
-  if (ownerHas !== legacyHas) {
-    logOwnerPhase11B7ImperativeMismatch({
-      selector,
-      field,
-      owner: ownerHas,
-      legacy: legacyHas,
-    });
-  }
-  return ownerHas;
-}

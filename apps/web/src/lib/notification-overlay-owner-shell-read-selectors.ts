@@ -4,7 +4,6 @@ import type { QueuedOverlay } from '@/lib/overlay-queue';
 import { overlayBanId } from '@/lib/overlay-queue';
 import { normalizeId } from '@/lib/normalize-json';
 import {
-  logOwnerPhase11B6ShellFallback,
   logOwnerPhase11B6ShellMismatch,
   logOwnerPhase11B6ShellRead,
 } from '@/lib/notification-overlay-owner-debug';
@@ -90,28 +89,6 @@ export function readOwnerOnlyShellQueueHeadKind(
     compareShellKinds11B6(selector, 'queueHeadKind', ownerKind, legacyQueueHeadKind(legacy));
   }
   return ownerKind;
-}
-
-/** Explicit transitional fallback — log and surface mismatch when used. */
-export function readOwnerShellQueueHeadKindWithLegacyFallback(
-  ownerQueue: readonly QueuedOverlay[],
-  legacy: LegacyQueueCompare,
-  selector: OwnerShellReadSelector,
-  reason: string,
-): OverlayShellKind {
-  const ownerKind = readOwnerOnlyShellQueueHeadKind(ownerQueue, selector, legacy);
-  if (ownerKind) return ownerKind;
-  const fallback = legacyQueueHeadKind(legacy);
-  if (fallback) {
-    logOwnerPhase11B6ShellFallback({
-      selector,
-      reason,
-      field: 'queueHeadKind',
-      kind: fallback,
-    });
-    compareShellKinds11B6(selector, 'queueHeadKind', null, fallback);
-  }
-  return fallback;
 }
 
 /** Phase 11B.6: owner-only queue length for shell/mount/session decisions. */
@@ -212,39 +189,4 @@ export function readOwnerOnlyShellQueueHeadIncomingBanId(
     }
   }
   return ownerId;
-}
-
-/** Explicit transitional fallback for queue-head incoming ban id. */
-export function readOwnerShellQueueHeadIncomingBanIdWithLegacyFallback(
-  ownerQueueHead: QueuedOverlay | null,
-  legacy: LegacyQueueCompare,
-  selector: OwnerShellReadSelector,
-  reason: string,
-): string | null {
-  const ownerId = readOwnerOnlyShellQueueHeadIncomingBanId(
-    ownerQueueHead,
-    selector,
-    legacy,
-  );
-  if (ownerId) return ownerId;
-  const legacyHead = legacy.queue[0] ?? legacy.refQueue[0] ?? null;
-  const fallbackId =
-    legacyHead?.kind === 'incoming'
-      ? normalizeId(overlayBanId(legacyHead)) || null
-      : null;
-  if (fallbackId) {
-    logOwnerPhase11B6ShellFallback({
-      selector,
-      reason,
-      field: 'queueHeadIncomingBanId',
-      banId: fallbackId,
-    });
-    logOwnerPhase11B6ShellMismatch({
-      selector,
-      field: 'queueHeadIncomingBanId',
-      owner: null,
-      legacy: fallbackId,
-    });
-  }
-  return fallbackId;
 }

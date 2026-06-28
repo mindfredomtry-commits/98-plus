@@ -25,12 +25,3 @@ export function logPhase12VisibilityGate(data: Phase12VisibilityGateLog): void {
   console.log('[PHASE12 VISIBILITY GATE]', data);
   window.__debug98log?.('[PHASE12 VISIBILITY GATE]', data);
 }
-
-export function logPhase12VisibilityGateIfMismatch(
-  data: Phase12VisibilityGateLog,
-): void {
-  logPhase12VisibilityGate(data);
-  if (data.mismatch && process.env.NODE_ENV !== 'production') {
-    console.warn('[PHASE12 VISIBILITY GATE MISMATCH]', data);
-  }
-}

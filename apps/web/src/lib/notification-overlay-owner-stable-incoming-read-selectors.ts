@@ -4,7 +4,6 @@ import type { BanInteraction } from '@98plus/shared';
 import { normalizeId } from '@/lib/normalize-json';
 import type { NotificationOwnerDisplayState } from '@/lib/notification-overlay-owner';
 import {
-  logOwnerPhase11B3StableFallback,
   logOwnerPhase11B3StableMismatch,
   logOwnerPhase11B3StableRead,
 } from '@/lib/notification-overlay-owner-debug';
@@ -65,25 +64,4 @@ export function readOwnerOnlyStableIncomingBan(
     compareStableIds11B3(selector, ownerBan, legacyBan);
   }
   return ownerBan;
-}
-
-/** Explicit transitional fallback — log and surface mismatch when used. */
-export function readOwnerStableIncomingWithLegacyFallback(
-  display: NotificationOwnerDisplayState,
-  legacy: LegacyStableIncomingCompare,
-  selector: OwnerStableIncomingReadSelector,
-  reason: string,
-): BanInteraction | null {
-  const ownerBan = readOwnerOnlyStableIncomingBan(display, selector, legacy);
-  if (ownerBan) return ownerBan;
-  const fallback = legacy.state ?? legacy.ref ?? null;
-  if (fallback?.id) {
-    logOwnerPhase11B3StableFallback({
-      selector,
-      reason,
-      banId: fallback.id,
-    });
-    compareStableIds11B3(selector, null, fallback);
-  }
-  return fallback;
 }

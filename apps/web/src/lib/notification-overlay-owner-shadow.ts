@@ -7,6 +7,7 @@ import {
   type NotificationOverlayOwnerState,
   type OwnerProductionSnapshot,
 } from '@/lib/notification-overlay-owner';
+import type { NotificationOwnerDisplayState } from '@/lib/notification-overlay-owner';
 import { overlayQueueKey } from '@/lib/overlay-queue';
 import {
   logOwnerPhase8LegacyMirror,
@@ -21,7 +22,10 @@ import {
   logOwnerShadowMismatch,
   logOwnerShadowState,
 } from '@/lib/notification-overlay-owner-debug';
-import type { NotificationOwnerDisplayState } from '@/lib/notification-overlay-owner';
+import {
+  buildOwnerDisplayWriteTraceSnapshot,
+  logOwnerDisplayWriteTrace,
+} from '@/lib/owner-display-write-trace-debug';
 
 const QUEUE_AUTHORITY_EVENT_TYPES = new Set<NotificationOverlayOwnerEvent['type']>([
   'QUEUE_APPLIED',
@@ -294,8 +298,16 @@ export function createNotificationOverlayOwnerShadow(
         });
       }
       logSnapshotFields(event.type, source, snapshot);
+      const previousWriteTrace = buildOwnerDisplayWriteTraceSnapshot(state);
       const result = notificationOverlayOwnerReducer(state, event);
       state = result.state;
+      logOwnerDisplayWriteTrace({
+        previous: previousWriteTrace,
+        next: buildOwnerDisplayWriteTraceSnapshot(state),
+        reason: event.type,
+        source,
+        eventType: event.type,
+      });
       runMirrorEffects(result.effects, source);
       logStateAndEffects(result.effects);
       if (snapshot) {

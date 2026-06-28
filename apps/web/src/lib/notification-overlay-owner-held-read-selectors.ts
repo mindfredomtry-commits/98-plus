@@ -3,7 +3,6 @@
 import type { HeldUserCardOverlay } from '@/lib/overlay-user-card-guard';
 import { heldUserCardBanId } from '@/lib/overlay-user-card-guard';
 import {
-  logOwnerPhase11B2HeldFallback,
   logOwnerPhase11B2HeldMismatch,
   logOwnerPhase11B2HeldRead,
 } from '@/lib/notification-overlay-owner-debug';
@@ -65,26 +64,4 @@ export function readOwnerOnlyUserCard(
     compareHeldIds10B2(selector, ownerUserCard, legacyHeld);
   }
   return ownerUserCard;
-}
-
-/** Explicit transitional fallback — log and surface mismatch when used. */
-export function readOwnerUserCardWithLegacyFallback(
-  ownerUserCard: HeldUserCardOverlay | null,
-  legacy: LegacyHeldCompare,
-  selector: OwnerHeldReadSelector,
-  reason: string,
-): HeldUserCardOverlay | null {
-  const ownerHeld = readOwnerOnlyUserCard(ownerUserCard, selector, legacy);
-  if (ownerHeld) return ownerHeld;
-  const fallback = legacy.state ?? legacy.ref ?? null;
-  if (fallback) {
-    logOwnerPhase11B2HeldFallback({
-      selector,
-      reason,
-      kind: fallback.kind,
-      banId: heldBanId(fallback),
-    });
-    compareHeldIds10B2(selector, null, fallback);
-  }
-  return fallback;
 }

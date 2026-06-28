@@ -111,10 +111,6 @@ export function logOwnerPhase11B2HeldMismatch(data: Record<string, unknown>): vo
   emit('[OWNER PHASE11B2 HELD MISMATCH]', data);
 }
 
-export function logOwnerPhase11B2HeldFallback(data: Record<string, unknown>): void {
-  emit('[OWNER PHASE11B2 HELD FALLBACK]', data);
-}
-
 export function logOwnerPhase11B3StableRead(data: Record<string, unknown>): void {
   emit('[OWNER PHASE11B3 STABLE READ]', data);
 }
@@ -125,10 +121,6 @@ export function logOwnerPhase11B3StableMirror(data: Record<string, unknown>): vo
 
 export function logOwnerPhase11B3StableMismatch(data: Record<string, unknown>): void {
   emit('[OWNER PHASE11B3 STABLE MISMATCH]', data);
-}
-
-export function logOwnerPhase11B3StableFallback(data: Record<string, unknown>): void {
-  emit('[OWNER PHASE11B3 STABLE FALLBACK]', data);
 }
 
 export function logOwnerPhase11B4ReplyRead(data: Record<string, unknown>): void {
@@ -143,10 +135,6 @@ export function logOwnerPhase11B4ReplyMismatch(data: Record<string, unknown>): v
   emit('[OWNER PHASE11B4 REPLY MISMATCH]', data);
 }
 
-export function logOwnerPhase11B4ReplyFallback(data: Record<string, unknown>): void {
-  emit('[OWNER PHASE11B4 REPLY FALLBACK]', data);
-}
-
 export function logOwnerPhase11B5ScopedRead(data: Record<string, unknown>): void {
   emit('[OWNER PHASE11B5 SCOPED READ]', data);
 }
@@ -159,20 +147,12 @@ export function logOwnerPhase11B5ScopedMismatch(data: Record<string, unknown>): 
   emit('[OWNER PHASE11B5 SCOPED MISMATCH]', data);
 }
 
-export function logOwnerPhase11B5ScopedFallback(data: Record<string, unknown>): void {
-  emit('[OWNER PHASE11B5 SCOPED FALLBACK]', data);
-}
-
 export function logOwnerPhase11B6ShellRead(data: Record<string, unknown>): void {
   emit('[OWNER PHASE11B6 SHELL READ]', data);
 }
 
 export function logOwnerPhase11B6ShellMismatch(data: Record<string, unknown>): void {
   emit('[OWNER PHASE11B6 SHELL MISMATCH]', data);
-}
-
-export function logOwnerPhase11B6ShellFallback(data: Record<string, unknown>): void {
-  emit('[OWNER PHASE11B6 SHELL FALLBACK]', data);
 }
 
 export function logOwnerPhase11B7ImperativeRead(data: Record<string, unknown>): void {

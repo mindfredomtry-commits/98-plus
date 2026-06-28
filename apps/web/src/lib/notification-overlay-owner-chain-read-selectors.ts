@@ -71,10 +71,6 @@ type LegacySetCompare = {
   ref?: ReadonlySet<string>;
 };
 
-type LegacyDeferredQueueCompare = {
-  ref?: readonly QueuedOverlay[];
-};
-
 function compareIds11B8(
   selector: OwnerChainReadSelector,
   field: string,
@@ -177,54 +173,6 @@ export function readOwnerImperativeDirectResultActive(
   return direct.overlay || direct.active;
 }
 
-/** Phase 11B.8: owner reply incoming display ban for chain guards. */
-export function readOwnerImperativeReplyIncoming(
-  display: NotificationOwnerDisplayState,
-  selector: OwnerChainReadSelector,
-  legacy?: LegacyBanCompare,
-): BanInteraction | null {
-  const ownerBan = display.replyIncomingBan?.id ? display.replyIncomingBan : null;
-  logOwnerPhase11B8ChainRead({
-    selector,
-    field: 'replyIncomingBan',
-    banId: ownerBan?.id ?? null,
-  });
-  if (legacy) {
-    const legacyBan = legacy.state ?? legacy.ref ?? null;
-    compareIds11B8(
-      selector,
-      'replyIncomingBan',
-      ownerBan?.id ?? null,
-      legacyBan?.id ?? null,
-    );
-  }
-  return ownerBan;
-}
-
-/** Phase 11B.8: owner scoped incoming display ban for chain guards. */
-export function readOwnerImperativeScopedIncoming(
-  display: NotificationOwnerDisplayState,
-  selector: OwnerChainReadSelector,
-  legacy?: LegacyBanCompare,
-): BanInteraction | null {
-  const ownerBan = display.scopedIncomingBan?.id ? display.scopedIncomingBan : null;
-  logOwnerPhase11B8ChainRead({
-    selector,
-    field: 'scopedIncomingBan',
-    banId: ownerBan?.id ?? null,
-  });
-  if (legacy) {
-    const legacyBan = legacy.state ?? legacy.ref ?? null;
-    compareIds11B8(
-      selector,
-      'scopedIncomingBan',
-      ownerBan?.id ?? null,
-      legacyBan?.id ?? null,
-    );
-  }
-  return ownerBan;
-}
-
 /** Phase 11B.8: owner check-answer waiting result hold ban id. */
 export function readOwnerImperativeCheckAnswerWaitingHoldBanId(
   owner: NotificationOverlayOwnerState,
@@ -273,29 +221,6 @@ export function readOwnerImperativeCheckAnswerWaitingHoldBanIdWithLegacyFallback
     compareIds11B8(selector, 'checkAnswerWaitingHoldBanId', null, fallback);
   }
   return fallback;
-}
-
-/** Phase 11B.8: owner deferred queue during check-answer result hold. */
-export function readOwnerImperativeDeferredQueue(
-  owner: NotificationOverlayOwnerState,
-  selector: OwnerChainReadSelector,
-  legacy?: LegacyDeferredQueueCompare,
-): readonly QueuedOverlay[] {
-  const ownerQueue = owner.holds.checkResultWait?.deferredQueue ?? [];
-  logOwnerPhase11B8ChainRead({
-    selector,
-    field: 'deferredQueue',
-    value: ownerQueue.length,
-  });
-  if (legacy?.ref) {
-    compareNumbers11B8(
-      selector,
-      'deferredQueueLen',
-      ownerQueue.length,
-      legacy.ref.length,
-    );
-  }
-  return ownerQueue;
 }
 
 /** Phase 11B.8: owner result priority set membership. */
@@ -981,10 +906,10 @@ export function readOwnerC2OverboardInFlightEquals(
   return ownerId === norm;
 }
 
-export function readOwnerC2DisplayIncomingBanWithLegacyFallback(
+export function readOwnerC2DisplayIncomingBan(
   display: NotificationOwnerDisplayState,
   selector: OwnerC2DecisionReadSelector,
-  legacy: LegacyBanCompare,
+  legacy?: LegacyBanCompare,
 ): BanInteraction | null {
   const ownerBan = display.incomingBan?.id ? display.incomingBan : null;
   logOwnerPhase11C2DecisionRead({
@@ -1001,6 +926,15 @@ export function readOwnerC2DisplayIncomingBanWithLegacyFallback(
       legacyBan?.id ?? null,
     );
   }
+  return ownerBan;
+}
+
+export function readOwnerC2DisplayIncomingBanWithLegacyFallback(
+  display: NotificationOwnerDisplayState,
+  selector: OwnerC2DecisionReadSelector,
+  legacy: LegacyBanCompare,
+): BanInteraction | null {
+  const ownerBan = readOwnerC2DisplayIncomingBan(display, selector, legacy);
   if (ownerBan) return ownerBan;
   const fallback = legacy.state ?? legacy.ref ?? null;
   if (fallback?.id) {
@@ -1014,10 +948,10 @@ export function readOwnerC2DisplayIncomingBanWithLegacyFallback(
   return fallback;
 }
 
-export function readOwnerC2DisplayResultBanIdWithLegacyFallback(
+export function readOwnerC2DisplayResultBanId(
   display: NotificationOwnerDisplayState,
   selector: OwnerC2DecisionReadSelector,
-  legacy: LegacyBanCompare & { resultRef?: BanResult | null },
+  legacy?: LegacyBanCompare & { resultRef?: BanResult | null },
 ): string | null {
   const ownerResult = display.result?.id ? display.result : null;
   const ownerId = ownerResult?.id ? normalizeId(ownerResult.id) || null : null;
@@ -1039,6 +973,15 @@ export function readOwnerC2DisplayResultBanIdWithLegacyFallback(
       legacyId ? normalizeId(legacyId) || null : null,
     );
   }
+  return ownerId;
+}
+
+export function readOwnerC2DisplayResultBanIdWithLegacyFallback(
+  display: NotificationOwnerDisplayState,
+  selector: OwnerC2DecisionReadSelector,
+  legacy: LegacyBanCompare & { resultRef?: BanResult | null },
+): string | null {
+  const ownerId = readOwnerC2DisplayResultBanId(display, selector, legacy);
   if (ownerId) return ownerId;
   const fallback =
     legacy.resultRef?.id ??
@@ -1297,10 +1240,10 @@ export function readOwnerC3OverboardInFlightEquals(
   return ownerId === norm;
 }
 
-export function readOwnerC3DisplayIncomingBanWithLegacyFallback(
+export function readOwnerC3DisplayIncomingBan(
   display: NotificationOwnerDisplayState,
   selector: OwnerC3DecisionReadSelector,
-  legacy: LegacyBanCompare,
+  legacy?: LegacyBanCompare,
 ): BanInteraction | null {
   const ownerBan = display.incomingBan?.id ? display.incomingBan : null;
   logOwnerPhase11C3DecisionRead({
@@ -1317,6 +1260,15 @@ export function readOwnerC3DisplayIncomingBanWithLegacyFallback(
       legacyBan?.id ?? null,
     );
   }
+  return ownerBan;
+}
+
+export function readOwnerC3DisplayIncomingBanWithLegacyFallback(
+  display: NotificationOwnerDisplayState,
+  selector: OwnerC3DecisionReadSelector,
+  legacy: LegacyBanCompare,
+): BanInteraction | null {
+  const ownerBan = readOwnerC3DisplayIncomingBan(display, selector, legacy);
   if (ownerBan) return ownerBan;
   const fallback = legacy.state ?? legacy.ref ?? null;
   if (fallback?.id) {
@@ -1336,7 +1288,7 @@ export function readOwnerC3DisplayIncomingBanIdEquals(
   banId: string | null | undefined,
   legacy: LegacyBanCompare,
 ): boolean {
-  const ownerBan = readOwnerC3DisplayIncomingBanWithLegacyFallback(
+  const ownerBan = readOwnerC3DisplayIncomingBan(
     display,
     selector,
     legacy,
@@ -1345,10 +1297,10 @@ export function readOwnerC3DisplayIncomingBanIdEquals(
   return ownerBan?.id ? normalizeId(ownerBan.id) === norm : false;
 }
 
-export function readOwnerC3DisplayResultBanIdWithLegacyFallback(
+export function readOwnerC3DisplayResultBanId(
   display: NotificationOwnerDisplayState,
   selector: OwnerC3DecisionReadSelector,
-  legacy: LegacyBanCompare & { resultRef?: BanResult | null },
+  legacy?: LegacyBanCompare & { resultRef?: BanResult | null },
 ): string | null {
   const ownerResult = display.result?.id ? display.result : null;
   const ownerId = ownerResult?.id ? normalizeId(ownerResult.id) || null : null;
@@ -1370,6 +1322,15 @@ export function readOwnerC3DisplayResultBanIdWithLegacyFallback(
       legacyId ? normalizeId(legacyId) || null : null,
     );
   }
+  return ownerId;
+}
+
+export function readOwnerC3DisplayResultBanIdWithLegacyFallback(
+  display: NotificationOwnerDisplayState,
+  selector: OwnerC3DecisionReadSelector,
+  legacy: LegacyBanCompare & { resultRef?: BanResult | null },
+): string | null {
+  const ownerId = readOwnerC3DisplayResultBanId(display, selector, legacy);
   if (ownerId) return ownerId;
   const fallback =
     legacy.resultRef?.id ??
@@ -1412,16 +1373,7 @@ export function readOwnerC3DisplayResult(
     );
   }
   if (ownerResult) return ownerResult;
-  const fallback = legacy.resultRef ?? (legacy.ref as BanResult | null) ?? null;
-  if (fallback?.id) {
-    logOwnerPhase11C3DecisionFallback({
-      selector,
-      reason: 'PHASE11C3_DECISION_FALLBACK',
-      field: 'result',
-      banId: fallback.id,
-    });
-  }
-  return fallback;
+  return null;
 }
 
 export function readOwnerC3DirectOverlay(
@@ -1501,7 +1453,7 @@ export function readOwnerC3HasMountedResult(
   selector: OwnerC3DecisionReadSelector,
   legacy: LegacyBanCompare & { resultRef?: BanResult | null },
 ): boolean {
-  const banId = readOwnerC3DisplayResultBanIdWithLegacyFallback(
+  const banId = readOwnerC3DisplayResultBanId(
     display,
     selector,
     legacy,
