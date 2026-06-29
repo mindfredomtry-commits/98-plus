@@ -11,6 +11,10 @@ import type {
 import type { HeldUserCardOverlay } from '@/lib/overlay-user-card-guard';
 import { heldUserCardBanId } from '@/lib/overlay-user-card-guard';
 import {
+  emitHoldStateRead,
+  snapshotOwnerDisplayFields,
+} from '@/lib/hold-state-trace-debug';
+import {
   logOwnerPhase11B7ImperativeFallback,
   logOwnerPhase11B7ImperativeMismatch,
   logOwnerPhase11B7ImperativeRead,
@@ -435,6 +439,18 @@ export function readOwnerImperativeHeldUserCard(
       legacyHeld ? heldUserCardBanId(legacyHeld) : null,
     );
   }
+  const legacyHeld = legacy?.ref ?? null;
+  emitHoldStateRead({
+    value: ownerHeld,
+    reason: selector,
+    heldBanId: ownerHeld ? heldUserCardBanId(ownerHeld) : null,
+    heldKind: ownerHeld?.kind ?? null,
+    refHeldBanId: legacyHeld ? heldUserCardBanId(legacyHeld) : null,
+    refHeldKind: legacyHeld?.kind ?? null,
+    ownerDisplay: snapshotOwnerDisplayFields(owner.display),
+    activeKind: owner.active.kind,
+    activeBanId: owner.active.banId,
+  });
   return ownerHeld;
 }
 

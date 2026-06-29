@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 83;
+export const DEBUG98_LOGGER_VERSION = 84;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -134,6 +134,10 @@ const ALLOWED_EVENTS = new Set([
   '[DISPLAY APPLY BLOCKED]',
   '[SYNC DISPLAY READY]',
   '[DISPLAY AFTER FLUSH]',
+  '[HOLD STATE READ]',
+  '[HOLD STATE WRITE]',
+  '[HOLD BLOCK DECISION]',
+  '[HOLD CLEAR]',
   '[REPLY DEEPLINK START]',
   '[REPLY CARD SELECTED]',
   '[STARTUP BLOCKERS CLEAR]',

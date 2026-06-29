@@ -839,6 +839,13 @@ import {
   resolveOwnerDisplayKindBanId,
 } from '@/lib/display-commit-trace-debug';
 import {
+  emitHoldBlockDecision,
+  emitHoldClear,
+  emitHoldStateRead,
+  emitHoldStateWrite,
+  snapshotOwnerDisplayFields,
+} from '@/lib/hold-state-trace-debug';
+import {
   computeWillBlockBecauseActiveHold,
   getHeadSwitchPipelineStack,
   logChainHeadSwitchTraceExtended,
@@ -2721,6 +2728,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               reason: 'confirm-enter-clear-held',
               willClearHeld: true,
             });
+            traceHoldClear('compose-state-change:confirm-enter-clear-held');
             heldUserCardOverlayRef.current = null;
             setHeldUserCardOverlay(null);
             mirrorHeldUserCardHold('compose-state-change:confirm-enter-clear-held');
@@ -3896,6 +3904,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const snapshotCheckAnswerAdvanceSide = () => {
     const held = heldUserCardOverlayRef.current;
     const queueHead = overlayQueueRef.current[0] ?? null;
+    const activeUserCardHold =
+      held && notificationChainAwaitingUserRef.current ? held.kind : null;
+    traceHoldStateRead('snapshotCheckAnswerAdvanceSide', {
+      value: activeUserCardHold,
+      activeUserCardHold,
+    });
     return {
       queueRefHeadKind: queueHead?.kind ?? null,
       queueRefHeadBanId: queueHead ? overlayItemBanId(queueHead) : null,
@@ -3903,8 +3917,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       heldBanId: held ? heldUserCardBanId(held) : null,
       checkBanRefId: checkBanRef.current?.id ?? null,
       resultRefBanId: resultRef.current?.id ?? null,
-      activeUserCardHold:
-        held && notificationChainAwaitingUserRef.current ? held.kind : null,
+      activeUserCardHold,
     };
   };
 
@@ -4067,6 +4080,54 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       resultBanId: resultRef.current?.id ?? null,
     });
 
+  const traceHoldStateRead = (
+    reason: string,
+    extra?: Record<string, unknown>,
+  ) => {
+    const owner = ownerShadowRef.current.getState();
+    const held = heldUserCardOverlayRef.current;
+    const awaiting = notificationChainAwaitingUserRef.current;
+    emitHoldStateRead({
+      value: awaiting && held != null,
+      reason,
+      heldBanId: held ? heldUserCardBanId(held) : null,
+      heldKind: held?.kind ?? null,
+      activeUserCardHold: held && awaiting ? held.kind : null,
+      ownerDisplay: snapshotOwnerDisplayFields(owner.display),
+      activeKind: owner.active.kind,
+      activeBanId: owner.active.banId,
+      awaitingUser: awaiting,
+      ...extra,
+    });
+  };
+
+  const traceHoldStateWrite = (
+    reason: string,
+    oldValue: HeldUserCardOverlay | null,
+    newValue: HeldUserCardOverlay | null,
+  ) => {
+    emitHoldStateWrite({
+      oldValue,
+      newValue,
+      reason,
+      heldBanId: newValue
+        ? heldUserCardBanId(newValue)
+        : oldValue
+          ? heldUserCardBanId(oldValue)
+          : null,
+      heldKind: newValue?.kind ?? oldValue?.kind ?? null,
+    });
+  };
+
+  const traceHoldClear = (reason: string) => {
+    const held = heldUserCardOverlayRef.current;
+    emitHoldClear({
+      heldBanIdBefore: held ? heldUserCardBanId(held) : null,
+      heldKindBefore: held?.kind ?? null,
+      reason,
+    });
+  };
+
   const getActiveUserCardForGuard = () => {
     if (isReplyComposeBlockingNotificationGuards()) {
       const parentId = normalizeId(
@@ -4101,7 +4162,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ) {
         return null;
       }
-      return { kind: held.kind, banId: heldUserCardBanId(held) };
+      const active = { kind: held.kind, banId: heldUserCardBanId(held) };
+      traceHoldStateRead('getActiveUserCardForGuard', { value: active });
+      return active;
     }
     return getActiveMountedUserCard();
   };
@@ -4576,7 +4639,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const held = readOwnerImperativeHeldUserCard(owner, 'isActiveUserCardHold', {
       ref: heldUserCardOverlayRef.current,
     });
-    return notificationChainAwaitingUserRef.current && held != null;
+    const isHold = notificationChainAwaitingUserRef.current && held != null;
+    emitHoldStateRead({
+      value: isHold,
+      reason: 'isActiveUserCardHold',
+      heldBanId: held ? heldUserCardBanId(held) : null,
+      heldKind: held?.kind ?? null,
+      activeUserCardHold: isHold ? (held?.kind ?? null) : null,
+      ownerDisplay: snapshotOwnerDisplayFields(owner.display),
+      activeKind: owner.active.kind,
+      activeBanId: owner.active.banId,
+      awaitingUser: notificationChainAwaitingUserRef.current,
+    });
+    return isHold;
   };
 
   const isHeldOverboardResultProtected = (
@@ -5324,6 +5399,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         kind: 'incoming',
         ban: ownerIncomingBan,
       };
+      traceHoldStateWrite(`${source}:capture-incoming-hold`, heldUserCardOverlayRef.current, held);
       heldUserCardOverlayRef.current = held;
       setHeldUserCardOverlay(held);
       mirrorHeldUserCardHold(`${source}:capture-incoming-hold`);
@@ -5368,6 +5444,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         kind: 'check',
         ban: ownerCheckBan,
       };
+      traceHoldStateWrite(`${source}:capture-check-hold`, heldUserCardOverlayRef.current, held);
       heldUserCardOverlayRef.current = held;
       setHeldUserCardOverlay(held);
       mirrorHeldUserCardHold(`${source}:capture-check-hold`);
@@ -5408,6 +5485,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         kind: 'result',
         result: ownerResult,
       };
+      traceHoldStateWrite(`${source}:capture-result-hold`, heldUserCardOverlayRef.current, held);
       heldUserCardOverlayRef.current = held;
       setHeldUserCardOverlay(held);
       mirrorHeldUserCardHold(`${source}:capture-result-hold`);
@@ -5456,6 +5534,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (!held) return;
     const wasCheckHold = held.kind === 'check';
     const clearedCheckBanId = wasCheckHold ? heldUserCardBanId(held) : null;
+    traceHoldClear(source);
     emitResultClearCallsite({
       source,
       reason: 'clear-active-user-card-hold',
@@ -5721,6 +5800,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const getConfirmHoldDebugSnapshot = useCallback((): ConfirmHoldDebugSnapshot => {
     const held = heldUserCardOverlayRef.current;
+    traceHoldStateRead('getConfirmHoldDebugSnapshot', {
+      activeUserCardHold: held?.kind ?? null,
+      activeUserCardHoldBanId: held ? heldUserCardBanId(held) : null,
+    });
     const lock = readOverlayInputLockFields();
     return {
       activeUserCardHold: held?.kind ?? null,
@@ -7885,12 +7968,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ? 'head-diverges-from-held'
           : 'held-matches-queue-head',
       });
-      if (
+      const blocked =
         headDiverges &&
         blockAndPreserveActiveUserCard('syncDisplayFromQueue-early-hold', active, {
           explicitUserAction: chainAdvanceExplicitRef.current,
-        })
-      ) {
+        });
+      emitHoldBlockDecision({
+        reason: 'active-user-card-hold-early',
+        holdValue: true,
+        heldBanId,
+        heldKind: held?.kind ?? null,
+        selectedBanId: headBanId,
+        selectedKind: headKind,
+        activeBanId: ownerForActive.active.banId,
+        activeKind: ownerForActive.active.kind,
+        ownerDisplay: snapshotOwnerDisplayFields(ownerForActive.display),
+        headDiverges,
+        blocked,
+      });
+      if (blocked) {
         logChainHeadSwitchTrace(
           'syncDisplayFromQueue-early-hold',
           active?.kind ?? null,
@@ -16936,6 +17032,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         reason: 'release-incoming-overlay-for-reply-compose',
         willClearHeld: true,
       });
+      traceHoldClear(`${source}:release-incoming-overlay-for-reply-compose`);
       heldUserCardOverlayRef.current = null;
       setHeldUserCardOverlay(null);
       mirrorHeldUserCardHold(`${source}:release-incoming-overlay-for-reply-compose`);
@@ -17302,6 +17399,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           resultRef.current = optimistic;
           resultOpenRef.current = true;
           const held: HeldUserCardOverlay = { kind: 'result', result: optimistic };
+          traceHoldStateWrite(
+            'replaceIncomingWithOverboardResultAtomic:flushSync',
+            heldUserCardOverlayRef.current,
+            held,
+          );
           heldUserCardOverlayRef.current = held;
           setHeldUserCardOverlay(held);
           mirrorHeldUserCardHold('replaceIncomingWithOverboardResultAtomic:flushSync');
@@ -17657,6 +17759,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           resultRef.current = merged;
           setResult(merged);
           const held: HeldUserCardOverlay = { kind: 'result', result: merged };
+          traceHoldStateWrite(
+            `sync-atomic-${source}-avatar-only`,
+            heldUserCardOverlayRef.current,
+            held,
+          );
           heldUserCardOverlayRef.current = held;
           setHeldUserCardOverlay(held);
           mirrorHeldUserCardHold(`sync-atomic-${source}-avatar-only`);
@@ -17739,6 +17846,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           resultRef.current = merged;
           setResult(merged);
           const held: HeldUserCardOverlay = { kind: 'result', result: merged };
+          traceHoldStateWrite(
+            `sync-atomic-${source}`,
+            heldUserCardOverlayRef.current,
+            held,
+          );
           heldUserCardOverlayRef.current = held;
           setHeldUserCardOverlay(held);
           mirrorHeldUserCardHold(`sync-atomic-${source}`);
@@ -25806,6 +25918,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             resultIdBefore: key,
             willClearHeld: true,
           });
+          traceHoldClear(
+            'finalizeResultForGoToBans:queue-overboard-held-result',
+          );
           heldUserCardOverlayRef.current = null;
           setHeldUserCardOverlay(null);
           mirrorHeldUserCardHold(
