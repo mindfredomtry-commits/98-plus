@@ -51,6 +51,8 @@ import { logResultFunMode } from '@/lib/result-fun-mode-debug';
 import { logResultPresentation } from '@/lib/result-ui-debug';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
 import { logGoToBansNextCardClickLazy, hookGoToBansTraceEnter } from '@/lib/browser-go-to-bans-next-card-debug';
+import { emitGoToBansOutcomeSync } from '@/lib/finalize-go-to-bans-sync-trace';
+import { resolveOverboardResultOutcome } from '@/lib/overboard-result-chain';
 import {
   logDirectOverboardShowableDecision,
   logOverboardResultCtaClick,
@@ -562,6 +564,43 @@ function ResultOverlayInner({
     }
     markOverlayUserAction('result-go-to-bans', result.id);
     haptic('light');
+    const closureResultId = result.id;
+    const closureBanId = result.id;
+    const outcomeFromPayload = result.outcome ?? null;
+    const statusFromCard = result.status ?? resultStatus ?? null;
+    const resolvedFromCard = resolveOverboardResultOutcome({
+      outcome: result.outcome,
+      status: result.status ?? resultStatus,
+    });
+    emitGoToBansOutcomeSync('[GO TO BANS OUTCOME SOURCE]', {
+      sourceFunction: 'ResultOverlay.goToBans',
+      handlerName: 'ResultOverlay.goToBans',
+      banId: closureBanId,
+      resultId: closureResultId,
+      outcomeFromPayload,
+      status: statusFromCard,
+      resultStatusProp: resultStatus ?? null,
+      resolvedOutcome: resolvedFromCard,
+      dismissReason: 'go-to-bans',
+      overlayKey: `result:${closureBanId}`,
+      closureResultId,
+      closureBanId,
+      directPaint,
+      embedded,
+      contentOnly,
+      overboardQueueBody,
+    });
+    if (!resolvedFromCard) {
+      emitGoToBansOutcomeSync('[GO TO BANS OUTCOME LOST]', {
+        sourceFunction: 'ResultOverlay.goToBans',
+        banId: closureBanId,
+        resultId: closureResultId,
+        reason: 'card-payload-missing-outcome-and-status',
+        outcomeFromPayload,
+        status: statusFromCard,
+        dismissReason: 'go-to-bans',
+      });
+    }
     hookGoToBansTraceEnter({
       source: 'ResultOverlay.goToBans',
       handlerName: 'ResultOverlay.goToBans',

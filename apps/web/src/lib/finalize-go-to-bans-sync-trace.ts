@@ -15,3 +15,6 @@ export function emitFinalizeGoToBansSync(
   console.log(event, payload);
   window.__debug98log?.(event, payload);
 }
+
+/** Alias for go-to-bans outcome tracing — same sync browser-only emit. */
+export const emitGoToBansOutcomeSync = emitFinalizeGoToBansSync;

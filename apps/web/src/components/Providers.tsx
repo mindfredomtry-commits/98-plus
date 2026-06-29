@@ -564,7 +564,7 @@ import {
   logConsumeAfterAnswerQueueBeforeLazy,
   logConsumeAfterAnswerSourceLazy,
 } from '@/lib/browser-consume-after-answer-debug';
-import { emitFinalizeGoToBansSync } from '@/lib/finalize-go-to-bans-sync-trace';
+import { emitFinalizeGoToBansSync, emitGoToBansOutcomeSync } from '@/lib/finalize-go-to-bans-sync-trace';
 import {
   logQueueContinueAfterResult,
   logResultCardCtaClick,
@@ -24656,6 +24656,93 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ? heldUserCardOverlayRef.current.result
           : null);
       const outcome = resolveOverboardResultOutcome(resolvedResultPayload);
+      const resolvedPayloadSource =
+        resolvedResultPayload == null
+          ? 'null'
+          : resolvedResultPayload === resultRef.current
+            ? 'resultRef.current'
+            : resolvedResultPayload === result
+              ? 'state.result'
+              : heldUserCardOverlayRef.current?.kind === 'result' &&
+                  resolvedResultPayload ===
+                    heldUserCardOverlayRef.current.result
+                ? 'heldUserCardOverlay.result'
+                : 'unknown';
+      const queueHeadAtFinalize = overlayQueueRef.current[0] ?? null;
+      const pendingHeadAtFinalize =
+        pendingBeforeSnapshot[0] ??
+        pendingStartupInteractionsRef.current[0] ??
+        null;
+      const rawOutcome = resolvedResultPayload?.outcome ?? null;
+      const rawStatus = resolvedResultPayload?.status ?? null;
+      const consumeAlready = incomingConsumedAfterAnswerRef.current.has(key);
+      const willCallConsumeIncomingAfterAnswer =
+        outcome === 'overboard' && !consumeAlready;
+      const reasonIfNotCallingConsume = willCallConsumeIncomingAfterAnswer
+        ? null
+        : outcome !== 'overboard'
+          ? `outcome-not-overboard:${outcome ?? 'null'}`
+          : consumeAlready
+            ? 'already-in-incomingConsumedAfterAnswerRef'
+            : 'unknown';
+      emitGoToBansOutcomeSync('[FINALIZE GO TO BANS OUTCOME SOURCE]', {
+        sourceFunction: 'finalizeResultForGoToBans',
+        banId: key,
+        resultId: key,
+        incomingId: key,
+        rawOutcome,
+        rawStatus,
+        normalizedOutcome: outcome,
+        outcomePayloadSource: resolvedPayloadSource,
+        resolvedResultPayloadId: resolvedResultPayload?.id ?? null,
+        stateResultId: result?.id ?? null,
+        stateResultOutcome: result?.outcome ?? null,
+        stateResultStatus: result?.status ?? null,
+        resultRefId: resultRef.current?.id ?? null,
+        resultRefOutcome: resultRef.current?.outcome ?? null,
+        resultRefStatus: resultRef.current?.status ?? null,
+        ownerDisplayResultId: ownerBefore.display.result?.id ?? null,
+        ownerDisplayResultOutcome: ownerBefore.display.result?.outcome ?? null,
+        ownerDisplayResultStatus: ownerBefore.display.result?.status ?? null,
+        dismissReason: 'go-to-bans',
+        queueLen: overlayQueueRef.current.length,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+        queueHeadKind: queueHeadAtFinalize?.kind ?? null,
+        queueHeadBanId:
+          queueHeadAtFinalize?.kind === 'result'
+            ? queueHeadAtFinalize.result.id
+            : queueHeadAtFinalize?.kind === 'incoming' ||
+                queueHeadAtFinalize?.kind === 'check'
+              ? queueHeadAtFinalize.ban.id
+              : null,
+        pendingHeadKind: pendingHeadAtFinalize?.kind ?? null,
+        pendingHeadBanId:
+          pendingHeadAtFinalize?.kind === 'result'
+            ? pendingHeadAtFinalize.result.id
+            : pendingHeadAtFinalize?.kind === 'incoming' ||
+                pendingHeadAtFinalize?.kind === 'check'
+              ? pendingHeadAtFinalize.ban.id
+              : null,
+        willCallConsumeIncomingAfterAnswer,
+        reasonIfNotCallingConsume,
+        showNextCalledBeforeConsume: false,
+      });
+      if (outcome == null) {
+        emitGoToBansOutcomeSync('[GO TO BANS OUTCOME LOST]', {
+          sourceFunction: 'finalizeResultForGoToBans',
+          banId: key,
+          resultId: key,
+          lostAt: 'finalizeResultForGoToBans:after-outcome-resolve',
+          reason: resolvedResultPayload
+            ? 'resolveOverboardResultOutcome-empty-after-normalize'
+            : 'resolvedResultPayload-null',
+          rawOutcome,
+          rawStatus,
+          outcomePayloadSource: resolvedPayloadSource,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+      }
       const isQueueOverboardResultDismiss =
         outcome === 'overboard' &&
         !closeBefore.directResultOverlay &&
@@ -25204,6 +25291,93 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ? heldUserCardOverlayRef.current.result
           : null),
     );
+    {
+      const ownerAtOutcome = ownerShadowRef.current.getState();
+      const c3Display = readOwnerC3Decision('navigateFromResult').display;
+      const displayResultRuntime = readOwnerC3DisplayResultForRuntime(
+        c3Display,
+        'navigateFromResult',
+        { resultRef: resultRef.current },
+      );
+      const stateResult = result;
+      const resultRefCurrent = resultRef.current;
+      const heldResult =
+        heldUserCardOverlayRef.current?.kind === 'result'
+          ? heldUserCardOverlayRef.current.result
+          : null;
+      const ownerDisplayResult = ownerAtOutcome.display.result;
+      const mountedResultId = readOwnerC3MountedResultId('navigateFromResult');
+      const selectedPayload =
+        displayResultRuntime ?? stateResult ?? heldResult;
+      const selectedSource = displayResultRuntime
+        ? 'displayResultRuntime'
+        : stateResult
+          ? 'stateResult'
+          : heldResult
+            ? 'heldResult'
+            : 'none';
+      const pendingHead = pendingStartupInteractionsRef.current[0] ?? null;
+      const outcomeDiagBase = {
+        phase: 'navigateFromResult:after-resultOutcome-computed',
+        sourceFunction: 'navigateFromResult',
+        clickedResultBanId: banId,
+        resultId: banId,
+        dismissReason: 'go-to-bans',
+        overlayKey: banId ? `result:${normalizeId(banId)}` : null,
+        selectedSource,
+        selectedOutcome: resultOutcome,
+        resultOutcomeComputed: resultOutcome,
+        stateResultId: stateResult?.id ?? null,
+        stateResultOutcome: stateResult?.outcome ?? null,
+        stateResultStatus: stateResult?.status ?? null,
+        stateResultResolved: resolveOverboardResultOutcome(stateResult),
+        resultRefId: resultRefCurrent?.id ?? null,
+        resultRefOutcome: resultRefCurrent?.outcome ?? null,
+        resultRefStatus: resultRefCurrent?.status ?? null,
+        resultRefResolved: resolveOverboardResultOutcome(resultRefCurrent),
+        displayResultRuntimeId: displayResultRuntime?.id ?? null,
+        displayResultRuntimeOutcome: displayResultRuntime?.outcome ?? null,
+        displayResultRuntimeStatus: displayResultRuntime?.status ?? null,
+        displayResultRuntimeResolved:
+          resolveOverboardResultOutcome(displayResultRuntime),
+        ownerDisplayResultId: ownerDisplayResult?.id ?? null,
+        ownerDisplayResultOutcome: ownerDisplayResult?.outcome ?? null,
+        ownerDisplayResultStatus: ownerDisplayResult?.status ?? null,
+        ownerDisplayResultResolved:
+          resolveOverboardResultOutcome(ownerDisplayResult),
+        activeResultPayloadId: displayResultRuntime?.id ?? null,
+        activeResultPayloadOutcome: displayResultRuntime?.outcome ?? null,
+        activeResultPayloadStatus: displayResultRuntime?.status ?? null,
+        activeResultPayloadResolved:
+          resolveOverboardResultOutcome(displayResultRuntime),
+        heldResultId: heldResult?.id ?? null,
+        heldResultOutcome: heldResult?.outcome ?? null,
+        heldResultStatus: heldResult?.status ?? null,
+        heldResultResolved: resolveOverboardResultOutcome(heldResult),
+        mountedResultId,
+        queueLen: queueLenBefore,
+        pendingLen: pendingLenBefore,
+        queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+        pendingHeadKind: pendingHead?.kind ?? null,
+        pendingHeadBanId:
+          pendingHead?.kind === 'result'
+            ? pendingHead.result.id
+            : pendingHead?.kind === 'incoming' ||
+                pendingHead?.kind === 'check'
+              ? pendingHead.ban.id
+              : null,
+      };
+      emitGoToBansOutcomeSync('[GO TO BANS OUTCOME SOURCE]', outcomeDiagBase);
+      if (!resultOutcome) {
+        emitGoToBansOutcomeSync('[GO TO BANS OUTCOME LOST]', {
+          ...outcomeDiagBase,
+          lostAt: 'navigateFromResult:after-resultOutcome-computed',
+          reason: selectedPayload
+            ? 'resolveOverboardResultOutcome-empty-on-selected-payload'
+            : 'no-result-payload-for-outcome-resolution',
+        });
+      }
+    }
     const c3Navigate = readOwnerC3Decision('navigateFromResult');
     patchOwnerDisplayWriteTraceContext({
       clickedResultBanId: banId ? normalizeId(banId) || banId : null,
@@ -25491,6 +25665,66 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
 
     setNotificationChainTransitioning(true);
+
+    {
+      const ownerPreFinalize = ownerShadowRef.current.getState();
+      const displayResultRuntime = readOwnerC3DisplayResultForRuntime(
+        readOwnerC3Decision('navigateFromResult').display,
+        'navigateFromResult',
+        { resultRef: resultRef.current },
+      );
+      const stateResult = result;
+      const resultRefCurrent = resultRef.current;
+      const heldResult =
+        heldUserCardOverlayRef.current?.kind === 'result'
+          ? heldUserCardOverlayRef.current.result
+          : null;
+      const selectedPayload =
+        displayResultRuntime ?? stateResult ?? heldResult;
+      const finalizeWillSeePayload =
+        resultRefCurrent ?? stateResult ?? heldResult;
+      const finalizeWillSeeSource =
+        finalizeWillSeePayload === resultRefCurrent
+          ? 'resultRef.current'
+          : finalizeWillSeePayload === stateResult
+            ? 'state.result'
+            : finalizeWillSeePayload === heldResult
+              ? 'heldUserCardOverlay.result'
+              : 'null';
+      const finalizeWillSeeOutcome = resolveOverboardResultOutcome(
+        finalizeWillSeePayload,
+      );
+      const preFinalizeDiag = {
+        phase: 'navigateFromResult:pre-finalize',
+        sourceFunction: 'navigateFromResult',
+        clickedResultBanId: banId,
+        resultId: banId,
+        dismissReason: 'go-to-bans',
+        resultOutcomeNavigate: resultOutcome,
+        finalizeWillSeeSource,
+        finalizeWillSeeOutcome,
+        finalizeWillSeePayloadId: finalizeWillSeePayload?.id ?? null,
+        finalizeWillSeePayloadOutcome: finalizeWillSeePayload?.outcome ?? null,
+        finalizeWillSeePayloadStatus: finalizeWillSeePayload?.status ?? null,
+        selectedPayloadId: selectedPayload?.id ?? null,
+        ownerDisplayResultId: ownerPreFinalize.display.result?.id ?? null,
+        ownerDisplayResultOutcome:
+          ownerPreFinalize.display.result?.outcome ?? null,
+        queueLen: overlayQueueRef.current.length,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+        willCallFinalize: Boolean(banId),
+      };
+      emitGoToBansOutcomeSync('[GO TO BANS OUTCOME SOURCE]', preFinalizeDiag);
+      if (!finalizeWillSeeOutcome) {
+        emitGoToBansOutcomeSync('[GO TO BANS OUTCOME LOST]', {
+          ...preFinalizeDiag,
+          lostAt: 'navigateFromResult:pre-finalize',
+          reason: finalizeWillSeePayload
+            ? 'finalize-will-see-payload-missing-outcome-and-status'
+            : 'finalize-will-see-payload-null',
+        });
+      }
+    }
 
     emitFinalizeGoToBansSync('[FINALIZE GO TO BANS CALL DECISION]', {
       sourceFunction: 'navigateFromResult',
