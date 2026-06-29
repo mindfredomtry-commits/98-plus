@@ -565,6 +565,13 @@ import {
   logConsumeAfterAnswerSourceLazy,
 } from '@/lib/browser-consume-after-answer-debug';
 import {
+  logFinalizeGoToBansBeforeConsumeLazy,
+  logFinalizeGoToBansBranchLazy,
+  logFinalizeGoToBansEnterLazy,
+  logFinalizeGoToBansReturnLazy,
+  logFinalizeGoToBansSkipConsumeLazy,
+} from '@/lib/browser-finalize-go-to-bans-debug';
+import {
   logQueueContinueAfterResult,
   logResultCardCtaClick,
   logResultDismissCommit,
@@ -3086,6 +3093,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         (item) =>
           item.kind === 'incoming' && normalizeId(item.ban.id) === normTarget,
       ),
+    };
+  };
+  const buildFinalizeGoToBansTracePayload = (
+    sourceFunction: string,
+    banId: string | null,
+    extra?: Record<string, unknown>,
+  ) => {
+    const owner = ownerShadowRef.current.getState();
+    const head = overlayQueueRef.current[0] ?? null;
+    const queueHeadBanId =
+      head?.kind === 'result'
+        ? head.result.id
+        : head?.kind === 'incoming' || head?.kind === 'check'
+          ? head.ban.id
+          : null;
+    return {
+      banId,
+      resultId: banId ?? resultRef.current?.id ?? result?.id ?? null,
+      incomingId: banId,
+      dismissReason: 'go-to-bans',
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      queueHeadKind: head?.kind ?? null,
+      queueHeadBanId,
+      activeKind: owner.active.kind,
+      activeBanId: owner.active.banId,
+      sourceFunction,
+      showNextCalledBeforeConsume: false,
+      ...extra,
     };
   };
   const readOwnerImperative = (selector: Parameters<typeof readOwnerImperativeState>[1]) =>
@@ -24622,9 +24658,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const finalizeResultForGoToBans = useCallback(
     (banId: string) => {
+      logFinalizeGoToBansEnterLazy(
+        buildFinalizeGoToBansTracePayload(
+          'finalizeResultForGoToBans:entry',
+          banId,
+          { rawBanId: banId },
+        ),
+      );
       clearStaleComposeStateBeforeBansNavigation('finalizeResultForGoToBans');
       const key = normalizeId(banId);
-      if (!key) return;
+      if (!key) {
+        logFinalizeGoToBansReturnLazy(
+          buildFinalizeGoToBansTracePayload(
+            'finalizeResultForGoToBans:early-return',
+            banId,
+            {
+              branch: 'invalid-ban-id-after-normalize',
+              willCallConsumeIncomingAfterAnswer: false,
+              reasonIfNotCallingConsume: 'early-return-invalid-key',
+            },
+          ),
+        );
+        return;
+      }
       const overlayKey = `result:${key}`;
       const ownerBefore = ownerShadowRef.current.getState();
       const closeBefore = buildDirectOverboardCloseDiagSnapshot();
@@ -24642,6 +24698,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         outcome === 'overboard' &&
         !closeBefore.directResultOverlay &&
         !closeBefore.directResultOverlayActive;
+      logFinalizeGoToBansBranchLazy(
+        buildFinalizeGoToBansTracePayload(
+          'finalizeResultForGoToBans:after-outcome',
+          key,
+          {
+            branch: 'outcome-resolved',
+            outcome,
+            isQueueOverboardResultDismiss,
+            directResultOverlay: closeBefore.directResultOverlay,
+            directResultOverlayActive: closeBefore.directResultOverlayActive,
+            legacyResultBefore,
+          },
+        ),
+      );
       hookGoToBansTraceEnter(
         buildGoToBansTraceHookContext(
           'finalizeResultForGoToBans',
@@ -24734,6 +24804,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
       }
       if (isQueueOverboardResultDismiss) {
+        logFinalizeGoToBansBranchLazy(
+          buildFinalizeGoToBansTracePayload(
+            'finalizeResultForGoToBans:held-branch',
+            key,
+            { branch: 'queue-overboard-result-dismiss-held' },
+          ),
+        );
         const heldMatch = heldUserCardOverlayRef.current;
         if (
           heldMatch?.kind === 'result' &&
@@ -24768,6 +24845,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
         }
       } else {
+        logFinalizeGoToBansBranchLazy(
+          buildFinalizeGoToBansTracePayload(
+            'finalizeResultForGoToBans:held-branch',
+            key,
+            { branch: 'non-queue-overboard-clear-active-hold' },
+          ),
+        );
         if (heldBefore) {
           logResultGoToBansClearActiveHold({
             banId: key,
@@ -24783,6 +24867,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       let removeOverlayCalled = false;
       cancelResultPollBurst();
       void acknowledgeBanResultOnServer(key, tokenRef.current, 'go-to-bans');
+
+      {
+        const alreadyInConsumedRef =
+          incomingConsumedAfterAnswerRef.current.has(key);
+        const willCallConsumeIncomingAfterAnswer =
+          outcome === 'overboard' && !alreadyInConsumedRef;
+        const reasonIfNotCallingConsume = willCallConsumeIncomingAfterAnswer
+          ? null
+          : outcome !== 'overboard'
+            ? `outcome-not-overboard:${outcome ?? 'null'}`
+            : alreadyInConsumedRef
+              ? 'already-in-incomingConsumedAfterAnswerRef'
+              : 'unknown';
+        logFinalizeGoToBansBeforeConsumeLazy(
+          buildFinalizeGoToBansTracePayload(
+            'finalizeResultForGoToBans:before-consume',
+            key,
+            {
+              outcome,
+              willCallConsumeIncomingAfterAnswer,
+              reasonIfNotCallingConsume,
+              alreadyInConsumedRef,
+              isQueueOverboardResultDismiss,
+              inActiveOverboardQueue,
+            },
+          ),
+        );
+      }
 
       if (
         outcome === 'overboard' &&
@@ -24809,9 +24921,36 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           'go-to-bans',
           'finalizeResultForGoToBans',
         );
+      } else {
+        const alreadyInConsumedRef =
+          incomingConsumedAfterAnswerRef.current.has(key);
+        logFinalizeGoToBansSkipConsumeLazy(
+          buildFinalizeGoToBansTracePayload(
+            'finalizeResultForGoToBans:skip-consume',
+            key,
+            {
+              outcome,
+              willCallConsumeIncomingAfterAnswer: false,
+              reasonIfNotCallingConsume:
+                outcome !== 'overboard'
+                  ? `outcome-not-overboard:${outcome ?? 'null'}`
+                  : alreadyInConsumedRef
+                    ? 'already-in-incomingConsumedAfterAnswerRef'
+                    : 'unknown',
+              alreadyInConsumedRef,
+            },
+          ),
+        );
       }
 
       if (isQueueOverboardResultDismiss) {
+        logFinalizeGoToBansBranchLazy(
+          buildFinalizeGoToBansTracePayload(
+            'finalizeResultForGoToBans:queue-prune',
+            key,
+            { branch: 'isQueueOverboardResultDismiss-prune' },
+          ),
+        );
         const beforeQueue = overlayQueueRef.current;
         const beforePending = pendingStartupInteractionsRef.current;
         const queueHeadIsClickedResult =
@@ -24860,6 +24999,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
         }
       } else {
+        logFinalizeGoToBansBranchLazy(
+          buildFinalizeGoToBansTracePayload(
+            'finalizeResultForGoToBans:queue-prune',
+            key,
+            { branch: 'pruneResultFromNotificationChain' },
+          ),
+        );
         pruneResultFromNotificationChain(key, 'go-to-bans', ['check', 'result']);
         sanitizeNotificationChainQueues('go-to-bans');
 
@@ -25017,6 +25163,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       lastProcessedOverlayKindForBansRef.current = 'result';
       runPhase12ParityCheck('finalizeResultForGoToBans', 'go-to-bans');
+      logFinalizeGoToBansReturnLazy(
+        buildFinalizeGoToBansTracePayload(
+          'finalizeResultForGoToBans:complete',
+          key,
+          {
+            branch: 'function-complete',
+            outcome,
+            remainingLen: overlayQueueRef.current.length,
+            pendingLen: pendingStartupInteractionsRef.current.length,
+            markConsumedCalled,
+            removeOverlayCalled,
+          },
+        ),
+      );
     },
     [
       cancelResultPollBurst,
