@@ -24673,18 +24673,64 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         pendingBeforeSnapshot[0] ??
         pendingStartupInteractionsRef.current[0] ??
         null;
+      const resolveGoToBansConsumeAllowed = (): {
+        allowed: boolean;
+        reason: string;
+      } => {
+        if (incomingConsumedAfterAnswerRef.current.has(key)) {
+          return {
+            allowed: false,
+            reason: 'already-in-incomingConsumedAfterAnswerRef',
+          };
+        }
+        if (outcome === 'overboard') {
+          return { allowed: true, reason: 'overboard-go-to-bans' };
+        }
+        if (outcome === 'split') {
+          const normKey = normalizeId(key);
+          const queueHeadBanIdNorm =
+            queueHeadAtFinalize?.kind === 'result'
+              ? normalizeId(queueHeadAtFinalize.result.id)
+              : queueHeadAtFinalize?.kind === 'incoming' ||
+                  queueHeadAtFinalize?.kind === 'check'
+                ? normalizeId(queueHeadAtFinalize.ban.id)
+                : '';
+          const pendingHeadBanIdNorm =
+            pendingHeadAtFinalize?.kind === 'result'
+              ? normalizeId(pendingHeadAtFinalize.result.id)
+              : pendingHeadAtFinalize?.kind === 'incoming' ||
+                  pendingHeadAtFinalize?.kind === 'check'
+                ? normalizeId(pendingHeadAtFinalize.ban.id)
+                : '';
+          const displayResultBanIdNorm = normalizeId(
+            ownerBefore.display.result?.id ?? '',
+          );
+          const currentResultBanIdNorm = normalizeId(
+            legacyResultBefore ?? resolvedResultPayload?.id ?? key,
+          );
+          const aligned =
+            normKey.length > 0 &&
+            (normKey === displayResultBanIdNorm ||
+              normKey === currentResultBanIdNorm ||
+              normKey === queueHeadBanIdNorm ||
+              normKey === pendingHeadBanIdNorm);
+          if (aligned) {
+            return { allowed: true, reason: 'split-aligned-go-to-bans' };
+          }
+          return { allowed: false, reason: 'split-banId-not-aligned' };
+        }
+        return {
+          allowed: false,
+          reason: `outcome-not-overboard:${outcome ?? 'null'}`,
+        };
+      };
+      const goToBansConsumeDecision = resolveGoToBansConsumeAllowed();
       const rawOutcome = resolvedResultPayload?.outcome ?? null;
       const rawStatus = resolvedResultPayload?.status ?? null;
-      const consumeAlready = incomingConsumedAfterAnswerRef.current.has(key);
-      const willCallConsumeIncomingAfterAnswer =
-        outcome === 'overboard' && !consumeAlready;
-      const reasonIfNotCallingConsume = willCallConsumeIncomingAfterAnswer
+      const willCallConsumeIncomingAfterAnswer = goToBansConsumeDecision.allowed;
+      const reasonIfNotCallingConsume = goToBansConsumeDecision.allowed
         ? null
-        : outcome !== 'overboard'
-          ? `outcome-not-overboard:${outcome ?? 'null'}`
-          : consumeAlready
-            ? 'already-in-incomingConsumedAfterAnswerRef'
-            : 'unknown';
+        : goToBansConsumeDecision.reason;
       emitGoToBansOutcomeSync('[FINALIZE GO TO BANS OUTCOME SOURCE]', {
         sourceFunction: 'finalizeResultForGoToBans',
         banId: key,
@@ -24937,31 +24983,49 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       cancelResultPollBurst();
       void acknowledgeBanResultOnServer(key, tokenRef.current, 'go-to-bans');
 
+      const goToBansConsumeAtCall = resolveGoToBansConsumeAllowed();
+      const queueHeadKindForConsume = queueHeadAtFinalize?.kind ?? null;
+      const queueHeadBanIdForConsume =
+        queueHeadAtFinalize?.kind === 'result'
+          ? queueHeadAtFinalize.result.id
+          : queueHeadAtFinalize?.kind === 'incoming' ||
+              queueHeadAtFinalize?.kind === 'check'
+            ? queueHeadAtFinalize.ban.id
+            : null;
+
       {
         const alreadyInConsumedRef =
           incomingConsumedAfterAnswerRef.current.has(key);
-        const willCallConsumeIncomingAfterAnswer =
-          outcome === 'overboard' && !alreadyInConsumedRef;
-        const reasonIfNotCallingConsume = willCallConsumeIncomingAfterAnswer
-          ? null
-          : outcome !== 'overboard'
-            ? `outcome-not-overboard:${outcome ?? 'null'}`
-            : alreadyInConsumedRef
-              ? 'already-in-incomingConsumedAfterAnswerRef'
-              : 'unknown';
         finTrace('[FINALIZE GO TO BANS BEFORE CONSUME]', 'finalizeResultForGoToBans:before-consume', {
-          willCallConsumeIncomingAfterAnswer,
-          reasonIfNotCallingConsume,
+          willCallConsumeIncomingAfterAnswer: goToBansConsumeAtCall.allowed,
+          reasonIfNotCallingConsume: goToBansConsumeAtCall.allowed
+            ? null
+            : goToBansConsumeAtCall.reason,
           alreadyInConsumedRef,
           isQueueOverboardResultDismiss,
           inActiveOverboardQueue,
         });
       }
 
-      if (
-        outcome === 'overboard' &&
-        !incomingConsumedAfterAnswerRef.current.has(key)
-      ) {
+      if (goToBansConsumeAtCall.allowed) {
+        if (typeof window !== 'undefined') {
+          const consumeAllowedPayload = {
+            banId: key,
+            outcome,
+            incomingId: key,
+            queueHeadKind: queueHeadKindForConsume,
+            queueHeadBanId: queueHeadBanIdForConsume,
+            reason: goToBansConsumeAtCall.reason,
+          };
+          console.log(
+            '[FINALIZE GO TO BANS CONSUME ALLOWED]',
+            consumeAllowedPayload,
+          );
+          window.__debug98log?.(
+            '[FINALIZE GO TO BANS CONSUME ALLOWED]',
+            consumeAllowedPayload,
+          );
+        }
         logConsumeAfterAnswerSourceLazy({
           ...buildConsumeAfterAnswerTraceSnapshot(
             key,
@@ -24975,8 +25039,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           syncDisplayCalledBeforeConsume: false,
           applyOverlayQueueCalledBeforeConsume: false,
           queuePruneNotYetRun: true,
-          consumeTriggerReason:
-            'outcome-overboard-and-not-in-incomingConsumedAfterAnswerRef',
+          consumeTriggerReason: goToBansConsumeAtCall.reason,
         });
         consumeIncomingAfterAnswer(
           key,
@@ -24988,12 +25051,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           incomingConsumedAfterAnswerRef.current.has(key);
         finTrace('[FINALIZE GO TO BANS SKIP CONSUME]', 'finalizeResultForGoToBans:skip-consume', {
           willCallConsumeIncomingAfterAnswer: false,
-          reasonIfNotCallingConsume:
-            outcome !== 'overboard'
-              ? `outcome-not-overboard:${outcome ?? 'null'}`
-              : alreadyInConsumedRef
-                ? 'already-in-incomingConsumedAfterAnswerRef'
-                : 'unknown',
+          reasonIfNotCallingConsume: goToBansConsumeAtCall.reason,
           alreadyInConsumedRef,
         });
       }
