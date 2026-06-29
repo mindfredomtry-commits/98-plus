@@ -1661,6 +1661,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
   });
   const goToBansAdvancePendingRef = useRef(false);
+  const goToBansClosingBanIdRef = useRef<string | null>(null);
   const showNextNotificationFromChainSyncRef = useRef<
     (source: string) => boolean
   >(() => false);
@@ -5574,6 +5575,44 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         checkBanId: clearedCheckBanId,
       });
     }
+  };
+
+  const holdRelatesToGoToBansClosingCard = (
+    held: HeldUserCardOverlay,
+    closingBanIdNorm: string,
+    closingKind: 'result' | 'check',
+  ): boolean => {
+    const heldBanId = normalizeId(heldUserCardBanId(held));
+    if (closingBanIdNorm.length === 0) return false;
+    if (held.kind === 'incoming') {
+      return heldBanId === closingBanIdNorm;
+    }
+    if (held.kind === 'result') {
+      return closingKind === 'result' && heldBanId === closingBanIdNorm;
+    }
+    if (held.kind === 'check') {
+      if (closingKind === 'check' && heldBanId === closingBanIdNorm) {
+        return true;
+      }
+      return closingKind === 'result';
+    }
+    return false;
+  };
+
+  const clearGoToBansHoldBeforeNextCard = (
+    closingBanId: string | null | undefined,
+    closingKind: 'result' | 'check' = 'result',
+  ): boolean => {
+    if (isReplyComposeBlockingNotificationGuards()) return false;
+    if (!notificationChainAwaitingUserRef.current) return false;
+    const held = heldUserCardOverlayRef.current;
+    if (!held) return false;
+    const closingNorm = normalizeId(closingBanId ?? '');
+    if (!holdRelatesToGoToBansClosingCard(held, closingNorm, closingKind)) {
+      return false;
+    }
+    clearActiveUserCardHold('go-to-bans-before-next-card');
+    return true;
   };
 
   const clearStaleUserCardHoldForNextHead = (
@@ -9719,6 +9758,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       if (goToBansAdvancePendingRef.current) {
         goToBansAdvancePendingRef.current = false;
+        goToBansClosingBanIdRef.current = null;
         mirrorOwnerSessionFlagsRef.current('reportOverlayRendered:go-to-bans-next', {
           goToBansAdvancePending: false,
         });
@@ -17062,6 +17102,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearNotificationChainTransitioningInline();
       setChainAdvanceWaiting(false);
       goToBansAdvancePendingRef.current = false;
+      goToBansClosingBanIdRef.current = null;
       mirrorOwnerSessionFlagsRef.current(
         `${source}:release-incoming-overlay-for-reply-compose`,
         {
@@ -21107,6 +21148,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return showNextDiagReturn('compose-flow-active', false);
       }
       if (
+        isResultGoToBansContinueSource(source) ||
+        goToBansAdvancePendingRef.current
+      ) {
+        clearGoToBansHoldBeforeNextCard(
+          goToBansClosingBanIdRef.current ?? getPostConsumeTraceBanId(),
+          'result',
+        );
+      }
+      if (
         shouldBlockPassiveNotificationDisplay(
           source,
           startupInteractionsHoldRef.current,
@@ -22961,6 +23011,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       if (hasLocalItems) {
+        if (isResultGoToBansContinueSource(source)) {
+          clearGoToBansHoldBeforeNextCard(
+            opts?.prefetchSkipBanId ??
+              goToBansClosingBanIdRef.current ??
+              getPostConsumeTraceBanId(),
+            'result',
+          );
+        }
         emitPostConsumeShowNextDecision({
           source,
           conditionInputs: {
@@ -23027,6 +23085,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             setChainAdvanceWaiting(false);
           }
           goToBansAdvancePendingRef.current = false;
+          goToBansClosingBanIdRef.current = null;
           mirrorOwnerSessionFlagsRef.current(`${source}:chain-continue-show-next`, {
             goToBansAdvancePending: false,
           });
@@ -23084,6 +23143,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             setChainAdvanceWaiting(false);
           }
           goToBansAdvancePendingRef.current = false;
+          goToBansClosingBanIdRef.current = null;
           mirrorOwnerSessionFlagsRef.current(`${source}:chain-continue-show-next-retry`, {
             goToBansAdvancePending: false,
           });
@@ -23328,6 +23388,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setNotificationChainTransitioning(false);
       setChainAdvanceWaiting(false);
       goToBansAdvancePendingRef.current = false;
+      goToBansClosingBanIdRef.current = null;
       overlayQueueDrainActiveRef.current = false;
       if (
         source.includes('status-cta') ||
@@ -25936,6 +25997,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             source: 'finalizeResultForGoToBans:queue-overboard-held-result',
           });
         }
+        clearGoToBansHoldBeforeNextCard(key, 'result');
       } else {
         finTrace('[FINALIZE GO TO BANS BRANCH]', 'finalizeResultForGoToBans:held-branch', {
           branch: 'non-queue-overboard-clear-active-hold',
@@ -26736,6 +26798,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       pendingLen: beforeConsume.startupLen,
     });
     goToBansAdvancePendingRef.current = true;
+    goToBansClosingBanIdRef.current = banId ? normalizeId(banId) || banId : null;
     mirrorOwnerSessionFlagsRef.current('navigateFromResult:go-to-bans-pending', {
       goToBansAdvancePending: true,
     });
@@ -26843,6 +26906,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       flushSync(() => {
         finalizeResultForGoToBans(banId);
       });
+      clearGoToBansHoldBeforeNextCard(banId, 'result');
       if (isPostConsumeTraceActive()) {
         emitPostConsumeStart({
           phase: 'navigateFromResult:after-finalize-flushSync',
@@ -27056,6 +27120,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       setChainAdvanceWaiting(false);
       goToBansAdvancePendingRef.current = false;
+      goToBansClosingBanIdRef.current = null;
       mirrorOwnerSessionFlagsRef.current('navigateFromResult:status-cta-timeout', {
         goToBansAdvancePending: false,
       });
