@@ -818,6 +818,10 @@ import {
   emitPostConsumeNextCard,
   emitPostConsumeNoNextCard,
   emitPostConsumeOpenBlocked,
+  emitPostConsumeChainEndReason,
+  emitPostConsumeReturnPath,
+  emitPostConsumeShowNextDecision,
+  getPostConsumeTraceBanId,
   emitPostConsumeOverlayUpdate,
   emitPostConsumePendingUpdate,
   emitPostConsumeQueueUpdate,
@@ -4158,6 +4162,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId: owner.active.banId,
         overlayKey: owner.active.overlayKey,
       },
+    };
+  };
+
+  const buildPostConsumeChainContext = (banId?: string | null) => {
+    const snap = buildPostConsumeOwnerSnapshot();
+    const queueHead = overlayQueueRef.current[0] ?? null;
+    const pendingHead = pendingStartupInteractionsRef.current[0] ?? null;
+    const traceBanId = banId ?? getPostConsumeTraceBanId();
+    return {
+      banId: traceBanId,
+      resultId: traceBanId ?? resultRef.current?.id ?? result?.id ?? null,
+      incomingId: traceBanId,
+      ...snap,
+      queueHeadKind: queueHead?.kind ?? null,
+      queueHeadBanId: queueHead ? overlayItemBanId(queueHead) : null,
+      pendingHeadKind: pendingHead?.kind ?? snap.pendingHeadKind,
+      pendingHeadBanId: pendingHead
+        ? overlayItemBanId(pendingHead)
+        : snap.pendingHeadBanId,
+      notificationSessionActive:
+        notificationSessionActiveForDebugRef.current,
+      chainTransitioning: notificationChainTransitioningRef.current,
+      resultOpen: resultOpenRef.current,
+      chainAdvanceExplicit: chainAdvanceExplicitRef.current,
+      chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+      goToBansAdvancePending: goToBansAdvancePendingRef.current,
+      startupHold: startupInteractionsHoldRef.current,
+      lobbyOpen: lobbyOpenRef.current,
     };
   };
 
@@ -22085,6 +22117,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       const tryShowNext = (showSource: string): boolean => {
+        emitPostConsumeShowNextDecision({
+          source: showSource,
+          conditionInputs: {
+            phase: 'openNextNotificationAfterQueueHandoff-tryShowNext',
+            queueLen: overlayQueueRef.current.length,
+            pendingLen: pendingStartupInteractionsRef.current.length,
+          },
+          willCallShowNext: true,
+          reasonIfFalse: null,
+          ...buildPostConsumeChainContext(getPostConsumeTraceBanId()),
+        });
         const shown = showNextNotificationFromChainSync(showSource);
         if (!shown && isPostConsumeTraceActive()) {
           const queueHead = overlayQueueRef.current[0] ?? null;
@@ -22135,15 +22178,53 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return true;
       };
 
+      emitPostConsumeShowNextDecision({
+        source,
+        conditionInputs: {
+          phase: 'openNextNotificationAfterQueueHandoff-before-tryShowNext',
+          queueLen,
+          pendingLen,
+        },
+        willCallShowNext: queueLen > 0 || pendingLen > 0,
+        reasonIfFalse:
+          queueLen === 0 && pendingLen === 0
+            ? 'queueLen-and-pendingLen-both-zero-before-handoff-tryShowNext'
+            : null,
+        ...buildPostConsumeChainContext(getPostConsumeTraceBanId()),
+      });
       if (tryShowNext(source)) {
         return true;
       }
 
       syncDisplayFromQueue(overlayQueueRef.current);
+      emitPostConsumeShowNextDecision({
+        source: `${source}-retry`,
+        conditionInputs: {
+          phase: 'openNextNotificationAfterQueueHandoff-before-tryShowNext-retry',
+          firstTryShowNextReturned: false,
+        },
+        willCallShowNext: true,
+        reasonIfFalse: null,
+        ...buildPostConsumeChainContext(getPostConsumeTraceBanId()),
+      });
       if (tryShowNext(`${source}-retry`)) {
         return true;
       }
 
+      emitPostConsumeReturnPath({
+        functionName: 'openNextNotificationAfterQueueHandoff',
+        branch: 'handoff-tryShowNext-failed',
+        reason: 'tryShowNext-and-retry-both-returned-false',
+        willShowNext: false,
+        willEndChain: false,
+        willOpenBansSection: false,
+        willReturnLobby: false,
+        queueLen: overlayQueueRef.current.length,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+        queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+        pendingHeadKind:
+          pendingStartupInteractionsRef.current[0]?.kind ?? null,
+      });
       return false;
       }),
     [
@@ -22184,9 +22265,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         outcome: ContinueNotificationChainOutcome,
         reason: string,
       ): ContinueNotificationChainOutcome => {
+        const queueHead = overlayQueueRef.current[0] ?? null;
+        const pendingHead = pendingStartupInteractionsRef.current[0] ?? null;
+        emitPostConsumeReturnPath({
+          functionName: 'continueNotificationChainOrOpenLobbySync',
+          branch: reason,
+          reason,
+          willShowNext: outcome === 'show-next',
+          willEndChain:
+            outcome === 'blocked' ||
+            outcome === 'lost-pending' ||
+            outcome === 'needs-prefetch',
+          willOpenBansSection: outcome === 'open-bans',
+          willReturnLobby: outcome === 'open-lobby',
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          queueHeadKind: queueHead?.kind ?? null,
+          pendingHeadKind: pendingHead?.kind ?? null,
+          outcome,
+        });
         if (outcome !== 'show-next' && isPostConsumeTraceActive()) {
-          const queueHead = overlayQueueRef.current[0] ?? null;
-          const pendingHead = pendingStartupInteractionsRef.current[0] ?? null;
           emitPostConsumeNoNextCard({
             pipeline: 'continueNotificationChainOrOpenLobbySync',
             source,
@@ -22430,6 +22528,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         collected.finalQueueLen > 0 || collected.finalPendingLen > 0;
 
       if (!hasLocalItems) {
+        emitPostConsumeShowNextDecision({
+          source,
+          conditionInputs: {
+            hasLocalItems: false,
+            collectedFinalQueueLen: collected.finalQueueLen,
+            collectedFinalPendingLen: collected.finalPendingLen,
+            collectedQueueLen: collected.queueLen,
+            collectedPendingLen: collected.pendingLen,
+          },
+          willCallShowNext: false,
+          reasonIfFalse: 'hasLocalItems-false-after-collectPendingNotificationChain',
+          ...buildPostConsumeChainContext(getPostConsumeTraceBanId()),
+        });
         if (isCheckAnswerChainSource) {
           logCheckNextEmpty({
             source,
@@ -22461,6 +22572,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       if (hasLocalItems) {
+        emitPostConsumeShowNextDecision({
+          source,
+          conditionInputs: {
+            hasLocalItems,
+            collectedFinalQueueLen: collected.finalQueueLen,
+            collectedFinalPendingLen: collected.finalPendingLen,
+            chainAdvanceExplicit: chainAdvanceExplicitRef.current,
+            chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+            notificationChainTransitioning:
+              notificationChainTransitioningRef.current,
+            goToBansAdvancePending: goToBansAdvancePendingRef.current,
+            startupHold: startupInteractionsHoldRef.current,
+            resultOpen: resultOpenRef.current,
+          },
+          willCallShowNext: true,
+          reasonIfFalse: null,
+          ...buildPostConsumeChainContext(getPostConsumeTraceBanId()),
+        });
         const shown = showNextNotificationFromChainSync(source);
         if (shown) {
           const head = readOwnerImperativeQueueHeadForRuntime(
@@ -22531,6 +22660,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
 
         syncDisplayFromQueue(overlayQueueRef.current);
+        emitPostConsumeShowNextDecision({
+          source: `${source}-retry`,
+          conditionInputs: {
+            firstShowNextReturned: false,
+            hasLocalItems,
+            finalQueueLen: overlayQueueRef.current.length,
+            finalPendingLen: pendingStartupInteractionsRef.current.length,
+          },
+          willCallShowNext: true,
+          reasonIfFalse: null,
+          ...buildPostConsumeChainContext(getPostConsumeTraceBanId()),
+        });
         const retryShown = showNextNotificationFromChainSync(`${source}-retry`);
         if (retryShown) {
           logChainContinueShowNext({
@@ -22705,6 +22846,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           { ref: checkAnswerWaitingResultHoldBanIdRef.current },
         )
       ) {
+        emitPostConsumeReturnPath({
+          functionName: 'finalizeNotificationChainContinueEmpty',
+          branch: 'waiting-result-hold-active',
+          reason: 'waiting-result-hold-active',
+          willShowNext: false,
+          willEndChain: true,
+          willOpenBansSection: false,
+          willReturnLobby: false,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+          pendingHeadKind:
+            pendingStartupInteractionsRef.current[0]?.kind ?? null,
+        });
         logChainEmptyFinalizeWithDiag(
           buildChainEmptyFinalizeSnapshot({
             source,
@@ -22739,6 +22894,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         pendingRef: pendingStartupInteractionsRef.current,
       });
       if (finalQueueLen > 0 || finalPendingLen > 0) {
+        emitPostConsumeReturnPath({
+          functionName: 'finalizeNotificationChainContinueEmpty',
+          branch: 'empty-fallback-with-items',
+          reason: 'empty-fallback-with-items',
+          willShowNext: false,
+          willEndChain: true,
+          willOpenBansSection: false,
+          willReturnLobby: false,
+          queueLen: finalQueueLen,
+          pendingLen: finalPendingLen,
+          queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+          pendingHeadKind:
+            pendingStartupInteractionsRef.current[0]?.kind ?? null,
+        });
         logChainContinueLostPendingBug({
           source,
           reason: 'empty-fallback-with-items',
@@ -22869,6 +23038,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         },
       );
 
+      emitPostConsumeReturnPath({
+        functionName: 'finalizeNotificationChainContinueEmpty',
+        branch: 'chain-continue-empty-finalized',
+        reason: `emptyFallback-${emptyFallback}-outcome-${outcome}`,
+        willShowNext: false,
+        willEndChain: outcome === 'blocked',
+        willOpenBansSection: outcome === 'open-bans',
+        willReturnLobby: outcome === 'open-lobby',
+        queueLen: finalQueueLen,
+        pendingLen: finalPendingLen,
+        queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+        pendingHeadKind:
+          pendingStartupInteractionsRef.current[0]?.kind ?? null,
+        emptyFallback,
+        outcome,
+      });
+      if (
+        finalQueueLen === 0 &&
+        finalPendingLen === 0 &&
+        (outcome === 'open-bans' || outcome === 'open-lobby')
+      ) {
+        emitPostConsumeChainEndReason({
+          source: 'finalizeNotificationChainContinueEmpty',
+          reason: `queue-empty-open-${outcome}-via-emptyFallback-${emptyFallback}`,
+          ...buildPostConsumeChainContext(opts?.openBansBanId ?? null),
+        });
+      }
+
       return outcome;
     },
     [
@@ -22894,8 +23091,39 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         { type: 'CHAIN_CONTINUE_REQUESTED', source },
         `continueNotificationChainOrOpenLobby:${source}`,
       );
+      emitPostConsumeShowNextDecision({
+        source,
+        conditionInputs: {
+          phase: 'continue-async-before-sync',
+          prefetchIfEmpty: opts?.prefetchIfEmpty,
+          emptyFallback: opts?.emptyFallback,
+          chainAdvanceExplicit: chainAdvanceExplicitRef.current,
+          goToBansAdvancePending: goToBansAdvancePendingRef.current,
+        },
+        willCallShowNext: true,
+        reasonIfFalse: null,
+        ...buildPostConsumeChainContext(opts?.openBansBanId ?? null),
+      });
       let outcome = continueNotificationChainOrOpenLobbySync(source, opts);
       if (outcome !== 'needs-prefetch') {
+        emitPostConsumeReturnPath({
+          functionName: 'continueNotificationChainOrOpenLobby',
+          branch: 'async-sync-return',
+          reason: `sync-outcome-${outcome}`,
+          willShowNext: outcome === 'show-next',
+          willEndChain:
+            outcome === 'blocked' ||
+            outcome === 'lost-pending' ||
+            outcome === 'needs-prefetch',
+          willOpenBansSection: outcome === 'open-bans',
+          willReturnLobby: outcome === 'open-lobby',
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+          pendingHeadKind:
+            pendingStartupInteractionsRef.current[0]?.kind ?? null,
+          outcome,
+        });
         return outcome;
       }
 
@@ -22925,6 +23153,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           phase: 'continue-after-prefetch',
           queueLen: overlayQueueRef.current.length,
           pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+        emitPostConsumeShowNextDecision({
+          source: `${source}-after-prefetch-handoff`,
+          conditionInputs: {
+            phase: 'continue-async-handoff-after-prefetch',
+            isHandoffDrainSource: isNotificationQueueHandoffDrainSource(source),
+          },
+          willCallShowNext: true,
+          reasonIfFalse: null,
+          ...buildPostConsumeChainContext(opts?.openBansBanId ?? null),
         });
         if (
           await openNextNotificationAfterQueueHandoff(`${source}-after-prefetch`, {
@@ -25504,9 +25742,58 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       const hasNextInChain = remainingLen > 0 || pendingLen > 0;
+      emitPostConsumeShowNextDecision({
+        source: 'finalizeResultForGoToBans:after-prune',
+        conditionInputs: {
+          hasNextInChain,
+          remainingLen,
+          pendingLen,
+          inActiveOverboardQueue,
+          queueLenBefore,
+        },
+        willCallShowNext: false,
+        reasonIfFalse: hasNextInChain
+          ? 'finalize-does-not-call-showNext-defer-to-continueNotificationChain'
+          : 'queueLen-and-pendingLen-both-zero-after-prune',
+        ...buildPostConsumeChainContext(key),
+      });
       if (hasNextInChain) {
+        emitPostConsumeReturnPath({
+          functionName: 'finalizeResultForGoToBans',
+          branch: 'has-next-in-chain-set-transitioning',
+          reason: 'remainingLen-or-pendingLen-gt-zero',
+          willShowNext: false,
+          willEndChain: false,
+          willOpenBansSection: false,
+          willReturnLobby: false,
+          queueLen: remainingLen,
+          pendingLen,
+          queueHeadKind:
+            overlayQueueRef.current[0]?.kind ?? null,
+          pendingHeadKind:
+            pendingStartupInteractionsRef.current[0]?.kind ?? null,
+        });
         setNotificationChainTransitioning(true);
       } else if (inActiveOverboardQueue) {
+        emitPostConsumeChainEndReason({
+          source: 'finalizeResultForGoToBans',
+          reason: 'hasNextInChain-false-inActiveOverboardQueue',
+          ...buildPostConsumeChainContext(key),
+        });
+        emitPostConsumeReturnPath({
+          functionName: 'finalizeResultForGoToBans',
+          branch: 'overboard-result-ended-chain',
+          reason: 'hasNextInChain-false-inActiveOverboardQueue',
+          willShowNext: false,
+          willEndChain: true,
+          willOpenBansSection: false,
+          willReturnLobby: false,
+          queueLen: remainingLen,
+          pendingLen,
+          queueHeadKind: null,
+          pendingHeadKind:
+            pendingStartupInteractionsRef.current[0]?.kind ?? null,
+        });
         logOverboardResultEndedChain(
           buildOverboardResultChainDebugFields(key, 'finalizeResultForGoToBans', {
             queueLenBefore,
@@ -25514,6 +25801,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             resultId: key,
           }),
         );
+      } else {
+        emitPostConsumeReturnPath({
+          functionName: 'finalizeResultForGoToBans',
+          branch: 'no-next-not-in-active-overboard-queue',
+          reason: 'hasNextInChain-false-and-not-inActiveOverboardQueue',
+          willShowNext: false,
+          willEndChain: false,
+          willOpenBansSection: false,
+          willReturnLobby: false,
+          queueLen: remainingLen,
+          pendingLen,
+          queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+          pendingHeadKind:
+            pendingStartupInteractionsRef.current[0]?.kind ?? null,
+        });
       }
 
       if (!hasNextInChain && !inActiveOverboardQueue) {
@@ -26240,6 +26542,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           : 'yours';
     patchOwnerDisplayWriteTraceContext({ targetTab });
 
+    emitPostConsumeShowNextDecision({
+      source: chainSource,
+      conditionInputs: {
+        phase: 'navigateFromResult:before-continueNotificationChain',
+        hasRemainingChain,
+        inActiveOverboardQueue,
+        wasDirect,
+        afterFinalizeQueueLen: overlayQueueRef.current.length,
+        afterFinalizePendingLen: pendingStartupInteractionsRef.current.length,
+        emptyFallback: 'bans-section',
+        targetTab,
+      },
+      willCallShowNext: true,
+      reasonIfFalse: null,
+      ...buildPostConsumeChainContext(banId),
+    });
+
     void (async () => {
       const outcome = await continueNotificationChainOrOpenLobbyRef.current(
         chainSource,
@@ -26252,7 +26571,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         },
       );
       const shown = outcome === 'show-next';
-      if (statusCtaNavigateGenerationRef.current !== generation) return;
+      if (statusCtaNavigateGenerationRef.current !== generation) {
+        emitPostConsumeReturnPath({
+          functionName: 'navigateFromResult',
+          branch: 'stale-generation-abort',
+          reason: 'statusCtaNavigateGeneration-mismatch',
+          willShowNext: false,
+          willEndChain: false,
+          willOpenBansSection: false,
+          willReturnLobby: false,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+          pendingHeadKind:
+            pendingStartupInteractionsRef.current[0]?.kind ?? null,
+          outcome,
+          generation,
+          expectedGeneration: generation,
+        });
+        return;
+      }
       if (!shown && isPostConsumeTraceActive()) {
         const queueHead = overlayQueueRef.current[0] ?? null;
         const pendingHead = pendingStartupInteractionsRef.current[0] ?? null;
@@ -26359,11 +26697,41 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source: 'chain-continue',
           chainSource,
         });
+        emitPostConsumeReturnPath({
+          functionName: 'navigateFromResult',
+          branch: 'chain-continue-show-next-success',
+          reason: 'outcome-show-next',
+          willShowNext: true,
+          willEndChain: false,
+          willOpenBansSection: false,
+          willReturnLobby: false,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+          pendingHeadKind:
+            pendingStartupInteractionsRef.current[0]?.kind ?? null,
+          outcome,
+        });
         return;
       }
 
       const collected = snapshotPendingNotificationChain();
       if (collected.finalQueueLen > 0 || collected.finalPendingLen > 0) {
+        emitPostConsumeReturnPath({
+          functionName: 'navigateFromResult',
+          branch: 'continue-lost-pending-abort',
+          reason: 'continue-lost-pending-finalQueueLen-or-finalPendingLen-gt-zero',
+          willShowNext: false,
+          willEndChain: true,
+          willOpenBansSection: false,
+          willReturnLobby: false,
+          queueLen: collected.finalQueueLen,
+          pendingLen: collected.finalPendingLen,
+          queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+          pendingHeadKind:
+            pendingStartupInteractionsRef.current[0]?.kind ?? null,
+          outcome,
+        });
         logResultGoToBansEmptyScreenBug({
           banId,
           chainSource,
@@ -26374,6 +26742,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      emitPostConsumeReturnPath({
+        functionName: 'navigateFromResult',
+        branch: 'open-bans-section',
+        reason: 'continue-outcome-not-show-next-queue-empty-open-bans-section',
+        willShowNext: false,
+        willEndChain: false,
+        willOpenBansSection: true,
+        willReturnLobby: false,
+        queueLen: overlayQueueRef.current.length,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+        queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+        pendingHeadKind:
+          pendingStartupInteractionsRef.current[0]?.kind ?? null,
+        outcome,
+        targetTab,
+      });
       logResultGoToBansOpenBansSection({
         banId,
         targetTab,

@@ -26,7 +26,7 @@ function emit(event: string, data: Record<string, unknown>): void {
     t: performance.now(),
     consumeSession: postConsumeSession,
     ...data,
-    callstack: captureCallstack(),
+    callStack: captureCallstack(),
   };
   console.log(event, payload);
   window.__debug98log?.(event, payload);
@@ -132,4 +132,29 @@ export function emitPostConsumeOpenBlocked(
 ): void {
   if (!isPostConsumeTraceActive()) return;
   emit('[POST CONSUME OPEN BLOCKED]', reasons);
+}
+
+export function getPostConsumeTraceBanId(): string | null {
+  return postConsumeSession?.banId ?? null;
+}
+
+export function emitPostConsumeChainEndReason(
+  data: Record<string, unknown>,
+): void {
+  if (!isPostConsumeTraceActive()) return;
+  emit('[POST CONSUME CHAIN END REASON]', data);
+}
+
+export function emitPostConsumeReturnPath(
+  data: Record<string, unknown>,
+): void {
+  if (!isPostConsumeTraceActive()) return;
+  emit('[POST CONSUME RETURN PATH]', data);
+}
+
+export function emitPostConsumeShowNextDecision(
+  data: Record<string, unknown>,
+): void {
+  if (!isPostConsumeTraceActive()) return;
+  emit('[POST CONSUME SHOW NEXT DECISION]', data);
 }
