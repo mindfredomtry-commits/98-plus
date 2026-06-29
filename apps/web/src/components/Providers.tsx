@@ -812,6 +812,19 @@ import {
   getLastIncomingMountSession,
 } from '@/lib/post-incoming-advance-debug';
 import {
+  beginPostConsumeTraceSession,
+  emitPostConsumeActiveUpdate,
+  emitPostConsumeDisplayUpdate,
+  emitPostConsumeNextCard,
+  emitPostConsumeNoNextCard,
+  emitPostConsumeOpenBlocked,
+  emitPostConsumeOverlayUpdate,
+  emitPostConsumePendingUpdate,
+  emitPostConsumeQueueUpdate,
+  emitPostConsumeStart,
+  isPostConsumeTraceActive,
+} from '@/lib/post-consume-trace-debug';
+import {
   computeWillBlockBecauseActiveHold,
   getHeadSwitchPipelineStack,
   logChainHeadSwitchTraceExtended,
@@ -1730,6 +1743,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const ownerBefore = ownerShadowRef.current.getState();
     const refPendingBefore = pendingStartupInteractionsRef.current.length;
     const refQueueBefore = overlayQueueRef.current.length;
+    const pendingHeadBefore = ownerBefore.pending[0] ?? null;
     logCommitPendingQueueViaOwner({
       phase: 'before-dispatch',
       source: `${source}:${reason}`,
@@ -1743,6 +1757,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
     applyPendingQueueViaOwnerRef.current(next, `${source}:${reason}`, reason);
     const ownerAfter = ownerShadowRef.current.getState();
+    const pendingHeadAfter = ownerAfter.pending[0] ?? null;
+    emitPostConsumePendingUpdate({
+      source: `${source}:${reason}`,
+      oldValue: {
+        ownerPendingLen: ownerBefore.pending.length,
+        refPendingLen: refPendingBefore,
+        pendingHeadKind: pendingHeadBefore?.kind ?? null,
+        pendingHeadBanId: pendingHeadBefore
+          ? overlayItemBanId(pendingHeadBefore)
+          : null,
+      },
+      newValue: {
+        ownerPendingLen: ownerAfter.pending.length,
+        refPendingLen: pendingStartupInteractionsRef.current.length,
+        pendingHeadKind: pendingHeadAfter?.kind ?? null,
+        pendingHeadBanId: pendingHeadAfter
+          ? overlayItemBanId(pendingHeadAfter)
+          : null,
+      },
+    });
     logCommitPendingQueueViaOwner({
       phase: 'after-dispatch-before-mirror-complete',
       source: `${source}:${reason}`,
@@ -4093,6 +4127,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       heldKind: held?.kind ?? null,
       heldBanId: held ? heldUserCardBanId(held) : null,
     });
+  };
+
+  const buildPostConsumeOwnerSnapshot = () => {
+    const owner = ownerShadowRef.current.getState();
+    const pendingHead = pendingStartupInteractionsRef.current[0] ?? null;
+    const displayKind = owner.display.result
+      ? 'result'
+      : owner.display.incomingBan
+        ? 'incoming'
+        : owner.display.checkBan
+          ? 'check'
+          : null;
+    const displayBanId =
+      owner.display.result?.id ??
+      owner.display.incomingBan?.id ??
+      owner.display.checkBan?.id ??
+      null;
+    return {
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      pendingHeadKind: pendingHead?.kind ?? null,
+      pendingHeadBanId: pendingHead ? overlayItemBanId(pendingHead) : null,
+      displayKind,
+      displayBanId,
+      activeKind: owner.active.kind,
+      activeBanId: owner.active.banId,
+      ownerActive: {
+        kind: owner.active.kind,
+        banId: owner.active.banId,
+        overlayKey: owner.active.overlayKey,
+      },
+    };
   };
 
   const buildActiveUserCardVisibilityContext = (
@@ -6514,8 +6580,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   syncPendingStartupCountRef.current = syncPendingStartupCount;
   ownerMirrorHandlersRef.current = {
     mirrorLegacyQueue: (queue, source, silent) => {
+      const oldQueue = [...overlayQueueRef.current];
+      const oldHead = oldQueue[0] ?? null;
       overlayQueueRef.current = queue;
       setOverlayQueue(queue);
+      const newHead = queue[0] ?? null;
+      emitPostConsumeOverlayUpdate({
+        source: `${source}:mirrorLegacyQueue`,
+        oldValue: {
+          queueLen: oldQueue.length,
+          queueHeadKind: oldHead?.kind ?? null,
+          queueHeadBanId: oldHead ? overlayItemBanId(oldHead) : null,
+          silent: silent ?? false,
+        },
+        newValue: {
+          queueLen: queue.length,
+          queueHeadKind: newHead?.kind ?? null,
+          queueHeadBanId: newHead ? overlayItemBanId(newHead) : null,
+          silent: silent ?? false,
+        },
+      });
       logOwnerQueueUpdatedHydrateTrace(
         buildLobbyHydrateTraceSnapshot('mirror', {
           source,
@@ -6529,10 +6613,40 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const refPendingBefore = pendingStartupInteractionsRef.current.length;
       const refQueueBefore = overlayQueueRef.current.length;
       const ownerBefore = ownerShadowRef.current.getState();
+      const pendingHeadBefore = ownerBefore.pending[0] ?? null;
+      const refPendingSnapshotBefore = [...pendingStartupInteractionsRef.current];
+      const pendingHeadRefBefore = refPendingSnapshotBefore[0] ?? null;
       // Step 11B.1 documented pending exception: sole mirror target write for pendingStartupInteractionsRef.
       pendingStartupInteractionsRef.current = pending;
       syncPendingStartupCountRef.current();
       const ownerAfter = ownerShadowRef.current.getState();
+      const pendingHeadAfter = ownerAfter.pending[0] ?? null;
+      const pendingHeadRefAfter = pendingStartupInteractionsRef.current[0] ?? null;
+      emitPostConsumePendingUpdate({
+        source: `${source}:mirrorLegacyPending`,
+        oldValue: {
+          ownerPendingLen: ownerBefore.pending.length,
+          refPendingLen: refPendingBefore,
+          pendingHeadKind:
+            pendingHeadBefore?.kind ?? pendingHeadRefBefore?.kind ?? null,
+          pendingHeadBanId: pendingHeadBefore
+            ? overlayItemBanId(pendingHeadBefore)
+            : pendingHeadRefBefore
+              ? overlayItemBanId(pendingHeadRefBefore)
+              : null,
+        },
+        newValue: {
+          ownerPendingLen: ownerAfter.pending.length,
+          refPendingLen: pendingStartupInteractionsRef.current.length,
+          pendingHeadKind:
+            pendingHeadAfter?.kind ?? pendingHeadRefAfter?.kind ?? null,
+          pendingHeadBanId: pendingHeadAfter
+            ? overlayItemBanId(pendingHeadAfter)
+            : pendingHeadRefAfter
+              ? overlayItemBanId(pendingHeadRefAfter)
+              : null,
+        },
+      });
       logCommitPendingQueueViaOwner({
         phase: 'mirrorLegacyPending',
         source,
@@ -6785,6 +6899,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const applyQueueViaOwnerAuthority = useCallback(
     (next: QueuedOverlay[], source: string, silent: boolean) => {
+      const ownerBefore = ownerShadowRef.current.getState();
+      const queueBefore = [...ownerBefore.queue];
+      const queueHeadBefore = queueBefore[0] ?? null;
       logPhase12WriteAuthorityOperation(
         silent ? `queue-silent:${source}` : `queue-mutate:${source}`,
         () => {
@@ -6798,6 +6915,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           );
         },
       );
+      const ownerAfter = ownerShadowRef.current.getState();
+      const queueAfter = [...ownerAfter.queue];
+      const queueHeadAfter = queueAfter[0] ?? null;
+      emitPostConsumeQueueUpdate({
+        source,
+        oldValue: {
+          queueLen: queueBefore.length,
+          queueHeadKind: queueHeadBefore?.kind ?? null,
+          queueHeadBanId: queueHeadBefore
+            ? overlayItemBanId(queueHeadBefore)
+            : null,
+          silent,
+        },
+        newValue: {
+          queueLen: queueAfter.length,
+          queueHeadKind: queueHeadAfter?.kind ?? null,
+          queueHeadBanId: queueHeadAfter
+            ? overlayItemBanId(queueHeadAfter)
+            : null,
+          silent,
+        },
+      });
     },
     [],
   );
@@ -6829,6 +6968,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
       }
       const ownerAfter = ownerShadowRef.current.getState();
+      const displayBefore = {
+        resultId: ownerBefore.display.result?.id ?? null,
+        incomingBanId: ownerBefore.display.incomingBan?.id ?? null,
+        checkBanId: ownerBefore.display.checkBan?.id ?? null,
+      };
+      const displayAfter = {
+        resultId: ownerAfter.display.result?.id ?? null,
+        incomingBanId: ownerAfter.display.incomingBan?.id ?? null,
+        checkBanId: ownerAfter.display.checkBan?.id ?? null,
+      };
+      emitPostConsumeDisplayUpdate({
+        source,
+        oldValue: displayBefore,
+        newValue: displayAfter,
+      });
+      emitPostConsumeActiveUpdate({
+        source,
+        oldValue: {
+          kind: ownerBefore.active.kind,
+          banId: ownerBefore.active.banId,
+          overlayKey: ownerBefore.active.overlayKey,
+        },
+        newValue: {
+          kind: ownerAfter.active.kind,
+          banId: ownerAfter.active.banId,
+          overlayKey: ownerAfter.active.overlayKey,
+        },
+      });
       logOwnerDisplaySetFromQueue({
         source,
         kind: patchKind.kind,
@@ -7154,6 +7321,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
     }
     const traceSyncDisplayBlocked = (blockReason: string) => {
+      emitPostConsumeOpenBlocked({
+        pipeline: 'syncDisplayFromQueue',
+        source: 'syncDisplayFromQueue',
+        blockReason,
+        queueHeadKind: queueForDecision[0]?.kind ?? null,
+        queueHeadBanId:
+          queueForDecision[0] != null
+            ? overlayItemBanId(queueForDecision[0])
+            : null,
+        ...buildPostConsumeOwnerSnapshot(),
+      });
       logQueueDisplayAttemptDiag(
         buildQueueDisplayAttemptDiagPayload(
           blockReason,
@@ -7185,6 +7363,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       branch: string,
       extra?: Record<string, unknown>,
     ): void => {
+      if (isPostConsumeTraceActive()) {
+        emitPostConsumeOpenBlocked({
+          pipeline: 'syncDisplayFromQueue',
+          source: 'syncDisplayFromQueue',
+          branch,
+          queueHeadKind: queue[0]?.kind ?? null,
+          queueHeadBanId: queue[0] != null ? overlayItemBanId(queue[0]) : null,
+          ...buildPostConsumeOwnerSnapshot(),
+          ...extra,
+        });
+      }
       logQueueDisplayAttemptDiag(
         buildQueueDisplayAttemptDiagPayload(
           branch,
@@ -7225,6 +7414,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         previousLegacyBanId: legacyBeforeSync.previousLegacyBanId,
         queueLen: queueForDecision.length,
         pendingLen: pendingStartupInteractionsRef.current.length,
+      });
+      emitPostConsumeNextCard({
+        source: 'syncDisplayFromQueue',
+        pipeline: 'syncDisplayFromQueue',
+        queueHeadKind: headAtEnter.kind,
+        queueHeadBanId: headBanIdAtEnter,
+        selectedKind: headAtEnter.kind,
+        selectedBanId: headBanIdAtEnter,
+        selectedReason: 'sync-display-queue-head-selected',
       });
     }
     const liveOverlayScreenCtx = buildLiveOverlayScreenContext();
@@ -16345,6 +16543,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       logConsumeAfterAnswerDisplayAfterLazy(
         buildConsumeAfterAnswerTraceSnapshot(banId, answer, diagSource),
       );
+
+      if (typeof window !== 'undefined') {
+        beginPostConsumeTraceSession({
+          banId,
+          answer,
+          source: diagSource,
+        });
+        emitPostConsumeStart({
+          banId,
+          answer,
+          source: diagSource,
+          ...buildPostConsumeOwnerSnapshot(),
+        });
+      }
     },
     [applyOverlayQueue, clearReplyFastSessionAfterAnswer, clearReplyParentActivePriority],
   );
@@ -20472,6 +20684,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         result: boolean,
         extra?: Record<string, unknown>,
       ): boolean => {
+        if (!result && isPostConsumeTraceActive()) {
+          emitPostConsumeNoNextCard({
+            pipeline: 'showNextNotificationFromChainSync',
+            source,
+            branch,
+            queueHeadKind: headAtEnter?.kind ?? null,
+            queueHeadBanId: headAtEnter ? overlayItemBanId(headAtEnter) : null,
+            queueLen: overlayQueueRef.current.length,
+            pendingLen: pendingStartupInteractionsRef.current.length,
+            ...buildPostConsumeOwnerSnapshot(),
+            ...extra,
+          });
+        }
         logQueueDisplayAttemptDiag(
           buildQueueDisplayAttemptDiagPayload(
             branch,
@@ -20923,6 +21148,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         queueLen: overlayLen,
         pendingLen: startupLen,
       });
+      emitPostConsumeNextCard({
+        source,
+        pipeline: 'showNextNotificationFromChainSync',
+        queueHeadKind: head?.kind ?? startupHead?.kind ?? null,
+        queueHeadBanId:
+          head != null
+            ? overlayItemBanId(head)
+            : startupHead != null
+              ? overlayItemBanId(startupHead)
+              : null,
+        selectedKind: nextKind,
+        selectedBanId: nextBanId,
+        selectedReason: 'show-next-notification-selected',
+      });
       window.__debug98log?.('[notification-next-selected]', {
         source,
         nextKind,
@@ -20953,6 +21192,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             `${source}:showNext-flushSync`,
           )
         ) {
+          emitPostConsumeOpenBlocked({
+            pipeline: 'showNextNotificationFromChainSync',
+            source: `${source}:showNext-flushSync`,
+            selectedKind: nextKind,
+            selectedBanId: nextBanId,
+            reason: 'atomic-overboard-awaiting-dismiss-flushSync-abort',
+            ...buildPostConsumeOwnerSnapshot(),
+          });
           return;
         }
         logChainHeadSwitchTrace(
@@ -21006,6 +21253,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             });
             beginIncomingNextHydrate(incomingBanId, `${source}-flush`);
             deferIncomingDisplaySync = true;
+            emitPostConsumeOpenBlocked({
+              pipeline: 'showNextNotificationFromChainSync',
+              source: `${source}-flush`,
+              selectedKind: 'incoming',
+              selectedBanId: incomingBanId,
+              reason: 'incoming-payload-not-ready-defer-display-sync',
+              notReadyReason: getIncomingCardNotReadyReason(payload, viewerId),
+              ...buildPostConsumeOwnerSnapshot(),
+            });
             if (heldUserCardOverlayRef.current?.kind === 'result') {
               restoreHeldUserCardOverlay(
                 `${source}-flush-defer-incoming-hydrate`,
@@ -21043,6 +21299,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 outcome: resultRow.outcome ?? null,
                 viewerId: resultRow.viewerId ?? null,
               },
+            });
+            emitPostConsumeOpenBlocked({
+              pipeline: 'showNextNotificationFromChainSync',
+              source: `${source}-flush`,
+              selectedKind: 'result',
+              selectedBanId: resultRow.id,
+              reason: 'result-payload-not-ready',
+              ...buildPostConsumeOwnerSnapshot(),
             });
           }
         }
@@ -21821,7 +22085,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       const tryShowNext = (showSource: string): boolean => {
-        if (!showNextNotificationFromChainSync(showSource)) {
+        const shown = showNextNotificationFromChainSync(showSource);
+        if (!shown && isPostConsumeTraceActive()) {
+          const queueHead = overlayQueueRef.current[0] ?? null;
+          emitPostConsumeNoNextCard({
+            pipeline: 'openNextNotificationAfterQueueHandoff',
+            source: showSource,
+            reason: 'tryShowNext-returned-false',
+            queueHeadKind: queueHead?.kind ?? null,
+            queueHeadBanId: queueHead ? overlayItemBanId(queueHead) : null,
+            queueLen: overlayQueueRef.current.length,
+            pendingLen: pendingStartupInteractionsRef.current.length,
+            ...buildPostConsumeOwnerSnapshot(),
+          });
+        }
+        if (!shown) {
           return false;
         }
         setLobbyOpen(false);
@@ -21906,6 +22184,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         outcome: ContinueNotificationChainOutcome,
         reason: string,
       ): ContinueNotificationChainOutcome => {
+        if (outcome !== 'show-next' && isPostConsumeTraceActive()) {
+          const queueHead = overlayQueueRef.current[0] ?? null;
+          const pendingHead = pendingStartupInteractionsRef.current[0] ?? null;
+          emitPostConsumeNoNextCard({
+            pipeline: 'continueNotificationChainOrOpenLobbySync',
+            source,
+            outcome,
+            reason,
+            queueHeadKind: queueHead?.kind ?? null,
+            queueHeadBanId: queueHead ? overlayItemBanId(queueHead) : null,
+            pendingHeadKind: pendingHead?.kind ?? null,
+            pendingHeadBanId: pendingHead ? overlayItemBanId(pendingHead) : null,
+            queueLen: overlayQueueRef.current.length,
+            pendingLen: pendingStartupInteractionsRef.current.length,
+            ...buildPostConsumeOwnerSnapshot(),
+            chainAdvanceExplicit: chainAdvanceExplicitRef.current,
+            chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+            notificationChainTransitioning:
+              notificationChainTransitioningRef.current,
+            goToBansAdvancePending: goToBansAdvancePendingRef.current,
+            startupHold: startupInteractionsHoldRef.current,
+            lobbyOpen: lobbyOpenRef.current,
+          });
+        }
         emitQueueContinueAfterResultDiag(
           source,
           outcome,
@@ -22184,6 +22486,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             finalPendingLen: pendingStartupInteractionsRef.current.length,
             headKind: overlayQueueRef.current[0]?.kind ?? null,
           });
+          emitPostConsumeNextCard({
+            source,
+            pipeline: 'continueNotificationChainOrOpenLobbySync',
+            queueHeadKind: head?.kind ?? null,
+            queueHeadBanId:
+              head?.kind === 'result'
+                ? head.result.id
+                : head?.kind === 'incoming' || head?.kind === 'check'
+                  ? head.ban.id
+                  : null,
+            selectedKind: head?.kind ?? null,
+            selectedBanId:
+              head?.kind === 'result'
+                ? head.result.id
+                : head?.kind === 'incoming' || head?.kind === 'check'
+                  ? head.ban.id
+                  : null,
+            selectedReason: 'show-next-from-chain',
+          });
           if (!isCheckAnswerChainSource) {
             setChainAdvanceWaiting(false);
           }
@@ -22218,6 +22539,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             finalQueueLen: overlayQueueRef.current.length,
             finalPendingLen: pendingStartupInteractionsRef.current.length,
             headKind: overlayQueueRef.current[0]?.kind ?? null,
+          });
+          const retryHead = overlayQueueRef.current[0] ?? null;
+          emitPostConsumeNextCard({
+            source: `${source}-retry`,
+            pipeline: 'continueNotificationChainOrOpenLobbySync',
+            queueHeadKind: retryHead?.kind ?? null,
+            queueHeadBanId: retryHead ? overlayItemBanId(retryHead) : null,
+            selectedKind: retryHead?.kind ?? null,
+            selectedBanId: retryHead ? overlayItemBanId(retryHead) : null,
+            selectedReason: 'show-next-retry-from-chain',
           });
           if (!isCheckAnswerChainSource) {
             setChainAdvanceWaiting(false);
@@ -25818,6 +26149,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       flushSync(() => {
         finalizeResultForGoToBans(banId);
       });
+      if (isPostConsumeTraceActive()) {
+        emitPostConsumeStart({
+          phase: 'navigateFromResult:after-finalize-flushSync',
+          banId,
+          ...buildPostConsumeOwnerSnapshot(),
+        });
+      }
     } else if (wasDirect) {
       flushSync(() => {
         cancelResultPollBurst();
@@ -25915,6 +26253,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
       const shown = outcome === 'show-next';
       if (statusCtaNavigateGenerationRef.current !== generation) return;
+      if (!shown && isPostConsumeTraceActive()) {
+        const queueHead = overlayQueueRef.current[0] ?? null;
+        const pendingHead = pendingStartupInteractionsRef.current[0] ?? null;
+        emitPostConsumeNoNextCard({
+          pipeline: 'navigateFromResult:continueNotificationChain',
+          source: chainSource,
+          outcome,
+          queueHeadKind: queueHead?.kind ?? null,
+          queueHeadBanId: queueHead ? overlayItemBanId(queueHead) : null,
+          pendingHeadKind: pendingHead?.kind ?? null,
+          pendingHeadBanId: pendingHead ? overlayItemBanId(pendingHead) : null,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          ...buildPostConsumeOwnerSnapshot(),
+          chainAdvanceExplicit: chainAdvanceExplicitRef.current,
+          chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+          notificationChainTransitioning:
+            notificationChainTransitioningRef.current,
+          goToBansAdvancePending: goToBansAdvancePendingRef.current,
+          startupHold: startupInteractionsHoldRef.current,
+          lobbyOpen: lobbyOpenRef.current,
+        });
+      }
       if (banId) {
         const ownerAfterContinue = ownerShadowRef.current.getState();
         const ownerFields = buildOwnerActiveDisplayDiagFields(ownerAfterContinue);

@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 80;
+export const DEBUG98_LOGGER_VERSION = 81;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -115,6 +115,15 @@ const ALLOWED_EVENTS = new Set([
   '[GO TO BANS OUTCOME LOST]',
   '[FINALIZE GO TO BANS OUTCOME SOURCE]',
   '[FINALIZE GO TO BANS CONSUME ALLOWED]',
+  '[POST CONSUME START]',
+  '[POST CONSUME QUEUE UPDATE]',
+  '[POST CONSUME PENDING UPDATE]',
+  '[POST CONSUME DISPLAY UPDATE]',
+  '[POST CONSUME ACTIVE UPDATE]',
+  '[POST CONSUME OVERLAY UPDATE]',
+  '[POST CONSUME NEXT CARD]',
+  '[POST CONSUME NO NEXT CARD]',
+  '[POST CONSUME OPEN BLOCKED]',
   '[REPLY DEEPLINK START]',
   '[REPLY CARD SELECTED]',
   '[STARTUP BLOCKERS CLEAR]',
