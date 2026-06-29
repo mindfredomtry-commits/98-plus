@@ -829,6 +829,16 @@ import {
   isPostConsumeTraceActive,
 } from '@/lib/post-consume-trace-debug';
 import {
+  emitDisplayAfterFlush,
+  emitDisplayApplyBlocked,
+  emitDisplayClear,
+  emitDisplayCommitApplied,
+  emitDisplayCommitEnter,
+  emitDisplayCommitReturn,
+  emitSyncDisplayReady,
+  resolveOwnerDisplayKindBanId,
+} from '@/lib/display-commit-trace-debug';
+import {
   computeWillBlockBecauseActiveHold,
   getHeadSwitchPipelineStack,
   logChainHeadSwitchTraceExtended,
@@ -6977,6 +6987,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const commitSyncDisplayActivePayload = useCallback(
     (patch: OwnerActiveDisplayPatch, source: string) => {
       const ownerBefore = ownerShadowRef.current.getState();
+      const previousDisplay = resolveOwnerDisplayKindBanId(ownerBefore.display);
       const normalizedPatch: OwnerActiveDisplayPatch =
         patch.result != null
           ? {
@@ -6987,6 +6998,58 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             }
           : patch;
       const patchKind = resolveActiveDisplayPatchKind(normalizedPatch);
+      emitDisplayCommitEnter({
+        source,
+        selectedKind:
+          patchKind.kind === 'result-clear' ||
+          patchKind.kind === 'check-clear' ||
+          patchKind.kind === 'incoming-clear'
+            ? patchKind.kind
+            : patchKind.kind,
+        selectedBanId: patchKind.banId,
+        selectedOverlayKey: patchKind.overlayKey,
+        previousDisplayKind: previousDisplay.displayKind,
+        previousDisplayBanId: previousDisplay.displayBanId,
+        ownerDisplayBefore: buildOwnerQueuePendingSnapshot(ownerBefore),
+      });
+      const displayBefore = {
+        resultId: ownerBefore.display.result?.id ?? null,
+        incomingBanId: ownerBefore.display.incomingBan?.id ?? null,
+        checkBanId: ownerBefore.display.checkBan?.id ?? null,
+      };
+      const ownerBeforeCommit = ownerShadowRef.current.getState();
+      if (patch.result === null) {
+        emitDisplayClear({
+          reason: `${source}:patch-result-null`,
+          previousDisplay: buildOwnerQueuePendingSnapshot(ownerBeforeCommit),
+          activeKind: ownerBeforeCommit.active.kind,
+          activeBanId: ownerBeforeCommit.active.banId,
+        });
+      }
+      if (patch.checkBan === null) {
+        emitDisplayClear({
+          reason: `${source}:patch-checkBan-null`,
+          previousDisplay: buildOwnerQueuePendingSnapshot(ownerBeforeCommit),
+          activeKind: ownerBeforeCommit.active.kind,
+          activeBanId: ownerBeforeCommit.active.banId,
+        });
+      }
+      if (patch.incomingBan === null) {
+        emitDisplayClear({
+          reason: `${source}:patch-incomingBan-null`,
+          previousDisplay: buildOwnerQueuePendingSnapshot(ownerBeforeCommit),
+          activeKind: ownerBeforeCommit.active.kind,
+          activeBanId: ownerBeforeCommit.active.banId,
+        });
+      }
+      if (patch.stableIncomingBan === null) {
+        emitDisplayClear({
+          reason: `${source}:patch-stableIncomingBan-null`,
+          previousDisplay: buildOwnerQueuePendingSnapshot(ownerBeforeCommit),
+          activeKind: ownerBeforeCommit.active.kind,
+          activeBanId: ownerBeforeCommit.active.banId,
+        });
+      }
       logPhase12WriteAuthorityOperation(`active-display-commit:${source}`, () => {
         ownerShadowRef.current.dispatch(
           { type: 'ACTIVE_DISPLAY_SYNC', patch: normalizedPatch, source },
@@ -7000,16 +7063,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
       }
       const ownerAfter = ownerShadowRef.current.getState();
-      const displayBefore = {
-        resultId: ownerBefore.display.result?.id ?? null,
-        incomingBanId: ownerBefore.display.incomingBan?.id ?? null,
-        checkBanId: ownerBefore.display.checkBan?.id ?? null,
-      };
       const displayAfter = {
         resultId: ownerAfter.display.result?.id ?? null,
         incomingBanId: ownerAfter.display.incomingBan?.id ?? null,
         checkBanId: ownerAfter.display.checkBan?.id ?? null,
       };
+      const appliedDisplay = resolveOwnerDisplayKindBanId(ownerAfter.display);
+      emitDisplayCommitApplied({
+        source,
+        displayKind: appliedDisplay.displayKind,
+        displayBanId: appliedDisplay.displayBanId,
+        overlayKey: ownerAfter.active.overlayKey,
+        activeKind: ownerAfter.active.kind,
+        activeBanId: ownerAfter.active.banId,
+        ownerDisplay: buildOwnerQueuePendingSnapshot(ownerAfter),
+      });
       emitPostConsumeDisplayUpdate({
         source,
         oldValue: displayBefore,
@@ -7047,6 +7115,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         legacyAfter: resolveLegacyMountedKindBanId(),
       });
       runPhase12ParityCheck(source, 'commitSyncDisplayActivePayload');
+      emitDisplayCommitReturn({
+        source,
+        reason: 'committed',
+        ownerDisplayAfter: buildOwnerQueuePendingSnapshot(ownerAfter),
+        displayChanged:
+          JSON.stringify(displayBefore) !== JSON.stringify(displayAfter),
+      });
     },
     [],
   );
@@ -7353,6 +7428,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
     }
     const traceSyncDisplayBlocked = (blockReason: string) => {
+      const ownerBlocked = ownerShadowRef.current.getState();
+      const ownerDisplayBlocked = resolveOwnerDisplayKindBanId(
+        ownerBlocked.display,
+      );
+      const headBlocked = queueForDecision[0] ?? null;
+      emitDisplayApplyBlocked({
+        reason: blockReason,
+        selectedKind: headBlocked?.kind ?? null,
+        selectedBanId: headBlocked ? overlayItemBanId(headBlocked) : null,
+        ownerDisplay: buildOwnerQueuePendingSnapshot(ownerBlocked),
+        activeKind: ownerBlocked.active.kind,
+        activeBanId: ownerBlocked.active.banId,
+        displayKind: ownerDisplayBlocked.displayKind,
+        displayBanId: ownerDisplayBlocked.displayBanId,
+        generation: statusCtaNavigateGenerationRef.current,
+        chainTransitioning: notificationChainTransitioningRef.current,
+        resultOpen: resultOpenRef.current,
+      });
       emitPostConsumeOpenBlocked({
         pipeline: 'syncDisplayFromQueue',
         source: 'syncDisplayFromQueue',
@@ -7395,6 +7488,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       branch: string,
       extra?: Record<string, unknown>,
     ): void => {
+      if (branch !== 'completed') {
+        const ownerBlocked = ownerShadowRef.current.getState();
+        const ownerDisplayBlocked = resolveOwnerDisplayKindBanId(
+          ownerBlocked.display,
+        );
+        const headBlocked = queue[0] ?? null;
+        emitDisplayApplyBlocked({
+          reason: branch,
+          selectedKind: headBlocked?.kind ?? null,
+          selectedBanId: headBlocked ? overlayItemBanId(headBlocked) : null,
+          ownerDisplay: buildOwnerQueuePendingSnapshot(ownerBlocked),
+          activeKind: ownerBlocked.active.kind,
+          activeBanId: ownerBlocked.active.banId,
+          displayKind: ownerDisplayBlocked.displayKind,
+          displayBanId: ownerDisplayBlocked.displayBanId,
+          generation: statusCtaNavigateGenerationRef.current,
+          chainTransitioning: notificationChainTransitioningRef.current,
+          resultOpen: resultOpenRef.current,
+          ...extra,
+        });
+      }
       if (isPostConsumeTraceActive()) {
         emitPostConsumeOpenBlocked({
           pipeline: 'syncDisplayFromQueue',
@@ -7455,6 +7569,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         selectedKind: headAtEnter.kind,
         selectedBanId: headBanIdAtEnter,
         selectedReason: 'sync-display-queue-head-selected',
+      });
+      emitSyncDisplayReady({
+        selectedKind: headAtEnter.kind,
+        selectedBanId: headBanIdAtEnter,
+        overlayKey: overlayQueueKey(headAtEnter),
+        ownerDisplayBeforeCommit: buildOwnerQueuePendingSnapshot(ownerBeforeSync),
       });
     }
     const liveOverlayScreenCtx = buildLiveOverlayScreenContext();
@@ -8282,6 +8402,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         reason: 'result-cta-bans-open',
         headKind: active?.kind ?? null,
       });
+      {
+        const ownerSkip = ownerShadowRef.current.getState();
+        const ownerDisplaySkip = resolveOwnerDisplayKindBanId(ownerSkip.display);
+        emitDisplayApplyBlocked({
+          reason: 'result-cta-bans-open-queue-sync-skipped',
+          selectedKind: active?.kind ?? null,
+          selectedBanId:
+            active?.kind === 'result'
+              ? active.result.id
+              : active?.kind === 'incoming' || active?.kind === 'check'
+                ? active.ban.id
+                : null,
+          ownerDisplay: buildOwnerQueuePendingSnapshot(ownerSkip),
+          activeKind: ownerSkip.active.kind,
+          activeBanId: ownerSkip.active.banId,
+          displayKind: ownerDisplaySkip.displayKind,
+          displayBanId: ownerDisplaySkip.displayBanId,
+          generation: statusCtaNavigateGenerationRef.current,
+          chainTransitioning: notificationChainTransitioningRef.current,
+          resultOpen: resultOpenRef.current,
+          bansCtaQueueSuppress: bansCtaQueueSuppressRef.current,
+          bansReturnToLobbyLatch: bansReturnToLobbyLatchRef.current,
+          resultCtaBansOverlayOpen: resultCtaBansOverlayOpenRef.current,
+        });
+      }
       return;
     }
 
@@ -8323,6 +8468,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason: 'keep-direct-overboard-in-flight',
         });
         resultOpenRef.current = true;
+        emitDisplayApplyBlocked({
+          reason: 'keep-direct-overboard-in-flight-no-queue-sync',
+          selectedKind: 'result',
+          selectedBanId: active.result.id,
+          ownerDisplay: buildOwnerQueuePendingSnapshot(
+            ownerShadowRef.current.getState(),
+          ),
+          activeKind: ownerShadowRef.current.getState().active.kind,
+          activeBanId: ownerShadowRef.current.getState().active.banId,
+          generation: statusCtaNavigateGenerationRef.current,
+          inFlightId,
+        });
       } else {
       logResultOpenAttempt('syncDisplayFromQueue', {
         resultId: active.result.id,
@@ -8345,6 +8502,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             source: 'syncDisplayFromQueue-blocked-atomic',
           });
           resultOpenRef.current = true;
+          emitDisplayApplyBlocked({
+            reason: 'result-blocked-atomic-hold',
+            selectedKind: 'result',
+            selectedBanId: blockedResultId,
+            ownerDisplay: buildOwnerQueuePendingSnapshot(
+              ownerShadowRef.current.getState(),
+            ),
+            activeKind: ownerShadowRef.current.getState().active.kind,
+            activeBanId: ownerShadowRef.current.getState().active.banId,
+            generation: statusCtaNavigateGenerationRef.current,
+            atomicOverboardBanId: incomingOverboardAtomicBanIdRef.current,
+          });
           return;
         }
         const held = heldUserCardOverlayRef.current;
@@ -8371,6 +8540,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               'syncDisplayFromQueue-blocked-fresh-overboard',
             );
           }
+          emitDisplayApplyBlocked({
+            reason: 'result-blocked-fresh-overboard-held',
+            selectedKind: 'result',
+            selectedBanId: blockedResultId,
+            ownerDisplay: buildOwnerQueuePendingSnapshot(
+              ownerShadowRef.current.getState(),
+            ),
+            activeKind: ownerShadowRef.current.getState().active.kind,
+            activeBanId: ownerShadowRef.current.getState().active.banId,
+            generation: statusCtaNavigateGenerationRef.current,
+          });
           return;
         }
         if (!directOverboard.overlay) {
@@ -8425,6 +8605,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             allowed: true,
             reason: 'queue-head-blocked-keep-direct',
           });
+          emitDisplayApplyBlocked({
+            reason: 'queue-head-blocked-keep-direct-overboard',
+            selectedKind: 'result',
+            selectedBanId: active.result.id,
+            ownerDisplay: buildOwnerQueuePendingSnapshot(
+              ownerShadowRef.current.getState(),
+            ),
+            activeKind: ownerShadowRef.current.getState().active.kind,
+            activeBanId: ownerShadowRef.current.getState().active.banId,
+            generation: statusCtaNavigateGenerationRef.current,
+            blockReason: resultBlock.reason ?? null,
+          });
         }
       } else {
         const resultId = active.result.id;
@@ -8454,6 +8646,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               'syncDisplayFromQueue-atomic-hold',
             );
           }
+          emitDisplayApplyBlocked({
+            reason: 'result-atomic-hold-display-only',
+            selectedKind: 'result',
+            selectedBanId: normalizedResultId,
+            ownerDisplay: buildOwnerQueuePendingSnapshot(
+              ownerShadowRef.current.getState(),
+            ),
+            activeKind: ownerShadowRef.current.getState().active.kind,
+            activeBanId: ownerShadowRef.current.getState().active.banId,
+            generation: statusCtaNavigateGenerationRef.current,
+            atomicOverboardBanId: incomingOverboardAtomicBanIdRef.current,
+          });
           return;
         }
         if (
@@ -8524,6 +8728,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           if (didPruneStaleResult) {
             syncDisplayFromQueue(ownerQueueWrite);
           }
+          emitDisplayApplyBlocked({
+            reason: 'result-stale-prune-no-display-commit',
+            selectedKind: 'result',
+            selectedBanId: resultId,
+            ownerDisplay: buildOwnerQueuePendingSnapshot(
+              ownerShadowRef.current.getState(),
+            ),
+            activeKind: ownerShadowRef.current.getState().active.kind,
+            activeBanId: ownerShadowRef.current.getState().active.banId,
+            generation: statusCtaNavigateGenerationRef.current,
+            didPruneStaleResult,
+          });
           return;
         }
         logResultOpenAttempt('syncDisplayFromQueue', {
@@ -8533,6 +8749,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           extra: { phase: 'queue-head-result-applied' },
         });
         if (isSuccessCardMounted()) {
+          emitDisplayApplyBlocked({
+            reason: 'success-card-mounted-defer-result-display',
+            selectedKind: 'result',
+            selectedBanId: active.result.id,
+            ownerDisplay: buildOwnerQueuePendingSnapshot(
+              ownerShadowRef.current.getState(),
+            ),
+            activeKind: ownerShadowRef.current.getState().active.kind,
+            activeBanId: ownerShadowRef.current.getState().active.banId,
+            generation: statusCtaNavigateGenerationRef.current,
+          });
           deferResultWhileSuccessCardMounted(
             'syncDisplayFromQueue-setResult',
             active,
@@ -8546,8 +8773,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             active,
           )
         ) {
+          emitDisplayApplyBlocked({
+            reason: 'defer-passive-result-queue-head-on-lobby',
+            selectedKind: 'result',
+            selectedBanId: active.result.id,
+            ownerDisplay: buildOwnerQueuePendingSnapshot(
+              ownerShadowRef.current.getState(),
+            ),
+            activeKind: ownerShadowRef.current.getState().active.kind,
+            activeBanId: ownerShadowRef.current.getState().active.banId,
+            generation: statusCtaNavigateGenerationRef.current,
+            lobbyOpen: lobbyOpenRef.current,
+          });
           return;
         }
+        emitSyncDisplayReady({
+          selectedKind: 'result',
+          selectedBanId: active.result.id,
+          overlayKey: `result:${active.result.id}`,
+          ownerDisplayBeforeCommit: buildOwnerQueuePendingSnapshot(
+            ownerShadowRef.current.getState(),
+          ),
+          phase: 'syncDisplayFromQueue-before-result-commit',
+        });
         logResultPath('syncDisplayFromQueue', 'state-written', {
           banId: active.result.id,
           resultId: active.result.id,
@@ -21414,10 +21662,39 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               );
             }
           }
+          emitSyncDisplayReady({
+            selectedKind: nextKind,
+            selectedBanId: nextBanId,
+            overlayKey:
+              nextKind && nextBanId ? `${nextKind}:${nextBanId}` : null,
+            ownerDisplayBeforeCommit: buildOwnerQueuePendingSnapshot(
+              ownerShadowRef.current.getState(),
+            ),
+            phase: 'showNext-flushSync-before-syncDisplayFromQueue',
+            source,
+          });
           syncDisplayFromQueue(overlayQueueRef.current);
         }
         } finally {
           popFlushSync();
+        }
+        {
+          const ownerAfterFlush = ownerShadowRef.current.getState();
+          const displayAfterFlush = resolveOwnerDisplayKindBanId(
+            ownerAfterFlush.display,
+          );
+          emitDisplayAfterFlush({
+            ownerDisplay: buildOwnerQueuePendingSnapshot(ownerAfterFlush),
+            activeKind: ownerAfterFlush.active.kind,
+            activeBanId: ownerAfterFlush.active.banId,
+            displayKind: displayAfterFlush.displayKind,
+            displayBanId: displayAfterFlush.displayBanId,
+            overlayMounted: hasActiveNotificationOverlayMounted(),
+            selectedKind: nextKind,
+            selectedBanId: nextBanId,
+            deferIncomingDisplaySync,
+            source,
+          });
         }
       });
       chainAdvanceExplicitRef.current = false;
