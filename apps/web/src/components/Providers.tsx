@@ -548,6 +548,14 @@ import {
   logResultGoToBansShowNext,
 } from '@/lib/result-go-to-bans-debug';
 import {
+  logGoToBansNextCardClickLazy,
+  logGoToBansNextCardShellVisibilityLazy,
+  logGoToBansQueueHeadAfterLazy,
+  logGoToBansQueueHeadBeforeLazy,
+  logGoToBansResultClearLazy,
+  markBrowserDebugHydrated,
+} from '@/lib/browser-go-to-bans-next-card-debug';
+import {
   logQueueContinueAfterResult,
   logResultCardCtaClick,
   logResultDismissCommit,
@@ -1563,6 +1571,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     resultRef.current = result;
   }, [result]);
   useEffect(() => {
+    markBrowserDebugHydrated();
     logPhase12DiagBoot();
   }, []);
   const [overlayQueue, setOverlayQueue] = useState<QueuedOverlay[]>([]);
@@ -24691,6 +24700,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             },
             'finalizeResultForGoToBans:queue-overboard-clear-display',
           );
+          logGoToBansResultClearLazy({
+            source: 'finalizeResultForGoToBans:queue-overboard-clear-display',
+            banId: key,
+            resultIdBefore: key,
+          });
         }
       } else {
         pruneResultFromNotificationChain(key, 'go-to-bans', ['check', 'result']);
@@ -24724,6 +24738,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const remainingLen = overlayQueueRef.current.length;
       const pendingLen = pendingStartupInteractionsRef.current.length;
       logResultGoToBansRemainingQueue({ banId: key, remainingLen, pendingLen });
+      {
+        const headAfterFinalize = overlayQueueRef.current[0] ?? null;
+        logGoToBansQueueHeadAfterLazy({
+          source: 'finalizeResultForGoToBans',
+          banId: key,
+          queueLen: remainingLen,
+          pendingLen,
+          headKind: headAfterFinalize?.kind ?? null,
+          headBanId:
+            headAfterFinalize?.kind === 'result'
+              ? headAfterFinalize.result.id
+              : headAfterFinalize?.kind === 'incoming' ||
+                  headAfterFinalize?.kind === 'check'
+                ? headAfterFinalize.ban.id
+                : null,
+        });
+      }
 
       const hasNextInChain = remainingLen > 0 || pendingLen > 0;
       if (hasNextInChain) {
@@ -25035,6 +25066,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       heldKind: heldUserCardOverlayRef.current?.kind ?? null,
     });
 
+    const queueHeadBefore = overlayQueueRef.current[0] ?? null;
+    logGoToBansNextCardClickLazy({
+      source: 'navigateFromResult',
+      banId,
+      wasDirect,
+      inActiveOverboardQueue,
+      generation,
+    });
+    logGoToBansQueueHeadBeforeLazy({
+      source: 'navigateFromResult',
+      banId,
+      queueLen: queueLenBefore,
+      pendingLen: pendingLenBefore,
+      headKind: queueHeadBefore?.kind ?? null,
+      headBanId:
+        queueHeadBefore?.kind === 'result'
+          ? queueHeadBefore.result.id
+          : queueHeadBefore?.kind === 'incoming' ||
+              queueHeadBefore?.kind === 'check'
+            ? queueHeadBefore.ban.id
+            : null,
+      overlayIds: overlayQueueRef.current.map(overlayQueueItemId),
+      startupIds: pendingStartupInteractionsRef.current.map(overlayQueueItemId),
+    });
+
     console.log('[chain-debug-status-cta-start]', { banId, generation });
     console.log('[go-to-bans-click]', {
       source: 'result-status',
@@ -25148,6 +25204,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         applyDirectOverboardCloseState(null);
       });
     }
+
+    const queueHeadAfter = overlayQueueRef.current[0] ?? null;
+    logGoToBansResultClearLazy({
+      source: 'navigateFromResult:after-finalize',
+      banId,
+      resultIdBefore: banId,
+      resultStateAfter: resultRef.current?.id ?? result?.id ?? null,
+    });
+    logGoToBansQueueHeadAfterLazy({
+      source: 'navigateFromResult:after-finalize',
+      banId,
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      headKind: queueHeadAfter?.kind ?? null,
+      headBanId:
+        queueHeadAfter?.kind === 'result'
+          ? queueHeadAfter.result.id
+          : queueHeadAfter?.kind === 'incoming' ||
+              queueHeadAfter?.kind === 'check'
+            ? queueHeadAfter.ban.id
+            : null,
+      overlayIds: overlayQueueRef.current.map(overlayQueueItemId),
+      startupIds: pendingStartupInteractionsRef.current.map(overlayQueueItemId),
+    });
 
     const afterConsume = {
       overlayLen: overlayQueueRef.current.length,
@@ -25276,6 +25356,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           pendingLen: pendingStartupInteractionsRef.current.length,
           headKind: overlayQueueRef.current[0]?.kind ?? null,
         });
+        {
+          const headAfterContinue = overlayQueueRef.current[0] ?? null;
+          logGoToBansQueueHeadAfterLazy({
+            source: 'navigateFromResult:chain-continue-show-next',
+            banId,
+            chainSource,
+            queueLen: overlayQueueRef.current.length,
+            pendingLen: pendingStartupInteractionsRef.current.length,
+            headKind: headAfterContinue?.kind ?? null,
+            headBanId:
+              headAfterContinue?.kind === 'result'
+                ? headAfterContinue.result.id
+                : headAfterContinue?.kind === 'incoming' ||
+                    headAfterContinue?.kind === 'check'
+                  ? headAfterContinue.ban.id
+                  : null,
+          });
+        }
         console.log('[go-to-bans-show-next-overlay]', {
           source: 'chain-continue',
           chainSource,
@@ -29199,6 +29297,50 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationQueueShellCheckCardReady,
     ownerShellContentReady,
     notificationQueueShellAdvanceWaiting,
+  ]);
+
+  useLayoutEffect(() => {
+    const queueHead = ownerPrimaryQueueHead;
+    logGoToBansNextCardShellVisibilityLazy({
+      shellKind: notificationQueueShellDisplayKind,
+      queueHeadKind: queueHead?.kind ?? null,
+      queueHeadBanId:
+        queueHead?.kind === 'result'
+          ? queueHead.result.id
+          : queueHead?.kind === 'incoming' || queueHead?.kind === 'check'
+            ? queueHead.ban.id
+            : null,
+      queueLen: overlayQueue.length,
+      checkVisible: ownerCheckQueueVisibility.visible,
+      checkReason: ownerCheckQueueVisibility.reason,
+      checkBanId: ownerCheckQueueVisibility.banId,
+      incomingVisible: ownerIncomingQueueVisibility.visible,
+      incomingReason: ownerIncomingQueueVisibility.reason,
+      incomingBanId: ownerIncomingQueueVisibility.banId,
+      effectiveShouldRenderIncoming,
+      checkGateActive,
+      incomingGateActive,
+      chainAdvanceWaiting,
+      shellAdvanceWaiting: notificationQueueShellAdvanceWaiting,
+      composeBlocksNotificationHost,
+      showDirectOverboardLayer,
+      goToBansAdvancePending: goToBansAdvancePendingRef.current,
+      notificationChainTransitioning,
+    });
+  }, [
+    ownerPrimaryQueueHead,
+    notificationQueueShellDisplayKind,
+    overlayQueue.length,
+    ownerCheckQueueVisibility,
+    ownerIncomingQueueVisibility,
+    effectiveShouldRenderIncoming,
+    checkGateActive,
+    incomingGateActive,
+    chainAdvanceWaiting,
+    notificationQueueShellAdvanceWaiting,
+    composeBlocksNotificationHost,
+    showDirectOverboardLayer,
+    notificationChainTransitioning,
   ]);
 
   useLayoutEffect(() => {

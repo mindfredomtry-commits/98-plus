@@ -30,6 +30,7 @@ import {
   attachOwnerStateWriteDetect,
   type OwnerStateWriteDetectHandle,
 } from '@/lib/owner-direct-write-detect-debug';
+import { traceGoToBansOwnerDisplayWriteLazy } from '@/lib/browser-go-to-bans-next-card-debug';
 
 const QUEUE_AUTHORITY_EVENT_TYPES = new Set<NotificationOverlayOwnerEvent['type']>([
   'QUEUE_APPLIED',
@@ -327,6 +328,12 @@ export function createNotificationOverlayOwnerShadow(
         previous: previousWriteTrace,
         next: buildOwnerDisplayWriteTraceSnapshot(nextState),
         reason: event.type,
+        source,
+        eventType: event.type,
+      });
+      traceGoToBansOwnerDisplayWriteLazy({
+        previous: previousWriteTrace,
+        next: buildOwnerDisplayWriteTraceSnapshot(nextState),
         source,
         eventType: event.type,
       });

@@ -28,6 +28,10 @@ import { userAvatarSrc } from '@/lib/user-public-avatar';
 import { APP_NOTIFICATION_BACKDROP_Z_INDEX, APP_NOTIFICATION_CARD_Z_INDEX } from '@/lib/overlay-queue';
 import { logCheckAnswerClick } from '@/lib/check-chain-drain-debug';
 import {
+  logGoToBansNextCardMountLazy,
+  logGoToBansNextCardUnmountLazy,
+} from '@/lib/browser-go-to-bans-next-card-debug';
+import {
   allowOverlayUserTap,
   clearCheckOverlayInputLock,
 } from '@/lib/overlay-input-guard';
@@ -98,6 +102,30 @@ function CheckOverlayInner({
       reason: visibilityReason ?? (visible ? 'render' : 'guard-rejected'),
     });
   }, [checkBan, user?.id, visible, visibilityReason]);
+
+  useEffect(() => {
+    if (!visible || !checkBan?.id) return;
+    logGoToBansNextCardMountLazy('check', {
+      banId: checkBan.id,
+      visibilityReason: visibilityReason ?? null,
+      embedded,
+      contentOnly,
+      checkDirect,
+    });
+    return () => {
+      logGoToBansNextCardUnmountLazy('check', {
+        banId: checkBan.id,
+        visibilityReason: visibilityReason ?? null,
+      });
+    };
+  }, [
+    visible,
+    checkBan?.id,
+    visibilityReason,
+    embedded,
+    contentOnly,
+    checkDirect,
+  ]);
 
   const displayedLabel = useMemo(() => {
     if (!modalView) return '';

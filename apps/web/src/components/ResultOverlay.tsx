@@ -50,6 +50,7 @@ import {
 import { logResultFunMode } from '@/lib/result-fun-mode-debug';
 import { logResultPresentation } from '@/lib/result-ui-debug';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
+import { logGoToBansNextCardClickLazy } from '@/lib/browser-go-to-bans-next-card-debug';
 import {
   logDirectOverboardShowableDecision,
   logOverboardResultCtaClick,
@@ -552,6 +553,14 @@ function ResultOverlayInner({
     if (!allowOverlayUserTap('result-go-to-bans')) return;
     markOverlayUserAction('result-go-to-bans', result.id);
     haptic('light');
+    logGoToBansNextCardClickLazy({
+      source: 'ResultOverlay.goToBans',
+      banId: result.id,
+      outcome: result.outcome ?? resultStatus,
+      directPaint,
+      embedded,
+      contentOnly,
+    });
     if (directPaint) {
       markVisibleOverboardTrace('RESULT CTA OPEN BANS click', {
         action: 'open-bans',

@@ -54,6 +54,10 @@ import {
 } from '@/lib/reply-deeplink-fast';
 import { reportIncomingDirectOverlayMounted } from '@/lib/incoming-direct-debug';
 import { logReplyCardMounted, logReplyCardTopLayerOk } from '@/lib/reply-deeplink-startup-debug';
+import {
+  logGoToBansNextCardMountLazy,
+  logGoToBansNextCardUnmountLazy,
+} from '@/lib/browser-go-to-bans-next-card-debug';
 
 type VerifyPhase = 'idle' | 'pending' | 'ok' | 'failed';
 
@@ -149,6 +153,30 @@ function IncomingBanOverlayInner({
       reportIncomingDirectOverlayMounted(false);
     }
   }, [replyDirect]);
+
+  useEffect(() => {
+    if (!visible || !activeIncomingBan?.id) return;
+    logGoToBansNextCardMountLazy('incoming', {
+      banId: activeIncomingBan.id,
+      visibilityReason: visibilityReason ?? null,
+      embedded,
+      contentOnly,
+      replyDirect,
+    });
+    return () => {
+      logGoToBansNextCardUnmountLazy('incoming', {
+        banId: activeIncomingBan.id,
+        visibilityReason: visibilityReason ?? null,
+      });
+    };
+  }, [
+    visible,
+    activeIncomingBan?.id,
+    visibilityReason,
+    embedded,
+    contentOnly,
+    replyDirect,
+  ]);
 
   const closeOnVerifyFail = useCallback(
     (reason: string, banId: string) => {
