@@ -557,6 +557,14 @@ import {
   markBrowserDebugHydrated,
 } from '@/lib/browser-go-to-bans-next-card-debug';
 import {
+  logConsumeAfterAnswerDecisionLazy,
+  logConsumeAfterAnswerDisplayAfterLazy,
+  logConsumeAfterAnswerEnterLazy,
+  logConsumeAfterAnswerQueueAfterLazy,
+  logConsumeAfterAnswerQueueBeforeLazy,
+  logConsumeAfterAnswerSourceLazy,
+} from '@/lib/browser-consume-after-answer-debug';
+import {
   logQueueContinueAfterResult,
   logResultCardCtaClick,
   logResultDismissCommit,
@@ -3037,6 +3045,47 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       pendingLen: pendingStartupInteractionsRef.current.length,
       activeKind: owner.active.kind,
       activeBanId: owner.active.banId,
+    };
+  };
+  const buildConsumeAfterAnswerTraceSnapshot = (
+    banId: string,
+    answer: string,
+    source: string,
+  ) => {
+    const owner = ownerShadowRef.current.getState();
+    const head = overlayQueueRef.current[0] ?? null;
+    const queueHeadBanId =
+      head?.kind === 'result'
+        ? head.result.id
+        : head?.kind === 'incoming' || head?.kind === 'check'
+          ? head.ban.id
+          : null;
+    const normTarget = normalizeId(banId);
+    const normHead = normalizeId(queueHeadBanId ?? '');
+    return {
+      banId,
+      answer,
+      source,
+      activeKind: owner.active.kind,
+      activeBanId: owner.active.banId,
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      queueHeadKind: head?.kind ?? null,
+      queueHeadBanId,
+      displayKind: owner.active.kind,
+      displayBanId: owner.active.banId,
+      resultBanId: owner.display.result?.id ?? null,
+      incomingBanId: owner.display.incomingBan?.id ?? null,
+      checkBanId: owner.display.checkBan?.id ?? null,
+      queueHeadMatchesBanId: normHead.length > 0 && normHead === normTarget,
+      queueContainsIncomingBanId: overlayQueueRef.current.some(
+        (item) =>
+          item.kind === 'incoming' && normalizeId(item.ban.id) === normTarget,
+      ),
+      pendingContainsIncomingBanId: pendingStartupInteractionsRef.current.some(
+        (item) =>
+          item.kind === 'incoming' && normalizeId(item.ban.id) === normTarget,
+      ),
     };
   };
   const readOwnerImperative = (selector: Parameters<typeof readOwnerImperativeState>[1]) =>
@@ -16170,9 +16219,49 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const consumeIncomingAfterAnswer = useCallback(
-    (banId: string, answer: 'overboard' | 'reply') => {
-      lastProcessedOverlayKindForBansRef.current = 'incoming';
+    (
+      banId: string,
+      answer: 'overboard' | 'reply' | 'go-to-bans',
+      diagSource = 'consumeIncomingAfterAnswer',
+    ) => {
+      const traceBase = buildConsumeAfterAnswerTraceSnapshot(
+        banId,
+        answer,
+        diagSource,
+      );
+      logConsumeAfterAnswerEnterLazy(traceBase);
+      logConsumeAfterAnswerSourceLazy({
+        ...traceBase,
+        diagSource,
+      });
+      logConsumeAfterAnswerQueueBeforeLazy(traceBase);
+
       const alreadyConsumed = incomingConsumedAfterAnswerRef.current.has(banId);
+      const beforeQueue = overlayQueueRef.current;
+      const beforeLen = beforeQueue.length;
+      const beforePendingLen = pendingStartupInteractionsRef.current.length;
+      const previewNextQueue = removeOverlaysForBan(beforeQueue, banId, [
+        'incoming',
+      ]);
+      logConsumeAfterAnswerDecisionLazy({
+        ...traceBase,
+        alreadyConsumed,
+        willRemoveIncoming: previewNextQueue.length !== beforeLen,
+        removedIncomingCount: beforeLen - previewNextQueue.length,
+        answerIsOverboard: answer === 'overboard',
+        answerIsReply: answer === 'reply',
+        answerIsGoToBans: answer === 'go-to-bans',
+        consumeReason:
+          answer === 'go-to-bans'
+            ? 'go-to-bans-finalize-overboard-outcome'
+            : answer === 'overboard'
+              ? 'incoming-overboard-optimistic-open'
+              : 'incoming-reply-answer',
+        showNextCalledBeforeConsume: false,
+        syncDisplayCalledBeforeConsume: false,
+      });
+
+      lastProcessedOverlayKindForBansRef.current = 'incoming';
       incomingConsumedAfterAnswerRef.current.add(banId);
       dismissedIncomingRef.current.add(banId);
       locallyAckedIncomingRef.current.add(banId);
@@ -16213,8 +16302,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         awaitingUser: false,
       });
 
-      const beforeQueue = overlayQueueRef.current;
-      const beforeLen = beforeQueue.length;
       const nextQueue = removeOverlaysForBan(beforeQueue, banId, ['incoming']);
       if (nextQueue.length !== beforeLen) {
         applyOverlayQueue(nextQueue);
@@ -16245,6 +16332,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearReplyFastSessionAfterAnswer(banId, {
         preserveReplySendIds: answer === 'reply',
       });
+
+      logConsumeAfterAnswerQueueAfterLazy({
+        ...buildConsumeAfterAnswerTraceSnapshot(banId, answer, diagSource),
+        queueLenBefore: beforeLen,
+        queueLenAfter: overlayQueueRef.current.length,
+        pendingLenBefore: beforePendingLen,
+        pendingLenAfter: pendingStartupInteractionsRef.current.length,
+        removedIncomingCount: beforeLen - nextQueue.length,
+      });
+      logConsumeAfterAnswerDisplayAfterLazy(
+        buildConsumeAfterAnswerTraceSnapshot(banId, answer, diagSource),
+      );
     },
     [applyOverlayQueue, clearReplyFastSessionAfterAnswer, clearReplyParentActivePriority],
   );
@@ -17005,7 +17104,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId,
         optimisticOpened: true,
       });
-      consumeIncomingAfterAnswer(banId, 'overboard');
+      consumeIncomingAfterAnswer(banId, 'overboard', 'runIncomingOverboardOptimisticOpen');
       return true;
     },
     [
@@ -24689,7 +24788,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         outcome === 'overboard' &&
         !incomingConsumedAfterAnswerRef.current.has(key)
       ) {
-        consumeIncomingAfterAnswer(key, 'go-to-bans');
+        logConsumeAfterAnswerSourceLazy({
+          ...buildConsumeAfterAnswerTraceSnapshot(
+            key,
+            'go-to-bans',
+            'finalizeResultForGoToBans:pre-consume',
+          ),
+          caller: 'finalizeResultForGoToBans',
+          outcome,
+          isQueueOverboardResultDismiss,
+          showNextCalledBeforeConsume: false,
+          syncDisplayCalledBeforeConsume: false,
+          applyOverlayQueueCalledBeforeConsume: false,
+          queuePruneNotYetRun: true,
+          consumeTriggerReason:
+            'outcome-overboard-and-not-in-incomingConsumedAfterAnswerRef',
+        });
+        consumeIncomingAfterAnswer(
+          key,
+          'go-to-bans',
+          'finalizeResultForGoToBans',
+        );
       }
 
       if (isQueueOverboardResultDismiss) {

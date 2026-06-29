@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 75;
+export const DEBUG98_LOGGER_VERSION = 76;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -100,7 +100,12 @@ const ALLOWED_EVENTS = new Set([
   '[GO TO BANS TRACE IMPORT REQUESTED]',
   '[GO TO BANS TRACE IMPORT OK]',
   '[GO TO BANS TRACE ARM CALLED]',
-  '[GO TO BANS TRACE ARM SKIPPED]',
+  '[CONSUME AFTER ANSWER ENTER]',
+  '[CONSUME AFTER ANSWER SOURCE]',
+  '[CONSUME AFTER ANSWER QUEUE BEFORE]',
+  '[CONSUME AFTER ANSWER DECISION]',
+  '[CONSUME AFTER ANSWER QUEUE AFTER]',
+  '[CONSUME AFTER ANSWER DISPLAY AFTER]',
   '[REPLY DEEPLINK START]',
   '[REPLY CARD SELECTED]',
   '[STARTUP BLOCKERS CLEAR]',
