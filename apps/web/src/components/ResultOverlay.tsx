@@ -50,7 +50,7 @@ import {
 import { logResultFunMode } from '@/lib/result-fun-mode-debug';
 import { logResultPresentation } from '@/lib/result-ui-debug';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
-import { logGoToBansNextCardClickLazy } from '@/lib/browser-go-to-bans-next-card-debug';
+import { logGoToBansNextCardClickLazy, hookGoToBansTraceEnter } from '@/lib/browser-go-to-bans-next-card-debug';
 import {
   logDirectOverboardShowableDecision,
   logOverboardResultCtaClick,
@@ -550,12 +550,29 @@ function ResultOverlayInner({
   ]);
 
   const goToBans = useCallback(() => {
-    if (!allowOverlayUserTap('result-go-to-bans')) return;
+    if (!allowOverlayUserTap('result-go-to-bans')) {
+      hookGoToBansTraceEnter({
+        source: 'ResultOverlay.goToBans',
+        handlerName: 'ResultOverlay.goToBans',
+        banId: result.id,
+        resultId: result.id,
+        reason: 'overlay-user-tap-blocked',
+      });
+      return;
+    }
     markOverlayUserAction('result-go-to-bans', result.id);
     haptic('light');
+    hookGoToBansTraceEnter({
+      source: 'ResultOverlay.goToBans',
+      handlerName: 'ResultOverlay.goToBans',
+      banId: result.id,
+      resultId: result.id,
+    });
     logGoToBansNextCardClickLazy({
       source: 'ResultOverlay.goToBans',
+      handlerName: 'ResultOverlay.goToBans',
       banId: result.id,
+      resultId: result.id,
       outcome: result.outcome ?? resultStatus,
       directPaint,
       embedded,

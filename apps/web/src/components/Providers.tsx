@@ -548,6 +548,7 @@ import {
   logResultGoToBansShowNext,
 } from '@/lib/result-go-to-bans-debug';
 import {
+  hookGoToBansTraceEnter,
   logGoToBansNextCardClickLazy,
   logGoToBansNextCardShellVisibilityLazy,
   logGoToBansQueueHeadAfterLazy,
@@ -3021,6 +3022,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ),
     }),
   );
+  const buildGoToBansTraceHookContext = (
+    handlerName: string,
+    source: string,
+    banId?: string | null,
+  ) => {
+    const owner = ownerShadowRef.current.getState();
+    return {
+      source,
+      handlerName,
+      banId: banId ?? null,
+      resultId: banId ?? resultRef.current?.id ?? result?.id ?? null,
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      activeKind: owner.active.kind,
+      activeBanId: owner.active.banId,
+    };
+  };
   const readOwnerImperative = (selector: Parameters<typeof readOwnerImperativeState>[1]) =>
     readOwnerImperativeState(ownerShadowRef.current.getState(), selector);
   const logPhase12WriteAuthorityOperation = (
@@ -8918,6 +8936,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const ts = overlayTs();
     overlayActionTsRef.current = ts;
     console.log('[OVERLAY ACTION CLICK]', { ts, kind, banId: banId ?? null });
+    if (
+      kind === 'result-go-to-bans' ||
+      kind === 'result-nav' ||
+      kind === 'result-timer-go-to-bans'
+    ) {
+      hookGoToBansTraceEnter(
+        buildGoToBansTraceHookContext('markOverlayUserAction', 'Providers', banId),
+      );
+    }
   }, []);
 
   const reportOverlayRendered = useCallback(
@@ -24516,6 +24543,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         outcome === 'overboard' &&
         !closeBefore.directResultOverlay &&
         !closeBefore.directResultOverlayActive;
+      hookGoToBansTraceEnter(
+        buildGoToBansTraceHookContext(
+          'finalizeResultForGoToBans',
+          'finalizeResultForGoToBans:pre-dismiss',
+          key,
+        ),
+      );
       logResultDismissRequest({
         source: 'finalizeResultForGoToBans',
         banId: key,
@@ -24911,6 +24945,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const navigateFromResult = useCallback(() => {
+    hookGoToBansTraceEnter(
+      buildGoToBansTraceHookContext(
+        'navigateFromResult',
+        'navigateFromResult:entry',
+        resultRef.current?.id ?? result?.id ?? null,
+      ),
+    );
     clearStaleComposeStateBeforeBansNavigation('navigateFromResult');
     const generation = ++statusCtaNavigateGenerationRef.current;
     const banId =
@@ -25065,20 +25106,32 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       atomicBanId: incomingOverboardAtomicBanIdRef.current,
       heldKind: heldUserCardOverlayRef.current?.kind ?? null,
     });
+    hookGoToBansTraceEnter(
+      buildGoToBansTraceHookContext(
+        'logResultGoToBansClick',
+        'navigateFromResult:result-go-to-bans-click',
+        banId,
+      ),
+    );
 
     const queueHeadBefore = overlayQueueRef.current[0] ?? null;
-    logGoToBansNextCardClickLazy({
-      source: 'navigateFromResult',
+    const goToBansTraceCtx = buildGoToBansTraceHookContext(
+      'logGoToBansNextCardClickLazy',
+      'navigateFromResult',
       banId,
+    );
+    logGoToBansNextCardClickLazy({
+      ...goToBansTraceCtx,
       wasDirect,
       inActiveOverboardQueue,
       generation,
     });
     logGoToBansQueueHeadBeforeLazy({
-      source: 'navigateFromResult',
-      banId,
-      queueLen: queueLenBefore,
-      pendingLen: pendingLenBefore,
+      ...buildGoToBansTraceHookContext(
+        'logGoToBansQueueHeadBeforeLazy',
+        'navigateFromResult',
+        banId,
+      ),
       headKind: queueHeadBefore?.kind ?? null,
       headBanId:
         queueHeadBefore?.kind === 'result'
@@ -25139,6 +25192,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       wasDirect,
       queueLength: beforeConsume.overlayLen,
     });
+    hookGoToBansTraceEnter(
+      buildGoToBansTraceHookContext(
+        'markVisibleOverboardTrace',
+        'navigateFromResult:result-cta-open-bans',
+        banId,
+      ),
+    );
     logResultNav('to-bans', {
       action: 'open-bans',
       direct: wasDirect,
@@ -25146,6 +25206,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       queueLength: beforeConsume.overlayLen,
       wasDirect,
     });
+    hookGoToBansTraceEnter(
+      buildGoToBansTraceHookContext(
+        'logResultNav',
+        'navigateFromResult:result-nav-to-bans',
+        banId,
+      ),
+    );
     markOverlayUserAction('result-nav', banId ?? undefined);
 
     clearBansOverlayNavigationIntent(
