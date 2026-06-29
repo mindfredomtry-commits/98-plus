@@ -24686,7 +24686,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         if (outcome === 'overboard') {
           return { allowed: true, reason: 'overboard-go-to-bans' };
         }
-        if (outcome === 'split') {
+        if (outcome === 'split' || outcome === 'both_yes') {
           const normKey = normalizeId(key);
           const queueHeadBanIdNorm =
             queueHeadAtFinalize?.kind === 'result'
@@ -24715,9 +24715,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               normKey === queueHeadBanIdNorm ||
               normKey === pendingHeadBanIdNorm);
           if (aligned) {
-            return { allowed: true, reason: 'split-aligned-go-to-bans' };
+            return {
+              allowed: true,
+              reason:
+                outcome === 'both_yes'
+                  ? 'both_yes-aligned-go-to-bans'
+                  : 'split-aligned-go-to-bans',
+            };
           }
-          return { allowed: false, reason: 'split-banId-not-aligned' };
+          return {
+            allowed: false,
+            reason:
+              outcome === 'both_yes'
+                ? 'both_yes-banId-not-aligned'
+                : 'split-banId-not-aligned',
+          };
         }
         return {
           allowed: false,
