@@ -846,6 +846,16 @@ import {
   snapshotOwnerDisplayFields,
 } from '@/lib/hold-state-trace-debug';
 import {
+  emitDisplayCommitCallSite,
+  emitShowNextPostSelectedEnter,
+  emitShowNextReturn,
+  emitSyncDisplayCall,
+  emitSyncDisplayEnter,
+  emitSyncDisplayExit,
+  emitSyncDisplaySkipped,
+  summarizeDisplayPatch,
+} from '@/lib/show-next-display-commit-trace-debug';
+import {
   computeWillBlockBecauseActiveHold,
   getHeadSwitchPipelineStack,
   logChainHeadSwitchTraceExtended,
@@ -7108,6 +7118,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   /** Step 3 Phase 9 — owner authority for active display payload (syncDisplayFromQueue). */
   const commitSyncDisplayActivePayload = useCallback(
     (patch: OwnerActiveDisplayPatch, source: string) => {
+      emitDisplayCommitCallSite({
+        source,
+        patch: summarizeDisplayPatch(patch),
+      });
       const ownerBefore = ownerShadowRef.current.getState();
       const previousDisplay = resolveOwnerDisplayKindBanId(ownerBefore.display);
       const normalizedPatch: OwnerActiveDisplayPatch =
@@ -7555,6 +7569,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ownerBlocked.display,
       );
       const headBlocked = queueForDecision[0] ?? null;
+      emitSyncDisplayExit({
+        branch: blockReason,
+        exitKind: 'blocked',
+        commitCalled: false,
+        selectedKind: headBlocked?.kind ?? null,
+        selectedBanId: headBlocked ? overlayItemBanId(headBlocked) : null,
+        ownerDisplay: buildOwnerQueuePendingSnapshot(ownerBlocked),
+        activeKind: ownerBlocked.active.kind,
+        activeBanId: ownerBlocked.active.banId,
+        displayKind: ownerDisplayBlocked.displayKind,
+        displayBanId: ownerDisplayBlocked.displayBanId,
+      });
       emitDisplayApplyBlocked({
         reason: blockReason,
         selectedKind: headBlocked?.kind ?? null,
@@ -7610,6 +7636,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       branch: string,
       extra?: Record<string, unknown>,
     ): void => {
+      const headBlocked = queue[0] ?? null;
+      emitSyncDisplayExit({
+        branch,
+        exitKind: branch === 'completed' ? 'completed' : 'early-return',
+        commitCalled: branch === 'completed',
+        selectedKind: headBlocked?.kind ?? null,
+        selectedBanId: headBlocked ? overlayItemBanId(headBlocked) : null,
+        queueLen: queue.length,
+        ...extra,
+      });
       if (branch !== 'completed') {
         const ownerBlocked = ownerShadowRef.current.getState();
         const ownerDisplayBlocked = resolveOwnerDisplayKindBanId(
@@ -7661,6 +7697,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
       runPhase12ParityCheck('syncDisplayFromQueue', branch);
     };
+    const syncDisplayBareExit = (
+      branch: string,
+      extra?: Record<string, unknown>,
+    ): void => {
+      const headExit = queueForDecision[0] ?? null;
+      emitSyncDisplayExit({
+        branch,
+        exitKind: 'bare-return',
+        commitCalled: extra?.commitCalled === true,
+        selectedKind: headExit?.kind ?? null,
+        selectedBanId: headExit ? overlayItemBanId(headExit) : null,
+        queueLen: queueForDecision.length,
+        ...extra,
+      });
+    };
     const headAtEnter = queueForDecision[0] ?? null;
     const headBanIdAtEnter =
       headAtEnter?.kind === 'result'
@@ -7668,6 +7719,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         : headAtEnter?.kind === 'incoming' || headAtEnter?.kind === 'check'
           ? headAtEnter.ban.id
           : null;
+    emitSyncDisplayEnter({
+      queueLen: queueForDecision.length,
+      queueHeadKind: headAtEnter?.kind ?? null,
+      queueHeadBanId: headBanIdAtEnter,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      chainAdvanceExplicit: chainAdvanceExplicitRef.current,
+      chainTransitioning: notificationChainTransitioningRef.current,
+    });
     if (headAtEnter && headBanIdAtEnter) {
       const ownerBeforeSync = ownerShadowRef.current.getState();
       const legacyBeforeSync = resolveLegacyMountedKindBanId();
@@ -8649,6 +8708,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             generation: statusCtaNavigateGenerationRef.current,
             atomicOverboardBanId: incomingOverboardAtomicBanIdRef.current,
           });
+          syncDisplayBareExit('result-blocked-atomic-hold', {
+            selectedKind: 'result',
+            selectedBanId: blockedResultId,
+          });
           return;
         }
         const held = heldUserCardOverlayRef.current;
@@ -8685,6 +8748,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             activeKind: ownerShadowRef.current.getState().active.kind,
             activeBanId: ownerShadowRef.current.getState().active.banId,
             generation: statusCtaNavigateGenerationRef.current,
+          });
+          syncDisplayBareExit('result-blocked-fresh-overboard-held', {
+            selectedKind: 'result',
+            selectedBanId: blockedResultId,
+            commitCalled: (c2DisplayResultId ?? '') !== blockedResultId,
           });
           return;
         }
@@ -10314,6 +10382,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   : nextHead?.kind === 'incoming' || nextHead?.kind === 'check'
                     ? nextHead.ban.id
                     : null,
+            });
+            emitShowNextPostSelectedEnter({
+              source: reason,
+              selectedKind: nextHead?.kind ?? null,
+              selectedBanId:
+                nextHead?.kind === 'result'
+                  ? nextHead.result.id
+                  : nextHead?.kind === 'incoming' || nextHead?.kind === 'check'
+                    ? nextHead.ban.id
+                    : null,
+              caller: 'dismissCurrentOverlay',
             });
           }
         }
@@ -21117,6 +21196,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         result: boolean,
         extra?: Record<string, unknown>,
       ): boolean => {
+        emitShowNextReturn({
+          source,
+          branch,
+          result,
+          queueHeadKind: headAtEnter?.kind ?? null,
+          queueHeadBanId: headAtEnter ? overlayItemBanId(headAtEnter) : null,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          ...extra,
+        });
         if (!result && isPostConsumeTraceActive()) {
           emitPostConsumeNoNextCard({
             pipeline: 'showNextNotificationFromChainSync',
@@ -21615,6 +21704,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId: nextBanId,
         queueLenAfter: overlayQueueRef.current.length,
       });
+      emitShowNextPostSelectedEnter({
+        source,
+        selectedKind: nextKind,
+        selectedBanId: nextBanId,
+        queueLen: overlayQueueRef.current.length,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+        queueHeadKind: head?.kind ?? startupHead?.kind ?? null,
+        queueHeadBanId:
+          head != null
+            ? overlayItemBanId(head)
+            : startupHead != null
+              ? overlayItemBanId(startupHead)
+              : null,
+      });
       if (isSuccessExitDrainSource(source)) {
         setPostSuccessHandoffSelectedNext(nextKind, nextBanId, {
           source,
@@ -21641,6 +21744,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             selectedBanId: nextBanId,
             reason: 'atomic-overboard-awaiting-dismiss-flushSync-abort',
             ...buildPostConsumeOwnerSnapshot(),
+          });
+          emitSyncDisplaySkipped({
+            source,
+            reason: 'atomic-overboard-awaiting-dismiss-flushSync-abort',
+            selectedKind: nextKind,
+            selectedBanId: nextBanId,
           });
           return;
         }
@@ -21835,7 +21944,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             phase: 'showNext-flushSync-before-syncDisplayFromQueue',
             source,
           });
+          emitSyncDisplayCall({
+            source,
+            caller: 'showNextNotificationFromChainSync:flushSync',
+            selectedKind: nextKind,
+            selectedBanId: nextBanId,
+            queueLen: overlayQueueRef.current.length,
+            queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+            queueHeadBanId:
+              overlayQueueRef.current[0] != null
+                ? overlayItemBanId(overlayQueueRef.current[0])
+                : null,
+          });
           syncDisplayFromQueue(overlayQueueRef.current);
+        } else {
+          emitSyncDisplaySkipped({
+            source,
+            reason: 'defer-incoming-display-sync',
+            selectedKind: nextKind,
+            selectedBanId: nextBanId,
+            deferIncomingDisplaySync: true,
+          });
         }
         } finally {
           popFlushSync();
