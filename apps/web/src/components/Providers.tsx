@@ -549,8 +549,11 @@ import {
   logResultGoToBansShowNext,
 } from '@/lib/result-go-to-bans-debug';
 import {
+  approximateShowBansLayerFromRefs,
   buildGoToBansPayloadSwitchTraceSnapshot,
+  evaluateGoToBansBansLayerSuppression,
   logGoToBansAfterFinalize,
+  logGoToBansBansLayerSuppressedForNextOverlay,
   logGoToBansPayloadSwitchTraceClick,
   logNextPayloadSelectionTrace,
   logProvidersResultStaleActiveTrace,
@@ -23486,11 +23489,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         collected.finalQueueLen > 0 || collected.finalPendingLen > 0;
       const runtimeQueueLen = overlayQueueRef.current.length;
       const runtimePendingLen = pendingStartupInteractionsRef.current.length;
+      const ownerForRedirect = ownerShadowRef.current.getState();
+      const ownerQueueLen = ownerForRedirect.queue.length;
+      const ownerPendingLen = ownerForRedirect.pending.length;
+      const ownerSuppressionForRedirect =
+        evaluateGoToBansBansLayerSuppression(ownerForRedirect);
       const goToBansQueueExistsContinueRedirect =
         !hasLocalItems &&
         isResultGoToBansContinueSource(source) &&
         !source.includes('go-to-bans-queue-exists-continue') &&
-        (runtimeQueueLen > 0 || runtimePendingLen > 0);
+        (runtimeQueueLen > 0 ||
+          runtimePendingLen > 0 ||
+          ownerQueueLen > 0 ||
+          ownerPendingLen > 0 ||
+          ownerSuppressionForRedirect.suppress);
       if (goToBansQueueExistsContinueRedirect) {
         const ownerActive = ownerShadowRef.current.getState().active;
         emitGoToBansOpenBansBlockedQueueExists({
@@ -24022,6 +24034,49 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (emptyFallback === 'none') {
         outcome = 'blocked';
       } else if (emptyFallback === 'bans-section') {
+        const ownerSuppression = evaluateGoToBansBansLayerSuppression(
+          ownerShadowRef.current.getState(),
+        );
+        const showBansLayerBefore = approximateShowBansLayerFromRefs({
+          bansCtaQueueSuppress: bansCtaQueueSuppressRef.current,
+          resultCtaBansOverlayOpen: resultCtaBansOverlayOpenRef.current,
+          bansOverlayOpen: arenaBansOverlayOpenRef.current,
+        });
+        if (ownerSuppression.suppress) {
+          if (
+            bansCtaQueueSuppressRef.current ||
+            resultCtaBansOverlayOpenRef.current
+          ) {
+            bansCtaQueueSuppressRef.current = false;
+            resultCtaBansOverlayOpenRef.current = false;
+            setBansCtaQueueSuppress(false);
+            setResultCtaBansOverlayOpen(false);
+          }
+          logGoToBansBansLayerSuppressedForNextOverlay({
+            nextKey: ownerSuppression.nextKey,
+            nextKind: ownerSuppression.nextKind,
+            activeKindAfter: ownerSuppression.activeKindAfter,
+            displayKindAfter: ownerSuppression.displayKindAfter,
+            queueLenAfter: ownerSuppression.queueLenAfter,
+            pendingLenAfter: ownerSuppression.pendingLenAfter,
+            showBansLayerBefore,
+            showBansLayerAfter: approximateShowBansLayerFromRefs({
+              bansCtaQueueSuppress: bansCtaQueueSuppressRef.current,
+              resultCtaBansOverlayOpen: resultCtaBansOverlayOpenRef.current,
+              bansOverlayOpen: arenaBansOverlayOpenRef.current,
+            }),
+            reason: 'next-overlay-present',
+            source,
+          });
+          return continueNotificationChainOrOpenLobbySync(
+            `${source}:bans-layer-suppressed-next-overlay`,
+            {
+              ...opts,
+              emptyFallback: 'none',
+              prefetchIfEmpty: false,
+            },
+          );
+        }
         const targetTab = opts?.openBansTab ?? 'yours';
         armOpenBansOverlayFromResultCtaRef.current(
           opts?.openBansBanId ?? null,
@@ -25471,7 +25526,48 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         goToBansClosingBanIdRef.current != null ||
         chainAdvanceWaitingRef.current ||
         notificationChainTransitioningRef.current;
-      if (hasPendingNotificationChain() || (isGoToBansOpenContext && hasRuntimeQueue)) {
+      const ownerState = ownerShadowRef.current.getState();
+      const ownerSuppression = evaluateGoToBansBansLayerSuppression(ownerState);
+      const readApproxShowBansLayer = () =>
+        approximateShowBansLayerFromRefs({
+          bansCtaQueueSuppress: bansCtaQueueSuppressRef.current,
+          resultCtaBansOverlayOpen: resultCtaBansOverlayOpenRef.current,
+          bansOverlayOpen: arenaBansOverlayOpenRef.current,
+        });
+      const clearBansLayerFlagsOpenedForCta = (): void => {
+        if (
+          !bansCtaQueueSuppressRef.current &&
+          !resultCtaBansOverlayOpenRef.current &&
+          openBansOverlayRequestRef.current === 0
+        ) {
+          return;
+        }
+        bansCtaQueueSuppressRef.current = false;
+        resultCtaBansOverlayOpenRef.current = false;
+        setBansCtaQueueSuppress(false);
+        setResultCtaBansOverlayOpen(false);
+      };
+      const deferOpenBansForChainContinuation = (
+        reason: string,
+        logSuppression: boolean,
+      ): void => {
+        const showBansLayerBefore = readApproxShowBansLayer();
+        if (logSuppression && ownerSuppression.suppress) {
+          clearBansLayerFlagsOpenedForCta();
+          logGoToBansBansLayerSuppressedForNextOverlay({
+            nextKey: ownerSuppression.nextKey,
+            nextKind: ownerSuppression.nextKind,
+            activeKindAfter: ownerSuppression.activeKindAfter,
+            displayKindAfter: ownerSuppression.displayKindAfter,
+            queueLenAfter: ownerSuppression.queueLenAfter,
+            pendingLenAfter: ownerSuppression.pendingLenAfter,
+            showBansLayerBefore,
+            showBansLayerAfter: readApproxShowBansLayer(),
+            reason: 'next-overlay-present',
+            source: 'armOpenBansOverlayFromResultCta',
+            deferReason: reason,
+          });
+        }
         if (isGoToBansOpenContext && hasRuntimeQueue && !hasPendingNotificationChain()) {
           const ownerActive = ownerShadowRef.current.getState().active;
           emitGoToBansOpenBansBlockedQueueExists({
@@ -25488,12 +25584,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
         console.log('[chain-debug-bans-open-called]', {
           source: 'armOpenBansOverlayFromResultCta',
-          reason: 'chain-active',
+          reason: logSuppression ? 'next-overlay-present' : 'chain-active',
           ...chainSnapshot,
         });
         console.log('[notification-chain-open-bans-deferred]', {
           source: 'armOpenBansOverlayFromResultCta',
-          reason: 'queue-not-empty',
+          reason: logSuppression ? 'owner-next-overlay-present' : 'queue-not-empty',
           queueLength: overlayQueueRef.current.length,
           startupPending: pendingStartupInteractionsRef.current.length,
         });
@@ -25501,13 +25597,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         if (pendingStartupInteractionsRef.current.length > 0) {
           releaseStartupInteractions({ force: true });
         }
-        if (showNextNotificationFromChainSync('armOpenBansOverlayFromResultCta')) {
+        if (
+          showNextNotificationFromChainSync(
+            `armOpenBansOverlayFromResultCta:${reason}`,
+          )
+        ) {
           return;
         }
         syncDisplayFromQueue(overlayQueueRef.current);
-        if (isGoToBansOpenContext && hasRuntimeQueue) {
+        if (
+          isGoToBansOpenContext &&
+          (hasRuntimeQueue || ownerSuppression.suppress)
+        ) {
           void continueNotificationChainOrOpenLobbyRef.current(
-            'go-to-bans:arm-open-bans-blocked-queue-exists',
+            logSuppression
+              ? 'go-to-bans:bans-layer-suppressed-next-overlay'
+              : 'go-to-bans:arm-open-bans-blocked-queue-exists',
             {
               emptyFallback: 'none',
               prefetchIfEmpty: false,
@@ -25515,6 +25620,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             },
           );
         }
+      };
+      if (
+        hasPendingNotificationChain() ||
+        (isGoToBansOpenContext && (hasRuntimeQueue || ownerSuppression.suppress))
+      ) {
+        deferOpenBansForChainContinuation(
+          ownerSuppression.suppress
+            ? 'bans-layer-suppressed-next-overlay'
+            : 'queue-not-empty',
+          ownerSuppression.suppress,
+        );
+        return;
+      }
+
+      if (isGoToBansOpenContext && ownerSuppression.suppress) {
+        deferOpenBansForChainContinuation(
+          'bans-layer-suppressed-next-overlay-final-guard',
+          true,
+        );
         return;
       }
 
@@ -27031,7 +27155,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         !hasNextInChain &&
         !inActiveOverboardQueue &&
         remainingLen === 0 &&
-        pendingLen === 0
+        pendingLen === 0 &&
+        !evaluateGoToBansBansLayerSuppression(
+          ownerShadowRef.current.getState(),
+        ).suppress
       ) {
         window.__debug98log?.('[POST CONSUME EMPTY CHAIN FINALIZED]', {
           reason: 'queueLen-and-pendingLen-both-zero-after-prune',

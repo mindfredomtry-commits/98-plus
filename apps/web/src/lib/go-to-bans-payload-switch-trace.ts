@@ -220,6 +220,83 @@ export function logGoToBansNextOverlayAtomicCommit(
   emit('GO_TO_BANS_NEXT_OVERLAY_ATOMIC_COMMIT', data);
 }
 
+export type GoToBansBansLayerSuppressionSnapshot = {
+  suppress: boolean;
+  nextKey: string | null;
+  nextKind: string | null;
+  activeKindAfter: string | null;
+  displayKindAfter: string | null;
+  queueLenAfter: number;
+  pendingLenAfter: number;
+  reason: 'next-overlay-present' | 'chain-empty-no-overlay';
+};
+
+export function evaluateGoToBansBansLayerSuppression(owner: {
+  queue: QueuedOverlay[];
+  pending: QueuedOverlay[];
+  active: { kind: string | null };
+  display: {
+    directResultOverlayActive?: boolean;
+    directResultOverlay?: boolean;
+    result?: { id: string } | null;
+    checkBan?: { id: string } | null;
+    incomingBan?: { id: string } | null;
+  };
+}): GoToBansBansLayerSuppressionSnapshot {
+  const head = owner.queue[0] ?? null;
+  const queueLenAfter = owner.queue.length;
+  const pendingLenAfter = owner.pending.length;
+  const displayKindAfter = resolveDisplayKind(owner.display);
+  const activeKindAfter = owner.active.kind;
+  const hasActiveOverlay =
+    activeKindAfter === 'incoming' ||
+    activeKindAfter === 'check' ||
+    activeKindAfter === 'result' ||
+    displayKindAfter != null;
+  const suppress =
+    queueLenAfter > 0 || pendingLenAfter > 0 || head != null || hasActiveOverlay;
+  return {
+    suppress,
+    nextKey: head ? overlayQueueKey(head) : null,
+    nextKind: head?.kind ?? null,
+    activeKindAfter,
+    displayKindAfter,
+    queueLenAfter,
+    pendingLenAfter,
+    reason: suppress ? 'next-overlay-present' : 'chain-empty-no-overlay',
+  };
+}
+
+export function approximateShowBansLayerFromRefs(input: {
+  bansCtaQueueSuppress: boolean;
+  resultCtaBansOverlayOpen: boolean;
+  bansOverlayOpen: boolean;
+  bansReturnToLobbyLatch?: boolean;
+}): boolean {
+  if (input.bansReturnToLobbyLatch) return false;
+  return (
+    input.bansOverlayOpen ||
+    input.bansCtaQueueSuppress ||
+    input.resultCtaBansOverlayOpen
+  );
+}
+
+export function logGoToBansBansLayerSuppressedForNextOverlay(
+  data: {
+    nextKey: string | null;
+    nextKind: string | null;
+    activeKindAfter: string | null;
+    displayKindAfter: string | null;
+    queueLenAfter: number;
+    pendingLenAfter: number;
+    showBansLayerBefore: boolean;
+    showBansLayerAfter: boolean;
+    reason: 'next-overlay-present';
+  } & Record<string, unknown>,
+): void {
+  emit('GO_TO_BANS_BANS_LAYER_SUPPRESSED_FOR_NEXT_OVERLAY', data);
+}
+
 export function logResultReopenBlockedByOwnerConsumed(
   data: Record<string, unknown>,
 ): void {
