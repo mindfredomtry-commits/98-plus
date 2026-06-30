@@ -1681,10 +1681,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   });
   const goToBansAdvancePendingRef = useRef(false);
   const goToBansClosingBanIdRef = useRef<string | null>(null);
-  const goToBansRestoredActiveAdvanceRetryRef = useRef<{
-    used: boolean;
-    scopeKey: string | null;
-  }>({ used: false, scopeKey: null });
   const showNextNotificationFromChainSyncRef = useRef<
     (source: string) => boolean
   >(() => false);
@@ -28824,8 +28820,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (
       !ownerPrimaryDirectResultOverlayActive &&
       goToBansChainKeepsDirectLayerActive &&
-      hasShowableChainTransitionPayload &&
-      (ownerPrimaryQueueLen > 0 || ownerPrimaryPendingLen > 0)
+      hasShowableChainTransitionPayload
     ) {
       const activeKind =
         ownerPrimaryDisplayResultForShell != null
@@ -28853,46 +28848,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         embedded: true,
         sourceFunction: 'Providers.showDirectOverboardLayer',
       });
-
-      const banId =
-        goToBansClosingBanIdRef.current ??
-        ownerPrimaryDisplayResultForShell?.id ??
-        activeBanId ??
-        null;
-      const resultId = banId;
-      const scopeKey = `${result?.id ?? resultId ?? ''}|${activeBanId ?? ''}`;
-      if (goToBansRestoredActiveAdvanceRetryRef.current.scopeKey !== scopeKey) {
-        goToBansRestoredActiveAdvanceRetryRef.current = {
-          used: false,
-          scopeKey,
-        };
-      }
-      const retryAlreadyUsed = goToBansRestoredActiveAdvanceRetryRef.current.used;
-      window.__debug98log?.('[GO TO BANS RESTORED ACTIVE ADVANCE RETRY]', {
-        banId,
-        resultId,
-        queueLen: ownerPrimaryQueueLen,
-        pendingLen: ownerPrimaryPendingLen,
-        activeKind,
-        activeBanId,
-        hasResult: ownerPrimaryDisplayResultForShell != null,
-        showable: ownerPrimaryDisplayResultForShell != null,
-        retryAlreadyUsed,
-        sourceFunction: 'Providers.showDirectOverboardLayer',
-      });
-      if (!retryAlreadyUsed) {
-        goToBansRestoredActiveAdvanceRetryRef.current.used = true;
-        const chainSource =
-          'status-cta:go-to-bans-restored-active-advance-retry';
-        queueMicrotask(() => {
-          void continueNotificationChainOrOpenLobbyRef.current(chainSource, {
-            clearActiveHold: false,
-            prefetchSkipBanId: banId ?? undefined,
-            emptyFallback: 'none',
-            openBansBanId: banId ?? null,
-          });
-        });
-      }
     }
   }, [
     chainAdvanceWaiting,
@@ -28908,7 +28863,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ownerPrimaryStableIncomingBan?.id,
     ownerReadState.active.banId,
     ownerReadState.active.kind,
-    result?.id,
   ]);
 
   useLayoutEffect(() => {
