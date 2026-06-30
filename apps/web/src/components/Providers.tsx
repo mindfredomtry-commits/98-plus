@@ -577,6 +577,7 @@ import {
   logBansLayerFlagsClearedAfterChainOutcome,
   logBansLayerOpenAllowed,
   logBansLayerOpenBlockedDuringChain,
+  logBansSectionAutoOpenRemovedPath,
   resolveBansLayerOwnerDisplayKind,
   resolveBansLayerPostResultAction,
   type BansLayerOpenIntent,
@@ -24628,28 +24629,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (emptyFallback === 'none') {
         outcome = 'blocked';
       } else if (emptyFallback === 'bans-section') {
-        if (
-          !canOpenBansLayerNow(
+        const ownerAtRemoved = ownerShadowRef.current.getState();
+        logBansSectionAutoOpenRemovedPath({
+          source: `${source}:finalizeNotificationChainContinueEmpty`,
+          oldFallback: 'bans-section',
+          newFallback: 'lobby',
+          queueLen: ownerAtRemoved.queue.length,
+          pendingLen: ownerAtRemoved.pending.length,
+          activeKind: ownerAtRemoved.active.kind,
+          displayKind: resolveBansLayerOwnerDisplayKind(ownerAtRemoved.display),
+        });
+        if (isPostSuccessHandoffInProgress()) {
+          completePostSuccessHandoffEmptyOpenLobby({
             source,
-            'empty-fallback-bans-section',
-            'result-cta-fallback',
-          )
-        ) {
-          return continueNotificationChainOrOpenLobbySync(
-            `${source}:bans-layer-gate-blocked`,
-            {
-              ...opts,
-              emptyFallback: 'none',
-              prefetchIfEmpty: false,
-            },
-          );
+            reason: 'chain-continue-empty-bans-section-removed',
+            queueLen: finalQueueLen,
+            pendingLen: finalPendingLen,
+          });
+          openLobbyCalled = true;
+        } else {
+          openLobbyRef.current(`${source}:bans-section-removed`);
+          openLobbyCalled = true;
         }
-        const targetTab = opts?.openBansTab ?? 'yours';
-        armOpenBansOverlayFromResultCtaRef.current(
-          opts?.openBansBanId ?? null,
-          targetTab,
-        );
-        outcome = 'open-bans';
+        outcome = 'open-lobby';
       } else if (isPostSuccessHandoffInProgress()) {
         completePostSuccessHandoffEmptyOpenLobby({
           source,
@@ -27834,12 +27836,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         !hasNextInChain &&
         !inActiveOverboardQueue &&
         remainingLen === 0 &&
-        pendingLen === 0 &&
-        canOpenBansLayerNow(
-          'finalizeResultForGoToBans',
-          'empty-chain-open-bans',
-          'result-cta-fallback',
-        )
+        pendingLen === 0
       ) {
         window.__debug98log?.('[POST CONSUME EMPTY CHAIN FINALIZED]', {
           reason: 'queueLen-and-pendingLen-both-zero-after-prune',
@@ -27848,6 +27845,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           queueLen: remainingLen,
           pendingLen,
           remainingLen,
+        });
+        logBansSectionAutoOpenRemovedPath({
+          source: 'finalizeResultForGoToBans:empty-chain-open-bans',
+          oldFallback: 'bans-section',
+          newFallback: 'lobby',
+          queueLen: remainingLen,
+          pendingLen,
+          activeKind: ownerBefore.active.kind,
+          displayKind: resolveBansLayerOwnerDisplayKind(ownerBefore.display),
         });
         goToBansAdvancePendingRef.current = false;
         goToBansClosingBanIdRef.current = null;
@@ -27868,14 +27874,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           'finalizeResultForGoToBans:empty-chain-finalized',
           { awaitingUser: false },
         );
-        const previousTab = openBansOverlayTabRequestRef.current;
-        const targetTab: BansOverlayTabTarget =
-          previousTab === 'history' || previousTab === 'archive'
-            ? previousTab
-            : lastProcessedOverlayKindForBansRef.current === 'incoming'
-              ? 'toYou'
-              : 'yours';
-        armOpenBansOverlayFromResultCtaRef.current(key, targetTab);
+        openLobbyRef.current('finalizeResultForGoToBans:empty-chain-open-lobby');
       }
 
       const ownerAfter = ownerShadowRef.current.getState();
@@ -28615,13 +28614,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         wasDirect,
         afterFinalizeQueueLen: overlayQueueRef.current.length,
         afterFinalizePendingLen: pendingStartupInteractionsRef.current.length,
-        emptyFallback: 'bans-section',
+        emptyFallback: 'lobby',
         targetTab,
       },
       willCallShowNext: true,
       reasonIfFalse: null,
       ...buildPostConsumeChainContext(banId),
     });
+    {
+      const ownerBeforeContinue = ownerShadowRef.current.getState();
+      logBansSectionAutoOpenRemovedPath({
+        source: `navigateFromResult:${chainSource}`,
+        oldFallback: 'bans-section',
+        newFallback: 'lobby',
+        queueLen: ownerBeforeContinue.queue.length,
+        pendingLen: ownerBeforeContinue.pending.length,
+        activeKind: ownerBeforeContinue.active.kind,
+        displayKind: resolveBansLayerOwnerDisplayKind(
+          ownerBeforeContinue.display,
+        ),
+      });
+    }
     emitGoToBansShouldShowNext({
       ...buildGoToBansClickDismissDiag('navigateFromResult', {
         banId,
@@ -28639,8 +28652,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         {
           clearActiveHold: false,
           prefetchSkipBanId: banId,
-          emptyFallback: 'bans-section',
-          openBansTab: targetTab,
+          emptyFallback: 'lobby',
           openBansBanId: banId,
         },
       );
@@ -28848,12 +28860,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       emitPostConsumeReturnPath({
         functionName: 'navigateFromResult',
-        branch: 'open-bans-section',
-        reason: 'continue-outcome-not-show-next-queue-empty-open-bans-section',
+        branch:
+          outcome === 'open-lobby'
+            ? 'return-lobby-empty-chain'
+            : 'continue-outcome-not-show-next',
+        reason:
+          outcome === 'open-lobby'
+            ? 'continue-outcome-open-lobby-empty-chain'
+            : `continue-outcome-not-show-next:${outcome}`,
         willShowNext: false,
-        willEndChain: false,
-        willOpenBansSection: true,
-        willReturnLobby: false,
+        willEndChain: outcome === 'open-lobby',
+        willOpenBansSection: false,
+        willReturnLobby: outcome === 'open-lobby',
         queueLen: overlayQueueRef.current.length,
         pendingLen: pendingStartupInteractionsRef.current.length,
         queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
@@ -28862,25 +28880,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         outcome,
         targetTab,
       });
-      logResultGoToBansOpenBansSection({
-        banId,
-        targetTab,
-        lastProcessedKind,
-        previousTab,
-      });
-      console.log('[go-to-bans-target-tab]', {
-        source: 'navigateFromResult',
-        targetTab,
-        lastProcessedKind,
-        previousTab,
-      });
-      console.log('[go-to-bans-open-section]', {
-        source: 'status-cta',
-        targetTab,
-        lastProcessedKind,
-        previousTab,
-      });
-      logResultNav('open-bans-overlay', { direct: wasDirect, banId, wasDirect });
     })();
   }, [
     applyDirectOverboardCloseState,

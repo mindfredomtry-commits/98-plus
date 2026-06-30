@@ -169,6 +169,20 @@ export function logBansLayerOpenAllowed(
   emit('BANS_LAYER_OPEN_ALLOWED', data);
 }
 
+export function logBansSectionAutoOpenRemovedPath(
+  data: {
+    source: string;
+    oldFallback: 'bans-section';
+    newFallback: 'lobby';
+    queueLen: number;
+    pendingLen: number;
+    activeKind: string | null;
+    displayKind: string | null;
+  } & Record<string, unknown>,
+): void {
+  emit('BANS_SECTION_AUTO_OPEN_REMOVED_PATH', data);
+}
+
 export function logBansLayerFlagsClearedAfterChainOutcome(
   data: {
     source: string;
