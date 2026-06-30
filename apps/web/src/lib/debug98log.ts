@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 86;
+export const DEBUG98_LOGGER_VERSION = 87;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -145,6 +145,7 @@ const ALLOWED_EVENTS = new Set([
   '[SYNC DISPLAY ENTER]',
   '[SYNC DISPLAY EXIT]',
   '[DISPLAY COMMIT CALL SITE]',
+  '[RESULT GO TO BANS BUTTON RAW CLICK]',
   '[GO TO BANS CLICK ENTER]',
   '[GO TO BANS DISMISS START]',
   '[GO TO BANS DISMISS RESULT]',

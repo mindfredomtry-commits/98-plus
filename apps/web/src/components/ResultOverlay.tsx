@@ -195,6 +195,7 @@ function ResultOverlayInner({
   const { haptic, hapticSuccess } = useTelegram();
   const [archiveSaved, setArchiveSaved] = useState(false);
   const resultOverlayMountedRef = useRef(false);
+  const goToBansClickInFlightRef = useRef(false);
 
   useEffect(() => {
     resultOverlayMountedRef.current = true;
@@ -202,6 +203,10 @@ function ResultOverlayInner({
       resultOverlayMountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    goToBansClickInFlightRef.current = false;
+  }, [result.id]);
 
   const viewerId = resolveResultOverlayViewerId(result, user?.id ?? null);
   const resultStatus =
@@ -552,16 +557,14 @@ function ResultOverlayInner({
   ]);
 
   const goToBans = useCallback(() => {
-    if (!allowOverlayUserTap('result-go-to-bans')) {
-      hookGoToBansTraceEnter({
-        source: 'ResultOverlay.goToBans',
-        handlerName: 'ResultOverlay.goToBans',
-        banId: result.id,
-        resultId: result.id,
-        reason: 'overlay-user-tap-blocked',
-      });
+    window.__debug98log?.('[RESULT GO TO BANS BUTTON RAW CLICK]', {
+      banId: result.id,
+      resultId: result.id,
+    });
+    if (goToBansClickInFlightRef.current) {
       return;
     }
+    goToBansClickInFlightRef.current = true;
     markOverlayUserAction('result-go-to-bans', result.id);
     haptic('light');
     const closureResultId = result.id;
