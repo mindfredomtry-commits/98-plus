@@ -33528,20 +33528,46 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ) : null}
         {(() => {
           const directOverboardRenderResult = ownerPrimaryDisplayResultForShell;
+          const hasResult = directOverboardRenderResult != null;
+          const showable = hasResult;
+          const directOverboardRenderForcedByQueueResult =
+            hasResult &&
+            showable &&
+            (ownerPrimaryQueueLen > 0 || ownerPrimaryPendingLen > 0) &&
+            notificationSessionActive;
+          const willRenderDirectOverboardLayer =
+            showDirectOverboardLayer || directOverboardRenderForcedByQueueResult;
+          if (
+            directOverboardRenderForcedByQueueResult &&
+            !showDirectOverboardLayer
+          ) {
+            window.__debug98log?.('[DIRECT OVERBOARD RENDER FORCED BY QUEUE RESULT]', {
+              hasResult,
+              showable,
+              ownerDirectActive: ownerPrimaryDirectResultOverlayActive,
+              queueLen: ownerPrimaryQueueLen,
+              pendingLen: ownerPrimaryPendingLen,
+              resultBanId: directOverboardRenderResult?.id ?? null,
+              activeKind: ownerReadState.active.kind,
+              activeBanId: ownerReadState.active.banId,
+            });
+          }
           const directJsxFields = {
             active: ownerPrimaryDirectResultOverlayActiveForRender,
-            ownerDirectActive: ownerPrimaryDirectResultOverlayActiveForRender,
-            hasResult: directOverboardRenderResult != null,
+            ownerDirectActive: ownerPrimaryDirectResultOverlayActive,
+            hasResult,
             resultBanId: directOverboardRenderResult?.id ?? null,
             ownerResultBanId: ownerPrimaryResult?.id ?? null,
             refActive: directResultOverlayRef.current,
-            willRender: showDirectOverboardLayer,
+            willRender: willRenderDirectOverboardLayer,
             outcome: directOverboardRenderResult?.outcome ?? null,
-            showable: directOverboardRenderResult != null,
+            showable,
             contentOnly: false,
             embedded: true,
+            queueLen: ownerPrimaryQueueLen,
+            pendingLen: ownerPrimaryPendingLen,
           };
-          if (!showDirectOverboardLayer) {
+          if (!willRenderDirectOverboardLayer) {
             logDirectOverboardShowableDecisionFromSnapshot(
               directOverboardRenderResult?.id ?? null,
               {
