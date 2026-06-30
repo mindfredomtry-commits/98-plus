@@ -31,6 +31,7 @@ import {
   type OwnerStateWriteDetectHandle,
 } from '@/lib/owner-direct-write-detect-debug';
 import { traceGoToBansOwnerDisplayWriteLazy } from '@/lib/browser-go-to-bans-next-card-debug';
+import { logResultGoToBansOwnerTransition } from '@/lib/go-to-bans-payload-switch-trace';
 
 const QUEUE_AUTHORITY_EVENT_TYPES = new Set<NotificationOverlayOwnerEvent['type']>([
   'QUEUE_APPLIED',
@@ -65,6 +66,10 @@ export type NotificationOverlayOwnerShadowMirrorHandlers = {
   compareActiveDisplayIntegrity?: (
     source: string,
     display: NotificationOwnerDisplayState,
+  ) => void;
+  mirrorLegacySession?: (
+    session: NotificationOverlayOwnerState['session'],
+    source: string,
   ) => void;
 };
 
@@ -266,6 +271,31 @@ export function createNotificationOverlayOwnerShadow(
           effect.source,
           effect.display,
         );
+        continue;
+      }
+      if (effect.type === 'APPLY_DISPLAY') {
+        const ownerState = currentState();
+        logOwnerPhase9ActiveMirror({
+          source: 'APPLY_DISPLAY',
+          incomingBanId: ownerState.display.incomingBan?.id ?? null,
+          checkBanId: ownerState.display.checkBan?.id ?? null,
+          resultBanId: ownerState.display.result?.id ?? null,
+          directResultOverlay: ownerState.display.directResultOverlay,
+          directResultOverlayActive: ownerState.display.directResultOverlayActive,
+        });
+        mirrorHandlers?.mirrorLegacyActive?.(
+          { ...ownerState.display },
+          'APPLY_DISPLAY',
+        );
+        mirrorHandlers?.compareActiveDisplayIntegrity?.(
+          'APPLY_DISPLAY',
+          ownerState.display,
+        );
+        mirrorHandlers?.mirrorLegacySession?.(ownerState.session, 'APPLY_DISPLAY');
+        continue;
+      }
+      if (effect.type === 'LOG' && effect.tag === 'result-go-to-bans-owner-transition') {
+        logResultGoToBansOwnerTransition(effect.fields);
       }
     }
   };

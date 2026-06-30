@@ -199,6 +199,19 @@ export function logResultVisibleOwnerActiveSync(
   emit('RESULT_VISIBLE_OWNER_ACTIVE_SYNC', data);
 }
 
+export function logResultGoToBansOwnerTransition(
+  data: Record<string, unknown>,
+): void {
+  emit('RESULT_GO_TO_BANS_OWNER_TRANSITION', data);
+}
+
+export function logResultReopenBlockedByOwnerConsumed(
+  data: Record<string, unknown>,
+): void {
+  emit('RESULT_REOPEN_BLOCKED_BY_OWNER_CONSUMED', data);
+}
+
+export function logNextPayloadSelectionFromOwnerSync(
   previousState: {
     active: { kind: string | null; banId: string | null };
     queue: QueuedOverlay[];

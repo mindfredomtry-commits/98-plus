@@ -1503,13 +1503,91 @@ export function notificationOverlayOwnerReducer(
     case 'RESULT_GO_TO_BANS': {
       const banId = normalizeId(event.banId);
       if (!banId) break;
+      const overlayKey = `result:${banId}`;
+      const previousActiveKind = next.active.kind;
+      const previousActiveBanId = next.active.banId;
+      const previousDisplayResultId = next.display.result?.id ?? null;
+      const previousDirectActive = next.display.directResultOverlayActive;
+      const previousDirectOverlay = next.display.directResultOverlay;
+
       next.queue = next.queue.filter(
         (item) => normalizeId(overlayBanId(item)) !== banId,
       );
       next.pending = next.pending.filter(
         (item) => normalizeId(overlayBanId(item)) !== banId,
       );
+
+      const shownKeys = new Set(next.session.shownOverlayKeys);
+      shownKeys.add(overlayKey);
+      next.session.shownOverlayKeys = shownKeys;
+
+      const closesDisplayedResult =
+        normalizeId(next.display.result?.id ?? '') === banId;
+      const closesDirectLayer =
+        closesDisplayedResult ||
+        next.display.directResultOverlayActive ||
+        next.display.directResultOverlay;
+      if (closesDisplayedResult || closesDirectLayer) {
+        next.display = {
+          ...next.display,
+          result: closesDisplayedResult ? null : next.display.result,
+          directResultOverlay: false,
+          directResultOverlayActive: false,
+        };
+      }
+
+      if (
+        next.active.kind === 'result' &&
+        normalizeId(next.active.banId ?? '') === banId
+      ) {
+        next.active = {
+          kind: null,
+          banId: null,
+          payload: null,
+          source: null,
+        };
+      }
+
       next = syncActiveFromQueueHead(next, 'RESULT_GO_TO_BANS');
+
+      const ownerHead = next.queue[0] ?? null;
+      effects.push({
+        type: 'LOG',
+        tag: 'result-go-to-bans-owner-transition',
+        fields: {
+          banId,
+          overlayKey,
+          previousActiveKind,
+          previousActiveBanId,
+          previousDisplayResultId,
+          previousDirectActive,
+          previousDirectOverlay,
+          nextActiveKind: next.active.kind,
+          nextActiveBanId: next.active.banId,
+          nextDisplayResultId: next.display.result?.id ?? null,
+          nextDirectActive: next.display.directResultOverlayActive,
+          ownerQueueLen: next.queue.length,
+          ownerPendingLen: next.pending.length,
+          ownerQueueHeadKind: ownerHead?.kind ?? null,
+          ownerQueueHeadBanId: ownerHead
+            ? normalizeId(overlayBanId(ownerHead)) || null
+            : null,
+          shownOverlayKeysLen: next.session.shownOverlayKeys.size,
+          displayResultCleared: closesDisplayedResult,
+          directLayerCleared: closesDirectLayer,
+        },
+      });
+      effects.push({
+        type: 'MIRROR_LEGACY_QUEUE',
+        queue: [...next.queue],
+        source: 'RESULT_GO_TO_BANS',
+        silent: false,
+      });
+      effects.push({
+        type: 'MIRROR_LEGACY_PENDING',
+        pending: [...next.pending],
+        source: 'RESULT_GO_TO_BANS',
+      });
       effects.push({ type: 'PREFETCH_CHAIN', skipBanId: banId });
       effects.push({ type: 'APPLY_DISPLAY' });
       break;
