@@ -424,6 +424,8 @@ export function InstantBanFlow({
     clearResultCtaBansOverlayOpen,
     bansCtaQueueSuppress,
     clearBansCtaQueueSuppress,
+    canOpenBansLayerNow,
+    noteBansLayerOpenAllowed,
     bansNavState,
     resetBansNavState,
     bansReturnToLobbyLatch,
@@ -2351,6 +2353,11 @@ export function InstantBanFlow({
     setBansTab(targetTab);
     setSelectedBanForDetails(null);
     setBansOverlayOpen(true);
+    noteBansLayerOpenAllowed(
+      'handleOpenBansOverlay',
+      'lobby-explicit-click-commit',
+      'lobby-explicit',
+    );
   }, [
     activeOverlayKind,
     banSentSuccess,
@@ -2359,6 +2366,7 @@ export function InstantBanFlow({
     ctaState,
     lobbyOpen,
     logQueueSourceComparisonSnapshot,
+    noteBansLayerOpenAllowed,
     notificationChainTransitioning,
     notificationQueueUiLock,
     phase,
@@ -2476,6 +2484,19 @@ export function InstantBanFlow({
   }, [registerResetSendUiForBansNavigation, resetSendUiForBansNavigation]);
 
   const handleOpenBansFromResultCta = useCallback((): boolean => {
+    if (
+      !canOpenBansLayerNow(
+        'handleOpenBansFromResultCta',
+        'result-cta-open',
+        'result-cta-fallback',
+      )
+    ) {
+      console.log('[BANS OVERLAY OPENED]', {
+        ok: false,
+        reason: 'bans-layer-gate-blocked',
+      });
+      return false;
+    }
     if (hasPendingNotificationChain()) {
       console.log('[notification-chain-open-bans-deferred]', {
         source: 'handleOpenBansFromResultCta',
@@ -2523,6 +2544,11 @@ export function InstantBanFlow({
     setBansTab(targetTab);
     setSelectedBanForDetails(null);
     setBansOverlayOpen(true);
+    noteBansLayerOpenAllowed(
+      'handleOpenBansFromResultCta',
+      'result-cta-open-commit',
+      'result-cta-fallback',
+    );
     console.log('[notification-chain-open-bans-final]', {
       source: 'handleOpenBansFromResultCta',
       reason: 'queue-empty',
@@ -2537,7 +2563,9 @@ export function InstantBanFlow({
   }, [
     banSentSuccess,
     bansCtaQueueSuppress,
+    canOpenBansLayerNow,
     hasPendingNotificationChain,
+    noteBansLayerOpenAllowed,
     notificationSessionActive,
     notificationOverlayActive,
     openBansOverlayTabRequest,
@@ -3884,6 +3912,8 @@ export function InstantBanFlow({
   ]);
 
   const beginNewBanWhoFlow = useCallback(() => {
+    clearBansCtaQueueSuppress();
+    clearResultCtaBansOverlayOpen();
     if (hasPendingNotificationChain()) {
       console.log('[success-exit-open-what-blocked]', {
         reason: 'pending-notifications',
@@ -3916,7 +3946,9 @@ export function InstantBanFlow({
     onStartSend();
     setPhase('selectingTarget');
   }, [
+    clearBansCtaQueueSuppress,
     clearCtaExitTimer,
+    clearResultCtaBansOverlayOpen,
     clearWhoPanelEnterTimer,
     flushDeferredSync,
     hasPendingNotificationChain,
