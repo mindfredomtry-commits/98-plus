@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 90;
+export const DEBUG98_LOGGER_VERSION = 91;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -130,6 +130,7 @@ const ALLOWED_EVENTS = new Set([
   '[POST CONSUME EMPTY CHAIN FINALIZED]',
   '[CHAIN BLOCK BYPASSED FOR GO TO BANS]',
   '[DIRECT OVERBOARD ACTIVE RESTORED FOR CHAIN]',
+  '[GO TO BANS RESTORED ACTIVE ADVANCE RETRY]',
   '[DISPLAY COMMIT ENTER]',
   '[DISPLAY COMMIT RETURN]',
   '[DISPLAY COMMIT APPLIED]',
