@@ -553,6 +553,7 @@ import {
   logGoToBansPayloadSwitchTraceClick,
   logNextPayloadSelectionTrace,
   logProvidersResultStaleActiveTrace,
+  logResultVisibleOwnerActiveSync,
 } from '@/lib/go-to-bans-payload-switch-trace';
 import {
   hookGoToBansTraceEnter,
@@ -7429,6 +7430,70 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
     },
     [],
+  );
+
+  const ensureVisibleDirectResultOwnerActiveSync = useCallback(
+    (source: string, resultPayload?: BanResult | null): boolean => {
+      const ownerBefore = ownerShadowRef.current.getState();
+      const visibleResult =
+        resultPayload ??
+        resultRef.current ??
+        ownerBefore.display.result ??
+        (directResultOverlayActiveRef.current ? result : null);
+      const resultBanId = normalizeId(visibleResult?.id ?? '');
+      if (!resultBanId) return false;
+
+      const isDirectVisible =
+        directResultOverlayActiveRef.current ||
+        directResultOverlayRef.current ||
+        showDirectOverboardLayerRef.current ||
+        ownerBefore.display.directResultOverlayActive ||
+        ownerBefore.display.directResultOverlay;
+      if (!isDirectVisible) return false;
+
+      const activeBanId = normalizeId(ownerBefore.active.banId ?? '');
+      const displayResultBanId = normalizeId(
+        ownerBefore.display.result?.id ?? '',
+      );
+      const alreadyAligned =
+        ownerBefore.active.kind === 'result' &&
+        activeBanId === resultBanId &&
+        displayResultBanId === resultBanId &&
+        ownerBefore.display.directResultOverlayActive &&
+        ownerBefore.display.directResultOverlay;
+      if (alreadyAligned) return false;
+
+      const previousActiveKind = ownerBefore.active.kind;
+      const previousActiveBanId = ownerBefore.active.banId;
+
+      commitSyncDisplayActivePayload(
+        {
+          result: visibleResult,
+          checkBan: null,
+          incomingBan: null,
+          stableIncomingBan: null,
+          directResultOverlay: true,
+          directResultOverlayActive: true,
+        },
+        `${source}:visible-direct-result-sync`,
+      );
+
+      const ownerAfter = ownerShadowRef.current.getState();
+      const displayAfter = resolveOwnerDisplayKindBanId(ownerAfter.display);
+      logResultVisibleOwnerActiveSync({
+        previousActiveKind,
+        previousActiveBanId,
+        resultKind: 'result',
+        resultBanId: visibleResult!.id,
+        resultId: visibleResult!.id,
+        ownerDisplayKindAfter: displayAfter.displayKind,
+        ownerActiveKindAfter: ownerAfter.active.kind,
+        reason: 'visible-direct-result-sync-before-go-to-bans',
+        source,
+      });
+      return true;
+    },
+    [commitSyncDisplayActivePayload, result],
   );
 
   const logTransitionFromRefs = (
@@ -17061,6 +17126,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       commitDirectOverboardLayerRefs(banId, true);
       resultRef.current = normalized;
 
+      ensureVisibleDirectResultOwnerActiveSync(
+        'forceOpenOverboardResult',
+        normalized,
+      );
+
       logForceOverboard('state-written', {
         banId,
         resultBanId: normalized.id,
@@ -17139,6 +17209,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearDirectOverboardLayerRefs,
       closeSendFlow,
       commitDirectOverboardLayerRefs,
+      ensureVisibleDirectResultOwnerActiveSync,
       readDirectOverboardSnapshot,
       snapshotDirectOverboardGate,
     ],
@@ -27118,6 +27189,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       (heldUserCardOverlayRef.current?.kind === 'result'
         ? heldUserCardOverlayRef.current.result.id
         : null);
+    ensureVisibleDirectResultOwnerActiveSync('navigateFromResult:entry');
     const queueLenBefore = overlayQueueRef.current.length;
     const pendingLenBefore = pendingStartupInteractionsRef.current.length;
     const resultOutcome = resolveOverboardResultOutcome(
@@ -27991,6 +28063,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     snapshotPendingNotificationChain,
     directResultOverlayActive,
     clearStaleComposeStateBeforeBansNavigation,
+    ensureVisibleDirectResultOwnerActiveSync,
     finalizeResultForGoToBans,
     logCardCloseClick,
     markOverlayUserAction,

@@ -184,7 +184,21 @@ export function logProvidersResultStaleActiveTrace(
   emit('PROVIDERS_RESULT_STALE_ACTIVE_TRACE', data);
 }
 
-export function logNextPayloadSelectionFromOwnerSync(
+export function logResultVisibleOwnerActiveSync(
+  data: {
+    previousActiveKind: string | null;
+    previousActiveBanId: string | null;
+    resultKind: string;
+    resultBanId: string;
+    resultId: string;
+    ownerDisplayKindAfter: string | null;
+    ownerActiveKindAfter: string | null;
+    reason: 'visible-direct-result-sync-before-go-to-bans';
+  } & Record<string, unknown>,
+): void {
+  emit('RESULT_VISIBLE_OWNER_ACTIVE_SYNC', data);
+}
+
   previousState: {
     active: { kind: string | null; banId: string | null };
     queue: QueuedOverlay[];
