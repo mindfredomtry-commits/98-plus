@@ -563,6 +563,7 @@ import {
   logResultGoToBansOpenBansSection,
   logResultGoToBansRemainingQueue,
   logResultGoToBansShowNext,
+  logGoToBansEmptyRuntimeDeferredToAsyncContinue,
 } from '@/lib/result-go-to-bans-debug';
 import {
   buildGoToBansPayloadSwitchTraceSnapshot,
@@ -27838,43 +27839,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         remainingLen === 0 &&
         pendingLen === 0
       ) {
-        window.__debug98log?.('[POST CONSUME EMPTY CHAIN FINALIZED]', {
-          reason: 'queueLen-and-pendingLen-both-zero-after-prune',
-          banId: key,
-          resultId: key,
-          queueLen: remainingLen,
-          pendingLen,
-          remainingLen,
+        const ownerAtDefer = ownerShadowRef.current.getState();
+        logGoToBansEmptyRuntimeDeferredToAsyncContinue({
+          source: 'finalizeResultForGoToBans',
+          runtimeQueueLen: remainingLen,
+          runtimePendingLen: pendingLen,
+          ownerQueueLen: ownerAtDefer.queue.length,
+          ownerPendingLen: ownerAtDefer.pending.length,
+          activeKind: ownerAtDefer.active.kind,
+          displayKind: resolveBansLayerOwnerDisplayKind(ownerAtDefer.display),
         });
-        logBansSectionAutoOpenRemovedPath({
-          source: 'finalizeResultForGoToBans:empty-chain-open-bans',
-          oldFallback: 'bans-section',
-          newFallback: 'lobby',
-          queueLen: remainingLen,
-          pendingLen,
-          activeKind: ownerBefore.active.kind,
-          displayKind: resolveBansLayerOwnerDisplayKind(ownerBefore.display),
-        });
-        goToBansAdvancePendingRef.current = false;
-        goToBansClosingBanIdRef.current = null;
-        setChainAdvanceWaiting(false);
-        setNotificationChainTransitioning(false);
-        notificationChainAwaitingUserRef.current = false;
-        notificationChainHandoffRef.current = false;
-        overlayQueueDrainActiveRef.current = false;
-        mirrorOwnerSessionFlagsRef.current(
-          'finalizeResultForGoToBans:empty-chain-finalized',
-          {
-            goToBansAdvancePending: false,
-            drainActive: false,
-            chainHandoff: false,
-          },
-        );
-        mirrorOwnerChainSessionGatesRef.current(
-          'finalizeResultForGoToBans:empty-chain-finalized',
-          { awaitingUser: false },
-        );
-        openLobbyRef.current('finalizeResultForGoToBans:empty-chain-open-lobby');
+        setNotificationChainTransitioning(true);
       }
 
       const ownerAfter = ownerShadowRef.current.getState();
@@ -33618,6 +33593,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   useLayoutEffect(() => {
     if (!notificationChainTransitioningRef.current) return;
     if (isActiveUserCardHold()) return;
+    if (goToBansAdvancePendingRef.current) return;
     const head = overlayQueueRef.current[0];
     if (!head) {
       setNotificationChainTransitioning(false);

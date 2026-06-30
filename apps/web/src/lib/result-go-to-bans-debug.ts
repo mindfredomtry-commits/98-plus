@@ -37,3 +37,9 @@ export function logResultGoToBansEmptyScreenBug(
 ): void {
   emit('[RESULT GO_TO_BANS EMPTY SCREEN BUG]', data);
 }
+
+export function logGoToBansEmptyRuntimeDeferredToAsyncContinue(
+  data: Record<string, unknown>,
+): void {
+  emit('GO_TO_BANS_EMPTY_RUNTIME_DEFERRED_TO_ASYNC_CONTINUE', data);
+}
