@@ -28786,8 +28786,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const legacyShowDirectOverboardLayerForCompare =
     directResultOverlayActive && displayResult != null && !sendSuccessCardActive;
+  const goToBansChainKeepsDirectLayerActive =
+    (notificationChainTransitioning ||
+      chainAdvanceWaiting ||
+      goToBansAdvancePendingRef.current) &&
+    (ownerPrimaryQueueLen > 0 || ownerPrimaryPendingLen > 0);
+  const hasShowableChainTransitionPayload =
+    ownerPrimaryDisplayResultForShell != null ||
+    ownerPrimaryCheckBan != null ||
+    ownerPrimaryIncomingBan != null ||
+    ownerPrimaryStableIncomingBan != null;
+  const ownerPrimaryDirectResultOverlayActiveForRender =
+    ownerPrimaryDirectResultOverlayActive ||
+    (goToBansChainKeepsDirectLayerActive && hasShowableChainTransitionPayload);
   const showDirectOverboardLayer =
-    ownerPrimaryDirectResultOverlayActive &&
+    ownerPrimaryDirectResultOverlayActiveForRender &&
     ownerPrimaryDisplayResultForShell != null &&
     !sendSuccessCardActive;
   if (legacyShowDirectOverboardLayerForCompare !== showDirectOverboardLayer) {
@@ -28797,11 +28810,60 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       legacyWouldRender: legacyShowDirectOverboardLayerForCompare,
       ownerRender: showDirectOverboardLayer,
       legacyDirectActive: directResultOverlayActive,
-      ownerDirectActive: ownerPrimaryDirectResultOverlayActive,
+      ownerDirectActive: ownerPrimaryDirectResultOverlayActiveForRender,
       legacyDisplayResultBanId: displayResult?.id ?? null,
       ownerDisplayResultBanId: ownerPrimaryDisplayResultForShell?.id ?? null,
     });
   }
+
+  useLayoutEffect(() => {
+    if (
+      !ownerPrimaryDirectResultOverlayActive &&
+      goToBansChainKeepsDirectLayerActive &&
+      hasShowableChainTransitionPayload
+    ) {
+      const activeKind =
+        ownerPrimaryDisplayResultForShell != null
+          ? 'result'
+          : ownerPrimaryCheckBan != null
+            ? 'check'
+            : ownerPrimaryIncomingBan != null ||
+                ownerPrimaryStableIncomingBan != null
+              ? 'incoming'
+              : ownerReadState.active.kind;
+      const activeBanId =
+        ownerPrimaryDisplayResultForShell?.id ??
+        ownerPrimaryCheckBan?.id ??
+        ownerPrimaryIncomingBan?.id ??
+        ownerPrimaryStableIncomingBan?.id ??
+        ownerReadState.active.banId;
+      window.__debug98log?.('[DIRECT OVERBOARD ACTIVE RESTORED FOR CHAIN]', {
+        activeKind,
+        activeBanId,
+        queueLen: ownerPrimaryQueueLen,
+        pendingLen: ownerPrimaryPendingLen,
+        hasResult: ownerPrimaryDisplayResultForShell != null,
+        showable: ownerPrimaryDisplayResultForShell != null,
+        contentOnly: false,
+        embedded: true,
+        sourceFunction: 'Providers.showDirectOverboardLayer',
+      });
+    }
+  }, [
+    chainAdvanceWaiting,
+    goToBansChainKeepsDirectLayerActive,
+    hasShowableChainTransitionPayload,
+    notificationChainTransitioning,
+    ownerPrimaryCheckBan?.id,
+    ownerPrimaryDisplayResultForShell,
+    ownerPrimaryDirectResultOverlayActive,
+    ownerPrimaryIncomingBan?.id,
+    ownerPrimaryPendingLen,
+    ownerPrimaryQueueLen,
+    ownerPrimaryStableIncomingBan?.id,
+    ownerReadState.active.banId,
+    ownerReadState.active.kind,
+  ]);
 
   useLayoutEffect(() => {
     directResultOverlayActiveRef.current = directResultOverlayActive;
@@ -33352,8 +33414,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         {(() => {
           const directOverboardRenderResult = ownerPrimaryDisplayResultForShell;
           const directJsxFields = {
-            active: ownerPrimaryDirectResultOverlayActive,
-            ownerDirectActive: ownerPrimaryDirectResultOverlayActive,
+            active: ownerPrimaryDirectResultOverlayActiveForRender,
+            ownerDirectActive: ownerPrimaryDirectResultOverlayActiveForRender,
             hasResult: directOverboardRenderResult != null,
             resultBanId: directOverboardRenderResult?.id ?? null,
             ownerResultBanId: ownerPrimaryResult?.id ?? null,
