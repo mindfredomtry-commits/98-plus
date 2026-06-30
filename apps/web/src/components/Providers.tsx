@@ -21901,6 +21901,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearStaleUserCardHoldForNextHead(nextHead, source);
       flushSync(() => {
         const popFlushSync = pushHeadSwitchPipelineFrame('showNextFlushSync');
+        let deferIncomingDisplaySync = false;
         try {
         if (
           isPendingAtomicOverboardResultAwaitingDismiss(
@@ -21943,7 +21944,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         sanitizeNotificationChainQueues(source);
 
         const headAfterMerge = overlayQueueRef.current[0];
-        let deferIncomingDisplaySync = false;
 
         if (headAfterMerge?.kind === 'incoming') {
           const incomingBanId = headAfterMerge.ban.id;
