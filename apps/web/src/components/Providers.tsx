@@ -3381,7 +3381,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     source.includes('overboard-status') ||
     source.includes('navigateFromResult') ||
     source.includes('go-to-bans') ||
+    source.includes('result-go-to-bans') ||
     source.includes('finalizeResultForGoToBans');
+  const emitGoToBansOpenBansBlockedQueueExists = (fields: {
+    source: string;
+    banId: string | null;
+    resultId: string | null;
+    queueLen: number;
+    pendingLen: number;
+    chosenBranch: string;
+    replacementBranch: string;
+    activeKind: string | null;
+    activeBanId: string | null;
+  }) => {
+    window.__debug98log?.('[GO TO BANS OPEN BANS BLOCKED QUEUE EXISTS]', fields);
+  };
   const tryBypassWaitingResultHoldForGoToBans = (
     source: string,
     sourceFunction: string,
@@ -23315,8 +23329,39 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       const hasLocalItems =
         collected.finalQueueLen > 0 || collected.finalPendingLen > 0;
+      const runtimeQueueLen = overlayQueueRef.current.length;
+      const runtimePendingLen = pendingStartupInteractionsRef.current.length;
+      const goToBansQueueExistsContinueRedirect =
+        !hasLocalItems &&
+        isResultGoToBansContinueSource(source) &&
+        !source.includes('go-to-bans-queue-exists-continue') &&
+        (runtimeQueueLen > 0 || runtimePendingLen > 0);
+      if (goToBansQueueExistsContinueRedirect) {
+        const ownerActive = ownerShadowRef.current.getState().active;
+        emitGoToBansOpenBansBlockedQueueExists({
+          source,
+          banId:
+            opts?.openBansBanId ??
+            goToBansClosingBanIdRef.current ??
+            getPostConsumeTraceBanId() ??
+            null,
+          resultId:
+            goToBansClosingBanIdRef.current ??
+            opts?.openBansBanId ??
+            getPostConsumeTraceBanId() ??
+            null,
+          queueLen: runtimeQueueLen,
+          pendingLen: runtimePendingLen,
+          chosenBranch: 'open-bans-or-empty-finalize',
+          replacementBranch: 'continueNotificationChain-sync-hasLocalItems',
+          activeKind: ownerActive.kind,
+          activeBanId: ownerActive.banId,
+        });
+      }
+      const effectiveHasLocalItems =
+        hasLocalItems || goToBansQueueExistsContinueRedirect;
 
-      if (!hasLocalItems) {
+      if (!effectiveHasLocalItems) {
         emitPostConsumeShowNextDecision({
           source,
           conditionInputs: {
@@ -23360,7 +23405,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
       }
 
-      if (hasLocalItems) {
+      if (effectiveHasLocalItems) {
         if (isResultGoToBansContinueSource(source)) {
           clearGoToBansHoldBeforeNextCard(
             opts?.prefetchSkipBanId ??
@@ -23779,6 +23824,43 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         pendingLen: collected.pendingLen,
       });
 
+      const runtimeQueueLen = overlayQueueRef.current.length;
+      const runtimePendingLen = pendingStartupInteractionsRef.current.length;
+      if (
+        isResultGoToBansContinueSource(source) &&
+        !source.includes('go-to-bans-queue-exists-continue') &&
+        (runtimeQueueLen > 0 || runtimePendingLen > 0)
+      ) {
+        const ownerActive = ownerShadowRef.current.getState().active;
+        const emptyFallbackPreview = opts?.emptyFallback ?? 'lobby';
+        const chosenBranch =
+          emptyFallbackPreview === 'bans-section'
+            ? 'open-bans'
+            : emptyFallbackPreview === 'none'
+              ? 'blocked'
+              : 'open-lobby';
+        emitGoToBansOpenBansBlockedQueueExists({
+          source,
+          banId: opts?.openBansBanId ?? null,
+          resultId:
+            goToBansClosingBanIdRef.current ?? opts?.openBansBanId ?? null,
+          queueLen: runtimeQueueLen,
+          pendingLen: runtimePendingLen,
+          chosenBranch,
+          replacementBranch: 'continueNotificationChain-sync',
+          activeKind: ownerActive.kind,
+          activeBanId: ownerActive.banId,
+        });
+        return continueNotificationChainOrOpenLobbySync(
+          `${source}:go-to-bans-queue-exists-continue`,
+          {
+            ...opts,
+            emptyFallback: 'none',
+            prefetchIfEmpty: false,
+          },
+        );
+      }
+
       const emptyFallback = opts?.emptyFallback ?? 'lobby';
       let outcome: ContinueNotificationChainOutcome = 'open-lobby';
       let openLobbyCalled = false;
@@ -23878,6 +23960,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [
       buildChainEmptyFinalizeSnapshot,
+      continueNotificationChainOrOpenLobbySync,
       logChainEmptyFinalizeWithDiag,
       setChainAdvanceWaiting,
       setCheckAnswerWaitingResultHold,
@@ -25225,7 +25308,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (banId: string | null, targetTab: BansOverlayTabTarget = 'yours') => {
       allowDeeplinkExplicitNotificationDrain('armOpenBansOverlayFromResultCta');
       const chainSnapshot = getNotificationChainDebugSnapshot();
-      if (hasPendingNotificationChain()) {
+      const runtimeQueueLen = overlayQueueRef.current.length;
+      const runtimePendingLen = pendingStartupInteractionsRef.current.length;
+      const hasRuntimeQueue = runtimeQueueLen > 0 || runtimePendingLen > 0;
+      const isGoToBansOpenContext =
+        goToBansAdvancePendingRef.current ||
+        goToBansClosingBanIdRef.current != null ||
+        chainAdvanceWaitingRef.current ||
+        notificationChainTransitioningRef.current;
+      if (hasPendingNotificationChain() || (isGoToBansOpenContext && hasRuntimeQueue)) {
+        if (isGoToBansOpenContext && hasRuntimeQueue && !hasPendingNotificationChain()) {
+          const ownerActive = ownerShadowRef.current.getState().active;
+          emitGoToBansOpenBansBlockedQueueExists({
+            source: 'armOpenBansOverlayFromResultCta',
+            banId,
+            resultId: goToBansClosingBanIdRef.current ?? banId,
+            queueLen: runtimeQueueLen,
+            pendingLen: runtimePendingLen,
+            chosenBranch: 'open-bans',
+            replacementBranch: 'continueNotificationChain',
+            activeKind: ownerActive.kind,
+            activeBanId: ownerActive.banId,
+          });
+        }
         console.log('[chain-debug-bans-open-called]', {
           source: 'armOpenBansOverlayFromResultCta',
           reason: 'chain-active',
@@ -25245,6 +25350,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           return;
         }
         syncDisplayFromQueue(overlayQueueRef.current);
+        if (isGoToBansOpenContext && hasRuntimeQueue) {
+          void continueNotificationChainOrOpenLobbyRef.current(
+            'go-to-bans:arm-open-bans-blocked-queue-exists',
+            {
+              emptyFallback: 'none',
+              prefetchIfEmpty: false,
+              openBansBanId: banId,
+            },
+          );
+        }
         return;
       }
 
