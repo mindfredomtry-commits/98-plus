@@ -468,6 +468,7 @@ export function InstantBanFlow({
     logPostSuccessReleaseStartupResult,
     logReplyQueueHandoffDiag,
     logQueueSourceComparisonSnapshot,
+    logLobbyBansClickDecisionDiag,
     markSessionBanSendSuccess,
     setSendSuccessCardMounted,
     resolveReplyParentActiveBanImmediate,
@@ -2321,6 +2322,12 @@ export function InstantBanFlow({
     logQueueSourceComparisonSnapshot('lobby-bans-cta-click');
 
     if (!willCallDrain) {
+      logLobbyBansClickDecisionDiag({
+        source: 'handleOpenBansOverlay',
+        decision: 'ignored',
+        reason: blockedReason ?? 'unknown',
+        indicatorVisible: lobbyBansNeedAttention,
+      });
       logLobbyBansDrainNotEntered({
         reason: blockedReason ?? 'unknown',
         telegramUserId: user?.id ?? null,
@@ -2331,6 +2338,12 @@ export function InstantBanFlow({
 
     clearActiveBanDeepLinkShell('lobby-bans-button');
     closeSendFlow();
+    logLobbyBansClickDecisionDiag({
+      source: 'handleOpenBansOverlay',
+      decision: 'start-chain',
+      reason: 'calling-startLobbyBansNotificationDrain',
+      indicatorVisible: lobbyBansNeedAttention,
+    });
     const outcome = await startLobbyBansNotificationDrain();
     if (outcome !== 'empty') {
       logLobbyBansCtaEmptyDelayDiag({
@@ -2366,6 +2379,7 @@ export function InstantBanFlow({
     ctaState,
     lobbyOpen,
     logQueueSourceComparisonSnapshot,
+    logLobbyBansClickDecisionDiag,
     noteBansLayerOpenAllowed,
     notificationChainTransitioning,
     notificationQueueUiLock,
