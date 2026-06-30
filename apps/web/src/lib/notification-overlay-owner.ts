@@ -775,6 +775,63 @@ function syncActiveFromQueueHead(
   return next;
 }
 
+function resolveOwnerDisplayKindForLog(
+  display: NotificationOwnerDisplayState,
+): string | null {
+  if (display.directResultOverlayActive || display.directResultOverlay) {
+    return 'result-direct';
+  }
+  if (display.result?.id) return 'result';
+  if (display.checkBan?.id) return 'check';
+  if (display.incomingBan?.id) return 'incoming';
+  return null;
+}
+
+function applyOwnerDisplayFromQueueHead(
+  state: NotificationOverlayOwnerState,
+): NotificationOverlayOwnerState {
+  const head = state.queue[0];
+  if (!head) {
+    return state;
+  }
+  const clearedDisplay: NotificationOwnerDisplayState = {
+    ...state.display,
+    directResultOverlay: false,
+    directResultOverlayActive: false,
+    incomingBan: null,
+    stableIncomingBan: null,
+    replyIncomingBan: null,
+    scopedIncomingBan: null,
+    checkBan: null,
+    result: null,
+  };
+  if (head.kind === 'result') {
+    return {
+      ...state,
+      display: {
+        ...clearedDisplay,
+        result: head.result,
+      },
+    };
+  }
+  if (head.kind === 'check') {
+    return {
+      ...state,
+      display: {
+        ...clearedDisplay,
+        checkBan: head.ban,
+      },
+    };
+  }
+  return {
+    ...state,
+    display: {
+      ...clearedDisplay,
+      incomingBan: head.ban,
+    },
+  };
+}
+
 function popQueueHeadForBan(
   queue: QueuedOverlay[],
   banId?: string | null,
@@ -1504,6 +1561,7 @@ export function notificationOverlayOwnerReducer(
       const banId = normalizeId(event.banId);
       if (!banId) break;
       const overlayKey = `result:${banId}`;
+      const queueLenBefore = next.queue.length;
       const previousActiveKind = next.active.kind;
       const previousActiveBanId = next.active.banId;
       const previousDisplayResultId = next.display.result?.id ?? null;
@@ -1550,7 +1608,29 @@ export function notificationOverlayOwnerReducer(
 
       next = syncActiveFromQueueHead(next, 'RESULT_GO_TO_BANS');
 
+      const queueLenAfter = next.queue.length;
+      const pendingLenAfter = next.pending.length;
       const ownerHead = next.queue[0] ?? null;
+      const hasNextOverlayHead = ownerHead != null;
+      if (hasNextOverlayHead) {
+        next = applyOwnerDisplayFromQueueHead(next);
+      }
+      const showedBansLayer =
+        !hasNextOverlayHead && queueLenAfter === 0 && pendingLenAfter === 0;
+      effects.push({
+        type: 'LOG',
+        tag: 'go-to-bans-next-overlay-atomic-commit',
+        fields: {
+          consumedResultKey: overlayKey,
+          nextKey: ownerHead ? overlayQueueKey(ownerHead) : null,
+          nextKind: ownerHead?.kind ?? null,
+          queueLenBefore,
+          queueLenAfter,
+          displayKindAfter: resolveOwnerDisplayKindForLog(next.display),
+          activeKindAfter: next.active.kind,
+          showedBansLayer,
+        },
+      });
       effects.push({
         type: 'LOG',
         tag: 'result-go-to-bans-owner-transition',

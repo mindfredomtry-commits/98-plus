@@ -31,7 +31,10 @@ import {
   type OwnerStateWriteDetectHandle,
 } from '@/lib/owner-direct-write-detect-debug';
 import { traceGoToBansOwnerDisplayWriteLazy } from '@/lib/browser-go-to-bans-next-card-debug';
-import { logResultGoToBansOwnerTransition } from '@/lib/go-to-bans-payload-switch-trace';
+import {
+  logGoToBansNextOverlayAtomicCommit,
+  logResultGoToBansOwnerTransition,
+} from '@/lib/go-to-bans-payload-switch-trace';
 
 const QUEUE_AUTHORITY_EVENT_TYPES = new Set<NotificationOverlayOwnerEvent['type']>([
   'QUEUE_APPLIED',
@@ -296,6 +299,14 @@ export function createNotificationOverlayOwnerShadow(
       }
       if (effect.type === 'LOG' && effect.tag === 'result-go-to-bans-owner-transition') {
         logResultGoToBansOwnerTransition(effect.fields);
+      }
+      if (
+        effect.type === 'LOG' &&
+        effect.tag === 'go-to-bans-next-overlay-atomic-commit'
+      ) {
+        logGoToBansNextOverlayAtomicCommit(
+          effect.fields as Parameters<typeof logGoToBansNextOverlayAtomicCommit>[0],
+        );
       }
     }
   };

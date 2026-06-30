@@ -205,6 +205,21 @@ export function logResultGoToBansOwnerTransition(
   emit('RESULT_GO_TO_BANS_OWNER_TRANSITION', data);
 }
 
+export function logGoToBansNextOverlayAtomicCommit(
+  data: {
+    consumedResultKey: string;
+    nextKey: string | null;
+    nextKind: string | null;
+    queueLenBefore: number;
+    queueLenAfter: number;
+    displayKindAfter: string | null;
+    activeKindAfter: string | null;
+    showedBansLayer: boolean;
+  } & Record<string, unknown>,
+): void {
+  emit('GO_TO_BANS_NEXT_OVERLAY_ATOMIC_COMMIT', data);
+}
+
 export function logResultReopenBlockedByOwnerConsumed(
   data: Record<string, unknown>,
 ): void {
