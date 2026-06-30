@@ -856,6 +856,15 @@ import {
   summarizeDisplayPatch,
 } from '@/lib/show-next-display-commit-trace-debug';
 import {
+  emitGoToBansClickEnter,
+  emitGoToBansDismissResult,
+  emitGoToBansDismissStart,
+  emitGoToBansShouldShowNext,
+  emitGoToBansShowNextCalled,
+  emitGoToBansShowNextNotCalled,
+  isGoToBansDismissTraceReason,
+} from '@/lib/go-to-bans-click-dismiss-trace-debug';
+import {
   computeWillBlockBecauseActiveHold,
   getHeadSwitchPipelineStack,
   logChainHeadSwitchTraceExtended,
@@ -3373,6 +3382,44 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     source.includes('navigateFromResult') ||
     source.includes('go-to-bans') ||
     source.includes('finalizeResultForGoToBans');
+  const buildGoToBansClickDismissDiag = (
+    sourceFunction: string,
+    fields?: {
+      banId?: string | null;
+      resultId?: string | null;
+      overlayKey?: string | null;
+      dismissReason?: string | null;
+    },
+  ) => {
+    const owner = ownerShadowRef.current.getState();
+    const banId =
+      fields?.banId ??
+      fields?.resultId ??
+      resultRef.current?.id ??
+      result?.id ??
+      null;
+    const norm = banId ? normalizeId(banId) : '';
+    return {
+      banId,
+      resultId: fields?.resultId ?? banId,
+      overlayKey:
+        fields?.overlayKey ?? (norm.length > 0 ? `result:${norm}` : null),
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      activeKind: owner.active.kind,
+      activeBanId: owner.active.banId,
+      resultOpen: resultOpenRef.current,
+      dismissReason: fields?.dismissReason ?? null,
+      sourceFunction,
+    };
+  };
+  const isGoToBansDismissTraceActive = (
+    reason: string,
+    dismissReason?: string | null,
+  ): boolean =>
+    goToBansAdvancePendingRef.current ||
+    isGoToBansDismissTraceReason(reason) ||
+    dismissReason === 'go-to-bans';
   const buildOwnerQueuePendingSnapshot = (ownerState: {
     queue: QueuedOverlay[];
     pending: QueuedOverlay[];
@@ -9971,6 +10018,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           : prevHead?.kind === 'incoming' || prevHead?.kind === 'check'
             ? prevHead.ban.id
             : null;
+      const goToBansTrace = isGoToBansDismissTraceActive(reason);
+      if (goToBansTrace) {
+        emitGoToBansDismissStart(
+          buildGoToBansClickDismissDiag('dismissCurrentOverlay', {
+            banId: dismissBanId,
+            resultId: dismissKind === 'result' ? dismissBanId : null,
+            overlayKey:
+              dismissKind && dismissBanId
+                ? `${dismissKind}:${normalizeId(dismissBanId)}`
+                : null,
+            dismissReason: reason,
+          }),
+        );
+      }
       const atomicBanId = readOwnerImperativeAtomicOverboardBanId(
         owner,
         'dismissCurrentOverlay',
@@ -9990,6 +10051,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId: atomicBanId,
           source: `dismissCurrentOverlay-blocked:${reason}`,
         });
+        if (goToBansTrace) {
+          emitGoToBansDismissResult({
+            ...buildGoToBansClickDismissDiag('dismissCurrentOverlay', {
+              banId: dismissBanId,
+              dismissReason: reason,
+            }),
+            blocked: true,
+            blockReason: 'atomic-overboard-dismiss-blocked',
+          });
+          emitGoToBansShowNextNotCalled({
+            ...buildGoToBansClickDismissDiag('dismissCurrentOverlay', {
+              banId: dismissBanId,
+              dismissReason: reason,
+            }),
+            reason: 'atomic-overboard-dismiss-blocked',
+          });
+        }
         return;
       }
       logTransitionFromRefs('[DISMISS START]', {
@@ -10018,6 +10096,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source: `dismissCurrentOverlay:${reason}`,
         });
         restoreHeldUserCardOverlay(`dismissCurrentOverlay-blocked:${reason}`);
+        if (goToBansTrace) {
+          emitGoToBansDismissResult({
+            ...buildGoToBansClickDismissDiag('dismissCurrentOverlay', {
+              banId: dismissBanId,
+              dismissReason: reason,
+            }),
+            blocked: true,
+            blockReason: 'active-user-card-hold-blocks-dismiss',
+          });
+          emitGoToBansShowNextNotCalled({
+            ...buildGoToBansClickDismissDiag('dismissCurrentOverlay', {
+              banId: dismissBanId,
+              dismissReason: reason,
+            }),
+            reason: 'active-user-card-hold-blocks-dismiss',
+          });
+        }
         return;
       }
       const ownerCheckBan = readOwnerImperativeCheckBan(owner.display, 'dismissCurrentOverlay', {
@@ -10028,6 +10123,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         prevHead.ban.id === ownerCheckBan?.id &&
         shouldBlockActiveCheckOverlayAutoClose('dismissCurrentOverlay', reason)
       ) {
+        if (goToBansTrace) {
+          emitGoToBansDismissResult({
+            ...buildGoToBansClickDismissDiag('dismissCurrentOverlay', {
+              banId: dismissBanId,
+              dismissReason: reason,
+            }),
+            blocked: true,
+            blockReason: 'check-overlay-auto-close-blocked',
+          });
+          emitGoToBansShowNextNotCalled({
+            ...buildGoToBansClickDismissDiag('dismissCurrentOverlay', {
+              banId: dismissBanId,
+              dismissReason: reason,
+            }),
+            reason: 'check-overlay-auto-close-blocked',
+          });
+        }
         return;
       }
       const remaining = nextQueue ?? popOverlayHead(prev);
@@ -10478,6 +10590,64 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         logTransitionFromRefs('[DISMISS COMMIT DONE]', {
           source: reason,
         });
+        if (goToBansTrace) {
+          const checkAnswerOwnsContinue =
+            checkAnswerDismissChainOwnedRef.current &&
+            isUserAllowedCheckOverlayCloseReason(reason);
+          const willScheduleContinue =
+            userChainAdvance &&
+            ((remaining.length > 0 && !checkAnswerOwnsContinue) ||
+              (remaining.length === 0 &&
+                !isActiveUserCardHold() &&
+                !checkAnswerOwnsContinue) ||
+              (remaining.length === 0 &&
+                bansReturnToLobbyLatchRef.current &&
+                !checkAnswerOwnsContinue));
+          emitGoToBansShouldShowNext({
+            ...buildGoToBansClickDismissDiag('dismissCurrentOverlay', {
+              banId: dismissBanId,
+              dismissReason: reason,
+            }),
+            userChainAdvance,
+            remainingLen: remaining.length,
+            willScheduleContinue,
+            checkAnswerOwnsContinue,
+          });
+          if (willScheduleContinue) {
+            emitGoToBansShowNextCalled({
+              ...buildGoToBansClickDismissDiag('dismissCurrentOverlay', {
+                banId: dismissBanId,
+                dismissReason: reason,
+              }),
+              via: 'continueNotificationChain-scheduled',
+            });
+          } else {
+            emitGoToBansShowNextNotCalled({
+              ...buildGoToBansClickDismissDiag('dismissCurrentOverlay', {
+                banId: dismissBanId,
+                dismissReason: reason,
+              }),
+              reason: userChainAdvance
+                ? checkAnswerOwnsContinue
+                  ? 'checkAnswerOwnsContinue'
+                  : remaining.length === 0
+                    ? 'remaining-empty-no-continue-scheduled'
+                    : 'userChainAdvance-without-continue'
+                : 'prepareUserAnswerChainAdvance-returned-false',
+              userChainAdvance,
+              remainingLen: remaining.length,
+            });
+          }
+          emitGoToBansDismissResult({
+            ...buildGoToBansClickDismissDiag('dismissCurrentOverlay', {
+              banId: dismissBanId,
+              dismissReason: reason,
+            }),
+            committed: true,
+            userChainAdvance,
+            remainingLen: remaining.length,
+          });
+        }
         runPhase12ParityCheck('dismissCurrentOverlay', `dismiss:${reason}`);
       };
 
@@ -26011,6 +26181,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         removeOverlayCalled: false,
         ...buildOwnerQueuePendingSnapshot(ownerBefore),
       });
+      emitGoToBansDismissStart(
+        buildGoToBansClickDismissDiag('finalizeResultForGoToBans', {
+          banId: key,
+          resultId: key,
+          overlayKey,
+          dismissReason: 'go-to-bans',
+        }),
+      );
       if (isQueueOverboardResultDismiss) {
         freshOverboardActionBanIdsRef.current.delete(key);
         freshFinalStatusBanIdsRef.current.delete(key);
@@ -26325,6 +26503,37 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       const hasNextInChain = remainingLen > 0 || pendingLen > 0;
+      emitGoToBansShouldShowNext({
+        ...buildGoToBansClickDismissDiag('finalizeResultForGoToBans', {
+          banId: key,
+          resultId: key,
+          overlayKey,
+          dismissReason: 'go-to-bans',
+        }),
+        hasNextInChain,
+        remainingLen,
+        pendingLen,
+        inActiveOverboardQueue,
+        willCallShowNextInFinalize: false,
+        deferToContinueNotificationChain: hasNextInChain,
+      });
+      emitGoToBansShowNextNotCalled({
+        ...buildGoToBansClickDismissDiag('finalizeResultForGoToBans', {
+          banId: key,
+          resultId: key,
+          overlayKey,
+          dismissReason: 'go-to-bans',
+        }),
+        reason: hasNextInChain
+          ? 'finalize-defers-show-next-to-continueNotificationChain'
+          : inActiveOverboardQueue
+            ? 'hasNextInChain-false-inActiveOverboardQueue'
+            : 'queueLen-and-pendingLen-both-zero-after-prune',
+        hasNextInChain,
+        remainingLen,
+        pendingLen,
+        inActiveOverboardQueue,
+      });
       emitPostConsumeShowNextDecision({
         source: 'finalizeResultForGoToBans:after-prune',
         conditionInputs: {
@@ -26494,6 +26703,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
       }
 
+      emitGoToBansDismissResult({
+        ...buildGoToBansClickDismissDiag('finalizeResultForGoToBans', {
+          banId: key,
+          resultId: key,
+          overlayKey,
+          dismissReason: 'go-to-bans',
+        }),
+        markConsumedCalled,
+        removeOverlayCalled,
+        hasNextInChain,
+        remainingLen,
+        pendingLen,
+        inActiveOverboardQueue,
+        outcome: outcome ?? null,
+      });
+
       lastProcessedOverlayKindForBansRef.current = 'result';
       runPhase12ParityCheck('finalizeResultForGoToBans', 'go-to-bans');
       finTrace('[FINALIZE GO TO BANS RETURN]', 'finalizeResultForGoToBans:complete', {
@@ -26549,6 +26774,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const navigateFromResult = useCallback(() => {
+    emitGoToBansClickEnter(
+      buildGoToBansClickDismissDiag('navigateFromResult', {
+        banId: resultRef.current?.id ?? result?.id ?? null,
+        dismissReason: 'go-to-bans',
+      }),
+    );
     hookGoToBansTraceEnter(
       buildGoToBansTraceHookContext(
         'navigateFromResult',
@@ -27143,6 +27374,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       reasonIfFalse: null,
       ...buildPostConsumeChainContext(banId),
     });
+    emitGoToBansShouldShowNext({
+      ...buildGoToBansClickDismissDiag('navigateFromResult', {
+        banId,
+        dismissReason: 'go-to-bans',
+      }),
+      hasRemainingChain,
+      inActiveOverboardQueue,
+      willCallContinueNotificationChain: true,
+      chainSource,
+    });
 
     void (async () => {
       const outcome = await continueNotificationChainOrOpenLobbyRef.current(
@@ -27157,6 +27398,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
       const shown = outcome === 'show-next';
       if (statusCtaNavigateGenerationRef.current !== generation) {
+        emitGoToBansShowNextNotCalled({
+          ...buildGoToBansClickDismissDiag('navigateFromResult', {
+            banId,
+            dismissReason: 'go-to-bans',
+          }),
+          reason: 'statusCtaNavigateGeneration-mismatch',
+          outcome,
+          generation,
+          expectedGeneration: generation,
+        });
         emitPostConsumeReturnPath({
           functionName: 'navigateFromResult',
           branch: 'stale-generation-abort',
@@ -27254,6 +27505,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         goToBansAdvancePending: false,
       });
       if (shown) {
+        emitGoToBansShowNextCalled({
+          ...buildGoToBansClickDismissDiag('navigateFromResult', {
+            banId,
+            dismissReason: 'go-to-bans',
+          }),
+          via: 'continueNotificationChainOrOpenLobby',
+          outcome,
+          chainSource,
+        });
         logResultGoToBansShowNext({
           banId,
           chainSource,
@@ -27300,6 +27560,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return;
       }
+
+      emitGoToBansShowNextNotCalled({
+        ...buildGoToBansClickDismissDiag('navigateFromResult', {
+          banId,
+          dismissReason: 'go-to-bans',
+        }),
+        reason: `continue-outcome:${outcome}`,
+        outcome,
+        chainSource,
+      });
 
       const collected = snapshotPendingNotificationChain();
       if (collected.finalQueueLen > 0 || collected.finalPendingLen > 0) {
