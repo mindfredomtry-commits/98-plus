@@ -26599,8 +26599,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           branch: 'no-next-not-in-active-overboard-queue',
           reason: 'hasNextInChain-false-and-not-inActiveOverboardQueue',
           willShowNext: false,
-          willEndChain: false,
-          willOpenBansSection: false,
+          willEndChain: remainingLen === 0 && pendingLen === 0,
+          willOpenBansSection: remainingLen === 0 && pendingLen === 0,
           willReturnLobby: false,
           queueLen: remainingLen,
           pendingLen,
@@ -26656,6 +26656,49 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         'finalizeResultForGoToBans',
         'go-to-bans-finalize',
       );
+
+      if (
+        !hasNextInChain &&
+        !inActiveOverboardQueue &&
+        remainingLen === 0 &&
+        pendingLen === 0
+      ) {
+        window.__debug98log?.('[POST CONSUME EMPTY CHAIN FINALIZED]', {
+          reason: 'queueLen-and-pendingLen-both-zero-after-prune',
+          banId: key,
+          resultId: key,
+          queueLen: remainingLen,
+          pendingLen,
+          remainingLen,
+        });
+        goToBansAdvancePendingRef.current = false;
+        goToBansClosingBanIdRef.current = null;
+        setChainAdvanceWaiting(false);
+        setNotificationChainTransitioning(false);
+        notificationChainAwaitingUserRef.current = false;
+        notificationChainHandoffRef.current = false;
+        overlayQueueDrainActiveRef.current = false;
+        mirrorOwnerSessionFlagsRef.current(
+          'finalizeResultForGoToBans:empty-chain-finalized',
+          {
+            goToBansAdvancePending: false,
+            drainActive: false,
+            chainHandoff: false,
+          },
+        );
+        mirrorOwnerChainSessionGatesRef.current(
+          'finalizeResultForGoToBans:empty-chain-finalized',
+          { awaitingUser: false },
+        );
+        const previousTab = openBansOverlayTabRequestRef.current;
+        const targetTab: BansOverlayTabTarget =
+          previousTab === 'history' || previousTab === 'archive'
+            ? previousTab
+            : lastProcessedOverlayKindForBansRef.current === 'incoming'
+              ? 'toYou'
+              : 'yours';
+        armOpenBansOverlayFromResultCtaRef.current(key, targetTab);
+      }
 
       const ownerAfter = ownerShadowRef.current.getState();
       logResultDismissCommit({
@@ -26738,6 +26781,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       pruneResultFromNotificationChain,
       result,
       sanitizeNotificationChainQueues,
+      setChainAdvanceWaiting,
       setNotificationChainTransitioning,
       syncPendingStartupCount,
     ],
