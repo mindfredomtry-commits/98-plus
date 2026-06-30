@@ -3382,6 +3382,50 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     source.includes('navigateFromResult') ||
     source.includes('go-to-bans') ||
     source.includes('finalizeResultForGoToBans');
+  const tryBypassWaitingResultHoldForGoToBans = (
+    source: string,
+    sourceFunction: string,
+  ): boolean => {
+    const chainOwner = readOwnerChain(sourceFunction);
+    const holdBanId = readOwnerImperativeCheckAnswerWaitingHoldBanIdForRuntime(
+      chainOwner,
+      sourceFunction,
+      { ref: checkAnswerWaitingResultHoldBanIdRef.current },
+    );
+    if (!holdBanId) return false;
+    if (!isResultGoToBansContinueSource(source)) return false;
+    if (isReplyComposeBlockingNotificationGuards()) return false;
+    if (whatOrConfirmActiveRef.current) return false;
+    if (
+      !chainAdvanceExplicitRef.current &&
+      !goToBansAdvancePendingRef.current &&
+      !notificationChainTransitioningRef.current
+    ) {
+      return false;
+    }
+    const resultClosingOrClosed =
+      goToBansClosingBanIdRef.current != null ||
+      resultRef.current == null ||
+      !resultOpenRef.current;
+    if (!resultClosingOrClosed) return false;
+    window.__debug98log?.('[CHAIN BLOCK BYPASSED FOR GO TO BANS]', {
+      reason: 'waiting-result-hold',
+      banId: holdBanId,
+      resultId:
+        goToBansClosingBanIdRef.current ??
+        resultRef.current?.id ??
+        null,
+      activeKind: chainOwner.active.kind,
+      activeBanId: chainOwner.active.banId,
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      sourceFunction,
+    });
+    setCheckAnswerWaitingResultHold(null, {
+      source: `${sourceFunction}:go-to-bans-bypass-waiting-result-hold`,
+    });
+    return true;
+  };
   const buildGoToBansClickDismissDiag = (
     sourceFunction: string,
     fields?: {
@@ -23069,17 +23113,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           { ref: checkAnswerWaitingResultHoldBanIdRef.current },
         )
       ) {
-        if (isCheckAnswerChainSource) {
-          logCheckContinueBlocked({
+        if (
+          !tryBypassWaitingResultHoldForGoToBans(
             source,
-            reason: 'waiting-result-hold',
-            overlayQueueLen: overlayQueueRef.current.length,
-            pendingLen: pendingStartupInteractionsRef.current.length,
-            lobbyOpen: lobbyOpenRef.current,
-          });
+            'continueNotificationChainOrOpenLobbySync',
+          )
+        ) {
+          if (isCheckAnswerChainSource) {
+            logCheckContinueBlocked({
+              source,
+              reason: 'waiting-result-hold',
+              overlayQueueLen: overlayQueueRef.current.length,
+              pendingLen: pendingStartupInteractionsRef.current.length,
+              lobbyOpen: lobbyOpenRef.current,
+            });
+          }
+          traceContinueBlocked('waiting-result-hold');
+          return returnContinueDiag('blocked', 'waiting-result-hold');
         }
-        traceContinueBlocked('waiting-result-hold');
-        return returnContinueDiag('blocked', 'waiting-result-hold');
       }
       if (isCheckAnswerChainSource) {
         logCheckContinueCall({ source, reason: 'continue-sync-enter' });
@@ -23574,6 +23625,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       logChainEmptyFinalizeWithDiag,
       prepareNotificationChainContinue,
       setChainAdvanceWaiting,
+      setCheckAnswerWaitingResultHold,
       setNotificationChainTransitioning,
       showNextNotificationFromChainSync,
       syncDisplayFromQueue,
@@ -23594,45 +23646,52 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           { ref: checkAnswerWaitingResultHoldBanIdRef.current },
         )
       ) {
-        emitPostConsumeReturnPath({
-          functionName: 'finalizeNotificationChainContinueEmpty',
-          branch: 'waiting-result-hold-active',
-          reason: 'waiting-result-hold-active',
-          willShowNext: false,
-          willEndChain: true,
-          willOpenBansSection: false,
-          willReturnLobby: false,
-          queueLen: overlayQueueRef.current.length,
-          pendingLen: pendingStartupInteractionsRef.current.length,
-          queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
-          pendingHeadKind:
-            pendingStartupInteractionsRef.current[0]?.kind ?? null,
-        });
-        logChainEmptyFinalizeWithDiag(
-          buildChainEmptyFinalizeSnapshot({
+        if (
+          !tryBypassWaitingResultHoldForGoToBans(
             source,
-            stage: 'waiting-result-hold',
-            outcome: 'blocked',
-            notificationChainTransitioningBefore:
-              notificationChainTransitioningRef.current,
-            notificationChainTransitioningAfter:
-              notificationChainTransitioningRef.current,
-            openLobbyCalled: false,
-            overlayHostMounted: null,
+            'finalizeNotificationChainContinueEmpty',
+          )
+        ) {
+          emitPostConsumeReturnPath({
+            functionName: 'finalizeNotificationChainContinueEmpty',
+            branch: 'waiting-result-hold-active',
             reason: 'waiting-result-hold-active',
-            finalQueueLen: readOwnerImperativeQueueLen(finalizeOwner, 'chainContinue', {
-              queueRef: overlayQueueRef.current,
+            willShowNext: false,
+            willEndChain: true,
+            willOpenBansSection: false,
+            willReturnLobby: false,
+            queueLen: overlayQueueRef.current.length,
+            pendingLen: pendingStartupInteractionsRef.current.length,
+            queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+            pendingHeadKind:
+              pendingStartupInteractionsRef.current[0]?.kind ?? null,
+          });
+          logChainEmptyFinalizeWithDiag(
+            buildChainEmptyFinalizeSnapshot({
+              source,
+              stage: 'waiting-result-hold',
+              outcome: 'blocked',
+              notificationChainTransitioningBefore:
+                notificationChainTransitioningRef.current,
+              notificationChainTransitioningAfter:
+                notificationChainTransitioningRef.current,
+              openLobbyCalled: false,
+              overlayHostMounted: null,
+              reason: 'waiting-result-hold-active',
+              finalQueueLen: readOwnerImperativeQueueLen(finalizeOwner, 'chainContinue', {
+                queueRef: overlayQueueRef.current,
+              }),
+              finalPendingLen: readOwnerImperativePendingLen(finalizeOwner, 'chainContinue', {
+                pendingRef: pendingStartupInteractionsRef.current,
+              }),
             }),
-            finalPendingLen: readOwnerImperativePendingLen(finalizeOwner, 'chainContinue', {
-              pendingRef: pendingStartupInteractionsRef.current,
-            }),
-          }),
-          {
-            source,
-            reason: 'waiting-result-hold-active',
-          },
-        );
-        return 'blocked';
+            {
+              source,
+              reason: 'waiting-result-hold-active',
+            },
+          );
+          return 'blocked';
+        }
       }
       const transitioningBefore = notificationChainTransitioningRef.current;
       const finalQueueLen = readOwnerImperativeQueueLen(finalizeOwner, 'chainContinue', {
@@ -23821,6 +23880,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       buildChainEmptyFinalizeSnapshot,
       logChainEmptyFinalizeWithDiag,
       setChainAdvanceWaiting,
+      setCheckAnswerWaitingResultHold,
       setNotificationChainTransitioning,
       tryClearExplicitNotificationDrainGuarded,
     ],
