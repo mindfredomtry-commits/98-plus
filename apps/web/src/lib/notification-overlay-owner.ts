@@ -13,6 +13,9 @@ import {
   shouldAllowTerminalResultForBan,
 } from '@/lib/overkill-terminal-lock';
 import {
+  logNextPayloadSelectionFromOwnerSync,
+} from '@/lib/go-to-bans-payload-switch-trace';
+import {
   logOwnerDirectWriteDetected,
   logOwnerFunctionTrackedFieldWrite,
   logOwnerReducerTrackedFieldAssignments,
@@ -716,6 +719,7 @@ function syncActiveFromQueueHead(
         function: 'syncActiveFromQueueHead',
         eventType,
       });
+      logNextPayloadSelectionFromOwnerSync(state, next, eventType);
       return next;
     }
     const next = {
@@ -738,6 +742,7 @@ function syncActiveFromQueueHead(
       function: 'syncActiveFromQueueHead',
       eventType,
     });
+    logNextPayloadSelectionFromOwnerSync(state, next, eventType);
     return next;
   }
 
@@ -766,6 +771,7 @@ function syncActiveFromQueueHead(
     function: 'syncActiveFromQueueHead',
     eventType,
   });
+  logNextPayloadSelectionFromOwnerSync(state, next, eventType);
   return next;
 }
 
@@ -1503,7 +1509,7 @@ export function notificationOverlayOwnerReducer(
       next.pending = next.pending.filter(
         (item) => normalizeId(overlayBanId(item)) !== banId,
       );
-      next = syncActiveFromQueueHead(next);
+      next = syncActiveFromQueueHead(next, 'RESULT_GO_TO_BANS');
       effects.push({ type: 'PREFETCH_CHAIN', skipBanId: banId });
       effects.push({ type: 'APPLY_DISPLAY' });
       break;
@@ -1522,7 +1528,7 @@ export function notificationOverlayOwnerReducer(
         next.session.lobbyOpen = true;
         effects.push({ type: 'OPEN_LOBBY', source: event.source });
       } else {
-        next = syncActiveFromQueueHead(next);
+        next = syncActiveFromQueueHead(next, 'CHAIN_CONTINUE_REQUESTED');
         effects.push({ type: 'APPLY_DISPLAY' });
       }
       break;

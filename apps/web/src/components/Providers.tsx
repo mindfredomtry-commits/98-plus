@@ -548,6 +548,13 @@ import {
   logResultGoToBansShowNext,
 } from '@/lib/result-go-to-bans-debug';
 import {
+  buildGoToBansPayloadSwitchTraceSnapshot,
+  logGoToBansAfterFinalize,
+  logGoToBansPayloadSwitchTraceClick,
+  logNextPayloadSelectionTrace,
+  logProvidersResultStaleActiveTrace,
+} from '@/lib/go-to-bans-payload-switch-trace';
+import {
   hookGoToBansTraceEnter,
   logGoToBansNextCardClickLazy,
   logGoToBansNextCardShellVisibilityLazy,
@@ -3533,6 +3540,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       incomingBanRef.current?.id ??
       null,
   });
+  const buildGoToBansPayloadSwitchTraceFromRefs = (
+    willRender: boolean,
+  ) => {
+    const owner = ownerShadowRef.current.getState();
+    const ownerDirectActive =
+      owner.display.directResultOverlayActive ||
+      owner.display.directResultOverlay;
+    return buildGoToBansPayloadSwitchTraceSnapshot({
+      owner,
+      runtimeOverlayQueue: overlayQueueRef.current,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      ownerDirectActive,
+      willRender,
+    });
+  };
   const buildDirectOverboardCloseDiagSnapshot = () => {
     const owner = ownerShadowRef.current.getState();
     const held = heldUserCardOverlayRef.current;
@@ -7310,6 +7332,48 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         checkBanId: ownerAfter.display.checkBan?.id ?? null,
       };
       const appliedDisplay = resolveOwnerDisplayKindBanId(ownerAfter.display);
+      if (
+        goToBansAdvancePendingRef.current ||
+        isResultGoToBansContinueSource(source)
+      ) {
+        const prevActiveKey =
+          ownerBefore.active.kind && ownerBefore.active.banId
+            ? `${ownerBefore.active.kind}:${normalizeId(ownerBefore.active.banId)}`
+            : null;
+        const nextActiveKey =
+          ownerAfter.active.kind && ownerAfter.active.banId
+            ? `${ownerAfter.active.kind}:${normalizeId(ownerAfter.active.banId)}`
+            : null;
+        const displayChanged =
+          JSON.stringify(displayBefore) !== JSON.stringify(displayAfter);
+        logNextPayloadSelectionTrace({
+          candidateSource: 'display-patch',
+          candidateKey: patchKind.overlayKey,
+          candidateKind:
+            patchKind.kind === 'result-clear' ||
+            patchKind.kind === 'check-clear' ||
+            patchKind.kind === 'incoming-clear'
+              ? null
+              : patchKind.kind,
+          candidateBanId: patchKind.banId,
+          previousActiveKey: prevActiveKey,
+          previousActiveKind: ownerBefore.active.kind,
+          previousActiveBanId: ownerBefore.active.banId,
+          nextActiveKey,
+          nextActiveKind: ownerAfter.active.kind,
+          nextActiveBanId: ownerAfter.active.banId,
+          selectionReason: displayChanged
+            ? `display-patch-applied:${source}`
+            : `display-patch-no-op:${source}`,
+          activeUnchangedReason:
+            prevActiveKey === nextActiveKey
+              ? 'active-unchanged-after-display-commit'
+              : null,
+          source,
+          ownerDisplayKind: appliedDisplay.displayKind,
+          ownerDisplayBanId: appliedDisplay.displayBanId,
+        });
+      }
       emitDisplayCommitApplied({
         source,
         displayKind: appliedDisplay.displayKind,
@@ -26656,6 +26720,46 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       }
 
+      {
+        const ownerAfterPrune = ownerShadowRef.current.getState();
+        const ownerDirectAfter =
+          ownerAfterPrune.display.directResultOverlayActive ||
+          ownerAfterPrune.display.directResultOverlay;
+        const displayResultAfter =
+          ownerAfterPrune.display.result ?? resultRef.current ?? result;
+        const hasResultAfter = displayResultAfter != null;
+        const chainKeepsDirectAfter =
+          (notificationChainTransitioningRef.current ||
+            chainAdvanceWaitingRef.current ||
+            goToBansAdvancePendingRef.current) &&
+          (overlayQueueRef.current.length > 0 ||
+            pendingStartupInteractionsRef.current.length > 0);
+        const willRenderAfter =
+          (ownerDirectAfter ||
+            (chainKeepsDirectAfter && hasResultAfter)) &&
+          hasResultAfter;
+        logGoToBansAfterFinalize({
+          ...buildGoToBansPayloadSwitchTraceSnapshot({
+            owner: ownerAfterPrune,
+            runtimeOverlayQueue: overlayQueueRef.current,
+            pendingLen: pendingStartupInteractionsRef.current.length,
+            ownerDirectActive: ownerDirectAfter,
+            willRender: willRenderAfter,
+          }),
+          consumedKey: `result:${key}`,
+          consumedKind: 'result',
+          consumedBanId: key,
+          removedFromOwnerQueue:
+            ownerBefore.queue.length !== ownerAfterPrune.queue.length,
+          removedFromRuntimeQueue:
+            overlayQueueBefore.length !== overlayQueueRef.current.length,
+          markConsumedCalled,
+          removeOverlayCalled,
+          consumeCalled: goToBansConsumeAtCall.allowed,
+          source: 'finalizeResultForGoToBans:after-prune',
+        });
+      }
+
       const remainingLen = overlayQueueRef.current.length;
       const pendingLen = pendingStartupInteractionsRef.current.length;
       logResultGoToBansRemainingQueue({ banId: key, remainingLen, pendingLen });
@@ -27482,6 +27586,32 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
 
     if (banId) {
+      {
+        const ownerAtClick = ownerShadowRef.current.getState();
+        const ownerDirectAtClick =
+          ownerAtClick.display.directResultOverlayActive ||
+          ownerAtClick.display.directResultOverlay;
+        const displayResultAtClick =
+          ownerAtClick.display.result ?? resultRef.current ?? result;
+        const hasResultAtClick = displayResultAtClick != null;
+        const chainKeepsDirectAtClick =
+          (notificationChainTransitioningRef.current ||
+            chainAdvanceWaitingRef.current ||
+            goToBansAdvancePendingRef.current) &&
+          (overlayQueueRef.current.length > 0 ||
+            pendingStartupInteractionsRef.current.length > 0);
+        const willRenderAtClick =
+          (ownerDirectAtClick ||
+            (chainKeepsDirectAtClick && hasResultAtClick)) &&
+          hasResultAtClick;
+        logGoToBansPayloadSwitchTraceClick({
+          ...buildGoToBansPayloadSwitchTraceFromRefs(willRenderAtClick),
+          source: 'navigateFromResult:pre-finalize',
+          banId,
+          wasDirect,
+          inActiveOverboardQueue,
+        });
+      }
       flushSync(() => {
         finalizeResultForGoToBans(banId);
       });
@@ -33567,6 +33697,88 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             queueLen: ownerPrimaryQueueLen,
             pendingLen: ownerPrimaryPendingLen,
           };
+          if (
+            hasResult &&
+            showable &&
+            (ownerPrimaryQueueLen > 0 || ownerPrimaryPendingLen > 0) &&
+            !ownerPrimaryDirectResultOverlayActive &&
+            !willRenderDirectOverboardLayer
+          ) {
+            const ownerHead = ownerReadQueue[0] ?? null;
+            const runtimeHead = overlayQueueRef.current[0] ?? null;
+            const ownerHeadKey = ownerHead
+              ? `${ownerHead.kind}:${normalizeId(
+                  ownerHead.kind === 'result'
+                    ? ownerHead.result.id
+                    : ownerHead.ban.id,
+                )}`
+              : null;
+            const runtimeHeadKey = runtimeHead
+              ? `${runtimeHead.kind}:${normalizeId(
+                  runtimeHead.kind === 'result'
+                    ? runtimeHead.result.id
+                    : runtimeHead.ban.id,
+                )}`
+              : null;
+            const activeKey =
+              ownerReadState.active.kind && ownerReadState.active.banId
+                ? `${ownerReadState.active.kind}:${normalizeId(ownerReadState.active.banId)}`
+                : null;
+            const resultKey = directOverboardRenderResult?.id
+              ? `result:${normalizeId(directOverboardRenderResult.id)}`
+              : null;
+            const renderSourceOfTruth = resolveActiveResultPayloadSource(
+              directOverboardRenderResult?.id ?? null,
+            );
+            const activeMatchesResult =
+              activeKey != null &&
+              resultKey != null &&
+              activeKey === resultKey;
+            const activeMatchesNextHead =
+              activeKey != null &&
+              ownerHeadKey != null &&
+              activeKey === ownerHeadKey;
+            logProvidersResultStaleActiveTrace({
+              activePayloadKey: activeKey,
+              activePayloadKind: ownerReadState.active.kind,
+              activePayloadBanId: ownerReadState.active.banId,
+              resultPayloadKey: resultKey,
+              resultPayloadKind: 'result',
+              resultPayloadBanId: directOverboardRenderResult?.id ?? null,
+              nextQueueHeadKey: ownerHeadKey,
+              nextQueueHeadKind: ownerHead?.kind ?? null,
+              nextQueueHeadBanId: ownerHead
+                ? ownerHead.kind === 'result'
+                  ? ownerHead.result.id
+                  : ownerHead.ban.id
+                : null,
+              runtimeQueueHeadKey: runtimeHeadKey,
+              runtimeQueueHeadKind: runtimeHead?.kind ?? null,
+              runtimeQueueHeadBanId: runtimeHead
+                ? runtimeHead.kind === 'result'
+                  ? runtimeHead.result.id
+                  : runtimeHead.ban.id
+                : null,
+              renderSourceOfTruth,
+              resultStillShowableReason: activeMatchesResult
+                ? 'owner-active-still-points-at-same-result'
+                : renderSourceOfTruth !== 'none'
+                  ? `render-reads-${renderSourceOfTruth}-not-queue-head`
+                  : 'displayResult-still-populated-unknown-source',
+              nextPayloadNotActiveReason: !ownerHeadKey
+                ? 'owner-queue-empty-after-go-to-bans'
+                : activeMatchesNextHead
+                  ? 'active-matches-queue-head-but-display-not-advanced'
+                  : activeMatchesResult
+                    ? 'active-still-holds-consumed-result-not-next-head'
+                    : 'active-kind-banId-not-aligned-with-queue-head',
+              ownerDisplayResultBanId: ownerPrimaryResult?.id ?? null,
+              legacyResultRefBanId: resultRef.current?.id ?? null,
+              showDirectOverboardLayer,
+              goToBansAdvancePending: goToBansAdvancePendingRef.current,
+              chainTransitioning: notificationChainTransitioningRef.current,
+            });
+          }
           if (!willRenderDirectOverboardLayer) {
             logDirectOverboardShowableDecisionFromSnapshot(
               directOverboardRenderResult?.id ?? null,
