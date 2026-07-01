@@ -611,7 +611,9 @@ import {
   logGoToBansContinueExitTrace,
 } from '@/lib/go-to-bans-continue-trace-debug';
 import {
+  buildGoToBansPrefetchGuardMissTrace,
   getGoToBansPrefetchResultBlockDecision,
+  logGoToBansPrefetchGuardMissTrace,
   logGoToBansPrefetchResultBlock,
 } from '@/lib/go-to-bans-session-trace-debug';
 import {
@@ -14070,6 +14072,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               reason: 'passive-result-lookahead-blocked',
             });
           } else {
+            const resultOverlayKey = `result:${resultNorm}`;
+            logGoToBansPrefetchGuardMissTrace(
+              buildGoToBansPrefetchGuardMissTrace({
+                source,
+                resultBanId: resultNorm,
+                resultId: resultNorm,
+                ownerShownOverlayHasResult: ownerShadowRef.current
+                  .getState()
+                  .session.shownOverlayKeys.has(resultOverlayKey),
+                resultCtaConsumedHasBanId:
+                  resultCtaConsumedBanIdsRef.current.has(resultNorm),
+                shownOverlayKeysHasResult:
+                  shownOverlayKeysRef.current.has(resultOverlayKey),
+              }),
+            );
             const goToBansPrefetchBlock =
               getGoToBansPrefetchResultBlockDecision(resultNorm);
             if (goToBansPrefetchBlock.blocked) {
