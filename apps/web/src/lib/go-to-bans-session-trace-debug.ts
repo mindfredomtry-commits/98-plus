@@ -14,7 +14,23 @@ export const GO_TO_BANS_SESSION_TRACE_MODULE_INSTANCE_ID = `gbt-${Math.random()
   .toString(36)
   .slice(2, 10)}`;
 
+declare global {
+  interface Window {
+    __goToBansSessionTraceModuleId?: string;
+    __goToBansSessionTraceMirror?: GoToBansSessionTrace | null;
+  }
+}
+
 let lastGoToBansSessionTrace: GoToBansSessionTrace | null = null;
+
+function captureCaller(skipFrames = 2): string {
+  try {
+    const stack = new Error('[go-to-bans-session-trace]').stack ?? '';
+    return stack.split('\n').slice(skipFrames, skipFrames + 12).join('\n');
+  } catch {
+    return '';
+  }
+}
 
 function emitGoToBansSessionTraceLifecycle(
   event: 'GO_TO_BANS_SESSION_TRACE_WRITE' | 'GO_TO_BANS_SESSION_TRACE_READ',
@@ -31,6 +47,72 @@ function emitGoToBansSessionTraceLifecycle(
   window.__debug98log?.(event, payload);
 }
 
+function emitGoToBansSessionTraceClear(input: {
+  reason: string;
+  caller: string;
+  banIdBefore: string | null;
+  resultIdBefore: string | null;
+}): void {
+  const timestamp = performance.now();
+  const payload = {
+    timestamp,
+    t: timestamp,
+    moduleInstanceId: GO_TO_BANS_SESSION_TRACE_MODULE_INSTANCE_ID,
+    reason: input.reason,
+    caller: input.caller,
+    banIdBefore: input.banIdBefore,
+    resultIdBefore: input.resultIdBefore,
+  };
+  console.log('GO_TO_BANS_SESSION_TRACE_CLEAR', payload);
+  window.__debug98log?.('GO_TO_BANS_SESSION_TRACE_CLEAR', payload);
+}
+
+function assignLastGoToBansSessionTrace(
+  next: GoToBansSessionTrace | null,
+  reason: string,
+  caller: string,
+): void {
+  const prev = lastGoToBansSessionTrace;
+  emitGoToBansSessionTraceClear({
+    reason,
+    caller,
+    banIdBefore: prev?.banId ?? null,
+    resultIdBefore: prev?.resultId ?? null,
+  });
+  lastGoToBansSessionTrace = next;
+  if (typeof window !== 'undefined') {
+    window.__goToBansSessionTraceMirror = next;
+  }
+}
+
+function logModuleEvalAssignment(): void {
+  if (typeof window === 'undefined') return;
+  const prevModuleId = window.__goToBansSessionTraceModuleId;
+  const mirror = window.__goToBansSessionTraceMirror ?? null;
+  const reason = prevModuleId
+    ? prevModuleId === GO_TO_BANS_SESSION_TRACE_MODULE_INSTANCE_ID
+      ? 'module-reinit-hmr-same-instance-id'
+      : 'module-reinit-hmr-new-instance-id'
+    : 'module-init';
+  emitGoToBansSessionTraceClear({
+    reason,
+    caller: 'go-to-bans-session-trace-debug.ts:module-eval',
+    banIdBefore: mirror?.banId ?? null,
+    resultIdBefore: mirror?.resultId ?? null,
+  });
+  window.__goToBansSessionTraceModuleId =
+    GO_TO_BANS_SESSION_TRACE_MODULE_INSTANCE_ID;
+}
+
+logModuleEvalAssignment();
+
+export function clearGoToBansSessionTrace(
+  reason: string,
+  caller = captureCaller(2),
+): void {
+  assignLastGoToBansSessionTrace(null, reason, caller);
+}
+
 export function recordGoToBansSessionTrace(
   banId: string,
   source = 'recordGoToBansSessionTrace',
@@ -38,11 +120,18 @@ export function recordGoToBansSessionTrace(
   const normalized = normalizeId(banId);
   if (!normalized) return;
   const at = performance.now();
-  lastGoToBansSessionTrace = {
+  const nextTrace: GoToBansSessionTrace = {
     banId: normalized,
     resultId: normalized,
     at,
   };
+  assignLastGoToBansSessionTrace(
+    nextTrace,
+    lastGoToBansSessionTrace != null
+      ? 'overwrite-new-object'
+      : 'assign-new-object',
+    source,
+  );
   emitGoToBansSessionTraceLifecycle('GO_TO_BANS_SESSION_TRACE_WRITE', {
     source,
     banId: normalized,
