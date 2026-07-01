@@ -1658,6 +1658,25 @@ export function notificationOverlayOwnerReducer(
         },
       });
       effects.push({
+        type: 'LOG',
+        tag: 'active-result-clear-decision',
+        fields: {
+          source: 'RESULT_GO_TO_BANS',
+          action: 'RESULT_GO_TO_BANS',
+          beforeActiveKind: previousActiveKind,
+          afterActiveKind: next.active.kind,
+          beforeQueueLen: queueLenBefore,
+          afterQueueLen: queueLenAfter,
+          didClearActive:
+            previousActiveKind === 'result' &&
+            normalizeId(previousActiveBanId ?? '') === banId &&
+            next.active.kind !== 'result',
+          didClearDisplay: closesDisplayedResult || closesDirectLayer,
+          didMarkConsumed: true,
+          skipReason: null,
+        },
+      });
+      effects.push({
         type: 'MIRROR_LEGACY_QUEUE',
         queue: [...next.queue],
         source: 'RESULT_GO_TO_BANS',

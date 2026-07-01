@@ -35,6 +35,10 @@ import {
   logGoToBansNextOverlayAtomicCommit,
   logResultGoToBansOwnerTransition,
 } from '@/lib/go-to-bans-payload-switch-trace';
+import {
+  logActiveResultClearDecision,
+  type ActiveResultClearDecisionPayload,
+} from '@/lib/active-result-stuck-debug';
 
 const QUEUE_AUTHORITY_EVENT_TYPES = new Set<NotificationOverlayOwnerEvent['type']>([
   'QUEUE_APPLIED',
@@ -299,6 +303,11 @@ export function createNotificationOverlayOwnerShadow(
       }
       if (effect.type === 'LOG' && effect.tag === 'result-go-to-bans-owner-transition') {
         logResultGoToBansOwnerTransition(effect.fields);
+      }
+      if (effect.type === 'LOG' && effect.tag === 'active-result-clear-decision') {
+        logActiveResultClearDecision(
+          effect.fields as ActiveResultClearDecisionPayload,
+        );
       }
       if (
         effect.type === 'LOG' &&
