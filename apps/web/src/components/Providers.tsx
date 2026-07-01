@@ -580,6 +580,13 @@ import {
   logOverlayEmptyGapClassified,
 } from '@/lib/overlay-empty-gap-classify-debug';
 import {
+  buildGoToBansPendingNotPromotedSignature,
+  formatLastContinueOutcome,
+  logContinueChainEmptyButPendingExists,
+  logPendingPromotionDecisionTrace,
+  logResultGoToBansPendingNotPromoted,
+} from '@/lib/pending-promotion-diag-debug';
+import {
   evaluateBansLayerOpenGate,
   logBansLayerFlagsClearedAfterChainOutcome,
   logBansLayerOpenAllowed,
@@ -1826,6 +1833,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     outcome: string;
     reason: string;
   } | null>(null);
+  const lastPendingMergeSkipReasonRef = useRef<{
+    source: string;
+    skipReason: string;
+  } | null>(null);
+  const goToBansPendingNotPromotedLastSigRef = useRef<string | null>(null);
   const lastBackendPendingFetchCountRef = useRef<number | null>(null);
   const lastPrefetchEnqueueCountRef = useRef(0);
   const probeOwnerQueueEmptyDuringChainRef = useRef<
@@ -1855,6 +1867,52 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             ? head.ban.id
             : null,
     };
+  };
+  const resolveMountedOverlayKindForPromotionDiag = (): string | null => {
+    const held = heldUserCardOverlayRef.current;
+    if (held) return held.kind;
+    if (checkBanRef.current?.id) return 'check';
+    if (incomingBanRef.current?.id) return 'incoming';
+    if (resultRef.current?.id) return 'result';
+    if (directResultOverlayRef.current || directResultOverlayActiveRef.current) {
+      return 'result-direct';
+    }
+    return null;
+  };
+  const emitPendingPromotionTrace = (
+    source: string,
+    input: {
+      inputPendingLen: number;
+      inputQueueLen: number;
+      outputPendingLen: number;
+      outputQueueLen: number;
+      promotedCount?: number | null;
+      promotedHeadKind?: string | null;
+      promotedHeadId?: string | null;
+      skippedReason?: string | null;
+    },
+  ) => {
+    const owner = ownerShadowRef.current.getState();
+    const runtimePendingLen = pendingStartupInteractionsRef.current.length;
+    const runtimeQueueLen = overlayQueueRef.current.length;
+    logPendingPromotionDecisionTrace({
+      source,
+      ...input,
+      authReady: auth.authReady,
+      sessionActive: notificationSessionActiveForDebugRef.current,
+      currentOverlayKind:
+        owner.active.kind ?? overlayQueueRef.current[0]?.kind ?? null,
+      activeKind: owner.active.kind,
+      displayKind: resolveBansLayerOwnerDisplayKind(owner.display),
+      ownerPendingLen: owner.pending.length,
+      ownerQueueLen: owner.queue.length,
+      runtimePendingLen,
+      runtimeQueueLen,
+      queueLocked: isNotificationQueueLocked(),
+      mountedOverlayKind: resolveMountedOverlayKindForPromotionDiag(),
+      goToBansAdvancePending: goToBansAdvancePendingRef.current,
+      goToBansClosingBanId: goToBansClosingBanIdRef.current,
+    });
   };
   const commitPendingQueueViaOwner = (
     next: QueuedOverlay[],
@@ -1915,6 +1973,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ownerBefore.queue.length,
       ownerBefore.pending.length,
     );
+    emitPendingPromotionTrace(`${source}:${reason}`, {
+      inputPendingLen: refPendingBefore,
+      inputQueueLen: refQueueBefore,
+      outputPendingLen: pendingStartupInteractionsRef.current.length,
+      outputQueueLen: overlayQueueRef.current.length,
+      promotedCount:
+        refQueueBefore < overlayQueueRef.current.length
+          ? overlayQueueRef.current.length - refQueueBefore
+          : 0,
+      promotedHeadKind: pendingHeadAfter?.kind ?? null,
+      promotedHeadId: pendingHeadAfter
+        ? overlayItemBanId(pendingHeadAfter)
+        : null,
+      skippedReason:
+        next.length === refPendingBefore && refQueueBefore === overlayQueueRef.current.length
+          ? 'pending-commit-no-queue-growth'
+          : null,
+    });
   };
   const sessionBanSendSuccessRef = useRef(false);
   const [pendingStartupInteractionsCount, setPendingStartupInteractionsCount] =
@@ -7474,6 +7550,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ownerBefore.queue.length,
         ownerBefore.pending.length,
       );
+      const ownerAfter = ownerShadowRef.current.getState();
+      emitPendingPromotionTrace(`applyPendingQueueViaOwner:${reason ?? source}`, {
+        inputPendingLen: pendingLenBefore,
+        inputQueueLen: overlayQueueRef.current.length,
+        outputPendingLen: next.length,
+        outputQueueLen: overlayQueueRef.current.length,
+        promotedCount: null,
+        promotedHeadKind: nextHead.kind,
+        promotedHeadId: nextHead.banId,
+        skippedReason:
+          pendingLenBefore === next.length
+            ? 'pending-applied-without-length-change'
+            : null,
+      });
     },
     [],
   );
@@ -11494,6 +11584,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               unlockEnqueueBefore,
               { enqueuedCount: startupPending.length },
             );
+            emitPendingPromotionTrace(
+              `unlockNotificationQueueAndFlush:${reason}`,
+              {
+                inputPendingLen: startupPending.length,
+                inputQueueLen: unlockEnqueueBefore.queue,
+                outputPendingLen: pendingStartupInteractionsRef.current.length,
+                outputQueueLen: overlayQueueRef.current.length,
+                promotedCount: startupPending.length,
+                promotedHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+                skippedReason: null,
+              },
+            );
           }
         }
 
@@ -12358,6 +12460,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           skipReason: 'single-card-chain-blocked',
           startupHold: startupInteractionsHoldRef.current,
         });
+        lastPendingMergeSkipReasonRef.current = {
+          source,
+          skipReason: 'single-card-chain-blocked',
+        };
+        emitPendingPromotionTrace(`mergeStartupIntoOverlayQueueOnly:${source}`, {
+          inputPendingLen: pendingLenBefore,
+          inputQueueLen: queueLenBefore,
+          outputPendingLen: pendingLenBefore,
+          outputQueueLen: queueLenBefore,
+          promotedCount: 0,
+          skippedReason: 'single-card-chain-blocked',
+        });
         return 0;
       }
       if (
@@ -12381,6 +12495,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           skipReason: 'non-explicit-drain-blocked',
           startupHold: startupInteractionsHoldRef.current,
         });
+        lastPendingMergeSkipReasonRef.current = {
+          source,
+          skipReason: 'non-explicit-drain-blocked',
+        };
+        emitPendingPromotionTrace(`mergeStartupIntoOverlayQueueOnly:${source}`, {
+          inputPendingLen: pendingLenBefore,
+          inputQueueLen: queueLenBefore,
+          outputPendingLen: pendingLenBefore,
+          outputQueueLen: queueLenBefore,
+          promotedCount: 0,
+          skippedReason: 'non-explicit-drain-blocked',
+        });
         return 0;
       }
       if (
@@ -12400,6 +12526,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           skipReason: 'mounted-overlay-blocks',
           startupHold: startupInteractionsHoldRef.current,
         });
+        lastPendingMergeSkipReasonRef.current = {
+          source,
+          skipReason: 'mounted-overlay-blocks',
+        };
+        emitPendingPromotionTrace(`mergeStartupIntoOverlayQueueOnly:${source}`, {
+          inputPendingLen: pendingLenBefore,
+          inputQueueLen: queueLenBefore,
+          outputPendingLen: pendingLenBefore,
+          outputQueueLen: queueLenBefore,
+          promotedCount: 0,
+          skippedReason: 'mounted-overlay-blocks',
+        });
         return 0;
       }
       const pending = pendingStartupInteractionsRef.current;
@@ -12413,6 +12551,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           pendingLenAfter: 0,
           skipReason: 'pending-empty',
           startupHold: startupInteractionsHoldRef.current,
+        });
+        emitPendingPromotionTrace(`mergeStartupIntoOverlayQueueOnly:${source}`, {
+          inputPendingLen: 0,
+          inputQueueLen: queueLenBefore,
+          outputPendingLen: 0,
+          outputQueueLen: queueLenBefore,
+          promotedCount: 0,
+          skippedReason: 'pending-empty',
         });
         return 0;
       }
@@ -12452,6 +12598,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           skipReason: 'all-pending-results-blocked',
           startupHold: startupInteractionsHoldRef.current,
         });
+        lastPendingMergeSkipReasonRef.current = {
+          source,
+          skipReason: 'all-pending-results-blocked',
+        };
+        emitPendingPromotionTrace(`mergeStartupIntoOverlayQueueOnly:${source}`, {
+          inputPendingLen: pendingLenBefore,
+          inputQueueLen: queueLenBefore,
+          outputPendingLen: pendingLenBefore,
+          outputQueueLen: queueLenBefore,
+          promotedCount: 0,
+          skippedReason: 'all-pending-results-blocked',
+        });
         return 0;
       }
 
@@ -12473,6 +12631,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             pendingLenAfter: pendingLenBefore,
             skipReason: 'active-user-card-blocks-head',
             startupHold: startupInteractionsHoldRef.current,
+          });
+          lastPendingMergeSkipReasonRef.current = {
+            source,
+            skipReason: 'active-user-card-blocks-head',
+          };
+          emitPendingPromotionTrace(`mergeStartupIntoOverlayQueueOnly:${source}`, {
+            inputPendingLen: pendingLenBefore,
+            inputQueueLen: queueLenBefore,
+            outputPendingLen: pendingLenBefore,
+            outputQueueLen: queueLenBefore,
+            promotedCount: 0,
+            skippedReason: 'active-user-card-blocks-head',
           });
           return 0;
         }
@@ -12504,6 +12674,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         pendingLenAfter: pendingStartupInteractionsRef.current.length,
         skipReason: null,
         startupHold: startupInteractionsHoldRef.current,
+      });
+      lastPendingMergeSkipReasonRef.current = null;
+      emitPendingPromotionTrace(`mergeStartupIntoOverlayQueueOnly:${source}`, {
+        inputPendingLen: pendingLenBefore,
+        inputQueueLen: queueLenBefore,
+        outputPendingLen: pendingStartupInteractionsRef.current.length,
+        outputQueueLen: overlayQueueRef.current.length,
+        promotedCount: releasable.length,
+        promotedHeadKind: releasable[0]?.kind ?? null,
+        promotedHeadId:
+          releasable[0]?.kind === 'result'
+            ? releasable[0].result.id
+            : releasable[0]?.kind === 'incoming' ||
+                releasable[0]?.kind === 'check'
+              ? releasable[0].ban.id
+              : null,
+        skippedReason: null,
       });
       return releasable.length;
     },
@@ -12619,6 +12806,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         allowDeeplinkExplicitNotificationDrain('releaseStartupInteractions');
       }
       if (!opts?.force && isNotificationQueueLocked()) {
+        emitPendingPromotionTrace('releaseStartupInteractions', {
+          inputPendingLen: pendingStartupInteractionsRef.current.length,
+          inputQueueLen: overlayQueueRef.current.length,
+          outputPendingLen: pendingStartupInteractionsRef.current.length,
+          outputQueueLen: overlayQueueRef.current.length,
+          promotedCount: 0,
+          skippedReason: 'notification-queue-locked',
+        });
         return;
       }
       if (opts?.requireBanSend && !sessionBanSendSuccessRef.current) {
@@ -12648,6 +12843,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             'mounted-overlay-blocks-restore',
           );
         }
+        emitPendingPromotionTrace('releaseStartupInteractions', {
+          inputPendingLen: pending.length,
+          inputQueueLen: overlayQueueRef.current.length,
+          outputPendingLen: pendingStartupInteractionsRef.current.length,
+          outputQueueLen: overlayQueueRef.current.length,
+          promotedCount: 0,
+          skippedReason: 'mounted-overlay-blocks-restore',
+        });
         return;
       }
 
@@ -21917,6 +22120,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             { returned: result, ...extra },
           ),
         );
+        if (!result) {
+          emitPendingPromotionTrace(`showNextNotificationFromChainSync:${source}`, {
+            inputPendingLen: pendingStartupInteractionsRef.current.length,
+            inputQueueLen: overlayQueueRef.current.length,
+            outputPendingLen: pendingStartupInteractionsRef.current.length,
+            outputQueueLen: overlayQueueRef.current.length,
+            promotedCount: 0,
+            promotedHeadKind: headAtEnter?.kind ?? null,
+            promotedHeadId: headAtEnter ? overlayItemBanId(headAtEnter) : null,
+            skippedReason: branch,
+          });
+        }
         runPhase12ParityCheck('showNextNotificationFromChainSync', branch, {
           fallbackUsed: false,
         });
@@ -23333,6 +23548,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ),
       );
 
+      emitPendingPromotionTrace(`collectPendingNotificationChain:${source}`, {
+        inputPendingLen: pendingLen,
+        inputQueueLen: queueLen,
+        outputPendingLen: pendingStartupInteractionsRef.current.length,
+        outputQueueLen: overlayQueueRef.current.length,
+        promotedCount: mergedFromPending,
+        promotedHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+        promotedHeadId: overlayQueueRef.current[0]
+          ? overlayItemBanId(overlayQueueRef.current[0])
+          : null,
+        skippedReason:
+          mergedFromPending === 0 && pendingLen > 0
+            ? lastPendingMergeSkipReasonRef.current?.skipReason ??
+              'merge-returned-zero-with-pending-remaining'
+            : pendingLen > 0 && mergedFromPending > 0
+              ? null
+              : pendingLen === 0
+                ? 'no-pending-at-collect-enter'
+                : null,
+      });
+
       return {
         queueLen,
         pendingLen,
@@ -23849,6 +24085,37 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             `continueNotificationChainOrOpenLobbySync:${source}`,
           );
           const ownerAtEnd = ownerShadowRef.current.getState();
+          const runtimePendingLen = pendingStartupInteractionsRef.current.length;
+          const runtimeQueueLen = overlayQueueRef.current.length;
+          if (
+            runtimeQueueLen === 0 &&
+            (runtimePendingLen > 0 || ownerAtEnd.pending.length > 0)
+          ) {
+            logContinueChainEmptyButPendingExists({
+              source,
+              outcome,
+              emptyReason: reason,
+              runtimeQueueLen,
+              runtimePendingLen,
+              ownerPendingLen: ownerAtEnd.pending.length,
+              ownerQueueLen: ownerAtEnd.queue.length,
+              usedRuntimeRefs: runtimePendingLen > 0,
+              willRetry:
+                outcome === 'lost-pending' ||
+                reason.includes('show-next-failed'),
+              willPrefetch: outcome === 'needs-prefetch',
+              willOpenLobby: outcome === 'open-lobby',
+              currentOverlayKind:
+                ownerAtEnd.active.kind ??
+                overlayQueueRef.current[0]?.kind ??
+                null,
+              activeKind: ownerAtEnd.active.kind,
+              displayKind: resolveBansLayerOwnerDisplayKind(ownerAtEnd.display),
+              mountedOverlayKind: resolveMountedOverlayKindForPromotionDiag(),
+              goToBansAdvancePending: goToBansAdvancePendingRef.current,
+              goToBansClosingBanId: goToBansClosingBanIdRef.current,
+            });
+          }
           probeOwnerQueueEmptyDuringChain(
             `continue-chain-end:${source}:${reason}`,
             ownerAtEnd.queue.length,
@@ -33329,6 +33596,91 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ownerReadDisplay,
     ownerReadState.active.kind,
     showDirectOverboardLayer,
+  ]);
+
+  useLayoutEffect(() => {
+    const runtimeQueueLen = overlayQueueRef.current.length;
+    const runtimePendingLen = pendingStartupInteractionsRef.current.length;
+    if (runtimeQueueLen !== 0 || runtimePendingLen <= 0) {
+      goToBansPendingNotPromotedLastSigRef.current = null;
+      return;
+    }
+    const owner = ownerShadowRef.current.getState();
+    const displayKind = resolveBansLayerOwnerDisplayKind(owner.display);
+    if (displayKind != null || owner.active.kind != null) {
+      goToBansPendingNotPromotedLastSigRef.current = null;
+      return;
+    }
+    if (notificationOverlayVisible) {
+      goToBansPendingNotPromotedLastSigRef.current = null;
+      return;
+    }
+    if (
+      !goToBansAdvancePendingRef.current &&
+      goToBansClosingBanIdRef.current == null
+    ) {
+      return;
+    }
+
+    const lastContinue = lastChainContinueOutcomeRef.current;
+    const mergeSkip = lastPendingMergeSkipReasonRef.current;
+    let reason = 'unknown-no-promotion-reason';
+    if (startupInteractionsHoldRef.current) {
+      reason = 'startup-hold-still-active';
+    } else if (mergeSkip?.skipReason) {
+      reason = `merge-skipped:${mergeSkip.skipReason}`;
+    } else if (lastContinue && lastContinue.outcome !== 'show-next') {
+      reason = `continue-outcome:${lastContinue.outcome}:${lastContinue.reason}`;
+    } else if (goToBansAdvancePendingRef.current) {
+      reason = 'go-to-bans-advance-pending-awaiting-async-continue';
+    } else if (
+      owner.pending.length > 0 &&
+      pendingStartupInteractionsRef.current.length === 0
+    ) {
+      reason = 'owner-pending-not-mirrored-to-runtime-ref';
+    } else if (
+      owner.pending.length > 0 &&
+      overlayQueueRef.current.length === 0 &&
+      pendingStartupInteractionsRef.current.length > 0
+    ) {
+      reason = 'runtime-pending-not-promoted-to-queue';
+    }
+
+    const ownerActiveKind = owner.active.kind;
+    const payload = {
+      reason,
+      overlayQueueLen: runtimeQueueLen,
+      pendingStartupLen: runtimePendingLen,
+      displayKind,
+      activeKind: ownerActiveKind,
+      notificationOverlayVisible,
+      goToBansAdvancePending: goToBansAdvancePendingRef.current,
+      goToBansClosingBanId: goToBansClosingBanIdRef.current,
+      ownerPendingLen: owner.pending.length,
+      ownerQueueLen: owner.queue.length,
+      runtimePendingLen,
+      runtimeQueueLen,
+      previousKind: 'result' as const,
+      previousAction: 'go-to-bans' as const,
+      lastContinueOutcome: formatLastContinueOutcome(lastContinue),
+      lastMergeSkippedReason: mergeSkip?.skipReason ?? null,
+      currentOverlayKind:
+        ownerActiveKind ?? overlayQueueRef.current[0]?.kind ?? null,
+      mountedOverlayKind: resolveMountedOverlayKindForPromotionDiag(),
+    };
+    const signature = buildGoToBansPendingNotPromotedSignature(payload);
+    if (goToBansPendingNotPromotedLastSigRef.current === signature) {
+      return;
+    }
+    goToBansPendingNotPromotedLastSigRef.current = signature;
+    logResultGoToBansPendingNotPromoted(payload);
+  }, [
+    chainAdvanceWaiting,
+    notificationChainTransitioning,
+    notificationOverlayVisible,
+    checkAnswerWaitingResultHoldBanId,
+    ownerPrimaryShellPendingLen,
+    ownerPrimaryShellQueueLen,
   ]);
 
   useLayoutEffect(() => {
