@@ -1,6 +1,9 @@
 'use client';
 
 import {
+  bridgeGoToBansContinueEntry,
+} from '@/lib/go-to-bans-continue-trace-debug';
+import {
   importBrowserDebugModule,
   isBrowserDebugEnvironment,
   isBrowserDebugHydrated,
@@ -56,6 +59,18 @@ function emitTraceHook(
 /** Synchronous hook — visible immediately in console on the working go-to-bans path. */
 export function hookGoToBansTraceEnter(ctx: GoToBansTraceHookContext): void {
   emitTraceHook('[GO TO BANS TRACE HOOK ENTER]', ctx);
+  if (
+    ctx.handlerName === 'go-to-bans-next-card' ||
+    ctx.handlerName.startsWith('go-to-bans-next-card:')
+  ) {
+    bridgeGoToBansContinueEntry({
+      source: ctx.source,
+      handlerName: ctx.handlerName,
+      banId: ctx.banId ?? null,
+      resultId: ctx.resultId ?? ctx.banId ?? null,
+      action: 'trace-hook-enter',
+    });
+  }
 }
 
 function lazyArmTrace(
@@ -178,6 +193,14 @@ export function logGoToBansNextCardClickLazy(
     activeBanId: (data.activeBanId as string | null | undefined) ?? null,
     ...data,
   };
+  bridgeGoToBansContinueEntry({
+    source: ctx.source,
+    handlerName: 'logGoToBansNextCardClickLazy',
+    banId: ctx.banId ?? null,
+    resultId: ctx.resultId ?? null,
+    action: 'next-card-click-lazy',
+    wasDirect: (data.wasDirect as boolean | null | undefined) ?? null,
+  });
   lazyArmTrace('logGoToBansNextCardClick', ctx, data);
 }
 

@@ -587,6 +587,11 @@ import {
   logResultGoToBansPendingNotPromoted,
 } from '@/lib/pending-promotion-diag-debug';
 import {
+  isGoToBansContinueTraceRelevant,
+  logGoToBansContinueEntryTrace,
+  logGoToBansContinueExitTrace,
+} from '@/lib/go-to-bans-continue-trace-debug';
+import {
   evaluateBansLayerOpenGate,
   logBansLayerFlagsClearedAfterChainOutcome,
   logBansLayerOpenAllowed,
@@ -1728,6 +1733,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (skipBanId: string | null, source: string) => void
   >(() => {});
   const chainAdvanceWaitingRef = useRef(false);
+  const notificationOverlayVisibleDiagRef = useRef<boolean | null>(null);
+  const emitGoToBansContinueEntryRef = useRef<
+    (input: {
+      source: string;
+      handlerName: string;
+      banId?: string | null;
+      resultId?: string | null;
+      action?: string | null;
+      wasDirect?: boolean | null;
+    }) => void
+  >(() => {});
+  const emitGoToBansContinueExitRef = useRef<
+    (input: {
+      source: string;
+      handlerName: string;
+      outcome?: string | null;
+      returnReason: string;
+      didCallContinue?: boolean;
+      didCallShowNext?: boolean;
+      didSetAwaiting?: boolean;
+      queueLenBefore?: number;
+      pendingLenBefore?: number;
+    }) => void
+  >(() => {});
   const chainPlaceholderStuckSnapshotRef = useRef<
     () => Record<string, unknown>
   >(() => ({}));
@@ -1791,6 +1820,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     'incoming' | 'check' | 'result' | null
   >(null);
   const setChainAdvanceWaiting = useCallback((active: boolean) => {
+    if (
+      goToBansAdvancePendingRef.current ||
+      goToBansClosingBanIdRef.current != null
+    ) {
+      emitGoToBansContinueEntryRef.current({
+        source: 'setChainAdvanceWaiting',
+        handlerName: 'setChainAdvanceWaiting',
+        action: active ? 'set-awaiting-true' : 'set-awaiting-false',
+      });
+      emitGoToBansContinueExitRef.current({
+        source: 'setChainAdvanceWaiting',
+        handlerName: 'setChainAdvanceWaiting',
+        outcome: active ? 'awaiting-on' : 'awaiting-off',
+        returnReason: active ? 'set-awaiting-true' : 'set-awaiting-false',
+        didSetAwaiting: active,
+      });
+    }
     chainAdvanceWaitingRef.current = active;
     setChainAdvanceWaitingState(active);
     if (!active) {
@@ -1914,6 +1960,99 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       goToBansClosingBanId: goToBansClosingBanIdRef.current,
     });
   };
+  const emitGoToBansContinueEntry = (
+    input: {
+      source: string;
+      handlerName: string;
+      banId?: string | null;
+      resultId?: string | null;
+      action?: string | null;
+      wasDirect?: boolean | null;
+    },
+  ) => {
+    const owner = ownerShadowRef.current.getState();
+    const queueLen = overlayQueueRef.current.length;
+    const pendingLen = pendingStartupInteractionsRef.current.length;
+    const goToBansAdvancePending = goToBansAdvancePendingRef.current;
+    if (
+      !isGoToBansContinueTraceRelevant(input.source, goToBansAdvancePending) &&
+      input.handlerName !== 'navigateFromResult' &&
+      input.handlerName !== 'logResultGoToBansClick' &&
+      input.handlerName !== 'logGoToBansNextCardClickLazy' &&
+      input.handlerName !== 'go-to-bans-pending' &&
+      input.handlerName !== 'setChainAdvanceWaiting'
+    ) {
+      return;
+    }
+    logGoToBansContinueEntryTrace({
+      ...input,
+      resultId: input.resultId ?? input.banId ?? null,
+      queueLen,
+      pendingLen,
+      ownerQueueLen: owner.queue.length,
+      ownerPendingLen: owner.pending.length,
+      activeKind: owner.active.kind,
+      displayKind: resolveBansLayerOwnerDisplayKind(owner.display),
+      currentOverlayKind:
+        owner.active.kind ?? overlayQueueRef.current[0]?.kind ?? null,
+      mountedOverlayKind: resolveMountedOverlayKindForPromotionDiag(),
+      notificationOverlayVisible:
+        notificationOverlayVisibleDiagRef.current ??
+        Boolean(
+          resultRef.current?.id ||
+            checkBanRef.current?.id ||
+            incomingBanRef.current?.id ||
+            heldUserCardOverlayRef.current ||
+            directResultOverlayRef.current,
+        ),
+      goToBansAdvancePending,
+      goToBansClosingBanId: goToBansClosingBanIdRef.current,
+      chainAdvanceAwaiting: chainAdvanceWaitingRef.current,
+    });
+  };
+  emitGoToBansContinueEntryRef.current = emitGoToBansContinueEntry;
+  const emitGoToBansContinueExit = (
+    input: {
+      source: string;
+      handlerName: string;
+      outcome?: string | null;
+      returnReason: string;
+      didCallContinue?: boolean;
+      didCallShowNext?: boolean;
+      didSetAwaiting?: boolean;
+      queueLenBefore?: number;
+      pendingLenBefore?: number;
+    },
+  ) => {
+    const owner = ownerShadowRef.current.getState();
+    if (
+      !isGoToBansContinueTraceRelevant(
+        input.source,
+        goToBansAdvancePendingRef.current,
+      ) &&
+      input.handlerName !== 'navigateFromResult'
+    ) {
+      return;
+    }
+    logGoToBansContinueExitTrace({
+      ...input,
+      queueLenAfter: overlayQueueRef.current.length,
+      pendingLenAfter: pendingStartupInteractionsRef.current.length,
+      queueLenBefore: input.queueLenBefore ?? overlayQueueRef.current.length,
+      pendingLenBefore:
+        input.pendingLenBefore ?? pendingStartupInteractionsRef.current.length,
+      ownerQueueLen: owner.queue.length,
+      ownerPendingLen: owner.pending.length,
+    });
+  };
+  emitGoToBansContinueExitRef.current = emitGoToBansContinueExit;
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.__goToBansContinueTraceBridge = {
+      entry: emitGoToBansContinueEntry,
+      exit: emitGoToBansContinueExit,
+    };
+  });
   const commitPendingQueueViaOwner = (
     next: QueuedOverlay[],
     source: string,
@@ -22069,6 +22208,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const showNextNotificationFromChainSync = useCallback(
     (source: string): boolean =>
       runWithHeadSwitchPipelineFrame('showNextNotificationFromChainSync', () => {
+      const showNextQueueLenBefore = overlayQueueRef.current.length;
+      const showNextPendingLenBefore =
+        pendingStartupInteractionsRef.current.length;
+      emitGoToBansContinueEntry({
+        source,
+        handlerName: 'showNextNotificationFromChainSync',
+        action: 'show-next-enter',
+        banId: goToBansClosingBanIdRef.current,
+        resultId: goToBansClosingBanIdRef.current,
+      });
       const owner = readOwnerImperative('showNextNotificationFromChainSync');
       const headAtEnter = readOwnerImperativeQueueHead(
         owner,
@@ -22132,6 +22281,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             skippedReason: branch,
           });
         }
+        emitGoToBansContinueExit({
+          source,
+          handlerName: 'showNextNotificationFromChainSync',
+          outcome: result ? 'shown' : 'not-shown',
+          returnReason: branch,
+          didCallShowNext: true,
+          queueLenBefore: showNextQueueLenBefore,
+          pendingLenBefore: showNextPendingLenBefore,
+        });
         runPhase12ParityCheck('showNextNotificationFromChainSync', branch, {
           fallbackUsed: false,
         });
@@ -24012,6 +24170,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       opts?: ContinueNotificationChainOptions,
     ):     ContinueNotificationChainOutcome =>
       runWithHeadSwitchPipelineFrame('continueNotificationChainOrOpenLobbySync', () => {
+      const continueQueueLenBefore = overlayQueueRef.current.length;
+      const continuePendingLenBefore =
+        pendingStartupInteractionsRef.current.length;
+      const continueTraceState = {
+        didCallShowNext: false,
+        didSetAwaiting: false,
+      };
+      emitGoToBansContinueEntry({
+        source,
+        handlerName: 'continueNotificationChainOrOpenLobbySync',
+        action: 'continue-sync-enter',
+        banId: goToBansClosingBanIdRef.current,
+        resultId: goToBansClosingBanIdRef.current,
+      });
       tracePostIncomingAdvanceDiag(
         'continueNotificationChainOrOpenLobbySync',
         source,
@@ -24026,6 +24198,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         reason: string,
       ): ContinueNotificationChainOutcome => {
         lastChainContinueOutcomeRef.current = { outcome, reason };
+        emitGoToBansContinueExit({
+          source,
+          handlerName: 'continueNotificationChainOrOpenLobbySync',
+          outcome,
+          returnReason: reason,
+          didCallContinue: true,
+          didCallShowNext:
+            continueTraceState.didCallShowNext || outcome === 'show-next',
+          didSetAwaiting: continueTraceState.didSetAwaiting,
+          queueLenBefore: continueQueueLenBefore,
+          pendingLenBefore: continuePendingLenBefore,
+        });
         clearBansLayerOpenFlagsAfterChainOutcome(
           `${source}:${reason}`,
           outcome,
@@ -24463,6 +24647,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           `${source}:pre-show-next`,
           'show-next',
         );
+        continueTraceState.didCallShowNext = true;
         const shown = showNextNotificationFromChainSync(source);
         if (shown) {
           const head = readOwnerImperativeQueueHeadForRuntime(
@@ -24550,6 +24735,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           `${source}:pre-show-next-retry`,
           'show-next',
         );
+        continueTraceState.didCallShowNext = true;
         const retryShown = showNextNotificationFromChainSync(`${source}-retry`);
         if (retryShown) {
           logChainContinueShowNext({
@@ -28267,6 +28453,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         : null);
     const queueLenBefore = overlayQueueRef.current.length;
     const pendingLenBefore = pendingStartupInteractionsRef.current.length;
+    emitGoToBansContinueEntry({
+      source: 'navigateFromResult',
+      handlerName: 'navigateFromResult',
+      banId,
+      resultId: banId,
+      action: 'entry',
+    });
     const resultOutcome = resolveOverboardResultOutcome(
       readOwnerC3DisplayResultForRuntime(
         readOwnerC3Decision('navigateFromResult').display,
@@ -28629,6 +28822,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
     goToBansAdvancePendingRef.current = true;
     goToBansClosingBanIdRef.current = banId ? normalizeId(banId) || banId : null;
+    emitGoToBansContinueEntry({
+      source: 'navigateFromResult:go-to-bans-pending',
+      handlerName: 'go-to-bans-pending',
+      banId,
+      resultId: banId,
+      action: 'advance-pending-set',
+      wasDirect,
+    });
     mirrorOwnerSessionFlagsRef.current('navigateFromResult:go-to-bans-pending', {
       goToBansAdvancePending: true,
     });
@@ -28895,7 +29096,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       chainSource,
     });
 
+    emitGoToBansContinueExit({
+      source: chainSource,
+      handlerName: 'navigateFromResult',
+      outcome: 'async-continue-scheduled',
+      returnReason: 'scheduling-async-continue',
+      didCallContinue: false,
+      didCallShowNext: false,
+      didSetAwaiting: shouldChainAdvanceWait,
+      queueLenBefore,
+      pendingLenBefore,
+    });
+
     void (async () => {
+      emitGoToBansContinueEntry({
+        source: chainSource,
+        handlerName: 'navigateFromResult',
+        banId,
+        resultId: banId,
+        action: 'async-continue-before-await',
+        wasDirect,
+      });
       const outcome = await continueNotificationChainOrOpenLobbyRef.current(
         chainSource,
         {
@@ -28906,6 +29127,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         },
       );
       const shown = outcome === 'show-next';
+      emitGoToBansContinueExit({
+        source: chainSource,
+        handlerName: 'navigateFromResult',
+        outcome,
+        returnReason: shown
+          ? 'async-continue-show-next'
+          : `async-continue-outcome:${outcome}`,
+        didCallContinue: true,
+        didCallShowNext: shown,
+        didSetAwaiting: false,
+        queueLenBefore,
+        pendingLenBefore,
+      });
       if (statusCtaNavigateGenerationRef.current !== generation) {
         emitGoToBansShowNextNotCalled({
           ...buildGoToBansClickDismissDiag('navigateFromResult', {
@@ -28933,6 +29167,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           outcome,
           generation,
           expectedGeneration: generation,
+        });
+        emitGoToBansContinueExit({
+          source: chainSource,
+          handlerName: 'navigateFromResult',
+          outcome,
+          returnReason: 'statusCtaNavigateGeneration-mismatch',
+          didCallContinue: true,
+          didCallShowNext: false,
         });
         return;
       }
@@ -29067,6 +29309,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             pendingStartupInteractionsRef.current[0]?.kind ?? null,
           outcome,
         });
+        emitGoToBansContinueExit({
+          source: chainSource,
+          handlerName: 'navigateFromResult',
+          outcome,
+          returnReason: 'chain-continue-show-next-success',
+          didCallContinue: true,
+          didCallShowNext: true,
+        });
         return;
       }
 
@@ -29104,6 +29354,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           finalQueueLen: collected.finalQueueLen,
           finalPendingLen: collected.finalPendingLen,
         });
+        emitGoToBansContinueExit({
+          source: chainSource,
+          handlerName: 'navigateFromResult',
+          outcome,
+          returnReason: 'continue-lost-pending-finalQueueLen-or-finalPendingLen-gt-zero',
+          didCallContinue: true,
+          didCallShowNext: false,
+        });
         return;
       }
 
@@ -29128,6 +29386,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           pendingStartupInteractionsRef.current[0]?.kind ?? null,
         outcome,
         targetTab,
+      });
+      emitGoToBansContinueExit({
+        source: chainSource,
+        handlerName: 'navigateFromResult',
+        outcome,
+        returnReason:
+          outcome === 'open-lobby'
+            ? 'continue-outcome-open-lobby-empty-chain'
+            : `continue-outcome-not-show-next:${outcome}`,
+        didCallContinue: true,
+        didCallShowNext: false,
       });
     })();
   }, [
@@ -33509,6 +33778,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     showReplyIncomingOverlayDirect,
     showCheckOverlayDirect,
   ]);
+
+  useLayoutEffect(() => {
+    notificationOverlayVisibleDiagRef.current = notificationOverlayVisible;
+  }, [notificationOverlayVisible]);
 
   useLayoutEffect(() => {
     const hasRenderableCard =

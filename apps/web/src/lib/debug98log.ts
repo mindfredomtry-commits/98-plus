@@ -15,7 +15,7 @@ export type Debug98Event = {
 const MAX_EVENTS = 30;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 95;
+export const DEBUG98_LOGGER_VERSION = 96;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -312,6 +312,8 @@ const ALLOWED_EVENTS = new Set([
   'RESULT_GO_TO_BANS_PENDING_NOT_PROMOTED',
   'PENDING_PROMOTION_DECISION_TRACE',
   'CONTINUE_CHAIN_EMPTY_BUT_PENDING_EXISTS',
+  'GO_TO_BANS_CONTINUE_ENTRY_TRACE',
+  'GO_TO_BANS_CONTINUE_EXIT_TRACE',
   'BANS_LAYER_OPEN_BLOCKED_DURING_CHAIN',
   'BANS_LAYER_OPEN_ALLOWED',
   'BANS_LAYER_FLAGS_CLEARED_AFTER_CHAIN_OUTCOME',
