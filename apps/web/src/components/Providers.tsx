@@ -574,6 +574,12 @@ import {
   logResultReopenBlockedByOwnerConsumed,
 } from '@/lib/go-to-bans-payload-switch-trace';
 import {
+  buildOverlayEmptyGapSignature,
+  classifyOverlayEmptyGap,
+  isOverlayEmptyGapActive,
+  logOverlayEmptyGapClassified,
+} from '@/lib/overlay-empty-gap-classify-debug';
+import {
   evaluateBansLayerOpenGate,
   logBansLayerFlagsClearedAfterChainOutcome,
   logBansLayerOpenAllowed,
@@ -2505,6 +2511,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const lastProcessedOverlayKindForBansRef = useRef<
     'incoming' | 'check' | 'result' | null
   >(null);
+  const overlayEmptyGapLastSigRef = useRef<string | null>(null);
 
   const isDirectOverboardLocallyActive = useCallback(() => {
     const owner = readOwnerChainState(
@@ -33234,6 +33241,94 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     showDirectOverboardLayer,
     showReplyIncomingOverlayDirect,
     showCheckOverlayDirect,
+  ]);
+
+  useLayoutEffect(() => {
+    const hasRenderableCard =
+      Boolean(ownerPrimaryStableIncomingBan?.id) ||
+      ownerPrimaryHeldUserCard != null ||
+      showDirectOverboardLayer ||
+      checkOverlayMounted ||
+      incomingShellHydrating ||
+      (notificationQueueShellKind === 'check' && !!ownerPrimaryCheckBan?.id) ||
+      (notificationQueueShellKind === 'result' &&
+        !!ownerPrimaryDisplayResultForShell) ||
+      (notificationQueueShellKind === 'incoming' &&
+        !!incomingCardDisplayBan &&
+        incomingCardFullyReady);
+
+    if (
+      !isOverlayEmptyGapActive({
+        notificationOverlayVisible,
+        hasRenderableCard,
+        notificationChainTransitioning,
+        chainAdvanceWaiting,
+        checkAnswerWaitingResultHoldBanId,
+      })
+    ) {
+      overlayEmptyGapLastSigRef.current = null;
+      return;
+    }
+
+    const queueHead =
+      ownerPrimaryQueueHead ?? overlayQueueRef.current[0] ?? null;
+    const classified = classifyOverlayEmptyGap({
+      previousKind: null,
+      previousAction: null,
+      runtimeQueueLen: overlayQueueRef.current.length,
+      runtimePendingLen: pendingStartupInteractionsRef.current.length,
+      ownerQueueLen: ownerPrimaryShellQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+      queueHeadKind: queueHead?.kind ?? null,
+      queueHeadKey: queueHead ? overlayQueueKey(queueHead) : null,
+      displayKind: resolveBansLayerOwnerDisplayKind(ownerReadDisplay),
+      activeKind: ownerReadState.active.kind,
+      waitingForApi:
+        overboardInFlightRef.current != null ||
+        checkAnswerInFlightRef.current.size > 0,
+      waitingForPoll: resultPollBurstTimersRef.current.length > 0,
+      waitingForPrefetch: pendingChainPrefetchInFlightRef.current > 0,
+      notificationOverlayVisible,
+      hasRenderableCard,
+      goToBansAdvancePending: goToBansAdvancePendingRef.current,
+      chainAdvanceWaiting,
+      notificationChainTransitioning,
+      checkAnswerWaitingResultHoldBanId,
+      chainAdvancePlaceholderKind,
+      shellKind: notificationQueueShellKind,
+      effectiveShellKind: effectiveNotificationQueueShellKind,
+      queueHead,
+      incomingOverboardInFlight: overboardInFlightRef.current != null,
+      incomingOverboardAtomicBanId: incomingOverboardAtomicBanIdRef.current,
+    });
+    const signature = buildOverlayEmptyGapSignature(classified);
+    if (overlayEmptyGapLastSigRef.current === signature) {
+      return;
+    }
+    overlayEmptyGapLastSigRef.current = signature;
+    logOverlayEmptyGapClassified(classified);
+  }, [
+    chainAdvancePlaceholderKind,
+    chainAdvanceWaiting,
+    checkAnswerWaitingResultHoldBanId,
+    checkOverlayMounted,
+    effectiveNotificationQueueShellKind,
+    incomingCardDisplayBan,
+    incomingCardFullyReady,
+    incomingShellHydrating,
+    notificationChainTransitioning,
+    notificationOverlayVisible,
+    notificationQueueShellKind,
+    ownerPrimaryCheckBan?.id,
+    ownerPrimaryDisplayResultForShell,
+    ownerPrimaryHeldUserCard,
+    ownerPrimaryQueueHead,
+    ownerPrimaryShellPendingLen,
+    ownerPrimaryShellQueueLen,
+    ownerPrimaryStableIncomingBan?.id,
+    ownerReadDisplay,
+    ownerReadState.active.kind,
+    showDirectOverboardLayer,
   ]);
 
   useLayoutEffect(() => {
