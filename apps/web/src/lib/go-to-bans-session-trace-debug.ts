@@ -23,12 +23,68 @@ declare global {
 
 let lastGoToBansSessionTrace: GoToBansSessionTrace | null = null;
 
+type GoToBansSessionTraceAccessOp =
+  | 'get'
+  | 'set'
+  | 'clear'
+  | 'module-init'
+  | 'mirror-read'
+  | 'mirror-write';
+
 function captureCaller(skipFrames = 2): string {
   try {
     const stack = new Error('[go-to-bans-session-trace]').stack ?? '';
     return stack.split('\n').slice(skipFrames, skipFrames + 12).join('\n');
   } catch {
     return '';
+  }
+}
+
+function traceSnapshot(trace: GoToBansSessionTrace | null | undefined): {
+  exists: boolean;
+  banId: string | null;
+  resultId: string | null;
+} {
+  return {
+    exists: trace != null,
+    banId: trace?.banId ?? null,
+    resultId: trace?.resultId ?? null,
+  };
+}
+
+function emitGoToBansSessionTraceAccess(input: {
+  op: GoToBansSessionTraceAccessOp;
+  caller: string;
+  reason: string;
+  before?: GoToBansSessionTrace | null;
+  after?: GoToBansSessionTrace | null;
+  returned?: GoToBansSessionTrace | null;
+}): void {
+  const before = traceSnapshot(input.before);
+  const after = traceSnapshot(input.after);
+  const returned =
+    input.returned !== undefined ? traceSnapshot(input.returned) : null;
+  const timestamp = performance.now();
+  const payload = {
+    timestamp,
+    t: timestamp,
+    op: input.op,
+    caller: input.caller,
+    reason: input.reason,
+    moduleInstanceId: GO_TO_BANS_SESSION_TRACE_MODULE_INSTANCE_ID,
+    beforeExists: before.exists,
+    afterExists: after.exists,
+    beforeBanId: before.banId,
+    afterBanId: after.banId,
+    beforeResultId: before.resultId,
+    afterResultId: after.resultId,
+    returnedExists: returned?.exists ?? null,
+    returnedBanId: returned?.banId ?? null,
+    returnedResultId: returned?.resultId ?? null,
+  };
+  console.log('GO_TO_BANS_SESSION_TRACE_ACCESS', payload);
+  if (typeof window !== 'undefined') {
+    window.__debug98log?.('GO_TO_BANS_SESSION_TRACE_ACCESS', payload);
   }
 }
 
@@ -44,7 +100,9 @@ function emitGoToBansSessionTraceLifecycle(
     ...data,
   };
   console.log(event, payload);
-  window.__debug98log?.(event, payload);
+  if (typeof window !== 'undefined') {
+    window.__debug98log?.(event, payload);
+  }
 }
 
 function emitGoToBansSessionTraceClear(input: {
@@ -64,7 +122,9 @@ function emitGoToBansSessionTraceClear(input: {
     resultIdBefore: input.resultIdBefore,
   };
   console.log('GO_TO_BANS_SESSION_TRACE_CLEAR', payload);
-  window.__debug98log?.('GO_TO_BANS_SESSION_TRACE_CLEAR', payload);
+  if (typeof window !== 'undefined') {
+    window.__debug98log?.('GO_TO_BANS_SESSION_TRACE_CLEAR', payload);
+  }
 }
 
 function assignLastGoToBansSessionTrace(
@@ -73,6 +133,21 @@ function assignLastGoToBansSessionTrace(
   caller: string,
 ): void {
   const prev = lastGoToBansSessionTrace;
+  emitGoToBansSessionTraceAccess({
+    op: 'get',
+    caller,
+    reason: `${reason}:assign-read-prev`,
+    before: prev,
+    after: prev,
+    returned: prev,
+  });
+  emitGoToBansSessionTraceAccess({
+    op: next === null ? 'clear' : 'set',
+    caller,
+    reason,
+    before: prev,
+    after: next,
+  });
   emitGoToBansSessionTraceClear({
     reason,
     caller,
@@ -81,35 +156,79 @@ function assignLastGoToBansSessionTrace(
   });
   lastGoToBansSessionTrace = next;
   if (typeof window !== 'undefined') {
+    const mirrorBefore = window.__goToBansSessionTraceMirror ?? null;
+    emitGoToBansSessionTraceAccess({
+      op: 'mirror-write',
+      caller: 'assignLastGoToBansSessionTrace',
+      reason,
+      before: mirrorBefore,
+      after: next,
+    });
     window.__goToBansSessionTraceMirror = next;
   }
 }
 
-function logModuleEvalAssignment(): void {
+function logModuleInitAccess(): void {
+  emitGoToBansSessionTraceAccess({
+    op: 'module-init',
+    caller: 'go-to-bans-session-trace-debug.ts:module-eval',
+    reason: 'let-lastGoToBansSessionTrace-null',
+    before: lastGoToBansSessionTrace,
+    after: lastGoToBansSessionTrace,
+    returned: lastGoToBansSessionTrace,
+  });
+
   if (typeof window === 'undefined') return;
+
   const prevModuleId = window.__goToBansSessionTraceModuleId;
   const mirror = window.__goToBansSessionTraceMirror ?? null;
-  const reason = prevModuleId
+  emitGoToBansSessionTraceAccess({
+    op: 'mirror-read',
+    caller: 'logModuleInitAccess',
+    reason: prevModuleId ? 'hmr-mirror-read' : 'first-load-mirror-read',
+    before: mirror,
+    after: mirror,
+    returned: mirror,
+  });
+
+  const hmrReason = prevModuleId
     ? prevModuleId === GO_TO_BANS_SESSION_TRACE_MODULE_INSTANCE_ID
       ? 'module-reinit-hmr-same-instance-id'
       : 'module-reinit-hmr-new-instance-id'
     : 'module-init';
+
+  emitGoToBansSessionTraceAccess({
+    op: 'module-init',
+    caller: 'go-to-bans-session-trace-debug.ts:module-eval',
+    reason: hmrReason,
+    before: mirror,
+    after: lastGoToBansSessionTrace,
+  });
+
   emitGoToBansSessionTraceClear({
-    reason,
+    reason: hmrReason,
     caller: 'go-to-bans-session-trace-debug.ts:module-eval',
     banIdBefore: mirror?.banId ?? null,
     resultIdBefore: mirror?.resultId ?? null,
   });
+
   window.__goToBansSessionTraceModuleId =
     GO_TO_BANS_SESSION_TRACE_MODULE_INSTANCE_ID;
 }
 
-logModuleEvalAssignment();
+logModuleInitAccess();
 
 export function clearGoToBansSessionTrace(
   reason: string,
   caller = captureCaller(2),
 ): void {
+  emitGoToBansSessionTraceAccess({
+    op: 'clear',
+    caller,
+    reason: `${reason}:clear-entry`,
+    before: lastGoToBansSessionTrace,
+    after: null,
+  });
   assignLastGoToBansSessionTrace(null, reason, caller);
 }
 
@@ -119,6 +238,15 @@ export function recordGoToBansSessionTrace(
 ): void {
   const normalized = normalizeId(banId);
   if (!normalized) return;
+  const beforeSet = lastGoToBansSessionTrace;
+  emitGoToBansSessionTraceAccess({
+    op: 'get',
+    caller: source,
+    reason: 'record-before-set',
+    before: beforeSet,
+    after: beforeSet,
+    returned: beforeSet,
+  });
   const at = performance.now();
   const nextTrace: GoToBansSessionTrace = {
     banId: normalized,
@@ -127,11 +255,18 @@ export function recordGoToBansSessionTrace(
   };
   assignLastGoToBansSessionTrace(
     nextTrace,
-    lastGoToBansSessionTrace != null
-      ? 'overwrite-new-object'
-      : 'assign-new-object',
+    beforeSet != null ? 'overwrite-new-object' : 'assign-new-object',
     source,
   );
+  const afterSet = lastGoToBansSessionTrace;
+  emitGoToBansSessionTraceAccess({
+    op: 'get',
+    caller: source,
+    reason: 'record-after-set',
+    before: beforeSet,
+    after: afterSet,
+    returned: afterSet,
+  });
   emitGoToBansSessionTraceLifecycle('GO_TO_BANS_SESSION_TRACE_WRITE', {
     source,
     banId: normalized,
@@ -144,7 +279,16 @@ export function recordGoToBansSessionTrace(
 }
 
 export function readGoToBansSessionTrace(): GoToBansSessionTrace | null {
-  return lastGoToBansSessionTrace;
+  const trace = lastGoToBansSessionTrace;
+  emitGoToBansSessionTraceAccess({
+    op: 'get',
+    caller: captureCaller(2),
+    reason: 'readGoToBansSessionTrace',
+    before: trace,
+    after: trace,
+    returned: trace,
+  });
+  return trace;
 }
 
 export function logGoToBansSessionTraceRead(input: {
@@ -152,7 +296,7 @@ export function logGoToBansSessionTraceRead(input: {
   banId?: string | null;
   resultId?: string | null;
 }): GoToBansSessionTrace | null {
-  const trace = lastGoToBansSessionTrace;
+  const trace = readGoToBansSessionTrace();
   const ageMs = trace != null ? performance.now() - trace.at : null;
   emitGoToBansSessionTraceLifecycle('GO_TO_BANS_SESSION_TRACE_READ', {
     source: input.source,
