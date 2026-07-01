@@ -836,7 +836,9 @@ import {
 import {
   isInteractiveOverboardResultContext,
   isPassiveResultOpenSource,
+  logGoToBansPassivePrefetchResultSkip,
   logPassiveResultLookaheadBlocked,
+  resolveGoToBansPassivePrefetchResultSkipReason,
   logPassiveResultOverlayBlocked,
   shouldBlockPassiveResultLookaheadDisplay,
   shouldBlockPassiveResultOverlayOpen,
@@ -14115,17 +14117,45 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 { resultId: r.id },
               )
             ) {
-              resultPriorityBanIdsRef.current.add(resultNorm);
-              mirrorOwnerHoldsSetsRef.current('pending-chain-prefetch', {
-                resultPriorityBanIds: new Set(resultPriorityBanIdsRef.current),
-              });
-              traceResultPriorityBanIdAdded(
-                resultNorm,
-                'pending-chain-prefetch',
-                'result-priority-ban-id-added-prefetch',
-              );
-              toEnqueue.push({ kind: 'result', result: r });
-              enqueuedIds.push(r.id);
+              const passivePrefetchSkipReason =
+                resolveGoToBansPassivePrefetchResultSkipReason(
+                  source,
+                  resultNorm,
+                  {
+                    ownerShownOverlayHasResult: ownerShadowRef.current
+                      .getState()
+                      .session.shownOverlayKeys.has(resultOverlayKey),
+                    resultCtaConsumed:
+                      resultCtaConsumedBanIdsRef.current.has(resultNorm),
+                    resultDelivered:
+                      resultDeliveredBanIdsRef.current.has(resultNorm),
+                  },
+                );
+              if (passivePrefetchSkipReason) {
+                logGoToBansPassivePrefetchResultSkip({
+                  source,
+                  banId: resultNorm,
+                  reason: passivePrefetchSkipReason,
+                });
+                skipDetails.push({
+                  banId: resultNorm,
+                  reason: 'go-to-bans-passive-prefetch-result-skip',
+                });
+              } else {
+                resultPriorityBanIdsRef.current.add(resultNorm);
+                mirrorOwnerHoldsSetsRef.current('pending-chain-prefetch', {
+                  resultPriorityBanIds: new Set(
+                    resultPriorityBanIdsRef.current,
+                  ),
+                });
+                traceResultPriorityBanIdAdded(
+                  resultNorm,
+                  'pending-chain-prefetch',
+                  'result-priority-ban-id-added-prefetch',
+                );
+                toEnqueue.push({ kind: 'result', result: r });
+                enqueuedIds.push(r.id);
+              }
             } else {
               skipDetails.push({
                 banId: resultNorm,

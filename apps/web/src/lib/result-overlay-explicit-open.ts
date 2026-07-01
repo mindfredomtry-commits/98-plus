@@ -155,3 +155,33 @@ export function logPassiveResultLookaheadBlocked(data: {
   console.log('[PASSIVE RESULT LOOKAHEAD BLOCKED]', payload);
   window.__debug98log?.('[PASSIVE RESULT LOOKAHEAD BLOCKED]', payload);
 }
+
+export function resolveGoToBansPassivePrefetchResultSkipReason(
+  source: string,
+  banId: string,
+  markers: {
+    ownerShownOverlayHasResult: boolean;
+    resultCtaConsumed: boolean;
+    resultDelivered: boolean;
+  },
+): string | null {
+  const isPassivePrimeSource =
+    source.includes('lobby-indicator-prime') ||
+    source.includes('result-overlay-prime');
+  if (!isPassivePrimeSource || !banId) return null;
+  if (markers.ownerShownOverlayHasResult) return 'owner-shown-overlay-key';
+  if (markers.resultCtaConsumed) return 'result-cta-consumed';
+  if (markers.resultDelivered) return 'result-delivered';
+  return null;
+}
+
+export function logGoToBansPassivePrefetchResultSkip(data: {
+  source: string;
+  banId: string;
+  reason: string;
+}): void {
+  const timestamp = performance.now();
+  const payload = { timestamp, t: timestamp, ...data };
+  console.log('GO_TO_BANS_PASSIVE_PREFETCH_RESULT_SKIP', payload);
+  window.__debug98log?.('GO_TO_BANS_PASSIVE_PREFETCH_RESULT_SKIP', payload);
+}
