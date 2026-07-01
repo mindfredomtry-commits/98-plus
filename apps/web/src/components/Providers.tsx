@@ -21273,12 +21273,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         console.log('[result-poll-skip]', { reason: 'chain-transitioning' });
         return;
       }
-      if (
-        overlayQueueRef.current.length > 0 ||
-        pendingStartupInteractionsRef.current.length > 0
-      ) {
-        console.log('[result-poll-skip]', { reason: 'pending-chain-queued' });
-        return;
+      {
+        const ownerAtPollGuard = ownerShadowRef.current.getState();
+        const ownerQueueLen = ownerAtPollGuard.queue.length;
+        const ownerPendingLen = ownerAtPollGuard.pending.length;
+        const legacyQueueLen = overlayQueueRef.current.length;
+        const legacyPendingLen = pendingStartupInteractionsRef.current.length;
+        const activeKind = ownerAtPollGuard.active.kind;
+        const displayKind = resolveBansLayerOwnerDisplayKind(
+          ownerAtPollGuard.display,
+        );
+        if (ownerQueueLen > 0 || ownerPendingLen > 0) {
+          console.log('PENDING_CHAIN_GUARD_OWNER_DECISION', {
+            ownerQueueLen,
+            ownerPendingLen,
+            legacyQueueLen,
+            legacyPendingLen,
+            activeKind,
+            displayKind,
+            skipReason: 'pending-chain-queued',
+            decisionSource: 'owner',
+            timestamp: performance.now(),
+          });
+          console.log('[result-poll-skip]', { reason: 'pending-chain-queued' });
+          return;
+        }
       }
       if (result?.id || readOwnerC3MountedResultId('pollIntervalGuard') || resultOpenRef.current) {
         console.log('[result-poll-skip]', {
