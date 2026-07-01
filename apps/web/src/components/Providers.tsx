@@ -1777,6 +1777,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   });
   const goToBansAdvancePendingRef = useRef(false);
   const goToBansClosingBanIdRef = useRef<string | null>(null);
+  const goToBansAwaitingFlushGenRef = useRef(0);
+  const continueNotificationChainOrOpenLobbySyncRef = useRef<
+    (
+      source: string,
+      opts?: ContinueNotificationChainOptions,
+    ) => ContinueNotificationChainOutcome
+  >(() => 'blocked');
+  const runGoToBansAwaitingFlushAfterUnmountRef = useRef<
+    (ctx: {
+      chainSource: string;
+      banId: string | null;
+      generation: number;
+      targetTab: BansOverlayTabTarget;
+    }) => Promise<void>
+  >(async () => {});
   const showNextNotificationFromChainSyncRef = useRef<
     (source: string) => boolean
   >(() => false);
@@ -2046,6 +2061,58 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
   };
   emitGoToBansContinueExitRef.current = emitGoToBansContinueExit;
+  const logGoToBansAwaitingFlushFixTrace = (
+    stage:
+      | 'scheduled'
+      | 'running'
+      | 'show-next'
+      | 'blocked'
+      | 'open-lobby-skipped-pending'
+      | 'open-lobby',
+    extra?: { outcome?: string | null; returnReason?: string | null },
+  ) => {
+    const owner = ownerShadowRef.current.getState();
+    console.log('GO_TO_BANS_AWAITING_FLUSH_FIX_TRACE', {
+      stage,
+      queueLen: overlayQueueRef.current.length,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      ownerQueueLen: owner.queue.length,
+      ownerPendingLen: owner.pending.length,
+      activeKind: owner.active.kind,
+      displayKind: resolveBansLayerOwnerDisplayKind(owner.display),
+      mountedOverlayKind: resolveMountedOverlayKindForPromotionDiag(),
+      goToBansAdvancePending: goToBansAdvancePendingRef.current,
+      chainAdvanceAwaiting: chainAdvanceWaitingRef.current,
+      outcome: extra?.outcome ?? null,
+      returnReason: extra?.returnReason ?? null,
+      timestamp: performance.now(),
+    });
+  };
+  const isGoToBansClosingResultStillMounted = (
+    closingBanId: string | null,
+  ): boolean => {
+    if (resolveMountedOverlayKindForPromotionDiag() === 'result') {
+      return true;
+    }
+    const owner = ownerShadowRef.current.getState();
+    if (owner.active.kind === 'result') {
+      if (!closingBanId) return true;
+      return (
+        normalizeId(owner.active.banId ?? '') === normalizeId(closingBanId)
+      );
+    }
+    const displayResultId = owner.display.result?.id ?? null;
+    if (displayResultId) {
+      if (!closingBanId) return true;
+      return normalizeId(displayResultId) === normalizeId(closingBanId);
+    }
+    const resultRefId = resultRef.current?.id ?? null;
+    if (resultRefId) {
+      if (!closingBanId) return true;
+      return normalizeId(resultRefId) === normalizeId(closingBanId);
+    }
+    return false;
+  };
   useLayoutEffect(() => {
     if (typeof window === 'undefined') return;
     window.__goToBansContinueTraceBridge = {
@@ -24899,6 +24966,138 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       syncDisplayFromQueue,
     ],
   );
+  continueNotificationChainOrOpenLobbySyncRef.current =
+    continueNotificationChainOrOpenLobbySync;
+
+  const runGoToBansAwaitingFlushAfterUnmount = useCallback(
+    async (ctx: {
+      chainSource: string;
+      banId: string | null;
+      generation: number;
+      targetTab: BansOverlayTabTarget;
+    }) => {
+      const flushGen = ++goToBansAwaitingFlushGenRef.current;
+      const hasAnyQueueOrPending = (): boolean => {
+        const owner = ownerShadowRef.current.getState();
+        return (
+          overlayQueueRef.current.length > 0 ||
+          pendingStartupInteractionsRef.current.length > 0 ||
+          owner.queue.length > 0 ||
+          owner.pending.length > 0
+        );
+      };
+      const waitForClosingResultUnmount = async (): Promise<void> => {
+        for (let attempt = 0; attempt < 120; attempt += 1) {
+          if (!isGoToBansClosingResultStillMounted(ctx.banId)) {
+            return;
+          }
+          await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => resolve());
+            });
+          });
+        }
+      };
+
+      await waitForClosingResultUnmount();
+      if (statusCtaNavigateGenerationRef.current !== ctx.generation) {
+        return;
+      }
+      if (flushGen !== goToBansAwaitingFlushGenRef.current) {
+        return;
+      }
+
+      logGoToBansAwaitingFlushFixTrace('running');
+
+      const continueOpts: ContinueNotificationChainOptions = {
+        clearActiveHold: false,
+        prefetchSkipBanId: ctx.banId ?? undefined,
+        emptyFallback: 'lobby',
+        openBansBanId: ctx.banId ?? undefined,
+      };
+      let outcome = continueNotificationChainOrOpenLobbySync(
+        ctx.chainSource,
+        continueOpts,
+      );
+
+      if (outcome === 'open-lobby' && hasAnyQueueOrPending()) {
+        if (lobbyOpenRef.current) {
+          setLobbyOpen(false);
+        }
+        logGoToBansAwaitingFlushFixTrace('open-lobby-skipped-pending', {
+          outcome,
+          returnReason: 'open-lobby-with-queue-or-pending',
+        });
+        window.setTimeout(() => {
+          if (statusCtaNavigateGenerationRef.current !== ctx.generation) {
+            return;
+          }
+          if (
+            !goToBansAdvancePendingRef.current &&
+            !chainAdvanceWaitingRef.current
+          ) {
+            return;
+          }
+          void runGoToBansAwaitingFlushAfterUnmountRef.current(ctx);
+        }, 0);
+        return;
+      }
+
+      const shown = outcome === 'show-next';
+      if (shown) {
+        logGoToBansAwaitingFlushFixTrace('show-next', {
+          outcome,
+          returnReason: 'show-next-from-awaiting-flush',
+        });
+      } else if (outcome === 'blocked') {
+        logGoToBansAwaitingFlushFixTrace('blocked', {
+          outcome,
+          returnReason: `continue-blocked:${outcome}`,
+        });
+      } else if (outcome === 'open-lobby') {
+        logGoToBansAwaitingFlushFixTrace('open-lobby', {
+          outcome,
+          returnReason: 'open-lobby-empty-chain',
+        });
+      } else {
+        logGoToBansAwaitingFlushFixTrace('blocked', {
+          outcome,
+          returnReason: `continue-outcome:${outcome}`,
+        });
+      }
+
+      setChainAdvanceWaiting(false);
+      goToBansAdvancePendingRef.current = false;
+      goToBansClosingBanIdRef.current = null;
+      mirrorOwnerSessionFlagsRef.current(
+        'navigateFromResult:awaiting-flush-complete',
+        { goToBansAdvancePending: false },
+      );
+
+      if (!shown) {
+        const collected = snapshotPendingNotificationChain();
+        if (collected.finalQueueLen > 0 || collected.finalPendingLen > 0) {
+          logResultGoToBansEmptyScreenBug({
+            banId: ctx.banId,
+            chainSource: ctx.chainSource,
+            reason: 'continue-lost-pending-awaiting-flush',
+            finalQueueLen: collected.finalQueueLen,
+            finalPendingLen: collected.finalPendingLen,
+          });
+        }
+      }
+    },
+    [
+      continueNotificationChainOrOpenLobbySync,
+      isGoToBansClosingResultStillMounted,
+      logGoToBansAwaitingFlushFixTrace,
+      setChainAdvanceWaiting,
+      setLobbyOpen,
+      snapshotPendingNotificationChain,
+    ],
+  );
+  runGoToBansAwaitingFlushAfterUnmountRef.current =
+    runGoToBansAwaitingFlushAfterUnmount;
 
   const finalizeNotificationChainContinueEmpty = useCallback(
     (
@@ -29199,6 +29398,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       pendingLenBefore,
     });
 
+    const hasQueueOrPendingAfterFinalize =
+      overlayQueueRef.current.length > 0 ||
+      pendingStartupInteractionsRef.current.length > 0;
+    const useAwaitingFlushFix =
+      shouldChainAdvanceWait && hasQueueOrPendingAfterFinalize;
+
+    if (useAwaitingFlushFix) {
+      logGoToBansAwaitingFlushFixTrace('scheduled', {
+        returnReason: 'awaiting-flush-after-result-unmount',
+      });
+      void runGoToBansAwaitingFlushAfterUnmountRef.current({
+        chainSource,
+        banId,
+        generation,
+        targetTab,
+      });
+    } else {
     void (async () => {
       try {
       logNavigateFromResultReturnTrace(
@@ -29588,6 +29804,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
       }
     })();
+    }
   }, [
     applyDirectOverboardCloseState,
     cancelResultPollBurst,
