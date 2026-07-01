@@ -28656,6 +28656,56 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         },
       );
 
+    const logNavigateFromResultReturnTrace = (
+      branch: string,
+      returnReason: string,
+      extra?: {
+        didCallContinue?: boolean;
+        didCallShowNext?: boolean;
+        didSetAwaiting?: boolean;
+        action?: string | null;
+        wasDirect?: boolean;
+        generation?: number;
+      },
+    ) => {
+      const owner = ownerShadowRef.current.getState();
+      const timestamp = performance.now();
+      console.log('NAVIGATE_FROM_RESULT_RETURN_TRACE', {
+        branch,
+        returnReason,
+        didCallContinue: extra?.didCallContinue ?? false,
+        didCallShowNext: extra?.didCallShowNext ?? false,
+        didSetAwaiting: extra?.didSetAwaiting ?? false,
+        banId: banId ?? null,
+        resultId: banId ?? null,
+        action: extra?.action ?? null,
+        wasDirect: extra?.wasDirect ?? wasDirect,
+        queueLen: overlayQueueRef.current.length,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+        ownerQueueLen: owner.queue.length,
+        ownerPendingLen: owner.pending.length,
+        activeKind: owner.active.kind,
+        displayKind: resolveBansLayerOwnerDisplayKind(owner.display),
+        currentOverlayKind:
+          owner.active.kind ?? overlayQueueRef.current[0]?.kind ?? null,
+        mountedOverlayKind: resolveMountedOverlayKindForPromotionDiag(),
+        notificationOverlayVisible:
+          notificationOverlayVisibleDiagRef.current ??
+          Boolean(
+            resultRef.current?.id ||
+              checkBanRef.current?.id ||
+              incomingBanRef.current?.id ||
+              heldUserCardOverlayRef.current ||
+              directResultOverlayRef.current,
+          ),
+        goToBansAdvancePending: goToBansAdvancePendingRef.current,
+        goToBansClosingBanId: goToBansClosingBanIdRef.current,
+        chainAdvanceAwaiting: chainAdvanceWaitingRef.current,
+        generation: extra?.generation ?? generation,
+        timestamp,
+      });
+    };
+
     if (
       resultOutcome === 'overboard' ||
       wasDirect ||
@@ -28846,9 +28896,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }),
       );
     } else {
+      logNavigateFromResultReturnTrace(
+        'no-queue-no-pending',
+        'no-remaining-chain-and-not-in-active-overboard-queue',
+        {
+          action: 'go-to-bans-next-waiting',
+          didSetAwaiting: shouldChainAdvanceWait,
+        },
+      );
       window.__debug98log?.('[GO TO BANS NEXT WAITING]', { banId });
     }
     if (shouldChainAdvanceWait) {
+      logNavigateFromResultReturnTrace(
+        'has-queue-set-chain-advance-awaiting',
+        'setChainAdvanceWaiting-true',
+        {
+          action: 'set-chain-advance-awaiting',
+          didSetAwaiting: true,
+        },
+      );
       setChainAdvancePlaceholderKind(placeholderKind);
       setChainAdvanceWaiting(true);
     }
@@ -28934,6 +29000,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
 
     if (banId) {
+      logNavigateFromResultReturnTrace(
+        'finalize-with-banId',
+        'flushSync-finalizeResultForGoToBans',
+        { action: 'finalize-go-to-bans' },
+      );
       {
         const ownerAtClick = ownerShadowRef.current.getState();
         const ownerDirectAtClick =
@@ -28972,10 +29043,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
       }
     } else if (wasDirect) {
+      logNavigateFromResultReturnTrace(
+        'direct-open-bans',
+        'flushSync-applyDirectOverboardCloseState-no-banId',
+        { action: 'direct-open-bans-close' },
+      );
       flushSync(() => {
         cancelResultPollBurst();
         applyDirectOverboardCloseState(null);
       });
+    } else {
+      logNavigateFromResultReturnTrace(
+        'skip-finalize-no-ban-not-direct',
+        'no-banId-and-not-wasDirect',
+        { action: 'skip-finalize-and-direct-close' },
+      );
     }
 
     const queueHeadAfter = overlayQueueRef.current[0] ?? null;
@@ -29096,6 +29178,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       chainSource,
     });
 
+    logNavigateFromResultReturnTrace(
+      'scheduling-async-continue',
+      'scheduling-async-continue',
+      {
+        didSetAwaiting: shouldChainAdvanceWait,
+        action: 'schedule-async-continue',
+      },
+    );
+
     emitGoToBansContinueExit({
       source: chainSource,
       handlerName: 'navigateFromResult',
@@ -29109,6 +29200,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
 
     void (async () => {
+      try {
+      logNavigateFromResultReturnTrace(
+        'before-await-continue',
+        'before-await-continueNotificationChainOrOpenLobby',
+        {
+          didCallContinue: false,
+          action: 'async-continue-before-await',
+          wasDirect,
+        },
+      );
       emitGoToBansContinueEntry({
         source: chainSource,
         handlerName: 'navigateFromResult',
@@ -29127,6 +29228,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         },
       );
       const shown = outcome === 'show-next';
+      logNavigateFromResultReturnTrace(
+        'after-await-continue',
+        shown ? 'async-continue-outcome-show-next' : `async-continue-outcome:${outcome}`,
+        {
+          didCallContinue: true,
+          didCallShowNext: shown,
+          action: 'async-continue-after-await',
+        },
+      );
       emitGoToBansContinueExit({
         source: chainSource,
         handlerName: 'navigateFromResult',
@@ -29141,6 +29251,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         pendingLenBefore,
       });
       if (statusCtaNavigateGenerationRef.current !== generation) {
+        logNavigateFromResultReturnTrace(
+          'generation-mismatch',
+          'statusCtaNavigateGeneration-mismatch',
+          {
+            didCallContinue: true,
+            didCallShowNext: false,
+            generation,
+          },
+        );
         emitGoToBansShowNextNotCalled({
           ...buildGoToBansClickDismissDiag('navigateFromResult', {
             banId,
@@ -29256,6 +29375,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         goToBansAdvancePending: false,
       });
       if (shown) {
+        logNavigateFromResultReturnTrace(
+          'async-continue-show-next',
+          'chain-continue-show-next-success',
+          {
+            didCallContinue: true,
+            didCallShowNext: true,
+            action: 'async-continue-show-next',
+          },
+        );
         emitGoToBansShowNextCalled({
           ...buildGoToBansClickDismissDiag('navigateFromResult', {
             banId,
@@ -29332,6 +29460,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       const collected = snapshotPendingNotificationChain();
       if (collected.finalQueueLen > 0 || collected.finalPendingLen > 0) {
+        logNavigateFromResultReturnTrace(
+          'async-continue-lost-pending',
+          'continue-lost-pending-finalQueueLen-or-finalPendingLen-gt-zero',
+          {
+            didCallContinue: true,
+            didCallShowNext: false,
+            action: `continue-outcome:${outcome}`,
+          },
+        );
         emitPostConsumeReturnPath({
           functionName: 'navigateFromResult',
           branch: 'continue-lost-pending-abort',
@@ -29363,6 +29500,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           didCallShowNext: false,
         });
         return;
+      }
+
+      if (outcome === 'open-lobby') {
+        logNavigateFromResultReturnTrace(
+          'async-continue-open-lobby',
+          'continue-outcome-open-lobby-empty-chain',
+          {
+            didCallContinue: true,
+            didCallShowNext: false,
+            action: 'async-continue-open-lobby',
+          },
+        );
+      } else if (outcome === 'blocked') {
+        logNavigateFromResultReturnTrace(
+          'async-continue-blocked',
+          `continue-outcome-blocked:${outcome}`,
+          {
+            didCallContinue: true,
+            didCallShowNext: false,
+            action: 'async-continue-blocked',
+          },
+        );
+      } else {
+        logNavigateFromResultReturnTrace(
+          'fallback-open-lobby',
+          `continue-outcome-not-show-next:${outcome}`,
+          {
+            didCallContinue: true,
+            didCallShowNext: false,
+            action: `continue-outcome:${outcome}`,
+          },
+        );
       }
 
       emitPostConsumeReturnPath({
@@ -29398,6 +29567,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         didCallContinue: true,
         didCallShowNext: false,
       });
+      } catch (error) {
+        logNavigateFromResultReturnTrace(
+          'async-catch',
+          error instanceof Error ? error.message : String(error),
+          {
+            didCallContinue: true,
+            action: 'async-continue-catch',
+          },
+        );
+        throw error;
+      } finally {
+        logNavigateFromResultReturnTrace(
+          'async-finally',
+          'async-iife-complete',
+          {
+            didCallContinue: true,
+            action: 'async-continue-finally',
+          },
+        );
+      }
     })();
   }, [
     applyDirectOverboardCloseState,
