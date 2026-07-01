@@ -141,3 +141,33 @@ export function formatLastContinueOutcome(
   if (!last) return null;
   return `${last.outcome}:${last.reason}`;
 }
+
+export type OwnerPendingPromotionDecisionStage =
+  | 'before-promotion'
+  | 'promoted'
+  | 'skipped-queue-not-empty'
+  | 'skipped-no-pending'
+  | 'skipped-active-display-present';
+
+export type OwnerPendingPromotionDecisionPayload = {
+  stage: OwnerPendingPromotionDecisionStage;
+  ownerPendingLenBefore: number;
+  ownerQueueLenBefore: number;
+  ownerPendingLenAfter: number;
+  ownerQueueLenAfter: number;
+  legacyPendingLen: number;
+  legacyQueueLen: number;
+  promotedCount: number;
+  promotedHeadKind: string | null;
+  activeKind: string | null;
+  displayKind: string | null;
+  skipReason: string | null;
+  decisionSource: 'owner';
+  timestamp?: number;
+};
+
+export function logOwnerPendingPromotionDecision(
+  data: OwnerPendingPromotionDecisionPayload,
+): void {
+  emit('OWNER_PENDING_PROMOTION_DECISION', data);
+}

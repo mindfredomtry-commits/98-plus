@@ -583,8 +583,10 @@ import {
   buildGoToBansPendingNotPromotedSignature,
   formatLastContinueOutcome,
   logContinueChainEmptyButPendingExists,
+  logOwnerPendingPromotionDecision,
   logPendingPromotionDecisionTrace,
   logResultGoToBansPendingNotPromoted,
+  type OwnerPendingPromotionDecisionStage,
 } from '@/lib/pending-promotion-diag-debug';
 import {
   isGoToBansContinueTraceRelevant,
@@ -1924,6 +1926,40 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return 'result-direct';
     }
     return null;
+  };
+  const emitOwnerPendingPromotionDecision = (
+    stage: OwnerPendingPromotionDecisionStage,
+    snapshot: {
+      ownerPendingLenBefore: number;
+      ownerQueueLenBefore: number;
+      activeKind: string | null;
+      displayKind: string | null;
+    },
+    extra?: {
+      ownerPendingLenAfter?: number;
+      ownerQueueLenAfter?: number;
+      promotedCount?: number;
+      promotedHeadKind?: string | null;
+      skipReason?: string | null;
+    },
+  ) => {
+    const ownerNow = ownerShadowRef.current.getState();
+    logOwnerPendingPromotionDecision({
+      stage,
+      ownerPendingLenBefore: snapshot.ownerPendingLenBefore,
+      ownerQueueLenBefore: snapshot.ownerQueueLenBefore,
+      ownerPendingLenAfter:
+        extra?.ownerPendingLenAfter ?? ownerNow.pending.length,
+      ownerQueueLenAfter: extra?.ownerQueueLenAfter ?? ownerNow.queue.length,
+      legacyPendingLen: pendingStartupInteractionsRef.current.length,
+      legacyQueueLen: overlayQueueRef.current.length,
+      promotedCount: extra?.promotedCount ?? 0,
+      promotedHeadKind: extra?.promotedHeadKind ?? null,
+      activeKind: snapshot.activeKind,
+      displayKind: snapshot.displayKind,
+      skipReason: extra?.skipReason ?? null,
+      decisionSource: 'owner',
+    });
   };
   const emitPendingPromotionTrace = (
     source: string,
@@ -12581,8 +12617,36 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const mergeStartupIntoOverlayQueueOnly = useCallback(
     (source: string) => {
-      const queueLenBefore = overlayQueueRef.current.length;
-      const pendingLenBefore = pendingStartupInteractionsRef.current.length;
+      const ownerBeforeMerge = ownerShadowRef.current.getState();
+      const ownerPendingLenBefore = ownerBeforeMerge.pending.length;
+      const ownerQueueLenBefore = ownerBeforeMerge.queue.length;
+      const legacyPendingLen = pendingStartupInteractionsRef.current.length;
+      const legacyQueueLen = overlayQueueRef.current.length;
+      const activeKind = ownerBeforeMerge.active.kind;
+      const displayKind = resolveBansLayerOwnerDisplayKind(
+        ownerBeforeMerge.display,
+      );
+      const ownerPromotionSnapshot = {
+        ownerPendingLenBefore,
+        ownerQueueLenBefore,
+        activeKind,
+        displayKind,
+      };
+      emitOwnerPendingPromotionDecision(
+        'before-promotion',
+        ownerPromotionSnapshot,
+      );
+
+      const queueLenBefore = ownerQueueLenBefore;
+      const pendingLenBefore = ownerPendingLenBefore;
+
+      if (ownerPendingLenBefore > 0 && ownerQueueLenBefore > 0) {
+        emitOwnerPendingPromotionDecision(
+          'skipped-queue-not-empty',
+          ownerPromotionSnapshot,
+          { skipReason: 'queue-not-empty' },
+        );
+      }
 
       if (shouldBlockSingleCardChainContinuation(source)) {
         logDeeplinkSingleCardChainBlocked({
@@ -12679,8 +12743,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return 0;
       }
-      const pending = pendingStartupInteractionsRef.current;
-      if (pending.length === 0) {
+      if (ownerPendingLenBefore === 0) {
         logPendingStartupToOverlayMergeDecision({
           source,
           pendingLenBefore: 0,
@@ -12691,6 +12754,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           skipReason: 'pending-empty',
           startupHold: startupInteractionsHoldRef.current,
         });
+        emitOwnerPendingPromotionDecision(
+          'skipped-no-pending',
+          ownerPromotionSnapshot,
+          { skipReason: 'no-pending' },
+        );
         emitPendingPromotionTrace(`mergeStartupIntoOverlayQueueOnly:${source}`, {
           inputPendingLen: 0,
           inputQueueLen: queueLenBefore,
@@ -12701,6 +12769,40 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return 0;
       }
+      if (
+        ownerQueueLenBefore === 0 &&
+        (activeKind != null || displayKind != null)
+      ) {
+        logPendingStartupToOverlayMergeDecision({
+          source,
+          pendingLenBefore,
+          queueLenBefore,
+          mergedCount: 0,
+          queueLenAfter: queueLenBefore,
+          pendingLenAfter: pendingLenBefore,
+          skipReason: 'active-display-present',
+          startupHold: startupInteractionsHoldRef.current,
+        });
+        lastPendingMergeSkipReasonRef.current = {
+          source,
+          skipReason: 'active-display-present',
+        };
+        emitOwnerPendingPromotionDecision(
+          'skipped-active-display-present',
+          ownerPromotionSnapshot,
+          { skipReason: 'active-display-present' },
+        );
+        emitPendingPromotionTrace(`mergeStartupIntoOverlayQueueOnly:${source}`, {
+          inputPendingLen: pendingLenBefore,
+          inputQueueLen: queueLenBefore,
+          outputPendingLen: pendingLenBefore,
+          outputQueueLen: queueLenBefore,
+          promotedCount: 0,
+          skippedReason: 'active-display-present',
+        });
+        return 0;
+      }
+      const pending = [...ownerBeforeMerge.pending];
 
       const skipBanId =
         replyDeeplinkParentBanIdRef.current?.trim() ??
@@ -12752,7 +12854,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return 0;
       }
 
-      if (overlayQueueRef.current.length === 0) {
+      if (ownerQueueLenBefore === 0) {
         const wouldHead = releasable[0] ?? null;
         if (
           wouldHead &&
@@ -12794,7 +12896,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
       applyPendingQueueViaOwner([], `${source}:merge-startup-clear`);
 
-      let next = overlayQueueRef.current;
+      let next = [...ownerShadowRef.current.getState().queue];
       for (const item of releasable) {
         next = enqueueWithActiveLock(next, item).queue;
       }
@@ -12809,12 +12911,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         pendingLenBefore,
         queueLenBefore,
         mergedCount: releasable.length,
-        queueLenAfter: overlayQueueRef.current.length,
-        pendingLenAfter: pendingStartupInteractionsRef.current.length,
+        queueLenAfter: ownerShadowRef.current.getState().queue.length,
+        pendingLenAfter: ownerShadowRef.current.getState().pending.length,
         skipReason: null,
         startupHold: startupInteractionsHoldRef.current,
       });
       lastPendingMergeSkipReasonRef.current = null;
+      emitOwnerPendingPromotionDecision('promoted', ownerPromotionSnapshot, {
+        promotedCount: releasable.length,
+        promotedHeadKind: releasable[0]?.kind ?? null,
+      });
       emitPendingPromotionTrace(`mergeStartupIntoOverlayQueueOnly:${source}`, {
         inputPendingLen: pendingLenBefore,
         inputQueueLen: queueLenBefore,
@@ -12958,7 +13064,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (opts?.requireBanSend && !sessionBanSendSuccessRef.current) {
         return;
       }
-      const pending = pendingStartupInteractionsRef.current;
+      const ownerAtRelease = ownerShadowRef.current.getState();
+      const pending = [...ownerAtRelease.pending];
       const hadHold = startupInteractionsHoldRef.current;
       startupInteractionsHoldRef.current = false;
       mirrorOwnerSessionFlagsRef.current('releaseStartupInteractions', {
@@ -23686,12 +23793,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       sanitizeNotificationChainQueues(`${source}-collect`);
-      const queueAtCollectEnter = overlayQueueRef.current;
-      const queueLen = overlayQueueRef.current.length;
-      const pendingLen = pendingStartupInteractionsRef.current.length;
-      const queueCounts = countNotificationChainKinds(overlayQueueRef.current);
+      const ownerAtCollectEnter = ownerShadowRef.current.getState();
+      const queueAtCollectEnter = [...ownerAtCollectEnter.queue];
+      const ownerQueueLenAtEnter = ownerAtCollectEnter.queue.length;
+      const ownerPendingLenAtEnter = ownerAtCollectEnter.pending.length;
+      const queueLen = ownerQueueLenAtEnter;
+      const pendingLen = ownerPendingLenAtEnter;
+      const queueCounts = countNotificationChainKinds(ownerAtCollectEnter.queue);
       const pendingCounts = countNotificationChainKinds(
-        pendingStartupInteractionsRef.current,
+        ownerAtCollectEnter.pending,
       );
       const bufferedIncomingId = bufferedIncomingRef.current?.id?.trim() ?? null;
       const held = heldUserCardOverlayRef.current;
@@ -23710,7 +23820,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       let mergedFromPending = 0;
-      if (pendingStartupInteractionsRef.current.length > 0) {
+      if (ownerShadowRef.current.getState().pending.length > 0) {
         mergedFromPending = mergeStartupIntoOverlayQueueOnly(
           `${source}-collect-merge`,
         );
@@ -23718,7 +23828,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       traceQueueHeadBecameResultIfNeeded(
         queueAtCollectEnter,
-        overlayQueueRef.current,
+        ownerShadowRef.current.getState().queue,
         buildQueueHeadResultTraceContext(
           source,
           'collect-pending-notification-chain-after-merge',
@@ -24007,7 +24117,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
       }
 
-      const pendingSnapshot = [...pendingStartupInteractionsRef.current];
+      const pendingSnapshot = [
+        ...ownerShadowRef.current.getState().pending,
+      ];
       if (pendingSnapshot.length > 0) {
         const mergedCount = mergePendingSnapshotIntoOverlayQueue(
           pendingSnapshot,
@@ -24022,8 +24134,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         } else {
           mergeStartupIntoOverlayQueueOnly(`${source}-handoff-merge`);
         }
-      } else if (pendingStartupInteractionsRef.current.length > 0) {
-        mergeStartupIntoOverlayQueueOnly(`${source}-handoff-merge`);
       }
 
       queueLen = overlayQueueRef.current.length;
