@@ -417,7 +417,10 @@ export function createNotificationOverlayOwnerShadow(
       if (event.type === 'RESULT_GO_TO_BANS') {
         const banId = normalizeId(event.banId);
         if (banId) {
-          recordGoToBansSessionTrace(banId);
+          recordGoToBansSessionTrace(
+            banId,
+            `RESULT_GO_TO_BANS:notification-overlay-owner-shadow:${source}`,
+          );
           lastGoToBansTrace = {
             banId,
             resultId: banId,

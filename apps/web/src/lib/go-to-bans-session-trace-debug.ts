@@ -10,20 +10,71 @@ export type GoToBansSessionTrace = {
 
 export const GO_TO_BANS_SESSION_TRACE_WINDOW_MS = 120_000;
 
+export const GO_TO_BANS_SESSION_TRACE_MODULE_INSTANCE_ID = `gbt-${Math.random()
+  .toString(36)
+  .slice(2, 10)}`;
+
 let lastGoToBansSessionTrace: GoToBansSessionTrace | null = null;
 
-export function recordGoToBansSessionTrace(banId: string): void {
-  const normalized = banId.trim();
+function emitGoToBansSessionTraceLifecycle(
+  event: 'GO_TO_BANS_SESSION_TRACE_WRITE' | 'GO_TO_BANS_SESSION_TRACE_READ',
+  data: Record<string, unknown>,
+): void {
+  const timestamp = performance.now();
+  const payload = {
+    timestamp,
+    t: timestamp,
+    moduleInstanceId: GO_TO_BANS_SESSION_TRACE_MODULE_INSTANCE_ID,
+    ...data,
+  };
+  console.log(event, payload);
+  window.__debug98log?.(event, payload);
+}
+
+export function recordGoToBansSessionTrace(
+  banId: string,
+  source = 'recordGoToBansSessionTrace',
+): void {
+  const normalized = normalizeId(banId);
   if (!normalized) return;
+  const at = performance.now();
   lastGoToBansSessionTrace = {
     banId: normalized,
     resultId: normalized,
-    at: performance.now(),
+    at,
   };
+  emitGoToBansSessionTraceLifecycle('GO_TO_BANS_SESSION_TRACE_WRITE', {
+    source,
+    banId: normalized,
+    resultId: normalized,
+    traceExists: true,
+    storedBanId: normalized,
+    storedResultId: normalized,
+    ageMs: 0,
+  });
 }
 
 export function readGoToBansSessionTrace(): GoToBansSessionTrace | null {
   return lastGoToBansSessionTrace;
+}
+
+export function logGoToBansSessionTraceRead(input: {
+  source: string;
+  banId?: string | null;
+  resultId?: string | null;
+}): GoToBansSessionTrace | null {
+  const trace = lastGoToBansSessionTrace;
+  const ageMs = trace != null ? performance.now() - trace.at : null;
+  emitGoToBansSessionTraceLifecycle('GO_TO_BANS_SESSION_TRACE_READ', {
+    source: input.source,
+    banId: input.banId ?? null,
+    resultId: input.resultId ?? null,
+    traceExists: trace != null,
+    storedBanId: trace?.banId ?? null,
+    storedResultId: trace?.resultId ?? null,
+    ageMs,
+  });
+  return trace;
 }
 
 export function getGoToBansPrefetchResultBlockDecision(banId: string): {
@@ -114,7 +165,11 @@ export function buildGoToBansPrefetchGuardMissTrace(input: {
   resultCtaConsumedHasBanId: boolean;
   shownOverlayKeysHasResult: boolean;
 }): GoToBansPrefetchGuardMissTracePayload {
-  const trace = readGoToBansSessionTrace();
+  const trace = logGoToBansSessionTraceRead({
+    source: `${input.source}:prefetch-guard`,
+    banId: input.resultBanId,
+    resultId: input.resultId,
+  });
   const resultBanNorm = normalizeId(input.resultBanId);
   const resultIdNorm = normalizeId(input.resultId);
   const traceExists = trace != null;
