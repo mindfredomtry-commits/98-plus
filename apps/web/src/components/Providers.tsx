@@ -611,6 +611,10 @@ import {
   logGoToBansContinueExitTrace,
 } from '@/lib/go-to-bans-continue-trace-debug';
 import {
+  getGoToBansPrefetchResultBlockDecision,
+  logGoToBansPrefetchResultBlock,
+} from '@/lib/go-to-bans-session-trace-debug';
+import {
   evaluateBansLayerOpenGate,
   logBansLayerFlagsClearedAfterChainOutcome,
   logBansLayerOpenAllowed,
@@ -14065,35 +14069,52 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               banId: resultNorm,
               reason: 'passive-result-lookahead-blocked',
             });
-          } else if (
-            !isResultBlockedForNotificationChain(
-              r.id,
-              'pending-chain-prefetch',
-              skipBanId,
-            ) &&
-            !rejectNonOverkillTerminalResult(
-              r.id,
-              resolveBanResultOutcome(r),
-              'pending-chain-prefetch',
-              { resultId: r.id },
-            )
-          ) {
-            resultPriorityBanIdsRef.current.add(resultNorm);
-            mirrorOwnerHoldsSetsRef.current('pending-chain-prefetch', {
-              resultPriorityBanIds: new Set(resultPriorityBanIdsRef.current),
-            });
-            traceResultPriorityBanIdAdded(
-              resultNorm,
-              'pending-chain-prefetch',
-              'result-priority-ban-id-added-prefetch',
-            );
-            toEnqueue.push({ kind: 'result', result: r });
-            enqueuedIds.push(r.id);
           } else {
-            skipDetails.push({
-              banId: resultNorm,
-              reason: 'result-blocked-for-chain',
-            });
+            const goToBansPrefetchBlock =
+              getGoToBansPrefetchResultBlockDecision(resultNorm);
+            if (goToBansPrefetchBlock.blocked) {
+              logGoToBansPrefetchResultBlock({
+                source,
+                banId: resultNorm,
+                resultId: resultNorm,
+                lastGoToBansBanId: goToBansPrefetchBlock.lastGoToBansBanId,
+                lastGoToBansResultId: goToBansPrefetchBlock.lastGoToBansResultId,
+                ageMs: goToBansPrefetchBlock.ageMs,
+              });
+              skipDetails.push({
+                banId: resultNorm,
+                reason: 'go-to-bans-consumed-prefetch-block',
+              });
+            } else if (
+              !isResultBlockedForNotificationChain(
+                r.id,
+                'pending-chain-prefetch',
+                skipBanId,
+              ) &&
+              !rejectNonOverkillTerminalResult(
+                r.id,
+                resolveBanResultOutcome(r),
+                'pending-chain-prefetch',
+                { resultId: r.id },
+              )
+            ) {
+              resultPriorityBanIdsRef.current.add(resultNorm);
+              mirrorOwnerHoldsSetsRef.current('pending-chain-prefetch', {
+                resultPriorityBanIds: new Set(resultPriorityBanIdsRef.current),
+              });
+              traceResultPriorityBanIdAdded(
+                resultNorm,
+                'pending-chain-prefetch',
+                'result-priority-ban-id-added-prefetch',
+              );
+              toEnqueue.push({ kind: 'result', result: r });
+              enqueuedIds.push(r.id);
+            } else {
+              skipDetails.push({
+                banId: resultNorm,
+                reason: 'result-blocked-for-chain',
+              });
+            }
           }
         }
 
