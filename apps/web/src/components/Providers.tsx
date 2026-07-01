@@ -594,6 +594,10 @@ import {
   logActiveResultStuckWithQueue,
 } from '@/lib/active-result-stuck-debug';
 import {
+  logClearStaleActiveResultGuardTrace,
+  type ClearStaleActiveResultGuardStage,
+} from '@/lib/clear-stale-active-result-guard-trace-debug';
+import {
   isGoToBansContinueTraceRelevant,
   logGoToBansContinueEntryTrace,
   logGoToBansContinueExitTrace,
@@ -5010,9 +5014,117 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     active: ActiveBlockingUserOverlay,
     source: string,
   ) => {
+    const buildClearStaleActiveResultGuardTrace = (
+      stage: ClearStaleActiveResultGuardStage,
+      reason: string,
+      opts?: {
+        didClearActive?: boolean;
+        didClearDisplay?: boolean;
+        activeKindAfter?: string | null;
+        activeBanIdAfter?: string | null;
+        activeResultIdAfter?: string | null;
+      },
+    ) => {
+      const owner = ownerShadowRef.current.getState();
+      const queueHead = owner.queue[0] ?? null;
+      const expectedBanId = normalizeId(active.banId) || null;
+      const expectedResultId =
+        active.kind === 'result' ? expectedBanId : null;
+      const activeBanIdBefore = owner.active.banId;
+      const activeKindBefore = owner.active.kind;
+      const activeResultIdBefore =
+        activeKindBefore === 'result' ? activeBanIdBefore : null;
+      const activeOverlayKeyBefore =
+        activeKindBefore === 'result' && activeBanIdBefore
+          ? `result:${normalizeId(activeBanIdBefore)}`
+          : activeKindBefore === 'incoming' && activeBanIdBefore
+            ? `incoming:${normalizeId(activeBanIdBefore)}`
+            : activeKindBefore === 'check' && activeBanIdBefore
+              ? `check:${normalizeId(activeBanIdBefore)}`
+              : null;
+      const displayResultIdBefore = owner.display.result?.id ?? null;
+      const displayKindBefore = resolveBansLayerOwnerDisplayKind(
+        owner.display,
+      );
+      const displayBanIdBefore =
+        displayResultIdBefore ??
+        owner.display.checkBan?.id ??
+        owner.display.incomingBan?.id ??
+        null;
+      const directLayerActive =
+        owner.display.directResultOverlayActive ||
+        owner.display.directResultOverlay;
+      const directLayerResultId = owner.display.result?.id ?? null;
+      const directLayerBanId = directLayerResultId;
+      const activeBanNorm = expectedBanId ?? '';
+      const ownerQueueHeadBanId =
+        queueHead?.kind === 'result'
+          ? queueHead.result.id
+          : queueHead?.kind === 'incoming' || queueHead?.kind === 'check'
+            ? queueHead.ban.id
+            : null;
+      const ownerQueueHeadResultId =
+        queueHead?.kind === 'result' ? queueHead.result.id : null;
+      const activeKindAfter = opts?.activeKindAfter ?? owner.active.kind;
+      const activeBanIdAfter = opts?.activeBanIdAfter ?? owner.active.banId;
+      const activeResultIdAfter =
+        opts?.activeResultIdAfter ??
+        (activeKindAfter === 'result' ? activeBanIdAfter : null);
+      logClearStaleActiveResultGuardTrace({
+        stage,
+        source,
+        reason,
+        expectedKind: active.kind,
+        expectedBanId,
+        expectedResultId,
+        activeKindBefore,
+        activeBanIdBefore,
+        activeResultIdBefore,
+        activeOverlayKeyBefore,
+        displayKindBefore,
+        displayBanIdBefore,
+        displayResultIdBefore,
+        directLayerActive,
+        directLayerBanId,
+        directLayerResultId,
+        resultConsumed:
+          activeBanNorm.length > 0 &&
+          resultCtaConsumedBanIdsRef.current.has(activeBanNorm),
+        resultOverlayConsumed:
+          activeBanNorm.length > 0 &&
+          (resultCtaConsumedBanIdsRef.current.has(activeBanNorm) ||
+            shownOverlayKeysRef.current.has(`result:${activeBanNorm}`)),
+        ownerQueueLen: owner.queue.length,
+        ownerPendingLen: owner.pending.length,
+        ownerQueueHeadKind: queueHead?.kind ?? null,
+        ownerQueueHeadBanId,
+        ownerQueueHeadResultId,
+        didClearActive: opts?.didClearActive,
+        didClearDisplay: opts?.didClearDisplay,
+        activeKindAfter,
+        activeBanIdAfter,
+        activeResultIdAfter,
+      });
+    };
+
+    buildClearStaleActiveResultGuardTrace('entry', 'enter');
+
     const banId = normalizeId(active.banId);
-    if (!banId) return;
+    if (!banId) {
+      buildClearStaleActiveResultGuardTrace(
+        'skip-ban-mismatch',
+        'empty-active-ban-id',
+      );
+      return;
+    }
     const decisionOwner = readOwnerDecision('clearStaleOverlayRefsForActive');
+    const displayResultBanIdForTrace = normalizeId(
+      readOwnerDecisionDisplayResultBanIdForRuntime(
+        decisionOwner.display,
+        'clearStaleOverlayRefsForActive',
+        { resultRef: resultRef.current },
+      ) ?? '',
+    );
     if (
       active.kind === 'incoming' &&
       normalizeId(
@@ -5024,11 +5136,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ) === banId
     ) {
       if (
-        !blockClearActiveIncomingOverlayBan(
+        blockClearActiveIncomingOverlayBan(
           banId,
           `clearStaleOverlayRefsForActive:${source}`,
         )
       ) {
+        buildClearStaleActiveResultGuardTrace(
+          'skip-owner-guard',
+          'incoming-clear-blocked-by-ban-guard',
+        );
+      } else {
         incomingBanRef.current = null;
         setIncomingBan(null);
       }
@@ -5061,8 +5178,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ref: incomingOverboardAtomicBanIdRef.current,
         }) === banId
       ) {
+        buildClearStaleActiveResultGuardTrace(
+          'skip-owner-guard',
+          'atomic-overboard-ban-id-blocks-clear',
+        );
         return;
       }
+      const ownerBeforeLegacyClear = ownerShadowRef.current.getState();
+      const displayResultIdBeforeClear =
+        ownerBeforeLegacyClear.display.result?.id ?? null;
+      buildClearStaleActiveResultGuardTrace(
+        'will-clear',
+        'display-result-ban-id-matches-active-legacy-ref-clear',
+      );
       const clearSnapBefore = captureActiveResultClearSnapshot();
       resultRef.current = null;
       setResult(null);
@@ -5079,6 +5207,79 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         'clearStaleOverlayRefsForActive-result',
         clearSnapBefore,
         { didClearDisplay: true },
+      );
+      const ownerAfterLegacyClear = ownerShadowRef.current.getState();
+      buildClearStaleActiveResultGuardTrace(
+        'after-clear',
+        'legacy-ref-clear-attempted-owner-active-unchanged',
+        {
+          didClearActive:
+            ownerBeforeLegacyClear.active.kind === 'result' &&
+            ownerAfterLegacyClear.active.kind !== 'result',
+          didClearDisplay:
+            displayResultIdBeforeClear != null &&
+            ownerAfterLegacyClear.display.result == null,
+          activeKindAfter: ownerAfterLegacyClear.active.kind,
+          activeBanIdAfter: ownerAfterLegacyClear.active.banId,
+          activeResultIdAfter:
+            ownerAfterLegacyClear.active.kind === 'result'
+              ? ownerAfterLegacyClear.active.banId
+              : null,
+        },
+      );
+    } else if (active.kind === 'result') {
+      const activeOverlayKey = `result:${banId}`;
+      const displayOverlayKey = displayResultBanIdForTrace
+        ? `result:${displayResultBanIdForTrace}`
+        : null;
+      if (
+        displayResultBanIdForTrace &&
+        activeOverlayKey !== displayOverlayKey
+      ) {
+        buildClearStaleActiveResultGuardTrace(
+          'skip-key-mismatch',
+          'active-overlay-key-differs-from-display-result-key',
+        );
+      }
+      if (displayResultBanIdForTrace !== banId) {
+        buildClearStaleActiveResultGuardTrace(
+          'skip-ban-mismatch',
+          'display-result-ban-id-mismatch',
+        );
+      }
+      if (
+        resultCtaConsumedBanIdsRef.current.has(banId) &&
+        displayResultBanIdForTrace !== banId
+      ) {
+        buildClearStaleActiveResultGuardTrace(
+          'skip-consumed-guard',
+          'result-marked-consumed-without-matching-display-result',
+        );
+      }
+      if (
+        !resultCtaConsumedBanIdsRef.current.has(banId) &&
+        !shownOverlayKeysRef.current.has(`result:${banId}`) &&
+        displayResultBanIdForTrace !== banId
+      ) {
+        buildClearStaleActiveResultGuardTrace(
+          'skip-consumed-guard',
+          'result-not-marked-consumed-display-already-cleared',
+        );
+      }
+      if (
+        (decisionOwner.display.directResultOverlayActive ||
+          decisionOwner.display.directResultOverlay) &&
+        displayResultBanIdForTrace !== banId
+      ) {
+        buildClearStaleActiveResultGuardTrace(
+          'skip-direct-layer',
+          'direct-layer-active-without-matching-display-result',
+        );
+      }
+    } else {
+      buildClearStaleActiveResultGuardTrace(
+        'skip-kind',
+        'active-parameter-kind-not-result',
       );
     }
     const visible = visibleUserCardOverlayRef.current;

@@ -39,6 +39,12 @@ import {
   logActiveResultClearDecision,
   type ActiveResultClearDecisionPayload,
 } from '@/lib/active-result-stuck-debug';
+import {
+  buildQueueHeadAfterGoToBansTracePayload,
+  logQueueHeadAfterGoToBansTrace,
+  QUEUE_HEAD_AFTER_GO_TO_BANS_TRACE_WINDOW_MS,
+} from '@/lib/queue-head-after-go-to-bans-trace-debug';
+import { normalizeId } from '@/lib/normalize-json';
 
 const QUEUE_AUTHORITY_EVENT_TYPES = new Set<NotificationOverlayOwnerEvent['type']>([
   'QUEUE_APPLIED',
@@ -50,6 +56,21 @@ const QUEUE_AUTHORITY_EVENT_TYPES = new Set<NotificationOverlayOwnerEvent['type'
 const ACTIVE_DISPLAY_AUTHORITY_EVENT_TYPES = new Set<
   NotificationOverlayOwnerEvent['type']
 >(['ACTIVE_DISPLAY_SYNC']);
+
+const QUEUE_HEAD_AFTER_GO_TO_BANS_EVENTS = new Set<
+  NotificationOverlayOwnerEvent['type']
+>([
+  'QUEUE_APPLIED',
+  'QUEUE_SILENT_UPDATED',
+  'PENDING_QUEUE_APPLIED',
+  'STARTUP_INTERACTIONS_RELEASED',
+]);
+
+type LastGoToBansTrace = {
+  banId: string;
+  resultId: string;
+  at: number;
+};
 
 export type NotificationOverlayOwnerShadowMirrorHandlers = {
   mirrorLegacyQueue?: (
@@ -105,6 +126,30 @@ export function createNotificationOverlayOwnerShadow(
     },
   );
   const currentState = () => stateHandle.unwrap();
+  let lastGoToBansTrace: LastGoToBansTrace | null = null;
+
+  const traceQueueHeadAfterGoToBansIfRecent = (
+    event: NotificationOverlayOwnerEvent,
+    source: string,
+    state: NotificationOverlayOwnerState,
+  ) => {
+    if (!lastGoToBansTrace) return;
+    if (!QUEUE_HEAD_AFTER_GO_TO_BANS_EVENTS.has(event.type)) return;
+    const elapsed = performance.now() - lastGoToBansTrace.at;
+    if (elapsed > QUEUE_HEAD_AFTER_GO_TO_BANS_TRACE_WINDOW_MS) return;
+    logQueueHeadAfterGoToBansTrace(
+      buildQueueHeadAfterGoToBansTracePayload({
+        source,
+        event: event.type,
+        lastGoToBansBanId: lastGoToBansTrace.banId,
+        lastGoToBansResultId: lastGoToBansTrace.resultId,
+        queue: state.queue,
+        activeKind: state.active.kind,
+        activeBanId: state.active.banId,
+        display: state.display,
+      }),
+    );
+  };
 
   const logSnapshotFields = (
     eventType: string,
@@ -366,6 +411,16 @@ export function createNotificationOverlayOwnerShadow(
         });
       }
       logSnapshotFields(event.type, source, snapshot);
+      if (event.type === 'RESULT_GO_TO_BANS') {
+        const banId = normalizeId(event.banId);
+        if (banId) {
+          lastGoToBansTrace = {
+            banId,
+            resultId: banId,
+            at: performance.now(),
+          };
+        }
+      }
       const previousWriteTrace = buildOwnerDisplayWriteTraceSnapshot(state);
       const result = notificationOverlayOwnerReducer(state, event);
       stateHandle = attachOwnerStateWriteDetect(result.state, {
@@ -387,6 +442,7 @@ export function createNotificationOverlayOwnerShadow(
         source,
         eventType: event.type,
       });
+      traceQueueHeadAfterGoToBansIfRecent(event, source, nextState);
       runMirrorEffects(result.effects, source);
       logStateAndEffects(result.effects);
       if (snapshot) {
