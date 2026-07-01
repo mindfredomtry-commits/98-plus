@@ -589,6 +589,14 @@ import {
   type OwnerPendingPromotionDecisionStage,
 } from '@/lib/pending-promotion-diag-debug';
 import {
+  findNewlyAddedOwnerPendingResultItems,
+  isSamePendingResultObject,
+  registerPendingResultObject,
+  traceMergePendingSnapshotStage,
+  tracePendingNotClearedAfterMerge,
+  tracePendingResultSource,
+} from '@/lib/pending-result-source-trace-debug';
+import {
   buildActiveResultStuckSignature,
   logActiveResultClearDecision,
   logActiveResultStuckWithQueue,
@@ -8054,6 +8062,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ownerBefore.pending.length,
       );
       const ownerAfter = ownerShadowRef.current.getState();
+      const newlyAddedPendingResults = findNewlyAddedOwnerPendingResultItems(
+        ownerBefore.pending,
+        ownerAfter.pending,
+      );
+      for (const item of newlyAddedPendingResults) {
+        const sameRef = isSamePendingResultObject(item);
+        registerPendingResultObject(item);
+        tracePendingResultSource({
+          stage: 'pending-add',
+          source,
+          reason:
+            sameRef === null
+              ? `${reason ?? source}:providers-pending-add-new-object`
+              : sameRef
+                ? `${reason ?? source}:providers-pending-add-same-object-ref`
+                : `${reason ?? source}:providers-pending-add-different-object-ref`,
+          event: 'PENDING_QUEUE_APPLIED',
+          before: ownerBefore,
+          after: ownerAfter,
+          pendingHeadOverride: item,
+        });
+      }
       emitPendingPromotionTrace(`applyPendingQueueViaOwner:${reason ?? source}`, {
         inputPendingLen: pendingLenBefore,
         inputQueueLen: overlayQueueRef.current.length,
@@ -13288,6 +13318,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const mergePendingSnapshotIntoOverlayQueue = useCallback(
     (snapshot: QueuedOverlay[], source: string): number => {
+      const ownerAtMergeEntry = ownerShadowRef.current.getState();
+      const snapshotHead = snapshot[0] ?? null;
+      traceMergePendingSnapshotStage({
+        stage: 'before-merge',
+        source,
+        reason: 'mergePendingSnapshotIntoOverlayQueue:entry',
+        before: ownerAtMergeEntry,
+        snapshotHead,
+      });
+
       if (snapshot.length === 0) return 0;
       if (
         shouldBlockPassiveNotificationDisplay(
@@ -13372,12 +13412,49 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return 0;
       }
 
+      const plannedQueueHead = next[0] ?? null;
+      const ownerBeforeCommit = ownerShadowRef.current.getState();
+      traceMergePendingSnapshotStage({
+        stage: 'merge-input',
+        source,
+        reason: 'merge-pending-snapshot-into-overlay-queue-input',
+        before: ownerBeforeCommit,
+        snapshotHead: releasable[0] ?? null,
+        plannedQueueHead,
+      });
+      traceMergePendingSnapshotStage({
+        stage: 'merge-commit',
+        source,
+        reason: 'merge-pending-snapshot-into-overlay-queue-commit',
+        before: ownerBeforeCommit,
+        snapshotHead: releasable[0] ?? null,
+        plannedQueueHead,
+      });
+
       commitOverlayQueueViaApply(
         next,
         source,
         'merge-pending-snapshot-into-overlay-queue-commit',
         { preserveChainAdvanceExplicit: true },
       );
+
+      const ownerAfterCommit = ownerShadowRef.current.getState();
+      traceMergePendingSnapshotStage({
+        stage: 'after-commit',
+        source: `${source}:merge-pending-snapshot-into-overlay-queue-commit`,
+        reason: 'merge-pending-snapshot-into-overlay-queue-after-commit',
+        before: ownerBeforeCommit,
+        after: ownerAfterCommit,
+        snapshotHead: releasable[0] ?? null,
+        plannedQueueHead,
+      });
+      tracePendingNotClearedAfterMerge({
+        source: `${source}:merge-pending-snapshot-into-overlay-queue-commit`,
+        reason: 'owner-pending-still-non-empty-immediately-after-queue-silent-updated',
+        before: ownerBeforeCommit,
+        after: ownerAfterCommit,
+      });
+
       chainAdvanceExplicitRef.current = true;
       mirrorOwnerSessionFlagsRef.current(
         `${source}:merge-pending-snapshot-into-overlay-queue`,
@@ -27006,12 +27083,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         pendingSnapshot,
         'lobby-bans-cta',
       );
+      const ownerBeforePendingClear = ownerShadowRef.current.getState();
       if (mergedCount > 0) {
         commitPendingQueueViaOwner(
           [],
           'lobby-bans-cta',
           'pending-merge-clear',
         );
+      }
+      const ownerAfterPendingClear = ownerShadowRef.current.getState();
+      if (mergedCount > 0) {
+        tracePendingNotClearedAfterMerge({
+          source: 'lobby-bans-cta',
+          reason: 'pending-merge-clear-after-merge',
+          before: ownerBeforePendingClear,
+          after: ownerAfterPendingClear,
+        });
       }
 
       const ownerAfterMerge = readOwnerImperative('startLobbyBansNotificationDrain');

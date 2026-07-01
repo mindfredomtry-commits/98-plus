@@ -44,6 +44,8 @@ import {
   logQueueHeadAfterGoToBansTrace,
   QUEUE_HEAD_AFTER_GO_TO_BANS_TRACE_WINDOW_MS,
 } from '@/lib/queue-head-after-go-to-bans-trace-debug';
+import { recordGoToBansSessionTrace } from '@/lib/go-to-bans-session-trace-debug';
+import { tracePendingResultAddAfterDispatch } from '@/lib/pending-result-source-trace-debug';
 import { traceResultEnqueuedOwnerAfterDispatch } from '@/lib/result-enqueued-owner-trace-debug';
 import { normalizeId } from '@/lib/normalize-json';
 
@@ -415,6 +417,7 @@ export function createNotificationOverlayOwnerShadow(
       if (event.type === 'RESULT_GO_TO_BANS') {
         const banId = normalizeId(event.banId);
         if (banId) {
+          recordGoToBansSessionTrace(banId);
           lastGoToBansTrace = {
             banId,
             resultId: banId,
@@ -452,6 +455,12 @@ export function createNotificationOverlayOwnerShadow(
         lastGoToBansAt: lastGoToBansTrace?.at ?? null,
         lastGoToBansBanId: lastGoToBansTrace?.banId ?? null,
         lastGoToBansResultId: lastGoToBansTrace?.resultId ?? null,
+      });
+      tracePendingResultAddAfterDispatch({
+        event,
+        source,
+        before: state,
+        after: nextState,
       });
       runMirrorEffects(result.effects, source);
       logStateAndEffects(result.effects);
