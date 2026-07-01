@@ -44,6 +44,7 @@ import {
   logQueueHeadAfterGoToBansTrace,
   QUEUE_HEAD_AFTER_GO_TO_BANS_TRACE_WINDOW_MS,
 } from '@/lib/queue-head-after-go-to-bans-trace-debug';
+import { traceResultEnqueuedOwnerAfterDispatch } from '@/lib/result-enqueued-owner-trace-debug';
 import { normalizeId } from '@/lib/normalize-json';
 
 const QUEUE_AUTHORITY_EVENT_TYPES = new Set<NotificationOverlayOwnerEvent['type']>([
@@ -443,6 +444,15 @@ export function createNotificationOverlayOwnerShadow(
         eventType: event.type,
       });
       traceQueueHeadAfterGoToBansIfRecent(event, source, nextState);
+      traceResultEnqueuedOwnerAfterDispatch({
+        event,
+        source,
+        before: state,
+        after: nextState,
+        lastGoToBansAt: lastGoToBansTrace?.at ?? null,
+        lastGoToBansBanId: lastGoToBansTrace?.banId ?? null,
+        lastGoToBansResultId: lastGoToBansTrace?.resultId ?? null,
+      });
       runMirrorEffects(result.effects, source);
       logStateAndEffects(result.effects);
       if (snapshot) {
