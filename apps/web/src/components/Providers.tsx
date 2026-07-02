@@ -499,6 +499,10 @@ import {
   logResultPollOpenedEmptyHostBug,
 } from '@/lib/lobby-bans-indicator-debug';
 import {
+  logLobbyIndicatorResultPrefetchSkippedDuringResultOpen,
+  resolveLobbyIndicatorResultPrefetchBlocked,
+} from '@/lib/lobby-indicator-result-prefetch-skip';
+import {
   buildLobbyIndicatorHydrateTracePayload,
   logAppBootHydrateTrace,
   logLobbyIndicatorComputeHydrateTrace,
@@ -13837,6 +13841,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     async (
       deeplinkBanId: string | null,
       source: string,
+      opts?: { skipResults?: boolean },
     ): Promise<boolean> => {
       const queueLenBefore = overlayQueueRef.current.length;
       const pendingLenBefore = pendingStartupInteractionsRef.current.length;
@@ -14122,7 +14127,70 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         if (prefetched.result?.id) {
           const r = normalizeBanResult(prefetched.result);
           const resultNorm = normalizeId(r.id);
-          if (
+          const lobbyIndicatorResultSkipReason =
+            isLobbyIndicatorPrefetchSource(source)
+              ? (() => {
+                  const ownerAtLobbyResolve =
+                    ownerShadowRef.current.getState();
+                  return resolveLobbyIndicatorResultPrefetchBlocked({
+                    skipResults: opts?.skipResults ?? false,
+                    owner: ownerAtLobbyResolve,
+                    prefetchedResultBanId: resultNorm,
+                    directResultOpen: Boolean(
+                      directResultOverlayRef.current ||
+                        directResultOverlayActiveRef.current ||
+                        ownerAtLobbyResolve.display.directResultOverlay ||
+                        ownerAtLobbyResolve.display.directResultOverlayActive,
+                    ),
+                    resultOpening: resultOpenRef.current,
+                    overboardInFlightBanId: overboardInFlightRef.current,
+                    atomicOverboardBanId:
+                      incomingOverboardAtomicBanIdRef.current,
+                    notificationChainAwaitingUser:
+                      notificationChainAwaitingUserRef.current,
+                    heldUserCardKind:
+                      heldUserCardOverlayRef.current?.kind ?? null,
+                    mountedResultBanId: resultRef.current?.id ?? null,
+                    resultOverlayPrimeInflight:
+                      chainLookaheadInflightRef.current.size > 0,
+                    freshOverboardActionForBan:
+                      freshOverboardActionBanIdsRef.current.has(resultNorm),
+                    freshFinalStatusForBan:
+                      freshFinalStatusBanIdsRef.current.has(resultNorm),
+                  });
+                })()
+              : null;
+          if (lobbyIndicatorResultSkipReason) {
+            const ownerAtLobbySkip = ownerShadowRef.current.getState();
+            logLobbyIndicatorResultPrefetchSkippedDuringResultOpen({
+              banId: resultNorm,
+              resultId: resultNorm,
+              source,
+              reason: lobbyIndicatorResultSkipReason,
+              activeKind:
+                resolveMountedOverlayKindForPromotionDiag() ??
+                ownerAtLobbySkip.active.kind,
+              directResultOpen: Boolean(
+                directResultOverlayRef.current ||
+                  directResultOverlayActiveRef.current ||
+                  ownerAtLobbySkip.display.directResultOverlay ||
+                  ownerAtLobbySkip.display.directResultOverlayActive,
+              ),
+              resultOverlayPrimeActive:
+                chainLookaheadInflightRef.current.size > 0,
+              forceOpenOverboardKind:
+                heldUserCardOverlayRef.current?.kind ??
+                (overboardInFlightRef.current ? 'overboard-in-flight' : null),
+              ownerActiveKind: ownerAtLobbySkip.active.kind,
+              ownerDisplayKind: resolveBansLayerOwnerDisplayKind(
+                ownerAtLobbySkip.display,
+              ),
+            });
+            skipDetails.push({
+              banId: resultNorm,
+              reason: lobbyIndicatorResultSkipReason,
+            });
+          } else if (
             source.includes('result-overlay-prime') &&
             shouldBlockPassiveResultLookaheadDisplay(
               source,
@@ -14750,6 +14818,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const prefetched = await prefetchPendingNotificationChain(
       null,
       'lobby-indicator-prime',
+      { skipResults: true },
     );
     if (
       !uid ||
