@@ -753,8 +753,7 @@ import {
   type LobbyBansNotificationDrainOutcome,
 } from '@/lib/lobby-bans-cta-debug';
 import {
-  logLobbyBansCtaResultMergeSkippedAlreadyActiveOrShown,
-  resolveLobbyBansCtaResultMergeSkip,
+  filterLobbyBansCtaMergeSnapshot,
 } from '@/lib/lobby-bans-cta-result-merge-skip';
 import {
   logCheckCardMounted,
@@ -13473,16 +13472,41 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const mergePendingSnapshotIntoOverlayQueue = useCallback(
     (snapshot: QueuedOverlay[], source: string): number => {
       const ownerAtMergeEntry = ownerShadowRef.current.getState();
-      const snapshotHead = snapshot[0] ?? null;
-      traceMergePendingSnapshotStage({
-        stage: 'before-merge',
-        source,
-        reason: 'mergePendingSnapshotIntoOverlayQueue:entry',
-        before: ownerAtMergeEntry,
-        snapshotHead,
-      });
+      const isLobbyBansCtaMerge = source.includes('lobby-bans-cta');
+      const mergeSnapshot = isLobbyBansCtaMerge
+        ? filterLobbyBansCtaMergeSnapshot(snapshot, {
+            source,
+            owner: ownerAtMergeEntry,
+            ownerDisplayKind: resolveBansLayerOwnerDisplayKind(
+              ownerAtMergeEntry.display,
+            ),
+            closingResultBanId: goToBansClosingBanIdRef.current,
+            goToBansSessionTraceBlockedForBan: (banId) =>
+              getGoToBansPrefetchResultBlockDecision(banId).blocked,
+            legacyShownOverlayKeys: shownOverlayKeysRef.current,
+          })
+        : snapshot;
 
-      if (snapshot.length === 0) return 0;
+      if (isLobbyBansCtaMerge) {
+        if (mergeSnapshot.length === 0) return 0;
+        traceMergePendingSnapshotStage({
+          stage: 'before-merge',
+          source,
+          reason: 'mergePendingSnapshotIntoOverlayQueue:entry',
+          before: ownerAtMergeEntry,
+          snapshotHead: mergeSnapshot[0] ?? null,
+        });
+      } else {
+        traceMergePendingSnapshotStage({
+          stage: 'before-merge',
+          source,
+          reason: 'mergePendingSnapshotIntoOverlayQueue:entry',
+          before: ownerAtMergeEntry,
+          snapshotHead: snapshot[0] ?? null,
+        });
+        if (snapshot.length === 0) return 0;
+      }
+
       if (
         shouldBlockPassiveNotificationDisplay(
           source,
@@ -13493,7 +13517,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
           reason: 'merge-pending-snapshot',
           startupHold: startupInteractionsHoldRef.current,
-          snapshotLen: snapshot.length,
+          snapshotLen: mergeSnapshot.length,
         });
         return 0;
       }
@@ -13506,40 +13530,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         replyDeepLinkBanIdRef.current?.trim() ??
         null;
 
-      const releasable = snapshot.filter((item) => {
+      const releasable = mergeSnapshot.filter((item) => {
         if (item.kind !== 'result') return true;
         const banId = normalizeId(item.result.id);
         if (!banId) return false;
         if (explicitLobbyDrain) {
-          if (source.includes('lobby-bans-cta')) {
-            const lobbyBansCtaMergeSkip = resolveLobbyBansCtaResultMergeSkip({
-              banId,
-              owner: ownerAtMergeEntry,
-              closingResultBanId: goToBansClosingBanIdRef.current,
-              goToBansSessionTraceBlocked:
-                getGoToBansPrefetchResultBlockDecision(banId).blocked,
-              legacyShownOverlayKeys: shownOverlayKeysRef.current,
-            });
-            if (lobbyBansCtaMergeSkip) {
-              const queueHead = ownerAtMergeEntry.queue[0] ?? null;
-              logLobbyBansCtaResultMergeSkippedAlreadyActiveOrShown({
-                banId,
-                resultId: banId,
-                source,
-                reason: `lobby-bans-cta-result-merge-skip-${lobbyBansCtaMergeSkip}`,
-                matchedBy: lobbyBansCtaMergeSkip,
-                activeKind: ownerAtMergeEntry.active.kind,
-                queueHeadKind: queueHead?.kind ?? null,
-                pendingLen: ownerAtMergeEntry.pending.length,
-                queueLen: ownerAtMergeEntry.queue.length,
-                ownerActiveKind: ownerAtMergeEntry.active.kind,
-                ownerDisplayKind: resolveBansLayerOwnerDisplayKind(
-                  ownerAtMergeEntry.display,
-                ),
-              });
-              return false;
-            }
-          }
           freshOverboardActionBanIdsRef.current.add(banId);
           resultCtaConsumedBanIdsRef.current.delete(banId);
           resultDeliveredBanIdsRef.current.delete(banId);

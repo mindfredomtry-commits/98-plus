@@ -71,6 +71,55 @@ export function resolveLobbyBansCtaResultMergeSkip(input: {
   return null;
 }
 
+export function filterLobbyBansCtaMergeSnapshot(
+  snapshot: QueuedOverlay[],
+  input: {
+    source: string;
+    owner: NotificationOverlayOwnerState;
+    ownerDisplayKind: string | null;
+    closingResultBanId: string | null;
+    goToBansSessionTraceBlockedForBan: (banId: string) => boolean;
+    legacyShownOverlayKeys: ReadonlySet<string>;
+  },
+): QueuedOverlay[] {
+  const filtered: QueuedOverlay[] = [];
+  for (const item of snapshot) {
+    if (item.kind !== 'result') {
+      filtered.push(item);
+      continue;
+    }
+    const banId = normalizeId(item.result.id);
+    if (!banId) continue;
+    const matchedBy = resolveLobbyBansCtaResultMergeSkip({
+      banId,
+      owner: input.owner,
+      closingResultBanId: input.closingResultBanId,
+      goToBansSessionTraceBlocked:
+        input.goToBansSessionTraceBlockedForBan(banId),
+      legacyShownOverlayKeys: input.legacyShownOverlayKeys,
+    });
+    if (matchedBy) {
+      const queueHead = input.owner.queue[0] ?? null;
+      logLobbyBansCtaResultMergeSkippedAlreadyActiveOrShown({
+        banId,
+        resultId: banId,
+        source: input.source,
+        reason: `lobby-bans-cta-result-merge-skip-${matchedBy}`,
+        matchedBy,
+        activeKind: input.owner.active.kind,
+        queueHeadKind: queueHead?.kind ?? null,
+        pendingLen: input.owner.pending.length,
+        queueLen: input.owner.queue.length,
+        ownerActiveKind: input.owner.active.kind,
+        ownerDisplayKind: input.ownerDisplayKind,
+      });
+      continue;
+    }
+    filtered.push(item);
+  }
+  return filtered;
+}
+
 export function logLobbyBansCtaResultMergeSkippedAlreadyActiveOrShown(data: {
   banId: string;
   resultId: string;
