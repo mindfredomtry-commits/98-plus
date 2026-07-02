@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { logLobbyBansCtaClickTrace } from '@/lib/queue-source-comparison-debug';
 import { logLobbyBansClick } from '@/lib/lobby-bans-click-diag-debug';
 import { logLobbyIndicatorRenderHydrateTrace } from '@/lib/lobby-indicator-hydrate-trace-debug';
+import { logStartDrainEntryTrace } from '@/lib/start-drain-entry-trace';
 
 type Props = {
   onOpenBans: () => void;
@@ -61,6 +62,16 @@ export function ArenaLobbyTopNav({
             : ''
         }`}
         onClick={() => {
+          logStartDrainEntryTrace({
+            source: 'ArenaLobbyTopNav:click',
+            telegramUserId,
+            lobbyOpen: false,
+            showLobby: true,
+            lobbyBansNeedAttention: bansNeedAttention,
+            indicatorVisible: bansNeedAttention,
+            willCallStartDrain: true,
+            willStartDrain: null,
+          });
           logLobbyBansClick({
             phase: 'ArenaLobbyTopNav-button',
             lobbyBansNeedAttention: bansNeedAttention,

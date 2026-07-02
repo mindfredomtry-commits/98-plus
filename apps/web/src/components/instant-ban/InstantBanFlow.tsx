@@ -1,6 +1,7 @@
 import {
   logQueueAppearanceReactionTrace,
 } from '@/lib/queue-appearance-reaction-trace';
+import { logStartDrainEntryTrace } from '@/lib/start-drain-entry-trace';
 
 import {
   useCallback,
@@ -2661,6 +2662,49 @@ export function InstantBanFlow({
   );
 
   const handleOpenBansOverlay = useCallback(async () => {
+    const queueDebug = getConfirmOrbQueueDebugSnapshot();
+    const emitStartDrainEntryTrace = (
+      source: string,
+      extra: {
+        willCallStartDrain?: boolean;
+        willStartDrain?: boolean | null;
+        earlyReturnReason?: string | null;
+        skipReason?: string | null;
+      } = {},
+    ) => {
+      logStartDrainEntryTrace({
+        source,
+        telegramUserId: user?.id ?? null,
+        bansTab,
+        lobbyOpen,
+        showLobby: showLobbyTopNav,
+        activeKind: activeOverlayKind ?? null,
+        activeBanId:
+          activeBanDeepLinkBanId ??
+          queueDebug.incomingBanId ??
+          result?.id ??
+          null,
+        queueLen: overlayQueueLength,
+        pendingLen: pendingStartupInteractions,
+        queueHeadKind: queueDebug.selectedNextKind,
+        queueHeadBanId: queueDebug.selectedNextBanId,
+        lobbyBansNeedAttention,
+        indicatorVisible: lobbyBansNeedAttention,
+        notificationSessionActive,
+        notificationChainTransitioning,
+        notificationQueueUiLock,
+        queueClaimsNotificationScreen,
+        overlayQueueLength,
+        hasAnyOverlay: hasAnyOverlayForLobbyCta,
+        hasIncomingOverlay: incomingGateActive,
+        hasResultOverlay: Boolean(result),
+        hasNotificationOverlay:
+          notificationOverlayMounted || notificationOverlayVisible,
+        effectiveBansOverlayOpen,
+        ...extra,
+      });
+    };
+
     const blockedReason =
       phase !== 'idle'
         ? 'phase-not-idle'
@@ -2668,6 +2712,12 @@ export function InstantBanFlow({
           ? 'ban-sent-success'
           : null;
     const willCallDrain = blockedReason == null;
+
+    emitStartDrainEntryTrace('handleOpenBansOverlay:entry', {
+      willCallStartDrain: willCallDrain,
+      willStartDrain: willCallDrain,
+      skipReason: blockedReason,
+    });
 
     logLobbyBansCtaClickTrace({
       clickSurface: 'handleOpenBansOverlay',
@@ -2714,6 +2764,12 @@ export function InstantBanFlow({
     logQueueSourceComparisonSnapshot('lobby-bans-cta-click');
 
     if (!willCallDrain) {
+      emitStartDrainEntryTrace('handleOpenBansOverlay:early-return-blocked', {
+        willCallStartDrain: false,
+        willStartDrain: false,
+        earlyReturnReason: blockedReason,
+        skipReason: blockedReason,
+      });
       logLobbyBansClickDecisionDiag({
         source: 'handleOpenBansOverlay',
         decision: 'ignored',
@@ -2736,8 +2792,21 @@ export function InstantBanFlow({
       reason: 'calling-startLobbyBansNotificationDrain',
       indicatorVisible: lobbyBansNeedAttention,
     });
+    emitStartDrainEntryTrace(
+      'handleOpenBansOverlay:before-startLobbyBansNotificationDrain',
+      {
+        willCallStartDrain: true,
+        willStartDrain: true,
+      },
+    );
     const outcome = await startLobbyBansNotificationDrain();
     if (outcome !== 'empty') {
+      emitStartDrainEntryTrace('handleOpenBansOverlay:early-return-drain-outcome', {
+        willCallStartDrain: true,
+        willStartDrain: false,
+        earlyReturnReason: `drain-outcome-${outcome}`,
+        skipReason: `drain-outcome-${outcome}`,
+      });
       logLobbyBansCtaEmptyDelayDiag({
         source: 'handleOpenBansOverlay',
         rejectedCount: null,
@@ -2764,18 +2833,28 @@ export function InstantBanFlow({
       'lobby-explicit',
     );
   }, [
+    activeBanDeepLinkBanId,
     activeOverlayKind,
     banSentSuccess,
+    bansTab,
     clearActiveBanDeepLinkShell,
     closeSendFlow,
     ctaState,
+    effectiveBansOverlayOpen,
+    getConfirmOrbQueueDebugSnapshot,
+    hasAnyOverlayForLobbyCta,
+    incomingGateActive,
     lobbyOpen,
     logQueueSourceComparisonSnapshot,
     logLobbyBansClickDecisionDiag,
     noteBansLayerOpenAllowed,
     notificationChainTransitioning,
+    notificationOverlayMounted,
+    notificationOverlayVisible,
     notificationQueueUiLock,
+    notificationSessionActive,
     phase,
+    queueClaimsNotificationScreen,
     resetBansNavState,
     sendFlowOpen,
     sendStarted,

@@ -730,6 +730,10 @@ import {
   type QueueAppearanceReactionTracePayload,
 } from '@/lib/queue-appearance-reaction-trace';
 import {
+  logStartDrainEntryTrace,
+  type StartDrainEntryTracePayload,
+} from '@/lib/start-drain-entry-trace';
+import {
   buildBanViewerRoleFlags,
   logDeeplinkBanSourceSnapshot,
   logLobbyBansDrainEntered,
@@ -27377,6 +27381,83 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const startLobbyBansNotificationDrain =
     useCallback(async (): Promise<LobbyBansNotificationDrainOutcome> => {
+      const logStartDrainEntry = (
+        extra: Partial<StartDrainEntryTracePayload> & { source: string },
+      ) => {
+        const owner = ownerShadowRef.current.getState();
+        const head =
+          owner.queue[0] ??
+          owner.pending[0] ??
+          overlayQueueRef.current[0] ??
+          pendingStartupInteractionsRef.current[0] ??
+          null;
+        const queueLen = Math.max(
+          overlayQueueRef.current.length,
+          owner.queue.length,
+        );
+        const pendingLen = Math.max(
+          pendingStartupInteractionsRef.current.length,
+          owner.pending.length,
+        );
+        const hint = lobbyBansAttentionHintRef.current;
+        const needAttention = queueLen > 0 || pendingLen > 0 || hint > 0;
+        const display = owner.display;
+        logStartDrainEntryTrace({
+          telegramUserId: userIdRef.current?.trim() ?? auth.user?.id ?? null,
+          bansTab: openBansOverlayTabRequestRef.current,
+          lobbyOpen: lobbyOpenRef.current,
+          showLobby: lobbyOpenRef.current,
+          activeKind: owner.active.kind,
+          activeBanId:
+            display.incomingBan?.id ??
+            display.checkBan?.id ??
+            display.result?.id ??
+            incomingBanRef.current?.id ??
+            checkBanRef.current?.id ??
+            resultRef.current?.id ??
+            null,
+          queueLen,
+          pendingLen,
+          queueHeadKind: head?.kind ?? null,
+          queueHeadBanId: head
+            ? head.kind === 'result'
+              ? head.result.id
+              : head.ban.id
+            : null,
+          lobbyBansNeedAttention: needAttention,
+          indicatorVisible: needAttention,
+          notificationSessionActive:
+            notificationSessionActiveForDebugRef.current,
+          notificationChainTransitioning:
+            notificationChainTransitioningRef.current,
+          notificationQueueUiLock: isNotificationQueueLocked(),
+          queueClaimsNotificationScreen: queueLen > 0 || pendingLen > 0,
+          overlayQueueLength: overlayQueueRef.current.length,
+          hasAnyOverlay: Boolean(
+            incomingBanRef.current?.id ||
+              checkBanRef.current?.id ||
+              resultRef.current?.id ||
+              display.incomingBan?.id ||
+              display.checkBan?.id ||
+              display.result?.id,
+          ),
+          hasIncomingOverlay: Boolean(
+            incomingBanRef.current?.id || display.incomingBan?.id,
+          ),
+          hasResultOverlay: Boolean(
+            resultRef.current?.id || display.result?.id,
+          ),
+          hasNotificationOverlay:
+            notificationSessionActiveForDebugRef.current,
+          effectiveBansOverlayOpen: openBansOverlayRequestRef.current > 0,
+          ...extra,
+        });
+      };
+
+      logStartDrainEntry({
+        source: 'startLobbyBansNotificationDrain:first-line',
+        willCallStartDrain: true,
+      });
       clearStaleComposeStateBeforeBansNavigation('lobby-bans-cta');
       const lobbyDrainParityExit = <T extends LobbyBansNotificationDrainOutcome>(
         branch: string,
@@ -27556,6 +27637,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         phase: 'startLobbyBansNotificationDrain-entry',
         selectedAction: 'pending-drain-call',
         reason: 'click-entered-drain-handler',
+      });
+      logStartDrainEntry({
+        source: 'startLobbyBansNotificationDrain:entry-after-gate',
+        willCallStartDrain: true,
+        willStartDrain: drainGate.canDrain,
+        skipReason: drainGate.canDrain
+          ? null
+          : `drain-gate-blocked:${drainGate.source}:${drainGate.selectedAction}`,
       });
       emitQueueAppearanceReactionTraceRef.current({
         source: 'startLobbyBansNotificationDrain:entry',
@@ -27833,6 +27922,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           willAutoStartDrain: false,
           skipReason: 'no-local-mountable-notification',
         });
+        logStartDrainEntry({
+          source: 'startLobbyBansNotificationDrain:early-return-direct-open-no-prefetch',
+          willCallStartDrain: true,
+          willStartDrain: false,
+          earlyReturnReason: 'direct-open-no-prefetch',
+          skipReason: 'no-local-mountable-notification',
+        });
         return lobbyDrainParityExit('direct-open-no-prefetch', 'empty');
       }
 
@@ -28096,6 +28192,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           willAutoStartDrain: false,
           skipReason: 'need-attention-false-after-prefetch',
         });
+        logStartDrainEntry({
+          source: 'startLobbyBansNotificationDrain:early-return-need-attention-false',
+          willCallStartDrain: true,
+          willStartDrain: false,
+          earlyReturnReason: 'need-attention-false',
+          skipReason: 'need-attention-false-after-prefetch',
+        });
         return lobbyDrainParityExit('need-attention-false', 'empty');
       }
 
@@ -28146,6 +28249,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           overlayQueueRef.current[0]?.kind ??
           pendingStartupInteractionsRef.current[0]?.kind ??
           null,
+      });
+      logStartDrainEntry({
+        source: 'startLobbyBansNotificationDrain:drain-branch',
+        willCallStartDrain: true,
+        willStartDrain: true,
       });
 
       logLobbyBansCtaRouteDiag({
@@ -28267,11 +28375,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           'startLobbyBansNotificationDrain',
           'lobby-bans-pending-merge-failed',
         );
+        logStartDrainEntry({
+          source: 'startLobbyBansNotificationDrain:early-return-pending-merge-failed',
+          willCallStartDrain: true,
+          willStartDrain: false,
+          earlyReturnReason: 'pending-merge-failed',
+          skipReason: 'pending-merge-failed',
+        });
         return lobbyDrainParityExit('pending-merge-failed', 'drain-failed');
       }
 
       const shown = showNextNotificationFromChainSync('lobby-bans-cta');
       if (shown) {
+        logStartDrainEntry({
+          source: 'startLobbyBansNotificationDrain:return-show-next-success',
+          willCallStartDrain: true,
+          willStartDrain: true,
+        });
         emitQueueAppearanceReactionTraceRef.current({
           source: 'startLobbyBansNotificationDrain:show-next-success',
           prevQueueLen: queueLenBefore,
@@ -28332,6 +28452,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           'startLobbyBansNotificationDrain',
           'lobby-bans-show-next-failed',
         );
+        logStartDrainEntry({
+          source: 'startLobbyBansNotificationDrain:early-return-show-next-failed',
+          willCallStartDrain: true,
+          willStartDrain: false,
+          earlyReturnReason: 'show-next-failed',
+          skipReason: 'show-next-failed-after-merge',
+        });
         return lobbyDrainParityExit('show-next-failed', 'drain-failed');
       }
 
@@ -28355,6 +28482,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         'startLobbyBansNotificationDrain',
         'lobby-bans-drain-consumed-empty',
       );
+      logStartDrainEntry({
+        source: 'startLobbyBansNotificationDrain:early-return-drain-consumed-empty',
+        willCallStartDrain: true,
+        willStartDrain: false,
+        earlyReturnReason: 'drain-consumed-empty',
+        skipReason: 'drain-consumed-empty-queue',
+      });
       return lobbyDrainParityExit('drain-consumed-empty', 'empty');
     }, [
       auth.user?.id,
