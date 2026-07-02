@@ -14341,6 +14341,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         const incomingIds = prefetched.incoming.map((b) => b.id);
         const checkIds = prefetched.check?.id ? [prefetched.check.id] : [];
         const resultIds = prefetched.result?.id ? [prefetched.result.id] : [];
+        console.log('FIRST_USER_PENDING_FETCH_TRACE', {
+          telegramUserId: viewerId,
+          endpoint: 'prefetchPendingNotificationChain:after-fetch',
+          incomingCount: prefetched.incoming.length,
+          checkCount: prefetched.check ? 1 : 0,
+          resultCount: prefetched.result ? 1 : 0,
+          pendingAllCount:
+            prefetched.incoming.length +
+            (prefetched.check ? 1 : 0) +
+            (prefetched.result ? 1 : 0),
+          itemsKinds: [
+            ...prefetched.incoming.map(() => 'incoming'),
+            ...(prefetched.check ? ['check'] : []),
+            ...(prefetched.result ? ['result'] : []),
+          ],
+          itemsBanIds: [...incomingIds, ...checkIds, ...resultIds],
+          itemsResultIds: resultIds,
+          source,
+          willMergeAfterAuthCheck: true,
+        });
         const backendFetchItems = buildBackendPendingFetchItems({
           incoming: prefetched.incoming,
           check: prefetched.check,
@@ -17121,6 +17141,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           '/bans/result/pending',
           { token: requestToken, retries: 0 },
         );
+        console.log('FIRST_USER_PENDING_FETCH_TRACE', {
+          telegramUserId: requestUserId,
+          endpoint: '/bans/result/pending',
+          incomingCount: 0,
+          checkCount: 0,
+          resultCount: pendingResult?.id ? 1 : 0,
+          pendingAllCount: pendingResult?.id ? 1 : 0,
+          itemsKinds: pendingResult?.id ? ['result'] : [],
+          itemsBanIds: pendingResult?.id ? [pendingResult.id] : [],
+          itemsResultIds: pendingResult?.id ? [pendingResult.id] : [],
+          source: `pollPendingResultOnce:${source}`,
+        });
         if (!pendingResult?.id) {
           logResultPath('pollPendingResultOnce', 'poll-miss', {
             allowed: true,
@@ -18271,6 +18303,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return { ok: false, error: 'Некорректный запрет' };
       }
 
+      const checkBanAtSubmit = checkBanRef.current;
+      const senderUserIdAtSubmit = checkBanAtSubmit?.sender?.id ?? null;
+      const receiverUserIdAtSubmit = checkBanAtSubmit?.receiver?.id ?? null;
+
       const payload = { completed: Boolean(completed) };
       console.log('[check-submit-payload]', {
         banId: normalizedBanId,
@@ -18461,6 +18497,37 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           done: res.done,
           waiting: !!res.waiting,
           hasResult: !!res.result,
+        });
+
+        console.log('CHECK_ANSWER_RESULT_DELIVERY_TRACE', {
+          banId: normalizedBanId,
+          actorUserId: uid,
+          targetUserId:
+            senderUserIdAtSubmit === uid
+              ? receiverUserIdAtSubmit
+              : senderUserIdAtSubmit,
+          senderUserId: senderUserIdAtSubmit,
+          receiverUserId: receiverUserIdAtSubmit,
+          status:
+            res.result?.status ??
+            checkBanAtSubmit?.status ??
+            null,
+          outcome: res.result?.outcome ?? null,
+          resultHeadline: res.result?.headline ?? null,
+          shouldNotifySender:
+            senderUserIdAtSubmit != null &&
+            senderUserIdAtSubmit !== uid &&
+            (res.done || !!res.waiting || !!res.result),
+          shouldNotifyReceiver:
+            receiverUserIdAtSubmit != null &&
+            receiverUserIdAtSubmit !== uid &&
+            (res.done || !!res.waiting || !!res.result),
+          createdResultIds: res.result?.id ? [res.result.id] : [],
+          notificationIds: res.result?.id ? [res.result.id] : [],
+          httpDone: res.done,
+          httpWaiting: !!res.waiting,
+          hasHttpResult: !!res.result,
+          role,
         });
 
         if (res.result) {
@@ -33861,6 +33928,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
     const indicatorReason =
       indicatorReasons.length > 0 ? indicatorReasons.join('|') : 'false';
+    const runtimeQueue = overlayQueueRef.current;
+    const runtimePending = pendingStartupInteractionsRef.current;
+    const runtimeAll = [...runtimeQueue, ...runtimePending];
+    console.log('LOBBY_INDICATOR_SOURCE_TRACE', {
+      telegramUserId: uid,
+      hasIncoming: runtimeAll.some((q) => q.kind === 'incoming'),
+      hasCheck: runtimeAll.some((q) => q.kind === 'check'),
+      hasResult: runtimeAll.some((q) => q.kind === 'result'),
+      pendingLen: ownerPrimaryShellPendingLen,
+      queueLen: ownerPrimaryShellQueueLen,
+      runtimePendingLen: runtimePending.length,
+      runtimeQueueLen: runtimeQueue.length,
+      lobbyBansNeedAttention,
+      lobbyBansAttentionHint,
+      reason: indicatorReason,
+    });
     logLobbyBansIndicatorSource({
       ...buildLobbyBansDiagContext(lobbyBansNeedAttention, indicatorReason),
       ownerPrimaryShellPendingLen,

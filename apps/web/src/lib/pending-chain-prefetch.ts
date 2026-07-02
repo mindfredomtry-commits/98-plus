@@ -123,6 +123,21 @@ function logEndpointResult(
   maybeLogQueueApiEmptyButDirectBanExists(endpoint, items.length, ctx);
 }
 
+function logFirstUserPendingFetchTrace(input: {
+  telegramUserId: string | null;
+  endpoint: string;
+  incomingCount: number;
+  checkCount: number;
+  resultCount: number;
+  pendingAllCount: number;
+  itemsKinds: string[];
+  itemsBanIds: string[];
+  itemsResultIds: string[];
+  source?: string;
+}): void {
+  console.log('FIRST_USER_PENDING_FETCH_TRACE', input);
+}
+
 export async function fetchPendingChainPrefetch(
   token: string,
   debug?: QueueApiFetchDebugContext,
@@ -175,6 +190,18 @@ export async function fetchPendingChainPrefetch(
   const rejectDebug = Array.isArray(incomingRes.rejectDebug)
     ? incomingRes.rejectDebug
     : [];
+  logFirstUserPendingFetchTrace({
+    telegramUserId: ctx.telegramUserId ?? null,
+    endpoint: '/bans/incoming/pending-all',
+    incomingCount: incoming.length,
+    checkCount: 0,
+    resultCount: 0,
+    pendingAllCount: incoming.length,
+    itemsKinds: incoming.map(() => 'incoming'),
+    itemsBanIds: incoming.map((b) => b.id),
+    itemsResultIds: [],
+    source: ctx.source,
+  });
   logPendingRejectDebug(rejectDebug, ctx, incoming.length);
   logEndpointResult(
     '/bans/incoming/pending-all',
@@ -187,6 +214,18 @@ export async function fetchPendingChainPrefetch(
   );
 
   const check = checkRes.ban ?? null;
+  logFirstUserPendingFetchTrace({
+    telegramUserId: ctx.telegramUserId ?? null,
+    endpoint: '/bans/check/pending',
+    incomingCount: 0,
+    checkCount: check ? 1 : 0,
+    resultCount: 0,
+    pendingAllCount: check ? 1 : 0,
+    itemsKinds: check ? ['check'] : [],
+    itemsBanIds: check ? [check.id] : [],
+    itemsResultIds: [],
+    source: ctx.source,
+  });
   logEndpointResult(
     '/bans/check/pending',
     ctx,
@@ -196,11 +235,45 @@ export async function fetchPendingChainPrefetch(
   );
 
   const result = resultRes.result ?? null;
+  logFirstUserPendingFetchTrace({
+    telegramUserId: ctx.telegramUserId ?? null,
+    endpoint: '/bans/result/pending',
+    incomingCount: 0,
+    checkCount: 0,
+    resultCount: result ? 1 : 0,
+    pendingAllCount: result ? 1 : 0,
+    itemsKinds: result ? ['result'] : [],
+    itemsBanIds: result ? [result.id] : [],
+    itemsResultIds: result ? [result.id] : [],
+    source: ctx.source,
+  });
   logEndpointResult(
     '/bans/result/pending',
     ctx,
     result ? [{ id: result.id, status: result.status ?? null, kind: 'result' }] : [],
   );
+
+  logFirstUserPendingFetchTrace({
+    telegramUserId: ctx.telegramUserId ?? null,
+    endpoint: 'pending-chain-prefetch-combined',
+    incomingCount: incoming.length,
+    checkCount: check ? 1 : 0,
+    resultCount: result ? 1 : 0,
+    pendingAllCount:
+      incoming.length + (check ? 1 : 0) + (result ? 1 : 0),
+    itemsKinds: [
+      ...incoming.map(() => 'incoming' as const),
+      ...(check ? (['check'] as const) : []),
+      ...(result ? (['result'] as const) : []),
+    ],
+    itemsBanIds: [
+      ...incoming.map((b) => b.id),
+      ...(check ? [check.id] : []),
+      ...(result ? [result.id] : []),
+    ],
+    itemsResultIds: result ? [result.id] : [],
+    source: ctx.source,
+  });
 
   return { incoming, check, result, rejectDebug };
 }
