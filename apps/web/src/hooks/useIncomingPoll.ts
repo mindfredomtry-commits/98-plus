@@ -4,6 +4,7 @@ import { useEffect, type MutableRefObject } from 'react';
 import type { BanInteraction } from '@98plus/shared';
 import { api } from '@/lib/api';
 import { shouldShowIncomingBanModal } from '@/lib/incoming-challenge';
+import type { QueueAppearanceReactionTracePayload } from '@/lib/queue-appearance-reaction-trace';
 import {
   logQueueApiFetchResult,
   logQueueApiFetchStart,
@@ -19,6 +20,16 @@ type ReceiveIncoming = (
   source: 'ws' | 'session' | 'poll',
 ) => void;
 
+type QueueAppearanceSnapshot = {
+  queueLen: number;
+  pendingLen: number;
+  activeKind: string | null;
+  queueHeadKind: string | null;
+  lobbyBansNeedAttention: boolean;
+  indicatorVisible: boolean;
+  notificationSessionActive: boolean;
+};
+
 export function useIncomingPoll(params: {
   userId: string | null | undefined;
   token: string | null | undefined;
@@ -27,6 +38,12 @@ export function useIncomingPoll(params: {
   getOpenIncomingBan: () => BanInteraction | null;
   userIdRef: MutableRefObject<string | null>;
   tokenRef: MutableRefObject<string | null>;
+  traceQueueAppearanceRef?: MutableRefObject<
+    (
+      input: Partial<QueueAppearanceReactionTracePayload> & { source: string },
+    ) => void
+  >;
+  readQueueAppearanceSnapshotRef?: MutableRefObject<() => QueueAppearanceSnapshot>;
 }) {
   const {
     userId,
@@ -36,7 +53,31 @@ export function useIncomingPoll(params: {
     getOpenIncomingBan,
     userIdRef,
     tokenRef,
+    traceQueueAppearanceRef,
+    readQueueAppearanceSnapshotRef,
   } = params;
+
+  const emitQueueAppearanceTrace = (
+    source: string,
+    extra: Partial<QueueAppearanceReactionTracePayload> = {},
+    snapshot?: QueueAppearanceSnapshot,
+  ) => {
+    const snap = snapshot ?? readQueueAppearanceSnapshotRef?.current?.();
+    traceQueueAppearanceRef?.current({
+      source,
+      telegramUserId: userIdRef.current,
+      prevQueueLen: snap?.queueLen,
+      nextQueueLen: snap?.queueLen,
+      prevPendingLen: snap?.pendingLen,
+      nextPendingLen: snap?.pendingLen,
+      lobbyBansNeedAttention: snap?.lobbyBansNeedAttention,
+      indicatorVisible: snap?.indicatorVisible,
+      activeKind: snap?.activeKind ?? null,
+      queueHeadKind: snap?.queueHeadKind ?? null,
+      notificationSessionActive: snap?.notificationSessionActive,
+      ...extra,
+    });
+  };
 
   useEffect(() => {
     if (!userId || !token) return;
@@ -121,6 +162,9 @@ export function useIncomingPoll(params: {
             skipped: true,
             reason: 'empty',
           });
+          emitQueueAppearanceTrace('useIncomingPoll:INCOMING_POLL_RECEIVED', {
+            skipReason: 'empty',
+          });
           return;
         }
 
@@ -129,6 +173,10 @@ export function useIncomingPoll(params: {
             banId: ban.id,
             skipped: true,
             reason: 'dismissed-session',
+          });
+          emitQueueAppearanceTrace('useIncomingPoll:INCOMING_POLL_RECEIVED', {
+            skipReason: 'dismissed-session',
+            queueHeadKind: 'incoming',
           });
           return;
         }
@@ -145,8 +193,31 @@ export function useIncomingPoll(params: {
           statuses: [ban.status ?? null],
           kinds: ['incoming'],
         });
+        const snapshotBefore = readQueueAppearanceSnapshotRef?.current?.();
         console.log('INCOMING POLL RECEIVED', { banId: ban.id });
+        emitQueueAppearanceTrace(
+          'useIncomingPoll:INCOMING_POLL_RECEIVED',
+          {
+            skipReason: null,
+            queueHeadKind: 'incoming',
+            willStartOnClick: true,
+          },
+          snapshotBefore,
+        );
         receiveIncomingBan(ban, 'poll');
+        const snapshotAfter = readQueueAppearanceSnapshotRef?.current?.();
+        emitQueueAppearanceTrace('useIncomingPoll:INCOMING_POLL_RECEIVED:after-receive', {
+          prevQueueLen: snapshotBefore?.queueLen,
+          nextQueueLen: snapshotAfter?.queueLen,
+          prevPendingLen: snapshotBefore?.pendingLen,
+          nextPendingLen: snapshotAfter?.pendingLen,
+          lobbyBansNeedAttention: snapshotAfter?.lobbyBansNeedAttention,
+          indicatorVisible: snapshotAfter?.indicatorVisible,
+          activeKind: snapshotAfter?.activeKind ?? null,
+          queueHeadKind: snapshotAfter?.queueHeadKind ?? 'incoming',
+          notificationSessionActive: snapshotAfter?.notificationSessionActive,
+          skipReason: null,
+        });
       } catch {
         console.log('[incoming-poll-skip]', { reason: 'request-failed' });
       } finally {
@@ -177,5 +248,7 @@ export function useIncomingPoll(params: {
     getOpenIncomingBan,
     userIdRef,
     tokenRef,
+    traceQueueAppearanceRef,
+    readQueueAppearanceSnapshotRef,
   ]);
 }

@@ -1,7 +1,6 @@
 import {
-  isReplyQueueHandoffSessionActive,
-  patchReplyQueueHandoffSession,
-} from '@/lib/reply-queue-handoff-debug';
+  logQueueAppearanceReactionTrace,
+} from '@/lib/queue-appearance-reaction-trace';
 
 import {
   useCallback,
@@ -2685,6 +2684,23 @@ export function InstantBanFlow({
       activeOverlayKind: activeOverlayKind ?? null,
       willCallStartLobbyBansNotificationDrain: willCallDrain,
       blockedReason,
+    });
+    logQueueAppearanceReactionTrace({
+      source: 'handleOpenBansOverlay:click',
+      telegramUserId: user?.id ?? null,
+      prevQueueLen: overlayQueueLength,
+      nextQueueLen: overlayQueueLength,
+      prevPendingLen: pendingStartupInteractions,
+      nextPendingLen: pendingStartupInteractions,
+      lobbyBansNeedAttention,
+      indicatorVisible: lobbyBansNeedAttention,
+      lobbyOpen,
+      showLobby: showLobbyTopNav,
+      notificationChainTransitioning,
+      queueHeadKind: null,
+      willStartOnClick: willCallDrain,
+      willAutoStartDrain: false,
+      skipReason: blockedReason,
     });
     logLobbyBansClick({
       phase: 'handleOpenBansOverlay-entry',
