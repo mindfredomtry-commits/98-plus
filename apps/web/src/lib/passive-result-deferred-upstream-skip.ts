@@ -118,6 +118,28 @@ export function resolvePassiveResultDeferredAlreadyActiveOrShownSkip(input: {
   return null;
 }
 
+export function logPassiveResultDeferredBlockedByPassiveOpenGuard(data: {
+  banId: string;
+  resultId: string;
+  source: string;
+  reason: string;
+  pendingLen: number;
+  queueLen: number;
+  activeKind: string | null;
+  ownerActiveKind: string | null;
+  ownerDisplayKind: string | null;
+  directResultOpen: boolean;
+  closingResultBanId: string | null;
+}): void {
+  const timestamp = performance.now();
+  const payload = { timestamp, t: timestamp, ...data };
+  console.log('PASSIVE_RESULT_DEFERRED_BLOCKED_BY_PASSIVE_OPEN_GUARD', payload);
+  window.__debug98log?.(
+    'PASSIVE_RESULT_DEFERRED_BLOCKED_BY_PASSIVE_OPEN_GUARD',
+    payload,
+  );
+}
+
 export function logPassiveResultDeferredSkippedAlreadyActiveOrShown(data: {
   banId: string;
   resultId: string;

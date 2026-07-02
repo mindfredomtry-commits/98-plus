@@ -396,6 +396,7 @@ import {
   logQueueApiResultApplyDecision,
 } from '@/lib/queue-api-result-apply-debug';
 import {
+  logPassiveResultDeferredBlockedByPassiveOpenGuard,
   logPassiveResultDeferredSkippedAlreadyActiveOrShown,
   resolvePassiveResultDeferredAlreadyActiveOrShownSkip,
 } from '@/lib/passive-result-deferred-upstream-skip';
@@ -11925,23 +11926,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             });
             return;
           }
-          logPassiveResultOverlayBlocked({
-            source: opts?.source ?? 'enqueueNotification',
-            banId: normalizedItem.result.id,
-            phase: 'enqueue-blocked',
-            passiveSource: isPassiveResultOpenSource(
-              opts?.source ?? 'enqueueNotification',
+          logPassiveResultDeferredBlockedByPassiveOpenGuard({
+            banId: resultNorm,
+            resultId: resultNorm,
+            source: passiveDeferredSource,
+            reason: 'passive-open-guard-blocked-overlay-pending-enqueue',
+            pendingLen: ownerAtPassiveDefer.pending.length,
+            queueLen: ownerAtPassiveDefer.queue.length,
+            activeKind:
+              resolveMountedOverlayKindForPromotionDiag() ??
+              ownerAtPassiveDefer.active.kind,
+            ownerActiveKind: ownerAtPassiveDefer.active.kind,
+            ownerDisplayKind: resolveBansLayerOwnerDisplayKind(
+              ownerAtPassiveDefer.display,
             ),
-            lobbyOpen: lobbyOpenRef.current,
+            directResultOpen: Boolean(
+              directResultOverlayRef.current ||
+                directResultOverlayActiveRef.current ||
+                ownerAtPassiveDefer.display.directResultOverlay ||
+                ownerAtPassiveDefer.display.directResultOverlayActive,
+            ),
+            closingResultBanId: goToBansClosingBanIdRef.current,
           });
-          const nextPending = mergeStartupPendingSingle(
-            pendingStartupInteractionsRef.current,
-            normalizedItem,
-          );
-          applyPendingQueueViaOwner(
-            nextPending,
-            passiveDeferredSource,
-          );
           primeLobbyBansAttentionHintSyncRef.current(
             `passive-result-deferred:${opts?.source ?? 'unknown'}`,
           );
