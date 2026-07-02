@@ -6751,6 +6751,31 @@ export function InstantBanFlow({
         ) : null}
       </div>
 
+      {console.log('LOBBY_CTA_MIN_TRACE', {
+        showBanButton:
+          showLobbyCta &&
+          !effectiveBansOverlayOpen &&
+          !notificationQueueUiLock,
+        canBan: canLobbySendBan(energyLoaded, lobbyInfluencePercent),
+        energyReady: energyLoaded,
+        lowEnergy:
+          energyLoaded &&
+          !canLobbySendBan(energyLoaded, lobbyInfluencePercent),
+        activeOverlayKind,
+        activeKind: activeOverlayKind,
+        queueLen: overlayQueueLength,
+        pendingLen: pendingStartupInteractions,
+        notificationChainTransitioning,
+        queueClaimsNotificationScreen,
+        ctaState,
+        reason: !showLobbyCta
+          ? 'showLobbyCta-false'
+          : effectiveBansOverlayOpen
+            ? 'effectiveBansOverlayOpen'
+            : notificationQueueUiLock
+              ? 'notificationQueueUiLock'
+              : null,
+      }) || null}
       {showLobbyCta &&
       !effectiveBansOverlayOpen &&
       !notificationQueueUiLock ? (
