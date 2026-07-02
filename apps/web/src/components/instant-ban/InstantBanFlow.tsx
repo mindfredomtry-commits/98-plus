@@ -747,8 +747,9 @@ export function InstantBanFlow({
       deepLinkReplyBan != null ||
       incomingReplyBanId != null ||
       replyUiShellActive);
+  const queueLobbyGuardActive = shouldBlockLobbyForActiveQueue();
   const queueClaimsNotificationScreen =
-    overlayQueueLength > 0 || shouldBlockLobbyForActiveQueue();
+    overlayQueueLength > 0 || queueLobbyGuardActive;
   const legacyLobbyOrbBlockers = buildRenderLobbyOrbBlockers({
     replyIncomingDeeplinkPending,
     checkDeeplinkDirectPending,
@@ -760,7 +761,7 @@ export function InstantBanFlow({
     notificationChainTransitioning,
     queueClaimsNotificationScreen,
     overlayQueueLength,
-    queueLobbyGuardActive: shouldBlockLobbyForActiveQueue(),
+    queueLobbyGuardActive,
   });
   /** Base lobby layer: boot orb until primed, then permanent lobby orb under all overlays. */
   const showBootOrb = !lobbyBootIntroPrimed;
@@ -796,6 +797,31 @@ export function InstantBanFlow({
     (ctaState === 'visible' ||
       ctaState === 'exiting' ||
       ctaState === 'entering');
+  console.log('QUEUE_CLAIMS_MIN_TRACE', {
+    queueClaimsNotificationScreen,
+    overlayQueueLength,
+    queueLobbyGuardActive,
+    activeKind: activeOverlayKind,
+    activeOverlayKind,
+    hasAnyOverlay:
+      notificationOverlayActive ||
+      !!result ||
+      incomingGateActive ||
+      checkGateActive ||
+      lobbyActiveBanOverlay != null ||
+      sendFlowOpen,
+    hasResultOverlay: !!result,
+    showLobby: lobbyOpen,
+    isLobbyPhase: lobbyOpen,
+    showLobbyCta,
+    ctaState,
+    reason: overlayQueueLength > 0
+      ? 'overlayQueueLength-gt-0'
+      : queueLobbyGuardActive
+        ? 'queueLobbyGuardActive'
+        : null,
+    queueLobbyGuardSnapshot: getQueueLobbyGuardSnapshot(),
+  });
   console.log('SHOW_LOBBY_CTA_BREAKDOWN', {
     showLobbyCta,
     showLobby: lobbyOpen,
