@@ -753,6 +753,10 @@ import {
   type LobbyBansNotificationDrainOutcome,
 } from '@/lib/lobby-bans-cta-debug';
 import {
+  logLobbyBansCtaResultMergeSkippedAlreadyActiveOrShown,
+  resolveLobbyBansCtaResultMergeSkip,
+} from '@/lib/lobby-bans-cta-result-merge-skip';
+import {
   logCheckCardMounted,
   logCheckCardOverlaySet,
   logCheckCardSelected,
@@ -13507,6 +13511,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         const banId = normalizeId(item.result.id);
         if (!banId) return false;
         if (explicitLobbyDrain) {
+          if (source.includes('lobby-bans-cta')) {
+            const lobbyBansCtaMergeSkip = resolveLobbyBansCtaResultMergeSkip({
+              banId,
+              owner: ownerAtMergeEntry,
+              closingResultBanId: goToBansClosingBanIdRef.current,
+              goToBansSessionTraceBlocked:
+                getGoToBansPrefetchResultBlockDecision(banId).blocked,
+              legacyShownOverlayKeys: shownOverlayKeysRef.current,
+            });
+            if (lobbyBansCtaMergeSkip) {
+              const queueHead = ownerAtMergeEntry.queue[0] ?? null;
+              logLobbyBansCtaResultMergeSkippedAlreadyActiveOrShown({
+                banId,
+                resultId: banId,
+                source,
+                reason: `lobby-bans-cta-result-merge-skip-${lobbyBansCtaMergeSkip}`,
+                matchedBy: lobbyBansCtaMergeSkip,
+                activeKind: ownerAtMergeEntry.active.kind,
+                queueHeadKind: queueHead?.kind ?? null,
+                pendingLen: ownerAtMergeEntry.pending.length,
+                queueLen: ownerAtMergeEntry.queue.length,
+                ownerActiveKind: ownerAtMergeEntry.active.kind,
+                ownerDisplayKind: resolveBansLayerOwnerDisplayKind(
+                  ownerAtMergeEntry.display,
+                ),
+              });
+              return false;
+            }
+          }
           freshOverboardActionBanIdsRef.current.add(banId);
           resultCtaConsumedBanIdsRef.current.delete(banId);
           resultDeliveredBanIdsRef.current.delete(banId);
