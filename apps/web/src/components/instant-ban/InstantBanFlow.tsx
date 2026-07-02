@@ -747,8 +747,34 @@ export function InstantBanFlow({
       deepLinkReplyBan != null ||
       incomingReplyBanId != null ||
       replyUiShellActive);
+  const queueLobbyGuardActive = shouldBlockLobbyForActiveQueue();
   const queueClaimsNotificationScreen =
-    overlayQueueLength > 0 || shouldBlockLobbyForActiveQueue();
+    overlayQueueLength > 0 || queueLobbyGuardActive;
+  console.log('QUEUE_CLAIMS_NOTIFICATION_SCREEN_TRACE', {
+    queueClaimsNotificationScreen,
+    overlayQueueLengthGt0: overlayQueueLength > 0,
+    queueLobbyGuardActive,
+    overlayQueueLength,
+    queueLobbyGuard: getQueueLobbyGuardSnapshot(),
+    activeKind: activeOverlayKind,
+    activeOverlayKind,
+    hasAnyOverlay:
+      notificationOverlayActive ||
+      !!result ||
+      incomingGateActive ||
+      checkGateActive ||
+      lobbyActiveBanOverlay != null ||
+      sendFlowOpen,
+    hasResultOverlay: !!result,
+    showLobby: lobbyOpen,
+    isLobbyPhase: lobbyOpen,
+    reason: overlayQueueLength > 0
+      ? 'overlayQueueLength-gt-0'
+      : queueLobbyGuardActive
+        ? `queueLobbyGuard:${getQueueLobbyGuardSnapshot().phase}`
+        : null,
+    source: getQueueLobbyGuardSnapshot().source ?? null,
+  });
   const legacyLobbyOrbBlockers = buildRenderLobbyOrbBlockers({
     replyIncomingDeeplinkPending,
     checkDeeplinkDirectPending,

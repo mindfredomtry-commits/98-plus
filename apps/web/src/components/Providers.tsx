@@ -28747,6 +28747,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         freshOverboardActionBanIdsRef.current.delete(key);
         freshFinalStatusBanIdsRef.current.delete(key);
       }
+      {
+        const headBeforeGoToBans = overlayQueueRef.current[0] ?? null;
+        const drainBeforeGoToBans = buildExplicitDrainClearSnapshot();
+        console.log('RESULT_DISMISS_CLEANUP_TRACE', {
+          stage: 'before',
+          activeKind: ownerBefore.active.kind,
+          activeOverlayKind: drainBeforeGoToBans.activeKind,
+          overlayQueueLength: overlayQueueRef.current.length,
+          queueHeadKind: headBeforeGoToBans?.kind ?? null,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          showLobby: lobbyOpenRef.current,
+          queueClaimsNotificationScreen:
+            overlayQueueRef.current.length > 0 ||
+            shouldBlockLobbyForActiveQueue(),
+          queueLobbyGuard: getQueueLobbyGuardSnapshot(),
+          ownerQueueLen: ownerBefore.queue.length,
+          ownerActiveBanId: ownerBefore.active.banId,
+        });
+      }
       ownerShadowDispatch(
         { type: 'RESULT_GO_TO_BANS', banId: key },
         'finalizeResultForGoToBans',
@@ -29054,6 +29073,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             'pending-prune',
           );
         }
+      }
+
+      {
+        const ownerAfterPruneCleanup = ownerShadowRef.current.getState();
+        const headAfterPruneCleanup = overlayQueueRef.current[0] ?? null;
+        const drainAfterPruneCleanup = buildExplicitDrainClearSnapshot();
+        console.log('RESULT_DISMISS_CLEANUP_TRACE', {
+          stage: 'after',
+          activeKind: ownerAfterPruneCleanup.active.kind,
+          activeOverlayKind: drainAfterPruneCleanup.activeKind,
+          overlayQueueLength: overlayQueueRef.current.length,
+          queueHeadKind: headAfterPruneCleanup?.kind ?? null,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          showLobby: lobbyOpenRef.current,
+          queueClaimsNotificationScreen:
+            overlayQueueRef.current.length > 0 ||
+            shouldBlockLobbyForActiveQueue(),
+          queueLobbyGuard: getQueueLobbyGuardSnapshot(),
+          ownerQueueLen: ownerAfterPruneCleanup.queue.length,
+          ownerActiveBanId: ownerAfterPruneCleanup.active.banId,
+          removeOverlayCalled,
+          isQueueOverboardResultDismiss,
+        });
       }
 
       {
