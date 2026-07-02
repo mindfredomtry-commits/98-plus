@@ -999,12 +999,6 @@ import {
   logStaleComposeClearedBeforeBansNav,
 } from '@/lib/confirm-hold-render-debug';
 import {
-  logDrainEndStateTrace,
-  logGoToBansAfterDismissStateTrace,
-  logShowNextEmptyDrainTrace,
-} from '@/lib/lobby-lifecycle-diag-trace-debug';
-import { readLobbyCtaDebugSnapshot } from '@/lib/lobby-cta-snapshot-debug';
-import {
   logResultPollBlockerCheck,
   logResultPollComposeDiagnostics,
   logConfirmOrbAfterResultPoll,
@@ -6899,7 +6893,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const getConfirmOrbQueueDebugSnapshot =
     useCallback((): ConfirmOrbQueueDebugSnapshot => {
       const selectedNext = getPostSuccessHandoffSelectedNext();
-      const owner = ownerShadowRef.current.getState();
       return {
         pendingLen: pendingStartupInteractionsRef.current.length,
         queueLen: overlayQueueRef.current.length,
@@ -6920,9 +6913,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         notificationChainAwaitingUser:
           notificationChainAwaitingUserRef.current,
         chainAdvanceWaiting: chainAdvanceWaitingRef.current,
-        ownerActiveKind: owner.active.kind,
-        ownerDisplayKind: resolveBansLayerOwnerDisplayKind(owner.display),
-        shellKind: owner.session.shellKind,
       };
     }, []);
 
@@ -6973,43 +6963,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       };
     }, []);
 
-  const logDrainEndStateTraceFromContext = useCallback(
-    (source: string, reason: string, drainCleared?: boolean) => {
-      const owner = ownerShadowRef.current.getState();
-      const drainSnapshot = buildExplicitDrainClearSnapshot();
-      logDrainEndStateTrace({
-        source,
-        reason,
-        queueLen: overlayQueueRef.current.length,
-        pendingLen: pendingStartupInteractionsRef.current.length,
-        ownerActiveKind: owner.active.kind,
-        ownerDisplayKind: resolveBansLayerOwnerDisplayKind(owner.display),
-        activeOverlayKind: drainSnapshot.activeKind,
-        hasQueuedOverlayShell:
-          owner.queue.length > 0 ||
-          owner.pending.length > 0 ||
-          owner.holds.userCard != null ||
-          notificationChainTransitioningRef.current ||
-          goToBansAdvancePendingRef.current,
-        notificationSessionActive: notificationSessionActiveForDebugRef.current,
-        lobbyCtaVisible: readLobbyCtaDebugSnapshot()?.ctaShellVisible ?? false,
-        ...(drainCleared !== undefined ? { drainCleared } : {}),
-      });
-    },
-    [buildExplicitDrainClearSnapshot],
-  );
-
   const tryClearExplicitNotificationDrainGuarded = useCallback(
-    (source: string, reason: string): boolean => {
-      const cleared = tryClearExplicitNotificationDrain(
+    (source: string, reason: string): boolean =>
+      tryClearExplicitNotificationDrain(
         source,
         reason,
         buildExplicitDrainClearSnapshot(),
-      );
-      logDrainEndStateTraceFromContext(source, reason, cleared);
-      return cleared;
-    },
-    [buildExplicitDrainClearSnapshot, logDrainEndStateTraceFromContext],
+      ),
+    [buildExplicitDrainClearSnapshot],
   );
 
   const restoreHeldUserCardOverlay = (source: string): boolean => {
@@ -23254,21 +23215,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             promotedHeadId: headAtEnter ? overlayItemBanId(headAtEnter) : null,
             skippedReason: branch,
           });
-          const ownerAtEmpty = readOwnerImperative('showNextNotificationFromChainSync');
-          const drainSnapshot = buildExplicitDrainClearSnapshot();
-          logShowNextEmptyDrainTrace({
-            source,
-            branch,
-            queueLen: overlayQueueRef.current.length,
-            pendingLen: pendingStartupInteractionsRef.current.length,
-            activeKind: drainSnapshot.activeKind,
-            ownerActiveKind: ownerAtEmpty.active.kind,
-            ownerDisplayKind: resolveBansLayerOwnerDisplayKind(
-              ownerAtEmpty.display,
-            ),
-            expectedReturnToLobby: lobbyOpenRef.current,
-            lobbyCtaVisible: readLobbyCtaDebugSnapshot()?.ctaShellVisible ?? false,
-          });
         }
         emitGoToBansContinueExit({
           source,
@@ -24081,7 +24027,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [
       applyDirectOverboardCloseState,
       beginIncomingNextHydrate,
-      buildExplicitDrainClearSnapshot,
       clearNotificationChainReturnLatch,
       getNotificationChainDebugSnapshot,
       hasActiveNotificationOverlayMounted,
@@ -26746,10 +26691,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         value: T,
       ): T => {
         runPhase12ParityCheck('startLobbyBansNotificationDrain', branch);
-        logDrainEndStateTraceFromContext(
-          'startLobbyBansNotificationDrain',
-          branch,
-        );
         return value;
       };
 
@@ -27665,7 +27606,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       snapshotPendingNotificationChain,
       syncDisplayFromQueue,
       syncPendingStartupCount,
-      logDrainEndStateTraceFromContext,
     ]);
 
   const armOpenBansOverlayFromResultCta = useCallback(
@@ -29175,24 +29115,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 ? headAfterFinalize.ban.id
                 : null,
         });
-        {
-          const ownerAfterDismiss = ownerShadowRef.current.getState();
-          const drainSnapshot = buildExplicitDrainClearSnapshot();
-          logGoToBansAfterDismissStateTrace({
-            banId: key,
-            resultId: key,
-            source: 'finalizeResultForGoToBans',
-            queueLen: remainingLen,
-            pendingLen,
-            activeKind: drainSnapshot.activeKind,
-            ownerActiveKind: ownerAfterDismiss.active.kind,
-            ownerDisplayKind: resolveBansLayerOwnerDisplayKind(
-              ownerAfterDismiss.display,
-            ),
-            nextHeadKind: headAfterFinalize?.kind ?? null,
-            lobbyCtaVisible: readLobbyCtaDebugSnapshot()?.ctaShellVisible ?? false,
-          });
-        }
       }
 
       const hasNextInChain = remainingLen > 0 || pendingLen > 0;

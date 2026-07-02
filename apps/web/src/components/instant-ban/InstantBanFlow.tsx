@@ -113,8 +113,7 @@ import {
   logCtaRenderDecisionDiag,
 } from '@/lib/lobby-cta-render-debug';
 import { patchLobbyCtaDebugSnapshot } from '@/lib/lobby-cta-snapshot-debug';
-import { logLobbyCtaVisibilityTrace } from '@/lib/lobby-lifecycle-diag-trace-debug';
-import { resolveLobbyInfluencePercent, isLobbyLowEnergy } from '@/lib/lobby-influence';
+import { resolveLobbyInfluencePercent } from '@/lib/lobby-influence';
 import { logDeepLinkHandlerResult } from '@/lib/deep-link-boot-debug';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
 import { logReplyFlow, logReplyFlowLoopGuard } from '@/lib/reply-handoff-debug';
@@ -1501,7 +1500,6 @@ export function InstantBanFlow({
     });
 
     const ctaShellVisible = ctaVisible;
-
     const emptyOverlayHostBlocked =
       notificationChainTransitioning && !notificationOverlayMounted;
 
@@ -1549,19 +1547,6 @@ export function InstantBanFlow({
     lobbyCtaDiagSigRef.current = sig;
 
     logLobbyCtaRenderCheck(payload);
-    logLobbyCtaVisibilityTrace({
-      showBanButton: ctaShellVisible,
-      canBan: canLobbySendBan(energyLoaded, lobbyInfluencePercent),
-      energyReady: energyLoaded,
-      lowEnergy: isLobbyLowEnergy(energyLoaded, lobbyInfluencePercent),
-      activeOverlayKind,
-      ownerActiveKind: queueDebug.ownerActiveKind ?? null,
-      queueLen: overlayQueueLength,
-      pendingLen: pendingStartupInteractions,
-      activeKind: activeOverlayKind,
-      shellKind: queueDebug.shellKind ?? null,
-      reason: ctaHiddenReason,
-    });
 
     if (!ctaShellVisible && lobbyOpen && phase === 'idle') {
       logLobbyCtaReturnNull({
@@ -1578,13 +1563,10 @@ export function InstantBanFlow({
     deepLinkReplyBooting,
     deepLinkRouteBootPending,
     effectiveBansOverlayOpen,
-    energyLoaded,
-    getConfirmOrbQueueDebugSnapshot,
     incomingGateActive,
     incomingReplyBanId,
     lobbyBansNeedAttention,
     lobbyBootIntroPrimed,
-    lobbyInfluencePercent,
     lobbyOpen,
     notificationChainTransitioning,
     notificationOverlayActive,
