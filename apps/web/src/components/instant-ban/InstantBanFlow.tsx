@@ -665,6 +665,8 @@ export function InstantBanFlow({
   /** Set after result dismiss / "К запретам" so stale provider queue can be ignored locally. */
   const resultGoToBansDismissPathRef = useRef(false);
   const prevResultForDismissPathRef = useRef(result);
+  const prevOverlayQueueLengthTraceRef = useRef(overlayQueueLength);
+  const prevOverlayQueueHeadKindTraceRef = useRef<string | null>(null);
   const [historyBans, setHistoryBans] = useState<BanInteraction[]>([]);
   const [savedBans, setSavedBans] = useState<BanInteraction[]>([]);
   const [archiveToast, setArchiveToast] = useState<string | null>(null);
@@ -966,6 +968,103 @@ export function InstantBanFlow({
                                   ? 'ctaState'
                                   : null,
   });
+  type OverlayQueueMutationOperation =
+    | 'enqueue'
+    | 'dequeue'
+    | 'clear'
+    | 'replace'
+    | 'prune'
+    | 'remove';
+
+  const readOverlayQueueTraceHead = useCallback(() => {
+    const snap = getConfirmOrbQueueDebugSnapshot();
+    const headKind =
+      snap.selectedNextKind ?? snap.heldUserCardKind ?? activeOverlayKind;
+    const banId = snap.selectedNextBanId ?? result?.id ?? null;
+    return {
+      headKind,
+      banId,
+      resultId: headKind === 'result' ? banId : null,
+    };
+  }, [activeOverlayKind, getConfirmOrbQueueDebugSnapshot, result?.id]);
+
+  const logOverlayQueueMutationTrace = useCallback(
+    (input: {
+      operation: OverlayQueueMutationOperation;
+      source: string;
+      reason: string;
+      phase: 'before' | 'after' | 'observe';
+      itemKind?: string | null;
+      itemBanId?: string | null;
+      itemResultId?: string | null;
+      prevLength?: number;
+      nextLength?: number;
+      prevHeadKind?: string | null;
+      nextHeadKind?: string | null;
+    }) => {
+      const head = readOverlayQueueTraceHead();
+      console.log('OVERLAY_QUEUE_MUTATION_TRACE', {
+        operation: input.operation,
+        source: input.source,
+        reason: input.reason,
+        phase: input.phase,
+        itemKind: input.itemKind ?? head.headKind,
+        itemBanId: input.itemBanId ?? head.banId,
+        itemResultId: input.itemResultId ?? head.resultId,
+        prevLength: input.prevLength ?? overlayQueueLength,
+        nextLength: input.nextLength ?? overlayQueueLength,
+        prevHeadKind: input.prevHeadKind ?? null,
+        nextHeadKind: input.nextHeadKind ?? head.headKind,
+        activeKind: activeOverlayKind,
+        activeOverlayKind,
+        hasAnyOverlay: hasAnyOverlayForLobbyCta,
+        hasResultOverlay: !!result,
+        isGoToBansPath:
+          resultGoToBansDismissPathRef.current ||
+          bansCtaQueueSuppress ||
+          resultCtaBansOverlayOpen ||
+          bansReturnToLobbyLatch,
+      });
+    },
+    [
+      activeOverlayKind,
+      bansCtaQueueSuppress,
+      bansReturnToLobbyLatch,
+      hasAnyOverlayForLobbyCta,
+      overlayQueueLength,
+      readOverlayQueueTraceHead,
+      result,
+      resultCtaBansOverlayOpen,
+    ],
+  );
+
+  const traceOverlayQueueMutationBefore = useCallback(
+    (
+      operation: OverlayQueueMutationOperation,
+      source: string,
+      reason: string,
+      extras?: {
+        itemKind?: string | null;
+        itemBanId?: string | null;
+        itemResultId?: string | null;
+      },
+    ) => {
+      const head = readOverlayQueueTraceHead();
+      logOverlayQueueMutationTrace({
+        operation,
+        source,
+        reason,
+        phase: 'before',
+        prevLength: overlayQueueLength,
+        nextLength: overlayQueueLength,
+        prevHeadKind: head.headKind,
+        nextHeadKind: head.headKind,
+        ...extras,
+      });
+    },
+    [logOverlayQueueMutationTrace, overlayQueueLength, readOverlayQueueTraceHead],
+  );
+
   const ctaInteractive = phase === 'idle' && ctaState === 'visible';
 
   /** Stable viewport height for all send phases (Who/What/Confirm), including resume. */
@@ -1859,6 +1958,40 @@ export function InstantBanFlow({
   }, [result]);
 
   useLayoutEffect(() => {
+    const prevLen = prevOverlayQueueLengthTraceRef.current;
+    const prevHead = prevOverlayQueueHeadKindTraceRef.current;
+    const nextLen = overlayQueueLength;
+    const nextHead = readOverlayQueueTraceHead().headKind;
+    if (prevLen === nextLen && prevHead === nextHead) return;
+    const operation: OverlayQueueMutationOperation =
+      nextLen === 0
+        ? 'clear'
+        : nextLen < prevLen
+          ? 'dequeue'
+          : nextLen > prevLen
+            ? 'enqueue'
+            : 'replace';
+    logOverlayQueueMutationTrace({
+      operation,
+      source: 'overlayQueueLength-react-state',
+      reason: `providers-overlayQueue-length-change len:${prevLen}->${nextLen} head:${prevHead ?? 'null'}->${nextHead ?? 'null'}`,
+      phase: 'observe',
+      prevLength: prevLen,
+      nextLength: nextLen,
+      prevHeadKind: prevHead,
+      nextHeadKind: nextHead,
+    });
+    prevOverlayQueueLengthTraceRef.current = nextLen;
+    prevOverlayQueueHeadKindTraceRef.current = nextHead;
+  }, [
+    activeOverlayKind,
+    logOverlayQueueMutationTrace,
+    overlayQueueLength,
+    readOverlayQueueTraceHead,
+    result?.id,
+  ]);
+
+  useLayoutEffect(() => {
     if (!staleResultQueueClaimActive) {
       if (
         overlayQueueLength === 0 ||
@@ -1878,6 +2011,11 @@ export function InstantBanFlow({
       phase: 'idle',
       source: 'instant-ban-stale-result-queue-claim-clear',
     });
+    traceOverlayQueueMutationBefore(
+      'clear',
+      'staleResultQueueClaimActive',
+      'tryClearExplicitNotificationDrainGuarded:result-dismissed-visual-empty',
+    );
     tryClearExplicitNotificationDrainGuarded(
       'instant-ban-stale-result-queue-claim-clear',
       'result-dismissed-visual-empty',
@@ -1890,6 +2028,7 @@ export function InstantBanFlow({
     result,
     staleResultQueueClaimActive,
     tryClearExplicitNotificationDrainGuarded,
+    traceOverlayQueueMutationBefore,
   ]);
 
   useEffect(() => {
@@ -2811,6 +2950,12 @@ export function InstantBanFlow({
       phase,
     });
     resultGoToBansDismissPathRef.current = true;
+    traceOverlayQueueMutationBefore(
+      'prune',
+      'handleOpenBansFromResultCta',
+      'go-to-bans-open-bans-overlay',
+      { itemKind: 'result', itemResultId: result?.id ?? null },
+    );
     return true;
   }, [
     banSentSuccess,
@@ -2823,6 +2968,8 @@ export function InstantBanFlow({
     openBansOverlayTabRequest,
     phase,
     resetSendUiForBansCta,
+    result?.id,
+    traceOverlayQueueMutationBefore,
   ]);
 
   const handleOpenBansFromResultCtaRef = useRef(handleOpenBansFromResultCta);
@@ -2975,8 +3122,20 @@ export function InstantBanFlow({
         clearBansCtaQueueSuppress();
       }
       if (isReplyParentActivePriorityActive()) {
+        traceOverlayQueueMutationBefore(
+          'dequeue',
+          'handleCloseBansOverlay',
+          'releaseNotificationQueueAfterReplyParentActive',
+        );
         releaseNotificationQueueAfterReplyParentActive();
       } else if (isNotificationQueueLocked() || wasBansCta) {
+        traceOverlayQueueMutationBefore(
+          'dequeue',
+          'handleCloseBansOverlay',
+          wasBansCta
+            ? 'unlockNotificationQueueAndFlush:result-cta-bans-closed'
+            : 'unlockNotificationQueueAndFlush:target-flow-closed',
+        );
         unlockNotificationQueueAndFlush(
           wasBansCta ? 'result-cta-bans-closed' : 'target-flow-closed',
         );
@@ -3003,6 +3162,7 @@ export function InstantBanFlow({
       sendFlowOpen,
       sendStarted,
       unlockNotificationQueueAndFlush,
+      traceOverlayQueueMutationBefore,
     ],
   );
 
@@ -3055,6 +3215,12 @@ export function InstantBanFlow({
       setOverlayHandoffFromActiveCard(true);
       setLobbyActiveBanOverlay(null);
     });
+    traceOverlayQueueMutationBefore(
+      'dequeue',
+      'handleLobbyActiveBanOverlayBack',
+      'releaseNotificationQueueAfterReplyParentActive:go-to-bans-timer',
+      { itemBanId: banId, itemKind: 'result', itemResultId: banId },
+    );
     releaseNotificationQueueAfterReplyParentActive();
   }, [
     clearStaleComposeStateBeforeBansNavigation,
@@ -3065,6 +3231,7 @@ export function InstantBanFlow({
     overlayQueueLength,
     pendingStartupInteractions,
     releaseNotificationQueueAfterReplyParentActive,
+    traceOverlayQueueMutationBefore,
   ]);
 
   const handleActiveBanBackToBansList = useCallback(() => {
@@ -3074,10 +3241,20 @@ export function InstantBanFlow({
     }
     if (isReplyParentActivePriorityActive()) {
       setSelectedBanForDetails(null);
+      traceOverlayQueueMutationBefore(
+        'dequeue',
+        'handleActiveBanBackToBansList',
+        'releaseNotificationQueueAfterReplyParentActive',
+      );
       releaseNotificationQueueAfterReplyParentActive();
       return;
     }
     logOverlayPriority('explicit-bans-open-unlock', { source: 'active-ban-back' });
+    traceOverlayQueueMutationBefore(
+      'dequeue',
+      'handleActiveBanBackToBansList',
+      'unlockNotificationQueueAndFlush:explicit-bans-open-unlock',
+    );
     unlockNotificationQueueAndFlush('explicit-bans-open-unlock');
     setSelectedBanForDetails(null);
   }, [
@@ -3086,6 +3263,7 @@ export function InstantBanFlow({
     lobbyActiveBanOverlay,
     releaseNotificationQueueAfterReplyParentActive,
     unlockNotificationQueueAndFlush,
+    traceOverlayQueueMutationBefore,
   ]);
 
   const handleBanShare = useCallback(
@@ -3230,6 +3408,11 @@ export function InstantBanFlow({
         setSuccessToActiveLobbyBlocked(false);
       });
 
+      traceOverlayQueueMutationBefore(
+        'clear',
+        'commitSendSuccessExit',
+        `clearNotificationOverlayForEmptyQueueAfterSuccessExit:${opts.lobbySource === 'reply-parent-active' ? 'reply-parent-active' : 'send-success'}`,
+      );
       clearNotificationOverlayForEmptyQueueAfterSuccessExit(
         opts.lobbySource === 'reply-parent-active'
           ? 'reply-parent-active'
@@ -3256,6 +3439,7 @@ export function InstantBanFlow({
       prepareLobbyBaseAfterSuccess,
       setCrossScreenProgressImmediate,
       stopCrossScreenAnim,
+      traceOverlayQueueMutationBefore,
     ],
   );
 
@@ -3441,8 +3625,18 @@ export function InstantBanFlow({
         notificationOverlayVisible,
       });
       logPostSuccessQueueSnapshotBeforeRelease('success-exit');
+      traceOverlayQueueMutationBefore(
+        'dequeue',
+        'finishSendSuccessLobbyExit',
+        'releaseStartupInteractions:force',
+      );
       releaseStartupInteractions({ force: true });
       logOverlayPriority('send-success-unlock', {});
+      traceOverlayQueueMutationBefore(
+        'dequeue',
+        'finishSendSuccessLobbyExit',
+        'unlockNotificationQueueAndFlush:send-success-unlock',
+      );
       unlockNotificationQueueAndFlush('send-success-unlock');
       logPostSuccessReleaseStartupResult(
         'success-exit',
@@ -3510,7 +3704,22 @@ export function InstantBanFlow({
         }
       })();
 
+      traceOverlayQueueMutationBefore(
+        'dequeue',
+        'finishSendSuccessLobbyExit',
+        'drainNextNotificationAfterSuccess',
+        { itemBanId: banId },
+      );
       const drained = await drainNextNotificationAfterSuccess(banId);
+      logOverlayQueueMutationTrace({
+        operation: drained ? 'dequeue' : 'remove',
+        source: 'finishSendSuccessLobbyExit',
+        reason: `drainNextNotificationAfterSuccess:drained=${drained}`,
+        phase: 'after',
+        prevLength: overlayQueueLength,
+        nextLength: overlayQueueLength,
+        itemBanId: banId,
+      });
       if (drained) {
         console.log('[success-exit-drain-success]', {
           banId,
@@ -3544,8 +3753,18 @@ export function InstantBanFlow({
           pendingLen: pendingStartupInteractions,
         });
         setNotificationChainTransitioning(false);
+        traceOverlayQueueMutationBefore(
+          'clear',
+          'finishSendSuccessLobbyExit',
+          'clearNotificationOverlayForEmptyQueueAfterSuccessExit:success-exit-empty-queue',
+        );
         clearNotificationOverlayForEmptyQueueAfterSuccessExit(
           'success-exit-empty-queue',
+        );
+        traceOverlayQueueMutationBefore(
+          'clear',
+          'finishSendSuccessLobbyExit',
+          'tryClearExplicitNotificationDrainGuarded:success-exit-drain-missed',
         );
         tryClearExplicitNotificationDrainGuarded(
           'finishSendSuccessLobbyExit',
@@ -3598,6 +3817,8 @@ export function InstantBanFlow({
       getConfirmOrbQueueDebugSnapshot,
       tryClearExplicitNotificationDrainGuarded,
       logPostSuccessReplyDeeplinkLobbyStateDiag,
+      logOverlayQueueMutationTrace,
+      traceOverlayQueueMutationBefore,
     ],
   );
 
@@ -3945,6 +4166,11 @@ export function InstantBanFlow({
       logOverlayPriority('explicit-bans-open-unlock', {
         source: 'low-energy-ask',
       });
+      traceOverlayQueueMutationBefore(
+        'dequeue',
+        'handleLowEnergyAsk',
+        'unlockNotificationQueueAndFlush:explicit-bans-open-unlock',
+      );
       unlockNotificationQueueAndFlush('explicit-bans-open-unlock');
       return;
     }
@@ -3962,6 +4188,7 @@ export function InstantBanFlow({
     notificationSessionActive,
     pendingStartupInteractions,
     unlockNotificationQueueAndFlush,
+    traceOverlayQueueMutationBefore,
   ]);
 
   useEffect(() => {
@@ -4126,7 +4353,17 @@ export function InstantBanFlow({
         reason: 'visible-notification-overlay',
       });
       void flushDeferredSync().then(() => {
+        traceOverlayQueueMutationBefore(
+          'dequeue',
+          'handleLobbyCtaClick',
+          'releaseStartupInteractions:begin-send-drain',
+        );
         releaseStartupInteractions({ force: true });
+        traceOverlayQueueMutationBefore(
+          'dequeue',
+          'handleLobbyCtaClick',
+          'unlockNotificationQueueAndFlush:begin-send-drain',
+        );
         unlockNotificationQueueAndFlush('begin-send-drain');
       });
       return;
@@ -4162,6 +4399,7 @@ export function InstantBanFlow({
     releaseStartupInteractions,
     unlockNotificationQueueAndFlush,
     notificationOverlayVisible,
+    traceOverlayQueueMutationBefore,
   ]);
 
   const beginNewBanWhoFlow = useCallback(() => {
@@ -4173,7 +4411,17 @@ export function InstantBanFlow({
         source: 'beginNewBanWhoFlow',
       });
       void flushDeferredSync().then(() => {
+        traceOverlayQueueMutationBefore(
+          'dequeue',
+          'beginNewBanWhoFlow',
+          'releaseStartupInteractions:new-ban-who-drain',
+        );
         releaseStartupInteractions({ force: true });
+        traceOverlayQueueMutationBefore(
+          'dequeue',
+          'beginNewBanWhoFlow',
+          'unlockNotificationQueueAndFlush:new-ban-who-drain',
+        );
         unlockNotificationQueueAndFlush('new-ban-who-drain');
       });
       return;
@@ -4209,6 +4457,7 @@ export function InstantBanFlow({
     releaseStartupInteractions,
     setCrossScreenProgressImmediate,
     unlockNotificationQueueAndFlush,
+    traceOverlayQueueMutationBefore,
   ]);
 
   const lastNewBanWhoFlowRequestRef = useRef(0);

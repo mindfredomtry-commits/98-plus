@@ -1616,6 +1616,46 @@ function enrichSessionState(s: SessionState): SessionState {
   };
 }
 
+type ProvidersOverlayQueueMutationOperation =
+  | 'enqueue'
+  | 'dequeue'
+  | 'clear'
+  | 'replace'
+  | 'prune'
+  | 'remove';
+
+function inferProvidersOverlayQueueOperation(
+  prevLength: number,
+  nextLength: number,
+): ProvidersOverlayQueueMutationOperation {
+  if (nextLength === 0 && prevLength > 0) return 'clear';
+  if (nextLength < prevLength) return 'dequeue';
+  if (nextLength > prevLength) return 'enqueue';
+  return 'replace';
+}
+
+function logProvidersOverlayQueueMutation(input: {
+  operation: ProvidersOverlayQueueMutationOperation | 'skipped';
+  source: string;
+  reason: string;
+  prevLength?: number;
+  nextLength?: number;
+  prevHeadKind?: string | null;
+  nextHeadKind?: string | null;
+  banId?: string | null;
+  resultId?: string | null;
+}): void {
+  console.log('PROVIDERS_OVERLAY_QUEUE_MUTATION', input);
+}
+
+function providersOverlayQueueHeadBanId(
+  head: QueuedOverlay | null | undefined,
+): string | null {
+  if (!head) return null;
+  if (head.kind === 'result') return head.result.id;
+  return head.ban.id;
+}
+
 function applySessionToState(
   s: SessionState,
   setters: {
@@ -6199,6 +6239,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     );
     logOwnerStep2bQueueWrite('[OWNER STEP2B RESET_QUEUE]', fields);
     logOwnerStep2bQueueWrite('[OWNER STEP2B QUEUE WRITE EXCEPTION]', fields);
+    logProvidersOverlayQueueMutation({
+      operation: 'clear',
+      source: `${source}:resetOverlayQueueState`,
+      reason,
+      prevLength: overlayQueueRef.current.length,
+      nextLength: 0,
+      prevHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+      nextHeadKind: null,
+      banId: null,
+      resultId: null,
+    });
     logPhase12WriteAuthorityOperation(`queue-reset:${source}:${reason}`, () => {
       ownerShadowRef.current.dispatch(
         {
@@ -7748,6 +7799,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     mirrorLegacyQueue: (queue, source, silent) => {
       const oldQueue = [...overlayQueueRef.current];
       const oldHead = oldQueue[0] ?? null;
+      const operation = inferProvidersOverlayQueueOperation(
+        oldQueue.length,
+        queue.length,
+      );
+      logProvidersOverlayQueueMutation({
+        operation,
+        source: `${source}:mirrorLegacyQueue`,
+        reason: silent ? 'owner-mirror-silent' : 'owner-mirror-setOverlayQueue',
+        prevLength: oldQueue.length,
+        nextLength: queue.length,
+        prevHeadKind: oldHead?.kind ?? null,
+        nextHeadKind: queue[0]?.kind ?? null,
+        banId: providersOverlayQueueHeadBanId(queue[0] ?? null),
+        resultId:
+          queue[0]?.kind === 'result' ? queue[0].result.id : null,
+      });
       overlayQueueRef.current = queue;
       setOverlayQueue(queue);
       const newHead = queue[0] ?? null;
@@ -8165,6 +8232,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const ownerBefore = ownerShadowRef.current.getState();
       const queueBefore = [...ownerBefore.queue];
       const queueHeadBefore = queueBefore[0] ?? null;
+      const queueHeadAfterPreview = next[0] ?? null;
+      logProvidersOverlayQueueMutation({
+        operation: inferProvidersOverlayQueueOperation(
+          queueBefore.length,
+          next.length,
+        ),
+        source: `${source}:applyQueueViaOwnerAuthority`,
+        reason: silent ? 'owner-dispatch-QUEUE_SILENT_UPDATED' : 'owner-dispatch-QUEUE_APPLIED',
+        prevLength: queueBefore.length,
+        nextLength: next.length,
+        prevHeadKind: queueHeadBefore?.kind ?? null,
+        nextHeadKind: queueHeadAfterPreview?.kind ?? null,
+        banId: providersOverlayQueueHeadBanId(queueHeadAfterPreview),
+        resultId:
+          queueHeadAfterPreview?.kind === 'result'
+            ? queueHeadAfterPreview.result.id
+            : null,
+      });
       logPhase12WriteAuthorityOperation(
         silent ? `queue-silent:${source}` : `queue-mutate:${source}`,
         () => {
@@ -10575,6 +10660,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         const prevKey = prevHead ? overlayQueueKey(prevHead) : null;
         const nextKey = nextHead ? overlayQueueKey(nextHead) : null;
 
+        const logApplyOverlayQueueSkipped = (skipReason: string) => {
+          logProvidersOverlayQueueMutation({
+            operation: 'skipped',
+            source,
+            reason: skipReason,
+            prevLength: queueLenBefore,
+            nextLength: sanitizedNext.length,
+            prevHeadKind: prevHead?.kind ?? null,
+            nextHeadKind: nextHead?.kind ?? null,
+            banId: providersOverlayQueueHeadBanId(nextHead),
+            resultId:
+              nextHead?.kind === 'result' ? nextHead.result.id : null,
+          });
+        };
+
         const finalizeCommit = (): boolean => {
           if (fullPipeline) {
             activeOverlayLockRef.current = nextKey;
@@ -10632,6 +10732,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             sanitizedNext,
             buildQueueHeadResultTraceContext(source, reason),
           );
+          logProvidersOverlayQueueMutation({
+            operation: inferProvidersOverlayQueueOperation(
+              queueLenBefore,
+              sanitizedNext.length,
+            ),
+            source: `${source}:applyOverlayQueue:finalizeCommit`,
+            reason,
+            prevLength: queueLenBefore,
+            nextLength: sanitizedNext.length,
+            prevHeadKind: prevHead?.kind ?? null,
+            nextHeadKind: nextHead?.kind ?? null,
+            banId: providersOverlayQueueHeadBanId(nextHead),
+            resultId:
+              nextHead?.kind === 'result' ? nextHead.result.id : null,
+          });
           applyQueueViaOwnerAuthority(sanitizedNext, `${source}:${reason}`, silent);
 
           let didSyncDisplay = false;
@@ -10704,6 +10819,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             source,
             reason: 'single-card-queue-advance-blocked',
           });
+          logApplyOverlayQueueSkipped('predicate-false:deeplink-single-card-auto-drain-blocked');
           return false;
         }
         if (
@@ -10713,6 +10829,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             explicitUserAction: chainAdvanceExplicitRef.current,
           })
         ) {
+          logApplyOverlayQueueSkipped('predicate-false:active-user-card-preserved');
           return false;
         }
         if (
@@ -10736,6 +10853,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             previousShown: prevKey,
             nextShownSameTick: nextKey,
           });
+          logApplyOverlayQueueSkipped('predicate-false:notification-chain-awaiting-user');
           return false;
         }
         if (
@@ -10764,6 +10882,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             nextBanId: nextKey,
             source,
           });
+          logApplyOverlayQueueSkipped('predicate-false:reply-compose-active');
           return false;
         }
         if (
@@ -10772,6 +10891,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           prevKey !== nextKey &&
           shouldBlockActiveCheckOverlayAutoClose(source, 'head-change')
         ) {
+          logApplyOverlayQueueSkipped('predicate-false:active-check-auto-close-blocked');
           return false;
         }
         if (
@@ -10800,6 +10920,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               queueLen: sanitizedNext.length,
             });
           }
+          logApplyOverlayQueueSkipped(
+            isSendComposeFlowActive()
+              ? 'predicate-false:mounted-overlay-blocked-compose-partial-commit'
+              : 'predicate-false:mounted-notification-overlay-blocks-head-switch',
+          );
           return false;
         }
 
@@ -12933,6 +13058,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           freshFinalStatusBanIdsRef.current.has(norm) ||
           isHeldFinalStatusResultProtected(norm))
       ) {
+        logProvidersOverlayQueueMutation({
+          operation: 'skipped',
+          source,
+          reason: 'predicate-false:head-protected-fresh-result',
+          prevLength: overlayQueueRef.current.length,
+          nextLength: overlayQueueRef.current.length,
+          prevHeadKind: head?.kind ?? null,
+          nextHeadKind: head?.kind ?? null,
+          banId: norm,
+          resultId: norm,
+        });
         return { removedOverlay: 0, removedStartup: 0 };
       }
       const beforeOverlay = overlayQueueRef.current;
@@ -12968,6 +13104,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
           'prune-result-from-notification-chain',
         );
+      } else {
+        logProvidersOverlayQueueMutation({
+          operation: 'skipped',
+          source,
+          reason:
+            removedOverlay === 0 && removedStartup === 0
+              ? 'no-matching-result:pruneResultFromNotificationChain'
+              : 'already-removed:pruneResultFromNotificationChain',
+          prevLength: beforeOverlay.length,
+          nextLength: nextOverlay.length,
+          prevHeadKind: beforeOverlay[0]?.kind ?? null,
+          nextHeadKind: nextOverlay[0]?.kind ?? null,
+          banId: norm,
+          resultId: kinds.includes('result') ? norm : null,
+        });
       }
       return { removedOverlay, removedStartup };
     },
@@ -28991,7 +29142,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               'go-to-bans',
               'queue-overboard-go-to-bans-queue',
             );
+          } else {
+            logProvidersOverlayQueueMutation({
+              operation: 'skipped',
+              source: 'finalizeResultForGoToBans',
+              reason: 'already-removed:queue-overboard-go-to-bans-queue',
+              prevLength: beforeQueue.length,
+              nextLength: nextQueue.length,
+              prevHeadKind: beforeQueue[0]?.kind ?? null,
+              nextHeadKind: nextQueue[0]?.kind ?? null,
+              banId: key,
+              resultId: key,
+            });
           }
+        } else {
+          logProvidersOverlayQueueMutation({
+            operation: 'skipped',
+            source: 'finalizeResultForGoToBans',
+            reason: 'head-mismatch:queue-overboard-go-to-bans-queue',
+            prevLength: beforeQueue.length,
+            nextLength: beforeQueue.length,
+            prevHeadKind: beforeQueue[0]?.kind ?? null,
+            nextHeadKind: beforeQueue[0]?.kind ?? null,
+            banId: key,
+            resultId: key,
+          });
         }
         const nextPending = removeOverlaysForBan(beforePending, key, ['result']);
         if (nextPending.length !== beforePending.length) {
@@ -29040,6 +29215,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             'go-to-bans',
             'go-to-bans-queue-prune-commit',
           );
+        } else {
+          logProvidersOverlayQueueMutation({
+            operation: 'skipped',
+            source: 'finalizeResultForGoToBans',
+            reason: 'no-matching-result:go-to-bans-queue-prune-commit',
+            prevLength: beforeQueue.length,
+            nextLength: nextQueue.length,
+            prevHeadKind: beforeQueue[0]?.kind ?? null,
+            nextHeadKind: nextQueue[0]?.kind ?? null,
+            banId: key,
+            resultId: key,
+          });
         }
         const beforePending = pendingStartupInteractionsRef.current;
         const nextPending = removeOverlaysForBan(beforePending, key, [
