@@ -795,6 +795,127 @@ export function InstantBanFlow({
     (ctaState === 'visible' ||
       ctaState === 'exiting' ||
       ctaState === 'entering');
+  console.log('SHOW_LOBBY_CTA_BREAKDOWN', {
+    showLobbyCta,
+    showLobby: lobbyOpen,
+    isLobbyPhase: lobbyOpen,
+    isIdlePhase: phase === 'idle',
+    composeState: phase,
+    ctaState,
+    energyLoaded,
+    energyReady: energyLoaded,
+    canBan: canLobbySendBan(energyLoaded, influencePercent),
+    lowEnergy: energyLoaded && !canLobbySendBan(energyLoaded, influencePercent),
+    effectiveBansOverlayOpen: bansLayerUiOpen,
+    notificationQueueUiLock: notificationOverlayMounted,
+    notificationChainTransitioning,
+    queueClaimsNotificationScreen,
+    activeOverlayKind,
+    activeKind: activeOverlayKind,
+    overlayQueueLength,
+    pendingStartupInteractions,
+    hasAnyOverlay:
+      notificationOverlayActive ||
+      !!result ||
+      incomingGateActive ||
+      checkGateActive ||
+      lobbyActiveBanOverlay != null ||
+      sendFlowOpen,
+    hasComposeOverlay:
+      sendFlowOpen ||
+      sendStarted ||
+      phase === 'selectingTarget' ||
+      phase === 'composingBan' ||
+      phase === 'confirming',
+    hasNotificationOverlay: notificationOverlayMounted,
+    hasResultOverlay: !!result,
+    hasIncomingOverlay: incomingGateActive,
+    hasCheckOverlay: checkGateActive,
+    hasActiveBanOverlay: lobbyActiveBanOverlay != null,
+    lobbyBootIntroPrimed,
+    replyIncomingDeeplinkPending,
+    checkDeeplinkDirectPending,
+    successToActiveLobbyBlocked,
+    overlayHandoffLobbySuppressed,
+    successExitDraining,
+    postSuccessHandoffBlocking,
+    replyLobbyBlocked,
+    bansReturnToLobbyLatch,
+    deepLinkRouteBootPending,
+    deepLinkReplyBooting,
+    incomingReplyBanId,
+    incomingGateActive,
+    ctaStateAllowsLobbyCta:
+      ctaState === 'visible' ||
+      ctaState === 'exiting' ||
+      ctaState === 'entering',
+    firstFalseGuard: !lobbyBootIntroPrimed
+      ? 'lobbyBootIntroPrimed'
+      : replyIncomingDeeplinkPending
+        ? 'replyIncomingDeeplinkPending'
+        : checkDeeplinkDirectPending
+          ? 'checkDeeplinkDirectPending'
+          : successToActiveLobbyBlocked
+            ? 'successToActiveLobbyBlocked'
+            : overlayHandoffLobbySuppressed
+              ? 'overlayHandoffLobbySuppressed'
+              : successExitDraining
+                ? 'successExitDraining'
+                : postSuccessHandoffBlocking
+                  ? 'postSuccessHandoffBlocking'
+                  : notificationChainTransitioning
+                    ? 'notificationChainTransitioning'
+                    : queueClaimsNotificationScreen
+                      ? 'queueClaimsNotificationScreen'
+                      : replyLobbyBlocked && !bansReturnToLobbyLatch
+                        ? 'replyLobbyBlocked'
+                        : deepLinkRouteBootPending
+                          ? 'deepLinkRouteBootPending'
+                          : deepLinkReplyBooting
+                            ? 'deepLinkReplyBooting'
+                            : incomingReplyBanId
+                              ? 'incomingReplyBanId'
+                              : incomingGateActive && !bansReturnToLobbyLatch
+                                ? 'incomingGateActive'
+                                : ctaState !== 'visible' &&
+                                    ctaState !== 'exiting' &&
+                                    ctaState !== 'entering'
+                                  ? 'ctaState'
+                                  : null,
+    reason: !lobbyBootIntroPrimed
+      ? 'lobbyBootIntroPrimed'
+      : replyIncomingDeeplinkPending
+        ? 'replyIncomingDeeplinkPending'
+        : checkDeeplinkDirectPending
+          ? 'checkDeeplinkDirectPending'
+          : successToActiveLobbyBlocked
+            ? 'successToActiveLobbyBlocked'
+            : overlayHandoffLobbySuppressed
+              ? 'overlayHandoffLobbySuppressed'
+              : successExitDraining
+                ? 'successExitDraining'
+                : postSuccessHandoffBlocking
+                  ? 'postSuccessHandoffBlocking'
+                  : notificationChainTransitioning
+                    ? 'notificationChainTransitioning'
+                    : queueClaimsNotificationScreen
+                      ? 'queueClaimsNotificationScreen'
+                      : replyLobbyBlocked && !bansReturnToLobbyLatch
+                        ? 'replyLobbyBlocked'
+                        : deepLinkRouteBootPending
+                          ? 'deepLinkRouteBootPending'
+                          : deepLinkReplyBooting
+                            ? 'deepLinkReplyBooting'
+                            : incomingReplyBanId
+                              ? 'incomingReplyBanId'
+                              : incomingGateActive && !bansReturnToLobbyLatch
+                                ? 'incomingGateActive'
+                                : ctaState !== 'visible' &&
+                                    ctaState !== 'exiting' &&
+                                    ctaState !== 'entering'
+                                  ? 'ctaState'
+                                  : null,
+  });
   const ctaInteractive = phase === 'idle' && ctaState === 'visible';
 
   /** Stable viewport height for all send phases (Who/What/Confirm), including resume. */
