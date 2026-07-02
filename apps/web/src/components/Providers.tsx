@@ -1656,6 +1656,60 @@ function providersOverlayQueueHeadBanId(
   return head.ban.id;
 }
 
+function buildResultPruneHeadFields(head: QueuedOverlay | null | undefined): {
+  headKind: string | null;
+  headBanId: string | null;
+  headResultId: string | null;
+} {
+  return {
+    headKind: head?.kind ?? null,
+    headBanId:
+      head?.kind === 'incoming' || head?.kind === 'check'
+        ? head.ban.id
+        : null,
+    headResultId: head?.kind === 'result' ? head.result.id : null,
+  };
+}
+
+function logResultPruneDecision(input: {
+  branch: string;
+  reason: string;
+  headKind?: string | null;
+  headBanId?: string | null;
+  headResultId?: string | null;
+  clickedBanId: string;
+  clickedResultId: string;
+  predicateResult: boolean;
+  willPrune: boolean;
+}): void {
+  console.log('RESULT_PRUNE_DECISION', input);
+}
+
+function traceRemoveOverlaysForBan(
+  queue: QueuedOverlay[],
+  banId: string,
+  kinds: QueuedOverlay['kind'][] | undefined,
+  reason: string,
+): QueuedOverlay[] {
+  const norm = normalizeId(banId);
+  const matched = queue.some((q) => {
+    if (overlayBanId(q) !== norm) return false;
+    if (!kinds) return true;
+    return kinds.includes(q.kind);
+  });
+  const next = removeOverlaysForBan(queue, banId, kinds);
+  console.log('REMOVE_OVERLAY_FOR_BAN_TRACE', {
+    banId,
+    resultId: kinds?.includes('result') ? norm || banId : null,
+    removedCount: queue.length - next.length,
+    queueBefore: queue.length,
+    queueAfter: next.length,
+    matched,
+    reason,
+  });
+  return next;
+}
+
 function applySessionToState(
   s: SessionState,
   setters: {
@@ -13048,16 +13102,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ): { removedOverlay: number; removedStartup: number } => {
       const norm = normalizeId(banId);
       const head = overlayQueueRef.current[0];
-      if (
-        norm &&
+      const headProtected =
+        Boolean(norm) &&
         head?.kind === 'result' &&
         normalizeId(head.result.id) === norm &&
         kinds.includes('result') &&
         (freshOverboardActionBanIdsRef.current.has(norm) ||
           isHeldOverboardResultProtected(norm) ||
           freshFinalStatusBanIdsRef.current.has(norm) ||
-          isHeldFinalStatusResultProtected(norm))
-      ) {
+          isHeldFinalStatusResultProtected(norm));
+      if (headProtected) {
+        logResultPruneDecision({
+          branch: 'pruneResultFromNotificationChain',
+          reason: 'head-protected-fresh-result',
+          ...buildResultPruneHeadFields(head),
+          clickedBanId: norm,
+          clickedResultId: norm,
+          predicateResult: false,
+          willPrune: false,
+        });
         logProvidersOverlayQueueMutation({
           operation: 'skipped',
           source,
@@ -13071,10 +13134,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return { removedOverlay: 0, removedStartup: 0 };
       }
+      logResultPruneDecision({
+        branch: 'pruneResultFromNotificationChain',
+        reason: 'invoke-removeOverlaysForBan',
+        ...buildResultPruneHeadFields(head),
+        clickedBanId: norm,
+        clickedResultId: norm,
+        predicateResult: true,
+        willPrune: true,
+      });
       const beforeOverlay = overlayQueueRef.current;
       const beforeStartup = pendingStartupInteractionsRef.current;
-      const nextOverlay = removeOverlaysForBan(beforeOverlay, banId, kinds);
-      const nextStartup = removeOverlaysForBan(beforeStartup, banId, kinds);
+      const nextOverlay = traceRemoveOverlaysForBan(
+        beforeOverlay,
+        banId,
+        kinds,
+        `${source}:prune-result-from-notification-chain-overlay`,
+      );
+      const nextStartup = traceRemoveOverlaysForBan(
+        beforeStartup,
+        banId,
+        kinds,
+        `${source}:prune-result-from-notification-chain-pending`,
+      );
       const removedOverlay = beforeOverlay.length - nextOverlay.length;
       const removedStartup = beforeStartup.length - nextStartup.length;
       if (removedOverlay > 0 || removedStartup > 0) {
@@ -28648,6 +28730,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearStaleComposeStateBeforeBansNavigation('finalizeResultForGoToBans');
       const key = normalizeId(banId);
       if (!key) {
+        logResultPruneDecision({
+          branch: 'early-return',
+          reason: 'invalid-ban-id-after-normalize',
+          ...buildResultPruneHeadFields(overlayQueueRef.current[0]),
+          clickedBanId: banId,
+          clickedResultId: banId,
+          predicateResult: false,
+          willPrune: false,
+        });
         emitFinalizeGoToBansSync('[FINALIZE GO TO BANS RETURN]', {
           sourceFunction: 'finalizeResultForGoToBans:early-return',
           banId,
@@ -28819,6 +28910,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         outcome === 'overboard' &&
         !closeBefore.directResultOverlay &&
         !closeBefore.directResultOverlayActive;
+      logResultPruneDecision({
+        branch: isQueueOverboardResultDismiss
+          ? 'isQueueOverboardResultDismiss'
+          : 'pruneResultFromNotificationChain',
+        reason: isQueueOverboardResultDismiss
+          ? `outcome-overboard:${outcome},directOverlay=${closeBefore.directResultOverlay},directActive=${closeBefore.directResultOverlayActive}`
+          : `not-queue-overboard-dismiss:outcome=${outcome ?? 'null'},directOverlay=${closeBefore.directResultOverlay},directActive=${closeBefore.directResultOverlayActive}`,
+        ...buildResultPruneHeadFields(queueHeadAtFinalize),
+        clickedBanId: key,
+        clickedResultId: key,
+        predicateResult: isQueueOverboardResultDismiss,
+        willPrune: true,
+      });
       const finTrace = (
         event: string,
         sourceFunction: string,
@@ -29133,8 +29237,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         const queueHeadIsClickedResult =
           beforeQueue[0]?.kind === 'result' &&
           normalizeId(beforeQueue[0].result.id) === key;
+        logResultPruneDecision({
+          branch: 'isQueueOverboardResultDismiss:queue-head-check',
+          reason: queueHeadIsClickedResult
+            ? 'queue-head-is-clicked-result'
+            : beforeQueue[0]?.kind !== 'result'
+              ? 'head-mismatch:head-not-result'
+              : `head-mismatch:head-result-id-${normalizeId(beforeQueue[0]?.kind === 'result' ? beforeQueue[0].result.id : '')}-vs-clicked-${key}`,
+          ...buildResultPruneHeadFields(beforeQueue[0]),
+          clickedBanId: key,
+          clickedResultId: key,
+          predicateResult: queueHeadIsClickedResult,
+          willPrune: queueHeadIsClickedResult,
+        });
         if (queueHeadIsClickedResult) {
-          const nextQueue = removeOverlaysForBan(beforeQueue, key, ['result']);
+          const nextQueue = traceRemoveOverlaysForBan(
+            beforeQueue,
+            key,
+            ['result'],
+            'finalizeResultForGoToBans:queue-overboard-go-to-bans-queue',
+          );
           if (nextQueue.length !== beforeQueue.length) {
             removeOverlayCalled = true;
             commitOverlayQueueViaApply(
@@ -29168,7 +29290,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             resultId: key,
           });
         }
-        const nextPending = removeOverlaysForBan(beforePending, key, ['result']);
+        const nextPending = traceRemoveOverlaysForBan(
+          beforePending,
+          key,
+          ['result'],
+          'finalizeResultForGoToBans:queue-overboard-go-to-bans-pending',
+        );
         if (nextPending.length !== beforePending.length) {
           removeOverlayCalled = true;
           commitPendingQueueViaOwner(
@@ -29203,11 +29330,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         finTrace('[FINALIZE GO TO BANS BRANCH]', 'finalizeResultForGoToBans:queue-prune', {
           branch: 'pruneResultFromNotificationChain',
         });
+        logResultPruneDecision({
+          branch: 'pruneResultFromNotificationChain:call',
+          reason: 'isQueueOverboardResultDismiss-false',
+          ...buildResultPruneHeadFields(overlayQueueRef.current[0]),
+          clickedBanId: key,
+          clickedResultId: key,
+          predicateResult: true,
+          willPrune: true,
+        });
         pruneResultFromNotificationChain(key, 'go-to-bans', ['check', 'result']);
         sanitizeNotificationChainQueues('go-to-bans');
 
         const beforeQueue = overlayQueueRef.current;
-        const nextQueue = removeOverlaysForBan(beforeQueue, key, ['check', 'result']);
+        const nextQueue = traceRemoveOverlaysForBan(
+          beforeQueue,
+          key,
+          ['check', 'result'],
+          'finalizeResultForGoToBans:go-to-bans-queue-prune-commit',
+        );
         if (nextQueue.length !== beforeQueue.length) {
           removeOverlayCalled = true;
           commitOverlayQueueViaApply(
@@ -29229,10 +29370,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
         }
         const beforePending = pendingStartupInteractionsRef.current;
-        const nextPending = removeOverlaysForBan(beforePending, key, [
-          'check',
-          'result',
-        ]);
+        const nextPending = traceRemoveOverlaysForBan(
+          beforePending,
+          key,
+          ['check', 'result'],
+          'finalizeResultForGoToBans:pending-prune',
+        );
         if (nextPending.length !== beforePending.length) {
           removeOverlayCalled = true;
           commitPendingQueueViaOwner(
