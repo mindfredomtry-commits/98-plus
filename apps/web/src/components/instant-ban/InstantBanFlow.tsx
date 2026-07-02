@@ -662,6 +662,9 @@ export function InstantBanFlow({
     useState(false);
   const prevOverlayHandoffSuppressedRef = useRef(false);
   const prevBansReturnToLobbyLatchRef = useRef(false);
+  /** Set after result dismiss / "К запретам" so stale provider queue can be ignored locally. */
+  const resultGoToBansDismissPathRef = useRef(false);
+  const prevResultForDismissPathRef = useRef(result);
   const [historyBans, setHistoryBans] = useState<BanInteraction[]>([]);
   const [savedBans, setSavedBans] = useState<BanInteraction[]>([]);
   const [archiveToast, setArchiveToast] = useState<string | null>(null);
@@ -747,9 +750,32 @@ export function InstantBanFlow({
       deepLinkReplyBan != null ||
       incomingReplyBanId != null ||
       replyUiShellActive);
-  const queueLobbyGuardActive = shouldBlockLobbyForActiveQueue();
+  const hasAnyOverlayForLobbyCta =
+    notificationOverlayActive ||
+    !!result ||
+    incomingGateActive ||
+    checkGateActive ||
+    lobbyActiveBanOverlay != null ||
+    sendFlowOpen;
+  const onResultDismissPath =
+    resultGoToBansDismissPathRef.current ||
+    bansCtaQueueSuppress ||
+    resultCtaBansOverlayOpen ||
+    bansReturnToLobbyLatch;
+  const staleResultQueueClaimActive =
+    onResultDismissPath &&
+    !hasAnyOverlayForLobbyCta &&
+    !result &&
+    activeOverlayKind === 'result' &&
+    overlayQueueLength > 0;
+  const effectiveOverlayQueueLengthForLobbyCta = staleResultQueueClaimActive
+    ? 0
+    : overlayQueueLength;
+  const queueLobbyGuardActive = staleResultQueueClaimActive
+    ? false
+    : shouldBlockLobbyForActiveQueue();
   const queueClaimsNotificationScreen =
-    overlayQueueLength > 0 || queueLobbyGuardActive;
+    effectiveOverlayQueueLengthForLobbyCta > 0 || queueLobbyGuardActive;
   const legacyLobbyOrbBlockers = buildRenderLobbyOrbBlockers({
     replyIncomingDeeplinkPending,
     checkDeeplinkDirectPending,
@@ -760,7 +786,7 @@ export function InstantBanFlow({
     postSuccessHandoffBlocking,
     notificationChainTransitioning,
     queueClaimsNotificationScreen,
-    overlayQueueLength,
+    overlayQueueLength: effectiveOverlayQueueLengthForLobbyCta,
     queueLobbyGuardActive,
   });
   /** Base lobby layer: boot orb until primed, then permanent lobby orb under all overlays. */
@@ -799,27 +825,24 @@ export function InstantBanFlow({
       ctaState === 'entering');
   console.log('QUEUE_CLAIMS_MIN_TRACE', {
     queueClaimsNotificationScreen,
-    overlayQueueLength,
+    overlayQueueLength: effectiveOverlayQueueLengthForLobbyCta,
+    overlayQueueLengthRaw: overlayQueueLength,
+    staleResultQueueClaimActive,
     queueLobbyGuardActive,
     activeKind: activeOverlayKind,
     activeOverlayKind,
-    hasAnyOverlay:
-      notificationOverlayActive ||
-      !!result ||
-      incomingGateActive ||
-      checkGateActive ||
-      lobbyActiveBanOverlay != null ||
-      sendFlowOpen,
+    hasAnyOverlay: hasAnyOverlayForLobbyCta,
     hasResultOverlay: !!result,
     showLobby: lobbyOpen,
     isLobbyPhase: lobbyOpen,
     showLobbyCta,
     ctaState,
-    reason: overlayQueueLength > 0
-      ? 'overlayQueueLength-gt-0'
-      : queueLobbyGuardActive
-        ? 'queueLobbyGuardActive'
-        : null,
+    reason:
+      effectiveOverlayQueueLengthForLobbyCta > 0
+        ? 'overlayQueueLength-gt-0'
+        : queueLobbyGuardActive
+          ? 'queueLobbyGuardActive'
+          : null,
     queueLobbyGuardSnapshot: getQueueLobbyGuardSnapshot(),
   });
   console.log('SHOW_LOBBY_CTA_BREAKDOWN', {
@@ -1828,6 +1851,47 @@ export function InstantBanFlow({
     pendingStartupInteractions,
   ]);
 
+  useLayoutEffect(() => {
+    if (prevResultForDismissPathRef.current && !result) {
+      resultGoToBansDismissPathRef.current = true;
+    }
+    prevResultForDismissPathRef.current = result;
+  }, [result]);
+
+  useLayoutEffect(() => {
+    if (!staleResultQueueClaimActive) {
+      if (
+        overlayQueueLength === 0 ||
+        result ||
+        hasAnyOverlayForLobbyCta ||
+        (activeOverlayKind != null && activeOverlayKind !== 'result')
+      ) {
+        resultGoToBansDismissPathRef.current = false;
+      }
+      return;
+    }
+    syncQueueLobbyGuardState({
+      queueLen: 0,
+      pendingLen: pendingStartupInteractions,
+      fromQueueResult: false,
+      queueShellShowsResult: false,
+      phase: 'idle',
+      source: 'instant-ban-stale-result-queue-claim-clear',
+    });
+    tryClearExplicitNotificationDrainGuarded(
+      'instant-ban-stale-result-queue-claim-clear',
+      'result-dismissed-visual-empty',
+    );
+  }, [
+    activeOverlayKind,
+    hasAnyOverlayForLobbyCta,
+    overlayQueueLength,
+    pendingStartupInteractions,
+    result,
+    staleResultQueueClaimActive,
+    tryClearExplicitNotificationDrainGuarded,
+  ]);
+
   useEffect(() => {
     if (!overlayHandoffFromActiveCard) return;
     if (
@@ -2746,6 +2810,7 @@ export function InstantBanFlow({
       bansCtaQueueSuppress,
       phase,
     });
+    resultGoToBansDismissPathRef.current = true;
     return true;
   }, [
     banSentSuccess,
@@ -2961,6 +3026,7 @@ export function InstantBanFlow({
       source: 'handleLobbyActiveBanOverlayBack',
     });
     logResultTimerGoToBansClick({ banId, source: 'reply-parent-active-timer' });
+    resultGoToBansDismissPathRef.current = true;
     markOverlayUserAction('result-timer-go-to-bans', banId ?? undefined);
     patchReplyQueueHandoffSession({
       queueLenAfterTimer: overlayQueueLength,
