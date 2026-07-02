@@ -160,7 +160,8 @@ export function isPassiveResultPrefetchSource(source: string): boolean {
   return (
     source.includes('lobby-indicator-prime') ||
     source.includes('result-overlay-prime') ||
-    source.includes('prefetch-pending-chain-enqueue')
+    source.includes('prefetch-pending-chain-enqueue') ||
+    source.includes('passive-result-deferred')
   );
 }
 
