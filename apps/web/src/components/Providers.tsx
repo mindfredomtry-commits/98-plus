@@ -395,6 +395,10 @@ import {
   logPendingStartupToOverlayMergeDecision,
   logQueueApiResultApplyDecision,
 } from '@/lib/queue-api-result-apply-debug';
+import {
+  logPassiveResultDeferredSkippedAlreadyActiveOrShown,
+  resolvePassiveResultDeferredAlreadyActiveOrShownSkip,
+} from '@/lib/passive-result-deferred-upstream-skip';
 import { fetchPendingChainPrefetch } from '@/lib/pending-chain-prefetch';
 import {
   logPrefetchResultSkippedAlreadyActiveOrShown,
@@ -11862,6 +11866,65 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             normalizedItem.result.id,
           )
         ) {
+          const passiveDeferredSource = `enqueueNotification:passive-result-deferred:${opts?.source ?? 'unknown'}`;
+          const ownerAtPassiveDefer = ownerShadowRef.current.getState();
+          const resultNorm = normalizeId(resultId);
+          const passiveDeferredSkip = resolvePassiveResultDeferredAlreadyActiveOrShownSkip(
+            {
+              banId: resultNorm,
+              owner: ownerAtPassiveDefer,
+              closingResultBanId: goToBansClosingBanIdRef.current,
+              goToBansSessionTraceBlocked:
+                getGoToBansPrefetchResultBlockDecision(resultNorm).blocked,
+              legacyShownOverlayKeys: shownOverlayKeysRef.current,
+              directResultOpen: Boolean(
+                directResultOverlayRef.current ||
+                  directResultOverlayActiveRef.current ||
+                  ownerAtPassiveDefer.display.directResultOverlay ||
+                  ownerAtPassiveDefer.display.directResultOverlayActive,
+              ),
+              resultOpening: resultOpenRef.current,
+              mountedResultBanId: resultRef.current?.id ?? null,
+              heldUserCardKind: heldUserCardOverlayRef.current?.kind ?? null,
+              heldResultBanId:
+                heldUserCardOverlayRef.current?.kind === 'result'
+                  ? (heldUserCardOverlayRef.current.result.id ?? null)
+                  : null,
+              overboardInFlightBanId: overboardInFlightRef.current,
+              resultOverlayPrimeInflightForBan:
+                chainLookaheadInflightRef.current.has(resultNorm),
+              freshOverboardActionForBan:
+                freshOverboardActionBanIdsRef.current.has(resultNorm),
+              freshFinalStatusForBan:
+                freshFinalStatusBanIdsRef.current.has(resultNorm),
+            },
+          );
+          if (passiveDeferredSkip) {
+            logPassiveResultDeferredSkippedAlreadyActiveOrShown({
+              banId: resultNorm,
+              resultId: resultNorm,
+              source: passiveDeferredSource,
+              reason: `passive-result-deferred-skip-${passiveDeferredSkip}`,
+              matchedBy: passiveDeferredSkip,
+              activeKind:
+                resolveMountedOverlayKindForPromotionDiag() ??
+                ownerAtPassiveDefer.active.kind,
+              ownerActiveKind: ownerAtPassiveDefer.active.kind,
+              ownerDisplayKind: resolveBansLayerOwnerDisplayKind(
+                ownerAtPassiveDefer.display,
+              ),
+              pendingLen: ownerAtPassiveDefer.pending.length,
+              queueLen: ownerAtPassiveDefer.queue.length,
+              directResultOpen: Boolean(
+                directResultOverlayRef.current ||
+                  directResultOverlayActiveRef.current ||
+                  ownerAtPassiveDefer.display.directResultOverlay ||
+                  ownerAtPassiveDefer.display.directResultOverlayActive,
+              ),
+              closingResultBanId: goToBansClosingBanIdRef.current,
+            });
+            return;
+          }
           logPassiveResultOverlayBlocked({
             source: opts?.source ?? 'enqueueNotification',
             banId: normalizedItem.result.id,
@@ -11877,7 +11940,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           );
           applyPendingQueueViaOwner(
             nextPending,
-            `enqueueNotification:passive-result-deferred:${opts?.source ?? 'unknown'}`,
+            passiveDeferredSource,
           );
           primeLobbyBansAttentionHintSyncRef.current(
             `passive-result-deferred:${opts?.source ?? 'unknown'}`,
