@@ -175,6 +175,34 @@ export function resolveGoToBansPassivePrefetchResultSkipReason(
   return null;
 }
 
+export type GoToBansClosedResultMarkers = {
+  ownerShownOverlayHasResult: boolean;
+  resultCtaConsumed: boolean;
+  resultDelivered: boolean;
+  goToBansClosingBanId: boolean;
+};
+
+export function resolveGoToBansClosedResultMarkerReason(
+  banId: string,
+  markers: GoToBansClosedResultMarkers,
+): string | null {
+  if (!banId) return null;
+  if (markers.goToBansClosingBanId) return 'result-go-to-bans-closing';
+  if (markers.ownerShownOverlayHasResult) return 'owner-shown-overlay-key';
+  if (markers.resultCtaConsumed) return 'result-cta-consumed';
+  if (markers.resultDelivered) return 'result-delivered';
+  return null;
+}
+
+export function resolveGoToBansPassivePendingResultSkipReason(
+  source: string,
+  banId: string,
+  markers: GoToBansClosedResultMarkers,
+): string | null {
+  if (!source.includes('lobby-indicator-prime') || !banId) return null;
+  return resolveGoToBansClosedResultMarkerReason(banId, markers);
+}
+
 export function logGoToBansPassivePrefetchResultSkip(data: {
   source: string;
   banId: string;
@@ -184,4 +212,16 @@ export function logGoToBansPassivePrefetchResultSkip(data: {
   const payload = { timestamp, t: timestamp, ...data };
   console.log('GO_TO_BANS_PASSIVE_PREFETCH_RESULT_SKIP', payload);
   window.__debug98log?.('GO_TO_BANS_PASSIVE_PREFETCH_RESULT_SKIP', payload);
+}
+
+export function logGoToBansPassivePendingResultSkip(data: {
+  source: string;
+  banId: string;
+  resultId: string;
+  reason: string;
+}): void {
+  const timestamp = performance.now();
+  const payload = { timestamp, t: timestamp, ...data };
+  console.log('GO_TO_BANS_PASSIVE_PENDING_RESULT_SKIP', payload);
+  window.__debug98log?.('GO_TO_BANS_PASSIVE_PENDING_RESULT_SKIP', payload);
 }

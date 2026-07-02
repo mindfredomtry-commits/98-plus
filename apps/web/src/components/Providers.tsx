@@ -836,8 +836,10 @@ import {
 import {
   isInteractiveOverboardResultContext,
   isPassiveResultOpenSource,
+  logGoToBansPassivePendingResultSkip,
   logGoToBansPassivePrefetchResultSkip,
   logPassiveResultLookaheadBlocked,
+  resolveGoToBansPassivePendingResultSkipReason,
   resolveGoToBansPassivePrefetchResultSkipReason,
   logPassiveResultOverlayBlocked,
   shouldBlockPassiveResultLookaheadDisplay,
@@ -14321,13 +14323,67 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           pendingStartupInteractionsRef.current,
           toEnqueue,
         );
-        commitPendingQueueViaOwner(
-          nextPending,
-          source,
-          'prefetch-pending-chain-enqueue',
-        );
+        const buildGoToBansClosedResultMarkers = (banId: string) => {
+          const resultOverlayKey = `result:${banId}`;
+          const closingBanId = goToBansClosingBanIdRef.current;
+          return {
+            ownerShownOverlayHasResult: ownerShadowRef.current
+              .getState()
+              .session.shownOverlayKeys.has(resultOverlayKey),
+            resultCtaConsumed: resultCtaConsumedBanIdsRef.current.has(banId),
+            resultDelivered: resultDeliveredBanIdsRef.current.has(banId),
+            goToBansClosingBanId:
+              closingBanId != null && normalizeId(closingBanId) === banId,
+          };
+        };
+        let pendingForCommit = nextPending;
+        if (source.includes('lobby-indicator-prime')) {
+          pendingForCommit = [];
+          for (const item of nextPending) {
+            if (item.kind !== 'result') {
+              pendingForCommit.push(item);
+              continue;
+            }
+            const banId = normalizeId(item.result.id);
+            const pendingSkipReason = resolveGoToBansPassivePendingResultSkipReason(
+              source,
+              banId,
+              buildGoToBansClosedResultMarkers(banId),
+            );
+            if (pendingSkipReason) {
+              logGoToBansPassivePendingResultSkip({
+                source,
+                banId,
+                resultId: banId,
+                reason: pendingSkipReason,
+              });
+              skipDetails.push({
+                banId,
+                reason: 'go-to-bans-passive-pending-result-skip',
+              });
+              continue;
+            }
+            pendingForCommit.push(item);
+          }
+        }
+        const currentPending = pendingStartupInteractionsRef.current;
+        const pendingCommitUnchanged =
+          pendingForCommit.length === currentPending.length &&
+          pendingForCommit.every((item, index) => item === currentPending[index]);
+        if (!pendingCommitUnchanged) {
+          commitPendingQueueViaOwner(
+            pendingForCommit,
+            source,
+            'prefetch-pending-chain-enqueue',
+          );
+        }
 
-        emitBackendPendingFetchResultDiag(true, false, toEnqueue.length, null);
+        emitBackendPendingFetchResultDiag(
+          !pendingCommitUnchanged,
+          false,
+          pendingCommitUnchanged ? 0 : toEnqueue.length,
+          pendingCommitUnchanged ? 'passive-pending-commit-skipped' : null,
+        );
 
         const queueLenAfter = overlayQueueRef.current.length;
         const pendingLenAfter = pendingStartupInteractionsRef.current.length;
