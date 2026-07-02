@@ -34,6 +34,9 @@ export type ConfirmOrbQueueDebugSnapshot = {
   notificationChainHandoff: boolean;
   notificationChainAwaitingUser: boolean;
   chainAdvanceWaiting: boolean;
+  ownerActiveKind: string | null;
+  ownerDisplayKind: string | null;
+  shellKind: string | null;
 };
 
 export type LobbyOrbMountInputs = {
