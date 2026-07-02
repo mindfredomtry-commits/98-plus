@@ -397,6 +397,10 @@ import {
 } from '@/lib/queue-api-result-apply-debug';
 import { fetchPendingChainPrefetch } from '@/lib/pending-chain-prefetch';
 import {
+  logPrefetchResultSkippedAlreadyActiveOrShown,
+  resolvePrefetchResultAlreadyActiveOrShownSkip,
+} from '@/lib/prefetch-result-upstream-skip';
+import {
   logChainDrainContinue,
   logChainDrainUserAnswerAllowed,
   logChainEmptyFallbackLobby,
@@ -14207,6 +14211,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   reason: 'go-to-bans-passive-prefetch-result-skip',
                 });
               } else {
+                const prefetchUpstreamSkip =
+                  resolvePrefetchResultAlreadyActiveOrShownSkip({
+                    banId: resultNorm,
+                    owner: ownerShadowRef.current.getState(),
+                    closingResultBanId: goToBansClosingBanIdRef.current,
+                    legacyShownOverlayKeys: shownOverlayKeysRef.current,
+                  });
+                if (prefetchUpstreamSkip) {
+                  logPrefetchResultSkippedAlreadyActiveOrShown({
+                    banId: resultNorm,
+                    resultId: resultNorm,
+                    source,
+                    reason: `prefetch-result-skip-${prefetchUpstreamSkip}`,
+                    matchedBy: prefetchUpstreamSkip,
+                  });
+                  skipDetails.push({
+                    banId: resultNorm,
+                    reason: `prefetch-result-already-active-or-shown:${prefetchUpstreamSkip}`,
+                  });
+                } else {
                 resultPriorityBanIdsRef.current.add(resultNorm);
                 mirrorOwnerHoldsSetsRef.current('pending-chain-prefetch', {
                   resultPriorityBanIds: new Set(
@@ -14220,6 +14244,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 );
                 toEnqueue.push({ kind: 'result', result: r });
                 enqueuedIds.push(r.id);
+                }
               }
             } else {
               skipDetails.push({
