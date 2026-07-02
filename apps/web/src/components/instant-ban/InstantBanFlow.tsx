@@ -528,6 +528,7 @@ export function InstantBanFlow({
     isLobbyBootIntroPrimed,
     () => false,
   );
+  const lobbyBootIntroPrimedPrevRef = useRef(lobbyBootIntroPrimed);
 
   const [phase, setPhaseState] = useState<SendFlowPhase>(() => {
     if (activeBanDeepLinkBanId) return 'idle';
@@ -1264,6 +1265,31 @@ export function InstantBanFlow({
 
   /** First lobby open only — dismiss re-entry uses beginCtaSpringIn. */
   useEffect(() => {
+    console.log('LOBBY_BOOT_PRIMED_GATE_TRACE', {
+      willPrime: false,
+      blockedBy: !lobbyBootIntroPrimed
+        ? 'lobbyBootIntroPrimed-false'
+        : replyIncomingDeeplinkPending
+          ? 'replyIncomingDeeplinkPending'
+          : replyUiShellActive
+            ? 'replyUiShellActive'
+            : lobbyCtaBootSpringRef.current
+              ? 'lobbyCtaBootSpringRef-already-fired'
+              : sendStarted
+                ? 'sendStarted'
+                : null,
+      reason: 'lobby-cta-spring-after-primed-effect-entry',
+      phase,
+      showLobby: lobbyOpen,
+      isIdlePhase: phase === 'idle',
+      energyLoaded,
+      energyReady: energyLoaded,
+      lobbyBootIntroPrimed,
+      activeOverlayKind,
+      notificationChainTransitioning,
+      queueLen: overlayQueueLength,
+      pendingLen: pendingStartupInteractions,
+    });
     if (!lobbyBootIntroPrimed) return;
     if (replyIncomingDeeplinkPending) return;
     if (replyUiShellActive) return;
@@ -5675,6 +5701,227 @@ export function InstantBanFlow({
     fillMs: bootFillMs,
   } = bootIntro;
 
+  useEffect(() => {
+    const prev = lobbyBootIntroPrimedPrevRef.current;
+    if (prev === lobbyBootIntroPrimed) return;
+    console.log('LOBBY_BOOT_PRIMED_STATE_TRACE', {
+      from: prev,
+      to: lobbyBootIntroPrimed,
+      reason: 'subscribeLobbyBootIntroSession-change',
+      phase,
+      showLobby: lobbyOpen,
+      isIdlePhase: phase === 'idle',
+      energyLoaded,
+      energyReady: energyLoaded,
+      activeOverlayKind,
+      notificationChainTransitioning,
+      queueLen: overlayQueueLength,
+      pendingLen: pendingStartupInteractions,
+    });
+    lobbyBootIntroPrimedPrevRef.current = lobbyBootIntroPrimed;
+  }, [
+    lobbyBootIntroPrimed,
+    phase,
+    lobbyOpen,
+    energyLoaded,
+    activeOverlayKind,
+    notificationChainTransitioning,
+    overlayQueueLength,
+    pendingStartupInteractions,
+  ]);
+
+  useEffect(() => {
+    if (lobbyBootIntroPrimed) {
+      console.log('LOBBY_BOOT_PRIMED_GATE_TRACE', {
+        willPrime: false,
+        blockedBy: 'already-primed',
+        reason: 'boot-prime-watch',
+        phase,
+        showLobby: lobbyOpen,
+        isIdlePhase: phase === 'idle',
+        energyLoaded,
+        energyReady: energyLoaded,
+        lobbyBootIntroPrimed,
+        activeOverlayKind,
+        notificationChainTransitioning,
+        queueLen: overlayQueueLength,
+        pendingLen: pendingStartupInteractions,
+        launchStage,
+        bootIntroActive,
+        bootFillActive,
+        fillTargetPercent,
+      });
+      return;
+    }
+    const blockedBy =
+      launchStage === 'logoEnter'
+        ? 'launchStage-logoEnter'
+        : launchStage === 'ringAndFill' && !bootFillActive && fillTargetPercent === 0
+          ? energyLoaded
+            ? 'ringAndFill-zero-target'
+            : 'ringAndFill-no-energy-no-fill-target'
+          : launchStage === 'ringAndFill' && bootFillActive
+            ? 'ringAndFill-waiting-fill-end'
+            : launchStage === 'ringAndFill'
+              ? 'ringAndFill-waiting-ring-or-fill'
+              : launchStage === 'done'
+                ? 'launchStage-done-session-not-primed'
+                : `launchStage-${launchStage}`;
+    const willPrime =
+      launchStage === 'ringAndFill' &&
+      (bootFillActive || fillTargetPercent > 0 || !energyLoaded);
+    console.log('LOBBY_BOOT_PRIMED_GATE_TRACE', {
+      willPrime,
+      blockedBy,
+      reason: 'boot-prime-watch',
+      phase,
+      showLobby: lobbyOpen,
+      isIdlePhase: phase === 'idle',
+      energyLoaded,
+      energyReady: energyLoaded,
+      lobbyBootIntroPrimed,
+      activeOverlayKind,
+      notificationChainTransitioning,
+      queueLen: overlayQueueLength,
+      pendingLen: pendingStartupInteractions,
+      launchStage,
+      bootIntroActive,
+      bootFillActive,
+      fillTargetPercent,
+    });
+  }, [
+    lobbyBootIntroPrimed,
+    launchStage,
+    bootIntroActive,
+    bootFillActive,
+    fillTargetPercent,
+    energyLoaded,
+    phase,
+    lobbyOpen,
+    activeOverlayKind,
+    notificationChainTransitioning,
+    overlayQueueLength,
+    pendingStartupInteractions,
+  ]);
+
+  const onBootLogoScaleEndTraced = () => {
+    console.log('LOBBY_BOOT_PRIMED_GATE_TRACE', {
+      willPrime: false,
+      blockedBy: 'onBootLogoScaleEnd-advances-to-ring-not-prime',
+      reason: 'onBootLogoScaleEnd-before',
+      phase,
+      showLobby: lobbyOpen,
+      isIdlePhase: phase === 'idle',
+      energyLoaded,
+      energyReady: energyLoaded,
+      lobbyBootIntroPrimed,
+      activeOverlayKind,
+      notificationChainTransitioning,
+      queueLen: overlayQueueLength,
+      pendingLen: pendingStartupInteractions,
+      launchStage,
+      bootIntroActive,
+      bootFillActive,
+      fillTargetPercent,
+    });
+    onBootLogoScaleEnd();
+  };
+
+  const onBootRingScaleEndTraced = () => {
+    const fromPrimed = isLobbyBootIntroPrimed();
+    const willPrime =
+      !fromPrimed && launchStage === 'ringAndFill' && fillTargetPercent === 0;
+    console.log('LOBBY_BOOT_PRIMED_GATE_TRACE', {
+      willPrime,
+      blockedBy: fromPrimed
+        ? 'already-primed'
+        : launchStage !== 'ringAndFill'
+          ? `launchStage-${launchStage}`
+          : fillTargetPercent !== 0
+            ? 'fill-target-still-pending'
+            : null,
+      reason: 'onBootRingScaleEnd-before-finishPrimed',
+      phase,
+      showLobby: lobbyOpen,
+      isIdlePhase: phase === 'idle',
+      energyLoaded,
+      energyReady: energyLoaded,
+      lobbyBootIntroPrimed: fromPrimed,
+      activeOverlayKind,
+      notificationChainTransitioning,
+      queueLen: overlayQueueLength,
+      pendingLen: pendingStartupInteractions,
+      launchStage,
+      bootIntroActive,
+      bootFillActive,
+      fillTargetPercent,
+    });
+    if (willPrime) {
+      console.log('LOBBY_BOOT_PRIMED_STATE_TRACE', {
+        from: fromPrimed,
+        to: true,
+        reason: 'onBootRingScaleEnd-finishPrimed',
+        phase,
+        showLobby: lobbyOpen,
+        isIdlePhase: phase === 'idle',
+        energyLoaded,
+        energyReady: energyLoaded,
+        activeOverlayKind,
+        notificationChainTransitioning,
+        queueLen: overlayQueueLength,
+        pendingLen: pendingStartupInteractions,
+      });
+    }
+    onBootRingScaleEnd();
+  };
+
+  const onBootFillEndTraced = () => {
+    const fromPrimed = isLobbyBootIntroPrimed();
+    const willPrime = !fromPrimed && launchStage === 'ringAndFill';
+    console.log('LOBBY_BOOT_PRIMED_GATE_TRACE', {
+      willPrime,
+      blockedBy: fromPrimed
+        ? 'already-primed'
+        : launchStage !== 'ringAndFill'
+          ? `launchStage-${launchStage}`
+          : fillTargetPercent === 0
+            ? 'fill-target-zero'
+            : null,
+      reason: 'onBootFillEnd-before-finishPrimed',
+      phase,
+      showLobby: lobbyOpen,
+      isIdlePhase: phase === 'idle',
+      energyLoaded,
+      energyReady: energyLoaded,
+      lobbyBootIntroPrimed: fromPrimed,
+      activeOverlayKind,
+      notificationChainTransitioning,
+      queueLen: overlayQueueLength,
+      pendingLen: pendingStartupInteractions,
+      launchStage,
+      bootIntroActive,
+      bootFillActive,
+      fillTargetPercent,
+    });
+    if (willPrime) {
+      console.log('LOBBY_BOOT_PRIMED_STATE_TRACE', {
+        from: fromPrimed,
+        to: true,
+        reason: 'onBootFillEnd-finishPrimed',
+        phase,
+        showLobby: lobbyOpen,
+        isIdlePhase: phase === 'idle',
+        energyLoaded,
+        energyReady: energyLoaded,
+        activeOverlayKind,
+        notificationChainTransitioning,
+        queueLen: overlayQueueLength,
+        pendingLen: pendingStartupInteractions,
+      });
+    }
+    onBootFillEnd();
+  };
+
   const legacyLobbyOrbBlockersKey = legacyLobbyOrbBlockers.join('|');
 
   const lobbyRingDisplayPercent = useMemo(() => {
@@ -6658,7 +6905,7 @@ export function InstantBanFlow({
             visible={persistentLogoVisible}
             logoScaleMs={bootLogoScaleMs}
             logoScaleDelayMs={bootLogoScaleDelayMs}
-            onLogoScaleEnd={onBootLogoScaleEnd}
+            onLogoScaleEnd={onBootLogoScaleEndTraced}
             diagContext={`stage=${launchStage} boot=${showBootOrb} lobby=${showLobbyOrb} primed=${lobbyBootIntroPrimed}`}
           />
         ) : null}
@@ -6672,8 +6919,8 @@ export function InstantBanFlow({
             ringTarget={fillTargetPercent}
             ringScaleMs={bootRingScaleMs}
             fillMs={bootFillMs}
-            onRingScaleEnd={onBootRingScaleEnd}
-            onFillEnd={onBootFillEnd}
+            onRingScaleEnd={onBootRingScaleEndTraced}
+            onFillEnd={onBootFillEndTraced}
             data-boot-orb
             data-orb-instance={bootOrbInstanceId}
           >
