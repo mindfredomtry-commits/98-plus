@@ -613,8 +613,10 @@ import {
 import {
   buildGoToBansPrefetchGuardMissTrace,
   getGoToBansPrefetchResultBlockDecision,
+  GO_TO_BANS_SESSION_TRACE_MODULE_INSTANCE_ID,
   logGoToBansPrefetchGuardMissTrace,
   logGoToBansPrefetchResultBlock,
+  readGoToBansSessionTrace,
 } from '@/lib/go-to-bans-session-trace-debug';
 import {
   evaluateBansLayerOpenGate,
@@ -834,8 +836,10 @@ import {
   shouldBlockLobbyOpenForQueuedNotifications,
 } from '@/lib/notification-chain-explicit-drain';
 import {
+  filterPendingForGoToBansClosedPassivePrefetch,
   isInteractiveOverboardResultContext,
   isPassiveResultOpenSource,
+  isSamePendingOverlaySnapshot,
   logGoToBansClosedResultPrefetchBlock,
   logGoToBansPassivePendingResultSkip,
   logGoToBansPassivePrefetchResultSkip,
@@ -8044,16 +8048,42 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const applyPendingQueueViaOwner = useCallback(
     (next: QueuedOverlay[], source: string, reason?: string) => {
       const ownerBefore = ownerShadowRef.current.getState();
+      const goToBansTrace = readGoToBansSessionTrace();
+      const traceSessionId =
+        goToBansTrace != null ? normalizeId(goToBansTrace.banId) : null;
+      const pendingForApply = filterPendingForGoToBansClosedPassivePrefetch({
+        source,
+        pending: next,
+        stage: 'applyPendingQueueViaOwner',
+        sessionId: traceSessionId,
+        closedSessionId: GO_TO_BANS_SESSION_TRACE_MODULE_INSTANCE_ID,
+        freshFinalStatusFor: (banId) =>
+          freshFinalStatusBanIdsRef.current.has(banId),
+        consumedFor: (banId) => resultCtaConsumedBanIdsRef.current.has(banId),
+        deliveredFor: (banId) => resultDeliveredBanIdsRef.current.has(banId),
+        ownerShownOverlayHasResultFor: (banId) =>
+          ownerShadowRef.current
+            .getState()
+            .session.shownOverlayKeys.has(`result:${banId}`),
+        goToBansSessionTraceMatchesFor: (banId) =>
+          getGoToBansPrefetchResultBlockDecision(banId).blocked,
+        goToBansClosingBanIdFor: (banId) =>
+          goToBansClosingBanIdRef.current != null &&
+          normalizeId(goToBansClosingBanIdRef.current) === banId,
+      });
+      if (isSamePendingOverlaySnapshot(pendingForApply, ownerBefore.pending)) {
+        return;
+      }
       const pendingLenBefore = pendingStartupInteractionsRef.current.length;
       const previousHead = formatPendingHeadForOwnerLog(
         pendingStartupInteractionsRef.current[0] ?? null,
       );
-      const nextHead = formatPendingHeadForOwnerLog(next[0] ?? null);
+      const nextHead = formatPendingHeadForOwnerLog(pendingForApply[0] ?? null);
       logOwnerPhase11BPendingDispatch({
         source,
         reason: reason ?? source,
         pendingLenBefore,
-        pendingLenAfter: next.length,
+        pendingLenAfter: pendingForApply.length,
         previousHeadKind: previousHead.kind,
         previousHeadBanId: previousHead.banId,
         nextHeadKind: nextHead.kind,
@@ -8063,7 +8093,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         `pending-mutate:${reason ?? source}`,
         () => {
           ownerShadowRef.current.dispatch(
-            { type: 'PENDING_QUEUE_APPLIED', pending: next, source },
+            { type: 'PENDING_QUEUE_APPLIED', pending: pendingForApply, source },
             source,
           );
         },
@@ -8099,13 +8129,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       emitPendingPromotionTrace(`applyPendingQueueViaOwner:${reason ?? source}`, {
         inputPendingLen: pendingLenBefore,
         inputQueueLen: overlayQueueRef.current.length,
-        outputPendingLen: next.length,
+        outputPendingLen: pendingForApply.length,
         outputQueueLen: overlayQueueRef.current.length,
         promotedCount: null,
         promotedHeadKind: nextHead.kind,
         promotedHeadId: nextHead.banId,
         skippedReason:
-          pendingLenBefore === next.length
+          pendingLenBefore === pendingForApply.length
             ? 'pending-applied-without-length-change'
             : null,
       });
@@ -12673,6 +12703,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           goToBansClosingBanId,
         });
       if (goToBansClosedPassivePrefetchBlockReason) {
+        const goToBansTrace = readGoToBansSessionTrace();
         logGoToBansClosedResultPrefetchBlock({
           source,
           banId: key,
@@ -12682,6 +12713,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           resultCtaConsumedHasBanId: consumed,
           resultDeliveredHasBanId: delivered,
           reason: goToBansClosedPassivePrefetchBlockReason,
+          stage: 'isResultBlockedForNotificationChain',
+          sessionId:
+            goToBansTrace != null ? normalizeId(goToBansTrace.banId) : null,
+          closedSessionId: goToBansSessionTraceBlock
+            ? GO_TO_BANS_SESSION_TRACE_MODULE_INSTANCE_ID
+            : null,
         });
         return true;
       }

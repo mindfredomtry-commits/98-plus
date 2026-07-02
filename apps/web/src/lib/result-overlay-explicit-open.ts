@@ -1,6 +1,9 @@
 'use client';
 
 import { isExplicitNotificationDrainSource } from './notification-chain-explicit-drain';
+import { normalizeId } from './normalize-json';
+import type { QueuedOverlay } from './overlay-queue';
+import { overlayQueueKey } from './overlay-queue';
 
 const EXPLICIT_RESULT_OPEN_MARKERS = [
   'replaceIncomingWithOverboardResultAtomic',
@@ -190,11 +193,77 @@ export function logGoToBansClosedResultPrefetchBlock(data: {
   resultCtaConsumedHasBanId: boolean;
   resultDeliveredHasBanId: boolean;
   reason: string;
+  stage: string;
+  sessionId: string | null;
+  closedSessionId?: string | null;
 }): void {
   const timestamp = performance.now();
   const payload = { timestamp, t: timestamp, ...data };
   console.log('GO_TO_BANS_CLOSED_RESULT_PREFETCH_BLOCK', payload);
   window.__debug98log?.('GO_TO_BANS_CLOSED_RESULT_PREFETCH_BLOCK', payload);
+}
+
+export function isSamePendingOverlaySnapshot(
+  left: readonly QueuedOverlay[],
+  right: readonly QueuedOverlay[],
+): boolean {
+  if (left.length !== right.length) return false;
+  return left.every(
+    (item, index) => overlayQueueKey(item) === overlayQueueKey(right[index]!),
+  );
+}
+
+export function filterPendingForGoToBansClosedPassivePrefetch(input: {
+  source: string;
+  pending: QueuedOverlay[];
+  stage: string;
+  sessionId: string | null;
+  closedSessionId: string | null;
+  freshFinalStatusFor: (banId: string) => boolean;
+  consumedFor: (banId: string) => boolean;
+  deliveredFor: (banId: string) => boolean;
+  ownerShownOverlayHasResultFor: (banId: string) => boolean;
+  goToBansSessionTraceMatchesFor: (banId: string) => boolean;
+  goToBansClosingBanIdFor: (banId: string) => boolean;
+}): QueuedOverlay[] {
+  if (!isPassiveResultPrefetchSource(input.source)) {
+    return input.pending;
+  }
+  const filtered: QueuedOverlay[] = [];
+  for (const item of input.pending) {
+    if (item.kind !== 'result') {
+      filtered.push(item);
+      continue;
+    }
+    const banId = normalizeId(item.result.id);
+    const blockReason = resolveGoToBansClosedResultPassivePrefetchBlockReason(
+      input.source,
+      banId,
+      {
+        ownerShownOverlayHasResult: input.ownerShownOverlayHasResultFor(banId),
+        goToBansSessionTraceMatches: input.goToBansSessionTraceMatchesFor(banId),
+        goToBansClosingBanId: input.goToBansClosingBanIdFor(banId),
+      },
+    );
+    if (blockReason) {
+      logGoToBansClosedResultPrefetchBlock({
+        source: input.source,
+        banId,
+        resultId: banId,
+        freshFinalStatus: input.freshFinalStatusFor(banId),
+        ownerShownOverlayHasResult: input.ownerShownOverlayHasResultFor(banId),
+        resultCtaConsumedHasBanId: input.consumedFor(banId),
+        resultDeliveredHasBanId: input.deliveredFor(banId),
+        reason: blockReason,
+        stage: input.stage,
+        sessionId: input.sessionId,
+        closedSessionId: input.closedSessionId,
+      });
+      continue;
+    }
+    filtered.push(item);
+  }
+  return filtered;
 }
 
 export function resolveGoToBansPassivePrefetchResultSkipReason(
