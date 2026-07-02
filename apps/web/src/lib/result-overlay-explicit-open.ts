@@ -156,6 +156,46 @@ export function logPassiveResultLookaheadBlocked(data: {
   window.__debug98log?.('[PASSIVE RESULT LOOKAHEAD BLOCKED]', payload);
 }
 
+export function isPassiveResultPrefetchSource(source: string): boolean {
+  return (
+    source.includes('lobby-indicator-prime') ||
+    source.includes('result-overlay-prime') ||
+    source.includes('prefetch-pending-chain-enqueue')
+  );
+}
+
+export function resolveGoToBansClosedResultPassivePrefetchBlockReason(
+  source: string,
+  banId: string,
+  markers: {
+    ownerShownOverlayHasResult: boolean;
+    goToBansSessionTraceMatches: boolean;
+    goToBansClosingBanId: boolean;
+  },
+): string | null {
+  if (!isPassiveResultPrefetchSource(source) || !banId) return null;
+  if (markers.goToBansSessionTraceMatches) return 'go-to-bans-session-trace';
+  if (markers.goToBansClosingBanId) return 'result-go-to-bans-closing';
+  if (markers.ownerShownOverlayHasResult) return 'owner-shown-overlay-key';
+  return null;
+}
+
+export function logGoToBansClosedResultPrefetchBlock(data: {
+  source: string;
+  banId: string;
+  resultId: string;
+  freshFinalStatus: boolean;
+  ownerShownOverlayHasResult: boolean;
+  resultCtaConsumedHasBanId: boolean;
+  resultDeliveredHasBanId: boolean;
+  reason: string;
+}): void {
+  const timestamp = performance.now();
+  const payload = { timestamp, t: timestamp, ...data };
+  console.log('GO_TO_BANS_CLOSED_RESULT_PREFETCH_BLOCK', payload);
+  window.__debug98log?.('GO_TO_BANS_CLOSED_RESULT_PREFETCH_BLOCK', payload);
+}
+
 export function resolveGoToBansPassivePrefetchResultSkipReason(
   source: string,
   banId: string,
@@ -180,6 +220,7 @@ export type GoToBansClosedResultMarkers = {
   resultCtaConsumed: boolean;
   resultDelivered: boolean;
   goToBansClosingBanId: boolean;
+  goToBansSessionTraceMatches: boolean;
 };
 
 export function resolveGoToBansClosedResultMarkerReason(
@@ -187,6 +228,7 @@ export function resolveGoToBansClosedResultMarkerReason(
   markers: GoToBansClosedResultMarkers,
 ): string | null {
   if (!banId) return null;
+  if (markers.goToBansSessionTraceMatches) return 'go-to-bans-session-trace';
   if (markers.goToBansClosingBanId) return 'result-go-to-bans-closing';
   if (markers.ownerShownOverlayHasResult) return 'owner-shown-overlay-key';
   if (markers.resultCtaConsumed) return 'result-cta-consumed';

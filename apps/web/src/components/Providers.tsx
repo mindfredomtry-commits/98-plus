@@ -836,9 +836,11 @@ import {
 import {
   isInteractiveOverboardResultContext,
   isPassiveResultOpenSource,
+  logGoToBansClosedResultPrefetchBlock,
   logGoToBansPassivePendingResultSkip,
   logGoToBansPassivePrefetchResultSkip,
   logPassiveResultLookaheadBlocked,
+  resolveGoToBansClosedResultPassivePrefetchBlockReason,
   resolveGoToBansPassivePendingResultSkipReason,
   resolveGoToBansPassivePrefetchResultSkipReason,
   logPassiveResultOverlayBlocked,
@@ -12659,6 +12661,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return false;
       }
+      const goToBansSessionTraceBlock =
+        getGoToBansPrefetchResultBlockDecision(key).blocked;
+      const goToBansClosingBanId =
+        goToBansClosingBanIdRef.current != null &&
+        normalizeId(goToBansClosingBanIdRef.current) === key;
+      const goToBansClosedPassivePrefetchBlockReason =
+        resolveGoToBansClosedResultPassivePrefetchBlockReason(source, key, {
+          ownerShownOverlayHasResult: ownerConsumed,
+          goToBansSessionTraceMatches: goToBansSessionTraceBlock,
+          goToBansClosingBanId,
+        });
+      if (goToBansClosedPassivePrefetchBlockReason) {
+        logGoToBansClosedResultPrefetchBlock({
+          source,
+          banId: key,
+          resultId: key,
+          freshFinalStatus,
+          ownerShownOverlayHasResult: ownerConsumed,
+          resultCtaConsumedHasBanId: consumed,
+          resultDeliveredHasBanId: delivered,
+          reason: goToBansClosedPassivePrefetchBlockReason,
+        });
+        return true;
+      }
       if (freshFinalStatus) {
         console.log('[result-stale-guard-bypass-final-status]', {
           banId: key,
@@ -14109,7 +14135,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             } else if (
               !isResultBlockedForNotificationChain(
                 r.id,
-                'pending-chain-prefetch',
+                source,
                 skipBanId,
               ) &&
               !rejectNonOverkillTerminalResult(
@@ -14334,6 +14360,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             resultDelivered: resultDeliveredBanIdsRef.current.has(banId),
             goToBansClosingBanId:
               closingBanId != null && normalizeId(closingBanId) === banId,
+            goToBansSessionTraceMatches:
+              getGoToBansPrefetchResultBlockDecision(banId).blocked,
           };
         };
         let pendingForCommit = nextPending;
