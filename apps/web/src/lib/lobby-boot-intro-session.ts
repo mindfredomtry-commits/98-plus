@@ -1,5 +1,9 @@
 const SCALE_START = 0.15;
 
+const LOBBY_BOOT_STORE_MODULE_ID = `lobby-boot-store-${Math.random()
+  .toString(36)
+  .slice(2, 8)}`;
+
 type HandoffSnapshot = {
   scale: number;
   ringPercent: number;
@@ -20,22 +24,42 @@ let hasCachedRingPercent = false;
 
 const sessionListeners = new Set<() => void>();
 
+function emitLobbyBootStoreTrace(event: string, reason: string): void {
+  const timestamp = performance.now();
+  const payload = {
+    event,
+    introFullyPrimed,
+    listenerCount: sessionListeners.size,
+    reason,
+    timestamp,
+    moduleInstanceId: LOBBY_BOOT_STORE_MODULE_ID,
+  };
+  console.log('LOBBY_BOOT_STORE_TRACE', payload);
+  if (typeof window !== 'undefined') {
+    window.__debug98log?.('LOBBY_BOOT_STORE_TRACE', payload);
+  }
+}
+
 function clampPercent(value: number): number {
   return Math.min(100, Math.max(0, value));
 }
 
 function notifyLobbyBootIntroSession(): void {
+  emitLobbyBootStoreTrace('notify', 'notifyLobbyBootIntroSession');
   sessionListeners.forEach((listener) => listener());
 }
 
 export function subscribeLobbyBootIntroSession(listener: () => void): () => void {
   sessionListeners.add(listener);
+  emitLobbyBootStoreTrace('subscribe', 'subscribeLobbyBootIntroSession');
   return () => {
     sessionListeners.delete(listener);
+    emitLobbyBootStoreTrace('unsubscribe', 'subscribeLobbyBootIntroSession:cleanup');
   };
 }
 
 export function isLobbyBootIntroPrimed(): boolean {
+  emitLobbyBootStoreTrace('getSnapshot', 'isLobbyBootIntroPrimed');
   return introFullyPrimed;
 }
 
@@ -90,7 +114,17 @@ export function markLobbyBootScaleIntroDone(ringPercent: number): void {
 }
 
 export function markLobbyBootIntroPrimed(ringPercent: number, scale = 1): void {
-  if (introFullyPrimed) return;
+  if (introFullyPrimed) {
+    emitLobbyBootStoreTrace(
+      'markLobbyBootIntroPrimed',
+      'markLobbyBootIntroPrimed:already-primed-no-op',
+    );
+    return;
+  }
+  emitLobbyBootStoreTrace(
+    'markLobbyBootIntroPrimed',
+    'markLobbyBootIntroPrimed:before-assign',
+  );
   logoIntroDone = true;
   scaleIntroDone = true;
   introFullyPrimed = true;
@@ -100,7 +134,15 @@ export function markLobbyBootIntroPrimed(ringPercent: number, scale = 1): void {
   };
   rememberLobbyRingPercent(ringPercent);
   handoffSnapshot = null;
+  emitLobbyBootStoreTrace(
+    'markLobbyBootIntroPrimed',
+    'markLobbyBootIntroPrimed:after-assign-before-notify',
+  );
   notifyLobbyBootIntroSession();
+  emitLobbyBootStoreTrace(
+    'markLobbyBootIntroPrimed',
+    'markLobbyBootIntroPrimed:after-notify',
+  );
 }
 
 export function snapshotLobbyBootIntroHandoff(
