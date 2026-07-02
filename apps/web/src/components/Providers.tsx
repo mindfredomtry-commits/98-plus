@@ -1003,7 +1003,6 @@ import {
   logGoToBansAfterDismissStateTrace,
   logShowNextEmptyDrainTrace,
 } from '@/lib/lobby-lifecycle-diag-trace-debug';
-import { readLobbyCtaDebugSnapshot } from '@/lib/lobby-cta-snapshot-debug';
 import {
   logResultPollBlockerCheck,
   logResultPollComposeDiagnostics,
