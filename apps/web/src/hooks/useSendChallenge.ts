@@ -14,6 +14,13 @@ import { instantBanDebug } from '@/lib/instant-ban-debug';
 import { timingLog } from '@/lib/timing-log';
 import { isDailyBanLimitApiError, isInsufficientEnergyApiError } from '@/lib/energy-gate';
 import { SHARE_PICKER_USERNAME } from '@98plus/shared';
+import { ApiError } from '@/lib/api';
+import { RequestTimeoutError } from '@/lib/request-timeout';
+import {
+  logSendBanResponseTrace,
+  readCreatedBanIdFromSendResponse,
+  snapshotSendBanResponseJson,
+} from '@/lib/send-ban-response-trace';
 
 export type SendChallengeParams = {
   text: string;
@@ -126,6 +133,21 @@ export function useSendChallenge(opts: {
         const needsShare =
           res.requiresShare === true || res.pending === true;
 
+        logSendBanResponseTrace({
+          source: 'useSendChallenge:after-deliver',
+          banText: params.text,
+          targetUserId:
+            resolved.receiverUserId ??
+            resolved.receiverTelegramId?.toString() ??
+            null,
+          durationMinutes: params.durationMinutes,
+          httpStatus: 200,
+          ok: true,
+          responseJson: snapshotSendBanResponseJson(res),
+          createdBanId: res.ban?.id ?? readCreatedBanIdFromSendResponse(res),
+          failureReason: null,
+        });
+
         ctaLog('mutation:response', { needsShare, hasBan: hasConfirmedBan });
 
         if (needsShare) {
@@ -164,11 +186,55 @@ export function useSendChallenge(opts: {
           if (hasConfirmedBan && res.ban?.id) {
             onOptimisticApplyRef.current({ ...params, username });
             onConfirmRef.current?.({ ...params, username });
-            onSuccessRef.current(res.ban.id);
+            try {
+              onSuccessRef.current(res.ban.id);
+            } catch (handoffErr) {
+              logSendBanResponseTrace({
+                source: 'useSendChallenge:onSuccess-threw-share-path',
+                banText: params.text,
+                targetUserId:
+                  resolved.receiverUserId ??
+                  resolved.receiverTelegramId?.toString() ??
+                  null,
+                durationMinutes: params.durationMinutes,
+                httpStatus: 200,
+                ok: true,
+                responseJson: snapshotSendBanResponseJson(res),
+                createdBanId: res.ban.id,
+                thrownAfterCreate: true,
+                successCardWillOpen: false,
+                errorName:
+                  handoffErr instanceof Error
+                    ? handoffErr.name
+                    : typeof handoffErr,
+                errorMessage:
+                  handoffErr instanceof Error
+                    ? handoffErr.message
+                    : String(handoffErr),
+                failureReason: 'onSuccess-callback-threw-after-create-share-path',
+              });
+              throw handoffErr;
+            }
           }
           scheduleDeferredSyncRef.current?.();
         } else {
           if (!hasConfirmedBan) {
+            logSendBanResponseTrace({
+              source: 'useSendChallenge:missing-ban-id',
+              banText: params.text,
+              targetUserId:
+                resolved.receiverUserId ??
+                resolved.receiverTelegramId?.toString() ??
+                null,
+              durationMinutes: params.durationMinutes,
+              httpStatus: 200,
+              ok: true,
+              responseJson: snapshotSendBanResponseJson(res),
+              createdBanId: null,
+              thrownAfterCreate: false,
+              successCardWillOpen: false,
+              failureReason: 'response-ok-but-ban-id-missing',
+            });
             throw new Error('Сервер не подтвердил запрет');
           }
           timingLog('sendBan confirmed', performance.now() - requestStarted);
@@ -184,9 +250,66 @@ export function useSendChallenge(opts: {
           });
           onOptimisticApplyRef.current({ ...params, username });
           onConfirmRef.current?.({ ...params, username });
-          onSuccessRef.current(res.ban!.id);
+          logSendBanResponseTrace({
+            source: 'useSendChallenge:before-onSuccess',
+            banText: params.text,
+            targetUserId:
+              resolved.receiverUserId ??
+              resolved.receiverTelegramId?.toString() ??
+              null,
+            durationMinutes: params.durationMinutes,
+            httpStatus: 200,
+            ok: true,
+            responseJson: snapshotSendBanResponseJson(res),
+            createdBanId: res.ban!.id,
+            successCardWillOpen: true,
+            failureReason: null,
+          });
+          try {
+            onSuccessRef.current(res.ban!.id);
+          } catch (handoffErr) {
+            logSendBanResponseTrace({
+              source: 'useSendChallenge:onSuccess-threw',
+              banText: params.text,
+              targetUserId:
+                resolved.receiverUserId ??
+                resolved.receiverTelegramId?.toString() ??
+                null,
+              durationMinutes: params.durationMinutes,
+              httpStatus: 200,
+              ok: true,
+              responseJson: snapshotSendBanResponseJson(res),
+              createdBanId: res.ban!.id,
+              thrownAfterCreate: true,
+              successCardWillOpen: false,
+              errorName:
+                handoffErr instanceof Error ? handoffErr.name : typeof handoffErr,
+              errorMessage:
+                handoffErr instanceof Error
+                  ? handoffErr.message
+                  : String(handoffErr),
+              failureReason: 'onSuccess-callback-threw-after-create',
+            });
+            throw handoffErr;
+          }
           scheduleDeferredSyncRef.current?.();
         }
+
+        logSendBanResponseTrace({
+          source: 'useSendChallenge:mutation-complete',
+          banText: params.text,
+          targetUserId:
+            resolved.receiverUserId ??
+            resolved.receiverTelegramId?.toString() ??
+            null,
+          durationMinutes: params.durationMinutes,
+          httpStatus: 200,
+          ok: true,
+          responseJson: snapshotSendBanResponseJson(res),
+          createdBanId: res.ban?.id ?? null,
+          successCardWillOpen: hasConfirmedBan && !needsShare,
+          failureReason: null,
+        });
 
         ctaLog('mutation:success');
         return 'started';
@@ -195,6 +318,26 @@ export function useSendChallenge(opts: {
           throw e;
         }
         const message = formatDeliveryError(e);
+        logSendBanResponseTrace({
+          source: 'useSendChallenge:catch',
+          banText: params.text,
+          targetUserId:
+            params.receiverUserId ??
+            params.receiverTelegramId?.toString() ??
+            null,
+          durationMinutes: params.durationMinutes,
+          httpStatus: e instanceof ApiError ? e.status : e instanceof RequestTimeoutError ? 408 : null,
+          ok: false,
+          errorName: e instanceof Error ? e.name : typeof e,
+          errorMessage: message,
+          successCardWillOpen: false,
+          failureReason:
+            e instanceof RequestTimeoutError
+              ? 'hook-catch-request-timeout'
+              : e instanceof ApiError
+                ? `hook-catch-api:${e.status}`
+                : 'hook-catch-post-response',
+        });
         console.error('[98+] sendBan rollback', { username, message, error: e });
         ctaLog('mutation:fail', { message });
         onFailRef.current({ ...params, username, message });

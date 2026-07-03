@@ -241,6 +241,7 @@ import { logLobbyBansCtaEmptyDelayDiag } from '@/lib/lobby-bans-cta-debug';
 import { logLobbyBansClick } from '@/lib/lobby-bans-click-diag-debug';
 import { BanGlyph } from './SuccessBanCardBody';
 import { logSendFlow } from '@/lib/send-flow-debug';
+import { logSendBanResponseTrace } from '@/lib/send-ban-response-trace';
 import { DEFAULT_SEND_TIMEOUT_MS } from '@/lib/request-timeout';
 import {
   getCrossScreenTouchPolicy,
@@ -4071,6 +4072,18 @@ export function InstantBanFlow({
   const openSuccess = useCallback(
     (banId: string, attemptId?: number) => {
       if (sendFailedRef.current) {
+        logSendBanResponseTrace({
+          source: 'InstantBanFlow:openSuccess:blocked-send-failed',
+          banText: null,
+          targetUserId: null,
+          durationMinutes: null,
+          httpStatus: 200,
+          ok: true,
+          createdBanId: banId,
+          successCardWillOpen: false,
+          thrownAfterCreate: true,
+          failureReason: 'open-success-blocked-because-sendFailedRef',
+        });
         logSendFlow('blocked-late-success', {
           banId,
           reason: 'send-failed',
@@ -4080,6 +4093,18 @@ export function InstantBanFlow({
       }
       const currentAttempt = flowSendAttemptRef.current;
       if (attemptId != null && attemptId !== currentAttempt) {
+        logSendBanResponseTrace({
+          source: 'InstantBanFlow:openSuccess:blocked-stale-attempt',
+          banText: null,
+          targetUserId: null,
+          durationMinutes: null,
+          httpStatus: 200,
+          ok: true,
+          createdBanId: banId,
+          successCardWillOpen: false,
+          thrownAfterCreate: true,
+          failureReason: 'open-success-blocked-stale-attempt',
+        });
         logSendFlow('blocked-late-success', {
           banId,
           reason: 'stale-attempt',
@@ -4089,6 +4114,19 @@ export function InstantBanFlow({
         return;
       }
       if (!banId.trim()) return;
+
+      logSendBanResponseTrace({
+        source: 'InstantBanFlow:openSuccess:will-open',
+        banText: banText,
+        targetUserId:
+          selectedUser?.userId ?? selectedUser?.id ?? null,
+        durationMinutes,
+        httpStatus: 200,
+        ok: true,
+        createdBanId: banId,
+        successCardWillOpen: true,
+        failureReason: null,
+      });
 
       clearStaleSuccessExitLatch('open-success');
       successExitAwaitingNotificationDrainRef.current = false;
@@ -4211,6 +4249,17 @@ export function InstantBanFlow({
       if (sendFailedRef.current) {
         return;
       }
+      logSendBanResponseTrace({
+        source: 'InstantBanFlow:useSendChallenge:onFail',
+        banText: p.text,
+        targetUserId: p.receiverUserId ?? null,
+        durationMinutes: p.durationMinutes,
+        httpStatus: null,
+        ok: false,
+        errorMessage: p.message,
+        successCardWillOpen: false,
+        failureReason: 'send-hook-onFail',
+      });
       if (isDailyBanLimitSendFailure(p.message)) {
         logSendFlow('suppress-confirm-error-for-daily-limit', {
           source: 'send-hook-on-fail',
@@ -5735,6 +5784,22 @@ export function InstantBanFlow({
               retries: 0,
               timeoutMs: DEFAULT_SEND_TIMEOUT_MS,
             });
+            logSendBanResponseTrace({
+              source: 'InstantBanFlow:executeSend:reply-api-ok',
+              banText: text,
+              targetUserId: receiverId,
+              durationMinutes: snapDuration,
+              httpStatus: 200,
+              ok: true,
+              responseJson: {
+                parentId: res.parentId ?? null,
+                replyBanId: res.replyBan?.id ?? null,
+                hasSession: Boolean(res.session),
+              },
+              createdBanId: res.replyBan?.id ?? null,
+              successCardWillOpen: Boolean(res.replyBan?.id),
+              failureReason: null,
+            });
             logSendFlow('api-response', {
               status: 'ok',
               banId: res.replyBan?.id ?? null,
@@ -5764,6 +5829,21 @@ export function InstantBanFlow({
               parentBanId: effectiveReplyBanId,
             });
             if (!res.replyBan?.id) {
+              logSendBanResponseTrace({
+                source: 'InstantBanFlow:executeSend:reply-missing-ban-id',
+                banText: text,
+                targetUserId: receiverId,
+                durationMinutes: snapDuration,
+                httpStatus: 200,
+                ok: true,
+                responseJson: {
+                  parentId: res.parentId ?? null,
+                  replyBanId: null,
+                },
+                createdBanId: null,
+                successCardWillOpen: false,
+                failureReason: 'reply-response-ok-but-ban-id-missing',
+              });
               throw new Error('Сервер не подтвердил запрет');
             }
             if (res.session) applySession(res.session);
@@ -5813,6 +5893,17 @@ export function InstantBanFlow({
           receiverTelegramId: sendTarget.receiverTelegramId,
           durationMinutes: snapDuration,
         });
+        logSendBanResponseTrace({
+          source: 'InstantBanFlow:executeSend:after-send-hook',
+          banText: text,
+          targetUserId: sendTarget.receiverUserId ?? receiverId,
+          durationMinutes: snapDuration,
+          httpStatus: null,
+          ok: outcome !== 'skipped',
+          successCardWillOpen: outcome !== 'skipped',
+          failureReason:
+            outcome === 'skipped' ? 'send-hook-returned-skipped' : null,
+        });
         if (outcome === 'skipped') {
           instantBanDebug('send-skipped', { reason: 'hook-in-flight' });
         }
@@ -5850,6 +5941,18 @@ export function InstantBanFlow({
         }
         const message =
           e instanceof Error ? e.message : 'Не получилось отправить запрет';
+        logSendBanResponseTrace({
+          source: 'InstantBanFlow:executeSend:catch',
+          banText: text,
+          targetUserId: sendTarget.receiverUserId ?? receiverId,
+          durationMinutes: snapDuration,
+          httpStatus: (e as { status?: number }).status ?? null,
+          ok: false,
+          errorName: e instanceof Error ? e.name : typeof e,
+          errorMessage: message,
+          successCardWillOpen: false,
+          failureReason: 'executeSend-catch',
+        });
         console.log('[send-ban-error]', {
           attemptId,
           parentBanId: effectiveReplyBanId,

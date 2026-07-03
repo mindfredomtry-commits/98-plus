@@ -12,6 +12,12 @@ import {
 } from '@/lib/request-timeout';
 import { timingLog } from '@/lib/timing-log';
 import { isClientDevAuthEnabled } from '@/lib/config';
+import {
+  logSendBanResponseTrace,
+  readCreatedBanIdFromSendResponse,
+  readIncomingNotificationSentFromSendResponse,
+  snapshotSendBanResponseJson,
+} from '@/lib/send-ban-response-trace';
 
 export type DeliveryErrorCode =
   | 'network'
@@ -172,6 +178,60 @@ export async function deliverDirectChallenge(
 
   console.info('[98+] sendBan payload', body);
 
+  const traceSendBanResponse = (
+    source: string,
+    extra: {
+      ok: boolean;
+      httpStatus: number | null;
+      responseJson?: unknown;
+      createdBanId?: string | null;
+      incomingNotificationSent?: boolean | null;
+      error?: unknown;
+      thrownAfterCreate?: boolean;
+      successCardWillOpen?: boolean | null;
+      failureReason?: string | null;
+    },
+  ) => {
+    const err = extra.error;
+    logSendBanResponseTrace({
+      source,
+      banText: text,
+      targetUserId:
+        userId ??
+        resolved.receiverUserId?.trim() ??
+        resolved.receiverTelegramId?.toString() ??
+        null,
+      durationMinutes: params.durationMinutes,
+      httpStatus: extra.httpStatus,
+      ok: extra.ok,
+      responseJson:
+        extra.responseJson != null
+          ? snapshotSendBanResponseJson(extra.responseJson)
+          : null,
+      createdBanId:
+        extra.createdBanId ??
+        (extra.responseJson != null
+          ? readCreatedBanIdFromSendResponse(extra.responseJson)
+          : null),
+      incomingNotificationSent:
+        extra.incomingNotificationSent ??
+        (extra.responseJson != null
+          ? readIncomingNotificationSentFromSendResponse(extra.responseJson)
+          : null),
+      errorName:
+        err instanceof Error ? err.name : err != null ? typeof err : null,
+      errorMessage:
+        err instanceof Error
+          ? err.message
+          : err != null
+            ? String(err)
+            : null,
+      thrownAfterCreate: extra.thrownAfterCreate ?? false,
+      successCardWillOpen: extra.successCardWillOpen ?? null,
+      failureReason: extra.failureReason ?? null,
+    });
+  };
+
   let res: SendBanResponse;
   const started = performance.now();
   try {
@@ -183,6 +243,12 @@ export async function deliverDirectChallenge(
       timeoutMs: DEFAULT_SEND_TIMEOUT_MS,
     });
     timingLog('sendBan request', performance.now() - started);
+    traceSendBanResponse('deliverDirectChallenge:api-ok', {
+      ok: true,
+      httpStatus: 200,
+      responseJson: res,
+      failureReason: null,
+    });
     console.info('[98+] sendBan response', {
       hasBan: !!res.ban,
       banId: res.ban?.id,
@@ -192,11 +258,36 @@ export async function deliverDirectChallenge(
         .notificationDebug,
     });
   } catch (e) {
+    const createdBanIdBeforeError = readCreatedBanIdFromSendResponse(
+      (e as { responseBody?: unknown }).responseBody,
+    );
     const failed = {
       error: e instanceof Error ? e.name : typeof e,
       status: e instanceof ApiError ? e.status : undefined,
       message: e instanceof Error ? e.message : String(e),
     };
+    traceSendBanResponse('deliverDirectChallenge:api-error', {
+      ok: false,
+      httpStatus:
+        e instanceof ApiError
+          ? e.status
+          : e instanceof RequestTimeoutError
+            ? 408
+            : e instanceof NetworkError
+              ? 0
+              : null,
+      error: e,
+      thrownAfterCreate: Boolean(createdBanIdBeforeError),
+      createdBanId: createdBanIdBeforeError,
+      failureReason:
+        e instanceof RequestTimeoutError
+          ? 'request-timeout'
+          : e instanceof ApiError
+            ? `api-error:${e.status}`
+            : e instanceof NetworkError
+              ? 'network-error'
+              : 'api-throw',
+    });
     console.error('[98+] sendBan failed', failed);
     if (e instanceof ApiError && e.status === 401) {
       throw new ChallengeDeliveryError(
@@ -209,6 +300,12 @@ export async function deliverDirectChallenge(
 
   if (params.directOnly) {
     if (res.requiresShare || res.pending || !res.ban) {
+      traceSendBanResponse('deliverDirectChallenge:direct-only-rejected', {
+        ok: true,
+        httpStatus: 200,
+        responseJson: res,
+        failureReason: 'direct-only-requires-registered-ban',
+      });
       throw new ChallengeDeliveryError(
         'Этот человек ещё не в 98+ — ответный вызов невозможен',
         'target',
@@ -218,6 +315,12 @@ export async function deliverDirectChallenge(
   }
 
   if (!res.ban && !res.pending) {
+    traceSendBanResponse('deliverDirectChallenge:no-ban-no-pending', {
+      ok: true,
+      httpStatus: 200,
+      responseJson: res,
+      failureReason: 'response-missing-ban-and-pending',
+    });
     throw new ChallengeDeliveryError('Сервер не вернул вызов', 'api');
   }
 
