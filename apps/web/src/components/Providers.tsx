@@ -399,6 +399,7 @@ import {
   logPassiveResultDeferredBlockedByPassiveOpenGuard,
   logPassiveResultDeferredSkippedAlreadyActiveOrShown,
   resolvePassiveResultDeferredAlreadyActiveOrShownSkip,
+  type PassiveResultDeferredSkipMatchedBy,
 } from '@/lib/passive-result-deferred-upstream-skip';
 import { fetchPendingChainPrefetch } from '@/lib/pending-chain-prefetch';
 import {
@@ -12828,6 +12829,46 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 freshFinalStatusBanIdsRef.current.has(resultNorm),
             },
           );
+          const isPollResultPassiveDefer = opts?.source === 'poll';
+          const pollResultAlreadyInOwnerMountable = (
+            skip: PassiveResultDeferredSkipMatchedBy,
+          ) =>
+            skip === 'ownerQueue' ||
+            skip === 'ownerPending' ||
+            skip === 'queueHead';
+          const persistPollPassiveResultForLobbyDrain = (
+            exitLabel: string,
+          ) => {
+            traceEnqueueOwnerPopulation('poll-passive-result-defer', {
+              reason: `poll-passive-result-persist:${exitLabel}`,
+              mutationSkipped: false,
+            });
+            setFatalStage(
+              `before-deferNotificationToPendingStartup:poll-passive-${exitLabel}`,
+            );
+            deferNotificationToPendingStartup(normalizedItem);
+            const ownerAfterPollDefer = ownerShadowRef.current.getState();
+            const pollDeferMutationApplied =
+              ownerAfterPollDefer.pending.length >
+                ownerAtPassiveDefer.pending.length ||
+              ownerAfterPollDefer.queue.length >
+                ownerAtPassiveDefer.queue.length;
+            traceEnqueueOwnerPopulation('poll-passive-result-deferred', {
+              reason: `poll-passive-result-persisted:${exitLabel}`,
+              mutationApplied: pollDeferMutationApplied,
+              mutationSkipped: !pollDeferMutationApplied,
+              skipReason: pollDeferMutationApplied
+                ? null
+                : 'poll-passive-defer-no-owner-delta',
+            });
+            primeLobbyBansAttentionHintSyncRef.current(
+              `passive-result-deferred-poll:${exitLabel}:${opts?.source ?? 'unknown'}`,
+            );
+            traceEnqueueExit(`passive-result-deferred-poll-${exitLabel}`, {
+              passiveDeferred: true,
+              skipReason: `poll-result-persisted-for-lobby-drain:${exitLabel}`,
+            });
+          };
           if (passiveDeferredSkip) {
             logPassiveResultDeferredSkippedAlreadyActiveOrShown({
               banId: resultNorm,
@@ -12852,6 +12893,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               ),
               closingResultBanId: goToBansClosingBanIdRef.current,
             });
+            if (
+              isPollResultPassiveDefer &&
+              !pollResultAlreadyInOwnerMountable(passiveDeferredSkip)
+            ) {
+              persistPollPassiveResultForLobbyDrain(
+                `skip-${passiveDeferredSkip}`,
+              );
+              return;
+            }
             traceEnqueueExit('passive-result-deferred-skip', {
               passiveDeferred: true,
               skipReason: `passive-result-deferred-skip-${passiveDeferredSkip}`,
@@ -12880,6 +12930,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             ),
             closingResultBanId: goToBansClosingBanIdRef.current,
           });
+          if (isPollResultPassiveDefer) {
+            persistPollPassiveResultForLobbyDrain('attention-hint-only');
+            return;
+          }
           primeLobbyBansAttentionHintSyncRef.current(
             `passive-result-deferred:${opts?.source ?? 'unknown'}`,
           );
