@@ -875,8 +875,6 @@ import {
   shouldBlockLobbyOpenForQueuedNotifications,
 } from '@/lib/notification-chain-explicit-drain';
 import {
-  clearClosedResultTombstones,
-  filterPendingForClosedResultTombstone,
   filterPendingForGoToBansClosedPassivePrefetch,
   isInteractiveOverboardResultContext,
   isPassiveResultOpenSource,
@@ -885,12 +883,10 @@ import {
   logGoToBansPassivePendingResultSkip,
   logGoToBansPassivePrefetchResultSkip,
   logPassiveResultLookaheadBlocked,
-  recordClosedResultTombstone,
   resolveGoToBansClosedResultPassivePrefetchBlockReason,
   resolveGoToBansPassivePendingResultSkipReason,
   resolveGoToBansPassivePrefetchResultSkipReason,
   logPassiveResultOverlayBlocked,
-  shouldBlockPassiveClosedResultEnqueue,
   shouldBlockPassiveResultLookaheadDisplay,
   shouldBlockPassiveResultOverlayOpen,
   shouldBlockPassiveResultShellDisplay,
@@ -4077,15 +4073,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     source.includes('go-to-bans') ||
     source.includes('result-go-to-bans') ||
     source.includes('finalizeResultForGoToBans');
-  const isClosedResultPassivePrefetchSource = (source: string): boolean =>
-    source.includes('lobby-indicator-prime') ||
-    source.includes('result-overlay-prime') ||
-    source.includes('prefetch-pending-chain-enqueue') ||
-    source.includes('passive-result-deferred');
-  const resolveClosedResultPassivePrefetchSource = (source: string): string =>
-    isClosedResultPassivePrefetchSource(source)
-      ? source
-      : `enqueueNotification:passive-result-deferred:${source}`;
   const buildBansLayerOpenGateSnapshot = (
     source: string,
     reason: string,
@@ -8523,18 +8510,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const goToBansTrace = readGoToBansSessionTrace();
       const traceSessionId =
         goToBansTrace != null ? normalizeId(goToBansTrace.banId) : null;
-      const passivePrefetchFilterSource =
-        resolveClosedResultPassivePrefetchSource(source);
-      const tombstoneFiltered = filterPendingForClosedResultTombstone(
+      const pendingForApply = filterPendingForGoToBansClosedPassivePrefetch({
         source,
-        filterPendingForClosedResultTombstone(passivePrefetchFilterSource, next),
-      );
-      const pendingForApply = isClosedResultPassivePrefetchSource(
-        passivePrefetchFilterSource,
-      )
-        ? filterPendingForGoToBansClosedPassivePrefetch({
-            source: passivePrefetchFilterSource,
-        pending: tombstoneFiltered,
+        pending: next,
         stage: 'applyPendingQueueViaOwner',
         sessionId: traceSessionId,
         closedSessionId: GO_TO_BANS_SESSION_TRACE_MODULE_INSTANCE_ID,
@@ -8551,8 +8529,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         goToBansClosingBanIdFor: (banId) =>
           goToBansClosingBanIdRef.current != null &&
           normalizeId(goToBansClosingBanIdRef.current) === banId,
-      })
-        : tombstoneFiltered;
+      });
       const ownerQueueBefore = ownerBefore.queue.length;
       const ownerPendingBefore = ownerBefore.pending.length;
       const pendingFields = readNotificationFieldsFromOverlay(
@@ -12797,20 +12774,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           return;
         }
         const uid = userIdRef.current;
-        const enqueueSource = `enqueueNotification:${opts?.source ?? 'unknown'}`;
-        if (
-          shouldBlockPassiveClosedResultEnqueue(enqueueSource, resultId) ||
-          shouldBlockPassiveClosedResultEnqueue(
-            `enqueueNotification:passive-result-deferred:${opts?.source ?? 'unknown'}`,
-            resultId,
-          )
-        ) {
-          traceEnqueueExit('closed-result-tombstone', {
-            resultBlocked: true,
-            skipReason: 'closed-result-tombstone',
-          });
-          return;
-        }
         if (isResultBlockedForNotificationChain(resultId, opts?.source ?? 'enqueueNotification')) {
           traceEnqueueExit('result-blocked-for-notification-chain', {
             resultBlocked: true,
@@ -14097,23 +14060,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       resultCtaConsumedBanIdsRef.current.add(key);
       resultDeliveredBanIdsRef.current.add(key);
       shownOverlayKeysRef.current.add(`result:${key}`);
-      if (
-        source.includes('go-to-bans') ||
-        source.includes('navigateFromResult') ||
-        source.includes('finalizeResultForGoToBans') ||
-        source.includes('status-cta')
-      ) {
-        const goToBansTrace = readGoToBansSessionTrace();
-        recordClosedResultTombstone({
-          banId: key,
-          resultKey: key,
-          kind: 'result',
-          sessionId:
-            goToBansTrace != null
-              ? normalizeId(goToBansTrace.banId) || key
-              : GO_TO_BANS_SESSION_TRACE_MODULE_INSTANCE_ID,
-        });
-      }
       mirrorOwnerSessionFlagsRef.current(`${source}:result-overlay-consumed`, {
         shownOverlayKeys: new Set(shownOverlayKeysRef.current),
       });
@@ -16492,13 +16438,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       if (
         mode === 'auto' &&
-        shouldBlockPassiveClosedResultEnqueue('openBanResult:auto', r.id)
-      ) {
-        return;
-      }
-
-      if (
-        mode === 'auto' &&
         shouldBlockPassiveResultOverlayOpenForBan('openBanResult:auto', r.id)
       ) {
         logPassiveResultOverlayBlocked({
@@ -16508,21 +16447,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           passiveSource: true,
           lobbyOpen: lobbyOpenRef.current,
         });
-        if (
-          !shouldBlockPassiveClosedResultEnqueue(
-            'openBanResult:passive-result-blocked',
-            r.id,
-          )
-        ) {
-          commitPendingQueueViaOwner(
-            mergeStartupPendingSingle(
-              pendingStartupInteractionsRef.current,
-              { kind: 'result', result: r },
-            ),
-            'openBanResult',
-            'passive-result-blocked',
-          );
-        }
+        commitPendingQueueViaOwner(
+          mergeStartupPendingSingle(
+            pendingStartupInteractionsRef.current,
+            { kind: 'result', result: r },
+          ),
+          'openBanResult',
+          'passive-result-blocked',
+        );
         primeLobbyBansAttentionHintSyncRef.current(
           'passive-result-openBanResult-blocked',
         );
@@ -16999,7 +16931,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     resultOverlayRenderedBanIdsRef.current = new Set();
     resultDeliveredBanIdsRef.current = new Set();
     resultCtaConsumedBanIdsRef.current = new Set();
-    clearClosedResultTombstones();
     checkSubmitAtRef.current = new Map();
     mirrorOwnerSessionFlagsRef.current('auth-hydrate:session-sets-cleared', {
       dismissedIncomingIds: new Set(),
@@ -17215,7 +17146,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     resultOverlayRenderedBanIdsRef.current = new Set();
     resultDeliveredBanIdsRef.current = new Set();
     resultCtaConsumedBanIdsRef.current = new Set();
-    clearClosedResultTombstones();
     checkSubmitAtRef.current = new Map();
     mirrorOwnerSessionFlagsRef.current('providers-reset:session-sets-cleared', {
       shownOverlayKeys: new Set(),
@@ -31864,21 +31794,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
     goToBansAdvancePendingRef.current = true;
     goToBansClosingBanIdRef.current = banId ? normalizeId(banId) || banId : null;
-    {
-      const closedKey = goToBansClosingBanIdRef.current;
-      if (closedKey) {
-        const goToBansTrace = readGoToBansSessionTrace();
-        recordClosedResultTombstone({
-          banId: closedKey,
-          resultKey: closedKey,
-          kind: 'result',
-          sessionId:
-            goToBansTrace != null
-              ? normalizeId(goToBansTrace.banId) || closedKey
-              : GO_TO_BANS_SESSION_TRACE_MODULE_INSTANCE_ID,
-        });
-      }
-    }
     emitGoToBansContinueEntry({
       source: 'navigateFromResult:go-to-bans-pending',
       handlerName: 'go-to-bans-pending',
