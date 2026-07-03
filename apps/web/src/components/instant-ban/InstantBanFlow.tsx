@@ -230,6 +230,10 @@ import { canLobbySendBan } from '@/lib/lobby-influence';
 import { isReplyDeeplinkShellBan } from '@/lib/reply-deeplink-fast';
 import { REPLY_DEEPLINK_TOAST_SENT } from '@/lib/reply-deeplink-action-result';
 import {
+  isReplyQueueHandoffSessionActive,
+  patchReplyQueueHandoffSession,
+} from '@/lib/reply-queue-handoff-debug';
+import {
   logPostSuccessReplyDeeplinkLobbyState,
   logReplyDeeplinkSuccessState,
 } from '@/lib/reply-deeplink-startup-debug';
