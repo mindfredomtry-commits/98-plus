@@ -18323,13 +18323,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [receiveResult, showCheckAnswerFinalResult],
   );
 
-  /**
-   * Burst poll for check waiting / missing result.
-   * First tick runs immediately (same pollPendingResultOnce as delayed ticks);
-   * follow-ups at 200/500/900ms. Callers in active chain should await the
-   * returned promise so the next card is not delayed to the interval poll.
-   */
-  const scheduleResultPollBurst = useCallback((): Promise<void> => {
+  const scheduleResultPollBurst = useCallback(() => {
     cancelResultPollBurst();
     const uid = userIdRef.current;
     for (const [banId] of checkSubmitAtRef.current) {
@@ -18340,15 +18334,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         delaysMs: [0, 200, 500, 900],
       });
     }
-    const firstTick = pollPendingResultOnce('burst');
-    for (const ms of [200, 500, 900]) {
+    for (const ms of [0, 200, 500, 900]) {
       const t = window.setTimeout(
         () => void pollPendingResultOnce('burst'),
         ms,
       );
       resultPollBurstTimersRef.current.push(t);
     }
-    return firstTick;
   }, [cancelResultPollBurst, pollPendingResultOnce]);
 
   useEffect(() => () => cancelResultPollBurst(), [cancelResultPollBurst]);
@@ -19571,8 +19563,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
           const shown = showCheckAnswerFinalResult(normalized, 'http');
           if (!shown && res.done) {
-            // Active chain: run first burst tick now (same pollPendingResultOnce).
-            await scheduleResultPollBurst();
+            scheduleResultPollBurst();
           }
           if (remaining.length === 0) {
             chainContinuePromise = continueAfterHttpHandoff();
@@ -19592,26 +19583,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               });
               const shown = showCheckAnswerFinalResult(normalized, 'http');
               if (!shown) {
-                await scheduleResultPollBurst();
+                scheduleResultPollBurst();
               }
             } else {
               logCheckAnswerFinalResultMissing({ banId: normalizedBanId });
-              await scheduleResultPollBurst();
+              scheduleResultPollBurst();
             }
           } catch {
             logCheckAnswerFinalResultMissing({
               banId: normalizedBanId,
               reason: 'fetch-failed',
             });
-            await scheduleResultPollBurst();
+            scheduleResultPollBurst();
           }
           if (remaining.length === 0) {
             chainContinuePromise = continueAfterHttpHandoff();
           }
         } else if (res.waiting) {
           challengeLog('check:waiting-partner', { banId: normalizedBanId });
-          // Active chain: first poll tick immediately, then resume continue.
-          await scheduleResultPollBurst();
+          scheduleResultPollBurst();
           // Single continue lives inside resume (remaining === 0 or > 0).
           const waitingOutcome = resumeCheckAnswerChainAfterWaitingPartner(
             normalizedBanId,
