@@ -168,6 +168,92 @@ export function isPassiveResultPrefetchSource(source: string): boolean {
   );
 }
 
+export type ClosedResultTombstone = {
+  banId: string;
+  resultKey: string;
+  kind: 'result' | 'status';
+  sessionId: string | null;
+};
+
+const closedResultTombstonesByKey = new Map<string, ClosedResultTombstone>();
+
+export function recordClosedResultTombstone(input: {
+  banId: string;
+  resultKey?: string | null;
+  kind?: 'result' | 'status';
+  sessionId?: string | null;
+}): void {
+  const banId = normalizeId(input.banId);
+  if (!banId) return;
+  const resultKey = normalizeId(input.resultKey ?? banId) || banId;
+  const tombstone: ClosedResultTombstone = {
+    banId,
+    resultKey,
+    kind: input.kind ?? 'result',
+    sessionId: input.sessionId ?? null,
+  };
+  closedResultTombstonesByKey.set(banId, tombstone);
+  closedResultTombstonesByKey.set(`result:${banId}`, tombstone);
+  if (resultKey !== banId) {
+    closedResultTombstonesByKey.set(resultKey, tombstone);
+    closedResultTombstonesByKey.set(`result:${resultKey}`, tombstone);
+  }
+}
+
+export function hasClosedResultTombstone(
+  banIdOrKey: string | null | undefined,
+): boolean {
+  const key = normalizeId(banIdOrKey ?? '');
+  if (!key) return false;
+  return (
+    closedResultTombstonesByKey.has(key) ||
+    closedResultTombstonesByKey.has(`result:${key}`)
+  );
+}
+
+export function clearClosedResultTombstones(): void {
+  closedResultTombstonesByKey.clear();
+}
+
+/** Passive/prefetch enqueue paths that must not revive a go-to-bans closed result. */
+export function isPassiveClosedResultEnqueueSource(source: string): boolean {
+  if (isExplicitResultOpenSource(source)) return false;
+  return (
+    isPassiveResultPrefetchSource(source) ||
+    isPassiveResultOpenSource(source) ||
+    source.includes('status-cta-prefetch') ||
+    source.includes('defer-pending-startup') ||
+    source.includes('defer-notification') ||
+    source.includes('applyPendingQueueViaOwner') ||
+    source.includes('mergeStartup') ||
+    source.includes('merge-startup') ||
+    source.includes('openBanResult:auto') ||
+    source.includes('passive-result-blocked') ||
+    source.includes('receiveResult')
+  );
+}
+
+export function shouldBlockPassiveClosedResultEnqueue(
+  source: string,
+  banIdOrKey: string | null | undefined,
+): boolean {
+  if (!hasClosedResultTombstone(banIdOrKey)) return false;
+  if (isExplicitResultOpenSource(source)) return false;
+  return isPassiveClosedResultEnqueueSource(source);
+}
+
+export function filterPendingForClosedResultTombstone(
+  source: string,
+  pending: readonly QueuedOverlay[],
+): QueuedOverlay[] {
+  if (isExplicitResultOpenSource(source)) return [...pending];
+  if (!isPassiveClosedResultEnqueueSource(source)) return [...pending];
+  return pending.filter((item) => {
+    if (item.kind !== 'result') return true;
+    return !hasClosedResultTombstone(item.result.id);
+  });
+}
+
 export function resolveGoToBansClosedResultPassivePrefetchBlockReason(
   source: string,
   banId: string,
@@ -177,7 +263,11 @@ export function resolveGoToBansClosedResultPassivePrefetchBlockReason(
     goToBansClosingBanId: boolean;
   },
 ): string | null {
-  if (!isPassiveResultPrefetchSource(source) || !banId) return null;
+  if (!banId) return null;
+  if (shouldBlockPassiveClosedResultEnqueue(source, banId)) {
+    return 'closed-result-tombstone';
+  }
+  if (!isPassiveResultPrefetchSource(source)) return null;
   if (markers.goToBansSessionTraceMatches) return 'go-to-bans-session-trace';
   if (markers.goToBansClosingBanId) return 'result-go-to-bans-closing';
   if (markers.ownerShownOverlayHasResult) return 'owner-shown-overlay-key';
@@ -226,7 +316,10 @@ export function filterPendingForGoToBansClosedPassivePrefetch(input: {
   goToBansSessionTraceMatchesFor: (banId: string) => boolean;
   goToBansClosingBanIdFor: (banId: string) => boolean;
 }): QueuedOverlay[] {
-  if (!isPassiveResultPrefetchSource(input.source)) {
+  const passive =
+    isPassiveResultPrefetchSource(input.source) ||
+    isPassiveClosedResultEnqueueSource(input.source);
+  if (!passive) {
     return input.pending;
   }
   const filtered: QueuedOverlay[] = [];
@@ -275,10 +368,14 @@ export function resolveGoToBansPassivePrefetchResultSkipReason(
     resultDelivered: boolean;
   },
 ): string | null {
+  if (!banId) return null;
+  if (shouldBlockPassiveClosedResultEnqueue(source, banId)) {
+    return 'closed-result-tombstone';
+  }
   const isPassivePrimeSource =
     source.includes('lobby-indicator-prime') ||
     source.includes('result-overlay-prime');
-  if (!isPassivePrimeSource || !banId) return null;
+  if (!isPassivePrimeSource) return null;
   if (markers.ownerShownOverlayHasResult) return 'owner-shown-overlay-key';
   if (markers.resultCtaConsumed) return 'result-cta-consumed';
   if (markers.resultDelivered) return 'result-delivered';
@@ -298,6 +395,7 @@ export function resolveGoToBansClosedResultMarkerReason(
   markers: GoToBansClosedResultMarkers,
 ): string | null {
   if (!banId) return null;
+  if (hasClosedResultTombstone(banId)) return 'closed-result-tombstone';
   if (markers.goToBansSessionTraceMatches) return 'go-to-bans-session-trace';
   if (markers.goToBansClosingBanId) return 'result-go-to-bans-closing';
   if (markers.ownerShownOverlayHasResult) return 'owner-shown-overlay-key';
@@ -311,7 +409,11 @@ export function resolveGoToBansPassivePendingResultSkipReason(
   banId: string,
   markers: GoToBansClosedResultMarkers,
 ): string | null {
-  if (!source.includes('lobby-indicator-prime') || !banId) return null;
+  if (!banId) return null;
+  if (shouldBlockPassiveClosedResultEnqueue(source, banId)) {
+    return 'closed-result-tombstone';
+  }
+  if (!source.includes('lobby-indicator-prime')) return null;
   return resolveGoToBansClosedResultMarkerReason(banId, markers);
 }
 
