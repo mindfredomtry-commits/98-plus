@@ -143,10 +143,8 @@ export function shouldBlockNonExplicitNotificationDrain(
   source: string,
   startupHoldActive: boolean,
 ): boolean {
+  void source;
   void startupHoldActive;
-  // User-triggered sources (status-cta / go-to-bans / …) must advance the chain
-  // even when the latch was not set by lobby-bans / post-success.
-  if (isExplicitNotificationDrainSource(source)) return false;
   return explicitDrainSource == null;
 }
 
