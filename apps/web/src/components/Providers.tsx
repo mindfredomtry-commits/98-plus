@@ -17341,8 +17341,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      // Deferred partner/poll result while notification chain is still active
+      // must join that chain as CHECK_RESULT_ARRIVED (priority head), not LATE.
+      const waitingHoldBanId = checkAnswerWaitingResultHoldBanIdRef.current;
+      const ingressAsCheckResult =
+        checkAnswerInFlightRef.current.has(banId) ||
+        checkAnswerPendingResultShowRef.current.has(banId) ||
+        answeredCheckRef.current.has(banId) ||
+        (waitingHoldBanId != null &&
+          normalizeId(waitingHoldBanId) === banId) ||
+        notificationChainAwaitingUserRef.current ||
+        chainAdvanceWaitingRef.current ||
+        notificationChainTransitioningRef.current ||
+        overlayQueueDrainActiveRef.current ||
+        chainAdvanceExplicitRef.current ||
+        goToBansAdvancePendingRef.current ||
+        overlayQueueRef.current.length > 0 ||
+        pendingStartupInteractionsRef.current.length > 0 ||
+        heldUserCardOverlayRef.current != null ||
+        resultRef.current != null ||
+        checkBanRef.current != null ||
+        incomingBanRef.current != null;
+
       ownerShadowDispatch(
-        checkAnswerInFlightRef.current.has(banId)
+        ingressAsCheckResult
           ? {
               type: 'CHECK_RESULT_ARRIVED',
               banId,
@@ -17355,6 +17377,54 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             },
         `receiveResult:${source}`,
       );
+
+      if (ingressAsCheckResult) {
+        releaseCheckAnswerWaitingResultHold(
+          banId,
+          `receiveResult:${source}`,
+        );
+        holdResultForActiveNotificationChain(
+          banId,
+          `receiveResult:${source}`,
+          normalized,
+        );
+        resultPriorityBanIdsRef.current.add(banId);
+        mirrorOwnerHoldsSetsRef.current(`receiveResult:${source}`, {
+          resultPriorityBanIds: new Set(resultPriorityBanIdsRef.current),
+        });
+        const cleanedPending = removeOverlaysForBan(
+          pendingStartupInteractionsRef.current,
+          banId,
+        );
+        if (
+          cleanedPending.length !== pendingStartupInteractionsRef.current.length
+        ) {
+          commitPendingQueueViaOwner(
+            cleanedPending,
+            `receiveResult:${source}`,
+            'active-chain-result-prune-pending',
+          );
+        }
+        const resultItem: QueuedOverlay = {
+          kind: 'result',
+          result: normalized,
+        };
+        const nextQueue = buildResultPriorityQueue(
+          overlayQueueRef.current,
+          banId,
+          resultItem,
+        );
+        chainAdvanceExplicitRef.current = true;
+        mirrorOwnerSessionFlagsRef.current(`receiveResult:${source}`, {
+          chainAdvanceExplicit: true,
+        });
+        setNotificationChainTransitioning(true);
+        setChainAdvanceWaiting(false);
+        flushSync(() => {
+          applyOverlayQueue(nextQueue);
+        });
+        return;
+      }
 
       if (
         source === 'poll' &&
@@ -17587,7 +17657,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         reason: decision.reason,
       });
     },
-    [openBanResult, enqueueNotification],
+    [
+      applyOverlayQueue,
+      enqueueNotification,
+      holdResultForActiveNotificationChain,
+      openBanResult,
+      releaseCheckAnswerWaitingResultHold,
+      setChainAdvanceWaiting,
+      setNotificationChainTransitioning,
+    ],
   );
 
   const buildResultPollComposeFields = () => {
