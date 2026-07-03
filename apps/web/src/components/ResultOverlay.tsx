@@ -39,9 +39,11 @@ import {
   logResultOverlayPaint,
   logResultOverlayUnmount,
   logResultOverlayUnmountWithoutDismiss,
+  logResultOverlayUnmountRootTrace,
   logResultOverlayVisibleState,
 } from '@/lib/result-overlay-lifecycle-trace';
 import { logResultCardUnmounted } from '@/lib/check-chain-drain-debug';
+import { readOverlayDiagSnapshot } from '@/lib/incoming-null-root-cause-trace';
 import { logResultCardCtaClick } from '@/lib/result-card-dismiss-diag-debug';
 import { ANALYTICS_EVENTS } from '@98plus/shared';
 import { shareDeepLink } from '@/lib/share';
@@ -201,6 +203,8 @@ function ResultOverlayInner({
     token,
     user,
     notificationSessionActive,
+    activeOverlayKind,
+    overlayQueueLength,
     markOverlayUserAction,
     logCardCloseClick,
     reportOverlayRendered,
@@ -439,11 +443,28 @@ function ResultOverlayInner({
     return () => {
       const base = lifecycleBase();
       if (!dismissInitiatedRef.current) {
+        const overlayDiag = readOverlayDiagSnapshot();
         logResultOverlayUnmountWithoutDismiss({
           ...base,
           lastVisible: prevVisibleRef.current,
           dismissSource: dismissSourceRef.current,
           closeReason: closeReasonRef.current,
+        });
+        logResultOverlayUnmountRootTrace({
+          ...base,
+          banId: result.id,
+          dismissInitiated: dismissInitiatedRef.current,
+          closeReason: closeReasonRef.current,
+          visible: showable,
+          showable,
+          queueHeadKind:
+            overlayDiag.queueHeadKind ??
+            (overlayQueueLength > 0 ? 'unknown' : null),
+          activeKind: overlayDiag.activeKind ?? activeOverlayKind,
+          notificationSessionActive,
+          queueClaimsNotificationScreen:
+            overlayDiag.queueClaimsNotificationScreen ??
+            overlayQueueLength > 0,
         });
       }
       logResultOverlayUnmount({

@@ -1174,6 +1174,15 @@ import {
   peekLastIncomingPayloadReadyBanId,
 } from '@/lib/incoming-overlay-mount-debug';
 import {
+  buildIncomingNullDiagnosticGuards,
+  buildIncomingNullJsxWillRenderGuards,
+  buildIncomingNullShouldRenderIncomingGuards,
+  logIncomingNullDecisionTrace,
+  logIncomingNullGuardBundle,
+  setOverlayDiagSnapshotReader,
+  type IncomingNullDiagSnapshot,
+} from '@/lib/incoming-null-root-cause-trace';
+import {
   logChainContinueBlockedNonExplicitStartup,
   logChainContinueCollected,
   logChainContinueEmptyOpenLobby,
@@ -7098,9 +7107,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const getConfirmOrbQueueDebugSnapshot =
     useCallback((): ConfirmOrbQueueDebugSnapshot => {
       const selectedNext = getPostSuccessHandoffSelectedNext();
+      const overlayHead = overlayQueueRef.current[0] ?? null;
       return {
         pendingLen: pendingStartupInteractionsRef.current.length,
         queueLen: overlayQueueRef.current.length,
+        overlayQueueHeadKind: overlayHead?.kind ?? null,
         selectedNextKind: selectedNext?.kind ?? null,
         selectedNextBanId: selectedNext?.banId ?? null,
         isPostSuccessHandoffInProgress: isPostSuccessHandoffInProgress(),
@@ -37276,6 +37287,171 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     showDirectOverboardLayer,
   ]);
 
+  const incomingNullResultContextActive =
+    queueHeadKind === 'result' ||
+    queueShellShowsResult ||
+    renderableResultShell ||
+    activeOverlayKind === 'result' ||
+    Boolean(activeResultPayload?.id ?? ownerRenderResultPayload?.id ?? result?.id);
+  if (incomingNullResultContextActive) {
+    const incomingNullSnapshot: IncomingNullDiagSnapshot = {
+      queueHeadKind,
+      activeKind: activeOverlayKind,
+      activeOverlayKind,
+      resultId:
+        activeResultPayload?.id ??
+        ownerRenderResultPayload?.id ??
+        result?.id ??
+        null,
+      resultBanId:
+        activeResultPayload?.id ??
+        ownerRenderResultPayload?.id ??
+        result?.id ??
+        null,
+      selectedBanId: effectiveIncomingBanId ?? null,
+      incomingBanId: incomingBan?.id ?? incomingCardDisplayBan?.id ?? null,
+      queueLen: ownerPrimaryShellQueueLen,
+      pendingLen: ownerPrimaryShellPendingLen,
+      overlayQueueLength: ownerPrimaryShellQueueLen,
+      notificationSessionActive,
+      notificationChainTransitioning,
+      queueClaimsNotificationScreen:
+        ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+      queueLobbyGuardActive: queueLobbyGuardActiveRef.current,
+      showLobby: lobbyOpenRef.current,
+      showLobbyOrb: null,
+      hasResult: Boolean(
+        activeResultPayload ?? ownerRenderResultPayload ?? result?.id,
+      ),
+      hasResultOverlay: queueShellShowsResult || renderableResultShell,
+      hasNotificationOverlay: notificationOverlayVisible,
+      hasIncomingOverlay: incomingJsxWillRender,
+      shouldRenderIncoming: shouldRenderIncomingOverlay,
+      shouldRenderResult: queueShellShowsResult || renderableResultShell,
+      shouldRenderQueueShell: shouldMountNotificationOverlayHost,
+      shouldRenderDirectLayer: showDirectOverboardLayer,
+      source: incomingJsxRenderSource,
+    };
+    logIncomingNullGuardBundle(
+      incomingNullSnapshot,
+      buildIncomingNullShouldRenderIncomingGuards({
+        showDirectOverboardLayer,
+        notificationShellSuppressedForBansLobby,
+        incomingBlockedAfterAnswer,
+        notificationChainReplyComposePaused,
+        replyParentActivePriorityActive,
+        ownerPrimaryStableIncomingBanId: ownerPrimaryStableIncomingBan?.id ?? null,
+        heldUserCardKind: ownerPrimaryHeldUserCard?.kind ?? null,
+        displayActiveOverlayKind,
+        activeOverlayKind,
+        queueHeadKind,
+        replyFastIncomingActive,
+        replyDeepLinkBanId,
+        replyDeeplinkFastShell,
+        replyHandoffLock,
+        incomingReplyComposeDismissed:
+          replyDeepLinkBanId != null &&
+          incomingReplyComposeDismissedRef.current.has(replyDeepLinkBanId),
+        shouldRenderIncomingOverlay,
+      }),
+    );
+    logIncomingNullGuardBundle(
+      incomingNullSnapshot,
+      buildIncomingNullJsxWillRenderGuards({
+        queueShellShowsResult,
+        composeBlocksNotificationHost,
+        showDirectOverboardLayer,
+        replyComposeActive,
+        incomingCardDisplayBanId: incomingCardDisplayBan?.id ?? null,
+        ownerPrimaryStableIncomingBanId: ownerPrimaryStableIncomingBan?.id ?? null,
+        showReplyIncomingOverlayDirect,
+        notificationQueueShellKind,
+        replyIncomingDirectPath,
+        incomingJsxWillRender,
+      }),
+    );
+    logIncomingNullGuardBundle(incomingNullSnapshot, [
+      {
+        guardName: 'effectiveShouldRenderIncoming',
+        guardValue: effectiveShouldRenderIncoming,
+        reason: 'aggregate-effectiveShouldRenderIncoming',
+      },
+      {
+        guardName: 'isReplyFastShellRequested',
+        guardValue: isReplyFastShellRequested,
+        reason: 'enables-effectiveShouldRenderIncoming',
+      },
+      {
+        guardName: 'isReplyFastPendingOpen',
+        guardValue: isReplyFastPendingOpen,
+        reason: 'enables-effectiveShouldRenderIncoming',
+      },
+      {
+        guardName: 'notificationQueueShellDisplayKind',
+        guardValue: notificationQueueShellDisplayKind,
+        reason: 'queue-shell-display-kind-vs-result',
+      },
+      {
+        guardName: 'effectiveNotificationQueueShellKind',
+        guardValue: effectiveNotificationQueueShellKind,
+        reason: 'effective-shell-kind-vs-result',
+      },
+      {
+        guardName: 'queueHeadKind-result',
+        guardValue: queueHeadKind === 'result',
+        reason: 'queue-head-is-result',
+      },
+      {
+        guardName: 'selectedKind-mismatch',
+        guardValue:
+          queueHeadKind === 'result' &&
+          effectiveIncomingOverlayDisplayKind === 'incoming',
+        reason: 'result-queue-head-with-incoming-display-kind',
+      },
+      {
+        guardName: 'shouldMountNotificationOverlayHost',
+        guardValue: shouldMountNotificationOverlayHost,
+        reason: 'queue-shell-host-mount',
+      },
+      {
+        guardName: 'renderableResultShell',
+        guardValue: renderableResultShell,
+        reason: 'result-shell-renderable',
+      },
+    ]);
+    logIncomingNullGuardBundle(
+      incomingNullSnapshot,
+      buildIncomingNullDiagnosticGuards({
+        effectiveShouldRenderIncoming,
+        shouldRenderIncomingOverlay,
+        incomingJsxWillRender,
+        queueHeadKind,
+        notificationQueueShellDisplayKind,
+        queueShellShowsResult,
+        effectiveIncomingOverlayDisplayKind,
+        showIncomingShellBranch:
+          notificationQueueShellDisplayKind === 'incoming' &&
+          !queueShellShowsResult,
+      }),
+    );
+  }
+
+  setOverlayDiagSnapshotReader(() => ({
+    queueHeadKind,
+    activeKind: activeOverlayKind,
+    activeOverlayKind,
+    resultId:
+      activeResultPayload?.id ??
+      ownerRenderResultPayload?.id ??
+      result?.id ??
+      null,
+    queueLen: ownerPrimaryShellQueueLen,
+    pendingLen: ownerPrimaryShellPendingLen,
+    notificationSessionActive,
+    queueClaimsNotificationScreen:
+      ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+  }));
+
   const buildChainPlaceholderStuckSnapshot = useCallback((): Record<string, unknown> => {
     const queueHead = overlayQueueRef.current[0] ?? null;
     const pendingHead = pendingStartupInteractionsRef.current[0] ?? null;
@@ -37711,12 +37887,74 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       reason: nullReason,
       ...jsxBranch,
     });
+    logIncomingNullDecisionTrace(
+      {
+        reason: nullReason,
+        queueHeadKind,
+        activeKind: activeOverlayKind,
+        activeOverlayKind: effectiveIncomingOverlayDisplayKind,
+        resultId:
+          activeResultPayload?.id ??
+          ownerRenderResultPayload?.id ??
+          result?.id ??
+          null,
+        resultBanId:
+          activeResultPayload?.id ??
+          ownerRenderResultPayload?.id ??
+          result?.id ??
+          null,
+        selectedBanId: effectiveIncomingBanId ?? null,
+        incomingBanId: incomingBan?.id ?? incomingCardDisplayBan?.id ?? null,
+        queueLen: ownerPrimaryShellQueueLen,
+        pendingLen: ownerPrimaryShellPendingLen,
+        overlayQueueLength: ownerPrimaryShellQueueLen,
+        notificationSessionActive,
+        notificationChainTransitioning,
+        queueClaimsNotificationScreen:
+          ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+        queueLobbyGuardActive: queueLobbyGuardActiveRef.current,
+        showLobby: lobbyOpenRef.current,
+        showLobbyOrb: null,
+        hasResult: Boolean(
+          activeResultPayload ?? ownerRenderResultPayload ?? result?.id,
+        ),
+        hasResultOverlay: queueShellShowsResult || renderableResultShell,
+        hasNotificationOverlay: notificationOverlayVisible,
+        hasIncomingOverlay: incomingJsxWillRender,
+        shouldRenderIncoming: shouldRenderIncomingOverlay,
+        shouldRenderResult: queueShellShowsResult || renderableResultShell,
+        shouldRenderQueueShell: shouldMountNotificationOverlayHost,
+        shouldRenderDirectLayer: showDirectOverboardLayer,
+        source: incomingJsxRenderSource,
+      },
+      {
+        shouldRenderIncomingOverlay,
+        showIncomingShellBranch:
+          notificationQueueShellDisplayKind === 'incoming' &&
+          !queueShellShowsResult,
+        queueShellShowsResult,
+        notificationQueueShellDisplayKind,
+        effectiveIncomingOverlayDisplayKind,
+        effectiveShouldRenderIncoming,
+        showDirectOverboardLayer,
+        incomingCardDisplayBan: Boolean(incomingCardDisplayBan),
+        nullReason,
+      },
+    );
   }, [
     effectiveIncomingBanId,
     effectiveIncomingOverlayDisplayKind,
     effectiveNotificationQueueShellKind,
     activeResultPayload,
     queueShellShowsResult,
+    notificationQueueShellDisplayKind,
+    notificationChainTransitioning,
+    renderableResultShell,
+    ownerPrimaryShellQueueLen,
+    ownerPrimaryShellPendingLen,
+    activeOverlayKind,
+    ownerRenderResultPayload,
+    result,
     incomingBan,
     incomingCardDisplayBan,
     effectiveShouldRenderIncoming,

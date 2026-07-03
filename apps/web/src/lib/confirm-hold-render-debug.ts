@@ -20,6 +20,7 @@ export type ConfirmHoldDebugSnapshot = {
 export type ConfirmOrbQueueDebugSnapshot = {
   pendingLen: number;
   queueLen: number;
+  overlayQueueHeadKind: string | null;
   selectedNextKind: string | null;
   selectedNextBanId: string | null;
   isPostSuccessHandoffInProgress: boolean;

@@ -114,6 +114,27 @@ export function logResultOverlayUnmountWithoutDismiss(
   emit('RESULT_OVERLAY_UNMOUNT_WITHOUT_DISMISS', payload);
 }
 
+export function logResultOverlayUnmountRootTrace(
+  payload: ResultOverlayLifecycleBase & {
+    dismissInitiated?: boolean;
+    closeReason?: string | null;
+    queueHeadKind?: string | null;
+    activeKind?: string | null;
+    notificationSessionActive?: boolean;
+    queueClaimsNotificationScreen?: boolean | null;
+  } & Record<string, unknown>,
+): void {
+  const entry = {
+    t: performance.now(),
+    ...payload,
+    stack: new Error().stack ?? '',
+  };
+  console.log('[RESULT_OVERLAY_UNMOUNT_ROOT_TRACE]', entry);
+  if (typeof window !== 'undefined') {
+    window.__debug98log?.('[RESULT_OVERLAY_UNMOUNT_ROOT_TRACE]', entry);
+  }
+}
+
 export function buildResultOverlayLifecycleBase(input: {
   result: { id: string; outcome?: string | null; status?: string | null };
   resultStatus?: string | null;
