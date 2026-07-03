@@ -27651,27 +27651,94 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         reasonIfFalse: null,
         ...buildPostConsumeChainContext(opts?.openBansBanId ?? null),
       });
-      let outcome = continueNotificationChainOrOpenLobbySync(source, opts);
-      if (outcome !== 'needs-prefetch') {
+      const emitContinueAsyncReturn = (
+        branch: string,
+        finalOutcome: ContinueNotificationChainOutcome,
+      ): ContinueNotificationChainOutcome => {
         emitPostConsumeReturnPath({
           functionName: 'continueNotificationChainOrOpenLobby',
-          branch: 'async-sync-return',
-          reason: `sync-outcome-${outcome}`,
-          willShowNext: outcome === 'show-next',
+          branch,
+          reason: `sync-outcome-${finalOutcome}`,
+          willShowNext: finalOutcome === 'show-next',
           willEndChain:
-            outcome === 'blocked' ||
-            outcome === 'lost-pending' ||
-            outcome === 'needs-prefetch',
-          willOpenBansSection: outcome === 'open-bans',
-          willReturnLobby: outcome === 'open-lobby',
+            finalOutcome === 'blocked' ||
+            finalOutcome === 'lost-pending' ||
+            finalOutcome === 'needs-prefetch',
+          willOpenBansSection: finalOutcome === 'open-bans',
+          willReturnLobby: finalOutcome === 'open-lobby',
           queueLen: overlayQueueRef.current.length,
           pendingLen: pendingStartupInteractionsRef.current.length,
           queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
           pendingHeadKind:
             pendingStartupInteractionsRef.current[0]?.kind ?? null,
-          outcome,
+          outcome: finalOutcome,
         });
-        return outcome;
+        return finalOutcome;
+      };
+
+      let outcome = continueNotificationChainOrOpenLobbySync(source, opts);
+      if (outcome === 'show-next') {
+        return emitContinueAsyncReturn('async-sync-return', outcome);
+      }
+
+      // In-chain user-action continue: one empty-frame miss must not open lobby.
+      // Collect/prefetch once, retry show-next; lobby only if still empty.
+      const isInChainUserActionContinue =
+        !source.includes('in-chain-retry') &&
+        !source.includes('-after-prefetch') &&
+        (isExplicitNotificationDrainSource(source) ||
+          isResultGoToBansContinueSource(source) ||
+          source.includes('check-answer'));
+      const shouldInChainEmptyRetry =
+        isInChainUserActionContinue &&
+        opts?.prefetchIfEmpty !== false &&
+        (outcome === 'needs-prefetch' ||
+          outcome === 'open-lobby' ||
+          outcome === 'blocked' ||
+          outcome === 'lost-pending');
+
+      if (shouldInChainEmptyRetry) {
+        await prefetchPendingNotificationChain(
+          opts?.prefetchSkipBanId ?? null,
+          `${source}-in-chain-prefetch`,
+        );
+        outcome = continueNotificationChainOrOpenLobbySync(
+          `${source}-in-chain-retry`,
+          {
+            ...opts,
+            clearActiveHold: false,
+            prefetchIfEmpty: false,
+          },
+        );
+        if (outcome === 'show-next') {
+          return emitContinueAsyncReturn('async-in-chain-retry-show-next', outcome);
+        }
+        const ownerAfterRetry = ownerShadowRef.current.getState();
+        const stillHasItems =
+          overlayQueueRef.current.length > 0 ||
+          pendingStartupInteractionsRef.current.length > 0 ||
+          ownerAfterRetry.queue.length > 0 ||
+          ownerAfterRetry.pending.length > 0;
+        if (stillHasItems) {
+          return emitContinueAsyncReturn(
+            'async-in-chain-retry-still-has-items',
+            outcome,
+          );
+        }
+        const finalizeOutcome = finalizeNotificationChainContinueEmpty(
+          source,
+          opts,
+          snapshotPendingNotificationChain(),
+        );
+        clearBansLayerOpenFlagsAfterChainOutcome(source, finalizeOutcome);
+        return emitContinueAsyncReturn(
+          'async-in-chain-retry-empty-lobby',
+          finalizeOutcome,
+        );
+      }
+
+      if (outcome !== 'needs-prefetch') {
+        return emitContinueAsyncReturn('async-sync-return', outcome);
       }
 
       if (opts?.prefetchIfEmpty === false) {
