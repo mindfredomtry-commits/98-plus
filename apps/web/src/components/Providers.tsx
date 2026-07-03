@@ -27709,32 +27709,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           outcome === 'lost-pending');
 
       if (shouldInChainEmptyRetry) {
-        // Same server fetch as lobby-bans-cta / poll — do not wait ~10s for interval.
-        // Use null deeplinkBanId so pending-all is full (not narrowed by skip ban).
         await prefetchPendingNotificationChain(
-          null,
+          opts?.prefetchSkipBanId ?? null,
           `${source}-in-chain-prefetch`,
         );
-        // Prefetch lands in pending; promote to overlay like lobby-bans drain.
-        // mergeStartupIntoOverlayQueueOnly still uses passive-start gate — pass an
-        // explicit-marker source so promote is allowed without changing that gate.
-        const promoteSource = isExplicitNotificationDrainSource(source)
-          ? `${source}-in-chain-pending-refresh`
-          : 'dismiss:in-chain-pending-refresh';
-        mergeStartupIntoOverlayQueueOnly(promoteSource);
-
-        if (overlayQueueRef.current.length > 0) {
-          const shownAfterFetch = showNextNotificationFromChainSync(
-            `${source}-in-chain-retry`,
-          );
-          if (shownAfterFetch) {
-            return emitContinueAsyncReturn(
-              'async-in-chain-fetch-show-next',
-              'show-next',
-            );
-          }
-        }
-
         outcome = continueNotificationChainOrOpenLobbySync(
           `${source}-in-chain-retry`,
           {
@@ -27856,10 +27834,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [
       continueNotificationChainOrOpenLobbySync,
       finalizeNotificationChainContinueEmpty,
-      mergeStartupIntoOverlayQueueOnly,
       openNextNotificationAfterQueueHandoff,
       prefetchPendingNotificationChain,
-      showNextNotificationFromChainSync,
       snapshotPendingNotificationChain,
     ],
   );
