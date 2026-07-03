@@ -4920,17 +4920,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   };
 
   const shouldDeferCheckAnswerEmptyRemainingApplyQueue = (
-    reason: string,
-    dismissBanId: string | null,
-    remaining: QueuedOverlay[],
+    _reason: string,
+    _dismissBanId: string | null,
+    _remaining: QueuedOverlay[],
   ): boolean => {
-    if (reason !== 'user-answer') return false;
-    if (remaining.length > 0) return false;
-    if (!dismissBanId) return false;
-    const normalizedBanId = normalizeId(dismissBanId);
-    if (!normalizedBanId) return false;
-    if (!checkAnswerDismissChainOwnedRef.current) return false;
-    return checkAnswerInFlightRef.current.has(normalizedBanId);
+    // Incoming-style handoff: always applyOverlayQueue(remaining). Never silent-empty
+    // / waiting-result hold — that left active chains looking empty and opened lobby.
+    return false;
   };
 
   const prepareUserAnswerChainAdvance = (
@@ -16728,7 +16724,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           },
         });
         if (headNow?.kind === 'result') {
-          dismissCurrentOverlay('result-dismiss');
+          // Incoming-style handoff: pre-arm + applyOverlayQueue(remaining) inside dismiss.
+          const resultBanId = headNow.result.id;
+          chainAdvanceExplicitRef.current = true;
+          notificationChainAwaitingUserRef.current = false;
+          mirrorOwnerSessionFlagsRef.current(
+            'dismissBanResult:incoming-style-handoff',
+            { chainAdvanceExplicit: true },
+          );
+          mirrorOwnerChainSessionGatesRef.current(
+            'dismissBanResult:incoming-style-handoff',
+            { awaitingUser: false },
+          );
+          const nextQueue = removeOverlaysForBan(
+            overlayQueueRef.current,
+            resultBanId,
+            ['result'],
+          );
+          dismissCurrentOverlay('result-dismiss', nextQueue);
         }
       };
 
@@ -30938,11 +30951,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           );
           if (nextQueue.length !== beforeQueue.length) {
             removeOverlayCalled = true;
-            commitOverlayQueueViaApply(
-              nextQueue,
-              'go-to-bans',
-              'queue-overboard-go-to-bans-queue',
-            );
+            // Incoming-style handoff: applyOverlayQueue(remaining) via dismiss.
+            dismissCurrentOverlay('result-dismiss', nextQueue);
           } else {
             logProvidersOverlayQueueMutation({
               operation: 'skipped',
@@ -30968,6 +30978,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             banId: key,
             resultId: key,
           });
+          // Head already moved; still apply current remaining like incoming.
+          if (beforeQueue.length > 0) {
+            dismissCurrentOverlay('result-dismiss', beforeQueue);
+          }
         }
         const nextPending = traceRemoveOverlaysForBan(
           beforePending,
@@ -30985,10 +30999,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
         const ownerDisplayResultId =
           ownerShadowRef.current.getState().display.result?.id ?? null;
+        const remainingAfterHandoff = overlayQueueRef.current;
         if (
-          normalizeId(ownerDisplayResultId) === key ||
-          normalizeId(resultRef.current?.id ?? '') === key ||
-          normalizeId(result?.id ?? '') === key
+          remainingAfterHandoff.length === 0 &&
+          (normalizeId(ownerDisplayResultId) === key ||
+            normalizeId(resultRef.current?.id ?? '') === key ||
+            normalizeId(result?.id ?? '') === key)
         ) {
           commitSyncDisplayActivePayload(
             {
@@ -31030,11 +31046,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
         if (nextQueue.length !== beforeQueue.length) {
           removeOverlayCalled = true;
-          commitOverlayQueueViaApply(
-            nextQueue,
-            'go-to-bans',
-            'go-to-bans-queue-prune-commit',
-          );
         } else {
           logProvidersOverlayQueueMutation({
             operation: 'skipped',
@@ -31048,6 +31059,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             resultId: key,
           });
         }
+        // Incoming-style handoff: applyOverlayQueue(remaining) via dismiss.
+        dismissCurrentOverlay('result-dismiss', nextQueue);
         const beforePending = pendingStartupInteractionsRef.current;
         const nextPending = traceRemoveOverlaysForBan(
           beforePending,
@@ -31268,18 +31281,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearDirectOverboardLayerRefs();
       resultOpenRef.current = false;
       setDirectResultOverlayActive(false);
+      // Only clear consumed result display. Incoming-style handoff may already
+      // have applied the next queue head (including another result card).
+      const displayedResultId = normalizeId(resultRef.current?.id ?? '');
+      const shouldClearConsumedResultDisplay = displayedResultId === key;
       emitResultClearCallsite({
         source: 'finalizeResultForGoToBans',
         reason: 'go-to-bans-finalize',
         resultIdBefore: key,
-        willClearResult: true,
+        willClearResult: shouldClearConsumedResultDisplay,
       });
-      setResult(null);
-      resultRef.current = null;
-      emitResultHeldStillPresentAfterClear(
-        'finalizeResultForGoToBans',
-        'go-to-bans-finalize',
-      );
+      if (shouldClearConsumedResultDisplay) {
+        setResult(null);
+        resultRef.current = null;
+        emitResultHeldStillPresentAfterClear(
+          'finalizeResultForGoToBans',
+          'go-to-bans-finalize',
+        );
+      }
 
       if (
         !hasNextInChain &&
