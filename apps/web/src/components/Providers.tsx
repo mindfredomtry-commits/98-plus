@@ -32100,12 +32100,139 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       chainSource,
     });
 
+    const continueOpts = {
+      clearActiveHold: false as const,
+      prefetchSkipBanId: banId,
+      emptyFallback: 'lobby' as const,
+      openBansBanId: banId,
+    };
+
+    // Keep notification chain active and show the next owner-queue card
+    // synchronously after consume — lobby only when the chain is empty.
+    setNotificationChainTransitioning(true);
+    let syncOutcome: ContinueNotificationChainOutcome = 'blocked';
+    flushSync(() => {
+      syncOutcome = continueNotificationChainOrOpenLobbySync(
+        chainSource,
+        continueOpts,
+      );
+    });
+
+    const clearGoToBansAdvanceFlags = () => {
+      setChainAdvanceWaiting(false);
+      goToBansAdvancePendingRef.current = false;
+      goToBansClosingBanIdRef.current = null;
+      mirrorOwnerSessionFlagsRef.current('navigateFromResult:status-cta-timeout', {
+        goToBansAdvancePending: false,
+      });
+    };
+
+    if (syncOutcome === 'show-next') {
+      clearGoToBansAdvanceFlags();
+      logNavigateFromResultReturnTrace(
+        'sync-continue-show-next',
+        'chain-continue-show-next-success',
+        {
+          didCallContinue: true,
+          didCallShowNext: true,
+          action: 'sync-continue-show-next',
+        },
+      );
+      emitGoToBansShowNextCalled({
+        ...buildGoToBansClickDismissDiag('navigateFromResult', {
+          banId,
+          dismissReason: 'go-to-bans',
+        }),
+        via: 'continueNotificationChainOrOpenLobbySync',
+        outcome: syncOutcome,
+        chainSource,
+      });
+      logResultGoToBansShowNext({
+        banId,
+        chainSource,
+        queueLen: overlayQueueRef.current.length,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+        headKind: overlayQueueRef.current[0]?.kind ?? null,
+      });
+      emitPostConsumeReturnPath({
+        functionName: 'navigateFromResult',
+        branch: 'chain-continue-show-next-success',
+        reason: 'sync-outcome-show-next',
+        willShowNext: true,
+        willEndChain: false,
+        willOpenBansSection: false,
+        willReturnLobby: false,
+        queueLen: overlayQueueRef.current.length,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+        queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+        pendingHeadKind:
+          pendingStartupInteractionsRef.current[0]?.kind ?? null,
+        outcome: syncOutcome,
+      });
+      emitGoToBansContinueExit({
+        source: chainSource,
+        handlerName: 'navigateFromResult',
+        outcome: syncOutcome,
+        returnReason: 'sync-continue-show-next-success',
+        didCallContinue: true,
+        didCallShowNext: true,
+        queueLenBefore,
+        pendingLenBefore,
+      });
+      return;
+    }
+
+    if (syncOutcome !== 'needs-prefetch') {
+      clearGoToBansAdvanceFlags();
+      logNavigateFromResultReturnTrace(
+        syncOutcome === 'open-lobby'
+          ? 'sync-continue-open-lobby'
+          : 'sync-continue-not-show-next',
+        `sync-continue-outcome:${syncOutcome}`,
+        {
+          didCallContinue: true,
+          didCallShowNext: false,
+          action: `sync-continue-outcome:${syncOutcome}`,
+        },
+      );
+      emitPostConsumeReturnPath({
+        functionName: 'navigateFromResult',
+        branch:
+          syncOutcome === 'open-lobby'
+            ? 'return-lobby-empty-chain'
+            : 'continue-outcome-not-show-next',
+        reason: `sync-continue-outcome:${syncOutcome}`,
+        willShowNext: false,
+        willEndChain: syncOutcome === 'open-lobby',
+        willOpenBansSection: false,
+        willReturnLobby: syncOutcome === 'open-lobby',
+        queueLen: overlayQueueRef.current.length,
+        pendingLen: pendingStartupInteractionsRef.current.length,
+        queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+        pendingHeadKind:
+          pendingStartupInteractionsRef.current[0]?.kind ?? null,
+        outcome: syncOutcome,
+        targetTab,
+      });
+      emitGoToBansContinueExit({
+        source: chainSource,
+        handlerName: 'navigateFromResult',
+        outcome: syncOutcome,
+        returnReason: `sync-continue-outcome:${syncOutcome}`,
+        didCallContinue: true,
+        didCallShowNext: false,
+        queueLenBefore,
+        pendingLenBefore,
+      });
+      return;
+    }
+
     logNavigateFromResultReturnTrace(
       'scheduling-async-continue',
-      'scheduling-async-continue',
+      'scheduling-async-continue-needs-prefetch',
       {
         didSetAwaiting: shouldChainAdvanceWait,
-        action: 'schedule-async-continue',
+        action: 'schedule-async-continue-needs-prefetch',
       },
     );
 
@@ -32113,7 +32240,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       source: chainSource,
       handlerName: 'navigateFromResult',
       outcome: 'async-continue-scheduled',
-      returnReason: 'scheduling-async-continue',
+      returnReason: 'scheduling-async-continue-needs-prefetch',
       didCallContinue: false,
       didCallShowNext: false,
       didSetAwaiting: shouldChainAdvanceWait,
@@ -32142,12 +32269,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       const outcome = await continueNotificationChainOrOpenLobbyRef.current(
         chainSource,
-        {
-          clearActiveHold: false,
-          prefetchSkipBanId: banId,
-          emptyFallback: 'lobby',
-          openBansBanId: banId,
-        },
+        continueOpts,
       );
       const shown = outcome === 'show-next';
       logNavigateFromResultReturnTrace(
@@ -32290,12 +32412,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
         }
       }
-      setChainAdvanceWaiting(false);
-      goToBansAdvancePendingRef.current = false;
-      goToBansClosingBanIdRef.current = null;
-      mirrorOwnerSessionFlagsRef.current('navigateFromResult:status-cta-timeout', {
-        goToBansAdvancePending: false,
-      });
+      clearGoToBansAdvanceFlags();
       if (shown) {
         logNavigateFromResultReturnTrace(
           'async-continue-show-next',
@@ -32515,6 +32632,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     cancelResultPollBurst,
     clearBansOverlayNavigationIntent,
     clearNotificationChainReturnLatch,
+    continueNotificationChainOrOpenLobbySync,
     snapshotPendingNotificationChain,
     directResultOverlayActive,
     clearStaleComposeStateBeforeBansNavigation,
