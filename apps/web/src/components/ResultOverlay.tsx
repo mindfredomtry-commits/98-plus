@@ -27,6 +27,20 @@ import {
   logResultRenderBranch,
   logResultRenderSelectionTrace,
 } from '@/lib/result-render-selection-trace';
+import {
+  buildResultOverlayLifecycleBase,
+  logResultOverlayActiveProps,
+  logResultOverlayCleanup,
+  logResultOverlayCloseReason,
+  logResultOverlayDismissSource,
+  logResultOverlayEffect,
+  logResultOverlayLayoutEffect,
+  logResultOverlayMount,
+  logResultOverlayPaint,
+  logResultOverlayUnmount,
+  logResultOverlayUnmountWithoutDismiss,
+  logResultOverlayVisibleState,
+} from '@/lib/result-overlay-lifecycle-trace';
 import { logResultCardUnmounted } from '@/lib/check-chain-drain-debug';
 import { logResultCardCtaClick } from '@/lib/result-card-dismiss-diag-debug';
 import { ANALYTICS_EVENTS } from '@98plus/shared';
@@ -200,6 +214,16 @@ function ResultOverlayInner({
   const [archiveSaved, setArchiveSaved] = useState(false);
   const resultOverlayMountedRef = useRef(false);
   const goToBansClickInFlightRef = useRef(false);
+  const dismissInitiatedRef = useRef(false);
+  const dismissSourceRef = useRef<string | null>(null);
+  const closeReasonRef = useRef<string | null>(null);
+  const dismissMetaRef = useRef<{
+    source: string;
+    closeReason?: string | null;
+    initiator: string;
+  } | null>(null);
+  const prevVisibleRef = useRef<boolean | null>(null);
+  const prevActivePropsSigRef = useRef<string | null>(null);
 
   useEffect(() => {
     resultOverlayMountedRef.current = true;
@@ -233,6 +257,55 @@ function ResultOverlayInner({
   const returnsNullReason = returnsNullReasonProp;
   const showable = visible;
   const effectiveShowable = visible;
+
+  const lifecycleBase = useCallback(
+    () =>
+      buildResultOverlayLifecycleBase({
+        result,
+        resultStatus,
+        embedded,
+        contentOnly,
+        directPaint,
+        showable,
+        visible,
+        visibilityReason,
+      }),
+    [
+      contentOnly,
+      directPaint,
+      embedded,
+      result,
+      resultStatus,
+      showable,
+      visibilityReason,
+      visible,
+    ],
+  );
+
+  const recordDismiss = useCallback(
+    (source: string, initiator: string, closeReason?: string | null) => {
+      dismissInitiatedRef.current = true;
+      dismissSourceRef.current = source;
+      if (closeReason != null) {
+        closeReasonRef.current = closeReason;
+      }
+      const base = lifecycleBase();
+      logResultOverlayDismissSource({
+        ...base,
+        source,
+        initiator,
+        closeReason: closeReason ?? closeReasonRef.current,
+      });
+      if (closeReason != null) {
+        logResultOverlayCloseReason({
+          ...base,
+          reason: closeReason,
+          source,
+        });
+      }
+    },
+    [lifecycleBase],
+  );
 
   const renderResult = useMemo((): BanResult => {
     if (!overboardQueueBody) {
@@ -280,13 +353,20 @@ function ResultOverlayInner({
 
   const guardedOnClose = useCallback(() => {
     if (skipResultOverlayCleanup('onClose')) return;
+    const meta = dismissMetaRef.current;
+    dismissMetaRef.current = null;
+    recordDismiss(
+      meta?.source ?? 'guarded-on-close',
+      meta?.initiator ?? 'ResultOverlay.guardedOnClose',
+      meta?.closeReason ?? 'user-close-or-shell',
+    );
     logCardCloseClick({
       kind: 'result',
       banId: result.id,
       source: 'result-close',
     });
     onClose();
-  }, [logCardCloseClick, onClose, result.id, skipResultOverlayCleanup]);
+  }, [logCardCloseClick, onClose, recordDismiss, result.id, skipResultOverlayCleanup]);
 
   traceResultOverlayLifecycle('RESULT OVERLAY ENTER', tracePropsRef.current, {
     returnsNullReason,
@@ -332,8 +412,38 @@ function ResultOverlayInner({
   });
 
   useEffect(() => {
+    logResultOverlayEffect({
+      ...lifecycleBase(),
+      effectName: 'mount',
+      phase: 'run',
+    });
+    logResultOverlayMount({
+      ...lifecycleBase(),
+      returnsNullReason,
+      viewerId,
+    });
     traceResultOverlayLifecycle('RESULT OVERLAY MOUNT', tracePropsRef.current);
     return () => {
+      const base = lifecycleBase();
+      if (!dismissInitiatedRef.current) {
+        logResultOverlayUnmountWithoutDismiss({
+          ...base,
+          lastVisible: prevVisibleRef.current,
+          dismissSource: dismissSourceRef.current,
+          closeReason: closeReasonRef.current,
+        });
+      }
+      logResultOverlayUnmount({
+        ...base,
+        dismissSource: dismissSourceRef.current,
+        closeReason: closeReasonRef.current,
+        dismissInitiated: dismissInitiatedRef.current,
+      });
+      logResultOverlayCleanup({
+        ...base,
+        effectName: 'mount',
+        phase: 'unmount-cleanup',
+      });
       logResultCardUnmounted({
         banId: result.id,
         outcome: result.outcome ?? null,
@@ -342,11 +452,81 @@ function ResultOverlayInner({
       });
       traceResultOverlayLifecycle('RESULT OVERLAY UNMOUNT', tracePropsRef.current, {
         resultCtaBansSession: resultCtaBansSessionRef.current,
+        dismissInitiated: dismissInitiatedRef.current,
+        dismissSource: dismissSourceRef.current,
+        closeReason: closeReasonRef.current,
       });
     };
+    // Mount/unmount lifecycle only — props captured via lifecycleBase() at cleanup time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
+    const base = lifecycleBase();
+    const sig = JSON.stringify({
+      resultId: result.id,
+      status: resultStatus,
+      embedded,
+      directPaint,
+      contentOnly,
+      showable,
+    });
+    const prevSig = prevActivePropsSigRef.current;
+    if (prevSig != null && prevSig !== sig) {
+      const changedFields: string[] = [];
+      const prev = JSON.parse(prevSig) as Record<string, unknown>;
+      const next = JSON.parse(sig) as Record<string, unknown>;
+      for (const key of Object.keys(next)) {
+        if (prev[key] !== next[key]) changedFields.push(key);
+      }
+      logResultOverlayActiveProps({
+        ...base,
+        changedFields,
+        previous: prev,
+        next,
+      });
+    }
+    prevActivePropsSigRef.current = sig;
+  }, [
+    contentOnly,
+    directPaint,
+    embedded,
+    lifecycleBase,
+    result.id,
+    resultStatus,
+    showable,
+  ]);
+
+  useEffect(() => {
+    const previousVisible = prevVisibleRef.current;
+    if (previousVisible != null && previousVisible !== visible) {
+      const changedBy = 'props-visible-change';
+      logResultOverlayVisibleState({
+        ...lifecycleBase(),
+        previousVisible,
+        nextVisible: visible,
+        changedBy,
+        closeReason: !visible ? (visibilityReason ?? 'visible-false') : null,
+      });
+      if (!visible) {
+        logResultOverlayDismissSource({
+          ...lifecycleBase(),
+          source: 'visible-prop-false',
+          initiator: changedBy,
+          closeReason: visibilityReason ?? 'visible-false',
+        });
+      }
+    }
+    prevVisibleRef.current = visible;
+  }, [lifecycleBase, visibilityReason, visible]);
+
+  useEffect(() => {
+    logResultOverlayEffect({
+      ...lifecycleBase(),
+      effectName: 'showable-guard',
+      phase: 'run',
+      showable,
+    });
     if (directPaint) return;
     if (!showable) {
       if (
@@ -365,10 +545,20 @@ function ResultOverlayInner({
       ) {
         return;
       }
+      dismissMetaRef.current = {
+        source: 'showable-guard-effect',
+        closeReason: 'visible-false-auto-close',
+        initiator: 'ResultOverlay.showable-guard-effect',
+      };
       guardedOnClose();
     }
     return () => {
       if (skipResultOverlayCleanup('onClose-guard')) return;
+      logResultOverlayCleanup({
+        ...lifecycleBase(),
+        effectName: 'showable-guard',
+        phase: 'effect-cleanup',
+      });
       traceResultOverlayLifecycle('RESULT OVERLAY EFFECT CLEANUP', tracePropsRef.current, {
         effect: 'onClose-guard',
       });
@@ -378,18 +568,31 @@ function ResultOverlayInner({
     blockAutoDismissTerminalFinalStatus,
     directPaint,
     guardedOnClose,
+    lifecycleBase,
     result.id,
     showable,
     skipResultOverlayCleanup,
   ]);
 
   useLayoutEffect(() => {
+    logResultOverlayLayoutEffect({
+      ...lifecycleBase(),
+      effectName: 'directPaint-dom-raf',
+      phase: 'run',
+      directPaint,
+      showable,
+    });
     if (!directPaint || !showable) return;
 
     traceResultOverlayLifecycle('RESULT OVERLAY RAF SCHEDULED', tracePropsRef.current);
 
     let rafId = 0;
     rafId = requestAnimationFrame(() => {
+      logResultOverlayPaint({
+        ...lifecycleBase(),
+        effectName: 'directPaint-dom-raf',
+        paintPhase: 'directPaint-dom-probe',
+      });
       logOverlayTransition('[TRANSITION DELAY USED]', {
         source: 'ResultOverlay-directPaint-raf',
         ms: 0,
@@ -431,6 +634,18 @@ function ResultOverlayInner({
         cancelAnimationFrame(rafId);
         return;
       }
+      logResultOverlayLayoutEffect({
+        ...lifecycleBase(),
+        effectName: 'directPaint-dom-raf',
+        phase: 'cleanup',
+        rafId,
+      });
+      logResultOverlayCleanup({
+        ...lifecycleBase(),
+        effectName: 'directPaint-dom-raf',
+        phase: 'layout-cleanup',
+        rafId,
+      });
       traceResultOverlayLifecycle('RESULT OVERLAY EFFECT CLEANUP', tracePropsRef.current, {
         effect: 'dom-raf',
         rafId,
@@ -439,11 +654,18 @@ function ResultOverlayInner({
     };
   }, [
     directPaint,
+    lifecycleBase,
     result.id,
     showable,
+    skipResultOverlayCleanup,
   ]);
 
   useEffect(() => {
+    logResultOverlayEffect({
+      ...lifecycleBase(),
+      effectName: 'saved-bans',
+      phase: 'run',
+    });
     if (!token || !result.id) return;
     let cancelled = false;
     void getSavedBans(token)
@@ -455,11 +677,16 @@ function ResultOverlayInner({
     return () => {
       cancelled = true;
       if (skipResultOverlayCleanup('saved-bans')) return;
+      logResultOverlayCleanup({
+        ...lifecycleBase(),
+        effectName: 'saved-bans',
+        phase: 'effect-cleanup',
+      });
       traceResultOverlayLifecycle('RESULT OVERLAY EFFECT CLEANUP', tracePropsRef.current, {
         effect: 'saved-bans',
       });
     };
-  }, [result.id, skipResultOverlayCleanup, token]);
+  }, [lifecycleBase, result.id, skipResultOverlayCleanup, token]);
 
   const isOverboard =
     overboardQueueBody ||
@@ -551,13 +778,19 @@ function ResultOverlayInner({
     markOverlayUserAction('result-reply', result.id);
     haptic('medium');
     startReplyFromResult(result);
+    recordDismiss(
+      'reply-from-result',
+      'ResultOverlay.replyFromResult',
+      'reply-cta',
+    );
     dismissBanResult();
   }, [
+    dismissBanResult,
     haptic,
     markOverlayUserAction,
-    startReplyFromResult,
-    dismissBanResult,
+    recordDismiss,
     result,
+    startReplyFromResult,
   ]);
 
   const goToBans = useCallback(() => {
@@ -660,9 +893,10 @@ function ResultOverlayInner({
     if (!allowOverlayUserTap('result-ban-others')) return;
     markOverlayUserAction('result', result.id);
     haptic('medium');
+    recordDismiss('ban-others', 'ResultOverlay.banOthers', 'ban-others-cta');
     onClose();
     openNewBanWhoFlow();
-  }, [haptic, markOverlayUserAction, onClose, openNewBanWhoFlow, result.id]);
+  }, [haptic, markOverlayUserAction, onClose, openNewBanWhoFlow, recordDismiss, result.id]);
 
   const toggleArchiveSave = useCallback(() => {
     if (!token || !result.id) return;
@@ -792,25 +1026,97 @@ function ResultOverlayInner({
   }
 
   useLayoutEffect(() => {
+    logResultOverlayLayoutEffect({
+      ...lifecycleBase(),
+      effectName: 'report-overlay-rendered',
+      phase: 'run',
+      hasActions,
+    });
     if (!effectiveShowable || !result.id) return;
     reportOverlayRendered('result', result.id, hasActions);
-  }, [effectiveShowable, result.id, hasActions, reportOverlayRendered]);
+    return () => {
+      logResultOverlayCleanup({
+        ...lifecycleBase(),
+        effectName: 'report-overlay-rendered',
+        phase: 'layout-cleanup',
+      });
+    };
+  }, [effectiveShowable, hasActions, lifecycleBase, reportOverlayRendered, result.id]);
 
   useLayoutEffect(() => {
+    logResultOverlayLayoutEffect({
+      ...lifecycleBase(),
+      effectName: 'lifecycle-paint-raf',
+      phase: 'run',
+    });
+    if (!effectiveShowable || !result.id) return;
+    const rafId = requestAnimationFrame(() => {
+      logResultOverlayPaint({
+        ...lifecycleBase(),
+        effectName: 'lifecycle-paint-raf',
+        paintPhase: 'post-mount',
+        mounted: resultOverlayMountedRef.current,
+      });
+    });
+    return () => {
+      logResultOverlayLayoutEffect({
+        ...lifecycleBase(),
+        effectName: 'lifecycle-paint-raf',
+        phase: 'cleanup',
+      });
+      logResultOverlayCleanup({
+        ...lifecycleBase(),
+        effectName: 'lifecycle-paint-raf',
+        phase: 'layout-cleanup',
+      });
+      cancelAnimationFrame(rafId);
+    };
+  }, [effectiveShowable, lifecycleBase, result.id]);
+
+  useLayoutEffect(() => {
+    logResultOverlayLayoutEffect({
+      ...lifecycleBase(),
+      effectName: 'overboard-paint-timing',
+      phase: 'run',
+    });
     if (!directPaint || !showable || !result.id) return;
     const clickTs = getOverboardClickTs();
     logOverboardPaint('ResultOverlay useLayoutEffect', clickTs);
-    requestAnimationFrame(() => {
+    const rafId = requestAnimationFrame(() => {
       logOverboardPaint('requestAnimationFrame after mount', clickTs);
+      logResultOverlayPaint({
+        ...lifecycleBase(),
+        effectName: 'overboard-paint-timing',
+        paintPhase: 'directPaint-timing',
+        clickTs,
+      });
     });
-  }, [directPaint, showable, result.id]);
+    return () => {
+      logResultOverlayCleanup({
+        ...lifecycleBase(),
+        effectName: 'overboard-paint-timing',
+        phase: 'layout-cleanup',
+      });
+      cancelAnimationFrame(rafId);
+    };
+  }, [directPaint, lifecycleBase, result.id, showable]);
 
   useLayoutEffect(() => {
+    logResultOverlayLayoutEffect({
+      ...lifecycleBase(),
+      effectName: 'result-fun-mode',
+      phase: 'run',
+    });
     if (!showable) return;
     logResultFunMode(result);
-  }, [showable, result]);
+  }, [lifecycleBase, result, showable]);
 
   useLayoutEffect(() => {
+    logResultOverlayLayoutEffect({
+      ...lifecycleBase(),
+      effectName: 'result-presentation',
+      phase: 'run',
+    });
     if (!showable) return;
     logResultPresentation(result.outcome, {
       component: 'ResultOverlay',
@@ -822,13 +1128,14 @@ function ResultOverlayInner({
       source: 'mount',
     });
   }, [
-    showable,
     isOverboard,
+    lifecycleBase,
     overboardPresentation,
     result.id,
     result.outcome,
     result.headline,
     result.subline,
+    showable,
     view.displayHeadline,
   ]);
 
@@ -912,6 +1219,12 @@ function ResultOverlayInner({
   };
 
   useLayoutEffect(() => {
+    logResultOverlayLayoutEffect({
+      ...lifecycleBase(),
+      effectName: 'visible-content-dom-probe',
+      phase: 'run',
+      willRenderVisibleContent,
+    });
     if (!willRenderVisibleContent) return;
 
     const layer = document.querySelector('.app-notification-layer');
@@ -961,6 +1274,13 @@ function ResultOverlayInner({
       domActionsStyle: styleOf(actionsEl),
       domShellContentStyle: styleOf(shellContentEl),
     });
+    return () => {
+      logResultOverlayCleanup({
+        ...lifecycleBase(),
+        effectName: 'visible-content-dom-probe',
+        phase: 'layout-cleanup',
+      });
+    };
   }, [
     banText,
     bodyKind,
@@ -972,6 +1292,7 @@ function ResultOverlayInner({
     hasActions,
     hasParticipantActions,
     isOverboard,
+    lifecycleBase,
     notificationSessionActive,
     overlayVisibleContent,
     renderResult.id,
