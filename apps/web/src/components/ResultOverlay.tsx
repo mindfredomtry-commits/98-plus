@@ -373,6 +373,19 @@ function ResultOverlayInner({
     viewerId,
   });
 
+  console.log('ACTUAL_COMPONENT_RENDER: ResultOverlay', {
+    t: performance.now(),
+    resultId: result.id,
+    banId: result.id,
+    status: resultStatus,
+    outcome: result.outcome ?? null,
+    embedded,
+    directPaint,
+    contentOnly,
+    showable,
+    visible,
+  });
+
   if (isOverboardStatusOrOutcome || overboardQueueBody || directPaint) {
     logDirectOverboardShowableDecision({
       banId: result.id,

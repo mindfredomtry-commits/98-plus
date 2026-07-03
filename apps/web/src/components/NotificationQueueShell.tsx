@@ -55,6 +55,56 @@ function hasRenderableChildren(children: ReactNode): boolean {
   );
 }
 
+function resolveChildrenType(children: ReactNode): string {
+  const nodes = Children.toArray(children).filter(
+    (child) => child != null && child !== false,
+  );
+  if (nodes.length === 0) return 'empty';
+  const first = nodes[0];
+  if (!isValidElement(first)) return typeof first;
+  const type = first.type;
+  if (typeof type === 'string') return type;
+  if (typeof type === 'function') {
+    return type.name || 'anonymous-function';
+  }
+  return 'unknown-element-type';
+}
+
+function ModalShellContentWrapper({
+  kind,
+  visible,
+  hasContent,
+  reason,
+  contentKey,
+  handoff,
+  children,
+}: {
+  kind: OverlayKind;
+  visible: boolean;
+  hasContent: boolean;
+  reason: string;
+  contentKey: string | null;
+  handoff: boolean;
+  children: ReactNode;
+}) {
+  console.log('ACTUAL_COMPONENT_RENDER: ModalShellContentWrapper', {
+    t: performance.now(),
+    kind,
+    visible,
+    hasContent,
+    childrenType: resolveChildrenType(children),
+    reason,
+  });
+  return (
+    <div
+      key={handoff ? undefined : (contentKey ?? kind)}
+      className="notification-queue-shell__content"
+    >
+      {children}
+    </div>
+  );
+}
+
 function isAdvanceHeadReady(
   kind: OverlayKind,
   incomingCardReady: boolean,
@@ -174,6 +224,18 @@ export function NotificationQueueShell({
         ? overlayRenderBranch
         : 'base-null',
     reason: renderBranch,
+  });
+
+  console.log('ACTUAL_COMPONENT_RENDER: NotificationQueueShell', {
+    t: performance.now(),
+    kind,
+    effectiveKind,
+    renderBranch,
+    childrenBranch,
+    hasChildren: hasRenderableChildrenProbe,
+    willRenderResultOverlay,
+    queueLen,
+    pendingLen,
   });
 
   const logShellRenderBranch = (branch: string, reason: string) => {
@@ -456,12 +518,16 @@ export function NotificationQueueShell({
       onClose={() => {}}
       cardClassName={CARD_CLASS[shellKind]}
     >
-      <div
-        key={handoff ? undefined : (contentKey ?? kind)}
-        className="notification-queue-shell__content"
+      <ModalShellContentWrapper
+        kind={shellKind}
+        visible
+        hasContent={hasContent}
+        reason={renderBranch}
+        contentKey={contentKey}
+        handoff={handoff}
       >
         {children}
-      </div>
+      </ModalShellContentWrapper>
     </ModalShell>
   );
 }

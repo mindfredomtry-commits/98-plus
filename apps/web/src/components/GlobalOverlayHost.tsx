@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useSyncExternalStore, type ReactNode } from 'react';
+import { useEffect, useSyncExternalStore, Children, isValidElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { APP_NOTIFICATION_BACKDROP_Z_INDEX } from '@/lib/overlay-queue';
 
@@ -56,6 +56,19 @@ export function GlobalOverlayHost({
   }, [activeOverlayKind, activeIncomingBanId]);
 
   if (!mounted || typeof document === 'undefined') return null;
+
+  const hasOverlay = Children.toArray(children).some(
+    (child) => child != null && child !== false && isValidElement(child),
+  );
+  console.log('ACTUAL_COMPONENT_RENDER: NotificationOverlayShell', {
+    t: performance.now(),
+    kind: activeOverlayKind,
+    activeKind: activeOverlayKind,
+    hasOverlay,
+    visible: active,
+    queueLen: null,
+    pendingLen: null,
+  });
 
   return createPortal(
     <div

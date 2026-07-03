@@ -109,6 +109,22 @@ export function DirectOverboardResultLayer({
         : 'will-render',
   });
 
+  const directLayerBranch = !visible
+    ? 'return-null-not-visible'
+    : !portalTarget
+      ? 'return-null-no-portal-target'
+      : 'render-result-overlay-portal';
+  console.log('ACTUAL_COMPONENT_RENDER: DirectOverboardResultLayer', {
+    t: performance.now(),
+    active: visible,
+    hasResult: true,
+    resultBanId: result.id,
+    portalReady: portalTarget != null,
+    willRender: visible && portalTarget != null,
+    branch: directLayerBranch,
+    showable: visible,
+  });
+
   useLayoutEffect(() => {
     const target = getAppPortalRoot();
     setPortalTarget(target);
