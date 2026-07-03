@@ -738,6 +738,8 @@ import {
   logApplyQueueCommitTrace,
   queueOverlaySnapshotChanged,
 } from '@/lib/apply-queue-commit-trace';
+import { logEnqueueNotificationExitTrace } from '@/lib/enqueue-notification-exit-trace';
+import { logEnqueueNotificationFatalTrace } from '@/lib/enqueue-notification-fatal-trace';
 import {
   logOwnerQueuePopulationTrace,
   readNotificationFieldsFromOverlay,
@@ -12537,14 +12539,106 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         mutationSkipped: false,
       });
 
+      const fatalDiag = {
+        reachedAfterEntry: true,
+        reachedBeforeFirstReturn: false,
+        reachedBeforeApply: false,
+      };
+      let fatalStage = 'after-entry';
+      const logFatalTrace = (stage: string, err?: unknown) => {
+        const notificationKind = isValidQueuedOverlay(normalizedItem)
+          ? normalizedItem.kind
+          : null;
+        const resultId =
+          normalizedItem.kind === 'result' ? normalizedItem.result.id : null;
+        logEnqueueNotificationFatalTrace({
+          source: `enqueueNotification:${opts?.source ?? 'unknown'}`,
+          notificationKind,
+          banId: banId || null,
+          resultId,
+          stage,
+          errorName:
+            err instanceof Error
+              ? err.name
+              : err != null
+                ? 'non-error-throwable'
+                : null,
+          errorMessage:
+            err instanceof Error
+              ? err.message
+              : err != null
+                ? String(err)
+                : null,
+          stack: err instanceof Error ? (err.stack ?? null) : null,
+          reachedAfterEntry: fatalDiag.reachedAfterEntry,
+          reachedBeforeFirstReturn: fatalDiag.reachedBeforeFirstReturn,
+          reachedBeforeApply: fatalDiag.reachedBeforeApply,
+        });
+      };
+      const setFatalStage = (stage: string) => {
+        fatalStage = stage;
+      };
+
+      try {
+        setFatalStage('helpers-define');
+
+      const traceEnqueueExit = (
+        returnReason: string,
+        extra: Partial<{
+          changed: boolean | null;
+          shouldDefer: boolean;
+          willApplyOverlayQueue: boolean;
+          skipReason: string | null;
+          arbiterDecision: string | null;
+          dedupMatched: boolean | null;
+          resultBlocked: boolean | null;
+          passiveDeferred: boolean | null;
+          startupHold: boolean | null;
+          activeLock: string | null;
+          ttlSkip: boolean | null;
+        }> = {},
+      ) => {
+        fatalDiag.reachedBeforeFirstReturn = true;
+        setFatalStage(`exit:${returnReason}`);
+        const notificationKind = isValidQueuedOverlay(normalizedItem)
+          ? normalizedItem.kind
+          : null;
+        const resultId =
+          normalizedItem.kind === 'result' ? normalizedItem.result.id : null;
+        logEnqueueNotificationExitTrace({
+          source: `enqueueNotification:${opts?.source ?? 'unknown'}`,
+          notificationKind,
+          banId: banId || null,
+          resultId,
+          changed: extra.changed ?? null,
+          shouldDefer: extra.shouldDefer ?? false,
+          willApplyOverlayQueue: extra.willApplyOverlayQueue ?? false,
+          returnReason,
+          skipReason: extra.skipReason ?? null,
+          arbiterDecision: extra.arbiterDecision ?? null,
+          dedupMatched: extra.dedupMatched ?? null,
+          resultBlocked: extra.resultBlocked ?? null,
+          passiveDeferred: extra.passiveDeferred ?? null,
+          startupHold: extra.startupHold ?? null,
+          activeLock: extra.activeLock ?? null,
+          ttlSkip: extra.ttlSkip ?? null,
+        });
+      };
+
+      setFatalStage('validity-check');
       if (!isValidQueuedOverlay(normalizedItem)) {
         traceEnqueueOwnerPopulation('invalid-overlay', {
           reason: 'isValidQueuedOverlay-false',
           mutationSkipped: true,
           skipReason: 'invalid-queued-overlay',
         });
+        traceEnqueueExit('invalid-overlay', {
+          skipReason: 'invalid-queued-overlay',
+        });
         return;
       }
+
+      setFatalStage('post-validity');
 
       const traceIncomingOverlayArbiter = (
         stage: string,
@@ -12593,6 +12687,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           mutationSkipped: true,
           skipReason: 'check-prime-skip-stale-result-exists',
         });
+        traceEnqueueExit('check-result-priority-skip', {
+          skipReason: 'check-prime-skip-stale-result-exists',
+        });
         return;
       }
 
@@ -12612,6 +12709,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           mutationSkipped: false,
           skipReason: 'defer-to-pending-startup',
         });
+        traceEnqueueExit('mounted-overlay-defer', {
+          shouldDefer: true,
+          skipReason: 'defer-to-pending-startup',
+        });
+        setFatalStage('before-deferNotificationToPendingStartup:mounted');
         deferNotificationToPendingStartup(normalizedItem);
         return;
       }
@@ -12632,10 +12734,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           mutationSkipped: false,
           skipReason: 'defer-to-pending-startup',
         });
+        traceEnqueueExit('compose-flow-defer', {
+          shouldDefer: true,
+          skipReason: 'send-compose-flow-active',
+        });
+        setFatalStage('before-deferNotificationToPendingStartup:compose');
         deferNotificationToPendingStartup(normalizedItem);
         return;
       }
 
+      setFatalStage('before-result-guards');
       if (normalizedItem.kind === 'result') {
         const resultId = normalizedItem.result.id;
         const resultOutcome = resolveBanResultOutcome(normalizedItem.result);
@@ -12647,10 +12755,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             { resultId },
           )
         ) {
+          traceEnqueueExit('reject-non-overkill-terminal-result', {
+            resultBlocked: true,
+            skipReason: 'reject-non-overkill-terminal-result',
+          });
           return;
         }
         const uid = userIdRef.current;
         if (isResultBlockedForNotificationChain(resultId, opts?.source ?? 'enqueueNotification')) {
+          traceEnqueueExit('result-blocked-for-notification-chain', {
+            resultBlocked: true,
+            skipReason: 'result-blocked-for-notification-chain',
+          });
           return;
         }
 
@@ -12667,6 +12783,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           extra: { enqueueSource: opts?.source ?? null, live },
         });
         if (block.blocked) {
+          traceEnqueueExit('should-block-result-open', {
+            resultBlocked: true,
+            skipReason: block.reason,
+          });
           return;
         }
         if (
@@ -12732,6 +12852,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               ),
               closingResultBanId: goToBansClosingBanIdRef.current,
             });
+            traceEnqueueExit('passive-result-deferred-skip', {
+              passiveDeferred: true,
+              skipReason: `passive-result-deferred-skip-${passiveDeferredSkip}`,
+            });
             return;
           }
           logPassiveResultDeferredBlockedByPassiveOpenGuard({
@@ -12759,10 +12883,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           primeLobbyBansAttentionHintSyncRef.current(
             `passive-result-deferred:${opts?.source ?? 'unknown'}`,
           );
+          traceEnqueueExit('passive-result-deferred-attention-hint-only', {
+            passiveDeferred: true,
+            skipReason: 'passive-open-guard-attention-hint-only',
+          });
           return;
         }
       }
 
+      setFatalStage('after-result-guards');
+      setFatalStage('before-arbiter-eval');
       const decision = evaluateOverlayEnqueue(normalizedItem, {
         viewerId: userIdRef.current,
         deepLinkBlocked:
@@ -12781,6 +12911,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         live,
       });
 
+      setFatalStage('after-arbiter-eval');
       if (!decision.accept) {
         logOverlayArbiter(
           decision.reason === 'ttl-skip'
@@ -12801,8 +12932,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           mutationSkipped: true,
           skipReason: decision.reason,
         });
+        traceEnqueueExit('overlay-arbiter-reject', {
+          arbiterDecision: decision.reason,
+          ttlSkip: decision.reason === 'ttl-skip',
+          dedupMatched:
+            decision.reason === 'dedup-skip' ||
+            decision.reason === 'blocked-by-deeplink',
+          skipReason: decision.reason,
+        });
         return;
       }
+
+      traceEnqueueExit('overlay-arbiter-accept', {
+        arbiterDecision: decision.reason,
+        willApplyOverlayQueue: false,
+        skipReason: null,
+      });
 
       if (
         live &&
@@ -12844,6 +12989,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             mutationSkipped: false,
             skipReason: 'defer-to-pending-startup',
           });
+          traceEnqueueExit('live-overlay-blocked-defer', {
+            shouldDefer: true,
+            skipReason: displayDecision.reason,
+          });
+          setFatalStage('before-deferNotificationToPendingStartup:live-overlay');
           deferNotificationToPendingStartup(normalizedItem);
           primeLobbyBansAttentionHintSyncRef.current(
             `live-overlay-blocked:${displayDecision.reason}`,
@@ -12890,11 +13040,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
       }
 
+      setFatalStage('before-startup-hold');
       if (startupInteractionsHoldRef.current && !live) {
         const prevPending = pendingStartupInteractionsRef.current;
         const nextPending = replyDeeplinkChainHoldRef.current
           ? mergeStartupPendingChain(prevPending, [normalizedItem])
           : mergeStartupPendingSingle(prevPending, normalizedItem);
+        setFatalStage('before-applyPendingQueueViaOwner:startup-hold');
         applyPendingQueueViaOwner(
           nextPending,
           `enqueueNotification:${opts?.source ?? 'unknown'}:startup-hold`,
@@ -12921,9 +13073,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           skipReason: 'startup-hold',
           willStartOnClick: true,
         });
+        traceEnqueueExit('startup-hold-pending', {
+          startupHold: true,
+          skipReason: 'startup-hold-pending-not-overlay-queue',
+        });
         return;
       }
 
+      setFatalStage('before-enqueue-with-active-lock');
       const prev = overlayQueueRef.current;
       const activeKey = getActiveOverlayKey(prev);
       const newKey = key;
@@ -12954,8 +13111,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           mutationSkipped: true,
           skipReason: 'queue-unchanged-no-owner-write',
         });
+        traceEnqueueExit('queue-unchanged-dedup', {
+          changed: false,
+          dedupMatched: true,
+          activeLock: activeKey,
+          skipReason: 'queue-unchanged-no-owner-write',
+        });
         return;
       }
+
+      traceEnqueueExit(`enqueue-with-active-lock:${action}`, {
+        changed: true,
+        activeLock: activeKey,
+        willApplyOverlayQueue: true,
+        skipReason: null,
+      });
 
       if (action === 'same-key-refresh') {
         console.log('[OVERLAY SAME_KEY_REFRESH]', {
@@ -13025,6 +13195,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         mutationApplied: false,
         mutationSkipped: false,
       });
+      fatalDiag.reachedBeforeApply = true;
+      setFatalStage('before-apply');
       const ownerQueueBeforeApply =
         ownerShadowRef.current.getState().queue.length;
       const legacyQueueRefAtApply = overlayQueueRef.current;
@@ -13074,6 +13246,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               ? 'apply-overlay-queue-returned-true-but-owner-unchanged'
               : null,
       });
+      setFatalStage('after-apply');
+      } catch (err) {
+        logFatalTrace(`${fatalStage}:catch`, err);
+        throw err;
+      } finally {
+        logFatalTrace(`${fatalStage}:finally`);
+      }
     },
     [applyOverlayQueue, applyPendingQueueViaOwner, isOverlayLive],
   );
