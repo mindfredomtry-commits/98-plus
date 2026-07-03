@@ -770,12 +770,16 @@ export function InstantBanFlow({
     bansCtaQueueSuppress ||
     resultCtaBansOverlayOpen ||
     bansReturnToLobbyLatch;
+  // After go-to-bans, result is gone but chain/queue claims can linger and hide CTA.
   const staleResultQueueClaimActive =
     onResultDismissPath &&
     !hasAnyOverlayForLobbyCta &&
     !result &&
-    activeOverlayKind === 'result' &&
-    overlayQueueLength > 0;
+    activeOverlayKind !== 'incoming' &&
+    activeOverlayKind !== 'check' &&
+    (overlayQueueLength > 0 ||
+      notificationChainTransitioning ||
+      activeOverlayKind === 'result');
   const effectiveOverlayQueueLengthForLobbyCta = staleResultQueueClaimActive
     ? 0
     : overlayQueueLength;
@@ -792,7 +796,8 @@ export function InstantBanFlow({
     overlayHandoffLobbySuppressed,
     successExitDraining,
     postSuccessHandoffBlocking,
-    notificationChainTransitioning,
+    notificationChainTransitioning:
+      notificationChainTransitioning && !staleResultQueueClaimActive,
     queueClaimsNotificationScreen,
     overlayQueueLength: effectiveOverlayQueueLengthForLobbyCta,
     queueLobbyGuardActive,
@@ -810,7 +815,7 @@ export function InstantBanFlow({
     overlayHandoffLobbySuppressed ||
     successExitDraining ||
     postSuccessHandoffBlocking ||
-    notificationChainTransitioning ||
+    (notificationChainTransitioning && !staleResultQueueClaimActive) ||
     queueClaimsNotificationScreen;
   const showLobbyChrome = lobbyBootIntroPrimed && !lobbyChromeHidden;
   const showLobbyCta =
@@ -821,7 +826,7 @@ export function InstantBanFlow({
     !overlayHandoffLobbySuppressed &&
     !successExitDraining &&
     !postSuccessHandoffBlocking &&
-    !notificationChainTransitioning &&
+    !(notificationChainTransitioning && !staleResultQueueClaimActive) &&
     !queueClaimsNotificationScreen &&
     (!replyLobbyBlocked || bansReturnToLobbyLatch) &&
     !deepLinkRouteBootPending &&

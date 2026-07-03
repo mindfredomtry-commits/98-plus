@@ -7913,6 +7913,69 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [setChainAdvanceWaiting, setNotificationChainTransitioning],
   );
 
+  /**
+   * After go-to-bans, if the next card was not actually shown, restore a complete
+   * lobby (CTA visible). Clears stuck chain/transition/shell claims that otherwise
+   * leave lobby chrome without «запрещать».
+   */
+  const finalizeGoToBansChainToLobby = useCallback(
+    (source: string) => {
+      clearNotificationChainTransitioningInline();
+      setChainAdvanceWaiting(false);
+      goToBansAdvancePendingRef.current = false;
+      goToBansClosingBanIdRef.current = null;
+      overlayQueueDrainActiveRef.current = false;
+      notificationChainAwaitingUserRef.current = false;
+      notificationChainHandoffRef.current = false;
+      chainAdvanceExplicitRef.current = false;
+      queueShellShowsResultRef.current = false;
+      displayResultSourcePickedRef.current = 'none';
+
+      const queueLen = overlayQueueRef.current.length;
+      const pendingLen = pendingStartupInteractionsRef.current.length;
+      // Release screen claim so lobby CTA is not held by a stale result shell /
+      // transition. Remaining queue items stay for the bans attention indicator.
+      syncQueueLobbyGuardState({
+        queueLen: 0,
+        pendingLen,
+        fromQueueResult: false,
+        queueShellShowsResult: false,
+        displayResultSourcePicked: 'none',
+        phase: 'idle',
+        source: `finalizeGoToBansChainToLobby:${source}`,
+      });
+      queueLobbyGuardActiveRef.current = false;
+
+      mirrorOwnerSessionFlagsRef.current(
+        `finalizeGoToBansChainToLobby:${source}`,
+        {
+          goToBansAdvancePending: false,
+          drainActive: false,
+          chainHandoff: false,
+          chainAdvanceExplicit: false,
+        },
+      );
+      mirrorOwnerChainSessionGatesRef.current(
+        `finalizeGoToBansChainToLobby:${source}`,
+        {
+          awaitingUser: false,
+          notificationChainTransitioning: false,
+          lobbyOpen: true,
+        },
+      );
+
+      if (queueLen === 0 && pendingLen === 0) {
+        tryClearExplicitNotificationDrainGuarded(
+          source,
+          'go-to-bans-chain-finalized-empty',
+        );
+      }
+
+      openLobbyRef.current(`finalizeGoToBansChainToLobby:${source}`);
+    },
+    [setChainAdvanceWaiting, tryClearExplicitNotificationDrainGuarded],
+  );
+
   const syncPendingStartupCount = useCallback(() => {
     const pendingLen = pendingStartupInteractionsRef.current.length;
     const queueLen = overlayQueueRef.current.length;
@@ -32290,13 +32353,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
         }
       }
-      setChainAdvanceWaiting(false);
-      goToBansAdvancePendingRef.current = false;
-      goToBansClosingBanIdRef.current = null;
-      mirrorOwnerSessionFlagsRef.current('navigateFromResult:status-cta-timeout', {
-        goToBansAdvancePending: false,
-      });
       if (shown) {
+        setChainAdvanceWaiting(false);
+        goToBansAdvancePendingRef.current = false;
+        goToBansClosingBanIdRef.current = null;
+        mirrorOwnerSessionFlagsRef.current('navigateFromResult:status-cta-timeout', {
+          goToBansAdvancePending: false,
+        });
         logNavigateFromResultReturnTrace(
           'async-continue-show-next',
           'chain-continue-show-next-success',
@@ -32370,6 +32433,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      // Next card was not shown — atomically finish chain and restore lobby CTA.
       emitGoToBansShowNextNotCalled({
         ...buildGoToBansClickDismissDiag('navigateFromResult', {
           banId,
@@ -32379,99 +32443,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         outcome,
         chainSource,
       });
-
       const collected = snapshotPendingNotificationChain();
-      if (collected.finalQueueLen > 0 || collected.finalPendingLen > 0) {
-        logNavigateFromResultReturnTrace(
-          'async-continue-lost-pending',
-          'continue-lost-pending-finalQueueLen-or-finalPendingLen-gt-zero',
-          {
-            didCallContinue: true,
-            didCallShowNext: false,
-            action: `continue-outcome:${outcome}`,
-          },
-        );
-        emitPostConsumeReturnPath({
-          functionName: 'navigateFromResult',
-          branch: 'continue-lost-pending-abort',
-          reason: 'continue-lost-pending-finalQueueLen-or-finalPendingLen-gt-zero',
-          willShowNext: false,
-          willEndChain: true,
-          willOpenBansSection: false,
-          willReturnLobby: false,
-          queueLen: collected.finalQueueLen,
-          pendingLen: collected.finalPendingLen,
-          queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
-          pendingHeadKind:
-            pendingStartupInteractionsRef.current[0]?.kind ?? null,
-          outcome,
-        });
-        logResultGoToBansEmptyScreenBug({
-          banId,
-          chainSource,
-          reason: 'continue-lost-pending',
-          finalQueueLen: collected.finalQueueLen,
-          finalPendingLen: collected.finalPendingLen,
-        });
-        emitGoToBansContinueExit({
-          source: chainSource,
-          handlerName: 'navigateFromResult',
-          outcome,
-          returnReason: 'continue-lost-pending-finalQueueLen-or-finalPendingLen-gt-zero',
+      logNavigateFromResultReturnTrace(
+        outcome === 'open-lobby'
+          ? 'async-continue-open-lobby'
+          : 'async-continue-finalize-lobby',
+        `continue-outcome-not-show-next:${outcome}`,
+        {
           didCallContinue: true,
           didCallShowNext: false,
-        });
-        return;
-      }
-
-      if (outcome === 'open-lobby') {
-        logNavigateFromResultReturnTrace(
-          'async-continue-open-lobby',
-          'continue-outcome-open-lobby-empty-chain',
-          {
-            didCallContinue: true,
-            didCallShowNext: false,
-            action: 'async-continue-open-lobby',
-          },
-        );
-      } else if (outcome === 'blocked') {
-        logNavigateFromResultReturnTrace(
-          'async-continue-blocked',
-          `continue-outcome-blocked:${outcome}`,
-          {
-            didCallContinue: true,
-            didCallShowNext: false,
-            action: 'async-continue-blocked',
-          },
-        );
-      } else {
-        logNavigateFromResultReturnTrace(
-          'fallback-open-lobby',
-          `continue-outcome-not-show-next:${outcome}`,
-          {
-            didCallContinue: true,
-            didCallShowNext: false,
-            action: `continue-outcome:${outcome}`,
-          },
-        );
-      }
-
+          action: `finalize-go-to-bans-chain-to-lobby:${outcome}`,
+        },
+      );
       emitPostConsumeReturnPath({
         functionName: 'navigateFromResult',
-        branch:
-          outcome === 'open-lobby'
-            ? 'return-lobby-empty-chain'
-            : 'continue-outcome-not-show-next',
-        reason:
-          outcome === 'open-lobby'
-            ? 'continue-outcome-open-lobby-empty-chain'
-            : `continue-outcome-not-show-next:${outcome}`,
+        branch: 'finalize-go-to-bans-chain-to-lobby',
+        reason: `continue-outcome-not-show-next:${outcome}`,
         willShowNext: false,
-        willEndChain: outcome === 'open-lobby',
+        willEndChain: true,
         willOpenBansSection: false,
-        willReturnLobby: outcome === 'open-lobby',
-        queueLen: overlayQueueRef.current.length,
-        pendingLen: pendingStartupInteractionsRef.current.length,
+        willReturnLobby: true,
+        queueLen: collected.finalQueueLen,
+        pendingLen: collected.finalPendingLen,
         queueHeadKind: overlayQueueRef.current[0]?.kind ?? null,
         pendingHeadKind:
           pendingStartupInteractionsRef.current[0]?.kind ?? null,
@@ -32482,13 +32475,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source: chainSource,
         handlerName: 'navigateFromResult',
         outcome,
-        returnReason:
-          outcome === 'open-lobby'
-            ? 'continue-outcome-open-lobby-empty-chain'
-            : `continue-outcome-not-show-next:${outcome}`,
+        returnReason: `finalize-go-to-bans-chain-to-lobby:${outcome}`,
         didCallContinue: true,
         didCallShowNext: false,
       });
+      finalizeGoToBansChainToLobby(
+        `${chainSource}:continue-outcome-${outcome}`,
+      );
       } catch (error) {
         logNavigateFromResultReturnTrace(
           'async-catch',
@@ -32518,6 +32511,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     snapshotPendingNotificationChain,
     directResultOverlayActive,
     clearStaleComposeStateBeforeBansNavigation,
+    finalizeGoToBansChainToLobby,
     finalizeResultForGoToBans,
     logCardCloseClick,
     markOverlayUserAction,
