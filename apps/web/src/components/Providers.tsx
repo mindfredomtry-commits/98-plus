@@ -24591,6 +24591,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [applyIncomingBanToQueueHead, setActiveIncomingOverlayBanStable, syncDisplayFromQueue],
   );
 
+  /**
+   * Passive-start gate for chain continue / collect / show-next.
+   * Post-action advance inside an active chain must not require the
+   * lobby-bans explicitDrainSource latch when queue/pending still has work.
+   * Passive auto-start (poll / prefetch / prime) remains blocked when the
+   * chain is empty and the source is non-explicit.
+   */
+  const shouldBlockPassiveChainAdvance = (source: string): boolean => {
+    if (
+      overlayQueueRef.current.length > 0 ||
+      pendingStartupInteractionsRef.current.length > 0
+    ) {
+      return false;
+    }
+    const owner = ownerShadowRef.current.getState();
+    if (owner.queue.length > 0 || owner.pending.length > 0) {
+      return false;
+    }
+    return shouldBlockPassiveNotificationDisplay(
+      source,
+      startupInteractionsHoldRef.current,
+    );
+  };
+
   const showNextNotificationFromChainSync = useCallback(
     (source: string): boolean =>
       runWithHeadSwitchPipelineFrame('showNextNotificationFromChainSync', () => {
@@ -24710,12 +24734,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           'result',
         );
       }
-      if (
-        shouldBlockPassiveNotificationDisplay(
-          source,
-          startupInteractionsHoldRef.current,
-        )
-      ) {
+      if (shouldBlockPassiveChainAdvance(source)) {
         const pendingCount =
           readOwnerImperativeQueueLen(owner, 'showNextNotificationFromChainSync', {
             queueRef: overlayQueueRef.current,
@@ -26054,12 +26073,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return snapshotPendingNotificationChain();
       }
-      if (
-        shouldBlockPassiveNotificationDisplay(
-          source,
-          startupInteractionsHoldRef.current,
-        )
-      ) {
+      if (shouldBlockPassiveChainAdvance(source)) {
         logNonExplicitDrainBlocked({
           source,
           reason: 'collect-pending',
@@ -26769,12 +26783,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         traceContinueBlocked('compose-flow-active');
         return returnContinueDiag('blocked', 'compose-flow-active');
       }
-      if (
-        shouldBlockPassiveNotificationDisplay(
-          source,
-          startupInteractionsHoldRef.current,
-        )
-      ) {
+      if (shouldBlockPassiveChainAdvance(source)) {
         const pendingCount =
           readOwnerImperativeQueueLen(chainOwner, 'chainContinue', {
             queueRef: overlayQueueRef.current,
