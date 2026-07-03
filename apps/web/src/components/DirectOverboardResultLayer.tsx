@@ -11,6 +11,10 @@ import {
 } from '@/lib/overlay-priority';
 import { logOverboardDirectState } from '@/lib/overboard-direct-state';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
+import {
+  logResultRenderBranch,
+  logResultRenderSelectionTrace,
+} from '@/lib/result-render-selection-trace';
 import { getAppPortalRoot } from '@/lib/portal-root';
 import { logResultPath } from '@/lib/result-open-trace';
 import { ResultOverlay } from './ResultOverlay';
@@ -32,6 +36,16 @@ function traceDirectLayerJsxBranch(
   fields: Record<string, unknown>,
 ): void {
   markVisibleOverboardTrace('DIRECT OVERBOARD JSX BRANCH', { branch, ...fields });
+  const renderBranch =
+    branch === 'render-result-overlay-portal'
+      ? 'result-overlay'
+      : 'direct-overboard-null';
+  logResultRenderBranch({
+    component: 'DirectOverboardResultLayer',
+    renderBranch,
+    reason: branch,
+    ...fields,
+  });
 }
 
 /**
@@ -75,6 +89,25 @@ export function DirectOverboardResultLayer({
     embedded: true,
     portalReady: portalTarget != null,
   };
+
+  logResultRenderSelectionTrace({
+    effectiveKind: 'result',
+    shellKind: 'result',
+    activeResultId: result.id,
+    resultBanId: result.id,
+    resultId: result.id,
+    hasResult: true,
+    hasResultOverlay: visible && portalTarget != null,
+    displayResultExists: Boolean(result.id?.trim()),
+    willRenderResultOverlay: visible && portalTarget != null && resultVisible,
+    willRenderNotificationOverlay: false,
+    renderBranch: visible && portalTarget != null ? 'result-overlay' : 'direct-overboard-null',
+    reason: !visible
+      ? (visibilityReason ?? 'not-visible')
+      : !portalTarget
+        ? 'no-portal-target'
+        : 'will-render',
+  });
 
   useLayoutEffect(() => {
     const target = getAppPortalRoot();

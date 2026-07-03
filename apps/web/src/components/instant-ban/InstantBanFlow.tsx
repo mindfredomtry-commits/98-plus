@@ -243,6 +243,7 @@ import {
 } from '@/lib/queue-source-comparison-debug';
 import { logLobbyBansCtaEmptyDelayDiag } from '@/lib/lobby-bans-cta-debug';
 import { logLobbyBansClick } from '@/lib/lobby-bans-click-diag-debug';
+import { logResultRenderBranch, logResultRenderSelectionTrace } from '@/lib/result-render-selection-trace';
 import { BanGlyph } from './SuccessBanCardBody';
 import { logSendFlow } from '@/lib/send-flow-debug';
 import { logSendBanResponseTrace } from '@/lib/send-ban-response-trace';
@@ -7351,6 +7352,56 @@ export function InstantBanFlow({
           queueClaimsNotificationScreen,
         })
       : null;
+
+  const lobbyRenderBranch = lobbyOrbVisible || showBootOrb ? 'lobby' : 'base-null';
+  logResultRenderSelectionTrace({
+    activeOverlayKind,
+    activeKind: activeOverlayKind,
+    effectiveKind: activeOverlayKind,
+    shellKind: activeOverlayKind,
+    activeBanId: result?.id ?? null,
+    activeResultId: result?.id ?? null,
+    resultBanId: result?.id ?? null,
+    resultId: result?.id ?? null,
+    hasResult: Boolean(result),
+    hasResultOverlay: Boolean(result),
+    hasNotificationOverlay: notificationOverlayMounted,
+    hasAnyOverlay: hasAnyOverlayForLobbyCta,
+    displayResultExists: Boolean(result),
+    willRenderResultOverlay: Boolean(result),
+    willRenderNotificationOverlay: notificationOverlayMounted,
+    willRenderLobby: lobbyOrbVisible || showBootOrb,
+    overlayQueueLength: effectiveOverlayQueueLengthForLobbyCta,
+    pendingLen: getConfirmOrbQueueDebugSnapshot().pendingLen,
+    queueHeadKind: activeOverlayKind,
+    queueHeadBanId: result?.id ?? null,
+    queueHeadResultId: activeOverlayKind === 'result' ? (result?.id ?? null) : null,
+    queueClaimsNotificationScreen,
+    queueLobbyGuardActive,
+    showLobby: lobbyOpen,
+    showLobbyCta,
+    renderBranch: lobbyRenderBranch,
+    reason: queueClaimsNotificationScreen
+      ? 'queue-claims-notification-screen-lobby-underneath'
+      : lobbyRenderBranch === 'base-null'
+        ? 'lobby-orb-hidden'
+        : 'lobby-visible',
+  });
+  logResultRenderBranch({
+    component: 'InstantBanFlow',
+    renderBranch: lobbyRenderBranch,
+    reason: queueClaimsNotificationScreen
+      ? 'queue-claims-notification-screen'
+      : lobbyRenderBranch === 'base-null'
+        ? 'lobby-orb-hidden'
+        : 'lobby-shell-render',
+    showLobbyOrb,
+    showBootOrb,
+    lobbyChromeHidden,
+    queueClaimsNotificationScreen,
+    activeOverlayKind,
+    overlayQueueLength: effectiveOverlayQueueLengthForLobbyCta,
+  });
 
   return (
     <>

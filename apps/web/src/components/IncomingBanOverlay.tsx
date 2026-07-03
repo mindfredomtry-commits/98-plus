@@ -58,6 +58,10 @@ import {
   logGoToBansNextCardMountLazy,
   logGoToBansNextCardUnmountLazy,
 } from '@/lib/browser-go-to-bans-next-card-debug';
+import {
+  logResultRenderBranch,
+  logResultRenderSelectionTrace,
+} from '@/lib/result-render-selection-trace';
 
 type VerifyPhase = 'idle' | 'pending' | 'ok' | 'failed';
 
@@ -682,6 +686,27 @@ function IncomingBanOverlayInner({
     });
   }
 
+  const projectedWillRenderIncomingOverlay =
+    visible && verifyPhase !== 'failed' && Boolean(activeIncomingBan?.id);
+  logResultRenderSelectionTrace({
+    activeOverlayKind,
+    activeKind: activeOverlayKind,
+    effectiveKind: 'incoming',
+    shellKind: 'incoming',
+    activeBanId: activeIncomingBan?.id ?? null,
+    hasNotificationOverlay: visible,
+    overlayQueueLength,
+    willRenderNotificationOverlay: projectedWillRenderIncomingOverlay,
+    renderBranch: 'incoming-overlay',
+    reason: !visible
+      ? (visibilityReason ?? 'not-visible')
+      : verifyPhase === 'failed'
+        ? 'verify-failed'
+        : !activeIncomingBan?.id
+          ? 'no-active-incoming-ban'
+          : 'will-render',
+  });
+
   if (!visible) {
     if (activeIncomingBan?.id) {
       logIncomingOverlayReturnNull({
@@ -705,6 +730,14 @@ function IncomingBanOverlayInner({
         contentOnly,
       });
     }
+    logResultRenderBranch({
+      component: 'IncomingBanOverlay',
+      renderBranch: 'incoming-overlay',
+      reason: visibilityReason ?? 'not-visible',
+      banId: activeIncomingBan?.id ?? null,
+      replyDirect,
+      contentOnly,
+    });
     return null;
   }
 
@@ -736,12 +769,36 @@ function IncomingBanOverlayInner({
       reason: 'verify-failed',
       verifyPhase,
     });
+    logResultRenderBranch({
+      component: 'IncomingBanOverlay',
+      renderBranch: 'incoming-overlay',
+      reason: 'verify-failed',
+      banId: activeIncomingBan?.id ?? null,
+      verifyPhase,
+    });
     return null;
   }
 
   if (!activeIncomingBan?.id) {
+    logResultRenderBranch({
+      component: 'IncomingBanOverlay',
+      renderBranch: 'incoming-overlay',
+      reason: 'no-active-incoming-ban',
+      replyDirect,
+      contentOnly,
+    });
     return null;
   }
+
+  logResultRenderBranch({
+    component: 'IncomingBanOverlay',
+    renderBranch: 'incoming-overlay',
+    reason: replyDirect ? 'reply-direct-render' : contentOnly ? 'content-only-render' : 'modal-render',
+    banId: activeIncomingBan.id,
+    replyDirect,
+    contentOnly,
+    embedded,
+  });
 
   const senderLetter = (
     activeIncomingBan.sender?.firstName?.[0] ??

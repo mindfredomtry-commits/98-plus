@@ -11,6 +11,11 @@ import {
   logQueueHeadNotReady,
   logQueuePlaceholderBlocked,
 } from '@/lib/check-chain-drain-debug';
+import {
+  logResultRenderBranch,
+  logResultRenderSelectionTrace,
+  resolveOverlayRenderBranchFromKind,
+} from '@/lib/result-render-selection-trace';
 
 type OverlayKind = 'incoming' | 'check' | 'result';
 
@@ -107,6 +112,86 @@ export function NotificationQueueShell({
   };
 
   const renderBranch = resolveRenderBranch();
+
+  const rt = renderTrace ?? {};
+  const effectiveKind =
+    (rt.effectiveNotificationQueueShellKind as string | null | undefined) ??
+    kind;
+  const queueHeadKind =
+    (rt.overlayQueueHeadKind as string | null | undefined) ?? null;
+  const queueHeadBanId =
+    (rt.overlayQueueHeadBanId as string | null | undefined) ?? null;
+  const queueHeadResultId =
+    queueHeadKind === 'result' ? queueHeadBanId : null;
+  const activeResultPayloadBanId =
+    (rt.activeResultPayloadBanId as string | null | undefined) ?? null;
+  const queueLen = (rt.queueLen as number | null | undefined) ?? 0;
+  const pendingLen = (rt.pendingLen as number | null | undefined) ?? 0;
+  const childrenBranch =
+    (rt.childrenBranch as string | null | undefined) ?? null;
+  const queueShellShowsResult = childrenBranch === 'result';
+  const willRenderShellModal = renderBranch === 'modal-shell-content-wrapper';
+  const overlayRenderBranch = resolveOverlayRenderBranchFromKind(kind);
+  const willRenderResultOverlay =
+    kind === 'result' && willRenderShellModal && hasContent;
+  const willRenderNotificationOverlay =
+    kind != null && willRenderShellModal && hasContent;
+
+  logResultRenderSelectionTrace({
+    activeOverlayKind:
+      (rt.activeOverlayKind as string | null | undefined) ??
+      (rt.overlayQueueHeadKind as string | null | undefined) ??
+      kind,
+    activeKind:
+      (rt.activeOverlayKind as string | null | undefined) ??
+      (rt.overlayQueueHeadKind as string | null | undefined) ??
+      kind,
+    effectiveKind,
+    shellKind: kind,
+    activeBanId: displayBanId,
+    activeResultId: activeResultPayloadBanId,
+    resultBanId: activeResultPayloadBanId,
+    resultId: activeResultPayloadBanId,
+    hasResult: queueShellShowsResult || kind === 'result',
+    hasResultOverlay: queueShellShowsResult,
+    hasNotificationOverlay: Boolean(rt.shouldMountNotificationOverlayHost),
+    hasAnyOverlay: kind != null,
+    displayResultExists: Boolean(activeResultPayloadBanId),
+    willRenderResultOverlay,
+    willRenderNotificationOverlay,
+    willRenderLobby: false,
+    overlayQueueLength: queueLen,
+    pendingLen,
+    queueHeadKind,
+    queueHeadBanId,
+    queueHeadResultId,
+    queueClaimsNotificationScreen: queueLen > 0 || pendingLen > 0,
+    showLobby: undefined,
+    showLobbyCta: undefined,
+    renderBranch: willRenderShellModal
+      ? overlayRenderBranch
+      : kind
+        ? overlayRenderBranch
+        : 'base-null',
+    reason: renderBranch,
+  });
+
+  const logShellRenderBranch = (branch: string, reason: string) => {
+    logResultRenderBranch({
+      component: 'NotificationQueueShell',
+      renderBranch: branch,
+      reason,
+      internalBranch: renderBranch,
+      kind,
+      shellKind: kind,
+      effectiveKind,
+      hasContent,
+      incomingCardReady,
+      checkCardReady,
+      advanceWaiting,
+      childrenBranch,
+    });
+  };
 
   useLayoutEffect(() => {
     logNotificationQueueShellRenderTrace({
@@ -314,27 +399,49 @@ export function NotificationQueueShell({
     shellKind,
   ]);
 
-  if (!kind) return null;
+  if (!kind) {
+    logShellRenderBranch('base-null', 'no-kind');
+    return null;
+  }
 
   if (kind === 'incoming' && !incomingCardReady && !advanceWaiting) {
+    logShellRenderBranch('incoming-overlay', 'incoming-not-ready');
     return null;
   }
 
   if (kind === 'check' && !checkCardReady && !advanceWaiting) {
+    logShellRenderBranch('check-overlay', 'check-not-ready');
     return null;
   }
 
   if (advanceWaiting && !advanceHeadReady) {
+    logShellRenderBranch(
+      resolveOverlayRenderBranchFromKind(kind),
+      'advance-head-not-ready',
+    );
     return null;
   }
 
   if (!hasContent && !advanceWaiting) {
+    logShellRenderBranch(
+      resolveOverlayRenderBranchFromKind(kind),
+      'no-content-no-advance',
+    );
     return null;
   }
 
   if (advanceWaiting && !hasContent) {
+    logShellRenderBranch(
+      resolveOverlayRenderBranchFromKind(kind),
+      'advance-no-content',
+    );
     return null;
   }
+
+  logShellRenderBranch(
+    resolveOverlayRenderBranchFromKind(kind),
+    'modal-shell-content-wrapper',
+  );
 
   return (
     <ModalShell

@@ -23,6 +23,10 @@ import {
   resolveResultDisplayHeadline,
   resolveResultOverlayViewerId,
 } from '@/lib/result-display-ready';
+import {
+  logResultRenderBranch,
+  logResultRenderSelectionTrace,
+} from '@/lib/result-render-selection-trace';
 import { logResultCardUnmounted } from '@/lib/check-chain-drain-debug';
 import { logResultCardCtaClick } from '@/lib/result-card-dismiss-diag-debug';
 import { ANALYTICS_EVENTS } from '@98plus/shared';
@@ -722,6 +726,28 @@ function ResultOverlayInner({
   );
   const overlayVisibleContent = overlayVisibleContentGate.visible;
 
+  const projectedWillRenderResultOverlay =
+    effectiveShowable && (isOverboard || overlayVisibleContent);
+  logResultRenderSelectionTrace({
+    effectiveKind: 'result',
+    shellKind: 'result',
+    activeResultId: result.id,
+    resultBanId: result.id,
+    resultId: result.id,
+    hasResult: true,
+    hasResultOverlay: effectiveShowable,
+    hasNotificationOverlay: effectiveShowable,
+    displayResultExists: Boolean(result.id?.trim()),
+    willRenderResultOverlay: projectedWillRenderResultOverlay,
+    willRenderNotificationOverlay: projectedWillRenderResultOverlay,
+    renderBranch: 'result-overlay',
+    reason: !effectiveShowable
+      ? (visibilityReason ?? 'not-visible')
+      : !isOverboard && !overlayVisibleContent
+        ? (overlayVisibleContentGate.reason ?? 'empty-content')
+        : 'will-render',
+  });
+
   logResultOverlayBodyDecision({
     resultId: renderResult.id,
     status: resultStatus,
@@ -961,7 +987,18 @@ function ResultOverlayInner({
     willRenderVisibleContent,
   ]);
 
-  if (!effectiveShowable) return null;
+  if (!effectiveShowable) {
+    logResultRenderBranch({
+      component: 'ResultOverlay',
+      renderBranch: 'result-overlay',
+      reason: visibilityReason ?? 'not-visible',
+      resultId: result.id,
+      contentOnly,
+      directPaint,
+      embedded,
+    });
+    return null;
+  }
 
   if (
     contentOnly &&
@@ -1018,8 +1055,28 @@ function ResultOverlayInner({
           ? 'ResultOverlay.contentOnly'
           : 'ResultOverlay.modal',
     });
+    logResultRenderBranch({
+      component: 'ResultOverlay',
+      renderBranch: 'result-overlay',
+      reason: overlayVisibleContentGate.reason ?? 'empty-content-blocked',
+      resultId: result.id,
+      contentOnly,
+      directPaint,
+      overlayVisibleContent,
+      isOverboard,
+    });
     return null;
   }
+
+  logResultRenderBranch({
+    component: 'ResultOverlay',
+    renderBranch: 'result-overlay',
+    reason: embedded ? 'embedded-render' : directPaint ? 'direct-paint-render' : 'modal-render',
+    resultId: result.id,
+    contentOnly,
+    directPaint,
+    embedded,
+  });
 
   emitVisibleContentTrace('jsx-pre-return');
 
@@ -1152,6 +1209,12 @@ function ResultOverlayInner({
 
   if (embedded) return modal;
   if (typeof document === 'undefined') {
+    logResultRenderBranch({
+      component: 'ResultOverlay',
+      renderBranch: 'result-overlay',
+      reason: 'no-document',
+      resultId: result.id,
+    });
     traceResultOverlayLifecycle('RESULT OVERLAY RETURN NULL', tracePropsRef.current, {
       reason: 'no-document',
     });

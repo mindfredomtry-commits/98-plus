@@ -42,6 +42,10 @@ import {
   logCheckCardTopLayerOk,
   verifyCheckDirectSplitLayers,
 } from '@/lib/check-deeplink-startup-debug';
+import {
+  logResultRenderBranch,
+  logResultRenderSelectionTrace,
+} from '@/lib/result-render-selection-trace';
 
 interface Props {
   embedded?: boolean;
@@ -82,6 +86,23 @@ function CheckOverlayInner({
     if (!checkBan) return null;
     return getCheckModalView(checkBan, user?.id ?? null);
   }, [checkBan, user?.id]);
+
+  const projectedWillRenderCheckOverlay =
+    visible && Boolean(checkBan) && Boolean(modalView);
+  logResultRenderSelectionTrace({
+    effectiveKind: 'check',
+    shellKind: 'check',
+    activeBanId: checkBan?.id ?? null,
+    hasNotificationOverlay: visible,
+    displayResultExists: false,
+    willRenderNotificationOverlay: projectedWillRenderCheckOverlay,
+    renderBranch: 'check-overlay',
+    reason: !visible
+      ? (visibilityReason ?? 'not-visible')
+      : !checkBan || !modalView
+        ? 'missing-check-ban-or-view'
+        : 'will-render',
+  });
 
   useEffect(() => {
     setSubmitError(null);
@@ -239,12 +260,36 @@ function CheckOverlayInner({
   }, [visible, checkBan?.id, checkDirect, reportOverlayRendered]);
 
   if (!visible) {
+    logResultRenderBranch({
+      component: 'CheckOverlay',
+      renderBranch: 'check-overlay',
+      reason: visibilityReason ?? 'not-visible',
+      checkBanId: checkBan?.id ?? null,
+      checkDirect,
+    });
     return null;
   }
 
   if (!checkBan || !modalView) {
+    logResultRenderBranch({
+      component: 'CheckOverlay',
+      renderBranch: 'check-overlay',
+      reason: !checkBan ? 'no-check-ban' : 'no-modal-view',
+      checkBanId: checkBan?.id ?? null,
+      checkDirect,
+    });
     return null;
   }
+
+  logResultRenderBranch({
+    component: 'CheckOverlay',
+    renderBranch: 'check-overlay',
+    reason: checkDirect ? 'check-direct-render' : embedded ? 'embedded-render' : 'modal-render',
+    checkBanId: checkBan.id,
+    checkDirect,
+    embedded,
+    contentOnly,
+  });
 
   const yesLabel =
     modalView.role === 'receiver' ? 'Выдержал' : 'Выполнил запрет';
