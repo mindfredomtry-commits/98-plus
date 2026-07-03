@@ -143,8 +143,8 @@ export function shouldBlockNonExplicitNotificationDrain(
   source: string,
   startupHoldActive: boolean,
 ): boolean {
-  void source;
   void startupHoldActive;
+  if (isExplicitNotificationDrainSource(source)) return false;
   return explicitDrainSource == null;
 }
 
