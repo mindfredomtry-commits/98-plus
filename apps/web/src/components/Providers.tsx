@@ -36062,6 +36062,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ) &&
     isQueueResultShellVisibleContentReady(ownerRenderResultPayload);
 
+  /** Queue/active shell still owns result — keep ResultOverlay mounted even if readiness gates flicker. */
+  const queueResultOverlayClaimed =
+    queueHeadKind === 'result' ||
+    activeOverlayKind === 'result' ||
+    effectiveNotificationQueueShellKind === 'result';
+
+  const queueShellRendersResultOverlay =
+    ownerRenderResultPayload != null &&
+    (queueShellShowsResult || queueResultOverlayClaimed);
+
   const renderableResultShell =
     effectiveNotificationQueueShellKind === 'result' &&
     queueShellShowsResult &&
@@ -36080,7 +36090,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const notificationQueueShellDisplayKind = renderableResultShell
     ? ('result' as const)
-    : effectiveNotificationQueueShellKind === 'result'
+    : queueResultOverlayClaimed && ownerRenderResultPayload != null
+      ? ('result' as const)
+      : effectiveNotificationQueueShellKind === 'result'
       ? checkAnswerWaitingResultHoldBanId
         ? ('check' as const)
         : notificationQueueShellKind === 'result'
@@ -36410,7 +36422,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ownerShellReadiness.incomingCardReady;
   const ownerShellContentReady = ownerShellReadiness.shellContentReady;
 
-  const notificationQueueShellAdvanceWaiting = queueShellShowsResult
+  const notificationQueueShellAdvanceWaiting = queueShellRendersResultOverlay
     ? false
     : chainAdvanceWaiting ||
       incomingShellHydrating ||
@@ -36727,7 +36739,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   ]);
 
   const incomingJsxWillRender =
-    !queueShellShowsResult &&
+    !queueShellRendersResultOverlay &&
     !composeBlocksNotificationHost &&
     !showDirectOverboardLayer &&
     !replyComposeActive &&
@@ -37801,7 +37813,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   ]);
 
   useLayoutEffect(() => {
-    if (queueShellShowsResult) {
+    if (queueShellRendersResultOverlay) {
       return;
     }
     const jsxBranch = {
@@ -37947,6 +37959,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     effectiveNotificationQueueShellKind,
     activeResultPayload,
     queueShellShowsResult,
+    queueShellRendersResultOverlay,
+    queueResultOverlayClaimed,
     notificationQueueShellDisplayKind,
     notificationChainTransitioning,
     renderableResultShell,
@@ -38565,7 +38579,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   })(),
                   queueLen: ownerPrimaryQueueLen,
                   pendingLen: ownerPrimaryPendingLen,
-                  childrenBranch: queueShellShowsResult
+                  childrenBranch: queueShellRendersResultOverlay
                     ? 'result'
                     : notificationQueueShellDisplayKind === 'check'
                       ? checkShellBanId
@@ -38576,7 +38590,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                         : 'null',
                 }}
                 displayBanId={
-                  queueShellShowsResult
+                  queueShellRendersResultOverlay
                     ? activeResultPayload?.id ?? null
                     : notificationQueueShellDisplayKind === 'incoming'
                       ? (ownerPrimaryStableIncomingBan?.id ??
@@ -38586,19 +38600,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                       : null
                 }
                 incomingCardReady={
-                  queueShellShowsResult
+                  queueShellRendersResultOverlay
                     ? undefined
                     : notificationQueueShellIncomingCardReady
                 }
                 checkCardReady={
-                  queueShellShowsResult
+                  queueShellRendersResultOverlay
                     ? false
                     : notificationQueueShellCheckCardReady
                 }
                 sessionActive={notificationHostSessionBackdrop}
                 advanceWaiting={notificationQueueShellAdvanceWaiting}
                 contentKey={
-                  queueShellShowsResult && activeResultPayload
+                  queueShellRendersResultOverlay && activeResultPayload
                     ? `result:${activeResultPayload.id}`
                     : ownerPrimaryQueueHead
                       ? overlayQueueKey(ownerPrimaryQueueHead)
@@ -38613,7 +38627,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                           : null
                 }
               >
-                {queueShellShowsResult && ownerRenderResultPayload ? (
+                {queueShellRendersResultOverlay ? (
                   <ChallengeErrorBoundary
                     name="result"
                     onRecover={() => dismissBanResult()}
@@ -38628,7 +38642,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                       overboardQueueBody={ownerResultQueueVisibility.overboardQueueBody}
                     />
                   </ChallengeErrorBoundary>
-                ) : notificationQueueShellDisplayKind === 'check' &&
+                ) : !queueResultOverlayClaimed &&
+                  notificationQueueShellDisplayKind === 'check' &&
                   !showCheckOverlayDirect &&
                   checkShellBanId ? (
                   <ChallengeErrorBoundary
@@ -38642,7 +38657,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                       visibilityReason={ownerCheckQueueVisibility.reason}
                     />
                   </ChallengeErrorBoundary>
-                ) : notificationQueueShellDisplayKind === 'incoming' &&
+                ) : !queueResultOverlayClaimed &&
+                  notificationQueueShellDisplayKind === 'incoming' &&
                   ownerRenderIncomingBan ? (
                   <ChallengeErrorBoundary
                     name="incoming"
