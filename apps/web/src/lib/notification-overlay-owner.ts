@@ -1356,65 +1356,6 @@ export function compareOwnerShadowWithProduction(
   return mismatches;
 }
 
-/** Notification chain still running — deferred results must join it, not spawn late ingress. */
-function isOwnerNotificationChainSessionActive(
-  state: NotificationOverlayOwnerState,
-): boolean {
-  return (
-    state.queue.length > 0 ||
-    state.pending.length > 0 ||
-    state.session.awaitingUser ||
-    state.session.chainAdvanceWaiting ||
-    state.session.notificationChainTransitioning ||
-    state.session.drainActive ||
-    state.session.chainAdvanceExplicit ||
-    state.session.goToBansAdvancePending ||
-    state.holds.checkResultWait != null ||
-    state.holds.checkAnswerInFlight.size > 0 ||
-    state.holds.userCard != null ||
-    state.active.kind != null ||
-    state.display.result != null ||
-    state.display.checkBan != null ||
-    state.display.incomingBan != null ||
-    state.display.directResultOverlay ||
-    state.display.directResultOverlayActive
-  );
-}
-
-function shouldIngressLateResultAsCheckResult(
-  state: NotificationOverlayOwnerState,
-  banId: string,
-): boolean {
-  if (state.holds.checkAnswerInFlight.has(banId)) return true;
-  if (state.holds.checkResultWait?.banId === banId) return true;
-  if (state.session.answeredCheckIds.has(banId)) return true;
-  if (state.session.checkAnswerPendingResultShowIds.has(banId)) return true;
-  return isOwnerNotificationChainSessionActive(state);
-}
-
-/** Shared priority-head ingress used by CHECK_RESULT_ARRIVED and active-chain LATE. */
-function applyCheckResultArrivedIngress(
-  state: NotificationOverlayOwnerState,
-  banId: string,
-  result: BanResult,
-  effects: NotificationOverlayOwnerEffect[],
-): NotificationOverlayOwnerState {
-  let next = state;
-  const deferred = next.holds.checkResultWait?.deferredQueue ?? next.queue;
-  next.holds.checkResultWait = null;
-  next.holds.resultPriorityBanIds.add(banId);
-  const resultItem: QueuedOverlay = {
-    kind: 'result',
-    result,
-  };
-  next.queue = buildResultPriorityQueue(deferred, banId, resultItem);
-  next.session.chainAdvanceWaiting = false;
-  next = syncActiveFromQueueHead(next);
-  effects.push({ type: 'CLEAR_HOLD_TIMEOUT', banId });
-  effects.push({ type: 'APPLY_DISPLAY' });
-  return next;
-}
-
 export function notificationOverlayOwnerReducer(
   state: NotificationOverlayOwnerState,
   event: NotificationOverlayOwnerEvent,
@@ -1661,7 +1602,18 @@ export function notificationOverlayOwnerReducer(
     case 'CHECK_RESULT_ARRIVED': {
       const banId = normalizeId(event.banId);
       if (!banId) break;
-      next = applyCheckResultArrivedIngress(next, banId, event.result, effects);
+      const deferred = next.holds.checkResultWait?.deferredQueue ?? next.queue;
+      next.holds.checkResultWait = null;
+      next.holds.resultPriorityBanIds.add(banId);
+      const resultItem: QueuedOverlay = {
+        kind: 'result',
+        result: event.result,
+      };
+      next.queue = buildResultPriorityQueue(deferred, banId, resultItem);
+      next.session.chainAdvanceWaiting = false;
+      next = syncActiveFromQueueHead(next);
+      effects.push({ type: 'CLEAR_HOLD_TIMEOUT', banId });
+      effects.push({ type: 'APPLY_DISPLAY' });
       break;
     }
 
@@ -1896,13 +1848,6 @@ export function notificationOverlayOwnerReducer(
           tag: 'late-result-blocked-terminal-lock',
           fields: { banId, reason: terminal.reason },
         });
-        break;
-      }
-      // Deferred partner/poll result while notification chain is still active
-      // must join that chain as priority head (same as CHECK_RESULT_ARRIVED),
-      // not as a new late notification behind the head.
-      if (shouldIngressLateResultAsCheckResult(next, banId)) {
-        next = applyCheckResultArrivedIngress(next, banId, event.result, effects);
         break;
       }
       if (next.queue.length === 0) {
