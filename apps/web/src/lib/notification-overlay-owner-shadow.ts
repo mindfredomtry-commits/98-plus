@@ -7,6 +7,10 @@ import {
   type NotificationOverlayOwnerState,
   type OwnerProductionSnapshot,
 } from '@/lib/notification-overlay-owner';
+import {
+  logApplyQueueCommitTrace,
+  queueOverlaySnapshotChanged,
+} from '@/lib/apply-queue-commit-trace';
 import type { NotificationOwnerDisplayState } from '@/lib/notification-overlay-owner';
 import { overlayQueueKey } from '@/lib/overlay-queue';
 import {
@@ -429,7 +433,57 @@ export function createNotificationOverlayOwnerShadow(
         }
       }
       const previousWriteTrace = buildOwnerDisplayWriteTraceSnapshot(state);
+      const isQueueAuthorityEvent =
+        event.type === 'QUEUE_APPLIED' || event.type === 'QUEUE_SILENT_UPDATED';
+      if (isQueueAuthorityEvent) {
+        logApplyQueueCommitTrace({
+          source: `owner-shadow-dispatch:${source}:before-reducer:${event.type}`,
+          beforeQueueLength: state.queue.length,
+          afterQueueLength: event.queue.length,
+          dispatchExecuted: true,
+          dispatchSkipped: false,
+          finalizeCommitEntered: true,
+          finalizeCommitReturned: false,
+          applyOverlayQueueReturnedNull: false,
+          applyOverlayQueueReturnedSameReference: false,
+          queueChanged: queueOverlaySnapshotChanged(state.queue, event.queue),
+          queueIdentityChanged: state.queue === event.queue,
+          reducerExecuted: false,
+          reducerSkipped: true,
+          reason: `shadow-dispatch-before-reducer:${event.type}`,
+        });
+      }
       const result = notificationOverlayOwnerReducer(state, event);
+      if (isQueueAuthorityEvent) {
+        logApplyQueueCommitTrace({
+          source: `owner-shadow-dispatch:${source}:after-reducer:${event.type}`,
+          beforeQueueLength: state.queue.length,
+          afterQueueLength: result.state.queue.length,
+          dispatchExecuted: true,
+          dispatchSkipped: false,
+          finalizeCommitEntered: true,
+          finalizeCommitReturned: true,
+          applyOverlayQueueReturnedNull: false,
+          applyOverlayQueueReturnedSameReference: state.queue === event.queue,
+          queueChanged: queueOverlaySnapshotChanged(
+            state.queue,
+            result.state.queue,
+          ),
+          queueIdentityChanged: state.queue === result.state.queue,
+          reducerExecuted: true,
+          reducerSkipped: !queueOverlaySnapshotChanged(
+            state.queue,
+            result.state.queue,
+          ),
+          reason: `shadow-dispatch-after-reducer:${event.type}`,
+          skipReason: queueOverlaySnapshotChanged(
+            state.queue,
+            result.state.queue,
+          )
+            ? null
+            : 'reducer-ran-but-owner-queue-unchanged',
+        });
+      }
       stateHandle = attachOwnerStateWriteDetect(result.state, {
         file: 'notification-overlay-owner-shadow.ts',
         function: 'dispatch',

@@ -735,6 +735,10 @@ import {
 } from '@/lib/start-drain-entry-trace';
 import { runLocalMountableNotificationTrace } from '@/lib/local-mountable-notification-trace';
 import {
+  logApplyQueueCommitTrace,
+  queueOverlaySnapshotChanged,
+} from '@/lib/apply-queue-commit-trace';
+import {
   logOwnerQueuePopulationTrace,
   readNotificationFieldsFromOverlay,
   setOwnerQueuePopulationTraceBridge,
@@ -8651,6 +8655,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const queueBefore = [...ownerBefore.queue];
       const queueHeadBefore = queueBefore[0] ?? null;
       const queueHeadAfterPreview = next[0] ?? null;
+      const dispatchEventType = silent ? 'QUEUE_SILENT_UPDATED' : 'QUEUE_APPLIED';
+      logApplyQueueCommitTrace({
+        source: `${source}:applyQueueViaOwnerAuthority:enter`,
+        beforeQueueLength: queueBefore.length,
+        afterQueueLength: next.length,
+        dispatchExecuted: false,
+        dispatchSkipped: true,
+        finalizeCommitEntered: false,
+        finalizeCommitReturned: false,
+        applyOverlayQueueReturnedNull: false,
+        applyOverlayQueueReturnedSameReference: next === overlayQueueRef.current,
+        queueChanged: queueOverlaySnapshotChanged(queueBefore, next),
+        queueIdentityChanged: next === overlayQueueRef.current,
+        reducerExecuted: false,
+        reducerSkipped: true,
+        reason: 'apply-queue-via-owner-authority-enter',
+      });
       logProvidersOverlayQueueMutation({
         operation: inferProvidersOverlayQueueOperation(
           queueBefore.length,
@@ -8671,6 +8692,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       logPhase12WriteAuthorityOperation(
         silent ? `queue-silent:${source}` : `queue-mutate:${source}`,
         () => {
+          logApplyQueueCommitTrace({
+            source: `${source}:dispatch:${dispatchEventType}:executing`,
+            beforeQueueLength: queueBefore.length,
+            afterQueueLength: next.length,
+            dispatchExecuted: true,
+            dispatchSkipped: false,
+            finalizeCommitEntered: true,
+            finalizeCommitReturned: false,
+            applyOverlayQueueReturnedNull: false,
+            applyOverlayQueueReturnedSameReference:
+              next === overlayQueueRef.current,
+            queueChanged: queueOverlaySnapshotChanged(queueBefore, next),
+            queueIdentityChanged: next === overlayQueueRef.current,
+            reducerExecuted: false,
+            reducerSkipped: true,
+            reason: `dispatch-${dispatchEventType}-before-reducer`,
+          });
           ownerShadowRef.current.dispatch(
             {
               type: silent ? 'QUEUE_SILENT_UPDATED' : 'QUEUE_APPLIED',
@@ -8682,6 +8720,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         },
       );
       const ownerAfter = ownerShadowRef.current.getState();
+      const queueAfter = [...ownerAfter.queue];
+      logApplyQueueCommitTrace({
+        source: `${source}:applyQueueViaOwnerAuthority:after-dispatch`,
+        beforeQueueLength: queueBefore.length,
+        afterQueueLength: queueAfter.length,
+        dispatchExecuted: true,
+        dispatchSkipped: false,
+        finalizeCommitEntered: true,
+        finalizeCommitReturned: true,
+        applyOverlayQueueReturnedNull: false,
+        applyOverlayQueueReturnedSameReference:
+          next === overlayQueueRef.current,
+        queueChanged: queueOverlaySnapshotChanged(queueBefore, queueAfter),
+        queueIdentityChanged: next === overlayQueueRef.current,
+        reducerExecuted: queueOverlaySnapshotChanged(queueBefore, queueAfter),
+        reducerSkipped: !queueOverlaySnapshotChanged(queueBefore, queueAfter),
+        reason: `dispatch-${dispatchEventType}-after-reducer`,
+        skipReason: queueOverlaySnapshotChanged(queueBefore, queueAfter)
+          ? null
+          : 'dispatch-executed-but-owner-queue-unchanged',
+      });
       const queueFields = readNotificationFieldsFromOverlay(queueHeadAfterPreview);
       emitOwnerQueuePopulationTraceRef.current({
         source: `${source}:applyQueueViaOwnerAuthority`,
@@ -8696,7 +8755,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         incomingBanId: queueFields.incomingBanId,
         resultBanId: queueFields.resultBanId,
       });
-      const queueAfter = [...ownerAfter.queue];
       const queueHeadAfter = queueAfter[0] ?? null;
       emitPostConsumeQueueUpdate({
         source,
@@ -11092,6 +11150,61 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         const prevKey = prevHead ? overlayQueueKey(prevHead) : null;
         const nextKey = nextHead ? overlayQueueKey(nextHead) : null;
 
+        const ownerQueueAtApplyEnter = [
+          ...ownerShadowRef.current.getState().queue,
+        ];
+        const emitApplyQueueCommitTrace = (
+          stage: string,
+          extra: {
+            reason: string;
+            skipReason?: string | null;
+            beforeQueueLength?: number;
+            afterQueueLength?: number;
+            dispatchExecuted?: boolean;
+            dispatchSkipped?: boolean;
+            finalizeCommitEntered?: boolean;
+            finalizeCommitReturned?: boolean;
+            applyOverlayQueueReturnedNull?: boolean;
+            applyOverlayQueueReturnedSameReference?: boolean;
+            queueChanged?: boolean;
+            queueIdentityChanged?: boolean;
+            reducerExecuted?: boolean;
+            reducerSkipped?: boolean;
+          },
+        ) => {
+          const beforeLen =
+            extra.beforeQueueLength ?? ownerQueueAtApplyEnter.length;
+          const afterLen =
+            extra.afterQueueLength ?? sanitizedNext.length;
+          logApplyQueueCommitTrace({
+            source: `${source}:applyOverlayQueue:${stage}`,
+            beforeQueueLength: beforeLen,
+            afterQueueLength: afterLen,
+            dispatchExecuted: extra.dispatchExecuted ?? false,
+            dispatchSkipped: extra.dispatchSkipped ?? true,
+            finalizeCommitEntered: extra.finalizeCommitEntered ?? false,
+            finalizeCommitReturned: extra.finalizeCommitReturned ?? false,
+            applyOverlayQueueReturnedNull:
+              extra.applyOverlayQueueReturnedNull ?? false,
+            applyOverlayQueueReturnedSameReference:
+              extra.applyOverlayQueueReturnedSameReference ??
+              next === overlayQueueRef.current,
+            queueChanged:
+              extra.queueChanged ??
+              queueOverlaySnapshotChanged(ownerQueueAtApplyEnter, sanitizedNext),
+            queueIdentityChanged:
+              extra.queueIdentityChanged ?? next === overlayQueueRef.current,
+            reducerExecuted: extra.reducerExecuted ?? false,
+            reducerSkipped: extra.reducerSkipped ?? true,
+            reason: extra.reason,
+            skipReason: extra.skipReason ?? null,
+          });
+        };
+
+        emitApplyQueueCommitTrace('enter', {
+          reason: 'apply-overlay-queue-enter',
+        });
+
         const logApplyOverlayQueueSkipped = (skipReason: string) => {
           logProvidersOverlayQueueMutation({
             operation: 'skipped',
@@ -11105,9 +11218,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             resultId:
               nextHead?.kind === 'result' ? nextHead.result.id : null,
           });
+          emitApplyQueueCommitTrace('guard-blocked', {
+            reason: 'apply-overlay-queue-guard-blocked',
+            skipReason,
+            applyOverlayQueueReturnedNull: true,
+            beforeQueueLength: ownerQueueAtApplyEnter.length,
+            afterQueueLength: ownerQueueAtApplyEnter.length,
+            queueChanged: false,
+          });
         };
 
         const finalizeCommit = (): boolean => {
+          emitApplyQueueCommitTrace('finalizeCommit:enter', {
+            reason: 'finalize-commit-enter',
+            finalizeCommitEntered: true,
+            dispatchSkipped: false,
+            reducerSkipped: false,
+          });
           if (fullPipeline) {
             activeOverlayLockRef.current = nextKey;
             if (nextKey) {
@@ -11179,7 +11306,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             resultId:
               nextHead?.kind === 'result' ? nextHead.result.id : null,
           });
+          const ownerQueueBeforeAuthority =
+            ownerShadowRef.current.getState().queue.length;
+          emitApplyQueueCommitTrace('finalizeCommit:before-applyQueueViaOwnerAuthority', {
+            reason: 'finalize-commit-before-owner-authority',
+            finalizeCommitEntered: true,
+            beforeQueueLength: ownerQueueBeforeAuthority,
+            afterQueueLength: sanitizedNext.length,
+            dispatchSkipped: false,
+          });
           applyQueueViaOwnerAuthority(sanitizedNext, `${source}:${reason}`, silent);
+          const ownerQueueAfterAuthority =
+            ownerShadowRef.current.getState().queue.length;
 
           let didSyncDisplay = false;
           if (!silent && !preserveAtomicOverboardResultDuringSync(source)) {
@@ -11217,6 +11355,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               didSyncDisplay,
             },
           );
+          emitApplyQueueCommitTrace('finalizeCommit:return', {
+            reason: 'finalize-commit-return-true',
+            finalizeCommitEntered: true,
+            finalizeCommitReturned: true,
+            dispatchExecuted: true,
+            dispatchSkipped: false,
+            beforeQueueLength: ownerQueueBeforeAuthority,
+            afterQueueLength: ownerQueueAfterAuthority,
+            queueChanged: ownerQueueAfterAuthority !== ownerQueueBeforeAuthority,
+            reducerExecuted: ownerQueueAfterAuthority !== ownerQueueBeforeAuthority,
+            reducerSkipped: ownerQueueAfterAuthority === ownerQueueBeforeAuthority,
+            skipReason:
+              ownerQueueAfterAuthority === ownerQueueBeforeAuthority
+                ? 'finalize-commit-returned-but-owner-queue-unchanged'
+                : null,
+          });
           return true;
         };
 
@@ -11232,7 +11386,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
 
         if (bypassGuards) {
-          return finalizeCommit();
+          const bypassResult = finalizeCommit();
+          emitApplyQueueCommitTrace('bypassGuards-return', {
+            reason: 'bypass-guards-finalize-commit',
+            finalizeCommitReturned: bypassResult,
+            applyOverlayQueueReturnedNull: !bypassResult,
+            dispatchExecuted: bypassResult,
+          });
+          return bypassResult;
         }
 
         if (
@@ -12864,7 +13025,55 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         mutationApplied: false,
         mutationSkipped: false,
       });
-      applyOverlayQueue(next);
+      const ownerQueueBeforeApply =
+        ownerShadowRef.current.getState().queue.length;
+      const legacyQueueRefAtApply = overlayQueueRef.current;
+      logApplyQueueCommitTrace({
+        source: `enqueueNotification:${opts?.source ?? 'unknown'}:invoke-applyOverlayQueue`,
+        beforeQueueLength: ownerQueueBeforeApply,
+        afterQueueLength: next.length,
+        dispatchExecuted: false,
+        dispatchSkipped: true,
+        finalizeCommitEntered: false,
+        finalizeCommitReturned: false,
+        applyOverlayQueueReturnedNull: false,
+        applyOverlayQueueReturnedSameReference:
+          next === legacyQueueRefAtApply,
+        queueChanged: queueOverlaySnapshotChanged(legacyQueueRefAtApply, next),
+        queueIdentityChanged: next === legacyQueueRefAtApply,
+        reducerExecuted: false,
+        reducerSkipped: true,
+        reason: `invoke-applyOverlayQueue:${action}`,
+      });
+      const applyOverlayQueueResult = applyOverlayQueue(next, {
+        source: `enqueueNotification:${opts?.source ?? 'unknown'}`,
+        reason: action,
+      });
+      const ownerQueueAfterApply =
+        ownerShadowRef.current.getState().queue.length;
+      logApplyQueueCommitTrace({
+        source: `enqueueNotification:${opts?.source ?? 'unknown'}:after-applyOverlayQueue`,
+        beforeQueueLength: ownerQueueBeforeApply,
+        afterQueueLength: ownerQueueAfterApply,
+        dispatchExecuted: applyOverlayQueueResult === true,
+        dispatchSkipped: applyOverlayQueueResult === false,
+        finalizeCommitEntered: applyOverlayQueueResult === true,
+        finalizeCommitReturned: applyOverlayQueueResult === true,
+        applyOverlayQueueReturnedNull: applyOverlayQueueResult === false,
+        applyOverlayQueueReturnedSameReference:
+          next === legacyQueueRefAtApply,
+        queueChanged: ownerQueueAfterApply !== ownerQueueBeforeApply,
+        queueIdentityChanged: next === legacyQueueRefAtApply,
+        reducerExecuted: ownerQueueAfterApply !== ownerQueueBeforeApply,
+        reducerSkipped: ownerQueueAfterApply === ownerQueueBeforeApply,
+        reason: `after-applyOverlayQueue:${action}`,
+        skipReason:
+          applyOverlayQueueResult === false
+            ? 'apply-overlay-queue-returned-false'
+            : ownerQueueAfterApply === ownerQueueBeforeApply
+              ? 'apply-overlay-queue-returned-true-but-owner-unchanged'
+              : null,
+      });
     },
     [applyOverlayQueue, applyPendingQueueViaOwner, isOverlayLive],
   );

@@ -16,6 +16,10 @@ import {
   logNextPayloadSelectionFromOwnerSync,
 } from '@/lib/go-to-bans-payload-switch-trace';
 import {
+  logApplyQueueCommitTrace,
+  queueOverlaySnapshotChanged,
+} from '@/lib/apply-queue-commit-trace';
+import {
   logOwnerDirectWriteDetected,
   logOwnerFunctionTrackedFieldWrite,
   logOwnerReducerTrackedFieldAssignments,
@@ -1374,7 +1378,35 @@ export function notificationOverlayOwnerReducer(
     }
 
     case 'QUEUE_APPLIED': {
+      const queueRefBeforeAssign = next.queue;
+      const queueBeforeReducer = [...next.queue];
       next.queue = [...event.queue];
+      logApplyQueueCommitTrace({
+        source: `notification-overlay-owner-reducer:QUEUE_APPLIED`,
+        beforeQueueLength: queueBeforeReducer.length,
+        afterQueueLength: next.queue.length,
+        dispatchExecuted: true,
+        dispatchSkipped: false,
+        finalizeCommitEntered: true,
+        finalizeCommitReturned: true,
+        applyOverlayQueueReturnedNull: false,
+        applyOverlayQueueReturnedSameReference:
+          queueRefBeforeAssign === event.queue,
+        queueChanged: queueOverlaySnapshotChanged(
+          queueBeforeReducer,
+          next.queue,
+        ),
+        queueIdentityChanged: queueRefBeforeAssign === event.queue,
+        reducerExecuted: true,
+        reducerSkipped: !queueOverlaySnapshotChanged(
+          queueBeforeReducer,
+          next.queue,
+        ),
+        reason: 'reducer-QUEUE_APPLIED-mutation',
+        skipReason: queueOverlaySnapshotChanged(queueBeforeReducer, next.queue)
+          ? null
+          : 'reducer-QUEUE_APPLIED-no-length-or-key-change',
+      });
       next = syncActiveFromQueueHead(next);
       effects.push({
         type: 'MIRROR_LEGACY_QUEUE',
@@ -1394,7 +1426,35 @@ export function notificationOverlayOwnerReducer(
     }
 
     case 'QUEUE_SILENT_UPDATED': {
+      const queueRefBeforeAssign = next.queue;
+      const queueBeforeReducer = [...next.queue];
       next.queue = [...event.queue];
+      logApplyQueueCommitTrace({
+        source: `notification-overlay-owner-reducer:QUEUE_SILENT_UPDATED`,
+        beforeQueueLength: queueBeforeReducer.length,
+        afterQueueLength: next.queue.length,
+        dispatchExecuted: true,
+        dispatchSkipped: false,
+        finalizeCommitEntered: true,
+        finalizeCommitReturned: true,
+        applyOverlayQueueReturnedNull: false,
+        applyOverlayQueueReturnedSameReference:
+          queueRefBeforeAssign === event.queue,
+        queueChanged: queueOverlaySnapshotChanged(
+          queueBeforeReducer,
+          next.queue,
+        ),
+        queueIdentityChanged: queueRefBeforeAssign === event.queue,
+        reducerExecuted: true,
+        reducerSkipped: !queueOverlaySnapshotChanged(
+          queueBeforeReducer,
+          next.queue,
+        ),
+        reason: 'reducer-QUEUE_SILENT_UPDATED-mutation',
+        skipReason: queueOverlaySnapshotChanged(queueBeforeReducer, next.queue)
+          ? null
+          : 'reducer-QUEUE_SILENT_UPDATED-no-length-or-key-change',
+      });
       next = syncActiveFromQueueHead(next);
       effects.push({
         type: 'MIRROR_LEGACY_QUEUE',
