@@ -19435,19 +19435,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         checkDismissChainOwned: checkAnswerDismissChainOwnedRef.current,
         placeholderKind,
       });
-      if (remaining.length === 0) {
-        logCheckContinueCall({
-          source: 'check-answer-submit',
-          reason: 'remaining-empty-local-queue',
-        });
-        chainContinuePromise = continueNotificationChainOrOpenLobbyRef.current(
-          'check-answer-submit',
-          {
-            clearActiveHold: false,
-            prefetchSkipBanId: normalizedBanId,
-          },
-        );
-      } else {
+      // remaining === 0: do not continue before HTTP handoff (waiting/result).
+      // remaining > 0: dismissCurrentOverlay owns advance (unchanged).
+      if (remaining.length > 0) {
         checkAnswerDismissChainOwnedRef.current = false;
         queueMicrotask(() => {
           const head = overlayQueueRef.current[0];
@@ -19481,6 +19471,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           }
         });
       }
+
+      const continueAfterHttpHandoff = () => {
+        logCheckContinueCall({
+          source: 'check-answer-submit',
+          reason: 'remaining-empty-after-http-handoff',
+        });
+        return continueNotificationChainOrOpenLobbyRef.current(
+          'check-answer-submit',
+          {
+            clearActiveHold: false,
+            prefetchSkipBanId: normalizedBanId,
+          },
+        );
+      };
 
       try {
         logResultLatency('[result-http-start]', {
@@ -19561,6 +19565,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           if (!shown && res.done) {
             scheduleResultPollBurst();
           }
+          if (remaining.length === 0) {
+            chainContinuePromise = continueAfterHttpHandoff();
+          }
         } else if (res.done) {
           logCheckAnswerFinalResultFetchStart({ banId: normalizedBanId });
           try {
@@ -19589,9 +19596,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             });
             scheduleResultPollBurst();
           }
+          if (remaining.length === 0) {
+            chainContinuePromise = continueAfterHttpHandoff();
+          }
         } else if (res.waiting) {
           challengeLog('check:waiting-partner', { banId: normalizedBanId });
           scheduleResultPollBurst();
+          // Single continue lives inside resume (remaining === 0 or > 0).
           const waitingOutcome = resumeCheckAnswerChainAfterWaitingPartner(
             normalizedBanId,
             remaining,
