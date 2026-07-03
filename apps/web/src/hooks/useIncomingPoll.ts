@@ -5,6 +5,8 @@ import type { BanInteraction } from '@98plus/shared';
 import { api } from '@/lib/api';
 import { shouldShowIncomingBanModal } from '@/lib/incoming-challenge';
 import type { QueueAppearanceReactionTracePayload } from '@/lib/queue-appearance-reaction-trace';
+import type { OwnerQueuePopulationTracePayload } from '@/lib/owner-queue-population-trace';
+import { observeOwnerQueuePopulationStackPoint } from '@/lib/owner-queue-population-trace';
 import {
   logQueueApiFetchResult,
   logQueueApiFetchStart,
@@ -23,6 +25,8 @@ type ReceiveIncoming = (
 type QueueAppearanceSnapshot = {
   queueLen: number;
   pendingLen: number;
+  ownerQueueLen: number;
+  ownerPendingLen: number;
   activeKind: string | null;
   queueHeadKind: string | null;
   lobbyBansNeedAttention: boolean;
@@ -44,6 +48,20 @@ export function useIncomingPoll(params: {
     ) => void
   >;
   readQueueAppearanceSnapshotRef?: MutableRefObject<() => QueueAppearanceSnapshot>;
+  traceOwnerQueuePopulationRef?: MutableRefObject<
+    (
+      input: Partial<OwnerQueuePopulationTracePayload> & {
+        source: string;
+        reason: string;
+        ownerQueueBefore: number;
+        ownerPendingBefore: number;
+        ownerQueueAfter: number;
+        ownerPendingAfter: number;
+        mutationApplied: boolean;
+        mutationSkipped: boolean;
+      },
+    ) => void
+  >;
 }) {
   const {
     userId,
@@ -55,7 +73,39 @@ export function useIncomingPoll(params: {
     tokenRef,
     traceQueueAppearanceRef,
     readQueueAppearanceSnapshotRef,
+    traceOwnerQueuePopulationRef,
   } = params;
+
+  const emitOwnerPopulationTrace = (
+    source: string,
+    reason: string,
+    extra: Partial<OwnerQueuePopulationTracePayload> = {},
+    snapshot?: QueueAppearanceSnapshot,
+  ) => {
+    const snap = snapshot ?? readQueueAppearanceSnapshotRef?.current?.();
+    const ownerQueue = snap?.ownerQueueLen ?? -1;
+    const ownerPending = snap?.ownerPendingLen ?? -1;
+    const payload = {
+      source,
+      reason,
+      telegramUserId: userIdRef.current,
+      ownerQueueBefore: extra.ownerQueueBefore ?? ownerQueue,
+      ownerQueueAfter: extra.ownerQueueAfter ?? ownerQueue,
+      ownerPendingBefore: extra.ownerPendingBefore ?? ownerPending,
+      ownerPendingAfter: extra.ownerPendingAfter ?? ownerPending,
+      mutationApplied: extra.mutationApplied ?? false,
+      mutationSkipped: extra.mutationSkipped ?? false,
+      skipReason: extra.skipReason ?? null,
+      incomingBanId: extra.incomingBanId ?? null,
+      resultBanId: extra.resultBanId ?? null,
+      notificationKind: extra.notificationKind ?? null,
+    };
+    if (traceOwnerQueuePopulationRef?.current) {
+      traceOwnerQueuePopulationRef.current(payload);
+      return;
+    }
+    observeOwnerQueuePopulationStackPoint(source, reason, payload);
+  };
 
   const emitQueueAppearanceTrace = (
     source: string,
@@ -165,6 +215,14 @@ export function useIncomingPoll(params: {
           emitQueueAppearanceTrace('useIncomingPoll:INCOMING_POLL_RECEIVED', {
             skipReason: 'empty',
           });
+          emitOwnerPopulationTrace(
+            'INCOMING_POLL_RECEIVED',
+            'incoming-poll-empty',
+            {
+              mutationSkipped: true,
+              skipReason: 'empty',
+            },
+          );
           return;
         }
 
@@ -178,6 +236,16 @@ export function useIncomingPoll(params: {
             skipReason: 'dismissed-session',
             queueHeadKind: 'incoming',
           });
+          emitOwnerPopulationTrace(
+            'INCOMING_POLL_RECEIVED',
+            'incoming-poll-dismissed-session',
+            {
+              mutationSkipped: true,
+              skipReason: 'dismissed-session',
+              incomingBanId: ban.id,
+              notificationKind: 'incoming',
+            },
+          );
           return;
         }
 
@@ -195,6 +263,15 @@ export function useIncomingPoll(params: {
         });
         const snapshotBefore = readQueueAppearanceSnapshotRef?.current?.();
         console.log('INCOMING POLL RECEIVED', { banId: ban.id });
+        emitOwnerPopulationTrace(
+          'INCOMING_POLL_RECEIVED',
+          'incoming-poll-received-before-receive',
+          {
+            incomingBanId: ban.id,
+            notificationKind: 'incoming',
+          },
+          snapshotBefore,
+        );
         emitQueueAppearanceTrace(
           'useIncomingPoll:INCOMING_POLL_RECEIVED',
           {
@@ -206,6 +283,35 @@ export function useIncomingPoll(params: {
         );
         receiveIncomingBan(ban, 'poll');
         const snapshotAfter = readQueueAppearanceSnapshotRef?.current?.();
+        emitOwnerPopulationTrace(
+          'INCOMING_POLL_RECEIVED',
+          'incoming-poll-received-after-receive',
+          {
+            ownerQueueBefore: snapshotBefore?.ownerQueueLen ?? -1,
+            ownerPendingBefore: snapshotBefore?.ownerPendingLen ?? -1,
+            ownerQueueAfter: snapshotAfter?.ownerQueueLen ?? -1,
+            ownerPendingAfter: snapshotAfter?.ownerPendingLen ?? -1,
+            mutationApplied:
+              (snapshotAfter?.ownerQueueLen ?? 0) >
+                (snapshotBefore?.ownerQueueLen ?? 0) ||
+              (snapshotAfter?.ownerPendingLen ?? 0) >
+                (snapshotBefore?.ownerPendingLen ?? 0),
+            mutationSkipped:
+              (snapshotAfter?.ownerQueueLen ?? 0) ===
+                (snapshotBefore?.ownerQueueLen ?? 0) &&
+              (snapshotAfter?.ownerPendingLen ?? 0) ===
+                (snapshotBefore?.ownerPendingLen ?? 0),
+            skipReason:
+              (snapshotAfter?.ownerQueueLen ?? 0) ===
+                (snapshotBefore?.ownerQueueLen ?? 0) &&
+              (snapshotAfter?.ownerPendingLen ?? 0) ===
+                (snapshotBefore?.ownerPendingLen ?? 0)
+                ? 'receive-incoming-did-not-mutate-owner'
+                : null,
+            incomingBanId: ban.id,
+            notificationKind: 'incoming',
+          },
+        );
         emitQueueAppearanceTrace('useIncomingPoll:INCOMING_POLL_RECEIVED:after-receive', {
           prevQueueLen: snapshotBefore?.queueLen,
           nextQueueLen: snapshotAfter?.queueLen,
@@ -250,5 +356,6 @@ export function useIncomingPoll(params: {
     tokenRef,
     traceQueueAppearanceRef,
     readQueueAppearanceSnapshotRef,
+    traceOwnerQueuePopulationRef,
   ]);
 }

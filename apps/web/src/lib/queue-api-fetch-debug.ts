@@ -4,6 +4,7 @@ import {
   noteConnectionFetchStart,
   patchConnectionFetchOutcome,
 } from '@/lib/connection-state-debug';
+import { observeOwnerQueuePopulationStackPoint } from '@/lib/owner-queue-population-trace';
 
 function emit(event: string, data?: Record<string, unknown>): void {
   const payload = { t: performance.now(), ...data };
@@ -79,6 +80,21 @@ export function logQueueApiFetchResult(data: {
     source: data.source,
   });
   emit('[QUEUE API FETCH RESULT]', data);
+  const incomingIdx = data.kinds.indexOf('incoming');
+  const resultIdx = data.kinds.indexOf('result');
+  observeOwnerQueuePopulationStackPoint(
+    `QUEUE_API_FETCH_RESULT:${data.source}`,
+    `endpoint:${data.endpoint}:count:${data.count}`,
+    {
+      telegramUserId: data.telegramUserId,
+      incomingBanId:
+        incomingIdx >= 0 ? (data.banIds[incomingIdx] ?? null) : null,
+      resultBanId: resultIdx >= 0 ? (data.banIds[resultIdx] ?? null) : null,
+      notificationKind: data.kinds[0] ?? null,
+      mutationSkipped: data.count === 0,
+      skipReason: data.count === 0 ? 'fetch-empty' : null,
+    },
+  );
 }
 
 export function logQueueApiFetchEmptyButDirectBanExists(data: {

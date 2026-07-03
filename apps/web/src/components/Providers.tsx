@@ -733,6 +733,14 @@ import {
   logStartDrainEntryTrace,
   type StartDrainEntryTracePayload,
 } from '@/lib/start-drain-entry-trace';
+import { runLocalMountableNotificationTrace } from '@/lib/local-mountable-notification-trace';
+import {
+  logOwnerQueuePopulationTrace,
+  readNotificationFieldsFromOverlay,
+  setOwnerQueuePopulationTraceBridge,
+  shouldEmitOwnerQueuePopulationTrace,
+  type OwnerQueuePopulationTracePayload,
+} from '@/lib/owner-queue-population-trace';
 import {
   buildBanViewerRoleFlags,
   logDeeplinkBanSourceSnapshot,
@@ -2036,6 +2044,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const emitQueueAppearanceReactionTraceRef = useRef<
     (input: Partial<QueueAppearanceReactionTracePayload> & { source: string }) => void
   >(() => {});
+  const emitOwnerQueuePopulationTraceRef = useRef<
+    (
+      input: Partial<OwnerQueuePopulationTracePayload> & {
+        source: string;
+        reason: string;
+        ownerQueueBefore: number;
+        ownerPendingBefore: number;
+        ownerQueueAfter: number;
+        ownerPendingAfter: number;
+        mutationApplied: boolean;
+        mutationSkipped: boolean;
+      },
+    ) => void
+  >(() => {});
   const readQueueAppearanceSnapshotRef = useRef<
     () => {
       queueLen: number;
@@ -2404,6 +2426,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
     applyPendingQueueViaOwnerRef.current(next, `${source}:${reason}`, reason);
     const ownerAfter = ownerShadowRef.current.getState();
+    const ownerMutated =
+      ownerAfter.pending.length !== ownerBefore.pending.length ||
+      ownerAfter.queue.length !== ownerBefore.queue.length;
+    const pendingFields = readNotificationFieldsFromOverlay(
+      next[0] ?? ownerAfter.pending[0] ?? null,
+    );
+    emitOwnerQueuePopulationTraceRef.current({
+      source: `commitPendingQueueViaOwner:${source}:${reason}`,
+      reason: 'commit-pending-wrapper-after-apply',
+      ownerQueueBefore: ownerBefore.queue.length,
+      ownerPendingBefore: ownerBefore.pending.length,
+      ownerQueueAfter: ownerAfter.queue.length,
+      ownerPendingAfter: ownerAfter.pending.length,
+      mutationApplied: ownerMutated,
+      mutationSkipped: !ownerMutated,
+      skipReason: ownerMutated ? null : 'commit-pending-no-owner-delta',
+      notificationKind: pendingFields.notificationKind,
+      incomingBanId: pendingFields.incomingBanId,
+      resultBanId: pendingFields.resultBanId,
+    });
     const pendingHeadAfter = ownerAfter.pending[0] ?? null;
     emitPostConsumePendingUpdate({
       source: `${source}:${reason}`,
@@ -6319,6 +6361,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   /** Auth/logout reset — documented Step 2b exception (not a display apply). */
   const resetOverlayQueueState = (source: string, reason: string): void => {
+    const ownerBefore = ownerShadowRef.current.getState();
     const fields = buildStep2bQueueWriteFields(
       [...ownerShadowRef.current.getState().queue],
       [],
@@ -6348,6 +6391,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         },
         `${source}:${reason}`,
       );
+    });
+    const ownerAfter = ownerShadowRef.current.getState();
+    emitOwnerQueuePopulationTraceRef.current({
+      source: `resetOverlayQueueState:${source}:${reason}`,
+      reason: 'QUEUE_SILENT_UPDATED-clear',
+      ownerQueueBefore: ownerBefore.queue.length,
+      ownerPendingBefore: ownerBefore.pending.length,
+      ownerQueueAfter: ownerAfter.queue.length,
+      ownerPendingAfter: ownerAfter.pending.length,
+      mutationApplied: ownerAfter.queue.length !== ownerBefore.queue.length,
+      mutationSkipped: ownerAfter.queue.length === ownerBefore.queue.length,
+      skipReason:
+        ownerAfter.queue.length === ownerBefore.queue.length
+          ? 'queue-already-empty'
+          : null,
     });
   };
 
@@ -7481,10 +7539,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   };
 
   const deferNotificationToPendingStartup = (item: QueuedOverlay) => {
+    const ownerBefore = ownerShadowRef.current.getState();
+    const fields = readNotificationFieldsFromOverlay(item);
     const nextPending = mergeStartupPendingChain(
       pendingStartupInteractionsRef.current,
       [item],
     );
+    emitOwnerQueuePopulationTraceRef.current({
+      source: 'deferNotificationToPendingStartup:before-commit',
+      reason: 'defer-to-pending-startup',
+      ownerQueueBefore: ownerBefore.queue.length,
+      ownerPendingBefore: ownerBefore.pending.length,
+      ownerQueueAfter: ownerBefore.queue.length,
+      ownerPendingAfter: ownerBefore.pending.length,
+      mutationApplied: false,
+      mutationSkipped: false,
+      skipReason: null,
+      notificationKind: fields.notificationKind,
+      incomingBanId: fields.incomingBanId,
+      resultBanId: fields.resultBanId,
+    });
     commitPendingQueueViaOwner(
       nextPending,
       'defer-pending-startup',
@@ -7920,6 +7994,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return {
       queueLen,
       pendingLen,
+      ownerQueueLen: owner.queue.length,
+      ownerPendingLen: owner.pending.length,
       activeKind: owner.active.kind,
       queueHeadKind: head?.kind ?? null,
       lobbyBansNeedAttention: needAttention,
@@ -7928,6 +8004,51 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         notificationSessionActiveForDebugRef.current,
     };
   };
+
+  emitOwnerQueuePopulationTraceRef.current = (input) => {
+    const owner = ownerShadowRef.current.getState();
+    const head =
+      owner.queue[0] ??
+      owner.pending[0] ??
+      overlayQueueRef.current[0] ??
+      pendingStartupInteractionsRef.current[0] ??
+      null;
+    const fields = readNotificationFieldsFromOverlay(head);
+    const payload: OwnerQueuePopulationTracePayload = {
+      telegramUserId: userIdRef.current?.trim() ?? auth.user?.id ?? null,
+      incomingBanId:
+        input.incomingBanId ??
+        fields.incomingBanId ??
+        incomingBanRef.current?.id ??
+        null,
+      resultBanId:
+        input.resultBanId ??
+        fields.resultBanId ??
+        resultRef.current?.id ??
+        null,
+      notificationKind: input.notificationKind ?? fields.notificationKind,
+      skipReason: input.skipReason ?? null,
+      ...input,
+    };
+    if (!shouldEmitOwnerQueuePopulationTrace(payload)) return;
+    logOwnerQueuePopulationTrace(payload);
+  };
+
+  useLayoutEffect(() => {
+    setOwnerQueuePopulationTraceBridge({
+      readOwnerCounts: () => {
+        const owner = ownerShadowRef.current.getState();
+        return {
+          queue: owner.queue.length,
+          pending: owner.pending.length,
+        };
+      },
+      emit: (input) => {
+        emitOwnerQueuePopulationTraceRef.current(input);
+      },
+    });
+    return () => setOwnerQueuePopulationTraceBridge(null);
+  }, []);
 
   const maybeEmitQueueAppearanceOnLenAppear = (
     source: string,
@@ -8391,7 +8512,42 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           goToBansClosingBanIdRef.current != null &&
           normalizeId(goToBansClosingBanIdRef.current) === banId,
       });
+      const ownerQueueBefore = ownerBefore.queue.length;
+      const ownerPendingBefore = ownerBefore.pending.length;
+      const pendingFields = readNotificationFieldsFromOverlay(
+        pendingForApply[0] ?? next[0] ?? null,
+      );
+      if (pendingForApply.length !== next.length) {
+        emitOwnerQueuePopulationTraceRef.current({
+          source: `applyPendingQueueViaOwner:${reason ?? source}`,
+          reason: 'go-to-bans-passive-prefetch-filter',
+          ownerQueueBefore,
+          ownerPendingBefore,
+          ownerQueueAfter: ownerQueueBefore,
+          ownerPendingAfter: ownerPendingBefore,
+          mutationApplied: false,
+          mutationSkipped: true,
+          skipReason: `prefetch-filter-reduced:${next.length}->${pendingForApply.length}`,
+          notificationKind: pendingFields.notificationKind,
+          incomingBanId: pendingFields.incomingBanId,
+          resultBanId: pendingFields.resultBanId,
+        });
+      }
       if (isSamePendingOverlaySnapshot(pendingForApply, ownerBefore.pending)) {
+        emitOwnerQueuePopulationTraceRef.current({
+          source: `applyPendingQueueViaOwner:${reason ?? source}`,
+          reason: 'same-pending-overlay-snapshot',
+          ownerQueueBefore,
+          ownerPendingBefore,
+          ownerQueueAfter: ownerQueueBefore,
+          ownerPendingAfter: ownerPendingBefore,
+          mutationApplied: false,
+          mutationSkipped: true,
+          skipReason: 'same-pending-snapshot-no-dispatch',
+          notificationKind: pendingFields.notificationKind,
+          incomingBanId: pendingFields.incomingBanId,
+          resultBanId: pendingFields.resultBanId,
+        });
         return;
       }
       const pendingLenBefore = pendingStartupInteractionsRef.current.length;
@@ -8424,6 +8580,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ownerBefore.pending.length,
       );
       const ownerAfter = ownerShadowRef.current.getState();
+      emitOwnerQueuePopulationTraceRef.current({
+        source: `applyPendingQueueViaOwner:${reason ?? source}`,
+        reason: 'PENDING_QUEUE_APPLIED',
+        ownerQueueBefore,
+        ownerPendingBefore,
+        ownerQueueAfter: ownerAfter.queue.length,
+        ownerPendingAfter: ownerAfter.pending.length,
+        mutationApplied: true,
+        mutationSkipped: false,
+        notificationKind: pendingFields.notificationKind,
+        incomingBanId: pendingFields.incomingBanId,
+        resultBanId: pendingFields.resultBanId,
+      });
       const applyPendingQueueLenAfter = pendingForApply.length;
       if (pendingLenBefore === 0 && applyPendingQueueLenAfter > 0) {
         emitQueueAppearanceReactionTraceRef.current({
@@ -8513,6 +8682,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         },
       );
       const ownerAfter = ownerShadowRef.current.getState();
+      const queueFields = readNotificationFieldsFromOverlay(queueHeadAfterPreview);
+      emitOwnerQueuePopulationTraceRef.current({
+        source: `${source}:applyQueueViaOwnerAuthority`,
+        reason: silent ? 'QUEUE_SILENT_UPDATED' : 'QUEUE_APPLIED',
+        ownerQueueBefore: queueBefore.length,
+        ownerPendingBefore: ownerBefore.pending.length,
+        ownerQueueAfter: ownerAfter.queue.length,
+        ownerPendingAfter: ownerAfter.pending.length,
+        mutationApplied: true,
+        mutationSkipped: false,
+        notificationKind: queueFields.notificationKind,
+        incomingBanId: queueFields.incomingBanId,
+        resultBanId: queueFields.resultBanId,
+      });
       const queueAfter = [...ownerAfter.queue];
       const queueHeadAfter = queueAfter[0] ?? null;
       emitPostConsumeQueueUpdate({
@@ -12150,14 +12333,57 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const live = isOverlayLive(opts);
       noteNotificationEnqueueSource(opts?.source ?? 'enqueueNotification');
       const normalizedItem = normalizeQueuedOverlay(item);
-      if (!isValidQueuedOverlay(normalizedItem)) {
-        return;
-      }
       const banId =
         normalizedItem.kind === 'result'
           ? normalizeId(normalizedItem.result.id)
-          : normalizeId(normalizedItem.ban.id);
-      const key = overlayQueueKey(normalizedItem);
+          : normalizedItem.kind === 'incoming' || normalizedItem.kind === 'check'
+            ? normalizeId(normalizedItem.ban.id)
+            : '';
+      const key = isValidQueuedOverlay(normalizedItem)
+        ? overlayQueueKey(normalizedItem)
+        : '';
+
+      const traceEnqueueOwnerPopulation = (
+        stage: string,
+        extra: {
+          reason: string;
+          mutationApplied?: boolean;
+          mutationSkipped?: boolean;
+          skipReason?: string | null;
+        },
+      ) => {
+        const owner = ownerShadowRef.current.getState();
+        const fields = readNotificationFieldsFromOverlay(normalizedItem);
+        emitOwnerQueuePopulationTraceRef.current({
+          source: `enqueueNotification:${opts?.source ?? 'unknown'}:${stage}`,
+          reason: extra.reason,
+          ownerQueueBefore: owner.queue.length,
+          ownerPendingBefore: owner.pending.length,
+          ownerQueueAfter: owner.queue.length,
+          ownerPendingAfter: owner.pending.length,
+          mutationApplied: extra.mutationApplied ?? false,
+          mutationSkipped: extra.mutationSkipped ?? true,
+          skipReason: extra.skipReason ?? null,
+          notificationKind: fields.notificationKind,
+          incomingBanId: fields.incomingBanId,
+          resultBanId: fields.resultBanId,
+        });
+      };
+
+      traceEnqueueOwnerPopulation('entry', {
+        reason: 'enqueue-enter',
+        mutationApplied: false,
+        mutationSkipped: false,
+      });
+
+      if (!isValidQueuedOverlay(normalizedItem)) {
+        traceEnqueueOwnerPopulation('invalid-overlay', {
+          reason: 'isValidQueuedOverlay-false',
+          mutationSkipped: true,
+          skipReason: 'invalid-queued-overlay',
+        });
+        return;
+      }
 
       const traceIncomingOverlayArbiter = (
         stage: string,
@@ -12201,6 +12427,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId,
           source: opts?.source ?? 'enqueueNotification',
         });
+        traceEnqueueOwnerPopulation('check-result-priority-skip', {
+          reason: 'result-priority-exists',
+          mutationSkipped: true,
+          skipReason: 'check-prime-skip-stale-result-exists',
+        });
         return;
       }
 
@@ -12215,6 +12446,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           normalizedItem.kind,
           banId,
         );
+        traceEnqueueOwnerPopulation('mounted-overlay-defer', {
+          reason: 'success-card-or-active-timer-mounted',
+          mutationSkipped: false,
+          skipReason: 'defer-to-pending-startup',
+        });
         deferNotificationToPendingStartup(normalizedItem);
         return;
       }
@@ -12230,6 +12466,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           `enqueueNotification:${opts?.source ?? 'unknown'}`,
           normalizedItem.kind,
         );
+        traceEnqueueOwnerPopulation('compose-flow-defer', {
+          reason: 'send-compose-flow-active',
+          mutationSkipped: false,
+          skipReason: 'defer-to-pending-startup',
+        });
         deferNotificationToPendingStartup(normalizedItem);
         return;
       }
@@ -12394,6 +12635,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           skipReason: decision.reason,
           willStartOnClick: false,
         });
+        traceEnqueueOwnerPopulation('overlay-arbiter-reject', {
+          reason: 'evaluateOverlayEnqueue-rejected',
+          mutationSkipped: true,
+          skipReason: decision.reason,
+        });
         return;
       }
 
@@ -12431,6 +12677,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           traceIncomingOverlayArbiter('before-live-overlay-defer', {
             skipReason: displayDecision.reason,
             willStartOnClick: false,
+          });
+          traceEnqueueOwnerPopulation('live-overlay-blocked-defer', {
+            reason: `live-overlay-blocked:${displayDecision.reason}`,
+            mutationSkipped: false,
+            skipReason: 'defer-to-pending-startup',
           });
           deferNotificationToPendingStartup(normalizedItem);
           primeLobbyBansAttentionHintSyncRef.current(
@@ -12537,6 +12788,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             source: opts?.source ?? null,
           });
         }
+        traceEnqueueOwnerPopulation('queue-unchanged-dedup', {
+          reason: 'enqueueWithActiveLock-unchanged',
+          mutationSkipped: true,
+          skipReason: 'queue-unchanged-no-owner-write',
+        });
         return;
       }
 
@@ -12603,6 +12859,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       }
 
+      traceEnqueueOwnerPopulation('before-applyOverlayQueue', {
+        reason: `applyOverlayQueue:${action}`,
+        mutationApplied: false,
+        mutationSkipped: false,
+      });
       applyOverlayQueue(next);
     },
     [applyOverlayQueue, applyPendingQueueViaOwner, isOverlayLive],
@@ -22616,6 +22877,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         viewerId,
       );
       if (incoming) {
+        const ownerBeforeReceive = ownerShadowRef.current.getState();
+        const receiveFields = readNotificationFieldsFromOverlay({
+          kind: 'incoming',
+          ban: incoming,
+        });
+        emitOwnerQueuePopulationTraceRef.current({
+          source: `receiveIncomingBan:${source}:before-enqueue`,
+          reason: 'will-enqueue-incoming',
+          ownerQueueBefore: ownerBeforeReceive.queue.length,
+          ownerPendingBefore: ownerBeforeReceive.pending.length,
+          ownerQueueAfter: ownerBeforeReceive.queue.length,
+          ownerPendingAfter: ownerBeforeReceive.pending.length,
+          mutationApplied: false,
+          mutationSkipped: false,
+          notificationKind: receiveFields.notificationKind,
+          incomingBanId: receiveFields.incomingBanId,
+          resultBanId: receiveFields.resultBanId,
+        });
         if (
           source === 'session' &&
           !incomingWsSeenRef.current.has(incoming.id)
@@ -22637,8 +22916,46 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             source,
           },
         );
+        const ownerAfterReceive = ownerShadowRef.current.getState();
+        emitOwnerQueuePopulationTraceRef.current({
+          source: `receiveIncomingBan:${source}:after-enqueue`,
+          reason: 'enqueue-incoming-returned',
+          ownerQueueBefore: ownerBeforeReceive.queue.length,
+          ownerPendingBefore: ownerBeforeReceive.pending.length,
+          ownerQueueAfter: ownerAfterReceive.queue.length,
+          ownerPendingAfter: ownerAfterReceive.pending.length,
+          mutationApplied:
+            ownerAfterReceive.queue.length > ownerBeforeReceive.queue.length ||
+            ownerAfterReceive.pending.length > ownerBeforeReceive.pending.length,
+          mutationSkipped:
+            ownerAfterReceive.queue.length === ownerBeforeReceive.queue.length &&
+            ownerAfterReceive.pending.length === ownerBeforeReceive.pending.length,
+          skipReason:
+            ownerAfterReceive.queue.length === ownerBeforeReceive.queue.length &&
+            ownerAfterReceive.pending.length === ownerBeforeReceive.pending.length
+              ? 'enqueue-did-not-mutate-owner'
+              : null,
+          notificationKind: receiveFields.notificationKind,
+          incomingBanId: receiveFields.incomingBanId,
+          resultBanId: receiveFields.resultBanId,
+        });
         return;
       }
+
+      emitOwnerQueuePopulationTraceRef.current({
+        source: `receiveIncomingBan:${source}:skipped-pick-incoming`,
+        reason: decision.reason,
+        ownerQueueBefore: ownerShadowRef.current.getState().queue.length,
+        ownerPendingBefore: ownerShadowRef.current.getState().pending.length,
+        ownerQueueAfter: ownerShadowRef.current.getState().queue.length,
+        ownerPendingAfter: ownerShadowRef.current.getState().pending.length,
+        mutationApplied: false,
+        mutationSkipped: true,
+        skipReason: `pick-incoming-null:${decision.reason}`,
+        notificationKind: 'incoming',
+        incomingBanId: b.id,
+        resultBanId: null,
+      });
 
       console.log('INCOMING QUEUE PUSH', {
         banId: b.id,
@@ -22684,6 +23001,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     tokenRef,
     traceQueueAppearanceRef: emitQueueAppearanceReactionTraceRef,
     readQueueAppearanceSnapshotRef,
+    traceOwnerQueuePopulationRef: emitOwnerQueuePopulationTraceRef,
   });
 
   const receiveCheckBan = useCallback(
@@ -27469,6 +27787,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       const evaluateLobbyBansDrainGate = (
         phase: string,
+        traceExtra?: { returnReason?: string | null },
       ): {
         source: DrainGateDecisionSource;
         canDrain: boolean;
@@ -27500,6 +27819,141 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           hasPendingChain: hasPendingNotificationChain(),
         });
 
+        const resolveResultRejectFlags = (banId: string) => {
+          const norm = normalizeId(banId);
+          const uid = userIdRef.current?.trim() ?? auth.user?.id ?? '';
+          const delivered = resultDeliveredBanIdsRef.current.has(norm);
+          const consumed = resultCtaConsumedBanIdsRef.current.has(norm);
+          const shown = shownOverlayKeysRef.current.has(`result:${norm}`);
+          const dismissed = uid ? isDismissedResultLocally(norm, uid) : false;
+          const fresh = freshFinalStatusBanIdsRef.current.has(norm);
+          const ownerShown = owner.session.shownOverlayKeys.has(
+            `result:${norm}`,
+          );
+          const blockedForChain = isResultBlockedForNotificationChain(
+            norm,
+            `local-mountable-trace:${phase}`,
+          );
+          let candidateRejectedReason: string | null = null;
+          if (blockedForChain) candidateRejectedReason = 'result-blocked-for-chain';
+          else if (consumed) candidateRejectedReason = 'result-cta-consumed';
+          else if (delivered) candidateRejectedReason = 'result-delivered';
+          else if (shown || ownerShown)
+            candidateRejectedReason = 'result-shown-overlay-key';
+          else if (dismissed) candidateRejectedReason = 'result-dismissed-locally';
+          else if (fresh) candidateRejectedReason = 'result-fresh-final-status';
+          return {
+            candidateFresh: fresh,
+            candidateDelivered: delivered,
+            candidateShown: shown || ownerShown,
+            candidateDismissed: dismissed,
+            candidateRejectedReason,
+          };
+        };
+
+        runLocalMountableNotificationTrace({
+          source: `startLobbyBansNotificationDrain:${phase}`,
+          telegramUserId: userIdRef.current?.trim() ?? auth.user?.id ?? null,
+          owner,
+          legacyQueue: overlayQueueRef.current,
+          legacyPending: pendingStartupInteractionsRef.current,
+          displayIncomingBan: incomingBanRef.current,
+          displayCheckBan: checkBanRef.current,
+          displayResult: resultRef.current,
+          displayKind: resolveBansLayerOwnerDisplayKind(owner.display),
+          hasPendingChain: hasPendingNotificationChain(),
+          canDrain: gate.canDrain,
+          legacyWouldDrain: gate.legacyWouldDrain,
+          returnReason: traceExtra?.returnReason ?? null,
+          resolveOverlayRejectReason: (item, _candidateSource, inOwnerAuthority) => {
+            if (inOwnerAuthority) {
+              return { candidateRejectedReason: null };
+            }
+            if (item.kind === 'result') {
+              const flags = resolveResultRejectFlags(item.result.id);
+              return {
+                ...flags,
+                candidateRejectedReason:
+                  flags.candidateRejectedReason ??
+                  'legacy-result-not-in-owner-authority',
+              };
+            }
+            const banId = normalizeId(item.ban.id);
+            if (item.kind === 'incoming') {
+              if (dismissedIncomingRef.current.has(banId)) {
+                return {
+                  candidateDismissed: true,
+                  candidateRejectedReason: 'incoming-dismissed-session',
+                };
+              }
+              if (locallyAckedIncomingRef.current.has(banId)) {
+                return {
+                  candidateDismissed: true,
+                  candidateRejectedReason: 'incoming-locally-acked',
+                };
+              }
+            }
+            if (item.kind === 'check') {
+              if (dismissedCheckSessionRef.current.has(banId)) {
+                return {
+                  candidateDismissed: true,
+                  candidateRejectedReason: 'check-dismissed-session',
+                };
+              }
+              if (answeredCheckRef.current.has(banId)) {
+                return {
+                  candidateDismissed: true,
+                  candidateRejectedReason: 'check-answered',
+                };
+              }
+            }
+            return {
+              candidateRejectedReason: 'legacy-ref-not-in-owner-authority',
+            };
+          },
+          resolveDisplayRejectReason: (
+            kind,
+            banId,
+            _candidateSource,
+            inOwnerAuthority,
+          ) => {
+            if (inOwnerAuthority) {
+              return { candidateRejectedReason: null };
+            }
+            if (kind === 'result') {
+              const flags = resolveResultRejectFlags(banId);
+              return {
+                ...flags,
+                candidateRejectedReason:
+                  flags.candidateRejectedReason ??
+                  'display-result-not-in-owner-authority',
+              };
+            }
+            if (kind === 'incoming') {
+              const norm = normalizeId(banId);
+              if (dismissedIncomingRef.current.has(norm)) {
+                return {
+                  candidateDismissed: true,
+                  candidateRejectedReason: 'display-incoming-dismissed-session',
+                };
+              }
+            }
+            if (kind === 'check') {
+              const norm = normalizeId(banId);
+              if (dismissedCheckSessionRef.current.has(norm)) {
+                return {
+                  candidateDismissed: true,
+                  candidateRejectedReason: 'display-check-dismissed-session',
+                };
+              }
+            }
+            return {
+              candidateRejectedReason:
+                'display-ref-only-not-in-owner-queue-or-pending',
+            };
+          },
+        });
+
         const source: DrainGateDecisionSource = gate.canDrain
           ? 'owner'
           : gate.legacyWouldDrain
@@ -27518,6 +27972,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           legacyIncomingPresent,
           legacyCheckPresent,
           legacyResultPresent,
+        });
+        emitOwnerQueuePopulationTraceRef.current({
+          source: `resolveLobbyBansDrainGateDecision:${phase}`,
+          reason: gate.canDrain ? 'can-drain' : gate.reason,
+          ownerQueueBefore: gate.ownerQueue,
+          ownerPendingBefore: gate.ownerPending,
+          ownerQueueAfter: gate.ownerQueue,
+          ownerPendingAfter: gate.ownerPending,
+          mutationApplied: false,
+          mutationSkipped: !gate.canDrain,
+          skipReason: gate.canDrain
+            ? null
+            : `no-local-mountable-notification:${gate.reason}`,
         });
 
         return {
@@ -27816,6 +28283,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       drainGate = evaluateLobbyBansDrainGate('routing-after-shared-await');
 
       if (!drainGate.canDrain) {
+        evaluateLobbyBansDrainGate('early-return-direct-open-no-prefetch', {
+          returnReason: 'no-local-mountable-notification',
+        });
         const whyOpenSectionDespiteIndicator =
           lobbyBansAttentionHint > 0 &&
           pendingChainPrefetchInFlightRef.current > 0
@@ -28198,6 +28668,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           willStartDrain: false,
           earlyReturnReason: 'need-attention-false',
           skipReason: 'need-attention-false-after-prefetch',
+        });
+        evaluateLobbyBansDrainGate('early-return-need-attention-false', {
+          returnReason: 'need-attention-false-after-prefetch',
         });
         return lobbyDrainParityExit('need-attention-false', 'empty');
       }
