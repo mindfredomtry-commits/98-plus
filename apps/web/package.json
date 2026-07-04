@@ -6,8 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "test:queue-consume": "tsx scripts/queue-consume-transition.test.ts"
+    "lint": "next lint"
   },
   "dependencies": {
     "@98plus/shared": "*",
