@@ -11883,43 +11883,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         : incomingBanRef.current?.id
           ? 'incoming'
           : null;
-    const activeKind = owner.active.kind ?? null;
-    const displayKind = resolveBansLayerOwnerDisplayKind(owner.display);
-    const headKind = head?.kind ?? null;
-    const activeBanId = owner.active.banId ?? null;
-    const headBanId = head ? overlayBanId(head) : null;
-    const pendingHeadBanId = pendingHead ? overlayBanId(pendingHead) : null;
-    const remainingBanIds = queue.slice(1, 6).map(overlayBanId);
-    // Temporary browser-console-only diag for check/result actions (not overlay).
-    if (
-      phase !== 'after-poll' &&
-      (source === 'check-answer' ||
-        source === 'status-cta' ||
-        source === 'result-dismiss')
-    ) {
-      console.log('QUEUE_BREAK_CONSOLE_SNAPSHOT', {
-        phase,
-        source,
-        reason,
-        banId,
-        activeKind,
-        displayKind,
-        activeBanId,
-        headBanId,
-        pendingHeadBanId,
-        overlayLen: queue.length,
-        pendingLen: pendingStartupInteractionsRef.current.length,
-        remainingBanIds,
-        lastOutcome,
-      });
-    }
     logQueueBreakSnapshot({
       phase,
       'overlayQueue.length': queue.length,
       'pending.length': pendingStartupInteractionsRef.current.length,
-      activeKind,
-      displayKind,
-      headKind,
+      activeKind: owner.active.kind ?? null,
+      displayKind: resolveBansLayerOwnerDisplayKind(owner.display),
+      headKind: head?.kind ?? null,
       visibleOverlayKind,
       awaitingUser: notificationChainAwaitingUserRef.current,
       chainAdvanceExplicit: chainAdvanceExplicitRef.current,
@@ -11930,10 +11900,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       source,
       reason,
       banId,
-      activeBanId,
-      headBanId,
-      pendingHeadBanId,
-      remainingBanIds,
+      activeBanId: owner.active.banId ?? null,
+      headBanId: head ? overlayBanId(head) : null,
+      pendingHeadBanId: pendingHead ? overlayBanId(pendingHead) : null,
+      remainingBanIds: queue.slice(1, 6).map(overlayBanId),
       queueHeadKey: head ? overlayQueueKey(head) : null,
       pendingHeadKey: pendingHead ? overlayQueueKey(pendingHead) : null,
       hasResult: Boolean(
