@@ -863,6 +863,7 @@ import {
 } from '@/lib/notification-mode-debug';
 import {
   beginExplicitNotificationDrain,
+  getExplicitNotificationDrainSource,
   tryClearExplicitNotificationDrain,
   type ExplicitDrainClearSnapshot,
   logLobbyIndicatorOnlyNoCard,
@@ -1048,6 +1049,10 @@ import { logFriendsTiming } from '@/lib/boot-timing';
 import {
   registerDebug98LatchSnapshot,
 } from '@/lib/debug98log';
+import {
+  logQueueBreakSnapshot,
+  type QueueBreakSnapshotPhase,
+} from '@/lib/queue-break-snapshot-debug';
 import { logOverlayTransition } from '@/lib/overlay-transition-debug';
 import {
   isSuccessExitInstrumentationActive,
@@ -1970,6 +1975,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const startLobbyBansNotificationDrainRef = useRef<
     () => Promise<LobbyBansNotificationDrainOutcome>
   >(async () => 'empty');
+  const queueBreakTraceRef = useRef<{
+    generation: number;
+    source: string;
+    reason: string;
+    banId: string | null;
+    lastOutcome: string | null;
+  } | null>(null);
+  const queueBreakTraceGenerationRef = useRef(0);
   const openNextNotificationAfterQueueHandoffRef = useRef<
     (
       source: string,
@@ -11837,6 +11850,102 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return false;
   };
 
+  const emitQueueBreakSnapshot = (
+    phase: QueueBreakSnapshotPhase,
+    patch?: Partial<{
+      source: string;
+      reason: string;
+      banId: string | null;
+      lastOutcome: string | null;
+    }>,
+  ) => {
+    const session = queueBreakTraceRef.current;
+    if (!session && phase !== 'before-action') return;
+    const source = patch?.source ?? session?.source ?? 'unknown';
+    const reason = patch?.reason ?? session?.reason ?? 'unknown';
+    const banId =
+      patch?.banId !== undefined ? patch.banId : (session?.banId ?? null);
+    const lastOutcome =
+      patch?.lastOutcome !== undefined
+        ? patch.lastOutcome
+        : (session?.lastOutcome ?? null);
+    if (session && patch?.lastOutcome !== undefined) {
+      session.lastOutcome = patch.lastOutcome;
+    }
+    const owner = ownerShadowRef.current.getState();
+    const queue = overlayQueueRef.current;
+    const head = queue[0] ?? null;
+    const pendingHead = pendingStartupInteractionsRef.current[0] ?? null;
+    const visibleOverlayKind = resultRef.current?.id
+      ? 'result'
+      : checkBanRef.current?.id
+        ? 'check'
+        : incomingBanRef.current?.id
+          ? 'incoming'
+          : null;
+    logQueueBreakSnapshot({
+      phase,
+      'overlayQueue.length': queue.length,
+      'pending.length': pendingStartupInteractionsRef.current.length,
+      activeKind: owner.active.kind ?? null,
+      displayKind: resolveBansLayerOwnerDisplayKind(owner.display),
+      headKind: head?.kind ?? null,
+      visibleOverlayKind,
+      awaitingUser: notificationChainAwaitingUserRef.current,
+      chainAdvanceExplicit: chainAdvanceExplicitRef.current,
+      notificationChainTransitioning:
+        notificationChainTransitioningRef.current,
+      explicitDrainSource: getExplicitNotificationDrainSource(),
+      lastOutcome,
+      source,
+      reason,
+      banId,
+      activeBanId: owner.active.banId ?? null,
+      headBanId: head ? overlayBanId(head) : null,
+      pendingHeadBanId: pendingHead ? overlayBanId(pendingHead) : null,
+      remainingBanIds: queue.slice(1, 6).map(overlayBanId),
+      queueHeadKey: head ? overlayQueueKey(head) : null,
+      pendingHeadKey: pendingHead ? overlayQueueKey(pendingHead) : null,
+      hasResult: Boolean(
+        resultRef.current?.id || owner.display.result?.id,
+      ),
+      hasCheck: Boolean(
+        checkBanRef.current?.id || owner.display.checkBan?.id,
+      ),
+      hasIncoming: Boolean(
+        incomingBanRef.current?.id || owner.display.incomingBan?.id,
+      ),
+      generation: session?.generation,
+    });
+  };
+
+  const beginQueueBreakTrace = (
+    source: string,
+    reason: string,
+    banId: string | null,
+  ) => {
+    const generation = ++queueBreakTraceGenerationRef.current;
+    queueBreakTraceRef.current = {
+      generation,
+      source,
+      reason,
+      banId,
+      lastOutcome: null,
+    };
+    emitQueueBreakSnapshot('before-action', { source, reason, banId });
+    window.setTimeout(() => {
+      if (queueBreakTraceRef.current?.generation === generation) {
+        emitQueueBreakSnapshot('after-1s');
+      }
+    }, 1000);
+    // Keep session long enough for burst + first interval poll, then stop.
+    window.setTimeout(() => {
+      if (queueBreakTraceRef.current?.generation === generation) {
+        queueBreakTraceRef.current = null;
+      }
+    }, 15000);
+  };
+
   const dismissCurrentOverlay = useCallback(
     (reason: string, nextQueue?: QueuedOverlay[]) => {
       const owner = readOwnerImperative('dismissCurrentOverlay');
@@ -16643,6 +16752,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ? head.ban.id
           : (result?.id ?? readOwnerC3MountedResultId('dismissBanResult') ?? null);
 
+    beginQueueBreakTrace('result-dismiss', 'result-dismiss', dismissBanId);
+
     const needsPrime =
       overlayQueueRef.current.length <= 1 &&
       pendingStartupInteractionsRef.current.length === 0;
@@ -16789,12 +16900,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       } else {
         runDismiss();
       }
-      await continueNotificationChainOrOpenLobbyRef.current(
-        'dismissBanResult-after-close',
-        {
-          prefetchSkipBanId: dismissBanId,
-        },
-      );
+      emitQueueBreakSnapshot('after-consume');
+      const dismissContinueOutcome =
+        await continueNotificationChainOrOpenLobbyRef.current(
+          'dismissBanResult-after-close',
+          {
+            prefetchSkipBanId: dismissBanId,
+          },
+        );
+      emitQueueBreakSnapshot('after-continue', {
+        lastOutcome: dismissContinueOutcome,
+      });
     })();
   }, [
     clearDirectOverboardLayerRefs,
@@ -18066,6 +18182,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const pollPendingResultOnce = useCallback(
     async (source: 'interval' | 'burst') => {
+      try {
       const requestUserId = userIdRef.current;
       const requestToken = tokenRef.current;
       if (!requestUserId || !requestToken) {
@@ -18370,6 +18487,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       } catch {
         /* fallback only */
+      }
+      } finally {
+        if (queueBreakTraceRef.current) {
+          emitQueueBreakSnapshot('after-poll');
+        }
       }
     },
     [receiveResult, showCheckAnswerFinalResult],
@@ -19376,6 +19498,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return { ok: false, error: 'Некорректный запрет' };
       }
 
+      beginQueueBreakTrace('check-answer', 'user-answer', normalizedBanId);
+
       const checkBanAtSubmit = checkBanRef.current;
       const senderUserIdAtSubmit = checkBanAtSubmit?.sender?.id ?? null;
       const receiverUserIdAtSubmit = checkBanAtSubmit?.receiver?.id ?? null;
@@ -19470,6 +19594,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         elapsedMs: 0,
       });
       dismissCurrentOverlay('user-answer', remaining);
+      emitQueueBreakSnapshot('after-consume');
       setCheckWaiting(false);
       logCheckAnswerOverlayHostSnapshot('after-dismiss-user-answer');
 
@@ -19687,9 +19812,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           checkAnswerInFlight: new Set(checkAnswerInFlightRef.current),
         });
         const noCardMounted = !hasCheckAnswerNextCardMounted();
+        let continueOutcome: string | null = null;
         if (chainContinuePromise) {
           try {
             const outcome = await chainContinuePromise;
+            continueOutcome = outcome;
             await handleCheckAnswerChainOutcomeRef.current(
               outcome,
               normalizedBanId,
@@ -19706,6 +19833,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             }
           } catch {
             // chain continue logs its own errors
+            continueOutcome = 'continue-error';
           }
         } else if (noCardMounted) {
           const hasLocalOrPending =
@@ -19717,13 +19845,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             lobbyOpenRef.current = false;
             setNotificationChainTransitioning(true);
             await startLobbyBansNotificationDrainRef.current();
+            continueOutcome = 'lobby-bans-reenter';
           } else if (!chainAdvanceWaitingRef.current) {
             openLobbyAfterCheckDismissIfEmptyRef.current(
               'check-http-finally',
               normalizedBanId,
             );
+            continueOutcome = 'open-lobby-empty';
+          } else {
+            continueOutcome = 'no-continue-waiting';
           }
+        } else {
+          continueOutcome = 'no-continue-card-mounted';
         }
+        emitQueueBreakSnapshot('after-continue', {
+          lastOutcome: continueOutcome,
+        });
       }
     },
     [
@@ -31539,6 +31676,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       (heldUserCardOverlayRef.current?.kind === 'result'
         ? heldUserCardOverlayRef.current.result.id
         : null);
+    beginQueueBreakTrace('status-cta', 'go-to-bans', banId);
     const queueLenBefore = overlayQueueRef.current.length;
     const pendingLenBefore = pendingStartupInteractionsRef.current.length;
     emitGoToBansContinueEntry({
@@ -32162,6 +32300,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         { action: 'skip-finalize-and-direct-close' },
       );
     }
+    emitQueueBreakSnapshot('after-consume');
 
     const queueHeadAfter = overlayQueueRef.current[0] ?? null;
     logGoToBansResultClearLazy({
@@ -32331,6 +32470,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         },
       );
       let shown = outcome === 'show-next';
+      emitQueueBreakSnapshot('after-continue', { lastOutcome: outcome });
       logNavigateFromResultReturnTrace(
         'after-await-continue',
         shown ? 'async-continue-outcome-show-next' : `async-continue-outcome:${outcome}`,
