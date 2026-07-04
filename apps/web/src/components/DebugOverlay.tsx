@@ -5,16 +5,43 @@ import { createPortal } from 'react-dom';
 import {
   getDebug98Events,
   installDebug98log,
+  mergeDebug98Events,
+  readDebug98OverlayEnabled,
   type Debug98Event,
 } from '@/lib/debug98log';
 
-const DEBUG98_OVERLAY_STORAGE_KEY = 'debug98Overlay';
-
-function readDebug98OverlayEnabled(): boolean {
+function formatDebug98EventData(ev: Debug98Event): string {
+  if (ev.data === undefined) return '';
+  if (
+    ev.event === 'QUEUE_BREAK_SNAPSHOT' &&
+    ev.data &&
+    typeof ev.data === 'object'
+  ) {
+    const d = ev.data as Record<string, unknown>;
+    const rem = Array.isArray(d.remainingBanIds)
+      ? (d.remainingBanIds as string[]).join(',')
+      : '';
+    return (
+      ` phase=${String(d.phase ?? '')}` +
+      ` src=${String(d.source ?? '')}` +
+      ` reason=${String(d.reason ?? '')}` +
+      ` out=${String(d.lastOutcome ?? '-')}` +
+      ` q=${String(d['overlayQueue.length'] ?? '')}` +
+      ` p=${String(d['pending.length'] ?? '')}` +
+      ` active=${String(d.activeBanId ?? '-')}` +
+      ` head=${String(d.headBanId ?? '-')}` +
+      ` pendHead=${String(d.pendingHeadBanId ?? '-')}` +
+      ` rem=[${rem}]` +
+      ` vis=${String(d.visibleOverlayKind ?? '-')}` +
+      ` disp=${String(d.displayKind ?? '-')}` +
+      ` activeKind=${String(d.activeKind ?? '-')}`
+    );
+  }
   try {
-    return window.localStorage.getItem(DEBUG98_OVERLAY_STORAGE_KEY) === '1';
+    const s = JSON.stringify(ev.data);
+    return s.length > 180 ? ` ${s.slice(0, 180)}…` : ` ${s}`;
   } catch {
-    return false;
+    return ' [unserializable]';
   }
 }
 
@@ -34,12 +61,12 @@ export function DebugOverlay() {
   useEffect(() => {
     if (!overlayVisible) return;
 
-    setEvents(getDebug98Events());
+    setEvents(mergeDebug98Events(getDebug98Events()));
 
     const onEvent = (e: Event) => {
       const detail = (e as CustomEvent<Debug98Event>).detail;
       if (!detail?.event) return;
-      setEvents((prev) => [...prev, detail].slice(-30));
+      setEvents((prev) => mergeDebug98Events(prev, detail));
     };
 
     window.addEventListener('__debug98log', onEvent);
@@ -51,16 +78,8 @@ export function DebugOverlay() {
     return events.map((ev, idx) => {
       const ageMs = now - ev.t;
       const age = ageMs >= 0 ? `${Math.round(ageMs)}ms` : '';
-      let data = '';
-      try {
-        if (ev.data !== undefined) {
-          const s = JSON.stringify(ev.data);
-          data = s.length > 180 ? s.slice(0, 180) + '…' : s;
-        }
-      } catch {
-        data = '[unserializable]';
-      }
-      return `${idx + 1}. ${ev.event} ${age ? `(${age})` : ''}${data ? ` ${data}` : ''}`;
+      const data = formatDebug98EventData(ev);
+      return `${idx + 1}. ${ev.event} ${age ? `(${age})` : ''}${data}`;
     });
   }, [events]);
 
@@ -126,4 +145,3 @@ export function DebugOverlay() {
     document.body,
   );
 }
-

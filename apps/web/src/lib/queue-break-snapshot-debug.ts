@@ -1,5 +1,7 @@
 'use client';
 
+import { logDebug98Event } from '@/lib/debug98log';
+
 export type QueueBreakSnapshotPhase =
   | 'before-action'
   | 'after-consume'
@@ -38,7 +40,6 @@ export type QueueBreakSnapshotPayload = {
 export function logQueueBreakSnapshot(payload: QueueBreakSnapshotPayload): void {
   const entry = { t: performance.now(), ...payload };
   console.log('QUEUE_BREAK_SNAPSHOT', entry);
-  if (typeof window !== 'undefined') {
-    window.__debug98log?.('QUEUE_BREAK_SNAPSHOT', entry);
-  }
+  // Same allowlisted logger path as DebugOverlay (window.__debug98log).
+  logDebug98Event('QUEUE_BREAK_SNAPSHOT', entry);
 }
