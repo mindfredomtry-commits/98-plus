@@ -13,12 +13,9 @@ export type Debug98Event = {
 };
 
 const MAX_EVENTS = 30;
-/** Keep these in the overlay buffer even when other events flood. */
-const PINNED_OVERLAY_EVENTS = new Set(['QUEUE_BREAK_SNAPSHOT']);
-const MAX_PINNED_EVENTS = 12;
 
 /** Bump when allowlist / install behavior changes. */
-export const DEBUG98_LOGGER_VERSION = 97;
+export const DEBUG98_LOGGER_VERSION = 96;
 
 /** When this bundle chunk was first evaluated in the browser session. */
 const DEBUG98_BUNDLE_LOADED_AT =
@@ -688,46 +685,12 @@ function dispatchDebugEvent(ev: Debug98Event) {
   window.dispatchEvent(new CustomEvent('__debug98log', { detail: ev }));
 }
 
-/** Merge into the overlay buffer, pinning QUEUE_BREAK_SNAPSHOT against flood eviction. */
-export function mergeDebug98Events(
-  prev: Debug98Event[],
-  next?: Debug98Event,
-): Debug98Event[] {
-  const all = next ? [...prev, next] : [...prev];
-  if (all.length <= MAX_EVENTS) return all;
-  const pinned = all.filter((e) => PINNED_OVERLAY_EVENTS.has(e.event));
-  const unpinned = all.filter((e) => !PINNED_OVERLAY_EVENTS.has(e.event));
-  const keepPinned = pinned.slice(-MAX_PINNED_EVENTS);
-  const room = Math.max(0, MAX_EVENTS - keepPinned.length);
-  const keepUnpinned = unpinned.slice(-room);
-  return [...keepUnpinned, ...keepPinned].sort((a, b) => a.t - b.t);
-}
-
 function appendDebug98Event(event: string, data?: unknown) {
   const ev: Debug98Event = { t: Date.now(), event, data };
-  window.__debug98events = mergeDebug98Events(window.__debug98events ?? [], ev);
+  window.__debug98events = [...(window.__debug98events ?? []), ev].slice(
+    -MAX_EVENTS,
+  );
   dispatchDebugEvent(ev);
-}
-
-/** Same path as overlay: ensure logger installed, allowlist-filtered via __debug98log. */
-export function logDebug98Event(event: string, data?: unknown): void {
-  if (typeof window === 'undefined') return;
-  if (typeof window.__debug98log !== 'function') {
-    installDebug98log();
-  }
-  window.__debug98log?.(event, data);
-}
-
-export function readDebug98OverlayEnabled(): boolean {
-  if (typeof window === 'undefined') return false;
-  try {
-    return (
-      window.localStorage.getItem('debug98Overlay') === '1' ||
-      window.localStorage.getItem('debug98overlay') === '1'
-    );
-  } catch {
-    return false;
-  }
 }
 
 export function installDebug98log() {
