@@ -1053,6 +1053,7 @@ import {
   logQueueBreakSnapshot,
   type QueueBreakSnapshotPhase,
 } from '@/lib/queue-break-snapshot-debug';
+import { promotePendingIfOverlayEmpty } from '@/lib/queue-consume-transition';
 import { logOverlayTransition } from '@/lib/overlay-transition-debug';
 import {
   isSuccessExitInstrumentationActive,
@@ -12359,14 +12360,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             beforeApplyQueue,
           );
         }
-        // Incoming-style remaining: if overlay remaining is empty, promote pending
-        // so active-chain next is not lost to silent-empty/hold.
-        const remainingWithPending =
-          remaining.length > 0
-            ? remaining
-            : pendingStartupInteractionsRef.current.length > 0
-              ? [...pendingStartupInteractionsRef.current]
-              : remaining;
+        // Same transition as pure test: promote pending when overlay remaining empty.
+        const pendingBeforePromote = pendingStartupInteractionsRef.current;
+        const promotedAfterCheckConsume = promotePendingIfOverlayEmpty({
+          overlayQueue: remaining,
+          pending: pendingBeforePromote,
+        });
+        const remainingWithPending = promotedAfterCheckConsume.overlayQueue;
         const deferCheckAnswerEmptyRemainingApply =
           userChainAdvance &&
           shouldDeferCheckAnswerEmptyRemainingApplyQueue(
@@ -12403,8 +12403,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           setLobbyOpen(false);
         } else {
           if (
-            remaining.length === 0 &&
-            remainingWithPending.length > 0
+            pendingBeforePromote.length > 0 &&
+            promotedAfterCheckConsume.pending.length === 0
           ) {
             commitPendingQueueViaOwner(
               [],
@@ -16875,23 +16875,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             'dismissBanResult:incoming-style-handoff',
             { awaitingUser: false },
           );
-          let nextQueue = removeOverlaysForBan(
+          const remainingAfterResult = removeOverlaysForBan(
             overlayQueueRef.current,
             resultBanId,
             ['result'],
           );
+          const pendingBeforeResultPromote =
+            pendingStartupInteractionsRef.current;
+          const promotedAfterResultDismiss = promotePendingIfOverlayEmpty({
+            overlayQueue: remainingAfterResult,
+            pending: pendingBeforeResultPromote,
+          });
           if (
-            nextQueue.length === 0 &&
-            pendingStartupInteractionsRef.current.length > 0
+            pendingBeforeResultPromote.length > 0 &&
+            promotedAfterResultDismiss.pending.length === 0
           ) {
-            nextQueue = [...pendingStartupInteractionsRef.current];
             commitPendingQueueViaOwner(
               [],
               'dismissBanResult',
               'result-promote-pending-to-remaining',
             );
           }
-          dismissCurrentOverlay('result-dismiss', nextQueue);
+          dismissCurrentOverlay(
+            'result-dismiss',
+            promotedAfterResultDismiss.overlayQueue,
+          );
         }
       };
 
@@ -31182,20 +31190,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             'queue-overboard-go-to-bans-pending',
           );
         }
-        // Promote pending into remaining when overlay next is empty (incoming-style).
+        // Same transition as pure test: promote pending when overlay remaining empty.
+        const pendingBeforeGoToBansPromote =
+          pendingStartupInteractionsRef.current;
+        const promotedAfterGoToBans = promotePendingIfOverlayEmpty({
+          overlayQueue: nextQueueWithoutCurrent,
+          pending: pendingBeforeGoToBansPromote,
+        });
         if (
-          nextQueueWithoutCurrent.length === 0 &&
-          pendingStartupInteractionsRef.current.length > 0
+          pendingBeforeGoToBansPromote.length > 0 &&
+          promotedAfterGoToBans.pending.length === 0
         ) {
-          nextQueueWithoutCurrent = [
-            ...pendingStartupInteractionsRef.current,
-          ];
           commitPendingQueueViaOwner(
             [],
             'go-to-bans',
             'result-promote-pending-to-remaining',
           );
         }
+        nextQueueWithoutCurrent = promotedAfterGoToBans.overlayQueue;
         // Incoming-style handoff: pre-arm already set above; apply remaining via dismiss.
         dismissCurrentOverlay('result-dismiss', nextQueueWithoutCurrent);
         const ownerDisplayResultId =
@@ -31275,19 +31287,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             'pending-prune',
           );
         }
+        const pendingBeforeGoToBansPrunePromote =
+          pendingStartupInteractionsRef.current;
+        const promotedAfterGoToBansPrune = promotePendingIfOverlayEmpty({
+          overlayQueue: nextQueueWithoutCurrent,
+          pending: pendingBeforeGoToBansPrunePromote,
+        });
         if (
-          nextQueueWithoutCurrent.length === 0 &&
-          pendingStartupInteractionsRef.current.length > 0
+          pendingBeforeGoToBansPrunePromote.length > 0 &&
+          promotedAfterGoToBansPrune.pending.length === 0
         ) {
-          nextQueueWithoutCurrent = [
-            ...pendingStartupInteractionsRef.current,
-          ];
           commitPendingQueueViaOwner(
             [],
             'go-to-bans',
             'result-promote-pending-to-remaining',
           );
         }
+        nextQueueWithoutCurrent = promotedAfterGoToBansPrune.overlayQueue;
         dismissCurrentOverlay('result-dismiss', nextQueueWithoutCurrent);
       }
 
