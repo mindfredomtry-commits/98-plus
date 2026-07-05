@@ -25151,6 +25151,52 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               pendingRef: pendingStartupInteractionsRef.current,
             }),
           });
+          const explicitDrainBlockQueueHead = readOwnerImperativeQueueHead(
+            owner,
+            'showNextNotificationFromChainSync',
+            { queueRef: overlayQueueRef.current },
+          );
+          const explicitDrainBlockHeld = readOwnerImperativeHeldUserCard(
+            owner,
+            'showNextNotificationFromChainSync',
+            { ref: heldUserCardOverlayRef.current },
+          );
+          const activeUserCardBlocksExplicitDrainTrace = {
+            source,
+            queueLen: readOwnerImperativeQueueLen(owner, 'showNextNotificationFromChainSync', {
+              queueRef: overlayQueueRef.current,
+            }),
+            pendingLen: readOwnerImperativePendingLen(owner, 'showNextNotificationFromChainSync', {
+              pendingRef: pendingStartupInteractionsRef.current,
+            }),
+            queueHeadKind: explicitDrainBlockQueueHead?.kind ?? null,
+            queueHeadBanId: explicitDrainBlockQueueHead
+              ? overlayItemBanId(explicitDrainBlockQueueHead)
+              : null,
+            ownerActiveKind: owner.active.kind,
+            ownerActiveBanId: owner.active.banId,
+            ownerDisplayKind: resolveBansLayerOwnerDisplayKind(owner.display),
+            ownerDisplayCheckBanId: owner.display.checkBan?.id ?? null,
+            checkBanRefId: checkBanRef.current?.id ?? null,
+            heldUserCardKind: explicitDrainBlockHeld?.kind ?? null,
+            heldUserCardBanId: explicitDrainBlockHeld
+              ? heldUserCardBanId(explicitDrainBlockHeld)
+              : null,
+            notificationChainAwaitingUser: notificationChainAwaitingUserRef.current,
+            hasActiveNotificationOverlayMountedResult:
+              hasActiveNotificationOverlayMounted(),
+            isActiveUserCardHoldResult: isActiveUserCardHold(),
+            chainAdvanceExplicit: chainAdvanceExplicitRef.current,
+            timestamp: performance.now(),
+          };
+          console.log(
+            'ACTIVE_USER_CARD_BLOCKS_EXPLICIT_DRAIN_TRACE',
+            activeUserCardBlocksExplicitDrainTrace,
+          );
+          window.__debug98log?.(
+            'ACTIVE_USER_CARD_BLOCKS_EXPLICIT_DRAIN_TRACE',
+            activeUserCardBlocksExplicitDrainTrace,
+          );
           return showNextDiagReturn('active-user-card-blocks-explicit-drain', false);
         }
         console.log('[chain-drain-continue-blocked]', {
