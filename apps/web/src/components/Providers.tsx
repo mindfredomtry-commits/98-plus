@@ -243,6 +243,7 @@ import {
 } from '@/lib/notification-overlay-owner-phase12-decision-read-selectors';
 import { logPhase12WriteAuthority } from '@/lib/notification-overlay-owner-phase12-write-authority-debug';
 import { logPhase12DiagBoot } from '@/lib/phase12-diag-probe-debug';
+import { PHASE12_BUILD_MARKER } from '@/lib/phase12-build-marker';
 import {
   buildPhase12WriteAuthoritySnapshotFromLegacy,
   buildPhase12WriteAuthoritySnapshotFromOwner,
@@ -28611,6 +28612,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const startLobbyBansNotificationDrain =
     useCallback(async (): Promise<LobbyBansNotificationDrainOutcome> => {
+      console.log('DRAIN_FUNCTION_REVISION', {
+        revision: 'direct-open-prefetch-runtime-marker-v1',
+        buildCommit: PHASE12_BUILD_MARKER?.buildCommit ?? null,
+        timestamp: performance.now(),
+      });
       const logStartDrainEntry = (
         extra: Partial<StartDrainEntryTracePayload> & { source: string },
       ) => {
