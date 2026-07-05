@@ -24902,6 +24902,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         result: boolean,
         extra?: Record<string, unknown>,
       ): boolean => {
+        const ownerAtReturn = readOwnerImperative(
+          'showNextNotificationFromChainSync:diag-return',
+        );
         emitShowNextReturn({
           source,
           branch,
@@ -24910,6 +24913,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           queueHeadBanId: headAtEnter ? overlayItemBanId(headAtEnter) : null,
           queueLen: overlayQueueRef.current.length,
           pendingLen: pendingStartupInteractionsRef.current.length,
+          activeKind: ownerAtReturn.active.kind,
+          displayKind: resolveBansLayerOwnerDisplayKind(ownerAtReturn.display),
+          notificationChainAwaitingUser:
+            notificationChainAwaitingUserRef.current,
+          hasActiveNotificationOverlayMountedResult:
+            hasActiveNotificationOverlayMounted(),
+          isActiveUserCardHoldResult: isActiveUserCardHold(),
+          timestamp: performance.now(),
           ...extra,
         });
         if (!result && isPostConsumeTraceActive()) {
