@@ -6170,6 +6170,94 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const releaseAtomicOverboardAwaitingDismiss = (
+    banId: string,
+    source: string,
+  ): void => {
+    const key = normalizeId(banId);
+    if (!key) return;
+
+    const ownerBefore = readOwnerImperative('releaseAtomicOverboardAwaitingDismiss');
+    const hadAtomicBefore = Boolean(
+      readOwnerImperativeAtomicOverboardBanId(
+        ownerBefore,
+        'releaseAtomicOverboardAwaitingDismiss',
+        { ref: incomingOverboardAtomicBanIdRef.current },
+      ),
+    );
+    const queueHeadBefore = overlayQueueRef.current[0] ?? null;
+    const queueHeadKind = queueHeadBefore?.kind ?? null;
+    const queueHeadBanId = queueHeadBefore
+      ? queueHeadBefore.kind === 'result'
+        ? queueHeadBefore.result.id
+        : queueHeadBefore.ban.id
+      : null;
+
+    incomingOverboardAtomicBanIdRef.current = null;
+    mirrorOwnerHoldsSetsRef.current(`${source}:release-atomic-overboard`, {
+      atomicOverboardBanId: null,
+    });
+    freshOverboardActionBanIdsRef.current.delete(key);
+    resultOpenRef.current = false;
+
+    let clearedResultRef = false;
+    let clearedHeld = false;
+
+    if (normalizeId(resultRef.current?.id ?? '') === key) {
+      setResult(null);
+      resultRef.current = null;
+      clearedResultRef = true;
+    } else if (normalizeId(result?.id ?? '') === key) {
+      setResult(null);
+      clearedResultRef = true;
+    }
+
+    const held = heldUserCardOverlayRef.current;
+    if (held?.kind === 'result' && normalizeId(held.result.id) === key) {
+      emitResultClearCallsite({
+        source,
+        reason: 'release-atomic-overboard-held-result',
+        resultIdBefore: key,
+        willClearHeld: true,
+      });
+      traceHoldClear(`${source}:release-atomic-overboard`);
+      heldUserCardOverlayRef.current = null;
+      setHeldUserCardOverlay(null);
+      mirrorHeldUserCardHold(`${source}:release-atomic-overboard`);
+      visibleUserCardOverlayRef.current = null;
+      clearedHeld = true;
+    } else if (
+      queueHeadBefore?.kind === 'result' &&
+      normalizeId(queueHeadBefore.result.id) === key
+    ) {
+      const visible = visibleUserCardOverlayRef.current;
+      if (
+        visible?.kind === 'result' &&
+        normalizeId(visible.banId) === key
+      ) {
+        visibleUserCardOverlayRef.current = null;
+      }
+      if (!clearedResultRef && normalizeId(result?.id ?? '') === key) {
+        setResult(null);
+        resultRef.current = null;
+        clearedResultRef = true;
+      }
+    }
+
+    const releaseTrace = {
+      source,
+      banId: key,
+      hadAtomicBefore,
+      clearedResultRef,
+      clearedHeld,
+      queueHeadKind,
+      queueHeadBanId,
+      timestamp: performance.now(),
+    };
+    console.log('ATOMIC_OVERBOARD_RELEASE_TRACE', releaseTrace);
+    window.__debug98log?.('ATOMIC_OVERBOARD_RELEASE_TRACE', releaseTrace);
+  };
+
   const isPendingAtomicOverboardResultAwaitingDismiss = (
     source?: string,
   ): boolean => {
@@ -31973,6 +32061,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         inActiveOverboardQueue,
         outcome: outcome ?? null,
       });
+
+      releaseAtomicOverboardAwaitingDismiss(
+        key,
+        'finalizeResultForGoToBans:go-to-bans-cta',
+      );
 
       lastProcessedOverlayKindForBansRef.current = 'result';
       runPhase12ParityCheck('finalizeResultForGoToBans', 'go-to-bans');
