@@ -29190,6 +29190,45 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       drainGate = evaluateLobbyBansDrainGate('routing-after-shared-await');
 
       if (!drainGate.canDrain) {
+        const beforeOwnerPendingLen = drainGate.ownerPending;
+        const beforeOwnerQueueLen = drainGate.ownerQueue;
+        await Promise.resolve();
+        const ownerAfterDirectOpenRetry = ownerShadowRef.current.getState();
+        const afterOwnerPendingLen = ownerAfterDirectOpenRetry.pending.length;
+        const afterOwnerQueueLen = ownerAfterDirectOpenRetry.queue.length;
+        const retryPromotedToDrain =
+          afterOwnerPendingLen > 0 || afterOwnerQueueLen > 0;
+        const directOpenRetryTrace = {
+          beforeOwnerPendingLen,
+          beforeOwnerQueueLen,
+          afterOwnerPendingLen,
+          afterOwnerQueueLen,
+          retryPromotedToDrain,
+          source: 'startLobbyBansNotificationDrain:direct-open-no-prefetch-retry',
+          timestamp: performance.now(),
+        };
+        console.log('LOBBY_BANS_DIRECT_OPEN_RETRY_TRACE', directOpenRetryTrace);
+        window.__debug98log?.(
+          'LOBBY_BANS_DIRECT_OPEN_RETRY_TRACE',
+          directOpenRetryTrace,
+        );
+
+        if (retryPromotedToDrain) {
+          drainGate = evaluateLobbyBansDrainGate(
+            'direct-open-retry-promoted-to-drain',
+          );
+          queueLenBefore = Math.max(
+            drainGate.legacyQueue,
+            drainGate.ownerQueue,
+          );
+          pendingLen = Math.max(
+            drainGate.legacyPending,
+            drainGate.ownerPending,
+          );
+          incomingPresent = drainGate.legacyIncomingPresent;
+          checkPresent = drainGate.legacyCheckPresent;
+          resultPresent = drainGate.legacyResultPresent;
+        } else {
         evaluateLobbyBansDrainGate('early-return-direct-open-no-prefetch', {
           returnReason: 'no-local-mountable-notification',
         });
@@ -29308,6 +29347,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         emitLobbyBansDrainParityExitTrace('direct-open-no-prefetch');
         return lobbyDrainParityExit('direct-open-no-prefetch', 'empty');
+        }
       }
 
       let queueLen = queueLenBefore;
