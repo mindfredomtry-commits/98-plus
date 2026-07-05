@@ -28610,6 +28610,42 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return value;
       };
 
+      const emitLobbyBansDrainParityExitTrace = (
+        branch: string,
+        extra?: { mergedCount?: number | null; source?: string },
+      ) => {
+        const owner = ownerShadowRef.current.getState();
+        const queueLen = Math.max(
+          overlayQueueRef.current.length,
+          owner.queue.length,
+        );
+        const pendingLen = Math.max(
+          pendingStartupInteractionsRef.current.length,
+          owner.pending.length,
+        );
+        const payload = {
+          reason: branch,
+          branch,
+          source: extra?.source ?? `startLobbyBansNotificationDrain:${branch}`,
+          mergedCount: extra?.mergedCount ?? null,
+          pendingLen,
+          queueLen,
+          ownerPendingLen: owner.pending.length,
+          ownerQueueLen: owner.queue.length,
+          pendingKinds: owner.pending.map((item) => item.kind),
+          pendingBanIds: owner.pending.map((item) => overlayItemBanId(item)),
+          queueKinds: owner.queue.map((item) => item.kind),
+          queueBanIds: owner.queue.map((item) => overlayItemBanId(item)),
+          activeKind: owner.active.kind,
+          displayKind: resolveBansLayerOwnerDisplayKind(owner.display),
+          chainAdvanceExplicit: chainAdvanceExplicitRef.current,
+          lastActiveDisplayMergeSkip: lastActiveDisplayMergeSkipRef.current,
+          timestamp: performance.now(),
+        };
+        console.log('LOBBY_BANS_DRAIN_PARITY_EXIT_TRACE', payload);
+        window.__debug98log?.('LOBBY_BANS_DRAIN_PARITY_EXIT_TRACE', payload);
+      };
+
       const evaluateLobbyBansDrainGate = (
         phase: string,
         traceExtra?: { returnReason?: string | null },
@@ -29224,6 +29260,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           earlyReturnReason: 'direct-open-no-prefetch',
           skipReason: 'no-local-mountable-notification',
         });
+        emitLobbyBansDrainParityExitTrace('direct-open-no-prefetch');
         return lobbyDrainParityExit('direct-open-no-prefetch', 'empty');
       }
 
@@ -29497,6 +29534,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         evaluateLobbyBansDrainGate('early-return-need-attention-false', {
           returnReason: 'need-attention-false-after-prefetch',
         });
+        emitLobbyBansDrainParityExitTrace('need-attention-false');
         return lobbyDrainParityExit('need-attention-false', 'empty');
       }
 
@@ -29680,6 +29718,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           earlyReturnReason: 'pending-merge-failed',
           skipReason: 'pending-merge-failed',
         });
+        emitLobbyBansDrainParityExitTrace('pending-merge-failed', {
+          mergedCount: 0,
+        });
         return lobbyDrainParityExit('pending-merge-failed', 'drain-failed');
       }
 
@@ -29707,6 +29748,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           pendingSnapshotLen: pendingLen,
           mergedCount,
         });
+        emitLobbyBansDrainParityExitTrace('show-next-success', { mergedCount });
         return lobbyDrainParityExit('show-next-success', 'drained');
       }
 
@@ -29757,6 +29799,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           earlyReturnReason: 'show-next-failed',
           skipReason: 'show-next-failed-after-merge',
         });
+        emitLobbyBansDrainParityExitTrace('show-next-failed', { mergedCount });
         return lobbyDrainParityExit('show-next-failed', 'drain-failed');
       }
 
@@ -29787,6 +29830,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         earlyReturnReason: 'drain-consumed-empty',
         skipReason: 'drain-consumed-empty-queue',
       });
+      emitLobbyBansDrainParityExitTrace('drain-consumed-empty', { mergedCount });
       return lobbyDrainParityExit('drain-consumed-empty', 'empty');
     }, [
       auth.user?.id,
