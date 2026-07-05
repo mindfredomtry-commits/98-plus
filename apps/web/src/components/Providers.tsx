@@ -27550,7 +27550,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               lobbyOpen: lobbyOpenRef.current,
             });
           }
-          setNotificationChainTransitioning(true);
+          setNotificationChainTransitioning(false);
           logChainEmptyFinalizeWithDiag(
             buildChainEmptyFinalizeSnapshot({
               source,
