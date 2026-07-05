@@ -29192,19 +29192,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (!drainGate.canDrain) {
         const beforeOwnerPendingLen = drainGate.ownerPending;
         const beforeOwnerQueueLen = drainGate.ownerQueue;
-        await Promise.resolve();
-        const ownerAfterDirectOpenRetry = ownerShadowRef.current.getState();
-        const afterOwnerPendingLen = ownerAfterDirectOpenRetry.pending.length;
-        const afterOwnerQueueLen = ownerAfterDirectOpenRetry.queue.length;
+        await prefetchPendingNotificationChain(
+          null,
+          'lobby-bans-cta-direct-open-prefetch',
+        );
+        const ownerAfterDirectOpenPrefetch = ownerShadowRef.current.getState();
+        const afterPrefetchOwnerPendingLen =
+          ownerAfterDirectOpenPrefetch.pending.length;
+        const afterPrefetchOwnerQueueLen =
+          ownerAfterDirectOpenPrefetch.queue.length;
         const retryPromotedToDrain =
-          afterOwnerPendingLen > 0 || afterOwnerQueueLen > 0;
+          afterPrefetchOwnerPendingLen > 0 || afterPrefetchOwnerQueueLen > 0;
         const directOpenRetryTrace = {
           beforeOwnerPendingLen,
           beforeOwnerQueueLen,
-          afterOwnerPendingLen,
-          afterOwnerQueueLen,
+          afterOwnerPendingLen: afterPrefetchOwnerPendingLen,
+          afterOwnerQueueLen: afterPrefetchOwnerQueueLen,
+          prefetchAttempted: true,
+          afterPrefetchOwnerPendingLen,
+          afterPrefetchOwnerQueueLen,
           retryPromotedToDrain,
-          source: 'startLobbyBansNotificationDrain:direct-open-no-prefetch-retry',
+          source:
+            'startLobbyBansNotificationDrain:direct-open-no-prefetch-prefetch',
           timestamp: performance.now(),
         };
         console.log('LOBBY_BANS_DIRECT_OPEN_RETRY_TRACE', directOpenRetryTrace);
@@ -29215,7 +29224,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
         if (retryPromotedToDrain) {
           drainGate = evaluateLobbyBansDrainGate(
-            'direct-open-retry-promoted-to-drain',
+            'direct-open-prefetch-promoted-to-drain',
           );
           queueLenBefore = Math.max(
             drainGate.legacyQueue,
@@ -29318,8 +29327,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             ownerPendingLen: drainGate.ownerPending,
             hasPendingNotificationChain: hasPendingNotificationChain(),
             lobbyBansAttentionHint,
-            wasPrefetchAttempted: false,
-            reason: 'owner-empty-no-prefetch',
+            wasPrefetchAttempted: true,
+            reason: 'owner-empty-after-direct-open-prefetch',
           });
         }
         logChainEndedIndicatorDiagIfNeeded(
