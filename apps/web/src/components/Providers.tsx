@@ -15593,6 +15593,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ? normalizeId(prefetched.result.id)
           : '';
 
+        console.log('PENDING_ALL_RESPONSE_TRACE', {
+          source,
+          incomingCount: prefetched.incoming.length,
+          checkPresent: Boolean(prefetched.check?.id),
+          resultPresent: Boolean(prefetched.result?.id),
+          rawIncomingIds: incomingIds,
+          rawCheckId: prefetched.check?.id ?? null,
+          rawResultId: prefetched.result?.id ?? null,
+          skipResults: opts?.skipResults ?? false,
+          skipBanId,
+          goToBansTraceBanId: readGoToBansSessionTrace()?.banId ?? null,
+          resultCtaConsumedSize: resultCtaConsumedBanIdsRef.current.size,
+          timestamp: performance.now(),
+        });
+
         for (const ban of prefetched.incoming) {
           const enriched = enrichBanInteraction(ban);
           if (skipBanId && enriched.id === skipBanId) {
