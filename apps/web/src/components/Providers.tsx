@@ -24823,23 +24823,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     );
   };
 
-  /** Temporary: continue enter/return diagnostics only. */
-  const logContinueReturn = (reason: string, source: string) => {
-    console.log('CONTINUE_RETURN', {
-      reason,
-      source,
-      overlayLen: overlayQueueRef.current.length,
-      pendingLen: pendingStartupInteractionsRef.current.length,
-      transitioning: notificationChainTransitioningRef.current,
-      awaitingUser: notificationChainAwaitingUserRef.current,
-      chainAdvanceExplicit: chainAdvanceExplicitRef.current,
-      checkAnswerWaitingResultHold:
-        checkAnswerWaitingResultHoldBanIdRef.current,
-      notificationChainTransitioning:
-        notificationChainTransitioningRef.current,
-    });
-  };
-
   const showNextNotificationFromChainSync = useCallback(
     (source: string): boolean =>
       runWithHeadSwitchPipelineFrame('showNextNotificationFromChainSync', () => {
@@ -26841,7 +26824,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         outcome: ContinueNotificationChainOutcome,
         reason: string,
       ): ContinueNotificationChainOutcome => {
-        logContinueReturn(reason, source);
         lastChainContinueOutcomeRef.current = { outcome, reason };
         emitGoToBansContinueExit({
           source,
@@ -27855,11 +27837,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       source: string,
       opts?: ContinueNotificationChainOptions,
     ): Promise<ContinueNotificationChainOutcome> => {
-      console.log('CONTINUE_ENTER', {
-        source,
-        overlayLen: overlayQueueRef.current.length,
-        pendingLen: pendingStartupInteractionsRef.current.length,
-      });
       tracePostIncomingAdvanceDiag(
         'continueNotificationChainOrOpenLobby',
         source,
@@ -27886,7 +27863,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         branch: string,
         finalOutcome: ContinueNotificationChainOutcome,
       ): ContinueNotificationChainOutcome => {
-        logContinueReturn(branch, source);
         emitPostConsumeReturnPath({
           functionName: 'continueNotificationChainOrOpenLobby',
           branch,
@@ -27908,9 +27884,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return finalOutcome;
       };
 
-      console.log('CONTINUE_BEFORE_SYNC', { source });
       let outcome = continueNotificationChainOrOpenLobbySync(source, opts);
-      console.log('CONTINUE_AFTER_SYNC', { outcome });
       if (outcome === 'show-next') {
         return emitContinueAsyncReturn('async-sync-return', outcome);
       }
@@ -27936,9 +27910,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           opts?.prefetchSkipBanId ?? null,
           `${source}-in-chain-prefetch`,
         );
-        console.log('CONTINUE_BEFORE_SYNC', {
-          source: `${source}-in-chain-retry`,
-        });
         outcome = continueNotificationChainOrOpenLobbySync(
           `${source}-in-chain-retry`,
           {
@@ -27947,7 +27918,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             prefetchIfEmpty: false,
           },
         );
-        console.log('CONTINUE_AFTER_SYNC', { outcome });
         if (outcome === 'show-next') {
           return emitContinueAsyncReturn('async-in-chain-retry-show-next', outcome);
         }
@@ -27996,7 +27966,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
           emptyOutcome,
         );
-        logContinueReturn('continue-async-prefetch-disabled-empty', source);
         return emptyOutcome;
       }
 
@@ -28037,13 +28006,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             `${source}:handoff-after-prefetch`,
             'show-next',
           );
-          logContinueReturn('continue-async-handoff-after-prefetch', source);
           return 'show-next';
         }
       }
-      console.log('CONTINUE_BEFORE_SYNC', {
-        source: `${source}-after-prefetch`,
-      });
       outcome = continueNotificationChainOrOpenLobbySync(
         `${source}-after-prefetch`,
         {
@@ -28052,9 +28017,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           prefetchIfEmpty: false,
         },
       );
-      console.log('CONTINUE_AFTER_SYNC', { outcome });
       if (outcome !== 'needs-prefetch') {
-        logContinueReturn('async-after-prefetch-return', source);
         return outcome;
       }
       const finalizeOutcome = finalizeNotificationChainContinueEmpty(
@@ -28063,7 +28026,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         snapshotPendingNotificationChain(),
       );
       clearBansLayerOpenFlagsAfterChainOutcome(source, finalizeOutcome);
-      logContinueReturn('async-after-prefetch-empty-finalize', source);
       return finalizeOutcome;
     },
     [
