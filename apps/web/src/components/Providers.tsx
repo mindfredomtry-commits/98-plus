@@ -2121,6 +2121,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     source: string;
     skipReason: string;
   } | null>(null);
+  const lastActiveDisplayMergeSkipRef = useRef<{
+    timestamp: number;
+    source: string;
+    skipReason: 'active-display-present';
+  } | null>(null);
   const goToBansPendingNotPromotedLastSigRef = useRef<string | null>(null);
   const lastBackendPendingFetchCountRef = useRef<number | null>(null);
   const lastPrefetchEnqueueCountRef = useRef(0);
@@ -14671,6 +14676,47 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           promotedCount: 0,
           skippedReason: 'active-display-present',
         });
+        {
+          const ownerDisplayKeys = resolveOwnerDisplayKindBanId(
+            ownerBeforeMerge.display,
+          );
+          const activeOverlayKey =
+            activeKind != null && ownerBeforeMerge.active.banId
+              ? `${activeKind}:${ownerBeforeMerge.active.banId}`
+              : activeKind;
+          const displayOverlayKey =
+            displayKind != null && ownerDisplayKeys.displayBanId
+              ? `${displayKind}:${ownerDisplayKeys.displayBanId}`
+              : displayKind;
+          const mergeSkipActiveDisplayTrace = {
+            source,
+            ownerQueueLenBefore,
+            ownerPendingLenBefore,
+            activeKind,
+            displayKind,
+            chainAdvanceExplicit: chainAdvanceExplicitRef.current,
+            activeOverlayKey,
+            displayOverlayKey,
+            pendingKinds: ownerBeforeMerge.pending.map((item) => item.kind),
+            pendingBanIds: ownerBeforeMerge.pending.map((item) =>
+              overlayItemBanId(item),
+            ),
+            timestamp: performance.now(),
+          };
+          console.log(
+            '[MERGE_SKIP_ACTIVE_DISPLAY_TRACE]',
+            mergeSkipActiveDisplayTrace,
+          );
+          window.__debug98log?.(
+            '[MERGE_SKIP_ACTIVE_DISPLAY_TRACE]',
+            mergeSkipActiveDisplayTrace,
+          );
+          lastActiveDisplayMergeSkipRef.current = {
+            timestamp: mergeSkipActiveDisplayTrace.timestamp,
+            source,
+            skipReason: 'active-display-present',
+          };
+        }
         return 0;
       }
       const pending = [...ownerBeforeMerge.pending];
@@ -25680,6 +25726,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
         }
       });
+      const chainAdvanceExplicitBeforeReset = chainAdvanceExplicitRef.current;
       chainAdvanceExplicitRef.current = false;
       mirrorOwnerSessionFlagsRef.current(`${source}:showNext-flushSync`, {
         chainAdvanceExplicit: false,
@@ -25716,6 +25763,47 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         headKind: nextKind,
         headBanId: nextBanId,
       });
+      {
+        const queueLen = overlayQueueRef.current.length;
+        const pendingStartupLen =
+          pendingStartupInteractionsRef.current.length;
+        const ownerAtSuccess = ownerShadowRef.current.getState();
+        const ownerPendingLen = ownerAtSuccess.pending.length;
+        if (
+          queueLen === 0 &&
+          (pendingStartupLen > 0 || ownerPendingLen > 0)
+        ) {
+          const showNextSuccessEmptyQueueTrace = {
+            source,
+            queueLen,
+            pendingStartupLen,
+            ownerPendingLen,
+            ownerQueueLen: ownerAtSuccess.queue.length,
+            activeKind: ownerAtSuccess.active.kind,
+            displayKind: resolveBansLayerOwnerDisplayKind(
+              ownerAtSuccess.display,
+            ),
+            chainAdvanceExplicitBeforeReset,
+            hasLocalItems:
+              queueLen > 0 || pendingStartupLen > 0 || ownerPendingLen > 0,
+            collectedFinalQueueLen: null,
+            collectedFinalPendingLen: null,
+            lastPendingMergeSkipReason:
+              lastPendingMergeSkipReasonRef.current,
+            lastActiveDisplayMergeSkip:
+              lastActiveDisplayMergeSkipRef.current,
+            timestamp: performance.now(),
+          };
+          console.log(
+            '[SHOW_NEXT_SUCCESS_EMPTY_QUEUE_TRACE]',
+            showNextSuccessEmptyQueueTrace,
+          );
+          window.__debug98log?.(
+            '[SHOW_NEXT_SUCCESS_EMPTY_QUEUE_TRACE]',
+            showNextSuccessEmptyQueueTrace,
+          );
+        }
+      }
       return showNextDiagReturn('show-next-success', true);
       }),
     [
