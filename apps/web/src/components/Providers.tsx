@@ -28249,18 +28249,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           const forcedShowNextQueueHead = overlayQueueRef.current[0] ?? null;
           const awaitingUserBefore =
             notificationChainAwaitingUserRef.current;
-          notificationChainAwaitingUserRef.current = false;
-          notificationChainHandoffRef.current = false;
-          mirrorOwnerChainSessionGatesRef.current(
-            `${forcedShowNextSource}:forced-prepare`,
-            { awaitingUser: false },
-          );
           prepareNotificationChainContinue(forcedShowNextSource, {
             clearActiveHold: true,
           });
           tryClearStaleActiveUserCardLock(
             forcedShowNextSource,
             forcedShowNextQueueHead,
+          );
+          const awaitingUserAfterPrepare =
+            notificationChainAwaitingUserRef.current;
+          notificationChainAwaitingUserRef.current = false;
+          notificationChainHandoffRef.current = false;
+          mirrorOwnerChainSessionGatesRef.current(
+            `${forcedShowNextSource}:forced-prepare-final-clear`,
+            { awaitingUser: false },
           );
           const forcedShowNextPrepareTrace = {
             source: forcedShowNextSource,
@@ -28269,7 +28271,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               ? overlayItemBanId(forcedShowNextQueueHead)
               : null,
             awaitingUserBefore,
-            awaitingUserAfter: notificationChainAwaitingUserRef.current,
+            awaitingUserAfterPrepare,
+            awaitingUserAfterFinalClear:
+              notificationChainAwaitingUserRef.current,
             timestamp: performance.now(),
           };
           console.log(
