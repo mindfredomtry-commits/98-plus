@@ -28246,6 +28246,40 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             forcedShowNextSource,
             'show-next',
           );
+          const forcedShowNextQueueHead = overlayQueueRef.current[0] ?? null;
+          const awaitingUserBefore =
+            notificationChainAwaitingUserRef.current;
+          notificationChainAwaitingUserRef.current = false;
+          notificationChainHandoffRef.current = false;
+          mirrorOwnerChainSessionGatesRef.current(
+            `${forcedShowNextSource}:forced-prepare`,
+            { awaitingUser: false },
+          );
+          prepareNotificationChainContinue(forcedShowNextSource, {
+            clearActiveHold: true,
+          });
+          tryClearStaleActiveUserCardLock(
+            forcedShowNextSource,
+            forcedShowNextQueueHead,
+          );
+          const forcedShowNextPrepareTrace = {
+            source: forcedShowNextSource,
+            queueHeadKind: forcedShowNextQueueHead?.kind ?? null,
+            queueHeadBanId: forcedShowNextQueueHead
+              ? overlayItemBanId(forcedShowNextQueueHead)
+              : null,
+            awaitingUserBefore,
+            awaitingUserAfter: notificationChainAwaitingUserRef.current,
+            timestamp: performance.now(),
+          };
+          console.log(
+            'FORCED_SHOW_NEXT_PREPARE_TRACE',
+            forcedShowNextPrepareTrace,
+          );
+          window.__debug98log?.(
+            'FORCED_SHOW_NEXT_PREPARE_TRACE',
+            forcedShowNextPrepareTrace,
+          );
           const showNextResult =
             showNextNotificationFromChainSync(forcedShowNextSource);
           const ownerAfterForced = ownerShadowRef.current.getState();
@@ -28379,6 +28413,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       mergeStartupIntoOverlayQueueOnly,
       openNextNotificationAfterQueueHandoff,
       prefetchPendingNotificationChain,
+      prepareNotificationChainContinue,
       showNextNotificationFromChainSync,
       snapshotPendingNotificationChain,
     ],
