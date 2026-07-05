@@ -15640,6 +15640,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         if (prefetched.check?.id) {
           const check = enrichBanInteraction(prefetched.check);
           const checkId = normalizeId(check.id);
+          const toEnqueueLenBeforeCheck = toEnqueue.length;
+          let pickedCheckId: string | null = null;
+          let skippedReason: string | null = null;
           if (
             readOwnerC2ResultPriorityHas(
               readOwnerC2Decision('pendingChainPrefetch'),
@@ -15649,6 +15652,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             ) ||
             (prefetchedResultId && checkId === prefetchedResultId)
           ) {
+            skippedReason = 'result-priority-stale-check';
             logCheckPrimeSkipStaleBecauseResultExists({
               banId: checkId,
               source: 'pending-chain-prefetch',
@@ -15665,10 +15669,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             if (picked) {
               toEnqueue.push({ kind: 'check', ban: picked });
               enqueuedIds.push(picked.id);
+              pickedCheckId = picked.id;
             } else {
+              skippedReason =
+                checkShowDecision(
+                  check,
+                  viewerId,
+                  dismissedCheckSessionRef.current,
+                  answeredCheckRef.current,
+                  checkAnswerInFlightRef.current,
+                  resultOpenRef.current,
+                ).reason ?? 'check-not-picked';
               skipDetails.push({ banId: checkId, reason: 'check-not-picked' });
             }
           }
+          console.log('CHECK_PREFETCH_FILTER_DECISION', {
+            source,
+            rawCheckId: prefetched.check.id,
+            skipBanId,
+            pickedCheckId,
+            skippedReason,
+            toEnqueueLenBefore: toEnqueueLenBeforeCheck,
+            toEnqueueLenAfter: toEnqueue.length,
+            timestamp: performance.now(),
+          });
         }
 
         if (prefetched.result?.id) {
