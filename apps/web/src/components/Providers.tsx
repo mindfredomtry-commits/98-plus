@@ -29248,6 +29248,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       drainGate = evaluateLobbyBansDrainGate('routing-after-shared-await');
 
+      console.log('LOBBY_BANS_DRAIN_ROUTING_FORK', {
+        phase: 'routing-after-shared-await',
+        canDrain: drainGate.canDrain,
+        ownerPending: drainGate.ownerPending,
+        ownerQueue: drainGate.ownerQueue,
+        selectedAction: drainGate.selectedAction,
+        didAwaitSharedPrefetch,
+        pendingChainPrefetchInFlight: pendingChainPrefetchInFlightRef.current,
+        willEnterOneShotPrefetch: !drainGate.canDrain,
+        timestamp: performance.now(),
+      });
+
       if (!drainGate.canDrain) {
         const beforeOwnerPendingLen = drainGate.ownerPending;
         const beforeOwnerQueueLen = drainGate.ownerQueue;
