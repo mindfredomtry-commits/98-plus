@@ -2806,6 +2806,10 @@ export function InstantBanFlow({
       },
     );
     const outcome = await startLobbyBansNotificationDrain();
+    if (outcome === 'drain-failed') {
+      setBansOverlayOpen(true);
+      return;
+    }
     if (outcome !== 'empty') {
       emitStartDrainEntryTrace('handleOpenBansOverlay:early-return-drain-outcome', {
         willCallStartDrain: true,
