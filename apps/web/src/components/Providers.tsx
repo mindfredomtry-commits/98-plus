@@ -28143,6 +28143,47 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ownerAfterRetry.queue.length > 0 ||
           ownerAfterRetry.pending.length > 0;
         if (stillHasItems) {
+          const forcedShowNextSource = `${source}-in-chain-retry-forced-show-next`;
+          const outcomeBefore = outcome;
+          collectPendingNotificationChain(`${source}-in-chain-retry-forced-collect`);
+          if (
+            pendingStartupInteractionsRef.current.length > 0 &&
+            overlayQueueRef.current.length === 0
+          ) {
+            mergeStartupIntoOverlayQueueOnly(
+              `${source}-in-chain-retry-forced-merge`,
+            );
+          }
+          clearBansLayerOpenFlagsAfterChainOutcome(
+            forcedShowNextSource,
+            'show-next',
+          );
+          const showNextResult =
+            showNextNotificationFromChainSync(forcedShowNextSource);
+          const ownerAfterForced = ownerShadowRef.current.getState();
+          const inChainRetryForcedShowNextTrace = {
+            source: forcedShowNextSource,
+            outcomeBefore,
+            ownerPendingLen: ownerAfterForced.pending.length,
+            ownerQueueLen: ownerAfterForced.queue.length,
+            overlayQueueLen: overlayQueueRef.current.length,
+            showNextResult,
+            timestamp: performance.now(),
+          };
+          console.log(
+            'IN_CHAIN_RETRY_FORCED_SHOW_NEXT',
+            inChainRetryForcedShowNextTrace,
+          );
+          window.__debug98log?.(
+            'IN_CHAIN_RETRY_FORCED_SHOW_NEXT',
+            inChainRetryForcedShowNextTrace,
+          );
+          if (showNextResult) {
+            return emitContinueAsyncReturn(
+              'async-in-chain-retry-forced-show-next',
+              'show-next',
+            );
+          }
           return emitContinueAsyncReturn(
             'async-in-chain-retry-still-has-items',
             outcome,
@@ -28244,10 +28285,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return finalizeOutcome;
     },
     [
+      collectPendingNotificationChain,
       continueNotificationChainOrOpenLobbySync,
       finalizeNotificationChainContinueEmpty,
+      mergeStartupIntoOverlayQueueOnly,
       openNextNotificationAfterQueueHandoff,
       prefetchPendingNotificationChain,
+      showNextNotificationFromChainSync,
       snapshotPendingNotificationChain,
     ],
   );
