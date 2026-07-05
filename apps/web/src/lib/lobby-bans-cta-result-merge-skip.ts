@@ -1,5 +1,6 @@
 'use client';
 
+import { logPlatformQueueFlowTrace } from '@/lib/platform-queue-flow-trace-debug';
 import type { NotificationOverlayOwnerState } from './notification-overlay-owner';
 import { normalizeId } from './normalize-json';
 import type { QueuedOverlay } from './overlay-queue';
@@ -100,6 +101,13 @@ export function filterLobbyBansCtaMergeSnapshot(
     });
     if (matchedBy) {
       const queueHead = input.owner.queue[0] ?? null;
+      logPlatformQueueFlowTrace({
+        source: input.source,
+        phase: 'merge-snapshot-result-skipped',
+        owner: input.owner,
+        branch: matchedBy,
+        mergedCount: 0,
+      });
       logLobbyBansCtaResultMergeSkippedAlreadyActiveOrShown({
         banId,
         resultId: banId,

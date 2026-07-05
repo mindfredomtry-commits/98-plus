@@ -180,6 +180,7 @@ import {
 } from '@/lib/overboard-result-chain-debug';
 import type {
   NotificationOverlayOwnerEvent,
+  NotificationOverlayOwnerState,
   NotificationOwnerDisplayState,
   OwnerActiveDisplayPatch,
   OwnerProductionSnapshot,
@@ -778,6 +779,7 @@ import {
 import {
   filterLobbyBansCtaMergeSnapshot,
 } from '@/lib/lobby-bans-cta-result-merge-skip';
+import { logPlatformQueueFlowTrace } from '@/lib/platform-queue-flow-trace-debug';
 import {
   logCheckCardMounted,
   logCheckCardOverlaySet,
@@ -14861,6 +14863,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const mergePendingSnapshotIntoOverlayQueue = useCallback(
     (snapshot: QueuedOverlay[], source: string): number => {
+      const traceMergePlatform = (
+        mergedCount: number,
+        phase: string,
+        ownerOverride?: NotificationOverlayOwnerState,
+      ) => {
+        logPlatformQueueFlowTrace({
+          source,
+          phase,
+          mergedCount,
+          owner: ownerOverride ?? ownerShadowRef.current.getState(),
+        });
+      };
       const ownerAtMergeEntry = ownerShadowRef.current.getState();
       const isLobbyBansCtaMerge = source.includes('lobby-bans-cta');
       const mergeSnapshot = isLobbyBansCtaMerge
@@ -14878,7 +14892,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         : snapshot;
 
       if (isLobbyBansCtaMerge) {
-        if (mergeSnapshot.length === 0) return 0;
+        if (mergeSnapshot.length === 0) {
+          traceMergePlatform(0, 'merge-pending-snapshot-empty-after-filter', ownerAtMergeEntry);
+          return 0;
+        }
         traceMergePendingSnapshotStage({
           stage: 'before-merge',
           source,
@@ -14909,6 +14926,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           startupHold: startupInteractionsHoldRef.current,
           snapshotLen: mergeSnapshot.length,
         });
+        traceMergePlatform(0, 'merge-pending-snapshot-passive-blocked');
         return 0;
       }
 
@@ -14941,7 +14959,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
       });
 
-      if (releasable.length === 0) return 0;
+      if (releasable.length === 0) {
+        traceMergePlatform(0, 'merge-pending-snapshot-releasable-empty');
+        return 0;
+      }
 
       const ownerQueueAtMerge = ownerShadowRef.current.getState().queue;
       if (ownerQueueAtMerge.length === 0) {
@@ -14954,6 +14975,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             { explicitUserAction: true },
           )
         ) {
+          traceMergePlatform(0, 'merge-pending-snapshot-active-user-card-blocked');
           return 0;
         }
       }
@@ -14977,6 +14999,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         next = enqueueWithActiveLock(next, nextItem).queue;
       }
       if (next.length === ownerQueueAtMerge.length) {
+        traceMergePlatform(0, 'merge-pending-snapshot-no-queue-length-change');
         return 0;
       }
 
@@ -15029,6 +15052,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         { chainAdvanceExplicit: true },
       );
       syncDisplayFromQueue(next);
+      traceMergePlatform(releasable.length, 'merge-pending-snapshot-success');
       return releasable.length;
     },
     [isResultBlockedForNotificationChain, syncDisplayFromQueue],
@@ -24923,6 +24947,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           timestamp: performance.now(),
           ...extra,
         });
+        logPlatformQueueFlowTrace({
+          source,
+          phase: 'show-next-return',
+          branch,
+          owner: ownerAtReturn,
+        });
         if (!result && isPostConsumeTraceActive()) {
           emitPostConsumeNoNextCard({
             pipeline: 'showNextNotificationFromChainSync',
@@ -28699,6 +28729,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           lastActiveDisplayMergeSkip: lastActiveDisplayMergeSkipRef.current,
           timestamp: performance.now(),
         };
+        logPlatformQueueFlowTrace({
+          source: payload.source,
+          phase: 'drain-parity-exit-before',
+          owner,
+          mergedCount: extra?.mergedCount ?? null,
+          branch,
+        });
         console.log('LOBBY_BANS_DRAIN_PARITY_EXIT_TRACE', payload);
         window.__debug98log?.('LOBBY_BANS_DRAIN_PARITY_EXIT_TRACE', payload);
       };
@@ -28929,6 +28966,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       let drainGate = evaluateLobbyBansDrainGate('entry');
       const ownerAtClick = ownerShadowRef.current.getState();
+      logPlatformQueueFlowTrace({
+        source: 'startLobbyBansNotificationDrain',
+        phase: 'entry',
+        owner: ownerAtClick,
+      });
       let queueLenBefore = Math.max(
         drainGate.legacyQueue,
         drainGate.ownerQueue,
