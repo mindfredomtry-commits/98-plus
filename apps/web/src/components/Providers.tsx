@@ -12401,6 +12401,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             reason,
             'check-answer-empty-remaining-clear-queue',
           );
+          commitSyncDisplayActivePayload(
+            { checkBan: null },
+            'check-answer-empty-remaining-clear-display',
+          );
           activeOverlayLockRef.current = null;
           setChainAdvancePlaceholderKind('check');
           setChainAdvanceWaiting(true);
