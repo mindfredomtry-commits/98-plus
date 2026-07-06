@@ -469,6 +469,7 @@ export function InstantBanFlow({
     releaseStartupInteractions,
     unlockNotificationQueueAndFlush,
     startLobbyBansNotificationDrain,
+    clearSharedSkipResultsPrefetchForExplicitDrain,
     drainNextNotificationAfterSuccess,
     logPostSuccessQueueSnapshotBeforeRelease,
     logPostSuccessReleaseStartupResult,
@@ -2805,6 +2806,9 @@ export function InstantBanFlow({
         willStartDrain: true,
       },
     );
+    clearSharedSkipResultsPrefetchForExplicitDrain(
+      'handleOpenBansOverlay:before-start',
+    );
     const outcome = await startLobbyBansNotificationDrain();
     if (outcome === 'drain-failed') {
       setBansOverlayOpen(true);
@@ -2871,6 +2875,7 @@ export function InstantBanFlow({
     showLobbyCta,
     showLobbyTopNav,
     lobbyBansNeedAttention,
+    clearSharedSkipResultsPrefetchForExplicitDrain,
     startLobbyBansNotificationDrain,
     user?.id,
     pendingStartupInteractions,

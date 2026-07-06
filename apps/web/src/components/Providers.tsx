@@ -1519,6 +1519,8 @@ interface AppContextValue {
   unlockNotificationQueueAndFlush: (reason: string) => void;
   /** Lobby «Твои запреты»: drain notification queue or open empty section. */
   startLobbyBansNotificationDrain: () => Promise<LobbyBansNotificationDrainOutcome>;
+  /** Drop passive lobby-indicator-prime shared prefetch before explicit bans click. */
+  clearSharedSkipResultsPrefetchForExplicitDrain: (source: string) => void;
   /** After send-success exit: drain one pending notification over lobby. */
   drainNextNotificationAfterSuccess: (
     successBanId?: string | null,
@@ -15441,6 +15443,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
     console.log('[notification-chain-latch-clear]', { source });
   }, [setBansReturnToLobbyLatch]);
+
+  const clearSharedSkipResultsPrefetchForExplicitDrain = useCallback(
+    (
+      source: string,
+      action: string = 'reset-before-explicit-lobby-bans-click',
+    ): void => {
+      const sharedOpts = pendingChainPrefetchSharedOptsRef.current;
+      if (sharedOpts?.skipResults !== true) return;
+      const sharedResetTrace = {
+        source,
+        sharedSource: sharedOpts.source,
+        sharedSkipResults: sharedOpts.skipResults,
+        action,
+        timestamp: performance.now(),
+      };
+      console.log(
+        'PENDING_PREFETCH_SHARED_RESET_FOR_EXPLICIT_DRAIN',
+        sharedResetTrace,
+      );
+      window.__debug98log?.(
+        'PENDING_PREFETCH_SHARED_RESET_FOR_EXPLICIT_DRAIN',
+        sharedResetTrace,
+      );
+      pendingChainPrefetchSharedPromiseRef.current = null;
+      pendingChainPrefetchSharedOptsRef.current = null;
+      pendingChainPrefetchInFlightRef.current = 0;
+    },
+    [],
+  );
 
   const prefetchPendingNotificationChain = useCallback(
     async (
@@ -29366,33 +29397,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const ownerPendingBeforeAwait = ownerAtClick.pending.length;
 
       if (!drainGate.canDrain) {
-        const explicitLobbyBansDrainSource = 'lobby-bans-cta';
-        const sharedOptsForExplicitDrain =
-          pendingChainPrefetchSharedOptsRef.current;
-        if (
-          (isExplicitNotificationDrainSource(explicitLobbyBansDrainSource) ||
-            explicitLobbyBansDrainSource.includes('lobby-bans-cta')) &&
-          sharedOptsForExplicitDrain?.skipResults === true
-        ) {
-          const sharedResetTrace = {
-            source: explicitLobbyBansDrainSource,
-            sharedSource: sharedOptsForExplicitDrain.source,
-            sharedSkipResults: sharedOptsForExplicitDrain.skipResults,
-            reason: 'explicit-drain-needs-results' as const,
-            timestamp: performance.now(),
-          };
-          console.log(
-            'PENDING_PREFETCH_SHARED_RESET_FOR_EXPLICIT_DRAIN',
-            sharedResetTrace,
-          );
-          window.__debug98log?.(
-            'PENDING_PREFETCH_SHARED_RESET_FOR_EXPLICIT_DRAIN',
-            sharedResetTrace,
-          );
-          pendingChainPrefetchSharedPromiseRef.current = null;
-          pendingChainPrefetchSharedOptsRef.current = null;
-          pendingChainPrefetchInFlightRef.current = 0;
-        }
+        clearSharedSkipResultsPrefetchForExplicitDrain(
+          'startLobbyBansNotificationDrain:before-routing',
+          'explicit-drain-needs-results',
+        );
         const sharedPrefetch = pendingChainPrefetchSharedPromiseRef.current;
         if (
           pendingChainPrefetchInFlightRef.current > 0 &&
@@ -30270,6 +30278,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       buildLobbyBansDiagContext,
       buildQueueSourceComparisonSnapshot,
       clearNotificationChainReturnLatch,
+      clearSharedSkipResultsPrefetchForExplicitDrain,
       clearStaleComposeStateBeforeBansNavigation,
       hasPendingNotificationChain,
       lobbyBansAttentionHint,
@@ -39138,6 +39147,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       armActiveBanDeepLinkEarly,
       unlockNotificationQueueAndFlush,
       startLobbyBansNotificationDrain,
+      clearSharedSkipResultsPrefetchForExplicitDrain,
       drainNextNotificationAfterSuccess,
       resolveReplyParentActiveBanImmediate,
       ensureReplyParentActiveBanForSuccess,
@@ -39329,6 +39339,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       armActiveBanDeepLinkEarly,
       unlockNotificationQueueAndFlush,
       startLobbyBansNotificationDrain,
+      clearSharedSkipResultsPrefetchForExplicitDrain,
       drainNextNotificationAfterSuccess,
       resolveReplyParentActiveBanImmediate,
       ensureReplyParentActiveBanForSuccess,
