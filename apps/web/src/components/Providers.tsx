@@ -611,6 +611,7 @@ import {
   logContinueChainEmptyButPendingExists,
   logOwnerPendingPromotionDecision,
   logPendingChainQueuedSkipTrace,
+  logPendingPromotionAfterReleaseTrace,
   logPendingPromotionDecisionTrace,
   logResultGoToBansPendingNotPromoted,
   resolvePendingHeadFields,
@@ -14625,6 +14626,39 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       const queueLenBefore = ownerQueueLenBefore;
       const pendingLenBefore = ownerPendingLenBefore;
+      let activeDisplayGuardReleased = false;
+      const emitAfterReleaseTrace = (
+        finalDecision: 'promoted' | 'skipped',
+        skipReason: string | null,
+        options?: {
+          blockAndPreserveActiveUserCard?: boolean | null;
+          releasableLen?: number | null;
+        },
+      ) => {
+        if (!activeDisplayGuardReleased) return;
+        const pendingHeadFields = resolvePendingHeadFields(
+          ownerBeforeMerge.pending[0] ?? null,
+        );
+        logPendingPromotionAfterReleaseTrace({
+          source,
+          caller: 'mergeStartupIntoOverlayQueueOnly',
+          ownerQueueLen: ownerQueueLenBefore,
+          ownerPendingLen: ownerPendingLenBefore,
+          ...pendingHeadFields,
+          displayKind,
+          activeKind,
+          notificationSessionActive:
+            notificationSessionActiveForDebugRef.current,
+          notificationChainTransitioning:
+            notificationChainTransitioningRef.current,
+          isActiveUserCardHold: isActiveUserCardHold(),
+          blockAndPreserveActiveUserCard:
+            options?.blockAndPreserveActiveUserCard ?? null,
+          releasableLen: options?.releasableLen ?? null,
+          finalDecision,
+          skipReason,
+        });
+      };
 
       if (ownerPendingLenBefore > 0 && ownerQueueLenBefore > 0) {
         emitOwnerPendingPromotionDecision(
@@ -14763,6 +14797,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           !notificationSessionActiveForDebugRef.current &&
           !notificationChainTransitioningRef.current;
         if (releaseStaleActiveDisplayGuard) {
+          activeDisplayGuardReleased = true;
           const ownerDisplayKeys = resolveOwnerDisplayKindBanId(
             ownerBeforeMerge.display,
           );
@@ -14908,18 +14943,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           promotedCount: 0,
           skippedReason: 'all-pending-results-blocked',
         });
+        emitAfterReleaseTrace('skipped', 'all-pending-results-blocked', {
+          releasableLen: 0,
+        });
         return 0;
       }
 
+      let blockAndPreserveActiveUserCardResult: boolean | null = null;
       if (ownerQueueLenBefore === 0) {
         const wouldHead = releasable[0] ?? null;
-        if (
-          wouldHead &&
-          blockAndPreserveActiveUserCard(
+        if (wouldHead) {
+          blockAndPreserveActiveUserCardResult = blockAndPreserveActiveUserCard(
             'mergeStartupIntoOverlayQueueOnly',
             wouldHead,
-          )
-        ) {
+          );
+        }
+        if (wouldHead && blockAndPreserveActiveUserCardResult) {
           logPendingStartupToOverlayMergeDecision({
             source,
             pendingLenBefore,
@@ -14941,6 +14980,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             outputQueueLen: queueLenBefore,
             promotedCount: 0,
             skippedReason: 'active-user-card-blocks-head',
+          });
+          emitAfterReleaseTrace('skipped', 'active-user-card-blocks-head', {
+            blockAndPreserveActiveUserCard: blockAndPreserveActiveUserCardResult,
+            releasableLen: releasable.length,
           });
           return 0;
         }
@@ -14993,6 +15036,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               ? releasable[0].ban.id
               : null,
         skippedReason: null,
+      });
+      emitAfterReleaseTrace('promoted', null, {
+        blockAndPreserveActiveUserCard: blockAndPreserveActiveUserCardResult,
+        releasableLen: releasable.length,
       });
       return releasable.length;
     },

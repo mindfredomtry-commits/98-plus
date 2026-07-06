@@ -217,6 +217,33 @@ export function logActiveDisplayPresentGuardReleased(
   emit('ACTIVE_DISPLAY_PRESENT_GUARD_RELEASED', data);
 }
 
+export type PendingPromotionAfterReleaseTracePayload = {
+  source: string;
+  caller: string;
+  ownerQueueLen: number;
+  ownerPendingLen: number;
+  pendingHeadKind: string | null;
+  pendingHeadBanId: string | null;
+  pendingHeadResultId: string | null;
+  pendingHeadKey: string | null;
+  displayKind: string | null;
+  activeKind: string | null;
+  notificationSessionActive: boolean;
+  notificationChainTransitioning: boolean;
+  isActiveUserCardHold: boolean;
+  blockAndPreserveActiveUserCard: boolean | null;
+  releasableLen: number | null;
+  finalDecision: 'promoted' | 'skipped';
+  skipReason: string | null;
+  timestamp?: number;
+};
+
+export function logPendingPromotionAfterReleaseTrace(
+  data: PendingPromotionAfterReleaseTracePayload,
+): void {
+  emit('PENDING_PROMOTION_AFTER_RELEASE_TRACE', data);
+}
+
 export function buildGoToBansPendingNotPromotedSignature(
   data: ResultGoToBansPendingNotPromotedPayload,
 ): string {
