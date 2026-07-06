@@ -492,7 +492,6 @@ import {
 } from '@/lib/result-poll-priority-debug';
 import {
   logCheckDeeplinkSkipNoUiChange,
-  logCheckOverlayQueueBanIdResolution,
   logLobbyChromeHiddenBug,
   logResultPollDoesNotHideLobby,
 } from '@/lib/lobby-chrome-debug';
@@ -19207,21 +19206,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     async (source: string) => {
       const banId = resolvePendingCheckDeepLinkBanId();
       if (!banId) {
-        const queueHead = overlayQueueRef.current[0];
-        const queueHeadBanId =
-          queueHead?.kind === 'check' ? queueHead.ban.id?.trim() || '' : '';
-        if (queueHeadBanId) {
-          logCheckOverlayQueueBanIdResolution({
-            source,
-            queueHeadKind: queueHead?.kind ?? null,
-            queueHeadBanId,
-            checkPropBanId: checkBanRef.current?.id ?? null,
-            pendingBanId: null,
-            usedBanId: queueHeadBanId,
-            reason: 'queue-driven-skip-deeplink-resume',
-          });
-          return;
-        }
         logCheckDeeplinkResumeSkip({ reason: 'no-pending-banId', source });
         logCheckDeeplinkSkipNoUiChange({ reason: 'no-pending-banId', source });
         return;
@@ -34817,14 +34801,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (checkDeepLinkBanId && checkDeeplinkPendingBanIdRef.current) {
         return true;
       }
-      const queueHeadCheckBan =
-        ownerPrimaryQueueHead?.kind === 'check'
-          ? ownerPrimaryQueueHead.ban
-          : null;
-      const checkBanForGate = ownerPrimaryCheckBan ?? queueHeadCheckBan;
-      if (activeOverlayKind === 'check' && checkBanForGate) {
+      if (activeOverlayKind === 'check' && ownerPrimaryCheckBan) {
         return shouldShowCheckOverlay(
-          checkBanForGate,
+          ownerPrimaryCheckBan,
           auth.user?.id ?? null,
           dismissedCheckSessionRef.current,
           answeredCheckRef.current,
@@ -34833,7 +34812,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
       }
       return shouldShowCheckOverlay(
-        checkBanForGate,
+        ownerPrimaryCheckBan,
         auth.user?.id ?? null,
         dismissedCheckSessionRef.current,
         answeredCheckRef.current,
@@ -34841,7 +34820,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         !!ownerPrimaryResult,
       );
     },
-    [composeBlocksNotificationHost, priorityBlocksResult, activeOverlayKind, ownerPrimaryCheckBan, ownerPrimaryQueueHead, auth.user?.id, ownerPrimaryResult, activeBanCardReady, sendSuccessCardActive, replyParentActivePriorityActive, checkDeepLinkBanId],
+    [composeBlocksNotificationHost, priorityBlocksResult, activeOverlayKind, ownerPrimaryCheckBan, auth.user?.id, ownerPrimaryResult, activeBanCardReady, sendSuccessCardActive, replyParentActivePriorityActive, checkDeepLinkBanId],
   );
 
   const checkOverlayMounted =
@@ -37105,33 +37084,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ? overlayQueueHeadForShell.ban.id
         : null;
 
-  const checkBanForShell = useMemo(() => {
-    const queueHeadKind = ownerPrimaryQueueHead?.kind ?? null;
-    const queueHeadBanId =
-      ownerPrimaryQueueHead?.kind === 'check'
-        ? ownerPrimaryQueueHead.ban.id?.trim() || null
-        : null;
-    const queueHeadBan =
-      ownerPrimaryQueueHead?.kind === 'check'
-        ? enrichBanInteraction(ownerPrimaryQueueHead.ban)
-        : null;
-    const usedCheckBan = ownerPrimaryCheckBan ?? queueHeadBan;
-    const usedBanId = usedCheckBan?.id?.trim() || null;
-    const reason = ownerPrimaryCheckBan
-      ? 'owner-primary-check-ban'
-      : queueHeadBan
-        ? 'queue-head-check-fallback'
-        : 'no-check-ban';
-    return {
-      ban: usedCheckBan,
-      queueHeadKind,
-      queueHeadBanId,
-      checkPropBanId: ownerPrimaryCheckBan?.id?.trim() || null,
-      usedBanId,
-      reason,
-    };
-  }, [ownerPrimaryCheckBan, ownerPrimaryQueueHead]);
-
+  const checkBanForShell =
+    ownerPrimaryCheckBan ??
+    (ownerPrimaryQueueHead?.kind === 'check'
+      ? ownerPrimaryQueueHead.ban
+      : null);
   const incomingBanForShell =
     ownerPrimaryIncomingBan ??
     (ownerPrimaryQueueHead?.kind === 'incoming'
@@ -37182,47 +37139,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const ownerCheckQueueVisibility = useMemo(
     () =>
       computeCheckOverlayVisibility({
-        checkBan: checkBanForShell.ban,
+        checkBan: checkBanForShell,
         viewerId: phase12ViewerId,
         token: phase12Token,
         checkDirect: false,
         checkGateActive,
         activeOverlayKind,
-        queueShellHosted:
-          notificationQueueShellDisplayKind === 'check' &&
-          !showCheckOverlayDirect,
       }),
     [
-      checkBanForShell.ban,
+      checkBanForShell,
       phase12ViewerId,
       phase12Token,
       checkGateActive,
       activeOverlayKind,
-      notificationQueueShellDisplayKind,
-      showCheckOverlayDirect,
     ],
   );
-
-  useLayoutEffect(() => {
-    if (notificationQueueShellDisplayKind !== 'check' || showCheckOverlayDirect) {
-      return;
-    }
-    const pendingBanId = resolvePendingCheckDeepLinkBanId() || null;
-    logCheckOverlayQueueBanIdResolution({
-      source: 'providers-queue-check-shell',
-      queueHeadKind: checkBanForShell.queueHeadKind,
-      queueHeadBanId: checkBanForShell.queueHeadBanId,
-      checkPropBanId: checkBanForShell.checkPropBanId,
-      pendingBanId,
-      usedBanId: checkBanForShell.usedBanId,
-      reason: checkBanForShell.reason,
-    });
-  }, [
-    checkBanForShell,
-    notificationQueueShellDisplayKind,
-    resolvePendingCheckDeepLinkBanId,
-    showCheckOverlayDirect,
-  ]);
 
   const legacyCheckQueueVisibility = useMemo(
     () =>
@@ -39701,7 +39632,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 ) : !queueResultOverlayClaimed &&
                   notificationQueueShellDisplayKind === 'check' &&
                   !showCheckOverlayDirect &&
-                  checkBanForShell.ban ? (
+                  checkBanForShell ? (
                   <ChallengeErrorBoundary
                     name="check"
                     onRecover={() => clearCheckOverlay()}
@@ -39709,7 +39640,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     <CheckOverlay
                       contentOnly
                       visible={ownerCheckQueueVisibility.visible}
-                      checkBan={checkBanForShell.ban}
+                      checkBan={checkBanForShell}
                       visibilityReason={ownerCheckQueueVisibility.reason}
                     />
                   </ChallengeErrorBoundary>
