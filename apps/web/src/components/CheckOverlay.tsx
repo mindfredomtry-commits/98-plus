@@ -291,6 +291,17 @@ function CheckOverlayInner({
     contentOnly,
   });
 
+  console.log('ACTUAL_COMPONENT_RENDER: CheckOverlay', {
+    t: performance.now(),
+    kind: 'check',
+    activeKind: 'check',
+    checkBanId: checkBan.id,
+    visible,
+    contentOnly,
+    checkDirect,
+    visibilityReason: visibilityReason ?? null,
+  });
+
   const yesLabel =
     modalView.role === 'receiver' ? 'Выдержал' : 'Выполнил запрет';
   const noLabel =

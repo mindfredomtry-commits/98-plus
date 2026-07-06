@@ -33,3 +33,9 @@ export function logCheckDeeplinkSkipNoUiChange(
 ): void {
   emit('[CHECK DEEPLINK SKIP NO UI CHANGE]', data);
 }
+
+export function logCheckOverlayQueueBanIdResolution(
+  data: Record<string, unknown>,
+): void {
+  emit('CHECK_OVERLAY_QUEUE_BANID_RESOLUTION', data);
+}

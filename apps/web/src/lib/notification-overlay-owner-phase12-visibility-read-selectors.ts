@@ -18,6 +18,8 @@ export type CheckOverlayVisibilityInput = {
   checkDirect: boolean;
   checkGateActive: boolean;
   activeOverlayKind: string | null;
+  /** NotificationQueueShell queue-hosted check — ban id from queue head, not deeplink. */
+  queueShellHosted?: boolean;
 };
 
 export type CheckOverlayVisibilityResult = {
@@ -29,13 +31,16 @@ export type CheckOverlayVisibilityResult = {
 export function computeCheckOverlayVisibility(
   input: CheckOverlayVisibilityInput,
 ): CheckOverlayVisibilityResult {
-  const { checkBan, viewerId, token, checkDirect, checkGateActive, activeOverlayKind } =
+  const { checkBan, viewerId, token, checkDirect, checkGateActive, activeOverlayKind, queueShellHosted } =
     input;
   const banId = checkBan?.id?.trim() ?? null;
   const modalView = checkBan ? getCheckModalView(checkBan, viewerId ?? null) : null;
   const isQueueHead = activeOverlayKind === 'check';
   const gateOpen =
-    checkDirect || checkGateActive || (isQueueHead && Boolean(checkBan?.id));
+    (queueShellHosted === true && Boolean(checkBan?.id)) ||
+    checkDirect ||
+    checkGateActive ||
+    (isQueueHead && Boolean(checkBan?.id));
   if (!gateOpen) {
     return { visible: false, reason: 'gate-closed', banId };
   }
@@ -276,21 +281,35 @@ export function computeNotificationQueueShellReadiness(
   } = input;
 
   const checkShellBanId = ownerCheckBanId?.trim() || '';
-  const checkCardReady =
+  const checkHeadBanId = queueHeadBanId?.trim() || '';
+  const checkCardReadyFromOwner =
     Boolean(checkShellBanId) &&
     (!chainAdvanceWaiting ||
       (queueHeadKind === 'check' &&
-        queueHeadBanId != null &&
-        normalizeId(queueHeadBanId) === normalizeId(checkShellBanId)));
+        checkHeadBanId.length > 0 &&
+        normalizeId(checkHeadBanId) === normalizeId(checkShellBanId)));
+  const checkCardReadyFromQueueHeadAdvance =
+    chainAdvanceWaiting &&
+    queueHeadKind === 'check' &&
+    checkHeadBanId.length > 0;
+  const checkCardReady =
+    checkCardReadyFromOwner || checkCardReadyFromQueueHeadAdvance;
 
   const incomingTargetId =
     ownerStableIncomingBanId ?? ownerIncomingDisplayBanId ?? '';
-  const incomingCardReady =
+  const incomingHeadBanId = queueHeadBanId?.trim() || '';
+  const incomingCardReadyFromOwner =
     (incomingCardFullyReady || Boolean(ownerStableIncomingBanId)) &&
     (!chainAdvanceWaiting ||
       (queueHeadKind === 'incoming' &&
-        queueHeadBanId != null &&
-        normalizeId(queueHeadBanId) === normalizeId(incomingTargetId)));
+        incomingHeadBanId.length > 0 &&
+        normalizeId(incomingHeadBanId) === normalizeId(incomingTargetId)));
+  const incomingCardReadyFromQueueHeadAdvance =
+    chainAdvanceWaiting &&
+    queueHeadKind === 'incoming' &&
+    incomingHeadBanId.length > 0;
+  const incomingCardReady =
+    incomingCardReadyFromOwner || incomingCardReadyFromQueueHeadAdvance;
 
   const shellContentReady = renderableResultShell
     ? resultShellContentReady

@@ -436,6 +436,10 @@ import {
   logLobbyOpenAfterCheckEmpty,
   logCheckAnswerContinueOutcome,
   logCheckAnswerSkipFinalDrainWithWork,
+  logCheckQueueHeadRenderReady,
+  logCheckQueueHeadBanFallbackUsed,
+  logCheckAnswerWaitingNextCardMounted,
+  logCheckAnswerWaitingQueueEmpty,
   logCheckAnswerKeepTransition,
   logCheckAnswerRetryContinue,
   logCheckAnswerRetryExhaustedOpenLobby,
@@ -19206,6 +19210,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     async (source: string) => {
       const banId = resolvePendingCheckDeepLinkBanId();
       if (!banId) {
+        const queueHead = overlayQueueRef.current[0];
+        const queueHeadBanId =
+          queueHead?.kind === 'check' ? queueHead.ban.id?.trim() || '' : '';
+        if (queueHeadBanId) {
+          return;
+        }
         logCheckDeeplinkResumeSkip({ reason: 'no-pending-banId', source });
         logCheckDeeplinkSkipNoUiChange({ reason: 'no-pending-banId', source });
         return;
@@ -19651,37 +19661,76 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
       }
 
-      if (overlayQueueRef.current.length > 0) {
-        const head = overlayQueueRef.current[0];
-        const headBanId =
-          head?.kind === 'result'
-            ? head.result.id
-            : head?.kind === 'incoming' || head?.kind === 'check'
-              ? head.ban.id
+      const queueHead =
+        overlayQueueRef.current[0] ??
+        remaining[0] ??
+        pendingStartupInteractionsRef.current[0] ??
+        null;
+      if (!queueHead) {
+        logCheckAnswerWaitingQueueEmpty({
+          source: 'check-answer-waiting-partner',
+          remainingLen: remaining.length,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+      } else {
+        const queueHeadBanId = overlayItemBanId(queueHead);
+        logCheckQueueHeadRenderReady({
+          source: 'check-answer-waiting-partner',
+          queueHeadKind: queueHead.kind,
+          queueHeadBanId,
+          remainingLen: remaining.length,
+          queueLen: overlayQueueRef.current.length,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+        });
+
+        const queueToApply =
+          overlayQueueRef.current.length > 0
+            ? overlayQueueRef.current
+            : remaining.length > 0
+              ? remaining
               : null;
-        const headMounted =
-          !!head &&
-          ((head.kind === 'check' &&
-            normalizeId(checkBanRef.current?.id ?? '') ===
-              normalizeId(headBanId ?? '')) ||
-            (head.kind === 'incoming' &&
-              readOwnerC3DisplayIncomingBanIdEquals(
-                readOwnerC3Decision('checkAnswerWaitingPartner').display,
-                'checkAnswerWaitingPartner',
-                headBanId,
-                { ref: incomingBanRef.current },
-              )) ||
-            (head.kind === 'result' &&
-              readOwnerC3DisplayResultBanIdForRuntime(
-                readOwnerC3Decision('checkAnswerWaitingPartner').display,
-                'checkAnswerWaitingPartner',
-                { resultRef: resultRef.current },
-              ) === normalizeId(headBanId ?? '')));
-        if (!headMounted) {
-          applyOverlayQueue(overlayQueueRef.current);
+        if (queueToApply) {
+          chainAdvanceExplicitRef.current = true;
+          applyOverlayQueue(queueToApply);
         }
-      } else if (remaining.length > 0) {
-        applyOverlayQueue(remaining);
+
+        if (queueHead.kind === 'check') {
+          const enriched = enrichBanInteraction(queueHead.ban);
+          const headId = normalizeId(enriched.id);
+          const currentId = normalizeId(checkBanRef.current?.id ?? '');
+          if (!currentId || currentId !== headId) {
+            logCheckQueueHeadBanFallbackUsed({
+              source: 'check-answer-waiting-partner',
+              queueHeadKind: queueHead.kind,
+              queueHeadBanId: headId,
+              checkPropBanId: currentId || null,
+              pendingBanId: checkDeeplinkPendingBanIdRef.current,
+              usedBanId: headId,
+              reason: 'queue-head-check-fallback',
+            });
+            commitSyncDisplayActivePayload(
+              { checkBan: enriched },
+              'check-answer-waiting-partner:queue-head-fallback',
+            );
+          }
+        }
+
+        notificationChainAwaitingUserRef.current = false;
+        notificationChainHandoffRef.current = false;
+        const forcedShown = showNextNotificationFromChainSyncRef.current(
+          'check-answer-waiting-partner:force-next',
+        );
+        if (forcedShown) {
+          logCheckAnswerWaitingNextCardMounted({
+            source: 'check-answer-waiting-partner',
+            queueHeadKind: queueHead.kind,
+            queueHeadBanId,
+            shown: true,
+          });
+          setChainAdvanceWaiting(false);
+          setNotificationChainTransitioning(false);
+        }
       }
 
       const outcome = continueNotificationChainOrOpenLobbyRef.current(
@@ -19738,6 +19787,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [
       applyOverlayQueue,
+      commitSyncDisplayActivePayload,
       releaseCheckAnswerWaitingResultHold,
       setChainAdvanceWaiting,
       setCheckAnswerWaitingResultHold,
@@ -34801,9 +34851,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (checkDeepLinkBanId && checkDeeplinkPendingBanIdRef.current) {
         return true;
       }
-      if (activeOverlayKind === 'check' && ownerPrimaryCheckBan) {
+      const queueHeadCheckBan =
+        ownerPrimaryQueueHead?.kind === 'check'
+          ? ownerPrimaryQueueHead.ban
+          : null;
+      const checkBanForGate = ownerPrimaryCheckBan ?? queueHeadCheckBan;
+      if (activeOverlayKind === 'check' && checkBanForGate) {
         return shouldShowCheckOverlay(
-          ownerPrimaryCheckBan,
+          checkBanForGate,
           auth.user?.id ?? null,
           dismissedCheckSessionRef.current,
           answeredCheckRef.current,
@@ -34812,7 +34867,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
       }
       return shouldShowCheckOverlay(
-        ownerPrimaryCheckBan,
+        checkBanForGate,
         auth.user?.id ?? null,
         dismissedCheckSessionRef.current,
         answeredCheckRef.current,
@@ -34820,7 +34875,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         !!ownerPrimaryResult,
       );
     },
-    [composeBlocksNotificationHost, priorityBlocksResult, activeOverlayKind, ownerPrimaryCheckBan, auth.user?.id, ownerPrimaryResult, activeBanCardReady, sendSuccessCardActive, replyParentActivePriorityActive, checkDeepLinkBanId],
+    [composeBlocksNotificationHost, priorityBlocksResult, activeOverlayKind, ownerPrimaryCheckBan, ownerPrimaryQueueHead, auth.user?.id, ownerPrimaryResult, activeBanCardReady, sendSuccessCardActive, replyParentActivePriorityActive, checkDeepLinkBanId],
   );
 
   const checkOverlayMounted =
@@ -37087,7 +37142,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const checkBanForShell =
     ownerPrimaryCheckBan ??
     (ownerPrimaryQueueHead?.kind === 'check'
-      ? ownerPrimaryQueueHead.ban
+      ? enrichBanInteraction(ownerPrimaryQueueHead.ban)
       : null);
   const incomingBanForShell =
     ownerPrimaryIncomingBan ??
@@ -37145,6 +37200,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         checkDirect: false,
         checkGateActive,
         activeOverlayKind,
+        queueShellHosted:
+          notificationQueueShellDisplayKind === 'check' &&
+          !showCheckOverlayDirect,
       }),
     [
       checkBanForShell,
@@ -37152,8 +37210,36 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       phase12Token,
       checkGateActive,
       activeOverlayKind,
+      notificationQueueShellDisplayKind,
+      showCheckOverlayDirect,
     ],
   );
+
+  useLayoutEffect(() => {
+    if (notificationQueueShellDisplayKind !== 'check' || showCheckOverlayDirect) {
+      return;
+    }
+    if (ownerPrimaryCheckBan?.id || ownerPrimaryQueueHead?.kind !== 'check') {
+      return;
+    }
+    const usedBanId = checkBanForShell?.id?.trim() || null;
+    if (!usedBanId) return;
+    logCheckQueueHeadBanFallbackUsed({
+      source: 'providers-queue-check-shell-render',
+      queueHeadKind: 'check',
+      queueHeadBanId: ownerPrimaryQueueHead.ban.id,
+      checkPropBanId: null,
+      pendingBanId: checkDeeplinkPendingBanIdRef.current,
+      usedBanId,
+      reason: 'queue-head-check-fallback-render',
+    });
+  }, [
+    checkBanForShell?.id,
+    notificationQueueShellDisplayKind,
+    ownerPrimaryCheckBan?.id,
+    ownerPrimaryQueueHead,
+    showCheckOverlayDirect,
+  ]);
 
   const legacyCheckQueueVisibility = useMemo(
     () =>

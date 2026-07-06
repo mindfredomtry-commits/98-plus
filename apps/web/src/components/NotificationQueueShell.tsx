@@ -130,16 +130,31 @@ export function NotificationQueueShell({
   renderTrace,
 }: Props) {
   const hasRenderableChildrenProbe = hasRenderableChildren(children);
+  const rt = renderTrace ?? {};
+  const queueHeadKindFromTrace =
+    (rt.overlayQueueHeadKind as string | null | undefined) ?? null;
+  const queueHeadBanIdFromTrace =
+    (rt.overlayQueueHeadBanId as string | null | undefined)?.trim() ?? '';
+  const queueHeadShellAdvanceReady =
+    queueHeadBanIdFromTrace.length > 0 &&
+    (queueHeadKindFromTrace === 'check' ||
+      queueHeadKindFromTrace === 'incoming' ||
+      queueHeadKindFromTrace === 'result');
   const childProbeRenderable =
     kind === 'check'
       ? checkCardReady && hasRenderableChildrenProbe
       : hasRenderableChildrenProbe;
   const hasContent =
     shellContentReady !== undefined ? shellContentReady : childProbeRenderable;
+  const hasContentForAdvance =
+    hasContent || (advanceWaiting && queueHeadShellAdvanceReady);
 
   const advanceHeadReady =
     kind != null &&
     isAdvanceHeadReady(kind, incomingCardReady, checkCardReady, shellContentReady);
+  const effectiveAdvanceHeadReady =
+    advanceHeadReady ||
+    (advanceWaiting && queueHeadShellAdvanceReady);
 
   const resolveRenderBranch = (): string => {
     if (!kind) return 'return-null-no-kind';
@@ -149,13 +164,13 @@ export function NotificationQueueShell({
     if (kind === 'check' && !checkCardReady && !advanceWaiting) {
       return 'return-null-check-not-ready';
     }
-    if (advanceWaiting && !advanceHeadReady) {
+    if (advanceWaiting && !effectiveAdvanceHeadReady) {
       return 'return-null-advance-head-not-ready';
     }
     if (!hasContent && !advanceWaiting) {
       return 'return-null-no-content-no-advance';
     }
-    if (advanceWaiting && !hasContent) {
+    if (advanceWaiting && !hasContentForAdvance) {
       return 'return-null-advance-no-content';
     }
     return 'modal-shell-content-wrapper';
@@ -165,7 +180,7 @@ export function NotificationQueueShell({
 
   const queueHeadAdvanceMounted =
     advanceWaiting &&
-    advanceHeadReady &&
+    effectiveAdvanceHeadReady &&
     renderBranch === 'modal-shell-content-wrapper' &&
     ((kind === 'check' && checkCardReady) ||
       (kind === 'incoming' && incomingCardReady));
@@ -176,7 +191,6 @@ export function NotificationQueueShell({
         ? 'queue-head-incoming-advance-mounted'
         : renderBranch;
 
-  const rt = renderTrace ?? {};
   const effectiveKind =
     (rt.effectiveNotificationQueueShellKind as string | null | undefined) ??
     kind;
@@ -276,7 +290,8 @@ export function NotificationQueueShell({
       hasRenderableChildren: hasRenderableChildrenProbe,
       hasContent,
       advanceWaiting,
-      advanceHeadReady,
+      advanceHeadReady: effectiveAdvanceHeadReady,
+      queueHeadShellAdvanceReady,
       renderBranch: resolvedShellReason,
       queueHeadAdvanceMounted,
       sessionActive,
@@ -289,16 +304,21 @@ export function NotificationQueueShell({
     });
   }, [
     advanceHeadReady,
+    effectiveAdvanceHeadReady,
     advanceWaiting,
     checkCardReady,
     childProbeRenderable,
     contentKey,
     displayBanId,
     hasContent,
+    hasContentForAdvance,
     hasRenderableChildrenProbe,
     incomingCardReady,
     kind,
+    queueHeadShellAdvanceReady,
+    queueHeadAdvanceMounted,
     renderBranch,
+    resolvedShellReason,
     renderTrace,
     sessionActive,
     shellContentReady,
@@ -366,13 +386,15 @@ export function NotificationQueueShell({
     if (!kind) return;
     if (kind === 'incoming' && !incomingCardReady && !advanceWaiting) return;
     if (kind === 'check' && !checkCardReady && !advanceWaiting) return;
-    if (advanceWaiting && !advanceHeadReady) {
+    if (advanceWaiting && !effectiveAdvanceHeadReady) {
       logQueueHeadNotReady({
         source: 'NotificationQueueShell-render',
-        reason: !hasContent ? 'advance-waiting-no-content' : 'advance-waiting-head-not-ready',
+        reason: !hasContentForAdvance ? 'advance-waiting-no-content' : 'advance-waiting-head-not-ready',
         kind: shellKind,
         hasContent,
-        advanceHeadReady,
+        hasContentForAdvance,
+        advanceHeadReady: effectiveAdvanceHeadReady,
+        queueHeadShellAdvanceReady,
         displayBanId,
         queueLen: (renderTrace?.queueLen as number | null | undefined) ?? null,
         currentHead:
@@ -383,7 +405,7 @@ export function NotificationQueueShell({
         renderBranch,
         ...renderTrace,
       });
-      if (!hasContent) {
+      if (!hasContentForAdvance) {
         logQueuePlaceholderBlocked({
           source: 'NotificationQueueShell-render',
           reason: 'advance-waiting-no-content',
@@ -423,7 +445,9 @@ export function NotificationQueueShell({
         kind,
       advanceWaiting,
       hasContent,
-      advanceHeadReady,
+      advanceHeadReady: effectiveAdvanceHeadReady,
+      queueHeadShellAdvanceReady,
+      hasContentForAdvance,
       hasRenderableChildren: hasRenderableChildrenProbe,
       queueLen: (renderTrace?.queueLen as number | null | undefined) ?? null,
       pendingLen: (renderTrace?.pendingLen as number | null | undefined) ?? null,
@@ -435,7 +459,10 @@ export function NotificationQueueShell({
         (renderTrace?.pendingStartupHeadKind as string | null | undefined) ?? null,
       pendingHeadBanId:
         (renderTrace?.pendingStartupHeadBanId as string | null | undefined) ?? null,
-      blockReason: advanceWaiting && !advanceHeadReady ? 'advance-head-not-ready' : null,
+      blockReason:
+        advanceWaiting && !effectiveAdvanceHeadReady
+          ? 'advance-head-not-ready'
+          : null,
       renderBranch,
       checkCardReady,
       incomingCardReady,
@@ -490,7 +517,7 @@ export function NotificationQueueShell({
     return null;
   }
 
-  if (advanceWaiting && !advanceHeadReady) {
+  if (advanceWaiting && !effectiveAdvanceHeadReady) {
     logShellRenderBranch(
       resolveOverlayRenderBranchFromKind(kind),
       'advance-head-not-ready',
@@ -506,7 +533,7 @@ export function NotificationQueueShell({
     return null;
   }
 
-  if (advanceWaiting && !hasContent) {
+  if (advanceWaiting && !hasContentForAdvance) {
     logShellRenderBranch(
       resolveOverlayRenderBranchFromKind(kind),
       'advance-no-content',

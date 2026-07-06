@@ -207,6 +207,34 @@ export function logCheckAnswerSkipFinalDrainWithWork(
   window.__debug98log?.('[CHECK ANSWER SKIP FINAL DRAIN WITH WORK]', data);
 }
 
+export function logCheckQueueHeadRenderReady(
+  data: Record<string, unknown>,
+): void {
+  console.log('CHECK_QUEUE_HEAD_RENDER_READY', data);
+  window.__debug98log?.('CHECK_QUEUE_HEAD_RENDER_READY', data);
+}
+
+export function logCheckQueueHeadBanFallbackUsed(
+  data: Record<string, unknown>,
+): void {
+  console.log('CHECK_QUEUE_HEAD_BAN_FALLBACK_USED', data);
+  window.__debug98log?.('CHECK_QUEUE_HEAD_BAN_FALLBACK_USED', data);
+}
+
+export function logCheckAnswerWaitingNextCardMounted(
+  data: Record<string, unknown>,
+): void {
+  console.log('CHECK_ANSWER_WAITING_NEXT_CARD_MOUNTED', data);
+  window.__debug98log?.('CHECK_ANSWER_WAITING_NEXT_CARD_MOUNTED', data);
+}
+
+export function logCheckAnswerWaitingQueueEmpty(
+  data: Record<string, unknown>,
+): void {
+  console.log('CHECK_ANSWER_WAITING_QUEUE_EMPTY', data);
+  window.__debug98log?.('CHECK_ANSWER_WAITING_QUEUE_EMPTY', data);
+}
+
 export function logCheckAnswerKeepTransition(
   data: Record<string, unknown>,
 ): void {
