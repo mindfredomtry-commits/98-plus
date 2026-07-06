@@ -99,26 +99,103 @@ export function logContinueChainEmptyButPendingExists(
 export function resolvePendingHeadFields(head: QueuedOverlay | null): {
   pendingHeadKind: string | null;
   pendingHeadBanId: string | null;
+  pendingHeadResultId: string | null;
   pendingHeadKey: string | null;
 } {
   if (!head) {
     return {
       pendingHeadKind: null,
       pendingHeadBanId: null,
+      pendingHeadResultId: null,
       pendingHeadKey: null,
     };
   }
   const pendingHeadBanId =
-    head.kind === 'result'
-      ? head.result.id
-      : head.kind === 'incoming' || head.kind === 'check'
-        ? head.ban.id
-        : null;
+    head.kind === 'incoming' || head.kind === 'check' ? head.ban.id : null;
+  const pendingHeadResultId = head.kind === 'result' ? head.result.id : null;
   return {
     pendingHeadKind: head.kind,
     pendingHeadBanId,
+    pendingHeadResultId,
     pendingHeadKey: overlayQueueKey(head),
   };
+}
+
+export type PendingChainQueuedSkipTracePayload = {
+  source: string;
+  caller: string;
+  pendingHeadKind: string | null;
+  pendingHeadBanId: string | null;
+  pendingHeadResultId: string | null;
+  pendingHeadKey: string | null;
+  ownerQueueLen: number;
+  ownerPendingLen: number;
+  legacyQueueLen: number;
+  legacyPendingLen: number;
+  activeKind: string | null;
+  displayKind: string | null;
+  notificationSessionActive: boolean;
+  notificationChainTransitioning: boolean;
+  pendingNotPromotedReason: string;
+  lastMergeSkipReason: string | null;
+  lastMergeSkipSource: string | null;
+  lastContinueOutcome: string | null;
+  goToBansAdvancePending: boolean;
+  startupHold: boolean;
+  skipReason: 'pending-chain-queued';
+  timestamp?: number;
+};
+
+export function inferPendingNotPromotedReason(input: {
+  ownerQueueLen: number;
+  ownerPendingLen: number;
+  runtimeQueueLen: number;
+  runtimePendingLen: number;
+  activeKind: string | null;
+  displayKind: string | null;
+  startupHold: boolean;
+  mergeSkip: { source: string; skipReason: string } | null;
+  lastContinue: { outcome: string; reason: string } | null;
+  goToBansAdvancePending: boolean;
+}): string {
+  if (input.ownerQueueLen > 0) {
+    return 'queue-not-empty-promotion-deferred';
+  }
+  if (input.ownerPendingLen === 0) {
+    return 'no-owner-pending';
+  }
+  if (input.startupHold) {
+    return 'startup-hold-still-active';
+  }
+  if (input.mergeSkip?.skipReason) {
+    return `merge-skipped:${input.mergeSkip.skipReason}`;
+  }
+  if (input.activeKind != null || input.displayKind != null) {
+    return 'active-display-present-blocks-merge';
+  }
+  if (input.lastContinue && input.lastContinue.outcome !== 'show-next') {
+    return `continue-outcome:${input.lastContinue.outcome}:${input.lastContinue.reason}`;
+  }
+  if (input.goToBansAdvancePending) {
+    return 'go-to-bans-advance-pending-awaiting-async-continue';
+  }
+  if (input.ownerPendingLen > 0 && input.runtimePendingLen === 0) {
+    return 'owner-pending-not-mirrored-to-runtime-ref';
+  }
+  if (
+    input.ownerPendingLen > 0 &&
+    input.runtimeQueueLen === 0 &&
+    input.runtimePendingLen > 0
+  ) {
+    return 'runtime-pending-not-promoted-to-queue';
+  }
+  return 'unknown-no-promotion-reason';
+}
+
+export function logPendingChainQueuedSkipTrace(
+  data: PendingChainQueuedSkipTracePayload,
+): void {
+  emit('PENDING_CHAIN_QUEUED_SKIP_TRACE', data);
 }
 
 export function buildGoToBansPendingNotPromotedSignature(

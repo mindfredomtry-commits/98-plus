@@ -606,10 +606,13 @@ import {
 import {
   buildGoToBansPendingNotPromotedSignature,
   formatLastContinueOutcome,
+  inferPendingNotPromotedReason,
   logContinueChainEmptyButPendingExists,
   logOwnerPendingPromotionDecision,
+  logPendingChainQueuedSkipTrace,
   logPendingPromotionDecisionTrace,
   logResultGoToBansPendingNotPromoted,
+  resolvePendingHeadFields,
   type OwnerPendingPromotionDecisionStage,
 } from '@/lib/pending-promotion-diag-debug';
 import {
@@ -24135,6 +24138,45 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ownerAtPollGuard.display,
         );
         if (ownerQueueLen > 0 || ownerPendingLen > 0) {
+          const pendingHead = ownerAtPollGuard.pending[0] ?? null;
+          const pendingHeadFields = resolvePendingHeadFields(pendingHead);
+          logPendingChainQueuedSkipTrace({
+            source: 'result-poll-tick',
+            caller: 'useEffect:result-poll-interval-tick',
+            ...pendingHeadFields,
+            ownerQueueLen,
+            ownerPendingLen,
+            legacyQueueLen,
+            legacyPendingLen,
+            activeKind,
+            displayKind,
+            notificationSessionActive:
+              notificationSessionActiveForDebugRef.current,
+            notificationChainTransitioning:
+              notificationChainTransitioningRef.current,
+            pendingNotPromotedReason: inferPendingNotPromotedReason({
+              ownerQueueLen,
+              ownerPendingLen,
+              runtimeQueueLen: legacyQueueLen,
+              runtimePendingLen: legacyPendingLen,
+              activeKind,
+              displayKind,
+              startupHold: startupInteractionsHoldRef.current,
+              mergeSkip: lastPendingMergeSkipReasonRef.current,
+              lastContinue: lastChainContinueOutcomeRef.current,
+              goToBansAdvancePending: goToBansAdvancePendingRef.current,
+            }),
+            lastMergeSkipReason:
+              lastPendingMergeSkipReasonRef.current?.skipReason ?? null,
+            lastMergeSkipSource:
+              lastPendingMergeSkipReasonRef.current?.source ?? null,
+            lastContinueOutcome: formatLastContinueOutcome(
+              lastChainContinueOutcomeRef.current,
+            ),
+            goToBansAdvancePending: goToBansAdvancePendingRef.current,
+            startupHold: startupInteractionsHoldRef.current,
+            skipReason: 'pending-chain-queued',
+          });
           console.log('PENDING_CHAIN_GUARD_OWNER_DECISION', {
             ownerQueueLen,
             ownerPendingLen,
