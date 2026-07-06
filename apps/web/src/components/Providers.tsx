@@ -441,6 +441,7 @@ import {
   logCheckAnswerWaitingNextCardMounted,
   logCheckAnswerWaitingQueueEmpty,
   logQueueHeadDisplayFallbackUsed,
+  logQueueHeadKindFallbackUsed,
   logCheckAnswerKeepTransition,
   logCheckAnswerRetryContinue,
   logCheckAnswerRetryExhaustedOpenLobby,
@@ -36087,6 +36088,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     isQueueAtomicOverboardResultShowable,
   ]);
 
+  const queueHeadShellKindFallback = useMemo((): QueuedOverlay['kind'] | null => {
+    if (composeBlocksNotificationHost) return null;
+    if (ownerPrimaryShellQueueLen <= 0 && ownerPrimaryShellPendingLen <= 0) {
+      return null;
+    }
+    const head = ownerPrimaryQueueHead;
+    if (!head) return null;
+    if (
+      head.kind === 'check' ||
+      head.kind === 'incoming' ||
+      head.kind === 'result'
+    ) {
+      return head.kind;
+    }
+    return null;
+  }, [
+    composeBlocksNotificationHost,
+    ownerPrimaryQueueHead,
+    ownerPrimaryShellQueueLen,
+    ownerPrimaryShellPendingLen,
+  ]);
+
   const notificationQueueShellKind = useMemo(() => {
     if (composeBlocksNotificationHost) return null;
     if (checkAnswerWaitingResultHoldBanId) {
@@ -36097,7 +36120,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (!queueHead) return null;
       return queueHead.kind;
     }
-    if (!incomingNotificationShellKind) return null;
+    if (!incomingNotificationShellKind) {
+      return queueHeadShellKindFallback;
+    }
     if (
       incomingNotificationShellKind === 'incoming' &&
       replyIncomingDirectPath
@@ -36115,6 +36140,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     incomingNotificationShellKind,
     overlayQueue,
     ownerPrimaryQueueHead,
+    queueHeadShellKindFallback,
     replyIncomingDirectPath,
   ]);
 
@@ -36235,7 +36261,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return 'result' as const;
     }
 
-    return notificationQueueShellKind;
+    return notificationQueueShellKind ?? queueHeadShellKindFallback;
   }, [
     activeResultPayload,
     chainAdvanceWaiting,
@@ -36247,6 +36273,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     overlayQueue,
     ownerReadDisplay,
     ownerReadQueue,
+    queueHeadShellKindFallback,
     showDirectOverboardLayer,
   ]);
 
@@ -37140,9 +37167,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           : notificationQueueShellKind
       : effectiveNotificationQueueShellKind;
 
+  const notificationQueueShellDisplayKindResolved =
+    notificationQueueShellDisplayKind ?? queueHeadShellKindFallback;
+
   const checkShellBanId = ownerPrimaryCheckBanForDisplayGuards?.id?.trim() || '';
   const checkShellKindWithoutBan =
-    notificationQueueShellDisplayKind === 'check' && !checkShellBanId;
+    notificationQueueShellDisplayKindResolved === 'check' && !checkShellBanId;
   const overlayQueueHeadForShell = ownerPrimaryQueueHead;
   const ownerShellQueueHeadBanId =
     overlayQueueHeadForShell?.kind === 'result'
@@ -37210,7 +37240,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         checkGateActive,
         activeOverlayKind,
         queueShellHosted:
-          notificationQueueShellDisplayKind === 'check' &&
+          notificationQueueShellDisplayKindResolved === 'check' &&
           !showCheckOverlayDirect,
       }),
     [
@@ -37219,7 +37249,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       phase12Token,
       checkGateActive,
       activeOverlayKind,
-      notificationQueueShellDisplayKind,
+      notificationQueueShellDisplayKindResolved,
       showCheckOverlayDirect,
     ],
   );
@@ -37470,7 +37500,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const ownerShellReadiness = useMemo(
     () =>
       computeNotificationQueueShellReadiness({
-        kind: notificationQueueShellDisplayKind,
+        kind: notificationQueueShellDisplayKindResolved,
         ownerCheckBanId: ownerPrimaryCheckBan?.id ?? null,
         ownerStableIncomingBanId: ownerPrimaryStableIncomingBan?.id ?? null,
         ownerIncomingDisplayBanId:
@@ -37483,7 +37513,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         renderableResultShell,
       }),
     [
-      notificationQueueShellDisplayKind,
+      notificationQueueShellDisplayKindResolved,
       ownerPrimaryCheckBan?.id,
       ownerPrimaryStableIncomingBan?.id,
       ownerRenderIncomingBan?.id,
@@ -37507,6 +37537,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     : chainAdvanceWaiting ||
       incomingShellHydrating ||
       (checkShellKindWithoutBan && isCheckAnswerWaitingResultPath);
+
+  const queueHeadShellKindFallbackLogSigRef = useRef('');
+  useLayoutEffect(() => {
+    if (!queueHeadShellKindFallback) return;
+    if (notificationQueueShellKind != null) return;
+    const sig = `${queueHeadShellKindFallback}|${effectiveNotificationQueueShellKind ?? ''}|${notificationQueueShellDisplayKindResolved ?? ''}`;
+    if (sig === queueHeadShellKindFallbackLogSigRef.current) return;
+    queueHeadShellKindFallbackLogSigRef.current = sig;
+    logQueueHeadKindFallbackUsed({
+      source: 'providers-shell-kind',
+      queueHeadKind: queueHeadShellKindFallback,
+      notificationQueueShellKindBefore: null,
+      notificationQueueShellKindAfter:
+        notificationQueueShellKind ?? queueHeadShellKindFallback,
+      effectiveKindBefore: effectiveNotificationQueueShellKind,
+      effectiveKindAfter:
+        effectiveNotificationQueueShellKind ?? queueHeadShellKindFallback,
+      displayKindBefore: notificationQueueShellDisplayKind,
+      displayKindAfter: notificationQueueShellDisplayKindResolved,
+      queueLen: ownerPrimaryQueueLen,
+      pendingLen: ownerPrimaryPendingLen,
+      timestamp: Date.now(),
+    });
+  }, [
+    effectiveNotificationQueueShellKind,
+    notificationQueueShellDisplayKind,
+    notificationQueueShellDisplayKindResolved,
+    notificationQueueShellKind,
+    ownerPrimaryPendingLen,
+    ownerPrimaryQueueLen,
+    queueHeadShellKindFallback,
+  ]);
 
   useLayoutEffect(() => {
     const gates = [
@@ -39633,13 +39695,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               }
             >
               <NotificationQueueShell
-                kind={notificationQueueShellDisplayKind}
+                kind={notificationQueueShellDisplayKindResolved}
                 shellContentReady={
                   renderableResultShell ? ownerShellContentReady : undefined
                 }
                 renderTrace={{
-                  effectiveNotificationQueueShellKind,
-                  notificationQueueShellKind,
+                  effectiveNotificationQueueShellKind:
+                    effectiveNotificationQueueShellKind ??
+                    queueHeadShellKindFallback,
+                  notificationQueueShellKind:
+                    notificationQueueShellKind ?? queueHeadShellKindFallback,
                   queueShellShowsResult,
                   activeResultPayloadBanId: activeResultPayload?.id ?? null,
                   chainAdvanceWaiting,
@@ -39756,7 +39821,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     />
                   </ChallengeErrorBoundary>
                 ) : !queueResultOverlayClaimed &&
-                  notificationQueueShellDisplayKind === 'check' &&
+                  notificationQueueShellDisplayKindResolved === 'check' &&
                   !showCheckOverlayDirect &&
                   checkBanForShell ? (
                   <ChallengeErrorBoundary
@@ -39771,7 +39836,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     />
                   </ChallengeErrorBoundary>
                 ) : !queueResultOverlayClaimed &&
-                  notificationQueueShellDisplayKind === 'incoming' &&
+                  notificationQueueShellDisplayKindResolved === 'incoming' &&
                   (incomingBanForShell ?? ownerPrimaryStableIncomingBan) ? (
                   <ChallengeErrorBoundary
                     name="incoming"
