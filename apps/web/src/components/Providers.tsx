@@ -440,6 +440,7 @@ import {
   logCheckQueueHeadBanFallbackUsed,
   logCheckAnswerWaitingNextCardMounted,
   logCheckAnswerWaitingQueueEmpty,
+  logQueueHeadDisplayFallbackUsed,
   logCheckAnswerKeepTransition,
   logCheckAnswerRetryContinue,
   logCheckAnswerRetryExhaustedOpenLobby,
@@ -34458,6 +34459,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     'queueHead',
     { queue: overlayQueue, refQueue: overlayQueueRef.current },
   );
+  const queueHeadCheckBanForDisplayFallback =
+    !ownerPrimaryCheckBan?.id?.trim() &&
+    ownerPrimaryQueueHead?.kind === 'check' &&
+    Boolean(ownerPrimaryQueueHead.ban?.id?.trim())
+      ? enrichBanInteraction(ownerPrimaryQueueHead.ban)
+      : null;
+  const ownerPrimaryCheckBanForDisplayGuards =
+    ownerPrimaryCheckBan ?? queueHeadCheckBanForDisplayFallback;
   const ownerPrimaryQueueLen = readOwnerOnlyQueueLen(
     ownerReadQueue.length,
     'queueLen',
@@ -34880,7 +34889,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const checkOverlayMounted =
     !composeBlocksNotificationHost &&
-    !!ownerPrimaryCheckBan?.id &&
+    !!ownerPrimaryCheckBanForDisplayGuards?.id &&
     queueHeadKind === 'check';
 
   const checkDeeplinkDirectPending =
@@ -36036,18 +36045,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
     const queueHeadCheckShowable =
       queueHeadKind === 'check' &&
-      Boolean(ownerPrimaryCheckBan) &&
-      shouldShowCheckOverlay(
-        ownerPrimaryCheckBan,
-        auth.user?.id ?? null,
-        dismissedCheckSessionRef.current,
-        answeredCheckRef.current,
-        checkAnswerInFlightRef.current,
-        !!ownerPrimaryResult,
-      );
+      Boolean(ownerPrimaryCheckBanForDisplayGuards) &&
+      (Boolean(queueHeadCheckBanForDisplayFallback) ||
+        shouldShowCheckOverlay(
+          ownerPrimaryCheckBanForDisplayGuards,
+          auth.user?.id ?? null,
+          dismissedCheckSessionRef.current,
+          answeredCheckRef.current,
+          checkAnswerInFlightRef.current,
+          !!ownerPrimaryResult,
+        ));
     if (
       incomingOverlayDisplayKind === 'check' &&
-      ownerPrimaryCheckBan &&
+      ownerPrimaryCheckBanForDisplayGuards &&
       (checkGateActive || queueHeadCheckShowable)
     ) {
       return 'check' as const;
@@ -36067,6 +36077,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     displayResult,
     ownerPrimaryHeldUserCard,
     ownerPrimaryCheckBan,
+    ownerPrimaryCheckBanForDisplayGuards,
+    queueHeadCheckBanForDisplayFallback,
     queueHeadKind,
     auth.user?.id,
     ownerPrimaryResult,
@@ -36411,7 +36423,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (notificationQueueShellKind === 'result' && ownerPrimaryDisplayResultForShell) {
       return true;
     }
-    if (notificationQueueShellKind === 'check' && ownerPrimaryCheckBan?.id) {
+    if (notificationQueueShellKind === 'check' && ownerPrimaryCheckBanForDisplayGuards?.id) {
       return true;
     }
     return false;
@@ -36419,6 +36431,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     chainAdvancePlaceholderKind,
     chainAdvanceWaiting,
     ownerPrimaryCheckBan?.id,
+    ownerPrimaryCheckBanForDisplayGuards?.id,
     checkOverlayMounted,
     composeBlocksNotificationHost,
     ownerPrimaryDisplayResultForShell,
@@ -37127,7 +37140,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           : notificationQueueShellKind
       : effectiveNotificationQueueShellKind;
 
-  const checkShellBanId = ownerPrimaryCheckBan?.id?.trim() || '';
+  const checkShellBanId = ownerPrimaryCheckBanForDisplayGuards?.id?.trim() || '';
   const checkShellKindWithoutBan =
     notificationQueueShellDisplayKind === 'check' && !checkShellBanId;
   const overlayQueueHeadForShell = ownerPrimaryQueueHead;
@@ -37139,11 +37152,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ? overlayQueueHeadForShell.ban.id
         : null;
 
-  const checkBanForShell =
-    ownerPrimaryCheckBan ??
-    (ownerPrimaryQueueHead?.kind === 'check'
-      ? enrichBanInteraction(ownerPrimaryQueueHead.ban)
-      : null);
+  const checkBanForShell = ownerPrimaryCheckBanForDisplayGuards;
   const incomingBanForShell =
     ownerPrimaryIncomingBan ??
     (ownerPrimaryQueueHead?.kind === 'incoming'
@@ -37831,6 +37840,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       'notificationOverlayVisible',
       { ref: checkBanRef.current, state: checkBan },
     );
+    const effectiveCheckBanForVisibility =
+      ownerCheckBanForVisibility ?? queueHeadCheckBanForDisplayFallback;
     const ownerResultForVisibility =
       priorityBlocksResult || sendSuccessCardActive
         ? null
@@ -37916,7 +37927,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         checkOverlayMounted ||
         incomingShellHydrating ||
         (notificationQueueShellKind === 'check' &&
-          !!ownerCheckBanForVisibility?.id) ||
+          !!effectiveCheckBanForVisibility?.id) ||
         (notificationQueueShellKind === 'result' &&
           !!ownerResultForVisibility) ||
         (notificationQueueShellKind === 'incoming' &&
@@ -37968,7 +37979,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (checkOverlayMounted) return true;
     if (
       notificationQueueShellKind === 'check' &&
-      ownerCheckBanForVisibility?.id
+      effectiveCheckBanForVisibility?.id
     ) {
       return true;
     }
@@ -37990,6 +38001,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     chainAdvanceWaiting,
     checkOverlayMounted,
     composeBlocksNotificationHost,
+    queueHeadCheckBanForDisplayFallback,
     ownerPrimaryHeldUserCard,
     incomingCardDisplayBan,
     incomingCardFullyReady,
@@ -38011,6 +38023,33 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   useLayoutEffect(() => {
     notificationOverlayVisibleDiagRef.current = notificationOverlayVisible;
   }, [notificationOverlayVisible]);
+
+  const queueHeadDisplayFallbackLogSigRef = useRef('');
+  useLayoutEffect(() => {
+    if (!queueHeadCheckBanForDisplayFallback) return;
+    const shellKindAfter = notificationQueueShellKind;
+    const visibleAfter = notificationOverlayVisible;
+    const sig = `${queueHeadCheckBanForDisplayFallback.id}|${visibleAfter}|${shellKindAfter}`;
+    if (sig === queueHeadDisplayFallbackLogSigRef.current) return;
+    queueHeadDisplayFallbackLogSigRef.current = sig;
+    logQueueHeadDisplayFallbackUsed({
+      source: 'providers-display-guards',
+      queueHeadKind: ownerPrimaryQueueHead?.kind ?? null,
+      queueHeadBanId: queueHeadCheckBanForDisplayFallback.id,
+      displayCheckBanId: ownerPrimaryCheckBan?.id ?? null,
+      notificationOverlayVisibleBefore: false,
+      notificationOverlayVisibleAfter: visibleAfter,
+      shellKindBefore: null,
+      shellKindAfter,
+      timestamp: Date.now(),
+    });
+  }, [
+    notificationOverlayVisible,
+    notificationQueueShellKind,
+    ownerPrimaryCheckBan?.id,
+    ownerPrimaryQueueHead?.kind,
+    queueHeadCheckBanForDisplayFallback,
+  ]);
 
   useLayoutEffect(() => {
     const hasRenderableCard =
@@ -38318,7 +38357,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (chainAdvanceWaiting) return true;
     if (checkOverlayMounted) return true;
     if (showDirectOverboardLayer) return true;
-    if (notificationQueueShellKind === 'check' && ownerPrimaryCheckBan?.id) {
+    if (notificationQueueShellKind === 'check' && ownerPrimaryCheckBanForDisplayGuards?.id) {
       return true;
     }
     if (
@@ -38355,6 +38394,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ownerPrimaryStableIncomingBan?.id,
     chainAdvanceWaiting,
     ownerPrimaryCheckBan?.id,
+    ownerPrimaryCheckBanForDisplayGuards?.id,
     checkOverlayMounted,
     ownerPrimaryDisplayResultForShell,
     ownerPrimaryHeldUserCard,

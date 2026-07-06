@@ -235,6 +235,13 @@ export function logCheckAnswerWaitingQueueEmpty(
   window.__debug98log?.('CHECK_ANSWER_WAITING_QUEUE_EMPTY', data);
 }
 
+export function logQueueHeadDisplayFallbackUsed(
+  data: Record<string, unknown>,
+): void {
+  console.log('QUEUE_HEAD_DISPLAY_FALLBACK_USED', data);
+  window.__debug98log?.('QUEUE_HEAD_DISPLAY_FALLBACK_USED', data);
+}
+
 export function logCheckAnswerKeepTransition(
   data: Record<string, unknown>,
 ): void {
