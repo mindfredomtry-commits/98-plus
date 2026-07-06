@@ -16564,7 +16564,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const prefetched = await prefetchPendingNotificationChain(
       null,
       'lobby-indicator-prime',
-      { skipResults: true },
     );
     if (
       !uid ||
