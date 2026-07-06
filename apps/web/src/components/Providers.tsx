@@ -30087,6 +30087,39 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       deepLinkBlockedRef.current = false;
 
+      const explicitPendingPromoteSource =
+        'lobby-bans-cta:explicit-pending-promote';
+      const ownerBeforeExplicitPendingPromote =
+        ownerShadowRef.current.getState();
+      const pendingBeforeExplicitPromote =
+        ownerBeforeExplicitPendingPromote.pending.length;
+      const queueBeforeExplicitPromote =
+        ownerBeforeExplicitPendingPromote.queue.length;
+      if (
+        pendingBeforeExplicitPromote > 0 &&
+        queueBeforeExplicitPromote === 0
+      ) {
+        mergeStartupIntoOverlayQueueOnly(explicitPendingPromoteSource);
+        const ownerAfterExplicitPendingPromote =
+          ownerShadowRef.current.getState();
+        const explicitPendingPromoteTrace = {
+          pendingBefore: pendingBeforeExplicitPromote,
+          queueBefore: queueBeforeExplicitPromote,
+          pendingAfter: ownerAfterExplicitPendingPromote.pending.length,
+          queueAfter: ownerAfterExplicitPendingPromote.queue.length,
+          source: explicitPendingPromoteSource,
+          timestamp: performance.now(),
+        };
+        console.log(
+          'LOBBY_BANS_EXPLICIT_PENDING_PROMOTE_TRACE',
+          explicitPendingPromoteTrace,
+        );
+        window.__debug98log?.(
+          'LOBBY_BANS_EXPLICIT_PENDING_PROMOTE_TRACE',
+          explicitPendingPromoteTrace,
+        );
+      }
+
       const mergedCount = mergePendingSnapshotIntoOverlayQueue(
         pendingSnapshot,
         'lobby-bans-cta',
@@ -30140,7 +30173,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         queueLenBefore,
       });
 
-      if (pendingLen > 0 && mergedCount === 0) {
+      if (pendingLen > 0 && mergedCount === 0 && queueLenAfter === 0) {
         logLobbyBansCtaPendingLostBug({
           pendingLen,
           queueLenAfter,
@@ -30283,6 +30316,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       lobbyBansAttentionHint,
       logChainEndedIndicatorDiagIfNeeded,
       mergePendingSnapshotIntoOverlayQueue,
+      mergeStartupIntoOverlayQueueOnly,
       prefetchPendingNotificationChain,
       showNextNotificationFromChainSync,
       snapshotPendingNotificationChain,
