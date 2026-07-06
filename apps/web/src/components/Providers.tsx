@@ -29366,6 +29366,33 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const ownerPendingBeforeAwait = ownerAtClick.pending.length;
 
       if (!drainGate.canDrain) {
+        const explicitLobbyBansDrainSource = 'lobby-bans-cta';
+        const sharedOptsForExplicitDrain =
+          pendingChainPrefetchSharedOptsRef.current;
+        if (
+          (isExplicitNotificationDrainSource(explicitLobbyBansDrainSource) ||
+            explicitLobbyBansDrainSource.includes('lobby-bans-cta')) &&
+          sharedOptsForExplicitDrain?.skipResults === true
+        ) {
+          const sharedResetTrace = {
+            source: explicitLobbyBansDrainSource,
+            sharedSource: sharedOptsForExplicitDrain.source,
+            sharedSkipResults: sharedOptsForExplicitDrain.skipResults,
+            reason: 'explicit-drain-needs-results' as const,
+            timestamp: performance.now(),
+          };
+          console.log(
+            'PENDING_PREFETCH_SHARED_RESET_FOR_EXPLICIT_DRAIN',
+            sharedResetTrace,
+          );
+          window.__debug98log?.(
+            'PENDING_PREFETCH_SHARED_RESET_FOR_EXPLICIT_DRAIN',
+            sharedResetTrace,
+          );
+          pendingChainPrefetchSharedPromiseRef.current = null;
+          pendingChainPrefetchSharedOptsRef.current = null;
+          pendingChainPrefetchInFlightRef.current = 0;
+        }
         const sharedPrefetch = pendingChainPrefetchSharedPromiseRef.current;
         if (
           pendingChainPrefetchInFlightRef.current > 0 &&
