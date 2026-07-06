@@ -201,6 +201,12 @@ export function logCheckAnswerContinueOutcome(
   window.__debug98log?.('[CHECK ANSWER CONTINUE OUTCOME]', data);
 }
 
+export function logCheckAnswerSkipFinalDrainWithWork(
+  data: Record<string, unknown>,
+): void {
+  window.__debug98log?.('[CHECK ANSWER SKIP FINAL DRAIN WITH WORK]', data);
+}
+
 export function logCheckAnswerKeepTransition(
   data: Record<string, unknown>,
 ): void {

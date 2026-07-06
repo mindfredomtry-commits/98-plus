@@ -435,6 +435,7 @@ import {
   logCheckDismissStuckOnBootBug,
   logLobbyOpenAfterCheckEmpty,
   logCheckAnswerContinueOutcome,
+  logCheckAnswerSkipFinalDrainWithWork,
   logCheckAnswerKeepTransition,
   logCheckAnswerRetryContinue,
   logCheckAnswerRetryExhaustedOpenLobby,
@@ -20084,10 +20085,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             logCheckAnswerOverlayHostSnapshot('after-chain-continue-finally');
             // Same entrypoint as «Твои запреты» when immediate show-next missed.
             if (outcome !== 'show-next' && !hasCheckAnswerNextCardMounted()) {
-              setLobbyOpen(false);
-              lobbyOpenRef.current = false;
-              setNotificationChainTransitioning(true);
-              await startLobbyBansNotificationDrainRef.current();
+              const owner = ownerShadowRef.current.getState();
+              const hasQueuedWork =
+                owner.queue.length > 0 ||
+                owner.pending.length > 0 ||
+                overlayQueueRef.current.length > 0 ||
+                pendingStartupInteractionsRef.current.length > 0;
+              if (hasQueuedWork) {
+                logCheckAnswerSkipFinalDrainWithWork({
+                  source: 'check-answer-submit',
+                  outcome,
+                  ownerQueueLen: owner.queue.length,
+                  ownerPendingLen: owner.pending.length,
+                  overlayQueueLen: overlayQueueRef.current.length,
+                  pendingStartupLen: pendingStartupInteractionsRef.current.length,
+                  hasMountedNextCard: hasCheckAnswerNextCardMounted(),
+                  timestamp: Date.now(),
+                });
+              } else {
+                setLobbyOpen(false);
+                lobbyOpenRef.current = false;
+                setNotificationChainTransitioning(true);
+                await startLobbyBansNotificationDrainRef.current();
+              }
             }
           } catch {
             // chain continue logs its own errors
