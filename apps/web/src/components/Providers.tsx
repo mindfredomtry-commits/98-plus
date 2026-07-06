@@ -3275,6 +3275,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const pendingChainPrefetchSharedPromiseRef = useRef<Promise<boolean> | null>(
     null,
   );
+  /** Source/skipResults of the in-flight shared prefetch (cleared with shared promise). */
+  const pendingChainPrefetchSharedOptsRef = useRef<{
+    source: string;
+    skipResults: boolean;
+  } | null>(null);
   /** Diag-only: shared prefetch lifecycle for early-click race diagnosis. */
   const pendingChainPrefetchSharedLifecycleRef =
     useRef<SharedPrefetchPromiseState>('none');
@@ -15493,27 +15498,47 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       const sharedInflight = pendingChainPrefetchSharedPromiseRef.current;
+      const sharedOpts = pendingChainPrefetchSharedOptsRef.current;
+      const explicitNeedsResults =
+        isExplicitNotificationDrainSource(source) ||
+        source.includes('lobby-bans-cta');
       if (sharedInflight) {
-        logSharedPrefetchLifecycle({
-          event: 'reused',
-          source,
-          deeplinkBanId,
-          pendingChainPrefetchInFlight:
-            pendingChainPrefetchInFlightRef.current,
-          hasSharedPrefetchPromise: true,
-          sharedPrefetchPromiseState:
-            pendingChainPrefetchSharedLifecycleRef.current,
-        });
-        logLobbyBansClickDecision({
-          decisionPoint: 'prefetch-shared-promise-dedupe',
-          source,
-          deeplinkBanId,
-          reason: 'await-existing-in-flight-prefetch',
-          pendingChainPrefetchInFlight:
-            pendingChainPrefetchInFlightRef.current,
-          selectedAction: 'pending-drain-call',
-        });
-        return sharedInflight;
+        if (explicitNeedsResults && sharedOpts?.skipResults === true) {
+          const bypassTrace = {
+            source,
+            sharedSource: sharedOpts.source,
+            sharedSkipResults: sharedOpts.skipResults,
+            explicitNeedsResults,
+            action: 'bypass-shared-skip-results' as const,
+            timestamp: performance.now(),
+          };
+          console.log('PENDING_PREFETCH_DEDUPE_BYPASS_TRACE', bypassTrace);
+          window.__debug98log?.(
+            'PENDING_PREFETCH_DEDUPE_BYPASS_TRACE',
+            bypassTrace,
+          );
+        } else {
+          logSharedPrefetchLifecycle({
+            event: 'reused',
+            source,
+            deeplinkBanId,
+            pendingChainPrefetchInFlight:
+              pendingChainPrefetchInFlightRef.current,
+            hasSharedPrefetchPromise: true,
+            sharedPrefetchPromiseState:
+              pendingChainPrefetchSharedLifecycleRef.current,
+          });
+          logLobbyBansClickDecision({
+            decisionPoint: 'prefetch-shared-promise-dedupe',
+            source,
+            deeplinkBanId,
+            reason: 'await-existing-in-flight-prefetch',
+            pendingChainPrefetchInFlight:
+              pendingChainPrefetchInFlightRef.current,
+            selectedAction: 'pending-drain-call',
+          });
+          return sharedInflight;
+        }
       }
 
       const runPrefetch = async (): Promise<boolean> => {
@@ -16347,6 +16372,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return result;
       });
       pendingChainPrefetchSharedPromiseRef.current = sharedPromise;
+      pendingChainPrefetchSharedOptsRef.current = {
+        source,
+        skipResults: opts?.skipResults ?? false,
+      };
       pendingChainPrefetchSharedLifecycleRef.current = 'active';
       logSharedPrefetchLifecycle({
         event: 'created',
@@ -16362,6 +16391,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       } finally {
         if (pendingChainPrefetchSharedPromiseRef.current === sharedPromise) {
           pendingChainPrefetchSharedPromiseRef.current = null;
+          pendingChainPrefetchSharedOptsRef.current = null;
         }
         pendingChainPrefetchSharedLifecycleRef.current = 'none';
         logSharedPrefetchLifecycle({
