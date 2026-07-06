@@ -163,6 +163,19 @@ export function NotificationQueueShell({
 
   const renderBranch = resolveRenderBranch();
 
+  const queueHeadAdvanceMounted =
+    advanceWaiting &&
+    advanceHeadReady &&
+    renderBranch === 'modal-shell-content-wrapper' &&
+    ((kind === 'check' && checkCardReady) ||
+      (kind === 'incoming' && incomingCardReady));
+  const resolvedShellReason =
+    queueHeadAdvanceMounted && kind === 'check'
+      ? 'queue-head-check-advance-mounted'
+      : queueHeadAdvanceMounted && kind === 'incoming'
+        ? 'queue-head-incoming-advance-mounted'
+        : renderBranch;
+
   const rt = renderTrace ?? {};
   const effectiveKind =
     (rt.effectiveNotificationQueueShellKind as string | null | undefined) ??
@@ -223,7 +236,7 @@ export function NotificationQueueShell({
       : kind
         ? overlayRenderBranch
         : 'base-null',
-    reason: renderBranch,
+    reason: resolvedShellReason,
   });
 
   console.log('ACTUAL_COMPONENT_RENDER: NotificationQueueShell', {
@@ -264,7 +277,8 @@ export function NotificationQueueShell({
       hasContent,
       advanceWaiting,
       advanceHeadReady,
-      renderBranch,
+      renderBranch: resolvedShellReason,
+      queueHeadAdvanceMounted,
       sessionActive,
       displayBanId,
       contentKey,
@@ -502,7 +516,7 @@ export function NotificationQueueShell({
 
   logShellRenderBranch(
     resolveOverlayRenderBranchFromKind(kind),
-    'modal-shell-content-wrapper',
+    resolvedShellReason,
   );
 
   return (

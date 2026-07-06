@@ -37084,6 +37084,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ? overlayQueueHeadForShell.ban.id
         : null;
 
+  const checkBanForShell =
+    ownerPrimaryCheckBan ??
+    (ownerPrimaryQueueHead?.kind === 'check'
+      ? ownerPrimaryQueueHead.ban
+      : null);
+  const incomingBanForShell =
+    ownerPrimaryIncomingBan ??
+    (ownerPrimaryQueueHead?.kind === 'incoming'
+      ? ownerPrimaryQueueHead.ban
+      : null);
+
   const phase12ViewerId = auth.user?.id ?? userIdRef.current ?? null;
   const phase12Token = auth.token ?? null;
 
@@ -37128,7 +37139,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const ownerCheckQueueVisibility = useMemo(
     () =>
       computeCheckOverlayVisibility({
-        checkBan: ownerPrimaryCheckBan,
+        checkBan: checkBanForShell,
         viewerId: phase12ViewerId,
         token: phase12Token,
         checkDirect: false,
@@ -37136,7 +37147,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         activeOverlayKind,
       }),
     [
-      ownerPrimaryCheckBan,
+      checkBanForShell,
       phase12ViewerId,
       phase12Token,
       checkGateActive,
@@ -37214,18 +37225,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const ownerIncomingQueueVisibility = useMemo(
     () =>
       computeIncomingOverlayVisibility({
-        ban: ownerRenderIncomingBan,
+        ban: incomingBanForShell ?? ownerPrimaryStableIncomingBan,
         viewerId: phase12ViewerId,
         token: phase12Token,
         replyDirect: false,
-        banPropProvided: ownerRenderIncomingBan != null,
+        banPropProvided:
+          incomingBanForShell != null || ownerPrimaryStableIncomingBan != null,
         activeOverlayKind,
         incomingGateActive,
         replyDeeplinkFastShell,
         sessionDismissed: dismissedIncomingRef.current,
       }),
     [
-      ownerRenderIncomingBan,
+      incomingBanForShell,
+      ownerPrimaryStableIncomingBan,
       phase12ViewerId,
       phase12Token,
       activeOverlayKind,
@@ -39619,7 +39632,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 ) : !queueResultOverlayClaimed &&
                   notificationQueueShellDisplayKind === 'check' &&
                   !showCheckOverlayDirect &&
-                  checkShellBanId ? (
+                  checkBanForShell ? (
                   <ChallengeErrorBoundary
                     name="check"
                     onRecover={() => clearCheckOverlay()}
@@ -39627,20 +39640,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     <CheckOverlay
                       contentOnly
                       visible={ownerCheckQueueVisibility.visible}
-                      checkBan={ownerPrimaryCheckBan}
+                      checkBan={checkBanForShell}
                       visibilityReason={ownerCheckQueueVisibility.reason}
                     />
                   </ChallengeErrorBoundary>
                 ) : !queueResultOverlayClaimed &&
                   notificationQueueShellDisplayKind === 'incoming' &&
-                  ownerRenderIncomingBan ? (
+                  (incomingBanForShell ?? ownerPrimaryStableIncomingBan) ? (
                   <ChallengeErrorBoundary
                     name="incoming"
                     onRecover={() => dismissIncoming()}
                   >
                     <IncomingBanOverlay
                       contentOnly
-                      ban={ownerRenderIncomingBan}
+                      ban={incomingBanForShell ?? ownerPrimaryStableIncomingBan}
                       visible={ownerIncomingQueueVisibility.visible}
                       visibilityReason={ownerIncomingQueueVisibility.reason}
                     />
