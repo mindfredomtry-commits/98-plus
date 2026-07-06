@@ -249,6 +249,13 @@ export function logQueueHeadKindFallbackUsed(
   window.__debug98log?.('QUEUE_HEAD_KIND_FALLBACK_USED', data);
 }
 
+export function logQueueHeadCheckBanChildFallbackUsed(
+  data: Record<string, unknown>,
+): void {
+  console.log('QUEUE_HEAD_CHECK_BAN_CHILD_FALLBACK_USED', data);
+  window.__debug98log?.('QUEUE_HEAD_CHECK_BAN_CHILD_FALLBACK_USED', data);
+}
+
 export function logCheckAnswerKeepTransition(
   data: Record<string, unknown>,
 ): void {

@@ -442,6 +442,7 @@ import {
   logCheckAnswerWaitingQueueEmpty,
   logQueueHeadDisplayFallbackUsed,
   logQueueHeadKindFallbackUsed,
+  logQueueHeadCheckBanChildFallbackUsed,
   logCheckAnswerKeepTransition,
   logCheckAnswerRetryContinue,
   logCheckAnswerRetryExhaustedOpenLobby,
@@ -37170,7 +37171,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const notificationQueueShellDisplayKindResolved =
     notificationQueueShellDisplayKind ?? queueHeadShellKindFallback;
 
-  const checkShellBanId = ownerPrimaryCheckBanForDisplayGuards?.id?.trim() || '';
+  const resolvedShellQueueHead =
+    notificationQueueShellDisplayKindResolved === 'check' &&
+    ownerPrimaryQueueHead?.kind === 'check'
+      ? ownerPrimaryQueueHead
+      : ownerPrimaryQueueHead &&
+          notificationQueueShellDisplayKindResolved != null &&
+          ownerPrimaryQueueHead.kind === notificationQueueShellDisplayKindResolved
+        ? ownerPrimaryQueueHead
+        : null;
+
+  const queueHeadCheckBanForShellChildFallback =
+    notificationQueueShellDisplayKindResolved === 'check' &&
+    !ownerPrimaryCheckBanForDisplayGuards?.id?.trim() &&
+    ownerPrimaryQueueHead?.kind === 'check' &&
+    Boolean(ownerPrimaryQueueHead.ban?.id?.trim())
+      ? enrichBanInteraction(ownerPrimaryQueueHead.ban)
+      : null;
+
+  const checkBanForShell =
+    ownerPrimaryCheckBanForDisplayGuards ?? queueHeadCheckBanForShellChildFallback;
+
+  const checkShellBanId = checkBanForShell?.id?.trim() || '';
   const checkShellKindWithoutBan =
     notificationQueueShellDisplayKindResolved === 'check' && !checkShellBanId;
   const overlayQueueHeadForShell = ownerPrimaryQueueHead;
@@ -37182,7 +37204,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ? overlayQueueHeadForShell.ban.id
         : null;
 
-  const checkBanForShell = ownerPrimaryCheckBanForDisplayGuards;
   const incomingBanForShell =
     ownerPrimaryIncomingBan ??
     (ownerPrimaryQueueHead?.kind === 'incoming'
@@ -37253,6 +37274,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       showCheckOverlayDirect,
     ],
   );
+
+  useLayoutEffect(() => {
+    if (!queueHeadCheckBanForShellChildFallback) return;
+    logQueueHeadCheckBanChildFallbackUsed({
+      source: 'providers-shell-children',
+      queueHeadKind: resolvedShellQueueHead?.kind ?? null,
+      queueHeadBanId: queueHeadCheckBanForShellChildFallback.id,
+      displayCheckBanId: ownerPrimaryCheckBan?.id ?? null,
+      guardCheckBanId: ownerPrimaryCheckBanForDisplayGuards?.id ?? null,
+      shellKind: notificationQueueShellDisplayKindResolved,
+      effectiveKind: effectiveNotificationQueueShellKind,
+      childrenBranch: checkShellBanId ? 'check' : 'check-without-ban',
+      timestamp: Date.now(),
+    });
+  }, [
+    checkShellBanId,
+    effectiveNotificationQueueShellKind,
+    notificationQueueShellDisplayKindResolved,
+    ownerPrimaryCheckBan?.id,
+    ownerPrimaryCheckBanForDisplayGuards?.id,
+    queueHeadCheckBanForShellChildFallback,
+    resolvedShellQueueHead?.kind,
+  ]);
 
   useLayoutEffect(() => {
     if (notificationQueueShellDisplayKind !== 'check' || showCheckOverlayDirect) {
@@ -37501,7 +37545,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     () =>
       computeNotificationQueueShellReadiness({
         kind: notificationQueueShellDisplayKindResolved,
-        ownerCheckBanId: ownerPrimaryCheckBan?.id ?? null,
+        ownerCheckBanId: checkBanForShell?.id ?? null,
         ownerStableIncomingBanId: ownerPrimaryStableIncomingBan?.id ?? null,
         ownerIncomingDisplayBanId:
           ownerRenderIncomingBan?.id ?? incomingCardDisplayBan?.id ?? null,
@@ -37514,7 +37558,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }),
     [
       notificationQueueShellDisplayKindResolved,
-      ownerPrimaryCheckBan?.id,
+      checkBanForShell?.id,
       ownerPrimaryStableIncomingBan?.id,
       ownerRenderIncomingBan?.id,
       incomingCardDisplayBan?.id,
@@ -39759,11 +39803,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   pendingLen: ownerPrimaryPendingLen,
                   childrenBranch: queueShellRendersResultOverlay
                     ? 'result'
-                    : notificationQueueShellDisplayKind === 'check'
+                    : notificationQueueShellDisplayKindResolved === 'check'
                       ? checkShellBanId
                         ? 'check'
                         : 'check-without-ban'
-                      : notificationQueueShellDisplayKind === 'incoming'
+                      : notificationQueueShellDisplayKindResolved === 'incoming'
                         ? 'incoming'
                         : 'null',
                 }}
