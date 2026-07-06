@@ -198,6 +198,25 @@ export function logPendingChainQueuedSkipTrace(
   emit('PENDING_CHAIN_QUEUED_SKIP_TRACE', data);
 }
 
+export type ActiveDisplayPresentGuardReleasedPayload = {
+  source: string;
+  activeKind: string | null;
+  displayKind: string | null;
+  activeOverlayKey: string | null;
+  displayOverlayKey: string | null;
+  ownerQueueLen: number;
+  ownerPendingLen: number;
+  notificationSessionActive: boolean;
+  notificationChainTransitioning: boolean;
+  timestamp?: number;
+};
+
+export function logActiveDisplayPresentGuardReleased(
+  data: ActiveDisplayPresentGuardReleasedPayload,
+): void {
+  emit('ACTIVE_DISPLAY_PRESENT_GUARD_RELEASED', data);
+}
+
 export function buildGoToBansPendingNotPromotedSignature(
   data: ResultGoToBansPendingNotPromotedPayload,
 ): string {

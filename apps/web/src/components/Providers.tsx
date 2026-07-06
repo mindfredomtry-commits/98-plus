@@ -607,6 +607,7 @@ import {
   buildGoToBansPendingNotPromotedSignature,
   formatLastContinueOutcome,
   inferPendingNotPromotedReason,
+  logActiveDisplayPresentGuardReleased,
   logContinueChainEmptyButPendingExists,
   logOwnerPendingPromotionDecision,
   logPendingChainQueuedSkipTrace,
@@ -14758,6 +14759,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ownerQueueLenBefore === 0 &&
         (activeKind != null || displayKind != null)
       ) {
+        const releaseStaleActiveDisplayGuard =
+          !notificationSessionActiveForDebugRef.current &&
+          !notificationChainTransitioningRef.current;
+        if (releaseStaleActiveDisplayGuard) {
+          const ownerDisplayKeys = resolveOwnerDisplayKindBanId(
+            ownerBeforeMerge.display,
+          );
+          const activeOverlayKey =
+            activeKind != null && ownerBeforeMerge.active.banId
+              ? `${activeKind}:${ownerBeforeMerge.active.banId}`
+              : activeKind;
+          const displayOverlayKey =
+            displayKind != null && ownerDisplayKeys.displayBanId
+              ? `${displayKind}:${ownerDisplayKeys.displayBanId}`
+              : displayKind;
+          logActiveDisplayPresentGuardReleased({
+            source,
+            activeKind,
+            displayKind,
+            activeOverlayKey,
+            displayOverlayKey,
+            ownerQueueLen: ownerQueueLenBefore,
+            ownerPendingLen: ownerPendingLenBefore,
+            notificationSessionActive:
+              notificationSessionActiveForDebugRef.current,
+            notificationChainTransitioning:
+              notificationChainTransitioningRef.current,
+          });
+        } else {
         logPendingStartupToOverlayMergeDecision({
           source,
           pendingLenBefore,
@@ -14827,6 +14857,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           };
         }
         return 0;
+        }
       }
       const pending = [...ownerBeforeMerge.pending];
 
