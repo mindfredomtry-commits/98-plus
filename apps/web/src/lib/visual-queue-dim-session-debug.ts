@@ -9,8 +9,18 @@ export type VisualQueueMountedCardSnapshot = {
   effectiveKind: VisualQueueDimSessionKind | null;
 };
 
+export type VisualQueueDimSessionTraceEvent =
+  | 'start'
+  | 'keep'
+  | 'release'
+  | 'skip'
+  | 'release-scheduled'
+  | 'release-cancelled';
+
+export const VISUAL_QUEUE_DIM_RELEASE_GRACE_MS = 200;
+
 export type VisualQueueDimSessionTrace = {
-  event: 'start' | 'keep' | 'release' | 'skip';
+  event: VisualQueueDimSessionTraceEvent;
   reason: string;
   visualQueueDimSession: boolean;
   mountedCardVisible: boolean;
@@ -21,8 +31,10 @@ export type VisualQueueDimSessionTrace = {
   ownerPendingLen: number;
   notificationSessionActive: boolean;
   notificationChainTransitioning: boolean;
+  chainAdvanceWaiting: boolean;
   sendFlowOpening: boolean;
   dimVisible: boolean;
+  graceMs?: number;
 };
 
 export function resolveVisualQueueMountedCard(input: {
@@ -95,9 +107,9 @@ export function shouldReleaseVisualQueueDimSession(input: {
   notificationChainTransitioning: boolean;
   chainAdvanceWaiting: boolean;
   chainHandoffActive: boolean;
-}): { release: boolean; reason: string } {
+}): { release: boolean; reason: string; deferGrace?: boolean } {
   if (input.sendFlowOpening) {
-    return { release: true, reason: 'send-flow-opening' };
+    return { release: true, reason: 'send-flow-opening', deferGrace: false };
   }
 
   const queueEmpty = input.ownerQueueLen === 0 && input.ownerPendingLen === 0;
@@ -108,10 +120,33 @@ export function shouldReleaseVisualQueueDimSession(input: {
     input.chainHandoffActive;
 
   if (queueEmpty && noMountedCard && !transitionActive) {
-    return { release: true, reason: 'visual-queue-session-ended' };
+    return { release: true, reason: 'visual-queue-session-ended', deferGrace: true };
   }
 
-  return { release: false, reason: '' };
+  return { release: false, reason: '', deferGrace: false };
+}
+
+export function hasVisualQueueDimChainActivity(input: {
+  visualQueueCardShowing?: boolean;
+  mountedCardVisible: boolean;
+  mountedCardHasContent: boolean;
+  ownerQueueLen: number;
+  ownerPendingLen: number;
+  notificationChainTransitioning: boolean;
+  chainAdvanceWaiting: boolean;
+  chainHandoffActive: boolean;
+  postConsumePromotionInFlight: boolean;
+}): boolean {
+  return (
+    input.visualQueueCardShowing === true ||
+    (input.mountedCardVisible && input.mountedCardHasContent) ||
+    input.ownerQueueLen > 0 ||
+    input.ownerPendingLen > 0 ||
+    input.notificationChainTransitioning ||
+    input.chainAdvanceWaiting ||
+    input.chainHandoffActive ||
+    input.postConsumePromotionInFlight
+  );
 }
 
 export function logVisualQueueDimSessionTrace(

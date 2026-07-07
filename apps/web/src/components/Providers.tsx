@@ -622,9 +622,11 @@ import {
   type OwnerPendingPromotionDecisionStage,
 } from '@/lib/pending-promotion-diag-debug';
 import {
+  hasVisualQueueDimChainActivity,
   logVisualQueueDimSessionTrace,
   resolveVisualQueueMountedCard,
   shouldReleaseVisualQueueDimSession,
+  VISUAL_QUEUE_DIM_RELEASE_GRACE_MS,
 } from '@/lib/visual-queue-dim-session-debug';
 import {
   computeQueueDimHostDecision,
@@ -2086,6 +2088,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const notificationSessionActiveForDebugRef = useRef(false);
   const visualQueueDimSessionRef = useRef(false);
   const visualQueueDimSessionTraceSigRef = useRef('');
+  const visualQueueDimReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const visualQueueDimReleaseScheduledRef = useRef(false);
   const [visualQueueDimSession, setVisualQueueDimSession] = useState(false);
   const hasPendingNotificationChainFnRef = useRef<() => boolean>(() => false);
   const startupInteractionsHoldRef = useRef(true);
@@ -39258,7 +39264,41 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const checkOverlayInteractive = checkOverlayMounted;
 
+  const clearVisualQueueDimReleaseTimer = useCallback((source: string) => {
+    if (visualQueueDimReleaseTimerRef.current != null) {
+      clearTimeout(visualQueueDimReleaseTimerRef.current);
+      visualQueueDimReleaseTimerRef.current = null;
+    }
+    visualQueueDimReleaseScheduledRef.current = false;
+    void source;
+  }, []);
+
+  const commitVisualQueueDimSessionRelease = useCallback(
+    (
+      reason: string,
+      trace: Omit<
+        Parameters<typeof logVisualQueueDimSessionTrace>[0],
+        'event' | 'reason' | 'visualQueueDimSession' | 'dimVisible'
+      >,
+    ) => {
+      clearVisualQueueDimReleaseTimer('commit-release');
+      visualQueueDimSessionRef.current = false;
+      setVisualQueueDimSession(false);
+      logVisualQueueDimSessionTrace({
+        event: 'release',
+        reason,
+        ...trace,
+        visualQueueDimSession: false,
+        dimVisible: false,
+      });
+    },
+    [clearVisualQueueDimReleaseTimer],
+  );
+
   useLayoutEffect(() => {
+    const chainHandoffActive =
+      notificationChainHandoffRef.current ||
+      notificationChainAwaitingUserRef.current;
     const traceBase = {
       visualQueueDimSession: visualQueueDimSessionRef.current,
       mountedCardVisible: visualQueueMountedCard.mountedCardVisible,
@@ -39269,19 +39309,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ownerPendingLen: ownerPrimaryShellPendingLen,
       notificationSessionActive,
       notificationChainTransitioning,
+      chainAdvanceWaiting,
       sendFlowOpening,
       dimVisible:
         !replyParentTimerOwnsTopLayer &&
         visualQueueDimSessionRef.current &&
         !sendFlowOpening,
     };
+    const chainActivity = hasVisualQueueDimChainActivity({
+      visualQueueCardShowing,
+      mountedCardVisible: visualQueueMountedCard.mountedCardVisible,
+      mountedCardHasContent: visualQueueMountedCard.mountedCardHasContent,
+      ownerQueueLen: ownerPrimaryShellQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+      notificationChainTransitioning,
+      chainAdvanceWaiting,
+      chainHandoffActive,
+      postConsumePromotionInFlight: postConsumePromotionInFlightRef.current,
+    });
 
     const emitTrace = (
-      event: 'start' | 'keep' | 'release' | 'skip',
+      event:
+        | 'start'
+        | 'keep'
+        | 'release'
+        | 'skip'
+        | 'release-scheduled'
+        | 'release-cancelled',
       reason: string,
       sessionAfter: boolean,
+      extra?: { graceMs?: number },
     ) => {
-      const sig = `${event}|${reason}|${sessionAfter}|${visualQueueMountedCard.mountedCardVisible}|${visualQueueMountedCard.mountedCardHasContent}|${sendFlowOpening}`;
+      const sig = `${event}|${reason}|${sessionAfter}|${visualQueueMountedCard.mountedCardVisible}|${visualQueueMountedCard.mountedCardHasContent}|${sendFlowOpening}|${extra?.graceMs ?? ''}`;
       if (event === 'keep' && sig === visualQueueDimSessionTraceSigRef.current) {
         return;
       }
@@ -39290,13 +39349,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         event,
         reason,
         ...traceBase,
+        ...extra,
         visualQueueDimSession: sessionAfter,
         dimVisible:
           !replyParentTimerOwnsTopLayer && sessionAfter && !sendFlowOpening,
       });
     };
 
+    if (visualQueueDimReleaseScheduledRef.current && chainActivity) {
+      clearVisualQueueDimReleaseTimer('chain-activity-during-grace');
+      emitTrace('release-cancelled', 'next-card-or-chain-activity', true);
+    }
+
     if (!visualQueueDimSessionRef.current) {
+      clearVisualQueueDimReleaseTimer('session-inactive');
       if (visualQueueCardShowing) {
         setVisualQueueDimSession(true);
         emitTrace(
@@ -39314,8 +39380,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const { release, reason: releaseReason } = shouldReleaseVisualQueueDimSession(
-      {
+    const { release, reason: releaseReason, deferGrace } =
+      shouldReleaseVisualQueueDimSession({
         sendFlowOpening,
         ownerQueueLen: ownerPrimaryShellQueueLen,
         ownerPendingLen: ownerPrimaryShellPendingLen,
@@ -39323,17 +39389,109 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         mountedCardHasContent: visualQueueMountedCard.mountedCardHasContent,
         notificationChainTransitioning,
         chainAdvanceWaiting,
-        chainHandoffActive:
-          notificationChainHandoffRef.current ||
-          notificationChainAwaitingUserRef.current,
-      },
-    );
+        chainHandoffActive,
+      });
 
-    if (release) {
-      visualQueueDimSessionRef.current = false;
-      setVisualQueueDimSession(false);
-      emitTrace('release', releaseReason, false);
+    if (release && releaseReason === 'send-flow-opening') {
+      commitVisualQueueDimSessionRelease(releaseReason, traceBase);
       return;
+    }
+
+    if (release && deferGrace) {
+      if (!visualQueueDimReleaseScheduledRef.current) {
+        visualQueueDimReleaseScheduledRef.current = true;
+        emitTrace('release-scheduled', releaseReason, true, {
+          graceMs: VISUAL_QUEUE_DIM_RELEASE_GRACE_MS,
+        });
+        visualQueueDimReleaseTimerRef.current = window.setTimeout(() => {
+          visualQueueDimReleaseTimerRef.current = null;
+          visualQueueDimReleaseScheduledRef.current = false;
+          if (!visualQueueDimSessionRef.current) return;
+
+          const ownerAtGrace = ownerShadowRef.current.getState();
+          const ownerQueueLen = ownerAtGrace.queue.length;
+          const ownerPendingLen = ownerAtGrace.pending.length;
+          const handoffActive =
+            notificationChainHandoffRef.current ||
+            notificationChainAwaitingUserRef.current;
+          const graceSendFlowOpening =
+            sendComposePhaseRef.current !== 'idle' ||
+            replyComposeActiveRef.current ||
+            sendSuccessCardActiveRef.current;
+          const graceChainActivity = hasVisualQueueDimChainActivity({
+            mountedCardVisible: false,
+            mountedCardHasContent: false,
+            ownerQueueLen,
+            ownerPendingLen,
+            notificationChainTransitioning:
+              notificationChainTransitioningRef.current,
+            chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+            chainHandoffActive: handoffActive,
+            postConsumePromotionInFlight:
+              postConsumePromotionInFlightRef.current,
+          });
+          const graceTrace = {
+            mountedCardVisible: false,
+            mountedCardHasContent: false,
+            kind: null,
+            effectiveKind: null,
+            ownerQueueLen,
+            ownerPendingLen,
+            notificationSessionActive:
+              notificationSessionActiveForDebugRef.current,
+            notificationChainTransitioning:
+              notificationChainTransitioningRef.current,
+            chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+            sendFlowOpening: graceSendFlowOpening,
+          };
+
+          if (graceChainActivity) {
+            logVisualQueueDimSessionTrace({
+              event: 'release-cancelled',
+              reason: 'next-card-or-chain-activity',
+              ...graceTrace,
+              visualQueueDimSession: true,
+              dimVisible:
+                !replyParentTimerOwnsTopLayer && !graceSendFlowOpening,
+              graceMs: VISUAL_QUEUE_DIM_RELEASE_GRACE_MS,
+            });
+            return;
+          }
+
+          const graceRelease = shouldReleaseVisualQueueDimSession({
+            sendFlowOpening: graceSendFlowOpening,
+            ownerQueueLen,
+            ownerPendingLen,
+            mountedCardVisible: false,
+            mountedCardHasContent: false,
+            notificationChainTransitioning:
+              notificationChainTransitioningRef.current,
+            chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+            chainHandoffActive: handoffActive,
+          });
+          if (graceRelease.release && graceRelease.deferGrace) {
+            visualQueueDimSessionRef.current = false;
+            setVisualQueueDimSession(false);
+            logVisualQueueDimSessionTrace({
+              event: 'release',
+              reason: 'visual-queue-session-ended-after-grace',
+              ...graceTrace,
+              visualQueueDimSession: false,
+              dimVisible: false,
+              graceMs: VISUAL_QUEUE_DIM_RELEASE_GRACE_MS,
+            });
+          }
+        }, VISUAL_QUEUE_DIM_RELEASE_GRACE_MS);
+      }
+      emitTrace('keep', 'release-grace-pending', true, {
+        graceMs: VISUAL_QUEUE_DIM_RELEASE_GRACE_MS,
+      });
+      return;
+    }
+
+    if (visualQueueDimReleaseScheduledRef.current && !release) {
+      clearVisualQueueDimReleaseTimer('release-conditions-cleared');
+      emitTrace('release-cancelled', 'next-card-or-chain-activity', true);
     }
 
     emitTrace(
@@ -39345,6 +39503,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     );
   }, [
     chainAdvanceWaiting,
+    clearVisualQueueDimReleaseTimer,
+    commitVisualQueueDimSessionRelease,
     notificationChainTransitioning,
     notificationSessionActive,
     notificationQueueShellDisplayKindResolved,
@@ -39371,8 +39531,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   ]);
 
   useEffect(() => {
+    return () => {
+      if (visualQueueDimReleaseTimerRef.current != null) {
+        clearTimeout(visualQueueDimReleaseTimerRef.current);
+        visualQueueDimReleaseTimerRef.current = null;
+      }
+      visualQueueDimReleaseScheduledRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (auth.user?.id) return;
     if (!visualQueueDimSessionRef.current) return;
+    clearVisualQueueDimReleaseTimer('auth-cleared');
     visualQueueDimSessionRef.current = false;
     setVisualQueueDimSession(false);
     logVisualQueueDimSessionTrace({
@@ -39387,10 +39558,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ownerPendingLen: 0,
       notificationSessionActive: false,
       notificationChainTransitioning: false,
+      chainAdvanceWaiting: false,
       sendFlowOpening: false,
       dimVisible: false,
     });
-  }, [auth.user?.id]);
+  }, [auth.user?.id, clearVisualQueueDimReleaseTimer]);
 
   const notificationHostLayerActive =
     notificationOverlayVisible && !replyParentTimerOwnsTopLayer;
