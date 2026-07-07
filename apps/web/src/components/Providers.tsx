@@ -515,6 +515,15 @@ import {
   logResultPollOpenedEmptyHostBug,
 } from '@/lib/lobby-bans-indicator-debug';
 import {
+  logEmptyHostBugTrace,
+  serializeEmptyHostBugQueueItem,
+  type EmptyHostBugTrace,
+} from '@/lib/empty-host-bug-trace-debug';
+import {
+  logHasRenderableCardTrace,
+  resolveHasRenderableCardDecisionReason,
+} from '@/lib/has-renderable-card-trace-debug';
+import {
   logLobbyIndicatorResultPrefetchSkippedDuringResultOpen,
   resolveLobbyIndicatorResultPrefetchBlocked,
 } from '@/lib/lobby-indicator-result-prefetch-skip';
@@ -2086,6 +2095,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   } | null>(null);
   const pendingStartupInteractionsRef = useRef<QueuedOverlay[]>([]);
   const notificationSessionActiveForDebugRef = useRef(false);
+  const emitEmptyHostBugTraceRef = useRef<
+    (input: {
+      caller: string;
+      reason: string;
+      queueLen?: number;
+      pendingLen?: number;
+    }) => void
+  >(() => {});
   const visualQueueDimSessionRef = useRef(false);
   const visualQueueDimSessionTraceSigRef = useRef('');
   const visualQueueDimReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -38487,11 +38504,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             shellKind: notificationQueueShellKind,
           });
         } else {
-          logResultPollOpenedEmptyHostBug({
+          emitEmptyHostBugTraceRef.current({
+            caller:
+              'notificationOverlayVisible:chain-transitioning-without-renderable-card',
             reason: 'chain-transitioning-without-renderable-card',
             queueLen: ownerPrimaryShellQueueLen,
             pendingLen: ownerPrimaryShellPendingLen,
-            shellKind: notificationQueueShellKind,
           });
           if (
             whatOrConfirmActiveRef.current ||
@@ -38989,6 +39007,77 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     showDirectOverboardLayer,
     visualQueueDimSessionLive,
   ]);
+
+  emitEmptyHostBugTraceRef.current = ({
+    caller,
+    reason,
+    queueLen: queueLenOverride,
+    pendingLen: pendingLenOverride,
+  }) => {
+    const owner = ownerShadowRef.current.getState();
+    const childrenBranch = queueShellRendersResultOverlay
+      ? 'result'
+      : notificationQueueShellDisplayKindResolved === 'check'
+        ? checkShellBanId
+          ? 'check'
+          : 'check-without-ban'
+        : notificationQueueShellDisplayKindResolved === 'incoming'
+          ? 'incoming'
+          : 'null';
+    const willRender =
+      queueShellRendersResultOverlay && renderableResultShell
+        ? true
+        : notificationQueueShellDisplayKindResolved === 'check'
+          ? ownerCheckQueueVisibility.visible && Boolean(checkBanForShell?.id)
+          : notificationQueueShellDisplayKindResolved === 'incoming'
+            ? ownerIncomingQueueVisibility.visible &&
+              Boolean(incomingBanForShell ?? ownerPrimaryStableIncomingBan)
+            : notificationQueueShellDisplayKindResolved === 'result'
+              ? ownerResultQueueVisibility.visible
+              : false;
+    const trace: EmptyHostBugTrace = {
+      caller,
+      reason,
+      queueLen: queueLenOverride ?? ownerPrimaryShellQueueLen,
+      pendingLen: pendingLenOverride ?? ownerPrimaryShellPendingLen,
+      shellKind: notificationQueueShellKind,
+      activeKind: activeOverlayKind,
+      effectiveKind:
+        effectiveNotificationQueueShellKind ??
+        queueHeadShellKindFallback ??
+        null,
+      queueHeadKind,
+      selectedBanId: effectiveIncomingBanId ?? owner.active.banId ?? null,
+      activeBanId: owner.active.banId ?? null,
+      displayKind: resolveBansLayerOwnerDisplayKind(owner.display),
+      ownerActive: { ...owner.active } as Record<string, unknown>,
+      ownerDisplay: { ...owner.display } as Record<string, unknown>,
+      ownerQueueHead: serializeEmptyHostBugQueueItem(owner.queue[0] ?? null),
+      ownerPendingHead: serializeEmptyHostBugQueueItem(owner.pending[0] ?? null),
+      willRender,
+      renderBranch:
+        childrenBranch === 'null' ? 'no-shell-branch' : `shell-${childrenBranch}`,
+      childrenBranch,
+      hasContent: visualQueueMountedCard.mountedCardHasContent,
+      visible: visualQueueMountedCard.mountedCardVisible,
+      notificationOverlayVisible,
+      shouldMountNotificationOverlayHost,
+      visualQueueDimSession,
+      visualQueueDimSessionRef: visualQueueDimSessionRef.current,
+      notificationSessionActive,
+      notificationChainTransitioning,
+      chainAdvanceWaiting,
+    };
+    logResultPollOpenedEmptyHostBug({
+      reason: trace.reason,
+      queueLen:
+        queueLenOverride ?? overlayQueueRef.current.length,
+      pendingLen:
+        pendingLenOverride ?? pendingStartupInteractionsRef.current.length,
+      shellKind: trace.shellKind,
+    });
+    logEmptyHostBugTrace(trace);
+  };
 
   const incomingNullResultContextActive =
     queueHeadKind === 'result' ||
@@ -39623,35 +39712,82 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (!notificationChainTransitioning) return;
     if (ownerPrimaryHeldUserCard != null) return;
     if (chainAdvanceWaiting) return;
+
+    const ownerAtGuard = ownerShadowRef.current.getState();
+    const hasRenderableResultFromDisplay =
+      notificationQueueShellKind === 'result' &&
+      !!ownerPrimaryDisplayResultForShell;
+    const hasRenderableResultFromShellClaim =
+      queueResultOverlayClaimed && !!ownerRenderResultPayload;
+    const hasRenderableResultFromRenderableShell = renderableResultShell;
+    const hasRenderableResultCard =
+      hasRenderableResultFromDisplay ||
+      hasRenderableResultFromShellClaim ||
+      hasRenderableResultFromRenderableShell;
+    const hasCheckCard =
+      notificationQueueShellKind === 'check' && !!ownerPrimaryCheckBan?.id;
+    const hasIncomingCard =
+      notificationQueueShellKind === 'incoming' &&
+      !!incomingCardDisplayBan &&
+      incomingCardFullyReady;
     const hasRenderableCard =
       showDirectOverboardLayer ||
       checkOverlayMounted ||
-      ownerPrimaryStableIncomingBan?.id ||
-      (notificationQueueShellKind === 'check' && !!ownerPrimaryCheckBan?.id) ||
-      (notificationQueueShellKind === 'result' &&
-        !!ownerPrimaryDisplayResultForShell) ||
-      (notificationQueueShellKind === 'incoming' &&
-        !!incomingCardDisplayBan &&
-        incomingCardFullyReady);
+      Boolean(ownerPrimaryStableIncomingBan?.id) ||
+      hasCheckCard ||
+      hasRenderableResultCard ||
+      hasIncomingCard;
+    const decisionReason = resolveHasRenderableCardDecisionReason({
+      finalHasRenderableCard: hasRenderableCard,
+      showDirectOverboardLayer,
+      checkOverlayMounted,
+      hasStableIncoming: Boolean(ownerPrimaryStableIncomingBan?.id),
+      hasCheckCard,
+      hasRenderableResultFromDisplay,
+      hasRenderableResultFromShellClaim,
+      hasRenderableResultFromRenderableShell,
+      hasIncomingCard,
+    });
+
+    logHasRenderableCardTrace({
+      shellKind: notificationQueueShellKind,
+      queueHeadKind,
+      ownerPrimaryDisplayResultForShell:
+        ownerPrimaryDisplayResultForShell?.id ?? null,
+      renderableResultShell,
+      queueResultOverlayClaimed,
+      ownerDisplayResult: ownerAtGuard.display.result?.id ?? null,
+      ownerQueueHead: serializeEmptyHostBugQueueItem(ownerAtGuard.queue[0] ?? null),
+      selectedResult: ownerRenderResultPayload?.id ?? null,
+      finalHasRenderableCard: hasRenderableCard,
+      decisionReason,
+      hasRenderableResultFromDisplay,
+      hasRenderableResultFromShellClaim,
+      hasRenderableResultFromRenderableShell,
+    });
+
     if (hasRenderableCard) return;
     if (
       startupInteractionsHoldRef.current &&
       !chainAdvanceExplicitRef.current
     ) {
-      logResultPollOpenedEmptyHostBug({
+      emitEmptyHostBugTraceRef.current({
+        caller:
+          'useLayoutEffect:chain-transitioning-empty-host-guard:startup-hold',
         reason: 'clear-stale-transitioning-startup-hold',
         queueLen: overlayQueueRef.current.length,
         pendingLen: pendingStartupInteractionsRef.current.length,
-        shellKind: notificationQueueShellKind,
       });
       setNotificationChainTransitioning(false);
       return;
     }
     if (overlayQueueRef.current.length > 0 && !hasRenderableCard) {
-      logResultPollOpenedEmptyHostBug({
+      emitEmptyHostBugTraceRef.current({
+        caller:
+          'useLayoutEffect:chain-transitioning-empty-host-guard:queued-without-card',
         reason: 'clear-stale-transitioning-queued-without-card',
         queueLen: overlayQueueRef.current.length,
-        shellKind: notificationQueueShellKind,
+        pendingLen: pendingStartupInteractionsRef.current.length,
       });
       setNotificationChainTransitioning(false);
     }
@@ -39669,6 +39805,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     showDirectOverboardLayer,
     ownerPrimaryStableIncomingBan?.id,
     ownerPrimaryShellQueueLen,
+    queueHeadKind,
+    queueResultOverlayClaimed,
+    renderableResultShell,
+    ownerRenderResultPayload,
   ]);
 
   useLayoutEffect(() => {
