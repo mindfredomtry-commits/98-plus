@@ -627,6 +627,10 @@ import {
   shouldReleaseVisualQueueDimSession,
 } from '@/lib/visual-queue-dim-session-debug';
 import {
+  computeQueueDimHostDecision,
+  logQueueDimHostDecisionTrace,
+} from '@/lib/queue-dim-host-decision-debug';
+import {
   findNewlyAddedOwnerPendingResultItems,
   isSamePendingResultObject,
   registerPendingResultObject,
@@ -38838,11 +38842,42 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ownerPrimaryQueueHead,
   ]);
 
+  const sendFlowOpening =
+    composeBlocksNotificationHost || sendSuccessCardActive;
+  const visualQueueMountedCard = resolveVisualQueueMountedCard({
+    composeBlocksNotificationHost,
+    showCheckOverlayDirect,
+    showReplyIncomingOverlayDirect,
+    kind: notificationQueueShellDisplayKindResolved,
+    effectiveKind:
+      effectiveNotificationQueueShellKind ??
+      queueHeadShellKindFallback ??
+      null,
+    incomingVisible: ownerIncomingQueueVisibility.visible,
+    checkVisible: ownerCheckQueueVisibility.visible,
+    resultVisible: ownerResultQueueVisibility.visible,
+    incomingCardReady: notificationQueueShellIncomingCardReady,
+    checkCardReady: notificationQueueShellCheckCardReady,
+    resultContentReady: Boolean(
+      renderableResultShell &&
+        (ownerShellContentReady ?? queueResultShellContentReady),
+    ),
+  });
+  const visualQueueCardShowing =
+    visualQueueMountedCard.mountedCardVisible &&
+    visualQueueMountedCard.mountedCardHasContent &&
+    !sendFlowOpening;
+  if (visualQueueCardShowing && !visualQueueDimSessionRef.current) {
+    visualQueueDimSessionRef.current = true;
+  }
+  const visualQueueDimSessionLive =
+    visualQueueDimSessionRef.current || visualQueueDimSession;
+
   const shouldMountNotificationOverlayHost = useMemo(() => {
     if (composeBlocksNotificationHost) {
       return false;
     }
-    if (visualQueueDimSession) {
+    if (visualQueueDimSessionLive) {
       return true;
     }
     if (checkAnswerWaitingResultHoldBanId) {
@@ -38929,7 +38964,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ownerPrimaryShellPendingLen,
     replyParentActivePriorityActive,
     showDirectOverboardLayer,
-    visualQueueDimSession,
+    visualQueueDimSessionLive,
   ]);
 
   const incomingNullResultContextActive =
@@ -39205,31 +39240,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [replyParentTimerOwnsTopLayer]);
 
   const checkOverlayInteractive = checkOverlayMounted;
-  const sendFlowOpening =
-    composeBlocksNotificationHost || sendSuccessCardActive;
-  const visualQueueMountedCard = resolveVisualQueueMountedCard({
-    composeBlocksNotificationHost,
-    showCheckOverlayDirect,
-    showReplyIncomingOverlayDirect,
-    kind: notificationQueueShellDisplayKindResolved,
-    effectiveKind:
-      effectiveNotificationQueueShellKind ??
-      queueHeadShellKindFallback ??
-      null,
-    incomingVisible: ownerIncomingQueueVisibility.visible,
-    checkVisible: ownerCheckQueueVisibility.visible,
-    resultVisible: ownerResultQueueVisibility.visible,
-    incomingCardReady: notificationQueueShellIncomingCardReady,
-    checkCardReady: notificationQueueShellCheckCardReady,
-    resultContentReady: Boolean(
-      renderableResultShell &&
-        (ownerShellContentReady ?? queueResultShellContentReady),
-    ),
-  });
-  const visualQueueCardShowing =
-    visualQueueMountedCard.mountedCardVisible &&
-    visualQueueMountedCard.mountedCardHasContent &&
-    !sendFlowOpening;
 
   useLayoutEffect(() => {
     const traceBase = {
@@ -39271,7 +39281,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
     if (!visualQueueDimSessionRef.current) {
       if (visualQueueCardShowing) {
-        visualQueueDimSessionRef.current = true;
         setVisualQueueDimSession(true);
         emitTrace(
           'start',
@@ -39372,8 +39381,54 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationOverlayVisible && !replyParentTimerOwnsTopLayer;
   const notificationHostSessionBackdrop =
     !replyParentTimerOwnsTopLayer &&
-    visualQueueDimSession &&
+    visualQueueDimSessionLive &&
     !sendFlowOpening;
+
+  const queueDimHostDecisionTraceSigRef = useRef('');
+  const queueDimHostDecision = computeQueueDimHostDecision({
+    visualQueueDimSession,
+    visualQueueDimSessionRef: visualQueueDimSessionRef.current,
+    shouldMountNotificationOverlayHost,
+    notificationHostSessionBackdrop,
+    notificationOverlayVisible,
+    ownerQueueLen: ownerPrimaryShellQueueLen,
+    ownerPendingLen: ownerPrimaryShellPendingLen,
+    activeKind: notificationQueueShellKind,
+    displayKind: resolveBansLayerOwnerDisplayKind(ownerReadDisplay),
+    kind: notificationQueueShellDisplayKindResolved,
+    effectiveKind:
+      effectiveNotificationQueueShellKind ??
+      queueHeadShellKindFallback ??
+      null,
+    hasContent: visualQueueMountedCard.mountedCardHasContent,
+    visible: visualQueueMountedCard.mountedCardVisible,
+    notificationSessionActive,
+    notificationChainTransitioning,
+    sendFlowOpening,
+    composeBlocksNotificationHost,
+    showDirectOverboardLayer,
+    replyParentTimerOwnsTopLayer,
+  });
+
+  useLayoutEffect(() => {
+    const sig = [
+      queueDimHostDecision.decisionReason,
+      queueDimHostDecision.visualQueueDimSession,
+      queueDimHostDecision.visualQueueDimSessionRef,
+      queueDimHostDecision.hostMounted,
+      queueDimHostDecision.backdropVisible,
+      queueDimHostDecision.shouldMountNotificationOverlayHost,
+      queueDimHostDecision.notificationHostSessionBackdrop,
+      queueDimHostDecision.showDirectOverboardLayer,
+      queueDimHostDecision.kind,
+      queueDimHostDecision.effectiveKind,
+      queueDimHostDecision.ownerQueueLen,
+      queueDimHostDecision.ownerPendingLen,
+    ].join('|');
+    if (sig === queueDimHostDecisionTraceSigRef.current) return;
+    queueDimHostDecisionTraceSigRef.current = sig;
+    logQueueDimHostDecisionTrace(queueDimHostDecision);
+  }, [queueDimHostDecision]);
 
   useLayoutEffect(() => {
     if (!notificationChainTransitioning) return;
@@ -40270,7 +40325,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       <RouteOverlayBootPriorityMarker active={routeOverlayAboveBoot} />
       <ShellErrorBoundary name="app">
         {children}
-        {!showDirectOverboardLayer ? (
+        {!showDirectOverboardLayer || visualQueueDimSessionLive ? (
           <>
             {showCheckOverlayDirect && ownerPrimaryCheckBan ? (
               <ChallengeErrorBoundary
@@ -40315,6 +40370,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   : null
               }
             >
+              {!showDirectOverboardLayer ? (
               <NotificationQueueShell
                 kind={notificationQueueShellDisplayKindResolved}
                 shellContentReady={
@@ -40472,6 +40528,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   </ChallengeErrorBoundary>
                 ) : null}
               </NotificationQueueShell>
+              ) : null}
             </GlobalOverlayHost>
             ) : null}
           </>
