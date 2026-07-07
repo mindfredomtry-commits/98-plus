@@ -650,6 +650,10 @@ import {
   shouldHoldNotificationOverlayVisibleDuringQueueGap,
 } from '@/lib/notification-overlay-visible-guard-trace-debug';
 import {
+  computeOverlayVisualShieldDecision,
+  logOverlayVisualShieldTrace,
+} from '@/lib/overlay-visual-shield-trace-debug';
+import {
   findNewlyAddedOwnerPendingResultItems,
   isSamePendingResultObject,
   registerPendingResultObject,
@@ -39123,6 +39127,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     !composeBlocksNotificationHost &&
     (visualQueueDimSessionLive || shouldMountNotificationOverlayHostFromGuards);
 
+  const overlayVisualShieldDecision = computeOverlayVisualShieldDecision({
+    visualQueueDimSessionLive,
+    sendFlowOpening,
+    replyParentTimerOwnsTopLayer,
+    composeBlocksNotificationHost,
+    showDirectOverboardLayer,
+    shouldMountNotificationOverlayHostFromGuards,
+    notificationOverlayVisible,
+    ownerQueueLen: ownerPrimaryShellQueueLen,
+    ownerPendingLen: ownerPrimaryShellPendingLen,
+    queueHeadKind,
+    shellDisplayKind: notificationQueueShellDisplayKindResolved,
+  });
+  const overlayVisualShieldHostMounted = overlayVisualShieldDecision.hostMounted;
+  const overlayVisualShieldBackdropVisible =
+    overlayVisualShieldDecision.backdropVisible;
+  const overlayVisualShieldCardContentMounted =
+    overlayVisualShieldDecision.cardContentMounted;
+
   emitEmptyHostBugTraceRef.current = ({
     caller,
     reason,
@@ -39874,10 +39897,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationOverlayVisible && !replyParentTimerOwnsTopLayer;
   const notificationHostPointerActive =
     notificationOverlayVisible && !replyParentTimerOwnsTopLayer;
-  const notificationHostSessionBackdrop =
-    !replyParentTimerOwnsTopLayer &&
-    visualQueueDimSessionLive &&
-    !sendFlowOpening;
+  const notificationHostSessionBackdrop = overlayVisualShieldBackdropVisible;
+
+  const overlayVisualShieldTraceSigRef = useRef('');
+  useLayoutEffect(() => {
+    const sig = [
+      overlayVisualShieldDecision.decisionReason,
+      overlayVisualShieldDecision.visualQueueDimSessionLive,
+      overlayVisualShieldDecision.hostMounted,
+      overlayVisualShieldDecision.backdropVisible,
+      overlayVisualShieldDecision.cardContentMounted,
+      overlayVisualShieldDecision.renderBranch,
+      overlayVisualShieldDecision.notificationOverlayVisible,
+      overlayVisualShieldDecision.ownerQueueLen,
+      overlayVisualShieldDecision.ownerPendingLen,
+      overlayVisualShieldDecision.queueHeadKind,
+      overlayVisualShieldDecision.sendFlowOpening,
+    ].join('|');
+    if (sig === overlayVisualShieldTraceSigRef.current) return;
+    overlayVisualShieldTraceSigRef.current = sig;
+    logOverlayVisualShieldTrace(overlayVisualShieldDecision);
+  }, [overlayVisualShieldDecision]);
 
   const queueDimHostDecisionTraceSigRef = useRef('');
   const queueDimHostDecision = computeQueueDimHostDecision({
@@ -40914,14 +40954,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 />
               </ChallengeErrorBoundary>
             ) : null}
-            {!composeBlocksNotificationHost && shouldMountNotificationOverlayHost ? (
+            {!composeBlocksNotificationHost && overlayVisualShieldHostMounted ? (
             <GlobalOverlayHost
               active={notificationHostPointerActive}
-              queueSessionActive={
-                visualQueueDimSessionLive &&
-                !replyParentTimerOwnsTopLayer &&
-                !sendFlowOpening
-              }
+              queueSessionActive={overlayVisualShieldBackdropVisible}
               checkInteractive={checkOverlayMounted}
               activeOverlayKind={
                 showReplyIncomingOverlayDirect
@@ -40935,7 +40971,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   : null
               }
             >
-              {!showDirectOverboardLayer ? (
+              {overlayVisualShieldCardContentMounted ? (
               <NotificationQueueShell
                 kind={notificationQueueShellDisplayKindResolved}
                 shellContentReady={
