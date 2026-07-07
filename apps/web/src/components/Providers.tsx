@@ -612,6 +612,9 @@ import {
   logOwnerPendingPromotionDecision,
   logPendingChainQueuedSkipTrace,
   logPendingPromotionAfterReleaseTrace,
+  logPendingPromotionEntryTrace,
+  logPendingPromotionExitTrace,
+  logPendingPromotionPathTrace,
   logPendingPromotionDecisionTrace,
   logResultGoToBansPendingNotPromoted,
   resolvePendingHeadFields,
@@ -2460,11 +2463,50 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       exit: emitGoToBansContinueExit,
     };
   });
+  const snapshotPendingPromotionPathTrace = (
+    functionName: string,
+    caller: string,
+  ) => {
+    const owner = ownerShadowRef.current.getState();
+    const pendingHeadFields = resolvePendingHeadFields(owner.pending[0] ?? null);
+    return {
+      functionName,
+      caller,
+      ownerQueueLen: owner.queue.length,
+      ownerPendingLen: owner.pending.length,
+      pendingHeadKind: pendingHeadFields.pendingHeadKind,
+      pendingHeadBanId: pendingHeadFields.pendingHeadBanId,
+      activeKind: owner.active.kind,
+      displayKind: resolveBansLayerOwnerDisplayKind(owner.display),
+      notificationSessionActive: notificationSessionActiveForDebugRef.current,
+      notificationChainTransitioning: notificationChainTransitioningRef.current,
+    };
+  };
+  const emitPendingPromotionPathTrace = (
+    functionName: string,
+    caller: string,
+  ) => {
+    logPendingPromotionPathTrace(
+      snapshotPendingPromotionPathTrace(functionName, caller),
+    );
+  };
+  const emitPendingPromotionEntryTrace = (caller: string) => {
+    logPendingPromotionEntryTrace(
+      snapshotPendingPromotionPathTrace(
+        'mergeStartupIntoOverlayQueueOnly',
+        caller,
+      ),
+    );
+  };
   const commitPendingQueueViaOwner = (
     next: QueuedOverlay[],
     source: string,
     reason: string,
   ) => {
+    emitPendingPromotionPathTrace(
+      'commitPendingQueueViaOwner',
+      `${source}:${reason}`,
+    );
     const ownerBefore = ownerShadowRef.current.getState();
     const refPendingBefore = pendingStartupInteractionsRef.current.length;
     const refQueueBefore = overlayQueueRef.current.length;
@@ -8639,6 +8681,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const applyPendingQueueViaOwner = useCallback(
     (next: QueuedOverlay[], source: string, reason?: string) => {
+      emitPendingPromotionPathTrace(
+        'applyPendingQueueViaOwner',
+        `${source}:${reason ?? source}`,
+      );
       const ownerBefore = ownerShadowRef.current.getState();
       const goToBansTrace = readGoToBansSessionTrace();
       const traceSessionId =
@@ -11267,6 +11313,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       runWithHeadSwitchPipelineFrame('applyOverlayQueue', () => {
         const source = options?.source ?? 'applyOverlayQueue';
         const reason = options?.reason ?? 'apply-overlay-queue';
+        if (ownerShadowRef.current.getState().pending.length > 0) {
+          emitPendingPromotionPathTrace(
+            'applyOverlayQueue',
+            `${source}:${reason}`,
+          );
+        }
         const silent = options?.silent ?? false;
         const bypassGuards = options?.bypassGuards ?? false;
         const previousExplicit = chainAdvanceExplicitRef.current;
@@ -14604,6 +14656,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const mergeStartupIntoOverlayQueueOnly = useCallback(
     (source: string) => {
+      emitPendingPromotionEntryTrace(source);
       const ownerBeforeMerge = ownerShadowRef.current.getState();
       const ownerPendingLenBefore = ownerBeforeMerge.pending.length;
       const ownerQueueLenBefore = ownerBeforeMerge.queue.length;
@@ -14659,6 +14712,51 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           skipReason,
         });
       };
+      const emitExitTrace = (
+        exitPoint: string,
+        finalDecision: 'promoted' | 'skipped' | 'returned',
+        skipReason: string | null,
+        options?: {
+          ownerQueueLenAfter?: number | null;
+          ownerPendingLenAfter?: number | null;
+          blockAndPreserveActiveUserCard?: boolean | null;
+        },
+      ) => {
+        const pendingHeadFields = resolvePendingHeadFields(
+          ownerBeforeMerge.pending[0] ?? null,
+        );
+        const mergeSkip = lastPendingMergeSkipReasonRef.current;
+        logPendingPromotionExitTrace({
+          source,
+          caller: 'mergeStartupIntoOverlayQueueOnly',
+          exitPoint,
+          finalDecision,
+          skipReason,
+          ownerQueueLenBefore,
+          ownerPendingLenBefore,
+          ownerQueueLenAfter: options?.ownerQueueLenAfter ?? null,
+          ownerPendingLenAfter: options?.ownerPendingLenAfter ?? null,
+          pendingHeadKind: pendingHeadFields.pendingHeadKind,
+          pendingHeadBanId: pendingHeadFields.pendingHeadBanId,
+          pendingHeadResultId: pendingHeadFields.pendingHeadResultId,
+          activeKind,
+          displayKind,
+          notificationSessionActive:
+            notificationSessionActiveForDebugRef.current,
+          notificationChainTransitioning:
+            notificationChainTransitioningRef.current,
+          startupHold: startupInteractionsHoldRef.current,
+          lastMergeSkipReason: mergeSkip?.skipReason ?? null,
+          lastMergeSkipSource: mergeSkip?.source ?? null,
+          lastContinueOutcome: formatLastContinueOutcome(
+            lastChainContinueOutcomeRef.current,
+          ),
+          goToBansAdvancePending: goToBansAdvancePendingRef.current,
+          isActiveUserCardHold: isActiveUserCardHold(),
+          blockAndPreserveActiveUserCard:
+            options?.blockAndPreserveActiveUserCard ?? null,
+        });
+      };
 
       if (ownerPendingLenBefore > 0 && ownerQueueLenBefore > 0) {
         emitOwnerPendingPromotionDecision(
@@ -14695,6 +14793,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           promotedCount: 0,
           skippedReason: 'single-card-chain-blocked',
         });
+        emitExitTrace(
+          'single-card-chain-blocked',
+          'skipped',
+          'single-card-chain-blocked',
+          {
+            ownerQueueLenAfter: queueLenBefore,
+            ownerPendingLenAfter: pendingLenBefore,
+          },
+        );
         return 0;
       }
       if (
@@ -14730,6 +14837,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           promotedCount: 0,
           skippedReason: 'non-explicit-drain-blocked',
         });
+        emitExitTrace(
+          'non-explicit-drain-blocked',
+          'skipped',
+          'non-explicit-drain-blocked',
+          {
+            ownerQueueLenAfter: queueLenBefore,
+            ownerPendingLenAfter: pendingLenBefore,
+          },
+        );
         return 0;
       }
       if (
@@ -14761,6 +14877,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           promotedCount: 0,
           skippedReason: 'mounted-overlay-blocks',
         });
+        emitExitTrace(
+          'mounted-overlay-blocks',
+          'skipped',
+          'mounted-overlay-blocks',
+          {
+            ownerQueueLenAfter: queueLenBefore,
+            ownerPendingLenAfter: pendingLenBefore,
+          },
+        );
         return 0;
       }
       if (ownerPendingLenBefore === 0) {
@@ -14786,6 +14911,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           outputQueueLen: queueLenBefore,
           promotedCount: 0,
           skippedReason: 'pending-empty',
+        });
+        emitExitTrace('pending-empty', 'skipped', 'pending-empty', {
+          ownerQueueLenAfter: queueLenBefore,
+          ownerPendingLenAfter: 0,
         });
         return 0;
       }
@@ -14891,6 +15020,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             skipReason: 'active-display-present',
           };
         }
+        emitExitTrace(
+          'active-display-present',
+          'skipped',
+          'active-display-present',
+          {
+            ownerQueueLenAfter: queueLenBefore,
+            ownerPendingLenAfter: pendingLenBefore,
+          },
+        );
         return 0;
         }
       }
@@ -14946,6 +15084,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         emitAfterReleaseTrace('skipped', 'all-pending-results-blocked', {
           releasableLen: 0,
         });
+        emitExitTrace(
+          'all-pending-results-blocked',
+          'skipped',
+          'all-pending-results-blocked',
+          {
+            ownerQueueLenAfter: queueLenBefore,
+            ownerPendingLenAfter: pendingLenBefore,
+          },
+        );
         return 0;
       }
 
@@ -14985,6 +15132,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             blockAndPreserveActiveUserCard: blockAndPreserveActiveUserCardResult,
             releasableLen: releasable.length,
           });
+          emitExitTrace(
+            'active-user-card-blocks-head',
+            'skipped',
+            'active-user-card-blocks-head',
+            {
+              ownerQueueLenAfter: queueLenBefore,
+              ownerPendingLenAfter: pendingLenBefore,
+              blockAndPreserveActiveUserCard: blockAndPreserveActiveUserCardResult,
+            },
+          );
           return 0;
         }
       }
@@ -15041,6 +15198,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         blockAndPreserveActiveUserCard: blockAndPreserveActiveUserCardResult,
         releasableLen: releasable.length,
       });
+      const ownerAfterPromote = ownerShadowRef.current.getState();
+      emitExitTrace('promoted', 'promoted', null, {
+        ownerQueueLenAfter: ownerAfterPromote.queue.length,
+        ownerPendingLenAfter: ownerAfterPromote.pending.length,
+        blockAndPreserveActiveUserCard: blockAndPreserveActiveUserCardResult,
+      });
       return releasable.length;
     },
     [applyPendingQueueViaOwner, isResultBlockedForNotificationChain, syncPendingStartupCount],
@@ -15048,6 +15211,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const mergePendingSnapshotIntoOverlayQueue = useCallback(
     (snapshot: QueuedOverlay[], source: string): number => {
+      emitPendingPromotionPathTrace(
+        'mergePendingSnapshotIntoOverlayQueue',
+        source,
+      );
       const traceMergePlatform = (
         mergedCount: number,
         phase: string,
@@ -15245,6 +15412,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const releaseStartupInteractions = useCallback(
     (opts?: { requireBanSend?: boolean; force?: boolean }) => {
+      emitPendingPromotionPathTrace(
+        'releaseStartupInteractions',
+        opts?.force
+          ? 'force'
+          : opts?.requireBanSend
+            ? 'requireBanSend'
+            : 'default',
+      );
       if (opts?.force) {
         allowDeeplinkExplicitNotificationDrain('releaseStartupInteractions');
       }
@@ -26830,6 +27005,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const collectPendingNotificationChain = useCallback(
     (source: string): NotificationChainCollectedSnapshot => {
+      emitPendingPromotionPathTrace('collectPendingNotificationChain', source);
       if (shouldBlockSingleCardChainContinuation(source)) {
         logDeeplinkSingleCardChainBlocked({
           source,
@@ -27104,6 +27280,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       opts?: { prefetchIfLocalEmpty?: boolean },
     ): Promise<boolean> =>
       runWithHeadSwitchPipelineFrame('openNextNotificationAfterQueueHandoff', async () => {
+      emitPendingPromotionPathTrace(
+        'openNextNotificationAfterQueueHandoff',
+        source,
+      );
       const queueAtHandoffEnter = overlayQueueRef.current;
       tracePostIncomingAdvanceDiag(
         'openNextNotificationAfterQueueHandoff',

@@ -244,6 +244,65 @@ export function logPendingPromotionAfterReleaseTrace(
   emit('PENDING_PROMOTION_AFTER_RELEASE_TRACE', data);
 }
 
+export type PendingPromotionExitTracePayload = {
+  source: string;
+  caller: string;
+  exitPoint: string;
+  finalDecision: 'promoted' | 'skipped' | 'returned';
+  skipReason: string | null;
+  ownerQueueLenBefore: number;
+  ownerPendingLenBefore: number;
+  ownerQueueLenAfter?: number | null;
+  ownerPendingLenAfter?: number | null;
+  pendingHeadKind: string | null;
+  pendingHeadBanId: string | null;
+  pendingHeadResultId: string | null;
+  activeKind: string | null;
+  displayKind: string | null;
+  notificationSessionActive: boolean;
+  notificationChainTransitioning: boolean;
+  startupHold: boolean;
+  lastMergeSkipReason: string | null;
+  lastMergeSkipSource: string | null;
+  lastContinueOutcome: string | null;
+  goToBansAdvancePending: boolean;
+  isActiveUserCardHold: boolean;
+  blockAndPreserveActiveUserCard: boolean | null;
+  timestamp?: number;
+};
+
+export function logPendingPromotionExitTrace(
+  data: PendingPromotionExitTracePayload,
+): void {
+  emit('PENDING_PROMOTION_EXIT_TRACE', data);
+}
+
+export type PendingPromotionPathTracePayload = {
+  functionName: string;
+  caller: string;
+  ownerQueueLen: number;
+  ownerPendingLen: number;
+  pendingHeadKind: string | null;
+  pendingHeadBanId: string | null;
+  activeKind: string | null;
+  displayKind: string | null;
+  notificationSessionActive: boolean;
+  notificationChainTransitioning: boolean;
+  timestamp?: number;
+};
+
+export function logPendingPromotionEntryTrace(
+  data: PendingPromotionPathTracePayload,
+): void {
+  emit('PENDING_PROMOTION_ENTRY_TRACE', data);
+}
+
+export function logPendingPromotionPathTrace(
+  data: PendingPromotionPathTracePayload,
+): void {
+  emit('PENDING_PROMOTION_PATH_TRACE', data);
+}
+
 export function buildGoToBansPendingNotPromotedSignature(
   data: ResultGoToBansPendingNotPromotedPayload,
 ): string {
