@@ -1197,6 +1197,8 @@ import {
   logIncomingCardMounted,
   logIncomingOverlayJsxReturn,
   logIncomingOverlayReturnNull,
+  logIncomingBranchSkippedForNonIncomingKind,
+  shouldRunIncomingJsxBranch,
   logIncomingOverlayStateSet,
   logIncomingOverlayBlocked,
   logIncomingReadyButBanLostBug,
@@ -38340,7 +38342,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     shouldRenderIncomingOverlay,
   ]);
 
+  const replyIncomingPathActive =
+    showReplyIncomingOverlayDirect ||
+    isReplyFastShellRequested ||
+    isReplyFastPendingOpen;
+  const incomingJsxBranchGate = shouldRunIncomingJsxBranch({
+    activeOverlayKind,
+    queueHeadKind,
+    effectiveKind:
+      notificationQueueShellDisplayKindResolved ??
+      effectiveNotificationQueueShellKind ??
+      null,
+    notificationQueueShellKind,
+    replyIncomingPathActive,
+  });
   const incomingJsxWillRender =
+    incomingJsxBranchGate.allowed &&
     !queueShellRendersResultOverlay &&
     !composeBlocksNotificationHost &&
     !showDirectOverboardLayer &&
@@ -39663,6 +39680,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   useLayoutEffect(() => {
     if (queueShellRendersResultOverlay) {
+      return;
+    }
+    if (!incomingJsxBranchGate.allowed) {
+      logIncomingBranchSkippedForNonIncomingKind({
+        activeOverlayKind,
+        queueHeadKind,
+        effectiveKind:
+          notificationQueueShellDisplayKindResolved ??
+          effectiveNotificationQueueShellKind ??
+          null,
+        selectedBanId: effectiveIncomingBanId,
+        decisionReason: incomingJsxBranchGate.decisionReason,
+      });
       return;
     }
     const jsxBranch = {

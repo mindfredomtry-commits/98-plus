@@ -85,6 +85,49 @@ export function logIncomingOverlayReturnNull(
   emit('[INCOMING OVERLAY RETURN NULL]', data);
 }
 
+export function logIncomingBranchSkippedForNonIncomingKind(data: {
+  activeOverlayKind: string | null;
+  queueHeadKind: string | null;
+  effectiveKind: string | null;
+  selectedBanId: string | null;
+  decisionReason: string;
+}): void {
+  emit('INCOMING_BRANCH_SKIPPED_FOR_NON_INCOMING_KIND', data);
+}
+
+export function shouldRunIncomingJsxBranch(input: {
+  activeOverlayKind: string | null;
+  queueHeadKind: string | null;
+  effectiveKind: string | null;
+  notificationQueueShellKind: string | null;
+  replyIncomingPathActive: boolean;
+}): { allowed: boolean; decisionReason: string } {
+  if (input.replyIncomingPathActive) {
+    return { allowed: true, decisionReason: 'reply-incoming-path-active' };
+  }
+
+  const kinds = [
+    input.activeOverlayKind,
+    input.queueHeadKind,
+    input.effectiveKind,
+    input.notificationQueueShellKind,
+  ];
+  const nonIncoming = kinds.find((kind) => kind === 'check' || kind === 'result');
+  if (nonIncoming) {
+    return {
+      allowed: false,
+      decisionReason: `non-incoming-kind-${nonIncoming}`,
+    };
+  }
+
+  const hasIncoming = kinds.some((kind) => kind === 'incoming');
+  if (hasIncoming) {
+    return { allowed: true, decisionReason: 'incoming-kind-active' };
+  }
+
+  return { allowed: false, decisionReason: 'no-incoming-kind' };
+}
+
 export function logIncomingOverlayBlocked(data: Record<string, unknown>): void {
   emit('[INCOMING OVERLAY BLOCKED]', data);
 }
