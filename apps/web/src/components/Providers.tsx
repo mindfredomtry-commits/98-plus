@@ -622,17 +622,6 @@ import {
   type OwnerPendingPromotionDecisionStage,
 } from '@/lib/pending-promotion-diag-debug';
 import {
-  logCheckNotificationFetchTrace,
-  logLobbyIndicatorCheckSourceTrace,
-  logPendingCheckEnqueueTrace,
-  normalizeCheckNotificationTraceSource,
-  type CheckNotificationDiagSnapshot,
-} from '@/lib/check-notification-fetch-trace-debug';
-import {
-  computeStickyQueueDimDecision,
-  logStickyQueueDimDecision,
-} from '@/lib/sticky-queue-dim-debug';
-import {
   findNewlyAddedOwnerPendingResultItems,
   isSamePendingResultObject,
   registerPendingResultObject,
@@ -15527,18 +15516,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const releaseStartupInteractions = useCallback(
     (opts?: { requireBanSend?: boolean; force?: boolean }) => {
-      logLobbyIndicatorCheckSourceTrace({
-        ...readCheckNotificationDiagSnapshot(
-          opts?.force ? 'success-drain' : 'releaseStartupInteractions',
-          {
-            endpoint: 'releaseStartupInteractions:entry',
-            skipReason: opts?.force
-              ? 'success-drain-release-startup-interactions'
-              : null,
-          },
-        ),
-        caller: 'releaseStartupInteractions:entry',
-      });
       emitPendingPromotionPathTrace(
         'releaseStartupInteractions',
         opts?.force
@@ -15778,82 +15755,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, []);
 
   hasPendingNotificationChainFnRef.current = hasPendingNotificationChain;
-
-  const readCheckNotificationDiagSnapshot = (
-    source: string,
-    overrides?: Partial<CheckNotificationDiagSnapshot>,
-  ): CheckNotificationDiagSnapshot => {
-    const owner = ownerShadowRef.current.getState();
-    const hint = lobbyBansAttentionHintRef.current;
-    const indicatorVisible =
-      owner.pending.length > 0 || owner.queue.length > 0 || hint > 0;
-    return {
-      source: normalizeCheckNotificationTraceSource(source),
-      telegramUserId: userIdRef.current?.trim() ?? null,
-      incomingCount: 0,
-      checkCount: 0,
-      resultCount: 0,
-      hasCheck: false,
-      hasPendingNotificationChain: hasPendingNotificationChainFnRef.current(),
-      ownerQueueLen: owner.queue.length,
-      ownerPendingLen: owner.pending.length,
-      legacyQueueLen: overlayQueueRef.current.length,
-      legacyPendingLen: pendingStartupInteractionsRef.current.length,
-      indicatorVisible,
-      skipReason: null,
-      endpoint: null,
-      ...overrides,
-    };
-  };
-
-  const explainHasPendingNotificationChainWhenCheckExists = (
-    checkEnqueueSkipReason: string | null,
-  ): string => {
-    if (checkEnqueueSkipReason) {
-      return `check-not-enqueued:${checkEnqueueSkipReason}`;
-    }
-    const owner = ownerShadowRef.current.getState();
-    const ownerHasCheck =
-      owner.pending.some((item) => item.kind === 'check') ||
-      owner.queue.some((item) => item.kind === 'check');
-    const legacyHasCheck =
-      pendingStartupInteractionsRef.current.some((item) => item.kind === 'check') ||
-      overlayQueueRef.current.some((item) => item.kind === 'check');
-    if (!ownerHasCheck && !legacyHasCheck) {
-      return 'check-from-api-not-in-owner-or-legacy-pending-queue';
-    }
-    if (checkBanRef.current?.id) {
-      return 'display-check-ban-set-but-hasPendingNotificationChain-false';
-    }
-    if (startupInteractionsHoldRef.current) {
-      return 'check-enqueued-but-startup-hold-active';
-    }
-    return 'check-signals-present-but-hasPendingNotificationChain-false';
-  };
-
-  const explainLobbyIndicatorInactive = (
-    hasCheck: boolean,
-    hint: number,
-  ): string | null => {
-    const snap = readCheckNotificationDiagSnapshot('lobby-indicator-diag');
-    if (snap.indicatorVisible) return null;
-    if (hasCheck && hint <= 0) {
-      return 'check-from-api-but-hint-zero-and-no-owner-queue-pending';
-    }
-    if (hasCheck) {
-      return 'check-from-api-but-lobby-indicator-not-visible';
-    }
-    return 'no-check-no-queue-pending-and-hint-zero';
-  };
-
-  const traceCheckNotificationFetchRef = useRef<
-    (source: string, overrides?: Partial<CheckNotificationDiagSnapshot>) => void
-  >(() => {});
-  traceCheckNotificationFetchRef.current = (source, overrides) => {
-    logCheckNotificationFetchTrace(
-      readCheckNotificationDiagSnapshot(source, overrides),
-    );
-  };
 
   const armPostSuccessHandoffEarlyIfPending = useCallback(
     (source = 'success-exit-early'): boolean => {
@@ -16154,25 +16055,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
           willMergeAfterAuthCheck: true,
         });
-        const prefetchedHasCheck = Boolean(prefetched.check?.id);
-        const prefetchedIncomingCount = prefetched.incoming.length;
-        const prefetchedCheckCount = prefetched.check ? 1 : 0;
-        const prefetchedResultCount = prefetched.result ? 1 : 0;
-        logCheckNotificationFetchTrace(
-          readCheckNotificationDiagSnapshot(source, {
-            incomingCount: prefetchedIncomingCount,
-            checkCount: prefetchedCheckCount,
-            resultCount: prefetchedResultCount,
-            hasCheck: prefetchedHasCheck,
-            endpoint:
-              '/bans/incoming/pending-all,/bans/check/pending,/bans/result/pending',
-            skipReason:
-              prefetchedHasCheck &&
-              !hasPendingNotificationChainFnRef.current()
-                ? explainHasPendingNotificationChainWhenCheckExists(null)
-                : null,
-          }),
-        );
         const backendFetchItems = buildBackendPendingFetchItems({
           incoming: prefetched.incoming,
           check: prefetched.check,
@@ -16218,7 +16100,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         const toEnqueue: QueuedOverlay[] = [];
         const enqueuedIds: string[] = [];
         const skipDetails: Array<{ banId: string; reason: string }> = [];
-        let checkPrefetchSkipReason: string | null = null;
         const skipBanId = deeplinkBanId?.trim() ?? '';
         const prefetchedResultId = prefetched.result?.id
           ? normalizeId(prefetched.result.id)
@@ -16284,7 +16165,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             (prefetchedResultId && checkId === prefetchedResultId)
           ) {
             skippedReason = 'result-priority-stale-check';
-            checkPrefetchSkipReason = skippedReason;
             logCheckPrimeSkipStaleBecauseResultExists({
               banId: checkId,
               source: 'pending-chain-prefetch',
@@ -16312,7 +16192,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   checkAnswerInFlightRef.current,
                   resultOpenRef.current,
                 ).reason ?? 'check-not-picked';
-              checkPrefetchSkipReason = skippedReason;
               skipDetails.push({ banId: checkId, reason: 'check-not-picked' });
             }
           }
@@ -16326,39 +16205,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             toEnqueueLenAfter: toEnqueue.length,
             timestamp: performance.now(),
           });
-          logPendingCheckEnqueueTrace({
-            ...readCheckNotificationDiagSnapshot(source, {
-              incomingCount: prefetchedIncomingCount,
-              checkCount: prefetchedCheckCount,
-              resultCount: prefetchedResultCount,
-              hasCheck: true,
-              endpoint: '/bans/check/pending',
-              skipReason:
-                pickedCheckId == null
-                  ? (checkPrefetchSkipReason ?? 'check-not-enqueued-to-pending')
-                  : null,
-            }),
-            checkBanId: prefetched.check.id,
-            enqueued: Boolean(pickedCheckId),
-            enqueueTarget: pickedCheckId ? 'pending' : null,
-          });
-          if (
-            prefetchedHasCheck &&
-            !hasPendingNotificationChainFnRef.current()
-          ) {
-            logCheckNotificationFetchTrace(
-              readCheckNotificationDiagSnapshot(source, {
-                incomingCount: prefetchedIncomingCount,
-                checkCount: prefetchedCheckCount,
-                resultCount: prefetchedResultCount,
-                hasCheck: true,
-                endpoint: '/bans/check/pending',
-                skipReason: explainHasPendingNotificationChainWhenCheckExists(
-                  checkPrefetchSkipReason,
-                ),
-              }),
-            );
-          }
         }
 
         if (prefetched.result?.id) {
@@ -16572,45 +16418,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 ? 'api-incoming-empty'
                 : 'all-items-filtered-unknown';
 
-          if (prefetchedHasCheck) {
-            const uid = userIdRef.current?.trim() ?? '';
-            const hint = uid ? readLobbyNotificationAttentionHint(uid) : 0;
-            logLobbyIndicatorCheckSourceTrace({
-              ...readCheckNotificationDiagSnapshot(source, {
-                incomingCount: prefetchedIncomingCount,
-                checkCount: prefetchedCheckCount,
-                resultCount: prefetchedResultCount,
-                hasCheck: true,
-                endpoint:
-                  '/bans/incoming/pending-all,/bans/check/pending,/bans/result/pending',
-                skipReason:
-                  explainLobbyIndicatorInactive(true, hint) ??
-                  explainHasPendingNotificationChainWhenCheckExists(
-                    checkPrefetchSkipReason ?? mergeSkipReason,
-                  ),
-              }),
-              caller: 'prefetchPendingNotificationChain:toEnqueue-empty-with-check',
-              checkBanId: prefetched.check?.id ?? null,
-              enqueued: false,
-            });
-            logPendingCheckEnqueueTrace({
-              ...readCheckNotificationDiagSnapshot(source, {
-                incomingCount: prefetchedIncomingCount,
-                checkCount: prefetchedCheckCount,
-                resultCount: prefetchedResultCount,
-                hasCheck: true,
-                endpoint: '/bans/check/pending',
-                skipReason:
-                  checkPrefetchSkipReason ??
-                  mergeSkipReason ??
-                  'to-enqueue-empty-despite-api-check',
-              }),
-              checkBanId: prefetched.check?.id ?? null,
-              enqueued: false,
-              enqueueTarget: null,
-            });
-          }
-
           lastChainRejectOnlyPrefetchRef.current =
             prefetched.rejectDebug.length > 0 &&
             toEnqueue.length === 0 &&
@@ -16810,48 +16617,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             source,
             'prefetch-pending-chain-enqueue',
           );
-          const enqueuedCheckIds = pendingForCommit
-            .filter((item) => item.kind === 'check')
-            .map((item) => item.ban.id);
-          if (enqueuedCheckIds.length > 0 || prefetchedHasCheck) {
-            logPendingCheckEnqueueTrace({
-              ...readCheckNotificationDiagSnapshot(source, {
-                incomingCount: prefetchedIncomingCount,
-                checkCount: prefetchedCheckCount,
-                resultCount: prefetchedResultCount,
-                hasCheck: prefetchedHasCheck,
-                endpoint: 'prefetch-pending-chain-enqueue',
-                skipReason: indicatorPrimeOnly
-                  ? 'indicator-prime-only-pending-commit'
-                  : null,
-              }),
-              checkBanId: enqueuedCheckIds[0] ?? prefetched.check?.id ?? null,
-              enqueued: enqueuedCheckIds.length > 0,
-              enqueueTarget:
-                enqueuedCheckIds.length > 0 ? 'pending' : null,
-            });
-          }
-          if (source.includes('lobby-indicator-prime')) {
-            const uid = userIdRef.current?.trim() ?? '';
-            const hint = uid ? readLobbyNotificationAttentionHint(uid) : 0;
-            logLobbyIndicatorCheckSourceTrace({
-              ...readCheckNotificationDiagSnapshot(source, {
-                incomingCount: prefetchedIncomingCount,
-                checkCount: prefetchedCheckCount,
-                resultCount: prefetchedResultCount,
-                hasCheck: prefetchedHasCheck,
-                endpoint: 'lobby-indicator-prime:after-pending-commit',
-                skipReason:
-                  explainLobbyIndicatorInactive(prefetchedHasCheck, hint) ??
-                  (indicatorPrimeOnly
-                    ? 'indicator-prime-only-no-overlay-drain'
-                    : null),
-              }),
-              caller: 'prefetchPendingNotificationChain:lobby-indicator-prime-commit',
-              checkBanId: enqueuedCheckIds[0] ?? prefetched.check?.id ?? null,
-              enqueued: enqueuedCheckIds.length > 0,
-            });
-          }
           const prefetchQueueAfter = overlayQueueRef.current.length;
           const prefetchPendingAfter =
             pendingStartupInteractionsRef.current.length;
@@ -17140,27 +16905,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           { source, ...payload },
         ),
       );
-      const uidForTrace = userIdRef.current?.trim() ?? '';
-      const persistedHint = uidForTrace
-        ? readLobbyNotificationAttentionHint(uidForTrace)
-        : 0;
-      const ownerForTrace = ownerShadowRef.current.getState();
-      const ownerHasCheckPending = ownerForTrace.pending.some(
-        (item) => item.kind === 'check',
-      );
-      const ownerHasCheckQueue = ownerForTrace.queue.some(
-        (item) => item.kind === 'check',
-      );
-      logLobbyIndicatorCheckSourceTrace({
-        ...readCheckNotificationDiagSnapshot(source, {
-          skipReason:
-            explainLobbyIndicatorInactive(
-              ownerHasCheckPending || ownerHasCheckQueue,
-              Math.max(hint, persistedHint),
-            ) ?? null,
-        }),
-        caller: 'primeLobbyBansAttentionHintSync',
-      });
     },
     [countLobbyPendingHasIncoming, syncPendingStartupCount],
   );
@@ -17170,24 +16914,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const primeLobbyBansIndicator = useCallback(async () => {
     const uid = userIdRef.current?.trim() ?? '';
     const token = tokenRef.current;
-    if (!uid || !token) {
-      logLobbyIndicatorCheckSourceTrace({
-        ...readCheckNotificationDiagSnapshot('lobby-indicator-prime', {
-          skipReason: 'prime-skipped-no-auth',
-        }),
-        caller: 'primeLobbyBansIndicator:no-auth',
-      });
-      return;
-    }
-    if (lobbyIndicatorPrimedForUserRef.current === uid) {
-      logLobbyIndicatorCheckSourceTrace({
-        ...readCheckNotificationDiagSnapshot('lobby-indicator-prime', {
-          skipReason: 'prime-skipped-already-primed-for-user',
-        }),
-        caller: 'primeLobbyBansIndicator:already-primed',
-      });
-      return;
-    }
+    if (!uid || !token) return;
+    if (lobbyIndicatorPrimedForUserRef.current === uid) return;
     lobbyIndicatorPrimedForUserRef.current = uid;
 
     logLobbyIndicatorPrimeStart();
@@ -17198,21 +16926,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     let hasIncoming = countLobbyPendingHasIncoming();
 
     if (pendingLen > 0 || queueLen > 0) {
-      logLobbyIndicatorCheckSourceTrace({
-        ...readCheckNotificationDiagSnapshot('lobby-indicator-prime', {
-          skipReason: 'prime-skipped-queue-or-pending-already-non-empty',
-        }),
-        caller: 'primeLobbyBansIndicator:early-return-before-prefetch',
-      });
       return;
     }
-
-    logLobbyIndicatorCheckSourceTrace({
-      ...readCheckNotificationDiagSnapshot('lobby-indicator-prime', {
-        endpoint: 'lobby-indicator-prime:before-prefetch',
-      }),
-      caller: 'primeLobbyBansIndicator:before-prefetch',
-    });
 
     const prefetched = await prefetchPendingNotificationChain(
       null,
@@ -17224,12 +16939,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       userIdRef.current?.trim() !== uid ||
       tokenRef.current !== token
     ) {
-      logLobbyIndicatorCheckSourceTrace({
-        ...readCheckNotificationDiagSnapshot('lobby-indicator-prime', {
-          skipReason: 'prime-aborted-stale-auth-after-prefetch',
-        }),
-        caller: 'primeLobbyBansIndicator:stale-auth',
-      });
       return;
     }
 
@@ -17239,20 +16948,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     hasIncoming = countLobbyPendingHasIncoming();
 
     const hint = readLobbyNotificationAttentionHint(uid);
-    const ownerAfterPrime = ownerShadowRef.current.getState();
-    const hasCheckAfterPrime =
-      ownerAfterPrime.pending.some((item) => item.kind === 'check') ||
-      ownerAfterPrime.queue.some((item) => item.kind === 'check');
-    logLobbyIndicatorCheckSourceTrace({
-      ...readCheckNotificationDiagSnapshot('lobby-indicator-prime', {
-        endpoint: 'lobby-indicator-prime:after-prefetch',
-        skipReason:
-          explainLobbyIndicatorInactive(hasCheckAfterPrime, hint) ??
-          (prefetched ? null : 'prefetch-returned-false'),
-      }),
-      caller: 'primeLobbyBansIndicator:after-prefetch',
-      enqueued: pendingLen > 0 || queueLen > 0,
-    });
     if (hint > 0 && pendingLen === 0 && queueLen === 0 && !prefetched) {
       logLobbyIndicatorDelayBug({ hint, prefetched });
     }
@@ -24678,17 +24373,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           banId: b.id,
           source: `receiveCheckBan:${source}`,
         });
-        logPendingCheckEnqueueTrace({
-          ...readCheckNotificationDiagSnapshot(`receiveCheckBan:${source}`, {
-            checkCount: 1,
-            hasCheck: true,
-            endpoint: '/bans/check/pending',
-            skipReason: 'result-priority-stale-check',
-          }),
-          checkBanId: b.id,
-          enqueued: false,
-          enqueueTarget: null,
-        });
         return;
       }
 
@@ -24730,42 +24414,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         checkAnswerInFlightRef.current,
         resultOpenRef.current,
       );
-      if (!check) {
-        logPendingCheckEnqueueTrace({
-          ...readCheckNotificationDiagSnapshot(`receiveCheckBan:${source}`, {
-            checkCount: 1,
-            hasCheck: true,
-            endpoint:
-              source === 'poll'
-                ? '/bans/check/pending'
-                : `receiveCheckBan:${source}`,
-            skipReason: decision.reason ?? 'check-not-picked',
-          }),
-          checkBanId: b.id,
-          enqueued: false,
-          enqueueTarget: null,
-        });
-        return;
-      }
+      if (!check) return;
 
       if (
         blocksMountedNotificationOverlay('receiveCheckBan', 'check', check.id)
       ) {
         deferNotificationToPendingStartup({ kind: 'check', ban: check });
-        logPendingCheckEnqueueTrace({
-          ...readCheckNotificationDiagSnapshot(`receiveCheckBan:${source}`, {
-            checkCount: 1,
-            hasCheck: true,
-            endpoint:
-              source === 'poll'
-                ? '/bans/check/pending'
-                : `receiveCheckBan:${source}`,
-            skipReason: 'mounted-overlay-blocks-deferred-to-pending',
-          }),
-          checkBanId: check.id,
-          enqueued: true,
-          enqueueTarget: 'deferred',
-        });
         return;
       }
 
@@ -24781,23 +24435,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
         },
       );
-      logPendingCheckEnqueueTrace({
-        ...readCheckNotificationDiagSnapshot(`receiveCheckBan:${source}`, {
-          checkCount: 1,
-          hasCheck: true,
-          endpoint:
-            source === 'poll'
-              ? '/bans/check/pending'
-              : `receiveCheckBan:${source}`,
-          skipReason:
-            source === 'poll' && startupInteractionsHoldRef.current
-              ? 'poll-enqueued-but-startup-hold-active'
-              : null,
-        }),
-        checkBanId: check.id,
-        enqueued: true,
-        enqueueTarget: 'queue',
-      });
       setCheckWaiting(false);
     },
     [enqueueNotification],
@@ -24816,7 +24453,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     getOpenCheckBan,
     userIdRef,
     tokenRef,
-    traceCheckPollFetchRef: traceCheckNotificationFetchRef,
   });
 
   useEffect(() => {
@@ -31611,20 +31247,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           'before-prefetchPendingNotificationChain',
           prefetchBefore,
         );
-        logLobbyIndicatorCheckSourceTrace({
-          ...readCheckNotificationDiagSnapshot('success-drain', {
-            endpoint: 'success-exit:before-prefetchPendingNotificationChain',
-            skipReason: 'success-exit-prefetch-start',
-          }),
-          caller: 'success-exit:before-prefetch',
-        });
         await prefetchPendingNotificationChain(null, 'success-exit');
-        logLobbyIndicatorCheckSourceTrace({
-          ...readCheckNotificationDiagSnapshot('success-drain', {
-            endpoint: 'success-exit:after-prefetchPendingNotificationChain',
-          }),
-          caller: 'success-exit:after-prefetch',
-        });
         logPostSuccessRehydrateDiag(
           'after-prefetchPendingNotificationChain',
           prefetchBefore,
@@ -34890,12 +34513,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const uid = auth.user?.id;
     const token = auth.token;
     if (!uid || !token || auth.loading) return;
-    logLobbyIndicatorCheckSourceTrace({
-      ...readCheckNotificationDiagSnapshot('bootstrap', {
-        endpoint: 'auth-ready-layout:before-prime',
-      }),
-      caller: 'useLayoutEffect:auth-ready',
-    });
     primeLobbyBansAttentionHintSync('auth-ready-layout');
     void primeLobbyBansIndicator();
   }, [auth.user?.id, auth.token, auth.loading, primeLobbyBansAttentionHintSync, primeLobbyBansIndicator]);
@@ -37280,47 +36897,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   notificationSessionActiveForDebugRef.current = notificationSessionActive;
 
-  const sendFlowOpening =
-    composeBlocksNotificationHost || sendSuccessCardActive;
-  const replyParentTimerOwnsTopLayerForSticky =
-    replyParentActivePriorityActive &&
-    !showDirectOverboardLayer &&
-    ownerPrimaryHeldUserCard == null;
-  const stickyQueueDimDecision = useMemo(
-    () =>
-      computeStickyQueueDimDecision({
-        notificationSessionActive,
-        notificationChainTransitioning,
-        ownerQueueLen: ownerPrimaryShellQueueLen,
-        ownerPendingLen: ownerPrimaryShellPendingLen,
-        activeKind: notificationQueueShellKind,
-        displayKind: resolveBansLayerOwnerDisplayKind(ownerReadDisplay),
-        nextPhase: sendComposePhase,
-        sendFlowOpening,
-        chainAdvanceWaiting,
-        chainHandoffActive:
-          notificationChainHandoffRef.current ||
-          notificationChainAwaitingUserRef.current,
-        replyParentTimerOwnsTopLayer: replyParentTimerOwnsTopLayerForSticky,
-      }),
-    [
-      chainAdvanceWaiting,
-      notificationChainTransitioning,
-      notificationQueueShellKind,
-      notificationSessionActive,
-      ownerPrimaryHeldUserCard,
-      ownerPrimaryShellPendingLen,
-      ownerPrimaryShellQueueLen,
-      ownerReadDisplay,
-      replyParentActivePriorityActive,
-      replyParentTimerOwnsTopLayerForSticky,
-      sendComposePhase,
-      sendFlowOpening,
-      showDirectOverboardLayer,
-    ],
-  );
-  const stickyQueueDimActive = stickyQueueDimDecision.stickyDimActive;
-
   const lobbyBansNeedAttention =
     ownerPrimaryShellPendingLen > 0 ||
     ownerPrimaryShellQueueLen > 0 ||
@@ -39252,15 +38828,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ownerPrimaryResult?.id,
     ownerPrimaryStableIncomingBan?.id,
     ownerPrimaryQueueHead,
-    stickyQueueDimActive,
   ]);
 
   const shouldMountNotificationOverlayHost = useMemo(() => {
     if (composeBlocksNotificationHost) {
       return false;
-    }
-    if (stickyQueueDimActive) {
-      return true;
     }
     if (checkAnswerWaitingResultHoldBanId) {
       return true;
@@ -39625,11 +39197,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationOverlayVisible && !replyParentTimerOwnsTopLayer;
   const notificationHostPointerActive =
     notificationOverlayVisible && !replyParentTimerOwnsTopLayer;
-  const notificationHostSessionBackdrop = stickyQueueDimActive;
-
-  useLayoutEffect(() => {
-    logStickyQueueDimDecision(stickyQueueDimDecision);
-  }, [stickyQueueDimDecision]);
+  const notificationHostSessionBackdrop =
+    !replyParentTimerOwnsTopLayer &&
+    (notificationChainTransitioning ||
+      (notificationOverlayVisible && notificationSessionActive));
 
   useLayoutEffect(() => {
     if (!notificationChainTransitioning) return;

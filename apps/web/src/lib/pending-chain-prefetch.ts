@@ -13,10 +13,6 @@ import {
   logChainPlaceholderStuckTrace,
   logChainRejectedPendingDiag,
 } from './check-chain-drain-debug';
-import {
-  logCheckNotificationFetchTrace,
-  normalizeCheckNotificationTraceSource,
-} from './check-notification-fetch-trace-debug';
 
 export type PendingChainPrefetch = {
   incoming: BanInteraction[];
@@ -277,24 +273,6 @@ export async function fetchPendingChainPrefetch(
     ],
     itemsResultIds: result ? [result.id] : [],
     source: ctx.source,
-  });
-
-  logCheckNotificationFetchTrace({
-    source: normalizeCheckNotificationTraceSource(ctx.source),
-    telegramUserId: ctx.telegramUserId ?? null,
-    incomingCount: incoming.length,
-    checkCount: check ? 1 : 0,
-    resultCount: result ? 1 : 0,
-    hasCheck: Boolean(check?.id),
-    hasPendingNotificationChain: false,
-    ownerQueueLen: 0,
-    ownerPendingLen: 0,
-    legacyQueueLen: 0,
-    legacyPendingLen: 0,
-    indicatorVisible: false,
-    skipReason: 'api-layer-fetch-only-owner-snapshot-in-providers',
-    endpoint:
-      '/bans/incoming/pending-all,/bans/check/pending,/bans/result/pending',
   });
 
   return { incoming, check, result, rejectDebug };
