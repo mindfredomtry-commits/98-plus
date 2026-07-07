@@ -654,6 +654,10 @@ import {
   logOverlayVisualShieldTrace,
 } from '@/lib/overlay-visual-shield-trace-debug';
 import {
+  computeOverlayBackdropVisibilityDecision,
+  logOverlayBackdropVisibilityDecision,
+} from '@/lib/overlay-backdrop-visibility-decision-debug';
+import {
   findNewlyAddedOwnerPendingResultItems,
   isSamePendingResultObject,
   registerPendingResultObject,
@@ -39575,6 +39579,52 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const overlayVisualShieldCardContentMounted =
     overlayVisualShieldDecision.cardContentMounted;
 
+  const overlayBackdropDimVisiblePrevRef = useRef(false);
+  const overlayBackdropVisibilityDecision = computeOverlayBackdropVisibilityDecision({
+    visualQueueDimSessionLive,
+    notificationOverlayVisible,
+    dimVisibleBefore: overlayBackdropDimVisiblePrevRef.current,
+    sendFlowOpening,
+    replyParentTimerOwnsTopLayer,
+    composeBlocksNotificationHost,
+    showDirectOverboardLayer,
+    ownerQueueLen: ownerPrimaryShellQueueLen,
+    queueHeadKind,
+    notificationChainTransitioning,
+    notificationSessionActive,
+    chainAdvanceWaiting,
+    cardMounted:
+      overlayVisualShieldCardContentMounted || notificationOverlayMounted,
+    shieldBackdropVisible: overlayVisualShieldBackdropVisible,
+    shieldHostMounted: overlayVisualShieldHostMounted,
+    activeKind: incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
+    shellKind: notificationQueueShellDisplayKindResolved,
+  });
+  const overlayBackdropDimVisible =
+    overlayBackdropVisibilityDecision.dimVisibleAfter;
+  const overlayBackdropHostMounted =
+    overlayBackdropVisibilityDecision.backdropMounted;
+
+  const overlayBackdropVisibilityDecisionTraceSigRef = useRef('');
+  useLayoutEffect(() => {
+    const sig = [
+      overlayBackdropVisibilityDecision.reason,
+      overlayBackdropVisibilityDecision.visualQueueDimSessionLive,
+      overlayBackdropVisibilityDecision.dimVisibleBefore,
+      overlayBackdropVisibilityDecision.dimVisibleAfter,
+      overlayBackdropVisibilityDecision.backdropMounted,
+      overlayBackdropVisibilityDecision.cardMounted,
+      overlayBackdropVisibilityDecision.queueHeadKind,
+      overlayBackdropVisibilityDecision.ownerQueueLength,
+      overlayBackdropVisibilityDecision.sendFlowOpening,
+    ].join('|');
+    if (sig === overlayBackdropVisibilityDecisionTraceSigRef.current) return;
+    overlayBackdropVisibilityDecisionTraceSigRef.current = sig;
+    logOverlayBackdropVisibilityDecision(overlayBackdropVisibilityDecision);
+    overlayBackdropDimVisiblePrevRef.current =
+      overlayBackdropVisibilityDecision.dimVisibleAfter;
+  }, [overlayBackdropVisibilityDecision]);
+
   useLayoutEffect(() => {
     if (!replyParentTimerOwnsTopLayer) {
       delete document.documentElement.dataset.replyParentActivePriorityActive;
@@ -39897,7 +39947,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationOverlayVisible && !replyParentTimerOwnsTopLayer;
   const notificationHostPointerActive =
     notificationOverlayVisible && !replyParentTimerOwnsTopLayer;
-  const notificationHostSessionBackdrop = overlayVisualShieldBackdropVisible;
+  const notificationHostSessionBackdrop = overlayBackdropDimVisible;
 
   const overlayVisualShieldTraceSigRef = useRef('');
   useLayoutEffect(() => {
@@ -40954,16 +41004,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 />
               </ChallengeErrorBoundary>
             ) : null}
-            {!composeBlocksNotificationHost && overlayVisualShieldHostMounted ? (
+            {!composeBlocksNotificationHost && overlayBackdropHostMounted ? (
             <GlobalOverlayHost
               active={notificationHostPointerActive}
-              queueSessionActive={overlayVisualShieldBackdropVisible}
-              visualShieldBackdrop={overlayVisualShieldBackdropVisible}
+              queueSessionActive={overlayBackdropDimVisible}
+              visualShieldBackdrop={overlayBackdropDimVisible}
               backdropTraceContext={{
                 visualQueueDimSessionLive,
                 cardContentMounted: overlayVisualShieldCardContentMounted,
-                hostMounted: overlayVisualShieldHostMounted,
-                decisionReason: overlayVisualShieldDecision.decisionReason,
+                hostMounted: overlayBackdropHostMounted,
+                decisionReason: overlayBackdropVisibilityDecision.reason,
               }}
               checkInteractive={checkOverlayMounted}
               activeOverlayKind={
