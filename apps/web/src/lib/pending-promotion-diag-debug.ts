@@ -303,6 +303,26 @@ export function logPendingPromotionPathTrace(
   emit('PENDING_PROMOTION_PATH_TRACE', data);
 }
 
+export type PostConsumePendingPromotionTriggeredPayload = {
+  source: string;
+  caller: string;
+  consumedKind: string | null;
+  consumedBanId: string | null;
+  ownerQueueLenAfterConsume: number;
+  ownerPendingLenAfterConsume: number;
+  notificationSessionActive: boolean;
+  notificationChainTransitioning: boolean;
+  triggered: boolean;
+  skipReason: string | null;
+  timestamp?: number;
+};
+
+export function logPostConsumePendingPromotionTriggered(
+  data: PostConsumePendingPromotionTriggeredPayload,
+): void {
+  emit('POST_CONSUME_PENDING_PROMOTION_TRIGGERED', data);
+}
+
 export function buildGoToBansPendingNotPromotedSignature(
   data: ResultGoToBansPendingNotPromotedPayload,
 ): string {

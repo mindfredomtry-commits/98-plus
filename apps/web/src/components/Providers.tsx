@@ -615,6 +615,7 @@ import {
   logPendingPromotionEntryTrace,
   logPendingPromotionExitTrace,
   logPendingPromotionPathTrace,
+  logPostConsumePendingPromotionTriggered,
   logPendingPromotionDecisionTrace,
   logResultGoToBansPendingNotPromoted,
   resolvePendingHeadFields,
@@ -2153,6 +2154,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const probeOwnerQueueEmptyDuringChainRef = useRef<
     (source: string, previousQueueLen: number, previousPendingLen: number) => void
   >(() => {});
+  const maybeTriggerPostConsumePendingPromotionRef = useRef<
+    (input: {
+      source: string;
+      queueBeforeLen: number;
+      queueHeadBefore: QueuedOverlay | null;
+    }) => void
+  >(() => {});
+  const postConsumePromotionInFlightRef = useRef(false);
   const logPostSuccessRehydrateDiagRef = useRef<
     (
       phase: string,
@@ -8973,6 +8982,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         queueBefore.length,
         ownerBefore.pending.length,
       );
+      if (queueBefore.length > 0 && queueAfter.length === 0) {
+        maybeTriggerPostConsumePendingPromotionRef.current({
+          source,
+          queueBeforeLen: queueBefore.length,
+          queueHeadBefore,
+        });
+      }
     },
     [],
   );
@@ -15208,6 +15224,94 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [applyPendingQueueViaOwner, isResultBlockedForNotificationChain, syncPendingStartupCount],
   );
+
+  const maybeTriggerPostConsumePendingPromotion = useCallback(
+    (input: {
+      source: string;
+      queueBeforeLen: number;
+      queueHeadBefore: QueuedOverlay | null;
+    }) => {
+      const owner = ownerShadowRef.current.getState();
+      const ownerQueueLenAfter = owner.queue.length;
+      const ownerPendingLenAfter = owner.pending.length;
+      const consumedKind = input.queueHeadBefore?.kind ?? null;
+      const consumedBanId = input.queueHeadBefore
+        ? overlayItemBanId(input.queueHeadBefore)
+        : null;
+      const emitPostConsumePromotionLog = (
+        triggered: boolean,
+        skipReason: string | null,
+      ) => {
+        logPostConsumePendingPromotionTriggered({
+          source: input.source,
+          caller: 'maybeTriggerPostConsumePendingPromotion',
+          consumedKind,
+          consumedBanId,
+          ownerQueueLenAfterConsume: ownerQueueLenAfter,
+          ownerPendingLenAfterConsume: ownerPendingLenAfter,
+          notificationSessionActive:
+            notificationSessionActiveForDebugRef.current,
+          notificationChainTransitioning:
+            notificationChainTransitioningRef.current,
+          triggered,
+          skipReason,
+        });
+      };
+
+      if (ownerPendingLenAfter === 0) {
+        emitPostConsumePromotionLog(false, 'no-owner-pending');
+        return;
+      }
+
+      const chainContextActive =
+        notificationSessionActiveForDebugRef.current ||
+        notificationChainTransitioningRef.current ||
+        chainAdvanceWaitingRef.current ||
+        chainAdvanceExplicitRef.current ||
+        notificationChainHandoffRef.current ||
+        notificationChainAwaitingUserRef.current ||
+        goToBansAdvancePendingRef.current;
+
+      if (!chainContextActive) {
+        emitPostConsumePromotionLog(false, 'no-active-chain-context');
+        return;
+      }
+
+      if (isActiveUserCardHold()) {
+        emitPostConsumePromotionLog(false, 'active-user-card-hold');
+        return;
+      }
+
+      if (
+        blocksMountedNotificationOverlay(
+          `post-consume-pending-promotion:${input.source}`,
+          null,
+          null,
+        )
+      ) {
+        emitPostConsumePromotionLog(false, 'mounted-overlay-blocks');
+        return;
+      }
+
+      if (postConsumePromotionInFlightRef.current) {
+        emitPostConsumePromotionLog(false, 'promotion-in-flight');
+        return;
+      }
+
+      postConsumePromotionInFlightRef.current = true;
+      try {
+        emitPostConsumePromotionLog(true, null);
+        mergeStartupIntoOverlayQueueOnly(
+          `post-consume-pending-promotion:${input.source}`,
+        );
+      } finally {
+        postConsumePromotionInFlightRef.current = false;
+      }
+    },
+    [mergeStartupIntoOverlayQueueOnly, blocksMountedNotificationOverlay],
+  );
+  maybeTriggerPostConsumePendingPromotionRef.current =
+    maybeTriggerPostConsumePendingPromotion;
 
   const mergePendingSnapshotIntoOverlayQueue = useCallback(
     (snapshot: QueuedOverlay[], source: string): number => {
