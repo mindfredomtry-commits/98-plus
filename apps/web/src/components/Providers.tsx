@@ -654,8 +654,11 @@ import {
   logOverlayVisualShieldTrace,
 } from '@/lib/overlay-visual-shield-trace-debug';
 import {
+  buildOverlayBackdropGapHoldTrace,
   computeOverlayBackdropVisibilityDecision,
+  logOverlayBackdropGapHoldTrace,
   logOverlayBackdropVisibilityDecision,
+  shouldHoldOverlayBackdropDuringQueueGap,
 } from '@/lib/overlay-backdrop-visibility-decision-debug';
 import {
   findNewlyAddedOwnerPendingResultItems,
@@ -39579,7 +39582,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const overlayVisualShieldCardContentMounted =
     overlayVisualShieldDecision.cardContentMounted;
 
+  const visualQueueDimSessionLiveWithQueueHead =
+    visualQueueDimSessionLive &&
+    !sendFlowOpening &&
+    !replyParentTimerOwnsTopLayer &&
+    ownerPrimaryShellQueueLen > 0 &&
+    (queueHeadKind === 'incoming' ||
+      queueHeadKind === 'check' ||
+      queueHeadKind === 'result');
+
   const overlayBackdropDimVisiblePrevRef = useRef(false);
+  const overlayBackdropGapHoldTraceSigRef = useRef('');
   const overlayBackdropVisibilityDecision = computeOverlayBackdropVisibilityDecision({
     visualQueueDimSessionLive,
     notificationOverlayVisible,
@@ -39593,8 +39606,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationChainTransitioning,
     notificationSessionActive,
     chainAdvanceWaiting,
-    cardMounted:
-      overlayVisualShieldCardContentMounted || notificationOverlayMounted,
+    cardContentMounted: overlayVisualShieldCardContentMounted,
+    visualQueueDimSessionLiveWithQueueHead,
     shieldBackdropVisible: overlayVisualShieldBackdropVisible,
     shieldHostMounted: overlayVisualShieldHostMounted,
     activeKind: incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
@@ -39604,6 +39617,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     overlayBackdropVisibilityDecision.dimVisibleAfter;
   const overlayBackdropHostMounted =
     overlayBackdropVisibilityDecision.backdropMounted;
+  const globalOverlayHostActive =
+    !composeBlocksNotificationHost && overlayBackdropHostMounted;
+  const overlayBackdropGapHold = shouldHoldOverlayBackdropDuringQueueGap({
+    visualQueueDimSessionLive,
+    sendFlowOpening,
+    replyParentTimerOwnsTopLayer,
+    ownerQueueLen: ownerPrimaryShellQueueLen,
+    queueHeadKind,
+    notificationChainTransitioning,
+    notificationSessionActive,
+    chainAdvanceWaiting,
+  });
 
   const overlayBackdropVisibilityDecisionTraceSigRef = useRef('');
   useLayoutEffect(() => {
@@ -39623,7 +39648,59 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     logOverlayBackdropVisibilityDecision(overlayBackdropVisibilityDecision);
     overlayBackdropDimVisiblePrevRef.current =
       overlayBackdropVisibilityDecision.dimVisibleAfter;
-  }, [overlayBackdropVisibilityDecision]);
+
+    const gapTrace = buildOverlayBackdropGapHoldTrace({
+      visualQueueDimSessionLive,
+      notificationOverlayVisible,
+      dimVisibleBefore: overlayBackdropVisibilityDecision.dimVisibleBefore,
+      dimVisibleAfter: overlayBackdropDimVisible,
+      backdropMounted: overlayBackdropHostMounted,
+      cardContentMounted: overlayVisualShieldCardContentMounted,
+      activeKind:
+        incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
+      shellKind: notificationQueueShellDisplayKindResolved,
+      queueHeadKind,
+      ownerQueueLen: ownerPrimaryShellQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+      sendFlowOpening,
+      shouldMountNotificationOverlayHost,
+      globalOverlayHostActive,
+      gapBackdropHold: overlayBackdropGapHold,
+    });
+    if (!gapTrace) {
+      overlayBackdropGapHoldTraceSigRef.current = '';
+      return;
+    }
+    const gapSig = [
+      gapTrace.reason,
+      gapTrace.cardMounted,
+      gapTrace.dimVisibleAfter,
+      gapTrace.backdropMounted,
+      gapTrace.shouldMountNotificationOverlayHost,
+      gapTrace.globalOverlayHostActive,
+      gapTrace.queueHeadKind,
+      gapTrace.ownerQueueLength,
+    ].join('|');
+    if (gapSig === overlayBackdropGapHoldTraceSigRef.current) return;
+    overlayBackdropGapHoldTraceSigRef.current = gapSig;
+    logOverlayBackdropGapHoldTrace(gapTrace);
+  }, [
+    activeOverlayKind,
+    incomingOverlayDisplayKind,
+    notificationOverlayVisible,
+    notificationQueueShellDisplayKindResolved,
+    overlayBackdropDimVisible,
+    overlayBackdropGapHold,
+    overlayBackdropHostMounted,
+    overlayBackdropVisibilityDecision,
+    overlayVisualShieldCardContentMounted,
+    ownerPrimaryShellPendingLen,
+    ownerPrimaryShellQueueLen,
+    queueHeadKind,
+    sendFlowOpening,
+    shouldMountNotificationOverlayHost,
+    visualQueueDimSessionLive,
+  ]);
 
   useLayoutEffect(() => {
     if (!replyParentTimerOwnsTopLayer) {
@@ -41004,7 +41081,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 />
               </ChallengeErrorBoundary>
             ) : null}
-            {!composeBlocksNotificationHost && overlayBackdropHostMounted ? (
+            {!composeBlocksNotificationHost && globalOverlayHostActive ? (
             <GlobalOverlayHost
               active={notificationHostPointerActive}
               queueSessionActive={overlayBackdropDimVisible}
