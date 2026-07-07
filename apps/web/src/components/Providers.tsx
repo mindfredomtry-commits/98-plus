@@ -622,6 +622,11 @@ import {
   type OwnerPendingPromotionDecisionStage,
 } from '@/lib/pending-promotion-diag-debug';
 import {
+  logVisualQueueDimSessionTrace,
+  resolveVisualQueueMountedCard,
+  shouldReleaseVisualQueueDimSession,
+} from '@/lib/visual-queue-dim-session-debug';
+import {
   findNewlyAddedOwnerPendingResultItems,
   isSamePendingResultObject,
   registerPendingResultObject,
@@ -2073,6 +2078,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   } | null>(null);
   const pendingStartupInteractionsRef = useRef<QueuedOverlay[]>([]);
   const notificationSessionActiveForDebugRef = useRef(false);
+  const visualQueueDimSessionRef = useRef(false);
+  const visualQueueDimSessionTraceSigRef = useRef('');
+  const [visualQueueDimSession, setVisualQueueDimSession] = useState(false);
   const hasPendingNotificationChainFnRef = useRef<() => boolean>(() => false);
   const startupInteractionsHoldRef = useRef(true);
   const mirrorOwnerSessionFlagsRef = useRef<
@@ -38834,6 +38842,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (composeBlocksNotificationHost) {
       return false;
     }
+    if (visualQueueDimSession) {
+      return true;
+    }
     if (checkAnswerWaitingResultHoldBanId) {
       return true;
     }
@@ -38918,6 +38929,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ownerPrimaryShellPendingLen,
     replyParentActivePriorityActive,
     showDirectOverboardLayer,
+    visualQueueDimSession,
   ]);
 
   const incomingNullResultContextActive =
@@ -39193,14 +39205,175 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [replyParentTimerOwnsTopLayer]);
 
   const checkOverlayInteractive = checkOverlayMounted;
+  const sendFlowOpening =
+    composeBlocksNotificationHost || sendSuccessCardActive;
+  const visualQueueMountedCard = resolveVisualQueueMountedCard({
+    composeBlocksNotificationHost,
+    showCheckOverlayDirect,
+    showReplyIncomingOverlayDirect,
+    kind: notificationQueueShellDisplayKindResolved,
+    effectiveKind:
+      effectiveNotificationQueueShellKind ??
+      queueHeadShellKindFallback ??
+      null,
+    incomingVisible: ownerIncomingQueueVisibility.visible,
+    checkVisible: ownerCheckQueueVisibility.visible,
+    resultVisible: ownerResultQueueVisibility.visible,
+    incomingCardReady: notificationQueueShellIncomingCardReady,
+    checkCardReady: notificationQueueShellCheckCardReady,
+    resultContentReady: Boolean(
+      renderableResultShell &&
+        (ownerShellContentReady ?? queueResultShellContentReady),
+    ),
+  });
+  const visualQueueCardShowing =
+    visualQueueMountedCard.mountedCardVisible &&
+    visualQueueMountedCard.mountedCardHasContent &&
+    !sendFlowOpening;
+
+  useLayoutEffect(() => {
+    const traceBase = {
+      visualQueueDimSession: visualQueueDimSessionRef.current,
+      mountedCardVisible: visualQueueMountedCard.mountedCardVisible,
+      mountedCardHasContent: visualQueueMountedCard.mountedCardHasContent,
+      kind: visualQueueMountedCard.kind,
+      effectiveKind: visualQueueMountedCard.effectiveKind,
+      ownerQueueLen: ownerPrimaryShellQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+      notificationSessionActive,
+      notificationChainTransitioning,
+      sendFlowOpening,
+      dimVisible:
+        !replyParentTimerOwnsTopLayer &&
+        visualQueueDimSessionRef.current &&
+        !sendFlowOpening,
+    };
+
+    const emitTrace = (
+      event: 'start' | 'keep' | 'release' | 'skip',
+      reason: string,
+      sessionAfter: boolean,
+    ) => {
+      const sig = `${event}|${reason}|${sessionAfter}|${visualQueueMountedCard.mountedCardVisible}|${visualQueueMountedCard.mountedCardHasContent}|${sendFlowOpening}`;
+      if (event === 'keep' && sig === visualQueueDimSessionTraceSigRef.current) {
+        return;
+      }
+      visualQueueDimSessionTraceSigRef.current = sig;
+      logVisualQueueDimSessionTrace({
+        event,
+        reason,
+        ...traceBase,
+        visualQueueDimSession: sessionAfter,
+        dimVisible:
+          !replyParentTimerOwnsTopLayer && sessionAfter && !sendFlowOpening,
+      });
+    };
+
+    if (!visualQueueDimSessionRef.current) {
+      if (visualQueueCardShowing) {
+        visualQueueDimSessionRef.current = true;
+        setVisualQueueDimSession(true);
+        emitTrace(
+          'start',
+          'queue-card-mounted-visible-with-content',
+          true,
+        );
+      } else if (
+        visualQueueMountedCard.mountedCardVisible &&
+        visualQueueMountedCard.mountedCardHasContent &&
+        sendFlowOpening
+      ) {
+        emitTrace('skip', 'send-flow-blocks-visual-session-start', false);
+      }
+      return;
+    }
+
+    const { release, reason: releaseReason } = shouldReleaseVisualQueueDimSession(
+      {
+        sendFlowOpening,
+        ownerQueueLen: ownerPrimaryShellQueueLen,
+        ownerPendingLen: ownerPrimaryShellPendingLen,
+        mountedCardVisible: visualQueueMountedCard.mountedCardVisible,
+        mountedCardHasContent: visualQueueMountedCard.mountedCardHasContent,
+        notificationChainTransitioning,
+        chainAdvanceWaiting,
+        chainHandoffActive:
+          notificationChainHandoffRef.current ||
+          notificationChainAwaitingUserRef.current,
+      },
+    );
+
+    if (release) {
+      visualQueueDimSessionRef.current = false;
+      setVisualQueueDimSession(false);
+      emitTrace('release', releaseReason, false);
+      return;
+    }
+
+    emitTrace(
+      'keep',
+      visualQueueCardShowing
+        ? 'queue-card-visible'
+        : 'between-cards-session-held',
+      true,
+    );
+  }, [
+    chainAdvanceWaiting,
+    notificationChainTransitioning,
+    notificationSessionActive,
+    notificationQueueShellDisplayKindResolved,
+    effectiveNotificationQueueShellKind,
+    ownerCheckQueueVisibility.visible,
+    ownerIncomingQueueVisibility.visible,
+    ownerPrimaryShellPendingLen,
+    ownerPrimaryShellQueueLen,
+    ownerResultQueueVisibility.visible,
+    ownerShellContentReady,
+    queueHeadShellKindFallback,
+    queueResultShellContentReady,
+    renderableResultShell,
+    replyParentTimerOwnsTopLayer,
+    sendFlowOpening,
+    sendSuccessCardActive,
+    notificationQueueShellCheckCardReady,
+    notificationQueueShellIncomingCardReady,
+    visualQueueCardShowing,
+    visualQueueMountedCard.mountedCardHasContent,
+    visualQueueMountedCard.mountedCardVisible,
+    visualQueueMountedCard.effectiveKind,
+    visualQueueMountedCard.kind,
+  ]);
+
+  useEffect(() => {
+    if (auth.user?.id) return;
+    if (!visualQueueDimSessionRef.current) return;
+    visualQueueDimSessionRef.current = false;
+    setVisualQueueDimSession(false);
+    logVisualQueueDimSessionTrace({
+      event: 'release',
+      reason: 'auth-cleared',
+      visualQueueDimSession: false,
+      mountedCardVisible: false,
+      mountedCardHasContent: false,
+      kind: null,
+      effectiveKind: null,
+      ownerQueueLen: 0,
+      ownerPendingLen: 0,
+      notificationSessionActive: false,
+      notificationChainTransitioning: false,
+      sendFlowOpening: false,
+      dimVisible: false,
+    });
+  }, [auth.user?.id]);
+
   const notificationHostLayerActive =
     notificationOverlayVisible && !replyParentTimerOwnsTopLayer;
   const notificationHostPointerActive =
     notificationOverlayVisible && !replyParentTimerOwnsTopLayer;
   const notificationHostSessionBackdrop =
     !replyParentTimerOwnsTopLayer &&
-    (notificationChainTransitioning ||
-      (notificationOverlayVisible && notificationSessionActive));
+    visualQueueDimSession &&
+    !sendFlowOpening;
 
   useLayoutEffect(() => {
     if (!notificationChainTransitioning) return;
