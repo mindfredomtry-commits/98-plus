@@ -720,6 +720,23 @@ export function InstantBanFlow({
   const overlayOpen = showCrossScreenPager;
   const notificationOverlayActive =
     notificationOverlayVisible || incomingGateActive || checkGateActive || !!result;
+  const queueLobbyTraceSnap = getConfirmOrbQueueDebugSnapshot();
+  const sendFlowOpening =
+    sendFlowOpen ||
+    banSentSuccess ||
+    phase === 'selectingTarget' ||
+    phase === 'composingBan' ||
+    phase === 'confirming';
+  const holdLobbyShellForActiveQueue = shouldHoldLobbyShellDuringActiveQueue({
+    sendFlowOpening,
+    notificationOverlayVisible,
+    visualQueueDimSessionLive: queueLobbyTraceSnap.visualQueueDimSessionLive,
+    notificationChainTransitioning,
+    ownerQueueLen: queueLobbyTraceSnap.ownerQueueLen,
+    ownerPendingLen: queueLobbyTraceSnap.ownerPendingLen,
+    queueHeadKind:
+      queueLobbyTraceSnap.overlayQueueHeadKind ?? activeOverlayKind,
+  });
   const overlayHandoffLobbySuppressed =
     lobbyActiveBanOverlay != null ||
     successToActiveLobbyBlocked ||
@@ -780,23 +797,6 @@ export function InstantBanFlow({
     bansCtaQueueSuppress ||
     resultCtaBansOverlayOpen ||
     bansReturnToLobbyLatch;
-  const queueLobbyTraceSnap = getConfirmOrbQueueDebugSnapshot();
-  const sendFlowOpening =
-    sendFlowOpen ||
-    sendSuccessCardActive ||
-    phase === 'selectingTarget' ||
-    phase === 'composingBan' ||
-    phase === 'confirming';
-  const holdLobbyShellForActiveQueue = shouldHoldLobbyShellDuringActiveQueue({
-    sendFlowOpening,
-    notificationOverlayVisible,
-    visualQueueDimSessionLive: queueLobbyTraceSnap.visualQueueDimSessionLive,
-    notificationChainTransitioning,
-    ownerQueueLen: queueLobbyTraceSnap.ownerQueueLen,
-    ownerPendingLen: queueLobbyTraceSnap.ownerPendingLen,
-    queueHeadKind:
-      queueLobbyTraceSnap.overlayQueueHeadKind ?? activeOverlayKind,
-  });
   const staleResultQueueClaimActive =
     onResultDismissPath &&
     !hasAnyOverlayForLobbyCta &&
