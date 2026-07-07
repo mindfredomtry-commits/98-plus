@@ -38924,12 +38924,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const visualQueueDimSessionLive =
     visualQueueDimSessionRef.current || visualQueueDimSession;
 
-  const shouldMountNotificationOverlayHost = useMemo(() => {
+  const shouldMountNotificationOverlayHostFromGuards = useMemo(() => {
     if (composeBlocksNotificationHost) {
       return false;
-    }
-    if (visualQueueDimSessionLive) {
-      return true;
     }
     if (checkAnswerWaitingResultHoldBanId) {
       return true;
@@ -39015,8 +39012,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ownerPrimaryShellPendingLen,
     replyParentActivePriorityActive,
     showDirectOverboardLayer,
-    visualQueueDimSessionLive,
   ]);
+  const shouldMountNotificationOverlayHost =
+    !composeBlocksNotificationHost &&
+    (visualQueueDimSessionLive || shouldMountNotificationOverlayHostFromGuards);
 
   emitEmptyHostBugTraceRef.current = ({
     caller,
@@ -39492,6 +39491,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   useLayoutEffect(() => {
+    if (visualQueueDimSessionRef.current && !visualQueueDimSession) {
+      setVisualQueueDimSession(true);
+    }
+
     const chainHandoffActive =
       notificationChainHandoffRef.current ||
       notificationChainAwaitingUserRef.current;
@@ -39724,6 +39727,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     visualQueueMountedCard.mountedCardVisible,
     visualQueueMountedCard.effectiveKind,
     visualQueueMountedCard.kind,
+    visualQueueDimSession,
   ]);
 
   useEffect(() => {
@@ -39773,6 +39777,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const queueDimHostDecision = computeQueueDimHostDecision({
     visualQueueDimSession,
     visualQueueDimSessionRef: visualQueueDimSessionRef.current,
+    visualQueueDimSessionLive,
     shouldMountNotificationOverlayHost,
     notificationHostSessionBackdrop,
     notificationOverlayVisible,
@@ -39800,6 +39805,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       queueDimHostDecision.decisionReason,
       queueDimHostDecision.visualQueueDimSession,
       queueDimHostDecision.visualQueueDimSessionRef,
+      queueDimHostDecision.visualQueueDimSessionLive,
       queueDimHostDecision.hostMounted,
       queueDimHostDecision.backdropVisible,
       queueDimHostDecision.shouldMountNotificationOverlayHost,
@@ -40805,7 +40811,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             {!composeBlocksNotificationHost && shouldMountNotificationOverlayHost ? (
             <GlobalOverlayHost
               active={notificationHostPointerActive}
-              queueSessionActive={notificationHostSessionBackdrop}
+              queueSessionActive={
+                visualQueueDimSessionLive &&
+                !replyParentTimerOwnsTopLayer &&
+                !sendFlowOpening
+              }
               checkInteractive={checkOverlayMounted}
               activeOverlayKind={
                 showReplyIncomingOverlayDirect

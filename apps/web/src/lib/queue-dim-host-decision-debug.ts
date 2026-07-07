@@ -3,6 +3,7 @@
 export type QueueDimHostDecisionTrace = {
   visualQueueDimSession: boolean;
   visualQueueDimSessionRef: boolean;
+  visualQueueDimSessionLive: boolean;
   shouldMountNotificationOverlayHost: boolean;
   notificationHostSessionBackdrop: boolean;
   dimVisible: boolean;
@@ -30,6 +31,7 @@ export type QueueDimHostDecisionTrace = {
 export function computeQueueDimHostDecision(input: {
   visualQueueDimSession: boolean;
   visualQueueDimSessionRef: boolean;
+  visualQueueDimSessionLive: boolean;
   shouldMountNotificationOverlayHost: boolean;
   notificationHostSessionBackdrop: boolean;
   notificationOverlayVisible: boolean;
@@ -49,8 +51,7 @@ export function computeQueueDimHostDecision(input: {
   replyParentTimerOwnsTopLayer: boolean;
   releaseReason?: string | null;
 }): QueueDimHostDecisionTrace {
-  const sessionLive =
-    input.visualQueueDimSessionRef || input.visualQueueDimSession;
+  const sessionLive = input.visualQueueDimSessionLive;
   const hostBranchOpen =
     !input.showDirectOverboardLayer || sessionLive;
   const hostMounted =
@@ -62,7 +63,13 @@ export function computeQueueDimHostDecision(input: {
   const dimVisible = backdropVisible;
 
   let decisionReason = 'ok';
-  if (sessionLive && !dimVisible) {
+  if (
+    input.visualQueueDimSessionRef &&
+    !input.visualQueueDimSession &&
+    !dimVisible
+  ) {
+    decisionReason = 'BROKEN_STICKY_DIM_REF_STATE_DESYNC';
+  } else if (sessionLive && !dimVisible) {
     decisionReason = 'BROKEN_STICKY_DIM_CONTRACT';
     if (!hostBranchOpen) {
       decisionReason += ':show-direct-overboard-suppresses-host-branch';
@@ -94,6 +101,7 @@ export function computeQueueDimHostDecision(input: {
   return {
     visualQueueDimSession: input.visualQueueDimSession,
     visualQueueDimSessionRef: input.visualQueueDimSessionRef,
+    visualQueueDimSessionLive: input.visualQueueDimSessionLive,
     shouldMountNotificationOverlayHost: input.shouldMountNotificationOverlayHost,
     notificationHostSessionBackdrop: input.notificationHostSessionBackdrop,
     dimVisible,
