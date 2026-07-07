@@ -244,7 +244,6 @@ import {
 import { logLobbyBansCtaEmptyDelayDiag } from '@/lib/lobby-bans-cta-debug';
 import { logLobbyBansClick } from '@/lib/lobby-bans-click-diag-debug';
 import { logResultRenderBranch, logResultRenderSelectionTrace } from '@/lib/result-render-selection-trace';
-import { logLobbyBranchSuppressedByVisualShield } from '@/lib/lobby-branch-suppressed-by-visual-shield-debug';
 import { BanGlyph } from './SuccessBanCardBody';
 import { logSendFlow } from '@/lib/send-flow-debug';
 import { logSendBanResponseTrace } from '@/lib/send-ban-response-trace';
@@ -495,7 +494,6 @@ export function InstantBanFlow({
     notificationOverlayMounted,
     lobbyBansNeedAttention,
     notificationOverlayVisible,
-    visualQueueDimSessionLive,
     notificationChainTransitioning,
     setNotificationChainTransitioning,
     clearNotificationOverlayForEmptyQueueAfterSuccessExit,
@@ -7365,62 +7363,6 @@ export function InstantBanFlow({
       : null;
 
   const lobbyRenderBranch = lobbyOrbVisible || showBootOrb ? 'lobby' : 'base-null';
-  const sendFlowOpeningForVisualShield =
-    phase !== 'idle' || replyComposeActive || banSentSuccess;
-  const lobbyShellSuppressedByVisualShield =
-    visualQueueDimSessionLive && !sendFlowOpeningForVisualShield;
-  const renderLobbyShell = !lobbyShellSuppressedByVisualShield;
-  const renderLobbyTopNav = showLobbyTopNav && renderLobbyShell;
-  const renderBootOrb = showBootOrb && renderLobbyShell;
-  const renderLobbyOrb = showLobbyOrb && renderLobbyShell;
-  const renderLobbyCta = showLobbyCta && renderLobbyShell;
-  const renderLobbyAtmosphere = !lobbyChromeHidden && renderLobbyShell;
-  const renderPersistentLogo = lobbyBootIntroPrimed && renderLobbyShell;
-  const resultRenderBranch =
-    lobbyShellSuppressedByVisualShield && lobbyRenderBranch === 'lobby'
-      ? 'overlay-held-null'
-      : lobbyRenderBranch;
-  const resultRenderBranchReason =
-    lobbyShellSuppressedByVisualShield && lobbyRenderBranch === 'lobby'
-      ? 'visual-shield-holds-lobby-shell'
-      : queueClaimsNotificationScreen
-        ? 'queue-claims-notification-screen'
-        : lobbyRenderBranch === 'base-null'
-          ? 'lobby-orb-hidden'
-          : 'lobby-shell-render';
-
-  const lobbyBranchVisualShieldTraceSigRef = useRef('');
-  useLayoutEffect(() => {
-    if (!lobbyShellSuppressedByVisualShield || lobbyRenderBranch !== 'lobby') {
-      return;
-    }
-    const sig = [
-      visualQueueDimSessionLive,
-      sendFlowOpeningForVisualShield,
-      activeOverlayKind,
-      resultRenderBranch,
-    ].join('|');
-    if (sig === lobbyBranchVisualShieldTraceSigRef.current) return;
-    lobbyBranchVisualShieldTraceSigRef.current = sig;
-    logLobbyBranchSuppressedByVisualShield({
-      visualQueueDimSessionLive,
-      sendFlowOpening: sendFlowOpeningForVisualShield,
-      renderBranchBefore: 'lobby',
-      renderBranchAfter: 'overlay-held-null',
-      reason: 'visual-shield-holds-lobby-shell',
-      activeKind: activeOverlayKind,
-      shellKind: activeOverlayKind,
-      queueHeadKind: activeOverlayKind,
-    });
-  }, [
-    activeOverlayKind,
-    lobbyRenderBranch,
-    lobbyShellSuppressedByVisualShield,
-    resultRenderBranch,
-    sendFlowOpeningForVisualShield,
-    visualQueueDimSessionLive,
-  ]);
-
   logResultRenderSelectionTrace({
     activeOverlayKind,
     activeKind: activeOverlayKind,
@@ -7437,7 +7379,7 @@ export function InstantBanFlow({
     displayResultExists: Boolean(result),
     willRenderResultOverlay: Boolean(result),
     willRenderNotificationOverlay: notificationOverlayMounted,
-    willRenderLobby: renderLobbyShell && (lobbyOrbVisible || showBootOrb),
+    willRenderLobby: lobbyOrbVisible || showBootOrb,
     overlayQueueLength: effectiveOverlayQueueLengthForLobbyCta,
     pendingLen: getConfirmOrbQueueDebugSnapshot().pendingLen,
     queueHeadKind: activeOverlayKind,
@@ -7446,20 +7388,22 @@ export function InstantBanFlow({
     queueClaimsNotificationScreen,
     queueLobbyGuardActive,
     showLobby: lobbyOpen,
-    showLobbyCta: renderLobbyCta,
-    renderBranch: resultRenderBranch,
-    reason: lobbyShellSuppressedByVisualShield && lobbyRenderBranch === 'lobby'
-      ? 'visual-shield-holds-lobby-shell'
-      : queueClaimsNotificationScreen
-        ? 'queue-claims-notification-screen-lobby-underneath'
-        : lobbyRenderBranch === 'base-null'
-          ? 'lobby-orb-hidden'
-          : 'lobby-visible',
+    showLobbyCta,
+    renderBranch: lobbyRenderBranch,
+    reason: queueClaimsNotificationScreen
+      ? 'queue-claims-notification-screen-lobby-underneath'
+      : lobbyRenderBranch === 'base-null'
+        ? 'lobby-orb-hidden'
+        : 'lobby-visible',
   });
   logResultRenderBranch({
     component: 'InstantBanFlow',
-    renderBranch: resultRenderBranch,
-    reason: resultRenderBranchReason,
+    renderBranch: lobbyRenderBranch,
+    reason: queueClaimsNotificationScreen
+      ? 'queue-claims-notification-screen'
+      : lobbyRenderBranch === 'base-null'
+        ? 'lobby-orb-hidden'
+        : 'lobby-shell-render',
     showLobbyOrb,
     showBootOrb,
     lobbyChromeHidden,
@@ -7508,14 +7452,14 @@ export function InstantBanFlow({
           : undefined
       }
       data-debug-slow-orb={process.env.NODE_ENV === 'development' ? '' : undefined}
-      data-boot-scene={renderBootOrb ? '' : undefined}
+      data-boot-scene={showBootOrb ? '' : undefined}
       data-boot-logo-intro={
         launchStage === 'logoEnter' || bootLogoScaleActive ? 'true' : undefined
       }
       data-boot-background={bootBackgroundUnderRouteOverlay ? 'true' : undefined}
     >
       {zazhmiRenderProbe}
-      {renderLobbyTopNav ? (
+      {showLobbyTopNav ? (
         <ArenaLobbyTopNav
           onOpenBans={handleOpenBansOverlay}
           onOpenSettings={handleOpenSettings}
@@ -7524,7 +7468,7 @@ export function InstantBanFlow({
           telegramUserId={user?.id ?? null}
         />
       ) : null}
-      {renderLobbyAtmosphere ? <LobbyScreenAtmosphere /> : null}
+      {!lobbyChromeHidden ? <LobbyScreenAtmosphere /> : null}
       {lobbyOpen && lobbyDeeplinkToast ? (
         <div
           className={`lobby-deeplink-toast${
@@ -7556,7 +7500,7 @@ export function InstantBanFlow({
           persistentLobbyLogoActive ? 'true' : undefined
         }
       >
-        {renderPersistentLogo ? (
+        {lobbyBootIntroPrimed ? (
           <LobbyPersistentLogoSlot
             key="lobby-persistent-logo"
             logoScaleActive={bootLogoScaleActive}
@@ -7569,7 +7513,7 @@ export function InstantBanFlow({
           />
         ) : null}
 
-        {renderBootOrb ? (
+        {showBootOrb ? (
           <LobbyBootOrbWrap
             className="lobby-screen__orb-wrap lobby-screen__orb-root"
             ringScaleActive={bootRingScaleActive}
@@ -7591,7 +7535,7 @@ export function InstantBanFlow({
           </LobbyBootOrbWrap>
         ) : null}
 
-        {renderLobbyOrb ? (
+        {showLobbyOrb ? (
           <LobbyOrbWrap
             ref={lobbyOrbMountRef}
             data-orb-instance={lobbyOrbInstanceId}
@@ -7803,7 +7747,7 @@ export function InstantBanFlow({
               ? 'notificationQueueUiLock'
               : null,
       }) || null}
-      {renderLobbyCta &&
+      {showLobbyCta &&
       !effectiveBansOverlayOpen &&
       !notificationQueueUiLock ? (
         <ArenaLobbyIdle
