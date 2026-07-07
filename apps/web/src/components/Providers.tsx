@@ -646,6 +646,10 @@ import {
   logQueueDimHostDecisionTrace,
 } from '@/lib/queue-dim-host-decision-debug';
 import {
+  logNotificationOverlayVisibleGuardTrace,
+  shouldHoldNotificationOverlayVisibleDuringQueueGap,
+} from '@/lib/notification-overlay-visible-guard-trace-debug';
+import {
   findNewlyAddedOwnerPendingResultItems,
   isSamePendingResultObject,
   registerPendingResultObject,
@@ -38506,6 +38510,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           !!incomingCardDisplayBan &&
           incomingCardFullyReady);
       if (!hasRenderableCard) {
+        const visualQueueDimSessionLiveForVisibility =
+          visualQueueDimSessionRef.current || visualQueueDimSession;
+        if (
+          shouldHoldNotificationOverlayVisibleDuringQueueGap({
+            visualQueueDimSessionLive: visualQueueDimSessionLiveForVisibility,
+            ownerQueueLen: ownerPrimaryShellQueueLen,
+            queueHeadKind,
+            sendFlowOpening:
+              composeBlocksNotificationHost || sendSuccessCardActive,
+          })
+        ) {
+          return true;
+        }
         if (startupInteractionsHoldRef.current) {
           logLobbyIndicatorOpenedEmptyHostBug({
             reason: 'chain-transitioning-without-card-startup-hold',
@@ -38591,6 +38608,95 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     showDirectOverboardLayer,
     showReplyIncomingOverlayDirect,
     showCheckOverlayDirect,
+    queueHeadKind,
+    visualQueueDimSession,
+  ]);
+
+  const notificationOverlayVisibleGuardTraceSigRef = useRef('');
+  useLayoutEffect(() => {
+    const visualQueueDimSessionLive =
+      visualQueueDimSessionRef.current || visualQueueDimSession;
+    const sendFlowOpening =
+      composeBlocksNotificationHost || sendSuccessCardActive;
+    const hasRenderableCard =
+      Boolean(ownerPrimaryStableIncomingBan?.id) ||
+      ownerPrimaryHeldUserCard != null ||
+      showDirectOverboardLayer ||
+      checkOverlayMounted ||
+      incomingShellHydrating ||
+      (notificationQueueShellKind === 'check' && !!ownerPrimaryCheckBan?.id) ||
+      (notificationQueueShellKind === 'result' &&
+        !!ownerPrimaryDisplayResultForShell) ||
+      (notificationQueueShellKind === 'incoming' &&
+        !!incomingCardDisplayBan &&
+        incomingCardFullyReady);
+    const sessionHeldDuringGap =
+      shouldHoldNotificationOverlayVisibleDuringQueueGap({
+        visualQueueDimSessionLive,
+        ownerQueueLen: ownerPrimaryShellQueueLen,
+        queueHeadKind,
+        sendFlowOpening,
+      });
+    let decisionReason = 'ok';
+    if (
+      notificationOverlayVisible &&
+      sessionHeldDuringGap &&
+      notificationChainTransitioning
+    ) {
+      decisionReason = 'visual-queue-session-held-during-payload-gap';
+    } else if (
+      !notificationOverlayVisible &&
+      notificationChainTransitioning &&
+      !hasRenderableCard &&
+      ownerPrimaryShellQueueLen > 0
+    ) {
+      decisionReason = 'chain-transitioning-without-renderable-card';
+    } else if (notificationOverlayVisible) {
+      decisionReason = 'visible';
+    } else {
+      decisionReason = 'hidden';
+    }
+    const sig = [
+      notificationOverlayVisible,
+      decisionReason,
+      queueHeadKind,
+      notificationQueueShellKind,
+      ownerPrimaryShellQueueLen,
+      visualQueueDimSessionLive,
+    ].join('|');
+    if (sig === notificationOverlayVisibleGuardTraceSigRef.current) return;
+    notificationOverlayVisibleGuardTraceSigRef.current = sig;
+    logNotificationOverlayVisibleGuardTrace({
+      notificationOverlayVisible,
+      visualQueueDimSessionLive,
+      ownerQueueLen: ownerPrimaryShellQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+      queueHeadKind,
+      shellKind: notificationQueueShellKind,
+      hasRenderableCard,
+      notificationChainTransitioning,
+      sendFlowOpening,
+      decisionReason,
+    });
+  }, [
+    checkOverlayMounted,
+    composeBlocksNotificationHost,
+    incomingCardDisplayBan,
+    incomingCardFullyReady,
+    incomingShellHydrating,
+    notificationChainTransitioning,
+    notificationOverlayVisible,
+    notificationQueueShellKind,
+    ownerPrimaryCheckBan?.id,
+    ownerPrimaryDisplayResultForShell,
+    ownerPrimaryHeldUserCard,
+    ownerPrimaryShellPendingLen,
+    ownerPrimaryShellQueueLen,
+    ownerPrimaryStableIncomingBan?.id,
+    queueHeadKind,
+    sendSuccessCardActive,
+    showDirectOverboardLayer,
+    visualQueueDimSession,
   ]);
 
   useLayoutEffect(() => {
