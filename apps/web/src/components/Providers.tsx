@@ -1305,6 +1305,8 @@ interface AppContextValue {
   clearNotificationOverlayForEmptyQueueAfterSuccessExit: (source: string) => boolean;
   /** True only when a notification modal is actually rendered (blocks lobby pointer). */
   notificationOverlayVisible: boolean;
+  /** Visual queue dim session live — sticky shield after first queue card. */
+  visualQueueDimSessionLive: boolean;
   activeOverlayKind: 'incoming' | 'check' | 'result' | null;
   markOverlayUserAction: (kind: string, banId?: string) => void;
   logCardCloseClick: (opts: {
@@ -40519,6 +40521,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setNotificationChainTransitioning,
       clearNotificationOverlayForEmptyQueueAfterSuccessExit,
       notificationOverlayVisible,
+      visualQueueDimSessionLive,
       activeOverlayKind: incomingOverlayDisplayKind,
     logCardCloseClick,
     markOverlayUserAction,
@@ -40719,6 +40722,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setNotificationChainTransitioning,
       clearNotificationOverlayForEmptyQueueAfterSuccessExit,
       notificationOverlayVisible,
+      visualQueueDimSessionLive,
       incomingOverlayDisplayKind,
     logCardCloseClick,
     markOverlayUserAction,
