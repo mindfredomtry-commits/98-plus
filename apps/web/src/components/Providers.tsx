@@ -39127,25 +39127,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     !composeBlocksNotificationHost &&
     (visualQueueDimSessionLive || shouldMountNotificationOverlayHostFromGuards);
 
-  const overlayVisualShieldDecision = computeOverlayVisualShieldDecision({
-    visualQueueDimSessionLive,
-    sendFlowOpening,
-    replyParentTimerOwnsTopLayer,
-    composeBlocksNotificationHost,
-    showDirectOverboardLayer,
-    shouldMountNotificationOverlayHostFromGuards,
-    notificationOverlayVisible,
-    ownerQueueLen: ownerPrimaryShellQueueLen,
-    ownerPendingLen: ownerPrimaryShellPendingLen,
-    queueHeadKind,
-    shellDisplayKind: notificationQueueShellDisplayKindResolved,
-  });
-  const overlayVisualShieldHostMounted = overlayVisualShieldDecision.hostMounted;
-  const overlayVisualShieldBackdropVisible =
-    overlayVisualShieldDecision.backdropVisible;
-  const overlayVisualShieldCardContentMounted =
-    overlayVisualShieldDecision.cardContentMounted;
-
   emitEmptyHostBugTraceRef.current = ({
     caller,
     reason,
@@ -39574,6 +39555,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     replyParentActivePriorityActive &&
     !showDirectOverboardLayer &&
     ownerPrimaryHeldUserCard == null;
+
+  const overlayVisualShieldDecision = computeOverlayVisualShieldDecision({
+    visualQueueDimSessionLive,
+    sendFlowOpening,
+    replyParentTimerOwnsTopLayer,
+    composeBlocksNotificationHost,
+    showDirectOverboardLayer,
+    shouldMountNotificationOverlayHostFromGuards,
+    notificationOverlayVisible,
+    ownerQueueLen: ownerPrimaryShellQueueLen,
+    ownerPendingLen: ownerPrimaryShellPendingLen,
+    queueHeadKind,
+    shellDisplayKind: notificationQueueShellDisplayKindResolved,
+  });
+  const overlayVisualShieldHostMounted = overlayVisualShieldDecision.hostMounted;
+  const overlayVisualShieldBackdropVisible =
+    overlayVisualShieldDecision.backdropVisible;
+  const overlayVisualShieldCardContentMounted =
+    overlayVisualShieldDecision.cardContentMounted;
 
   useLayoutEffect(() => {
     if (!replyParentTimerOwnsTopLayer) {
