@@ -89,6 +89,8 @@ export function sanitizeOverlayQueue(
 }
 
 export const APP_NOTIFICATION_BACKDROP_Z_INDEX = 100;
+/** Visual queue shield — above lobby chrome / portaled active-ban (120). */
+export const APP_NOTIFICATION_VISUAL_SHIELD_Z_INDEX = 150;
 /** Cards must sit above backdrop and any stale check-direct layers. */
 export const APP_NOTIFICATION_CARD_Z_INDEX = 110;
 export const APP_NOTIFICATION_Z_INDEX = APP_NOTIFICATION_BACKDROP_Z_INDEX;
