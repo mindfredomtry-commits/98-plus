@@ -35,17 +35,6 @@ export type ConfirmOrbQueueDebugSnapshot = {
   notificationChainHandoff: boolean;
   notificationChainAwaitingUser: boolean;
   chainAdvanceWaiting: boolean;
-  ownerQueueLen: number;
-  ownerPendingLen: number;
-  visualQueueDimSession: boolean;
-  visualQueueDimSessionRef: boolean;
-  visualQueueDimSessionLive: boolean;
-  notificationOverlayVisible: boolean;
-  shouldMountNotificationOverlayHost: boolean;
-  notificationQueueShellKind: string | null;
-  effectiveNotificationQueueShellKind: string | null;
-  notificationQueueShellDisplayKindResolved: string | null;
-  chainAdvancePlaceholderKind: string | null;
 };
 
 export type LobbyOrbMountInputs = {

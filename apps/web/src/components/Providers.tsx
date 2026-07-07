@@ -2112,16 +2112,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }) => void
   >(() => {});
   const visualQueueDimSessionRef = useRef(false);
-  const visualQueueDimSessionStateRef = useRef(false);
-  const shouldMountNotificationOverlayHostDebugRef = useRef(false);
-  const notificationQueueShellKindDebugRef = useRef<string | null>(null);
-  const effectiveNotificationQueueShellKindDebugRef = useRef<string | null>(
-    null,
-  );
-  const notificationQueueShellDisplayKindResolvedDebugRef = useRef<
-    string | null
-  >(null);
-  const chainAdvancePlaceholderKindDebugRef = useRef<string | null>(null);
   const shellKindTransitionPrevRef = useRef({
     notificationQueueShellKind: null as string | null,
     effectiveNotificationQueueShellKind: null as string | null,
@@ -7353,7 +7343,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     useCallback((): ConfirmOrbQueueDebugSnapshot => {
       const selectedNext = getPostSuccessHandoffSelectedNext();
       const overlayHead = overlayQueueRef.current[0] ?? null;
-      const owner = ownerShadowRef.current.getState();
       return {
         pendingLen: pendingStartupInteractionsRef.current.length,
         queueLen: overlayQueueRef.current.length,
@@ -7375,23 +7364,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         notificationChainAwaitingUser:
           notificationChainAwaitingUserRef.current,
         chainAdvanceWaiting: chainAdvanceWaitingRef.current,
-        ownerQueueLen: owner.queue.length,
-        ownerPendingLen: owner.pending.length,
-        visualQueueDimSession: visualQueueDimSessionStateRef.current,
-        visualQueueDimSessionRef: visualQueueDimSessionRef.current,
-        visualQueueDimSessionLive:
-          visualQueueDimSessionRef.current ||
-          visualQueueDimSessionStateRef.current,
-        notificationOverlayVisible:
-          notificationOverlayVisibleDiagRef.current ?? false,
-        shouldMountNotificationOverlayHost:
-          shouldMountNotificationOverlayHostDebugRef.current,
-        notificationQueueShellKind: notificationQueueShellKindDebugRef.current,
-        effectiveNotificationQueueShellKind:
-          effectiveNotificationQueueShellKindDebugRef.current,
-        notificationQueueShellDisplayKindResolved:
-          notificationQueueShellDisplayKindResolvedDebugRef.current,
-        chainAdvancePlaceholderKind: chainAdvancePlaceholderKindDebugRef.current,
       };
     }, []);
 
@@ -39150,15 +39122,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const shouldMountNotificationOverlayHost =
     !composeBlocksNotificationHost &&
     (visualQueueDimSessionLive || shouldMountNotificationOverlayHostFromGuards);
-  shouldMountNotificationOverlayHostDebugRef.current =
-    shouldMountNotificationOverlayHost;
-  visualQueueDimSessionStateRef.current = visualQueueDimSession;
-  notificationQueueShellKindDebugRef.current = notificationQueueShellKind;
-  effectiveNotificationQueueShellKindDebugRef.current =
-    effectiveNotificationQueueShellKind;
-  notificationQueueShellDisplayKindResolvedDebugRef.current =
-    notificationQueueShellDisplayKindResolved;
-  chainAdvancePlaceholderKindDebugRef.current = chainAdvancePlaceholderKind;
 
   emitEmptyHostBugTraceRef.current = ({
     caller,

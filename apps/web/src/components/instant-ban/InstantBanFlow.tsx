@@ -244,12 +244,6 @@ import {
 import { logLobbyBansCtaEmptyDelayDiag } from '@/lib/lobby-bans-cta-debug';
 import { logLobbyBansClick } from '@/lib/lobby-bans-click-diag-debug';
 import { logResultRenderBranch, logResultRenderSelectionTrace } from '@/lib/result-render-selection-trace';
-import {
-  logLobbyBranchDuringQueueTrace,
-  resolveLobbyBranchDuringQueueDecisionReason,
-  shouldHoldLobbyShellDuringActiveQueue,
-  shouldLogLobbyBranchDuringQueueTrace,
-} from '@/lib/lobby-branch-during-queue-trace-debug';
 import { BanGlyph } from './SuccessBanCardBody';
 import { logSendFlow } from '@/lib/send-flow-debug';
 import { logSendBanResponseTrace } from '@/lib/send-ban-response-trace';
@@ -679,7 +673,6 @@ export function InstantBanFlow({
   const resultGoToBansDismissPathRef = useRef(false);
   const prevResultForDismissPathRef = useRef(result);
   const prevOverlayQueueLengthTraceRef = useRef(overlayQueueLength);
-  const lobbyBranchDuringQueueTraceSigRef = useRef('');
   const prevOverlayQueueHeadKindTraceRef = useRef<string | null>(null);
   const [historyBans, setHistoryBans] = useState<BanInteraction[]>([]);
   const [savedBans, setSavedBans] = useState<BanInteraction[]>([]);
@@ -725,8 +718,6 @@ export function InstantBanFlow({
     successToActiveLobbyBlocked ||
     overlayHandoffFromActiveCard ||
     notificationOverlayMounted ||
-    notificationOverlayVisible ||
-    holdLobbyShellForActiveQueue ||
     (bansReturnToLobbyLatch && notificationOverlayMounted);
   const bansLayerUiOpen =
     !bansReturnToLobbyLatch &&
@@ -780,23 +771,6 @@ export function InstantBanFlow({
     bansCtaQueueSuppress ||
     resultCtaBansOverlayOpen ||
     bansReturnToLobbyLatch;
-  const queueLobbyTraceSnap = getConfirmOrbQueueDebugSnapshot();
-  const sendFlowOpening =
-    sendFlowOpen ||
-    sendSuccessCardActive ||
-    phase === 'selectingTarget' ||
-    phase === 'composingBan' ||
-    phase === 'confirming';
-  const holdLobbyShellForActiveQueue = shouldHoldLobbyShellDuringActiveQueue({
-    sendFlowOpening,
-    notificationOverlayVisible,
-    visualQueueDimSessionLive: queueLobbyTraceSnap.visualQueueDimSessionLive,
-    notificationChainTransitioning,
-    ownerQueueLen: queueLobbyTraceSnap.ownerQueueLen,
-    ownerPendingLen: queueLobbyTraceSnap.ownerPendingLen,
-    queueHeadKind:
-      queueLobbyTraceSnap.overlayQueueHeadKind ?? activeOverlayKind,
-  });
   const staleResultQueueClaimActive =
     onResultDismissPath &&
     !hasAnyOverlayForLobbyCta &&
@@ -810,9 +784,7 @@ export function InstantBanFlow({
     ? false
     : shouldBlockLobbyForActiveQueue();
   const queueClaimsNotificationScreen =
-    effectiveOverlayQueueLengthForLobbyCta > 0 ||
-    queueLobbyGuardActive ||
-    holdLobbyShellForActiveQueue;
+    effectiveOverlayQueueLengthForLobbyCta > 0 || queueLobbyGuardActive;
   const legacyLobbyOrbBlockers = buildRenderLobbyOrbBlockers({
     replyIncomingDeeplinkPending,
     checkDeeplinkDirectPending,
@@ -840,8 +812,7 @@ export function InstantBanFlow({
     successExitDraining ||
     postSuccessHandoffBlocking ||
     notificationChainTransitioning ||
-    queueClaimsNotificationScreen ||
-    holdLobbyShellForActiveQueue;
+    queueClaimsNotificationScreen;
   const showLobbyChrome = lobbyBootIntroPrimed && !lobbyChromeHidden;
   const showLobbyCta =
     lobbyBootIntroPrimed &&
@@ -7392,13 +7363,6 @@ export function InstantBanFlow({
       : null;
 
   const lobbyRenderBranch = lobbyOrbVisible || showBootOrb ? 'lobby' : 'base-null';
-  const lobbyRenderReason = queueClaimsNotificationScreen
-    ? 'queue-claims-notification-screen-lobby-underneath'
-    : holdLobbyShellForActiveQueue
-      ? 'active-queue-holds-lobby-shell'
-      : lobbyRenderBranch === 'base-null'
-        ? 'lobby-orb-hidden'
-        : 'lobby-shell-render';
   logResultRenderSelectionTrace({
     activeOverlayKind,
     activeKind: activeOverlayKind,
@@ -7426,92 +7390,27 @@ export function InstantBanFlow({
     showLobby: lobbyOpen,
     showLobbyCta,
     renderBranch: lobbyRenderBranch,
-    reason: lobbyRenderReason,
+    reason: queueClaimsNotificationScreen
+      ? 'queue-claims-notification-screen-lobby-underneath'
+      : lobbyRenderBranch === 'base-null'
+        ? 'lobby-orb-hidden'
+        : 'lobby-visible',
   });
   logResultRenderBranch({
     component: 'InstantBanFlow',
     renderBranch: lobbyRenderBranch,
-    reason: lobbyRenderReason,
+    reason: queueClaimsNotificationScreen
+      ? 'queue-claims-notification-screen'
+      : lobbyRenderBranch === 'base-null'
+        ? 'lobby-orb-hidden'
+        : 'lobby-shell-render',
     showLobbyOrb,
     showBootOrb,
     lobbyChromeHidden,
     queueClaimsNotificationScreen,
-    holdLobbyShellForActiveQueue,
     activeOverlayKind,
     overlayQueueLength: effectiveOverlayQueueLengthForLobbyCta,
   });
-  if (
-    shouldLogLobbyBranchDuringQueueTrace({
-      renderBranch: lobbyRenderBranch,
-      visualQueueDimSessionRef: queueLobbyTraceSnap.visualQueueDimSessionRef,
-      visualQueueDimSessionLive: queueLobbyTraceSnap.visualQueueDimSessionLive,
-      notificationChainTransitioning,
-      ownerQueueLen: queueLobbyTraceSnap.ownerQueueLen,
-      ownerPendingLen: queueLobbyTraceSnap.ownerPendingLen,
-      notificationOverlayVisible,
-    })
-  ) {
-    const lobbyBranchDecisionReason = resolveLobbyBranchDuringQueueDecisionReason(
-      {
-        renderBranch: lobbyRenderBranch,
-        visualQueueDimSessionRef: queueLobbyTraceSnap.visualQueueDimSessionRef,
-        notificationChainTransitioning,
-        ownerQueueLen: queueLobbyTraceSnap.ownerQueueLen,
-        ownerPendingLen: queueLobbyTraceSnap.ownerPendingLen,
-      },
-    );
-    const lobbyBranchTraceSig = [
-      lobbyRenderBranch,
-      lobbyRenderReason,
-      lobbyBranchDecisionReason,
-      queueLobbyTraceSnap.ownerQueueLen,
-      queueLobbyTraceSnap.visualQueueDimSessionRef,
-      notificationOverlayVisible,
-      holdLobbyShellForActiveQueue,
-    ].join('|');
-    if (lobbyBranchDuringQueueTraceSigRef.current !== lobbyBranchTraceSig) {
-      lobbyBranchDuringQueueTraceSigRef.current = lobbyBranchTraceSig;
-      logLobbyBranchDuringQueueTrace({
-        renderBranch: lobbyRenderBranch,
-        reason: lobbyRenderReason,
-        ownerQueueLen: queueLobbyTraceSnap.ownerQueueLen,
-        ownerPendingLen: queueLobbyTraceSnap.ownerPendingLen,
-        queueHeadKind:
-          queueLobbyTraceSnap.overlayQueueHeadKind ?? activeOverlayKind,
-        activeKind: activeOverlayKind,
-        effectiveKind:
-          queueLobbyTraceSnap.effectiveNotificationQueueShellKind ??
-          activeOverlayKind,
-        shellKind:
-          queueLobbyTraceSnap.notificationQueueShellKind ?? activeOverlayKind,
-        displayKind:
-          queueLobbyTraceSnap.notificationQueueShellDisplayKindResolved,
-        notificationSessionActive,
-        notificationChainTransitioning,
-        visualQueueDimSession: queueLobbyTraceSnap.visualQueueDimSession,
-        visualQueueDimSessionRef: queueLobbyTraceSnap.visualQueueDimSessionRef,
-        visualQueueDimSessionLive: queueLobbyTraceSnap.visualQueueDimSessionLive,
-        notificationOverlayVisible,
-        shouldMountNotificationOverlayHost:
-          queueLobbyTraceSnap.shouldMountNotificationOverlayHost,
-        showLobby: lobbyOpen,
-        showLobbyOrb,
-        lobbyOpen,
-        composeState: phase,
-        phase,
-        sendFlowOpening,
-        previousKind: queueLobbyTraceSnap.chainAdvancePlaceholderKind,
-        previousAction: queueLobbyTraceSnap.chainAdvancePlaceholderKind
-          ? 'chain-advance'
-          : null,
-        nextQueueLen: overlayQueueLength,
-        nextPendingLen: queueLobbyTraceSnap.pendingLen,
-        caller: 'InstantBanFlow',
-        source: 'logResultRenderBranch',
-        decisionReason: lobbyBranchDecisionReason,
-      });
-    }
-  }
 
   return (
     <>
