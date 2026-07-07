@@ -992,11 +992,13 @@ html[data-check-direct] .app-page .bottom-nav {
 .app-notification-layer--session {
   pointer-events: none;
   isolation: isolate;
+  z-index: 150;
 }
 
 .app-notification-layer--visual-shield {
   pointer-events: none;
   isolation: isolate;
+  z-index: 150;
 }
 
 .app-notification-layer__hit-blocker {
@@ -1063,7 +1065,7 @@ html[data-reply-parent-active-timer] .instant-ban-active-ban-card .modal-card-ac
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   pointer-events: none;
-  z-index: 1;
+  z-index: 0;
   opacity: 0;
   visibility: hidden;
   transition: none !important;
@@ -1072,13 +1074,11 @@ html[data-reply-parent-active-timer] .instant-ban-active-ban-card .modal-card-ac
 
 .app-notification-layer--session .app-notification-layer__session-backdrop,
 .app-notification-layer--visual-shield .app-notification-layer__session-backdrop,
-.app-notification-layer__session-backdrop--visible {
+.app-notification-layer__session-backdrop--visible,
+.app-notification-layer__session-backdrop--visual-shield {
   opacity: 1;
   visibility: visible;
-}
-
-.app-notification-layer__session-backdrop--visual-shield {
-  z-index: 1;
+  z-index: 140;
 }
 
 .app-notification-layer__content {
@@ -1091,6 +1091,12 @@ html[data-reply-parent-active-timer] .instant-ban-active-ban-card .modal-card-ac
   pointer-events: none;
   isolation: isolate;
   box-sizing: border-box;
+}
+
+.app-notification-layer--session .app-notification-layer__content,
+.app-notification-layer--visual-shield .app-notification-layer__content,
+.app-notification-layer__content--card-host {
+  z-index: 160;
 }
 
 .app-notification-layer__content--card-host,
