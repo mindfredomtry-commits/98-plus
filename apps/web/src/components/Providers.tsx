@@ -524,6 +524,10 @@ import {
   resolveHasRenderableCardDecisionReason,
 } from '@/lib/has-renderable-card-trace-debug';
 import {
+  logShellKindTransitionTrace,
+  resolveShellKindTransitionDecisionReason,
+} from '@/lib/shell-kind-transition-trace-debug';
+import {
   logLobbyIndicatorResultPrefetchSkippedDuringResultOpen,
   resolveLobbyIndicatorResultPrefetchBlocked,
 } from '@/lib/lobby-indicator-result-prefetch-skip';
@@ -2104,6 +2108,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }) => void
   >(() => {});
   const visualQueueDimSessionRef = useRef(false);
+  const shellKindTransitionPrevRef = useRef({
+    notificationQueueShellKind: null as string | null,
+    effectiveNotificationQueueShellKind: null as string | null,
+    notificationQueueShellDisplayKindResolved: null as string | null,
+    queueHeadKind: null as string | null,
+  });
   const visualQueueDimSessionTraceSigRef = useRef('');
   const visualQueueDimReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -39078,6 +39088,103 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
     logEmptyHostBugTrace(trace);
   };
+
+  useLayoutEffect(() => {
+    const prev = shellKindTransitionPrevRef.current;
+    const owner = ownerShadowRef.current.getState();
+    const childrenBranch = queueShellRendersResultOverlay
+      ? 'result'
+      : notificationQueueShellDisplayKindResolved === 'check'
+        ? checkShellBanId
+          ? 'check'
+          : 'check-without-ban'
+        : notificationQueueShellDisplayKindResolved === 'incoming'
+          ? 'incoming'
+          : 'null';
+    const renderBranch =
+      childrenBranch === 'null' ? 'no-shell-branch' : `shell-${childrenBranch}`;
+    const sharedTrace = {
+      previousQueueHeadKind: prev.queueHeadKind,
+      nextQueueHeadKind: queueHeadKind,
+      ownerQueueLen: ownerPrimaryShellQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+      activeKind: activeOverlayKind,
+      effectiveKind: effectiveNotificationQueueShellKind,
+      displayKind: notificationQueueShellDisplayKindResolved,
+      selectedBanId: effectiveIncomingBanId ?? owner.active.banId ?? null,
+      selectedResultId: ownerRenderResultPayload?.id ?? null,
+      ownerQueueHead: serializeEmptyHostBugQueueItem(owner.queue[0] ?? null),
+      ownerPendingHead: serializeEmptyHostBugQueueItem(owner.pending[0] ?? null),
+      notificationSessionActive,
+      notificationChainTransitioning,
+      visualQueueDimSession,
+      visualQueueDimSessionRef: visualQueueDimSessionRef.current,
+      renderBranch,
+    };
+    const tracks = [
+      {
+        caller: 'notificationQueueShellKind',
+        previousShellKind: prev.notificationQueueShellKind,
+        nextShellKind: notificationQueueShellKind,
+      },
+      {
+        caller: 'effectiveNotificationQueueShellKind',
+        previousShellKind: prev.effectiveNotificationQueueShellKind,
+        nextShellKind: effectiveNotificationQueueShellKind,
+      },
+      {
+        caller: 'notificationQueueShellDisplayKindResolved',
+        previousShellKind: prev.notificationQueueShellDisplayKindResolved,
+        nextShellKind: notificationQueueShellDisplayKindResolved,
+      },
+      {
+        caller: 'queueHeadKind',
+        previousShellKind: prev.queueHeadKind,
+        nextShellKind: queueHeadKind,
+      },
+    ] as const;
+
+    for (const track of tracks) {
+      if (track.previousShellKind === track.nextShellKind) continue;
+      const decisionReason = resolveShellKindTransitionDecisionReason({
+        nextShellKind: track.nextShellKind,
+        ownerQueueLen: ownerPrimaryShellQueueLen,
+        ownerPendingLen: ownerPrimaryShellPendingLen,
+        visualQueueDimSessionRef: visualQueueDimSessionRef.current,
+      });
+      logShellKindTransitionTrace({
+        ...sharedTrace,
+        previousShellKind: track.previousShellKind,
+        nextShellKind: track.nextShellKind,
+        caller: track.caller,
+        source: track.caller,
+        reason: `${track.caller}:${track.previousShellKind ?? 'null'}->${track.nextShellKind ?? 'null'}`,
+        decisionReason,
+      });
+    }
+
+    shellKindTransitionPrevRef.current = {
+      notificationQueueShellKind,
+      effectiveNotificationQueueShellKind,
+      notificationQueueShellDisplayKindResolved,
+      queueHeadKind,
+    };
+  }, [
+    activeOverlayKind,
+    checkShellBanId,
+    effectiveIncomingBanId,
+    effectiveNotificationQueueShellKind,
+    notificationChainTransitioning,
+    notificationQueueShellDisplayKindResolved,
+    notificationQueueShellKind,
+    notificationSessionActive,
+    ownerPrimaryShellPendingLen,
+    ownerPrimaryShellQueueLen,
+    ownerRenderResultPayload?.id,
+    queueHeadKind,
+    queueShellRendersResultOverlay,
+    visualQueueDimSession,
+  ]);
 
   const incomingNullResultContextActive =
     queueHeadKind === 'result' ||
