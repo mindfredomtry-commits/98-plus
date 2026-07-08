@@ -674,6 +674,7 @@ import {
 } from '@/lib/overlay-gap-frame-classify-debug';
 import { traceOverlayShellEmptyWhileQueueActiveIfChanged } from '@/lib/overlay-shell-empty-while-queue-active-debug';
 import { traceOverlayNextHandoffStalledIfChanged } from '@/lib/overlay-next-handoff-stalled-trace-debug';
+import { traceOverlayShellCreateAttemptIfChanged } from '@/lib/overlay-shell-create-attempt-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -40506,6 +40507,57 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const nextOverlayCandidate = overlayQueueRef.current[0] ?? null;
     const nextOwnerQueueHead = ownerReadQueue[0] ?? null;
     const pendingOverlayHead = ownerReadState.pending[0] ?? null;
+    const overlayCandidateForShellCreate =
+      overlayQueueRef.current[0] ?? overlayQueue[0] ?? null;
+    const overlayQueueLengthForShellCreate = Math.max(
+      overlayQueue.length,
+      overlayQueueRef.current.length,
+    );
+    const heldBanIdForShellDiag = ownerPrimaryHeldUserCard
+      ? heldUserCardBanId(ownerPrimaryHeldUserCard)
+      : null;
+    const isActiveUserCardHoldForShellDiag =
+      notificationChainAwaitingUserRef.current &&
+      ownerPrimaryHeldUserCard != null;
+    traceOverlayShellCreateAttemptIfChanged({
+      overlayCandidate: overlayCandidateForShellCreate,
+      overlayQueueLength: overlayQueueLengthForShellCreate,
+      shellKindBefore: shellKind,
+      actualKindBefore: actualKind,
+      effectiveKindBefore:
+        effectiveNotificationQueueShellKind ?? shellKind ?? queueHeadKind,
+      pipeline: {
+        composeBlocksNotificationHost,
+        checkAnswerWaitingResultHoldBanId,
+        chainAdvanceWaiting,
+        chainAdvancePlaceholderKind,
+        replyIncomingDirectPath,
+        incomingNotificationShellKind,
+        queueHeadShellKindFallback,
+        notificationQueueShellKind,
+        effectiveNotificationQueueShellKind,
+        notificationQueueShellDisplayKind,
+        notificationQueueShellDisplayKindResolved: shellKind,
+        ownerPrimaryShellQueueLen,
+        ownerPrimaryShellPendingLen,
+        ownerQueueHeadKind: ownerPrimaryQueueHead?.kind ?? null,
+        renderableResultShell,
+        checkShellKindWithoutBan,
+        showDirectOverboardLayer,
+      },
+      notificationOverlayVisible,
+      visualQueueDimSessionLive,
+      backdropMounted: overlayBackdropHostMounted,
+      renderBranch: queueHeadLifecycleRenderBranch,
+      activeKind:
+        incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
+      incomingOverlayDisplayKind: incomingOverlayDisplayKind ?? null,
+      activeOverlayKind: activeOverlayKind ?? null,
+      queueHeadKind,
+      holdActive: isActiveUserCardHoldForShellDiag,
+      isActiveUserCardHold: isActiveUserCardHoldForShellDiag,
+      heldBanId: heldBanIdForShellDiag,
+    });
     traceOverlayNextHandoffStalledIfChanged({
       ownerQueueLen: ownerPrimaryShellQueueLen,
       ownerPendingLen: ownerPrimaryShellPendingLen,
@@ -40531,20 +40583,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
   }, [
     activeOverlayKind,
+    chainAdvancePlaceholderKind,
+    chainAdvanceWaiting,
+    checkAnswerWaitingResultHoldBanId,
     checkOverlayMounted,
+    checkShellKindWithoutBan,
+    composeBlocksNotificationHost,
     effectiveNotificationQueueShellKind,
     globalOverlayHostActive,
+    incomingNotificationShellKind,
     incomingOverlayDisplayKind,
     notificationHostPointerActive,
     notificationOverlayVisible,
     notificationQueueShellDisplayKind,
     notificationQueueShellDisplayKindResolved,
+    notificationQueueShellKind,
     overlayBackdropDimVisible,
     overlayBackdropHostMounted,
+    overlayQueue,
     overlayVisualShieldCardContentMounted,
+    ownerPrimaryHeldUserCard,
+    ownerPrimaryQueueHead,
     ownerPrimaryShellPendingLen,
     ownerPrimaryShellQueueLen,
+    ownerReadQueue,
     queueHeadKind,
+    queueHeadLifecycleRenderBranch,
+    queueHeadShellKindFallback,
+    renderableResultShell,
+    replyIncomingDirectPath,
     sendFlowOpening,
     showCheckOverlayDirect,
     showDirectOverboardLayer,
