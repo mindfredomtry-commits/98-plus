@@ -4,6 +4,7 @@ import type { BanInteraction, BanResult } from '@98plus/shared';
 import type { QueuedOverlay } from '@/lib/overlay-queue';
 import { overlayBanId } from '@/lib/overlay-queue';
 import { normalizeId } from '@/lib/normalize-json';
+import { traceQueueHeadNullReadSite } from '@/lib/queue-head-lifecycle-trace-debug';
 import type { NotificationOwnerDisplayState } from '@/lib/notification-overlay-owner';
 import {
   logOwnerPhase10AReadFallback,
@@ -198,6 +199,21 @@ export function readOwnerOnlyQueueHead(
   legacy?: LegacyQueueHeadCompare,
 ): QueuedOverlay | null {
   const ownerHead = ownerQueue[0] ?? null;
+  if (!ownerHead && ownerQueue.length > 0) {
+    traceQueueHeadNullReadSite({
+      assignmentSite: 'readOwnerOnlyQueueHead',
+      selector,
+      ownerQueueLen: ownerQueue.length,
+      ownerHeadPresent: false,
+      ownerHeadRawKind: null,
+      legacyHeadKind: legacy
+        ? legacy.queue[0]?.kind ?? legacy.refQueue[0]?.kind ?? null
+        : null,
+      legacyQueueLen: legacy
+        ? Math.max(legacy.queue.length, legacy.refQueue.length)
+        : undefined,
+    });
+  }
   logOwnerPhase10BOwnerRead({
     selector,
     field: 'queueHead',

@@ -3,6 +3,7 @@
 import type { QueuedOverlay } from '@/lib/overlay-queue';
 import { overlayBanId } from '@/lib/overlay-queue';
 import { normalizeId } from '@/lib/normalize-json';
+import { traceQueueHeadNullReadSite } from '@/lib/queue-head-lifecycle-trace-debug';
 import {
   logOwnerPhase11B6ShellMismatch,
   logOwnerPhase11B6ShellRead,
@@ -80,6 +81,19 @@ export function readOwnerOnlyShellQueueHeadKind(
   legacy?: LegacyQueueCompare,
 ): OverlayShellKind {
   const ownerKind = queueHeadKindFrom(ownerQueue);
+  if (!ownerKind && ownerQueue.length > 0) {
+    traceQueueHeadNullReadSite({
+      assignmentSite: 'readOwnerOnlyShellQueueHeadKind',
+      selector,
+      ownerQueueLen: ownerQueue.length,
+      ownerHeadPresent: ownerQueue[0] != null,
+      ownerHeadRawKind: ownerQueue[0]?.kind ?? null,
+      legacyHeadKind: legacy ? legacyQueueHeadKind(legacy) : null,
+      legacyQueueLen: legacy
+        ? Math.max(legacy.queue.length, legacy.refQueue.length)
+        : undefined,
+    });
+  }
   logOwnerPhase11B6ShellRead({
     selector,
     field: 'queueHeadKind',

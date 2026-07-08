@@ -673,6 +673,16 @@ import {
   type OverlayGapFrameReason,
 } from '@/lib/overlay-gap-frame-classify-debug';
 import {
+  buildQueueHeadLifecycleSignature,
+  logQueueHeadLifecycleTrace,
+  queueHeadIdFrom,
+  readQueueHeadMutationContext,
+  registerQueueHeadMutationContext,
+  resolveQueueHeadLifecycleReason,
+  traceQueueHeadNullReadSite,
+  type QueueHeadLifecycleFramePhase,
+} from '@/lib/queue-head-lifecycle-trace-debug';
+import {
   findNewlyAddedOwnerPendingResultItems,
   isSamePendingResultObject,
   registerPendingResultObject,
@@ -1757,6 +1767,11 @@ function logProvidersOverlayQueueMutation(input: {
   banId?: string | null;
   resultId?: string | null;
 }): void {
+  registerQueueHeadMutationContext({
+    source: input.source,
+    reason: input.reason,
+    operation: input.operation,
+  });
   console.log('PROVIDERS_OVERLAY_QUEUE_MUTATION', input);
 }
 
@@ -2152,6 +2167,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const overlayGapFramePreviousReasonRef =
     useRef<OverlayGapFrameReason | null>(null);
   const overlayGapFrameAfterLayoutRafRef = useRef<number | null>(null);
+  const queueHeadLifecyclePrevRef = useRef<{
+    queueHeadKind: string | null;
+    headId: string | null;
+  }>({ queueHeadKind: null, headId: null });
+  const queueHeadLifecycleSigRef = useRef('');
+  const queueHeadLifecycleAfterLayoutRafRef = useRef<number | null>(null);
   const [visualQueueDimSession, setVisualQueueDimSession] = useState(false);
   const hasPendingNotificationChainFnRef = useRef<() => boolean>(() => false);
   const startupInteractionsHoldRef = useRef(true);
@@ -37665,6 +37686,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ? ownerPrimaryQueueHead
         : null;
 
+  if (
+    !resolvedShellQueueHead &&
+    ownerPrimaryQueueHead != null &&
+    ownerReadQueue.length > 0
+  ) {
+    traceQueueHeadNullReadSite({
+      assignmentSite: 'resolvedShellQueueHead',
+      selector: 'notificationQueueShellDisplayKindResolved',
+      ownerQueueLen: ownerReadQueue.length,
+      ownerHeadPresent: true,
+      ownerHeadRawKind: ownerPrimaryQueueHead.kind ?? null,
+      legacyHeadKind: ownerPrimaryQueueHead.kind ?? null,
+      legacyQueueLen: overlayQueueRef.current.length,
+    });
+  }
+
   const queueHeadCheckBanForShellChildFallback =
     notificationQueueShellDisplayKindResolved === 'check' &&
     !ownerPrimaryCheckBanForDisplayGuards?.id?.trim() &&
@@ -39319,6 +39356,116 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     queueShellRendersResultOverlay,
     visualQueueDimSession,
   ]);
+
+  const queueHeadLifecycleRenderBranch = queueShellRendersResultOverlay
+    ? 'shell-result'
+    : notificationQueueShellDisplayKindResolved === 'check'
+      ? checkShellBanId
+        ? 'shell-check'
+        : 'shell-check-without-ban'
+      : notificationQueueShellDisplayKindResolved === 'incoming'
+        ? 'shell-incoming'
+        : 'no-shell-branch';
+
+  const sampleQueueHeadLifecycle = useCallback(() => {
+    const nextHeadId = queueHeadIdFrom(ownerPrimaryQueueHead);
+    const mutation = readQueueHeadMutationContext();
+    return {
+      nextQueueHeadKind: queueHeadKind,
+      nextHeadId,
+      ownerQueueLen: ownerPrimaryShellQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+      overlayQueueLength: Math.max(
+        overlayQueue.length,
+        overlayQueueRef.current.length,
+      ),
+      displayQueueLength: ownerReadQueue.length,
+      mutationSource: mutation?.source ?? null,
+      mutationReason: mutation?.reason ?? null,
+      renderBranch: queueHeadLifecycleRenderBranch,
+      shellKind: notificationQueueShellDisplayKindResolved,
+      activeKind: activeOverlayKind,
+    };
+  }, [
+    activeOverlayKind,
+    notificationQueueShellDisplayKindResolved,
+    ownerPrimaryQueueHead,
+    ownerPrimaryShellPendingLen,
+    ownerPrimaryShellQueueLen,
+    ownerReadQueue.length,
+    overlayQueue.length,
+    queueHeadKind,
+    queueHeadLifecycleRenderBranch,
+  ]);
+
+  const emitQueueHeadLifecycleIfChanged = useCallback(
+    (framePhase: QueueHeadLifecycleFramePhase) => {
+      const sample = sampleQueueHeadLifecycle();
+      const sig = buildQueueHeadLifecycleSignature({
+        framePhase,
+        ...sample,
+      });
+      if (sig === queueHeadLifecycleSigRef.current) return;
+
+      const prev = queueHeadLifecyclePrevRef.current;
+      const lifecycleReason = resolveQueueHeadLifecycleReason({
+        previousQueueHeadKind: prev.queueHeadKind,
+        nextQueueHeadKind: sample.nextQueueHeadKind,
+        previousHeadId: prev.headId,
+        nextHeadId: sample.nextHeadId,
+      });
+
+      logQueueHeadLifecycleTrace({
+        framePhase,
+        reason: lifecycleReason,
+        previousQueueHeadKind: prev.queueHeadKind,
+        nextQueueHeadKind: sample.nextQueueHeadKind,
+        previousHeadId: prev.headId,
+        nextHeadId: sample.nextHeadId,
+        ownerQueueLen: sample.ownerQueueLen,
+        ownerPendingLen: sample.ownerPendingLen,
+        overlayQueueLength: sample.overlayQueueLength,
+        displayQueueLength: sample.displayQueueLength,
+        mutationSource: sample.mutationSource,
+        mutationReason: sample.mutationReason,
+        renderBranch: sample.renderBranch,
+        shellKind: sample.shellKind,
+        activeKind: sample.activeKind,
+      });
+
+      queueHeadLifecycleSigRef.current = sig;
+
+      if (framePhase === 'after-layout') {
+        queueHeadLifecyclePrevRef.current = {
+          queueHeadKind: sample.nextQueueHeadKind,
+          headId: sample.nextHeadId,
+        };
+      }
+    },
+    [sampleQueueHeadLifecycle],
+  );
+
+  useInsertionEffect(() => {
+    emitQueueHeadLifecycleIfChanged('before-layout');
+  }, [emitQueueHeadLifecycleIfChanged]);
+
+  useLayoutEffect(() => {
+    emitQueueHeadLifecycleIfChanged('layout');
+    if (queueHeadLifecycleAfterLayoutRafRef.current != null) {
+      cancelAnimationFrame(queueHeadLifecycleAfterLayoutRafRef.current);
+      queueHeadLifecycleAfterLayoutRafRef.current = null;
+    }
+    queueHeadLifecycleAfterLayoutRafRef.current = requestAnimationFrame(() => {
+      queueHeadLifecycleAfterLayoutRafRef.current = null;
+      emitQueueHeadLifecycleIfChanged('after-layout');
+    });
+    return () => {
+      if (queueHeadLifecycleAfterLayoutRafRef.current != null) {
+        cancelAnimationFrame(queueHeadLifecycleAfterLayoutRafRef.current);
+        queueHeadLifecycleAfterLayoutRafRef.current = null;
+      }
+    };
+  }, [emitQueueHeadLifecycleIfChanged]);
 
   const incomingNullResultContextActive =
     queueHeadKind === 'result' ||

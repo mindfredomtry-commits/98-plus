@@ -2,6 +2,7 @@ import {
   logQueueAppearanceReactionTrace,
 } from '@/lib/queue-appearance-reaction-trace';
 import { logStartDrainEntryTrace } from '@/lib/start-drain-entry-trace';
+import { registerQueueHeadMutationContext } from '@/lib/queue-head-lifecycle-trace-debug';
 
 import {
   useCallback,
@@ -1010,6 +1011,11 @@ export function InstantBanFlow({
       nextHeadKind?: string | null;
     }) => {
       const head = readOverlayQueueTraceHead();
+      registerQueueHeadMutationContext({
+        source: input.source,
+        reason: `${input.reason}:${input.phase}`,
+        operation: input.operation,
+      });
       console.log('OVERLAY_QUEUE_MUTATION_TRACE', {
         operation: input.operation,
         source: input.source,
