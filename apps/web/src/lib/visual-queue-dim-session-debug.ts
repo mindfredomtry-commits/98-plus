@@ -126,6 +126,57 @@ export function shouldReleaseVisualQueueDimSession(input: {
   return { release: false, reason: '', deferGrace: false };
 }
 
+const VISUAL_DIM_RELEASE_WITHOUT_SHELL_OPS = new Set([
+  'dequeue',
+  'replace',
+  'clear',
+]);
+
+/** Immediate release when dim session outlives shell/card with empty queues. */
+export function shouldReleaseVisualQueueDimSessionWithoutShell(input: {
+  visualQueueDimSessionLive: boolean;
+  shellKind: string | null;
+  actualKind: string | null;
+  effectiveKind: string | null;
+  overlayQueueLength: number;
+  ownerQueueLen: number;
+  ownerPendingLen: number;
+  mountedCardHasContent: boolean;
+  lastOverlayQueueMutationOperation?: string | null;
+}): boolean {
+  if (!input.visualQueueDimSessionLive) return false;
+  if (input.shellKind != null || input.actualKind != null || input.effectiveKind != null) {
+    return false;
+  }
+  if (input.overlayQueueLength !== 0) return false;
+  if (input.ownerQueueLen !== 0 || input.ownerPendingLen !== 0) return false;
+  if (input.mountedCardHasContent) return false;
+  const op = input.lastOverlayQueueMutationOperation;
+  if (!op || !VISUAL_DIM_RELEASE_WITHOUT_SHELL_OPS.has(op)) return false;
+  return true;
+}
+
+export function logVisualQueueDimSessionReleasedWithoutShell(input: {
+  visualQueueDimSessionLiveBefore: boolean;
+  visualQueueDimSessionLiveAfter: boolean;
+  shellKind: string | null;
+  actualKind: string | null;
+  effectiveKind: string | null;
+  overlayQueueLength: number;
+  ownerQueueLen: number;
+  ownerPendingLen: number;
+  lastOverlayQueueMutationOperation: string | null;
+  lastOverlayQueueMutationReason: string | null;
+}): void {
+  const payload = {
+    timestamp: performance.now(),
+    ...input,
+    reason: 'release-dim-session-when-shell-missing',
+  };
+  console.log('VISUAL_QUEUE_DIM_SESSION_RELEASED_WITHOUT_SHELL', payload);
+  window.__debug98log?.('VISUAL_QUEUE_DIM_SESSION_RELEASED_WITHOUT_SHELL', payload);
+}
+
 export function hasVisualQueueDimChainActivity(input: {
   visualQueueCardShowing?: boolean;
   mountedCardVisible: boolean;

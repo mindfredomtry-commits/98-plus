@@ -637,11 +637,14 @@ import {
 } from '@/lib/pending-promotion-diag-debug';
 import {
   hasVisualQueueDimChainActivity,
+  logVisualQueueDimSessionReleasedWithoutShell,
   logVisualQueueDimSessionTrace,
   resolveVisualQueueMountedCard,
   shouldReleaseVisualQueueDimSession,
+  shouldReleaseVisualQueueDimSessionWithoutShell,
   VISUAL_QUEUE_DIM_RELEASE_GRACE_MS,
 } from '@/lib/visual-queue-dim-session-debug';
+import { getLastOverlayQueueMutationSnapshot } from '@/lib/overlay-queue-mutation-snapshot-debug';
 import {
   computeQueueDimHostDecision,
   logQueueDimHostDecisionTrace,
@@ -40254,6 +40257,55 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    const shellKindForDimRelease = notificationQueueShellDisplayKindResolved;
+    const actualKindForDimRelease = showReplyIncomingOverlayDirect
+      ? 'incoming'
+      : notificationQueueShellDisplayKind ?? null;
+    const effectiveKindForDimRelease =
+      effectiveNotificationQueueShellKind ??
+      shellKindForDimRelease ??
+      queueHeadKind ??
+      null;
+    const overlayMutationForDimRelease = getLastOverlayQueueMutationSnapshot();
+    const visualQueueDimSessionLiveForRelease =
+      visualQueueDimSessionRef.current || visualQueueDimSession;
+
+    if (
+      shouldReleaseVisualQueueDimSessionWithoutShell({
+        visualQueueDimSessionLive: visualQueueDimSessionLiveForRelease,
+        shellKind: shellKindForDimRelease,
+        actualKind: actualKindForDimRelease,
+        effectiveKind: effectiveKindForDimRelease,
+        overlayQueueLength: overlayQueueRef.current.length,
+        ownerQueueLen: ownerPrimaryShellQueueLen,
+        ownerPendingLen: ownerPrimaryShellPendingLen,
+        mountedCardHasContent: visualQueueMountedCard.mountedCardHasContent,
+        lastOverlayQueueMutationOperation:
+          overlayMutationForDimRelease?.operation ?? null,
+      })
+    ) {
+      clearVisualQueueDimReleaseTimer('release-without-shell');
+      logVisualQueueDimSessionReleasedWithoutShell({
+        visualQueueDimSessionLiveBefore: visualQueueDimSessionLiveForRelease,
+        visualQueueDimSessionLiveAfter: false,
+        shellKind: shellKindForDimRelease,
+        actualKind: actualKindForDimRelease,
+        effectiveKind: effectiveKindForDimRelease,
+        overlayQueueLength: overlayQueueRef.current.length,
+        ownerQueueLen: ownerPrimaryShellQueueLen,
+        ownerPendingLen: ownerPrimaryShellPendingLen,
+        lastOverlayQueueMutationOperation:
+          overlayMutationForDimRelease?.operation ?? null,
+        lastOverlayQueueMutationReason:
+          overlayMutationForDimRelease?.reason ?? null,
+      });
+      commitVisualQueueDimSessionRelease(
+        'release-dim-session-when-shell-missing',
+        traceBase,
+      );
+      return;
+    }
+
     const { release, reason: releaseReason, deferGrace } =
       shouldReleaseVisualQueueDimSession({
         sendFlowOpening,
@@ -40381,7 +40433,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     commitVisualQueueDimSessionRelease,
     notificationChainTransitioning,
     notificationSessionActive,
+    notificationQueueShellDisplayKind,
     notificationQueueShellDisplayKindResolved,
+    queueHeadKind,
+    showReplyIncomingOverlayDirect,
     effectiveNotificationQueueShellKind,
     ownerCheckQueueVisibility.visible,
     ownerIncomingQueueVisibility.visible,
