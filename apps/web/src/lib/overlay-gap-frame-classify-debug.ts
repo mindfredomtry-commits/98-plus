@@ -1,5 +1,12 @@
 'use client';
 
+import {
+  canReadDiagDom,
+  diagTraceNow,
+  emitClientDiagTrace,
+  isClientDiagTraceEnvironment,
+} from '@/lib/diag-trace-client';
+
 export type OverlayGapFrameReason =
   | 'no-gap-card-visible'
   | 'gap-covered-by-backdrop'
@@ -130,7 +137,7 @@ export type OverlayGapFrameDomSnapshot = Pick<
 >;
 
 export function readOverlayGapFrameDom(): OverlayGapFrameDomSnapshot {
-  if (typeof document === 'undefined') {
+  if (!canReadDiagDom()) {
     return {
       backdropMounted: false,
       backdropActive: false,
@@ -274,17 +281,17 @@ export function logOverlayGapFrameClassified(
   input: OverlayGapFrameClassifyInput,
   reason: OverlayGapFrameReason,
 ): void {
+  if (!isClientDiagTraceEnvironment()) return;
   const {
     prevDirectOverboardMounted: _prev,
     ...fields
   } = input;
   const payload: OverlayGapFrameClassified = {
-    timestamp: performance.now(),
+    timestamp: diagTraceNow(),
     ...fields,
     reason,
   };
-  console.log('OVERLAY_GAP_FRAME_CLASSIFIED', payload);
-  window.__debug98log?.('OVERLAY_GAP_FRAME_CLASSIFIED', payload);
+  emitClientDiagTrace('OVERLAY_GAP_FRAME_CLASSIFIED', payload);
 }
 
 export function logOverlayGapFrameEdgeTrace(
@@ -293,17 +300,17 @@ export function logOverlayGapFrameEdgeTrace(
   framePhase: OverlayGapFrameEdgePhase,
   previousReason: OverlayGapFrameReason | null,
 ): void {
+  if (!isClientDiagTraceEnvironment()) return;
   const {
     prevDirectOverboardMounted: _prev,
     ...fields
   } = input;
   const payload: OverlayGapFrameEdgeTrace = {
-    timestamp: performance.now(),
+    timestamp: diagTraceNow(),
     framePhase,
     reason,
     previousReason,
     ...fields,
   };
-  console.log('OVERLAY_GAP_FRAME_EDGE_TRACE', payload);
-  window.__debug98log?.('OVERLAY_GAP_FRAME_EDGE_TRACE', payload);
+  emitClientDiagTrace('OVERLAY_GAP_FRAME_EDGE_TRACE', payload);
 }

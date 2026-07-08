@@ -1,6 +1,11 @@
 'use client';
 
 import type { QueueLobbyGuardSnapshot } from '@/lib/queue-lobby-guard';
+import {
+  diagTraceNow,
+  emitClientDiagTrace,
+  isClientDiagTraceEnvironment,
+} from '@/lib/diag-trace-client';
 
 export type QueueClaimsNotificationScreenTrace = {
   timestamp: number;
@@ -94,6 +99,8 @@ export function traceQueueClaimsNotificationScreenIfChanged(
     guardSnapshot?: QueueLobbyGuardSnapshot | null;
   },
 ): void {
+  if (!isClientDiagTraceEnvironment()) return;
+
   const provider = snapshotProvider?.() ?? {};
   const guardSnapshot =
     input.guardSnapshot ?? provider.guardSnapshot ?? null;
@@ -113,7 +120,7 @@ export function traceQueueClaimsNotificationScreenIfChanged(
     });
 
   const payload: QueueClaimsNotificationScreenTrace = {
-    timestamp: performance.now(),
+    timestamp: diagTraceNow(),
     queueClaimsNotificationScreen: input.queueClaimsNotificationScreen,
     overlayQueueLength,
     ownerQueueLen: input.ownerQueueLen ?? provider.ownerQueueLen ?? null,
@@ -176,6 +183,5 @@ export function traceQueueClaimsNotificationScreenIfChanged(
   if (emittedSigBySource.get(source) === sourceSig) return;
   emittedSigBySource.set(source, sourceSig);
 
-  console.log('QUEUE_CLAIMS_NOTIFICATION_SCREEN_TRACE', payload);
-  window.__debug98log?.('QUEUE_CLAIMS_NOTIFICATION_SCREEN_TRACE', payload);
+  emitClientDiagTrace('QUEUE_CLAIMS_NOTIFICATION_SCREEN_TRACE', payload);
 }

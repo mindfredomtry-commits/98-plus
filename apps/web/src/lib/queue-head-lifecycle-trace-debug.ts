@@ -3,6 +3,11 @@
 import type { QueuedOverlay } from '@/lib/overlay-queue';
 import { overlayBanId } from '@/lib/overlay-queue';
 import { normalizeId } from '@/lib/normalize-json';
+import {
+  diagTraceNow,
+  emitClientDiagTrace,
+  isClientDiagTraceEnvironment,
+} from '@/lib/diag-trace-client';
 
 export type QueueHeadLifecycleFramePhase =
   | 'before-layout'
@@ -54,7 +59,7 @@ export function registerQueueHeadMutationContext(input: {
     source: input.source,
     reason: input.reason,
     operation: input.operation ?? null,
-    at: performance.now(),
+    at: diagTraceNow(),
   };
 }
 
@@ -117,12 +122,12 @@ export function buildQueueHeadLifecycleSignature(input: {
 export function logQueueHeadLifecycleTrace(
   payload: Omit<QueueHeadLifecycleTrace, 'timestamp'>,
 ): void {
+  if (!isClientDiagTraceEnvironment()) return;
   const entry: QueueHeadLifecycleTrace = {
-    timestamp: performance.now(),
+    timestamp: diagTraceNow(),
     ...payload,
   };
-  console.log('QUEUE_HEAD_LIFECYCLE_TRACE', entry);
-  window.__debug98log?.('QUEUE_HEAD_LIFECYCLE_TRACE', entry);
+  emitClientDiagTrace('QUEUE_HEAD_LIFECYCLE_TRACE', entry);
 }
 
 export function traceQueueHeadNullReadSite(input: {
@@ -134,6 +139,8 @@ export function traceQueueHeadNullReadSite(input: {
   legacyHeadKind?: string | null;
   legacyQueueLen?: number;
 }): void {
+  if (!isClientDiagTraceEnvironment()) return;
+
   const sig = [
     input.assignmentSite,
     input.selector,

@@ -3,11 +3,11 @@
 import { isPostSuccessHandoffInProgress } from './post-success-handoff-debug';
 import { isReplyQueueHandoffSessionActive } from './reply-queue-handoff-debug';
 import { traceQueueClaimsNotificationScreenIfChanged } from './queue-claims-notification-screen-trace-debug';
+import { diagTraceNow, emitClientDiagTrace } from './diag-trace-client';
 
 function emit(event: string, data?: Record<string, unknown>): void {
-  const payload = { t: performance.now(), ...data };
-  console.log(event, payload);
-  window.__debug98log?.(event, payload);
+  const payload = { t: diagTraceNow(), ...data };
+  emitClientDiagTrace(event, payload);
 }
 
 export type QueueLobbyGuardSnapshot = {

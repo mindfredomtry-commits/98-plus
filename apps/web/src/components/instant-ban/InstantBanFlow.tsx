@@ -816,21 +816,36 @@ export function InstantBanFlow({
     notificationChainTransitioning ||
     queueClaimsNotificationScreen;
   const showLobbyChrome = lobbyBootIntroPrimed && !lobbyChromeHidden;
-  traceQueueClaimsNotificationScreenIfChanged('InstantBanFlow.render', {
-    queueClaimsNotificationScreen,
-    overlayQueueLength,
-    effectiveOverlayQueueLength: effectiveOverlayQueueLengthForLobbyCta,
-    queueLobbyGuardActive,
-    guardSnapshot: getQueueLobbyGuardSnapshot(),
-    staleResultQueueClaimActive,
+  useLayoutEffect(() => {
+    traceQueueClaimsNotificationScreenIfChanged('InstantBanFlow.render', {
+      queueClaimsNotificationScreen,
+      overlayQueueLength,
+      effectiveOverlayQueueLength: effectiveOverlayQueueLengthForLobbyCta,
+      queueLobbyGuardActive,
+      guardSnapshot: getQueueLobbyGuardSnapshot(),
+      staleResultQueueClaimActive,
+      activeOverlayKind,
+      activeKind: activeOverlayKind,
+      notificationOverlayVisible,
+      resultOverlayMounted: Boolean(result),
+      showLobbyOrb,
+      lobbyChromeHidden,
+      renderBranch: lobbyOrbVisible || showBootOrb ? 'lobby' : 'base-null',
+    });
+  }, [
     activeOverlayKind,
-    activeKind: activeOverlayKind,
-    notificationOverlayVisible,
-    resultOverlayMounted: Boolean(result),
-    showLobbyOrb,
+    effectiveOverlayQueueLengthForLobbyCta,
     lobbyChromeHidden,
-    renderBranch: lobbyOrbVisible || showBootOrb ? 'lobby' : 'base-null',
-  });
+    lobbyOrbVisible,
+    notificationOverlayVisible,
+    overlayQueueLength,
+    queueClaimsNotificationScreen,
+    queueLobbyGuardActive,
+    result,
+    showBootOrb,
+    showLobbyOrb,
+    staleResultQueueClaimActive,
+  ]);
   const showLobbyCta =
     lobbyBootIntroPrimed &&
     !replyIncomingDeeplinkPending &&

@@ -39503,8 +39503,58 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     registerQueueClaimsNotificationScreenSnapshotProvider(
       () => queueClaimsNotificationScreenSnapshotRef.current,
     );
+    queueClaimsNotificationScreenSnapshotRef.current = {
+      ownerQueueLen: ownerPrimaryShellQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+      overlayQueueLength: overlayQueueRef.current.length,
+      activeOverlayKind: activeOverlayKind ?? null,
+      activeKind:
+        incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
+      shellKind: notificationQueueShellDisplayKindResolved,
+      notificationOverlayVisible,
+      visualQueueDimSessionLive,
+      resultOverlayMounted:
+        queueShellShowsResult || renderableResultShell || Boolean(result?.id),
+      directOverboardMounted: showDirectOverboardLayer,
+      queueLobbyGuardActive: queueLobbyGuardActiveRef.current,
+      guardSnapshot: getQueueLobbyGuardSnapshot(),
+    };
+    traceQueueClaimsNotificationScreenIfChanged('Providers.render-overlay-diag', {
+      queueClaimsNotificationScreen:
+        ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+      overlayQueueLength: overlayQueueRef.current.length,
+      ownerQueueLen: ownerPrimaryShellQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+      queueLobbyGuardActive: queueLobbyGuardActiveRef.current,
+      guardSnapshot: getQueueLobbyGuardSnapshot(),
+      activeOverlayKind: activeOverlayKind ?? null,
+      activeKind:
+        incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
+      shellKind: notificationQueueShellDisplayKindResolved,
+      notificationOverlayVisible,
+      visualQueueDimSessionLive,
+      resultOverlayMounted:
+        queueShellShowsResult || renderableResultShell || Boolean(result?.id),
+      directOverboardMounted: showDirectOverboardLayer,
+      showLobbyOrb: null,
+      lobbyChromeHidden: null,
+      renderBranch: null,
+    });
     return () => registerQueueClaimsNotificationScreenSnapshotProvider(null);
-  }, []);
+  }, [
+    activeOverlayKind,
+    incomingOverlayDisplayKind,
+    notificationOverlayVisible,
+    notificationQueueShellDisplayKindResolved,
+    ownerPrimaryShellPendingLen,
+    ownerPrimaryShellQueueLen,
+    queueHeadKind,
+    queueShellShowsResult,
+    renderableResultShell,
+    result?.id,
+    showDirectOverboardLayer,
+    visualQueueDimSessionLive,
+  ]);
 
   const incomingNullResultContextActive =
     queueHeadKind === 'result' ||
@@ -39670,42 +39720,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     queueClaimsNotificationScreen:
       ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
   }));
-
-  queueClaimsNotificationScreenSnapshotRef.current = {
-    ownerQueueLen: ownerPrimaryShellQueueLen,
-    ownerPendingLen: ownerPrimaryShellPendingLen,
-    overlayQueueLength: overlayQueueRef.current.length,
-    activeOverlayKind: activeOverlayKind ?? null,
-    activeKind: incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
-    shellKind: notificationQueueShellDisplayKindResolved,
-    notificationOverlayVisible,
-    visualQueueDimSessionLive,
-    resultOverlayMounted:
-      queueShellShowsResult || renderableResultShell || Boolean(result?.id),
-    directOverboardMounted: showDirectOverboardLayer,
-    queueLobbyGuardActive: queueLobbyGuardActiveRef.current,
-    guardSnapshot: getQueueLobbyGuardSnapshot(),
-  };
-  traceQueueClaimsNotificationScreenIfChanged('Providers.render-overlay-diag', {
-    queueClaimsNotificationScreen:
-      ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
-    overlayQueueLength: overlayQueueRef.current.length,
-    ownerQueueLen: ownerPrimaryShellQueueLen,
-    ownerPendingLen: ownerPrimaryShellPendingLen,
-    queueLobbyGuardActive: queueLobbyGuardActiveRef.current,
-    guardSnapshot: getQueueLobbyGuardSnapshot(),
-    activeOverlayKind: activeOverlayKind ?? null,
-    activeKind: incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
-    shellKind: notificationQueueShellDisplayKindResolved,
-    notificationOverlayVisible,
-    visualQueueDimSessionLive,
-    resultOverlayMounted:
-      queueShellShowsResult || renderableResultShell || Boolean(result?.id),
-    directOverboardMounted: showDirectOverboardLayer,
-    showLobbyOrb: null,
-    lobbyChromeHidden: null,
-    renderBranch: null,
-  });
 
   const buildChainPlaceholderStuckSnapshot = useCallback((): Record<string, unknown> => {
     const queueHead = overlayQueueRef.current[0] ?? null;
