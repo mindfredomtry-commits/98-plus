@@ -673,6 +673,7 @@ import {
   type OverlayGapFrameReason,
 } from '@/lib/overlay-gap-frame-classify-debug';
 import { traceOverlayShellEmptyWhileQueueActiveIfChanged } from '@/lib/overlay-shell-empty-while-queue-active-debug';
+import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
   logQueueHeadLifecycleTrace,
@@ -40486,6 +40487,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       incomingOverlayMounted,
       checkOverlayMounted: checkCardMounted,
       sendFlowOpening,
+    });
+    traceOverlayVisualSessionWithoutShellIfChanged({
+      visualQueueDimSessionLive,
+      shellKind,
+      actualKind,
+      effectiveKind:
+        effectiveNotificationQueueShellKind ?? shellKind ?? queueHeadKind,
+      hasOverlay,
+      backdropMounted: overlayBackdropHostMounted,
+      backdropActive: overlayBackdropDimVisible && overlayBackdropHostMounted,
+      overlayQueueLength: overlayQueueRef.current.length,
+      ownerQueueLen: ownerPrimaryShellQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
     });
   }, [
     activeOverlayKind,
