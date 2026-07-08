@@ -1097,6 +1097,10 @@ export function InstantBanFlow({
         source: input.source,
         reason: `${input.reason}:${input.phase}`,
         operation: input.operation,
+        prevLength: input.prevLength ?? null,
+        nextLength: input.nextLength ?? null,
+        prevHeadKind: input.prevHeadKind ?? null,
+        nextHeadKind: input.nextHeadKind ?? null,
       });
       console.log('OVERLAY_QUEUE_MUTATION_TRACE', {
         operation: input.operation,

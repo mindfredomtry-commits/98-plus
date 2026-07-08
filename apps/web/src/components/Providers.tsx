@@ -1776,6 +1776,10 @@ function logProvidersOverlayQueueMutation(input: {
     source: input.source,
     reason: input.reason,
     operation: input.operation,
+    prevLength: input.prevLength ?? null,
+    nextLength: input.nextLength ?? null,
+    prevHeadKind: input.prevHeadKind ?? null,
+    nextHeadKind: input.nextHeadKind ?? null,
   });
   console.log('PROVIDERS_OVERLAY_QUEUE_MUTATION', input);
 }

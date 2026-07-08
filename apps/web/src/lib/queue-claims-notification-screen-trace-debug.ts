@@ -145,6 +145,13 @@ export function registerQueueClaimsNotificationScreenSnapshotProvider(
   snapshotProvider = provider;
 }
 
+export function readQueueClaimsNotificationScreenSnapshot(): Partial<
+  Omit<QueueClaimsNotificationScreenTrace, 'timestamp' | 'source' | 'reason'>
+> | null {
+  if (!snapshotProvider) return null;
+  return snapshotProvider() ?? null;
+}
+
 export function buildQueueClaimsInputTrace(input: {
   overlayQueueLength: number;
   effectiveOverlayQueueLength?: number | null;

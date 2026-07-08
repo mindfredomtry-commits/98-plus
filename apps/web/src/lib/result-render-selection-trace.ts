@@ -1,5 +1,7 @@
 'use client';
 
+import { recordRenderBranchSnapshot } from '@/lib/render-branch-snapshot-debug';
+
 export type ResultRenderSelectionTrace = {
   activeOverlayKind?: string | null;
   activeKind?: string | null;
@@ -53,6 +55,13 @@ export function logResultRenderBranch(payload: ResultRenderBranchTrace): void {
   if (typeof window !== 'undefined') {
     window.__debug98log?.('RESULT_RENDER_BRANCH', entry);
   }
+  recordRenderBranchSnapshot({
+    renderBranch: payload.renderBranch,
+    reason:
+      typeof payload.reason === 'string' ? payload.reason : null,
+    component:
+      typeof payload.component === 'string' ? payload.component : null,
+  });
 }
 
 export function resolveOverlayRenderBranchFromKind(

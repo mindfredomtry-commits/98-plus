@@ -8,6 +8,7 @@ import {
   emitClientDiagTrace,
   isClientDiagTraceEnvironment,
 } from '@/lib/diag-trace-client';
+import { recordOverlayQueueMutationSnapshot } from '@/lib/overlay-queue-mutation-snapshot-debug';
 
 export type QueueHeadLifecycleFramePhase =
   | 'before-layout'
@@ -54,6 +55,10 @@ export function registerQueueHeadMutationContext(input: {
   source: string;
   reason: string;
   operation?: string | null;
+  prevLength?: number | null;
+  nextLength?: number | null;
+  prevHeadKind?: string | null;
+  nextHeadKind?: string | null;
 }): void {
   mutationContext = {
     source: input.source,
@@ -61,6 +66,23 @@ export function registerQueueHeadMutationContext(input: {
     operation: input.operation ?? null,
     at: diagTraceNow(),
   };
+  if (
+    input.prevLength != null ||
+    input.nextLength != null ||
+    input.prevHeadKind != null ||
+    input.nextHeadKind != null ||
+    input.operation != null
+  ) {
+    recordOverlayQueueMutationSnapshot({
+      source: input.source,
+      reason: input.reason,
+      operation: input.operation,
+      prevLength: input.prevLength,
+      nextLength: input.nextLength,
+      prevHeadKind: input.prevHeadKind,
+      nextHeadKind: input.nextHeadKind,
+    });
+  }
 }
 
 export function readQueueHeadMutationContext(): QueueHeadMutationContext | null {

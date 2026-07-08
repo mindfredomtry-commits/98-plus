@@ -1,5 +1,19 @@
 import type { QueuedOverlay } from '@/lib/overlay-queue';
 
+export type OwnerQueueMutationSnapshot = {
+  source: string;
+  reason: string;
+  ownerQueueLen: number;
+  ownerPendingLen: number;
+  at: number;
+};
+
+let lastOwnerQueueMutation: OwnerQueueMutationSnapshot | null = null;
+
+export function getLastOwnerQueueMutationSnapshot(): OwnerQueueMutationSnapshot | null {
+  return lastOwnerQueueMutation ? { ...lastOwnerQueueMutation } : null;
+}
+
 export type OwnerQueuePopulationTracePayload = {
   source: string;
   telegramUserId?: string | null;
@@ -72,6 +86,13 @@ export function logOwnerQueuePopulationTrace(
   payload: OwnerQueuePopulationTracePayload,
 ): void {
   if (!shouldEmitOwnerQueuePopulationTrace(payload)) return;
+  lastOwnerQueueMutation = {
+    source: payload.source,
+    reason: payload.reason,
+    ownerQueueLen: payload.ownerQueueAfter,
+    ownerPendingLen: payload.ownerPendingAfter,
+    at: typeof performance !== 'undefined' ? performance.now() : 0,
+  };
   console.log('OWNER_QUEUE_POPULATION_TRACE', payload);
 }
 
