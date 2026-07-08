@@ -25,6 +25,7 @@ export type QueueLobbyGuardVisualEmptiness = {
   ownerPendingLen?: number;
   resultOverlayMounted?: boolean;
   directOverboardMounted?: boolean;
+  visualQueueDimSessionLive?: boolean | null;
 };
 
 let guardSnapshot: QueueLobbyGuardSnapshot = {
@@ -35,8 +36,15 @@ let guardSnapshot: QueueLobbyGuardSnapshot = {
   phase: 'idle',
 };
 
+/** Last visualQueueDimSessionLive seen by sync (Providers). InstantBanFlow may read it. */
+let lastKnownVisualQueueDimSessionLive: boolean | null = null;
+
 export function getQueueLobbyGuardSnapshot(): QueueLobbyGuardSnapshot {
   return { ...guardSnapshot };
+}
+
+export function getLastKnownVisualQueueDimSessionLive(): boolean | null {
+  return lastKnownVisualQueueDimSessionLive;
 }
 
 export function resolveQueueLobbyPhase(input: {
@@ -71,6 +79,22 @@ function shouldReleaseStaleQueueLobbyGuard(input: {
   return true;
 }
 
+/** Empty queues + stale fromQueueResult, but never during live visual queue session. */
+function shouldReleaseStaleFromQueueResult(input: {
+  overlayQueueLength: number;
+  ownerQueueLen: number;
+  ownerPendingLen: number;
+  fromQueueResult: boolean;
+  visualQueueDimSessionLive: boolean | null | undefined;
+}): boolean {
+  if (!input.fromQueueResult) return false;
+  if (input.overlayQueueLength !== 0) return false;
+  if (input.ownerQueueLen !== 0) return false;
+  if (input.ownerPendingLen !== 0) return false;
+  if (input.visualQueueDimSessionLive === true) return false;
+  return true;
+}
+
 export function syncQueueLobbyGuardState(
   patch: Partial<QueueLobbyGuardSnapshot> &
     QueueLobbyGuardVisualEmptiness & {
@@ -97,6 +121,16 @@ export function syncQueueLobbyGuardState(
   const ownerPendingLen = patch.ownerPendingLen ?? pendingLen;
   const resultOverlayMounted = patch.resultOverlayMounted;
   const directOverboardMounted = patch.directOverboardMounted;
+  const visualQueueDimSessionLive =
+    patch.visualQueueDimSessionLive !== undefined
+      ? patch.visualQueueDimSessionLive
+      : lastKnownVisualQueueDimSessionLive;
+  if (patch.visualQueueDimSessionLive !== undefined) {
+    lastKnownVisualQueueDimSessionLive =
+      patch.visualQueueDimSessionLive === null
+        ? null
+        : patch.visualQueueDimSessionLive === true;
+  }
 
   const previousQueueLobbyGuardActive = shouldBlockLobbyForActiveQueue({
     queueLen,
@@ -129,6 +163,42 @@ export function syncQueueLobbyGuardState(
       nextQueueLobbyGuardActive: false,
       reason: 'empty-overlay-empty-owner-release-stale-guard',
     });
+  } else if (
+    shouldReleaseStaleFromQueueResult({
+      overlayQueueLength,
+      ownerQueueLen,
+      ownerPendingLen,
+      fromQueueResult,
+      visualQueueDimSessionLive,
+    })
+  ) {
+    const guardFromQueueResultBefore = fromQueueResult;
+    fromQueueResult = false;
+    phase = resolveQueueLobbyPhase({
+      queueLen,
+      queueShellShowsResult,
+      fromQueueResult: false,
+      displayResultSourcePicked: patch.displayResultSourcePicked,
+    });
+    const queueLobbyGuardActiveAfter = shouldBlockLobbyForActiveQueue({
+      queueLen,
+      pendingLen,
+      fromQueueResult: false,
+      queueShellShowsResult,
+      phase,
+    });
+    emitClientDiagTrace('QUEUE_LOBBY_GUARD_FROM_QUEUE_RESULT_RELEASED', {
+      overlayQueueLength,
+      ownerQueueLen,
+      ownerPendingLen,
+      guardFromQueueResultBefore,
+      guardFromQueueResultAfter: false,
+      queueLobbyGuardActiveBefore: previousQueueLobbyGuardActive,
+      queueLobbyGuardActiveAfter,
+      resultOverlayMounted: resultOverlayMounted === true,
+      visualQueueDimSessionLive: visualQueueDimSessionLive === true,
+      reason: 'empty-owner-release-stale-from-queue-result',
+    });
   }
 
   guardSnapshot = {
@@ -152,6 +222,10 @@ export function syncQueueLobbyGuardState(
       resultOverlayMounted === undefined ? null : resultOverlayMounted,
     directOverboardMounted:
       directOverboardMounted === undefined ? null : directOverboardMounted,
+    visualQueueDimSessionLive:
+      visualQueueDimSessionLive === undefined
+        ? null
+        : visualQueueDimSessionLive,
     renderBranch: null,
     reason: queueLobbyGuardActive
       ? queueLen > 0

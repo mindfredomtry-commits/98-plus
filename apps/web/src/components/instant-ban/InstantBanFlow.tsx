@@ -90,6 +90,7 @@ import {
   subscribePostSuccessHandoff,
 } from '@/lib/post-success-handoff-debug';
 import {
+  getLastKnownVisualQueueDimSessionLive,
   getQueueLobbyGuardSnapshot,
   logLobbyOpenRejectedQueueActive,
   shouldBlockLobbyForActiveQueue,
@@ -787,23 +788,47 @@ export function InstantBanFlow({
     shouldBlockLobbyForActiveQueue()
   ) {
     const ownerQueueDebug = getConfirmOrbQueueDebugSnapshot();
+    const guardSnap = getQueueLobbyGuardSnapshot();
+    const visualQueueDimSessionLive =
+      getLastKnownVisualQueueDimSessionLive();
     if (
       overlayQueueLength === 0 &&
       ownerQueueDebug.queueLen === 0 &&
-      ownerQueueDebug.pendingLen === 0 &&
-      !result
+      ownerQueueDebug.pendingLen === 0
     ) {
-      // Narrow stale-guard release only: empty overlay + empty owner + no result.
-      // Does not clear on overlayQueueLength===0 alone (card-to-card gaps).
-      syncQueueLobbyGuardState({
-        queueLen: 0,
-        pendingLen: 0,
-        overlayQueueLength: 0,
-        ownerQueueLen: 0,
-        ownerPendingLen: 0,
-        resultOverlayMounted: false,
-        source: 'instant-ban-empty-overlay-empty-owner-stale-guard-release',
-      });
+      if (!result) {
+        // Narrow stale-guard release only: empty overlay + empty owner + no result.
+        // Does not clear on overlayQueueLength===0 alone (card-to-card gaps).
+        syncQueueLobbyGuardState({
+          queueLen: 0,
+          pendingLen: 0,
+          overlayQueueLength: 0,
+          ownerQueueLen: 0,
+          ownerPendingLen: 0,
+          resultOverlayMounted: false,
+          visualQueueDimSessionLive,
+          source: 'instant-ban-empty-overlay-empty-owner-stale-guard-release',
+        });
+      } else if (
+        guardSnap.fromQueueResult &&
+        visualQueueDimSessionLive !== true
+      ) {
+        // Second narrow release: stale fromQueueResult after empty queues,
+        // never during live visual queue dim session.
+        syncQueueLobbyGuardState({
+          queueLen: 0,
+          pendingLen: 0,
+          fromQueueResult: true,
+          queueShellShowsResult: guardSnap.queueShellShowsResult,
+          overlayQueueLength: 0,
+          ownerQueueLen: 0,
+          ownerPendingLen: 0,
+          resultOverlayMounted: true,
+          visualQueueDimSessionLive,
+          source:
+            'instant-ban-empty-owner-release-stale-from-queue-result',
+        });
+      }
     }
   }
   const queueLobbyGuardActive = staleResultQueueClaimActive

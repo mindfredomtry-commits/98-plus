@@ -38402,6 +38402,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       (effectiveNotificationQueueShellKind === 'result' && queueLen > 0);
     const resultOverlayMounted =
       queueShellShowsResult || renderableResultShell || Boolean(result?.id);
+    const visualQueueDimSessionLiveForGuard =
+      visualQueueDimSessionRef.current || visualQueueDimSession;
     const guardSnapshot = syncQueueLobbyGuardState({
       queueLen,
       pendingLen,
@@ -38413,6 +38415,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ownerPendingLen: ownerPrimaryShellPendingLen,
       resultOverlayMounted,
       directOverboardMounted: showDirectOverboardLayer,
+      visualQueueDimSessionLive: visualQueueDimSessionLiveForGuard,
     });
     queueShellShowsResultRef.current = queueShellShowsResult;
     const queueActive = shouldBlockLobbyForActiveQueue(guardSnapshot);
@@ -38486,6 +38489,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setLobbyOpen,
     shouldRenderIncomingOverlay,
     showDirectOverboardLayer,
+    visualQueueDimSession,
   ]);
 
   const replyIncomingPathActive =
