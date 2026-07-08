@@ -673,6 +673,7 @@ import {
   type OverlayGapFrameReason,
 } from '@/lib/overlay-gap-frame-classify-debug';
 import { traceOverlayShellEmptyWhileQueueActiveIfChanged } from '@/lib/overlay-shell-empty-while-queue-active-debug';
+import { traceOverlayNextHandoffStalledIfChanged } from '@/lib/overlay-next-handoff-stalled-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -40500,6 +40501,33 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       overlayQueueLength: overlayQueueRef.current.length,
       ownerQueueLen: ownerPrimaryShellQueueLen,
       ownerPendingLen: ownerPrimaryShellPendingLen,
+    });
+
+    const nextOverlayCandidate = overlayQueueRef.current[0] ?? null;
+    const nextOwnerQueueHead = ownerReadQueue[0] ?? null;
+    const pendingOverlayHead = ownerReadState.pending[0] ?? null;
+    traceOverlayNextHandoffStalledIfChanged({
+      ownerQueueLen: ownerPrimaryShellQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+      overlayQueueLength: overlayQueueRef.current.length,
+      queueHeadKind,
+      activeKind:
+        incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
+      activeOverlayKind: activeOverlayKind ?? null,
+      shellKind,
+      actualKind,
+      effectiveKind:
+        effectiveNotificationQueueShellKind ?? shellKind ?? queueHeadKind,
+      nextOverlayCandidateKind: nextOverlayCandidate?.kind ?? null,
+      nextOverlayCandidateId: queueHeadIdFrom(nextOverlayCandidate),
+      nextOwnerQueueHeadKind: nextOwnerQueueHead?.kind ?? null,
+      nextOwnerQueueHeadId: queueHeadIdFrom(nextOwnerQueueHead),
+      pendingOverlayKind: pendingOverlayHead?.kind ?? null,
+      pendingOverlayId: queueHeadIdFrom(pendingOverlayHead),
+      notificationOverlayVisible,
+      visualQueueDimSessionLive,
+      backdropMounted: overlayBackdropHostMounted,
+      backdropActive: overlayBackdropDimVisible && overlayBackdropHostMounted,
     });
   }, [
     activeOverlayKind,
