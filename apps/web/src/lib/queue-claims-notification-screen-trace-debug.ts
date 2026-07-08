@@ -7,6 +7,22 @@ import {
   isClientDiagTraceEnvironment,
 } from '@/lib/diag-trace-client';
 
+export type QueueClaimsInputTrace = {
+  overlayQueueLengthGt0: boolean;
+  effectiveOverlayQueueLengthGt0: boolean;
+  queueLobbyGuardActive: boolean;
+  guardFromQueueResult: boolean;
+  guardQueueShellShowsResult: boolean;
+  guardPhaseNotIdle: boolean;
+  staleResultQueueClaimActive: boolean;
+  notificationOverlayVisible: boolean;
+  visualQueueDimSessionLive: boolean;
+  resultOverlayMounted: boolean;
+  directOverboardMounted: boolean;
+  ownerQueueLenGt0: boolean;
+  ownerPendingLenGt0: boolean;
+};
+
 export type QueueClaimsNotificationScreenTrace = {
   timestamp: number;
   queueClaimsNotificationScreen: boolean;
@@ -29,6 +45,8 @@ export type QueueClaimsNotificationScreenTrace = {
   guardSnapshot?: QueueLobbyGuardSnapshot | null;
   effectiveOverlayQueueLength?: number | null;
   staleResultQueueClaimActive?: boolean | null;
+  claimInputs: QueueClaimsInputTrace;
+  claimWinningInputs: Array<keyof QueueClaimsInputTrace>;
 };
 
 type QueueClaimsSnapshotProvider = () => Partial<
@@ -42,6 +60,47 @@ export function registerQueueClaimsNotificationScreenSnapshotProvider(
   provider: QueueClaimsSnapshotProvider | null,
 ): void {
   snapshotProvider = provider;
+}
+
+export function buildQueueClaimsInputTrace(input: {
+  overlayQueueLength: number;
+  effectiveOverlayQueueLength?: number | null;
+  queueLobbyGuardActive?: boolean | null;
+  guardSnapshot?: QueueLobbyGuardSnapshot | null;
+  staleResultQueueClaimActive?: boolean | null;
+  notificationOverlayVisible?: boolean | null;
+  visualQueueDimSessionLive?: boolean | null;
+  resultOverlayMounted?: boolean | null;
+  directOverboardMounted?: boolean | null;
+  ownerQueueLen?: number | null;
+  ownerPendingLen?: number | null;
+}): {
+  claimInputs: QueueClaimsInputTrace;
+  claimWinningInputs: Array<keyof QueueClaimsInputTrace>;
+} {
+  const guard = input.guardSnapshot;
+  const effectiveOverlayQueueLength =
+    input.effectiveOverlayQueueLength ?? input.overlayQueueLength;
+  const claimInputs: QueueClaimsInputTrace = {
+    overlayQueueLengthGt0: input.overlayQueueLength > 0,
+    effectiveOverlayQueueLengthGt0: effectiveOverlayQueueLength > 0,
+    queueLobbyGuardActive: input.queueLobbyGuardActive === true,
+    guardFromQueueResult: guard?.fromQueueResult === true,
+    guardQueueShellShowsResult: guard?.queueShellShowsResult === true,
+    guardPhaseNotIdle: Boolean(guard?.phase && guard.phase !== 'idle'),
+    staleResultQueueClaimActive: input.staleResultQueueClaimActive === true,
+    notificationOverlayVisible: input.notificationOverlayVisible === true,
+    visualQueueDimSessionLive: input.visualQueueDimSessionLive === true,
+    resultOverlayMounted: input.resultOverlayMounted === true,
+    directOverboardMounted: input.directOverboardMounted === true,
+    ownerQueueLenGt0: (input.ownerQueueLen ?? 0) > 0,
+    ownerPendingLenGt0: (input.ownerPendingLen ?? 0) > 0,
+  };
+  const claimWinningInputs = (
+    Object.keys(claimInputs) as Array<keyof QueueClaimsInputTrace>
+  ).filter((key) => claimInputs[key]);
+
+  return { claimInputs, claimWinningInputs };
 }
 
 export function resolveQueueClaimsNotificationScreenReason(input: {
@@ -119,24 +178,52 @@ export function traceQueueClaimsNotificationScreenIfChanged(
       renderBranch,
     });
 
+  const ownerQueueLen = input.ownerQueueLen ?? provider.ownerQueueLen ?? null;
+  const ownerPendingLen = input.ownerPendingLen ?? provider.ownerPendingLen ?? null;
+  const notificationOverlayVisible =
+    input.notificationOverlayVisible ?? provider.notificationOverlayVisible ?? null;
+  const visualQueueDimSessionLive =
+    input.visualQueueDimSessionLive ?? provider.visualQueueDimSessionLive ?? null;
+  const resultOverlayMounted =
+    input.resultOverlayMounted ?? provider.resultOverlayMounted ?? null;
+  const directOverboardMounted =
+    input.directOverboardMounted ?? provider.directOverboardMounted ?? null;
+  const effectiveOverlayQueueLength =
+    input.effectiveOverlayQueueLength ??
+    provider.effectiveOverlayQueueLength ??
+    null;
+  const staleResultQueueClaimActive =
+    input.staleResultQueueClaimActive ??
+    provider.staleResultQueueClaimActive ??
+    null;
+  const { claimInputs, claimWinningInputs } = buildQueueClaimsInputTrace({
+    overlayQueueLength,
+    effectiveOverlayQueueLength,
+    queueLobbyGuardActive,
+    guardSnapshot,
+    staleResultQueueClaimActive,
+    notificationOverlayVisible,
+    visualQueueDimSessionLive,
+    resultOverlayMounted,
+    directOverboardMounted,
+    ownerQueueLen,
+    ownerPendingLen,
+  });
+
   const payload: QueueClaimsNotificationScreenTrace = {
     timestamp: diagTraceNow(),
     queueClaimsNotificationScreen: input.queueClaimsNotificationScreen,
     overlayQueueLength,
-    ownerQueueLen: input.ownerQueueLen ?? provider.ownerQueueLen ?? null,
-    ownerPendingLen: input.ownerPendingLen ?? provider.ownerPendingLen ?? null,
+    ownerQueueLen,
+    ownerPendingLen,
     activeOverlayKind:
       input.activeOverlayKind ?? provider.activeOverlayKind ?? null,
     shellKind: input.shellKind ?? provider.shellKind ?? null,
     activeKind: input.activeKind ?? provider.activeKind ?? null,
-    notificationOverlayVisible:
-      input.notificationOverlayVisible ?? provider.notificationOverlayVisible ?? null,
-    visualQueueDimSessionLive:
-      input.visualQueueDimSessionLive ?? provider.visualQueueDimSessionLive ?? null,
-    resultOverlayMounted:
-      input.resultOverlayMounted ?? provider.resultOverlayMounted ?? null,
-    directOverboardMounted:
-      input.directOverboardMounted ?? provider.directOverboardMounted ?? null,
+    notificationOverlayVisible,
+    visualQueueDimSessionLive,
+    resultOverlayMounted,
+    directOverboardMounted,
     showLobbyOrb: input.showLobbyOrb ?? provider.showLobbyOrb ?? null,
     lobbyChromeHidden:
       input.lobbyChromeHidden ?? provider.lobbyChromeHidden ?? null,
@@ -145,14 +232,10 @@ export function traceQueueClaimsNotificationScreenIfChanged(
     source,
     queueLobbyGuardActive,
     guardSnapshot,
-    effectiveOverlayQueueLength:
-      input.effectiveOverlayQueueLength ??
-      provider.effectiveOverlayQueueLength ??
-      null,
-    staleResultQueueClaimActive:
-      input.staleResultQueueClaimActive ??
-      provider.staleResultQueueClaimActive ??
-      null,
+    effectiveOverlayQueueLength,
+    staleResultQueueClaimActive,
+    claimInputs,
+    claimWinningInputs,
   };
 
   const sig = [
@@ -177,6 +260,7 @@ export function traceQueueClaimsNotificationScreenIfChanged(
     payload.guardSnapshot?.fromQueueResult,
     payload.guardSnapshot?.queueShellShowsResult,
     payload.guardSnapshot?.phase,
+    payload.claimWinningInputs.join(','),
   ].join('|');
 
   const sourceSig = `${source}|${sig}`;
