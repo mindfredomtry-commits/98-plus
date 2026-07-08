@@ -97,6 +97,8 @@ import {
   syncQueueLobbyGuardState,
 } from '@/lib/queue-lobby-guard';
 import { traceQueueClaimsNotificationScreenIfChanged } from '@/lib/queue-claims-notification-screen-trace-debug';
+import { traceLobbyBranchDecisionIfChanged } from '@/lib/lobby-branch-decision-trace-debug';
+import { readQueueHeadMutationContext } from '@/lib/queue-head-lifecycle-trace-debug';
 import {
   logLobbyChromeHidden,
   logLobbyChromeHiddenBug,
@@ -7483,6 +7485,46 @@ export function InstantBanFlow({
       : null;
 
   const lobbyRenderBranch = lobbyOrbVisible || showBootOrb ? 'lobby' : 'base-null';
+  const lobbyBranchReason = queueClaimsNotificationScreen
+    ? 'queue-claims-notification-screen'
+    : lobbyRenderBranch === 'base-null'
+      ? 'lobby-orb-hidden'
+      : 'lobby-shell-render';
+  const lobbyBranchMutation = readQueueHeadMutationContext();
+  const lobbyBranchVisualQueueDim = getLastKnownVisualQueueDimSessionLive();
+  const lobbyBranchGuardSnapshot = getQueueLobbyGuardSnapshot();
+  traceLobbyBranchDecisionIfChanged('InstantBanFlow.lobbyRenderBranch', {
+    renderBranch: lobbyRenderBranch,
+    reason: lobbyBranchReason,
+    showLobby: lobbyOpen,
+    showLobbyOrb,
+    showBootOrb,
+    lobbyChromeHidden,
+    queueClaimsNotificationScreen,
+    queueLobbyGuardActive,
+    guardSnapshot: lobbyBranchGuardSnapshot,
+    overlayQueueLength,
+    effectiveOverlayQueueLength: effectiveOverlayQueueLengthForLobbyCta,
+    ownerQueueLen: zazhmiQueueDebug.queueLen,
+    ownerPendingLen: zazhmiQueueDebug.pendingLen,
+    effectiveOverlayKind: activeOverlayKind,
+    activeOverlayKind,
+    activeKind: activeOverlayKind,
+    shellKind: activeOverlayKind,
+    resolvedShellQueueHead: activeOverlayKind,
+    queueHeadKind: activeOverlayKind,
+    notificationOverlayVisible,
+    visualQueueDimSessionLive: lobbyBranchVisualQueueDim,
+    resultOverlayMounted: Boolean(result),
+    directOverboardMounted: null,
+    incomingOverlayMounted: incomingGateActive,
+    checkOverlayMounted: checkGateActive,
+    hasOverlay: hasAnyOverlayForLobbyCta,
+    baseLobbyHasOverlay: notificationOverlayActive,
+    mutationSource: lobbyBranchMutation?.source ?? null,
+    mutationReason: lobbyBranchMutation?.reason ?? null,
+    staleResultQueueClaimActive,
+  });
   logResultRenderSelectionTrace({
     activeOverlayKind,
     activeKind: activeOverlayKind,
@@ -7519,11 +7561,7 @@ export function InstantBanFlow({
   logResultRenderBranch({
     component: 'InstantBanFlow',
     renderBranch: lobbyRenderBranch,
-    reason: queueClaimsNotificationScreen
-      ? 'queue-claims-notification-screen'
-      : lobbyRenderBranch === 'base-null'
-        ? 'lobby-orb-hidden'
-        : 'lobby-shell-render',
+    reason: lobbyBranchReason,
     showLobbyOrb,
     showBootOrb,
     lobbyChromeHidden,
@@ -7538,22 +7576,19 @@ export function InstantBanFlow({
       overlayQueueLength,
       effectiveOverlayQueueLength: effectiveOverlayQueueLengthForLobbyCta,
       queueLobbyGuardActive,
-      guardSnapshot: getQueueLobbyGuardSnapshot(),
+      guardSnapshot: lobbyBranchGuardSnapshot,
       staleResultQueueClaimActive,
       ownerQueueLen: zazhmiQueueDebug.queueLen,
       ownerPendingLen: zazhmiQueueDebug.pendingLen,
       activeOverlayKind,
       activeKind: activeOverlayKind,
       notificationOverlayVisible,
+      visualQueueDimSessionLive: lobbyBranchVisualQueueDim,
       resultOverlayMounted: Boolean(result),
       showLobbyOrb,
       lobbyChromeHidden,
       renderBranch: lobbyRenderBranch,
-      reason: queueClaimsNotificationScreen
-        ? 'queue-claims-notification-screen'
-        : lobbyRenderBranch === 'base-null'
-          ? 'lobby-orb-hidden'
-          : 'lobby-shell-render',
+      reason: lobbyBranchReason,
     },
   );
 
