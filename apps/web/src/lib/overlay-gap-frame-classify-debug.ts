@@ -174,6 +174,102 @@ export function shouldEmitOverlayGapFrameClassified(input: {
   return input.ownerQueueLen > 0 || input.ownerPendingLen > 0;
 }
 
+export type OverlayGapFrameEdgePhase =
+  | 'before-layout'
+  | 'layout'
+  | 'after-layout';
+
+export type OverlayGapFrameEdgeTrace = Omit<
+  OverlayGapFrameClassified,
+  'timestamp'
+> & {
+  timestamp: number;
+  framePhase: OverlayGapFrameEdgePhase;
+  previousReason: OverlayGapFrameReason | null;
+};
+
+export type OverlayGapFrameEdgeKeyState = Pick<
+  OverlayGapFrameClassified,
+  | 'reason'
+  | 'ownerQueueLen'
+  | 'ownerPendingLen'
+  | 'queueHeadKind'
+  | 'activeKind'
+  | 'shellKind'
+  | 'mountedCardVisible'
+  | 'mountedCardHasContent'
+  | 'globalOverlayHostActive'
+  | 'notificationOverlayVisible'
+  | 'visualQueueDimSessionLive'
+  | 'backdropMounted'
+  | 'backdropActive'
+  | 'backdropComputedOpacity'
+  | 'directOverboardMounted'
+  | 'directOverboardActive'
+  | 'resultOverlayMounted'
+  | 'incomingOverlayMounted'
+  | 'checkOverlayMounted'
+  | 'isGoToBansPath'
+  | 'sendFlowOpening'
+>;
+
+export function buildOverlayGapFrameEdgeKeyState(
+  input: OverlayGapFrameClassifyInput,
+  reason: OverlayGapFrameReason,
+): OverlayGapFrameEdgeKeyState {
+  return {
+    reason,
+    ownerQueueLen: input.ownerQueueLen,
+    ownerPendingLen: input.ownerPendingLen,
+    queueHeadKind: input.queueHeadKind,
+    activeKind: input.activeKind,
+    shellKind: input.shellKind,
+    mountedCardVisible: input.mountedCardVisible,
+    mountedCardHasContent: input.mountedCardHasContent,
+    globalOverlayHostActive: input.globalOverlayHostActive,
+    notificationOverlayVisible: input.notificationOverlayVisible,
+    visualQueueDimSessionLive: input.visualQueueDimSessionLive,
+    backdropMounted: input.backdropMounted,
+    backdropActive: input.backdropActive,
+    backdropComputedOpacity: input.backdropComputedOpacity,
+    directOverboardMounted: input.directOverboardMounted,
+    directOverboardActive: input.directOverboardActive,
+    resultOverlayMounted: input.resultOverlayMounted,
+    incomingOverlayMounted: input.incomingOverlayMounted,
+    checkOverlayMounted: input.checkOverlayMounted,
+    isGoToBansPath: input.isGoToBansPath,
+    sendFlowOpening: input.sendFlowOpening,
+  };
+}
+
+export function overlayGapFrameEdgeKeyStateSignature(
+  state: OverlayGapFrameEdgeKeyState,
+): string {
+  return [
+    state.reason,
+    state.ownerQueueLen,
+    state.ownerPendingLen,
+    state.queueHeadKind,
+    state.activeKind,
+    state.shellKind,
+    state.mountedCardVisible,
+    state.mountedCardHasContent,
+    state.globalOverlayHostActive,
+    state.notificationOverlayVisible,
+    state.visualQueueDimSessionLive,
+    state.backdropMounted,
+    state.backdropActive,
+    state.backdropComputedOpacity,
+    state.directOverboardMounted,
+    state.directOverboardActive,
+    state.resultOverlayMounted,
+    state.incomingOverlayMounted,
+    state.checkOverlayMounted,
+    state.isGoToBansPath,
+    state.sendFlowOpening,
+  ].join('|');
+}
+
 export function logOverlayGapFrameClassified(
   input: OverlayGapFrameClassifyInput,
   reason: OverlayGapFrameReason,
@@ -189,4 +285,25 @@ export function logOverlayGapFrameClassified(
   };
   console.log('OVERLAY_GAP_FRAME_CLASSIFIED', payload);
   window.__debug98log?.('OVERLAY_GAP_FRAME_CLASSIFIED', payload);
+}
+
+export function logOverlayGapFrameEdgeTrace(
+  input: OverlayGapFrameClassifyInput,
+  reason: OverlayGapFrameReason,
+  framePhase: OverlayGapFrameEdgePhase,
+  previousReason: OverlayGapFrameReason | null,
+): void {
+  const {
+    prevDirectOverboardMounted: _prev,
+    ...fields
+  } = input;
+  const payload: OverlayGapFrameEdgeTrace = {
+    timestamp: performance.now(),
+    framePhase,
+    reason,
+    previousReason,
+    ...fields,
+  };
+  console.log('OVERLAY_GAP_FRAME_EDGE_TRACE', payload);
+  window.__debug98log?.('OVERLAY_GAP_FRAME_EDGE_TRACE', payload);
 }

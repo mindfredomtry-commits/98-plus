@@ -7,6 +7,7 @@ import {
   useCallback,
   useRef,
   useEffect,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
 } from 'react';
@@ -661,10 +662,15 @@ import {
   shouldHoldOverlayBackdropDuringQueueGap,
 } from '@/lib/overlay-backdrop-visibility-decision-debug';
 import {
+  buildOverlayGapFrameEdgeKeyState,
   classifyOverlayGapFrame,
   logOverlayGapFrameClassified,
+  logOverlayGapFrameEdgeTrace,
+  overlayGapFrameEdgeKeyStateSignature,
   readOverlayGapFrameDom,
   shouldEmitOverlayGapFrameClassified,
+  type OverlayGapFrameEdgePhase,
+  type OverlayGapFrameReason,
 } from '@/lib/overlay-gap-frame-classify-debug';
 import {
   findNewlyAddedOwnerPendingResultItems,
@@ -2142,6 +2148,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const visualQueueDimReleaseScheduledRef = useRef(false);
   const overlayGapFrameClassifySigRef = useRef('');
   const prevDirectOverboardForGapFrameRef = useRef(false);
+  const overlayGapFrameEdgeSigRef = useRef('');
+  const overlayGapFramePreviousReasonRef =
+    useRef<OverlayGapFrameReason | null>(null);
+  const overlayGapFrameAfterLayoutRafRef = useRef<number | null>(null);
   const [visualQueueDimSession, setVisualQueueDimSession] = useState(false);
   const hasPendingNotificationChainFnRef = useRef<() => boolean>(() => false);
   const startupInteractionsHoldRef = useRef(true);
@@ -39710,15 +39720,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     visualQueueDimSessionLive,
   ]);
 
-  useLayoutEffect(() => {
+  const sampleOverlayGapFrameClassify = useCallback(() => {
     if (
       !shouldEmitOverlayGapFrameClassified({
         ownerQueueLen: ownerPrimaryShellQueueLen,
         ownerPendingLen: ownerPrimaryShellPendingLen,
       })
     ) {
-      prevDirectOverboardForGapFrameRef.current = showDirectOverboardLayer;
-      return;
+      return null;
     }
 
     const dom = readOverlayGapFrameDom();
@@ -39770,37 +39779,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       prevDirectOverboardMounted: prevDirectOverboardForGapFrameRef.current,
     };
 
-    const reason = classifyOverlayGapFrame(classifyInput);
-    const sig = [
-      reason,
-      classifyInput.ownerQueueLen,
-      classifyInput.ownerPendingLen,
-      classifyInput.queueHeadKind,
-      classifyInput.activeKind,
-      classifyInput.shellKind,
-      classifyInput.mountedCardVisible,
-      classifyInput.mountedCardHasContent,
-      classifyInput.globalOverlayHostActive,
-      classifyInput.notificationOverlayVisible,
-      classifyInput.visualQueueDimSessionLive,
-      classifyInput.backdropMounted,
-      classifyInput.backdropActive,
-      classifyInput.backdropComputedOpacity,
-      classifyInput.backdropZIndex,
-      classifyInput.hostZIndex,
-      classifyInput.lobbyZIndex,
-      classifyInput.directOverboardMounted,
-      classifyInput.resultOverlayMounted,
-      classifyInput.incomingOverlayMounted,
-      classifyInput.checkOverlayMounted,
-      classifyInput.isGoToBansPath,
-      classifyInput.sendFlowOpening,
-    ].join('|');
-    if (sig !== overlayGapFrameClassifySigRef.current) {
-      overlayGapFrameClassifySigRef.current = sig;
-      logOverlayGapFrameClassified(classifyInput, reason);
-    }
-    prevDirectOverboardForGapFrameRef.current = showDirectOverboardLayer;
+    return {
+      classifyInput,
+      reason: classifyOverlayGapFrame(classifyInput),
+    };
   }, [
     activeOverlayKind,
     bansCtaQueueSuppress,
@@ -39824,6 +39806,63 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     visualQueueMountedCard.mountedCardHasContent,
     visualQueueMountedCard.mountedCardVisible,
   ]);
+
+  const emitOverlayGapFrameEdgeIfChanged = useCallback(
+    (framePhase: OverlayGapFrameEdgePhase) => {
+      const sample = sampleOverlayGapFrameClassify();
+      if (!sample) {
+        prevDirectOverboardForGapFrameRef.current = showDirectOverboardLayer;
+        return null;
+      }
+
+      const { classifyInput, reason } = sample;
+      const keyState = buildOverlayGapFrameEdgeKeyState(classifyInput, reason);
+      const edgeSig = overlayGapFrameEdgeKeyStateSignature(keyState);
+      if (edgeSig !== overlayGapFrameEdgeSigRef.current) {
+        overlayGapFrameEdgeSigRef.current = edgeSig;
+        logOverlayGapFrameEdgeTrace(
+          classifyInput,
+          reason,
+          framePhase,
+          overlayGapFramePreviousReasonRef.current,
+        );
+        overlayGapFramePreviousReasonRef.current = reason;
+      }
+
+      if (framePhase === 'layout') {
+        if (edgeSig !== overlayGapFrameClassifySigRef.current) {
+          overlayGapFrameClassifySigRef.current = edgeSig;
+          logOverlayGapFrameClassified(classifyInput, reason);
+        }
+        prevDirectOverboardForGapFrameRef.current = showDirectOverboardLayer;
+      }
+
+      return reason;
+    },
+    [sampleOverlayGapFrameClassify, showDirectOverboardLayer],
+  );
+
+  useInsertionEffect(() => {
+    emitOverlayGapFrameEdgeIfChanged('before-layout');
+  }, [emitOverlayGapFrameEdgeIfChanged]);
+
+  useLayoutEffect(() => {
+    emitOverlayGapFrameEdgeIfChanged('layout');
+    if (overlayGapFrameAfterLayoutRafRef.current != null) {
+      cancelAnimationFrame(overlayGapFrameAfterLayoutRafRef.current);
+      overlayGapFrameAfterLayoutRafRef.current = null;
+    }
+    overlayGapFrameAfterLayoutRafRef.current = requestAnimationFrame(() => {
+      overlayGapFrameAfterLayoutRafRef.current = null;
+      emitOverlayGapFrameEdgeIfChanged('after-layout');
+    });
+    return () => {
+      if (overlayGapFrameAfterLayoutRafRef.current != null) {
+        cancelAnimationFrame(overlayGapFrameAfterLayoutRafRef.current);
+        overlayGapFrameAfterLayoutRafRef.current = null;
+      }
+    };
+  }, [emitOverlayGapFrameEdgeIfChanged]);
 
   useLayoutEffect(() => {
     if (!replyParentTimerOwnsTopLayer) {
