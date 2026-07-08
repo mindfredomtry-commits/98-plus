@@ -673,6 +673,8 @@ import {
   type OverlayGapFrameReason,
 } from '@/lib/overlay-gap-frame-classify-debug';
 import { traceOverlayShellEmptyWhileQueueActiveIfChanged } from '@/lib/overlay-shell-empty-while-queue-active-debug';
+import { traceOwnerPrimaryShellQueueClearIfTransition } from '@/lib/owner-primary-shell-queue-clear-trace-debug';
+import { traceQueueHeadShellKindFallbackIfChanged } from '@/lib/queue-head-shell-kind-fallback-trace-debug';
 import { traceOverlayNextHandoffStalledIfChanged } from '@/lib/overlay-next-handoff-stalled-trace-debug';
 import { traceOverlayShellCreateAttemptIfChanged } from '@/lib/overlay-shell-create-attempt-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
@@ -40447,11 +40449,45 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationOverlayVisible && !replyParentTimerOwnsTopLayer;
   const notificationHostSessionBackdrop = overlayBackdropDimVisible;
 
+  const ownerPrimaryShellQueueClearPrevRef = useRef<{
+    len: number;
+    headKind: string | null;
+    headId: string | null;
+  } | null>(null);
+
   useLayoutEffect(() => {
     const shellKind = notificationQueueShellDisplayKindResolved;
     const actualKind = showReplyIncomingOverlayDirect
       ? 'incoming'
       : notificationQueueShellDisplayKind ?? null;
+    const overlayQueueHeadForClearTrace =
+      overlayQueueRef.current[0] ?? overlayQueue[0] ?? null;
+    const overlayQueueLengthForClearTrace = Math.max(
+      overlayQueue.length,
+      overlayQueueRef.current.length,
+    );
+    ownerPrimaryShellQueueClearPrevRef.current =
+      traceOwnerPrimaryShellQueueClearIfTransition({
+        prev: ownerPrimaryShellQueueClearPrevRef.current,
+        next: {
+          len: ownerPrimaryShellQueueLen,
+          headKind: ownerPrimaryShellQueueHeadKind,
+          headId: queueHeadIdFrom(ownerPrimaryQueueHead),
+        },
+        ownerPrimaryQueueHead,
+        overlayQueueHead: overlayQueueHeadForClearTrace,
+        overlayQueueLength: overlayQueueLengthForClearTrace,
+        ownerQueueLength: ownerReadQueue.length,
+        ownerPendingLength: ownerReadPendingLen,
+        notificationQueueShellKind,
+        queueHeadShellKindFallback,
+        effectiveNotificationQueueShellKind,
+        shellKind,
+        actualKind,
+        effectiveKind:
+          effectiveNotificationQueueShellKind ?? shellKind ?? queueHeadKind,
+        renderBranch: queueHeadLifecycleRenderBranch,
+      });
     const resultOverlayMounted =
       showDirectOverboardLayer ||
       (shellKind === 'result' && visualQueueMountedCard.mountedCardVisible);
@@ -40558,6 +40594,49 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       isActiveUserCardHold: isActiveUserCardHoldForShellDiag,
       heldBanId: heldBanIdForShellDiag,
     });
+    traceQueueHeadShellKindFallbackIfChanged({
+      overlayQueueHead: overlayCandidateForShellCreate,
+      overlayQueueLength: overlayQueueLengthForShellCreate,
+      legacyOverlayQueueHeadKind: overlayCandidateForShellCreate?.kind ?? null,
+      ownerQueueLength: ownerReadQueue.length,
+      ownerPendingLength: ownerReadPendingLen,
+      ownerPrimaryShellQueueLength: ownerPrimaryShellQueueLen,
+      ownerPrimaryShellQueueHeadKind,
+      ownerPrimaryQueueHead,
+      queueHeadKind,
+      queueHeadShellKindFallback,
+      notificationQueueShellKind,
+      effectiveNotificationQueueShellKind,
+      incomingNotificationShellKind,
+      incomingOverlayDisplayKind: incomingOverlayDisplayKind ?? null,
+      activeKind:
+        incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
+      activeOverlayKind: activeOverlayKind ?? null,
+      actualKind,
+      effectiveKind:
+        effectiveNotificationQueueShellKind ?? shellKind ?? queueHeadKind,
+      renderBranch: queueHeadLifecycleRenderBranch,
+      shellKind,
+      pipeline: {
+        composeBlocksNotificationHost,
+        checkAnswerWaitingResultHoldBanId,
+        chainAdvanceWaiting,
+        chainAdvancePlaceholderKind,
+        replyIncomingDirectPath,
+        incomingNotificationShellKind,
+        queueHeadShellKindFallback,
+        notificationQueueShellKind,
+        effectiveNotificationQueueShellKind,
+        notificationQueueShellDisplayKind,
+        notificationQueueShellDisplayKindResolved: shellKind,
+        ownerPrimaryShellQueueLen,
+        ownerPrimaryShellPendingLen,
+        ownerQueueHeadKind: ownerPrimaryQueueHead?.kind ?? null,
+        renderableResultShell,
+        checkShellKindWithoutBan,
+        showDirectOverboardLayer,
+      },
+    });
     traceOverlayNextHandoffStalledIfChanged({
       ownerQueueLen: ownerPrimaryShellQueueLen,
       ownerPendingLen: ownerPrimaryShellPendingLen,
@@ -40605,7 +40684,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ownerPrimaryHeldUserCard,
     ownerPrimaryQueueHead,
     ownerPrimaryShellPendingLen,
+    ownerPrimaryShellQueueHeadKind,
     ownerPrimaryShellQueueLen,
+    ownerReadPendingLen,
     ownerReadQueue,
     queueHeadKind,
     queueHeadLifecycleRenderBranch,
