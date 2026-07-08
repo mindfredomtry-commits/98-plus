@@ -1081,6 +1081,20 @@ html[data-reply-parent-active-timer] .instant-ban-active-ban-card .modal-card-ac
   z-index: 140;
 }
 
+.app-notification-layer__session-backdrop--gap-hold {
+  opacity: 1 !important;
+  visibility: visible !important;
+  display: block !important;
+  z-index: 140 !important;
+  pointer-events: none;
+}
+
+.app-notification-layer__content--gap-hold {
+  z-index: 160;
+  pointer-events: none;
+  background: transparent;
+}
+
 .app-notification-layer__content {
   position: fixed;
   inset: 0;

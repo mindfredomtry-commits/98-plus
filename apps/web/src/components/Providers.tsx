@@ -41086,10 +41086,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               active={notificationHostPointerActive}
               queueSessionActive={overlayBackdropDimVisible}
               visualShieldBackdrop={overlayBackdropDimVisible}
+              backdropPaintActive={
+                overlayVisualShieldCardContentMounted ||
+                visualQueueDimSessionLiveWithQueueHead
+              }
               backdropTraceContext={{
                 visualQueueDimSessionLive,
                 cardContentMounted: overlayVisualShieldCardContentMounted,
                 hostMounted: overlayBackdropHostMounted,
+                globalOverlayHostActive,
+                queueHeadKind,
+                activeKind:
+                  incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
                 decisionReason: overlayBackdropVisibilityDecision.reason,
               }}
               checkInteractive={checkOverlayMounted}
