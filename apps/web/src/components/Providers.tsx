@@ -673,6 +673,7 @@ import {
   type OverlayGapFrameReason,
 } from '@/lib/overlay-gap-frame-classify-debug';
 import { traceOverlayShellEmptyWhileQueueActiveIfChanged } from '@/lib/overlay-shell-empty-while-queue-active-debug';
+import { resolveNotificationShellKindWithVisualSessionHold } from '@/lib/overlay-shell-kind-visual-session-hold-debug';
 import {
   buildQueueHeadLifecycleSignature,
   logQueueHeadLifecycleTrace,
@@ -39147,6 +39148,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }
   const visualQueueDimSessionLive =
     visualQueueDimSessionRef.current || visualQueueDimSession;
+  const notificationQueueShellKindHold =
+    resolveNotificationShellKindWithVisualSessionHold({
+      requestedShellKind: notificationQueueShellDisplayKindResolved,
+      visualQueueDimSessionLive,
+      overlayQueueLength: overlayQueueRef.current.length,
+      ownerQueueLen: ownerPrimaryShellQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+    });
+  const notificationQueueShellDisplayKindForHost =
+    notificationQueueShellKindHold.shellKind;
+  const visualSessionShellKindHeld = notificationQueueShellKindHold.held;
 
   const shouldMountNotificationOverlayHostFromGuards = useMemo(() => {
     if (composeBlocksNotificationHost) {
@@ -40445,10 +40457,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const notificationHostSessionBackdrop = overlayBackdropDimVisible;
 
   useLayoutEffect(() => {
-    const shellKind = notificationQueueShellDisplayKindResolved;
+    const shellKind = notificationQueueShellDisplayKindForHost;
     const actualKind = showReplyIncomingOverlayDirect
       ? 'incoming'
-      : notificationQueueShellDisplayKind ?? null;
+      : notificationQueueShellDisplayKindForHost ??
+        notificationQueueShellDisplayKind ??
+        null;
     const resultOverlayMounted =
       showDirectOverboardLayer ||
       (shellKind === 'result' && visualQueueMountedCard.mountedCardVisible);
@@ -40460,7 +40474,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       showCheckOverlayDirect ||
       (shellKind === 'check' && visualQueueMountedCard.mountedCardVisible);
     const hasOverlay =
-      globalOverlayHostActive && overlayVisualShieldCardContentMounted;
+      (globalOverlayHostActive && overlayVisualShieldCardContentMounted) ||
+      visualSessionShellKindHeld;
 
     traceOverlayShellEmptyWhileQueueActiveIfChanged({
       ownerQueueLen: ownerPrimaryShellQueueLen,
@@ -40508,6 +40523,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     showDirectOverboardLayer,
     showReplyIncomingOverlayDirect,
     visualQueueDimSessionLive,
+    visualSessionShellKindHeld,
     visualQueueMountedCard.mountedCardVisible,
   ]);
 
@@ -41589,7 +41605,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               activeOverlayKind={
                 showReplyIncomingOverlayDirect
                   ? 'incoming'
-                  : notificationQueueShellDisplayKind
+                  : notificationQueueShellDisplayKindForHost ??
+                    notificationQueueShellDisplayKind
               }
               activeIncomingBanId={
                 showReplyIncomingOverlayDirect ||
@@ -41598,9 +41615,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   : null
               }
             >
-              {overlayVisualShieldCardContentMounted ? (
+              {overlayVisualShieldCardContentMounted ||
+              visualSessionShellKindHeld ? (
               <NotificationQueueShell
-                kind={notificationQueueShellDisplayKindResolved}
+                kind={notificationQueueShellDisplayKindForHost}
+                visualSessionShellWrapperHold={
+                  visualSessionShellKindHeld &&
+                  !overlayVisualShieldCardContentMounted
+                }
                 shellContentReady={
                   renderableResultShell ? ownerShellContentReady : undefined
                 }
