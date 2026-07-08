@@ -782,6 +782,30 @@ export function InstantBanFlow({
   const effectiveOverlayQueueLengthForLobbyCta = staleResultQueueClaimActive
     ? 0
     : overlayQueueLength;
+  if (
+    !staleResultQueueClaimActive &&
+    shouldBlockLobbyForActiveQueue()
+  ) {
+    const ownerQueueDebug = getConfirmOrbQueueDebugSnapshot();
+    if (
+      overlayQueueLength === 0 &&
+      ownerQueueDebug.queueLen === 0 &&
+      ownerQueueDebug.pendingLen === 0 &&
+      !result
+    ) {
+      // Narrow stale-guard release only: empty overlay + empty owner + no result.
+      // Does not clear on overlayQueueLength===0 alone (card-to-card gaps).
+      syncQueueLobbyGuardState({
+        queueLen: 0,
+        pendingLen: 0,
+        overlayQueueLength: 0,
+        ownerQueueLen: 0,
+        ownerPendingLen: 0,
+        resultOverlayMounted: false,
+        source: 'instant-ban-empty-overlay-empty-owner-stale-guard-release',
+      });
+    }
+  }
   const queueLobbyGuardActive = staleResultQueueClaimActive
     ? false
     : shouldBlockLobbyForActiveQueue();

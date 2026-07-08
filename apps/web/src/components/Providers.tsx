@@ -38400,12 +38400,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       queueShellShowsResult ||
       queueHead?.kind === 'result' ||
       (effectiveNotificationQueueShellKind === 'result' && queueLen > 0);
+    const resultOverlayMounted =
+      queueShellShowsResult || renderableResultShell || Boolean(result?.id);
     const guardSnapshot = syncQueueLobbyGuardState({
       queueLen,
       pendingLen,
       fromQueueResult,
       queueShellShowsResult,
       displayResultSourcePicked: displayResultSourcePickedRef.current,
+      overlayQueueLength: overlayQueueRef.current.length,
+      ownerQueueLen: ownerPrimaryShellQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+      resultOverlayMounted,
+      directOverboardMounted: showDirectOverboardLayer,
     });
     queueShellShowsResultRef.current = queueShellShowsResult;
     const queueActive = shouldBlockLobbyForActiveQueue(guardSnapshot);
@@ -38471,10 +38478,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     incomingCardDisplayBan?.id,
     incomingJsxRenderSource,
     overlayQueue,
+    ownerPrimaryShellPendingLen,
+    ownerPrimaryShellQueueLen,
     queueShellShowsResult,
     renderableResultShell,
+    result?.id,
     setLobbyOpen,
     shouldRenderIncomingOverlay,
+    showDirectOverboardLayer,
   ]);
 
   const replyIncomingPathActive =

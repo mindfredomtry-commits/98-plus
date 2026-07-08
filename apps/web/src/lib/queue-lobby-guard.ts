@@ -19,6 +19,14 @@ export type QueueLobbyGuardSnapshot = {
   source?: string;
 };
 
+export type QueueLobbyGuardVisualEmptiness = {
+  overlayQueueLength?: number;
+  ownerQueueLen?: number;
+  ownerPendingLen?: number;
+  resultOverlayMounted?: boolean;
+  directOverboardMounted?: boolean;
+};
+
 let guardSnapshot: QueueLobbyGuardSnapshot = {
   queueLen: 0,
   pendingLen: 0,
@@ -48,18 +56,34 @@ export function resolveQueueLobbyPhase(input: {
   return 'idle';
 }
 
+function shouldReleaseStaleQueueLobbyGuard(input: {
+  overlayQueueLength: number;
+  ownerQueueLen: number;
+  ownerPendingLen: number;
+  resultOverlayMounted: boolean | undefined;
+  directOverboardMounted: boolean | undefined;
+}): boolean {
+  if (input.overlayQueueLength !== 0) return false;
+  if (input.ownerQueueLen !== 0) return false;
+  if (input.ownerPendingLen !== 0) return false;
+  if (input.resultOverlayMounted !== false) return false;
+  if (input.directOverboardMounted === true) return false;
+  return true;
+}
+
 export function syncQueueLobbyGuardState(
-  patch: Partial<QueueLobbyGuardSnapshot> & {
-    displayResultSourcePicked?: string | null;
-  },
+  patch: Partial<QueueLobbyGuardSnapshot> &
+    QueueLobbyGuardVisualEmptiness & {
+      displayResultSourcePicked?: string | null;
+    },
 ): QueueLobbyGuardSnapshot {
   const queueLen = patch.queueLen ?? guardSnapshot.queueLen;
   const pendingLen = patch.pendingLen ?? guardSnapshot.pendingLen;
-  const fromQueueResult =
+  let fromQueueResult =
     patch.fromQueueResult ?? guardSnapshot.fromQueueResult;
-  const queueShellShowsResult =
+  let queueShellShowsResult =
     patch.queueShellShowsResult ?? guardSnapshot.queueShellShowsResult;
-  const phase =
+  let phase =
     patch.phase ??
     resolveQueueLobbyPhase({
       queueLen,
@@ -67,6 +91,46 @@ export function syncQueueLobbyGuardState(
       fromQueueResult,
       displayResultSourcePicked: patch.displayResultSourcePicked,
     });
+
+  const overlayQueueLength = patch.overlayQueueLength ?? queueLen;
+  const ownerQueueLen = patch.ownerQueueLen ?? queueLen;
+  const ownerPendingLen = patch.ownerPendingLen ?? pendingLen;
+  const resultOverlayMounted = patch.resultOverlayMounted;
+  const directOverboardMounted = patch.directOverboardMounted;
+
+  const previousQueueLobbyGuardActive = shouldBlockLobbyForActiveQueue({
+    queueLen,
+    pendingLen,
+    fromQueueResult,
+    queueShellShowsResult,
+    phase,
+  });
+
+  if (
+    previousQueueLobbyGuardActive &&
+    shouldReleaseStaleQueueLobbyGuard({
+      overlayQueueLength,
+      ownerQueueLen,
+      ownerPendingLen,
+      resultOverlayMounted,
+      directOverboardMounted,
+    })
+  ) {
+    fromQueueResult = false;
+    queueShellShowsResult = false;
+    phase = 'idle';
+    emitClientDiagTrace('QUEUE_LOBBY_GUARD_STALE_RELEASED', {
+      overlayQueueLength,
+      ownerQueueLen,
+      ownerPendingLen,
+      resultOverlayMounted: resultOverlayMounted === true,
+      directOverboardMounted: directOverboardMounted === true,
+      previousQueueLobbyGuardActive,
+      nextQueueLobbyGuardActive: false,
+      reason: 'empty-overlay-empty-owner-release-stale-guard',
+    });
+  }
+
   guardSnapshot = {
     queueLen,
     pendingLen,
@@ -79,11 +143,15 @@ export function syncQueueLobbyGuardState(
   traceQueueClaimsNotificationScreenIfChanged('queue-lobby-guard.syncQueueLobbyGuardState', {
     queueClaimsNotificationScreen:
       queueLen > 0 || queueLobbyGuardActive,
-    overlayQueueLength: queueLen,
-    ownerQueueLen: queueLen,
-    ownerPendingLen: pendingLen,
+    overlayQueueLength,
+    ownerQueueLen,
+    ownerPendingLen,
     queueLobbyGuardActive,
     guardSnapshot,
+    resultOverlayMounted:
+      resultOverlayMounted === undefined ? null : resultOverlayMounted,
+    directOverboardMounted:
+      directOverboardMounted === undefined ? null : directOverboardMounted,
     renderBranch: null,
     reason: queueLobbyGuardActive
       ? queueLen > 0
