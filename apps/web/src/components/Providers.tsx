@@ -672,6 +672,7 @@ import {
   type OverlayGapFrameEdgePhase,
   type OverlayGapFrameReason,
 } from '@/lib/overlay-gap-frame-classify-debug';
+import { traceOverlayShellEmptyWhileQueueActiveIfChanged } from '@/lib/overlay-shell-empty-while-queue-active-debug';
 import {
   buildQueueHeadLifecycleSignature,
   logQueueHeadLifecycleTrace,
@@ -40438,6 +40439,73 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const notificationHostPointerActive =
     notificationOverlayVisible && !replyParentTimerOwnsTopLayer;
   const notificationHostSessionBackdrop = overlayBackdropDimVisible;
+
+  useLayoutEffect(() => {
+    const shellKind = notificationQueueShellDisplayKindResolved;
+    const actualKind = showReplyIncomingOverlayDirect
+      ? 'incoming'
+      : notificationQueueShellDisplayKind ?? null;
+    const resultOverlayMounted =
+      showDirectOverboardLayer ||
+      (shellKind === 'result' && visualQueueMountedCard.mountedCardVisible);
+    const incomingOverlayMounted =
+      showReplyIncomingOverlayDirect ||
+      (shellKind === 'incoming' && visualQueueMountedCard.mountedCardVisible);
+    const checkCardMounted =
+      checkOverlayMounted ||
+      showCheckOverlayDirect ||
+      (shellKind === 'check' && visualQueueMountedCard.mountedCardVisible);
+    const hasOverlay =
+      globalOverlayHostActive && overlayVisualShieldCardContentMounted;
+
+    traceOverlayShellEmptyWhileQueueActiveIfChanged({
+      ownerQueueLen: ownerPrimaryShellQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+      overlayQueueLength: overlayQueueRef.current.length,
+      activeKind:
+        incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
+      activeOverlayKind: activeOverlayKind ?? null,
+      shellKind,
+      effectiveKind:
+        effectiveNotificationQueueShellKind ?? shellKind ?? queueHeadKind,
+      actualKind,
+      visible: notificationHostPointerActive,
+      hasOverlay,
+      baseLobbyHasOverlay: notificationOverlayVisible,
+      overlayKind: actualKind ?? shellKind,
+      notificationOverlayVisible,
+      visualQueueDimSessionLive,
+      backdropMounted: overlayBackdropHostMounted,
+      backdropActive: overlayBackdropDimVisible && overlayBackdropHostMounted,
+      queueHeadKind,
+      resultOverlayMounted,
+      incomingOverlayMounted,
+      checkOverlayMounted: checkCardMounted,
+      sendFlowOpening,
+    });
+  }, [
+    activeOverlayKind,
+    checkOverlayMounted,
+    effectiveNotificationQueueShellKind,
+    globalOverlayHostActive,
+    incomingOverlayDisplayKind,
+    notificationHostPointerActive,
+    notificationOverlayVisible,
+    notificationQueueShellDisplayKind,
+    notificationQueueShellDisplayKindResolved,
+    overlayBackdropDimVisible,
+    overlayBackdropHostMounted,
+    overlayVisualShieldCardContentMounted,
+    ownerPrimaryShellPendingLen,
+    ownerPrimaryShellQueueLen,
+    queueHeadKind,
+    sendFlowOpening,
+    showCheckOverlayDirect,
+    showDirectOverboardLayer,
+    showReplyIncomingOverlayDirect,
+    visualQueueDimSessionLive,
+    visualQueueMountedCard.mountedCardVisible,
+  ]);
 
   const overlayVisualShieldTraceSigRef = useRef('');
   useLayoutEffect(() => {
