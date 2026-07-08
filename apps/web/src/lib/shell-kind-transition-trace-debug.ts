@@ -1,6 +1,7 @@
 'use client';
 
 import type { EmptyHostBugQueueItemSnapshot } from './empty-host-bug-trace-debug';
+import { observeOverlayKindNullSourceTransition } from '@/lib/overlay-kind-null-source-trace-debug';
 
 export type ShellKindTransitionTrace = {
   previousShellKind: string | null;
@@ -50,4 +51,24 @@ export function logShellKindTransitionTrace(trace: ShellKindTransitionTrace): vo
   const payload = { timestamp: performance.now(), ...trace };
   console.log('SHELL_KIND_TRANSITION_TRACE', payload);
   window.__debug98log?.('SHELL_KIND_TRANSITION_TRACE', payload);
+
+  // Observe overall display/active kinds (same axes as OVERLAY_SHELL_EMPTY),
+  // not per-track previous/next. Rare emit only on both-null edge.
+  observeOverlayKindNullSourceTransition(
+    `shell-kind-transition:${trace.caller}`,
+    {
+      shellKind: trace.displayKind,
+      activeKind: trace.activeKind,
+      effectiveKind: trace.effectiveKind,
+      queueHeadKind: trace.nextQueueHeadKind,
+      ownerQueueLen: trace.ownerQueueLen,
+      ownerPendingLen: trace.ownerPendingLen,
+      notificationOverlayVisible: null,
+      visualQueueDimSessionLive:
+        trace.visualQueueDimSessionRef || trace.visualQueueDimSession,
+      selectorSource: trace.caller,
+      dispatchSource: trace.source,
+      resolvedShellQueueHead: trace.ownerQueueHead?.kind ?? null,
+    },
+  );
 }

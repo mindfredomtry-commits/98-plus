@@ -4,6 +4,7 @@ import type { QueuedOverlay } from '@/lib/overlay-queue';
 import { overlayBanId } from '@/lib/overlay-queue';
 import { normalizeId } from '@/lib/normalize-json';
 import { traceQueueHeadNullReadSite } from '@/lib/queue-head-lifecycle-trace-debug';
+import { observeOverlayKindNullSourceTransition } from '@/lib/overlay-kind-null-source-trace-debug';
 import {
   logOwnerPhase11B6ShellMismatch,
   logOwnerPhase11B6ShellRead,
@@ -168,6 +169,16 @@ export function resolveOwnerShellActiveOverlayKind(
     field: 'activeOverlayKind',
     kind,
   });
+  observeOverlayKindNullSourceTransition(
+    `resolveOwnerShellActiveOverlayKind:${selector}`,
+    {
+      activeKind: kind,
+      queueHeadKind: opts.queueHeadKind,
+      selectorSource: selector,
+      dispatchSource: 'resolveOwnerShellActiveOverlayKind',
+      directOverboardMounted: opts.showDirectOverboardLayer,
+    },
+  );
   return kind;
 }
 
