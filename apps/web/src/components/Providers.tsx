@@ -661,6 +661,12 @@ import {
   shouldHoldOverlayBackdropDuringQueueGap,
 } from '@/lib/overlay-backdrop-visibility-decision-debug';
 import {
+  classifyOverlayGapFrame,
+  logOverlayGapFrameClassified,
+  readOverlayGapFrameDom,
+  shouldEmitOverlayGapFrameClassified,
+} from '@/lib/overlay-gap-frame-classify-debug';
+import {
   findNewlyAddedOwnerPendingResultItems,
   isSamePendingResultObject,
   registerPendingResultObject,
@@ -2134,6 +2140,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     null,
   );
   const visualQueueDimReleaseScheduledRef = useRef(false);
+  const overlayGapFrameClassifySigRef = useRef('');
+  const prevDirectOverboardForGapFrameRef = useRef(false);
   const [visualQueueDimSession, setVisualQueueDimSession] = useState(false);
   const hasPendingNotificationChainFnRef = useRef<() => boolean>(() => false);
   const startupInteractionsHoldRef = useRef(true);
@@ -39700,6 +39708,121 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     sendFlowOpening,
     shouldMountNotificationOverlayHost,
     visualQueueDimSessionLive,
+  ]);
+
+  useLayoutEffect(() => {
+    if (
+      !shouldEmitOverlayGapFrameClassified({
+        ownerQueueLen: ownerPrimaryShellQueueLen,
+        ownerPendingLen: ownerPrimaryShellPendingLen,
+      })
+    ) {
+      prevDirectOverboardForGapFrameRef.current = showDirectOverboardLayer;
+      return;
+    }
+
+    const dom = readOverlayGapFrameDom();
+    const isGoToBansPath =
+      bansCtaQueueSuppress ||
+      resultCtaBansOverlayOpen ||
+      bansReturnToLobbyLatch ||
+      goToBansAdvancePendingRef.current ||
+      goToBansClosingBanIdRef.current != null;
+    const shellKind = notificationQueueShellDisplayKindResolved;
+    const resultOverlayMounted =
+      showDirectOverboardLayer ||
+      (shellKind === 'result' && visualQueueMountedCard.mountedCardVisible);
+    const incomingOverlayMounted =
+      showReplyIncomingOverlayDirect ||
+      (shellKind === 'incoming' && visualQueueMountedCard.mountedCardVisible);
+    const checkCardMounted =
+      checkOverlayMounted ||
+      showCheckOverlayDirect ||
+      (shellKind === 'check' && visualQueueMountedCard.mountedCardVisible);
+
+    const classifyInput = {
+      ownerQueueLen: ownerPrimaryShellQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+      queueHeadKind,
+      activeKind:
+        incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
+      shellKind,
+      mountedCardVisible: visualQueueMountedCard.mountedCardVisible,
+      mountedCardHasContent: visualQueueMountedCard.mountedCardHasContent,
+      globalOverlayHostActive,
+      notificationOverlayVisible,
+      visualQueueDimSessionLive,
+      backdropMounted: dom.backdropMounted || overlayBackdropHostMounted,
+      backdropActive:
+        dom.backdropActive ||
+        (overlayBackdropDimVisible && overlayBackdropHostMounted),
+      backdropComputedOpacity: dom.backdropComputedOpacity,
+      backdropZIndex: dom.backdropZIndex,
+      hostZIndex: dom.hostZIndex,
+      lobbyZIndex: dom.lobbyZIndex,
+      directOverboardMounted: showDirectOverboardLayer,
+      directOverboardActive: showDirectOverboardLayer,
+      resultOverlayMounted,
+      incomingOverlayMounted,
+      checkOverlayMounted: checkCardMounted,
+      isGoToBansPath,
+      sendFlowOpening,
+      prevDirectOverboardMounted: prevDirectOverboardForGapFrameRef.current,
+    };
+
+    const reason = classifyOverlayGapFrame(classifyInput);
+    const sig = [
+      reason,
+      classifyInput.ownerQueueLen,
+      classifyInput.ownerPendingLen,
+      classifyInput.queueHeadKind,
+      classifyInput.activeKind,
+      classifyInput.shellKind,
+      classifyInput.mountedCardVisible,
+      classifyInput.mountedCardHasContent,
+      classifyInput.globalOverlayHostActive,
+      classifyInput.notificationOverlayVisible,
+      classifyInput.visualQueueDimSessionLive,
+      classifyInput.backdropMounted,
+      classifyInput.backdropActive,
+      classifyInput.backdropComputedOpacity,
+      classifyInput.backdropZIndex,
+      classifyInput.hostZIndex,
+      classifyInput.lobbyZIndex,
+      classifyInput.directOverboardMounted,
+      classifyInput.resultOverlayMounted,
+      classifyInput.incomingOverlayMounted,
+      classifyInput.checkOverlayMounted,
+      classifyInput.isGoToBansPath,
+      classifyInput.sendFlowOpening,
+    ].join('|');
+    if (sig !== overlayGapFrameClassifySigRef.current) {
+      overlayGapFrameClassifySigRef.current = sig;
+      logOverlayGapFrameClassified(classifyInput, reason);
+    }
+    prevDirectOverboardForGapFrameRef.current = showDirectOverboardLayer;
+  }, [
+    activeOverlayKind,
+    bansCtaQueueSuppress,
+    bansReturnToLobbyLatch,
+    checkOverlayMounted,
+    globalOverlayHostActive,
+    incomingOverlayDisplayKind,
+    notificationOverlayVisible,
+    notificationQueueShellDisplayKindResolved,
+    overlayBackdropDimVisible,
+    overlayBackdropHostMounted,
+    ownerPrimaryShellPendingLen,
+    ownerPrimaryShellQueueLen,
+    queueHeadKind,
+    resultCtaBansOverlayOpen,
+    sendFlowOpening,
+    showCheckOverlayDirect,
+    showDirectOverboardLayer,
+    showReplyIncomingOverlayDirect,
+    visualQueueDimSessionLive,
+    visualQueueMountedCard.mountedCardHasContent,
+    visualQueueMountedCard.mountedCardVisible,
   ]);
 
   useLayoutEffect(() => {
