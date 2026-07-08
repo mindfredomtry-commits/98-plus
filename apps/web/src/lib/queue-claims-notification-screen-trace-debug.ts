@@ -49,12 +49,95 @@ export type QueueClaimsNotificationScreenTrace = {
   claimWinningInputs: Array<keyof QueueClaimsInputTrace>;
 };
 
+export type QueueClaimsStaleLobbyBranchDetectedTrace = {
+  timestamp: number;
+  reason: string;
+  claimInputs: QueueClaimsInputTrace;
+  claimWinningInputs: Array<keyof QueueClaimsInputTrace>;
+  guardSnapshot: QueueLobbyGuardSnapshot | null;
+  ownerQueueLen: number | null;
+  ownerPendingLen: number | null;
+  activeOverlayKind: string | null;
+  shellKind: string | null;
+  activeKind: string | null;
+  notificationOverlayVisible: boolean | null;
+  visualQueueDimSessionLive: boolean | null;
+  resultOverlayMounted: boolean | null;
+  directOverboardMounted: boolean | null;
+  showLobbyOrb: boolean | null;
+  lobbyChromeHidden: boolean | null;
+  source: string;
+};
+
 type QueueClaimsSnapshotProvider = () => Partial<
   Omit<QueueClaimsNotificationScreenTrace, 'timestamp' | 'source' | 'reason'>
 >;
 
 let snapshotProvider: QueueClaimsSnapshotProvider | null = null;
 const emittedSigBySource = new Map<string, string>();
+let emittedStaleLobbyBranchSig = '';
+
+function buildStaleLobbyBranchDetectedSig(
+  payload: QueueClaimsStaleLobbyBranchDetectedTrace,
+): string {
+  return [
+    payload.reason,
+    payload.claimWinningInputs.join(','),
+    payload.guardSnapshot?.queueLen,
+    payload.guardSnapshot?.pendingLen,
+    payload.guardSnapshot?.fromQueueResult,
+    payload.guardSnapshot?.queueShellShowsResult,
+    payload.guardSnapshot?.phase,
+    payload.ownerQueueLen,
+    payload.ownerPendingLen,
+    payload.activeOverlayKind,
+    payload.shellKind,
+    payload.activeKind,
+    payload.notificationOverlayVisible,
+    payload.visualQueueDimSessionLive,
+    payload.resultOverlayMounted,
+    payload.directOverboardMounted,
+    payload.showLobbyOrb,
+    payload.lobbyChromeHidden,
+  ].join('|');
+}
+
+function emitQueueClaimsStaleLobbyBranchDetectedIfNeeded(
+  payload: QueueClaimsNotificationScreenTrace,
+): void {
+  if (payload.renderBranch !== 'lobby') return;
+  if (!payload.queueClaimsNotificationScreen) return;
+  if (payload.overlayQueueLength !== 0) return;
+
+  const stalePayload: QueueClaimsStaleLobbyBranchDetectedTrace = {
+    timestamp: payload.timestamp,
+    reason: payload.reason,
+    claimInputs: payload.claimInputs,
+    claimWinningInputs: payload.claimWinningInputs,
+    guardSnapshot: payload.guardSnapshot ?? null,
+    ownerQueueLen: payload.ownerQueueLen,
+    ownerPendingLen: payload.ownerPendingLen,
+    activeOverlayKind: payload.activeOverlayKind,
+    shellKind: payload.shellKind,
+    activeKind: payload.activeKind,
+    notificationOverlayVisible: payload.notificationOverlayVisible,
+    visualQueueDimSessionLive: payload.visualQueueDimSessionLive,
+    resultOverlayMounted: payload.resultOverlayMounted,
+    directOverboardMounted: payload.directOverboardMounted,
+    showLobbyOrb: payload.showLobbyOrb,
+    lobbyChromeHidden: payload.lobbyChromeHidden,
+    source: payload.source,
+  };
+
+  const staleSig = buildStaleLobbyBranchDetectedSig(stalePayload);
+  if (emittedStaleLobbyBranchSig === staleSig) return;
+  emittedStaleLobbyBranchSig = staleSig;
+
+  emitClientDiagTrace(
+    'QUEUE_CLAIMS_STALE_LOBBY_BRANCH_DETECTED',
+    stalePayload,
+  );
+}
 
 export function registerQueueClaimsNotificationScreenSnapshotProvider(
   provider: QueueClaimsSnapshotProvider | null,
@@ -264,6 +347,7 @@ export function traceQueueClaimsNotificationScreenIfChanged(
   ].join('|');
 
   const sourceSig = `${source}|${sig}`;
+  emitQueueClaimsStaleLobbyBranchDetectedIfNeeded(payload);
   if (emittedSigBySource.get(source) === sourceSig) return;
   emittedSigBySource.set(source, sourceSig);
 
