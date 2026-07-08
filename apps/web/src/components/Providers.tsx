@@ -673,6 +673,15 @@ import {
   type OverlayGapFrameReason,
 } from '@/lib/overlay-gap-frame-classify-debug';
 import { traceOverlayShellEmptyWhileQueueActiveIfChanged } from '@/lib/overlay-shell-empty-while-queue-active-debug';
+import {
+  logOverlayQueueFallbackUsedForShell,
+  overlayQueueHeadForShellFallbackRead,
+  resolveQueueHeadShellKindFallbackRead,
+} from '@/lib/overlay-queue-shell-kind-fallback-read';
+import {
+  registerOwnerQueueSilentUpdateRenderSnapshotProvider,
+  traceOwnerQueueSilentUpdate,
+} from '@/lib/owner-queue-silent-update-trace-debug';
 import { traceOwnerPrimaryShellQueueClearIfTransition } from '@/lib/owner-primary-shell-queue-clear-trace-debug';
 import { traceQueueHeadShellKindFallbackIfChanged } from '@/lib/queue-head-shell-kind-fallback-trace-debug';
 import { traceOverlayNextHandoffStalledIfChanged } from '@/lib/overlay-next-handoff-stalled-trace-debug';
@@ -6716,6 +6725,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
     });
     const ownerAfter = ownerShadowRef.current.getState();
+    traceOwnerQueueSilentUpdate({
+      caller: `${source}:${reason}`,
+      source: `${source}:${reason}`,
+      functionName: 'resetOverlayQueueState',
+      updateReason: 'QUEUE_SILENT_UPDATED-clear',
+      silent: true,
+      prevOwnerQueue: ownerBefore.queue,
+      nextOwnerQueue: ownerAfter.queue,
+      overlayQueueLength: overlayQueueRef.current.length,
+      overlayQueueHead: overlayQueueRef.current[0] ?? null,
+    });
     emitOwnerQueuePopulationTraceRef.current({
       source: `resetOverlayQueueState:${source}:${reason}`,
       reason: 'QUEUE_SILENT_UPDATED-clear',
@@ -9046,6 +9066,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
       const ownerAfter = ownerShadowRef.current.getState();
       const queueAfter = [...ownerAfter.queue];
+      if (silent) {
+        traceOwnerQueueSilentUpdate({
+          caller: source,
+          source,
+          functionName: 'applyQueueViaOwnerAuthority',
+          updateReason: 'QUEUE_SILENT_UPDATED',
+          silent: true,
+          prevOwnerQueue: queueBefore,
+          nextOwnerQueue: queueAfter,
+          overlayQueueLength: overlayQueueRef.current.length,
+          overlayQueueHead: overlayQueueRef.current[0] ?? null,
+        });
+      }
       logApplyQueueCommitTrace({
         source: `${source}:applyQueueViaOwnerAuthority:after-dispatch`,
         beforeQueueLength: queueBefore.length,
@@ -36616,26 +36649,44 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     isQueueAtomicOverboardResultShowable,
   ]);
 
+  const overlayQueueShellFallbackUsedRef = useRef(false);
+
   const queueHeadShellKindFallback = useMemo((): QueuedOverlay['kind'] | null => {
-    if (composeBlocksNotificationHost) return null;
-    if (ownerPrimaryShellQueueLen <= 0 && ownerPrimaryShellPendingLen <= 0) {
-      return null;
-    }
-    const head = ownerPrimaryQueueHead;
-    if (!head) return null;
-    if (
-      head.kind === 'check' ||
-      head.kind === 'incoming' ||
-      head.kind === 'result'
-    ) {
-      return head.kind;
-    }
-    return null;
+    const overlayQueueHeadForFallback = overlayQueueHeadForShellFallbackRead(
+      overlayQueue,
+      overlayQueueRef.current[0],
+    );
+    const visualQueueDimSessionLiveForFallback =
+      visualQueueDimSessionRef.current || visualQueueDimSession;
+    const notificationOverlayVisibleForFallback =
+      notificationOverlayVisibleDiagRef.current ?? false;
+    const queueClaimsNotificationScreenForFallback =
+      ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current;
+    const resolved = resolveQueueHeadShellKindFallbackRead({
+      composeBlocksNotificationHost,
+      showDirectOverboardLayer,
+      ownerPrimaryShellQueueLen,
+      ownerPrimaryShellPendingLen,
+      ownerPrimaryQueueHead,
+      overlayQueueHead: overlayQueueHeadForFallback,
+      overlayQueueLength: Math.max(
+        overlayQueue.length,
+        overlayQueueRef.current.length,
+      ),
+      visualQueueDimSessionLive: visualQueueDimSessionLiveForFallback,
+      notificationOverlayVisible: notificationOverlayVisibleForFallback,
+      queueClaimsNotificationScreen: queueClaimsNotificationScreenForFallback,
+    });
+    overlayQueueShellFallbackUsedRef.current = resolved.usedOverlayFallback;
+    return resolved.kind;
   }, [
     composeBlocksNotificationHost,
     ownerPrimaryQueueHead,
     ownerPrimaryShellQueueLen,
     ownerPrimaryShellPendingLen,
+    overlayQueue,
+    showDirectOverboardLayer,
+    visualQueueDimSession,
   ]);
 
   const notificationQueueShellKind = useMemo(() => {
@@ -39424,6 +39475,40 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ? 'shell-incoming'
         : 'no-shell-branch';
 
+  useLayoutEffect(() => {
+    if (!overlayQueueShellFallbackUsedRef.current) return;
+    if (queueHeadShellKindFallback == null) return;
+    const overlayQueueHeadForFallback = overlayQueueHeadForShellFallbackRead(
+      overlayQueue,
+      overlayQueueRef.current[0],
+    );
+    logOverlayQueueFallbackUsedForShell({
+      ownerPrimaryShellQueueLen,
+      ownerPrimaryShellPendingLen,
+      overlayQueueLength: Math.max(
+        overlayQueue.length,
+        overlayQueueRef.current.length,
+      ),
+      overlayQueueHeadKind: overlayQueueHeadForFallback?.kind ?? null,
+      overlayQueueHeadId: queueHeadIdFrom(overlayQueueHeadForFallback),
+      returnedKind: queueHeadShellKindFallback,
+      renderBranch: queueHeadLifecycleRenderBranch,
+      notificationOverlayVisible,
+      visualQueueDimSessionLive:
+        visualQueueDimSessionRef.current || visualQueueDimSession,
+      queueClaimsNotificationScreen:
+        ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+    });
+  }, [
+    notificationOverlayVisible,
+    overlayQueue,
+    ownerPrimaryShellPendingLen,
+    ownerPrimaryShellQueueLen,
+    queueHeadLifecycleRenderBranch,
+    queueHeadShellKindFallback,
+    visualQueueDimSession,
+  ]);
+
   const sampleQueueHeadLifecycle = useCallback(() => {
     const nextHeadId = queueHeadIdFrom(ownerPrimaryQueueHead);
     const mutation = readQueueHeadMutationContext();
@@ -40454,6 +40539,37 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     headKind: string | null;
     headId: string | null;
   } | null>(null);
+
+  useLayoutEffect(() => {
+    registerOwnerQueueSilentUpdateRenderSnapshotProvider(() => ({
+      ownerPrimaryShellQueueLen,
+      ownerPrimaryShellQueueHeadKind,
+      ownerPendingLength: ownerReadPendingLen,
+      shellKind: notificationQueueShellDisplayKindResolved,
+      actualKind: notificationQueueShellDisplayKind ?? null,
+      effectiveKind: effectiveNotificationQueueShellKind,
+      notificationQueueShellKind,
+      effectiveNotificationQueueShellKind,
+      queueHeadShellKindFallback,
+      renderBranch: queueHeadLifecycleRenderBranch,
+      activeKind:
+        incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
+    }));
+    return () => registerOwnerQueueSilentUpdateRenderSnapshotProvider(null);
+  }, [
+    activeOverlayKind,
+    effectiveNotificationQueueShellKind,
+    incomingOverlayDisplayKind,
+    notificationQueueShellDisplayKind,
+    notificationQueueShellDisplayKindResolved,
+    notificationQueueShellKind,
+    ownerPrimaryShellQueueHeadKind,
+    ownerPrimaryShellQueueLen,
+    ownerReadPendingLen,
+    queueHeadKind,
+    queueHeadLifecycleRenderBranch,
+    queueHeadShellKindFallback,
+  ]);
 
   useLayoutEffect(() => {
     const shellKind = notificationQueueShellDisplayKindResolved;
