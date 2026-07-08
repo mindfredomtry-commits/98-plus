@@ -36,8 +36,6 @@ type Props = {
   sessionActive: boolean;
   contentKey: string | null;
   children: ReactNode;
-  /** Empty shell wrapper only during visual dim session hold — no card content. */
-  visualSessionShellWrapperHold?: boolean;
   /** Incoming card display ban id — debug + incoming guard. */
   displayBanId?: string | null;
   incomingCardReady?: boolean;
@@ -130,7 +128,6 @@ export function NotificationQueueShell({
   advanceWaiting = false,
   shellContentReady,
   renderTrace,
-  visualSessionShellWrapperHold = false,
 }: Props) {
   const hasRenderableChildrenProbe = hasRenderableChildren(children);
   const rt = renderTrace ?? {};
@@ -508,38 +505,6 @@ export function NotificationQueueShell({
   if (!kind) {
     logShellRenderBranch('base-null', 'no-kind');
     return null;
-  }
-
-  if (visualSessionShellWrapperHold) {
-    logShellRenderBranch(
-      resolveOverlayRenderBranchFromKind(kind),
-      'visual-session-shell-wrapper-hold',
-    );
-    return (
-      <ModalShell
-        open
-        light
-        stable
-        handoff={handoff}
-        sessionHosted={sessionActive}
-        zIndex={APP_NOTIFICATION_CARD_Z_INDEX}
-        closeOnBackdrop={false}
-        ariaLabel={ARIA[shellKind]}
-        onClose={() => {}}
-        cardClassName={CARD_CLASS[shellKind]}
-      >
-        <ModalShellContentWrapper
-          kind={shellKind}
-          visible
-          hasContent={false}
-          reason="visual-session-shell-wrapper-hold"
-          contentKey={contentKey}
-          handoff={handoff}
-        >
-          {null}
-        </ModalShellContentWrapper>
-      </ModalShell>
-    );
   }
 
   if (kind === 'incoming' && !incomingCardReady && !advanceWaiting) {
