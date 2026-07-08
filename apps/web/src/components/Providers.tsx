@@ -683,6 +683,10 @@ import {
   type QueueHeadLifecycleFramePhase,
 } from '@/lib/queue-head-lifecycle-trace-debug';
 import {
+  registerQueueClaimsNotificationScreenSnapshotProvider,
+  traceQueueClaimsNotificationScreenIfChanged,
+} from '@/lib/queue-claims-notification-screen-trace-debug';
+import {
   findNewlyAddedOwnerPendingResultItems,
   isSamePendingResultObject,
   registerPendingResultObject,
@@ -2173,6 +2177,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }>({ queueHeadKind: null, headId: null });
   const queueHeadLifecycleSigRef = useRef('');
   const queueHeadLifecycleAfterLayoutRafRef = useRef<number | null>(null);
+  const queueClaimsNotificationScreenSnapshotRef = useRef<
+    Partial<
+      Omit<
+        import('@/lib/queue-claims-notification-screen-trace-debug').QueueClaimsNotificationScreenTrace,
+        'timestamp' | 'source' | 'reason'
+      >
+    >
+  >({});
   const [visualQueueDimSession, setVisualQueueDimSession] = useState(false);
   const hasPendingNotificationChainFnRef = useRef<() => boolean>(() => false);
   const startupInteractionsHoldRef = useRef(true);
@@ -38411,6 +38423,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setLobbyOpen(false);
     }
     queueLobbyGuardActiveRef.current = queueActive;
+    traceQueueClaimsNotificationScreenIfChanged('Providers.queue-lobby-guard-sync', {
+      queueClaimsNotificationScreen:
+        ownerPrimaryShellQueueLen > 0 || queueActive,
+      overlayQueueLength: overlayQueueRef.current.length,
+      ownerQueueLen: ownerPrimaryShellQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+      queueLobbyGuardActive: queueActive,
+      guardSnapshot,
+      activeOverlayKind: activeOverlayKind ?? null,
+      activeKind: incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
+      shellKind: notificationQueueShellDisplayKindResolved,
+      notificationOverlayVisible,
+      visualQueueDimSessionLive,
+      resultOverlayMounted:
+        queueShellShowsResult || renderableResultShell || Boolean(result?.id),
+      directOverboardMounted: showDirectOverboardLayer,
+      showLobbyOrb: lobbyOpenRef.current ? true : null,
+      lobbyChromeHidden: null,
+      renderBranch: null,
+    });
     const activeGuard = getActiveUserCardForGuard();
     patchQueueDisplayDiagSnapshot({
       hasNotificationShell: Boolean(
@@ -39467,6 +39499,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     };
   }, [emitQueueHeadLifecycleIfChanged]);
 
+  useLayoutEffect(() => {
+    registerQueueClaimsNotificationScreenSnapshotProvider(
+      () => queueClaimsNotificationScreenSnapshotRef.current,
+    );
+    return () => registerQueueClaimsNotificationScreenSnapshotProvider(null);
+  }, []);
+
   const incomingNullResultContextActive =
     queueHeadKind === 'result' ||
     queueShellShowsResult ||
@@ -39631,6 +39670,42 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     queueClaimsNotificationScreen:
       ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
   }));
+
+  queueClaimsNotificationScreenSnapshotRef.current = {
+    ownerQueueLen: ownerPrimaryShellQueueLen,
+    ownerPendingLen: ownerPrimaryShellPendingLen,
+    overlayQueueLength: overlayQueueRef.current.length,
+    activeOverlayKind: activeOverlayKind ?? null,
+    activeKind: incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
+    shellKind: notificationQueueShellDisplayKindResolved,
+    notificationOverlayVisible,
+    visualQueueDimSessionLive,
+    resultOverlayMounted:
+      queueShellShowsResult || renderableResultShell || Boolean(result?.id),
+    directOverboardMounted: showDirectOverboardLayer,
+    queueLobbyGuardActive: queueLobbyGuardActiveRef.current,
+    guardSnapshot: getQueueLobbyGuardSnapshot(),
+  };
+  traceQueueClaimsNotificationScreenIfChanged('Providers.render-overlay-diag', {
+    queueClaimsNotificationScreen:
+      ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+    overlayQueueLength: overlayQueueRef.current.length,
+    ownerQueueLen: ownerPrimaryShellQueueLen,
+    ownerPendingLen: ownerPrimaryShellPendingLen,
+    queueLobbyGuardActive: queueLobbyGuardActiveRef.current,
+    guardSnapshot: getQueueLobbyGuardSnapshot(),
+    activeOverlayKind: activeOverlayKind ?? null,
+    activeKind: incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
+    shellKind: notificationQueueShellDisplayKindResolved,
+    notificationOverlayVisible,
+    visualQueueDimSessionLive,
+    resultOverlayMounted:
+      queueShellShowsResult || renderableResultShell || Boolean(result?.id),
+    directOverboardMounted: showDirectOverboardLayer,
+    showLobbyOrb: null,
+    lobbyChromeHidden: null,
+    renderBranch: null,
+  });
 
   const buildChainPlaceholderStuckSnapshot = useCallback((): Record<string, unknown> => {
     const queueHead = overlayQueueRef.current[0] ?? null;

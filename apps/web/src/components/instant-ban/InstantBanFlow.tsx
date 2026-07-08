@@ -95,6 +95,7 @@ import {
   shouldBlockLobbyForActiveQueue,
   syncQueueLobbyGuardState,
 } from '@/lib/queue-lobby-guard';
+import { traceQueueClaimsNotificationScreenIfChanged } from '@/lib/queue-claims-notification-screen-trace-debug';
 import {
   logLobbyChromeHidden,
   logLobbyChromeHiddenBug,
@@ -815,6 +816,21 @@ export function InstantBanFlow({
     notificationChainTransitioning ||
     queueClaimsNotificationScreen;
   const showLobbyChrome = lobbyBootIntroPrimed && !lobbyChromeHidden;
+  traceQueueClaimsNotificationScreenIfChanged('InstantBanFlow.render', {
+    queueClaimsNotificationScreen,
+    overlayQueueLength,
+    effectiveOverlayQueueLength: effectiveOverlayQueueLengthForLobbyCta,
+    queueLobbyGuardActive,
+    guardSnapshot: getQueueLobbyGuardSnapshot(),
+    staleResultQueueClaimActive,
+    activeOverlayKind,
+    activeKind: activeOverlayKind,
+    notificationOverlayVisible,
+    resultOverlayMounted: Boolean(result),
+    showLobbyOrb,
+    lobbyChromeHidden,
+    renderBranch: lobbyOrbVisible || showBootOrb ? 'lobby' : 'base-null',
+  });
   const showLobbyCta =
     lobbyBootIntroPrimed &&
     !replyIncomingDeeplinkPending &&
@@ -1724,6 +1740,22 @@ export function InstantBanFlow({
     const queueDebug = getConfirmOrbQueueDebugSnapshot();
     const queueClaimsNotificationScreenGuard =
       overlayQueueLength > 0 || shouldBlockLobbyForActiveQueue();
+    traceQueueClaimsNotificationScreenIfChanged(
+      'InstantBanFlow.lobby-cta-guard-layout',
+      {
+        queueClaimsNotificationScreen: queueClaimsNotificationScreenGuard,
+        overlayQueueLength,
+        queueLobbyGuardActive: shouldBlockLobbyForActiveQueue(),
+        guardSnapshot: getQueueLobbyGuardSnapshot(),
+        activeOverlayKind,
+        activeKind: activeOverlayKind,
+        notificationOverlayVisible,
+        resultOverlayMounted: Boolean(result),
+        showLobbyOrb,
+        lobbyChromeHidden,
+        renderBranch: lobbyOrbVisible || showBootOrb ? 'lobby' : 'base-null',
+      },
+    );
     const guardDecision = computeLobbyCtaGuardDecision({
       lobbyBootIntroPrimed,
       replyIncomingDeeplinkPending,
@@ -3580,6 +3612,22 @@ export function InstantBanFlow({
       const queueDebug = getConfirmOrbQueueDebugSnapshot();
       const queueClaimsNotificationScreenGuard =
         overlayQueueLength > 0 || shouldBlockLobbyForActiveQueue();
+      traceQueueClaimsNotificationScreenIfChanged(
+        `InstantBanFlow.post-success-reply-deeplink:${source}`,
+        {
+          queueClaimsNotificationScreen: queueClaimsNotificationScreenGuard,
+          overlayQueueLength,
+          queueLobbyGuardActive: shouldBlockLobbyForActiveQueue(),
+          guardSnapshot: getQueueLobbyGuardSnapshot(),
+          activeOverlayKind,
+          activeKind: activeOverlayKind,
+          notificationOverlayVisible,
+          resultOverlayMounted: Boolean(result),
+          showLobbyOrb,
+          lobbyChromeHidden,
+          renderBranch: lobbyOrbVisible || showBootOrb ? 'lobby' : 'base-null',
+        },
+      );
       const guardDecision = computeLobbyCtaGuardDecision({
         lobbyBootIntroPrimed,
         replyIncomingDeeplinkPending,
@@ -7417,6 +7465,29 @@ export function InstantBanFlow({
     activeOverlayKind,
     overlayQueueLength: effectiveOverlayQueueLengthForLobbyCta,
   });
+  traceQueueClaimsNotificationScreenIfChanged(
+    'InstantBanFlow.result-render-branch',
+    {
+      queueClaimsNotificationScreen,
+      overlayQueueLength,
+      effectiveOverlayQueueLength: effectiveOverlayQueueLengthForLobbyCta,
+      queueLobbyGuardActive,
+      guardSnapshot: getQueueLobbyGuardSnapshot(),
+      staleResultQueueClaimActive,
+      activeOverlayKind,
+      activeKind: activeOverlayKind,
+      notificationOverlayVisible,
+      resultOverlayMounted: Boolean(result),
+      showLobbyOrb,
+      lobbyChromeHidden,
+      renderBranch: lobbyRenderBranch,
+      reason: queueClaimsNotificationScreen
+        ? 'queue-claims-notification-screen'
+        : lobbyRenderBranch === 'base-null'
+          ? 'lobby-orb-hidden'
+          : 'lobby-shell-render',
+    },
+  );
 
   return (
     <>

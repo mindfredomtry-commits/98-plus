@@ -2,6 +2,7 @@
 
 import { isPostSuccessHandoffInProgress } from './post-success-handoff-debug';
 import { isReplyQueueHandoffSessionActive } from './reply-queue-handoff-debug';
+import { traceQueueClaimsNotificationScreenIfChanged } from './queue-claims-notification-screen-trace-debug';
 
 function emit(event: string, data?: Record<string, unknown>): void {
   const payload = { t: performance.now(), ...data };
@@ -74,6 +75,26 @@ export function syncQueueLobbyGuardState(
     phase,
     source: patch.source ?? guardSnapshot.source,
   };
+  const queueLobbyGuardActive = shouldBlockLobbyForActiveQueue(guardSnapshot);
+  traceQueueClaimsNotificationScreenIfChanged('queue-lobby-guard.syncQueueLobbyGuardState', {
+    queueClaimsNotificationScreen:
+      queueLen > 0 || queueLobbyGuardActive,
+    overlayQueueLength: queueLen,
+    ownerQueueLen: queueLen,
+    ownerPendingLen: pendingLen,
+    queueLobbyGuardActive,
+    guardSnapshot,
+    renderBranch: null,
+    reason: queueLobbyGuardActive
+      ? queueLen > 0
+        ? 'guard-sync-queue-len-gt-0'
+        : fromQueueResult
+          ? 'guard-sync-from-queue-result'
+          : queueShellShowsResult
+            ? 'guard-sync-queue-shell-shows-result'
+            : `guard-sync-phase-${phase}`
+      : 'guard-sync-released',
+  });
   return getQueueLobbyGuardSnapshot();
 }
 
