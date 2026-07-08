@@ -656,10 +656,18 @@ import {
 import {
   buildOverlayBackdropGapHoldTrace,
   computeOverlayBackdropVisibilityDecision,
+  isActiveNotificationQueueHeadKind,
   logOverlayBackdropGapHoldTrace,
   logOverlayBackdropVisibilityDecision,
   shouldHoldOverlayBackdropDuringQueueGap,
 } from '@/lib/overlay-backdrop-visibility-decision-debug';
+import {
+  logDirectOverboardGapTrace,
+  registerDirectOverboardGapSnapshotProvider,
+  shouldArmDirectOverboardCleanupBridge,
+  shouldReleaseDirectOverboardCleanupBridge,
+  type DirectOverboardGapSnapshot,
+} from '@/lib/direct-overboard-gap-trace-debug';
 import {
   findNewlyAddedOwnerPendingResultItems,
   isSamePendingResultObject,
@@ -2134,6 +2142,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     null,
   );
   const visualQueueDimReleaseScheduledRef = useRef(false);
+  const directOverboardCleanupBridgeRef = useRef(false);
+  const prevShowDirectOverboardForBridgeRef = useRef(false);
+  const directOverboardGapBridgeTraceSigRef = useRef('');
+  const prevOwnerQueueLenForGapTraceRef = useRef(0);
+  const prevOwnerPendingLenForGapTraceRef = useRef(0);
+  const prevQueueHeadKindForGapTraceRef = useRef<string | null>(null);
   const [visualQueueDimSession, setVisualQueueDimSession] = useState(false);
   const hasPendingNotificationChainFnRef = useRef<() => boolean>(() => false);
   const startupInteractionsHoldRef = useRef(true);
@@ -39041,6 +39055,40 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const visualQueueDimSessionLive =
     visualQueueDimSessionRef.current || visualQueueDimSession;
 
+  const chainHandoffActiveForBridge =
+    notificationChainHandoffRef.current ||
+    notificationChainAwaitingUserRef.current;
+  let directOverboardBridgeArmedThisRender = false;
+  if (
+    prevShowDirectOverboardForBridgeRef.current &&
+    !showDirectOverboardLayer &&
+    shouldArmDirectOverboardCleanupBridge({
+      ownerQueueLen: ownerPrimaryShellQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+      prevOwnerQueueLen: prevOwnerQueueLenForGapTraceRef.current,
+      prevOwnerPendingLen: prevOwnerPendingLenForGapTraceRef.current,
+      queueHeadKind,
+      notificationChainTransitioning,
+      notificationSessionActive,
+      chainAdvanceWaiting,
+      chainHandoffActive: chainHandoffActiveForBridge,
+    })
+  ) {
+    if (!directOverboardCleanupBridgeRef.current) {
+      directOverboardCleanupBridgeRef.current = true;
+      directOverboardBridgeArmedThisRender = true;
+    }
+    if (!visualQueueDimSessionRef.current) {
+      visualQueueDimSessionRef.current = true;
+    }
+  }
+  prevShowDirectOverboardForBridgeRef.current = showDirectOverboardLayer;
+
+  const directOverboardCleanupBridgeActive =
+    directOverboardCleanupBridgeRef.current;
+  const effectiveVisualQueueDimSessionLive =
+    visualQueueDimSessionLive || directOverboardCleanupBridgeActive;
+
   const shouldMountNotificationOverlayHostFromGuards = useMemo(() => {
     if (composeBlocksNotificationHost) {
       return false;
@@ -39132,7 +39180,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   ]);
   const shouldMountNotificationOverlayHost =
     !composeBlocksNotificationHost &&
-    (visualQueueDimSessionLive || shouldMountNotificationOverlayHostFromGuards);
+    (effectiveVisualQueueDimSessionLive ||
+      shouldMountNotificationOverlayHostFromGuards);
 
   emitEmptyHostBugTraceRef.current = ({
     caller,
@@ -39564,7 +39613,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ownerPrimaryHeldUserCard == null;
 
   const overlayVisualShieldDecision = computeOverlayVisualShieldDecision({
-    visualQueueDimSessionLive,
+    visualQueueDimSessionLive: effectiveVisualQueueDimSessionLive,
     sendFlowOpening,
     replyParentTimerOwnsTopLayer,
     composeBlocksNotificationHost,
@@ -39583,18 +39632,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     overlayVisualShieldDecision.cardContentMounted;
 
   const visualQueueDimSessionLiveWithQueueHead =
-    visualQueueDimSessionLive &&
+    effectiveVisualQueueDimSessionLive &&
     !sendFlowOpening &&
     !replyParentTimerOwnsTopLayer &&
-    ownerPrimaryShellQueueLen > 0 &&
-    (queueHeadKind === 'incoming' ||
-      queueHeadKind === 'check' ||
-      queueHeadKind === 'result');
+    (ownerPrimaryShellQueueLen > 0 || directOverboardCleanupBridgeActive) &&
+    (isActiveNotificationQueueHeadKind(queueHeadKind) ||
+      directOverboardCleanupBridgeActive);
 
   const overlayBackdropDimVisiblePrevRef = useRef(false);
   const overlayBackdropGapHoldTraceSigRef = useRef('');
   const overlayBackdropVisibilityDecision = computeOverlayBackdropVisibilityDecision({
-    visualQueueDimSessionLive,
+    visualQueueDimSessionLive: effectiveVisualQueueDimSessionLive,
+    bridgeBackdropActive: directOverboardCleanupBridgeActive,
     notificationOverlayVisible,
     dimVisibleBefore: overlayBackdropDimVisiblePrevRef.current,
     sendFlowOpening,
@@ -39602,6 +39651,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     composeBlocksNotificationHost,
     showDirectOverboardLayer,
     ownerQueueLen: ownerPrimaryShellQueueLen,
+    ownerPendingLen: ownerPrimaryShellPendingLen,
     queueHeadKind,
     notificationChainTransitioning,
     notificationSessionActive,
@@ -39700,6 +39750,133 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     sendFlowOpening,
     shouldMountNotificationOverlayHost,
     visualQueueDimSessionLive,
+    effectiveVisualQueueDimSessionLive,
+    directOverboardCleanupBridgeActive,
+    globalOverlayHostActive,
+  ]);
+
+  const directOverboardGapSnapshotRef = useRef<DirectOverboardGapSnapshot>({
+    directOverboardMounted: false,
+    directOverboardActive: false,
+    portalTarget: null,
+    bodyChildCount: null,
+    resultId: null,
+    banId: null,
+    outcome: null,
+    visualQueueDimSessionLive: false,
+    bridgeBackdropActive: false,
+    globalOverlayHostActive: false,
+    backdropMounted: false,
+    backdropActive: false,
+    backdropComputedOpacity: null,
+    queueLen: 0,
+    queueHeadKind: null,
+    nextQueueHeadKind: null,
+    notificationOverlayVisible: false,
+    activeKind: null,
+    shellKind: null,
+  });
+  const ownerQueueSecondHeadKind =
+    ownerShadowRef.current.getState().queue[1]?.kind ?? null;
+  const ownerPendingHeadKind =
+    ownerShadowRef.current.getState().pending[0]?.kind ?? null;
+  directOverboardGapSnapshotRef.current = {
+    directOverboardMounted: showDirectOverboardLayer,
+    directOverboardActive: showDirectOverboardLayer,
+    portalTarget: null,
+    bodyChildCount:
+      typeof document !== 'undefined'
+        ? (document.body?.childElementCount ?? null)
+        : null,
+    resultId: ownerPrimaryDisplayResultForShell?.id ?? null,
+    banId: ownerPrimaryDisplayResultForShell?.id ?? null,
+    outcome: ownerPrimaryDisplayResultForShell?.outcome ?? null,
+    visualQueueDimSessionLive: effectiveVisualQueueDimSessionLive,
+    bridgeBackdropActive: directOverboardCleanupBridgeActive,
+    globalOverlayHostActive,
+    backdropMounted: overlayBackdropHostMounted,
+    backdropActive: overlayBackdropDimVisible,
+    backdropComputedOpacity: null,
+    queueLen: ownerPrimaryShellQueueLen,
+    queueHeadKind,
+    nextQueueHeadKind: ownerQueueSecondHeadKind ?? ownerPendingHeadKind,
+    notificationOverlayVisible,
+    activeKind: incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
+    shellKind: notificationQueueShellDisplayKindResolved,
+  };
+
+  useLayoutEffect(() => {
+    registerDirectOverboardGapSnapshotProvider(
+      () => directOverboardGapSnapshotRef.current,
+    );
+    return () => registerDirectOverboardGapSnapshotProvider(null);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!directOverboardBridgeArmedThisRender) return;
+    const sig = [
+      'direct-overboard-cleanup-bridges-backdrop',
+      ownerPrimaryShellQueueLen,
+      ownerPrimaryShellPendingLen,
+      queueHeadKind,
+      directOverboardCleanupBridgeActive,
+      effectiveVisualQueueDimSessionLive,
+    ].join('|');
+    if (sig === directOverboardGapBridgeTraceSigRef.current) return;
+    directOverboardGapBridgeTraceSigRef.current = sig;
+    logDirectOverboardGapTrace('direct-overboard-cleanup-bridges-backdrop', {
+      bridgeBackdropActive: true,
+      visualQueueDimSessionLive: effectiveVisualQueueDimSessionLive,
+      directOverboardMounted: false,
+      directOverboardActive: false,
+    });
+  }, [
+    directOverboardBridgeArmedThisRender,
+    directOverboardCleanupBridgeActive,
+    effectiveVisualQueueDimSessionLive,
+    ownerPrimaryShellPendingLen,
+    ownerPrimaryShellQueueLen,
+    queueHeadKind,
+  ]);
+
+  useLayoutEffect(() => {
+    const prevLen = prevOwnerQueueLenForGapTraceRef.current;
+    const prevHead = prevQueueHeadKindForGapTraceRef.current;
+    const cleared = prevLen > 0 && ownerPrimaryShellQueueLen === 0;
+    const headChanged =
+      prevHead != null &&
+      prevHead !== queueHeadKind &&
+      (prevHead === 'result' || queueHeadKind === 'result');
+    if (cleared || (headChanged && ownerPrimaryShellQueueLen <= 1)) {
+      logDirectOverboardGapTrace(
+        cleared
+          ? 'overlay-queue-mutation-trace-clear-before'
+          : 'overlay-queue-mutation-trace-head-change-before',
+        {
+          queueLen: prevLen,
+          queueHeadKind: prevHead,
+        },
+      );
+      logDirectOverboardGapTrace(
+        cleared
+          ? 'overlay-queue-mutation-trace-clear-after'
+          : 'overlay-queue-mutation-trace-head-change-after',
+        {
+          queueLen: ownerPrimaryShellQueueLen,
+          queueHeadKind,
+          nextQueueHeadKind: ownerQueueSecondHeadKind ?? ownerPendingHeadKind,
+        },
+      );
+    }
+    prevOwnerQueueLenForGapTraceRef.current = ownerPrimaryShellQueueLen;
+    prevOwnerPendingLenForGapTraceRef.current = ownerPrimaryShellPendingLen;
+    prevQueueHeadKindForGapTraceRef.current = queueHeadKind;
+  }, [
+    ownerPrimaryShellQueueLen,
+    ownerPrimaryShellPendingLen,
+    queueHeadKind,
+    ownerPendingHeadKind,
+    ownerQueueSecondHeadKind,
   ]);
 
   useLayoutEffect(() => {
@@ -39733,6 +39910,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       >,
     ) => {
       clearVisualQueueDimReleaseTimer('commit-release');
+      if (directOverboardCleanupBridgeRef.current) {
+        directOverboardCleanupBridgeRef.current = false;
+        logDirectOverboardGapTrace('direct-overboard-bridge-released', {
+          bridgeBackdropActive: false,
+          visualQueueDimSessionLive: false,
+          reason: `visual-session-release:${reason}`,
+        });
+      }
       visualQueueDimSessionRef.current = false;
       setVisualQueueDimSession(false);
       logVisualQueueDimSessionTrace({
@@ -39835,6 +40020,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    if (directOverboardCleanupBridgeRef.current) {
+      if (
+        shouldReleaseDirectOverboardCleanupBridge({
+          bridgeBackdropActive: true,
+          visualQueueCardShowing,
+        })
+      ) {
+        directOverboardCleanupBridgeRef.current = false;
+        logDirectOverboardGapTrace('direct-overboard-bridge-released', {
+          bridgeBackdropActive: false,
+          visualQueueDimSessionLive: visualQueueDimSessionRef.current,
+          reason: 'next-stable-card',
+        });
+      } else {
+        emitTrace('keep', 'direct-overboard-cleanup-bridge-active', true);
+        return;
+      }
+    }
+
     const { release, reason: releaseReason, deferGrace } =
       shouldReleaseVisualQueueDimSession({
         sendFlowOpening,
@@ -39925,6 +40129,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             chainHandoffActive: handoffActive,
           });
           if (graceRelease.release && graceRelease.deferGrace) {
+            if (directOverboardCleanupBridgeRef.current) {
+              directOverboardCleanupBridgeRef.current = false;
+              logDirectOverboardGapTrace('direct-overboard-bridge-released', {
+                bridgeBackdropActive: false,
+                visualQueueDimSessionLive: false,
+                reason: 'visual-session-release:visual-queue-session-ended-after-grace',
+              });
+            }
             visualQueueDimSessionRef.current = false;
             setVisualQueueDimSession(false);
             logVisualQueueDimSessionTrace({
@@ -40000,6 +40212,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     if (auth.user?.id) return;
     if (!visualQueueDimSessionRef.current) return;
     clearVisualQueueDimReleaseTimer('auth-cleared');
+    if (directOverboardCleanupBridgeRef.current) {
+      directOverboardCleanupBridgeRef.current = false;
+      logDirectOverboardGapTrace('direct-overboard-bridge-released', {
+        bridgeBackdropActive: false,
+        visualQueueDimSessionLive: false,
+        reason: 'visual-session-release:auth-cleared',
+      });
+    }
     visualQueueDimSessionRef.current = false;
     setVisualQueueDimSession(false);
     logVisualQueueDimSessionTrace({
@@ -41053,7 +41273,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       <RouteOverlayBootPriorityMarker active={routeOverlayAboveBoot} />
       <ShellErrorBoundary name="app">
         {children}
-        {!showDirectOverboardLayer || visualQueueDimSessionLive ? (
+        {!showDirectOverboardLayer || effectiveVisualQueueDimSessionLive ? (
           <>
             {showCheckOverlayDirect && ownerPrimaryCheckBan ? (
               <ChallengeErrorBoundary
@@ -41091,7 +41311,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 visualQueueDimSessionLiveWithQueueHead
               }
               backdropTraceContext={{
-                visualQueueDimSessionLive,
+                visualQueueDimSessionLive: effectiveVisualQueueDimSessionLive,
+                bridgeBackdropActive: directOverboardCleanupBridgeActive,
                 cardContentMounted: overlayVisualShieldCardContentMounted,
                 hostMounted: overlayBackdropHostMounted,
                 globalOverlayHostActive,

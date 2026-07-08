@@ -1,5 +1,7 @@
 'use client';
 
+import { logDirectOverboardGapTrace } from '@/lib/direct-overboard-gap-trace-debug';
+
 type ResultOverlayLifecycleBase = {
   resultId: string;
   banId?: string | null;
@@ -67,7 +69,20 @@ export function logResultOverlayCleanup(
     phase?: string;
   } & Record<string, unknown>,
 ): void {
+  const gapExtra = {
+    resultId: payload.resultId ?? null,
+    banId: payload.banId ?? null,
+    outcome: payload.outcome ?? null,
+    directOverboardMounted: false,
+    directOverboardActive: false,
+  };
+  if (payload.directPaint) {
+    logDirectOverboardGapTrace('result-overlay-cleanup-before', gapExtra);
+  }
   emit('RESULT_OVERLAY_CLEANUP', payload);
+  if (payload.directPaint) {
+    logDirectOverboardGapTrace('result-overlay-cleanup-after', gapExtra);
+  }
 }
 
 export function logResultOverlayDismissSource(

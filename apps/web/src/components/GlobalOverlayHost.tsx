@@ -32,6 +32,7 @@ interface Props {
   /** Trace context for backdrop diagnostics. */
   backdropTraceContext?: {
     visualQueueDimSessionLive: boolean;
+    bridgeBackdropActive?: boolean;
     cardContentMounted: boolean;
     hostMounted: boolean;
     globalOverlayHostActive: boolean;
@@ -78,7 +79,8 @@ export function GlobalOverlayHost({
     sessionBackdropVisible &&
     backdropTraceContext != null &&
     !backdropTraceContext.cardContentMounted &&
-    backdropTraceContext.visualQueueDimSessionLive;
+    (backdropTraceContext.visualQueueDimSessionLive ||
+      backdropTraceContext.bridgeBackdropActive === true);
   const hostZIndexValue = sessionBackdropVisible
     ? APP_NOTIFICATION_VISUAL_SHIELD_Z_INDEX
     : APP_NOTIFICATION_BACKDROP_Z_INDEX;
@@ -181,10 +183,14 @@ export function GlobalOverlayHost({
       computedOpacity !== '0';
     const isGapFrame =
       !backdropTraceContext.cardContentMounted &&
-      backdropTraceContext.visualQueueDimSessionLive;
+      (backdropTraceContext.visualQueueDimSessionLive ||
+        backdropTraceContext.bridgeBackdropActive === true);
     let reason = 'backdrop-style-idle';
     if (isGapFrame && backdropActive) {
-      reason = 'visual-queue-gap-backdrop-style-active';
+      reason =
+        backdropTraceContext.bridgeBackdropActive === true
+          ? 'direct-overboard-cleanup-bridges-backdrop'
+          : 'visual-queue-gap-backdrop-style-active';
     } else if (isGapFrame && sessionBackdropVisible && !backdropActive) {
       reason = 'BROKEN_GAP_BACKDROP_STYLE_INACTIVE';
     } else if (backdropActive) {
@@ -205,6 +211,8 @@ export function GlobalOverlayHost({
       lobbyZIndex: lobbyStyle?.zIndex ?? null,
       cardMounted: backdropTraceContext.cardContentMounted,
       visualQueueDimSessionLive: backdropTraceContext.visualQueueDimSessionLive,
+      bridgeBackdropActive:
+        backdropTraceContext.bridgeBackdropActive === true,
       queueHeadKind: backdropTraceContext.queueHeadKind,
       activeKind: backdropTraceContext.activeKind,
       reason,

@@ -2,6 +2,7 @@ import {
   logQueueAppearanceReactionTrace,
 } from '@/lib/queue-appearance-reaction-trace';
 import { logStartDrainEntryTrace } from '@/lib/start-drain-entry-trace';
+import { logDirectOverboardGapTrace } from '@/lib/direct-overboard-gap-trace-debug';
 
 import {
   useCallback,
@@ -1010,6 +1011,16 @@ export function InstantBanFlow({
       nextHeadKind?: string | null;
     }) => {
       const head = readOverlayQueueTraceHead();
+      const gapReasonBase =
+        input.operation === 'clear'
+          ? 'overlay-queue-mutation-trace-clear'
+          : null;
+      if (gapReasonBase && input.phase === 'before') {
+        logDirectOverboardGapTrace(`${gapReasonBase}-before`, {
+          queueLen: input.prevLength ?? overlayQueueLength,
+          queueHeadKind: input.prevHeadKind ?? head.headKind,
+        });
+      }
       console.log('OVERLAY_QUEUE_MUTATION_TRACE', {
         operation: input.operation,
         source: input.source,
@@ -1032,6 +1043,12 @@ export function InstantBanFlow({
           resultCtaBansOverlayOpen ||
           bansReturnToLobbyLatch,
       });
+      if (gapReasonBase && input.phase === 'after') {
+        logDirectOverboardGapTrace(`${gapReasonBase}-after`, {
+          queueLen: input.nextLength ?? overlayQueueLength,
+          queueHeadKind: input.nextHeadKind ?? head.headKind,
+        });
+      }
     },
     [
       activeOverlayKind,

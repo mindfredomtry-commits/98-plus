@@ -1,5 +1,7 @@
 'use client';
 
+import { shouldHoldDirectOverboardCleanupBridgeBackdrop } from '@/lib/direct-overboard-gap-trace-debug';
+
 export type OverlayBackdropVisibilityDecisionTrace = {
   visualQueueDimSessionLive: boolean;
   notificationOverlayVisible: boolean;
@@ -80,6 +82,7 @@ export function shouldMountOverlayHostForQueueGap(input: {
 
 export function computeOverlayBackdropVisibilityDecision(input: {
   visualQueueDimSessionLive: boolean;
+  bridgeBackdropActive?: boolean;
   notificationOverlayVisible: boolean;
   dimVisibleBefore: boolean;
   sendFlowOpening: boolean;
@@ -87,6 +90,7 @@ export function computeOverlayBackdropVisibilityDecision(input: {
   composeBlocksNotificationHost: boolean;
   showDirectOverboardLayer: boolean;
   ownerQueueLen: number;
+  ownerPendingLen?: number;
   queueHeadKind: string | null;
   notificationChainTransitioning: boolean;
   notificationSessionActive: boolean;
@@ -98,6 +102,13 @@ export function computeOverlayBackdropVisibilityDecision(input: {
   activeKind: string | null;
   shellKind: string | null;
 }): OverlayBackdropVisibilityDecisionTrace {
+  const bridgeBackdropActive = input.bridgeBackdropActive === true;
+  const directBridgeHold = shouldHoldDirectOverboardCleanupBridgeBackdrop({
+    bridgeBackdropActive,
+    sendFlowOpening: input.sendFlowOpening,
+    replyParentTimerOwnsTopLayer: input.replyParentTimerOwnsTopLayer,
+  });
+
   const gapBackdropHold = shouldHoldOverlayBackdropDuringQueueGap({
     visualQueueDimSessionLive: input.visualQueueDimSessionLive,
     sendFlowOpening: input.sendFlowOpening,
@@ -124,11 +135,13 @@ export function computeOverlayBackdropVisibilityDecision(input: {
   } else if (input.replyParentTimerOwnsTopLayer) {
     dimVisibleAfter = false;
     reason = 'reply-parent-timer-owns-top';
-  } else if (gapBackdropHold) {
+  } else if (gapBackdropHold || directBridgeHold) {
     dimVisibleAfter = true;
-    reason = input.cardContentMounted
-      ? 'card-with-backdrop-visible'
-      : 'visual-queue-session-holds-backdrop';
+    reason = directBridgeHold
+      ? 'direct-overboard-cleanup-bridges-backdrop'
+      : input.cardContentMounted
+        ? 'card-with-backdrop-visible'
+        : 'visual-queue-session-holds-backdrop';
   } else if (input.shieldBackdropVisible) {
     dimVisibleAfter = true;
     reason = 'shield-backdrop-visible';
@@ -140,6 +153,7 @@ export function computeOverlayBackdropVisibilityDecision(input: {
   const hostBranchOpen =
     !input.showDirectOverboardLayer ||
     gapBackdropHold ||
+    directBridgeHold ||
     input.shieldBackdropVisible;
   const backdropMounted =
     hostBranchOpen &&

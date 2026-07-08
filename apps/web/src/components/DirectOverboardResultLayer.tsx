@@ -16,6 +16,7 @@ import {
   logResultRenderSelectionTrace,
 } from '@/lib/result-render-selection-trace';
 import { getAppPortalRoot } from '@/lib/portal-root';
+import { logDirectOverboardGapTrace } from '@/lib/direct-overboard-gap-trace-debug';
 import { logResultPath } from '@/lib/result-open-trace';
 import { ResultOverlay } from './ResultOverlay';
 
@@ -134,7 +135,25 @@ export function DirectOverboardResultLayer({
       targetNull: target == null,
       bodyChildCount: document.body?.childElementCount ?? null,
     });
-  }, [result.id]);
+    return () => {
+      const portalGap = {
+        portalTarget: target?.tagName ?? null,
+        bodyChildCount: document.body?.childElementCount ?? null,
+        resultId: result.id,
+        banId: result.id,
+        outcome: result.outcome ?? null,
+        directOverboardMounted: false,
+        directOverboardActive: false,
+      };
+      logDirectOverboardGapTrace('portal-target-cleanup-before', portalGap);
+      markVisibleOverboardTrace('DIRECT LAYER portal-target-cleanup', {
+        banId: result.id,
+        tagName: target?.tagName ?? null,
+        bodyChildCount: document.body?.childElementCount ?? null,
+      });
+      logDirectOverboardGapTrace('portal-target-cleanup-after', portalGap);
+    };
+  }, [result.id, result.outcome]);
 
   useLayoutEffect(() => {
     logResultOpenAttempt('direct-overboard-result', {
@@ -175,6 +194,51 @@ export function DirectOverboardResultLayer({
       },
       { mounted: true },
     );
+    return () => {
+      const unmountGap = {
+        directOverboardMounted: false,
+        directOverboardActive: false,
+        portalTarget: portalTarget?.tagName ?? null,
+        bodyChildCount: document.body?.childElementCount ?? null,
+        resultId: result.id,
+        banId: result.id,
+        outcome: result.outcome ?? null,
+      };
+      logDirectOverboardGapTrace(
+        'direct-overboard-layer-mounted-false-before',
+        unmountGap,
+      );
+      markVisibleOverboardTrace('DIRECT OVERBOARD LAYER mounted=false', {
+        banId: result.id,
+        outcome: result.outcome,
+        portalTarget: portalTarget?.tagName ?? null,
+        bodyChildCount: document.body?.childElementCount ?? null,
+      });
+      console.log('[DIRECT OVERBOARD LAYER] mounted=false', {
+        banId: result.id,
+        outcome: result.outcome,
+      });
+      logOverboardDirectState(
+        'DirectOverboardResultLayer mounted=false',
+        {
+          directResultOverlayActive: false,
+          directResultOverlayRef: false,
+          resultOpenRef: false,
+          resultBanId: null,
+          activeOverlayKind: null,
+          overboardInFlightBanId: null,
+          localBypassBanId: null,
+          priorityLocked: false,
+          showDirectOverboardLayer: false,
+          displayResultBanId: null,
+        },
+        { mounted: false },
+      );
+      logDirectOverboardGapTrace(
+        'direct-overboard-layer-mounted-false-after',
+        unmountGap,
+      );
+    };
   }, [portalTarget, result.id, result.outcome]);
 
   useLayoutEffect(() => {

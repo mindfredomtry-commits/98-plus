@@ -12,6 +12,7 @@ export type OverlayBackdropDomStyleTrace = {
   lobbyZIndex: string | null;
   cardMounted: boolean;
   visualQueueDimSessionLive: boolean;
+  bridgeBackdropActive?: boolean;
   queueHeadKind: string | null;
   activeKind: string | null;
   reason: string;
