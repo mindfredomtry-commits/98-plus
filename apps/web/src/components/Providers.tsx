@@ -694,6 +694,10 @@ import {
 import { logProvidersReturnBranchTrace } from '@/lib/providers-return-branch-trace-debug';
 import { traceBadReturnBranchWithActiveQueueIfNeeded } from '@/lib/bad-return-branch-with-active-queue-trace-debug';
 import { traceBadNoShellBranchDuringQueueIfNeeded } from '@/lib/bad-no-shell-branch-during-queue-trace-debug';
+import {
+  traceQueueDroppedToZeroIfTransition,
+  type QueueDroppedToZeroSnapshot,
+} from '@/lib/queue-dropped-to-zero-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -40563,6 +40567,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     headKind: string | null;
     headId: string | null;
   } | null>(null);
+  const queueDroppedToZeroPrevRef = useRef<QueueDroppedToZeroSnapshot | null>(null);
 
   useLayoutEffect(() => {
     registerOwnerQueueSilentUpdateRenderSnapshotProvider(() => ({
@@ -40628,6 +40633,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           effectiveNotificationQueueShellKind ?? shellKind ?? queueHeadKind,
         renderBranch: queueHeadLifecycleRenderBranch,
       });
+    queueDroppedToZeroPrevRef.current = traceQueueDroppedToZeroIfTransition({
+      prev: queueDroppedToZeroPrevRef.current,
+      next: {
+        overlayQueueLength: overlayQueueLengthForClearTrace,
+        ownerQueueLen: ownerPrimaryShellQueueLen,
+        ownerPendingLen: ownerPrimaryShellPendingLen,
+        overlayQueueHeadKind: overlayQueueHeadForClearTrace?.kind ?? null,
+        overlayQueueHeadId: queueHeadIdFrom(overlayQueueHeadForClearTrace),
+        ownerQueueHeadKind: ownerPrimaryQueueHead?.kind ?? null,
+        ownerQueueHeadId: queueHeadIdFrom(ownerPrimaryQueueHead),
+      },
+      renderBranch: queueHeadLifecycleRenderBranch,
+      shellKind,
+      actualKind,
+      effectiveKind:
+        effectiveNotificationQueueShellKind ?? shellKind ?? queueHeadKind,
+      notificationOverlayVisible,
+      visualQueueDimSessionLive,
+      queueClaimsNotificationScreen:
+        ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+      functionName: 'ProvidersBody',
+    });
     const resultOverlayMounted =
       showDirectOverboardLayer ||
       (shellKind === 'result' && visualQueueMountedCard.mountedCardVisible);
