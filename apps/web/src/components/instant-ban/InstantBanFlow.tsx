@@ -98,6 +98,7 @@ import {
 } from '@/lib/queue-lobby-guard';
 import { traceQueueClaimsNotificationScreenIfChanged } from '@/lib/queue-claims-notification-screen-trace-debug';
 import { observeCheckRemainedAfterResultButNotRendered } from '@/lib/check-remained-after-result-but-not-rendered-trace-debug';
+import { traceShellStuckOnResultWhileOwnerAdvancedIfNeeded } from '@/lib/shell-stuck-on-result-while-owner-advanced-trace-debug';
 import {
   logLobbyChromeHidden,
   logLobbyChromeHiddenBug,
@@ -7588,6 +7589,23 @@ export function InstantBanFlow({
     lobbyMounted: lobbyOpen,
     hasActiveOverlay: hasAnyOverlayForLobbyCta || notificationOverlayMounted,
   });
+  // InstantBanFlow does not own shellKind derivation; sample via Providers
+  // enrichment hooks (shell/owner/queue snapshot filled there).
+  if (activeOverlayKind !== 'result' && notificationOverlayVisible) {
+    traceShellStuckOnResultWhileOwnerAdvancedIfNeeded({
+      source: 'InstantBanFlow.result-render-branch',
+      reason: 'instant-ban-flow-render-decision',
+      calledFrom: 'InstantBanFlow',
+      shellKind: null,
+      ownerQueue: [],
+      activeKind: activeOverlayKind ?? null,
+      ownerDisplayKind: null,
+      currentHeadKind: null,
+      notificationOverlayVisible,
+      queueClaimsNotificationScreen,
+      returnBranch: lobbyRenderBranch,
+    });
+  }
 
   return (
     <>

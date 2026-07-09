@@ -723,6 +723,16 @@ import {
   observeCheckRemainedAfterResultButNotRendered,
   registerCheckRemainedAfterResultButNotRenderedHooks,
 } from '@/lib/check-remained-after-result-but-not-rendered-trace-debug';
+import {
+  buildShellStuckOwnerDisplayFields,
+  registerShellStuckOnResultWhileOwnerAdvancedHooks,
+  traceShellStuckOnResultWhileOwnerAdvancedIfNeeded,
+} from '@/lib/shell-stuck-on-result-while-owner-advanced-trace-debug';
+import {
+  buildShellKindWriteQueueFields,
+  logShellKindWriteTrace,
+  registerShellKindWriteTraceHooks,
+} from '@/lib/shell-kind-write-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -2242,6 +2252,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationQueueShellDisplayKindResolved: null as string | null,
     queueHeadKind: null as string | null,
   });
+  /** Latest derived shell snapshot for async display-commit stuck samples. */
+  const shellStuckDiagSnapshotRef = useRef<{
+    shellKind: string | null;
+    renderBranch: string | null;
+    effectiveShellKind: string | null;
+    notificationQueueShellKind: string | null;
+    queueShellRendersResultOverlay: boolean;
+    queueResultOverlayClaimed: boolean;
+    renderableResultShell: boolean;
+    resultBanId: string | null;
+    resultOverlayKey: string | null;
+    resultSource: string | null;
+  } | null>(null);
   const visualQueueDimSessionTraceSigRef = useRef('');
   const visualQueueDimReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -9416,6 +9439,42 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         hasActiveOverlay:
           ownerAfter.active.kind != null || appliedDisplay.displayKind != null,
       });
+      {
+        const shellSnap = shellStuckDiagSnapshotRef.current;
+        const headAfter = ownerAfter.queue[0] ?? null;
+        traceShellStuckOnResultWhileOwnerAdvancedIfNeeded({
+          source: `display-commit-applied:${source}`,
+          reason: 'apply-display-cycle',
+          calledFrom: 'commitSyncDisplayActivePayload',
+          shellKind: shellSnap?.shellKind ?? null,
+          renderBranch: shellSnap?.renderBranch ?? null,
+          ...buildShellStuckOwnerDisplayFields(ownerAfter),
+          overlayQueueRef: overlayQueueRef.current,
+          overlayQueueState: overlayQueueRef.current,
+          currentHeadKind: headAfter?.kind ?? ownerAfter.active.kind,
+          currentHeadId: headAfter
+            ? queueHeadIdFrom(headAfter)
+            : ownerAfter.active.banId,
+          notificationOverlayVisible:
+            notificationOverlayVisibleDiagRef.current ?? null,
+          queueClaimsNotificationScreen:
+            ownerAfter.queue.length > 0 || queueLobbyGuardActiveRef.current,
+          visualQueueDimSessionLive: visualQueueDimSessionRef.current,
+          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+          explicitDrainReason: getExplicitNotificationDrainSource(),
+          drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+          resultBanId: shellSnap?.resultBanId ?? null,
+          resultOverlayKey: shellSnap?.resultOverlayKey ?? null,
+          resultSource: shellSnap?.resultSource ?? null,
+          displaySource: source,
+          queueShellRendersResultOverlay:
+            shellSnap?.queueShellRendersResultOverlay ?? null,
+          queueResultOverlayClaimed: shellSnap?.queueResultOverlayClaimed ?? null,
+          renderableResultShell: shellSnap?.renderableResultShell ?? null,
+          effectiveShellKind: shellSnap?.effectiveShellKind ?? null,
+          notificationQueueShellKind: shellSnap?.notificationQueueShellKind ?? null,
+        });
+      }
       emitPostConsumeDisplayUpdate({
         source,
         oldValue: displayBefore,
@@ -9981,6 +10040,39 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         lobbyVisible: lobbyOpenRef.current,
         lobbyMounted: lobbyOpenRef.current,
       });
+      {
+        const shellSnap = shellStuckDiagSnapshotRef.current;
+        traceShellStuckOnResultWhileOwnerAdvancedIfNeeded({
+          source: 'syncDisplayFromQueue',
+          reason: 'sync-display-ready',
+          calledFrom: 'syncDisplayFromQueue',
+          shellKind: shellSnap?.shellKind ?? null,
+          renderBranch: shellSnap?.renderBranch ?? null,
+          ...buildShellStuckOwnerDisplayFields(ownerBeforeSync),
+          overlayQueueRef: overlayQueueRef.current,
+          overlayQueueState: overlayQueueRef.current,
+          currentHeadKind: headAtEnter.kind,
+          currentHeadId: headBanIdAtEnter,
+          notificationOverlayVisible:
+            notificationOverlayVisibleDiagRef.current ?? null,
+          queueClaimsNotificationScreen:
+            ownerBeforeSync.queue.length > 0 || queueLobbyGuardActiveRef.current,
+          visualQueueDimSessionLive: visualQueueDimSessionRef.current,
+          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+          explicitDrainReason: getExplicitNotificationDrainSource(),
+          drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+          resultBanId: shellSnap?.resultBanId ?? null,
+          resultOverlayKey: shellSnap?.resultOverlayKey ?? null,
+          resultSource: shellSnap?.resultSource ?? null,
+          displaySource: 'syncDisplayFromQueue',
+          queueShellRendersResultOverlay:
+            shellSnap?.queueShellRendersResultOverlay ?? null,
+          queueResultOverlayClaimed: shellSnap?.queueResultOverlayClaimed ?? null,
+          renderableResultShell: shellSnap?.renderableResultShell ?? null,
+          effectiveShellKind: shellSnap?.effectiveShellKind ?? null,
+          notificationQueueShellKind: shellSnap?.notificationQueueShellKind ?? null,
+        });
+      }
     }
     const liveOverlayScreenCtx = buildLiveOverlayScreenContext();
     const notificationModeAtEnter = notificationModeRef.current;
@@ -38266,6 +38358,99 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const checkShellBanId = checkBanForShell?.id?.trim() || '';
   const checkShellKindWithoutBan =
     notificationQueueShellDisplayKindResolved === 'check' && !checkShellBanId;
+
+  const queueHeadLifecycleRenderBranchForShellStuck = queueShellRendersResultOverlay
+    ? 'shell-result'
+    : notificationQueueShellDisplayKindResolved === 'check'
+      ? checkShellBanId
+        ? 'shell-check'
+        : 'shell-check-without-ban'
+      : notificationQueueShellDisplayKindResolved === 'incoming'
+        ? 'shell-incoming'
+        : 'no-shell-branch';
+
+  shellStuckDiagSnapshotRef.current = {
+    shellKind: queueShellRendersResultOverlay
+      ? 'result'
+      : notificationQueueShellDisplayKindResolved,
+    renderBranch: queueHeadLifecycleRenderBranchForShellStuck,
+    effectiveShellKind: effectiveNotificationQueueShellKind,
+    notificationQueueShellKind,
+    queueShellRendersResultOverlay,
+    queueResultOverlayClaimed,
+    renderableResultShell,
+    resultBanId: ownerRenderResultPayload?.id ?? null,
+    resultOverlayKey: ownerRenderResultPayload?.id
+      ? `result:${ownerRenderResultPayload.id}`
+      : null,
+    resultSource: queueShellRendersResultOverlay
+      ? queueShellShowsResult
+        ? 'queueShellShowsResult'
+        : 'queueResultOverlayClaimed'
+      : null,
+  };
+
+  {
+    const ownerForShellStuck = ownerShadowRef.current.getState();
+    const ownerDisplay = resolveOwnerDisplayKindBanId(ownerForShellStuck.display);
+    const headForShellStuck = ownerForShellStuck.queue[0] ?? null;
+    const shellKindForStuck = queueShellRendersResultOverlay
+      ? 'result'
+      : notificationQueueShellDisplayKindResolved;
+    if (
+      queueShellRendersResultOverlay ||
+      notificationQueueShellDisplayKindResolved === 'result'
+    ) {
+      traceShellStuckOnResultWhileOwnerAdvancedIfNeeded({
+        source: 'Providers.shell-card-selection',
+        reason: queueShellRendersResultOverlay
+          ? queueShellShowsResult
+            ? 'queueShellShowsResult'
+            : 'queueResultOverlayClaimed'
+          : 'notificationQueueShellDisplayKindResolved=result',
+        calledFrom: 'ProvidersBody:shell-kind-derived',
+        shellKind: shellKindForStuck,
+        renderBranch: queueHeadLifecycleRenderBranchForShellStuck,
+        returnBranch: queueHeadLifecycleRenderBranchForShellStuck,
+        ...buildShellStuckOwnerDisplayFields(ownerForShellStuck),
+        overlayQueueRef: overlayQueueRef.current,
+        overlayQueueState: overlayQueue,
+        activeKind: activeOverlayKind,
+        activeBanId: ownerForShellStuck.active.banId,
+        ownerDisplayKind: ownerDisplay.displayKind,
+        ownerDisplayBanId: ownerDisplay.displayBanId,
+        currentHeadKind: headForShellStuck?.kind ?? queueHeadKind,
+        currentHeadId: headForShellStuck
+          ? queueHeadIdFrom(headForShellStuck)
+          : ownerForShellStuck.active.banId,
+        notificationOverlayVisible:
+          notificationOverlayVisibleDiagRef.current ?? null,
+        queueClaimsNotificationScreen:
+          ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+        visualQueueDimSessionLive:
+          visualQueueDimSessionRef.current || visualQueueDimSession,
+        activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+        explicitDrainReason: getExplicitNotificationDrainSource(),
+        drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+        sendFlowOpening: composeBlocksNotificationHost || sendSuccessCardActive,
+        resultBanId: ownerRenderResultPayload?.id ?? null,
+        resultOverlayKey: ownerRenderResultPayload?.id
+          ? `result:${ownerRenderResultPayload.id}`
+          : null,
+        resultSource: queueShellRendersResultOverlay
+          ? queueShellShowsResult
+            ? 'queueShellShowsResult'
+            : 'queueResultOverlayClaimed'
+          : null,
+        displaySource: 'owner.display',
+        queueShellRendersResultOverlay,
+        queueResultOverlayClaimed,
+        renderableResultShell,
+        effectiveShellKind: effectiveNotificationQueueShellKind,
+        notificationQueueShellKind,
+      });
+    }
+  }
   const overlayQueueHeadForShell = ownerPrimaryQueueHead;
   const ownerShellQueueHeadBanId =
     overlayQueueHeadForShell?.kind === 'result'
@@ -39917,6 +40102,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         reason: `${track.caller}:${track.previousShellKind ?? 'null'}->${track.nextShellKind ?? 'null'}`,
         decisionReason,
       });
+      {
+        const ownerDisplay = resolveOwnerDisplayKindBanId(owner.display);
+        logShellKindWriteTrace({
+          prevShellKind: track.previousShellKind,
+          nextShellKind: track.nextShellKind,
+          source: `shell-derivation:${track.caller}`,
+          reason: `${track.caller}:${track.previousShellKind ?? 'null'}->${track.nextShellKind ?? 'null'}`,
+          calledFrom: 'ProvidersBody:shellKindTransition',
+          activeKind: activeOverlayKind,
+          ownerDisplayKind: ownerDisplay.displayKind,
+          ownerDisplayBanId: ownerDisplay.displayBanId,
+          currentHeadKind: queueHeadKind,
+          ...buildShellKindWriteQueueFields(owner.queue),
+          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+          notificationOverlayVisible:
+            notificationOverlayVisibleDiagRef.current ?? null,
+          visualQueueDimSessionLive:
+            visualQueueDimSessionRef.current || visualQueueDimSession,
+          queueClaimsNotificationScreen:
+            ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+          renderBranch,
+          effectiveShellKind: effectiveNotificationQueueShellKind,
+          displayShellKind: notificationQueueShellDisplayKindResolved,
+          queueShellRendersResultOverlay,
+          queueResultOverlayClaimed,
+          resultBanId: ownerRenderResultPayload?.id ?? null,
+        });
+      }
     }
 
     shellKindTransitionPrevRef.current = {
@@ -39951,6 +40164,55 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       : notificationQueueShellDisplayKindResolved === 'incoming'
         ? 'shell-incoming'
         : 'no-shell-branch';
+
+  if (queueHeadLifecycleRenderBranch === 'shell-result') {
+    const ownerForShellResultBranch = ownerShadowRef.current.getState();
+    const ownerDisplayForShellResult = resolveOwnerDisplayKindBanId(
+      ownerForShellResultBranch.display,
+    );
+    const headForShellResult = ownerForShellResultBranch.queue[0] ?? null;
+    traceShellStuckOnResultWhileOwnerAdvancedIfNeeded({
+      source: 'Providers.render-branch-shell-result',
+      reason: 'renderBranch=shell-result',
+      calledFrom: 'ProvidersBody:queueHeadLifecycleRenderBranch',
+      shellKind: 'result',
+      renderBranch: queueHeadLifecycleRenderBranch,
+      returnBranch: queueHeadLifecycleRenderBranch,
+      ...buildShellStuckOwnerDisplayFields(ownerForShellResultBranch),
+      overlayQueueRef: overlayQueueRef.current,
+      overlayQueueState: overlayQueue,
+      activeKind: activeOverlayKind,
+      activeBanId: ownerForShellResultBranch.active.banId,
+      ownerDisplayKind: ownerDisplayForShellResult.displayKind,
+      ownerDisplayBanId: ownerDisplayForShellResult.displayBanId,
+      currentHeadKind: headForShellResult?.kind ?? queueHeadKind,
+      currentHeadId: headForShellResult
+        ? queueHeadIdFrom(headForShellResult)
+        : ownerForShellResultBranch.active.banId,
+      notificationOverlayVisible,
+      queueClaimsNotificationScreen:
+        ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+      visualQueueDimSessionLive:
+        visualQueueDimSessionRef.current || visualQueueDimSession,
+      activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+      explicitDrainReason: getExplicitNotificationDrainSource(),
+      drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+      sendFlowOpening: composeBlocksNotificationHost || sendSuccessCardActive,
+      resultBanId: ownerRenderResultPayload?.id ?? null,
+      resultOverlayKey: ownerRenderResultPayload?.id
+        ? `result:${ownerRenderResultPayload.id}`
+        : null,
+      resultSource: queueShellShowsResult
+        ? 'queueShellShowsResult'
+        : 'queueResultOverlayClaimed',
+      displaySource: 'owner.display',
+      queueShellRendersResultOverlay,
+      queueResultOverlayClaimed,
+      renderableResultShell,
+      effectiveShellKind: effectiveNotificationQueueShellKind,
+      notificationQueueShellKind,
+    });
+  }
 
   useLayoutEffect(() => {
     if (!overlayQueueShellFallbackUsedRef.current) return;
@@ -41141,6 +41403,103 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationQueueShellDisplayKindResolved,
     overlayQueue,
     queueHeadLifecycleRenderBranch,
+    sendSuccessCardActive,
+    visualQueueDimSession,
+  ]);
+
+  useLayoutEffect(() => {
+    registerShellStuckOnResultWhileOwnerAdvancedHooks({
+      readEnrichment: () => {
+        const snap = shellStuckDiagSnapshotRef.current;
+        const owner = ownerShadowRef.current.getState();
+        const display = resolveOwnerDisplayKindBanId(owner.display);
+        const head = owner.queue[0] ?? null;
+        return {
+          shellKind: snap?.shellKind ?? null,
+          ownerQueue: [...owner.queue],
+          overlayQueueRef: overlayQueueRef.current,
+          overlayQueueState: overlayQueue,
+          activeKind: activeOverlayKind,
+          activeBanId: owner.active.banId,
+          ownerDisplayKind: display.displayKind,
+          ownerDisplayBanId: display.displayBanId,
+          currentHeadKind: head?.kind ?? queueHeadKind,
+          currentHeadId: head ? queueHeadIdFrom(head) : owner.active.banId,
+          notificationOverlayVisible:
+            notificationOverlayVisibleDiagRef.current ?? null,
+          queueClaimsNotificationScreen:
+            ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+          visualQueueDimSessionLive:
+            visualQueueDimSessionRef.current || visualQueueDimSession,
+          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+          explicitDrainReason: getExplicitNotificationDrainSource(),
+          drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+          sendFlowOpening:
+            composeBlocksNotificationHost || sendSuccessCardActive,
+          renderBranch: snap?.renderBranch ?? queueHeadLifecycleRenderBranch,
+          resultBanId: snap?.resultBanId ?? null,
+          resultOverlayKey: snap?.resultOverlayKey ?? null,
+          resultSource: snap?.resultSource ?? null,
+          displayBanId: display.displayBanId,
+          displayOverlayKey:
+            display.displayKind && display.displayBanId
+              ? `${display.displayKind}:${display.displayBanId}`
+              : null,
+          displaySource: 'owner.display',
+          queueShellRendersResultOverlay,
+          queueResultOverlayClaimed,
+          renderableResultShell,
+          effectiveShellKind: effectiveNotificationQueueShellKind,
+          notificationQueueShellKind,
+        };
+      },
+    });
+    registerShellKindWriteTraceHooks({
+      readEnrichment: () => {
+        const owner = ownerShadowRef.current.getState();
+        const display = resolveOwnerDisplayKindBanId(owner.display);
+        const head = owner.queue[0] ?? null;
+        const snap = shellStuckDiagSnapshotRef.current;
+        return {
+          activeKind: activeOverlayKind,
+          ownerDisplayKind: display.displayKind,
+          ownerDisplayBanId: display.displayBanId,
+          currentHeadKind: head?.kind ?? queueHeadKind,
+          ...buildShellKindWriteQueueFields(owner.queue),
+          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+          notificationOverlayVisible:
+            notificationOverlayVisibleDiagRef.current ?? null,
+          visualQueueDimSessionLive:
+            visualQueueDimSessionRef.current || visualQueueDimSession,
+          queueClaimsNotificationScreen:
+            ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+          renderBranch: snap?.renderBranch ?? queueHeadLifecycleRenderBranch,
+          effectiveShellKind: effectiveNotificationQueueShellKind,
+          displayShellKind: notificationQueueShellDisplayKindResolved,
+          queueShellRendersResultOverlay,
+          queueResultOverlayClaimed,
+          resultBanId: snap?.resultBanId ?? ownerRenderResultPayload?.id ?? null,
+        };
+      },
+    });
+    return () => {
+      registerShellStuckOnResultWhileOwnerAdvancedHooks(null);
+      registerShellKindWriteTraceHooks(null);
+    };
+  }, [
+    activeOverlayKind,
+    composeBlocksNotificationHost,
+    effectiveNotificationQueueShellKind,
+    notificationQueueShellDisplayKindResolved,
+    notificationQueueShellKind,
+    ownerPrimaryShellQueueLen,
+    ownerRenderResultPayload?.id,
+    overlayQueue,
+    queueHeadKind,
+    queueHeadLifecycleRenderBranch,
+    queueResultOverlayClaimed,
+    queueShellRendersResultOverlay,
+    renderableResultShell,
     sendSuccessCardActive,
     visualQueueDimSession,
   ]);
@@ -42592,6 +42951,62 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           providersReturnBranchTraceBase.shellKind != null ||
           providersReturnBranchTraceBase.notificationOverlayVisible,
       });
+      if (
+        queueShellRendersResultOverlay ||
+        providersReturnBranchTraceBase.renderBranch === 'shell-result' ||
+        providersReturnBranchTraceBase.shellKind === 'result'
+      ) {
+        const ownerDisplay = resolveOwnerDisplayKindBanId(
+          ownerForCheckRemain.display,
+        );
+        const head = ownerForCheckRemain.queue[0] ?? null;
+        traceShellStuckOnResultWhileOwnerAdvancedIfNeeded({
+          source: `providers-return-branch:${branchId}`,
+          reason: reason ?? 'providers-return-branch',
+          calledFrom: 'ProvidersBody',
+          shellKind: queueShellRendersResultOverlay
+            ? 'result'
+            : providersReturnBranchTraceBase.shellKind,
+          renderBranch: providersReturnBranchTraceBase.renderBranch,
+          returnBranch: providersReturnBranchTraceBase.renderBranch,
+          ...buildShellStuckOwnerDisplayFields(ownerForCheckRemain),
+          overlayQueueRef: overlayQueueRef.current,
+          overlayQueueState: overlayQueue,
+          activeKind: activeOverlayKind,
+          activeBanId: ownerForCheckRemain.active.banId,
+          ownerDisplayKind: ownerDisplay.displayKind,
+          ownerDisplayBanId: ownerDisplay.displayBanId,
+          currentHeadKind: head?.kind ?? queueHeadKind,
+          currentHeadId: head
+            ? queueHeadIdFrom(head)
+            : ownerForCheckRemain.active.banId,
+          notificationOverlayVisible:
+            providersReturnBranchTraceBase.notificationOverlayVisible,
+          queueClaimsNotificationScreen:
+            ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+          visualQueueDimSessionLive:
+            providersReturnBranchTraceBase.visualQueueDimSessionLive,
+          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+          explicitDrainReason: getExplicitNotificationDrainSource(),
+          drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+          sendFlowOpening: composeBlocksNotificationHost || sendSuccessCardActive,
+          resultBanId: ownerRenderResultPayload?.id ?? null,
+          resultOverlayKey: ownerRenderResultPayload?.id
+            ? `result:${ownerRenderResultPayload.id}`
+            : null,
+          resultSource: queueShellShowsResult
+            ? 'queueShellShowsResult'
+            : queueResultOverlayClaimed
+              ? 'queueResultOverlayClaimed'
+              : null,
+          displaySource: 'owner.display',
+          queueShellRendersResultOverlay,
+          queueResultOverlayClaimed,
+          renderableResultShell,
+          effectiveShellKind: effectiveNotificationQueueShellKind,
+          notificationQueueShellKind,
+        });
+      }
     }
   };
 
