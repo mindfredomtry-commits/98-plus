@@ -713,6 +713,7 @@ import {
   captureFinalizeBetweenEntryAndPruneFirstZeroStack,
   logFinalizeResultGoToBansBetweenEntryAndPruneTrace,
 } from '@/lib/finalize-result-go-to-bans-between-entry-and-prune-trace-debug';
+import { logFinalizeResultQueueFirstZeroTrace } from '@/lib/finalize-result-queue-first-zero-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -32011,12 +32012,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         includeStack: true,
       });
       let betweenEntryAndPrunePrevQueueLen = overlayQueueRef.current.length;
+      let betweenEntryAndPrunePrevStage = 'entry';
+      let betweenEntryAndPrunePrevQueue = [...overlayQueueBefore];
       let betweenEntryAndPruneFirstZeroStack: string | null = null;
+      let betweenEntryAndPruneFirstZeroLogged = false;
       const traceBetweenEntryAndPrune = (
         stage: string,
         operation: string,
       ) => {
-        const currentQueueLen = overlayQueueRef.current.length;
+        const currentQueue = [...overlayQueueRef.current];
+        const currentQueueLen = currentQueue.length;
         let stackForThisLog: string | null = null;
         if (
           betweenEntryAndPrunePrevQueueLen > 0 &&
@@ -32027,6 +32032,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             captureFinalizeBetweenEntryAndPruneFirstZeroStack();
           stackForThisLog = betweenEntryAndPruneFirstZeroStack;
         }
+        if (
+          betweenEntryAndPrunePrevQueueLen > 0 &&
+          currentQueueLen === 0 &&
+          !betweenEntryAndPruneFirstZeroLogged
+        ) {
+          const ownerAtFirstZero = ownerShadowRef.current.getState();
+          logFinalizeResultQueueFirstZeroTrace({
+            previousStage: betweenEntryAndPrunePrevStage,
+            currentStage: stage,
+            previousQueue: betweenEntryAndPrunePrevQueue,
+            currentQueue: currentQueue,
+            operation,
+            resultBanId: key,
+            activeKind: ownerAtFirstZero.active.kind,
+            activeBanId: ownerAtFirstZero.active.banId,
+            overlayQueueRefLength: overlayQueueRef.current.length,
+            overlayQueueStateLength: ownerAtFirstZero.queue.length,
+            ownerQueueLen: ownerAtFirstZero.queue.length,
+            ownerPendingLen: ownerAtFirstZero.pending.length,
+          });
+          betweenEntryAndPruneFirstZeroLogged = true;
+        }
+        betweenEntryAndPrunePrevStage = stage;
+        betweenEntryAndPrunePrevQueue = currentQueue;
         betweenEntryAndPrunePrevQueueLen = currentQueueLen;
         const ownerAtBetween = ownerShadowRef.current.getState();
         logFinalizeResultGoToBansBetweenEntryAndPruneTrace({
