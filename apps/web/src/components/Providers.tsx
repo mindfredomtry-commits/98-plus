@@ -702,6 +702,7 @@ import {
   registerApplyOverlayQueueClearCallsiteEnrichmentProvider,
   traceApplyOverlayQueueClearCallsiteIfNeeded,
 } from '@/lib/apply-overlay-queue-clear-callsite-trace-debug';
+import { logDismissCurrentOverlayRemainingTrace } from '@/lib/dismiss-current-overlay-remaining-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -12475,6 +12476,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
       const remaining = nextQueue ?? popOverlayHead(prev);
+      logDismissCurrentOverlayRemainingTrace({
+        reason,
+        prevQueue: prev,
+        prevQueueHead: prevHead,
+        remaining,
+        currentOverlayKind: dismissKind,
+        currentOverlayId: dismissBanId,
+        ownerQueueLen: owner.queue.length,
+        ownerPendingLen: owner.pending.length,
+        overlayQueueRefLength: overlayQueueRef.current.length,
+        overlayQueueStateLength: owner.queue.length,
+        queueClaimsNotificationScreen:
+          owner.queue.length > 0 || queueLobbyGuardActiveRef.current,
+        notificationOverlayVisible:
+          notificationOverlayVisibleDiagRef.current ?? false,
+        visualQueueDimSessionLive: visualQueueDimSessionRef.current,
+        actionAgeMs: overlayDelayMs(overlayActionTsRef.current),
+        caller: 'dismissCurrentOverlay',
+        source: nextQueue != null ? 'explicit-nextQueue' : 'popOverlayHead(prev)',
+      });
 
       if (
         isDeeplinkSingleCardModeActive() &&
