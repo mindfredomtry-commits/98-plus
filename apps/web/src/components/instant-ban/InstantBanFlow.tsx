@@ -100,6 +100,7 @@ import { traceQueueClaimsNotificationScreenIfChanged } from '@/lib/queue-claims-
 import { observeCheckRemainedAfterResultButNotRendered } from '@/lib/check-remained-after-result-but-not-rendered-trace-debug';
 import { traceShellStuckOnResultWhileOwnerAdvancedIfNeeded } from '@/lib/shell-stuck-on-result-while-owner-advanced-trace-debug';
 import { traceQueueResultOverlayClaimStuckIfNeeded } from '@/lib/queue-result-overlay-claim-trace-debug';
+import { observeNextOverlayAfterResultRelease } from '@/lib/next-overlay-not-activated-after-result-release-trace-debug';
 import {
   logLobbyChromeHidden,
   logLobbyChromeHiddenBug,
@@ -7620,6 +7621,20 @@ export function InstantBanFlow({
       queueClaimsNotificationScreen,
     });
   }
+  observeNextOverlayAfterResultRelease({
+    source: 'InstantBanFlow.result-render-branch',
+    reason: 'instant-ban-flow-render-decision',
+    calledFrom: 'InstantBanFlow',
+    activeKind: activeOverlayKind ?? null,
+    notificationOverlayVisible,
+    queueClaimsNotificationScreen,
+    returnBranch: lobbyRenderBranch,
+    renderBranch:
+      lobbyRenderBranch === 'lobby' &&
+      (!queueClaimsNotificationScreen || notificationOverlayVisible === false)
+        ? 'lobby'
+        : null,
+  });
 
   return (
     <>
