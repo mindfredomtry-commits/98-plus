@@ -97,6 +97,7 @@ import {
   syncQueueLobbyGuardState,
 } from '@/lib/queue-lobby-guard';
 import { traceQueueClaimsNotificationScreenIfChanged } from '@/lib/queue-claims-notification-screen-trace-debug';
+import { observeCheckRemainedAfterResultButNotRendered } from '@/lib/check-remained-after-result-but-not-rendered-trace-debug';
 import {
   logLobbyChromeHidden,
   logLobbyChromeHiddenBug,
@@ -7560,6 +7561,33 @@ export function InstantBanFlow({
           : 'lobby-shell-render',
     },
   );
+  observeCheckRemainedAfterResultButNotRendered({
+    source: 'InstantBanFlow.result-render-branch',
+    reason: queueClaimsNotificationScreen
+      ? 'queue-claims-notification-screen'
+      : lobbyRenderBranch === 'base-null'
+        ? 'lobby-orb-hidden'
+        : 'lobby-shell-render',
+    calledFrom: 'InstantBanFlow',
+    notificationOverlayVisible,
+    queueClaimsNotificationScreen,
+    // InstantBanFlow "lobby" is normal when queue still claims the screen
+    // (lobby underneath). Only treat it as a bad branch when the overlay
+    // claim/visibility already looks like a lobby escape.
+    renderBranch:
+      lobbyRenderBranch === 'lobby' &&
+      (!queueClaimsNotificationScreen || notificationOverlayVisible === false)
+        ? 'lobby'
+        : null,
+    returnBranch:
+      lobbyRenderBranch === 'lobby' &&
+      (!queueClaimsNotificationScreen || notificationOverlayVisible === false)
+        ? 'lobby'
+        : null,
+    lobbyVisible: lobbyOrbVisible || showBootOrb,
+    lobbyMounted: lobbyOpen,
+    hasActiveOverlay: hasAnyOverlayForLobbyCta || notificationOverlayMounted,
+  });
 
   return (
     <>

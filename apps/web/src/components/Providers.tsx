@@ -716,6 +716,13 @@ import {
 import { logFinalizeResultQueueFirstZeroTrace } from '@/lib/finalize-result-queue-first-zero-trace-debug';
 import { logPreResultGoToBansQueueSourceTrace } from '@/lib/pre-result-go-to-bans-queue-source-trace-debug';
 import { logPostResultGoToBansQueueStateTrace } from '@/lib/post-result-go-to-bans-queue-state-trace-debug';
+import {
+  armCheckRemainedAfterResultButNotRenderedWatch,
+  buildOverlayQueueSnapshotFields,
+  buildOwnerQueueSnapshotFields,
+  observeCheckRemainedAfterResultButNotRendered,
+  registerCheckRemainedAfterResultButNotRenderedHooks,
+} from '@/lib/check-remained-after-result-but-not-rendered-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -9385,6 +9392,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         activeBanId: ownerAfter.active.banId,
         ownerDisplay: buildOwnerQueuePendingSnapshot(ownerAfter),
       });
+      observeCheckRemainedAfterResultButNotRendered({
+        source: `display-commit-applied:${source}`,
+        reason: 'apply-display-cycle',
+        calledFrom: 'commitSyncDisplayActivePayload',
+        ...buildOwnerQueueSnapshotFields(ownerAfter),
+        ...buildOverlayQueueSnapshotFields({
+          overlayQueueRef: overlayQueueRef.current,
+          overlayQueueState: overlayQueueRef.current,
+        }),
+        ownerDisplayKind: appliedDisplay.displayKind,
+        ownerDisplayBanId: appliedDisplay.displayBanId,
+        notificationOverlayVisible:
+          notificationOverlayVisibleDiagRef.current ?? null,
+        queueClaimsNotificationScreen:
+          ownerAfter.queue.length > 0 || queueLobbyGuardActiveRef.current,
+        visualQueueDimSessionLive: visualQueueDimSessionRef.current,
+        activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+        explicitDrainReason: getExplicitNotificationDrainSource(),
+        drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+        lobbyVisible: lobbyOpenRef.current,
+        lobbyMounted: lobbyOpenRef.current,
+        hasActiveOverlay:
+          ownerAfter.active.kind != null || appliedDisplay.displayKind != null,
+      });
       emitPostConsumeDisplayUpdate({
         source,
         oldValue: displayBefore,
@@ -9927,6 +9958,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         selectedBanId: headBanIdAtEnter,
         overlayKey: overlayQueueKey(headAtEnter),
         ownerDisplayBeforeCommit: buildOwnerQueuePendingSnapshot(ownerBeforeSync),
+      });
+      observeCheckRemainedAfterResultButNotRendered({
+        source: 'syncDisplayFromQueue',
+        reason: 'sync-display-ready',
+        calledFrom: 'syncDisplayFromQueue',
+        ...buildOwnerQueueSnapshotFields(ownerBeforeSync),
+        ...buildOverlayQueueSnapshotFields({
+          overlayQueueRef: overlayQueueRef.current,
+          overlayQueueState: overlayQueueRef.current,
+        }),
+        currentHeadKind: headAtEnter.kind,
+        currentHeadId: headBanIdAtEnter,
+        notificationOverlayVisible:
+          notificationOverlayVisibleDiagRef.current ?? null,
+        queueClaimsNotificationScreen:
+          ownerBeforeSync.queue.length > 0 || queueLobbyGuardActiveRef.current,
+        visualQueueDimSessionLive: visualQueueDimSessionRef.current,
+        activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+        explicitDrainReason: getExplicitNotificationDrainSource(),
+        drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+        lobbyVisible: lobbyOpenRef.current,
+        lobbyMounted: lobbyOpenRef.current,
       });
     }
     const liveOverlayScreenCtx = buildLiveOverlayScreenContext();
@@ -32401,15 +32454,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
       {
         const ownerAtPostDispatch = ownerShadowRef.current.getState();
+        const afterOwnerQueue = [...ownerAtPostDispatch.queue];
+        const afterOverlayQueueRef = [...overlayQueueRef.current];
+        const afterOverlayQueueState = [...overlayQueue];
         logPostResultGoToBansQueueStateTrace({
           resultBanId: key,
           beforeOwnerQueue: postResultGoToBansBeforeOwnerQueue,
           beforeOverlayQueueState: postResultGoToBansBeforeOverlayQueueState,
           beforeOverlayQueueRef: postResultGoToBansBeforeOverlayQueueRef,
-          afterOwnerQueue: [...ownerAtPostDispatch.queue],
+          afterOwnerQueue,
           afterOwnerPending: [...ownerAtPostDispatch.pending],
-          afterOverlayQueueState: [...overlayQueue],
-          afterOverlayQueueRef: [...overlayQueueRef.current],
+          afterOverlayQueueState,
+          afterOverlayQueueRef,
+        });
+        armCheckRemainedAfterResultButNotRenderedWatch({
+          resultBanId: key,
+          afterOwnerQueue,
+          afterOverlayQueueRef,
+          afterOverlayQueueState,
+          source: 'finalizeResultForGoToBans:after-RESULT_GO_TO_BANS',
+          calledFrom: 'ownerShadowDispatch:RESULT_GO_TO_BANS',
         });
       }
       traceBetweenEntryAndPrune(
@@ -41034,6 +41098,54 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [overlayQueue, visualQueueDimSession]);
 
   useLayoutEffect(() => {
+    registerCheckRemainedAfterResultButNotRenderedHooks({
+      readSnapshot: () => {
+        const owner = ownerShadowRef.current.getState();
+        const head = owner.queue[0] ?? null;
+        const display = resolveOwnerDisplayKindBanId(owner.display);
+        return {
+          ...buildOwnerQueueSnapshotFields(owner),
+          ...buildOverlayQueueSnapshotFields({
+            overlayQueueRef: overlayQueueRef.current,
+            overlayQueueState: overlayQueue,
+          }),
+          currentHeadKind: head?.kind ?? owner.active.kind,
+          currentHeadId: head ? queueHeadIdFrom(head) : owner.active.banId,
+          ownerDisplayKind: display.displayKind,
+          ownerDisplayBanId: display.displayBanId,
+          notificationOverlayVisible:
+            notificationOverlayVisibleDiagRef.current ?? null,
+          queueClaimsNotificationScreen:
+            owner.queue.length > 0 || queueLobbyGuardActiveRef.current,
+          visualQueueDimSessionLive:
+            visualQueueDimSessionRef.current || visualQueueDimSession,
+          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+          explicitDrainReason: getExplicitNotificationDrainSource(),
+          drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+          lobbyVisible: lobbyOpenRef.current,
+          lobbyMounted: lobbyOpenRef.current,
+          sendFlowOpening:
+            composeBlocksNotificationHost || sendSuccessCardActive,
+          shellKind: notificationQueueShellDisplayKindResolved,
+          renderBranch: queueHeadLifecycleRenderBranch,
+          hasActiveOverlay:
+            owner.active.kind != null ||
+            display.displayKind != null ||
+            (notificationOverlayVisibleDiagRef.current ?? false),
+        };
+      },
+    });
+    return () => registerCheckRemainedAfterResultButNotRenderedHooks(null);
+  }, [
+    composeBlocksNotificationHost,
+    notificationQueueShellDisplayKindResolved,
+    overlayQueue,
+    queueHeadLifecycleRenderBranch,
+    sendSuccessCardActive,
+    visualQueueDimSession,
+  ]);
+
+  useLayoutEffect(() => {
     registerApplyOverlayQueueClearCallsiteEnrichmentProvider(() => ({
       lastActiveKind:
         incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
@@ -42450,6 +42562,37 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         providersReturnBranchTraceBase.visualQueueDimSessionLive,
       reason: reason ?? null,
     });
+    {
+      const ownerForCheckRemain = ownerShadowRef.current.getState();
+      observeCheckRemainedAfterResultButNotRendered({
+        source: `providers-return-branch:${branchId}`,
+        reason: reason ?? 'providers-return-branch',
+        calledFrom: 'ProvidersBody',
+        ...buildOwnerQueueSnapshotFields(ownerForCheckRemain),
+        ...buildOverlayQueueSnapshotFields({
+          overlayQueueRef: overlayQueueRef.current,
+          overlayQueueState: overlayQueue,
+        }),
+        renderBranch: providersReturnBranchTraceBase.renderBranch,
+        returnBranch: providersReturnBranchTraceBase.renderBranch,
+        shellKind: providersReturnBranchTraceBase.shellKind,
+        notificationOverlayVisible:
+          providersReturnBranchTraceBase.notificationOverlayVisible,
+        visualQueueDimSessionLive:
+          providersReturnBranchTraceBase.visualQueueDimSessionLive,
+        queueClaimsNotificationScreen:
+          ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+        activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+        explicitDrainReason: getExplicitNotificationDrainSource(),
+        drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+        sendFlowOpening: composeBlocksNotificationHost || sendSuccessCardActive,
+        lobbyVisible: lobbyOpenRef.current,
+        lobbyMounted: lobbyOpenRef.current,
+        hasActiveOverlay:
+          providersReturnBranchTraceBase.shellKind != null ||
+          providersReturnBranchTraceBase.notificationOverlayVisible,
+      });
+    }
   };
 
   logProvidersReturnBranch(
