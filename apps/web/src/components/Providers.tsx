@@ -703,6 +703,8 @@ import {
   traceApplyOverlayQueueClearCallsiteIfNeeded,
 } from '@/lib/apply-overlay-queue-clear-callsite-trace-debug';
 import { logDismissCurrentOverlayRemainingTrace } from '@/lib/dismiss-current-overlay-remaining-trace-debug';
+import { logDismissCurrentOverlayExplicitNextQueueCallsiteTrace } from '@/lib/dismiss-current-overlay-explicit-nextqueue-callsite-trace-debug';
+import { logResultDismissCallsiteTrace } from '@/lib/result-dismiss-callsite-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -12351,6 +12353,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           : prevHead?.kind === 'incoming' || prevHead?.kind === 'check'
             ? prevHead.ban.id
             : null;
+      if (nextQueue !== undefined) {
+        logDismissCurrentOverlayExplicitNextQueueCallsiteTrace({
+          reason,
+          nextQueue,
+          caller: 'dismissCurrentOverlay',
+          source: 'explicit-nextQueue-argument',
+          functionName: 'ProvidersBody.dismissCurrentOverlay',
+          currentOverlayKind: dismissKind,
+          currentOverlayId: dismissBanId,
+          overlayQueueRefLength: overlayQueueRef.current.length,
+          overlayQueueStateLength: owner.queue.length,
+          ownerQueueLen: owner.queue.length,
+          ownerPendingLen: owner.pending.length,
+        });
+      }
       const goToBansTrace = isGoToBansDismissTraceActive(reason);
       if (goToBansTrace) {
         emitGoToBansDismissStart(
@@ -17739,6 +17756,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               'dismissBanResult',
               'result-promote-pending-to-remaining',
             );
+          }
+          {
+            const ownerAtResultDismiss = ownerShadowRef.current.getState();
+            logResultDismissCallsiteTrace({
+              callsite: 'dismissBanResult',
+              reason: 'result-dismiss',
+              nextQueue,
+              overlayQueueRefLength: overlayQueueRef.current.length,
+              overlayQueueStateLength: ownerAtResultDismiss.queue.length,
+              ownerQueueLen: ownerAtResultDismiss.queue.length,
+              ownerPendingLen: ownerAtResultDismiss.pending.length,
+              resultBanId,
+              previousHeadKind: headNow?.kind ?? null,
+              previousHeadId: queueHeadIdFrom(headNow),
+            });
           }
           dismissCurrentOverlay('result-dismiss', nextQueue);
         }
@@ -32504,6 +32536,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           );
         }
         // Incoming-style handoff: pre-arm already set above; apply remaining via dismiss.
+        {
+          const ownerAtResultDismiss = ownerShadowRef.current.getState();
+          logResultDismissCallsiteTrace({
+            callsite: 'finalizeResultForGoToBans.queueOverboard',
+            reason: 'result-dismiss',
+            nextQueue: nextQueueWithoutCurrent,
+            overlayQueueRefLength: overlayQueueRef.current.length,
+            overlayQueueStateLength: ownerAtResultDismiss.queue.length,
+            ownerQueueLen: ownerAtResultDismiss.queue.length,
+            ownerPendingLen: ownerAtResultDismiss.pending.length,
+            resultBanId: key,
+            previousHeadKind: beforeQueue[0]?.kind ?? null,
+            previousHeadId: queueHeadIdFrom(beforeQueue[0] ?? null),
+          });
+        }
         dismissCurrentOverlay('result-dismiss', nextQueueWithoutCurrent);
         const ownerDisplayResultId =
           ownerShadowRef.current.getState().display.result?.id ?? null;
@@ -32594,6 +32641,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             'go-to-bans',
             'result-promote-pending-to-remaining',
           );
+        }
+        {
+          const ownerAtResultDismiss = ownerShadowRef.current.getState();
+          logResultDismissCallsiteTrace({
+            callsite: 'finalizeResultForGoToBans.prune',
+            reason: 'result-dismiss',
+            nextQueue: nextQueueWithoutCurrent,
+            overlayQueueRefLength: overlayQueueRef.current.length,
+            overlayQueueStateLength: ownerAtResultDismiss.queue.length,
+            ownerQueueLen: ownerAtResultDismiss.queue.length,
+            ownerPendingLen: ownerAtResultDismiss.pending.length,
+            resultBanId: key,
+            previousHeadKind: beforeQueue[0]?.kind ?? null,
+            previousHeadId: queueHeadIdFrom(beforeQueue[0] ?? null),
+          });
         }
         dismissCurrentOverlay('result-dismiss', nextQueueWithoutCurrent);
       }
