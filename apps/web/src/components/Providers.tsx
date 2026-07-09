@@ -698,6 +698,10 @@ import {
   traceQueueDroppedToZeroIfTransition,
   type QueueDroppedToZeroSnapshot,
 } from '@/lib/queue-dropped-to-zero-trace-debug';
+import {
+  registerApplyOverlayQueueClearCallsiteEnrichmentProvider,
+  traceApplyOverlayQueueClearCallsiteIfNeeded,
+} from '@/lib/apply-overlay-queue-clear-callsite-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -11548,6 +11552,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         const nextHead = sanitizedNext[0] ?? null;
         const prevKey = prevHead ? overlayQueueKey(prevHead) : null;
         const nextKey = nextHead ? overlayQueueKey(nextHead) : null;
+        traceApplyOverlayQueueClearCallsiteIfNeeded({
+          caller: source,
+          source,
+          reason,
+          nextQueueLength: next.length,
+          sanitizedNextLength: sanitizedNext.length,
+          operation: inferProvidersOverlayQueueOperation(
+            queueLenBefore,
+            sanitizedNext.length,
+          ),
+          previousOverlayQueueLength: queueLenBefore,
+          previousOverlayQueueHead: prevHead,
+          sanitizedNext,
+        });
 
         const ownerQueueAtApplyEnter = [
           ...ownerShadowRef.current.getState().queue,
@@ -40598,6 +40616,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     queueHeadKind,
     queueHeadLifecycleRenderBranch,
     queueHeadShellKindFallback,
+  ]);
+
+  useLayoutEffect(() => {
+    registerApplyOverlayQueueClearCallsiteEnrichmentProvider(() => ({
+      lastActiveKind:
+        incomingOverlayDisplayKind ?? activeOverlayKind ?? queueHeadKind,
+      ownerQueueLen: ownerPrimaryShellQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+      notificationOverlayVisible:
+        notificationOverlayVisibleDiagRef.current ?? false,
+      visualQueueDimSessionLive:
+        visualQueueDimSessionRef.current || visualQueueDimSession,
+      queueClaimsNotificationScreen:
+        ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+    }));
+    return () => registerApplyOverlayQueueClearCallsiteEnrichmentProvider(null);
+  }, [
+    activeOverlayKind,
+    incomingOverlayDisplayKind,
+    ownerPrimaryShellPendingLen,
+    ownerPrimaryShellQueueLen,
+    queueHeadKind,
+    visualQueueDimSession,
   ]);
 
   useLayoutEffect(() => {
