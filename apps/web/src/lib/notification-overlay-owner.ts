@@ -20,6 +20,10 @@ import {
   queueOverlaySnapshotChanged,
 } from '@/lib/apply-queue-commit-trace';
 import {
+  buildResultGoToBansFilterItemTrace,
+  logResultGoToBansReducerTrace,
+} from '@/lib/result-go-to-bans-reducer-trace-debug';
+import {
   logOwnerDirectWriteDetected,
   logOwnerFunctionTrackedFieldWrite,
   logOwnerReducerTrackedFieldAssignments,
@@ -1620,6 +1624,21 @@ export function notificationOverlayOwnerReducer(
     case 'RESULT_GO_TO_BANS': {
       const banId = normalizeId(event.banId);
       if (!banId) break;
+      const actionBanId = banId;
+      const stateQueueSnapshot = [...next.queue];
+      const statePendingSnapshot = [...next.pending];
+      const filterItemTrace = buildResultGoToBansFilterItemTrace(
+        stateQueueSnapshot,
+        actionBanId,
+      );
+      logResultGoToBansReducerTrace({
+        stage: 'entry',
+        actionBanId,
+        banId,
+        stateQueue: stateQueueSnapshot,
+        statePending: statePendingSnapshot,
+        ...filterItemTrace,
+      });
       const overlayKey = `result:${banId}`;
       const queueLenBefore = next.queue.length;
       const previousActiveKind = next.active.kind;
@@ -1628,12 +1647,44 @@ export function notificationOverlayOwnerReducer(
       const previousDirectActive = next.display.directResultOverlayActive;
       const previousDirectOverlay = next.display.directResultOverlay;
 
-      next.queue = next.queue.filter(
+      logResultGoToBansReducerTrace({
+        stage: 'before-filter',
+        actionBanId,
+        banId,
+        stateQueue: stateQueueSnapshot,
+        statePending: statePendingSnapshot,
+        ...filterItemTrace,
+      });
+
+      const nextQueueAfterFilter = next.queue.filter(
         (item) => normalizeId(overlayBanId(item)) !== banId,
       );
-      next.pending = next.pending.filter(
+      const nextPendingAfterFilter = next.pending.filter(
         (item) => normalizeId(overlayBanId(item)) !== banId,
       );
+      const removedQueue = stateQueueSnapshot.filter(
+        (item) => normalizeId(overlayBanId(item)) === banId,
+      );
+      const keptQueue = stateQueueSnapshot.filter(
+        (item) => normalizeId(overlayBanId(item)) !== banId,
+      );
+      logResultGoToBansReducerTrace({
+        stage: 'after-filter',
+        actionBanId,
+        banId,
+        stateQueue: stateQueueSnapshot,
+        statePending: statePendingSnapshot,
+        nextQueue: nextQueueAfterFilter,
+        nextPending: nextPendingAfterFilter,
+        removedQueue,
+        keptQueue,
+        ...filterItemTrace,
+        includeStack:
+          stateQueueSnapshot.length > 0 && nextQueueAfterFilter.length === 0,
+      });
+
+      next.queue = nextQueueAfterFilter;
+      next.pending = nextPendingAfterFilter;
 
       const shownKeys = new Set(next.session.shownOverlayKeys);
       shownKeys.add(overlayKey);
@@ -1749,6 +1800,20 @@ export function notificationOverlayOwnerReducer(
       });
       effects.push({ type: 'PREFETCH_CHAIN', skipBanId: banId });
       effects.push({ type: 'APPLY_DISPLAY' });
+      logResultGoToBansReducerTrace({
+        stage: 'before-return',
+        actionBanId,
+        banId,
+        stateQueue: stateQueueSnapshot,
+        statePending: statePendingSnapshot,
+        nextQueue: [...next.queue],
+        nextPending: [...next.pending],
+        removedQueue,
+        keptQueue,
+        ...filterItemTrace,
+        includeStack:
+          stateQueueSnapshot.length > 0 && next.queue.length === 0,
+      });
       break;
     }
 
