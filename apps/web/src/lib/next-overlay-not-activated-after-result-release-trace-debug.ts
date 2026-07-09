@@ -11,6 +11,7 @@ import {
   emitClientDiagTrace,
   isClientDiagTraceEnvironment,
 } from '@/lib/diag-trace-client';
+import { noteShellCheckActivatedAfterResultRelease } from '@/lib/shell-check-lifecycle-trace-debug';
 
 export const NEXT_OVERLAY_AFTER_RESULT_RELEASE_WATCH_MS = 400;
 
@@ -497,14 +498,26 @@ function emitSuccess(
   if (watch.emittedFail || watch.emittedSuccess) return;
   watch.emittedSuccess = true;
   const now = diagTraceNow();
+  const successPayload = {
+    ...buildCommonPayload(watch, sample, snap, now),
+    reason: sample.reason ?? 'next-overlay-activated-after-result-release',
+    stack: captureSuccessStack(),
+  };
   emitClientDiagTrace(
     'NEXT_OVERLAY_ACTIVATION_SUCCESS_AFTER_RESULT_RELEASE_TRACE',
-    {
-      ...buildCommonPayload(watch, sample, snap, now),
-      reason: sample.reason ?? 'next-overlay-activated-after-result-release',
-      stack: captureSuccessStack(),
-    },
+    successPayload,
   );
+  noteShellCheckActivatedAfterResultRelease({
+    expectedNextKind: watch.expectedNext.kind,
+    expectedNextId: watch.expectedNext.id,
+    expectedNextKey: watch.expectedNext.key,
+    renderBranch: snap.renderBranch,
+    shellKind: snap.shellKind,
+    activatedFromResultBanId: watch.releasedResultBanId,
+    activatedFromResultOverlayKey: watch.releasedResultOverlayKey,
+    source: sample.source || watch.source,
+    calledFrom: sample.calledFrom ?? watch.calledFrom,
+  });
   disarmWatch();
 }
 

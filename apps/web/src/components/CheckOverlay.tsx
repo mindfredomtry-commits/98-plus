@@ -51,6 +51,10 @@ import {
   logCheckOverlayExceptionTrace,
   logCheckOverlayReturnTrace,
 } from '@/lib/check-overlay-return-trace-debug';
+import {
+  logShellCheckMountUnmount,
+  markShellCheckAction,
+} from '@/lib/shell-check-lifecycle-trace-debug';
 
 interface Props {
   embedded?: boolean;
@@ -232,6 +236,15 @@ function CheckOverlayInnerBody({
         answer: completed,
         role: modalView.role,
       });
+      markShellCheckAction(
+        completed ? 'userPressedCheckYes' : 'userPressedCheckNo',
+        {
+          source: 'CheckOverlay.answer',
+          calledFrom: 'CheckOverlay',
+          checkBanId: normalizeId(checkBan.id),
+          completed,
+        },
+      );
       logCardCloseClick({
         kind: 'check',
         banId: checkBan.id,
@@ -273,46 +286,77 @@ function CheckOverlayInnerBody({
         checkBan.id,
       );
       reportOverlayRendered('check', checkBan.id, true);
-      return;
+    } else {
+      const yesBtn = actionsRef.current?.querySelector<HTMLButtonElement>(
+        '.check-answer-btn',
+      );
+      const noBtn = actionsRef.current?.querySelectorAll<HTMLButtonElement>(
+        '.check-answer-btn',
+      )?.[1];
+      const yesStyle = yesBtn ? window.getComputedStyle(yesBtn) : null;
+      const noStyle = noBtn ? window.getComputedStyle(noBtn) : null;
+      const host = document.querySelector('[data-notification-layer]');
+      const hostStyle = host ? window.getComputedStyle(host) : null;
+      console.log('[check-overlay-mounted]', {
+        banId: checkBan.id,
+        hasOnClick: yesBtn != null,
+        disabled: yesBtn?.disabled ?? null,
+      });
+      console.log('[check-overlay-button-pointer]', {
+        banId: checkBan.id,
+        button: 'yes',
+        pointerEvents: yesStyle?.pointerEvents ?? null,
+        zIndex: yesStyle?.zIndex ?? null,
+      });
+      console.log('[check-overlay-button-pointer]', {
+        banId: checkBan.id,
+        button: 'no',
+        pointerEvents: noStyle?.pointerEvents ?? null,
+        zIndex: noStyle?.zIndex ?? null,
+      });
+      console.log('[check-overlay-layer-debug]', {
+        banId: checkBan.id,
+        hostActive: host?.classList.contains('app-notification-layer--active') ?? false,
+        backdropActive: host?.classList.contains('app-notification-layer--session') ?? false,
+        topLayer: 'GlobalOverlayHost',
+        pointerEvents: hostStyle?.pointerEvents ?? null,
+      });
+      reportOverlayRendered('check', checkBan.id, true);
     }
-    const yesBtn = actionsRef.current?.querySelector<HTMLButtonElement>(
-      '.check-answer-btn',
-    );
-    const noBtn = actionsRef.current?.querySelectorAll<HTMLButtonElement>(
-      '.check-answer-btn',
-    )?.[1];
-    const yesStyle = yesBtn ? window.getComputedStyle(yesBtn) : null;
-    const noStyle = noBtn ? window.getComputedStyle(noBtn) : null;
-    const host = document.querySelector('[data-notification-layer]');
-    const hostStyle = host ? window.getComputedStyle(host) : null;
-    console.log('[check-overlay-mounted]', {
-      banId: checkBan.id,
-      hasOnClick: yesBtn != null,
-      disabled: yesBtn?.disabled ?? null,
+    logShellCheckMountUnmount({
+      event: 'check-rendered',
+      source: checkDirect
+        ? 'CheckOverlay.mount:check-direct'
+        : 'CheckOverlay.mount:queue-shell',
+      calledFrom: 'CheckOverlay.useLayoutEffect',
+      checkBanId: checkBan.id,
+      visible: true,
+      reason: 'check-overlay-mounted',
     });
-    console.log('[check-overlay-button-pointer]', {
-      banId: checkBan.id,
-      button: 'yes',
-      pointerEvents: yesStyle?.pointerEvents ?? null,
-      zIndex: yesStyle?.zIndex ?? null,
-    });
-    console.log('[check-overlay-button-pointer]', {
-      banId: checkBan.id,
-      button: 'no',
-      pointerEvents: noStyle?.pointerEvents ?? null,
-      zIndex: noStyle?.zIndex ?? null,
-    });
-    console.log('[check-overlay-layer-debug]', {
-      banId: checkBan.id,
-      hostActive: host?.classList.contains('app-notification-layer--active') ?? false,
-      backdropActive: host?.classList.contains('app-notification-layer--session') ?? false,
-      topLayer: 'GlobalOverlayHost',
-      pointerEvents: hostStyle?.pointerEvents ?? null,
-    });
-    reportOverlayRendered('check', checkBan.id, true);
+    return () => {
+      logShellCheckMountUnmount({
+        event: 'check-unmounted',
+        source: checkDirect
+          ? 'CheckOverlay.unmount:check-direct'
+          : 'CheckOverlay.unmount:queue-shell',
+        calledFrom: 'CheckOverlay.useLayoutEffect',
+        checkBanId: checkBan.id,
+        visible: false,
+        reason: 'check-overlay-unmounted',
+      });
+    };
   }, [visible, checkBan?.id, checkDirect, reportOverlayRendered]);
 
   if (!visible) {
+    logShellCheckMountUnmount({
+      event: 'check-branch-returned-null',
+      source: 'CheckOverlay.return',
+      calledFrom: 'CheckOverlay',
+      checkBanId: checkBan?.id ?? null,
+      visible: false,
+      returnBranch: 'guard-not-visible',
+      reason: visibilityReason ?? 'not-visible',
+    });
     traceCheckOverlayReturn('guard-not-visible', true, {
       guardReason: visibilityReason ?? 'not-visible',
     });

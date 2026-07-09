@@ -747,6 +747,13 @@ import {
   observeResultShellReleaseForNextOverlayActivation,
   registerNextOverlayAfterResultReleaseHooks,
 } from '@/lib/next-overlay-not-activated-after-result-release-trace-debug';
+import {
+  buildShellCheckOwnerDisplayFields,
+  buildShellCheckQueueSnapshotFields,
+  markShellCheckAction,
+  observeShellCheckLifecycle,
+  registerShellCheckLifecycleTraceHooks,
+} from '@/lib/shell-check-lifecycle-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -9478,6 +9485,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           drainSessionId: queueBreakTraceRef.current?.generation ?? null,
           queueResultOverlayClaimed: shellSnap?.queueResultOverlayClaimed ?? null,
         });
+        observeShellCheckLifecycle({
+          source: `display-commit-applied:${source}`,
+          reason: 'apply-display-cycle',
+          calledFrom: 'commitSyncDisplayActivePayload',
+          ...buildShellCheckOwnerDisplayFields(ownerAfter),
+          ...buildShellCheckQueueSnapshotFields({
+            ownerQueue: ownerAfter.queue,
+            ownerPending: ownerAfter.pending,
+            overlayQueueRef: overlayQueueRef.current,
+            overlayQueueState: overlayQueueRef.current,
+          }),
+          shellKind: shellSnap?.shellKind ?? null,
+          renderBranch: shellSnap?.renderBranch ?? null,
+          notificationOverlayVisible:
+            notificationOverlayVisibleDiagRef.current ?? null,
+          queueClaimsNotificationScreen:
+            ownerAfter.queue.length > 0 || queueLobbyGuardActiveRef.current,
+          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+          visualQueueDimSessionLive: visualQueueDimSessionRef.current,
+          explicitDrainReason: getExplicitNotificationDrainSource(),
+          drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+        });
       }
       {
         const shellSnap = shellStuckDiagSnapshotRef.current;
@@ -10163,6 +10192,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           explicitDrainReason: getExplicitNotificationDrainSource(),
           drainSessionId: queueBreakTraceRef.current?.generation ?? null,
           queueResultOverlayClaimed: shellSnap?.queueResultOverlayClaimed ?? null,
+        });
+        observeShellCheckLifecycle({
+          source: 'syncDisplayFromQueue',
+          reason: 'sync-display-ready',
+          calledFrom: 'syncDisplayFromQueue',
+          ...buildShellCheckOwnerDisplayFields(ownerBeforeSync),
+          ...buildShellCheckQueueSnapshotFields({
+            ownerQueue: ownerBeforeSync.queue,
+            ownerPending: ownerBeforeSync.pending,
+            overlayQueueRef: overlayQueueRef.current,
+            overlayQueueState: overlayQueueRef.current,
+          }),
+          currentHeadKind: headAtEnter.kind,
+          currentHeadId: headBanIdAtEnter,
+          shellKind: shellSnap?.shellKind ?? null,
+          renderBranch: shellSnap?.renderBranch ?? null,
+          notificationOverlayVisible:
+            notificationOverlayVisibleDiagRef.current ?? null,
+          queueClaimsNotificationScreen:
+            ownerBeforeSync.queue.length > 0 || queueLobbyGuardActiveRef.current,
+          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+          visualQueueDimSessionLive: visualQueueDimSessionRef.current,
+          explicitDrainReason: getExplicitNotificationDrainSource(),
+          drainSessionId: queueBreakTraceRef.current?.generation ?? null,
         });
       }
     }
@@ -18675,6 +18728,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      if (checkAnswerInFlightRef.current.has(banId)) {
+        markShellCheckAction('resultArrivedAfterCheck', {
+          source: `receiveResult:${source}`,
+          calledFrom: 'Providers.receiveResult:CHECK_RESULT_ARRIVED',
+          checkBanId: banId,
+        });
+      }
       ownerShadowDispatch(
         checkAnswerInFlightRef.current.has(banId)
           ? {
@@ -18973,6 +19033,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return false;
       }
 
+      markShellCheckAction('resultArrivedAfterCheck', {
+        source: `showCheckAnswerFinalResult:${source}`,
+        calledFrom: 'Providers.showCheckAnswerFinalResult:CHECK_RESULT_ARRIVED',
+        checkBanId: banId,
+      });
       ownerShadowDispatch(
         {
           type: 'CHECK_RESULT_ARRIVED',
@@ -20711,6 +20776,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       beginQueueBreakTrace('check-answer', 'user-answer', normalizedBanId);
+      markShellCheckAction(
+        completed ? 'userPressedCheckYes' : 'userPressedCheckNo',
+        {
+          source: 'submitCheckAnswer',
+          calledFrom: 'Providers.submitCheckAnswer',
+          checkBanId: normalizedBanId,
+          completed,
+        },
+      );
+      markShellCheckAction('submitCheckAnswerStarted', {
+        source: 'submitCheckAnswer',
+        calledFrom: 'Providers.submitCheckAnswer',
+        checkBanId: normalizedBanId,
+        completed,
+      });
 
       const checkBanAtSubmit = checkBanRef.current;
       const senderUserIdAtSubmit = checkBanAtSubmit?.sender?.id ?? null;
@@ -20793,6 +20873,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       console.log('[CHECK OVERLAY DISMISSED]', {
         banId: normalizedBanId,
         reason: 'user-answer',
+        completed,
+      });
+      markShellCheckAction('checkDismissStarted', {
+        source: 'submitCheckAnswer',
+        calledFrom: 'Providers.submitCheckAnswer:dismiss',
+        checkBanId: normalizedBanId,
+        completed,
+      });
+      markShellCheckAction('checkConsumed', {
+        source: 'submitCheckAnswer',
+        calledFrom: 'Providers.submitCheckAnswer:removeOverlaysForBan',
+        checkBanId: normalizedBanId,
         completed,
       });
       finalizeCheckDismissAfterUserAnswerRef.current(normalizedBanId, remaining);
@@ -21005,6 +21097,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
         console.log('[check-submit-success]', { banId: normalizedBanId });
         console.log('[check-overlay-submit-success]', { banId: normalizedBanId });
+        markShellCheckAction('submitCheckAnswerFinished', {
+          source: 'submitCheckAnswer',
+          calledFrom: 'Providers.submitCheckAnswer:success',
+          checkBanId: normalizedBanId,
+          completed,
+        });
         return { ok: true };
       } catch (e) {
         const message = e instanceof Error ? e.message : 'Ошибка отправки';
@@ -21016,6 +21114,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         challengeLog('check:submit-failed', {
           banId: normalizedBanId,
           message,
+        });
+        markShellCheckAction('submitCheckAnswerFinished', {
+          source: 'submitCheckAnswer',
+          calledFrom: 'Providers.submitCheckAnswer:error',
+          checkBanId: normalizedBanId,
+          completed,
         });
         return { ok: false, error: message };
       } finally {
@@ -40406,6 +40510,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       drainSessionId: queueBreakTraceRef.current?.generation ?? null,
       queueResultOverlayClaimed,
     });
+    observeShellCheckLifecycle({
+      source: 'Providers.render-branch',
+      reason: `renderBranch=${queueHeadLifecycleRenderBranch}`,
+      calledFrom: 'ProvidersBody:queueHeadLifecycleRenderBranch',
+      ...buildShellCheckOwnerDisplayFields(ownerForNextOverlay),
+      ...buildShellCheckQueueSnapshotFields({
+        ownerQueue: ownerForNextOverlay.queue,
+        ownerPending: ownerForNextOverlay.pending,
+        overlayQueueRef: overlayQueueRef.current,
+        overlayQueueState: overlayQueue,
+      }),
+      shellKind: queueShellRendersResultOverlay
+        ? 'result'
+        : notificationQueueShellDisplayKindResolved,
+      renderBranch: queueHeadLifecycleRenderBranch,
+      returnBranch: queueHeadLifecycleRenderBranch,
+      notificationOverlayVisible,
+      queueClaimsNotificationScreen:
+        ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+      activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+      visualQueueDimSessionLive:
+        visualQueueDimSessionRef.current || visualQueueDimSession,
+      explicitDrainReason: getExplicitNotificationDrainSource(),
+      drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+    });
   }
 
   if (queueHeadLifecycleRenderBranch === 'shell-result') {
@@ -41818,11 +41947,39 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         };
       },
     });
+    registerShellCheckLifecycleTraceHooks({
+      readSnapshot: () => {
+        const snap = shellStuckDiagSnapshotRef.current;
+        const owner = ownerShadowRef.current.getState();
+        return {
+          ...buildShellCheckOwnerDisplayFields(owner),
+          ...buildShellCheckQueueSnapshotFields({
+            ownerQueue: owner.queue,
+            ownerPending: owner.pending,
+            overlayQueueRef: overlayQueueRef.current,
+            overlayQueueState: overlayQueue,
+          }),
+          shellKind: snap?.shellKind ?? notificationQueueShellDisplayKindResolved,
+          renderBranch: snap?.renderBranch ?? queueHeadLifecycleRenderBranch,
+          returnBranch: snap?.renderBranch ?? queueHeadLifecycleRenderBranch,
+          notificationOverlayVisible:
+            notificationOverlayVisibleDiagRef.current ?? null,
+          queueClaimsNotificationScreen:
+            ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+          visualQueueDimSessionLive:
+            visualQueueDimSessionRef.current || visualQueueDimSession,
+          explicitDrainReason: getExplicitNotificationDrainSource(),
+          drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+        };
+      },
+    });
     return () => {
       registerShellStuckOnResultWhileOwnerAdvancedHooks(null);
       registerShellKindWriteTraceHooks(null);
       registerQueueResultOverlayClaimTraceHooks(null);
       registerNextOverlayAfterResultReleaseHooks(null);
+      registerShellCheckLifecycleTraceHooks(null);
     };
   }, [
     activeOverlayKind,
@@ -43371,6 +43528,32 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         explicitDrainReason: getExplicitNotificationDrainSource(),
         drainSessionId: queueBreakTraceRef.current?.generation ?? null,
         queueResultOverlayClaimed,
+      });
+      observeShellCheckLifecycle({
+        source: `providers-return-branch:${branchId}`,
+        reason: reason ?? 'providers-return-branch',
+        calledFrom: 'ProvidersBody',
+        ...buildShellCheckOwnerDisplayFields(ownerForCheckRemain),
+        ...buildShellCheckQueueSnapshotFields({
+          ownerQueue: ownerForCheckRemain.queue,
+          ownerPending: ownerForCheckRemain.pending,
+          overlayQueueRef: overlayQueueRef.current,
+          overlayQueueState: overlayQueue,
+        }),
+        shellKind: queueShellRendersResultOverlay
+          ? 'result'
+          : providersReturnBranchTraceBase.shellKind,
+        renderBranch: providersReturnBranchTraceBase.renderBranch,
+        returnBranch: providersReturnBranchTraceBase.renderBranch,
+        notificationOverlayVisible:
+          providersReturnBranchTraceBase.notificationOverlayVisible,
+        queueClaimsNotificationScreen:
+          ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+        activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+        visualQueueDimSessionLive:
+          providersReturnBranchTraceBase.visualQueueDimSessionLive,
+        explicitDrainReason: getExplicitNotificationDrainSource(),
+        drainSessionId: queueBreakTraceRef.current?.generation ?? null,
       });
     }
   };
