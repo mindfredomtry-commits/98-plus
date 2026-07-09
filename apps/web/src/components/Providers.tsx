@@ -705,6 +705,10 @@ import {
 import { logDismissCurrentOverlayRemainingTrace } from '@/lib/dismiss-current-overlay-remaining-trace-debug';
 import { logDismissCurrentOverlayExplicitNextQueueCallsiteTrace } from '@/lib/dismiss-current-overlay-explicit-nextqueue-callsite-trace-debug';
 import { logResultDismissCallsiteTrace } from '@/lib/result-dismiss-callsite-trace-debug';
+import {
+  logFinalizeResultGoToBansQueueTrace,
+  type FinalizeResultGoToBansQueueStage,
+} from '@/lib/finalize-result-go-to-bans-queue-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -31970,6 +31974,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const legacyResultBefore = resultRef.current?.id ?? result?.id ?? null;
       const overlayQueueBefore = [...overlayQueueRef.current];
       const pendingBeforeSnapshot = [...pendingStartupInteractionsRef.current];
+      const traceFinalizeGoToBansQueue = (
+        stage: FinalizeResultGoToBansQueueStage,
+        extra: {
+          reason?: string;
+          branch?: string | null;
+          beforeQueue?: QueuedOverlay[];
+          afterRemoveQueue?: QueuedOverlay[];
+          nextQueue?: QueuedOverlay[];
+          includeStack?: boolean;
+        } = {},
+      ) => {
+        const ownerAtStage = ownerShadowRef.current.getState();
+        logFinalizeResultGoToBansQueueTrace({
+          stage,
+          resultBanId: key,
+          reason: extra.reason ?? 'go-to-bans',
+          branch: extra.branch ?? null,
+          beforeQueue: extra.beforeQueue,
+          afterRemoveQueue: extra.afterRemoveQueue,
+          nextQueue: extra.nextQueue,
+          overlayQueueRefLength: overlayQueueRef.current.length,
+          overlayQueueStateLength: ownerAtStage.queue.length,
+          ownerQueueLen: ownerAtStage.queue.length,
+          ownerPendingLen: ownerAtStage.pending.length,
+          includeStack: extra.includeStack,
+        });
+      };
+      traceFinalizeGoToBansQueue('entry', {
+        beforeQueue: overlayQueueBefore,
+        branch: 'entry',
+        includeStack: true,
+      });
       const resolvedResultPayload =
         resultRef.current ??
         result ??
@@ -32450,6 +32486,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         const beforeQueue = overlayQueueRef.current;
         const beforePending = pendingStartupInteractionsRef.current;
+        traceFinalizeGoToBansQueue('before-remove-overlays-for-ban', {
+          beforeQueue: [...beforeQueue],
+          branch: 'queueOverboard',
+        });
         const queueHeadIsClickedResult =
           beforeQueue[0]?.kind === 'result' &&
           normalizeId(beforeQueue[0].result.id) === key;
@@ -32507,6 +32547,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             ['result'],
           );
         }
+        traceFinalizeGoToBansQueue('after-remove-overlays-for-ban', {
+          beforeQueue: [...beforeQueue],
+          afterRemoveQueue: [...nextQueueWithoutCurrent],
+          branch: 'queueOverboard',
+        });
         const nextPending = traceRemoveOverlaysForBan(
           beforePending,
           key,
@@ -32551,6 +32596,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             previousHeadId: queueHeadIdFrom(beforeQueue[0] ?? null),
           });
         }
+        traceFinalizeGoToBansQueue('before-dismiss', {
+          beforeQueue: [...beforeQueue],
+          afterRemoveQueue: [...nextQueueWithoutCurrent],
+          nextQueue: [...nextQueueWithoutCurrent],
+          branch: 'queueOverboard',
+          reason: 'result-dismiss',
+          includeStack: true,
+        });
         dismissCurrentOverlay('result-dismiss', nextQueueWithoutCurrent);
         const ownerDisplayResultId =
           ownerShadowRef.current.getState().display.result?.id ?? null;
@@ -32580,6 +32633,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         finTrace('[FINALIZE GO TO BANS BRANCH]', 'finalizeResultForGoToBans:queue-prune', {
           branch: 'pruneResultFromNotificationChain',
         });
+        traceFinalizeGoToBansQueue('before-prune', {
+          beforeQueue: [...overlayQueueRef.current],
+          branch: 'prune',
+        });
         logResultPruneDecision({
           branch: 'pruneResultFromNotificationChain:call',
           reason: 'isQueueOverboardResultDismiss-false',
@@ -32593,12 +32650,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         sanitizeNotificationChainQueues('go-to-bans');
 
         const beforeQueue = overlayQueueRef.current;
+        traceFinalizeGoToBansQueue('before-remove-overlays-for-ban', {
+          beforeQueue: [...beforeQueue],
+          branch: 'prune',
+        });
         let nextQueueWithoutCurrent = traceRemoveOverlaysForBan(
           beforeQueue,
           key,
           ['check', 'result'],
           'finalizeResultForGoToBans:go-to-bans-queue-prune-commit',
         );
+        traceFinalizeGoToBansQueue('after-remove-overlays-for-ban', {
+          beforeQueue: [...beforeQueue],
+          afterRemoveQueue: [...nextQueueWithoutCurrent],
+          branch: 'prune',
+        });
         if (nextQueueWithoutCurrent.length !== beforeQueue.length) {
           removeOverlayCalled = true;
         } else {
@@ -32657,6 +32723,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             previousHeadId: queueHeadIdFrom(beforeQueue[0] ?? null),
           });
         }
+        traceFinalizeGoToBansQueue('before-dismiss', {
+          beforeQueue: [...beforeQueue],
+          afterRemoveQueue: [...nextQueueWithoutCurrent],
+          nextQueue: [...nextQueueWithoutCurrent],
+          branch: 'prune',
+          reason: 'result-dismiss',
+          includeStack: true,
+        });
         dismissCurrentOverlay('result-dismiss', nextQueueWithoutCurrent);
       }
 
