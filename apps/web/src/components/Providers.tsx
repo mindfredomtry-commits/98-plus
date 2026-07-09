@@ -709,6 +709,10 @@ import {
   logFinalizeResultGoToBansQueueTrace,
   type FinalizeResultGoToBansQueueStage,
 } from '@/lib/finalize-result-go-to-bans-queue-trace-debug';
+import {
+  captureFinalizeBetweenEntryAndPruneFirstZeroStack,
+  logFinalizeResultGoToBansBetweenEntryAndPruneTrace,
+} from '@/lib/finalize-result-go-to-bans-between-entry-and-prune-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -32006,6 +32010,37 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         branch: 'entry',
         includeStack: true,
       });
+      let betweenEntryAndPrunePrevQueueLen = overlayQueueRef.current.length;
+      let betweenEntryAndPruneFirstZeroStack: string | null = null;
+      const traceBetweenEntryAndPrune = (
+        stage: string,
+        operation: string,
+      ) => {
+        const currentQueueLen = overlayQueueRef.current.length;
+        let stackForThisLog: string | null = null;
+        if (
+          betweenEntryAndPrunePrevQueueLen > 0 &&
+          currentQueueLen === 0 &&
+          betweenEntryAndPruneFirstZeroStack == null
+        ) {
+          betweenEntryAndPruneFirstZeroStack =
+            captureFinalizeBetweenEntryAndPruneFirstZeroStack();
+          stackForThisLog = betweenEntryAndPruneFirstZeroStack;
+        }
+        betweenEntryAndPrunePrevQueueLen = currentQueueLen;
+        const ownerAtBetween = ownerShadowRef.current.getState();
+        logFinalizeResultGoToBansBetweenEntryAndPruneTrace({
+          stage,
+          resultBanId: key,
+          operation,
+          queue: [...overlayQueueRef.current],
+          overlayQueueRefLength: overlayQueueRef.current.length,
+          overlayQueueStateLength: ownerAtBetween.queue.length,
+          ownerQueueLen: ownerAtBetween.queue.length,
+          ownerPendingLen: ownerAtBetween.pending.length,
+          firstZeroStack: stackForThisLog,
+        });
+      };
       const resolvedResultPayload =
         resultRef.current ??
         result ??
@@ -32258,6 +32293,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         { type: 'RESULT_GO_TO_BANS', banId: key },
         'finalizeResultForGoToBans',
       );
+      traceBetweenEntryAndPrune(
+        'after-RESULT_GO_TO_BANS-dispatch',
+        'ownerShadowDispatch:RESULT_GO_TO_BANS',
+      );
       {
         const clearSnapAfter = captureActiveResultClearSnapshot();
         emitActiveResultClearDecision(
@@ -32329,10 +32368,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       mirrorOwnerChainSessionGatesRef.current('finalizeResultForGoToBans:pre-prune', {
         awaitingUser: false,
       });
+      traceBetweenEntryAndPrune(
+        'after-mirror-chain-gates',
+        'mirrorOwnerChainSessionGatesRef:finalizeResultForGoToBans:pre-prune',
+      );
       mirrorOwnerSessionFlagsRef.current('finalizeResultForGoToBans:pre-prune', {
         chainAdvanceExplicit: true,
         chainHandoff: false,
       });
+      traceBetweenEntryAndPrune(
+        'after-mirror-session-flags',
+        'mirrorOwnerSessionFlagsRef:finalizeResultForGoToBans:pre-prune',
+      );
       if (
         readOwnerC3AtomicBanIdEquals(
           readOwnerC3Decision('finalizeResultForGoToBans'),
@@ -32345,6 +32392,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         mirrorOwnerHoldsSetsRef.current('finalizeResultForGoToBans:clear-atomic', {
           atomicOverboardBanId: null,
         });
+        traceBetweenEntryAndPrune(
+          'after-clear-atomic-ban',
+          'mirrorOwnerHoldsSetsRef:finalizeResultForGoToBans:clear-atomic',
+        );
+      } else {
+        traceBetweenEntryAndPrune(
+          'after-clear-atomic-ban-skipped',
+          'clear-atomic-ban:not-matching-owner-c3',
+        );
       }
       if (isQueueOverboardResultDismiss) {
         finTrace('[FINALIZE GO TO BANS BRANCH]', 'finalizeResultForGoToBans:held-branch', {
@@ -32400,8 +32456,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
         clearActiveUserCardHold('finalizeResultForGoToBans');
       }
+      traceBetweenEntryAndPrune(
+        isQueueOverboardResultDismiss
+          ? 'after-held-branch-queue-overboard'
+          : 'after-held-branch-clear-active-hold',
+        isQueueOverboardResultDismiss
+          ? 'held-branch:queue-overboard-result-dismiss'
+          : 'clearActiveUserCardHold:finalizeResultForGoToBans',
+      );
 
       markResultOverlayConsumed(key, 'go-to-bans');
+      traceBetweenEntryAndPrune(
+        'after-markResultOverlayConsumed',
+        'markResultOverlayConsumed:go-to-bans',
+      );
       let markConsumedCalled = true;
       let removeOverlayCalled = false;
       cancelResultPollBurst();
@@ -32470,6 +32538,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           'go-to-bans',
           'finalizeResultForGoToBans',
         );
+        traceBetweenEntryAndPrune(
+          'after-consumeIncomingAfterAnswer',
+          'consumeIncomingAfterAnswer:go-to-bans',
+        );
       } else {
         const alreadyInConsumedRef =
           incomingConsumedAfterAnswerRef.current.has(key);
@@ -32478,6 +32550,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reasonIfNotCallingConsume: goToBansConsumeAtCall.reason,
           alreadyInConsumedRef,
         });
+        traceBetweenEntryAndPrune(
+          'after-skip-consumeIncomingAfterAnswer',
+          `skip-consume:${goToBansConsumeAtCall.reason}`,
+        );
       }
 
       if (isQueueOverboardResultDismiss) {
@@ -32637,6 +32713,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           beforeQueue: [...overlayQueueRef.current],
           branch: 'prune',
         });
+        traceBetweenEntryAndPrune(
+          'before-pruneResultFromNotificationChain',
+          'pruneResultFromNotificationChain:go-to-bans',
+        );
         logResultPruneDecision({
           branch: 'pruneResultFromNotificationChain:call',
           reason: 'isQueueOverboardResultDismiss-false',
