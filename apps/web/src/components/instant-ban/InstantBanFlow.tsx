@@ -99,6 +99,7 @@ import {
 import { traceQueueClaimsNotificationScreenIfChanged } from '@/lib/queue-claims-notification-screen-trace-debug';
 import { observeCheckRemainedAfterResultButNotRendered } from '@/lib/check-remained-after-result-but-not-rendered-trace-debug';
 import { traceShellStuckOnResultWhileOwnerAdvancedIfNeeded } from '@/lib/shell-stuck-on-result-while-owner-advanced-trace-debug';
+import { traceQueueResultOverlayClaimStuckIfNeeded } from '@/lib/queue-result-overlay-claim-trace-debug';
 import {
   logLobbyChromeHidden,
   logLobbyChromeHiddenBug,
@@ -7604,6 +7605,19 @@ export function InstantBanFlow({
       notificationOverlayVisible,
       queueClaimsNotificationScreen,
       returnBranch: lobbyRenderBranch,
+    });
+  }
+  if (notificationOverlayVisible && queueClaimsNotificationScreen) {
+    traceQueueResultOverlayClaimStuckIfNeeded({
+      source: 'InstantBanFlow.result-render-branch',
+      reason: 'instant-ban-flow-claim-sample',
+      calledFrom: 'InstantBanFlow',
+      // Claim/queue filled by Providers enrichment hooks.
+      queueResultOverlayClaimed: false,
+      ownerQueue: [],
+      activeKind: activeOverlayKind ?? null,
+      notificationOverlayVisible,
+      queueClaimsNotificationScreen,
     });
   }
 
