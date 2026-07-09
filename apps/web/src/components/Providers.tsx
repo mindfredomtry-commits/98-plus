@@ -692,6 +692,7 @@ import {
   resolveQueueShellCheckOverlayJsxSuppression,
 } from '@/lib/check-overlay-jsx-emit-trace-debug';
 import { logProvidersReturnBranchTrace } from '@/lib/providers-return-branch-trace-debug';
+import { traceBadReturnBranchWithActiveQueueIfNeeded } from '@/lib/bad-return-branch-with-active-queue-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -41936,6 +41937,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ...providersReturnBranchTraceBase,
       branchId,
       reason: reason ?? null,
+    });
+    traceBadReturnBranchWithActiveQueueIfNeeded({
+      ...providersReturnBranchTraceBase,
+      branchId,
+      reason: reason ?? null,
+      queueClaimsNotificationScreen:
+        ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+      overlayQueueHeadKind: ownerPrimaryQueueHead?.kind ?? null,
+      overlayQueueHeadId: queueHeadIdFrom(ownerPrimaryQueueHead),
     });
   };
 
