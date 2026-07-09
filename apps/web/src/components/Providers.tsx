@@ -691,6 +691,7 @@ import {
   logCheckOverlayJsxSuppressedTrace,
   resolveQueueShellCheckOverlayJsxSuppression,
 } from '@/lib/check-overlay-jsx-emit-trace-debug';
+import { logProvidersReturnBranchTrace } from '@/lib/providers-return-branch-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -1985,6 +1986,22 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   const scopeKey = telegramId != null ? `tg:${telegramId}` : 'tg:pending';
   console.log('[boot]', { phase: 'providers-mount', scopeKey, telegramId });
+
+  logProvidersReturnBranchTrace({
+    branchId: 'providers-wrapper-return',
+    functionName: 'Providers',
+    renderBranch: null,
+    shellKind: null,
+    effectiveKind: null,
+    actualKind: null,
+    queueHeadKind: null,
+    overlayQueueLength: 0,
+    ownerQueueLen: 0,
+    notificationHostMounted: null,
+    notificationOverlayVisible: false,
+    visualQueueDimSessionLive: false,
+    reason: 'providers-wrapper-renders-providers-body',
+  });
 
   return <ProvidersBody key={scopeKey}>{children}</ProvidersBody>;
 }
@@ -41895,14 +41912,68 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const providersReturnBranchTraceBase = {
+    functionName: 'ProvidersBody',
+    renderBranch: queueHeadLifecycleRenderBranch,
+    shellKind: notificationQueueShellDisplayKindResolved,
+    effectiveKind: effectiveNotificationQueueShellKind,
+    actualKind: notificationQueueShellDisplayKind,
+    queueHeadKind,
+    overlayQueueLength: Math.max(
+      overlayQueue.length,
+      overlayQueueRef.current.length,
+    ),
+    ownerQueueLen: ownerPrimaryShellQueueLen,
+    notificationHostMounted: globalOverlayHostActive,
+    notificationOverlayVisible,
+    visualQueueDimSessionLive,
+  };
+  const logProvidersReturnBranch = (
+    branchId: string,
+    reason?: string | null,
+  ) => {
+    logProvidersReturnBranchTrace({
+      ...providersReturnBranchTraceBase,
+      branchId,
+      reason: reason ?? null,
+    });
+  };
+
+  logProvidersReturnBranch(
+    'providers-body-root-return',
+    'providers-body-main-jsx-return',
+  );
+
   return (
     <AppContext.Provider value={contextValue}>
       <RouteOverlayBootPriorityMarker active={routeOverlayAboveBoot} />
       <ShellErrorBoundary name="app">
         {children}
-        {!showDirectOverboardLayer || visualQueueDimSessionLive ? (
+        {(() => {
+          const overlaySessionOpen =
+            !showDirectOverboardLayer || visualQueueDimSessionLive;
+          if (!overlaySessionOpen) {
+            logProvidersReturnBranch(
+              'overlay-session-fragment-null',
+              showDirectOverboardLayer
+                ? 'showDirectOverboardLayer-without-visualQueueDimSessionLive'
+                : 'overlay-session-closed',
+            );
+            return null;
+          }
+          logProvidersReturnBranch(
+            'overlay-session-fragment-emit',
+            'overlay-session-open',
+          );
+          return (
           <>
-            {showCheckOverlayDirect && ownerPrimaryCheckBan ? (
+            {(() => {
+              if (showCheckOverlayDirect && ownerPrimaryCheckBan) {
+                logProvidersReturnBranch(
+                  'check-overlay-direct-emit',
+                  'showCheckOverlayDirect-with-ban',
+                );
+                return (
               <ChallengeErrorBoundary
                 name="check-deeplink-direct"
                 onRecover={() => clearCheckOverlay()}
@@ -41914,7 +41985,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   visibilityReason={ownerCheckDirectVisibility.reason}
                 />
               </ChallengeErrorBoundary>
-            ) : null}
+                );
+              }
+              logProvidersReturnBranch(
+                'check-overlay-direct-null',
+                showCheckOverlayDirect
+                  ? 'showCheckOverlayDirect-without-ban'
+                  : 'showCheckOverlayDirect-false',
+              );
+              return null;
+            })()}
             {showReplyIncomingOverlayDirect && replyDirectOverlayBan ? (
               <ChallengeErrorBoundary
                 name="incoming-reply-direct"
@@ -41928,7 +42008,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 />
               </ChallengeErrorBoundary>
             ) : null}
-            {!composeBlocksNotificationHost && globalOverlayHostActive ? (
+            {(() => {
+              const globalOverlayHostEmit =
+                !composeBlocksNotificationHost && globalOverlayHostActive;
+              if (!globalOverlayHostEmit) {
+                logProvidersReturnBranch(
+                  'global-overlay-host-null',
+                  composeBlocksNotificationHost
+                    ? 'composeBlocksNotificationHost'
+                    : 'globalOverlayHostActive-false',
+                );
+                return null;
+              }
+              logProvidersReturnBranch(
+                'global-overlay-host-emit',
+                'global-overlay-host-active',
+              );
+              return (
             <GlobalOverlayHost
               active={notificationHostPointerActive}
               queueSessionActive={overlayBackdropDimVisible}
@@ -41960,7 +42056,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   : null
               }
             >
-              {overlayVisualShieldCardContentMounted ? (
+              {(() => {
+                if (!overlayVisualShieldCardContentMounted) {
+                  logProvidersReturnBranch(
+                    'notification-queue-shell-null',
+                    'overlayVisualShieldCardContentMounted-false',
+                  );
+                  return null;
+                }
+                logProvidersReturnBranch(
+                  'notification-queue-shell-emit',
+                  'overlayVisualShieldCardContentMounted-true',
+                );
+                return (
               <NotificationQueueShell
                 kind={notificationQueueShellDisplayKindResolved}
                 shellContentReady={
@@ -42087,6 +42195,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   }
 
                   if (queueShellRendersResultOverlay) {
+                    logProvidersReturnBranch(
+                      'queue-shell-children-result',
+                      'queueShellRendersResultOverlay',
+                    );
                     return (
                   <ChallengeErrorBoundary
                     name="result"
@@ -42111,6 +42223,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   !showCheckOverlayDirect &&
                   checkBanForShell
                   ) {
+                    logProvidersReturnBranch(
+                      'queue-shell-children-check',
+                      'notificationQueueShellDisplayKindResolved-check',
+                    );
                     return (
                   <ChallengeErrorBoundary
                     name="check"
@@ -42131,6 +42247,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   notificationQueueShellDisplayKindResolved === 'incoming' &&
                   (incomingBanForShell ?? ownerPrimaryStableIncomingBan)
                   ) {
+                    logProvidersReturnBranch(
+                      'queue-shell-children-incoming',
+                      'notificationQueueShellDisplayKindResolved-incoming',
+                    );
                     return (
                   <ChallengeErrorBoundary
                     name="incoming"
@@ -42146,14 +42266,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     );
                   }
 
+                  logProvidersReturnBranch(
+                    'queue-shell-children-null',
+                    'no-queue-shell-child-branch',
+                  );
                   return null;
                 })()}
               </NotificationQueueShell>
-              ) : null}
+                );
+              })()}
             </GlobalOverlayHost>
-            ) : null}
+              );
+            })()}
           </>
-        ) : null}
+          );
+        })()}
         {(() => {
           const directOverboardRenderResult = ownerPrimaryDisplayResultForShell;
           const hasResult = directOverboardRenderResult != null;
@@ -42295,6 +42422,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               branch: 'providers-return-null-not-active',
               ...directJsxFields,
             });
+            logProvidersReturnBranch(
+              'direct-overboard-null-not-active',
+              'showDirectOverboardLayer-false',
+            );
             return null;
           }
           if (!directOverboardRenderResult) {
@@ -42312,6 +42443,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               branch: 'providers-return-null-no-result',
               ...directJsxFields,
             });
+            logProvidersReturnBranch(
+              'direct-overboard-null-no-result',
+              'directOverboardRenderResult-null',
+            );
             return null;
           }
           logDirectOverboardShowableDecisionFromSnapshot(
@@ -42342,6 +42477,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             directPaint: true,
             contentOnly: false,
           });
+          logProvidersReturnBranch(
+            'direct-overboard-render-layer',
+            'direct-layer-will-render',
+          );
           return (
             <ChallengeErrorBoundary
               name="direct-overboard-result"
