@@ -17,6 +17,8 @@ export type FinalizeResultGoToBansBetweenEntryAndPruneTraceInput = {
   overlayQueueStateLength: number;
   ownerQueueLen: number;
   ownerPendingLen: number;
+  activeKind: string | null;
+  activeBanId: string | null;
   firstZeroStack?: string | null;
 };
 
@@ -32,6 +34,8 @@ export type FinalizeResultGoToBansBetweenEntryAndPruneTrace = {
   overlayQueueStateLength: number;
   ownerQueueLen: number;
   ownerPendingLen: number;
+  activeKind: string | null;
+  activeBanId: string | null;
   stack: string | null;
 };
 
@@ -73,6 +77,8 @@ export function logFinalizeResultGoToBansBetweenEntryAndPruneTrace(
     overlayQueueStateLength: input.overlayQueueStateLength,
     ownerQueueLen: input.ownerQueueLen,
     ownerPendingLen: input.ownerPendingLen,
+    activeKind: input.activeKind,
+    activeBanId: input.activeBanId,
     stack: input.firstZeroStack ?? null,
   };
 

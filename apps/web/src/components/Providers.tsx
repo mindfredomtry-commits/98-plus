@@ -32038,6 +32038,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           overlayQueueStateLength: ownerAtBetween.queue.length,
           ownerQueueLen: ownerAtBetween.queue.length,
           ownerPendingLen: ownerAtBetween.pending.length,
+          activeKind: ownerAtBetween.active.kind,
+          activeBanId: ownerAtBetween.active.banId,
           firstZeroStack: stackForThisLog,
         });
       };
@@ -32465,6 +32467,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           : 'clearActiveUserCardHold:finalizeResultForGoToBans',
       );
 
+      traceBetweenEntryAndPrune(
+        'before-markResultOverlayConsumed',
+        'markResultOverlayConsumed:go-to-bans',
+      );
       markResultOverlayConsumed(key, 'go-to-bans');
       traceBetweenEntryAndPrune(
         'after-markResultOverlayConsumed',
@@ -32498,6 +32504,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           inActiveOverboardQueue,
         });
       }
+
+      traceBetweenEntryAndPrune(
+        'before-consumeIncomingAfterAnswer',
+        goToBansConsumeAtCall.allowed
+          ? `consumeIncomingAfterAnswer:go-to-bans:${goToBansConsumeAtCall.reason}`
+          : `skip-consume:${goToBansConsumeAtCall.reason}`,
+      );
 
       if (goToBansConsumeAtCall.allowed) {
         if (typeof window !== 'undefined') {
