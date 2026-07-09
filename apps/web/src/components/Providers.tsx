@@ -693,6 +693,7 @@ import {
 } from '@/lib/check-overlay-jsx-emit-trace-debug';
 import { logProvidersReturnBranchTrace } from '@/lib/providers-return-branch-trace-debug';
 import { traceBadReturnBranchWithActiveQueueIfNeeded } from '@/lib/bad-return-branch-with-active-queue-trace-debug';
+import { traceBadNoShellBranchDuringQueueIfNeeded } from '@/lib/bad-no-shell-branch-during-queue-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -41947,6 +41948,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ownerPendingLen: ownerPrimaryShellPendingLen,
       overlayQueueHeadKind: ownerPrimaryQueueHead?.kind ?? null,
       overlayQueueHeadId: queueHeadIdFrom(ownerPrimaryQueueHead),
+    });
+    traceBadNoShellBranchDuringQueueIfNeeded({
+      branchId,
+      renderBranch: providersReturnBranchTraceBase.renderBranch,
+      shellKind: providersReturnBranchTraceBase.shellKind,
+      effectiveKind: providersReturnBranchTraceBase.effectiveKind,
+      actualKind: providersReturnBranchTraceBase.actualKind,
+      overlayQueueLength: providersReturnBranchTraceBase.overlayQueueLength,
+      overlayQueueHeadKind: ownerPrimaryQueueHead?.kind ?? null,
+      ownerQueueLen: providersReturnBranchTraceBase.ownerQueueLen,
+      ownerPendingLen: ownerPrimaryShellPendingLen,
+      queueClaimsNotificationScreen:
+        ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+      notificationOverlayVisible:
+        providersReturnBranchTraceBase.notificationOverlayVisible,
+      visualQueueDimSessionLive:
+        providersReturnBranchTraceBase.visualQueueDimSessionLive,
+      reason: reason ?? null,
     });
   };
 
