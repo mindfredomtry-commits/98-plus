@@ -715,6 +715,7 @@ import {
 } from '@/lib/finalize-result-go-to-bans-between-entry-and-prune-trace-debug';
 import { logFinalizeResultQueueFirstZeroTrace } from '@/lib/finalize-result-queue-first-zero-trace-debug';
 import { logPreResultGoToBansQueueSourceTrace } from '@/lib/pre-result-go-to-bans-queue-source-trace-debug';
+import { logPostResultGoToBansQueueStateTrace } from '@/lib/post-result-go-to-bans-queue-state-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -32350,10 +32351,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           sourceFunction: 'finalizeResultForGoToBans:before-RESULT_GO_TO_BANS',
         });
       }
+      const postResultGoToBansBeforeOwnerQueue = [
+        ...ownerShadowRef.current.getState().queue,
+      ];
+      const postResultGoToBansBeforeOverlayQueueState = [...overlayQueue];
+      const postResultGoToBansBeforeOverlayQueueRef = [
+        ...overlayQueueRef.current,
+      ];
       ownerShadowDispatch(
         { type: 'RESULT_GO_TO_BANS', banId: key },
         'finalizeResultForGoToBans',
       );
+      {
+        const ownerAtPostDispatch = ownerShadowRef.current.getState();
+        logPostResultGoToBansQueueStateTrace({
+          resultBanId: key,
+          beforeOwnerQueue: postResultGoToBansBeforeOwnerQueue,
+          beforeOverlayQueueState: postResultGoToBansBeforeOverlayQueueState,
+          beforeOverlayQueueRef: postResultGoToBansBeforeOverlayQueueRef,
+          afterOwnerQueue: [...ownerAtPostDispatch.queue],
+          afterOwnerPending: [...ownerAtPostDispatch.pending],
+          afterOverlayQueueState: [...overlayQueue],
+          afterOverlayQueueRef: [...overlayQueueRef.current],
+        });
+      }
       traceBetweenEntryAndPrune(
         'after-RESULT_GO_TO_BANS-dispatch',
         'ownerShadowDispatch:RESULT_GO_TO_BANS',
