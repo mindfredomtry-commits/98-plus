@@ -686,6 +686,11 @@ import { traceOwnerPrimaryShellQueueClearIfTransition } from '@/lib/owner-primar
 import { traceQueueHeadShellKindFallbackIfChanged } from '@/lib/queue-head-shell-kind-fallback-trace-debug';
 import { traceOverlayNextHandoffStalledIfChanged } from '@/lib/overlay-next-handoff-stalled-trace-debug';
 import { traceOverlayShellCreateAttemptIfChanged } from '@/lib/overlay-shell-create-attempt-trace-debug';
+import {
+  logCheckOverlayJsxEmitTrace,
+  logCheckOverlayJsxSuppressedTrace,
+  resolveQueueShellCheckOverlayJsxSuppression,
+} from '@/lib/check-overlay-jsx-emit-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -41839,6 +41844,57 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ],
   );
 
+  const queueShellCheckOverlayParentShellMounted =
+    !composeBlocksNotificationHost && globalOverlayHostActive;
+  const queueShellCheckOverlayNotificationQueueShellMounted =
+    queueShellCheckOverlayParentShellMounted &&
+    overlayVisualShieldCardContentMounted;
+  const queueShellCheckOverlayJsxPathSelected =
+    !queueShellRendersResultOverlay &&
+    !queueResultOverlayClaimed &&
+    notificationQueueShellDisplayKindResolved === 'check' &&
+    !showCheckOverlayDirect;
+  const queueShellCheckOverlayJsxWillEmit =
+    queueShellCheckOverlayJsxPathSelected && Boolean(checkBanForShell);
+  const queueShellCheckOverlayJsxTraceBase = {
+    contentOnly: true as const,
+    visible: ownerCheckQueueVisibility.visible,
+    checkBan: checkBanForShell,
+    userId: auth.user?.id ?? null,
+    notificationHostActive: notificationHostPointerActive,
+    notificationOverlayVisible,
+    queueClaimsNotificationScreen:
+      ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+    shellKind: notificationQueueShellDisplayKindResolved,
+    effectiveKind: effectiveNotificationQueueShellKind,
+    renderBranch: queueHeadLifecycleRenderBranch,
+    parentShellMounted: queueShellCheckOverlayParentShellMounted,
+    notificationQueueShellMounted: queueShellCheckOverlayNotificationQueueShellMounted,
+  };
+
+  if (
+    notificationQueueShellDisplayKindResolved === 'check' &&
+    !showCheckOverlayDirect &&
+    !queueShellCheckOverlayJsxWillEmit
+  ) {
+    const suppression = resolveQueueShellCheckOverlayJsxSuppression({
+      queueShellRendersResultOverlay,
+      queueResultOverlayClaimed,
+      showCheckOverlayDirect,
+      pathSelected: queueShellCheckOverlayJsxPathSelected,
+      hasCheckBan: Boolean(checkBanForShell),
+      parentShellMounted: queueShellCheckOverlayParentShellMounted,
+      notificationQueueShellMounted: queueShellCheckOverlayNotificationQueueShellMounted,
+    });
+    if (suppression) {
+      logCheckOverlayJsxSuppressedTrace({
+        ...queueShellCheckOverlayJsxTraceBase,
+        reason: suppression.reason,
+        guardReason: suppression.guardReason,
+      });
+    }
+  }
+
   return (
     <AppContext.Provider value={contextValue}>
       <RouteOverlayBootPriorityMarker active={routeOverlayAboveBoot} />
@@ -42016,7 +42072,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                           : null
                 }
               >
-                {queueShellRendersResultOverlay ? (
+                {(() => {
+                  if (
+                    queueShellCheckOverlayJsxWillEmit &&
+                    queueShellCheckOverlayNotificationQueueShellMounted
+                  ) {
+                    logCheckOverlayJsxEmitTrace({
+                      ...queueShellCheckOverlayJsxTraceBase,
+                      willEmitCheckOverlayElement: true,
+                      reason:
+                        ownerCheckQueueVisibility.reason ??
+                        'queue-shell-check-emit',
+                    });
+                  }
+
+                  if (queueShellRendersResultOverlay) {
+                    return (
                   <ChallengeErrorBoundary
                     name="result"
                     onRecover={() => dismissBanResult()}
@@ -42031,10 +42102,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                       overboardQueueBody={ownerResultQueueVisibility.overboardQueueBody}
                     />
                   </ChallengeErrorBoundary>
-                ) : !queueResultOverlayClaimed &&
+                    );
+                  }
+
+                  if (
+                    !queueResultOverlayClaimed &&
                   notificationQueueShellDisplayKindResolved === 'check' &&
                   !showCheckOverlayDirect &&
-                  checkBanForShell ? (
+                  checkBanForShell
+                  ) {
+                    return (
                   <ChallengeErrorBoundary
                     name="check"
                     onRecover={() => clearCheckOverlay()}
@@ -42046,9 +42123,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                       visibilityReason={ownerCheckQueueVisibility.reason}
                     />
                   </ChallengeErrorBoundary>
-                ) : !queueResultOverlayClaimed &&
+                    );
+                  }
+
+                  if (
+                    !queueResultOverlayClaimed &&
                   notificationQueueShellDisplayKindResolved === 'incoming' &&
-                  (incomingBanForShell ?? ownerPrimaryStableIncomingBan) ? (
+                  (incomingBanForShell ?? ownerPrimaryStableIncomingBan)
+                  ) {
+                    return (
                   <ChallengeErrorBoundary
                     name="incoming"
                     onRecover={() => dismissIncoming()}
@@ -42060,7 +42143,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                       visibilityReason={ownerIncomingQueueVisibility.reason}
                     />
                   </ChallengeErrorBoundary>
-                ) : null}
+                    );
+                  }
+
+                  return null;
+                })()}
               </NotificationQueueShell>
               ) : null}
             </GlobalOverlayHost>
