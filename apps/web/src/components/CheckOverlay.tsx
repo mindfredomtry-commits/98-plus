@@ -46,6 +46,11 @@ import {
   logResultRenderBranch,
   logResultRenderSelectionTrace,
 } from '@/lib/result-render-selection-trace';
+import {
+  logCheckOverlayEntryTrace,
+  logCheckOverlayExceptionTrace,
+  logCheckOverlayReturnTrace,
+} from '@/lib/check-overlay-return-trace-debug';
 
 interface Props {
   embedded?: boolean;
@@ -59,7 +64,22 @@ interface Props {
   visibilityReason?: string;
 }
 
-function CheckOverlayInner({
+function CheckOverlayInner(props: Props) {
+  try {
+    return CheckOverlayInnerBody(props);
+  } catch (error) {
+    logCheckOverlayExceptionTrace({
+      error,
+      contentOnly: props.contentOnly,
+      checkDirect: props.checkDirect,
+      visible: props.visible,
+      checkBan: props.checkBan,
+    });
+    throw error;
+  }
+}
+
+function CheckOverlayInnerBody({
   embedded = false,
   contentOnly = false,
   checkDirect = false,
@@ -76,6 +96,17 @@ function CheckOverlayInner({
     logCardCloseClick,
     reportOverlayRendered,
   } = useApp();
+
+  logCheckOverlayEntryTrace({
+    contentOnly,
+    checkDirect,
+    embedded,
+    visible,
+    checkBan,
+    visibilityReason,
+    userId: user?.id ?? null,
+  });
+
   const { haptic } = useTelegram();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
@@ -89,6 +120,28 @@ function CheckOverlayInner({
 
   const projectedWillRenderCheckOverlay =
     visible && Boolean(checkBan) && Boolean(modalView);
+
+  const traceCheckOverlayReturn = (
+    returnBranch: string,
+    returnsNull: boolean,
+    extra?: { guardReason?: string | null; reason?: string | null },
+  ) => {
+    logCheckOverlayReturnTrace({
+      returnBranch,
+      returnsNull,
+      visible,
+      checkBan,
+      modalView,
+      user,
+      embedded,
+      contentOnly,
+      checkDirect,
+      visibilityReason,
+      guardReason: extra?.guardReason,
+      reason: extra?.reason,
+    });
+  };
+
   logResultRenderSelectionTrace({
     effectiveKind: 'check',
     shellKind: 'check',
@@ -260,6 +313,9 @@ function CheckOverlayInner({
   }, [visible, checkBan?.id, checkDirect, reportOverlayRendered]);
 
   if (!visible) {
+    traceCheckOverlayReturn('guard-not-visible', true, {
+      guardReason: visibilityReason ?? 'not-visible',
+    });
     logResultRenderBranch({
       component: 'CheckOverlay',
       renderBranch: 'check-overlay',
@@ -271,6 +327,9 @@ function CheckOverlayInner({
   }
 
   if (!checkBan || !modalView) {
+    traceCheckOverlayReturn('guard-missing-ban-or-view', true, {
+      guardReason: !checkBan ? 'no-check-ban' : 'no-modal-view',
+    });
     logResultRenderBranch({
       component: 'CheckOverlay',
       renderBranch: 'check-overlay',
@@ -359,12 +418,25 @@ function CheckOverlayInner({
     </div>
   );
 
-  if (contentOnly) return body;
+  if (contentOnly) {
+    traceCheckOverlayReturn('content-only-body', false, {
+      reason: 'content-only-render',
+    });
+    return body;
+  }
 
   if (checkDirect) {
     const backdropZ = APP_NOTIFICATION_BACKDROP_Z_INDEX;
     const cardZ = APP_NOTIFICATION_CARD_Z_INDEX;
-    if (typeof document === 'undefined') return null;
+    if (typeof document === 'undefined') {
+      traceCheckOverlayReturn('check-direct-ssr-null', true, {
+        guardReason: 'document-undefined',
+      });
+      return null;
+    }
+    traceCheckOverlayReturn('check-direct-portal-jsx', false, {
+      reason: 'check-direct-portal-render',
+    });
     return (
       <>
         {createPortal(
@@ -418,8 +490,21 @@ function CheckOverlayInner({
     </ModalShell>
   );
 
-  if (embedded) return modal;
-  if (typeof document === 'undefined') return null;
+  if (embedded) {
+    traceCheckOverlayReturn('embedded-modal-jsx', false, {
+      reason: 'embedded-modal-render',
+    });
+    return modal;
+  }
+  if (typeof document === 'undefined') {
+    traceCheckOverlayReturn('portal-ssr-null', true, {
+      guardReason: 'document-undefined',
+    });
+    return null;
+  }
+  traceCheckOverlayReturn('portal-modal-jsx', false, {
+    reason: 'portal-modal-render',
+  });
   return createPortal(modal, document.body);
 }
 
