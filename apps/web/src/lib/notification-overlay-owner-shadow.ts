@@ -51,6 +51,10 @@ import {
 import { recordGoToBansSessionTrace } from '@/lib/go-to-bans-session-trace-debug';
 import { tracePendingResultAddAfterDispatch } from '@/lib/pending-result-source-trace-debug';
 import { traceResultEnqueuedOwnerAfterDispatch } from '@/lib/result-enqueued-owner-trace-debug';
+import {
+  captureQueueTailDroppedWhileResultHeadBefore,
+  traceQueueTailDroppedWhileResultHeadIfNeeded,
+} from '@/lib/queue-tail-dropped-while-result-head-trace-debug';
 import { normalizeId } from '@/lib/normalize-json';
 
 const QUEUE_AUTHORITY_EVENT_TYPES = new Set<NotificationOverlayOwnerEvent['type']>([
@@ -375,6 +379,7 @@ export function createNotificationOverlayOwnerShadow(
   return {
     getState: () => stateHandle.unwrap(),
     dispatch(event, source, snapshot) {
+      captureQueueTailDroppedWhileResultHeadBefore();
       const state = currentState();
       if (QUEUE_AUTHORITY_EVENT_TYPES.has(event.type)) {
         logOwnerPhase8QueueDispatch({
@@ -518,6 +523,16 @@ export function createNotificationOverlayOwnerShadow(
         source,
         before: state,
         after: nextState,
+      });
+      traceQueueTailDroppedWhileResultHeadIfNeeded({
+        beforeQueue: [...state.queue],
+        afterQueue: [...nextState.queue],
+        beforePending: [...state.pending],
+        afterPending: [...nextState.pending],
+        operation: event.type,
+        source,
+        reason: `${source}:${event.type}`,
+        calledFrom: source,
       });
       runMirrorEffects(result.effects, source);
       logStateAndEffects(result.effects);

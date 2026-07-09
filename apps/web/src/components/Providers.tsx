@@ -1140,6 +1140,10 @@ import {
   traceResultBecameHeadQueueContextIfNeeded,
 } from '@/lib/result-became-head-queue-context-trace-debug';
 import {
+  registerQueueTailDroppedWhileResultHeadHooks,
+  traceQueueTailDroppedWhileResultHeadIfNeeded,
+} from '@/lib/queue-tail-dropped-while-result-head-trace-debug';
+import {
   logConfirmBlockedByActiveUserCardBug,
   logConfirmEnterNotificationGuardClear,
   logIncomingReplyActionStart,
@@ -2146,6 +2150,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     lastOutcome: string | null;
   } | null>(null);
   const queueBreakTraceGenerationRef = useRef(0);
+  const queueTailDropOverlayRefBeforeRef = useRef<QueuedOverlay[]>([]);
+  const queueTailDropOverlayStateBeforeRef = useRef<QueuedOverlay[]>([]);
   const openNextNotificationAfterQueueHandoffRef = useRef<
     (
       source: string,
@@ -8516,6 +8522,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     mirrorLegacyQueue: (queue, source, silent) => {
       const oldQueue = [...overlayQueueRef.current];
       const oldHead = oldQueue[0] ?? null;
+      const ownerBeforeMirror = ownerShadowRef.current.getState();
+      traceQueueTailDroppedWhileResultHeadIfNeeded({
+        beforeQueue: oldQueue,
+        afterQueue: queue,
+        beforePending: [...ownerBeforeMirror.pending],
+        afterPending: [...ownerBeforeMirror.pending],
+        operation: 'mirrorLegacyQueue',
+        source,
+        reason: silent ? 'owner-mirror-silent' : 'owner-mirror-setOverlayQueue',
+        calledFrom: getHeadSwitchPipelineStack().join(' > '),
+      });
       const operation = inferProvidersOverlayQueueOperation(
         oldQueue.length,
         queue.length,
@@ -9122,6 +9139,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
       const ownerAfter = ownerShadowRef.current.getState();
       const queueAfter = [...ownerAfter.queue];
+      traceQueueTailDroppedWhileResultHeadIfNeeded({
+        beforeQueue: queueBefore,
+        afterQueue: queueAfter,
+        beforePending: [...ownerBefore.pending],
+        afterPending: [...ownerAfter.pending],
+        operation: silent ? 'QUEUE_SILENT_UPDATED' : 'QUEUE_APPLIED',
+        source,
+        reason: `${source}:applyQueueViaOwnerAuthority`,
+        calledFrom: getHeadSwitchPipelineStack().join(' > '),
+      });
       if (silent) {
         traceOwnerQueueSilentUpdate({
           caller: source,
@@ -40973,6 +41000,37 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       };
     });
     return () => registerResultBecameHeadQueueContextEnrichmentProvider(null);
+  }, [overlayQueue, visualQueueDimSession]);
+
+  useLayoutEffect(() => {
+    registerQueueTailDroppedWhileResultHeadHooks({
+      captureBefore: () => {
+        queueTailDropOverlayRefBeforeRef.current = [...overlayQueueRef.current];
+        queueTailDropOverlayStateBeforeRef.current = [...overlayQueue];
+      },
+      readEnrichment: () => {
+        const owner = ownerShadowRef.current.getState();
+        const head = owner.queue[0] ?? null;
+        return {
+          overlayQueueRefBefore: [...queueTailDropOverlayRefBeforeRef.current],
+          overlayQueueRefAfter: [...overlayQueueRef.current],
+          overlayQueueStateBefore: [...queueTailDropOverlayStateBeforeRef.current],
+          overlayQueueStateAfter: [...overlayQueue],
+          drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+          explicitDrainReason: getExplicitNotificationDrainSource(),
+          queueClaimsNotificationScreen:
+            owner.queue.length > 0 || queueLobbyGuardActiveRef.current,
+          visualQueueDimSessionLive:
+            visualQueueDimSessionRef.current || visualQueueDimSession,
+          notificationChainTransitioning:
+            notificationChainTransitioningRef.current,
+          currentHeadKind: head?.kind ?? owner.active.kind,
+          currentHeadId: head ? queueHeadIdFrom(head) : owner.active.banId,
+        };
+      },
+    });
+    return () => registerQueueTailDroppedWhileResultHeadHooks(null);
   }, [overlayQueue, visualQueueDimSession]);
 
   useLayoutEffect(() => {
