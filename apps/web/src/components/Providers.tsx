@@ -714,6 +714,7 @@ import {
   logFinalizeResultGoToBansBetweenEntryAndPruneTrace,
 } from '@/lib/finalize-result-go-to-bans-between-entry-and-prune-trace-debug';
 import { logFinalizeResultQueueFirstZeroTrace } from '@/lib/finalize-result-queue-first-zero-trace-debug';
+import { logPreResultGoToBansQueueSourceTrace } from '@/lib/pre-result-go-to-bans-queue-source-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -32319,6 +32320,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (isQueueOverboardResultDismiss) {
         freshOverboardActionBanIdsRef.current.delete(key);
         freshFinalStatusBanIdsRef.current.delete(key);
+      }
+      {
+        const ownerAtPreDispatch = ownerShadowRef.current.getState();
+        const heldAtPreDispatch = heldUserCardOverlayRef.current;
+        logPreResultGoToBansQueueSourceTrace({
+          resultBanId: key,
+          activeKind: ownerAtPreDispatch.active.kind,
+          activeBanId: ownerAtPreDispatch.active.banId,
+          overlayQueueRef: [...overlayQueueRef.current],
+          overlayQueueState: [...overlayQueue],
+          ownerQueue: [...ownerAtPreDispatch.queue],
+          ownerPending: [...ownerAtPreDispatch.pending],
+          pendingChain: [...pendingStartupInteractionsRef.current],
+          notificationChain: [
+            ...overlayQueueRef.current,
+            ...pendingStartupInteractionsRef.current,
+          ],
+          deferredQueue: ownerAtPreDispatch.holds.checkResultWait
+            ? [...ownerAtPreDispatch.holds.checkResultWait.deferredQueue]
+            : [],
+          heldOverlayKind: heldAtPreDispatch?.kind ?? null,
+          heldOverlayBanId: heldAtPreDispatch
+            ? heldUserCardBanId(heldAtPreDispatch)
+            : null,
+          displayCheckBanId: ownerAtPreDispatch.display.checkBan?.id ?? null,
+          displayIncomingBanId:
+            ownerAtPreDispatch.display.incomingBan?.id ?? null,
+          sourceFunction: 'finalizeResultForGoToBans:before-RESULT_GO_TO_BANS',
+        });
       }
       ownerShadowDispatch(
         { type: 'RESULT_GO_TO_BANS', banId: key },
