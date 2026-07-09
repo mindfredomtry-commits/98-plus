@@ -6,6 +6,7 @@ import {
   type QueuedOverlay,
 } from '@/lib/overlay-queue';
 import { snapshotQueueHead } from '@/lib/chain-head-switch-debug';
+import { traceResultBecameHeadQueueContextIfNeeded } from '@/lib/result-became-head-queue-context-trace-debug';
 
 function emit(event: string, data?: Record<string, unknown>): void {
   const payload = { t: performance.now(), ...data };
@@ -81,6 +82,13 @@ export function traceQueueHeadBecameResultIfNeeded(
       prevHead?.kind === 'result' &&
       normalizeId(prevHead.banId) === normalizeId(nextHead.banId),
   });
+  traceResultBecameHeadQueueContextIfNeeded(
+    prevQueue,
+    nextQueue,
+    ctx.source,
+    ctx.reason,
+    stack,
+  );
 }
 
 export function traceResultPriorityBanIdInfluence(

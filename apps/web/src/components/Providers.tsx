@@ -1136,6 +1136,10 @@ import {
   traceResultPriorityBanIdInfluence,
 } from '@/lib/queue-head-became-result-debug';
 import {
+  registerResultBecameHeadQueueContextEnrichmentProvider,
+  traceResultBecameHeadQueueContextIfNeeded,
+} from '@/lib/result-became-head-queue-context-trace-debug';
+import {
   logConfirmBlockedByActiveUserCardBug,
   logConfirmEnterNotificationGuardClear,
   logIncomingReplyActionStart,
@@ -8545,6 +8549,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         },
       );
       const newHead = queue[0] ?? null;
+      traceResultBecameHeadQueueContextIfNeeded(
+        oldQueue,
+        queue,
+        source,
+        silent ? 'owner-mirror-silent' : 'owner-mirror-setOverlayQueue',
+      );
       emitPostConsumeOverlayUpdate({
         source: `${source}:mirrorLegacyQueue`,
         oldValue: {
@@ -40939,14 +40949,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     incomingOverlayDisplayKind,
     notificationQueueShellDisplayKind,
     notificationQueueShellDisplayKindResolved,
-    notificationQueueShellKind,
     ownerPrimaryShellQueueHeadKind,
     ownerPrimaryShellQueueLen,
     ownerReadPendingLen,
-    queueHeadKind,
     queueHeadLifecycleRenderBranch,
     queueHeadShellKindFallback,
   ]);
+
+  useLayoutEffect(() => {
+    registerResultBecameHeadQueueContextEnrichmentProvider(() => {
+      const owner = ownerShadowRef.current.getState();
+      return {
+        overlayQueueState: [...overlayQueue],
+        ownerQueue: [...owner.queue],
+        ownerPending: [...owner.pending],
+        drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+        activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+        explicitDrainReason: getExplicitNotificationDrainSource(),
+        queueClaimsNotificationScreen:
+          owner.queue.length > 0 || queueLobbyGuardActiveRef.current,
+        visualQueueDimSessionLive:
+          visualQueueDimSessionRef.current || visualQueueDimSession,
+      };
+    });
+    return () => registerResultBecameHeadQueueContextEnrichmentProvider(null);
+  }, [overlayQueue, visualQueueDimSession]);
 
   useLayoutEffect(() => {
     registerApplyOverlayQueueClearCallsiteEnrichmentProvider(() => ({
