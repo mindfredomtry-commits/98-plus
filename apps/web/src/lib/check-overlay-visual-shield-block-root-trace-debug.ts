@@ -106,62 +106,7 @@ function resolveRootCause(input: {
 }
 
 export function maybeEmitCheckOverlayVisualShieldBlockRootTrace(
-  input: CheckOverlayVisualShieldBlockRootInput,
+  _input: CheckOverlayVisualShieldBlockRootInput,
 ): void {
-  if (!isClientDiagTraceEnvironment()) return;
-  if (input.previousReturnedBranch !== 'check-overlay') return;
-
-  const markers = readShellCheckActionMarkers();
-  if (!hasExpectedExitMarkersFalse(markers)) return;
-
-  const checkBanId = input.checkBanId?.trim() || null;
-  const checkOverlayKeyValue = checkBanId ? checkOverlayKey(checkBanId) : null;
-  if (!checkOverlayKeyValue) return;
-  if (emittedKeys.has(checkOverlayKeyValue)) return;
-  emittedKeys.add(checkOverlayKeyValue);
-
-  const firstFalseOperand = resolveFirstFalseOperand({
-    shouldMountNotificationOverlayHostFromGuards:
-      input.shouldMountNotificationOverlayHostFromGuards,
-    showDirectOverboardLayer: input.showDirectOverboardLayer,
-  });
-  const cardContentMountedExpressionResult =
-    input.shouldMountNotificationOverlayHostFromGuards &&
-    !input.showDirectOverboardLayer;
-
-  console.error('CHECK_OVERLAY_VISUAL_SHIELD_BLOCK_ROOT_TRACE', {
-    checkBanId,
-    checkOverlayKey: checkOverlayKeyValue,
-    previousReturnedBranch: input.previousReturnedBranch,
-    currentReturnedBranch: 'visual-shield-blocked',
-    pathKey: input.pathKey,
-    reason: input.reason,
-    overlayVisualShieldCardContentMounted: input.overlayVisualShieldCardContentMounted,
-    shouldMountNotificationOverlayHostFromGuards:
-      input.shouldMountNotificationOverlayHostFromGuards,
-    showDirectOverboardLayer: input.showDirectOverboardLayer,
-    globalOverlayHostActive: input.globalOverlayHostActive,
-    composeBlocksNotificationHost: input.composeBlocksNotificationHost,
-    visualQueueDimSessionLive: input.visualQueueDimSessionLive,
-    overlayVisualShieldHostMounted: input.overlayVisualShieldHostMounted,
-    notificationOverlayVisible: input.notificationOverlayVisible,
-    activeNotificationChain: input.activeNotificationChain,
-    cardContentMountedExpressionResult,
-    firstFalseOperand,
-    shouldMountHostGuardOperands: input.guardOperands,
-    ROOT_CAUSE: resolveRootCause({
-      shouldMountNotificationOverlayHostFromGuards:
-        input.shouldMountNotificationOverlayHostFromGuards,
-      showDirectOverboardLayer: input.showDirectOverboardLayer,
-      overlayVisualShieldCardContentMounted:
-        input.overlayVisualShieldCardContentMounted,
-    }),
-    expectedExitMarkers: markers,
-    shellKind: input.shellKind,
-    renderBranch: input.renderBranch,
-    ownerDisplayKind: input.ownerDisplayKind,
-    currentHeadKind: input.currentHeadKind,
-    queueLen: input.queueLen,
-    ownerQueueLen: input.ownerQueueLen,
-  });
+  // Disabled in favor of COMPOSE_BLOCKS_NOTIFICATION_HOST_FALSE_ROOT_TRACE.
 }

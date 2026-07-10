@@ -781,7 +781,7 @@ import {
   observeCheckOverlayParentReturnBranch,
   readCheckOverlayParentReturnedBranch,
 } from '@/lib/check-overlay-parent-return-branch-trace-debug';
-import { maybeEmitCheckOverlayVisualShieldBlockRootTrace } from '@/lib/check-overlay-visual-shield-block-root-trace-debug';
+import { maybeEmitComposeBlocksNotificationHostFalseRootTrace } from '@/lib/compose-blocks-notification-host-false-root-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -44601,51 +44601,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   queueShellBranchCollector.markBranchSelected(
                     'visual-shield-blocked',
                   );
-                  maybeEmitCheckOverlayVisualShieldBlockRootTrace({
+                  maybeEmitComposeBlocksNotificationHostFalseRootTrace({
                     previousReturnedBranch:
                       readCheckOverlayParentReturnedBranch('queue-shell'),
+                    currentReturnedBranch: 'visual-shield-blocked',
                     pathKey: 'queue-shell',
                     reason: 'overlayVisualShieldCardContentMounted-false',
                     checkBanId:
                       checkBanForShell?.id ?? ownerPrimaryCheckBan?.id ?? null,
-                    overlayVisualShieldCardContentMounted,
-                    shouldMountNotificationOverlayHostFromGuards,
-                    showDirectOverboardLayer,
-                    globalOverlayHostActive,
                     composeBlocksNotificationHost,
-                    visualQueueDimSessionLive,
-                    overlayVisualShieldHostMounted,
-                    notificationOverlayVisible,
-                    activeNotificationChain:
-                      hasPendingNotificationChainFnRef.current(),
-                    guardOperands: {
-                      composeBlocksNotificationHost,
-                      checkAnswerWaitingResultHoldBanId:
-                        checkAnswerWaitingResultHoldBanId ?? null,
-                      replyParentActivePriorityActive,
-                      ownerPrimaryHeldUserCardPresent:
-                        ownerPrimaryHeldUserCard != null,
-                      ownerPrimaryStableIncomingBanId:
-                        ownerPrimaryStableIncomingBan?.id ?? null,
-                      notificationChainTransitioning,
-                      notificationOverlayVisible,
-                      chainAdvanceWaiting,
-                      checkOverlayMounted,
-                      showDirectOverboardLayer,
-                      notificationQueueShellKind,
-                      ownerPrimaryCheckBanForDisplayGuardsId:
-                        ownerPrimaryCheckBanForDisplayGuards?.id ?? null,
-                      ownerPrimaryDisplayResultForShellPresent: Boolean(
-                        ownerPrimaryDisplayResultForShell,
-                      ),
-                      incomingCardDisplayBanPresent: Boolean(
-                        incomingCardDisplayBan,
-                      ),
-                      incomingShellHydrating,
-                      incomingCardFullyReady,
-                      ownerPrimaryShellQueueLen,
-                      ownerPrimaryShellPendingLen,
-                    },
+                    sendComposePhase,
+                    replyComposeActive,
                     shellKind: notificationQueueShellDisplayKindResolved,
                     renderBranch: queueHeadLifecycleRenderBranch,
                     ownerDisplayKind: resolveOwnerDisplayKindBanId(
@@ -44654,6 +44620,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     currentHeadKind:
                       ownerForReturnBranchDiag.queue[0]?.kind ??
                       ownerForReturnBranchDiag.active.kind,
+                    activeNotificationChain:
+                      hasPendingNotificationChainFnRef.current(),
+                    notificationOverlayVisible,
+                    visualQueueDimSessionLive,
+                    globalOverlayHostActive,
+                    overlayVisualShieldHostMounted,
+                    shouldMountNotificationOverlayHostFromGuards,
+                    overlayVisualShieldCardContentMounted,
                     queueLen: overlayQueue.length,
                     ownerQueueLen: ownerPrimaryShellQueueLen,
                   });
