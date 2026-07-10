@@ -67,6 +67,25 @@ let lastNotificationOverlayVisibilitySnapshot: NotificationOverlayVisibilitySnap
   null;
 let previousNotificationOverlayVisible: boolean | null = null;
 let lastStagedNotificationOverlayVisible: boolean | null = null;
+let lastVisibilitySnapshotTimestamp: number | null = null;
+
+export type NotificationOverlayVisibilityBranchRootInput = {
+  previousReturnedBranch: CheckOverlayParentReturnedBranch | null;
+  checkBanId: string | null;
+  notificationOverlayVisible: boolean;
+  overlayVisualShieldCardContentMounted: boolean;
+  shouldMountNotificationOverlayHostFromGuards: boolean;
+  shellKind: string | null;
+  renderBranch: string | null;
+  ownerDisplayKind: string | null;
+  currentHeadKind: string | null;
+  activeNotificationChain: boolean;
+  visualQueueDimSessionLive: boolean;
+  globalOverlayHostActive: boolean;
+  overlayVisualShieldHostMounted: boolean;
+  queueLen: number;
+  ownerQueueLen: number;
+};
 
 export function createNotificationOverlayVisibilityCollector(): NotificationOverlayVisibilityCollector {
   const reachedVisibilityGuards: string[] = [];
@@ -112,6 +131,11 @@ export function stageNotificationOverlayVisibilitySnapshot(
   previousNotificationOverlayVisible = lastStagedNotificationOverlayVisible;
   lastStagedNotificationOverlayVisible = snapshot.derivedResult;
   lastNotificationOverlayVisibilitySnapshot = snapshot;
+  lastVisibilitySnapshotTimestamp = performance.now();
+}
+
+export function readVisibilitySnapshotTimestamp(): number | null {
+  return lastVisibilitySnapshotTimestamp;
 }
 
 export function readNotificationOverlayVisibilitySnapshot(): NotificationOverlayVisibilitySnapshot | null {
@@ -153,18 +177,67 @@ function resolveFalseOperands(operands: NotificationOverlayVisibilityOperand[]):
 }
 
 export function maybeEmitNotificationOverlayVisibleFalseRootTrace(
-  input: NotificationOverlayVisibleFalseRootInput,
+  _input: NotificationOverlayVisibleFalseRootInput,
+): void {
+  // Disabled in favor of NOTIFICATION_OVERLAY_VISIBILITY_BRANCH_ROOT_TRACE.
+}
+
+function resolveRootCause(input: {
+  hasVisibilitySnapshot: boolean;
+  selectedVisibilityFalseGuard: string | null;
+  snapshotMatchesCurrentRender: boolean;
+  snapshotMatchesCurrentCheckOverlayKey: boolean;
+}): string {
+  if (
+    input.hasVisibilitySnapshot &&
+    input.selectedVisibilityFalseGuard &&
+    input.snapshotMatchesCurrentRender &&
+    input.snapshotMatchesCurrentCheckOverlayKey
+  ) {
+    return input.selectedVisibilityFalseGuard;
+  }
+  if (!input.hasVisibilitySnapshot) {
+    return 'visibility-snapshot-missing';
+  }
+  if (
+    !input.snapshotMatchesCurrentRender ||
+    !input.snapshotMatchesCurrentCheckOverlayKey
+  ) {
+    return 'visibility-snapshot-stale-or-mismatched';
+  }
+  if (!input.selectedVisibilityFalseGuard) {
+    return 'visibility-false-without-selected-guard';
+  }
+  return 'unknown';
+}
+
+function resolveEmitBlockerFromPreviousVersion(input: {
+  hasVisibilitySnapshot: boolean;
+  selectedVisibilityFalseGuard: string | null;
+  snapshotMatchesCurrentRender: boolean;
+  snapshotMatchesCurrentCheckOverlayKey: boolean;
+}): string {
+  if (!input.hasVisibilitySnapshot) {
+    return 'visibility-snapshot-missing';
+  }
+  if (!input.selectedVisibilityFalseGuard) {
+    return 'selected-guard-required-but-missing';
+  }
+  if (!input.snapshotMatchesCurrentRender) {
+    return 'snapshot-render-mismatch';
+  }
+  if (!input.snapshotMatchesCurrentCheckOverlayKey) {
+    return 'snapshot-key-mismatch';
+  }
+  return 'unknown';
+}
+
+export function maybeEmitNotificationOverlayVisibilityBranchRootTrace(
+  input: NotificationOverlayVisibilityBranchRootInput,
 ): void {
   if (!isClientDiagTraceEnvironment()) return;
   if (input.notificationOverlayVisible !== false) return;
   if (input.previousReturnedBranch !== 'check-overlay') return;
-
-  const shouldMountSelectedFalseGuard =
-    input.shouldMountGuardSnapshot?.selectedFalseGuard ?? null;
-  const mountGuardMatches =
-    shouldMountSelectedFalseGuard === 'notification-overlay-not-visible';
-  const inVisualShieldBlocked = input.currentReturnedBranch === 'visual-shield-blocked';
-  if (!mountGuardMatches && !inVisualShieldBlocked) return;
 
   const markers = readShellCheckActionMarkers();
   if (!hasExpectedExitMarkersFalse(markers)) return;
@@ -174,39 +247,46 @@ export function maybeEmitNotificationOverlayVisibleFalseRootTrace(
   if (!checkOverlayKeyValue) return;
   if (emittedKeys.has(checkOverlayKeyValue)) return;
 
-  const visibilitySnapshot = input.visibilitySnapshot;
-  if (!visibilitySnapshot.selectedVisibilityFalseGuard) return;
-
   emittedKeys.add(checkOverlayKeyValue);
 
-  const { firstFalseOperand, allFalseOperands } = resolveFalseOperands(
-    visibilitySnapshot.visibilityOperands,
-  );
-  const writerTimestamp = performance.now();
+  const visibilitySnapshot = readNotificationOverlayVisibilitySnapshot();
+  const hasVisibilitySnapshot = visibilitySnapshot != null;
+  const visibilitySnapshotTimestamp = readVisibilitySnapshotTimestamp();
+  const snapshotAgeMs =
+    visibilitySnapshotTimestamp == null
+      ? null
+      : performance.now() - visibilitySnapshotTimestamp;
+  const snapshotMatchesCurrentRender =
+    hasVisibilitySnapshot &&
+    visibilitySnapshot.derivedResult === input.notificationOverlayVisible;
+  const snapshotMatchesCurrentCheckOverlayKey =
+    hasVisibilitySnapshot &&
+    snapshotMatchesCurrentRender &&
+    snapshotAgeMs != null &&
+    snapshotAgeMs <= 100;
 
-  console.error('NOTIFICATION_OVERLAY_VISIBLE_FALSE_ROOT_TRACE', {
+  const selectedVisibilityFalseGuard =
+    visibilitySnapshot?.selectedVisibilityFalseGuard ?? null;
+  const visibilityOperands = visibilitySnapshot?.visibilityOperands ?? [];
+  const { firstFalseOperand, allFalseOperands } = resolveFalseOperands(visibilityOperands);
+
+  const diagnosticContext = {
+    hasVisibilitySnapshot,
+    selectedVisibilityFalseGuard,
+    snapshotMatchesCurrentRender,
+    snapshotMatchesCurrentCheckOverlayKey,
+  };
+
+  console.error('NOTIFICATION_OVERLAY_VISIBILITY_BRANCH_ROOT_TRACE', {
     checkBanId,
     checkOverlayKey: checkOverlayKeyValue,
-    notificationOverlayVisible: input.notificationOverlayVisible,
-    previousNotificationOverlayVisible: readPreviousNotificationOverlayVisible(),
-    visibilitySourceType: visibilitySnapshot.visibilitySourceType,
-    selectedVisibilityFalseGuard: visibilitySnapshot.selectedVisibilityFalseGuard,
-    reachedVisibilityGuards: visibilitySnapshot.reachedVisibilityGuards,
-    evaluatedVisibilityGuards: visibilitySnapshot.evaluatedVisibilityGuards,
-    lastWriterName: visibilitySnapshot.selectedVisibilityFalseGuard,
-    lastWriterReason: visibilitySnapshot.selectedVisibilityFalseGuard,
-    lastWriterSourceFile: 'Providers.tsx',
-    lastWriterSourceFunction: visibilitySnapshot.guardSourceFunction,
-    lastWriterSourceLine: visibilitySnapshot.guardSourceLine,
-    previousWrittenValue: readPreviousNotificationOverlayVisible(),
-    nextWrittenValue: false,
-    writerTimestamp,
-    visibilityOperands: visibilitySnapshot.visibilityOperands,
-    firstFalseOperand,
-    allFalseOperands,
     previousReturnedBranch: input.previousReturnedBranch,
-    currentReturnedBranch: input.currentReturnedBranch,
-    selectedFalseGuard: shouldMountSelectedFalseGuard,
+    currentReturnedBranch: 'visual-shield-blocked',
+    reason: 'notificationOverlayVisible-false',
+    notificationOverlayVisible: input.notificationOverlayVisible,
+    overlayVisualShieldCardContentMounted: input.overlayVisualShieldCardContentMounted,
+    shouldMountNotificationOverlayHostFromGuards:
+      input.shouldMountNotificationOverlayHostFromGuards,
     shellKind: input.shellKind,
     renderBranch: input.renderBranch,
     ownerDisplayKind: input.ownerDisplayKind,
@@ -215,17 +295,22 @@ export function maybeEmitNotificationOverlayVisibleFalseRootTrace(
     visualQueueDimSessionLive: input.visualQueueDimSessionLive,
     globalOverlayHostActive: input.globalOverlayHostActive,
     overlayVisualShieldHostMounted: input.overlayVisualShieldHostMounted,
-    shouldMountNotificationOverlayHostFromGuards:
-      input.shouldMountNotificationOverlayHostFromGuards,
-    overlayVisualShieldCardContentMounted: input.overlayVisualShieldCardContentMounted,
     queueLen: input.queueLen,
     ownerQueueLen: input.ownerQueueLen,
-    userPressedCheckYes: markers.userPressedCheckYes,
-    userPressedCheckNo: markers.userPressedCheckNo,
-    submitCheckAnswerStarted: markers.submitCheckAnswerStarted,
-    checkDismissStarted: markers.checkDismissStarted,
-    checkConsumed: markers.checkConsumed,
-    resultArrivedAfterCheck: markers.resultArrivedAfterCheck,
-    ROOT_CAUSE: visibilitySnapshot.selectedVisibilityFalseGuard,
+    hasVisibilitySnapshot,
+    visibilitySnapshotTimestamp,
+    selectedVisibilityFalseGuard,
+    reachedVisibilityGuards: visibilitySnapshot?.reachedVisibilityGuards ?? null,
+    evaluatedVisibilityGuards: visibilitySnapshot?.evaluatedVisibilityGuards ?? null,
+    visibilityOperands,
+    firstFalseOperand,
+    allFalseOperands,
+    previousNotificationOverlayVisible: readPreviousNotificationOverlayVisible(),
+    snapshotMatchesCurrentRender,
+    snapshotMatchesCurrentCheckOverlayKey,
+    snapshotAgeMs,
+    ROOT_CAUSE: resolveRootCause(diagnosticContext),
+    EMIT_BLOCKER_FROM_PREVIOUS_VERSION:
+      resolveEmitBlockerFromPreviousVersion(diagnosticContext),
   });
 }

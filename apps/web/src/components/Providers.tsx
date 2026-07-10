@@ -783,13 +783,11 @@ import {
 } from '@/lib/check-overlay-parent-return-branch-trace-debug';
 import {
   createShouldMountHostGuardCollector,
-  readShouldMountHostGuardSnapshot,
   stageShouldMountHostGuardSnapshot,
 } from '@/lib/should-mount-notification-host-false-root-trace-debug';
 import {
   createNotificationOverlayVisibilityCollector,
-  maybeEmitNotificationOverlayVisibleFalseRootTrace,
-  readNotificationOverlayVisibilitySnapshot,
+  maybeEmitNotificationOverlayVisibilityBranchRootTrace,
   stageNotificationOverlayVisibilitySnapshot,
 } from '@/lib/notification-overlay-visible-false-root-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
@@ -45069,25 +45067,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   queueShellBranchCollector.markBranchSelected(
                     'visual-shield-blocked',
                   );
-                  maybeEmitNotificationOverlayVisibleFalseRootTrace({
+                  maybeEmitNotificationOverlayVisibilityBranchRootTrace({
                     previousReturnedBranch:
                       readCheckOverlayParentReturnedBranch('queue-shell'),
-                    currentReturnedBranch: 'visual-shield-blocked',
                     checkBanId:
                       checkBanForShell?.id ?? ownerPrimaryCheckBan?.id ?? null,
                     notificationOverlayVisible,
-                    visibilitySnapshot:
-                      readNotificationOverlayVisibilitySnapshot() ?? {
-                        reachedVisibilityGuards: [],
-                        evaluatedVisibilityGuards: [],
-                        selectedVisibilityFalseGuard: null,
-                        visibilitySourceType: 'derived',
-                        guardSourceFunction: 'ProvidersBody:notificationOverlayVisible',
-                        guardSourceLine: 'unknown',
-                        visibilityOperands: [],
-                        derivedResult: false,
-                      },
-                    shouldMountGuardSnapshot: readShouldMountHostGuardSnapshot(),
+                    overlayVisualShieldCardContentMounted,
+                    shouldMountNotificationOverlayHostFromGuards,
                     shellKind: notificationQueueShellDisplayKindResolved,
                     renderBranch: queueHeadLifecycleRenderBranch,
                     ownerDisplayKind: resolveOwnerDisplayKindBanId(
@@ -45101,8 +45088,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     visualQueueDimSessionLive,
                     globalOverlayHostActive,
                     overlayVisualShieldHostMounted,
-                    shouldMountNotificationOverlayHostFromGuards,
-                    overlayVisualShieldCardContentMounted,
                     queueLen: overlayQueue.length,
                     ownerQueueLen: ownerPrimaryShellQueueLen,
                   });
