@@ -2,10 +2,6 @@
 
 import { checkOverlayKey } from '@/lib/overlay-queue';
 import { isClientDiagTraceEnvironment } from '@/lib/diag-trace-client';
-import {
-  readShellCheckActionMarkers,
-  type ShellCheckActionMarkers,
-} from '@/lib/shell-check-lifecycle-trace-debug';
 import type { CheckOverlayShouldRenderQueueFields } from '@/lib/check-overlay-should-render-trace-debug';
 
 export type CheckOverlayParentReturnedBranch =
@@ -27,16 +23,6 @@ export type CheckOverlayParentReturnPathKey =
   | 'direct-check'
   | 'overlay-root'
   | 'incoming-reply-direct';
-
-export type CheckOverlayRealRootCause =
-  | 'overlay-session-closed'
-  | 'global-host-not-emitting'
-  | 'visual-shield-blocked'
-  | 'result-overlay-won'
-  | 'incoming-overlay-won'
-  | 'missing-check-payload'
-  | 'check-never-reached'
-  | 'unknown';
 
 export type CheckOverlayParentReturnBranchContext = {
   shellKind: string | null;
@@ -90,36 +76,14 @@ const previousBranchByPathKey = new Map<
   CheckOverlayParentReturnPathKey,
   CheckOverlayParentReturnedBranch | null
 >();
-const emittedRootCauseKeys = new Set<string>();
 
-function resolveRootCause(
-  currentReturnedBranch: CheckOverlayParentReturnedBranch,
-  reachedBranches: string[],
-): CheckOverlayRealRootCause {
-  switch (currentReturnedBranch) {
-    case 'overlay-session-closed':
-      return 'overlay-session-closed';
-    case 'global-host-not-emitting':
-      return 'global-host-not-emitting';
-    case 'visual-shield-blocked':
-      return 'visual-shield-blocked';
-    case 'result-overlay':
-      return 'result-overlay-won';
-    case 'incoming-overlay':
-    case 'incoming-reply-direct':
-      return 'incoming-overlay-won';
-    case 'shell-check-without-payload':
-      return 'missing-check-payload';
-    case 'null-return':
-      return reachedBranches.includes('check-overlay')
-        ? 'unknown'
-        : 'check-never-reached';
-    default:
-      return 'unknown';
-  }
+export function readCheckOverlayParentReturnedBranch(
+  pathKey: CheckOverlayParentReturnPathKey,
+): CheckOverlayParentReturnedBranch | null {
+  return previousBranchByPathKey.get(pathKey) ?? null;
 }
 
-function maybeEmitRealRootCause(input: {
+function maybeEmitRealRootCause(_input: {
   pathKey: CheckOverlayParentReturnPathKey;
   previousReturnedBranch: CheckOverlayParentReturnedBranch | null;
   currentReturnedBranch: CheckOverlayParentReturnedBranch;
@@ -127,51 +91,7 @@ function maybeEmitRealRootCause(input: {
   context: CheckOverlayParentReturnBranchContext;
   prioritySnapshot: CheckOverlayParentBranchPrioritySnapshot | null;
 }): void {
-  if (!isClientDiagTraceEnvironment()) return;
-  if (input.previousReturnedBranch !== 'check-overlay') return;
-  if (input.currentReturnedBranch === 'check-overlay') return;
-
-  const markers = readShellCheckActionMarkers();
-  if (markers.userPressedCheckYes || markers.userPressedCheckNo) return;
-
-  const overlayKey =
-    input.context.checkOverlayKey?.trim() ||
-    (input.context.checkBanId
-      ? checkOverlayKey(input.context.checkBanId)
-      : null);
-  if (!overlayKey) return;
-  if (emittedRootCauseKeys.has(overlayKey)) return;
-  emittedRootCauseKeys.add(overlayKey);
-
-  const priority = input.prioritySnapshot;
-  const selectedBranch = priority?.selectedBranch ?? input.currentReturnedBranch;
-  const reachedBranches = priority?.reachedBranches ?? [];
-  const evaluatedBranches = priority?.evaluatedBranches ?? [];
-
-  console.error('CHECK_OVERLAY_REAL_ROOT_CAUSE_TRACE', {
-    checkOverlayKey: overlayKey,
-    checkBanId: input.context.checkBanId,
-    previousReturnedBranch: input.previousReturnedBranch,
-    currentReturnedBranch: input.currentReturnedBranch,
-    reason: input.reason,
-    renderBranch: input.context.renderBranch,
-    shellKind: input.context.shellKind,
-    pathKey: input.pathKey,
-    selectedBranch,
-    firstMatchedBranch: priority?.firstMatchedBranch ?? selectedBranch,
-    reachedBranches,
-    evaluatedBranches,
-    actualCheckOverlayElementCreated:
-      input.context.actualCheckOverlayElementCreated,
-    activeNotificationChain: input.context.activeNotificationChain,
-    notificationOverlayVisible: input.context.notificationOverlayVisible,
-    queueLen: input.context.queues.overlayQueueStateLen,
-    ownerQueueLen: input.context.queues.ownerQueueLen,
-    ROOT_CAUSE: resolveRootCause(
-      input.currentReturnedBranch,
-      reachedBranches,
-    ),
-  });
+  // Disabled in favor of OVERLAY_VISUAL_SHIELD_CONTENT_UNMOUNT_ROOT_TRACE.
 }
 
 export function createCheckOverlayParentBranchPriorityCollector(
