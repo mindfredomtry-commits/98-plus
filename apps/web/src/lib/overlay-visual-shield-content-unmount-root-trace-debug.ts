@@ -27,6 +27,20 @@ export type OverlayVisualShieldContentUnmountRootCause =
   | 'derived-input-changed'
   | 'unknown';
 
+export type OverlayVisualShieldUnmountWatchMissedReason =
+  | 'no-previous-snapshot'
+  | 'previous-value-already-false'
+  | 'missing-current-check-key'
+  | 'previous-key-mismatch'
+  | 'watch-never-armed'
+  | 'watch-reset-before-transition'
+  | 'check-not-recognized-as-active'
+  | 'expected-exit-marker-blocked'
+  | 'root-trace-deduped'
+  | 'observer-not-called-on-false-render'
+  | 'module-reinitialized'
+  | 'unknown';
+
 export type OverlayVisualShieldContentTransitionSnapshot = {
   shellKind: string | null;
   renderBranch: string | null;
@@ -66,10 +80,29 @@ export type OverlayVisualShieldContentUnmountRootInput = {
   };
 };
 
-const emittedKeys = new Set<string>();
+type KeyWatchState = {
+  observerCallCount: number;
+  firstObservedValue: boolean | null;
+  lastObservedValue: boolean | null;
+  armed: boolean;
+  armedParentMountId: string | null;
+};
+
+const rootEmittedKeys = new Set<string>();
+const missedEmittedKeys = new Set<string>();
+const watchByKey = new Map<string, KeyWatchState>();
+
 let previousSnapshot: OverlayVisualShieldContentTransitionSnapshot | null = null;
 let previousOperands: OverlayVisualShieldContentUnmountRootInput['derivation']['operands'] | null =
   null;
+let previousParentMountId: string | null = null;
+
+function resolveOverlayKey(
+  checkBanId: string | null | undefined,
+): string | null {
+  const banId = checkBanId?.trim() || null;
+  return banId ? checkOverlayKey(banId) : null;
+}
 
 function hasExpectedExitMarkersFalse(): boolean {
   const markers = readShellCheckActionMarkers();
@@ -83,7 +116,10 @@ function hasExpectedExitMarkersFalse(): boolean {
   );
 }
 
-function checkWasActiveBefore(snapshot: OverlayVisualShieldContentTransitionSnapshot): boolean {
+function checkWasActiveInSnapshot(
+  snapshot: OverlayVisualShieldContentTransitionSnapshot | null,
+): boolean {
+  if (!snapshot) return false;
   const returnedBranch = readCheckOverlayParentReturnedBranch('queue-shell');
   return (
     snapshot.shellKind === 'check' ||
@@ -91,6 +127,39 @@ function checkWasActiveBefore(snapshot: OverlayVisualShieldContentTransitionSnap
     returnedBranch === 'check-overlay' ||
     snapshot.returnedBranch === 'check-overlay'
   );
+}
+
+function getOrCreateWatchState(key: string): KeyWatchState {
+  const existing = watchByKey.get(key);
+  if (existing) return existing;
+  const created: KeyWatchState = {
+    observerCallCount: 0,
+    firstObservedValue: null,
+    lastObservedValue: null,
+    armed: false,
+    armedParentMountId: null,
+  };
+  watchByKey.set(key, created);
+  return created;
+}
+
+function updateWatchState(
+  key: string | null,
+  nextValue: boolean,
+  snapshot: OverlayVisualShieldContentTransitionSnapshot,
+): KeyWatchState | null {
+  if (!key) return null;
+  const watch = getOrCreateWatchState(key);
+  watch.observerCallCount += 1;
+  if (watch.firstObservedValue === null) {
+    watch.firstObservedValue = nextValue;
+  }
+  watch.lastObservedValue = nextValue;
+  if (nextValue && checkWasActiveInSnapshot(snapshot)) {
+    watch.armed = true;
+    watch.armedParentMountId = snapshot.parentMountId;
+  }
+  return watch;
 }
 
 function resolveFirstChangedOperand(
@@ -195,36 +264,96 @@ function resolveRootCause(input: {
   return 'unknown';
 }
 
-export function observeOverlayVisualShieldContentUnmountRoot(
-  input: OverlayVisualShieldContentUnmountRootInput,
-): void {
-  const before = previousSnapshot;
-  const beforeOperands = previousOperands;
-  previousSnapshot = input.snapshotAfter;
-  previousOperands = input.derivation.operands;
+function resolveMissedReason(input: {
+  before: OverlayVisualShieldContentTransitionSnapshot | null;
+  after: OverlayVisualShieldContentTransitionSnapshot;
+  overlayKey: string | null;
+  watch: KeyWatchState | null;
+  expectedExitMarkersAllFalse: boolean;
+  checkWasActiveBefore: boolean;
+  rootTraceAlreadyEmitted: boolean;
+  previousSnapshotWasReset: boolean;
+  moduleWasReinitialized: boolean;
+}): OverlayVisualShieldUnmountWatchMissedReason {
+  if (!input.expectedExitMarkersAllFalse) {
+    return 'expected-exit-marker-blocked';
+  }
+  if (!input.overlayKey) {
+    return 'missing-current-check-key';
+  }
+  if (input.rootTraceAlreadyEmitted) {
+    return 'root-trace-deduped';
+  }
+  if (input.moduleWasReinitialized) {
+    return 'module-reinitialized';
+  }
+  if (!input.before) {
+    return 'no-previous-snapshot';
+  }
+  if (!input.checkWasActiveBefore) {
+    return 'check-not-recognized-as-active';
+  }
+  if (input.watch && !input.watch.armed) {
+    if (input.watch.firstObservedValue === false) {
+      return 'previous-value-already-false';
+    }
+    return 'watch-never-armed';
+  }
+  if (
+    input.watch?.armedParentMountId &&
+    input.watch.armedParentMountId !== input.after.parentMountId
+  ) {
+    return 'watch-reset-before-transition';
+  }
+  if (
+    input.before.checkBanId &&
+    input.after.checkBanId &&
+    resolveOverlayKey(input.before.checkBanId) !== input.overlayKey
+  ) {
+    return 'previous-key-mismatch';
+  }
+  if (input.before.cardContentMounted === false) {
+    return 'previous-value-already-false';
+  }
+  if (input.previousSnapshotWasReset) {
+    return 'watch-reset-before-transition';
+  }
+  if (input.before.cardContentMounted === true && input.after.cardContentMounted === false) {
+    return 'observer-not-called-on-false-render';
+  }
+  return 'unknown';
+}
 
-  if (!isClientDiagTraceEnvironment()) return;
-  if (!before) return;
-
-  const previousValue = before.cardContentMounted;
+function maybeEmitRootTrace(input: {
+  before: OverlayVisualShieldContentTransitionSnapshot;
+  after: OverlayVisualShieldContentTransitionSnapshot;
+  beforeOperands: OverlayVisualShieldContentUnmountRootInput['derivation']['operands'] | null;
+  nextCardContentMounted: boolean;
+  source: string;
+  reason: string;
+  calledFrom: string;
+  derivation: OverlayVisualShieldContentUnmountRootInput['derivation'];
+}): void {
+  const previousValue = input.before.cardContentMounted;
   const nextValue = input.nextCardContentMounted;
   if (!(previousValue === true && nextValue === false)) return;
-  if (!checkWasActiveBefore(before)) return;
+  if (!checkWasActiveInSnapshot(input.before)) return;
   if (!hasExpectedExitMarkersFalse()) return;
 
-  const checkBanId = before.checkBanId?.trim() || input.snapshotAfter.checkBanId?.trim() || null;
-  const overlayKey = checkBanId ? checkOverlayKey(checkBanId) : null;
+  const checkBanId =
+    input.before.checkBanId?.trim() || input.after.checkBanId?.trim() || null;
+  const overlayKey = resolveOverlayKey(checkBanId);
   if (!overlayKey) return;
-  if (emittedKeys.has(overlayKey)) return;
-  emittedKeys.add(overlayKey);
+  if (rootEmittedKeys.has(overlayKey)) return;
+  rootEmittedKeys.add(overlayKey);
 
   const firstChangedOperand =
-    beforeOperands != null
-      ? resolveFirstChangedOperand(beforeOperands, input.derivation.operands)
+    input.beforeOperands != null
+      ? resolveFirstChangedOperand(input.beforeOperands, input.derivation.operands)
       : null;
   const flags = buildCausalFlags({
-    before,
-    after: input.snapshotAfter,
+    before: input.before,
+    after: input.after,
     firstChangedOperand,
   });
 
@@ -243,53 +372,142 @@ export function observeOverlayVisualShieldContentUnmountRoot(
     exactSourceFunction: input.derivation.exactSourceFunction,
     exactSourceLine: input.derivation.exactSourceLine,
     firstChangedOperand,
-    changedOperands:
-      beforeOperands == null
-        ? null
-        : {
-            shouldMountNotificationOverlayHostFromGuards: {
-              before: beforeOperands.shouldMountNotificationOverlayHostFromGuards,
-              after: input.derivation.operands.shouldMountNotificationOverlayHostFromGuards,
-            },
-            showDirectOverboardLayer: {
-              before: beforeOperands.showDirectOverboardLayer,
-              after: input.derivation.operands.showDirectOverboardLayer,
-            },
-          },
-    previousShellKind: before.shellKind,
-    previousRenderBranch: before.renderBranch,
-    previousReturnedBranch: before.returnedBranch,
-    previousNotificationOverlayVisible: before.notificationOverlayVisible,
-    previousActiveNotificationChain: before.activeNotificationChain,
-    previousVisualQueueDimSessionLive: before.visualQueueDimSessionLive,
-    previousGlobalOverlayHostActive: before.globalOverlayHostActive,
-    previousOverlaySessionOpen: before.overlaySessionOpen,
-    previousCardContentMounted: before.cardContentMounted,
-    previousHostMounted: before.hostMounted,
-    previousQueueLen: before.queueLen,
-    previousOwnerQueueLen: before.ownerQueueLen,
-    nextShellKind: input.snapshotAfter.shellKind,
-    nextRenderBranch: input.snapshotAfter.renderBranch,
-    nextReturnedBranch: input.snapshotAfter.returnedBranch,
-    nextNotificationOverlayVisible: input.snapshotAfter.notificationOverlayVisible,
-    nextActiveNotificationChain: input.snapshotAfter.activeNotificationChain,
-    nextVisualQueueDimSessionLive: input.snapshotAfter.visualQueueDimSessionLive,
-    nextGlobalOverlayHostActive: input.snapshotAfter.globalOverlayHostActive,
-    nextOverlaySessionOpen: input.snapshotAfter.overlaySessionOpen,
-    nextCardContentMounted: input.snapshotAfter.cardContentMounted,
-    nextHostMounted: input.snapshotAfter.hostMounted,
-    nextQueueLen: input.snapshotAfter.queueLen,
-    nextOwnerQueueLen: input.snapshotAfter.ownerQueueLen,
-    hostUnmounted: flags.hostUnmounted,
-    overlaySessionClosed: flags.overlaySessionClosed,
-    visualDimSessionReleased: flags.visualDimSessionReleased,
-    cardContentMountFlagCleared: flags.cardContentMountFlagCleared,
-    parentRemounted: flags.parentRemounted,
-    overlayHostStoppedEmitting: flags.overlayHostStoppedEmitting,
-    resultBranchWon: flags.resultBranchWon,
-    explicitDismiss: flags.explicitDismiss,
-    queueCleared: flags.queueCleared,
-    activeChainCleared: flags.activeChainCleared,
     ROOT_CAUSE: resolveRootCause({ flags, firstChangedOperand }),
+  });
+}
+
+function maybeEmitMissedTrace(input: {
+  before: OverlayVisualShieldContentTransitionSnapshot | null;
+  after: OverlayVisualShieldContentTransitionSnapshot;
+  nextCardContentMounted: boolean;
+  watch: KeyWatchState | null;
+  overlayKey: string | null;
+  expectedExitMarkersAllFalse: boolean;
+  checkWasActiveBefore: boolean;
+  previousSnapshotWasReset: boolean;
+  moduleWasReinitialized: boolean;
+}): void {
+  if (input.nextCardContentMounted !== false) return;
+
+  const parentReturnedBranch = readCheckOverlayParentReturnedBranch('queue-shell');
+  const checkContextActive =
+    input.before?.returnedBranch === 'check-overlay' ||
+    input.checkWasActiveBefore ||
+    parentReturnedBranch === 'check-overlay' ||
+    checkWasActiveInSnapshot(input.after);
+  if (!checkContextActive) return;
+  if (!input.expectedExitMarkersAllFalse) return;
+
+  const overlayKey =
+    input.overlayKey ??
+    resolveOverlayKey(input.after.checkBanId) ??
+    resolveOverlayKey(input.before?.checkBanId ?? null);
+  if (!overlayKey) return;
+
+  const rootTraceAlreadyEmitted = rootEmittedKeys.has(overlayKey);
+  if (rootTraceAlreadyEmitted) return;
+  if (missedEmittedKeys.has(overlayKey)) return;
+  missedEmittedKeys.add(overlayKey);
+
+  const watch =
+    input.watch ?? watchByKey.get(overlayKey) ?? null;
+  const missedReason = resolveMissedReason({
+    before: input.before,
+    after: input.after,
+    overlayKey,
+    watch,
+    expectedExitMarkersAllFalse: input.expectedExitMarkersAllFalse,
+    checkWasActiveBefore: input.checkWasActiveBefore,
+    rootTraceAlreadyEmitted,
+    previousSnapshotWasReset: input.previousSnapshotWasReset,
+    moduleWasReinitialized: input.moduleWasReinitialized,
+  });
+
+  console.error('OVERLAY_VISUAL_SHIELD_UNMOUNT_WATCH_MISSED_TRACE', {
+    timestamp: diagTraceNow(),
+    checkBanId: input.after.checkBanId ?? input.before?.checkBanId ?? null,
+    checkOverlayKey: overlayKey,
+    currentCardContentMounted: input.nextCardContentMounted,
+    currentShellKind: input.after.shellKind,
+    currentRenderBranch: input.after.renderBranch,
+    currentReturnedBranch: input.after.returnedBranch,
+    currentActiveNotificationChain: input.after.activeNotificationChain,
+    currentNotificationOverlayVisible: input.after.notificationOverlayVisible,
+    hasPreviousSnapshot: input.before != null,
+    previousCardContentMounted: input.before?.cardContentMounted ?? null,
+    previousCheckBanId: input.before?.checkBanId ?? null,
+    previousCheckOverlayKey: resolveOverlayKey(input.before?.checkBanId ?? null),
+    previousShellKind: input.before?.shellKind ?? null,
+    previousRenderBranch: input.before?.renderBranch ?? null,
+    previousReturnedBranch: input.before?.returnedBranch ?? null,
+    watchArmed: watch?.armed ?? false,
+    watchArmedForCheckOverlayKey: watch?.armed ? overlayKey : null,
+    currentKeyMatchesArmedKey:
+      watch?.armed === true && watch.armedParentMountId === input.after.parentMountId,
+    rootTraceAlreadyEmitted,
+    previousSnapshotWasReset: input.previousSnapshotWasReset,
+    moduleWasReinitialized: input.moduleWasReinitialized,
+    checkWasActiveBefore: input.checkWasActiveBefore,
+    expectedExitMarkersAllFalse: input.expectedExitMarkersAllFalse,
+    observerCallCountForCurrentKey: watch?.observerCallCount ?? 0,
+    firstObservedValueForCurrentKey: watch?.firstObservedValue ?? null,
+    lastObservedValueForCurrentKey: watch?.lastObservedValue ?? null,
+    MISSED_REASON: missedReason,
+  });
+}
+
+export function observeOverlayVisualShieldContentUnmountRoot(
+  input: OverlayVisualShieldContentUnmountRootInput,
+): void {
+  const before = previousSnapshot;
+  const beforeOperands = previousOperands;
+  const expectedExitMarkersAllFalse = hasExpectedExitMarkersFalse();
+  const checkWasActiveBefore = checkWasActiveInSnapshot(before);
+  const currentOverlayKey = resolveOverlayKey(input.snapshotAfter.checkBanId);
+  const parentReturnedBranchNow = readCheckOverlayParentReturnedBranch('queue-shell');
+  const previousSnapshotWasReset =
+    before != null &&
+    previousParentMountId != null &&
+    before.parentMountId !== input.snapshotAfter.parentMountId;
+  const moduleWasReinitialized =
+    before === null &&
+    input.nextCardContentMounted === false &&
+    parentReturnedBranchNow === 'check-overlay';
+
+  const watch = updateWatchState(
+    currentOverlayKey ?? resolveOverlayKey(before?.checkBanId ?? null),
+    input.nextCardContentMounted,
+    input.snapshotAfter,
+  );
+
+  previousSnapshot = input.snapshotAfter;
+  previousOperands = input.derivation.operands;
+  previousParentMountId = input.snapshotAfter.parentMountId;
+
+  if (!isClientDiagTraceEnvironment()) return;
+
+  if (before) {
+    maybeEmitRootTrace({
+      before,
+      after: input.snapshotAfter,
+      beforeOperands,
+      nextCardContentMounted: input.nextCardContentMounted,
+      source: input.source,
+      reason: input.reason,
+      calledFrom: input.calledFrom,
+      derivation: input.derivation,
+    });
+  }
+
+  maybeEmitMissedTrace({
+    before,
+    after: input.snapshotAfter,
+    nextCardContentMounted: input.nextCardContentMounted,
+    watch,
+    overlayKey: currentOverlayKey,
+    expectedExitMarkersAllFalse,
+    checkWasActiveBefore,
+    previousSnapshotWasReset,
+    moduleWasReinitialized,
   });
 }
