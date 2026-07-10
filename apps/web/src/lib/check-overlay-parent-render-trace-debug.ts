@@ -18,6 +18,7 @@ export type CheckOverlayParentRenderSnapshot = CheckOverlayPayloadLifecycleConte
   returnBranch: string;
   shouldRenderCheckOverlay: boolean;
   checkOverlayElementCreated: boolean;
+  actualCheckOverlayElementCreated: boolean;
   checkOverlayKeyProp: string | null;
   checkBanId: string | null;
   checkOverlayKey: string | null;
@@ -58,6 +59,7 @@ function buildFallbackCurrentSnapshot(): CheckOverlayParentRenderSnapshot | null
     returnBranch: 'flush-no-staged-snapshot',
     shouldRenderCheckOverlay: false,
     checkOverlayElementCreated: false,
+    actualCheckOverlayElementCreated: false,
     checkOverlayKeyProp: baseline.checkOverlayKeyProp,
     checkBanId: lastCreatingSnapshot.checkBanId,
     checkOverlayKey: lastCreatingSnapshot.checkOverlayKey,
@@ -196,6 +198,7 @@ export function buildCheckOverlayParentRenderSnapshot(input: {
   returnBranch: string;
   shouldRenderCheckOverlay: boolean;
   checkOverlayElementCreated: boolean;
+  actualCheckOverlayElementCreated?: boolean;
   checkOverlayKeyProp: string | null;
   checkBanId: string | null;
   contentOnly?: boolean;
@@ -223,6 +226,9 @@ export function buildCheckOverlayParentRenderSnapshot(input: {
     returnBranch: input.returnBranch,
     shouldRenderCheckOverlay: input.shouldRenderCheckOverlay,
     checkOverlayElementCreated: input.checkOverlayElementCreated,
+    actualCheckOverlayElementCreated:
+      input.actualCheckOverlayElementCreated ??
+      input.checkOverlayElementCreated,
     checkOverlayKeyProp: input.checkOverlayKeyProp,
     checkBanId,
     checkOverlayKey: checkOverlayKeyValue,
@@ -272,6 +278,8 @@ export function observeCheckOverlayParentRenderDecision(
     returnBranch: input.snapshot.returnBranch,
     shouldRenderCheckOverlay: input.snapshot.shouldRenderCheckOverlay,
     checkOverlayElementCreated: input.snapshot.checkOverlayElementCreated,
+    actualCheckOverlayElementCreated:
+      input.snapshot.actualCheckOverlayElementCreated,
     checkOverlayKeyProp: input.snapshot.checkOverlayKeyProp,
     checkBanId: input.snapshot.checkBanId,
     checkOverlayKey: input.snapshot.checkOverlayKey,
@@ -345,7 +353,7 @@ function resolveStopReason(
   if (currentShellCheck && !current.shouldRenderCheckOverlay) {
     return 'should-render-false';
   }
-  if (currentShellCheck && !current.checkOverlayElementCreated) {
+  if (currentShellCheck && !current.actualCheckOverlayElementCreated) {
     if (
       current.returnBranch !== previous.returnBranch &&
       !current.returnBranch.includes('check')
@@ -357,7 +365,7 @@ function resolveStopReason(
   if (
     currentShellCheck &&
     current.returnBranch !== previous.returnBranch &&
-    !current.checkOverlayElementCreated
+    !current.actualCheckOverlayElementCreated
   ) {
     return 'parent-returned-other-branch';
   }
@@ -412,16 +420,16 @@ function maybeEmitStoppedRendering(
   current: CheckOverlayParentRenderSnapshot,
   markers: ShellCheckActionMarkers,
 ): void {
-  if (!previous.checkOverlayElementCreated) return;
+  if (!previous.actualCheckOverlayElementCreated) return;
   if (!payloadValid(previous)) return;
   if (!isCheckShellContext(previous)) return;
 
   const stillShellCheck = isCheckShellContext(current);
   const stillCreating =
-    current.checkOverlayElementCreated && payloadValid(current);
+    current.actualCheckOverlayElementCreated && payloadValid(current);
 
   if (stillCreating) return;
-  if (!stillShellCheck && !previous.checkOverlayElementCreated) return;
+  if (!stillShellCheck && !previous.actualCheckOverlayElementCreated) return;
 
   const stopKey = `${previous.checkBanId ?? 'no-ban'}|${previous.parentComponent}|${previous.returnBranch}`;
   if (stoppedRenderingKeys.has(stopKey)) return;
@@ -437,6 +445,9 @@ function maybeEmitStoppedRendering(
     stopReason,
     unexpected,
     expectedExitMarkers: markers,
+    actualCheckOverlayElementCreated: current.actualCheckOverlayElementCreated,
+    previousActualCheckOverlayElementCreated:
+      previous.actualCheckOverlayElementCreated,
   });
 }
 
@@ -453,7 +464,7 @@ export function flushCheckOverlayParentRenderTraces(): void {
   const creatingBaseline = lastCreatingSnapshot ?? lastCommittedSnapshot;
   if (creatingBaseline && current) {
     if (
-      creatingBaseline.checkOverlayElementCreated &&
+      creatingBaseline.actualCheckOverlayElementCreated &&
       payloadValid(creatingBaseline)
     ) {
       maybeEmitStoppedRendering(creatingBaseline, current, markers);
@@ -462,14 +473,14 @@ export function flushCheckOverlayParentRenderTraces(): void {
     const fallbackCurrent = buildFallbackCurrentSnapshot();
     if (
       fallbackCurrent &&
-      creatingBaseline.checkOverlayElementCreated &&
+      creatingBaseline.actualCheckOverlayElementCreated &&
       payloadValid(creatingBaseline)
     ) {
       maybeEmitStoppedRendering(creatingBaseline, fallbackCurrent, markers);
     }
   }
 
-  if (current?.checkOverlayElementCreated && payloadValid(current)) {
+  if (current?.actualCheckOverlayElementCreated && payloadValid(current)) {
     lastCreatingSnapshot = current;
   } else if (current && !isCheckShellContext(current)) {
     lastCreatingSnapshot = null;

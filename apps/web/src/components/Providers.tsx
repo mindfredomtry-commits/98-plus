@@ -779,6 +779,11 @@ import {
   registerCheckOverlayParentRenderHooks,
   stageCheckOverlayParentRenderSnapshot,
 } from '@/lib/check-overlay-parent-render-trace-debug';
+import {
+  probeDirectCheckOverlayShouldRender,
+  probeQueueShellCheckOverlayShouldRender,
+  probeQueueShellCheckWithoutBanShouldRender,
+} from '@/lib/check-overlay-should-render-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -44087,6 +44092,162 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationQueueShellDisplayKindResolved === 'check' &&
     !showCheckOverlayDirect &&
     Boolean(checkBanForShell);
+  const overlaySessionOpenForCheckRenderDiag =
+    !showDirectOverboardLayer || visualQueueDimSessionLive;
+  const globalOverlayHostEmitForCheckRenderDiag =
+    !composeBlocksNotificationHost && globalOverlayHostActive;
+  const queueShellWillActuallyRenderCheckOverlay =
+    overlaySessionOpenForCheckRenderDiag &&
+    globalOverlayHostEmitForCheckRenderDiag &&
+    overlayVisualShieldCardContentMounted &&
+    !queueShellRendersResultOverlay &&
+    !queueResultOverlayClaimed &&
+    notificationQueueShellDisplayKindResolved === 'check' &&
+    !showCheckOverlayDirect &&
+    Boolean(checkBanForShell);
+  const directParentBranchAllowedForCheckRenderDiag =
+    overlaySessionOpenForCheckRenderDiag;
+  const directWillActuallyRenderCheckOverlay =
+    directParentBranchAllowedForCheckRenderDiag &&
+    showCheckOverlayDirect &&
+    Boolean(ownerPrimaryCheckBan);
+  const resolveQueueShellActualReturnedBranchForDiag = (): string => {
+    if (!overlaySessionOpenForCheckRenderDiag) {
+      return 'overlay-session-fragment-null';
+    }
+    if (!globalOverlayHostEmitForCheckRenderDiag) {
+      return 'global-overlay-host-null';
+    }
+    if (!overlayVisualShieldCardContentMounted) {
+      return 'notification-queue-shell-null';
+    }
+    if (queueShellRendersResultOverlay) {
+      return 'queue-shell-children-result';
+    }
+    if (queueShellWillActuallyRenderCheckOverlay) {
+      return 'queue-shell-children-check';
+    }
+    return 'queue-shell-children-null';
+  };
+  const resolveDirectActualReturnedBranchForDiag = (): string => {
+    if (!overlaySessionOpenForCheckRenderDiag) {
+      return 'overlay-session-fragment-null';
+    }
+    if (directWillActuallyRenderCheckOverlay) {
+      return 'check-overlay-direct-emit';
+    }
+    return 'check-overlay-direct-null';
+  };
+  {
+    const ownerForShouldRenderProbe = ownerShadowRef.current.getState();
+    const shouldRenderProbeQueues = buildCheckOverlayPayloadQueueFields({
+      ownerQueue: ownerForShouldRenderProbe.queue,
+      ownerPending: ownerForShouldRenderProbe.pending,
+      overlayQueueRef: overlayQueueRef.current,
+      overlayQueueState: overlayQueue,
+    });
+    const checkPresentInQueuesForShouldRenderProbe =
+      shouldRenderProbeQueues.ownerQueueKinds.includes('check') ||
+      shouldRenderProbeQueues.ownerPendingKinds.includes('check') ||
+      shouldRenderProbeQueues.overlayQueueRefKinds.includes('check') ||
+      shouldRenderProbeQueues.overlayQueueStateKinds.includes('check');
+    const shouldRenderProbeShared = {
+      queueResultOverlayClaimed,
+      queueShellRendersResultOverlay,
+      showCheckOverlayDirect,
+      notificationQueueShellDisplayKindResolved,
+      renderBranch: queueHeadLifecycleRenderBranch,
+      returnBranch: queueHeadLifecycleRenderBranch,
+      checkBanForShell,
+      ownerPrimaryCheckBanPresent: Boolean(ownerPrimaryCheckBan?.id),
+      checkShellBanIdPresent: Boolean(checkShellBanId),
+      ownerCheckQueueVisibilityVisible: ownerCheckQueueVisibility.visible,
+      queueShellCheckOverlayJsxPathSelected,
+      queueShellCheckOverlayJsxWillEmit,
+      composeBlocksNotificationHost,
+      notificationChainTransitioning,
+      notificationOverlayVisible,
+      activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+      visualQueueDimSessionLive:
+        visualQueueDimSessionRef.current || visualQueueDimSession,
+      queueClaimsNotificationScreen:
+        ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+      activeKind: activeOverlayKind,
+      ownerDisplayKind: resolveOwnerDisplayKindBanId(ownerForShouldRenderProbe.display)
+        .displayKind,
+      currentHeadKind:
+        ownerForShouldRenderProbe.queue[0]?.kind ??
+        ownerForShouldRenderProbe.active.kind,
+      checkPresentInQueues: checkPresentInQueuesForShouldRenderProbe,
+      ownerQueueEmpty:
+        shouldRenderProbeQueues.ownerQueueLen === 0 &&
+        shouldRenderProbeQueues.ownerPendingLen === 0 &&
+        shouldRenderProbeQueues.overlayQueueRefLen === 0 &&
+        shouldRenderProbeQueues.overlayQueueStateLen === 0,
+      userId: auth.user?.id ?? null,
+      parentShellMounted: queueShellCheckOverlayParentShellMounted,
+      notificationQueueShellMounted:
+        queueShellCheckOverlayNotificationQueueShellMounted,
+      queues: shouldRenderProbeQueues,
+    };
+    probeQueueShellCheckOverlayShouldRender({
+      source: 'Providers.queue-shell-should-render',
+      reason: 'queueShellWillActuallyRenderCheckOverlay-evaluated',
+      calledFrom: 'ProvidersBody:queueShellWillActuallyRenderCheckOverlay',
+      nextShouldRender: queueShellWillActuallyRenderCheckOverlay,
+      innerShouldRenderExpression: queueShellShouldRenderCheckOverlay,
+      overlaySessionOpen: overlaySessionOpenForCheckRenderDiag,
+      globalOverlayHostEmit: globalOverlayHostEmitForCheckRenderDiag,
+      overlayVisualShieldCardContentMounted,
+      actualReturnedBranch: resolveQueueShellActualReturnedBranchForDiag(),
+      ...shouldRenderProbeShared,
+    });
+    if (queueHeadLifecycleRenderBranch === 'shell-check-without-ban') {
+      probeQueueShellCheckWithoutBanShouldRender({
+        source: 'Providers.shell-check-without-ban',
+        reason: 'shell-check-without-ban-branch',
+        calledFrom: 'ProvidersBody:shell-check-without-ban',
+        innerShouldRenderExpression: false,
+        overlaySessionOpen: overlaySessionOpenForCheckRenderDiag,
+        globalOverlayHostEmit: globalOverlayHostEmitForCheckRenderDiag,
+        overlayVisualShieldCardContentMounted,
+        actualReturnedBranch: resolveQueueShellActualReturnedBranchForDiag(),
+        ...shouldRenderProbeShared,
+      });
+    }
+    probeDirectCheckOverlayShouldRender({
+      source: 'Providers.check-overlay-direct',
+      reason: 'directWillActuallyRenderCheckOverlay-evaluated',
+      calledFrom: 'ProvidersBody:directWillActuallyRenderCheckOverlay',
+      nextShouldRender: directWillActuallyRenderCheckOverlay,
+      innerShouldRenderExpression:
+        showCheckOverlayDirect && Boolean(ownerPrimaryCheckBan),
+      directParentBranchAllowed: directParentBranchAllowedForCheckRenderDiag,
+      overlaySessionOpen: overlaySessionOpenForCheckRenderDiag,
+      actualReturnedBranch: resolveDirectActualReturnedBranchForDiag(),
+      showCheckOverlayDirect,
+      ownerPrimaryCheckBan,
+      renderBranch: queueHeadLifecycleRenderBranch,
+      shellKind: notificationQueueShellDisplayKindResolved,
+      activeKind: activeOverlayKind,
+      ownerDisplayKind: resolveOwnerDisplayKindBanId(ownerForShouldRenderProbe.display)
+        .displayKind,
+      currentHeadKind:
+        ownerForShouldRenderProbe.queue[0]?.kind ??
+        ownerForShouldRenderProbe.active.kind,
+      notificationOverlayVisible,
+      activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+      visualQueueDimSessionLive:
+        visualQueueDimSessionRef.current || visualQueueDimSession,
+      queueClaimsNotificationScreen:
+        ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+      ownerCheckDirectVisibilityVisible: ownerCheckDirectVisibility.visible,
+      composeBlocksNotificationHost,
+      notificationChainTransitioning,
+      userId: auth.user?.id ?? null,
+      queues: shouldRenderProbeQueues,
+    });
+  }
 
   if (
     notificationQueueShellDisplayKindResolved === 'check' &&
@@ -44132,8 +44293,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationQueueShellDisplayKindResolved === 'check'
   ) {
     const shellCheckWillCreateOverlay =
-      queueShellShouldRenderCheckOverlay ||
-      (showCheckOverlayDirect && Boolean(ownerPrimaryCheckBan));
+      queueShellWillActuallyRenderCheckOverlay ||
+      directWillActuallyRenderCheckOverlay;
     observeCheckOverlayParentRenderDecision({
       source: 'Providers.shell-check-return',
       reason: `pre-return-${queueHeadLifecycleRenderBranch}`,
@@ -44143,9 +44304,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         parentMountId: providersBodyMountIdRef.current,
         parentRenderBranch: queueHeadLifecycleRenderBranch,
         returnBranch: queueHeadLifecycleRenderBranch,
-        shouldRenderCheckOverlay: shellCheckWillCreateOverlay,
+        shouldRenderCheckOverlay: queueShellShouldRenderCheckOverlay,
         checkOverlayElementCreated: shellCheckWillCreateOverlay,
-        checkOverlayKeyProp: queueShellShouldRenderCheckOverlay
+        actualCheckOverlayElementCreated: shellCheckWillCreateOverlay,
+        checkOverlayKeyProp: queueShellWillActuallyRenderCheckOverlay
           ? queueShellCheckOverlayKeyPropForDiag
           : null,
         checkBanId: checkBanForShell?.id ?? ownerPrimaryCheckBan?.id ?? null,
@@ -44374,18 +44536,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   parentComponent: 'ProvidersBody/check-overlay-direct',
                   parentMountId: providersBodyMountIdRef.current,
                   parentRenderBranch: queueHeadLifecycleRenderBranch,
-                  returnBranch: directShouldRenderCheckOverlay
+                  returnBranch: directWillActuallyRenderCheckOverlay
                     ? 'check-overlay-direct-emit'
                     : 'check-overlay-direct-null',
                   shouldRenderCheckOverlay: directShouldRenderCheckOverlay,
-                  checkOverlayElementCreated: directShouldRenderCheckOverlay,
+                  checkOverlayElementCreated: directWillActuallyRenderCheckOverlay,
+                  actualCheckOverlayElementCreated:
+                    directWillActuallyRenderCheckOverlay,
                   checkOverlayKeyProp: null,
                   checkBanId: ownerPrimaryCheckBan?.id ?? null,
                   checkDirect: true,
                   contextPatch: {
                     shellKind: notificationQueueShellDisplayKindResolved,
                     renderBranch: queueHeadLifecycleRenderBranch,
-                    returnBranch: directShouldRenderCheckOverlay
+                    returnBranch: directWillActuallyRenderCheckOverlay
                       ? 'check-overlay-direct-emit'
                       : 'check-overlay-direct-null',
                   },
@@ -44640,7 +44804,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                       ...queueShellCheckParentSnapshotBase,
                       returnBranch: 'queue-shell-children-check',
                       shouldRenderCheckOverlay: queueShellShouldRenderCheckOverlay,
-                      checkOverlayElementCreated: queueShellShouldRenderCheckOverlay,
+                      checkOverlayElementCreated:
+                        queueShellWillActuallyRenderCheckOverlay,
+                      actualCheckOverlayElementCreated:
+                        queueShellWillActuallyRenderCheckOverlay,
                       checkBanId: checkBanForShell?.id ?? null,
                     });
                   const queueShellCheckSkippedSnapshot =
@@ -44649,6 +44816,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                       returnBranch: 'queue-shell-children-not-check',
                       shouldRenderCheckOverlay: queueShellShouldRenderCheckOverlay,
                       checkOverlayElementCreated: false,
+                      actualCheckOverlayElementCreated: false,
                       checkBanId: checkBanForShell?.id ?? null,
                     });
 
