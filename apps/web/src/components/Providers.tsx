@@ -772,6 +772,13 @@ import {
   observeCheckOverlayPayloadLifecycle,
   registerCheckOverlayPayloadLifecycleHooks,
 } from '@/lib/check-overlay-payload-lifecycle-trace-debug';
+import {
+  buildCheckOverlayParentRenderSnapshot,
+  flushCheckOverlayParentRenderTraces,
+  observeCheckOverlayParentRenderDecision,
+  registerCheckOverlayParentRenderHooks,
+  stageCheckOverlayParentRenderSnapshot,
+} from '@/lib/check-overlay-parent-render-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -2095,6 +2102,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
 }
 
 function ProvidersBody({ children }: { children: React.ReactNode }) {
+  const providersBodyMountIdRef = useRef(
+    `providers-body-${Math.random().toString(36).slice(2)}`,
+  );
   const auth = useAuth();
   console.log('[providers-render]', {
     userId: auth.user?.id ?? null,
@@ -42664,31 +42674,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         };
       },
     });
+    const readCheckOverlayParentContext = () => {
+      const snap = shellStuckDiagSnapshotRef.current;
+      const owner = ownerShadowRef.current.getState();
+      const head = owner.queue[0] ?? null;
+      return {
+        shellKind: snap?.shellKind ?? notificationQueueShellDisplayKindResolved,
+        renderBranch: snap?.renderBranch ?? queueHeadLifecycleRenderBranch,
+        returnBranch: snap?.renderBranch ?? queueHeadLifecycleRenderBranch,
+        activeKind: owner.active.kind,
+        ownerDisplayKind: resolveOwnerDisplayKindBanId(owner.display).displayKind,
+        currentHeadKind: head?.kind ?? owner.active.kind,
+        notificationOverlayVisible:
+          notificationOverlayVisibleDiagRef.current ?? null,
+        queueClaimsNotificationScreen:
+          ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+        activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+        ...buildCheckOverlayPayloadQueueFields({
+          ownerQueue: owner.queue,
+          ownerPending: owner.pending,
+          overlayQueueRef: overlayQueueRef.current,
+          overlayQueueState: overlayQueue,
+        }),
+      };
+    };
     registerCheckOverlayPayloadLifecycleHooks({
-      readContext: () => {
-        const snap = shellStuckDiagSnapshotRef.current;
-        const owner = ownerShadowRef.current.getState();
-        const head = owner.queue[0] ?? null;
-        return {
-          shellKind: snap?.shellKind ?? notificationQueueShellDisplayKindResolved,
-          renderBranch: snap?.renderBranch ?? queueHeadLifecycleRenderBranch,
-          returnBranch: snap?.renderBranch ?? queueHeadLifecycleRenderBranch,
-          activeKind: owner.active.kind,
-          ownerDisplayKind: resolveOwnerDisplayKindBanId(owner.display).displayKind,
-          currentHeadKind: head?.kind ?? owner.active.kind,
-          notificationOverlayVisible:
-            notificationOverlayVisibleDiagRef.current ?? null,
-          queueClaimsNotificationScreen:
-            ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
-          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
-          ...buildCheckOverlayPayloadQueueFields({
-            ownerQueue: owner.queue,
-            ownerPending: owner.pending,
-            overlayQueueRef: overlayQueueRef.current,
-            overlayQueueState: overlayQueue,
-          }),
-        };
-      },
+      readContext: readCheckOverlayParentContext,
+    });
+    registerCheckOverlayParentRenderHooks({
+      readContext: readCheckOverlayParentContext,
     });
     return () => {
       registerShellStuckOnResultWhileOwnerAdvancedHooks(null);
@@ -42698,6 +42712,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       registerShellCheckLifecycleTraceHooks(null);
       registerOwnerFalseWhileActiveCheckHooks(null);
       registerCheckOverlayPayloadLifecycleHooks(null);
+      registerCheckOverlayParentRenderHooks(null);
     };
   }, [
     activeOverlayKind,
@@ -42716,6 +42731,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     sendSuccessCardActive,
     visualQueueDimSession,
   ]);
+
+  useLayoutEffect(() => {
+    flushCheckOverlayParentRenderTraces();
+  });
 
   useLayoutEffect(() => {
     registerApplyOverlayQueueClearCallsiteEnrichmentProvider(() => ({
@@ -44057,6 +44076,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     parentShellMounted: queueShellCheckOverlayParentShellMounted,
     notificationQueueShellMounted: queueShellCheckOverlayNotificationQueueShellMounted,
   };
+  const queueShellCheckOverlayKeyPropForDiag =
+    queueShellRendersResultOverlay && activeResultPayload
+      ? `result:${activeResultPayload.id}`
+      : ownerPrimaryQueueHead
+        ? overlayQueueKey(ownerPrimaryQueueHead)
+        : null;
+  const queueShellShouldRenderCheckOverlay =
+    !queueResultOverlayClaimed &&
+    notificationQueueShellDisplayKindResolved === 'check' &&
+    !showCheckOverlayDirect &&
+    Boolean(checkBanForShell);
 
   if (
     notificationQueueShellDisplayKindResolved === 'check' &&
@@ -44097,6 +44127,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     notificationOverlayVisible,
     visualQueueDimSessionLive,
   };
+  if (
+    queueHeadLifecycleRenderBranch === 'shell-check' ||
+    notificationQueueShellDisplayKindResolved === 'check'
+  ) {
+    const shellCheckWillCreateOverlay =
+      queueShellShouldRenderCheckOverlay ||
+      (showCheckOverlayDirect && Boolean(ownerPrimaryCheckBan));
+    observeCheckOverlayParentRenderDecision({
+      source: 'Providers.shell-check-return',
+      reason: `pre-return-${queueHeadLifecycleRenderBranch}`,
+      calledFrom: 'ProvidersBody:shell-check-return',
+      snapshot: buildCheckOverlayParentRenderSnapshot({
+        parentComponent: 'ProvidersBody/shell-check-return',
+        parentMountId: providersBodyMountIdRef.current,
+        parentRenderBranch: queueHeadLifecycleRenderBranch,
+        returnBranch: queueHeadLifecycleRenderBranch,
+        shouldRenderCheckOverlay: shellCheckWillCreateOverlay,
+        checkOverlayElementCreated: shellCheckWillCreateOverlay,
+        checkOverlayKeyProp: queueShellShouldRenderCheckOverlay
+          ? queueShellCheckOverlayKeyPropForDiag
+          : null,
+        checkBanId: checkBanForShell?.id ?? ownerPrimaryCheckBan?.id ?? null,
+        checkDirect: showCheckOverlayDirect,
+        contentOnly: !showCheckOverlayDirect,
+        contextPatch: {
+          shellKind: notificationQueueShellDisplayKindResolved,
+          renderBranch: queueHeadLifecycleRenderBranch,
+          returnBranch: queueHeadLifecycleRenderBranch,
+        },
+      }),
+    });
+  }
   const logProvidersReturnBranch = (
     branchId: string,
     reason?: string | null,
@@ -44305,7 +44367,37 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           return (
           <>
             {(() => {
+              const directShouldRenderCheckOverlay =
+                showCheckOverlayDirect && Boolean(ownerPrimaryCheckBan);
+              const directCheckParentSnapshot =
+                buildCheckOverlayParentRenderSnapshot({
+                  parentComponent: 'ProvidersBody/check-overlay-direct',
+                  parentMountId: providersBodyMountIdRef.current,
+                  parentRenderBranch: queueHeadLifecycleRenderBranch,
+                  returnBranch: directShouldRenderCheckOverlay
+                    ? 'check-overlay-direct-emit'
+                    : 'check-overlay-direct-null',
+                  shouldRenderCheckOverlay: directShouldRenderCheckOverlay,
+                  checkOverlayElementCreated: directShouldRenderCheckOverlay,
+                  checkOverlayKeyProp: null,
+                  checkBanId: ownerPrimaryCheckBan?.id ?? null,
+                  checkDirect: true,
+                  contextPatch: {
+                    shellKind: notificationQueueShellDisplayKindResolved,
+                    renderBranch: queueHeadLifecycleRenderBranch,
+                    returnBranch: directShouldRenderCheckOverlay
+                      ? 'check-overlay-direct-emit'
+                      : 'check-overlay-direct-null',
+                  },
+                });
               if (showCheckOverlayDirect && ownerPrimaryCheckBan) {
+                observeCheckOverlayParentRenderDecision({
+                  source: 'Providers.check-overlay-direct',
+                  reason: 'check-overlay-direct-emit',
+                  calledFrom: 'ProvidersBody:check-overlay-direct',
+                  snapshot: directCheckParentSnapshot,
+                });
+                stageCheckOverlayParentRenderSnapshot(directCheckParentSnapshot);
                 logProvidersReturnBranch(
                   'check-overlay-direct-emit',
                   'showCheckOverlayDirect-with-ban',
@@ -44323,6 +44415,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 />
               </ChallengeErrorBoundary>
                 );
+              }
+              if (
+                showCheckOverlayDirect ||
+                queueHeadLifecycleRenderBranch === 'shell-check'
+              ) {
+                observeCheckOverlayParentRenderDecision({
+                  source: 'Providers.check-overlay-direct',
+                  reason: showCheckOverlayDirect
+                    ? 'check-overlay-direct-null'
+                    : 'check-overlay-direct-skipped-shell-check',
+                  calledFrom: 'ProvidersBody:check-overlay-direct-null',
+                  snapshot: directCheckParentSnapshot,
+                });
+                stageCheckOverlayParentRenderSnapshot(directCheckParentSnapshot);
               }
               logProvidersReturnBranch(
                 'check-overlay-direct-null',
@@ -44518,6 +44624,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 }
               >
                 {(() => {
+                  const queueShellCheckParentSnapshotBase = {
+                    parentComponent: 'ProvidersBody/NotificationQueueShell',
+                    parentMountId: providersBodyMountIdRef.current,
+                    parentRenderBranch: queueHeadLifecycleRenderBranch,
+                    checkOverlayKeyProp: queueShellCheckOverlayKeyPropForDiag,
+                    contentOnly: true as const,
+                    contextPatch: {
+                      shellKind: notificationQueueShellDisplayKindResolved,
+                      renderBranch: queueHeadLifecycleRenderBranch,
+                    },
+                  };
+                  const queueShellCheckEmitSnapshot =
+                    buildCheckOverlayParentRenderSnapshot({
+                      ...queueShellCheckParentSnapshotBase,
+                      returnBranch: 'queue-shell-children-check',
+                      shouldRenderCheckOverlay: queueShellShouldRenderCheckOverlay,
+                      checkOverlayElementCreated: queueShellShouldRenderCheckOverlay,
+                      checkBanId: checkBanForShell?.id ?? null,
+                    });
+                  const queueShellCheckSkippedSnapshot =
+                    buildCheckOverlayParentRenderSnapshot({
+                      ...queueShellCheckParentSnapshotBase,
+                      returnBranch: 'queue-shell-children-not-check',
+                      shouldRenderCheckOverlay: queueShellShouldRenderCheckOverlay,
+                      checkOverlayElementCreated: false,
+                      checkBanId: checkBanForShell?.id ?? null,
+                    });
+
                   if (
                     queueShellCheckOverlayJsxWillEmit &&
                     queueShellCheckOverlayNotificationQueueShellMounted
@@ -44532,6 +44666,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   }
 
                   if (queueShellRendersResultOverlay) {
+                    if (notificationQueueShellDisplayKindResolved === 'check') {
+                      observeCheckOverlayParentRenderDecision({
+                        source: 'Providers.queue-shell-children',
+                        reason: 'queue-shell-result-over-check-shell',
+                        calledFrom:
+                          'ProvidersBody:queue-shell-children-result',
+                        snapshot: {
+                          ...queueShellCheckSkippedSnapshot,
+                          returnBranch: 'queue-shell-children-result',
+                        },
+                      });
+                      stageCheckOverlayParentRenderSnapshot({
+                        ...queueShellCheckSkippedSnapshot,
+                        returnBranch: 'queue-shell-children-result',
+                      });
+                    }
                     logProvidersReturnBranch(
                       'queue-shell-children-result',
                       'queueShellRendersResultOverlay',
@@ -44560,6 +44710,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   !showCheckOverlayDirect &&
                   checkBanForShell
                   ) {
+                    observeCheckOverlayParentRenderDecision({
+                      source: 'Providers.queue-shell-children',
+                      reason: 'queue-shell-children-check',
+                      calledFrom: 'ProvidersBody:queue-shell-children-check',
+                      snapshot: queueShellCheckEmitSnapshot,
+                    });
+                    stageCheckOverlayParentRenderSnapshot(
+                      queueShellCheckEmitSnapshot,
+                    );
                     logProvidersReturnBranch(
                       'queue-shell-children-check',
                       'notificationQueueShellDisplayKindResolved-check',
@@ -44584,6 +44743,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   notificationQueueShellDisplayKindResolved === 'incoming' &&
                   (incomingBanForShell ?? ownerPrimaryStableIncomingBan)
                   ) {
+                    if (notificationQueueShellDisplayKindResolved === 'check') {
+                      observeCheckOverlayParentRenderDecision({
+                        source: 'Providers.queue-shell-children',
+                        reason: 'queue-shell-incoming-over-check-shell',
+                        calledFrom:
+                          'ProvidersBody:queue-shell-children-incoming',
+                        snapshot: {
+                          ...queueShellCheckSkippedSnapshot,
+                          returnBranch: 'queue-shell-children-incoming',
+                        },
+                      });
+                      stageCheckOverlayParentRenderSnapshot({
+                        ...queueShellCheckSkippedSnapshot,
+                        returnBranch: 'queue-shell-children-incoming',
+                      });
+                    }
                     logProvidersReturnBranch(
                       'queue-shell-children-incoming',
                       'notificationQueueShellDisplayKindResolved-incoming',
@@ -44601,6 +44776,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     />
                   </ChallengeErrorBoundary>
                     );
+                  }
+
+                  if (
+                    notificationQueueShellDisplayKindResolved === 'check' ||
+                    queueHeadLifecycleRenderBranch === 'shell-check'
+                  ) {
+                    observeCheckOverlayParentRenderDecision({
+                      source: 'Providers.queue-shell-children',
+                      reason: 'queue-shell-children-null',
+                      calledFrom: 'ProvidersBody:queue-shell-children-null',
+                      snapshot: {
+                        ...queueShellCheckSkippedSnapshot,
+                        returnBranch: 'queue-shell-children-null',
+                      },
+                    });
+                    stageCheckOverlayParentRenderSnapshot({
+                      ...queueShellCheckSkippedSnapshot,
+                      returnBranch: 'queue-shell-children-null',
+                    });
                   }
 
                   logProvidersReturnBranch(

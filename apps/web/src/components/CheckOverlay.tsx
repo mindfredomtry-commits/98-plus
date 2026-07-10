@@ -59,6 +59,8 @@ import {
   observeCheckOverlayPayloadLifecycle,
   type CheckOverlayPayloadLifecycleEvent,
 } from '@/lib/check-overlay-payload-lifecycle-trace-debug';
+import { anchorCheckOverlayUnmountForGoToBansTimeline } from '@/lib/check-overlay-parent-render-trace-debug';
+import { checkOverlayKey } from '@/lib/overlay-queue';
 
 interface Props {
   embedded?: boolean;
@@ -255,6 +257,13 @@ function CheckOverlayInnerBody({
             : 'modal',
         propsKind: 'check',
         userId: user?.id ?? null,
+      });
+      const banId = checkBan?.id?.trim() || null;
+      anchorCheckOverlayUnmountForGoToBansTimeline({
+        checkBanId: banId,
+        checkOverlayKey: banId ? checkOverlayKey(banId) : null,
+        source: 'CheckOverlay',
+        calledFrom: 'CheckOverlay.useEffect:unmount',
       });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/unmount identity only

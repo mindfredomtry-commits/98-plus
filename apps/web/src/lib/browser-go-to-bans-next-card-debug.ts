@@ -1,6 +1,10 @@
 'use client';
 
 import {
+  noteGoToBansAfterCheckUnmountTimelineHookEnter,
+  noteGoToBansAfterCheckUnmountTimelineImportRequested,
+} from '@/lib/check-overlay-parent-render-trace-debug';
+import {
   bridgeGoToBansContinueEntry,
 } from '@/lib/go-to-bans-continue-trace-debug';
 import {
@@ -59,6 +63,12 @@ function emitTraceHook(
 /** Synchronous hook — visible immediately in console on the working go-to-bans path. */
 export function hookGoToBansTraceEnter(ctx: GoToBansTraceHookContext): void {
   emitTraceHook('[GO TO BANS TRACE HOOK ENTER]', ctx);
+  noteGoToBansAfterCheckUnmountTimelineHookEnter({
+    handlerName: ctx.handlerName,
+    source: ctx.source,
+    calledFrom: 'hookGoToBansTraceEnter',
+    banId: ctx.banId ?? null,
+  });
   if (
     ctx.handlerName === 'go-to-bans-next-card' ||
     ctx.handlerName.startsWith('go-to-bans-next-card:')
@@ -83,6 +93,12 @@ function lazyArmTrace(
     targetFn: fnName,
     arm: true,
   });
+  noteGoToBansAfterCheckUnmountTimelineHookEnter({
+    handlerName: ctx.handlerName,
+    source: ctx.source,
+    calledFrom: 'lazyArmTrace:hook-enter',
+    banId: ctx.banId ?? null,
+  });
 
   if (!isBrowserDebugEnvironment()) {
     emitTraceHook('[GO TO BANS TRACE ARM SKIPPED]', {
@@ -97,6 +113,12 @@ function lazyArmTrace(
     emitTraceHook('[GO TO BANS TRACE IMPORT REQUESTED]', {
       ...ctx,
       targetFn: fnName,
+    });
+    noteGoToBansAfterCheckUnmountTimelineImportRequested({
+      handlerName: ctx.handlerName,
+      source: ctx.source,
+      calledFrom: 'lazyArmTrace:import-requested',
+      banId: ctx.banId ?? null,
     });
 
     if (!isBrowserDebugHydrated()) {

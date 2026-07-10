@@ -12,6 +12,7 @@ import {
   readShellCheckActionMarkers,
   type ShellCheckActionMarkers,
 } from '@/lib/shell-check-lifecycle-trace-debug';
+import { anchorCheckOverlayUnmountForGoToBansTimeline } from '@/lib/check-overlay-parent-render-trace-debug';
 import {
   diagTraceNow,
   emitClientDiagTrace,
@@ -373,8 +374,9 @@ function maybeEmitUnexpectedDisappear(
     markers,
   );
 
+  const unmountTimestamp = diagTraceNow();
   emitClientDiagTrace('CHECK_OVERLAY_UNEXPECTED_DISAPPEAR_TRACE', {
-    timestamp: diagTraceNow(),
+    timestamp: unmountTimestamp,
     source: input.source,
     reason: input.reason,
     calledFrom: input.calledFrom,
@@ -389,6 +391,17 @@ function maybeEmitUnexpectedDisappear(
     previousCheckBanId: assessment.previousCheckBanId,
     previousCheckOverlayKey: assessment.previousCheckOverlayKey,
   });
+
+  if (disappearType === 'unmounted') {
+    anchorCheckOverlayUnmountForGoToBansTimeline({
+      checkBanId:
+        assessment.checkBanId ?? lastValidSnapshot.checkBanId ?? null,
+      checkOverlayKey:
+        assessment.checkOverlayKey ?? lastValidSnapshot.checkOverlayKey ?? null,
+      source: input.source,
+      calledFrom: input.calledFrom,
+    });
+  }
 }
 
 export function registerCheckOverlayPayloadLifecycleHooks(
