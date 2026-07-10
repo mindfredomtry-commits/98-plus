@@ -754,6 +754,18 @@ import {
   observeShellCheckLifecycle,
   registerShellCheckLifecycleTraceHooks,
 } from '@/lib/shell-check-lifecycle-trace-debug';
+import {
+  buildOwnerFalseWhileActiveCheckOwnerDisplayFields,
+  buildOwnerFalseWhileActiveCheckQueueFields,
+  getStoredOwnerFalseWhileActiveCheckDecisionTrace,
+  noteOwnerFalseWhileActiveCheckBranchTaken,
+  observeOwnerFalseWhileActiveCheckDecision,
+  registerOwnerFalseWhileActiveCheckHooks,
+  type OwnerFalseWhileActiveCheckBranchTakenInput,
+  type OwnerFalseWhileActiveCheckDecisionInput,
+  type OwnerFalseWhileActiveCheckSnapshot,
+  type OwnerFalseWhileActiveCheckTraceSnapshot,
+} from '@/lib/owner-false-while-active-check-decision-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -2313,6 +2325,74 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   >({});
   const [visualQueueDimSession, setVisualQueueDimSession] = useState(false);
   const hasPendingNotificationChainFnRef = useRef<() => boolean>(() => false);
+  const buildOwnerFalseActiveCheckSnapshotPatchRef = useRef<
+    (
+      patch?: Partial<OwnerFalseWhileActiveCheckSnapshot>,
+    ) => OwnerFalseWhileActiveCheckSnapshot
+  >(() => ({
+    ownerHasPendingNotificationChain: false,
+    legacyHasPendingNotificationChain: false,
+    checkBanId: null,
+    checkOverlayKey: null,
+    shellKind: null,
+    renderBranch: null,
+    returnBranch: null,
+    activeKind: null,
+    activeBanId: null,
+    ownerDisplayKind: null,
+    ownerDisplayBanId: null,
+    currentHeadKind: null,
+    currentHeadId: null,
+    checkPresentInQueues: false,
+    ownerQueueLen: 0,
+    ownerQueueKinds: [],
+    ownerQueueIds: [],
+    ownerQueueKeys: [],
+    ownerPendingLen: 0,
+    ownerPendingKinds: [],
+    ownerPendingIds: [],
+    ownerPendingKeys: [],
+    overlayQueueRefLen: 0,
+    overlayQueueRefKinds: [],
+    overlayQueueRefIds: [],
+    overlayQueueRefKeys: [],
+    overlayQueueStateLen: 0,
+    overlayQueueStateKinds: [],
+    overlayQueueStateIds: [],
+    overlayQueueStateKeys: [],
+    activeNotificationChain: null,
+    notificationOverlayVisible: null,
+    queueClaimsNotificationScreen: null,
+    visualQueueDimSessionLive: null,
+    explicitDrainReason: null,
+    drainSessionId: null,
+    notificationChainTransitioning: null,
+    sendFlowOpening: null,
+    lobbyVisible: null,
+    lobbyMounted: null,
+  }));
+  const probeOwnerFalseWhileActiveCheckRef = useRef<
+    (input: OwnerFalseWhileActiveCheckDecisionInput) => void
+  >((input) => {
+    observeOwnerFalseWhileActiveCheckDecision(input);
+  });
+  const noteOwnerFalseWhileActiveCheckBranchTakenRef = useRef<
+    (input: OwnerFalseWhileActiveCheckBranchTakenInput) => void
+  >((input) => {
+    noteOwnerFalseWhileActiveCheckBranchTaken(input);
+  });
+  type OwnerFalseRenderFlushItem =
+    | { kind: 'decision'; input: OwnerFalseWhileActiveCheckDecisionInput }
+    | {
+        kind: 'branch';
+        input: Omit<
+          OwnerFalseWhileActiveCheckBranchTakenInput,
+          'snapshotBefore'
+        >;
+      };
+  const ownerFalseRenderProbeQueueRef = useRef<OwnerFalseRenderFlushItem[]>(
+    [],
+  );
   const startupInteractionsHoldRef = useRef(true);
   const mirrorOwnerSessionFlagsRef = useRef<
     (source: string, patch: OwnerSessionMirrorPatch) => void
@@ -3654,12 +3734,57 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   function clearNotificationChainTransitioningInline(): void {
     if (!notificationChainTransitioningRef.current) return;
+    const snapshotBeforeClear =
+      buildOwnerFalseActiveCheckSnapshotPatchRef.current({
+        notificationChainTransitioning: true,
+      });
+    probeOwnerFalseWhileActiveCheckRef.current({
+      decisionName: 'clearActiveNotificationChain',
+      selector: 'notificationChainTransitioning',
+      source: 'clearNotificationChainTransitioningInline',
+      reason: 'clear-notification-chain-transitioning',
+      calledFrom: 'clearNotificationChainTransitioningInline',
+      decisionResult: false,
+      wouldClearActiveChain: true,
+      snapshot: snapshotBeforeClear,
+      decisionInputs: {
+        clearReason: 'clear-notification-chain-transitioning',
+        transitionState: true,
+        blocked: false,
+        lostPending: false,
+        needsPrefetch: false,
+      },
+    });
     notificationChainTransitioningRef.current = false;
     setNotificationChainTransitioningState(false);
     mirrorOwnerChainSessionGatesRef.current(
       'clearNotificationChainTransitioningInline',
       { notificationChainTransitioning: false },
     );
+    const storedTrace = getStoredOwnerFalseWhileActiveCheckDecisionTrace(
+      'clearActiveNotificationChain',
+      snapshotBeforeClear.checkBanId,
+    );
+    if (storedTrace) {
+      noteOwnerFalseWhileActiveCheckBranchTakenRef.current({
+        decisionName: 'clearActiveNotificationChain',
+        branchTaken: 'clear-active-chain',
+        source: 'clearNotificationChainTransitioningInline',
+        reason: 'clear-notification-chain-transitioning',
+        calledFrom: 'clearNotificationChainTransitioningInline',
+        snapshotBefore: storedTrace,
+        snapshotAfter: buildOwnerFalseActiveCheckSnapshotPatchRef.current({
+          notificationChainTransitioning: false,
+        }),
+        decisionInputsAfter: {
+          clearReason: 'clear-notification-chain-transitioning',
+          transitionState: false,
+          blocked: false,
+          lostPending: false,
+          needsPrefetch: false,
+        },
+      });
+    }
   }
 
   const [replyToBanId, setReplyToBanId] = useState<string | null>(null);
@@ -9887,6 +10012,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               : null,
       },
     );
+    probeOwnerFalseWhileActiveCheckRef.current({
+      decisionName: 'syncDisplayFromQueue',
+      selector: 'syncDisplayFromQueue',
+      source: 'syncDisplayFromQueue',
+      reason: 'sync-display-enter',
+      calledFrom: 'syncDisplayFromQueue',
+      decisionResult: queueForDecision[0]?.kind ?? null,
+      snapshot: buildOwnerFalseActiveCheckSnapshotPatchRef.current(),
+      decisionInputs: {
+        requestedNextKind: queueForDecision[0]?.kind ?? null,
+        requestedNextBanId:
+          queueForDecision[0]?.kind === 'result'
+            ? queueForDecision[0].result.id
+            : queueForDecision[0]?.kind === 'incoming' ||
+                queueForDecision[0]?.kind === 'check'
+              ? queueForDecision[0].ban.id
+              : null,
+        queueForDecisionLen: queueForDecision.length,
+        legacyQueueLen: queue.length,
+        ownerQueueLenAtSync: ownerAtSyncEnter.queue.length,
+      },
+    });
     if (isReplyQueueHandoffSessionActive()) {
       logReplyQueueHandoffDiagContext(
         'post-timer-handoff-result',
@@ -16265,7 +16412,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ],
   );
 
-  const hasPendingNotificationChain = useCallback(() => {
+  const hasPendingNotificationChainImpl = useCallback(() => {
     const decisionOwner = readOwnerDecision('hasPendingNotificationChain');
     if (
       readOwnerDecisionHasQueueItems(decisionOwner, 'hasPendingNotificationChain', {
@@ -16332,7 +16479,70 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return false;
   }, []);
 
-  hasPendingNotificationChainFnRef.current = hasPendingNotificationChain;
+  const hasPendingNotificationChain = useCallback(
+    () => hasPendingNotificationChainImpl(),
+    [hasPendingNotificationChainImpl],
+  );
+
+  hasPendingNotificationChainFnRef.current = hasPendingNotificationChainImpl;
+
+  buildOwnerFalseActiveCheckSnapshotPatchRef.current = (
+    patch?: Partial<OwnerFalseWhileActiveCheckSnapshot>,
+  ) => {
+    const owner = ownerShadowRef.current.getState();
+    const shellSnap = shellStuckDiagSnapshotRef.current;
+    const ownerQueueOnly =
+      owner.queue.length > 0 || owner.pending.length > 0;
+    const legacyPending = hasPendingNotificationChainFnRef.current();
+    return {
+      ownerHasPendingNotificationChain: ownerQueueOnly,
+      legacyHasPendingNotificationChain: legacyPending,
+      ...buildOwnerFalseWhileActiveCheckOwnerDisplayFields(owner),
+      ...buildOwnerFalseWhileActiveCheckQueueFields({
+        ownerQueue: owner.queue,
+        ownerPending: owner.pending,
+        overlayQueueRef: overlayQueueRef.current,
+        overlayQueueState: overlayQueue,
+      }),
+      shellKind: shellSnap?.shellKind ?? null,
+      renderBranch: shellSnap?.renderBranch ?? null,
+      returnBranch: shellSnap?.renderBranch ?? null,
+      notificationOverlayVisible:
+        notificationOverlayVisibleDiagRef.current ?? null,
+      queueClaimsNotificationScreen:
+        owner.queue.length > 0 || queueLobbyGuardActiveRef.current,
+      activeNotificationChain: legacyPending,
+      visualQueueDimSessionLive: visualQueueDimSessionRef.current,
+      explicitDrainReason: getExplicitNotificationDrainSource(),
+      drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+      notificationChainTransitioning: notificationChainTransitioningRef.current,
+      sendFlowOpening: sendSuccessCardActiveRef.current,
+      lobbyVisible: lobbyOpenRef.current,
+      lobbyMounted: lobbyOpenRef.current,
+      checkBanId: null,
+      checkOverlayKey: null,
+      checkPresentInQueues: false,
+      ...patch,
+    };
+  };
+
+  probeOwnerFalseWhileActiveCheckRef.current = (
+    input: OwnerFalseWhileActiveCheckDecisionInput,
+  ) => {
+    observeOwnerFalseWhileActiveCheckDecision({
+      ...input,
+      snapshot: {
+        ...buildOwnerFalseActiveCheckSnapshotPatchRef.current(),
+        ...input.snapshot,
+      },
+    });
+  };
+
+  noteOwnerFalseWhileActiveCheckBranchTakenRef.current = (
+    input: OwnerFalseWhileActiveCheckBranchTakenInput,
+  ) => {
+    noteOwnerFalseWhileActiveCheckBranchTaken(input);
+  };
 
   const armPostSuccessHandoffEarlyIfPending = useCallback(
     (source = 'success-exit-early'): boolean => {
@@ -28300,6 +28510,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source,
         'continue-sync-enter',
       );
+      const hasPendingAtContinueEnter = hasPendingNotificationChainImpl();
+      probeOwnerFalseWhileActiveCheckRef.current({
+        decisionName: 'continueNotificationChainOrOpenLobbySync',
+        selector: 'continueNotificationChainOrOpenLobbySync',
+        source,
+        reason: 'continue-sync-enter',
+        calledFrom: 'continueNotificationChainOrOpenLobbySync',
+        decisionResult: hasPendingAtContinueEnter,
+        wouldRenderLobby: !hasPendingAtContinueEnter,
+        snapshot: buildOwnerFalseActiveCheckSnapshotPatchRef.current(),
+        decisionInputs: {
+          hasPending: hasPendingAtContinueEnter,
+          blocked: false,
+          lostPending: false,
+          needsPrefetch: false,
+          shouldOpenLobby: !hasPendingAtContinueEnter,
+          shouldClearActiveChain: false,
+          queueLenBefore: continueQueueLenBefore,
+          pendingLenBefore: continuePendingLenBefore,
+        },
+      });
       const chainOwner = readOwnerChain('continueNotificationChainOrOpenLobbySync');
       const previousHeadForResultDiag = resolveOverlayHeadSnapshot(
         overlayQueueRef.current[0] ?? null,
@@ -28344,6 +28575,70 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           pendingHeadKind: pendingHead?.kind ?? null,
           outcome,
         });
+        if (outcome === 'open-lobby') {
+          const branchSnap =
+            buildOwnerFalseActiveCheckSnapshotPatchRef.current();
+          const storedTrace = getStoredOwnerFalseWhileActiveCheckDecisionTrace(
+            'continueNotificationChainOrOpenLobbySync',
+            branchSnap.checkBanId,
+          );
+          if (storedTrace) {
+            noteOwnerFalseWhileActiveCheckBranchTakenRef.current({
+              decisionName: 'continueNotificationChainOrOpenLobbySync',
+              branchTaken: 'render-lobby',
+              source,
+              reason,
+              calledFrom:
+                'continueNotificationChainOrOpenLobbySync:returnContinueDiag',
+              snapshotBefore: storedTrace,
+              snapshotAfter: branchSnap,
+              decisionInputsAfter: {
+                hasPending: hasPendingNotificationChainImpl(),
+                blocked: false,
+                lostPending: false,
+                needsPrefetch: false,
+                shouldOpenLobby: true,
+                shouldClearActiveChain: false,
+                outcome,
+                returnReason: reason,
+              },
+            });
+          }
+        }
+        if (
+          outcome === 'blocked' ||
+          outcome === 'lost-pending' ||
+          outcome === 'needs-prefetch'
+        ) {
+          const branchSnap =
+            buildOwnerFalseActiveCheckSnapshotPatchRef.current();
+          const storedTrace = getStoredOwnerFalseWhileActiveCheckDecisionTrace(
+            'continueNotificationChainOrOpenLobbySync',
+            branchSnap.checkBanId,
+          );
+          if (storedTrace) {
+            noteOwnerFalseWhileActiveCheckBranchTakenRef.current({
+              decisionName: 'continueNotificationChainOrOpenLobbySync',
+              branchTaken: 'clear-active-chain',
+              source,
+              reason,
+              calledFrom:
+                'continueNotificationChainOrOpenLobbySync:returnContinueDiag',
+              snapshotBefore: storedTrace,
+              snapshotAfter: branchSnap,
+              decisionInputsAfter: {
+                hasPending: hasPendingNotificationChainImpl(),
+                blocked: outcome === 'blocked',
+                lostPending: outcome === 'lost-pending',
+                needsPrefetch: outcome === 'needs-prefetch',
+                shouldOpenLobby: false,
+                shouldClearActiveChain: true,
+                outcome,
+                returnReason: reason,
+              },
+            });
+          }
+        }
         if (outcome !== 'show-next' && isPostConsumeTraceActive()) {
           emitPostConsumeNoNextCard({
             pipeline: 'continueNotificationChainOrOpenLobbySync',
@@ -31851,6 +32146,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         isSuccessExitChainFullyEmpty(primaryEmptySnapshot) &&
         !hasPendingNotificationChain()
       ) {
+        const hasPendingAtSuccessExitCheck = hasPendingNotificationChainImpl();
+        probeOwnerFalseWhileActiveCheckRef.current({
+          decisionName: 'success-exit-drain-session-completion',
+          selector: 'hasPendingNotificationChain',
+          source: 'success-exit-after-primary',
+          reason: 'success-exit-empty-no-retry',
+          calledFrom: 'success-exit-drain-session-completion',
+          decisionResult: false,
+          wouldEndDrain: true,
+          wouldRenderLobby: true,
+          snapshot: buildOwnerFalseActiveCheckSnapshotPatchRef.current(),
+          decisionInputs: {
+            shouldEndDrain: true,
+            stayOnLobbyEmpty: true,
+            chainStillActive: hasPendingAtSuccessExitCheck,
+            pendingChainExists: hasPendingAtSuccessExitCheck,
+            isChainSnapshotEmpty:
+              isSuccessExitChainFullyEmpty(primaryEmptySnapshot),
+            primaryQueueLen: primaryEmptySnapshot.queueLen,
+            primaryPendingLen: primaryEmptySnapshot.pendingLen,
+            primaryCheckLen: primaryEmptySnapshot.checkLen,
+          },
+        });
         if (isPostSuccessHandoffInProgress()) {
           finalizePostSuccessHandoffEmptyNoRetry({
             source: 'success-exit',
@@ -31875,6 +32193,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           hasPendingNotificationChain: false,
           reason: 'success-exit-empty-no-retry',
         });
+        const successExitBranchSnap =
+          buildOwnerFalseActiveCheckSnapshotPatchRef.current();
+        const successExitStoredTrace =
+          getStoredOwnerFalseWhileActiveCheckDecisionTrace(
+            'success-exit-drain-session-completion',
+            successExitBranchSnap.checkBanId,
+          );
+        if (successExitStoredTrace) {
+          noteOwnerFalseWhileActiveCheckBranchTakenRef.current({
+            decisionName: 'success-exit-drain-session-completion',
+            branchTaken: 'end-drain',
+            source: 'success-exit-after-primary',
+            reason: 'success-exit-empty-no-retry',
+            calledFrom: 'success-exit-drain-session-completion',
+            snapshotBefore: successExitStoredTrace,
+            snapshotAfter: successExitBranchSnap,
+            decisionInputsAfter: {
+              shouldEndDrain: true,
+              stayOnLobbyEmpty: true,
+              chainStillActive: false,
+              pendingChainExists: false,
+              drained: false,
+            },
+          });
+        }
         return false;
       }
 
@@ -39854,7 +40197,93 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   useLayoutEffect(() => {
     notificationOverlayVisibleDiagRef.current = notificationOverlayVisible;
-  }, [notificationOverlayVisible]);
+    const dimVisibleBefore =
+      visualQueueDimSessionRef.current || visualQueueDimSession;
+    const notificationVisibleBefore =
+      notificationOverlayVisibleDiagRef.current ?? notificationOverlayVisible;
+    const queueClaimsAtDecision =
+      ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current;
+    probeOwnerFalseWhileActiveCheckRef.current({
+      decisionName: 'notificationOverlayVisible',
+      selector: 'notificationOverlayVisible',
+      source: 'Providers',
+      reason: 'notificationOverlayVisible-computed',
+      calledFrom: 'Providers:notificationOverlayVisible',
+      decisionResult: notificationOverlayVisible,
+      wouldHideOverlay: !notificationOverlayVisible,
+      snapshot: buildOwnerFalseActiveCheckSnapshotPatchRef.current({
+        notificationOverlayVisible,
+        queueClaimsNotificationScreen: queueClaimsAtDecision,
+      }),
+      decisionInputs: {
+        dimVisibleBefore,
+        notificationVisibleBefore,
+        queueClaimsNotificationScreen: queueClaimsAtDecision,
+        shouldHideOverlay: !notificationOverlayVisible,
+        notificationOverlayVisibleAfter: notificationOverlayVisible,
+      },
+    });
+    if (!notificationOverlayVisible) {
+      const overlayBranchSnap =
+        buildOwnerFalseActiveCheckSnapshotPatchRef.current({
+          notificationOverlayVisible: false,
+          queueClaimsNotificationScreen: queueClaimsAtDecision,
+        });
+      const overlayStoredTrace = getStoredOwnerFalseWhileActiveCheckDecisionTrace(
+        'notificationOverlayVisible',
+        overlayBranchSnap.checkBanId,
+      );
+      if (overlayStoredTrace) {
+        noteOwnerFalseWhileActiveCheckBranchTakenRef.current({
+          decisionName: 'notificationOverlayVisible',
+          branchTaken: 'hide-overlay',
+          source: 'Providers',
+          reason: 'notificationOverlayVisible-false',
+          calledFrom: 'Providers:notificationOverlayVisible',
+          snapshotBefore: overlayStoredTrace,
+          snapshotAfter: overlayBranchSnap,
+          decisionInputsAfter: {
+            dimVisibleBefore,
+            notificationVisibleBefore,
+            queueClaimsNotificationScreen: queueClaimsAtDecision,
+            shouldHideOverlay: true,
+            notificationOverlayVisibleAfter: false,
+          },
+        });
+      }
+    }
+  }, [notificationOverlayVisible, ownerPrimaryShellQueueLen, visualQueueDimSession]);
+
+  useLayoutEffect(() => {
+    const queue = ownerFalseRenderProbeQueueRef.current;
+    if (queue.length === 0) return;
+    ownerFalseRenderProbeQueueRef.current = [];
+    const branchItems: Array<
+      Omit<OwnerFalseWhileActiveCheckBranchTakenInput, 'snapshotBefore'>
+    > = [];
+    for (const item of queue) {
+      if (item.kind === 'decision') {
+        probeOwnerFalseWhileActiveCheckRef.current(item.input);
+      } else {
+        branchItems.push(item.input);
+      }
+    }
+    for (const branchInput of branchItems) {
+      const branchSnap = buildOwnerFalseActiveCheckSnapshotPatchRef.current(
+        branchInput.snapshotAfter,
+      );
+      const storedTrace = getStoredOwnerFalseWhileActiveCheckDecisionTrace(
+        branchInput.decisionName,
+        branchSnap.checkBanId,
+      );
+      if (!storedTrace) continue;
+      noteOwnerFalseWhileActiveCheckBranchTakenRef.current({
+        ...branchInput,
+        snapshotBefore: storedTrace,
+        snapshotAfter: branchSnap,
+      });
+    }
+  });
 
   const queueHeadDisplayFallbackLogSigRef = useRef('');
   useLayoutEffect(() => {
@@ -40481,6 +40910,99 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       : notificationQueueShellDisplayKindResolved === 'incoming'
         ? 'shell-incoming'
         : 'no-shell-branch';
+
+  const hasRenderableOverlayAtRenderBranch =
+    Boolean(ownerPrimaryStableIncomingBan?.id) ||
+    ownerPrimaryHeldUserCard != null ||
+    showDirectOverboardLayer ||
+    checkOverlayMounted ||
+    incomingShellHydrating ||
+    (notificationQueueShellKind === 'check' && !!ownerPrimaryCheckBan?.id) ||
+    (notificationQueueShellKind === 'result' &&
+      !!ownerPrimaryDisplayResultForShell) ||
+    (notificationQueueShellKind === 'incoming' &&
+      !!incomingCardDisplayBan &&
+      incomingCardFullyReady);
+
+  ownerFalseRenderProbeQueueRef.current.push({
+    kind: 'decision',
+    input: {
+      decisionName: 'renderBranch',
+      selector: 'queueHeadLifecycleRenderBranch',
+      source: 'Providers.render-branch',
+      reason: `renderBranch=${queueHeadLifecycleRenderBranch}`,
+      calledFrom: 'ProvidersBody:queueHeadLifecycleRenderBranch',
+      decisionResult: queueHeadLifecycleRenderBranch,
+      wouldChooseNoShell: queueHeadLifecycleRenderBranch === 'no-shell-branch',
+      wouldRenderLobby: queueHeadLifecycleRenderBranch === 'lobby',
+      snapshot: buildOwnerFalseActiveCheckSnapshotPatchRef.current({
+        shellKind: notificationQueueShellDisplayKindResolved,
+        renderBranch: queueHeadLifecycleRenderBranch,
+        returnBranch: queueHeadLifecycleRenderBranch,
+        notificationOverlayVisible,
+        queueClaimsNotificationScreen:
+          ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+      }),
+      decisionInputs: {
+        queueHeadLifecycleRenderBranch,
+        queueShellRendersResultOverlay,
+        shellKind: notificationQueueShellDisplayKindResolved,
+        effectiveShellKind: effectiveNotificationQueueShellKind,
+        hasRenderableOverlay: hasRenderableOverlayAtRenderBranch,
+        checkShellBanId: checkShellBanId ?? null,
+        notificationOverlayVisible,
+      },
+    },
+  });
+  if (queueHeadLifecycleRenderBranch === 'no-shell-branch') {
+    ownerFalseRenderProbeQueueRef.current.push({
+      kind: 'branch',
+      input: {
+        decisionName: 'renderBranch',
+        branchTaken: 'choose-no-shell',
+        source: 'Providers.render-branch',
+        reason: `renderBranch=${queueHeadLifecycleRenderBranch}`,
+        calledFrom: 'ProvidersBody:queueHeadLifecycleRenderBranch',
+        decisionInputsAfter: {
+          queueHeadLifecycleRenderBranch,
+          queueShellRendersResultOverlay,
+          shellKind: notificationQueueShellDisplayKindResolved,
+          effectiveShellKind: effectiveNotificationQueueShellKind,
+          hasRenderableOverlay: hasRenderableOverlayAtRenderBranch,
+        },
+      },
+    });
+  }
+
+  const queueClaimsNotificationScreenAtRenderBranch =
+    ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current;
+  ownerFalseRenderProbeQueueRef.current.push({
+    kind: 'decision',
+    input: {
+      decisionName: 'queueClaimsNotificationScreen',
+      selector: 'queueClaimsNotificationScreen',
+      source: 'Providers.render-branch',
+      reason: 'queue-claims-notification-screen-read',
+      calledFrom: 'ProvidersBody:queueClaimsNotificationScreen',
+      decisionResult: queueClaimsNotificationScreenAtRenderBranch,
+      wouldReleaseNotificationScreen:
+        ownerPrimaryShellQueueLen === 0 && !queueLobbyGuardActiveRef.current,
+      snapshot: buildOwnerFalseActiveCheckSnapshotPatchRef.current({
+        shellKind: notificationQueueShellDisplayKindResolved,
+        renderBranch: queueHeadLifecycleRenderBranch,
+        returnBranch: queueHeadLifecycleRenderBranch,
+        notificationOverlayVisible,
+        queueClaimsNotificationScreen: queueClaimsNotificationScreenAtRenderBranch,
+      }),
+      decisionInputs: {
+        queueClaimsNotificationScreen: queueClaimsNotificationScreenAtRenderBranch,
+        ownerPrimaryShellQueueLen,
+        queueLobbyGuardActive: queueLobbyGuardActiveRef.current,
+        shouldReleaseNotificationScreen:
+          ownerPrimaryShellQueueLen === 0 && !queueLobbyGuardActiveRef.current,
+      },
+    },
+  });
 
   {
     const ownerForNextOverlay = ownerShadowRef.current.getState();
@@ -41382,6 +41904,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         'event' | 'reason' | 'visualQueueDimSession' | 'dimVisible'
       >,
     ) => {
+      probeOwnerFalseWhileActiveCheckRef.current({
+        decisionName: 'releaseVisualDimSession',
+        selector: 'visualQueueDimSession',
+        source: 'commitVisualQueueDimSessionRelease',
+        reason,
+        calledFrom: 'commitVisualQueueDimSessionRelease',
+        decisionResult: false,
+        wouldEndDrain: true,
+        snapshot: buildOwnerFalseActiveCheckSnapshotPatchRef.current({
+          visualQueueDimSessionLive: visualQueueDimSessionRef.current,
+        }),
+        decisionInputs: {
+          releaseReason: reason,
+          visualQueueDimSessionBefore: visualQueueDimSessionRef.current,
+          shouldEndDrain: true,
+          dimVisibleBefore: trace.dimVisible ?? null,
+        },
+      });
       clearVisualQueueDimReleaseTimer('commit-release');
       visualQueueDimSessionRef.current = false;
       setVisualQueueDimSession(false);
@@ -41392,6 +41932,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         visualQueueDimSession: false,
         dimVisible: false,
       });
+      const releaseBranchSnap =
+        buildOwnerFalseActiveCheckSnapshotPatchRef.current({
+          visualQueueDimSessionLive: false,
+        });
+      const releaseStoredTrace = getStoredOwnerFalseWhileActiveCheckDecisionTrace(
+        'releaseVisualDimSession',
+        releaseBranchSnap.checkBanId,
+      );
+      if (releaseStoredTrace) {
+        noteOwnerFalseWhileActiveCheckBranchTakenRef.current({
+          decisionName: 'releaseVisualDimSession',
+          branchTaken: 'release-visual-dim-session',
+          source: 'commitVisualQueueDimSessionRelease',
+          reason,
+          calledFrom: 'commitVisualQueueDimSessionRelease',
+          snapshotBefore: releaseStoredTrace,
+          snapshotAfter: releaseBranchSnap,
+          decisionInputsAfter: {
+            releaseReason: reason,
+            visualQueueDimSessionAfter: false,
+            dimVisibleAfter: false,
+          },
+        });
+      }
     },
     [clearVisualQueueDimReleaseTimer],
   );
@@ -41974,12 +42538,53 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         };
       },
     });
+    registerOwnerFalseWhileActiveCheckHooks({
+      readSnapshot: () => {
+        const snap = shellStuckDiagSnapshotRef.current;
+        const owner = ownerShadowRef.current.getState();
+        return {
+          ownerHasPendingNotificationChain:
+            owner.queue.length > 0 || owner.pending.length > 0,
+          legacyHasPendingNotificationChain:
+            hasPendingNotificationChainFnRef.current(),
+          ...buildOwnerFalseWhileActiveCheckOwnerDisplayFields(owner),
+          ...buildOwnerFalseWhileActiveCheckQueueFields({
+            ownerQueue: owner.queue,
+            ownerPending: owner.pending,
+            overlayQueueRef: overlayQueueRef.current,
+            overlayQueueState: overlayQueue,
+          }),
+          shellKind: snap?.shellKind ?? notificationQueueShellDisplayKindResolved,
+          renderBranch: snap?.renderBranch ?? queueHeadLifecycleRenderBranch,
+          returnBranch: snap?.renderBranch ?? queueHeadLifecycleRenderBranch,
+          notificationOverlayVisible:
+            notificationOverlayVisibleDiagRef.current ?? null,
+          queueClaimsNotificationScreen:
+            ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+          visualQueueDimSessionLive:
+            visualQueueDimSessionRef.current || visualQueueDimSession,
+          explicitDrainReason: getExplicitNotificationDrainSource(),
+          drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+          notificationChainTransitioning:
+            notificationChainTransitioningRef.current,
+          sendFlowOpening:
+            composeBlocksNotificationHost || sendSuccessCardActive,
+          lobbyVisible: lobbyOpenRef.current,
+          lobbyMounted: lobbyOpenRef.current,
+          checkPresentInQueues: false,
+          checkBanId: null,
+          checkOverlayKey: null,
+        };
+      },
+    });
     return () => {
       registerShellStuckOnResultWhileOwnerAdvancedHooks(null);
       registerShellKindWriteTraceHooks(null);
       registerQueueResultOverlayClaimTraceHooks(null);
       registerNextOverlayAfterResultReleaseHooks(null);
       registerShellCheckLifecycleTraceHooks(null);
+      registerOwnerFalseWhileActiveCheckHooks(null);
     };
   }, [
     activeOverlayKind,
