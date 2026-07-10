@@ -780,6 +780,12 @@ import {
   stageCheckOverlayParentRenderSnapshot,
 } from '@/lib/check-overlay-parent-render-trace-debug';
 import {
+  buildCheckOverlayParentReturnBranchContext,
+  createCheckOverlayParentBranchPriorityCollector,
+  observeCheckOverlayParentReturnBranch,
+  type CheckOverlayParentBranchPriorityCollector,
+} from '@/lib/check-overlay-parent-return-branch-trace-debug';
+import {
   probeDirectCheckOverlayShouldRender,
   probeQueueShellCheckOverlayShouldRender,
   probeQueueShellCheckWithoutBanShouldRender,
@@ -44505,20 +44511,96 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     'providers-body-main-jsx-return',
   );
 
+  const ownerForReturnBranchDiag = ownerShadowRef.current.getState();
+  const returnBranchDiagQueues = buildCheckOverlayPayloadQueueFields({
+    ownerQueue: ownerForReturnBranchDiag.queue,
+    ownerPending: ownerForReturnBranchDiag.pending,
+    overlayQueueRef: overlayQueueRef.current,
+    overlayQueueState: overlayQueue,
+  });
+  const checkOverlayParentReturnBranchContext =
+    buildCheckOverlayParentReturnBranchContext({
+      shellKind: notificationQueueShellDisplayKindResolved,
+      renderBranch: queueHeadLifecycleRenderBranch,
+      returnBranch: queueHeadLifecycleRenderBranch,
+      activeKind: activeOverlayKind,
+      ownerDisplayKind: resolveOwnerDisplayKindBanId(ownerForReturnBranchDiag.display)
+        .displayKind,
+      currentHeadKind:
+        ownerForReturnBranchDiag.queue[0]?.kind ??
+        ownerForReturnBranchDiag.active.kind,
+      notificationOverlayVisible,
+      queueClaimsNotificationScreen:
+        ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+      activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+      visualQueueDimSessionLive:
+        visualQueueDimSessionRef.current || visualQueueDimSession,
+      checkBanId: checkBanForShell?.id ?? ownerPrimaryCheckBan?.id ?? null,
+      resultBanId: ownerRenderResultPayload?.id ?? activeResultPayload?.id ?? null,
+      incomingBanId:
+        incomingBanForShell?.id ??
+        ownerPrimaryStableIncomingBan?.id ??
+        null,
+      actualCheckOverlayElementCreated:
+        queueShellWillActuallyRenderCheckOverlay ||
+        directWillActuallyRenderCheckOverlay,
+      queues: returnBranchDiagQueues,
+    });
+  const commitReturnBranchPriority = (
+    collector: CheckOverlayParentBranchPriorityCollector,
+    source: string,
+    calledFrom: string,
+  ) => {
+    collector.commit({
+      context: checkOverlayParentReturnBranchContext,
+      source,
+      calledFrom,
+    });
+  };
+
   return (
     <AppContext.Provider value={contextValue}>
       <RouteOverlayBootPriorityMarker active={routeOverlayAboveBoot} />
       <ShellErrorBoundary name="app">
         {children}
         {(() => {
+          const overlayRootBranchCollector =
+            createCheckOverlayParentBranchPriorityCollector(
+              'ProvidersBody.overlay-root',
+            );
           const overlaySessionOpen =
             !showDirectOverboardLayer || visualQueueDimSessionLive;
+          const overlaySessionOpenReachIndex =
+            overlayRootBranchCollector.markBranchReached('overlay-session-open');
+          overlayRootBranchCollector.markBranchEvaluated(
+            'overlay-session-open',
+            overlaySessionOpen,
+          );
           if (!overlaySessionOpen) {
             logProvidersReturnBranch(
               'overlay-session-fragment-null',
               showDirectOverboardLayer
                 ? 'showDirectOverboardLayer-without-visualQueueDimSessionLive'
                 : 'overlay-session-closed',
+            );
+            overlayRootBranchCollector.markBranchSelected('overlay-session-closed');
+            observeCheckOverlayParentReturnBranch({
+              pathKey: 'overlay-root',
+              source: 'Providers.overlay-session-fragment',
+              reason: showDirectOverboardLayer
+                ? 'showDirectOverboardLayer-without-visualQueueDimSessionLive'
+                : 'overlay-session-closed',
+              calledFrom: 'ProvidersBody:overlay-session-fragment',
+              currentReturnedBranch: 'overlay-session-closed',
+              branchPriorityIndex: overlaySessionOpenReachIndex,
+              branchSourceFunction: 'ProvidersBody:overlay-session-fragment',
+              branchSourceLine: 'overlaySessionOpen',
+              context: checkOverlayParentReturnBranchContext,
+            });
+            commitReturnBranchPriority(
+              overlayRootBranchCollector,
+              'Providers.overlay-root',
+              'ProvidersBody:overlay-session-fragment',
             );
             return null;
           }
@@ -44529,8 +44611,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           return (
           <>
             {(() => {
+              const directCheckBranchCollector =
+                createCheckOverlayParentBranchPriorityCollector(
+                  'ProvidersBody.direct-check-path',
+                );
               const directShouldRenderCheckOverlay =
                 showCheckOverlayDirect && Boolean(ownerPrimaryCheckBan);
+              const directCheckBranchReachIndex =
+                directCheckBranchCollector.markBranchReached('check-overlay-direct');
+              directCheckBranchCollector.markBranchEvaluated(
+                'check-overlay-direct',
+                directShouldRenderCheckOverlay,
+              );
               const directCheckParentSnapshot =
                 buildCheckOverlayParentRenderSnapshot({
                   parentComponent: 'ProvidersBody/check-overlay-direct',
@@ -44566,6 +44658,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   'check-overlay-direct-emit',
                   'showCheckOverlayDirect-with-ban',
                 );
+                directCheckBranchCollector.markBranchSelected('check-overlay-direct');
+                observeCheckOverlayParentReturnBranch({
+                  pathKey: 'direct-check',
+                  source: 'Providers.check-overlay-direct',
+                  reason: 'check-overlay-direct-emit',
+                  calledFrom: 'ProvidersBody:check-overlay-direct',
+                  currentReturnedBranch: 'check-overlay-direct',
+                  branchPriorityIndex: directCheckBranchReachIndex,
+                  branchSourceFunction: 'ProvidersBody:check-overlay-direct',
+                  branchSourceLine: 'showCheckOverlayDirect&&ownerPrimaryCheckBan',
+                  context: checkOverlayParentReturnBranchContext,
+                });
+                commitReturnBranchPriority(
+                  directCheckBranchCollector,
+                  'Providers.direct-check-path',
+                  'ProvidersBody:check-overlay-direct',
+                );
                 return (
               <ChallengeErrorBoundary
                 name="check-deeplink-direct"
@@ -44600,9 +44709,68 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   ? 'showCheckOverlayDirect-without-ban'
                   : 'showCheckOverlayDirect-false',
               );
+              const directNullReachIndex =
+                directCheckBranchCollector.markBranchReached('null-return');
+              directCheckBranchCollector.markBranchSelected('null-return');
+              observeCheckOverlayParentReturnBranch({
+                pathKey: 'direct-check',
+                source: 'Providers.check-overlay-direct',
+                reason: showCheckOverlayDirect
+                  ? 'check-overlay-direct-null'
+                  : 'check-overlay-direct-skipped',
+                calledFrom: 'ProvidersBody:check-overlay-direct-null',
+                currentReturnedBranch: 'null-return',
+                branchPriorityIndex: directNullReachIndex,
+                branchSourceFunction: 'ProvidersBody:check-overlay-direct-null',
+                branchSourceLine: 'direct-check-fallback-null',
+                context: checkOverlayParentReturnBranchContext,
+              });
+              commitReturnBranchPriority(
+                directCheckBranchCollector,
+                'Providers.direct-check-path',
+                'ProvidersBody:check-overlay-direct-null',
+              );
               return null;
             })()}
-            {showReplyIncomingOverlayDirect && replyDirectOverlayBan ? (
+            {(() => {
+              if (!showReplyIncomingOverlayDirect) {
+                return null;
+              }
+              const incomingReplyDirectBranchCollector =
+                createCheckOverlayParentBranchPriorityCollector(
+                  'ProvidersBody.incoming-reply-direct',
+                );
+              const incomingReplyDirectReachIndex =
+                incomingReplyDirectBranchCollector.markBranchReached(
+                  'incoming-reply-direct',
+                );
+              const incomingReplyDirectCondition = Boolean(replyDirectOverlayBan);
+              incomingReplyDirectBranchCollector.markBranchEvaluated(
+                'incoming-reply-direct',
+                incomingReplyDirectCondition,
+              );
+              if (replyDirectOverlayBan) {
+                incomingReplyDirectBranchCollector.markBranchSelected(
+                  'incoming-reply-direct',
+                );
+                observeCheckOverlayParentReturnBranch({
+                  pathKey: 'incoming-reply-direct',
+                  source: 'Providers.incoming-reply-direct',
+                  reason: 'incoming-reply-direct-emit',
+                  calledFrom: 'ProvidersBody:incoming-reply-direct',
+                  currentReturnedBranch: 'incoming-reply-direct',
+                  branchPriorityIndex: incomingReplyDirectReachIndex,
+                  branchSourceFunction: 'ProvidersBody:incoming-reply-direct',
+                  branchSourceLine:
+                    'showReplyIncomingOverlayDirect&&replyDirectOverlayBan',
+                  context: checkOverlayParentReturnBranchContext,
+                });
+                commitReturnBranchPriority(
+                  incomingReplyDirectBranchCollector,
+                  'Providers.incoming-reply-direct',
+                  'ProvidersBody:incoming-reply-direct',
+                );
+                return (
               <ChallengeErrorBoundary
                 name="incoming-reply-direct"
                 onRecover={() => dismissIncoming()}
@@ -44614,16 +44782,69 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   visibilityReason={ownerIncomingReplyDirectVisibility.reason}
                 />
               </ChallengeErrorBoundary>
-            ) : null}
+                );
+              }
+              incomingReplyDirectBranchCollector.markBranchSelected('null-return');
+              observeCheckOverlayParentReturnBranch({
+                pathKey: 'incoming-reply-direct',
+                source: 'Providers.incoming-reply-direct',
+                reason: 'incoming-reply-direct-null',
+                calledFrom: 'ProvidersBody:incoming-reply-direct-null',
+                currentReturnedBranch: 'null-return',
+                branchPriorityIndex: incomingReplyDirectReachIndex,
+                branchSourceFunction: 'ProvidersBody:incoming-reply-direct-null',
+                branchSourceLine: 'showReplyIncomingOverlayDirect-without-ban',
+                context: checkOverlayParentReturnBranchContext,
+              });
+              commitReturnBranchPriority(
+                incomingReplyDirectBranchCollector,
+                'Providers.incoming-reply-direct',
+                'ProvidersBody:incoming-reply-direct-null',
+              );
+              return null;
+            })()}
             {(() => {
+              const queueShellBranchCollector =
+                createCheckOverlayParentBranchPriorityCollector(
+                  'ProvidersBody.queue-shell-path',
+                );
               const globalOverlayHostEmit =
                 !composeBlocksNotificationHost && globalOverlayHostActive;
+              const globalOverlayHostEmitReachIndex =
+                queueShellBranchCollector.markBranchReached(
+                  'global-overlay-host-emit',
+                );
+              queueShellBranchCollector.markBranchEvaluated(
+                'global-overlay-host-emit',
+                globalOverlayHostEmit,
+              );
               if (!globalOverlayHostEmit) {
                 logProvidersReturnBranch(
                   'global-overlay-host-null',
                   composeBlocksNotificationHost
                     ? 'composeBlocksNotificationHost'
                     : 'globalOverlayHostActive-false',
+                );
+                queueShellBranchCollector.markBranchSelected(
+                  'global-host-not-emitting',
+                );
+                observeCheckOverlayParentReturnBranch({
+                  pathKey: 'queue-shell',
+                  source: 'Providers.global-overlay-host',
+                  reason: composeBlocksNotificationHost
+                    ? 'composeBlocksNotificationHost'
+                    : 'globalOverlayHostActive-false',
+                  calledFrom: 'ProvidersBody:global-overlay-host-null',
+                  currentReturnedBranch: 'global-host-not-emitting',
+                  branchPriorityIndex: globalOverlayHostEmitReachIndex,
+                  branchSourceFunction: 'ProvidersBody:global-overlay-host',
+                  branchSourceLine: 'globalOverlayHostEmit',
+                  context: checkOverlayParentReturnBranchContext,
+                });
+                commitReturnBranchPriority(
+                  queueShellBranchCollector,
+                  'Providers.queue-shell-path',
+                  'ProvidersBody:global-overlay-host-null',
                 );
                 return null;
               }
@@ -44664,10 +44885,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               }
             >
               {(() => {
+                const visualShieldReachIndex =
+                  queueShellBranchCollector.markBranchReached(
+                    'overlay-visual-shield-card-content-mounted',
+                  );
+                queueShellBranchCollector.markBranchEvaluated(
+                  'overlay-visual-shield-card-content-mounted',
+                  overlayVisualShieldCardContentMounted,
+                );
                 if (!overlayVisualShieldCardContentMounted) {
                   logProvidersReturnBranch(
                     'notification-queue-shell-null',
                     'overlayVisualShieldCardContentMounted-false',
+                  );
+                  queueShellBranchCollector.markBranchSelected(
+                    'visual-shield-blocked',
+                  );
+                  observeCheckOverlayParentReturnBranch({
+                    pathKey: 'queue-shell',
+                    source: 'Providers.notification-queue-shell-gate',
+                    reason: 'overlayVisualShieldCardContentMounted-false',
+                    calledFrom: 'ProvidersBody:notification-queue-shell-null',
+                    currentReturnedBranch: 'visual-shield-blocked',
+                    branchPriorityIndex: visualShieldReachIndex,
+                    branchSourceFunction:
+                      'ProvidersBody:notification-queue-shell-gate',
+                    branchSourceLine: 'overlayVisualShieldCardContentMounted',
+                    context: checkOverlayParentReturnBranchContext,
+                  });
+                  commitReturnBranchPriority(
+                    queueShellBranchCollector,
+                    'Providers.queue-shell-path',
+                    'ProvidersBody:notification-queue-shell-null',
                   );
                   return null;
                 }
@@ -44833,6 +45082,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     });
                   }
 
+                  const resultOverlayReachIndex =
+                    queueShellBranchCollector.markBranchReached('result-overlay');
+                  queueShellBranchCollector.markBranchEvaluated(
+                    'result-overlay',
+                    queueShellRendersResultOverlay,
+                  );
                   if (queueShellRendersResultOverlay) {
                     if (notificationQueueShellDisplayKindResolved === 'check') {
                       observeCheckOverlayParentRenderDecision({
@@ -44854,6 +45109,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                       'queue-shell-children-result',
                       'queueShellRendersResultOverlay',
                     );
+                    queueShellBranchCollector.markBranchSelected('result-overlay');
+                    observeCheckOverlayParentReturnBranch({
+                      pathKey: 'queue-shell',
+                      source: 'Providers.queue-shell-children',
+                      reason: 'queueShellRendersResultOverlay',
+                      calledFrom: 'ProvidersBody:queue-shell-children-result',
+                      currentReturnedBranch: 'result-overlay',
+                      branchPriorityIndex: resultOverlayReachIndex,
+                      branchSourceFunction:
+                        'ProvidersBody:queue-shell-children-result',
+                      branchSourceLine: 'queueShellRendersResultOverlay',
+                      context: checkOverlayParentReturnBranchContext,
+                    });
+                    commitReturnBranchPriority(
+                      queueShellBranchCollector,
+                      'Providers.queue-shell-path',
+                      'ProvidersBody:queue-shell-children-result',
+                    );
                     return (
                   <ChallengeErrorBoundary
                     name="result"
@@ -44872,6 +45145,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     );
                   }
 
+                  const checkOverlayReachIndex =
+                    queueShellBranchCollector.markBranchReached('check-overlay');
+                  const queueShellCheckBranchCondition =
+                    !queueResultOverlayClaimed &&
+                    notificationQueueShellDisplayKindResolved === 'check' &&
+                    !showCheckOverlayDirect &&
+                    checkBanForShell;
+                  queueShellBranchCollector.markBranchEvaluated(
+                    'check-overlay',
+                    Boolean(queueShellCheckBranchCondition),
+                  );
                   if (
                     !queueResultOverlayClaimed &&
                   notificationQueueShellDisplayKindResolved === 'check' &&
@@ -44891,6 +45175,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                       'queue-shell-children-check',
                       'notificationQueueShellDisplayKindResolved-check',
                     );
+                    queueShellBranchCollector.markBranchSelected('check-overlay');
+                    observeCheckOverlayParentReturnBranch({
+                      pathKey: 'queue-shell',
+                      source: 'Providers.queue-shell-children',
+                      reason: 'queue-shell-children-check',
+                      calledFrom: 'ProvidersBody:queue-shell-children-check',
+                      currentReturnedBranch: 'check-overlay',
+                      branchPriorityIndex: checkOverlayReachIndex,
+                      branchSourceFunction:
+                        'ProvidersBody:queue-shell-children-check',
+                      branchSourceLine: 'queueShellCheckBranchCondition',
+                      context: checkOverlayParentReturnBranchContext,
+                    });
+                    commitReturnBranchPriority(
+                      queueShellBranchCollector,
+                      'Providers.queue-shell-path',
+                      'ProvidersBody:queue-shell-children-check',
+                    );
                     return (
                   <ChallengeErrorBoundary
                     name="check"
@@ -44906,6 +45208,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     );
                   }
 
+                  const incomingOverlayReachIndex =
+                    queueShellBranchCollector.markBranchReached('incoming-overlay');
+                  const queueShellIncomingBranchCondition =
+                    !queueResultOverlayClaimed &&
+                    notificationQueueShellDisplayKindResolved === 'incoming' &&
+                    (incomingBanForShell ?? ownerPrimaryStableIncomingBan);
+                  queueShellBranchCollector.markBranchEvaluated(
+                    'incoming-overlay',
+                    Boolean(queueShellIncomingBranchCondition),
+                  );
                   if (
                     !queueResultOverlayClaimed &&
                   notificationQueueShellDisplayKindResolved === 'incoming' &&
@@ -44930,6 +45242,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     logProvidersReturnBranch(
                       'queue-shell-children-incoming',
                       'notificationQueueShellDisplayKindResolved-incoming',
+                    );
+                    queueShellBranchCollector.markBranchSelected('incoming-overlay');
+                    observeCheckOverlayParentReturnBranch({
+                      pathKey: 'queue-shell',
+                      source: 'Providers.queue-shell-children',
+                      reason: 'queue-shell-children-incoming',
+                      calledFrom: 'ProvidersBody:queue-shell-children-incoming',
+                      currentReturnedBranch: 'incoming-overlay',
+                      branchPriorityIndex: incomingOverlayReachIndex,
+                      branchSourceFunction:
+                        'ProvidersBody:queue-shell-children-incoming',
+                      branchSourceLine: 'queueShellIncomingBranchCondition',
+                      context: checkOverlayParentReturnBranchContext,
+                    });
+                    commitReturnBranchPriority(
+                      queueShellBranchCollector,
+                      'Providers.queue-shell-path',
+                      'ProvidersBody:queue-shell-children-incoming',
                     );
                     return (
                   <ChallengeErrorBoundary
@@ -44968,6 +45298,37 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   logProvidersReturnBranch(
                     'queue-shell-children-null',
                     'no-queue-shell-child-branch',
+                  );
+                  const shellCheckWithoutPayload =
+                    notificationQueueShellDisplayKindResolved === 'check' &&
+                    !showCheckOverlayDirect &&
+                    !checkBanForShell;
+                  const queueShellChildrenNullBranch = shellCheckWithoutPayload
+                    ? 'shell-check-without-payload'
+                    : 'null-return';
+                  const queueShellChildrenNullReachIndex =
+                    queueShellBranchCollector.markBranchReached(
+                      queueShellChildrenNullBranch,
+                    );
+                  queueShellBranchCollector.markBranchSelected(
+                    queueShellChildrenNullBranch,
+                  );
+                  observeCheckOverlayParentReturnBranch({
+                    pathKey: 'queue-shell',
+                    source: 'Providers.queue-shell-children',
+                    reason: 'queue-shell-children-null',
+                    calledFrom: 'ProvidersBody:queue-shell-children-null',
+                    currentReturnedBranch: queueShellChildrenNullBranch,
+                    branchPriorityIndex: queueShellChildrenNullReachIndex,
+                    branchSourceFunction:
+                      'ProvidersBody:queue-shell-children-null',
+                    branchSourceLine: queueShellChildrenNullBranch,
+                    context: checkOverlayParentReturnBranchContext,
+                  });
+                  commitReturnBranchPriority(
+                    queueShellBranchCollector,
+                    'Providers.queue-shell-path',
+                    'ProvidersBody:queue-shell-children-null',
                   );
                   return null;
                 })()}

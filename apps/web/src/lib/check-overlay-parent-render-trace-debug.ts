@@ -11,6 +11,7 @@ import {
   type ShellCheckActionMarkers,
 } from '@/lib/shell-check-lifecycle-trace-debug';
 import type { CheckOverlayPayloadLifecycleContext } from '@/lib/check-overlay-payload-lifecycle-trace-debug';
+import { buildCheckOverlayParentReturnBranchTimelineFields } from '@/lib/check-overlay-parent-return-branch-trace-debug';
 
 export type CheckOverlayParentRenderSnapshot = CheckOverlayPayloadLifecycleContext & {
   parentComponent: string;
@@ -448,6 +449,7 @@ function maybeEmitStoppedRendering(
     actualCheckOverlayElementCreated: current.actualCheckOverlayElementCreated,
     previousActualCheckOverlayElementCreated:
       previous.actualCheckOverlayElementCreated,
+    ...buildCheckOverlayParentReturnBranchTimelineFields(),
   });
 }
 
@@ -522,6 +524,12 @@ function maybeEmitGoToBansAfterCheckUnmountTimeline(): void {
     hookTs != null ? hookTs - unmountTimestamp : null;
   const deltaHookToImportMs =
     hookTs != null && importTs != null ? importTs - hookTs : null;
+  const parentReturnBranchTimeline =
+    buildCheckOverlayParentReturnBranchTimelineFields();
+  const deltaParentReturnBranchToUnmountMs =
+    parentReturnBranchTimeline != null
+      ? unmountTimestamp - parentReturnBranchTimeline.parentReturnBranchTimestamp
+      : null;
 
   emitClientDiagTrace('GO_TO_BANS_AFTER_CHECK_UNMOUNT_TIMELINE_TRACE', {
     checkBanId: unmountTimelineAnchor.checkBanId,
@@ -531,6 +539,8 @@ function maybeEmitGoToBansAfterCheckUnmountTimeline(): void {
     importRequestedTimestamp,
     deltaUnmountToHookMs,
     deltaHookToImportMs,
+    deltaParentReturnBranchToUnmountMs,
+    ...parentReturnBranchTimeline,
     handlerName:
       goToBansHookTimelineAnchor?.handlerName ??
       goToBansImportTimelineAnchor?.handlerName ??

@@ -13,6 +13,7 @@ import {
   type ShellCheckActionMarkers,
 } from '@/lib/shell-check-lifecycle-trace-debug';
 import { anchorCheckOverlayUnmountForGoToBansTimeline } from '@/lib/check-overlay-parent-render-trace-debug';
+import { buildCheckOverlayParentReturnBranchTimelineFields } from '@/lib/check-overlay-parent-return-branch-trace-debug';
 import {
   diagTraceNow,
   emitClientDiagTrace,
@@ -390,6 +391,7 @@ function maybeEmitUnexpectedDisappear(
     checkOverlayKey: assessment.checkOverlayKey,
     previousCheckBanId: assessment.previousCheckBanId,
     previousCheckOverlayKey: assessment.previousCheckOverlayKey,
+    ...buildCheckOverlayParentReturnBranchTimelineFields(),
   });
 
   if (disappearType === 'unmounted') {
