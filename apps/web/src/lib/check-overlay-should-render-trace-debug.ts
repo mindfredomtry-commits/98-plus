@@ -586,6 +586,9 @@ function buildActualRenderFieldsFromProbe(
 export function probeQueueShellCheckOverlayShouldRender(
   input: ProbeQueueShellCheckOverlayShouldRenderInput,
 ): void {
+  if (!isClientDiagTraceEnvironment()) return;
+  return;
+
   const gateOperands = buildGateOperandsFromProbe(input);
   const displayKindIsCheck = gateOperands.displayKindIsCheck;
   const checkBanForShellPresent = gateOperands.checkBanForShellPresent;
@@ -659,6 +662,9 @@ export type ProbeQueueShellCheckWithoutBanShouldRenderInput = Omit<
 export function probeQueueShellCheckWithoutBanShouldRender(
   input: ProbeQueueShellCheckWithoutBanShouldRenderInput,
 ): void {
+  if (!isClientDiagTraceEnvironment()) return;
+  return;
+
   const gateOperands = buildGateOperandsFromProbe(input);
   const displayKindIsCheck = gateOperands.displayKindIsCheck;
   const checkBanForShellPresent = gateOperands.checkBanForShellPresent;
@@ -755,6 +761,9 @@ export type ProbeDirectCheckOverlayShouldRenderInput = {
 export function probeDirectCheckOverlayShouldRender(
   input: ProbeDirectCheckOverlayShouldRenderInput,
 ): void {
+  if (!isClientDiagTraceEnvironment()) return;
+  return;
+
   const ownerPrimaryCheckBanPresent = Boolean(input.ownerPrimaryCheckBan);
   const gateOperands: CheckOverlayShouldRenderGateOperands = {
     overlaySessionOpen: input.overlaySessionOpen,

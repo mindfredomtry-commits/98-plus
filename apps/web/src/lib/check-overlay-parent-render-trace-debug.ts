@@ -249,6 +249,8 @@ export function observeCheckOverlayParentRenderDecision(
   input: CheckOverlayParentRenderDecisionInput,
 ): void {
   if (!isClientDiagTraceEnvironment()) return;
+  return;
+
   if (!isCheckShellContext(input.snapshot)) return;
 
   const sig = [
@@ -455,6 +457,7 @@ function maybeEmitStoppedRendering(
 
 export function flushCheckOverlayParentRenderTraces(): void {
   if (!isClientDiagTraceEnvironment()) return;
+  return;
 
   const current = pendingSnapshot ?? buildFallbackCurrentSnapshot();
   const markers = readShellCheckActionMarkers();

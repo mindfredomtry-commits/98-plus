@@ -1,11 +1,7 @@
 'use client';
 
 import { checkOverlayKey } from '@/lib/overlay-queue';
-import {
-  diagTraceNow,
-  emitClientDiagTrace,
-  isClientDiagTraceEnvironment,
-} from '@/lib/diag-trace-client';
+import { isClientDiagTraceEnvironment } from '@/lib/diag-trace-client';
 import {
   readShellCheckActionMarkers,
   type ShellCheckActionMarkers,
@@ -32,15 +28,15 @@ export type CheckOverlayParentReturnPathKey =
   | 'overlay-root'
   | 'incoming-reply-direct';
 
-export type CheckOverlayParentEarlyReturnType =
-  | 'result-branch-won'
+export type CheckOverlayRealRootCause =
   | 'overlay-session-closed'
-  | 'host-gate-failed'
-  | 'visual-shield-gate-failed'
-  | 'no-shell-branch'
-  | 'null-return'
-  | 'parent-unmounted'
-  | 'other';
+  | 'global-host-not-emitting'
+  | 'visual-shield-blocked'
+  | 'result-overlay-won'
+  | 'incoming-overlay-won'
+  | 'missing-check-payload'
+  | 'check-never-reached'
+  | 'unknown';
 
 export type CheckOverlayParentReturnBranchContext = {
   shellKind: string | null;
@@ -63,20 +59,17 @@ export type CheckOverlayParentReturnBranchContext = {
   queues: CheckOverlayShouldRenderQueueFields;
 };
 
-export type CheckOverlayParentReturnBranchSnapshot = {
-  timestamp: number;
-  pathKey: CheckOverlayParentReturnPathKey;
-  currentReturnedBranch: CheckOverlayParentReturnedBranch;
-  branchPriorityIndex: number;
-  branchSourceFunction: string;
-  branchSourceLine: string;
-  context: CheckOverlayParentReturnBranchContext;
-};
-
 type BranchEvaluation = {
   branch: string;
   conditionResult: boolean;
   reachIndex: number;
+};
+
+export type CheckOverlayParentBranchPrioritySnapshot = {
+  reachedBranches: string[];
+  evaluatedBranches: string[];
+  selectedBranch: string | null;
+  firstMatchedBranch: string | null;
 };
 
 export type CheckOverlayParentBranchPriorityCollector = {
@@ -85,6 +78,7 @@ export type CheckOverlayParentBranchPriorityCollector = {
   markBranchEvaluated: (branch: string, conditionResult: boolean) => void;
   markBranchSelected: (branch: string) => void;
   getBranchReachIndex: (branch: string) => number;
+  getSnapshot: () => CheckOverlayParentBranchPrioritySnapshot;
   commit: (input: {
     context: CheckOverlayParentReturnBranchContext;
     source: string;
@@ -96,124 +90,88 @@ const previousBranchByPathKey = new Map<
   CheckOverlayParentReturnPathKey,
   CheckOverlayParentReturnedBranch | null
 >();
-const previousSnapshotByPathKey = new Map<
-  CheckOverlayParentReturnPathKey,
-  CheckOverlayParentReturnBranchSnapshot
->();
-const earlyReturnEmittedKeys = new Set<string>();
-const branchPrioritySigByScope = new Map<string, string>();
+const emittedRootCauseKeys = new Set<string>();
 
-let lastReturnBranchChangeAnchor: {
-  timestamp: number;
-  pathKey: CheckOverlayParentReturnPathKey;
-  previousReturnedBranch: CheckOverlayParentReturnedBranch | null;
-  currentReturnedBranch: CheckOverlayParentReturnedBranch;
-  checkBanId: string | null;
-  branchSourceFunction: string;
-  branchSourceLine: string;
-} | null = null;
-
-function captureStack(label: string): string {
-  try {
-    return new Error(label).stack ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function hasExpectedExitMarkers(markers: ShellCheckActionMarkers): boolean {
-  return (
-    markers.userPressedCheckYes ||
-    markers.userPressedCheckNo ||
-    markers.submitCheckAnswerStarted ||
-    markers.checkDismissStarted ||
-    markers.checkConsumed ||
-    markers.resultArrivedAfterCheck
-  );
-}
-
-function isCheckOverlayBranch(
-  branch: CheckOverlayParentReturnedBranch,
-): boolean {
-  return branch === 'check-overlay' || branch === 'check-overlay-direct';
-}
-
-function resolveEarlyReturnType(
-  branch: CheckOverlayParentReturnedBranch,
-): CheckOverlayParentEarlyReturnType {
-  switch (branch) {
-    case 'result-overlay':
-      return 'result-branch-won';
+function resolveRootCause(
+  currentReturnedBranch: CheckOverlayParentReturnedBranch,
+  reachedBranches: string[],
+): CheckOverlayRealRootCause {
+  switch (currentReturnedBranch) {
     case 'overlay-session-closed':
       return 'overlay-session-closed';
     case 'global-host-not-emitting':
-      return 'host-gate-failed';
+      return 'global-host-not-emitting';
     case 'visual-shield-blocked':
-      return 'visual-shield-gate-failed';
-    case 'no-shell':
-    case 'shell-check-without-payload':
-      return 'no-shell-branch';
-    case 'null-return':
-      return 'null-return';
-    default:
-      return 'other';
-  }
-}
-
-function resolveWinningGates(
-  branch: CheckOverlayParentReturnedBranch,
-): string[] {
-  switch (branch) {
-    case 'overlay-session-closed':
-      return ['overlay-session-closed'];
-    case 'global-host-not-emitting':
-      return ['global-host-not-emitting'];
-    case 'visual-shield-blocked':
-      return ['visual-shield-blocked'];
+      return 'visual-shield-blocked';
     case 'result-overlay':
-      return ['result-overlay-branch-won'];
-    case 'null-return':
-      return ['null-return'];
-    case 'no-shell':
+      return 'result-overlay-won';
+    case 'incoming-overlay':
+    case 'incoming-reply-direct':
+      return 'incoming-overlay-won';
     case 'shell-check-without-payload':
-      return ['no-shell-branch'];
+      return 'missing-check-payload';
+    case 'null-return':
+      return reachedBranches.includes('check-overlay')
+        ? 'unknown'
+        : 'check-never-reached';
     default:
-      return [branch];
+      return 'unknown';
   }
 }
 
-function resolveConditionResult(
-  evaluations: BranchEvaluation[],
-  branch: string,
-): boolean | null {
-  const item = evaluations.find((entry) => entry.branch === branch);
-  return item ? item.conditionResult : null;
-}
+function maybeEmitRealRootCause(input: {
+  pathKey: CheckOverlayParentReturnPathKey;
+  previousReturnedBranch: CheckOverlayParentReturnedBranch | null;
+  currentReturnedBranch: CheckOverlayParentReturnedBranch;
+  reason: string;
+  context: CheckOverlayParentReturnBranchContext;
+  prioritySnapshot: CheckOverlayParentBranchPrioritySnapshot | null;
+}): void {
+  if (!isClientDiagTraceEnvironment()) return;
+  if (input.previousReturnedBranch !== 'check-overlay') return;
+  if (input.currentReturnedBranch === 'check-overlay') return;
 
-export function readCheckOverlayParentReturnBranchTimelineAnchor(): typeof lastReturnBranchChangeAnchor {
-  return lastReturnBranchChangeAnchor;
-}
+  const markers = readShellCheckActionMarkers();
+  if (markers.userPressedCheckYes || markers.userPressedCheckNo) return;
 
-export function buildCheckOverlayParentReturnBranchTimelineFields():
-  | {
-      parentReturnBranchTimestamp: number;
-      parentReturnBranchPathKey: CheckOverlayParentReturnPathKey;
-      parentReturnBranchPrevious: CheckOverlayParentReturnedBranch | null;
-      parentReturnBranchCurrent: CheckOverlayParentReturnedBranch;
-      parentReturnBranchSourceFunction: string;
-      parentReturnBranchSourceLine: string;
-    }
-  | null {
-  if (!lastReturnBranchChangeAnchor) return null;
-  return {
-    parentReturnBranchTimestamp: lastReturnBranchChangeAnchor.timestamp,
-    parentReturnBranchPathKey: lastReturnBranchChangeAnchor.pathKey,
-    parentReturnBranchPrevious: lastReturnBranchChangeAnchor.previousReturnedBranch,
-    parentReturnBranchCurrent: lastReturnBranchChangeAnchor.currentReturnedBranch,
-    parentReturnBranchSourceFunction:
-      lastReturnBranchChangeAnchor.branchSourceFunction,
-    parentReturnBranchSourceLine: lastReturnBranchChangeAnchor.branchSourceLine,
-  };
+  const overlayKey =
+    input.context.checkOverlayKey?.trim() ||
+    (input.context.checkBanId
+      ? checkOverlayKey(input.context.checkBanId)
+      : null);
+  if (!overlayKey) return;
+  if (emittedRootCauseKeys.has(overlayKey)) return;
+  emittedRootCauseKeys.add(overlayKey);
+
+  const priority = input.prioritySnapshot;
+  const selectedBranch = priority?.selectedBranch ?? input.currentReturnedBranch;
+  const reachedBranches = priority?.reachedBranches ?? [];
+  const evaluatedBranches = priority?.evaluatedBranches ?? [];
+
+  console.error('CHECK_OVERLAY_REAL_ROOT_CAUSE_TRACE', {
+    checkOverlayKey: overlayKey,
+    checkBanId: input.context.checkBanId,
+    previousReturnedBranch: input.previousReturnedBranch,
+    currentReturnedBranch: input.currentReturnedBranch,
+    reason: input.reason,
+    renderBranch: input.context.renderBranch,
+    shellKind: input.context.shellKind,
+    pathKey: input.pathKey,
+    selectedBranch,
+    firstMatchedBranch: priority?.firstMatchedBranch ?? selectedBranch,
+    reachedBranches,
+    evaluatedBranches,
+    actualCheckOverlayElementCreated:
+      input.context.actualCheckOverlayElementCreated,
+    activeNotificationChain: input.context.activeNotificationChain,
+    notificationOverlayVisible: input.context.notificationOverlayVisible,
+    queueLen: input.context.queues.overlayQueueStateLen,
+    ownerQueueLen: input.context.queues.ownerQueueLen,
+    ROOT_CAUSE: resolveRootCause(
+      input.currentReturnedBranch,
+      reachedBranches,
+    ),
+  });
 }
 
 export function createCheckOverlayParentBranchPriorityCollector(
@@ -223,6 +181,13 @@ export function createCheckOverlayParentBranchPriorityCollector(
   const reachIndexByBranch = new Map<string, number>();
   const evaluations: BranchEvaluation[] = [];
   let selectedBranch: string | null = null;
+
+  const getSnapshot = (): CheckOverlayParentBranchPrioritySnapshot => ({
+    reachedBranches: [...reachedBranches],
+    evaluatedBranches: evaluations.map((entry) => entry.branch),
+    selectedBranch,
+    firstMatchedBranch: selectedBranch,
+  });
 
   return {
     scope,
@@ -243,211 +208,36 @@ export function createCheckOverlayParentBranchPriorityCollector(
     getBranchReachIndex(branch: string) {
       return reachIndexByBranch.get(branch) ?? -1;
     },
-    commit(input) {
-      if (!isClientDiagTraceEnvironment()) return;
-      if (!selectedBranch) return;
-
-      const evaluatedBranches = evaluations.map((entry) => entry.branch);
-      const checkBranchWasReachable = reachedBranches.includes('check-overlay');
-      const checkBranchWasEvaluated = evaluatedBranches.includes('check-overlay');
-      const checkBranchConditionResult = checkBranchWasEvaluated
-        ? resolveConditionResult(evaluations, 'check-overlay')
-        : null;
-      const incomingBranchWasReachable =
-        reachedBranches.includes('incoming-overlay') ||
-        reachedBranches.includes('incoming-reply-direct');
-      const incomingBranchWasEvaluated =
-        evaluatedBranches.includes('incoming-overlay') ||
-        evaluatedBranches.includes('incoming-reply-direct');
-      const resultBranchWasEvaluated =
-        evaluatedBranches.includes('result-overlay');
-
-      const selectedReachIndex =
-        reachIndexByBranch.get(selectedBranch) ??
-        (reachedBranches.length > 0 ? reachedBranches.length - 1 : 0);
-
-      const skippedBranches = evaluations
-        .filter((entry) => {
-          if (entry.branch === selectedBranch) return false;
-          if (entry.reachIndex >= selectedReachIndex) return false;
-          return !entry.conditionResult;
-        })
-        .map((entry) => entry.branch);
-
-      const sig = [
-        selectedBranch,
-        ...reachedBranches,
-        ...evaluations.map(
-          (entry) => `${entry.branch}:${entry.conditionResult ? 1 : 0}`,
-        ),
-        checkBranchWasReachable,
-        checkBranchWasEvaluated,
-        checkBranchConditionResult,
-        incomingBranchWasReachable,
-        incomingBranchWasEvaluated,
-        resultBranchWasEvaluated,
-      ].join('|');
-      if (branchPrioritySigByScope.get(scope) === sig) return;
-      branchPrioritySigByScope.set(scope, sig);
-
-      emitClientDiagTrace('CHECK_OVERLAY_BRANCH_PRIORITY_TRACE', {
-        timestamp: diagTraceNow(),
-        source: input.source,
-        calledFrom: input.calledFrom,
-        stack: captureStack('CHECK_OVERLAY_BRANCH_PRIORITY_TRACE'),
-        scope,
-        reachedBranches: [...reachedBranches],
-        evaluatedBranches,
-        branchConditions: evaluations.map((entry) => ({
-          branch: entry.branch,
-          conditionResult: entry.conditionResult,
-          reachIndex: entry.reachIndex,
-        })),
-        selectedBranch,
-        firstMatchedBranch: selectedBranch,
-        skippedBranches,
-        checkBranchWasReachable,
-        checkBranchWasEvaluated,
-        checkBranchConditionResult,
-        incomingBranchWasReachable,
-        incomingBranchWasEvaluated,
-        resultBranchWasEvaluated,
-        shellKind: input.context.shellKind,
-        renderBranch: input.context.renderBranch,
-        checkBanId: input.context.checkBanId,
-        actualCheckOverlayElementCreated:
-          input.context.actualCheckOverlayElementCreated,
-      });
+    getSnapshot,
+    commit(_input) {
+      // Priority state is read via getSnapshot() at branch transition time.
     },
   };
 }
 
-function maybeEmitEarlyReturn(
-  previous: CheckOverlayParentReturnBranchSnapshot | undefined,
-  current: CheckOverlayParentReturnBranchSnapshot,
-): void {
-  if (!previous) return;
-  if (!isCheckOverlayBranch(previous.currentReturnedBranch)) return;
-  if (isCheckOverlayBranch(current.currentReturnedBranch)) return;
-
-  const markers = readShellCheckActionMarkers();
-  const unexpected = !hasExpectedExitMarkers(markers);
-  const key = [
-    current.pathKey,
-    previous.currentReturnedBranch,
-    current.currentReturnedBranch,
-    previous.context.checkBanId ?? 'no-ban',
-    current.timestamp,
-  ].join('|');
-  if (earlyReturnEmittedKeys.has(key)) return;
-  earlyReturnEmittedKeys.add(key);
-
-  const earlyReturnType = resolveEarlyReturnType(current.currentReturnedBranch);
-  const allWinningGates = resolveWinningGates(current.currentReturnedBranch);
-
-  emitClientDiagTrace('CHECK_OVERLAY_PARENT_EARLY_RETURN_TRACE', {
-    timestamp: current.timestamp,
-    pathKey: current.pathKey,
-    previousBranchSnapshot: previous,
-    currentBranchSnapshot: current,
-    earlyReturnType,
-    firstWinningGate: allWinningGates[0] ?? earlyReturnType,
-    allWinningGates,
-    unexpected,
-    expectedExitMarkers: markers,
-    ...buildCheckOverlayParentReturnBranchTimelineFields(),
-  });
-}
-
 export function observeCheckOverlayParentReturnBranch(input: {
   pathKey: CheckOverlayParentReturnPathKey;
-  source: string;
   reason: string;
-  calledFrom: string;
   currentReturnedBranch: CheckOverlayParentReturnedBranch;
-  branchPriorityIndex: number;
-  branchSourceFunction: string;
-  branchSourceLine: string;
   context: CheckOverlayParentReturnBranchContext;
+  priorityCollector?: CheckOverlayParentBranchPriorityCollector | null;
 }): void {
   if (!isClientDiagTraceEnvironment()) return;
 
-  const previousBranch = previousBranchByPathKey.get(input.pathKey) ?? null;
-  if (previousBranch === input.currentReturnedBranch) return;
+  const previousReturnedBranch =
+    previousBranchByPathKey.get(input.pathKey) ?? null;
+  if (previousReturnedBranch === input.currentReturnedBranch) return;
 
-  const timestamp = diagTraceNow();
-  const snapshot: CheckOverlayParentReturnBranchSnapshot = {
-    timestamp,
+  maybeEmitRealRootCause({
     pathKey: input.pathKey,
+    previousReturnedBranch,
     currentReturnedBranch: input.currentReturnedBranch,
-    branchPriorityIndex: input.branchPriorityIndex,
-    branchSourceFunction: input.branchSourceFunction,
-    branchSourceLine: input.branchSourceLine,
-    context: input.context,
-  };
-  const previousSnapshot = previousSnapshotByPathKey.get(input.pathKey);
-
-  emitClientDiagTrace('CHECK_OVERLAY_PARENT_RETURN_BRANCH_TRACE', {
-    timestamp,
-    source: input.source,
     reason: input.reason,
-    calledFrom: input.calledFrom,
-    stack: captureStack('CHECK_OVERLAY_PARENT_RETURN_BRANCH_TRACE'),
-    pathKey: input.pathKey,
-    previousReturnedBranch: previousBranch,
-    currentReturnedBranch: input.currentReturnedBranch,
-    branchPriorityIndex: input.branchPriorityIndex,
-    branchSourceFunction: input.branchSourceFunction,
-    branchSourceLine: input.branchSourceLine,
-    shellKind: input.context.shellKind,
-    renderBranch: input.context.renderBranch,
-    returnBranch: input.context.returnBranch,
-    activeKind: input.context.activeKind,
-    ownerDisplayKind: input.context.ownerDisplayKind,
-    currentHeadKind: input.context.currentHeadKind,
-    notificationOverlayVisible: input.context.notificationOverlayVisible,
-    queueClaimsNotificationScreen: input.context.queueClaimsNotificationScreen,
-    activeNotificationChain: input.context.activeNotificationChain,
-    visualQueueDimSessionLive: input.context.visualQueueDimSessionLive,
-    checkBanId: input.context.checkBanId,
-    checkOverlayKey: input.context.checkOverlayKey,
-    resultBanId: input.context.resultBanId,
-    resultOverlayKey: input.context.resultOverlayKey,
-    incomingBanId: input.context.incomingBanId,
-    incomingOverlayKey: input.context.incomingOverlayKey,
-    actualCheckOverlayElementCreated: input.context.actualCheckOverlayElementCreated,
-    ownerQueueLen: input.context.queues.ownerQueueLen,
-    ownerQueueKinds: input.context.queues.ownerQueueKinds,
-    ownerQueueIds: input.context.queues.ownerQueueIds,
-    ownerQueueKeys: input.context.queues.ownerQueueKeys,
-    ownerPendingLen: input.context.queues.ownerPendingLen,
-    ownerPendingKinds: input.context.queues.ownerPendingKinds,
-    ownerPendingIds: input.context.queues.ownerPendingIds,
-    ownerPendingKeys: input.context.queues.ownerPendingKeys,
-    overlayQueueRefLen: input.context.queues.overlayQueueRefLen,
-    overlayQueueRefKinds: input.context.queues.overlayQueueRefKinds,
-    overlayQueueRefIds: input.context.queues.overlayQueueRefIds,
-    overlayQueueRefKeys: input.context.queues.overlayQueueRefKeys,
-    overlayQueueStateLen: input.context.queues.overlayQueueStateLen,
-    overlayQueueStateKinds: input.context.queues.overlayQueueStateKinds,
-    overlayQueueStateIds: input.context.queues.overlayQueueStateIds,
-    overlayQueueStateKeys: input.context.queues.overlayQueueStateKeys,
+    context: input.context,
+    prioritySnapshot: input.priorityCollector?.getSnapshot() ?? null,
   });
 
-  maybeEmitEarlyReturn(previousSnapshot, snapshot);
-
-  lastReturnBranchChangeAnchor = {
-    timestamp,
-    pathKey: input.pathKey,
-    previousReturnedBranch: previousBranch,
-    currentReturnedBranch: input.currentReturnedBranch,
-    checkBanId: input.context.checkBanId,
-    branchSourceFunction: input.branchSourceFunction,
-    branchSourceLine: input.branchSourceLine,
-  };
-
   previousBranchByPathKey.set(input.pathKey, input.currentReturnedBranch);
-  previousSnapshotByPathKey.set(input.pathKey, snapshot);
 }
 
 export function buildCheckOverlayParentReturnBranchContext(input: {
@@ -490,4 +280,13 @@ export function buildCheckOverlayParentReturnBranchContext(input: {
     actualCheckOverlayElementCreated: input.actualCheckOverlayElementCreated,
     queues: input.queues,
   };
+}
+
+// Timeline bridge retained as no-op exports for existing imports.
+export function readCheckOverlayParentReturnBranchTimelineAnchor(): null {
+  return null;
+}
+
+export function buildCheckOverlayParentReturnBranchTimelineFields(): null {
+  return null;
 }

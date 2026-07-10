@@ -470,6 +470,7 @@ export function observeCheckOverlayPayloadLifecycle(
   input: CheckOverlayPayloadLifecycleInput,
 ): void {
   if (!isClientDiagTraceEnvironment()) return;
+  return;
 
   const ctx = mergeContext(input.contextPatch);
   const markers = readShellCheckActionMarkers();
