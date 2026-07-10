@@ -457,57 +457,7 @@ function maybeEmitMissedTrace(input: {
 }
 
 export function observeOverlayVisualShieldContentUnmountRoot(
-  input: OverlayVisualShieldContentUnmountRootInput,
+  _input: OverlayVisualShieldContentUnmountRootInput,
 ): void {
-  const before = previousSnapshot;
-  const beforeOperands = previousOperands;
-  const expectedExitMarkersAllFalse = hasExpectedExitMarkersFalse();
-  const checkWasActiveBefore = checkWasActiveInSnapshot(before);
-  const currentOverlayKey = resolveOverlayKey(input.snapshotAfter.checkBanId);
-  const parentReturnedBranchNow = readCheckOverlayParentReturnedBranch('queue-shell');
-  const previousSnapshotWasReset =
-    before != null &&
-    previousParentMountId != null &&
-    before.parentMountId !== input.snapshotAfter.parentMountId;
-  const moduleWasReinitialized =
-    before === null &&
-    input.nextCardContentMounted === false &&
-    parentReturnedBranchNow === 'check-overlay';
-
-  const watch = updateWatchState(
-    currentOverlayKey ?? resolveOverlayKey(before?.checkBanId ?? null),
-    input.nextCardContentMounted,
-    input.snapshotAfter,
-  );
-
-  previousSnapshot = input.snapshotAfter;
-  previousOperands = input.derivation.operands;
-  previousParentMountId = input.snapshotAfter.parentMountId;
-
-  if (!isClientDiagTraceEnvironment()) return;
-
-  if (before) {
-    maybeEmitRootTrace({
-      before,
-      after: input.snapshotAfter,
-      beforeOperands,
-      nextCardContentMounted: input.nextCardContentMounted,
-      source: input.source,
-      reason: input.reason,
-      calledFrom: input.calledFrom,
-      derivation: input.derivation,
-    });
-  }
-
-  maybeEmitMissedTrace({
-    before,
-    after: input.snapshotAfter,
-    nextCardContentMounted: input.nextCardContentMounted,
-    watch,
-    overlayKey: currentOverlayKey,
-    expectedExitMarkersAllFalse,
-    checkWasActiveBefore,
-    previousSnapshotWasReset,
-    moduleWasReinitialized,
-  });
+  // Disabled in favor of CHECK_OVERLAY_VISUAL_SHIELD_BLOCK_ROOT_TRACE.
 }

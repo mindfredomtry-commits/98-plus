@@ -781,7 +781,7 @@ import {
   observeCheckOverlayParentReturnBranch,
   readCheckOverlayParentReturnedBranch,
 } from '@/lib/check-overlay-parent-return-branch-trace-debug';
-import { observeOverlayVisualShieldContentUnmountRoot } from '@/lib/overlay-visual-shield-content-unmount-root-trace-debug';
+import { maybeEmitCheckOverlayVisualShieldBlockRootTrace } from '@/lib/check-overlay-visual-shield-block-root-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -41746,45 +41746,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     overlayBackdropVisibilityDecision.backdropMounted;
   const globalOverlayHostActive =
     !composeBlocksNotificationHost && overlayBackdropHostMounted;
-  const overlaySessionOpenForVisualShieldDiag =
-    !showDirectOverboardLayer || visualQueueDimSessionLive;
-  observeOverlayVisualShieldContentUnmountRoot({
-    source: 'Providers.overlayVisualShieldCardContentMounted',
-    reason: 'overlayVisualShieldCardContentMounted-transition',
-    calledFrom: 'ProvidersBody:overlayVisualShieldCardContentMounted',
-    nextCardContentMounted: overlayVisualShieldCardContentMounted,
-    snapshotAfter: {
-      shellKind: notificationQueueShellDisplayKindResolved,
-      renderBranch: queueHeadLifecycleRenderBranch,
-      returnedBranch: readCheckOverlayParentReturnedBranch('queue-shell'),
-      notificationOverlayVisible,
-      activeNotificationChain: hasPendingNotificationChainFnRef.current(),
-      visualQueueDimSessionLive,
-      globalOverlayHostActive,
-      overlaySessionOpen: overlaySessionOpenForVisualShieldDiag,
-      cardContentMounted: overlayVisualShieldCardContentMounted,
-      hostMounted: overlayVisualShieldHostMounted,
-      queueLen: overlayQueue.length,
-      ownerQueueLen: ownerPrimaryShellQueueLen,
-      checkBanId: checkBanForShell?.id ?? ownerPrimaryCheckBan?.id ?? null,
-      shouldMountNotificationOverlayHostFromGuards,
-      showDirectOverboardLayer,
-      parentMountId: providersBodyMountIdRef.current,
-      composeBlocksNotificationHost,
-    },
-    derivation: {
-      valueSourceType: 'derived-value',
-      exactWriterOrDerivation:
-        'cardContentMounted = shouldMountNotificationOverlayHostFromGuards && !showDirectOverboardLayer',
-      exactSourceFile: 'apps/web/src/lib/overlay-visual-shield-trace-debug.ts',
-      exactSourceFunction: 'computeOverlayVisualShieldDecision',
-      exactSourceLine: 'cardContentMounted',
-      operands: {
-        shouldMountNotificationOverlayHostFromGuards,
-        showDirectOverboardLayer,
-      },
-    },
-  });
   const overlayBackdropGapHold = shouldHoldOverlayBackdropDuringQueueGap({
     visualQueueDimSessionLive,
     sendFlowOpening,
@@ -44640,6 +44601,62 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   queueShellBranchCollector.markBranchSelected(
                     'visual-shield-blocked',
                   );
+                  maybeEmitCheckOverlayVisualShieldBlockRootTrace({
+                    previousReturnedBranch:
+                      readCheckOverlayParentReturnedBranch('queue-shell'),
+                    pathKey: 'queue-shell',
+                    reason: 'overlayVisualShieldCardContentMounted-false',
+                    checkBanId:
+                      checkBanForShell?.id ?? ownerPrimaryCheckBan?.id ?? null,
+                    overlayVisualShieldCardContentMounted,
+                    shouldMountNotificationOverlayHostFromGuards,
+                    showDirectOverboardLayer,
+                    globalOverlayHostActive,
+                    composeBlocksNotificationHost,
+                    visualQueueDimSessionLive,
+                    overlayVisualShieldHostMounted,
+                    notificationOverlayVisible,
+                    activeNotificationChain:
+                      hasPendingNotificationChainFnRef.current(),
+                    guardOperands: {
+                      composeBlocksNotificationHost,
+                      checkAnswerWaitingResultHoldBanId:
+                        checkAnswerWaitingResultHoldBanId ?? null,
+                      replyParentActivePriorityActive,
+                      ownerPrimaryHeldUserCardPresent:
+                        ownerPrimaryHeldUserCard != null,
+                      ownerPrimaryStableIncomingBanId:
+                        ownerPrimaryStableIncomingBan?.id ?? null,
+                      notificationChainTransitioning,
+                      notificationOverlayVisible,
+                      chainAdvanceWaiting,
+                      checkOverlayMounted,
+                      showDirectOverboardLayer,
+                      notificationQueueShellKind,
+                      ownerPrimaryCheckBanForDisplayGuardsId:
+                        ownerPrimaryCheckBanForDisplayGuards?.id ?? null,
+                      ownerPrimaryDisplayResultForShellPresent: Boolean(
+                        ownerPrimaryDisplayResultForShell,
+                      ),
+                      incomingCardDisplayBanPresent: Boolean(
+                        incomingCardDisplayBan,
+                      ),
+                      incomingShellHydrating,
+                      incomingCardFullyReady,
+                      ownerPrimaryShellQueueLen,
+                      ownerPrimaryShellPendingLen,
+                    },
+                    shellKind: notificationQueueShellDisplayKindResolved,
+                    renderBranch: queueHeadLifecycleRenderBranch,
+                    ownerDisplayKind: resolveOwnerDisplayKindBanId(
+                      ownerForReturnBranchDiag.display,
+                    ).displayKind,
+                    currentHeadKind:
+                      ownerForReturnBranchDiag.queue[0]?.kind ??
+                      ownerForReturnBranchDiag.active.kind,
+                    queueLen: overlayQueue.length,
+                    ownerQueueLen: ownerPrimaryShellQueueLen,
+                  });
                   observeCheckOverlayParentReturnBranch({
                     pathKey: 'queue-shell',
                     reason: 'overlayVisualShieldCardContentMounted-false',
