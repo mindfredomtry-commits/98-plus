@@ -122,54 +122,7 @@ function hasExpectedExitMarkersFalse(markers: ShellCheckActionMarkers): boolean 
 }
 
 export function maybeEmitShouldMountNotificationHostFalseRootTrace(
-  input: ShouldMountNotificationHostFalseRootInput,
+  _input: ShouldMountNotificationHostFalseRootInput,
 ): void {
-  if (!isClientDiagTraceEnvironment()) return;
-  if (input.previousReturnedBranch !== 'check-overlay') return;
-  if (input.composeBlocksNotificationHost !== false) return;
-  if (input.shouldMountNotificationOverlayHostFromGuards !== false) return;
-
-  const markers = readShellCheckActionMarkers();
-  if (!hasExpectedExitMarkersFalse(markers)) return;
-
-  const checkBanId = input.checkBanId?.trim() || null;
-  const checkOverlayKeyValue = checkBanId ? checkOverlayKey(checkBanId) : null;
-  if (!checkOverlayKeyValue) return;
-  if (emittedKeys.has(checkOverlayKeyValue)) return;
-
-  const snapshot = input.guardSnapshot;
-  if (!snapshot.selectedFalseGuard) return;
-  if (snapshot.selectedFalseGuard === 'compose-blocks-notification-host') return;
-
-  emittedKeys.add(checkOverlayKeyValue);
-
-  console.error('SHOULD_MOUNT_NOTIFICATION_HOST_FALSE_ROOT_TRACE', {
-    checkBanId,
-    checkOverlayKey: checkOverlayKeyValue,
-    reachedGuards: snapshot.reachedGuards,
-    evaluatedGuards: snapshot.evaluatedGuards,
-    selectedFalseGuard: snapshot.selectedFalseGuard,
-    selectedFalseGuardResult: snapshot.selectedFalseGuardResult,
-    guardSourceFunction: snapshot.guardSourceFunction,
-    guardSourceLine: snapshot.guardSourceLine,
-    selectedGuardOperands: snapshot.selectedGuardOperands,
-    previousReturnedBranch: input.previousReturnedBranch,
-    shellKind: input.shellKind,
-    renderBranch: input.renderBranch,
-    ownerDisplayKind: input.ownerDisplayKind,
-    currentHeadKind: input.currentHeadKind,
-    activeNotificationChain: input.activeNotificationChain,
-    notificationOverlayVisible: input.notificationOverlayVisible,
-    globalOverlayHostActive: input.globalOverlayHostActive,
-    visualQueueDimSessionLive: input.visualQueueDimSessionLive,
-    overlayVisualShieldHostMounted: input.overlayVisualShieldHostMounted,
-    composeBlocksNotificationHost: input.composeBlocksNotificationHost,
-    shouldMountNotificationOverlayHostFromGuards:
-      input.shouldMountNotificationOverlayHostFromGuards,
-    overlayVisualShieldCardContentMounted: input.overlayVisualShieldCardContentMounted,
-    queueLen: input.queueLen,
-    ownerQueueLen: input.ownerQueueLen,
-    expectedExitMarkers: markers,
-    ROOT_CAUSE: snapshot.selectedFalseGuard,
-  });
+  // Disabled in favor of NOTIFICATION_OVERLAY_VISIBLE_FALSE_ROOT_TRACE.
 }
