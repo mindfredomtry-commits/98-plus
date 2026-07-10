@@ -124,58 +124,7 @@ function resolveRootCause(input: {
 }
 
 export function maybeEmitComposeBlocksNotificationHostFalseRootTrace(
-  input: ComposeBlocksNotificationHostFalseRootInput,
+  _input: ComposeBlocksNotificationHostFalseRootInput,
 ): void {
-  if (!isClientDiagTraceEnvironment()) return;
-  if (input.previousReturnedBranch !== 'check-overlay') return;
-  if (input.composeBlocksNotificationHost !== false) return;
-  if (!checkIsActive(input)) return;
-
-  const markers = readShellCheckActionMarkers();
-  if (!hasExpectedExitMarkersFalse(markers)) return;
-
-  const checkBanId = input.checkBanId?.trim() || null;
-  const checkOverlayKeyValue = checkBanId ? checkOverlayKey(checkBanId) : null;
-  if (!checkOverlayKeyValue) return;
-  if (emittedKeys.has(checkOverlayKeyValue)) return;
-  emittedKeys.add(checkOverlayKeyValue);
-
-  const composeEval = evaluateComposeOperands({
-    sendComposePhase: input.sendComposePhase,
-    replyComposeActive: input.replyComposeActive,
-  });
-
-  console.error('COMPOSE_BLOCKS_NOTIFICATION_HOST_FALSE_ROOT_TRACE', {
-    checkBanId,
-    checkOverlayKey: checkOverlayKeyValue,
-    previousReturnedBranch: input.previousReturnedBranch,
-    currentReturnedBranch: input.currentReturnedBranch,
-    pathKey: input.pathKey,
-    reason: input.reason,
-    composeBlocksNotificationHost: input.composeBlocksNotificationHost,
-    composeExpressionResult: composeEval.composeExpressionResult,
-    firstFalseOperand: composeEval.firstFalseOperand,
-    allFalseOperands: composeEval.allFalseOperands,
-    composeOperands: composeEval.operands,
-    shellKind: input.shellKind,
-    renderBranch: input.renderBranch,
-    ownerDisplayKind: input.ownerDisplayKind,
-    currentHeadKind: input.currentHeadKind,
-    activeNotificationChain: input.activeNotificationChain,
-    notificationOverlayVisible: input.notificationOverlayVisible,
-    visualQueueDimSessionLive: input.visualQueueDimSessionLive,
-    globalOverlayHostActive: input.globalOverlayHostActive,
-    overlayVisualShieldHostMounted: input.overlayVisualShieldHostMounted,
-    shouldMountNotificationOverlayHostFromGuards:
-      input.shouldMountNotificationOverlayHostFromGuards,
-    overlayVisualShieldCardContentMounted: input.overlayVisualShieldCardContentMounted,
-    queueLen: input.queueLen,
-    ownerQueueLen: input.ownerQueueLen,
-    expectedExitMarkers: markers,
-    ROOT_CAUSE: resolveRootCause({
-      composeExpressionResult: composeEval.composeExpressionResult,
-      sendComposePhaseNotIdle: composeEval.sendComposePhaseNotIdle,
-      replyComposeActive: input.replyComposeActive,
-    }),
-  });
+  // Disabled in favor of SHOULD_MOUNT_NOTIFICATION_HOST_FALSE_ROOT_TRACE.
 }

@@ -781,7 +781,12 @@ import {
   observeCheckOverlayParentReturnBranch,
   readCheckOverlayParentReturnedBranch,
 } from '@/lib/check-overlay-parent-return-branch-trace-debug';
-import { maybeEmitComposeBlocksNotificationHostFalseRootTrace } from '@/lib/compose-blocks-notification-host-false-root-trace-debug';
+import {
+  createShouldMountHostGuardCollector,
+  maybeEmitShouldMountNotificationHostFalseRootTrace,
+  readShouldMountHostGuardSnapshot,
+  stageShouldMountHostGuardSnapshot,
+} from '@/lib/should-mount-notification-host-false-root-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -40666,12 +40671,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     visualQueueDimSessionRef.current || visualQueueDimSession;
 
   const shouldMountNotificationOverlayHostFromGuards = useMemo(() => {
+    const shouldMountHostGuardCollector = createShouldMountHostGuardCollector();
+
+    shouldMountHostGuardCollector.markGuardReached('compose-blocks-notification-host');
+    shouldMountHostGuardCollector.markGuardEvaluated(
+      'compose-blocks-notification-host',
+      composeBlocksNotificationHost,
+    );
     if (composeBlocksNotificationHost) {
+      shouldMountHostGuardCollector.markGuardSelected(
+        'compose-blocks-notification-host',
+        [{ name: 'composeBlocksNotificationHost', value: composeBlocksNotificationHost }],
+        'Providers.tsx:40669',
+      );
+      stageShouldMountHostGuardSnapshot(shouldMountHostGuardCollector.getSnapshot());
       return false;
     }
+    shouldMountHostGuardCollector.markGuardReached('check-answer-waiting-result-hold');
+    shouldMountHostGuardCollector.markGuardEvaluated(
+      'check-answer-waiting-result-hold',
+      Boolean(checkAnswerWaitingResultHoldBanId),
+    );
     if (checkAnswerWaitingResultHoldBanId) {
+      stageShouldMountHostGuardSnapshot(shouldMountHostGuardCollector.getSnapshot());
       return true;
     }
+    shouldMountHostGuardCollector.markGuardReached('reply-parent-active-timer-no-host');
+    shouldMountHostGuardCollector.markGuardEvaluated(
+      'reply-parent-active-timer-no-host',
+      replyParentActivePriorityActive &&
+        !showDirectOverboardLayer &&
+        ownerPrimaryHeldUserCard == null,
+    );
     if (replyParentActivePriorityActive &&
       !showDirectOverboardLayer &&
       ownerPrimaryHeldUserCard == null
@@ -40681,11 +40712,43 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         queueLen: ownerPrimaryShellQueueLen,
         shellKind: notificationQueueShellKind,
       });
+      shouldMountHostGuardCollector.markGuardSelected(
+        'reply-parent-active-timer-no-host',
+        [
+          { name: 'replyParentActivePriorityActive', value: replyParentActivePriorityActive },
+          { name: 'showDirectOverboardLayer', value: showDirectOverboardLayer },
+          {
+            name: 'ownerPrimaryHeldUserCard',
+            value: ownerPrimaryHeldUserCard == null,
+          },
+        ],
+        'Providers.tsx:40675',
+      );
+      stageShouldMountHostGuardSnapshot(shouldMountHostGuardCollector.getSnapshot());
       return false;
     }
+    shouldMountHostGuardCollector.markGuardReached('owner-primary-stable-incoming-ban');
+    shouldMountHostGuardCollector.markGuardEvaluated(
+      'owner-primary-stable-incoming-ban',
+      Boolean(ownerPrimaryStableIncomingBan?.id),
+    );
     if (ownerPrimaryStableIncomingBan?.id) {
+      stageShouldMountHostGuardSnapshot(shouldMountHostGuardCollector.getSnapshot());
       return true;
     }
+    shouldMountHostGuardCollector.markGuardReached(
+      'notification-chain-transitioning-chain-advance',
+    );
+    shouldMountHostGuardCollector.markGuardEvaluated(
+      'notification-chain-transitioning-chain-advance',
+      notificationChainTransitioning &&
+        shouldKeepQueueSessionForChainAdvance(
+          ownerPrimaryShellQueueLen,
+          ownerPrimaryShellPendingLen,
+          chainAdvanceWaiting,
+          notificationChainTransitioning,
+        ),
+    );
     if (
       notificationChainTransitioning &&
       shouldKeepQueueSessionForChainAdvance(
@@ -40695,29 +40758,102 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         notificationChainTransitioning,
       )
     ) {
+      stageShouldMountHostGuardSnapshot(shouldMountHostGuardCollector.getSnapshot());
       return true;
     }
-    if (!notificationOverlayVisible) return false;
-    if (ownerPrimaryHeldUserCard != null) return true;
-    if (chainAdvanceWaiting) return true;
-    if (checkOverlayMounted) return true;
-    if (showDirectOverboardLayer) return true;
+    shouldMountHostGuardCollector.markGuardReached('notification-overlay-not-visible');
+    shouldMountHostGuardCollector.markGuardEvaluated(
+      'notification-overlay-not-visible',
+      !notificationOverlayVisible,
+    );
+    if (!notificationOverlayVisible) {
+      shouldMountHostGuardCollector.markGuardSelected(
+        'notification-overlay-not-visible',
+        [{ name: 'notificationOverlayVisible', value: notificationOverlayVisible }],
+        'Providers.tsx:40700',
+      );
+      stageShouldMountHostGuardSnapshot(shouldMountHostGuardCollector.getSnapshot());
+      return false;
+    }
+    shouldMountHostGuardCollector.markGuardReached('owner-primary-held-user-card');
+    shouldMountHostGuardCollector.markGuardEvaluated(
+      'owner-primary-held-user-card',
+      ownerPrimaryHeldUserCard != null,
+    );
+    if (ownerPrimaryHeldUserCard != null) {
+      stageShouldMountHostGuardSnapshot(shouldMountHostGuardCollector.getSnapshot());
+      return true;
+    }
+    shouldMountHostGuardCollector.markGuardReached('chain-advance-waiting');
+    shouldMountHostGuardCollector.markGuardEvaluated(
+      'chain-advance-waiting',
+      chainAdvanceWaiting,
+    );
+    if (chainAdvanceWaiting) {
+      stageShouldMountHostGuardSnapshot(shouldMountHostGuardCollector.getSnapshot());
+      return true;
+    }
+    shouldMountHostGuardCollector.markGuardReached('check-overlay-mounted');
+    shouldMountHostGuardCollector.markGuardEvaluated(
+      'check-overlay-mounted',
+      checkOverlayMounted,
+    );
+    if (checkOverlayMounted) {
+      stageShouldMountHostGuardSnapshot(shouldMountHostGuardCollector.getSnapshot());
+      return true;
+    }
+    shouldMountHostGuardCollector.markGuardReached('show-direct-overboard-layer');
+    shouldMountHostGuardCollector.markGuardEvaluated(
+      'show-direct-overboard-layer',
+      showDirectOverboardLayer,
+    );
+    if (showDirectOverboardLayer) {
+      stageShouldMountHostGuardSnapshot(shouldMountHostGuardCollector.getSnapshot());
+      return true;
+    }
+    shouldMountHostGuardCollector.markGuardReached('notification-queue-shell-check');
+    shouldMountHostGuardCollector.markGuardEvaluated(
+      'notification-queue-shell-check',
+      notificationQueueShellKind === 'check' &&
+        Boolean(ownerPrimaryCheckBanForDisplayGuards?.id),
+    );
     if (notificationQueueShellKind === 'check' && ownerPrimaryCheckBanForDisplayGuards?.id) {
+      stageShouldMountHostGuardSnapshot(shouldMountHostGuardCollector.getSnapshot());
       return true;
     }
+    shouldMountHostGuardCollector.markGuardReached('notification-queue-shell-result');
+    shouldMountHostGuardCollector.markGuardEvaluated(
+      'notification-queue-shell-result',
+      notificationQueueShellKind === 'result' &&
+        Boolean(ownerPrimaryDisplayResultForShell),
+    );
     if (
       notificationQueueShellKind === 'result' &&
       ownerPrimaryDisplayResultForShell
     ) {
+      stageShouldMountHostGuardSnapshot(shouldMountHostGuardCollector.getSnapshot());
       return true;
     }
+    shouldMountHostGuardCollector.markGuardReached('notification-queue-shell-incoming');
+    shouldMountHostGuardCollector.markGuardEvaluated(
+      'notification-queue-shell-incoming',
+      notificationQueueShellKind === 'incoming' &&
+        Boolean(incomingCardDisplayBan || incomingShellHydrating) &&
+        Boolean(incomingCardFullyReady || incomingShellHydrating),
+    );
     if (
       notificationQueueShellKind === 'incoming' &&
       (incomingCardDisplayBan || incomingShellHydrating) &&
       (incomingCardFullyReady || incomingShellHydrating)
     ) {
+      stageShouldMountHostGuardSnapshot(shouldMountHostGuardCollector.getSnapshot());
       return true;
     }
+    shouldMountHostGuardCollector.markGuardReached('transitioning-without-renderable-shell');
+    shouldMountHostGuardCollector.markGuardEvaluated(
+      'transitioning-without-renderable-shell',
+      notificationChainTransitioning,
+    );
     if (notificationChainTransitioning) {
       logEmptyOverlayHostBlockedState({
         reason: 'transitioning-without-renderable-shell',
@@ -40725,13 +40861,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         queueLen: ownerPrimaryShellQueueLen,
         pendingLen: ownerPrimaryShellPendingLen,
       });
+      shouldMountHostGuardCollector.markGuardSelected(
+        'transitioning-without-renderable-shell',
+        [{ name: 'notificationChainTransitioning', value: notificationChainTransitioning }],
+        'Providers.tsx:40721',
+      );
+      stageShouldMountHostGuardSnapshot(shouldMountHostGuardCollector.getSnapshot());
       return false;
     }
-        logEmptyOverlayHostBlockedState({
+    shouldMountHostGuardCollector.markGuardReached('no-renderable-shell-content');
+    shouldMountHostGuardCollector.markGuardEvaluated('no-renderable-shell-content', true);
+    logEmptyOverlayHostBlockedState({
       reason: 'no-renderable-shell-content',
       shellKind: notificationQueueShellKind,
       queueLen: ownerPrimaryShellQueueLen,
     });
+    shouldMountHostGuardCollector.markGuardSelected(
+      'no-renderable-shell-content',
+      [
+        { name: 'notificationQueueShellKind', value: notificationQueueShellKind },
+        { name: 'ownerPrimaryShellQueueLen', value: ownerPrimaryShellQueueLen },
+      ],
+      'Providers.tsx:40735',
+    );
+    stageShouldMountHostGuardSnapshot(shouldMountHostGuardCollector.getSnapshot());
     return false;
   }, [
     composeBlocksNotificationHost,
@@ -44601,17 +44754,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   queueShellBranchCollector.markBranchSelected(
                     'visual-shield-blocked',
                   );
-                  maybeEmitComposeBlocksNotificationHostFalseRootTrace({
+                  maybeEmitShouldMountNotificationHostFalseRootTrace({
                     previousReturnedBranch:
                       readCheckOverlayParentReturnedBranch('queue-shell'),
-                    currentReturnedBranch: 'visual-shield-blocked',
-                    pathKey: 'queue-shell',
-                    reason: 'overlayVisualShieldCardContentMounted-false',
                     checkBanId:
                       checkBanForShell?.id ?? ownerPrimaryCheckBan?.id ?? null,
-                    composeBlocksNotificationHost,
-                    sendComposePhase,
-                    replyComposeActive,
+                    guardSnapshot:
+                      readShouldMountHostGuardSnapshot() ?? {
+                        reachedGuards: [],
+                        evaluatedGuards: [],
+                        selectedFalseGuard: null,
+                        selectedFalseGuardResult: null,
+                        guardSourceFunction:
+                          'ProvidersBody:shouldMountNotificationOverlayHostFromGuards',
+                        guardSourceLine: 'unknown',
+                        selectedGuardOperands: [],
+                      },
                     shellKind: notificationQueueShellDisplayKindResolved,
                     renderBranch: queueHeadLifecycleRenderBranch,
                     ownerDisplayKind: resolveOwnerDisplayKindBanId(
@@ -44623,9 +44781,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     activeNotificationChain:
                       hasPendingNotificationChainFnRef.current(),
                     notificationOverlayVisible,
-                    visualQueueDimSessionLive,
                     globalOverlayHostActive,
+                    visualQueueDimSessionLive,
                     overlayVisualShieldHostMounted,
+                    composeBlocksNotificationHost,
                     shouldMountNotificationOverlayHostFromGuards,
                     overlayVisualShieldCardContentMounted,
                     queueLen: overlayQueue.length,
