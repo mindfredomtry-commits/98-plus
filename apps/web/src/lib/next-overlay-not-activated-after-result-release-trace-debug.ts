@@ -11,7 +11,7 @@ import {
   emitClientDiagTrace,
   isClientDiagTraceEnvironment,
 } from '@/lib/diag-trace-client';
-import { noteShellCheckActivatedAfterResultRelease } from '@/lib/shell-check-lifecycle-trace-debug';
+import { traceShellCheckLifecycleArmDecisionOnSuccessHandoff } from '@/lib/shell-check-lifecycle-trace-debug';
 
 export const NEXT_OVERLAY_AFTER_RESULT_RELEASE_WATCH_MS = 400;
 
@@ -507,16 +507,40 @@ function emitSuccess(
     'NEXT_OVERLAY_ACTIVATION_SUCCESS_AFTER_RESULT_RELEASE_TRACE',
     successPayload,
   );
-  noteShellCheckActivatedAfterResultRelease({
+  traceShellCheckLifecycleArmDecisionOnSuccessHandoff({
+    source: sample.source || watch.source,
+    reason: sample.reason ?? 'next-overlay-activated-after-result-release',
+    calledFrom: sample.calledFrom ?? watch.calledFrom,
     expectedNextKind: watch.expectedNext.kind,
     expectedNextId: watch.expectedNext.id,
     expectedNextKey: watch.expectedNext.key,
-    renderBranch: snap.renderBranch,
     shellKind: snap.shellKind,
+    renderBranch: snap.renderBranch,
+    activeKind: snap.activeKind,
+    activeBanId: snap.activeBanId,
+    ownerDisplayKind: snap.ownerDisplayKind,
+    ownerDisplayBanId: snap.ownerDisplayBanId,
+    currentHeadKind: snap.currentHeadKind,
+    currentHeadId: snap.currentHeadId,
+    notificationOverlayVisible: snap.notificationOverlayVisible,
+    queueClaimsNotificationScreen: snap.queueClaimsNotificationScreen,
+    activeNotificationChain: snap.activeNotificationChain,
+    explicitDrainReason: snap.explicitDrainReason,
+    drainSessionId: snap.drainSessionId,
+    ownerQueueLen: snap.ownerQueueLen,
+    ownerQueueKinds: snap.ownerQueueKinds,
+    ownerQueueIds: snap.ownerQueueIds,
+    ownerQueueKeys: snap.ownerQueueKeys,
+    overlayQueueRefLen: snap.overlayQueueRefLen,
+    overlayQueueRefKinds: snap.overlayQueueRefKinds,
+    overlayQueueRefIds: snap.overlayQueueRefIds,
+    overlayQueueRefKeys: snap.overlayQueueRefKeys,
+    overlayQueueStateLen: snap.overlayQueueStateLen,
+    overlayQueueStateKinds: snap.overlayQueueStateKinds,
+    overlayQueueStateIds: snap.overlayQueueStateIds,
+    overlayQueueStateKeys: snap.overlayQueueStateKeys,
     activatedFromResultBanId: watch.releasedResultBanId,
     activatedFromResultOverlayKey: watch.releasedResultOverlayKey,
-    source: sample.source || watch.source,
-    calledFrom: sample.calledFrom ?? watch.calledFrom,
   });
   disarmWatch();
 }

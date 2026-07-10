@@ -138,6 +138,374 @@ function captureUnexpectedExitStack(): string {
   }
 }
 
+function captureArmDecisionStack(): string {
+  try {
+    return new Error('SHELL_CHECK_LIFECYCLE_ARM_DECISION_TRACE').stack ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export type ShellCheckLifecycleArmDecisionReason =
+  | 'armed'
+  | 'not-check'
+  | 'missing-check-id'
+  | 'missing-check-key'
+  | 'already-armed'
+  | 'deduped'
+  | 'success-trace-only-path'
+  | 'hook-unavailable'
+  | 'stale-success-snapshot'
+  | 'active-kind-mismatch'
+  | 'owner-display-mismatch'
+  | 'head-kind-mismatch'
+  | 'other';
+
+export type ShellCheckLifecycleArmDecisionInput = {
+  source: string;
+  reason: string;
+  calledFrom: string | null;
+  expectedNextKind: string;
+  expectedNextId: string | null;
+  expectedNextKey: string;
+  shellKind: string | null;
+  renderBranch: string | null;
+  activeKind: string | null;
+  activeBanId: string | null;
+  ownerDisplayKind: string | null;
+  ownerDisplayBanId: string | null;
+  currentHeadKind: string | null;
+  currentHeadId: string | null;
+  notificationOverlayVisible: boolean | null;
+  queueClaimsNotificationScreen: boolean | null;
+  activeNotificationChain: boolean | null;
+  explicitDrainReason: string | null;
+  drainSessionId: string | number | null;
+  ownerQueueLen: number;
+  ownerQueueKinds: string[];
+  ownerQueueIds: string[];
+  ownerQueueKeys: string[];
+  overlayQueueRefLen: number;
+  overlayQueueRefKinds: string[];
+  overlayQueueRefIds: string[];
+  overlayQueueRefKeys: string[];
+  overlayQueueStateLen: number;
+  overlayQueueStateKinds: string[];
+  overlayQueueStateIds: string[];
+  overlayQueueStateKeys: string[];
+  activatedFromResultBanId?: string | null;
+  activatedFromResultOverlayKey?: string | null;
+  bridgeInvoked?: boolean;
+};
+
+function resolveActivatedIdentity(
+  input: Pick<
+    ShellCheckLifecycleArmDecisionInput,
+    | 'expectedNextKind'
+    | 'expectedNextId'
+    | 'expectedNextKey'
+    | 'shellKind'
+    | 'activeKind'
+    | 'activeBanId'
+    | 'ownerDisplayKind'
+    | 'ownerDisplayBanId'
+    | 'currentHeadKind'
+    | 'currentHeadId'
+  >,
+): {
+  activatedKind: string | null;
+  activatedId: string | null;
+  activatedKey: string | null;
+} {
+  const kind = input.expectedNextKind;
+  if (input.shellKind === kind) {
+    return {
+      activatedKind: input.shellKind,
+      activatedId: input.expectedNextId ?? input.activeBanId,
+      activatedKey: input.expectedNextKey,
+    };
+  }
+  if (input.activeKind === kind) {
+    return {
+      activatedKind: input.activeKind,
+      activatedId: input.activeBanId ?? input.expectedNextId,
+      activatedKey: input.expectedNextKey,
+    };
+  }
+  if (input.ownerDisplayKind === kind) {
+    return {
+      activatedKind: input.ownerDisplayKind,
+      activatedId: input.ownerDisplayBanId ?? input.expectedNextId,
+      activatedKey: input.expectedNextKey,
+    };
+  }
+  if (input.currentHeadKind === kind) {
+    return {
+      activatedKind: input.currentHeadKind,
+      activatedId: input.currentHeadId ?? input.expectedNextId,
+      activatedKey: input.expectedNextKey,
+    };
+  }
+  return {
+    activatedKind: kind,
+    activatedId: input.expectedNextId,
+    activatedKey: input.expectedNextKey,
+  };
+}
+
+function evaluateShellCheckLifecycleArmDecision(input: ShellCheckLifecycleArmDecisionInput): {
+  armFunctionAvailable: boolean;
+  armAttempted: boolean;
+  armAllowed: boolean;
+  armResult: string | null;
+  armDecisionReason: ShellCheckLifecycleArmDecisionReason;
+  newWatchCheckBanId: string | null;
+  newWatchCheckOverlayKey: string | null;
+} {
+  const armFunctionAvailable = isClientDiagTraceEnvironment();
+  const isCheck =
+    input.expectedNextKind === 'check' ||
+    input.renderBranch === 'shell-check' ||
+    input.shellKind === 'check';
+  const checkBanId = input.expectedNextId?.trim() ?? '';
+  const derivedKey = checkBanId ? checkOverlayKey(checkBanId) : '';
+  const checkOverlayKeyValue =
+    input.expectedNextKey?.trim() || derivedKey || null;
+
+  if (!armFunctionAvailable) {
+    return {
+      armFunctionAvailable: false,
+      armAttempted: false,
+      armAllowed: false,
+      armResult: 'skipped',
+      armDecisionReason: 'hook-unavailable',
+      newWatchCheckBanId: checkBanId || null,
+      newWatchCheckOverlayKey: checkOverlayKeyValue,
+    };
+  }
+
+  if (input.bridgeInvoked === false) {
+    return {
+      armFunctionAvailable: true,
+      armAttempted: false,
+      armAllowed: false,
+      armResult: 'skipped',
+      armDecisionReason: 'success-trace-only-path',
+      newWatchCheckBanId: checkBanId || null,
+      newWatchCheckOverlayKey: checkOverlayKeyValue,
+    };
+  }
+
+  if (!isCheck) {
+    return {
+      armFunctionAvailable: true,
+      armAttempted: false,
+      armAllowed: false,
+      armResult: 'skipped',
+      armDecisionReason: 'not-check',
+      newWatchCheckBanId: null,
+      newWatchCheckOverlayKey: null,
+    };
+  }
+
+  if (!checkBanId) {
+    return {
+      armFunctionAvailable: true,
+      armAttempted: true,
+      armAllowed: false,
+      armResult: 'skipped',
+      armDecisionReason: 'missing-check-id',
+      newWatchCheckBanId: null,
+      newWatchCheckOverlayKey: checkOverlayKeyValue,
+    };
+  }
+
+  if (!checkOverlayKeyValue) {
+    return {
+      armFunctionAvailable: true,
+      armAttempted: true,
+      armAllowed: false,
+      armResult: 'skipped',
+      armDecisionReason: 'missing-check-key',
+      newWatchCheckBanId: checkBanId,
+      newWatchCheckOverlayKey: null,
+    };
+  }
+
+  if (input.activeKind != null && input.activeKind !== 'check') {
+    return {
+      armFunctionAvailable: true,
+      armAttempted: true,
+      armAllowed: false,
+      armResult: 'skipped',
+      armDecisionReason: 'active-kind-mismatch',
+      newWatchCheckBanId: checkBanId,
+      newWatchCheckOverlayKey: checkOverlayKeyValue,
+    };
+  }
+
+  if (input.ownerDisplayKind != null && input.ownerDisplayKind !== 'check') {
+    return {
+      armFunctionAvailable: true,
+      armAttempted: true,
+      armAllowed: false,
+      armResult: 'skipped',
+      armDecisionReason: 'owner-display-mismatch',
+      newWatchCheckBanId: checkBanId,
+      newWatchCheckOverlayKey: checkOverlayKeyValue,
+    };
+  }
+
+  if (input.currentHeadKind != null && input.currentHeadKind !== 'check') {
+    return {
+      armFunctionAvailable: true,
+      armAttempted: true,
+      armAllowed: false,
+      armResult: 'skipped',
+      armDecisionReason: 'head-kind-mismatch',
+      newWatchCheckBanId: checkBanId,
+      newWatchCheckOverlayKey: checkOverlayKeyValue,
+    };
+  }
+
+  if (
+    input.shellKind !== 'check' &&
+    input.renderBranch !== 'shell-check' &&
+    input.expectedNextKind === 'check'
+  ) {
+    return {
+      armFunctionAvailable: true,
+      armAttempted: true,
+      armAllowed: false,
+      armResult: 'skipped',
+      armDecisionReason: 'stale-success-snapshot',
+      newWatchCheckBanId: checkBanId,
+      newWatchCheckOverlayKey: checkOverlayKeyValue,
+    };
+  }
+
+  const existingWatch = activeWatch;
+  if (
+    existingWatch != null &&
+    existingWatch.checkBanId === checkBanId &&
+    existingWatch.checkOverlayKey === checkOverlayKeyValue
+  ) {
+    return {
+      armFunctionAvailable: true,
+      armAttempted: true,
+      armAllowed: true,
+      armResult: 'replaced',
+      armDecisionReason: 'already-armed',
+      newWatchCheckBanId: checkBanId,
+      newWatchCheckOverlayKey: checkOverlayKeyValue,
+    };
+  }
+
+  return {
+    armFunctionAvailable: true,
+    armAttempted: true,
+    armAllowed: true,
+    armResult: 'armed',
+    armDecisionReason: 'armed',
+    newWatchCheckBanId: checkBanId,
+    newWatchCheckOverlayKey: checkOverlayKeyValue,
+  };
+}
+
+export function traceShellCheckLifecycleArmDecisionOnSuccessHandoff(
+  input: ShellCheckLifecycleArmDecisionInput,
+): void {
+  if (!isClientDiagTraceEnvironment()) return;
+
+  const now = diagTraceNow();
+  const existingWatch = activeWatch;
+  const activated = resolveActivatedIdentity(input);
+  const decision = evaluateShellCheckLifecycleArmDecision({
+    ...input,
+    bridgeInvoked: input.bridgeInvoked ?? true,
+  });
+
+  emitClientDiagTrace('SHELL_CHECK_LIFECYCLE_ARM_DECISION_TRACE', {
+    timestamp: now,
+    source: input.source,
+    reason: input.reason,
+    calledFrom: input.calledFrom,
+    stack: captureArmDecisionStack(),
+    expectedNextKind: input.expectedNextKind,
+    expectedNextId: input.expectedNextId,
+    expectedNextKey: input.expectedNextKey,
+    activatedKind: activated.activatedKind,
+    activatedId: activated.activatedId,
+    activatedKey: activated.activatedKey,
+    shellKind: input.shellKind,
+    renderBranch: input.renderBranch,
+    activeKind: input.activeKind,
+    activeBanId: input.activeBanId,
+    ownerDisplayKind: input.ownerDisplayKind,
+    ownerDisplayBanId: input.ownerDisplayBanId,
+    currentHeadKind: input.currentHeadKind,
+    currentHeadId: input.currentHeadId,
+    armFunctionAvailable: decision.armFunctionAvailable,
+    armAttempted: decision.armAttempted,
+    armAllowed: decision.armAllowed,
+    armResult: decision.armResult,
+    armDecisionReason: decision.armDecisionReason,
+    existingWatchActive: existingWatch != null,
+    existingWatchCheckBanId: existingWatch?.checkBanId ?? null,
+    newWatchCheckBanId: decision.newWatchCheckBanId,
+    newWatchCheckOverlayKey: decision.newWatchCheckOverlayKey,
+    watchDurationMs: SHELL_CHECK_UNEXPECTED_EXIT_WATCH_MS,
+    ownerQueueLen: input.ownerQueueLen,
+    ownerQueueKinds: input.ownerQueueKinds,
+    ownerQueueIds: input.ownerQueueIds,
+    ownerQueueKeys: input.ownerQueueKeys,
+    overlayQueueRefLen: input.overlayQueueRefLen,
+    overlayQueueRefKinds: input.overlayQueueRefKinds,
+    overlayQueueRefIds: input.overlayQueueRefIds,
+    overlayQueueRefKeys: input.overlayQueueRefKeys,
+    overlayQueueStateLen: input.overlayQueueStateLen,
+    overlayQueueStateKinds: input.overlayQueueStateKinds,
+    overlayQueueStateIds: input.overlayQueueStateIds,
+    overlayQueueStateKeys: input.overlayQueueStateKeys,
+    activeNotificationChain: input.activeNotificationChain,
+    notificationOverlayVisible: input.notificationOverlayVisible,
+    queueClaimsNotificationScreen: input.queueClaimsNotificationScreen,
+    explicitDrainReason: input.explicitDrainReason,
+    drainSessionId: input.drainSessionId,
+  });
+
+  noteShellCheckActivatedAfterResultRelease({
+    expectedNextKind: input.expectedNextKind,
+    expectedNextId: input.expectedNextId,
+    expectedNextKey: input.expectedNextKey,
+    renderBranch: input.renderBranch,
+    shellKind: input.shellKind,
+    activatedFromResultBanId: input.activatedFromResultBanId ?? null,
+    activatedFromResultOverlayKey: input.activatedFromResultOverlayKey ?? null,
+    source: input.source,
+    calledFrom: input.calledFrom,
+  });
+
+  if (!decision.armAttempted) return;
+
+  const watchAfter = activeWatch;
+  const armed =
+    watchAfter != null &&
+    watchAfter.checkBanId === decision.newWatchCheckBanId &&
+    watchAfter.checkOverlayKey === decision.newWatchCheckOverlayKey;
+
+  if (armed) {
+    emitClientDiagTrace('SHELL_CHECK_LIFECYCLE_ARMED_TRACE', {
+      timestamp: diagTraceNow(),
+      checkBanId: watchAfter.checkBanId,
+      checkOverlayKey: watchAfter.checkOverlayKey,
+      watchDurationMs: SHELL_CHECK_UNEXPECTED_EXIT_WATCH_MS,
+      source: input.source,
+      calledFrom: input.calledFrom,
+    });
+  }
+}
+
 function clearWatchTimer(watch: ActiveWatch | null): void {
   if (!watch?.timerId) return;
   clearTimeout(watch.timerId);
