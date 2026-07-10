@@ -787,8 +787,9 @@ import {
 } from '@/lib/should-mount-notification-host-false-root-trace-debug';
 import {
   createNotificationOverlayVisibilityCollector,
-  maybeEmitNotificationOverlayVisibilityBranchRootTrace,
+  maybeEmitNotificationOverlayVisibleFinalGuardTrace,
   stageNotificationOverlayVisibilitySnapshot,
+  type NotificationOverlayVisibleFinalGuardEmitContext,
 } from '@/lib/notification-overlay-visible-false-root-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
@@ -39964,6 +39965,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const notificationOverlayVisible = useMemo(() => {
     const visibilityCollector = createNotificationOverlayVisibilityCollector();
+    const buildEarlyFinalGuardEmitContext = (
+      extras: Partial<NotificationOverlayVisibleFinalGuardEmitContext> = {},
+    ): NotificationOverlayVisibleFinalGuardEmitContext => ({
+      checkBanId: ownerPrimaryCheckBanForDisplayGuards?.id ?? checkBan?.id ?? null,
+      shellKind: notificationQueueShellKind,
+      renderBranch: queueHeadLifecycleRenderBranchForShellStuck,
+      ownerDisplayKind: resolveOwnerDisplayKindBanId(ownerReadDisplay).displayKind,
+      currentHeadKind: queueHeadKind,
+      activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+      notificationChainTransitioning,
+      chainAdvanceWaiting,
+      checkOverlayMounted,
+      showCheckOverlayDirect,
+      showDirectOverboardLayer,
+      sendSuccessCardActive,
+      replyParentActivePriorityActive,
+      activeBanCardReady,
+      notificationQueueShellKind,
+      ownerPrimaryHeldUserCardExists: ownerPrimaryHeldUserCard != null,
+      ownerPrimaryCheckBanForDisplayGuardsExists: Boolean(
+        ownerPrimaryCheckBanForDisplayGuards?.id,
+      ),
+      hasRenderableCard: null,
+      shouldHoldNotificationOverlayVisibleDuringQueueGap: null,
+      previousQueueShellReturnedBranch:
+        readCheckOverlayParentReturnedBranch('queue-shell'),
+      ...extras,
+    });
 
     visibilityCollector.markVisibilityGuardReached('compose-blocks-notification-host');
     visibilityCollector.markVisibilityGuardEvaluated(
@@ -39975,6 +40004,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         'compose-blocks-notification-host',
         [{ name: 'composeBlocksNotificationHost', value: composeBlocksNotificationHost }],
         'Providers.tsx:39963',
+      );
+      maybeEmitNotificationOverlayVisibleFinalGuardTrace(
+        visibilityCollector,
+        buildEarlyFinalGuardEmitContext(),
       );
       stageNotificationOverlayVisibilitySnapshot(
         visibilityCollector.getSnapshot(false),
@@ -40014,6 +40047,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         [{ name: 'sendSuccessCardActive', value: sendSuccessCardActive }],
         'Providers.tsx:39966',
       );
+      maybeEmitNotificationOverlayVisibleFinalGuardTrace(
+        visibilityCollector,
+        buildEarlyFinalGuardEmitContext(),
+      );
       stageNotificationOverlayVisibilitySnapshot(
         visibilityCollector.getSnapshot(false),
       );
@@ -40035,6 +40072,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             'notificationOverlayVisible',
             { ref: resultRef.current, state: result },
           );
+
+    const buildFinalGuardEmitContext = (
+      extras: Partial<NotificationOverlayVisibleFinalGuardEmitContext> = {},
+    ): NotificationOverlayVisibleFinalGuardEmitContext =>
+      buildEarlyFinalGuardEmitContext({
+        checkBanId:
+          effectiveCheckBanForVisibility?.id ??
+          ownerPrimaryCheckBanForDisplayGuards?.id ??
+          ownerCheckBanForVisibility?.id ??
+          checkBan?.id ??
+          null,
+        ...extras,
+      });
+    const emitFinalVisibilityFalseGuardTrace = (
+      extras: Partial<NotificationOverlayVisibleFinalGuardEmitContext> = {},
+    ) => {
+      maybeEmitNotificationOverlayVisibleFinalGuardTrace(
+        visibilityCollector,
+        buildFinalGuardEmitContext(extras),
+      );
+    };
 
     const replyParentTimerOwnsTop =
       replyParentActivePriorityActive &&
@@ -40069,6 +40127,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ],
         'Providers.tsx:39990',
       );
+      emitFinalVisibilityFalseGuardTrace();
       stageNotificationOverlayVisibilitySnapshot(
         visibilityCollector.getSnapshot(false),
       );
@@ -40115,6 +40174,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ],
         'Providers.tsx:40012',
       );
+      emitFinalVisibilityFalseGuardTrace();
       stageNotificationOverlayVisibilitySnapshot(
         visibilityCollector.getSnapshot(false),
       );
@@ -40147,6 +40207,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ],
         'Providers.tsx:40028',
       );
+      emitFinalVisibilityFalseGuardTrace();
       stageNotificationOverlayVisibilitySnapshot(
         visibilityCollector.getSnapshot(false),
       );
@@ -40169,6 +40230,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ],
         'Providers.tsx:40031',
       );
+      emitFinalVisibilityFalseGuardTrace();
       stageNotificationOverlayVisibilitySnapshot(
         visibilityCollector.getSnapshot(false),
       );
@@ -40242,6 +40304,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ],
           'Providers.tsx:40046',
         );
+        emitFinalVisibilityFalseGuardTrace();
         stageNotificationOverlayVisibilitySnapshot(
           visibilityCollector.getSnapshot(false),
         );
@@ -40353,6 +40416,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ],
           'Providers.tsx:40066',
         );
+        emitFinalVisibilityFalseGuardTrace({
+          hasRenderableCard,
+          shouldHoldNotificationOverlayVisibleDuringQueueGap:
+            shouldHoldNotificationOverlayVisibleDuringQueueGap({
+              visualQueueDimSessionLive: visualQueueDimSessionLiveForVisibility,
+              ownerQueueLen: ownerPrimaryShellQueueLen,
+              queueHeadKind,
+              sendFlowOpening:
+                composeBlocksNotificationHost || sendSuccessCardActive,
+            }),
+        });
         stageNotificationOverlayVisibilitySnapshot(
           visibilityCollector.getSnapshot(false),
         );
@@ -40447,6 +40521,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ],
       'Providers.tsx:40140',
     );
+    emitFinalVisibilityFalseGuardTrace({
+      hasRenderableCard: false,
+    });
     stageNotificationOverlayVisibilitySnapshot(
       visibilityCollector.getSnapshot(false),
     );
@@ -45067,30 +45144,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   queueShellBranchCollector.markBranchSelected(
                     'visual-shield-blocked',
                   );
-                  maybeEmitNotificationOverlayVisibilityBranchRootTrace({
-                    previousReturnedBranch:
-                      readCheckOverlayParentReturnedBranch('queue-shell'),
-                    checkBanId:
-                      checkBanForShell?.id ?? ownerPrimaryCheckBan?.id ?? null,
-                    notificationOverlayVisible,
-                    overlayVisualShieldCardContentMounted,
-                    shouldMountNotificationOverlayHostFromGuards,
-                    shellKind: notificationQueueShellDisplayKindResolved,
-                    renderBranch: queueHeadLifecycleRenderBranch,
-                    ownerDisplayKind: resolveOwnerDisplayKindBanId(
-                      ownerForReturnBranchDiag.display,
-                    ).displayKind,
-                    currentHeadKind:
-                      ownerForReturnBranchDiag.queue[0]?.kind ??
-                      ownerForReturnBranchDiag.active.kind,
-                    activeNotificationChain:
-                      hasPendingNotificationChainFnRef.current(),
-                    visualQueueDimSessionLive,
-                    globalOverlayHostActive,
-                    overlayVisualShieldHostMounted,
-                    queueLen: overlayQueue.length,
-                    ownerQueueLen: ownerPrimaryShellQueueLen,
-                  });
                   observeCheckOverlayParentReturnBranch({
                     pathKey: 'queue-shell',
                     reason: 'overlayVisualShieldCardContentMounted-false',
