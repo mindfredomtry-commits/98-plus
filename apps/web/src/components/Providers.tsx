@@ -766,6 +766,12 @@ import {
   type OwnerFalseWhileActiveCheckSnapshot,
   type OwnerFalseWhileActiveCheckTraceSnapshot,
 } from '@/lib/owner-false-while-active-check-decision-trace-debug';
+import {
+  buildCheckOverlayPayloadQueueFields,
+  noteCheckOverlayPayloadPropsBuilt,
+  observeCheckOverlayPayloadLifecycle,
+  registerCheckOverlayPayloadLifecycleHooks,
+} from '@/lib/check-overlay-payload-lifecycle-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -9561,6 +9567,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         activeBanId: ownerAfter.active.banId,
         ownerDisplay: buildOwnerQueuePendingSnapshot(ownerAfter),
       });
+      if (appliedDisplay.displayKind === 'check') {
+        noteCheckOverlayPayloadPropsBuilt({
+          source: `display-commit-applied:${source}`,
+          reason: 'check-display-committed',
+          calledFrom: 'commitSyncDisplayActivePayload',
+          checkBan: ownerAfter.display.checkBan ?? null,
+          visible: notificationOverlayVisibleDiagRef.current ?? false,
+          payloadSource: source,
+          propsKind: 'check',
+        });
+      }
       observeCheckRemainedAfterResultButNotRendered({
         source: `display-commit-applied:${source}`,
         reason: 'apply-display-cycle',
@@ -11067,6 +11084,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         'syncDisplayFromQueue:setIncomingCheck',
       );
       if (nextCheck) {
+        noteCheckOverlayPayloadPropsBuilt({
+          source: 'syncDisplayFromQueue',
+          reason: 'set-check-ban-display',
+          calledFrom: 'syncDisplayFromQueue:setIncomingCheck',
+          checkBan: nextCheck,
+          visible: true,
+          payloadSource: 'syncDisplayFromQueue',
+          propsKind: 'check',
+        });
         const nextCheckNorm = normalizeId(nextCheck.id);
         if (answeredCheckRef.current.has(nextCheckNorm)) {
           traceCheckCardHoldLifecycle('check-re-mounted-after-answer', {
@@ -18887,6 +18913,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [auth.authReady, auth.user?.id]);
 
   const clearCheckOverlay = useCallback(() => {
+    if (checkBanRef.current?.id) {
+      observeCheckOverlayPayloadLifecycle({
+        event: 'payload-lost',
+        source: 'clearCheckOverlay',
+        reason: 'clear-check-overlay',
+        calledFrom: 'Providers.clearCheckOverlay',
+        checkBan: checkBanRef.current,
+        visible: false,
+        returnedNull: true,
+        rendered: false,
+        payloadSource: 'clearCheckOverlay',
+        propsKind: 'check',
+      });
+    }
     if (checkWaitingTimerRef.current) {
       clearTimeout(checkWaitingTimerRef.current);
       checkWaitingTimerRef.current = null;
@@ -40924,6 +40964,52 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       !!incomingCardDisplayBan &&
       incomingCardFullyReady);
 
+  useLayoutEffect(() => {
+    if (
+      queueHeadLifecycleRenderBranch !== 'shell-check' &&
+      queueHeadLifecycleRenderBranch !== 'shell-check-without-ban'
+    ) {
+      return;
+    }
+    noteCheckOverlayPayloadPropsBuilt({
+      source: 'Providers.render-branch',
+      reason: `renderBranch=${queueHeadLifecycleRenderBranch}`,
+      calledFrom: 'ProvidersBody:queueHeadLifecycleRenderBranch',
+      checkBan: checkBanForShell,
+      visible: ownerCheckQueueVisibility.visible,
+      payloadSource: 'queue-shell',
+      propsKind: notificationQueueShellDisplayKindResolved,
+      contextPatch: {
+        shellKind: notificationQueueShellDisplayKindResolved,
+        renderBranch: queueHeadLifecycleRenderBranch,
+        returnBranch: queueHeadLifecycleRenderBranch,
+      },
+    });
+    if (queueHeadLifecycleRenderBranch === 'shell-check-without-ban') {
+      observeCheckOverlayPayloadLifecycle({
+        event: 'shell-check-without-payload',
+        source: 'Providers.render-branch',
+        reason: 'shell-check-without-ban',
+        calledFrom: 'ProvidersBody:queueHeadLifecycleRenderBranch',
+        checkBan: null,
+        visible: ownerCheckQueueVisibility.visible,
+        payloadSource: 'queue-shell',
+        propsKind: notificationQueueShellDisplayKindResolved,
+        contextPatch: {
+          shellKind: notificationQueueShellDisplayKindResolved,
+          renderBranch: queueHeadLifecycleRenderBranch,
+          returnBranch: queueHeadLifecycleRenderBranch,
+        },
+      });
+    }
+  }, [
+    checkBanForShell?.id,
+    notificationQueueShellDisplayKindResolved,
+    ownerCheckQueueVisibility.visible,
+    ownerCheckQueueVisibility.reason,
+    queueHeadLifecycleRenderBranch,
+  ]);
+
   ownerFalseRenderProbeQueueRef.current.push({
     kind: 'decision',
     input: {
@@ -42578,6 +42664,32 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         };
       },
     });
+    registerCheckOverlayPayloadLifecycleHooks({
+      readContext: () => {
+        const snap = shellStuckDiagSnapshotRef.current;
+        const owner = ownerShadowRef.current.getState();
+        const head = owner.queue[0] ?? null;
+        return {
+          shellKind: snap?.shellKind ?? notificationQueueShellDisplayKindResolved,
+          renderBranch: snap?.renderBranch ?? queueHeadLifecycleRenderBranch,
+          returnBranch: snap?.renderBranch ?? queueHeadLifecycleRenderBranch,
+          activeKind: owner.active.kind,
+          ownerDisplayKind: resolveOwnerDisplayKindBanId(owner.display).displayKind,
+          currentHeadKind: head?.kind ?? owner.active.kind,
+          notificationOverlayVisible:
+            notificationOverlayVisibleDiagRef.current ?? null,
+          queueClaimsNotificationScreen:
+            ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
+          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+          ...buildCheckOverlayPayloadQueueFields({
+            ownerQueue: owner.queue,
+            ownerPending: owner.pending,
+            overlayQueueRef: overlayQueueRef.current,
+            overlayQueueState: overlayQueue,
+          }),
+        };
+      },
+    });
     return () => {
       registerShellStuckOnResultWhileOwnerAdvancedHooks(null);
       registerShellKindWriteTraceHooks(null);
@@ -42585,6 +42697,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       registerNextOverlayAfterResultReleaseHooks(null);
       registerShellCheckLifecycleTraceHooks(null);
       registerOwnerFalseWhileActiveCheckHooks(null);
+      registerCheckOverlayPayloadLifecycleHooks(null);
     };
   }, [
     activeOverlayKind,

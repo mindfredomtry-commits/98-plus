@@ -55,6 +55,10 @@ import {
   logShellCheckMountUnmount,
   markShellCheckAction,
 } from '@/lib/shell-check-lifecycle-trace-debug';
+import {
+  observeCheckOverlayPayloadLifecycle,
+  type CheckOverlayPayloadLifecycleEvent,
+} from '@/lib/check-overlay-payload-lifecycle-trace-debug';
 
 interface Props {
   embedded?: boolean;
@@ -125,6 +129,37 @@ function CheckOverlayInnerBody({
   const projectedWillRenderCheckOverlay =
     visible && Boolean(checkBan) && Boolean(modalView);
 
+  const tracePayloadLifecycle = (
+    event: CheckOverlayPayloadLifecycleEvent,
+    extra: {
+      reason: string;
+      returnedNull?: boolean;
+      rendered?: boolean;
+      mounted?: boolean;
+    },
+  ) => {
+    observeCheckOverlayPayloadLifecycle({
+      event,
+      source: 'CheckOverlay',
+      reason: extra.reason,
+      calledFrom: 'CheckOverlay',
+      checkBan,
+      visible,
+      mounted: extra.mounted ?? null,
+      rendered: extra.rendered ?? null,
+      returnedNull: extra.returnedNull ?? null,
+      payloadSource: checkDirect
+        ? 'check-direct'
+        : embedded
+          ? 'embedded'
+          : contentOnly
+            ? 'queue-shell-contentOnly'
+            : 'modal',
+      propsKind: 'check',
+      userId: user?.id ?? null,
+    });
+  };
+
   const traceCheckOverlayReturn = (
     returnBranch: string,
     returnsNull: boolean,
@@ -166,6 +201,25 @@ function CheckOverlayInnerBody({
   }, [checkBan?.id]);
 
   useEffect(() => {
+    if (!checkBan?.id) return;
+    observeCheckOverlayPayloadLifecycle({
+      event: 'payload-changed',
+      source: 'CheckOverlay',
+      reason: 'check-ban-prop-changed',
+      calledFrom: 'CheckOverlay.useEffect',
+      checkBan,
+      visible,
+      payloadSource: checkDirect
+        ? 'check-direct'
+        : contentOnly
+          ? 'queue-shell-contentOnly'
+          : 'modal',
+      propsKind: 'check',
+      userId: user?.id ?? null,
+    });
+  }, [checkBan?.id, checkDirect, contentOnly, user?.id, visible]);
+
+  useEffect(() => {
     if (!checkBan?.id || !visible) return;
     const role = getCheckViewerRole(
       user?.id ?? null,
@@ -180,6 +234,31 @@ function CheckOverlayInnerBody({
       reason: visibilityReason ?? (visible ? 'render' : 'guard-rejected'),
     });
   }, [checkBan, user?.id, visible, visibilityReason]);
+
+  useEffect(() => {
+    tracePayloadLifecycle('mount', { reason: 'check-overlay-mounted', mounted: true });
+    return () => {
+      observeCheckOverlayPayloadLifecycle({
+        event: 'unmount',
+        source: 'CheckOverlay',
+        reason: 'check-overlay-unmounted',
+        calledFrom: 'CheckOverlay.useEffect',
+        checkBan,
+        visible,
+        mounted: false,
+        rendered: false,
+        returnedNull: false,
+        payloadSource: checkDirect
+          ? 'check-direct'
+          : contentOnly
+            ? 'queue-shell-contentOnly'
+            : 'modal',
+        propsKind: 'check',
+        userId: user?.id ?? null,
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/unmount identity only
+  }, []);
 
   useEffect(() => {
     if (!visible || !checkBan?.id) return;
@@ -357,6 +436,11 @@ function CheckOverlayInnerBody({
       returnBranch: 'guard-not-visible',
       reason: visibilityReason ?? 'not-visible',
     });
+    tracePayloadLifecycle('render-null', {
+      reason: visibilityReason ?? 'not-visible',
+      returnedNull: true,
+      rendered: false,
+    });
     traceCheckOverlayReturn('guard-not-visible', true, {
       guardReason: visibilityReason ?? 'not-visible',
     });
@@ -371,6 +455,18 @@ function CheckOverlayInnerBody({
   }
 
   if (!checkBan || !modalView) {
+    tracePayloadLifecycle('render-null', {
+      reason: !checkBan ? 'no-check-ban' : 'no-modal-view',
+      returnedNull: true,
+      rendered: false,
+    });
+    if (!checkBan && visible) {
+      tracePayloadLifecycle('payload-lost', {
+        reason: 'visible-without-check-ban',
+        returnedNull: true,
+        rendered: false,
+      });
+    }
     traceCheckOverlayReturn('guard-missing-ban-or-view', true, {
       guardReason: !checkBan ? 'no-check-ban' : 'no-modal-view',
     });
@@ -392,6 +488,12 @@ function CheckOverlayInnerBody({
     checkDirect,
     embedded,
     contentOnly,
+  });
+
+  tracePayloadLifecycle('render-valid', {
+    reason: checkDirect ? 'check-direct-render' : embedded ? 'embedded-render' : 'modal-render',
+    returnedNull: false,
+    rendered: true,
   });
 
   console.log('ACTUAL_COMPONENT_RENDER: CheckOverlay', {
@@ -473,6 +575,11 @@ function CheckOverlayInnerBody({
     const backdropZ = APP_NOTIFICATION_BACKDROP_Z_INDEX;
     const cardZ = APP_NOTIFICATION_CARD_Z_INDEX;
     if (typeof document === 'undefined') {
+      tracePayloadLifecycle('render-null', {
+        reason: 'check-direct-ssr-null',
+        returnedNull: true,
+        rendered: false,
+      });
       traceCheckOverlayReturn('check-direct-ssr-null', true, {
         guardReason: 'document-undefined',
       });
@@ -541,6 +648,11 @@ function CheckOverlayInnerBody({
     return modal;
   }
   if (typeof document === 'undefined') {
+    tracePayloadLifecycle('render-null', {
+      reason: 'portal-ssr-null',
+      returnedNull: true,
+      rendered: false,
+    });
     traceCheckOverlayReturn('portal-ssr-null', true, {
       guardReason: 'document-undefined',
     });

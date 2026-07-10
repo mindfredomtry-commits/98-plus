@@ -880,6 +880,10 @@ export function armShellCheckUnexpectedExitWatch(input: {
   }, SHELL_CHECK_UNEXPECTED_EXIT_WATCH_MS);
 }
 
+export function readShellCheckActionMarkers(): ShellCheckActionMarkers {
+  return activeWatch ? { ...activeWatch.markers } : emptyMarkers();
+}
+
 export function markShellCheckAction(
   marker: keyof ShellCheckActionMarkers,
   meta?: {
