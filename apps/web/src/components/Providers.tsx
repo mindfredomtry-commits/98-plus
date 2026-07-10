@@ -754,13 +754,6 @@ import {
   observeShellCheckLifecycle,
   registerShellCheckLifecycleTraceHooks,
 } from '@/lib/shell-check-lifecycle-trace-debug';
-import {
-  buildOwnerFalseWhileActiveCheckOwnerDisplayFields,
-  buildOwnerFalseWhileActiveCheckQueueFields,
-  noteOwnerFalseWhileActiveCheckBranchTaken,
-  observeOwnerFalseWhileActiveCheckDecision,
-  registerOwnerFalseWhileActiveCheckHooks,
-} from '@/lib/owner-false-while-active-check-decision-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -2320,11 +2313,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   >({});
   const [visualQueueDimSession, setVisualQueueDimSession] = useState(false);
   const hasPendingNotificationChainFnRef = useRef<() => boolean>(() => false);
-  const probeOwnerFalseWhileActiveCheckRef = useRef<
-    (input: Parameters<typeof observeOwnerFalseWhileActiveCheckDecision>[0]) => void
-  >((input) => {
-    observeOwnerFalseWhileActiveCheckDecision(input);
-  });
   const startupInteractionsHoldRef = useRef(true);
   const mirrorOwnerSessionFlagsRef = useRef<
     (source: string, patch: OwnerSessionMirrorPatch) => void
@@ -3666,42 +3654,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   function clearNotificationChainTransitioningInline(): void {
     if (!notificationChainTransitioningRef.current) return;
-    probeOwnerFalseWhileActiveCheckRef.current({
-      decisionName: 'clearActiveNotificationChain',
-      selector: 'notificationChainTransitioning',
-      source: 'clearNotificationChainTransitioningInline',
-      reason: 'clear-notification-chain-transitioning',
-      calledFrom: 'clearNotificationChainTransitioningInline',
-      decisionResult: false,
-      wouldClearActiveChain: true,
-      decisionInputs: {
-        clearReason: 'clear-notification-chain-transitioning',
-        transitionState: true,
-        blocked: false,
-        lostPending: false,
-        needsPrefetch: false,
-      },
-    });
     notificationChainTransitioningRef.current = false;
     setNotificationChainTransitioningState(false);
     mirrorOwnerChainSessionGatesRef.current(
       'clearNotificationChainTransitioningInline',
       { notificationChainTransitioning: false },
     );
-    noteOwnerFalseWhileActiveCheckBranchTaken({
-      decisionName: 'clearActiveNotificationChain',
-      branchTaken: 'clear-active-chain',
-      source: 'clearNotificationChainTransitioningInline',
-      reason: 'clear-notification-chain-transitioning',
-      calledFrom: 'clearNotificationChainTransitioningInline',
-      decisionInputsAfter: {
-        clearReason: 'clear-notification-chain-transitioning',
-        transitionState: false,
-        blocked: false,
-        lostPending: false,
-        needsPrefetch: false,
-      },
-    });
   }
 
   const [replyToBanId, setReplyToBanId] = useState<string | null>(null);
@@ -9929,27 +9887,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               : null,
       },
     );
-    probeOwnerFalseWhileActiveCheckRef.current({
-      decisionName: 'syncDisplayFromQueue',
-      selector: 'syncDisplayFromQueue',
-      source: 'syncDisplayFromQueue',
-      reason: 'sync-display-enter',
-      calledFrom: 'syncDisplayFromQueue',
-      decisionResult: queueForDecision[0]?.kind ?? null,
-      decisionInputs: {
-        requestedNextKind: queueForDecision[0]?.kind ?? null,
-        requestedNextBanId:
-          queueForDecision[0]?.kind === 'result'
-            ? queueForDecision[0].result.id
-            : queueForDecision[0]?.kind === 'incoming' ||
-                queueForDecision[0]?.kind === 'check'
-              ? queueForDecision[0].ban.id
-              : null,
-        queueForDecisionLen: queueForDecision.length,
-        legacyQueueLen: queue.length,
-        ownerQueueLenAtSync: ownerAtSyncEnter.queue.length,
-      },
-    });
     if (isReplyQueueHandoffSessionActive()) {
       logReplyQueueHandoffDiagContext(
         'post-timer-handoff-result',
@@ -16328,7 +16265,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ],
   );
 
-  const hasPendingNotificationChainImpl = useCallback(() => {
+  const hasPendingNotificationChain = useCallback(() => {
     const decisionOwner = readOwnerDecision('hasPendingNotificationChain');
     if (
       readOwnerDecisionHasQueueItems(decisionOwner, 'hasPendingNotificationChain', {
@@ -16395,46 +16332,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return false;
   }, []);
 
-  const hasPendingNotificationChain = useCallback((): boolean => {
-    const owner = ownerShadowRef.current.getState();
-    const ownerQueueOnlyPending =
-      owner.queue.length > 0 || owner.pending.length > 0;
-    const legacyPending = hasPendingNotificationChainImpl();
-    observeOwnerFalseWhileActiveCheckDecision({
-      decisionName: 'hasPendingNotificationChain',
-      selector: 'hasPendingNotificationChain',
-      source: 'hasPendingNotificationChain',
-      reason: 'hasPendingNotificationChain-read',
-      calledFrom: 'hasPendingNotificationChain',
-      decisionResult: legacyPending,
-      ownerHasPendingNotificationChain: ownerQueueOnlyPending,
-      legacyHasPendingNotificationChain: legacyPending,
-      decisionInputs: {
-        ownerQueueOnlyPending,
-        legacyPending,
-        decisionResult: legacyPending,
-      },
-    });
-    return legacyPending;
-  }, [hasPendingNotificationChainImpl]);
-
   hasPendingNotificationChainFnRef.current = hasPendingNotificationChain;
-
-  const probeOwnerFalseWhileActiveCheck = (
-    input: Parameters<typeof observeOwnerFalseWhileActiveCheckDecision>[0],
-  ): void => {
-    const owner = ownerShadowRef.current.getState();
-    observeOwnerFalseWhileActiveCheckDecision({
-      ...input,
-      ownerHasPendingNotificationChain:
-        input.ownerHasPendingNotificationChain ??
-        (owner.queue.length > 0 || owner.pending.length > 0),
-      legacyHasPendingNotificationChain:
-        input.legacyHasPendingNotificationChain ??
-        hasPendingNotificationChainFnRef.current(),
-    });
-  };
-  probeOwnerFalseWhileActiveCheckRef.current = probeOwnerFalseWhileActiveCheck;
 
   const armPostSuccessHandoffEarlyIfPending = useCallback(
     (source = 'success-exit-early'): boolean => {
@@ -28402,26 +28300,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source,
         'continue-sync-enter',
       );
-      const hasPendingAtContinueEnter = hasPendingNotificationChain();
-      probeOwnerFalseWhileActiveCheck({
-        decisionName: 'continueNotificationChainOrOpenLobbySync',
-        selector: 'continueNotificationChainOrOpenLobbySync',
-        source,
-        reason: 'continue-sync-enter',
-        calledFrom: 'continueNotificationChainOrOpenLobbySync',
-        decisionResult: hasPendingAtContinueEnter,
-        wouldRenderLobby: !hasPendingAtContinueEnter,
-        decisionInputs: {
-          hasPending: hasPendingAtContinueEnter,
-          blocked: false,
-          lostPending: false,
-          needsPrefetch: false,
-          shouldOpenLobby: !hasPendingAtContinueEnter,
-          shouldClearActiveChain: false,
-          queueLenBefore: continueQueueLenBefore,
-          pendingLenBefore: continuePendingLenBefore,
-        },
-      });
       const chainOwner = readOwnerChain('continueNotificationChainOrOpenLobbySync');
       const previousHeadForResultDiag = resolveOverlayHeadSnapshot(
         overlayQueueRef.current[0] ?? null,
@@ -28466,50 +28344,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           pendingHeadKind: pendingHead?.kind ?? null,
           outcome,
         });
-        if (outcome === 'open-lobby') {
-          noteOwnerFalseWhileActiveCheckBranchTaken({
-            decisionName: 'continueNotificationChainOrOpenLobbySync',
-            branchTaken: 'render-lobby',
-            source,
-            reason,
-            calledFrom:
-              'continueNotificationChainOrOpenLobbySync:returnContinueDiag',
-            decisionInputsAfter: {
-              hasPending: hasPendingNotificationChain(),
-              blocked: false,
-              lostPending: false,
-              needsPrefetch: false,
-              shouldOpenLobby: true,
-              shouldClearActiveChain: false,
-              outcome,
-              returnReason: reason,
-            },
-          });
-        }
-        if (
-          outcome === 'blocked' ||
-          outcome === 'lost-pending' ||
-          outcome === 'needs-prefetch'
-        ) {
-          noteOwnerFalseWhileActiveCheckBranchTaken({
-            decisionName: 'continueNotificationChainOrOpenLobbySync',
-            branchTaken: 'clear-active-chain',
-            source,
-            reason,
-            calledFrom:
-              'continueNotificationChainOrOpenLobbySync:returnContinueDiag',
-            decisionInputsAfter: {
-              hasPending: hasPendingNotificationChain(),
-              blocked: outcome === 'blocked',
-              lostPending: outcome === 'lost-pending',
-              needsPrefetch: outcome === 'needs-prefetch',
-              shouldOpenLobby: false,
-              shouldClearActiveChain: true,
-              outcome,
-              returnReason: reason,
-            },
-          });
-        }
         if (outcome !== 'show-next' && isPostConsumeTraceActive()) {
           emitPostConsumeNoNextCard({
             pipeline: 'continueNotificationChainOrOpenLobbySync',
@@ -30336,32 +30170,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           resultPresent: legacyResultPresent,
           hasPendingChain: hasPendingNotificationChain(),
         });
-        probeOwnerFalseWhileActiveCheck({
-          decisionName: 'startLobbyBansNotificationDrain-drain-gate',
-          selector: 'resolveLobbyBansDrainGateDecision',
-          source: `startLobbyBansNotificationDrain:${phase}`,
-          reason: gate.reason,
-          calledFrom: 'evaluateLobbyBansDrainGate',
-          decisionResult: gate.canDrain,
-          wouldEndDrain: !gate.canDrain,
-          ownerHasPendingNotificationChain:
-            gate.ownerQueue > 0 || gate.ownerPending > 0,
-          legacyHasPendingNotificationChain: gate.legacyWouldDrain,
-          decisionInputs: {
-            canDrain: gate.canDrain,
-            legacyWouldDrain: gate.legacyWouldDrain,
-            ownerQueue: gate.ownerQueue,
-            ownerPending: gate.ownerPending,
-            legacyQueue: gate.legacyQueue,
-            legacyPending: gate.legacyPending,
-            legacyIncomingPresent,
-            legacyCheckPresent,
-            legacyResultPresent,
-            hasPendingChain: hasPendingNotificationChain(),
-            phase,
-            shouldEndDrain: !gate.canDrain,
-          },
-        });
 
         const resolveResultRejectFlags = (banId: string) => {
           const norm = normalizeId(banId);
@@ -32039,32 +31847,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         hasPendingNotificationChain: hasPendingNotificationChain(),
         isChainSnapshotEmpty: isSuccessExitChainFullyEmpty(primaryEmptySnapshot),
       });
-      const hasPendingAtSuccessExitCheck = hasPendingNotificationChain();
       if (
         isSuccessExitChainFullyEmpty(primaryEmptySnapshot) &&
-        !hasPendingAtSuccessExitCheck
+        !hasPendingNotificationChain()
       ) {
-        probeOwnerFalseWhileActiveCheck({
-          decisionName: 'success-exit-drain-session-completion',
-          selector: 'hasPendingNotificationChain',
-          source: 'success-exit-after-primary',
-          reason: 'success-exit-empty-no-retry',
-          calledFrom: 'success-exit-drain-session-completion',
-          decisionResult: false,
-          wouldEndDrain: true,
-          wouldRenderLobby: true,
-          decisionInputs: {
-            shouldEndDrain: true,
-            stayOnLobbyEmpty: true,
-            chainStillActive: hasPendingAtSuccessExitCheck,
-            pendingChainExists: hasPendingAtSuccessExitCheck,
-            isChainSnapshotEmpty:
-              isSuccessExitChainFullyEmpty(primaryEmptySnapshot),
-            primaryQueueLen: primaryEmptySnapshot.queueLen,
-            primaryPendingLen: primaryEmptySnapshot.pendingLen,
-            primaryCheckLen: primaryEmptySnapshot.checkLen,
-          },
-        });
         if (isPostSuccessHandoffInProgress()) {
           finalizePostSuccessHandoffEmptyNoRetry({
             source: 'success-exit',
@@ -32088,20 +31874,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           pendingLen: primaryEmptySnapshot.finalPendingLen ?? primaryEmptySnapshot.pendingLen,
           hasPendingNotificationChain: false,
           reason: 'success-exit-empty-no-retry',
-        });
-        noteOwnerFalseWhileActiveCheckBranchTaken({
-          decisionName: 'success-exit-drain-session-completion',
-          branchTaken: 'end-drain',
-          source: 'success-exit-after-primary',
-          reason: 'success-exit-empty-no-retry',
-          calledFrom: 'success-exit-drain-session-completion',
-          decisionInputsAfter: {
-            shouldEndDrain: true,
-            stayOnLobbyEmpty: true,
-            chainStillActive: false,
-            pendingChainExists: false,
-            drained: false,
-          },
         });
         return false;
       }
@@ -40081,44 +39853,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   ]);
 
   useLayoutEffect(() => {
-    const notificationVisibleBefore = notificationOverlayVisibleDiagRef.current;
-    const dimVisibleBefore =
-      visualQueueDimSessionRef.current || visualQueueDimSession;
-    const queueClaimsAtDecision =
-      ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current;
     notificationOverlayVisibleDiagRef.current = notificationOverlayVisible;
-    probeOwnerFalseWhileActiveCheck({
-      decisionName: 'notificationOverlayVisible',
-      selector: 'notificationOverlayVisible',
-      source: 'Providers',
-      reason: 'notificationOverlayVisible-computed',
-      calledFrom: 'Providers:notificationOverlayVisible',
-      decisionResult: notificationOverlayVisible,
-      wouldHideOverlay: !notificationOverlayVisible,
-      decisionInputs: {
-        dimVisibleBefore,
-        notificationVisibleBefore,
-        queueClaimsNotificationScreen: queueClaimsAtDecision,
-        shouldHideOverlay: !notificationOverlayVisible,
-        notificationOverlayVisibleAfter: notificationOverlayVisible,
-      },
-    });
-    if (!notificationOverlayVisible) {
-      noteOwnerFalseWhileActiveCheckBranchTaken({
-        decisionName: 'notificationOverlayVisible',
-        branchTaken: 'hide-overlay',
-        source: 'Providers',
-        reason: 'notificationOverlayVisible-false',
-        calledFrom: 'Providers:notificationOverlayVisible',
-        decisionInputsAfter: {
-          dimVisibleBefore,
-          notificationVisibleBefore,
-          queueClaimsNotificationScreen: queueClaimsAtDecision,
-          shouldHideOverlay: true,
-          notificationOverlayVisibleAfter: false,
-        },
-      });
-    }
   }, [notificationOverlayVisible]);
 
   const queueHeadDisplayFallbackLogSigRef = useRef('');
@@ -40746,75 +40481,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       : notificationQueueShellDisplayKindResolved === 'incoming'
         ? 'shell-incoming'
         : 'no-shell-branch';
-
-  const hasRenderableOverlayAtRenderBranch =
-    Boolean(ownerPrimaryStableIncomingBan?.id) ||
-    ownerPrimaryHeldUserCard != null ||
-    showDirectOverboardLayer ||
-    checkOverlayMounted ||
-    incomingShellHydrating ||
-    (notificationQueueShellKind === 'check' && !!ownerPrimaryCheckBan?.id) ||
-    (notificationQueueShellKind === 'result' &&
-      !!ownerPrimaryDisplayResultForShell) ||
-    (notificationQueueShellKind === 'incoming' &&
-      !!incomingCardDisplayBan &&
-      incomingCardFullyReady);
-
-  probeOwnerFalseWhileActiveCheck({
-    decisionName: 'renderBranch',
-    selector: 'queueHeadLifecycleRenderBranch',
-    source: 'Providers.render-branch',
-    reason: `renderBranch=${queueHeadLifecycleRenderBranch}`,
-    calledFrom: 'ProvidersBody:queueHeadLifecycleRenderBranch',
-    decisionResult: queueHeadLifecycleRenderBranch,
-    wouldChooseNoShell: queueHeadLifecycleRenderBranch === 'no-shell-branch',
-    wouldRenderLobby: queueHeadLifecycleRenderBranch === 'lobby',
-    decisionInputs: {
-      queueHeadLifecycleRenderBranch,
-      queueShellRendersResultOverlay,
-      shellKind: notificationQueueShellDisplayKindResolved,
-      effectiveShellKind: effectiveNotificationQueueShellKind,
-      hasRenderableOverlay: hasRenderableOverlayAtRenderBranch,
-      checkShellBanId: checkShellBanId ?? null,
-      notificationOverlayVisible,
-    },
-  });
-  if (queueHeadLifecycleRenderBranch === 'no-shell-branch') {
-    noteOwnerFalseWhileActiveCheckBranchTaken({
-      decisionName: 'renderBranch',
-      branchTaken: 'choose-no-shell',
-      source: 'Providers.render-branch',
-      reason: `renderBranch=${queueHeadLifecycleRenderBranch}`,
-      calledFrom: 'ProvidersBody:queueHeadLifecycleRenderBranch',
-      decisionInputsAfter: {
-        queueHeadLifecycleRenderBranch,
-        queueShellRendersResultOverlay,
-        shellKind: notificationQueueShellDisplayKindResolved,
-        effectiveShellKind: effectiveNotificationQueueShellKind,
-        hasRenderableOverlay: hasRenderableOverlayAtRenderBranch,
-      },
-    });
-  }
-
-  const queueClaimsNotificationScreenAtRenderBranch =
-    ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current;
-  probeOwnerFalseWhileActiveCheck({
-    decisionName: 'queueClaimsNotificationScreen',
-    selector: 'queueClaimsNotificationScreen',
-    source: 'Providers.render-branch',
-    reason: 'queue-claims-notification-screen-read',
-    calledFrom: 'ProvidersBody:queueClaimsNotificationScreen',
-    decisionResult: queueClaimsNotificationScreenAtRenderBranch,
-    wouldReleaseNotificationScreen:
-      ownerPrimaryShellQueueLen === 0 && !queueLobbyGuardActiveRef.current,
-    decisionInputs: {
-      queueClaimsNotificationScreen: queueClaimsNotificationScreenAtRenderBranch,
-      ownerPrimaryShellQueueLen,
-      queueLobbyGuardActive: queueLobbyGuardActiveRef.current,
-      shouldReleaseNotificationScreen:
-        ownerPrimaryShellQueueLen === 0 && !queueLobbyGuardActiveRef.current,
-    },
-  });
 
   {
     const ownerForNextOverlay = ownerShadowRef.current.getState();
@@ -41716,21 +41382,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         'event' | 'reason' | 'visualQueueDimSession' | 'dimVisible'
       >,
     ) => {
-      probeOwnerFalseWhileActiveCheck({
-        decisionName: 'releaseVisualDimSession',
-        selector: 'visualQueueDimSession',
-        source: 'commitVisualQueueDimSessionRelease',
-        reason,
-        calledFrom: 'commitVisualQueueDimSessionRelease',
-        decisionResult: false,
-        wouldEndDrain: true,
-        decisionInputs: {
-          releaseReason: reason,
-          visualQueueDimSessionBefore: visualQueueDimSessionRef.current,
-          shouldEndDrain: true,
-          dimVisibleBefore: trace.dimVisible ?? null,
-        },
-      });
       clearVisualQueueDimReleaseTimer('commit-release');
       visualQueueDimSessionRef.current = false;
       setVisualQueueDimSession(false);
@@ -41740,18 +41391,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ...trace,
         visualQueueDimSession: false,
         dimVisible: false,
-      });
-      noteOwnerFalseWhileActiveCheckBranchTaken({
-        decisionName: 'releaseVisualDimSession',
-        branchTaken: 'release-visual-dim-session',
-        source: 'commitVisualQueueDimSessionRelease',
-        reason,
-        calledFrom: 'commitVisualQueueDimSessionRelease',
-        decisionInputsAfter: {
-          releaseReason: reason,
-          visualQueueDimSessionAfter: false,
-          dimVisibleAfter: false,
-        },
       });
     },
     [clearVisualQueueDimReleaseTimer],
@@ -42335,53 +41974,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         };
       },
     });
-    registerOwnerFalseWhileActiveCheckHooks({
-      readSnapshot: () => {
-        const snap = shellStuckDiagSnapshotRef.current;
-        const owner = ownerShadowRef.current.getState();
-        return {
-          ownerHasPendingNotificationChain:
-            owner.queue.length > 0 || owner.pending.length > 0,
-          legacyHasPendingNotificationChain:
-            hasPendingNotificationChainFnRef.current(),
-          ...buildOwnerFalseWhileActiveCheckOwnerDisplayFields(owner),
-          ...buildOwnerFalseWhileActiveCheckQueueFields({
-            ownerQueue: owner.queue,
-            ownerPending: owner.pending,
-            overlayQueueRef: overlayQueueRef.current,
-            overlayQueueState: overlayQueue,
-          }),
-          shellKind: snap?.shellKind ?? notificationQueueShellDisplayKindResolved,
-          renderBranch: snap?.renderBranch ?? queueHeadLifecycleRenderBranch,
-          returnBranch: snap?.renderBranch ?? queueHeadLifecycleRenderBranch,
-          notificationOverlayVisible:
-            notificationOverlayVisibleDiagRef.current ?? null,
-          queueClaimsNotificationScreen:
-            ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
-          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
-          visualQueueDimSessionLive:
-            visualQueueDimSessionRef.current || visualQueueDimSession,
-          explicitDrainReason: getExplicitNotificationDrainSource(),
-          drainSessionId: queueBreakTraceRef.current?.generation ?? null,
-          notificationChainTransitioning:
-            notificationChainTransitioningRef.current,
-          sendFlowOpening:
-            composeBlocksNotificationHost || sendSuccessCardActive,
-          lobbyVisible: lobbyOpenRef.current,
-          lobbyMounted: lobbyOpenRef.current,
-          checkPresentInQueues: false,
-          checkBanId: null,
-          checkOverlayKey: null,
-        };
-      },
-    });
     return () => {
       registerShellStuckOnResultWhileOwnerAdvancedHooks(null);
       registerShellKindWriteTraceHooks(null);
       registerQueueResultOverlayClaimTraceHooks(null);
       registerNextOverlayAfterResultReleaseHooks(null);
       registerShellCheckLifecycleTraceHooks(null);
-      registerOwnerFalseWhileActiveCheckHooks(null);
     };
   }, [
     activeOverlayKind,
