@@ -39011,6 +39011,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ) &&
     isQueueResultShellVisibleContentReady(ownerRenderResultPayload);
 
+  // Proven transition-gap signal, used ONLY by the final render-branch guard at
+  // the JSX below — never in any intermediate claim/result-state computation.
+  // True when the LIVE queue head is already a renderable check and the owner
+  // display is also check (with a real check ban). It only flips the final
+  // rendered branch result→check; all claim/result derivations stay intact.
+  const liveCheckHeadRenderableBanId =
+    ownerPrimaryCheckBanForDisplayGuards?.id?.trim() ||
+    (ownerPrimaryQueueHead?.kind === 'check'
+      ? ownerPrimaryQueueHead.ban?.id?.trim() ?? ''
+      : '');
+  const liveCheckHeadOwnsShell =
+    queueHeadKind === 'check' &&
+    resolveOwnerDisplayKindBanId(ownerReadDisplay).displayKind === 'check' &&
+    Boolean(liveCheckHeadRenderableBanId);
+
   /** Queue/active shell still owns result — keep ResultOverlay mounted even if readiness gates flicker. */
   const queueResultOverlayClaimResolved = resolveQueueResultOverlayClaimed({
     queueHeadKind,
@@ -39650,6 +39665,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const notificationQueueShellIncomingCardReady =
     ownerShellReadiness.incomingCardReady;
   const ownerShellContentReady = ownerShellReadiness.shellContentReady;
+
+  // FINAL render-priority guard for the proven transition gap. All intermediate
+  // claim/result-state derivations above are left untouched; this only changes
+  // which branch the shell actually renders. When the live queue head and owner
+  // display are BOTH already check with a renderable check ban (and no direct
+  // check overlay is taking over), render the check branch instead of a stale
+  // result branch, so the result→check swap is atomic and the lobby cannot flash
+  // in the gap. Requires a real check ban to avoid an empty/incoming fallthrough.
+  const liveCheckHeadRendersShell =
+    liveCheckHeadOwnsShell && !showCheckOverlayDirect && Boolean(checkBanForShell);
 
   const notificationQueueShellAdvanceWaiting = queueShellRendersResultOverlay
     ? false
@@ -45261,9 +45286,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 );
                 return (
               <NotificationQueueShell
-                kind={notificationQueueShellDisplayKindResolved}
+                kind={
+                  liveCheckHeadRendersShell
+                    ? ('check' as const)
+                    : notificationQueueShellDisplayKindResolved
+                }
                 shellContentReady={
-                  renderableResultShell ? ownerShellContentReady : undefined
+                  liveCheckHeadRendersShell
+                    ? undefined
+                    : renderableResultShell
+                      ? ownerShellContentReady
+                      : undefined
                 }
                 renderTrace={{
                   effectiveNotificationQueueShellKind:
@@ -45349,14 +45382,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     : notificationQueueShellIncomingCardReady
                 }
                 checkCardReady={
-                  queueShellRendersResultOverlay
-                    ? false
-                    : notificationQueueShellCheckCardReady
+                  liveCheckHeadRendersShell
+                    ? true
+                    : queueShellRendersResultOverlay
+                      ? false
+                      : notificationQueueShellCheckCardReady
                 }
                 sessionActive={notificationHostSessionBackdrop}
                 advanceWaiting={notificationQueueShellAdvanceWaiting}
                 contentKey={
-                  queueShellRendersResultOverlay && activeResultPayload
+                  !liveCheckHeadRendersShell &&
+                  queueShellRendersResultOverlay &&
+                  activeResultPayload
                     ? `result:${activeResultPayload.id}`
                     : ownerPrimaryQueueHead
                       ? overlayQueueKey(ownerPrimaryQueueHead)
@@ -45390,7 +45427,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                     'result-overlay',
                     queueShellRendersResultOverlay,
                   );
-                  if (queueShellRendersResultOverlay) {
+                  if (queueShellRendersResultOverlay && !liveCheckHeadRendersShell) {
                     logProvidersReturnBranch(
                       'queue-shell-children-result',
                       'queueShellRendersResultOverlay',
@@ -45423,19 +45460,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
                   queueShellBranchCollector.markBranchReached('check-overlay');
                   const queueShellCheckBranchCondition =
-                    !queueResultOverlayClaimed &&
+                    liveCheckHeadRendersShell ||
+                    (!queueResultOverlayClaimed &&
                     notificationQueueShellDisplayKindResolved === 'check' &&
                     !showCheckOverlayDirect &&
-                    checkBanForShell;
+                    checkBanForShell);
                   queueShellBranchCollector.markBranchEvaluated(
                     'check-overlay',
                     Boolean(queueShellCheckBranchCondition),
                   );
                   if (
-                    !queueResultOverlayClaimed &&
+                    liveCheckHeadRendersShell ||
+                    (!queueResultOverlayClaimed &&
                   notificationQueueShellDisplayKindResolved === 'check' &&
                   !showCheckOverlayDirect &&
-                  checkBanForShell
+                  checkBanForShell)
                   ) {
                     logProvidersReturnBranch(
                       'queue-shell-children-check',
