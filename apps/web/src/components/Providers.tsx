@@ -791,7 +791,7 @@ import {
   stageNotificationOverlayVisibilitySnapshot,
   type NotificationOverlayVisibleFinalGuardEmitContext,
 } from '@/lib/notification-overlay-visible-false-root-trace-debug';
-import { maybeEmitCheckDismissUnexpectedCallerTrace } from '@/lib/check-dismiss-unexpected-caller-trace-debug';
+import { maybeEmitFinalizeQueueOverboardSelectorTrace } from '@/lib/finalize-queue-overboard-selector-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -12959,46 +12959,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId: dismissBanId,
         source: reason,
       });
-      // One-shot, non-render caller-identity probe. Fires ONLY when a check head
-      // is being consumed while the user performed no expected exit (all
-      // shell-check markers false), and captures WHO called dismissCurrentOverlay
-      // via the explicit per-call-site diagnosticCaller token. Emitted here,
-      // immediately before the first business mutation (ownerShadowDispatch
-      // below). No state writes, no dispatch, no render involvement.
-      if (dismissKind === 'check' && dismissBanId) {
-        const ownerCheckBanForCallerTrace = readOwnerImperativeCheckBan(
-          owner.display,
-          'dismissCurrentOverlay',
-          { ref: checkBanRef.current },
-        );
-        maybeEmitCheckDismissUnexpectedCallerTrace({
-          checkBanId: dismissBanId,
-          diagnosticCaller: diagnosticCaller ?? null,
-          reason,
-          calledFrom: `dismissCurrentOverlay:${reason}`,
-          sourceFile: 'apps/web/src/components/Providers.tsx',
-          sourceFunction: 'dismissCurrentOverlay',
-          sourceLine: '12962',
-          dismissKind,
-          dismissBanId,
-          currentQueueHeadKind: prevHead?.kind ?? null,
-          currentQueueHeadBanId: dismissBanId,
-          queueLenBefore: prev.length,
-          nextQueueProvided: nextQueue !== undefined,
-          nextQueueLen: nextQueue?.length ?? null,
-          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
-          notificationChainTransitioning:
-            notificationChainTransitioningRef.current,
-          chainAdvanceWaiting: chainAdvanceWaitingRef.current,
-          checkOverlayMounted: null,
-          ownerPrimaryCheckBanExists: ownerCheckBanForCallerTrace != null,
-          notificationQueueShellKind: null,
-          shellKind: null,
-          ownerDisplayKind:
-            resolveOwnerDisplayKindBanId(owner.display).displayKind ?? null,
-          currentHeadKind: owner.queue[0]?.kind ?? owner.active?.kind ?? null,
-        });
-      }
       ownerShadowDispatch(
         {
           type: 'NOTIFICATION_DISMISSED',
@@ -32774,7 +32734,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, [logReplyQueueHandoffDiagContext, prefetchPendingNotificationChain]);
 
   const finalizeResultForGoToBans = useCallback(
-    (banId: string) => {
+    (banId: string, diagnosticCaller?: string) => {
       emitFinalizeGoToBansSync('[FINALIZE GO TO BANS ENTER]', {
         sourceFunction: 'finalizeResultForGoToBans',
         banId,
@@ -33597,6 +33557,106 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           afterRemoveQueue: [...nextQueueWithoutCurrent],
           branch: 'queueOverboard',
         });
+        // FINAL one-shot, non-render selector probe. The queueOverboard branch was
+        // selected purely from the RESULT outcome (no current-head kind/identity
+        // guard) and dismissCurrentOverlay below runs unconditionally even though
+        // queueHeadIsClickedResult is false. Capture the real operand/identity
+        // values while the LIVE head is still an unanswered check — after
+        // nextQueueWithoutCurrent is computed, before any live-queue mutation
+        // (commitPendingQueueViaOwner). Pure reads only; no state writes, no
+        // dispatch.
+        {
+          const headNowForSelectorTrace = beforeQueue[0] ?? null;
+          const headKindNow = headNowForSelectorTrace?.kind ?? null;
+          const headBanIdNow =
+            headNowForSelectorTrace?.kind === 'result'
+              ? headNowForSelectorTrace.result.id
+              : headNowForSelectorTrace?.kind === 'incoming' ||
+                  headNowForSelectorTrace?.kind === 'check'
+                ? headNowForSelectorTrace.ban.id
+                : null;
+          const headResultIdNow =
+            headNowForSelectorTrace?.kind === 'result'
+              ? headNowForSelectorTrace.result.id
+              : null;
+          const ownerNowForSelectorTrace = ownerShadowRef.current.getState();
+          const ownerDisplayResolved = resolveOwnerDisplayKindBanId(
+            ownerNowForSelectorTrace.display,
+          );
+          const ownerCheckBanForSelectorTrace = readOwnerImperativeCheckBan(
+            ownerNowForSelectorTrace.display,
+            'dismissCurrentOverlay',
+            { ref: checkBanRef.current },
+          );
+          const nextHead = nextQueueWithoutCurrent[0] ?? null;
+          const nextHeadBanId =
+            nextHead?.kind === 'result'
+              ? nextHead.result.id
+              : nextHead?.kind === 'incoming' || nextHead?.kind === 'check'
+                ? nextHead.ban.id
+                : null;
+          maybeEmitFinalizeQueueOverboardSelectorTrace({
+            diagnosticCaller: diagnosticCaller ?? null,
+            calledFrom: `finalizeResultForGoToBans:${diagnosticCaller ?? 'unknown'}`,
+            sourceFunction: 'finalizeResultForGoToBans',
+            sourceLine: '33528',
+            invocationReason: 'go-to-bans',
+            outcome,
+            directResultOverlay: !!closeBefore.directResultOverlay,
+            directResultOverlayActive: !!closeBefore.directResultOverlayActive,
+            isQueueOverboardResultDismiss,
+            selectorOperands: {
+              outcomeIsOverboard: outcome === 'overboard',
+              notDirectResultOverlay: !closeBefore.directResultOverlay,
+              notDirectResultOverlayActive:
+                !closeBefore.directResultOverlayActive,
+            },
+            firstDecisiveOperand: 'outcomeIsOverboard',
+            selectedFinalizeBranch: 'queueOverboard',
+            requestedBanId: banId,
+            normalizedRequestedBanId: key,
+            resolvedResultBanId: resolvedResultPayload?.id ?? null,
+            resolvedResultId: resolvedResultPayload?.id ?? null,
+            resolvedResultOverlayKey: overlayKey,
+            outcomeSource: resolvedPayloadSource ?? null,
+            resultPayloadExists: resolvedResultPayload != null,
+            currentQueueHeadKind: headKindNow,
+            currentQueueHeadBanId: headBanIdNow,
+            currentQueueHeadResultId: headResultIdNow,
+            currentQueueHeadKey: headNowForSelectorTrace
+              ? overlayQueueKey(headNowForSelectorTrace)
+              : null,
+            queueLenBefore: beforeQueue.length,
+            queueHeadIsClickedResult,
+            resultBanIdMatchesCurrentHeadBanId:
+              headBanIdNow != null && normalizeId(headBanIdNow) === key,
+            resultIdMatchesCurrentHeadResultId:
+              headResultIdNow != null && normalizeId(headResultIdNow) === key,
+            actualHeadKind: headKindNow,
+            currentHeadIdentityMatchesFinalizeTarget:
+              headBanIdNow != null && normalizeId(headBanIdNow) === key,
+            nextQueueWithoutCurrentLen: nextQueueWithoutCurrent.length,
+            nextQueueWithoutCurrentHeadKind: nextHead?.kind ?? null,
+            nextQueueWithoutCurrentHeadBanId: nextHeadBanId,
+            removalStrategy: queueHeadIsClickedResult
+              ? 'remove-overlays-for-result'
+              : 'plain-remove-overlays-for-ban',
+            ownerDisplayKind: ownerDisplayResolved.displayKind,
+            ownerDisplayBanId: ownerDisplayResolved.displayBanId,
+            ownerPrimaryCheckBanExists: ownerCheckBanForSelectorTrace != null,
+            checkOverlayMounted: null,
+            activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+            notificationChainTransitioning:
+              notificationChainTransitioningRef.current,
+            chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+            // Static code facts: the selector (lines 33058-33061) reads no head
+            // kind/identity, and dismissCurrentOverlay below is called
+            // unconditionally regardless of queueHeadIsClickedResult.
+            missingGuardCurrentHeadKind: true,
+            missingGuardCurrentHeadIdentity: true,
+            dismissWillRunUnconditionally: true,
+          });
+        }
         const nextPending = traceRemoveOverlaysForBan(
           beforePending,
           key,
@@ -34125,7 +34185,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const consumeResultBanForResultCta = useCallback(
     (banId: string) => {
-      finalizeResultForGoToBans(banId);
+      finalizeResultForGoToBans(banId, 'consumeResultBanForResultCta');
     },
     [finalizeResultForGoToBans],
   );
@@ -34778,7 +34838,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
       }
       flushSync(() => {
-        finalizeResultForGoToBans(banId);
+        finalizeResultForGoToBans(banId, 'navigateFromResult');
       });
       clearGoToBansHoldBeforeNextCard(banId, 'result');
       if (isPostConsumeTraceActive()) {
