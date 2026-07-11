@@ -128,10 +128,9 @@ export function maybeEmitNotificationOverlayVisibleFinalGuardTrace(
 ): void {
   // Console emit disabled. This was a render-phase (useMemo) console.error and
   // is superseded by the single non-render event-path trace
-  // FINALIZE_QUEUE_OVERBOARD_SELECTOR_TRACE (emitted from
-  // finalizeResultForGoToBans, inside the queueOverboard branch after
-  // nextQueueWithoutCurrent is computed and before any live-queue mutation). No
-  // render-phase logging remains here.
+  // CHECK_HEAD_PRESERVED_BUT_LOBBY_RENDERED_TRACE (emitted from
+  // finalizeResultForGoToBans, on the identity-safe mismatch path where the
+  // check head is preserved). No render-phase logging remains here.
 }
 
 export function maybeEmitNotificationOverlayVisibilityBranchRootTrace(

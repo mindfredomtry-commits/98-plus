@@ -791,7 +791,7 @@ import {
   stageNotificationOverlayVisibilitySnapshot,
   type NotificationOverlayVisibleFinalGuardEmitContext,
 } from '@/lib/notification-overlay-visible-false-root-trace-debug';
-import { maybeEmitFinalizeQueueOverboardSelectorTrace } from '@/lib/finalize-queue-overboard-selector-trace-debug';
+import { maybeEmitCheckHeadPreservedButLobbyRenderedTrace } from '@/lib/check-head-preserved-but-lobby-rendered-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -2326,6 +2326,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     resultBanId: string | null;
     resultOverlayKey: string | null;
     resultSource: string | null;
+  } | null>(null);
+  // Diagnostics-only, read-only mirror of render-scope overlay-visibility flags
+  // that have no other event-path-readable ref. Written once per render (plain
+  // O(1) object assignment, same pattern as shellStuckDiagSnapshotRef); read by
+  // the CHECK_HEAD_PRESERVED_BUT_LOBBY_RENDERED_TRACE probe in the event path.
+  // No console, no state, no dispatch — does not affect visual-shield behavior.
+  const lobbyFlickerShieldDiagRef = useRef<{
+    overlayVisualShieldCardContentMounted: boolean;
+    globalOverlayHostActive: boolean;
+    checkOverlayMounted: boolean;
   } | null>(null);
   const visualQueueDimSessionTraceSigRef = useRef('');
   const visualQueueDimReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -33557,106 +33567,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           afterRemoveQueue: [...nextQueueWithoutCurrent],
           branch: 'queueOverboard',
         });
-        // FINAL one-shot, non-render selector probe. The queueOverboard branch was
-        // selected purely from the RESULT outcome (no current-head kind/identity
-        // guard) and dismissCurrentOverlay below runs unconditionally even though
-        // queueHeadIsClickedResult is false. Capture the real operand/identity
-        // values while the LIVE head is still an unanswered check — after
-        // nextQueueWithoutCurrent is computed, before any live-queue mutation
-        // (commitPendingQueueViaOwner). Pure reads only; no state writes, no
-        // dispatch.
-        {
-          const headNowForSelectorTrace = beforeQueue[0] ?? null;
-          const headKindNow = headNowForSelectorTrace?.kind ?? null;
-          const headBanIdNow =
-            headNowForSelectorTrace?.kind === 'result'
-              ? headNowForSelectorTrace.result.id
-              : headNowForSelectorTrace?.kind === 'incoming' ||
-                  headNowForSelectorTrace?.kind === 'check'
-                ? headNowForSelectorTrace.ban.id
-                : null;
-          const headResultIdNow =
-            headNowForSelectorTrace?.kind === 'result'
-              ? headNowForSelectorTrace.result.id
-              : null;
-          const ownerNowForSelectorTrace = ownerShadowRef.current.getState();
-          const ownerDisplayResolved = resolveOwnerDisplayKindBanId(
-            ownerNowForSelectorTrace.display,
-          );
-          const ownerCheckBanForSelectorTrace = readOwnerImperativeCheckBan(
-            ownerNowForSelectorTrace.display,
-            'dismissCurrentOverlay',
-            { ref: checkBanRef.current },
-          );
-          const nextHead = nextQueueWithoutCurrent[0] ?? null;
-          const nextHeadBanId =
-            nextHead?.kind === 'result'
-              ? nextHead.result.id
-              : nextHead?.kind === 'incoming' || nextHead?.kind === 'check'
-                ? nextHead.ban.id
-                : null;
-          maybeEmitFinalizeQueueOverboardSelectorTrace({
-            diagnosticCaller: diagnosticCaller ?? null,
-            calledFrom: `finalizeResultForGoToBans:${diagnosticCaller ?? 'unknown'}`,
-            sourceFunction: 'finalizeResultForGoToBans',
-            sourceLine: '33528',
-            invocationReason: 'go-to-bans',
-            outcome,
-            directResultOverlay: !!closeBefore.directResultOverlay,
-            directResultOverlayActive: !!closeBefore.directResultOverlayActive,
-            isQueueOverboardResultDismiss,
-            selectorOperands: {
-              outcomeIsOverboard: outcome === 'overboard',
-              notDirectResultOverlay: !closeBefore.directResultOverlay,
-              notDirectResultOverlayActive:
-                !closeBefore.directResultOverlayActive,
-            },
-            firstDecisiveOperand: 'outcomeIsOverboard',
-            selectedFinalizeBranch: 'queueOverboard',
-            requestedBanId: banId,
-            normalizedRequestedBanId: key,
-            resolvedResultBanId: resolvedResultPayload?.id ?? null,
-            resolvedResultId: resolvedResultPayload?.id ?? null,
-            resolvedResultOverlayKey: overlayKey,
-            outcomeSource: resolvedPayloadSource ?? null,
-            resultPayloadExists: resolvedResultPayload != null,
-            currentQueueHeadKind: headKindNow,
-            currentQueueHeadBanId: headBanIdNow,
-            currentQueueHeadResultId: headResultIdNow,
-            currentQueueHeadKey: headNowForSelectorTrace
-              ? overlayQueueKey(headNowForSelectorTrace)
-              : null,
-            queueLenBefore: beforeQueue.length,
-            queueHeadIsClickedResult,
-            resultBanIdMatchesCurrentHeadBanId:
-              headBanIdNow != null && normalizeId(headBanIdNow) === key,
-            resultIdMatchesCurrentHeadResultId:
-              headResultIdNow != null && normalizeId(headResultIdNow) === key,
-            actualHeadKind: headKindNow,
-            currentHeadIdentityMatchesFinalizeTarget:
-              headBanIdNow != null && normalizeId(headBanIdNow) === key,
-            nextQueueWithoutCurrentLen: nextQueueWithoutCurrent.length,
-            nextQueueWithoutCurrentHeadKind: nextHead?.kind ?? null,
-            nextQueueWithoutCurrentHeadBanId: nextHeadBanId,
-            removalStrategy: queueHeadIsClickedResult
-              ? 'remove-overlays-for-result'
-              : 'plain-remove-overlays-for-ban',
-            ownerDisplayKind: ownerDisplayResolved.displayKind,
-            ownerDisplayBanId: ownerDisplayResolved.displayBanId,
-            ownerPrimaryCheckBanExists: ownerCheckBanForSelectorTrace != null,
-            checkOverlayMounted: null,
-            activeNotificationChain: hasPendingNotificationChainFnRef.current(),
-            notificationChainTransitioning:
-              notificationChainTransitioningRef.current,
-            chainAdvanceWaiting: chainAdvanceWaitingRef.current,
-            // Static code facts: the selector (lines 33058-33061) reads no head
-            // kind/identity, and dismissCurrentOverlay below is called
-            // unconditionally regardless of queueHeadIsClickedResult.
-            missingGuardCurrentHeadKind: true,
-            missingGuardCurrentHeadIdentity: true,
-            dismissWillRunUnconditionally: true,
-          });
-        }
         const nextPending = traceRemoveOverlaysForBan(
           beforePending,
           key,
@@ -33731,6 +33641,58 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         // touch the current head. Result-specific bookkeeping that does not
         // remove the current head still runs below (display-clear is itself
         // identity-guarded on `=== key`).
+        //
+        // One-shot, non-render probe: the check head was correctly PRESERVED
+        // (finalize did NOT dismiss), yet lobby may still briefly flicker. Record
+        // the render/handoff state (from post-commit diagnostic refs) to find
+        // which flag temporarily makes the overlay invisible. Pure reads only; no
+        // state writes, no dispatch.
+        if (
+          !canDismissCurrentQueueHeadForFinalize &&
+          beforeQueue[0]?.kind === 'check'
+        ) {
+          const preservedCheckHead = beforeQueue[0];
+          const ownerNowForFlickerTrace = ownerShadowRef.current.getState();
+          const ownerDisplayForFlicker = resolveOwnerDisplayKindBanId(
+            ownerNowForFlickerTrace.display,
+          );
+          const ownerCheckBanForFlicker = readOwnerImperativeCheckBan(
+            ownerNowForFlickerTrace.display,
+            'dismissCurrentOverlay',
+            { ref: checkBanRef.current },
+          );
+          const shellSnap = shellStuckDiagSnapshotRef.current;
+          const shieldSnap = lobbyFlickerShieldDiagRef.current;
+          maybeEmitCheckHeadPreservedButLobbyRenderedTrace({
+            checkBanId: preservedCheckHead.ban.id,
+            finalizeResultBanId: key,
+            currentQueueHeadKind: preservedCheckHead.kind,
+            currentQueueHeadBanId: preservedCheckHead.ban.id,
+            queueLen: beforeQueue.length,
+            notificationChainTransitioning:
+              notificationChainTransitioningRef.current,
+            chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+            activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+            notificationQueueShellKind:
+              shellSnap?.notificationQueueShellKind ?? null,
+            ownerDisplayKind: ownerDisplayForFlicker.displayKind,
+            ownerDisplayBanId: ownerDisplayForFlicker.displayBanId,
+            ownerPrimaryCheckBanExists: ownerCheckBanForFlicker != null,
+            checkOverlayMounted: shieldSnap?.checkOverlayMounted ?? null,
+            notificationOverlayVisibleDiag:
+              notificationOverlayVisibleDiagRef.current,
+            visualQueueDimSessionLive: visualQueueDimSessionRef.current,
+            globalOverlayHostActive: shieldSnap?.globalOverlayHostActive ?? null,
+            overlayVisualShieldCardContentMounted:
+              shieldSnap?.overlayVisualShieldCardContentMounted ?? null,
+            shellKind: shellSnap?.shellKind ?? null,
+            renderBranch: shellSnap?.renderBranch ?? null,
+            lobbyVisible: lobbyOpenRef.current,
+            queueClaimsNotificationScreen:
+              ownerNowForFlickerTrace.queue.length > 0 ||
+              queueLobbyGuardActiveRef.current,
+          });
+        }
         const ownerDisplayResultId =
           ownerShadowRef.current.getState().display.result?.id ?? null;
         // Do not wipe display when next head was applied.
@@ -42424,6 +42386,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     overlayBackdropVisibilityDecision.backdropMounted;
   const globalOverlayHostActive =
     !composeBlocksNotificationHost && overlayBackdropHostMounted;
+  lobbyFlickerShieldDiagRef.current = {
+    overlayVisualShieldCardContentMounted,
+    globalOverlayHostActive,
+    checkOverlayMounted,
+  };
   const overlayBackdropGapHold = shouldHoldOverlayBackdropDuringQueueGap({
     visualQueueDimSessionLive,
     sendFlowOpening,
