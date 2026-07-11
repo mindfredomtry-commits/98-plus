@@ -333,7 +333,25 @@ import {
   logOverboardTiming,
   markOverboardClickStart,
 } from '@/lib/overboard-timing-debug';
-import { RequestTimeoutError } from '@/lib/request-timeout';
+import { RequestTimeoutError, DEFAULT_SEND_TIMEOUT_MS } from '@/lib/request-timeout';
+import {
+  beginCheckHandoffTrace,
+  emitCheckHandoffStage,
+  getActiveCheckHandoffTraceId,
+  getCheckHandoffRenderMirror,
+  getCheckHandoffFlags,
+  checkHandoffElapsedFromStartMs,
+  checkHandoffElapsedFromPrefetchMs,
+  markCheckHandoffPrefetchStarted,
+  markCheckHandoffPrefetchSettled,
+  markCheckHandoffNextCardCommitted,
+  markCheckHandoffOutcome,
+  setCheckHandoffRetryAttempt,
+  setCheckHandoffFetchedIdentities,
+  getCheckHandoffFetchedIdentities,
+  updateCheckHandoffProvidersMirror,
+  getCheckHandoffProvidersMirror,
+} from '@/lib/check-handoff-atomicity-trace-debug';
 import {
   logResultPresentation,
   logResultUi,
@@ -4311,6 +4329,52 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       pendingLen: pendingStartupInteractionsRef.current.length,
       activeKind: owner.active.kind,
       activeBanId: owner.active.banId,
+    };
+  };
+  /**
+   * Read-only live snapshot for CHECK_HANDOFF_ATOMICITY_TRACE. Reads refs +
+   * owner shadow state + the InstantBanFlow render mirror. Does not mutate any
+   * state and is only invoked from diagnostic emit sites.
+   */
+  const buildCheckHandoffLive = () => {
+    const owner = ownerShadowRef.current.getState();
+    const head =
+      owner.queue[0] ??
+      overlayQueueRef.current[0] ??
+      owner.pending[0] ??
+      pendingStartupInteractionsRef.current[0] ??
+      null;
+    const headKind = head?.kind ?? null;
+    const headIdentity = head
+      ? head.kind === 'result'
+        ? head.result.id
+        : head.kind === 'incoming' || head.kind === 'check'
+          ? head.ban.id
+          : null
+      : null;
+    const ownerDisplayKind = owner.display.checkBan
+      ? 'check'
+      : owner.display.incomingBan
+        ? 'incoming'
+        : owner.display.result
+          ? 'result'
+          : null;
+    const mirror = getCheckHandoffRenderMirror();
+    return {
+      activeKind: owner.active.kind,
+      ownerDisplayKind,
+      ownerQueueLength: owner.queue.length,
+      ownerPendingLength: owner.pending.length,
+      overlayQueueLength: overlayQueueRef.current.length,
+      currentQueueHeadKind: headKind,
+      currentQueueHeadIdentity: headIdentity,
+      chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+      notificationChainTransitioning: notificationChainTransitioningRef.current,
+      notificationQueueShellKind:
+        getCheckHandoffProvidersMirror().notificationQueueShellKind,
+      notificationOverlayMounted: mirror.notificationQueueUiLock,
+      queueClaimsNotificationScreen: mirror.queueClaimsNotificationScreen,
+      showLobbyCta: mirror.showLobbyCta,
     };
   };
   const buildConsumeAfterAnswerTraceSnapshot = (
@@ -16835,6 +16899,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             ],
           },
         });
+        {
+          const incomingCount = prefetched.incoming.length;
+          const checkCount = prefetched.check ? 1 : 0;
+          const resultCount = prefetched.result ? 1 : 0;
+          const fetchedIds = [
+            ...prefetched.incoming.map((b) => b.id),
+            ...(prefetched.check?.id ? [prefetched.check.id] : []),
+            ...(prefetched.result?.id ? [prefetched.result.id] : []),
+          ];
+          setCheckHandoffFetchedIdentities(fetchedIds);
+          markCheckHandoffPrefetchSettled();
+          const owner = ownerShadowRef.current.getState();
+          const live = buildCheckHandoffLive();
+          emitCheckHandoffStage('pending-chain-prefetch-resolved', {
+            prefetchDurationMs: checkHandoffElapsedFromPrefetchMs(),
+            incomingCount,
+            checkCount,
+            resultCount,
+            totalFetchedCount: incomingCount + checkCount + resultCount,
+            ownerQueueLengthBeforeMerge: owner.queue.length,
+            ownerPendingLengthBeforeMerge: owner.pending.length,
+            overlayQueueLengthBeforeMerge: overlayQueueRef.current.length,
+            ...live,
+          });
+        }
         if (
           tokenRef.current !== token ||
           userIdRef.current?.trim() !== viewerId
@@ -17543,7 +17632,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
 
         return true;
-      } catch {
+      } catch (err) {
         logQueueApiResultApplyDecision({
           source,
           endpoint: '/bans/incoming/pending-all',
@@ -17558,6 +17647,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           queueLenAfter: overlayQueueRef.current.length,
           pendingLenAfter: pendingStartupInteractionsRef.current.length,
         });
+        {
+          const errorName =
+            err instanceof Error ? err.name : typeof err;
+          const errorMessage =
+            err instanceof Error ? err.message : String(err);
+          const isTimeout =
+            err instanceof RequestTimeoutError || errorName === 'AbortError';
+          const retryAttempt = getCheckHandoffFlags().retryAttempt;
+          const live = buildCheckHandoffLive();
+          emitCheckHandoffStage('pending-chain-prefetch-failed', {
+            prefetchDurationMs: checkHandoffElapsedFromPrefetchMs(),
+            errorName,
+            errorMessage,
+            isTimeout,
+            timeoutMs: DEFAULT_SEND_TIMEOUT_MS,
+            retryAttempt,
+            willRetry: retryAttempt < CHECK_ANSWER_CHAIN_RETRY_MAX,
+            ...live,
+          });
+        }
         return false;
       } finally {
         pendingChainPrefetchInFlightRef.current = Math.max(
@@ -21075,6 +21184,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         completed,
       });
 
+      beginCheckHandoffTrace(normalizedBanId);
+      {
+        const live = buildCheckHandoffLive();
+        emitCheckHandoffStage('check-answer-chain-start', {
+          banId: normalizedBanId,
+          resultId: resultRef.current?.id ?? null,
+          answer: completed,
+          ...live,
+        });
+      }
+
       const checkBanAtSubmit = checkBanRef.current;
       const senderUserIdAtSubmit = checkBanAtSubmit?.sender?.id ?? null;
       const receiverUserIdAtSubmit = checkBanAtSubmit?.receiver?.id ?? null;
@@ -21101,6 +21221,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         heldKind: heldUserCardOverlayRef.current?.kind ?? null,
         checkBanId: checkBanRef.current?.id ?? null,
       });
+      {
+        const owner = ownerShadowRef.current.getState();
+        const ownerHead = owner.queue[0] ?? null;
+        const overlayHead = queueBeforeRemove[0] ?? null;
+        const headId = (h: typeof ownerHead) =>
+          h == null
+            ? null
+            : h.kind === 'result'
+              ? h.result.id
+              : h.kind === 'incoming' || h.kind === 'check'
+                ? h.ban.id
+                : null;
+        emitCheckHandoffStage('before-current-check-consume', {
+          banId: normalizedBanId,
+          consumedIdentity: normalizedBanId,
+          consumeReason: 'submitCheckAnswer:removeOverlaysForBan',
+          ownerQueueLengthBefore: owner.queue.length,
+          ownerQueueHeadBefore: ownerHead?.kind ?? null,
+          overlayQueueLengthBefore: queueBeforeRemove.length,
+          overlayQueueHeadBefore: overlayHead?.kind ?? null,
+          nextOwnerQueueItemBefore: owner.queue[1]?.kind ?? null,
+          nextOverlayQueueItemBefore: queueBeforeRemove[1]?.kind ?? null,
+          currentQueueHeadIdentity: headId(ownerHead) ?? headId(overlayHead),
+          chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+          notificationChainTransitioning:
+            notificationChainTransitioningRef.current,
+        });
+      }
       const remaining = removeOverlaysForBan(
         queueBeforeRemove,
         normalizedBanId,
@@ -21182,6 +21330,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       dismissCurrentOverlay('user-answer', remaining, 'submitCheckAnswer');
       emitQueueBreakSnapshot('after-consume');
+      {
+        const owner = ownerShadowRef.current.getState();
+        const ownerHead = owner.queue[0] ?? null;
+        const overlayHead = overlayQueueRef.current[0] ?? null;
+        const headId = (h: typeof ownerHead) =>
+          h == null
+            ? null
+            : h.kind === 'result'
+              ? h.result.id
+              : h.kind === 'incoming' || h.kind === 'check'
+                ? h.ban.id
+                : null;
+        emitCheckHandoffStage('after-current-check-consume', {
+          banId: normalizedBanId,
+          ownerQueueLengthAfter: owner.queue.length,
+          ownerQueueHeadAfter: ownerHead?.kind ?? null,
+          overlayQueueLengthAfter: overlayQueueRef.current.length,
+          overlayQueueHeadAfter: overlayHead?.kind ?? null,
+          nextOwnerQueueItemAfter: owner.queue[1]?.kind ?? null,
+          nextOverlayQueueItemAfter: overlayQueueRef.current[1]?.kind ?? null,
+          currentQueueHeadIdentity: headId(ownerHead) ?? headId(overlayHead),
+        });
+      }
       setCheckWaiting(false);
       logCheckAnswerOverlayHostSnapshot('after-dismiss-user-answer');
 
@@ -29763,6 +29934,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           outcome === 'lost-pending');
 
       if (shouldInChainEmptyRetry) {
+        markCheckHandoffPrefetchStarted();
+        {
+          const live = buildCheckHandoffLive();
+          emitCheckHandoffStage('pending-chain-prefetch-start', {
+            banId: opts?.prefetchSkipBanId ?? null,
+            prefetchReason: `${source}-in-chain-prefetch`,
+            prefetchStartedAt: performance.now(),
+            ...live,
+          });
+        }
         await prefetchPendingNotificationChain(
           opts?.prefetchSkipBanId ?? null,
           `${source}-in-chain-prefetch`,
@@ -29905,6 +30086,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return emptyOutcome;
       }
 
+      markCheckHandoffPrefetchStarted();
+      {
+        const live = buildCheckHandoffLive();
+        emitCheckHandoffStage('pending-chain-prefetch-start', {
+          banId: opts?.prefetchSkipBanId ?? null,
+          prefetchReason: `${source}-prefetch`,
+          prefetchStartedAt: performance.now(),
+          ...live,
+        });
+      }
       await prefetchPendingNotificationChain(
         opts?.prefetchSkipBanId ?? null,
         `${source}-prefetch`,
@@ -29945,6 +30136,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           return 'show-next';
         }
       }
+      {
+        const owner = ownerShadowRef.current.getState();
+        emitCheckHandoffStage('before-next-chain-merge', {
+          fetchedIdentities: getCheckHandoffFetchedIdentities(),
+          ownerQueueLengthBefore: owner.queue.length,
+          ownerQueueHeadBefore: owner.queue[0]?.kind ?? null,
+          overlayQueueLengthBefore: overlayQueueRef.current.length,
+          overlayQueueHeadBefore: overlayQueueRef.current[0]?.kind ?? null,
+        });
+      }
       outcome = continueNotificationChainOrOpenLobbySync(
         `${source}-after-prefetch`,
         {
@@ -29953,6 +30154,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           prefetchIfEmpty: false,
         },
       );
+      {
+        const owner = ownerShadowRef.current.getState();
+        const nextHead = owner.queue[0] ?? overlayQueueRef.current[0] ?? null;
+        const nextIdentity =
+          nextHead == null
+            ? null
+            : nextHead.kind === 'result'
+              ? nextHead.result.id
+              : nextHead.kind === 'incoming' || nextHead.kind === 'check'
+                ? nextHead.ban.id
+                : null;
+        emitCheckHandoffStage('after-next-chain-merge', {
+          fetchedIdentities: getCheckHandoffFetchedIdentities(),
+          ownerQueueLengthAfter: owner.queue.length,
+          ownerQueueHeadAfter: owner.queue[0]?.kind ?? null,
+          overlayQueueLengthAfter: overlayQueueRef.current.length,
+          overlayQueueHeadAfter: overlayQueueRef.current[0]?.kind ?? null,
+          nextSelectedKind: nextHead?.kind ?? null,
+          nextSelectedIdentity: nextIdentity,
+        });
+      }
       if (outcome !== 'needs-prefetch') {
         return outcome;
       }
@@ -30212,11 +30434,44 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         reason,
         outcome: formatCheckAnswerContinueOutcomeLog(outcome),
       });
+      const chainAdvanceWaitingBefore = chainAdvanceWaitingRef.current;
+      const retryTimerActiveAtRelease = Boolean(
+        checkAnswerChainRetryTimerRef.current,
+      );
+      {
+        const live = buildCheckHandoffLive();
+        emitCheckHandoffStage(
+          'release-check-transition-enter',
+          {
+            banId: checkBanRef.current?.id ?? null,
+            releaseReason: reason,
+            chainAdvanceWaitingBefore,
+            retryTimerActive: retryTimerActiveAtRelease,
+            ...live,
+          },
+          reason,
+        );
+      }
       if (checkAnswerChainRetryTimerRef.current) {
         clearTimeout(checkAnswerChainRetryTimerRef.current);
         checkAnswerChainRetryTimerRef.current = null;
       }
       setChainAdvanceWaiting(false);
+      {
+        const live = buildCheckHandoffLive();
+        emitCheckHandoffStage(
+          'release-check-transition-after-waiting-false',
+          {
+            banId: checkBanRef.current?.id ?? null,
+            releaseReason: reason,
+            chainAdvanceWaitingBefore,
+            requestedChainAdvanceWaitingAfter: false,
+            retryTimerActive: retryTimerActiveAtRelease,
+            ...live,
+          },
+          reason,
+        );
+      }
       checkAnswerDismissChainOwnedRef.current = false;
     },
     [setChainAdvanceWaiting],
@@ -30240,6 +30495,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       if (outcome === 'show-next' || hasCheckAnswerNextCardMounted()) {
+        setCheckHandoffRetryAttempt(retryCount);
+        {
+          const live = buildCheckHandoffLive();
+          emitCheckHandoffStage(
+            'before-release-check-transition',
+            {
+              banId,
+              releaseReason: 'shown-next',
+              retryTimerActive: Boolean(checkAnswerChainRetryTimerRef.current),
+              ...getCheckHandoffFlags(),
+              ...live,
+              retryAttempt: retryCount,
+            },
+            'shown-next',
+          );
+          markCheckHandoffNextCardCommitted();
+          const committedLive = buildCheckHandoffLive();
+          emitCheckHandoffStage('next-card-committed', {
+            banId,
+            nextKind: committedLive.currentQueueHeadKind,
+            nextIdentity: committedLive.currentQueueHeadIdentity,
+            nextBanId: committedLive.currentQueueHeadIdentity,
+            elapsedFromCheckAnswerMs: checkHandoffElapsedFromStartMs(),
+            elapsedFromPrefetchStartMs: checkHandoffElapsedFromPrefetchMs(),
+            outcome: 'next-card-committed',
+            ...committedLive,
+          });
+          markCheckHandoffOutcome('next-card-committed');
+        }
         releaseCheckAnswerTransition('shown-next', outcome);
         return;
       }
@@ -30252,6 +30536,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             retryCount,
           });
           return;
+        }
+        {
+          const live = buildCheckHandoffLive();
+          emitCheckHandoffStage(
+            'before-release-check-transition',
+            {
+              banId,
+              releaseReason: 'opened-lobby-empty',
+              retryTimerActive: Boolean(checkAnswerChainRetryTimerRef.current),
+              ...getCheckHandoffFlags(),
+              ...live,
+              retryAttempt: retryCount,
+            },
+            'opened-lobby-empty',
+          );
         }
         releaseCheckAnswerTransition('opened-lobby-empty', outcome);
         return;
@@ -30329,6 +30628,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             });
             return;
           }
+          setCheckHandoffRetryAttempt(retryCount);
+          {
+            const live = buildCheckHandoffLive();
+            emitCheckHandoffStage(
+              'before-release-check-transition',
+              {
+                banId,
+                releaseReason: 'retry-exhausted',
+                retryTimerActive: Boolean(checkAnswerChainRetryTimerRef.current),
+                ...getCheckHandoffFlags(),
+                ...live,
+                retryAttempt: retryCount,
+              },
+              'retry-exhausted',
+            );
+          }
           releaseCheckAnswerTransition('retry-exhausted', outcome);
           if (!hasCheckAnswerNextCardMounted()) {
             openLobbyRef.current('check-answer-retry-exhausted');
@@ -30337,6 +30652,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
 
         const nextRetry = retryCount + 1;
+        setCheckHandoffRetryAttempt(nextRetry);
         logCheckAnswerRetryContinue({
           retryCount: nextRetry,
           source: 'check-answer-retry',
@@ -36793,6 +37109,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const openLobby = useCallback((source?: string) => {
     const snapshot = getNotificationChainDebugSnapshot();
+    {
+      const reason = source ?? 'openLobby';
+      const openLobbyOutcome = reason.includes('retry-exhausted')
+        ? 'retry-exhausted'
+        : reason.includes('empty')
+          ? 'queue-confirmed-empty'
+          : 'open-lobby';
+      const flags = getCheckHandoffFlags();
+      const live = buildCheckHandoffLive();
+      emitCheckHandoffStage(
+        'open-lobby-requested',
+        {
+          openLobbyReason: reason,
+          banId: checkBanRef.current?.id ?? null,
+          ...flags,
+          ...live,
+          elapsedFromCheckAnswerMs: checkHandoffElapsedFromStartMs(),
+          outcome: openLobbyOutcome,
+        },
+        reason,
+      );
+      markCheckHandoffOutcome(openLobbyOutcome);
+    }
     const queueHead = overlayQueueRef.current[0] ?? null;
     syncQueueLobbyGuardState({
       queueLen: overlayQueueRef.current.length,
@@ -38353,6 +38692,102 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     showCheckOverlayDirect,
     showDirectOverboardLayer,
     showReplyIncomingOverlayDirect,
+  ]);
+
+  const notificationOverlayMountedPrevRef = useRef(notificationOverlayMounted);
+  useEffect(() => {
+    const prev = notificationOverlayMountedPrevRef.current;
+    notificationOverlayMountedPrevRef.current = notificationOverlayMounted;
+    if (
+      prev === true &&
+      notificationOverlayMounted === false &&
+      getActiveCheckHandoffTraceId()
+    ) {
+      const owner = ownerShadowRef.current.getState();
+      const head = owner.queue[0] ?? overlayQueueRef.current[0] ?? null;
+      const mirror = getCheckHandoffRenderMirror();
+      emitCheckHandoffStage('notification-overlay-mounted-fell-false', {
+        previousNotificationOverlayMounted: prev,
+        notificationOverlayMounted,
+        composeBlocksNotificationHost,
+        sendSuccessCardActive,
+        showDirectOverboardLayer,
+        ownerPrimaryHeldUserCardPresent: ownerPrimaryHeldUserCard != null,
+        chainAdvanceWaiting,
+        chainAdvancePlaceholderKind,
+        showReplyIncomingOverlayDirect,
+        incomingCardFullyReady,
+        showCheckOverlayDirect,
+        checkOverlayMounted,
+        notificationQueueShellKind,
+        ownerPrimaryDisplayResultPresent: ownerPrimaryDisplayResultForShell != null,
+        ownerPrimaryCheckBanForDisplayGuardsId:
+          ownerPrimaryCheckBanForDisplayGuards?.id ?? null,
+        ownerQueueLength: owner.queue.length,
+        overlayQueueLength: overlayQueueRef.current.length,
+        currentQueueHeadKind: head?.kind ?? null,
+        queueClaimsNotificationScreen: mirror.queueClaimsNotificationScreen,
+        showLobbyCta: mirror.showLobbyCta,
+        ...getCheckHandoffFlags(),
+      });
+    }
+  }, [
+    notificationOverlayMounted,
+    composeBlocksNotificationHost,
+    sendSuccessCardActive,
+    showDirectOverboardLayer,
+    ownerPrimaryHeldUserCard,
+    chainAdvanceWaiting,
+    chainAdvancePlaceholderKind,
+    showReplyIncomingOverlayDirect,
+    incomingCardFullyReady,
+    showCheckOverlayDirect,
+    checkOverlayMounted,
+    notificationQueueShellKind,
+    ownerPrimaryDisplayResultForShell,
+    ownerPrimaryCheckBanForDisplayGuards,
+  ]);
+
+  useEffect(() => {
+    const owner = ownerShadowRef.current.getState();
+    const head = owner.queue[0] ?? overlayQueueRef.current[0] ?? null;
+    const headIdentity =
+      head == null
+        ? null
+        : head.kind === 'result'
+          ? head.result.id
+          : head.kind === 'incoming' || head.kind === 'check'
+            ? head.ban.id
+            : null;
+    updateCheckHandoffProvidersMirror({
+      ownerDisplayKind: ownerPrimaryCheckBanForDisplayGuards?.id
+        ? 'check'
+        : ownerPrimaryDisplayResultForShell
+          ? 'result'
+          : incomingCardDisplayBan
+            ? 'incoming'
+            : null,
+      chainAdvancePlaceholderKind: chainAdvancePlaceholderKind ?? null,
+      checkOverlayMounted,
+      showCheckOverlayDirect,
+      ownerPrimaryCheckBanForDisplayGuardsId:
+        ownerPrimaryCheckBanForDisplayGuards?.id ?? null,
+      notificationChainTransitioning,
+      ownerQueueLength: owner.queue.length,
+      ownerPendingLength: owner.pending.length,
+      currentQueueHeadKind: head?.kind ?? null,
+      currentQueueHeadIdentity: headIdentity,
+      notificationQueueShellKind,
+    });
+  }, [
+    ownerPrimaryCheckBanForDisplayGuards,
+    ownerPrimaryDisplayResultForShell,
+    incomingCardDisplayBan,
+    chainAdvancePlaceholderKind,
+    checkOverlayMounted,
+    showCheckOverlayDirect,
+    notificationChainTransitioning,
+    notificationQueueShellKind,
   ]);
 
   const notificationSessionActive =

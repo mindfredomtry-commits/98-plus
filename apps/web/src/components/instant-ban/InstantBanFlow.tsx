@@ -257,6 +257,14 @@ import { logSendFlow } from '@/lib/send-flow-debug';
 import { logSendBanResponseTrace } from '@/lib/send-ban-response-trace';
 import { DEFAULT_SEND_TIMEOUT_MS } from '@/lib/request-timeout';
 import {
+  updateCheckHandoffRenderMirror,
+  emitCheckHandoffStage,
+  getActiveCheckHandoffTraceId,
+  getCheckHandoffFlags,
+  getCheckHandoffProvidersMirror,
+  checkHandoffElapsedFromStartMs,
+} from '@/lib/check-handoff-atomicity-trace-debug';
+import {
   getCrossScreenTouchPolicy,
   isWhatInteractiveTarget,
 } from './gestureExclusion';
@@ -1808,6 +1816,86 @@ export function InstantBanFlow({
     showLobbyCta,
     overlayHandoffLobbySuppressed,
   ]);
+
+  const checkHandoffFullLobbyPrevRef = useRef(false);
+  const checkHandoffQueueClaimsPrevRef = useRef(false);
+  useLayoutEffect(() => {
+    const queueLobbyGuardActive = shouldBlockLobbyForActiveQueue();
+    const queueClaimsNotificationScreen =
+      overlayQueueLength > 0 || queueLobbyGuardActive;
+    const fullLobbyRenderActive =
+      showLobbyCta && !effectiveBansOverlayOpen && !notificationQueueUiLock;
+
+    updateCheckHandoffRenderMirror({
+      showLobbyCta,
+      queueClaimsNotificationScreen,
+      effectiveBansOverlayOpen,
+      notificationQueueUiLock,
+      effectiveOverlayQueueLengthForLobbyCta,
+      queueLobbyGuardActive,
+    });
+
+    const handoffId = getActiveCheckHandoffTraceId();
+    const providers = getCheckHandoffProvidersMirror();
+    const queueDebug = getConfirmOrbQueueDebugSnapshot();
+
+    const prevFull = checkHandoffFullLobbyPrevRef.current;
+    checkHandoffFullLobbyPrevRef.current = fullLobbyRenderActive;
+    if (!prevFull && fullLobbyRenderActive && handoffId) {
+      emitCheckHandoffStage('full-lobby-render-enter', {
+        banId: providers.ownerPrimaryCheckBanForDisplayGuardsId,
+        showLobbyCta,
+        effectiveBansOverlayOpen,
+        notificationQueueUiLock,
+        notificationOverlayMounted,
+        notificationChainTransitioning,
+        queueClaimsNotificationScreen,
+        effectiveOverlayQueueLengthForLobbyCta,
+        overlayQueueLength,
+        queueLobbyGuardActive,
+        notificationQueueShellKind: providers.notificationQueueShellKind,
+        ownerDisplayKind: providers.ownerDisplayKind,
+        ownerQueueLength: providers.ownerQueueLength,
+        ownerPendingLength: providers.ownerPendingLength,
+        currentQueueHeadKind:
+          providers.currentQueueHeadKind ?? queueDebug.overlayQueueHeadKind,
+        currentQueueHeadIdentity: providers.currentQueueHeadIdentity,
+        chainAdvanceWaiting: queueDebug.chainAdvanceWaiting,
+        chainAdvancePlaceholderKind: providers.chainAdvancePlaceholderKind,
+        checkOverlayMounted: providers.checkOverlayMounted,
+        showCheckOverlayDirect: providers.showCheckOverlayDirect,
+        ownerPrimaryCheckBanForDisplayGuardsId:
+          providers.ownerPrimaryCheckBanForDisplayGuardsId,
+        elapsedFromCheckAnswerMs: checkHandoffElapsedFromStartMs(),
+        ...getCheckHandoffFlags(),
+      });
+    }
+
+    const prevClaims = checkHandoffQueueClaimsPrevRef.current;
+    checkHandoffQueueClaimsPrevRef.current = queueClaimsNotificationScreen;
+    if (prevClaims && !queueClaimsNotificationScreen && handoffId) {
+      const guardSnapshot = getQueueLobbyGuardSnapshot();
+      emitCheckHandoffStage('queue-claim-fell-false', {
+        effectiveOverlayQueueLengthForLobbyCta,
+        overlayQueueLength,
+        queueLobbyGuardActive,
+        guardQueueLen: guardSnapshot.queueLen,
+        guardFromQueueResult: guardSnapshot.fromQueueResult,
+        guardQueueShellShowsResult: guardSnapshot.queueShellShowsResult,
+        guardPhase: guardSnapshot.phase,
+        ownerQueueLength: queueDebug.queueLen,
+        ownerPendingLength: queueDebug.pendingLen,
+        currentQueueHeadKind:
+          providers.currentQueueHeadKind ?? queueDebug.overlayQueueHeadKind,
+        currentQueueHeadIdentity: providers.currentQueueHeadIdentity,
+        chainAdvanceWaiting: queueDebug.chainAdvanceWaiting,
+        notificationChainTransitioning,
+        notificationOverlayMounted,
+        showLobbyCta,
+        ...getCheckHandoffFlags(),
+      });
+    }
+  });
 
   useLayoutEffect(() => {
     if (!lobbyOpen) return;
