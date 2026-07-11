@@ -33709,11 +33709,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason: 'result-dismiss',
           includeStack: true,
         });
-        dismissCurrentOverlay(
-          'result-dismiss',
-          nextQueueWithoutCurrent,
-          'finalizeGoToBans:queueOverboard',
-        );
+        // Identity-safe guard (fix for proven root cause
+        // "queue-overboard-selector-ignores-current-head-identity"). The
+        // queueOverboard selector is chosen purely from the RESULT outcome and
+        // does not check the current head. Only dismiss the CURRENT queue head
+        // when it is still the result this finalize is completing. If the head
+        // has already advanced to a check / incoming / a different result / null,
+        // dismissing it would consume an unrelated, still-live overlay (the
+        // spontaneous check break). queueHeadIsClickedResult already encodes
+        // "live head is a result AND its id === finalize target".
+        const canDismissCurrentQueueHeadForFinalize =
+          beforeQueue[0]?.kind === 'result' && queueHeadIsClickedResult;
+        if (canDismissCurrentQueueHeadForFinalize) {
+          dismissCurrentOverlay(
+            'result-dismiss',
+            nextQueueWithoutCurrent,
+            'finalizeGoToBans:queueOverboard',
+          );
+        }
+        // Identity mismatch (current head is not the finalized result): do NOT
+        // touch the current head. Result-specific bookkeeping that does not
+        // remove the current head still runs below (display-clear is itself
+        // identity-guarded on `=== key`).
         const ownerDisplayResultId =
           ownerShadowRef.current.getState().display.result?.id ?? null;
         // Do not wipe display when next head was applied.
