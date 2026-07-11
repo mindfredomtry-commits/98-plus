@@ -1,11 +1,5 @@
 'use client';
 
-import { checkOverlayKey } from '@/lib/overlay-queue';
-import { isClientDiagTraceEnvironment } from '@/lib/diag-trace-client';
-import {
-  readShellCheckActionMarkers,
-  type ShellCheckActionMarkers,
-} from '@/lib/shell-check-lifecycle-trace-debug';
 import type { CheckOverlayParentReturnedBranch } from '@/lib/check-overlay-parent-return-branch-trace-debug';
 
 export type NotificationOverlayVisibilityOperand = {
@@ -63,7 +57,6 @@ export type NotificationOverlayVisibilityCollector = {
   getSnapshot: (derivedResult: boolean) => NotificationOverlayVisibilitySnapshot;
 };
 
-const finalGuardEmittedKeys = new Set<string>();
 let lastNotificationOverlayVisibilitySnapshot: NotificationOverlayVisibilitySnapshot | null =
   null;
 let previousNotificationOverlayVisible: boolean | null = null;
@@ -129,114 +122,15 @@ export function readPreviousNotificationOverlayVisible(): boolean | null {
   return previousNotificationOverlayVisible;
 }
 
-function hasExpectedExitMarkersFalse(markers: ShellCheckActionMarkers): boolean {
-  return (
-    !markers.userPressedCheckYes &&
-    !markers.userPressedCheckNo &&
-    !markers.submitCheckAnswerStarted &&
-    !markers.checkDismissStarted &&
-    !markers.checkConsumed &&
-    !markers.resultArrivedAfterCheck
-  );
-}
-
-function resolveFalseOperands(operands: NotificationOverlayVisibilityOperand[]): {
-  firstFalseOperand: string | null;
-  allFalseOperands: string[];
-} {
-  const allFalseOperands = operands
-    .filter((operand) => {
-      if (typeof operand.value === 'boolean') return operand.value === false;
-      if (operand.value === null) return true;
-      if (typeof operand.value === 'number') return operand.value === 0;
-      if (typeof operand.value === 'string') return operand.value.length === 0;
-      return false;
-    })
-    .map((operand) => operand.name);
-  return {
-    firstFalseOperand: allFalseOperands[0] ?? null,
-    allFalseOperands,
-  };
-}
-
-function isCheckContextActive(
-  input: NotificationOverlayVisibleFinalGuardEmitContext,
-): boolean {
-  const checkOverlayKeyValue = input.checkBanId
-    ? checkOverlayKey(input.checkBanId)
-    : null;
-  return (
-    input.shellKind === 'check' ||
-    input.ownerDisplayKind === 'check' ||
-    input.currentHeadKind === 'check' ||
-    checkOverlayKeyValue != null ||
-    input.previousQueueShellReturnedBranch === 'check-overlay'
-  );
-}
-
 export function maybeEmitNotificationOverlayVisibleFinalGuardTrace(
-  collector: NotificationOverlayVisibilityCollector,
-  input: NotificationOverlayVisibleFinalGuardEmitContext,
+  _collector: NotificationOverlayVisibilityCollector,
+  _input: NotificationOverlayVisibleFinalGuardEmitContext,
 ): void {
-  if (!isClientDiagTraceEnvironment()) return;
-
-  const snapshot = collector.getSnapshot(false);
-  if (!snapshot.selectedVisibilityFalseGuard) return;
-  if (!isCheckContextActive(input)) return;
-
-  const markers = readShellCheckActionMarkers();
-  if (!hasExpectedExitMarkersFalse(markers)) return;
-
-  const checkBanId = input.checkBanId?.trim() || null;
-  const checkOverlayKeyValue = checkBanId ? checkOverlayKey(checkBanId) : null;
-  if (!checkOverlayKeyValue) return;
-  if (finalGuardEmittedKeys.has(checkOverlayKeyValue)) return;
-
-  finalGuardEmittedKeys.add(checkOverlayKeyValue);
-
-  const { firstFalseOperand, allFalseOperands } = resolveFalseOperands(
-    snapshot.visibilityOperands,
-  );
-
-  console.error('NOTIFICATION_OVERLAY_VISIBLE_FINAL_GUARD_TRACE', {
-    checkBanId,
-    checkOverlayKey: checkOverlayKeyValue,
-    ROOT_CAUSE: snapshot.selectedVisibilityFalseGuard,
-    selectedVisibilityFalseGuard: snapshot.selectedVisibilityFalseGuard,
-    selectedGuardSourceLine: snapshot.guardSourceLine,
-    selectedGuardOperands: snapshot.visibilityOperands,
-    firstFalseOperand,
-    allFalseOperands,
-    reachedVisibilityGuards: snapshot.reachedVisibilityGuards,
-    evaluatedVisibilityGuards: snapshot.evaluatedVisibilityGuards,
-    notificationOverlayVisibleResult: false,
-    shellKind: input.shellKind,
-    renderBranch: input.renderBranch,
-    ownerDisplayKind: input.ownerDisplayKind,
-    currentHeadKind: input.currentHeadKind,
-    activeNotificationChain: input.activeNotificationChain,
-    notificationChainTransitioning: input.notificationChainTransitioning,
-    chainAdvanceWaiting: input.chainAdvanceWaiting,
-    checkOverlayMounted: input.checkOverlayMounted,
-    showCheckOverlayDirect: input.showCheckOverlayDirect,
-    showDirectOverboardLayer: input.showDirectOverboardLayer,
-    sendSuccessCardActive: input.sendSuccessCardActive,
-    replyParentActivePriorityActive: input.replyParentActivePriorityActive,
-    activeBanCardReady: input.activeBanCardReady,
-    notificationQueueShellKind: input.notificationQueueShellKind,
-    ownerPrimaryHeldUserCardExists: input.ownerPrimaryHeldUserCardExists,
-    ownerPrimaryCheckBanForDisplayGuardsExists:
-      input.ownerPrimaryCheckBanForDisplayGuardsExists,
-    hasRenderableCard: input.hasRenderableCard,
-    shouldHoldNotificationOverlayVisibleDuringQueueGap:
-      input.shouldHoldNotificationOverlayVisibleDuringQueueGap,
-    userPressedCheckYes: markers.userPressedCheckYes,
-    userPressedCheckNo: markers.userPressedCheckNo,
-    submitCheckAnswerStarted: markers.submitCheckAnswerStarted,
-    checkDismissStarted: markers.checkDismissStarted,
-    checkConsumed: markers.checkConsumed,
-    resultArrivedAfterCheck: markers.resultArrivedAfterCheck,
-  });
+  // Console emit disabled. This was a render-phase (useMemo) console.error and
+  // is superseded by the single non-render event-path trace
+  // CHECK_DISMISS_UNEXPECTED_CALLER_TRACE (emitted from dismissCurrentOverlay,
+  // just before the first NOTIFICATION_DISMISSED mutation). No render-phase
+  // logging remains here.
 }
 
 export function maybeEmitNotificationOverlayVisibilityBranchRootTrace(

@@ -791,6 +791,7 @@ import {
   stageNotificationOverlayVisibilitySnapshot,
   type NotificationOverlayVisibleFinalGuardEmitContext,
 } from '@/lib/notification-overlay-visible-false-root-trace-debug';
+import { maybeEmitCheckDismissUnexpectedCallerTrace } from '@/lib/check-dismiss-unexpected-caller-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -12869,7 +12870,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   };
 
   const dismissCurrentOverlay = useCallback(
-    (reason: string, nextQueue?: QueuedOverlay[]) => {
+    (reason: string, nextQueue?: QueuedOverlay[], diagnosticCaller?: string) => {
       const owner = readOwnerImperative('dismissCurrentOverlay');
       const prevHead = readOwnerImperativeQueueHeadForRuntime(
         owner,
@@ -12958,6 +12959,46 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId: dismissBanId,
         source: reason,
       });
+      // One-shot, non-render caller-identity probe. Fires ONLY when a check head
+      // is being consumed while the user performed no expected exit (all
+      // shell-check markers false), and captures WHO called dismissCurrentOverlay
+      // via the explicit per-call-site diagnosticCaller token. Emitted here,
+      // immediately before the first business mutation (ownerShadowDispatch
+      // below). No state writes, no dispatch, no render involvement.
+      if (dismissKind === 'check' && dismissBanId) {
+        const ownerCheckBanForCallerTrace = readOwnerImperativeCheckBan(
+          owner.display,
+          'dismissCurrentOverlay',
+          { ref: checkBanRef.current },
+        );
+        maybeEmitCheckDismissUnexpectedCallerTrace({
+          checkBanId: dismissBanId,
+          diagnosticCaller: diagnosticCaller ?? null,
+          reason,
+          calledFrom: `dismissCurrentOverlay:${reason}`,
+          sourceFile: 'apps/web/src/components/Providers.tsx',
+          sourceFunction: 'dismissCurrentOverlay',
+          sourceLine: '12962',
+          dismissKind,
+          dismissBanId,
+          currentQueueHeadKind: prevHead?.kind ?? null,
+          currentQueueHeadBanId: dismissBanId,
+          queueLenBefore: prev.length,
+          nextQueueProvided: nextQueue !== undefined,
+          nextQueueLen: nextQueue?.length ?? null,
+          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+          notificationChainTransitioning:
+            notificationChainTransitioningRef.current,
+          chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+          checkOverlayMounted: null,
+          ownerPrimaryCheckBanExists: ownerCheckBanForCallerTrace != null,
+          notificationQueueShellKind: null,
+          shellKind: null,
+          ownerDisplayKind:
+            resolveOwnerDisplayKindBanId(owner.display).displayKind ?? null,
+          currentHeadKind: owner.queue[0]?.kind ?? owner.active?.kind ?? null,
+        });
+      }
       ownerShadowDispatch(
         {
           type: 'NOTIFICATION_DISMISSED',
@@ -18368,7 +18409,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               previousHeadId: queueHeadIdFrom(headNow),
             });
           }
-          dismissCurrentOverlay('result-dismiss', nextQueue);
+          dismissCurrentOverlay('result-dismiss', nextQueue, 'dismissBanResult');
         }
       };
 
@@ -18968,7 +19009,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         reason: 'clear-check-overlay',
       });
     }
-    dismissCurrentOverlay('clear-check-overlay', next);
+    dismissCurrentOverlay('clear-check-overlay', next, 'clearCheckOverlay');
   }, [dismissCurrentOverlay]);
 
   const cancelResultPollBurst = useCallback(() => {
@@ -21169,7 +21210,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         role,
         elapsedMs: 0,
       });
-      dismissCurrentOverlay('user-answer', remaining);
+      dismissCurrentOverlay('user-answer', remaining, 'submitCheckAnswer');
       emitQueueBreakSnapshot('after-consume');
       setCheckWaiting(false);
       logCheckAnswerOverlayHostSnapshot('after-dismiss-user-answer');
@@ -23238,6 +23279,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             'incoming',
             'check',
           ]),
+          'overboardRecoveryToLobby',
         );
         setLobbyOpen(true);
         lobbyShownLoggedRef.current = false;
@@ -23505,7 +23547,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         mirrorOwnerChainSessionGatesRef.current('removeIncomingFromQueue-explicit', {
           awaitingUser: false,
         });
-        dismissCurrentOverlay('incoming-seen', next);
+        dismissCurrentOverlay('incoming-seen', next, 'removeIncomingFromQueue');
       } else {
         applyOverlayQueue(next);
       }
@@ -23547,7 +23589,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (banId && overlayQueueRef.current[0]?.kind === 'incoming') {
         const headId = overlayQueueRef.current[0].ban.id;
         if (headId === banId) {
-          dismissCurrentOverlay('reply-deeplink-fast-abort');
+          dismissCurrentOverlay(
+            'reply-deeplink-fast-abort',
+            undefined,
+            'replyDeeplinkFastAbort',
+          );
         }
       }
 
@@ -23644,7 +23690,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         overlayQueueRef.current[0]?.kind === 'incoming' &&
         overlayQueueRef.current[0].ban.id === normalizedBanId
       ) {
-        dismissCurrentOverlay('reply-completed-route', nextQueue);
+        dismissCurrentOverlay('reply-completed-route', nextQueue, 'replyCompletedRoute');
       }
 
       pinReplyToBanId(null);
@@ -33603,7 +33649,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason: 'result-dismiss',
           includeStack: true,
         });
-        dismissCurrentOverlay('result-dismiss', nextQueueWithoutCurrent);
+        dismissCurrentOverlay(
+          'result-dismiss',
+          nextQueueWithoutCurrent,
+          'finalizeGoToBans:queueOverboard',
+        );
         const ownerDisplayResultId =
           ownerShadowRef.current.getState().display.result?.id ?? null;
         // Do not wipe display when next head was applied.
@@ -33734,7 +33784,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason: 'result-dismiss',
           includeStack: true,
         });
-        dismissCurrentOverlay('result-dismiss', nextQueueWithoutCurrent);
+        dismissCurrentOverlay(
+          'result-dismiss',
+          nextQueueWithoutCurrent,
+          'finalizeGoToBans:prune',
+        );
       }
 
       {
@@ -35695,7 +35749,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       challengeLog('incoming:dismiss', { banId: null });
       setViralOnboarding(false);
       clearActiveUserCardHold('dismissIncoming');
-      dismissCurrentOverlay('incoming-dismiss');
+      dismissCurrentOverlay('incoming-dismiss', undefined, 'dismissIncoming');
     },
     [acknowledgeIncomingSeen, dismissCurrentOverlay],
   );
@@ -37074,7 +37128,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (head?.kind === 'result') {
         const viewerId = head.result.viewerId ?? userIdRef.current ?? null;
         if (isDismissedResultLocally(head.result.id, viewerId)) {
-          dismissCurrentOverlay('result-cta-bans-close-pop');
+          dismissCurrentOverlay(
+            'result-cta-bans-close-pop',
+            undefined,
+            'completeBansOverlayCloseFromResultCta',
+          );
         }
       }
 
