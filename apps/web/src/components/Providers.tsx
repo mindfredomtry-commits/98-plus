@@ -39362,9 +39362,131 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return () => registerSuccessExitDebugSnapshot(null);
   }, []);
 
+  const providersAutoLobbyDecisionDedupRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!auth.user?.id) return;
-    if (isPostSuccessHandoffInProgress()) return;
+    // Read-only diagnostics for the `providers-auto-lobby-effect` branch.
+    // Records the exact inputs and decision each time this effect runs so we
+    // can prove why Providers opens the Lobby right after consuming the current
+    // Check Card, before the next card commits to the owner queue. No business
+    // logic, conditions, dependencies, ordering, timers or queue behaviour are
+    // changed — only PROVIDERS_AUTO_LOBBY_DECISION_TRACE events are emitted.
+    const AUTO_LOBBY_DECISION_EVENT = 'PROVIDERS_AUTO_LOBBY_DECISION_TRACE';
+    const buildAutoLobbyDecisionSnapshot = () => {
+      const owner = ownerShadowRef.current.getState();
+      const ownerQueueHead = formatPendingHeadForOwnerLog(
+        owner.queue[0] ?? null,
+      );
+      const ownerPendingHead = formatPendingHeadForOwnerLog(
+        owner.pending[0] ?? null,
+      );
+      const overlayHead = formatPendingHeadForOwnerLog(
+        overlayQueueRef.current[0] ?? null,
+      );
+      const legacyPendingHead = formatPendingHeadForOwnerLog(
+        pendingStartupInteractionsRef.current[0] ?? null,
+      );
+      const providersMirror = getCheckHandoffProvidersMirror();
+      const renderMirror = getCheckHandoffRenderMirror();
+      const flags = getCheckHandoffFlags();
+      return {
+        handoffTraceId: getActiveCheckHandoffTraceId(),
+        timestamp: performance.now(),
+        lastHandoffStage: flags.lastHandoffStage,
+
+        ownerQueueLength: owner.queue.length,
+        ownerPendingLength: owner.pending.length,
+        overlayQueueLength: overlayQueueRef.current.length,
+        legacyQueueLength: overlayQueueRef.current.length,
+        legacyPendingLength: pendingStartupInteractionsRef.current.length,
+
+        ownerQueueHeadKind: ownerQueueHead.kind,
+        ownerQueueHeadIdentity: ownerQueueHead.banId,
+        ownerPendingHeadKind: ownerPendingHead.kind,
+        ownerPendingHeadIdentity: ownerPendingHead.banId,
+        overlayQueueHeadKind: overlayHead.kind,
+        overlayQueueHeadIdentity: overlayHead.banId,
+        legacyPendingHeadKind: legacyPendingHead.kind,
+        legacyPendingHeadIdentity: legacyPendingHead.banId,
+
+        currentQueueHeadKind: providersMirror.currentQueueHeadKind,
+        currentQueueHeadIdentity: providersMirror.currentQueueHeadIdentity,
+        ownerDisplayKind: providersMirror.ownerDisplayKind,
+        notificationQueueShellKind: providersMirror.notificationQueueShellKind,
+        activeKind: owner.active.kind,
+
+        notificationSessionActive: notificationSessionActiveForDebugRef.current,
+        notificationChainTransitioning:
+          notificationChainTransitioningRef.current,
+        chainAdvanceWaiting: chainAdvanceWaitingRef.current,
+        chainAdvancePlaceholderKind: providersMirror.chainAdvancePlaceholderKind,
+        checkWaiting,
+
+        notificationOverlayMounted,
+        queueClaimsNotificationScreen:
+          renderMirror.queueClaimsNotificationScreen,
+        queueLobbyGuardActive: queueLobbyGuardActiveRef.current,
+        showLobbyCta: renderMirror.showLobbyCta,
+        lobbyOpen: lobbyOpenRef.current,
+
+        prefetchStarted: flags.prefetchStarted,
+        prefetchSettled: flags.prefetchSettled,
+        nextCardCommitted: flags.nextCardCommitted,
+
+        pendingChainQueued: hasPendingNotificationChainFnRef.current(),
+        pendingHeadKind: ownerPendingHead.kind,
+        pendingHeadIdentity: ownerPendingHead.banId,
+
+        ownerPrimaryCheckBanId: owner.display.checkBan?.id ?? null,
+        ownerPrimaryResultId: owner.display.result?.id ?? null,
+        ownerPrimaryIncomingId: owner.display.incomingBan?.id ?? null,
+
+        sendFlowOpening: sendFlowOpen,
+        sendSuccessCardActive,
+        composeBlocksNotificationHost,
+        effectiveBansOverlayOpen: renderMirror.effectiveBansOverlayOpen,
+      };
+    };
+    const emitAutoLobbyDecision = (
+      stage: string,
+      extra: Record<string, unknown> | null,
+    ): void => {
+      const snapshot = buildAutoLobbyDecisionSnapshot();
+      const decisionTag = String(
+        (extra?.skipReason ?? extra?.openLobbyReason) ?? '',
+      );
+      const signature = [
+        snapshot.handoffTraceId ?? 'null',
+        stage,
+        decisionTag,
+        snapshot.ownerQueueLength,
+        snapshot.ownerPendingLength,
+        snapshot.overlayQueueLength,
+        snapshot.currentQueueHeadKind ?? 'null',
+        snapshot.notificationChainTransitioning,
+        snapshot.notificationOverlayMounted,
+        snapshot.queueClaimsNotificationScreen,
+        snapshot.pendingHeadKind ?? 'null',
+        snapshot.lobbyOpen,
+      ].join('|');
+      if (providersAutoLobbyDecisionDedupRef.current.has(signature)) return;
+      providersAutoLobbyDecisionDedupRef.current.add(signature);
+      const payload = { stage, ...snapshot, ...(extra ?? {}) };
+      console.log(AUTO_LOBBY_DECISION_EVENT, payload);
+      window.__debug98log?.(AUTO_LOBBY_DECISION_EVENT, payload);
+    };
+
+    emitAutoLobbyDecision('effect-enter', null);
+
+    if (!auth.user?.id) {
+      emitAutoLobbyDecision('effect-skip', { skipReason: 'no-auth-user' });
+      return;
+    }
+    if (isPostSuccessHandoffInProgress()) {
+      emitAutoLobbyDecision('effect-skip', {
+        skipReason: 'post-success-handoff-in-progress',
+      });
+      return;
+    }
     if (
       deepLinkReplyBan ||
       deepLinkRepeatBan ||
@@ -39392,14 +39514,110 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       shouldBlockLobbyForActiveQueue() ||
       result
     ) {
+      // Read-only re-evaluation (both helpers are pure) purely to name which
+      // existing OR-term short-circuited the return. Conditions are unchanged.
+      const queuedNotificationsBlock =
+        shouldBlockLobbyOpenForQueuedNotifications({
+          chainTransitioning: notificationChainTransitioning,
+          hasMountedOverlay: false,
+          startupHold: startupInteractionsHoldRef.current,
+          pendingLen: pendingStartupInteractionsRef.current.length,
+          queueLen: overlayQueueRef.current.length,
+        });
+      const activeQueueBlock = shouldBlockLobbyForActiveQueue();
+      const skipReason = deepLinkReplyBan
+        ? 'deeplink-reply-ban-present'
+        : deepLinkRepeatBan
+          ? 'deeplink-repeat-ban-present'
+          : deepLinkActiveBan
+            ? 'deeplink-active-ban-present'
+            : sendFlowOpen
+              ? 'send-flow-active'
+              : deepLinkReplyBooting
+                ? 'deeplink-reply-booting'
+                : replyDeeplinkFastShell
+                  ? 'reply-deeplink-fast-shell'
+                  : replyHandoffLock
+                    ? 'reply-handoff-lock'
+                    : replyUiShellActive
+                      ? 'reply-ui-shell-active'
+                      : resultReplyUiShellActive
+                        ? 'result-reply-ui-shell-active'
+                        : activeBanUiShellActive
+                          ? 'active-ban-ui-shell-active'
+                          : sendSuccessCardActive
+                            ? 'send-success-card-active'
+                            : isPostSuccessHandoffInProgress()
+                              ? 'post-success-handoff-in-progress'
+                              : notificationChainTransitioning
+                                ? 'notification-chain-transitioning'
+                                : incomingGateActive
+                                  ? 'incoming-gate-active'
+                                  : checkGateActive
+                                    ? 'check-gate-active'
+                                    : checkDeeplinkDirectPending
+                                      ? 'check-deeplink-direct-pending'
+                                      : queuedNotificationsBlock
+                                        ? 'queued-notifications-block'
+                                        : activeQueueBlock
+                                          ? 'active-queue-block'
+                                          : result
+                                            ? 'result-present'
+                                            : 'other-existing-condition';
+      emitAutoLobbyDecision('effect-skip', { skipReason });
       return;
     }
+    // Reached only when every OR-term above was false. Re-evaluate the two pure
+    // guard helpers (read-only) to report the exact winning inputs.
+    const queuedNotificationsBlock = shouldBlockLobbyOpenForQueuedNotifications({
+      chainTransitioning: notificationChainTransitioning,
+      hasMountedOverlay: false,
+      startupHold: startupInteractionsHoldRef.current,
+      pendingLen: pendingStartupInteractionsRef.current.length,
+      queueLen: overlayQueueRef.current.length,
+    });
+    const activeQueueBlock = shouldBlockLobbyForActiveQueue();
+    const decisionInputs: Record<string, boolean> = {
+      hasAuthUser: Boolean(auth.user?.id),
+      postSuccessHandoffNotInProgress: !isPostSuccessHandoffInProgress(),
+      noDeepLinkReplyBan: !deepLinkReplyBan,
+      noDeepLinkRepeatBan: !deepLinkRepeatBan,
+      noDeepLinkActiveBan: !deepLinkActiveBan,
+      sendFlowClosed: !sendFlowOpen,
+      notDeepLinkReplyBooting: !deepLinkReplyBooting,
+      noReplyDeeplinkFastShell: !replyDeeplinkFastShell,
+      noReplyHandoffLock: !replyHandoffLock,
+      noReplyUiShellActive: !replyUiShellActive,
+      noResultReplyUiShellActive: !resultReplyUiShellActive,
+      noActiveBanUiShellActive: !activeBanUiShellActive,
+      noSendSuccessCardActive: !sendSuccessCardActive,
+      notChainTransitioning: !notificationChainTransitioning,
+      noIncomingGateActive: !incomingGateActive,
+      noCheckGateActive: !checkGateActive,
+      noCheckDeeplinkDirectPending: !checkDeeplinkDirectPending,
+      notBlockedByQueuedNotifications: !queuedNotificationsBlock,
+      notBlockedByActiveQueue: !activeQueueBlock,
+      noResult: !result,
+    };
+    const winningConditions = Object.keys(decisionInputs).filter(
+      (key) => decisionInputs[key],
+    );
+    emitAutoLobbyDecision('before-open-lobby', {
+      openLobbyReason: 'providers-auto-lobby-effect',
+      decisionInputs,
+      winningConditions,
+    });
     console.log('[chain-debug-session-ended]', {
       source: 'providers-auto-lobby-effect',
       ...getNotificationChainDebugSnapshot(),
     });
     openLobby('providers-auto-lobby-effect');
     lobbyShownLoggedRef.current = false;
+    emitAutoLobbyDecision('after-open-lobby-request', {
+      openLobbyReason: 'providers-auto-lobby-effect',
+      requestedAt: performance.now(),
+      requestedLobbyOpen: true,
+    });
   }, [
     auth.user?.id,
     deepLinkReplyBan,
