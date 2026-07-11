@@ -786,9 +786,8 @@ import {
   stageShouldMountHostGuardSnapshot,
 } from '@/lib/should-mount-notification-host-false-root-trace-debug';
 import {
-  captureNotificationOverlayVisibilityFalseDecision,
   createNotificationOverlayVisibilityCollector,
-  maybeEmitNotificationOverlayVisibleSelectedFalseGuardTrace,
+  maybeEmitNotificationOverlayVisibleFinalGuardTrace,
   stageNotificationOverlayVisibilitySnapshot,
   type NotificationOverlayVisibleFinalGuardEmitContext,
 } from '@/lib/notification-overlay-visible-false-root-trace-debug';
@@ -40006,7 +40005,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         [{ name: 'composeBlocksNotificationHost', value: composeBlocksNotificationHost }],
         'Providers.tsx:39963',
       );
-      captureNotificationOverlayVisibilityFalseDecision(
+      maybeEmitNotificationOverlayVisibleFinalGuardTrace(
         visibilityCollector,
         buildEarlyFinalGuardEmitContext(),
       );
@@ -40048,7 +40047,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         [{ name: 'sendSuccessCardActive', value: sendSuccessCardActive }],
         'Providers.tsx:39966',
       );
-      captureNotificationOverlayVisibilityFalseDecision(
+      maybeEmitNotificationOverlayVisibleFinalGuardTrace(
         visibilityCollector,
         buildEarlyFinalGuardEmitContext(),
       );
@@ -40089,9 +40088,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const emitFinalVisibilityFalseGuardTrace = (
       extras: Partial<NotificationOverlayVisibleFinalGuardEmitContext> = {},
     ) => {
-      // Silent capture only — no console emit inside useMemo. The single
-      // console.error fires later in the proven visual-shield-blocked branch.
-      captureNotificationOverlayVisibilityFalseDecision(
+      maybeEmitNotificationOverlayVisibleFinalGuardTrace(
         visibilityCollector,
         buildFinalGuardEmitContext(extras),
       );
@@ -45147,19 +45144,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   queueShellBranchCollector.markBranchSelected(
                     'visual-shield-blocked',
                   );
-                  maybeEmitNotificationOverlayVisibleSelectedFalseGuardTrace({
-                    checkBanId: checkOverlayParentReturnBranchContext.checkBanId,
-                    notificationOverlayVisible,
-                    overlayVisualShieldCardContentMounted,
-                    previousReturnedBranch:
-                      readCheckOverlayParentReturnedBranch('queue-shell'),
-                    shellKind: checkOverlayParentReturnBranchContext.shellKind,
-                    renderBranch: checkOverlayParentReturnBranchContext.renderBranch,
-                    ownerDisplayKind:
-                      checkOverlayParentReturnBranchContext.ownerDisplayKind,
-                    currentHeadKind:
-                      checkOverlayParentReturnBranchContext.currentHeadKind,
-                  });
                   observeCheckOverlayParentReturnBranch({
                     pathKey: 'queue-shell',
                     reason: 'overlayVisualShieldCardContentMounted-false',

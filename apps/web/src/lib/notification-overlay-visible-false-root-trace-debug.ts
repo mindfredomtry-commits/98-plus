@@ -63,49 +63,12 @@ export type NotificationOverlayVisibilityCollector = {
   getSnapshot: (derivedResult: boolean) => NotificationOverlayVisibilitySnapshot;
 };
 
+const finalGuardEmittedKeys = new Set<string>();
 let lastNotificationOverlayVisibilitySnapshot: NotificationOverlayVisibilitySnapshot | null =
   null;
 let previousNotificationOverlayVisible: boolean | null = null;
 let lastStagedNotificationOverlayVisible: boolean | null = null;
 let lastVisibilitySnapshotTimestamp: number | null = null;
-
-// Silent, gate-free record of the last actual `return false` inside
-// notificationOverlayVisible. This is diagnostics-only module-level state; it is
-// NOT gated, deduped, or tied to any check context. The single console emit lives
-// later, in the proven visual-shield-blocked branch.
-export type NotificationOverlayVisibilityFalseDecision = {
-  selectedVisibilityFalseGuard: string | null;
-  selectedGuardOperands: NotificationOverlayVisibilityOperand[];
-  firstFalseOperand: string | null;
-  allFalseOperands: string[];
-  reachedVisibilityGuards: string[];
-  evaluatedVisibilityGuards: NotificationOverlayVisibilityEvaluation[];
-  timestamp: number;
-  renderToken: number;
-  checkBanId: string | null;
-  checkOverlayKey: string | null;
-  shellKind: string | null;
-  ownerDisplayKind: string | null;
-  currentHeadKind: string | null;
-  notificationChainTransitioning: boolean;
-  chainAdvanceWaiting: boolean;
-  checkOverlayMounted: boolean;
-  showCheckOverlayDirect: boolean;
-  showDirectOverboardLayer: boolean;
-  sendSuccessCardActive: boolean;
-  replyParentActivePriorityActive: boolean;
-  activeBanCardReady: boolean;
-  notificationQueueShellKind: string | null;
-  ownerPrimaryHeldUserCardExists: boolean;
-  ownerPrimaryCheckBanForDisplayGuardsExists: boolean;
-  hasRenderableCard: boolean | null;
-  shouldHoldNotificationOverlayVisibleDuringQueueGap: boolean | null;
-};
-
-let lastNotificationOverlayVisibilityFalseDecision: NotificationOverlayVisibilityFalseDecision | null =
-  null;
-let notificationOverlayVisibilityFalseDecisionSequence = 0;
-const selectedFalseGuardEmittedKeys = new Set<string>();
 
 export function createNotificationOverlayVisibilityCollector(): NotificationOverlayVisibilityCollector {
   const reachedVisibilityGuards: string[] = [];
@@ -196,35 +159,62 @@ function resolveFalseOperands(operands: NotificationOverlayVisibilityOperand[]):
   };
 }
 
-// Silent capture: record the last actual `return false` decision.
-// NO gates: no active-check check, no previousReturnedBranch check, no
-// checkOverlayKey requirement, no dedup, no console, no useEffect, and no
-// mutation of any application state/refs. Diagnostics-only.
-export function captureNotificationOverlayVisibilityFalseDecision(
+function isCheckContextActive(
+  input: NotificationOverlayVisibleFinalGuardEmitContext,
+): boolean {
+  const checkOverlayKeyValue = input.checkBanId
+    ? checkOverlayKey(input.checkBanId)
+    : null;
+  return (
+    input.shellKind === 'check' ||
+    input.ownerDisplayKind === 'check' ||
+    input.currentHeadKind === 'check' ||
+    checkOverlayKeyValue != null ||
+    input.previousQueueShellReturnedBranch === 'check-overlay'
+  );
+}
+
+export function maybeEmitNotificationOverlayVisibleFinalGuardTrace(
   collector: NotificationOverlayVisibilityCollector,
   input: NotificationOverlayVisibleFinalGuardEmitContext,
 ): void {
+  if (!isClientDiagTraceEnvironment()) return;
+
   const snapshot = collector.getSnapshot(false);
+  if (!snapshot.selectedVisibilityFalseGuard) return;
+  if (!isCheckContextActive(input)) return;
+
+  const markers = readShellCheckActionMarkers();
+  if (!hasExpectedExitMarkersFalse(markers)) return;
+
+  const checkBanId = input.checkBanId?.trim() || null;
+  const checkOverlayKeyValue = checkBanId ? checkOverlayKey(checkBanId) : null;
+  if (!checkOverlayKeyValue) return;
+  if (finalGuardEmittedKeys.has(checkOverlayKeyValue)) return;
+
+  finalGuardEmittedKeys.add(checkOverlayKeyValue);
+
   const { firstFalseOperand, allFalseOperands } = resolveFalseOperands(
     snapshot.visibilityOperands,
   );
-  const checkBanId = input.checkBanId?.trim() || null;
-  const checkOverlayKeyValue = checkBanId ? checkOverlayKey(checkBanId) : null;
-  notificationOverlayVisibilityFalseDecisionSequence += 1;
-  lastNotificationOverlayVisibilityFalseDecision = {
+
+  console.error('NOTIFICATION_OVERLAY_VISIBLE_FINAL_GUARD_TRACE', {
+    checkBanId,
+    checkOverlayKey: checkOverlayKeyValue,
+    ROOT_CAUSE: snapshot.selectedVisibilityFalseGuard,
     selectedVisibilityFalseGuard: snapshot.selectedVisibilityFalseGuard,
+    selectedGuardSourceLine: snapshot.guardSourceLine,
     selectedGuardOperands: snapshot.visibilityOperands,
     firstFalseOperand,
     allFalseOperands,
     reachedVisibilityGuards: snapshot.reachedVisibilityGuards,
     evaluatedVisibilityGuards: snapshot.evaluatedVisibilityGuards,
-    timestamp: performance.now(),
-    renderToken: notificationOverlayVisibilityFalseDecisionSequence,
-    checkBanId,
-    checkOverlayKey: checkOverlayKeyValue,
+    notificationOverlayVisibleResult: false,
     shellKind: input.shellKind,
+    renderBranch: input.renderBranch,
     ownerDisplayKind: input.ownerDisplayKind,
     currentHeadKind: input.currentHeadKind,
+    activeNotificationChain: input.activeNotificationChain,
     notificationChainTransitioning: input.notificationChainTransitioning,
     chainAdvanceWaiting: input.chainAdvanceWaiting,
     checkOverlayMounted: input.checkOverlayMounted,
@@ -240,104 +230,17 @@ export function captureNotificationOverlayVisibilityFalseDecision(
     hasRenderableCard: input.hasRenderableCard,
     shouldHoldNotificationOverlayVisibleDuringQueueGap:
       input.shouldHoldNotificationOverlayVisibleDuringQueueGap,
-  };
-}
-
-export function readNotificationOverlayVisibilityFalseDecision(): NotificationOverlayVisibilityFalseDecision | null {
-  return lastNotificationOverlayVisibilityFalseDecision;
-}
-
-export type NotificationOverlayVisibleSelectedFalseGuardEmitContext = {
-  checkBanId: string | null;
-  notificationOverlayVisible: boolean;
-  overlayVisualShieldCardContentMounted: boolean;
-  previousReturnedBranch: CheckOverlayParentReturnedBranch | null;
-  shellKind: string | null;
-  renderBranch: string | null;
-  ownerDisplayKind: string | null;
-  currentHeadKind: string | null;
-};
-
-// The single console emit. It lives in the already-proven visual-shield-blocked
-// branch, not inside useMemo. Minimal gates only; it does NOT require the silent
-// capture to exist, nor its key to match. If the capture is missing, the log is
-// still emitted with ROOT_CAUSE 'false-return-capture-missing'.
-export function maybeEmitNotificationOverlayVisibleSelectedFalseGuardTrace(
-  input: NotificationOverlayVisibleSelectedFalseGuardEmitContext,
-): void {
-  if (!isClientDiagTraceEnvironment()) return;
-  if (input.notificationOverlayVisible !== false) return;
-  if (input.previousReturnedBranch !== 'check-overlay') return;
-
-  const markers = readShellCheckActionMarkers();
-  if (!hasExpectedExitMarkersFalse(markers)) return;
-
-  const checkBanId = input.checkBanId?.trim() || null;
-  const checkOverlayKeyValue = checkBanId ? checkOverlayKey(checkBanId) : null;
-  if (!checkOverlayKeyValue) return;
-  if (selectedFalseGuardEmittedKeys.has(checkOverlayKeyValue)) return;
-
-  selectedFalseGuardEmittedKeys.add(checkOverlayKeyValue);
-
-  const decision = lastNotificationOverlayVisibilityFalseDecision;
-  const hasFalseReturnCapture = decision != null;
-  const currentRenderToken = notificationOverlayVisibilityFalseDecisionSequence;
-  const captureAgeMs = decision ? performance.now() - decision.timestamp : null;
-  const captureKeyMatchesCurrent = decision
-    ? decision.checkOverlayKey === checkOverlayKeyValue
-    : false;
-
-  const rootCause = hasFalseReturnCapture
-    ? decision!.selectedVisibilityFalseGuard
-    : 'false-return-capture-missing';
-
-  console.error('NOTIFICATION_OVERLAY_VISIBLE_SELECTED_FALSE_GUARD_TRACE', {
-    checkBanId,
-    checkOverlayKey: checkOverlayKeyValue,
-    previousReturnedBranch: input.previousReturnedBranch,
-    currentReturnedBranch: 'visual-shield-blocked',
-    notificationOverlayVisible: input.notificationOverlayVisible,
-    overlayVisualShieldCardContentMounted:
-      input.overlayVisualShieldCardContentMounted,
-
-    hasFalseReturnCapture,
-    captureAgeMs,
-    captureRenderToken: decision?.renderToken ?? null,
-    currentRenderToken,
-    captureCheckOverlayKey: decision?.checkOverlayKey ?? null,
-    captureCheckBanId: decision?.checkBanId ?? null,
-    captureKeyMatchesCurrent,
-
-    selectedVisibilityFalseGuard: decision?.selectedVisibilityFalseGuard ?? null,
-    selectedGuardOperands: decision?.selectedGuardOperands ?? null,
-    firstFalseOperand: decision?.firstFalseOperand ?? null,
-    allFalseOperands: decision?.allFalseOperands ?? null,
-    reachedVisibilityGuards: decision?.reachedVisibilityGuards ?? null,
-    evaluatedVisibilityGuards: decision?.evaluatedVisibilityGuards ?? null,
-
-    shellKind: input.shellKind,
-    renderBranch: input.renderBranch,
-    ownerDisplayKind: input.ownerDisplayKind,
-    currentHeadKind: input.currentHeadKind,
-
-    ROOT_CAUSE: rootCause,
-    PREVIOUS_FINAL_GUARD_TRACE_MISSED_REASON:
-      'emit-inside-useMemo-check-context-gate-failed',
+    userPressedCheckYes: markers.userPressedCheckYes,
+    userPressedCheckNo: markers.userPressedCheckNo,
+    submitCheckAnswerStarted: markers.submitCheckAnswerStarted,
+    checkDismissStarted: markers.checkDismissStarted,
+    checkConsumed: markers.checkConsumed,
+    resultArrivedAfterCheck: markers.resultArrivedAfterCheck,
   });
-}
-
-export function maybeEmitNotificationOverlayVisibleFinalGuardTrace(
-  _collector: NotificationOverlayVisibilityCollector,
-  _input: NotificationOverlayVisibleFinalGuardEmitContext,
-): void {
-  // Console emit disabled. Replaced by the silent capture
-  // (captureNotificationOverlayVisibilityFalseDecision) inside useMemo and the
-  // single NOTIFICATION_OVERLAY_VISIBLE_SELECTED_FALSE_GUARD_TRACE emit that fires
-  // later in the proven visual-shield-blocked branch.
 }
 
 export function maybeEmitNotificationOverlayVisibilityBranchRootTrace(
   _input: unknown,
 ): void {
-  // Console emit disabled (NOTIFICATION_OVERLAY_VISIBILITY_BRANCH_ROOT_TRACE).
+  // Disabled in favor of NOTIFICATION_OVERLAY_VISIBLE_FINAL_GUARD_TRACE.
 }
