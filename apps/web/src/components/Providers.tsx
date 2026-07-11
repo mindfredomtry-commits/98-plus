@@ -351,6 +351,7 @@ import {
   getCheckHandoffFetchedIdentities,
   updateCheckHandoffProvidersMirror,
   getCheckHandoffProvidersMirror,
+  restorePersistedCheckHandoffTraceBuffer,
 } from '@/lib/check-handoff-atomicity-trace-debug';
 import {
   logResultPresentation,
@@ -2154,6 +2155,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     markBrowserDebugHydrated();
     logPhase12DiagBoot();
+    // One-shot per page lifecycle (module-level guard inside the fn); replays
+    // the previous handoff trace saved before a full reload/reconnect.
+    restorePersistedCheckHandoffTraceBuffer();
   }, []);
   const [overlayQueue, setOverlayQueue] = useState<QueuedOverlay[]>([]);
   const overlayQueueRef = useRef<QueuedOverlay[]>([]);

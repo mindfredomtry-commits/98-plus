@@ -18,6 +18,221 @@ import { diagTraceNow, emitClientDiagTrace } from './diag-trace-client';
 
 const TRACE_EVENT = 'CHECK_HANDOFF_ATOMICITY_TRACE';
 
+/**
+ * Persistence layer for CHECK_HANDOFF_ATOMICITY_TRACE.
+ *
+ * Telegram Mini App DevTools fully close/reconnect while the bug reproduces, so
+ * a normal `console.log` is lost even with Preserve log enabled. To keep the
+ * previous handoff around across a full reload/reconnect we mirror every emitted
+ * trace event into a small ring buffer in localStorage and replay it on the next
+ * client start.
+ *
+ * This is diagnostics-only: no business logic, timers, queue, consume/dequeue,
+ * render priority, guards, polling or intervals are touched.
+ */
+const TRACE_BUFFER_STORAGE_KEY = '98plus:check-handoff-trace-buffer:v1';
+const TRACE_BUFFER_MAX_ENTRIES = 200;
+const TRACE_RESTORED_EVENT = 'CHECK_HANDOFF_ATOMICITY_TRACE_RESTORED';
+const TRACE_RESTORED_ENTRY_EVENT = 'CHECK_HANDOFF_ATOMICITY_TRACE_RESTORED_ENTRY';
+
+type PersistedTraceEntry = {
+  savedAt: number;
+  handoffTraceId: string;
+  stage: string;
+  payload: unknown;
+};
+
+/** One-shot guard for the current page lifecycle. Reset naturally on a real
+ * reload because the module is re-evaluated. */
+let traceBufferRestored = false;
+
+/** Safe deep copy that produces a JSON-serializable value. Functions, DOM
+ * nodes, Error instances and circular references are replaced with strings (or
+ * dropped) so that neither JSON.stringify nor the app can ever throw. */
+function sanitizeForTraceBuffer(value: unknown, seen: WeakSet<object>): unknown {
+  if (value === null) return null;
+  const t = typeof value;
+  if (t === 'string' || t === 'boolean') return value;
+  if (t === 'number') return Number.isFinite(value as number) ? value : String(value);
+  if (t === 'bigint') return String(value);
+  if (t === 'undefined' || t === 'function' || t === 'symbol') return undefined;
+
+  if (value instanceof Error) {
+    return `[Error: ${value.name}: ${value.message}]`;
+  }
+
+  // DOM nodes / window / other host objects.
+  if (
+    typeof Node !== 'undefined' &&
+    value instanceof Node
+  ) {
+    return '[DOMNode]';
+  }
+  if (typeof window !== 'undefined' && value === window) {
+    return '[Window]';
+  }
+
+  if (t === 'object') {
+    const obj = value as object;
+    if (seen.has(obj)) return '[Circular]';
+    seen.add(obj);
+    try {
+      if (Array.isArray(value)) {
+        return value.map((item) => {
+          const sanitized = sanitizeForTraceBuffer(item, seen);
+          return sanitized === undefined ? null : sanitized;
+        });
+      }
+      if (value instanceof Map || value instanceof Set) {
+        return String(value);
+      }
+      const out: Record<string, unknown> = {};
+      for (const key of Object.keys(obj as Record<string, unknown>)) {
+        let sanitized: unknown;
+        try {
+          sanitized = sanitizeForTraceBuffer(
+            (obj as Record<string, unknown>)[key],
+            seen,
+          );
+        } catch {
+          // Skip only this field if it cannot be sanitized.
+          sanitized = undefined;
+        }
+        if (sanitized !== undefined) out[key] = sanitized;
+      }
+      return out;
+    } finally {
+      seen.delete(obj);
+    }
+  }
+
+  // Fallback for anything unexpected.
+  try {
+    return String(value);
+  } catch {
+    return '[Unserializable]';
+  }
+}
+
+function readPersistedTraceBuffer(): PersistedTraceEntry[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(TRACE_BUFFER_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as PersistedTraceEntry[];
+  } catch {
+    return [];
+  }
+}
+
+function appendToPersistedTraceBuffer(
+  handoffTraceId: string,
+  stage: string,
+  payload: Record<string, unknown>,
+): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const entry: PersistedTraceEntry = {
+      savedAt: Date.now(),
+      handoffTraceId,
+      stage,
+      payload: sanitizeForTraceBuffer(payload, new WeakSet<object>()),
+    };
+    const buffer = readPersistedTraceBuffer();
+    buffer.push(entry);
+    // Ring buffer: keep only the newest TRACE_BUFFER_MAX_ENTRIES events.
+    const trimmed =
+      buffer.length > TRACE_BUFFER_MAX_ENTRIES
+        ? buffer.slice(buffer.length - TRACE_BUFFER_MAX_ENTRIES)
+        : buffer;
+    window.localStorage.setItem(
+      TRACE_BUFFER_STORAGE_KEY,
+      JSON.stringify(trimmed),
+    );
+  } catch {
+    // localStorage unavailable, quota exceeded, serialization failure, SSR, etc.
+    // Diagnostics must never break the app — silently continue.
+  }
+}
+
+/**
+ * Replay the persisted handoff trace buffer once per page lifecycle. Emits one
+ * summary header (CHECK_HANDOFF_ATOMICITY_TRACE_RESTORED) followed by one entry
+ * per saved record (CHECK_HANDOFF_ATOMICITY_TRACE_RESTORED_ENTRY).
+ *
+ * Restored records are NOT re-emitted as CHECK_HANDOFF_ATOMICITY_TRACE, so they
+ * are never re-buffered and cannot create duplicates. The buffer is intentionally
+ * left in place (not cleared) so the user can reopen a lost console and still
+ * find the previous handoff.
+ */
+export function restorePersistedCheckHandoffTraceBuffer(): void {
+  if (typeof window === 'undefined') return;
+  if (traceBufferRestored) return;
+  traceBufferRestored = true;
+
+  let buffer: PersistedTraceEntry[] = [];
+  try {
+    buffer = readPersistedTraceBuffer();
+  } catch {
+    return;
+  }
+  if (!buffer.length) return;
+
+  try {
+    const savedAts = buffer
+      .map((e) => e?.savedAt)
+      .filter((v): v is number => typeof v === 'number');
+    const handoffTraceIds = Array.from(
+      new Set(
+        buffer
+          .map((e) => e?.handoffTraceId)
+          .filter((v): v is string => typeof v === 'string'),
+      ),
+    );
+    emitClientDiagTrace(TRACE_RESTORED_EVENT, {
+      restoredCount: buffer.length,
+      firstSavedAt: savedAts.length ? savedAts[0] : null,
+      lastSavedAt: savedAts.length ? savedAts[savedAts.length - 1] : null,
+      handoffTraceIds,
+    });
+    for (const entry of buffer) {
+      emitClientDiagTrace(TRACE_RESTORED_ENTRY_EVENT, {
+        restored: true,
+        savedAt: entry?.savedAt ?? null,
+        handoffTraceId: entry?.handoffTraceId ?? null,
+        stage: entry?.stage ?? null,
+        payload: entry?.payload ?? null,
+      });
+    }
+  } catch {
+    // Never let diagnostics break client start.
+  }
+}
+
+/** Manually delete the persisted trace buffer. Never called automatically. */
+export function clearPersistedCheckHandoffTraceBuffer(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(TRACE_BUFFER_STORAGE_KEY);
+  } catch {
+    // Ignore — nothing to clean up safely.
+  }
+}
+
+// Dev/browser convenience: expose the manual clear helper without touching the
+// project's global Window types (cast avoids adding a global declaration).
+if (typeof window !== 'undefined') {
+  try {
+    (window as unknown as Record<string, unknown>)[
+      '__CLEAR_CHECK_HANDOFF_TRACE_BUFFER__'
+    ] = clearPersistedCheckHandoffTraceBuffer;
+  } catch {
+    // Ignore if the global is frozen / not assignable.
+  }
+}
+
 export type CheckHandoffOutcome =
   | 'next-card-committed'
   | 'queue-confirmed-empty'
@@ -238,10 +453,14 @@ export function emitCheckHandoffStage(
   if (emittedKeys.has(key)) return;
   emittedKeys.add(key);
   active.lastStage = stage;
-  emitClientDiagTrace(TRACE_EVENT, {
+  const payload: Record<string, unknown> = {
     handoffTraceId: active.id,
     stage,
     t: diagTraceNow(),
     ...fields,
-  });
+  };
+  // Persist first (best-effort) so the previous handoff survives a full
+  // reload/reconnect, then continue the existing console/debug emit.
+  appendToPersistedTraceBuffer(active.id, stage, payload);
+  emitClientDiagTrace(TRACE_EVENT, payload);
 }
