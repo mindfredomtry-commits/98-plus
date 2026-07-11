@@ -98,21 +98,12 @@ function resolveRootCause(
 
 const emittedKeys = new Set<string>();
 
-// Console emit DISABLED. Superseded by the single post-commit trace
-// RESULT_SHELL_STUCK_WHILE_CHECK_READY_TRACE, which pinpoints the exact
-// shell-transition guard that holds the result shell after the head became
-// check. This probe only proved the discrepancy existed; the new one localizes
-// it. Kept as a no-op (call site preserved) so nothing else emits. `let` (not
-// `const`) so the guard below is not narrowed to unreachable code.
-let checkHeadPreservedTraceEnabled = false;
-
 // The single one-shot console emit. MUST be called only from the non-render
 // finalizeResultForGoToBans callback, immediately after the mismatch decision
 // (finalize did NOT dismiss the preserved check head).
 export function maybeEmitCheckHeadPreservedButLobbyRenderedTrace(
   input: CheckHeadPreservedButLobbyRenderedInput,
 ): void {
-  if (!checkHeadPreservedTraceEnabled) return;
   if (!isClientDiagTraceEnvironment()) return;
 
   // Only when the preserved head is actually a check.

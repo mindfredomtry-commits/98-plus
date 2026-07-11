@@ -792,7 +792,6 @@ import {
   type NotificationOverlayVisibleFinalGuardEmitContext,
 } from '@/lib/notification-overlay-visible-false-root-trace-debug';
 import { maybeEmitCheckHeadPreservedButLobbyRenderedTrace } from '@/lib/check-head-preserved-but-lobby-rendered-trace-debug';
-import { observeLobbyVisibleWithActiveCheckFinalRender } from '@/lib/lobby-visible-with-active-check-final-render-trace-debug';
 import { traceOverlayVisualSessionWithoutShellIfChanged } from '@/lib/overlay-visual-session-without-shell-trace-debug';
 import {
   buildQueueHeadLifecycleSignature,
@@ -42392,93 +42391,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     globalOverlayHostActive,
     checkOverlayMounted,
   };
-
-  // Post-commit fact observer: the FULL lobby (arena idle CTA) is actually
-  // mounted/visible in the DOM while a check head is still active. Reads only
-  // render-derived values plus one existence query of the lobby DOM node; no
-  // state writes, no re-derivation, no JSX/visibility change.
-  useLayoutEffect(() => {
-    if (typeof document === 'undefined') return;
-    const lobbyCtaNode = document.querySelector(
-      '[data-pill-source="ArenaLobbyIdle"]',
-    ) as HTMLElement | null;
-    const lobbyOrbNode = document.querySelector(
-      '[data-base-lobby-orb]',
-    ) as HTMLElement | null;
-    const lobbyMounted = lobbyCtaNode != null;
-    const lobbyVisible = lobbyMounted && lobbyCtaNode.offsetParent != null;
-    const lobbyRootPresent = lobbyMounted || lobbyOrbNode != null;
-    const pageBranch = lobbyMounted
-      ? 'lobby-cta'
-      : lobbyOrbNode != null
-        ? 'lobby-orb'
-        : null;
-
-    const owner = ownerShadowRef.current.getState();
-    const ownerDisplay = resolveOwnerDisplayKindBanId(owner.display);
-    const ownerHead = owner.queue[0] ?? null;
-
-    observeLobbyVisibleWithActiveCheckFinalRender({
-      checkBanId:
-        ownerPrimaryCheckBan?.id ||
-        checkShellBanId ||
-        (ownerHead?.kind === 'check' ? ownerHead.ban.id ?? null : null),
-      lobbyMounted,
-      lobbyVisible,
-      lobbyRootPresent,
-      lobbyComponentName: lobbyMounted
-        ? 'ArenaLobbyIdle'
-        : lobbyOrbNode != null
-          ? 'LobbyOrbWrap'
-          : null,
-      lobbyRenderCondition:
-        'showLobbyCta && !effectiveBansOverlayOpen && !notificationQueueUiLock',
-      lobbyRenderReason: lobbyMounted
-        ? 'arena-lobby-cta-in-dom'
-        : lobbyOrbNode != null
-          ? 'lobby-orb-in-dom'
-          : 'lobby-absent',
-      pageBranch,
-      topLevelReturnedBranch: pageBranch,
-      renderBranch: queueHeadLifecycleRenderBranch,
-      queueHeadLifecycleRenderBranch,
-      shellKind: queueShellRendersResultOverlay
-        ? 'result'
-        : notificationQueueShellDisplayKindResolved,
-      notificationQueueShellKind,
-      effectiveNotificationQueueShellKind,
-      notificationQueueShellDisplayKindResolved,
-      queueShellRendersResultOverlay,
-      queueResultOverlayClaimed,
-      queueHeadKind: ownerHead?.kind ?? queueHeadKind,
-      queueHeadBanId:
-        ownerHead?.kind === 'check' ? ownerHead.ban.id ?? null : null,
-      queueLen: owner.queue.length,
-      ownerDisplayKind: ownerDisplay.displayKind,
-      ownerDisplayBanId: ownerDisplay.displayBanId,
-      ownerPrimaryCheckBanExists: Boolean(ownerPrimaryCheckBan?.id),
-      queueClaimsNotificationScreen:
-        ownerPrimaryShellQueueLen > 0 || queueLobbyGuardActiveRef.current,
-      notificationOverlayVisibleDiag: notificationOverlayVisibleDiagRef.current,
-      globalOverlayHostActive,
-      overlayVisualShieldCardContentMounted,
-      visualQueueDimSessionLive,
-      notificationOverlayHostMounted: overlayVisualShieldHostMounted,
-      notificationCardContentMounted:
-        visualQueueMountedCard.mountedCardHasContent,
-      backdropVisible: overlayBackdropDimVisible,
-      ownerRenderResultPayloadExists: ownerRenderResultPayload != null,
-      activeResultPayloadExists: activeResultPayload != null,
-      resultOverlayActive: queueShellRendersResultOverlay,
-      directResultOverlay: directResultOverlayRef.current,
-      directResultOverlayActive,
-      activeNotificationChain: hasPendingNotificationChainFnRef.current(),
-      notificationChainTransitioning:
-        notificationChainTransitioningRef.current,
-      chainAdvanceWaiting: chainAdvanceWaitingRef.current,
-    });
-  });
-
   const overlayBackdropGapHold = shouldHoldOverlayBackdropDuringQueueGap({
     visualQueueDimSessionLive,
     sendFlowOpening,

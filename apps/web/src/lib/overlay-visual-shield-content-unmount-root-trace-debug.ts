@@ -92,11 +92,6 @@ const rootEmittedKeys = new Set<string>();
 const missedEmittedKeys = new Set<string>();
 const watchByKey = new Map<string, KeyWatchState>();
 
-// Console emit DISABLED for this investigation. Only
-// RESULT_SHELL_STUCK_WHILE_CHECK_READY_TRACE should remain in the console.
-// `let` (not `const`) so the guards below are not narrowed to unreachable code.
-let shieldUnmountTraceEnabled = false;
-
 let previousSnapshot: OverlayVisualShieldContentTransitionSnapshot | null = null;
 let previousOperands: OverlayVisualShieldContentUnmountRootInput['derivation']['operands'] | null =
   null;
@@ -339,7 +334,6 @@ function maybeEmitRootTrace(input: {
   calledFrom: string;
   derivation: OverlayVisualShieldContentUnmountRootInput['derivation'];
 }): void {
-  if (!shieldUnmountTraceEnabled) return;
   const previousValue = input.before.cardContentMounted;
   const nextValue = input.nextCardContentMounted;
   if (!(previousValue === true && nextValue === false)) return;
@@ -393,7 +387,6 @@ function maybeEmitMissedTrace(input: {
   previousSnapshotWasReset: boolean;
   moduleWasReinitialized: boolean;
 }): void {
-  if (!shieldUnmountTraceEnabled) return;
   if (input.nextCardContentMounted !== false) return;
 
   const parentReturnedBranch = readCheckOverlayParentReturnedBranch('queue-shell');
