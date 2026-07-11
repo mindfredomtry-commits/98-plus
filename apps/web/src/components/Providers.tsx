@@ -2158,6 +2158,43 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     // One-shot per page lifecycle (module-level guard inside the fn); replays
     // the previous handoff trace saved before a full reload/reconnect.
     restorePersistedCheckHandoffTraceBuffer();
+    // Deployment delivery marker (diagnostics only): proves which WEB build the
+    // client actually loaded. Client-only, flag-independent, one-shot per page
+    // lifecycle. The window marker doubles as the one-shot guard.
+    try {
+      const w = window as unknown as Record<string, unknown>;
+      if (!w.__98PLUS_WEB_BUILD_MARKER__) {
+        const marker = '98PLUS_WEB_BUILD_MARKER:HANDOFF_PERSIST_V1_D8F7CEA';
+        const loadedAt = new Date().toISOString();
+        console.info('98PLUS_WEB_BUILD_MARKER', {
+          marker,
+          href: window.location.href,
+          origin: window.location.origin,
+          pathname: window.location.pathname,
+          userAgent: navigator.userAgent,
+          loadedAt,
+        });
+        w.__98PLUS_WEB_BUILD_MARKER__ = marker;
+        w.__98PLUS_WEB_RUNTIME_INFO__ = {
+          marker,
+          href: window.location.href,
+          origin: window.location.origin,
+          pathname: window.location.pathname,
+          loadedAt,
+        };
+        try {
+          window.localStorage.setItem('98plus:web-build-marker', marker);
+          window.localStorage.setItem(
+            '98plus:web-build-runtime-url',
+            window.location.href,
+          );
+        } catch {
+          // localStorage unavailable / quota exceeded — ignore.
+        }
+      }
+    } catch {
+      // Never let the delivery marker break client start.
+    }
   }, []);
   const [overlayQueue, setOverlayQueue] = useState<QueuedOverlay[]>([]);
   const overlayQueueRef = useRef<QueuedOverlay[]>([]);
