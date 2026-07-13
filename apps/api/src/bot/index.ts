@@ -233,24 +233,27 @@ export function startBot(): Telegraf | null {
 
   registerTelegramStarsHandlers(bot);
 
+  // Telegraf `launch()` Promise resolves when polling stops — log start before await.
+  console.log('BOT_POLLING_STARTED', {
+    processId: process.pid,
+    instanceId:
+      process.env.RAILWAY_REPLICA_ID ??
+      process.env.RAILWAY_DEPLOYMENT_ID ??
+      null,
+    allowedUpdates: [...BOT_ALLOWED_UPDATES],
+    timestamp: new Date().toISOString(),
+  });
+  console.log('[bot] started', {
+    hasToken: true,
+    webAppUrl: webAppUrl(),
+  });
+
   bot
     .launch({
       allowedUpdates: [...BOT_ALLOWED_UPDATES],
     })
     .then(() => {
-      console.log('BOT_POLLING_STARTED', {
-        processId: process.pid,
-        instanceId:
-          process.env.RAILWAY_REPLICA_ID ??
-          process.env.RAILWAY_DEPLOYMENT_ID ??
-          null,
-        allowedUpdates: [...BOT_ALLOWED_UPDATES],
-        timestamp: new Date().toISOString(),
-      });
-      console.log('[bot] started', {
-        hasToken: true,
-        webAppUrl: webAppUrl(),
-      });
+      console.log('[bot] polling stopped', { processId: process.pid });
     })
     .catch((err) => {
       console.error('[bot] launch failed', (err as Error).message);
