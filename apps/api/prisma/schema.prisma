@@ -9,34 +9,36 @@ datasource db {
 }
 
 model User {
-  id          String    @id @default(cuid())
-  telegramId  BigInt    @unique
-  username    String?
-  firstName   String
-  lastName    String?
-  photoUrl    String?
-  energy      Int       @default(100)
-  streak      Int       @default(0)
-  isOnboarded       Boolean   @default(false)
+  id               String    @id @default(cuid())
+  telegramId       BigInt    @unique
+  username         String?
+  firstName        String
+  lastName         String?
+  photoUrl         String?
+  energy           Int       @default(100)
+  streak           Int       @default(0)
+  isOnboarded      Boolean   @default(false)
   /// "real-time" | "normal" — live overlay vs queued-only notifications.
-  notificationMode  String    @default("real-time")
-  lastSeenAt        DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  notificationMode String    @default("real-time")
+  lastSeenAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  sentBans      Ban[]             @relation("SentBans")
-  receivedBans  Ban[]             @relation("ReceivedBans")
-  sentInvites   BanInvite[]       @relation("SentInvites")
-  claimedInvites BanInvite[]      @relation("ClaimedInvites")
-  selfBans      SelfBan[]
-  checkAnswers  BanCheckAnswer[]
-  pairStatsAsA  PairDailyStat[]   @relation("PairA")
-  pairStatsAsB  PairDailyStat[]   @relation("PairB")
-  analytics     AnalyticsEvent[]
-  socialContacts SocialContact[] @relation("SocialContacts")
-  knownAsContact SocialContact[] @relation("KnownAsContact")
+  sentBans       Ban[]             @relation("SentBans")
+  receivedBans   Ban[]             @relation("ReceivedBans")
+  sentInvites    BanInvite[]       @relation("SentInvites")
+  claimedInvites BanInvite[]       @relation("ClaimedInvites")
+  selfBans       SelfBan[]
+  checkAnswers   BanCheckAnswer[]
+  pairStatsAsA   PairDailyStat[]   @relation("PairA")
+  pairStatsAsB   PairDailyStat[]   @relation("PairB")
+  analytics      AnalyticsEvent[]
+  socialContacts SocialContact[]   @relation("SocialContacts")
+  knownAsContact SocialContact[]   @relation("KnownAsContact")
   savedBans      SavedBan[]
   retentionLogs  BotRetentionLog[]
+  payments       Payment[]
+  entitlements   Entitlement[]
 }
 
 /// Dedup Telegram retention DMs per user–friend pair.
@@ -111,41 +113,41 @@ model BanThread {
 }
 
 model Ban {
-  id                  String              @id @default(cuid())
-  threadId            String
-  thread              BanThread             @relation(fields: [threadId], references: [id])
-  senderId            String
-  sender              User                @relation("SentBans", fields: [senderId], references: [id])
-  receiverId          String
-  receiver            User                @relation("ReceivedBans", fields: [receiverId], references: [id])
-  inviteId            String?             @unique
-  text                String
-  durationMinutes     Int                 @default(30)
-  tone                String?
-  status              BanStatus           @default(PENDING)
-  parentBanId         String?
-  parentBan           Ban?                @relation("CounterBan", fields: [parentBanId], references: [id])
-  counterBans         Ban[]               @relation("CounterBan")
-  isOverboard         Boolean             @default(false)
-  energyApplied       Boolean             @default(false)
-  farmSkipped         Boolean             @default(false)
-  funMode             Boolean             @default(false)
-  pairBanCount24h     Int?
-  outcome             InteractionOutcome?
-  senderEnergyDelta   Int?
-  receiverEnergyDelta Int?
-  acceptedAt          DateTime?
-  reminderSentAt      DateTime?
-  checkStartedAt      DateTime?
-  createdAt           DateTime            @default(now())
-  expiresAt           DateTime?
-  checkDueAt          DateTime?
-  completedAt              DateTime?
-  handledAt                DateTime?
-  receiverIncomingAckAt    DateTime?
-  senderAcceptedDmSentAt   DateTime?
-  senderResultSeenAt       DateTime?
-  receiverResultSeenAt     DateTime?
+  id                     String              @id @default(cuid())
+  threadId               String
+  thread                 BanThread           @relation(fields: [threadId], references: [id])
+  senderId               String
+  sender                 User                @relation("SentBans", fields: [senderId], references: [id])
+  receiverId             String
+  receiver               User                @relation("ReceivedBans", fields: [receiverId], references: [id])
+  inviteId               String?             @unique
+  text                   String
+  durationMinutes        Int                 @default(30)
+  tone                   String?
+  status                 BanStatus           @default(PENDING)
+  parentBanId            String?
+  parentBan              Ban?                @relation("CounterBan", fields: [parentBanId], references: [id])
+  counterBans            Ban[]               @relation("CounterBan")
+  isOverboard            Boolean             @default(false)
+  energyApplied          Boolean             @default(false)
+  farmSkipped            Boolean             @default(false)
+  funMode                Boolean             @default(false)
+  pairBanCount24h        Int?
+  outcome                InteractionOutcome?
+  senderEnergyDelta      Int?
+  receiverEnergyDelta    Int?
+  acceptedAt             DateTime?
+  reminderSentAt         DateTime?
+  checkStartedAt         DateTime?
+  createdAt              DateTime            @default(now())
+  expiresAt              DateTime?
+  checkDueAt             DateTime?
+  completedAt            DateTime?
+  handledAt              DateTime?
+  receiverIncomingAckAt  DateTime?
+  senderAcceptedDmSentAt DateTime?
+  senderResultSeenAt     DateTime?
+  receiverResultSeenAt   DateTime?
 
   checkAnswers BanCheckAnswer[]
   savedBy      SavedBan[]
@@ -235,4 +237,227 @@ model AnalyticsEvent {
 
   @@index([name, createdAt])
   @@index([userId, createdAt])
+}
+
+// —— Monetization: Plan → Product → Payment → Entitlement ———————————————
+// Provider-agnostic foundation. Phase 1 performs NO real charges; SUCCEEDED and
+// entitlement grants are reserved for server-confirmed provider webhooks.
+
+/// Grouping for a commercial offering (e.g. Premium). Duration tiers are Products.
+model Plan {
+  id           String   @id @default(cuid())
+  /// Stable system code (premium, ...). Never derive links from `title`.
+  code         String   @unique
+  title        String
+  description  String?
+  displayOrder Int      @default(0)
+  isVisible    Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  products Product[]
+
+  @@index([isVisible, displayOrder])
+}
+
+/// Universal sellable product (e.g. premium_1m — one duration tier under a Plan).
+model Product {
+  id                      String           @id @default(cuid())
+  /// Stable system code (premium_1m, ...). Never derive links from `title`.
+  code                    String           @unique
+  planId                  String?
+  plan                    Plan?            @relation(fields: [planId], references: [id])
+  title                   String
+  description             String?
+  type                    ProductType
+  isActive                Boolean          @default(true)
+  isDefault               Boolean          @default(false)
+  isVisible               Boolean          @default(true)
+  displayOrder            Int              @default(0)
+  badge                   String?
+  recommended             Boolean          @default(false)
+  entitlementType         EntitlementType?
+  entitlementDurationDays Int?
+  metadata                Json?
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+
+  prices       ProductProviderPrice[]
+  payments     Payment[]
+  entitlements Entitlement[]
+
+  @@index([type, isActive])
+  @@index([planId, isVisible, displayOrder])
+}
+
+/// Per-provider price for a product. Cost is never tied to a single provider.
+model ProductProviderPrice {
+  id                String          @id @default(cuid())
+  productId         String
+  product           Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  provider          PaymentProvider
+  /// Whole display amount in the row's currency (XTR for Stars, RUB, etc.).
+  amount            Int
+  currency          String
+  externalProductId String?
+  isActive          Boolean         @default(true)
+  metadata          Json?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([productId, provider])
+  @@index([provider, isActive])
+}
+
+/// A payment attempt/result. Never stores secrets, tokens or card data.
+model Payment {
+  id                String          @id @default(cuid())
+  userId            String
+  user              User            @relation(fields: [userId], references: [id])
+  productId         String
+  product           Product         @relation(fields: [productId], references: [id])
+  provider          PaymentProvider
+  status            PaymentStatus   @default(CREATED)
+  amount            Int
+  currency          String
+  externalPaymentId String?
+  /// Client-supplied dedup key; blocks duplicate intents.
+  idempotencyKey    String          @unique
+  /// Safe, non-secret provider payload only.
+  providerPayload   Json?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  confirmedAt       DateTime?
+  failedAt          DateTime?
+  refundedAt        DateTime?
+  expiresAt         DateTime?
+  failureReason     String?
+
+  entitlement Entitlement?
+
+  @@index([userId, status])
+  @@index([status, expiresAt])
+  @@unique([provider, externalPaymentId], map: "Payment_provider_externalPaymentId_key")
+}
+
+/// DB-backed transactional outbox for monetization domain events.
+model MonetizationEvent {
+  id                  String                  @id @default(cuid())
+  type                MonetizationEventType
+  aggregateType       String
+  aggregateId         String
+  idempotencyKey      String                  @unique
+  payload             Json
+  status              MonetizationEventStatus @default(PENDING)
+  attempts            Int                     @default(0)
+  availableAt         DateTime                @default(now())
+  processingStartedAt DateTime?
+  processedAt         DateTime?
+  lastError           String?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  @@index([status, availableAt])
+  @@index([aggregateType, aggregateId])
+}
+
+/// Access grant. Premium is determined by an ACTIVE, non-expired Entitlement,
+/// NOT by a Payment. One entitlement per confirmed payment (idempotent grant).
+model Entitlement {
+  id              String            @id @default(cuid())
+  userId          String
+  user            User              @relation(fields: [userId], references: [id])
+  productId       String
+  product         Product           @relation(fields: [productId], references: [id])
+  /// Unique — a single confirmed Payment can grant at most one Entitlement.
+  sourcePaymentId String?           @unique
+  sourcePayment   Payment?          @relation(fields: [sourcePaymentId], references: [id])
+  type            EntitlementType
+  origin          EntitlementOrigin @default(PURCHASE)
+  status          EntitlementStatus @default(ACTIVE)
+  startsAt        DateTime          @default(now())
+  expiresAt       DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  revokedAt       DateTime?
+  metadata        Json?
+
+  @@index([userId, type, status])
+  @@index([expiresAt])
+}
+
+/// Promotional discount — model only; not wired to API/UI yet.
+model Coupon {
+  id        String     @id @default(cuid())
+  code      String     @unique
+  type      CouponType
+  value     Int
+  startsAt  DateTime?
+  expiresAt DateTime?
+  maxUses   Int?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([code])
+}
+
+enum ProductType {
+  SUBSCRIPTION
+  CONSUMABLE
+  NON_CONSUMABLE
+}
+
+enum PaymentProvider {
+  TELEGRAM_STARS
+  SBP
+  CARD_RU
+  CARD_INT
+}
+
+enum PaymentStatus {
+  CREATED
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REFUNDED
+  EXPIRED
+}
+
+enum EntitlementStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+enum EntitlementType {
+  PREMIUM
+  AI_GENERATIONS
+  FEATURE
+  GIFT
+  THEME
+}
+
+enum EntitlementOrigin {
+  PURCHASE
+  PROMOCODE
+  ADMIN
+  GIFT
+}
+
+enum CouponType {
+  PERCENT
+  FIXED_AMOUNT
+}
+
+enum MonetizationEventType {
+  PAYMENT_CONFIRMED
+  PAYMENT_REFUNDED
+}
+
+enum MonetizationEventStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
 }

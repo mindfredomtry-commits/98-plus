@@ -3679,12 +3679,15 @@ html[data-reply-parent-active-timer] .instant-ban-active-ban-card {
 }
 
 .instant-ban-arena-send[data-settings-overlay-open] .instant-ban-arena-lobby-nav,
-.instant-ban-arena-send[data-settings-overlay-open] > .instant-ban-lobby-cta {
+.instant-ban-arena-send[data-settings-overlay-open] > .instant-ban-lobby-cta,
+.instant-ban-arena-send[data-monetization-overlay-open] .instant-ban-arena-lobby-nav,
+.instant-ban-arena-send[data-monetization-overlay-open] > .instant-ban-lobby-cta {
   visibility: hidden;
   pointer-events: none;
 }
 
-.instant-ban-arena-send__settings-layer {
+.instant-ban-arena-send__settings-layer,
+.instant-ban-arena-send__monetization-layer {
   position: absolute;
   inset: 0;
   z-index: 12;

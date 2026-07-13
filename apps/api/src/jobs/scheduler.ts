@@ -5,6 +5,8 @@ import {
   processStaleChecks,
 } from '../services/ban.service';
 import { processAutomaticRetention } from '../services/retention-automation.service';
+import { processPendingMonetizationEvents } from '../services/monetization-event-processor';
+import { expireStalePayments } from '../services/payment-status.service';
 import {
   RETENTION_TEST_INTERVAL_MINUTES,
   retentionAutomationIntervalMs,
@@ -46,7 +48,28 @@ export function startScheduler() {
     console.log('[check-scheduler-tick]', { now: new Date().toISOString() });
   });
 
+  // Monetization outbox — retry pending entitlement provisioning.
+  cron.schedule('*/30 * * * * *', async () => {
+    try {
+      await processPendingMonetizationEvents();
+    } catch (e) {
+      console.error('[scheduler] monetization-events', e);
+    }
+  });
+
+  // Payment cleanup — expire stale CREATED/PENDING intents past their TTL.
+  cron.schedule('*/10 * * * *', async () => {
+    try {
+      const expired = await expireStalePayments();
+      if (expired > 0) {
+        console.log('[scheduler] payment-cleanup expired', { count: expired });
+      }
+    } catch (e) {
+      console.error('[scheduler] payment-cleanup', e);
+    }
+  });
+
   console.log(
-    `[scheduler] check backup every 15s; retention daily 12:00; auto-retention every ${RETENTION_TEST_INTERVAL_MINUTES}m; heartbeat every minute`,
+    `[scheduler] check backup every 15s; retention daily 12:00; auto-retention every ${RETENTION_TEST_INTERVAL_MINUTES}m; monetization outbox every 30s; payment cleanup every 10m; heartbeat every minute`,
   );
 }

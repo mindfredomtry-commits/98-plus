@@ -10,9 +10,17 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
     "db:backfill-result-seen": "tsx scripts/backfill-result-seen.ts",
     "db:clear-user-bans": "tsx scripts/clear-user-bans.ts",
-    "db:clear-ban-history": "tsx scripts/clear-ban-history.ts"
+    "db:clear-ban-history": "tsx scripts/clear-ban-history.ts",
+    "test:monetization-events": "tsx scripts/monetization-event-outbox.test.ts",
+    "test:monetization-unit": "tsx scripts/monetization-unit.test.ts",
+    "test:telegram-stars": "tsx scripts/telegram-stars.test.ts",
+    "test:telegram-stars-integration": "tsx scripts/telegram-stars-integration.test.ts"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@98plus/shared": "file:../../packages/shared",

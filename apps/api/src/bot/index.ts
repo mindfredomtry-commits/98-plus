@@ -11,6 +11,7 @@ import { OPEN_BAN_WEBAPP_BUTTON_LABEL, WELCOME_WEBAPP_BUTTON_LABEL } from '@98pl
 import { sendBotStartInviteChallenge, sendViralInviteBootNotification } from './notifications';
 import { findUserByUsername } from '../services/ban.service';
 import { resolveViralInviteBootContext } from '../services/invite-deeplink.service';
+import { registerTelegramStarsHandlers } from './telegram-stars-handlers';
 
 let bot: Telegraf | null = null;
 
@@ -214,8 +215,17 @@ export function startBot(): Telegraf | null {
     }
   });
 
+  registerTelegramStarsHandlers(bot);
+
   bot
-    .launch()
+    .launch({
+      allowedUpdates: [
+        'message',
+        'callback_query',
+        'pre_checkout_query',
+        'inline_query',
+      ],
+    })
     .then(() => {
       console.log('[bot] started', {
         hasToken: true,

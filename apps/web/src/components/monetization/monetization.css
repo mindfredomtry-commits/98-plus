@@ -1,0 +1,588 @@
+/* 98+ monetization surfaces — near-black bg, graphite cards, soft purple accent.
+   Reuses canonical tokens from styles/98-theme.css. No crowns / acid colors. */
+
+.monetization-root {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  pointer-events: auto;
+}
+
+.monetization-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(5, 3, 8, 0.96) 0%,
+    var(--98-bg-black) 42%,
+    #060409 100%
+  );
+}
+
+.monetization-screen__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: calc(0.75rem + env(safe-area-inset-top, 0px)) 1.1rem 1.5rem;
+}
+
+.monetization-screen__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.monetization-screen__nav-title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  color: var(--98-text-primary);
+}
+
+.monetization-back {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(var(--98-purple-soft-rgb), 0.08);
+  color: var(--98-text-primary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.monetization-screen__dock {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: 0.75rem 1.1rem calc(0.9rem + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(180deg, rgba(6, 4, 12, 0) 0%, rgba(6, 4, 12, 0.92) 40%);
+}
+
+.monetization-muted {
+  margin: 1rem 0;
+  font-size: 0.9rem;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* —— Profile —— */
+.monetization-profile-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.5rem 0 1.75rem;
+}
+
+.monetization-profile-head__name {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--98-text-primary);
+  text-align: center;
+}
+
+.monetization-access {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.62);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.monetization-access--premium {
+  color: var(--98-purple-soft);
+  background: rgba(var(--98-purple-core-rgb), 0.16);
+  border-color: rgba(var(--98-purple-core-rgb), 0.4);
+  box-shadow: 0 0 20px rgba(var(--98-purple-core-rgb), 0.22);
+}
+
+.monetization-premium-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 1.25rem 1.15rem 1.35rem;
+  border-radius: 1.15rem;
+  border: 1px solid rgba(var(--98-purple-core-rgb), 0.28);
+  background: linear-gradient(
+    155deg,
+    rgba(var(--98-purple-deep-rgb), 0.4) 0%,
+    #17121f 55%,
+    #120d18 100%
+  );
+  box-shadow: 0 0 32px rgba(var(--98-purple-core-rgb), 0.14);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.monetization-premium-card__glow {
+  position: absolute;
+  top: -40%;
+  right: -20%;
+  width: 60%;
+  height: 120%;
+  background: radial-gradient(
+    circle,
+    rgba(var(--98-purple-electric-rgb), 0.28),
+    transparent 62%
+  );
+  pointer-events: none;
+}
+
+.monetization-premium-card__title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--98-text-primary);
+}
+
+.monetization-premium-card__lead {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.monetization-premium-card__desc {
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.monetization-premium-card__cta {
+  align-self: flex-start;
+  margin-top: 0.65rem;
+  padding: 0.4rem 1.1rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(
+    135deg,
+    var(--98-purple-core) 0%,
+    var(--98-purple-cold) 100%
+  );
+  box-shadow: 0 0 18px rgba(var(--98-purple-core-rgb), 0.45);
+}
+
+/* —— Premium hero —— */
+.monetization-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0 1.5rem;
+  text-align: center;
+}
+
+.monetization-hero__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 68px;
+  height: 68px;
+  margin-bottom: 0.5rem;
+  border-radius: 50%;
+  font-size: 1.35rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: #fff;
+  background: radial-gradient(
+    circle at 50% 35%,
+    rgba(var(--98-purple-electric-rgb), 0.55),
+    rgba(var(--98-purple-deep-rgb), 0.65) 70%
+  );
+  border: 1px solid rgba(var(--98-purple-core-rgb), 0.5);
+  box-shadow: 0 0 28px rgba(var(--98-purple-core-rgb), 0.35);
+}
+
+.monetization-hero__title {
+  margin: 0;
+  font-size: 1.7rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: var(--98-text-primary);
+}
+
+.monetization-hero__lead {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.monetization-hero__sub {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* —— Features —— */
+.monetization-features {
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.1rem 1.1rem;
+  border-radius: 1.05rem;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.monetization-features__title {
+  margin: 0 0 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(var(--98-purple-soft-rgb), 0.72);
+}
+
+.monetization-features__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.monetization-features__item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.monetization-features__dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--98-purple-core);
+  box-shadow: 0 0 8px rgba(var(--98-purple-core-rgb), 0.6);
+}
+
+/* —— Tariffs —— */
+.monetization-tariffs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.monetization-tariff {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.95rem 1.05rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #16131c;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.monetization-tariff--selected {
+  border-color: rgba(var(--98-purple-core-rgb), 0.65);
+  background: linear-gradient(
+    150deg,
+    rgba(var(--98-purple-deep-rgb), 0.35) 0%,
+    #191320 60%
+  );
+  box-shadow: 0 0 22px rgba(var(--98-purple-core-rgb), 0.22);
+}
+
+.monetization-tariff__left {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.monetization-tariff__period {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--98-text-primary);
+}
+
+.monetization-tariff__monthly {
+  font-size: 0.74rem;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.monetization-tariff__right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}
+
+.monetization-tariff__price {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--98-purple-soft);
+  white-space: nowrap;
+}
+
+.monetization-tariff__check {
+  flex-shrink: 0;
+  width: 1.4rem;
+  text-align: center;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--98-purple-core);
+}
+
+.monetization-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.07);
+  white-space: nowrap;
+}
+
+.monetization-tag--soon {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.monetization-tag--badge {
+  color: #fff;
+  background: rgba(var(--98-purple-core-rgb), 0.32);
+  border: 1px solid rgba(var(--98-purple-core-rgb), 0.5);
+}
+
+/* —— Shared CTA —— */
+.monetization-cta {
+  width: 100%;
+  min-height: 3.1rem;
+  border: none;
+  border-radius: 1rem;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: #fff;
+  background: linear-gradient(
+    135deg,
+    var(--98-purple-core) 0%,
+    var(--98-purple-cold) 100%
+  );
+  box-shadow: 0 0 26px rgba(var(--98-purple-core-rgb), 0.4);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.monetization-cta:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+.monetization-cta:disabled {
+  opacity: 0.4;
+  box-shadow: none;
+  cursor: default;
+}
+
+/* —— Payment sheet —— */
+.monetization-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.monetization-sheet__dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 3, 8, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.monetization-sheet__panel {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 32rem;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  max-height: 88dvh;
+  padding: 1rem 1.1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+  border-radius: 1.35rem 1.35rem 0 0;
+  border: 1px solid rgba(var(--98-purple-core-rgb), 0.28);
+  border-bottom: none;
+  background: linear-gradient(180deg, #17121f 0%, #100c16 100%);
+  box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.55);
+}
+
+.monetization-sheet__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.monetization-sheet__title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-transform: lowercase;
+  color: var(--98-text-primary);
+}
+
+.monetization-sheet__product {
+  margin: 0 0 0.85rem 2.75rem;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.monetization-sheet__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.monetization-provider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.85rem 0.95rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #1b1622;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.monetization-provider--selected {
+  border-color: rgba(var(--98-purple-core-rgb), 0.6);
+  background: linear-gradient(150deg, rgba(var(--98-purple-deep-rgb), 0.35) 0%, #1c1524 60%);
+  box-shadow: 0 0 18px rgba(var(--98-purple-core-rgb), 0.2);
+}
+
+.monetization-provider--disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.monetization-provider__icon {
+  flex-shrink: 0;
+  width: 2.2rem;
+  height: 2.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.6rem;
+  font-size: 1.05rem;
+  color: var(--98-purple-soft);
+  background: rgba(var(--98-purple-core-rgb), 0.14);
+}
+
+.monetization-provider__copy {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.monetization-provider__name {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--98-text-primary);
+}
+
+.monetization-provider__sub {
+  font-size: 0.74rem;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.monetization-provider__right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.3rem;
+}
+
+.monetization-provider__price {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--98-purple-soft);
+  white-space: nowrap;
+}
+
+.monetization-sheet__status {
+  margin: 0.85rem 0 0;
+  padding: 0.65rem 0.8rem;
+  border-radius: 0.75rem;
+  font-size: 0.85rem;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.82);
+  background: rgba(var(--98-purple-core-rgb), 0.12);
+  border: 1px solid rgba(var(--98-purple-core-rgb), 0.28);
+}
+
+.monetization-sheet__status--success {
+  color: #b8f5c3;
+  background: rgba(72, 187, 120, 0.12);
+  border-color: rgba(72, 187, 120, 0.35);
+}
+
+.monetization-sheet__onetime {
+  margin: -0.35rem 0 0.85rem;
+  font-size: 0.78rem;
+}
+
+.monetization-sheet__footer {
+  margin-top: 0.9rem;
+}

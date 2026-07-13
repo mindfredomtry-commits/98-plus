@@ -33,6 +33,8 @@ export interface UserPublic {
   telegramId: string;
   username: string | null;
   firstName: string;
+  /** Telegram last name — optional; used for the full display-name rule. */
+  lastName: string | null;
   /** Canonical avatar URL (same value as photoUrl for API compatibility). */
   avatarUrl: string | null;
   /** @deprecated use avatarUrl */

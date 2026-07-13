@@ -107,4 +107,13 @@ export const ANALYTICS_EVENTS = {
   INVITE_CLAIMED: 'invite_claimed',
   WS_RECONNECT: 'ws_reconnect',
   SESSION_RECOVERED: 'session_recovered',
+  // —— Monetization (Profile / Premium / Payment Sheet) ——
+  OPEN_PROFILE: 'open_profile',
+  PRESS_LEARN: 'press_learn',
+  OPEN_PREMIUM: 'open_premium',
+  SELECT_PRODUCT: 'select_product',
+  OPEN_PAYMENT_SHEET: 'open_payment_sheet',
+  SELECT_PAYMENT_PROVIDER: 'select_payment_provider',
+  CREATE_PAYMENT_INTENT: 'create_payment_intent',
+  CLOSE_PAYMENT_SHEET: 'close_payment_sheet',
 } as const;

@@ -24,6 +24,7 @@ function minimalPreviewUser(
     telegramId: '',
     username: null,
     firstName: name?.trim() || '',
+    lastName: null,
     avatarUrl: null,
     photoUrl: null,
     aura: 'weak',

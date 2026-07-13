@@ -7,6 +7,7 @@ function optimisticUserStub(username: string, firstName: string): UserPublic {
     telegramId: '',
     username,
     firstName,
+    lastName: null,
     photoUrl: null,
     aura: 'stable',
     auraLabel: 'Стабильная',

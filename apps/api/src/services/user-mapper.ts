@@ -15,6 +15,7 @@ export function mapUser(user: User): UserPublic {
     telegramId: user.telegramId.toString(),
     username: user.username,
     firstName: user.firstName,
+    lastName: user.lastName ?? null,
     photoUrl: avatarUrl,
     avatarUrl,
     aura,

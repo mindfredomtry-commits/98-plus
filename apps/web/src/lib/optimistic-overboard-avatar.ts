@@ -118,6 +118,7 @@ function coalesceUserPublic(
     telegramId: partial?.telegramId?.trim() || id,
     username: partial?.username ?? null,
     firstName,
+    lastName: partial?.lastName ?? null,
     avatarUrl: partial?.avatarUrl ?? partial?.photoUrl ?? null,
     photoUrl: partial?.photoUrl ?? partial?.avatarUrl ?? null,
     aura: partial?.aura ?? 'stable',

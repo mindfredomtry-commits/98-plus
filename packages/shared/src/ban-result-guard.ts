@@ -33,6 +33,7 @@ function minimalUserPublic(
       partial?.firstName?.trim() ||
       partial?.username?.replace(/^@/, '').trim() ||
       'Игрок',
+    lastName: partial?.lastName ?? null,
     avatarUrl: partial?.avatarUrl ?? partial?.photoUrl ?? null,
     photoUrl: partial?.photoUrl ?? partial?.avatarUrl ?? null,
     aura: partial?.aura ?? 'stable',

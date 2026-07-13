@@ -10,3 +10,4 @@ export * from './ban-result-guard';
 export * from './check-modal';
 export * from './friends';
 export * from './challenge';
+export * from './monetization';

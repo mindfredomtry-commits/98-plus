@@ -1,10 +1,19 @@
 /** Direct Telegram Bot API calls (works even when Telegraf polling is down). */
 
-export interface TelegramApiResponse {
+export interface TelegramApiResponse<T = { message_id: number }> {
   ok: boolean;
-  result?: { message_id: number };
+  result?: T;
   error_code?: number;
   description?: string;
+}
+
+type FetchLike = typeof fetch;
+
+let fetchImpl: FetchLike = fetch;
+
+/** Test-only override for Bot API fetch. */
+export function setTelegramApiFetchForTests(impl: FetchLike | null): void {
+  fetchImpl = impl ?? fetch;
 }
 
 export function getTelegramBotToken(): string | null {
@@ -39,33 +48,72 @@ export function formatTelegramApiError(e: unknown): {
   return { message: String(e) };
 }
 
-export async function telegramSendMessage(params: {
-  chatId: string;
-  text: string;
-  replyMarkup?: unknown;
-}): Promise<TelegramApiResponse> {
+export async function telegramBotApiCall<T>(
+  method: string,
+  body: Record<string, unknown>,
+): Promise<TelegramApiResponse<T>> {
   const token = getTelegramBotToken();
   if (!token) {
     return { ok: false, description: 'TELEGRAM_BOT_TOKEN not set' };
   }
 
   try {
-    const res = await fetch(
-      `https://api.telegram.org/bot${token}/sendMessage`,
+    const res = await fetchImpl(
+      `https://api.telegram.org/bot${token}/${method}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: params.chatId,
-          text: params.text,
-          ...(params.replyMarkup ? { reply_markup: params.replyMarkup } : {}),
-        }),
+        body: JSON.stringify(body),
       },
     );
-    const data = (await res.json()) as TelegramApiResponse;
-    return data;
+    return (await res.json()) as TelegramApiResponse<T>;
   } catch (e) {
     const { code, message } = formatTelegramApiError(e);
     return { ok: false, error_code: code, description: message };
   }
+}
+
+export interface TelegramLabeledPrice {
+  label: string;
+  amount: number;
+}
+
+export async function telegramCreateInvoiceLink(params: {
+  title: string;
+  description: string;
+  payload: string;
+  currency: string;
+  prices: TelegramLabeledPrice[];
+}): Promise<TelegramApiResponse<string>> {
+  return telegramBotApiCall<string>('createInvoiceLink', {
+    title: params.title,
+    description: params.description,
+    payload: params.payload,
+    currency: params.currency,
+    prices: params.prices,
+  });
+}
+
+export async function telegramAnswerPreCheckoutQuery(params: {
+  preCheckoutQueryId: string;
+  ok: boolean;
+  errorMessage?: string;
+}): Promise<TelegramApiResponse<boolean>> {
+  return telegramBotApiCall<boolean>('answerPreCheckoutQuery', {
+    pre_checkout_query_id: params.preCheckoutQueryId,
+    ok: params.ok,
+    ...(params.ok ? {} : { error_message: params.errorMessage }),
+  });
+}
+
+export async function telegramSendMessage(params: {
+  chatId: string;
+  text: string;
+  replyMarkup?: unknown;
+}): Promise<TelegramApiResponse<{ message_id: number }>> {
+  return telegramBotApiCall<{ message_id: number }>('sendMessage', {
+    chat_id: params.chatId,
+    text: params.text,
+    ...(params.replyMarkup ? { reply_markup: params.replyMarkup } : {}),
+  });
 }

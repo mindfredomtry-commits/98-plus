@@ -9,16 +9,20 @@ import { logStartDrainEntryTrace } from '@/lib/start-drain-entry-trace';
 type Props = {
   onOpenBans: () => void;
   onOpenSettings: () => void;
+  onOpenProfile: () => void;
   bansNeedAttention?: boolean;
   settingsActive?: boolean;
+  profileActive?: boolean;
   telegramUserId?: string | null;
 };
 
 export function ArenaLobbyTopNav({
   onOpenBans,
   onOpenSettings,
+  onOpenProfile,
   bansNeedAttention = false,
   settingsActive = false,
+  profileActive = false,
   telegramUserId = null,
 }: Props) {
   const prevAttentionRef = useRef(bansNeedAttention);
@@ -113,9 +117,13 @@ export function ArenaLobbyTopNav({
       </button>
       <button
         type="button"
-        className="instant-ban-arena-lobby-nav__item instant-ban-arena-lobby-nav__item--muted"
-        disabled
-        aria-disabled="true"
+        className={`instant-ban-arena-lobby-nav__item${
+          profileActive
+            ? ' instant-ban-arena-lobby-nav__item--active'
+            : ' instant-ban-arena-lobby-nav__item--muted'
+        }`}
+        onClick={onOpenProfile}
+        aria-label="Профиль"
       >
         Профиль
       </button>

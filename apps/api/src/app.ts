@@ -7,6 +7,11 @@ import { adminRouter } from './routes/admin';
 import { analyticsRouter } from './routes/analytics';
 import { friendsRouter } from './routes/friends';
 import { invitesRouter } from './routes/invites';
+import { productsRouter } from './routes/products';
+import { meRouter } from './routes/me';
+import { paymentProvidersRouter } from './routes/payment-providers';
+import { paymentsRouter } from './routes/payments';
+import { internalMonetizationRouter } from './routes/internal-monetization';
 
 /** Explicit local dev frontends (safe to allow against Railway API). */
 const LOCAL_DEV_PORTS = ['3000', '3001', '3002'] as const;
@@ -104,6 +109,11 @@ export function createApp() {
   app.use('/analytics', analyticsRouter);
   app.use('/friends', friendsRouter);
   app.use('/invites', invitesRouter);
+  app.use('/products', productsRouter);
+  app.use('/me', meRouter);
+  app.use('/payment-providers', paymentProvidersRouter);
+  app.use('/payments', paymentsRouter);
+  app.use('/internal/monetization', internalMonetizationRouter);
 
   app.use(
     (

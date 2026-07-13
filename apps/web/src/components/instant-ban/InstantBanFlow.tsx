@@ -20,6 +20,7 @@ import {
   coerceFriendList,
   findFriendByUsername,
   isValidDurationMinutes,
+  ANALYTICS_EVENTS,
   type BanInteraction,
   type FriendCard,
   type NotificationMode,
@@ -194,6 +195,8 @@ import { ConfirmScreen } from './ConfirmScreen';
 import { SuccessScreen } from './SuccessScreen';
 import { ArenaLobbyTopNav } from './ArenaLobbyTopNav';
 import { ArenaSettingsPanel } from './ArenaSettingsPanel';
+import { MonetizationSection } from '../monetization/MonetizationSection';
+import { trackProductEvent } from '@/lib/product-analytics';
 import { BansOverlay } from './BansOverlay';
 import { ActiveBanCardOverlay } from './ActiveBanCardOverlay';
 import {
@@ -540,7 +543,7 @@ export function InstantBanFlow({
     getConfirmOrbQueueDebugSnapshot,
     tryClearExplicitNotificationDrainGuarded,
   } = useApp();
-  const { haptic, hapticSuccess } = useTelegram();
+  const { haptic, hapticSuccess, webApp } = useTelegram();
   const deepLinkRouteBootPending = useSyncExternalStore(
     subscribeDeepLinkRouteBoot,
     isDeepLinkRouteBootPending,
@@ -665,6 +668,8 @@ export function InstantBanFlow({
   const [bansOverlayOpen, setBansOverlayOpen] = useState(false);
   const [settingsOverlayOpen, setSettingsOverlayOpen] = useState(false);
   const [settingsModeSaving, setSettingsModeSaving] = useState(false);
+  /** Profile / Premium / Payment Sheet — a normal user section, not a notification overlay. */
+  const [monetizationOpen, setMonetizationOpen] = useState(false);
   const [lowInfluenceRevealed, setLowInfluenceRevealed] = useState(false);
   const [lowEnergyBlockedSignal, setLowEnergyBlockedSignal] = useState(0);
   const [dailyLimitBlockedSignal, setDailyLimitBlockedSignal] = useState(0);
@@ -1692,6 +1697,7 @@ export function InstantBanFlow({
     (!notificationChainTransitioning || notificationOverlayMounted) &&
     !effectiveBansOverlayOpen &&
     !settingsOverlayOpen &&
+    !monetizationOpen &&
     !notificationQueueUiLock &&
     !replyUiShellActive &&
     !deepLinkRouteBootPending &&
@@ -3092,6 +3098,17 @@ export function InstantBanFlow({
     setSettingsOverlayOpen(false);
   }, []);
 
+  // Profile section — same open rule as Settings (idle lobby only). Never touches
+  // the notification queue / overlay owner. Opened from the lobby top nav.
+  const handleOpenProfile = useCallback(() => {
+    if (phase !== 'idle' || banSentSuccess) return;
+    setMonetizationOpen(true);
+  }, [banSentSuccess, phase]);
+
+  const handleCloseProfile = useCallback(() => {
+    setMonetizationOpen(false);
+  }, []);
+
   const handleNotificationModeChange = useCallback(
     async (mode: NotificationMode) => {
       setSettingsModeSaving(true);
@@ -3104,11 +3121,14 @@ export function InstantBanFlow({
   useEffect(() => {
     setArenaOverlayGuardState({
       bansOverlayOpen: effectiveBansOverlayOpen,
-      settingsOverlayOpen,
+      // Profile/Premium/Payment Sheet reuse the existing settings-section rule
+      // so live-notification guards treat them like any other normal section.
+      settingsOverlayOpen: settingsOverlayOpen || monetizationOpen,
     });
   }, [
     effectiveBansOverlayOpen,
     settingsOverlayOpen,
+    monetizationOpen,
     setArenaOverlayGuardState,
   ]);
 
@@ -7770,6 +7790,7 @@ export function InstantBanFlow({
       data-instant-ban-step={legacyStep}
       data-bans-overlay-open={effectiveBansOverlayOpen ? '' : undefined}
       data-settings-overlay-open={settingsOverlayOpen ? '' : undefined}
+      data-monetization-overlay-open={monetizationOpen ? '' : undefined}
       data-bans-cta-session={bansCtaQueueSuppress ? '' : undefined}
       data-notification-session={
         notificationOverlayMounted &&
@@ -7790,7 +7811,9 @@ export function InstantBanFlow({
         <ArenaLobbyTopNav
           onOpenBans={handleOpenBansOverlay}
           onOpenSettings={handleOpenSettings}
+          onOpenProfile={handleOpenProfile}
           settingsActive={settingsOverlayOpen}
+          profileActive={monetizationOpen}
           bansNeedAttention={lobbyBansNeedAttention}
           telegramUserId={user?.id ?? null}
         />
@@ -8149,6 +8172,18 @@ export function InstantBanFlow({
             saving={settingsModeSaving}
             onClose={handleCloseSettings}
             onModeChange={handleNotificationModeChange}
+          />
+        </div>
+      ) : null}
+
+      {monetizationOpen && phase === 'idle' ? (
+        <div className="instant-ban-arena-send__monetization-layer">
+          <MonetizationSection
+            user={user}
+            token={token}
+            context={webApp ? 'telegram' : 'web'}
+            onHaptic={haptic}
+            onClose={handleCloseProfile}
           />
         </div>
       ) : null}
