@@ -209,11 +209,13 @@ async function testProcessedEventNoOp(): Promise<void> {
       provider: 'SBP',
       externalPaymentId: 'ext_4',
     });
-    const first = await processEvent(confirm.eventId!);
-    assert.equal(first.outcome, 'processed');
+    const event = await prisma.monetizationEvent.findUnique({
+      where: { id: confirm.eventId! },
+    });
+    assert.equal(event?.status, 'PROCESSED');
 
-    const second = await processEvent(confirm.eventId!);
-    assert.equal(second.outcome, 'skipped');
+    const replay = await processEvent(confirm.eventId!);
+    assert.equal(replay.outcome, 'skipped');
 
     const entitlements = await prisma.entitlement.findMany({
       where: { sourcePaymentId: fx.paymentId },

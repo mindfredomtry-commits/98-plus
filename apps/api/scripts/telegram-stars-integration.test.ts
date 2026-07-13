@@ -61,18 +61,19 @@ type Fx = {
 };
 
 async function createFx(): Promise<Fx> {
+  const fxId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const telegramId = BigInt(`${Date.now()}${Math.floor(Math.random() * 999)}`);
   const user = await prisma.user.create({
     data: {
       telegramId,
       firstName: 'Stars',
-      username: `${runId}_u`,
+      username: `${runId}_u_${fxId}`,
     },
   });
   const plan = await prisma.plan.create({
-    data: { code: `${runId}_plan`, title: 'Premium' },
+    data: { code: `${runId}_plan_${fxId}`, title: 'Premium' },
   });
-  const productCode = `${runId}_p1m`;
+  const productCode = `${runId}_p1m_${fxId}`;
   const product = await prisma.product.create({
     data: {
       code: productCode,
