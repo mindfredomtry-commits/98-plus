@@ -14,6 +14,14 @@ import { resolveViralInviteBootContext } from '../services/invite-deeplink.servi
 import { registerTelegramStarsHandlers } from './telegram-stars-handlers';
 
 let bot: Telegraf | null = null;
+let botLaunchStarted = false;
+
+const BOT_ALLOWED_UPDATES = [
+  'message',
+  'callback_query',
+  'pre_checkout_query',
+  'inline_query',
+] as const;
 
 export function getBot(): Telegraf | null {
   return bot;
@@ -49,12 +57,20 @@ async function sendStartWelcomePreviewMessage(
 }
 
 export function startBot(): Telegraf | null {
+  if (botLaunchStarted) {
+    console.warn('[bot] startBot skipped — polling already started in this process', {
+      processId: process.pid,
+    });
+    return bot;
+  }
+
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
     console.warn('[bot] TELEGRAM_BOT_TOKEN not set — notifications disabled');
     return null;
   }
 
+  botLaunchStarted = true;
   bot = new Telegraf(token);
 
   bot.start(async (ctx) => {
@@ -219,14 +235,18 @@ export function startBot(): Telegraf | null {
 
   bot
     .launch({
-      allowedUpdates: [
-        'message',
-        'callback_query',
-        'pre_checkout_query',
-        'inline_query',
-      ],
+      allowedUpdates: [...BOT_ALLOWED_UPDATES],
     })
     .then(() => {
+      console.log('BOT_POLLING_STARTED', {
+        processId: process.pid,
+        instanceId:
+          process.env.RAILWAY_REPLICA_ID ??
+          process.env.RAILWAY_DEPLOYMENT_ID ??
+          null,
+        allowedUpdates: [...BOT_ALLOWED_UPDATES],
+        timestamp: new Date().toISOString(),
+      });
       console.log('[bot] started', {
         hasToken: true,
         webAppUrl: webAppUrl(),
