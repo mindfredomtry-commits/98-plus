@@ -34,6 +34,11 @@ paymentsRouter.post('/intents', async (req: AuthRequest, res) => {
       provider: parsed.data.provider,
       idempotencyKey: parsed.data.idempotencyKey,
     });
+    // DIAGNOSTIC C: final HTTP response payload before send.
+    console.log('[PAYMENTS_INTENTS_RESPONSE]', {
+      invoiceUrl: result.invoiceUrl ?? null,
+      paymentId: result.paymentId,
+    });
     res.json(result);
   } catch (err) {
     if (err instanceof PaymentServiceError) {
