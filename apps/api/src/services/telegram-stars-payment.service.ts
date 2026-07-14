@@ -13,22 +13,18 @@ import {
   telegramAnswerPreCheckoutQuery,
   telegramCreateInvoiceLink,
 } from '../lib/telegram-api';
+import {
+  canonicalizeTelegramInvoiceUrl,
+  safeTelegramInvoiceHost,
+  telegramInvoiceUrlHasSlug,
+  TelegramStarsInvoiceUrlError,
+} from '../lib/telegram-invoice-url';
 import type { ProviderCreatePaymentResult } from '@98plus/shared';
 import {
   confirmPaymentFromProvider,
 } from './payment-confirmation.service';
 import { telegramStarsLog } from './telegram-stars-logger';
 import { validateProviderConfirmationAgainstPayment } from './payment-provider-validation';
-
-/** Hostname only — Stars invoice URL diagnostics (never logs slug). */
-function safeInvoiceHost(url: string | null | undefined): string | null {
-  if (typeof url !== 'string' || !url) return null;
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return '(unparseable)';
-  }
-}
 
 export interface PreCheckoutQueryInput {
   id: string;
@@ -347,37 +343,7 @@ export async function createTelegramStarsInvoice(
     ],
   });
 
-  const invoiceUrl =
-    typeof apiResult.result === 'string' ? apiResult.result : null;
-
-  // Single diagnostic: raw Bot API result host — no full URL / slug.
-  console.log('[STARS_BOT_API_RAW_URL_TRACE]', {
-    apiOk: apiResult?.ok === true,
-    rawResultType: typeof apiResult?.result,
-    rawResultHost:
-      typeof apiResult?.result === 'string'
-        ? safeInvoiceHost(apiResult.result)
-        : null,
-    rawResultStartsWithTMe:
-      typeof apiResult?.result === 'string'
-        ? /^https:\/\/t\.me\/\$.+/.test(apiResult.result)
-        : false,
-    rawResultStartsWithTelegramMe:
-      typeof apiResult?.result === 'string'
-        ? /^https:\/\/telegram\.me\/\$.+/.test(apiResult.result)
-        : false,
-    extractedHost: safeInvoiceHost(invoiceUrl),
-    extractedStartsWithTMe:
-      typeof invoiceUrl === 'string'
-        ? /^https:\/\/t\.me\/\$.+/.test(invoiceUrl)
-        : false,
-    extractedStartsWithTelegramMe:
-      typeof invoiceUrl === 'string'
-        ? /^https:\/\/telegram\.me\/\$.+/.test(invoiceUrl)
-        : false,
-  });
-
-  if (!apiResult.ok || typeof invoiceUrl !== 'string') {
+  if (!apiResult.ok || typeof apiResult.result !== 'string') {
     telegramStarsLog.invoiceOpenFailed({
       paymentId: input.paymentId,
       productCode: input.productCode,
@@ -388,7 +354,42 @@ export async function createTelegramStarsInvoice(
     return {
       nextAction: 'NOT_CONFIGURED',
       status: 'CREATED',
-      message: 'не удалось создать счёт, попробуй позже',
+      message: 'Не удалось открыть оплату. Попробуйте ещё раз',
+      providerPayload: {
+        invoiceError: true,
+        invoiceErrorAt: new Date().toISOString(),
+      },
+    };
+  }
+
+  let invoiceUrl: string;
+  try {
+    invoiceUrl = canonicalizeTelegramInvoiceUrl(apiResult.result);
+  } catch (e) {
+    const raw = apiResult.result;
+    let protocol: string | null = null;
+    try {
+      protocol = new URL(raw).protocol;
+    } catch {
+      protocol = null;
+    }
+    telegramStarsLog.invoiceOpenFailed({
+      paymentId: input.paymentId,
+      productCode: input.productCode,
+      amount: input.amount,
+      currency: input.currency,
+      status:
+        e instanceof TelegramStarsInvoiceUrlError
+          ? 'invalid_invoice_url'
+          : 'invoice_url_error',
+      rawHost: safeTelegramInvoiceHost(raw),
+      protocol,
+      hasInvoiceSlug: telegramInvoiceUrlHasSlug(raw),
+    });
+    return {
+      nextAction: 'NOT_CONFIGURED',
+      status: 'CREATED',
+      message: 'Не удалось открыть оплату. Попробуйте ещё раз',
       providerPayload: {
         invoiceError: true,
         invoiceErrorAt: new Date().toISOString(),
@@ -402,6 +403,7 @@ export async function createTelegramStarsInvoice(
     amount: input.amount,
     currency: input.currency,
     status: 'PENDING',
+    canonicalHost: 't.me',
   });
 
   return {

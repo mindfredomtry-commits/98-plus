@@ -42,7 +42,7 @@ setTelegramApiFetchForTests(async (_url, init) => {
   }
   if (body.title) {
     return new Response(
-      JSON.stringify({ ok: true, result: 'https://t.me/invoice/test' }),
+      JSON.stringify({ ok: true, result: 'https://t.me/$invoice_test' }),
       { status: 200 },
     );
   }

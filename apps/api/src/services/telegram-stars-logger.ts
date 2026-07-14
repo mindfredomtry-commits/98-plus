@@ -7,6 +7,11 @@ type StarsLogFields = {
   currency?: string;
   updateId?: number;
   status?: string;
+  /** Invoice host after canonization — never a full URL/slug. */
+  canonicalHost?: string;
+  rawHost?: string | null;
+  protocol?: string | null;
+  hasInvoiceSlug?: boolean;
 };
 
 function emit(event: string, fields: StarsLogFields): void {

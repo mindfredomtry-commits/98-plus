@@ -10,10 +10,7 @@ export type InvoiceCloseStatus =
 
 /**
  * Telegram Stars invoice links have the exact shape `https://t.me/$<slug>`.
- * The string from the API must be passed to `openInvoice` verbatim — no host
- * canonicalization (e.g. t.me → telegram.me), no `new URL()` rewrite, and no
- * shared Telegram-link normalizer. Any such transform makes telegram-web-app.js
- * reject it with "Invoice url is invalid".
+ * API already returns the openInvoice-compatible host; WEB must not rewrite it.
  */
 const TELEGRAM_STARS_INVOICE_URL_RE = /^https:\/\/t\.me\/\$(.+)$/;
 
@@ -45,7 +42,6 @@ export function hasTelegramOpenInvoice(): boolean {
  */
 export function openTelegramStarsInvoice(
   invoiceUrl: string,
-  paymentId?: string,
 ): Promise<InvoiceCloseStatus> {
   return new Promise((resolve) => {
     const webApp = window.Telegram?.WebApp as
@@ -54,8 +50,6 @@ export function openTelegramStarsInvoice(
             url: string,
             callback: (status: InvoiceCloseStatus) => void,
           ) => void;
-          version?: string;
-          platform?: string;
         }
       | undefined;
 
@@ -64,28 +58,12 @@ export function openTelegramStarsInvoice(
       return;
     }
 
-    // DIAGNOSTIC: capture the exact string handed to openInvoice in the real
-    // browser. Full invoiceUrl is intentionally logged here (Console only) for
-    // this one narrow diagnostic step. No token / initData / providerPayload.
-    console.log('[STARS_OPEN_INVOICE_INPUT]', {
-      invoiceUrl,
-      host: safeInvoiceHost(invoiceUrl),
-      startsWithTMeInvoice: /^https:\/\/t\.me\/\$.+/.test(invoiceUrl),
-      tgVersion: webApp.version ?? null,
-      tgPlatform: webApp.platform ?? null,
-    });
-
     try {
-      // Pass the exact API string. Do NOT normalize the host here.
       webApp.openInvoice(invoiceUrl, (status) => {
-        console.log('[STARS_OPEN_INVOICE_CALLBACK]', {
-          status,
-          paymentId,
-        });
         resolve(status ?? 'failed');
       });
     } catch (error) {
-      console.error('[STARS_OPEN_INVOICE_THROW]', {
+      console.error('[telegram-stars] openInvoice failed', {
         name: error instanceof Error ? error.name : 'unknown',
         message: error instanceof Error ? error.message : String(error),
         invoiceHost: safeInvoiceHost(invoiceUrl),
@@ -133,15 +111,6 @@ export async function runTelegramStarsCheckout(input: {
     };
   }
 
-  // DIAGNOSTIC A: first capture of invoiceUrl after invent response —
-  // before trim / validator / safeInvoiceHost / openInvoice helpers.
-  console.log('[STARS_INTENT_RESPONSE_RAW]', {
-    invoiceUrl: intent.invoiceUrl,
-    type: typeof intent.invoiceUrl,
-    nextAction: intent.nextAction,
-    paymentId: intent.paymentId,
-  });
-
   if (intent.nextAction === 'PROVIDER_DISABLED') {
     return {
       phase: 'failed',
@@ -157,20 +126,12 @@ export async function runTelegramStarsCheckout(input: {
     };
   }
 
-  // DIAGNOSTIC B: argument about to be handed into checkout/open path —
-  // still before trim / isTelegramStarsInvoiceUrl / openTelegramStarsInvoice.
-  const invoiceUrl = intent.invoiceUrl;
-  console.log('[STARS_CHECKOUT_ARGUMENT]', {
-    invoiceUrl,
-    type: typeof invoiceUrl,
-  });
+  const invoiceUrl = intent.invoiceUrl.trim();
 
-  const invoiceUrlNormalized = invoiceUrl.trim();
-
-  if (!isTelegramStarsInvoiceUrl(invoiceUrlNormalized)) {
+  if (!isTelegramStarsInvoiceUrl(invoiceUrl)) {
     console.error('[telegram-stars] invalid invoice URL format', {
-      hasInvoiceUrl: Boolean(invoiceUrlNormalized),
-      host: safeInvoiceHost(invoiceUrlNormalized),
+      hasInvoiceUrl: Boolean(invoiceUrl),
+      host: safeInvoiceHost(invoiceUrl),
     });
     return {
       phase: 'failed',
@@ -179,10 +140,7 @@ export async function runTelegramStarsCheckout(input: {
     };
   }
 
-  const closeStatus = await openTelegramStarsInvoice(
-    invoiceUrlNormalized,
-    intent.paymentId,
-  );
+  const closeStatus = await openTelegramStarsInvoice(invoiceUrl);
 
   if (closeStatus === 'cancelled') {
     return {

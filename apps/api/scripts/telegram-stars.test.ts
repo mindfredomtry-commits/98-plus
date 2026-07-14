@@ -36,7 +36,7 @@ async function main(): Promise<void> {
     if (body.title) {
       lastInvoiceBody = body;
       return new Response(
-        JSON.stringify({ ok: true, result: 'https://t.me/invoice/test' }),
+        JSON.stringify({ ok: true, result: 'https://t.me/$invoice_test' }),
         { status: 200 },
       );
     }
@@ -54,7 +54,7 @@ async function main(): Promise<void> {
   });
 
   assert.equal(invoiceResult.nextAction, 'OPEN_INVOICE');
-  assert.equal(invoiceResult.invoiceUrl, 'https://t.me/invoice/test');
+  assert.equal(invoiceResult.invoiceUrl, 'https://t.me/$invoice_test');
   assert.ok(lastInvoiceBody);
   assert.equal(lastInvoiceBody!.currency, 'XTR');
   assert.deepEqual(lastInvoiceBody!.prices, [
