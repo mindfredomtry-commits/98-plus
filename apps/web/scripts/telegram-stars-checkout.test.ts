@@ -5,6 +5,7 @@
  *
  * Verifies the invoice URL returned by the API is forwarded to
  * Telegram.WebApp.openInvoice verbatim — never rewritten to telegram.me.
+ * Also asserts diagnostic checkpoints A/B/C keep https://t.me/$slug.
  */
 import assert from 'node:assert/strict';
 import type { PaymentIntentResult } from '@98plus/shared';
@@ -15,6 +16,12 @@ import {
 import type { PaymentPollResult } from '../src/lib/poll-payment-status';
 
 type OpenInvoiceCb = (status: string) => void;
+
+type ConsoleCapture = {
+  raw?: unknown;
+  checkoutArg?: unknown;
+  openInput?: unknown;
+};
 
 function installFakeTelegram(
   callbackStatus: string = 'cancelled',
@@ -38,6 +45,22 @@ function installFakeTelegram(
   return { getLastUrl: () => lastUrl, calls: () => calls };
 }
 
+function captureStarsDiagLogs(run: () => Promise<unknown>): Promise<ConsoleCapture> {
+  const captured: ConsoleCapture = {};
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => {
+    const tag = args[0];
+    const payload = args[1];
+    if (tag === '[STARS_INTENT_RESPONSE_RAW]') captured.raw = payload;
+    if (tag === '[STARS_CHECKOUT_ARGUMENT]') captured.checkoutArg = payload;
+    if (tag === '[STARS_OPEN_INVOICE_INPUT]') captured.openInput = payload;
+    originalLog.apply(console, args);
+  };
+  return run().finally(() => {
+    console.log = originalLog;
+  }).then(() => captured);
+}
+
 function makeIntent(invoiceUrl: string): PaymentIntentResult {
   return {
     paymentId: 'pay_test',
@@ -49,13 +72,24 @@ function makeIntent(invoiceUrl: string): PaymentIntentResult {
 
 const pendingPoll = async (): Promise<PaymentPollResult> => ({ kind: 'pending' });
 
+function assertTMeInvoice(url: unknown, label: string): void {
+  assert.equal(url, 'https://t.me/$test_slug', `${label} must stay t.me`);
+  assert.ok(
+    !String(url).includes('telegram.me'),
+    `${label} must not become telegram.me`,
+  );
+}
+
 async function testForwardsInvoiceUrlVerbatim(): Promise<void> {
   const tg = installFakeTelegram();
   const apiUrl = 'https://t.me/$test_slug';
 
-  const outcome = await runTelegramStarsCheckout({
-    createIntent: async () => makeIntent(apiUrl),
-    pollStatus: pendingPoll,
+  let outcome: Awaited<ReturnType<typeof runTelegramStarsCheckout>> | undefined;
+  const captured = await captureStarsDiagLogs(async () => {
+    outcome = await runTelegramStarsCheckout({
+      createIntent: async () => makeIntent(apiUrl),
+      pollStatus: pendingPoll,
+    });
   });
 
   assert.equal(tg.calls(), 1, 'openInvoice must be called exactly once');
@@ -68,7 +102,15 @@ async function testForwardsInvoiceUrlVerbatim(): Promise<void> {
     !String(tg.getLastUrl()).includes('telegram.me'),
     'invoice URL must not be rewritten to telegram.me',
   );
-  assert.equal(outcome.phase, 'cancelled');
+  assert.equal(outcome?.phase, 'cancelled');
+
+  const raw = captured.raw as { invoiceUrl?: string } | undefined;
+  const checkoutArg = captured.checkoutArg as { invoiceUrl?: string } | undefined;
+  const openInput = captured.openInput as { invoiceUrl?: string } | undefined;
+
+  assertTMeInvoice(raw?.invoiceUrl, 'A STARS_INTENT_RESPONSE_RAW');
+  assertTMeInvoice(checkoutArg?.invoiceUrl, 'B STARS_CHECKOUT_ARGUMENT');
+  assertTMeInvoice(openInput?.invoiceUrl, 'C STARS_OPEN_INVOICE_INPUT');
 }
 
 async function testRejectsTelegramMeHost(): Promise<void> {

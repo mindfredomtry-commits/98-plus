@@ -133,6 +133,15 @@ export async function runTelegramStarsCheckout(input: {
     };
   }
 
+  // DIAGNOSTIC A: first capture of invoiceUrl after invent response —
+  // before trim / validator / safeInvoiceHost / openInvoice helpers.
+  console.log('[STARS_INTENT_RESPONSE_RAW]', {
+    invoiceUrl: intent.invoiceUrl,
+    type: typeof intent.invoiceUrl,
+    nextAction: intent.nextAction,
+    paymentId: intent.paymentId,
+  });
+
   if (intent.nextAction === 'PROVIDER_DISABLED') {
     return {
       phase: 'failed',
@@ -148,12 +157,20 @@ export async function runTelegramStarsCheckout(input: {
     };
   }
 
-  const invoiceUrl = intent.invoiceUrl.trim();
+  // DIAGNOSTIC B: argument about to be handed into checkout/open path —
+  // still before trim / isTelegramStarsInvoiceUrl / openTelegramStarsInvoice.
+  const invoiceUrl = intent.invoiceUrl;
+  console.log('[STARS_CHECKOUT_ARGUMENT]', {
+    invoiceUrl,
+    type: typeof invoiceUrl,
+  });
 
-  if (!isTelegramStarsInvoiceUrl(invoiceUrl)) {
+  const invoiceUrlNormalized = invoiceUrl.trim();
+
+  if (!isTelegramStarsInvoiceUrl(invoiceUrlNormalized)) {
     console.error('[telegram-stars] invalid invoice URL format', {
-      hasInvoiceUrl: Boolean(invoiceUrl),
-      host: safeInvoiceHost(invoiceUrl),
+      hasInvoiceUrl: Boolean(invoiceUrlNormalized),
+      host: safeInvoiceHost(invoiceUrlNormalized),
     });
     return {
       phase: 'failed',
@@ -163,7 +180,7 @@ export async function runTelegramStarsCheckout(input: {
   }
 
   const closeStatus = await openTelegramStarsInvoice(
-    invoiceUrl,
+    invoiceUrlNormalized,
     intent.paymentId,
   );
 
