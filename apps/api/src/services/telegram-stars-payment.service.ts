@@ -20,6 +20,16 @@ import {
 import { telegramStarsLog } from './telegram-stars-logger';
 import { validateProviderConfirmationAgainstPayment } from './payment-provider-validation';
 
+/** Hostname only — Stars invoice URL diagnostics (never logs slug). */
+function safeInvoiceHost(url: string | null | undefined): string | null {
+  if (typeof url !== 'string' || !url) return null;
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '(unparseable)';
+  }
+}
+
 export interface PreCheckoutQueryInput {
   id: string;
   fromId: number;
@@ -337,7 +347,37 @@ export async function createTelegramStarsInvoice(
     ],
   });
 
-  if (!apiResult.ok || typeof apiResult.result !== 'string') {
+  const invoiceUrl =
+    typeof apiResult.result === 'string' ? apiResult.result : null;
+
+  // Single diagnostic: raw Bot API result host — no full URL / slug.
+  console.log('[STARS_BOT_API_RAW_URL_TRACE]', {
+    apiOk: apiResult?.ok === true,
+    rawResultType: typeof apiResult?.result,
+    rawResultHost:
+      typeof apiResult?.result === 'string'
+        ? safeInvoiceHost(apiResult.result)
+        : null,
+    rawResultStartsWithTMe:
+      typeof apiResult?.result === 'string'
+        ? /^https:\/\/t\.me\/\$.+/.test(apiResult.result)
+        : false,
+    rawResultStartsWithTelegramMe:
+      typeof apiResult?.result === 'string'
+        ? /^https:\/\/telegram\.me\/\$.+/.test(apiResult.result)
+        : false,
+    extractedHost: safeInvoiceHost(invoiceUrl),
+    extractedStartsWithTMe:
+      typeof invoiceUrl === 'string'
+        ? /^https:\/\/t\.me\/\$.+/.test(invoiceUrl)
+        : false,
+    extractedStartsWithTelegramMe:
+      typeof invoiceUrl === 'string'
+        ? /^https:\/\/telegram\.me\/\$.+/.test(invoiceUrl)
+        : false,
+  });
+
+  if (!apiResult.ok || typeof invoiceUrl !== 'string') {
     telegramStarsLog.invoiceOpenFailed({
       paymentId: input.paymentId,
       productCode: input.productCode,
@@ -368,7 +408,7 @@ export async function createTelegramStarsInvoice(
     nextAction: 'OPEN_INVOICE',
     status: 'PENDING',
     message: 'откроется оплата Telegram Stars',
-    invoiceUrl: apiResult.result,
+    invoiceUrl,
     providerPayload: {
       channel: 'TELEGRAM_STARS',
       implementation: 'telegram_stars',
