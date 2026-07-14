@@ -8,6 +8,29 @@ export type InvoiceCloseStatus =
   | 'pending'
   | string;
 
+/**
+ * Telegram Stars invoice links have the exact shape `https://t.me/$<slug>`.
+ * The string from the API must be passed to `openInvoice` verbatim — no host
+ * canonicalization (e.g. t.me → telegram.me), no `new URL()` rewrite, and no
+ * shared Telegram-link normalizer. Any such transform makes telegram-web-app.js
+ * reject it with "Invoice url is invalid".
+ */
+const TELEGRAM_STARS_INVOICE_URL_RE = /^https:\/\/t\.me\/\$(.+)$/;
+
+export function isTelegramStarsInvoiceUrl(url: string | undefined): boolean {
+  return Boolean(url) && TELEGRAM_STARS_INVOICE_URL_RE.test(url as string);
+}
+
+/** Hostname only — never logs the slug or the full invoice URL. */
+function safeInvoiceHost(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '(unparseable)';
+  }
+}
+
 export function hasTelegramOpenInvoice(): boolean {
   if (typeof window === 'undefined') return false;
   const openInvoice = (
@@ -18,9 +41,11 @@ export function hasTelegramOpenInvoice(): boolean {
 
 /**
  * Opens Telegram Stars invoice. Callback is UX-only — never activates Premium.
+ * `invoiceUrl` is forwarded to `openInvoice` unchanged.
  */
 export function openTelegramStarsInvoice(
   invoiceUrl: string,
+  paymentId?: string,
 ): Promise<InvoiceCloseStatus> {
   return new Promise((resolve) => {
     const webApp = window.Telegram?.WebApp as
@@ -29,6 +54,8 @@ export function openTelegramStarsInvoice(
             url: string,
             callback: (status: InvoiceCloseStatus) => void,
           ) => void;
+          version?: string;
+          platform?: string;
         }
       | undefined;
 
@@ -37,11 +64,32 @@ export function openTelegramStarsInvoice(
       return;
     }
 
+    // DIAGNOSTIC: capture the exact string handed to openInvoice in the real
+    // browser. Full invoiceUrl is intentionally logged here (Console only) for
+    // this one narrow diagnostic step. No token / initData / providerPayload.
+    console.log('[STARS_OPEN_INVOICE_INPUT]', {
+      invoiceUrl,
+      host: safeInvoiceHost(invoiceUrl),
+      startsWithTMeInvoice: /^https:\/\/t\.me\/\$.+/.test(invoiceUrl),
+      tgVersion: webApp.version ?? null,
+      tgPlatform: webApp.platform ?? null,
+    });
+
     try {
+      // Pass the exact API string. Do NOT normalize the host here.
       webApp.openInvoice(invoiceUrl, (status) => {
+        console.log('[STARS_OPEN_INVOICE_CALLBACK]', {
+          status,
+          paymentId,
+        });
         resolve(status ?? 'failed');
       });
-    } catch {
+    } catch (error) {
+      console.error('[STARS_OPEN_INVOICE_THROW]', {
+        name: error instanceof Error ? error.name : 'unknown',
+        message: error instanceof Error ? error.message : String(error),
+        invoiceHost: safeInvoiceHost(invoiceUrl),
+      });
       resolve('failed');
     }
   });
@@ -100,7 +148,24 @@ export async function runTelegramStarsCheckout(input: {
     };
   }
 
-  const closeStatus = await openTelegramStarsInvoice(intent.invoiceUrl);
+  const invoiceUrl = intent.invoiceUrl.trim();
+
+  if (!isTelegramStarsInvoiceUrl(invoiceUrl)) {
+    console.error('[telegram-stars] invalid invoice URL format', {
+      hasInvoiceUrl: Boolean(invoiceUrl),
+      host: safeInvoiceHost(invoiceUrl),
+    });
+    return {
+      phase: 'failed',
+      message: 'ссылка на оплату недействительна',
+      paymentId: intent.paymentId,
+    };
+  }
+
+  const closeStatus = await openTelegramStarsInvoice(
+    invoiceUrl,
+    intent.paymentId,
+  );
 
   if (closeStatus === 'cancelled') {
     return {
