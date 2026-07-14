@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { PAYMENT_PROVIDERS, type PaymentProvider } from '@98plus/shared';
 import { requireAuth, type AuthRequest } from '../middleware/auth';
 import {
-  createPaymentIntent,
+  createPaymentIntentHttp,
   PaymentServiceError,
 } from '../services/payment.service';
 import { getPaymentStatusForOwner } from '../services/payment-status.service';
@@ -19,6 +19,20 @@ const intentSchema = z.object({
   idempotencyKey: z.string().min(8).max(200),
 });
 
+/** Hostname only — used for Stars invoice URL diagnostics. */
+function safeInvoiceHost(url: string | null | undefined): string | null {
+  if (typeof url !== 'string' || !url) return null;
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '(unparseable)';
+  }
+}
+
+function startsWithTMeInvoice(url: string | null | undefined): boolean {
+  return typeof url === 'string' && /^https:\/\/t\.me\/\$/.test(url);
+}
+
 // POST /payments/intents — create Payment + provider checkout (Stars invoice link).
 paymentsRouter.post('/intents', async (req: AuthRequest, res) => {
   const parsed = intentSchema.safeParse(req.body);
@@ -28,18 +42,30 @@ paymentsRouter.post('/intents', async (req: AuthRequest, res) => {
   }
 
   try {
-    const result = await createPaymentIntent({
+    const { responseBody, adapterInvoiceUrl } = await createPaymentIntentHttp({
       userId: req.userId!,
       productCode: parsed.data.productCode,
       provider: parsed.data.provider,
       idempotencyKey: parsed.data.idempotencyKey,
     });
-    // DIAGNOSTIC C: final HTTP response payload before send.
-    console.log('[PAYMENTS_INTENTS_RESPONSE]', {
-      invoiceUrl: result.invoiceUrl ?? null,
-      paymentId: result.paymentId,
+
+    const finalResponseInvoiceUrl =
+      typeof responseBody.invoiceUrl === 'string'
+        ? responseBody.invoiceUrl
+        : null;
+
+    // Single diagnostic trace — logs the exact object that goes to res.json.
+    console.log('[STARS_INVOICE_URL_TRACE]', {
+      adapterInvoiceUrl:
+        typeof adapterInvoiceUrl === 'string' ? adapterInvoiceUrl : null,
+      finalResponseInvoiceUrl,
+      adapterHost: safeInvoiceHost(adapterInvoiceUrl),
+      finalResponseHost: safeInvoiceHost(finalResponseInvoiceUrl),
+      adapterStartsWithTMe: startsWithTMeInvoice(adapterInvoiceUrl),
+      finalStartsWithTMe: startsWithTMeInvoice(finalResponseInvoiceUrl),
+      paymentId: responseBody.paymentId ?? null,
     });
-    res.json(result);
+    res.json(responseBody);
   } catch (err) {
     if (err instanceof PaymentServiceError) {
       res.status(err.status).json({ error: err.message });

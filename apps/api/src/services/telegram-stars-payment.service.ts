@@ -337,15 +337,6 @@ export async function createTelegramStarsInvoice(
     ],
   });
 
-  // DIAGNOSTIC A: raw Telegram Bot API createInvoiceLink response.
-  console.log('[BOT_API_CREATE_INVOICE_LINK]', {
-    ok: apiResult.ok,
-    description: apiResult.description ?? null,
-    error_code: apiResult.error_code ?? null,
-    resultType: typeof apiResult.result,
-    result: apiResult.result ?? null,
-  });
-
   if (!apiResult.ok || typeof apiResult.result !== 'string') {
     telegramStarsLog.invoiceOpenFailed({
       paymentId: input.paymentId,
@@ -365,11 +356,6 @@ export async function createTelegramStarsInvoice(
     };
   }
 
-  const invoiceUrl = apiResult.result;
-
-  // DIAGNOSTIC B: invoiceUrl exactly as extracted from Bot API result.
-  console.log('[BOT_API_INVOICE_URL]', invoiceUrl);
-
   telegramStarsLog.invoiceCreated({
     paymentId: input.paymentId,
     productCode: input.productCode,
@@ -382,7 +368,7 @@ export async function createTelegramStarsInvoice(
     nextAction: 'OPEN_INVOICE',
     status: 'PENDING',
     message: 'откроется оплата Telegram Stars',
-    invoiceUrl,
+    invoiceUrl: apiResult.result,
     providerPayload: {
       channel: 'TELEGRAM_STARS',
       implementation: 'telegram_stars',

@@ -55,6 +55,23 @@ function toIntentResult(
   };
 }
 
+/** Packs the final HTTP body with the adapter invoice URL for a single route-layer trace. */
+function packIntentResponse(
+  payment: Pick<Payment, 'id' | 'status' | 'provider'>,
+  providerResult?: ProviderCreatePaymentResult,
+): {
+  responseBody: PaymentIntentResult;
+  adapterInvoiceUrl: string | null;
+} {
+  return {
+    responseBody: toIntentResult(payment, providerResult),
+    adapterInvoiceUrl:
+      typeof providerResult?.invoiceUrl === 'string'
+        ? providerResult.invoiceUrl
+        : null,
+  };
+}
+
 async function resolveStarsIntent(
   payment: Payment,
   product: { code: string; title: string },
@@ -95,10 +112,16 @@ async function resolveStarsIntent(
 /**
  * Create a payment intent. For Telegram Stars (when enabled) creates a real
  * invoice link. Entitlement is NEVER granted here.
+ *
+ * Returns both the exact HTTP response body and the adapter-side invoice URL
+ * so the route can emit one diagnostic trace immediately before res.json.
  */
-export async function createPaymentIntent(
+export async function createPaymentIntentHttp(
   input: CreateIntentInput,
-): Promise<PaymentIntentResult> {
+): Promise<{
+  responseBody: PaymentIntentResult;
+  adapterInvoiceUrl: string | null;
+}> {
   const { userId, productCode, provider, idempotencyKey } = input;
 
   if (provider === 'TELEGRAM_STARS' && !isTelegramStarsEnabled()) {
@@ -156,12 +179,12 @@ export async function createPaymentIntent(
           },
         });
       }
-      return toIntentResult(
+      return packIntentResponse(
         { ...existing, status: providerResult.status },
         providerResult,
       );
     }
-    return toIntentResult(existing);
+    return packIntentResponse(existing);
   }
 
   const adapter = getPaymentAdapter(provider);
@@ -191,9 +214,9 @@ export async function createPaymentIntent(
     if (race) {
       if (provider === 'TELEGRAM_STARS' && isTelegramStarsEnabled()) {
         const providerResult = await resolveStarsIntent(race, product, price);
-        return toIntentResult(race, providerResult);
+        return packIntentResponse(race, providerResult);
       }
-      return toIntentResult(race);
+      return packIntentResponse(race);
     }
     throw err;
   }
@@ -249,8 +272,18 @@ export async function createPaymentIntent(
     nextAction: providerResult.nextAction,
   });
 
-  return toIntentResult(
+  return packIntentResponse(
     { ...payment, status: providerResult.status },
     providerResult,
   );
+}
+
+/**
+ * Create a payment intent. For Telegram Stars (when enabled) creates a real
+ * invoice link. Entitlement is NEVER granted here.
+ */
+export async function createPaymentIntent(
+  input: CreateIntentInput,
+): Promise<PaymentIntentResult> {
+  return (await createPaymentIntentHttp(input)).responseBody;
 }
