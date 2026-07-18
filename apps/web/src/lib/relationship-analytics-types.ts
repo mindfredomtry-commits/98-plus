@@ -149,6 +149,17 @@ export function readString(
   return null;
 }
 
+/**
+ * Prefer human-readable UI keys. Callers must pass only safe keys
+ * (never code/state as defaults). No enum→text dictionary.
+ */
+export function readUiText(
+  obj: Record<string, unknown> | null | undefined,
+  ...keys: string[]
+): string | null {
+  return readString(obj, ...keys);
+}
+
 export function readNumber(
   obj: Record<string, unknown> | null | undefined,
   ...keys: string[]
@@ -160,6 +171,26 @@ export function readNumber(
     if (typeof v === 'string' && v.trim() && Number.isFinite(Number(v))) {
       return Number(v);
     }
+  }
+  return null;
+}
+
+/** Presentation-only ORB value. Does not mutate payload or invent meaning. */
+export function formatOrbDisplayValue(
+  orb: Record<string, unknown> | null | undefined,
+): string | null {
+  const ready = readUiText(
+    orb,
+    'displayValue',
+    'formattedValue',
+    'percentageLabel',
+  );
+  if (ready) return ready;
+
+  const value = readNumber(orb, 'value');
+  if (value == null) return null;
+  if (value >= 0 && value <= 1) {
+    return `${Math.round(value * 100)}%`;
   }
   return null;
 }

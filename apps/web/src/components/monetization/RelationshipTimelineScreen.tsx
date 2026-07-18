@@ -5,8 +5,9 @@ import { WhatBackIcon } from '../instant-ban/WhatBackIcon';
 import {
   asPlainObject,
   formatAnalyticsDate,
+  formatOrbDisplayValue,
   readNumber,
-  readString,
+  readUiText,
   type AnalyticsPeer,
   type RelationshipTimelineDay,
   type RelationshipTimelinePayload,
@@ -50,12 +51,12 @@ function dayResultLines(day: RelationshipTimelineDay): string[] {
 
   const lines: string[] = [];
   const keys: Array<[string, string]> = [
-    ['overboardCount', 'overboard'],
-    ['bothYesCount', 'оба да'],
-    ['bothNoCount', 'оба нет'],
-    ['splitCount', 'разделение'],
-    ['timeoutCount', 'таймаут'],
-    ['expiredCount', 'истекло'],
+    ['overboardCount', 'перебор'],
+    ['bothYesCount', 'оба подтвердили'],
+    ['bothNoCount', 'оба не подтвердили'],
+    ['splitCount', 'ответы не совпали'],
+    ['timeoutCount', 'без ответа'],
+    ['expiredCount', 'завершились по времени'],
   ];
   for (const [key, label] of keys) {
     const value = readNumber(results, key);
@@ -64,14 +65,39 @@ function dayResultLines(day: RelationshipTimelineDay): string[] {
   return lines;
 }
 
+/** Neutral day-orb line — never shows state/code enums. */
+function dayOrbLine(day: RelationshipTimelineDay): string | null {
+  const orb = asPlainObject(day.orb);
+  if (!orb) return null;
+
+  const uiText = readUiText(
+    orb,
+    'title',
+    'label',
+    'headline',
+    'summary',
+    'description',
+    'caption',
+    'text',
+    'displayValue',
+    'formattedValue',
+  );
+  if (uiText) return uiText;
+
+  const percent = formatOrbDisplayValue(orb);
+  if (percent) return `показатель: ${percent}`;
+
+  return null;
+}
+
 export function RelationshipTimelineScreen({ peer, payload, onBack }: Props) {
   const ui = asPlainObject(payload.ui);
   const range = asPlainObject(payload.range);
   const title =
-    readString(ui, 'title', 'screen', 'label') ?? 'последние 14 дней';
+    readUiText(ui, 'title', 'screen', 'label') ?? 'последние 14 дней';
 
-  const from = readString(range, 'from', 'start', 'startDate');
-  const to = readString(range, 'to', 'end', 'endDate');
+  const from = readUiText(range, 'from', 'start', 'startDate');
+  const to = readUiText(range, 'to', 'end', 'endDate');
   const activeDayCount = readNumber(range, 'activeDayCount');
   const calendarDayCount = readNumber(range, 'calendarDayCount');
   const interactionCount = readNumber(range, 'interactionCount');
@@ -131,9 +157,7 @@ export function RelationshipTimelineScreen({ peer, payload, onBack }: Props) {
 
         <ul className="monetization-timeline-list">
           {payload.timeline.map((day) => {
-            const orb = asPlainObject(day.orb);
-            const orbState = readString(orb, 'state', 'label', 'status');
-            const orbValue = readNumber(orb, 'value', 'score');
+            const orbLine = dayOrbLine(day);
             const activityLines = dayActivityLines(day);
             const resultLines = dayResultLines(day);
 
@@ -142,12 +166,9 @@ export function RelationshipTimelineScreen({ peer, payload, onBack }: Props) {
                 <p className="monetization-timeline-day__date">
                   {formatAnalyticsDate(day.date)}
                 </p>
-                {(orbState != null || orbValue != null) && (
-                  <p className="monetization-timeline-day__orb">
-                    {orbState ?? 'orb'}
-                    {orbValue != null ? ` · ${orbValue}` : ''}
-                  </p>
-                )}
+                {orbLine ? (
+                  <p className="monetization-timeline-day__orb">{orbLine}</p>
+                ) : null}
                 {activityLines.length > 0 ? (
                   <ul className="monetization-timeline-day__lines">
                     {activityLines.map((line) => (
