@@ -11,9 +11,13 @@ import {
   type ProductDTO,
 } from '@98plus/shared';
 import type { UserPublic } from '@98plus/shared';
+import { useApp } from '../Providers';
 import { ProfileSection } from './ProfileSection';
 import { PremiumScreen } from './PremiumScreen';
 import { PaymentSheet } from './PaymentSheet';
+import { AnalyticsPeerSelectScreen } from './AnalyticsPeerSelectScreen';
+import { RelationshipAnalyticsScreen } from './RelationshipAnalyticsScreen';
+import { RelationshipTimelineScreen } from './RelationshipTimelineScreen';
 import {
   createPaymentIntent,
   fetchEntitlementsSummary,
@@ -22,9 +26,18 @@ import {
   newIdempotencyKey,
 } from '@/lib/monetization-api';
 import { trackProductEvent } from '@/lib/product-analytics';
+import type {
+  AnalyticsPeer,
+  RelationshipTimelinePayload,
+} from '@/lib/relationship-analytics-types';
 import './monetization.css';
 
-type View = 'profile' | 'premium';
+type MonetizationView =
+  | 'profile'
+  | 'premium'
+  | 'peerSelect'
+  | 'analytics'
+  | 'timeline';
 
 type Props = {
   user: UserPublic | null;
@@ -43,11 +56,17 @@ export function MonetizationSection({
   onHaptic,
   onClose,
 }: Props) {
+  const { friends } = useApp();
+
   const preferredProvider: PaymentProvider =
     context === 'telegram' ? 'TELEGRAM_STARS' : 'SBP';
 
-  const [view, setView] = useState<View>('profile');
+  const [view, setView] = useState<MonetizationView>('profile');
   const [paymentSheetOpen, setPaymentSheetOpen] = useState(false);
+  const [selectedAnalyticsPeer, setSelectedAnalyticsPeer] =
+    useState<AnalyticsPeer | null>(null);
+  const [timelinePayload, setTimelinePayload] =
+    useState<RelationshipTimelinePayload | null>(null);
 
   const [entitlements, setEntitlements] = useState<EntitlementsSummary | null>(
     null,
@@ -118,18 +137,76 @@ export function MonetizationSection({
   }, [context, token]);
 
   // —— Navigation handlers ——
-  const handleOpenPremium = useCallback(() => {
+  const handleLearnPress = useCallback(() => {
     haptic('light');
     trackProductEvent(ANALYTICS_EVENTS.PRESS_LEARN, token);
-    trackProductEvent(ANALYTICS_EVENTS.OPEN_PREMIUM, token);
-    loadProducts();
-    setView('premium');
-  }, [haptic, loadProducts, token]);
+    const premiumActive = entitlements?.premiumActive ?? false;
+    if (!premiumActive) {
+      trackProductEvent(ANALYTICS_EVENTS.OPEN_PREMIUM, token);
+      loadProducts();
+      setView('premium');
+      return;
+    }
+    setView('peerSelect');
+  }, [entitlements?.premiumActive, haptic, loadProducts, token]);
 
   const handleBackFromPremium = useCallback(() => {
     haptic('light');
     setView('profile');
   }, [haptic]);
+
+  const handleBackFromPeerSelect = useCallback(() => {
+    haptic('light');
+    setSelectedAnalyticsPeer(null);
+    setView('profile');
+  }, [haptic]);
+
+  const handleSelectAnalyticsPeer = useCallback(
+    (peer: AnalyticsPeer) => {
+      haptic('light');
+      setSelectedAnalyticsPeer(peer);
+      setTimelinePayload(null);
+      setView('analytics');
+    },
+    [haptic],
+  );
+
+  const handleBackFromAnalytics = useCallback(() => {
+    haptic('light');
+    setView('peerSelect');
+  }, [haptic]);
+
+  const handleOpenTimeline = useCallback(
+    (payload: RelationshipTimelinePayload) => {
+      setTimelinePayload(payload);
+      setView('timeline');
+    },
+    [],
+  );
+
+  const handleBackFromTimeline = useCallback(() => {
+    haptic('light');
+    setView('analytics');
+  }, [haptic]);
+
+  const refreshEntitlements = useCallback(() => {
+    setEntitlementLoading(true);
+    fetchEntitlementsSummary(token)
+      .then((summary) => setEntitlements(summary))
+      .catch(() =>
+        setEntitlements({ premiumActive: false, activePremium: null }),
+      )
+      .finally(() => setEntitlementLoading(false));
+  }, [token]);
+
+  const handlePremiumRequired = useCallback(() => {
+    haptic('light');
+    setSelectedAnalyticsPeer(null);
+    setTimelinePayload(null);
+    refreshEntitlements();
+    loadProducts();
+    setView('premium');
+  }, [haptic, loadProducts, refreshEntitlements]);
 
   const handleSelectProduct = useCallback(
     (code: string) => {
@@ -193,16 +270,6 @@ export function MonetizationSection({
     [haptic, selectedProductCode, token],
   );
 
-  const refreshEntitlements = useCallback(() => {
-    setEntitlementLoading(true);
-    fetchEntitlementsSummary(token)
-      .then((summary) => setEntitlements(summary))
-      .catch(() =>
-        setEntitlements({ premiumActive: false, activePremium: null }),
-      )
-      .finally(() => setEntitlementLoading(false));
-  }, [token]);
-
   const handlePremiumActivated = useCallback(
     (expiresAt: string | null) => {
       haptic('medium');
@@ -238,9 +305,11 @@ export function MonetizationSection({
           activePremium={entitlements?.activePremium ?? null}
           entitlementLoading={entitlementLoading}
           onBack={onClose}
-          onOpenPremium={handleOpenPremium}
+          onOpenPremium={handleLearnPress}
         />
-      ) : (
+      ) : null}
+
+      {view === 'premium' ? (
         <PremiumScreen
           products={products}
           loading={productsLoading}
@@ -250,7 +319,33 @@ export function MonetizationSection({
           onSelectProduct={handleSelectProduct}
           onContinue={handleContinue}
         />
-      )}
+      ) : null}
+
+      {view === 'peerSelect' ? (
+        <AnalyticsPeerSelectScreen
+          friends={friends}
+          onSelect={handleSelectAnalyticsPeer}
+          onBack={handleBackFromPeerSelect}
+        />
+      ) : null}
+
+      {view === 'analytics' && selectedAnalyticsPeer ? (
+        <RelationshipAnalyticsScreen
+          token={token}
+          peer={selectedAnalyticsPeer}
+          onBack={handleBackFromAnalytics}
+          onPremiumRequired={handlePremiumRequired}
+          onOpenTimeline={handleOpenTimeline}
+        />
+      ) : null}
+
+      {view === 'timeline' && selectedAnalyticsPeer && timelinePayload ? (
+        <RelationshipTimelineScreen
+          peer={selectedAnalyticsPeer}
+          payload={timelinePayload}
+          onBack={handleBackFromTimeline}
+        />
+      ) : null}
 
       {paymentSheetOpen && selectedProduct ? (
         <PaymentSheet
