@@ -3109,6 +3109,74 @@ export function InstantBanFlow({
     setMonetizationOpen(false);
   }, []);
 
+  /**
+   * Relationship analytics START_BAN → WhatScreen (skip Who).
+   *
+   * Verified mapping in InstantBanFlow:
+   * - selectingTarget + crossScreenProgress≈0 → WhoOverlay
+   * - composingBan + crossScreenProgress=1 → WhatScreen
+   * - handleSelectUser prep + animate → completeWhoToWhat() sets composingBan + progress=1
+   *
+   * From analytics (idle + monetization) we apply the completeWhoToWhat end-state
+   * immediately (no Who flash), plus onStartSend like beginComposingBanForOpponent
+   * when send is not already started.
+   */
+  const handleStartBanFromAnalytics = useCallback(
+    (peer: {
+      userId: string;
+      displayName: string;
+      avatarUrl?: string | null;
+    }): boolean => {
+      const peerUserId = peer.userId.trim();
+      const friend = safeFriends.find(
+        (item) => (item.userId ?? '').trim() === peerUserId,
+      );
+
+      if (!friend) {
+        console.warn('[ANALYTICS_START_BAN_PEER_NOT_FOUND]', {
+          peerUserId: peer.userId,
+        });
+        return false;
+      }
+
+      // Close analytics/monetization first — keep selectedUser/phase until friend resolved.
+      setMonetizationOpen(false);
+
+      // Same prep as handleSelectUser (after friend chosen on Who):
+      setSelectedUser(friend);
+      setBanText('');
+      setDurationMinutes(DEFAULT_DURATION_MINUTES);
+      setSendError(null);
+      setComposeExitProgress(0);
+      setComposeDismissing(false);
+
+      // Same end-state as completeWhoToWhat (skip Who animation / flash):
+      screenTransitionRef.current = null;
+      setScreenTransition(null);
+      sendEntryPhaseRef.current = 'composingBan';
+      clearCtaExitTimer();
+      clearWhoPanelEnterTimer();
+      setCtaState('hidden');
+      setCrossScreenProgressImmediate(1);
+      setPhase('composingBan');
+
+      // Opening send from outside Who (lobby was idle) — same gate as beginComposingBanForOpponent.
+      if (!sendStarted) {
+        onStartSend();
+      }
+
+      return true;
+    },
+    [
+      clearCtaExitTimer,
+      clearWhoPanelEnterTimer,
+      onStartSend,
+      safeFriends,
+      sendStarted,
+      setCrossScreenProgressImmediate,
+    ],
+  );
+
   const handleNotificationModeChange = useCallback(
     async (mode: NotificationMode) => {
       setSettingsModeSaving(true);
@@ -8184,6 +8252,7 @@ export function InstantBanFlow({
             context={webApp ? 'telegram' : 'web'}
             onHaptic={haptic}
             onClose={handleCloseProfile}
+            onStartBan={handleStartBanFromAnalytics}
           />
         </div>
       ) : null}

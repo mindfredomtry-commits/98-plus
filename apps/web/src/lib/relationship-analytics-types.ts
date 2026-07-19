@@ -21,8 +21,79 @@ export type AnalyticsPeer = {
   avatarUrl?: string | null;
 };
 
+export type RelationshipDirection =
+  | 'VIEWER'
+  | 'OTHER'
+  | 'BALANCED'
+  | 'LOW_DATA'
+  | 'NOT_AVAILABLE';
+
+export type RelationshipRing = 'OUTER' | 'MIDDLE' | 'INNER';
+
+export type RelationshipOrbDimension = {
+  code?: string;
+  ring?: RelationshipRing;
+  title?: string | null;
+  available?: boolean;
+  publishable?: boolean;
+  viewerShare?: number | null;
+  otherShare?: number | null;
+  displayValue?: string | null;
+  direction?: RelationshipDirection | string;
+  description?: string | null;
+  sampleSize?: number | null;
+  confidenceCode?: string | null;
+  confidenceScore?: number | null;
+  [key: string]: unknown;
+};
+
+export type RelationshipScreenPeer = {
+  userId?: string;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  [key: string]: unknown;
+};
+
+export type RelationshipOrbPayload = {
+  centerLabel?: string | null;
+  dimensions?: RelationshipOrbDimension[];
+  [key: string]: unknown;
+};
+
+export type RelationshipScreenRecommendation = {
+  title?: string | null;
+  summary?: string | null;
+  description?: string | null;
+  action?: {
+    code?: string;
+    label?: string | null;
+    [key: string]: unknown;
+  } | null;
+  [key: string]: unknown;
+};
+
+export type RelationshipScreenPrimaryAction = {
+  code?: string;
+  label?: string | null;
+  [key: string]: unknown;
+};
+
+export type RelationshipScreenPayload = {
+  contractVersion?: string | number;
+  title?: string | null;
+  peer?: RelationshipScreenPeer;
+  summary?: string | null;
+  relationshipOrb?: RelationshipOrbPayload;
+  recommendation?: RelationshipScreenRecommendation | null;
+  primaryAction?: RelationshipScreenPrimaryAction | null;
+  weeklyDynamics?: unknown;
+  meta?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
 export type RelationshipDashboardPayload = {
   dashboardVersion?: string | number;
+  relationshipScreen?: RelationshipScreenPayload;
   ui?: Record<string, unknown>;
   header?: Record<string, unknown>;
   hero?: Record<string, unknown>;
@@ -81,9 +152,19 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+export function isRelationshipScreenPayload(
+  value: unknown,
+): value is RelationshipScreenPayload {
+  if (!isPlainObject(value)) return false;
+  if (!isPlainObject(value.peer)) return false;
+  if (!isPlainObject(value.relationshipOrb)) return false;
+  const dims = value.relationshipOrb.dimensions;
+  if (dims != null && !Array.isArray(dims)) return false;
+  return true;
+}
+
 /**
- * Soft dashboard guard — accepts Dashboard v6 without rejecting future fields.
- * Requires a plain object plus at least one known root marker.
+ * Soft dashboard guard — accepts Dashboard v6/v7 without rejecting future fields.
  */
 export function isRelationshipDashboardPayload(
   value: unknown,
@@ -92,6 +173,7 @@ export function isRelationshipDashboardPayload(
 
   const hasMarker =
     value.dashboardVersion != null ||
+    isPlainObject(value.relationshipScreen) ||
     isPlainObject(value.hero) ||
     isPlainObject(value.orb) ||
     isPlainObject(value.ui) ||
@@ -205,4 +287,53 @@ export function formatAnalyticsDate(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+const RING_ORDER: RelationshipRing[] = ['OUTER', 'MIDDLE', 'INNER'];
+
+export function ringSortIndex(ring: string | null | undefined): number {
+  const i = RING_ORDER.indexOf(ring as RelationshipRing);
+  return i >= 0 ? i : 99;
+}
+
+/** Normalize dimension from soft JSON without inventing analytics. */
+export function coerceOrbDimension(
+  raw: unknown,
+): RelationshipOrbDimension | null {
+  const obj = asPlainObject(raw);
+  if (!obj) return null;
+
+  const ringRaw = typeof obj.ring === 'string' ? obj.ring.toUpperCase() : null;
+  const code = typeof obj.code === 'string' ? obj.code : undefined;
+  let ring: RelationshipRing | undefined;
+  if (ringRaw === 'OUTER' || ringRaw === 'MIDDLE' || ringRaw === 'INNER') {
+    ring = ringRaw;
+  } else if (code === 'INITIATIVE') {
+    ring = 'OUTER';
+  } else if (code === 'RESPONSIVENESS') {
+    ring = 'MIDDLE';
+  } else if (code === 'THIRD_DIMENSION_PENDING') {
+    ring = 'INNER';
+  }
+
+  return {
+    ...obj,
+    code,
+    ring,
+    title: typeof obj.title === 'string' ? obj.title : null,
+    available: obj.available !== false,
+    publishable:
+      typeof obj.publishable === 'boolean' ? obj.publishable : undefined,
+    viewerShare: readNumber(obj, 'viewerShare'),
+    otherShare: readNumber(obj, 'otherShare'),
+    displayValue:
+      typeof obj.displayValue === 'string' ? obj.displayValue : null,
+    direction: typeof obj.direction === 'string' ? obj.direction : undefined,
+    description:
+      typeof obj.description === 'string' ? obj.description : null,
+    sampleSize: readNumber(obj, 'sampleSize'),
+    confidenceCode:
+      typeof obj.confidenceCode === 'string' ? obj.confidenceCode : null,
+    confidenceScore: readNumber(obj, 'confidenceScore'),
+  };
 }

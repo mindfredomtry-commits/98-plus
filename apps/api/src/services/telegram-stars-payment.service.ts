@@ -195,6 +195,14 @@ export async function handleStarsPreCheckoutQuery(
 export async function handleStarsSuccessfulPayment(
   input: SuccessfulPaymentInput,
 ): Promise<void> {
+  console.log('[STARS_WEBHOOK_RECEIVED]', {
+    telegramPaymentChargeId: input.telegramPaymentChargeId,
+    providerPaymentChargeId: input.providerPaymentChargeId ?? null,
+    telegramUserId: input.fromId,
+    totalAmount: input.totalAmount,
+    currency: input.currency,
+  });
+
   const paymentId = parseTelegramStarsInvoicePayload(input.invoicePayload);
   telegramStarsLog.successfulPaymentReceived({
     paymentId: paymentId ?? undefined,
@@ -212,6 +220,13 @@ export async function handleStarsSuccessfulPayment(
   if (!payment) {
     throw new Error('Payment not found');
   }
+
+  console.log('[STARS_PAYMENT_FOUND]', {
+    paymentId: payment.id,
+    'status(before)': payment.status,
+    provider: payment.provider,
+    telegramPaymentChargeId: input.telegramPaymentChargeId,
+  });
 
   if (payment.user.telegramId !== BigInt(input.fromId)) {
     throw new Error('Payment owner mismatch');
@@ -279,6 +294,10 @@ export async function handleStarsSuccessfulPayment(
   });
 
   if (result.alreadyConfirmed) {
+    console.log('[STARS_DUPLICATE_PAYMENT]', {
+      telegramPaymentChargeId: input.telegramPaymentChargeId,
+      paymentId,
+    });
     telegramStarsLog.paymentIdempotent({
       paymentId,
       internalUserId: payment.userId,
@@ -288,6 +307,15 @@ export async function handleStarsSuccessfulPayment(
       updateId: input.updateId,
     });
   } else {
+    const updated = await prisma.payment.findUnique({
+      where: { id: paymentId },
+      select: { id: true, status: true, updatedAt: true },
+    });
+    console.log('[STARS_PAYMENT_UPDATED]', {
+      paymentId,
+      'status(after)': updated?.status ?? 'SUCCEEDED',
+      updatedAt: updated?.updatedAt?.toISOString() ?? null,
+    });
     telegramStarsLog.paymentConfirmed({
       paymentId,
       internalUserId: payment.userId,

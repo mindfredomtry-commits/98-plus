@@ -47,6 +47,11 @@ type Props = {
   onHaptic?: (style?: 'light' | 'medium' | 'heavy') => void;
   /** Called when the user backs out of Profile — returns to the lobby. */
   onClose: () => void;
+  /**
+   * START_BAN from relationship analytics — closes monetization and opens
+   * WhatScreen for this peer (skips Who). Returns false if peer not in friends.
+   */
+  onStartBan?: (peer: AnalyticsPeer) => boolean;
 };
 
 export function MonetizationSection({
@@ -55,6 +60,7 @@ export function MonetizationSection({
   context,
   onHaptic,
   onClose,
+  onStartBan,
 }: Props) {
   const { friends } = useApp();
 
@@ -333,9 +339,11 @@ export function MonetizationSection({
         <RelationshipAnalyticsScreen
           token={token}
           peer={selectedAnalyticsPeer}
+          viewerLabel="ты"
           onBack={handleBackFromAnalytics}
           onPremiumRequired={handlePremiumRequired}
           onOpenTimeline={handleOpenTimeline}
+          onStartBan={onStartBan}
         />
       ) : null}
 

@@ -100,6 +100,18 @@ export async function grantEntitlementFromPayment(
         )
       : null;
 
+    // Diagnostic only: detect prior ACTIVE access of the same type (no logic change).
+    const priorActive = await tx.entitlement.findFirst({
+      where: {
+        userId: payment.userId,
+        type: entitlementType,
+        status: 'ACTIVE',
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: startsAt } }],
+      },
+      select: { id: true },
+    });
+
     const created = await tx.entitlement.create({
       data: {
         userId: payment.userId,
@@ -113,6 +125,14 @@ export async function grantEntitlementFromPayment(
       },
       include: { product: true },
     });
+
+    console.log('[STARS_ENTITLEMENT_UPDATED]', {
+      userId: payment.userId,
+      entitlementId: created.id,
+      expiresAt: created.expiresAt ? created.expiresAt.toISOString() : null,
+      action: priorActive ? 'extended' : 'created',
+    });
+
     return mapEntitlement(created);
   });
 }
