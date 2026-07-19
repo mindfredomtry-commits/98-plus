@@ -657,6 +657,19 @@
   padding: 0.15rem 0 0.35rem;
 }
 
+.monetization-analytics-peer--orb-heading {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  margin-bottom: 0.55rem;
+  text-align: center;
+}
+
+.monetization-analytics-peer--orb-heading .monetization-analytics-peer__meta {
+  align-items: center;
+}
+
 .monetization-analytics-peer__meta {
   min-width: 0;
   display: flex;
@@ -956,6 +969,9 @@
 
 .monetization-relationship__primary {
   margin-top: 0.35rem;
+  display: flex;
+  justify-content: center;
+  width: 100%;
 }
 
 .monetization-relationship__weekly {
@@ -964,6 +980,7 @@
 
 /* —— Triple orb —— */
 .monetization-orb {
+  position: relative;
   width: min(100%, 320px);
   max-width: 320px;
   margin: 0.15rem auto 0.35rem;
@@ -977,9 +994,13 @@
   overflow: visible;
 }
 
-.monetization-orb__center-text {
-  font-family: inherit;
-  letter-spacing: -0.02em;
+.monetization-orb__peer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
 }
 
 /* —— Direction rows —— */

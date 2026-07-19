@@ -1,10 +1,11 @@
 'use client';
 
+import { AvatarImage } from '../AvatarImage';
 import type { RelationshipOrbDimension } from '@/lib/relationship-analytics-types';
 
 type Props = {
   dimensions: RelationshipOrbDimension[];
-  centerLabel?: string | null;
+  peerAvatarUrl?: string | null;
   peerDisplayName?: string | null;
 };
 
@@ -12,13 +13,19 @@ const SIZE = 280;
 const CX = SIZE / 2;
 const CY = SIZE / 2;
 
+/**
+ * Tight concentric rings — ~4px visual gap between strokes (stroke 10).
+ * Centerline spacing = 14 → OUTER 118, MIDDLE 104, INNER 90.
+ */
+const STROKE = 10;
 const RING_RADIUS: Record<'OUTER' | 'MIDDLE' | 'INNER', number> = {
   OUTER: 118,
-  MIDDLE: 86,
-  INNER: 54,
+  MIDDLE: 104,
+  INNER: 90,
 };
 
-const STROKE = 10;
+/** Arc origin at 9 o'clock (left). polar() uses standard math degrees: 0=right, 180=left. */
+const ARC_ORIGIN_DEG = 180;
 
 function clampShare(n: number | null | undefined): number {
   if (n == null || !Number.isFinite(n)) return 0;
@@ -27,6 +34,16 @@ function clampShare(n: number | null | undefined): number {
   return n;
 }
 
+/** SVG y-down: 0° = right, 90° = down, 180° = left, 270° = up. */
+function polar(cx: number, cy: number, r: number, angleDeg: number) {
+  const rad = (angleDeg * Math.PI) / 180;
+  return {
+    x: cx + r * Math.cos(rad),
+    y: cy + r * Math.sin(rad),
+  };
+}
+
+/** Arc from startAngle → endAngle along increasing degrees (clockwise on screen). */
 function describeArc(
   cx: number,
   cy: number,
@@ -34,18 +51,11 @@ function describeArc(
   startAngle: number,
   endAngle: number,
 ): string {
-  const start = polar(cx, cy, r, endAngle);
-  const end = polar(cx, cy, r, startAngle);
-  const large = endAngle - startAngle <= 180 ? 0 : 1;
-  return `M ${start.x} ${start.y} A ${r} ${r} 0 ${large} 0 ${end.x} ${end.y}`;
-}
-
-function polar(cx: number, cy: number, r: number, angleDeg: number) {
-  const rad = ((angleDeg - 90) * Math.PI) / 180;
-  return {
-    x: cx + r * Math.cos(rad),
-    y: cy + r * Math.sin(rad),
-  };
+  const from = polar(cx, cy, r, startAngle);
+  const to = polar(cx, cy, r, endAngle);
+  const delta = ((endAngle - startAngle) % 360 + 360) % 360;
+  const large = delta > 180 ? 1 : 0;
+  return `M ${from.x} ${from.y} A ${r} ${r} 0 ${large} 1 ${to.x} ${to.y}`;
 }
 
 function ringForDim(
@@ -64,17 +74,20 @@ function isActiveDirection(direction: string | undefined): boolean {
   return direction === 'VIEWER' || direction === 'OTHER' || direction === 'BALANCED';
 }
 
+function peerLetter(name: string | null | undefined): string {
+  return (name?.trim()?.[0] ?? '?').toUpperCase();
+}
+
 /**
  * Triple concentric relationship orb.
- * Arc magnitude = max(viewerShare, otherShare) when both sides present.
- * Direction is visual bias only — not evaluative color.
+ * Arcs always begin at the left (180°). Arc length from max(viewerShare, otherShare).
+ * Center is peer avatar only — no 98+ mark.
  */
 export function RelationshipOrb({
   dimensions,
-  centerLabel,
+  peerAvatarUrl,
   peerDisplayName,
 }: Props) {
-  const label = (centerLabel?.trim() || '98+').slice(0, 8);
   const byRing = new Map<'OUTER' | 'MIDDLE' | 'INNER', RelationshipOrbDimension>();
   for (const dim of dimensions) {
     const ring = ringForDim(dim);
@@ -103,7 +116,7 @@ export function RelationshipOrb({
         viewBox={`0 0 ${SIZE} ${SIZE}`}
         width="100%"
         height="100%"
-        aria-hidden={false}
+        aria-hidden
       >
         {rings.map((ring) => {
           const dim = byRing.get(ring);
@@ -125,25 +138,21 @@ export function RelationshipOrb({
           const arcShare = hasShares ? Math.max(viewer, other) : 0;
           const arcDeg = muted ? 0 : Math.max(12, arcShare * 270);
 
-          // Bias start angle: VIEWER leans left, OTHER leans right, BALANCED centered top.
-          let start = -arcDeg / 2;
-          if (direction === 'VIEWER') start = -arcDeg * 0.75;
-          if (direction === 'OTHER') start = -arcDeg * 0.25;
-          const end = start + arcDeg;
+          // All arcs originate at left (180°); length/direction markers unchanged in meaning.
+          const start = ARC_ORIGIN_DEG;
+          const end = ARC_ORIGIN_DEG + arcDeg;
 
           const trackOpacity = muted ? 0.18 : 0.28;
-          const arcOpacity = muted ? 0 : ring === 'OUTER' ? 0.95 : ring === 'MIDDLE' ? 0.8 : 0.65;
-
-          const aria = [
-            dim?.title,
-            dim?.displayValue,
-            dim?.description,
-          ]
-            .filter(Boolean)
-            .join('. ');
+          const arcOpacity = muted
+            ? 0
+            : ring === 'OUTER'
+              ? 0.95
+              : ring === 'MIDDLE'
+                ? 0.8
+                : 0.65;
 
           return (
-            <g key={ring} aria-label={aria || undefined}>
+            <g key={ring}>
               <circle
                 cx={CX}
                 cy={CY}
@@ -163,7 +172,6 @@ export function RelationshipOrb({
                   opacity={arcOpacity}
                 />
               ) : null}
-              {/* Directional marker on active arc end toward the stronger side */}
               {!muted && direction === 'VIEWER' ? (
                 <circle
                   cx={polar(CX, CY, r, start).x}
@@ -191,28 +199,18 @@ export function RelationshipOrb({
             </g>
           );
         })}
-
-        <circle
-          cx={CX}
-          cy={CY}
-          r={34}
-          fill="rgba(12, 8, 18, 0.92)"
-          stroke="rgba(167, 139, 250, 0.35)"
-          strokeWidth={1.5}
-        />
-        <text
-          x={CX}
-          y={CY + 1}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          className="monetization-orb__center-text"
-          fill="rgba(255,255,255,0.92)"
-          fontSize="18"
-          fontWeight="800"
-        >
-          {label}
-        </text>
       </svg>
+
+      <div className="monetization-orb__peer" aria-hidden>
+        <AvatarImage
+          src={peerAvatarUrl}
+          letter={peerLetter(peerDisplayName)}
+          sizeClass="w-32 h-32"
+          textClass="text-4xl"
+          ringClassName="ring-white/15"
+          priority
+        />
+      </div>
     </div>
   );
 }

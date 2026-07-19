@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AvatarImage } from '../AvatarImage';
 import { WhatBackIcon } from '../instant-ban/WhatBackIcon';
 import { ApiError } from '@/lib/api';
 import {
@@ -24,6 +23,7 @@ import {
 } from '@/lib/relationship-analytics-types';
 import { RelationshipOrb } from './RelationshipOrb';
 import { RelationshipDirectionRow } from './RelationshipDirectionRow';
+import '../lobby-screen.css';
 
 type Props = {
   token: string | null | undefined;
@@ -40,10 +40,6 @@ type LoadState =
   | { kind: 'success'; data: RelationshipDashboardPayload }
   | { kind: 'notFound' }
   | { kind: 'error'; message: string };
-
-function peerLetter(name: string): string {
-  return (name.trim()[0] ?? '?').toUpperCase();
-}
 
 function insightItems(payload: RelationshipDashboardPayload): Record<string, unknown>[] {
   if (!Array.isArray(payload.insights)) return [];
@@ -243,8 +239,6 @@ export function RelationshipAnalyticsScreen({
   const peerAvatar =
     relationshipScreen?.peer?.avatarUrl ?? peer.avatarUrl ?? null;
   const summary = relationshipScreen?.summary?.trim() || null;
-  const centerLabel =
-    relationshipScreen?.relationshipOrb?.centerLabel?.trim() || '98+';
 
   const rec = relationshipScreen?.recommendation ?? null;
   const recTitle = rec?.title?.trim() || null;
@@ -256,7 +250,6 @@ export function RelationshipAnalyticsScreen({
 
   const primary = relationshipScreen?.primaryAction ?? null;
   const primaryCode = primary?.code;
-  const primaryLabel = primary?.label?.trim() || 'запрещать';
   const canStartBan =
     primaryCode === 'START_BAN' && typeof onStartBan === 'function';
 
@@ -281,15 +274,7 @@ export function RelationshipAnalyticsScreen({
           <h2 className="monetization-screen__nav-title">{screenTitle}</h2>
         </header>
 
-        <div className="monetization-analytics-peer">
-          <AvatarImage
-            src={peerAvatar}
-            letter={peerLetter(peerName)}
-            sizeClass="w-14 h-14"
-            textClass="text-xl"
-            ringClassName="ring-white/10"
-            priority
-          />
+        <div className="monetization-analytics-peer monetization-analytics-peer--orb-heading">
           <div className="monetization-analytics-peer__meta">
             <p className="monetization-analytics-peer__name">{peerName}</p>
             <p className="monetization-analytics-peer__sub">личная динамика</p>
@@ -346,7 +331,7 @@ export function RelationshipAnalyticsScreen({
 
             <RelationshipOrb
               dimensions={dims}
-              centerLabel={centerLabel}
+              peerAvatarUrl={peerAvatar}
               peerDisplayName={peerName}
             />
 
@@ -408,7 +393,7 @@ export function RelationshipAnalyticsScreen({
               <div className="monetization-relationship__primary">
                 <button
                   type="button"
-                  className="monetization-cta"
+                  className="btn-98-primary lobby-screen__cta"
                   disabled={!canStartBan}
                   onClick={() => {
                     if (!canStartBan) return;
@@ -421,7 +406,7 @@ export function RelationshipAnalyticsScreen({
                     }
                   }}
                 >
-                  {primaryLabel}
+                  🚫 ЗАПРЕЩАТЬ
                 </button>
               </div>
             ) : null}
