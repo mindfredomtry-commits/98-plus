@@ -31,7 +31,6 @@ import {
   type RelationshipTimelinePayload,
 } from '@/lib/relationship-analytics-types';
 import { RelationshipOrb } from './RelationshipOrb';
-import { RelationshipMetricTile } from './RelationshipDirectionRow';
 import '../lobby-screen.css';
 import './monetization.css';
 
@@ -46,6 +45,58 @@ type Props = {
   onOpenTimeline: (payload: RelationshipTimelinePayload) => void;
   onStartBan?: (peer: AnalyticsPeer) => boolean;
 };
+
+const METRIC_TITLE_BY_CODE: Record<string, string> = {
+  INITIATIVE: 'Инициатива',
+  RESPONSIVENESS: 'Ответность',
+  RESPECT: 'Уважение',
+};
+
+function getMetricTitle(code?: string): string {
+  if (!code) return 'Метрика';
+  return METRIC_TITLE_BY_CODE[code] ?? 'Метрика';
+}
+
+function getMetricArrow(direction?: string): string {
+  if (direction === 'VIEWER') return '←';
+  if (direction === 'OTHER') return '→';
+  if (direction === 'BALANCED') return '•';
+  return '•';
+}
+
+function getMetricTone(direction?: string): string {
+  if (direction === 'VIEWER') return 'viewer';
+  if (direction === 'OTHER') return 'other';
+  if (direction === 'BALANCED') return 'balanced';
+  return 'muted';
+}
+
+function RelationshipMetricTile({
+  dimension,
+}: {
+  dimension: RelationshipDimension;
+}) {
+  if (dimension.direction === 'NOT_AVAILABLE') {
+    return null;
+  }
+
+  const title = getMetricTitle(dimension.code);
+  const arrow = getMetricArrow(dimension.direction);
+  const tone = getMetricTone(dimension.direction);
+
+  return (
+    <div
+      className={`monetization-metric-tile monetization-metric-tile--${tone}`}
+      data-metric-tile={dimension.code}
+      aria-label={title}
+    >
+      <div className="monetization-metric-tile__title">{title}</div>
+      <div className="monetization-metric-tile__arrow" aria-hidden="true">
+        {arrow}
+      </div>
+    </div>
+  );
+}
 
 type LoadState =
   | { kind: 'loading' }
@@ -579,8 +630,11 @@ export function RelationshipAnalyticsScreen({
                   className="monetization-relationship__tiles"
                   data-relationship-tiles="v1"
                 >
-                  {cardDimensions.map((dim) => (
-                    <RelationshipMetricTile key={dim.code} dimension={dim} />
+                  {cardDimensions.map((dimension) => (
+                    <RelationshipMetricTile
+                      key={dimension.code}
+                      dimension={dimension}
+                    />
                   ))}
                 </div>
               )
