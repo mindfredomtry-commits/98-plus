@@ -31,7 +31,7 @@ import {
   type RelationshipTimelinePayload,
 } from '@/lib/relationship-analytics-types';
 import { RelationshipOrb } from './RelationshipOrb';
-import { RelationshipDirectionRow } from './RelationshipDirectionRow';
+import { RelationshipMetricTile } from './RelationshipDirectionRow';
 import '../lobby-screen.css';
 import './monetization.css';
 
@@ -580,13 +580,7 @@ export function RelationshipAnalyticsScreen({
                   data-relationship-tiles="v1"
                 >
                   {cardDimensions.map((dim) => (
-                    <RelationshipDirectionRow
-                      key={dim.code}
-                      compact
-                      dimension={dim}
-                      viewerLabel={viewerLabel}
-                      peerLabel={peerName}
-                    />
+                    <RelationshipMetricTile key={dim.code} dimension={dim} />
                   ))}
                 </div>
               )
