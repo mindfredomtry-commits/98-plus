@@ -1,7 +1,10 @@
 'use client';
 
 import { AvatarImage } from '../AvatarImage';
-import type { RelationshipOrbDimension } from '@/lib/relationship-analytics-types';
+import type {
+  RelationshipOrbDimension,
+  RelationshipRing,
+} from '@/lib/relationship-analytics-types';
 
 type Props = {
   dimensions: RelationshipOrbDimension[];
@@ -103,15 +106,13 @@ function describeArc(opts: {
   return `M ${from.x} ${from.y} A ${radius} ${radius} 0 ${largeArcFlag} ${sweepFlag} ${to.x} ${to.y}`;
 }
 
-function ringForDim(
-  dim: RelationshipOrbDimension,
-): 'OUTER' | 'MIDDLE' | 'INNER' | null {
+function ringForDim(dim: RelationshipOrbDimension): RelationshipRing | null {
   if (dim.ring === 'OUTER' || dim.ring === 'MIDDLE' || dim.ring === 'INNER') {
     return dim.ring;
   }
   if (dim.code === 'INITIATIVE') return 'OUTER';
   if (dim.code === 'RESPONSIVENESS') return 'MIDDLE';
-  if (dim.code === 'THIRD_DIMENSION_PENDING') return 'INNER';
+  if (dim.code === 'RESPECT') return 'INNER';
   return null;
 }
 
@@ -126,6 +127,7 @@ function peerLetter(name: string | null | undefined): string {
 /**
  * Triple concentric relationship orb.
  * Active fill: viewerShare × 360°, split equally from left origin (180°) CW + CCW.
+ * OUTER=INITIATIVE, MIDDLE=RESPONSIVENESS, INNER=RESPECT.
  * Center is peer avatar only — no 98+ mark.
  */
 export function RelationshipOrb({
@@ -169,14 +171,19 @@ export function RelationshipOrb({
           const available = dim?.available !== false;
           const direction =
             typeof dim?.direction === 'string' ? dim.direction : undefined;
+          const hasNumericShare =
+            typeof dim?.viewerShare === 'number' &&
+            Number.isFinite(dim.viewerShare);
           const muted =
             !dim ||
             !available ||
+            !hasNumericShare ||
             direction === 'LOW_DATA' ||
             direction === 'NOT_AVAILABLE' ||
-            !isActiveDirection(direction);
+            !isActiveDirection(direction) ||
+            dim.publishable === false;
 
-          const share = muted ? 0 : clampShare(dim?.viewerShare ?? 0);
+          const share = muted ? 0 : clampShare(dim.viewerShare as number);
           const { halfArcDeg } = bidirectionalArcDegrees(share);
           const isFull = share >= 0.999;
           const hasActive = !muted && share > 0;

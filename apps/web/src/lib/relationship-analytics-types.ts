@@ -30,20 +30,37 @@ export type RelationshipDirection =
 
 export type RelationshipRing = 'OUTER' | 'MIDDLE' | 'INNER';
 
-export type RelationshipOrbDimension = {
-  code?: string;
-  ring?: RelationshipRing;
-  title?: string | null;
-  available?: boolean;
-  publishable?: boolean;
-  viewerShare?: number | null;
-  otherShare?: number | null;
-  displayValue?: string | null;
-  direction?: RelationshipDirection | string;
-  description?: string | null;
-  sampleSize?: number | null;
-  confidenceCode?: string | null;
-  confidenceScore?: number | null;
+/** Known ORB dimension codes (soft — unknown codes still accepted). */
+export type RelationshipOrbDimensionCode =
+  | 'INITIATIVE'
+  | 'RESPONSIVENESS'
+  | 'RESPECT';
+
+export type RelationshipDimension = {
+  code: string;
+  ring: RelationshipRing | null;
+  available: boolean;
+  publishable: boolean;
+  viewerShare: number | null;
+  otherShare: number | null;
+  displayValue: string | null;
+  direction: RelationshipDirection;
+  title: string;
+  description: string | null;
+  confidenceCode: string | null;
+  confidenceScore: number | null;
+  sampleSize: number | null;
+  metricCode: string;
+  resultCode: string | null;
+  resultName?: string | null;
+  supportingFacts?: Record<string, unknown> | null;
+};
+
+/** Soft ORB dimension — accepts legacy / extra API fields. */
+export type RelationshipOrbDimension = RelationshipDimension & {
+  /** Optional per-side samples (legacy RESPECT fields). */
+  viewerSampleSize?: number | null;
+  otherSampleSize?: number | null;
   [key: string]: unknown;
 };
 
@@ -58,6 +75,13 @@ export type RelationshipOrbPayload = {
   centerLabel?: string | null;
   dimensions?: RelationshipOrbDimension[];
   [key: string]: unknown;
+};
+
+export type RelationshipScreenDimensionsPayload = {
+  relationshipOrb: {
+    dimensions: RelationshipDimension[];
+  };
+  allDimensions?: RelationshipDimension[];
 };
 
 export type RelationshipScreenRecommendation = {
@@ -84,6 +108,7 @@ export type RelationshipScreenPayload = {
   peer?: RelationshipScreenPeer;
   summary?: string | null;
   relationshipOrb?: RelationshipOrbPayload;
+  allDimensions?: RelationshipDimension[];
   recommendation?: RelationshipScreenRecommendation | null;
   primaryAction?: RelationshipScreenPrimaryAction | null;
   weeklyDynamics?: unknown;
@@ -294,46 +319,4 @@ const RING_ORDER: RelationshipRing[] = ['OUTER', 'MIDDLE', 'INNER'];
 export function ringSortIndex(ring: string | null | undefined): number {
   const i = RING_ORDER.indexOf(ring as RelationshipRing);
   return i >= 0 ? i : 99;
-}
-
-/** Normalize dimension from soft JSON without inventing analytics. */
-export function coerceOrbDimension(
-  raw: unknown,
-): RelationshipOrbDimension | null {
-  const obj = asPlainObject(raw);
-  if (!obj) return null;
-
-  const ringRaw = typeof obj.ring === 'string' ? obj.ring.toUpperCase() : null;
-  const code = typeof obj.code === 'string' ? obj.code : undefined;
-  let ring: RelationshipRing | undefined;
-  if (ringRaw === 'OUTER' || ringRaw === 'MIDDLE' || ringRaw === 'INNER') {
-    ring = ringRaw;
-  } else if (code === 'INITIATIVE') {
-    ring = 'OUTER';
-  } else if (code === 'RESPONSIVENESS') {
-    ring = 'MIDDLE';
-  } else if (code === 'THIRD_DIMENSION_PENDING') {
-    ring = 'INNER';
-  }
-
-  return {
-    ...obj,
-    code,
-    ring,
-    title: typeof obj.title === 'string' ? obj.title : null,
-    available: obj.available !== false,
-    publishable:
-      typeof obj.publishable === 'boolean' ? obj.publishable : undefined,
-    viewerShare: readNumber(obj, 'viewerShare'),
-    otherShare: readNumber(obj, 'otherShare'),
-    displayValue:
-      typeof obj.displayValue === 'string' ? obj.displayValue : null,
-    direction: typeof obj.direction === 'string' ? obj.direction : undefined,
-    description:
-      typeof obj.description === 'string' ? obj.description : null,
-    sampleSize: readNumber(obj, 'sampleSize'),
-    confidenceCode:
-      typeof obj.confidenceCode === 'string' ? obj.confidenceCode : null,
-    confidenceScore: readNumber(obj, 'confidenceScore'),
-  };
 }

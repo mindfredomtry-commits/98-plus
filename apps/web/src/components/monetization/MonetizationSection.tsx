@@ -26,6 +26,9 @@ import {
   newIdempotencyKey,
 } from '@/lib/monetization-api';
 import { trackProductEvent } from '@/lib/product-analytics';
+import {
+  resolveLearnPressView,
+} from '@/lib/relationship-dimensions';
 import type {
   AnalyticsPeer,
   RelationshipTimelinePayload,
@@ -147,13 +150,12 @@ export function MonetizationSection({
     haptic('light');
     trackProductEvent(ANALYTICS_EVENTS.PRESS_LEARN, token);
     const premiumActive = entitlements?.premiumActive ?? false;
-    if (!premiumActive) {
+    const nextView = resolveLearnPressView(premiumActive);
+    if (nextView === 'premium') {
       trackProductEvent(ANALYTICS_EVENTS.OPEN_PREMIUM, token);
       loadProducts();
-      setView('premium');
-      return;
     }
-    setView('peerSelect');
+    setView(nextView);
   }, [entitlements?.premiumActive, haptic, loadProducts, token]);
 
   const handleBackFromPremium = useCallback(() => {
@@ -290,7 +292,7 @@ export function MonetizationSection({
         },
       }));
       refreshEntitlements();
-      setView('profile');
+      setView('peerSelect');
     },
     [haptic, refreshEntitlements, selectedProductCode],
   );
@@ -339,7 +341,9 @@ export function MonetizationSection({
         <RelationshipAnalyticsScreen
           token={token}
           peer={selectedAnalyticsPeer}
+          viewerUserId={user?.id ?? null}
           viewerLabel="ты"
+          premiumActive={premiumActive}
           onBack={handleBackFromAnalytics}
           onPremiumRequired={handlePremiumRequired}
           onOpenTimeline={handleOpenTimeline}

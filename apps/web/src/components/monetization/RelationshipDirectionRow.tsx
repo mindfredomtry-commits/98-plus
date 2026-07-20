@@ -8,23 +8,29 @@ type Props = {
   peerLabel: string;
 };
 
+const TITLE_FALLBACK: Record<string, string> = {
+  INITIATIVE: 'Инициатива',
+  RESPONSIVENESS: 'Ответность',
+  RESPECT: 'Уважение',
+};
+
 /**
  * Horizontal direction row: viewer ← / • / → peer.
- * Arrow means lean toward a side — never up/down growth.
+ * Direction and displayValue come from API — not recomputed from shares.
  */
 export function RelationshipDirectionRow({
   dimension,
   viewerLabel,
   peerLabel,
 }: Props) {
-  const direction =
-    typeof dimension.direction === 'string' ? dimension.direction : '';
+  const direction = dimension.direction;
 
-  if (direction === 'NOT_AVAILABLE' || dimension.available === false) {
+  if (direction === 'NOT_AVAILABLE') {
     return null;
   }
 
-  const title = dimension.title?.trim() || null;
+  const title =
+    dimension.title?.trim() || TITLE_FALLBACK[dimension.code] || null;
   const description = dimension.description?.trim() || null;
   const displayValue = dimension.displayValue?.trim() || null;
 
@@ -32,7 +38,7 @@ export function RelationshipDirectionRow({
   if (direction === 'VIEWER') marker = 'viewer';
   else if (direction === 'OTHER') marker = 'other';
   else if (direction === 'BALANCED') marker = 'balanced';
-  else if (direction === 'LOW_DATA') marker = 'muted';
+  else if (direction === 'LOW_DATA' || !dimension.available) marker = 'muted';
 
   return (
     <div className="monetization-direction">

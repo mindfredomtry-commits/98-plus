@@ -8,16 +8,21 @@ import {
   fetchRelationshipDashboard,
 } from '@/lib/relationship-analytics-api';
 import {
+  buildV8ReceivedLog,
+  buildV8RenderedLog,
+  extractRelationshipDimensions,
+  selectCardDimensions,
+  selectOrbRingDimensions,
+} from '@/lib/relationship-dimensions';
+import {
   asPlainObject,
-  coerceOrbDimension,
   formatOrbDisplayValue,
   isRelationshipScreenPayload,
   readNumber,
   readUiText,
-  ringSortIndex,
   type AnalyticsPeer,
   type RelationshipDashboardPayload,
-  type RelationshipOrbDimension,
+  type RelationshipDimension,
   type RelationshipScreenPayload,
   type RelationshipTimelinePayload,
 } from '@/lib/relationship-analytics-types';
@@ -28,7 +33,9 @@ import '../lobby-screen.css';
 type Props = {
   token: string | null | undefined;
   peer: AnalyticsPeer;
+  viewerUserId?: string | null;
   viewerLabel?: string;
+  premiumActive?: boolean | null;
   onBack: () => void;
   onPremiumRequired: () => void;
   onOpenTimeline: (payload: RelationshipTimelinePayload) => void;
@@ -122,22 +129,31 @@ function timelineCtaLabel(payload: RelationshipDashboardPayload): string {
   return 'последние 14 дней';
 }
 
-function visibleDimensions(
-  screen: RelationshipScreenPayload,
-): RelationshipOrbDimension[] {
-  const raw = screen.relationshipOrb?.dimensions;
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((d) => coerceOrbDimension(d))
-    .filter((d): d is RelationshipOrbDimension => d != null)
-    .filter((d) => d.available !== false && d.direction !== 'NOT_AVAILABLE')
-    .sort((a, b) => ringSortIndex(a.ring) - ringSortIndex(b.ring));
+function readMetaVersion(
+  payload: RelationshipDashboardPayload,
+  screen: RelationshipScreenPayload | null,
+  key: 'dashboardVersion' | 'relationshipScreenVersion',
+): string | number | null {
+  const fromScreen = screen?.meta?.[key];
+  if (typeof fromScreen === 'string' || typeof fromScreen === 'number') {
+    return fromScreen;
+  }
+  const fromRoot = payload.meta?.[key];
+  if (typeof fromRoot === 'string' || typeof fromRoot === 'number') {
+    return fromRoot;
+  }
+  if (key === 'dashboardVersion' && payload.dashboardVersion != null) {
+    return payload.dashboardVersion;
+  }
+  return null;
 }
 
 export function RelationshipAnalyticsScreen({
   token,
   peer,
+  viewerUserId = null,
   viewerLabel = 'ты',
+  premiumActive = null,
   onBack,
   onPremiumRequired,
   onOpenTimeline,
@@ -165,6 +181,27 @@ export function RelationshipAnalyticsScreen({
           otherUserId: peer.userId,
         });
         if (cancelled || requestId !== requestIdRef.current) return;
+        if (process.env.NODE_ENV !== 'production') {
+          const screen = isRelationshipScreenPayload(data.relationshipScreen)
+            ? data.relationshipScreen
+            : null;
+          const dimensions = extractRelationshipDimensions(screen);
+          console.info(
+            'RELATIONSHIP_ANALYTICS_V8_RECEIVED',
+            buildV8ReceivedLog({
+              viewerUserId: viewerUserId ?? 'unknown',
+              otherUserId: peer.userId,
+              dashboardVersion: readMetaVersion(data, screen, 'dashboardVersion'),
+              relationshipScreenVersion: readMetaVersion(
+                data,
+                screen,
+                'relationshipScreenVersion',
+              ),
+              dimensions,
+              premiumStatus: premiumActive,
+            }),
+          );
+        }
         setLoadState({ kind: 'success', data });
       } catch (err) {
         if (cancelled || requestId !== requestIdRef.current) return;
@@ -187,7 +224,7 @@ export function RelationshipAnalyticsScreen({
     return () => {
       cancelled = true;
     };
-  }, [token, peer.userId, retryTick]);
+  }, [token, peer.userId, retryTick, premiumActive, viewerUserId]);
 
   const handleRetry = useCallback(() => {
     setRetryTick((n) => n + 1);
@@ -227,10 +264,30 @@ export function RelationshipAnalyticsScreen({
       ? loadState.data.relationshipScreen
       : null;
 
-  const dims = useMemo(
-    () => (relationshipScreen ? visibleDimensions(relationshipScreen) : []),
+  const allDimensions = useMemo(
+    (): RelationshipDimension[] =>
+      relationshipScreen ? extractRelationshipDimensions(relationshipScreen) : [],
     [relationshipScreen],
   );
+
+  const orbDimensions = useMemo(
+    () => selectOrbRingDimensions(allDimensions),
+    [allDimensions],
+  );
+
+  const cardDimensions = useMemo(
+    () => selectCardDimensions(allDimensions),
+    [allDimensions],
+  );
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'production') return;
+    if (!relationshipScreen) return;
+    console.info(
+      'RELATIONSHIP_ANALYTICS_V8_RENDERED',
+      buildV8RenderedLog(orbDimensions, cardDimensions),
+    );
+  }, [cardDimensions, orbDimensions, relationshipScreen]);
 
   const screenTitle =
     relationshipScreen?.title?.trim() || 'ваши отношения';
@@ -330,7 +387,7 @@ export function RelationshipAnalyticsScreen({
             ) : null}
 
             <RelationshipOrb
-              dimensions={dims}
+              dimensions={orbDimensions}
               peerAvatarUrl={peerAvatar}
               peerDisplayName={peerName}
             />
@@ -339,16 +396,22 @@ export function RelationshipAnalyticsScreen({
               <p className="monetization-relationship__summary">{summary}</p>
             ) : null}
 
-            <div className="monetization-relationship__dims">
-              {dims.map((dim, index) => (
-                <RelationshipDirectionRow
-                  key={`${dim.ring ?? dim.code ?? 'dim'}-${index}`}
-                  dimension={dim}
-                  viewerLabel={viewerLabel}
-                  peerLabel={peerName}
-                />
-              ))}
-            </div>
+            {cardDimensions.length === 0 ? (
+              <p className="monetization-muted">
+                пока нет данных по кольцам динамики
+              </p>
+            ) : (
+              <div className="monetization-relationship__dims">
+                {cardDimensions.map((dim) => (
+                  <RelationshipDirectionRow
+                    key={dim.code}
+                    dimension={dim}
+                    viewerLabel={viewerLabel}
+                    peerLabel={peerName}
+                  />
+                ))}
+              </div>
+            )}
 
             {(recTitle || recSummary || recActionLabel) && (
               <section className="monetization-relationship__rec">
@@ -398,7 +461,7 @@ export function RelationshipAnalyticsScreen({
                   onClick={() => {
                     if (!canStartBan) return;
                     setActionError(null);
-                    const ok = onStartBan(peer);
+                    const ok = onStartBan!(peer);
                     if (ok === false) {
                       setActionError(
                         'Не удалось открыть отправку. Обнови список пользователей и попробуй снова.',

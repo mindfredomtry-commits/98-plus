@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:relationship-dimensions-v8": "tsx scripts/relationship-dimensions-v8.test.ts"
   },
   "dependencies": {
     "@98plus/shared": "*",
@@ -22,6 +23,7 @@
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
 }
