@@ -58,8 +58,8 @@ function getMetricTitle(code?: string): string {
 }
 
 function getMetricArrow(direction?: string): string {
-  if (direction === 'VIEWER') return '←';
-  if (direction === 'OTHER') return '→';
+  if (direction === 'VIEWER') return '→';
+  if (direction === 'OTHER') return '←';
   if (direction === 'BALANCED') return '•';
   return '•';
 }
