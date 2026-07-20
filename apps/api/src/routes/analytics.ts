@@ -7,6 +7,7 @@ import {
   RELATIONSHIP_ACTION_CODES,
   getRelationshipAction,
   getRelationshipDashboard,
+  getRelationshipDay,
   type RelationshipActionCode,
 } from '../services/relationship-analytics.service';
 
@@ -42,6 +43,30 @@ function parseOtherUserId(raw: string | string[] | undefined): string | null {
   return otherUserId.length > 0 ? otherUserId : null;
 }
 
+const ACTIVITY_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Validate required YYYY-MM-DD activity date (calendar-valid, not Invalid Date). */
+function parseActivityDate(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const date = raw.trim();
+  if (!ACTIVITY_DATE_RE.test(date)) return null;
+
+  const [yearStr, monthStr, dayStr] = date.split('-');
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(parsed.getTime())) return null;
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return date;
+}
+
 // GET /analytics/relationships/:otherUserId/dashboard
 analyticsRouter.get(
   '/relationships/:otherUserId/dashboard',
@@ -65,6 +90,42 @@ analyticsRouter.get(
       res.json(dashboardPayload);
     } catch (err) {
       console.error('Failed to load relationship dashboard', err);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  },
+);
+
+// GET /analytics/relationships/:otherUserId/day?date=YYYY-MM-DD
+analyticsRouter.get(
+  '/relationships/:otherUserId/day',
+  requirePremium,
+  async (req: AuthRequest, res) => {
+    const otherUserId = parseOtherUserId(req.params.otherUserId);
+    if (!otherUserId) {
+      res.status(400).json({ error: 'Invalid otherUserId' });
+      return;
+    }
+
+    const activityDate = parseActivityDate(req.query.date);
+    if (!activityDate) {
+      res.status(400).json({ error: 'Invalid date' });
+      return;
+    }
+
+    try {
+      const dayPayload = await getRelationshipDay(
+        req.userId!,
+        otherUserId,
+        activityDate,
+      );
+      // SQL function returns NO_ACTIVITY as JSON; only treat missing/non-object as 404.
+      if (!dayPayload) {
+        res.status(404).json({ error: 'Not found' });
+        return;
+      }
+      res.json(dayPayload);
+    } catch (err) {
+      console.error('Failed to load relationship day analytics', err);
       res.status(500).json({ error: 'Internal error' });
     }
   },
