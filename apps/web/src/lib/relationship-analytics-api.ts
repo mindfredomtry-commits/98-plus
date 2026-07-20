@@ -1,9 +1,11 @@
 import { api } from './api';
 import {
   isRelationshipDashboardPayload,
+  isRelationshipDayPayload,
   isRelationshipTimelinePayload,
   type RelationshipActionCode,
   type RelationshipDashboardPayload,
+  type RelationshipDayPayload,
   type RelationshipTimelinePayload,
 } from './relationship-analytics-types';
 
@@ -28,6 +30,29 @@ export async function fetchRelationshipDashboard(input: {
   );
 
   if (!isRelationshipDashboardPayload(data)) {
+    throw new RelationshipAnalyticsPayloadError(
+      'Unexpected analytics response',
+    );
+  }
+  return data;
+}
+
+export async function fetchRelationshipDay(input: {
+  token: string | null | undefined;
+  otherUserId: string;
+  date: string;
+}): Promise<RelationshipDayPayload> {
+  const otherUserId = input.otherUserId.trim();
+  const date = input.date.trim();
+  const data = await api<unknown>(
+    `/analytics/relationships/${encodeURIComponent(otherUserId)}/day?date=${encodeURIComponent(date)}`,
+    {
+      token: input.token,
+      retries: 0,
+    },
+  );
+
+  if (!isRelationshipDayPayload(data)) {
     throw new RelationshipAnalyticsPayloadError(
       'Unexpected analytics response',
     );

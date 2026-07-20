@@ -107,6 +107,7 @@ export type RelationshipScreenPayload = {
   title?: string | null;
   peer?: RelationshipScreenPeer;
   summary?: string | null;
+  status?: string | null;
   relationshipOrb?: RelationshipOrbPayload;
   allDimensions?: RelationshipDimension[];
   recommendation?: RelationshipScreenRecommendation | null;
@@ -128,6 +129,19 @@ export type RelationshipDashboardPayload = {
   recommendations?: unknown;
   meta?: Record<string, unknown>;
   [key: string]: unknown;
+};
+
+/** Day analytics payload from GET .../day?date=YYYY-MM-DD */
+export type RelationshipDayPayload = {
+  relationshipScreen?: RelationshipScreenPayload;
+  dayAnalytics?: unknown;
+  meta?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+export type WeeklyDynamicsDayOption = {
+  date: string;
+  label: string;
 };
 
 export type RelationshipTimelineActivity = {
@@ -220,6 +234,79 @@ export function isRelationshipDashboardPayload(
   }
 
   return true;
+}
+
+/**
+ * Soft day-payload guard — relationshipScreen / dayAnalytics / meta.selectedDate.
+ */
+export function isRelationshipDayPayload(
+  value: unknown,
+): value is RelationshipDayPayload {
+  if (!isPlainObject(value)) return false;
+  return (
+    isPlainObject(value.relationshipScreen) ||
+    value.dayAnalytics != null ||
+    isPlainObject(value.meta)
+  );
+}
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function readIsoDate(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return ISO_DATE_RE.test(trimmed) ? trimmed : null;
+}
+
+function chipLabelFromIso(iso: string): string {
+  const day = Number(iso.slice(8, 10));
+  return Number.isFinite(day) ? String(day) : iso;
+}
+
+/** Parse weeklyDynamics strip into selectable YYYY-MM-DD options. */
+export function parseWeeklyDynamicsOptions(
+  raw: unknown,
+): WeeklyDynamicsDayOption[] {
+  if (!Array.isArray(raw)) return [];
+
+  const out: WeeklyDynamicsDayOption[] = [];
+  const seen = new Set<string>();
+
+  for (const item of raw) {
+    let date: string | null = null;
+    let label: string | null = null;
+
+    if (typeof item === 'string') {
+      date = readIsoDate(item);
+    } else {
+      const obj = asPlainObject(item);
+      if (!obj) continue;
+      date =
+        readIsoDate(obj.date) ??
+        readIsoDate(obj.activityDate) ??
+        readIsoDate(obj.selectedDate) ??
+        readIsoDate(obj.day);
+      if (typeof obj.label === 'string' && obj.label.trim()) {
+        label = obj.label.trim();
+      } else if (typeof obj.dayLabel === 'string' && obj.dayLabel.trim()) {
+        label = obj.dayLabel.trim();
+      }
+    }
+
+    if (!date || seen.has(date)) continue;
+    seen.add(date);
+    out.push({ date, label: label ?? chipLabelFromIso(date) });
+  }
+
+  return out;
+}
+
+export function readRelationshipScreenStatus(
+  screen: RelationshipScreenPayload | null | undefined,
+): string | null {
+  if (!screen) return null;
+  const status = screen.status;
+  return typeof status === 'string' && status.trim() ? status.trim() : null;
 }
 
 export function isRelationshipTimelinePayload(

@@ -6,6 +6,7 @@ import { ApiError } from '@/lib/api';
 import {
   fetchRelationshipAction,
   fetchRelationshipDashboard,
+  fetchRelationshipDay,
 } from '@/lib/relationship-analytics-api';
 import {
   buildV8ReceivedLog,
@@ -18,10 +19,13 @@ import {
   asPlainObject,
   formatOrbDisplayValue,
   isRelationshipScreenPayload,
+  parseWeeklyDynamicsOptions,
   readNumber,
+  readRelationshipScreenStatus,
   readUiText,
   type AnalyticsPeer,
   type RelationshipDashboardPayload,
+  type RelationshipDayPayload,
   type RelationshipDimension,
   type RelationshipScreenPayload,
   type RelationshipTimelinePayload,
@@ -47,6 +51,25 @@ type LoadState =
   | { kind: 'success'; data: RelationshipDashboardPayload }
   | { kind: 'notFound' }
   | { kind: 'error'; message: string };
+
+type DayLoadState =
+  | { kind: 'idle' }
+  | { kind: 'loading'; date: string }
+  | { kind: 'success'; date: string; data: RelationshipDayPayload }
+  | { kind: 'error'; date: string; message: string };
+
+function readDayRelationshipScreen(
+  payload: RelationshipDayPayload | null | undefined,
+): RelationshipScreenPayload | null {
+  if (!payload) return null;
+  if (isRelationshipScreenPayload(payload.relationshipScreen)) {
+    return payload.relationshipScreen;
+  }
+  // Soft accept for NO_ACTIVITY payloads that still carry a screen object.
+  const soft = asPlainObject(payload.relationshipScreen);
+  if (!soft) return null;
+  return soft as RelationshipScreenPayload;
+}
 
 function insightItems(payload: RelationshipDashboardPayload): Record<string, unknown>[] {
   if (!Array.isArray(payload.insights)) return [];
@@ -163,8 +186,13 @@ export function RelationshipAnalyticsScreen({
   const [retryTick, setRetryTick] = useState(0);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [dayLoadState, setDayLoadState] = useState<DayLoadState>({
+    kind: 'idle',
+  });
   const actionLockRef = useRef(false);
   const requestIdRef = useRef(0);
+  const dayRequestIdRef = useRef(0);
   const onPremiumRequiredRef = useRef(onPremiumRequired);
   onPremiumRequiredRef.current = onPremiumRequired;
 
@@ -173,6 +201,8 @@ export function RelationshipAnalyticsScreen({
     let cancelled = false;
     setLoadState({ kind: 'loading' });
     setActionError(null);
+    setSelectedDate(null);
+    setDayLoadState({ kind: 'idle' });
 
     void (async () => {
       try {
@@ -226,8 +256,48 @@ export function RelationshipAnalyticsScreen({
     };
   }, [token, peer.userId, retryTick, premiumActive, viewerUserId]);
 
+  useEffect(() => {
+    if (!selectedDate) {
+      setDayLoadState({ kind: 'idle' });
+      return;
+    }
+
+    const requestId = ++dayRequestIdRef.current;
+    let cancelled = false;
+    setDayLoadState({ kind: 'loading', date: selectedDate });
+
+    void (async () => {
+      try {
+        const data = await fetchRelationshipDay({
+          token,
+          otherUserId: peer.userId,
+          date: selectedDate,
+        });
+        if (cancelled || requestId !== dayRequestIdRef.current) return;
+        setDayLoadState({ kind: 'success', date: selectedDate, data });
+      } catch (err) {
+        if (cancelled || requestId !== dayRequestIdRef.current) return;
+        // Day failures must not bounce premium users into purchase flow.
+        void err;
+        setDayLoadState({
+          kind: 'error',
+          date: selectedDate,
+          message: 'Не удалось загрузить этот день',
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate, token, peer.userId]);
+
   const handleRetry = useCallback(() => {
     setRetryTick((n) => n + 1);
+  }, []);
+
+  const handleSelectDate = useCallback((date: string | null) => {
+    setSelectedDate(date);
   }, []);
 
   const handleOpenTimeline = useCallback(async () => {
@@ -258,17 +328,50 @@ export function RelationshipAnalyticsScreen({
     }
   }, [actionLoading, onOpenTimeline, onPremiumRequired, peer.userId, token]);
 
-  const relationshipScreen =
+  const baseRelationshipScreen =
     loadState.kind === 'success' &&
     isRelationshipScreenPayload(loadState.data.relationshipScreen)
       ? loadState.data.relationshipScreen
       : null;
 
-  const allDimensions = useMemo(
-    (): RelationshipDimension[] =>
-      relationshipScreen ? extractRelationshipDimensions(relationshipScreen) : [],
-    [relationshipScreen],
+  const dayPayload =
+    dayLoadState.kind === 'success' &&
+    selectedDate != null &&
+    dayLoadState.date === selectedDate
+      ? dayLoadState.data
+      : null;
+
+  const dayRelationshipScreen = readDayRelationshipScreen(dayPayload);
+  const dayStatus = readRelationshipScreenStatus(dayRelationshipScreen);
+  const isDayNoActivity = dayStatus === 'NO_ACTIVITY';
+  const isDayLoading =
+    selectedDate != null &&
+    dayLoadState.kind === 'loading' &&
+    dayLoadState.date === selectedDate;
+  const dayErrorMessage =
+    selectedDate != null &&
+    dayLoadState.kind === 'error' &&
+    dayLoadState.date === selectedDate
+      ? dayLoadState.message
+      : null;
+
+  // Day overlay only when fetch succeeded; on error keep lifetime dashboard.
+  const relationshipScreen =
+    selectedDate && dayRelationshipScreen && !dayErrorMessage
+      ? dayRelationshipScreen
+      : baseRelationshipScreen;
+
+  const weeklyDayOptions = useMemo(
+    () => parseWeeklyDynamicsOptions(baseRelationshipScreen?.weeklyDynamics),
+    [baseRelationshipScreen],
   );
+
+  const allDimensions = useMemo((): RelationshipDimension[] => {
+    if (isDayNoActivity) return [];
+    return relationshipScreen
+      ? extractRelationshipDimensions(relationshipScreen)
+      : [];
+  }, [isDayNoActivity, relationshipScreen]);
 
   const orbDimensions = useMemo(
     () => selectOrbRingDimensions(allDimensions),
@@ -290,14 +393,24 @@ export function RelationshipAnalyticsScreen({
   }, [cardDimensions, orbDimensions, relationshipScreen]);
 
   const screenTitle =
-    relationshipScreen?.title?.trim() || 'ваши отношения';
+    baseRelationshipScreen?.title?.trim() ||
+    relationshipScreen?.title?.trim() ||
+    'ваши отношения';
   const peerName =
-    relationshipScreen?.peer?.displayName?.trim() || peer.displayName;
+    baseRelationshipScreen?.peer?.displayName?.trim() ||
+    relationshipScreen?.peer?.displayName?.trim() ||
+    peer.displayName;
   const peerAvatar =
-    relationshipScreen?.peer?.avatarUrl ?? peer.avatarUrl ?? null;
-  const summary = relationshipScreen?.summary?.trim() || null;
+    baseRelationshipScreen?.peer?.avatarUrl ??
+    relationshipScreen?.peer?.avatarUrl ??
+    peer.avatarUrl ??
+    null;
+  const summary = isDayNoActivity
+    ? dayRelationshipScreen?.summary?.trim() ||
+      'В этот день пока нет совместной активности'
+    : relationshipScreen?.summary?.trim() || null;
 
-  const rec = relationshipScreen?.recommendation ?? null;
+  const rec = baseRelationshipScreen?.recommendation ?? null;
   const recTitle = rec?.title?.trim() || null;
   const recSummary =
     rec?.summary?.trim() ||
@@ -305,12 +418,13 @@ export function RelationshipAnalyticsScreen({
   const recActionCode = rec?.action?.code;
   const recActionLabel = rec?.action?.label?.trim() || null;
 
-  const primary = relationshipScreen?.primaryAction ?? null;
+  const primary = baseRelationshipScreen?.primaryAction ?? null;
   const primaryCode = primary?.code;
   const canStartBan =
     primaryCode === 'START_BAN' && typeof onStartBan === 'function';
 
-  const weeklyDynamics = relationshipScreen?.weeklyDynamics;
+  const showDateSelector =
+    loadState.kind === 'success' && baseRelationshipScreen != null;
 
   return (
     <div
@@ -380,38 +494,99 @@ export function RelationshipAnalyticsScreen({
           </div>
         ) : null}
 
-        {loadState.kind === 'success' && relationshipScreen ? (
+        {loadState.kind === 'success' && baseRelationshipScreen ? (
           <div className="monetization-relationship">
-            {Array.isArray(weeklyDynamics) && weeklyDynamics.length > 0 ? (
-              <div className="monetization-relationship__weekly" />
+            {showDateSelector ? (
+              <div
+                className="monetization-relationship__weekly"
+                role="group"
+                aria-label="Выбор даты"
+              >
+                <button
+                  type="button"
+                  className={`monetization-week-chip${
+                    selectedDate == null ? ' monetization-week-chip--active' : ''
+                  }`}
+                  aria-pressed={selectedDate == null}
+                  onClick={() => handleSelectDate(null)}
+                >
+                  всё
+                </button>
+                {weeklyDayOptions.map((option) => {
+                  const active = selectedDate === option.date;
+                  return (
+                    <button
+                      key={option.date}
+                      type="button"
+                      className={`monetization-week-chip${
+                        active ? ' monetization-week-chip--active' : ''
+                      }`}
+                      aria-pressed={active}
+                      onClick={() => handleSelectDate(option.date)}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+                <label className="monetization-week-date">
+                  <span className="sr-only">Дата</span>
+                  <input
+                    type="date"
+                    className="monetization-week-date__input"
+                    value={selectedDate ?? ''}
+                    onChange={(event) => {
+                      const next = event.target.value.trim();
+                      handleSelectDate(next.length > 0 ? next : null);
+                    }}
+                  />
+                </label>
+              </div>
+            ) : null}
+
+            {isDayLoading ? (
+              <p className="monetization-muted">загружаем день…</p>
+            ) : null}
+
+            {dayErrorMessage ? (
+              <p className="monetization-analytics-inline-error">
+                {dayErrorMessage}
+              </p>
             ) : null}
 
             <RelationshipOrb
-              dimensions={orbDimensions}
+              dimensions={isDayLoading ? [] : orbDimensions}
               peerAvatarUrl={peerAvatar}
               peerDisplayName={peerName}
             />
 
-            {summary ? (
+            {!isDayLoading && summary ? (
               <p className="monetization-relationship__summary">{summary}</p>
             ) : null}
 
-            {cardDimensions.length === 0 ? (
+            {!isDayLoading && isDayNoActivity ? (
               <p className="monetization-muted">
-                пока нет данных по кольцам динамики
+                нет данных за выбранный день
               </p>
-            ) : (
-              <div className="monetization-relationship__dims">
-                {cardDimensions.map((dim) => (
-                  <RelationshipDirectionRow
-                    key={dim.code}
-                    dimension={dim}
-                    viewerLabel={viewerLabel}
-                    peerLabel={peerName}
-                  />
-                ))}
-              </div>
-            )}
+            ) : null}
+
+            {!isDayLoading && !isDayNoActivity ? (
+              cardDimensions.length === 0 ? (
+                <p className="monetization-muted">
+                  пока нет данных по кольцам динамики
+                </p>
+              ) : (
+                <div className="monetization-relationship__dims">
+                  {cardDimensions.map((dim) => (
+                    <RelationshipDirectionRow
+                      key={dim.code}
+                      dimension={dim}
+                      viewerLabel={viewerLabel}
+                      peerLabel={peerName}
+                    />
+                  ))}
+                </div>
+              )
+            ) : null}
 
             {(recTitle || recSummary || recActionLabel) && (
               <section className="monetization-relationship__rec">
@@ -476,7 +651,7 @@ export function RelationshipAnalyticsScreen({
           </div>
         ) : null}
 
-        {loadState.kind === 'success' && !relationshipScreen ? (
+        {loadState.kind === 'success' && !baseRelationshipScreen ? (
           <LegacyDashboardView
             data={loadState.data}
             actionLoading={actionLoading}
