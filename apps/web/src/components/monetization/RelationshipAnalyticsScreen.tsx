@@ -405,19 +405,6 @@ export function RelationshipAnalyticsScreen({
     relationshipScreen?.peer?.avatarUrl ??
     peer.avatarUrl ??
     null;
-  const summary = isDayNoActivity
-    ? dayRelationshipScreen?.summary?.trim() ||
-      'В этот день пока нет совместной активности'
-    : relationshipScreen?.summary?.trim() || null;
-
-  const rec = baseRelationshipScreen?.recommendation ?? null;
-  const recTitle = rec?.title?.trim() || null;
-  const recSummary =
-    rec?.summary?.trim() ||
-    (typeof rec?.description === 'string' ? rec.description.trim() : null);
-  const recActionCode = rec?.action?.code;
-  const recActionLabel = rec?.action?.label?.trim() || null;
-
   const primary = baseRelationshipScreen?.primaryAction ?? null;
   const primaryCode = primary?.code;
   const canStartBan =
@@ -426,14 +413,28 @@ export function RelationshipAnalyticsScreen({
   const showDateSelector =
     loadState.kind === 'success' && baseRelationshipScreen != null;
 
+  const showFitLayout =
+    loadState.kind === 'success' && baseRelationshipScreen != null;
+  const showBanCta = showFitLayout && primaryCode === 'START_BAN';
+
+  const handleImproveNoop = useCallback(() => {
+    // UI placeholder — no AI / voice wiring yet.
+  }, []);
+
   return (
     <div
-      className="monetization-screen"
+      className={`monetization-screen${
+        showFitLayout ? ' monetization-screen--relationship-fit' : ''
+      }`}
       role="dialog"
       aria-label={screenTitle}
     >
-      <div className="monetization-screen__scroll">
-        <header className="monetization-screen__header">
+      <div
+        className={`monetization-screen__scroll${
+          showFitLayout ? ' monetization-screen__scroll--fit' : ''
+        }`}
+      >
+        <header className="monetization-screen__header monetization-screen__header--peer">
           <button
             type="button"
             className="monetization-back"
@@ -442,15 +443,11 @@ export function RelationshipAnalyticsScreen({
           >
             <WhatBackIcon />
           </button>
-          <h2 className="monetization-screen__nav-title">{screenTitle}</h2>
-        </header>
-
-        <div className="monetization-analytics-peer monetization-analytics-peer--orb-heading">
-          <div className="monetization-analytics-peer__meta">
-            <p className="monetization-analytics-peer__name">{peerName}</p>
-            <p className="monetization-analytics-peer__sub">личная динамика</p>
+          <div className="monetization-screen__header-text">
+            <h2 className="monetization-screen__peer-title">{peerName}</h2>
+            <p className="monetization-screen__section-label">{screenTitle}</p>
           </div>
-        </div>
+        </header>
 
         {loadState.kind === 'loading' ? (
           <p className="monetization-muted">собираем картину…</p>
@@ -495,7 +492,7 @@ export function RelationshipAnalyticsScreen({
         ) : null}
 
         {loadState.kind === 'success' && baseRelationshipScreen ? (
-          <div className="monetization-relationship">
+          <div className="monetization-relationship monetization-relationship--fit">
             {showDateSelector ? (
               <div
                 className="monetization-relationship__weekly"
@@ -547,7 +544,9 @@ export function RelationshipAnalyticsScreen({
             ) : null}
 
             {isDayLoading ? (
-              <p className="monetization-muted">загружаем день…</p>
+              <p className="monetization-muted monetization-muted--tight">
+                загружаем день…
+              </p>
             ) : null}
 
             {dayErrorMessage ? (
@@ -556,100 +555,77 @@ export function RelationshipAnalyticsScreen({
               </p>
             ) : null}
 
-            <RelationshipOrb
-              dimensions={isDayLoading ? [] : orbDimensions}
-              peerAvatarUrl={peerAvatar}
-              peerDisplayName={peerName}
-            />
+            <div className="monetization-relationship__stage">
+              <RelationshipOrb
+                compact
+                dimensions={isDayLoading ? [] : orbDimensions}
+                peerAvatarUrl={peerAvatar}
+                peerDisplayName={peerName}
+              />
 
-            {!isDayLoading && summary ? (
-              <p className="monetization-relationship__summary">{summary}</p>
-            ) : null}
-
-            {!isDayLoading && isDayNoActivity ? (
-              <p className="monetization-muted">
-                нет данных за выбранный день
-              </p>
-            ) : null}
-
-            {!isDayLoading && !isDayNoActivity ? (
-              cardDimensions.length === 0 ? (
-                <p className="monetization-muted">
-                  пока нет данных по кольцам динамики
+              {!isDayLoading && isDayNoActivity ? (
+                <p className="monetization-muted monetization-muted--tight">
+                  нет данных за выбранный день
                 </p>
-              ) : (
-                <div className="monetization-relationship__dims">
-                  {cardDimensions.map((dim) => (
-                    <RelationshipDirectionRow
-                      key={dim.code}
-                      dimension={dim}
-                      viewerLabel={viewerLabel}
-                      peerLabel={peerName}
-                    />
-                  ))}
-                </div>
-              )
-            ) : null}
+              ) : null}
 
-            {(recTitle || recSummary || recActionLabel) && (
-              <section className="monetization-relationship__rec">
-                {recTitle ? (
-                  <h3 className="monetization-relationship__rec-title">
-                    {recTitle}
-                  </h3>
-                ) : null}
-                {recSummary ? (
-                  <p className="monetization-relationship__rec-text">
-                    {recSummary}
+              {!isDayLoading && !isDayNoActivity ? (
+                cardDimensions.length === 0 ? (
+                  <p className="monetization-muted monetization-muted--tight">
+                    пока нет данных по кольцам динамики
                   </p>
-                ) : null}
-                {recActionCode === 'OPEN_TIMELINE_RECENT_14_DAYS' ||
-                recActionLabel ? (
-                  <button
-                    type="button"
-                    className="monetization-cta monetization-cta--ghost"
-                    disabled={actionLoading}
-                    onClick={() => {
-                      if (
-                        recActionCode === 'OPEN_TIMELINE_RECENT_14_DAYS' ||
-                        !recActionCode
-                      ) {
-                        void handleOpenTimeline();
-                      }
-                    }}
-                  >
-                    {actionLoading
-                      ? 'загружаем…'
-                      : recActionLabel || 'последние 14 дней'}
-                  </button>
-                ) : null}
-              </section>
-            )}
+                ) : (
+                  <div className="monetization-relationship__dims monetization-relationship__dims--compact">
+                    {cardDimensions.map((dim) => (
+                      <RelationshipDirectionRow
+                        key={dim.code}
+                        compact
+                        dimension={dim}
+                        viewerLabel={viewerLabel}
+                        peerLabel={peerName}
+                      />
+                    ))}
+                  </div>
+                )
+              ) : null}
+            </div>
+
+            <div className="monetization-improve" aria-label="Улучшение отношений">
+              <input
+                type="text"
+                className="monetization-improve__input"
+                placeholder="что хочешь улучшить?"
+                readOnly
+                tabIndex={0}
+                onFocus={(event) => event.currentTarget.blur()}
+                onClick={handleImproveNoop}
+                aria-disabled="true"
+              />
+              <div className="monetization-improve__actions">
+                <button
+                  type="button"
+                  className="monetization-improve__btn"
+                  onClick={handleImproveNoop}
+                  aria-label="AI"
+                >
+                  <span className="monetization-improve__ai" aria-hidden>
+                    ✦
+                  </span>
+                  <span>AI</span>
+                </button>
+                <button
+                  type="button"
+                  className="monetization-improve__btn monetization-improve__btn--icon"
+                  onClick={handleImproveNoop}
+                  aria-label="Голос"
+                >
+                  <span aria-hidden>🎙</span>
+                </button>
+              </div>
+            </div>
 
             {actionError ? (
               <p className="monetization-analytics-inline-error">{actionError}</p>
-            ) : null}
-
-            {primaryCode === 'START_BAN' ? (
-              <div className="monetization-relationship__primary">
-                <button
-                  type="button"
-                  className="btn-98-primary lobby-screen__cta"
-                  disabled={!canStartBan}
-                  onClick={() => {
-                    if (!canStartBan) return;
-                    setActionError(null);
-                    const ok = onStartBan!(peer);
-                    if (ok === false) {
-                      setActionError(
-                        'Не удалось открыть отправку. Обнови список пользователей и попробуй снова.',
-                      );
-                    }
-                  }}
-                >
-                  🚫 ЗАПРЕЩАТЬ
-                </button>
-              </div>
             ) : null}
           </div>
         ) : null}
@@ -663,6 +639,28 @@ export function RelationshipAnalyticsScreen({
           />
         ) : null}
       </div>
+
+      {showBanCta ? (
+        <div className="monetization-screen__dock monetization-screen__dock--relationship">
+          <button
+            type="button"
+            className="btn-98-primary lobby-screen__cta"
+            disabled={!canStartBan}
+            onClick={() => {
+              if (!canStartBan) return;
+              setActionError(null);
+              const ok = onStartBan!(peer);
+              if (ok === false) {
+                setActionError(
+                  'Не удалось открыть отправку. Обнови список пользователей и попробуй снова.',
+                );
+              }
+            }}
+          >
+            🚫 ЗАПРЕЩАТЬ
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
