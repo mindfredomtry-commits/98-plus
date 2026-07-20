@@ -510,7 +510,7 @@ export function RelationshipAnalyticsScreen({
                   aria-pressed={selectedDate == null}
                   onClick={() => handleSelectDate(null)}
                 >
-                  всё
+                  всё время
                 </button>
                 {weeklyDayOptions.map((option) => {
                   const active = selectedDate === option.date;
@@ -529,10 +529,13 @@ export function RelationshipAnalyticsScreen({
                   );
                 })}
                 <label className="monetization-week-date">
-                  <span className="sr-only">Дата</span>
+                  <span className="monetization-week-date__label" aria-hidden>
+                    выбери день
+                  </span>
                   <input
                     type="date"
                     className="monetization-week-date__input"
+                    aria-label="выбери день"
                     value={selectedDate ?? ''}
                     onChange={(event) => {
                       const next = event.target.value.trim();
