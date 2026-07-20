@@ -1281,72 +1281,88 @@
   color: rgba(196, 168, 255, 0.85);
 }
 
-/* —— Compact metric tiles (first screen only) —— */
-.monetization-metric-tile {
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 76px;
-  min-height: 76px;
-  min-width: 0;
-  margin: 0;
-  padding: 8px 6px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.08);
-  position: relative;
-  overflow: hidden;
-  z-index: 0;
+/* —— Compact metric tiles (first screen only) ——
+   Live DOM classes from RelationshipAnalyticsScreen:
+   .monetization-relationship__tiles
+     > .monetization-metric-tile
+       > .monetization-metric-tile__title
+       > .monetization-metric-tile__arrow
+*/
+.monetization-relationship__tiles .monetization-metric-tile {
+  box-sizing: border-box !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  width: 100% !important;
+  height: 76px !important;
+  min-height: 76px !important;
+  max-height: none !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding: 8px 6px !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  position: relative !important;
+  overflow: hidden !important;
+  z-index: 0 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: none !important;
+  inset: auto !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
 }
 
-.monetization-metric-tile__title {
-  display: block;
-  margin: 0;
-  max-width: 100%;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.15;
-  text-align: center;
-  color: var(--98-purple-soft);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  opacity: 1;
+.monetization-relationship__tiles .monetization-metric-tile__title {
+  display: block !important;
+  margin: 0 !important;
+  max-width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  line-height: 1.15 !important;
+  text-align: center !important;
+  color: #c4a8ff !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  opacity: 1 !important;
+  visibility: visible !important;
 }
 
-.monetization-metric-tile__arrow {
-  display: block;
-  flex: 0 0 auto;
-  margin: 0;
-  height: auto;
-  min-height: 28px;
-  font-size: 30px;
-  line-height: 1;
-  font-weight: 700;
-  text-align: center;
-  color: var(--98-purple-soft);
-  opacity: 1;
+.monetization-relationship__tiles .monetization-metric-tile__arrow {
+  display: block !important;
+  flex: 0 0 auto !important;
+  margin: 0 !important;
+  height: auto !important;
+  min-height: 28px !important;
+  font-size: 30px !important;
+  line-height: 1 !important;
+  font-weight: 700 !important;
+  text-align: center !important;
+  color: #c4a8ff !important;
+  opacity: 1 !important;
+  visibility: visible !important;
 }
 
-.monetization-metric-tile--balanced .monetization-metric-tile__arrow {
-  font-size: 22px;
-  color: rgba(200, 185, 255, 0.9);
+.monetization-relationship__tiles
+  .monetization-metric-tile--balanced
+  .monetization-metric-tile__arrow {
+  font-size: 22px !important;
+  color: rgba(200, 185, 255, 0.9) !important;
 }
 
-.monetization-metric-tile--muted .monetization-metric-tile__arrow {
-  font-size: 22px;
-  color: rgba(195, 155, 211, 0.35);
-}
-
-/* Hard-hide any leaked detail content inside the tiles row */
-.monetization-relationship__tiles .monetization-direction__desc,
-.monetization-relationship__tiles .monetization-direction__value,
-.monetization-relationship__tiles .monetization-direction__side,
-.monetization-relationship__tiles .monetization-direction__rail {
-  display: none !important;
+.monetization-relationship__tiles
+  .monetization-metric-tile--muted
+  .monetization-metric-tile__arrow {
+  font-size: 22px !important;
+  color: rgba(196, 168, 255, 0.4) !important;
 }
 
 /* —— Improve placeholder (UI stub) —— */

@@ -33,6 +33,7 @@ import {
 import { RelationshipOrb } from './RelationshipOrb';
 import { RelationshipDirectionRow } from './RelationshipDirectionRow';
 import '../lobby-screen.css';
+import './monetization.css';
 
 type Props = {
   token: string | null | undefined;
@@ -574,7 +575,10 @@ export function RelationshipAnalyticsScreen({
                   пока нет данных по кольцам динамики
                 </p>
               ) : (
-                <div className="monetization-relationship__tiles">
+                <div
+                  className="monetization-relationship__tiles"
+                  data-relationship-tiles="v1"
+                >
                   {cardDimensions.map((dim) => (
                     <RelationshipDirectionRow
                       key={dim.code}
