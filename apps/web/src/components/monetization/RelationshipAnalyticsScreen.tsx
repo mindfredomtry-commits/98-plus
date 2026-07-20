@@ -555,40 +555,38 @@ export function RelationshipAnalyticsScreen({
               </p>
             ) : null}
 
-            <div className="monetization-relationship__stage">
-              <RelationshipOrb
-                compact
-                dimensions={isDayLoading ? [] : orbDimensions}
-                peerAvatarUrl={peerAvatar}
-                peerDisplayName={peerName}
-              />
+            <RelationshipOrb
+              compact
+              dimensions={isDayLoading ? [] : orbDimensions}
+              peerAvatarUrl={peerAvatar}
+              peerDisplayName={peerName}
+            />
 
-              {!isDayLoading && isDayNoActivity ? (
+            {!isDayLoading && isDayNoActivity ? (
+              <p className="monetization-muted monetization-muted--tight">
+                нет данных за выбранный день
+              </p>
+            ) : null}
+
+            {!isDayLoading && !isDayNoActivity ? (
+              cardDimensions.length === 0 ? (
                 <p className="monetization-muted monetization-muted--tight">
-                  нет данных за выбранный день
+                  пока нет данных по кольцам динамики
                 </p>
-              ) : null}
-
-              {!isDayLoading && !isDayNoActivity ? (
-                cardDimensions.length === 0 ? (
-                  <p className="monetization-muted monetization-muted--tight">
-                    пока нет данных по кольцам динамики
-                  </p>
-                ) : (
-                  <div className="monetization-relationship__dims monetization-relationship__dims--compact">
-                    {cardDimensions.map((dim) => (
-                      <RelationshipDirectionRow
-                        key={dim.code}
-                        compact
-                        dimension={dim}
-                        viewerLabel={viewerLabel}
-                        peerLabel={peerName}
-                      />
-                    ))}
-                  </div>
-                )
-              ) : null}
-            </div>
+              ) : (
+                <div className="monetization-relationship__tiles">
+                  {cardDimensions.map((dim) => (
+                    <RelationshipDirectionRow
+                      key={dim.code}
+                      compact
+                      dimension={dim}
+                      viewerLabel={viewerLabel}
+                      peerLabel={peerName}
+                    />
+                  ))}
+                </div>
+              )
+            ) : null}
 
             <div className="monetization-improve" aria-label="Улучшение отношений">
               <input
@@ -624,6 +622,28 @@ export function RelationshipAnalyticsScreen({
               </div>
             </div>
 
+            {showBanCta ? (
+              <div className="monetization-relationship__primary">
+                <button
+                  type="button"
+                  className="btn-98-primary lobby-screen__cta"
+                  disabled={!canStartBan}
+                  onClick={() => {
+                    if (!canStartBan) return;
+                    setActionError(null);
+                    const ok = onStartBan!(peer);
+                    if (ok === false) {
+                      setActionError(
+                        'Не удалось открыть отправку. Обнови список пользователей и попробуй снова.',
+                      );
+                    }
+                  }}
+                >
+                  🚫 ЗАПРЕЩАТЬ
+                </button>
+              </div>
+            ) : null}
+
             {actionError ? (
               <p className="monetization-analytics-inline-error">{actionError}</p>
             ) : null}
@@ -639,28 +659,6 @@ export function RelationshipAnalyticsScreen({
           />
         ) : null}
       </div>
-
-      {showBanCta ? (
-        <div className="monetization-screen__dock monetization-screen__dock--relationship">
-          <button
-            type="button"
-            className="btn-98-primary lobby-screen__cta"
-            disabled={!canStartBan}
-            onClick={() => {
-              if (!canStartBan) return;
-              setActionError(null);
-              const ok = onStartBan!(peer);
-              if (ok === false) {
-                setActionError(
-                  'Не удалось открыть отправку. Обнови список пользователей и попробуй снова.',
-                );
-              }
-            }}
-          >
-            🚫 ЗАПРЕЩАТЬ
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 }
