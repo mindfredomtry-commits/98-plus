@@ -46,6 +46,9 @@ export function capTouchGapDeg(radius: number, strokeWidth: number): number {
   return (strokeWidth / radius) * (180 / Math.PI);
 }
 
+/** Extra centerline gap so rounded caps show a tiny visible separation. */
+export const RELATIONSHIP_ORB_EXTRA_VISUAL_GAP_DEG = 2;
+
 /** SVG sweep: 1 = clockwise (increasing angle), 0 = counter-clockwise. */
 const SWEEP_CLOCKWISE = 1 as const;
 
@@ -77,7 +80,8 @@ export function dualSegmentArcDegrees(
   otherStartDeg: number;
   otherEndDeg: number;
 } {
-  const gapDeg = capTouchGapDeg(radius, strokeWidth);
+  const gapDeg =
+    capTouchGapDeg(radius, strokeWidth) + RELATIONSHIP_ORB_EXTRA_VISUAL_GAP_DEG;
   const usableSweepDeg = 360 - gapDeg * 2;
   const viewerSweepDeg = usableSweepDeg * clampShare(viewerShare);
   const otherSweepDeg = usableSweepDeg * clampShare(otherShare);
@@ -100,7 +104,8 @@ export function dualSegmentArcDegrees(
 if (process.env.NODE_ENV !== 'production') {
   for (const ring of ['OUTER', 'MIDDLE', 'INNER'] as const) {
     const r = RING_RADIUS[ring];
-    const expectedGap = capTouchGapDeg(r, STROKE);
+    const expectedGap =
+      capTouchGapDeg(r, STROKE) + RELATIONSHIP_ORB_EXTRA_VISUAL_GAP_DEG;
     const { usableSweepDeg, gapDeg } = dualSegmentArcDegrees(0, 0, r, STROKE);
     if (Math.abs(gapDeg - expectedGap) > 1e-9) {
       throw new Error(`[RelationshipOrb] capTouchGapDeg assert failed (${ring})`);
@@ -294,11 +299,6 @@ export function RelationshipOrb({
             ? null
             : arcSegmentPath(CX, CY, r, otherStartDeg, otherSweepDeg);
 
-          const otherMarkerDeg =
-            otherSweepDeg >= MIN_ARC_SWEEP_DEG
-              ? otherStartDeg + otherSweepDeg / 2
-              : null;
-
           return (
             <g key={ring}>
               <circle
@@ -328,33 +328,6 @@ export function RelationshipOrb({
                   strokeWidth={STROKE}
                   strokeLinecap="round"
                   opacity={0.95}
-                />
-              ) : null}
-              {!muted && direction === 'VIEWER' ? (
-                <circle
-                  cx={polar(CX, CY, r, VIEWER_ARC_ANCHOR_DEG).x}
-                  cy={polar(CX, CY, r, VIEWER_ARC_ANCHOR_DEG).y}
-                  r={4.5}
-                  fill={metricColor}
-                  opacity={0.95}
-                />
-              ) : null}
-              {!muted && direction === 'OTHER' && otherMarkerDeg != null ? (
-                <circle
-                  cx={polar(CX, CY, r, OTHER_ARC_ANCHOR_DEG).x}
-                  cy={polar(CX, CY, r, OTHER_ARC_ANCHOR_DEG).y}
-                  r={4.5}
-                  fill={metricColor}
-                  opacity={0.95}
-                />
-              ) : null}
-              {!muted && direction === 'BALANCED' ? (
-                <circle
-                  cx={polar(CX, CY, r, VIEWER_ARC_ANCHOR_DEG).x}
-                  cy={polar(CX, CY, r, VIEWER_ARC_ANCHOR_DEG).y}
-                  r={3.5}
-                  fill={metricColor}
-                  opacity={0.55}
                 />
               ) : null}
             </g>
