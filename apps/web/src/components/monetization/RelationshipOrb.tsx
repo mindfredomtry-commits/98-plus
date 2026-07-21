@@ -5,11 +5,18 @@ import type {
   RelationshipOrbDimension,
   RelationshipRing,
 } from '@/lib/relationship-analytics-types';
+import {
+  getRelationshipMetricColor,
+  RELATIONSHIP_ORB_OTHER_OPACITY,
+  RELATIONSHIP_ORB_TRACK,
+} from './relationship-metric-colors';
 
 type Props = {
   dimensions: RelationshipOrbDimension[];
   peerAvatarUrl?: string | null;
   peerDisplayName?: string | null;
+  /** Smaller orb for one-viewport relationship screen. */
+  compact?: boolean;
 };
 
 const SIZE = 280;
@@ -117,7 +124,11 @@ function ringForDim(dim: RelationshipOrbDimension): RelationshipRing | null {
 }
 
 function isActiveDirection(direction: string | undefined): boolean {
-  return direction === 'VIEWER' || direction === 'OTHER' || direction === 'BALANCED';
+  return (
+    direction === 'VIEWER' ||
+    direction === 'OTHER' ||
+    direction === 'BALANCED'
+  );
 }
 
 function peerLetter(name: string | null | undefined): string {
@@ -134,8 +145,12 @@ export function RelationshipOrb({
   dimensions,
   peerAvatarUrl,
   peerDisplayName,
+  compact = false,
 }: Props) {
-  const byRing = new Map<'OUTER' | 'MIDDLE' | 'INNER', RelationshipOrbDimension>();
+  const byRing = new Map<
+    'OUTER' | 'MIDDLE' | 'INNER',
+    RelationshipOrbDimension
+  >();
   for (const dim of dimensions) {
     const ring = ringForDim(dim);
     if (!ring) continue;
@@ -150,7 +165,7 @@ export function RelationshipOrb({
 
   return (
     <div
-      className="monetization-orb"
+      className={`monetization-orb${compact ? ' monetization-orb--compact' : ''}`}
       role="img"
       aria-label={
         peerDisplayName
@@ -168,6 +183,7 @@ export function RelationshipOrb({
         {rings.map((ring) => {
           const dim = byRing.get(ring);
           const r = RING_RADIUS[ring];
+          const metricColor = getRelationshipMetricColor(dim?.code, ring);
           const available = dim?.available !== false;
           const direction =
             typeof dim?.direction === 'string' ? dim.direction : undefined;
@@ -187,19 +203,10 @@ export function RelationshipOrb({
           const { halfArcDeg } = bidirectionalArcDegrees(share);
           const isFull = share >= 0.999;
           const hasActive = !muted && share > 0;
+          const showOtherBase = !muted && dim != null;
 
           const clockwiseEndDeg = ARC_ORIGIN_DEG + halfArcDeg;
           const counterClockwiseEndDeg = ARC_ORIGIN_DEG - halfArcDeg;
-
-          const trackOpacity = muted ? 0.18 : 0.28;
-          const arcOpacity = muted
-            ? 0
-            : ring === 'OUTER'
-              ? 0.95
-              : ring === 'MIDDLE'
-                ? 0.8
-                : 0.65;
-          const activeStroke = 'rgba(196, 168, 255, 0.95)';
 
           return (
             <g key={ring}>
@@ -208,19 +215,30 @@ export function RelationshipOrb({
                 cy={CY}
                 r={r}
                 fill="none"
-                stroke="rgba(167, 139, 250, 0.22)"
+                stroke={RELATIONSHIP_ORB_TRACK}
                 strokeWidth={STROKE}
-                opacity={trackOpacity}
+                opacity={1}
               />
+              {showOtherBase ? (
+                <circle
+                  cx={CX}
+                  cy={CY}
+                  r={r}
+                  fill="none"
+                  stroke={metricColor}
+                  strokeWidth={STROKE}
+                  opacity={RELATIONSHIP_ORB_OTHER_OPACITY}
+                />
+              ) : null}
               {hasActive && isFull ? (
                 <circle
                   cx={CX}
                   cy={CY}
                   r={r}
                   fill="none"
-                  stroke={activeStroke}
+                  stroke={metricColor}
                   strokeWidth={STROKE}
-                  opacity={arcOpacity}
+                  opacity={0.95}
                 />
               ) : null}
               {hasActive && !isFull && halfArcDeg > 0 ? (
@@ -235,10 +253,10 @@ export function RelationshipOrb({
                       sweepFlag: SWEEP_CLOCKWISE,
                     })}
                     fill="none"
-                    stroke={activeStroke}
+                    stroke={metricColor}
                     strokeWidth={STROKE}
                     strokeLinecap="round"
-                    opacity={arcOpacity}
+                    opacity={0.95}
                   />
                   <path
                     d={describeArc({
@@ -250,18 +268,17 @@ export function RelationshipOrb({
                       sweepFlag: SWEEP_COUNTER_CLOCKWISE,
                     })}
                     fill="none"
-                    stroke={activeStroke}
+                    stroke={metricColor}
                     strokeWidth={STROKE}
                     strokeLinecap="round"
-                    opacity={arcOpacity}
+                    opacity={0.95}
                   />
-                  {/* Soften round-cap overlap at shared origin */}
                   <circle
                     cx={polar(CX, CY, r, ARC_ORIGIN_DEG).x}
                     cy={polar(CX, CY, r, ARC_ORIGIN_DEG).y}
                     r={STROKE / 2}
-                    fill={activeStroke}
-                    opacity={arcOpacity}
+                    fill={metricColor}
+                    opacity={0.95}
                   />
                 </>
               ) : null}
@@ -270,7 +287,8 @@ export function RelationshipOrb({
                   cx={polar(CX, CY, r, ARC_ORIGIN_DEG).x}
                   cy={polar(CX, CY, r, ARC_ORIGIN_DEG).y}
                   r={4.5}
-                  fill="rgba(230, 220, 255, 0.95)"
+                  fill={metricColor}
+                  opacity={0.95}
                 />
               ) : null}
               {!muted && direction === 'OTHER' && hasActive && !isFull ? (
@@ -279,13 +297,15 @@ export function RelationshipOrb({
                     cx={polar(CX, CY, r, clockwiseEndDeg).x}
                     cy={polar(CX, CY, r, clockwiseEndDeg).y}
                     r={4.5}
-                    fill="rgba(230, 220, 255, 0.95)"
+                    fill={metricColor}
+                    opacity={0.95}
                   />
                   <circle
                     cx={polar(CX, CY, r, counterClockwiseEndDeg).x}
                     cy={polar(CX, CY, r, counterClockwiseEndDeg).y}
                     r={4.5}
-                    fill="rgba(230, 220, 255, 0.95)"
+                    fill={metricColor}
+                    opacity={0.95}
                   />
                 </>
               ) : null}
@@ -294,7 +314,8 @@ export function RelationshipOrb({
                   cx={polar(CX, CY, r, ARC_ORIGIN_DEG).x}
                   cy={polar(CX, CY, r, ARC_ORIGIN_DEG).y}
                   r={3.5}
-                  fill="rgba(200, 185, 255, 0.7)"
+                  fill={metricColor}
+                  opacity={0.55}
                 />
               ) : null}
             </g>
@@ -306,8 +327,8 @@ export function RelationshipOrb({
         <AvatarImage
           src={peerAvatarUrl}
           letter={peerLetter(peerDisplayName)}
-          sizeClass="w-32 h-32"
-          textClass="text-4xl"
+          sizeClass={compact ? 'w-16 h-16' : 'w-32 h-32'}
+          textClass={compact ? 'text-xl' : 'text-4xl'}
           ringClassName="ring-white/15"
           priority
         />
