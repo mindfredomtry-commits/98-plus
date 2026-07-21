@@ -139,6 +139,24 @@ export type RelationshipDayPayload = {
   [key: string]: unknown;
 };
 
+export const RELATIONSHIP_PERIOD_RANGE_CODES = [
+  '1D',
+  '1W',
+  '1M',
+  '1Y',
+] as const;
+
+export type RelationshipPeriodRangeCode =
+  (typeof RELATIONSHIP_PERIOD_RANGE_CODES)[number];
+
+/** Period analytics payload from GET .../period?range=1W */
+export type RelationshipPeriodPayload = {
+  relationshipScreen?: RelationshipScreenPayload;
+  periodAnalytics?: unknown;
+  meta?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
 export type WeeklyDynamicsDayOption = {
   date: string;
   label: string;
@@ -246,6 +264,20 @@ export function isRelationshipDayPayload(
   return (
     isPlainObject(value.relationshipScreen) ||
     value.dayAnalytics != null ||
+    isPlainObject(value.meta)
+  );
+}
+
+/**
+ * Soft period-payload guard — relationshipScreen / periodAnalytics / meta.selectedRange.
+ */
+export function isRelationshipPeriodPayload(
+  value: unknown,
+): value is RelationshipPeriodPayload {
+  if (!isPlainObject(value)) return false;
+  return (
+    isPlainObject(value.relationshipScreen) ||
+    value.periodAnalytics != null ||
     isPlainObject(value.meta)
   );
 }

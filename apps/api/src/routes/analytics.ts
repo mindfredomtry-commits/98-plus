@@ -8,6 +8,7 @@ import {
   getRelationshipAction,
   getRelationshipDashboard,
   getRelationshipDay,
+  getRelationshipPeriod,
   type RelationshipActionCode,
 } from '../services/relationship-analytics.service';
 
@@ -65,6 +66,17 @@ function parseActivityDate(raw: unknown): string | null {
     return null;
   }
   return date;
+}
+
+const PERIOD_RANGE_CODES = ['1D', '1W', '1M', '1Y'] as const;
+type PeriodRangeCode = (typeof PERIOD_RANGE_CODES)[number];
+
+function parsePeriodRange(raw: unknown): PeriodRangeCode | null {
+  if (typeof raw !== 'string') return null;
+  const range = raw.trim().toUpperCase();
+  return (PERIOD_RANGE_CODES as readonly string[]).includes(range)
+    ? (range as PeriodRangeCode)
+    : null;
 }
 
 // GET /analytics/relationships/:otherUserId/dashboard
@@ -126,6 +138,52 @@ analyticsRouter.get(
       res.json(dayPayload);
     } catch (err) {
       console.error('Failed to load relationship day analytics', err);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  },
+);
+
+// GET /analytics/relationships/:otherUserId/period?range=1W&anchorDate=YYYY-MM-DD
+analyticsRouter.get(
+  '/relationships/:otherUserId/period',
+  requirePremium,
+  async (req: AuthRequest, res) => {
+    const otherUserId = parseOtherUserId(req.params.otherUserId);
+    if (!otherUserId) {
+      res.status(400).json({ error: 'Invalid otherUserId' });
+      return;
+    }
+
+    const range = parsePeriodRange(req.query.range);
+    if (!range) {
+      res.status(400).json({ error: 'Invalid range' });
+      return;
+    }
+
+    const anchorDateRaw = req.query.anchorDate;
+    const anchorDate =
+      anchorDateRaw == null || anchorDateRaw === ''
+        ? null
+        : parseActivityDate(anchorDateRaw);
+    if (anchorDateRaw != null && anchorDateRaw !== '' && !anchorDate) {
+      res.status(400).json({ error: 'Invalid anchorDate' });
+      return;
+    }
+
+    try {
+      const periodPayload = await getRelationshipPeriod(
+        req.userId!,
+        otherUserId,
+        range,
+        anchorDate,
+      );
+      if (!periodPayload) {
+        res.status(404).json({ error: 'Not found' });
+        return;
+      }
+      res.json(periodPayload);
+    } catch (err) {
+      console.error('Failed to load relationship period analytics', err);
       res.status(500).json({ error: 'Internal error' });
     }
   },

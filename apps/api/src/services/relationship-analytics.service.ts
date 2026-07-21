@@ -26,6 +26,10 @@ type DayRow = {
   day_payload: Prisma.JsonValue | null;
 };
 
+type PeriodRow = {
+  period_payload: Prisma.JsonValue | null;
+};
+
 type ActionRow = {
   action_payload: Prisma.JsonValue | null;
 };
@@ -67,6 +71,29 @@ export async function getRelationshipDay(
   `;
 
   const payload = rows[0]?.day_payload;
+  return isJsonObject(payload) ? payload : null;
+}
+
+/**
+ * Relationship period analytics via analytics.get_relationship_period_v1.
+ * Returns the SQL JSON payload as-is (including NO_ACTIVITY), or null when missing/invalid.
+ */
+export async function getRelationshipPeriod(
+  viewerUserId: string,
+  otherUserId: string,
+  range: string,
+  anchorDate: string | null,
+): Promise<Prisma.JsonValue | null> {
+  const rows = await prisma.$queryRaw<PeriodRow[]>`
+    select analytics.get_relationship_period_v1(
+      ${viewerUserId},
+      ${otherUserId},
+      ${range},
+      ${anchorDate}::date
+    ) as period_payload
+  `;
+
+  const payload = rows[0]?.period_payload;
   return isJsonObject(payload) ? payload : null;
 }
 

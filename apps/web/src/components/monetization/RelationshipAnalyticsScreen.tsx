@@ -6,7 +6,7 @@ import { ApiError } from '@/lib/api';
 import {
   fetchRelationshipAction,
   fetchRelationshipDashboard,
-  fetchRelationshipDay,
+  fetchRelationshipPeriod,
 } from '@/lib/relationship-analytics-api';
 import {
   buildV8ReceivedLog,
@@ -19,14 +19,14 @@ import {
   asPlainObject,
   formatOrbDisplayValue,
   isRelationshipScreenPayload,
-  parseWeeklyDynamicsOptions,
   readNumber,
   readRelationshipScreenStatus,
   readUiText,
   type AnalyticsPeer,
   type RelationshipDashboardPayload,
-  type RelationshipDayPayload,
   type RelationshipDimension,
+  type RelationshipPeriodPayload,
+  type RelationshipPeriodRangeCode,
   type RelationshipScreenPayload,
   type RelationshipTimelinePayload,
 } from '@/lib/relationship-analytics-types';
@@ -114,13 +114,13 @@ type LoadState =
   | { kind: 'notFound' }
   | { kind: 'error'; message: string };
 
-type DayLoadState =
+type PeriodLoadState =
   | { kind: 'idle' }
-  | { kind: 'loading'; date: string }
-  | { kind: 'success'; date: string; data: RelationshipDayPayload }
-  | { kind: 'error'; date: string; message: string };
+  | { kind: 'loading'; range: RelationshipPeriodRangeCode }
+  | { kind: 'success'; range: RelationshipPeriodRangeCode; data: RelationshipPeriodPayload }
+  | { kind: 'error'; range: RelationshipPeriodRangeCode; message: string };
 
-type RelationshipRange = '1D' | '1W' | '1M' | '1Y' | 'ALL';
+type RelationshipRange = RelationshipPeriodRangeCode | 'ALL';
 
 const RELATIONSHIP_RANGE_OPTIONS: Array<{
   id: RelationshipRange;
@@ -133,32 +133,19 @@ const RELATIONSHIP_RANGE_OPTIONS: Array<{
   { id: 'ALL', label: 'ВСЁ' },
 ];
 
-function todayIsoDate(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+function isPeriodRange(
+  range: RelationshipRange,
+): range is RelationshipPeriodRangeCode {
+  return range !== 'ALL';
 }
 
-function resolveLatestAvailableDay(
-  options: Array<{ date: string }>,
-): string {
-  if (options.length === 0) return todayIsoDate();
-  return options.reduce((best, item) =>
-    item.date > best ? item.date : best,
-    options[0].date,
-  );
-}
-
-function readDayRelationshipScreen(
-  payload: RelationshipDayPayload | null | undefined,
+function readPeriodRelationshipScreen(
+  payload: RelationshipPeriodPayload | null | undefined,
 ): RelationshipScreenPayload | null {
   if (!payload) return null;
   if (isRelationshipScreenPayload(payload.relationshipScreen)) {
     return payload.relationshipScreen;
   }
-  // Soft accept for NO_ACTIVITY payloads that still carry a screen object.
   const soft = asPlainObject(payload.relationshipScreen);
   if (!soft) return null;
   return soft as RelationshipScreenPayload;
@@ -280,13 +267,12 @@ export function RelationshipAnalyticsScreen({
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [selectedRange, setSelectedRange] = useState<RelationshipRange>('ALL');
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [dayLoadState, setDayLoadState] = useState<DayLoadState>({
+  const [periodLoadState, setPeriodLoadState] = useState<PeriodLoadState>({
     kind: 'idle',
   });
   const actionLockRef = useRef(false);
   const requestIdRef = useRef(0);
-  const dayRequestIdRef = useRef(0);
+  const periodRequestIdRef = useRef(0);
   const onPremiumRequiredRef = useRef(onPremiumRequired);
   onPremiumRequiredRef.current = onPremiumRequired;
 
@@ -296,8 +282,7 @@ export function RelationshipAnalyticsScreen({
     setLoadState({ kind: 'loading' });
     setActionError(null);
     setSelectedRange('ALL');
-    setSelectedDate(null);
-    setDayLoadState({ kind: 'idle' });
+    setPeriodLoadState({ kind: 'idle' });
 
     void (async () => {
       try {
@@ -352,32 +337,33 @@ export function RelationshipAnalyticsScreen({
   }, [token, peer.userId, retryTick, premiumActive, viewerUserId]);
 
   useEffect(() => {
-    if (!selectedDate) {
-      setDayLoadState({ kind: 'idle' });
+    if (!isPeriodRange(selectedRange)) {
+      setPeriodLoadState({ kind: 'idle' });
       return;
     }
 
-    const requestId = ++dayRequestIdRef.current;
+    const range = selectedRange;
+    const requestId = ++periodRequestIdRef.current;
     let cancelled = false;
-    setDayLoadState({ kind: 'loading', date: selectedDate });
+    setPeriodLoadState({ kind: 'loading', range });
 
     void (async () => {
       try {
-        const data = await fetchRelationshipDay({
+        const data = await fetchRelationshipPeriod({
           token,
           otherUserId: peer.userId,
-          date: selectedDate,
+          range,
         });
-        if (cancelled || requestId !== dayRequestIdRef.current) return;
-        setDayLoadState({ kind: 'success', date: selectedDate, data });
+        if (cancelled || requestId !== periodRequestIdRef.current) return;
+        setPeriodLoadState({ kind: 'success', range, data });
       } catch (err) {
-        if (cancelled || requestId !== dayRequestIdRef.current) return;
-        // Day failures must not bounce premium users into purchase flow.
+        if (cancelled || requestId !== periodRequestIdRef.current) return;
+        // Period failures must not bounce premium users into purchase flow.
         void err;
-        setDayLoadState({
+        setPeriodLoadState({
           kind: 'error',
-          date: selectedDate,
-          message: 'Не удалось загрузить этот день',
+          range,
+          message: 'Не удалось загрузить период',
         });
       }
     })();
@@ -385,7 +371,7 @@ export function RelationshipAnalyticsScreen({
     return () => {
       cancelled = true;
     };
-  }, [selectedDate, token, peer.userId]);
+  }, [selectedRange, token, peer.userId]);
 
   const handleRetry = useCallback(() => {
     setRetryTick((n) => n + 1);
@@ -425,62 +411,48 @@ export function RelationshipAnalyticsScreen({
       ? loadState.data.relationshipScreen
       : null;
 
-  const dayPayload =
-    dayLoadState.kind === 'success' &&
-    selectedDate != null &&
-    dayLoadState.date === selectedDate
-      ? dayLoadState.data
+  const activePeriodRange = isPeriodRange(selectedRange) ? selectedRange : null;
+
+  const periodPayload =
+    periodLoadState.kind === 'success' &&
+    activePeriodRange != null &&
+    periodLoadState.range === activePeriodRange
+      ? periodLoadState.data
       : null;
 
-  const dayRelationshipScreen = readDayRelationshipScreen(dayPayload);
-  const dayStatus = readRelationshipScreenStatus(dayRelationshipScreen);
-  const isDayNoActivity =
-    selectedRange === '1D' && dayStatus === 'NO_ACTIVITY';
-  const isDayLoading =
-    selectedRange === '1D' &&
-    selectedDate != null &&
-    dayLoadState.kind === 'loading' &&
-    dayLoadState.date === selectedDate;
-  const dayErrorMessage =
-    selectedRange === '1D' &&
-    selectedDate != null &&
-    dayLoadState.kind === 'error' &&
-    dayLoadState.date === selectedDate
-      ? dayLoadState.message
+  const periodRelationshipScreen = readPeriodRelationshipScreen(periodPayload);
+  const periodStatus = readRelationshipScreenStatus(periodRelationshipScreen);
+  const isPeriodNoActivity =
+    activePeriodRange != null && periodStatus === 'NO_ACTIVITY';
+  const isPeriodLoading =
+    activePeriodRange != null &&
+    periodLoadState.kind === 'loading' &&
+    periodLoadState.range === activePeriodRange;
+  const periodErrorMessage =
+    activePeriodRange != null &&
+    periodLoadState.kind === 'error' &&
+    periodLoadState.range === activePeriodRange
+      ? periodLoadState.message
       : null;
 
-  // Day overlay only for 1D when fetch succeeded; on error keep lifetime dashboard.
+  // Period overlay when fetch succeeded; on error keep previous/lifetime dashboard.
   const relationshipScreen =
-    selectedRange === '1D' &&
-    selectedDate &&
-    dayRelationshipScreen &&
-    !dayErrorMessage
-      ? dayRelationshipScreen
+    activePeriodRange &&
+    periodRelationshipScreen &&
+    !periodErrorMessage
+      ? periodRelationshipScreen
       : baseRelationshipScreen;
 
-  const weeklyDayOptions = useMemo(
-    () => parseWeeklyDynamicsOptions(baseRelationshipScreen?.weeklyDynamics),
-    [baseRelationshipScreen],
-  );
-
-  const handleSelectRange = useCallback(
-    (range: RelationshipRange) => {
-      setSelectedRange(range);
-      if (range === '1D') {
-        setSelectedDate(resolveLatestAvailableDay(weeklyDayOptions));
-        return;
-      }
-      setSelectedDate(null);
-    },
-    [weeklyDayOptions],
-  );
+  const handleSelectRange = useCallback((range: RelationshipRange) => {
+    setSelectedRange(range);
+  }, []);
 
   const allDimensions = useMemo((): RelationshipDimension[] => {
-    if (selectedRange === '1D' && isDayNoActivity) return [];
+    if (activePeriodRange != null && isPeriodNoActivity) return [];
     return relationshipScreen
       ? extractRelationshipDimensions(relationshipScreen)
       : [];
-  }, [isDayNoActivity, relationshipScreen, selectedRange]);
+  }, [activePeriodRange, isPeriodNoActivity, relationshipScreen]);
 
   const orbDimensions = useMemo(
     () => selectOrbRingDimensions(allDimensions),
@@ -631,32 +603,32 @@ export function RelationshipAnalyticsScreen({
               ваши отношения
             </h2>
 
-            {isDayLoading ? (
+            {isPeriodLoading ? (
               <p className="monetization-muted monetization-muted--tight">
-                загружаем день…
+                загружаем период…
               </p>
             ) : null}
 
-            {dayErrorMessage ? (
+            {periodErrorMessage ? (
               <p className="monetization-analytics-inline-error">
-                {dayErrorMessage}
+                {periodErrorMessage}
               </p>
             ) : null}
 
             <RelationshipOrb
               compact
-              dimensions={isDayLoading ? [] : orbDimensions}
+              dimensions={isPeriodLoading ? [] : orbDimensions}
               peerAvatarUrl={peerAvatar}
               peerDisplayName={peerName}
             />
 
-            {!isDayLoading && isDayNoActivity ? (
+            {!isPeriodLoading && isPeriodNoActivity ? (
               <p className="monetization-muted monetization-muted--tight">
-                нет данных за выбранный день
+                нет данных за выбранный период
               </p>
             ) : null}
 
-            {!isDayLoading && !isDayNoActivity ? (
+            {!isPeriodLoading && !isPeriodNoActivity ? (
               cardDimensions.length === 0 ? (
                 <p className="monetization-muted monetization-muted--tight">
                   пока нет данных по кольцам динамики
