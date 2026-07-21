@@ -334,8 +334,10 @@ export function RelationshipOrb({
         <AvatarImage
           src={peerAvatarUrl}
           letter={peerLetter(peerDisplayName)}
-          sizeClass={compact ? 'w-16 h-16' : 'w-32 h-32'}
-          textClass={compact ? 'text-xl' : 'text-4xl'}
+          sizeClass={
+            compact ? 'monetization-orb__avatar--compact' : 'w-32 h-32'
+          }
+          textClass={compact ? 'text-2xl' : 'text-4xl'}
           ringClassName="ring-white/15"
           priority
         />
