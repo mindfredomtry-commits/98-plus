@@ -656,6 +656,28 @@
   color: rgba(255, 255, 255, 0.58);
 }
 
+.monetization-relationship-overview {
+  margin: 0 0 1.35rem;
+  padding: 0 0 0.25rem;
+}
+
+.monetization-relationship-overview__title {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: rgba(255, 255, 255, 0.92);
+  text-align: center;
+}
+
+.monetization-relationship-overview .monetization-relationship__range-selector {
+  margin-bottom: 0.85rem;
+}
+
+.monetization-relationship-overview .monetization-relationship__tiles {
+  margin-top: 0.65rem;
+}
+
 .monetization-peer-list {
   list-style: none;
   margin: 0;

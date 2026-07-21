@@ -2,11 +2,14 @@ import { api } from './api';
 import {
   isRelationshipDashboardPayload,
   isRelationshipDayPayload,
+  isRelationshipOverviewPayload,
   isRelationshipPeriodPayload,
   isRelationshipTimelinePayload,
   type RelationshipActionCode,
   type RelationshipDashboardPayload,
   type RelationshipDayPayload,
+  type RelationshipOverviewPayload,
+  type RelationshipOverviewRangeCode,
   type RelationshipPeriodPayload,
   type RelationshipPeriodRangeCode,
   type RelationshipTimelinePayload,
@@ -85,6 +88,33 @@ export async function fetchRelationshipPeriod(input: {
   );
 
   if (!isRelationshipPeriodPayload(data)) {
+    throw new RelationshipAnalyticsPayloadError(
+      'Unexpected analytics response',
+    );
+  }
+  return data;
+}
+
+export async function fetchRelationshipOverview(input: {
+  token: string | null | undefined;
+  range: RelationshipOverviewRangeCode;
+  anchorDate?: string | null;
+}): Promise<RelationshipOverviewPayload> {
+  const params = new URLSearchParams({ range: input.range });
+  const anchorDate = input.anchorDate?.trim();
+  if (anchorDate) {
+    params.set('anchorDate', anchorDate);
+  }
+
+  const data = await api<unknown>(
+    `/analytics/relationships/overview?${params.toString()}`,
+    {
+      token: input.token,
+      retries: 0,
+    },
+  );
+
+  if (!isRelationshipOverviewPayload(data)) {
     throw new RelationshipAnalyticsPayloadError(
       'Unexpected analytics response',
     );

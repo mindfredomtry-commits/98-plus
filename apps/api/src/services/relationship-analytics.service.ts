@@ -26,6 +26,10 @@ type DayRow = {
   day_payload: Prisma.JsonValue | null;
 };
 
+type OverviewRow = {
+  overview_payload: Prisma.JsonValue | null;
+};
+
 type PeriodRow = {
   period_payload: Prisma.JsonValue | null;
 };
@@ -94,6 +98,26 @@ export async function getRelationshipPeriod(
   `;
 
   const payload = rows[0]?.period_payload;
+  return isJsonObject(payload) ? payload : null;
+}
+
+/**
+ * Aggregate relationship overview via analytics.get_relationship_overview_v1.
+ */
+export async function getRelationshipOverview(
+  viewerUserId: string,
+  range: string,
+  anchorDate: string | null,
+): Promise<Prisma.JsonValue | null> {
+  const rows = await prisma.$queryRaw<OverviewRow[]>`
+    select analytics.get_relationship_overview_v1(
+      ${viewerUserId},
+      ${range},
+      ${anchorDate}::date
+    ) as overview_payload
+  `;
+
+  const payload = rows[0]?.overview_payload;
   return isJsonObject(payload) ? payload : null;
 }
 

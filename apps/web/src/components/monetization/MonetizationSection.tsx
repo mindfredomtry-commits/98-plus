@@ -332,6 +332,8 @@ export function MonetizationSection({
       {view === 'peerSelect' ? (
         <AnalyticsPeerSelectScreen
           friends={friends}
+          token={token}
+          user={user}
           onSelect={handleSelectAnalyticsPeer}
           onBack={handleBackFromPeerSelect}
         />

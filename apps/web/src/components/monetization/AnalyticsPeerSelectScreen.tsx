@@ -1,16 +1,57 @@
 'use client';
 
-import type { FriendCard } from '@98plus/shared';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { FriendCard, UserPublic } from '@98plus/shared';
 import { AvatarImage } from '../AvatarImage';
 import { WhatBackIcon } from '../instant-ban/WhatBackIcon';
 import { friendAvatarUrl } from '@/lib/avatar-url';
-import type { AnalyticsPeer } from '@/lib/relationship-analytics-types';
+import { fetchRelationshipOverview } from '@/lib/relationship-analytics-api';
+import {
+  extractOverviewDimensions,
+  selectCardDimensions,
+  selectOrbRingDimensions,
+} from '@/lib/relationship-dimensions';
+import {
+  readRelationshipScreenStatus,
+  type AnalyticsPeer,
+  type RelationshipOverviewPayload,
+  type RelationshipOverviewRangeCode,
+  type RelationshipScreenPayload,
+} from '@/lib/relationship-analytics-types';
+import {
+  resolveUserDisplayName,
+} from '@/lib/user-display-name';
+import { userAvatarSrc } from '@/lib/user-public-avatar';
+import { RelationshipMetricTile } from './RelationshipMetricTile';
+import { RelationshipOrb } from './RelationshipOrb';
+import './monetization.css';
 
 type Props = {
   friends: FriendCard[];
+  token: string | null | undefined;
+  user: UserPublic | null;
   onSelect: (peer: AnalyticsPeer) => void;
   onBack: () => void;
 };
+
+const OVERVIEW_RANGE_OPTIONS: {
+  id: RelationshipOverviewRangeCode;
+  label: string;
+}[] = [
+  { id: '1D', label: '1Д' },
+  { id: '1W', label: '1Н' },
+  { id: '1M', label: '1М' },
+  { id: '1Y', label: '1Г' },
+  { id: 'ALL', label: 'ВСЁ' },
+];
+
+function localTodayIsoDate(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 function friendDisplayName(friend: FriendCard): string {
   const first = friend.firstName?.trim();
@@ -26,6 +67,29 @@ function friendLetter(friend: FriendCard): string {
   return (source?.[0] ?? '?').toUpperCase();
 }
 
+type OverviewLoadState =
+  | { kind: 'idle' }
+  | { kind: 'loading'; range: RelationshipOverviewRangeCode }
+  | {
+      kind: 'success';
+      range: RelationshipOverviewRangeCode;
+      data: RelationshipOverviewPayload;
+    }
+  | {
+      kind: 'error';
+      range: RelationshipOverviewRangeCode;
+      message: string;
+    };
+
+function readOverviewScreen(
+  payload: RelationshipOverviewPayload | null | undefined,
+): RelationshipScreenPayload | null {
+  const overview =
+    payload?.relationshipScreen ?? payload?.relationshipOverview;
+  if (!overview) return null;
+  return overview as RelationshipScreenPayload;
+}
+
 /** Friends with a real registered userId — only these can be analytics peers. */
 export function analyticsEligibleFriends(
   friends: FriendCard[],
@@ -38,9 +102,91 @@ export function analyticsEligibleFriends(
 
 export function AnalyticsPeerSelectScreen({
   friends,
+  token,
+  user,
   onSelect,
   onBack,
 }: Props) {
+  const [selectedRange, setSelectedRange] =
+    useState<RelationshipOverviewRangeCode>('ALL');
+  const [overviewState, setOverviewState] = useState<OverviewLoadState>({
+    kind: 'idle',
+  });
+
+  const viewerAvatar = userAvatarSrc(user);
+  const viewerName = resolveUserDisplayName(user);
+
+  useEffect(() => {
+    if (!token) return;
+
+    let cancelled = false;
+    const range = selectedRange;
+
+    setOverviewState({ kind: 'loading', range });
+
+    fetchRelationshipOverview({
+      token,
+      range,
+      anchorDate: range === '1D' ? localTodayIsoDate() : undefined,
+    })
+      .then((data) => {
+        if (cancelled) return;
+        setOverviewState({ kind: 'success', range, data });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setOverviewState({
+          kind: 'error',
+          range,
+          message: 'не удалось загрузить сводку',
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRange, token]);
+
+  const overviewPayload =
+    overviewState.kind === 'success' && overviewState.range === selectedRange
+      ? overviewState.data
+      : null;
+
+  const overviewScreen = readOverviewScreen(overviewPayload);
+  const overviewStatus = readRelationshipScreenStatus(overviewScreen);
+  const isOverviewLoading =
+    overviewState.kind === 'loading' &&
+    overviewState.range === selectedRange;
+  const isOverviewNoActivity = overviewStatus === 'NO_ACTIVITY';
+  const overviewErrorMessage =
+    overviewState.kind === 'error' && overviewState.range === selectedRange
+      ? overviewState.message
+      : null;
+
+  const allDimensions = useMemo(() => {
+    if (isOverviewLoading || isOverviewNoActivity || !overviewPayload) {
+      return [];
+    }
+    return extractOverviewDimensions(overviewPayload);
+  }, [isOverviewLoading, isOverviewNoActivity, overviewPayload]);
+
+  const orbDimensions = useMemo(
+    () => selectOrbRingDimensions(allDimensions),
+    [allDimensions],
+  );
+
+  const cardDimensions = useMemo(
+    () => selectCardDimensions(allDimensions),
+    [allDimensions],
+  );
+
+  const handleSelectRange = useCallback(
+    (range: RelationshipOverviewRangeCode) => {
+      setSelectedRange(range);
+    },
+    [],
+  );
+
   const eligible = analyticsEligibleFriends(friends);
 
   return (
@@ -65,6 +211,79 @@ export function AnalyticsPeerSelectScreen({
         <p className="monetization-peer-lead">
           выбери человека, чтобы узнать, что происходит между вами
         </p>
+
+        <section
+          className="monetization-relationship-overview"
+          aria-label="Твои отношения с людьми"
+        >
+          <h3 className="monetization-relationship-overview__title">
+            твои отношения с людьми
+          </h3>
+
+          <div
+            className="monetization-relationship__range-selector"
+            role="group"
+            aria-label="Период"
+          >
+            {OVERVIEW_RANGE_OPTIONS.map((option) => {
+              const active = selectedRange === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={`monetization-range-chip${
+                    active ? ' monetization-range-chip--active' : ''
+                  }`}
+                  aria-pressed={active}
+                  onClick={() => handleSelectRange(option.id)}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {isOverviewLoading ? (
+            <p className="monetization-muted monetization-muted--tight">
+              загружаем…
+            </p>
+          ) : null}
+
+          {overviewErrorMessage ? (
+            <p className="monetization-analytics-inline-error">
+              {overviewErrorMessage}
+            </p>
+          ) : null}
+
+          <RelationshipOrb
+            compact
+            dimensions={isOverviewLoading ? [] : orbDimensions}
+            peerAvatarUrl={viewerAvatar}
+            peerDisplayName={viewerName}
+          />
+
+          {!isOverviewLoading && isOverviewNoActivity ? (
+            <p className="monetization-muted monetization-muted--tight">
+              За выбранный период ещё нет действий
+            </p>
+          ) : null}
+
+          {!isOverviewLoading &&
+          !isOverviewNoActivity &&
+          cardDimensions.length > 0 ? (
+            <div
+              className="monetization-relationship__tiles"
+              data-relationship-tiles="overview"
+            >
+              {cardDimensions.map((dimension) => (
+                <RelationshipMetricTile
+                  key={dimension.code}
+                  dimension={dimension}
+                />
+              ))}
+            </div>
+          ) : null}
+        </section>
 
         {eligible.length === 0 ? (
           <div className="monetization-analytics-empty">

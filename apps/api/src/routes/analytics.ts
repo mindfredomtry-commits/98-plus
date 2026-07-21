@@ -8,6 +8,7 @@ import {
   getRelationshipAction,
   getRelationshipDashboard,
   getRelationshipDay,
+  getRelationshipOverview,
   getRelationshipPeriod,
   type RelationshipActionCode,
 } from '../services/relationship-analytics.service';
@@ -78,6 +79,56 @@ function parsePeriodRange(raw: unknown): PeriodRangeCode | null {
     ? (range as PeriodRangeCode)
     : null;
 }
+
+const OVERVIEW_RANGE_CODES = ['1D', '1W', '1M', '1Y', 'ALL'] as const;
+type OverviewRangeCode = (typeof OVERVIEW_RANGE_CODES)[number];
+
+function parseOverviewRange(raw: unknown): OverviewRangeCode | null {
+  if (typeof raw !== 'string') return null;
+  const range = raw.trim().toUpperCase();
+  return (OVERVIEW_RANGE_CODES as readonly string[]).includes(range)
+    ? (range as OverviewRangeCode)
+    : null;
+}
+
+// GET /analytics/relationships/overview?range=1W&anchorDate=YYYY-MM-DD
+analyticsRouter.get(
+  '/relationships/overview',
+  requirePremium,
+  async (req: AuthRequest, res) => {
+    const range = parseOverviewRange(req.query.range);
+    if (!range) {
+      res.status(400).json({ error: 'Invalid range' });
+      return;
+    }
+
+    const anchorDateRaw = req.query.anchorDate;
+    const anchorDate =
+      anchorDateRaw == null || anchorDateRaw === ''
+        ? null
+        : parseActivityDate(anchorDateRaw);
+    if (anchorDateRaw != null && anchorDateRaw !== '' && !anchorDate) {
+      res.status(400).json({ error: 'Invalid anchorDate' });
+      return;
+    }
+
+    try {
+      const overviewPayload = await getRelationshipOverview(
+        req.userId!,
+        range,
+        anchorDate,
+      );
+      if (!overviewPayload) {
+        res.status(404).json({ error: 'Not found' });
+        return;
+      }
+      res.json(overviewPayload);
+    } catch (err) {
+      console.error('Failed to load relationship overview analytics', err);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  },
+);
 
 // GET /analytics/relationships/:otherUserId/dashboard
 analyticsRouter.get(

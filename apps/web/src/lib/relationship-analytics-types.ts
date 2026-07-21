@@ -157,6 +157,33 @@ export type RelationshipPeriodPayload = {
   [key: string]: unknown;
 };
 
+export const RELATIONSHIP_OVERVIEW_RANGE_CODES = [
+  '1D',
+  '1W',
+  '1M',
+  '1Y',
+  'ALL',
+] as const;
+
+export type RelationshipOverviewRangeCode =
+  (typeof RELATIONSHIP_OVERVIEW_RANGE_CODES)[number];
+
+export type RelationshipOverviewPayload = {
+  relationshipScreen?: RelationshipScreenPayload & {
+    facts?: Record<string, unknown>;
+    selectedRange?: string;
+    period?: Record<string, unknown>;
+  };
+  relationshipOverview?: RelationshipScreenPayload & {
+    facts?: Record<string, unknown>;
+    selectedRange?: string;
+    period?: Record<string, unknown>;
+  };
+  overviewAnalytics?: unknown;
+  meta?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
 export type WeeklyDynamicsDayOption = {
   date: string;
   label: string;
@@ -278,6 +305,18 @@ export function isRelationshipPeriodPayload(
   return (
     isPlainObject(value.relationshipScreen) ||
     value.periodAnalytics != null ||
+    isPlainObject(value.meta)
+  );
+}
+
+export function isRelationshipOverviewPayload(
+  value: unknown,
+): value is RelationshipOverviewPayload {
+  if (!isPlainObject(value)) return false;
+  return (
+    isPlainObject(value.relationshipScreen) ||
+    isPlainObject(value.relationshipOverview) ||
+    value.overviewAnalytics != null ||
     isPlainObject(value.meta)
   );
 }
