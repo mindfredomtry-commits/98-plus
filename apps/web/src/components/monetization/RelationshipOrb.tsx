@@ -37,8 +37,9 @@ const RING_RADIUS: Record<'OUTER' | 'MIDDLE' | 'INNER', number> = {
 /** Angular gap between viewer and other arc segments (each ring has two gaps). */
 export const RELATIONSHIP_ORB_SEGMENT_GAP_DEG = 14;
 
-/** Viewer arc origin — lower-left (~7–8 o'clock). polar(): 0=right, 180=left. */
-export const VIEWER_ARC_START_DEG = 210;
+/** Viewer arc anchor at 9 o'clock; other anchor at 3 o'clock. */
+export const VIEWER_ARC_ANCHOR_DEG = 180;
+export const OTHER_ARC_ANCHOR_DEG = 0;
 
 /** SVG sweep: 1 = clockwise (increasing angle), 0 = counter-clockwise. */
 const SWEEP_CLOCKWISE = 1 as const;
@@ -65,21 +66,27 @@ export function dualSegmentArcDegrees(
   viewerSweepDeg: number;
   otherSweepDeg: number;
   viewerStartDeg: number;
+  viewerEndDeg: number;
   otherStartDeg: number;
+  otherEndDeg: number;
 } {
   const gapDeg = RELATIONSHIP_ORB_SEGMENT_GAP_DEG;
   const usableSweepDeg = 360 - gapDeg * 2;
   const viewerSweepDeg = usableSweepDeg * clampShare(viewerShare);
   const otherSweepDeg = usableSweepDeg * clampShare(otherShare);
-  const viewerStartDeg = VIEWER_ARC_START_DEG;
-  const otherStartDeg = viewerStartDeg + viewerSweepDeg + gapDeg;
+  const viewerStartDeg = VIEWER_ARC_ANCHOR_DEG - viewerSweepDeg / 2;
+  const viewerEndDeg = VIEWER_ARC_ANCHOR_DEG + viewerSweepDeg / 2;
+  const otherStartDeg = OTHER_ARC_ANCHOR_DEG - otherSweepDeg / 2;
+  const otherEndDeg = OTHER_ARC_ANCHOR_DEG + otherSweepDeg / 2;
   return {
     gapDeg,
     usableSweepDeg,
     viewerSweepDeg,
     otherSweepDeg,
     viewerStartDeg,
+    viewerEndDeg,
     otherStartDeg,
+    otherEndDeg,
   };
 }
 
@@ -94,6 +101,14 @@ if (process.env.NODE_ENV !== 'production') {
     Math.abs(half.otherSweepDeg - half.usableSweepDeg / 2) > 1e-9
   ) {
     throw new Error('[RelationshipOrb] 50/50 split assert failed');
+  }
+  if (
+    Math.abs((half.viewerStartDeg + half.viewerEndDeg) / 2 - VIEWER_ARC_ANCHOR_DEG) >
+      1e-9 ||
+    Math.abs((half.otherStartDeg + half.otherEndDeg) / 2 - OTHER_ARC_ANCHOR_DEG) >
+      1e-9
+  ) {
+    throw new Error('[RelationshipOrb] anchor centering assert failed');
   }
   const fullViewer = dualSegmentArcDegrees(1, 0);
   if (Math.abs(fullViewer.viewerSweepDeg - fullViewer.usableSweepDeg) > 1e-9) {
@@ -148,12 +163,13 @@ function arcSegmentPath(
   sweepDeg: number,
 ): string | null {
   if (sweepDeg < MIN_ARC_SWEEP_DEG) return null;
+  const normalizedStartDeg = ((startDeg % 360) + 360) % 360;
   return describeArc({
     cx,
     cy,
     radius,
-    startAngle: startDeg,
-    endAngle: startDeg + sweepDeg,
+    startAngle: normalizedStartDeg,
+    endAngle: normalizedStartDeg + sweepDeg,
     sweepFlag: SWEEP_CLOCKWISE,
   });
 }
@@ -300,8 +316,8 @@ export function RelationshipOrb({
               ) : null}
               {!muted && direction === 'VIEWER' ? (
                 <circle
-                  cx={polar(CX, CY, r, viewerStartDeg).x}
-                  cy={polar(CX, CY, r, viewerStartDeg).y}
+                  cx={polar(CX, CY, r, VIEWER_ARC_ANCHOR_DEG).x}
+                  cy={polar(CX, CY, r, VIEWER_ARC_ANCHOR_DEG).y}
                   r={4.5}
                   fill={metricColor}
                   opacity={0.95}
@@ -309,8 +325,8 @@ export function RelationshipOrb({
               ) : null}
               {!muted && direction === 'OTHER' && otherMarkerDeg != null ? (
                 <circle
-                  cx={polar(CX, CY, r, otherMarkerDeg).x}
-                  cy={polar(CX, CY, r, otherMarkerDeg).y}
+                  cx={polar(CX, CY, r, OTHER_ARC_ANCHOR_DEG).x}
+                  cy={polar(CX, CY, r, OTHER_ARC_ANCHOR_DEG).y}
                   r={4.5}
                   fill={metricColor}
                   opacity={0.95}
@@ -318,8 +334,8 @@ export function RelationshipOrb({
               ) : null}
               {!muted && direction === 'BALANCED' ? (
                 <circle
-                  cx={polar(CX, CY, r, viewerStartDeg).x}
-                  cy={polar(CX, CY, r, viewerStartDeg).y}
+                  cx={polar(CX, CY, r, VIEWER_ARC_ANCHOR_DEG).x}
+                  cy={polar(CX, CY, r, VIEWER_ARC_ANCHOR_DEG).y}
                   r={3.5}
                   fill={metricColor}
                   opacity={0.55}
