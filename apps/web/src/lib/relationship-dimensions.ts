@@ -161,8 +161,19 @@ export function extractOverviewDimensions(
   if (!payload) return [];
   const overview =
     payload.relationshipScreen ?? payload.relationshipOverview;
-  if (!overview) return [];
-  return normalizeOrbDimensions(overview.relationshipOrb?.dimensions);
+  if (overview) {
+    return normalizeOrbDimensions(overview.relationshipOrb?.dimensions);
+  }
+  const overviewAnalytics = payload.overviewAnalytics as
+    | { relationshipOrb?: { dimensions?: unknown } }
+    | null
+    | undefined;
+  if (overviewAnalytics?.relationshipOrb?.dimensions) {
+    return normalizeOrbDimensions(
+      overviewAnalytics.relationshipOrb.dimensions as RelationshipDimension[],
+    );
+  }
+  return [];
 }
 
 export function resolveLearnPressView(

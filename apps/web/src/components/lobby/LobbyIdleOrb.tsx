@@ -1,26 +1,20 @@
 'use client';
 
-import { InfluenceRing } from '@/components/lobby/InfluenceRing';
+import { GlobalRelationshipRing } from '@/components/lobby/GlobalRelationshipRing';
 import { LobbyOrbFace } from '@/components/lobby/LobbyOrbFace';
+import type { GlobalRelationshipOrbRingState } from '@/lib/use-global-relationship-orb';
 
 type Props = {
-  ringPercent: number;
-  /** Boot scene only — CSS fill animation. */
-  bootFillActive?: boolean;
+  ringState: GlobalRelationshipOrbRingState;
   /** Boot ring slot — 98+ logo is rendered in LobbyBootOrbWrap overlay. */
   hideTitle?: boolean;
 };
 
 /**
  * Idle lobby orb shell — same DOM/CSS as ArenaLobbyOrb lobby face, no interactions.
+ * Ring fill is Global Relationship Orb (not energy).
  */
-export function LobbyIdleOrb({
-  ringPercent,
-  bootFillActive = false,
-  hideTitle = false,
-}: Props) {
-  const clamped = Math.min(100, Math.max(0, ringPercent));
-
+export function LobbyIdleOrb({ ringState, hideTitle = false }: Props) {
   return (
     <div className="instant-ban-arena-lobby-orb" data-arena-lobby-orb>
       <div className="instant-ban-arena-lobby-orb__stage">
@@ -28,11 +22,9 @@ export function LobbyIdleOrb({
           <LobbyOrbFace
             hideTitle={hideTitle}
             ring={
-              <InfluenceRing
-                value={clamped}
+              <GlobalRelationshipRing
+                ringState={ringState}
                 className="instant-ban-confirm-influence-ring"
-                disableTransition={bootFillActive}
-                bootFillActive={bootFillActive}
               />
             }
           />
@@ -41,4 +33,3 @@ export function LobbyIdleOrb({
     </div>
   );
 }
-

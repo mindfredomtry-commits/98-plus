@@ -11,7 +11,8 @@
     "test:pair-free-mode": "tsx scripts/check-pair-free-mode.ts",
     "test:relationship-respect": "tsx scripts/relationship-respect.test.ts",
     "test:relationship-relative-metric": "tsx scripts/relationship-relative-metric.test.ts",
-    "test:relationship-direction": "tsx scripts/relationship-direction.test.ts"
+    "test:relationship-direction": "tsx scripts/relationship-direction.test.ts",
+    "test:relationship-global-share": "tsx scripts/relationship-global-share.test.ts"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

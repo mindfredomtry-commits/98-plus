@@ -1,10 +1,12 @@
 'use client';
 
+import { useApp } from './Providers';
+import { useBootSceneIntro } from '@/components/instant-ban/useBootSceneIntro';
+import { useGlobalRelationshipOrb } from '@/lib/use-global-relationship-orb';
 import { LobbyBootOrbWrap } from '@/components/lobby/LobbyBootOrbWrap';
 import { LobbyIdleOrb } from '@/components/lobby/LobbyIdleOrb';
 import { LobbyPersistentLogoSlot } from '@/components/lobby/LobbyPersistentLogoSlot';
 import { LobbyScreenAtmosphere } from '@/components/lobby/LobbyScreenAtmosphere';
-import { useBootSceneIntro } from '@/components/instant-ban/useBootSceneIntro';
 import './instant-ban/instant-ban.css';
 import './lobby-screen.css';
 import './lobby-boot-intro.css';
@@ -17,6 +19,8 @@ type Props = {
 
 /** Standalone boot scene fallback — same launch phases as InstantBanFlow. */
 export function BootScene({ influencePercent, energyKnown }: Props) {
+  const { token } = useApp();
+  const globalRelationshipRing = useGlobalRelationshipOrb(token);
   const ringTarget = Math.min(100, Math.max(0, influencePercent));
 
   const {
@@ -27,7 +31,6 @@ export function BootScene({ influencePercent, energyKnown }: Props) {
     ringScaleLocked,
     bootIntroActive,
     fillTargetPercent,
-    visualRingPercent,
     onLogoScaleEnd,
     onRingScaleEnd,
     onFillEnd,
@@ -68,11 +71,7 @@ export function BootScene({ influencePercent, energyKnown }: Props) {
           onRingScaleEnd={onRingScaleEnd}
           onFillEnd={onFillEnd}
         >
-          <LobbyIdleOrb
-            ringPercent={visualRingPercent}
-            bootFillActive={fillActive}
-            hideTitle
-          />
+          <LobbyIdleOrb ringState={globalRelationshipRing} hideTitle />
         </LobbyBootOrbWrap>
       </div>
     </div>

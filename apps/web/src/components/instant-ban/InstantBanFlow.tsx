@@ -209,13 +209,13 @@ import { useConfirmOrbController } from './useConfirmOrbController';
 import { LobbyBootOrbWrap } from '@/components/lobby/LobbyBootOrbWrap';
 import { LobbyPersistentLogoSlot } from '@/components/lobby/LobbyPersistentLogoSlot';
 import { LobbyIdleOrb } from '@/components/lobby/LobbyIdleOrb';
+import { useGlobalRelationshipOrb } from '@/lib/use-global-relationship-orb';
 import { LobbyOrbWrap } from '@/components/lobby/LobbyOrbWrap';
 import { LobbyScreenAtmosphere } from '@/components/lobby/LobbyScreenAtmosphere';
 import { LobbyBootLogoHideMarker } from '@/components/LobbyBootLogoHideMarker';
 import { shouldHideLobbyBootLogoOnly } from '@/lib/lobby-boot-logo-hide';
 import type { BootSceneIntroController } from './useBootSceneIntro';
 import {
-  getLobbyBootIntroPrimedSnapshot,
   isLobbyBootIntroPrimed,
   subscribeLobbyBootIntroSession,
 } from '@/lib/lobby-boot-intro-session';
@@ -543,6 +543,8 @@ export function InstantBanFlow({
     getConfirmOrbQueueDebugSnapshot,
     tryClearExplicitNotificationDrainGuarded,
   } = useApp();
+  /** Global Relationship Orb only — never used for CTA / energy-gate. */
+  const globalRelationshipRing = useGlobalRelationshipOrb(token);
   const { haptic, hapticSuccess, webApp } = useTelegram();
   const deepLinkRouteBootPending = useSyncExternalStore(
     subscribeDeepLinkRouteBoot,
@@ -6549,7 +6551,6 @@ export function InstantBanFlow({
     ringScaleLocked: bootRingScaleLocked,
     bootIntroActive,
     fillTargetPercent,
-    visualRingPercent,
     onLogoScaleEnd: onBootLogoScaleEnd,
     onRingScaleEnd: onBootRingScaleEnd,
     onFillEnd: onBootFillEnd,
@@ -6781,13 +6782,6 @@ export function InstantBanFlow({
   };
 
   const legacyLobbyOrbBlockersKey = legacyLobbyOrbBlockers.join('|');
-
-  const lobbyRingDisplayPercent = useMemo(() => {
-    if (!energyLoaded) {
-      return getLobbyBootIntroPrimedSnapshot().ringPercent;
-    }
-    return lobbyInfluencePercent;
-  }, [energyLoaded, lobbyInfluencePercent]);
 
   const confirmStripOrbMountBlockedReason = resolveOrbMountBlockedReason({
     lobbyOrbVisible,
@@ -7946,8 +7940,7 @@ export function InstantBanFlow({
             data-orb-instance={bootOrbInstanceId}
           >
             <LobbyIdleOrb
-              ringPercent={visualRingPercent}
-              bootFillActive={bootFillActive}
+              ringState={globalRelationshipRing}
               hideTitle
             />
           </LobbyBootOrbWrap>
@@ -7969,7 +7962,7 @@ export function InstantBanFlow({
               confirmActive={confirmActive}
               orbCompressActive={orbCompressActive}
               confirmOrb={confirmOrb}
-              lobbyRingDisplayPercent={lobbyRingDisplayPercent}
+              globalRelationshipRing={globalRelationshipRing}
               suppressOrbFaceTitle={persistentLogoVisible}
               senderUser={user}
               selectedUser={selectedUser}

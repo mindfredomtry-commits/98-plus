@@ -4,8 +4,10 @@ import { memo, useEffect, useRef } from 'react';
 import type { FriendCard, UserPublic } from '@98plus/shared';
 import { traceZazhmiRenderSourceDiag } from '@/lib/zazhmi-render-source-debug';
 import { logConfirmHoldComponentMounted } from '@/lib/confirm-hold-render-diag';
+import { GlobalRelationshipRing } from '../lobby/GlobalRelationshipRing';
 import { InfluenceRing } from '../lobby/InfluenceRing';
 import { LobbyOrbFace } from '../lobby/LobbyOrbFace';
+import type { GlobalRelationshipOrbRingState } from '@/lib/use-global-relationship-orb';
 import { SuccessPayoffReveal } from './SuccessPayoffReveal';
 import type { useConfirmOrbController } from './useConfirmOrbController';
 
@@ -16,8 +18,8 @@ type Props = {
   confirmActive: boolean;
   orbCompressActive: boolean;
   confirmOrb: ConfirmOrb;
-  /** Lobby ring fill (0 → actual on first open); ignored during confirm/compress. */
-  lobbyRingDisplayPercent: number;
+  /** Global Relationship Orb ring (lobby idle only — not energy). */
+  globalRelationshipRing: GlobalRelationshipOrbRingState;
   /** When true, 98+ is rendered by LobbyPersistentLogoSlot — never duplicate in face. */
   suppressOrbFaceTitle?: boolean;
   senderUser: UserPublic | null | undefined;
@@ -27,7 +29,7 @@ type Props = {
   onAgain?: () => void;
 };
 
-const ArenaInfluenceRing = memo(function ArenaInfluenceRing({
+const ArenaConfirmHoldRing = memo(function ArenaConfirmHoldRing({
   value,
   debugId,
   disableTransition = false,
@@ -61,7 +63,7 @@ export function ArenaLobbyOrb({
   confirmActive,
   orbCompressActive,
   confirmOrb,
-  lobbyRingDisplayPercent,
+  globalRelationshipRing,
   suppressOrbFaceTitle = false,
   senderUser,
   selectedUser,
@@ -128,9 +130,6 @@ export function ArenaLobbyOrb({
   const payoffWrap = payoffPhase !== 'none';
 
   const useLobbyRingDisplay = !confirmActive && !orbCompressActive;
-  const ringDisplayValue = useLobbyRingDisplay
-    ? lobbyRingDisplayPercent
-    : ringValue;
   const hideOrbFaceTitle = suppressOrbFaceTitle || useLobbyRingDisplay;
 
   if (confirmActive) {
@@ -181,11 +180,18 @@ export function ArenaLobbyOrb({
               hidden={!showOrbFace}
               hideTitle={hideOrbFaceTitle}
               ring={
-                <ArenaInfluenceRing
-                  value={ringDisplayValue}
-                  debugId={debugIdRef.current}
-                  disableTransition={confirmActive || orbCompressActive}
-                />
+                useLobbyRingDisplay ? (
+                  <GlobalRelationshipRing
+                    ringState={globalRelationshipRing}
+                    className="instant-ban-confirm-influence-ring"
+                  />
+                ) : (
+                  <ArenaConfirmHoldRing
+                    value={ringValue}
+                    debugId={debugIdRef.current}
+                    disableTransition={confirmActive || orbCompressActive}
+                  />
+                )
               }
             />
           {showPayoffContent && selectedUser ? (
