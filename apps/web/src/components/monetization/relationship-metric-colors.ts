@@ -32,4 +32,4 @@ export function getRelationshipMetricColor(
 export const RELATIONSHIP_ORB_TRACK = 'rgba(255, 255, 255, 0.08)';
 
 /** Other-side / muted ring fill opacity. */
-export const RELATIONSHIP_ORB_OTHER_OPACITY = 0.3;
+export const RELATIONSHIP_ORB_OTHER_OPACITY = 0.14;
