@@ -1328,7 +1328,7 @@
   font-weight: 700 !important;
   line-height: 1.15 !important;
   text-align: center !important;
-  color: #c4a8ff !important;
+  color: var(--metric-color, #b894ff) !important;
   white-space: nowrap !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
@@ -1346,23 +1346,26 @@
   line-height: 1 !important;
   font-weight: 700 !important;
   text-align: center !important;
-  color: #c4a8ff !important;
+  color: var(--metric-color, #b894ff) !important;
   opacity: 1 !important;
   visibility: visible !important;
 }
 
 .monetization-relationship__tiles
-  .monetization-metric-tile--balanced
-  .monetization-metric-tile__arrow {
+  .monetization-metric-tile__arrow--muted {
   font-size: 22px !important;
-  color: rgba(200, 185, 255, 0.9) !important;
+  opacity: 0.42 !important;
 }
 
+.monetization-relationship__tiles
+  .monetization-metric-tile--balanced
+  .monetization-metric-tile__arrow,
 .monetization-relationship__tiles
   .monetization-metric-tile--muted
   .monetization-metric-tile__arrow {
   font-size: 22px !important;
-  color: rgba(196, 168, 255, 0.4) !important;
+  opacity: 0.42 !important;
+  color: var(--metric-color, #b894ff) !important;
 }
 
 /* —— Improve placeholder (UI stub) —— */

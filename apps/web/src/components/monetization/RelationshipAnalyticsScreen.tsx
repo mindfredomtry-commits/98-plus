@@ -31,6 +31,7 @@ import {
   type RelationshipTimelinePayload,
 } from '@/lib/relationship-analytics-types';
 import { RelationshipOrb } from './RelationshipOrb';
+import { getRelationshipMetricColor } from './relationship-metric-colors';
 import '../lobby-screen.css';
 import './monetization.css';
 
@@ -83,15 +84,24 @@ function RelationshipMetricTile({
   const title = getMetricTitle(dimension.code);
   const arrow = getMetricArrow(dimension.direction);
   const tone = getMetricTone(dimension.direction);
+  const metricColor = getRelationshipMetricColor(dimension.code, dimension.ring);
+  const arrowMuted =
+    dimension.direction === 'BALANCED' || dimension.direction === 'LOW_DATA';
 
   return (
     <div
       className={`monetization-metric-tile monetization-metric-tile--${tone}`}
       data-metric-tile={dimension.code}
       aria-label={title}
+      style={{ ['--metric-color' as string]: metricColor }}
     >
       <div className="monetization-metric-tile__title">{title}</div>
-      <div className="monetization-metric-tile__arrow" aria-hidden="true">
+      <div
+        className={`monetization-metric-tile__arrow${
+          arrowMuted ? ' monetization-metric-tile__arrow--muted' : ''
+        }`}
+        aria-hidden="true"
+      >
         {arrow}
       </div>
     </div>
