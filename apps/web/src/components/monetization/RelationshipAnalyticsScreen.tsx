@@ -605,6 +605,8 @@ export function RelationshipAnalyticsScreen({
               </div>
             ) : null}
 
+            <h2 className="monetization-relationship__orb-title">твои отношения</h2>
+
             {isDayLoading ? (
               <p className="monetization-muted monetization-muted--tight">
                 загружаем день…
