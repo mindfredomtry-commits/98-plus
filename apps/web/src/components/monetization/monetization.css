@@ -656,6 +656,13 @@
   color: rgba(255, 255, 255, 0.58);
 }
 
+.monetization-peer-lead--after-tiles {
+  margin: 0.85rem 0 0;
+  text-align: center;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
 .monetization-relationship-overview {
   margin: 0 0 1.1rem;
   padding: 0 0 0.25rem;
@@ -680,6 +687,10 @@
 
 .monetization-peer-premium-cta {
   margin: 0.85rem 0 0;
+}
+
+.monetization-peer-premium-cta--top {
+  margin: 0 0 1.1rem;
 }
 
 .monetization-overview-premium-status {

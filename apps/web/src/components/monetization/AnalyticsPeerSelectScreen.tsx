@@ -246,9 +246,25 @@ export function AnalyticsPeerSelectScreen({
           <h2 className="monetization-screen__nav-title">с кем посмотреть?</h2>
         </header>
 
-        <p className="monetization-peer-lead">
-          выбери человека, чтобы узнать, что происходит между вами
-        </p>
+        <div className="monetization-peer-premium-cta monetization-peer-premium-cta--top">
+          {premiumActive ? (
+            <div
+              className="monetization-overview-premium-status monetization-overview-premium-status--badge"
+              aria-label={premiumBadgeLabel}
+            >
+              {entitlementLoading ? '…' : premiumBadgeLabel}
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="monetization-overview-premium-status monetization-overview-premium-status--learn"
+              onClick={onOpenPremium}
+              aria-label="98+ premium — узнать"
+            >
+              узнать
+            </button>
+          )}
+        </div>
 
         <section
           className="monetization-relationship-overview"
@@ -322,25 +338,9 @@ export function AnalyticsPeerSelectScreen({
             </div>
           ) : null}
 
-          <div className="monetization-peer-premium-cta">
-            {premiumActive ? (
-              <div
-                className="monetization-overview-premium-status monetization-overview-premium-status--badge"
-                aria-label={premiumBadgeLabel}
-              >
-                {entitlementLoading ? '…' : premiumBadgeLabel}
-              </div>
-            ) : (
-              <button
-                type="button"
-                className="monetization-overview-premium-status monetization-overview-premium-status--learn"
-                onClick={onOpenPremium}
-                aria-label="98+ premium — узнать"
-              >
-                узнать
-              </button>
-            )}
-          </div>
+          <p className="monetization-peer-lead monetization-peer-lead--after-tiles">
+            выбери человека, чтобы узнать, что происходит между вами
+          </p>
         </section>
 
         {eligible.length === 0 ? (
