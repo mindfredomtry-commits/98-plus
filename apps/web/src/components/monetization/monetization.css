@@ -657,7 +657,7 @@
 }
 
 .monetization-relationship-overview {
-  margin: 0 0 1.35rem;
+  margin: 0 0 1.1rem;
   padding: 0 0 0.25rem;
 }
 
@@ -676,6 +676,47 @@
 
 .monetization-relationship-overview .monetization-relationship__tiles {
   margin-top: 0.65rem;
+}
+
+.monetization-peer-premium-cta {
+  margin: 0.85rem 0 0;
+}
+
+.monetization-overview-premium-status {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-align: center;
+}
+
+.monetization-overview-premium-status--learn {
+  color: var(--98-text-primary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  border-color: rgba(var(--98-purple-core-rgb), 0.32);
+  background: rgba(var(--98-purple-core-rgb), 0.12);
+  box-shadow: 0 0 18px rgba(var(--98-purple-core-rgb), 0.12);
+}
+
+.monetization-overview-premium-status--learn:active {
+  transform: scale(0.99);
+  background: rgba(var(--98-purple-core-rgb), 0.18);
+}
+
+.monetization-overview-premium-status--badge {
+  color: var(--98-purple-soft);
+  border-color: rgba(var(--98-purple-core-rgb), 0.35);
+  background: rgba(var(--98-purple-core-rgb), 0.14);
+  box-shadow: 0 0 16px rgba(var(--98-purple-core-rgb), 0.16);
 }
 
 .monetization-peer-list {
