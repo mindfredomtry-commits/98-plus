@@ -94,7 +94,6 @@ function parseOverviewRange(raw: unknown): OverviewRangeCode | null {
 // GET /analytics/relationships/overview?range=1W&anchorDate=YYYY-MM-DD
 analyticsRouter.get(
   '/relationships/overview',
-  requirePremium,
   async (req: AuthRequest, res) => {
     const range = parseOverviewRange(req.query.range);
     if (!range) {
@@ -133,7 +132,6 @@ analyticsRouter.get(
 // GET /analytics/relationships/:otherUserId/dashboard
 analyticsRouter.get(
   '/relationships/:otherUserId/dashboard',
-  requirePremium,
   async (req: AuthRequest, res) => {
     const otherUserId = parseOtherUserId(req.params.otherUserId);
     if (!otherUserId) {
@@ -161,7 +159,6 @@ analyticsRouter.get(
 // GET /analytics/relationships/:otherUserId/day?date=YYYY-MM-DD
 analyticsRouter.get(
   '/relationships/:otherUserId/day',
-  requirePremium,
   async (req: AuthRequest, res) => {
     const otherUserId = parseOtherUserId(req.params.otherUserId);
     if (!otherUserId) {
@@ -197,7 +194,6 @@ analyticsRouter.get(
 // GET /analytics/relationships/:otherUserId/period?range=1W&anchorDate=YYYY-MM-DD
 analyticsRouter.get(
   '/relationships/:otherUserId/period',
-  requirePremium,
   async (req: AuthRequest, res) => {
     const otherUserId = parseOtherUserId(req.params.otherUserId);
     if (!otherUserId) {

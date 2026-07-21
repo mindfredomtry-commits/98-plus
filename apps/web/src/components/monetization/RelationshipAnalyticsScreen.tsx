@@ -42,7 +42,6 @@ type Props = {
   viewerLabel?: string;
   premiumActive?: boolean | null;
   onBack: () => void;
-  onPremiumRequired: () => void;
   onOpenTimeline: (payload: RelationshipTimelinePayload) => void;
   onStartBan?: (peer: AnalyticsPeer) => boolean;
 };
@@ -206,7 +205,6 @@ export function RelationshipAnalyticsScreen({
   viewerLabel = 'ты',
   premiumActive = null,
   onBack,
-  onPremiumRequired,
   onOpenTimeline,
   onStartBan,
 }: Props) {
@@ -221,8 +219,6 @@ export function RelationshipAnalyticsScreen({
   const actionLockRef = useRef(false);
   const requestIdRef = useRef(0);
   const periodRequestIdRef = useRef(0);
-  const onPremiumRequiredRef = useRef(onPremiumRequired);
-  onPremiumRequiredRef.current = onPremiumRequired;
 
   useEffect(() => {
     const requestId = ++requestIdRef.current;
@@ -263,10 +259,6 @@ export function RelationshipAnalyticsScreen({
         setLoadState({ kind: 'success', data });
       } catch (err) {
         if (cancelled || requestId !== requestIdRef.current) return;
-        if (err instanceof ApiError && err.status === 403) {
-          onPremiumRequiredRef.current();
-          return;
-        }
         if (err instanceof ApiError && err.status === 404) {
           setLoadState({ kind: 'notFound' });
           return;
@@ -339,10 +331,6 @@ export function RelationshipAnalyticsScreen({
       });
       onOpenTimeline(payload);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 403) {
-        onPremiumRequired();
-        return;
-      }
       if (err instanceof ApiError && err.status === 404) {
         setActionError('за этот период пока нет данных');
         return;
@@ -352,7 +340,7 @@ export function RelationshipAnalyticsScreen({
       actionLockRef.current = false;
       setActionLoading(false);
     }
-  }, [actionLoading, onOpenTimeline, onPremiumRequired, peer.userId, token]);
+  }, [actionLoading, onOpenTimeline, peer.userId, token]);
 
   const baseRelationshipScreen =
     loadState.kind === 'success' &&

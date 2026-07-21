@@ -12,7 +12,6 @@ import {
 } from '@98plus/shared';
 import type { UserPublic } from '@98plus/shared';
 import { useApp } from '../Providers';
-import { ProfileSection } from './ProfileSection';
 import { PremiumScreen } from './PremiumScreen';
 import { PaymentSheet } from './PaymentSheet';
 import { AnalyticsPeerSelectScreen } from './AnalyticsPeerSelectScreen';
@@ -26,9 +25,6 @@ import {
   newIdempotencyKey,
 } from '@/lib/monetization-api';
 import { trackProductEvent } from '@/lib/product-analytics';
-import {
-  resolveLearnPressView,
-} from '@/lib/relationship-dimensions';
 import type {
   AnalyticsPeer,
   RelationshipTimelinePayload,
@@ -36,9 +32,8 @@ import type {
 import './monetization.css';
 
 type MonetizationView =
-  | 'profile'
-  | 'premium'
   | 'peerSelect'
+  | 'premium'
   | 'analytics'
   | 'timeline';
 
@@ -70,7 +65,7 @@ export function MonetizationSection({
   const preferredProvider: PaymentProvider =
     context === 'telegram' ? 'TELEGRAM_STARS' : 'SBP';
 
-  const [view, setView] = useState<MonetizationView>('profile');
+  const [view, setView] = useState<MonetizationView>('peerSelect');
   const [paymentSheetOpen, setPaymentSheetOpen] = useState(false);
   const [selectedAnalyticsPeer, setSelectedAnalyticsPeer] =
     useState<AnalyticsPeer | null>(null);
@@ -98,7 +93,7 @@ export function MonetizationSection({
     [onHaptic],
   );
 
-  // —— Open Profile: analytics + entitlement status ——
+  // —— Open from lobby: load entitlement status for premium CTA ——
   useEffect(() => {
     trackProductEvent(ANALYTICS_EVENTS.OPEN_PROFILE, token);
     let cancelled = false;
@@ -145,29 +140,24 @@ export function MonetizationSection({
       .finally(() => setProvidersLoading(false));
   }, [context, token]);
 
-  // —— Navigation handlers ——
-  const handleLearnPress = useCallback(() => {
+  const handleOpenPremium = useCallback(() => {
     haptic('light');
     trackProductEvent(ANALYTICS_EVENTS.PRESS_LEARN, token);
-    const premiumActive = entitlements?.premiumActive ?? false;
-    const nextView = resolveLearnPressView(premiumActive);
-    if (nextView === 'premium') {
-      trackProductEvent(ANALYTICS_EVENTS.OPEN_PREMIUM, token);
-      loadProducts();
-    }
-    setView(nextView);
-  }, [entitlements?.premiumActive, haptic, loadProducts, token]);
+    trackProductEvent(ANALYTICS_EVENTS.OPEN_PREMIUM, token);
+    loadProducts();
+    setView('premium');
+  }, [haptic, loadProducts, token]);
 
   const handleBackFromPremium = useCallback(() => {
     haptic('light');
-    setView('profile');
+    setView('peerSelect');
   }, [haptic]);
 
   const handleBackFromPeerSelect = useCallback(() => {
     haptic('light');
     setSelectedAnalyticsPeer(null);
-    setView('profile');
-  }, [haptic]);
+    onClose();
+  }, [haptic, onClose]);
 
   const handleSelectAnalyticsPeer = useCallback(
     (peer: AnalyticsPeer) => {
@@ -206,15 +196,6 @@ export function MonetizationSection({
       )
       .finally(() => setEntitlementLoading(false));
   }, [token]);
-
-  const handlePremiumRequired = useCallback(() => {
-    haptic('light');
-    setSelectedAnalyticsPeer(null);
-    setTimelinePayload(null);
-    refreshEntitlements();
-    loadProducts();
-    setView('premium');
-  }, [haptic, loadProducts, refreshEntitlements]);
 
   const handleSelectProduct = useCallback(
     (code: string) => {
@@ -306,14 +287,17 @@ export function MonetizationSection({
 
   return (
     <div className="monetization-root">
-      {view === 'profile' ? (
-        <ProfileSection
+      {view === 'peerSelect' ? (
+        <AnalyticsPeerSelectScreen
+          friends={friends}
+          token={token}
           user={user}
           premiumActive={premiumActive}
           activePremium={entitlements?.activePremium ?? null}
           entitlementLoading={entitlementLoading}
-          onBack={onClose}
-          onOpenPremium={handleLearnPress}
+          onOpenPremium={handleOpenPremium}
+          onSelect={handleSelectAnalyticsPeer}
+          onBack={handleBackFromPeerSelect}
         />
       ) : null}
 
@@ -329,16 +313,6 @@ export function MonetizationSection({
         />
       ) : null}
 
-      {view === 'peerSelect' ? (
-        <AnalyticsPeerSelectScreen
-          friends={friends}
-          token={token}
-          user={user}
-          onSelect={handleSelectAnalyticsPeer}
-          onBack={handleBackFromPeerSelect}
-        />
-      ) : null}
-
       {view === 'analytics' && selectedAnalyticsPeer ? (
         <RelationshipAnalyticsScreen
           token={token}
@@ -347,7 +321,6 @@ export function MonetizationSection({
           viewerLabel="ты"
           premiumActive={premiumActive}
           onBack={handleBackFromAnalytics}
-          onPremiumRequired={handlePremiumRequired}
           onOpenTimeline={handleOpenTimeline}
           onStartBan={onStartBan}
         />
