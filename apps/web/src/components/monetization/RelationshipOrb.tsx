@@ -34,12 +34,19 @@ const RING_RADIUS: Record<'OUTER' | 'MIDDLE' | 'INNER', number> = {
   INNER: 90,
 };
 
-/** Angular gap between viewer and other arc segments (each ring has two gaps). */
-export const RELATIONSHIP_ORB_SEGMENT_GAP_DEG = 14;
+/**
+ * Small angular gap between viewer and other arc segments (each ring has two gaps).
+ * Kept tiny to avoid an obvious "ring is broken" look.
+ */
+export const RELATIONSHIP_ORB_SEGMENT_GAP_DEG = 4;
 
 /** Viewer arc anchor at 9 o'clock; other anchor at 3 o'clock. */
 export const VIEWER_ARC_ANCHOR_DEG = 180;
 export const OTHER_ARC_ANCHOR_DEG = 0;
+
+/** Short dark divider seam drawn over segment boundaries. */
+const RELATIONSHIP_ORB_SEAM_SWEEP_DEG = 5; // 3–5 degrees
+const RELATIONSHIP_ORB_SEAM_COLOR = 'rgba(5, 5, 10, 0.95)';
 
 /** SVG sweep: 1 = clockwise (increasing angle), 0 = counter-clockwise. */
 const SWEEP_CLOCKWISE = 1 as const;
@@ -269,6 +276,9 @@ export function RelationshipOrb({
             otherSweepDeg,
             viewerStartDeg,
             otherStartDeg,
+            gapDeg,
+            viewerEndDeg,
+            otherEndDeg,
           } = dualSegmentArcDegrees(viewerShare, otherShare);
 
           const viewerPath = muted
@@ -282,6 +292,22 @@ export function RelationshipOrb({
             otherSweepDeg >= MIN_ARC_SWEEP_DEG
               ? otherStartDeg + otherSweepDeg / 2
               : null;
+
+          const showSeams =
+            !muted &&
+            viewerSweepDeg >= MIN_ARC_SWEEP_DEG &&
+            otherSweepDeg >= MIN_ARC_SWEEP_DEG;
+
+          const seam1Center = viewerEndDeg + gapDeg / 2;
+          const seam2Center = otherEndDeg + gapDeg / 2;
+          const seam1Start = seam1Center - RELATIONSHIP_ORB_SEAM_SWEEP_DEG / 2;
+          const seam2Start = seam2Center - RELATIONSHIP_ORB_SEAM_SWEEP_DEG / 2;
+          const seamPath1 = showSeams
+            ? arcSegmentPath(CX, CY, r, seam1Start, RELATIONSHIP_ORB_SEAM_SWEEP_DEG)
+            : null;
+          const seamPath2 = showSeams
+            ? arcSegmentPath(CX, CY, r, seam2Start, RELATIONSHIP_ORB_SEAM_SWEEP_DEG)
+            : null;
 
           return (
             <g key={ring}>
@@ -312,6 +338,24 @@ export function RelationshipOrb({
                   strokeWidth={STROKE}
                   strokeLinecap="round"
                   opacity={0.95}
+                />
+              ) : null}
+              {seamPath1 ? (
+                <path
+                  d={seamPath1}
+                  fill="none"
+                  stroke={RELATIONSHIP_ORB_SEAM_COLOR}
+                  strokeWidth={STROKE + 1}
+                  strokeLinecap="round"
+                />
+              ) : null}
+              {seamPath2 ? (
+                <path
+                  d={seamPath2}
+                  fill="none"
+                  stroke={RELATIONSHIP_ORB_SEAM_COLOR}
+                  strokeWidth={STROKE + 1}
+                  strokeLinecap="round"
                 />
               ) : null}
               {!muted && direction === 'VIEWER' ? (
