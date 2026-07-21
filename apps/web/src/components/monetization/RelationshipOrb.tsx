@@ -34,12 +34,16 @@ const RING_RADIUS: Record<'OUTER' | 'MIDDLE' | 'INNER', number> = {
   INNER: 90,
 };
 
-/** Arc origin at 9 o'clock (left). polar() uses standard math degrees: 0=right, 180=left. */
-const ARC_ORIGIN_DEG = 180;
+/** Angular gap between viewer and other arc segments (each ring has two gaps). */
+export const RELATIONSHIP_ORB_SEGMENT_GAP_DEG = 14;
+
+/** Viewer arc origin — lower-left (~7–8 o'clock). polar(): 0=right, 180=left. */
+export const VIEWER_ARC_START_DEG = 210;
 
 /** SVG sweep: 1 = clockwise (increasing angle), 0 = counter-clockwise. */
 const SWEEP_CLOCKWISE = 1 as const;
-const SWEEP_COUNTER_CLOCKWISE = 0 as const;
+
+const MIN_ARC_SWEEP_DEG = 0.5;
 
 function clampShare(n: number | null | undefined): number {
   if (n == null || !Number.isFinite(n)) return 0;
@@ -49,38 +53,61 @@ function clampShare(n: number | null | undefined): number {
 }
 
 /**
- * Bidirectional fill from ARC_ORIGIN: total = share×360, half each direction.
+ * Independent viewer + other arcs with fixed angular gaps (not a continuous fill bar).
  * Exported for geometry assertions.
  */
-export function bidirectionalArcDegrees(share: number): {
-  totalArcDeg: number;
-  halfArcDeg: number;
+export function dualSegmentArcDegrees(
+  viewerShare: number,
+  otherShare: number,
+): {
+  gapDeg: number;
+  usableSweepDeg: number;
+  viewerSweepDeg: number;
+  otherSweepDeg: number;
+  viewerStartDeg: number;
+  otherStartDeg: number;
 } {
-  const s = clampShare(share);
-  const totalArcDeg = s * 360;
-  return { totalArcDeg, halfArcDeg: totalArcDeg / 2 };
+  const gapDeg = RELATIONSHIP_ORB_SEGMENT_GAP_DEG;
+  const usableSweepDeg = 360 - gapDeg * 2;
+  const viewerSweepDeg = usableSweepDeg * clampShare(viewerShare);
+  const otherSweepDeg = usableSweepDeg * clampShare(otherShare);
+  const viewerStartDeg = VIEWER_ARC_START_DEG;
+  const otherStartDeg = viewerStartDeg + viewerSweepDeg + gapDeg;
+  return {
+    gapDeg,
+    usableSweepDeg,
+    viewerSweepDeg,
+    otherSweepDeg,
+    viewerStartDeg,
+    otherStartDeg,
+  };
 }
 
 if (process.env.NODE_ENV !== 'production') {
-  const fixtures: Array<[number, number, number]> = [
-    [0, 0, 0],
-    [0.25, 90, 45],
-    [0.5, 180, 90],
-    [0.54, 194.4, 97.2],
-    [1, 360, 180],
-  ];
-  for (const [share, expectedTotal, expectedHalf] of fixtures) {
-    const { totalArcDeg, halfArcDeg } = bidirectionalArcDegrees(share);
-    if (
-      Math.abs(totalArcDeg - expectedTotal) > 1e-9 ||
-      Math.abs(halfArcDeg - expectedHalf) > 1e-9
-    ) {
-      throw new Error(
-        `[RelationshipOrb] arc geometry assert failed for share=${share}: ` +
-          `got total=${totalArcDeg} half=${halfArcDeg}, ` +
-          `expected total=${expectedTotal} half=${expectedHalf}`,
-      );
-    }
+  const { usableSweepDeg, gapDeg } = dualSegmentArcDegrees(0, 0);
+  if (usableSweepDeg !== 360 - gapDeg * 2) {
+    throw new Error('[RelationshipOrb] usableSweepDeg assert failed');
+  }
+  const half = dualSegmentArcDegrees(0.5, 0.5);
+  if (
+    Math.abs(half.viewerSweepDeg - half.usableSweepDeg / 2) > 1e-9 ||
+    Math.abs(half.otherSweepDeg - half.usableSweepDeg / 2) > 1e-9
+  ) {
+    throw new Error('[RelationshipOrb] 50/50 split assert failed');
+  }
+  const fullViewer = dualSegmentArcDegrees(1, 0);
+  if (Math.abs(fullViewer.viewerSweepDeg - fullViewer.usableSweepDeg) > 1e-9) {
+    throw new Error('[RelationshipOrb] full viewer assert failed');
+  }
+  const combined = dualSegmentArcDegrees(0.59, 0.41);
+  if (
+    Math.abs(
+      combined.viewerSweepDeg +
+        combined.otherSweepDeg -
+        combined.usableSweepDeg,
+    ) > 1e-9
+  ) {
+    throw new Error('[RelationshipOrb] shares sum assert failed');
   }
 }
 
@@ -113,6 +140,24 @@ function describeArc(opts: {
   return `M ${from.x} ${from.y} A ${radius} ${radius} 0 ${largeArcFlag} ${sweepFlag} ${to.x} ${to.y}`;
 }
 
+function arcSegmentPath(
+  cx: number,
+  cy: number,
+  radius: number,
+  startDeg: number,
+  sweepDeg: number,
+): string | null {
+  if (sweepDeg < MIN_ARC_SWEEP_DEG) return null;
+  return describeArc({
+    cx,
+    cy,
+    radius,
+    startAngle: startDeg,
+    endAngle: startDeg + sweepDeg,
+    sweepFlag: SWEEP_CLOCKWISE,
+  });
+}
+
 function ringForDim(dim: RelationshipOrbDimension): RelationshipRing | null {
   if (dim.ring === 'OUTER' || dim.ring === 'MIDDLE' || dim.ring === 'INNER') {
     return dim.ring;
@@ -137,7 +182,7 @@ function peerLetter(name: string | null | undefined): string {
 
 /**
  * Triple concentric relationship orb.
- * Active fill: viewerShare × 360°, split equally from left origin (180°) CW + CCW.
+ * Each ring: independent viewer + other arcs with angular gaps (not a fill bar).
  * OUTER=INITIATIVE, MIDDLE=RESPONSIVENESS, INNER=RESPECT.
  * Center is peer avatar only — no 98+ mark.
  */
@@ -187,26 +232,40 @@ export function RelationshipOrb({
           const available = dim?.available !== false;
           const direction =
             typeof dim?.direction === 'string' ? dim.direction : undefined;
-          const hasNumericShare =
+          const hasNumericShares =
             typeof dim?.viewerShare === 'number' &&
-            Number.isFinite(dim.viewerShare);
+            Number.isFinite(dim.viewerShare) &&
+            typeof dim?.otherShare === 'number' &&
+            Number.isFinite(dim.otherShare);
           const muted =
             !dim ||
             !available ||
-            !hasNumericShare ||
+            !hasNumericShares ||
             direction === 'LOW_DATA' ||
             direction === 'NOT_AVAILABLE' ||
             !isActiveDirection(direction) ||
             dim.publishable === false;
 
-          const share = muted ? 0 : clampShare(dim.viewerShare as number);
-          const { halfArcDeg } = bidirectionalArcDegrees(share);
-          const isFull = share >= 0.999;
-          const hasActive = !muted && share > 0;
-          const showOtherBase = !muted && dim != null;
+          const viewerShare = muted ? 0 : clampShare(dim.viewerShare as number);
+          const otherShare = muted ? 0 : clampShare(dim.otherShare as number);
+          const {
+            viewerSweepDeg,
+            otherSweepDeg,
+            viewerStartDeg,
+            otherStartDeg,
+          } = dualSegmentArcDegrees(viewerShare, otherShare);
 
-          const clockwiseEndDeg = ARC_ORIGIN_DEG + halfArcDeg;
-          const counterClockwiseEndDeg = ARC_ORIGIN_DEG - halfArcDeg;
+          const viewerPath = muted
+            ? null
+            : arcSegmentPath(CX, CY, r, viewerStartDeg, viewerSweepDeg);
+          const otherPath = muted
+            ? null
+            : arcSegmentPath(CX, CY, r, otherStartDeg, otherSweepDeg);
+
+          const otherMarkerDeg =
+            otherSweepDeg >= MIN_ARC_SWEEP_DEG
+              ? otherStartDeg + otherSweepDeg / 2
+              : null;
 
           return (
             <g key={ring}>
@@ -219,100 +278,48 @@ export function RelationshipOrb({
                 strokeWidth={STROKE}
                 opacity={1}
               />
-              {showOtherBase ? (
-                <circle
-                  cx={CX}
-                  cy={CY}
-                  r={r}
+              {otherPath ? (
+                <path
+                  d={otherPath}
                   fill="none"
                   stroke={metricColor}
                   strokeWidth={STROKE}
+                  strokeLinecap="round"
                   opacity={RELATIONSHIP_ORB_OTHER_OPACITY}
                 />
               ) : null}
-              {hasActive && isFull ? (
-                <circle
-                  cx={CX}
-                  cy={CY}
-                  r={r}
+              {viewerPath ? (
+                <path
+                  d={viewerPath}
                   fill="none"
                   stroke={metricColor}
                   strokeWidth={STROKE}
+                  strokeLinecap="round"
                   opacity={0.95}
                 />
               ) : null}
-              {hasActive && !isFull && halfArcDeg > 0 ? (
-                <>
-                  <path
-                    d={describeArc({
-                      cx: CX,
-                      cy: CY,
-                      radius: r,
-                      startAngle: ARC_ORIGIN_DEG,
-                      endAngle: clockwiseEndDeg,
-                      sweepFlag: SWEEP_CLOCKWISE,
-                    })}
-                    fill="none"
-                    stroke={metricColor}
-                    strokeWidth={STROKE}
-                    strokeLinecap="round"
-                    opacity={0.95}
-                  />
-                  <path
-                    d={describeArc({
-                      cx: CX,
-                      cy: CY,
-                      radius: r,
-                      startAngle: ARC_ORIGIN_DEG,
-                      endAngle: counterClockwiseEndDeg,
-                      sweepFlag: SWEEP_COUNTER_CLOCKWISE,
-                    })}
-                    fill="none"
-                    stroke={metricColor}
-                    strokeWidth={STROKE}
-                    strokeLinecap="round"
-                    opacity={0.95}
-                  />
-                  <circle
-                    cx={polar(CX, CY, r, ARC_ORIGIN_DEG).x}
-                    cy={polar(CX, CY, r, ARC_ORIGIN_DEG).y}
-                    r={STROKE / 2}
-                    fill={metricColor}
-                    opacity={0.95}
-                  />
-                </>
-              ) : null}
               {!muted && direction === 'VIEWER' ? (
                 <circle
-                  cx={polar(CX, CY, r, ARC_ORIGIN_DEG).x}
-                  cy={polar(CX, CY, r, ARC_ORIGIN_DEG).y}
+                  cx={polar(CX, CY, r, viewerStartDeg).x}
+                  cy={polar(CX, CY, r, viewerStartDeg).y}
                   r={4.5}
                   fill={metricColor}
                   opacity={0.95}
                 />
               ) : null}
-              {!muted && direction === 'OTHER' && hasActive && !isFull ? (
-                <>
-                  <circle
-                    cx={polar(CX, CY, r, clockwiseEndDeg).x}
-                    cy={polar(CX, CY, r, clockwiseEndDeg).y}
-                    r={4.5}
-                    fill={metricColor}
-                    opacity={0.95}
-                  />
-                  <circle
-                    cx={polar(CX, CY, r, counterClockwiseEndDeg).x}
-                    cy={polar(CX, CY, r, counterClockwiseEndDeg).y}
-                    r={4.5}
-                    fill={metricColor}
-                    opacity={0.95}
-                  />
-                </>
+              {!muted && direction === 'OTHER' && otherMarkerDeg != null ? (
+                <circle
+                  cx={polar(CX, CY, r, otherMarkerDeg).x}
+                  cy={polar(CX, CY, r, otherMarkerDeg).y}
+                  r={4.5}
+                  fill={metricColor}
+                  opacity={0.95}
+                />
               ) : null}
               {!muted && direction === 'BALANCED' ? (
                 <circle
-                  cx={polar(CX, CY, r, ARC_ORIGIN_DEG).x}
-                  cy={polar(CX, CY, r, ARC_ORIGIN_DEG).y}
+                  cx={polar(CX, CY, r, viewerStartDeg).x}
+                  cy={polar(CX, CY, r, viewerStartDeg).y}
                   r={3.5}
                   fill={metricColor}
                   opacity={0.55}
