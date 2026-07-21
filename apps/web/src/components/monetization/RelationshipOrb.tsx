@@ -34,12 +34,17 @@ const RING_RADIUS: Record<'OUTER' | 'MIDDLE' | 'INNER', number> = {
   INNER: 90,
 };
 
-/** Angular gap between viewer and other arc segments (each ring has two gaps). */
-export const RELATIONSHIP_ORB_SEGMENT_GAP_DEG = 3;
-
 /** Viewer arc anchor at 9 o'clock; other anchor at 3 o'clock. */
 export const VIEWER_ARC_ANCHOR_DEG = 180;
 export const OTHER_ARC_ANCHOR_DEG = 0;
+
+/**
+ * Centerline gap so round caps (strokeLinecap="round") touch without overlapping.
+ * Half strokeWidth along the arc ≈ (strokeWidth / radius) radians.
+ */
+export function capTouchGapDeg(radius: number, strokeWidth: number): number {
+  return (strokeWidth / radius) * (180 / Math.PI);
+}
 
 /** SVG sweep: 1 = clockwise (increasing angle), 0 = counter-clockwise. */
 const SWEEP_CLOCKWISE = 1 as const;
@@ -54,12 +59,14 @@ function clampShare(n: number | null | undefined): number {
 }
 
 /**
- * Independent viewer + other arcs with fixed angular gaps (not a continuous fill bar).
+ * Independent viewer + other arcs with cap-touch gaps per ring (not a continuous fill bar).
  * Exported for geometry assertions.
  */
 export function dualSegmentArcDegrees(
   viewerShare: number,
   otherShare: number,
+  radius: number,
+  strokeWidth: number,
 ): {
   gapDeg: number;
   usableSweepDeg: number;
@@ -70,7 +77,7 @@ export function dualSegmentArcDegrees(
   otherStartDeg: number;
   otherEndDeg: number;
 } {
-  const gapDeg = RELATIONSHIP_ORB_SEGMENT_GAP_DEG;
+  const gapDeg = capTouchGapDeg(radius, strokeWidth);
   const usableSweepDeg = 360 - gapDeg * 2;
   const viewerSweepDeg = usableSweepDeg * clampShare(viewerShare);
   const otherSweepDeg = usableSweepDeg * clampShare(otherShare);
@@ -91,38 +98,47 @@ export function dualSegmentArcDegrees(
 }
 
 if (process.env.NODE_ENV !== 'production') {
-  const { usableSweepDeg, gapDeg } = dualSegmentArcDegrees(0, 0);
-  if (usableSweepDeg !== 360 - gapDeg * 2) {
-    throw new Error('[RelationshipOrb] usableSweepDeg assert failed');
-  }
-  const half = dualSegmentArcDegrees(0.5, 0.5);
-  if (
-    Math.abs(half.viewerSweepDeg - half.usableSweepDeg / 2) > 1e-9 ||
-    Math.abs(half.otherSweepDeg - half.usableSweepDeg / 2) > 1e-9
-  ) {
-    throw new Error('[RelationshipOrb] 50/50 split assert failed');
-  }
-  if (
-    Math.abs((half.viewerStartDeg + half.viewerEndDeg) / 2 - VIEWER_ARC_ANCHOR_DEG) >
-      1e-9 ||
-    Math.abs((half.otherStartDeg + half.otherEndDeg) / 2 - OTHER_ARC_ANCHOR_DEG) >
-      1e-9
-  ) {
-    throw new Error('[RelationshipOrb] anchor centering assert failed');
-  }
-  const fullViewer = dualSegmentArcDegrees(1, 0);
-  if (Math.abs(fullViewer.viewerSweepDeg - fullViewer.usableSweepDeg) > 1e-9) {
-    throw new Error('[RelationshipOrb] full viewer assert failed');
-  }
-  const combined = dualSegmentArcDegrees(0.59, 0.41);
-  if (
-    Math.abs(
-      combined.viewerSweepDeg +
-        combined.otherSweepDeg -
-        combined.usableSweepDeg,
-    ) > 1e-9
-  ) {
-    throw new Error('[RelationshipOrb] shares sum assert failed');
+  for (const ring of ['OUTER', 'MIDDLE', 'INNER'] as const) {
+    const r = RING_RADIUS[ring];
+    const expectedGap = capTouchGapDeg(r, STROKE);
+    const { usableSweepDeg, gapDeg } = dualSegmentArcDegrees(0, 0, r, STROKE);
+    if (Math.abs(gapDeg - expectedGap) > 1e-9) {
+      throw new Error(`[RelationshipOrb] capTouchGapDeg assert failed (${ring})`);
+    }
+    if (usableSweepDeg !== 360 - gapDeg * 2) {
+      throw new Error(`[RelationshipOrb] usableSweepDeg assert failed (${ring})`);
+    }
+    const half = dualSegmentArcDegrees(0.5, 0.5, r, STROKE);
+    if (
+      Math.abs(half.viewerSweepDeg - half.usableSweepDeg / 2) > 1e-9 ||
+      Math.abs(half.otherSweepDeg - half.usableSweepDeg / 2) > 1e-9
+    ) {
+      throw new Error(`[RelationshipOrb] 50/50 split assert failed (${ring})`);
+    }
+    if (
+      Math.abs(
+        (half.viewerStartDeg + half.viewerEndDeg) / 2 - VIEWER_ARC_ANCHOR_DEG,
+      ) > 1e-9 ||
+      Math.abs(
+        (half.otherStartDeg + half.otherEndDeg) / 2 - OTHER_ARC_ANCHOR_DEG,
+      ) > 1e-9
+    ) {
+      throw new Error(`[RelationshipOrb] anchor centering assert failed (${ring})`);
+    }
+    const fullViewer = dualSegmentArcDegrees(1, 0, r, STROKE);
+    if (Math.abs(fullViewer.viewerSweepDeg - fullViewer.usableSweepDeg) > 1e-9) {
+      throw new Error(`[RelationshipOrb] full viewer assert failed (${ring})`);
+    }
+    const combined = dualSegmentArcDegrees(0.59, 0.41, r, STROKE);
+    if (
+      Math.abs(
+        combined.viewerSweepDeg +
+          combined.otherSweepDeg -
+          combined.usableSweepDeg,
+      ) > 1e-9
+    ) {
+      throw new Error(`[RelationshipOrb] shares sum assert failed (${ring})`);
+    }
   }
 }
 
@@ -269,7 +285,7 @@ export function RelationshipOrb({
             otherSweepDeg,
             viewerStartDeg,
             otherStartDeg,
-          } = dualSegmentArcDegrees(viewerShare, otherShare);
+          } = dualSegmentArcDegrees(viewerShare, otherShare, r, STROKE);
 
           const viewerPath = muted
             ? null
