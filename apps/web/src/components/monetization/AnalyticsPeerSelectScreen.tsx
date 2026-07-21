@@ -7,7 +7,6 @@ import { WhatBackIcon } from '../instant-ban/WhatBackIcon';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { fetchRelationshipOverview } from '@/lib/relationship-analytics-api';
 import {
-  extractOverviewDimensions,
   selectCardDimensions,
   selectOrbRingDimensions,
 } from '@/lib/relationship-dimensions';
@@ -90,6 +89,17 @@ function readOverviewScreen(
   return overview as RelationshipScreenPayload;
 }
 
+function getOverviewDimensions(
+  payload: RelationshipOverviewPayload | null | undefined,
+) {
+  return (
+    payload?.relationshipScreen?.relationshipOrb?.dimensions ??
+    payload?.relationshipOverview?.relationshipOrb?.dimensions ??
+    payload?.overviewAnalytics?.relationshipOrb?.dimensions ??
+    []
+  );
+}
+
 /** Friends with a real registered userId — only these can be analytics peers. */
 export function analyticsEligibleFriends(
   friends: FriendCard[],
@@ -167,7 +177,7 @@ export function AnalyticsPeerSelectScreen({
     if (isOverviewLoading || isOverviewNoActivity || !overviewPayload) {
       return [];
     }
-    return extractOverviewDimensions(overviewPayload);
+    return getOverviewDimensions(overviewPayload);
   }, [isOverviewLoading, isOverviewNoActivity, overviewPayload]);
 
   const orbDimensions = useMemo(
