@@ -139,6 +139,15 @@ function isPeriodRange(
   return range !== 'ALL';
 }
 
+/** Local calendar date YYYY-MM-DD (for 1D = today semantics). */
+function localTodayIsoDate(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function readPeriodRelationshipScreen(
   payload: RelationshipPeriodPayload | null | undefined,
 ): RelationshipScreenPayload | null {
@@ -353,6 +362,7 @@ export function RelationshipAnalyticsScreen({
           token,
           otherUserId: peer.userId,
           range,
+          anchorDate: range === '1D' ? localTodayIsoDate() : undefined,
         });
         if (cancelled || requestId !== periodRequestIdRef.current) return;
         setPeriodLoadState({ kind: 'success', range, data });
@@ -435,24 +445,52 @@ export function RelationshipAnalyticsScreen({
       ? periodLoadState.message
       : null;
 
-  // Period overlay when fetch succeeded; on error keep previous/lifetime dashboard.
-  const relationshipScreen =
-    activePeriodRange &&
-    periodRelationshipScreen &&
-    !periodErrorMessage
-      ? periodRelationshipScreen
-      : baseRelationshipScreen;
+  // Successful period fetch (incl. NO_ACTIVITY) uses period screen.
+  // Period load/error: never show lifetime arcs as a stand-in.
+  // Lifetime fallback only on network/server error.
+  const relationshipScreen = (() => {
+    if (activePeriodRange == null) {
+      return baseRelationshipScreen;
+    }
+    if (periodErrorMessage) {
+      return baseRelationshipScreen;
+    }
+    if (
+      periodLoadState.kind === 'success' &&
+      periodLoadState.range === activePeriodRange &&
+      periodRelationshipScreen
+    ) {
+      return periodRelationshipScreen;
+    }
+    return null;
+  })();
+
+  const showPeriodOrb = activePeriodRange == null || !isPeriodLoading;
+
+  const periodNoActivityMessage =
+    activePeriodRange === '1D'
+      ? 'Сегодня между вами ещё не было действий'
+      : 'нет данных за выбранный период';
 
   const handleSelectRange = useCallback((range: RelationshipRange) => {
     setSelectedRange(range);
   }, []);
 
   const allDimensions = useMemo((): RelationshipDimension[] => {
-    if (activePeriodRange != null && isPeriodNoActivity) return [];
+    if (activePeriodRange != null) {
+      if (isPeriodLoading || isPeriodNoActivity || !relationshipScreen) {
+        return [];
+      }
+    }
     return relationshipScreen
       ? extractRelationshipDimensions(relationshipScreen)
       : [];
-  }, [activePeriodRange, isPeriodNoActivity, relationshipScreen]);
+  }, [
+    activePeriodRange,
+    isPeriodLoading,
+    isPeriodNoActivity,
+    relationshipScreen,
+  ]);
 
   const orbDimensions = useMemo(
     () => selectOrbRingDimensions(allDimensions),
@@ -615,16 +653,18 @@ export function RelationshipAnalyticsScreen({
               </p>
             ) : null}
 
-            <RelationshipOrb
-              compact
-              dimensions={isPeriodLoading ? [] : orbDimensions}
-              peerAvatarUrl={peerAvatar}
-              peerDisplayName={peerName}
-            />
+            {showPeriodOrb ? (
+              <RelationshipOrb
+                compact
+                dimensions={isPeriodLoading ? [] : orbDimensions}
+                peerAvatarUrl={peerAvatar}
+                peerDisplayName={peerName}
+              />
+            ) : null}
 
             {!isPeriodLoading && isPeriodNoActivity ? (
               <p className="monetization-muted monetization-muted--tight">
-                нет данных за выбранный период
+                {periodNoActivityMessage}
               </p>
             ) : null}
 
