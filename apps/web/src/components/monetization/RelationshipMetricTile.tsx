@@ -39,7 +39,7 @@ export function RelationshipMetricTile({
   perspective,
 }: {
   dimension: RelationshipDimension;
-  /** Detail-only: when omitted, tile keeps full (legacy/overview) intensity. */
+  /** When set, tile opacity follows resolveMetricPerspectiveState. */
   perspective?: RelationshipPerspective;
 }) {
   if (dimension.direction === 'NOT_AVAILABLE') {

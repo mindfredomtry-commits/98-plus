@@ -1240,6 +1240,11 @@
   color: rgba(255, 255, 255, 0.96);
 }
 
+.monetization-perspective-chip:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.55);
+  outline-offset: 2px;
+}
+
 .monetization-orb__peer {
   position: absolute;
   inset: 0;

@@ -34,7 +34,7 @@ export const RELATIONSHIP_ORB_TRACK = 'rgba(255, 255, 255, 0.08)';
 /** Other-side / muted ring fill opacity. */
 export const RELATIONSHIP_ORB_OTHER_OPACITY = 0.14;
 
-/** Compact metric tile intensity under perspective switch (detail only). */
+/** Compact metric tile intensity under perspective switch. */
 export const RELATIONSHIP_METRIC_TILE_ACTIVE_OPACITY = 1;
 export const RELATIONSHIP_METRIC_TILE_INACTIVE_OPACITY = 0.24;
 export const RELATIONSHIP_METRIC_TILE_UNKNOWN_OPACITY = 0.24;

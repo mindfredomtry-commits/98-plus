@@ -23,6 +23,8 @@ import {
 import { userAvatarSrc } from '@/lib/user-public-avatar';
 import { RelationshipMetricTile } from './RelationshipMetricTile';
 import { RelationshipOrb } from './RelationshipOrb';
+import { RelationshipPerspectiveSwitcher } from './RelationshipPerspectiveSwitcher';
+import type { RelationshipPerspective } from './relationship-metric-colors';
 import './monetization.css';
 
 type Props = {
@@ -123,6 +125,8 @@ export function AnalyticsPeerSelectScreen({
 }: Props) {
   const [selectedRange, setSelectedRange] =
     useState<RelationshipOverviewRangeCode>('ALL');
+  const [perspective, setPerspective] =
+    useState<RelationshipPerspective>('viewer');
   const [overviewState, setOverviewState] = useState<OverviewLoadState>({
     kind: 'idle',
   });
@@ -283,6 +287,15 @@ export function AnalyticsPeerSelectScreen({
             dimensions={isOverviewLoading ? [] : orbDimensions}
             peerAvatarUrl={viewerAvatar}
             peerDisplayName={viewerName}
+            perspective={perspective}
+          />
+
+          <RelationshipPerspectiveSwitcher
+            perspective={perspective}
+            onChange={setPerspective}
+            viewerLabel="Ты"
+            otherLabel="Люди"
+            groupLabel="Перспектива сводки"
           />
 
           {!isOverviewLoading && isOverviewNoActivity ? (
@@ -302,6 +315,7 @@ export function AnalyticsPeerSelectScreen({
                 <RelationshipMetricTile
                   key={dimension.code}
                   dimension={dimension}
+                  perspective={perspective}
                 />
               ))}
             </div>

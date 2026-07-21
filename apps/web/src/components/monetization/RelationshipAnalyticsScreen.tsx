@@ -32,6 +32,8 @@ import {
 } from '@/lib/relationship-analytics-types';
 import { RelationshipOrb } from './RelationshipOrb';
 import { RelationshipMetricTile } from './RelationshipMetricTile';
+import { RelationshipPerspectiveSwitcher } from './RelationshipPerspectiveSwitcher';
+import type { RelationshipPerspective } from './relationship-metric-colors';
 import '../lobby-screen.css';
 import './monetization.css';
 
@@ -57,8 +59,6 @@ type PeriodLoadState =
   | { kind: 'loading'; range: RelationshipPeriodRangeCode }
   | { kind: 'success'; range: RelationshipPeriodRangeCode; data: RelationshipPeriodPayload }
   | { kind: 'error'; range: RelationshipPeriodRangeCode; message: string };
-
-type RelationshipPerspective = 'viewer' | 'other';
 
 type RelationshipRange = RelationshipPeriodRangeCode | 'ALL';
 
@@ -595,36 +595,12 @@ export function RelationshipAnalyticsScreen({
             ) : null}
 
             {showPeriodOrb ? (
-              <div
-                className="monetization-relationship__perspective"
-                role="group"
-                aria-label="Перспектива"
-              >
-                <button
-                  type="button"
-                  className={`monetization-perspective-chip${
-                    perspective === 'viewer'
-                      ? ' monetization-perspective-chip--active'
-                      : ''
-                  }`}
-                  aria-pressed={perspective === 'viewer'}
-                  onClick={() => setPerspective('viewer')}
-                >
-                  ты
-                </button>
-                <button
-                  type="button"
-                  className={`monetization-perspective-chip${
-                    perspective === 'other'
-                      ? ' monetization-perspective-chip--active'
-                      : ''
-                  }`}
-                  aria-pressed={perspective === 'other'}
-                  onClick={() => setPerspective('other')}
-                >
-                  {peerName}
-                </button>
-              </div>
+              <RelationshipPerspectiveSwitcher
+                perspective={perspective}
+                onChange={setPerspective}
+                viewerLabel="ты"
+                otherLabel={peerName}
+              />
             ) : null}
 
             {!isPeriodLoading && isPeriodNoActivity ? (
