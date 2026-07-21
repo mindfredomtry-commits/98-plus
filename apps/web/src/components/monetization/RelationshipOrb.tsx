@@ -35,7 +35,7 @@ const RING_RADIUS: Record<'OUTER' | 'MIDDLE' | 'INNER', number> = {
 };
 
 /** Angular gap between viewer and other arc segments (each ring has two gaps). */
-export const RELATIONSHIP_ORB_SEGMENT_GAP_DEG = 14;
+export const RELATIONSHIP_ORB_SEGMENT_GAP_DEG = 3;
 
 /** Viewer arc anchor at 9 o'clock; other anchor at 3 o'clock. */
 export const VIEWER_ARC_ANCHOR_DEG = 180;
