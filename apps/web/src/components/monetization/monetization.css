@@ -1357,7 +1357,7 @@
   font-weight: 700 !important;
   line-height: 1.15 !important;
   text-align: center !important;
-  color: var(--metric-color, #b894ff) !important;
+  color: var(--metric-color, #9900B8) !important;
   white-space: nowrap !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
@@ -1375,7 +1375,7 @@
   line-height: 1 !important;
   font-weight: 700 !important;
   text-align: center !important;
-  color: var(--metric-color, #b894ff) !important;
+  color: var(--metric-color, #9900B8) !important;
   opacity: 1 !important;
   visibility: visible !important;
 }
@@ -1391,7 +1391,7 @@
   font-size: 24px !important;
   letter-spacing: -0.08em !important;
   opacity: 1 !important;
-  color: var(--metric-color, #b894ff) !important;
+  color: var(--metric-color, #9900B8) !important;
 }
 
 .monetization-relationship__tiles
@@ -1399,7 +1399,7 @@
   .monetization-metric-tile__arrow {
   font-size: 22px !important;
   opacity: 0.42 !important;
-  color: var(--metric-color, #b894ff) !important;
+  color: var(--metric-color, #9900B8) !important;
 }
 
 /* —— Improve placeholder (UI stub) —— */

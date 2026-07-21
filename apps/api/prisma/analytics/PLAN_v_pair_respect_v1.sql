@@ -1,0 +1,13 @@
+-- =============================================================================
+-- PLAN_v_pair_respect_v1.sql
+-- status: SUPERSEDED by APPLY_READY_respect_v1.sql (still DO NOT APPLY)
+-- version: 3
+-- =============================================================================
+-- Correction vs v2:
+--   Do NOT use metric_value = 0.5000 when both absolute scores = 0 for RESPECT.
+--   Use NULL → confidence_rule → LOW_DATA unless production engine analysis of
+--   initiative/responsiveness proves 0.5000 is mandatory for the pipeline.
+--
+-- Canonical draft lives in:
+--   apps/api/prisma/analytics/APPLY_READY_respect_v1.sql
+-- =============================================================================

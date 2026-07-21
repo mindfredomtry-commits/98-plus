@@ -8,7 +8,9 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "test:duration": "tsx scripts/check-duration-validation.ts",
-    "test:pair-free-mode": "tsx scripts/check-pair-free-mode.ts"
+    "test:pair-free-mode": "tsx scripts/check-pair-free-mode.ts",
+    "test:relationship-respect": "tsx scripts/relationship-respect.test.ts",
+    "test:relationship-relative-metric": "tsx scripts/relationship-relative-metric.test.ts"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

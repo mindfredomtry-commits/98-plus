@@ -15,8 +15,9 @@ const TITLE_FALLBACK: Record<string, string> = {
 };
 
 /**
- * Horizontal direction row: viewer ← / • / → peer.
+ * Full horizontal direction row: viewer ← / • / → peer.
  * Direction and displayValue come from API — not recomputed from shares.
+ * Do not use this inside `.monetization-relationship__tiles`.
  */
 export function RelationshipDirectionRow({
   dimension,
@@ -29,16 +30,16 @@ export function RelationshipDirectionRow({
     return null;
   }
 
-  const title =
-    dimension.title?.trim() || TITLE_FALLBACK[dimension.code] || null;
-  const description = dimension.description?.trim() || null;
-  const displayValue = dimension.displayValue?.trim() || null;
-
   let marker: 'viewer' | 'other' | 'balanced' | 'muted' = 'muted';
   if (direction === 'VIEWER') marker = 'viewer';
   else if (direction === 'OTHER') marker = 'other';
   else if (direction === 'BALANCED') marker = 'balanced';
   else if (direction === 'LOW_DATA' || !dimension.available) marker = 'muted';
+
+  const title =
+    dimension.title?.trim() || TITLE_FALLBACK[dimension.code] || null;
+  const description = dimension.description?.trim() || null;
+  const displayValue = dimension.displayValue?.trim() || null;
 
   return (
     <div className="monetization-direction">

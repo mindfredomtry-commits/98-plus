@@ -6,6 +6,7 @@ import {
   type RelationshipDirection,
   type RelationshipRing,
   type RelationshipScreenPayload,
+  type RelationshipOverviewPayload,
 } from './relationship-analytics-types';
 
 const DIMENSION_TITLE_FALLBACK: Record<string, string> = {
@@ -152,6 +153,16 @@ export function extractRelationshipDimensions(
 ): RelationshipDimension[] {
   if (!screen) return [];
   return normalizeOrbDimensions(screen.relationshipOrb?.dimensions);
+}
+
+export function extractOverviewDimensions(
+  payload: RelationshipOverviewPayload | null | undefined,
+): RelationshipDimension[] {
+  if (!payload) return [];
+  const overview =
+    payload.relationshipScreen ?? payload.relationshipOverview;
+  if (!overview) return [];
+  return normalizeOrbDimensions(overview.relationshipOrb?.dimensions);
 }
 
 export function resolveLearnPressView(

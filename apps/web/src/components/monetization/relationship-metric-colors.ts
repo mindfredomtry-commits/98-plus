@@ -1,9 +1,9 @@
 /** Minimal metric color system for relationship orb + compact tiles. */
 
 export const RELATIONSHIP_METRIC_COLORS = {
-  INITIATIVE: '#B894FF',
-  RESPONSIVENESS: '#7FB7FF',
-  RESPECT: '#D97BFF',
+  INITIATIVE: '#9900B8',
+  RESPONSIVENESS: '#E000D2',
+  RESPECT: '#FF3158',
 } as const;
 
 export type RelationshipMetricColorCode = keyof typeof RELATIONSHIP_METRIC_COLORS;

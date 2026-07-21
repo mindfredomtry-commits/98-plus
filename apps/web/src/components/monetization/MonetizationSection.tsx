@@ -293,8 +293,6 @@ export function MonetizationSection({
           token={token}
           user={user}
           premiumActive={premiumActive}
-          activePremium={entitlements?.activePremium ?? null}
-          entitlementLoading={entitlementLoading}
           onOpenPremium={handleOpenPremium}
           onSelect={handleSelectAnalyticsPeer}
           onBack={handleBackFromPeerSelect}

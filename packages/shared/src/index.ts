@@ -11,3 +11,5 @@ export * from './check-modal';
 export * from './friends';
 export * from './challenge';
 export * from './monetization';
+export * from './relationship-relative-metric';
+export * from './relationship-respect';
