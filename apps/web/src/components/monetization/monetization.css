@@ -1073,24 +1073,46 @@
   width: 100%;
 }
 
-.monetization-relationship__weekly {
+.monetization-relationship__range-selector {
   display: flex;
-  flex-wrap: nowrap;
   align-items: center;
-  gap: 0.35rem;
-  margin: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-
-.monetization-relationship__weekly::-webkit-scrollbar {
-  display: none;
-}
-
-.monetization-relationship--fit .monetization-relationship__weekly {
+  justify-content: space-between;
+  width: 100%;
+  height: 44px;
+  margin: 0.15rem 0 0.55rem;
+  padding: 0;
   flex: 0 0 auto;
+}
+
+.monetization-relationship--fit .monetization-relationship__range-selector {
+  flex: 0 0 auto;
+}
+
+.monetization-range-chip {
+  appearance: none;
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 32px;
+  margin: 0;
+  padding: 0 0.35rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.monetization-range-chip--active {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.96);
 }
 
 .monetization-relationship__orb-title {
@@ -1103,63 +1125,6 @@
   letter-spacing: -0.01em;
   color: var(--98-text-primary);
   flex: 0 0 auto;
-}
-
-.monetization-week-chip {
-  appearance: none;
-  flex-shrink: 0;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.72);
-  border-radius: 999px;
-  padding: 0.28rem 0.7rem;
-  font-size: 0.78rem;
-  font-weight: 600;
-  line-height: 1.2;
-  cursor: pointer;
-}
-
-.monetization-week-chip--active {
-  border-color: rgba(196, 168, 255, 0.55);
-  background: rgba(167, 139, 250, 0.18);
-  color: rgba(255, 255, 255, 0.95);
-}
-
-.monetization-week-date {
-  position: relative;
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  min-height: 1.75rem;
-  padding: 0.22rem 0.65rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
-  border-radius: 999px;
-  cursor: pointer;
-}
-
-.monetization-week-date__label {
-  font-size: 0.78rem;
-  font-weight: 600;
-  line-height: 1.2;
-  color: rgba(255, 255, 255, 0.72);
-  pointer-events: none;
-  white-space: nowrap;
-}
-
-.monetization-week-date__input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  opacity: 0.01;
-  cursor: pointer;
-  color-scheme: dark;
 }
 
 /* —— Triple orb —— */

@@ -120,6 +120,37 @@ type DayLoadState =
   | { kind: 'success'; date: string; data: RelationshipDayPayload }
   | { kind: 'error'; date: string; message: string };
 
+type RelationshipRange = '1D' | '1W' | '1M' | '1Y' | 'ALL';
+
+const RELATIONSHIP_RANGE_OPTIONS: Array<{
+  id: RelationshipRange;
+  label: string;
+}> = [
+  { id: '1D', label: '1Д' },
+  { id: '1W', label: '1Н' },
+  { id: '1M', label: '1М' },
+  { id: '1Y', label: '1Г' },
+  { id: 'ALL', label: 'ВСЁ' },
+];
+
+function todayIsoDate(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function resolveLatestAvailableDay(
+  options: Array<{ date: string }>,
+): string {
+  if (options.length === 0) return todayIsoDate();
+  return options.reduce((best, item) =>
+    item.date > best ? item.date : best,
+    options[0].date,
+  );
+}
+
 function readDayRelationshipScreen(
   payload: RelationshipDayPayload | null | undefined,
 ): RelationshipScreenPayload | null {
@@ -248,6 +279,7 @@ export function RelationshipAnalyticsScreen({
   const [retryTick, setRetryTick] = useState(0);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [selectedRange, setSelectedRange] = useState<RelationshipRange>('ALL');
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [dayLoadState, setDayLoadState] = useState<DayLoadState>({
     kind: 'idle',
@@ -263,6 +295,7 @@ export function RelationshipAnalyticsScreen({
     let cancelled = false;
     setLoadState({ kind: 'loading' });
     setActionError(null);
+    setSelectedRange('ALL');
     setSelectedDate(null);
     setDayLoadState({ kind: 'idle' });
 
@@ -358,10 +391,6 @@ export function RelationshipAnalyticsScreen({
     setRetryTick((n) => n + 1);
   }, []);
 
-  const handleSelectDate = useCallback((date: string | null) => {
-    setSelectedDate(date);
-  }, []);
-
   const handleOpenTimeline = useCallback(async () => {
     if (actionLockRef.current || actionLoading) return;
     actionLockRef.current = true;
@@ -405,21 +434,27 @@ export function RelationshipAnalyticsScreen({
 
   const dayRelationshipScreen = readDayRelationshipScreen(dayPayload);
   const dayStatus = readRelationshipScreenStatus(dayRelationshipScreen);
-  const isDayNoActivity = dayStatus === 'NO_ACTIVITY';
+  const isDayNoActivity =
+    selectedRange === '1D' && dayStatus === 'NO_ACTIVITY';
   const isDayLoading =
+    selectedRange === '1D' &&
     selectedDate != null &&
     dayLoadState.kind === 'loading' &&
     dayLoadState.date === selectedDate;
   const dayErrorMessage =
+    selectedRange === '1D' &&
     selectedDate != null &&
     dayLoadState.kind === 'error' &&
     dayLoadState.date === selectedDate
       ? dayLoadState.message
       : null;
 
-  // Day overlay only when fetch succeeded; on error keep lifetime dashboard.
+  // Day overlay only for 1D when fetch succeeded; on error keep lifetime dashboard.
   const relationshipScreen =
-    selectedDate && dayRelationshipScreen && !dayErrorMessage
+    selectedRange === '1D' &&
+    selectedDate &&
+    dayRelationshipScreen &&
+    !dayErrorMessage
       ? dayRelationshipScreen
       : baseRelationshipScreen;
 
@@ -428,12 +463,24 @@ export function RelationshipAnalyticsScreen({
     [baseRelationshipScreen],
   );
 
+  const handleSelectRange = useCallback(
+    (range: RelationshipRange) => {
+      setSelectedRange(range);
+      if (range === '1D') {
+        setSelectedDate(resolveLatestAvailableDay(weeklyDayOptions));
+        return;
+      }
+      setSelectedDate(null);
+    },
+    [weeklyDayOptions],
+  );
+
   const allDimensions = useMemo((): RelationshipDimension[] => {
-    if (isDayNoActivity) return [];
+    if (selectedRange === '1D' && isDayNoActivity) return [];
     return relationshipScreen
       ? extractRelationshipDimensions(relationshipScreen)
       : [];
-  }, [isDayNoActivity, relationshipScreen]);
+  }, [isDayNoActivity, relationshipScreen, selectedRange]);
 
   const orbDimensions = useMemo(
     () => selectOrbRingDimensions(allDimensions),
@@ -472,7 +519,7 @@ export function RelationshipAnalyticsScreen({
   const canStartBan =
     primaryCode === 'START_BAN' && typeof onStartBan === 'function';
 
-  const showDateSelector =
+  const showRangeSelector =
     loadState.kind === 'success' && baseRelationshipScreen != null;
 
   const showFitLayout =
@@ -555,57 +602,34 @@ export function RelationshipAnalyticsScreen({
 
         {loadState.kind === 'success' && baseRelationshipScreen ? (
           <div className="monetization-relationship monetization-relationship--fit">
-            {showDateSelector ? (
+            {showRangeSelector ? (
               <div
-                className="monetization-relationship__weekly"
+                className="monetization-relationship__range-selector"
                 role="group"
-                aria-label="Выбор даты"
+                aria-label="Период"
               >
-                <button
-                  type="button"
-                  className={`monetization-week-chip${
-                    selectedDate == null ? ' monetization-week-chip--active' : ''
-                  }`}
-                  aria-pressed={selectedDate == null}
-                  onClick={() => handleSelectDate(null)}
-                >
-                  всё время
-                </button>
-                {weeklyDayOptions.map((option) => {
-                  const active = selectedDate === option.date;
+                {RELATIONSHIP_RANGE_OPTIONS.map((option) => {
+                  const active = selectedRange === option.id;
                   return (
                     <button
-                      key={option.date}
+                      key={option.id}
                       type="button"
-                      className={`monetization-week-chip${
-                        active ? ' monetization-week-chip--active' : ''
+                      className={`monetization-range-chip${
+                        active ? ' monetization-range-chip--active' : ''
                       }`}
                       aria-pressed={active}
-                      onClick={() => handleSelectDate(option.date)}
+                      onClick={() => handleSelectRange(option.id)}
                     >
                       {option.label}
                     </button>
                   );
                 })}
-                <label className="monetization-week-date">
-                  <span className="monetization-week-date__label" aria-hidden>
-                    выбери день
-                  </span>
-                  <input
-                    type="date"
-                    className="monetization-week-date__input"
-                    aria-label="выбери день"
-                    value={selectedDate ?? ''}
-                    onChange={(event) => {
-                      const next = event.target.value.trim();
-                      handleSelectDate(next.length > 0 ? next : null);
-                    }}
-                  />
-                </label>
               </div>
             ) : null}
 
-            <h2 className="monetization-relationship__orb-title">твои отношения</h2>
+            <h2 className="monetization-relationship__orb-title">
+              ваши отношения
+            </h2>
 
             {isDayLoading ? (
               <p className="monetization-muted monetization-muted--tight">
