@@ -265,36 +265,47 @@ BEGIN
       AND d.other_user_id = p_other_user_id
       AND d.dimension_code <> 'THIRD_DIMENSION_PENDING'
   ),
-  dimension_enriched AS (
+  dimension_with_direction AS (
     SELECT
       ds.*,
+      analytics.relationship_metric_direction_v1(
+        CASE
+          WHEN ds.is_publishable IS TRUE THEN ds.score
+          ELSE NULL
+        END
+      ) AS orb_direction
+    FROM dimension_source AS ds
+  ),
+  dimension_enriched AS (
+    SELECT
+      dwd.*,
 
-      CASE ds.display_order_rank
+      CASE dwd.display_order_rank
         WHEN 1 THEN 'OUTER'
         WHEN 2 THEN 'MIDDLE'
         WHEN 3 THEN 'INNER'
         ELSE NULL
       END AS ring_code,
 
-      CASE ds.dimension_code
+      CASE dwd.dimension_code
         WHEN 'INITIATIVE' THEN 'Инициатива'
         WHEN 'RESPONSIVENESS' THEN 'Ответность'
         WHEN 'RESPECT' THEN 'Уважение'
-        ELSE ds.dimension_name
+        ELSE dwd.dimension_name
       END AS localized_title,
 
-      CASE ds.dimension_code
+      CASE dwd.dimension_code
         WHEN 'INITIATIVE' THEN
           CASE
-            WHEN ds.is_publishable IS NOT TRUE THEN
+            WHEN dwd.orb_direction = 'LOW_DATA' THEN
               'Пока недостаточно данных, чтобы устойчиво определить, кто чаще начинает взаимодействие.'
-            WHEN ds.score > 0.55 THEN
+            WHEN dwd.orb_direction = 'VIEWER' THEN
               concat(
                 'Ты начинаешь запрещать чаще, чем ',
                 v_peer_display_name,
                 '.'
               )
-            WHEN ds.score < 0.45 THEN
+            WHEN dwd.orb_direction = 'OTHER' THEN
               concat(
                 v_peer_display_name,
                 ' начинает запрещать чаще, чем ты.'
@@ -305,15 +316,15 @@ BEGIN
 
         WHEN 'RESPONSIVENESS' THEN
           CASE
-            WHEN ds.is_publishable IS NOT TRUE THEN
+            WHEN dwd.orb_direction = 'LOW_DATA' THEN
               'Пока недостаточно данных, чтобы устойчиво сравнить ваши ответы.'
-            WHEN ds.score > 0.55 THEN
+            WHEN dwd.orb_direction = 'VIEWER' THEN
               concat(
                 'Ты чаще отвечаешь на действия ',
                 v_peer_display_name,
                 '.'
               )
-            WHEN ds.score < 0.45 THEN
+            WHEN dwd.orb_direction = 'OTHER' THEN
               concat(
                 v_peer_display_name,
                 ' чаще отвечает на твои действия.'
@@ -324,15 +335,15 @@ BEGIN
 
         WHEN 'RESPECT' THEN
           CASE
-            WHEN ds.is_publishable IS NOT TRUE THEN
+            WHEN dwd.orb_direction = 'LOW_DATA' THEN
               'Пока недостаточно данных, чтобы устойчиво сравнить, как вы выполняете принятые запреты.'
-            WHEN ds.score > 0.55 THEN
+            WHEN dwd.orb_direction = 'VIEWER' THEN
               concat(
                 'Ты чаще выполняешь принятые запреты ',
                 v_short_display_name,
                 '.'
               )
-            WHEN ds.score < 0.45 THEN
+            WHEN dwd.orb_direction = 'OTHER' THEN
               concat(
                 v_short_display_name,
                 ' чаще выполняет принятые запреты, чем ты.'
@@ -341,9 +352,9 @@ BEGIN
               'Вы примерно одинаково выполняете принятые запреты друг друга.'
           END
 
-        ELSE ds.description
+        ELSE dwd.description
       END AS localized_description
-    FROM dimension_source AS ds
+    FROM dimension_with_direction AS dwd
   ),
   dimension_json AS (
     SELECT
@@ -369,13 +380,7 @@ BEGIN
             WHEN de.score IS NULL THEN NULL
             ELSE concat(round(de.score * 100::numeric), '%')
           END,
-        'direction',
-          CASE
-            WHEN de.is_publishable IS NOT TRUE THEN 'LOW_DATA'
-            WHEN de.score > 0.55 THEN 'VIEWER'
-            WHEN de.score < 0.45 THEN 'OTHER'
-            ELSE 'BALANCED'
-          END,
+        'direction', de.orb_direction,
         'title', de.localized_title,
         'description', de.localized_description,
         'confidenceCode', de.confidence_code,
@@ -436,11 +441,11 @@ BEGIN
         THEN
           'Пока недостаточно данных, чтобы показать направление отношений.'
 
-      WHEN COALESCE(v_initiative_score, 0.5) > 0.55
+      WHEN analytics.relationship_metric_direction_v1(COALESCE(v_initiative_score, 0.5)) = 'VIEWER'
         THEN
           'Отношения сильнее смещены в твою сторону.'
 
-      WHEN COALESCE(v_initiative_score, 0.5) < 0.45
+      WHEN analytics.relationship_metric_direction_v1(COALESCE(v_initiative_score, 0.5)) = 'OTHER'
         THEN
           concat(
             'Отношения сильнее смещены в сторону ',
@@ -573,6 +578,10 @@ DECLARE
   v_responsiveness_score numeric;
   v_respect_score numeric;
 
+  v_initiative_direction text;
+  v_responsiveness_direction text;
+  v_respect_direction text;
+
   v_viewer_respect_rate numeric;
   v_other_respect_rate numeric;
 
@@ -672,11 +681,15 @@ BEGIN
       ELSE round(v_viewer_respect_rate / (v_viewer_respect_rate + v_other_respect_rate), 4)
     END;
 
+  v_initiative_direction := analytics.relationship_metric_direction_v1(v_initiative_score);
+  v_responsiveness_direction := analytics.relationship_metric_direction_v1(v_responsiveness_score);
+  v_respect_direction := analytics.relationship_metric_direction_v1(v_respect_score);
+
   v_summary :=
     CASE
       WHEN v_interactions = 0 THEN 'В этот день между вами не было действий.'
-      WHEN v_initiative_score > 0.55 THEN 'В этот день ты чаще начинал взаимодействие.'
-      WHEN v_initiative_score < 0.45 THEN concat('В этот день ', v_other_display_name, ' чаще начинал взаимодействие.')
+      WHEN v_initiative_direction = 'VIEWER' THEN 'В этот день ты чаще начинал взаимодействие.'
+      WHEN v_initiative_direction = 'OTHER' THEN concat('В этот день ', v_other_display_name, ' чаще начинал взаимодействие.')
       ELSE 'В этот день отношения выглядят достаточно сбалансированными.'
     END;
 
@@ -703,19 +716,13 @@ BEGIN
           'viewerShare', v_initiative_score,
           'otherShare', CASE WHEN v_initiative_score IS NULL THEN NULL ELSE round(1 - v_initiative_score, 4) END,
           'displayValue', CASE WHEN v_initiative_score IS NULL THEN NULL ELSE concat(round(v_initiative_score * 100), '%') END,
-          'direction',
-            CASE
-              WHEN v_initiative_score IS NULL THEN 'LOW_DATA'
-              WHEN v_initiative_score > 0.55 THEN 'VIEWER'
-              WHEN v_initiative_score < 0.45 THEN 'OTHER'
-              ELSE 'BALANCED'
-            END,
+          'direction', v_initiative_direction,
           'title', 'Инициатива',
           'description',
             CASE
-              WHEN v_initiative_score IS NULL THEN 'В этот день вы не начинали запреты друг другу.'
-              WHEN v_initiative_score > 0.55 THEN 'В этот день ты чаще начинал запреты.'
-              WHEN v_initiative_score < 0.45 THEN concat('В этот день ', v_other_display_name, ' чаще начинал запреты.')
+              WHEN v_initiative_direction = 'LOW_DATA' THEN 'В этот день вы не начинали запреты друг другу.'
+              WHEN v_initiative_direction = 'VIEWER' THEN 'В этот день ты чаще начинал запреты.'
+              WHEN v_initiative_direction = 'OTHER' THEN concat('В этот день ', v_other_display_name, ' чаще начинал запреты.')
               ELSE 'В этот день вы начинали запреты примерно одинаково часто.'
             END,
           'confidenceCode', CASE WHEN v_initiative_sample >= 20 THEN 'HIGH' WHEN v_initiative_sample >= 5 THEN 'MEDIUM' WHEN v_initiative_sample > 0 THEN 'LOW' ELSE 'NO_DATA' END,
@@ -730,19 +737,13 @@ BEGIN
           'viewerShare', v_responsiveness_score,
           'otherShare', CASE WHEN v_responsiveness_score IS NULL THEN NULL ELSE round(1 - v_responsiveness_score, 4) END,
           'displayValue', CASE WHEN v_responsiveness_score IS NULL THEN NULL ELSE concat(round(v_responsiveness_score * 100), '%') END,
-          'direction',
-            CASE
-              WHEN v_responsiveness_score IS NULL THEN 'LOW_DATA'
-              WHEN v_responsiveness_score > 0.55 THEN 'VIEWER'
-              WHEN v_responsiveness_score < 0.45 THEN 'OTHER'
-              ELSE 'BALANCED'
-            END,
+          'direction', v_responsiveness_direction,
           'title', 'Ответность',
           'description',
             CASE
-              WHEN v_responsiveness_score IS NULL THEN 'В этот день не было ответов на запреты.'
-              WHEN v_responsiveness_score > 0.55 THEN concat('В этот день ты чаще отвечал на запреты ', v_other_display_name, '.')
-              WHEN v_responsiveness_score < 0.45 THEN concat('В этот день ', v_other_display_name, ' чаще отвечал на твои запреты.')
+              WHEN v_responsiveness_direction = 'LOW_DATA' THEN 'В этот день не было ответов на запреты.'
+              WHEN v_responsiveness_direction = 'VIEWER' THEN concat('В этот день ты чаще отвечал на запреты ', v_other_display_name, '.')
+              WHEN v_responsiveness_direction = 'OTHER' THEN concat('В этот день ', v_other_display_name, ' чаще отвечал на твои запреты.')
               ELSE 'В этот день вы отвечали друг другу примерно одинаково часто.'
             END,
           'confidenceCode', CASE WHEN v_response_sample >= 20 THEN 'HIGH' WHEN v_response_sample >= 5 THEN 'MEDIUM' WHEN v_response_sample > 0 THEN 'LOW' ELSE 'NO_DATA' END,
@@ -757,19 +758,13 @@ BEGIN
           'viewerShare', v_respect_score,
           'otherShare', CASE WHEN v_respect_score IS NULL THEN NULL ELSE round(1 - v_respect_score, 4) END,
           'displayValue', CASE WHEN v_respect_score IS NULL THEN NULL ELSE concat(round(v_respect_score * 100), '%') END,
-          'direction',
-            CASE
-              WHEN v_respect_score IS NULL THEN 'LOW_DATA'
-              WHEN v_respect_score > 0.55 THEN 'VIEWER'
-              WHEN v_respect_score < 0.45 THEN 'OTHER'
-              ELSE 'BALANCED'
-            END,
+          'direction', v_respect_direction,
           'title', 'Уважение',
           'description',
             CASE
-              WHEN v_respect_score IS NULL THEN 'Чтобы сравнить уважение за день, нужны действия в обе стороны.'
-              WHEN v_respect_score > 0.55 THEN concat('В этот день ты чаще выполнял запреты ', v_other_display_name, '.')
-              WHEN v_respect_score < 0.45 THEN concat('В этот день ', v_other_display_name, ' чаще выполнял твои запреты.')
+              WHEN v_respect_direction = 'LOW_DATA' THEN 'Чтобы сравнить уважение за день, нужны действия в обе стороны.'
+              WHEN v_respect_direction = 'VIEWER' THEN concat('В этот день ты чаще выполнял запреты ', v_other_display_name, '.')
+              WHEN v_respect_direction = 'OTHER' THEN concat('В этот день ', v_other_display_name, ' чаще выполнял твои запреты.')
               ELSE 'В этот день вы выполняли запреты примерно одинаково.'
             END,
           'confidenceCode', CASE WHEN v_respect_sample >= 20 THEN 'HIGH' WHEN v_respect_sample >= 5 THEN 'MEDIUM' WHEN v_respect_sample > 0 THEN 'LOW' ELSE 'NO_DATA' END,
@@ -821,3 +816,22 @@ BEGIN
 END;
 $function$
 ;
+
+-- =============================================================================
+-- Wire API entrypoint to pair-scoped rebuild (canonical direction lives there).
+-- Prerequisites: analytics.relationship_metric_direction_v1 applied first.
+-- =============================================================================
+CREATE OR REPLACE FUNCTION analytics.get_relationship_dashboard_v1(
+  p_viewer_user_id text,
+  p_other_user_id text
+)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SET search_path TO 'analytics', 'public'
+AS $function$
+  SELECT analytics.get_relationship_dashboard_pair_scoped_v1(
+    p_viewer_user_id,
+    p_other_user_id
+  );
+$function$;

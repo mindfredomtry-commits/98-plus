@@ -1,24 +1,40 @@
 -- =============================================================================
+-- analytics.relationship_metric_direction_v1
 -- analytics.resolve_relationship_direction_v1
 -- version: 1
--- status: PROD GATE ⛔
+-- Canonical ORB direction: 49–51% inclusive = BALANCED
 -- =============================================================================
--- Purpose: single direction resolver for Relationship ORB metrics.
+-- viewer_share is 0..1. Direction uses round(share * 100) to match display %.
+-- Must stay in lockstep with packages/shared resolveRelationshipMetricDirection:
 --
--- DO NOT APPLY TO PRODUCTION until live INITIATIVE / RESPONSIVENESS logic is
--- extracted via INTROSPECTION_relationship_direction_v1.sql and this body is
--- replaced with that exact rule (threshold, LOW_DATA, confidence).
---
--- Current safe stub:
---   - NOT_AVAILABLE when unavailable / null shares
---   - VIEWER / OTHER / BALANCED / LOW_DATA intentionally NOT production-final
---   - no exact-equality BALANCED as a temporary production rule
---
--- Expected product codes (reuse existing — do not invent new ones silently):
---   VIEWER | OTHER | BALANCED | LOW_DATA | NOT_AVAILABLE
+--   pct > 51  → VIEWER
+--   pct < 49  → OTHER
+--   else      → BALANCED  (49, 50, 51)
+--   null share → LOW_DATA (orb JSON) / NOT_AVAILABLE (full resolver)
 -- =============================================================================
 
 create schema if not exists analytics;
+
+-- Scalar twin of TypeScript resolveRelationshipMetricDirection().
+-- Use this from overview / period / day / dashboard JSON builders.
+create or replace function analytics.relationship_metric_direction_v1(
+  p_viewer_share numeric
+)
+returns text
+language sql
+immutable
+parallel safe
+as $$
+  select case
+    when p_viewer_share is null then 'LOW_DATA'
+    when round(p_viewer_share * 100) > 51 then 'VIEWER'
+    when round(p_viewer_share * 100) < 49 then 'OTHER'
+    else 'BALANCED'
+  end;
+$$;
+
+comment on function analytics.relationship_metric_direction_v1(numeric) is
+  'ORB direction from viewer_share: BALANCED when round(share*100) in 49..51 inclusive; null → LOW_DATA.';
 
 create or replace function analytics.resolve_relationship_direction_v1(
   p_available boolean,
@@ -40,36 +56,27 @@ as $$
     case
       when coalesce(p_available, false) = false then 'NOT_AVAILABLE'
       when p_viewer_share is null or p_other_share is null then 'NOT_AVAILABLE'
-      -- ⛔ PROD GATE: real VIEWER/OTHER/BALANCED/LOW_DATA rule goes here after
-      -- introspection of INITIATIVE / RESPONSIVENESS. Until then only
-      -- NOT_AVAILABLE is emitted for unavailable inputs; available inputs
-      -- return a non-production placeholder that must not be wired to
-      -- public relationshipScreen in production.
-      else 'DIRECTION_HELPER_UNCONFIRMED'
+      else analytics.relationship_metric_direction_v1(p_viewer_share)
     end as direction,
     case
       when coalesce(p_available, false) = false then 'NONE'
       when p_viewer_share is null or p_other_share is null then 'NONE'
-      else 'UNCONFIRMED'
+      when coalesce(p_viewer_sample_size, 0) + coalesce(p_other_sample_size, 0) >= 20
+        then 'HIGH'
+      when coalesce(p_viewer_sample_size, 0) + coalesce(p_other_sample_size, 0) >= 5
+        then 'MEDIUM'
+      when coalesce(p_viewer_sample_size, 0) + coalesce(p_other_sample_size, 0) > 0
+        then 'LOW'
+      else 'NO_DATA'
     end as confidence_code,
     case
       when coalesce(p_available, false) = false then 'UNAVAILABLE_INPUT'
       when p_viewer_share is null or p_other_share is null then 'NULL_SHARE'
-      else 'PROD_GATE_AWAITING_INTROSPECTION'
+      when round(p_viewer_share * 100) > 51 then 'VIEWER_LEAD'
+      when round(p_viewer_share * 100) < 49 then 'OTHER_LEAD'
+      else 'BALANCED_BAND'
     end as reason_code;
 $$;
 
 comment on function analytics.resolve_relationship_direction_v1(boolean, numeric, numeric, integer, integer) is
-  'v1 ORB direction helper — PROD GATE until parity with INITIATIVE/RESPONSIVENESS. Stub returns NOT_AVAILABLE or DIRECTION_HELPER_UNCONFIRMED.';
-
--- After introspection, replace the available branch with the confirmed CASE, e.g.:
---   when abs(p_viewer_share - 0.5) <= <confirmed_threshold> then 'BALANCED'
---   when p_viewer_share > p_other_share then 'VIEWER'
---   else 'OTHER'
--- plus any LOW_DATA sample/confidence rule copied verbatim from production.
---
--- Never invent a new threshold for RESPECT alone.
---
--- Smoke:
--- select * from analytics.resolve_relationship_direction_v1(false, null, null, 0, 0);
--- select * from analytics.resolve_relationship_direction_v1(true, 0.59, 0.41, 100, 80);
+  'v1 direction resolver: uses relationship_metric_direction_v1 when shares available; else NOT_AVAILABLE.';

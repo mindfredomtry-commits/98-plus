@@ -134,13 +134,13 @@ dimension_enriched as (
         case
           when dr.is_publishable is not true then
             'Пока недостаточно данных, чтобы устойчиво сравнить, как вы выполняете принятые запреты.'
-          when dr.score > 0.55 then
+          when analytics.relationship_metric_direction_v1(dr.score) = 'VIEWER' then
             concat(
               'Ты чаще выполняешь принятые запреты ',
               dr.other_display_name,
               '.'
             )
-          when dr.score < 0.45 then
+          when analytics.relationship_metric_direction_v1(dr.score) = 'OTHER' then
             concat(
               dr.other_display_name,
               ' чаще выполняет принятые запреты, чем ты.'
@@ -184,9 +184,7 @@ dimension_json as (
       'direction',
         case
           when de.is_publishable is not true then 'LOW_DATA'
-          when de.score > 0.55 then 'VIEWER'
-          when de.score < 0.45 then 'OTHER'
-          else 'BALANCED'
+          else analytics.relationship_metric_direction_v1(de.score)
         end,
       'title', de.localized_title,
       'description', de.localized_description,
@@ -252,13 +250,13 @@ relationship_screen_rebuilt as (
             when ic.initiative_publishable is not true
               or ic.initiative_score is null then
               'Пока недостаточно данных, чтобы устойчиво сравнить, кто чаще начинает запреты.'
-            when ic.initiative_score > 0.55 then
+            when analytics.relationship_metric_direction_v1(ic.initiative_score) = 'VIEWER' then
               concat(
                 'Ты чаще начинаешь запреты ',
                 sr.other_display_name,
                 '.'
               )
-            when ic.initiative_score < 0.45 then
+            when analytics.relationship_metric_direction_v1(ic.initiative_score) = 'OTHER' then
               concat(
                 sr.other_display_name,
                 ' чаще начинает запреты, чем ты.'

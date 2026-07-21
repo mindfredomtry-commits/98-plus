@@ -4,8 +4,10 @@
  * Converts two non-negative linear scores into relative shares of one ring.
  * Used by RESPECT (and later INITIATIVE / RESPONSIVENESS after SQL parity).
  *
- * Does NOT invent direction thresholds — direction stays in SQL helper
- * analytics.resolve_relationship_direction_v1 (PROD GATE until introspection).
+ * Does NOT invent direction thresholds — use
+ * resolveRelationshipMetricDirection() /
+ * analytics.relationship_metric_direction_v1
+ * (BALANCED = rounded percent 49–51 inclusive).
  */
 
 export type RelativeMetricReasonCode =

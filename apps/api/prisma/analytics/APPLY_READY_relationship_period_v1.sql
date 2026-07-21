@@ -46,6 +46,10 @@ DECLARE
   v_responsiveness_score numeric;
   v_respect_score numeric;
 
+  v_initiative_direction text;
+  v_responsiveness_direction text;
+  v_respect_direction text;
+
   v_viewer_respect_rate numeric;
   v_other_respect_rate numeric;
 
@@ -170,11 +174,15 @@ BEGIN
       ELSE round(v_viewer_respect_rate / (v_viewer_respect_rate + v_other_respect_rate), 4)
     END;
 
+  v_initiative_direction := analytics.relationship_metric_direction_v1(v_initiative_score);
+  v_responsiveness_direction := analytics.relationship_metric_direction_v1(v_responsiveness_score);
+  v_respect_direction := analytics.relationship_metric_direction_v1(v_respect_score);
+
   v_summary :=
     CASE
       WHEN v_interactions = 0 THEN concat('За выбранный период между вами не было действий.')
-      WHEN v_initiative_score > 0.55 THEN concat('За выбранный период ты чаще начинал взаимодействие.')
-      WHEN v_initiative_score < 0.45 THEN concat('За выбранный период ', v_other_display_name, ' чаще начинал взаимодействие.')
+      WHEN v_initiative_direction = 'VIEWER' THEN concat('За выбранный период ты чаще начинал взаимодействие.')
+      WHEN v_initiative_direction = 'OTHER' THEN concat('За выбранный период ', v_other_display_name, ' чаще начинал взаимодействие.')
       ELSE 'За выбранный период отношения выглядят достаточно сбалансированными.'
     END;
 
@@ -206,19 +214,13 @@ BEGIN
           'viewerShare', v_initiative_score,
           'otherShare', CASE WHEN v_initiative_score IS NULL THEN NULL ELSE round(1 - v_initiative_score, 4) END,
           'displayValue', CASE WHEN v_initiative_score IS NULL THEN NULL ELSE concat(round(v_initiative_score * 100), '%') END,
-          'direction',
-            CASE
-              WHEN v_initiative_score IS NULL THEN 'LOW_DATA'
-              WHEN v_initiative_score > 0.55 THEN 'VIEWER'
-              WHEN v_initiative_score < 0.45 THEN 'OTHER'
-              ELSE 'BALANCED'
-            END,
+          'direction', v_initiative_direction,
           'title', 'Инициатива',
           'description',
             CASE
-              WHEN v_initiative_score IS NULL THEN concat('За выбранный период вы не начинали запреты друг другу.')
-              WHEN v_initiative_score > 0.55 THEN concat('За выбранный период ты чаще начинал запреты.')
-              WHEN v_initiative_score < 0.45 THEN concat('За выбранный период ', v_other_display_name, ' чаще начинал запреты.')
+              WHEN v_initiative_direction = 'LOW_DATA' THEN concat('За выбранный период вы не начинали запреты друг другу.')
+              WHEN v_initiative_direction = 'VIEWER' THEN concat('За выбранный период ты чаще начинал запреты.')
+              WHEN v_initiative_direction = 'OTHER' THEN concat('За выбранный период ', v_other_display_name, ' чаще начинал запреты.')
               ELSE concat('За выбранный период вы начинали запреты примерно одинаково часто.')
             END,
           'confidenceCode', CASE WHEN v_initiative_sample >= 20 THEN 'HIGH' WHEN v_initiative_sample >= 5 THEN 'MEDIUM' WHEN v_initiative_sample > 0 THEN 'LOW' ELSE 'NO_DATA' END,
@@ -233,19 +235,13 @@ BEGIN
           'viewerShare', v_responsiveness_score,
           'otherShare', CASE WHEN v_responsiveness_score IS NULL THEN NULL ELSE round(1 - v_responsiveness_score, 4) END,
           'displayValue', CASE WHEN v_responsiveness_score IS NULL THEN NULL ELSE concat(round(v_responsiveness_score * 100), '%') END,
-          'direction',
-            CASE
-              WHEN v_responsiveness_score IS NULL THEN 'LOW_DATA'
-              WHEN v_responsiveness_score > 0.55 THEN 'VIEWER'
-              WHEN v_responsiveness_score < 0.45 THEN 'OTHER'
-              ELSE 'BALANCED'
-            END,
+          'direction', v_responsiveness_direction,
           'title', 'Ответность',
           'description',
             CASE
-              WHEN v_responsiveness_score IS NULL THEN concat('За выбранный период не было ответов на запреты.')
-              WHEN v_responsiveness_score > 0.55 THEN concat('За выбранный период ты чаще отвечал на запреты ', v_other_display_name, '.')
-              WHEN v_responsiveness_score < 0.45 THEN concat('За выбранный период ', v_other_display_name, ' чаще отвечал на твои запреты.')
+              WHEN v_responsiveness_direction = 'LOW_DATA' THEN concat('За выбранный период не было ответов на запреты.')
+              WHEN v_responsiveness_direction = 'VIEWER' THEN concat('За выбранный период ты чаще отвечал на запреты ', v_other_display_name, '.')
+              WHEN v_responsiveness_direction = 'OTHER' THEN concat('За выбранный период ', v_other_display_name, ' чаще отвечал на твои запреты.')
               ELSE concat('За выбранный период вы отвечали друг другу примерно одинаково часто.')
             END,
           'confidenceCode', CASE WHEN v_response_sample >= 20 THEN 'HIGH' WHEN v_response_sample >= 5 THEN 'MEDIUM' WHEN v_response_sample > 0 THEN 'LOW' ELSE 'NO_DATA' END,
@@ -260,19 +256,13 @@ BEGIN
           'viewerShare', v_respect_score,
           'otherShare', CASE WHEN v_respect_score IS NULL THEN NULL ELSE round(1 - v_respect_score, 4) END,
           'displayValue', CASE WHEN v_respect_score IS NULL THEN NULL ELSE concat(round(v_respect_score * 100), '%') END,
-          'direction',
-            CASE
-              WHEN v_respect_score IS NULL THEN 'LOW_DATA'
-              WHEN v_respect_score > 0.55 THEN 'VIEWER'
-              WHEN v_respect_score < 0.45 THEN 'OTHER'
-              ELSE 'BALANCED'
-            END,
+          'direction', v_respect_direction,
           'title', 'Уважение',
           'description',
             CASE
-              WHEN v_respect_score IS NULL THEN concat('Чтобы сравнить уважение за период, нужны действия в обе стороны.')
-              WHEN v_respect_score > 0.55 THEN concat('За выбранный период ты чаще выполнял запреты ', v_other_display_name, '.')
-              WHEN v_respect_score < 0.45 THEN concat('За выбранный период ', v_other_display_name, ' чаще выполнял твои запреты.')
+              WHEN v_respect_direction = 'LOW_DATA' THEN concat('Чтобы сравнить уважение за период, нужны действия в обе стороны.')
+              WHEN v_respect_direction = 'VIEWER' THEN concat('За выбранный период ты чаще выполнял запреты ', v_other_display_name, '.')
+              WHEN v_respect_direction = 'OTHER' THEN concat('За выбранный период ', v_other_display_name, ' чаще выполнял твои запреты.')
               ELSE concat('За выбранный период вы выполняли запреты примерно одинаково.')
             END,
           'confidenceCode', CASE WHEN v_respect_sample >= 20 THEN 'HIGH' WHEN v_respect_sample >= 5 THEN 'MEDIUM' WHEN v_respect_sample > 0 THEN 'LOW' ELSE 'NO_DATA' END,
