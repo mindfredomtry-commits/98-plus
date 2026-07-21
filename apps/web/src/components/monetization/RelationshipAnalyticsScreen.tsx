@@ -58,6 +58,8 @@ type PeriodLoadState =
   | { kind: 'success'; range: RelationshipPeriodRangeCode; data: RelationshipPeriodPayload }
   | { kind: 'error'; range: RelationshipPeriodRangeCode; message: string };
 
+type RelationshipPerspective = 'viewer' | 'other';
+
 type RelationshipRange = RelationshipPeriodRangeCode | 'ALL';
 
 const RELATIONSHIP_RANGE_OPTIONS: Array<{
@@ -213,6 +215,8 @@ export function RelationshipAnalyticsScreen({
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [selectedRange, setSelectedRange] = useState<RelationshipRange>('ALL');
+  const [perspective, setPerspective] =
+    useState<RelationshipPerspective>('viewer');
   const [periodLoadState, setPeriodLoadState] = useState<PeriodLoadState>({
     kind: 'idle',
   });
@@ -586,7 +590,41 @@ export function RelationshipAnalyticsScreen({
                 dimensions={isPeriodLoading ? [] : orbDimensions}
                 peerAvatarUrl={peerAvatar}
                 peerDisplayName={peerName}
+                perspective={perspective}
               />
+            ) : null}
+
+            {showPeriodOrb ? (
+              <div
+                className="monetization-relationship__perspective"
+                role="group"
+                aria-label="Перспектива"
+              >
+                <button
+                  type="button"
+                  className={`monetization-perspective-chip${
+                    perspective === 'viewer'
+                      ? ' monetization-perspective-chip--active'
+                      : ''
+                  }`}
+                  aria-pressed={perspective === 'viewer'}
+                  onClick={() => setPerspective('viewer')}
+                >
+                  ты
+                </button>
+                <button
+                  type="button"
+                  className={`monetization-perspective-chip${
+                    perspective === 'other'
+                      ? ' monetization-perspective-chip--active'
+                      : ''
+                  }`}
+                  aria-pressed={perspective === 'other'}
+                  onClick={() => setPerspective('other')}
+                >
+                  {peerName}
+                </button>
+              </div>
             ) : null}
 
             {!isPeriodLoading && isPeriodNoActivity ? (

@@ -1204,6 +1204,42 @@
   overflow: visible;
 }
 
+.monetization-orb__arc {
+  transition: opacity 220ms ease;
+}
+
+.monetization-relationship__perspective {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0.15rem auto 0.55rem;
+  flex: 0 0 auto;
+}
+
+.monetization-perspective-chip {
+  min-width: 0;
+  max-width: 9.5rem;
+  padding: 0.38rem 0.95rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.88rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.monetization-perspective-chip--active {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.96);
+}
+
 .monetization-orb__peer {
   position: absolute;
   inset: 0;

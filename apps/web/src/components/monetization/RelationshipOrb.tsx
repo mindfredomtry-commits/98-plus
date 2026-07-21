@@ -11,12 +11,19 @@ import {
   RELATIONSHIP_ORB_TRACK,
 } from './relationship-metric-colors';
 
+type RelationshipPerspective = 'viewer' | 'other';
+
 type Props = {
   dimensions: RelationshipOrbDimension[];
   peerAvatarUrl?: string | null;
   peerDisplayName?: string | null;
   /** Smaller orb for one-viewport relationship screen. */
   compact?: boolean;
+  /**
+   * Which side of each ring is highlighted.
+   * Default `viewer` keeps overview / legacy behavior.
+   */
+  perspective?: RelationshipPerspective;
 };
 
 const SIZE = 280;
@@ -228,7 +235,15 @@ export function RelationshipOrb({
   peerAvatarUrl,
   peerDisplayName,
   compact = false,
+  perspective = 'viewer',
 }: Props) {
+  const activeOpacity = 0.95;
+  const inactiveOpacity = RELATIONSHIP_ORB_OTHER_OPACITY;
+  const viewerOpacity =
+    perspective === 'viewer' ? activeOpacity : inactiveOpacity;
+  const otherOpacity =
+    perspective === 'other' ? activeOpacity : inactiveOpacity;
+
   const byRing = new Map<
     'OUTER' | 'MIDDLE' | 'INNER',
     RelationshipOrbDimension
@@ -312,22 +327,24 @@ export function RelationshipOrb({
               />
               {otherPath ? (
                 <path
+                  className="monetization-orb__arc"
                   d={otherPath}
                   fill="none"
                   stroke={metricColor}
                   strokeWidth={STROKE}
                   strokeLinecap="round"
-                  opacity={RELATIONSHIP_ORB_OTHER_OPACITY}
+                  opacity={otherOpacity}
                 />
               ) : null}
               {viewerPath ? (
                 <path
+                  className="monetization-orb__arc"
                   d={viewerPath}
                   fill="none"
                   stroke={metricColor}
                   strokeWidth={STROKE}
                   strokeLinecap="round"
-                  opacity={0.95}
+                  opacity={viewerOpacity}
                 />
               ) : null}
             </g>
