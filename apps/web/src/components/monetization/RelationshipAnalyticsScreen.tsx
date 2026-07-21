@@ -61,8 +61,9 @@ function getMetricTitle(code?: string): string {
 function getMetricArrow(direction?: string): string {
   if (direction === 'VIEWER') return '→';
   if (direction === 'OTHER') return '←';
-  if (direction === 'BALANCED') return '•';
-  return '•';
+  if (direction === 'BALANCED') return '→←';
+  if (direction === 'LOW_DATA') return '—';
+  return '—';
 }
 
 function getMetricTone(direction?: string): string {
@@ -85,8 +86,8 @@ function RelationshipMetricTile({
   const arrow = getMetricArrow(dimension.direction);
   const tone = getMetricTone(dimension.direction);
   const metricColor = getRelationshipMetricColor(dimension.code, dimension.ring);
-  const arrowMuted =
-    dimension.direction === 'BALANCED' || dimension.direction === 'LOW_DATA';
+  const arrowMuted = dimension.direction === 'LOW_DATA';
+  const arrowBalanced = dimension.direction === 'BALANCED';
 
   return (
     <div
@@ -98,8 +99,8 @@ function RelationshipMetricTile({
       <div className="monetization-metric-tile__title">{title}</div>
       <div
         className={`monetization-metric-tile__arrow${
-          arrowMuted ? ' monetization-metric-tile__arrow--muted' : ''
-        }`}
+          arrowBalanced ? ' monetization-metric-tile__arrow--balanced' : ''
+        }${arrowMuted ? ' monetization-metric-tile__arrow--muted' : ''}`}
         aria-hidden="true"
       >
         {arrow}

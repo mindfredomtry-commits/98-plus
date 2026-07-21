@@ -1340,8 +1340,13 @@
 }
 
 .monetization-relationship__tiles
-  .monetization-metric-tile--balanced
-  .monetization-metric-tile__arrow,
+  .monetization-metric-tile__arrow--balanced {
+  font-size: 24px !important;
+  letter-spacing: -0.08em !important;
+  opacity: 1 !important;
+  color: var(--metric-color, #b894ff) !important;
+}
+
 .monetization-relationship__tiles
   .monetization-metric-tile--muted
   .monetization-metric-tile__arrow {
