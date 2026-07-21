@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { EntitlementDTO, FriendCard, UserPublic } from '@98plus/shared';
+import type { FriendCard, UserPublic } from '@98plus/shared';
 import { AvatarImage } from '../AvatarImage';
 import { WhatBackIcon } from '../instant-ban/WhatBackIcon';
 import { friendAvatarUrl } from '@/lib/avatar-url';
@@ -30,8 +30,6 @@ type Props = {
   token: string | null | undefined;
   user: UserPublic | null;
   premiumActive: boolean;
-  activePremium: EntitlementDTO | null;
-  entitlementLoading: boolean;
   onOpenPremium: () => void;
   onSelect: (peer: AnalyticsPeer) => void;
   onBack: () => void;
@@ -104,20 +102,6 @@ function getOverviewDimensions(
   );
 }
 
-function formatPremiumExpiryShort(iso: string | null): string | null {
-  if (!iso) return null;
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return null;
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    return `${day}.${month}.${year}`;
-  } catch {
-    return null;
-  }
-}
-
 /** Friends with a real registered userId — only these can be analytics peers. */
 export function analyticsEligibleFriends(
   friends: FriendCard[],
@@ -133,8 +117,6 @@ export function AnalyticsPeerSelectScreen({
   token,
   user,
   premiumActive,
-  activePremium,
-  entitlementLoading,
   onOpenPremium,
   onSelect,
   onBack,
@@ -220,12 +202,6 @@ export function AnalyticsPeerSelectScreen({
   );
 
   const eligible = analyticsEligibleFriends(friends);
-  const premiumExpiryLabel = formatPremiumExpiryShort(
-    activePremium?.expiresAt ?? null,
-  );
-  const premiumBadgeLabel = premiumExpiryLabel
-    ? `premium 98+ до ${premiumExpiryLabel}`
-    : 'premium 98+';
 
   return (
     <div
@@ -246,25 +222,18 @@ export function AnalyticsPeerSelectScreen({
           <h2 className="monetization-screen__nav-title">с кем посмотреть?</h2>
         </header>
 
-        <div className="monetization-peer-premium-cta monetization-peer-premium-cta--top">
-          {premiumActive ? (
-            <div
-              className="monetization-overview-premium-status monetization-overview-premium-status--badge"
-              aria-label={premiumBadgeLabel}
-            >
-              {entitlementLoading ? '…' : premiumBadgeLabel}
-            </div>
-          ) : (
+        {!premiumActive ? (
+          <div className="monetization-peer-premium-cta monetization-peer-premium-cta--top">
             <button
               type="button"
-              className="monetization-overview-premium-status monetization-overview-premium-status--learn"
+              className="monetization-overview-premium-pill"
               onClick={onOpenPremium}
-              aria-label="98+ premium — узнать"
+              aria-label="98+ premium"
             >
-              узнать
+              98+ premium
             </button>
-          )}
-        </div>
+          </div>
+        ) : null}
 
         <section
           className="monetization-relationship-overview"
@@ -337,10 +306,6 @@ export function AnalyticsPeerSelectScreen({
               ))}
             </div>
           ) : null}
-
-          <p className="monetization-peer-lead monetization-peer-lead--after-tiles">
-            выбери человека, чтобы узнать, что происходит между вами
-          </p>
         </section>
 
         {eligible.length === 0 ? (

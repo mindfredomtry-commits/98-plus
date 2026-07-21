@@ -649,20 +649,6 @@
 }
 
 /* —— Peer select / Relationship analytics / Timeline —— */
-.monetization-peer-lead {
-  margin: 0 0 1.1rem;
-  font-size: 0.92rem;
-  line-height: 1.45;
-  color: rgba(255, 255, 255, 0.58);
-}
-
-.monetization-peer-lead--after-tiles {
-  margin: 0.85rem 0 0;
-  text-align: center;
-  font-size: 0.88rem;
-  line-height: 1.4;
-}
-
 .monetization-relationship-overview {
   margin: 0 0 1.1rem;
   padding: 0 0 0.25rem;
@@ -685,49 +671,36 @@
   margin-top: 0.65rem;
 }
 
-.monetization-peer-premium-cta {
-  margin: 0.85rem 0 0;
-}
-
 .monetization-peer-premium-cta--top {
-  margin: 0 0 1.1rem;
+  display: flex;
+  justify-content: center;
+  margin: 0 0 0.85rem;
 }
 
-.monetization-overview-premium-status {
-  width: 100%;
-  display: flex;
+.monetization-overview-premium-pill {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 2.75rem;
-  padding: 0.65rem 0.85rem;
-  border-radius: 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.04);
-  font-size: 0.88rem;
-  font-weight: 700;
+  height: 36px;
+  padding: 0 20px;
+  border: none;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 800;
   letter-spacing: 0.01em;
-  text-align: center;
-}
-
-.monetization-overview-premium-status--learn {
-  color: var(--98-text-primary);
+  color: #fff;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  border-color: rgba(var(--98-purple-core-rgb), 0.32);
-  background: rgba(var(--98-purple-core-rgb), 0.12);
-  box-shadow: 0 0 18px rgba(var(--98-purple-core-rgb), 0.12);
+  background: linear-gradient(
+    135deg,
+    var(--98-purple-core) 0%,
+    var(--98-purple-cold) 100%
+  );
+  box-shadow: 0 0 16px rgba(var(--98-purple-core-rgb), 0.35);
 }
 
-.monetization-overview-premium-status--learn:active {
-  transform: scale(0.99);
-  background: rgba(var(--98-purple-core-rgb), 0.18);
-}
-
-.monetization-overview-premium-status--badge {
-  color: var(--98-purple-soft);
-  border-color: rgba(var(--98-purple-core-rgb), 0.35);
-  background: rgba(var(--98-purple-core-rgb), 0.14);
-  box-shadow: 0 0 16px rgba(var(--98-purple-core-rgb), 0.16);
+.monetization-overview-premium-pill:active {
+  transform: scale(0.98);
 }
 
 .monetization-peer-list {
