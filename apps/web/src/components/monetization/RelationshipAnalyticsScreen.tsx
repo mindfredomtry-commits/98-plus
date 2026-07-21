@@ -647,6 +647,7 @@ export function RelationshipAnalyticsScreen({
                     <RelationshipMetricTile
                       key={dimension.code}
                       dimension={dimension}
+                      perspective={perspective}
                     />
                   ))}
                 </div>

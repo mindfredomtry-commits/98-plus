@@ -1373,14 +1373,26 @@
   position: relative !important;
   overflow: hidden !important;
   z-index: 0 !important;
-  opacity: 1 !important;
+  opacity: var(--metric-tile-opacity, 1) !important;
   visibility: visible !important;
   transform: none !important;
+  transition:
+    opacity 220ms ease,
+    border-color 220ms ease,
+    background-color 220ms ease !important;
   inset: auto !important;
   top: auto !important;
   left: auto !important;
   right: auto !important;
   bottom: auto !important;
+}
+
+.monetization-relationship__tiles
+  .monetization-metric-tile--perspective-inactive,
+.monetization-relationship__tiles
+  .monetization-metric-tile--perspective-neutral {
+  border-color: rgba(255, 255, 255, 0.06) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
 }
 
 .monetization-relationship__tiles .monetization-metric-tile__title {

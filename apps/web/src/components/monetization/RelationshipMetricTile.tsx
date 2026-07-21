@@ -1,7 +1,12 @@
 'use client';
 
 import type { RelationshipDimension } from '@/lib/relationship-analytics-types';
-import { getRelationshipMetricColor } from './relationship-metric-colors';
+import {
+  getRelationshipMetricColor,
+  metricPerspectiveOpacity,
+  resolveMetricPerspectiveState,
+  type RelationshipPerspective,
+} from './relationship-metric-colors';
 
 const METRIC_TITLE_BY_CODE: Record<string, string> = {
   INITIATIVE: 'Инициатива',
@@ -31,8 +36,11 @@ function getMetricTone(direction?: string): string {
 
 export function RelationshipMetricTile({
   dimension,
+  perspective,
 }: {
   dimension: RelationshipDimension;
+  /** Detail-only: when omitted, tile keeps full (legacy/overview) intensity. */
+  perspective?: RelationshipPerspective;
 }) {
   if (dimension.direction === 'NOT_AVAILABLE') {
     return null;
@@ -45,12 +53,30 @@ export function RelationshipMetricTile({
   const arrowMuted = dimension.direction === 'LOW_DATA';
   const arrowBalanced = dimension.direction === 'BALANCED';
 
+  const perspectiveState =
+    perspective == null
+      ? null
+      : resolveMetricPerspectiveState(dimension.direction, perspective);
+  const tileOpacity =
+    perspectiveState == null
+      ? undefined
+      : metricPerspectiveOpacity(perspectiveState);
+
   return (
     <div
-      className={`monetization-metric-tile monetization-metric-tile--${tone}`}
+      className={`monetization-metric-tile monetization-metric-tile--${tone}${
+        perspectiveState
+          ? ` monetization-metric-tile--perspective-${perspectiveState}`
+          : ''
+      }`}
       data-metric-tile={dimension.code}
       aria-label={title}
-      style={{ ['--metric-color' as string]: metricColor }}
+      style={{
+        ['--metric-color' as string]: metricColor,
+        ...(tileOpacity != null
+          ? { ['--metric-tile-opacity' as string]: String(tileOpacity) }
+          : {}),
+      }}
     >
       <div className="monetization-metric-tile__title">{title}</div>
       <div
