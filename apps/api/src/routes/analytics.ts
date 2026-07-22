@@ -4,6 +4,11 @@ import { requireAuth, type AuthRequest } from '../middleware/auth';
 import { requirePremium } from '../middleware/premium';
 import { trackEvent } from '../services/analytics.service';
 import {
+  executeTrackV2OpenPremium,
+  mapTrackV2StudioError,
+  validateTrackV2Request,
+} from '../services/analytics-track-v2';
+import {
   RELATIONSHIP_ACTION_CODES,
   getRelationshipAction,
   getRelationshipDashboard,
@@ -27,6 +32,37 @@ analyticsRouter.post('/track', async (req: AuthRequest, res) => {
   }
   await trackEvent(name, req.userId!, meta);
   res.json({ ok: true });
+});
+
+/**
+ * Tracker V2 dual-write endpoint. Currently open_premium only.
+ * Actor userId always comes from JWT (requireAuth).
+ */
+analyticsRouter.post('/track-v2', async (req: AuthRequest, res) => {
+  const validated = validateTrackV2Request(
+    (req.body ?? {}) as { eventCode?: unknown; meta?: unknown },
+  );
+  if (!validated.ok) {
+    res.status(validated.status).json({
+      ok: false,
+      code: validated.code,
+      error: validated.error,
+    });
+    return;
+  }
+
+  try {
+    await executeTrackV2OpenPremium(req.userId!, validated.meta);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[analytics/track-v2]', validated.eventCode, err);
+    const mapped = mapTrackV2StudioError(err);
+    res.status(mapped.status).json({
+      ok: false,
+      code: mapped.code,
+      error: mapped.error,
+    });
+  }
 });
 
 const relationshipActionSchema = z.object({
