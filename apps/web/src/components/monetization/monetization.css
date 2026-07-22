@@ -678,7 +678,7 @@
  * --overview-orb-center-offset-y: fine-tune after screenshot overlay (overview only).
  */
 .monetization-relationship-overview__orb-stage {
-  --overview-orb-center-offset-y: 16px;
+  --overview-orb-center-offset-y: 8px;
   --overview-chrome-offset: calc(
     env(safe-area-inset-top, 0px) + 0.75rem + 3.5rem + 5.75rem
   );
