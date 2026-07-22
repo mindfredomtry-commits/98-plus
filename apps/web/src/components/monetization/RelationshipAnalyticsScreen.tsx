@@ -42,6 +42,8 @@ type Props = {
   peer: AnalyticsPeer;
   viewerUserId?: string | null;
   viewerLabel?: string;
+  viewerAvatarUrl?: string | null;
+  viewerDisplayName?: string | null;
   premiumActive?: boolean | null;
   onBack: () => void;
   onOpenTimeline: (payload: RelationshipTimelinePayload) => void;
@@ -205,6 +207,8 @@ export function RelationshipAnalyticsScreen({
   peer,
   viewerUserId = null,
   viewerLabel = 'ты',
+  viewerAvatarUrl = null,
+  viewerDisplayName = null,
   premiumActive = null,
   onBack,
   onOpenTimeline,
@@ -455,6 +459,16 @@ export function RelationshipAnalyticsScreen({
     relationshipScreen?.peer?.avatarUrl ??
     peer.avatarUrl ??
     null;
+  const viewerIdentity = {
+    avatarUrl: viewerAvatarUrl,
+    displayName: viewerDisplayName?.trim() || viewerLabel,
+    alt: 'Ты',
+  };
+  const otherIdentity = {
+    avatarUrl: peerAvatar,
+    displayName: peerName,
+    alt: peerName,
+  };
   const primary = baseRelationshipScreen?.primaryAction ?? null;
   const primaryCode = primary?.code;
   const canStartBan =
@@ -587,9 +601,12 @@ export function RelationshipAnalyticsScreen({
             {showPeriodOrb ? (
               <RelationshipOrb
                 compact
+                variant="detail"
                 dimensions={isPeriodLoading ? [] : orbDimensions}
                 peerAvatarUrl={peerAvatar}
                 peerDisplayName={peerName}
+                viewerIdentity={viewerIdentity}
+                otherIdentity={otherIdentity}
                 perspective={perspective}
               />
             ) : null}

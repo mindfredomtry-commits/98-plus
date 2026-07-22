@@ -6,6 +6,12 @@ import type {
   RelationshipRing,
 } from '@/lib/relationship-analytics-types';
 import {
+  hasSwitchableOrbCenterIdentities,
+  relationshipOrbIdentityLetter,
+  resolveRelationshipOrbCenterIdentity,
+  type RelationshipOrbCenterIdentity,
+} from '@/lib/relationship-orb-center-identity';
+import {
   getRelationshipMetricColor,
   RELATIONSHIP_ORB_OTHER_OPACITY,
   RELATIONSHIP_ORB_TRACK,
@@ -15,8 +21,18 @@ type RelationshipPerspective = 'viewer' | 'other';
 
 type Props = {
   dimensions: RelationshipOrbDimension[];
+  /**
+   * Legacy / overview single center portrait.
+   * Used when viewerIdentity + otherIdentity are not both provided.
+   */
   peerAvatarUrl?: string | null;
   peerDisplayName?: string | null;
+  /**
+   * Detail-only: both sides enable perspective-driven center portrait.
+   * Overview must omit these so «Люди» does not invent a peer face.
+   */
+  viewerIdentity?: RelationshipOrbCenterIdentity | null;
+  otherIdentity?: RelationshipOrbCenterIdentity | null;
   /** Smaller orb for one-viewport relationship screen. */
   compact?: boolean;
   /**
@@ -27,9 +43,12 @@ type Props = {
   /**
    * Which side of each ring is highlighted.
    * Default `viewer` keeps overview / legacy behavior.
+   * On detail with dual identities, also selects the center portrait.
    */
   perspective?: RelationshipPerspective;
 };
+
+export type { RelationshipOrbCenterIdentity };
 
 const SIZE = 280;
 const CX = SIZE / 2;
@@ -225,20 +244,18 @@ function isActiveDirection(direction: string | undefined): boolean {
   );
 }
 
-function peerLetter(name: string | null | undefined): string {
-  return (name?.trim()?.[0] ?? '?').toUpperCase();
-}
-
 /**
  * Triple concentric relationship orb.
  * Each ring: independent viewer + other arcs with angular gaps (not a fill bar).
  * OUTER=INITIATIVE, MIDDLE=RESPONSIVENESS, INNER=RESPECT.
- * Center is peer avatar only — no 98+ mark.
+ * Center portrait: detail switches by perspective; overview keeps a single image.
  */
 export function RelationshipOrb({
   dimensions,
   peerAvatarUrl,
   peerDisplayName,
+  viewerIdentity = null,
+  otherIdentity = null,
   compact = false,
   variant = 'default',
   perspective = 'viewer',
@@ -275,15 +292,52 @@ export function RelationshipOrb({
         ? ' monetization-orb--compact'
         : '';
 
+  const avatarSizeClass =
+    resolvedVariant === 'overview'
+      ? 'monetization-orb__avatar--overview'
+      : compact
+        ? 'monetization-orb__avatar--compact'
+        : 'w-32 h-32';
+  const avatarTextClass =
+    resolvedVariant === 'overview'
+      ? 'text-xl'
+      : compact
+        ? 'text-2xl'
+        : 'text-4xl';
+
+  const switchableCenter = hasSwitchableOrbCenterIdentities(
+    viewerIdentity,
+    otherIdentity,
+  );
+  const legacyCenter: RelationshipOrbCenterIdentity = {
+    avatarUrl: peerAvatarUrl,
+    displayName: peerDisplayName,
+    alt: peerDisplayName,
+  };
+  const activeCenter = resolveRelationshipOrbCenterIdentity(
+    perspective,
+    viewerIdentity,
+    otherIdentity,
+    legacyCenter,
+  );
+  const centerAlt =
+    activeCenter.alt?.trim() ||
+    activeCenter.displayName?.trim() ||
+    (perspective === 'viewer' ? 'Ты' : 'Собеседник');
+
   return (
     <div
       className={`monetization-orb${sizeClass}`}
       data-orb-variant={resolvedVariant}
       role="img"
       aria-label={
-        peerDisplayName
-          ? `Динамика отношений с ${peerDisplayName}`
-          : 'Динамика отношений'
+        peerDisplayName || otherIdentity?.displayName
+          ? `Динамика отношений с ${
+              peerDisplayName?.trim() ||
+              otherIdentity?.displayName?.trim() ||
+              'собеседником'
+            }. В центре: ${centerAlt}`
+          : `Динамика отношений. В центре: ${centerAlt}`
       }
     >
       <svg
@@ -368,27 +422,69 @@ export function RelationshipOrb({
         })}
       </svg>
 
-      <div className="monetization-orb__peer" aria-hidden>
-        <AvatarImage
-          src={peerAvatarUrl}
-          letter={peerLetter(peerDisplayName)}
-          sizeClass={
-            resolvedVariant === 'overview'
-              ? 'monetization-orb__avatar--overview'
-              : compact
-                ? 'monetization-orb__avatar--compact'
-                : 'w-32 h-32'
-          }
-          textClass={
-            resolvedVariant === 'overview'
-              ? 'text-xl'
-              : compact
-                ? 'text-2xl'
-                : 'text-4xl'
-          }
-          ringClassName="ring-white/15"
-          priority
-        />
+      <div className="monetization-orb__peer">
+        {switchableCenter && viewerIdentity && otherIdentity ? (
+          <>
+            <div
+              className={`monetization-orb__center-slot${
+                perspective === 'viewer'
+                  ? ' monetization-orb__center-slot--active'
+                  : ''
+              }`}
+              aria-hidden={perspective === 'viewer' ? undefined : true}
+            >
+              <AvatarImage
+                src={viewerIdentity.avatarUrl}
+                letter={relationshipOrbIdentityLetter(viewerIdentity)}
+                sizeClass={avatarSizeClass}
+                textClass={avatarTextClass}
+                ringClassName="ring-white/15"
+                priority
+                alt={
+                  perspective === 'viewer'
+                    ? viewerIdentity.alt?.trim() ||
+                      viewerIdentity.displayName?.trim() ||
+                      'Ты'
+                    : undefined
+                }
+              />
+            </div>
+            <div
+              className={`monetization-orb__center-slot${
+                perspective === 'other'
+                  ? ' monetization-orb__center-slot--active'
+                  : ''
+              }`}
+              aria-hidden={perspective === 'other' ? undefined : true}
+            >
+              <AvatarImage
+                src={otherIdentity.avatarUrl}
+                letter={relationshipOrbIdentityLetter(otherIdentity)}
+                sizeClass={avatarSizeClass}
+                textClass={avatarTextClass}
+                ringClassName="ring-white/15"
+                priority
+                alt={
+                  perspective === 'other'
+                    ? otherIdentity.alt?.trim() ||
+                      otherIdentity.displayName?.trim() ||
+                      'Собеседник'
+                    : undefined
+                }
+              />
+            </div>
+          </>
+        ) : (
+          <AvatarImage
+            src={activeCenter.avatarUrl}
+            letter={relationshipOrbIdentityLetter(activeCenter)}
+            sizeClass={avatarSizeClass}
+            textClass={avatarTextClass}
+            ringClassName="ring-white/15"
+            priority
+            alt={centerAlt}
+          />
+        )}
       </div>
     </div>
   );

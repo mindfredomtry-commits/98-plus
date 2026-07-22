@@ -18,6 +18,8 @@ type Props = {
   className?: string;
   /** Set after startup preload — avoids letter→photo flicker. */
   readyState?: 'photo' | 'fallback';
+  /** When set, portrait is exposed to assistive tech (not decorative). */
+  alt?: string;
 };
 
 function AvatarImageInner({
@@ -30,6 +32,7 @@ function AvatarImageInner({
   onlineGlow = false,
   className = '',
   readyState,
+  alt,
 }: Props) {
   const normalized = normalizeAvatarUrl(src);
   const prevSrcRef = useRef<string | null>(null);
@@ -99,11 +102,15 @@ function AvatarImageInner({
   }, [showPhoto, priority, instantPhoto, normalized]);
 
   const imgDecoding = instantPhoto || priority ? 'sync' : 'async';
+  const accessibleAlt = alt?.trim() || '';
+  const isDecorative = !accessibleAlt;
 
   return (
     <div
       className={`avatar-image relative shrink-0 ${sizeClass} ${onlineGlow ? 'avatar-image--online' : ''} ${className}`}
-      aria-hidden
+      aria-hidden={isDecorative ? true : undefined}
+      role={!isDecorative && !showPhoto ? 'img' : undefined}
+      aria-label={!isDecorative && !showPhoto ? accessibleAlt : undefined}
     >
       <div
         className={`avatar-image__fallback absolute inset-0 rounded-full flex items-center justify-center font-bold bg-gradient-to-br from-white/14 to-white/6 ring-2 ${ringClassName} text-muted ${textClass} ${
@@ -116,7 +123,7 @@ function AvatarImageInner({
         <img
           key={normalized}
           src={normalized}
-          alt=""
+          alt={isDecorative ? '' : accessibleAlt}
           decoding={imgDecoding}
           loading={priority ? 'eager' : 'lazy'}
           fetchPriority={priority ? 'high' : undefined}

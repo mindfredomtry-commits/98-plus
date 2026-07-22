@@ -1314,6 +1314,27 @@
   pointer-events: none;
 }
 
+.monetization-orb__center-slot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 150ms ease;
+  pointer-events: none;
+}
+
+.monetization-orb__center-slot--active {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .monetization-orb__center-slot {
+    transition: none;
+  }
+}
+
 /* —— Direction rows (detail / full) —— */
 .monetization-direction {
   padding: 0.75rem 0.85rem;

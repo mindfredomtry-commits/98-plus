@@ -25,6 +25,8 @@ import {
   newIdempotencyKey,
 } from '@/lib/monetization-api';
 import { trackProductEvent } from '@/lib/product-analytics';
+import { resolveUserDisplayName } from '@/lib/user-display-name';
+import { userAvatarSrc } from '@/lib/user-public-avatar';
 import type {
   AnalyticsPeer,
   RelationshipTimelinePayload,
@@ -317,6 +319,8 @@ export function MonetizationSection({
           peer={selectedAnalyticsPeer}
           viewerUserId={user?.id ?? null}
           viewerLabel="ты"
+          viewerAvatarUrl={userAvatarSrc(user)}
+          viewerDisplayName={resolveUserDisplayName(user)}
           premiumActive={premiumActive}
           onBack={handleBackFromAnalytics}
           onOpenTimeline={handleOpenTimeline}

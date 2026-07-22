@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:relationship-dimensions-v8": "tsx scripts/relationship-dimensions-v8.test.ts"
+    "test:relationship-dimensions-v8": "tsx scripts/relationship-dimensions-v8.test.ts",
+    "test:relationship-orb-center-identity": "tsx scripts/relationship-orb-center-identity.test.ts"
   },
   "dependencies": {
     "@98plus/shared": "*",
