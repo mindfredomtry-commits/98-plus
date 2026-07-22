@@ -14,6 +14,18 @@ export const RELATIONSHIP_DETAIL_SECTION_TITLE = 'динамика отноше�
 export const RELATIONSHIP_OVERVIEW_VIEWER_LABEL = 'Ты';
 export const RELATIONSHIP_OVERVIEW_OTHER_LABEL = 'Люди';
 
+/** Visible overview chip copy with direction arrows (for tests / docs). */
+export const RELATIONSHIP_OVERVIEW_VIEWER_CHIP = 'Ты →';
+export const RELATIONSHIP_OVERVIEW_OTHER_CHIP = '← Люди';
+
+export function buildOverviewPerspectiveViewerAriaLabel(): string {
+  return 'Показать мои действия по отношению к людям';
+}
+
+export function buildOverviewPerspectiveOtherAriaLabel(): string {
+  return 'Показать действия людей по отношению ко мне';
+}
+
 export function buildDetailPerspectiveViewerAriaLabel(
   peerDisplayName: string,
 ): string {

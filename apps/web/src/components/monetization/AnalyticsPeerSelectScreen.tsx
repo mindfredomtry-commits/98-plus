@@ -10,6 +10,8 @@ import {
   RELATIONSHIP_OVERVIEW_INITIAL_PERSPECTIVE,
   RELATIONSHIP_OVERVIEW_OTHER_LABEL,
   RELATIONSHIP_OVERVIEW_VIEWER_LABEL,
+  buildOverviewPerspectiveOtherAriaLabel,
+  buildOverviewPerspectiveViewerAriaLabel,
 } from '@/lib/relationship-detail-perspective';
 import {
   selectCardDimensions,
@@ -307,8 +309,34 @@ export function AnalyticsPeerSelectScreen({
               <RelationshipPerspectiveSwitcher
                 perspective={perspective}
                 onChange={setPerspective}
-                viewerLabel={RELATIONSHIP_OVERVIEW_VIEWER_LABEL}
-                otherLabel={RELATIONSHIP_OVERVIEW_OTHER_LABEL}
+                viewerLabel={
+                  <>
+                    <span className="monetization-perspective-chip__text">
+                      {RELATIONSHIP_OVERVIEW_VIEWER_LABEL}
+                    </span>
+                    <span
+                      className="monetization-perspective-chip__arrow"
+                      aria-hidden="true"
+                    >
+                      →
+                    </span>
+                  </>
+                }
+                otherLabel={
+                  <>
+                    <span
+                      className="monetization-perspective-chip__arrow"
+                      aria-hidden="true"
+                    >
+                      ←
+                    </span>
+                    <span className="monetization-perspective-chip__text">
+                      {RELATIONSHIP_OVERVIEW_OTHER_LABEL}
+                    </span>
+                  </>
+                }
+                viewerAriaLabel={buildOverviewPerspectiveViewerAriaLabel()}
+                otherAriaLabel={buildOverviewPerspectiveOtherAriaLabel()}
                 groupLabel="Перспектива сводки"
               />
             </div>
