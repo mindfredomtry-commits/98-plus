@@ -10,6 +10,9 @@ import {
 } from '@/lib/relationship-analytics-api';
 import {
   RELATIONSHIP_DETAIL_INITIAL_PERSPECTIVE,
+  RELATIONSHIP_DETAIL_SECTION_TITLE,
+  buildDetailPerspectiveOtherAriaLabel,
+  buildDetailPerspectiveViewerAriaLabel,
   nextDetailPerspectiveForPeerChange,
 } from '@/lib/relationship-detail-perspective';
 import {
@@ -469,7 +472,7 @@ export function RelationshipAnalyticsScreen({
   const screenTitle =
     baseRelationshipScreen?.title?.trim() ||
     relationshipScreen?.title?.trim() ||
-    'ваши отношения';
+    RELATIONSHIP_DETAIL_SECTION_TITLE;
   const peerName =
     baseRelationshipScreen?.peer?.displayName?.trim() ||
     relationshipScreen?.peer?.displayName?.trim() ||
@@ -603,7 +606,7 @@ export function RelationshipAnalyticsScreen({
             ) : null}
 
             <h2 className="monetization-relationship__orb-title">
-              ваши отношения
+              {RELATIONSHIP_DETAIL_SECTION_TITLE}
             </h2>
 
             {isPeriodLoading ? (
@@ -635,8 +638,35 @@ export function RelationshipAnalyticsScreen({
               <RelationshipPerspectiveSwitcher
                 perspective={perspective}
                 onChange={setPerspective}
-                viewerLabel="ты"
-                otherLabel={peerName}
+                viewerLabel={
+                  <>
+                    <span className="monetization-perspective-chip__text">
+                      Ты
+                    </span>
+                    <span
+                      className="monetization-perspective-chip__arrow"
+                      aria-hidden="true"
+                    >
+                      →
+                    </span>
+                  </>
+                }
+                otherLabel={
+                  <>
+                    <span
+                      className="monetization-perspective-chip__arrow"
+                      aria-hidden="true"
+                    >
+                      ←
+                    </span>
+                    <span className="monetization-perspective-chip__text">
+                      {peerName}
+                    </span>
+                  </>
+                }
+                viewerAriaLabel={buildDetailPerspectiveViewerAriaLabel(peerName)}
+                otherAriaLabel={buildDetailPerspectiveOtherAriaLabel(peerName)}
+                groupLabel="Перспектива динамики"
               />
             ) : null}
 

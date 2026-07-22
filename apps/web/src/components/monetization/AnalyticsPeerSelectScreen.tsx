@@ -6,7 +6,11 @@ import { AvatarImage } from '../AvatarImage';
 import { WhatBackIcon } from '../instant-ban/WhatBackIcon';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { fetchRelationshipOverview } from '@/lib/relationship-analytics-api';
-import { RELATIONSHIP_OVERVIEW_INITIAL_PERSPECTIVE } from '@/lib/relationship-detail-perspective';
+import {
+  RELATIONSHIP_OVERVIEW_INITIAL_PERSPECTIVE,
+  RELATIONSHIP_OVERVIEW_OTHER_LABEL,
+  RELATIONSHIP_OVERVIEW_VIEWER_LABEL,
+} from '@/lib/relationship-detail-perspective';
 import {
   selectCardDimensions,
   selectOrbRingDimensions,
@@ -303,8 +307,8 @@ export function AnalyticsPeerSelectScreen({
               <RelationshipPerspectiveSwitcher
                 perspective={perspective}
                 onChange={setPerspective}
-                viewerLabel="Ты"
-                otherLabel="Люди"
+                viewerLabel={RELATIONSHIP_OVERVIEW_VIEWER_LABEL}
+                otherLabel={RELATIONSHIP_OVERVIEW_OTHER_LABEL}
                 groupLabel="Перспектива сводки"
               />
             </div>

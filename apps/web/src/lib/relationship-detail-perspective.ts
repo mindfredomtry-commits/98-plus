@@ -8,6 +8,26 @@ export const RELATIONSHIP_DETAIL_INITIAL_PERSPECTIVE: RelationshipDetailPerspect
 export const RELATIONSHIP_OVERVIEW_INITIAL_PERSPECTIVE: RelationshipDetailPerspective =
   'viewer';
 
+/** Visible section title above the detail RelationshipOrb. */
+export const RELATIONSHIP_DETAIL_SECTION_TITLE = 'динамика отношений';
+
+export const RELATIONSHIP_OVERVIEW_VIEWER_LABEL = 'Ты';
+export const RELATIONSHIP_OVERVIEW_OTHER_LABEL = 'Люди';
+
+export function buildDetailPerspectiveViewerAriaLabel(
+  peerDisplayName: string,
+): string {
+  const peer = peerDisplayName.trim() || 'собеседнику';
+  return `Показать мои действия по отношению к ${peer}`;
+}
+
+export function buildDetailPerspectiveOtherAriaLabel(
+  peerDisplayName: string,
+): string {
+  const peer = peerDisplayName.trim() || 'собеседника';
+  return `Показать действия ${peer} по отношению ко мне`;
+}
+
 /**
  * When the detail screen stays mounted across peer changes, reset to `other`.
  * Same peer id (range/refetch) must keep the user's current choice.

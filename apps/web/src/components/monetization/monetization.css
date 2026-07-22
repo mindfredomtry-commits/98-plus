@@ -1275,11 +1275,19 @@
   gap: 0.55rem;
   margin: 0.15rem auto 0.55rem;
   flex: 0 0 auto;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .monetization-perspective-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.28rem;
   min-width: 0;
-  max-width: 9.5rem;
+  max-width: min(9.5rem, calc(50% - 0.3rem));
+  flex: 0 1 auto;
   padding: 0.38rem 0.95rem;
   border: none;
   border-radius: 999px;
@@ -1290,9 +1298,20 @@
   line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+}
+
+.monetization-perspective-chip__arrow {
+  flex: 0 0 auto;
+  line-height: 1;
+}
+
+.monetization-perspective-chip__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .monetization-perspective-chip--active {

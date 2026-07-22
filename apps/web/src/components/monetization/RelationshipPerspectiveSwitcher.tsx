@@ -1,15 +1,31 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import type { RelationshipPerspective } from './relationship-metric-colors';
 
 type Props = {
   perspective: RelationshipPerspective;
   onChange: (next: RelationshipPerspective) => void;
-  viewerLabel: string;
-  otherLabel: string;
+  viewerLabel: ReactNode;
+  otherLabel: ReactNode;
+  /**
+   * Accessible names for the chips. Prefer these when labels include
+   * decorative arrows (aria-hidden). Falls back to string labels.
+   */
+  viewerAriaLabel?: string;
+  otherAriaLabel?: string;
   /** Optional override for the group label. */
   groupLabel?: string;
 };
+
+function resolveAriaLabel(
+  explicit: string | undefined,
+  label: ReactNode,
+): string | undefined {
+  if (explicit?.trim()) return explicit.trim();
+  if (typeof label === 'string' && label.trim()) return label.trim();
+  return undefined;
+}
 
 /**
  * Shared «ты / peer» (or «Ты / Люди») chips under RelationshipOrb.
@@ -20,8 +36,13 @@ export function RelationshipPerspectiveSwitcher({
   onChange,
   viewerLabel,
   otherLabel,
+  viewerAriaLabel,
+  otherAriaLabel,
   groupLabel = 'Перспектива',
 }: Props) {
+  const viewerAccessibleName = resolveAriaLabel(viewerAriaLabel, viewerLabel);
+  const otherAccessibleName = resolveAriaLabel(otherAriaLabel, otherLabel);
+
   return (
     <div
       className="monetization-relationship__perspective"
@@ -36,7 +57,7 @@ export function RelationshipPerspectiveSwitcher({
             : ''
         }`}
         aria-pressed={perspective === 'viewer'}
-        aria-label={viewerLabel}
+        aria-label={viewerAccessibleName}
         onClick={() => onChange('viewer')}
       >
         {viewerLabel}
@@ -49,7 +70,7 @@ export function RelationshipPerspectiveSwitcher({
             : ''
         }`}
         aria-pressed={perspective === 'other'}
-        aria-label={otherLabel}
+        aria-label={otherAccessibleName}
         onClick={() => onChange('other')}
       >
         {otherLabel}
