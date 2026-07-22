@@ -3,7 +3,7 @@ import {
   ANALYTICS_TRACKER_V2_SOURCE_TYPE,
   trackAnalyticsEventV2,
   type AnalyticsTrackerV2Meta,
-} from '../services/analytics-tracker-v2';
+} from './analytics-tracker-v2';
 
 export const TRACK_V2_SUPPORTED_EVENT_CODES = ['open_premium'] as const;
 export type TrackV2SupportedEventCode =
