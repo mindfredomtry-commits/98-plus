@@ -675,8 +675,10 @@
 /*
  * Orb stage: pad so overview orb center ≈ home --primary-orb-center-y (45dvh).
  * Chrome offset ≈ scroll pad + header + title/range (premium adds extra).
+ * --overview-orb-center-offset-y: fine-tune after screenshot overlay (overview only).
  */
 .monetization-relationship-overview__orb-stage {
+  --overview-orb-center-offset-y: 16px;
   --overview-chrome-offset: calc(
     env(safe-area-inset-top, 0px) + 0.75rem + 3.5rem + 5.75rem
   );
@@ -688,7 +690,8 @@
   padding-top: max(
     0.55rem,
     calc(
-      45dvh - var(--overview-chrome-offset) - (var(--overview-orb-box) / 2)
+      45dvh - var(--overview-chrome-offset) - (var(--overview-orb-box) / 2) +
+        var(--overview-orb-center-offset-y)
     )
   );
   padding-bottom: 0.15rem;
