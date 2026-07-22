@@ -114,13 +114,6 @@ export function LobbyScreen({
       aria-modal="true"
       aria-label="98+ lobby"
     >
-      <div className="lobby-screen__grid" aria-hidden />
-      <div className="lobby-screen__particles" aria-hidden>
-        {Array.from({ length: 10 }).map((_, i) => (
-          <span key={i} className="lobby-screen__particle" />
-        ))}
-      </div>
-
       <div className="lobby-screen__orb-wrap">
         <InfluenceRing value={influence} />
         <div className="lobby-screen__orb">

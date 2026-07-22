@@ -8,18 +8,8 @@
   height: var(--instant-ban-vh, var(--app-stable-height, 100dvh));
   max-height: var(--instant-ban-vh, var(--app-stable-height, 100dvh));
   min-height: var(--instant-ban-vh, var(--app-stable-height, 100dvh));
-  background:
-    radial-gradient(
-      ellipse 120% 80% at 50% -12%,
-      rgba(var(--98-purple-cold-rgb), 0.26),
-      transparent 55%
-    ),
-    radial-gradient(
-      ellipse 90% 55% at 50% 100%,
-      rgba(var(--98-purple-deep-rgb), 0.32),
-      transparent 50%
-    ),
-    var(--98-bg-black);
+  background-color: var(--98-bg-black);
+  background-image: none;
 }
 
 .instant-ban-flow {
@@ -30,33 +20,8 @@
   height: var(--instant-ban-vh, var(--app-stable-height, 100dvh));
   max-height: var(--instant-ban-vh, var(--app-stable-height, 100dvh));
   min-height: var(--instant-ban-vh, var(--app-stable-height, 100dvh));
-  background:
-    radial-gradient(
-      ellipse 120% 80% at 50% -12%,
-      rgba(var(--98-purple-cold-rgb), 0.26),
-      transparent 55%
-    ),
-    radial-gradient(
-      ellipse 90% 55% at 50% 100%,
-      rgba(var(--98-purple-deep-rgb), 0.32),
-      transparent 50%
-    ),
-    var(--98-bg-black);
-}
-
-.instant-ban-flow__grid {
-  position: absolute;
-  inset: 0;
-  opacity: 0.18;
-  background-image:
-    linear-gradient(rgba(var(--98-purple-cold-rgb), 0.1) 1px, transparent 1px),
-    linear-gradient(
-      90deg,
-      rgba(var(--98-purple-cold-rgb), 0.1) 1px,
-      transparent 1px
-    );
-  background-size: 28px 28px;
-  pointer-events: none;
+  background-color: var(--98-bg-black);
+  background-image: none;
 }
 
 .instant-ban-flow__inner {
@@ -1371,10 +1336,6 @@
   background: var(--98-bg-black);
 }
 
-.instant-ban-flow--what-mobile-safe .instant-ban-flow__grid {
-  display: none;
-}
-
 .instant-ban-flow--what-mobile-safe .instant-ban-flow__title {
   text-shadow: none;
   margin-bottom: 0.75rem;
@@ -1896,10 +1857,6 @@
   background: #000;
 }
 
-.instant-ban-debug-lite .instant-ban-flow__grid {
-  display: none;
-}
-
 .instant-ban-debug-lite .instant-ban-flow__title {
   text-shadow: none;
 }
@@ -2285,11 +2242,11 @@
 }
 
 .global-relationship-ring__track {
-  stroke: rgba(var(--98-purple-deep-rgb), 0.55);
+  stroke: rgba(255, 255, 255, 0.08);
 }
 
 .global-relationship-ring--neutral .global-relationship-ring__track {
-  stroke: rgba(var(--98-purple-deep-rgb), 0.4);
+  stroke: rgba(255, 255, 255, 0.12);
 }
 
 .instant-ban-confirm-influence-ring.global-relationship-ring {

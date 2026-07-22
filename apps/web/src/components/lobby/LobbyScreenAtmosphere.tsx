@@ -1,17 +1,9 @@
 'use client';
 
-const PARTICLE_COUNT = 10;
-
-/** Shared lobby backdrop — grid + particles (matches InstantBanFlow / lobby-screen.css). */
+/**
+ * Lobby backdrop slot — particles / grid removed.
+ * Kept as a no-op so InstantBanFlow / BootScene call sites stay stable.
+ */
 export function LobbyScreenAtmosphere() {
-  return (
-    <>
-      <div className="lobby-screen__grid" aria-hidden />
-      <div className="lobby-screen__particles" aria-hidden>
-        {Array.from({ length: PARTICLE_COUNT }).map((_, i) => (
-          <span key={i} className="lobby-screen__particle" />
-        ))}
-      </div>
-    </>
-  );
+  return null;
 }

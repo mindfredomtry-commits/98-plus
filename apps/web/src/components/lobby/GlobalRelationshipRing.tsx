@@ -6,8 +6,8 @@ import {
   OTHER_ARC_ANCHOR_DEG,
 } from '@/components/monetization/RelationshipOrb';
 import {
+  RELATIONSHIP_METRIC_COLORS,
   RELATIONSHIP_ORB_TRACK,
-  RELATIONSHIP_ORB_OTHER_OPACITY,
 } from '@/components/monetization/relationship-metric-colors';
 import type { GlobalRelationshipOrbRingState } from '@/lib/use-global-relationship-orb';
 
@@ -16,20 +16,23 @@ type Props = {
   className?: string;
 };
 
-/** Match lobby InfluenceRing SVG frame so size/position stay stable. */
+/**
+ * Match RelationshipOrb OUTER ring geometry (analytics visual language).
+ * SIZE 280 + RADIUS 118 + STROKE 10 keeps stroke inside the viewBox
+ * (outer edge ≈ 123 < 140).
+ */
 const SIZE = 280;
-const STROKE = 2.5;
-const RADIUS = (SIZE - STROKE) / 2;
+const STROKE = 10;
+const RADIUS = 118;
 const CX = SIZE / 2;
 const CY = SIZE / 2;
 
-/** Viewer segment — primary bright accent (lobby power). */
-const VIEWER_STROKE = 'rgba(var(--98-power-rgb), 0.92)';
-/** People segment — calmer contrast; both sides always visible (no perspective). */
-const OTHER_STROKE = 'rgba(var(--98-purple-deep-rgb), 0.72)';
+/** Viewer — bright analytics purple (Initiative). */
+const VIEWER_STROKE = RELATIONSHIP_METRIC_COLORS.INITIATIVE;
+/** People — muted purple-gray; solid enough to read without perspective mute. */
+const OTHER_STROKE = '#6E5C7A';
 const VIEWER_OPACITY = 0.95;
-/** Higher than inactive perspective mute so people side stays readable. */
-const OTHER_OPACITY = Math.max(0.42, RELATIONSHIP_ORB_OTHER_OPACITY * 3);
+const OTHER_OPACITY = 0.85;
 
 const MIN_ARC_SWEEP_DEG = 0.5;
 const SWEEP_CLOCKWISE = 1 as const;
@@ -118,6 +121,7 @@ export function GlobalRelationshipRing({ ringState, className = '' }: Props) {
         fill="none"
         stroke={RELATIONSHIP_ORB_TRACK}
         strokeWidth={STROKE}
+        strokeLinecap="round"
       />
       {otherPath ? (
         <path

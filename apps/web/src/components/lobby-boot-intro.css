@@ -78,14 +78,6 @@ html:not([data-app-hydrated]) .lobby-persistent-logo-slot:not(.lobby-boot-logo-e
   visibility: visible;
 }
 
-.lobby-screen--boot-intro-active .lobby-screen__particle {
-  animation-play-state: paused !important;
-}
-
-.lobby-screen--boot-intro-active .lobby-screen__grid {
-  opacity: 0.22;
-}
-
 .lobby-boot-orb-root {
   position: relative;
   width: 100%;

@@ -2,20 +2,6 @@
  * Critical CSS in <head> — first paint before globals.css / Tailwind / React.
  * Covers Telegram webview gray flash and square placeholder stage.
  */
-const LOBBY_BOOT_SCENE_BG = `
-  radial-gradient(
-    ellipse 120% 80% at 50% 20%,
-    rgba(108, 52, 131, 0.35),
-    transparent 55%
-  ),
-  radial-gradient(
-    ellipse 90% 60% at 50% 100%,
-    rgba(59, 7, 100, 0.45),
-    transparent 50%
-  ),
-  radial-gradient(circle at 50% 50%, #120818 0%, #050308 45%, #0f0f0f 100%)
-`;
-
 export function LobbyOrbPrehydrateStyle() {
   return (
     <style
@@ -28,13 +14,13 @@ html {
   min-height: 100%;
   color-scheme: dark;
   background-color: #0f0f0f;
-  background-image: ${LOBBY_BOOT_SCENE_BG};
+  background-image: none;
 }
 body {
   margin: 0;
   min-height: 100%;
   background-color: #0f0f0f;
-  background-image: ${LOBBY_BOOT_SCENE_BG};
+  background-image: none;
 }
 #lobby-boot-shell-early {
   position: fixed;
@@ -47,7 +33,7 @@ body {
   pointer-events: none;
   user-select: none;
   background-color: #0f0f0f;
-  background-image: ${LOBBY_BOOT_SCENE_BG};
+  background-image: none;
 }
 #lobby-boot-logo-prehydrate {
   position: fixed;
