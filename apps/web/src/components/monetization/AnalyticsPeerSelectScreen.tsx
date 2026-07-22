@@ -6,6 +6,7 @@ import { AvatarImage } from '../AvatarImage';
 import { WhatBackIcon } from '../instant-ban/WhatBackIcon';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { fetchRelationshipOverview } from '@/lib/relationship-analytics-api';
+import { RELATIONSHIP_OVERVIEW_INITIAL_PERSPECTIVE } from '@/lib/relationship-detail-perspective';
 import {
   selectCardDimensions,
   selectOrbRingDimensions,
@@ -126,7 +127,7 @@ export function AnalyticsPeerSelectScreen({
   const [selectedRange, setSelectedRange] =
     useState<RelationshipOverviewRangeCode>('ALL');
   const [perspective, setPerspective] =
-    useState<RelationshipPerspective>('viewer');
+    useState<RelationshipPerspective>(RELATIONSHIP_OVERVIEW_INITIAL_PERSPECTIVE);
   const [overviewState, setOverviewState] = useState<OverviewLoadState>({
     kind: 'idle',
   });

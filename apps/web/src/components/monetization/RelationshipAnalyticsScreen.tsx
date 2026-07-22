@@ -9,6 +9,10 @@ import {
   fetchRelationshipPeriod,
 } from '@/lib/relationship-analytics-api';
 import {
+  RELATIONSHIP_DETAIL_INITIAL_PERSPECTIVE,
+  nextDetailPerspectiveForPeerChange,
+} from '@/lib/relationship-detail-perspective';
+import {
   buildV8ReceivedLog,
   buildV8RenderedLog,
   extractRelationshipDimensions,
@@ -219,14 +223,30 @@ export function RelationshipAnalyticsScreen({
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [selectedRange, setSelectedRange] = useState<RelationshipRange>('ALL');
-  const [perspective, setPerspective] =
-    useState<RelationshipPerspective>('viewer');
+  const [perspective, setPerspective] = useState<RelationshipPerspective>(
+    RELATIONSHIP_DETAIL_INITIAL_PERSPECTIVE,
+  );
   const [periodLoadState, setPeriodLoadState] = useState<PeriodLoadState>({
     kind: 'idle',
   });
   const actionLockRef = useRef(false);
   const requestIdRef = useRef(0);
   const periodRequestIdRef = useRef(0);
+  const perspectivePeerUserIdRef = useRef(peer.userId);
+
+  // Remount usually covers peer switches; reset if the same instance gets a new peer id.
+  useEffect(() => {
+    const previousPeerUserId = perspectivePeerUserIdRef.current;
+    const nextPeerUserId = peer.userId;
+    perspectivePeerUserIdRef.current = nextPeerUserId;
+    setPerspective((current) =>
+      nextDetailPerspectiveForPeerChange(
+        current,
+        previousPeerUserId,
+        nextPeerUserId,
+      ),
+    );
+  }, [peer.userId]);
 
   useEffect(() => {
     const requestId = ++requestIdRef.current;
