@@ -2218,7 +2218,8 @@
 
 .lobby-screen__orb-root .instant-ban-arena-lobby-orb__ring-layer .instant-ban-confirm-influence-ring,
 .lobby-screen__orb-root .instant-ban-arena-lobby-orb__ring-layer .influence-ring,
-.lobby-screen__orb-root .instant-ban-arena-lobby-orb__ring-layer .global-relationship-ring {
+.lobby-screen__orb-root .instant-ban-arena-lobby-orb__ring-layer .global-relationship-ring,
+.lobby-screen__orb-root .instant-ban-arena-lobby-orb__ring-layer .relationship-ring-primitive {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -2229,11 +2230,16 @@
 }
 
 /* Dual-segment geometry already anchors viewer/other — do not rotate like energy fill. */
-.lobby-screen__orb-root .instant-ban-arena-lobby-orb__ring-layer .global-relationship-ring {
+.lobby-screen__orb-root .instant-ban-arena-lobby-orb__ring-layer .global-relationship-ring,
+.lobby-screen__orb-root .instant-ban-arena-lobby-orb__ring-layer .relationship-ring-primitive,
+.lobby-screen__orb-root
+  .instant-ban-arena-lobby-orb__ring-layer
+  .instant-ban-confirm-influence-ring.global-relationship-ring {
   transform: none;
 }
 
-.global-relationship-ring {
+.global-relationship-ring,
+.relationship-ring-primitive {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -2241,15 +2247,22 @@
   overflow: visible;
 }
 
-.global-relationship-ring__track {
+.relationship-ring-primitive__track,
+.global-relationship-ring .relationship-ring-primitive__track {
   stroke: rgba(255, 255, 255, 0.08);
 }
 
-.global-relationship-ring--neutral .global-relationship-ring__track {
+.relationship-ring-primitive--neutral .relationship-ring-primitive__track {
   stroke: rgba(255, 255, 255, 0.12);
 }
 
-.instant-ban-confirm-influence-ring.global-relationship-ring {
+.relationship-ring-primitive__hold {
+  /* Solid hold progress — no glow / blur filters. */
+  filter: none;
+}
+
+.instant-ban-confirm-influence-ring.global-relationship-ring,
+.instant-ban-confirm-influence-ring.relationship-ring-primitive {
   position: absolute;
   inset: 0;
   width: 100%;

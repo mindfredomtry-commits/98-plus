@@ -81,12 +81,15 @@ export function useConfirmOrbController({
   const [enterPhase, setEnterPhase] = useState<EnterPhase>('lobby-orb');
   const [ringProgress, setRingProgress] = useState(influenceStart);
   const [holdPhase, setHoldPhase] = useState<HoldPhase>('idle');
+  const [holdProgress, setHoldProgress] = useState(0);
   const [bounce, setBounce] = useState(false);
 
   const orbBtnRef = useRef<HTMLButtonElement>(null);
   const holdPhaseRef = useRef<HoldPhase>('idle');
   const readyToReleaseRef = useRef(false);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdRafRef = useRef<number | null>(null);
+  const holdStartTsRef = useRef<number | null>(null);
   const sendTriggeredRef = useRef(false);
   const bounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -104,11 +107,48 @@ export function useConfirmOrbController({
     }
   }, []);
 
+  const clearHoldProgressRaf = useCallback(() => {
+    if (holdRafRef.current != null) {
+      cancelAnimationFrame(holdRafRef.current);
+      holdRafRef.current = null;
+    }
+    holdStartTsRef.current = null;
+  }, []);
+
+  const resetHoldProgress = useCallback(() => {
+    clearHoldProgressRaf();
+    setHoldProgress(0);
+  }, [clearHoldProgressRaf]);
+
+  const startHoldProgress = useCallback(() => {
+    clearHoldProgressRaf();
+    holdStartTsRef.current = performance.now();
+    setHoldProgress(0);
+
+    const tick = (now: number) => {
+      const start = holdStartTsRef.current;
+      if (start == null) return;
+      const next = Math.min(1, (now - start) / HOLD_MS);
+      setHoldProgress(next);
+      if (next < 1 && holdPhaseRef.current === 'holding') {
+        holdRafRef.current = requestAnimationFrame(tick);
+        return;
+      }
+      holdRafRef.current = null;
+      if (next >= 1) {
+        setHoldProgress(1);
+      }
+    };
+
+    holdRafRef.current = requestAnimationFrame(tick);
+  }, [clearHoldProgressRaf]);
+
   const abortRelease = useCallback(() => {
     sendTriggeredRef.current = false;
     readyToReleaseRef.current = false;
+    resetHoldProgress();
     setHoldPhaseState('idle');
-  }, [setHoldPhaseState]);
+  }, [setHoldPhaseState, resetHoldProgress]);
 
   const triggerBounce = useCallback(() => {
     if (bounceTimerRef.current) {
@@ -126,6 +166,7 @@ export function useConfirmOrbController({
       clearHoldTimer();
       readyToReleaseRef.current = false;
       if (holdPhaseRef.current !== 'idle' && holdPhaseRef.current !== 'releasing') {
+        resetHoldProgress();
         setHoldPhaseState('idle');
         if (withWarning) {
           try {
@@ -147,7 +188,7 @@ export function useConfirmOrbController({
         }
       }
     },
-    [clearHoldTimer, setHoldPhaseState, triggerBounce],
+    [clearHoldTimer, setHoldPhaseState, triggerBounce, resetHoldProgress],
   );
 
   useEffect(() => {
@@ -167,8 +208,9 @@ export function useConfirmOrbController({
     setEnterPhase('lobby-orb');
     setHoldPhaseState('idle');
     setRingProgress(influenceStart);
+    resetHoldProgress();
     sendTriggeredRef.current = false;
-  }, [active, compressActive, influenceStart, setHoldPhaseState]);
+  }, [active, compressActive, influenceStart, setHoldPhaseState, resetHoldProgress]);
 
   useEffect(() => {
     if (!compressActive) return;
@@ -232,18 +274,20 @@ export function useConfirmOrbController({
   useEffect(() => {
     if (error) {
       sendTriggeredRef.current = false;
+      resetHoldProgress();
       setHoldPhaseState('idle');
     }
-  }, [error, setHoldPhaseState]);
+  }, [error, setHoldPhaseState, resetHoldProgress]);
 
   useEffect(() => {
     return () => {
       clearHoldTimer();
+      clearHoldProgressRaf();
       if (bounceTimerRef.current) {
         clearTimeout(bounceTimerRef.current);
       }
     };
-  }, [clearHoldTimer]);
+  }, [clearHoldTimer, clearHoldProgressRaf]);
 
   const handlePointerDown = useCallback(
     (e: PointerEvent<HTMLButtonElement>) => {
@@ -286,10 +330,13 @@ export function useConfirmOrbController({
       clearHoldTimer();
       readyToReleaseRef.current = false;
       setHoldPhaseState('holding');
+      startHoldProgress();
       holdTimerRef.current = setTimeout(() => {
         holdTimerRef.current = null;
         if (holdPhaseRef.current !== 'holding') return;
         readyToReleaseRef.current = true;
+        clearHoldProgressRaf();
+        setHoldProgress(1);
         setHoldPhaseState('ready');
         try {
           (
@@ -308,7 +355,15 @@ export function useConfirmOrbController({
         }
       }, HOLD_MS);
     },
-    [active, enterComplete, sending, clearHoldTimer, setHoldPhaseState],
+    [
+      active,
+      enterComplete,
+      sending,
+      clearHoldTimer,
+      setHoldPhaseState,
+      startHoldProgress,
+      clearHoldProgressRaf,
+    ],
   );
 
   const handlePointerUp = useCallback(
@@ -339,6 +394,7 @@ export function useConfirmOrbController({
         holdPhaseRef.current === 'ready'
       ) {
         readyToReleaseRef.current = false;
+        resetHoldProgress();
         setHoldPhaseState('idle');
         try {
           (
@@ -366,6 +422,7 @@ export function useConfirmOrbController({
       setHoldPhaseState,
       onConfirm,
       triggerBounce,
+      resetHoldProgress,
     ],
   );
 
@@ -436,6 +493,8 @@ export function useConfirmOrbController({
     payoffActive: false,
     enterComplete,
     holdPhase,
+    /** 0..1 confirm-hold arc fill — not energy / influence. */
+    holdProgress,
     ringValue,
     showOrbFace: true,
     showPayoffContent: false,

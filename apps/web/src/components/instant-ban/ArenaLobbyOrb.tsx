@@ -1,11 +1,10 @@
 'use client';
 
-import { memo, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import type { FriendCard, UserPublic } from '@98plus/shared';
 import { traceZazhmiRenderSourceDiag } from '@/lib/zazhmi-render-source-debug';
 import { logConfirmHoldComponentMounted } from '@/lib/confirm-hold-render-diag';
 import { GlobalRelationshipRing } from '../lobby/GlobalRelationshipRing';
-import { InfluenceRing } from '../lobby/InfluenceRing';
 import { LobbyOrbFace } from '../lobby/LobbyOrbFace';
 import type { GlobalRelationshipOrbRingState } from '@/lib/use-global-relationship-orb';
 import { SuccessPayoffReveal } from './SuccessPayoffReveal';
@@ -18,7 +17,7 @@ type Props = {
   confirmActive: boolean;
   orbCompressActive: boolean;
   confirmOrb: ConfirmOrb;
-  /** Global Relationship Orb ring (lobby idle only — not energy). */
+  /** Global Relationship Orb ring — same primitive on lobby / WHAT / CONFIRM / hold. */
   globalRelationshipRing: GlobalRelationshipOrbRingState;
   /** When true, 98+ is rendered by LobbyPersistentLogoSlot — never duplicate in face. */
   suppressOrbFaceTitle?: boolean;
@@ -28,35 +27,6 @@ type Props = {
   durationMinutes: number;
   onAgain?: () => void;
 };
-
-const ArenaConfirmHoldRing = memo(function ArenaConfirmHoldRing({
-  value,
-  debugId,
-  disableTransition = false,
-}: {
-  value: number;
-  debugId: string;
-  disableTransition?: boolean;
-}) {
-  const ringMountLogged = useRef(false);
-
-  useEffect(() => {
-    if (process.env.NODE_ENV !== 'development' || ringMountLogged.current) return;
-    ringMountLogged.current = true;
-    console.log('[InfluenceRing-mount]', debugId);
-    return () => {
-      console.log('[InfluenceRing-unmount]', debugId);
-    };
-  }, [debugId]);
-
-  return (
-    <InfluenceRing
-      value={value}
-      className="instant-ban-confirm-influence-ring"
-      disableTransition={disableTransition}
-    />
-  );
-});
 
 export function ArenaLobbyOrb({
   sendPhase,
@@ -83,7 +53,7 @@ export function ArenaLobbyOrb({
     orbBtnClass,
     payoffActive,
     payoffPhase,
-    ringValue,
+    holdProgress,
     showOrbFace,
     showPayoffContent,
     showPayoffCta,
@@ -129,8 +99,8 @@ export function ArenaLobbyOrb({
 
   const payoffWrap = payoffPhase !== 'none';
 
-  const useLobbyRingDisplay = !confirmActive && !orbCompressActive;
-  const hideOrbFaceTitle = suppressOrbFaceTitle || useLobbyRingDisplay;
+  const useLobbyChrome = !confirmActive && !orbCompressActive;
+  const hideOrbFaceTitle = suppressOrbFaceTitle || useLobbyChrome;
 
   if (confirmActive) {
     traceZazhmiRenderSourceDiag({
@@ -180,18 +150,11 @@ export function ArenaLobbyOrb({
               hidden={!showOrbFace}
               hideTitle={hideOrbFaceTitle}
               ring={
-                useLobbyRingDisplay ? (
-                  <GlobalRelationshipRing
-                    ringState={globalRelationshipRing}
-                    className="instant-ban-confirm-influence-ring"
-                  />
-                ) : (
-                  <ArenaConfirmHoldRing
-                    value={ringValue}
-                    debugId={debugIdRef.current}
-                    disableTransition={confirmActive || orbCompressActive}
-                  />
-                )
+                <GlobalRelationshipRing
+                  ringState={globalRelationshipRing}
+                  holdProgress={confirmActive ? holdProgress : 0}
+                  className="instant-ban-confirm-influence-ring"
+                />
               }
             />
           {showPayoffContent && selectedUser ? (
