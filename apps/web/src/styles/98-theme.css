@@ -53,6 +53,33 @@
   --98-confirm-orb-margin-bottom: clamp(2rem, 12vh, 4rem);
   /* Fixed layout slot = confirm size; lobby ring drawn larger via ring-layer scale */
   --98-arena-orb-anchor-top: 45%;
+  /*
+   * Shared compositional anchor: home Global Relationship Orb center
+   * and overview RelationshipOrb center should share this line.
+   */
+  --primary-orb-center-y: var(--98-arena-orb-anchor-top);
+  --home-orb-layout-size: var(--98-confirm-orb-size);
+  --home-orb-ring-scale: var(--98-confirm-ring-lobby-scale);
+  /*
+   * Home SVG: SIZE 280, RADIUS 118, STROKE 10 → inner edge diameter units = 226.
+   * Rendered homeInnerDiameter = layout * scale * 226/280.
+   */
+  --home-orb-inner-diameter: calc(
+    var(--home-orb-layout-size) * var(--home-orb-ring-scale) * 226 / 280
+  );
+  --overview-orb-visual-inset: 12px;
+  /*
+   * Overview outer stroke edge fits inside home inner edge with inset air.
+   * Box size B from outer Ø: B = outer * 280 / 246.
+   */
+  --overview-orb-box: min(
+    72vw,
+    calc(
+      (var(--home-orb-inner-diameter) - 2 * var(--overview-orb-visual-inset)) *
+        280 / 246
+    )
+  );
+  --overview-orb-avatar-size: calc(var(--overview-orb-box) * 0.34);
   /* Lobby top nav — sits just above the orb ring (orb/CTA positions unchanged) */
   --98-lobby-nav-block-height: 2.25rem;
   --98-lobby-nav-orb-gap: 0.5rem;

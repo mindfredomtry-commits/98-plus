@@ -20,6 +20,11 @@ type Props = {
   /** Smaller orb for one-viewport relationship screen. */
   compact?: boolean;
   /**
+   * Overview uses a smaller box so the triple orb fits inside the
+   * home Global Relationship Ring (detail keeps default compact size).
+   */
+  variant?: 'default' | 'overview' | 'detail';
+  /**
    * Which side of each ring is highlighted.
    * Default `viewer` keeps overview / legacy behavior.
    */
@@ -235,6 +240,7 @@ export function RelationshipOrb({
   peerAvatarUrl,
   peerDisplayName,
   compact = false,
+  variant = 'default',
   perspective = 'viewer',
 }: Props) {
   const activeOpacity = 0.95;
@@ -260,9 +266,19 @@ export function RelationshipOrb({
     'INNER',
   ];
 
+  const resolvedVariant =
+    variant !== 'default' ? variant : compact ? 'detail' : 'default';
+  const sizeClass =
+    resolvedVariant === 'overview'
+      ? ' monetization-orb--compact monetization-orb--overview'
+      : compact
+        ? ' monetization-orb--compact'
+        : '';
+
   return (
     <div
-      className={`monetization-orb${compact ? ' monetization-orb--compact' : ''}`}
+      className={`monetization-orb${sizeClass}`}
+      data-orb-variant={resolvedVariant}
       role="img"
       aria-label={
         peerDisplayName
@@ -357,9 +373,19 @@ export function RelationshipOrb({
           src={peerAvatarUrl}
           letter={peerLetter(peerDisplayName)}
           sizeClass={
-            compact ? 'monetization-orb__avatar--compact' : 'w-32 h-32'
+            resolvedVariant === 'overview'
+              ? 'monetization-orb__avatar--overview'
+              : compact
+                ? 'monetization-orb__avatar--compact'
+                : 'w-32 h-32'
           }
-          textClass={compact ? 'text-2xl' : 'text-4xl'}
+          textClass={
+            resolvedVariant === 'overview'
+              ? 'text-xl'
+              : compact
+                ? 'text-2xl'
+                : 'text-4xl'
+          }
           ringClassName="ring-white/15"
           priority
         />

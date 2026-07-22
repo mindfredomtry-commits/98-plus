@@ -240,63 +240,74 @@ export function AnalyticsPeerSelectScreen({
         ) : null}
 
         <section
-          className="monetization-relationship-overview"
+          className={`monetization-relationship-overview${
+            !premiumActive
+              ? ' monetization-relationship-overview--premium-cta'
+              : ''
+          }`}
           aria-label="Твои отношения с людьми"
         >
-          <h3 className="monetization-relationship-overview__title">
-            твои отношения с людьми
-          </h3>
+          <div className="monetization-relationship-overview__chrome">
+            <h3 className="monetization-relationship-overview__title">
+              твои отношения с людьми
+            </h3>
 
-          <div
-            className="monetization-relationship__range-selector"
-            role="group"
-            aria-label="Период"
-          >
-            {OVERVIEW_RANGE_OPTIONS.map((option) => {
-              const active = selectedRange === option.id;
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  className={`monetization-range-chip${
-                    active ? ' monetization-range-chip--active' : ''
-                  }`}
-                  aria-pressed={active}
-                  onClick={() => handleSelectRange(option.id)}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
+            <div
+              className="monetization-relationship__range-selector"
+              role="group"
+              aria-label="Период"
+            >
+              {OVERVIEW_RANGE_OPTIONS.map((option) => {
+                const active = selectedRange === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={`monetization-range-chip${
+                      active ? ' monetization-range-chip--active' : ''
+                    }`}
+                    aria-pressed={active}
+                    onClick={() => handleSelectRange(option.id)}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {isOverviewLoading ? (
+              <p className="monetization-muted monetization-muted--tight">
+                загружаем…
+              </p>
+            ) : null}
+
+            {overviewErrorMessage ? (
+              <p className="monetization-analytics-inline-error">
+                {overviewErrorMessage}
+              </p>
+            ) : null}
           </div>
 
-          {isOverviewLoading ? (
-            <p className="monetization-muted monetization-muted--tight">
-              загружаем…
-            </p>
-          ) : null}
+          <div className="monetization-relationship-overview__orb-stage">
+            <div className="monetization-relationship-overview__orb-cluster">
+              <RelationshipOrb
+                compact
+                variant="overview"
+                dimensions={isOverviewLoading ? [] : orbDimensions}
+                peerAvatarUrl={viewerAvatar}
+                peerDisplayName={viewerName}
+                perspective={perspective}
+              />
 
-          {overviewErrorMessage ? (
-            <p className="monetization-analytics-inline-error">
-              {overviewErrorMessage}
-            </p>
-          ) : null}
-
-          <RelationshipOrb
-            compact
-            dimensions={isOverviewLoading ? [] : orbDimensions}
-            peerAvatarUrl={viewerAvatar}
-            peerDisplayName={viewerName}
-            perspective={perspective}
-          />
-
-          <RelationshipPerspectiveSwitcher
-            perspective={perspective}
-            onChange={setPerspective}
-            viewerLabel="Ты"
-            otherLabel="Люди"
-            groupLabel="Перспектива сводки"
-          />
+              <RelationshipPerspectiveSwitcher
+                perspective={perspective}
+                onChange={setPerspective}
+                viewerLabel="Ты"
+                otherLabel="Люди"
+                groupLabel="Перспектива сводки"
+              />
+            </div>
+          </div>
 
           {!isOverviewLoading && isOverviewNoActivity ? (
             <p className="monetization-muted monetization-muted--tight">

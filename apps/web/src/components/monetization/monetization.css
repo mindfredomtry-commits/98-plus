@@ -654,8 +654,13 @@
   padding: 0 0 0.25rem;
 }
 
+.monetization-relationship-overview__chrome {
+  position: relative;
+  z-index: 1;
+}
+
 .monetization-relationship-overview__title {
-  margin: 0 0 0.75rem;
+  margin: 0 0 0.55rem;
   font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -664,11 +669,63 @@
 }
 
 .monetization-relationship-overview .monetization-relationship__range-selector {
-  margin-bottom: 0.85rem;
+  margin-bottom: 0.35rem;
+}
+
+/*
+ * Orb stage: pad so overview orb center ≈ home --primary-orb-center-y (45dvh).
+ * Chrome offset ≈ scroll pad + header + title/range (premium adds extra).
+ */
+.monetization-relationship-overview__orb-stage {
+  --overview-chrome-offset: calc(
+    env(safe-area-inset-top, 0px) + 0.75rem + 3.5rem + 5.75rem
+  );
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding-top: max(
+    0.55rem,
+    calc(
+      45dvh - var(--overview-chrome-offset) - (var(--overview-orb-box) / 2)
+    )
+  );
+  padding-bottom: 0.15rem;
+}
+
+.monetization-relationship-overview--premium-cta
+  .monetization-relationship-overview__orb-stage {
+  --overview-chrome-offset: calc(
+    env(safe-area-inset-top, 0px) + 0.75rem + 3.5rem + 3.1rem + 5.75rem
+  );
+}
+
+.monetization-relationship-overview__orb-cluster {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.monetization-relationship-overview .monetization-relationship__perspective {
+  margin: 0.2rem auto 0.45rem;
 }
 
 .monetization-relationship-overview .monetization-relationship__tiles {
-  margin-top: 0.65rem;
+  margin-top: 0.55rem;
+}
+
+/* Overview-only size: fits inside home Global Relationship Ring inner edge. */
+.monetization-orb--overview.monetization-orb--compact {
+  width: var(--overview-orb-box);
+  max-width: var(--overview-orb-box);
+  margin: 0 auto 0.1rem;
+}
+
+.monetization-orb__avatar--overview {
+  width: var(--overview-orb-avatar-size);
+  height: var(--overview-orb-avatar-size);
 }
 
 .monetization-peer-premium-cta--top {
@@ -1560,6 +1617,16 @@
     height: 6rem;
   }
 
+  .monetization-orb--overview.monetization-orb--compact {
+    width: var(--overview-orb-box);
+    max-width: var(--overview-orb-box);
+  }
+
+  .monetization-orb__avatar--overview {
+    width: var(--overview-orb-avatar-size);
+    height: var(--overview-orb-avatar-size);
+  }
+
   .monetization-relationship--fit {
     gap: 0.35rem;
   }
@@ -1579,5 +1646,16 @@
   .monetization-orb__avatar--compact {
     width: 5.25rem;
     height: 5.25rem;
+  }
+
+  /* Keep overview compositional size — do not inherit detail compact breakpoints. */
+  .monetization-orb--overview.monetization-orb--compact {
+    width: var(--overview-orb-box);
+    max-width: var(--overview-orb-box);
+  }
+
+  .monetization-orb__avatar--overview {
+    width: var(--overview-orb-avatar-size);
+    height: var(--overview-orb-avatar-size);
   }
 }
