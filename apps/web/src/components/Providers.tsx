@@ -251,7 +251,7 @@ import {
   selectHasPending,
 } from '@/notification-runtime/notification-runtime.selectors';
 import { projectRuntimeQueueToLegacy } from '@/notification-runtime/notification-runtime.adapters';
-import { selectRuntimePaintSnapshot } from '@/notification-runtime/notification-runtime.demolition';
+import { selectRuntimePaintSnapshot, EMPTY_RUNTIME_LEGACY_SINKS } from '@/notification-runtime/notification-runtime.demolition';
 import {
   ingestPendingSnapshot,
   markRuntimeItemConsumed,
@@ -4410,7 +4410,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     null,
   );
 
-  /** Step-1 Single Owner shadow — TEMP V1–V2 mirror sinks (queue authority is notification-runtime). */
+  /** Step-1 Single Owner shadow — Vertical 9: pin/session shell only (not notification runtime). */
   const ownerShadowRef = useRef(
     createNotificationOverlayOwnerShadow({
       mirrorLegacyQueue: (queue, source, silent) =>
@@ -7165,20 +7165,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
 
   const writeOverlayQueueSilent = (
-    next: QueuedOverlay[],
-    source: string,
-    reason: string,
-    extra?: Omit<ApplyOverlayQueueOptions, 'source' | 'reason'>,
+    _next: QueuedOverlay[],
+    _source: string,
+    _reason: string,
+    _extra?: Omit<ApplyOverlayQueueOptions, 'source' | 'reason'>,
   ): boolean => {
-    const fields = buildStep2bQueueWriteFields(
-      [...ownerShadowRef.current.getState().queue],
-      next,
-      source,
-      reason,
-    );
-    logOwnerStep2bQueueWrite('[OWNER STEP2B DIRECT QUEUE WRITE REMOVED]', fields);
-    logOwnerStep2bQueueWrite('[OWNER STEP2B QUEUE WRITE VIA APPLY]', fields);
-    return commitOverlayQueueViaApply(next, source, reason, extra);
+    // Vertical 9: no dual-store queue writes — runtime.items.queue is sole authority.
+    return false;
   };
 
   /** Auth/logout reset — documented Step 2b exception (not a display apply). */
@@ -8960,197 +8953,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     return true;
   };
   ownerMirrorHandlersRef.current = {
-    mirrorLegacyQueue: (queue, source, silent) => {
-      const oldQueue = [...overlayQueueRef.current];
-      const oldHead = oldQueue[0] ?? null;
-      const ownerBeforeMirror = ownerShadowRef.current.getState();
-      traceQueueTailDroppedWhileResultHeadIfNeeded({
-        beforeQueue: oldQueue,
-        afterQueue: queue,
-        beforePending: [...ownerBeforeMirror.pending],
-        afterPending: [...ownerBeforeMirror.pending],
-        operation: 'mirrorLegacyQueue',
-        source,
-        reason: silent ? 'owner-mirror-silent' : 'owner-mirror-setOverlayQueue',
-        calledFrom: getHeadSwitchPipelineStack().join(' > '),
-      });
-      const operation = inferProvidersOverlayQueueOperation(
-        oldQueue.length,
-        queue.length,
-      );
-      logProvidersOverlayQueueMutation({
-        operation,
-        source: `${source}:mirrorLegacyQueue`,
-        reason: silent ? 'owner-mirror-silent' : 'owner-mirror-setOverlayQueue',
-        prevLength: oldQueue.length,
-        nextLength: queue.length,
-        prevHeadKind: oldHead?.kind ?? null,
-        nextHeadKind: queue[0]?.kind ?? null,
-        banId: providersOverlayQueueHeadBanId(queue[0] ?? null),
-        resultId:
-          queue[0]?.kind === 'result' ? queue[0].result.id : null,
-      });
-      overlayQueueRef.current = queue;
-      setOverlayQueue(queue);
-      maybeEmitQueueAppearanceOnLenAppear(
-        `${source}:mirrorLegacyQueue`,
-        oldQueue.length,
-        queue.length,
-        pendingStartupInteractionsRef.current.length,
-        pendingStartupInteractionsRef.current.length,
-        {
-          queueHeadKind: queue[0]?.kind ?? null,
-          skipReason:
-            oldQueue.length === 0 && queue.length > 0
-              ? 'queue-appeared-owner-mirror'
-              : null,
-        },
-      );
-      const newHead = queue[0] ?? null;
-      traceResultBecameHeadQueueContextIfNeeded(
-        oldQueue,
-        queue,
-        source,
-        silent ? 'owner-mirror-silent' : 'owner-mirror-setOverlayQueue',
-      );
-      emitPostConsumeOverlayUpdate({
-        source: `${source}:mirrorLegacyQueue`,
-        oldValue: {
-          queueLen: oldQueue.length,
-          queueHeadKind: oldHead?.kind ?? null,
-          queueHeadBanId: oldHead ? overlayItemBanId(oldHead) : null,
-          silent: silent ?? false,
-        },
-        newValue: {
-          queueLen: queue.length,
-          queueHeadKind: newHead?.kind ?? null,
-          queueHeadBanId: newHead ? overlayItemBanId(newHead) : null,
-          silent: silent ?? false,
-        },
-      });
-      logOwnerQueueUpdatedHydrateTrace(
-        buildLobbyHydrateTraceSnapshot('mirror', {
-          source,
-          silent: silent ?? false,
-          target: 'queue',
-        }),
-      );
-      runPhase12ParityCheck(source, 'mirror-queue');
-    },
-    mirrorLegacyPending: (pending, source) => {
-      const refPendingBefore = pendingStartupInteractionsRef.current.length;
-      const refQueueBefore = overlayQueueRef.current.length;
-      const ownerBefore = ownerShadowRef.current.getState();
-      const pendingHeadBefore = ownerBefore.pending[0] ?? null;
-      const refPendingSnapshotBefore = [...pendingStartupInteractionsRef.current];
-      const pendingHeadRefBefore = refPendingSnapshotBefore[0] ?? null;
-      // Step 11B.1 documented pending exception: sole mirror target write for pendingStartupInteractionsRef.
-      pendingStartupInteractionsRef.current = pending;
-      syncPendingStartupCountRef.current();
-      maybeEmitQueueAppearanceOnLenAppear(
-        `${source}:mirrorLegacyPending`,
-        refQueueBefore,
-        overlayQueueRef.current.length,
-        refPendingBefore,
-        pending.length,
-        {
-          queueHeadKind:
-            pending[0]?.kind ??
-            overlayQueueRef.current[0]?.kind ??
-            null,
-          skipReason:
-            refPendingBefore === 0 && pending.length > 0
-              ? 'pending-appeared-owner-mirror'
-              : null,
-          willAutoStartDrain:
-            !startupInteractionsHoldRef.current &&
-            lobbyOpenRef.current &&
-            pending.length + overlayQueueRef.current.length > 0 &&
-            !notificationChainTransitioningRef.current,
-        },
-      );
-      const ownerAfter = ownerShadowRef.current.getState();
-      const pendingHeadAfter = ownerAfter.pending[0] ?? null;
-      const pendingHeadRefAfter = pendingStartupInteractionsRef.current[0] ?? null;
-      emitPostConsumePendingUpdate({
-        source: `${source}:mirrorLegacyPending`,
-        oldValue: {
-          ownerPendingLen: ownerBefore.pending.length,
-          refPendingLen: refPendingBefore,
-          pendingHeadKind:
-            pendingHeadBefore?.kind ?? pendingHeadRefBefore?.kind ?? null,
-          pendingHeadBanId: pendingHeadBefore
-            ? overlayItemBanId(pendingHeadBefore)
-            : pendingHeadRefBefore
-              ? overlayItemBanId(pendingHeadRefBefore)
-              : null,
-        },
-        newValue: {
-          ownerPendingLen: ownerAfter.pending.length,
-          refPendingLen: pendingStartupInteractionsRef.current.length,
-          pendingHeadKind:
-            pendingHeadAfter?.kind ?? pendingHeadRefAfter?.kind ?? null,
-          pendingHeadBanId: pendingHeadAfter
-            ? overlayItemBanId(pendingHeadAfter)
-            : pendingHeadRefAfter
-              ? overlayItemBanId(pendingHeadRefAfter)
-              : null,
-        },
-      });
-      logCommitPendingQueueViaOwner({
-        phase: 'mirrorLegacyPending',
-        source,
-        inputLen: pending.length,
-        ownerPendingBefore: ownerBefore.pending.length,
-        ownerQueueBefore: ownerBefore.queue.length,
-        ownerPendingAfter: ownerAfter.pending.length,
-        ownerQueueAfter: ownerAfter.queue.length,
-        refPendingBefore,
-        refPendingAfter: pendingStartupInteractionsRef.current.length,
-        refQueueBefore,
-        refQueueAfter: overlayQueueRef.current.length,
-        ownerRefPendingMismatch:
-          ownerAfter.pending.length !== pendingStartupInteractionsRef.current.length,
-        pendingChainPrefetchInFlight: pendingChainPrefetchInFlightRef.current,
-        sharedPrefetchPromiseState: pendingChainPrefetchSharedLifecycleRef.current,
-      });
-      logOwnerQueueUpdatedHydrateTrace(
-        buildLobbyHydrateTraceSnapshot('mirror', {
-          source,
-          target: 'pending',
-        }),
-      );
-      const owner = ownerShadowRef.current.getState();
-      const ownerQueueHead = owner.queue[0] ?? pending[0] ?? null;
-      const queueLen = overlayQueueRef.current.length;
-      const pendingLen = pending.length;
-      const canDrainFromLobbyClick = pendingLen > 0 || queueLen > 0;
-      if (
-        pendingLen > 0 ||
-        source.includes('prefetch') ||
-        source.includes('lobby-indicator')
-      ) {
-        logQueueReadyForDrain({
-          source: `mirrorLegacyPending:${source}`,
-          queueLength: queueLen,
-          pendingLength: pendingLen,
-          ownerQueueHead: ownerQueueHead
-            ? {
-                kind: ownerQueueHead.kind,
-                banId:
-                  ownerQueueHead.kind === 'result'
-                    ? ownerQueueHead.result.id
-                    : ownerQueueHead.ban.id,
-              }
-            : null,
-          canDrainFromLobbyClick,
-          pendingChainPrefetchInFlight:
-            pendingChainPrefetchInFlightRef.current,
-          lobbyBansAttentionHint,
-        });
-      }
-      runPhase12ParityCheck(source, 'mirror-pending');
-    },
+    // Vertical 9: dual-store mirrors are no-ops — UI reads runtime paint only.
+    mirrorLegacyQueue: (_queue, _source, _silent) => {},
+    mirrorLegacyPending: (_pending, _source) => {},
     compareQueueIntegrity: (source, ownerQueue, ownerPending) => {
       const ownerQueueKeys = ownerQueue.map(overlayQueueKey).join('|');
       const refQueueKeys = overlayQueueRef.current.map(overlayQueueKey).join('|');
@@ -9198,42 +9003,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         refPendingLen: pendingStartupInteractionsRef.current.length,
       });
     },
-    mirrorLegacyActive: (display, source) => {
-      if (isOwnerDisplayMirroredToLegacy(display)) {
-        return;
-      }
-      displayProjectionDepthRef.current += 1;
-      try {
-        incomingBanRef.current = display.incomingBan;
-        checkBanRef.current = display.checkBan;
-        resultRef.current = display.result;
-        directResultOverlayRef.current = display.directResultOverlay;
-        directResultOverlayActiveRef.current = display.directResultOverlayActive;
-        if (display.directResultOverlayActive && display.result?.id) {
-          showDirectOverboardLayerRef.current = true;
-          resultOpenRef.current = true;
-          resultBanIdRef.current = display.result.id;
-          displayResultBanIdRef.current = display.result.id;
-        } else {
-          showDirectOverboardLayerRef.current = false;
-          if (!display.result) {
-            resultOpenRef.current = false;
-            resultBanIdRef.current = null;
-            displayResultBanIdRef.current = null;
-          }
-        }
-        setIncomingBan(display.incomingBan);
-        setCheckBan(display.checkBan);
-        setResult(display.result);
-        setDirectResultOverlayActive(display.directResultOverlayActive);
-        logOwnerDisplayUpdatedHydrateTrace(
-          buildLobbyHydrateTraceSnapshot('mirror', { source }),
-        );
-        runPhase12ParityCheck(source, 'mirror-display');
-      } finally {
-        displayProjectionDepthRef.current -= 1;
-      }
-    },
+    // Vertical 9: notification card React dual-store writes disabled.
+    mirrorLegacyActive: (_display, _source) => {},
     mirrorLegacySession: (session, source) => {
       sessionProjectionDepthRef.current += 1;
       try {
@@ -13361,38 +13132,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               source: `dismissCurrentOverlay:${reason}`,
               transitionId,
             },
-            {
-              writeQueue: (queue, src) => {
-                writeOverlayQueueSilent(
-                  queue,
-                  src,
-                  'v2-atomic-advance',
-                );
-              },
-              writeDisplay: (patch, src) => {
-                commitSyncDisplayActivePayload(patch, src);
-              },
-              runEffects: (effects) => {
-                for (const effect of effects) {
-                  if (effect.type === 'PREFETCH_NEXT') {
-                    runChainLookaheadPrefetchRef.current(
-                      dismissBanId,
-                      `v2-atomic-dismiss:${reason}`,
-                    );
-                  }
-                  // Vertical 4: MARK_CONSUMED already applied in reducer (local tombstone).
-                  // Transport ack failure must not clear consumed / resurrect badge.
-                  if (effect.type === 'MARK_CONSUMED') {
-                    continue;
-                  }
-                  if (effect.type === 'REFRESH_PENDING') {
-                    void reloadPendingRef.current?.().catch(() => {
-                      /* pending re-ingest cannot resurrect consumed */
-                    });
-                  }
-                }
-              },
-            },
+            EMPTY_RUNTIME_LEGACY_SINKS,
           );
           atomicHasNext = atomic.hasNext;
           setNotificationChainTransitioning(false);
@@ -13523,12 +13263,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           completeDirectSessionViaDismiss(
             notificationRuntimeStoreRef.current,
             { targetItemId, reason: 'user_dismiss', source: 'user' },
-            {
-              writeQueue: (queue, src) =>
-                writeOverlayQueueSilent(queue, src, 'v6-direct-dismiss'),
-              writeDisplay: (patch, src) =>
-                commitSyncDisplayActivePayload(patch, src),
-            },
+            EMPTY_RUNTIME_LEGACY_SINKS,
           );
         }
         logDeeplinkReturnLobby({
@@ -13657,12 +13392,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           completeDirectSessionViaDismiss(
             notificationRuntimeStoreRef.current,
             { targetItemId, reason: 'user_dismiss', source: 'user' },
-            {
-              writeQueue: (queue, src) =>
-                writeOverlayQueueSilent(queue, src, 'v6-live-dismiss'),
-              writeDisplay: (patch, src) =>
-                commitSyncDisplayActivePayload(patch, src),
-            },
+            EMPTY_RUNTIME_LEGACY_SINKS,
           );
         }
         overlayActionTsRef.current = null;
@@ -14637,14 +14367,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           const liveDefer =
             isSuccessCardMounted() ||
             selectIsDraining(notificationRuntimeStoreRef.current.getState());
-          const liveSinks = {
-            writeQueue: (queue: QueuedOverlay[], src: string) => {
-              writeOverlayQueueSilent(queue, src, 'v6-live-single');
-            },
-            writeDisplay: (patch: OwnerActiveDisplayPatch, src: string) => {
-              commitSyncDisplayActivePayload(patch, src);
-            },
-          };
+          const liveSinks = EMPTY_RUNTIME_LEGACY_SINKS;
           const livePayload =
             normalizedItem.kind === 'result'
               ? normalizedItem.result
@@ -19920,14 +19643,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           notificationRuntimeStoreRef.current,
           banId,
           normalized,
-          {
-            writeQueue: (queue, src) => {
-              writeOverlayQueueSilent(queue, src, 'v3-poll-result');
-            },
-            writeDisplay: (patch, src) => {
-              commitSyncDisplayActivePayload(patch, src);
-            },
-          },
+          EMPTY_RUNTIME_LEGACY_SINKS,
         );
         if (applied) {
           markShellCheckAction('resultArrivedAfterCheck', {
@@ -20788,14 +20504,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const defer =
         isSuccessCardMounted() ||
         selectIsDraining(notificationRuntimeStoreRef.current.getState());
-      const sinks = {
-        writeQueue: (queue: QueuedOverlay[], src: string) => {
-          writeOverlayQueueSilent(queue, src, 'v6-direct-check');
-        },
-        writeDisplay: (patch: OwnerActiveDisplayPatch, src: string) => {
-          commitSyncDisplayActivePayload(patch, src);
-        },
-      };
+      const sinks = EMPTY_RUNTIME_LEGACY_SINKS;
       const req = requestDirectEntry(
         notificationRuntimeStoreRef.current,
         {
@@ -21814,57 +21523,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
 
 
-      const sinks = {
-
-        writeQueue: (queue: QueuedOverlay[], src: string) => {
-
-          writeOverlayQueueSilent(queue, src, 'v3-check-action');
-
-        },
-
-        writeDisplay: (patch: OwnerActiveDisplayPatch, src: string) => {
-
-          commitSyncDisplayActivePayload(patch, src);
-
-        },
-
-        scheduleResultPoll: (_pollBanId: string) => {
-
-          // TEMP V4/V5: poll must only later dispatch runtime result events.
-
-          scheduleResultPollBurst();
-
-        },
-
-        fetchResult: async (id: string) => {
-
-          try {
-
-            const fetched = await api<{ result: BanResult | null }>(
-
-              `/bans/${id}/result`,
-
-              { token, retries: 0, timeoutMs: 5000 },
-
-            );
-
-            return fetched.result
-
-              ? normalizeBanResult(fetched.result)
-
-              : null;
-
-          } catch {
-
-            return null;
-
-          }
-
-        },
-
-      };
-
-
+      const sinks = EMPTY_RUNTIME_LEGACY_SINKS;
 
       await executeSubmitCardActionEffect(
 
@@ -24968,12 +24627,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               ? null
               : toDirectNotificationItem('incoming', openBan),
           },
-          {
-            writeQueue: (queue, src) =>
-              writeOverlayQueueSilent(queue, src, 'v6-direct-reply'),
-            writeDisplay: (patch, src) =>
-              commitSyncDisplayActivePayload(patch, src),
-          },
+          EMPTY_RUNTIME_LEGACY_SINKS,
         );
       }
       void prefetchPendingNotificationChain(normalizedBanId, 'reply-deeplink');
@@ -26346,14 +26000,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       source: 'bootstrap',
     });
     const bootstrapTransitionId = bootReq.transitionId;
-    const bootstrapSinks = {
-      writeQueue: (queue: QueuedOverlay[], src: string) => {
-        writeOverlayQueueSilent(queue, src, 'v7-bootstrap');
-      },
-      writeDisplay: (patch: OwnerActiveDisplayPatch, src: string) => {
-        commitSyncDisplayActivePayload(patch, src);
-      },
-    };
+    const bootstrapSinks = EMPTY_RUNTIME_LEGACY_SINKS;
 
     try {
       const requestedAt = Date.now();
@@ -32943,14 +32590,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       commitPendingQueueViaOwner([], 'v5-success-handoff', 'clear-hold');
 
-      const sinks = {
-        writeQueue: (queue: QueuedOverlay[], src: string) => {
-          writeOverlayQueueSilent(queue, src, 'v5-success-handoff');
-        },
-        writeDisplay: (patch: OwnerActiveDisplayPatch, src: string) => {
-          commitSyncDisplayActivePayload(patch, src);
-        },
-      };
+      const sinks = EMPTY_RUNTIME_LEGACY_SINKS;
 
       const outcome = await executeSuccessHandoffMaterialize(
         notificationRuntimeStoreRef.current,
@@ -33029,12 +32669,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               const kind = targetKind === 'check' ? 'check' : 'incoming';
               return toDirectNotificationItem(kind, enrichBanInteraction(ban));
             },
-            {
-              writeQueue: (queue, src) =>
-                writeOverlayQueueSilent(queue, src, 'v6-direct-flush'),
-              writeDisplay: (patch, src) =>
-                commitSyncDisplayActivePayload(patch, src),
-            },
+            EMPTY_RUNTIME_LEGACY_SINKS,
           );
         }
       }
@@ -39226,7 +38861,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   ]);
 
   const scopedCheckBan =
-    checkGateActive || checkOverlayMounted ? checkBan : null;
+    checkGateActive || checkOverlayMounted
+      ? (runtimePaint.display.checkBan ?? checkBan)
+      : null;
 
   const connectionUiState = useMemo(
     () =>
@@ -44533,7 +44170,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       runIncomingOverboardApi,
       checkWaiting,
       setCheckWaiting,
-      result,
+      // Vertical 9: context result from runtime paint (not React dual-store).
+      result: ownerRenderResultPayload ?? runtimePaint.display.result,
       openBanResult,
       dismissBanResult,
       blockAutoDismissAtomicOverboardResult,

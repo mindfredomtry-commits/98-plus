@@ -397,9 +397,11 @@ export function createNotificationOverlayOwnerShadow(
       captureQueueTailDroppedWhileResultHeadBefore();
       const state = currentState();
       if (QUEUE_AUTHORITY_EVENT_TYPES.has(event.type)) {
+        // Vertical 9: owner is not a notification queue runtime engine.
+        // Queue authority lives solely in notification-runtime.
         logOwnerPhase8QueueDispatch({
           eventType: event.type,
-          source,
+          source: `${source}:v9-queue-authority-noop`,
           ...(event.type === 'QUEUE_APPLIED' ||
           event.type === 'QUEUE_SILENT_UPDATED' ||
           event.type === 'SHADOW_QUEUE_APPLIED'
@@ -415,27 +417,45 @@ export function createNotificationOverlayOwnerShadow(
               }
             : {}),
         });
+        return state;
       }
       if (ACTIVE_DISPLAY_AUTHORITY_EVENT_TYPES.has(event.type)) {
-        logOwnerPhase9ActiveDispatch({
-          eventType: event.type,
-          source,
-          patchKeys: Object.keys(event.patch),
-          incomingBanId:
-            event.patch.incomingBan !== undefined
-              ? (event.patch.incomingBan?.id ?? null)
-              : undefined,
-          checkBanId:
-            event.patch.checkBan !== undefined
-              ? (event.patch.checkBan?.id ?? null)
-              : undefined,
-          resultBanId:
-            event.patch.result !== undefined
-              ? (event.patch.result?.id ?? null)
-              : undefined,
-          directResultOverlay: event.patch.directResultOverlay,
-          directResultOverlayActive: event.patch.directResultOverlayActive,
-        });
+        // Vertical 9: notification card display is runtime-only.
+        // Pin/meta patches that are not card authority still apply below when
+        // they are HOLD_* / SESSION_* / pin-specific events — not ACTIVE_DISPLAY_SYNC
+        // for incoming/check/result paint (those are ignored as dual-store engine).
+        const patch = event.patch;
+        const hasPinFields =
+          patch.stableIncomingBan !== undefined ||
+          patch.replyIncomingBan !== undefined ||
+          patch.scopedIncomingBan !== undefined;
+        const isNotificationCardPaint =
+          patch.incomingBan !== undefined ||
+          patch.checkBan !== undefined ||
+          patch.result !== undefined ||
+          patch.directResultOverlay !== undefined ||
+          patch.directResultOverlayActive !== undefined;
+        // Product pins may still patch display; pure card paint is runtime-only.
+        if (isNotificationCardPaint && !hasPinFields) {
+          logOwnerPhase9ActiveDispatch({
+            eventType: event.type,
+            source: `${source}:v9-display-authority-noop`,
+            patchKeys: Object.keys(patch),
+            incomingBanId:
+              patch.incomingBan !== undefined
+                ? (patch.incomingBan?.id ?? null)
+                : undefined,
+            checkBanId:
+              patch.checkBan !== undefined
+                ? (patch.checkBan?.id ?? null)
+                : undefined,
+            resultBanId:
+              patch.result !== undefined ? (patch.result?.id ?? null) : undefined,
+            directResultOverlay: patch.directResultOverlay,
+            directResultOverlayActive: patch.directResultOverlayActive,
+          });
+          return state;
+        }
       }
       logSnapshotFields(event.type, source, snapshot);
       if (event.type === 'RESULT_GO_TO_BANS') {

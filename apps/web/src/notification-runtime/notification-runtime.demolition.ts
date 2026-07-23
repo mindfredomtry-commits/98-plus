@@ -1,12 +1,11 @@
 /**
- * Vertical 8 — Legacy demolition helpers.
+ * Vertical 8–9 — Legacy demolition helpers.
  *
  * Sole production notification paint/queue/pending authority:
  *   notification-runtime selectors / state.
  *
- * Owner shadow, React overlayQueue, and projection sinks
- * are TEMP write-through or product-exclusive pins only — never decide
- * queue advance, display, badge, bootstrap, or lobby.
+ * Vertical 9: RuntimeLegacySinks are empty — no write-through dual store.
+ * Owner shadow must not act as a notification runtime engine.
  */
 import type { QueuedOverlay } from '@/lib/overlay-queue';
 import {
@@ -14,6 +13,7 @@ import {
   projectRuntimeQueueToLegacy,
   type LegacyDisplayProjection,
 } from './notification-runtime.adapters';
+import type { RuntimeLegacySinks } from './notification-runtime.production-advance';
 import {
   selectHasPending,
   selectLobbyMayShow,
@@ -25,6 +25,12 @@ import type {
   NotificationRuntimeState,
 } from './notification-runtime.types';
 import { notificationItemId } from './notification-runtime.types';
+
+/** Vertical 9 — production sinks are no-ops (no dual-store / projection engine). */
+export const EMPTY_RUNTIME_LEGACY_SINKS: RuntimeLegacySinks = {
+  writeQueue: () => {},
+  writeDisplay: () => {},
+};
 
 export type RuntimePaintSnapshot = {
   display: LegacyDisplayProjection;
@@ -81,7 +87,7 @@ export function queuedOverlaysEqualHead(
   return false;
 }
 
-/** Diagnostic: owner/legacy mirror must not diverge from runtime for notification cards. */
+/** Diagnostic: compare ids against runtime paint (read-only). */
 export function runtimePaintIds(state: NotificationRuntimeState): {
   incomingId: string | null;
   checkId: string | null;
