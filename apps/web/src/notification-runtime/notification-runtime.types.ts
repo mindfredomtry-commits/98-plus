@@ -29,7 +29,8 @@ export type NotificationItem =
   | { kind: 'result'; result: BanResult };
 
 export type DisplayKind = NotificationItemKind;
-export type DisplayMode = 'normal' | 'direct-overboard';
+/** Vertical 6: `direct` = deeplink/live-single session; overboard is result presentation. */
+export type DisplayMode = 'normal' | 'direct' | 'direct-overboard';
 
 export type DisplayPayload =
   | { kind: 'incoming'; ban: BanInteraction }
@@ -48,6 +49,29 @@ export type LifecycleStatus =
 export type ActionStatus = 'idle' | 'pending' | 'succeeded' | 'failed';
 
 export type RecoveryStatus = 'idle' | 'loading' | 'applied' | 'failed';
+
+/** Vertical 6 — deeplink / live-single entry metadata (not a second owner). */
+export type DirectEntrySource = 'deeplink' | 'live-single';
+export type DirectReturnPolicy = 'lobby_after_card';
+
+export type DeferredDirectEntry = {
+  transitionId: string;
+  targetId: string;
+  targetKind: NotificationItemKind | null;
+  entrySource: DirectEntrySource;
+  returnPolicy: DirectReturnPolicy;
+};
+
+export type DirectEntryState = {
+  active: boolean;
+  transitionId: string | null;
+  targetId: string | null;
+  targetKind: NotificationItemKind | null;
+  entrySource: DirectEntrySource | null;
+  returnPolicy: DirectReturnPolicy | null;
+  /** Newer request while blocked or while another direct is showing. */
+  deferred: DeferredDirectEntry | null;
+};
 
 export type NotificationRuntimeState = {
   lifecycle: {
@@ -82,6 +106,8 @@ export type NotificationRuntimeState = {
     status: RecoveryStatus;
     snapshotVersion: string | null;
   };
+  /** Vertical 6 — sole direct-entry session (deeplink / live-single). */
+  directEntry: DirectEntryState;
 };
 
 export type CardActionType = 'check_answer' | 'incoming_reply' | 'incoming_overboard';
@@ -108,6 +134,21 @@ export type NotificationRuntimeCommand =
       /** Vertical 5 — SUCCESS product screen finished; runtime owns handoff. */
       type: 'SUCCESS_HANDOFF_REQUESTED';
       transitionId: string;
+      source: RuntimeSource;
+    }
+  | {
+      /**
+       * Vertical 6 — deeplink / live-single direct entry.
+       * Host sets `defer` when SUCCESS / compose / product-exclusive blocks display.
+       */
+      type: 'DEEPLINK_ENTRY_REQUESTED';
+      transitionId: string;
+      targetId: string;
+      targetKind?: NotificationItemKind | null;
+      entrySource: DirectEntrySource;
+      returnPolicy: DirectReturnPolicy;
+      /** Host: SUCCESS / draining / compose — park without FETCH yet if true. */
+      defer?: boolean;
       source: RuntimeSource;
     }
   | {
@@ -207,6 +248,25 @@ export type NotificationRuntimeResultEvent =
       transitionId: string;
       errorCode: string;
       source: RuntimeSource;
+    }
+  | {
+      /** Vertical 6 — direct fetch succeeded; place item at head (mode=direct). */
+      type: 'DIRECT_ITEM_RECEIVED';
+      transitionId: string;
+      item: NotificationItem;
+      source: RuntimeSource;
+    }
+  | {
+      /** Vertical 6 — direct fetch failed / not found. */
+      type: 'DIRECT_ITEM_FAILED';
+      transitionId: string;
+      errorCode: string;
+      source: RuntimeSource;
+    }
+  | {
+      /** Vertical 6 — host allows a deferred direct entry to start (idle boundary). */
+      type: 'DIRECT_ENTRY_FLUSH_REQUESTED';
+      source: RuntimeSource;
     };
 
 export type NotificationRuntimeEvent =
@@ -215,6 +275,14 @@ export type NotificationRuntimeEvent =
 
 export type RuntimeEffect =
   | { type: 'FETCH_PENDING'; transitionId: string; source: RuntimeSource }
+  | {
+      type: 'FETCH_DIRECT_ITEM';
+      transitionId: string;
+      targetId: string;
+      targetKind: NotificationItemKind | null;
+      entrySource: DirectEntrySource;
+      source: RuntimeSource;
+    }
   | {
       type: 'SUBMIT_CARD_ACTION';
       commandId: string;
@@ -250,24 +318,42 @@ export function displayFromItem(
   item: NotificationItem,
   mode: DisplayMode = 'normal',
 ): NotificationRuntimeState['display'] {
+  const resolvedMode: DisplayMode =
+    mode === 'direct-overboard' && item.kind === 'result'
+      ? 'direct-overboard'
+      : mode === 'direct'
+        ? 'direct'
+        : 'normal';
   if (item.kind === 'result') {
     return {
       kind: 'result',
       payload: { kind: 'result', result: item.result },
-      mode: mode === 'direct-overboard' ? 'direct-overboard' : 'normal',
+      mode: resolvedMode,
     };
   }
   if (item.kind === 'check') {
     return {
       kind: 'check',
       payload: { kind: 'check', ban: item.ban },
-      mode: 'normal',
+      mode: resolvedMode === 'direct' ? 'direct' : 'normal',
     };
   }
   return {
     kind: 'incoming',
     payload: { kind: 'incoming', ban: item.ban },
-    mode: 'normal',
+    mode: resolvedMode === 'direct' ? 'direct' : 'normal',
+  };
+}
+
+export function createEmptyDirectEntryState(): DirectEntryState {
+  return {
+    active: false,
+    transitionId: null,
+    targetId: null,
+    targetKind: null,
+    entrySource: null,
+    returnPolicy: null,
+    deferred: null,
   };
 }
 
@@ -301,5 +387,6 @@ export function createInitialNotificationRuntimeState(): NotificationRuntimeStat
       status: 'idle',
       snapshotVersion: null,
     },
+    directEntry: createEmptyDirectEntryState(),
   };
 }

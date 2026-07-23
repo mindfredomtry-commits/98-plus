@@ -83,6 +83,26 @@ export function selectIsDraining(state: NotificationRuntimeState): boolean {
   return state.lifecycle.status === 'draining';
 }
 
+export function selectIsDirectEntry(state: NotificationRuntimeState): boolean {
+  return (
+    state.directEntry.active ||
+    state.display.mode === 'direct' ||
+    state.display.mode === 'direct-overboard'
+  );
+}
+
+export function selectDirectReturnPolicy(
+  state: NotificationRuntimeState,
+): NotificationRuntimeState['directEntry']['returnPolicy'] {
+  return state.directEntry.returnPolicy;
+}
+
+export function selectHasDeferredDirectEntry(
+  state: NotificationRuntimeState,
+): boolean {
+  return state.directEntry.deferred != null;
+}
+
 export function selectLobbyMayShow(state: NotificationRuntimeState): boolean {
   return state.lifecycle.status === 'idle' && !selectOverlayVisible(state);
 }

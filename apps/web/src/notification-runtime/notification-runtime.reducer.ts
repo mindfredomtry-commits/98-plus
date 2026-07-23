@@ -3,9 +3,11 @@
  * Deterministic: no Date.now / random / API / React.
  */
 import {
+  createEmptyDirectEntryState,
   createInitialNotificationRuntimeState,
   displayFromItem,
   notificationItemId,
+  type DeferredDirectEntry,
   type NotificationItem,
   type NotificationRuntimeEvent,
   type NotificationRuntimeReducerResult,
@@ -26,6 +28,12 @@ function cloneState(state: NotificationRuntimeState): NotificationRuntimeState {
     },
     consumed: { itemIds: [...state.consumed.itemIds] },
     recovery: { ...state.recovery },
+    directEntry: {
+      ...state.directEntry,
+      deferred: state.directEntry.deferred
+        ? { ...state.directEntry.deferred }
+        : null,
+    },
   };
 }
 
@@ -159,6 +167,39 @@ function dismissHead(
     { type: 'MARK_CONSUMED', itemId: targetItemId },
   ];
 
+  // Vertical 6: direct session → remainder to pending, clear queue, idle (no continue).
+  const isDirectSession =
+    state.directEntry.active ||
+    state.display.mode === 'direct' ||
+    state.display.mode === 'direct-overboard';
+  if (isDirectSession && state.directEntry.returnPolicy === 'lobby_after_card') {
+    const remainderIds = remaining.map(notificationItemId);
+    const pendingIds = reconcilePending(
+      [...remainderIds, ...next.pending.itemIds],
+      next.consumed.itemIds,
+    );
+    next = {
+      ...clearDisplay(clearAction(next)),
+      items: { queue: [] },
+      pending: {
+        itemIds: pendingIds,
+        sourceVersion: next.pending.sourceVersion,
+      },
+      lifecycle: {
+        status: 'idle',
+        source,
+        transitionId: null,
+      },
+      directEntry: {
+        ...createEmptyDirectEntryState(),
+        // Keep deferred second request if any.
+        deferred: state.directEntry.deferred,
+      },
+    };
+    effects.push({ type: 'REFRESH_PENDING', reason: 'direct-session-complete' });
+    return { state: next, effects };
+  }
+
   if (remaining.length > 0) {
     // Atomic advance — never idle/null between cards.
     next = showHead(next, source, transitionId, 'normal');
@@ -177,6 +218,49 @@ function dismissHead(
   };
   effects.push({ type: 'REFRESH_PENDING', reason: 'queue-completed' });
   return { state: next, effects };
+}
+
+function targetItemIdFromKind(
+  targetId: string,
+  targetKind: NotificationItem['kind'] | null | undefined,
+): string {
+  const id = String(targetId).trim();
+  if (!id) return '';
+  if (targetKind === 'check') return `check:${id}`;
+  if (targetKind === 'result') return `result:${id}`;
+  if (targetKind === 'incoming') return `incoming:${id}`;
+  // Unknown kind — match any consumed suffix for this ban id.
+  return id;
+}
+
+function isTargetConsumed(
+  state: NotificationRuntimeState,
+  targetId: string,
+  targetKind: NotificationItem['kind'] | null | undefined,
+): boolean {
+  const exact = targetItemIdFromKind(targetId, targetKind);
+  if (exact.includes(':') && state.consumed.itemIds.includes(exact)) {
+    return true;
+  }
+  const id = String(targetId).trim();
+  if (!id) return false;
+  return state.consumed.itemIds.some((c) => c.endsWith(`:${id}`));
+}
+
+function buildDeferred(
+  transitionId: string,
+  targetId: string,
+  targetKind: NotificationItem['kind'] | null | undefined,
+  entrySource: DeferredDirectEntry['entrySource'],
+  returnPolicy: DeferredDirectEntry['returnPolicy'],
+): DeferredDirectEntry {
+  return {
+    transitionId,
+    targetId: String(targetId).trim(),
+    targetKind: targetKind ?? null,
+    entrySource,
+    returnPolicy,
+  };
 }
 
 export function notificationRuntimeReducer(
@@ -446,7 +530,12 @@ export function notificationRuntimeReducer(
 
       if (event.replacement && headId === event.targetItemId) {
         // Atomic check→result (or any head replacement) without null gap.
-        const mode = event.displayMode ?? 'normal';
+        // Vertical 6: keep direct mode across check→result inside direct session.
+        const mode =
+          event.displayMode ??
+          (base.directEntry.active || base.display.mode === 'direct'
+            ? 'direct'
+            : 'normal');
         next = {
           ...next,
           items: {
@@ -646,12 +735,272 @@ export function notificationRuntimeReducer(
       };
     }
 
+    case 'DEEPLINK_ENTRY_REQUESTED': {
+      const targetId = String(event.targetId).trim();
+      if (!targetId) {
+        return { state: base, effects: [] };
+      }
+
+      // Already consumed → idle + lobbyMayShow (no card).
+      if (isTargetConsumed(base, targetId, event.targetKind)) {
+        return {
+          state: {
+            ...clearDisplay(clearAction(base)),
+            items: { queue: [] },
+            lifecycle: {
+              status: 'idle',
+              source: event.source,
+              transitionId: null,
+            },
+            directEntry: {
+              ...createEmptyDirectEntryState(),
+              deferred: base.directEntry.deferred,
+            },
+          },
+          effects: [],
+        };
+      }
+
+      const deferredPayload = buildDeferred(
+        event.transitionId,
+        targetId,
+        event.targetKind,
+        event.entrySource,
+        event.returnPolicy,
+      );
+
+      // Showing direct session: do not interrupt — park as deferred (newer wins).
+      if (
+        base.directEntry.active &&
+        (base.lifecycle.status === 'showing' ||
+          base.lifecycle.status === 'submitting' ||
+          base.lifecycle.status === 'completing' ||
+          base.lifecycle.status === 'recovering')
+      ) {
+        return {
+          state: {
+            ...base,
+            directEntry: {
+              ...base.directEntry,
+              deferred: deferredPayload,
+            },
+          },
+          effects: [],
+        };
+      }
+
+      // V5 draining / host defer / recovering mid-fetch of another → park.
+      const mustDefer =
+        event.defer === true ||
+        base.lifecycle.status === 'draining' ||
+        (base.lifecycle.status === 'recovering' &&
+          base.directEntry.transitionId != null &&
+          base.directEntry.transitionId !== event.transitionId);
+
+      if (mustDefer) {
+        return {
+          state: {
+            ...base,
+            directEntry: {
+              ...base.directEntry,
+              deferred: deferredPayload,
+            },
+          },
+          effects: [],
+        };
+      }
+
+      // Start direct fetch (recovering = no overlay flash).
+      return {
+        state: {
+          ...base,
+          lifecycle: {
+            status: 'recovering',
+            source: event.source,
+            transitionId: event.transitionId,
+          },
+          directEntry: {
+            active: true,
+            transitionId: event.transitionId,
+            targetId,
+            targetKind: event.targetKind ?? null,
+            entrySource: event.entrySource,
+            returnPolicy: event.returnPolicy,
+            deferred: null,
+          },
+        },
+        effects: [
+          {
+            type: 'FETCH_DIRECT_ITEM',
+            transitionId: event.transitionId,
+            targetId,
+            targetKind: event.targetKind ?? null,
+            entrySource: event.entrySource,
+            source: event.source,
+          },
+        ],
+      };
+    }
+
+    case 'DIRECT_ITEM_RECEIVED': {
+      if (
+        base.directEntry.transitionId !== event.transitionId &&
+        base.lifecycle.transitionId !== event.transitionId
+      ) {
+        // Stale — ignore (do not touch newer transition / lobby).
+        return { state: base, effects: [] };
+      }
+      if (
+        base.lifecycle.status !== 'recovering' &&
+        !(
+          base.directEntry.active &&
+          base.directEntry.transitionId === event.transitionId
+        )
+      ) {
+        // Allow receive when already recovering for this transition.
+        if (base.lifecycle.transitionId !== event.transitionId) {
+          return { state: base, effects: [] };
+        }
+      }
+
+      const itemId = notificationItemId(event.item);
+      if (base.consumed.itemIds.includes(itemId)) {
+        return {
+          state: {
+            ...clearDisplay(clearAction(base)),
+            items: { queue: [] },
+            lifecycle: {
+              status: 'idle',
+              source: event.source,
+              transitionId: null,
+            },
+            directEntry: {
+              ...createEmptyDirectEntryState(),
+              deferred: base.directEntry.deferred,
+            },
+          },
+          effects: [],
+        };
+      }
+
+      // Head = direct item; keep prior queue (minus duplicate) behind for exit→pending.
+      const rest = base.items.queue.filter(
+        (q) => notificationItemId(q) !== itemId,
+      );
+      const queue = [event.item, ...rest];
+      let next: NotificationRuntimeState = {
+        ...base,
+        items: { queue },
+        directEntry: {
+          active: true,
+          transitionId: event.transitionId,
+          targetId:
+            event.item.kind === 'result'
+              ? String(event.item.result.id).trim()
+              : String(event.item.ban.id).trim(),
+          targetKind: event.item.kind,
+          entrySource: base.directEntry.entrySource ?? 'deeplink',
+          returnPolicy: base.directEntry.returnPolicy ?? 'lobby_after_card',
+          deferred: base.directEntry.deferred,
+        },
+      };
+      next = showHead(next, event.source, event.transitionId, 'direct');
+      return { state: next, effects: [] };
+    }
+
+    case 'DIRECT_ITEM_FAILED': {
+      if (
+        base.directEntry.transitionId !== event.transitionId &&
+        base.lifecycle.transitionId !== event.transitionId
+      ) {
+        return { state: base, effects: [] };
+      }
+      return {
+        state: {
+          ...clearDisplay(clearAction(base)),
+          lifecycle: {
+            status: 'idle',
+            source: event.source,
+            transitionId: null,
+          },
+          directEntry: {
+            ...createEmptyDirectEntryState(),
+            deferred: base.directEntry.deferred,
+          },
+        },
+        effects: [],
+      };
+    }
+
+    case 'DIRECT_ENTRY_FLUSH_REQUESTED': {
+      const deferred = base.directEntry.deferred;
+      if (!deferred) {
+        return { state: base, effects: [] };
+      }
+      // Only flush when idle and no active direct session.
+      if (
+        base.lifecycle.status !== 'idle' ||
+        base.directEntry.active ||
+        selectOverlayVisibleCompat(base)
+      ) {
+        return { state: base, effects: [] };
+      }
+      if (isTargetConsumed(base, deferred.targetId, deferred.targetKind)) {
+        return {
+          state: {
+            ...base,
+            directEntry: createEmptyDirectEntryState(),
+          },
+          effects: [],
+        };
+      }
+      return {
+        state: {
+          ...base,
+          lifecycle: {
+            status: 'recovering',
+            source: event.source,
+            transitionId: deferred.transitionId,
+          },
+          directEntry: {
+            active: true,
+            transitionId: deferred.transitionId,
+            targetId: deferred.targetId,
+            targetKind: deferred.targetKind,
+            entrySource: deferred.entrySource,
+            returnPolicy: deferred.returnPolicy,
+            deferred: null,
+          },
+        },
+        effects: [
+          {
+            type: 'FETCH_DIRECT_ITEM',
+            transitionId: deferred.transitionId,
+            targetId: deferred.targetId,
+            targetKind: deferred.targetKind,
+            entrySource: deferred.entrySource,
+            source: event.source,
+          },
+        ],
+      };
+    }
+
     default: {
       const _exhaustive: never = event;
       void _exhaustive;
       return { state: base, effects: [] };
     }
   }
+}
+
+/** Local helper — avoid circular import with selectors during recovering. */
+function selectOverlayVisibleCompat(state: NotificationRuntimeState): boolean {
+  return (
+    state.lifecycle.status === 'showing' ||
+    state.lifecycle.status === 'submitting' ||
+    state.lifecycle.status === 'completing' ||
+    state.lifecycle.status === 'draining'
+  );
 }
 
 /**

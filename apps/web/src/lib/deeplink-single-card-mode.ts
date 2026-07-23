@@ -1,5 +1,9 @@
 'use client';
 
+/**
+ * Vertical 6 TEMP — presentation/diag adapter only.
+ * Production direct-entry authority is notification-runtime (selectIsDirectEntry).
+ */
 import { normalizeId } from '@/lib/normalize-json';
 import { armFreshDeepLinkEntry, consumeFreshDeepLinkEntry } from '@/lib/fresh-deeplink-entry';
 import { mirrorOwnerDeeplinkMetaWrite } from '@/lib/notification-overlay-owner-deeplink-mirror';
@@ -44,7 +48,17 @@ const NOTIFICATION_QUEUE_DRAIN_SOURCES = [
   'active-timer-close',
 ] as const;
 
+/** TEMP diag mirror — not production authority. */
 let mode: DeeplinkSingleCardMode | null = null;
+
+/** Vertical 6: runtime direct-entry reader (registered by Providers). */
+let runtimeDirectActiveReader: (() => boolean) | null = null;
+
+export function registerRuntimeDirectEntryActiveReader(
+  reader: (() => boolean) | null,
+): void {
+  runtimeDirectActiveReader = reader;
+}
 
 export function isNotificationQueueDrainSource(source: string): boolean {
   return NOTIFICATION_QUEUE_DRAIN_SOURCES.some((marker) =>
@@ -52,6 +66,7 @@ export function isNotificationQueueDrainSource(source: string): boolean {
   );
 }
 
+/** TEMP: diag arm only — does not own queue/lifecycle. */
 export function enableDeeplinkSingleCardMode(
   kind: DeeplinkSingleCardKind,
   banId: string,
@@ -64,9 +79,11 @@ export function enableDeeplinkSingleCardMode(
   window.__debug98log?.('[DEEPLINK SINGLE CARD MODE ON]', {
     kind,
     banId: normalized,
+    note: 'v6-temp-diag',
   });
 }
 
+/** TEMP: diag clear only. */
 export function completeDeeplinkSingleCardMode(source: string): void {
   if (!mode) return;
   consumeFreshDeepLinkEntry(mode.banId, `deeplink-single-card:${source}`);
@@ -74,6 +91,7 @@ export function completeDeeplinkSingleCardMode(source: string): void {
     kind: mode.kind,
     banId: mode.banId,
     source,
+    note: 'v6-temp-diag',
   });
   mode = null;
   mirrorOwnerDeeplinkMetaWrite(`completeDeeplinkSingleCardMode:${source}`);
@@ -83,7 +101,11 @@ export function getDeeplinkSingleCardMode(): DeeplinkSingleCardMode | null {
   return mode;
 }
 
+/** Production: runtime direct entry when reader registered. */
 export function isDeeplinkSingleCardModeActive(): boolean {
+  if (runtimeDirectActiveReader) {
+    return runtimeDirectActiveReader();
+  }
   return mode != null;
 }
 
@@ -94,11 +116,10 @@ export function allowDeeplinkExplicitNotificationDrain(source: string): void {
 }
 
 /**
- * While a Telegram deep-link single-card route is active, block queue drain unless
- * the source is an explicit post-success or lobby-bans queue start.
+ * Block auto-drain while runtime direct session is active (lobby_after_card).
  */
 export function shouldBlockDeeplinkAutoDrain(source: string): boolean {
-  if (!mode) return false;
+  if (!isDeeplinkSingleCardModeActive()) return false;
   if (isNotificationQueueDrainSource(source)) return false;
   return true;
 }
@@ -111,12 +132,18 @@ export function isDeeplinkSingleCardCompleting(
   overlayKind: 'incoming' | 'check' | 'result' | null,
   banId: string | null,
 ): boolean {
-  if (!mode || !banId) return false;
-  if (normalizeId(banId) !== mode.banId) return false;
-  if (mode.kind === 'check' && overlayKind === 'check') return true;
-  if (mode.kind === 'reply' && overlayKind === 'incoming') return true;
-  if (mode.kind === 'incoming' && overlayKind === 'incoming') return true;
-  if (mode.kind === 'result' && overlayKind === 'result') return true;
+  if (!isDeeplinkSingleCardModeActive() || !banId) return false;
+  const cardMode = mode;
+  if (cardMode && normalizeId(banId) !== cardMode.banId) {
+    // Runtime-active without TEMP mode: treat matching overlay as completing.
+    return runtimeDirectActiveReader != null;
+  }
+  if (!cardMode) return runtimeDirectActiveReader != null;
+  if (normalizeId(banId) !== cardMode.banId) return false;
+  if (cardMode.kind === 'check' && overlayKind === 'check') return true;
+  if (cardMode.kind === 'reply' && overlayKind === 'incoming') return true;
+  if (cardMode.kind === 'incoming' && overlayKind === 'incoming') return true;
+  if (cardMode.kind === 'result' && overlayKind === 'result') return true;
   return false;
 }
 

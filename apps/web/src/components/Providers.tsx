@@ -225,8 +225,16 @@ import {
   requestSuccessHandoff,
 } from '@/notification-runtime/notification-runtime.success-handoff';
 import {
+  completeDirectSessionViaDismiss,
+  executeFetchDirectItemEffect,
+  flushDeferredDirectEntry,
+  requestDirectEntry,
+  toDirectNotificationItem,
+} from '@/notification-runtime/notification-runtime.direct-entry';
+import {
   selectIndicatorVisible,
   selectIsDraining,
+  selectIsDirectEntry,
   selectLobbyMayShow,
   selectOverlayVisible,
 } from '@/notification-runtime/notification-runtime.selectors';
@@ -1094,6 +1102,7 @@ import {
   logDeeplinkReturnLobby,
   logDeeplinkSingleCardChainBlocked,
   logSyncDisplayBlockedSingleCard,
+  registerRuntimeDirectEntryActiveReader,
   shouldBlockDeeplinkAutoDrain,
   shouldBlockSingleCardChainContinuation,
 } from '@/lib/deeplink-single-card-mode';
@@ -1103,6 +1112,7 @@ import {
   getLiveOverlaySingleEvent,
   isLiveOverlaySingleEventActive,
   isLiveOverlaySingleEventCompleting,
+  registerRuntimeLiveDirectEntryActiveReader,
   shouldBlockLiveOverlayChainContinuation,
   shouldBlockPassiveNotificationDisplay,
 } from '@/lib/live-overlay-single-event';
@@ -4413,6 +4423,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   /** Vertical 1 — sole production queue / current / dismiss-advance authority. */
   const notificationRuntimeStoreRef = useRef(createNotificationRuntimeStore());
   const notificationRuntimeStore = notificationRuntimeStoreRef.current;
+  // Vertical 6: TEMP adapters read runtime direct-entry (not module singletons).
+  useEffect(() => {
+    registerRuntimeDirectEntryActiveReader(() =>
+      selectIsDirectEntry(notificationRuntimeStoreRef.current.getState()),
+    );
+    registerRuntimeLiveDirectEntryActiveReader(() =>
+      selectIsDirectEntry(notificationRuntimeStoreRef.current.getState()),
+    );
+    return () => {
+      registerRuntimeDirectEntryActiveReader(null);
+      registerRuntimeLiveDirectEntryActiveReader(null);
+    };
+  }, []);
   const notificationRuntimeState = useSyncExternalStore(
     notificationRuntimeStore.subscribe,
     notificationRuntimeStore.getState,
@@ -13474,6 +13497,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           explicitUserAction: true,
         });
         completeDeeplinkSingleCardMode(`dismiss:${reason}`);
+        // Vertical 6: destination via runtime idle → selectLobbyMayShow (host only).
+        if (
+          selectIsDirectEntry(notificationRuntimeStoreRef.current.getState()) &&
+          dismissBanId
+        ) {
+          const kind = dismissKind ?? 'incoming';
+          const nid = normalizeId(dismissBanId);
+          const targetItemId =
+            kind === 'result' ? `result:${nid}` : `${kind}:${nid}`;
+          completeDirectSessionViaDismiss(
+            notificationRuntimeStoreRef.current,
+            { targetItemId, reason: 'user_dismiss', source: 'user' },
+            {
+              writeQueue: (queue, src) =>
+                writeOverlayQueueSilent(queue, src, 'v6-direct-dismiss'),
+              writeDisplay: (patch, src) =>
+                commitSyncDisplayActivePayload(patch, src),
+            },
+          );
+        }
         logDeeplinkReturnLobby({
           reason,
           banId: dismissBanId,
@@ -13496,8 +13539,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         notificationChainAwaitingUserRef.current = false;
         notificationChainHandoffRef.current = false;
         setNotificationChainTransitioning(false);
-        setLobbyOpen(true);
-        lobbyShownLoggedRef.current = false;
+        // Vertical 6: open lobby only when runtime allows (selectLobbyMayShow).
+        if (selectLobbyMayShow(notificationRuntimeStoreRef.current.getState())) {
+          setLobbyOpen(true);
+          lobbyShownLoggedRef.current = false;
+        }
         console.log('LOBBY_RESTORE_AFTER_DEEPLINK_CARD', {
           reason,
           banId: dismissBanId,
@@ -13585,13 +13631,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           action: reason,
         });
         completeLiveOverlaySingleEvent(`dismiss:${reason}`);
+        // Vertical 6: complete via runtime direct session; lobby only if allowed.
+        if (
+          selectIsDirectEntry(notificationRuntimeStoreRef.current.getState()) &&
+          dismissBanId
+        ) {
+          const kind = dismissKind ?? 'incoming';
+          const nid = normalizeId(dismissBanId);
+          const targetItemId =
+            kind === 'result' ? `result:${nid}` : `${kind}:${nid}`;
+          completeDirectSessionViaDismiss(
+            notificationRuntimeStoreRef.current,
+            { targetItemId, reason: 'user_dismiss', source: 'user' },
+            {
+              writeQueue: (queue, src) =>
+                writeOverlayQueueSilent(queue, src, 'v6-live-dismiss'),
+              writeDisplay: (patch, src) =>
+                commitSyncDisplayActivePayload(patch, src),
+            },
+          );
+        }
         overlayActionTsRef.current = null;
         overlayHandoffTsRef.current = null;
         notificationChainAwaitingUserRef.current = false;
         notificationChainHandoffRef.current = false;
         setNotificationChainTransitioning(false);
-        setLobbyOpen(true);
-        lobbyShownLoggedRef.current = false;
+        if (selectLobbyMayShow(notificationRuntimeStoreRef.current.getState())) {
+          setLobbyOpen(true);
+          lobbyShownLoggedRef.current = false;
+        }
         logTransitionFromRefs('[DISMISS COMMIT DONE]', {
           source: `${reason}-live-overlay-single`,
         });
@@ -14550,7 +14618,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             source: opts?.source ?? 'enqueueNotification',
           });
         }
-        beginLiveOverlaySingleEvent(normalizedItem.kind, banId);
+        // Vertical 6: live-single is runtime direct entry (not module owner).
+        {
+          const liveDefer =
+            isSuccessCardMounted() ||
+            selectIsDraining(notificationRuntimeStoreRef.current.getState());
+          const liveSinks = {
+            writeQueue: (queue: QueuedOverlay[], src: string) => {
+              writeOverlayQueueSilent(queue, src, 'v6-live-single');
+            },
+            writeDisplay: (patch: OwnerActiveDisplayPatch, src: string) => {
+              commitSyncDisplayActivePayload(patch, src);
+            },
+          };
+          const livePayload =
+            normalizedItem.kind === 'result'
+              ? normalizedItem.result
+              : normalizedItem.ban;
+          requestDirectEntry(
+            notificationRuntimeStoreRef.current,
+            {
+              targetId: banId,
+              targetKind: normalizedItem.kind,
+              entrySource: 'live-single',
+              defer: liveDefer,
+              item: liveDefer
+                ? null
+                : toDirectNotificationItem(normalizedItem.kind, livePayload),
+            },
+            liveSinks,
+          );
+        }
+        beginLiveOverlaySingleEvent(normalizedItem.kind, banId); // TEMP diag
         logLiveOverlayDisplayAllowed({
           mode,
           kind: normalizedItem.kind,
@@ -20610,6 +20709,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const applyCheckDeeplinkDirectOverlay = useCallback(
     (ban: BanInteraction): boolean => {
+      // Vertical 6: runtime DEEPLINK_ENTRY is sole check deeplink display owner.
       const enriched = enrichBanInteraction(ban);
       const banId = enriched.id;
       logCheckCardSelected({ banId, source: 'applyCheckDeeplinkDirectOverlay' });
@@ -20617,34 +20717,43 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId,
         'applyCheckDeeplinkDirectOverlay',
       );
-      const item: QueuedOverlay = { kind: 'check', ban: enriched };
       startupInteractionsHoldRef.current = false;
       chainAdvanceExplicitRef.current = true;
       mirrorOwnerSessionFlagsRef.current('applyCheckDeeplinkDirectOverlay', {
         startupHold: false,
         chainAdvanceExplicit: true,
       });
-      const next = buildCheckPriorityQueue(overlayQueueRef.current, banId, item);
-      flushSync(() => {
-        applyOverlayQueue(next);
-      });
-      const head = overlayQueueRef.current[0];
-      const mounted = head?.kind === 'check' && head.ban.id === banId;
-      if (mounted) {
-        writeOwnerDisplay(
-          { checkBan: enriched },
-          'applyCheckDeeplinkDirectOverlay',
-        );
+      const defer =
+        isSuccessCardMounted() ||
+        selectIsDraining(notificationRuntimeStoreRef.current.getState());
+      const sinks = {
+        writeQueue: (queue: QueuedOverlay[], src: string) => {
+          writeOverlayQueueSilent(queue, src, 'v6-direct-check');
+        },
+        writeDisplay: (patch: OwnerActiveDisplayPatch, src: string) => {
+          commitSyncDisplayActivePayload(patch, src);
+        },
+      };
+      const req = requestDirectEntry(
+        notificationRuntimeStoreRef.current,
+        {
+          targetId: banId,
+          targetKind: 'check',
+          entrySource: 'deeplink',
+          defer,
+          item: defer ? null : toDirectNotificationItem('check', enriched),
+        },
+        sinks,
+      );
+      if (req.outcome === 'showing') {
+        enableDeeplinkSingleCardMode('check', banId); // TEMP diag
         setLobbyOpen(false);
         lobbyOpenRef.current = false;
-        enableDeeplinkSingleCardMode('check', banId);
+        return true;
       }
-      return mounted;
+      return req.outcome === 'deferred';
     },
-    [
-      applyOverlayQueue,
-      clearStartupBlockingLayersForCheckCard,
-    ],
+    [clearStartupBlockingLayersForCheckCard],
   );
 
   const clearCheckDeepLinkRoute = useCallback((source: string) => {
@@ -24780,7 +24889,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       scheduleReplyFastTimeout(normalizedBanId);
 
       replyDeeplinkChainHoldRef.current = true;
-      enableDeeplinkSingleCardMode('reply', normalizedBanId);
+      enableDeeplinkSingleCardMode('reply', normalizedBanId); // TEMP diag
+      // Vertical 6: reply direct entry via runtime (fast shell remains presentation TEMP).
+      {
+        const defer =
+          isSuccessCardMounted() ||
+          selectIsDraining(notificationRuntimeStoreRef.current.getState());
+        requestDirectEntry(
+          notificationRuntimeStoreRef.current,
+          {
+            targetId: normalizedBanId,
+            targetKind: 'incoming',
+            entrySource: 'deeplink',
+            defer,
+            item: defer
+              ? null
+              : toDirectNotificationItem('incoming', openBan),
+          },
+          {
+            writeQueue: (queue, src) =>
+              writeOverlayQueueSilent(queue, src, 'v6-direct-reply'),
+            writeDisplay: (patch, src) =>
+              commitSyncDisplayActivePayload(patch, src),
+          },
+        );
+      }
       void prefetchPendingNotificationChain(normalizedBanId, 'reply-deeplink');
 
       return true;
@@ -32642,6 +32775,45 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       // idle / failed / rejected → host opens lobby via selectLobbyMayShow
+      // Vertical 6: after SUCCESS drain settles, flush deferred deeplink entry.
+      {
+        const flushEffects = flushDeferredDirectEntry(
+          notificationRuntimeStoreRef.current,
+          'user',
+        );
+        for (const effect of flushEffects) {
+          if (effect.type !== 'FETCH_DIRECT_ITEM') continue;
+          void executeFetchDirectItemEffect(
+            notificationRuntimeStoreRef.current,
+            effect,
+            async ({ targetId, targetKind }) => {
+              const token = tokenRef.current;
+              if (!token) throw new Error('NO_TOKEN');
+              if (targetKind === 'result') {
+                const { result } = await api<{ result: BanResult }>(
+                  `/bans/${targetId}/result`,
+                  { token },
+                );
+                if (!result) throw new Error('NOT_FOUND');
+                return toDirectNotificationItem('result', result);
+              }
+              const { ban } = await api<{ ban: BanInteraction }>(
+                `/bans/${targetId}/open`,
+                { token },
+              );
+              if (!ban) throw new Error('NOT_FOUND');
+              const kind = targetKind === 'check' ? 'check' : 'incoming';
+              return toDirectNotificationItem(kind, enrichBanInteraction(ban));
+            },
+            {
+              writeQueue: (queue, src) =>
+                writeOverlayQueueSilent(queue, src, 'v6-direct-flush'),
+              writeDisplay: (patch, src) =>
+                commitSyncDisplayActivePayload(patch, src),
+            },
+          );
+        }
+      }
       logSuccessExitDrainResult({
         drained: false,
         queueLenAfter: overlayQueueRef.current.length,

@@ -45,6 +45,8 @@ export function createNotificationRuntimeStore(): NotificationRuntimeStore {
   const seenActionCommandIds = new Set<string>();
   /** Vertical 5: ignore duplicate SUCCESS_HANDOFF_REQUESTED transitionId. */
   const seenSuccessHandoffTransitionIds = new Set<string>();
+  /** Vertical 6: ignore duplicate DEEPLINK_ENTRY_REQUESTED transitionId. */
+  const seenDeeplinkEntryTransitionIds = new Set<string>();
   const listeners = new Set<() => void>();
 
   const emit = () => {
@@ -79,6 +81,12 @@ export function createNotificationRuntimeStore(): NotificationRuntimeStore {
         }
         seenSuccessHandoffTransitionIds.add(event.transitionId);
       }
+      if (event.type === 'DEEPLINK_ENTRY_REQUESTED') {
+        if (seenDeeplinkEntryTransitionIds.has(event.transitionId)) {
+          return { state, effects: [] };
+        }
+        seenDeeplinkEntryTransitionIds.add(event.transitionId);
+      }
       if (event.type === 'ITEMS_RECEIVED' || event.type === 'DRAIN_FAILED') {
         // Stale batch: ignore if draining under a different transitionId.
         if (
@@ -89,10 +97,21 @@ export function createNotificationRuntimeStore(): NotificationRuntimeStore {
           return { state, effects: [] };
         }
       }
+      if (
+        event.type === 'DIRECT_ITEM_RECEIVED' ||
+        event.type === 'DIRECT_ITEM_FAILED'
+      ) {
+        const expected =
+          state.directEntry.transitionId ?? state.lifecycle.transitionId;
+        if (expected && event.transitionId !== expected) {
+          return { state, effects: [] };
+        }
+      }
       if (event.type === 'RESET_REQUESTED') {
         seenDismissTransitionIds.clear();
         seenActionCommandIds.clear();
         seenSuccessHandoffTransitionIds.clear();
+        seenDeeplinkEntryTransitionIds.clear();
         transitionSeq = 0;
       }
       const result = notificationRuntimeReducer(state, event);
