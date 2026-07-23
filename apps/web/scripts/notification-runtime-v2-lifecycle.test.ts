@@ -377,7 +377,10 @@ function sinksFor(
   );
 
   assert.match(providers, /resolveQueueShellVisible/);
-  assert.match(providers, /resolveQueueShellHostMount/);
+  assert.match(
+    providers,
+    /resolveQueueShellHostMount|notificationOverlayMayMount/,
+  );
   assert.match(providers, /selectLobbyMayShow|runtimeLobbyMayShow/);
   assert.match(providers, /useSyncExternalStore/);
   assert.match(providers, /v2-atomic-advance/);

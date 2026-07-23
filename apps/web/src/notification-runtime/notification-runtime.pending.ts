@@ -36,9 +36,19 @@ export function pendingItemIdFromParts(
   return `${kind}:${id}`;
 }
 
+function isPassiveIndicatorPrimeSource(source: string): boolean {
+  return (
+    source === 'lobby-indicator-prime' ||
+    source.startsWith('lobby-indicator-prime')
+  );
+}
+
 /**
  * Replace pending source snapshot (server/live prefetch).
  * Consumed tombstones are retained; selector subtracts them (no resurrection).
+ *
+ * Passive lobby-indicator-prime must not wipe a non-empty pending snapshot with an
+ * empty race result (bootstrap / bans prefetch may already hold truth).
  */
 export function ingestPendingSnapshot(
   store: NotificationRuntimeStore,
@@ -46,11 +56,22 @@ export function ingestPendingSnapshot(
   source: string | RuntimeSource,
   sourceVersion: string | null = null,
 ): void {
+  const nextIds = normalizePendingItemIds(itemIds);
+  if (
+    typeof source === 'string' &&
+    isPassiveIndicatorPrimeSource(source) &&
+    nextIds.length === 0
+  ) {
+    const current = store.getState().pending.itemIds;
+    if (current.length > 0) {
+      return;
+    }
+  }
   const runtimeSource =
     typeof source === 'string' ? mapProvidersSourceToRuntime(source) : source;
   store.dispatch({
     type: 'PENDING_SOURCE_UPDATED',
-    itemIds: normalizePendingItemIds(itemIds),
+    itemIds: nextIds,
     sourceVersion,
     source: runtimeSource,
   });

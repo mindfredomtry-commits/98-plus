@@ -112,3 +112,33 @@ export function evaluateLiveOverlayDisplay(
   }
   return { allowed: true, reason: 'plain-lobby', currentScreen };
 }
+
+/**
+ * Full-screen product sections where notification cards must never paint.
+ * Compose (who/what/confirm) is gated separately via composeBlocksNotificationHost.
+ * Success/timer/notification are runtime-owned flow surfaces — not product sections.
+ */
+export function productSurfaceBlocksNotificationPaint(
+  ctx: LiveOverlayScreenContext,
+): boolean {
+  if (ctx.settingsOverlayOpen || ctx.profileOverlayOpen) return true;
+  if (
+    ctx.bansOverlayOpen ||
+    ctx.resultCtaBansOverlayOpen ||
+    ctx.bansCtaQueueSuppress
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * NEW live queue presentation (bootstrap autoShow / WS / poll materialize).
+ * Not for SUCCESS/TIMER/CHECK→RESULT/DEEPLINK continuation.
+ */
+export function evaluateNewLiveQueuePresentation(
+  mode: NotificationMode,
+  ctx: LiveOverlayScreenContext,
+): LiveOverlayDisplayDecision {
+  return evaluateLiveOverlayDisplay(mode, ctx, 'incoming', '');
+}

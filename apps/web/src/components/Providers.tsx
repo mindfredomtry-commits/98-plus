@@ -213,8 +213,8 @@ import {
 } from '@/notification-runtime/notification-runtime.store';
 import { selectNotificationRuntimeUiSnapshot } from '@/notification-runtime/notification-runtime.snapshot';
 import {
+  notificationOverlayMayMount,
   resolveOrdinaryLobbyMayOpen,
-  resolveQueueShellHostMount,
   resolveQueueShellVisible,
 } from '@/notification-runtime/notification-runtime.shell-visibility';
 import {
@@ -1144,9 +1144,12 @@ import {
 } from '@/lib/fresh-deeplink-entry';
 import {
   evaluateLiveOverlayDisplay,
+  evaluateNewLiveQueuePresentation,
+  productSurfaceBlocksNotificationPaint,
   resolveLiveOverlayScreen,
   type LiveOverlayScreenContext,
 } from '@/lib/live-overlay-screen';
+import { logQueuePresentation } from '@/lib/queue-presentation-diag';
 import {
   logLiveOverlayBlocked,
   logLiveOverlayConsumed,
@@ -3438,6 +3441,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const bansCtaQueueSuppressRef = useRef(false);
   const arenaBansOverlayOpenRef = useRef(false);
   const settingsOverlayOpenRef = useRef(false);
+  /** Bumps when arena product-surface guards change so mount selectors re-read refs. */
+  const [arenaSurfaceEpoch, setArenaSurfaceEpoch] = useState(0);
+  /**
+   * Realtime bootstrap items parked when NEW live presentation was blocked by
+   * product surface. Flushed when returning to plain Lobby (runtime sole owner).
+   */
+  const parkedNewLiveBootstrapItemsRef = useRef<
+    import('@/notification-runtime/notification-runtime.types').NotificationItem[] | null
+  >(null);
+  const tryFlushParkedNewLiveQueueRef = useRef<(source: string) => boolean>(
+    () => false,
+  );
   const notificationModeRef = useRef<NotificationMode>(DEFAULT_NOTIFICATION_MODE);
   const bansReturnToLobbyLatchRef = useRef(false);
   const setBansReturnToLobbyLatch = useCallback(
@@ -9966,6 +9981,64 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     successCardMounted: isSuccessCardMounted(),
     activeTimerOverlayMounted: isActiveTimerOverlayMounted(),
   });
+
+  const tryFlushParkedNewLiveQueue = (source: string): boolean => {
+    const parked = parkedNewLiveBootstrapItemsRef.current;
+    if (!parked || parked.length === 0) return false;
+    const mode = notificationModeRef.current;
+    if (mode !== 'real-time') {
+      parkedNewLiveBootstrapItemsRef.current = null;
+      return false;
+    }
+    const screenCtx = buildLiveOverlayScreenContext();
+    const decision = evaluateNewLiveQueuePresentation(mode, screenCtx);
+    const rt = notificationRuntimeStoreRef.current.getState();
+    logQueuePresentation('QUEUE_SURFACE_CHECK', {
+      runtimeLifecycle: rt.lifecycle.status,
+      surface: decision.currentScreen,
+      mode,
+      transitionId: rt.lifecycle.transitionId,
+      overlayPermitted: decision.allowed,
+      blockingReason: decision.allowed ? null : decision.reason,
+      source,
+      itemCount: parked.length,
+      pendingCount: rt.pending.itemIds.length,
+    });
+    if (!decision.allowed) {
+      logQueuePresentation('QUEUE_MATERIALIZE_BLOCKED', {
+        runtimeLifecycle: rt.lifecycle.status,
+        surface: decision.currentScreen,
+        mode,
+        overlayPermitted: false,
+        blockingReason: decision.reason,
+        source,
+        itemCount: parked.length,
+      });
+      return false;
+    }
+    if (selectOverlayVisible(rt) || selectIsDirectEntry(rt)) return false;
+    if (rt.lifecycle.status !== 'idle') return false;
+    parkedNewLiveBootstrapItemsRef.current = null;
+    const flushTid = nextRuntimeTransitionId('parked-new-live-flush');
+    logQueuePresentation('QUEUE_MATERIALIZE_ALLOWED', {
+      runtimeLifecycle: rt.lifecycle.status,
+      surface: decision.currentScreen,
+      mode,
+      transitionId: flushTid,
+      overlayPermitted: true,
+      blockingReason: null,
+      source,
+      itemCount: parked.length,
+    });
+    syncRuntimeQueue(
+      notificationRuntimeStoreRef.current,
+      parked,
+      'bootstrap',
+      flushTid,
+    );
+    return true;
+  };
+  tryFlushParkedNewLiveQueueRef.current = tryFlushParkedNewLiveQueue;
 
   const buildPassiveResultGateContext = (
     banId: string | null | undefined,
@@ -26288,6 +26361,58 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       }
 
+      const bootstrapScreenCtx = buildLiveOverlayScreenContext();
+      const newLiveDecision = evaluateNewLiveQueuePresentation(
+        mode,
+        bootstrapScreenCtx,
+      );
+      const allowNewLiveAutoShow =
+        mode === 'real-time' && newLiveDecision.allowed;
+      logQueuePresentation('QUEUE_SURFACE_CHECK', {
+        runtimeLifecycle: notificationRuntimeStoreRef.current.getState()
+          .lifecycle.status,
+        surface: newLiveDecision.currentScreen,
+        mode,
+        transitionId: bootstrapTransitionId,
+        overlayPermitted: allowNewLiveAutoShow,
+        blockingReason: allowNewLiveAutoShow
+          ? null
+          : newLiveDecision.reason,
+        source: 'v7-bootstrap-complete',
+        itemCount: bootstrapItems.length,
+        pendingCount: pendingIds.length,
+      });
+      if (mode === 'real-time' && !allowNewLiveAutoShow) {
+        parkedNewLiveBootstrapItemsRef.current =
+          bootstrapItems.length > 0 ? [...bootstrapItems] : null;
+        logQueuePresentation('QUEUE_MATERIALIZE_BLOCKED', {
+          runtimeLifecycle: 'booting',
+          surface: newLiveDecision.currentScreen,
+          mode,
+          transitionId: bootstrapTransitionId,
+          overlayPermitted: false,
+          blockingReason: newLiveDecision.reason,
+          source: 'v7-bootstrap-complete',
+          itemCount: bootstrapItems.length,
+          pendingCount: pendingIds.length,
+        });
+      } else {
+        parkedNewLiveBootstrapItemsRef.current = null;
+        if (allowNewLiveAutoShow && bootstrapItems.length > 0) {
+          logQueuePresentation('QUEUE_MATERIALIZE_ALLOWED', {
+            runtimeLifecycle: 'booting',
+            surface: newLiveDecision.currentScreen,
+            mode,
+            transitionId: bootstrapTransitionId,
+            overlayPermitted: true,
+            blockingReason: null,
+            source: 'v7-bootstrap-complete',
+            itemCount: bootstrapItems.length,
+            pendingCount: pendingIds.length,
+          });
+        }
+      }
+
       const bootOutcome = completeBootstrap(
         notificationRuntimeStoreRef.current,
         {
@@ -26296,11 +26421,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           pendingItemIds: pendingIds,
           consumedItemIds: consumedForBoot,
           mode,
+          autoShow: allowNewLiveAutoShow,
           sourceVersion: String(requestedAt),
           source: 'bootstrap',
         },
         bootstrapSinks,
       );
+
+      if (
+        !allowNewLiveAutoShow &&
+        parkedNewLiveBootstrapItemsRef.current?.length
+      ) {
+        queueMicrotask(() => {
+          tryFlushParkedNewLiveQueueRef.current('bootstrap-park-retry');
+        });
+      }
 
       // Startup hold is presentation adapter only — not boot authority.
       startupInteractionsHoldRef.current = false;
@@ -26420,11 +26555,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const setArenaOverlayGuardState = useCallback(
     (opts: { bansOverlayOpen?: boolean; settingsOverlayOpen?: boolean }) => {
+      let changed = false;
       if (opts.bansOverlayOpen !== undefined) {
+        if (arenaBansOverlayOpenRef.current !== opts.bansOverlayOpen) {
+          changed = true;
+        }
         arenaBansOverlayOpenRef.current = opts.bansOverlayOpen;
       }
       if (opts.settingsOverlayOpen !== undefined) {
+        if (settingsOverlayOpenRef.current !== opts.settingsOverlayOpen) {
+          changed = true;
+        }
         settingsOverlayOpenRef.current = opts.settingsOverlayOpen;
+      }
+      if (changed) {
+        setArenaSurfaceEpoch((epoch) => epoch + 1);
+        queueMicrotask(() => {
+          tryFlushParkedNewLiveQueueRef.current('arena-surface-change');
+        });
       }
     },
     [],
@@ -32415,6 +32563,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   startLobbyBansNotificationDrainRef.current = startLobbyBansNotificationDrain;
 
   const prefetchPendingAfterLobbyBansOpen = useCallback(async () => {
+    const startedAt =
+      typeof performance !== 'undefined' ? performance.now() : Date.now();
+    logQueuePresentation('PENDING_PREFETCH_START', {
+      source: 'lobby-bans-cta-after-sync-open',
+      surface: resolveLiveOverlayScreen(buildLiveOverlayScreenContext()),
+      mode: notificationModeRef.current,
+      runtimeLifecycle:
+        notificationRuntimeStoreRef.current.getState().lifecycle.status,
+    });
     try {
       await prefetchPendingNotificationChain(
         null,
@@ -32422,6 +32579,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
     } catch {
       /* overlay stays open; badge may refresh on next poll */
+    } finally {
+      const endedAt =
+        typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const rt = notificationRuntimeStoreRef.current.getState();
+      logQueuePresentation('PENDING_PREFETCH_RESOLVE', {
+        source: 'lobby-bans-cta-after-sync-open',
+        surface: resolveLiveOverlayScreen(buildLiveOverlayScreenContext()),
+        mode: notificationModeRef.current,
+        runtimeLifecycle: rt.lifecycle.status,
+        pendingCount: rt.pending.itemIds.length,
+        elapsedMs: Math.round(endedAt - startedAt),
+        overlayPermitted: !productSurfaceBlocksNotificationPaint(
+          buildLiveOverlayScreenContext(),
+        ),
+      });
     }
   }, [prefetchPendingNotificationChain]);
 
@@ -37306,6 +37478,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       { type: 'LOBBY_OPEN_REQUESTED', source: source ?? 'openLobby' },
       `openLobby:${source ?? 'default'}`,
     );
+    queueMicrotask(() => {
+      tryFlushParkedNewLiveQueueRef.current(
+        `openLobby:${source ?? 'default'}`,
+      );
+    });
   }, [getNotificationChainDebugSnapshot, logReplyQueueHandoffDiagContext]);
 
   useLayoutEffect(() => {
@@ -40700,10 +40877,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   // Vertical 2: queue shell visibility = selectOverlayVisible + screen exclusions.
   // Legacy mega-OR (pins / transitioning / hold / dim) is no longer mount authority.
+  // Product surfaces (bans/profile/settings) block paint only — not queue ownership.
+  void arenaSurfaceEpoch;
+  const productSurfaceBlocksPaint = productSurfaceBlocksNotificationPaint(
+    buildLiveOverlayScreenContext(),
+  );
   const notificationOverlayVisible = resolveQueueShellVisible({
     composeBlocksNotificationHost,
     sendSuccessCardActive,
     runtimeOverlayVisible: notificationRuntimeUi.overlayVisible,
+    productSurfaceBlocksNotificationPaint: productSurfaceBlocksPaint,
   });
   stageNotificationOverlayVisibilitySnapshot({
     reachedVisibilityGuards: ['v2-runtime-selectOverlayVisible'],
@@ -40719,7 +40902,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ? 'compose-blocks-notification-host'
         : sendSuccessCardActive
           ? 'send-success-card-active'
-          : 'v2-runtime-overlay-hidden',
+          : productSurfaceBlocksPaint
+            ? 'product-surface-blocks-notification-paint'
+            : 'v2-runtime-overlay-hidden',
     visibilitySourceType: 'derived',
     guardSourceFunction: 'ProvidersBody:v2-runtime-shell-visibility',
     guardSourceLine: 'Providers.tsx:v2-shell-visibility',
@@ -41241,11 +41426,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const visualQueueDimSessionLive =
     visualQueueDimSessionRef.current || visualQueueDimSession;
 
-  // Vertical 2: host mount = runtime overlayVisible (dim/pins are not authority).
-  const shouldMountNotificationOverlayHost = resolveQueueShellHostMount({
+  // Vertical 2: host mount = runtime overlayVisible + product surface (dim/pins are not authority).
+  const shouldMountNotificationOverlayHost = notificationOverlayMayMount({
     composeBlocksNotificationHost,
     sendSuccessCardActive,
     runtimeOverlayVisible: notificationRuntimeUi.overlayVisible,
+    productSurfaceBlocksNotificationPaint: productSurfaceBlocksPaint,
   });
   stageShouldMountHostGuardSnapshot({
     reachedGuards: ['v2-runtime-selectOverlayVisible'],

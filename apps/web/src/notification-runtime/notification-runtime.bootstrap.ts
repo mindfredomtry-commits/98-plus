@@ -120,6 +120,11 @@ export function completeBootstrap(
     pendingItemIds: readonly string[];
     consumedItemIds?: readonly string[];
     mode: BootstrapNotificationMode;
+    /**
+     * Override mode-derived auto-show. Use when product surface blocks
+     * NEW live queue presentation (park pending; do not showHead).
+     */
+    autoShow?: boolean;
     sourceVersion?: string | null;
     source?: RuntimeSource;
     /** Prefer SNAPSHOT event name for transport clarity (same reducer path). */
@@ -133,7 +138,10 @@ export function completeBootstrap(
   }
 
   const source: RuntimeSource = args.source ?? 'bootstrap';
-  const autoShow = args.mode === 'real-time';
+  const autoShow =
+    args.autoShow !== undefined
+      ? args.autoShow
+      : args.mode === 'real-time';
   const items = [...args.items];
   const pendingItemIds = [...args.pendingItemIds];
   const consumedItemIds = args.consumedItemIds
