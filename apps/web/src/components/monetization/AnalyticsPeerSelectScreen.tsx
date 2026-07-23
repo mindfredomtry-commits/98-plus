@@ -9,6 +9,7 @@ import { fetchRelationshipOverview } from '@/lib/relationship-analytics-api';
 import {
   RELATIONSHIP_OVERVIEW_INITIAL_PERSPECTIVE,
   RELATIONSHIP_OVERVIEW_OTHER_LABEL,
+  RELATIONSHIP_OVERVIEW_SECTION_TITLE,
   RELATIONSHIP_OVERVIEW_VIEWER_LABEL,
   buildOverviewPerspectiveOtherAriaLabel,
   buildOverviewPerspectiveViewerAriaLabel,
@@ -218,7 +219,7 @@ export function AnalyticsPeerSelectScreen({
     <div
       className="monetization-screen"
       role="dialog"
-      aria-label="С кем посмотреть аналитику"
+      aria-label={RELATIONSHIP_OVERVIEW_SECTION_TITLE}
     >
       <div className="monetization-screen__scroll">
         <header className="monetization-screen__header">
@@ -230,7 +231,9 @@ export function AnalyticsPeerSelectScreen({
           >
             <WhatBackIcon />
           </button>
-          <h2 className="monetization-screen__nav-title">с кем посмотреть?</h2>
+          <h2 className="monetization-screen__nav-title">
+            {RELATIONSHIP_OVERVIEW_SECTION_TITLE}
+          </h2>
         </header>
 
         {!premiumActive ? (

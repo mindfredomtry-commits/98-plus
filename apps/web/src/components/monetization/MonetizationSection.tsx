@@ -25,6 +25,7 @@ import {
   newIdempotencyKey,
 } from '@/lib/monetization-api';
 import { trackProductEvent } from '@/lib/product-analytics';
+import { trackOpenPremiumV2 } from '@/lib/analytics-track-v2-client';
 import { resolveUserDisplayName } from '@/lib/user-display-name';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
 import type {
@@ -145,7 +146,9 @@ export function MonetizationSection({
   const handleOpenPremium = useCallback(() => {
     haptic('light');
     trackProductEvent(ANALYTICS_EVENTS.PRESS_LEARN, token);
+    // Dual-write: Legacy + Tracker V2 (V2 is fire-and-forget; never blocks UX).
     trackProductEvent(ANALYTICS_EVENTS.OPEN_PREMIUM, token);
+    trackOpenPremiumV2(token);
     loadProducts();
     setView('premium');
   }, [haptic, loadProducts, token]);

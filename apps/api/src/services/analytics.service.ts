@@ -1,5 +1,9 @@
 import { prisma } from '../lib/prisma';
 
+/**
+ * Legacy product / server analytics write-path.
+ * Compatible with incomplete payloads — does not call Studio Tracker V2.
+ */
 export async function trackEvent(
   name: string,
   userId?: string,

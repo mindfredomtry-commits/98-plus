@@ -11,6 +11,9 @@ export const RELATIONSHIP_OVERVIEW_INITIAL_PERSPECTIVE: RelationshipDetailPerspe
 /** Visible section title above the detail RelationshipOrb. */
 export const RELATIONSHIP_DETAIL_SECTION_TITLE = 'динамика отношений';
 
+/** Overview screen nav title (`AnalyticsPeerSelectScreen`). */
+export const RELATIONSHIP_OVERVIEW_SECTION_TITLE = 'Профиль';
+
 export const RELATIONSHIP_OVERVIEW_VIEWER_LABEL = 'Ты';
 export const RELATIONSHIP_OVERVIEW_OTHER_LABEL = 'Люди';
 
