@@ -216,6 +216,11 @@ import {
   resolveQueueShellVisible,
 } from '@/notification-runtime/notification-runtime.shell-visibility';
 import {
+  applyPolledCheckResultToRuntime,
+  executeSubmitCardActionEffect,
+  requestCheckCardAction,
+} from '@/notification-runtime/notification-runtime.check-action';
+import {
   selectLobbyMayShow,
   selectOverlayVisible,
 } from '@/notification-runtime/notification-runtime.selectors';
@@ -19730,6 +19735,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return false;
       }
 
+      // Vertical 3 TEMP: poll/WS result applies via runtime when waiting succeeded.
+      {
+        const applied = applyPolledCheckResultToRuntime(
+          notificationRuntimeStoreRef.current,
+          banId,
+          normalized,
+          {
+            writeQueue: (queue, src) => {
+              writeOverlayQueueSilent(queue, src, 'v3-poll-result');
+            },
+            writeDisplay: (patch, src) => {
+              commitSyncDisplayActivePayload(patch, src);
+            },
+          },
+        );
+        if (applied) {
+          markShellCheckAction('resultArrivedAfterCheck', {
+            source: `showCheckAnswerFinalResult:${source}:v3-runtime`,
+            calledFrom: 'Providers.showCheckAnswerFinalResult:v3',
+            checkBanId: banId,
+          });
+          queueMicrotask(() => {
+            void refreshUserRef.current().catch(() => {});
+          });
+          return true;
+        }
+      }
+
       if (
         rejectNonOverkillTerminalResult(
           banId,
@@ -21473,511 +21506,266 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const submitCheckAnswer = useCallback(
+
     async (banId: string, completed: boolean) => {
+
       const normalizedBanId = normalizeId(banId);
+
       const uid = userIdRef.current;
+
       const token = tokenRef.current;
+
       if (!uid || !token) {
+
         return { ok: false, error: 'Нет авторизации' };
+
       }
+
       if (!normalizedBanId) {
+
         return { ok: false, error: 'Некорректный запрет' };
+
       }
 
-      beginQueueBreakTrace('check-answer', 'user-answer', normalizedBanId);
+
+
+      // Vertical 3: first click = CARD_ACTION_REQUESTED only (no dismiss / hold / unlock).
+
       markShellCheckAction(
+
         completed ? 'userPressedCheckYes' : 'userPressedCheckNo',
+
         {
+
           source: 'submitCheckAnswer',
-          calledFrom: 'Providers.submitCheckAnswer',
+
+          calledFrom: 'Providers.submitCheckAnswer:v3',
+
           checkBanId: normalizedBanId,
+
           completed,
+
         },
+
       );
+
       markShellCheckAction('submitCheckAnswerStarted', {
+
         source: 'submitCheckAnswer',
-        calledFrom: 'Providers.submitCheckAnswer',
+
+        calledFrom: 'Providers.submitCheckAnswer:v3',
+
         checkBanId: normalizedBanId,
+
         completed,
+
       });
 
-      beginCheckHandoffTrace(normalizedBanId);
-      {
-        const live = buildCheckHandoffLive();
-        emitCheckHandoffStage('check-answer-chain-start', {
+
+
+      const requested = requestCheckCardAction(
+
+        notificationRuntimeStoreRef.current,
+
+        {
+
           banId: normalizedBanId,
-          resultId: resultRef.current?.id ?? null,
-          answer: completed,
-          ...live,
-        });
-      }
 
-      const checkBanAtSubmit = checkBanRef.current;
-      const senderUserIdAtSubmit = checkBanAtSubmit?.sender?.id ?? null;
-      const receiverUserIdAtSubmit = checkBanAtSubmit?.receiver?.id ?? null;
+          completed,
 
-      const payload = { completed: Boolean(completed) };
-      console.log('[check-submit-payload]', {
-        banId: normalizedBanId,
-        answer: completed,
-        payloadTypes: {
-          banId: typeof normalizedBanId,
-          completed: typeof payload.completed,
+          source: 'user',
+
         },
-      });
-      console.log('[check-overlay-submit-start]', {
-        banId: normalizedBanId,
-        answer: completed,
-      });
-      const queueBeforeRemove = overlayQueueRef.current;
-      logCheckQueueBeforeRemove({
-        activeBanId: normalizedBanId,
-        ...snapshotOverlayQueueForCheckDebug(queueBeforeRemove),
-        ...snapshotPendingForCheckDebug(),
-        activeKind: queueBeforeRemove[0]?.kind ?? null,
-        heldKind: heldUserCardOverlayRef.current?.kind ?? null,
-        checkBanId: checkBanRef.current?.id ?? null,
-      });
-      {
-        const owner = ownerShadowRef.current.getState();
-        const ownerHead = owner.queue[0] ?? null;
-        const overlayHead = queueBeforeRemove[0] ?? null;
-        const headId = (h: typeof ownerHead) =>
-          h == null
-            ? null
-            : h.kind === 'result'
-              ? h.result.id
-              : h.kind === 'incoming' || h.kind === 'check'
-                ? h.ban.id
-                : null;
-        emitCheckHandoffStage('before-current-check-consume', {
-          banId: normalizedBanId,
-          consumedIdentity: normalizedBanId,
-          consumeReason: 'submitCheckAnswer:removeOverlaysForBan',
-          ownerQueueLengthBefore: owner.queue.length,
-          ownerQueueHeadBefore: ownerHead?.kind ?? null,
-          overlayQueueLengthBefore: queueBeforeRemove.length,
-          overlayQueueHeadBefore: overlayHead?.kind ?? null,
-          nextOwnerQueueItemBefore: owner.queue[1]?.kind ?? null,
-          nextOverlayQueueItemBefore: queueBeforeRemove[1]?.kind ?? null,
-          currentQueueHeadIdentity: headId(ownerHead) ?? headId(overlayHead),
-          chainAdvanceWaiting: chainAdvanceWaitingRef.current,
-          notificationChainTransitioning:
-            notificationChainTransitioningRef.current,
-        });
-      }
-      const remaining = removeOverlaysForBan(
-        queueBeforeRemove,
-        normalizedBanId,
-        ['check'],
-      );
-      const remainingKeys = new Set(remaining.map((q) => overlayQueueKey(q)));
-      const removedItems = queueBeforeRemove.filter(
-        (q) => !remainingKeys.has(overlayQueueKey(q)),
-      );
-      logCheckQueueAfterRemove({
-        removedBanId: normalizedBanId,
-        queueLenBefore: queueBeforeRemove.length,
-        queueLenAfter: remaining.length,
-        ...snapshotOverlayQueueForCheckDebug(remaining),
-        remainingIds: remaining.map((q) => overlayQueueKey(q)),
-        remainingKinds: remaining.map((q) => q.kind),
-        removedIds: removedItems.map((q) => overlayQueueKey(q)),
-        removedKinds: removedItems.map((q) => q.kind),
-        overlayQueueRefLen: overlayQueueRef.current.length,
-        note: 'overlayQueueRefLen is pre-dismiss ref; remainingLen is post-remove array',
-      });
-      const pendingHead = pendingStartupInteractionsRef.current[0] ?? null;
-      const advanceHead = remaining[0] ?? pendingHead;
-      const placeholderKind: 'incoming' | 'check' | 'result' =
-        advanceHead?.kind === 'check' ||
-        advanceHead?.kind === 'result' ||
-        advanceHead?.kind === 'incoming'
-          ? advanceHead.kind
-          : 'incoming';
-      checkAnswerDismissChainOwnedRef.current = remaining.length === 0;
-      setChainAdvancePlaceholderKind(placeholderKind);
-      setChainAdvanceWaiting(true);
-      setNotificationChainTransitioning(true);
-      dismissedCheckSessionRef.current.add(normalizedBanId);
-      answeredCheckRef.current.add(normalizedBanId);
-      markCheckAnsweredLocally(uid, normalizedBanId);
-      checkAnswerInFlightRef.current.add(normalizedBanId);
-      checkAnswerPendingResultShowRef.current.add(normalizedBanId);
-      mirrorOwnerSessionFlagsRef.current('check-overlay-user-answer', {
-        dismissedCheckIds: new Set(dismissedCheckSessionRef.current),
-        answeredCheckIds: new Set(answeredCheckRef.current),
-        checkAnswerPendingResultShowIds: new Set(
-          checkAnswerPendingResultShowRef.current,
-        ),
-      });
-      mirrorOwnerHoldsSetsRef.current('check-overlay-user-answer', {
-        checkAnswerInFlight: new Set(checkAnswerInFlightRef.current),
-      });
-      console.log('[check-overlay-user-answer]', {
-        banId: normalizedBanId,
-        answer: completed,
-      });
-      console.log('[CHECK OVERLAY DISMISSED]', {
-        banId: normalizedBanId,
-        reason: 'user-answer',
-        completed,
-      });
-      markShellCheckAction('checkDismissStarted', {
-        source: 'submitCheckAnswer',
-        calledFrom: 'Providers.submitCheckAnswer:dismiss',
-        checkBanId: normalizedBanId,
-        completed,
-      });
-      markShellCheckAction('checkConsumed', {
-        source: 'submitCheckAnswer',
-        calledFrom: 'Providers.submitCheckAnswer:removeOverlaysForBan',
-        checkBanId: normalizedBanId,
-        completed,
-      });
-      finalizeCheckDismissAfterUserAnswerRef.current(normalizedBanId, remaining);
-      const t0 = performance.now();
-      checkSubmitAtRef.current.set(normalizedBanId, t0);
-      const role = resultParticipantRole(uid, checkBanRef.current);
-      logResultLatency('[result-click-answer]', {
-        banId: normalizedBanId,
-        authUserId: uid,
-        role,
-        elapsedMs: 0,
-      });
-      dismissCurrentOverlay('user-answer', remaining, 'submitCheckAnswer');
-      emitQueueBreakSnapshot('after-consume');
-      {
-        const owner = ownerShadowRef.current.getState();
-        const ownerHead = owner.queue[0] ?? null;
-        const overlayHead = overlayQueueRef.current[0] ?? null;
-        const headId = (h: typeof ownerHead) =>
-          h == null
-            ? null
-            : h.kind === 'result'
-              ? h.result.id
-              : h.kind === 'incoming' || h.kind === 'check'
-                ? h.ban.id
-                : null;
-        emitCheckHandoffStage('after-current-check-consume', {
-          banId: normalizedBanId,
-          ownerQueueLengthAfter: owner.queue.length,
-          ownerQueueHeadAfter: ownerHead?.kind ?? null,
-          overlayQueueLengthAfter: overlayQueueRef.current.length,
-          overlayQueueHeadAfter: overlayHead?.kind ?? null,
-          nextOwnerQueueItemAfter: owner.queue[1]?.kind ?? null,
-          nextOverlayQueueItemAfter: overlayQueueRef.current[1]?.kind ?? null,
-          currentQueueHeadIdentity: headId(ownerHead) ?? headId(overlayHead),
-        });
-      }
-      setCheckWaiting(false);
-      logCheckAnswerOverlayHostSnapshot('after-dismiss-user-answer');
 
-      let chainContinuePromise: Promise<ContinueNotificationChainOutcome> | null =
-        null;
-      logCheckContinueDecision({
-        source: 'check-answer-submit',
-        remainingLen: remaining.length,
-        overlayQueueLen: overlayQueueRef.current.length,
-        pendingLen: pendingStartupInteractionsRef.current.length,
-        chainAdvanceWaiting: chainAdvanceWaitingRef.current,
-        notificationChainTransitioning:
-          notificationChainTransitioningRef.current,
-        lobbyOpen: lobbyOpenRef.current,
-        checkDismissChainOwned: checkAnswerDismissChainOwnedRef.current,
-        placeholderKind,
-      });
-      // remaining === 0: do not continue before HTTP handoff (waiting/result).
-      // remaining > 0: dismissCurrentOverlay owns advance (unchanged).
-      if (remaining.length > 0) {
-        checkAnswerDismissChainOwnedRef.current = false;
-        queueMicrotask(() => {
-          const head = overlayQueueRef.current[0];
-          const nextReady =
-            !head ||
-            (head.kind === 'check' && !!checkBanRef.current?.id) ||
-            (head.kind === 'result' &&
-              readOwnerC3HasMountedResult(
-                readOwnerC3Decision('checkAnswerSubmitFinally').display,
-                'checkAnswerSubmitFinally',
-                { resultRef: resultRef.current },
-              )) ||
-            (head.kind === 'incoming' && !!incomingBanRef.current?.id);
-          if (nextReady) {
-            setChainAdvanceWaiting(false);
-          } else if (head) {
-            traceChainPlaceholderStuckRef.current(
-              'check-answer-next-not-ready',
-              'check-answer-submit-microtask',
-              'queue-head-not-mounted',
-              {
-                headKind: head.kind,
-                headBanId:
-                  head.kind === 'result'
-                    ? head.result.id
-                    : head.kind === 'incoming' || head.kind === 'check'
-                      ? head.ban.id
-                      : null,
-              },
+      );
+
+      if (!requested.accepted) {
+
+        markShellCheckAction('submitCheckAnswerFinished', {
+
+          source: 'submitCheckAnswer',
+
+          calledFrom: 'Providers.submitCheckAnswer:v3-rejected',
+
+          checkBanId: normalizedBanId,
+
+          completed,
+
+        });
+
+        return {
+
+          ok: false,
+
+          error:
+
+            requested.reason === 'action-blocked'
+
+              ? undefined
+
+              : 'Не удалось отправить ответ',
+
+        };
+
+      }
+
+
+
+      const submitEffect = requested.effects.find(
+
+        (e) => e.type === 'SUBMIT_CARD_ACTION',
+
+      );
+
+      if (!submitEffect || submitEffect.type !== 'SUBMIT_CARD_ACTION') {
+
+        return { ok: false, error: 'Не удалось отправить ответ' };
+
+      }
+
+
+
+      const sinks = {
+
+        writeQueue: (queue: QueuedOverlay[], src: string) => {
+
+          writeOverlayQueueSilent(queue, src, 'v3-check-action');
+
+        },
+
+        writeDisplay: (patch: OwnerActiveDisplayPatch, src: string) => {
+
+          commitSyncDisplayActivePayload(patch, src);
+
+        },
+
+        scheduleResultPoll: (_pollBanId: string) => {
+
+          // TEMP V4/V5: poll must only later dispatch runtime result events.
+
+          scheduleResultPollBurst();
+
+        },
+
+        fetchResult: async (id: string) => {
+
+          try {
+
+            const fetched = await api<{ result: BanResult | null }>(
+
+              `/bans/${id}/result`,
+
+              { token, retries: 0, timeoutMs: 5000 },
+
             );
-          }
-        });
-      }
 
-      const continueAfterHttpHandoff = () => {
-        logCheckContinueCall({
-          source: 'check-answer-submit',
-          reason: 'remaining-empty-after-http-handoff',
-        });
-        return continueNotificationChainOrOpenLobbyRef.current(
-          'check-answer-submit',
-          {
-            clearActiveHold: false,
-            prefetchSkipBanId: normalizedBanId,
-          },
-        );
+            return fetched.result
+
+              ? normalizeBanResult(fetched.result)
+
+              : null;
+
+          } catch {
+
+            return null;
+
+          }
+
+        },
+
       };
 
-      try {
-        logResultLatency('[result-http-start]', {
-          banId: normalizedBanId,
-          authUserId: uid,
-          role,
-          elapsedMs: Math.round(performance.now() - t0),
-        });
-        const res = await api<{
-          done: boolean;
-          waiting?: boolean;
-          result?: BanResult;
-        }>(`/bans/${normalizedBanId}/check`, {
-          method: 'POST',
-          token,
-          body: JSON.stringify(payload),
-          retries: 0,
-        });
 
-        const elapsedMs = Math.round(performance.now() - t0);
-        logResultLatency('[result-http-response]', {
-          banId: normalizedBanId,
-          authUserId: uid,
-          role,
-          source: 'http',
-          elapsedMs,
-          done: res.done,
-          waiting: !!res.waiting,
-          hasResult: !!res.result,
-        });
 
-        logCheckAnswerSubmitOk({
-          banId: normalizedBanId,
-          answer: completed,
-          done: res.done,
-          waiting: !!res.waiting,
-          hasResult: !!res.result,
-        });
+      await executeSubmitCardActionEffect(
 
-        console.log('CHECK_ANSWER_RESULT_DELIVERY_TRACE', {
-          banId: normalizedBanId,
-          actorUserId: uid,
-          targetUserId:
-            senderUserIdAtSubmit === uid
-              ? receiverUserIdAtSubmit
-              : senderUserIdAtSubmit,
-          senderUserId: senderUserIdAtSubmit,
-          receiverUserId: receiverUserIdAtSubmit,
-          status:
-            res.result?.status ??
-            checkBanAtSubmit?.status ??
-            null,
-          outcome: res.result?.outcome ?? null,
-          resultHeadline: res.result?.headline ?? null,
-          shouldNotifySender:
-            senderUserIdAtSubmit != null &&
-            senderUserIdAtSubmit !== uid &&
-            (res.done || !!res.waiting || !!res.result),
-          shouldNotifyReceiver:
-            receiverUserIdAtSubmit != null &&
-            receiverUserIdAtSubmit !== uid &&
-            (res.done || !!res.waiting || !!res.result),
-          createdResultIds: res.result?.id ? [res.result.id] : [],
-          notificationIds: res.result?.id ? [res.result.id] : [],
-          httpDone: res.done,
-          httpWaiting: !!res.waiting,
-          hasHttpResult: !!res.result,
-          role,
-        });
+        notificationRuntimeStoreRef.current,
 
-        if (res.result) {
-          const normalized = normalizeBanResult(res.result);
-          logCheckAnswerFinalResultFound({
-            banId: normalizedBanId,
-            status: normalized.headline || normalized.outcome,
+        submitEffect,
+
+        async ({ banId: id, completed: done, token: tok }) => {
+
+          const res = await api<{
+
+            done: boolean;
+
+            waiting?: boolean;
+
+            result?: BanResult;
+
+          }>(`/bans/${id}/check`, {
+
+            method: 'POST',
+
+            token: tok,
+
+            body: JSON.stringify({ completed: Boolean(done) }),
+
+            retries: 0,
+
           });
-          const shown = showCheckAnswerFinalResult(normalized, 'http');
-          if (!shown && res.done) {
-            scheduleResultPollBurst();
-          }
-          if (remaining.length === 0) {
-            chainContinuePromise = continueAfterHttpHandoff();
-          }
-        } else if (res.done) {
-          logCheckAnswerFinalResultFetchStart({ banId: normalizedBanId });
-          try {
-            const fetched = await api<{ result: BanResult | null }>(
-              `/bans/${normalizedBanId}/result`,
-              { token, retries: 0, timeoutMs: 5000 },
-            );
-            if (fetched.result) {
-              const normalized = normalizeBanResult(fetched.result);
-              logCheckAnswerFinalResultFetchOk({
-                banId: normalizedBanId,
-                status: normalized.headline || normalized.outcome,
-              });
-              const shown = showCheckAnswerFinalResult(normalized, 'http');
-              if (!shown) {
-                scheduleResultPollBurst();
-              }
-            } else {
-              logCheckAnswerFinalResultMissing({ banId: normalizedBanId });
-              scheduleResultPollBurst();
-            }
-          } catch {
-            logCheckAnswerFinalResultMissing({
-              banId: normalizedBanId,
-              reason: 'fetch-failed',
-            });
-            scheduleResultPollBurst();
-          }
-          if (remaining.length === 0) {
-            chainContinuePromise = continueAfterHttpHandoff();
-          }
-        } else if (res.waiting) {
-          challengeLog('check:waiting-partner', { banId: normalizedBanId });
-          scheduleResultPollBurst();
-          // Single continue lives inside resume (remaining === 0 or > 0).
-          const waitingOutcome = resumeCheckAnswerChainAfterWaitingPartner(
-            normalizedBanId,
-            remaining,
-          );
-          chainContinuePromise = Promise.resolve(waitingOutcome);
-        }
 
-        queueMicrotask(() => {
-          void refreshUserRef.current().catch(() => {});
-        });
+          return {
 
-        console.log('[check-submit-success]', { banId: normalizedBanId });
-        console.log('[check-overlay-submit-success]', { banId: normalizedBanId });
-        markShellCheckAction('submitCheckAnswerFinished', {
-          source: 'submitCheckAnswer',
-          calledFrom: 'Providers.submitCheckAnswer:success',
-          checkBanId: normalizedBanId,
-          completed,
-        });
-        return { ok: true };
-      } catch (e) {
-        const message = e instanceof Error ? e.message : 'Ошибка отправки';
-        console.log('[check-submit-error]', { banId: normalizedBanId, error: message });
-        console.log('[check-overlay-submit-error]', {
-          banId: normalizedBanId,
-          error: message,
-        });
-        challengeLog('check:submit-failed', {
-          banId: normalizedBanId,
-          message,
-        });
-        markShellCheckAction('submitCheckAnswerFinished', {
-          source: 'submitCheckAnswer',
-          calledFrom: 'Providers.submitCheckAnswer:error',
-          checkBanId: normalizedBanId,
-          completed,
-        });
-        return { ok: false, error: message };
-      } finally {
-        checkAnswerInFlightRef.current.delete(normalizedBanId);
-        mirrorOwnerHoldsSetsRef.current('check-answer-submit-finally', {
-          checkAnswerInFlight: new Set(checkAnswerInFlightRef.current),
-        });
-        const noCardMounted = !hasCheckAnswerNextCardMounted();
-        let continueOutcome: string | null = null;
-        if (chainContinuePromise) {
-          try {
-            const outcome = await chainContinuePromise;
-            continueOutcome = outcome;
-            await handleCheckAnswerChainOutcomeRef.current(
-              outcome,
-              normalizedBanId,
-              'check-answer-submit',
-              0,
-            );
-            logCheckAnswerOverlayHostSnapshot('after-chain-continue-finally');
-            // Same entrypoint as «Твои запреты» when immediate show-next missed.
-            if (outcome !== 'show-next' && !hasCheckAnswerNextCardMounted()) {
-              const owner = ownerShadowRef.current.getState();
-              const hasQueuedWork =
-                owner.queue.length > 0 ||
-                owner.pending.length > 0 ||
-                overlayQueueRef.current.length > 0 ||
-                pendingStartupInteractionsRef.current.length > 0;
-              if (hasQueuedWork) {
-                logCheckAnswerSkipFinalDrainWithWork({
-                  source: 'check-answer-submit',
-                  outcome,
-                  ownerQueueLen: owner.queue.length,
-                  ownerPendingLen: owner.pending.length,
-                  overlayQueueLen: overlayQueueRef.current.length,
-                  pendingStartupLen: pendingStartupInteractionsRef.current.length,
-                  hasMountedNextCard: hasCheckAnswerNextCardMounted(),
-                  timestamp: Date.now(),
-                });
-              } else {
-                setLobbyOpen(false);
-                lobbyOpenRef.current = false;
-                setNotificationChainTransitioning(true);
-                await startLobbyBansNotificationDrainRef.current();
-              }
-            }
-          } catch {
-            // chain continue logs its own errors
-            continueOutcome = 'continue-error';
-          }
-        } else if (noCardMounted) {
-          const hasLocalOrPending =
-            overlayQueueRef.current.length > 0 ||
-            pendingStartupInteractionsRef.current.length > 0 ||
-            lobbyBansAttentionHintRef.current > 0;
-          if (hasLocalOrPending) {
-            setLobbyOpen(false);
-            lobbyOpenRef.current = false;
-            setNotificationChainTransitioning(true);
-            await startLobbyBansNotificationDrainRef.current();
-            continueOutcome = 'lobby-bans-reenter';
-          } else if (!chainAdvanceWaitingRef.current) {
-            openLobbyAfterCheckDismissIfEmptyRef.current(
-              'check-http-finally',
-              normalizedBanId,
-            );
-            continueOutcome = 'open-lobby-empty';
-          } else {
-            continueOutcome = 'no-continue-waiting';
-          }
-        } else {
-          continueOutcome = 'no-continue-card-mounted';
-        }
-        emitQueueBreakSnapshot('after-continue', {
-          lastOutcome: continueOutcome,
-        });
+            done: res.done,
+
+            waiting: res.waiting,
+
+            result: res.result ? normalizeBanResult(res.result) : undefined,
+
+          };
+
+        },
+
+        token,
+
+        sinks,
+
+      );
+
+
+
+      const after = notificationRuntimeStoreRef.current.getState();
+
+      markShellCheckAction('submitCheckAnswerFinished', {
+
+        source: 'submitCheckAnswer',
+
+        calledFrom: 'Providers.submitCheckAnswer:v3-effect-done',
+
+        checkBanId: normalizedBanId,
+
+        completed,
+
+      });
+
+      queueMicrotask(() => {
+
+        void refreshUserRef.current().catch(() => {});
+
+      });
+
+      if (after.action.status === 'failed') {
+
+        return {
+
+          ok: false,
+
+          error: after.action.errorCode ?? 'Ошибка отправки',
+
+        };
+
       }
+
+      return { ok: true };
+
     },
-    [
-      dismissCurrentOverlay,
-      resumeCheckAnswerChainAfterWaitingPartner,
-      showCheckAnswerFinalResult,
-      scheduleResultPollBurst,
-      setChainAdvanceWaiting,
-      setNotificationChainTransitioning,
-    ],
+
+    [commitSyncDisplayActivePayload, scheduleResultPollBurst],
+
   );
+
+
 
   const readDirectOverboardSnapshot =
     useCallback((): OverboardDirectStateSnapshot => {

@@ -41,6 +41,8 @@ export function createNotificationRuntimeStore(): NotificationRuntimeStore {
   let lastEffects: RuntimeEffect[] = [];
   /** Dedup: ignore CARD_DISMISS with same transitionId twice. */
   const seenDismissTransitionIds = new Set<string>();
+  /** Dedup: ignore CARD_ACTION_REQUESTED with same commandId twice. */
+  const seenActionCommandIds = new Set<string>();
   const listeners = new Set<() => void>();
 
   const emit = () => {
@@ -63,8 +65,15 @@ export function createNotificationRuntimeStore(): NotificationRuntimeStore {
         }
         seenDismissTransitionIds.add(event.transitionId);
       }
+      if (event.type === 'CARD_ACTION_REQUESTED') {
+        if (seenActionCommandIds.has(event.commandId)) {
+          return { state, effects: [] };
+        }
+        seenActionCommandIds.add(event.commandId);
+      }
       if (event.type === 'RESET_REQUESTED') {
         seenDismissTransitionIds.clear();
+        seenActionCommandIds.clear();
         transitionSeq = 0;
       }
       const result = notificationRuntimeReducer(state, event);

@@ -613,14 +613,22 @@ function apply(
     }
   }
   const normalized = offenders.map((f) => f.replace(/\\/g, '/'));
+  const allowed = new Set([
+    '/components/Providers.tsx',
+    '/components/CheckOverlay.tsx',
+  ]);
   assert.deepEqual(
-    normalized.filter((f) => !f.endsWith('/components/Providers.tsx')),
+    normalized.filter((f) => ![...allowed].some((a) => f.endsWith(a))),
     [],
     `Unexpected production imports of notification-runtime:\n${offenders.join('\n')}`,
   );
   assert.ok(
     normalized.some((f) => f.endsWith('/components/Providers.tsx')),
     'Providers must import notification-runtime (Vertical 1 wiring)',
+  );
+  assert.ok(
+    normalized.some((f) => f.endsWith('/components/CheckOverlay.tsx')),
+    'CheckOverlay must import notification-runtime selectors (Vertical 3)',
   );
 
   const providers = readFileSync(

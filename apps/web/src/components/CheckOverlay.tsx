@@ -7,7 +7,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
-  useState,
+  useSyncExternalStore,
 } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -31,10 +31,7 @@ import {
   logGoToBansNextCardMountLazy,
   logGoToBansNextCardUnmountLazy,
 } from '@/lib/browser-go-to-bans-next-card-debug';
-import {
-  allowOverlayUserTap,
-  clearCheckOverlayInputLock,
-} from '@/lib/overlay-input-guard';
+import { clearCheckOverlayInputLock } from '@/lib/overlay-input-guard';
 
 import { acquireScrollLock, releaseScrollLock } from '@/lib/scroll-lock';
 import {
@@ -61,7 +58,9 @@ import {
 } from '@/lib/check-overlay-payload-lifecycle-trace-debug';
 import { anchorCheckOverlayUnmountForGoToBansTimeline } from '@/lib/check-overlay-parent-render-trace-debug';
 import { checkOverlayKey } from '@/lib/overlay-queue';
-
+import { useNotificationRuntimeStoreOptional } from '@/notification-runtime/notification-runtime.context';
+import { selectIsActionBlocked } from '@/notification-runtime/notification-runtime.selectors';
+import { createInitialNotificationRuntimeState } from '@/notification-runtime/notification-runtime.types';
 interface Props {
   embedded?: boolean;
   contentOnly?: boolean;
@@ -102,7 +101,6 @@ function CheckOverlayInnerBody({
     user,
     submitCheckAnswer,
     notificationSessionActive,
-    markOverlayUserAction,
     logCardCloseClick,
     reportOverlayRendered,
   } = useApp();
@@ -118,7 +116,17 @@ function CheckOverlayInnerBody({
   });
 
   const { haptic } = useTelegram();
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const runtimeStore = useNotificationRuntimeStoreOptional();
+  const runtimeState = useSyncExternalStore(
+    runtimeStore?.subscribe ?? (() => () => {}),
+    runtimeStore?.getState ?? (() => createInitialNotificationRuntimeState()),
+    () => createInitialNotificationRuntimeState(),
+  );
+  const actionBlocked = selectIsActionBlocked(runtimeState);
+  const submitError =
+    runtimeState.action.status === 'failed'
+      ? runtimeState.action.errorCode
+      : null;
   const actionsRef = useRef<HTMLDivElement>(null);
   const directBackdropRootRef = useRef<HTMLDivElement>(null);
   const directCardRef = useRef<HTMLDivElement>(null);
@@ -197,10 +205,6 @@ function CheckOverlayInnerBody({
         ? 'missing-check-ban-or-view'
         : 'will-render',
   });
-
-  useEffect(() => {
-    setSubmitError(null);
-  }, [checkBan?.id]);
 
   useEffect(() => {
     if (!checkBan?.id) return;
@@ -302,8 +306,10 @@ function CheckOverlayInnerBody({
   }, [modalView]);
 
   const answer = useCallback(
-    async (completed: boolean) => {
-      if (!allowOverlayUserTap('check-answer')) return;
+    (completed: boolean) => {
+      // Vertical 3: first click dispatches CARD_ACTION_REQUESTED only.
+      // No allowOverlayUserTap / markOverlayUserAction / hold unlock as gates.
+      if (actionBlocked) return;
       if (!checkBan?.id || !token || !modalView) {
         console.log('[check-overlay-click-missed]', {
           banId: checkBan?.id ?? null,
@@ -338,20 +344,24 @@ function CheckOverlayInnerBody({
         banId: checkBan.id,
         source: completed ? 'check-answer-yes' : 'check-answer-no',
       });
-      markOverlayUserAction('check', checkBan.id);
       haptic('light');
-      setSubmitError(null);
       challengeLog('check:answer-click', {
         banId: checkBan.id,
         completed,
         role: modalView.role,
       });
-      const res = await submitCheckAnswer(normalizeId(checkBan.id), completed);
-      if (!res.ok && res.error) {
-        setSubmitError(res.error);
-      }
+      // submitCheckAnswer is now the runtime command+effect bridge (no pre-HTTP dismiss).
+      void submitCheckAnswer(normalizeId(checkBan.id), completed);
     },
-    [checkBan?.id, haptic, logCardCloseClick, modalView, markOverlayUserAction, submitCheckAnswer, token],
+    [
+      actionBlocked,
+      checkBan?.id,
+      haptic,
+      logCardCloseClick,
+      modalView,
+      submitCheckAnswer,
+      token,
+    ],
   );
 
   useEffect(() => {
@@ -557,7 +567,8 @@ function CheckOverlayInnerBody({
         <BigButton
           className="check-answer-btn"
           aria-label={yesLabel}
-          onClick={() => void answer(true)}
+          disabled={actionBlocked}
+          onClick={() => answer(true)}
         >
           ✅
         </BigButton>
@@ -565,7 +576,8 @@ function CheckOverlayInnerBody({
           variant="ghost"
           className="check-answer-btn"
           aria-label={noLabel}
-          onClick={() => void answer(false)}
+          disabled={actionBlocked}
+          onClick={() => answer(false)}
         >
           ❌
         </BigButton>

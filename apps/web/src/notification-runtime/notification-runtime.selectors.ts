@@ -54,7 +54,10 @@ export function selectIsTransitioning(
 export function selectIsActionBlocked(
   state: NotificationRuntimeState,
 ): boolean {
-  return state.action.status === 'pending';
+  // pending = HTTP in flight; succeeded = answered, waiting for partner/result
+  return (
+    state.action.status === 'pending' || state.action.status === 'succeeded'
+  );
 }
 
 export function selectLobbyMayShow(state: NotificationRuntimeState): boolean {

@@ -330,12 +330,25 @@ export function notificationRuntimeReducer(
     }
 
     case 'CARD_ACTION_REQUESTED': {
+      const current = selectCurrentItem(base);
       const currentId = selectCurrentItemId(base);
+      if (!current || current.kind !== 'check') {
+        return { state: base, effects: [] };
+      }
       if (!currentId || currentId !== event.targetItemId) {
         return { state: base, effects: [] };
       }
-      if (base.action.status === 'pending') {
-        // Repeat click: no second submit, keep commandId.
+      if (base.lifecycle.status !== 'showing') {
+        return { state: base, effects: [] };
+      }
+      // pending = in-flight; succeeded = answered waiting for partner/result
+      if (
+        base.action.status === 'pending' ||
+        base.action.status === 'succeeded'
+      ) {
+        return { state: base, effects: [] };
+      }
+      if (event.action !== 'check_answer') {
         return { state: base, effects: [] };
       }
       const next: NotificationRuntimeState = {
@@ -393,7 +406,7 @@ export function notificationRuntimeReducer(
       }
 
       next = {
-        ...clearAction(next),
+        ...next,
         lifecycle: {
           status: 'showing',
           source: event.source,
@@ -406,16 +419,8 @@ export function notificationRuntimeReducer(
           errorCode: null,
         },
       };
-      // Reset action to idle after success without replacement (caller may dismiss).
-      next = clearAction(next);
-      next = {
-        ...next,
-        lifecycle: {
-          status: 'showing',
-          source: event.source,
-          transitionId: next.lifecycle.transitionId,
-        },
-      };
+      // Waiting / no replacement: keep check on screen; action=succeeded
+      // blocks re-submit until poll/result arrives with same commandId.
       return { state: next, effects };
     }
 
