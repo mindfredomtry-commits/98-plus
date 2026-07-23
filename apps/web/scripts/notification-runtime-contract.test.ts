@@ -616,6 +616,7 @@ function apply(
   const allowed = new Set([
     '/components/Providers.tsx',
     '/components/CheckOverlay.tsx',
+    '/components/instant-ban/InstantBanFlow.tsx',
   ]);
   assert.deepEqual(
     normalized.filter((f) => ![...allowed].some((a) => f.endsWith(a))),
@@ -629,6 +630,12 @@ function apply(
   assert.ok(
     normalized.some((f) => f.endsWith('/components/CheckOverlay.tsx')),
     'CheckOverlay must import notification-runtime selectors (Vertical 3)',
+  );
+  assert.ok(
+    normalized.some((f) =>
+      f.endsWith('/components/instant-ban/InstantBanFlow.tsx'),
+    ),
+    'InstantBanFlow must import selectIndicatorVisible (Vertical 4)',
   );
 
   const providers = readFileSync(

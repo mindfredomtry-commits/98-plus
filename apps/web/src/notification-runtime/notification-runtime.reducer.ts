@@ -477,6 +477,8 @@ export function notificationRuntimeReducer(
     }
 
     case 'PENDING_SOURCE_UPDATED': {
+      // Snapshot replace: dedupe; strip already-consumed from stored pending
+      // (tombstones stay in consumed — late refresh cannot resurrect).
       const pendingIds = reconcilePending(
         event.itemIds,
         base.consumed.itemIds,
@@ -490,6 +492,29 @@ export function notificationRuntimeReducer(
           },
         },
         effects: [],
+      };
+    }
+
+    case 'ITEM_CONSUMED': {
+      // Immediate local tombstone — no queue/lifecycle/display change.
+      if (!event.itemId) {
+        return { state: base, effects: [] };
+      }
+      const next = addConsumed(base, event.itemId);
+      // Keep pending list consistent with selector (optional strip).
+      const pendingIds = reconcilePending(
+        next.pending.itemIds,
+        next.consumed.itemIds,
+      );
+      return {
+        state: {
+          ...next,
+          pending: {
+            ...next.pending,
+            itemIds: pendingIds,
+          },
+        },
+        effects: [{ type: 'MARK_CONSUMED', itemId: event.itemId }],
       };
     }
 

@@ -40,6 +40,9 @@ import { useApp } from '../Providers';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useSendChallenge } from '@/hooks/useSendChallenge';
 import { useInstantBanViewport } from '@/hooks/useInstantBanViewport';
+import { useNotificationRuntimeStoreOptional } from '@/notification-runtime/notification-runtime.context';
+import { selectIndicatorVisible } from '@/notification-runtime/notification-runtime.selectors';
+import { createInitialNotificationRuntimeState } from '@/notification-runtime/notification-runtime.types';
 import { safeResolveReceiverTarget } from '@/lib/resolve-receiver';
 import { resolveDevSendTarget } from '@/lib/dev-receiver';
 import { getApiUrl, isClientDevAuthEnabled } from '@/lib/config';
@@ -544,6 +547,15 @@ export function InstantBanFlow({
     tryClearExplicitNotificationDrainGuarded,
     runtimeLobbyMayShow,
   } = useApp();
+  // Vertical 4: sole badge paint from selectIndicatorVisible (runtime pending − consumed).
+  const notificationRuntimeStore = useNotificationRuntimeStoreOptional();
+  const notificationRuntimeState = useSyncExternalStore(
+    notificationRuntimeStore?.subscribe ?? (() => () => {}),
+    notificationRuntimeStore?.getState ??
+      (() => createInitialNotificationRuntimeState()),
+    () => createInitialNotificationRuntimeState(),
+  );
+  const bansIndicatorVisible = selectIndicatorVisible(notificationRuntimeState);
   /** Global Relationship Orb only — never used for CTA / energy-gate. */
   const globalRelationshipRing = useGlobalRelationshipOrb(token);
   const { haptic, hapticSuccess, webApp } = useTelegram();
@@ -7878,7 +7890,7 @@ export function InstantBanFlow({
           onOpenProfile={handleOpenProfile}
           settingsActive={settingsOverlayOpen}
           profileActive={monetizationOpen}
-          bansNeedAttention={lobbyBansNeedAttention}
+          bansNeedAttention={bansIndicatorVisible}
           telegramUserId={user?.id ?? null}
         />
       ) : null}

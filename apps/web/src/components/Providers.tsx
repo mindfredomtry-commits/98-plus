@@ -221,9 +221,18 @@ import {
   requestCheckCardAction,
 } from '@/notification-runtime/notification-runtime.check-action';
 import {
+  selectIndicatorVisible,
   selectLobbyMayShow,
   selectOverlayVisible,
 } from '@/notification-runtime/notification-runtime.selectors';
+import {
+  ingestPendingSnapshot,
+  markRuntimeItemConsumed,
+  mergePendingItemIds,
+  pendingIdsFromPrefetchParts,
+  pendingItemIdsFromQueued,
+  pendingItemIdFromParts,
+} from '@/notification-runtime/notification-runtime.pending';
 import {
   logOwnerPhase8QueueMismatch,
   logOwnerPhase9ActiveMismatch,
@@ -8700,23 +8709,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const syncPendingStartupCount = useCallback(() => {
+    // Vertical 4: pendingStartup count remains drain/queue plumbing only.
+    // Badge authority is runtime selectIndicatorVisible — no hint / localStorage / queueLen.
     const pendingLen = pendingStartupInteractionsRef.current.length;
-    const queueLen = overlayQueueRef.current.length;
     setPendingStartupInteractionsCount(pendingLen);
-    const uid = userIdRef.current?.trim() ?? '';
-    if (!uid) return;
-    const total = pendingLen + queueLen;
-    if (total > 0) {
-      noteLastBansIndicatorReason('syncPendingStartupCount');
-      persistLobbyNotificationAttentionHint(uid, total);
-      setLobbyBansAttentionHint(total);
-    } else if (
-      sessionBootstrappedRef.current &&
-      pendingChainPrefetchInFlightRef.current <= 0
-    ) {
-      clearLobbyNotificationAttentionHint(uid);
-      setLobbyBansAttentionHint(0);
-    }
   }, []);
 
   syncPendingStartupCountRef.current = syncPendingStartupCount;
@@ -13342,11 +13338,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                       `v2-atomic-dismiss:${reason}`,
                     );
                   }
-                  // MARK_CONSUMED / REFRESH_PENDING: fire-and-forget.
-                  // Overlay already closed by reducer; failures must not remount shell.
+                  // Vertical 4: MARK_CONSUMED already applied in reducer (local tombstone).
+                  // Transport ack failure must not clear consumed / resurrect badge.
+                  if (effect.type === 'MARK_CONSUMED') {
+                    continue;
+                  }
                   if (effect.type === 'REFRESH_PENDING') {
                     void reloadPendingRef.current?.().catch(() => {
-                      /* pending indicator rebuilt in V4 */
+                      /* pending re-ingest cannot resurrect consumed */
                     });
                   }
                 }
@@ -17647,6 +17646,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         const apiIncomingCount = prefetched.incoming.length;
         lastPrefetchRejectDebugCountRef.current = prefetched.rejectDebug.length;
 
+        // Vertical 4: sole pending badge ingest — server item ids → runtime pending.
+        // Count-only is never badge authority; consumed tombstones block resurrection.
+        {
+          const serverPendingIds = pendingIdsFromPrefetchParts({
+            incomingIds: prefetched.incoming.map((b) => normalizeId(b.id)),
+            checkId: prefetched.check ? normalizeId(prefetched.check.id) : null,
+            resultId: prefetched.result
+              ? normalizeId(prefetched.result.id)
+              : null,
+          }).filter((itemId) => {
+            if (!itemId.startsWith('incoming:')) return true;
+            const banId = itemId.slice('incoming:'.length);
+            if (dismissedIncomingRef.current.has(banId)) return false;
+            if (locallyAckedIncomingRef.current.has(banId)) return false;
+            if (incomingConsumedAfterAnswerRef.current.has(banId)) return false;
+            return true;
+          });
+          ingestPendingSnapshot(
+            notificationRuntimeStoreRef.current,
+            serverPendingIds,
+            source,
+            `prefetch:${source}:${serverPendingIds.join(',')}`,
+          );
+        }
+
         if (toEnqueue.length === 0) {
           const mergeSkipReason =
             skipDetails.length > 0
@@ -18096,42 +18120,31 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const primeLobbyBansAttentionHintSync = useCallback(
     (source: string) => {
-      const uid = userIdRef.current?.trim() ?? '';
-      if (!uid) return;
-
+      // Vertical 4 TEMP: re-ingest known local queued/pending item ids into runtime.
+      // No Math.max / localStorage / hint — badge = selectIndicatorVisible only.
       syncPendingStartupCount();
+      const localItems = [
+        ...overlayQueueRef.current,
+        ...pendingStartupInteractionsRef.current,
+      ];
+      if (localItems.length > 0) {
+        mergePendingItemIds(
+          notificationRuntimeStoreRef.current,
+          pendingItemIdsFromQueued(localItems),
+          source,
+        );
+      }
       const pendingLen = pendingStartupInteractionsRef.current.length;
       const queueLen = overlayQueueRef.current.length;
-      let hint = pendingLen + queueLen;
-
-      if (hint <= 0) {
-        hint = readLobbyNotificationAttentionHint(uid);
-      }
-      if (hint <= 0) {
-        let localSignals = 0;
-        const countIncoming = (id: string | null | undefined) => {
-          const norm = id?.trim() ?? '';
-          if (!norm || dismissedIncomingRef.current.has(norm)) return;
-          localSignals += 1;
-        };
-        countIncoming(incomingBanRef.current?.id);
-        countIncoming(lastSessionIncomingRef.current?.id);
-        countIncoming(bufferedIncomingRef.current?.id);
-        hint = localSignals;
-      }
-
-      if (hint > 0) {
-        noteLastBansIndicatorReason(source);
-        setLobbyBansAttentionHint((prev) => Math.max(prev, hint));
-        persistLobbyNotificationAttentionHint(uid, hint);
-      }
-
       const payload = {
         pendingLen,
         queueLen,
         hasIncoming: countLobbyPendingHasIncoming(),
         source,
-        hint,
+        hint: 0,
+        runtimeIndicatorVisible: selectIndicatorVisible(
+          notificationRuntimeStoreRef.current.getState(),
+        ),
       };
       const composePhase = sendComposePhaseRef.current;
       const composeFlowActive = isSendComposeFlowActive();
@@ -25512,6 +25525,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             source,
           },
         );
+        // Vertical 4: live/session/poll pending ingest (merge, idempotent).
+        {
+          const itemId = pendingItemIdFromParts('incoming', incoming.id);
+          if (itemId) {
+            mergePendingItemIds(
+              notificationRuntimeStoreRef.current,
+              [itemId],
+              source === 'ws'
+                ? 'websocket'
+                : source === 'poll'
+                  ? 'poll'
+                  : 'bootstrap',
+            );
+          }
+        }
         const ownerAfterReceive = ownerShadowRef.current.getState();
         emitOwnerQueuePopulationTraceRef.current({
           source: `receiveIncomingBan:${source}:after-enqueue`,
@@ -25664,6 +25692,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         blocksMountedNotificationOverlay('receiveCheckBan', 'check', check.id)
       ) {
         deferNotificationToPendingStartup({ kind: 'check', ban: check });
+        {
+          const itemId = pendingItemIdFromParts('check', check.id);
+          if (itemId) {
+            mergePendingItemIds(
+              notificationRuntimeStoreRef.current,
+              [itemId],
+              source === 'ws'
+                ? 'websocket'
+                : source === 'poll'
+                  ? 'poll'
+                  : 'bootstrap',
+            );
+          }
+        }
         return;
       }
 
@@ -25679,6 +25721,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source,
         },
       );
+      {
+        const itemId = pendingItemIdFromParts('check', check.id);
+        if (itemId) {
+          mergePendingItemIds(
+            notificationRuntimeStoreRef.current,
+            [itemId],
+            source === 'ws'
+              ? 'websocket'
+              : source === 'poll'
+                ? 'poll'
+                : 'bootstrap',
+          );
+        }
+      }
       setCheckWaiting(false);
     },
     [enqueueNotification],
@@ -38987,32 +39043,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   notificationSessionActiveForDebugRef.current = notificationSessionActive;
 
-  const lobbyBansNeedAttention =
-    ownerPrimaryShellPendingLen > 0 ||
-    ownerPrimaryShellQueueLen > 0 ||
-    lobbyBansAttentionHint > 0;
+  const lobbyBansNeedAttention = selectIndicatorVisible(notificationRuntimeState);
 
   useLayoutEffect(() => {
+    // Vertical 4: badge = selectIndicatorVisible only (pending − consumed).
     const indicatorReasons: string[] = [];
-    if (ownerPrimaryShellPendingLen > 0) {
-      indicatorReasons.push('owner-primary-pending');
-    }
-    if (ownerPrimaryShellQueueLen > 0) {
-      indicatorReasons.push('owner-primary-queue');
-    }
-    if (lobbyBansAttentionHint > 0) {
-      indicatorReasons.push('lobby-bans-attention-hint');
+    if (lobbyBansNeedAttention) {
+      indicatorReasons.push('runtime-selectIndicatorVisible');
     }
     const uid = userIdRef.current?.trim() ?? auth.user?.id ?? '';
-    const persistedHint = uid ? readLobbyNotificationAttentionHint(uid) : 0;
-    if (
-      persistedHint > 0 &&
-      ownerPrimaryShellPendingLen === 0 &&
-      ownerPrimaryShellQueueLen === 0 &&
-      lobbyBansAttentionHint === 0
-    ) {
-      indicatorReasons.push('persisted-attention-hint-only');
-    }
     const indicatorReason =
       indicatorReasons.length > 0 ? indicatorReasons.join('|') : 'false';
     const runtimeQueue = overlayQueueRef.current;
@@ -39028,7 +39067,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       runtimePendingLen: runtimePending.length,
       runtimeQueueLen: runtimeQueue.length,
       lobbyBansNeedAttention,
-      lobbyBansAttentionHint,
+      lobbyBansAttentionHint: 0,
+      runtimePendingItemIds:
+        notificationRuntimeState.pending.itemIds.slice(0, 12),
+      runtimeConsumedItemIds:
+        notificationRuntimeState.consumed.itemIds.slice(0, 12),
       reason: indicatorReason,
     });
     const prevNeedAttention = lobbyIndicatorPrevNeedAttentionRef.current;
@@ -39044,9 +39087,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         lobbyBansNeedAttention: true,
         indicatorVisible: true,
         skipReason: indicatorReason,
-        willStartOnClick:
-          ownerPrimaryShellQueueLen + ownerPrimaryShellPendingLen > 0 ||
-          lobbyBansAttentionHint > 0,
+        willStartOnClick: lobbyBansNeedAttention,
       });
     }
     lobbyIndicatorPrevNeedAttentionRef.current = lobbyBansNeedAttention;
@@ -39057,19 +39098,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
     logLobbyIndicatorComputeHydrateTrace(
       buildLobbyHydrateTraceSnapshot('bootstrap', {
-        lobbyBansNeedAttention,
         ownerPrimaryShellPendingLen,
         ownerPrimaryShellQueueLen,
-        lobbyBansAttentionHint,
+        lobbyBansNeedAttention,
+        lobbyBansAttentionHint: 0,
       }),
     );
   }, [
-    auth.user?.id,
-    buildLobbyBansDiagContext,
     lobbyBansNeedAttention,
+    notificationRuntimeState.pending.itemIds,
+    notificationRuntimeState.consumed.itemIds,
     ownerPrimaryShellPendingLen,
     ownerPrimaryShellQueueLen,
-    lobbyBansAttentionHint,
+    auth.user?.id,
+    buildLobbyBansDiagContext,
   ]);
 
   const replyIncomingOverlayBlockReason = useMemo(() => {

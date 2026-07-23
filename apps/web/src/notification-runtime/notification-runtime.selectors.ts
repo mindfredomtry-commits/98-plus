@@ -26,19 +26,38 @@ export function selectOverlayVisible(state: NotificationRuntimeState): boolean {
 
 /**
  * Canonical pending indicator:
- * pending.itemIds minus consumed.itemIds (order preserved from pending).
+ * unique(pending.itemIds) minus consumed.itemIds (order preserved from pending).
+ * Queue length / display / current are not badge authority.
  */
 export function selectCanonicalPendingItemIds(
   state: NotificationRuntimeState,
 ): string[] {
   const consumed = new Set(state.consumed.itemIds);
-  return state.pending.itemIds.filter((id) => !consumed.has(id));
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of state.pending.itemIds) {
+    if (!id || consumed.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+/** Alias — sole pending-ids selector for production badge. */
+export const selectPendingItemIds = selectCanonicalPendingItemIds;
+
+export function selectPendingCount(state: NotificationRuntimeState): number {
+  return selectPendingItemIds(state).length;
+}
+
+export function selectHasPending(state: NotificationRuntimeState): boolean {
+  return selectPendingCount(state) > 0;
 }
 
 export function selectIndicatorVisible(
   state: NotificationRuntimeState,
 ): boolean {
-  return selectCanonicalPendingItemIds(state).length > 0;
+  return selectHasPending(state);
 }
 
 export function selectHasNext(state: NotificationRuntimeState): boolean {

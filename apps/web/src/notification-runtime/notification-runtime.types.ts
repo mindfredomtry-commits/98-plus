@@ -174,6 +174,12 @@ export type NotificationRuntimeResultEvent =
       source: RuntimeSource;
     }
   | {
+      /** Vertical 4 — local consume tombstone; does not touch queue/lifecycle. */
+      type: 'ITEM_CONSUMED';
+      itemId: string;
+      source: RuntimeSource;
+    }
+  | {
       type: 'RECOVERY_APPLIED';
       transitionId: string;
       items: NotificationItem[];
