@@ -372,7 +372,12 @@ async function main() {
     );
     assert.match(flow, /selectIsDraining\(notificationRuntimeState\)/);
     assert.match(flow, /selectLobbyMayShow/);
-    assert.match(flow, /runtime-draining/);
+    assert.match(flow, /planLobbyBansOpenNavigation/);
+    const bansNav = readFileSync(
+      join(process.cwd(), 'apps/web/src/lib/lobby-bans-open-navigation.ts'),
+      'utf8',
+    );
+    assert.match(bansNav, /runtime-draining/);
 
     // Prefetch is transport only in handoff helper
     assert.match(handoff, /Prefetch is transport only/);

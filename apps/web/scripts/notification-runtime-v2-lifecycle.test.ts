@@ -390,7 +390,16 @@ function sinksFor(
     /FEATURE_FLAG.*notification.?runtime|USE_NEW_RUNTIME|notificationRuntimeEnabled/i,
   );
   assert.match(instant, /runtimeLobbyMayShow/);
-  assert.match(instant, /Vertical 2: runtime selectLobbyMayShow/);
+  assert.match(instant, /selectInteractiveLobbyChromeMayShow/);
+  assert.match(instant, /interactiveLobbyChromeMayShow/);
+  // Strict openLobby authority remains selectLobbyMayShow (Providers / handoff).
+  assert.match(
+    readFileSync(
+      join(process.cwd(), 'apps/web/src/components/Providers.tsx'),
+      'utf8',
+    ),
+    /selectLobbyMayShow/,
+  );
 
   // Mega-OR early-true guards removed from Providers visibility
   assert.doesNotMatch(

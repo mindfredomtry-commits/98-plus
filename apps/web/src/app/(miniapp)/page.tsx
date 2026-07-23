@@ -28,6 +28,7 @@ import { ConnectionBanner } from '@/components/ConnectionBanner';
 import { BottomNav, type Tab } from '@/components/BottomNav';
 import { ShellErrorBoundary } from '@/components/ShellErrorBoundary';
 import { getApiUrl } from '@/lib/config';
+import { logBootGate } from '@/lib/boot-gate-diag';
 import {
   logLobbyInfluenceDebug,
   resolveLobbyInfluencePercent,
@@ -144,6 +145,28 @@ export default function HomePage() {
     () => loading || deepLinkRouteBootPending,
     () => true,
   );
+
+  useEffect(() => {
+    if (showBootScreen) {
+      logBootGate('BOOT_GATE_APP_SCREEN_BLOCKED', {
+        userId: user?.id ?? null,
+        telegramId: user?.telegramId ?? null,
+        authStatus: loading ? 'loading' : 'ready',
+        blockingGate: loading
+          ? 'auth.loading'
+          : deepLinkRouteBootPending
+            ? 'deepLinkRouteBootPending'
+            : 'showBootScreen',
+      });
+    } else {
+      logBootGate('BOOT_GATE_APP_SCREEN_RELEASED', {
+        userId: user?.id ?? null,
+        telegramId: user?.telegramId ?? null,
+        authStatus: 'ready',
+        blockingGate: null,
+      });
+    }
+  }, [showBootScreen, loading, deepLinkRouteBootPending, user?.id, user?.telegramId]);
 
   useLayoutEffect(() => {
     patchBootHandoffDebug({

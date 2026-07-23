@@ -42,11 +42,15 @@ import { useSendChallenge } from '@/hooks/useSendChallenge';
 import { useInstantBanViewport } from '@/hooks/useInstantBanViewport';
 import { useNotificationRuntimeStoreOptional } from '@/notification-runtime/notification-runtime.context';
 import {
+  selectHoldLobbyOrbForBootstrap,
   selectIndicatorVisible,
+  selectInteractiveLobbyChromeMayShow,
   selectIsDraining,
   selectLobbyMayShow,
 } from '@/notification-runtime/notification-runtime.selectors';
 import { createInitialNotificationRuntimeState } from '@/notification-runtime/notification-runtime.types';
+import { planLobbyBansOpenNavigation } from '@/lib/lobby-bans-open-navigation';
+import { logBootGate } from '@/lib/boot-gate-diag';
 import { safeResolveReceiverTarget } from '@/lib/resolve-receiver';
 import { resolveDevSendTarget } from '@/lib/dev-receiver';
 import { getApiUrl, isClientDevAuthEnabled } from '@/lib/config';
@@ -303,8 +307,8 @@ function logHoldBlocked(reason: string, extra?: Record<string, unknown>): void {
 }
 const CTA_EXIT_MS = 200;
 const CTA_ENTER_MS = 400;
-/** Extra wait before first CTA spring-in on cold app open (Who return unchanged). */
-const LOBBY_CTA_COLD_START_DELAY_MS = 50;
+/** First boot CTA paints immediately; re-entry still uses spring via beginCtaSpringIn. */
+const LOBBY_CTA_COLD_START_DELAY_MS = 0;
 const WHO_PANEL_ENTER_MS = 220;
 const WHO_OVERLAY_TITLE = 'КОМУ ЗАПРЕЩАЕШЬ?';
 const WHAT_OVERLAY_TITLE = 'ЧТО ЗАПРЕЩАЕШЬ?';
@@ -549,6 +553,7 @@ export function InstantBanFlow({
     getConfirmOrbQueueDebugSnapshot,
     tryClearExplicitNotificationDrainGuarded,
     runtimeLobbyMayShow,
+    prefetchPendingAfterLobbyBansOpen,
   } = useApp();
   // Vertical 4: sole badge paint from selectIndicatorVisible (runtime pending − consumed).
   const notificationRuntimeStore = useNotificationRuntimeStoreOptional();
@@ -557,6 +562,12 @@ export function InstantBanFlow({
     notificationRuntimeStore?.getState ??
       (() => createInitialNotificationRuntimeState()),
     () => createInitialNotificationRuntimeState(),
+  );
+  const interactiveLobbyChromeMayShow = selectInteractiveLobbyChromeMayShow(
+    notificationRuntimeState,
+  );
+  const holdLobbyOrbForBootstrap = selectHoldLobbyOrbForBootstrap(
+    notificationRuntimeState,
   );
   const bansIndicatorVisible = selectIndicatorVisible(notificationRuntimeState);
   /** Global Relationship Orb only — never used for CTA / energy-gate. */
@@ -684,6 +695,7 @@ export function InstantBanFlow({
   const lastDeepLinkActiveBanIdRef = useRef<string | null>(null);
   const lastEarlyActiveBanIdRef = useRef<string | null>(null);
   const [bansOverlayOpen, setBansOverlayOpen] = useState(false);
+  const bansOpenInFlightRef = useRef(false);
   const [settingsOverlayOpen, setSettingsOverlayOpen] = useState(false);
   const [settingsModeSaving, setSettingsModeSaving] = useState(false);
   /** Profile / Premium / Payment Sheet — a normal user section, not a notification overlay. */
@@ -885,9 +897,9 @@ export function InstantBanFlow({
     overlayQueueLength: effectiveOverlayQueueLengthForLobbyCta,
     queueLobbyGuardActive,
   });
-  /** Base lobby layer: boot orb until primed, then permanent lobby orb under all overlays. */
-  const showBootOrb = !lobbyBootIntroPrimed;
-  const showLobbyOrb = lobbyBootIntroPrimed;
+  /** Base lobby layer: boot orb until primed + chrome-safe; then permanent lobby orb. */
+  const showBootOrb = !lobbyBootIntroPrimed || holdLobbyOrbForBootstrap;
+  const showLobbyOrb = lobbyBootIntroPrimed && !holdLobbyOrbForBootstrap;
   const lobbyOrbVisible = showBootOrb || showLobbyOrb;
   const baseLobbyLayerMounted = lobbyBootIntroPrimed;
   const lobbyChromeHidden =
@@ -941,9 +953,8 @@ export function InstantBanFlow({
     !overlayHandoffLobbySuppressed &&
     !successExitDraining &&
     !postSuccessHandoffBlocking &&
-    // Vertical 2: runtime selectLobbyMayShow is ordinary lobby authority.
-    // queue-lobby-guard / transitioning are not lifecycle authorities.
-    runtimeLobbyMayShow &&
+    // Safe chrome during empty bootstrap; strict idle still via selectLobbyMayShow for openLobby.
+    interactiveLobbyChromeMayShow &&
     (!replyLobbyBlocked || bansReturnToLobbyLatch) &&
     !deepLinkRouteBootPending &&
     !deepLinkReplyBooting &&
@@ -1579,12 +1590,12 @@ export function InstantBanFlow({
     if (replyUiShellActive) return;
     if (lobbyCtaBootSpringRef.current) return;
     if (sendStarted) return;
-    if (prefersReducedMotion()) {
-      lobbyCtaBootSpringRef.current = true;
+    lobbyCtaBootSpringRef.current = true;
+    // First usable paint: CTA visible immediately (no cold-start delay).
+    if (prefersReducedMotion() || LOBBY_CTA_COLD_START_DELAY_MS <= 0) {
       setCtaState('visible');
       return;
     }
-    lobbyCtaBootSpringRef.current = true;
     ctaBootDelayTimerRef.current = setTimeout(() => {
       ctaBootDelayTimerRef.current = null;
       setCtaState('entering');
@@ -1707,6 +1718,8 @@ export function InstantBanFlow({
   const effectiveBansOverlayOpen = bansLayerUiOpen;
   const showLobbyTopNav =
     lobbyBootIntroPrimed &&
+    !holdLobbyOrbForBootstrap &&
+    interactiveLobbyChromeMayShow &&
     phase === 'idle' &&
     !banSentSuccess &&
     !successToActiveLobbyBlocked &&
@@ -1721,6 +1734,34 @@ export function InstantBanFlow({
     !replyUiShellActive &&
     !deepLinkRouteBootPending &&
     !checkDeeplinkDirectPending;
+  useEffect(() => {
+    if (showLobbyCta && showLobbyTopNav) {
+      logBootGate('BOOT_GATE_LOBBY_RELEASED', {
+        userId: user?.id ?? null,
+        runtimeLifecycle: notificationRuntimeState.lifecycle.status,
+        bootstrapPhase: notificationRuntimeState.lifecycle.status,
+        blockingGate: null,
+      });
+    } else if (lobbyBootIntroPrimed && !holdLobbyOrbForBootstrap) {
+      logBootGate('BOOT_GATE_LOBBY_BLOCKED', {
+        userId: user?.id ?? null,
+        runtimeLifecycle: notificationRuntimeState.lifecycle.status,
+        blockingGate: !interactiveLobbyChromeMayShow
+          ? 'interactiveLobbyChromeMayShow-false'
+          : !showLobbyCta
+            ? 'showLobbyCta-false'
+            : 'showLobbyTopNav-false',
+      });
+    }
+  }, [
+    showLobbyCta,
+    showLobbyTopNav,
+    lobbyBootIntroPrimed,
+    holdLobbyOrbForBootstrap,
+    interactiveLobbyChromeMayShow,
+    notificationRuntimeState.lifecycle.status,
+    user?.id,
+  ]);
   const lobbyChromeBlockers = {
     replyLobbyBlocked,
     deepLinkRouteBootPending,
@@ -2894,7 +2935,7 @@ export function InstantBanFlow({
     [beginRepeatBanFlow, haptic],
   );
 
-  const handleOpenBansOverlay = useCallback(async () => {
+  const handleOpenBansOverlay = useCallback(() => {
     const queueDebug = getConfirmOrbQueueDebugSnapshot();
     const emitStartDrainEntryTrace = (
       source: string,
@@ -2938,19 +2979,19 @@ export function InstantBanFlow({
       });
     };
 
-    const blockedReason =
-      phase !== 'idle'
-        ? 'phase-not-idle'
-        : banSentSuccess
-          ? 'ban-sent-success'
-          : selectIsDraining(notificationRuntimeState)
-            ? 'runtime-draining'
-            : null;
-    const willCallDrain = blockedReason == null;
+    const plan = planLobbyBansOpenNavigation({
+      phaseIsIdle: phase === 'idle',
+      banSentSuccess,
+      runtimeDraining: selectIsDraining(notificationRuntimeState),
+      alreadyOpen: bansOverlayOpen || bansLayerUiOpen,
+      openInFlight: bansOpenInFlightRef.current,
+    });
+    const blockedReason = plan.blockReason;
+    const willOpen = plan.openImmediately;
 
     emitStartDrainEntryTrace('handleOpenBansOverlay:entry', {
-      willCallStartDrain: willCallDrain,
-      willStartDrain: willCallDrain,
+      willCallStartDrain: willOpen,
+      willStartDrain: willOpen,
       skipReason: blockedReason,
     });
 
@@ -2967,7 +3008,7 @@ export function InstantBanFlow({
       notificationChainTransitioning,
       notificationQueueUiLock,
       activeOverlayKind: activeOverlayKind ?? null,
-      willCallStartLobbyBansNotificationDrain: willCallDrain,
+      willCallStartLobbyBansNotificationDrain: false,
       blockedReason,
     });
     logQueueAppearanceReactionTrace({
@@ -2983,7 +3024,7 @@ export function InstantBanFlow({
       showLobby: showLobbyTopNav,
       notificationChainTransitioning,
       queueHeadKind: null,
-      willStartOnClick: willCallDrain,
+      willStartOnClick: willOpen,
       willAutoStartDrain: false,
       skipReason: blockedReason,
     });
@@ -2992,13 +3033,13 @@ export function InstantBanFlow({
       lobbyBansNeedAttention,
       pendingStartupInteractionsLen: pendingStartupInteractions,
       refQueueLen: overlayQueueLength,
-      selectedAction: willCallDrain ? 'pending-drain-call' : 'ignored',
-      reason: blockedReason ?? 'calling-startLobbyBansNotificationDrain',
+      selectedAction: willOpen ? 'sync-open-section' : 'ignored',
+      reason: blockedReason ?? 'sync-open-then-background-prefetch',
       notificationDrainActive: notificationChainTransitioning,
     });
     logQueueSourceComparisonSnapshot('lobby-bans-cta-click');
 
-    if (!willCallDrain) {
+    if (!willOpen) {
       emitStartDrainEntryTrace('handleOpenBansOverlay:early-return-blocked', {
         willCallStartDrain: false,
         willStartDrain: false,
@@ -3019,51 +3060,15 @@ export function InstantBanFlow({
       return;
     }
 
+    bansOpenInFlightRef.current = true;
     clearActiveBanDeepLinkShell('lobby-bans-button');
     closeSendFlow();
     logLobbyBansClickDecisionDiag({
       source: 'handleOpenBansOverlay',
-      decision: 'start-chain',
-      reason: 'calling-startLobbyBansNotificationDrain',
+      decision: 'open-section-sync',
+      reason: 'sync-navigation-before-prefetch',
       indicatorVisible: lobbyBansNeedAttention,
     });
-    emitStartDrainEntryTrace(
-      'handleOpenBansOverlay:before-startLobbyBansNotificationDrain',
-      {
-        willCallStartDrain: true,
-        willStartDrain: true,
-      },
-    );
-    clearSharedSkipResultsPrefetchForExplicitDrain(
-      'handleOpenBansOverlay:before-start',
-    );
-    const outcome = await startLobbyBansNotificationDrain();
-    if (outcome === 'drain-failed') {
-      setBansOverlayOpen(true);
-      return;
-    }
-    if (outcome !== 'empty') {
-      emitStartDrainEntryTrace('handleOpenBansOverlay:early-return-drain-outcome', {
-        willCallStartDrain: true,
-        willStartDrain: false,
-        earlyReturnReason: `drain-outcome-${outcome}`,
-        skipReason: `drain-outcome-${outcome}`,
-      });
-      logLobbyBansCtaEmptyDelayDiag({
-        source: 'handleOpenBansOverlay',
-        rejectedCount: null,
-        toEnqueueLen: null,
-        chainAdvanceWaiting: null,
-        notificationChainTransitioning,
-        shouldOpenBansSection: true,
-        delayReason: `drain-outcome-${outcome}`,
-        openSectionBlockedBy:
-          outcome === 'drained'
-            ? 'notification-shown-instead-of-section'
-            : 'drain-failed',
-      });
-      return;
-    }
     resetBansNavState();
     const targetTab = openBansOverlayTabRequest ?? 'yours';
     setBansTab(targetTab);
@@ -3071,13 +3076,31 @@ export function InstantBanFlow({
     setBansOverlayOpen(true);
     noteBansLayerOpenAllowed(
       'handleOpenBansOverlay',
-      'lobby-explicit-click-commit',
+      'lobby-explicit-click-commit-sync',
       'lobby-explicit',
     );
+
+    // Background prefetch only — never mount notification cards over bans.
+    if (plan.runBackgroundPrefetch) {
+      clearSharedSkipResultsPrefetchForExplicitDrain(
+        'handleOpenBansOverlay:after-sync-open',
+      );
+      void Promise.resolve(prefetchPendingAfterLobbyBansOpen())
+        .catch(() => {
+          /* keep bans overlay open on prefetch failure */
+        })
+        .finally(() => {
+          bansOpenInFlightRef.current = false;
+        });
+    } else {
+      bansOpenInFlightRef.current = false;
+    }
   }, [
     activeBanDeepLinkBanId,
     activeOverlayKind,
     banSentSuccess,
+    bansLayerUiOpen,
+    bansOverlayOpen,
     bansTab,
     clearActiveBanDeepLinkShell,
     closeSendFlow,
@@ -3104,11 +3127,13 @@ export function InstantBanFlow({
     showLobbyTopNav,
     lobbyBansNeedAttention,
     clearSharedSkipResultsPrefetchForExplicitDrain,
-    startLobbyBansNotificationDrain,
+    prefetchPendingAfterLobbyBansOpen,
+    openBansOverlayTabRequest,
     user?.id,
     pendingStartupInteractions,
     overlayQueueLength,
     notificationRuntimeState,
+    result,
   ]);
 
   const handleOpenSettings = useCallback(() => {

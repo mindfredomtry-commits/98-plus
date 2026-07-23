@@ -241,6 +241,7 @@ import {
   requestBootstrap,
   type BootstrapNotificationMode,
 } from '@/notification-runtime/notification-runtime.bootstrap';
+import { logBootGate } from '@/lib/boot-gate-diag';
 import {
   selectIndicatorVisible,
   selectIsDraining,
@@ -1557,6 +1558,9 @@ interface AppContextValue {
    * TEMP consumers: InstantBanFlow showLobbyCta.
    */
   runtimeLobbyMayShow: boolean;
+  /** Safe interactive chrome during empty bootstrap (selectors only). */
+  interactiveLobbyChromeMayShow: boolean;
+  holdLobbyOrbForBootstrap: boolean;
   activeOverlayKind: 'incoming' | 'check' | 'result' | null;
   markOverlayUserAction: (kind: string, banId?: string) => void;
   logCardCloseClick: (opts: {
@@ -1822,6 +1826,11 @@ interface AppContextValue {
   unlockNotificationQueueAndFlush: (reason: string) => void;
   /** Lobby «Твои запреты»: drain notification queue or open empty section. */
   startLobbyBansNotificationDrain: () => Promise<LobbyBansNotificationDrainOutcome>;
+  /**
+   * After sync bans-section open: refresh pending indicator via runtime ingest.
+   * Must not mount notification overlay cards.
+   */
+  prefetchPendingAfterLobbyBansOpen: () => Promise<void>;
   /** Drop passive lobby-indicator-prime shared prefetch before explicit bans click. */
   clearSharedSkipResultsPrefetchForExplicitDrain: (source: string) => void;
   /** After send-success exit: drain one pending notification over lobby. */
@@ -26001,6 +26010,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
     const bootstrapTransitionId = bootReq.transitionId;
     const bootstrapSinks = EMPTY_RUNTIME_LEGACY_SINKS;
+    logBootGate('BOOT_GATE_RUNTIME_BOOTSTRAP_START', {
+      userId: requestUserId,
+      requestName: '/bans/session',
+      transitionId: bootstrapTransitionId,
+      runtimeLifecycle: 'booting',
+      bootstrapPhase: 'requested',
+    });
+    logBootGate('BOOT_GATE_SESSION_START', {
+      userId: requestUserId,
+      requestName: '/bans/session',
+      transitionId: bootstrapTransitionId,
+      bootstrapPhase: 'session-fetch',
+    });
 
     try {
       const requestedAt = Date.now();
@@ -26022,6 +26044,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }),
       );
       const session = await fetchSession(token);
+      logBootGate('BOOT_GATE_SESSION_SUCCESS', {
+        userId: requestUserId,
+        requestName: '/bans/session',
+        httpStatus: 200,
+        transitionId: bootstrapTransitionId,
+        bootstrapPhase: 'session-ok',
+        elapsedMs: Date.now() - requestedAt,
+      });
       // Discard if user/token switched while request in-flight.
       if (tokenRef.current !== token) {
         failBootstrap(
@@ -26290,6 +26320,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           notificationRuntimeStoreRef.current,
         ),
       });
+      logBootGate('BOOT_GATE_RUNTIME_BOOTSTRAP_SUCCESS', {
+        userId: requestUserId,
+        transitionId: bootstrapTransitionId,
+        bootstrapPhase: String(bootOutcome),
+        runtimeLifecycle:
+          notificationRuntimeStoreRef.current.getState().lifecycle.status,
+        requestName: '/bans/session',
+        httpStatus: 200,
+      });
 
       void refreshUserRef.current().catch(() => {});
       void api('/analytics/track', {
@@ -26315,6 +26354,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         },
         bootstrapSinks,
       );
+      logBootGate('BOOT_GATE_SESSION_FAILURE', {
+        userId: requestUserId,
+        requestName: '/bans/session',
+        transitionId: bootstrapTransitionId,
+        errorCode: 'BOOTSTRAP_FAILED',
+        errorClass: 'SessionFetchError',
+        bootstrapPhase: 'session-failed',
+      });
+      logBootGate('BOOT_GATE_RUNTIME_BOOTSTRAP_FAILURE', {
+        userId: requestUserId,
+        transitionId: bootstrapTransitionId,
+        errorCode: 'BOOTSTRAP_FAILED',
+        runtimeLifecycle: 'idle',
+        bootstrapPhase: 'failed',
+      });
       startupInteractionsHoldRef.current = false;
       mirrorOwnerSessionFlagsRef.current('v7-bootstrap:failed-release-hold', {
         startupHold: false,
@@ -32359,6 +32413,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       syncPendingStartupCount,
     ]);
   startLobbyBansNotificationDrainRef.current = startLobbyBansNotificationDrain;
+
+  const prefetchPendingAfterLobbyBansOpen = useCallback(async () => {
+    try {
+      await prefetchPendingNotificationChain(
+        null,
+        'lobby-bans-cta-after-sync-open',
+      );
+    } catch {
+      /* overlay stays open; badge may refresh on next poll */
+    }
+  }, [prefetchPendingNotificationChain]);
 
   const armOpenBansOverlayFromResultCta = useCallback(
     (banId: string | null, targetTab: BansOverlayTabTarget = 'yours') => {
@@ -44099,6 +44164,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearNotificationOverlayForEmptyQueueAfterSuccessExit,
       notificationOverlayVisible,
       runtimeLobbyMayShow: notificationRuntimeUi.lobbyMayShow,
+      interactiveLobbyChromeMayShow:
+        notificationRuntimeUi.interactiveLobbyChromeMayShow,
+      holdLobbyOrbForBootstrap:
+        notificationRuntimeUi.holdLobbyOrbForBootstrap,
       activeOverlayKind: incomingOverlayDisplayKind,
     logCardCloseClick,
     markOverlayUserAction,
@@ -44259,6 +44328,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       armActiveBanDeepLinkEarly,
       unlockNotificationQueueAndFlush,
       startLobbyBansNotificationDrain,
+      prefetchPendingAfterLobbyBansOpen,
       clearSharedSkipResultsPrefetchForExplicitDrain,
       drainNextNotificationAfterSuccess,
       resolveReplyParentActiveBanImmediate,
@@ -44301,6 +44371,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearNotificationOverlayForEmptyQueueAfterSuccessExit,
       notificationOverlayVisible,
       notificationRuntimeUi.lobbyMayShow,
+      notificationRuntimeUi.interactiveLobbyChromeMayShow,
+      notificationRuntimeUi.holdLobbyOrbForBootstrap,
       incomingOverlayDisplayKind,
     logCardCloseClick,
     markOverlayUserAction,
@@ -44452,6 +44524,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       armActiveBanDeepLinkEarly,
       unlockNotificationQueueAndFlush,
       startLobbyBansNotificationDrain,
+      prefetchPendingAfterLobbyBansOpen,
       clearSharedSkipResultsPrefetchForExplicitDrain,
       drainNextNotificationAfterSuccess,
       resolveReplyParentActiveBanImmediate,

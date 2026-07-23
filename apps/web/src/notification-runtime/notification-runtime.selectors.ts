@@ -118,6 +118,37 @@ export function selectLobbyMayShow(state: NotificationRuntimeState): boolean {
   return state.lifecycle.status === 'idle' && !selectOverlayVisible(state);
 }
 
+/**
+ * Interactive lobby chrome (top nav + CTA) during notification bootstrap.
+ * Strict lobby authority remains selectLobbyMayShow (idle only).
+ * Safe while booting only when nothing must claim the overlay above lobby.
+ */
+export function selectInteractiveLobbyChromeMayShow(
+  state: NotificationRuntimeState,
+): boolean {
+  if (selectLobbyMayShow(state)) return true;
+  if (state.lifecycle.status !== 'booting') return false;
+  if (selectOverlayVisible(state)) return false;
+  if (state.display.kind != null || state.display.payload != null) return false;
+  if (state.items.queue.length > 0) return false;
+  if (selectIsDirectEntry(state)) return false;
+  if (selectHasDeferredDirectEntry(state)) return false;
+  if (selectIsActionBlocked(state)) return false;
+  if (selectIsDraining(state)) return false;
+  // Bootstrap parks recovery.status=loading; only true recovery lifecycle blocks chrome.
+  if (state.lifecycle.status === 'recovering') return false;
+  return true;
+}
+
+/** Hold ready lobby orb until chrome may paint during unsafe bootstrap. */
+export function selectHoldLobbyOrbForBootstrap(
+  state: NotificationRuntimeState,
+): boolean {
+  return (
+    selectIsBooting(state) && !selectInteractiveLobbyChromeMayShow(state)
+  );
+}
+
 export function selectCurrentItemId(
   state: NotificationRuntimeState,
 ): string | null {

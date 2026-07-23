@@ -16,6 +16,8 @@ import {
 import type { RuntimeLegacySinks } from './notification-runtime.production-advance';
 import {
   selectHasPending,
+  selectHoldLobbyOrbForBootstrap,
+  selectInteractiveLobbyChromeMayShow,
   selectLobbyMayShow,
   selectOverlayVisible,
   selectPendingCount,
@@ -41,6 +43,8 @@ export type RuntimePaintSnapshot = {
   hasPending: boolean;
   overlayVisible: boolean;
   lobbyMayShow: boolean;
+  interactiveLobbyChromeMayShow: boolean;
+  holdLobbyOrbForBootstrap: boolean;
 };
 
 /** Sole notification paint snapshot for production UI. */
@@ -57,6 +61,8 @@ export function selectRuntimePaintSnapshot(
     hasPending: selectHasPending(state),
     overlayVisible: selectOverlayVisible(state),
     lobbyMayShow: selectLobbyMayShow(state),
+    interactiveLobbyChromeMayShow: selectInteractiveLobbyChromeMayShow(state),
+    holdLobbyOrbForBootstrap: selectHoldLobbyOrbForBootstrap(state),
   };
 }
 

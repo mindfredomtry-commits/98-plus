@@ -16,6 +16,7 @@ import {
 } from '@/lib/config';
 import { useTelegram } from './useTelegram';
 import { logAuthTiming } from '@/lib/boot-timing';
+import { logBootGate, resetBootGateDiagClock } from '@/lib/boot-gate-diag';
 import {
   enrichBanInteraction,
   enrichUserPublic,
@@ -71,6 +72,27 @@ export function useAuth() {
     setUser(session.user);
     setLoading(session.loading);
   }, []);
+
+  useEffect(() => {
+    resetBootGateDiagClock();
+    logBootGate('BOOT_GATE_INIT', {
+      authStatus: 'init',
+      blockingGate: 'auth-loading',
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    logBootGate('BOOT_GATE_TELEGRAM_CONTEXT', {
+      telegramId: telegramId ?? tgUser?.id ?? null,
+      platform:
+        typeof window !== 'undefined'
+          ? window.Telegram?.WebApp?.platform ?? null
+          : null,
+      initDataPresent: Boolean(initData),
+      authStatus: 'telegram-ready',
+    });
+  }, [ready, initData, telegramId, tgUser?.id]);
 
   // Used to discard in-flight auth/session results when Telegram user changes.
   const identityRef = useRef<number | null>(null);
@@ -180,6 +202,15 @@ export function useAuth() {
             startParam: window.Telegram?.WebApp?.initDataUnsafe?.start_param,
           });
         }
+        logBootGate('BOOT_GATE_AUTH_START', {
+          telegramId: telegramId ?? tgUser?.id ?? null,
+          platform: typeof window !== 'undefined'
+            ? window.Telegram?.WebApp?.platform ?? null
+            : null,
+          initDataPresent: true,
+          requestName: '/auth/telegram',
+          authStatus: 'start',
+        });
         try {
           res = await api('/auth/telegram', {
             method: 'POST',
@@ -192,6 +223,14 @@ export function useAuth() {
             ok: true,
             userId: res.user?.id ?? null,
             telegramId: res.user?.telegramId ?? null,
+          });
+          logBootGate('BOOT_GATE_AUTH_SUCCESS', {
+            userId: res.user?.id ?? null,
+            telegramId: res.user?.telegramId ?? null,
+            requestName: '/auth/telegram',
+            httpStatus: 200,
+            authStatus: 'success',
+            initDataPresent: true,
           });
         } catch (authErr) {
           console.log('[TG AUTH DEBUG] /auth/telegram failed', {
@@ -210,6 +249,24 @@ export function useAuth() {
                   : null,
             message:
               authErr instanceof Error ? authErr.message : String(authErr),
+          });
+          logBootGate('BOOT_GATE_AUTH_FAILURE', {
+            telegramId: telegramId ?? tgUser?.id ?? null,
+            requestName: '/auth/telegram',
+            httpStatus:
+              authErr instanceof ApiError ? authErr.status : null,
+            authStatus: 'failure',
+            initDataPresent: true,
+            errorClass:
+              authErr instanceof NetworkError
+                ? 'NetworkError'
+                : authErr instanceof ApiError
+                  ? 'ApiError'
+                  : 'Error',
+            errorCode:
+              authErr instanceof ApiError
+                ? String(authErr.status)
+                : 'AUTH_FAILED',
           });
           throw authErr;
         }
@@ -248,6 +305,14 @@ export function useAuth() {
         }
         setError('Открой через Telegram');
         setLoading(false);
+        logBootGate('BOOT_GATE_AUTH_FAILURE', {
+          telegramId: telegramId ?? tgUser?.id ?? null,
+          initDataPresent: false,
+          authStatus: 'no-initData',
+          errorCode: 'NO_TELEGRAM_INITDATA',
+          errorClass: 'ClientGate',
+          blockingGate: 'initData-missing',
+        });
         return;
       }
     } catch (e) {

@@ -4,6 +4,8 @@
 import {
   selectCurrentItem,
   selectCurrentItemId,
+  selectHoldLobbyOrbForBootstrap,
+  selectInteractiveLobbyChromeMayShow,
   selectLobbyMayShow,
   selectOverlayVisible,
 } from './notification-runtime.selectors';
@@ -18,6 +20,8 @@ export type NotificationRuntimeUiSnapshot = {
   display: ReturnType<typeof projectRuntimeDisplayToLegacy>;
   overlayVisible: boolean;
   lobbyMayShow: boolean;
+  interactiveLobbyChromeMayShow: boolean;
+  holdLobbyOrbForBootstrap: boolean;
   queueLength: number;
 };
 
@@ -32,6 +36,8 @@ export function selectNotificationRuntimeUiSnapshot(
     display: projectRuntimeDisplayToLegacy(state),
     overlayVisible: selectOverlayVisible(state),
     lobbyMayShow: selectLobbyMayShow(state),
+    interactiveLobbyChromeMayShow: selectInteractiveLobbyChromeMayShow(state),
+    holdLobbyOrbForBootstrap: selectHoldLobbyOrbForBootstrap(state),
     queueLength: state.items.queue.length,
   };
 }
