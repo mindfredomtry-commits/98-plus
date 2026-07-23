@@ -142,6 +142,66 @@ function reconcilePending(
   return out;
 }
 
+/**
+ * Vertical 7 — repair queue/display invariants after bootstrap.
+ * current = queue[0]; display only from runtime; idle ⇒ no overlay.
+ */
+function repairQueueDisplayInvariant(
+  state: NotificationRuntimeState,
+  source: NotificationRuntimeState['lifecycle']['source'],
+): NotificationRuntimeState {
+  const head = state.items.queue[0] ?? null;
+  const overlayStatuses = new Set([
+    'showing',
+    'submitting',
+    'completing',
+  ]);
+
+  if (state.lifecycle.status === 'idle') {
+    if (state.display.kind != null || state.display.payload != null) {
+      return clearDisplay(clearAction(state));
+    }
+    return state;
+  }
+
+  if (overlayStatuses.has(state.lifecycle.status)) {
+    if (!head) {
+      return {
+        ...clearDisplay(clearAction(state)),
+        lifecycle: {
+          status: 'idle',
+          source,
+          transitionId: null,
+        },
+      };
+    }
+    const headId = notificationItemId(head);
+    const displayId =
+      state.display.payload == null
+        ? null
+        : state.display.payload.kind === 'result'
+          ? `result:${String(state.display.payload.result.id).trim()}`
+          : `${state.display.payload.kind}:${String(state.display.payload.ban.id).trim()}`;
+    if (
+      state.display.kind !== head.kind ||
+      displayId !== headId ||
+      state.display.payload == null
+    ) {
+      return showHead(
+        state,
+        source,
+        state.lifecycle.transitionId,
+        state.display.mode === 'direct' ||
+          state.display.mode === 'direct-overboard'
+          ? state.display.mode
+          : 'normal',
+      );
+    }
+  }
+
+  return state;
+}
+
 function dismissHead(
   state: NotificationRuntimeState,
   targetItemId: string,
@@ -279,9 +339,39 @@ export function notificationRuntimeReducer(
     }
 
     case 'BOOTSTRAP_REQUESTED': {
+      // Vertical 7: deeplink / direct entry outranks boot snapshot display.
+      const preserveDirect =
+        base.directEntry.active ||
+        base.display.mode === 'direct' ||
+        base.display.mode === 'direct-overboard' ||
+        base.directEntry.deferred != null;
+
+      if (preserveDirect) {
+        return {
+          state: {
+            ...base,
+            recovery: {
+              status: 'loading',
+              snapshotVersion: null,
+              transitionId: event.transitionId,
+            },
+          },
+          effects: [
+            {
+              type: 'FETCH_PENDING',
+              transitionId: event.transitionId,
+              source: event.source,
+            },
+          ],
+        };
+      }
+
+      // Fresh boot: drop mid-flight action/display/queue; keep consumed TTL.
       return {
         state: {
-          ...base,
+          ...clearDisplay(clearAction(base)),
+          items: { queue: [] },
+          pending: { itemIds: [], sourceVersion: null },
           lifecycle: {
             status: 'booting',
             source: event.source,
@@ -290,7 +380,9 @@ export function notificationRuntimeReducer(
           recovery: {
             status: 'loading',
             snapshotVersion: null,
+            transitionId: event.transitionId,
           },
+          directEntry: createEmptyDirectEntryState(),
         },
         effects: [
           {
@@ -434,12 +526,59 @@ export function notificationRuntimeReducer(
       return { state: next, effects };
     }
 
+    case 'BOOTSTRAP_SNAPSHOT_RECEIVED':
     case 'BOOTSTRAP_COMPLETED': {
-      const queue = dedupeAppend([], event.items);
-      const pendingIds = reconcilePending(
-        event.pendingItemIds,
-        base.consumed.itemIds,
+      const expectedTid =
+        base.recovery.transitionId ?? base.lifecycle.transitionId;
+      if (expectedTid && expectedTid !== event.transitionId) {
+        // Stale bootstrap response — ignore.
+        return { state: base, effects: [] };
+      }
+
+      const preserveDirect =
+        base.directEntry.active ||
+        base.display.mode === 'direct' ||
+        base.display.mode === 'direct-overboard' ||
+        base.directEntry.deferred != null;
+
+      const extraConsumed = event.consumedItemIds ?? [];
+      let consumedIds = [...base.consumed.itemIds];
+      for (const id of extraConsumed) {
+        if (id && !consumedIds.includes(id)) consumedIds.push(id);
+      }
+
+      const pendingIds = reconcilePending(event.pendingItemIds, consumedIds);
+      const autoShow =
+        event.type === 'BOOTSTRAP_SNAPSHOT_RECEIVED'
+          ? event.autoShow
+          : event.autoShow !== false;
+
+      if (preserveDirect) {
+        // Deeplink wins: refresh pending/consumed only; never replace display.
+        return {
+          state: {
+            ...base,
+            pending: {
+              itemIds: pendingIds,
+              sourceVersion: event.sourceVersion,
+            },
+            consumed: { itemIds: consumedIds },
+            recovery: {
+              status: 'applied',
+              snapshotVersion: event.sourceVersion,
+              transitionId: null,
+            },
+          },
+          effects,
+        };
+      }
+
+      const filteredItems = event.items.filter(
+        (item) => !consumedIds.includes(notificationItemId(item)),
       );
+      // Normal mode: pending/badge only — empty display queue.
+      const queue = autoShow ? dedupeAppend([], filteredItems) : [];
+
       let next: NotificationRuntimeState = {
         ...base,
         items: { queue },
@@ -447,12 +586,15 @@ export function notificationRuntimeReducer(
           itemIds: pendingIds,
           sourceVersion: event.sourceVersion,
         },
+        consumed: { itemIds: consumedIds },
         recovery: {
           status: 'applied',
           snapshotVersion: event.sourceVersion,
+          transitionId: null,
         },
       };
-      if (queue.length > 0) {
+
+      if (autoShow && queue.length > 0) {
         next = showHead(next, event.source, event.transitionId, 'normal');
       } else {
         next = {
@@ -464,7 +606,55 @@ export function notificationRuntimeReducer(
           },
         };
       }
+
+      // Repair: display must be queue[0] when showing; idle ⇒ no overlay.
+      next = repairQueueDisplayInvariant(next, event.source);
       return { state: next, effects };
+    }
+
+    case 'BOOTSTRAP_FAILED': {
+      const expectedTid =
+        base.recovery.transitionId ?? base.lifecycle.transitionId;
+      if (expectedTid && expectedTid !== event.transitionId) {
+        return { state: base, effects: [] };
+      }
+
+      const preserveDirect =
+        base.directEntry.active ||
+        base.display.mode === 'direct' ||
+        base.display.mode === 'direct-overboard';
+
+      if (preserveDirect) {
+        return {
+          state: {
+            ...base,
+            recovery: {
+              status: 'failed',
+              snapshotVersion: base.recovery.snapshotVersion,
+              transitionId: null,
+            },
+          },
+          effects: [],
+        };
+      }
+
+      return {
+        state: {
+          ...clearDisplay(clearAction(base)),
+          items: { queue: [] },
+          lifecycle: {
+            status: 'idle',
+            source: event.source,
+            transitionId: null,
+          },
+          recovery: {
+            status: 'failed',
+            snapshotVersion: base.recovery.snapshotVersion,
+            transitionId: null,
+          },
+        },
+        effects: [],
+      };
     }
 
     case 'CARD_ACTION_REQUESTED': {
@@ -673,6 +863,7 @@ export function notificationRuntimeReducer(
           recovery: {
             status: 'loading',
             snapshotVersion: null,
+            transitionId: event.transitionId,
           },
         },
         effects: [
@@ -700,6 +891,7 @@ export function notificationRuntimeReducer(
         recovery: {
           status: 'applied',
           snapshotVersion: event.snapshotVersion,
+          transitionId: null,
         },
       };
       if (queue.length > 0) {
@@ -714,6 +906,7 @@ export function notificationRuntimeReducer(
           },
         };
       }
+      next = repairQueueDisplayInvariant(next, event.source);
       return { state: next, effects };
     }
 
@@ -729,6 +922,7 @@ export function notificationRuntimeReducer(
           recovery: {
             status: 'failed',
             snapshotVersion: base.recovery.snapshotVersion,
+            transitionId: null,
           },
         },
         effects: [],

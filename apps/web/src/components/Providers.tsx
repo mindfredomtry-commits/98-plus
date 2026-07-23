@@ -232,6 +232,14 @@ import {
   toDirectNotificationItem,
 } from '@/notification-runtime/notification-runtime.direct-entry';
 import {
+  bootstrapAllowsHostLobby,
+  completeBootstrap,
+  failBootstrap,
+  pendingIdsFromBootstrapItems,
+  requestBootstrap,
+  type BootstrapNotificationMode,
+} from '@/notification-runtime/notification-runtime.bootstrap';
+import {
   selectIndicatorVisible,
   selectIsDraining,
   selectIsDirectEntry,
@@ -16763,6 +16771,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const releaseStartupInteractions = useCallback(
     (opts?: { requireBanSend?: boolean; force?: boolean }) => {
+      // Vertical 7: startup hold release is presentation adapter only.
+      // Bootstrap / reload / visibility / WS recovery owned by runtime.
       emitPendingPromotionPathTrace(
         'releaseStartupInteractions',
         opts?.force
@@ -26273,11 +26283,32 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setInitialNetworkBootstrapAttempted(true);
       return;
     }
+
+    // Vertical 7: runtime is sole bootstrap/recovery owner.
+    // Transport parks under hold; runtime decides overlay | badge | lobby.
+    startupInteractionsHoldRef.current = true;
+    mirrorOwnerSessionFlagsRef.current('v7-bootstrap:hold-transport', {
+      startupHold: true,
+    });
+    const bootReq = requestBootstrap(notificationRuntimeStoreRef.current, {
+      source: 'bootstrap',
+    });
+    const bootstrapTransitionId = bootReq.transitionId;
+    const bootstrapSinks = {
+      writeQueue: (queue: QueuedOverlay[], src: string) => {
+        writeOverlayQueueSilent(queue, src, 'v7-bootstrap');
+      },
+      writeDisplay: (patch: OwnerActiveDisplayPatch, src: string) => {
+        commitSyncDisplayActivePayload(patch, src);
+      },
+    };
+
     try {
       const requestedAt = Date.now();
       console.log('[session-fetch]', {
         authUserId: requestUserId,
         requestedAt,
+        bootstrapTransitionId,
       });
       logQueueApiFetchStart({
         source: 'reloadPending',
@@ -26293,8 +26324,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
       const session = await fetchSession(token);
       // Discard if user/token switched while request in-flight.
-      if (tokenRef.current !== token) return;
-      if (userIdRef.current !== requestUserId) return;
+      if (tokenRef.current !== token) {
+        failBootstrap(
+          notificationRuntimeStoreRef.current,
+          {
+            transitionId: bootstrapTransitionId,
+            errorCode: 'AUTH_SWITCHED',
+            source: 'bootstrap',
+          },
+          bootstrapSinks,
+        );
+        return;
+      }
+      if (userIdRef.current !== requestUserId) {
+        failBootstrap(
+          notificationRuntimeStoreRef.current,
+          {
+            transitionId: bootstrapTransitionId,
+            errorCode: 'USER_SWITCHED',
+            source: 'bootstrap',
+          },
+          bootstrapSinks,
+        );
+        return;
+      }
 
       console.log('[session-fetch]', {
         authUserId: requestUserId,
@@ -26358,6 +26411,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
       applySession(session);
 
+      // Vertical 7: collect transport snapshot; runtime decides display.
+      const bootstrapItems: Array<
+        | { kind: 'incoming'; ban: BanInteraction }
+        | { kind: 'check'; ban: BanInteraction }
+        | { kind: 'result'; result: BanResult }
+      > = [];
+      const consumedForBoot: string[] = [];
+      for (const id of dismissedIncomingRef.current) {
+        const norm = normalizeId(id);
+        if (norm) consumedForBoot.push(`incoming:${norm}`);
+      }
+      if (session.incoming?.id) {
+        const ban = enrichBanInteraction(session.incoming);
+        const key = normalizeId(ban.id);
+        if (key && dismissedIncomingRef.current.has(key)) {
+          consumedForBoot.push(`incoming:${key}`);
+        } else if (key) {
+          bootstrapItems.push({ kind: 'incoming', ban });
+        }
+      }
+      if (session.check?.id) {
+        bootstrapItems.push({
+          kind: 'check',
+          ban: enrichBanInteraction(session.check),
+        });
+      }
+
+      let bootstrapResult: BanResult | null = null;
       if (session.pendingResultId) {
         const pendingId = session.pendingResultId;
         if (notificationChainAwaitingUserRef.current) {
@@ -26401,6 +26482,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               requestUserId,
             ),
           });
+          const consumedKey = normalizeId(pendingId);
+          if (consumedKey) consumedForBoot.push(`result:${consumedKey}`);
           void acknowledgeBanResultOnServer(pendingId, token);
         } else {
           try {
@@ -26408,8 +26491,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               `/bans/${pendingId}/result`,
               { token },
             );
-            if (tokenRef.current !== token) return;
-            if (userIdRef.current !== requestUserId) return;
+            if (tokenRef.current !== token) {
+              failBootstrap(
+                notificationRuntimeStoreRef.current,
+                {
+                  transitionId: bootstrapTransitionId,
+                  errorCode: 'AUTH_SWITCHED',
+                  source: 'bootstrap',
+                },
+                bootstrapSinks,
+              );
+              return;
+            }
+            if (userIdRef.current !== requestUserId) {
+              failBootstrap(
+                notificationRuntimeStoreRef.current,
+                {
+                  transitionId: bootstrapTransitionId,
+                  errorCode: 'USER_SWITCHED',
+                  source: 'bootstrap',
+                },
+                bootstrapSinks,
+              );
+              return;
+            }
             if (pendingResult) {
               const afterFetchBlock = shouldBlockResultOpen({
                 resultBanId: pendingResult.id,
@@ -26423,6 +26528,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 extra: { phase: 'after-fetch' },
               });
               if (!afterFetchBlock.blocked) {
+                bootstrapResult = pendingResult;
+                // Transport only — runtime completeBootstrap owns display.
                 receiveResult(pendingResult, 'poll');
               }
             }
@@ -26432,6 +26539,58 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
         }
       }
+
+      if (bootstrapResult) {
+        bootstrapItems.push({ kind: 'result', result: bootstrapResult });
+      }
+
+      const mode: BootstrapNotificationMode = normalizeNotificationMode(
+        notificationModeRef.current,
+      );
+      const pendingIds = pendingIdsFromBootstrapItems(bootstrapItems);
+      // Also include ids parked in TEMP pendingStartup (transport mirror).
+      for (const item of pendingStartupInteractionsRef.current) {
+        const id =
+          item.kind === 'result'
+            ? `result:${normalizeId(item.result.id)}`
+            : `${item.kind}:${normalizeId(item.ban.id)}`;
+        if (id.includes(':') && !id.endsWith(':') && !pendingIds.includes(id)) {
+          pendingIds.push(id);
+        }
+      }
+
+      const bootOutcome = completeBootstrap(
+        notificationRuntimeStoreRef.current,
+        {
+          transitionId: bootstrapTransitionId,
+          items: bootstrapItems,
+          pendingItemIds: pendingIds,
+          consumedItemIds: consumedForBoot,
+          mode,
+          sourceVersion: String(requestedAt),
+          source: 'bootstrap',
+        },
+        bootstrapSinks,
+      );
+
+      // Startup hold is presentation adapter only — not boot authority.
+      startupInteractionsHoldRef.current = false;
+      mirrorOwnerSessionFlagsRef.current('v7-bootstrap:release-hold-adapter', {
+        startupHold: false,
+      });
+      // Clear Legacy pendingStartup authority; badge is runtime pending − consumed.
+      commitPendingQueueViaOwner([], 'v7-bootstrap-complete', 'clear-pending-authority');
+
+      console.log('[v7-bootstrap-complete]', {
+        transitionId: bootstrapTransitionId,
+        outcome: bootOutcome,
+        mode,
+        itemCount: bootstrapItems.length,
+        pendingCount: pendingIds.length,
+        lobbyMayShow: bootstrapAllowsHostLobby(
+          notificationRuntimeStoreRef.current,
+        ),
+      });
 
       void refreshUserRef.current().catch(() => {});
       void api('/analytics/track', {
@@ -26448,6 +26607,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         authUserId: requestUserId,
       });
     } catch {
+      failBootstrap(
+        notificationRuntimeStoreRef.current,
+        {
+          transitionId: bootstrapTransitionId,
+          errorCode: 'BOOTSTRAP_FAILED',
+          source: 'bootstrap',
+        },
+        bootstrapSinks,
+      );
+      startupInteractionsHoldRef.current = false;
+      mirrorOwnerSessionFlagsRef.current('v7-bootstrap:failed-release-hold', {
+        startupHold: false,
+      });
       console.log('[connection-ui]', {
         phase: 'session-sync-failed',
         authUserId: requestUserId,

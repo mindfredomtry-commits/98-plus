@@ -107,6 +107,17 @@ export function createNotificationRuntimeStore(): NotificationRuntimeStore {
           return { state, effects: [] };
         }
       }
+      if (
+        event.type === 'BOOTSTRAP_COMPLETED' ||
+        event.type === 'BOOTSTRAP_SNAPSHOT_RECEIVED' ||
+        event.type === 'BOOTSTRAP_FAILED'
+      ) {
+        const expected =
+          state.recovery.transitionId ?? state.lifecycle.transitionId;
+        if (expected && event.transitionId !== expected) {
+          return { state, effects: [] };
+        }
+      }
       if (event.type === 'RESET_REQUESTED') {
         seenDismissTransitionIds.clear();
         seenActionCommandIds.clear();

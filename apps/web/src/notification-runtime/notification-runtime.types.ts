@@ -105,6 +105,8 @@ export type NotificationRuntimeState = {
   recovery: {
     status: RecoveryStatus;
     snapshotVersion: string | null;
+    /** Active bootstrap/recovery fetch id (survives direct-entry preserve). */
+    transitionId: string | null;
   };
   /** Vertical 6 — sole direct-entry session (deeplink / live-single). */
   directEntry: DirectEntryState;
@@ -190,12 +192,39 @@ export type NotificationRuntimeResultEvent =
       replaceQueue?: boolean;
       source: RuntimeSource;
     }
+    | {
+      /**
+       * Vertical 7 — transport delivered boot snapshot.
+       * Alias path: same decision surface as BOOTSTRAP_COMPLETED.
+       */
+      type: 'BOOTSTRAP_SNAPSHOT_RECEIVED';
+      transitionId: string;
+      items: NotificationItem[];
+      pendingItemIds: string[];
+      /** Local/server consumed tombstones (short TTL — never infinite). */
+      consumedItemIds?: string[];
+      /**
+       * real-time → show queue head; normal → pending/badge only (no auto-show).
+       */
+      autoShow: boolean;
+      sourceVersion: string | null;
+      source: RuntimeSource;
+    }
   | {
       type: 'BOOTSTRAP_COMPLETED';
       transitionId: string;
       items: NotificationItem[];
       pendingItemIds: string[];
+      consumedItemIds?: string[];
+      /** When false (normal mode), park in pending only — no overlay. */
+      autoShow?: boolean;
       sourceVersion: string | null;
+      source: RuntimeSource;
+    }
+  | {
+      type: 'BOOTSTRAP_FAILED';
+      transitionId: string;
+      errorCode: string;
       source: RuntimeSource;
     }
   | {
@@ -386,6 +415,7 @@ export function createInitialNotificationRuntimeState(): NotificationRuntimeStat
     recovery: {
       status: 'idle',
       snapshotVersion: null,
+      transitionId: null,
     },
     directEntry: createEmptyDirectEntryState(),
   };

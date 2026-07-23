@@ -83,6 +83,17 @@ export function selectIsDraining(state: NotificationRuntimeState): boolean {
   return state.lifecycle.status === 'draining';
 }
 
+export function selectIsBooting(state: NotificationRuntimeState): boolean {
+  return state.lifecycle.status === 'booting';
+}
+
+export function selectIsRecovering(state: NotificationRuntimeState): boolean {
+  return (
+    state.lifecycle.status === 'recovering' ||
+    state.recovery.status === 'loading'
+  );
+}
+
 export function selectIsDirectEntry(state: NotificationRuntimeState): boolean {
   return (
     state.directEntry.active ||
