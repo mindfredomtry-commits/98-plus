@@ -199,9 +199,11 @@ import { createNotificationOverlayOwnerShadow } from '@/lib/notification-overlay
 import type { NotificationOverlayOwnerShadowMirrorHandlers } from '@/lib/notification-overlay-owner-shadow';
 import { NotificationRuntimeContext } from '@/notification-runtime/notification-runtime.context';
 import {
+  buildExclusiveDisplayPatchFromRuntime,
   dismissProductionHeadAtomic,
   mapProvidersSourceToRuntime,
   runtimeHeadItemId,
+  toQueuedOverlayItems,
 } from '@/notification-runtime/notification-runtime.production-advance';
 import {
   createNotificationRuntimeStore,
@@ -245,7 +247,11 @@ import {
   selectIsDirectEntry,
   selectLobbyMayShow,
   selectOverlayVisible,
+  selectPendingCount,
+  selectHasPending,
 } from '@/notification-runtime/notification-runtime.selectors';
+import { projectRuntimeQueueToLegacy } from '@/notification-runtime/notification-runtime.adapters';
+import { selectRuntimePaintSnapshot } from '@/notification-runtime/notification-runtime.demolition';
 import {
   ingestPendingSnapshot,
   markRuntimeItemConsumed,
@@ -14968,8 +14974,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               unlockEnqueueBefore,
               { enqueuedCount: startupPending.length },
             );
-            for (const item of startupPending) {
-              enqueueNotification(item, { source: 'session' });
+            // Vertical 8: unlock flush is transport → runtime ingest (no Legacy enqueue authority).
+            {
+              const runtimeItems = toQueuedOverlayItems(startupPending);
+              const unlockTid = nextRuntimeTransitionId('unlock-flush');
+              syncRuntimeQueue(
+                notificationRuntimeStoreRef.current,
+                toRuntimeItems(runtimeItems),
+                'system',
+                unlockTid,
+              );
+              const afterUnlock =
+                notificationRuntimeStoreRef.current.getState();
+              writeOverlayQueueSilent(
+                projectRuntimeQueueToLegacy(afterUnlock),
+                `v8-unlock-flush:${reason}`,
+                'v8-runtime-ingest',
+              );
+              commitSyncDisplayActivePayload(
+                buildExclusiveDisplayPatchFromRuntime(afterUnlock),
+                `v8-unlock-flush-display:${reason}`,
+              );
             }
             logPostSuccessRehydrateDiagRef.current(
               'after-unlockNotificationQueueAndFlush-enqueue',
@@ -14982,25 +15007,30 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 inputPendingLen: startupPending.length,
                 inputQueueLen: unlockEnqueueBefore.queue,
                 outputPendingLen: pendingStartupInteractionsRef.current.length,
-                outputQueueLen: overlayQueueRef.current.length,
+                outputQueueLen:
+                  notificationRuntimeStoreRef.current.getState().items.queue
+                    .length,
                 promotedCount: startupPending.length,
-                promotedHeadKind: overlayQueueRef.current[0]?.kind ?? null,
+                promotedHeadKind:
+                  notificationRuntimeStoreRef.current.getState().items.queue[0]
+                    ?.kind ?? null,
                 skippedReason: null,
               },
             );
           }
         }
 
-        syncDisplayFromQueue(overlayQueueRef.current);
-        const head = overlayQueueRef.current[0];
-        if (head) {
+        const runtimeAfterUnlock =
+          notificationRuntimeStoreRef.current.getState();
+        const headQueued = projectRuntimeQueueToLegacy(runtimeAfterUnlock)[0];
+        if (headQueued) {
           logQueueDebug('show next overlay', {
-            kind: head.kind,
+            kind: headQueued.kind,
             banId:
-              head.kind === 'result'
-                ? head.result.id
-                : head.kind === 'incoming' || head.kind === 'check'
-                  ? head.ban.id
+              headQueued.kind === 'result'
+                ? headQueued.result.id
+                : headQueued.kind === 'incoming' || headQueued.kind === 'check'
+                  ? headQueued.ban.id
                   : null,
           });
         } else {
@@ -15009,8 +15039,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             if (
               isPostSuccessHandoffInProgress() &&
               shouldBlockLobbyOpenForPostSuccessHandoff(
-                overlayQueueRef.current.length,
-                pendingStartupInteractionsRef.current.length,
+                runtimeAfterUnlock.items.queue.length,
+                selectPendingCount(runtimeAfterUnlock),
                 'unlockNotificationQueueAndFlush-empty-queue',
               )
             ) {
@@ -15030,15 +15060,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               source: 'unlockNotificationQueueAndFlush-empty-queue',
               via: 'setLobbyOpen(true)',
             });
-            setLobbyOpen(true);
+            // Vertical 8: lobby host only when runtime lobbyMayShow.
+            if (
+              selectLobbyMayShow(
+                notificationRuntimeStoreRef.current.getState(),
+              )
+            ) {
+              setLobbyOpen(true);
+            }
           }
         }
 
-        if (head?.kind === 'result') {
+        if (headQueued?.kind === 'result') {
           logOverlayPriority('pending-result-shown', {
-            resultId: head.result.id,
+            resultId: headQueued.result.id,
           });
-        } else if (!head && !replyDeeplinkChainHoldRef.current) {
+        } else if (!headQueued && !replyDeeplinkChainHoldRef.current) {
           if (notificationChainAwaitingUserRef.current) {
             console.log('[reload-pending-deferred]', {
               reason: 'notification-chain-awaiting-user',
@@ -15049,7 +15086,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       });
     },
-    [enqueueNotification, syncDisplayFromQueue, syncPendingStartupCount],
+    [syncPendingStartupCount],
   );
 
   const storeAcceptedParentActiveBan = useCallback(
@@ -16929,22 +16966,37 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         releaseBefore,
         { enqueuedCount: releasable.length },
       );
-      for (const item of releasable) {
-        enqueueNotification(item, { source: 'session' });
+      // Vertical 8: release is transport only — ingest via runtime, never Legacy enqueue authority.
+      if (releasable.length > 0) {
+        const runtimeItems = toQueuedOverlayItems(releasable);
+        const releaseTid = nextRuntimeTransitionId('startup-release');
+        syncRuntimeQueue(
+          notificationRuntimeStoreRef.current,
+          toRuntimeItems(runtimeItems),
+          'system',
+          releaseTid,
+        );
+        const afterRelease = notificationRuntimeStoreRef.current.getState();
+        writeOverlayQueueSilent(
+          projectRuntimeQueueToLegacy(afterRelease),
+          'v8-startup-release',
+          'v8-runtime-ingest',
+        );
+        commitSyncDisplayActivePayload(
+          buildExclusiveDisplayPatchFromRuntime(afterRelease),
+          'v8-startup-release-display',
+        );
       }
       logPostSuccessRehydrateDiagRef.current(
         'after-releaseStartupInteractions-enqueue',
         releaseBefore,
         { enqueuedCount: releasable.length },
       );
-      syncDisplayFromQueue(overlayQueueRef.current);
     },
     [
-      enqueueNotification,
       hasActiveNotificationOverlayMounted,
       isNotificationChainPausedForReply,
       isResultBlockedForNotificationChain,
-      syncDisplayFromQueue,
       syncPendingStartupCount,
     ],
   );
@@ -36792,8 +36844,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     !directResultOverlayActive &&
     notificationQueueLocked &&
     !isLocalOverboardBypassForBan(result?.id ?? null);
+  // Vertical 8: result paint from runtime display (React `result` is TEMP mirror).
   const displayResult =
-    priorityBlocksResult || sendSuccessCardActive ? null : result;
+    priorityBlocksResult || sendSuccessCardActive
+      ? null
+      : (notificationRuntimeUi.display.result ?? result);
 
   /** Legacy scoped incoming compute — mirror source only (Phase 11B.5). */
   const legacyScopedIncomingBan = useMemo(() => {
@@ -36845,11 +36900,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
   }
 
-  /** Phase 10B/11B.2: owner-only read snapshot — legacy refs/state kept for mirror/mismatch compare only. */
+  /** Vertical 8: notification paint/queue/pending = runtime sole authority.
+   * Owner shadow + React refs remain TEMP for product pins (held/stable/reply/scoped)
+   * and diagnostics compare only — not decision makers. */
   const ownerReadState = ownerShadowRef.current.getState();
   const ownerReadDisplay = ownerReadState.display;
   const ownerReadQueue = ownerReadState.queue;
   const ownerReadPendingLen = ownerReadState.pending.length;
+  const runtimePaint = selectRuntimePaintSnapshot(notificationRuntimeState);
   const ownerPrimaryHeldUserCard = readOwnerOnlyUserCard(
     ownerReadState.holds.userCard,
     'heldUserCard',
@@ -36858,11 +36916,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       state: heldUserCardOverlay,
     },
   );
-  const ownerPrimaryIncomingBan = readOwnerOnlyIncomingBan(
-    ownerReadDisplay,
-    'incomingBan',
-    { ref: incomingBanRef.current, state: incomingBan },
-  );
+  const ownerPrimaryIncomingBan = runtimePaint.display.incomingBan;
   const ownerPrimaryStableIncomingBan = readOwnerOnlyStableIncomingBan(
     ownerReadDisplay,
     'stableIncomingBan',
@@ -36887,21 +36941,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       state: legacyScopedIncomingBan,
     },
   );
-  const ownerPrimaryCheckBan = readOwnerOnlyCheckBan(
-    ownerReadDisplay,
-    'checkBan',
-    { ref: checkBanRef.current, state: checkBan },
-  );
-  const ownerPrimaryResult = readOwnerOnlyResult(
-    ownerReadDisplay,
-    'result',
-    { ref: resultRef.current, state: result },
-  );
-  const ownerPrimaryQueueHead = readOwnerOnlyQueueHead(
-    ownerReadQueue,
-    'queueHead',
-    { queue: overlayQueue, refQueue: overlayQueueRef.current },
-  );
+  const ownerPrimaryCheckBan = runtimePaint.display.checkBan;
+  const ownerPrimaryResult = runtimePaint.display.result;
+  const ownerPrimaryQueueHead = runtimePaint.queueHead;
   const queueHeadCheckBanForDisplayFallback =
     !ownerPrimaryCheckBan?.id?.trim() &&
     ownerPrimaryQueueHead?.kind === 'check' &&
@@ -36910,47 +36952,22 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       : null;
   const ownerPrimaryCheckBanForDisplayGuards =
     ownerPrimaryCheckBan ?? queueHeadCheckBanForDisplayFallback;
-  const ownerPrimaryQueueLen = readOwnerOnlyQueueLen(
-    ownerReadQueue.length,
-    'queueLen',
-    overlayQueue.length,
-  );
-  const ownerPrimaryPendingLen = readOwnerOnlyPendingLen(
-    ownerReadPendingLen,
-    'pendingLen',
-    pendingStartupInteractionsCount,
-  );
-  const ownerPrimaryDirectResultOverlayActive = readOwnerOnlyDirectResultOverlayActive(
-    ownerReadDisplay,
-    'directResultOverlayActive',
-    { ref: directResultOverlayRef.current, state: directResultOverlayActive },
-  );
+  const ownerPrimaryQueueLen = runtimePaint.queueLength;
+  const ownerPrimaryPendingLen = runtimePaint.pendingCount;
+  const ownerPrimaryDirectResultOverlayActive =
+    runtimePaint.display.directResultOverlayActive;
   const ownerShellQueueLegacy = {
-    queue: overlayQueue,
-    refQueue: overlayQueueRef.current,
+    queue: runtimePaint.queue,
+    refQueue: runtimePaint.queue,
   };
   const ownerPrimaryShellQueueHeadKind = readOwnerShellQueueHeadKindForRender(
-    ownerReadQueue,
+    runtimePaint.queue,
     ownerShellQueueLegacy,
     'queueHeadKind',
     'PHASE11B6_SHELL_FALLBACK-suppressed',
   );
-  const ownerPrimaryShellQueueLen = readOwnerOnlyShellQueueLen(
-    ownerReadQueue.length,
-    'hasQueuedOverlayShell',
-    {
-      state: overlayQueue.length,
-      ref: overlayQueueRef.current.length,
-    },
-  );
-  const ownerPrimaryShellPendingLen = readOwnerOnlyShellPendingLen(
-    ownerReadPendingLen,
-    'notificationSessionActive',
-    {
-      state: pendingStartupInteractionsCount,
-      ref: pendingStartupInteractionsRef.current.length,
-    },
-  );
+  const ownerPrimaryShellQueueLen = runtimePaint.queueLength;
+  const ownerPrimaryShellPendingLen = runtimePaint.pendingCount;
   const ownerPrimaryDisplayResultForShell =
     priorityBlocksResult || sendSuccessCardActive ? null : ownerPrimaryResult;
 
@@ -38116,11 +38133,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const activeResultPayload = useMemo(() => {
-    const queueHead = readOwnerOnlyQueueHead(
-      ownerReadQueue,
-      'activeResultPayload',
-      { queue: overlayQueue, refQueue: overlayQueueRef.current },
-    );
+    const queueHead =
+      runtimePaint.queueHead ??
+      readOwnerOnlyQueueHead(ownerReadQueue, 'activeResultPayload', {
+        queue: overlayQueue,
+        refQueue: overlayQueueRef.current,
+      });
     const guardCtx = buildResultShellHeldCardGuardContext(queueHead);
     const pickResultPayloadWithReason = (
       payload: BanResult | null | undefined,
@@ -38150,13 +38168,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       return { payload: payload ?? null, rejectReason: null, banId };
     };
+    // Vertical 8: prefer runtime display.result before owner mirror.
     const ownerDisplayPick = pickResultPayloadWithReason(
-      readOwnerOnlyResult(
-        ownerReadDisplay,
-        'activeResultPayload',
-        { ref: resultRef.current, state: result },
-      ),
-      'activeResult-ownerDisplay',
+      runtimePaint.display.result ??
+        readOwnerOnlyResult(ownerReadDisplay, 'activeResultPayload', {
+          ref: resultRef.current,
+          state: result,
+        }),
+      'activeResult-runtimeDisplay',
     );
     const heldPick =
       ownerPrimaryHeldUserCard?.kind === 'result'
@@ -38378,6 +38397,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ownerPrimaryHeldUserCard,
     ownerReadDisplay,
     ownerReadQueue,
+    runtimePaint,
     result,
     checkBan,
     snapshotFreshResultOverlayStack,
@@ -38393,11 +38413,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     incomingCardDisplayBan;
 
   const incomingNotificationShellKind = useMemo(() => {
-    const queueHead = readOwnerOnlyQueueHead(
-      ownerReadQueue,
-      'effectiveNotificationQueueShellKind',
-      { queue: overlayQueue, refQueue: overlayQueueRef.current },
-    );
+    const queueHead =
+      runtimePaint.queueHead ??
+      readOwnerOnlyQueueHead(
+        ownerReadQueue,
+        'effectiveNotificationQueueShellKind',
+        { queue: overlayQueue, refQueue: overlayQueueRef.current },
+      );
     const guardCtx = buildResultShellHeldCardGuardContext(queueHead);
     const heldIsResult = ownerPrimaryHeldUserCard?.kind === 'result';
     const queueHeadIsResult = queueHead?.kind === 'result';
@@ -39318,7 +39340,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     friends.length,
   ]);
 
-  const pendingStartupInteractions = pendingStartupInteractionsCount > 0;
+  // Vertical 8: pending session signal from runtime (not Legacy pendingStartup count).
+  const pendingStartupInteractions =
+    selectHasPending(notificationRuntimeState) ||
+    notificationRuntimeUi.queueLength > 0;
 
   const deepLinkSelectedBanId = useMemo(
     () =>
@@ -44479,7 +44504,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       activeBanUiShellActive,
       activeBanDeepLinkBanId,
       notifyActiveBanCardVisible,
-      overlayQueueLength: overlayQueue.length,
+      overlayQueueLength: notificationRuntimeUi.queueLength,
       deepLinkSelectedBanId,
       sendFlowOpen,
       openSendFlow,

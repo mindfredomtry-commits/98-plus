@@ -1,14 +1,13 @@
 /**
- * Vertical 1 TEMP adapters — read-only projection from notification runtime
- * into legacy display/queue shapes.
+ * Vertical 1–8 TEMP adapters — read-only projection from notification runtime
+ * into legacy display/queue shapes for write-through sinks / diagnostics.
  *
- * TEMP V1–V2: adapters MUST NOT:
+ * Vertical 8: production paint reads runtime selectors via demolition helpers.
+ * Adapters MUST NOT:
  * - advance the queue
  * - clear display independently
  * - open lobby
  * - write back into the owner as an independent decision
- *
- * Delete when overlays read selectors directly.
  */
 import type { BanInteraction, BanResult } from '@98plus/shared';
 import type { QueuedOverlay } from '@/lib/overlay-queue';

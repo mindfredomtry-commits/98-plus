@@ -2,7 +2,8 @@
  * Vertical 1 — production queue ingest + atomic dismiss bridge.
  *
  * Sole advance authority: notification-runtime reducer.
- * Legacy sinks are TEMP V1–V2 read/write mirrors only (no independent advance).
+ * Vertical 8: Legacy sinks are TEMP write-through mirrors only (paint reads runtime).
+ * They must not decide next card, lobby, or badge independently.
  */
 import type { OwnerActiveDisplayPatch } from '@/lib/notification-overlay-owner';
 import type { QueuedOverlay } from '@/lib/overlay-queue';
