@@ -223,8 +223,22 @@ export type NotificationOverlayOwnerEvent =
       source: string;
     }
   | {
+      type: 'CHAIN_TRANSITIONING_SET';
+      active: boolean;
+      source?: string;
+    }
+  | {
       type: 'STARTUP_INTERACTIONS_RELEASED';
       pendingCount?: number;
+      source?: string;
+    }
+  | {
+      type: 'QUEUE_UNLOCK_REQUESTED';
+      reason: string;
+    }
+  | {
+      type: 'DRAIN_REQUESTED';
+      source?: string;
     }
   | {
       type: 'OVERBOARD_CLICKED';
@@ -337,6 +351,11 @@ export type NotificationOverlayOwnerEffect =
   | {
       type: 'MIRROR_LEGACY_ACTIVE';
       display: NotificationOwnerDisplayState;
+      source: string;
+    }
+  | {
+      type: 'MIRROR_LEGACY_SESSION';
+      session: NotificationOverlayOwnerState['session'];
       source: string;
     }
   | { type: 'SCHEDULE_HOLD_TIMEOUT'; banId: string; ms: number }
@@ -516,9 +535,11 @@ function applySessionMirrorPatch(
   session: NotificationOverlayOwnerState['session'],
   patch: OwnerSessionMirrorPatch,
 ): NotificationOverlayOwnerState['session'] {
+  // Stage 4A: notificationChainTransitioning + startupHold are owner-event only.
+  // Reverse SHADOW_MIRROR_SESSION patches may still carry them for compat callers;
+  // strip silently (never apply).
   return {
     ...session,
-    ...(patch.startupHold !== undefined ? { startupHold: patch.startupHold } : {}),
     ...(patch.chainAdvanceExplicit !== undefined
       ? { chainAdvanceExplicit: patch.chainAdvanceExplicit }
       : {}),
@@ -531,9 +552,6 @@ function applySessionMirrorPatch(
     ...(patch.lobbyOpen !== undefined ? { lobbyOpen: patch.lobbyOpen } : {}),
     ...(patch.chainAdvanceWaiting !== undefined
       ? { chainAdvanceWaiting: patch.chainAdvanceWaiting }
-      : {}),
-    ...(patch.notificationChainTransitioning !== undefined
-      ? { notificationChainTransitioning: patch.notificationChainTransitioning }
       : {}),
     ...(patch.shownOverlayKeys !== undefined
       ? { shownOverlayKeys: cloneStringSet(patch.shownOverlayKeys) }
@@ -854,27 +872,6 @@ function popQueueHeadForBan(
   return queue.slice(1);
 }
 
-function applyDisplayMirrorPatch(
-  display: NotificationOwnerDisplayState,
-  patch: OwnerDisplayMirrorPatch,
-): NotificationOwnerDisplayState {
-  return {
-    ...display,
-    stableIncomingBan:
-      patch.stableIncomingBan !== undefined
-        ? patch.stableIncomingBan
-        : display.stableIncomingBan,
-    replyIncomingBan:
-      patch.replyIncomingBan !== undefined
-        ? patch.replyIncomingBan
-        : display.replyIncomingBan,
-    scopedIncomingBan:
-      patch.scopedIncomingBan !== undefined
-        ? patch.scopedIncomingBan
-        : display.scopedIncomingBan,
-  };
-}
-
 function applyActiveDisplayPatch(
   display: NotificationOwnerDisplayState,
   patch: OwnerActiveDisplayPatch,
@@ -920,36 +917,163 @@ function applyActiveDisplayPatch(
   return next;
 }
 
+/**
+ * Stage 1 invariant: reverse sync must not write owner.queue / owner.pending.
+ * Dev/test: throw. Production: structured warning without payload PII.
+ */
+export function reportReverseQueuePendingBlocked(source: string): void {
+  const message = `[OWNER STAGE1] reverse sync blocked from writing queue/pending (${source})`;
+  if (
+    process.env.NODE_ENV === 'test' ||
+    process.env.NODE_ENV === 'development'
+  ) {
+    throw new Error(message);
+  }
+  console.warn(message);
+}
+
+/**
+ * Stage 3 invariant: reverse sync must not write owner.display / owner.active.
+ * Dev/test: throw. Production: structured warning without payload PII.
+ */
+export function reportReverseDisplayActiveBlocked(source: string): void {
+  const message = `[OWNER STAGE3] reverse sync blocked from writing display/active (${source})`;
+  if (
+    process.env.NODE_ENV === 'test' ||
+    process.env.NODE_ENV === 'development'
+  ) {
+    throw new Error(message);
+  }
+  console.warn(message);
+}
+
+/**
+ * Stage 4A invariant: reverse sync / direct legacy writers must not own
+ * notificationChainTransitioning (and related transition authority fields).
+ * Dev/test: throw. Production: structured warning without payload PII.
+ */
+export function reportReverseTransitionBlocked(source: string): void {
+  const message = `[OWNER STAGE4A] reverse/direct transition write blocked (${source})`;
+  if (
+    process.env.NODE_ENV === 'test' ||
+    process.env.NODE_ENV === 'development'
+  ) {
+    throw new Error(message);
+  }
+  console.warn(message);
+}
+
+/**
+ * Align owner.active from owner.display after an authoritative display event.
+ * Only called from ACTIVE_DISPLAY_SYNC (not reverse sync).
+ */
+function syncActiveFromDisplay(
+  state: NotificationOverlayOwnerState,
+  patch: OwnerActiveDisplayPatch,
+): NotificationOverlayOwnerState {
+  const touchesMainDisplay =
+    patch.incomingBan !== undefined ||
+    patch.checkBan !== undefined ||
+    patch.result !== undefined ||
+    patch.directResultOverlay !== undefined ||
+    patch.directResultOverlayActive !== undefined;
+  if (!touchesMainDisplay) {
+    return state;
+  }
+
+  const display = state.display;
+  if (
+    display.directResultOverlayActive ||
+    display.directResultOverlay ||
+    display.result?.id
+  ) {
+    const banId = display.result?.id ? normalizeId(display.result.id) : null;
+    return {
+      ...state,
+      active: {
+        kind: 'result',
+        banId,
+        payload: display.result,
+        source:
+          display.directResultOverlayActive || display.directResultOverlay
+            ? 'direct-overboard'
+            : 'queue',
+      },
+    };
+  }
+  if (display.checkBan?.id) {
+    return {
+      ...state,
+      active: {
+        kind: 'check',
+        banId: normalizeId(display.checkBan.id),
+        payload: display.checkBan,
+        source: 'queue',
+      },
+    };
+  }
+  if (display.incomingBan?.id) {
+    return {
+      ...state,
+      active: {
+        kind: 'incoming',
+        banId: normalizeId(display.incomingBan.id),
+        payload: display.incomingBan,
+        source: 'queue',
+      },
+    };
+  }
+  return {
+    ...state,
+    active: {
+      kind: null,
+      banId: null,
+      payload: null,
+      source: null,
+    },
+  };
+}
+
 function applyProductionSnapshot(
   state: NotificationOverlayOwnerState,
   snapshot: OwnerProductionSnapshot,
   opts?: {
+    /**
+     * @deprecated Always preserved. Queue/pending are owner-authority only;
+     * reverse sync must never overwrite them (Stage 1 Single Owner Finalization).
+     */
     preserveQueuePendingAuthority?: boolean;
+    /**
+     * @deprecated Always preserved / ignored. Display/active are owner-authority
+     * only (Stage 3 Single Owner Finalization). Passing false triggers invariant.
+     */
     preserveDisplayAuthority?: boolean;
   },
 ): NotificationOverlayOwnerState {
   let next = cloneOwnerState(state);
-  if (!opts?.preserveQueuePendingAuthority) {
-    next.queue = [...snapshot.queue];
-    next.pending = [...snapshot.pending];
+
+  // Stage 1: queue/pending are NEVER patched from production snapshots.
+  // Even if a caller omits preserveQueuePendingAuthority, refuse the write.
+  if (opts?.preserveQueuePendingAuthority === false) {
+    reportReverseQueuePendingBlocked(
+      'applyProductionSnapshot:preserveQueuePendingAuthority=false',
+    );
   }
-  if (!opts?.preserveDisplayAuthority) {
-    next.display = {
-      incomingBan: null,
-      stableIncomingBan: null,
-      replyIncomingBan: null,
-      scopedIncomingBan: null,
-      checkBan: null,
-      result: null,
-      directResultOverlay: snapshot.directResultOverlay,
-      directResultOverlayActive: snapshot.directResultOverlayActive,
-    };
+
+  // Stage 3: display/active are NEVER patched from production snapshots.
+  // Snapshot may still carry legacy display IDs for shadow comparison only.
+  if (opts?.preserveDisplayAuthority === false) {
+    reportReverseDisplayActiveBlocked(
+      'applyProductionSnapshot:preserveDisplayAuthority=false',
+    );
   }
+  // display + active intentionally left as cloned owner state (never cleared,
+  // never restored from snapshot.active*BanId / directResult* flags).
+
   next.session.lobbyOpen = snapshot.lobbyOpen;
   next.session.chainAdvanceWaiting = snapshot.chainAdvanceWaiting;
-  next.session.notificationChainTransitioning =
-    snapshot.notificationChainTransitioning;
-  next.session.startupHold = snapshot.startupHold;
+  // Stage 4A: notificationChainTransitioning + startupHold are owner-event only —
+  // never overwrite from production reverse snapshot.
   next.session.overlayVisible = snapshot.overlayVisible;
   next.session.shellKind = snapshot.shellKind;
   next.session.chainAdvanceExplicit = snapshot.chainAdvanceExplicit;
@@ -1001,27 +1125,9 @@ function applyProductionSnapshot(
     next.holds.userCard = null;
   }
 
-  const activeKind =
-    snapshot.activeResultBanId != null
-      ? 'result'
-      : snapshot.activeCheckBanId != null
-        ? 'check'
-        : snapshot.activeIncomingBanId != null
-          ? 'incoming'
-          : snapshot.realHeadKind;
-
-  const activeBanId =
-    snapshot.activeResultBanId ??
-    snapshot.activeCheckBanId ??
-    snapshot.activeIncomingBanId ??
-    snapshot.realHeadBanId;
-
-  next.active = {
-    kind: activeKind ?? null,
-    banId: activeBanId,
-    payload: null,
-    source: activeKind ? 'queue' : null,
-  };
+  // Stage 3: never align active from snapshot.active*BanId / legacy display IDs.
+  // Display and active change only via owner display events (ACTIVE_DISPLAY_SYNC)
+  // or other owner authority events (queue sync), never reverse sync.
 
   logOwnerFunctionTrackedFieldWrite({
     previousState: state,
@@ -1369,6 +1475,9 @@ export function notificationOverlayOwnerReducer(
 
   switch (event.type) {
     case 'SHADOW_PRODUCTION_SNAPSHOT': {
+      // Stage 1: queue/pending never patched.
+      // Stage 3: display/active never patched.
+      // Compat only: session / holds / meta (via applyProductionSnapshot).
       next = applyProductionSnapshot(next, event.snapshot, {
         preserveQueuePendingAuthority: true,
         preserveDisplayAuthority: true,
@@ -1497,6 +1606,7 @@ export function notificationOverlayOwnerReducer(
 
     case 'ACTIVE_DISPLAY_SYNC': {
       next.display = applyActiveDisplayPatch(next.display, event.patch);
+      next = syncActiveFromDisplay(next, event.patch);
       effects.push({
         type: 'MIRROR_LEGACY_ACTIVE',
         display: { ...next.display },
@@ -1510,6 +1620,8 @@ export function notificationOverlayOwnerReducer(
           incomingBanId: next.display.incomingBan?.id ?? null,
           checkBanId: next.display.checkBan?.id ?? null,
           resultBanId: next.display.result?.id ?? null,
+          activeKind: next.active.kind,
+          activeBanId: next.active.banId,
           directResultOverlay: next.display.directResultOverlay,
           directResultOverlayActive: next.display.directResultOverlayActive,
         },
@@ -1518,9 +1630,13 @@ export function notificationOverlayOwnerReducer(
     }
 
     case 'SHADOW_QUEUE_APPLIED': {
-      next.queue = [...event.queue];
-      next = syncActiveFromQueueHead(next);
-      effects.push({ type: 'APPLY_DISPLAY' });
+      // Stage 1: legacy reverse queue write path — refuse mutation.
+      reportReverseQueuePendingBlocked('SHADOW_QUEUE_APPLIED');
+      effects.push({
+        type: 'LOG',
+        tag: 'shadow-queue-applied-blocked',
+        fields: { queueLen: next.queue.length },
+      });
       break;
     }
 
@@ -1595,6 +1711,11 @@ export function notificationOverlayOwnerReducer(
       next.session.overlayVisible = true;
       next.session.shellKind = 'check';
       next.holds.resultPriorityBanIds.add(banId);
+      effects.push({
+        type: 'MIRROR_LEGACY_SESSION',
+        session: { ...next.session },
+        source: 'CHECK_ANSWER_SUBMITTED',
+      });
       effects.push({
         type: 'SCHEDULE_HOLD_TIMEOUT',
         banId,
@@ -1836,18 +1957,74 @@ export function notificationOverlayOwnerReducer(
       break;
     }
 
-    case 'STARTUP_INTERACTIONS_RELEASED': {
-      next.session.startupHold = false;
-      if (next.pending.length > 0) {
-        next.queue = [...next.queue, ...next.pending];
-        next.pending = [];
-        next = syncActiveFromQueueHead(next);
-        effects.push({ type: 'APPLY_DISPLAY' });
+    case 'CHAIN_TRANSITIONING_SET': {
+      next.session.notificationChainTransitioning = event.active;
+      if (event.active) {
+        next.session.lobbyOpen = false;
       }
+      effects.push({
+        type: 'MIRROR_LEGACY_SESSION',
+        session: { ...next.session },
+        source: event.source ?? 'CHAIN_TRANSITIONING_SET',
+      });
+      effects.push({
+        type: 'LOG',
+        tag: 'chain-transitioning-set',
+        fields: {
+          source: event.source ?? null,
+          active: event.active,
+          lobbyOpen: next.session.lobbyOpen,
+        },
+      });
+      break;
+    }
+
+    case 'STARTUP_INTERACTIONS_RELEASED': {
+      // Stage 4A: session hold authority only. Pending→queue promotion stays
+      // with Stage 1 owner queue APIs in the release adapter.
+      next.session.startupHold = false;
+      effects.push({
+        type: 'MIRROR_LEGACY_SESSION',
+        session: { ...next.session },
+        source: event.source ?? 'STARTUP_INTERACTIONS_RELEASED',
+      });
       effects.push({
         type: 'LOG',
         tag: 'startup-released',
         fields: { pendingCount: event.pendingCount ?? 0 },
+      });
+      break;
+    }
+
+    case 'QUEUE_UNLOCK_REQUESTED': {
+      next.session.startupHold = false;
+      effects.push({
+        type: 'MIRROR_LEGACY_SESSION',
+        session: { ...next.session },
+        source: `QUEUE_UNLOCK_REQUESTED:${event.reason}`,
+      });
+      effects.push({
+        type: 'LOG',
+        tag: 'queue-unlock-requested',
+        fields: { reason: event.reason },
+      });
+      break;
+    }
+
+    case 'DRAIN_REQUESTED': {
+      next.session.drainActive = true;
+      next.session.notificationChainTransitioning = true;
+      next.session.startupHold = false;
+      next.session.lobbyOpen = false;
+      effects.push({
+        type: 'MIRROR_LEGACY_SESSION',
+        session: { ...next.session },
+        source: event.source ?? 'DRAIN_REQUESTED',
+      });
+      effects.push({
+        type: 'LOG',
+        tag: 'drain-requested',
+        fields: { source: event.source ?? null },
       });
       break;
     }
@@ -1995,15 +2172,14 @@ export function notificationOverlayOwnerReducer(
     }
 
     case 'SHADOW_MIRROR_DISPLAY': {
-      next.display = applyDisplayMirrorPatch(next.display, event.patch);
+      // Stage 3: display fields are owner-authority only (ACTIVE_DISPLAY_SYNC).
+      reportReverseDisplayActiveBlocked('SHADOW_MIRROR_DISPLAY');
       effects.push({
         type: 'LOG',
-        tag: 'shadow-mirror-display',
+        tag: 'shadow-mirror-display-blocked',
         fields: {
           source: event.source ?? null,
-          stableIncomingBanId: next.display.stableIncomingBan?.id ?? null,
-          replyIncomingBanId: next.display.replyIncomingBan?.id ?? null,
-          scopedIncomingBanId: next.display.scopedIncomingBan?.id ?? null,
+          patchKeys: Object.keys(event.patch),
         },
       });
       break;

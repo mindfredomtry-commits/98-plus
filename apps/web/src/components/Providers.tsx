@@ -2149,6 +2149,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const [checkWaiting, setCheckWaiting] = useState(false);
   const [result, setResult] = useState<BanResult | null>(null);
   const resultRef = useRef<BanResult | null>(null);
+  /** Stage 2 — production display writes go through owner ACTIVE_DISPLAY_SYNC. */
+  const commitSyncDisplayActivePayloadRef = useRef<
+    (patch: OwnerActiveDisplayPatch, source: string) => void
+  >(() => {});
+  const displayProjectionDepthRef = useRef(0);
+  /** Stage 4A — session transition projection (chain transitioning / startupHold / drain). */
+  const sessionProjectionDepthRef = useRef(0);
+  const writeOwnerDisplay = useCallback(
+    (patch: OwnerActiveDisplayPatch, source: string) => {
+      commitSyncDisplayActivePayloadRef.current(patch, source);
+    },
+    [],
+  );
   useEffect(() => {
     resultRef.current = result;
   }, [result]);
@@ -3853,11 +3866,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         needsPrefetch: false,
       },
     });
-    notificationChainTransitioningRef.current = false;
-    setNotificationChainTransitioningState(false);
-    mirrorOwnerChainSessionGatesRef.current(
+    // Stage 4A — owner authority; React/refs update via MIRROR_LEGACY_SESSION.
+    ownerShadowRef.current.dispatch(
+      {
+        type: 'CHAIN_TRANSITIONING_SET',
+        active: false,
+        source: 'clearNotificationChainTransitioningInline',
+      },
       'clearNotificationChainTransitioningInline',
-      { notificationChainTransitioning: false },
     );
     const storedTrace = getStoredOwnerFalseWhileActiveCheckDecisionTrace(
       'clearActiveNotificationChain',
@@ -3941,10 +3957,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       if (whatOrConfirm && !prevWhatOrConfirm) {
-        incomingBanRef.current = null;
-        checkBanRef.current = null;
-        setIncomingBan(null);
-        setCheckBan(null);
+        writeOwnerDisplay(
+          { incomingBan: null, checkBan: null },
+          'compose-state-change:compose-enter-clear-incoming-check',
+        );
         if (
           !readOwnerDecisionDirectOverlay(
             readOwnerDecision('composeEnterGuard').display,
@@ -3953,18 +3969,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           )
         ) {
           resultOpenRef.current = false;
-          resultRef.current = null;
           emitResultClearCallsite({
             source: 'compose-state-change',
             reason: 'compose-enter-clear-result',
             willClearResult: true,
           });
-          setResult(null);
+          writeOwnerDisplay(
+            { result: null, directResultOverlayActive: false },
+            'compose-state-change:compose-enter-clear-result',
+          );
           emitResultHeldStillPresentAfterClear(
             'compose-state-change',
             'compose-enter-clear-result',
           );
-          setDirectResultOverlayActive(false);
         }
       }
 
@@ -4233,16 +4250,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId: enriched.id,
         action: 'set',
       });
-      ownerShadowRef.current.dispatch(
-        {
-          type: 'SHADOW_MIRROR_DISPLAY',
-          patch: { stableIncomingBan: enriched },
-          source: `${source}:setActiveIncomingOverlayBanStable`,
-        },
+      writeOwnerDisplay(
+        { stableIncomingBan: enriched },
         `${source}:setActiveIncomingOverlayBanStable`,
       );
     },
-    [],
+    [writeOwnerDisplay],
   );
 
   const clearActiveIncomingOverlayBanStable = useCallback(
@@ -4258,16 +4271,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId: null,
         action: 'clear',
       });
-      ownerShadowRef.current.dispatch(
-        {
-          type: 'SHADOW_MIRROR_DISPLAY',
-          patch: { stableIncomingBan: null },
-          source: `${reason}:clearActiveIncomingOverlayBanStable`,
-        },
+      writeOwnerDisplay(
+        { stableIncomingBan: null },
         `${reason}:clearActiveIncomingOverlayBanStable`,
       );
     },
-    [],
+    [writeOwnerDisplay],
   );
 
   const blockClearActiveIncomingOverlayBan = useCallback(
@@ -5311,14 +5320,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       banId: ban?.id ?? null,
       action: ban ? 'set' : 'clear',
     });
-    ownerShadowDispatch(
-      {
-        type: 'SHADOW_MIRROR_DISPLAY',
-        patch: { replyIncomingBan: ban },
-        source,
-      },
-      source,
-    );
+    writeOwnerDisplay({ replyIncomingBan: ban }, source);
   };
   const mirrorScopedIncomingDisplayBan = (
     source: string,
@@ -5330,14 +5332,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       banId: ban?.id ?? null,
       action: ban ? 'set' : 'clear',
     });
-    ownerShadowDispatch(
-      {
-        type: 'SHADOW_MIRROR_DISPLAY',
-        patch: { scopedIncomingBan: ban },
-        source,
-      },
-      source,
-    );
+    writeOwnerDisplay({ scopedIncomingBan: ban }, source);
   };
   mirrorOwnerMetaClusterRef.current = (source, patch) => {
     const activeTimerMounted =
@@ -5425,8 +5420,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       { ref: checkBanRef.current },
     );
     if (kind === 'check' && ownerCheckBan?.id === banId) {
-      checkBanRef.current = null;
-      setCheckBan(null);
+      writeOwnerDisplay(
+        { checkBan: null },
+        'clearActiveOverlayStateForDismiss:check',
+      );
       return;
     }
     const ownerIncomingBan = readOwnerImperativeIncomingBan(
@@ -5444,8 +5441,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (opts?.explicitUserAction) {
         clearActiveIncomingOverlayBanStable('user-dismiss', banId);
       }
-      incomingBanRef.current = null;
-      setIncomingBan(null);
+      writeOwnerDisplay(
+        { incomingBan: null },
+        'clearActiveOverlayStateForDismiss:incoming',
+      );
     }
   };
 
@@ -5977,8 +5976,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           'incoming-clear-blocked-by-ban-guard',
         );
       } else {
-        incomingBanRef.current = null;
-        setIncomingBan(null);
+        writeOwnerDisplay(
+          { incomingBan: null },
+          `clearStaleOverlayRefsForActive:${source}:incoming`,
+        );
       }
     }
     if (
@@ -5991,8 +5992,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         )?.id ?? '',
       ) === banId
     ) {
-      checkBanRef.current = null;
-      setCheckBan(null);
+      writeOwnerDisplay(
+        { checkBan: null },
+        `clearStaleOverlayRefsForActive:${source}:check`,
+      );
     }
     if (
       active.kind === 'result' &&
@@ -6023,8 +6026,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         'display-result-ban-id-matches-active-legacy-ref-clear',
       );
       const clearSnapBefore = captureActiveResultClearSnapshot();
-      resultRef.current = null;
-      setResult(null);
+      writeOwnerDisplay(
+        { result: null },
+        `clearStaleOverlayRefsForActive:${source}:result`,
+      );
       resultOpenRef.current = false;
       resultOverlayRenderedBanIdsRef.current.delete(banId);
       emitResultClearCallsite({
@@ -6546,10 +6551,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const ownerResult = readOwnerImperativeResult(owner.display, 'preserveAtomicOverboardResultDuringSync', {
         ref: resultRef.current,
       });
-      if (normalizeId(ownerResult?.id ?? '') !== atomicNorm) {
-        resultRef.current = held!.result;
-      }
-      setResult(held!.result);
+      writeOwnerDisplay(
+        { result: held!.result },
+        'preserveAtomicOverboardResultDuringSync:held',
+      );
       return true;
     }
     const ownerResult = readOwnerImperativeResultForRuntime(
@@ -6558,7 +6563,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       { ref: resultRef.current },
     );
     if (ownerResult && normalizeId(ownerResult.id) === atomicNorm) {
-      setResult(ownerResult);
+      writeOwnerDisplay(
+        { result: ownerResult },
+        'preserveAtomicOverboardResultDuringSync:owner',
+      );
       return true;
     }
     return true;
@@ -6783,11 +6791,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     let clearedHeld = false;
 
     if (normalizeId(resultRef.current?.id ?? '') === key) {
-      setResult(null);
-      resultRef.current = null;
+      writeOwnerDisplay(
+        { result: null },
+        `${source}:release-atomic-overboard-result-ref`,
+      );
       clearedResultRef = true;
     } else if (normalizeId(result?.id ?? '') === key) {
-      setResult(null);
+      writeOwnerDisplay(
+        { result: null },
+        `${source}:release-atomic-overboard-result-state`,
+      );
       clearedResultRef = true;
     }
 
@@ -6817,8 +6830,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         visibleUserCardOverlayRef.current = null;
       }
       if (!clearedResultRef && normalizeId(result?.id ?? '') === key) {
-        setResult(null);
-        resultRef.current = null;
+        writeOwnerDisplay(
+          { result: null },
+          `${source}:release-atomic-overboard-queue-head-result`,
+        );
         clearedResultRef = true;
       }
     }
@@ -7538,12 +7553,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           `${source}-show-next-head-mismatch`,
         )
       ) {
-        incomingBanRef.current = null;
-        setIncomingBan(null);
+        writeOwnerDisplay(
+          { incomingBan: null },
+          `${source}-show-next-head-mismatch:incoming`,
+        );
       }
     } else if (heldKindBefore === 'check') {
-      checkBanRef.current = null;
-      setCheckBan(null);
+      writeOwnerDisplay(
+        { checkBan: null },
+        `${source}-show-next-head-mismatch:check`,
+      );
     }
   };
 
@@ -7963,13 +7982,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
     }
     if (held.kind === 'incoming') {
-      incomingBanRef.current = held.ban;
-      setIncomingBan(held.ban);
-      checkBanRef.current = null;
-      setCheckBan(null);
+      writeOwnerDisplay(
+        { incomingBan: held.ban, checkBan: null },
+        `restoreHeldUserCardOverlay:${source}:incoming`,
+      );
     } else if (held.kind === 'check') {
-      checkBanRef.current = held.ban;
-      setCheckBan(held.ban);
+      const checkPatch: OwnerActiveDisplayPatch = { checkBan: held.ban };
       if (
         !blockClearActiveIncomingOverlayBan(
           readOwnerImperativeIncomingBan(owner.display, 'restoreHeldUserCardOverlay', {
@@ -7978,9 +7996,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           `restoreHeldUserCardOverlay:${source}`,
         )
       ) {
-        incomingBanRef.current = null;
-        setIncomingBan(null);
+        checkPatch.incomingBan = null;
       }
+      writeOwnerDisplay(
+        checkPatch,
+        `restoreHeldUserCardOverlay:${source}:check`,
+      );
     } else {
       const ownerResult = readOwnerImperativeResult(owner.display, 'restoreHeldUserCardOverlay', {
         ref: resultRef.current,
@@ -7992,9 +8013,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         resultOpenRef.current = true;
         return true;
       }
-      resultRef.current = held.result;
-      setResult(held.result);
-      resultOpenRef.current = true;
+      const resultPatch: OwnerActiveDisplayPatch = {
+        result: held.result,
+        checkBan: null,
+      };
       if (
         !blockClearActiveIncomingOverlayBan(
           readOwnerImperativeIncomingBan(owner.display, 'restoreHeldUserCardOverlay', {
@@ -8003,11 +8025,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           `restoreHeldUserCardOverlay-result:${source}`,
         )
       ) {
-        incomingBanRef.current = null;
-        setIncomingBan(null);
+        resultPatch.incomingBan = null;
+        resultPatch.stableIncomingBan = null;
       }
-      checkBanRef.current = null;
-      setCheckBan(null);
+      writeOwnerDisplay(
+        resultPatch,
+        `restoreHeldUserCardOverlay:${source}:result`,
+      );
+      resultOpenRef.current = true;
     }
     if (
       !notificationChainTransitioningRef.current &&
@@ -8385,8 +8410,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
     const gateBefore = snapshotDirectOverboardGate();
     clearDirectOverboardLayerRefs();
-    setResult(null);
-    setDirectResultOverlayActive(false);
+    writeOwnerDisplay(
+      {
+        result: null,
+        directResultOverlay: false,
+        directResultOverlayActive: false,
+      },
+      'suppressQueuedOverlayDisplay',
+    );
     emitResultHeldStillPresentAfterClear(
       'suppressQueuedOverlayDisplay',
       'suppress-queued-display',
@@ -8575,17 +8606,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setNotificationChainTransitioning = useCallback((active: boolean) => {
-    if (notificationChainTransitioningRef.current === active) return;
-    notificationChainTransitioningRef.current = active;
-    setNotificationChainTransitioningState(active);
-    if (active) {
-      setLobbyOpen(false);
-      lobbyOpenRef.current = false;
+    const owner = ownerShadowRef.current.getState();
+    if (owner.session.notificationChainTransitioning === active) {
+      // Keep legacy ref aligned if projection already matches owner.
+      if (notificationChainTransitioningRef.current === active) return;
     }
-    mirrorOwnerChainSessionGatesRef.current('setNotificationChainTransitioning', {
-      notificationChainTransitioning: active,
-      ...(active ? { lobbyOpen: false } : {}),
-    });
+    // Stage 4A — thin intent adapter → owner CHAIN_TRANSITIONING_SET.
+    // React state/refs update only via mirrorLegacySession projection.
+    ownerShadowRef.current.dispatch(
+      {
+        type: 'CHAIN_TRANSITIONING_SET',
+        active,
+        source: 'setNotificationChainTransitioning',
+      },
+      'setNotificationChainTransitioning',
+    );
   }, []);
 
   const clearNotificationOverlayForEmptyQueueAfterSuccessExit = useCallback(
@@ -9081,45 +9116,76 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (isOwnerDisplayMirroredToLegacy(display)) {
         return;
       }
-      incomingBanRef.current = display.incomingBan;
-      checkBanRef.current = display.checkBan;
-      resultRef.current = display.result;
-      directResultOverlayRef.current = display.directResultOverlay;
-      directResultOverlayActiveRef.current = display.directResultOverlayActive;
-      if (display.directResultOverlayActive && display.result?.id) {
-        showDirectOverboardLayerRef.current = true;
-        resultOpenRef.current = true;
-        resultBanIdRef.current = display.result.id;
-        displayResultBanIdRef.current = display.result.id;
-      } else {
-        showDirectOverboardLayerRef.current = false;
-        if (!display.result) {
-          resultOpenRef.current = false;
-          resultBanIdRef.current = null;
-          displayResultBanIdRef.current = null;
+      displayProjectionDepthRef.current += 1;
+      try {
+        incomingBanRef.current = display.incomingBan;
+        checkBanRef.current = display.checkBan;
+        resultRef.current = display.result;
+        directResultOverlayRef.current = display.directResultOverlay;
+        directResultOverlayActiveRef.current = display.directResultOverlayActive;
+        if (display.directResultOverlayActive && display.result?.id) {
+          showDirectOverboardLayerRef.current = true;
+          resultOpenRef.current = true;
+          resultBanIdRef.current = display.result.id;
+          displayResultBanIdRef.current = display.result.id;
+        } else {
+          showDirectOverboardLayerRef.current = false;
+          if (!display.result) {
+            resultOpenRef.current = false;
+            resultBanIdRef.current = null;
+            displayResultBanIdRef.current = null;
+          }
         }
+        setIncomingBan(display.incomingBan);
+        setCheckBan(display.checkBan);
+        setResult(display.result);
+        setDirectResultOverlayActive(display.directResultOverlayActive);
+        logOwnerDisplayUpdatedHydrateTrace(
+          buildLobbyHydrateTraceSnapshot('mirror', { source }),
+        );
+        runPhase12ParityCheck(source, 'mirror-display');
+      } finally {
+        displayProjectionDepthRef.current -= 1;
       }
-      setIncomingBan(display.incomingBan);
-      setCheckBan(display.checkBan);
-      setResult(display.result);
-      setDirectResultOverlayActive(display.directResultOverlayActive);
-      logOwnerDisplayUpdatedHydrateTrace(
-        buildLobbyHydrateTraceSnapshot('mirror', { source }),
-      );
-      runPhase12ParityCheck(source, 'mirror-display');
     },
     mirrorLegacySession: (session, source) => {
-      shownOverlayKeysRef.current = new Set(session.shownOverlayKeys);
-      dismissedIncomingRef.current = new Set(session.dismissedIncomingIds);
-      dismissedCheckSessionRef.current = new Set(session.dismissedCheckIds);
-      for (const overlayKey of session.shownOverlayKeys) {
-        if (!overlayKey.startsWith('result:')) continue;
-        const banId = normalizeId(overlayKey.slice('result:'.length));
-        if (banId) {
-          resultCtaConsumedBanIdsRef.current.add(banId);
+      sessionProjectionDepthRef.current += 1;
+      try {
+        shownOverlayKeysRef.current = new Set(session.shownOverlayKeys);
+        dismissedIncomingRef.current = new Set(session.dismissedIncomingIds);
+        dismissedCheckSessionRef.current = new Set(session.dismissedCheckIds);
+        for (const overlayKey of session.shownOverlayKeys) {
+          if (!overlayKey.startsWith('result:')) continue;
+          const banId = normalizeId(overlayKey.slice('result:'.length));
+          if (banId) {
+            resultCtaConsumedBanIdsRef.current.add(banId);
+          }
         }
+        // Stage 4A — project owner transition authority into legacy React/refs.
+        if (
+          notificationChainTransitioningRef.current !==
+          session.notificationChainTransitioning
+        ) {
+          notificationChainTransitioningRef.current =
+            session.notificationChainTransitioning;
+          setNotificationChainTransitioningState(
+            session.notificationChainTransitioning,
+          );
+        }
+        if (startupInteractionsHoldRef.current !== session.startupHold) {
+          startupInteractionsHoldRef.current = session.startupHold;
+        }
+        if (overlayQueueDrainActiveRef.current !== session.drainActive) {
+          overlayQueueDrainActiveRef.current = session.drainActive;
+        }
+        if (lobbyOpenRef.current !== session.lobbyOpen) {
+          lobbyOpenRef.current = session.lobbyOpen;
+          setLobbyOpenState(session.lobbyOpen);
+        }
+        runPhase12ParityCheck(source, 'mirror-session');
+      } finally {
+        sessionProjectionDepthRef.current -= 1;
       }
-      runPhase12ParityCheck(source, 'mirror-session');
     },
     compareActiveDisplayIntegrity: (source, display) => {
       const mismatches: string[] = [];
@@ -9641,12 +9707,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           { didClearDisplay: true },
         );
       }
-      if (normalizedPatch.result != null) {
-        ownerShadowRef.current.syncFromProduction(
-          buildOwnerShadowProductionSnapshot(),
-          `${source}:exclusive-result-active-align`,
-        );
-      }
+      // Stage 3: owner.active is aligned inside ACTIVE_DISPLAY_SYNC via
+      // syncActiveFromDisplay — do not reverse-sync from production refs.
       const ownerAfter = ownerShadowRef.current.getState();
       const displayAfter = {
         resultId: ownerAfter.display.result?.id ?? null,
@@ -9871,6 +9933,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [],
   );
+  commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
 
   const logTransitionFromRefs = (
     event: string,
@@ -14568,14 +14631,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       const shouldFlushStartup =
-        startupInteractionsHoldRef.current || startupPending.length > 0;
+        ownerShadowRef.current.getState().session.startupHold ||
+        startupPending.length > 0;
 
       runWithExplicitResultUnlock(() => {
         if (shouldFlushStartup) {
-          startupInteractionsHoldRef.current = false;
-          mirrorOwnerSessionFlagsRef.current(
+          // Stage 4A — one owner unlock command for startup hold.
+          ownerShadowRef.current.dispatch(
+            {
+              type: 'QUEUE_UNLOCK_REQUESTED',
+              reason,
+            },
             `unlockNotificationQueueAndFlush:${reason}`,
-            { startupHold: false },
           );
           commitPendingQueueViaOwner(
             [],
@@ -15008,13 +15075,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           resultIdBefore: mountedNorm,
           willClearResult: true,
         });
-        setResult(null);
-        resultRef.current = null;
+        writeOwnerDisplay(
+          { result: null },
+          `suppressStaleResultForFreshCheckAnswer:${source}:clear-stale`,
+        );
       }
 
-      resultRef.current = freshPayload;
       resultOpenRef.current = true;
-      setResult(freshPayload);
+      writeOwnerDisplay(
+        { result: freshPayload },
+        `suppressStaleResultForFreshCheckAnswer:${source}:set-fresh`,
+      );
 
       logFreshResultOverlayStackTrace({
         ...traceBase,
@@ -16432,11 +16503,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       const ownerAtRelease = ownerShadowRef.current.getState();
       const pending = [...ownerAtRelease.pending];
-      const hadHold = startupInteractionsHoldRef.current;
-      startupInteractionsHoldRef.current = false;
-      mirrorOwnerSessionFlagsRef.current('releaseStartupInteractions', {
-        startupHold: false,
-      });
+      const hadHold = ownerAtRelease.session.startupHold;
+      // Stage 4A — one owner transition command for startup hold release.
+      ownerShadowRef.current.dispatch(
+        {
+          type: 'STARTUP_INTERACTIONS_RELEASED',
+          pendingCount: pending.length,
+          source: 'releaseStartupInteractions',
+        },
+        'releaseStartupInteractions',
+      );
       commitPendingQueueViaOwner([], 'releaseStartupInteractions', 'clear-hold');
 
       if (!opts?.force && !hadHold && pending.length === 0) return;
@@ -18461,7 +18537,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             resultIdBefore: banId,
             willClearResult: clearsResult,
           });
-          setResult(null);
+          writeOwnerDisplay(
+            { result: null },
+            'dismissBanResult:dismiss-clear-result',
+          );
           emitActiveResultClearDecision(
             'dismissBanResult',
             'dismiss-clear-result',
@@ -18848,8 +18927,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     setHasSuccessfulNetworkSync(false);
     setInitialNetworkBootstrapAttempted(false);
     setWsHasConnectedOnce(false);
-    setIncomingBan(null);
-    setCheckBan(null);
+    writeOwnerDisplay(
+      { incomingBan: null, checkBan: null },
+      'providers-reset:clear-incoming-check',
+    );
     setCheckWaiting(false);
 
     const preserveDirectOverboard =
@@ -18872,9 +18953,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         reason: 'auth-user-changed',
         willClearResult: true,
       });
-      setResult(null);
+      writeOwnerDisplay(
+        {
+          result: null,
+          directResultOverlay: false,
+          directResultOverlayActive: false,
+        },
+        'providers-reset:auth-user-changed',
+      );
       clearDirectOverboardLayerRefs();
-      setDirectResultOverlayActive(false);
       emitResultHeldStillPresentAfterClear(
         'providers-reset',
         'auth-user-changed',
@@ -20264,7 +20351,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       flushSync(() => {
         setStartupGraceActive(false);
         setNotificationChainTransitioning(false);
-        notificationChainTransitioningRef.current = false;
         setChainAdvanceWaiting(false);
         setLobbyOpen(false);
         lobbyOpenRef.current = false;
@@ -20306,8 +20392,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const head = overlayQueueRef.current[0];
       const mounted = head?.kind === 'check' && head.ban.id === banId;
       if (mounted) {
-        checkBanRef.current = enriched;
-        setCheckBan(enriched);
+        writeOwnerDisplay(
+          { checkBan: enriched },
+          'applyCheckDeeplinkDirectOverlay',
+        );
         setLobbyOpen(false);
         lobbyOpenRef.current = false;
         enableDeeplinkSingleCardMode('check', banId);
@@ -22033,12 +22121,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         flushSync(() => {
           logForceOverboard('inside-flushSync', { banId });
           setOverboardTransitionActive(false);
-          setIncomingBan(null);
-          setCheckBan(null);
           setPopups((prev) => prev.filter((x) => !isOverboardEnergyPopup(x)));
-          setResult(normalized);
-          setDirectResultOverlayActive(true);
-          resultRef.current = normalized;
+          writeOwnerDisplay(
+            {
+              result: normalized,
+              incomingBan: null,
+              checkBan: null,
+              stableIncomingBan: null,
+              directResultOverlay: true,
+              directResultOverlayActive: true,
+            },
+            'forceOpenOverboardResult',
+          );
           commitDirectOverboardLayerRefs(banId, true);
           logForceOverboard('setResult-done', {
             banId,
@@ -22073,7 +22167,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       commitDirectOverboardLayerRefs(banId, true);
-      resultRef.current = normalized;
+      // resultRef is projected from owner display via mirrorLegacyActive
+      // (writeOwnerDisplay above); do not write React display refs here.
 
       logForceOverboard('state-written', {
         banId,
@@ -22327,7 +22422,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       if (incomingBanRef.current?.id === banId) {
-        setIncomingBan(null);
+        writeOwnerDisplay(
+          { incomingBan: null },
+          'consumeIncomingAfterAnswer:clear-incoming',
+        );
       }
       clearReplyFastSessionAfterAnswer(banId, {
         preserveReplySendIds: answer === 'reply',
@@ -22410,10 +22508,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source: 'dismissIncomingCardForReplyCompose',
         ...buildIncomingReplyCleanupSnapshot(),
       });
-      incomingBanRef.current = null;
-      checkBanRef.current = null;
-      setIncomingBan(null);
-      setCheckBan(null);
+      writeOwnerDisplay(
+        { incomingBan: null, checkBan: null },
+        'dismissIncomingCardForReplyCompose',
+      );
 
       clearReplyFastSessionAfterAnswer(banId, { preserveReplySendIds: true });
 
@@ -22502,10 +22600,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source,
         ...buildIncomingReplyCleanupSnapshot(),
       });
-      incomingBanRef.current = null;
-      checkBanRef.current = null;
-      setIncomingBan(null);
-      setCheckBan(null);
+      writeOwnerDisplay(
+        { incomingBan: null, checkBan: null },
+        `${source}:release-incoming-overlay-clear-display`,
+      );
       logIncomingReplyCleanupSnapshot({
         stage: 'after',
         step: 'clearIncomingOverlayRefs',
@@ -22572,8 +22670,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
 
       if (incomingBanRef.current?.id === parentBanId) {
-        incomingBanRef.current = null;
-        setIncomingBan(null);
+        writeOwnerDisplay(
+          { incomingBan: null },
+          'finalizeIncomingReplyAfterSend:clear-incoming',
+        );
       }
 
       clearReplyFastSessionAfterAnswer(parentBanId);
@@ -22815,14 +22915,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       try {
         flushSync(() => {
           clearDirectOverboardLayerRefs();
-          setDirectResultOverlayActive(false);
           setOverboardTransitionActive(false);
-          setIncomingBan(null);
-          incomingBanRef.current = null;
-          setCheckBan(null);
-          checkBanRef.current = null;
-          setResult(optimistic);
-          resultRef.current = optimistic;
+          writeOwnerDisplay(
+            {
+              result: optimistic,
+              incomingBan: null,
+              checkBan: null,
+              stableIncomingBan: null,
+              directResultOverlay: false,
+              directResultOverlayActive: false,
+            },
+            'replaceIncomingWithOverboardResultAtomic',
+          );
           resultOpenRef.current = true;
           const held: HeldUserCardOverlay = { kind: 'result', result: optimistic };
           traceHoldStateWrite(
@@ -23182,8 +23286,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             prev,
             mergeOverboardResultUsers(prev, normalized),
           );
-          resultRef.current = merged;
-          setResult(merged);
+          writeOwnerDisplay(
+            { result: merged },
+            `syncOverboardResultFromApi:${source}:avatar-only`,
+          );
           const held: HeldUserCardOverlay = { kind: 'result', result: merged };
           traceHoldStateWrite(
             `sync-atomic-${source}-avatar-only`,
@@ -23269,8 +23375,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             resultRef.current,
             mergeOverboardResultUsers(resultRef.current, normalized),
           );
-          resultRef.current = merged;
-          setResult(merged);
+          writeOwnerDisplay(
+            { result: merged },
+            `syncOverboardResultFromApi:${source}:atomic`,
+          );
           const held: HeldUserCardOverlay = { kind: 'result', result: merged };
           traceHoldStateWrite(
             `sync-atomic-${source}`,
@@ -23306,13 +23414,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           ).overlay &&
           resultDeliveredBanIdsRef.current.has(banId)
         ) {
-          setResult((prev) =>
-            prev
-              ? preserveOverkillTerminalFields(
-                  prev,
-                  mergeOverboardResultUsers(prev, normalized),
-                )
-              : normalized,
+          const prev = resultRef.current;
+          const next = prev
+            ? preserveOverkillTerminalFields(
+                prev,
+                mergeOverboardResultUsers(prev, normalized),
+              )
+            : normalized;
+          writeOwnerDisplay(
+            { result: next },
+            `syncOverboardResultFromApi:${source}:direct-overlay`,
           );
           traceOverboardFlow('optimistic-sync-api', { banId, source });
           logOverboardFinalState(banId, `sync-${source}`);
@@ -23899,10 +24010,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       replyDeepLinkBanIdRef.current = null;
       replyDeeplinkRepeatEntryRef.current = false;
 
-      if (incomingBanRef.current?.id === normalizedBanId) {
-        incomingBanRef.current = null;
+      if (
+        incomingBanRef.current?.id === normalizedBanId ||
+        ownerShadowRef.current.getState().display.incomingBan?.id ===
+          normalizedBanId
+      ) {
+        writeOwnerDisplay(
+          { incomingBan: null },
+          'reply-completed-route-clear:incoming',
+        );
       }
-      setIncomingBan((prev) => (prev?.id === normalizedBanId ? null : prev));
 
       resolveActiveDeepLinkRouteBoot(normalizedBanId);
       releaseDeepLinkRouteBoot('reply-completed-route', normalizedBanId);
@@ -24005,7 +24122,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         replyDeeplinkFastShellRef.current = false;
         setStartupGraceActive(false);
         setNotificationChainTransitioning(false);
-        notificationChainTransitioningRef.current = false;
         setChainAdvanceWaiting(false);
         if (isDeepLinkRouteBootPending()) {
           releaseDeepLinkRouteBoot('reply-card-ready', banId);
@@ -24027,9 +24143,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (!ban?.id || isReplyDeeplinkShellBan(ban)) return false;
       const enriched = enrichBanInteraction(ban);
       replyIncomingDisplayBanRef.current = enriched;
-      incomingBanRef.current = enriched;
       setReplyIncomingDisplayBan(enriched);
-      setIncomingBan(enriched);
+      writeOwnerDisplay(
+        { incomingBan: enriched },
+        'commitReplyIncomingDisplayBan',
+      );
       mirrorReplyIncomingDisplayBan('commitReplyIncomingDisplayBan');
       if (isDeepLinkRouteBootPending()) {
         releaseDeepLinkRouteBoot('reply-card-ready', enriched.id);
@@ -24270,7 +24388,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       applyOverlayQueue(next);
       const mounted = isReplyFastQueueHeadValid(ban.id);
       if (mounted) {
-        setIncomingBan(ban);
+        writeOwnerDisplay(
+          { incomingBan: ban },
+          'applyReplyDeeplinkFastOverlay',
+        );
         const viewerId = userIdRef.current?.trim() ?? auth.user?.id ?? null;
         logDeeplinkBanSourceSnapshot({
           source: 'applyReplyDeeplinkFastOverlay',
@@ -24536,7 +24657,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         pinReplyToBanId(normalizedBanId);
         setReplyDeepLinkBanId(normalizedBanId);
         setIncomingReplyBanId(normalizedBanId);
-        setIncomingBan(openBan);
+        writeOwnerDisplay(
+          { incomingBan: openBan },
+          'openReplyDeeplinkFastPath',
+        );
         setReplyWhatReady(false);
         setReplyHandoffLock(true);
         setDeepLinkReplyBooting(!usingPrefetch);
@@ -26438,7 +26562,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearLocalOverboardBypass();
       clearDirectOverboardLayerRefs();
       resultOpenRef.current = false;
-      setDirectResultOverlayActive(false);
       console.log('[chain-debug-clear-overlay]', {
         source: 'applyDirectOverboardCloseState',
         banId,
@@ -26450,8 +26573,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         resultIdBefore: banId,
         willClearResult: true,
       });
-      setResult(null);
-      resultRef.current = null;
+      writeOwnerDisplay(
+        {
+          result: null,
+          directResultOverlay: false,
+          directResultOverlayActive: false,
+        },
+        'applyDirectOverboardCloseState',
+      );
       emitResultHeldStillPresentAfterClear(
         'applyDirectOverboardCloseState',
         'direct-overboard-close',
@@ -26519,7 +26648,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           'apply-incoming-ban-to-queue-head-commit',
         );
       }
-      incomingBanRef.current = richer;
       logChainHeadSwitchTrace(
         'applyIncomingBanToQueueHead:setIncomingBan',
         'incoming',
@@ -26530,7 +26658,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           calledFrom: 'applyIncomingBanToQueueHead',
         },
       );
-      setIncomingBan(richer);
+      writeOwnerDisplay(
+        { incomingBan: richer },
+        'applyIncomingBanToQueueHead',
+      );
       return richer;
       });
     },
@@ -27554,8 +27685,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                 resultIdBefore: mountedResultId,
                 willClearResult: true,
               });
-              setResult(null);
-              setDirectResultOverlayActive(false);
+              writeOwnerDisplay(
+                {
+                  result: null,
+                  directResultOverlay: false,
+                  directResultOverlayActive: false,
+                },
+                `${source}:mounted-result-stale-clear`,
+              );
               emitResultHeldStillPresentAfterClear(
                 source,
                 'mounted-result-stale-clear',
@@ -31928,10 +32065,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearNotificationChainReturnLatch('lobby-bans-cta');
 
       chainAdvanceExplicitRef.current = true;
-      startupInteractionsHoldRef.current = false;
+      // Stage 4A — owner drain intent at the actual drain branch (not early returns).
+      ownerShadowRef.current.dispatch(
+        {
+          type: 'DRAIN_REQUESTED',
+          source: 'startLobbyBansNotificationDrain:drain-branch',
+        },
+        'startLobbyBansNotificationDrain:drain-branch',
+      );
       mirrorOwnerSessionFlagsRef.current('lobby-bans-cta', {
         chainAdvanceExplicit: true,
-        startupHold: false,
       });
       if (isNotificationQueueLocked()) {
         unlockNotificationQueue('lobby-bans-cta');
@@ -34389,7 +34532,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clearLocalOverboardBypass();
       clearDirectOverboardLayerRefs();
       resultOpenRef.current = false;
-      setDirectResultOverlayActive(false);
       // Do not wipe next head if incoming-style handoff already applied it.
       const displayedResultId = normalizeId(resultRef.current?.id ?? '');
       const shouldClearConsumedResultDisplay = displayedResultId === key;
@@ -34400,11 +34542,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         willClearResult: shouldClearConsumedResultDisplay,
       });
       if (shouldClearConsumedResultDisplay) {
-        setResult(null);
-        resultRef.current = null;
+        writeOwnerDisplay(
+          {
+            result: null,
+            directResultOverlay: false,
+            directResultOverlayActive: false,
+          },
+          'finalizeResultForGoToBans',
+        );
         emitResultHeldStillPresentAfterClear(
           'finalizeResultForGoToBans',
           'go-to-bans-finalize',
+        );
+      } else {
+        writeOwnerDisplay(
+          {
+            directResultOverlay: false,
+            directResultOverlayActive: false,
+          },
+          'finalizeResultForGoToBans:clear-direct-only',
         );
       }
 
@@ -36113,7 +36269,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setViralOnboarding(false);
       clearActiveIncomingOverlayBanStable('soft-dismiss', banId);
       if (incomingBanRef.current?.id === banId) {
-        setIncomingBan(null);
+        writeOwnerDisplay(
+          { incomingBan: null },
+          'dismissIncomingSoft',
+        );
       }
       challengeLog('incoming:soft-dismiss', { banId });
     },
@@ -37527,14 +37686,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           reason: 'result-cta-bans-close',
           willClearResult: true,
         });
-        setResult(null);
-        resultRef.current = null;
+        writeOwnerDisplay(
+          {
+            result: null,
+            directResultOverlay: false,
+            directResultOverlayActive: false,
+          },
+          'completeBansOverlayCloseFromResultCta',
+        );
         emitResultHeldStillPresentAfterClear(
           'completeBansOverlayCloseFromResultCta',
           'result-cta-bans-close',
         );
         clearDirectOverboardLayerRefs();
-        setDirectResultOverlayActive(false);
         restoreLobbyShellForResultCtaReturn();
       });
 

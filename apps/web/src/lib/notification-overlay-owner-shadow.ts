@@ -240,6 +240,17 @@ export function createNotificationOverlayOwnerShadow(
               mirrorSource: effect.source,
             }
           : {}),
+        ...(effect.type === 'MIRROR_LEGACY_SESSION'
+          ? {
+              mirrorTarget: 'session',
+              notificationChainTransitioning:
+                effect.session.notificationChainTransitioning,
+              startupHold: effect.session.startupHold,
+              drainActive: effect.session.drainActive,
+              lobbyOpen: effect.session.lobbyOpen,
+              mirrorSource: effect.source,
+            }
+          : {}),
         ...(effect.type === 'LOG' ? { tag: effect.tag, ...effect.fields } : {}),
       });
     }
@@ -334,6 +345,10 @@ export function createNotificationOverlayOwnerShadow(
           effect.source,
           effect.display,
         );
+        continue;
+      }
+      if (effect.type === 'MIRROR_LEGACY_SESSION') {
+        mirrorHandlers?.mirrorLegacySession?.(effect.session, effect.source);
         continue;
       }
       if (effect.type === 'APPLY_DISPLAY') {
