@@ -118,11 +118,25 @@ function addConsumed(
   state: NotificationRuntimeState,
   itemId: string,
 ): NotificationRuntimeState {
-  if (state.consumed.itemIds.includes(itemId)) return state;
+  if (state.consumed.itemIds.includes(itemId)) {
+    // Still strip from pending if a prior path left overlap.
+    const pendingIds = reconcilePending(
+      state.pending.itemIds,
+      state.consumed.itemIds,
+    );
+    if (pendingIds.length === state.pending.itemIds.length) return state;
+    return {
+      ...state,
+      pending: { ...state.pending, itemIds: pendingIds },
+    };
+  }
+  const consumedIds = [...state.consumed.itemIds, itemId];
   return {
     ...state,
-    consumed: {
-      itemIds: [...state.consumed.itemIds, itemId],
+    consumed: { itemIds: consumedIds },
+    pending: {
+      ...state.pending,
+      itemIds: reconcilePending(state.pending.itemIds, consumedIds),
     },
   };
 }
@@ -1199,6 +1213,7 @@ function selectOverlayVisibleCompat(state: NotificationRuntimeState): boolean {
 
 /**
  * Test/offline invariant helper — not thrown in production (contract is offline).
+ * Production Validation 1.0 — expanded checks.
  */
 export function assertNotificationRuntimeInvariant(
   state: NotificationRuntimeState,
@@ -1212,6 +1227,7 @@ export function assertNotificationRuntimeInvariant(
     'draining',
   ]);
 
+  // current == queue[0] (implicit via selectors; display must match head when showing)
   if (
     state.lifecycle.status === 'showing' ||
     state.lifecycle.status === 'submitting'
@@ -1239,6 +1255,7 @@ export function assertNotificationRuntimeInvariant(
     }
   }
 
+  // idle => no overlay
   if (state.lifecycle.status === 'idle') {
     if (state.display.kind != null || state.display.payload != null) {
       errors.push('idle requires null display');
@@ -1251,6 +1268,22 @@ export function assertNotificationRuntimeInvariant(
   if (state.action.status === 'pending') {
     if (!state.action.commandId || !state.action.targetItemId) {
       errors.push('pending action requires commandId and targetItemId');
+    }
+  }
+
+  // pending ∩ consumed = ∅
+  const consumed = new Set(state.consumed.itemIds);
+  for (const id of state.pending.itemIds) {
+    if (consumed.has(id)) {
+      errors.push(`pending ∩ consumed non-empty: ${id}`);
+    }
+  }
+
+  // Consumed items must not sit at queue head display
+  if (head) {
+    const headId = notificationItemId(head);
+    if (consumed.has(headId) && state.lifecycle.status === 'showing') {
+      errors.push(`consumed head still showing: ${headId}`);
     }
   }
 
