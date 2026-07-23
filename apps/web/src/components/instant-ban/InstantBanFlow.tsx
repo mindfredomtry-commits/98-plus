@@ -41,7 +41,11 @@ import { useTelegram } from '@/hooks/useTelegram';
 import { useSendChallenge } from '@/hooks/useSendChallenge';
 import { useInstantBanViewport } from '@/hooks/useInstantBanViewport';
 import { useNotificationRuntimeStoreOptional } from '@/notification-runtime/notification-runtime.context';
-import { selectIndicatorVisible } from '@/notification-runtime/notification-runtime.selectors';
+import {
+  selectIndicatorVisible,
+  selectIsDraining,
+  selectLobbyMayShow,
+} from '@/notification-runtime/notification-runtime.selectors';
 import { createInitialNotificationRuntimeState } from '@/notification-runtime/notification-runtime.types';
 import { safeResolveReceiverTarget } from '@/lib/resolve-receiver';
 import { resolveDevSendTarget } from '@/lib/dev-receiver';
@@ -64,7 +68,6 @@ import {
   authorizeSuccessExitDrain,
   beginSendSuccessCardSession,
   beginSuccessExitInProgress,
-  canDrainNotificationAfterSuccess,
   clearStaleSuccessExitLatch,
   endSuccessExitInProgress,
   endSuccessExitInstrumentation,
@@ -2940,7 +2943,9 @@ export function InstantBanFlow({
         ? 'phase-not-idle'
         : banSentSuccess
           ? 'ban-sent-success'
-          : null;
+          : selectIsDraining(notificationRuntimeState)
+            ? 'runtime-draining'
+            : null;
     const willCallDrain = blockedReason == null;
 
     emitStartDrainEntryTrace('handleOpenBansOverlay:entry', {
@@ -3103,6 +3108,7 @@ export function InstantBanFlow({
     user?.id,
     pendingStartupInteractions,
     overlayQueueLength,
+    notificationRuntimeState,
   ]);
 
   const handleOpenSettings = useCallback(() => {
@@ -4023,17 +4029,7 @@ export function InstantBanFlow({
         window.__debug98log?.('[FINISH SEND SUCCESS LOBBY EXIT]', payload);
       };
 
-      if (!canDrainNotificationAfterSuccess()) {
-        logQueueSourceComparisonSnapshot('success-exit-blocked-not-authorized');
-        logFinishSendSuccessLobbyExitDecision(
-          'blocked-not-authorized',
-          'early-abort',
-          null,
-        );
-        setSuccessExitDraining(false);
-        endSuccessExitInProgress();
-        return;
-      }
+      // V5: SUCCESS_HANDOFF_REQUESTED owns post-success drain (no Legacy authorize gate).
       if (hasPendingNotificationChain()) {
         setNotificationChainTransitioning(true);
       }
@@ -4055,24 +4051,8 @@ export function InstantBanFlow({
         pendingStartupInteractions,
         notificationOverlayVisible,
       });
-      logPostSuccessQueueSnapshotBeforeRelease('success-exit');
-      traceOverlayQueueMutationBefore(
-        'dequeue',
-        'finishSendSuccessLobbyExit',
-        'releaseStartupInteractions:force',
-      );
-      releaseStartupInteractions({ force: true });
-      logOverlayPriority('send-success-unlock', {});
-      traceOverlayQueueMutationBefore(
-        'dequeue',
-        'finishSendSuccessLobbyExit',
-        'unlockNotificationQueueAndFlush:send-success-unlock',
-      );
-      unlockNotificationQueueAndFlush('send-success-unlock');
-      logPostSuccessReleaseStartupResult(
-        'success-exit',
-        'releaseStartupInteractions+unlockNotificationQueueAndFlush',
-      );
+      // V5: do not releaseStartupInteractions / unlockNotificationQueueAndFlush as drain owners.
+      // Runtime handoff clears hold + materializes; Legacy unlock would race showNext/continue.
       setBansReturnToLobbyLatch(false, {
         source: 'finishSendSuccessLobbyExit',
         banId,
@@ -4167,8 +4147,31 @@ export function InstantBanFlow({
           true,
         );
       } else {
+        // V5: open lobby only when runtime idle → selectLobbyMayShow (never on reject/showing).
+        const afterState =
+          notificationRuntimeStore?.getState() ??
+          createInitialNotificationRuntimeState();
+        const lobbyMayShow = selectLobbyMayShow(afterState);
         successExitAwaitingNotificationDrainRef.current = false;
         endSuccessExitInstrumentation();
+        if (!lobbyMayShow) {
+          console.log('[success-exit-skip-lobby]', {
+            banId,
+            reason: 'runtime-not-idle',
+            lifecycle: afterState.lifecycle.status,
+          });
+          window.__debug98log?.('[success-exit-skip-lobby]', {
+            banId,
+            reason: 'runtime-not-idle',
+            lifecycle: afterState.lifecycle.status,
+          });
+          logFinishSendSuccessLobbyExitDecision(
+            'drain-false-no-lobby',
+            'early-abort',
+            false,
+            readLastSuccessExitDrainDiagnostic(),
+          );
+        } else {
         console.log('[success-exit-open-lobby]', {
           banId,
           reason: 'drain-missed',
@@ -4177,6 +4180,7 @@ export function InstantBanFlow({
           banId,
           reason: 'drain-missed',
         });
+        // V5: idle → selectLobbyMayShow; host opens lobby (TEMP adapters only).
         completePostSuccessHandoffEmptyOpenLobby({
           banId,
           reason: 'drain-missed',
@@ -4184,18 +4188,8 @@ export function InstantBanFlow({
           pendingLen: pendingStartupInteractions,
         });
         setNotificationChainTransitioning(false);
-        traceOverlayQueueMutationBefore(
-          'clear',
-          'finishSendSuccessLobbyExit',
-          'clearNotificationOverlayForEmptyQueueAfterSuccessExit:success-exit-empty-queue',
-        );
         clearNotificationOverlayForEmptyQueueAfterSuccessExit(
           'success-exit-empty-queue',
-        );
-        traceOverlayQueueMutationBefore(
-          'clear',
-          'finishSendSuccessLobbyExit',
-          'tryClearExplicitNotificationDrainGuarded:success-exit-drain-missed',
         );
         tryClearExplicitNotificationDrainGuarded(
           'finishSendSuccessLobbyExit',
@@ -4215,6 +4209,7 @@ export function InstantBanFlow({
           false,
           readLastSuccessExitDrainDiagnostic(),
         );
+        }
       }
 
       console.log('[success-exit-cleanup-state]', {
@@ -4235,16 +4230,12 @@ export function InstantBanFlow({
       flushDeferredSync,
       hasPendingNotificationChain,
       notificationOverlayVisible,
+      notificationRuntimeStore,
       openLobby,
       overlayQueueLength,
       pendingStartupInteractions,
-      logQueueSourceComparisonSnapshot,
-      releaseStartupInteractions,
       setBansReturnToLobbyLatch,
       setNotificationChainTransitioning,
-      unlockNotificationQueueAndFlush,
-      logPostSuccessQueueSnapshotBeforeRelease,
-      logPostSuccessReleaseStartupResult,
       getConfirmOrbQueueDebugSnapshot,
       tryClearExplicitNotificationDrainGuarded,
       logPostSuccessReplyDeeplinkLobbyStateDiag,

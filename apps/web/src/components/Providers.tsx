@@ -221,7 +221,12 @@ import {
   requestCheckCardAction,
 } from '@/notification-runtime/notification-runtime.check-action';
 import {
+  executeSuccessHandoffMaterialize,
+  requestSuccessHandoff,
+} from '@/notification-runtime/notification-runtime.success-handoff';
+import {
   selectIndicatorVisible,
+  selectIsDraining,
   selectLobbyMayShow,
   selectOverlayVisible,
 } from '@/notification-runtime/notification-runtime.selectors';
@@ -32539,21 +32544,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const drainNextNotificationAfterSuccess = useCallback(
     async (successBanId?: string | null): Promise<boolean> => {
-      if (!canDrainNotificationAfterSuccess()) {
-        logSuccessExitRetryBlockedBeforeCard({
-          successBanId: successBanId ?? null,
-          successCardMounted: isSuccessCardMounted(),
-          queueLen: overlayQueueRef.current.length,
-          startupLen: pendingStartupInteractionsRef.current.length,
-        });
-        logSuccessExitDrainResult({
-          drained: false,
-          queueLenAfter: overlayQueueRef.current.length,
-          pendingLenAfter: pendingStartupInteractionsRef.current.length,
-          reason: 'success-exit-not-authorized',
-        });
-        return false;
-      }
+      // Vertical 5: runtime SUCCESS_HANDOFF is sole drain owner (no continue/showNext).
       if (isSuccessCardMounted()) {
         logSuccessDrainOnlyAfterExit({
           successBanId: successBanId ?? null,
@@ -32568,403 +32559,102 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return false;
       }
 
-      allowDeeplinkExplicitNotificationDrain('drainNextNotificationAfterSuccess');
-      const queueLen = overlayQueueRef.current.length;
-      const startupLen = pendingStartupInteractionsRef.current.length;
-      const composeActive = whatOrConfirmActiveRef.current;
-
       logSuccessExitDrainStart();
+      const localItems = [
+        ...overlayQueueRef.current,
+        ...pendingStartupInteractionsRef.current,
+      ];
 
-      logExplicitDrainStart({
-        path: 'success-exit',
-        source: 'drainNextNotificationAfterSuccess',
-        queueLen,
-        pendingLen: startupLen,
-        hasPendingNotificationChain: hasPendingNotificationChain(),
-      });
-
-      console.log('[success-exit-notification-check]', {
-        banId: successBanId ?? null,
-        queueLen,
-        startupLen,
-        composeActive,
-      });
-
-      const logDrainResult = (
-        drained: boolean,
-        extra?: {
-          selectedKind?: string | null;
-          selectedBanId?: string | null;
-          reason?: string;
-        },
-      ) => {
+      const requested = requestSuccessHandoff(
+        notificationRuntimeStoreRef.current,
+        { source: 'user' },
+      );
+      if (!requested.accepted) {
         logSuccessExitDrainResult({
-          drained,
+          drained: false,
           queueLenAfter: overlayQueueRef.current.length,
           pendingLenAfter: pendingStartupInteractionsRef.current.length,
-          selectedKind: extra?.selectedKind ?? null,
-          selectedBanId: extra?.selectedBanId ?? null,
-          reason: extra?.reason,
+          reason: 'success-handoff-rejected',
         });
-      };
-
-      if (composeActive) {
-        console.log('[success-exit-no-notifications]', {
-          reason: 'compose-active',
-        });
-        window.__debug98log?.('[success-exit-no-notifications]', {
-          reason: 'compose-active',
-        });
-        logDrainResult(false, { reason: 'compose-active' });
         return false;
       }
 
-      beginExplicitNotificationDrain('post_success', queueLen + startupLen);
+      // Clear startup hold — materialize reads snapshots; hold must not re-capture.
+      startupInteractionsHoldRef.current = false;
+      mirrorOwnerSessionFlagsRef.current('v5-success-handoff', {
+        startupHold: false,
+      });
+      commitPendingQueueViaOwner([], 'v5-success-handoff', 'clear-hold');
 
-      const tryDrain = async (source: string): Promise<boolean> => {
-        if (
-          blocksMountedNotificationOverlay(
-            `drainNextNotificationAfterSuccess:${source}`,
-            null,
-            null,
-          )
-        ) {
-          console.log('[success-exit-no-notifications]', {
-            reason: 'overlay-blocked',
-            source,
-          });
-          window.__debug98log?.('[success-exit-no-notifications]', {
-            reason: 'overlay-blocked',
-            source,
-          });
-          recordSuccessExitDrainFailure(
-            'try-drain-overlay-blocked',
-            `tryDrain:${source}:overlay-blocked`,
-          );
-          return false;
-        }
+      const sinks = {
+        writeQueue: (queue: QueuedOverlay[], src: string) => {
+          writeOverlayQueueSilent(queue, src, 'v5-success-handoff');
+        },
+        writeDisplay: (patch: OwnerActiveDisplayPatch, src: string) => {
+          commitSyncDisplayActivePayload(patch, src);
+        },
+      };
 
-        beginPostSuccessHandoff({
-          source,
-          queueLen: overlayQueueRef.current.length,
-          pendingLen: pendingStartupInteractionsRef.current.length,
-        });
-        const outcome =
-          await continueNotificationChainOrOpenLobbyRef.current(source, {
-            prefetchIfEmpty: false,
-            openLobbyIfEmpty: false,
-          });
-        if (outcome !== 'show-next') {
-          const drainFailureReason =
-            outcome === 'blocked'
-              ? 'continue-blocked'
-              : outcome === 'lost-pending'
-                ? 'show-next-blocked'
-                : `continue-outcome-${outcome}`;
-          recordSuccessExitDrainFailure(
-            drainFailureReason,
-            `tryDrain:${source}:${outcome}`,
-          );
-          return false;
-        }
+      const outcome = await executeSuccessHandoffMaterialize(
+        notificationRuntimeStoreRef.current,
+        {
+          transitionId: requested.transitionId,
+          localItems,
+          fetchPendingItems: async () => {
+            await prefetchPendingNotificationChain(
+              null,
+              'success-exit-v5-transport',
+            );
+            return [
+              ...overlayQueueRef.current,
+              ...pendingStartupInteractionsRef.current,
+            ];
+          },
+        },
+        sinks,
+      );
 
-        const head = overlayQueueRef.current[0] ?? null;
-        const nextKind = head?.kind ?? null;
-        const nextBanId =
-          head?.kind === 'result'
-            ? head.result.id
-            : head?.kind === 'incoming' || head?.kind === 'check'
-              ? head.ban.id
-              : null;
-        if (source === 'success-exit' || source === 'success-exit-retry') {
-          logFirstNotificationSelected({
-            kind: nextKind,
-            banId: nextBanId,
-            source,
-          });
-          logPostSuccessChainStartSource({
-            ...buildLobbyBansDiagContext(
-              lobbyBansAttentionHint > 0 ||
-                overlayQueueRef.current.length > 0 ||
-                pendingStartupInteractionsRef.current.length > 0,
-              'success-exit-show-next',
-            ),
-            source,
-            outcome: 'show-next',
-            reason: 'continueNotificationChain-show-next-after-success-exit',
-            nextOverlayKind: nextKind,
-            nextOverlayBanId: nextBanId,
-            itemSource: 'owner-queue-head-after-continue',
-            continueOutcome: outcome,
-            ownerQueueLenAfter: overlayQueueRef.current.length,
-            ownerPendingLenAfter:
-              pendingStartupInteractionsRef.current.length,
-          });
-        }
-        console.log('[notification-next-selected]', {
-          source,
-          nextKind,
-          nextBanId,
+      const head =
+        notificationRuntimeStoreRef.current.getState().items.queue[0] ?? null;
+      const nextKind = head?.kind ?? null;
+      const nextBanId = head
+        ? head.kind === 'result'
+          ? head.result.id
+          : head.ban.id
+        : null;
+
+      if (outcome === 'showing') {
+        setLobbyOpen(false);
+        setNotificationChainTransitioning(false);
+        logFirstNotificationSelected({
+          kind: nextKind,
+          banId: nextBanId,
+          source: 'v5-success-handoff',
         });
-        window.__debug98log?.('[notification-next-selected]', {
-          source,
-          nextKind,
-          nextBanId,
-        });
-        console.log('[success-exit-drain-success]', { nextKind, nextBanId, source });
-        window.__debug98log?.('[success-exit-drain-success]', {
-          nextKind,
-          nextBanId,
-          source,
-        });
-        console.log('[success-exit-drain-one]', { nextKind, nextBanId });
-        logDrainResult(true, {
+        logSuccessExitDrainResult({
+          drained: true,
+          queueLenAfter: overlayQueueRef.current.length,
+          pendingLenAfter: pendingStartupInteractionsRef.current.length,
           selectedKind: nextKind,
           selectedBanId: nextBanId,
         });
         return true;
-      };
-
-      if (await tryDrain('success-exit')) {
-        logExplicitDrainFinalDecision({
-          path: 'success-exit',
-          decision: 'mount-overlay',
-          drained: true,
-          queueLen: overlayQueueRef.current.length,
-          pendingLen: pendingStartupInteractionsRef.current.length,
-          hasPendingNotificationChain: hasPendingNotificationChain(),
-          reason: 'success-exit-primary',
-        });
-        return true;
       }
 
-      const primaryEmptySnapshot = snapshotPendingNotificationChain();
-      logExplicitDrainPendingSnapshot({
-        source: 'success-exit-after-primary',
-        phase: 'after-primary-tryDrain',
-        queueLen: primaryEmptySnapshot.queueLen,
-        pendingLen: primaryEmptySnapshot.pendingLen,
-        incomingLen: primaryEmptySnapshot.incomingLen,
-        checkLen: primaryEmptySnapshot.checkLen,
-        resultLen: primaryEmptySnapshot.resultLen,
-        bufferedIncomingId: primaryEmptySnapshot.bufferedIncomingId,
-        heldNextKind: primaryEmptySnapshot.heldNextKind,
-        hasPendingNotificationChain: hasPendingNotificationChain(),
-        isChainSnapshotEmpty: isSuccessExitChainFullyEmpty(primaryEmptySnapshot),
+      // idle / failed / rejected → host opens lobby via selectLobbyMayShow
+      logSuccessExitDrainResult({
+        drained: false,
+        queueLenAfter: overlayQueueRef.current.length,
+        pendingLenAfter: pendingStartupInteractionsRef.current.length,
+        reason: 'v5-success-handoff-' + outcome,
       });
-      if (
-        isSuccessExitChainFullyEmpty(primaryEmptySnapshot) &&
-        !hasPendingNotificationChain()
-      ) {
-        const hasPendingAtSuccessExitCheck = hasPendingNotificationChainImpl();
-        probeOwnerFalseWhileActiveCheckRef.current({
-          decisionName: 'success-exit-drain-session-completion',
-          selector: 'hasPendingNotificationChain',
-          source: 'success-exit-after-primary',
-          reason: 'success-exit-empty-no-retry',
-          calledFrom: 'success-exit-drain-session-completion',
-          decisionResult: false,
-          wouldEndDrain: true,
-          wouldRenderLobby: true,
-          snapshot: buildOwnerFalseActiveCheckSnapshotPatchRef.current(),
-          decisionInputs: {
-            shouldEndDrain: true,
-            stayOnLobbyEmpty: true,
-            chainStillActive: hasPendingAtSuccessExitCheck,
-            pendingChainExists: hasPendingAtSuccessExitCheck,
-            isChainSnapshotEmpty:
-              isSuccessExitChainFullyEmpty(primaryEmptySnapshot),
-            primaryQueueLen: primaryEmptySnapshot.queueLen,
-            primaryPendingLen: primaryEmptySnapshot.pendingLen,
-            primaryCheckLen: primaryEmptySnapshot.checkLen,
-          },
-        });
-        if (isPostSuccessHandoffInProgress()) {
-          finalizePostSuccessHandoffEmptyNoRetry({
-            source: 'success-exit',
-            queueLen: primaryEmptySnapshot.queueLen,
-            pendingLen: primaryEmptySnapshot.pendingLen,
-            incomingLen: primaryEmptySnapshot.incomingLen,
-            checkLen: primaryEmptySnapshot.checkLen,
-            resultLen: primaryEmptySnapshot.resultLen,
-            bufferedIncomingId: primaryEmptySnapshot.bufferedIncomingId,
-            heldNextKind: primaryEmptySnapshot.heldNextKind,
-            finalQueueLen: primaryEmptySnapshot.finalQueueLen,
-            finalPendingLen: primaryEmptySnapshot.finalPendingLen,
-          });
-        }
-        logDrainResult(false, { reason: 'success-exit-empty-no-retry' });
-        logExplicitDrainFinalDecision({
-          path: 'success-exit',
-          decision: 'stay-on-lobby-empty',
-          drained: false,
-          queueLen: primaryEmptySnapshot.finalQueueLen ?? primaryEmptySnapshot.queueLen,
-          pendingLen: primaryEmptySnapshot.finalPendingLen ?? primaryEmptySnapshot.pendingLen,
-          hasPendingNotificationChain: false,
-          reason: 'success-exit-empty-no-retry',
-        });
-        const successExitBranchSnap =
-          buildOwnerFalseActiveCheckSnapshotPatchRef.current();
-        const successExitStoredTrace =
-          getStoredOwnerFalseWhileActiveCheckDecisionTrace(
-            'success-exit-drain-session-completion',
-            successExitBranchSnap.checkBanId,
-          );
-        if (successExitStoredTrace) {
-          noteOwnerFalseWhileActiveCheckBranchTakenRef.current({
-            decisionName: 'success-exit-drain-session-completion',
-            branchTaken: 'end-drain',
-            source: 'success-exit-after-primary',
-            reason: 'success-exit-empty-no-retry',
-            calledFrom: 'success-exit-drain-session-completion',
-            snapshotBefore: successExitStoredTrace,
-            snapshotAfter: successExitBranchSnap,
-            decisionInputsAfter: {
-              shouldEndDrain: true,
-              stayOnLobbyEmpty: true,
-              chainStillActive: false,
-              pendingChainExists: false,
-              drained: false,
-            },
-          });
-        }
-        return false;
-      }
-
-      const localQueueLen = primaryEmptySnapshot.finalQueueLen ?? primaryEmptySnapshot.queueLen;
-      const localPendingLen =
-        primaryEmptySnapshot.finalPendingLen ?? primaryEmptySnapshot.pendingLen;
-      if (localQueueLen === 0 && localPendingLen === 0) {
-        const ownerBeforePrefetch = ownerShadowRef.current.getState();
-        const prefetchBefore = {
-          queue: ownerBeforePrefetch.queue.length,
-          pending: ownerBeforePrefetch.pending.length,
-        };
-        logPostSuccessRehydrateDiag(
-          'before-prefetchPendingNotificationChain',
-          prefetchBefore,
-        );
-        await prefetchPendingNotificationChain(null, 'success-exit');
-        logPostSuccessRehydrateDiag(
-          'after-prefetchPendingNotificationChain',
-          prefetchBefore,
-        );
-      } else {
-        logExplicitDrainPendingSnapshot({
-          source: 'success-exit',
-          phase: 'skip-prefetch-local-queue',
-          queueLen: localQueueLen,
-          pendingLen: localPendingLen,
-          hasPendingNotificationChain: hasPendingNotificationChain(),
-        });
-      }
-      if (shouldBlockPostSuccessEmptyRetry('success-exit-retry')) {
-        logDrainResult(false, { reason: 'success-exit-retry-blocked-empty' });
-        logExplicitDrainFinalDecision({
-          path: 'success-exit',
-          decision: 'stay-on-lobby-empty',
-          drained: false,
-          queueLen: overlayQueueRef.current.length,
-          pendingLen: pendingStartupInteractionsRef.current.length,
-          hasPendingNotificationChain: hasPendingNotificationChain(),
-          reason: 'success-exit-retry-blocked-empty',
-        });
-        return false;
-      }
-      if (await tryDrain('success-exit-retry')) {
-        logPostSuccessRehydrateDiag(
-          'after-continueNotificationChain-show-next',
-          {
-            queue: localQueueLen,
-            pending: localPendingLen,
-          },
-          { startedChain: true },
-        );
-        logExplicitDrainFinalDecision({
-          path: 'success-exit',
-          decision: 'mount-overlay',
-          drained: true,
-          queueLen: overlayQueueRef.current.length,
-          pendingLen: pendingStartupInteractionsRef.current.length,
-          hasPendingNotificationChain: hasPendingNotificationChain(),
-          reason: 'success-exit-retry',
-        });
-        return true;
-      }
-
-      const finalCollected = snapshotPendingNotificationChain();
-      const finalQueueLen = finalCollected.finalQueueLen;
-      const finalStartupLen = finalCollected.finalPendingLen;
-      const stillPending = hasPendingNotificationChain();
-      const drainMissReason =
-        finalQueueLen === 0 && finalStartupLen === 0
-          ? 'queue-empty-after-prefetch'
-          : 'drain-not-shown';
-      logExplicitDrainPendingSnapshot({
-        source: 'success-exit-final',
-        phase: 'drain-miss',
-        queueLen: finalQueueLen,
-        pendingLen: finalStartupLen,
-        incomingLen: finalCollected.incomingLen,
-        checkLen: finalCollected.checkLen,
-        resultLen: finalCollected.resultLen,
-        bufferedIncomingId: finalCollected.bufferedIncomingId,
-        heldNextKind: finalCollected.heldNextKind,
-        hasPendingNotificationChain: stillPending,
-        isChainSnapshotEmpty: isSuccessExitChainFullyEmpty(finalCollected),
-      });
-      console.log('[success-exit-no-notifications]', {
-        reason: drainMissReason,
-        queueLen: finalQueueLen,
-        startupLen: finalStartupLen,
-      });
-      window.__debug98log?.('[success-exit-no-notifications]', {
-        reason: drainMissReason,
-        queueLen: finalQueueLen,
-        startupLen: finalStartupLen,
-      });
-      logDrainResult(false, { reason: drainMissReason });
-      if (finalQueueLen === 0 && finalStartupLen === 0) {
-        completePostSuccessHandoffEmptyOpenLobby({
-          reason: drainMissReason,
-          queueLen: finalQueueLen,
-          pendingLen: finalStartupLen,
-        });
-        logExplicitDrainFinalDecision({
-          path: 'success-exit',
-          decision: 'stay-on-lobby-empty',
-          drained: false,
-          queueLen: finalQueueLen,
-          pendingLen: finalStartupLen,
-          hasPendingNotificationChain: stillPending,
-          reason: drainMissReason,
-        });
-      } else if (isPostSuccessHandoffInProgress()) {
-        logPostSuccessHandoffLostBug({
-          reason: drainMissReason,
-          queueLen: finalQueueLen,
-          pendingLen: finalStartupLen,
-        });
-        logExplicitDrainFinalDecision({
-          path: 'success-exit',
-          decision: 'preserve-pending',
-          drained: false,
-          queueLen: finalQueueLen,
-          pendingLen: finalStartupLen,
-          hasPendingNotificationChain: stillPending,
-          reason: drainMissReason,
-        });
-      }
       return false;
     },
     [
-      blocksMountedNotificationOverlay,
-      buildLobbyBansDiagContext,
-      hasPendingNotificationChain,
-      lobbyBansAttentionHint,
-      logPostSuccessRehydrateDiag,
+      commitSyncDisplayActivePayload,
       prefetchPendingNotificationChain,
-      snapshotPendingNotificationChain,
+      setLobbyOpen,
+      setNotificationChainTransitioning,
     ],
   );
 

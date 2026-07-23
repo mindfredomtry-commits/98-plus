@@ -105,6 +105,12 @@ export type NotificationRuntimeCommand =
       source: RuntimeSource;
     }
   | {
+      /** Vertical 5 — SUCCESS product screen finished; runtime owns handoff. */
+      type: 'SUCCESS_HANDOFF_REQUESTED';
+      transitionId: string;
+      source: RuntimeSource;
+    }
+  | {
       type: 'CARD_ACTION_REQUESTED';
       commandId: string;
       targetItemId: string;
@@ -191,6 +197,13 @@ export type NotificationRuntimeResultEvent =
     }
   | {
       type: 'RECOVERY_FAILED';
+      transitionId: string;
+      errorCode: string;
+      source: RuntimeSource;
+    }
+  | {
+      /** Vertical 5 — prefetch/materialize failed; go idle + lobbyMayShow. */
+      type: 'DRAIN_FAILED';
       transitionId: string;
       errorCode: string;
       source: RuntimeSource;

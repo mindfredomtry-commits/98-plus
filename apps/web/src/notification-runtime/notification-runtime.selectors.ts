@@ -79,6 +79,10 @@ export function selectIsActionBlocked(
   );
 }
 
+export function selectIsDraining(state: NotificationRuntimeState): boolean {
+  return state.lifecycle.status === 'draining';
+}
+
 export function selectLobbyMayShow(state: NotificationRuntimeState): boolean {
   return state.lifecycle.status === 'idle' && !selectOverlayVisible(state);
 }

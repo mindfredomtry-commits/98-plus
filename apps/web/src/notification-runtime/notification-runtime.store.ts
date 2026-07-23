@@ -43,6 +43,8 @@ export function createNotificationRuntimeStore(): NotificationRuntimeStore {
   const seenDismissTransitionIds = new Set<string>();
   /** Dedup: ignore CARD_ACTION_REQUESTED with same commandId twice. */
   const seenActionCommandIds = new Set<string>();
+  /** Vertical 5: ignore duplicate SUCCESS_HANDOFF_REQUESTED transitionId. */
+  const seenSuccessHandoffTransitionIds = new Set<string>();
   const listeners = new Set<() => void>();
 
   const emit = () => {
@@ -71,9 +73,26 @@ export function createNotificationRuntimeStore(): NotificationRuntimeStore {
         }
         seenActionCommandIds.add(event.commandId);
       }
+      if (event.type === 'SUCCESS_HANDOFF_REQUESTED') {
+        if (seenSuccessHandoffTransitionIds.has(event.transitionId)) {
+          return { state, effects: [] };
+        }
+        seenSuccessHandoffTransitionIds.add(event.transitionId);
+      }
+      if (event.type === 'ITEMS_RECEIVED' || event.type === 'DRAIN_FAILED') {
+        // Stale batch: ignore if draining under a different transitionId.
+        if (
+          state.lifecycle.status === 'draining' &&
+          state.lifecycle.transitionId &&
+          event.transitionId !== state.lifecycle.transitionId
+        ) {
+          return { state, effects: [] };
+        }
+      }
       if (event.type === 'RESET_REQUESTED') {
         seenDismissTransitionIds.clear();
         seenActionCommandIds.clear();
+        seenSuccessHandoffTransitionIds.clear();
         transitionSeq = 0;
       }
       const result = notificationRuntimeReducer(state, event);

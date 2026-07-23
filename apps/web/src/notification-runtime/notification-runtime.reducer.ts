@@ -245,6 +245,60 @@ export function notificationRuntimeReducer(
       };
     }
 
+    case 'SUCCESS_HANDOFF_REQUESTED': {
+      // Same drain entry as DRAIN_REQUESTED; SUCCESS host already closed product UI.
+      if (
+        base.lifecycle.status === 'showing' ||
+        base.lifecycle.status === 'submitting' ||
+        base.lifecycle.status === 'completing'
+      ) {
+        return { state: base, effects: [] };
+      }
+      if (
+        base.lifecycle.status === 'draining' &&
+        base.lifecycle.transitionId === event.transitionId
+      ) {
+        return { state: base, effects: [] };
+      }
+      return {
+        state: {
+          ...base,
+          lifecycle: {
+            status: 'draining',
+            source: event.source,
+            transitionId: event.transitionId,
+          },
+        },
+        effects: [
+          {
+            type: 'FETCH_PENDING',
+            transitionId: event.transitionId,
+            source: event.source,
+          },
+        ],
+      };
+    }
+
+    case 'DRAIN_FAILED': {
+      if (
+        base.lifecycle.status !== 'draining' ||
+        base.lifecycle.transitionId !== event.transitionId
+      ) {
+        return { state: base, effects: [] };
+      }
+      return {
+        state: {
+          ...clearDisplay(clearAction(base)),
+          lifecycle: {
+            status: 'idle',
+            source: event.source,
+            transitionId: null,
+          },
+        },
+        effects: [],
+      };
+    }
+
     case 'ITEMS_RECEIVED': {
       const queue = event.replaceQueue
         ? dedupeAppend([], event.items)
