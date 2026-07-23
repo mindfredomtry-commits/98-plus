@@ -196,6 +196,18 @@ import {
 } from '@/lib/notification-overlay-owner-deeplink-mirror';
 import { createNotificationOverlayOwnerShadow } from '@/lib/notification-overlay-owner-shadow';
 import type { NotificationOverlayOwnerShadowMirrorHandlers } from '@/lib/notification-overlay-owner-shadow';
+import { NotificationRuntimeContext } from '@/notification-runtime/notification-runtime.context';
+import {
+  dismissProductionHeadAtomic,
+  mapProvidersSourceToRuntime,
+  runtimeHeadItemId,
+} from '@/notification-runtime/notification-runtime.production-advance';
+import {
+  createNotificationRuntimeStore,
+  nextRuntimeTransitionId,
+  syncRuntimeQueue,
+  toRuntimeItems,
+} from '@/notification-runtime/notification-runtime.store';
 import {
   logOwnerPhase8QueueMismatch,
   logOwnerPhase9ActiveMismatch,
@@ -4340,7 +4352,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     null,
   );
 
-  /** Step-1 Single Owner shadow — queue authority bridge (Phase 8). */
+  /** Step-1 Single Owner shadow — TEMP V1–V2 mirror sinks (queue authority is notification-runtime). */
   const ownerShadowRef = useRef(
     createNotificationOverlayOwnerShadow({
       mirrorLegacyQueue: (queue, source, silent) =>
@@ -4364,6 +4376,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ),
     }),
   );
+  /** Vertical 1 — sole production queue / current / dismiss-advance authority. */
+  const notificationRuntimeStoreRef = useRef(createNotificationRuntimeStore());
   const buildGoToBansTraceHookContext = (
     handlerName: string,
     source: string,
@@ -5557,9 +5571,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       remainingLen: remaining.length,
     });
     clearActiveUserCardHold(`prepareUserAnswerChainAdvance:${reason}`);
-    clearActiveOverlayStateForDismiss(dismissKind, dismissBanId, {
-      explicitUserAction: true,
-    });
+    // Vertical 1: never clear display before next when remaining exists.
+    // Atomic advance projects B in the same transition.
+    if (remaining.length === 0) {
+      clearActiveOverlayStateForDismiss(dismissKind, dismissBanId, {
+        explicitUserAction: true,
+      });
+    }
     emitCheckAnswerAdvanceTrace(
       'after-clear',
       dismissBanId,
@@ -9513,6 +9531,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             reducerSkipped: true,
             reason: `dispatch-${dispatchEventType}-before-reducer`,
           });
+          // Vertical 1: notification-runtime is the sole queue authority.
+          // Owner QUEUE_* is TEMP V1–V2 mirror only (no independent advance).
+          syncRuntimeQueue(
+            notificationRuntimeStoreRef.current,
+            toRuntimeItems(next),
+            mapProvidersSourceToRuntime(source),
+          );
           ownerShadowRef.current.dispatch(
             {
               type: silent ? 'QUEUE_SILENT_UPDATED' : 'QUEUE_APPLIED',
@@ -13137,14 +13162,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         banId: dismissBanId,
         source: reason,
       });
-      ownerShadowDispatch(
-        {
-          type: 'NOTIFICATION_DISMISSED',
-          banId: dismissBanId,
-          reason,
-        },
-        `dismissCurrentOverlay:${reason}`,
-      );
       if (
         isActiveUserCardHold() &&
         !isExplicitUserOverlayDismissReason(reason, dismissKind, dismissBanId)
@@ -13225,6 +13242,125 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         caller: 'dismissCurrentOverlay',
         source: nextQueue != null ? 'explicit-nextQueue' : 'popOverlayHead(prev)',
       });
+
+      /**
+       * Vertical 1 atomic advance: when next exists in overlay queue, one
+       * CARD_DISMISS_REQUESTED owns queue+display. No clear-before-next,
+       * no showNext, no lobby between cards.
+       */
+      const canUseV1AtomicAdvance =
+        remaining.length > 0 &&
+        !isDeeplinkSingleCardModeActive() &&
+        !isLiveOverlaySingleEventActive() &&
+        Boolean(runtimeHeadItemId(prev));
+
+      if (!canUseV1AtomicAdvance) {
+        ownerShadowDispatch(
+          {
+            type: 'NOTIFICATION_DISMISSED',
+            banId: dismissBanId,
+            reason,
+          },
+          `dismissCurrentOverlay:${reason}`,
+        );
+      }
+
+      if (canUseV1AtomicAdvance) {
+        const targetItemId = runtimeHeadItemId(prev)!;
+        const transitionId = nextRuntimeTransitionId('dismiss');
+        if (overlayShowNextTimerRef.current) {
+          clearTimeout(overlayShowNextTimerRef.current);
+          overlayShowNextTimerRef.current = null;
+        }
+        // Mark explicit so legacy guards do not treat this as auto-advance.
+        chainAdvanceExplicitRef.current = true;
+        notificationChainAwaitingUserRef.current = false;
+        notificationChainHandoffRef.current = false;
+        mirrorOwnerSessionFlagsRef.current(
+          `v1-atomic-dismiss:${reason}`,
+          { chainAdvanceExplicit: true },
+        );
+        mirrorOwnerChainSessionGatesRef.current(
+          `v1-atomic-dismiss:${reason}`,
+          { awaitingUser: false },
+        );
+        flushSync(() => {
+          dismissProductionHeadAtomic(
+            notificationRuntimeStoreRef.current,
+            {
+              queueBefore: prev,
+              targetItemId,
+              reason,
+              source: `dismissCurrentOverlay:${reason}`,
+              transitionId,
+            },
+            {
+              writeQueue: (queue, src) => {
+                writeOverlayQueueSilent(
+                  queue,
+                  src,
+                  'v1-atomic-advance',
+                );
+              },
+              writeDisplay: (patch, src) => {
+                commitSyncDisplayActivePayload(patch, src);
+              },
+              runEffects: (effects) => {
+                for (const effect of effects) {
+                  if (effect.type === 'PREFETCH_NEXT') {
+                    runChainLookaheadPrefetchRef.current(
+                      dismissBanId,
+                      `v1-atomic-dismiss:${reason}`,
+                    );
+                  }
+                }
+              },
+            },
+          );
+          // Never hold transitioning gap between cards — display already B.
+          setNotificationChainTransitioning(false);
+          setChainAdvanceWaiting(false);
+          setLobbyOpen(false);
+        });
+        overlayActionTsRef.current = null;
+        overlayHandoffTsRef.current = null;
+        activeOverlayLockRef.current = null;
+        logTransitionFromRefs('[DISMISS COMMIT DONE]', {
+          source: `${reason}-v1-atomic-advance`,
+        });
+        if (goToBansTrace) {
+          emitGoToBansShouldShowNext({
+            ...buildGoToBansClickDismissDiag('dismissCurrentOverlay', {
+              banId: dismissBanId,
+              dismissReason: reason,
+            }),
+            userChainAdvance: true,
+            remainingLen: remaining.length,
+            willScheduleContinue: false,
+            checkAnswerOwnsContinue: false,
+          });
+          emitGoToBansShowNextNotCalled({
+            ...buildGoToBansClickDismissDiag('dismissCurrentOverlay', {
+              banId: dismissBanId,
+              dismissReason: reason,
+            }),
+            reason: 'v1-atomic-advance-no-showNext',
+            userChainAdvance: true,
+            remainingLen: remaining.length,
+          });
+          emitGoToBansDismissResult({
+            ...buildGoToBansClickDismissDiag('dismissCurrentOverlay', {
+              banId: dismissBanId,
+              dismissReason: reason,
+            }),
+            committed: true,
+            userChainAdvance: true,
+            remainingLen: remaining.length,
+          });
+        }
+        runPhase12ParityCheck('dismissCurrentOverlay', `dismiss:${reason}:v1-atomic`);
+        return;
+      }
 
       if (
         isDeeplinkSingleCardModeActive() &&
@@ -13759,7 +13895,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         commit();
       }
     },
-    [applyOverlayQueue, applyPendingQueueViaOwner, setChainAdvanceWaiting, setChainAdvancePlaceholderKind, setCheckAnswerWaitingResultHold, setLobbyOpen, setNotificationChainTransitioning],
+    [applyOverlayQueue, applyPendingQueueViaOwner, commitSyncDisplayActivePayload, setChainAdvanceWaiting, setChainAdvancePlaceholderKind, setCheckAnswerWaitingResultHold, setLobbyOpen, setNotificationChainTransitioning],
   );
 
   const markSessionBanSendSuccess = useCallback(() => {
@@ -18524,7 +18660,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         clearDirectOverboardLayerRefs();
         setDirectResultOverlayActive(false);
         const clearsResult = wasDirect || headNow?.kind !== 'result';
-        if (clearsResult) {
+        // Vertical 1: when next exists, do not clear result before queue advance —
+        // dismissCurrentOverlay atomic path projects next display in one transition.
+        if (clearsResult && !hasMoreInChain) {
           const dismissClearSnapBefore = captureActiveResultClearSnapshot();
           logResultStateCleared('dismissBanResult', {
             banId,
@@ -18551,6 +18689,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             'dismissBanResult',
             clearsResult ? 'dismiss-clear-result' : 'dismiss-keep-queue-result',
           );
+        } else if (clearsResult && hasMoreInChain) {
+          emitResultClearCallsite({
+            source: 'dismissBanResult',
+            reason: 'v1-atomic-skip-clear-before-next',
+            resultIdBefore: banId,
+            willClearResult: false,
+          });
         }
         logDirectOverboardStateReset({
           source: 'dismissBanResult',
@@ -45868,6 +46013,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
 
   return (
+    <NotificationRuntimeContext.Provider
+      value={notificationRuntimeStoreRef.current}
+    >
     <AppContext.Provider value={contextValue}>
       <RouteOverlayBootPriorityMarker active={routeOverlayAboveBoot} />
       <ShellErrorBoundary name="app">
@@ -46636,5 +46784,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ) : null}
       </ShellErrorBoundary>
     </AppContext.Provider>
+    </NotificationRuntimeContext.Provider>
   );
 }

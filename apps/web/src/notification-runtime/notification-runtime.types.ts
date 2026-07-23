@@ -3,6 +3,7 @@
  * Not wired to production Providers / overlays / transport.
  */
 import type { BanInteraction, BanResult } from '@98plus/shared';
+import { normalizeId } from '@/lib/normalize-json';
 
 export type RuntimeSource =
   | 'bootstrap'
@@ -218,10 +219,11 @@ export type NotificationRuntimeReducerResult = {
 
 /** Stable dedupe / pending key — matches legacy overlayQueueKey. */
 export function notificationItemId(item: NotificationItem): string {
+  // Match overlayQueueKey so production dismiss targets align.
   const id =
     item.kind === 'result'
-      ? String(item.result.id ?? '').trim()
-      : String(item.ban.id ?? '').trim();
+      ? normalizeId(item.result.id)
+      : normalizeId(item.ban.id);
   return `${item.kind}:${id}`;
 }
 

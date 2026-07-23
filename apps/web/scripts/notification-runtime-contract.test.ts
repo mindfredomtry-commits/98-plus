@@ -584,10 +584,9 @@ function apply(
   assert.deepEqual(selectCanonicalPendingItemIds(s), []);
 }
 
-// —— Source safety: no production imports of notification-runtime ——
+// —— Source safety: Vertical 1 — sole production import is Providers ——
 {
   const srcRoot = join(__dirname, '../src');
-  const runtimeDir = join(srcRoot, 'notification-runtime').replace(/\\/g, '/');
 
   function listTs(dir: string): string[] {
     const out: string[] = [];
@@ -610,22 +609,30 @@ function apply(
       /from\s+['"]@\/notification-runtime/.test(text) ||
       /from\s+['"].*notification-runtime\//.test(text)
     ) {
-      offenders.push(file);
+      offenders.push(file.replace(/\\/g, '/'));
     }
   }
-  assert.equal(
-    offenders.length,
-    0,
-    `Production imports of notification-runtime:\n${offenders.join('\n')}`,
+  const normalized = offenders.map((f) => f.replace(/\\/g, '/'));
+  assert.deepEqual(
+    normalized.filter((f) => !f.endsWith('/components/Providers.tsx')),
+    [],
+    `Unexpected production imports of notification-runtime:\n${offenders.join('\n')}`,
+  );
+  assert.ok(
+    normalized.some((f) => f.endsWith('/components/Providers.tsx')),
+    'Providers must import notification-runtime (Vertical 1 wiring)',
   );
 
-  // Providers / owner / shadow untouched by this module (existence check)
   const providers = readFileSync(
     join(srcRoot, 'components/Providers.tsx'),
     'utf8',
   );
-  assert.doesNotMatch(providers, /notification-runtime/);
-  void runtimeDir;
+  assert.match(providers, /notification-runtime/);
+  assert.match(providers, /dismissProductionHeadAtomic/);
+  assert.doesNotMatch(
+    providers,
+    /FEATURE_FLAG.*notification.?runtime|USE_NEW_RUNTIME|notificationRuntimeEnabled/i,
+  );
 }
 
 console.log('notification-runtime-contract.test.ts: ok');
