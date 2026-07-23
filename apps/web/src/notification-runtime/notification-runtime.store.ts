@@ -19,6 +19,8 @@ import {
 
 export type NotificationRuntimeStore = {
   getState: () => NotificationRuntimeState;
+  /** Subscribe for useSyncExternalStore (Vertical 2). */
+  subscribe: (listener: () => void) => () => void;
   dispatch: (
     event: NotificationRuntimeEvent,
   ) => NotificationRuntimeReducerResult;
@@ -39,10 +41,21 @@ export function createNotificationRuntimeStore(): NotificationRuntimeStore {
   let lastEffects: RuntimeEffect[] = [];
   /** Dedup: ignore CARD_DISMISS with same transitionId twice. */
   const seenDismissTransitionIds = new Set<string>();
+  const listeners = new Set<() => void>();
+
+  const emit = () => {
+    for (const listener of listeners) listener();
+  };
 
   return {
     getState: () => state,
     getLastEffects: () => lastEffects,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
     dispatch(event) {
       if (event.type === 'CARD_DISMISS_REQUESTED') {
         if (seenDismissTransitionIds.has(event.transitionId)) {
@@ -61,8 +74,10 @@ export function createNotificationRuntimeStore(): NotificationRuntimeStore {
       } catch {
         // Keep reducer output even if invariant helper fails during migration.
       }
+      const changed = result.state !== state || result.effects.length > 0;
       state = result.state;
       lastEffects = result.effects;
+      if (changed) emit();
       return result;
     },
   };

@@ -542,6 +542,7 @@ export function InstantBanFlow({
     getConfirmHoldDebugSnapshot,
     getConfirmOrbQueueDebugSnapshot,
     tryClearExplicitNotificationDrainGuarded,
+    runtimeLobbyMayShow,
   } = useApp();
   /** Global Relationship Orb only — never used for CTA / energy-gate. */
   const globalRelationshipRing = useGlobalRelationshipOrb(token);
@@ -925,8 +926,9 @@ export function InstantBanFlow({
     !overlayHandoffLobbySuppressed &&
     !successExitDraining &&
     !postSuccessHandoffBlocking &&
-    !notificationChainTransitioning &&
-    !queueClaimsNotificationScreen &&
+    // Vertical 2: runtime selectLobbyMayShow is ordinary lobby authority.
+    // queue-lobby-guard / transitioning are not lifecycle authorities.
+    runtimeLobbyMayShow &&
     (!replyLobbyBlocked || bansReturnToLobbyLatch) &&
     !deepLinkRouteBootPending &&
     !deepLinkReplyBooting &&

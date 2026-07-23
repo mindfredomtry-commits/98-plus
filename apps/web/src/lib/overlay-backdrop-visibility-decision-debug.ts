@@ -98,22 +98,17 @@ export function computeOverlayBackdropVisibilityDecision(input: {
   activeKind: string | null;
   shellKind: string | null;
 }): OverlayBackdropVisibilityDecisionTrace {
-  const gapBackdropHold = shouldHoldOverlayBackdropDuringQueueGap({
-    visualQueueDimSessionLive: input.visualQueueDimSessionLive,
-    sendFlowOpening: input.sendFlowOpening,
-    replyParentTimerOwnsTopLayer: input.replyParentTimerOwnsTopLayer,
-    ownerQueueLen: input.ownerQueueLen,
-    queueHeadKind: input.queueHeadKind,
-    notificationChainTransitioning: input.notificationChainTransitioning,
-    notificationSessionActive: input.notificationSessionActive,
-    chainAdvanceWaiting: input.chainAdvanceWaiting,
-  });
-
-  const hostMountForGap = shouldMountOverlayHostForQueueGap({
-    cardContentMounted: input.cardContentMounted,
-    visualQueueDimSessionLiveWithQueueHead:
-      input.visualQueueDimSessionLiveWithQueueHead,
-  });
+  // Vertical 2: gap/dim/shield holds are not mount authorities.
+  void input.notificationChainTransitioning;
+  void input.notificationSessionActive;
+  void input.chainAdvanceWaiting;
+  void input.visualQueueDimSessionLiveWithQueueHead;
+  void input.shieldBackdropVisible;
+  void input.shieldHostMounted;
+  void input.ownerQueueLen;
+  void input.queueHeadKind;
+  void input.visualQueueDimSessionLive;
+  void input.cardContentMounted;
 
   let dimVisibleAfter = false;
   let reason = 'released';
@@ -124,27 +119,16 @@ export function computeOverlayBackdropVisibilityDecision(input: {
   } else if (input.replyParentTimerOwnsTopLayer) {
     dimVisibleAfter = false;
     reason = 'reply-parent-timer-owns-top';
-  } else if (gapBackdropHold) {
-    dimVisibleAfter = true;
-    reason = input.cardContentMounted
-      ? 'card-with-backdrop-visible'
-      : 'visual-queue-session-holds-backdrop';
-  } else if (input.shieldBackdropVisible) {
-    dimVisibleAfter = true;
-    reason = 'shield-backdrop-visible';
   } else if (input.notificationOverlayVisible) {
+    // Vertical 2: runtime overlayVisible is the only dim/host authority for queue shell.
     dimVisibleAfter = true;
-    reason = 'notification-overlay-visible';
+    reason = 'v2-runtime-notification-overlay-visible';
   }
 
-  const hostBranchOpen =
-    !input.showDirectOverboardLayer ||
-    gapBackdropHold ||
-    input.shieldBackdropVisible;
   const backdropMounted =
-    hostBranchOpen &&
     !input.composeBlocksNotificationHost &&
-    (hostMountForGap || dimVisibleAfter || input.shieldHostMounted);
+    !input.showDirectOverboardLayer &&
+    input.notificationOverlayVisible;
 
   return {
     visualQueueDimSessionLive: input.visualQueueDimSessionLive,

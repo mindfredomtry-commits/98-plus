@@ -356,12 +356,17 @@ function createMirror(store: ReturnType<typeof createNotificationRuntimeStore>):
   assert.match(
     providers,
     /canUseV1AtomicAdvance/,
-    'ordinary A→B uses V1 atomic path',
+    'ordinary dismiss uses V1/V2 atomic path',
   );
   assert.match(
     providers,
-    /v1-atomic-advance/,
+    /v2-atomic-advance/,
     'atomic advance projection marker',
+  );
+  assert.doesNotMatch(
+    providers,
+    /remaining\.length > 0 &&\s*\n\s*!isDeeplinkSingleCardModeActive/,
+    'no remaining.length>0 gate for ordinary atomic dismiss',
   );
   assert.doesNotMatch(
     providers,

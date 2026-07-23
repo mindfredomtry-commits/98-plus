@@ -45,45 +45,39 @@ export function computeOverlayVisualShieldDecision(input: {
     replyParentTimerOwnsTopLayer: input.replyParentTimerOwnsTopLayer,
   });
 
+  // Vertical 2: visualQueueDim is paint-only — cannot mount host alone.
+  // Mount authority = runtime selectOverlayVisible (via shouldMount + notificationOverlayVisible).
   const cardContentMounted =
     input.shouldMountNotificationOverlayHostFromGuards &&
-    !input.showDirectOverboardLayer;
+    input.notificationOverlayVisible &&
+    !input.showDirectOverboardLayer &&
+    !input.composeBlocksNotificationHost;
 
-  const hostBranchOpen = !input.showDirectOverboardLayer || shieldHolds;
-  const hostMounted =
-    hostBranchOpen &&
-    !input.composeBlocksNotificationHost &&
-    (cardContentMounted || shieldHolds);
+  const hostMounted = cardContentMounted;
 
-  const backdropVisible = hostMounted && shieldHolds;
+  const backdropVisible =
+    hostMounted && (shieldHolds || input.notificationOverlayVisible);
 
   let renderBranch = 'no-overlay';
-  if (hostMounted) {
-    renderBranch = cardContentMounted
-      ? input.shellDisplayKind
-        ? `shell-${input.shellDisplayKind}`
-        : 'shell-null'
-      : 'visual-shield-backdrop-only';
+  if (input.composeBlocksNotificationHost) {
+    renderBranch = 'compose-blocks';
+  } else if (input.showDirectOverboardLayer) {
+    renderBranch = 'direct-overboard';
+  } else if (hostMounted) {
+    renderBranch = input.shellDisplayKind
+      ? `shell-${input.shellDisplayKind}`
+      : 'shell-null';
+  } else if (shieldHolds) {
+    renderBranch = 'v2-dim-paint-only-no-mount';
   }
 
   let decisionReason = 'ok';
-  if (shieldHolds && hostMounted && backdropVisible && !cardContentMounted) {
-    decisionReason = 'visual-shield-holds-during-card-gap';
+  if (cardContentMounted) {
+    decisionReason = 'v2-runtime-overlay-visible';
+  } else if (shieldHolds && !hostMounted) {
+    decisionReason = 'v2-dim-paint-only-no-mount';
   } else if (!shieldHolds && !hostMounted) {
     decisionReason = 'shield-released';
-  } else if (shieldHolds && !backdropVisible) {
-    decisionReason = 'BROKEN_VISUAL_SHIELD_CONTRACT';
-    if (!hostBranchOpen) {
-      decisionReason += ':show-direct-overboard-suppresses-host-branch';
-    } else if (input.composeBlocksNotificationHost) {
-      decisionReason += ':compose-blocks-host';
-    } else if (!hostMounted) {
-      decisionReason += ':host-not-mounted';
-    }
-  } else if (!shieldHolds && backdropVisible) {
-    decisionReason = 'backdrop-visible-without-shield';
-  } else if (cardContentMounted) {
-    decisionReason = 'card-content-mounted';
   }
 
   return {
