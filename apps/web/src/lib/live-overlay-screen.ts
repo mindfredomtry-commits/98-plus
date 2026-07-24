@@ -133,12 +133,78 @@ export function productSurfaceBlocksNotificationPaint(
 }
 
 /**
- * NEW live queue presentation (bootstrap autoShow / WS / poll materialize).
- * Not for SUCCESS/TIMER/CHECK→RESULT/DEEPLINK continuation.
+ * NEW live queue presentation (bootstrap autoShow / parked flush).
+ *
+ * Must NOT reuse evaluateLiveOverlayDisplay's strict plain-lobby rule:
+ * cold boot / lobby chrome often resolves as screen=`app` (lobbyOpen false or
+ * latch), and `app` is blocked for live WS enqueue — that over-blocked bootstrap
+ * autoShow and left parked items without a resume path.
+ *
+ * Contract: allow realtime start when no blocking product surface is visible and
+ * no exclusive runtime-owned surface already owns the screen. Continuation of an
+ * already-active SUCCESS/TIMER/CHECK/DEEPLINK flow does not use this gate.
  */
 export function evaluateNewLiveQueuePresentation(
   mode: NotificationMode,
   ctx: LiveOverlayScreenContext,
 ): LiveOverlayDisplayDecision {
-  return evaluateLiveOverlayDisplay(mode, ctx, 'incoming', '');
+  const currentScreen = resolveLiveOverlayScreen(ctx);
+  if (mode === 'normal') {
+    return { allowed: false, reason: 'normal-mode', currentScreen };
+  }
+  if (productSurfaceBlocksNotificationPaint(ctx)) {
+    const reasonScreen =
+      currentScreen === 'bans' ||
+      currentScreen === 'profile' ||
+      currentScreen === 'settings'
+        ? currentScreen
+        : 'product-surface';
+    return {
+      allowed: false,
+      reason: `blocked-on-${reasonScreen}`,
+      currentScreen,
+    };
+  }
+  if (ctx.successCardMounted) {
+    return {
+      allowed: false,
+      reason: 'blocked-on-success',
+      currentScreen: 'success',
+    };
+  }
+  if (ctx.activeTimerOverlayMounted) {
+    return {
+      allowed: false,
+      reason: 'blocked-on-timer',
+      currentScreen: 'timer',
+    };
+  }
+  if (ctx.notificationOverlayMounted) {
+    return {
+      allowed: false,
+      reason: 'blocked-on-notification',
+      currentScreen: 'notification',
+    };
+  }
+  if (
+    ctx.sendComposePhase === 'selectingTarget' ||
+    ctx.sendComposePhase === 'composingBan' ||
+    ctx.sendComposePhase === 'confirming' ||
+    ctx.replyComposeActive ||
+    ctx.sendFlowOpen
+  ) {
+    const reasonScreen =
+      currentScreen === 'who' ||
+      currentScreen === 'what' ||
+      currentScreen === 'confirm'
+        ? currentScreen
+        : 'compose';
+    return {
+      allowed: false,
+      reason: `blocked-on-${reasonScreen}`,
+      currentScreen,
+    };
+  }
+  // `lobby` or boot/`app` shell without a product section — eligible to start.
+  return { allowed: true, reason: 'new-live-eligible', currentScreen };
 }

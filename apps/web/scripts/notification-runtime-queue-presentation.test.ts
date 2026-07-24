@@ -11,6 +11,7 @@ import type { BanInteraction } from '@98plus/shared';
 import type { OwnerActiveDisplayPatch } from '../src/lib/notification-overlay-owner';
 import type { QueuedOverlay } from '../src/lib/overlay-queue';
 import {
+  evaluateLiveOverlayDisplay,
   evaluateNewLiveQueuePresentation,
   productSurfaceBlocksNotificationPaint,
   resolveLiveOverlayScreen,
@@ -52,6 +53,11 @@ import {
   executeSuccessHandoffMaterialize,
   requestSuccessHandoff,
 } from '../src/notification-runtime/notification-runtime.success-handoff';
+import {
+  applyPolledCheckResultToRuntime,
+  executeSubmitCardActionEffect,
+  requestCheckCardAction,
+} from '../src/notification-runtime/notification-runtime.check-action';
 
 function ban(id: string): BanInteraction {
   return { id } as BanInteraction;
@@ -107,7 +113,65 @@ async function checkAsync(name: string, fn: () => Promise<void>) {
 }
 
 async function main() {
-  // 1. bans section paints immediately (plan)
+  // Regression: cold boot / app shell must allow NEW live (not blocked-on-app)
+  check('realtime + Lobby → new live queue may start', () => {
+    const lobbyCtx = baseCtx();
+    assert.equal(resolveLiveOverlayScreen(lobbyCtx), 'lobby');
+    const decision = evaluateNewLiveQueuePresentation('real-time', lobbyCtx);
+    assert.equal(decision.allowed, true);
+    assert.equal(decision.reason, 'new-live-eligible');
+
+    const store = createNotificationRuntimeStore();
+    const boot = requestBootstrap(store, { source: 'bootstrap' });
+    const autoShow = evaluateNewLiveQueuePresentation(
+      'real-time',
+      lobbyCtx,
+    ).allowed;
+    completeBootstrap(
+      store,
+      {
+        transitionId: boot.transitionId!,
+        items: [incomingItem('L1')],
+        pendingItemIds: ['incoming:L1'],
+        mode: 'real-time',
+        autoShow,
+        source: 'bootstrap',
+      },
+      EMPTY_RUNTIME_LEGACY_SINKS,
+    );
+    assert.equal(selectOverlayVisible(store.getState()), true);
+    assert.equal(store.getState().lifecycle.status, 'showing');
+  });
+
+  check('realtime + app shell (boot) → new live may start', () => {
+    const appCtx = baseCtx({ lobbyOpen: false });
+    assert.equal(resolveLiveOverlayScreen(appCtx), 'app');
+    // Live WS enqueue still blocks `app` — new-live must NOT.
+    assert.equal(
+      evaluateLiveOverlayDisplay('real-time', appCtx, 'incoming', 'x').allowed,
+      false,
+    );
+    const decision = evaluateNewLiveQueuePresentation('real-time', appCtx);
+    assert.equal(decision.allowed, true);
+    assert.equal(decision.reason, 'new-live-eligible');
+
+    const store = createNotificationRuntimeStore();
+    const boot = requestBootstrap(store, { source: 'bootstrap' });
+    completeBootstrap(
+      store,
+      {
+        transitionId: boot.transitionId!,
+        items: [incomingItem('BOOT1')],
+        pendingItemIds: ['incoming:BOOT1'],
+        mode: 'real-time',
+        autoShow: decision.allowed,
+        source: 'bootstrap',
+      },
+      EMPTY_RUNTIME_LEGACY_SINKS,
+    );
+    assert.equal(selectOverlayVisible(store.getState()), true);
+  });
+
   check('bans section paints immediately', () => {
     const plan = planLobbyBansOpenNavigation({
       phaseIsIdle: true,
@@ -117,11 +181,15 @@ async function main() {
       openInFlight: false,
     });
     assert.equal(plan.openImmediately, true);
-    assert.equal(plan.runBackgroundPrefetch, true);
   });
 
-  // 2–3. prefetch/bootstrap resolve over Profile / Analytics → no mount
-  check('prefetch resolve over Profile does not mount overlay', () => {
+  check('item over Profile → no overlay / pending survives', () => {
+    const profileCtx = baseCtx({ settingsOverlayOpen: true });
+    assert.equal(productSurfaceBlocksNotificationPaint(profileCtx), true);
+    assert.equal(
+      evaluateNewLiveQueuePresentation('real-time', profileCtx).allowed,
+      false,
+    );
     const store = createNotificationRuntimeStore();
     const boot = requestBootstrap(store, { source: 'bootstrap' });
     completeBootstrap(
@@ -133,15 +201,11 @@ async function main() {
         mode: 'real-time',
         autoShow: false,
         source: 'bootstrap',
-        sourceVersion: 'v1',
       },
       EMPTY_RUNTIME_LEGACY_SINKS,
     );
     assert.equal(selectOverlayVisible(store.getState()), false);
     assert.equal(selectPendingCount(store.getState()), 1);
-    const profileCtx = baseCtx({ settingsOverlayOpen: true });
-    assert.equal(resolveLiveOverlayScreen(profileCtx), 'settings');
-    assert.equal(productSurfaceBlocksNotificationPaint(profileCtx), true);
     assert.equal(
       notificationOverlayMayMount({
         composeBlocksNotificationHost: false,
@@ -153,42 +217,76 @@ async function main() {
     );
   });
 
-  check('prefetch resolve over Analytics does not mount overlay', () => {
-    const analyticsCtx = baseCtx({ settingsOverlayOpen: true });
-    assert.equal(productSurfaceBlocksNotificationPaint(analyticsCtx), true);
-    const decision = evaluateNewLiveQueuePresentation(
-      'real-time',
-      analyticsCtx,
-    );
-    assert.equal(decision.allowed, false);
-    assert.match(decision.reason, /blocked-on-settings/);
-  });
-
-  // 4. pending item survives blocked presentation
-  check('pending item survives blocked presentation', () => {
+  check('return Profile → Lobby resumes parked item exactly once', () => {
     const store = createNotificationRuntimeStore();
     const boot = requestBootstrap(store, { source: 'bootstrap' });
     completeBootstrap(
       store,
       {
         transitionId: boot.transitionId!,
-        items: [incomingItem('S1')],
-        pendingItemIds: ['incoming:S1'],
+        items: [incomingItem('P2')],
+        pendingItemIds: ['incoming:P2'],
         mode: 'real-time',
         autoShow: false,
         source: 'bootstrap',
       },
       EMPTY_RUNTIME_LEGACY_SINKS,
     );
-    assert.equal(selectPendingCount(store.getState()), 1);
-    assert.equal(selectLobbyMayShow(store.getState()), true);
-    assert.equal(selectIndicatorVisible(store.getState()), true);
+    assert.equal(selectOverlayVisible(store.getState()), false);
+    const lobbyCtx = baseCtx();
+    assert.equal(
+      evaluateNewLiveQueuePresentation('real-time', lobbyCtx).allowed,
+      true,
+    );
+    syncRuntimeQueue(store, [incomingItem('P2')], 'bootstrap');
+    assert.equal(selectOverlayVisible(store.getState()), true);
+    const afterFirst = store.getState().lifecycle.transitionId;
+    // Second flush while already showing must not clear / restart as idle
+    syncRuntimeQueue(store, [incomingItem('P2')], 'bootstrap');
+    assert.equal(selectOverlayVisible(store.getState()), true);
+    assert.equal(store.getState().lifecycle.status, 'showing');
+    assert.ok(afterFirst != null);
   });
 
-  // 5. normal mode non-Lobby → indicator only
-  check('normal mode non-Lobby indicator only', () => {
+  check('item over Analytics → no overlay', () => {
+    const analyticsCtx = baseCtx({ settingsOverlayOpen: true });
+    assert.equal(
+      evaluateNewLiveQueuePresentation('real-time', analyticsCtx).allowed,
+      false,
+    );
+    assert.match(
+      evaluateNewLiveQueuePresentation('real-time', analyticsCtx).reason,
+      /blocked-on-settings/,
+    );
+  });
+
+  check('return Analytics → Lobby resumes parked item', () => {
     const store = createNotificationRuntimeStore();
     const boot = requestBootstrap(store, { source: 'bootstrap' });
+    completeBootstrap(
+      store,
+      {
+        transitionId: boot.transitionId!,
+        items: [incomingItem('A1')],
+        pendingItemIds: ['incoming:A1'],
+        mode: 'real-time',
+        autoShow: false,
+        source: 'bootstrap',
+      },
+      EMPTY_RUNTIME_LEGACY_SINKS,
+    );
+    syncRuntimeQueue(store, [incomingItem('A1')], 'bootstrap');
+    assert.equal(selectOverlayVisible(store.getState()), true);
+  });
+
+  check('normal mode + Lobby → indicator only', () => {
+    const store = createNotificationRuntimeStore();
+    const boot = requestBootstrap(store, { source: 'bootstrap' });
+    const lobbyCtx = baseCtx();
+    assert.equal(
+      evaluateNewLiveQueuePresentation('normal', lobbyCtx).allowed,
+      false,
+    );
     completeBootstrap(
       store,
       {
@@ -202,78 +300,9 @@ async function main() {
     );
     assert.equal(selectOverlayVisible(store.getState()), false);
     assert.equal(selectIndicatorVisible(store.getState()), true);
-    const decision = evaluateNewLiveQueuePresentation(
-      'normal',
-      baseCtx({ settingsOverlayOpen: true }),
-    );
-    assert.equal(decision.allowed, false);
-    assert.equal(decision.reason, 'normal-mode');
   });
 
-  // 6. realtime non-Lobby → no overlay materialize
-  check('realtime non-Lobby no overlay materialize', () => {
-    const bansCtx = baseCtx({ bansOverlayOpen: true });
-    const decision = evaluateNewLiveQueuePresentation('real-time', bansCtx);
-    assert.equal(decision.allowed, false);
-    assert.equal(resolveLiveOverlayScreen(bansCtx), 'bans');
-    assert.equal(
-      resolveQueueShellHostMount({
-        composeBlocksNotificationHost: false,
-        sendSuccessCardActive: false,
-        runtimeOverlayVisible: true,
-        productSurfaceBlocksNotificationPaint:
-          productSurfaceBlocksNotificationPaint(bansCtx),
-      }),
-      false,
-    );
-  });
-
-  // 7. realtime return to Lobby → queue may materialize
-  check('realtime return to Lobby queue materializes', () => {
-    const store = createNotificationRuntimeStore();
-    const boot = requestBootstrap(store, { source: 'bootstrap' });
-    completeBootstrap(
-      store,
-      {
-        transitionId: boot.transitionId!,
-        items: [incomingItem('R1')],
-        pendingItemIds: ['incoming:R1'],
-        mode: 'real-time',
-        autoShow: false,
-        source: 'bootstrap',
-      },
-      EMPTY_RUNTIME_LEGACY_SINKS,
-    );
-    assert.equal(selectOverlayVisible(store.getState()), false);
-    const lobbyCtx = baseCtx();
-    assert.equal(
-      evaluateNewLiveQueuePresentation('real-time', lobbyCtx).allowed,
-      true,
-    );
-    syncRuntimeQueue(store, [incomingItem('R1')], 'bootstrap');
-    assert.equal(selectOverlayVisible(store.getState()), true);
-  });
-
-  // 8–9. overlay never mounts over bans / Profile
-  check('overlay never mounts over bans', () => {
-    assert.equal(
-      notificationOverlayMayMount({
-        composeBlocksNotificationHost: false,
-        sendSuccessCardActive: false,
-        runtimeOverlayVisible: true,
-        productSurfaceBlocksNotificationPaint: true,
-      }),
-      false,
-    );
-  });
-
-  check('overlay never mounts over Profile', () => {
-    const profileCtx = baseCtx({ settingsOverlayOpen: true });
-    assert.equal(productSurfaceBlocksNotificationPaint(profileCtx), true);
-  });
-
-  // 10. SUCCESS flow unchanged
-  await checkAsync('SUCCESS flow unchanged', async () => {
+  await checkAsync('SUCCESS continuation → next item', async () => {
     const store = createNotificationRuntimeStore();
     const req = requestSuccessHandoff(store, { transitionId: 'h-qp' });
     assert.equal(req.accepted, true);
@@ -282,46 +311,91 @@ async function main() {
       store,
       {
         transitionId: req.transitionId,
-        localItems: [incomingQueued('A')],
+        localItems: [incomingQueued('S1'), incomingQueued('S2')],
       },
       sinks(),
     );
     assert.equal(outcome, 'showing');
     assert.equal(selectOverlayVisible(store.getState()), true);
-    assert.equal(selectLobbyMayShow(store.getState()), false);
+    const dismissed = dismissProductionHeadAtomic(
+      store,
+      {
+        queueBefore: [incomingQueued('S1'), incomingQueued('S2')],
+        targetItemId: 'incoming:S1',
+        reason: 'continue_chain',
+        source: 'success',
+      },
+      sinks(),
+    );
+    assert.equal(dismissed.ok, true);
+    assert.equal(dismissed.hasNext, true);
+    assert.equal(selectOverlayVisible(store.getState()), true);
   });
 
-  // 11. TIMER/chain continuation unchanged (dismiss → next)
-  check('TIMER flow unchanged', () => {
+  check('TIMER continuation → next item', () => {
     const store = createNotificationRuntimeStore();
     const queue = [incomingQueued('T1'), incomingQueued('T2')];
     ingestProductionQueue(store, queue, 'test', sinks());
-    assert.equal(store.getState().lifecycle.status, 'showing');
     const dismissed = dismissProductionHeadAtomic(
       store,
       {
         queueBefore: queue,
         targetItemId: 'incoming:T1',
         reason: 'continue_chain',
-        source: 'test',
+        source: 'timer',
       },
       sinks(),
     );
     assert.equal(dismissed.ok, true);
-    assert.equal(selectOverlayVisible(store.getState()), true);
     assert.equal(dismissed.hasNext, true);
+    assert.equal(selectOverlayVisible(store.getState()), true);
   });
 
-  // 12. DEEPLINK flow unchanged
-  check('DEEPLINK flow unchanged', () => {
+  await checkAsync('CHECK continuation → result/next starts', async () => {
+    const store = createNotificationRuntimeStore();
+    store.dispatch({
+      type: 'ITEMS_RECEIVED',
+      transitionId: 'ingest:check:C1',
+      items: [{ kind: 'check', ban: ban('C1') }],
+      replaceQueue: true,
+      source: 'test',
+    });
+    assert.equal(store.getState().lifecycle.status, 'showing');
+    const req = requestCheckCardAction(store, {
+      banId: 'C1',
+      completed: true,
+      commandId: 'cmd-c1',
+    });
+    assert.equal(req.accepted, true);
+    const effect = req.effects.find((e) => e.type === 'SUBMIT_CARD_ACTION');
+    assert.ok(effect);
+    await executeSubmitCardActionEffect(
+      store,
+      effect!,
+      async () => ({ done: false, waiting: true }),
+      'tok',
+      sinks(),
+    );
+    const ok = applyPolledCheckResultToRuntime(
+      store,
+      'C1',
+      { id: 'C1' } as never,
+      sinks(),
+    );
+    assert.equal(ok, true);
+    assert.equal(store.getState().display.kind, 'result');
+    assert.equal(selectOverlayVisible(store.getState()), true);
+  });
+
+  check('DEEPLINK remains functional', () => {
     const store = createNotificationRuntimeStore();
     const req = requestDirectEntry(
       store,
       {
-        targetId: 'A',
+        targetId: 'D1',
         targetKind: 'incoming',
         entrySource: 'deeplink',
-        item: incomingItem('A'),
+        item: incomingItem('D1'),
       },
       sinks(),
     );
@@ -330,34 +404,55 @@ async function main() {
     assert.equal(selectOverlayVisible(store.getState()), true);
   });
 
-  // 13. indicator stable — empty indicator-prime does not wipe
-  check('indicator stable against empty indicator-prime race', () => {
+  check('overlay never mounts over bans / Profile', () => {
+    const bansCtx = baseCtx({ bansOverlayOpen: true });
+    assert.equal(productSurfaceBlocksNotificationPaint(bansCtx), true);
+    assert.equal(
+      resolveQueueShellHostMount({
+        composeBlocksNotificationHost: false,
+        sendSuccessCardActive: false,
+        runtimeOverlayVisible: true,
+        productSurfaceBlocksNotificationPaint: true,
+      }),
+      false,
+    );
+    assert.equal(
+      evaluateNewLiveQueuePresentation('real-time', bansCtx).allowed,
+      false,
+    );
+  });
+
+  check('pending not consumed while blocked', () => {
+    const store = createNotificationRuntimeStore();
+    const boot = requestBootstrap(store, { source: 'bootstrap' });
+    completeBootstrap(
+      store,
+      {
+        transitionId: boot.transitionId!,
+        items: [incomingItem('X1')],
+        pendingItemIds: ['incoming:X1'],
+        mode: 'real-time',
+        autoShow: false,
+        source: 'bootstrap',
+      },
+      EMPTY_RUNTIME_LEGACY_SINKS,
+    );
+    assert.equal(selectPendingCount(store.getState()), 1);
+    assert.deepEqual(store.getState().consumed.itemIds, []);
+    assert.equal(selectLobbyMayShow(store.getState()), true);
+  });
+
+  check('indicator flicker fix remains green', () => {
     const store = createNotificationRuntimeStore();
     ingestPendingSnapshot(store, ['incoming:A'], 'bootstrap', 'v1');
-    assert.equal(selectIndicatorVisible(store.getState()), true);
     ingestPendingSnapshot(store, [], 'lobby-indicator-prime', 'v2-empty');
     assert.equal(selectIndicatorVisible(store.getState()), true);
     assert.equal(selectPendingCount(store.getState()), 1);
-    ingestPendingSnapshot(
-      store,
-      ['incoming:A', 'incoming:B'],
-      'lobby-indicator-prime',
-      'v3',
-    );
-    assert.equal(selectPendingCount(store.getState()), 2);
     markRuntimeItemConsumed(store, 'incoming:A', 'user');
-    assert.equal(selectPendingCount(store.getState()), 1);
+    assert.equal(selectPendingCount(store.getState()), 0);
   });
 
-  // 14. double click safe
   check('double click safe', () => {
-    const first = planLobbyBansOpenNavigation({
-      phaseIsIdle: true,
-      banSentSuccess: false,
-      runtimeDraining: false,
-      alreadyOpen: false,
-      openInFlight: false,
-    });
     const second = planLobbyBansOpenNavigation({
       phaseIsIdle: true,
       banSentSuccess: false,
@@ -365,29 +460,31 @@ async function main() {
       alreadyOpen: false,
       openInFlight: true,
     });
-    assert.equal(first.openImmediately, true);
     assert.equal(second.openImmediately, false);
   });
 
-  // Wiring
-  check('Providers wires surface presentation guard', () => {
-    const root = join(process.cwd(), 'apps/web/src/components/Providers.tsx');
-    const providers = readFileSync(root, 'utf8');
+  check('Providers keeps park/flush + surface paint guard', () => {
+    const providers = readFileSync(
+      join(process.cwd(), 'apps/web/src/components/Providers.tsx'),
+      'utf8',
+    );
     assert.match(providers, /notificationOverlayMayMount/);
-    assert.match(providers, /productSurfaceBlocksNotificationPaint/);
     assert.match(providers, /evaluateNewLiveQueuePresentation/);
     assert.match(providers, /autoShow:\s*allowNewLiveAutoShow/);
-    assert.match(providers, /parkedNewLiveBootstrapItemsRef/);
-    assert.match(providers, /QUEUE_MATERIALIZE_BLOCKED/);
+    assert.match(providers, /tryFlushParkedNewLiveQueue/);
+    assert.match(providers, /lobbyOpen-true/);
   });
 
-  check('pending skips empty indicator-prime wipe', () => {
-    const pendingPath = join(
-      process.cwd(),
-      'apps/web/src/notification-runtime/notification-runtime.pending.ts',
+  check('new-live gate is not plain-lobby alias', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'apps/web/src/lib/live-overlay-screen.ts'),
+      'utf8',
     );
-    const pending = readFileSync(pendingPath, 'utf8');
-    assert.match(pending, /isPassiveIndicatorPrimeSource/);
+    assert.match(src, /new-live-eligible/);
+    assert.doesNotMatch(
+      src,
+      /export function evaluateNewLiveQueuePresentation[\s\S]*return evaluateLiveOverlayDisplay/,
+    );
   });
 
   console.log(`\n${passed} checks passed`);

@@ -37496,6 +37496,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     lobbyOpenRef.current = lobbyOpen;
+    if (lobbyOpen) {
+      queueMicrotask(() => {
+        tryFlushParkedNewLiveQueueRef.current('lobbyOpen-true');
+      });
+    }
   }, [lobbyOpen]);
 
   const clearReplyDeepLinkState = useCallback(() => {
