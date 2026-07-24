@@ -17,6 +17,10 @@ import {
   resolveLiveOverlayScreen,
   type LiveOverlayScreenContext,
 } from '../src/lib/live-overlay-screen';
+import {
+  isBansSectionDataRefreshSource,
+  isPendingDataRefreshOnlySource,
+} from '../src/lib/lobby-bans-indicator-debug';
 import { planLobbyBansOpenNavigation } from '../src/lib/lobby-bans-open-navigation';
 import {
   completeBootstrap,
@@ -473,7 +477,161 @@ async function main() {
     assert.match(providers, /autoShow:\s*allowNewLiveAutoShow/);
     assert.match(providers, /tryFlushParkedNewLiveQueue/);
     assert.match(providers, /lobbyOpen-true/);
+    assert.match(providers, /isPendingDataRefreshOnlySource/);
+    assert.match(providers, /projectRuntimeQueueToLegacy/);
+    assert.match(providers, /SUCCESS_CONTINUE_REQUESTED/);
   });
+
+  check('bans prefetch source is DATA_REFRESH_ONLY', () => {
+    assert.equal(
+      isBansSectionDataRefreshSource('lobby-bans-cta-after-sync-open'),
+      true,
+    );
+    assert.equal(
+      isPendingDataRefreshOnlySource('lobby-bans-cta-after-sync-open'),
+      true,
+    );
+    assert.equal(
+      isPendingDataRefreshOnlySource('success-exit-v5-transport'),
+      false,
+    );
+  });
+
+  check('bans open blocks new-live; pending response must not showHead', () => {
+    const bansCtx = baseCtx({ bansOverlayOpen: true });
+    assert.equal(
+      evaluateNewLiveQueuePresentation('real-time', bansCtx).allowed,
+      false,
+    );
+    const store = createNotificationRuntimeStore();
+    const boot = requestBootstrap(store, { source: 'bootstrap' });
+    // Slow pending resolve while bans active — autoShow must stay false
+    completeBootstrap(
+      store,
+      {
+        transitionId: boot.transitionId!,
+        items: [incomingItem('SLOW1')],
+        pendingItemIds: ['incoming:SLOW1'],
+        mode: 'real-time',
+        autoShow: evaluateNewLiveQueuePresentation('real-time', bansCtx)
+          .allowed,
+        source: 'bootstrap',
+      },
+      EMPTY_RUNTIME_LEGACY_SINKS,
+    );
+    assert.equal(selectOverlayVisible(store.getState()), false);
+    assert.equal(selectPendingCount(store.getState()), 1);
+    assert.deepEqual(store.getState().consumed.itemIds, []);
+  });
+
+  check('InstantBanFlow sets arena bans guard synchronously', () => {
+    const flow = readFileSync(
+      join(
+        process.cwd(),
+        'apps/web/src/components/instant-ban/InstantBanFlow.tsx',
+      ),
+      'utf8',
+    );
+    assert.match(
+      flow,
+      /setBansOverlayOpen\(true\);[\s\S]*setArenaOverlayGuardState\(\{\s*bansOverlayOpen:\s*true/,
+    );
+    assert.match(flow, /willCallStartLobbyBansNotificationDrain:\s*false/);
+  });
+
+  await checkAsync(
+    'SUCCESS continuation uses runtime queue when legacy empty',
+    async () => {
+      const store = createNotificationRuntimeStore();
+      // Seed runtime queue (Vertical 9 — legacy mirrors empty)
+      ingestProductionQueue(
+        store,
+        [
+          incomingQueued('S1'),
+          incomingQueued('S2'),
+          incomingQueued('S3'),
+        ],
+        'bootstrap',
+        sinks(),
+      );
+      assert.equal(store.getState().items.queue.length, 3);
+
+      const req = requestSuccessHandoff(store, { transitionId: 'h-cont' });
+      assert.equal(req.accepted, true);
+      // Empty localItems simulates empty overlayQueueRef + pendingStartup
+      const outcome = await executeSuccessHandoffMaterialize(
+        store,
+        {
+          transitionId: req.transitionId,
+          localItems: [],
+          fetchPendingItems: async () => [],
+        },
+        sinks(),
+      );
+      assert.equal(outcome, 'showing');
+      assert.equal(selectOverlayVisible(store.getState()), true);
+      assert.equal(store.getState().items.queue.length, 3);
+
+      // Advance S1 → S2 → S3 via continue_chain
+      let queue = [
+        incomingQueued('S1'),
+        incomingQueued('S2'),
+        incomingQueued('S3'),
+      ];
+      let d = dismissProductionHeadAtomic(
+        store,
+        {
+          queueBefore: queue,
+          targetItemId: 'incoming:S1',
+          reason: 'continue_chain',
+          source: 'success',
+        },
+        sinks(),
+      );
+      assert.equal(d.hasNext, true);
+      queue = [incomingQueued('S2'), incomingQueued('S3')];
+      d = dismissProductionHeadAtomic(
+        store,
+        {
+          queueBefore: queue,
+          targetItemId: 'incoming:S2',
+          reason: 'continue_chain',
+          source: 'success',
+        },
+        sinks(),
+      );
+      assert.equal(d.hasNext, true);
+      assert.equal(selectOverlayVisible(store.getState()), true);
+    },
+  );
+
+  await checkAsync(
+    'SUCCESS handoff accepted while runtime already showing',
+    async () => {
+      const store = createNotificationRuntimeStore();
+      ingestProductionQueue(
+        store,
+        [incomingQueued('W1'), incomingQueued('W2')],
+        'test',
+        sinks(),
+      );
+      assert.equal(store.getState().lifecycle.status, 'showing');
+      const req = requestSuccessHandoff(store, { transitionId: 'h-show' });
+      assert.equal(req.accepted, true);
+      assert.equal(selectIsDraining(store.getState()), true);
+      const outcome = await executeSuccessHandoffMaterialize(
+        store,
+        {
+          transitionId: req.transitionId,
+          localItems: [],
+          fetchPendingItems: async () => [],
+        },
+        sinks(),
+      );
+      assert.equal(outcome, 'showing');
+      assert.equal(store.getState().items.queue.length, 2);
+    },
+  );
 
   check('new-live gate is not plain-lobby alias', () => {
     const src = readFileSync(

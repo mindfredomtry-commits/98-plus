@@ -436,9 +436,10 @@ export function notificationRuntimeReducer(
     }
 
     case 'SUCCESS_HANDOFF_REQUESTED': {
-      // Same drain entry as DRAIN_REQUESTED; SUCCESS host already closed product UI.
+      // Enter draining after product SUCCESS closes. Allow from idle OR showing
+      // (runtime may already hold the next notification queue under the SUCCESS card).
+      // Do not interrupt in-flight submit/completing actions.
       if (
-        base.lifecycle.status === 'showing' ||
         base.lifecycle.status === 'submitting' ||
         base.lifecycle.status === 'completing'
       ) {
@@ -447,6 +448,12 @@ export function notificationRuntimeReducer(
       if (
         base.lifecycle.status === 'draining' &&
         base.lifecycle.transitionId === event.transitionId
+      ) {
+        return { state: base, effects: [] };
+      }
+      if (
+        base.lifecycle.status === 'booting' ||
+        base.lifecycle.status === 'recovering'
       ) {
         return { state: base, effects: [] };
       }

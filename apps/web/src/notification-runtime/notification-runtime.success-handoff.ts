@@ -136,6 +136,28 @@ export async function executeSuccessHandoffMaterialize(
     }
   }
 
+  // Never wipe an existing runtime queue with an empty replace (Vertical 9 mirrors
+  // are often empty while runtime still holds continuation items).
+  if (sorted.length === 0) {
+    const existing = store.getState().items.queue;
+    if (existing.length > 0) {
+      sorted = sortQueuedForSuccessDrain(
+        filterConsumedQueuedItems(
+          store,
+          existing.map((item) => {
+            if (item.kind === 'result') {
+              return { kind: 'result' as const, result: item.result };
+            }
+            if (item.kind === 'check') {
+              return { kind: 'check' as const, ban: item.ban };
+            }
+            return { kind: 'incoming' as const, ban: item.ban };
+          }),
+        ),
+      );
+    }
+  }
+
   store.dispatch({
     type: 'ITEMS_RECEIVED',
     transitionId,

@@ -590,6 +590,7 @@ import {
 import {
   isLobbyIndicatorPrefetchSource,
   isLobbyIndicatorPrimeOnlySource,
+  isPendingDataRefreshOnlySource,
   logLobbyIndicatorDelayBug,
   logLobbyIndicatorOpenedCardBug,
   logLobbyIndicatorOpenedEmptyHostBug,
@@ -17613,7 +17614,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           }
         }
 
-        const indicatorPrimeOnly = isLobbyIndicatorPrefetchSource(source);
+        const indicatorPrimeOnly = isPendingDataRefreshOnlySource(source);
         const apiIncomingCount = prefetched.incoming.length;
         lastPrefetchRejectDebugCountRef.current = prefetched.rejectDebug.length;
 
@@ -32565,8 +32566,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const prefetchPendingAfterLobbyBansOpen = useCallback(async () => {
     const startedAt =
       typeof performance !== 'undefined' ? performance.now() : Date.now();
-    logQueuePresentation('PENDING_PREFETCH_START', {
+    logQueuePresentation('BANS_PREFETCH_START', {
       source: 'lobby-bans-cta-after-sync-open',
+      presentationIntent: 'DATA_REFRESH_ONLY',
       surface: resolveLiveOverlayScreen(buildLiveOverlayScreenContext()),
       mode: notificationModeRef.current,
       runtimeLifecycle:
@@ -32583,16 +32585,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const endedAt =
         typeof performance !== 'undefined' ? performance.now() : Date.now();
       const rt = notificationRuntimeStoreRef.current.getState();
-      logQueuePresentation('PENDING_PREFETCH_RESOLVE', {
+      logQueuePresentation('BANS_PREFETCH_RESOLVE', {
         source: 'lobby-bans-cta-after-sync-open',
+        presentationIntent: 'DATA_REFRESH_ONLY',
         surface: resolveLiveOverlayScreen(buildLiveOverlayScreenContext()),
         mode: notificationModeRef.current,
         runtimeLifecycle: rt.lifecycle.status,
         pendingCount: rt.pending.itemIds.length,
+        queueLength: rt.items.queue.length,
+        displayKind: rt.display.kind,
         elapsedMs: Math.round(endedAt - startedAt),
-        overlayPermitted: !productSurfaceBlocksNotificationPaint(
-          buildLiveOverlayScreenContext(),
-        ),
+        overlayPermitted: false,
       });
     }
   }, [prefetchPendingNotificationChain]);
@@ -32801,16 +32804,38 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       logSuccessExitDrainStart();
-      const localItems = [
-        ...overlayQueueRef.current,
-        ...pendingStartupInteractionsRef.current,
-      ];
+      const runtimeQueueItems = projectRuntimeQueueToLegacy(
+        notificationRuntimeStoreRef.current.getState(),
+      );
+      // Vertical 9: legacy overlay/pending mirrors are often empty — runtime queue
+      // is the continuation authority for SUCCESS → next card.
+      const localItems = mergeStartupPendingChain(
+        [...overlayQueueRef.current, ...pendingStartupInteractionsRef.current],
+        runtimeQueueItems,
+      );
+
+      logQueuePresentation('SUCCESS_CONTINUE_REQUESTED', {
+        source: 'drainNextNotificationAfterSuccess',
+        runtimeLifecycle:
+          notificationRuntimeStoreRef.current.getState().lifecycle.status,
+        queueLength: localItems.length,
+        pendingCount:
+          notificationRuntimeStoreRef.current.getState().pending.itemIds.length,
+        itemCount: runtimeQueueItems.length,
+      });
 
       const requested = requestSuccessHandoff(
         notificationRuntimeStoreRef.current,
         { source: 'user' },
       );
       if (!requested.accepted) {
+        logQueuePresentation('SUCCESS_CONTINUE_BLOCKED', {
+          source: 'drainNextNotificationAfterSuccess',
+          runtimeLifecycle:
+            notificationRuntimeStoreRef.current.getState().lifecycle.status,
+          blockingReason: 'success-handoff-rejected',
+          queueLength: localItems.length,
+        });
         logSuccessExitDrainResult({
           drained: false,
           queueLenAfter: overlayQueueRef.current.length,
@@ -32860,6 +32885,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (outcome === 'showing') {
         setLobbyOpen(false);
         setNotificationChainTransitioning(false);
+        logQueuePresentation('SUCCESS_SHOW_HEAD', {
+          source: 'v5-success-handoff',
+          runtimeLifecycle: 'showing',
+          displayKind: nextKind,
+          queueLength:
+            notificationRuntimeStoreRef.current.getState().items.queue.length,
+        });
         logFirstNotificationSelected({
           kind: nextKind,
           banId: nextBanId,

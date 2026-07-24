@@ -8,7 +8,15 @@ export type QueuePresentationDiagEvent =
   | 'QUEUE_MATERIALIZE_ALLOWED'
   | 'QUEUE_MATERIALIZE_BLOCKED'
   | 'PENDING_PREFETCH_START'
-  | 'PENDING_PREFETCH_RESOLVE';
+  | 'PENDING_PREFETCH_RESOLVE'
+  | 'BANS_NAV_CLICK'
+  | 'BANS_SECTION_STATE_SET'
+  | 'BANS_PREFETCH_START'
+  | 'BANS_PREFETCH_RESOLVE'
+  | 'SUCCESS_CONTINUE_REQUESTED'
+  | 'SUCCESS_CONTINUE_BLOCKED'
+  | 'SUCCESS_SHOW_HEAD'
+  | 'SUCCESS_QUEUE_SNAPSHOT';
 
 export type QueuePresentationDiagFields = {
   runtimeLifecycle?: string | null;
@@ -21,6 +29,9 @@ export type QueuePresentationDiagFields = {
   source?: string | null;
   pendingCount?: number | null;
   itemCount?: number | null;
+  queueLength?: number | null;
+  presentationIntent?: string | null;
+  displayKind?: string | null;
 };
 
 const SECRET_KEYS = new Set([

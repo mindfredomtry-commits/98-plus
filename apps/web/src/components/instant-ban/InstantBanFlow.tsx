@@ -3074,6 +3074,14 @@ export function InstantBanFlow({
     setBansTab(targetTab);
     setSelectedBanForDetails(null);
     setBansOverlayOpen(true);
+    // Synchronous product-surface gate — must beat any in-flight bootstrap autoShow
+    // before React useEffect would update arena refs (paint-after-showHead race).
+    setArenaOverlayGuardState({ bansOverlayOpen: true });
+    console.log('BANS_SECTION_STATE_SET', {
+      t: performance.now(),
+      bansOverlayOpen: true,
+      presentationIntent: 'DATA_REFRESH_ONLY',
+    });
     noteBansLayerOpenAllowed(
       'handleOpenBansOverlay',
       'lobby-explicit-click-commit-sync',
@@ -3126,6 +3134,7 @@ export function InstantBanFlow({
     showLobbyCta,
     showLobbyTopNav,
     lobbyBansNeedAttention,
+    setArenaOverlayGuardState,
     clearSharedSkipResultsPrefetchForExplicitDrain,
     prefetchPendingAfterLobbyBansOpen,
     openBansOverlayTabRequest,
