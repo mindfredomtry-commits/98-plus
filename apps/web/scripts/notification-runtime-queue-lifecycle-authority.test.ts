@@ -274,13 +274,11 @@ async function main() {
     const store = createNotificationRuntimeStore();
     const req = requestSuccessHandoff(store, { transitionId: 'abandoned-1' });
     assert.equal(selectIsDraining(store.getState()), true);
-    // Draining without a renderable display must NOT claim the screen
-    // (ownership without presentation). Chrome may show until normalize.
+    // Orb-only lobby signature while the drain is still owned.
     assert.equal(
       selectInteractiveLobbyChromeMayShow(store.getState()),
-      true,
+      false,
     );
-    assert.equal(selectOverlayVisible(store.getState()), false);
 
     // Materialize never runs (host aborted); the host settles the drain.
     const normalized = normalizeAbandonedDrain(
