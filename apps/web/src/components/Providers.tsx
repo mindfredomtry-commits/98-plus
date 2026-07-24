@@ -224,6 +224,7 @@ import {
 } from '@/notification-runtime/notification-runtime.check-action';
 import {
   executeSuccessHandoffMaterialize,
+  normalizeAbandonedDrain,
   requestSuccessHandoff,
 } from '@/notification-runtime/notification-runtime.success-handoff';
 import {
@@ -257,6 +258,7 @@ import {
   ingestPendingSnapshot,
   markRuntimeItemConsumed,
   mergePendingItemIds,
+  nextPendingAuthorityGeneration,
   pendingIdsFromPrefetchParts,
   pendingItemIdsFromQueued,
   pendingItemIdFromParts,
@@ -17032,6 +17034,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ): Promise<boolean> => {
       const queueLenBefore = overlayQueueRef.current.length;
       const pendingLenBefore = pendingStartupInteractionsRef.current.length;
+      // Stamped before the request so a late empty result from this request
+      // cannot clear a snapshot written by a request that started later.
+      const requestGeneration = nextPendingAuthorityGeneration();
 
       if (shouldBlockPostSuccessPrefetchAfterEmpty(source)) {
         logQueueApiResultApplyDecision({
@@ -17640,7 +17645,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             serverPendingIds,
             source,
             `prefetch:${source}:${serverPendingIds.join(',')}`,
+            requestGeneration,
           );
+          logQueuePresentation('PENDING_AUTHORITY_UPDATE', {
+            source,
+            requestGeneration,
+            itemCount: serverPendingIds.length,
+            pendingCount:
+              notificationRuntimeStoreRef.current.getState().pending.itemIds
+                .length,
+            runtimeLifecycle:
+              notificationRuntimeStoreRef.current.getState().lifecycle.status,
+          });
         }
 
         if (toEnqueue.length === 0) {
@@ -32786,6 +32802,34 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ],
   );
 
+  /**
+   * SUCCESS drain ended without a next card. Settle the runtime back to idle
+   * (only if it still owns the drain) and release the chain-transition flag —
+   * otherwise lifecycle stays overlay-authoritative and the lobby keeps the
+   * orb without «запрещать» / «твои запреты».
+   */
+  const concludeSuccessDrainWithoutCard = useCallback(
+    (reason: string) => {
+      const store = notificationRuntimeStoreRef.current;
+      const normalized = normalizeAbandonedDrain(
+        store,
+        null,
+        EMPTY_RUNTIME_LEGACY_SINKS,
+      );
+      const state = store.getState();
+      logQueuePresentation('SUCCESS_RUNTIME_NORMALIZED', {
+        source: reason,
+        runtimeLifecycle: state.lifecycle.status,
+        displayKind: state.display.kind,
+        queueLength: state.items.queue.length,
+        pendingCount: state.pending.itemIds.length,
+        blockingReason: normalized ? 'abandoned-drain-normalized' : null,
+      });
+      setNotificationChainTransitioning(false);
+    },
+    [setNotificationChainTransitioning],
+  );
+
   const drainNextNotificationAfterSuccess = useCallback(
     async (successBanId?: string | null): Promise<boolean> => {
       // Vertical 5: runtime SUCCESS_HANDOFF is sole drain owner (no continue/showNext).
@@ -32836,6 +32880,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           blockingReason: 'success-handoff-rejected',
           queueLength: localItems.length,
         });
+        concludeSuccessDrainWithoutCard('success-handoff-rejected');
         logSuccessExitDrainResult({
           drained: false,
           queueLenAfter: overlayQueueRef.current.length,
@@ -32908,6 +32953,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       // idle / failed / rejected → host opens lobby via selectLobbyMayShow
+      concludeSuccessDrainWithoutCard(`v5-success-handoff-${outcome}`);
       // Vertical 6: after SUCCESS drain settles, flush deferred deeplink entry.
       {
         const flushEffects = flushDeferredDirectEntry(
@@ -32952,6 +32998,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     },
     [
       commitSyncDisplayActivePayload,
+      concludeSuccessDrainWithoutCard,
       prefetchPendingNotificationChain,
       setLobbyOpen,
       setNotificationChainTransitioning,

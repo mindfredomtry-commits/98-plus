@@ -16,7 +16,10 @@ export type QueuePresentationDiagEvent =
   | 'SUCCESS_CONTINUE_REQUESTED'
   | 'SUCCESS_CONTINUE_BLOCKED'
   | 'SUCCESS_SHOW_HEAD'
-  | 'SUCCESS_QUEUE_SNAPSHOT';
+  | 'SUCCESS_QUEUE_SNAPSHOT'
+  | 'SUCCESS_RUNTIME_NORMALIZED'
+  | 'PENDING_AUTHORITY_UPDATE'
+  | 'LOBBY_CHROME_DECISION';
 
 export type QueuePresentationDiagFields = {
   runtimeLifecycle?: string | null;
@@ -32,6 +35,12 @@ export type QueuePresentationDiagFields = {
   queueLength?: number | null;
   presentationIntent?: string | null;
   displayKind?: string | null;
+  /** Request-start pending authority generation (out-of-order diagnosis). */
+  requestGeneration?: number | null;
+  chainTransitioning?: boolean;
+  startupHold?: boolean;
+  lobbyOpen?: boolean;
+  chromeAllowed?: boolean;
 };
 
 const SECRET_KEYS = new Set([

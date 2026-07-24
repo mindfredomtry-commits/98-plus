@@ -100,6 +100,56 @@ export async function executeSuccessHandoffMaterialize(
   },
   sinks: RuntimeLegacySinks,
 ): Promise<SuccessHandoffOutcome> {
+  try {
+    return await materializeSuccessHandoff(store, args, sinks);
+  } finally {
+    // A drain this transition still owns must never outlive the handoff:
+    // lifecycle=draining keeps overlay authority on, which hides interactive
+    // lobby chrome and blocks «Твои запреты» navigation.
+    normalizeAbandonedDrain(store, args.transitionId, sinks);
+  }
+}
+
+/**
+ * Return the runtime to idle when this transition still owns a drain that
+ * produced no display. No-op once another owner took over the lifecycle.
+ *
+ * `transitionId` null means "whatever drain is currently owned" — used by the
+ * host when a handoff ends without ever reaching materialize.
+ */
+export function normalizeAbandonedDrain(
+  store: NotificationRuntimeStore,
+  transitionId: string | null,
+  sinks: RuntimeLegacySinks,
+): boolean {
+  const state = store.getState();
+  const owned = transitionId ?? state.lifecycle.transitionId;
+  if (
+    !owned ||
+    state.lifecycle.status !== 'draining' ||
+    state.lifecycle.transitionId !== owned
+  ) {
+    return false;
+  }
+  store.dispatch({
+    type: 'RUNTIME_NORMALIZE_IDLE',
+    transitionId: owned,
+    reason: 'success-handoff-abandoned-drain',
+    source: 'user',
+  });
+  projectAfterHandoff(store, sinks, 'normalize-idle');
+  return true;
+}
+
+async function materializeSuccessHandoff(
+  store: NotificationRuntimeStore,
+  args: {
+    transitionId: string;
+    localItems: readonly QueuedOverlay[];
+    fetchPendingItems?: () => Promise<QueuedOverlay[]>;
+  },
+  sinks: RuntimeLegacySinks,
+): Promise<SuccessHandoffOutcome> {
   const { transitionId } = args;
   if (
     !selectIsDraining(store.getState()) ||

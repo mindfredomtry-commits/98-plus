@@ -98,6 +98,12 @@ export type NotificationRuntimeState = {
     /** Canonical unread item IDs (overlayQueueKey form: kind:id). */
     itemIds: string[];
     sourceVersion: string | null;
+    /**
+     * Monotonic authority generation of the last applied snapshot.
+     * Stamped when a request starts, so a late empty response from an older
+     * request cannot clear a newer non-empty snapshot (out-of-order guard).
+     */
+    generation: number;
   };
   consumed: {
     itemIds: string[];
@@ -247,6 +253,19 @@ export type NotificationRuntimeResultEvent =
       type: 'PENDING_SOURCE_UPDATED';
       itemIds: string[];
       sourceVersion: string | null;
+      source: RuntimeSource;
+      /** Request-start generation; omit for callers with no ordering context. */
+      generation?: number | null;
+    }
+  | {
+      /**
+       * Recover from a drain that ended without an owner (rejected/abandoned
+       * handoff). Applies only while the requesting transition still owns
+       * lifecycle=draining, so it can never stomp a newer owner.
+       */
+      type: 'RUNTIME_NORMALIZE_IDLE';
+      transitionId: string;
+      reason: string;
       source: RuntimeSource;
     }
   | {
@@ -408,6 +427,7 @@ export function createInitialNotificationRuntimeState(): NotificationRuntimeStat
     pending: {
       itemIds: [],
       sourceVersion: null,
+      generation: 0,
     },
     consumed: {
       itemIds: [],

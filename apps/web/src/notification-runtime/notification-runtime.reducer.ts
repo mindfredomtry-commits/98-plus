@@ -25,6 +25,7 @@ function cloneState(state: NotificationRuntimeState): NotificationRuntimeState {
     pending: {
       itemIds: [...state.pending.itemIds],
       sourceVersion: state.pending.sourceVersion,
+      generation: state.pending.generation,
     },
     consumed: { itemIds: [...state.consumed.itemIds] },
     recovery: { ...state.recovery },
@@ -138,6 +139,40 @@ function addConsumed(
       ...state.pending,
       itemIds: reconcilePending(state.pending.itemIds, consumedIds),
     },
+  };
+}
+
+/**
+ * Pending authority rule for snapshot replacements.
+ *
+ * Empty is only allowed to clear when it is the current authority: a response
+ * stamped older than the applied generation is dropped, and so is an empty
+ * snapshot while the runtime still holds a live/queued item the server has not
+ * caught up with. Non-empty snapshots always apply, so the badge is never
+ * latched on.
+ */
+function resolvePendingReplacement(
+  base: NotificationRuntimeState,
+  incomingIds: string[],
+  sourceVersion: string | null,
+  generation: number | null | undefined,
+): NotificationRuntimeState['pending'] {
+  const stamped = typeof generation === 'number' ? generation : null;
+  const nextGeneration = Math.max(base.pending.generation, stamped ?? 0);
+  if (incomingIds.length === 0) {
+    if (stamped != null && stamped < base.pending.generation) {
+      return base.pending;
+    }
+    const holdsLocalItem =
+      base.items.queue.length > 0 || base.display.kind != null;
+    if (holdsLocalItem && base.pending.itemIds.length > 0) {
+      return { ...base.pending, generation: nextGeneration };
+    }
+  }
+  return {
+    itemIds: incomingIds,
+    sourceVersion,
+    generation: nextGeneration,
   };
 }
 
@@ -256,8 +291,8 @@ function dismissHead(
       ...clearDisplay(clearAction(next)),
       items: { queue: [] },
       pending: {
+        ...next.pending,
         itemIds: pendingIds,
-        sourceVersion: next.pending.sourceVersion,
       },
       lifecycle: {
         status: 'idle',
@@ -385,7 +420,11 @@ export function notificationRuntimeReducer(
         state: {
           ...clearDisplay(clearAction(base)),
           items: { queue: [] },
-          pending: { itemIds: [], sourceVersion: null },
+          pending: {
+            itemIds: [],
+            sourceVersion: null,
+            generation: base.pending.generation,
+          },
           lifecycle: {
             status: 'booting',
             source: event.source,
@@ -579,10 +618,12 @@ export function notificationRuntimeReducer(
         return {
           state: {
             ...base,
-            pending: {
-              itemIds: pendingIds,
-              sourceVersion: event.sourceVersion,
-            },
+            pending: resolvePendingReplacement(
+              base,
+              pendingIds,
+              event.sourceVersion,
+              null,
+            ),
             consumed: { itemIds: consumedIds },
             recovery: {
               status: 'applied',
@@ -603,10 +644,12 @@ export function notificationRuntimeReducer(
       let next: NotificationRuntimeState = {
         ...base,
         items: { queue },
-        pending: {
-          itemIds: pendingIds,
-          sourceVersion: event.sourceVersion,
-        },
+        pending: resolvePendingReplacement(
+          base,
+          pendingIds,
+          event.sourceVersion,
+          null,
+        ),
         consumed: { itemIds: consumedIds },
         recovery: {
           status: 'applied',
@@ -840,9 +883,32 @@ export function notificationRuntimeReducer(
       return {
         state: {
           ...base,
-          pending: {
-            itemIds: pendingIds,
-            sourceVersion: event.sourceVersion,
+          pending: resolvePendingReplacement(
+            base,
+            pendingIds,
+            event.sourceVersion,
+            event.generation,
+          ),
+        },
+        effects: [],
+      };
+    }
+
+    case 'RUNTIME_NORMALIZE_IDLE': {
+      // Only the transition that still owns the abandoned drain may normalize.
+      if (
+        base.lifecycle.status !== 'draining' ||
+        base.lifecycle.transitionId !== event.transitionId
+      ) {
+        return { state: base, effects: [] };
+      }
+      return {
+        state: {
+          ...clearDisplay(clearAction(base)),
+          lifecycle: {
+            status: 'idle',
+            source: event.source,
+            transitionId: null,
           },
         },
         effects: [],
@@ -904,10 +970,12 @@ export function notificationRuntimeReducer(
       let next: NotificationRuntimeState = {
         ...base,
         items: { queue },
-        pending: {
-          itemIds: pendingIds,
-          sourceVersion: event.sourceVersion,
-        },
+        pending: resolvePendingReplacement(
+          base,
+          pendingIds,
+          event.sourceVersion,
+          null,
+        ),
         consumed: { itemIds: consumed },
         recovery: {
           status: 'applied',

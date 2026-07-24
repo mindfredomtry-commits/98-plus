@@ -36,6 +36,18 @@ export function pendingItemIdFromParts(
   return `${kind}:${id}`;
 }
 
+let pendingAuthorityGenerationCounter = 0;
+
+/**
+ * Allocate a monotonic generation at request start. Stamping the request (not
+ * the response) is what lets the reducer drop an older empty result that lands
+ * after a newer non-empty one.
+ */
+export function nextPendingAuthorityGeneration(): number {
+  pendingAuthorityGenerationCounter += 1;
+  return pendingAuthorityGenerationCounter;
+}
+
 function isPassiveIndicatorPrimeSource(source: string): boolean {
   return (
     source === 'lobby-indicator-prime' ||
@@ -55,6 +67,7 @@ export function ingestPendingSnapshot(
   itemIds: readonly string[],
   source: string | RuntimeSource,
   sourceVersion: string | null = null,
+  generation: number | null = null,
 ): void {
   const nextIds = normalizePendingItemIds(itemIds);
   if (
@@ -74,6 +87,7 @@ export function ingestPendingSnapshot(
     itemIds: nextIds,
     sourceVersion,
     source: runtimeSource,
+    generation,
   });
 }
 
@@ -86,12 +100,13 @@ export function mergePendingItemIds(
   itemIds: readonly string[],
   source: string | RuntimeSource,
   sourceVersion: string | null = null,
+  generation: number | null = null,
 ): void {
   const incoming = normalizePendingItemIds(itemIds);
   if (incoming.length === 0) return;
   const current = store.getState().pending.itemIds;
   const merged = normalizePendingItemIds([...current, ...incoming]);
-  ingestPendingSnapshot(store, merged, source, sourceVersion);
+  ingestPendingSnapshot(store, merged, source, sourceVersion, generation);
 }
 
 /**
