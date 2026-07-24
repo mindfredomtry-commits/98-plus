@@ -202,6 +202,7 @@ import {
   buildExclusiveDisplayPatchFromRuntime,
   dismissProductionHeadAtomic,
   mapProvidersSourceToRuntime,
+  reconcileRuntimeQueuePresentation,
   runtimeHeadItemId,
   toQueuedOverlayItems,
 } from '@/notification-runtime/notification-runtime.production-advance';
@@ -248,6 +249,7 @@ import {
   selectIsDraining,
   selectIsDirectEntry,
   selectLobbyMayShow,
+  selectNotificationPresentationActive,
   selectOverlayVisible,
   selectPendingCount,
   selectHasPending,
@@ -1153,10 +1155,10 @@ import {
   type LiveOverlayScreenContext,
 } from '@/lib/live-overlay-screen';
 import {
-  buildSuccessTraceSnapshot,
   logQueuePresentation,
   logSuccessTrace,
 } from '@/lib/queue-presentation-diag';
+import { buildSuccessTraceSnapshot } from '@/notification-runtime/notification-runtime.success-trace';
 import {
   logLiveOverlayBlocked,
   logLiveOverlayConsumed,
@@ -4490,6 +4492,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     () => selectNotificationRuntimeUiSnapshot(notificationRuntimeState),
     [notificationRuntimeState],
   );
+
+  // Settle ownership-without-presentation at the runtime boundary (exactly once
+  // per orphan state). Never from InstantBanFlow UI.
+  useLayoutEffect(() => {
+    const outcome = reconcileRuntimeQueuePresentation(
+      notificationRuntimeStoreRef.current,
+      EMPTY_RUNTIME_LEGACY_SINKS,
+      'providers-reconcile-presentation',
+    );
+    if (outcome === 'normalized-idle' || outcome === 'show-head') {
+      setNotificationChainTransitioning(false);
+    }
+  }, [
+    notificationRuntimeState.lifecycle.status,
+    notificationRuntimeState.lifecycle.transitionId,
+    notificationRuntimeState.display.kind,
+    notificationRuntimeState.items.queue.length,
+    setNotificationChainTransitioning,
+  ]);
+
   const buildGoToBansTraceHookContext = (
     handlerName: string,
     source: string,
@@ -16814,67 +16836,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const hasPendingNotificationChainImpl = useCallback(() => {
-    const decisionOwner = readOwnerDecision('hasPendingNotificationChain');
-    if (
-      readOwnerDecisionHasQueueItems(decisionOwner, 'hasPendingNotificationChain', {
-        queueRef: overlayQueueRef.current,
-      })
-    ) {
-      return true;
-    }
-    if (
-      readOwnerDecisionHasPendingItems(decisionOwner, 'hasPendingNotificationChain', {
-        pendingRef: pendingStartupInteractionsRef.current,
-      })
-    ) {
-      return true;
-    }
-    if (
-      readOwnerDecisionDisplayIncomingBanForRuntime(
-        decisionOwner.display,
-        'hasPendingNotificationChain',
-        { ref: incomingBanRef.current },
-      )?.id
-    ) {
-      return true;
-    }
-    if (
-      readOwnerDecisionDisplayCheckBanForRuntime(
-        decisionOwner.display,
-        'hasPendingNotificationChain',
-        { ref: checkBanRef.current },
-      )?.id
-    ) {
-      return true;
-    }
-    if (notificationChainHandoffRef.current) return true;
-    if (notificationChainAwaitingUserRef.current) return true;
-    if (notificationChainReplyComposeActiveRef.current) return true;
-    if (chainReplyParentBanIdRef.current) return true;
-    if (replyComposeActiveRef.current) return true;
-    if (
-      readOwnerImperativeDirectResultActive(
-        decisionOwner.display,
-        'hasPendingNotificationChain',
-        {
-          overlayRef: directResultOverlayRef.current,
-          activeRef: directResultOverlayActiveRef.current,
-        },
-      )
-    ) {
-      return true;
-    }
-    const resultId = readOwnerDecisionDisplayResultBanIdForRuntime(
-      decisionOwner.display,
-      'hasPendingNotificationChain',
-      { resultRef: resultRef.current },
-    );
-    const viewerId = userIdRef.current?.trim() ?? '';
-    if (
-      resultId &&
-      !resultCtaConsumedBanIdsRef.current.has(resultId) &&
-      !(viewerId && isDismissedResultLocally(resultId, viewerId))
-    ) {
+    // Single Owner only — legacy handoff/awaiting/parent refs must not force true
+    // when runtime has no queue, pending, presentation, or active drain.
+    const state = notificationRuntimeStoreRef.current.getState();
+    if (state.items.queue.length > 0) return true;
+    if (selectHasPending(state)) return true;
+    if (selectNotificationPresentationActive(state)) return true;
+    if (state.lifecycle.status === 'draining' && state.lifecycle.transitionId) {
       return true;
     }
     return false;
@@ -32887,14 +32855,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           },
         ),
       );
-      const runtimeQueueItems = projectRuntimeQueueToLegacy(
+      // Authoritative runtime queue only — legacy overlay/pending mirrors must
+      // not decide SUCCESS continuation.
+      const localItems = projectRuntimeQueueToLegacy(
         notificationRuntimeStoreRef.current.getState(),
-      );
-      // Vertical 9: legacy overlay/pending mirrors are often empty — runtime queue
-      // is the continuation authority for SUCCESS → next card.
-      const localItems = mergeStartupPendingChain(
-        [...overlayQueueRef.current, ...pendingStartupInteractionsRef.current],
-        runtimeQueueItems,
       );
 
       logQueuePresentation('SUCCESS_CONTINUE_REQUESTED', {
@@ -32904,7 +32868,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         queueLength: localItems.length,
         pendingCount:
           notificationRuntimeStoreRef.current.getState().pending.itemIds.length,
-        itemCount: runtimeQueueItems.length,
+        itemCount: localItems.length,
       });
 
       logSuccessTrace(
@@ -32974,10 +32938,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               null,
               'success-exit-v5-transport',
             );
-            return [
-              ...overlayQueueRef.current,
-              ...pendingStartupInteractionsRef.current,
-            ];
+            // After transport, read authoritative runtime queue — not legacy refs.
+            return projectRuntimeQueueToLegacy(
+              notificationRuntimeStoreRef.current.getState(),
+            );
           },
         },
         sinks,

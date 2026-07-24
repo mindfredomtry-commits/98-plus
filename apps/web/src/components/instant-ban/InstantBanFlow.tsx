@@ -828,62 +828,14 @@ export function InstantBanFlow({
     !result &&
     activeOverlayKind === 'result' &&
     overlayQueueLength > 0;
+  // Length used only for traces / stale-result CTA math — NOT screen ownership.
   const effectiveOverlayQueueLengthForLobbyCta = staleResultQueueClaimActive
     ? 0
     : overlayQueueLength;
-  if (
-    !staleResultQueueClaimActive &&
-    shouldBlockLobbyForActiveQueue()
-  ) {
-    const ownerQueueDebug = getConfirmOrbQueueDebugSnapshot();
-    const guardSnap = getQueueLobbyGuardSnapshot();
-    const visualQueueDimSessionLive =
-      getLastKnownVisualQueueDimSessionLive();
-    if (
-      overlayQueueLength === 0 &&
-      ownerQueueDebug.queueLen === 0 &&
-      ownerQueueDebug.pendingLen === 0
-    ) {
-      if (!result) {
-        // Narrow stale-guard release only: empty overlay + empty owner + no result.
-        // Does not clear on overlayQueueLength===0 alone (card-to-card gaps).
-        syncQueueLobbyGuardState({
-          queueLen: 0,
-          pendingLen: 0,
-          overlayQueueLength: 0,
-          ownerQueueLen: 0,
-          ownerPendingLen: 0,
-          resultOverlayMounted: false,
-          visualQueueDimSessionLive,
-          source: 'instant-ban-empty-overlay-empty-owner-stale-guard-release',
-        });
-      } else if (
-        guardSnap.fromQueueResult &&
-        visualQueueDimSessionLive !== true
-      ) {
-        // Second narrow release: stale fromQueueResult after empty queues,
-        // never during live visual queue dim session.
-        syncQueueLobbyGuardState({
-          queueLen: 0,
-          pendingLen: 0,
-          fromQueueResult: true,
-          queueShellShowsResult: guardSnap.queueShellShowsResult,
-          overlayQueueLength: 0,
-          ownerQueueLen: 0,
-          ownerPendingLen: 0,
-          resultOverlayMounted: true,
-          visualQueueDimSessionLive,
-          source:
-            'instant-ban-empty-owner-release-stale-from-queue-result',
-        });
-      }
-    }
-  }
-  const queueLobbyGuardActive = staleResultQueueClaimActive
-    ? false
-    : shouldBlockLobbyForActiveQueue();
-  const queueClaimsNotificationScreen =
-    effectiveOverlayQueueLengthForLobbyCta > 0 || queueLobbyGuardActive;
+  // Canonical screen claim: runtime presentation only (display + lifecycle).
+  // Queue length / legacy queue-lobby-guard must not hide Lobby chrome.
+  const queueClaimsNotificationScreen = notificationOverlayVisible;
+  const queueLobbyGuardActive = false;
   const legacyLobbyOrbBlockers = buildRenderLobbyOrbBlockers({
     replyIncomingDeeplinkPending,
     checkDeeplinkDirectPending,
@@ -892,10 +844,10 @@ export function InstantBanFlow({
     overlayHandoffLobbySuppressed,
     successExitDraining,
     postSuccessHandoffBlocking,
-    notificationChainTransitioning,
+    notificationChainTransitioning: false,
     queueClaimsNotificationScreen,
-    overlayQueueLength: effectiveOverlayQueueLengthForLobbyCta,
-    queueLobbyGuardActive,
+    overlayQueueLength: 0,
+    queueLobbyGuardActive: false,
   });
   /** Base lobby layer: boot orb until primed + chrome-safe; then permanent lobby orb. */
   const showBootOrb = !lobbyBootIntroPrimed || holdLobbyOrbForBootstrap;
@@ -910,7 +862,7 @@ export function InstantBanFlow({
     overlayHandoffLobbySuppressed ||
     successExitDraining ||
     postSuccessHandoffBlocking ||
-    notificationChainTransitioning ||
+    // Chain transitioning alone must not hide chrome without a runtime display.
     queueClaimsNotificationScreen;
   const showLobbyChrome = lobbyBootIntroPrimed && !lobbyChromeHidden;
   useLayoutEffect(() => {
@@ -1726,7 +1678,7 @@ export function InstantBanFlow({
     !overlayHandoffLobbySuppressed &&
     !successExitDraining &&
     !postSuccessHandoffBlocking &&
-    (!notificationChainTransitioning || notificationOverlayMounted) &&
+    (!notificationOverlayVisible) &&
     !effectiveBansOverlayOpen &&
     !settingsOverlayOpen &&
     !monetizationOpen &&
@@ -1886,9 +1838,9 @@ export function InstantBanFlow({
   const checkHandoffFullLobbyPrevRef = useRef(false);
   const checkHandoffQueueClaimsPrevRef = useRef(false);
   useLayoutEffect(() => {
-    const queueLobbyGuardActive = shouldBlockLobbyForActiveQueue();
-    const queueClaimsNotificationScreen =
-      overlayQueueLength > 0 || queueLobbyGuardActive;
+    // Diagnostic mirror only — must mirror canonical presentation claim, not
+    // legacy queue length / queue-lobby-guard (those no longer own chrome).
+    const queueClaimsNotificationScreen = notificationOverlayVisible;
     const fullLobbyRenderActive =
       showLobbyCta && !effectiveBansOverlayOpen && !notificationQueueUiLock;
 
@@ -1898,7 +1850,7 @@ export function InstantBanFlow({
       effectiveBansOverlayOpen,
       notificationQueueUiLock,
       effectiveOverlayQueueLengthForLobbyCta,
-      queueLobbyGuardActive,
+      queueLobbyGuardActive: false,
     });
 
     const handoffId = getActiveCheckHandoffTraceId();
@@ -2841,18 +2793,14 @@ export function InstantBanFlow({
         source: `prepareLobbyBaseAfterSuccess:${source}`,
       });
       if (!opts?.deferLobbyOpen) {
-        if (
-          overlayQueueLength > 0 ||
-          shouldBlockLobbyForActiveQueue()
-        ) {
-          syncQueueLobbyGuardState({
-            queueLen: overlayQueueLength,
-            pendingLen: pendingStartupInteractions,
-            fromQueueResult: overlayQueueLength > 0,
-          });
+        // Screen ownership = runtime presentation only. Queue length / legacy
+        // guard must not block returning to Lobby when no card is painted.
+        if (notificationOverlayVisible) {
           logLobbyOpenRejectedQueueActive({
             source: `prepareLobbyBaseAfterSuccess:${source}`,
-            ...getQueueLobbyGuardSnapshot(),
+            reason: 'runtime-presentation-active',
+            queueLen: overlayQueueLength,
+            pendingLen: pendingStartupInteractions,
           });
           return;
         }
@@ -2912,6 +2860,7 @@ export function InstantBanFlow({
       clearResultCtaBansOverlayOpen,
       hasPendingNotificationChain,
       lobbyActiveBanOverlay,
+      notificationOverlayVisible,
       openLobby,
       overlayQueueLength,
       pendingStartupInteractions,

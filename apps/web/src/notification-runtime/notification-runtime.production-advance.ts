@@ -7,7 +7,7 @@
  * projection engine). Callers must pass EMPTY_RUNTIME_LEGACY_SINKS.
  */
 import type { OwnerActiveDisplayPatch } from '@/lib/notification-overlay-owner';
-import type { QueuedOverlay } from '@/lib/overlay-queue';
+import { overlayQueueKey, type QueuedOverlay } from '@/lib/overlay-queue';
 import {
   mapDismissReasonToCardReason,
   projectRuntimeAdvanceSnapshot,
@@ -16,6 +16,7 @@ import {
 } from './notification-runtime.adapters';
 import {
   dismissRuntimeHead,
+  nextRuntimeTransitionId,
   notificationItemId,
   syncRuntimeQueue,
   type NotificationRuntimeStore,
@@ -187,11 +188,97 @@ export function runtimeHeadItemId(
 ): string | null {
   const head = queue[0];
   if (!head) return null;
-  return notificationItemId(
-    head.kind === 'result'
-      ? { kind: 'result', result: head.result }
-      : head.kind === 'check'
-        ? { kind: 'check', ban: head.ban }
-        : { kind: 'incoming', ban: head.ban },
+  return overlayQueueKey(head);
+}
+
+export type ReconcilePresentationOutcome =
+  | 'presentation-active'
+  | 'show-head'
+  | 'normalized-idle'
+  | 'wait-drain'
+  | 'wait-boot';
+
+/**
+ * Resolve stable `queue.length > 0 && display = null` (and empty-queue overlay
+ * orphans) exactly once at the runtime boundary. Never call from InstantBanFlow.
+ */
+export function reconcileRuntimeQueuePresentation(
+  store: NotificationRuntimeStore,
+  sinks: RuntimeLegacySinks,
+  source: string = 'reconcile-presentation',
+): ReconcilePresentationOutcome {
+  const state = store.getState();
+  if (state.display.kind != null && state.display.payload != null) {
+    return 'presentation-active';
+  }
+
+  const lifecycle = state.lifecycle.status;
+  if (lifecycle === 'booting' || lifecycle === 'recovering') {
+    return 'wait-boot';
+  }
+  // Active SUCCESS/drain materialize owns this transition — do not steal it.
+  if (lifecycle === 'draining' && state.lifecycle.transitionId) {
+    return 'wait-drain';
+  }
+
+  const runtimeSource = mapProvidersSourceToRuntime(source);
+
+  if (state.items.queue.length === 0) {
+    if (
+      lifecycle === 'showing' ||
+      lifecycle === 'draining' ||
+      lifecycle === 'submitting' ||
+      lifecycle === 'completing'
+    ) {
+      store.dispatch({
+        type: 'RUNTIME_NORMALIZE_IDLE',
+        transitionId: state.lifecycle.transitionId,
+        reason: 'queue-empty-without-display',
+        source: runtimeSource,
+      });
+      if (store.getState().lifecycle.status !== 'idle') {
+        store.dispatch({
+          type: 'ITEMS_RECEIVED',
+          transitionId: nextRuntimeTransitionId('reconcile-idle'),
+          items: [],
+          replaceQueue: true,
+          source: runtimeSource,
+        });
+      }
+      const after = store.getState();
+      sinks.writeQueue(projectRuntimeQueueToLegacy(after), `v1-${source}:idle`);
+      sinks.writeDisplay(
+        buildExclusiveDisplayPatchFromRuntime(after),
+        `v1-${source}:idle-display`,
+      );
+    }
+    return 'normalized-idle';
+  }
+
+  // Queue head exists, display null — materialize head via ITEMS_RECEIVED.
+  store.dispatch({
+    type: 'ITEMS_RECEIVED',
+    transitionId: nextRuntimeTransitionId('reconcile-show-head'),
+    items: state.items.queue,
+    replaceQueue: true,
+    source: runtimeSource,
+  });
+  const after = store.getState();
+  sinks.writeQueue(projectRuntimeQueueToLegacy(after), `v1-${source}:show-head`);
+  sinks.writeDisplay(
+    buildExclusiveDisplayPatchFromRuntime(after),
+    `v1-${source}:show-head-display`,
   );
+  if (after.display.kind != null && after.display.payload != null) {
+    return 'show-head';
+  }
+
+  // Materialize failed — settle idle, preserve queue items (do not consume).
+  store.dispatch({
+    type: 'RUNTIME_NORMALIZE_IDLE',
+    transitionId: after.lifecycle.transitionId,
+    reason: 'show-head-rejected-preserve-queue',
+    source: runtimeSource,
+  });
+  return 'normalized-idle';
 }
