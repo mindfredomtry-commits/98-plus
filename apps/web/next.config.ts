@@ -1,14 +1,35 @@
+import { execSync } from "child_process";
 import path from "path";
 import type { NextConfig } from "next";
 
 const phase12DiagRaw = process.env.NEXT_PUBLIC_PHASE12_DIAG ?? "";
 const phase12BuildTimestamp =
   process.env.NEXT_PUBLIC_BUILD_TIMESTAMP ?? new Date().toISOString();
-const phase12BuildCommit =
-  process.env.NEXT_PUBLIC_BUILD_COMMIT ??
-  process.env.RAILWAY_GIT_COMMIT_SHA ??
-  process.env.GITHUB_SHA ??
-  "";
+
+/** Resolve the commit SHA from CI env, else from git HEAD (never hardcoded). */
+function resolveBuildCommit(): string {
+  const fromEnv =
+    process.env.NEXT_PUBLIC_BUILD_COMMIT ??
+    process.env.RAILWAY_GIT_COMMIT_SHA ??
+    process.env.GITHUB_SHA ??
+    "";
+  if (fromEnv.trim()) return fromEnv.trim();
+  try {
+    return execSync("git rev-parse HEAD", {
+      cwd: __dirname,
+      encoding: "utf8",
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
+const phase12BuildCommit = resolveBuildCommit();
+const phase12BuildEnv =
+  process.env.NEXT_PUBLIC_BUILD_ENV ??
+  process.env.RAILWAY_ENVIRONMENT_NAME ??
+  process.env.NODE_ENV ??
+  "unknown";
 
 const phase12DiagEnabled =
   process.env.NODE_ENV !== "production" || phase12DiagRaw === "1";
@@ -19,6 +40,7 @@ console.log("[phase12-build-config]", {
   phase12DiagEnabled,
   NEXT_PUBLIC_BUILD_TIMESTAMP: phase12BuildTimestamp,
   NEXT_PUBLIC_BUILD_COMMIT: phase12BuildCommit || null,
+  NEXT_PUBLIC_BUILD_ENV: phase12BuildEnv,
 });
 
 const phase12TelegramFrameAncestorsCsp =
@@ -31,6 +53,7 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_PHASE12_DIAG: phase12DiagRaw,
     NEXT_PUBLIC_BUILD_TIMESTAMP: phase12BuildTimestamp,
     NEXT_PUBLIC_BUILD_COMMIT: phase12BuildCommit,
+    NEXT_PUBLIC_BUILD_ENV: phase12BuildEnv,
   },
 
   transpilePackages: ["@98plus/shared"],

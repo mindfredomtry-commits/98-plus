@@ -1152,7 +1152,11 @@ import {
   resolveLiveOverlayScreen,
   type LiveOverlayScreenContext,
 } from '@/lib/live-overlay-screen';
-import { logQueuePresentation } from '@/lib/queue-presentation-diag';
+import {
+  buildSuccessTraceSnapshot,
+  logQueuePresentation,
+  logSuccessTrace,
+} from '@/lib/queue-presentation-diag';
 import {
   logLiveOverlayBlocked,
   logLiveOverlayConsumed,
@@ -32819,6 +32823,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const state = store.getState();
       logQueuePresentation('SUCCESS_RUNTIME_NORMALIZED', {
         source: reason,
+        // Durable literal so this code path is greppable in the minified bundle.
+        presentationIntent: 'concludeSuccessDrainWithoutCard',
         runtimeLifecycle: state.lifecycle.status,
         displayKind: state.display.kind,
         queueLength: state.items.queue.length,
@@ -32826,6 +32832,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         blockingReason: normalized ? 'abandoned-drain-normalized' : null,
       });
       setNotificationChainTransitioning(false);
+      logSuccessTrace(
+        'RUNTIME_STATE_AFTER_SUCCESS',
+        buildSuccessTraceSnapshot(store.getState(), {
+          notificationChainTransitioning: false,
+          startupHold: startupInteractionsHoldRef.current,
+          blockingReason: reason,
+          resultOutcome: normalized ? 'normalized-idle' : 'already-settled',
+        }),
+      );
+      const chromeState = store.getState();
+      logSuccessTrace(
+        'LOBBY_CHROME_DECISION',
+        buildSuccessTraceSnapshot(chromeState, {
+          notificationChainTransitioning: false,
+          startupHold: startupInteractionsHoldRef.current,
+          blockingReason:
+            chromeState.lifecycle.status !== 'idle'
+              ? `lifecycle-${chromeState.lifecycle.status}`
+              : null,
+        }),
+      );
     },
     [setNotificationChainTransitioning],
   );
@@ -32848,6 +32875,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       logSuccessExitDrainStart();
+      logSuccessTrace(
+        'SUCCESS_EXIT',
+        buildSuccessTraceSnapshot(
+          notificationRuntimeStoreRef.current.getState(),
+          {
+            notificationChainTransitioning:
+              notificationChainTransitioningRef.current,
+            startupHold: startupInteractionsHoldRef.current,
+            blockingReason: successBanId ? `ban:${successBanId}` : null,
+          },
+        ),
+      );
       const runtimeQueueItems = projectRuntimeQueueToLegacy(
         notificationRuntimeStoreRef.current.getState(),
       );
@@ -32868,9 +32907,35 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         itemCount: runtimeQueueItems.length,
       });
 
+      logSuccessTrace(
+        'SUCCESS_HANDOFF_START',
+        buildSuccessTraceSnapshot(
+          notificationRuntimeStoreRef.current.getState(),
+          {
+            notificationChainTransitioning:
+              notificationChainTransitioningRef.current,
+            startupHold: startupInteractionsHoldRef.current,
+          },
+        ),
+      );
       const requested = requestSuccessHandoff(
         notificationRuntimeStoreRef.current,
         { source: 'user' },
+      );
+      logSuccessTrace(
+        'SUCCESS_HANDOFF_RESULT',
+        buildSuccessTraceSnapshot(
+          notificationRuntimeStoreRef.current.getState(),
+          {
+            notificationChainTransitioning:
+              notificationChainTransitioningRef.current,
+            startupHold: startupInteractionsHoldRef.current,
+            resultOutcome: requested.accepted ? 'accepted' : 'rejected',
+            blockingReason: requested.accepted
+              ? null
+              : 'success-handoff-rejected',
+          },
+        ),
       );
       if (!requested.accepted) {
         logQueuePresentation('SUCCESS_CONTINUE_BLOCKED', {
@@ -32918,6 +32983,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         sinks,
       );
 
+      logSuccessTrace(
+        'MATERIALIZE_RESULT',
+        buildSuccessTraceSnapshot(
+          notificationRuntimeStoreRef.current.getState(),
+          {
+            notificationChainTransitioning:
+              notificationChainTransitioningRef.current,
+            startupHold: startupInteractionsHoldRef.current,
+            resultOutcome: outcome,
+            blockingReason: outcome === 'showing' ? null : `outcome-${outcome}`,
+          },
+        ),
+      );
+
       const head =
         notificationRuntimeStoreRef.current.getState().items.queue[0] ?? null;
       const nextKind = head?.kind ?? null;
@@ -32949,6 +33028,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           selectedKind: nextKind,
           selectedBanId: nextBanId,
         });
+        const showingState = notificationRuntimeStoreRef.current.getState();
+        logSuccessTrace(
+          'RUNTIME_STATE_AFTER_SUCCESS',
+          buildSuccessTraceSnapshot(showingState, {
+            notificationChainTransitioning: false,
+            startupHold: startupInteractionsHoldRef.current,
+            resultOutcome: 'showing-next-card',
+          }),
+        );
+        logSuccessTrace(
+          'LOBBY_CHROME_DECISION',
+          buildSuccessTraceSnapshot(showingState, {
+            notificationChainTransitioning: false,
+            startupHold: startupInteractionsHoldRef.current,
+            blockingReason: 'next-card-showing',
+          }),
+        );
         return true;
       }
 

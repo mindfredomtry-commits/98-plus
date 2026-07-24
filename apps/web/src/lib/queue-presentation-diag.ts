@@ -2,6 +2,68 @@
  * TEMP diagnostics for new-live queue presentation vs product surface.
  * Safe fields only — no secrets.
  */
+import type { NotificationRuntimeState } from '@/notification-runtime/notification-runtime.types';
+import { notificationItemId } from '@/notification-runtime/notification-runtime.types';
+import {
+  selectCanonicalPendingItemIds,
+  selectInteractiveLobbyChromeMayShow,
+} from '@/notification-runtime/notification-runtime.selectors';
+
+/** Six-point SUCCESS trace event names (production verification pass). */
+export type SuccessTraceEvent =
+  | 'SUCCESS_EXIT'
+  | 'SUCCESS_HANDOFF_START'
+  | 'SUCCESS_HANDOFF_RESULT'
+  | 'MATERIALIZE_RESULT'
+  | 'RUNTIME_STATE_AFTER_SUCCESS'
+  | 'LOBBY_CHROME_DECISION';
+
+/**
+ * Sanitized runtime snapshot for the SUCCESS trace. IDs only (kind:id) — never
+ * card text, tokens or initData.
+ */
+export function buildSuccessTraceSnapshot(
+  state: NotificationRuntimeState,
+  hostFlags: {
+    notificationChainTransitioning?: boolean;
+    startupHold?: boolean;
+    blockingReason?: string | null;
+    resultOutcome?: string | null;
+  } = {},
+): Record<string, unknown> {
+  const queueIds = state.items.queue.map((item) => notificationItemId(item));
+  const pendingIds = selectCanonicalPendingItemIds(state);
+  const chromeAllowed = selectInteractiveLobbyChromeMayShow(state);
+  return {
+    lifecycle: state.lifecycle.status,
+    transitionId: state.lifecycle.transitionId,
+    displayKind: state.display.kind,
+    displayId: state.display.payload
+      ? notificationItemId(state.display.payload)
+      : null,
+    queueIds,
+    queueCount: queueIds.length,
+    pendingIds,
+    pendingCount: pendingIds.length,
+    notificationChainTransitioning:
+      hostFlags.notificationChainTransitioning ?? null,
+    startupHold: hostFlags.startupHold ?? null,
+    lobbyChromeAllowed: chromeAllowed,
+    blockingReason: hostFlags.blockingReason ?? null,
+    resultOutcome: hostFlags.resultOutcome ?? null,
+  };
+}
+
+/** Emit one sanitized SUCCESS trace line (console + optional debug sink). */
+export function logSuccessTrace(
+  event: SuccessTraceEvent,
+  snapshot: Record<string, unknown>,
+): void {
+  console.log(event, snapshot);
+  if (typeof window !== 'undefined') {
+    window.__debug98log?.(event, snapshot);
+  }
+}
 
 export type QueuePresentationDiagEvent =
   | 'QUEUE_SURFACE_CHECK'

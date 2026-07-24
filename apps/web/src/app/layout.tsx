@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import Script from 'next/script';
 import './globals.css';
 import { RuntimeConfigScript } from '@/components/RuntimeConfigScript';
+import { BuildIdentityScript } from '@/components/BuildIdentityScript';
 import { LobbyOrbPrehydrateStyle } from '@/components/LobbyOrbPrehydrateStyle';
 
 export const metadata: Metadata = {
@@ -37,6 +38,7 @@ export default function RootLayout({
           {LOBBY_BOOT_EARLY_PAINT}
         </Script>
         <RuntimeConfigScript />
+        <BuildIdentityScript />
       </head>
       <body className="bg-bg" style={{ margin: 0, backgroundColor: '#0f0f0f' }}>
         <div id="lobby-boot-shell-early" aria-hidden="true">
