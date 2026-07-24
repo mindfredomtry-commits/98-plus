@@ -141,13 +141,15 @@ check('booting + deeplink cannot expose lobby chrome', () => {
   assert.equal(selectHoldLobbyOrbForBootstrap(s), true);
 });
 
-check('booting + success drain cannot expose lobby chrome', () => {
+check('draining without display does not claim Lobby chrome', () => {
   let s = createInitialNotificationRuntimeState();
   s = {
     ...s,
     lifecycle: { status: 'draining', source: 'success', transitionId: 't1' },
   };
-  assert.equal(selectInteractiveLobbyChromeMayShow(s), false);
+  // Ownership without presentation: drain alone must not hide chrome.
+  assert.equal(selectInteractiveLobbyChromeMayShow(s), true);
+  assert.equal(selectOverlayVisible(s), false);
 });
 
 check('booting + displayed notification cannot expose lobby chrome', () => {

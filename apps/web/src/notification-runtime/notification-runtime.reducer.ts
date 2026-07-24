@@ -567,10 +567,16 @@ export function notificationRuntimeReducer(
       ) {
         next = showHead(next, event.source, event.transitionId, 'normal');
       } else if (base.lifecycle.status === 'showing') {
-        // Keep current head display if head unchanged; refresh if head replaced.
+        // Keep current head display if head unchanged; refresh if head replaced
+        // OR if display was lost (ownership without presentation).
         const prevHead = selectCurrentItemId(base);
         const nextHead = queue[0] ? notificationItemId(queue[0]) : null;
-        if (prevHead !== nextHead && queue[0]) {
+        if (
+          queue[0] &&
+          (prevHead !== nextHead ||
+            base.display.kind == null ||
+            base.display.payload == null)
+        ) {
           next = showHead(next, event.source, event.transitionId, 'normal');
         } else {
           next = {
@@ -895,11 +901,28 @@ export function notificationRuntimeReducer(
     }
 
     case 'RUNTIME_NORMALIZE_IDLE': {
-      // Only the transition that still owns the abandoned drain may normalize.
-      if (
-        base.lifecycle.status !== 'draining' ||
-        base.lifecycle.transitionId !== event.transitionId
+      // Never clear an active renderable presentation.
+      if (base.display.kind != null && base.display.payload != null) {
+        return { state: base, effects: [] };
+      }
+      // Owned drain: only the matching transition may normalize.
+      if (base.lifecycle.status === 'draining') {
+        if (
+          event.transitionId != null &&
+          base.lifecycle.transitionId != null &&
+          base.lifecycle.transitionId !== event.transitionId
+        ) {
+          return { state: base, effects: [] };
+        }
+      } else if (
+        base.lifecycle.status !== 'showing' &&
+        base.lifecycle.status !== 'submitting' &&
+        base.lifecycle.status !== 'completing'
       ) {
+        // Already idle/booting/recovering — nothing to normalize.
+        if (base.lifecycle.status === 'idle') {
+          return { state: base, effects: [] };
+        }
         return { state: base, effects: [] };
       }
       return {
