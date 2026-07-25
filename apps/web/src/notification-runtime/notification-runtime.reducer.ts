@@ -739,10 +739,7 @@ export function notificationRuntimeReducer(
     case 'CARD_ACTION_REQUESTED': {
       const current = selectCurrentItem(base);
       const currentId = selectCurrentItemId(base);
-      if (!current || current.kind !== 'check') {
-        return { state: base, effects: [] };
-      }
-      if (!currentId || currentId !== event.targetItemId) {
+      if (!current || !currentId || currentId !== event.targetItemId) {
         return { state: base, effects: [] };
       }
       if (base.lifecycle.status !== 'showing') {
@@ -755,7 +752,10 @@ export function notificationRuntimeReducer(
       ) {
         return { state: base, effects: [] };
       }
-      if (event.action !== 'check_answer') {
+      const actionOk =
+        (event.action === 'check_answer' && current.kind === 'check') ||
+        (event.action === 'incoming_overboard' && current.kind === 'incoming');
+      if (!actionOk) {
         return { state: base, effects: [] };
       }
       const next: NotificationRuntimeState = {
@@ -815,6 +815,16 @@ export function notificationRuntimeReducer(
         effects.push({ type: 'MARK_CONSUMED', itemId: event.targetItemId });
         next = showHead(next, event.source, next.lifecycle.transitionId, mode);
         return { state: next, effects };
+      }
+
+      // V2 overboard: consume head and promote next / idle — no null gap.
+      if (event.consumeAndAdvance && headId === event.targetItemId) {
+        return dismissHead(
+          next,
+          event.targetItemId,
+          next.lifecycle.transitionId ?? event.commandId,
+          event.source,
+        );
       }
 
       next = {

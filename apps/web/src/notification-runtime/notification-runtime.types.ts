@@ -239,6 +239,11 @@ export type NotificationRuntimeResultEvent =
       targetItemId: string;
       /** Atomic check→result replacement when present. */
       replacement?: NotificationItem;
+      /**
+       * Vertical V2 overboard: consume current head and show next / idle.
+       * Mutually exclusive with leaving a waiting head (check no-replacement).
+       */
+      consumeAndAdvance?: boolean;
       displayMode?: DisplayMode;
       source: RuntimeSource;
     }
