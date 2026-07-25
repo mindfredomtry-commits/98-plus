@@ -94,7 +94,6 @@ import {
   abortPostSuccessHandoffForReplyCompose,
   isPostSuccessHandoffInProgress,
   logPostSuccessHandoffPreventBaseLobby,
-  logPostSuccessHandoffPreventDeferredLobby,
   logPostSuccessHandoffStartTooLateBug,
   logPostSuccessHandoffWaitingMount,
   markPostSuccessExitWindowOpen,
@@ -4103,51 +4102,9 @@ export function InstantBanFlow({
         pendingStartupInteractions,
       });
 
-      // Deferred sync must never block success-exit drain.
-      // Start it in background with a timeout so it can't "hang" the UI flow.
-      void (async () => {
-        const timeoutMs = 5000;
-        const startedAt = Date.now();
-        if (isPostSuccessHandoffInProgress()) {
-          logPostSuccessHandoffPreventDeferredLobby({
-            timeoutMs,
-            queueLen: overlayQueueLength,
-            pendingStartup: pendingStartupInteractions,
-          });
-        }
-        window.__debug98log?.('[success-exit-deferred-sync-start]', {
-          timeoutMs,
-          handoffActive: isPostSuccessHandoffInProgress(),
-        });
-
-        try {
-          let timedOut = false;
-          const timeout = new Promise<'timeout'>((resolve) => {
-            window.setTimeout(() => {
-              timedOut = true;
-              resolve('timeout');
-            }, timeoutMs);
-          });
-
-          const result = await Promise.race([
-            flushDeferredSync().then(() => 'finished' as const),
-            timeout,
-          ]);
-
-          if (result === 'finished' && !timedOut) {
-            window.__debug98log?.('[success-exit-deferred-sync-finished]', {
-              ms: Date.now() - startedAt,
-            });
-          } else if (result === 'timeout') {
-            window.__debug98log?.('[success-exit-deferred-sync-timeout]', {
-              ms: Date.now() - startedAt,
-            });
-          }
-        } catch (err) {
-          console.warn('[success-exit-deferred-sync-error]', err);
-          // Intentionally not logging extra debug event: allowlist is limited.
-        }
-      })();
+      // Deferred sync must run AFTER success handoff drain — never before.
+      // Starting flushDeferredSync here previously called requestBootstrap
+      // synchronously (lifecycle=booting) and rejected SUCCESS_HANDOFF_REQUESTED.
 
       traceOverlayQueueMutationBefore(
         'dequeue',
@@ -4255,6 +4212,40 @@ export function InstantBanFlow({
       } finally {
         endSuccessExitInProgress();
         setSuccessExitDraining(false);
+        // After handoff settles: run deferred session sync without racing bootstrap.
+        void (async () => {
+          const timeoutMs = 5000;
+          const startedAt = Date.now();
+          window.__debug98log?.('[success-exit-deferred-sync-start]', {
+            timeoutMs,
+            handoffActive: false,
+            phase: 'after-drain',
+          });
+          try {
+            let timedOut = false;
+            const timeout = new Promise<'timeout'>((resolve) => {
+              window.setTimeout(() => {
+                timedOut = true;
+                resolve('timeout');
+              }, timeoutMs);
+            });
+            const result = await Promise.race([
+              flushDeferredSync().then(() => 'finished' as const),
+              timeout,
+            ]);
+            if (result === 'finished' && !timedOut) {
+              window.__debug98log?.('[success-exit-deferred-sync-finished]', {
+                ms: Date.now() - startedAt,
+              });
+            } else if (result === 'timeout') {
+              window.__debug98log?.('[success-exit-deferred-sync-timeout]', {
+                ms: Date.now() - startedAt,
+              });
+            }
+          } catch (err) {
+            console.warn('[success-exit-deferred-sync-error]', err);
+          }
+        })();
       }
     },
     [

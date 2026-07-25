@@ -125,6 +125,11 @@ export function endSuccessExitInProgress(): void {
   successExitAllowLobbyOpen = false;
 }
 
+/** True from SUCCESS exit arming until handoff drain finishes. */
+export function isSuccessExitInProgress(): boolean {
+  return successExitInProgress;
+}
+
 /** Blocks visual lobby open during success-exit until drain finishes (or explicit allow). */
 export function shouldSuppressLobbyOpenDuringSuccessExit(): boolean {
   return successExitInProgress && !successExitAllowLobbyOpen;

@@ -1384,6 +1384,7 @@ import {
   recordSuccessExitDrainFailure,
   registerSuccessExitDebugSnapshot,
   shouldSuppressLobbyOpenDuringSuccessExit,
+  isSuccessExitInProgress,
   beginSuccessProdTrace,
   endSuccessProdTrace,
   getSuccessProdTraceId,
@@ -26185,6 +26186,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       return;
     }
+    // Do not open a new bootstrap while SUCCESS handoff owns the runtime.
+    // Production race: flushDeferredSync → requestBootstrap → lifecycle=booting
+    // rejected SUCCESS_HANDOFF_REQUESTED and forced Lobby before materialize.
+    if (isSuccessExitInProgress()) {
+      console.log('[notification-flush-blocked]', {
+        reason: 'success-exit-in-progress',
+        source: 'reloadPending',
+      });
+      return;
+    }
     tryLockFromStartParam('reloadPending-start');
     const token = tokenRef.current;
     const requestUserId = userIdRef.current;
@@ -37023,6 +37034,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const flushDeferredSync = useCallback(async () => {
     if (!deferredSyncRef.current) return;
+    // Keep the deferred latch until SUCCESS handoff settles — clearing it and
+    // calling reloadPending would requestBootstrap → booting and reject handoff.
+    if (isSuccessExitInProgress()) return;
     deferredSyncRef.current = false;
     await reloadPending();
     await reloadFriends();
