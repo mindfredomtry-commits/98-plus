@@ -24,6 +24,19 @@ import type { RuntimeSource } from './notification-runtime.types';
 
 export type SuccessHandoffOutcome = 'showing' | 'idle' | 'failed' | 'rejected';
 
+/**
+ * SUCCESS handoff `fetchPendingItems` must consume transport payloads directly.
+ *
+ * Never rebuild from `overlayQueueRef` / `pendingStartupInteractionsRef` after
+ * `commitPendingQueueViaOwner([])` may have cleared them — that discarded the
+ * fetch result and forced Lobby even when transport returned B.
+ */
+export function resolveSuccessHandoffFetchItems(
+  transportItems: readonly QueuedOverlay[],
+): QueuedOverlay[] {
+  return transportItems.slice();
+}
+
 /** Product ordering: timestamp DESC, tie result > check > incoming. */
 export function sortQueuedForSuccessDrain(
   items: readonly QueuedOverlay[],

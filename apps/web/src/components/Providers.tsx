@@ -226,6 +226,7 @@ import {
   executeSuccessHandoffMaterialize,
   normalizeAbandonedDrain,
   requestSuccessHandoff,
+  resolveSuccessHandoffFetchItems,
 } from '@/notification-runtime/notification-runtime.success-handoff';
 import {
   completeDirectSessionViaDismiss,
@@ -2310,7 +2311,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   >(() => false);
   const overlayQueueDrainActiveRef = useRef(false);
   const notificationChainTransitioningRef = useRef(false);
-  const chainLookaheadInflightRef = useRef<Map<string, Promise<boolean>>>(
+  const chainLookaheadInflightRef = useRef<Map<string, Promise<QueuedOverlay[]>>>(
     new Map(),
   );
   const incomingNextHydrateInflightRef = useRef<
@@ -3869,9 +3870,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   /** Diag-only: prefetch in flight count for [CHAIN FINALIZE DIAG]. */
   const pendingChainPrefetchInFlightRef = useRef(0);
   /** Shared in-flight prefetch — lobby-indicator-prime and lobby-bans-cta await the same Promise. */
-  const pendingChainPrefetchSharedPromiseRef = useRef<Promise<boolean> | null>(
-    null,
-  );
+  const pendingChainPrefetchSharedPromiseRef = useRef<Promise<
+    QueuedOverlay[]
+  > | null>(null);
   /** Source/skipResults of the in-flight shared prefetch (cleared with shared promise). */
   const pendingChainPrefetchSharedOptsRef = useRef<{
     source: string;
@@ -17035,7 +17036,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       deeplinkBanId: string | null,
       source: string,
       opts?: { skipResults?: boolean },
-    ): Promise<boolean> => {
+    ): Promise<QueuedOverlay[]> => {
       const queueLenBefore = overlayQueueRef.current.length;
       const pendingLenBefore = pendingStartupInteractionsRef.current.length;
       // Stamped before the request so a late empty result from this request
@@ -17066,7 +17067,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             notificationChainTransitioningRef.current,
           ),
         });
-        return false;
+        return [];
       }
       const token = tokenRef.current;
       const viewerId = userIdRef.current?.trim() ?? '';
@@ -17085,7 +17086,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           queueLenAfter: queueLenBefore,
           pendingLenAfter: pendingLenBefore,
         });
-        return false;
+        return [];
       }
 
       const sharedInflight = pendingChainPrefetchSharedPromiseRef.current;
@@ -17093,14 +17094,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const explicitNeedsResults =
         isExplicitNotificationDrainSource(source) ||
         source.includes('lobby-bans-cta');
+      // SUCCESS handoff must not reuse an empty/shared indicator-prime result —
+      // it needs fresh transport payloads returned directly to materialize.
+      const bypassSharedForSuccessExit = source.includes('success-exit');
       if (sharedInflight) {
-        if (explicitNeedsResults && sharedOpts?.skipResults === true) {
+        if (
+          bypassSharedForSuccessExit ||
+          (explicitNeedsResults && sharedOpts?.skipResults === true)
+        ) {
           const bypassTrace = {
             source,
-            sharedSource: sharedOpts.source,
-            sharedSkipResults: sharedOpts.skipResults,
+            sharedSource: sharedOpts?.source ?? null,
+            sharedSkipResults: sharedOpts?.skipResults ?? null,
             explicitNeedsResults,
-            action: 'bypass-shared-skip-results' as const,
+            bypassSharedForSuccessExit,
+            action: bypassSharedForSuccessExit
+              ? ('bypass-shared-success-exit' as const)
+              : ('bypass-shared-skip-results' as const),
             timestamp: performance.now(),
           };
           console.log('PENDING_PREFETCH_DEDUPE_BYPASS_TRACE', bypassTrace);
@@ -17132,7 +17142,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       }
 
-      const runPrefetch = async (): Promise<boolean> => {
+      const runPrefetch = async (): Promise<QueuedOverlay[]> => {
       console.log('[pending-chain-prefetch-start]', {
         source,
         deeplinkBanId,
@@ -17246,7 +17256,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             ownerQueueLenAfter: overlayQueueRef.current.length,
             ownerPendingLenAfter: pendingStartupInteractionsRef.current.length,
           });
-          return false;
+          return [];
         }
 
         const incomingIds = prefetched.incoming.map((b) => b.id);
@@ -17795,7 +17805,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             0,
             mergeSkipReason,
           );
-          return false;
+          return [];
         }
 
         if (indicatorPrimeOnly) {
@@ -17944,11 +17954,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               prefetchIfLocalEmpty: false,
             })
           ) {
-            return true;
+            return toEnqueue;
           }
         }
 
-        return true;
+        return toEnqueue;
       } catch (err) {
         logQueueApiResultApplyDecision({
           source,
@@ -17984,7 +17994,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             ...live,
           });
         }
-        return false;
+        return [];
       } finally {
         pendingChainPrefetchInFlightRef.current = Math.max(
           0,
@@ -18031,7 +18041,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           event: 'resolved',
           source,
           deeplinkBanId,
-          result,
+          result: result.length > 0,
+          resultCount: result.length,
           refQueueLen: overlayQueueRef.current.length,
           refPendingLen: pendingStartupInteractionsRef.current.length,
           ownerPendingLen: ownerAtResolve.pending.length,
@@ -18210,8 +18221,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     hasIncoming = countLobbyPendingHasIncoming();
 
     const hint = readLobbyNotificationAttentionHint(uid);
-    if (hint > 0 && pendingLen === 0 && queueLen === 0 && !prefetched) {
-      logLobbyIndicatorDelayBug({ hint, prefetched });
+    if (hint > 0 && pendingLen === 0 && queueLen === 0 && prefetched.length === 0) {
+      logLobbyIndicatorDelayBug({ hint, prefetched: false });
     }
   }, [
     countLobbyPendingHasIncoming,
@@ -18367,12 +18378,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         source,
       );
       const ready =
-        prefetched ||
+        prefetched.length > 0 ||
         overlayQueueRef.current.length > 0 ||
         pendingStartupInteractionsRef.current.length > 0;
       console.log('[pending-chain-prime-ready]', {
         source,
-        prefetched,
+        prefetched: prefetched.length > 0,
+        prefetchedCount: prefetched.length,
         ready,
         queueLen: overlayQueueRef.current.length,
         pendingLen: pendingStartupInteractionsRef.current.length,
@@ -32970,14 +32982,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           transitionId: requested.transitionId,
           localItems,
           fetchPendingItems: async () => {
-            await prefetchPendingNotificationChain(
+            const fetched = await prefetchPendingNotificationChain(
               null,
               'success-exit-v5-transport',
             );
-            return [
-              ...overlayQueueRef.current,
-              ...pendingStartupInteractionsRef.current,
-            ];
+            // Transport payloads are authoritative — never rebuild from cleared
+            // overlayQueueRef / pendingStartupInteractionsRef after clear-hold.
+            return resolveSuccessHandoffFetchItems(fetched);
           },
         },
         sinks,
