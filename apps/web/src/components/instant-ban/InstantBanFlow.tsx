@@ -49,6 +49,11 @@ import {
   selectOverlayVisible,
 } from '@/notification-runtime/notification-runtime.selectors';
 import { createInitialNotificationRuntimeState } from '@/notification-runtime/notification-runtime.types';
+import {
+  getIncomingOverboardCompletionSnapshot,
+  isRuntimeIdleEmptyAfterOverboard,
+  subscribeIncomingOverboardCompletion,
+} from '@/notification-runtime/notification-runtime.overboard-completion';
 import { decideLobbyClaimFromRuntime } from '@/lib/lobby-claim-from-runtime';
 import { planLobbyBansOpenNavigation } from '@/lib/lobby-bans-open-navigation';
 import { logBootGate } from '@/lib/boot-gate-diag';
@@ -574,6 +579,13 @@ export function InstantBanFlow({
     notificationRuntimeState,
   );
   const bansIndicatorVisible = selectIndicatorVisible(notificationRuntimeState);
+  /** V3: runtime edge for "overboard chain ended" — drives the CTA restore. */
+  const incomingOverboardCompletion = useSyncExternalStore(
+    subscribeIncomingOverboardCompletion,
+    getIncomingOverboardCompletionSnapshot,
+    getIncomingOverboardCompletionSnapshot,
+  );
+  const handledOverboardCompletionSeqRef = useRef(0);
   /** Global Relationship Orb only — never used for CTA / energy-gate. */
   const globalRelationshipRing = useGlobalRelationshipOrb(token);
   const { haptic, hapticSuccess, webApp } = useTelegram();
@@ -4790,6 +4802,27 @@ export function InstantBanFlow({
     openLobby,
     overlayQueueLength,
     pendingStartupInteractions,
+  ]);
+
+  /**
+   * V3: the runtime finished the overboard chain (idle + empty). SUCCESS exit
+   * left ctaState hidden, so restore the lobby CTA through the same helper a
+   * normal empty-queue return uses. Runs once per completion edge.
+   */
+  useEffect(() => {
+    const { seq } = incomingOverboardCompletion;
+    if (seq === 0) return;
+    if (handledOverboardCompletionSeqRef.current === seq) return;
+    if (!isRuntimeIdleEmptyAfterOverboard(notificationRuntimeState)) return;
+    handledOverboardCompletionSeqRef.current = seq;
+    allowSuccessExitLobbyOpen();
+    openLobby('overboard-runtime-complete');
+    beginCtaSpringIn();
+  }, [
+    beginCtaSpringIn,
+    incomingOverboardCompletion,
+    notificationRuntimeState,
+    openLobby,
   ]);
 
   useEffect(() => {
