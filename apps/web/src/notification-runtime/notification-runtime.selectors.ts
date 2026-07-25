@@ -20,31 +20,8 @@ export function selectCurrentItem(
   return state.items.queue[0] ?? null;
 }
 
-/**
- * True only when the runtime owns a renderable notification display.
- * Queue length alone is not presentation — draining/showing with display=null
- * must not claim the screen (ownership without presentation).
- */
-export function selectNotificationPresentationActive(
-  state: NotificationRuntimeState,
-): boolean {
-  if (!OVERLAY_LIFECYCLE.has(state.lifecycle.status)) return false;
-  return state.display.kind != null && state.display.payload != null;
-}
-
-/**
- * Canonical screen-ownership for Lobby chrome / overlay host paint.
- * Alias of presentation-active — Single Owner display authority only.
- */
-export function selectNotificationClaimsScreen(
-  state: NotificationRuntimeState,
-): boolean {
-  return selectNotificationPresentationActive(state);
-}
-
 export function selectOverlayVisible(state: NotificationRuntimeState): boolean {
-  // Host mount follows presentation, not bare overlay lifecycle.
-  return selectNotificationPresentationActive(state);
+  return OVERLAY_LIFECYCLE.has(state.lifecycle.status);
 }
 
 /**
@@ -138,38 +115,28 @@ export function selectHasDeferredDirectEntry(
 }
 
 export function selectLobbyMayShow(state: NotificationRuntimeState): boolean {
-  return (
-    state.lifecycle.status === 'idle' &&
-    !selectNotificationPresentationActive(state)
-  );
+  return state.lifecycle.status === 'idle' && !selectOverlayVisible(state);
 }
 
 /**
- * Interactive lobby chrome (top nav + CTA).
- * Hidden only while a renderable notification display owns the screen
- * (or direct-entry / blocked action / true recovery). Queue presence alone
- * does not hide chrome — pending work may leave Lobby interactive.
+ * Interactive lobby chrome (top nav + CTA) during notification bootstrap.
+ * Strict lobby authority remains selectLobbyMayShow (idle only).
+ * Safe while booting only when nothing must claim the overlay above lobby.
  */
 export function selectInteractiveLobbyChromeMayShow(
   state: NotificationRuntimeState,
 ): boolean {
-  if (selectNotificationPresentationActive(state)) return false;
+  if (selectLobbyMayShow(state)) return true;
+  if (state.lifecycle.status !== 'booting') return false;
+  if (selectOverlayVisible(state)) return false;
+  if (state.display.kind != null || state.display.payload != null) return false;
+  if (state.items.queue.length > 0) return false;
   if (selectIsDirectEntry(state)) return false;
   if (selectHasDeferredDirectEntry(state)) return false;
   if (selectIsActionBlocked(state)) return false;
+  if (selectIsDraining(state)) return false;
+  // Bootstrap parks recovery.status=loading; only true recovery lifecycle blocks chrome.
   if (state.lifecycle.status === 'recovering') return false;
-  // Booting / idle / orphan draining|showing without display → chrome may show.
-  // Reconcile settles queue-without-display; chrome must not stay latched.
-  if (
-    state.lifecycle.status === 'booting' ||
-    state.lifecycle.status === 'idle' ||
-    state.lifecycle.status === 'draining' ||
-    state.lifecycle.status === 'showing' ||
-    state.lifecycle.status === 'submitting' ||
-    state.lifecycle.status === 'completing'
-  ) {
-    return true;
-  }
   return true;
 }
 

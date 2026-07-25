@@ -259,13 +259,12 @@ export type NotificationRuntimeResultEvent =
     }
   | {
       /**
-       * Recover from an abandoned drain / orphan overlay lifecycle with no
-       * renderable display. When transitionId is set, only that drain owner
-       * may normalize. When display is null, showing/submitting/completing
-       * orphans may also settle to idle without consuming queue items.
+       * Recover from a drain that ended without an owner (rejected/abandoned
+       * handoff). Applies only while the requesting transition still owns
+       * lifecycle=draining, so it can never stomp a newer owner.
        */
       type: 'RUNTIME_NORMALIZE_IDLE';
-      transitionId: string | null;
+      transitionId: string;
       reason: string;
       source: RuntimeSource;
     }

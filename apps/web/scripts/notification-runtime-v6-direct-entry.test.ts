@@ -292,8 +292,7 @@ async function main() {
       transitionId: 'm1',
     });
     assert.equal(duringDrain.outcome, 'deferred');
-    // Draining without a renderable display does not claim the overlay host.
-    assert.equal(selectOverlayVisible(store.getState()), false);
+    assert.equal(selectOverlayVisible(store.getState()), true); // draining claims
     assert.equal(store.getState().items.queue.length, 0);
   }
 
