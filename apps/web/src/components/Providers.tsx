@@ -208,6 +208,7 @@ import {
 import {
   createNotificationRuntimeStore,
   nextRuntimeTransitionId,
+  notificationItemId,
   syncRuntimeQueue,
   toRuntimeItems,
 } from '@/notification-runtime/notification-runtime.store';
@@ -1383,6 +1384,12 @@ import {
   recordSuccessExitDrainFailure,
   registerSuccessExitDebugSnapshot,
   shouldSuppressLobbyOpenDuringSuccessExit,
+  beginSuccessProdTrace,
+  endSuccessProdTrace,
+  getSuccessProdTraceId,
+  isSuccessProdTraceActive,
+  logSuccessProdTrace,
+  logSuccessProdTraceBoot,
 } from '@/lib/success-exit-first-notification-debug';
 import {
   logChainEmptyFinalizeCheck,
@@ -2278,6 +2285,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           userAgent: navigator.userAgent,
           loadedAt,
         });
+        // DIAGNOSTICS ONLY (SUCCESS_PROD_TRACE_V1): proves the deployed commit
+        // Telegram actually loaded (one-shot, guarded by the build marker above).
+        logSuccessProdTraceBoot();
         w.__98PLUS_WEB_BUILD_MARKER__ = marker;
         w.__98PLUS_WEB_RUNTIME_INFO__ = {
           marker,
@@ -17043,7 +17053,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       // cannot clear a snapshot written by a request that started later.
       const requestGeneration = nextPendingAuthorityGeneration();
 
+      // DIAGNOSTICS ONLY (SUCCESS_PROD_TRACE_V1): trace SUCCESS transport prefetch.
+      const traceSuccessPrefetch = source.includes('success-exit');
+
       if (shouldBlockPostSuccessPrefetchAfterEmpty(source)) {
+        if (traceSuccessPrefetch) {
+          logSuccessProdTrace('PREFETCH_ENTRY', {
+            reason: 'post-success-prefetch-blocked-after-empty',
+            sharedPromiseExists: Boolean(
+              pendingChainPrefetchSharedPromiseRef.current,
+            ),
+            reusedSharedPromise: false,
+            requestStarted: false,
+          });
+          logSuccessProdTrace('PREFETCH_RETURN', {
+            returnedType: 'array',
+            returnedCount: 0,
+            returnedIds: [],
+            toEnqueueCount: 0,
+            toEnqueueIds: [],
+          });
+        }
         logQueueApiResultApplyDecision({
           source,
           endpoint: '/bans/incoming/pending-all',
@@ -17072,6 +17102,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const token = tokenRef.current;
       const viewerId = userIdRef.current?.trim() ?? '';
       if (!token || !viewerId) {
+        if (traceSuccessPrefetch) {
+          logSuccessProdTrace('PREFETCH_ENTRY', {
+            reason: 'no-token-or-viewer',
+            sharedPromiseExists: Boolean(
+              pendingChainPrefetchSharedPromiseRef.current,
+            ),
+            reusedSharedPromise: false,
+            requestStarted: false,
+          });
+          logSuccessProdTrace('PREFETCH_RETURN', {
+            returnedType: 'array',
+            returnedCount: 0,
+            returnedIds: [],
+            toEnqueueCount: 0,
+            toEnqueueIds: [],
+          });
+        }
         logQueueApiResultApplyDecision({
           source,
           endpoint: '/bans/incoming/pending-all',
@@ -17138,6 +17185,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               pendingChainPrefetchInFlightRef.current,
             selectedAction: 'pending-drain-call',
           });
+          if (traceSuccessPrefetch) {
+            logSuccessProdTrace('PREFETCH_ENTRY', {
+              reason: `${source}:reuse-shared-inflight`,
+              sharedPromiseExists: true,
+              reusedSharedPromise: true,
+              requestStarted: false,
+            });
+          }
           return sharedInflight;
         }
       }
@@ -17262,6 +17317,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         const incomingIds = prefetched.incoming.map((b) => b.id);
         const checkIds = prefetched.check?.id ? [prefetched.check.id] : [];
         const resultIds = prefetched.result?.id ? [prefetched.result.id] : [];
+        if (traceSuccessPrefetch) {
+          const rawIds = [...incomingIds, ...checkIds, ...resultIds];
+          // Exclusion (consumed/tombstoned/duplicate/active-display) is applied
+          // downstream; see MATERIALIZE_DECISION consumedIds vs sortedIds diff.
+          logSuccessProdTrace('TRANSPORT_RESPONSE', {
+            httpStatus: null,
+            rawCount: rawIds.length,
+            rawIds,
+            normalizedCount: rawIds.length,
+            normalizedIds: rawIds,
+            excludedIds: [],
+            exclusionReasons: [],
+          });
+        }
         console.log('FIRST_USER_PENDING_FETCH_TRACE', {
           telegramUserId: viewerId,
           endpoint: 'prefetchPendingNotificationChain:after-fetch',
@@ -18034,9 +18103,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       };
 
+      if (traceSuccessPrefetch) {
+        logSuccessProdTrace('PREFETCH_ENTRY', {
+          reason: source,
+          sharedPromiseExists: Boolean(
+            pendingChainPrefetchSharedPromiseRef.current,
+          ),
+          reusedSharedPromise: false,
+          requestStarted: true,
+        });
+      }
+
       const sharedPromise = runPrefetch().then((result) => {
         const ownerAtResolve = ownerShadowRef.current.getState();
         pendingChainPrefetchSharedLifecycleRef.current = 'settled';
+        if (traceSuccessPrefetch) {
+          logSuccessProdTrace('PREFETCH_RETURN', {
+            returnedType: 'array',
+            returnedCount: result.length,
+            returnedIds: result.map((q) => overlayBanId(q)),
+            toEnqueueCount: result.length,
+            toEnqueueIds: result.map((q) => overlayBanId(q)),
+          });
+        }
         logSharedPrefetchLifecycle({
           event: 'resolved',
           source,
@@ -32833,6 +32922,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         EMPTY_RUNTIME_LEGACY_SINKS,
       );
       const state = store.getState();
+      // DIAGNOSTICS ONLY (SUCCESS_PROD_TRACE_V1): SUCCESS transition ended on Lobby.
+      if (isSuccessProdTraceActive()) {
+        logSuccessProdTrace('LOBBY_OPEN', {
+          caller: 'concludeSuccessDrainWithoutCard',
+          reason,
+          successTraceId: getSuccessProdTraceId(),
+          lifecycle: state.lifecycle.status,
+          displayItemId: state.display.payload
+            ? notificationItemId(state.display.payload)
+            : null,
+          queueIds: state.items.queue.map((item) => notificationItemId(item)),
+        });
+        endSuccessProdTrace();
+      }
       logQueuePresentation('SUCCESS_RUNTIME_NORMALIZED', {
         source: reason,
         // Durable literal so this code path is greppable in the minified bundle.
@@ -32871,6 +32974,37 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const drainNextNotificationAfterSuccess = useCallback(
     async (successBanId?: string | null): Promise<boolean> => {
+      // DIAGNOSTICS ONLY (SUCCESS_PROD_TRACE_V1): one trace id spans this transition.
+      beginSuccessProdTrace();
+      {
+        const traceState = notificationRuntimeStoreRef.current.getState();
+        const overlayIds = overlayQueueRef.current.map((q) => overlayBanId(q));
+        const pendingIds = pendingStartupInteractionsRef.current.map((q) =>
+          overlayBanId(q),
+        );
+        const ownerState = ownerShadowRef.current.getState();
+        logSuccessProdTrace('SUCCESS_EXIT', {
+          caller: 'drainNextNotificationAfterSuccess',
+          cardId: successBanId ?? null,
+          cardKind: null,
+          currentScreen: lobbyOpenRef.current ? 'lobby' : 'overlay',
+          notificationSessionActive: notificationSessionActiveForDebugRef.current,
+          notificationChainTransitioning:
+            notificationChainTransitioningRef.current,
+        });
+        logSuccessProdTrace('DRAIN_ENTRY', {
+          called: true,
+          runtimeState: traceState.lifecycle.status,
+          overlayQueueRefIds: overlayIds,
+          pendingStartupIds: pendingIds,
+          ownerQueueIds: ownerState.queue.map((q) =>
+            q.kind === 'result' ? q.result.id : q.ban.id,
+          ),
+          ownerPendingIds: ownerState.pending.map((q) =>
+            q.kind === 'result' ? q.result.id : q.ban.id,
+          ),
+        });
+      }
       // Vertical 5: runtime SUCCESS_HANDOFF is sole drain owner (no continue/showNext).
       if (isSuccessCardMounted()) {
         logSuccessDrainOnlyAfterExit({
@@ -32976,6 +33110,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       const sinks = EMPTY_RUNTIME_LEGACY_SINKS;
 
+      // DIAGNOSTICS ONLY (SUCCESS_PROD_TRACE_V1): materialize decision snapshot.
+      // Captured at the caller boundary so notification-runtime stays untouched;
+      // the ITEMS_RECEIVED dispatch happens inside materialize between these two
+      // store snapshots (before/after the awaited call).
+      const materializeStateBefore =
+        notificationRuntimeStoreRef.current.getState();
+      logSuccessProdTrace('MATERIALIZE_DECISION', {
+        localCount: localItems.length,
+        localIds: localItems.map((q) => overlayBanId(q)),
+        consumedIds: materializeStateBefore.consumed.itemIds,
+        transitionId: requested.transitionId,
+        lifecycleBefore: materializeStateBefore.lifecycle.status,
+        queueIdsBefore: materializeStateBefore.items.queue.map((item) =>
+          notificationItemId(item),
+        ),
+        displayBefore: materializeStateBefore.display.payload
+          ? notificationItemId(materializeStateBefore.display.payload)
+          : null,
+      });
+
       const outcome = await executeSuccessHandoffMaterialize(
         notificationRuntimeStoreRef.current,
         {
@@ -32988,11 +33142,61 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             );
             // Transport payloads are authoritative — never rebuild from cleared
             // overlayQueueRef / pendingStartupInteractionsRef after clear-hold.
-            return resolveSuccessHandoffFetchItems(fetched);
+            const resolved = resolveSuccessHandoffFetchItems(fetched);
+            // DIAGNOSTICS ONLY (SUCCESS_PROD_TRACE_V1): direct-payload callback proof.
+            logSuccessProdTrace('SUCCESS_FETCH_CALLBACK', {
+              callbackVersion: 'direct-payload-c09ee50',
+              fetchedCount: fetched.length,
+              fetchedIds: fetched.map((q) => overlayBanId(q)),
+              resolvedCount: resolved.length,
+              resolvedIds: resolved.map((q) => overlayBanId(q)),
+            });
+            return resolved;
           },
         },
         sinks,
       );
+
+      // DIAGNOSTICS ONLY (SUCCESS_PROD_TRACE_V1): net effect of the single
+      // ITEMS_RECEIVED dispatch materialize performs, plus the final outcome.
+      {
+        const materializeStateAfter =
+          notificationRuntimeStoreRef.current.getState();
+        const displayBefore = materializeStateBefore.display.payload
+          ? notificationItemId(materializeStateBefore.display.payload)
+          : null;
+        const displayAfter = materializeStateAfter.display.payload
+          ? notificationItemId(materializeStateAfter.display.payload)
+          : null;
+        const queueIdsAfter = materializeStateAfter.items.queue.map((item) =>
+          notificationItemId(item),
+        );
+        const changed =
+          materializeStateAfter.lifecycle.status !==
+            materializeStateBefore.lifecycle.status ||
+          displayAfter !== displayBefore ||
+          materializeStateAfter.items.queue.length !==
+            materializeStateBefore.items.queue.length;
+        logSuccessProdTrace('ITEMS_RECEIVED', {
+          source: 'success-handoff-materialize',
+          transitionId: requested.transitionId,
+          replaceQueue: true,
+          itemCount: queueIdsAfter.length,
+          itemIds: queueIdsAfter,
+          lifecycleBefore: materializeStateBefore.lifecycle.status,
+          displayBefore,
+          acceptedOrRejected: changed ? 'accepted' : 'rejected',
+          rejectionReason: changed ? null : 'empty-or-noop-replace',
+          lifecycleAfter: materializeStateAfter.lifecycle.status,
+          displayAfter,
+        });
+        logSuccessProdTrace('MATERIALIZE_RESULT', {
+          lifecycleAfter: materializeStateAfter.lifecycle.status,
+          displayItemId: displayAfter,
+          queueIds: queueIdsAfter,
+          outcome,
+        });
+      }
 
       logSuccessTrace(
         'MATERIALIZE_RESULT',
@@ -33056,6 +33260,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             blockingReason: 'next-card-showing',
           }),
         );
+        // DIAGNOSTICS ONLY (SUCCESS_PROD_TRACE_V1): transition ended showing B.
+        endSuccessProdTrace();
         return true;
       }
 
