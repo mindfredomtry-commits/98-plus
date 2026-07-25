@@ -265,6 +265,11 @@ import {
 import { projectRuntimeQueueToLegacy } from '@/notification-runtime/notification-runtime.adapters';
 import { selectRuntimePaintSnapshot, EMPTY_RUNTIME_LEGACY_SINKS } from '@/notification-runtime/notification-runtime.demolition';
 import {
+  getIncomingOverboardCompletionSnapshot,
+  isRuntimeIdleEmptyAfterOverboard,
+  subscribeIncomingOverboardCompletion,
+} from '@/notification-runtime/notification-runtime.overboard-completion';
+import {
   ingestPendingSnapshot,
   markRuntimeItemConsumed,
   mergePendingItemIds,
@@ -4510,6 +4515,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     () => selectNotificationRuntimeUiSnapshot(notificationRuntimeState),
     [notificationRuntimeState],
   );
+  /** V3: runtime-published edge for "overboard chain ended, runtime empty". */
+  const incomingOverboardCompletion = useSyncExternalStore(
+    subscribeIncomingOverboardCompletion,
+    getIncomingOverboardCompletionSnapshot,
+    getIncomingOverboardCompletionSnapshot,
+  );
+  const handledOverboardCompletionSeqRef = useRef(0);
   const buildGoToBansTraceHookContext = (
     handlerName: string,
     source: string,
@@ -42735,6 +42747,53 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       dimVisible: false,
     });
   }, [auth.user?.id, clearVisualQueueDimReleaseTimer]);
+
+  /**
+   * V3: overboard chain ended in the runtime — drop obsolete host presentation
+   * state only. Runtime stays the authority: no queue consume, no head select,
+   * no lifecycle write here.
+   */
+  useEffect(() => {
+    const { seq, banId } = incomingOverboardCompletion;
+    if (seq === 0) return;
+    if (handledOverboardCompletionSeqRef.current === seq) return;
+    const runtime = notificationRuntimeStoreRef.current.getState();
+    if (!isRuntimeIdleEmptyAfterOverboard(runtime)) return;
+    handledOverboardCompletionSeqRef.current = seq;
+    const source = 'overboard-runtime-complete';
+    console.log('[OVERBOARD RUNTIME COMPLETE]', {
+      seq,
+      banId,
+      lifecycle: runtime.lifecycle.status,
+      queueLen: runtime.items.queue.length,
+      legacyQueueLen: overlayQueueRef.current.length,
+    });
+    clearActiveIncomingOverlayBanStable(source);
+    // Runtime is empty, so chain transitioning is released even when the legacy
+    // queue snapshot is still stale and blocks the empty-queue helper.
+    clearNotificationOverlayForEmptyQueueAfterSuccessExit(source);
+    setNotificationChainTransitioning(false);
+    if (visualQueueDimSessionRef.current) {
+      commitVisualQueueDimSessionRelease(source, {
+        mountedCardVisible: false,
+        mountedCardHasContent: false,
+        kind: null,
+        effectiveKind: null,
+        ownerQueueLen: 0,
+        ownerPendingLen: 0,
+        notificationSessionActive: false,
+        notificationChainTransitioning: false,
+        chainAdvanceWaiting: false,
+        sendFlowOpening: false,
+      });
+    }
+  }, [
+    clearActiveIncomingOverlayBanStable,
+    clearNotificationOverlayForEmptyQueueAfterSuccessExit,
+    commitVisualQueueDimSessionRelease,
+    incomingOverboardCompletion,
+    setNotificationChainTransitioning,
+  ]);
 
   const notificationHostLayerActive =
     notificationOverlayVisible && !replyParentTimerOwnsTopLayer;

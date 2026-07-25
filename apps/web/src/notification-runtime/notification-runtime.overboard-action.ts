@@ -16,6 +16,7 @@ import {
   notificationItemId,
   type NotificationRuntimeStore,
 } from './notification-runtime.store';
+import { noteIncomingOverboardCompletion } from './notification-runtime.overboard-completion';
 import type {
   RuntimeEffect,
   RuntimeSource,
@@ -158,6 +159,7 @@ export async function executeSubmitIncomingOverboardEffect(
 
     // Chain drain: consume incoming and show next / idle.
     // Result payload is not inserted as a blocking head (queue of N incomings).
+    const beforeSucceeded = store.getState();
     store.dispatch({
       type: 'CARD_ACTION_SUCCEEDED',
       commandId: effect.commandId,
@@ -166,6 +168,11 @@ export async function executeSubmitIncomingOverboardEffect(
       source: 'user',
     });
     projectRuntimeAfterOverboard(store, sinks, 'success-advance');
+    // V3: publish the chain-ended edge so hosts can drop obsolete UI state.
+    noteIncomingOverboardCompletion(beforeSucceeded, store.getState(), {
+      commandId: effect.commandId,
+      targetItemId: effect.targetItemId,
+    });
     return { ok: true };
   } catch (err) {
     const message =
