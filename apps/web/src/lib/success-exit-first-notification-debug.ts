@@ -321,3 +321,120 @@ export function logSuccessExitTimerCardTopOk(data: Record<string, unknown>): voi
 export function logEmptyBackdropBug(data: Record<string, unknown>): void {
   emit('[EMPTY BACKDROP BUG]', data);
 }
+
+// ===========================================================================
+// TEMPORARY production diagnostics — SUCCESS_PROD_TRACE_V1.
+//
+// Captures the exact production execution from a SUCCESS exit until Lobby or
+// the next card (B) is shown. DIAGNOSTICS ONLY: no effect on control flow,
+// ordering, branches, return values, caching, timers or the queue. Emits
+// sanitized log lines (IDs / state — never ban text or personal content).
+//
+// A single `successTraceId` is shared across the whole transition via module
+// state so callees (prefetch, materialize) stamp the same id without threading
+// a new parameter through production signatures.
+// ===========================================================================
+
+export type SuccessProdTraceStep =
+  | 'SUCCESS_EXIT'
+  | 'DRAIN_ENTRY'
+  | 'PREFETCH_ENTRY'
+  | 'TRANSPORT_RESPONSE'
+  | 'PREFETCH_RETURN'
+  | 'SUCCESS_FETCH_CALLBACK'
+  | 'MATERIALIZE_DECISION'
+  | 'MATERIALIZE_RESULT'
+  | 'LOBBY_OPEN'
+  | 'ITEMS_RECEIVED'
+  | 'BUILD_BOOT';
+
+const SUCCESS_PROD_TRACE_MARKER = 'SUCCESS_PROD_TRACE_V1' as const;
+const SUCCESS_PROD_TRACE_PREFIX = '[SUCCESS_PROD_TRACE_V1]' as const;
+const SUCCESS_PROD_TRACE_VERSION = 'success-prod-trace-v1' as const;
+
+let currentSuccessProdTraceId: string | null = null;
+
+/** Deployed commit exposed on every trace entry (client build inlines NEXT_PUBLIC_*). */
+export function successProdTraceBuildCommit(): string {
+  return (
+    process.env.NEXT_PUBLIC_RAILWAY_GIT_COMMIT_SHA ||
+    process.env.RAILWAY_GIT_COMMIT_SHA ||
+    'unknown'
+  );
+}
+
+function successProdTraceShortUuid(): string {
+  try {
+    if (
+      typeof crypto !== 'undefined' &&
+      typeof crypto.randomUUID === 'function'
+    ) {
+      return crypto.randomUUID().split('-')[0] ?? '';
+    }
+  } catch {
+    // fall through to Math.random below
+  }
+  return Math.random().toString(16).slice(2, 10);
+}
+
+function successProdTraceNow(): number {
+  return typeof performance !== 'undefined' && performance.now
+    ? performance.now()
+    : Date.now();
+}
+
+/** Begin a new SUCCESS transition trace and return its id. */
+export function beginSuccessProdTrace(): string {
+  currentSuccessProdTraceId = `sth_${successProdTraceShortUuid()}`;
+  return currentSuccessProdTraceId;
+}
+
+export function getSuccessProdTraceId(): string | null {
+  return currentSuccessProdTraceId;
+}
+
+export function isSuccessProdTraceActive(): boolean {
+  return currentSuccessProdTraceId !== null;
+}
+
+/** End the current transition trace (id cleared so later prefetches are untraced). */
+export function endSuccessProdTrace(): void {
+  currentSuccessProdTraceId = null;
+}
+
+/** Emit one sanitized SUCCESS_PROD_TRACE_V1 line (console.info + optional debug sink). */
+export function logSuccessProdTrace(
+  step: SuccessProdTraceStep,
+  data: Record<string, unknown> = {},
+): void {
+  const entry = {
+    marker: SUCCESS_PROD_TRACE_MARKER,
+    step,
+    successTraceId: currentSuccessProdTraceId,
+    buildCommit: successProdTraceBuildCommit(),
+    timestamp: successProdTraceNow(),
+    ...data,
+  };
+  console.info(SUCCESS_PROD_TRACE_PREFIX, entry);
+  if (typeof window !== 'undefined') {
+    window.__debug98log?.(SUCCESS_PROD_TRACE_MARKER, entry);
+  }
+}
+
+/**
+ * Emit the one-time startup boot line proving Telegram loaded this deployment
+ * (not cached/old web assets). Does not require an active transition trace.
+ */
+export function logSuccessProdTraceBoot(): void {
+  const entry = {
+    marker: SUCCESS_PROD_TRACE_MARKER,
+    step: 'BUILD_BOOT' as const,
+    buildCommit: successProdTraceBuildCommit(),
+    traceVersion: SUCCESS_PROD_TRACE_VERSION,
+    timestamp: successProdTraceNow(),
+  };
+  console.info(SUCCESS_PROD_TRACE_PREFIX, entry);
+  if (typeof window !== 'undefined') {
+    window.__debug98log?.(SUCCESS_PROD_TRACE_MARKER, entry);
+  }
+}
