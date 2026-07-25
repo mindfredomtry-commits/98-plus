@@ -19173,9 +19173,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       queueLen: overlayQueueRef.current.length,
       pendingLen: pendingStartupInteractionsRef.current.length,
       overlayQueueLength: overlayQueueRef.current.length,
-      queueClaimsNotificationScreen:
-        overlayQueueRef.current.length > 0 ||
-        shouldBlockLobbyForActiveQueue(),
+      queueClaimsNotificationScreen: selectOverlayVisible(
+        notificationRuntimeStoreRef.current.getState(),
+      ),
     }));
   }, []);
 
@@ -40075,7 +40075,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         pendingLen: pendingStartupInteractionsRef.current.length,
         queueLen: overlayQueueRef.current.length,
       }) ||
-      shouldBlockLobbyForActiveQueue() ||
+      !selectLobbyMayShow(notificationRuntimeStoreRef.current.getState()) ||
       result
     ) {
       // Read-only re-evaluation (both helpers are pure) purely to name which
@@ -40088,7 +40088,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           pendingLen: pendingStartupInteractionsRef.current.length,
           queueLen: overlayQueueRef.current.length,
         });
-      const activeQueueBlock = shouldBlockLobbyForActiveQueue();
+      // V1: runtime selectLobbyMayShow replaces legacy queue-lobby-guard product block.
+      const activeQueueBlock = !selectLobbyMayShow(
+        notificationRuntimeStoreRef.current.getState(),
+      );
       const skipReason = deepLinkReplyBan
         ? 'deeplink-reply-ban-present'
         : deepLinkRepeatBan
@@ -40124,7 +40127,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                                       : queuedNotificationsBlock
                                         ? 'queued-notifications-block'
                                         : activeQueueBlock
-                                          ? 'active-queue-block'
+                                          ? 'runtime-lobby-may-show-false'
                                           : result
                                             ? 'result-present'
                                             : 'other-existing-condition';
@@ -40140,7 +40143,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       pendingLen: pendingStartupInteractionsRef.current.length,
       queueLen: overlayQueueRef.current.length,
     });
-    const activeQueueBlock = shouldBlockLobbyForActiveQueue();
+    const activeQueueBlock = !selectLobbyMayShow(
+      notificationRuntimeStoreRef.current.getState(),
+    );
     const decisionInputs: Record<string, boolean> = {
       hasAuthUser: Boolean(auth.user?.id),
       postSuccessHandoffNotInProgress: !isPostSuccessHandoffInProgress(),
