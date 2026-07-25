@@ -15,6 +15,7 @@ import {
   type RuntimeEffect,
 } from './notification-runtime.types';
 import { selectCurrentItem, selectCurrentItemId } from './notification-runtime.selectors';
+import { evaluateStaleReplaceGuard } from './notification-runtime.stale-replace-guard';
 
 function cloneState(state: NotificationRuntimeState): NotificationRuntimeState {
   return {
@@ -536,6 +537,20 @@ export function notificationRuntimeReducer(
     }
 
     case 'ITEMS_RECEIVED': {
+      // Protect a currently renderable shown head from stale/empty replaceQueue.
+      // Empty or different-head replaces without owning transitionId are no-ops.
+      // Return the original `state` (not cloned `base`) so the store does not emit.
+      if (event.replaceQueue) {
+        const rejected = evaluateStaleReplaceGuard(base, {
+          replaceQueue: true,
+          items: event.items,
+          transitionId: event.transitionId,
+        });
+        if (rejected) {
+          return { state, effects: [] };
+        }
+      }
+
       const queue = event.replaceQueue
         ? dedupeAppend([], event.items)
         : dedupeAppend(base.items.queue, event.items);

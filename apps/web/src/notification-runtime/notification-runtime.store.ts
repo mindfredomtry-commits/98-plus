@@ -6,6 +6,7 @@ import {
   assertNotificationRuntimeInvariant,
   notificationRuntimeReducer,
 } from './notification-runtime.reducer';
+import { recordCommand } from './notification-runtime.command-ledger';
 import {
   createInitialNotificationRuntimeState,
   notificationItemId,
@@ -125,6 +126,7 @@ export function createNotificationRuntimeStore(): NotificationRuntimeStore {
         seenDeeplinkEntryTransitionIds.clear();
         transitionSeq = 0;
       }
+      const before = state;
       const result = notificationRuntimeReducer(state, event);
       // Offline invariant stays test-only; production store does not throw.
       try {
@@ -135,6 +137,8 @@ export function createNotificationRuntimeStore(): NotificationRuntimeStore {
       const changed = result.state !== state || result.effects.length > 0;
       state = result.state;
       lastEffects = result.effects;
+      // Canonical dispatch-boundary ledger (dev/test only; no-op unless flag on).
+      recordCommand(event, before, result.state);
       if (changed) emit();
       return result;
     },
