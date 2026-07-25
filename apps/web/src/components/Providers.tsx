@@ -246,6 +246,10 @@ import {
 } from '@/notification-runtime/notification-runtime.bootstrap';
 import { logBootGate } from '@/lib/boot-gate-diag';
 import {
+  decideDeferredSyncFlush,
+  isRuntimeUnsafeForBootstrapRequest,
+} from '@/lib/deferred-sync-bootstrap-gate';
+import {
   selectIndicatorVisible,
   selectIsDraining,
   selectIsDirectEntry,
@@ -26196,6 +26200,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       return;
     }
+    // Post-drain wipe: never BOOTSTRAP_REQUESTED while draining/showing
+    // (would clearDisplay + empty queue and leave Lobby/orb).
+    const runtimeBeforeBoot = notificationRuntimeStoreRef.current.getState();
+    if (isRuntimeUnsafeForBootstrapRequest(runtimeBeforeBoot)) {
+      console.log('[notification-flush-blocked]', {
+        reason: 'runtime-overlay-lifecycle',
+        source: 'reloadPending',
+        lifecycle: runtimeBeforeBoot.lifecycle.status,
+        transitionId: runtimeBeforeBoot.lifecycle.transitionId,
+      });
+      return;
+    }
     tryLockFromStartParam('reloadPending-start');
     const token = tokenRef.current;
     const requestUserId = userIdRef.current;
@@ -37033,10 +37049,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   optimisticSendWaitRef.current = optimisticSendWait;
 
   const flushDeferredSync = useCallback(async () => {
-    if (!deferredSyncRef.current) return;
-    // Keep the deferred latch until SUCCESS handoff settles — clearing it and
-    // calling reloadPending would requestBootstrap → booting and reject handoff.
+    // Keep latch during SUCCESS exit critical section (pre-drain race).
     if (isSuccessExitInProgress()) return;
+    const decision = decideDeferredSyncFlush(
+      deferredSyncRef.current,
+      notificationRuntimeStoreRef.current.getState(),
+    );
+    if (decision === 'skip-empty') return;
+    // Keep latch while draining/showing — subscribe retries on safe idle.
+    if (decision === 'defer-unsafe') return;
     deferredSyncRef.current = false;
     await reloadPending();
     await reloadFriends();
@@ -37047,6 +37068,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const scheduleDeferredSync = useCallback(() => {
     deferredSyncRef.current = true;
   }, []);
+
+  // Retry deferred sync exactly once when runtime becomes safely idle
+  // (selectLobbyMayShow) after SUCCESS handoff left the latch armed.
+  useEffect(() => {
+    const store = notificationRuntimeStoreRef.current;
+    return store.subscribe(() => {
+      if (!deferredSyncRef.current) return;
+      if (
+        decideDeferredSyncFlush(true, store.getState()) !== 'run'
+      ) {
+        return;
+      }
+      void flushDeferredSync();
+    });
+  }, [flushDeferredSync]);
 
   const setBanSentOpen = useCallback(
     (open: boolean) => {
