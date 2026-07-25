@@ -51,6 +51,94 @@ export function isRuntimeIdleEmptyAfterOverboard(
   );
 }
 
+export type IncomingOverboardCompletionEligibility = {
+  eligible: boolean;
+  /** Exact failed condition when eligible=false; null when eligible. */
+  reason: string | null;
+  checks: {
+    beforeActionStatus: string;
+    beforeTargetItemId: string | null;
+    beforeOverlayVisible: boolean;
+    wasInFlight: boolean;
+    afterLifecycle: string;
+    afterDisplayKind: string | null;
+    afterDisplayPayloadNull: boolean;
+    afterQueueLen: number;
+    afterActionStatus: string;
+    afterOverlayVisible: boolean;
+    afterIdleEmpty: boolean;
+    duplicateCommand: boolean;
+  };
+};
+
+/**
+ * Diagnostic eligibility breakdown for the V3 completion edge.
+ * Does not emit; product emit path remains noteIncomingOverboardCompletion.
+ */
+export function explainIncomingOverboardCompletion(
+  before: NotificationRuntimeState,
+  after: NotificationRuntimeState,
+  args: { commandId: string; targetItemId: string },
+): IncomingOverboardCompletionEligibility {
+  const beforeOverlayVisible = selectOverlayVisible(before);
+  const wasInFlight =
+    before.action.status === 'pending' &&
+    before.action.targetItemId === args.targetItemId &&
+    beforeOverlayVisible;
+  const afterIdleEmpty = isRuntimeIdleEmptyAfterOverboard(after);
+  const duplicateCommand =
+    snapshot.seq > 0 && snapshot.commandId === args.commandId;
+  const checks = {
+    beforeActionStatus: before.action.status,
+    beforeTargetItemId: before.action.targetItemId,
+    beforeOverlayVisible,
+    wasInFlight,
+    afterLifecycle: after.lifecycle.status,
+    afterDisplayKind: after.display.kind,
+    afterDisplayPayloadNull: after.display.payload == null,
+    afterQueueLen: after.items.queue.length,
+    afterActionStatus: after.action.status,
+    afterOverlayVisible: selectOverlayVisible(after),
+    afterIdleEmpty,
+    duplicateCommand,
+  };
+
+  if (!wasInFlight) {
+    let reason = 'not-in-flight';
+    if (before.action.status !== 'pending') {
+      reason = `before-action-not-pending:${before.action.status}`;
+    } else if (before.action.targetItemId !== args.targetItemId) {
+      reason = 'before-target-mismatch';
+    } else if (!beforeOverlayVisible) {
+      reason = 'before-overlay-not-visible';
+    }
+    return { eligible: false, reason, checks };
+  }
+  if (!afterIdleEmpty) {
+    let reason = 'after-not-idle-empty';
+    if (after.lifecycle.status !== 'idle') {
+      reason = `after-lifecycle-not-idle:${after.lifecycle.status}`;
+    } else if (after.display.kind != null || after.display.payload != null) {
+      reason = `after-display-not-null:${after.display.kind ?? 'payload'}`;
+    } else if (after.items.queue.length !== 0) {
+      reason = `after-queue-not-empty:${after.items.queue.length}`;
+    } else if (after.action.status !== 'idle') {
+      reason = `after-action-not-idle:${after.action.status}`;
+    } else if (selectOverlayVisible(after)) {
+      reason = 'after-overlay-still-visible';
+    }
+    return { eligible: false, reason, checks };
+  }
+  if (duplicateCommand) {
+    return {
+      eligible: false,
+      reason: 'duplicate-commandId',
+      checks,
+    };
+  }
+  return { eligible: true, reason: null, checks };
+}
+
 /**
  * True only for the final overboard of a chain: an in-flight action on the
  * visible head became a settled empty runtime. Advancing to the next queued

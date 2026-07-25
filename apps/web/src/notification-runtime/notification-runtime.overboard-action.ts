@@ -16,7 +16,17 @@ import {
   notificationItemId,
   type NotificationRuntimeStore,
 } from './notification-runtime.store';
-import { noteIncomingOverboardCompletion } from './notification-runtime.overboard-completion';
+import {
+  explainIncomingOverboardCompletion,
+  getIncomingOverboardCompletionSnapshot,
+  noteIncomingOverboardCompletion,
+} from './notification-runtime.overboard-completion';
+import {
+  armOverboardV3WriterWatch,
+  beginOverboardV3ProdTrace,
+  logOverboardV3ProdTrace,
+  snapshotRuntimeForOverboardV3Trace,
+} from '@/lib/overboard-v3-prod-trace';
 import type {
   RuntimeEffect,
   RuntimeSource,
@@ -108,6 +118,8 @@ export function requestIncomingOverboardAction(
   }
   const commandId =
     args.commandId ?? nextRuntimeTransitionId('overboard-action');
+  beginOverboardV3ProdTrace(commandId);
+  const beforeRequest = store.getState();
   const result = store.dispatch({
     type: 'CARD_ACTION_REQUESTED',
     commandId,
@@ -119,6 +131,15 @@ export function requestIncomingOverboardAction(
     (e): e is Extract<RuntimeEffect, { type: 'SUBMIT_CARD_ACTION' }> =>
       e.type === 'SUBMIT_CARD_ACTION',
   );
+  logOverboardV3ProdTrace('CARD_ACTION_REQUESTED', {
+    commandId,
+    targetItemId,
+    banId: args.banId,
+    accepted: submitEffects.length > 0,
+    reason: submitEffects.length > 0 ? null : 'reducer-rejected',
+    before: snapshotRuntimeForOverboardV3Trace(beforeRequest),
+    after: snapshotRuntimeForOverboardV3Trace(store.getState()),
+  });
   return {
     accepted: submitEffects.length > 0,
     commandId: submitEffects.length > 0 ? commandId : null,
@@ -143,6 +164,12 @@ export async function executeSubmitIncomingOverboardEffect(
     return { ok: false, error: 'wrong-action' };
   }
   const banId = banIdFromIncomingItemId(effect.targetItemId);
+  logOverboardV3ProdTrace('SUBMIT_CARD_ACTION_START', {
+    commandId: effect.commandId,
+    targetItemId: effect.targetItemId,
+    banId,
+    before: snapshotRuntimeForOverboardV3Trace(store.getState()),
+  });
   try {
     const res = await transport({ banId, token });
     if (res.ok === false || res.error) {
@@ -154,12 +181,26 @@ export async function executeSubmitIncomingOverboardEffect(
         source: 'user',
       });
       projectRuntimeAfterOverboard(store, sinks, 'failed-api');
+      logOverboardV3ProdTrace('SUBMIT_CARD_ACTION_RESULT', {
+        commandId: effect.commandId,
+        targetItemId: effect.targetItemId,
+        banId,
+        ok: false,
+        error: res.error ?? 'OVERBOARD_SUBMIT_FAILED',
+        after: snapshotRuntimeForOverboardV3Trace(store.getState()),
+      });
       return { ok: false, error: res.error ?? 'Ошибка перебора' };
     }
 
     // Chain drain: consume incoming and show next / idle.
     // Result payload is not inserted as a blocking head (queue of N incomings).
     const beforeSucceeded = store.getState();
+    logOverboardV3ProdTrace('STATE_BEFORE_SUCCESS', {
+      commandId: effect.commandId,
+      targetItemId: effect.targetItemId,
+      banId,
+      before: snapshotRuntimeForOverboardV3Trace(beforeSucceeded),
+    });
     store.dispatch({
       type: 'CARD_ACTION_SUCCEEDED',
       commandId: effect.commandId,
@@ -167,12 +208,71 @@ export async function executeSubmitIncomingOverboardEffect(
       consumeAndAdvance: true,
       source: 'user',
     });
-    projectRuntimeAfterOverboard(store, sinks, 'success-advance');
-    // V3: publish the chain-ended edge so hosts can drop obsolete UI state.
-    noteIncomingOverboardCompletion(beforeSucceeded, store.getState(), {
+    const afterSucceeded = store.getState();
+    logOverboardV3ProdTrace('CARD_ACTION_SUCCEEDED', {
       commandId: effect.commandId,
       targetItemId: effect.targetItemId,
+      banId,
+      consumeAndAdvance: true,
     });
+    logOverboardV3ProdTrace('STATE_AFTER_SUCCESS', {
+      commandId: effect.commandId,
+      targetItemId: effect.targetItemId,
+      banId,
+      after: snapshotRuntimeForOverboardV3Trace(afterSucceeded),
+    });
+    projectRuntimeAfterOverboard(store, sinks, 'success-advance');
+    // V3: publish the chain-ended edge so hosts can drop obsolete UI state.
+    const eligibility = explainIncomingOverboardCompletion(
+      beforeSucceeded,
+      afterSucceeded,
+      {
+        commandId: effect.commandId,
+        targetItemId: effect.targetItemId,
+      },
+    );
+    logOverboardV3ProdTrace('COMPLETION_ELIGIBILITY', {
+      commandId: effect.commandId,
+      targetItemId: effect.targetItemId,
+      banId,
+      eligible: eligibility.eligible,
+      reason: eligibility.reason,
+      checks: eligibility.checks,
+    });
+    const emitted = noteIncomingOverboardCompletion(
+      beforeSucceeded,
+      afterSucceeded,
+      {
+        commandId: effect.commandId,
+        targetItemId: effect.targetItemId,
+      },
+    );
+    const completion = getIncomingOverboardCompletionSnapshot();
+    logOverboardV3ProdTrace('COMPLETION_EDGE', {
+      commandId: effect.commandId,
+      targetItemId: effect.targetItemId,
+      banId,
+      emitted,
+      seq: completion.seq,
+      completionCommandId: completion.commandId,
+      rejectionReason: emitted ? null : eligibility.reason,
+    });
+    logOverboardV3ProdTrace('SUBMIT_CARD_ACTION_RESULT', {
+      commandId: effect.commandId,
+      targetItemId: effect.targetItemId,
+      banId,
+      ok: true,
+      after: snapshotRuntimeForOverboardV3Trace(afterSucceeded),
+      completionEmitted: emitted,
+      completionSeq: completion.seq,
+    });
+    if (emitted) {
+      armOverboardV3WriterWatch({
+        commandId: effect.commandId,
+        seq: completion.seq,
+        reason: 'completion-edge-emitted',
+      });
+    }
     return { ok: true };
   } catch (err) {
     const message =
@@ -187,6 +287,14 @@ export async function executeSubmitIncomingOverboardEffect(
       source: 'user',
     });
     projectRuntimeAfterOverboard(store, sinks, 'failed-transport');
+    logOverboardV3ProdTrace('SUBMIT_CARD_ACTION_RESULT', {
+      commandId: effect.commandId,
+      targetItemId: effect.targetItemId,
+      banId,
+      ok: false,
+      error: message,
+      after: snapshotRuntimeForOverboardV3Trace(store.getState()),
+    });
     return { ok: false, error: message };
   }
 }

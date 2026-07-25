@@ -132,7 +132,7 @@ async function main() {
       );
       assert.match(flow, /subscribeIncomingOverboardCompletion/);
       const restoreBlock = flow.match(
-        /const \{ seq \} = incomingOverboardCompletion;[\s\S]*?\}, \[/,
+        /const \{ seq, commandId, banId \} = incomingOverboardCompletion;[\s\S]*?\}, \[/,
       );
       assert.ok(restoreBlock, 'completion restore effect present');
       const block = restoreBlock![0];
@@ -194,7 +194,7 @@ async function main() {
 
       const providers = readSource('apps/web/src/components/Providers.tsx');
       const releaseBlock = providers.match(
-        /const \{ seq, banId \} = incomingOverboardCompletion;[\s\S]*?\}, \[/,
+        /const \{ seq, banId, commandId \} = incomingOverboardCompletion;[\s\S]*?\}, \[/,
       );
       assert.ok(releaseBlock, 'providers completion release effect present');
       const block = releaseBlock![0];
@@ -282,7 +282,7 @@ async function main() {
 
       const providers = readSource('apps/web/src/components/Providers.tsx');
       const releaseBlock = providers.match(
-        /const \{ seq, banId \} = incomingOverboardCompletion;[\s\S]*?\}, \[/,
+        /const \{ seq, banId, commandId \} = incomingOverboardCompletion;[\s\S]*?\}, \[/,
       );
       assert.ok(releaseBlock);
       // Chain transitioning is released from the runtime edge even when the

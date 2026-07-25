@@ -14,6 +14,7 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
+  type SetStateAction,
 } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import {
@@ -54,6 +55,10 @@ import {
   isRuntimeIdleEmptyAfterOverboard,
   subscribeIncomingOverboardCompletion,
 } from '@/notification-runtime/notification-runtime.overboard-completion';
+import {
+  logOverboardV3ProdTrace,
+  logOverboardV3WriterChange,
+} from '@/lib/overboard-v3-prod-trace';
 import { decideLobbyClaimFromRuntime } from '@/lib/lobby-claim-from-runtime';
 import { planLobbyBansOpenNavigation } from '@/lib/lobby-bans-open-navigation';
 import { logBootGate } from '@/lib/boot-gate-diag';
@@ -586,6 +591,11 @@ export function InstantBanFlow({
     getIncomingOverboardCompletionSnapshot,
   );
   const handledOverboardCompletionSeqRef = useRef(0);
+  useEffect(() => {
+    logOverboardV3ProdTrace('INSTANTBANFLOW_SUBSCRIBER_MOUNTED', {
+      source: 'InstantBanFlow',
+    });
+  }, []);
   /** Global Relationship Orb only — never used for CTA / energy-gate. */
   const globalRelationshipRing = useGlobalRelationshipOrb(token);
   const { haptic, hapticSuccess, webApp } = useTelegram();
@@ -672,11 +682,30 @@ export function InstantBanFlow({
   const whoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [whoExitActive, setWhoExitActive] = useState(false);
   const [whoDismissProgress, setWhoDismissProgress] = useState(0);
-  const [ctaState, setCtaState] = useState<LobbyCtaState>(() =>
+  const [ctaState, setCtaStateRaw] = useState<LobbyCtaState>(() =>
     activeBanDeepLinkBanId || activeBanUiShellActive
       ? 'hidden'
       : resolveInitialCtaState(sendStarted),
   );
+  const setCtaState = useCallback(
+    (next: SetStateAction<LobbyCtaState>) => {
+      setCtaStateRaw((prev) => {
+        const resolved = typeof next === 'function' ? next(prev) : next;
+        if (prev !== resolved) {
+          logOverboardV3WriterChange({
+            field: 'ctaState',
+            oldValue: prev,
+            newValue: resolved,
+            source: 'InstantBanFlow.setCtaState',
+          });
+        }
+        return resolved;
+      });
+    },
+    [],
+  );
+  const ctaStateForV3TraceRef = useRef(ctaState);
+  ctaStateForV3TraceRef.current = ctaState;
   const [whoPanelEntering, setWhoPanelEntering] = useState(false);
   const ctaExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ctaEnterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -794,6 +823,19 @@ export function InstantBanFlow({
     phase === 'composingBan' ||
     bansLayerUiOpen ||
     (notificationOverlayActive && !bansReturnToLobbyLatch);
+  const orbOverlayDimForV3TraceRef = useRef(orbOverlayDim);
+  useEffect(() => {
+    const prev = orbOverlayDimForV3TraceRef.current;
+    if (prev !== orbOverlayDim) {
+      logOverboardV3WriterChange({
+        field: 'orbOverlayDim',
+        oldValue: prev,
+        newValue: orbOverlayDim,
+        source: 'InstantBanFlow.orbOverlayDim-derived',
+      });
+      orbOverlayDimForV3TraceRef.current = orbOverlayDim;
+    }
+  }, [orbOverlayDim]);
   /** Horizontal pager only on Who — no finger swipe What → Who. */
   const crossScreenDragEnabled =
     selectedUser != null && phase === 'selectingTarget';
@@ -4810,18 +4852,72 @@ export function InstantBanFlow({
    * normal empty-queue return uses. Runs once per completion edge.
    */
   useEffect(() => {
-    const { seq } = incomingOverboardCompletion;
+    const { seq, commandId, banId } = incomingOverboardCompletion;
     if (seq === 0) return;
-    if (handledOverboardCompletionSeqRef.current === seq) return;
-    if (!isRuntimeIdleEmptyAfterOverboard(notificationRuntimeState)) return;
+    const runtimeState =
+      notificationRuntimeStore?.getState() ?? notificationRuntimeState;
+    const ctaBefore = ctaStateForV3TraceRef.current;
+    logOverboardV3ProdTrace('INSTANTBANFLOW_EDGE', {
+      commandId,
+      seq,
+      banId,
+      subscriberMounted: true,
+      edgeReceived: true,
+      handledSeq: handledOverboardCompletionSeqRef.current,
+      ctaStateBefore: ctaBefore,
+      runtimeIdleEmpty: isRuntimeIdleEmptyAfterOverboard(runtimeState),
+    });
+    if (handledOverboardCompletionSeqRef.current === seq) {
+      logOverboardV3ProdTrace('INSTANTBANFLOW_EDGE', {
+        commandId,
+        seq,
+        banId,
+        dedupe: 'rejected',
+        reason: 'seq-already-handled',
+        ctaStateBefore: ctaBefore,
+      });
+      return;
+    }
+    if (!isRuntimeIdleEmptyAfterOverboard(runtimeState)) {
+      logOverboardV3ProdTrace('INSTANTBANFLOW_EDGE', {
+        commandId,
+        seq,
+        banId,
+        dedupe: 'rejected',
+        reason: 'runtime-not-idle-empty',
+        ctaStateBefore: ctaBefore,
+        lifecycle: runtimeState.lifecycle.status,
+        queueLen: runtimeState.items.queue.length,
+      });
+      return;
+    }
     handledOverboardCompletionSeqRef.current = seq;
+    logOverboardV3ProdTrace('INSTANTBANFLOW_CTA_RESTORE', {
+      commandId,
+      seq,
+      banId,
+      dedupe: 'accepted',
+      ctaStateBefore: ctaBefore,
+      allowSuccessExitLobbyOpen: true,
+      openLobby: true,
+      beginCtaSpringIn: true,
+      openLobbySource: 'overboard-runtime-complete',
+    });
     allowSuccessExitLobbyOpen();
     openLobby('overboard-runtime-complete');
     beginCtaSpringIn();
+    logOverboardV3WriterChange({
+      field: 'ctaState',
+      oldValue: ctaBefore,
+      newValue: 'entering-requested',
+      source: 'InstantBanFlow.v3-consumer.beginCtaSpringIn',
+      commandId,
+      seq,
+    });
   }, [
     beginCtaSpringIn,
     incomingOverboardCompletion,
-    notificationRuntimeState,
+    notificationRuntimeStore,
     openLobby,
   ]);
 
