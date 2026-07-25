@@ -224,6 +224,10 @@ import {
   requestCheckCardAction,
 } from '@/notification-runtime/notification-runtime.check-action';
 import {
+  executeSubmitIncomingOverboardEffect,
+  requestIncomingOverboardAction,
+} from '@/notification-runtime/notification-runtime.overboard-action';
+import {
   executeSuccessHandoffMaterialize,
   normalizeAbandonedDrain,
   requestSuccessHandoff,
@@ -21908,6 +21912,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         diagBuild: 'overboard-diag-v5',
       });
       console.log('[FORCE OVERBOARD] enter', FORCE_OPEN_OVERBOARD_IMPL_ID);
+      // V2: retired product authority — runtime CARD_ACTION owns overboard.
+      console.log('[FORCE OVERBOARD] v2-noop', FORCE_OPEN_OVERBOARD_IMPL_ID);
+      return false;
       const uid = userIdRef.current;
       const inFlightId = readOwnerC3OverboardInFlightBanId(
         readOwnerC3Decision('forceOpenOverboardResult'),
@@ -22874,405 +22881,46 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   );
 
   const replaceIncomingWithOverboardResultAtomic = useCallback(
-    (optimistic: BanResult, banId: string): boolean => {
-      const norm = normalizeId(banId);
-      if (!norm) return false;
-
-      lockOverkillTerminal(norm, 'replaceIncomingWithOverboardResultAtomic', norm);
-
-      incomingOverboardAtomicBanIdRef.current = norm;
-      mirrorOwnerHoldsSetsRef.current('incoming-overboard-atomic:set', {
-        atomicOverboardBanId: norm,
+    (_optimistic: BanResult, banId: string): boolean => {
+      // V2: retired product authority — runtime CARD_ACTION owns overboard.
+      console.log('[replaceIncomingWithOverboardResultAtomic:v2-noop]', {
+        banId: normalizeId(banId),
       });
-      logIncomingOverboardAtomicResult({ banId: norm });
-
-      const uid = userIdRef.current?.trim() ?? '';
-      freshOverboardActionBanIdsRef.current.add(norm);
-      resultCtaConsumedBanIdsRef.current.delete(norm);
-      resultDeliveredBanIdsRef.current.delete(norm);
-      shownOverlayKeysRef.current.delete(`result:${norm}`);
-      mirrorOwnerSessionFlagsRef.current('incoming-overboard-atomic:pre-result', {
-        shownOverlayKeys: new Set(shownOverlayKeysRef.current),
-      });
-      if (uid) {
-        clearDismissedResultLocally(norm, uid);
-      }
-
-      lastProcessedOverlayKindForBansRef.current = 'incoming';
-      incomingConsumedAfterAnswerRef.current.add(norm);
-      dismissedIncomingRef.current.add(norm);
-      locallyAckedIncomingRef.current.add(norm);
-      mirrorOwnerSessionFlagsRef.current('incoming-overboard-atomic:dismiss-incoming', {
-        dismissedIncomingIds: new Set(dismissedIncomingRef.current),
-      });
-
-      if (uid) {
-        markReplyDeeplinkOverboard(uid, norm);
-        clearReplyParentActivePriority('overboard-atomic');
-      }
-      replyDeeplinkRepeatEntryRef.current = false;
-      replyDeeplinkPendingBanIdRef.current = null;
-      replyDeeplinkFastOpenedRef.current = false;
-
-      const cleaned = removeOverlaysForBan(
-        overlayQueueRef.current,
-        norm,
-        ['incoming', 'check'],
-      );
-      const resultItem: QueuedOverlay = { kind: 'result', result: optimistic };
-      const nextQueue = buildResultPriorityQueue(cleaned, norm, resultItem);
-      traceResultPriorityBanIdAdded(
-        norm,
-        'replaceIncomingWithOverboardResultAtomic',
-        'result-priority-ban-id-added-atomic-overboard',
-      );
-      resultPriorityBanIdsRef.current.add(norm);
-      mirrorOwnerHoldsSetsRef.current('incoming-overboard-atomic:result-priority', {
-        resultPriorityBanIds: new Set(resultPriorityBanIdsRef.current),
-      });
-
-      traceQueueHeadBecameResultIfNeeded(
-        overlayQueueRef.current,
-        nextQueue,
-        buildQueueHeadResultTraceContext(
-          'replaceIncomingWithOverboardResultAtomic',
-          'atomic-overboard-queue-commit',
-        ),
-      );
-      writeOverlayQueueSilent(
-        nextQueue,
-        'replaceIncomingWithOverboardResultAtomic',
-        'atomic-overboard-queue-commit',
-      );
-
-      try {
-        flushSync(() => {
-          clearDirectOverboardLayerRefs();
-          setOverboardTransitionActive(false);
-          writeOwnerDisplay(
-            {
-              result: optimistic,
-              incomingBan: null,
-              checkBan: null,
-              stableIncomingBan: null,
-              directResultOverlay: false,
-              directResultOverlayActive: false,
-            },
-            'replaceIncomingWithOverboardResultAtomic',
-          );
-          resultOpenRef.current = true;
-          const held: HeldUserCardOverlay = { kind: 'result', result: optimistic };
-          traceHoldStateWrite(
-            'replaceIncomingWithOverboardResultAtomic:flushSync',
-            heldUserCardOverlayRef.current,
-            held,
-          );
-          heldUserCardOverlayRef.current = held;
-          setHeldUserCardOverlay(held);
-          mirrorHeldUserCardHold('replaceIncomingWithOverboardResultAtomic:flushSync');
-          notificationChainAwaitingUserRef.current = true;
-          mirrorOwnerChainSessionGatesRef.current(
-            'replaceIncomingWithOverboardResultAtomic:flushSync',
-            { awaitingUser: true },
-          );
-          notificationChainHandoffRef.current = false;
-          chainAdvanceExplicitRef.current = false;
-          mirrorOwnerSessionFlagsRef.current(
-            'replaceIncomingWithOverboardResultAtomic:flushSync',
-            { chainHandoff: false, chainAdvanceExplicit: false },
-          );
-          setNotificationChainTransitioning(false);
-          setChainAdvanceWaiting(false);
-          setLobbyOpen(false);
-          lobbyOpenRef.current = false;
-          clearActiveIncomingOverlayBanStable('atomic-result');
-        });
-      } catch {
-        incomingOverboardAtomicBanIdRef.current = null;
-        mirrorOwnerHoldsSetsRef.current('incoming-overboard-atomic:flushSync-error', {
-          atomicOverboardBanId: null,
-        });
-        return false;
-      }
-
-      resultDeliveredBanIdsRef.current.add(norm);
-      shownOverlayKeysRef.current.add(`result:${norm}`);
-      mirrorOwnerSessionFlagsRef.current('incoming-overboard-atomic:result-shown', {
-        shownOverlayKeys: new Set(shownOverlayKeysRef.current),
-      });
-      logResultCardStableHold({ banId: norm, source: 'incoming-overboard-atomic' });
-      logOverboardActionResult({
-        banId: norm,
-        resultKind: 'result',
-        resultStatus: optimistic.status ?? optimistic.outcome ?? null,
-        resultBanId: norm,
-        shouldEnqueueResult: true,
-        shouldShowResultImmediately: true,
-        source: 'replaceIncomingWithOverboardResultAtomic',
-        atomic: true,
-        ok: true,
-      });
-      logQueueItemBuiltAfterOverboard({
-        kind: 'result',
-        banId: norm,
-        status: optimistic.status ?? optimistic.outcome ?? null,
-        headline: getResultCardHeadline(optimistic),
-        verifyPhase: null,
-        renderable: isValidBanResultPayload(optimistic),
-        source: 'replaceIncomingWithOverboardResultAtomic',
-      });
-      logActiveUserCardHoldState({
-        source: 'replaceIncomingWithOverboardResultAtomic',
-        activeUserCardHold: 'result',
-        heldKind: 'result',
-        heldBanId: norm,
-        notificationChainWaitingUser: notificationChainAwaitingUserRef.current,
-        willClear: false,
-        willPreserve: true,
-      });
-      return true;
+      return false;
     },
-    [
-      clearActiveIncomingOverlayBanStable,
-      clearDirectOverboardLayerRefs,
-      clearReplyParentActivePriority,
-      setChainAdvanceWaiting,
-      setNotificationChainTransitioning,
-    ],
+    [],
   );
 
+  /**
+   * V2: diagnostic/compat only — must not clear display or queue.
+   * Product overboard authority is requestIncomingOverboardAction + execute.
+   */
   const openIncomingOverboardOptimistic = useCallback(
     (
       ban: BanInteraction,
       clickTs = performance.now(),
-      opts?: { fallbackBans?: BanInteraction[] },
+      _opts?: { fallbackBans?: BanInteraction[] },
     ): boolean => {
       const banId = ban.id;
-      const uid = userIdRef.current;
-      const mounted = getActiveMountedUserCard();
-      const stableIncomingBanIdBeforeClear =
-        activeIncomingOverlayBanRef.current?.id ?? null;
       logOverboardActionStart({
         banId,
-        activeKind: mounted?.kind ?? heldUserCardOverlayRef.current?.kind ?? null,
-        activeBanId:
-          mounted?.banId ??
-          (heldUserCardOverlayRef.current
-            ? heldUserCardBanId(heldUserCardOverlayRef.current)
-            : null),
-        queueLen: overlayQueueRef.current.length,
-        pendingLen: pendingStartupInteractionsRef.current.length,
-        source: 'openIncomingOverboardOptimistic',
+        activeKind: null,
+        activeBanId: banId,
+        queueLen: notificationRuntimeStoreRef.current.getState().items.queue.length,
+        pendingLen:
+          notificationRuntimeStoreRef.current.getState().pending.itemIds.length,
+        source: 'openIncomingOverboardOptimistic:v2-diag-noop',
       });
-      clearActiveIncomingOverlayBanStable('overboard', banId);
-      console.log('[incoming-overboard-click]', { banId });
-      logOverboardDirectState('before', readDirectOverboardSnapshot(), {
-        banId,
-        step: 'openIncomingOverboardOptimistic',
-      });
-      logResultPath('openIncomingOverboardOptimistic', 'attempt', {
-        banId,
-        resultId: banId,
-        extra: { hasUid: !!uid },
-      });
-      if (!uid) {
-        logResultPath('openIncomingOverboardOptimistic', 'path-skip', {
-          banId,
-          allowed: false,
-          reason: 'no-auth-user',
-        });
-        return false;
-      }
-
-      const buildCtx: OptimisticOverboardBuildContext = {
-        viewerId: uid,
-        viewer: authUserRef.current,
-        friends: friendsRef.current,
-        fallbackBans: collectOverboardFallbackBans(
-          banId,
-          opts?.fallbackBans ?? [],
-        ),
-      };
-      const optimistic = buildOptimisticOverboardResult(ban, uid, buildCtx);
       logOverboardTiming('optimistic-built', clickTs);
-      logOverboardDirectState('builtResult', readDirectOverboardSnapshot(), {
+      console.log('[incoming-overboard-click]', {
         banId,
-        builtResult: !!optimistic,
-        diagBuild: 'overboard-diag-v5',
+        path: 'v2-runtime-card-action',
+        hostOptimistic: false,
       });
-      markVisibleOverboardTrace('BUILT-RESULT-VISIBLE', {
-        banId,
-        builtResult: !!optimistic,
-        diagBuild: 'overboard-diag-v5',
-      });
-      if (!optimistic) {
-        const diag = getOptimisticOverboardBuildDiagnostics(ban, uid, buildCtx);
-        logResultPath('openIncomingOverboardOptimistic', 'path-skip', {
-          banId,
-          allowed: false,
-          reason: 'optimistic-build-null',
-          extra: {
-            missingSenderId: diag.missingSenderId,
-            missingReceiverId: diag.missingReceiverId,
-            missingText: diag.missingText,
-            missingBanId: diag.missingBanId,
-            missingParticipants: diag.missingParticipants,
-            buildReason: diag.reason,
-          },
-        });
-        return false;
-      }
-
-      logResultPath('openIncomingOverboardOptimistic', 'state-written', {
-        banId,
-        resultId: banId,
-        allowed: true,
-        extra: { phase: 'optimistic-built' },
-      });
-
-      logOverboardTiming('flushSync-start', clickTs);
-      armLocalOverboardBypass(banId);
-      logResultPath('local-overboard-click', 'attempt', {
-        banId,
-        resultId: banId,
-        allowed: true,
-        bypassPriorityLock: true,
-      });
-      overboardInFlightRef.current = banId;
-      mirrorOwnerHoldsSetsRef.current('local-overboard-click:set-in-flight', {
-        overboardInFlightBanId: banId,
-      });
-      dismissedIncomingRef.current.add(banId);
-      mirrorOwnerSessionFlagsRef.current('local-overboard-click', {
-        dismissedIncomingIds: new Set(dismissedIncomingRef.current),
-      });
-
-      const pathPick = resolveIncomingOverboardPathPick(
-        banId,
-        stableIncomingBanIdBeforeClear,
-      );
-      logOverboardPathPick({
-        banId,
-        path: pathPick.path,
-        reason: pathPick.reason,
-        queueHeadKind: pathPick.queueHeadKind,
-        queueHeadBanId: pathPick.queueHeadBanId,
-        heldKind: pathPick.heldKind,
-        heldBanId: pathPick.heldBanId,
-        incomingBanId: pathPick.incomingBanId,
-        stableIncomingBanId: pathPick.stableIncomingBanId,
-        drainActive: pathPick.drainActive,
-        awaitingUser: pathPick.awaitingUser,
-      });
-
-      if (pathPick.path === 'atomic') {
-        const atomicOk = replaceIncomingWithOverboardResultAtomic(
-          optimistic,
-          banId,
-        );
-        if (!atomicOk) {
-          overboardInFlightRef.current = null;
-          mirrorOwnerHoldsSetsRef.current('local-overboard-click:atomic-failed', {
-            overboardInFlightBanId: null,
-          });
-          clearLocalOverboardBypass();
-          return false;
-        }
-        traceOverboardFlow('optimistic-result-opened-atomic', { banId });
-        logOverboardDirectState('after-atomic', readDirectOverboardSnapshot(), {
-          banId,
-          optimisticOpened: true,
-        });
-        return true;
-      }
-
-      logOverboardDirectState('calling forceOpenOverboardResult', readDirectOverboardSnapshot(), {
-        banId,
-        diagBuild: 'overboard-diag-v5',
-      });
-      console.error('DIRECT-CALL-VISIBLE-1');
-      markVisibleOverboardTrace('DIRECT-CALL-VISIBLE-1', {
-        banId,
-        diagBuild: 'overboard-diag-v5',
-      });
-      console.error('DIRECT-CALL-VISIBLE-2');
-      markVisibleOverboardTrace('DIRECT-CALL-VISIBLE-2', {
-        banId,
-        diagBuild: 'overboard-diag-v5',
-      });
-
-      let ok = false;
-      try {
-        const refFn = forceOpenOverboardResultRef.current;
-        const implFn = forceOpenOverboardLatestImplRef.current;
-        markVisibleOverboardTrace('DIRECT-CALL-PROBE', {
-          argsBanId: banId,
-          ...probeForceOpenRef(refFn, implFn),
-        });
-
-        if (typeof refFn !== 'function') {
-          markVisibleOverboardTrace('DIRECT-CALL-NOT-A-FUNCTION', {
-            argsBanId: banId,
-            typeofRef: typeof refFn,
-          });
-        } else {
-          markVisibleOverboardTrace('DIRECT-CALL-BEFORE-INVOKE', {
-            argsBanId: banId,
-            fnName: refFn.name || '(anonymous)',
-          });
-          ok = refFn(optimistic, banId, clickTs, {
-            source: 'local-overboard-click',
-          });
-          markVisibleOverboardTrace('DIRECT-CALL-AFTER-INVOKE', {
-            argsBanId: banId,
-            returned: ok,
-          });
-        }
-      } catch (error) {
-        markVisibleOverboardTrace('DIRECT-CALL-EXCEPTION', {
-          argsBanId: banId,
-          message: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
-        });
-        ok = false;
-      }
-
-      logOverboardTiming('result-state-set', clickTs);
-      logOverboardDirectState('force returned', readDirectOverboardSnapshot(), {
-        banId,
-        forceReturned: ok,
-      });
-
-      if (!ok) {
-        logResultPath('forceOpenOverboardResult', 'path-skip', {
-          banId,
-          allowed: false,
-          reason: 'force-open-returned-false',
-        });
-        overboardInFlightRef.current = null;
-        mirrorOwnerHoldsSetsRef.current('local-overboard-click:force-open-failed', {
-          overboardInFlightBanId: null,
-        });
-        clearLocalOverboardBypass();
-        return false;
-      }
-
-      traceOverboardFlow('optimistic-result-opened', { banId });
-      logOverboardDirectState('after', readDirectOverboardSnapshot(), {
-        banId,
-        optimisticOpened: true,
-      });
-      consumeIncomingAfterAnswer(banId, 'overboard', 'runIncomingOverboardOptimisticOpen');
-      return true;
+      // Do not clear incoming / write display / silent-queue — runtime owns transition.
+      return Boolean(banId && userIdRef.current);
     },
-    [
-      collectOverboardFallbackBans,
-      clearActiveIncomingOverlayBanStable,
-      consumeIncomingAfterAnswer,
-      readDirectOverboardSnapshot,
-      replaceIncomingWithOverboardResultAtomic,
-      resolveIncomingOverboardPathPick,
-    ],
+    [],
   );
 
   const runIncomingOverboardApi = useCallback(
@@ -23281,455 +22929,55 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       clickTs?: number,
     ): Promise<{ ok: boolean; error?: string }> => {
       const banId = ban.id;
-      const uid = userIdRef.current;
       const token = tokenRef.current;
-      if (!uid || !token) {
+      if (!banId || !token) {
         return { ok: false, error: 'Нет авторизации' };
       }
-
       logOverboardTiming('api-start', clickTs);
-      traceOverboardFlow('submit-start', {
-        banId,
-        authUserId: uid,
-        optimistic: true,
-      });
-      setViralOnboarding(false);
-      challengeLog('incoming:overboard', { banId });
-
-      const syncOverboardResultFromApi = (
-        payload: BanResult,
-        source: string,
-      ): boolean => {
-        if (!isValidBanResultPayload(payload)) return false;
-        const c2Interactive = readOwnerC2Decision('overboardInteractive');
-        const normalized: BanResult = {
-          ...payload,
-          viewerId: payload.viewerId ?? uid,
+      const requested = requestIncomingOverboardAction(
+        notificationRuntimeStoreRef.current,
+        { banId, source: 'user' },
+      );
+      if (!requested.accepted) {
+        return {
+          ok: false,
+          error:
+            requested.reason === 'action-blocked'
+              ? undefined
+              : 'Не удалось открыть перебор',
         };
-        const apiOutcome = resolveBanResultOutcome(normalized);
-        const applyAvatarOnlyOverkillSync = (): boolean => {
-          const prev = resultRef.current;
-          if (!prev || normalizeId(prev.id) !== normalizeId(banId)) {
-            return false;
-          }
-          if (!isOverkillTerminalOutcome(resolveBanResultOutcome(prev))) {
-            return false;
-          }
-          const merged = preserveOverkillTerminalFields(
-            prev,
-            mergeOverboardResultUsers(prev, normalized),
-          );
-          writeOwnerDisplay(
-            { result: merged },
-            `syncOverboardResultFromApi:${source}:avatar-only`,
-          );
-          const held: HeldUserCardOverlay = { kind: 'result', result: merged };
-          traceHoldStateWrite(
-            `sync-atomic-${source}-avatar-only`,
-            heldUserCardOverlayRef.current,
-            held,
-          );
-          heldUserCardOverlayRef.current = held;
-          setHeldUserCardOverlay(held);
-          mirrorHeldUserCardHold(`sync-atomic-${source}-avatar-only`);
-          const q = overlayQueueRef.current;
-          const nextQ = q.map((item) =>
-            item.kind === 'result' && item.result.id === banId
-              ? { kind: 'result' as const, result: merged }
-              : item,
-          );
-          commitOverlayQueueViaApply(
-            nextQ,
-            `sync-atomic-${source}-avatar-only`,
-            'optimistic-sync-api-atomic-avatar-only-queue-commit',
-          );
-          return true;
-        };
-        if (
-          rejectNonOverkillTerminalResult(
-            banId,
-            apiOutcome,
-            `syncOverboardResultFromApi:${source}`,
-            { resultId: banId },
-          )
-        ) {
-          if (applyAvatarOnlyOverkillSync()) {
-            traceOverboardFlow('optimistic-sync-api-avatar-only', {
-              banId,
-              source,
-              apiOutcome,
-            });
-          }
-          return true;
-        }
-        if (
-          !isLocalOverboardBypassForBan(banId) &&
-          !readOwnerC2OverboardInFlightEquals(
-            c2Interactive,
-            'overboardInteractive',
-            banId,
-            { ref: overboardInFlightRef.current },
-          ) &&
-          (resultCtaConsumedBanIdsRef.current.has(banId) ||
-            isDismissedResultLocally(banId, uid))
-        ) {
-          console.log('[overboard-repeat-debug] duplicate result blocked', {
-            banId,
-            source: `api-sync:${source}`,
-            consumed: resultCtaConsumedBanIdsRef.current.has(banId),
-            dismissedLocal: isDismissedResultLocally(banId, uid),
-          });
-          console.log('[DIRECT RESULT REOPEN BLOCKED]', {
-            reason: 'dismissed-after-result-cta',
-            banId,
-          });
-          markVisibleOverboardTrace('[DIRECT RESULT REOPEN BLOCKED]', {
-            reason: 'dismissed-after-result-cta',
-            banId,
-            source: `api-sync:${source}`,
-          });
-          traceOverboardFlow('api-sync-skipped-dismissed', { banId, source });
-          return true;
-        }
-        if (
-          readOwnerC2AtomicBanIdEquals(
-            c2Interactive,
-            'overboardInteractive',
-            banId,
-            { ref: incomingOverboardAtomicBanIdRef.current },
-          ) &&
-          readOwnerC2DisplayResultBanIdForRuntime(
-            c2Interactive.display,
-            'overboardInteractive',
-            { resultRef: resultRef.current },
-          ) === banId
-        ) {
-          const merged = preserveOverkillTerminalFields(
-            resultRef.current,
-            mergeOverboardResultUsers(resultRef.current, normalized),
-          );
-          writeOwnerDisplay(
-            { result: merged },
-            `syncOverboardResultFromApi:${source}:atomic`,
-          );
-          const held: HeldUserCardOverlay = { kind: 'result', result: merged };
-          traceHoldStateWrite(
-            `sync-atomic-${source}`,
-            heldUserCardOverlayRef.current,
-            held,
-          );
-          heldUserCardOverlayRef.current = held;
-          setHeldUserCardOverlay(held);
-          mirrorHeldUserCardHold(`sync-atomic-${source}`);
-          const q = overlayQueueRef.current;
-          const nextQ = q.map((item) =>
-            item.kind === 'result' && item.result.id === banId
-              ? { kind: 'result' as const, result: merged }
-              : item,
-          );
-          commitOverlayQueueViaApply(
-            nextQ,
-            `sync-atomic-${source}`,
-            'optimistic-sync-api-atomic-queue-commit',
-          );
-          traceOverboardFlow('optimistic-sync-api-atomic', { banId, source });
-          logOverboardFinalState(banId, `sync-atomic-${source}`);
-          return true;
-        }
-        if (
-          readOwnerImperativeDirectResult(
-            ownerShadowRef.current.getState().display,
-            'resultOverboardCallback',
-            {
-              overlayRef: directResultOverlayRef.current,
-              activeRef: directResultOverlayActiveRef.current,
-            },
-          ).overlay &&
-          resultDeliveredBanIdsRef.current.has(banId)
-        ) {
-          const prev = resultRef.current;
-          const next = prev
-            ? preserveOverkillTerminalFields(
-                prev,
-                mergeOverboardResultUsers(prev, normalized),
-              )
-            : normalized;
-          writeOwnerDisplay(
-            { result: next },
-            `syncOverboardResultFromApi:${source}:direct-overlay`,
-          );
-          traceOverboardFlow('optimistic-sync-api', { banId, source });
-          logOverboardFinalState(banId, `sync-${source}`);
-          return true;
-        }
-        return forceOpenOverboardResultRef.current(normalized, banId, undefined, {
-          source: 'api-sync',
-        });
-      };
-
-      const finishOverboardSuccess = (payload: BanResult, source: string) => {
-        const c2Overboard = readOwnerC2Decision('overboardInteractive');
-        syncOverboardResultFromApi(payload, source);
-        logOverboardActionResult({
-          banId,
-          apiStatus: payload.status ?? null,
-          resultKind: 'result',
-          resultStatus: payload.outcome ?? payload.status ?? null,
-          resultBanId: payload.id,
-          shouldEnqueueResult:
-            readOwnerC2AtomicBanIdEquals(
-              c2Overboard,
-              'overboardInteractive',
-              banId,
-              { ref: incomingOverboardAtomicBanIdRef.current },
-            ) ||
-            c2Overboard.queue.some(
-              (item) =>
-                item.kind === 'result' &&
-                normalizeId(item.result.id) === banId,
-            ),
-          shouldShowResultImmediately:
-            readOwnerC2DisplayResultBanIdForRuntime(
-              c2Overboard.display,
-              'overboardInteractive',
-              { resultRef: resultRef.current },
-            ) === banId,
-          source: `finishOverboardSuccess:${source}`,
-          ok: true,
-        });
-        void acknowledgeIncomingFully(banId, token, uid).catch(() => {});
-        queueMicrotask(() => {
-          void refreshUserRef.current().catch(() => {});
-        });
-        return { ok: true as const };
-      };
-
-      const fetchResultByBanId = async (
-        source: string,
-      ): Promise<BanResult | null> => {
-        try {
-          const fetched = await api<{ result: BanResult | null }>(
-            `/bans/${banId}/result`,
-            { token, retries: 0, timeoutMs: 5000 },
-          );
-          traceOverboardFlow('api-response-raw', {
-            banId,
-            source,
-            result: fetched.result,
-          });
-          traceOverboardFlow('has-result', {
-            banId,
-            value: isValidBanResultPayload(fetched.result),
-            source,
-          });
-          return fetched.result;
-        } catch (e) {
-          traceOverboardFlow('api-response-raw', {
-            banId,
-            source,
-            error: e instanceof Error ? e.message : 'fetch-failed',
-          });
-          traceOverboardFlow('has-result', {
-            banId,
-            value: false,
-            source,
-          });
-          return null;
-        }
-      };
-
-      const fetchPendingResult = async (
-        source: string,
-      ): Promise<BanResult | null> => {
-        try {
-          const fetched = await api<{ result: BanResult | null }>(
-            '/bans/result/pending',
-            { token, retries: 0, timeoutMs: 5000 },
-          );
-          traceOverboardFlow('api-response-raw', {
-            banId,
-            source,
-            result: fetched.result,
-          });
-          if (
-            fetched.result?.id === banId &&
-            isValidBanResultPayload(fetched.result)
-          ) {
-            return fetched.result;
-          }
-          return null;
-        } catch {
-          return null;
-        }
-      };
-
-      const recoverAfterOverboardApiIssue = async (
-        reason: string,
-        apiError?: string,
-      ): Promise<{ ok: boolean; error?: string }> => {
-        traceOverboardFlow('api-recovery-start', { banId, reason, apiError });
-        scheduleResultPollBurst();
-
-        const payload =
-          (await fetchResultByBanId(`recovery-${reason}`)) ??
-          (await fetchPendingResult(`recovery-pending-${reason}`));
-
-        if (payload && isValidBanResultPayload(payload)) {
-          return finishOverboardSuccess(payload, `recovery-${reason}`);
-        }
-
-        if (
-          readOwnerC2DirectOverlay(
-            readOwnerC2Decision('overboardInteractive').display,
-            'overboardInteractive',
-            { overlayRef: directResultOverlayRef.current },
-          )
-        ) {
-          traceOverboardFlow('optimistic-kept-api-fail', {
-            banId,
-            reason,
-            apiError,
-          });
-          logOverboardFinalState(banId, `optimistic-kept-${reason}`);
-          return { ok: true };
-        }
-
-        dismissedIncomingRef.current.add(banId);
-        mirrorOwnerSessionFlagsRef.current('overboard-recovery-lobby', {
-          dismissedIncomingIds: new Set(dismissedIncomingRef.current),
-        });
-        setOverboardTransitionActive(false);
-        dismissCurrentOverlay(
-          'overboard-recovery-lobby',
-          removeOverlaysForBan(overlayQueueRef.current, banId, [
-            'incoming',
-            'check',
-          ]),
-          'overboardRecoveryToLobby',
-        );
-        setLobbyOpen(true);
-        lobbyShownLoggedRef.current = false;
-        setOverboardEmergencyHint('перебор сохранён');
-        window.setTimeout(() => setOverboardEmergencyHint(null), 5000);
-        traceOverboardFlow('fallback-to-lobby', { banId, reason });
-        logOverboardFinalState(banId, reason);
-        return { ok: true };
-      };
-
-      try {
-        traceOverboardFlow('api-request', {
-          banId,
-          endpoint: `/bans/${banId}/overboard`,
-        });
-
-        let res: Awaited<ReturnType<typeof postOverboardWithTrace>>;
-        try {
-          res = await postOverboardWithTrace(banId, token);
-        } catch (apiErr) {
-          const apiError =
-            apiErr instanceof Error ? apiErr.message : String(apiErr);
-          if (apiErr instanceof ApiError && apiErr.status === 400) {
-            const fetched = await fetchResultByBanId('api-400-recovery');
-            if (fetched && isValidBanResultPayload(fetched)) {
-              traceOverboardFlow('api-400-recovered-result', { banId, apiError });
-              return finishOverboardSuccess(fetched, 'api-400-idempotent-recovery');
-            }
-          }
-          const reason =
-            apiErr instanceof RequestTimeoutError
-              ? 'api-timeout'
-              : 'api-fetch-error';
-          return recoverAfterOverboardApiIssue(reason, apiError);
-        }
-
-        if (res.idempotent) {
-          traceOverboardFlow('api-idempotent-200', { banId });
-        }
-
-        traceOverboardFlow('has-result', {
-          banId,
-          value: isValidBanResultPayload(res.result),
-          source: 'overboard-response',
-        });
-
-        if (res.result) {
-          logResultPresentation(res.result.outcome, {
-            component: 'ResultOverlay',
-            presentation: {
-              headline: res.result.headline,
-              subline: res.result.subline,
-            },
-            displayHeadline: res.result.headline,
-            resultStatus: res.status ?? null,
-            resultType: res.ban?.status ?? null,
-            source: 'overboard-api-response',
-          });
-        }
-
-        if (res.result && isValidBanResultPayload(res.result)) {
-          return finishOverboardSuccess(res.result, 'overboard-response');
-        }
-
-        let resultPayload: BanResult | null = res.result ?? null;
-        if (!isValidBanResultPayload(resultPayload)) {
-          resultPayload = await fetchResultByBanId('result-fetch-after-overboard');
-        }
-
-        if (resultPayload && isValidBanResultPayload(resultPayload)) {
-          return finishOverboardSuccess(resultPayload, 'result-fetch-after-overboard');
-        }
-
-        const polled = await fetchPendingResult('post-overboard-pending');
-        if (polled && isValidBanResultPayload(polled)) {
-          return finishOverboardSuccess(polled, 'post-overboard-pending');
-        }
-
-        return recoverAfterOverboardApiIssue('no-valid-result-payload');
-      } catch (e) {
-        const message = e instanceof Error ? e.message : 'Ошибка перебора';
-        traceOverboardFlow('api-fetch-error', { banId, message });
-        return recoverAfterOverboardApiIssue('unexpected-error', message);
-      } finally {
-        overboardInFlightRef.current = null;
-        mirrorOwnerHoldsSetsRef.current('runIncomingOverboardApi:finally', {
-          overboardInFlightBanId: null,
-        });
-        const c2Finally = readOwnerC2Decision('overboardInteractive');
-        if (
-          readOwnerC2AtomicBanIdEquals(
-            c2Finally,
-            'overboardInteractive',
-            banId,
-            { ref: incomingOverboardAtomicBanIdRef.current },
-          ) &&
-          readOwnerC2DisplayResultBanIdForRuntime(
-            c2Finally.display,
-            'overboardInteractive',
-            { resultRef: resultRef.current },
-          ) === banId
-        ) {
-          setOverboardTransitionActive(false);
-        } else if (
-          !readOwnerC2DirectOverlay(c2Finally.display, 'overboardInteractive', {
-            overlayRef: directResultOverlayRef.current,
-          })
-        ) {
-          setOverboardTransitionActive(false);
-        }
       }
+      const submitEffect = requested.effects.find(
+        (e) => e.type === 'SUBMIT_CARD_ACTION',
+      );
+      if (!submitEffect || submitEffect.type !== 'SUBMIT_CARD_ACTION') {
+        return { ok: false, error: 'Не удалось открыть перебор' };
+      }
+      return executeSubmitIncomingOverboardEffect(
+        notificationRuntimeStoreRef.current,
+        submitEffect,
+        async ({ banId: id, token: tok }) => {
+          const res = await postOverboardWithTrace(id, tok);
+          return {
+            ok: res.ok !== false && !res.error,
+            result: res.result ?? null,
+            error: res.error,
+          };
+        },
+        token,
+        EMPTY_RUNTIME_LEGACY_SINKS,
+      );
     },
-    [dismissCurrentOverlay, logOverboardFinalState, scheduleResultPollBurst],
+    [],
   );
 
   const submitIncomingOverboard = useCallback(
     async (ban: BanInteraction) => {
       const clickTs = markOverboardClickStart();
-      if (!openIncomingOverboardOptimistic(ban, clickTs)) {
-        return { ok: false, error: 'Не удалось открыть перебор' };
-      }
+      // V2: skip host optimistic open — runtime CARD_ACTION owns the transition.
       return runIncomingOverboardApi(ban, clickTs);
     },
-    [openIncomingOverboardOptimistic, runIncomingOverboardApi],
+    [runIncomingOverboardApi],
   );
 
   const scheduleCheckWaitingDismiss = useCallback(() => {

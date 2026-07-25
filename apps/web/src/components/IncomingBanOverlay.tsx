@@ -21,7 +21,6 @@ import { challengeLog } from '@/lib/challenge-log';
 import { shouldShowIncomingBanModal } from '@/lib/incoming-challenge';
 import { logIncomingDebug } from '@/lib/incoming-debug';
 import { logOverboardButtonClick } from '@/lib/overboard-flow-debug';
-import { markOverboardClickStart } from '@/lib/overboard-timing-debug';
 import { logResultPath } from '@/lib/result-open-trace';
 import { resolveUserAvatarUrl, rememberUserAvatar } from '@/lib/avatar-cache';
 import { useApp } from './Providers';
@@ -96,8 +95,7 @@ function IncomingBanOverlayInner({
     dismissIncomingSoft,
     acknowledgeIncomingAndStartReply,
     acknowledgeIncomingSeen,
-    openIncomingOverboardOptimistic,
-    runIncomingOverboardApi,
+    submitIncomingOverboard,
     notificationSessionActive,
     activeOverlayKind,
     overlayQueueLength,
@@ -498,29 +496,11 @@ function IncomingBanOverlayInner({
       },
     });
 
-    const clickTs = markOverboardClickStart();
-    overboardClickLockRef.current = true;
-    logOverboardButtonClick(actBan.id, 'openIncomingOverboardOptimistic');
+    logOverboardButtonClick(actBan.id, 'submitIncomingOverboard');
     markOverlayUserAction('incoming', actBan.id);
     hapticSuccess();
 
-    const opened = openIncomingOverboardOptimistic(actBan, clickTs, {
-      fallbackBans: [verifiedBan, resolvedIncoming, activeIncomingBan].filter(
-        (row): row is BanInteraction => !!row?.id,
-      ),
-    });
-    if (!opened) {
-      logResultPath('local-overboard-click', 'path-skip', {
-        banId: actBan.id,
-        allowed: false,
-        reason: 'openIncomingOverboardOptimistic-false',
-      });
-      overboardClickLockRef.current = false;
-      alert('Не удалось открыть перебор');
-      return;
-    }
-
-    void runIncomingOverboardApi(actBan, clickTs)
+    void submitIncomingOverboard(actBan)
       .then((res) => {
         if (!res.ok && res.error) {
           alert(res.error);
@@ -539,8 +519,7 @@ function IncomingBanOverlayInner({
     hapticSuccess,
     actionLoading,
     markOverlayUserAction,
-    openIncomingOverboardOptimistic,
-    runIncomingOverboardApi,
+    submitIncomingOverboard,
     verifyPhase,
     verifiedBan?.id,
     logClickTest,
