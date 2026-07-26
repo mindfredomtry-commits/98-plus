@@ -52,16 +52,17 @@ import {
   selectPendingCount,
 } from '@/notification-runtime/notification-runtime.selectors';
 import {
-  evaluateSuccessDrainEmptyShellHold,
+  evaluateSuccessPresentationHandoffHold,
+  notificationTransitionOwnsPresentation,
   resolveLobbyOrbLayersWithSuccessDrainHold,
-  SUCCESS_DRAIN_EMPTY_SHELL_HOLD_MAX_MS,
-  type SuccessDrainEmptyShellHoldInput,
+  SUCCESS_PRESENTATION_HANDOFF_HOLD_MAX_MS,
+  type SuccessPresentationHandoffHoldInput,
 } from '@/lib/success-drain-empty-shell-hold';
 import {
-  buildSuccessEmptyShellHoldTraceFields,
-  logSuccessEmptyShellHoldEnter,
-  logSuccessEmptyShellHoldRelease,
-  type SuccessDrainEmptyShellHoldTraceFields,
+  buildSuccessPresentationHandoffTraceFields,
+  logSuccessPresentationHandoffArmed,
+  logSuccessPresentationHandoffReleased,
+  type SuccessPresentationHandoffTraceFields,
 } from '@/lib/success-drain-empty-shell-hold-debug';
 import { createInitialNotificationRuntimeState } from '@/notification-runtime/notification-runtime.types';
 import {
@@ -657,13 +658,23 @@ export function InstantBanFlow({
   const postSuccessHandoffWaitingLoggedRef = useRef(false);
   const successCardSessionRef = useRef(0);
   const [successExitDraining, setSuccessExitDraining] = useState(false);
-  /** FIX A bound — a stuck SUCCESS drain must never strand an empty screen. */
+  /**
+   * FIX A — synchronous SUCCESS presentation handoff latch.
+   * Armed in the SUCCESS exit path BEFORE SUCCESS unmounts; survives
+   * successExitDraining finally-clears until an explicit terminal release.
+   */
+  const [successPresentationHandoffArmed, setSuccessPresentationHandoffArmed] =
+    useState(false);
+  /** Explicit empty-chain release (drain missed + Lobby authorized). */
+  const [successPresentationChainExplicitlyEmpty, setSuccessPresentationChainExplicitlyEmpty] =
+    useState(false);
+  /** FIX A bound — a stuck SUCCESS handoff must never strand an empty screen. */
   const [successEmptyShellHoldExpired, setSuccessEmptyShellHoldExpired] =
     useState(false);
   const successEmptyShellHoldStartedAtRef = useRef<number | null>(null);
   const successEmptyShellHoldPrevRef = useRef(false);
   const successEmptyShellHoldTraceRef =
-    useRef<SuccessDrainEmptyShellHoldTraceFields | null>(null);
+    useRef<SuccessPresentationHandoffTraceFields | null>(null);
   const postSuccessHandoffActive = useSyncExternalStore(
     subscribePostSuccessHandoff,
     getPostSuccessHandoffSnapshot,
@@ -971,80 +982,109 @@ export function InstantBanFlow({
     queueLobbyGuardActive: false,
   });
   /**
-   * FIX A — SUCCESS handoff owns presentation with an empty notification shell:
-   * suppress base lobby paint until the runtime materializes (or the drain
-   * explicitly settles). Bounded by successEmptyShellHoldExpired.
+   * FIX A — SUCCESS presentation handoff hold:
+   * latch armed synchronously before SUCCESS unmount; keep base Lobby
+   * (orb + logo + chrome) hidden until an explicit terminal runtime outcome.
+   * Does NOT require draining/pending/prefetch evidence to stay armed.
    */
-  const successEmptyShellHoldInput: SuccessDrainEmptyShellHoldInput = {
+  const successPresentationHandoffInput: SuccessPresentationHandoffHoldInput = {
     lobbyBootIntroPrimed,
-    successHandoffOwnsPresentation:
-      successExitDraining || postSuccessHandoffBlocking,
+    handoffArmed: successPresentationHandoffArmed,
     runtimeLifecycle: notificationRuntimeState.lifecycle.status,
     runtimeDisplayKind: notificationRuntimeState.display.kind,
     runtimeDisplayPayloadPresent:
       notificationRuntimeState.display.payload != null,
     runtimeQueueLength: notificationRuntimeState.items.queue.length,
-    runtimePendingCount: selectPendingCount(notificationRuntimeState),
     notificationPresentationClaimed: runtimeClaimsNotificationScreen,
-    drainPrefetchInFlight:
-      selectIsDraining(notificationRuntimeState) &&
-      notificationRuntimeState.lifecycle.transitionId != null,
-    drainCompletedEmpty:
-      runtimeLobbyMayShowStrict &&
-      notificationRuntimeState.items.queue.length === 0 &&
-      selectPendingCount(notificationRuntimeState) === 0,
+    chainExplicitlyEmpty: successPresentationChainExplicitlyEmpty,
     presentationOwnershipReleased:
       selectIsRecovering(notificationRuntimeState) ||
       notificationRuntimeState.recovery.status === 'failed',
     holdExpired: successEmptyShellHoldExpired,
   };
-  const successEmptyShellHoldDecision = evaluateSuccessDrainEmptyShellHold(
-    successEmptyShellHoldInput,
-  );
-  const successEmptyShellHold = successEmptyShellHoldDecision.hold;
-  successEmptyShellHoldTraceRef.current = buildSuccessEmptyShellHoldTraceFields(
-    successEmptyShellHoldInput,
-    successEmptyShellHoldDecision.releaseReason,
-    null,
-  );
+  const successPresentationHandoffDecision =
+    evaluateSuccessPresentationHandoffHold(successPresentationHandoffInput);
+  const successPresentationHandoffHold =
+    successPresentationHandoffDecision.hold;
+  /** Back-compat alias used by existing diagnostics / mount gates. */
+  const successEmptyShellHold = successPresentationHandoffHold;
+  const interactiveActionOwnsPresentation =
+    notificationRuntimeState.lifecycle.status === 'submitting' ||
+    notificationRuntimeState.action.status === 'pending' ||
+    // Check-style / expected-result wait keeps the head while action=succeeded.
+    notificationRuntimeState.action.status === 'succeeded';
+  const transitionOwnsPresentation = notificationTransitionOwnsPresentation({
+    successPresentationHandoffHold,
+    interactiveActionOwnsPresentation,
+  });
+  successEmptyShellHoldTraceRef.current =
+    buildSuccessPresentationHandoffTraceFields(
+      successPresentationHandoffInput,
+      successPresentationHandoffDecision.releaseReason,
+      {
+        successVisible: banSentSuccess,
+        elapsedMs: null,
+      },
+    );
   /** Base lobby layer: boot orb until primed + chrome-safe; then permanent lobby orb. */
   const { showBootOrb, showLobbyOrb } =
     resolveLobbyOrbLayersWithSuccessDrainHold({
-      hold: successEmptyShellHold,
+      hold: transitionOwnsPresentation,
       lobbyBootIntroPrimed,
       holdLobbyOrbForBootstrap,
     });
   const lobbyOrbVisible = showBootOrb || showLobbyOrb;
   useEffect(() => {
-    if (!successEmptyShellHold) return;
+    if (!successPresentationHandoffHold) return;
     const timer = setTimeout(() => {
       setSuccessEmptyShellHoldExpired(true);
-    }, SUCCESS_DRAIN_EMPTY_SHELL_HOLD_MAX_MS);
+    }, SUCCESS_PRESENTATION_HANDOFF_HOLD_MAX_MS);
     return () => clearTimeout(timer);
-  }, [successEmptyShellHold]);
+  }, [successPresentationHandoffHold]);
   useEffect(() => {
-    if (successEmptyShellHold) return;
+    if (successPresentationHandoffHold) return;
     setSuccessEmptyShellHoldExpired(false);
-  }, [successEmptyShellHold]);
+  }, [successPresentationHandoffHold]);
+  // Clear the latch once a terminal release is observed (not merely display null).
+  useEffect(() => {
+    if (!successPresentationHandoffArmed) return;
+    if (successPresentationHandoffHold) return;
+    const reason = successPresentationHandoffDecision.releaseReason;
+    if (
+      reason === 'runtime-materialized-and-claimed' ||
+      reason === 'chain-explicitly-empty' ||
+      reason === 'presentation-ownership-released' ||
+      reason === 'hold-expired'
+    ) {
+      setSuccessPresentationHandoffArmed(false);
+      if (reason !== 'chain-explicitly-empty') {
+        setSuccessPresentationChainExplicitlyEmpty(false);
+      }
+    }
+  }, [
+    successPresentationHandoffArmed,
+    successPresentationHandoffHold,
+    successPresentationHandoffDecision.releaseReason,
+  ]);
   useEffect(() => {
     const wasHolding = successEmptyShellHoldPrevRef.current;
-    if (wasHolding === successEmptyShellHold) return;
-    successEmptyShellHoldPrevRef.current = successEmptyShellHold;
+    if (wasHolding === successPresentationHandoffHold) return;
+    successEmptyShellHoldPrevRef.current = successPresentationHandoffHold;
     const fields = successEmptyShellHoldTraceRef.current;
     if (!fields) return;
-    if (successEmptyShellHold) {
+    if (successPresentationHandoffHold) {
       successEmptyShellHoldStartedAtRef.current = performance.now();
-      logSuccessEmptyShellHoldEnter(fields);
+      logSuccessPresentationHandoffArmed(fields);
       return;
     }
     const startedAt = successEmptyShellHoldStartedAtRef.current;
     successEmptyShellHoldStartedAtRef.current = null;
-    logSuccessEmptyShellHoldRelease({
+    logSuccessPresentationHandoffReleased({
       ...fields,
-      heldMs:
+      elapsedMs:
         startedAt == null ? null : Math.round(performance.now() - startedAt),
     });
-  }, [successEmptyShellHold]);
+  }, [successPresentationHandoffHold]);
   const baseLobbyLayerMounted = lobbyBootIntroPrimed;
   const lobbyChromeHidden =
     replyLobbyBlocked ||
@@ -1055,6 +1095,7 @@ export function InstantBanFlow({
     successExitDraining ||
     postSuccessHandoffBlocking ||
     notificationChainTransitioning ||
+    transitionOwnsPresentation ||
     !interactiveLobbyChromeMayShow;
   const showLobbyChrome = lobbyBootIntroPrimed && !lobbyChromeHidden;
   useLayoutEffect(() => {
@@ -1097,6 +1138,8 @@ export function InstantBanFlow({
     !overlayHandoffLobbySuppressed &&
     !successExitDraining &&
     !postSuccessHandoffBlocking &&
+    // FIX A/orb-logo: one presentation predicate — hide CTA while handoff owns screen.
+    !transitionOwnsPresentation &&
     // Safe chrome during empty bootstrap; strict idle still via selectLobbyMayShow for openLobby.
     interactiveLobbyChromeMayShow &&
     (!replyLobbyBlocked || bansReturnToLobbyLatch) &&
@@ -3941,6 +3984,10 @@ export function InstantBanFlow({
   const startSendSuccessHandoffEarly = useCallback(() => {
     const armed = armPostSuccessHandoffEarlyIfPending('success-exit-early');
     if (!armed) return false;
+    // FIX A: arm presentation hold synchronously with early handoff ownership.
+    setSuccessPresentationChainExplicitlyEmpty(false);
+    setSuccessEmptyShellHoldExpired(false);
+    setSuccessPresentationHandoffArmed(true);
     setSuccessExitDraining(true);
     setCtaState('hidden');
     beginSuccessExitInProgress();
@@ -4012,6 +4059,11 @@ export function InstantBanFlow({
           prepareLobbyBaseAfterSuccess('send-success', { deferLobbyOpen: true });
         }
 
+        // FIX A: arm presentation handoff BEFORE SUCCESS unmounts so the base
+        // ArenaLobbyOrb cannot paint between SUCCESS and the next card / Lobby.
+        setSuccessPresentationChainExplicitlyEmpty(false);
+        setSuccessEmptyShellHoldExpired(false);
+        setSuccessPresentationHandoffArmed(true);
         setBanSentSuccess(false);
         successToActiveLobbyBlockedRef.current = false;
         setSuccessToActiveLobbyBlocked(false);
@@ -4222,6 +4274,9 @@ export function InstantBanFlow({
         setNotificationChainTransitioning(true);
       }
       if (!isPostSuccessHandoffInProgress()) {
+        // FIX A: keep the presentation latch armed across the async drain.
+        setSuccessPresentationChainExplicitlyEmpty(false);
+        setSuccessPresentationHandoffArmed(true);
         setSuccessExitDraining(true);
         setCtaState('hidden');
         beginSuccessExitInProgress();
@@ -4333,6 +4388,9 @@ export function InstantBanFlow({
           queueLen: overlayQueueLength,
           pendingLen: pendingStartupInteractions,
         });
+        // FIX A terminal R2: runtime explicitly confirmed empty → release hold
+        // and render complete Lobby once (orb + logo + chrome together).
+        setSuccessPresentationChainExplicitlyEmpty(true);
         setNotificationChainTransitioning(false);
         clearNotificationOverlayForEmptyQueueAfterSuccessExit(
           'success-exit-empty-queue',
@@ -7035,8 +7093,8 @@ export function InstantBanFlow({
   const persistentLogoVisible =
     persistentLobbyLogoActive &&
     !hideLobbyBootLogoOnly &&
-    // FIX A: no Lobby content behind an empty SUCCESS-drain notification shell.
-    !successEmptyShellHold;
+    // FIX A: suppress logo together with base orb while transition owns presentation.
+    !transitionOwnsPresentation;
 
   useLayoutEffect(() => {
     if (!confirmActive && phase !== 'confirming') return;

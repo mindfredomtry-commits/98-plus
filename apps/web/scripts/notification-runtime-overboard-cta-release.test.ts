@@ -81,10 +81,9 @@ async function overboard(store: Store, banId: string, transportOk = true) {
     effect,
     async () =>
       transportOk
-        ? // Production overboard HTTP answers `{ ok, ban }` with no result —
-          // that is the consume-and-advance path these CTA release specs cover.
+        ? // CTA release covers the explicit no-result contract (advance/Lobby).
           // Matching-result materialization is covered by the Fix B suite.
-          { ok: true, result: null }
+          { ok: true, result: null, explicitNoResult: true }
         : { ok: false, error: 'API_FAIL' },
     'tok',
     EMPTY_RUNTIME_LEGACY_SINKS,

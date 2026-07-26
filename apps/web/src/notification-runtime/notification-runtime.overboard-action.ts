@@ -1,6 +1,11 @@
 /**
  * Vertical V2 — incoming overboard as runtime CARD_ACTION.
  * Host must not clear display/queue; runtime owns submit → advance.
+ *
+ * FIX B: for result-producing overboard actions, never consume the incoming
+ * head into idle until a matching result is atomically installed as the
+ * replacement head (or the server explicitly proves no result is expected,
+ * or the action fails / wait times out into a recoverable failure).
  */
 import type { BanResult } from '@98plus/shared';
 import { normalizeId } from '@/lib/normalize-json';
@@ -29,6 +34,7 @@ import {
   snapshotRuntimeForActionResultHandoff,
   stageMatchingActionResult,
   takeStagedActionResult,
+  waitForMatchingActionResult,
   type ActionMatchingResultSource,
 } from './notification-runtime.action-result-handoff';
 import {
@@ -49,6 +55,12 @@ export type OverboardSubmitApiResponse = {
   ok?: boolean;
   result?: BanResult | null;
   error?: string;
+  /**
+   * Explicit no-result contract. Absence of `result` alone is NOT proof —
+   * production overboard often delivers the matching result over WS after HTTP.
+   * Only set this when the server proves no result card is expected.
+   */
+  explicitNoResult?: boolean;
 };
 
 export type OverboardSubmitTransport = (input: {
@@ -97,6 +109,7 @@ function projectRuntimeAfterOverboard(
 /**
  * First click: CARD_ACTION_REQUESTED(incoming_overboard) only.
  * Does not clear display or mutate queue.
+ * Opens the correlation transaction BEFORE any network can race a WS result.
  */
 export function requestIncomingOverboardAction(
   store: NotificationRuntimeStore,
@@ -145,6 +158,7 @@ export function requestIncomingOverboardAction(
     banId: args.banId,
     actionTransactionId: commandId,
     action: 'incoming_overboard',
+    runtime: snapshotRuntimeForActionResultHandoff(store.getState()),
   });
   const beforeRequest = store.getState();
   const result = store.dispatch({
@@ -181,10 +195,114 @@ export function requestIncomingOverboardAction(
   };
 }
 
+function materializeMatchingReplacement(
+  store: NotificationRuntimeStore,
+  effect: Extract<RuntimeEffect, { type: 'SUBMIT_CARD_ACTION' }>,
+  banId: string,
+  matching: {
+    result: BanResult;
+    source: ActionMatchingResultSource;
+    actionTransactionId: string;
+  },
+  handoffBefore: ReturnType<typeof snapshotRuntimeForActionResultHandoff>,
+  sinks: OverboardActionLegacySinks,
+): OverboardSubmitOutcome {
+  store.dispatch({
+    type: 'CARD_ACTION_SUCCEEDED',
+    commandId: effect.commandId,
+    targetItemId: effect.targetItemId,
+    replacement: { kind: 'result', result: matching.result },
+    source: 'user',
+  });
+  noteStagedActionResultMaterialized({
+    banId,
+    actionTransactionId: matching.actionTransactionId,
+    source: matching.source,
+    before: handoffBefore,
+    after: snapshotRuntimeForActionResultHandoff(store.getState()),
+  });
+  const afterSucceeded = store.getState();
+  logOverboardV3ProdTrace('CARD_ACTION_SUCCEEDED', {
+    commandId: effect.commandId,
+    targetItemId: effect.targetItemId,
+    banId,
+    consumeAndAdvance: false,
+    materializedMatchingResult: true,
+    matchingResultSource: matching.source,
+  });
+  logOverboardV3ProdTrace('STATE_AFTER_SUCCESS', {
+    commandId: effect.commandId,
+    targetItemId: effect.targetItemId,
+    banId,
+    after: snapshotRuntimeForOverboardV3Trace(afterSucceeded),
+  });
+  projectRuntimeAfterOverboard(store, sinks, 'success-replacement');
+  return {
+    ok: true,
+    materializedResultBanId: banId,
+    matchingResultSource: matching.source,
+  };
+}
+
+function publishOverboardCompletion(
+  effect: Extract<RuntimeEffect, { type: 'SUBMIT_CARD_ACTION' }>,
+  banId: string,
+  beforeState: ReturnType<NotificationRuntimeStore['getState']>,
+  afterState: ReturnType<NotificationRuntimeStore['getState']>,
+): void {
+  const eligibility = explainIncomingOverboardCompletion(
+    beforeState,
+    afterState,
+    {
+      commandId: effect.commandId,
+      targetItemId: effect.targetItemId,
+    },
+  );
+  logOverboardV3ProdTrace('COMPLETION_ELIGIBILITY', {
+    commandId: effect.commandId,
+    targetItemId: effect.targetItemId,
+    banId,
+    eligible: eligibility.eligible,
+    reason: eligibility.reason,
+    checks: eligibility.checks,
+  });
+  const emitted = noteIncomingOverboardCompletion(beforeState, afterState, {
+    commandId: effect.commandId,
+    targetItemId: effect.targetItemId,
+  });
+  const completion = getIncomingOverboardCompletionSnapshot();
+  logOverboardV3ProdTrace('COMPLETION_EDGE', {
+    commandId: effect.commandId,
+    targetItemId: effect.targetItemId,
+    banId,
+    emitted,
+    seq: completion.seq,
+    completionCommandId: completion.commandId,
+    rejectionReason: emitted ? null : eligibility.reason,
+  });
+  logOverboardV3ProdTrace('SUBMIT_CARD_ACTION_RESULT', {
+    commandId: effect.commandId,
+    targetItemId: effect.targetItemId,
+    banId,
+    ok: true,
+    after: snapshotRuntimeForOverboardV3Trace(afterState),
+    completionEmitted: emitted,
+    completionSeq: completion.seq,
+  });
+  if (emitted) {
+    armOverboardV3WriterWatch({
+      commandId: effect.commandId,
+      seq: completion.seq,
+      reason: 'completion-edge-emitted',
+    });
+  }
+}
+
 /**
  * Execute SUBMIT_CARD_ACTION for incoming_overboard.
- * On success: consume head + advance to next / idle (no host display write).
- * On failure: restore showing on same head; queue preserved.
+ * On matching result: atomic incoming → result replacement (no idle gap).
+ * On explicit no-result: consume head + advance to next / idle.
+ * On expected-result wait timeout / failure: restore showing on same head.
  */
 export async function executeSubmitIncomingOverboardEffect(
   store: NotificationRuntimeStore,
@@ -250,32 +368,42 @@ export async function executeSubmitIncomingOverboardEffect(
         runtime: handoffBefore,
       });
     }
-    const matching = takeStagedActionResult({
+    let matching = takeStagedActionResult({
       banId,
       actionTransactionId: effect.commandId,
       before: handoffBefore,
     });
 
-    if (matching) {
-      // Atomic incoming → result head: consume + showHead in one transition,
-      // so presentation never passes through runtime idle / empty Lobby.
-      store.dispatch({
-        type: 'CARD_ACTION_SUCCEEDED',
-        commandId: effect.commandId,
-        targetItemId: effect.targetItemId,
-        replacement: { kind: 'result', result: matching.result },
-        source: 'user',
-      });
-      noteStagedActionResultMaterialized({
+    // Expected-result contract: absence of an inline HTTP result is NOT proof
+    // that no result is coming — wait for a matching WS (or late stage).
+    if (!matching && !res.explicitNoResult) {
+      matching = await waitForMatchingActionResult({
         banId,
-        actionTransactionId: matching.actionTransactionId,
-        source: matching.source,
-        before: handoffBefore,
-        after: snapshotRuntimeForActionResultHandoff(store.getState()),
+        actionTransactionId: effect.commandId,
+        runtime: handoffBefore,
       });
-    } else {
-      // No result required/received by the action contract — existing
-      // consume-and-advance completion (next card or Lobby).
+    }
+
+    if (matching) {
+      const outcome = materializeMatchingReplacement(
+        store,
+        effect,
+        banId,
+        matching,
+        handoffBefore,
+        sinks,
+      );
+      publishOverboardCompletion(
+        effect,
+        banId,
+        beforeSucceeded,
+        store.getState(),
+      );
+      return outcome;
+    }
+
+    if (res.explicitNoResult) {
+      // Explicit no-result contract — existing consume-and-advance completion.
       store.dispatch({
         type: 'CARD_ACTION_SUCCEEDED',
         commandId: effect.commandId,
@@ -286,83 +414,62 @@ export async function executeSubmitIncomingOverboardEffect(
       releaseInteractiveCardActionChainWithoutResult({
         banId,
         actionTransactionId: effect.commandId,
-        reason: 'no-matching-result-for-action',
+        reason: 'explicit-no-result-contract',
         before: handoffBefore,
         after: snapshotRuntimeForActionResultHandoff(store.getState()),
       });
+      const afterSucceeded = store.getState();
+      logOverboardV3ProdTrace('CARD_ACTION_SUCCEEDED', {
+        commandId: effect.commandId,
+        targetItemId: effect.targetItemId,
+        banId,
+        consumeAndAdvance: true,
+        materializedMatchingResult: false,
+        matchingResultSource: null,
+      });
+      logOverboardV3ProdTrace('STATE_AFTER_SUCCESS', {
+        commandId: effect.commandId,
+        targetItemId: effect.targetItemId,
+        banId,
+        after: snapshotRuntimeForOverboardV3Trace(afterSucceeded),
+      });
+      projectRuntimeAfterOverboard(store, sinks, 'success-advance');
+      publishOverboardCompletion(
+        effect,
+        banId,
+        beforeSucceeded,
+        afterSucceeded,
+      );
+      return {
+        ok: true,
+        materializedResultBanId: null,
+        matchingResultSource: null,
+      };
     }
-    const afterSucceeded = store.getState();
-    logOverboardV3ProdTrace('CARD_ACTION_SUCCEEDED', {
+
+    // Expected-result wait timed out — recoverable failure, keep incoming.
+    // Never silently advance to idle / expose Lobby orb/logo-only.
+    abandonInteractiveCardActionChain({
+      banId,
+      actionTransactionId: effect.commandId,
+    });
+    store.dispatch({
+      type: 'CARD_ACTION_FAILED',
       commandId: effect.commandId,
       targetItemId: effect.targetItemId,
-      banId,
-      consumeAndAdvance: matching == null,
-      materializedMatchingResult: matching != null,
-      matchingResultSource: matching?.source ?? null,
+      errorCode: 'ACTION_RESULT_WAIT_TIMEOUT',
+      source: 'user',
     });
-    logOverboardV3ProdTrace('STATE_AFTER_SUCCESS', {
-      commandId: effect.commandId,
-      targetItemId: effect.targetItemId,
-      banId,
-      after: snapshotRuntimeForOverboardV3Trace(afterSucceeded),
-    });
-    projectRuntimeAfterOverboard(store, sinks, 'success-advance');
-    // V3: publish the chain-ended edge so hosts can drop obsolete UI state.
-    const eligibility = explainIncomingOverboardCompletion(
-      beforeSucceeded,
-      afterSucceeded,
-      {
-        commandId: effect.commandId,
-        targetItemId: effect.targetItemId,
-      },
-    );
-    logOverboardV3ProdTrace('COMPLETION_ELIGIBILITY', {
-      commandId: effect.commandId,
-      targetItemId: effect.targetItemId,
-      banId,
-      eligible: eligibility.eligible,
-      reason: eligibility.reason,
-      checks: eligibility.checks,
-    });
-    const emitted = noteIncomingOverboardCompletion(
-      beforeSucceeded,
-      afterSucceeded,
-      {
-        commandId: effect.commandId,
-        targetItemId: effect.targetItemId,
-      },
-    );
-    const completion = getIncomingOverboardCompletionSnapshot();
-    logOverboardV3ProdTrace('COMPLETION_EDGE', {
-      commandId: effect.commandId,
-      targetItemId: effect.targetItemId,
-      banId,
-      emitted,
-      seq: completion.seq,
-      completionCommandId: completion.commandId,
-      rejectionReason: emitted ? null : eligibility.reason,
-    });
+    projectRuntimeAfterOverboard(store, sinks, 'result-wait-timeout');
     logOverboardV3ProdTrace('SUBMIT_CARD_ACTION_RESULT', {
       commandId: effect.commandId,
       targetItemId: effect.targetItemId,
       banId,
-      ok: true,
-      after: snapshotRuntimeForOverboardV3Trace(afterSucceeded),
-      completionEmitted: emitted,
-      completionSeq: completion.seq,
+      ok: false,
+      error: 'ACTION_RESULT_WAIT_TIMEOUT',
+      after: snapshotRuntimeForOverboardV3Trace(store.getState()),
     });
-    if (emitted) {
-      armOverboardV3WriterWatch({
-        commandId: effect.commandId,
-        seq: completion.seq,
-        reason: 'completion-edge-emitted',
-      });
-    }
-    return {
-      ok: true,
-      materializedResultBanId: matching ? banId : null,
-      matchingResultSource: matching?.source ?? null,
-    };
+    return { ok: false, error: 'ACTION_RESULT_WAIT_TIMEOUT' };
   } catch (err) {
     const message =
       err instanceof Error && err.message
