@@ -1,118 +1,152 @@
 /**
- * FIX A — SUCCESS-drain empty-shell Lobby presentation hold.
+ * FIX A — SUCCESS presentation handoff hold (base Lobby suppression).
  *
- * Proven production failure (success-prod-trace5):
- *   successExitDraining + runtime.lifecycle idle→draining + runtime.display=null
- *   + runtime.queue empty + pending chain / prefetch active
- *   → InstantBanFlow paints `lobby-shell-render` with showLobbyOrb=true behind a
- *     notification shell that has no children, ~1.1s before IncomingBanOverlay.
+ * Proven failure: SUCCESS unmount revealed InstantBanFlow ArenaLobbyOrb
+ * (data-base-lobby-orb) before runtime materialized the next card. The prior
+ * hold required async evidence (draining / pending / prefetch / claim) that
+ * often arrived only after SUCCESS was already gone.
  *
- * Root cause: the base lobby orb layer had no SUCCESS-drain gate. `showLobbyOrb`
- * only consulted `holdLobbyOrbForBootstrap`; `successExitDraining` gated chrome
- * and CTA but never the orb.
+ * Invariant: once SUCCESS exit arms the handoff latch synchronously, base Lobby
+ * presentation (orb + persistent logo + chrome/CTA via the derived predicate)
+ * stays hidden until an explicit terminal runtime outcome — not merely because
+ * display is null or successExitDraining was cleared in finally.
  *
- * Invariant: while the SUCCESS handoff actively owns presentation and is awaiting
- * materialization, no Lobby content paints behind the empty notification shell.
- * The hold suppresses paint only — it never touches queue, pending, display,
- * consumption or CTA eligibility.
+ * Presentation-only: never mutates queue, pending, display, or consumption.
  */
 
-export type SuccessDrainEmptyShellRuntimeDisplayKind =
+export type SuccessPresentationRuntimeDisplayKind =
   | 'incoming'
   | 'check'
   | 'result'
   | null;
 
-export type SuccessDrainEmptyShellHoldInput = {
-  /** Cold boot owns its own orb; the hold is a post-boot lobby gate only. */
+export type SuccessPresentationHandoffHoldInput = {
   lobbyBootIntroPrimed: boolean;
-  /** successExitDraining / post-success handoff still owns presentation. */
-  successHandoffOwnsPresentation: boolean;
+  /**
+   * Synchronous latch armed in the SUCCESS exit path BEFORE SUCCESS unmounts.
+   * Survives successExitDraining / postSuccessHandoff flag clears.
+   */
+  handoffArmed: boolean;
   runtimeLifecycle: string | null | undefined;
-  runtimeDisplayKind: SuccessDrainEmptyShellRuntimeDisplayKind;
+  runtimeDisplayKind: SuccessPresentationRuntimeDisplayKind;
   runtimeDisplayPayloadPresent: boolean;
   runtimeQueueLength: number;
-  runtimePendingCount: number;
   /** Runtime overlay lifecycle currently claims the notification screen. */
   notificationPresentationClaimed: boolean;
-  /** Handoff prefetch/materialize still in flight. */
-  drainPrefetchInFlight: boolean;
-  /** Terminal: drain finished with no next item. */
-  drainCompletedEmpty: boolean;
-  /** Terminal: drain failed / recovery released presentation ownership. */
+  /** Terminal: drain finished with no next item (explicit empty → Lobby). */
+  chainExplicitlyEmpty: boolean;
+  /** Terminal: drain/recovery failed and released presentation. */
   presentationOwnershipReleased: boolean;
-  /** Bounded safety net so a stuck drain can never blank the screen. */
+  /** Bounded safety net. */
   holdExpired: boolean;
 };
 
-export type SuccessDrainEmptyShellHoldReleaseReason =
+export type SuccessPresentationHandoffReleaseReason =
   | 'lobby-boot-not-primed'
-  | 'runtime-materialized-head'
+  | 'not-armed'
+  | 'runtime-materialized-and-claimed'
+  | 'chain-explicitly-empty'
   | 'presentation-ownership-released'
-  | 'drain-completed-empty'
-  | 'not-success-handoff'
   | 'hold-expired'
-  | 'nothing-awaiting-materialization'
-  | 'holding-awaiting-materialization';
+  | 'holding-armed-awaiting-terminal';
 
-export type SuccessDrainEmptyShellHoldDecision = {
+export type SuccessPresentationHandoffHoldDecision = {
   hold: boolean;
-  releaseReason: SuccessDrainEmptyShellHoldReleaseReason;
+  releaseReason: SuccessPresentationHandoffReleaseReason;
 };
 
-/** Default bound: longer than a normal handoff prefetch, short enough to never strand. */
-export const SUCCESS_DRAIN_EMPTY_SHELL_HOLD_MAX_MS = 2500;
+/** Longer than a normal handoff prefetch; short enough to never strand blank. */
+export const SUCCESS_PRESENTATION_HANDOFF_HOLD_MAX_MS = 8000;
+
+/** @deprecated alias — prefer SUCCESS_PRESENTATION_HANDOFF_HOLD_MAX_MS */
+export const SUCCESS_DRAIN_EMPTY_SHELL_HOLD_MAX_MS =
+  SUCCESS_PRESENTATION_HANDOFF_HOLD_MAX_MS;
 
 function runtimeMaterializedHead(
-  input: SuccessDrainEmptyShellHoldInput,
+  input: SuccessPresentationHandoffHoldInput,
 ): boolean {
   return input.runtimeDisplayKind != null || input.runtimeDisplayPayloadPresent;
 }
 
 /**
- * Release order is deliberate: every terminal/ownership signal wins over the
- * hold, so the hold is only ever true inside the transient handoff window.
+ * Hold while the SUCCESS handoff latch is armed, until an explicit terminal
+ * release. Does NOT require draining/pending/prefetch evidence to enter.
  */
-export function evaluateSuccessDrainEmptyShellHold(
-  input: SuccessDrainEmptyShellHoldInput,
-): SuccessDrainEmptyShellHoldDecision {
+export function evaluateSuccessPresentationHandoffHold(
+  input: SuccessPresentationHandoffHoldInput,
+): SuccessPresentationHandoffHoldDecision {
   if (!input.lobbyBootIntroPrimed) {
     return { hold: false, releaseReason: 'lobby-boot-not-primed' };
   }
-  // R1 — runtime materialized incoming/check/result.
-  if (runtimeMaterializedHead(input)) {
-    return { hold: false, releaseReason: 'runtime-materialized-head' };
+  if (!input.handoffArmed) {
+    return { hold: false, releaseReason: 'not-armed' };
   }
-  // R3 — recovery/failure released presentation.
+  // Terminal R1: next card materialized AND notification owns the screen.
+  if (
+    runtimeMaterializedHead(input) &&
+    input.notificationPresentationClaimed
+  ) {
+    return {
+      hold: false,
+      releaseReason: 'runtime-materialized-and-claimed',
+    };
+  }
+  // Terminal R3: recovery/failure released presentation.
   if (input.presentationOwnershipReleased) {
-    return { hold: false, releaseReason: 'presentation-ownership-released' };
+    return {
+      hold: false,
+      releaseReason: 'presentation-ownership-released',
+    };
   }
-  // R2 — drain completed explicitly with no next item.
-  if (input.drainCompletedEmpty) {
-    return { hold: false, releaseReason: 'drain-completed-empty' };
-  }
-  if (!input.successHandoffOwnsPresentation) {
-    return { hold: false, releaseReason: 'not-success-handoff' };
+  // Terminal R2: chain explicitly empty → complete Lobby may render.
+  if (input.chainExplicitlyEmpty) {
+    return { hold: false, releaseReason: 'chain-explicitly-empty' };
   }
   if (input.holdExpired) {
     return { hold: false, releaseReason: 'hold-expired' };
   }
-  const awaitingMaterialization =
-    input.drainPrefetchInFlight ||
-    input.notificationPresentationClaimed ||
-    input.runtimeLifecycle === 'draining' ||
-    input.runtimeQueueLength > 0 ||
-    input.runtimePendingCount > 0;
-  if (!awaitingMaterialization) {
-    return { hold: false, releaseReason: 'nothing-awaiting-materialization' };
-  }
-  return { hold: true, releaseReason: 'holding-awaiting-materialization' };
+  // Armed + no terminal yet — keep holding even with display null / no pending.
+  return { hold: true, releaseReason: 'holding-armed-awaiting-terminal' };
 }
 
+/** Back-compat name used by earlier Fix A wiring/tests. */
+export type SuccessDrainEmptyShellHoldInput = SuccessPresentationHandoffHoldInput & {
+  /** @deprecated ignored — latch is handoffArmed */
+  successHandoffOwnsPresentation?: boolean;
+  /** @deprecated ignored — empty is chainExplicitlyEmpty */
+  drainCompletedEmpty?: boolean;
+};
+
+export type SuccessDrainEmptyShellHoldReleaseReason =
+  SuccessPresentationHandoffReleaseReason;
+
+export type SuccessDrainEmptyShellHoldDecision =
+  SuccessPresentationHandoffHoldDecision;
+
 /**
- * Base lobby orb layers under the hold.
- * Cold boot (`!lobbyBootIntroPrimed`) is untouched — the hold cannot be true there.
+ * Adapter: maps legacy input shape onto the latch-based evaluator.
+ * `handoffArmed` wins; if omitted, falls back to successHandoffOwnsPresentation
+ * only for older call sites (must not be used for the product path).
  */
+export function evaluateSuccessDrainEmptyShellHold(
+  input: SuccessDrainEmptyShellHoldInput,
+): SuccessDrainEmptyShellHoldDecision {
+  return evaluateSuccessPresentationHandoffHold({
+    lobbyBootIntroPrimed: input.lobbyBootIntroPrimed,
+    handoffArmed:
+      input.handoffArmed ?? input.successHandoffOwnsPresentation ?? false,
+    runtimeLifecycle: input.runtimeLifecycle,
+    runtimeDisplayKind: input.runtimeDisplayKind,
+    runtimeDisplayPayloadPresent: input.runtimeDisplayPayloadPresent,
+    runtimeQueueLength: input.runtimeQueueLength,
+    notificationPresentationClaimed: input.notificationPresentationClaimed,
+    chainExplicitlyEmpty:
+      input.chainExplicitlyEmpty ?? input.drainCompletedEmpty ?? false,
+    presentationOwnershipReleased: input.presentationOwnershipReleased,
+    holdExpired: input.holdExpired,
+  });
+}
+
 export function resolveLobbyOrbLayersWithSuccessDrainHold(input: {
   hold: boolean;
   lobbyBootIntroPrimed: boolean;
@@ -124,4 +158,18 @@ export function resolveLobbyOrbLayersWithSuccessDrainHold(input: {
   const showLobbyOrb =
     input.lobbyBootIntroPrimed && !input.holdLobbyOrbForBootstrap && !input.hold;
   return { showBootOrb, showLobbyOrb };
+}
+
+/**
+ * Unified presentation predicate: when true, hide base orb, persistent logo,
+ * Lobby chrome, and Lobby CTA together. Presentation-only — no runtime writes.
+ */
+export function notificationTransitionOwnsPresentation(input: {
+  successPresentationHandoffHold: boolean;
+  interactiveActionOwnsPresentation: boolean;
+}): boolean {
+  return (
+    input.successPresentationHandoffHold ||
+    input.interactiveActionOwnsPresentation
+  );
 }
