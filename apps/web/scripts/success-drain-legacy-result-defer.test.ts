@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  explainSuccessDrainLegacyResultDeferRelease,
   resolveShellKindWithLegacyResultDeferred,
   runtimeOwnsMatchingResultDisplay,
   shouldDeferLegacyResultOverlayPaint,
@@ -246,6 +247,140 @@ async function main() {
         /queueResultOverlayClaimed = deferLegacyResultOverlayPaint\s*\?\s*false/,
         'deferred path must force claim false without consuming',
       );
+    },
+  );
+
+  await spec(
+    'NO STARVATION F1: SUCCESS drain finished + runtime materializes matching result → release via runtime (path 1)',
+    () => {
+      // Was deferred during SUCCESS drain (runtime display null).
+      const during = base();
+      assert.equal(shouldDeferLegacyResultOverlayPaint(during), true);
+
+      // SUCCESS finished; runtime intentionally materializes the SAME result id.
+      const after = base({
+        successExitDraining: false,
+        runtimeLifecycle: 'showing',
+        runtimeDisplayKind: 'result',
+        runtimeDisplayResultId: 'cms0t5gx00dflry0px1wfpyha',
+        legacyResultId: 'cms0t5gx00dflry0px1wfpyha',
+      });
+      const rel = explainSuccessDrainLegacyResultDeferRelease(after);
+      assert.equal(rel.deferred, false);
+      assert.equal(rel.released, true);
+      assert.equal(rel.reason, 'runtime-materialized-matching-result');
+
+      const mounts = wouldMountResultOverlay({
+        defer: rel.deferred,
+        queueHeadKind: 'result',
+        activeKind: 'result',
+        effectiveShellKind: 'result',
+        hasPayload: true,
+      });
+      assert.equal(mounts, true, 'matching runtime result paints — not starved');
+    },
+  );
+
+  await spec(
+    'NO STARVATION F2: SUCCESS drain finished + runtime releases ownership (idle, no head) → legacy eligible again (path 2)',
+    () => {
+      const during = base();
+      assert.equal(shouldDeferLegacyResultOverlayPaint(during), true);
+
+      // SUCCESS finished; runtime idle with no competing head.
+      const after = base({
+        successExitDraining: false,
+        runtimeLifecycle: 'idle',
+        runtimeDisplayKind: null,
+        runtimeDisplayResultId: null,
+        legacyResultId: 'cms0t5gx00dflry0px1wfpyha',
+      });
+      const rel = explainSuccessDrainLegacyResultDeferRelease(after);
+      assert.equal(rel.deferred, false);
+      assert.equal(rel.released, true);
+      assert.equal(rel.reason, 'runtime-released-ownership');
+
+      // Legacy ResultOverlay becomes eligible again (shell not forced away).
+      const shell = resolveShellKindWithLegacyResultDeferred(
+        rel.deferred,
+        'result',
+        null,
+      );
+      assert.equal(shell, 'result', 'shell no longer suppressed after release');
+      const mounts = wouldMountResultOverlay({
+        defer: rel.deferred,
+        queueHeadKind: 'result',
+        activeKind: 'result',
+        effectiveShellKind: 'result',
+        hasPayload: true,
+      });
+      assert.equal(mounts, true, 'legacy ResultOverlay eligible again — not starved');
+    },
+  );
+
+  await spec(
+    'NO STARVATION F3: invariant — for a legacy candidate, defer is impossible once runtime is not actively owning the screen',
+    () => {
+      // Enumerate every terminal / non-owning runtime state after SUCCESS.
+      const releasedLifecycles = [
+        'idle',
+        'showing', // showing but NOT incoming/check (see displayKind below)
+        'failed',
+        'booting',
+        'recovering',
+        null,
+      ] as const;
+      const nonCompetingDisplays = [null, 'result'] as const;
+
+      for (const lifecycle of releasedLifecycles) {
+        for (const displayKind of nonCompetingDisplays) {
+          const input = base({
+            successExitDraining: false,
+            runtimeLifecycle: lifecycle as string | null,
+            runtimeDisplayKind: displayKind,
+            runtimeDisplayResultId:
+              displayKind === 'result' ? 'cms0t5gx00dflry0px1wfpyha' : null,
+            legacyResultId: 'cms0t5gx00dflry0px1wfpyha',
+          });
+          const rel = explainSuccessDrainLegacyResultDeferRelease(input);
+          assert.equal(
+            rel.deferred,
+            false,
+            `must release for lifecycle=${lifecycle} display=${displayKind}`,
+          );
+          assert.equal(rel.released, true);
+        }
+      }
+
+      // Defer is ONLY ever true while runtime is actively owning the screen:
+      // (a) SUCCESS draining with null runtime result, or
+      // (b) draining/showing an incoming/check head.
+      const activeOwning: SuccessDrainLegacyResultDeferInput[] = [
+        base({ successExitDraining: true, runtimeLifecycle: 'draining', runtimeDisplayKind: null }),
+        base({ successExitDraining: false, runtimeLifecycle: 'draining', runtimeDisplayKind: 'incoming' }),
+        base({ successExitDraining: false, runtimeLifecycle: 'showing', runtimeDisplayKind: 'incoming' }),
+        base({ successExitDraining: false, runtimeLifecycle: 'showing', runtimeDisplayKind: 'check' }),
+      ];
+      for (const input of activeOwning) {
+        assert.equal(
+          shouldDeferLegacyResultOverlayPaint(input),
+          true,
+          'defer only while runtime actively owns the screen',
+        );
+      }
+
+      // And every "active owning" state has a defined exit: flipping runtime to
+      // idle releases it (proves the deferral is bounded, never permanent).
+      for (const input of activeOwning) {
+        const releasedNext = explainSuccessDrainLegacyResultDeferRelease({
+          ...input,
+          successExitDraining: false,
+          runtimeLifecycle: 'idle',
+          runtimeDisplayKind: null,
+          runtimeDisplayResultId: null,
+        });
+        assert.equal(releasedNext.released, true, 'bounded: idle transition releases');
+      }
     },
   );
 

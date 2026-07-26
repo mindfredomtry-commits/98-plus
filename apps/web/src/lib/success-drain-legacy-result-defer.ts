@@ -79,6 +79,64 @@ export function shouldDeferLegacyResultOverlayPaint(
 }
 
 /**
+ * Exact release condition — a deferred legacy result MUST NOT starve.
+ *
+ * `deferLegacyResultOverlayPaint` is true only while runtime is actively:
+ *   - SUCCESS-draining with no runtime result display, or
+ *   - draining/showing a competing incoming/check head.
+ *
+ * Both states are transient and runtime-owned. As soon as SUCCESS drain
+ * finishes, exactly one release fires:
+ *
+ *   R1 (runtime materializes matching result):
+ *       runtimeDisplayKind === 'result' owning the same id
+ *       → runtime paints it; legacy defers to runtime (single owner).
+ *
+ *   R2 (runtime releases ownership):
+ *       runtime lifecycle leaves 'draining'/'showing' (e.g. 'idle') and no
+ *       incoming/check head is owned → legacy ResultOverlay eligible again.
+ *
+ * There is no input with a legacy candidate where runtime is idle/released and
+ * defer stays true — so no permanent starvation.
+ */
+export type SuccessDrainLegacyResultDeferReleaseReason =
+  | 'no-legacy-candidate'
+  | 'runtime-materialized-matching-result'
+  | 'runtime-released-ownership'
+  | 'still-deferred-runtime-owns-screen';
+
+export function explainSuccessDrainLegacyResultDeferRelease(
+  input: SuccessDrainLegacyResultDeferInput,
+): {
+  deferred: boolean;
+  released: boolean;
+  reason: SuccessDrainLegacyResultDeferReleaseReason;
+} {
+  if (!input.legacyResultPaintCandidate) {
+    return { deferred: false, released: true, reason: 'no-legacy-candidate' };
+  }
+  if (runtimeOwnsMatchingResultDisplay(input)) {
+    return {
+      deferred: false,
+      released: true,
+      reason: 'runtime-materialized-matching-result',
+    };
+  }
+  if (shouldDeferLegacyResultOverlayPaint(input)) {
+    return {
+      deferred: true,
+      released: false,
+      reason: 'still-deferred-runtime-owns-screen',
+    };
+  }
+  return {
+    deferred: false,
+    released: true,
+    reason: 'runtime-released-ownership',
+  };
+}
+
+/**
  * When legacy result paint is deferred, never keep shellKind='result'.
  * Prefer the runtime head; otherwise null (no flash while awaiting materialize).
  */
