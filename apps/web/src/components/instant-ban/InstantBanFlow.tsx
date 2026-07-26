@@ -51,14 +51,13 @@ import {
 } from '@/notification-runtime/notification-runtime.selectors';
 import { createInitialNotificationRuntimeState } from '@/notification-runtime/notification-runtime.types';
 import {
-  getIncomingOverboardCompletionSnapshot,
-  isRuntimeIdleEmptyAfterOverboard,
-  subscribeIncomingOverboardCompletion,
-} from '@/notification-runtime/notification-runtime.overboard-completion';
-import {
-  logOverboardV3ProdTrace,
   logOverboardV3WriterChange,
 } from '@/lib/overboard-v3-prod-trace';
+import {
+  buildPostNotificationPresentationSnapshot,
+  detectPostNotificationPresentationReleaseEdge,
+  isPostNotificationPresentationFullyReleased,
+} from '@/lib/post-notification-presentation-release';
 import { decideLobbyClaimFromRuntime } from '@/lib/lobby-claim-from-runtime';
 import { planLobbyBansOpenNavigation } from '@/lib/lobby-bans-open-navigation';
 import { logBootGate } from '@/lib/boot-gate-diag';
@@ -533,6 +532,8 @@ export function InstantBanFlow({
     notificationOverlayMounted,
     lobbyBansNeedAttention,
     notificationOverlayVisible,
+    visualQueueDimSession,
+    showDirectOverboardLayer,
     notificationChainTransitioning,
     setNotificationChainTransitioning,
     clearNotificationOverlayForEmptyQueueAfterSuccessExit,
@@ -584,18 +585,12 @@ export function InstantBanFlow({
     notificationRuntimeState,
   );
   const bansIndicatorVisible = selectIndicatorVisible(notificationRuntimeState);
-  /** V3: runtime edge for "overboard chain ended" — drives the CTA restore. */
-  const incomingOverboardCompletion = useSyncExternalStore(
-    subscribeIncomingOverboardCompletion,
-    getIncomingOverboardCompletionSnapshot,
-    getIncomingOverboardCompletionSnapshot,
-  );
-  const handledOverboardCompletionSeqRef = useRef(0);
-  useEffect(() => {
-    logOverboardV3ProdTrace('INSTANTBANFLOW_SUBSCRIBER_MOUNTED', {
-      source: 'InstantBanFlow',
-    });
-  }, []);
+  /**
+   * V4: restore Lobby CTA only when post-notification presentation is fully
+   * released (runtime idle+empty AND every host result/dim/mount latch gone).
+   * V3 runtime-idle completion edge is bypassed for CTA restore.
+   */
+  const presentationFullyReleasedPrevRef = useRef<boolean | null>(null);
   /** Global Relationship Orb only — never used for CTA / energy-gate. */
   const globalRelationshipRing = useGlobalRelationshipOrb(token);
   const { haptic, hapticSuccess, webApp } = useTelegram();
@@ -4847,78 +4842,59 @@ export function InstantBanFlow({
   ]);
 
   /**
-   * V3: the runtime finished the overboard chain (idle + empty). SUCCESS exit
-   * left ctaState hidden, so restore the lobby CTA through the same helper a
-   * normal empty-queue return uses. Runs once per completion edge.
+   * V4: false→true edge on postNotificationPresentationFullyReleased.
+   * V3 runtime-idle completion edge is bypassed — CTA restores only after host
+   * result/status/dim/mount layers actually unmount. Uses canonical helpers only.
    */
   useEffect(() => {
-    const { seq, commandId, banId } = incomingOverboardCompletion;
-    if (seq === 0) return;
-    const runtimeState =
-      notificationRuntimeStore?.getState() ?? notificationRuntimeState;
-    const ctaBefore = ctaStateForV3TraceRef.current;
-    logOverboardV3ProdTrace('INSTANTBANFLOW_EDGE', {
-      commandId,
-      seq,
-      banId,
-      subscriberMounted: true,
-      edgeReceived: true,
-      handledSeq: handledOverboardCompletionSeqRef.current,
-      ctaStateBefore: ctaBefore,
-      runtimeIdleEmpty: isRuntimeIdleEmptyAfterOverboard(runtimeState),
-    });
-    if (handledOverboardCompletionSeqRef.current === seq) {
-      logOverboardV3ProdTrace('INSTANTBANFLOW_EDGE', {
-        commandId,
-        seq,
-        banId,
-        dedupe: 'rejected',
-        reason: 'seq-already-handled',
-        ctaStateBefore: ctaBefore,
-      });
+    const snap = buildPostNotificationPresentationSnapshot(
+      notificationRuntimeState,
+      {
+        notificationOverlayMounted,
+        notificationQueueUiLock: notificationOverlayMounted,
+        hostResultActive: Boolean(result),
+        directOverboardActive: showDirectOverboardLayer,
+        notificationChainTransitioning,
+        visualQueueDimSession,
+        orbOverlayDim,
+        postSuccessHandoffBlocking,
+        successExitDraining,
+      },
+    );
+    const released = isPostNotificationPresentationFullyReleased(snap);
+    const { edge, nextPrevious } = detectPostNotificationPresentationReleaseEdge(
+      presentationFullyReleasedPrevRef.current,
+      released,
+    );
+    presentationFullyReleasedPrevRef.current = nextPrevious;
+    if (!edge) return;
+    // Existing check/reply/close paths may already have restored CTA — do not
+    // restart the spring when ctaState is already entering/visible.
+    if (
+      ctaState === 'visible' ||
+      ctaState === 'entering' ||
+      ctaState === 'exiting'
+    ) {
       return;
     }
-    if (!isRuntimeIdleEmptyAfterOverboard(runtimeState)) {
-      logOverboardV3ProdTrace('INSTANTBANFLOW_EDGE', {
-        commandId,
-        seq,
-        banId,
-        dedupe: 'rejected',
-        reason: 'runtime-not-idle-empty',
-        ctaStateBefore: ctaBefore,
-        lifecycle: runtimeState.lifecycle.status,
-        queueLen: runtimeState.items.queue.length,
-      });
-      return;
-    }
-    handledOverboardCompletionSeqRef.current = seq;
-    logOverboardV3ProdTrace('INSTANTBANFLOW_CTA_RESTORE', {
-      commandId,
-      seq,
-      banId,
-      dedupe: 'accepted',
-      ctaStateBefore: ctaBefore,
-      allowSuccessExitLobbyOpen: true,
-      openLobby: true,
-      beginCtaSpringIn: true,
-      openLobbySource: 'overboard-runtime-complete',
-    });
+    if (phase !== 'idle') return;
     allowSuccessExitLobbyOpen();
-    openLobby('overboard-runtime-complete');
+    openLobby('post-notification-presentation-released');
     beginCtaSpringIn();
-    logOverboardV3WriterChange({
-      field: 'ctaState',
-      oldValue: ctaBefore,
-      newValue: 'entering-requested',
-      source: 'InstantBanFlow.v3-consumer.beginCtaSpringIn',
-      commandId,
-      seq,
-    });
   }, [
     beginCtaSpringIn,
-    incomingOverboardCompletion,
-    notificationRuntimeStore,
+    ctaState,
+    notificationChainTransitioning,
+    notificationOverlayMounted,
+    notificationRuntimeState,
     openLobby,
+    orbOverlayDim,
+    phase,
+    postSuccessHandoffBlocking,
+    result,
+    showDirectOverboardLayer,
+    successExitDraining,
+    visualQueueDimSession,
   ]);
 
   useEffect(() => {

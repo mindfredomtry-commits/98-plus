@@ -275,6 +275,10 @@ import {
   logOverboardV3WriterChange,
 } from '@/lib/overboard-v3-prod-trace';
 import {
+  noteRuntimeOverboardHeadConsumed,
+  wasRuntimeOverboardHeadConsumed,
+} from '@/lib/runtime-overboard-head-consumed';
+import {
   ingestPendingSnapshot,
   markRuntimeItemConsumed,
   mergePendingItemIds,
@@ -1590,6 +1594,16 @@ interface AppContextValue {
   clearNotificationOverlayForEmptyQueueAfterSuccessExit: (source: string) => boolean;
   /** True only when a notification modal is actually rendered (blocks lobby pointer). */
   notificationOverlayVisible: boolean;
+  /**
+   * V4: live visual dim session behind the notification queue.
+   * Part of postNotificationPresentationFullyReleased (not overlayQueueRef).
+   */
+  visualQueueDimSession: boolean;
+  /**
+   * V4: DirectOverboardResultLayer / direct overboard host layer is active.
+   * Part of postNotificationPresentationFullyReleased.
+   */
+  showDirectOverboardLayer: boolean;
   /**
    * Vertical 2 — selectLobbyMayShow(runtime). Ordinary lobby CTA / handoff authority.
    * TEMP consumers: InstantBanFlow showLobbyCta.
@@ -18550,10 +18564,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       if (r) {
         const uid = userIdRef.current;
+        const outcome = resolveBanResultOutcome(r);
+        // V4 host-result policy: runtime already consumed this incoming via
+        // overboard — do not re-open a host overboard result/status card.
+        if (
+          outcome === 'overboard' &&
+          wasRuntimeOverboardHeadConsumed(r.id)
+        ) {
+          console.log('[overboard-host-result-neutralized]', {
+            banId: r.id,
+            source: `openBanResult:${mode}`,
+            reason: 'runtime-overboard-head-consumed',
+          });
+          return;
+        }
         if (
           rejectNonOverkillTerminalResult(
             r.id,
-            resolveBanResultOutcome(r),
+            outcome,
             `openBanResult:${mode}`,
             { resultId: r.id },
           )
@@ -19747,6 +19775,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           role,
           source,
           elapsedMs,
+        });
+        return;
+      }
+
+      // V4 host-result policy: runtime already consumed this incoming via
+      // overboard — do not paint a host overboard result/status card.
+      if (
+        resolveBanResultOutcome(normalized) === 'overboard' &&
+        wasRuntimeOverboardHeadConsumed(banId)
+      ) {
+        logResultPath('receiveResult', 'path-skip', {
+          banId,
+          resultId: banId,
+          allowed: false,
+          reason: 'runtime-overboard-head-consumed',
+          extra: { wsOrHttpSource: source },
+        });
+        console.log('[overboard-host-result-neutralized]', {
+          banId,
+          source: `receiveResult:${source}`,
+          reason: 'runtime-overboard-head-consumed',
         });
         return;
       }
@@ -23007,7 +23056,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         },
         token,
         EMPTY_RUNTIME_LEGACY_SINKS,
-      );
+      ).then((res) => {
+        if (res.ok) {
+          // V4: runtime consumed this head — neutralize host overboard result path.
+          noteRuntimeOverboardHeadConsumed(banId);
+          const key = normalizeId(banId);
+          if (key) {
+            resultDeliveredBanIdsRef.current.add(key);
+            freshOverboardActionBanIdsRef.current.delete(key);
+          }
+        }
+        return res;
+      });
     },
     [],
   );
@@ -44211,6 +44271,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setNotificationChainTransitioning,
       clearNotificationOverlayForEmptyQueueAfterSuccessExit,
       notificationOverlayVisible,
+      visualQueueDimSession:
+        visualQueueDimSessionRef.current || visualQueueDimSession,
+      showDirectOverboardLayer,
       runtimeLobbyMayShow: notificationRuntimeUi.lobbyMayShow,
       interactiveLobbyChromeMayShow:
         notificationRuntimeUi.interactiveLobbyChromeMayShow,
@@ -44418,6 +44481,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setNotificationChainTransitioning,
       clearNotificationOverlayForEmptyQueueAfterSuccessExit,
       notificationOverlayVisible,
+      visualQueueDimSession,
+      showDirectOverboardLayer,
       notificationRuntimeUi.lobbyMayShow,
       notificationRuntimeUi.interactiveLobbyChromeMayShow,
       notificationRuntimeUi.holdLobbyOrbForBootstrap,
