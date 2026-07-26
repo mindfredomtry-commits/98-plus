@@ -7107,6 +7107,15 @@ export function InstantBanFlow({
       activeOverlayKind === 'result'
         ? activeOverlayKind
         : null;
+    const runtimePayload = notificationRuntimeState.display.payload;
+    const overlayDisplayId =
+      runtimePayload?.kind === 'incoming'
+        ? (runtimePayload.ban.id ?? null)
+        : runtimePayload?.kind === 'check'
+          ? (runtimePayload.ban.id ?? null)
+          : runtimePayload?.kind === 'result'
+            ? (runtimePayload.result.id ?? null)
+            : null;
     publishObservedPresentation(
       observePresentationState({
         phase,
@@ -7141,6 +7150,7 @@ export function InstantBanFlow({
           : null,
         queueResultId:
           observedOverlayKind === 'result' ? (result?.id ?? null) : null,
+        overlayDisplayId,
       }),
     );
   }, [
@@ -7162,6 +7172,7 @@ export function InstantBanFlow({
     notificationOverlayVisible,
     showDirectOverboardLayer,
     result?.id,
+    notificationRuntimeState.display.payload,
   ]);
 
   useLayoutEffect(() => {

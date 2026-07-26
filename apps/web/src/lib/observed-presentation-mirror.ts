@@ -12,9 +12,15 @@ type Listener = () => void;
 
 let current: ObservedPresentationState | null = null;
 const listeners = new Set<Listener>();
+let publishCount = 0;
 
 export function getObservedPresentationState(): ObservedPresentationState | null {
   return current;
+}
+
+/** Monotonic publish counter — remount detection / sequence traces only. */
+export function getObservedPresentationPublishCount(): number {
+  return publishCount;
 }
 
 export function subscribeObservedPresentation(listener: Listener): () => void {
@@ -32,6 +38,7 @@ export function publishObservedPresentation(
   next: ObservedPresentationState,
 ): void {
   current = next;
+  publishCount += 1;
   for (const listener of listeners) {
     listener();
   }
@@ -40,6 +47,7 @@ export function publishObservedPresentation(
 /** Test / boot helper — clears the mirror without affecting production owners. */
 export function resetObservedPresentationMirror(): void {
   current = null;
+  publishCount = 0;
   for (const listener of listeners) {
     listener();
   }

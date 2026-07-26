@@ -63,6 +63,10 @@ export type ObservedPresentationChrome = {
   chromeVisible: boolean;
   overlayHostActive: boolean;
   directOverboardHostActive: boolean;
+  /** InstantBanFlow confirm layer (`confirmActive`) — observation only. */
+  confirmLayerVisible: boolean;
+  /** Confirm hold orb: confirm layer + lobby orb wrap both painting. */
+  confirmOrbVisible: boolean;
 };
 
 export type ObservedPresentationMode =
@@ -171,6 +175,11 @@ export type ObservedPresentationInput = {
   showDirectOverboardLayer: boolean;
   directOverboardResultId: string | null;
   queueResultId: string | null;
+  /**
+   * Runtime/host display id for the active overlay kind (incoming/check/result).
+   * Copied from runtime display payload or Providers result — observation only.
+   */
+  overlayDisplayId: string | null;
 };
 
 function buildChrome(input: ObservedPresentationInput): ObservedPresentationChrome {
@@ -182,6 +191,8 @@ function buildChrome(input: ObservedPresentationInput): ObservedPresentationChro
     chromeVisible: input.showLobbyChrome,
     overlayHostActive: input.overlayHostActive,
     directOverboardHostActive: input.showDirectOverboardLayer,
+    confirmLayerVisible: input.confirmActive,
+    confirmOrbVisible: input.confirmActive && input.showLobbyOrb,
   };
 }
 
@@ -227,7 +238,7 @@ export function observePresentationState(
       mode: 'INCOMING',
       display: {
         kind: 'incoming',
-        id: null,
+        id: input.overlayDisplayId,
         surface: 'queue',
       },
       chrome,
@@ -240,7 +251,7 @@ export function observePresentationState(
       mode: 'CHECK',
       display: {
         kind: 'check',
-        id: null,
+        id: input.overlayDisplayId,
         surface: 'queue',
       },
       chrome,
@@ -253,7 +264,7 @@ export function observePresentationState(
       mode: 'RESULT',
       display: {
         kind: 'result',
-        id: input.queueResultId,
+        id: input.queueResultId ?? input.overlayDisplayId,
         surface: 'queue',
       },
       chrome,

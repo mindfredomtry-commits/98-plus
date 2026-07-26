@@ -79,6 +79,7 @@ function baseInput(
     showDirectOverboardLayer: false,
     directOverboardResultId: null,
     queueResultId: null,
+    overlayDisplayId: null,
     ...overrides,
   };
 }
