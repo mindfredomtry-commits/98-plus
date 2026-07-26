@@ -270,6 +270,15 @@ import {
   subscribeIncomingOverboardCompletion,
 } from '@/notification-runtime/notification-runtime.overboard-completion';
 import {
+  logOverboardV3ProdTrace,
+  logOverboardV3ProdTraceBoot,
+  logOverboardV3WriterChange,
+} from '@/lib/overboard-v3-prod-trace';
+import {
+  noteRuntimeOverboardHeadConsumed,
+  wasRuntimeOverboardHeadConsumed,
+} from '@/lib/runtime-overboard-head-consumed';
+import {
   ingestPendingSnapshot,
   markRuntimeItemConsumed,
   mergePendingItemIds,
@@ -1586,6 +1595,16 @@ interface AppContextValue {
   /** True only when a notification modal is actually rendered (blocks lobby pointer). */
   notificationOverlayVisible: boolean;
   /**
+   * V4: live visual dim session behind the notification queue.
+   * Part of postNotificationPresentationFullyReleased (not overlayQueueRef).
+   */
+  visualQueueDimSession: boolean;
+  /**
+   * V4: DirectOverboardResultLayer / direct overboard host layer is active.
+   * Part of postNotificationPresentationFullyReleased.
+   */
+  showDirectOverboardLayer: boolean;
+  /**
    * Vertical 2 — selectLobbyMayShow(runtime). Ordinary lobby CTA / handoff authority.
    * TEMP consumers: InstantBanFlow showLobbyCta.
    */
@@ -2302,6 +2321,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         // DIAGNOSTICS ONLY (SUCCESS_PROD_TRACE_V1): proves the deployed commit
         // Telegram actually loaded (one-shot, guarded by the build marker above).
         logSuccessProdTraceBoot();
+        // DIAGNOSTICS ONLY (OVERBOARD_V3_PROD_TRACE): proves V3 expected commit.
+        logOverboardV3ProdTraceBoot();
         w.__98PLUS_WEB_BUILD_MARKER__ = marker;
         w.__98PLUS_WEB_RUNTIME_INFO__ = {
           marker,
@@ -4389,6 +4410,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const current = activeIncomingOverlayBanRef.current;
       if (!current?.id) return;
       if (banId && normalizeId(current.id) !== normalizeId(banId)) return;
+      logOverboardV3WriterChange({
+        field: 'activeIncomingOverlayBan',
+        oldValue: current.id,
+        newValue: null,
+        source: `Providers.clearActiveIncomingOverlayBanStable:${reason}`,
+      });
       logIncomingStableBanCleared({ banId: current.id, reason });
       activeIncomingOverlayBanRef.current = null;
       setActiveIncomingOverlayBanState(null);
@@ -4522,6 +4549,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     getIncomingOverboardCompletionSnapshot,
   );
   const handledOverboardCompletionSeqRef = useRef(0);
+  useEffect(() => {
+    logOverboardV3ProdTrace('PROVIDERS_SUBSCRIBER_MOUNTED', {
+      source: 'Providers',
+    });
+  }, []);
   const buildGoToBansTraceHookContext = (
     handlerName: string,
     source: string,
@@ -8762,9 +8794,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const setNotificationChainTransitioning = useCallback((active: boolean) => {
     const owner = ownerShadowRef.current.getState();
+    const prev =
+      owner.session.notificationChainTransitioning ??
+      notificationChainTransitioningRef.current;
     if (owner.session.notificationChainTransitioning === active) {
       // Keep legacy ref aligned if projection already matches owner.
       if (notificationChainTransitioningRef.current === active) return;
+    }
+    if (prev !== active) {
+      logOverboardV3WriterChange({
+        field: 'notificationChainTransitioning',
+        oldValue: prev,
+        newValue: active,
+        source: 'Providers.setNotificationChainTransitioning',
+      });
     }
     // Stage 4A — thin intent adapter → owner CHAIN_TRANSITIONING_SET.
     // React state/refs update only via mirrorLegacySession projection.
@@ -18521,10 +18564,24 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       if (r) {
         const uid = userIdRef.current;
+        const outcome = resolveBanResultOutcome(r);
+        // V4 host-result policy: runtime already consumed this incoming via
+        // overboard — do not re-open a host overboard result/status card.
+        if (
+          outcome === 'overboard' &&
+          wasRuntimeOverboardHeadConsumed(r.id)
+        ) {
+          console.log('[overboard-host-result-neutralized]', {
+            banId: r.id,
+            source: `openBanResult:${mode}`,
+            reason: 'runtime-overboard-head-consumed',
+          });
+          return;
+        }
         if (
           rejectNonOverkillTerminalResult(
             r.id,
-            resolveBanResultOutcome(r),
+            outcome,
             `openBanResult:${mode}`,
             { resultId: r.id },
           )
@@ -19718,6 +19775,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           role,
           source,
           elapsedMs,
+        });
+        return;
+      }
+
+      // V4 host-result policy: runtime already consumed this incoming via
+      // overboard — do not paint a host overboard result/status card.
+      if (
+        resolveBanResultOutcome(normalized) === 'overboard' &&
+        wasRuntimeOverboardHeadConsumed(banId)
+      ) {
+        logResultPath('receiveResult', 'path-skip', {
+          banId,
+          resultId: banId,
+          allowed: false,
+          reason: 'runtime-overboard-head-consumed',
+          extra: { wsOrHttpSource: source },
+        });
+        console.log('[overboard-host-result-neutralized]', {
+          banId,
+          source: `receiveResult:${source}`,
+          reason: 'runtime-overboard-head-consumed',
         });
         return;
       }
@@ -22978,7 +23056,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         },
         token,
         EMPTY_RUNTIME_LEGACY_SINKS,
-      );
+      ).then((res) => {
+        if (res.ok) {
+          // V4: runtime consumed this head — neutralize host overboard result path.
+          noteRuntimeOverboardHeadConsumed(banId);
+          const key = normalizeId(banId);
+          if (key) {
+            resultDeliveredBanIdsRef.current.add(key);
+            freshOverboardActionBanIdsRef.current.delete(key);
+          }
+        }
+        return res;
+      });
     },
     [],
   );
@@ -38571,6 +38660,14 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const notificationOverlayMountedPrevRef = useRef(notificationOverlayMounted);
   useEffect(() => {
     const prev = notificationOverlayMountedPrevRef.current;
+    if (prev !== notificationOverlayMounted) {
+      logOverboardV3WriterChange({
+        field: 'notificationOverlayMounted',
+        oldValue: prev,
+        newValue: notificationOverlayMounted,
+        source: 'Providers.notificationOverlayMounted-derived',
+      });
+    }
     notificationOverlayMountedPrevRef.current = notificationOverlayMounted;
     if (
       prev === true &&
@@ -42437,8 +42534,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         },
       });
       clearVisualQueueDimReleaseTimer('commit-release');
+      const prevDim = visualQueueDimSessionRef.current;
       visualQueueDimSessionRef.current = false;
       setVisualQueueDimSession(false);
+      if (prevDim) {
+        logOverboardV3WriterChange({
+          field: 'visualQueueDimSession',
+          oldValue: prevDim,
+          newValue: false,
+          source: `Providers.commitVisualQueueDimSessionRelease:${reason}`,
+        });
+      }
       logVisualQueueDimSessionTrace({
         event: 'release',
         reason,
@@ -42754,13 +42860,58 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
    * no lifecycle write here.
    */
   useEffect(() => {
-    const { seq, banId } = incomingOverboardCompletion;
+    const { seq, banId, commandId } = incomingOverboardCompletion;
     if (seq === 0) return;
-    if (handledOverboardCompletionSeqRef.current === seq) return;
     const runtime = notificationRuntimeStoreRef.current.getState();
-    if (!isRuntimeIdleEmptyAfterOverboard(runtime)) return;
+    const activeBefore = activeIncomingOverlayBanRef.current?.id ?? null;
+    const chainBefore = notificationChainTransitioningRef.current;
+    const dimBefore = visualQueueDimSessionRef.current;
+    logOverboardV3ProdTrace('PROVIDERS_EDGE', {
+      commandId,
+      seq,
+      banId,
+      subscriberMounted: true,
+      edgeReceived: true,
+      handledSeq: handledOverboardCompletionSeqRef.current,
+      activeIncomingOverlayBanBefore: activeBefore,
+      notificationChainTransitioningBefore: chainBefore,
+      visualQueueDimSessionBefore: dimBefore,
+      runtimeIdleEmpty: isRuntimeIdleEmptyAfterOverboard(runtime),
+    });
+    if (handledOverboardCompletionSeqRef.current === seq) {
+      logOverboardV3ProdTrace('PROVIDERS_EDGE', {
+        commandId,
+        seq,
+        banId,
+        dedupe: 'rejected',
+        reason: 'seq-already-handled',
+      });
+      return;
+    }
+    if (!isRuntimeIdleEmptyAfterOverboard(runtime)) {
+      logOverboardV3ProdTrace('PROVIDERS_EDGE', {
+        commandId,
+        seq,
+        banId,
+        dedupe: 'rejected',
+        reason: 'runtime-not-idle-empty',
+        lifecycle: runtime.lifecycle.status,
+        queueLen: runtime.items.queue.length,
+      });
+      return;
+    }
     handledOverboardCompletionSeqRef.current = seq;
     const source = 'overboard-runtime-complete';
+    logOverboardV3ProdTrace('PROVIDERS_PIN_RELEASE', {
+      commandId,
+      seq,
+      banId,
+      dedupe: 'accepted',
+      activeIncomingOverlayBanBefore: activeBefore,
+      notificationChainTransitioningBefore: chainBefore,
+      visualQueueDimSessionBefore: dimBefore,
+      legacyQueueLen: overlayQueueRef.current.length,
+    });
     console.log('[OVERBOARD RUNTIME COMPLETE]', {
       seq,
       banId,
@@ -42787,6 +42938,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         sendFlowOpening: false,
       });
     }
+    logOverboardV3ProdTrace('PROVIDERS_PIN_RELEASE', {
+      commandId,
+      seq,
+      banId,
+      phase: 'after',
+      activeIncomingOverlayBanAfter:
+        activeIncomingOverlayBanRef.current?.id ?? null,
+      notificationChainTransitioningAfter:
+        notificationChainTransitioningRef.current,
+      visualQueueDimSessionAfter: visualQueueDimSessionRef.current,
+      source: 'Providers.v3-consumer',
+    });
   }, [
     clearActiveIncomingOverlayBanStable,
     clearNotificationOverlayForEmptyQueueAfterSuccessExit,
@@ -44108,6 +44271,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setNotificationChainTransitioning,
       clearNotificationOverlayForEmptyQueueAfterSuccessExit,
       notificationOverlayVisible,
+      visualQueueDimSession:
+        visualQueueDimSessionRef.current || visualQueueDimSession,
+      showDirectOverboardLayer,
       runtimeLobbyMayShow: notificationRuntimeUi.lobbyMayShow,
       interactiveLobbyChromeMayShow:
         notificationRuntimeUi.interactiveLobbyChromeMayShow,
@@ -44315,6 +44481,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       setNotificationChainTransitioning,
       clearNotificationOverlayForEmptyQueueAfterSuccessExit,
       notificationOverlayVisible,
+      visualQueueDimSession,
+      showDirectOverboardLayer,
       notificationRuntimeUi.lobbyMayShow,
       notificationRuntimeUi.interactiveLobbyChromeMayShow,
       notificationRuntimeUi.holdLobbyOrbForBootstrap,

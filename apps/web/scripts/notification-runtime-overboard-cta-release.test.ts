@@ -125,24 +125,23 @@ async function main() {
   );
 
   await spec(
-    'A2: CTA restore uses beginCtaSpringIn on the completion edge',
+    'A2: V4 bypasses V3 runtime-idle CTA restore; uses presentation-release edge',
     () => {
       const flow = readSource(
         'apps/web/src/components/instant-ban/InstantBanFlow.tsx',
       );
-      assert.match(flow, /subscribeIncomingOverboardCompletion/);
-      const restoreBlock = flow.match(
-        /const \{ seq \} = incomingOverboardCompletion;[\s\S]*?\}, \[/,
+      // V3 early CTA restore from runtime completion edge is bypassed.
+      assert.equal(
+        flow.includes("openLobby('overboard-runtime-complete')"),
+        false,
       );
-      assert.ok(restoreBlock, 'completion restore effect present');
-      const block = restoreBlock![0];
-      assert.match(block, /handledOverboardCompletionSeqRef\.current === seq/);
-      assert.match(block, /isRuntimeIdleEmptyAfterOverboard/);
-      assert.match(block, /beginCtaSpringIn\(\)/);
-      assert.match(block, /openLobby\('overboard-runtime-complete'\)/);
-      // Canonical helper only — no direct CTA state write, no timeout.
-      assert.doesNotMatch(block, /setCtaState/);
-      assert.doesNotMatch(block, /setTimeout/);
+      assert.equal(flow.includes('subscribeIncomingOverboardCompletion'), false);
+      // V4: CTA restores only on post-notification presentation fully released.
+      assert.match(flow, /post-notification-presentation-released/);
+      assert.match(flow, /isPostNotificationPresentationFullyReleased/);
+      assert.match(flow, /detectPostNotificationPresentationReleaseEdge/);
+      assert.match(flow, /beginCtaSpringIn\(\)/);
+      assert.match(flow, /allowSuccessExitLobbyOpen\(\)/);
     },
   );
 
@@ -194,7 +193,7 @@ async function main() {
 
       const providers = readSource('apps/web/src/components/Providers.tsx');
       const releaseBlock = providers.match(
-        /const \{ seq, banId \} = incomingOverboardCompletion;[\s\S]*?\}, \[/,
+        /const \{ seq, banId, commandId \} = incomingOverboardCompletion;[\s\S]*?\}, \[/,
       );
       assert.ok(releaseBlock, 'providers completion release effect present');
       const block = releaseBlock![0];
@@ -282,7 +281,7 @@ async function main() {
 
       const providers = readSource('apps/web/src/components/Providers.tsx');
       const releaseBlock = providers.match(
-        /const \{ seq, banId \} = incomingOverboardCompletion;[\s\S]*?\}, \[/,
+        /const \{ seq, banId, commandId \} = incomingOverboardCompletion;[\s\S]*?\}, \[/,
       );
       assert.ok(releaseBlock);
       // Chain transitioning is released from the runtime edge even when the
