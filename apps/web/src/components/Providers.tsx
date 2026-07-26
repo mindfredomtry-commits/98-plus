@@ -213,6 +213,7 @@ import {
   toRuntimeItems,
 } from '@/notification-runtime/notification-runtime.store';
 import { selectNotificationRuntimeUiSnapshot } from '@/notification-runtime/notification-runtime.snapshot';
+import { PresentationRoot } from '@/components/presentation';
 import {
   notificationOverlayMayMount,
   resolveOrdinaryLobbyMayOpen,
@@ -45235,7 +45236,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     <AppContext.Provider value={contextValue}>
       <RouteOverlayBootPriorityMarker active={routeOverlayAboveBoot} />
       <ShellErrorBoundary name="app">
-        {children}
+        <PresentationRoot
+          runtimeState={notificationRuntimeState}
+          notificationOverlays={
+            <>
         {(() => {
           const overlayRootBranchCollector =
             createCheckOverlayParentBranchPriorityCollector(
@@ -46002,6 +46006,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             </ChallengeErrorBoundary>
           );
         })()}
+            </>
+          }
+        >
+          {children}
+        </PresentationRoot>
         {!displayResult ? (
           <ShellErrorBoundary name="energy" fallback={null}>
             <EnergyPopupStack popups={popups} />
