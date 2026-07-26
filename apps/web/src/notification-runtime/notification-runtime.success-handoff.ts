@@ -9,6 +9,7 @@ import {
   partitionSuccessHandoffMaterializeItems,
   type SuccessHandoffMaterializeStage,
 } from '@/lib/success-handoff-result-preemption';
+import { noteSuccessDrainBatchForFlashOrigin } from '@/lib/overboard-flash-origin-v1';
 import {
   buildExclusiveDisplayPatchFromRuntime,
   toQueuedOverlayItems,
@@ -69,6 +70,7 @@ export function resolveSuccessDrainBatch(
   const { materialize, withheld } = partitionSuccessHandoffMaterializeItems(
     filterConsumedQueuedItems(store, items),
   );
+  noteSuccessDrainBatchForFlashOrigin({ stage, withheld, materialize });
   logSuccessHandoffOverboardResultWithheld(
     stage,
     withheld,

@@ -279,6 +279,11 @@ import {
   wasRuntimeOverboardHeadConsumed,
 } from '@/lib/runtime-overboard-head-consumed';
 import {
+  noteOverboardFlashWriter,
+  registerOverboardFlashOriginSnapshotReader,
+  snapQueuedOverlays,
+} from '@/lib/overboard-flash-origin-v1';
+import {
   ingestPendingSnapshot,
   markRuntimeItemConsumed,
   mergePendingItemIds,
@@ -11872,6 +11877,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         const gateBefore = snapshotDirectOverboardGate();
         clearDirectOverboardLayerRefs();
         resultOpenRef.current = true;
+        if (resolveBanResultOutcome(active.result) === 'overboard') {
+          noteOverboardFlashWriter('SYNC_DISPLAY_FROM_QUEUE', active.result.id);
+        }
         holdResultForActiveNotificationChain(
           active.result.id,
           'syncDisplayFromQueue-chain-applied',
@@ -18715,6 +18723,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             : 'poll';
 
       const queueLenBefore = overlayQueueRef.current.length;
+      if (resolveBanResultOutcome(r) === 'overboard') {
+        noteOverboardFlashWriter('OPEN_BAN_RESULT', r.id);
+      }
       enqueueNotification(
         { kind: 'result', result: r },
         {
@@ -19646,6 +19657,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             },
         `receiveResult:${source}`,
       );
+      noteOverboardFlashWriter('RECEIVE_RESULT', banId);
+      if (!checkAnswerInFlightRef.current.has(banId)) {
+        noteOverboardFlashWriter('LATE_RESULT_ARRIVED', banId);
+      }
 
       if (
         source === 'poll' &&
@@ -39640,6 +39655,69 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const queueResultOverlayClaimed = queueResultOverlayClaimResolved.claimed;
   const queueResultOverlayClaimArms = queueResultOverlayClaimResolved.arms;
 
+  const overboardFlashOriginSnapRef = useRef({
+    successCardMounted: false,
+    successExitDraining: false,
+    runtimeLifecycle: null as string | null,
+    runtimeAction: null as string | null,
+    runtimeQueue: [] as ReturnType<typeof snapQueuedOverlays>,
+    runtimeDisplayKind: null as string | null,
+    runtimeDisplayId: null as string | null,
+    runtimeDisplayOutcome: null as string | null,
+    ownerQueue: [] as ReturnType<typeof snapQueuedOverlays>,
+    effectiveNotificationQueueShellKind: null as string | null,
+    queueResultOverlayClaimed: false,
+    directOverboardRenderForcedByQueueResult: false,
+    directOverboardVisible: false,
+    resultOverlayVisible: false,
+    openBanResultActiveId: null as string | null,
+    receiveResultActiveId: null as string | null,
+    lateResultActiveId: null as string | null,
+  });
+  overboardFlashOriginSnapRef.current = {
+    successCardMounted: sendSuccessCardActiveRef.current,
+    successExitDraining: isSuccessExitInProgress(),
+    runtimeLifecycle: notificationRuntimeState.lifecycle.status,
+    runtimeAction: notificationRuntimeState.action.status,
+    runtimeQueue: snapQueuedOverlays(runtimePaint.queue),
+    runtimeDisplayKind: runtimePaint.display.result
+      ? 'result'
+      : runtimePaint.display.checkBan
+        ? 'check'
+        : runtimePaint.display.incomingBan
+          ? 'incoming'
+          : null,
+    runtimeDisplayId:
+      runtimePaint.display.result?.id ??
+      runtimePaint.display.checkBan?.id ??
+      runtimePaint.display.incomingBan?.id ??
+      null,
+    runtimeDisplayOutcome: runtimePaint.display.result
+      ? resolveBanResultOutcome(runtimePaint.display.result) || null
+      : null,
+    ownerQueue: snapQueuedOverlays(ownerReadQueue),
+    effectiveNotificationQueueShellKind:
+      effectiveNotificationQueueShellKind ?? null,
+    queueResultOverlayClaimed,
+    directOverboardRenderForcedByQueueResult:
+      Boolean(ownerPrimaryDisplayResultForShell) &&
+      (ownerPrimaryQueueLen > 0 || ownerPrimaryPendingLen > 0) &&
+      notificationSessionActive,
+    directOverboardVisible: showDirectOverboardLayer,
+    resultOverlayVisible: Boolean(
+      ownerPrimaryDisplayResultForShell || resultRef.current || result,
+    ),
+    openBanResultActiveId: resultRef.current?.id ?? result?.id ?? null,
+    receiveResultActiveId: null,
+    lateResultActiveId: null,
+  };
+  useEffect(() => {
+    registerOverboardFlashOriginSnapshotReader(
+      () => overboardFlashOriginSnapRef.current,
+    );
+    return () => registerOverboardFlashOriginSnapshotReader(null);
+  }, []);
+
   const queueShellRendersResultOverlay =
     ownerRenderResultPayload != null &&
     (queueShellShowsResult || queueResultOverlayClaimed);
@@ -45554,6 +45632,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             directOverboardRenderForcedByQueueResult &&
             !showDirectOverboardLayer
           ) {
+            if (
+              resolveBanResultOutcome(directOverboardRenderResult) ===
+              'overboard'
+            ) {
+              noteOverboardFlashWriter(
+                'DIRECT_OVERBOARD_FORCED_BY_QUEUE',
+                directOverboardRenderResult?.id,
+              );
+            }
             window.__debug98log?.('[DIRECT OVERBOARD RENDER FORCED BY QUEUE RESULT]', {
               hasResult,
               showable,
