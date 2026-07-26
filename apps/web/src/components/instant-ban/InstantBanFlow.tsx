@@ -46,9 +46,23 @@ import {
   selectHoldLobbyOrbForBootstrap,
   selectIndicatorVisible,
   selectIsDraining,
+  selectIsRecovering,
   selectLobbyMayShow,
   selectOverlayVisible,
+  selectPendingCount,
 } from '@/notification-runtime/notification-runtime.selectors';
+import {
+  evaluateSuccessDrainEmptyShellHold,
+  resolveLobbyOrbLayersWithSuccessDrainHold,
+  SUCCESS_DRAIN_EMPTY_SHELL_HOLD_MAX_MS,
+  type SuccessDrainEmptyShellHoldInput,
+} from '@/lib/success-drain-empty-shell-hold';
+import {
+  buildSuccessEmptyShellHoldTraceFields,
+  logSuccessEmptyShellHoldEnter,
+  logSuccessEmptyShellHoldRelease,
+  type SuccessDrainEmptyShellHoldTraceFields,
+} from '@/lib/success-drain-empty-shell-hold-debug';
 import { createInitialNotificationRuntimeState } from '@/notification-runtime/notification-runtime.types';
 import {
   logOverboardV3WriterChange,
@@ -643,6 +657,13 @@ export function InstantBanFlow({
   const postSuccessHandoffWaitingLoggedRef = useRef(false);
   const successCardSessionRef = useRef(0);
   const [successExitDraining, setSuccessExitDraining] = useState(false);
+  /** FIX A bound — a stuck SUCCESS drain must never strand an empty screen. */
+  const [successEmptyShellHoldExpired, setSuccessEmptyShellHoldExpired] =
+    useState(false);
+  const successEmptyShellHoldStartedAtRef = useRef<number | null>(null);
+  const successEmptyShellHoldPrevRef = useRef(false);
+  const successEmptyShellHoldTraceRef =
+    useRef<SuccessDrainEmptyShellHoldTraceFields | null>(null);
   const postSuccessHandoffActive = useSyncExternalStore(
     subscribePostSuccessHandoff,
     getPostSuccessHandoffSnapshot,
@@ -949,10 +970,81 @@ export function InstantBanFlow({
     overlayQueueLength: 0,
     queueLobbyGuardActive: false,
   });
+  /**
+   * FIX A — SUCCESS handoff owns presentation with an empty notification shell:
+   * suppress base lobby paint until the runtime materializes (or the drain
+   * explicitly settles). Bounded by successEmptyShellHoldExpired.
+   */
+  const successEmptyShellHoldInput: SuccessDrainEmptyShellHoldInput = {
+    lobbyBootIntroPrimed,
+    successHandoffOwnsPresentation:
+      successExitDraining || postSuccessHandoffBlocking,
+    runtimeLifecycle: notificationRuntimeState.lifecycle.status,
+    runtimeDisplayKind: notificationRuntimeState.display.kind,
+    runtimeDisplayPayloadPresent:
+      notificationRuntimeState.display.payload != null,
+    runtimeQueueLength: notificationRuntimeState.items.queue.length,
+    runtimePendingCount: selectPendingCount(notificationRuntimeState),
+    notificationPresentationClaimed: runtimeClaimsNotificationScreen,
+    drainPrefetchInFlight:
+      selectIsDraining(notificationRuntimeState) &&
+      notificationRuntimeState.lifecycle.transitionId != null,
+    drainCompletedEmpty:
+      runtimeLobbyMayShowStrict &&
+      notificationRuntimeState.items.queue.length === 0 &&
+      selectPendingCount(notificationRuntimeState) === 0,
+    presentationOwnershipReleased:
+      selectIsRecovering(notificationRuntimeState) ||
+      notificationRuntimeState.recovery.status === 'failed',
+    holdExpired: successEmptyShellHoldExpired,
+  };
+  const successEmptyShellHoldDecision = evaluateSuccessDrainEmptyShellHold(
+    successEmptyShellHoldInput,
+  );
+  const successEmptyShellHold = successEmptyShellHoldDecision.hold;
+  successEmptyShellHoldTraceRef.current = buildSuccessEmptyShellHoldTraceFields(
+    successEmptyShellHoldInput,
+    successEmptyShellHoldDecision.releaseReason,
+    null,
+  );
   /** Base lobby layer: boot orb until primed + chrome-safe; then permanent lobby orb. */
-  const showBootOrb = !lobbyBootIntroPrimed || holdLobbyOrbForBootstrap;
-  const showLobbyOrb = lobbyBootIntroPrimed && !holdLobbyOrbForBootstrap;
+  const { showBootOrb, showLobbyOrb } =
+    resolveLobbyOrbLayersWithSuccessDrainHold({
+      hold: successEmptyShellHold,
+      lobbyBootIntroPrimed,
+      holdLobbyOrbForBootstrap,
+    });
   const lobbyOrbVisible = showBootOrb || showLobbyOrb;
+  useEffect(() => {
+    if (!successEmptyShellHold) return;
+    const timer = setTimeout(() => {
+      setSuccessEmptyShellHoldExpired(true);
+    }, SUCCESS_DRAIN_EMPTY_SHELL_HOLD_MAX_MS);
+    return () => clearTimeout(timer);
+  }, [successEmptyShellHold]);
+  useEffect(() => {
+    if (successEmptyShellHold) return;
+    setSuccessEmptyShellHoldExpired(false);
+  }, [successEmptyShellHold]);
+  useEffect(() => {
+    const wasHolding = successEmptyShellHoldPrevRef.current;
+    if (wasHolding === successEmptyShellHold) return;
+    successEmptyShellHoldPrevRef.current = successEmptyShellHold;
+    const fields = successEmptyShellHoldTraceRef.current;
+    if (!fields) return;
+    if (successEmptyShellHold) {
+      successEmptyShellHoldStartedAtRef.current = performance.now();
+      logSuccessEmptyShellHoldEnter(fields);
+      return;
+    }
+    const startedAt = successEmptyShellHoldStartedAtRef.current;
+    successEmptyShellHoldStartedAtRef.current = null;
+    logSuccessEmptyShellHoldRelease({
+      ...fields,
+      heldMs:
+        startedAt == null ? null : Math.round(performance.now() - startedAt),
+    });
+  }, [successEmptyShellHold]);
   const baseLobbyLayerMounted = lobbyBootIntroPrimed;
   const lobbyChromeHidden =
     replyLobbyBlocked ||
@@ -6941,7 +7033,10 @@ export function InstantBanFlow({
   });
   const persistentLobbyLogoActive = !confirmActive && !orbCompressActive;
   const persistentLogoVisible =
-    persistentLobbyLogoActive && !hideLobbyBootLogoOnly;
+    persistentLobbyLogoActive &&
+    !hideLobbyBootLogoOnly &&
+    // FIX A: no Lobby content behind an empty SUCCESS-drain notification shell.
+    !successEmptyShellHold;
 
   useLayoutEffect(() => {
     if (!confirmActive && phase !== 'confirming') return;
