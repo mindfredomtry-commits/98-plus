@@ -17,6 +17,10 @@ import {
 } from '@/lib/result-render-selection-trace';
 import { getAppPortalRoot } from '@/lib/portal-root';
 import { logResultPath } from '@/lib/result-open-trace';
+import {
+  clearOverboardFlashOriginEmitForBan,
+  emitOverboardFlashOriginV1,
+} from '@/lib/overboard-flash-origin-v1';
 import { ResultOverlay } from './ResultOverlay';
 
 type Props = {
@@ -134,6 +138,30 @@ export function DirectOverboardResultLayer({
       targetNull: target == null,
       bodyChildCount: document.body?.childElementCount ?? null,
     });
+  }, [result.id]);
+
+  useLayoutEffect(() => {
+    if (!visible || !portalTarget || !resultVisible) return;
+    emitOverboardFlashOriginV1({
+      result,
+      mountSurface: 'DirectOverboardResultLayer',
+      resultOverlayVisible: resultVisible,
+      directOverboardVisible: visible,
+      directOverboardRenderForcedByQueueResult:
+        visibilityReason === 'forced-by-queue-result',
+    });
+  }, [
+    portalTarget,
+    result,
+    resultVisible,
+    visible,
+    visibilityReason,
+  ]);
+
+  useLayoutEffect(() => {
+    return () => {
+      clearOverboardFlashOriginEmitForBan(result.id);
+    };
   }, [result.id]);
 
   useLayoutEffect(() => {

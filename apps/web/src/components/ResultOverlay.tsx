@@ -67,6 +67,10 @@ import {
   getOverboardClickTs,
   logOverboardPaint,
 } from '@/lib/overboard-timing-debug';
+import {
+  clearOverboardFlashOriginEmitForBan,
+  emitOverboardFlashOriginV1,
+} from '@/lib/overboard-flash-origin-v1';
 import { logResultFunMode } from '@/lib/result-fun-mode-debug';
 import { logResultPresentation } from '@/lib/result-ui-debug';
 import { markVisibleOverboardTrace } from '@/lib/overboard-flow-debug';
@@ -729,6 +733,28 @@ function ResultOverlayInner({
     resultStatus === 'overboard';
   const isFunMode = isResultFunMode(renderResult);
   const overboardPresentation = RESULT_COPY.overboard;
+
+  useLayoutEffect(() => {
+    if (!isOverboard || !effectiveShowable || !result.id) return;
+    emitOverboardFlashOriginV1({
+      result,
+      mountSurface: 'ResultOverlay',
+      resultOverlayVisible: effectiveShowable,
+      directOverboardVisible: Boolean(directPaint && embedded),
+    });
+  }, [
+    directPaint,
+    effectiveShowable,
+    embedded,
+    isOverboard,
+    result,
+  ]);
+
+  useLayoutEffect(() => {
+    return () => {
+      clearOverboardFlashOriginEmitForBan(result.id);
+    };
+  }, [result.id]);
 
   const view = useMemo(() => {
     const viewer = (renderResult.viewerId ?? resolvedViewerId ?? '').trim();

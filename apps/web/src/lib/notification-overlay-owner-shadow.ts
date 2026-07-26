@@ -26,6 +26,8 @@ import {
   logOwnerShadowMismatch,
   logOwnerShadowState,
 } from '@/lib/notification-overlay-owner-debug';
+import { noteOverboardFlashWriter } from '@/lib/overboard-flash-origin-v1';
+import { resolveBanResultOutcome } from '@/lib/overkill-terminal-lock';
 import {
   buildOwnerDisplayWriteTraceSnapshot,
   logOwnerDisplayWriteTrace,
@@ -353,11 +355,18 @@ export function createNotificationOverlayOwnerShadow(
       }
       if (effect.type === 'APPLY_DISPLAY') {
         const ownerState = currentState();
+        const resultId = ownerState.display.result?.id ?? null;
+        if (
+          resultId &&
+          resolveBanResultOutcome(ownerState.display.result) === 'overboard'
+        ) {
+          noteOverboardFlashWriter('APPLY_DISPLAY', resultId);
+        }
         logOwnerPhase9ActiveMirror({
           source: 'APPLY_DISPLAY',
           incomingBanId: ownerState.display.incomingBan?.id ?? null,
           checkBanId: ownerState.display.checkBan?.id ?? null,
-          resultBanId: ownerState.display.result?.id ?? null,
+          resultBanId: resultId,
           directResultOverlay: ownerState.display.directResultOverlay,
           directResultOverlayActive: ownerState.display.directResultOverlayActive,
         });
