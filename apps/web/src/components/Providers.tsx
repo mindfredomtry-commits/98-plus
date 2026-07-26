@@ -857,6 +857,11 @@ import {
   traceQueueResultOverlayClaimStuckIfNeeded,
 } from '@/lib/queue-result-overlay-claim-trace-debug';
 import {
+  resolveShellKindWithLegacyResultDeferred,
+  shouldDeferLegacyResultOverlayPaint,
+  type SuccessDrainRuntimeDisplayKind,
+} from '@/lib/success-drain-legacy-result-defer';
+import {
   buildNextOverlayOwnerDisplayFields,
   buildNextOverlayQueueSnapshotFields,
   observeNextOverlayAfterResultRelease,
@@ -38094,6 +38099,41 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   /** Phase 12.1: owner-state render payload for ResultOverlay (display → holds → queue). */
   const ownerRenderResultPayload = activeResultPayload;
 
+  const runtimeDisplayKindForSuccessDrainGate: SuccessDrainRuntimeDisplayKind =
+    runtimePaint.display.result
+      ? 'result'
+      : runtimePaint.display.checkBan
+        ? 'check'
+        : runtimePaint.display.incomingBan
+          ? 'incoming'
+          : null;
+  const ownerQueueHeadForSuccessDrainDefer = readOwnerOnlyQueueHead(
+    ownerReadQueue,
+    'queueHead',
+    { queue: overlayQueue, refQueue: overlayQueueRef.current },
+  );
+  const legacyResultIdForSuccessDrainDefer =
+    activeResultPayload?.id ??
+    (ownerPrimaryHeldUserCard?.kind === 'result'
+      ? ownerPrimaryHeldUserCard.result.id
+      : null) ??
+    (ownerQueueHeadForSuccessDrainDefer?.kind === 'result'
+      ? ownerQueueHeadForSuccessDrainDefer.result.id
+      : null) ??
+    null;
+  const deferLegacyResultOverlayPaint = shouldDeferLegacyResultOverlayPaint({
+    successExitDraining: isSuccessExitInProgress(),
+    runtimeLifecycle: notificationRuntimeState.lifecycle.status,
+    runtimeDisplayKind: runtimeDisplayKindForSuccessDrainGate,
+    runtimeDisplayResultId: runtimePaint.display.result?.id ?? null,
+    legacyResultPaintCandidate:
+      activeOverlayKind === 'result' ||
+      activeResultPayload != null ||
+      ownerPrimaryHeldUserCard?.kind === 'result' ||
+      ownerQueueHeadForSuccessDrainDefer?.kind === 'result',
+    legacyResultId: legacyResultIdForSuccessDrainDefer,
+  });
+
   /** Phase 12.1: owner-derived incoming ban for IncomingBanOverlay JSX. */
   const ownerRenderIncomingBan =
     ownerPrimaryStableIncomingBan ??
@@ -38205,7 +38245,32 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         atomicOverboardShellReady ||
         (incomingOverlayDisplayKind === 'result' && activePayloadShellReady))
     ) {
-      return 'result' as const;
+      if (!deferLegacyResultOverlayPaint) {
+        return 'result' as const;
+      }
+      if (runtimeDisplayKindForSuccessDrainGate === 'incoming') {
+        return 'incoming' as const;
+      }
+      if (runtimeDisplayKindForSuccessDrainGate === 'check') {
+        return 'check' as const;
+      }
+      // Deferred SUCCESS-drain owner result: do not propose result shell.
+    }
+    if (
+      deferLegacyResultOverlayPaint &&
+      runtimeDisplayKindForSuccessDrainGate === 'incoming' &&
+      (ownerPrimaryIncomingBan?.id ||
+        ownerPrimaryStableIncomingBan?.id ||
+        runtimePaint.display.incomingBan?.id)
+    ) {
+      return 'incoming' as const;
+    }
+    if (
+      deferLegacyResultOverlayPaint &&
+      runtimeDisplayKindForSuccessDrainGate === 'check' &&
+      (ownerPrimaryCheckBan?.id || runtimePaint.display.checkBan?.id)
+    ) {
+      return 'check' as const;
     }
     if (
       ownerPrimaryStableIncomingBan?.id &&
@@ -38254,6 +38319,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     replyIncomingDirectPath,
     showDirectOverboardLayer,
     ownerPrimaryStableIncomingBan?.id,
+    ownerPrimaryIncomingBan?.id,
     incomingOverlayDisplayKind,
     checkGateActive,
     displayResult,
@@ -38267,6 +38333,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     activeResultPayload,
     checkResultShellDisplayReady,
     isQueueAtomicOverboardResultShowable,
+    deferLegacyResultOverlayPaint,
+    runtimeDisplayKindForSuccessDrainGate,
+    runtimePaint.display.incomingBan?.id,
+    runtimePaint.display.checkBan?.id,
   ]);
 
   const overlayQueueShellFallbackUsedRef = useRef(false);
@@ -38456,17 +38526,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         refResultShellReady ||
         atomicOverboardShellReady);
 
-    if (queueResultActive) {
+    if (queueResultActive && !deferLegacyResultOverlayPaint) {
       return 'result' as const;
     }
 
-    return notificationQueueShellKind ?? queueHeadShellKindFallback;
+    const fallbackKind =
+      notificationQueueShellKind ?? queueHeadShellKindFallback;
+    return resolveShellKindWithLegacyResultDeferred(
+      deferLegacyResultOverlayPaint,
+      fallbackKind === 'result' ? null : fallbackKind,
+      runtimeDisplayKindForSuccessDrainGate,
+    );
   }, [
     activeResultPayload,
     chainAdvanceWaiting,
     checkResultShellDisplayReady,
     composeBlocksNotificationHost,
     ownerPrimaryHeldUserCard,
+    deferLegacyResultOverlayPaint,
+    runtimeDisplayKindForSuccessDrainGate,
     isQueueAtomicOverboardResultShowable,
     notificationQueueShellKind,
     overlayQueue,
@@ -39638,6 +39716,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         : null;
 
   const queueShellShowsResult =
+    !deferLegacyResultOverlayPaint &&
     effectiveNotificationQueueShellKind === 'result' &&
     ownerRenderResultPayload != null &&
     checkResultShellDisplayReady(
@@ -39652,7 +39731,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     activeKind: activeOverlayKind,
     effectiveShellKind: effectiveNotificationQueueShellKind,
   });
-  const queueResultOverlayClaimed = queueResultOverlayClaimResolved.claimed;
+  const queueResultOverlayClaimed = deferLegacyResultOverlayPaint
+    ? false
+    : queueResultOverlayClaimResolved.claimed;
   const queueResultOverlayClaimArms = queueResultOverlayClaimResolved.arms;
 
   const overboardFlashOriginSnapRef = useRef({
@@ -39719,6 +39800,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, []);
 
   const queueShellRendersResultOverlay =
+    !deferLegacyResultOverlayPaint &&
     ownerRenderResultPayload != null &&
     (queueShellShowsResult || queueResultOverlayClaimed);
 
