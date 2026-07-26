@@ -1010,7 +1010,9 @@ export function InstantBanFlow({
   const successEmptyShellHold = successPresentationHandoffHold;
   const interactiveActionOwnsPresentation =
     notificationRuntimeState.lifecycle.status === 'submitting' ||
-    notificationRuntimeState.action.status === 'pending';
+    notificationRuntimeState.action.status === 'pending' ||
+    // Check-style / expected-result wait keeps the head while action=succeeded.
+    notificationRuntimeState.action.status === 'succeeded';
   const transitionOwnsPresentation = notificationTransitionOwnsPresentation({
     successPresentationHandoffHold,
     interactiveActionOwnsPresentation,

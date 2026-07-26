@@ -14475,13 +14475,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         // action belongs to that action chain — never to normal-mode
         // indicator-only handling. The action completion materializes it.
         if (normalizedItem.kind === 'result') {
+          const runtimeState = notificationRuntimeStoreRef.current.getState();
+          const head = runtimeState.items.queue[0] ?? null;
+          const allowEarlyPark =
+            head?.kind === 'incoming' &&
+            normalizeId(head.ban.id) === normalizeId(banId);
           const staged = stageMatchingActionResult({
             banId,
             result: normalizedItem.result,
             source: 'ws',
-            runtime: snapshotRuntimeForActionResultHandoff(
-              notificationRuntimeStoreRef.current.getState(),
-            ),
+            runtime: snapshotRuntimeForActionResultHandoff(runtimeState),
+            allowEarlyPark,
           });
           if (staged.outcome !== 'not-correlated') {
             traceEnqueueExit('action-matching-result-staged', {
@@ -19800,14 +19804,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       // FIX B: correlate against the in-flight / just-completed card action
       // before any normal-mode or host-neutralize classification can claim it.
+      // Early-park when the active incoming head matches and the chain has not
+      // registered yet (WS-before-beginInteractiveCardActionChain race).
       {
+        const runtimeState = notificationRuntimeStoreRef.current.getState();
+        const head = runtimeState.items.queue[0] ?? null;
+        const allowEarlyPark =
+          head?.kind === 'incoming' &&
+          normalizeId(head.ban.id) === normalizeId(banId);
         const staged = stageMatchingActionResult({
           banId,
           result: normalized,
           source: 'ws',
-          runtime: snapshotRuntimeForActionResultHandoff(
-            notificationRuntimeStoreRef.current.getState(),
-          ),
+          runtime: snapshotRuntimeForActionResultHandoff(runtimeState),
+          allowEarlyPark,
         });
         if (staged.outcome !== 'not-correlated') {
           logResultPath('receiveResult', 'path-skip', {

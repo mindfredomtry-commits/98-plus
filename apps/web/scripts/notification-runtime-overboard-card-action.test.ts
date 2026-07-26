@@ -68,8 +68,9 @@ function ingest(
 
 /**
  * Production `POST /bans/:id/overboard` answers `{ ok, ban }` with no result
- * payload — that is the "no result required" contract these specs cover.
- * FIX B (matching result handoff) is covered in
+ * payload. CTA/advance specs that intentionally cover the explicit no-result
+ * contract must set `explicitNoResult: true`. Matching-result materialization
+ * (default overboard contract) is covered by
  * notification-runtime-action-matching-result-handoff.test.ts.
  */
 async function overboardOk(
@@ -91,7 +92,13 @@ async function overboardOk(
     effect,
     async () =>
       transportOk
-        ? { ok: true, result: httpResult }
+        ? {
+            ok: true,
+            result: httpResult,
+            // Advance/Lobby specs: explicit no-result. When httpResult is set,
+            // the matching-result path materializes instead.
+            explicitNoResult: httpResult == null,
+          }
         : { ok: false, error: 'API_FAIL' },
     'tok',
     EMPTY_RUNTIME_LEGACY_SINKS,

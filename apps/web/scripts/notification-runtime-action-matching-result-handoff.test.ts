@@ -1,11 +1,9 @@
 /**
  * FIX B — matching overboard result action handoff.
  *
- * B1–B7 cover the proven production sequence:
- *   incoming cms1vmwok… → submit overboard → matching WS result classified
- *   `LIVE OVERLAY BLOCKED reason=normal-mode` → deferred → HTTP 200
- *   CARD_ACTION_SUCCEEDED consumed the head → runtime idle + queue empty
- *   → Lobby orb painted and the result was never materialized.
+ * Required transition:
+ *   incoming → submitting → matching result replaces head → result card
+ * Never: consume → idle → Lobby orb/logo → late result lost.
  *
  * Run:
  *   npx tsx --tsconfig apps/web/tsconfig.json apps/web/scripts/notification-runtime-action-matching-result-handoff.test.ts
@@ -19,9 +17,12 @@ import {
   requestIncomingOverboardAction,
 } from '../src/notification-runtime/notification-runtime.overboard-action';
 import {
+  beginInteractiveCardActionChain,
+  getEarlyParkedActionResultForTest,
   getInteractiveCardActionChain,
   isInteractiveCardActionChainBan,
   resetInteractiveCardActionResultHandoffForTest,
+  setActionResultWaitTimeoutMsForTest,
   snapshotRuntimeForActionResultHandoff,
   stageMatchingActionResult,
 } from '../src/notification-runtime/notification-runtime.action-result-handoff';
@@ -77,12 +78,17 @@ function ingest(store: Store, items: NotificationItem[]) {
 }
 
 /** Mirrors the WS path: receiveResult correlates before any live classification. */
-function arriveWsResult(store: Store, banId: string) {
+function arriveWsResult(
+  store: Store,
+  banId: string,
+  opts: { allowEarlyPark?: boolean } = {},
+) {
   return stageMatchingActionResult({
     banId,
     result: result(banId),
     source: 'ws',
     runtime: snapshotRuntimeForActionResultHandoff(store.getState()),
+    allowEarlyPark: opts.allowEarlyPark,
   });
 }
 
@@ -96,7 +102,10 @@ async function submitOverboard(
   opts: {
     httpResult?: BanResult | null;
     httpOk?: boolean;
+    explicitNoResult?: boolean;
     wsBeforeHttpResolves?: boolean;
+    /** Schedule WS this many ms after the HTTP transport resolves (late WS). */
+    wsAfterHttpMs?: number;
   } = {},
 ) {
   const requested = requestIncomingOverboardAction(store, {
@@ -115,9 +124,18 @@ async function submitOverboard(
       effect,
       async () => {
         if (opts.wsBeforeHttpResolves) arriveWsResult(store, banId);
+        if (opts.wsAfterHttpMs != null) {
+          const delay = opts.wsAfterHttpMs;
+          // Fire-and-forget late WS after HTTP body is returned to the executor.
+          setTimeout(() => arriveWsResult(store, banId), delay);
+        }
         return opts.httpOk === false
           ? { ok: false, error: 'API_FAIL' }
-          : { ok: true, result: opts.httpResult ?? null };
+          : {
+              ok: true,
+              result: opts.httpResult ?? null,
+              explicitNoResult: opts.explicitNoResult,
+            };
       },
       'tok',
       EMPTY_RUNTIME_LEGACY_SINKS,
@@ -131,6 +149,15 @@ function assertNeverIdleEmpty(state: NotificationRuntimeState, label: string) {
     state.display.kind == null &&
     state.items.queue.length === 0;
   assert.equal(idleEmpty, false, `${label}: runtime must not be idle/empty`);
+}
+
+function assertNoLobbyFrame(state: NotificationRuntimeState, label: string) {
+  assert.equal(
+    selectLobbyMayShow(state),
+    false,
+    `${label}: Lobby must not own presentation`,
+  );
+  assertNeverIdleEmpty(state, label);
 }
 
 const ROOT = join(__dirname, '..');
@@ -149,12 +176,16 @@ const handoffSrc = readFileSync(
   ),
   'utf8',
 );
+const flowSrc = readFileSync(
+  join(ROOT, 'src/components/instant-ban/InstantBanFlow.tsx'),
+  'utf8',
+);
 
 async function main() {
   console.log('\n=== FIX B — MATCHING OVERBOARD RESULT ACTION HANDOFF ===\n');
 
   await spec(
-    'B1: WS matching result arrives before HTTP success → staged, then materialized exactly once',
+    'B1: WS before HTTP → staged and atomically replaces incoming',
     async () => {
       const store = createNotificationRuntimeStore();
       ingest(store, [incoming('A')]);
@@ -175,8 +206,6 @@ async function main() {
       assert.equal(s.items.queue.length, 1, 'exactly one head');
       assert.equal(selectOverlayVisible(s), true);
       assertNeverIdleEmpty(s, 'B1');
-
-      // Incoming was consumed atomically in the same transition.
       assert.ok(s.consumed.itemIds.includes('incoming:A'));
 
       const chain = getInteractiveCardActionChain('A');
@@ -186,7 +215,7 @@ async function main() {
   );
 
   await spec(
-    'B2: HTTP success returns the result before WS → materialized from HTTP, later WS deduped',
+    'B2: HTTP before WS with inline result → replacement immediate; WS duplicate deduped',
     async () => {
       const store = createNotificationRuntimeStore();
       ingest(store, [incoming('A')]);
@@ -198,115 +227,127 @@ async function main() {
       assert.equal(outcome.matchingResultSource, 'http');
       assert.equal(store.getState().items.queue.length, 1);
 
-      // Late WS duplicate for the same ban.
       const late = arriveWsResult(store, 'A');
       assert.equal(late.outcome, 'deduped');
       assert.equal(late.reason, 'already-materialized');
-      assert.equal(
-        store.getState().items.queue.length,
-        1,
-        'no duplicate card from the late WS result',
-      );
+      assert.equal(store.getState().items.queue.length, 1);
       assert.equal(store.getState().display.kind, 'result');
     },
   );
 
   await spec(
-    'B3: WS and HTTP both provide the same result → exactly one runtime head',
+    'B3: WS arrives immediately before action transaction registration → early park claimed',
     async () => {
       const store = createNotificationRuntimeStore();
       ingest(store, [incoming('A')]);
 
-      const { outcome } = await submitOverboard(store, 'A', {
-        wsBeforeHttpResolves: true,
-        httpResult: result('A'),
+      // WS races ahead of beginInteractiveCardActionChain.
+      const parked = arriveWsResult(store, 'A', { allowEarlyPark: true });
+      assert.equal(parked.outcome, 'parked');
+      assert.ok(getEarlyParkedActionResultForTest('A'));
+
+      const claimed = beginInteractiveCardActionChain({
+        banId: 'A',
+        actionTransactionId: 'cmd-early-A',
+        action: 'incoming_overboard',
+        runtime: snapshotRuntimeForActionResultHandoff(store.getState()),
       });
-      assert.equal(outcome.materializedResultBanId, 'A');
+      assert.ok(claimed);
+      assert.equal(claimed.stagedSource, 'ws');
       assert.equal(
-        outcome.matchingResultSource,
-        'ws',
-        'first transport wins; the second dedupes',
+        (claimed.stagedResult?.id ?? '').toLowerCase(),
+        'a',
+        'claimed staged result must match parked ban',
       );
+      assert.equal(getEarlyParkedActionResultForTest('A'), null);
 
-      const s = store.getState();
-      assert.equal(s.items.queue.length, 1, 'exactly one runtime head');
-      assert.equal(notificationItemId(s.items.queue[0]!), 'result:A');
-      assert.equal(
-        s.items.queue.filter((i) => i.kind === 'result').length,
-        1,
-        'no duplicate result card',
-      );
-    },
-  );
-
-  await spec(
-    'B4: action succeeds but contract requires no result → explicit completion advances / Lobby',
-    async () => {
-      const advance = createNotificationRuntimeStore();
-      ingest(advance, [incoming('A'), incoming('B')]);
-      const advanced = await submitOverboard(advance, 'A');
-      assert.equal(advanced.outcome.ok, true);
-      assert.equal(advanced.outcome.materializedResultBanId, null);
-      const advancedState = advance.getState();
-      assert.equal(notificationItemId(advancedState.items.queue[0]!), 'incoming:B');
-      assert.equal(advancedState.display.kind, 'incoming');
-
+      // Full path: park → request (claims) → HTTP ok without body → materialize.
       resetInteractiveCardActionResultHandoffForTest();
-
-      const toLobby = createNotificationRuntimeStore();
-      ingest(toLobby, [incoming('A')]);
-      const released = await submitOverboard(toLobby, 'A');
-      assert.equal(released.outcome.materializedResultBanId, null);
-      const lobbyState = toLobby.getState();
-      assert.equal(lobbyState.items.queue.length, 0);
-      assert.equal(lobbyState.display.kind, null);
-      assert.equal(selectLobbyMayShow(lobbyState), true);
-
-      const chain = getInteractiveCardActionChain('A');
-      assert.equal(chain?.status, 'released-without-result');
-      assert.equal(
-        isInteractiveCardActionChainBan('A'),
-        false,
-        'a released chain must not claim later results',
-      );
+      const store2 = createNotificationRuntimeStore();
+      ingest(store2, [incoming('A')]);
+      arriveWsResult(store2, 'A', { allowEarlyPark: true });
+      const { outcome } = await submitOverboard(store2, 'A');
+      assert.equal(outcome.ok, true);
+      assert.equal(outcome.materializedResultBanId, 'A');
+      assert.equal(outcome.matchingResultSource, 'ws');
+      assert.equal(store2.getState().display.kind, 'result');
     },
   );
 
   await spec(
-    'B5: action fails → incoming retained, no success result materialized, not idle',
+    'B4: HTTP succeeds without inline result, WS arrives later → no Lobby frame; WS replaces',
     async () => {
       const store = createNotificationRuntimeStore();
-      ingest(store, [incoming('A'), incoming('B')]);
+      ingest(store, [incoming('A')]);
 
-      const { outcome } = await submitOverboard(store, 'A', {
-        httpOk: false,
-        wsBeforeHttpResolves: true,
+      const seen: Array<{
+        lifecycle: string;
+        displayKind: string | null;
+        queueLen: number;
+        action: string;
+      }> = [];
+      const unsubscribe = store.subscribe(() => {
+        const s = store.getState();
+        seen.push({
+          lifecycle: s.lifecycle.status,
+          displayKind: s.display.kind,
+          queueLen: s.items.queue.length,
+          action: s.action.status,
+        });
+        assertNoLobbyFrame(s, 'B4-frame');
       });
-      assert.equal(outcome.ok, false);
-      assert.equal(outcome.materializedResultBanId, undefined);
+
+      const { stateWhileSubmitting, outcome } = await submitOverboard(
+        store,
+        'A',
+        { wsAfterHttpMs: 40 },
+      );
+      unsubscribe();
+
+      assert.equal(stateWhileSubmitting.action.status, 'pending');
+      assert.equal(outcome.ok, true);
+      assert.equal(outcome.materializedResultBanId, 'A');
+      assert.equal(outcome.matchingResultSource, 'ws');
 
       const s = store.getState();
-      assert.equal(s.lifecycle.status, 'showing');
-      assert.equal(s.action.status, 'failed');
-      assert.equal(notificationItemId(s.items.queue[0]!), 'incoming:A');
-      assert.equal(s.items.queue.length, 2, 'queue preserved');
-      assert.equal(s.display.kind, 'incoming', 'incoming card retained');
-      assert.equal(
-        s.items.queue.some((i) => i.kind === 'result'),
-        false,
-        'no success result may be materialized after a failed action',
-      );
-      assertNeverIdleEmpty(s, 'B5');
-      assert.equal(
-        getInteractiveCardActionChain('A'),
-        null,
-        'failed action drops the chain so a late result falls back to normal handling',
-      );
+      assert.equal(s.display.kind, 'result');
+      assert.equal(notificationItemId(s.items.queue[0]!), 'result:A');
+      assert.equal(selectLobbyMayShow(s), false);
+
+      for (const frame of seen) {
+        assert.equal(
+          frame.lifecycle === 'idle' &&
+            frame.displayKind == null &&
+            frame.queueLen === 0,
+          false,
+          `idle/empty frame during B4: ${JSON.stringify(frame)}`,
+        );
+        assert.notEqual(frame.displayKind, null, 'display must stay non-null');
+      }
     },
   );
 
+  await spec('B5: Duplicate HTTP + WS → one result card only', async () => {
+    const store = createNotificationRuntimeStore();
+    ingest(store, [incoming('A')]);
+
+    const { outcome } = await submitOverboard(store, 'A', {
+      wsBeforeHttpResolves: true,
+      httpResult: result('A'),
+    });
+    assert.equal(outcome.materializedResultBanId, 'A');
+    assert.equal(outcome.matchingResultSource, 'ws');
+
+    const s = store.getState();
+    assert.equal(s.items.queue.length, 1);
+    assert.equal(
+      s.items.queue.filter((i) => i.kind === 'result').length,
+      1,
+    );
+  });
+
   await spec(
-    'B6: unrelated live result during the action → not correlated, normal handling preserved',
+    'B6: Unrelated WS result → not attached to active action',
     async () => {
       const store = createNotificationRuntimeStore();
       ingest(store, [incoming('A')]);
@@ -322,18 +363,13 @@ async function main() {
         result: result('ZZZ-unrelated'),
         source: 'ws',
         runtime: snapshotRuntimeForActionResultHandoff(store.getState()),
+        allowEarlyPark: false,
       });
       assert.equal(unrelated.outcome, 'not-correlated');
-      assert.equal(unrelated.reason, 'no-action-chain');
       assert.equal(isInteractiveCardActionChainBan('ZZZ-unrelated'), false);
-      assert.equal(
-        isInteractiveCardActionChainBan('A'),
-        true,
-        'the action chain itself must be unaffected',
-      );
+      assert.equal(isInteractiveCardActionChainBan('A'), true);
 
-      // The unrelated result must not hijack the chain: completing the action
-      // with no matching result still releases explicitly.
+      // Complete via explicit no-result so the unrelated result cannot hijack.
       const effect = requested.effects.find(
         (e) => e.type === 'SUBMIT_CARD_ACTION',
       );
@@ -341,7 +377,7 @@ async function main() {
       const outcome = await executeSubmitIncomingOverboardEffect(
         store,
         effect,
-        async () => ({ ok: true, result: null }),
+        async () => ({ ok: true, result: null, explicitNoResult: true }),
         'tok',
         EMPTY_RUNTIME_LEGACY_SINKS,
       );
@@ -354,7 +390,120 @@ async function main() {
   );
 
   await spec(
-    'B7: after the result is dismissed → advance to next queued head, else explicit Lobby',
+    'B7: Explicit no-result contract → advance to next item or complete Lobby',
+    async () => {
+      const advance = createNotificationRuntimeStore();
+      ingest(advance, [incoming('A'), incoming('B')]);
+      const advanced = await submitOverboard(advance, 'A', {
+        explicitNoResult: true,
+      });
+      assert.equal(advanced.outcome.ok, true);
+      assert.equal(advanced.outcome.materializedResultBanId, null);
+      const advancedState = advance.getState();
+      assert.equal(
+        notificationItemId(advancedState.items.queue[0]!),
+        'incoming:B',
+      );
+      assert.equal(advancedState.display.kind, 'incoming');
+
+      resetInteractiveCardActionResultHandoffForTest();
+
+      const toLobby = createNotificationRuntimeStore();
+      ingest(toLobby, [incoming('A')]);
+      const released = await submitOverboard(toLobby, 'A', {
+        explicitNoResult: true,
+      });
+      assert.equal(released.outcome.materializedResultBanId, null);
+      const lobbyState = toLobby.getState();
+      assert.equal(lobbyState.items.queue.length, 0);
+      assert.equal(lobbyState.display.kind, null);
+      assert.equal(selectLobbyMayShow(lobbyState), true);
+
+      const chain = getInteractiveCardActionChain('A');
+      assert.equal(chain?.status, 'released-without-result');
+      assert.equal(isInteractiveCardActionChainBan('A'), false);
+    },
+  );
+
+  await spec(
+    'B8: Expected-result timeout → no silent idle / no orb-logo Lobby; recoverable failure',
+    async () => {
+      setActionResultWaitTimeoutMsForTest(80);
+      const store = createNotificationRuntimeStore();
+      ingest(store, [incoming('A'), incoming('B')]);
+
+      const seen: Array<{
+        lifecycle: string;
+        displayKind: string | null;
+        queueLen: number;
+      }> = [];
+      const unsubscribe = store.subscribe(() => {
+        const s = store.getState();
+        seen.push({
+          lifecycle: s.lifecycle.status,
+          displayKind: s.display.kind,
+          queueLen: s.items.queue.length,
+        });
+      });
+
+      const { outcome } = await submitOverboard(store, 'A');
+      unsubscribe();
+
+      assert.equal(outcome.ok, false);
+      assert.equal(outcome.error, 'ACTION_RESULT_WAIT_TIMEOUT');
+
+      const s = store.getState();
+      assert.equal(s.lifecycle.status, 'showing');
+      assert.equal(s.action.status, 'failed');
+      assert.equal(s.action.errorCode, 'ACTION_RESULT_WAIT_TIMEOUT');
+      assert.equal(notificationItemId(s.items.queue[0]!), 'incoming:A');
+      assert.equal(s.display.kind, 'incoming');
+      assert.equal(selectOverlayVisible(s), true);
+      assert.equal(selectLobbyMayShow(s), false);
+      assertNeverIdleEmpty(s, 'B8');
+
+      for (const frame of seen) {
+        assert.equal(
+          frame.lifecycle === 'idle' &&
+            frame.displayKind == null &&
+            frame.queueLen === 0,
+          false,
+          `B8 must not idle/empty: ${JSON.stringify(frame)}`,
+        );
+      }
+    },
+  );
+
+  await spec(
+    'B9: HTTP failure → incoming remains recoverable',
+    async () => {
+      const store = createNotificationRuntimeStore();
+      ingest(store, [incoming('A'), incoming('B')]);
+
+      const { outcome } = await submitOverboard(store, 'A', {
+        httpOk: false,
+        wsBeforeHttpResolves: true,
+      });
+      assert.equal(outcome.ok, false);
+      assert.equal(outcome.materializedResultBanId, undefined);
+
+      const s = store.getState();
+      assert.equal(s.lifecycle.status, 'showing');
+      assert.equal(s.action.status, 'failed');
+      assert.equal(notificationItemId(s.items.queue[0]!), 'incoming:A');
+      assert.equal(s.items.queue.length, 2);
+      assert.equal(s.display.kind, 'incoming');
+      assert.equal(
+        s.items.queue.some((i) => i.kind === 'result'),
+        false,
+      );
+      assertNeverIdleEmpty(s, 'B9');
+      assert.equal(getInteractiveCardActionChain('A'), null);
+    },
+  );
+
+  await spec(
+    'B10: Result dismissal → advances exactly once to next card or complete Lobby',
     async () => {
       const withNext = createNotificationRuntimeStore();
       ingest(withNext, [incoming('A'), incoming('B')]);
@@ -394,18 +543,23 @@ async function main() {
   );
 
   await spec(
-    'ATOMIC: presentation never passes through idle/empty between incoming and result',
+    'B11: Runtime display sequence incoming → submitting incoming → result (no null/idle/Lobby)',
     async () => {
       const store = createNotificationRuntimeStore();
       ingest(store, [incoming('A')]);
-      const seen: Array<{ lifecycle: string; displayKind: string | null; queueLen: number }> =
-        [];
+      const seen: Array<{
+        lifecycle: string;
+        displayKind: string | null;
+        queueLen: number;
+        action: string;
+      }> = [];
       const unsubscribe = store.subscribe(() => {
         const s = store.getState();
         seen.push({
           lifecycle: s.lifecycle.status,
           displayKind: s.display.kind,
           queueLen: s.items.queue.length,
+          action: s.action.status,
         });
       });
       await submitOverboard(store, 'A', { wsBeforeHttpResolves: true });
@@ -417,24 +571,31 @@ async function main() {
             frame.displayKind == null &&
             frame.queueLen === 0,
           false,
-          `intermediate idle/empty frame observed: ${JSON.stringify(frame)}`,
+          `intermediate idle/empty: ${JSON.stringify(frame)}`,
+        );
+        assert.notEqual(
+          frame.displayKind,
+          null,
+          `display must never go null: ${JSON.stringify(frame)}`,
         );
       }
       const kinds = seen.map((f) => f.displayKind);
+      assert.ok(kinds.includes('result'));
       assert.ok(
-        kinds.includes('result'),
-        'the result must become the runtime display',
+        seen.some(
+          (f) =>
+            f.lifecycle === 'submitting' &&
+            f.displayKind === 'incoming' &&
+            f.action === 'pending',
+        ),
+        'must observe submitting incoming',
       );
-      assert.equal(
-        kinds.filter((k) => k == null).length,
-        0,
-        'display must never go null during the handoff',
-      );
+      assert.equal(store.getState().display.kind, 'result');
     },
   );
 
   await spec(
-    'wiring: WS/HTTP classification and the atomic replacement are in place',
+    'B12: Single-owner invariant — no direct Providers write to active display / owner queue',
     () => {
       assert.match(
         providersSrc,
@@ -443,8 +604,13 @@ async function main() {
       );
       assert.match(
         providersSrc,
+        /allowEarlyPark/,
+        'Providers must early-park WS-before-chain for the active incoming',
+      );
+      assert.match(
+        providersSrc,
         /action-matching-result-\$\{staged\.outcome\}/,
-        'receiveResult must short-circuit correlated results before normal-mode handling',
+        'receiveResult must short-circuit correlated results before normal-mode',
       );
       assert.match(
         providersSrc,
@@ -458,6 +624,16 @@ async function main() {
       );
       assert.match(
         actionSrc,
+        /waitForMatchingActionResult/,
+        'must wait for expected matching WS result',
+      );
+      assert.match(
+        actionSrc,
+        /explicitNoResult/,
+        'consume-and-advance only on explicit no-result contract',
+      );
+      assert.match(
+        actionSrc,
         /abandonInteractiveCardActionChain\(\{/,
         'failure paths must abandon the chain',
       );
@@ -465,6 +641,16 @@ async function main() {
         handoffSrc,
         /store\.dispatch|showHead|removeFromQueue/,
         'the correlation registry must not dispatch or mutate the queue',
+      );
+      assert.match(
+        flowSrc,
+        /notificationTransitionOwnsPresentation/,
+        'InstantBanFlow must derive presentation only',
+      );
+      assert.doesNotMatch(
+        flowSrc,
+        /CARD_ACTION_SUCCEEDED|consumeAndAdvance:\s*true/,
+        'InstantBanFlow must not write action completion',
       );
     },
   );
