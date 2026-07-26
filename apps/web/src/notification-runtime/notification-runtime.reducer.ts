@@ -36,6 +36,7 @@ function cloneState(state: NotificationRuntimeState): NotificationRuntimeState {
         ? { ...state.directEntry.deferred }
         : null,
     },
+    presentation: { ...state.presentation },
   };
 }
 
@@ -76,6 +77,10 @@ function showHead(
   if (!head) {
     return {
       ...clearDisplay(clearAction(state)),
+      presentation: {
+        successCardVisible: false,
+        handoffArmed: false,
+      },
       lifecycle: {
         status: 'idle',
         source,
@@ -96,6 +101,10 @@ function showHead(
       commandId: null,
       targetItemId: null,
       errorCode: null,
+    },
+    presentation: {
+      successCardVisible: false,
+      handoffArmed: false,
     },
   };
 }
@@ -475,6 +484,34 @@ export function notificationRuntimeReducer(
       };
     }
 
+    case 'SUCCESS_PRESENTATION_SHOWN': {
+      return {
+        state: {
+          ...base,
+          presentation: {
+            successCardVisible: true,
+            handoffArmed: false,
+          },
+        },
+        effects: [],
+      };
+    }
+
+    case 'SUCCESS_PRESENTATION_HANDOFF_ARMED': {
+      // Synchronous SUCCESS exit: drop SUCCESS card latch and arm TRANSITION
+      // before React unmounts SUCCESS — Lobby must not become eligible.
+      return {
+        state: {
+          ...base,
+          presentation: {
+            successCardVisible: false,
+            handoffArmed: true,
+          },
+        },
+        effects: [],
+      };
+    }
+
     case 'SUCCESS_HANDOFF_REQUESTED': {
       // Enter draining after product SUCCESS closes. Allow from idle OR showing
       // (runtime may already hold the next notification queue under the SUCCESS card).
@@ -500,6 +537,10 @@ export function notificationRuntimeReducer(
       return {
         state: {
           ...base,
+          presentation: {
+            successCardVisible: false,
+            handoffArmed: true,
+          },
           lifecycle: {
             status: 'draining',
             source: event.source,
@@ -526,6 +567,10 @@ export function notificationRuntimeReducer(
       return {
         state: {
           ...clearDisplay(clearAction(base)),
+          presentation: {
+            successCardVisible: false,
+            handoffArmed: false,
+          },
           lifecycle: {
             status: 'idle',
             source: event.source,
@@ -563,6 +608,10 @@ export function notificationRuntimeReducer(
       if (queue.length === 0) {
         next = {
           ...clearDisplay(clearAction(next)),
+          presentation: {
+            successCardVisible: false,
+            handoffArmed: false,
+          },
           lifecycle: {
             status: 'idle',
             source: event.source,
@@ -930,6 +979,10 @@ export function notificationRuntimeReducer(
       return {
         state: {
           ...clearDisplay(clearAction(base)),
+          presentation: {
+            successCardVisible: false,
+            handoffArmed: false,
+          },
           lifecycle: {
             status: 'idle',
             source: event.source,
