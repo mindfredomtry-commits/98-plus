@@ -22,6 +22,16 @@ import {
   noteIncomingOverboardCompletion,
 } from './notification-runtime.overboard-completion';
 import {
+  abandonInteractiveCardActionChain,
+  beginInteractiveCardActionChain,
+  noteStagedActionResultMaterialized,
+  releaseInteractiveCardActionChainWithoutResult,
+  snapshotRuntimeForActionResultHandoff,
+  stageMatchingActionResult,
+  takeStagedActionResult,
+  type ActionMatchingResultSource,
+} from './notification-runtime.action-result-handoff';
+import {
   armOverboardV3WriterWatch,
   beginOverboardV3ProdTrace,
   logOverboardV3ProdTrace,
@@ -45,6 +55,17 @@ export type OverboardSubmitTransport = (input: {
   banId: string;
   token: string;
 }) => Promise<OverboardSubmitApiResponse>;
+
+export type OverboardSubmitOutcome = {
+  ok: boolean;
+  error?: string;
+  /**
+   * FIX B: set when a result matching this action became the runtime head.
+   * Hosts must not neutralize / mark-delivered that result — the runtime owns it.
+   */
+  materializedResultBanId?: string | null;
+  matchingResultSource?: ActionMatchingResultSource | null;
+};
 
 export type OverboardActionLegacySinks = {
   writeQueue: (queue: QueuedOverlay[], source: string) => void;
@@ -119,6 +140,12 @@ export function requestIncomingOverboardAction(
   const commandId =
     args.commandId ?? nextRuntimeTransitionId('overboard-action');
   beginOverboardV3ProdTrace(commandId);
+  // FIX B: open the correlation window before the request can race a WS result.
+  beginInteractiveCardActionChain({
+    banId: args.banId,
+    actionTransactionId: commandId,
+    action: 'incoming_overboard',
+  });
   const beforeRequest = store.getState();
   const result = store.dispatch({
     type: 'CARD_ACTION_REQUESTED',
@@ -131,6 +158,12 @@ export function requestIncomingOverboardAction(
     (e): e is Extract<RuntimeEffect, { type: 'SUBMIT_CARD_ACTION' }> =>
       e.type === 'SUBMIT_CARD_ACTION',
   );
+  if (submitEffects.length === 0) {
+    abandonInteractiveCardActionChain({
+      banId: args.banId,
+      actionTransactionId: commandId,
+    });
+  }
   logOverboardV3ProdTrace('CARD_ACTION_REQUESTED', {
     commandId,
     targetItemId,
@@ -159,7 +192,7 @@ export async function executeSubmitIncomingOverboardEffect(
   transport: OverboardSubmitTransport,
   token: string,
   sinks: OverboardActionLegacySinks,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<OverboardSubmitOutcome> {
   if (effect.action !== 'incoming_overboard') {
     return { ok: false, error: 'wrong-action' };
   }
@@ -173,6 +206,11 @@ export async function executeSubmitIncomingOverboardEffect(
   try {
     const res = await transport({ banId, token });
     if (res.ok === false || res.error) {
+      // FIX B: failed action never materializes a success result; incoming stays.
+      abandonInteractiveCardActionChain({
+        banId,
+        actionTransactionId: effect.commandId,
+      });
       store.dispatch({
         type: 'CARD_ACTION_FAILED',
         commandId: effect.commandId,
@@ -192,8 +230,6 @@ export async function executeSubmitIncomingOverboardEffect(
       return { ok: false, error: res.error ?? 'Ошибка перебора' };
     }
 
-    // Chain drain: consume incoming and show next / idle.
-    // Result payload is not inserted as a blocking head (queue of N incomings).
     const beforeSucceeded = store.getState();
     logOverboardV3ProdTrace('STATE_BEFORE_SUCCESS', {
       commandId: effect.commandId,
@@ -201,19 +237,68 @@ export async function executeSubmitIncomingOverboardEffect(
       banId,
       before: snapshotRuntimeForOverboardV3Trace(beforeSucceeded),
     });
-    store.dispatch({
-      type: 'CARD_ACTION_SUCCEEDED',
-      commandId: effect.commandId,
-      targetItemId: effect.targetItemId,
-      consumeAndAdvance: true,
-      source: 'user',
+
+    // FIX B: a result matching this action belongs to the action chain.
+    // The HTTP response is staged through the same registry as WS, so whichever
+    // transport arrives first wins and the other one dedupes.
+    const handoffBefore = snapshotRuntimeForActionResultHandoff(beforeSucceeded);
+    if (res.result) {
+      stageMatchingActionResult({
+        banId,
+        result: res.result,
+        source: 'http',
+        runtime: handoffBefore,
+      });
+    }
+    const matching = takeStagedActionResult({
+      banId,
+      actionTransactionId: effect.commandId,
+      before: handoffBefore,
     });
+
+    if (matching) {
+      // Atomic incoming → result head: consume + showHead in one transition,
+      // so presentation never passes through runtime idle / empty Lobby.
+      store.dispatch({
+        type: 'CARD_ACTION_SUCCEEDED',
+        commandId: effect.commandId,
+        targetItemId: effect.targetItemId,
+        replacement: { kind: 'result', result: matching.result },
+        source: 'user',
+      });
+      noteStagedActionResultMaterialized({
+        banId,
+        actionTransactionId: matching.actionTransactionId,
+        source: matching.source,
+        before: handoffBefore,
+        after: snapshotRuntimeForActionResultHandoff(store.getState()),
+      });
+    } else {
+      // No result required/received by the action contract — existing
+      // consume-and-advance completion (next card or Lobby).
+      store.dispatch({
+        type: 'CARD_ACTION_SUCCEEDED',
+        commandId: effect.commandId,
+        targetItemId: effect.targetItemId,
+        consumeAndAdvance: true,
+        source: 'user',
+      });
+      releaseInteractiveCardActionChainWithoutResult({
+        banId,
+        actionTransactionId: effect.commandId,
+        reason: 'no-matching-result-for-action',
+        before: handoffBefore,
+        after: snapshotRuntimeForActionResultHandoff(store.getState()),
+      });
+    }
     const afterSucceeded = store.getState();
     logOverboardV3ProdTrace('CARD_ACTION_SUCCEEDED', {
       commandId: effect.commandId,
       targetItemId: effect.targetItemId,
       banId,
-      consumeAndAdvance: true,
+      consumeAndAdvance: matching == null,
+      materializedMatchingResult: matching != null,
+      matchingResultSource: matching?.source ?? null,
     });
     logOverboardV3ProdTrace('STATE_AFTER_SUCCESS', {
       commandId: effect.commandId,
@@ -273,12 +358,20 @@ export async function executeSubmitIncomingOverboardEffect(
         reason: 'completion-edge-emitted',
       });
     }
-    return { ok: true };
+    return {
+      ok: true,
+      materializedResultBanId: matching ? banId : null,
+      matchingResultSource: matching?.source ?? null,
+    };
   } catch (err) {
     const message =
       err instanceof Error && err.message
         ? err.message
         : 'OVERBOARD_SUBMIT_FAILED';
+    abandonInteractiveCardActionChain({
+      banId,
+      actionTransactionId: effect.commandId,
+    });
     store.dispatch({
       type: 'CARD_ACTION_FAILED',
       commandId: effect.commandId,

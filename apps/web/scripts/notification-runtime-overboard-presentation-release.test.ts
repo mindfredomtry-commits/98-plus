@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { BanInteraction, BanResult } from '@98plus/shared';
+import type { BanInteraction } from '@98plus/shared';
 import {
   executeSubmitIncomingOverboardEffect,
   requestIncomingOverboardAction,
@@ -55,9 +55,6 @@ async function spec(name: string, fn: () => void | Promise<void>) {
 function ban(id: string): BanInteraction {
   return { id } as BanInteraction;
 }
-function banResult(id: string): BanResult {
-  return { id } as BanResult;
-}
 function incoming(id: string): NotificationItem {
   return { kind: 'incoming', ban: ban(id) };
 }
@@ -87,7 +84,10 @@ async function overboard(store: Store, banId: string, transportOk = true) {
     effect,
     async () =>
       transportOk
-        ? { ok: true, result: banResult(banId) }
+        ? // Production overboard HTTP answers `{ ok, ban }` with no result —
+          // that is the consume-and-advance path these presentation specs cover.
+          // Matching-result materialization is covered by the Fix B suite.
+          { ok: true, result: null }
         : { ok: false, error: 'API_FAIL' },
     'tok',
     EMPTY_RUNTIME_LEGACY_SINKS,

@@ -25,6 +25,7 @@ import {
   type NotificationItem,
 } from '../src/notification-runtime/notification-runtime.types';
 import { EMPTY_RUNTIME_LEGACY_SINKS } from '../src/notification-runtime/notification-runtime.demolition';
+import { resetInteractiveCardActionResultHandoffForTest } from '../src/notification-runtime/notification-runtime.action-result-handoff';
 
 type SpecResult = { name: string; ok: boolean; error?: string };
 const results: SpecResult[] = [];
@@ -65,11 +66,19 @@ function ingest(
   });
 }
 
+/**
+ * Production `POST /bans/:id/overboard` answers `{ ok, ban }` with no result
+ * payload — that is the "no result required" contract these specs cover.
+ * FIX B (matching result handoff) is covered in
+ * notification-runtime-action-matching-result-handoff.test.ts.
+ */
 async function overboardOk(
   store: ReturnType<typeof createNotificationRuntimeStore>,
   banId: string,
   transportOk = true,
+  httpResult: BanResult | null = null,
 ) {
+  resetInteractiveCardActionResultHandoffForTest();
   const requested = requestIncomingOverboardAction(store, {
     banId,
     commandId: `cmd-${banId}`,
@@ -82,7 +91,7 @@ async function overboardOk(
     effect,
     async () =>
       transportOk
-        ? { ok: true, result: result(banId) }
+        ? { ok: true, result: httpResult }
         : { ok: false, error: 'API_FAIL' },
     'tok',
     EMPTY_RUNTIME_LEGACY_SINKS,
@@ -214,6 +223,23 @@ async function main() {
         false,
         'must not claim overlay without display',
       );
+    },
+  );
+
+  await spec(
+    'G: HTTP response that does carry a matching result → atomic result head, no advance',
+    async () => {
+      const store = createNotificationRuntimeStore();
+      ingest(store, [incoming('A'), incoming('B')]);
+      const res = await overboardOk(store, 'A', true, result('A'));
+      assert.equal(res.ok, true);
+      assert.equal(res.materializedResultBanId, 'A');
+      const s = store.getState();
+      assert.equal(s.display.kind, 'result');
+      assert.equal(notificationItemId(s.items.queue[0]!), 'result:A');
+      assert.equal(notificationItemId(s.items.queue[1]!), 'incoming:B');
+      assert.equal(selectOverlayVisible(s), true);
+      assert.equal(selectLobbyMayShow(s), false);
     },
   );
 

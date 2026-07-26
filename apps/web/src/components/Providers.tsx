@@ -228,6 +228,10 @@ import {
   requestIncomingOverboardAction,
 } from '@/notification-runtime/notification-runtime.overboard-action';
 import {
+  snapshotRuntimeForActionResultHandoff,
+  stageMatchingActionResult,
+} from '@/notification-runtime/notification-runtime.action-result-handoff';
+import {
   executeSuccessHandoffMaterialize,
   normalizeAbandonedDrain,
   requestSuccessHandoff,
@@ -14467,6 +14471,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           normalizedItem.kind === 'result')
       ) {
         const mode = notificationModeRef.current;
+        // FIX B: a result matching an in-flight/just-completed interactive card
+        // action belongs to that action chain — never to normal-mode
+        // indicator-only handling. The action completion materializes it.
+        if (normalizedItem.kind === 'result') {
+          const staged = stageMatchingActionResult({
+            banId,
+            result: normalizedItem.result,
+            source: 'ws',
+            runtime: snapshotRuntimeForActionResultHandoff(
+              notificationRuntimeStoreRef.current.getState(),
+            ),
+          });
+          if (staged.outcome !== 'not-correlated') {
+            traceEnqueueExit('action-matching-result-staged', {
+              shouldDefer: false,
+              skipReason: `action-chain:${staged.outcome}`,
+            });
+            return;
+          }
+        }
         const liveScreenCtx = buildLiveOverlayScreenContext();
         const isFreshDeeplinkLive = isFreshDeepLinkDisplayAllowed(
           banId,
@@ -19774,6 +19798,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         checkSubmitAtRef.current,
       );
 
+      // FIX B: correlate against the in-flight / just-completed card action
+      // before any normal-mode or host-neutralize classification can claim it.
+      {
+        const staged = stageMatchingActionResult({
+          banId,
+          result: normalized,
+          source: 'ws',
+          runtime: snapshotRuntimeForActionResultHandoff(
+            notificationRuntimeStoreRef.current.getState(),
+          ),
+        });
+        if (staged.outcome !== 'not-correlated') {
+          logResultPath('receiveResult', 'path-skip', {
+            banId,
+            resultId: banId,
+            allowed: false,
+            reason: `action-matching-result-${staged.outcome}`,
+            extra: { wsOrHttpSource: source },
+          });
+          return;
+        }
+      }
+
       if (
         readOwnerC2OverboardInFlightEquals(
           readOwnerC2Decision('receiveResult'),
@@ -23078,12 +23125,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         EMPTY_RUNTIME_LEGACY_SINKS,
       ).then((res) => {
         if (res.ok) {
-          // V4: runtime consumed this head — neutralize host overboard result path.
-          noteRuntimeOverboardHeadConsumed(banId);
           const key = normalizeId(banId);
-          if (key) {
-            resultDeliveredBanIdsRef.current.add(key);
-            freshOverboardActionBanIdsRef.current.delete(key);
+          if (res.materializedResultBanId) {
+            // FIX B: the runtime owns a result head for this action — protect it
+            // from stale pruning instead of neutralizing the result path.
+            if (key) freshOverboardActionBanIdsRef.current.add(key);
+          } else {
+            // V4: runtime consumed this head — neutralize host overboard result path.
+            noteRuntimeOverboardHeadConsumed(banId);
+            if (key) {
+              resultDeliveredBanIdsRef.current.add(key);
+              freshOverboardActionBanIdsRef.current.delete(key);
+            }
           }
         }
         return res;
