@@ -73,20 +73,6 @@ export type DirectEntryState = {
   deferred: DeferredDirectEntry | null;
 };
 
-/**
- * Root presentation latch — Notification Runtime is the sole owner of which
- * root surface may mount. Never inferred from InstantBanFlow local booleans.
- */
-export type RuntimePresentationLatch = {
-  /** SUCCESS product card owns NotificationSurface until handoff clears it. */
-  successCardVisible: boolean;
-  /**
-   * Armed synchronously on SUCCESS exit before SUCCESS unmounts.
-   * Forces TRANSITION until a materialized head or explicit Lobby release.
-   */
-  handoffArmed: boolean;
-};
-
 export type NotificationRuntimeState = {
   lifecycle: {
     status: LifecycleStatus;
@@ -130,8 +116,6 @@ export type NotificationRuntimeState = {
   };
   /** Vertical 6 — sole direct-entry session (deeplink / live-single). */
   directEntry: DirectEntryState;
-  /** Authoritative root presentation latch (SUCCESS card ownership). */
-  presentation: RuntimePresentationLatch;
 };
 
 export type CardActionType = 'check_answer' | 'incoming_reply' | 'incoming_overboard';
@@ -152,19 +136,6 @@ export type NotificationRuntimeCommand =
   | {
       type: 'DRAIN_REQUESTED';
       transitionId: string;
-      source: RuntimeSource;
-    }
-  | {
-      /** SUCCESS product card is mounted — NotificationSurface only. */
-      type: 'SUCCESS_PRESENTATION_SHOWN';
-      source: RuntimeSource;
-    }
-  | {
-      /**
-       * Arm SUCCESS→next TRANSITION synchronously before SUCCESS unmounts.
-       * Does not fetch — SUCCESS_HANDOFF_REQUESTED still owns drain.
-       */
-      type: 'SUCCESS_PRESENTATION_HANDOFF_ARMED';
       source: RuntimeSource;
     }
   | {
@@ -472,9 +443,5 @@ export function createInitialNotificationRuntimeState(): NotificationRuntimeStat
       transitionId: null,
     },
     directEntry: createEmptyDirectEntryState(),
-    presentation: {
-      successCardVisible: false,
-      handoffArmed: false,
-    },
   };
 }

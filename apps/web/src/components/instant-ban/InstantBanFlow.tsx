@@ -59,10 +59,6 @@ import {
   type SuccessPresentationHandoffHoldInput,
 } from '@/lib/success-drain-empty-shell-hold';
 import {
-  useIsLobbySurfaceActive,
-  useIsSuccessNotificationActive,
-} from '@/components/presentation';
-import {
   buildSuccessPresentationHandoffTraceFields,
   logSuccessPresentationHandoffArmed,
   logSuccessPresentationHandoffReleased,
@@ -604,9 +600,6 @@ export function InstantBanFlow({
     notificationRuntimeState,
   );
   const bansIndicatorVisible = selectIndicatorVisible(notificationRuntimeState);
-  /** Root PresentationState — Lobby DOM only when PresentationRoot selected LOBBY. */
-  const lobbySurfaceActive = useIsLobbySurfaceActive();
-  const successNotificationActive = useIsSuccessNotificationActive();
   /**
    * V4: restore Lobby CTA only when post-notification presentation is fully
    * released (runtime idle+empty AND every host result/dim/mount latch gone).
@@ -1033,15 +1026,13 @@ export function InstantBanFlow({
         elapsedMs: null,
       },
     );
-  /** Base lobby layer: boot orb until primed + chrome-safe; then permanent lobby orb.
-   * Structural gate: never mount Lobby nodes unless PresentationRoot mode is LOBBY. */
-  const lobbyLayers = resolveLobbyOrbLayersWithSuccessDrainHold({
-    hold: transitionOwnsPresentation || !lobbySurfaceActive,
-    lobbyBootIntroPrimed,
-    holdLobbyOrbForBootstrap,
-  });
-  const showBootOrb = lobbySurfaceActive && lobbyLayers.showBootOrb;
-  const showLobbyOrb = lobbySurfaceActive && lobbyLayers.showLobbyOrb;
+  /** Base lobby layer: boot orb until primed + chrome-safe; then permanent lobby orb. */
+  const { showBootOrb, showLobbyOrb } =
+    resolveLobbyOrbLayersWithSuccessDrainHold({
+      hold: transitionOwnsPresentation,
+      lobbyBootIntroPrimed,
+      holdLobbyOrbForBootstrap,
+    });
   const lobbyOrbVisible = showBootOrb || showLobbyOrb;
   useEffect(() => {
     if (!successPresentationHandoffHold) return;
@@ -1096,7 +1087,6 @@ export function InstantBanFlow({
   }, [successPresentationHandoffHold]);
   const baseLobbyLayerMounted = lobbyBootIntroPrimed;
   const lobbyChromeHidden =
-    !lobbySurfaceActive ||
     replyLobbyBlocked ||
     deepLinkRouteBootPending ||
     checkDeeplinkDirectPending ||
@@ -4069,12 +4059,8 @@ export function InstantBanFlow({
           prepareLobbyBaseAfterSuccess('send-success', { deferLobbyOpen: true });
         }
 
-        // Root PresentationState: arm TRANSITION via runtime BEFORE SUCCESS unmounts.
-        // LobbySurface cannot mount while handoffArmed / draining.
-        notificationRuntimeStore?.dispatch({
-          type: 'SUCCESS_PRESENTATION_HANDOFF_ARMED',
-          source: 'user',
-        });
+        // FIX A: arm presentation handoff BEFORE SUCCESS unmounts so the base
+        // ArenaLobbyOrb cannot paint between SUCCESS and the next card / Lobby.
         setSuccessPresentationChainExplicitlyEmpty(false);
         setSuccessEmptyShellHoldExpired(false);
         setSuccessPresentationHandoffArmed(true);
@@ -4111,7 +4097,6 @@ export function InstantBanFlow({
       clearNotificationOverlayForEmptyQueueAfterSuccessExit,
       closeSendFlow,
       markReplyParentActivePriorityShown,
-      notificationRuntimeStore,
       prepareLobbyBaseAfterSuccess,
       setCrossScreenProgressImmediate,
       stopCrossScreenAnim,
@@ -4747,11 +4732,6 @@ export function InstantBanFlow({
         payoffPending: confirmSendContextRef.current.sendTriggered,
         payoffPhase: confirmSendContextRef.current.payoffPhase,
       });
-      // Root PresentationState: SUCCESS owns NotificationSurface (not Lobby).
-      notificationRuntimeStore?.dispatch({
-        type: 'SUCCESS_PRESENTATION_SHOWN',
-        source: 'user',
-      });
       setBanSentSuccess(true);
       setSendSuccessCardMounted(true, { banId, source: 'open-success' });
       if (isReplyDeeplinkSendContext()) {
@@ -4796,7 +4776,6 @@ export function InstantBanFlow({
       isReplyDeeplinkSendContext,
       logReplyQueueHandoffDiag,
       markSessionBanSendSuccess,
-      notificationRuntimeStore,
       overlayQueueLength,
       pendingStartupInteractions,
       phase,
@@ -7112,7 +7091,6 @@ export function InstantBanFlow({
   });
   const persistentLobbyLogoActive = !confirmActive && !orbCompressActive;
   const persistentLogoVisible =
-    lobbySurfaceActive &&
     persistentLobbyLogoActive &&
     !hideLobbyBootLogoOnly &&
     // FIX A: suppress logo together with base orb while transition owns presentation.
@@ -8145,41 +8123,6 @@ export function InstantBanFlow({
         : null,
   });
 
-  // Structural exclusivity: no Lobby DOM outside LobbySurface; SUCCESS only in
-  // NotificationSurface success mode; headless controller otherwise.
-  if (!lobbySurfaceActive && !successNotificationActive) {
-    return (
-      <div
-        data-presentation-controller-headless
-        data-testid="instant-ban-headless"
-        hidden
-        aria-hidden
-      />
-    );
-  }
-
-  if (successNotificationActive && banSentSuccess && successSnapshot) {
-    return (
-      <>
-        <div
-          className="instant-ban-arena-send__success-layer"
-          data-presentation-success-card
-          data-instant-ban-view="SuccessOverlay"
-          data-presentation-surface-child="notification-success"
-        >
-          <SuccessScreen
-            senderUser={user}
-            selectedUser={successSnapshot.selectedUser}
-            banText={successSnapshot.banText}
-            durationMinutes={successSnapshot.durationMinutes}
-            onExitComplete={handleSuccessExitComplete}
-            onShare={handleInviteMore}
-          />
-        </div>
-      </>
-    );
-  }
-
   return (
     <>
       <LobbyBootLogoHideMarker active={hideLobbyBootLogoOnly} />
@@ -8331,10 +8274,9 @@ export function InstantBanFlow({
           </LobbyOrbWrap>
         ) : null}
 
-        {banSentSuccess && successSnapshot && successNotificationActive ? (
+        {banSentSuccess && successSnapshot ? (
           <div
             className="instant-ban-arena-send__success-layer"
-            data-presentation-success-card
             data-instant-ban-view="SuccessOverlay"
           >
             <SuccessScreen
