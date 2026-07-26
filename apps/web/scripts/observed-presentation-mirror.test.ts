@@ -80,6 +80,7 @@ function baseInput(
     directOverboardResultId: null,
     queueResultId: null,
     overlayDisplayId: null,
+    successHandoffArmed: false,
     ...overrides,
   };
 }

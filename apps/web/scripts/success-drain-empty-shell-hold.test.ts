@@ -319,11 +319,14 @@ async function main() {
       /setSuccessPresentationHandoffArmed\(true\)/,
       'must arm latch synchronously',
     );
+    // Stage 3A: send-success retains SUCCESS until terminal; reply-parent still
+    // clears after arm. Arm must still happen before any SUCCESS clear.
     assert.match(
       flowSrc,
-      /setSuccessPresentationHandoffArmed\(true\);\s*\n\s*setBanSentSuccess\(false\)/,
-      'arm must precede SUCCESS unmount',
+      /setSuccessPresentationHandoffArmed\(true\);[\s\S]*?setBanSentSuccess\(false\)/,
+      'arm must precede SUCCESS unmount (reply-parent path)',
     );
+    assert.match(flowSrc, /evaluateSuccessToNextHandoff\(/);
     assert.match(flowSrc, /evaluateSuccessPresentationHandoffHold\(/);
     assert.match(flowSrc, /notificationTransitionOwnsPresentation\(/);
     assert.match(flowSrc, /!transitionOwnsPresentation/);

@@ -62,8 +62,9 @@ function printSequence(
 ): void {
   console.log(`\n  sequence: ${title}`);
   for (const s of recorder.samples) {
-    const snap =
-      s.observed.mode === 'SUCCESS'
+      const snap =
+      s.observed.mode === 'SUCCESS' ||
+      s.observed.mode === 'SUCCESS_HANDOFF_WAIT'
         ? ` snapshot=${s.observed.snapshot.banText}`
         : s.observed.mode === 'RESULT' ||
             s.observed.mode === 'INCOMING' ||
@@ -250,7 +251,7 @@ async function main() {
     assert.ok(s.mirrorPublishCount > beforePublish);
   });
 
-  await spec('7. SUCCESS → incoming — mirror records real visible sequence (no flash fix)', () => {
+  await spec('7. SUCCESS → incoming — Stage 3A: no empty LOBBY frame', () => {
     const snap = successSnapshot();
     const rec = new PresentationParityRecorder(INSTANCE);
     rec.record({
@@ -260,21 +261,23 @@ async function main() {
         successSnapshot: snap,
         showLobbyOrb: false,
         showLobbyChrome: false,
+        successHandoffArmed: false,
       }),
       runtime: idleRuntime({ lifecycle: 'showing' }),
     });
-    // Real post-SUCCESS empty shell frame (orb/chrome held) — Stage 2 records, does not fix.
+    // Stage 3A handoff wait — SUCCESS retained; Lobby base suppressed.
     rec.record({
-      label: 'post-success-empty-shell',
+      label: 'success-handoff-wait',
       input: baseParityInput({
-        banSentSuccess: false,
-        successSnapshot: null,
+        banSentSuccess: true,
+        successSnapshot: snap,
         phase: 'idle',
         showBootOrb: false,
         showLobbyOrb: false,
         persistentLogoVisible: false,
         showLobbyChrome: false,
         overlayHostActive: false,
+        successHandoffArmed: true,
       }),
       runtime: idleRuntime({ lifecycle: 'draining' }),
     });
@@ -282,12 +285,15 @@ async function main() {
       label: 'incoming-mounted',
       input: baseParityInput({
         phase: 'idle',
+        banSentSuccess: false,
+        successSnapshot: null,
         showLobbyOrb: false,
         showLobbyChrome: false,
         overlayHostActive: true,
         notificationOverlayVisible: true,
         activeOverlayKind: 'incoming',
         overlayDisplayId: 'in-1',
+        successHandoffArmed: false,
       }),
       runtime: idleRuntime({
         lifecycle: 'showing',
@@ -300,8 +306,16 @@ async function main() {
     printSequence('SUCCESS → incoming', rec);
     rec.assertParity();
     rec.assertContinuousMount();
-    assert.deepEqual(rec.modes(), ['SUCCESS', 'LOBBY', 'INCOMING']);
-    assert.equal(rec.samples[1]!.observed.mode === 'LOBBY' && rec.samples[1]!.observed.empty, true);
+    assert.deepEqual(rec.modes(), [
+      'SUCCESS',
+      'SUCCESS_HANDOFF_WAIT',
+      'INCOMING',
+    ]);
+    assert.equal(
+      rec.samples.some((s) => s.observed.mode === 'LOBBY'),
+      false,
+      'Stage 3A must not observe empty LOBBY between SUCCESS and INCOMING',
+    );
   });
 
   await spec('8. Incoming — observed display matches runtime/DOM', () => {
@@ -579,18 +593,11 @@ async function main() {
     }
   });
 
-  // Collect any recorded mismatch notes (Stage 2 reports only; no render fixes).
-  // Scenario 7 empty shell + scenario 12 stale result are intentional real-behavior captures.
-  mismatches.push({
-    scenario: '7. SUCCESS → incoming',
-    detail:
-      'Intermediate empty LOBBY frame (orb/chrome held) is recorded between SUCCESS and INCOMING — mirrors current DOM, not a Stage 2 fix.',
-    owner: 'InstantBanFlow (FIX A handoff hold) + runtime drain timing',
-  });
+  // Collect observation notes (Stage 3A closed the SUCCESS→empty LOBBY gap).
   mismatches.push({
     scenario: '12. Startup with stale queued result',
     detail:
-      'Runtime displayKind=result while host unmounted still paints BOOT_LOBBY; RESULT only after host mount — mirrored, not corrected.',
+      'Runtime displayKind=result while host unmounted still paints BOOT_LOBBY; RESULT only after host mount — mirrored, not corrected (Stage 3A out of scope).',
     owner: 'Providers GlobalOverlayHost mount gate vs notification-runtime display',
   });
 

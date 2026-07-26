@@ -58,6 +58,7 @@ import {
   SUCCESS_PRESENTATION_HANDOFF_HOLD_MAX_MS,
   type SuccessPresentationHandoffHoldInput,
 } from '@/lib/success-drain-empty-shell-hold';
+import { evaluateSuccessToNextHandoff } from '@/lib/success-to-next-handoff';
 import {
   buildSuccessPresentationHandoffTraceFields,
   logSuccessPresentationHandoffArmed,
@@ -1008,6 +1009,29 @@ export function InstantBanFlow({
     evaluateSuccessPresentationHandoffHold(successPresentationHandoffInput);
   const successPresentationHandoffHold =
     successPresentationHandoffDecision.hold;
+  /**
+   * Stage 3A — sole SUCCESS→next handoff contract.
+   * Retains local SUCCESS until materialize+claimed, explicit empty, or
+   * recoverable failure (never Lobby from display null).
+   */
+  const successToNextHandoff = evaluateSuccessToNextHandoff({
+    banSentSuccess,
+    hasSuccessSnapshot: sendSnapshotRef.current != null,
+    handoffArmed: successPresentationHandoffArmed,
+    runtimeDisplayKind:
+      notificationRuntimeState.display.kind === 'incoming' ||
+      notificationRuntimeState.display.kind === 'check' ||
+      notificationRuntimeState.display.kind === 'result'
+        ? notificationRuntimeState.display.kind
+        : null,
+    runtimeDisplayPayloadPresent:
+      notificationRuntimeState.display.payload != null,
+    notificationPresentationClaimed: runtimeClaimsNotificationScreen,
+    chainExplicitlyEmpty: successPresentationChainExplicitlyEmpty,
+    presentationOwnershipReleased:
+      selectIsRecovering(notificationRuntimeState) ||
+      notificationRuntimeState.recovery.status === 'failed',
+  });
   /** Back-compat alias used by existing diagnostics / mount gates. */
   const successEmptyShellHold = successPresentationHandoffHold;
   const interactiveActionOwnsPresentation =
@@ -1016,7 +1040,11 @@ export function InstantBanFlow({
     // Check-style / expected-result wait keeps the head while action=succeeded.
     notificationRuntimeState.action.status === 'succeeded';
   const transitionOwnsPresentation = notificationTransitionOwnsPresentation({
-    successPresentationHandoffHold,
+    // Stage 3A: while handoff is armed and Lobby is not the terminal release,
+    // never paint Lobby base (closes SUCCESS → empty LOBBY → INCOMING gap).
+    successPresentationHandoffHold:
+      successPresentationHandoffHold ||
+      (successPresentationHandoffArmed && !successToNextHandoff.allowLobbyBase),
     interactiveActionOwnsPresentation,
   });
   successEmptyShellHoldTraceRef.current =
@@ -1048,8 +1076,10 @@ export function InstantBanFlow({
     setSuccessEmptyShellHoldExpired(false);
   }, [successPresentationHandoffHold]);
   // Clear the latch once a terminal release is observed (not merely display null).
+  // Stage 3A: while SUCCESS is retained, the handoff contract owns disarm via mayClear.
   useEffect(() => {
     if (!successPresentationHandoffArmed) return;
+    if (successToNextHandoff.retainSuccessPresentation) return;
     if (successPresentationHandoffHold) return;
     const reason = successPresentationHandoffDecision.releaseReason;
     if (
@@ -1067,7 +1097,39 @@ export function InstantBanFlow({
     successPresentationHandoffArmed,
     successPresentationHandoffHold,
     successPresentationHandoffDecision.releaseReason,
+    successToNextHandoff.retainSuccessPresentation,
   ]);
+
+  // Stage 3A: clear local SUCCESS only on explicit handoff terminal
+  // (materialize+claimed or empty Lobby release) — never on display null.
+  useLayoutEffect(() => {
+    if (!successToNextHandoff.mayClearSuccessLocal) return;
+    if (!banSentSuccess && sendSnapshotRef.current == null) {
+      if (
+        successPresentationHandoffArmed &&
+        (successToNextHandoff.phase === 'NEXT_NOTIFICATION_VISIBLE' ||
+          successToNextHandoff.phase === 'EMPTY_LOBBY_RELEASED')
+      ) {
+        setSuccessPresentationHandoffArmed(false);
+        if (successToNextHandoff.phase !== 'EMPTY_LOBBY_RELEASED') {
+          setSuccessPresentationChainExplicitlyEmpty(false);
+        }
+      }
+      return;
+    }
+    sendSnapshotRef.current = null;
+    setBanSentSuccess(false);
+    setSuccessPresentationHandoffArmed(false);
+    if (successToNextHandoff.phase !== 'EMPTY_LOBBY_RELEASED') {
+      setSuccessPresentationChainExplicitlyEmpty(false);
+    }
+  }, [
+    successToNextHandoff.mayClearSuccessLocal,
+    successToNextHandoff.phase,
+    banSentSuccess,
+    successPresentationHandoffArmed,
+  ]);
+
   useEffect(() => {
     const wasHolding = successEmptyShellHoldPrevRef.current;
     if (wasHolding === successPresentationHandoffHold) return;
@@ -4025,7 +4087,11 @@ export function InstantBanFlow({
         closeSendFlow();
         setBansOverlayOpen(false);
         setSelectedBanForDetails(null);
-        sendSnapshotRef.current = null;
+        // Stage 3A: for send-success → next notification, retain snapshot until
+        // handoff terminal. reply-parent-active still clears immediately below.
+        if (opts.lobbySource === 'reply-parent-active') {
+          sendSnapshotRef.current = null;
+        }
         confirmEntrySourceRef.current = 'send-flow';
         stopCrossScreenAnim();
         screenTransitionRef.current = null;
@@ -4061,12 +4127,16 @@ export function InstantBanFlow({
           prepareLobbyBaseAfterSuccess('send-success', { deferLobbyOpen: true });
         }
 
-        // FIX A: arm presentation handoff BEFORE SUCCESS unmounts so the base
-        // ArenaLobbyOrb cannot paint between SUCCESS and the next card / Lobby.
+        // FIX A + Stage 3A: arm presentation handoff BEFORE SUCCESS may clear.
         setSuccessPresentationChainExplicitlyEmpty(false);
         setSuccessEmptyShellHoldExpired(false);
         setSuccessPresentationHandoffArmed(true);
-        setBanSentSuccess(false);
+        if (opts.lobbySource === 'reply-parent-active') {
+          // Different transition (SUCCESS → active ban) — clear SUCCESS now.
+          setBanSentSuccess(false);
+        }
+        // Stage 3A send-success: keep banSentSuccess + snapshot until
+        // evaluateSuccessToNextHandoff.mayClearSuccessLocal.
         successToActiveLobbyBlockedRef.current = false;
         setSuccessToActiveLobbyBlocked(false);
       });
@@ -7151,6 +7221,7 @@ export function InstantBanFlow({
         queueResultId:
           observedOverlayKind === 'result' ? (result?.id ?? null) : null,
         overlayDisplayId,
+        successHandoffArmed: successPresentationHandoffArmed,
       }),
     );
   }, [
@@ -7173,6 +7244,7 @@ export function InstantBanFlow({
     showDirectOverboardLayer,
     result?.id,
     notificationRuntimeState.display.payload,
+    successPresentationHandoffArmed,
   ]);
 
   useLayoutEffect(() => {

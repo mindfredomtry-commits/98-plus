@@ -95,7 +95,19 @@ export function derivePaintedDomSurface(
   const confirmOrbVisible = input.confirmActive && input.showLobbyOrb;
 
   // InstantBanFlow: `{banSentSuccess && successSnapshot ? ( … SuccessOverlay`
+  // Stage 3A: handoff-armed retention → SUCCESS_HANDOFF_WAIT (same overlay DOM).
   if (input.banSentSuccess && input.successSnapshot) {
+    if (input.successHandoffArmed) {
+      return {
+        mode: 'SUCCESS_HANDOFF_WAIT',
+        cardId: input.successSnapshot.selectedUserId,
+        surface: 'local',
+        domIds: ['SuccessOverlay', 'data-instant-ban-view="SuccessOverlay"'],
+        confirmLayerVisible: false,
+        confirmOrbVisible: false,
+        successSnapshot: { ...input.successSnapshot },
+      };
+    }
     return {
       mode: 'SUCCESS',
       cardId: input.successSnapshot.selectedUserId,
@@ -266,6 +278,18 @@ export function assertObservedMatchesPainted(
     }
   }
   if (
+    observed.mode === 'SUCCESS_HANDOFF_WAIT' &&
+    painted.mode === 'SUCCESS_HANDOFF_WAIT'
+  ) {
+    if (
+      observed.snapshot.banText !== painted.successSnapshot?.banText ||
+      observed.snapshot.selectedUserId !==
+        painted.successSnapshot?.selectedUserId
+    ) {
+      throw new Error(`${label}: SUCCESS_HANDOFF_WAIT snapshot mismatch`);
+    }
+  }
+  if (
     (observed.mode === 'INCOMING' ||
       observed.mode === 'CHECK' ||
       observed.mode === 'RESULT') &&
@@ -409,6 +433,7 @@ export function baseParityInput(
     directOverboardResultId: null,
     queueResultId: null,
     overlayDisplayId: null,
+    successHandoffArmed: false,
     ...overrides,
   };
 }

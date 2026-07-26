@@ -77,6 +77,7 @@ export type ObservedPresentationMode =
   | 'CONFIRM'
   | 'SENDING'
   | 'SUCCESS'
+  | 'SUCCESS_HANDOFF_WAIT'
   | 'INCOMING'
   | 'CHECK'
   | 'RESULT';
@@ -120,6 +121,12 @@ export type ObservedPresentationState =
       domHints: readonly string[];
     }
   | {
+      mode: 'SUCCESS_HANDOFF_WAIT';
+      snapshot: ObservedSuccessSnapshot;
+      chrome: ObservedPresentationChrome;
+      domHints: readonly string[];
+    }
+  | {
       mode: 'INCOMING';
       display: ObservedDisplayRef;
       chrome: ObservedPresentationChrome;
@@ -148,6 +155,7 @@ export const OBSERVED_PRESENTATION_DOM_HINTS = {
   CONFIRM: ['[data-instant-ban-view="ConfirmScreen"]'],
   SENDING: ['[data-instant-ban-view="ConfirmScreen"]', '[data-send-phase="confirming"]'],
   SUCCESS: ['[data-instant-ban-view="SuccessOverlay"]'],
+  SUCCESS_HANDOFF_WAIT: ['[data-instant-ban-view="SuccessOverlay"]'],
   INCOMING: ['[data-notification-layer]'],
   CHECK: ['[data-notification-layer]', '[data-overlay-user-card]'],
   RESULT_QUEUE: ['[data-result-branch]', '[data-notification-layer]'],
@@ -180,6 +188,11 @@ export type ObservedPresentationInput = {
    * Copied from runtime display payload or Providers result — observation only.
    */
   overlayDisplayId: string | null;
+  /**
+   * Stage 3A: SUCCESS→next handoff armed (SUCCESS exit only).
+   * When armed with retained SUCCESS snapshot → SUCCESS_HANDOFF_WAIT (not empty LOBBY).
+   */
+  successHandoffArmed: boolean;
 };
 
 function buildChrome(input: ObservedPresentationInput): ObservedPresentationChrome {
@@ -209,9 +222,16 @@ export function observePresentationState(
   const overlayPainted =
     input.overlayHostActive || input.notificationOverlayVisible;
 
-  // Local SUCCESS remains InstantBanFlow-owned; observe before queue overlays
-  // so SUCCESS+blocked-result frames still report SUCCESS (matches paint intent).
+  // Stage 3A: retained SUCCESS during handoff wait — never empty LOBBY gap.
   if (input.banSentSuccess && input.successSnapshot) {
+    if (input.successHandoffArmed) {
+      return {
+        mode: 'SUCCESS_HANDOFF_WAIT',
+        snapshot: { ...input.successSnapshot },
+        chrome,
+        domHints: OBSERVED_PRESENTATION_DOM_HINTS.SUCCESS_HANDOFF_WAIT,
+      };
+    }
     return {
       mode: 'SUCCESS',
       snapshot: { ...input.successSnapshot },
