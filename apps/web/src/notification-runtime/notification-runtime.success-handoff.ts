@@ -5,6 +5,11 @@
 import { mergeStartupPendingChain } from '@/lib/overlay-arbiter';
 import { overlayQueueKey, type QueuedOverlay } from '@/lib/overlay-queue';
 import {
+  logSuccessHandoffOverboardResultWithheld,
+  partitionSuccessHandoffMaterializeItems,
+  type SuccessHandoffMaterializeStage,
+} from '@/lib/success-handoff-result-preemption';
+import {
   buildExclusiveDisplayPatchFromRuntime,
   toQueuedOverlayItems,
   type RuntimeLegacySinks,
@@ -50,6 +55,26 @@ export function filterConsumedQueuedItems(
 ): QueuedOverlay[] {
   const consumed = new Set(store.getState().consumed.itemIds);
   return items.filter((item) => !consumed.has(overlayQueueKey(item)));
+}
+
+/**
+ * SUCCESS-exit batch for one source: drop consumed items, withhold pending
+ * overboard results (they must not preempt actionable heads), then order.
+ */
+export function resolveSuccessDrainBatch(
+  store: NotificationRuntimeStore,
+  items: readonly QueuedOverlay[],
+  stage: SuccessHandoffMaterializeStage,
+): QueuedOverlay[] {
+  const { materialize, withheld } = partitionSuccessHandoffMaterializeItems(
+    filterConsumedQueuedItems(store, items),
+  );
+  logSuccessHandoffOverboardResultWithheld(
+    stage,
+    withheld,
+    materialize.length,
+  );
+  return sortQueuedForSuccessDrain(materialize);
 }
 
 /**
@@ -171,9 +196,7 @@ async function materializeSuccessHandoff(
     return 'rejected';
   }
 
-  let sorted = sortQueuedForSuccessDrain(
-    filterConsumedQueuedItems(store, args.localItems),
-  );
+  let sorted = resolveSuccessDrainBatch(store, args.localItems, 'local');
 
   if (sorted.length === 0 && args.fetchPendingItems) {
     try {
@@ -184,9 +207,7 @@ async function materializeSuccessHandoff(
       ) {
         return 'rejected';
       }
-      sorted = sortQueuedForSuccessDrain(
-        filterConsumedQueuedItems(store, fetched),
-      );
+      sorted = resolveSuccessDrainBatch(store, fetched, 'transport');
     } catch {
       store.dispatch({
         type: 'DRAIN_FAILED',
@@ -204,19 +225,18 @@ async function materializeSuccessHandoff(
   if (sorted.length === 0) {
     const existing = store.getState().items.queue;
     if (existing.length > 0) {
-      sorted = sortQueuedForSuccessDrain(
-        filterConsumedQueuedItems(
-          store,
-          existing.map((item) => {
-            if (item.kind === 'result') {
-              return { kind: 'result' as const, result: item.result };
-            }
-            if (item.kind === 'check') {
-              return { kind: 'check' as const, ban: item.ban };
-            }
-            return { kind: 'incoming' as const, ban: item.ban };
-          }),
-        ),
+      sorted = resolveSuccessDrainBatch(
+        store,
+        existing.map((item) => {
+          if (item.kind === 'result') {
+            return { kind: 'result' as const, result: item.result };
+          }
+          if (item.kind === 'check') {
+            return { kind: 'check' as const, ban: item.ban };
+          }
+          return { kind: 'incoming' as const, ban: item.ban };
+        }),
+        'runtime-queue',
       );
     }
   }
