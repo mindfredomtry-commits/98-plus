@@ -64,6 +64,8 @@ import {
   logSuccessPresentationHandoffReleased,
   type SuccessPresentationHandoffTraceFields,
 } from '@/lib/success-drain-empty-shell-hold-debug';
+import { observePresentationState } from '@/lib/observed-presentation-state';
+import { publishObservedPresentation } from '@/lib/observed-presentation-mirror';
 import { createInitialNotificationRuntimeState } from '@/notification-runtime/notification-runtime.types';
 import {
   logOverboardV3WriterChange,
@@ -7095,6 +7097,72 @@ export function InstantBanFlow({
     !hideLobbyBootLogoOnly &&
     // FIX A: suppress logo together with base orb while transition owns presentation.
     !transitionOwnsPresentation;
+
+  // Stage 1 — read-only presentation mirror. Telemetry only: never gates JSX,
+  // never remounts InstantBanFlow, never writes runtime / portals / displays.
+  useEffect(() => {
+    const observedOverlayKind =
+      activeOverlayKind === 'incoming' ||
+      activeOverlayKind === 'check' ||
+      activeOverlayKind === 'result'
+        ? activeOverlayKind
+        : null;
+    publishObservedPresentation(
+      observePresentationState({
+        phase,
+        banSentSuccess,
+        successSnapshot: successSnapshot
+          ? {
+              selectedUserId:
+                successSnapshot.selectedUser.userId ??
+                successSnapshot.selectedUser.id ??
+                null,
+              banText: successSnapshot.banText,
+              durationMinutes: successSnapshot.durationMinutes,
+              replyToBanId: successSnapshot.replyToBanId,
+            }
+          : null,
+        inFlight,
+        sharing,
+        replySending,
+        confirmActive,
+        lobbyBootIntroPrimed,
+        holdLobbyOrbForBootstrap,
+        showBootOrb,
+        showLobbyOrb,
+        persistentLogoVisible,
+        showLobbyChrome,
+        activeOverlayKind: observedOverlayKind,
+        overlayHostActive: notificationOverlayMounted,
+        notificationOverlayVisible,
+        showDirectOverboardLayer,
+        directOverboardResultId: showDirectOverboardLayer
+          ? (result?.id ?? null)
+          : null,
+        queueResultId:
+          observedOverlayKind === 'result' ? (result?.id ?? null) : null,
+      }),
+    );
+  }, [
+    phase,
+    banSentSuccess,
+    successSnapshot,
+    inFlight,
+    sharing,
+    replySending,
+    confirmActive,
+    lobbyBootIntroPrimed,
+    holdLobbyOrbForBootstrap,
+    showBootOrb,
+    showLobbyOrb,
+    persistentLogoVisible,
+    showLobbyChrome,
+    activeOverlayKind,
+    notificationOverlayMounted,
+    notificationOverlayVisible,
+    showDirectOverboardLayer,
+    result?.id,
+  ]);
 
   useLayoutEffect(() => {
     if (!confirmActive && phase !== 'confirming') return;
