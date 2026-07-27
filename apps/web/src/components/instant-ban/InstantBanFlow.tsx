@@ -8439,6 +8439,10 @@ export function InstantBanFlow({
               durationMinutes={successSnapshot.durationMinutes}
               onExitComplete={handleSuccessExitComplete}
               onShare={handleInviteMore}
+              freezeFinalFrame={
+                successToNextHandoff.retainSuccessPresentation ||
+                successPresentationHandoffArmed
+              }
             />
           </div>
         ) : null}

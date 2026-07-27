@@ -422,6 +422,105 @@ async function main() {
     );
   });
 
+  await spec('SUCCESS_HANDOFF_WAIT has SuccessOverlay DOM mounted', () => {
+    const snap = successSnap();
+    const painted = derivePaintedDomSurface(
+      baseParityInput({
+        banSentSuccess: true,
+        successSnapshot: snap,
+        successHandoffArmed: true,
+        showLobbyOrb: false,
+        showLobbyChrome: false,
+        persistentLogoVisible: false,
+      }),
+    );
+    assert.equal(painted.mode, 'SUCCESS_HANDOFF_WAIT');
+    assert.ok(painted.domIds.some((id) => id.includes('SuccessOverlay')));
+    const flow = read(
+      join(webRoot, 'src/components/instant-ban/InstantBanFlow.tsx'),
+    );
+    assert.match(flow, /\{banSentSuccess && successSnapshot \? \(/);
+    assert.match(flow, /freezeFinalFrame=\{/);
+    assert.match(flow, /data-instant-ban-view="SuccessOverlay"/);
+  });
+
+  await spec('SUCCESS animation does not replay / exit during wait', () => {
+    const successSrc = read(
+      join(webRoot, 'src/components/instant-ban/SuccessScreen.tsx'),
+    );
+    assert.match(successSrc, /freezeFinalFrame/);
+    assert.match(successSrc, /freeze-final-frame/);
+    assert.match(successSrc, /setCardFrame\('frozen'\)/);
+    // Exit animation path removed from CTA — was the visual blank gap.
+    assert.doesNotMatch(successSrc, /instant-ban-success-card--exit/);
+    assert.doesNotMatch(successSrc, /SUCCESS_CARD_EXIT_MS/);
+    assert.match(successSrc, /data-success-card-frame/);
+  });
+
+  await spec('SUCCESS → incoming paints no Lobby/orb frame (visual retain)', () => {
+    const snap = successSnap();
+    const wait = baseParityInput({
+      banSentSuccess: true,
+      successSnapshot: snap,
+      successHandoffArmed: true,
+      showBootOrb: false,
+      showLobbyOrb: false,
+      persistentLogoVisible: false,
+      showLobbyChrome: false,
+    });
+    const painted = derivePaintedDomSurface(wait);
+    assert.equal(painted.mode, 'SUCCESS_HANDOFF_WAIT');
+    assert.equal(painted.domIds.includes('data-base-lobby-orb'), false);
+    const decision = evaluateSuccessToNextHandoff(handoffInput());
+    assert.equal(decision.allowLobbyBase, false);
+    const owns = notificationTransitionOwnsPresentation({
+      successPresentationHandoffHold: !decision.allowLobbyBase,
+      interactiveActionOwnsPresentation: false,
+    });
+    const layers = resolveLobbyOrbLayersWithSuccessDrainHold({
+      hold: owns,
+      lobbyBootIntroPrimed: true,
+      holdLobbyOrbForBootstrap: false,
+    });
+    assert.equal(layers.showLobbyOrb, false);
+    assert.equal(layers.showBootOrb, false);
+  });
+
+  await spec('SUCCESS → explicit empty release unmounts SUCCESS and paints Lobby once', () => {
+    const snap = successSnap();
+    const rec = new PresentationParityRecorder(INSTANCE);
+    rec.record({
+      label: 'wait',
+      input: baseParityInput({
+        banSentSuccess: true,
+        successSnapshot: snap,
+        successHandoffArmed: true,
+        showLobbyOrb: false,
+      }),
+      runtime: idleRuntime({ lifecycle: 'draining' }),
+    });
+    const clear = evaluateSuccessToNextHandoff(
+      handoffInput({ chainExplicitlyEmpty: true }),
+    );
+    assert.equal(clear.mayClearSuccessLocal, true);
+    assert.equal(clear.phase, 'EMPTY_LOBBY_RELEASED');
+    rec.record({
+      label: 'lobby-once',
+      input: baseParityInput({
+        banSentSuccess: false,
+        successSnapshot: null,
+        successHandoffArmed: false,
+        showLobbyOrb: true,
+        persistentLogoVisible: true,
+        showLobbyChrome: true,
+      }),
+      runtime: idleRuntime(),
+    });
+    rec.assertParity();
+    assert.deepEqual(rec.modes(), ['SUCCESS_HANDOFF_WAIT', 'LOBBY']);
+    assert.equal(rec.samples.filter((s) => s.observed.mode === 'LOBBY').length, 1);
+  });
+
   const failed = results.filter((r) => !r.ok);
   console.log('\n---');
   console.log(
