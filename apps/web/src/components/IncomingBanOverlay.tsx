@@ -61,6 +61,10 @@ import {
   logResultRenderBranch,
   logResultRenderSelectionTrace,
 } from '@/lib/result-render-selection-trace';
+import {
+  acknowledgeIncomingDomMounted,
+  clearIncomingDomMountAck,
+} from '@/lib/incoming-dom-mount-ack';
 
 type VerifyPhase = 'idle' | 'pending' | 'ok' | 'failed';
 
@@ -550,6 +554,23 @@ function IncomingBanOverlayInner({
     buttonsEnabled,
     reportOverlayRendered,
   ]);
+
+  // Separate from layout diagnostics — deps must stay stable so unstable
+  // reportOverlayRendered / buttonsEnabled identities cannot re-ack.
+  useLayoutEffect(() => {
+    if (!activeIncomingBan?.id || !visible || verifyPhase === 'failed') return;
+    acknowledgeIncomingDomMounted(activeIncomingBan.id);
+  }, [activeIncomingBan?.id, visible, verifyPhase]);
+
+  useLayoutEffect(() => {
+    const banId = activeIncomingBan?.id ?? null;
+    if (!banId || !visible || verifyPhase === 'failed') {
+      return;
+    }
+    return () => {
+      clearIncomingDomMountAck(banId);
+    };
+  }, [activeIncomingBan?.id, visible, verifyPhase]);
 
   useEffect(() => {
     if (!activeIncomingBan?.id || !visible || verifyPhase === 'failed') {

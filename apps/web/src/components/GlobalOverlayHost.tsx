@@ -72,8 +72,16 @@ export function GlobalOverlayHost({
     () => false,
   );
 
+  // Card presence — host may stay mounted internally, but the visible shell
+  // (active layer / opaque backdrop) must not paint without a card child.
+  const hasOverlayChildren = Children.toArray(children).some(
+    (child) => child != null && child !== false && isValidElement(child),
+  );
+
   const sessionBackdropVisible =
-    backdropPaintActive || visualShieldBackdrop || queueSessionActive;
+    (backdropPaintActive || visualShieldBackdrop || queueSessionActive) &&
+    hasOverlayChildren;
+  const pointerActive = active && hasOverlayChildren;
   const gapBackdropHold =
     sessionBackdropVisible &&
     backdropTraceContext != null &&
@@ -85,21 +93,25 @@ export function GlobalOverlayHost({
 
   useEffect(() => {
     console.log('[global-overlay-host-render]', {
-      active,
-      pointerActive: active,
+      active: pointerActive,
+      pointerActive,
       backdropActive: sessionBackdropVisible,
       backdropPaintActive,
       visualShieldBackdrop,
       checkInteractive,
       activeKind: activeOverlayKind,
+      hasOverlayChildren,
+      hostMountedInternally: true,
+      visibleOverlayShell: sessionBackdropVisible || pointerActive,
     });
   }, [
-    active,
+    pointerActive,
     backdropPaintActive,
     sessionBackdropVisible,
     visualShieldBackdrop,
     checkInteractive,
     activeOverlayKind,
+    hasOverlayChildren,
   ]);
 
   useEffect(() => {
@@ -232,15 +244,12 @@ export function GlobalOverlayHost({
 
   if (!mounted || typeof document === 'undefined') return null;
 
-  const hasOverlay = Children.toArray(children).some(
-    (child) => child != null && child !== false && isValidElement(child),
-  );
   console.log('ACTUAL_COMPONENT_RENDER: NotificationOverlayShell', {
     t: performance.now(),
     kind: activeOverlayKind,
     activeKind: activeOverlayKind,
-    hasOverlay,
-    visible: active,
+    hasOverlay: hasOverlayChildren,
+    visible: pointerActive,
     queueLen: null,
     pendingLen: null,
   });
@@ -248,16 +257,20 @@ export function GlobalOverlayHost({
   return createPortal(
     <div
       ref={hostRef}
-      className={`app-notification-layer${active ? ' app-notification-layer--active' : ''}${
+      className={`app-notification-layer${pointerActive ? ' app-notification-layer--active' : ''}${
         sessionBackdropVisible ? ' app-notification-layer--session' : ''
       }${sessionBackdropVisible ? ' app-notification-layer--visual-shield' : ''}${
         checkInteractive ? ' app-notification-layer--check-interactive' : ''
       }`}
       style={{ zIndex: hostZIndexValue }}
       data-notification-layer=""
-      aria-hidden={!active && !sessionBackdropVisible}
+      data-overlay-host-internal=""
+      data-visible-overlay-shell={
+        pointerActive || sessionBackdropVisible ? 'true' : 'false'
+      }
+      aria-hidden={!pointerActive && !sessionBackdropVisible}
     >
-      {active ? (
+      {pointerActive ? (
         <div className="app-notification-layer__hit-blocker" aria-hidden />
       ) : null}
       <div
@@ -284,7 +297,7 @@ export function GlobalOverlayHost({
       />
       <div
         className={`app-notification-layer__content${
-          sessionBackdropVisible && hasOverlay
+          sessionBackdropVisible && hasOverlayChildren
             ? ' app-notification-layer__content--card-host'
             : ''
         }${gapBackdropHold ? ' app-notification-layer__content--gap-hold' : ''}`}

@@ -60,6 +60,12 @@ import {
 } from '@/lib/success-drain-empty-shell-hold';
 import { evaluateSuccessToNextHandoff } from '@/lib/success-to-next-handoff';
 import {
+  expectNextDisplayDomMount,
+  getIncomingDomMountAckSnapshot,
+  resetIncomingDomMountAck,
+  subscribeIncomingDomMountAck,
+} from '@/lib/incoming-dom-mount-ack';
+import {
   buildSuccessPresentationHandoffTraceFields,
   logSuccessPresentationHandoffArmed,
   logSuccessPresentationHandoffReleased,
@@ -990,6 +996,31 @@ export function InstantBanFlow({
    * (orb + logo + chrome) hidden until an explicit terminal runtime outcome.
    * Does NOT require draining/pending/prefetch evidence to stay armed.
    */
+  const runtimeDisplayPayload = notificationRuntimeState.display.payload;
+  const expectedNextDisplayId =
+    runtimeDisplayPayload?.kind === 'incoming'
+      ? (runtimeDisplayPayload.ban.id ?? null)
+      : runtimeDisplayPayload?.kind === 'check'
+        ? (runtimeDisplayPayload.ban.id ?? null)
+        : runtimeDisplayPayload?.kind === 'result'
+          ? (runtimeDisplayPayload.result.id ?? null)
+          : null;
+  const incomingDomMountAck = useSyncExternalStore(
+    subscribeIncomingDomMountAck,
+    getIncomingDomMountAckSnapshot,
+    getIncomingDomMountAckSnapshot,
+  );
+  // Primitive for handoff — avoid depending on object identity beyond stable snapshot.
+  const nextDisplayDomMountedMatching =
+    expectedNextDisplayId != null &&
+    incomingDomMountAck.matchingDomMounted &&
+    incomingDomMountAck.mountedDisplayId === expectedNextDisplayId;
+
+  useLayoutEffect(() => {
+    if (!successPresentationHandoffArmed) return;
+    expectNextDisplayDomMount(expectedNextDisplayId);
+  }, [successPresentationHandoffArmed, expectedNextDisplayId]);
+
   const successPresentationHandoffInput: SuccessPresentationHandoffHoldInput = {
     lobbyBootIntroPrimed,
     handoffArmed: successPresentationHandoffArmed,
@@ -999,6 +1030,8 @@ export function InstantBanFlow({
       notificationRuntimeState.display.payload != null,
     runtimeQueueLength: notificationRuntimeState.items.queue.length,
     notificationPresentationClaimed: runtimeClaimsNotificationScreen,
+    expectedDisplayId: expectedNextDisplayId,
+    nextDisplayDomMounted: nextDisplayDomMountedMatching,
     chainExplicitlyEmpty: successPresentationChainExplicitlyEmpty,
     presentationOwnershipReleased:
       selectIsRecovering(notificationRuntimeState) ||
@@ -1011,8 +1044,8 @@ export function InstantBanFlow({
     successPresentationHandoffDecision.hold;
   /**
    * Stage 3A — sole SUCCESS→next handoff contract.
-   * Retains local SUCCESS until materialize+claimed, explicit empty, or
-   * recoverable failure (never Lobby from display null).
+   * Retains local SUCCESS until matching next card DOM is mounted, explicit
+   * empty, or recoverable failure (never Lobby from display null / host alone).
    */
   const successToNextHandoff = evaluateSuccessToNextHandoff({
     banSentSuccess,
@@ -1026,6 +1059,8 @@ export function InstantBanFlow({
         : null,
     runtimeDisplayPayloadPresent:
       notificationRuntimeState.display.payload != null,
+    expectedDisplayId: expectedNextDisplayId,
+    nextDisplayDomMounted: nextDisplayDomMountedMatching,
     notificationPresentationClaimed: runtimeClaimsNotificationScreen,
     chainExplicitlyEmpty: successPresentationChainExplicitlyEmpty,
     presentationOwnershipReleased:
@@ -1101,7 +1136,7 @@ export function InstantBanFlow({
   ]);
 
   // Stage 3A: clear local SUCCESS only on explicit handoff terminal
-  // (materialize+claimed or empty Lobby release) — never on display null.
+  // (matching DOM mount or empty Lobby release) — never on display null.
   useLayoutEffect(() => {
     if (!successToNextHandoff.mayClearSuccessLocal) return;
     if (!banSentSuccess && sendSnapshotRef.current == null) {
@@ -1114,6 +1149,7 @@ export function InstantBanFlow({
         if (successToNextHandoff.phase !== 'EMPTY_LOBBY_RELEASED') {
           setSuccessPresentationChainExplicitlyEmpty(false);
         }
+        resetIncomingDomMountAck();
       }
       return;
     }
@@ -1123,6 +1159,7 @@ export function InstantBanFlow({
     if (successToNextHandoff.phase !== 'EMPTY_LOBBY_RELEASED') {
       setSuccessPresentationChainExplicitlyEmpty(false);
     }
+    resetIncomingDomMountAck();
   }, [
     successToNextHandoff.mayClearSuccessLocal,
     successToNextHandoff.phase,
