@@ -8,8 +8,8 @@ export type ApplyQueueCommitTracePayload = {
   dispatchSkipped: boolean;
   finalizeCommitEntered: boolean;
   finalizeCommitReturned: boolean;
-  queueApplyReturnedNull: boolean;
-  queueApplyReturnedSameReference: boolean;
+  applyOverlayQueueReturnedNull: boolean;
+  applyOverlayQueueReturnedSameReference: boolean;
   queueChanged: boolean;
   queueIdentityChanged: boolean;
   reducerExecuted: boolean;

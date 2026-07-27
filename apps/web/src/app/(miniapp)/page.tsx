@@ -19,8 +19,10 @@ import { useSocialBoot } from '@/hooks/useSocialBoot';
 import { BootHandoffDebugBadge } from '@/components/BootHandoffDebugBadge';
 import { PillSourceDebugBadge } from '@/components/PillSourceDebugBadge';
 import { HomeArena } from '@/components/HomeArena';
-import { NotificationOwnerHost } from '@/notification-owner/NotificationOwnerHost';
+import { InstantBanFlow } from '@/components/instant-ban/InstantBanFlow';
 import { useBootSceneIntro } from '@/components/instant-ban/useBootSceneIntro';
+import { LobbyBootLogoShell } from '@/components/lobby/LobbyBootLogoShell';
+import { shouldHideLobbyBootLogoOnly } from '@/lib/lobby-boot-logo-hide';
 import { SendBanDock } from '@/components/SendBanDock';
 import { ConnectionBanner } from '@/components/ConnectionBanner';
 import { BottomNav, type Tab } from '@/components/BottomNav';
@@ -231,6 +233,10 @@ export default function HomePage() {
   });
 
   const sendStarted = instantBanOpen || sendFlowOpen;
+  const hideLobbyBootLogoOnly = shouldHideLobbyBootLogoOnly({
+    phase: 'idle',
+    replyComposeActive,
+  });
   const replyTargetBanId = replyDeepLinkBanId ?? deepLinkBoot.parsedBanId;
   const replyIncomingReady =
     activeOverlayKind === 'incoming' &&
@@ -253,7 +259,7 @@ export default function HomePage() {
     Boolean(checkDeepLinkBanId) &&
     (checkOverlayMounted || checkDeeplinkDirectPending);
 
-  /** Parent layout effect latches send UI early. */
+  /** Parent layout effect runs before InstantBanFlow effects — latch send UI early. */
   const shellBlocksLobbyClose =
     bansCtaQueueSuppress || bansReturnToLobbyLatch;
 
@@ -309,8 +315,7 @@ export default function HomePage() {
   }, [token, reloadPending]);
 
   const lobbyInfluence = resolveLobbyInfluencePercent(user);
-  // Side-effect only: primes lobby boot intro session for chrome timing.
-  useBootSceneIntro(
+  const bootIntro = useBootSceneIntro(
     hasAuthSession ? lobbyInfluence.influencePercent : 0,
     hasAuthSession && !lobbyInfluence.fromFallback,
   );
@@ -465,6 +470,18 @@ export default function HomePage() {
       <PillSourceDebugBadge />
       <BootHandoffDebugBadge />
 
+      {!lobbyBootIntroDone ? (
+        <LobbyBootLogoShell
+          logoScaleActive={bootIntro.logoScaleActive}
+          logoLocked={bootIntro.logoLocked}
+          logoScaleMs={bootIntro.logoScaleMs}
+          logoScaleDelayMs={bootIntro.logoScaleDelayMs}
+          onLogoScaleEnd={bootIntro.onLogoScaleEnd}
+          bootBackground={routeOverlayAboveBoot}
+          hideLobbyBootLogoOnly={hideLobbyBootLogoOnly}
+        />
+      ) : null}
+
       <ShellErrorBoundary name="ambience" fallback={null}>
         <ArenaAmbience />
       </ShellErrorBoundary>
@@ -501,7 +518,7 @@ export default function HomePage() {
         </ShellErrorBoundary>
       ) : null}
 
-      {!lobbyPrefetch && arenaVisible ? (
+      {!lobbyPrefetch && lobbyBootIntroDone ? (
         <BottomNav tab={tab} onChange={setTab} />
       ) : null}
 
@@ -520,7 +537,19 @@ export default function HomePage() {
         />
       ) : null}
 
-      {arenaVisible ? <NotificationOwnerHost /> : null}
+      {arenaVisible ? (
+        <InstantBanFlow
+          bootIntro={bootIntro}
+          sendStarted={sendStarted}
+          onStartSend={handleLobbyEnter}
+          influencePercent={
+            hasAuthSession ? lobbyInfluence.influencePercent : 0
+          }
+          energyLoaded={hasAuthSession && !lobbyInfluence.fromFallback}
+          inviteUsername={user?.username ?? null}
+          onClose={handleCloseInstantBan}
+        />
+      ) : null}
 
     </div>
   );

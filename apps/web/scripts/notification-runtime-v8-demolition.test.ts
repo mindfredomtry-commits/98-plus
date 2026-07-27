@@ -34,7 +34,7 @@ import {
 } from '../src/notification-runtime/notification-runtime.selectors';
 import { notificationItemId } from '../src/notification-runtime/notification-runtime.types';
 import type { NotificationItem } from '../src/notification-runtime/notification-runtime.types';
-import type { OwnerActiveDisplayPatch } from '../src/notification-runtime/notification-runtime.display-patch';
+import type { OwnerActiveDisplayPatch } from '../src/lib/notification-overlay-owner';
 import type { QueuedOverlay } from '../src/lib/overlay-queue';
 
 function ban(id: string): BanInteraction {

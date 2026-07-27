@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BanInteraction } from '@98plus/shared';
-import type { OwnerActiveDisplayPatch } from '../src/notification-runtime/notification-runtime.display-patch';
+import type { OwnerActiveDisplayPatch } from '../src/lib/notification-overlay-owner';
 import type { QueuedOverlay } from '../src/lib/overlay-queue';
 import { planLobbyBansOpenNavigation } from '../src/lib/lobby-bans-open-navigation';
 import { EMPTY_RUNTIME_LEGACY_SINKS } from '../src/notification-runtime/notification-runtime.demolition';

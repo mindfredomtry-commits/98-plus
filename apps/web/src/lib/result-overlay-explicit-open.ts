@@ -43,7 +43,7 @@ const PASSIVE_RESULT_OPEN_MARKERS = [
   'auth-ready-layout',
   'startup-release',
   'mergeStartupIntoOverlayQueueOnly',
-  'ingestQueuedOverlay',
+  'enqueueNotification',
 ] as const;
 
 export type PassiveResultOverlayGateContext = {

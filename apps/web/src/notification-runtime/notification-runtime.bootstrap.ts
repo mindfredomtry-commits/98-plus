@@ -2,7 +2,7 @@
  * Vertical 7 — bootstrap / recovery lifecycle (runtime sole owner).
  * Transport fetches only; overlay / badge / lobby decided by reducer.
  */
-import type { OwnerActiveDisplayPatch } from '@/notification-runtime/notification-runtime.display-patch';
+import type { OwnerActiveDisplayPatch } from '@/lib/notification-overlay-owner';
 import type { QueuedOverlay } from '@/lib/overlay-queue';
 import {
   buildExclusiveDisplayPatchFromRuntime,

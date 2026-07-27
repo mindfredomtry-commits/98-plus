@@ -1,9 +1,9 @@
 'use client';
 
-import type { NotificationOverlayOwnerState } from '@/notification-owner/notification-owner-pin-state';
-import { resolveOwnerHeadBanId } from '@/notification-owner/notification-owner-pin-state';
+import type { NotificationOverlayOwnerState } from '@/lib/notification-overlay-owner';
+import { resolveOwnerHeadBanId } from '@/lib/notification-overlay-owner';
 import { overlayQueueKey } from '@/lib/overlay-queue';
-import { isPhase12DiagEnabled } from '@/lib/phase12-diag-env-gate';
+import { isPhase12DiagEnabled } from '@/lib/notification-overlay-owner-phase12-smoke-env';
 import {
   getOwnerDisplayWriteTraceContext,
   patchOwnerDisplayWriteTraceContext,

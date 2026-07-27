@@ -1,5 +1,5 @@
 import type { BanInteraction, BanResult } from '@98plus/shared';
-import type { NotificationOverlayOwnerState } from '@/notification-owner/notification-owner-pin-state';
+import type { NotificationOverlayOwnerState } from '@/lib/notification-overlay-owner';
 import type { QueuedOverlay } from '@/lib/overlay-queue';
 import { overlayQueueKey } from '@/lib/overlay-queue';
 import { normalizeId } from '@/lib/normalize-json';

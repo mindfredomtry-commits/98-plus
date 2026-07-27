@@ -20,6 +20,7 @@ import {
   resolveLiveOverlayScreen,
 } from '@/lib/live-overlay-screen';
 import { getExplicitNotificationDrainSource } from '@/lib/notification-chain-explicit-drain';
+import { mirrorOwnerDeeplinkMetaWrite } from '@/lib/notification-overlay-owner-deeplink-mirror';
 
 export type FreshDeepLinkEntrySnapshot = {
   banId: string;
@@ -38,7 +39,7 @@ function emit(event: string, data?: Record<string, unknown>): void {
   window.__debug98log?.(event, payload);
 }
 
-/** Read-only snapshot of the currently armed fresh deeplink entry, if any. */
+/** Read-only snapshot for owner shadow compare (Step 3). */
 export function getFreshDeepLinkEntrySnapshot(): FreshDeepLinkEntrySnapshot | null {
   if (!freshEntry) return null;
   return { ...freshEntry };
@@ -57,6 +58,7 @@ export function armFreshDeepLinkEntry(
     consumed: false,
   };
   noteKnownDirectBanId(normalized);
+  mirrorOwnerDeeplinkMetaWrite(`armFreshDeepLinkEntry:${launchSource}`);
   emit('[FRESH DEEPLINK ARMED]', {
     banId: normalized,
     launchSource,
@@ -73,6 +75,7 @@ export function consumeFreshDeepLinkEntry(
   if (normalized && normalized !== freshEntry.banId) return;
   freshEntry = { ...freshEntry, consumed: true };
   clearKnownDirectBanId();
+  mirrorOwnerDeeplinkMetaWrite(`consumeFreshDeepLinkEntry:${reason}`);
   emit('[FRESH DEEPLINK CONSUMED]', {
     banId: freshEntry.banId,
     reason,

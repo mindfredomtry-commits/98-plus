@@ -47,7 +47,13 @@ import { explainIncomingHidden, logIncomingDebug } from '@/lib/incoming-debug';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useIncomingPoll } from '@/hooks/useIncomingPoll';
 import { EnergyPopupStack } from './EnergyPopupStack';
+import { IncomingBanOverlay } from './IncomingBanOverlay';
+import { CheckOverlay } from './CheckOverlay';
+import { ResultOverlay } from './ResultOverlay';
+import { GlobalOverlayHost } from './GlobalOverlayHost';
+import { NotificationQueueShell } from './NotificationQueueShell';
 import { RouteOverlayBootPriorityMarker } from './RouteOverlayBootPriorityMarker';
+import { DirectOverboardResultLayer } from './DirectOverboardResultLayer';
 import {
   overlayDelayCause,
   overlayDelayMs,
@@ -183,12 +189,14 @@ import type {
   OwnerHoldsMirrorPatch,
   OwnerMetaMirrorPatch,
   OwnerSessionMirrorPatch,
-  NotificationOwnerPinStateHandle,
-} from '@/notification-owner/notification-owner-pin-state';
+} from '@/lib/notification-overlay-owner';
+import { NOTIFICATION_OWNER_CHECK_RESULT_HOLD_MS } from '@/lib/notification-overlay-owner';
 import {
-  NOTIFICATION_OWNER_CHECK_RESULT_HOLD_MS,
-  createNotificationOwnerPinStateHost,
-} from '@/notification-owner/notification-owner-pin-state';
+  buildOwnerDeeplinkMetaMirrorPatch,
+  registerOwnerDeeplinkMetaMirror,
+} from '@/lib/notification-overlay-owner-deeplink-mirror';
+import { createNotificationOverlayOwnerShadow } from '@/lib/notification-overlay-owner-shadow';
+import type { NotificationOverlayOwnerShadowMirrorHandlers } from '@/lib/notification-overlay-owner-shadow';
 import { NotificationRuntimeContext } from '@/notification-runtime/notification-runtime.context';
 import {
   buildExclusiveDisplayPatchFromRuntime,
@@ -206,6 +214,11 @@ import {
 } from '@/notification-runtime/notification-runtime.store';
 import { selectNotificationRuntimeUiSnapshot } from '@/notification-runtime/notification-runtime.snapshot';
 import {
+  notificationOverlayMayMount,
+  resolveOrdinaryLobbyMayOpen,
+  resolveQueueShellVisible,
+} from '@/notification-runtime/notification-runtime.shell-visibility';
+import {
   applyPolledCheckResultToRuntime,
   executeSubmitCardActionEffect,
   requestCheckCardAction,
@@ -218,6 +231,12 @@ import {
   snapshotRuntimeForActionResultHandoff,
   stageMatchingActionResult,
 } from '@/notification-runtime/notification-runtime.action-result-handoff';
+import {
+  executeSuccessHandoffMaterialize,
+  normalizeAbandonedDrain,
+  requestSuccessHandoff,
+  resolveSuccessHandoffFetchItems,
+} from '@/notification-runtime/notification-runtime.success-handoff';
 import {
   completeDirectSessionViaDismiss,
   executeFetchDirectItemEffect,
@@ -255,12 +274,6 @@ import {
   subscribeIncomingOverboardCompletion,
 } from '@/notification-runtime/notification-runtime.overboard-completion';
 import {
-  queueItemFromCheck,
-  queueItemFromIncoming,
-  queueItemFromResult,
-} from '@/notification-owner';
-import { ingestAndClaimIfLobby, ingestItems, ingestQueuedOverlay } from '@/notification-owner/notification-owner.live-ingest';
-import {
   logOverboardV3ProdTrace,
   logOverboardV3ProdTraceBoot,
   logOverboardV3WriterChange,
@@ -284,6 +297,17 @@ import {
   pendingItemIdFromParts,
 } from '@/notification-runtime/notification-runtime.pending';
 import {
+  logOwnerPhase8QueueMismatch,
+  logOwnerPhase9ActiveMismatch,
+  logOwnerPhase11BPendingDispatch,
+  logOwnerPhase11BPendingException,
+  logOwnerPhase11BPendingMismatch,
+  logOwnerPhase11B2HeldMirror,
+  logOwnerPhase11B3StableMirror,
+  logOwnerPhase11B4ReplyMirror,
+  logOwnerPhase11B5ScopedMirror,
+} from '@/lib/notification-overlay-owner-debug';
+import {
   readOwnerOnlyCheckBan,
   readOwnerOnlyDirectResultOverlayActive,
   readOwnerOnlyIncomingBan,
@@ -291,12 +315,25 @@ import {
   readOwnerOnlyQueueHead,
   readOwnerOnlyQueueLen,
   readOwnerOnlyResult,
-  readOwnerOnlyUserCard,
-  readOwnerOnlyStableIncomingBan,
-  readOwnerOnlyReplyIncomingBan,
-  readOwnerOnlyScopedIncomingBan,
+} from '@/lib/notification-overlay-owner-read-selectors';
+import { readOwnerOnlyUserCard } from '@/lib/notification-overlay-owner-held-read-selectors';
+import { readOwnerOnlyStableIncomingBan } from '@/lib/notification-overlay-owner-stable-incoming-read-selectors';
+import { readOwnerOnlyReplyIncomingBan } from '@/lib/notification-overlay-owner-reply-read-selectors';
+import { readOwnerOnlyScopedIncomingBan } from '@/lib/notification-overlay-owner-scoped-read-selectors';
+import {
   readOwnerShellQueueHeadKindForRender,
   readOwnerScopedIncomingForRender,
+} from '@/lib/notification-overlay-owner-phase12-render-read-selectors';
+import { logPhase12RenderFallback } from '@/lib/notification-overlay-owner-phase12-render-debug';
+import { logPhase12VisibilityGate } from '@/lib/notification-overlay-owner-phase12-visibility-debug';
+import {
+  computeCheckOverlayVisibility,
+  computeDirectOverboardVisibility,
+  computeIncomingOverlayVisibility,
+  computeNotificationQueueShellReadiness,
+  computeResultOverlayVisibility,
+} from '@/lib/notification-overlay-owner-phase12-visibility-read-selectors';
+import {
   readOwnerDecisionFreshOverboardActionLive,
   readOwnerDecisionShellAtomicBanId,
   readOwnerDecisionShellDisplayResultId,
@@ -304,10 +341,26 @@ import {
   resolveLobbyBansDrainGateDecision,
   resolveShowNextHeadDecision,
   mapOverlayQueueItemIds,
+} from '@/lib/notification-overlay-owner-phase12-decision-read-selectors';
+import { logPhase12WriteAuthority } from '@/lib/notification-overlay-owner-phase12-write-authority-debug';
+import { logPhase12DiagBoot } from '@/lib/phase12-diag-probe-debug';
+import { PHASE12_BUILD_MARKER } from '@/lib/phase12-build-marker';
+import {
+  buildPhase12WriteAuthoritySnapshotFromLegacy,
+  buildPhase12WriteAuthoritySnapshotFromOwner,
+  phase12WriteAuthoritySnapshotsMismatch,
+} from '@/lib/notification-overlay-owner-phase12-write-authority';
+import {
+  runPhase12ParityCheckWithMirrorLag,
+  type Phase12ParityLegacyInput,
+} from '@/lib/notification-overlay-owner-phase12-parity';
+import {
   readOwnerOnlyShellPendingLen,
   readOwnerOnlyShellQueueHeadIncomingBanId,
   readOwnerOnlyShellQueueLen,
   resolveOwnerShellActiveOverlayKind,
+} from '@/lib/notification-overlay-owner-shell-read-selectors';
+import {
   readOwnerImperativeCheckAnswerWaitingHoldBanIdForRuntime,
   readOwnerImperativeCheckBanForRuntime,
   readOwnerImperativeIncomingBanForRuntime,
@@ -321,6 +374,8 @@ import {
   readOwnerDecisionDisplayCheckBanForRuntime,
   readOwnerDecisionDisplayIncomingBanForRuntime,
   readOwnerDecisionDisplayResultBanIdForRuntime,
+} from '@/lib/notification-overlay-owner-phase12-runtime-read-selectors';
+import {
   readOwnerImperativeAtomicOverboardBanId,
   readOwnerImperativeCheckBan,
   readOwnerImperativeHeldUserCard,
@@ -333,6 +388,8 @@ import {
   readOwnerImperativeResult,
   readOwnerImperativeStableIncomingBan,
   readOwnerImperativeState,
+} from '@/lib/notification-overlay-owner-imperative-read-selectors';
+import {
   readOwnerChainState,
   readOwnerImperativeCheckAnswerWaitingHoldBanId,
   readOwnerImperativeDirectResult,
@@ -369,16 +426,7 @@ import {
   readOwnerC3IsDirectOverboardLayerActive,
   readOwnerC3OverboardInFlightBanId,
   readOwnerC3OverboardInFlightEquals,
-} from '@/notification-owner/notification-owner-view-selectors';
-import {
-  computeCheckOverlayVisibility,
-  computeDirectOverboardVisibility,
-  computeIncomingOverlayVisibility,
-  computeNotificationQueueShellReadiness,
-  computeResultOverlayVisibility,
-} from '@/lib/notification-overlay-visibility';
-import { logPhase12DiagBoot } from '@/lib/phase12-diag-probe-debug';
-import { PHASE12_BUILD_MARKER } from '@/lib/phase12-build-marker';
+} from '@/lib/notification-overlay-owner-chain-read-selectors';
 import type { OptimisticOverboardBuildContext } from '@/lib/optimistic-overboard-result';
 import {
   logOverboardPaint,
@@ -1952,15 +2000,6 @@ export const DEFAULT_BANS_NAV: BansNavState = {
   returnTarget: 'lobby',
 };
 
-// Legacy SUCCESS presentation is retired; notification-owner owns continuation.
-const normalizeAbandonedDrain = (..._args: unknown[]) => false;
-const requestSuccessHandoff = (..._args: unknown[]) => ({
-  accepted: false,
-  transitionId: null,
-});
-const executeSuccessHandoffMaterialize = async (..._args: unknown[]) => 'idle';
-const resolveSuccessHandoffFetchItems = <T,>(items: T[]) => items;
-
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function useApp() {
@@ -2124,11 +2163,11 @@ type ApplyOverlayQueueOptions = {
   reason?: string;
   /** Commit queue ref/state without syncDisplayFromQueue. */
   silent?: boolean;
-  /** Skip head-switch guards (legacy commitQueueMutationTraced call sites). */
+  /** Skip head-switch guards (legacy commitOverlayQueueTraced call sites). */
   bypassGuards?: boolean;
   /**
    * Do not reset chainAdvanceExplicitRef after commit.
-   * Silent commits default to true (legacy commitQueueMutationTraced parity).
+   * Silent commits default to true (legacy commitOverlayQueueTraced parity).
    */
   preserveChainAdvanceExplicit?: boolean;
 };
@@ -2326,7 +2365,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const queueShellShowsResultRef = useRef(false);
   const queueLobbyGuardActiveRef = useRef(false);
   const activeOverlayLockRef = useRef<string | null>(null);
-  const writeQueueSnapshotRef = useRef<
+  const applyOverlayQueueRef = useRef<
     (next: QueuedOverlay[], opts?: ApplyOverlayQueueOptions) => boolean
   >(() => false);
   const overlayQueueDrainActiveRef = useRef(false);
@@ -2628,26 +2667,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const mirrorOwnerChainSessionGatesRef = useRef<
     (source: string, patch?: OwnerSessionMirrorPatch) => void
   >(() => {});
-  /** Step 3 Phase 8 — legacy session-field projection handlers (wired after syncPendingStartupCount). */
-  const ownerMirrorHandlersRef = useRef<{
-    mirrorLegacyQueue?: (
-      queue: readonly QueuedOverlay[],
-      source: string,
-      silent?: boolean,
-    ) => void;
-    mirrorLegacyPending?: (
-      pending: readonly QueuedOverlay[],
-      source: string,
-    ) => void;
-    mirrorLegacyActive?: (
-      display: NotificationOwnerDisplayState,
-      source: string,
-    ) => void;
-    mirrorLegacySession?: (
-      session: NotificationOverlayOwnerState['session'],
-      source: string,
-    ) => void;
-  }>({});
+  /** Step 3 Phase 8 — queue authority mirror handlers (wired after syncPendingStartupCount). */
+  const ownerMirrorHandlersRef =
+    useRef<NotificationOverlayOwnerShadowMirrorHandlers>({});
   const syncPendingStartupCountRef = useRef<() => void>(() => {});
   const queueAppearancePrevQueueLenRef = useRef(0);
   const queueAppearancePrevPendingLenRef = useRef(0);
@@ -2772,7 +2794,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       skipReason?: string | null;
     },
   ) => {
-    const ownerNow = ownerRuntimeHostRef.current.getState();
+    const ownerNow = ownerShadowRef.current.getState();
     logOwnerPendingPromotionDecision({
       stage,
       ownerPendingLenBefore: snapshot.ownerPendingLenBefore,
@@ -2796,7 +2818,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     displayResultId: string | null;
   };
   const captureActiveResultClearSnapshot = (): ActiveResultClearSnapshot => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     return {
       activeKind: owner.active.kind,
       queueLen: owner.queue.length,
@@ -2814,7 +2836,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       didMarkConsumed?: boolean;
     },
   ) => {
-    const ownerAfter = ownerRuntimeHostRef.current.getState();
+    const ownerAfter = ownerShadowRef.current.getState();
     const afterActiveKind = ownerAfter.active.kind;
     const afterDisplayResultId = ownerAfter.display.result?.id ?? null;
     logActiveResultClearDecision({
@@ -2835,7 +2857,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
   };
   const detectAndLogActiveResultStuckWithQueue = () => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const ownerQueueLen = owner.queue.length;
     const ownerPendingLen = owner.pending.length;
     const activeKind = owner.active.kind;
@@ -2915,7 +2937,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       skippedReason?: string | null;
     },
   ) => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const runtimePendingLen = pendingStartupInteractionsRef.current.length;
     const runtimeQueueLen = overlayQueueRef.current.length;
     logPendingPromotionDecisionTrace({
@@ -2947,7 +2969,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       wasDirect?: boolean | null;
     },
   ) => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const queueLen = overlayQueueRef.current.length;
     const pendingLen = pendingStartupInteractionsRef.current.length;
     const goToBansAdvancePending = goToBansAdvancePendingRef.current;
@@ -3001,7 +3023,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       pendingLenBefore?: number;
     },
   ) => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     if (
       !isGoToBansContinueTraceRelevant(
         input.source,
@@ -3034,7 +3056,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     functionName: string,
     caller: string,
   ) => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const pendingHeadFields = resolvePendingHeadFields(owner.pending[0] ?? null);
     return {
       functionName,
@@ -3074,7 +3096,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       'commitPendingQueueViaOwner',
       `${source}:${reason}`,
     );
-    const ownerBefore = ownerRuntimeHostRef.current.getState();
+    const ownerBefore = ownerShadowRef.current.getState();
     const refPendingBefore = pendingStartupInteractionsRef.current.length;
     const refQueueBefore = overlayQueueRef.current.length;
     const pendingHeadBefore = ownerBefore.pending[0] ?? null;
@@ -3090,7 +3112,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       sharedPrefetchPromiseState: pendingChainPrefetchSharedLifecycleRef.current,
     });
     applyPendingQueueViaOwnerRef.current(next, `${source}:${reason}`, reason);
-    const ownerAfter = ownerRuntimeHostRef.current.getState();
+    const ownerAfter = ownerShadowRef.current.getState();
     const ownerMutated =
       ownerAfter.pending.length !== ownerBefore.pending.length ||
       ownerAfter.queue.length !== ownerBefore.queue.length;
@@ -3225,6 +3247,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return prev;
       }
+      if (next && !prev) {
+        // Vertical 2: ordinary lobby open only when runtime lobbyMayShow.
+        // queue-lobby-guard is no longer lifecycle authority.
+        if (
+          !resolveOrdinaryLobbyMayOpen({
+            runtimeLobbyMayShow: selectLobbyMayShow(
+              notificationRuntimeStoreRef.current.getState(),
+            ),
+          })
+        ) {
+          logLobbyOpenRejectedQueueActive({
+            source: 'setLobbyOpen-state:v2-runtime-lobbyMayShow',
+            ...getQueueLobbyGuardSnapshot(),
+          });
+          return prev;
+        }
+      }
       if (next && !prev && isPostSuccessHandoffInProgress()) {
         if (
           shouldBlockLobbyOpenForPostSuccessHandoff(
@@ -3305,7 +3344,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const isCheckAnswerWaitingResultHoldActive = useCallback(
     (banId?: string | null) => {
       const owner = readOwnerChainState(
-        ownerRuntimeHostRef.current.getState(),
+        ownerShadowRef.current.getState(),
         'isCheckAnswerWaitingResultHoldActive',
       );
       const held = readOwnerImperativeCheckAnswerWaitingHoldBanIdForRuntime(
@@ -3548,7 +3587,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     const norm = normalizeId(banId);
     if (!norm) return;
     const owner = readOwnerChainState(
-      ownerRuntimeHostRef.current.getState(),
+      ownerShadowRef.current.getState(),
       'lockOverkillTerminal',
     );
     if (
@@ -3612,7 +3651,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         fields,
       );
       logOwnerStep2bQueueWrite('[OWNER STEP2B QUEUE WRITE VIA APPLY]', fields);
-      writeQueueSnapshotRef.current(nextOverlay, {
+      applyOverlayQueueRef.current(nextOverlay, {
         source: sourceFunction,
         reason: 'lock-overkill-terminal-prune-queue',
         silent: true,
@@ -3760,7 +3799,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const isDirectOverboardLocallyActive = useCallback(() => {
     const owner = readOwnerChainState(
-      ownerRuntimeHostRef.current.getState(),
+      ownerShadowRef.current.getState(),
       'isDirectOverboardLocallyActive',
     );
     const directActive = readOwnerImperativeDirectResultActive(
@@ -3989,7 +4028,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       },
     });
     // Stage 4A — owner authority; React/refs update via MIRROR_LEGACY_SESSION.
-    ownerRuntimeHostRef.current.dispatch(
+    ownerShadowRef.current.dispatch(
       {
         type: 'CHAIN_TRANSITIONING_SET',
         active: false,
@@ -4367,6 +4406,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       activeIncomingOverlayBanRef.current = enriched;
       setActiveIncomingOverlayBanState(enriched);
       logIncomingStableBanSet({ banId: enriched.id, source });
+      logOwnerPhase11B3StableMirror({
+        source,
+        banId: enriched.id,
+        action: 'set',
+      });
       writeOwnerDisplay(
         { stableIncomingBan: enriched },
         `${source}:setActiveIncomingOverlayBanStable`,
@@ -4389,6 +4433,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       logIncomingStableBanCleared({ banId: current.id, reason });
       activeIncomingOverlayBanRef.current = null;
       setActiveIncomingOverlayBanState(null);
+      logOwnerPhase11B3StableMirror({
+        source: reason,
+        banId: null,
+        action: 'clear',
+      });
       writeOwnerDisplay(
         { stableIncomingBan: null },
         `${reason}:clearActiveIncomingOverlayBanStable`,
@@ -4400,7 +4449,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const blockClearActiveIncomingOverlayBan = useCallback(
     (banId: string | null | undefined, source: string): boolean => {
       const owner = readOwnerImperativeState(
-        ownerRuntimeHostRef.current.getState(),
+        ownerShadowRef.current.getState(),
         'blockClearActiveIncomingOverlayBan',
       );
       const stable = readOwnerImperativeStableIncomingBan(
@@ -4419,7 +4468,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const resolveStableIncomingForQueueHead = useCallback(
     (active: QueuedOverlay | null | undefined): BanInteraction | null => {
       const owner = readOwnerImperativeState(
-        ownerRuntimeHostRef.current.getState(),
+        ownerShadowRef.current.getState(),
         'resolveStableIncomingForQueueHead',
       );
       const stable = readOwnerImperativeStableIncomingBan(
@@ -4458,11 +4507,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     null,
   );
 
-  /** Step-1 Single Owner runtime host — Vertical 9: pin/session shell only (not notification runtime). */
-  const ownerRuntimeHostRef = useRef(
-    createNotificationOwnerPinStateHost((session, source) =>
-      ownerMirrorHandlersRef.current.mirrorLegacySession?.(session, source),
-    ),
+  /** Step-1 Single Owner shadow — Vertical 9: pin/session shell only (not notification runtime). */
+  const ownerShadowRef = useRef(
+    createNotificationOverlayOwnerShadow({
+      mirrorLegacyQueue: (queue, source, silent) =>
+        ownerMirrorHandlersRef.current.mirrorLegacyQueue?.(queue, source, silent),
+      mirrorLegacyPending: (pending, source) =>
+        ownerMirrorHandlersRef.current.mirrorLegacyPending?.(pending, source),
+      compareQueueIntegrity: (source, ownerQueue, ownerPending) =>
+        ownerMirrorHandlersRef.current.compareQueueIntegrity?.(
+          source,
+          ownerQueue,
+          ownerPending,
+        ),
+      mirrorLegacyActive: (display, source) =>
+        ownerMirrorHandlersRef.current.mirrorLegacyActive?.(display, source),
+      mirrorLegacySession: (session, source) =>
+        ownerMirrorHandlersRef.current.mirrorLegacySession?.(session, source),
+      compareActiveDisplayIntegrity: (source, display) =>
+        ownerMirrorHandlersRef.current.compareActiveDisplayIntegrity?.(
+          source,
+          display,
+        ),
+    }),
   );
   /** Vertical 1 — sole production queue / current / dismiss-advance authority. */
   const notificationRuntimeStoreRef = useRef(createNotificationRuntimeStore());
@@ -4506,7 +4573,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     source: string,
     banId?: string | null,
   ) => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     return {
       source,
       handlerName,
@@ -4524,7 +4591,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
    * state and is only invoked from diagnostic emit sites.
    */
   const buildCheckHandoffLive = () => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const head =
       owner.queue[0] ??
       overlayQueueRef.current[0] ??
@@ -4569,7 +4636,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     answer: string,
     source: string,
   ) => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const head = overlayQueueRef.current[0] ?? null;
     const queueHeadBanId =
       head?.kind === 'result'
@@ -4606,37 +4673,90 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     };
   };
   const readOwnerImperative = (selector: Parameters<typeof readOwnerImperativeState>[1]) =>
-    readOwnerImperativeState(ownerRuntimeHostRef.current.getState(), selector);
-  /**
-   * Vertical 9 — write-authority parity comparison retired: notification-runtime
-   * is the sole queue/pending/display authority, so there is no second "legacy"
-   * writer left to compare against. This wrapper still runs the real mutation
-   * (`commit`) at every call site; it no longer performs any diagnostic
-   * before/after snapshot comparison or logging.
-   */
+    readOwnerImperativeState(ownerShadowRef.current.getState(), selector);
   const logPhase12WriteAuthorityOperation = (
-    _operation: string,
+    operation: string,
     commit: () => void,
   ): void => {
+    const ownerBefore = ownerShadowRef.current.getState();
+    const legacyQueueBefore = [...overlayQueueRef.current];
+    const legacyPendingBefore = [...pendingStartupInteractionsRef.current];
     commit();
+    const ownerAfter = ownerShadowRef.current.getState();
+    const legacyQueueAfter = [...overlayQueueRef.current];
+    const legacyPendingAfter = [...pendingStartupInteractionsRef.current];
+    const ownerAfterSnap = buildPhase12WriteAuthoritySnapshotFromOwner(ownerAfter);
+    const legacyAfterSnap = buildPhase12WriteAuthoritySnapshotFromLegacy(
+      legacyQueueAfter,
+      legacyPendingAfter,
+    );
+    logPhase12WriteAuthority({
+      operation,
+      ownerBefore: buildPhase12WriteAuthoritySnapshotFromOwner(ownerBefore),
+      ownerAfter: ownerAfterSnap,
+      legacyBefore: buildPhase12WriteAuthoritySnapshotFromLegacy(
+        legacyQueueBefore,
+        legacyPendingBefore,
+      ),
+      legacyAfter: legacyAfterSnap,
+      mirrorApplied: true,
+      mismatch: phase12WriteAuthoritySnapshotsMismatch(
+        ownerAfterSnap,
+        legacyAfterSnap,
+      ),
+    });
+    runPhase12ParityCheck(operation, operation);
   };
+  const buildPhase12LegacyParityInput = (): Phase12ParityLegacyInput => ({
+    queue: overlayQueueRef.current,
+    pending: pendingStartupInteractionsRef.current,
+    activeKind: resultRef.current
+      ? 'result'
+      : checkBanRef.current
+        ? 'check'
+        : incomingBanRef.current
+          ? 'incoming'
+          : null,
+    activeBanId:
+      resultRef.current?.id ??
+      checkBanRef.current?.id ??
+      incomingBanRef.current?.id ??
+      null,
+    heldUserCard: heldUserCardOverlayRef.current,
+    checkResultWaitBanId: checkAnswerWaitingResultHoldBanIdRef.current,
+    atomicOverboardBanId: incomingOverboardAtomicBanIdRef.current,
+    overboardInFlightBanId: overboardInFlightRef.current,
+    overkillTerminalBanIds: overkillTerminalBanIdsRef.current,
+    resultPriorityBanIds: resultPriorityBanIdsRef.current,
+    checkAnswerInFlight: checkAnswerInFlightRef.current,
+    directResultOverlay: directResultOverlayRef.current,
+    directResultOverlayActive: directResultOverlayActiveRef.current,
+  });
   const runPhase12ParityCheck = (
-    _source: string,
-    _operation: string,
-    _opts?: { fallbackUsed?: boolean },
-  ): void => {};
+    source: string,
+    operation: string,
+    opts?: { fallbackUsed?: boolean },
+  ): void => {
+    runPhase12ParityCheckWithMirrorLag({
+      source,
+      operation,
+      getOwner: () => ownerShadowRef.current.getState(),
+      getLegacyInput: buildPhase12LegacyParityInput,
+      fallbackUsed: opts?.fallbackUsed,
+    });
+  };
   const readOwnerChain = (
     selector: Parameters<typeof readOwnerChainState>[1],
-  ) => readOwnerChainState(ownerRuntimeHostRef.current.getState(), selector);
+  ) => readOwnerChainState(ownerShadowRef.current.getState(), selector);
   const readOwnerDecision = (
     selector: Parameters<typeof readOwnerDecisionState>[1],
-  ) => readOwnerDecisionState(ownerRuntimeHostRef.current.getState(), selector);
+  ) => readOwnerDecisionState(ownerShadowRef.current.getState(), selector);
   const readOwnerC2Decision = (
     selector: Parameters<typeof readOwnerC2DecisionState>[1],
-  ) => readOwnerC2DecisionState(ownerRuntimeHostRef.current.getState(), selector);
+  ) => readOwnerC2DecisionState(ownerShadowRef.current.getState(), selector);
   const readOwnerC3Decision = (
     selector: Parameters<typeof readOwnerC3DecisionState>[1],
-  ) => readOwnerC3DecisionState(ownerRuntimeHostRef.current.getState(), selector);
+  ) => readOwnerC3DecisionState(ownerShadowRef.current.getState(), selector);
   const readOwnerC3MountedResultId = (
     selector: Parameters<typeof readOwnerC3DecisionState>[1],
   ) =>
@@ -4662,7 +4782,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     updateSource: LobbyIndicatorHydrateUpdateSource,
     extra?: Record<string, unknown>,
   ) => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const head = owner.queue[0] ?? null;
     const display = owner.display;
     const ownerDisplayKind = display.directResultOverlay ||
@@ -4699,7 +4819,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     );
   };
   const buildResultDismissDiagSnapshot = () => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const display = owner.display;
     const queueHead = owner.queue[0] ?? null;
     const ownerDisplayKind = display.directResultOverlayActive ||
@@ -4775,7 +4895,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     reason: string,
     intent: BansLayerOpenIntent,
   ) => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     return {
       source,
       reason,
@@ -4959,7 +5079,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       dismissReason?: string | null;
     },
   ) => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const banId =
       fields?.banId ??
       fields?.resultId ??
@@ -5009,7 +5129,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ownerPendingHead: resolveOverlayHeadSnapshot(ownerState.pending[0] ?? null),
   });
   const buildOwnerActiveDisplayDiagFields = (
-    ownerState = ownerRuntimeHostRef.current.getState(),
+    ownerState = ownerShadowRef.current.getState(),
   ) => ({
     ownerActiveKind: ownerState.active.kind,
     ownerActiveBanId: ownerState.active.banId,
@@ -5046,7 +5166,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const buildGoToBansPayloadSwitchTraceFromRefs = (
     willRender: boolean,
   ) => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const ownerDirectActive =
       owner.display.directResultOverlayActive ||
       owner.display.directResultOverlay;
@@ -5059,7 +5179,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
   };
   const buildDirectOverboardCloseDiagSnapshot = () => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const held = heldUserCardOverlayRef.current;
     const queueHead = overlayQueueRef.current[0] ?? null;
     const ownerDisplayResultId = owner.display.result?.id ?? null;
@@ -5110,7 +5230,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       return 'none';
     }
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     if (normalizeId(owner.display.result?.id ?? '') === norm) {
       return 'ownerDisplay';
     }
@@ -5236,7 +5356,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     continueOpts?: ContinueNotificationChainOptions,
   ) => {
     if (!isResultGoToBansContinueSource(source)) return;
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const nextHead = resolveOverlayHeadSnapshot(owner.queue[0] ?? null);
     logQueueContinueAfterResult({
       source,
@@ -5348,26 +5468,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         replyParentActivePriorityActiveRef.current,
     };
   };
-  const dispatchPinStateEvent = (
+  const ownerShadowDispatch = (
     event: NotificationOverlayOwnerEvent,
     source: string,
   ) => {
-    ownerRuntimeHostRef.current.dispatch(
+    ownerShadowRef.current.dispatch(
       event,
       source,
       buildOwnerShadowProductionSnapshot(),
     );
   };
-  const syncPinStateFromProduction = (source: string) => {
-    ownerRuntimeHostRef.current.syncFromProduction(
+  const ownerShadowSyncFromProduction = (source: string) => {
+    ownerShadowRef.current.syncFromProduction(
       buildOwnerShadowProductionSnapshot(),
       source,
     );
   };
 
   mirrorOwnerSessionFlagsRef.current = (source, patch) => {
-    dispatchPinStateEvent(
-      { type: 'SESSION_FIELDS_PATCH', patch, source },
+    ownerShadowDispatch(
+      { type: 'SHADOW_MIRROR_SESSION', patch, source },
       source,
     );
   };
@@ -5381,19 +5501,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     });
   };
   mirrorOwnerHoldsSetsRef.current = (source, patch) => {
-    dispatchPinStateEvent(
-      { type: 'HOLDS_FIELDS_PATCH', patch, source },
+    ownerShadowDispatch(
+      { type: 'SHADOW_MIRROR_HOLDS', patch, source },
       source,
     );
   };
   const mirrorHeldUserCardHold = (source: string) => {
     const held = heldUserCardOverlayRef.current;
+    logOwnerPhase11B2HeldMirror({
+      source,
+      kind: held?.kind ?? null,
+      banId: held ? heldUserCardBanId(held) : null,
+    });
     mirrorOwnerHoldsSetsRef.current(source, {
       userCard: held,
     });
   };
   const mirrorReplyIncomingDisplayBan = (source: string) => {
     const ban = replyIncomingDisplayBanRef.current;
+    logOwnerPhase11B4ReplyMirror({
+      source,
+      banId: ban?.id ?? null,
+      action: ban ? 'set' : 'clear',
+    });
     writeOwnerDisplay({ replyIncomingBan: ban }, source);
   };
   const mirrorScopedIncomingDisplayBan = (
@@ -5401,15 +5531,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ban: BanInteraction | null,
   ) => {
     scopedIncomingBanRef.current = ban;
+    logOwnerPhase11B5ScopedMirror({
+      source,
+      banId: ban?.id ?? null,
+      action: ban ? 'set' : 'clear',
+    });
     writeOwnerDisplay({ scopedIncomingBan: ban }, source);
   };
   mirrorOwnerMetaClusterRef.current = (source, patch) => {
     const activeTimerMounted =
       activeBanCardVisibleRef.current ||
       replyParentActivePriorityActiveRef.current;
-    dispatchPinStateEvent(
+    ownerShadowDispatch(
       {
-        type: 'META_FIELDS_PATCH',
+        type: 'SHADOW_MIRROR_META',
         patch: {
           composePhase: sendComposePhaseRef.current,
           replyComposeActive: replyComposeActiveRef.current,
@@ -5424,6 +5559,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             notificationChainReplyComposeActiveRef.current ||
             sendSuccessCardActiveRef.current ||
             activeTimerMounted,
+          ...buildOwnerDeeplinkMetaMirrorPatch(),
           ...patch,
         },
         source,
@@ -5431,6 +5567,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       source,
     );
   };
+  registerOwnerDeeplinkMetaMirror((source, deeplinkPatch) => {
+    mirrorOwnerMetaClusterRef.current(source, deeplinkPatch);
+  });
 
   const isUserAllowedCheckOverlayCloseReason = (reason: string) =>
     reason === 'user-answer' || reason === 'clear-check-overlay';
@@ -5700,7 +5839,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     reason: string,
     extra?: Record<string, unknown>,
   ) => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const held = heldUserCardOverlayRef.current;
     const awaiting = notificationChainAwaitingUserRef.current;
     emitHoldStateRead({
@@ -5823,7 +5962,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   };
 
   const buildPostConsumeOwnerSnapshot = () => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const pendingHead = pendingStartupInteractionsRef.current[0] ?? null;
     const displayKind = owner.display.result
       ? 'result'
@@ -5924,7 +6063,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         activeResultIdAfter?: string | null;
       },
     ) => {
-      const owner = ownerRuntimeHostRef.current.getState();
+      const owner = ownerShadowRef.current.getState();
       const queueHead = owner.queue[0] ?? null;
       const expectedBanId = normalizeId(active.banId) || null;
       const expectedResultId =
@@ -6087,7 +6226,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
         return;
       }
-      const ownerBeforeLegacyClear = ownerRuntimeHostRef.current.getState();
+      const ownerBeforeLegacyClear = ownerShadowRef.current.getState();
       const displayResultIdBeforeClear =
         ownerBeforeLegacyClear.display.result?.id ?? null;
       buildClearStaleActiveResultGuardTrace(
@@ -6113,7 +6252,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         clearSnapBefore,
         { didClearDisplay: true },
       );
-      const ownerAfterLegacyClear = ownerRuntimeHostRef.current.getState();
+      const ownerAfterLegacyClear = ownerShadowRef.current.getState();
       buildClearStaleActiveResultGuardTrace(
         'after-clear',
         'legacy-ref-clear-attempted-owner-active-unchanged',
@@ -6511,29 +6650,29 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         awaitingUser: notificationChainAwaitingUserRef.current,
         mountedIncomingBanId:
           readOwnerImperativeIncomingBan(
-            ownerRuntimeHostRef.current.getState().display,
+            ownerShadowRef.current.getState().display,
             'buildResultShellHeldCardGuardContext',
             { ref: incomingBanRef.current },
           )?.id ?? null,
         mountedCheckBanId:
           readOwnerImperativeCheckBan(
-            ownerRuntimeHostRef.current.getState().display,
+            ownerShadowRef.current.getState().display,
             'buildResultShellHeldCardGuardContext',
             { ref: checkBanRef.current },
           )?.id ?? null,
         atomicOverboardBanId: readOwnerImperativeAtomicOverboardBanId(
-          ownerRuntimeHostRef.current.getState(),
+          ownerShadowRef.current.getState(),
           'buildResultShellHeldCardGuardContext',
           { ref: incomingOverboardAtomicBanIdRef.current },
         ),
         freshOverboardBanIds: freshOverboardActionBanIdsRef.current,
         overboardInFlightBanId: readOwnerImperativeOverboardInFlightBanId(
-          ownerRuntimeHostRef.current.getState(),
+          ownerShadowRef.current.getState(),
           'buildResultShellHeldCardGuardContext',
           { ref: overboardInFlightRef.current },
         ),
         freshFinalStatusBanIds: freshFinalStatusBanIdsRef.current,
-        resultPriorityBanIds: ownerRuntimeHostRef.current.getState().holds
+        resultPriorityBanIds: ownerShadowRef.current.getState().holds
           .resultPriorityBanIds,
         chainAdvanceExplicit: chainAdvanceExplicitRef.current,
         queueHead,
@@ -7095,8 +7234,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     };
   };
 
-  /** @deprecated Step 2a — use commitQueueMutation / writeQueueSnapshot. */
-  const commitQueueMutationTraced = useCallback(
+  /** @deprecated Step 2a — use commitOverlayQueueViaApply / applyOverlayQueue. */
+  const commitOverlayQueueTraced = useCallback(
     (next: QueuedOverlay[], source: string, reason: string) => {
       logOwnerStep2aCommit('[OWNER STEP2A COMMIT TRACED REMOVED]', {
         source,
@@ -7110,7 +7249,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         silent: true,
         didSyncDisplay: false,
       });
-      return writeQueueSnapshotRef.current(next, {
+      return applyOverlayQueueRef.current(next, {
         source,
         reason,
         silent: true,
@@ -7120,13 +7259,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  const commitQueueMutation = (
+  const commitOverlayQueueViaApply = (
     next: QueuedOverlay[],
     source: string,
     reason: string,
     extra?: Omit<ApplyOverlayQueueOptions, 'source' | 'reason'>,
   ): boolean =>
-    writeQueueSnapshotRef.current(next, {
+    applyOverlayQueueRef.current(next, {
       source,
       reason,
       silent: true,
@@ -7134,22 +7273,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       ...extra,
     });
 
-  const applyQueueMutationSilent = (
+  const writeOverlayQueueSilent = (
     _next: QueuedOverlay[],
     _source: string,
     _reason: string,
     _extra?: Omit<ApplyOverlayQueueOptions, 'source' | 'reason'>,
   ): boolean => {
-    throw new Error(
-      'legacy applyQueueMutationSilent removed — use notification-owner ingest',
-    );
+    // Vertical 9: no dual-store queue writes — runtime.items.queue is sole authority.
+    return false;
   };
 
   /** Auth/logout reset — documented Step 2b exception (not a display apply). */
   const resetOverlayQueueState = (source: string, reason: string): void => {
-    const ownerBefore = ownerRuntimeHostRef.current.getState();
+    const ownerBefore = ownerShadowRef.current.getState();
     const fields = buildStep2bQueueWriteFields(
-      [...ownerRuntimeHostRef.current.getState().queue],
+      [...ownerShadowRef.current.getState().queue],
       [],
       source,
       reason,
@@ -7169,9 +7307,16 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       resultId: null,
     });
     logPhase12WriteAuthorityOperation(`queue-reset:${source}:${reason}`, () => {
-      // Legacy overlay queue clear is obsolete; notification-owner advances via intents.
+      ownerShadowRef.current.dispatch(
+        {
+          type: 'QUEUE_SILENT_UPDATED',
+          queue: [],
+          source: `${source}:${reason}`,
+        },
+        `${source}:${reason}`,
+      );
     });
-    const ownerAfter = ownerRuntimeHostRef.current.getState();
+    const ownerAfter = ownerShadowRef.current.getState();
     traceOwnerQueueSilentUpdate({
       caller: `${source}:${reason}`,
       source: `${source}:${reason}`,
@@ -8341,7 +8486,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   };
 
   const deferNotificationToPendingStartup = (item: QueuedOverlay) => {
-    const ownerBefore = ownerRuntimeHostRef.current.getState();
+    const ownerBefore = ownerShadowRef.current.getState();
     const fields = readNotificationFieldsFromOverlay(item);
     const nextPending = mergeStartupPendingChain(
       pendingStartupInteractionsRef.current,
@@ -8662,7 +8807,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setNotificationChainTransitioning = useCallback((active: boolean) => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const prev =
       owner.session.notificationChainTransitioning ??
       notificationChainTransitioningRef.current;
@@ -8680,7 +8825,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
     // Stage 4A — thin intent adapter → owner CHAIN_TRANSITIONING_SET.
     // React state/refs update only via mirrorLegacySession projection.
-    ownerRuntimeHostRef.current.dispatch(
+    ownerShadowRef.current.dispatch(
       {
         type: 'CHAIN_TRANSITIONING_SET',
         active,
@@ -8728,7 +8873,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   syncPendingStartupCountRef.current = syncPendingStartupCount;
 
   emitQueueAppearanceReactionTraceRef.current = (input) => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const nextQueueLen =
       input.nextQueueLen ?? overlayQueueRef.current.length;
     const nextPendingLen =
@@ -8789,7 +8934,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   };
 
   readQueueAppearanceSnapshotRef.current = () => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const queueLen = overlayQueueRef.current.length;
     const pendingLen = pendingStartupInteractionsRef.current.length;
     const hint = lobbyBansAttentionHintRef.current;
@@ -8816,7 +8961,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   };
 
   emitOwnerQueuePopulationTraceRef.current = (input) => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const head =
       owner.queue[0] ??
       owner.pending[0] ??
@@ -8847,7 +8992,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   useLayoutEffect(() => {
     setOwnerQueuePopulationTraceBridge({
       readOwnerCounts: () => {
-        const owner = ownerRuntimeHostRef.current.getState();
+        const owner = ownerShadowRef.current.getState();
         return {
           queue: owner.queue.length,
           pending: owner.pending.length,
@@ -8931,6 +9076,53 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     // Vertical 9: dual-store mirrors are no-ops — UI reads runtime paint only.
     mirrorLegacyQueue: (_queue, _source, _silent) => {},
     mirrorLegacyPending: (_pending, _source) => {},
+    compareQueueIntegrity: (source, ownerQueue, ownerPending) => {
+      const ownerQueueKeys = ownerQueue.map(overlayQueueKey).join('|');
+      const refQueueKeys = overlayQueueRef.current.map(overlayQueueKey).join('|');
+      const reactQueueKeys = overlayQueue.map(overlayQueueKey).join('|');
+      const ownerPendingKeys = ownerPending.map(overlayQueueKey).join('|');
+      const refPendingKeys = pendingStartupInteractionsRef.current
+        .map(overlayQueueKey)
+        .join('|');
+      const mismatches: string[] = [];
+      if (ownerQueueKeys !== refQueueKeys) {
+        mismatches.push(
+          `queue:ref owner=${ownerQueueKeys || '(empty)'} ref=${refQueueKeys || '(empty)'}`,
+        );
+      }
+      if (ownerQueueKeys !== reactQueueKeys) {
+        mismatches.push(
+          `queue:react owner=${ownerQueueKeys || '(empty)'} react=${reactQueueKeys || '(empty)'}`,
+        );
+      }
+      if (ownerPendingKeys !== refPendingKeys) {
+        mismatches.push(
+          `pending owner=${ownerPendingKeys || '(empty)'} ref=${refPendingKeys || '(empty)'}`,
+        );
+        logOwnerPhase11BPendingMismatch({
+          source,
+          reason: 'owner-pending-vs-ref',
+          pendingLenBefore: pendingStartupInteractionsRef.current.length,
+          pendingLenAfter: ownerPending.length,
+          previousHead: formatPendingHeadForOwnerLog(
+            pendingStartupInteractionsRef.current[0] ?? null,
+          ),
+          nextHead: formatPendingHeadForOwnerLog(ownerPending[0] ?? null),
+          ownerPendingKeys,
+          refPendingKeys,
+        });
+      }
+      if (mismatches.length === 0) return;
+      logOwnerPhase8QueueMismatch({
+        source,
+        mismatches,
+        ownerQueueLen: ownerQueue.length,
+        refQueueLen: overlayQueueRef.current.length,
+        reactQueueLen: overlayQueue.length,
+        ownerPendingLen: ownerPending.length,
+        refPendingLen: pendingStartupInteractionsRef.current.length,
+      });
+    },
     // Vertical 9: notification card React dual-store writes disabled.
     mirrorLegacyActive: (_display, _source) => {},
     mirrorLegacySession: (session, source) => {
@@ -8967,9 +9159,111 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           lobbyOpenRef.current = session.lobbyOpen;
           setLobbyOpenState(session.lobbyOpen);
         }
+        runPhase12ParityCheck(source, 'mirror-session');
       } finally {
         sessionProjectionDepthRef.current -= 1;
       }
+    },
+    compareActiveDisplayIntegrity: (source, display) => {
+      const mismatches: string[] = [];
+      const ownerIncomingId = display.incomingBan?.id ?? null;
+      const refIncomingId = incomingBanRef.current?.id ?? null;
+      const reactIncomingId = incomingBan?.id ?? null;
+      const ownerCheckId = display.checkBan?.id ?? null;
+      const refCheckId = checkBanRef.current?.id ?? null;
+      const reactCheckId = checkBan?.id ?? null;
+      const ownerResultId = display.result?.id ?? null;
+      const refResultId = resultRef.current?.id ?? null;
+      const reactResultId = result?.id ?? null;
+      if (ownerIncomingId !== refIncomingId) {
+        mismatches.push(
+          `incoming:ref owner=${ownerIncomingId ?? 'null'} ref=${refIncomingId ?? 'null'}`,
+        );
+      }
+      if (ownerIncomingId !== reactIncomingId) {
+        mismatches.push(
+          `incoming:react owner=${ownerIncomingId ?? 'null'} react=${reactIncomingId ?? 'null'}`,
+        );
+      }
+      const ownerStableId = display.stableIncomingBan?.id ?? null;
+      const refStableId = activeIncomingOverlayBanRef.current?.id ?? null;
+      const reactStableId = activeIncomingOverlayBan?.id ?? null;
+      if (ownerStableId !== refStableId) {
+        mismatches.push(
+          `stableIncoming:ref owner=${ownerStableId ?? 'null'} ref=${refStableId ?? 'null'}`,
+        );
+      }
+      if (ownerStableId !== reactStableId) {
+        mismatches.push(
+          `stableIncoming:react owner=${ownerStableId ?? 'null'} react=${reactStableId ?? 'null'}`,
+        );
+      }
+      const ownerReplyId = display.replyIncomingBan?.id ?? null;
+      const refReplyId = replyIncomingDisplayBanRef.current?.id ?? null;
+      const reactReplyId = replyIncomingDisplayBan?.id ?? null;
+      if (ownerReplyId !== refReplyId) {
+        mismatches.push(
+          `replyIncoming:ref owner=${ownerReplyId ?? 'null'} ref=${refReplyId ?? 'null'}`,
+        );
+      }
+      if (ownerReplyId !== reactReplyId) {
+        mismatches.push(
+          `replyIncoming:react owner=${ownerReplyId ?? 'null'} react=${reactReplyId ?? 'null'}`,
+        );
+      }
+      const ownerScopedId = display.scopedIncomingBan?.id ?? null;
+      const refScopedId = scopedIncomingBanRef.current?.id ?? null;
+      if (ownerScopedId !== refScopedId) {
+        mismatches.push(
+          `scopedIncoming:ref owner=${ownerScopedId ?? 'null'} ref=${refScopedId ?? 'null'}`,
+        );
+      }
+      if (ownerCheckId !== refCheckId) {
+        mismatches.push(
+          `check:ref owner=${ownerCheckId ?? 'null'} ref=${refCheckId ?? 'null'}`,
+        );
+      }
+      if (ownerCheckId !== reactCheckId) {
+        mismatches.push(
+          `check:react owner=${ownerCheckId ?? 'null'} react=${reactCheckId ?? 'null'}`,
+        );
+      }
+      if (ownerResultId !== refResultId) {
+        mismatches.push(
+          `result:ref owner=${ownerResultId ?? 'null'} ref=${refResultId ?? 'null'}`,
+        );
+      }
+      if (ownerResultId !== reactResultId) {
+        mismatches.push(
+          `result:react owner=${ownerResultId ?? 'null'} react=${reactResultId ?? 'null'}`,
+        );
+      }
+      if (display.directResultOverlay !== directResultOverlayRef.current) {
+        mismatches.push(
+          `directResultOverlay owner=${display.directResultOverlay} ref=${directResultOverlayRef.current}`,
+        );
+      }
+      if (
+        display.directResultOverlayActive !== directResultOverlayActiveRef.current
+      ) {
+        mismatches.push(
+          `directResultOverlayActive owner=${display.directResultOverlayActive} ref=${directResultOverlayActiveRef.current}`,
+        );
+      }
+      if (mismatches.length === 0) return;
+      logOwnerPhase9ActiveMismatch({
+        source,
+        mismatches,
+        ownerIncomingId,
+        refIncomingId,
+        reactIncomingId,
+        ownerCheckId,
+        refCheckId,
+        reactCheckId,
+        ownerResultId,
+        refResultId,
+        reactResultId,
+      });
     },
   };
 
@@ -8979,7 +9273,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         'applyPendingQueueViaOwner',
         `${source}:${reason ?? source}`,
       );
-      const ownerBefore = ownerRuntimeHostRef.current.getState();
+      const ownerBefore = ownerShadowRef.current.getState();
       const goToBansTrace = readGoToBansSessionTrace();
       const traceSessionId =
         goToBansTrace != null ? normalizeId(goToBansTrace.banId) : null;
@@ -8994,7 +9288,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         consumedFor: (banId) => resultCtaConsumedBanIdsRef.current.has(banId),
         deliveredFor: (banId) => resultDeliveredBanIdsRef.current.has(banId),
         ownerShownOverlayHasResultFor: (banId) =>
-          ownerRuntimeHostRef.current
+          ownerShadowRef.current
             .getState()
             .session.shownOverlayKeys.has(`result:${banId}`),
         goToBansSessionTraceMatchesFor: (banId) =>
@@ -9042,19 +9336,27 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return;
       }
       const pendingLenBefore = pendingStartupInteractionsRef.current.length;
+      const previousHead = formatPendingHeadForOwnerLog(
+        pendingStartupInteractionsRef.current[0] ?? null,
+      );
       const nextHead = formatPendingHeadForOwnerLog(pendingForApply[0] ?? null);
+      logOwnerPhase11BPendingDispatch({
+        source,
+        reason: reason ?? source,
+        pendingLenBefore,
+        pendingLenAfter: pendingForApply.length,
+        previousHeadKind: previousHead.kind,
+        previousHeadBanId: previousHead.banId,
+        nextHeadKind: nextHead.kind,
+        nextHeadBanId: nextHead.banId,
+      });
       logPhase12WriteAuthorityOperation(
         `pending-mutate:${reason ?? source}`,
         () => {
-          for (const item of pendingForApply) {
-            if (
-              item.kind === 'incoming' ||
-              item.kind === 'check' ||
-              item.kind === 'result'
-            ) {
-              ingestQueuedOverlay(item);
-            }
-          }
+          ownerShadowRef.current.dispatch(
+            { type: 'PENDING_QUEUE_APPLIED', pending: pendingForApply, source },
+            source,
+          );
         },
       );
       probeOwnerQueueEmptyDuringChainRef.current(
@@ -9062,7 +9364,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         ownerBefore.queue.length,
         ownerBefore.pending.length,
       );
-      const ownerAfter = ownerRuntimeHostRef.current.getState();
+      const ownerAfter = ownerShadowRef.current.getState();
       emitOwnerQueuePopulationTraceRef.current({
         source: `applyPendingQueueViaOwner:${reason ?? source}`,
         reason: 'PENDING_QUEUE_APPLIED',
@@ -9129,29 +9431,493 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   applyPendingQueueViaOwnerRef.current = applyPendingQueueViaOwner;
 
   const applyQueueViaOwnerAuthority = useCallback(
-    (next: QueuedOverlay[], source: string, _silent: boolean) => {
-      void source;
-      if (!next.length) return;
-      for (const item of next) {
-        if (
-          item.kind === 'incoming' ||
-          item.kind === 'check' ||
-          item.kind === 'result'
-        ) {
-          ingestQueuedOverlay(item);
-        }
+    (next: QueuedOverlay[], source: string, silent: boolean) => {
+      const ownerBefore = ownerShadowRef.current.getState();
+      const queueBefore = [...ownerBefore.queue];
+      const queueHeadBefore = queueBefore[0] ?? null;
+      const queueHeadAfterPreview = next[0] ?? null;
+      const dispatchEventType = silent ? 'QUEUE_SILENT_UPDATED' : 'QUEUE_APPLIED';
+      logApplyQueueCommitTrace({
+        source: `${source}:applyQueueViaOwnerAuthority:enter`,
+        beforeQueueLength: queueBefore.length,
+        afterQueueLength: next.length,
+        dispatchExecuted: false,
+        dispatchSkipped: true,
+        finalizeCommitEntered: false,
+        finalizeCommitReturned: false,
+        applyOverlayQueueReturnedNull: false,
+        applyOverlayQueueReturnedSameReference: next === overlayQueueRef.current,
+        queueChanged: queueOverlaySnapshotChanged(queueBefore, next),
+        queueIdentityChanged: next === overlayQueueRef.current,
+        reducerExecuted: false,
+        reducerSkipped: true,
+        reason: 'apply-queue-via-owner-authority-enter',
+      });
+      logProvidersOverlayQueueMutation({
+        operation: inferProvidersOverlayQueueOperation(
+          queueBefore.length,
+          next.length,
+        ),
+        source: `${source}:applyQueueViaOwnerAuthority`,
+        reason: silent ? 'owner-dispatch-QUEUE_SILENT_UPDATED' : 'owner-dispatch-QUEUE_APPLIED',
+        prevLength: queueBefore.length,
+        nextLength: next.length,
+        prevHeadKind: queueHeadBefore?.kind ?? null,
+        nextHeadKind: queueHeadAfterPreview?.kind ?? null,
+        banId: providersOverlayQueueHeadBanId(queueHeadAfterPreview),
+        resultId:
+          queueHeadAfterPreview?.kind === 'result'
+            ? queueHeadAfterPreview.result.id
+            : null,
+      });
+      logPhase12WriteAuthorityOperation(
+        silent ? `queue-silent:${source}` : `queue-mutate:${source}`,
+        () => {
+          logApplyQueueCommitTrace({
+            source: `${source}:dispatch:${dispatchEventType}:executing`,
+            beforeQueueLength: queueBefore.length,
+            afterQueueLength: next.length,
+            dispatchExecuted: true,
+            dispatchSkipped: false,
+            finalizeCommitEntered: true,
+            finalizeCommitReturned: false,
+            applyOverlayQueueReturnedNull: false,
+            applyOverlayQueueReturnedSameReference:
+              next === overlayQueueRef.current,
+            queueChanged: queueOverlaySnapshotChanged(queueBefore, next),
+            queueIdentityChanged: next === overlayQueueRef.current,
+            reducerExecuted: false,
+            reducerSkipped: true,
+            reason: `dispatch-${dispatchEventType}-before-reducer`,
+          });
+          // Vertical 1: notification-runtime is the sole queue authority.
+          // Owner QUEUE_* is TEMP V1–V2 mirror only (no independent advance).
+          syncRuntimeQueue(
+            notificationRuntimeStoreRef.current,
+            toRuntimeItems(next),
+            mapProvidersSourceToRuntime(source),
+          );
+          ownerShadowRef.current.dispatch(
+            {
+              type: silent ? 'QUEUE_SILENT_UPDATED' : 'QUEUE_APPLIED',
+              queue: next,
+              source,
+            },
+            source,
+          );
+        },
+      );
+      const ownerAfter = ownerShadowRef.current.getState();
+      const queueAfter = [...ownerAfter.queue];
+      traceQueueTailDroppedWhileResultHeadIfNeeded({
+        beforeQueue: queueBefore,
+        afterQueue: queueAfter,
+        beforePending: [...ownerBefore.pending],
+        afterPending: [...ownerAfter.pending],
+        operation: silent ? 'QUEUE_SILENT_UPDATED' : 'QUEUE_APPLIED',
+        source,
+        reason: `${source}:applyQueueViaOwnerAuthority`,
+        calledFrom: getHeadSwitchPipelineStack().join(' > '),
+      });
+      if (silent) {
+        traceOwnerQueueSilentUpdate({
+          caller: source,
+          source,
+          functionName: 'applyQueueViaOwnerAuthority',
+          updateReason: 'QUEUE_SILENT_UPDATED',
+          silent: true,
+          prevOwnerQueue: queueBefore,
+          nextOwnerQueue: queueAfter,
+          overlayQueueLength: overlayQueueRef.current.length,
+          overlayQueueHead: overlayQueueRef.current[0] ?? null,
+        });
+      }
+      logApplyQueueCommitTrace({
+        source: `${source}:applyQueueViaOwnerAuthority:after-dispatch`,
+        beforeQueueLength: queueBefore.length,
+        afterQueueLength: queueAfter.length,
+        dispatchExecuted: true,
+        dispatchSkipped: false,
+        finalizeCommitEntered: true,
+        finalizeCommitReturned: true,
+        applyOverlayQueueReturnedNull: false,
+        applyOverlayQueueReturnedSameReference:
+          next === overlayQueueRef.current,
+        queueChanged: queueOverlaySnapshotChanged(queueBefore, queueAfter),
+        queueIdentityChanged: next === overlayQueueRef.current,
+        reducerExecuted: queueOverlaySnapshotChanged(queueBefore, queueAfter),
+        reducerSkipped: !queueOverlaySnapshotChanged(queueBefore, queueAfter),
+        reason: `dispatch-${dispatchEventType}-after-reducer`,
+        skipReason: queueOverlaySnapshotChanged(queueBefore, queueAfter)
+          ? null
+          : 'dispatch-executed-but-owner-queue-unchanged',
+      });
+      const queueFields = readNotificationFieldsFromOverlay(queueHeadAfterPreview);
+      emitOwnerQueuePopulationTraceRef.current({
+        source: `${source}:applyQueueViaOwnerAuthority`,
+        reason: silent ? 'QUEUE_SILENT_UPDATED' : 'QUEUE_APPLIED',
+        ownerQueueBefore: queueBefore.length,
+        ownerPendingBefore: ownerBefore.pending.length,
+        ownerQueueAfter: ownerAfter.queue.length,
+        ownerPendingAfter: ownerAfter.pending.length,
+        mutationApplied: true,
+        mutationSkipped: false,
+        notificationKind: queueFields.notificationKind,
+        incomingBanId: queueFields.incomingBanId,
+        resultBanId: queueFields.resultBanId,
+      });
+      const queueHeadAfter = queueAfter[0] ?? null;
+      emitPostConsumeQueueUpdate({
+        source,
+        oldValue: {
+          queueLen: queueBefore.length,
+          queueHeadKind: queueHeadBefore?.kind ?? null,
+          queueHeadBanId: queueHeadBefore
+            ? overlayItemBanId(queueHeadBefore)
+            : null,
+          silent,
+        },
+        newValue: {
+          queueLen: queueAfter.length,
+          queueHeadKind: queueHeadAfter?.kind ?? null,
+          queueHeadBanId: queueHeadAfter
+            ? overlayItemBanId(queueHeadAfter)
+            : null,
+          silent,
+        },
+      });
+      probeOwnerQueueEmptyDuringChainRef.current(
+        source,
+        queueBefore.length,
+        ownerBefore.pending.length,
+      );
+      if (queueBefore.length > 0 && queueAfter.length === 0) {
+        maybeTriggerPostConsumePendingPromotionRef.current({
+          source,
+          queueBeforeLen: queueBefore.length,
+          queueHeadBefore,
+        });
       }
     },
     [],
   );
-/** Step 3 Phase 9 — owner authority for active display payload (syncDisplayFromQueue). */
+
+  /** Step 3 Phase 9 — owner authority for active display payload (syncDisplayFromQueue). */
   const commitSyncDisplayActivePayload = useCallback(
-    (_patch: OwnerActiveDisplayPatch, _source: string) => {
-      // Active display is owned exclusively by notification-owner / NotificationOwnerHost.
+    (patch: OwnerActiveDisplayPatch, source: string) => {
+      emitDisplayCommitCallSite({
+        source,
+        patch: summarizeDisplayPatch(patch),
+      });
+      const ownerBefore = ownerShadowRef.current.getState();
+      const previousDisplay = resolveOwnerDisplayKindBanId(ownerBefore.display);
+      const normalizedPatch: OwnerActiveDisplayPatch =
+        patch.result != null
+          ? {
+              ...patch,
+              checkBan: null,
+              incomingBan: null,
+              stableIncomingBan: null,
+            }
+          : patch;
+      const patchKind = resolveActiveDisplayPatchKind(normalizedPatch);
+      emitDisplayCommitEnter({
+        source,
+        selectedKind:
+          patchKind.kind === 'result-clear' ||
+          patchKind.kind === 'check-clear' ||
+          patchKind.kind === 'incoming-clear'
+            ? patchKind.kind
+            : patchKind.kind,
+        selectedBanId: patchKind.banId,
+        selectedOverlayKey: patchKind.overlayKey,
+        previousDisplayKind: previousDisplay.displayKind,
+        previousDisplayBanId: previousDisplay.displayBanId,
+        ownerDisplayBefore: buildOwnerQueuePendingSnapshot(ownerBefore),
+      });
+      const displayBefore = {
+        resultId: ownerBefore.display.result?.id ?? null,
+        incomingBanId: ownerBefore.display.incomingBan?.id ?? null,
+        checkBanId: ownerBefore.display.checkBan?.id ?? null,
+      };
+      const ownerBeforeCommit = ownerShadowRef.current.getState();
+      if (patch.result === null) {
+        emitDisplayClear({
+          reason: `${source}:patch-result-null`,
+          previousDisplay: buildOwnerQueuePendingSnapshot(ownerBeforeCommit),
+          activeKind: ownerBeforeCommit.active.kind,
+          activeBanId: ownerBeforeCommit.active.banId,
+        });
+      }
+      if (patch.checkBan === null) {
+        emitDisplayClear({
+          reason: `${source}:patch-checkBan-null`,
+          previousDisplay: buildOwnerQueuePendingSnapshot(ownerBeforeCommit),
+          activeKind: ownerBeforeCommit.active.kind,
+          activeBanId: ownerBeforeCommit.active.banId,
+        });
+      }
+      if (patch.incomingBan === null) {
+        emitDisplayClear({
+          reason: `${source}:patch-incomingBan-null`,
+          previousDisplay: buildOwnerQueuePendingSnapshot(ownerBeforeCommit),
+          activeKind: ownerBeforeCommit.active.kind,
+          activeBanId: ownerBeforeCommit.active.banId,
+        });
+      }
+      if (patch.stableIncomingBan === null) {
+        emitDisplayClear({
+          reason: `${source}:patch-stableIncomingBan-null`,
+          previousDisplay: buildOwnerQueuePendingSnapshot(ownerBeforeCommit),
+          activeKind: ownerBeforeCommit.active.kind,
+          activeBanId: ownerBeforeCommit.active.banId,
+        });
+      }
+      logPhase12WriteAuthorityOperation(`active-display-commit:${source}`, () => {
+        ownerShadowRef.current.dispatch(
+          { type: 'ACTIVE_DISPLAY_SYNC', patch: normalizedPatch, source },
+          source,
+        );
+      });
+      if (patch.result === null) {
+        emitActiveResultClearDecision(
+          source,
+          'ACTIVE_DISPLAY_SYNC:patch-result-null',
+          {
+            activeKind: ownerBeforeCommit.active.kind,
+            queueLen: ownerBeforeCommit.queue.length,
+            displayResultId: ownerBeforeCommit.display.result?.id ?? null,
+          },
+          { didClearDisplay: true },
+        );
+      }
+      // Stage 3: owner.active is aligned inside ACTIVE_DISPLAY_SYNC via
+      // syncActiveFromDisplay — do not reverse-sync from production refs.
+      const ownerAfter = ownerShadowRef.current.getState();
+      const displayAfter = {
+        resultId: ownerAfter.display.result?.id ?? null,
+        incomingBanId: ownerAfter.display.incomingBan?.id ?? null,
+        checkBanId: ownerAfter.display.checkBan?.id ?? null,
+      };
+      const appliedDisplay = resolveOwnerDisplayKindBanId(ownerAfter.display);
+      if (
+        goToBansAdvancePendingRef.current ||
+        isResultGoToBansContinueSource(source)
+      ) {
+        const prevActiveKey =
+          ownerBefore.active.kind && ownerBefore.active.banId
+            ? `${ownerBefore.active.kind}:${normalizeId(ownerBefore.active.banId)}`
+            : null;
+        const nextActiveKey =
+          ownerAfter.active.kind && ownerAfter.active.banId
+            ? `${ownerAfter.active.kind}:${normalizeId(ownerAfter.active.banId)}`
+            : null;
+        const displayChanged =
+          JSON.stringify(displayBefore) !== JSON.stringify(displayAfter);
+        logNextPayloadSelectionTrace({
+          candidateSource: 'display-patch',
+          candidateKey: patchKind.overlayKey,
+          candidateKind:
+            patchKind.kind === 'result-clear' ||
+            patchKind.kind === 'check-clear' ||
+            patchKind.kind === 'incoming-clear'
+              ? null
+              : patchKind.kind,
+          candidateBanId: patchKind.banId,
+          previousActiveKey: prevActiveKey,
+          previousActiveKind: ownerBefore.active.kind,
+          previousActiveBanId: ownerBefore.active.banId,
+          nextActiveKey,
+          nextActiveKind: ownerAfter.active.kind,
+          nextActiveBanId: ownerAfter.active.banId,
+          selectionReason: displayChanged
+            ? `display-patch-applied:${source}`
+            : `display-patch-no-op:${source}`,
+          activeUnchangedReason:
+            prevActiveKey === nextActiveKey
+              ? 'active-unchanged-after-display-commit'
+              : null,
+          source,
+          ownerDisplayKind: appliedDisplay.displayKind,
+          ownerDisplayBanId: appliedDisplay.displayBanId,
+        });
+      }
+      emitDisplayCommitApplied({
+        source,
+        displayKind: appliedDisplay.displayKind,
+        displayBanId: appliedDisplay.displayBanId,
+        overlayKey: ownerAfter.active.overlayKey,
+        activeKind: ownerAfter.active.kind,
+        activeBanId: ownerAfter.active.banId,
+        ownerDisplay: buildOwnerQueuePendingSnapshot(ownerAfter),
+      });
+      if (appliedDisplay.displayKind === 'check') {
+        noteCheckOverlayPayloadPropsBuilt({
+          source: `display-commit-applied:${source}`,
+          reason: 'check-display-committed',
+          calledFrom: 'commitSyncDisplayActivePayload',
+          checkBan: ownerAfter.display.checkBan ?? null,
+          visible: notificationOverlayVisibleDiagRef.current ?? false,
+          payloadSource: source,
+          propsKind: 'check',
+        });
+      }
+      observeCheckRemainedAfterResultButNotRendered({
+        source: `display-commit-applied:${source}`,
+        reason: 'apply-display-cycle',
+        calledFrom: 'commitSyncDisplayActivePayload',
+        ...buildOwnerQueueSnapshotFields(ownerAfter),
+        ...buildOverlayQueueSnapshotFields({
+          overlayQueueRef: overlayQueueRef.current,
+          overlayQueueState: overlayQueueRef.current,
+        }),
+        ownerDisplayKind: appliedDisplay.displayKind,
+        ownerDisplayBanId: appliedDisplay.displayBanId,
+        notificationOverlayVisible:
+          notificationOverlayVisibleDiagRef.current ?? null,
+        queueClaimsNotificationScreen:
+          ownerAfter.queue.length > 0 || queueLobbyGuardActiveRef.current,
+        visualQueueDimSessionLive: visualQueueDimSessionRef.current,
+        activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+        explicitDrainReason: getExplicitNotificationDrainSource(),
+        drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+        lobbyVisible: lobbyOpenRef.current,
+        lobbyMounted: lobbyOpenRef.current,
+        hasActiveOverlay:
+          ownerAfter.active.kind != null || appliedDisplay.displayKind != null,
+      });
+      {
+        const shellSnap = shellStuckDiagSnapshotRef.current;
+        observeNextOverlayAfterResultRelease({
+          source: `display-commit-applied:${source}`,
+          reason: 'apply-display-cycle',
+          calledFrom: 'commitSyncDisplayActivePayload',
+          ...buildNextOverlayOwnerDisplayFields(ownerAfter),
+          ...buildNextOverlayQueueSnapshotFields({
+            ownerQueue: ownerAfter.queue,
+            ownerPending: ownerAfter.pending,
+            overlayQueueRef: overlayQueueRef.current,
+            overlayQueueState: overlayQueueRef.current,
+          }),
+          shellKind: shellSnap?.shellKind ?? null,
+          renderBranch: shellSnap?.renderBranch ?? null,
+          notificationOverlayVisible:
+            notificationOverlayVisibleDiagRef.current ?? null,
+          queueClaimsNotificationScreen:
+            ownerAfter.queue.length > 0 || queueLobbyGuardActiveRef.current,
+          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+          visualQueueDimSessionLive: visualQueueDimSessionRef.current,
+          explicitDrainReason: getExplicitNotificationDrainSource(),
+          drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+          queueResultOverlayClaimed: shellSnap?.queueResultOverlayClaimed ?? null,
+        });
+        observeShellCheckLifecycle({
+          source: `display-commit-applied:${source}`,
+          reason: 'apply-display-cycle',
+          calledFrom: 'commitSyncDisplayActivePayload',
+          ...buildShellCheckOwnerDisplayFields(ownerAfter),
+          ...buildShellCheckQueueSnapshotFields({
+            ownerQueue: ownerAfter.queue,
+            ownerPending: ownerAfter.pending,
+            overlayQueueRef: overlayQueueRef.current,
+            overlayQueueState: overlayQueueRef.current,
+          }),
+          shellKind: shellSnap?.shellKind ?? null,
+          renderBranch: shellSnap?.renderBranch ?? null,
+          notificationOverlayVisible:
+            notificationOverlayVisibleDiagRef.current ?? null,
+          queueClaimsNotificationScreen:
+            ownerAfter.queue.length > 0 || queueLobbyGuardActiveRef.current,
+          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+          visualQueueDimSessionLive: visualQueueDimSessionRef.current,
+          explicitDrainReason: getExplicitNotificationDrainSource(),
+          drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+        });
+      }
+      {
+        const shellSnap = shellStuckDiagSnapshotRef.current;
+        const headAfter = ownerAfter.queue[0] ?? null;
+        traceShellStuckOnResultWhileOwnerAdvancedIfNeeded({
+          source: `display-commit-applied:${source}`,
+          reason: 'apply-display-cycle',
+          calledFrom: 'commitSyncDisplayActivePayload',
+          shellKind: shellSnap?.shellKind ?? null,
+          renderBranch: shellSnap?.renderBranch ?? null,
+          ...buildShellStuckOwnerDisplayFields(ownerAfter),
+          overlayQueueRef: overlayQueueRef.current,
+          overlayQueueState: overlayQueueRef.current,
+          currentHeadKind: headAfter?.kind ?? ownerAfter.active.kind,
+          currentHeadId: headAfter
+            ? queueHeadIdFrom(headAfter)
+            : ownerAfter.active.banId,
+          notificationOverlayVisible:
+            notificationOverlayVisibleDiagRef.current ?? null,
+          queueClaimsNotificationScreen:
+            ownerAfter.queue.length > 0 || queueLobbyGuardActiveRef.current,
+          visualQueueDimSessionLive: visualQueueDimSessionRef.current,
+          activeNotificationChain: hasPendingNotificationChainFnRef.current(),
+          explicitDrainReason: getExplicitNotificationDrainSource(),
+          drainSessionId: queueBreakTraceRef.current?.generation ?? null,
+          resultBanId: shellSnap?.resultBanId ?? null,
+          resultOverlayKey: shellSnap?.resultOverlayKey ?? null,
+          resultSource: shellSnap?.resultSource ?? null,
+          displaySource: source,
+          queueShellRendersResultOverlay:
+            shellSnap?.queueShellRendersResultOverlay ?? null,
+          queueResultOverlayClaimed: shellSnap?.queueResultOverlayClaimed ?? null,
+          renderableResultShell: shellSnap?.renderableResultShell ?? null,
+          effectiveShellKind: shellSnap?.effectiveShellKind ?? null,
+          notificationQueueShellKind: shellSnap?.notificationQueueShellKind ?? null,
+        });
+      }
+      emitPostConsumeDisplayUpdate({
+        source,
+        oldValue: displayBefore,
+        newValue: displayAfter,
+      });
+      emitPostConsumeActiveUpdate({
+        source,
+        oldValue: {
+          kind: ownerBefore.active.kind,
+          banId: ownerBefore.active.banId,
+          overlayKey: ownerBefore.active.overlayKey,
+        },
+        newValue: {
+          kind: ownerAfter.active.kind,
+          banId: ownerAfter.active.banId,
+          overlayKey: ownerAfter.active.overlayKey,
+        },
+      });
+      logOwnerDisplaySetFromQueue({
+        source,
+        kind: patchKind.kind,
+        banId: patchKind.banId,
+        overlayKey: patchKind.overlayKey,
+        ownerActiveBefore: {
+          kind: ownerBefore.active.kind,
+          banId: ownerBefore.active.banId,
+        },
+        ownerActiveAfter: {
+          kind: ownerAfter.active.kind,
+          banId: ownerAfter.active.banId,
+        },
+        ownerDisplayBefore: buildOwnerQueuePendingSnapshot(ownerBefore),
+        ownerDisplayAfter: buildOwnerQueuePendingSnapshot(ownerAfter),
+        legacyBefore: resolveLegacyMountedKindBanId(),
+        legacyAfter: resolveLegacyMountedKindBanId(),
+      });
+      runPhase12ParityCheck(source, 'commitSyncDisplayActivePayload');
+      emitDisplayCommitReturn({
+        source,
+        reason: 'committed',
+        ownerDisplayAfter: buildOwnerQueuePendingSnapshot(ownerAfter),
+        displayChanged:
+          JSON.stringify(displayBefore) !== JSON.stringify(displayAfter),
+      });
     },
     [],
   );
-commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
+  commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
 
   const logTransitionFromRefs = (
     event: string,
@@ -9535,7 +10301,7 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
       );
     }
     const traceSyncDisplayBlocked = (blockReason: string) => {
-      const ownerBlocked = ownerRuntimeHostRef.current.getState();
+      const ownerBlocked = ownerShadowRef.current.getState();
       const ownerDisplayBlocked = resolveOwnerDisplayKindBanId(
         ownerBlocked.display,
       );
@@ -9618,7 +10384,7 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
         ...extra,
       });
       if (branch !== 'completed') {
-        const ownerBlocked = ownerRuntimeHostRef.current.getState();
+        const ownerBlocked = ownerShadowRef.current.getState();
         const ownerDisplayBlocked = resolveOwnerDisplayKindBanId(
           ownerBlocked.display,
         );
@@ -9699,7 +10465,7 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
       chainTransitioning: notificationChainTransitioningRef.current,
     });
     if (headAtEnter && headBanIdAtEnter) {
-      const ownerBeforeSync = ownerRuntimeHostRef.current.getState();
+      const ownerBeforeSync = ownerShadowRef.current.getState();
       const legacyBeforeSync = resolveLegacyMountedKindBanId();
       logQueueHeadSelectedForDisplay({
         source: 'syncDisplayFromQueue',
@@ -9926,7 +10692,7 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
         banId: headBanIdAtEnter,
       });
       const remaining = ownerQueueWrite.slice(1);
-      applyQueueMutationSilent(
+      writeOverlayQueueSilent(
         remaining,
         'syncDisplayFromQueue',
         'stale-deeplink-pop-head-at-enter',
@@ -10099,7 +10865,7 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
             banId: norm,
             source: 'syncDisplayFromQueue',
           });
-          commitQueueMutation(
+          commitOverlayQueueViaApply(
             nextQueue,
             'syncDisplayFromQueue',
             'result-priority-reorder-commit',
@@ -10124,7 +10890,7 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
           banId: norm,
           source: 'sync-priority-suppress-check',
         });
-        commitQueueMutation(
+        commitOverlayQueueViaApply(
           nextQueue,
           'syncDisplayFromQueue',
           'result-priority-suppress-check-commit',
@@ -10547,7 +11313,7 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
           });
           nextIncoming = null;
           const remaining = ownerQueueWrite.slice(1);
-          applyQueueMutationSilent(
+          writeOverlayQueueSilent(
             remaining,
             'syncDisplayFromQueue',
             'stale-deeplink-pop-incoming-prime',
@@ -10708,7 +11474,7 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
         headKind: active?.kind ?? null,
       });
       {
-        const ownerSkip = ownerRuntimeHostRef.current.getState();
+        const ownerSkip = ownerShadowRef.current.getState();
         const ownerDisplaySkip = resolveOwnerDisplayKindBanId(ownerSkip.display);
         emitDisplayApplyBlocked({
           reason: 'result-cta-bans-open-queue-sync-skipped',
@@ -10778,10 +11544,10 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
           selectedKind: 'result',
           selectedBanId: active.result.id,
           ownerDisplay: buildOwnerQueuePendingSnapshot(
-            ownerRuntimeHostRef.current.getState(),
+            ownerShadowRef.current.getState(),
           ),
-          activeKind: ownerRuntimeHostRef.current.getState().active.kind,
-          activeBanId: ownerRuntimeHostRef.current.getState().active.banId,
+          activeKind: ownerShadowRef.current.getState().active.kind,
+          activeBanId: ownerShadowRef.current.getState().active.banId,
           generation: statusCtaNavigateGenerationRef.current,
           inFlightId,
         });
@@ -10812,10 +11578,10 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
             selectedKind: 'result',
             selectedBanId: blockedResultId,
             ownerDisplay: buildOwnerQueuePendingSnapshot(
-              ownerRuntimeHostRef.current.getState(),
+              ownerShadowRef.current.getState(),
             ),
-            activeKind: ownerRuntimeHostRef.current.getState().active.kind,
-            activeBanId: ownerRuntimeHostRef.current.getState().active.banId,
+            activeKind: ownerShadowRef.current.getState().active.kind,
+            activeBanId: ownerShadowRef.current.getState().active.banId,
             generation: statusCtaNavigateGenerationRef.current,
             atomicOverboardBanId: incomingOverboardAtomicBanIdRef.current,
           });
@@ -10854,10 +11620,10 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
             selectedKind: 'result',
             selectedBanId: blockedResultId,
             ownerDisplay: buildOwnerQueuePendingSnapshot(
-              ownerRuntimeHostRef.current.getState(),
+              ownerShadowRef.current.getState(),
             ),
-            activeKind: ownerRuntimeHostRef.current.getState().active.kind,
-            activeBanId: ownerRuntimeHostRef.current.getState().active.banId,
+            activeKind: ownerShadowRef.current.getState().active.kind,
+            activeBanId: ownerShadowRef.current.getState().active.banId,
             generation: statusCtaNavigateGenerationRef.current,
           });
           syncDisplayBareExit('result-blocked-fresh-overboard-held', {
@@ -10924,10 +11690,10 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
             selectedKind: 'result',
             selectedBanId: active.result.id,
             ownerDisplay: buildOwnerQueuePendingSnapshot(
-              ownerRuntimeHostRef.current.getState(),
+              ownerShadowRef.current.getState(),
             ),
-            activeKind: ownerRuntimeHostRef.current.getState().active.kind,
-            activeBanId: ownerRuntimeHostRef.current.getState().active.banId,
+            activeKind: ownerShadowRef.current.getState().active.kind,
+            activeBanId: ownerShadowRef.current.getState().active.banId,
             generation: statusCtaNavigateGenerationRef.current,
             blockReason: resultBlock.reason ?? null,
           });
@@ -10965,10 +11731,10 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
             selectedKind: 'result',
             selectedBanId: normalizedResultId,
             ownerDisplay: buildOwnerQueuePendingSnapshot(
-              ownerRuntimeHostRef.current.getState(),
+              ownerShadowRef.current.getState(),
             ),
-            activeKind: ownerRuntimeHostRef.current.getState().active.kind,
-            activeBanId: ownerRuntimeHostRef.current.getState().active.banId,
+            activeKind: ownerShadowRef.current.getState().active.kind,
+            activeBanId: ownerShadowRef.current.getState().active.banId,
             generation: statusCtaNavigateGenerationRef.current,
             atomicOverboardBanId: incomingOverboardAtomicBanIdRef.current,
           });
@@ -11017,7 +11783,7 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
           const pruned = removeOverlaysForBan(ownerQueueWrite, resultId, ['result']);
           const didPruneStaleResult = pruned.length !== ownerQueueLenBeforePrune;
           if (didPruneStaleResult) {
-            commitQueueMutation(
+            commitOverlayQueueViaApply(
               pruned,
               'syncDisplayFromQueue',
               'stale-result-prune-commit',
@@ -11047,10 +11813,10 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
             selectedKind: 'result',
             selectedBanId: resultId,
             ownerDisplay: buildOwnerQueuePendingSnapshot(
-              ownerRuntimeHostRef.current.getState(),
+              ownerShadowRef.current.getState(),
             ),
-            activeKind: ownerRuntimeHostRef.current.getState().active.kind,
-            activeBanId: ownerRuntimeHostRef.current.getState().active.banId,
+            activeKind: ownerShadowRef.current.getState().active.kind,
+            activeBanId: ownerShadowRef.current.getState().active.banId,
             generation: statusCtaNavigateGenerationRef.current,
             didPruneStaleResult,
           });
@@ -11068,10 +11834,10 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
             selectedKind: 'result',
             selectedBanId: active.result.id,
             ownerDisplay: buildOwnerQueuePendingSnapshot(
-              ownerRuntimeHostRef.current.getState(),
+              ownerShadowRef.current.getState(),
             ),
-            activeKind: ownerRuntimeHostRef.current.getState().active.kind,
-            activeBanId: ownerRuntimeHostRef.current.getState().active.banId,
+            activeKind: ownerShadowRef.current.getState().active.kind,
+            activeBanId: ownerShadowRef.current.getState().active.banId,
             generation: statusCtaNavigateGenerationRef.current,
           });
           deferResultWhileSuccessCardMounted(
@@ -11092,10 +11858,10 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
             selectedKind: 'result',
             selectedBanId: active.result.id,
             ownerDisplay: buildOwnerQueuePendingSnapshot(
-              ownerRuntimeHostRef.current.getState(),
+              ownerShadowRef.current.getState(),
             ),
-            activeKind: ownerRuntimeHostRef.current.getState().active.kind,
-            activeBanId: ownerRuntimeHostRef.current.getState().active.banId,
+            activeKind: ownerShadowRef.current.getState().active.kind,
+            activeBanId: ownerShadowRef.current.getState().active.banId,
             generation: statusCtaNavigateGenerationRef.current,
             lobbyOpen: lobbyOpenRef.current,
           });
@@ -11106,7 +11872,7 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
           selectedBanId: active.result.id,
           overlayKey: `result:${active.result.id}`,
           ownerDisplayBeforeCommit: buildOwnerQueuePendingSnapshot(
-            ownerRuntimeHostRef.current.getState(),
+            ownerShadowRef.current.getState(),
           ),
           phase: 'syncDisplayFromQueue-before-result-commit',
         });
@@ -11506,24 +12272,438 @@ commitSyncDisplayActivePayloadRef.current = commitSyncDisplayActivePayload;
     [commitSyncDisplayActivePayload, setNotificationChainTransitioning, snapshotDirectOverboardGate, logReplyQueueHandoffDiagContext],
   );
 
-  const writeQueueSnapshot = useCallback(
-    (next: QueuedOverlay[], options?: ApplyOverlayQueueOptions): null => {
-      void options;
-      if (!next.length) return null;
-      for (const item of next) {
-        if (
-          item.kind === 'incoming' ||
-          item.kind === 'check' ||
-          item.kind === 'result'
-        ) {
-          ingestQueuedOverlay(item);
+  const applyOverlayQueue = useCallback(
+    (next: QueuedOverlay[], options?: ApplyOverlayQueueOptions) =>
+      runWithHeadSwitchPipelineFrame('applyOverlayQueue', () => {
+        const source = options?.source ?? 'applyOverlayQueue';
+        const reason = options?.reason ?? 'apply-overlay-queue';
+        if (ownerShadowRef.current.getState().pending.length > 0) {
+          emitPendingPromotionPathTrace(
+            'applyOverlayQueue',
+            `${source}:${reason}`,
+          );
         }
-      }
-      return null;
-    },
-    [],
+        const silent = options?.silent ?? false;
+        const bypassGuards = options?.bypassGuards ?? false;
+        const previousExplicit = chainAdvanceExplicitRef.current;
+        const preserveChainAdvanceExplicit =
+          options?.preserveChainAdvanceExplicit ??
+          (silent ? true : false);
+        if (silent && options?.preserveChainAdvanceExplicit === undefined) {
+          logOwnerStep2aPreserveExplicitDefaulted({
+            source,
+            reason,
+            silent: true,
+            preserveChainAdvanceExplicit,
+            previousExplicit,
+            nextExplicit: preserveChainAdvanceExplicit
+              ? previousExplicit
+              : false,
+          });
+        }
+        const fullPipeline = !silent || !bypassGuards;
+
+        const sanitizedNext = sanitizeOverlayQueue(next, source);
+        const prevQueueAtApplyEnter = [
+          ...ownerShadowRef.current.getState().queue,
+        ];
+        const queueLenBefore = prevQueueAtApplyEnter.length;
+        const prevHead = prevQueueAtApplyEnter[0] ?? null;
+        const nextHead = sanitizedNext[0] ?? null;
+        const prevKey = prevHead ? overlayQueueKey(prevHead) : null;
+        const nextKey = nextHead ? overlayQueueKey(nextHead) : null;
+        traceApplyOverlayQueueClearCallsiteIfNeeded({
+          caller: source,
+          source,
+          reason,
+          nextQueueLength: next.length,
+          sanitizedNextLength: sanitizedNext.length,
+          operation: inferProvidersOverlayQueueOperation(
+            queueLenBefore,
+            sanitizedNext.length,
+          ),
+          previousOverlayQueueLength: queueLenBefore,
+          previousOverlayQueueHead: prevHead,
+          sanitizedNext,
+        });
+
+        const ownerQueueAtApplyEnter = [
+          ...ownerShadowRef.current.getState().queue,
+        ];
+        const emitApplyQueueCommitTrace = (
+          stage: string,
+          extra: {
+            reason: string;
+            skipReason?: string | null;
+            beforeQueueLength?: number;
+            afterQueueLength?: number;
+            dispatchExecuted?: boolean;
+            dispatchSkipped?: boolean;
+            finalizeCommitEntered?: boolean;
+            finalizeCommitReturned?: boolean;
+            applyOverlayQueueReturnedNull?: boolean;
+            applyOverlayQueueReturnedSameReference?: boolean;
+            queueChanged?: boolean;
+            queueIdentityChanged?: boolean;
+            reducerExecuted?: boolean;
+            reducerSkipped?: boolean;
+          },
+        ) => {
+          const beforeLen =
+            extra.beforeQueueLength ?? ownerQueueAtApplyEnter.length;
+          const afterLen =
+            extra.afterQueueLength ?? sanitizedNext.length;
+          logApplyQueueCommitTrace({
+            source: `${source}:applyOverlayQueue:${stage}`,
+            beforeQueueLength: beforeLen,
+            afterQueueLength: afterLen,
+            dispatchExecuted: extra.dispatchExecuted ?? false,
+            dispatchSkipped: extra.dispatchSkipped ?? true,
+            finalizeCommitEntered: extra.finalizeCommitEntered ?? false,
+            finalizeCommitReturned: extra.finalizeCommitReturned ?? false,
+            applyOverlayQueueReturnedNull:
+              extra.applyOverlayQueueReturnedNull ?? false,
+            applyOverlayQueueReturnedSameReference:
+              extra.applyOverlayQueueReturnedSameReference ??
+              next === overlayQueueRef.current,
+            queueChanged:
+              extra.queueChanged ??
+              queueOverlaySnapshotChanged(ownerQueueAtApplyEnter, sanitizedNext),
+            queueIdentityChanged:
+              extra.queueIdentityChanged ?? next === overlayQueueRef.current,
+            reducerExecuted: extra.reducerExecuted ?? false,
+            reducerSkipped: extra.reducerSkipped ?? true,
+            reason: extra.reason,
+            skipReason: extra.skipReason ?? null,
+          });
+        };
+
+        emitApplyQueueCommitTrace('enter', {
+          reason: 'apply-overlay-queue-enter',
+        });
+
+        const logApplyOverlayQueueSkipped = (skipReason: string) => {
+          logProvidersOverlayQueueMutation({
+            operation: 'skipped',
+            source,
+            reason: skipReason,
+            prevLength: queueLenBefore,
+            nextLength: sanitizedNext.length,
+            prevHeadKind: prevHead?.kind ?? null,
+            nextHeadKind: nextHead?.kind ?? null,
+            banId: providersOverlayQueueHeadBanId(nextHead),
+            resultId:
+              nextHead?.kind === 'result' ? nextHead.result.id : null,
+          });
+          emitApplyQueueCommitTrace('guard-blocked', {
+            reason: 'apply-overlay-queue-guard-blocked',
+            skipReason,
+            applyOverlayQueueReturnedNull: true,
+            beforeQueueLength: ownerQueueAtApplyEnter.length,
+            afterQueueLength: ownerQueueAtApplyEnter.length,
+            queueChanged: false,
+          });
+        };
+
+        const finalizeCommit = (): boolean => {
+          emitApplyQueueCommitTrace('finalizeCommit:enter', {
+            reason: 'finalize-commit-enter',
+            finalizeCommitEntered: true,
+            dispatchSkipped: false,
+            reducerSkipped: false,
+          });
+          if (fullPipeline) {
+            activeOverlayLockRef.current = nextKey;
+            if (nextKey) {
+              console.log('[OVERLAY ACTIVE LOCK]', {
+                key: nextKey,
+                kind: nextHead?.kind ?? null,
+              });
+            } else {
+              console.log('[OVERLAY ACTIVE LOCK]', { key: null });
+            }
+            if (prevKey !== nextKey) {
+              console.log('[OVERLAY DISPLAY NEXT]', {
+                prevKey,
+                nextKey,
+                queueLength: sanitizedNext.length,
+                nextKind: nextHead?.kind ?? null,
+              });
+              if (nextHead?.kind === 'incoming') {
+                logChainHeadSwitchTrace(
+                  'applyOverlayQueue',
+                  'incoming',
+                  nextHead.ban.id,
+                  {
+                    pipeline: 'applyOverlayQueue',
+                    reason: 'overlay-queue-head-changed',
+                    calledFrom: 'applyOverlayQueue',
+                    queueHeadBefore: overlayQueueRef.current[0] ?? null,
+                    queueHeadAfter: nextHead,
+                  },
+                );
+              }
+              console.log('[OVERLAY QUEUE NEXT]', {
+                prevKey,
+                nextKey,
+                queueLength: sanitizedNext.length,
+                nextKind: nextHead?.kind ?? null,
+              });
+              if (nextKey) {
+                shownOverlayKeysRef.current.add(nextKey);
+                logOverlayArbiter('show', {
+                  key: nextKey,
+                  kind: nextHead?.kind ?? null,
+                  banId:
+                    nextHead?.kind === 'result'
+                      ? nextHead.result.id
+                      : nextHead?.ban.id ?? null,
+                });
+              }
+            }
+          }
+
+          traceQueueHeadBecameResultIfNeeded(
+            prevQueueAtApplyEnter,
+            sanitizedNext,
+            buildQueueHeadResultTraceContext(source, reason),
+          );
+          logProvidersOverlayQueueMutation({
+            operation: inferProvidersOverlayQueueOperation(
+              queueLenBefore,
+              sanitizedNext.length,
+            ),
+            source: `${source}:applyOverlayQueue:finalizeCommit`,
+            reason,
+            prevLength: queueLenBefore,
+            nextLength: sanitizedNext.length,
+            prevHeadKind: prevHead?.kind ?? null,
+            nextHeadKind: nextHead?.kind ?? null,
+            banId: providersOverlayQueueHeadBanId(nextHead),
+            resultId:
+              nextHead?.kind === 'result' ? nextHead.result.id : null,
+          });
+          const ownerQueueBeforeAuthority =
+            ownerShadowRef.current.getState().queue.length;
+          emitApplyQueueCommitTrace('finalizeCommit:before-applyQueueViaOwnerAuthority', {
+            reason: 'finalize-commit-before-owner-authority',
+            finalizeCommitEntered: true,
+            beforeQueueLength: ownerQueueBeforeAuthority,
+            afterQueueLength: sanitizedNext.length,
+            dispatchSkipped: false,
+          });
+          applyQueueViaOwnerAuthority(sanitizedNext, `${source}:${reason}`, silent);
+          const ownerQueueAfterAuthority =
+            ownerShadowRef.current.getState().queue.length;
+
+          let didSyncDisplay = false;
+          if (!silent && !preserveAtomicOverboardResultDuringSync(source)) {
+            syncDisplayFromQueue(sanitizedNext);
+            didSyncDisplay = true;
+          } else if (silent) {
+            logOwnerStep2aCommit('[OWNER STEP2A DISPLAY_SYNC_SKIPPED]', {
+              source,
+              reason,
+              queueLenBefore,
+              queueLenAfter: sanitizedNext.length,
+              previousHead: prevKey,
+              nextHead: nextKey,
+              silent: true,
+              didSyncDisplay: false,
+            });
+          }
+
+          if (!preserveChainAdvanceExplicit) {
+            chainAdvanceExplicitRef.current = false;
+          }
+
+          logOwnerStep2aCommit(
+            silent
+              ? '[OWNER STEP2A SILENT COMMIT]'
+              : '[OWNER STEP2A COMMIT VIA APPLY]',
+            {
+              source,
+              reason,
+              queueLenBefore,
+              queueLenAfter: sanitizedNext.length,
+              previousHead: prevKey,
+              nextHead: nextKey,
+              silent,
+              didSyncDisplay,
+            },
+          );
+          emitApplyQueueCommitTrace('finalizeCommit:return', {
+            reason: 'finalize-commit-return-true',
+            finalizeCommitEntered: true,
+            finalizeCommitReturned: true,
+            dispatchExecuted: true,
+            dispatchSkipped: false,
+            beforeQueueLength: ownerQueueBeforeAuthority,
+            afterQueueLength: ownerQueueAfterAuthority,
+            queueChanged: ownerQueueAfterAuthority !== ownerQueueBeforeAuthority,
+            reducerExecuted: ownerQueueAfterAuthority !== ownerQueueBeforeAuthority,
+            reducerSkipped: ownerQueueAfterAuthority === ownerQueueBeforeAuthority,
+            skipReason:
+              ownerQueueAfterAuthority === ownerQueueBeforeAuthority
+                ? 'finalize-commit-returned-but-owner-queue-unchanged'
+                : null,
+          });
+          return true;
+        };
+
+        if (sanitizedNext[0]?.kind === 'result') {
+          traceQueueHeadBecameResultIfNeeded(
+            prevQueueAtApplyEnter,
+            sanitizedNext,
+            buildQueueHeadResultTraceContext(
+              source,
+              `${reason}-enter-result-head`,
+            ),
+          );
+        }
+
+        if (bypassGuards) {
+          const bypassResult = finalizeCommit();
+          emitApplyQueueCommitTrace('bypassGuards-return', {
+            reason: 'bypass-guards-finalize-commit',
+            finalizeCommitReturned: bypassResult,
+            applyOverlayQueueReturnedNull: !bypassResult,
+            dispatchExecuted: bypassResult,
+          });
+          return bypassResult;
+        }
+
+        if (
+          isDeeplinkSingleCardModeActive() &&
+          prevKey !== nextKey &&
+          nextHead &&
+          !chainAdvanceExplicitRef.current &&
+          shouldBlockDeeplinkAutoDrain(source)
+        ) {
+          logDeeplinkSingleCardChainBlocked({
+            nextKind: nextHead.kind,
+            nextBanId:
+              nextHead.kind === 'result'
+                ? nextHead.result.id
+                : nextHead.ban.id,
+            source,
+            reason: 'single-card-queue-advance-blocked',
+          });
+          logApplyOverlayQueueSkipped('predicate-false:deeplink-single-card-auto-drain-blocked');
+          return false;
+        }
+        if (
+          prevKey !== nextKey &&
+          nextHead &&
+          blockAndPreserveActiveUserCard(source, nextHead, {
+            explicitUserAction: chainAdvanceExplicitRef.current,
+          })
+        ) {
+          logApplyOverlayQueueSkipped('predicate-false:active-user-card-preserved');
+          return false;
+        }
+        if (
+          notificationChainAwaitingUserRef.current &&
+          prevKey &&
+          nextKey &&
+          prevKey !== nextKey &&
+          !chainAdvanceExplicitRef.current
+        ) {
+          console.log('[chain-drain-continue-blocked]', {
+            reason: 'active-overlay-mounted',
+            prevKey,
+            nextKey,
+          });
+          window.__debug98log?.('[chain-drain-continue-blocked]', {
+            reason: 'active-overlay-mounted',
+            prevKey,
+            nextKey,
+          });
+          console.log('[chain-auto-advance-bug]', {
+            previousShown: prevKey,
+            nextShownSameTick: nextKey,
+          });
+          logApplyOverlayQueueSkipped('predicate-false:notification-chain-awaiting-user');
+          return false;
+        }
+        if (
+          (notificationChainReplyComposeActiveRef.current ||
+            replyComposeActiveRef.current) &&
+          prevKey &&
+          nextKey &&
+          prevKey !== nextKey
+        ) {
+          console.log('[chain-reply-block-next-notification]', {
+            parentBanId: replyDeeplinkParentBanIdRef.current,
+            reason: 'reply-compose',
+            prevKey,
+            nextKey,
+          });
+          console.log('[chain-reply-advance-blocked]', {
+            parentBanId:
+              chainReplyParentBanIdRef.current ??
+              replyDeeplinkParentBanIdRef.current,
+            reason: 'reply-compose',
+            prevKey,
+            nextKey,
+          });
+          console.log('[chain-reply-unexpected-advance]', {
+            fromBanId: prevKey,
+            nextBanId: nextKey,
+            source,
+          });
+          logApplyOverlayQueueSkipped('predicate-false:reply-compose-active');
+          return false;
+        }
+        if (
+          prevHead?.kind === 'check' &&
+          prevHead.ban.id === checkBanRef.current?.id &&
+          prevKey !== nextKey &&
+          shouldBlockActiveCheckOverlayAutoClose(source, 'head-change')
+        ) {
+          logApplyOverlayQueueSkipped('predicate-false:active-check-auto-close-blocked');
+          return false;
+        }
+        if (
+          nextHead &&
+          prevKey !== nextKey &&
+          (nextHead.kind === 'check' ||
+            nextHead.kind === 'incoming' ||
+            nextHead.kind === 'result') &&
+          blocksMountedNotificationOverlay(
+            source,
+            nextHead.kind,
+            nextHead.kind === 'result'
+              ? nextHead.result.id
+              : nextHead.ban.id,
+          )
+        ) {
+          if (isSendComposeFlowActive()) {
+            commitOverlayQueueViaApply(
+              sanitizedNext,
+              source,
+              `${reason}-compose-block-commit`,
+            );
+            logNotificationDisplayBlockedDuringComposeGuard(source, nextHead.kind);
+            console.log('[global-overlay-blocked-compose]', {
+              active: true,
+              queueLen: sanitizedNext.length,
+            });
+          }
+          logApplyOverlayQueueSkipped(
+            isSendComposeFlowActive()
+              ? 'predicate-false:mounted-overlay-blocked-compose-partial-commit'
+              : 'predicate-false:mounted-notification-overlay-blocks-head-switch',
+          );
+          return false;
+        }
+
+        return finalizeCommit();
+      }),
+    [syncDisplayFromQueue, applyQueueViaOwnerAuthority],
   );
-writeQueueSnapshotRef.current = writeQueueSnapshot;
+
+  applyOverlayQueueRef.current = applyOverlayQueue;
 
   const markOverlayUserAction = useCallback((kind: string, banId?: string) => {
     setOverlayInputLockAfterAction(`${kind}:${banId ?? 'unknown'}`);
@@ -11838,7 +13018,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     if (session && patch?.lastOutcome !== undefined) {
       session.lastOutcome = patch.lastOutcome;
     }
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const queue = overlayQueueRef.current;
     const head = queue[0] ?? null;
     const pendingHead = pendingStartupInteractionsRef.current[0] ?? null;
@@ -12093,7 +13273,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         Boolean(runtimeHeadItemId(prev));
 
       if (!canUseV1AtomicAdvance) {
-        dispatchPinStateEvent(
+        ownerShadowDispatch(
           {
             type: 'NOTIFICATION_DISMISSED',
             banId: dismissBanId,
@@ -12242,7 +13422,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
             reason: 'single-card-deferred-to-pending',
           });
         }
-        applyQueueMutationSilent(
+        writeOverlayQueueSilent(
           [],
           reason,
           'deeplink-single-card-dismiss-clear-queue',
@@ -12366,7 +13546,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
             `live-overlay-single-defer:${reason}`,
           );
         }
-        applyQueueMutationSilent(
+        writeOverlayQueueSilent(
           [],
           reason,
           'live-overlay-single-dismiss-clear-queue',
@@ -12528,7 +13708,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           if (normalizedCheckBanId) {
             setCheckAnswerWaitingResultHold(normalizedCheckBanId);
           }
-          applyQueueMutationSilent(
+          writeOverlayQueueSilent(
             [],
             reason,
             'check-answer-empty-remaining-clear-queue',
@@ -12549,7 +13729,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
               'check-answer-promote-pending-to-remaining',
             );
           }
-          writeQueueSnapshot(remainingWithPending);
+          applyOverlayQueue(remainingWithPending);
           if (userChainAdvance && beforeApplyQueue) {
             emitCheckAnswerAdvanceTrace(
               'after-apply-queue',
@@ -12760,13 +13940,885 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         commit();
       }
     },
-    [writeQueueSnapshot, applyPendingQueueViaOwner, commitSyncDisplayActivePayload, setChainAdvanceWaiting, setChainAdvancePlaceholderKind, setCheckAnswerWaitingResultHold, setLobbyOpen, setNotificationChainTransitioning],
+    [applyOverlayQueue, applyPendingQueueViaOwner, commitSyncDisplayActivePayload, setChainAdvanceWaiting, setChainAdvancePlaceholderKind, setCheckAnswerWaitingResultHold, setLobbyOpen, setNotificationChainTransitioning],
   );
 
   const markSessionBanSendSuccess = useCallback(() => {
     sessionBanSendSuccessRef.current = true;
   }, []);
 
+  const enqueueNotification = useCallback(
+    (
+      item: QueuedOverlay,
+      opts?: {
+        live?: boolean;
+        source?: 'ws' | 'session' | 'poll' | 'deeplink';
+      },
+    ) => {
+      const live = isOverlayLive(opts);
+      noteNotificationEnqueueSource(opts?.source ?? 'enqueueNotification');
+      const normalizedItem = normalizeQueuedOverlay(item);
+      const banId =
+        normalizedItem.kind === 'result'
+          ? normalizeId(normalizedItem.result.id)
+          : normalizedItem.kind === 'incoming' || normalizedItem.kind === 'check'
+            ? normalizeId(normalizedItem.ban.id)
+            : '';
+      const key = isValidQueuedOverlay(normalizedItem)
+        ? overlayQueueKey(normalizedItem)
+        : '';
+
+      const traceEnqueueOwnerPopulation = (
+        stage: string,
+        extra: {
+          reason: string;
+          mutationApplied?: boolean;
+          mutationSkipped?: boolean;
+          skipReason?: string | null;
+        },
+      ) => {
+        const owner = ownerShadowRef.current.getState();
+        const fields = readNotificationFieldsFromOverlay(normalizedItem);
+        emitOwnerQueuePopulationTraceRef.current({
+          source: `enqueueNotification:${opts?.source ?? 'unknown'}:${stage}`,
+          reason: extra.reason,
+          ownerQueueBefore: owner.queue.length,
+          ownerPendingBefore: owner.pending.length,
+          ownerQueueAfter: owner.queue.length,
+          ownerPendingAfter: owner.pending.length,
+          mutationApplied: extra.mutationApplied ?? false,
+          mutationSkipped: extra.mutationSkipped ?? true,
+          skipReason: extra.skipReason ?? null,
+          notificationKind: fields.notificationKind,
+          incomingBanId: fields.incomingBanId,
+          resultBanId: fields.resultBanId,
+        });
+      };
+
+      traceEnqueueOwnerPopulation('entry', {
+        reason: 'enqueue-enter',
+        mutationApplied: false,
+        mutationSkipped: false,
+      });
+
+      const fatalDiag = {
+        reachedAfterEntry: true,
+        reachedBeforeFirstReturn: false,
+        reachedBeforeApply: false,
+      };
+      let fatalStage = 'after-entry';
+      const logFatalTrace = (stage: string, err?: unknown) => {
+        const notificationKind = isValidQueuedOverlay(normalizedItem)
+          ? normalizedItem.kind
+          : null;
+        const resultId =
+          normalizedItem.kind === 'result' ? normalizedItem.result.id : null;
+        logEnqueueNotificationFatalTrace({
+          source: `enqueueNotification:${opts?.source ?? 'unknown'}`,
+          notificationKind,
+          banId: banId || null,
+          resultId,
+          stage,
+          errorName:
+            err instanceof Error
+              ? err.name
+              : err != null
+                ? 'non-error-throwable'
+                : null,
+          errorMessage:
+            err instanceof Error
+              ? err.message
+              : err != null
+                ? String(err)
+                : null,
+          stack: err instanceof Error ? (err.stack ?? null) : null,
+          reachedAfterEntry: fatalDiag.reachedAfterEntry,
+          reachedBeforeFirstReturn: fatalDiag.reachedBeforeFirstReturn,
+          reachedBeforeApply: fatalDiag.reachedBeforeApply,
+        });
+      };
+      const setFatalStage = (stage: string) => {
+        fatalStage = stage;
+      };
+
+      try {
+        setFatalStage('helpers-define');
+
+      const traceEnqueueExit = (
+        returnReason: string,
+        extra: Partial<{
+          changed: boolean | null;
+          shouldDefer: boolean;
+          willApplyOverlayQueue: boolean;
+          skipReason: string | null;
+          arbiterDecision: string | null;
+          dedupMatched: boolean | null;
+          resultBlocked: boolean | null;
+          passiveDeferred: boolean | null;
+          startupHold: boolean | null;
+          activeLock: string | null;
+          ttlSkip: boolean | null;
+        }> = {},
+      ) => {
+        fatalDiag.reachedBeforeFirstReturn = true;
+        setFatalStage(`exit:${returnReason}`);
+        const notificationKind = isValidQueuedOverlay(normalizedItem)
+          ? normalizedItem.kind
+          : null;
+        const resultId =
+          normalizedItem.kind === 'result' ? normalizedItem.result.id : null;
+        logEnqueueNotificationExitTrace({
+          source: `enqueueNotification:${opts?.source ?? 'unknown'}`,
+          notificationKind,
+          banId: banId || null,
+          resultId,
+          changed: extra.changed ?? null,
+          shouldDefer: extra.shouldDefer ?? false,
+          willApplyOverlayQueue: extra.willApplyOverlayQueue ?? false,
+          returnReason,
+          skipReason: extra.skipReason ?? null,
+          arbiterDecision: extra.arbiterDecision ?? null,
+          dedupMatched: extra.dedupMatched ?? null,
+          resultBlocked: extra.resultBlocked ?? null,
+          passiveDeferred: extra.passiveDeferred ?? null,
+          startupHold: extra.startupHold ?? null,
+          activeLock: extra.activeLock ?? null,
+          ttlSkip: extra.ttlSkip ?? null,
+        });
+      };
+
+      setFatalStage('validity-check');
+      if (!isValidQueuedOverlay(normalizedItem)) {
+        traceEnqueueOwnerPopulation('invalid-overlay', {
+          reason: 'isValidQueuedOverlay-false',
+          mutationSkipped: true,
+          skipReason: 'invalid-queued-overlay',
+        });
+        traceEnqueueExit('invalid-overlay', {
+          skipReason: 'invalid-queued-overlay',
+        });
+        return;
+      }
+
+      setFatalStage('post-validity');
+
+      const traceIncomingOverlayArbiter = (
+        stage: string,
+        extra?: Partial<QueueAppearanceReactionTracePayload>,
+      ) => {
+        if (normalizedItem.kind !== 'incoming') return;
+        const snap = readQueueAppearanceSnapshotRef.current();
+        emitQueueAppearanceReactionTraceRef.current({
+          source: `enqueueNotification:OVERLAY_ARBITER:${stage}`,
+          telegramUserId: userIdRef.current,
+          prevQueueLen: snap.queueLen,
+          nextQueueLen: snap.queueLen,
+          prevPendingLen: snap.pendingLen,
+          nextPendingLen: snap.pendingLen,
+          lobbyBansNeedAttention: snap.lobbyBansNeedAttention,
+          indicatorVisible: snap.indicatorVisible,
+          activeKind: snap.activeKind,
+          queueHeadKind: snap.queueHeadKind ?? 'incoming',
+          notificationSessionActive: snap.notificationSessionActive,
+          ...extra,
+        });
+      };
+
+      if (normalizedItem.kind === 'incoming') {
+        traceIncomingOverlayArbiter('before-evaluate', {
+          skipReason: null,
+          willStartOnClick: live,
+        });
+      }
+
+      if (
+        normalizedItem.kind === 'check' &&
+        readOwnerDecisionResultPriorityHas(
+          readOwnerDecision('enqueueNotification'),
+          'enqueueNotification',
+          banId,
+          { ref: resultPriorityBanIdsRef.current },
+        )
+      ) {
+        logCheckPrimeSkipStaleBecauseResultExists({
+          banId,
+          source: opts?.source ?? 'enqueueNotification',
+        });
+        traceEnqueueOwnerPopulation('check-result-priority-skip', {
+          reason: 'result-priority-exists',
+          mutationSkipped: true,
+          skipReason: 'check-prime-skip-stale-result-exists',
+        });
+        traceEnqueueExit('check-result-priority-skip', {
+          skipReason: 'check-prime-skip-stale-result-exists',
+        });
+        return;
+      }
+
+      if (
+        (normalizedItem.kind === 'check' ||
+          normalizedItem.kind === 'incoming' ||
+          normalizedItem.kind === 'result') &&
+        (isSuccessCardMounted() || isActiveTimerOverlayMounted())
+      ) {
+        blocksMountedNotificationOverlay(
+          'enqueueNotification',
+          normalizedItem.kind,
+          banId,
+        );
+        traceEnqueueOwnerPopulation('mounted-overlay-defer', {
+          reason: 'success-card-or-active-timer-mounted',
+          mutationSkipped: false,
+          skipReason: 'defer-to-pending-startup',
+        });
+        traceEnqueueExit('mounted-overlay-defer', {
+          shouldDefer: true,
+          skipReason: 'defer-to-pending-startup',
+        });
+        setFatalStage('before-deferNotificationToPendingStartup:mounted');
+        deferNotificationToPendingStartup(normalizedItem);
+        return;
+      }
+
+      if (
+        live &&
+        isSendComposeFlowActive() &&
+        (normalizedItem.kind === 'check' ||
+          normalizedItem.kind === 'incoming' ||
+          normalizedItem.kind === 'result')
+      ) {
+        logNotificationDisplayBlockedDuringComposeGuard(
+          `enqueueNotification:${opts?.source ?? 'unknown'}`,
+          normalizedItem.kind,
+        );
+        traceEnqueueOwnerPopulation('compose-flow-defer', {
+          reason: 'send-compose-flow-active',
+          mutationSkipped: false,
+          skipReason: 'defer-to-pending-startup',
+        });
+        traceEnqueueExit('compose-flow-defer', {
+          shouldDefer: true,
+          skipReason: 'send-compose-flow-active',
+        });
+        setFatalStage('before-deferNotificationToPendingStartup:compose');
+        deferNotificationToPendingStartup(normalizedItem);
+        return;
+      }
+
+      setFatalStage('before-result-guards');
+      if (normalizedItem.kind === 'result') {
+        const resultId = normalizedItem.result.id;
+        const resultOutcome = resolveBanResultOutcome(normalizedItem.result);
+        if (
+          rejectNonOverkillTerminalResult(
+            banId,
+            resultOutcome,
+            `enqueueNotification:${opts?.source ?? 'unknown'}`,
+            { resultId },
+          )
+        ) {
+          traceEnqueueExit('reject-non-overkill-terminal-result', {
+            resultBlocked: true,
+            skipReason: 'reject-non-overkill-terminal-result',
+          });
+          return;
+        }
+        const uid = userIdRef.current;
+        if (isResultBlockedForNotificationChain(resultId, opts?.source ?? 'enqueueNotification')) {
+          traceEnqueueExit('result-blocked-for-notification-chain', {
+            resultBlocked: true,
+            skipReason: 'result-blocked-for-notification-chain',
+          });
+          return;
+        }
+
+        const block = shouldBlockResultOpen({
+          source: 'enqueueNotification',
+          resultBanId: normalizedItem.result.id,
+          overboardInFlightBanId: overboardInFlightRef.current,
+        });
+        logResultOpenAttempt('enqueueNotification', {
+          resultId: normalizedItem.result.id,
+          allowed: !block.blocked,
+          blockReason: block.reason,
+          bypassPriorityLock: block.bypassPriorityLock,
+          extra: { enqueueSource: opts?.source ?? null, live },
+        });
+        if (block.blocked) {
+          traceEnqueueExit('should-block-result-open', {
+            resultBlocked: true,
+            skipReason: block.reason,
+          });
+          return;
+        }
+        if (
+          shouldBlockPassiveResultOverlayOpenForBan(
+            `enqueueNotification:${opts?.source ?? 'unknown'}`,
+            normalizedItem.result.id,
+          )
+        ) {
+          const passiveDeferredSource = `enqueueNotification:passive-result-deferred:${opts?.source ?? 'unknown'}`;
+          const ownerAtPassiveDefer = ownerShadowRef.current.getState();
+          const resultNorm = normalizeId(resultId);
+          const passiveDeferredSkip = resolvePassiveResultDeferredAlreadyActiveOrShownSkip(
+            {
+              banId: resultNorm,
+              owner: ownerAtPassiveDefer,
+              closingResultBanId: goToBansClosingBanIdRef.current,
+              goToBansSessionTraceBlocked:
+                getGoToBansPrefetchResultBlockDecision(resultNorm).blocked,
+              legacyShownOverlayKeys: shownOverlayKeysRef.current,
+              directResultOpen: Boolean(
+                directResultOverlayRef.current ||
+                  directResultOverlayActiveRef.current ||
+                  ownerAtPassiveDefer.display.directResultOverlay ||
+                  ownerAtPassiveDefer.display.directResultOverlayActive,
+              ),
+              resultOpening: resultOpenRef.current,
+              mountedResultBanId: resultRef.current?.id ?? null,
+              heldUserCardKind: heldUserCardOverlayRef.current?.kind ?? null,
+              heldResultBanId:
+                heldUserCardOverlayRef.current?.kind === 'result'
+                  ? (heldUserCardOverlayRef.current.result.id ?? null)
+                  : null,
+              overboardInFlightBanId: overboardInFlightRef.current,
+              resultOverlayPrimeInflightForBan:
+                chainLookaheadInflightRef.current.has(resultNorm),
+              freshOverboardActionForBan:
+                freshOverboardActionBanIdsRef.current.has(resultNorm),
+              freshFinalStatusForBan:
+                freshFinalStatusBanIdsRef.current.has(resultNorm),
+            },
+          );
+          const isPollResultPassiveDefer = opts?.source === 'poll';
+          const pollResultAlreadyInOwnerMountable = (
+            skip: PassiveResultDeferredSkipMatchedBy,
+          ) =>
+            skip === 'ownerQueue' ||
+            skip === 'ownerPending' ||
+            skip === 'queueHead';
+          const persistPollPassiveResultForLobbyDrain = (
+            exitLabel: string,
+          ) => {
+            traceEnqueueOwnerPopulation('poll-passive-result-defer', {
+              reason: `poll-passive-result-persist:${exitLabel}`,
+              mutationSkipped: false,
+            });
+            setFatalStage(
+              `before-deferNotificationToPendingStartup:poll-passive-${exitLabel}`,
+            );
+            deferNotificationToPendingStartup(normalizedItem);
+            const ownerAfterPollDefer = ownerShadowRef.current.getState();
+            const pollDeferMutationApplied =
+              ownerAfterPollDefer.pending.length >
+                ownerAtPassiveDefer.pending.length ||
+              ownerAfterPollDefer.queue.length >
+                ownerAtPassiveDefer.queue.length;
+            traceEnqueueOwnerPopulation('poll-passive-result-deferred', {
+              reason: `poll-passive-result-persisted:${exitLabel}`,
+              mutationApplied: pollDeferMutationApplied,
+              mutationSkipped: !pollDeferMutationApplied,
+              skipReason: pollDeferMutationApplied
+                ? null
+                : 'poll-passive-defer-no-owner-delta',
+            });
+            primeLobbyBansAttentionHintSyncRef.current(
+              `passive-result-deferred-poll:${exitLabel}:${opts?.source ?? 'unknown'}`,
+            );
+            traceEnqueueExit(`passive-result-deferred-poll-${exitLabel}`, {
+              passiveDeferred: true,
+              skipReason: `poll-result-persisted-for-lobby-drain:${exitLabel}`,
+            });
+          };
+          if (passiveDeferredSkip) {
+            logPassiveResultDeferredSkippedAlreadyActiveOrShown({
+              banId: resultNorm,
+              resultId: resultNorm,
+              source: passiveDeferredSource,
+              reason: `passive-result-deferred-skip-${passiveDeferredSkip}`,
+              matchedBy: passiveDeferredSkip,
+              activeKind:
+                resolveMountedOverlayKindForPromotionDiag() ??
+                ownerAtPassiveDefer.active.kind,
+              ownerActiveKind: ownerAtPassiveDefer.active.kind,
+              ownerDisplayKind: resolveBansLayerOwnerDisplayKind(
+                ownerAtPassiveDefer.display,
+              ),
+              pendingLen: ownerAtPassiveDefer.pending.length,
+              queueLen: ownerAtPassiveDefer.queue.length,
+              directResultOpen: Boolean(
+                directResultOverlayRef.current ||
+                  directResultOverlayActiveRef.current ||
+                  ownerAtPassiveDefer.display.directResultOverlay ||
+                  ownerAtPassiveDefer.display.directResultOverlayActive,
+              ),
+              closingResultBanId: goToBansClosingBanIdRef.current,
+            });
+            if (
+              isPollResultPassiveDefer &&
+              !pollResultAlreadyInOwnerMountable(passiveDeferredSkip)
+            ) {
+              persistPollPassiveResultForLobbyDrain(
+                `skip-${passiveDeferredSkip}`,
+              );
+              return;
+            }
+            traceEnqueueExit('passive-result-deferred-skip', {
+              passiveDeferred: true,
+              skipReason: `passive-result-deferred-skip-${passiveDeferredSkip}`,
+            });
+            return;
+          }
+          logPassiveResultDeferredBlockedByPassiveOpenGuard({
+            banId: resultNorm,
+            resultId: resultNorm,
+            source: passiveDeferredSource,
+            reason: 'passive-open-guard-blocked-overlay-pending-enqueue',
+            pendingLen: ownerAtPassiveDefer.pending.length,
+            queueLen: ownerAtPassiveDefer.queue.length,
+            activeKind:
+              resolveMountedOverlayKindForPromotionDiag() ??
+              ownerAtPassiveDefer.active.kind,
+            ownerActiveKind: ownerAtPassiveDefer.active.kind,
+            ownerDisplayKind: resolveBansLayerOwnerDisplayKind(
+              ownerAtPassiveDefer.display,
+            ),
+            directResultOpen: Boolean(
+              directResultOverlayRef.current ||
+                directResultOverlayActiveRef.current ||
+                ownerAtPassiveDefer.display.directResultOverlay ||
+                ownerAtPassiveDefer.display.directResultOverlayActive,
+            ),
+            closingResultBanId: goToBansClosingBanIdRef.current,
+          });
+          if (isPollResultPassiveDefer) {
+            persistPollPassiveResultForLobbyDrain('attention-hint-only');
+            return;
+          }
+          primeLobbyBansAttentionHintSyncRef.current(
+            `passive-result-deferred:${opts?.source ?? 'unknown'}`,
+          );
+          traceEnqueueExit('passive-result-deferred-attention-hint-only', {
+            passiveDeferred: true,
+            skipReason: 'passive-open-guard-attention-hint-only',
+          });
+          return;
+        }
+      }
+
+      setFatalStage('after-result-guards');
+      setFatalStage('before-arbiter-eval');
+      const decision = evaluateOverlayEnqueue(normalizedItem, {
+        viewerId: userIdRef.current,
+        deepLinkBlocked:
+          deepLinkBlockedRef.current || isNotificationQueueLocked(),
+        activeOverlayKey: getActiveOverlayKey(overlayQueueRef.current),
+        queueKeys: new Set(overlayQueueRef.current.map(overlayQueueKey)),
+        pendingKeys: new Set(
+          pendingStartupInteractionsRef.current.map(overlayQueueKey),
+        ),
+        shownOverlayKeys: shownOverlayKeysRef.current,
+        dismissedIncoming: dismissedIncomingRef.current,
+        dismissedCheck: dismissedCheckSessionRef.current,
+        answeredChecks: answeredCheckRef.current,
+        locallyAckedIncoming: locallyAckedIncomingRef.current,
+        source: opts?.source,
+        live,
+      });
+
+      setFatalStage('after-arbiter-eval');
+      if (!decision.accept) {
+        logOverlayArbiter(
+          decision.reason === 'ttl-skip'
+            ? 'ttl-skip'
+            : decision.reason === 'dedup-skip'
+              ? 'dedup-skip'
+              : decision.reason === 'blocked-by-deeplink'
+                ? 'blocked-by-deeplink'
+                : 'dedup-skip',
+          { key, kind: normalizedItem.kind, banId, source: opts?.source ?? null },
+        );
+        traceIncomingOverlayArbiter('after-reject', {
+          skipReason: decision.reason,
+          willStartOnClick: false,
+        });
+        traceEnqueueOwnerPopulation('overlay-arbiter-reject', {
+          reason: 'evaluateOverlayEnqueue-rejected',
+          mutationSkipped: true,
+          skipReason: decision.reason,
+        });
+        traceEnqueueExit('overlay-arbiter-reject', {
+          arbiterDecision: decision.reason,
+          ttlSkip: decision.reason === 'ttl-skip',
+          dedupMatched:
+            decision.reason === 'dedup-skip' ||
+            decision.reason === 'blocked-by-deeplink',
+          skipReason: decision.reason,
+        });
+        return;
+      }
+
+      traceEnqueueExit('overlay-arbiter-accept', {
+        arbiterDecision: decision.reason,
+        willApplyOverlayQueue: false,
+        skipReason: null,
+      });
+
+      if (
+        live &&
+        (normalizedItem.kind === 'check' ||
+          normalizedItem.kind === 'incoming' ||
+          normalizedItem.kind === 'result')
+      ) {
+        const mode = notificationModeRef.current;
+        // FIX B: a result matching an in-flight/just-completed interactive card
+        // action belongs to that action chain — never to normal-mode
+        // indicator-only handling. The action completion materializes it.
+        if (normalizedItem.kind === 'result') {
+          const runtimeState = notificationRuntimeStoreRef.current.getState();
+          const head = runtimeState.items.queue[0] ?? null;
+          const allowEarlyPark =
+            head?.kind === 'incoming' &&
+            normalizeId(head.ban.id) === normalizeId(banId);
+          const staged = stageMatchingActionResult({
+            banId,
+            result: normalizedItem.result,
+            source: 'ws',
+            runtime: snapshotRuntimeForActionResultHandoff(runtimeState),
+            allowEarlyPark,
+          });
+          if (staged.outcome !== 'not-correlated') {
+            traceEnqueueExit('action-matching-result-staged', {
+              shouldDefer: false,
+              skipReason: `action-chain:${staged.outcome}`,
+            });
+            return;
+          }
+        }
+        const liveScreenCtx = buildLiveOverlayScreenContext();
+        const isFreshDeeplinkLive = isFreshDeepLinkDisplayAllowed(
+          banId,
+          opts?.source ?? 'enqueueNotification',
+          liveScreenCtx,
+        );
+        const displayDecision = evaluateLiveOverlayDisplay(
+          mode,
+          liveScreenCtx,
+          normalizedItem.kind,
+          banId,
+        );
+        const pendingCount =
+          overlayQueueRef.current.length +
+          pendingStartupInteractionsRef.current.length;
+        if (!displayDecision.allowed && !isFreshDeeplinkLive) {
+          logLiveOverlayBlocked({
+            mode,
+            kind: normalizedItem.kind,
+            banId,
+            reason: displayDecision.reason,
+            currentScreen: displayDecision.currentScreen,
+            pendingCount,
+          });
+          traceIncomingOverlayArbiter('before-live-overlay-defer', {
+            skipReason: displayDecision.reason,
+            willStartOnClick: false,
+          });
+          traceEnqueueOwnerPopulation('live-overlay-blocked-defer', {
+            reason: `live-overlay-blocked:${displayDecision.reason}`,
+            mutationSkipped: false,
+            skipReason: 'defer-to-pending-startup',
+          });
+          traceEnqueueExit('live-overlay-blocked-defer', {
+            shouldDefer: true,
+            skipReason: displayDecision.reason,
+          });
+          setFatalStage('before-deferNotificationToPendingStartup:live-overlay');
+          deferNotificationToPendingStartup(normalizedItem);
+          primeLobbyBansAttentionHintSyncRef.current(
+            `live-overlay-blocked:${displayDecision.reason}`,
+          );
+          logLobbyIndicatorOnlyNoCard({
+            reason: displayDecision.reason,
+            mode,
+            kind: normalizedItem.kind,
+            banId,
+          });
+          traceIncomingOverlayArbiter('after-live-overlay-defer', {
+            skipReason: displayDecision.reason,
+            willStartOnClick: true,
+          });
+          return;
+        }
+        if (isFreshDeeplinkLive) {
+          logFreshDeeplinkEntryAllowed({
+            mode,
+            banId,
+            launchSource: getFreshDeepLinkLaunchSource(banId),
+            openedAt: performance.now(),
+            currentScreen: resolveLiveOverlayScreen(liveScreenCtx),
+            source: opts?.source ?? 'enqueueNotification',
+          });
+          logDeeplinkDisplayAllowed({
+            banId,
+            mode,
+            reason: 'fresh-deeplink-launch',
+            launchSource: getFreshDeepLinkLaunchSource(banId),
+            isFreshLaunch: true,
+            source: opts?.source ?? 'enqueueNotification',
+          });
+        }
+        // Vertical 6: live-single is runtime direct entry (not module owner).
+        {
+          const liveDefer =
+            isSuccessCardMounted() ||
+            selectIsDraining(notificationRuntimeStoreRef.current.getState());
+          const liveSinks = EMPTY_RUNTIME_LEGACY_SINKS;
+          const livePayload =
+            normalizedItem.kind === 'result'
+              ? normalizedItem.result
+              : normalizedItem.ban;
+          requestDirectEntry(
+            notificationRuntimeStoreRef.current,
+            {
+              targetId: banId,
+              targetKind: normalizedItem.kind,
+              entrySource: 'live-single',
+              defer: liveDefer,
+              item: liveDefer
+                ? null
+                : toDirectNotificationItem(normalizedItem.kind, livePayload),
+            },
+            liveSinks,
+          );
+        }
+        beginLiveOverlaySingleEvent(normalizedItem.kind, banId); // TEMP diag
+        logLiveOverlayDisplayAllowed({
+          mode,
+          kind: normalizedItem.kind,
+          banId,
+          reason: isFreshDeeplinkLive
+            ? 'fresh-deeplink-launch'
+            : displayDecision.reason,
+          currentScreen: displayDecision.currentScreen,
+        });
+      }
+
+      setFatalStage('before-startup-hold');
+      if (startupInteractionsHoldRef.current && !live) {
+        const prevPending = pendingStartupInteractionsRef.current;
+        const nextPending = replyDeeplinkChainHoldRef.current
+          ? mergeStartupPendingChain(prevPending, [normalizedItem])
+          : mergeStartupPendingSingle(prevPending, normalizedItem);
+        setFatalStage('before-applyPendingQueueViaOwner:startup-hold');
+        applyPendingQueueViaOwner(
+          nextPending,
+          `enqueueNotification:${opts?.source ?? 'unknown'}:startup-hold`,
+        );
+        primeLobbyBansAttentionHintSyncRef.current(
+          `enqueue-pending:${opts?.source ?? 'unknown'}`,
+        );
+        traceIncomingOverlayArbiter('before-enqueue-startup-pending', {
+          prevPendingLen: prevPending.length,
+          nextPendingLen: nextPending.length,
+          skipReason: 'startup-hold',
+        });
+        logOverlayArbiter('enqueue', {
+          key,
+          kind: normalizedItem.kind,
+          banId,
+          source: opts?.source ?? null,
+          scope: 'startup-pending',
+          queueLength: nextPending.length,
+        });
+        traceIncomingOverlayArbiter('after-enqueue-startup-pending', {
+          prevPendingLen: prevPending.length,
+          nextPendingLen: nextPending.length,
+          skipReason: 'startup-hold',
+          willStartOnClick: true,
+        });
+        traceEnqueueExit('startup-hold-pending', {
+          startupHold: true,
+          skipReason: 'startup-hold-pending-not-overlay-queue',
+        });
+        return;
+      }
+
+      setFatalStage('before-enqueue-with-active-lock');
+      const prev = overlayQueueRef.current;
+      const activeKey = getActiveOverlayKey(prev);
+      const newKey = key;
+      const { queue: next, changed, action } = enqueueWithActiveLock(
+        prev,
+        normalizedItem,
+        { source: opts?.source ?? 'enqueueNotification' },
+      );
+
+      if (!changed) {
+        if (normalizedItem.kind === 'incoming') {
+          console.log('INCOMING QUEUE PUSH', {
+            banId: normalizedItem.ban.id,
+            skipped: true,
+            reason: 'dedup',
+            source: opts?.source ?? null,
+          });
+        } else if (normalizedItem.kind === 'check') {
+          console.log('[CHECK QUEUE DEDUP]', {
+            banId: normalizedItem.ban.id,
+            skipped: true,
+            reason: 'unchanged',
+            source: opts?.source ?? null,
+          });
+        }
+        traceEnqueueOwnerPopulation('queue-unchanged-dedup', {
+          reason: 'enqueueWithActiveLock-unchanged',
+          mutationSkipped: true,
+          skipReason: 'queue-unchanged-no-owner-write',
+        });
+        traceEnqueueExit('queue-unchanged-dedup', {
+          changed: false,
+          dedupMatched: true,
+          activeLock: activeKey,
+          skipReason: 'queue-unchanged-no-owner-write',
+        });
+        return;
+      }
+
+      traceEnqueueExit(`enqueue-with-active-lock:${action}`, {
+        changed: true,
+        activeLock: activeKey,
+        willApplyOverlayQueue: true,
+        skipReason: null,
+      });
+
+      if (action === 'same-key-refresh') {
+        console.log('[OVERLAY SAME_KEY_REFRESH]', {
+          key: newKey,
+          kind: normalizedItem.kind,
+          source: opts?.source ?? null,
+        });
+      } else if (action === 'enqueue-waiting') {
+        traceIncomingOverlayArbiter('before-blocked-by-current-overlay', {
+          skipReason: 'blocked-by-current-overlay',
+        });
+        logOverlayArbiter('blocked-by-current-overlay', {
+          activeKey,
+          newKey,
+          kind: normalizedItem.kind,
+          source: opts?.source ?? null,
+        });
+        logOverlayArbiter('enqueue', {
+          key: newKey,
+          kind: normalizedItem.kind,
+          banId,
+          source: opts?.source ?? null,
+          scope: 'queue-tail',
+          queueLength: next.length,
+        });
+        traceIncomingOverlayArbiter('after-enqueue-queue-tail', {
+          prevQueueLen: prev.length,
+          nextQueueLen: next.length,
+          skipReason: 'enqueue-waiting',
+        });
+      } else if (action === 'display-new') {
+        traceIncomingOverlayArbiter('before-display-new', {
+          skipReason: null,
+          willStartOnClick: live,
+        });
+        logOverlayArbiter('enqueue', {
+          key: newKey,
+          kind: normalizedItem.kind,
+          banId,
+          source: opts?.source ?? null,
+          scope: 'display-new',
+        });
+        traceIncomingOverlayArbiter('after-display-new', {
+          prevQueueLen: prev.length,
+          nextQueueLen: next.length,
+          skipReason: null,
+        });
+        if (normalizedItem.kind === 'incoming') {
+          console.log('INCOMING QUEUE PUSH', {
+            banId: normalizedItem.ban.id,
+            skipped: false,
+            reason: 'display-new',
+            source: opts?.source ?? null,
+            live,
+          });
+        } else if (normalizedItem.kind === 'check') {
+          console.log('[CHECK QUEUE PUSH]', {
+            banId: normalizedItem.ban.id,
+            source: opts?.source ?? null,
+            live,
+          });
+        }
+      }
+
+      traceEnqueueOwnerPopulation('before-applyOverlayQueue', {
+        reason: `applyOverlayQueue:${action}`,
+        mutationApplied: false,
+        mutationSkipped: false,
+      });
+      fatalDiag.reachedBeforeApply = true;
+      setFatalStage('before-apply');
+      const ownerQueueBeforeApply =
+        ownerShadowRef.current.getState().queue.length;
+      const legacyQueueRefAtApply = overlayQueueRef.current;
+      logApplyQueueCommitTrace({
+        source: `enqueueNotification:${opts?.source ?? 'unknown'}:invoke-applyOverlayQueue`,
+        beforeQueueLength: ownerQueueBeforeApply,
+        afterQueueLength: next.length,
+        dispatchExecuted: false,
+        dispatchSkipped: true,
+        finalizeCommitEntered: false,
+        finalizeCommitReturned: false,
+        applyOverlayQueueReturnedNull: false,
+        applyOverlayQueueReturnedSameReference:
+          next === legacyQueueRefAtApply,
+        queueChanged: queueOverlaySnapshotChanged(legacyQueueRefAtApply, next),
+        queueIdentityChanged: next === legacyQueueRefAtApply,
+        reducerExecuted: false,
+        reducerSkipped: true,
+        reason: `invoke-applyOverlayQueue:${action}`,
+      });
+      const applyOverlayQueueResult = applyOverlayQueue(next, {
+        source: `enqueueNotification:${opts?.source ?? 'unknown'}`,
+        reason: action,
+      });
+      const ownerQueueAfterApply =
+        ownerShadowRef.current.getState().queue.length;
+      logApplyQueueCommitTrace({
+        source: `enqueueNotification:${opts?.source ?? 'unknown'}:after-applyOverlayQueue`,
+        beforeQueueLength: ownerQueueBeforeApply,
+        afterQueueLength: ownerQueueAfterApply,
+        dispatchExecuted: applyOverlayQueueResult === true,
+        dispatchSkipped: applyOverlayQueueResult === false,
+        finalizeCommitEntered: applyOverlayQueueResult === true,
+        finalizeCommitReturned: applyOverlayQueueResult === true,
+        applyOverlayQueueReturnedNull: applyOverlayQueueResult === false,
+        applyOverlayQueueReturnedSameReference:
+          next === legacyQueueRefAtApply,
+        queueChanged: ownerQueueAfterApply !== ownerQueueBeforeApply,
+        queueIdentityChanged: next === legacyQueueRefAtApply,
+        reducerExecuted: ownerQueueAfterApply !== ownerQueueBeforeApply,
+        reducerSkipped: ownerQueueAfterApply === ownerQueueBeforeApply,
+        reason: `after-applyOverlayQueue:${action}`,
+        skipReason:
+          applyOverlayQueueResult === false
+            ? 'apply-overlay-queue-returned-false'
+            : ownerQueueAfterApply === ownerQueueBeforeApply
+              ? 'apply-overlay-queue-returned-true-but-owner-unchanged'
+              : null,
+      });
+      setFatalStage('after-apply');
+      } catch (err) {
+        logFatalTrace(`${fatalStage}:catch`, err);
+        throw err;
+      } finally {
+        logFatalTrace(`${fatalStage}:finally`);
+      }
+    },
+    [applyOverlayQueue, applyPendingQueueViaOwner, isOverlayLive],
+  );
 
   const unlockNotificationQueueAndFlush = useCallback(
     (reason: string) => {
@@ -12808,13 +14860,13 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       });
 
       const shouldFlushStartup =
-        ownerRuntimeHostRef.current.getState().session.startupHold ||
+        ownerShadowRef.current.getState().session.startupHold ||
         startupPending.length > 0;
 
       runWithExplicitResultUnlock(() => {
         if (shouldFlushStartup) {
           // Stage 4A — one owner unlock command for startup hold.
-          ownerRuntimeHostRef.current.dispatch(
+          ownerShadowRef.current.dispatch(
             {
               type: 'QUEUE_UNLOCK_REQUESTED',
               reason,
@@ -12840,7 +14892,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
               count: startupPending.length,
               reason,
             });
-            const ownerBeforeUnlockEnqueue = ownerRuntimeHostRef.current.getState();
+            const ownerBeforeUnlockEnqueue = ownerShadowRef.current.getState();
             const unlockEnqueueBefore = {
               queue: ownerBeforeUnlockEnqueue.queue.length,
               pending: ownerBeforeUnlockEnqueue.pending.length,
@@ -12862,7 +14914,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
               );
               const afterUnlock =
                 notificationRuntimeStoreRef.current.getState();
-              applyQueueMutationSilent(
+              writeOverlayQueueSilent(
                 projectRuntimeQueueToLegacy(afterUnlock),
                 `v8-unlock-flush:${reason}`,
                 'v8-runtime-ingest',
@@ -13345,7 +15397,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       const normalizedSkip = normalizeId(skipBanId);
       const viewerId = userIdRef.current?.trim() ?? '';
       const ownerOverlayKey = `result:${key}`;
-      const ownerConsumed = ownerRuntimeHostRef.current
+      const ownerConsumed = ownerShadowRef.current
         .getState()
         .session.shownOverlayKeys.has(ownerOverlayKey);
       const consumed = resultCtaConsumedBanIdsRef.current.has(key);
@@ -13464,8 +15516,8 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           banId: key,
           overlayKey: ownerOverlayKey,
           source,
-          ownerActiveKind: ownerRuntimeHostRef.current.getState().active.kind,
-          ownerActiveBanId: ownerRuntimeHostRef.current.getState().active.banId,
+          ownerActiveKind: ownerShadowRef.current.getState().active.kind,
+          ownerActiveBanId: ownerShadowRef.current.getState().active.banId,
         });
         return maybeBlockStale('owner-shown-overlay-key');
       }
@@ -13635,7 +15687,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           removedOverlay,
           removedStartup,
         });
-        commitQueueMutation(
+        commitOverlayQueueViaApply(
           nextOverlay,
           source,
           'prune-result-from-notification-chain-commit',
@@ -13746,7 +15798,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         nextOverlay.length !== overlayQueueRef.current.length ||
         nextStartup.length !== pendingStartupInteractionsRef.current.length
       ) {
-        commitQueueMutation(
+        commitOverlayQueueViaApply(
           nextOverlay,
           source,
           'sanitize-notification-chain-queues-commit',
@@ -13841,7 +15893,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
   const mergeStartupIntoOverlayQueueOnly = useCallback(
     (source: string) => {
       emitPendingPromotionEntryTrace(source);
-      const ownerBeforeMerge = ownerRuntimeHostRef.current.getState();
+      const ownerBeforeMerge = ownerShadowRef.current.getState();
       const ownerPendingLenBefore = ownerBeforeMerge.pending.length;
       const ownerQueueLenBefore = ownerBeforeMerge.queue.length;
       const legacyPendingLen = pendingStartupInteractionsRef.current.length;
@@ -14337,11 +16389,11 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       );
       applyPendingQueueViaOwner([], `${source}:merge-startup-clear`);
 
-      let next = [...ownerRuntimeHostRef.current.getState().queue];
+      let next = [...ownerShadowRef.current.getState().queue];
       for (const item of releasable) {
         next = enqueueWithActiveLock(next, item).queue;
       }
-      commitQueueMutation(
+      commitOverlayQueueViaApply(
         next,
         source,
         'merge-startup-into-overlay-queue-commit',
@@ -14352,8 +16404,8 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         pendingLenBefore,
         queueLenBefore,
         mergedCount: releasable.length,
-        queueLenAfter: ownerRuntimeHostRef.current.getState().queue.length,
-        pendingLenAfter: ownerRuntimeHostRef.current.getState().pending.length,
+        queueLenAfter: ownerShadowRef.current.getState().queue.length,
+        pendingLenAfter: ownerShadowRef.current.getState().pending.length,
         skipReason: null,
         startupHold: startupInteractionsHoldRef.current,
       });
@@ -14382,7 +16434,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         blockAndPreserveActiveUserCard: blockAndPreserveActiveUserCardResult,
         releasableLen: releasable.length,
       });
-      const ownerAfterPromote = ownerRuntimeHostRef.current.getState();
+      const ownerAfterPromote = ownerShadowRef.current.getState();
       emitExitTrace('promoted', 'promoted', null, {
         ownerQueueLenAfter: ownerAfterPromote.queue.length,
         ownerPendingLenAfter: ownerAfterPromote.pending.length,
@@ -14399,7 +16451,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       queueBeforeLen: number;
       queueHeadBefore: QueuedOverlay | null;
     }) => {
-      const owner = ownerRuntimeHostRef.current.getState();
+      const owner = ownerShadowRef.current.getState();
       const ownerQueueLenAfter = owner.queue.length;
       const ownerPendingLenAfter = owner.pending.length;
       const consumedKind = input.queueHeadBefore?.kind ?? null;
@@ -14496,10 +16548,10 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           source,
           phase,
           mergedCount,
-          owner: ownerOverride ?? ownerRuntimeHostRef.current.getState(),
+          owner: ownerOverride ?? ownerShadowRef.current.getState(),
         });
       };
-      const ownerAtMergeEntry = ownerRuntimeHostRef.current.getState();
+      const ownerAtMergeEntry = ownerShadowRef.current.getState();
       const isLobbyBansCtaMerge = source.includes('lobby-bans-cta');
       const mergeSnapshot = isLobbyBansCtaMerge
         ? filterLobbyBansCtaMergeSnapshot(snapshot, {
@@ -14588,7 +16640,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         return 0;
       }
 
-      const ownerQueueAtMerge = ownerRuntimeHostRef.current.getState().queue;
+      const ownerQueueAtMerge = ownerShadowRef.current.getState().queue;
       if (ownerQueueAtMerge.length === 0) {
         const wouldHead = releasable[0] ?? null;
         if (
@@ -14628,7 +16680,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       }
 
       const plannedQueueHead = next[0] ?? null;
-      const ownerBeforeCommit = ownerRuntimeHostRef.current.getState();
+      const ownerBeforeCommit = ownerShadowRef.current.getState();
       traceMergePendingSnapshotStage({
         stage: 'merge-input',
         source,
@@ -14646,14 +16698,14 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         plannedQueueHead,
       });
 
-      commitQueueMutation(
+      commitOverlayQueueViaApply(
         next,
         source,
         'merge-pending-snapshot-into-overlay-queue-commit',
         { preserveChainAdvanceExplicit: true },
       );
 
-      const ownerAfterCommit = ownerRuntimeHostRef.current.getState();
+      const ownerAfterCommit = ownerShadowRef.current.getState();
       traceMergePendingSnapshotStage({
         stage: 'after-commit',
         source: `${source}:merge-pending-snapshot-into-overlay-queue-commit`,
@@ -14711,11 +16763,11 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       if (opts?.requireBanSend && !sessionBanSendSuccessRef.current) {
         return;
       }
-      const ownerAtRelease = ownerRuntimeHostRef.current.getState();
+      const ownerAtRelease = ownerShadowRef.current.getState();
       const pending = [...ownerAtRelease.pending];
       const hadHold = ownerAtRelease.session.startupHold;
       // Stage 4A — one owner transition command for startup hold release.
-      ownerRuntimeHostRef.current.dispatch(
+      ownerShadowRef.current.dispatch(
         {
           type: 'STARTUP_INTERACTIONS_RELEASED',
           pendingCount: pending.length,
@@ -14832,7 +16884,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       }
 
       deepLinkBlockedRef.current = isNotificationQueueLocked();
-      const ownerBeforeRelease = ownerRuntimeHostRef.current.getState();
+      const ownerBeforeRelease = ownerShadowRef.current.getState();
       const releaseBefore = {
         queue: ownerBeforeRelease.queue.length,
         pending: ownerBeforeRelease.pending.length,
@@ -14853,7 +16905,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           releaseTid,
         );
         const afterRelease = notificationRuntimeStoreRef.current.getState();
-        applyQueueMutationSilent(
+        writeOverlayQueueSilent(
           projectRuntimeQueueToLegacy(afterRelease),
           'v8-startup-release',
           'v8-runtime-ingest',
@@ -14954,7 +17006,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
   buildOwnerFalseActiveCheckSnapshotPatchRef.current = (
     patch?: Partial<OwnerFalseWhileActiveCheckSnapshot>,
   ) => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const shellSnap = shellStuckDiagSnapshotRef.current;
     const ownerQueueOnly =
       owner.queue.length > 0 || owner.pending.length > 0;
@@ -15309,7 +17361,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           ];
           setCheckHandoffFetchedIdentities(fetchedIds);
           markCheckHandoffPrefetchSettled();
-          const owner = ownerRuntimeHostRef.current.getState();
+          const owner = ownerShadowRef.current.getState();
           const live = buildCheckHandoffLive();
           emitCheckHandoffStage('pending-chain-prefetch-resolved', {
             prefetchDurationMs: checkHandoffElapsedFromPrefetchMs(),
@@ -15416,7 +17468,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           enqueuedCount: number,
           notInsertedReason: string | null,
         ) => {
-          const ownerAfter = ownerRuntimeHostRef.current.getState();
+          const ownerAfter = ownerShadowRef.current.getState();
           lastPrefetchEnqueueCountRef.current = enqueuedCount;
           logBackendPendingFetchResult({
             source,
@@ -15563,7 +17615,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
             isLobbyIndicatorPrefetchSource(source)
               ? (() => {
                   const ownerAtLobbyResolve =
-                    ownerRuntimeHostRef.current.getState();
+                    ownerShadowRef.current.getState();
                   return resolveLobbyIndicatorResultPrefetchBlocked({
                     skipResults: opts?.skipResults ?? false,
                     owner: ownerAtLobbyResolve,
@@ -15593,7 +17645,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
                 })()
               : null;
           if (lobbyIndicatorResultSkipReason) {
-            const ownerAtLobbySkip = ownerRuntimeHostRef.current.getState();
+            const ownerAtLobbySkip = ownerShadowRef.current.getState();
             logLobbyIndicatorResultPrefetchSkippedDuringResultOpen({
               banId: resultNorm,
               resultId: resultNorm,
@@ -15649,7 +17701,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
                 source,
                 resultBanId: resultNorm,
                 resultId: resultNorm,
-                ownerShownOverlayHasResult: ownerRuntimeHostRef.current
+                ownerShownOverlayHasResult: ownerShadowRef.current
                   .getState()
                   .session.shownOverlayKeys.has(resultOverlayKey),
                 resultCtaConsumedHasBanId:
@@ -15691,7 +17743,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
                   source,
                   resultNorm,
                   {
-                    ownerShownOverlayHasResult: ownerRuntimeHostRef.current
+                    ownerShownOverlayHasResult: ownerShadowRef.current
                       .getState()
                       .session.shownOverlayKeys.has(resultOverlayKey),
                     resultCtaConsumed:
@@ -15714,7 +17766,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
                 const prefetchUpstreamSkip =
                   resolvePrefetchResultAlreadyActiveOrShownSkip({
                     banId: resultNorm,
-                    owner: ownerRuntimeHostRef.current.getState(),
+                    owner: ownerShadowRef.current.getState(),
                     closingResultBanId: goToBansClosingBanIdRef.current,
                     legacyShownOverlayKeys: shownOverlayKeysRef.current,
                   });
@@ -15951,7 +18003,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           const resultOverlayKey = `result:${banId}`;
           const closingBanId = goToBansClosingBanIdRef.current;
           return {
-            ownerShownOverlayHasResult: ownerRuntimeHostRef.current
+            ownerShownOverlayHasResult: ownerShadowRef.current
               .getState()
               .session.shownOverlayKeys.has(resultOverlayKey),
             resultCtaConsumed: resultCtaConsumedBanIdsRef.current.has(banId),
@@ -16122,7 +18174,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           0,
           pendingChainPrefetchInFlightRef.current - 1,
         );
-        const ownerAfterHydrate = ownerRuntimeHostRef.current.getState();
+        const ownerAfterHydrate = ownerShadowRef.current.getState();
         const queueLenHydrate = overlayQueueRef.current.length;
         const pendingLenHydrate = pendingStartupInteractionsRef.current.length;
         const headHydrate =
@@ -16168,7 +18220,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       }
 
       const sharedPromise = runPrefetch().then((result) => {
-        const ownerAtResolve = ownerRuntimeHostRef.current.getState();
+        const ownerAtResolve = ownerShadowRef.current.getState();
         pendingChainPrefetchSharedLifecycleRef.current = 'settled';
         if (traceSuccessPrefetch) {
           logSuccessProdTrace('PREFETCH_RETURN', {
@@ -16225,8 +18277,8 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           deeplinkBanId,
           refQueueLen: overlayQueueRef.current.length,
           refPendingLen: pendingStartupInteractionsRef.current.length,
-          ownerPendingLen: ownerRuntimeHostRef.current.getState().pending.length,
-          ownerQueueLen: ownerRuntimeHostRef.current.getState().queue.length,
+          ownerPendingLen: ownerShadowRef.current.getState().pending.length,
+          ownerQueueLen: ownerShadowRef.current.getState().queue.length,
           pendingChainPrefetchInFlight:
             pendingChainPrefetchInFlightRef.current,
           hasSharedPrefetchPromise: false,
@@ -16616,7 +18668,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           source: `openBanResult:${mode}`,
           rejectReason: 'null-payload',
         });
-        writeQueueSnapshot([]);
+        applyOverlayQueue([]);
         return;
       }
 
@@ -16707,7 +18759,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       if (resolveBanResultOutcome(r) === 'overboard') {
         noteOverboardFlashWriter('OPEN_BAN_RESULT', r.id);
       }
-      ingestQueuedOverlay(
+      enqueueNotification(
         { kind: 'result', result: r },
         {
           live: mode === 'explicit' || mode === 'live',
@@ -16764,7 +18816,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         });
       }
     },
-    [writeQueueSnapshot],
+    [applyOverlayQueue, enqueueNotification],
   );
 
   const dismissBanResult = useCallback(() => {
@@ -16934,7 +18986,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           },
         });
         if (headNow?.kind === 'result') {
-          // Incoming-style handoff: pre-arm + writeQueueSnapshot(remaining).
+          // Incoming-style handoff: pre-arm + applyOverlayQueue(remaining).
           const resultBanId = headNow.result.id;
           chainAdvanceExplicitRef.current = true;
           notificationChainAwaitingUserRef.current = false;
@@ -16963,7 +19015,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
             );
           }
           {
-            const ownerAtResultDismiss = ownerRuntimeHostRef.current.getState();
+            const ownerAtResultDismiss = ownerShadowRef.current.getState();
             logResultDismissCallsiteTrace({
               callsite: 'dismissBanResult',
               reason: 'result-dismiss',
@@ -17163,8 +19215,8 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       return;
     }
 
-    writeQueueSnapshot(next);
-  }, [writeQueueSnapshot]);
+    applyOverlayQueue(next);
+  }, [applyOverlayQueue]);
 
   useEffect(() => {
     incomingBanRef.current = incomingBan;
@@ -17350,7 +19402,18 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     }
 
     resetOverlayQueueState('providers-reset', 'auth-user-changed');
-    // Auth reset bundles queue+pending reset; pending clear is owner-authoritative.
+    // Step 11B.1 documented pending exception: auth reset bundles queue+pending reset;
+    // pending clear is owner-authoritative; setPendingStartupInteractionsCount(0) below remains legacy bootstrap.
+    logOwnerPhase11BPendingException({
+      source: 'providers-reset:auth-user-changed',
+      reason: 'auth-user-changed-full-reset',
+      pendingLenBefore: pendingStartupInteractionsRef.current.length,
+      pendingLenAfter: 0,
+      previousHead: formatPendingHeadForOwnerLog(
+        pendingStartupInteractionsRef.current[0] ?? null,
+      ),
+      nextHead: { kind: null, banId: null },
+    });
     commitPendingQueueViaOwner([], 'providers-reset', 'auth-user-changed');
     startupInteractionsHoldRef.current = true;
     mirrorOwnerSessionFlagsRef.current('providers-reset:auth-user-changed', {
@@ -17483,7 +19546,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           resultOpenRef.current,
         )
       ) {
-        ingestQueuedOverlay(
+        enqueueNotification(
           { kind: 'check', ban: cachedCheck },
           { source: 'session' },
         );
@@ -17524,6 +19587,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     auth.user?.id,
     armActiveBanDeepLinkEarly,
     clearDirectOverboardLayerRefs,
+    enqueueNotification,
     isDirectOverboardLocallyActive,
     snapshotDirectOverboardGate,
   ]);
@@ -17590,11 +19654,6 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     ) => {
       if (!payload) return;
       const normalized = normalizeBanResult(payload);
-      if (!normalizeId(normalized.id)) return;
-      ingestAndClaimIfLobby([queueItemFromResult(normalized)]);
-      return;
-      /*
-      const normalized = normalizeBanResult(payload);
       const banId = normalizeId(normalized.id);
       const uid = userIdRef.current;
       if (!banId) return;
@@ -17617,7 +19676,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           checkBanId: banId,
         });
       }
-      dispatchPinStateEvent(
+      ownerShadowDispatch(
         checkAnswerInFlightRef.current.has(banId)
           ? {
               type: 'CHECK_RESULT_ARRIVED',
@@ -17640,7 +19699,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         source === 'poll' &&
         shouldDeferNotificationOverlayDisplay('receiveResult-poll')
       ) {
-        ingestQueuedOverlay(
+        enqueueNotification(
           { kind: 'result', result: normalized },
           { source: 'poll' },
         );
@@ -17669,7 +19728,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           kind: 'result',
           banId,
         });
-        ingestQueuedOverlay(
+        enqueueNotification(
           { kind: 'result', result: normalized },
           {
             live: source === 'ws' || source === 'http',
@@ -17696,7 +19755,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
             mountedIncomingId,
             mountedCheckId,
           });
-          ingestQueuedOverlay(
+          enqueueNotification(
             { kind: 'result', result: normalized },
             {
               live: source === 'ws' || source === 'http',
@@ -17893,7 +19952,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           passiveSource: isPassiveResultOpenSource(`receiveResult:${source}`),
           lobbyOpen: lobbyOpenRef.current,
         });
-        ingestQueuedOverlay(
+        enqueueNotification(
           { kind: 'result', result: normalized },
           {
             live: false,
@@ -17916,9 +19975,8 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         shouldShow: true,
         reason: decision.reason,
       });
-      */
     },
-    [openBanResult],
+    [openBanResult, enqueueNotification],
   );
 
   const buildResultPollComposeFields = () => {
@@ -17996,7 +20054,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         calledFrom: 'Providers.showCheckAnswerFinalResult:CHECK_RESULT_ARRIVED',
         checkBanId: banId,
       });
-      dispatchPinStateEvent(
+      ownerShadowDispatch(
         {
           type: 'CHECK_RESULT_ARRIVED',
           banId,
@@ -18032,7 +20090,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           buildResultPollComposeFields(),
           { resultSource: source, reason: 'compose-active' },
         );
-        ingestQueuedOverlay(
+        enqueueNotification(
           { kind: 'result', result: normalized },
           {
             live: source === 'http',
@@ -18128,7 +20186,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       );
 
       if (shouldDeferNotificationOverlayDisplay('check-answer-final')) {
-        ingestQueuedOverlay(
+        enqueueNotification(
           { kind: 'result', result: normalized },
           { source: source === 'poll' ? 'poll' : 'ws' },
         );
@@ -18244,7 +20302,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
             `showCheckAnswerFinalResult:${source}-poll-defer`,
           );
           flushSync(() => {
-            writeQueueSnapshot(nextQueue);
+            applyOverlayQueue(nextQueue);
           });
           const head = overlayQueueRef.current[0];
           const pollShown =
@@ -18315,7 +20373,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         `showCheckAnswerFinalResult:${source}`,
       );
       flushSync(() => {
-        writeQueueSnapshot(nextQueue);
+        applyOverlayQueue(nextQueue);
       });
 
       const head = overlayQueueRef.current[0];
@@ -18355,8 +20413,9 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       return false;
     },
     [
-      writeQueueSnapshot,
+      applyOverlayQueue,
       clearStaleResultGuardForFreshCheckAnswer,
+      enqueueNotification,
       holdResultForActiveNotificationChain,
       isFreshCheckAnswerResultPendingFirstShow,
       isResultBlockedForNotificationChain,
@@ -18634,7 +20693,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           const pollDeferPrevPending =
             pendingStartupInteractionsRef.current.length;
           const pollDeferPrevQueue = overlayQueueRef.current.length;
-          ingestQueuedOverlay(
+          enqueueNotification(
             { kind: 'result', result: normalized },
             { source: 'poll' },
           );
@@ -18716,7 +20775,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           kind: 'check',
           banId: b.id,
         });
-        ingestQueuedOverlay(
+        enqueueNotification(
           { kind: 'check', ban: enrichBanInteraction(b) },
           { source: 'session' },
         );
@@ -18741,17 +20800,17 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           return;
         }
         challengeLog('check:set', { id: b.id, status: b.status });
-        ingestQueuedOverlay({
+        enqueueNotification({
           kind: 'check',
           ban: enrichBanInteraction(b),
         });
         return;
       }
-      writeQueueSnapshot(
+      applyOverlayQueue(
         overlayQueueRef.current.filter((q) => q.kind !== 'check'),
       );
     },
-    [auth.user?.id, writeQueueSnapshot],
+    [auth.user?.id, applyOverlayQueue, enqueueNotification],
   );
 
   const collectCheckStartupBlockers =
@@ -19621,7 +21680,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
               : null;
         if (queueToApply) {
           chainAdvanceExplicitRef.current = true;
-          writeQueueSnapshot(queueToApply);
+          applyOverlayQueue(queueToApply);
         }
 
         if (queueHead.kind === 'check') {
@@ -19715,7 +21774,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       return outcome;
     },
     [
-      writeQueueSnapshot,
+      applyOverlayQueue,
       commitSyncDisplayActivePayload,
       releaseCheckAnswerWaitingResultHold,
       setChainAdvanceWaiting,
@@ -20253,7 +22312,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           'force-open-overboard-queue-cleaned',
         ),
       );
-      applyQueueMutationSilent(
+      writeOverlayQueueSilent(
         cleaned,
         'forceOpenOverboardResult',
         'force-open-overboard-queue-cleaned',
@@ -20547,9 +22606,9 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
 
       const nextQueue = removeOverlaysForBan(beforeQueue, banId, ['incoming']);
       if (nextQueue.length !== beforeLen) {
-        writeQueueSnapshot(nextQueue);
+        applyOverlayQueue(nextQueue);
       } else if (overlayQueueRef.current !== nextQueue) {
-        commitQueueMutation(
+        commitOverlayQueueViaApply(
           nextQueue,
           'incoming-answer-pop',
           'incoming-queue-pop-after-answer-commit',
@@ -20605,7 +22664,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         });
       }
     },
-    [writeQueueSnapshot, clearReplyFastSessionAfterAnswer, clearReplyParentActivePriority],
+    [applyOverlayQueue, clearReplyFastSessionAfterAnswer, clearReplyParentActivePriority],
   );
 
   const shouldBlockIncomingCardReopen = useCallback(
@@ -20635,7 +22694,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
 
       const beforeQueue = overlayQueueRef.current;
       const nextQueue = removeOverlaysForBan(beforeQueue, banId, ['incoming']);
-      commitQueueMutation(
+      commitOverlayQueueViaApply(
         nextQueue,
         'dismissIncomingCardForReplyCompose',
         'dismiss-incoming-for-reply-compose-commit',
@@ -20790,7 +22849,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       const beforeQueue = overlayQueueRef.current;
       const nextQueue = removeOverlaysForBan(beforeQueue, parentBanId, ['incoming']);
       if (nextQueue.length !== beforeQueue.length) {
-        commitQueueMutation(
+        commitOverlayQueueViaApply(
           nextQueue,
           'incoming-reply-finalize',
           'incoming-reply-finalize-queue-commit',
@@ -21114,7 +23173,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       setCheckWaiting(false);
       checkWaitingTimerRef.current = null;
     }, CHECK_WAITING_UI_TTL_MS);
-  }, [writeQueueSnapshot]);
+  }, [applyOverlayQueue]);
 
   const setIncomingBanSafe = useCallback(
     (b: BanInteraction | null) => {
@@ -21124,7 +23183,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           kind: 'incoming',
           banId: b.id,
         });
-        ingestQueuedOverlay(
+        enqueueNotification(
           { kind: 'incoming', ban: enrichBanInteraction(b) },
           { source: 'session' },
         );
@@ -21203,17 +23262,17 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       if (b === null) {
         const prev = overlayQueueRef.current;
         if (prev[0]?.kind === 'incoming') {
-          writeQueueSnapshot(popOverlayHead(prev));
+          applyOverlayQueue(popOverlayHead(prev));
         }
         return;
       }
-      ingestQueuedOverlay(
+      enqueueNotification(
         { kind: 'incoming', ban: b },
         { source: 'session' },
       );
       resolvePendingDeepLinkRoute('incoming', b.id);
     },
-    [auth.user?.id, auth.loading, writeQueueSnapshot],
+    [auth.user?.id, auth.loading, applyOverlayQueue, enqueueNotification],
   );
 
   const removeIncomingFromQueue = useCallback(
@@ -21248,10 +23307,10 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         });
         dismissCurrentOverlay('incoming-seen', next, 'removeIncomingFromQueue');
       } else {
-        writeQueueSnapshot(next);
+        applyOverlayQueue(next);
       }
     },
-    [writeQueueSnapshot, dismissCurrentOverlay],
+    [applyOverlayQueue, dismissCurrentOverlay],
   );
 
   const clearReplyDeeplinkFastTimeout = useCallback(() => {
@@ -21371,7 +23430,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       ]);
       if (nextQueue.length !== beforeQueue.length) {
         if (isDeeplinkSingleCardModeActive()) {
-          commitQueueMutation(
+          commitOverlayQueueViaApply(
             nextQueue,
             'reply-completed-route',
             'reply-completed-route-queue-commit',
@@ -21383,7 +23442,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
             remainingLen: nextQueue.length,
           });
         } else {
-          writeQueueSnapshot(nextQueue);
+          applyOverlayQueue(nextQueue);
         }
       } else if (
         overlayQueueRef.current[0]?.kind === 'incoming' &&
@@ -21418,7 +23477,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
 
       if (
         incomingBanRef.current?.id === normalizedBanId ||
-        ownerRuntimeHostRef.current.getState().display.incomingBan?.id ===
+        ownerShadowRef.current.getState().display.incomingBan?.id ===
           normalizedBanId
       ) {
         writeOwnerDisplay(
@@ -21465,7 +23524,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     },
     [
       abortReplyDeepLinkFast,
-      writeQueueSnapshot,
+      applyOverlayQueue,
       clearReplyDeeplinkFastTimeout,
       deepLinkReplyBooting,
       dismissCurrentOverlay,
@@ -21483,10 +23542,10 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       if (idx < 0) return false;
       const next = [...prev];
       next[idx] = { kind: 'incoming', ban: enriched };
-      writeQueueSnapshot(next);
+      applyOverlayQueue(next);
       return true;
     },
-    [writeQueueSnapshot],
+    [applyOverlayQueue],
   );
 
   const collectReplyStartupBlockers =
@@ -21700,12 +23759,12 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       if (!ban) return;
       const item: QueuedOverlay = { kind: 'incoming', ban };
       const key = overlayQueueKey(item);
-      writeQueueSnapshot([
+      applyOverlayQueue([
         item,
         ...overlayQueueRef.current.filter((q) => overlayQueueKey(q) !== key),
       ]);
     },
-    [writeQueueSnapshot, isReplyFastQueueHeadValid],
+    [applyOverlayQueue, isReplyFastQueueHeadValid],
   );
 
   const scheduleReplyFastTimeout = useCallback(
@@ -21791,7 +23850,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         item,
         ...prev.filter((q) => overlayQueueKey(q) !== key),
       ];
-      writeQueueSnapshot(next);
+      applyOverlayQueue(next);
       const mounted = isReplyFastQueueHeadValid(ban.id);
       if (mounted) {
         writeOwnerDisplay(
@@ -21825,7 +23884,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       return mounted;
     },
     [
-      writeQueueSnapshot,
+      applyOverlayQueue,
       isReplyFastQueueHeadValid,
       auth.user?.id,
       syncPendingStartupCount,
@@ -22495,7 +24554,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         prevHead?.kind === 'incoming' ? prevHead.ban.text : null;
       let hydratedInPlace = hydrateReplyDeeplinkIncomingBan(enriched);
       if (!hydratedInPlace && !onReplyRoute) {
-        ingestQueuedOverlay(
+        enqueueNotification(
           { kind: 'incoming', ban: enriched },
           { live: true, source: 'deeplink' },
         );
@@ -22578,6 +24637,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       auth.loading,
       clearReplyDeeplinkFastTimeout,
       commitReplyIncomingDisplayBan,
+      enqueueNotification,
       hydrateReplyDeeplinkIncomingBan,
       replyDeepLinkBanId,
       routeReplyDeeplinkCompleted,
@@ -22688,12 +24748,12 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       auth.user.id,
     );
     if (incoming) {
-      ingestQueuedOverlay(
+      enqueueNotification(
         { kind: 'incoming', ban: incoming },
         { live: true, source: 'ws' },
       );
     }
-  }, [auth.user?.id, auth.loading]);
+  }, [auth.user?.id, auth.loading, enqueueNotification]);
 
   const pushPopup = useCallback((p: EnergyPopup) => {
     const isOverboardEnergy = isOverboardEnergyPopup(p);
@@ -22881,22 +24941,6 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     (payload: BanInteraction, source: 'ws' | 'session' | 'poll') => {
       const b = enrichBanInteraction(payload);
       const viewerId = userIdRef.current;
-      const decision = incomingShowDecision(
-        b,
-        viewerId,
-        dismissedIncomingRef.current,
-      );
-      if (decision.shouldShow) {
-        const incoming = pickIncomingForOverlay(
-          b,
-          dismissedIncomingRef.current,
-          viewerId,
-        );
-        if (incoming) ingestAndClaimIfLobby([queueItemFromIncoming(incoming)]);
-      }
-      return;
-      /*
-      const viewerId = userIdRef.current;
 
       if (source === 'ws' || source === 'poll') {
         incomingWsSeenRef.current.add(b.id);
@@ -22937,7 +24981,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         viewerId,
       );
       if (incoming) {
-        const ownerBeforeReceive = ownerRuntimeHostRef.current.getState();
+        const ownerBeforeReceive = ownerShadowRef.current.getState();
         const receiveFields = readNotificationFieldsFromOverlay({
           kind: 'incoming',
           ban: incoming,
@@ -22967,7 +25011,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
             delayMs,
           });
         }
-        ingestQueuedOverlay(
+        enqueueNotification(
           { kind: 'incoming', ban: incoming },
           {
             live:
@@ -22991,7 +25035,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
             );
           }
         }
-        const ownerAfterReceive = ownerRuntimeHostRef.current.getState();
+        const ownerAfterReceive = ownerShadowRef.current.getState();
         emitOwnerQueuePopulationTraceRef.current({
           source: `receiveIncomingBan:${source}:after-enqueue`,
           reason: 'enqueue-incoming-returned',
@@ -23020,10 +25064,10 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       emitOwnerQueuePopulationTraceRef.current({
         source: `receiveIncomingBan:${source}:skipped-pick-incoming`,
         reason: decision.reason,
-        ownerQueueBefore: ownerRuntimeHostRef.current.getState().queue.length,
-        ownerPendingBefore: ownerRuntimeHostRef.current.getState().pending.length,
-        ownerQueueAfter: ownerRuntimeHostRef.current.getState().queue.length,
-        ownerPendingAfter: ownerRuntimeHostRef.current.getState().pending.length,
+        ownerQueueBefore: ownerShadowRef.current.getState().queue.length,
+        ownerPendingBefore: ownerShadowRef.current.getState().pending.length,
+        ownerQueueAfter: ownerShadowRef.current.getState().queue.length,
+        ownerPendingAfter: ownerShadowRef.current.getState().pending.length,
         mutationApplied: false,
         mutationSkipped: true,
         skipReason: `pick-incoming-null:${decision.reason}`,
@@ -23057,9 +25101,8 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           authUserId: viewerId,
         });
       }
-      */
     },
-    [],
+    [enqueueNotification],
   );
 
   const getOpenIncomingBan = useCallback(
@@ -23083,18 +25126,6 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
   const receiveCheckBan = useCallback(
     (payload: BanInteraction, source: 'ws' | 'session' | 'poll') => {
       const b = enrichBanInteraction(payload);
-      const viewerId = userIdRef.current;
-      const decision = checkShowDecision(
-        b,
-        viewerId,
-        dismissedCheckSessionRef.current,
-        answeredCheckRef.current,
-        checkAnswerInFlightRef.current,
-        resultOpenRef.current,
-      );
-      if (decision.shouldShow) ingestAndClaimIfLobby([queueItemFromCheck(b)]);
-      return;
-      /*
       const viewerId = userIdRef.current;
 
       if (
@@ -23176,7 +25207,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       if (source === 'session' && !checkWsSeenRef.current.has(check.id)) {
         console.log('[check-recovery-session]', { banId: check.id });
       }
-      ingestQueuedOverlay(
+      enqueueNotification(
         { kind: 'check', ban: check },
         {
           live:
@@ -23200,9 +25231,8 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         }
       }
       setCheckWaiting(false);
-      */
     },
-    [],
+    [enqueueNotification],
   );
 
   const getOpenCheckBan = useCallback(() => checkBanRef.current, []);
@@ -23250,7 +25280,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         return;
       }
       {
-        const ownerAtPollGuard = ownerRuntimeHostRef.current.getState();
+        const ownerAtPollGuard = ownerShadowRef.current.getState();
         const ownerQueueLen = ownerAtPollGuard.queue.length;
         const ownerPendingLen = ownerAtPollGuard.pending.length;
         const legacyQueueLen = overlayQueueRef.current.length;
@@ -23530,7 +25560,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     );
     if (incoming) {
       challengeLog('boot:claimed-incoming', { banId: incoming.id });
-      ingestQueuedOverlay(
+      enqueueNotification(
         { kind: 'incoming', ban: enrichBanInteraction(incoming) },
         { source: 'session' },
       );
@@ -23539,7 +25569,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       setSessionBootstrapped(true);
     }
     auth.clearBoot();
-  }, [auth.boot, auth.clearBoot, auth.user?.id, auth.loading]);
+  }, [auth.boot, auth.clearBoot, auth.user?.id, auth.loading, enqueueNotification]);
 
   const reloadFriends = useCallback(async () => {
     const token = tokenRef.current;
@@ -24436,7 +26466,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       ) {
         const next = [...overlayQueueRef.current];
         next[0] = { kind: 'incoming', ban: richer };
-        commitQueueMutation(
+        commitOverlayQueueViaApply(
           next,
           'applyIncomingBanToQueueHead',
           'apply-incoming-ban-to-queue-head-commit',
@@ -24612,7 +26642,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     ) {
       return false;
     }
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     if (owner.queue.length > 0 || owner.pending.length > 0) {
       return false;
     }
@@ -25065,7 +27095,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
                 ['result'],
               );
               if (nextOverlay.length !== ownerIter.queue.length) {
-                commitQueueMutation(
+                commitOverlayQueueViaApply(
                   nextOverlay,
                   `${source}-preflight`,
                   'show-next-preflight-result-prune-commit',
@@ -25218,7 +27248,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         nextKind,
         nextBanId,
       });
-      const ownerBeforeHeadSelect = ownerRuntimeHostRef.current.getState();
+      const ownerBeforeHeadSelect = ownerShadowRef.current.getState();
       const legacyBeforeHeadSelect = resolveLegacyMountedKindBanId();
       logQueueHeadSelectedForDisplay({
         source,
@@ -25499,7 +27529,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
             overlayKey:
               nextKind && nextBanId ? `${nextKind}:${nextBanId}` : null,
             ownerDisplayBeforeCommit: buildOwnerQueuePendingSnapshot(
-              ownerRuntimeHostRef.current.getState(),
+              ownerShadowRef.current.getState(),
             ),
             phase: 'showNext-flushSync-before-syncDisplayFromQueue',
             source,
@@ -25530,7 +27560,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           popFlushSync();
         }
         {
-          const ownerAfterFlush = ownerRuntimeHostRef.current.getState();
+          const ownerAfterFlush = ownerShadowRef.current.getState();
           const displayAfterFlush = resolveOwnerDisplayKindBanId(
             ownerAfterFlush.display,
           );
@@ -25589,7 +27619,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         const queueLen = overlayQueueRef.current.length;
         const pendingStartupLen =
           pendingStartupInteractionsRef.current.length;
-        const ownerAtSuccess = ownerRuntimeHostRef.current.getState();
+        const ownerAtSuccess = ownerShadowRef.current.getState();
         const ownerPendingLen = ownerAtSuccess.pending.length;
         if (
           queueLen === 0 &&
@@ -25860,7 +27890,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
 
   const buildLobbyBansDiagContext = useCallback(
     (indicatorVisible: boolean, indicatorReason: string) => {
-      const owner = ownerRuntimeHostRef.current.getState();
+      const owner = ownerShadowRef.current.getState();
       const chainSnap = snapshotPendingNotificationChain();
       const uid = userIdRef.current?.trim() ?? auth.user?.id ?? '';
       const persistedAttentionHint = uid
@@ -25966,7 +27996,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
 
   const probeOwnerQueueEmptyDuringChain = useCallback(
     (source: string, previousQueueLen: number, previousPendingLen: number) => {
-      const owner = ownerRuntimeHostRef.current.getState();
+      const owner = ownerShadowRef.current.getState();
       const queueLenAfter = owner.queue.length;
       const pendingLenAfter = owner.pending.length;
       if (queueLenAfter > 0 || pendingLenAfter > 0) return;
@@ -26013,7 +28043,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
 
   const logChainEndedIndicatorDiagIfNeeded = useCallback(
     (outcome: string, chainEndReason: string, source: string) => {
-      const owner = ownerRuntimeHostRef.current.getState();
+      const owner = ownerShadowRef.current.getState();
       const ownerPrimaryShellQueueLen = readOwnerOnlyShellQueueLen(
         owner.queue.length,
         'chain-ended-indicator-diag',
@@ -26082,7 +28112,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       },
     ) => {
       if (!isPostSuccessHandoffInProgress()) return;
-      const owner = ownerRuntimeHostRef.current.getState();
+      const owner = ownerShadowRef.current.getState();
       logPostSuccessPrefetchRehydratedChain({
         source: 'post_success',
         phase,
@@ -26108,7 +28138,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       reason: string;
       indicatorVisible?: boolean;
     }) => {
-      const owner = ownerRuntimeHostRef.current.getState();
+      const owner = ownerShadowRef.current.getState();
       const visible =
         opts.indicatorVisible ??
         (owner.pending.length > 0 ||
@@ -26202,7 +28232,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       }
 
       sanitizeNotificationChainQueues(`${source}-collect`);
-      const ownerAtCollectEnter = ownerRuntimeHostRef.current.getState();
+      const ownerAtCollectEnter = ownerShadowRef.current.getState();
       const queueAtCollectEnter = [...ownerAtCollectEnter.queue];
       const ownerQueueLenAtEnter = ownerAtCollectEnter.queue.length;
       const ownerPendingLenAtEnter = ownerAtCollectEnter.pending.length;
@@ -26229,7 +28259,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       });
 
       let mergedFromPending = 0;
-      if (ownerRuntimeHostRef.current.getState().pending.length > 0) {
+      if (ownerShadowRef.current.getState().pending.length > 0) {
         mergedFromPending = mergeStartupIntoOverlayQueueOnly(
           `${source}-collect-merge`,
         );
@@ -26237,7 +28267,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
 
       traceQueueHeadBecameResultIfNeeded(
         queueAtCollectEnter,
-        ownerRuntimeHostRef.current.getState().queue,
+        ownerShadowRef.current.getState().queue,
         buildQueueHeadResultTraceContext(
           source,
           'collect-pending-notification-chain-after-merge',
@@ -26531,7 +28561,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       }
 
       const pendingSnapshot = [
-        ...ownerRuntimeHostRef.current.getState().pending,
+        ...ownerShadowRef.current.getState().pending,
       ];
       if (pendingSnapshot.length > 0) {
         const mergedCount = mergePendingSnapshotIntoOverlayQueue(
@@ -26895,7 +28925,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
             reason,
             `continueNotificationChainOrOpenLobbySync:${source}`,
           );
-          const ownerAtEnd = ownerRuntimeHostRef.current.getState();
+          const ownerAtEnd = ownerShadowRef.current.getState();
           const runtimePendingLen = pendingStartupInteractionsRef.current.length;
           const runtimeQueueLen = overlayQueueRef.current.length;
           if (
@@ -27151,7 +29181,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         collected.finalQueueLen > 0 || collected.finalPendingLen > 0;
       const runtimeQueueLen = overlayQueueRef.current.length;
       const runtimePendingLen = pendingStartupInteractionsRef.current.length;
-      const ownerForRedirect = ownerRuntimeHostRef.current.getState();
+      const ownerForRedirect = ownerShadowRef.current.getState();
       const ownerQueueLen = ownerForRedirect.queue.length;
       const ownerPendingLen = ownerForRedirect.pending.length;
       const redirectGate = evaluateBansLayerOpenGate(
@@ -27171,7 +29201,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           ownerPendingLen > 0 ||
           redirectGate.blocked);
       if (goToBansQueueExistsContinueRedirect) {
-        const ownerActive = ownerRuntimeHostRef.current.getState().active;
+        const ownerActive = ownerShadowRef.current.getState().active;
         emitGoToBansOpenBansBlockedQueueExists({
           source,
           banId:
@@ -27677,7 +29707,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         !source.includes('go-to-bans-queue-exists-continue') &&
         (runtimeQueueLen > 0 || runtimePendingLen > 0)
       ) {
-        const ownerActive = ownerRuntimeHostRef.current.getState().active;
+        const ownerActive = ownerShadowRef.current.getState().active;
         const emptyFallbackPreview = opts?.emptyFallback ?? 'lobby';
         const chosenBranch =
           emptyFallbackPreview === 'bans-section'
@@ -27713,7 +29743,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       if (emptyFallback === 'none') {
         outcome = 'blocked';
       } else if (emptyFallback === 'bans-section') {
-        const ownerAtRemoved = ownerRuntimeHostRef.current.getState();
+        const ownerAtRemoved = ownerShadowRef.current.getState();
         logBansSectionAutoOpenRemovedPath({
           source: `${source}:finalizeNotificationChainContinueEmpty`,
           oldFallback: 'bans-section',
@@ -27842,7 +29872,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         source,
         'continue-async-enter',
       );
-      dispatchPinStateEvent(
+      ownerShadowDispatch(
         { type: 'CHAIN_CONTINUE_REQUESTED', source },
         `continueNotificationChainOrOpenLobby:${source}`,
       );
@@ -27931,7 +29961,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         if (outcome === 'show-next') {
           return emitContinueAsyncReturn('async-in-chain-retry-show-next', outcome);
         }
-        const ownerAfterRetry = ownerRuntimeHostRef.current.getState();
+        const ownerAfterRetry = ownerShadowRef.current.getState();
         const stillHasItems =
           overlayQueueRef.current.length > 0 ||
           pendingStartupInteractionsRef.current.length > 0 ||
@@ -27993,7 +30023,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           );
           const showNextResult =
             showNextNotificationFromChainSync(forcedShowNextSource);
-          const ownerAfterForced = ownerRuntimeHostRef.current.getState();
+          const ownerAfterForced = ownerShadowRef.current.getState();
           const inChainRetryForcedShowNextTrace = {
             source: forcedShowNextSource,
             outcomeBefore,
@@ -28109,7 +30139,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         }
       }
       {
-        const owner = ownerRuntimeHostRef.current.getState();
+        const owner = ownerShadowRef.current.getState();
         emitCheckHandoffStage('before-next-chain-merge', {
           fetchedIdentities: getCheckHandoffFetchedIdentities(),
           ownerQueueLengthBefore: owner.queue.length,
@@ -28127,7 +30157,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         },
       );
       {
-        const owner = ownerRuntimeHostRef.current.getState();
+        const owner = ownerShadowRef.current.getState();
         const nextHead = owner.queue[0] ?? overlayQueueRef.current[0] ?? null;
         const nextIdentity =
           nextHead == null
@@ -28672,7 +30702,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       const logStartDrainEntry = (
         extra: Partial<StartDrainEntryTracePayload> & { source: string },
       ) => {
-        const owner = ownerRuntimeHostRef.current.getState();
+        const owner = ownerShadowRef.current.getState();
         const head =
           owner.queue[0] ??
           owner.pending[0] ??
@@ -28759,7 +30789,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         branch: string,
         extra?: { mergedCount?: number | null; source?: string },
       ) => {
-        const owner = ownerRuntimeHostRef.current.getState();
+        const owner = ownerShadowRef.current.getState();
         const queueLen = Math.max(
           overlayQueueRef.current.length,
           owner.queue.length,
@@ -28813,7 +30843,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         legacyResultPresent: boolean;
         selectedAction: 'drain' | 'open-section';
       } => {
-        const owner = ownerRuntimeHostRef.current.getState();
+        const owner = ownerShadowRef.current.getState();
         const legacyPending = pendingStartupInteractionsRef.current.length;
         const legacyQueue = overlayQueueRef.current.length;
         const legacyIncomingPresent = Boolean(incomingBanRef.current?.id);
@@ -29015,7 +31045,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       };
 
       const resolvePendingSnapshotForDrain = (): QueuedOverlay[] => {
-        const ownerPending = ownerRuntimeHostRef.current.getState().pending;
+        const ownerPending = ownerShadowRef.current.getState().pending;
         if (ownerPending.length > 0) return [...ownerPending];
         const refPending = pendingStartupInteractionsRef.current;
         if (refPending.length > 0) return [...refPending];
@@ -29023,7 +31053,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       };
 
       let drainGate = evaluateLobbyBansDrainGate('entry');
-      const ownerAtClick = ownerRuntimeHostRef.current.getState();
+      const ownerAtClick = ownerShadowRef.current.getState();
       logPlatformQueueFlowTrace({
         source: 'startLobbyBansNotificationDrain',
         phase: 'entry',
@@ -29059,8 +31089,8 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         lobbyBansAttentionHint,
         ownerPrimaryShellPendingLen: ownerAtClick.pending.length,
         ownerPrimaryShellQueueLen: ownerAtClick.queue.length,
-        ownerPendingLen: ownerRuntimeHostRef.current.getState().pending.length,
-        ownerQueueLen: ownerRuntimeHostRef.current.getState().queue.length,
+        ownerPendingLen: ownerShadowRef.current.getState().pending.length,
+        ownerQueueLen: ownerShadowRef.current.getState().queue.length,
         pendingStartupInteractionsLen: pendingStartupInteractionsRef.current.length,
         overlayQueueLen: overlayQueueRef.current.length,
         refQueueLen: overlayQueueRef.current.length,
@@ -29073,7 +31103,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         sharedPrefetchPromiseState:
           pendingChainPrefetchSharedLifecycleRef.current,
         ownerRefPendingMismatch:
-          ownerRuntimeHostRef.current.getState().pending.length !==
+          ownerShadowRef.current.getState().pending.length !==
           pendingStartupInteractionsRef.current.length,
       });
       const clickDiagBase = {
@@ -29225,7 +31255,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           incomingPresent = drainGate.legacyIncomingPresent;
           checkPresent = drainGate.legacyCheckPresent;
           resultPresent = drainGate.legacyResultPresent;
-          const ownerAfterAwait = ownerRuntimeHostRef.current.getState();
+          const ownerAfterAwait = ownerShadowRef.current.getState();
           const headAfterAwait =
             ownerAfterAwait.queue[0] ?? ownerAfterAwait.pending[0] ?? null;
           const canDrainAfterAwait = drainGate.canDrain;
@@ -29323,7 +31353,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           null,
           'lobby-bans-cta-direct-open-prefetch',
         );
-        const ownerAfterDirectOpenPrefetch = ownerRuntimeHostRef.current.getState();
+        const ownerAfterDirectOpenPrefetch = ownerShadowRef.current.getState();
         const afterPrefetchOwnerPendingLen =
           ownerAfterDirectOpenPrefetch.pending.length;
         const afterPrefetchOwnerQueueLen =
@@ -29390,9 +31420,9 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           queueLenAfterAwait: queueLenBefore,
           pendingLenAfterAwait: pendingLen,
           ownerPendingAfterRouting:
-            ownerRuntimeHostRef.current.getState().pending.length,
+            ownerShadowRef.current.getState().pending.length,
           ownerRefPendingMismatchAtRouting:
-            ownerRuntimeHostRef.current.getState().pending.length !== pendingLen,
+            ownerShadowRef.current.getState().pending.length !== pendingLen,
           sourceOfTruth:
             'owner.pending/queue primary, legacy refs fallback — lobbyBansAttentionHint excluded',
           ...clickDiagBase,
@@ -29536,7 +31566,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           drainGate.legacyPending,
           drainGate.ownerPending,
         );
-        const ownerAfterPrefetch = ownerRuntimeHostRef.current.getState();
+        const ownerAfterPrefetch = ownerShadowRef.current.getState();
         const headAfterPrefetch =
           ownerAfterPrefetch.queue[0] ?? ownerAfterPrefetch.pending[0] ?? null;
         const canDrainAfterPrefetch = drainGate.canDrain;
@@ -29860,7 +31890,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
 
       chainAdvanceExplicitRef.current = true;
       // Stage 4A — owner drain intent at the actual drain branch (not early returns).
-      ownerRuntimeHostRef.current.dispatch(
+      ownerShadowRef.current.dispatch(
         {
           type: 'DRAIN_REQUESTED',
           source: 'startLobbyBansNotificationDrain:drain-branch',
@@ -29878,7 +31908,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       const explicitPendingPromoteSource =
         'lobby-bans-cta:explicit-pending-promote';
       const ownerBeforeExplicitPendingPromote =
-        ownerRuntimeHostRef.current.getState();
+        ownerShadowRef.current.getState();
       const pendingBeforeExplicitPromote =
         ownerBeforeExplicitPendingPromote.pending.length;
       const queueBeforeExplicitPromote =
@@ -29889,7 +31919,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       ) {
         mergeStartupIntoOverlayQueueOnly(explicitPendingPromoteSource);
         const ownerAfterExplicitPendingPromote =
-          ownerRuntimeHostRef.current.getState();
+          ownerShadowRef.current.getState();
         const explicitPendingPromoteTrace = {
           pendingBefore: pendingBeforeExplicitPromote,
           queueBefore: queueBeforeExplicitPromote,
@@ -29912,7 +31942,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         pendingSnapshot,
         'lobby-bans-cta',
       );
-      const ownerBeforePendingClear = ownerRuntimeHostRef.current.getState();
+      const ownerBeforePendingClear = ownerShadowRef.current.getState();
       if (mergedCount > 0) {
         commitPendingQueueViaOwner(
           [],
@@ -29920,7 +31950,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           'pending-merge-clear',
         );
       }
-      const ownerAfterPendingClear = ownerRuntimeHostRef.current.getState();
+      const ownerAfterPendingClear = ownerShadowRef.current.getState();
       if (mergedCount > 0) {
         tracePendingNotClearedAfterMerge({
           source: 'lobby-bans-cta',
@@ -30164,7 +32194,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         notificationChainTransitioningRef.current;
       const deferOpenBansForChainContinuation = (reason: string): void => {
         if (isGoToBansOpenContext && hasRuntimeQueue) {
-          const ownerActive = ownerRuntimeHostRef.current.getState().active;
+          const ownerActive = ownerShadowRef.current.getState().active;
           emitGoToBansOpenBansBlockedQueueExists({
             source: 'armOpenBansOverlayFromResultCta',
             banId,
@@ -30411,7 +32441,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         const pendingIds = pendingStartupInteractionsRef.current.map((q) =>
           overlayBanId(q),
         );
-        const ownerState = ownerRuntimeHostRef.current.getState();
+        const ownerState = ownerShadowRef.current.getState();
         logSuccessProdTrace('SUCCESS_EXIT', {
           caller: 'drainNextNotificationAfterSuccess',
           cardId: successBanId ?? null,
@@ -31086,7 +33116,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         return;
       }
       const overlayKey = `result:${key}`;
-      const ownerBefore = ownerRuntimeHostRef.current.getState();
+      const ownerBefore = ownerShadowRef.current.getState();
       const closeBefore = buildDirectOverboardCloseDiagSnapshot();
       const legacyResultBefore = resultRef.current?.id ?? result?.id ?? null;
       const overlayQueueBefore = [...overlayQueueRef.current];
@@ -31102,7 +33132,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           includeStack?: boolean;
         } = {},
       ) => {
-        const ownerAtStage = ownerRuntimeHostRef.current.getState();
+        const ownerAtStage = ownerShadowRef.current.getState();
         logFinalizeResultGoToBansQueueTrace({
           stage,
           resultBanId: key,
@@ -31149,7 +33179,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           currentQueueLen === 0 &&
           !betweenEntryAndPruneFirstZeroLogged
         ) {
-          const ownerAtFirstZero = ownerRuntimeHostRef.current.getState();
+          const ownerAtFirstZero = ownerShadowRef.current.getState();
           logFinalizeResultQueueFirstZeroTrace({
             previousStage: betweenEntryAndPrunePrevStage,
             currentStage: stage,
@@ -31169,7 +33199,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         betweenEntryAndPrunePrevStage = stage;
         betweenEntryAndPrunePrevQueue = currentQueue;
         betweenEntryAndPrunePrevQueueLen = currentQueueLen;
-        const ownerAtBetween = ownerRuntimeHostRef.current.getState();
+        const ownerAtBetween = ownerShadowRef.current.getState();
         logFinalizeResultGoToBansBetweenEntryAndPruneTrace({
           stage,
           resultBanId: key,
@@ -31358,7 +33388,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         sourceFunction: string,
         extra?: Record<string, unknown>,
       ) => {
-        const owner = ownerRuntimeHostRef.current.getState();
+        const owner = ownerShadowRef.current.getState();
         const head = overlayQueueRef.current[0] ?? null;
         const queueHeadBanId =
           head?.kind === 'result'
@@ -31433,7 +33463,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         freshFinalStatusBanIdsRef.current.delete(key);
       }
       {
-        const ownerAtPreDispatch = ownerRuntimeHostRef.current.getState();
+        const ownerAtPreDispatch = ownerShadowRef.current.getState();
         const heldAtPreDispatch = heldUserCardOverlayRef.current;
         logPreResultGoToBansQueueSourceTrace({
           resultBanId: key,
@@ -31462,18 +33492,18 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         });
       }
       const postResultGoToBansBeforeOwnerQueue = [
-        ...ownerRuntimeHostRef.current.getState().queue,
+        ...ownerShadowRef.current.getState().queue,
       ];
       const postResultGoToBansBeforeOverlayQueueState = [...overlayQueue];
       const postResultGoToBansBeforeOverlayQueueRef = [
         ...overlayQueueRef.current,
       ];
-      dispatchPinStateEvent(
+      ownerShadowDispatch(
         { type: 'RESULT_GO_TO_BANS', banId: key },
         'finalizeResultForGoToBans',
       );
       {
-        const ownerAtPostDispatch = ownerRuntimeHostRef.current.getState();
+        const ownerAtPostDispatch = ownerShadowRef.current.getState();
         const afterOwnerQueue = [...ownerAtPostDispatch.queue];
         const afterOverlayQueueRef = [...overlayQueueRef.current];
         const afterOverlayQueueState = [...overlayQueue];
@@ -31493,7 +33523,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           afterOverlayQueueRef,
           afterOverlayQueueState,
           source: 'finalizeResultForGoToBans:after-RESULT_GO_TO_BANS',
-          calledFrom: 'dispatchPinStateEvent:RESULT_GO_TO_BANS',
+          calledFrom: 'ownerShadowDispatch:RESULT_GO_TO_BANS',
         });
         {
           const shellSnap = shellStuckDiagSnapshotRef.current;
@@ -31504,7 +33534,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
             traceQueueResultOverlayClaimStuckIfNeeded({
               source: 'finalizeResultForGoToBans:after-RESULT_GO_TO_BANS',
               reason: 'post-result-go-to-bans-claim-snapshot',
-              calledFrom: 'dispatchPinStateEvent:RESULT_GO_TO_BANS',
+              calledFrom: 'ownerShadowDispatch:RESULT_GO_TO_BANS',
               queueResultOverlayClaimed: true,
               queueShellRendersResultOverlay:
                 shellSnap.queueShellRendersResultOverlay,
@@ -31534,7 +33564,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       }
       traceBetweenEntryAndPrune(
         'after-RESULT_GO_TO_BANS-dispatch',
-        'dispatchPinStateEvent:RESULT_GO_TO_BANS',
+        'ownerShadowDispatch:RESULT_GO_TO_BANS',
       );
       {
         const clearSnapAfter = captureActiveResultClearSnapshot();
@@ -31779,7 +33809,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           isQueueOverboardResultDismiss,
           showNextCalledBeforeConsume: false,
           syncDisplayCalledBeforeConsume: false,
-          writeQueueSnapshotCalledBeforeConsume: false,
+          applyOverlayQueueCalledBeforeConsume: false,
           queuePruneNotYetRun: true,
           consumeTriggerReason: goToBansConsumeAtCall.reason,
         });
@@ -31908,7 +33938,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         }
         // Incoming-style handoff: pre-arm already set above; apply remaining via dismiss.
         {
-          const ownerAtResultDismiss = ownerRuntimeHostRef.current.getState();
+          const ownerAtResultDismiss = ownerShadowRef.current.getState();
           logResultDismissCallsiteTrace({
             callsite: 'finalizeResultForGoToBans.queueOverboard',
             reason: 'result-dismiss',
@@ -31963,7 +33993,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           beforeQueue[0]?.kind === 'check'
         ) {
           const preservedCheckHead = beforeQueue[0];
-          const ownerNowForFlickerTrace = ownerRuntimeHostRef.current.getState();
+          const ownerNowForFlickerTrace = ownerShadowRef.current.getState();
           const ownerDisplayForFlicker = resolveOwnerDisplayKindBanId(
             ownerNowForFlickerTrace.display,
           );
@@ -32005,7 +34035,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           });
         }
         const ownerDisplayResultId =
-          ownerRuntimeHostRef.current.getState().display.result?.id ?? null;
+          ownerShadowRef.current.getState().display.result?.id ?? null;
         // Do not wipe display when next head was applied.
         if (
           nextQueueWithoutCurrent.length === 0 &&
@@ -32112,7 +34142,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           );
         }
         {
-          const ownerAtResultDismiss = ownerRuntimeHostRef.current.getState();
+          const ownerAtResultDismiss = ownerShadowRef.current.getState();
           logResultDismissCallsiteTrace({
             callsite: 'finalizeResultForGoToBans.prune',
             reason: 'result-dismiss',
@@ -32142,7 +34172,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       }
 
       {
-        const ownerAfterPrune = ownerRuntimeHostRef.current.getState();
+        const ownerAfterPrune = ownerShadowRef.current.getState();
         const ownerDirectAfter =
           ownerAfterPrune.display.directResultOverlayActive ||
           ownerAfterPrune.display.directResultOverlay;
@@ -32381,7 +34411,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         remainingLen === 0 &&
         pendingLen === 0
       ) {
-        const ownerAtDefer = ownerRuntimeHostRef.current.getState();
+        const ownerAtDefer = ownerShadowRef.current.getState();
         logGoToBansEmptyRuntimeDeferredToAsyncContinue({
           source: 'finalizeResultForGoToBans',
           runtimeQueueLen: remainingLen,
@@ -32394,7 +34424,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         setNotificationChainTransitioning(true);
       }
 
-      const ownerAfter = ownerRuntimeHostRef.current.getState();
+      const ownerAfter = ownerShadowRef.current.getState();
       logResultDismissCommit({
         banId: key,
         overlayKey,
@@ -32566,7 +34596,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           : null),
     );
     {
-      const ownerAtOutcome = ownerRuntimeHostRef.current.getState();
+      const ownerAtOutcome = ownerShadowRef.current.getState();
       const c3Display = readOwnerC3Decision('navigateFromResult').display;
       const displayResultRuntime = readOwnerC3DisplayResultForRuntime(
         c3Display,
@@ -32658,9 +34688,9 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       resultBanId:
         resultRef.current?.id ??
         result?.id ??
-        ownerRuntimeHostRef.current.getState().display.result?.id ??
+        ownerShadowRef.current.getState().display.result?.id ??
         null,
-      activeBanId: ownerRuntimeHostRef.current.getState().active.banId,
+      activeBanId: ownerShadowRef.current.getState().active.banId,
     });
     logResultCardCtaClick({
       banId,
@@ -32669,7 +34699,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       ...buildResultDismissDiagSnapshot(),
     });
     {
-      const ownerAtCta = ownerRuntimeHostRef.current.getState();
+      const ownerAtCta = ownerShadowRef.current.getState();
       const ownerFields = buildOwnerActiveDisplayDiagFields(ownerAtCta);
       const clickedNorm = normalizeId(banId ?? '');
       const ownerActiveNorm = normalizeId(ownerAtCta.active.banId ?? '');
@@ -32762,7 +34792,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         generation?: number;
       },
     ) => {
-      const owner = ownerRuntimeHostRef.current.getState();
+      const owner = ownerShadowRef.current.getState();
       const timestamp = performance.now();
       lastNavigateFromResultBranchRef.current = branch;
       lastNavigateFromResultReturnReasonRef.current = returnReason;
@@ -32822,7 +34852,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       directResultOverlayRef.current ||
       directResultOverlayActiveRef.current
     ) {
-      const ownerAtOverboardCta = ownerRuntimeHostRef.current.getState();
+      const ownerAtOverboardCta = ownerShadowRef.current.getState();
       logOverboardResultCtaClick({
         banId,
         resultId: banId,
@@ -33031,7 +35061,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     setNotificationChainTransitioning(true);
 
     {
-      const ownerPreFinalize = ownerRuntimeHostRef.current.getState();
+      const ownerPreFinalize = ownerShadowRef.current.getState();
       const displayResultRuntime = readOwnerC3DisplayResultForRuntime(
         readOwnerC3Decision('navigateFromResult').display,
         'navigateFromResult',
@@ -33115,7 +35145,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         { action: 'finalize-go-to-bans' },
       );
       {
-        const ownerAtClick = ownerRuntimeHostRef.current.getState();
+        const ownerAtClick = ownerShadowRef.current.getState();
         const ownerDirectAtClick =
           ownerAtClick.display.directResultOverlayActive ||
           ownerAtClick.display.directResultOverlay;
@@ -33264,7 +35294,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       ...buildPostConsumeChainContext(banId),
     });
     {
-      const ownerBeforeContinue = ownerRuntimeHostRef.current.getState();
+      const ownerBeforeContinue = ownerShadowRef.current.getState();
       logBansSectionAutoOpenRemovedPath({
         source: `navigateFromResult:${chainSource}`,
         oldFallback: 'bans-section',
@@ -33450,7 +35480,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         });
       }
       if (banId) {
-        const ownerAfterContinue = ownerRuntimeHostRef.current.getState();
+        const ownerAfterContinue = ownerShadowRef.current.getState();
         const ownerFields = buildOwnerActiveDisplayDiagFields(ownerAfterContinue);
         const clickedNorm = normalizeId(banId);
         const ownerActiveNorm = normalizeId(ownerAfterContinue.active.banId ?? '');
@@ -34183,7 +36213,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           }
           queueMicrotask(() => {
             if (banId) {
-              writeQueueSnapshot(
+              applyOverlayQueue(
                 removeOverlaysForBan(overlayQueueRef.current, banId, [
                   'check',
                   'incoming',
@@ -34589,7 +36619,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       );
     if (fromQueue?.kind === 'incoming') return fromQueue.ban;
     const c2Incoming = readOwnerC2DisplayIncomingBanForRuntime(
-      ownerRuntimeHostRef.current.getState().display,
+      ownerShadowRef.current.getState().display,
       'deepLinkFastPath',
       { ref: incomingBanRef.current },
     );
@@ -34619,7 +36649,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
   /** Vertical 8: notification paint/queue/pending = runtime sole authority.
    * Owner shadow + React refs remain TEMP for product pins (held/stable/reply/scoped)
    * and diagnostics compare only — not decision makers. */
-  const ownerReadState = ownerRuntimeHostRef.current.getState();
+  const ownerReadState = ownerShadowRef.current.getState();
   const ownerReadDisplay = ownerReadState.display;
   const ownerReadQueue = ownerReadState.queue;
   const ownerReadPendingLen = ownerReadState.pending.length;
@@ -35131,6 +37161,25 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       );
       markCheckHandoffOutcome(openLobbyOutcome);
     }
+    if (
+      !resolveOrdinaryLobbyMayOpen({
+        runtimeLobbyMayShow: selectLobbyMayShow(
+          notificationRuntimeStoreRef.current.getState(),
+        ),
+      })
+    ) {
+      logLobbyOpenRejectedQueueActive({
+        source: `${source ?? 'openLobby'}:v2-runtime-lobbyMayShow`,
+        ...getQueueLobbyGuardSnapshot(),
+      });
+      console.log('[chain-open-lobby-blocked]', {
+        source: source ?? 'default',
+        reason: 'v2-runtime-lobbyMayShow-false',
+        ...snapshot,
+        ...getQueueLobbyGuardSnapshot(),
+      });
+      return;
+    }
     if (isPostSuccessHandoffInProgress()) {
       if (
         shouldBlockLobbyOpenForPostSuccessHandoff(
@@ -35299,7 +37348,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       source: source ?? 'default',
       lobbyOpen: true,
     });
-    dispatchPinStateEvent(
+    ownerShadowDispatch(
       { type: 'LOBBY_OPEN_REQUESTED', source: source ?? 'openLobby' },
       `openLobby:${source ?? 'default'}`,
     );
@@ -35457,7 +37506,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           poppedDismissedResult = true;
         }
         if (poppedDismissedResult) {
-          commitQueueMutation(
+          commitOverlayQueueViaApply(
             nextQueue,
             'completeBansOverlayCloseFromResultCta',
             'bans-close-pop-dismissed-result-commit',
@@ -36063,7 +38112,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     });
 
     if (winner?.id) {
-      const ownerAtRender = ownerRuntimeHostRef.current.getState();
+      const ownerAtRender = ownerShadowRef.current.getState();
       const ownerFields = buildOwnerActiveDisplayDiagFields(ownerAtRender);
       const winnerNormId = normalizeId(winner.id);
       const ownerActiveNorm = normalizeId(ownerAtRender.active.banId ?? '');
@@ -36781,7 +38830,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       notificationOverlayMounted === false &&
       getActiveCheckHandoffTraceId()
     ) {
-      const owner = ownerRuntimeHostRef.current.getState();
+      const owner = ownerShadowRef.current.getState();
       const head = owner.queue[0] ?? overlayQueueRef.current[0] ?? null;
       const mirror = getCheckHandoffRenderMirror();
       emitCheckHandoffStage('notification-overlay-mounted-fell-false', {
@@ -36827,7 +38876,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
   ]);
 
   useEffect(() => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const head = owner.queue[0] ?? overlayQueueRef.current[0] ?? null;
     const headIdentity =
       head == null
@@ -37400,7 +39449,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     // changed — only PROVIDERS_AUTO_LOBBY_DECISION_TRACE events are emitted.
     const AUTO_LOBBY_DECISION_EVENT = 'PROVIDERS_AUTO_LOBBY_DECISION_TRACE';
     const buildAutoLobbyDecisionSnapshot = () => {
-      const owner = ownerRuntimeHostRef.current.getState();
+      const owner = ownerShadowRef.current.getState();
       const ownerQueueHead = formatPendingHeadForOwnerLog(
         owner.queue[0] ?? null,
       );
@@ -37922,7 +39971,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
   };
 
   {
-    const ownerForClaimTrace = ownerRuntimeHostRef.current.getState();
+    const ownerForClaimTrace = ownerShadowRef.current.getState();
     const claimOwnerFields = buildClaimTraceOwnerFields(ownerForClaimTrace);
     observeQueueResultOverlayClaimDerived({
       nextClaim: queueResultOverlayClaimed,
@@ -38004,7 +40053,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
   }
 
   {
-    const ownerForShellStuck = ownerRuntimeHostRef.current.getState();
+    const ownerForShellStuck = ownerShadowRef.current.getState();
     const ownerDisplay = resolveOwnerDisplayKindBanId(ownerForShellStuck.display);
     const headForShellStuck = ownerForShellStuck.queue[0] ?? null;
     const shellKindForStuck = queueShellRendersResultOverlay
@@ -38865,7 +40914,12 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
   const productSurfaceBlocksPaint = productSurfaceBlocksNotificationPaint(
     buildLiveOverlayScreenContext(),
   );
-  const notificationOverlayVisible = false;
+  const notificationOverlayVisible = resolveQueueShellVisible({
+    composeBlocksNotificationHost,
+    sendSuccessCardActive,
+    runtimeOverlayVisible: notificationRuntimeUi.overlayVisible,
+    productSurfaceBlocksNotificationPaint: productSurfaceBlocksPaint,
+  });
   stageNotificationOverlayVisibilitySnapshot({
     reachedVisibilityGuards: ['v2-runtime-selectOverlayVisible'],
     evaluatedVisibilityGuards: [
@@ -39199,7 +41253,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       goToBansPendingNotPromotedLastSigRef.current = null;
       return;
     }
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const displayKind = resolveBansLayerOwnerDisplayKind(owner.display);
     if (displayKind != null || owner.active.kind != null) {
       goToBansPendingNotPromotedLastSigRef.current = null;
@@ -39405,7 +41459,12 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     visualQueueDimSessionRef.current || visualQueueDimSession;
 
   // Vertical 2: host mount = runtime overlayVisible + product surface (dim/pins are not authority).
-  const shouldMountNotificationOverlayHost = false;
+  const shouldMountNotificationOverlayHost = notificationOverlayMayMount({
+    composeBlocksNotificationHost,
+    sendSuccessCardActive,
+    runtimeOverlayVisible: notificationRuntimeUi.overlayVisible,
+    productSurfaceBlocksNotificationPaint: productSurfaceBlocksPaint,
+  });
   stageShouldMountHostGuardSnapshot({
     reachedGuards: ['v2-runtime-selectOverlayVisible'],
     evaluatedGuards: [
@@ -39434,7 +41493,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     queueLen: queueLenOverride,
     pendingLen: pendingLenOverride,
   }) => {
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const childrenBranch = queueShellRendersResultOverlay
       ? 'result'
       : notificationQueueShellDisplayKindResolved === 'check'
@@ -39501,7 +41560,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
 
   useLayoutEffect(() => {
     const prev = shellKindTransitionPrevRef.current;
-    const owner = ownerRuntimeHostRef.current.getState();
+    const owner = ownerShadowRef.current.getState();
     const childrenBranch = queueShellRendersResultOverlay
       ? 'result'
       : notificationQueueShellDisplayKindResolved === 'check'
@@ -39774,7 +41833,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
   });
 
   {
-    const ownerForNextOverlay = ownerRuntimeHostRef.current.getState();
+    const ownerForNextOverlay = ownerShadowRef.current.getState();
     observeNextOverlayAfterResultRelease({
       source: 'Providers.render-branch',
       reason: `renderBranch=${queueHeadLifecycleRenderBranch}`,
@@ -39829,7 +41888,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
   }
 
   if (queueHeadLifecycleRenderBranch === 'shell-result') {
-    const ownerForShellResultBranch = ownerRuntimeHostRef.current.getState();
+    const ownerForShellResultBranch = ownerShadowRef.current.getState();
     const ownerDisplayForShellResult = resolveOwnerDisplayKindBanId(
       ownerForShellResultBranch.display,
     );
@@ -40861,7 +42920,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           visualQueueDimReleaseScheduledRef.current = false;
           if (!visualQueueDimSessionRef.current) return;
 
-          const ownerAtGrace = ownerRuntimeHostRef.current.getState();
+          const ownerAtGrace = ownerShadowRef.current.getState();
           const ownerQueueLen = ownerAtGrace.queue.length;
           const ownerPendingLen = ownerAtGrace.pending.length;
           const handoffActive =
@@ -41166,7 +43225,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
 
   useLayoutEffect(() => {
     registerResultBecameHeadQueueContextEnrichmentProvider(() => {
-      const owner = ownerRuntimeHostRef.current.getState();
+      const owner = ownerShadowRef.current.getState();
       return {
         overlayQueueState: [...overlayQueue],
         ownerQueue: [...owner.queue],
@@ -41190,7 +43249,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
         queueTailDropOverlayStateBeforeRef.current = [...overlayQueue];
       },
       readEnrichment: () => {
-        const owner = ownerRuntimeHostRef.current.getState();
+        const owner = ownerShadowRef.current.getState();
         const head = owner.queue[0] ?? null;
         return {
           overlayQueueRefBefore: [...queueTailDropOverlayRefBeforeRef.current],
@@ -41217,7 +43276,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
   useLayoutEffect(() => {
     registerCheckRemainedAfterResultButNotRenderedHooks({
       readSnapshot: () => {
-        const owner = ownerRuntimeHostRef.current.getState();
+        const owner = ownerShadowRef.current.getState();
         const head = owner.queue[0] ?? null;
         const display = resolveOwnerDisplayKindBanId(owner.display);
         return {
@@ -41266,7 +43325,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     registerShellStuckOnResultWhileOwnerAdvancedHooks({
       readEnrichment: () => {
         const snap = shellStuckDiagSnapshotRef.current;
-        const owner = ownerRuntimeHostRef.current.getState();
+        const owner = ownerShadowRef.current.getState();
         const display = resolveOwnerDisplayKindBanId(owner.display);
         const head = owner.queue[0] ?? null;
         return {
@@ -41311,7 +43370,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     });
     registerShellKindWriteTraceHooks({
       readEnrichment: () => {
-        const owner = ownerRuntimeHostRef.current.getState();
+        const owner = ownerShadowRef.current.getState();
         const display = resolveOwnerDisplayKindBanId(owner.display);
         const head = owner.queue[0] ?? null;
         const snap = shellStuckDiagSnapshotRef.current;
@@ -41340,7 +43399,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     registerQueueResultOverlayClaimTraceHooks({
       readEnrichment: () => {
         const snap = shellStuckDiagSnapshotRef.current;
-        const owner = ownerRuntimeHostRef.current.getState();
+        const owner = ownerShadowRef.current.getState();
         const fields = buildClaimTraceOwnerFields(owner);
         return {
           ownerQueue: fields.ownerQueue,
@@ -41374,7 +43433,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     registerNextOverlayAfterResultReleaseHooks({
       readSnapshot: () => {
         const snap = shellStuckDiagSnapshotRef.current;
-        const owner = ownerRuntimeHostRef.current.getState();
+        const owner = ownerShadowRef.current.getState();
         return {
           ...buildNextOverlayOwnerDisplayFields(owner),
           ...buildNextOverlayQueueSnapshotFields({
@@ -41402,7 +43461,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     registerShellCheckLifecycleTraceHooks({
       readSnapshot: () => {
         const snap = shellStuckDiagSnapshotRef.current;
-        const owner = ownerRuntimeHostRef.current.getState();
+        const owner = ownerShadowRef.current.getState();
         return {
           ...buildShellCheckOwnerDisplayFields(owner),
           ...buildShellCheckQueueSnapshotFields({
@@ -41429,7 +43488,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     registerOwnerFalseWhileActiveCheckHooks({
       readSnapshot: () => {
         const snap = shellStuckDiagSnapshotRef.current;
-        const owner = ownerRuntimeHostRef.current.getState();
+        const owner = ownerShadowRef.current.getState();
         return {
           ownerHasPendingNotificationChain:
             owner.queue.length > 0 || owner.pending.length > 0,
@@ -41468,7 +43527,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     });
     const readCheckOverlayParentContext = () => {
       const snap = shellStuckDiagSnapshotRef.current;
-      const owner = ownerRuntimeHostRef.current.getState();
+      const owner = ownerShadowRef.current.getState();
       const head = owner.queue[0] ?? null;
       return {
         shellKind: snap?.shellKind ?? notificationQueueShellDisplayKindResolved,
@@ -41888,7 +43947,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     if (ownerPrimaryHeldUserCard != null) return;
     if (chainAdvanceWaiting) return;
 
-    const ownerAtGuard = ownerRuntimeHostRef.current.getState();
+    const ownerAtGuard = ownerShadowRef.current.getState();
     const hasRenderableResultFromDisplay =
       notificationQueueShellKind === 'result' &&
       !!ownerPrimaryDisplayResultForShell;
@@ -42987,7 +45046,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
       reason: reason ?? null,
     });
     {
-      const ownerForCheckRemain = ownerRuntimeHostRef.current.getState();
+      const ownerForCheckRemain = ownerShadowRef.current.getState();
       observeCheckRemainedAfterResultButNotRendered({
         source: `providers-return-branch:${branchId}`,
         reason: reason ?? 'providers-return-branch',
@@ -43133,7 +45192,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
     'providers-body-main-jsx-return',
   );
 
-  const ownerForReturnBranchDiag = ownerRuntimeHostRef.current.getState();
+  const ownerForReturnBranchDiag = ownerShadowRef.current.getState();
   const returnBranchDiagQueues = buildCheckOverlayPayloadQueueFields({
     ownerQueue: ownerForReturnBranchDiag.queue,
     ownerPending: ownerForReturnBranchDiag.pending,
@@ -43214,7 +45273,6 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
           );
           return (
           <>
-            {/*
             {(() => {
               const directCheckBranchCollector =
                 createCheckOverlayParentBranchPriorityCollector(
@@ -43329,9 +45387,7 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
                   'ProvidersBody.queue-shell-path',
                 );
               const globalOverlayHostEmit =
-                false &&
-                !composeBlocksNotificationHost &&
-                globalOverlayHostActive;
+                !composeBlocksNotificationHost && globalOverlayHostActive;
               queueShellBranchCollector.markBranchReached(
                   'global-overlay-host-emit',
                 );
@@ -43703,12 +45759,9 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
             </GlobalOverlayHost>
               );
             })()}
-            */}
-            {null}
           </>
           );
         })()}
-        {/*
         {(() => {
           const directOverboardRenderResult = ownerPrimaryDisplayResultForShell;
           const hasResult = directOverboardRenderResult != null;
@@ -43939,15 +45992,9 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
               <DirectOverboardResultLayer
                 result={directOverboardRenderResult}
                 onClose={dismissBanResult}
-                visible={
-                  false &&
-                  ownerDirectOverboardVisibility.visible
-                }
+                visible={ownerDirectOverboardVisibility.visible}
                 visibilityReason={ownerDirectOverboardVisibility.reason}
-                resultVisible={
-                  false &&
-                  ownerDirectResultVisibility.visible
-                }
+                resultVisible={ownerDirectResultVisibility.visible}
                 resultVisibilityReason={ownerDirectResultVisibility.reason}
                 resultReturnsNullReason={ownerDirectResultVisibility.returnsNullReason}
                 resultOverboardQueueBody={ownerDirectResultVisibility.overboardQueueBody}
@@ -43955,8 +46002,6 @@ writeQueueSnapshotRef.current = writeQueueSnapshot;
             </ChallengeErrorBoundary>
           );
         })()}
-        */}
-        {null}
         {!displayResult ? (
           <ShellErrorBoundary name="energy" fallback={null}>
             <EnergyPopupStack popups={popups} />

@@ -22,7 +22,7 @@ import {
 import { notificationItemId } from '../src/notification-runtime/notification-runtime.types';
 import type { NotificationItem } from '../src/notification-runtime/notification-runtime.types';
 import type { QueuedOverlay } from '../src/lib/overlay-queue';
-import type { OwnerActiveDisplayPatch } from '../src/notification-runtime/notification-runtime.display-patch';
+import type { OwnerActiveDisplayPatch } from '../src/lib/notification-overlay-owner';
 
 function ban(id: string): BanInteraction {
   return { id } as BanInteraction;
