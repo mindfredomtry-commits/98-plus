@@ -546,8 +546,6 @@ function IncomingBanOverlayInner({
       banId: activeIncomingBan.id,
       kind: replyDirect ? 'incoming-reply-direct' : 'incoming-queue',
     });
-    // INCOMING_DOM_MOUNTED — visibility lifetime / SUCCESS handoff may start here.
-    acknowledgeIncomingDomMounted(activeIncomingBan.id);
   }, [
     activeIncomingBan?.id,
     replyDirect,
@@ -556,6 +554,13 @@ function IncomingBanOverlayInner({
     buttonsEnabled,
     reportOverlayRendered,
   ]);
+
+  // Separate from layout diagnostics — deps must stay stable so unstable
+  // reportOverlayRendered / buttonsEnabled identities cannot re-ack.
+  useLayoutEffect(() => {
+    if (!activeIncomingBan?.id || !visible || verifyPhase === 'failed') return;
+    acknowledgeIncomingDomMounted(activeIncomingBan.id);
+  }, [activeIncomingBan?.id, visible, verifyPhase]);
 
   useLayoutEffect(() => {
     const banId = activeIncomingBan?.id ?? null;

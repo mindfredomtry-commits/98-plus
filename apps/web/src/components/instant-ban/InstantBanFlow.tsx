@@ -62,7 +62,6 @@ import { evaluateSuccessToNextHandoff } from '@/lib/success-to-next-handoff';
 import {
   expectNextDisplayDomMount,
   getIncomingDomMountAckSnapshot,
-  nextDisplayDomMounted,
   resetIncomingDomMountAck,
   subscribeIncomingDomMountAck,
 } from '@/lib/incoming-dom-mount-ack';
@@ -1011,10 +1010,11 @@ export function InstantBanFlow({
     getIncomingDomMountAckSnapshot,
     getIncomingDomMountAckSnapshot,
   );
+  // Primitive for handoff — avoid depending on object identity beyond stable snapshot.
   const nextDisplayDomMountedMatching =
     expectedNextDisplayId != null &&
-    nextDisplayDomMounted(expectedNextDisplayId) &&
-    incomingDomMountAck.matchingDomMounted;
+    incomingDomMountAck.matchingDomMounted &&
+    incomingDomMountAck.mountedDisplayId === expectedNextDisplayId;
 
   useLayoutEffect(() => {
     if (!successPresentationHandoffArmed) return;

@@ -12,8 +12,11 @@ import {
   clearIncomingDomMountAck,
   expectNextDisplayDomMount,
   getIncomingDomMountAckSnapshot,
+  getIncomingDomMountAckWriteCounts,
   nextDisplayDomMounted,
+  resetIncomingDomMountAck,
   resetIncomingDomMountAckForTest,
+  subscribeIncomingDomMountAck,
 } from '../src/lib/incoming-dom-mount-ack';
 import { evaluateSuccessToNextHandoff } from '../src/lib/success-to-next-handoff';
 import {
@@ -221,6 +224,108 @@ async function main() {
       getIncomingDomMountAckSnapshot().visibilityLifetimeStartedForId,
       null,
     );
+  });
+
+  await spec(
+    'boot: getSnapshot is referentially stable (no useSyncExternalStore #185 loop)',
+    () => {
+      resetIncomingDomMountAckForTest();
+      const a = getIncomingDomMountAckSnapshot();
+      const b = getIncomingDomMountAckSnapshot();
+      const c = getIncomingDomMountAckSnapshot();
+      assert.equal(a, b);
+      assert.equal(b, c);
+      // Simulate InstantBanFlow boot subscribe: many getSnapshot calls, zero writes.
+      let notifies = 0;
+      const unsub = subscribeIncomingDomMountAck(() => {
+        notifies += 1;
+      });
+      for (let i = 0; i < 50; i += 1) {
+        const snap = getIncomingDomMountAckSnapshot();
+        assert.equal(snap, a);
+      }
+      assert.equal(notifies, 0);
+      assert.equal(getIncomingDomMountAckWriteCounts().acknowledge, 0);
+      assert.equal(getIncomingDomMountAckWriteCounts().expect, 0);
+      unsub();
+    },
+  );
+
+  await spec('ack: incoming mount writes exactly once per displayId', () => {
+    resetIncomingDomMountAckForTest();
+    expectNextDisplayDomMount('in-1');
+    acknowledgeIncomingDomMounted('in-1');
+    assert.equal(getIncomingDomMountAckWriteCounts().acknowledge, 1);
+    acknowledgeIncomingDomMounted('in-1');
+    acknowledgeIncomingDomMounted('in-1');
+    assert.equal(getIncomingDomMountAckWriteCounts().acknowledge, 1);
+  });
+
+  await spec('ack: rerender same displayId performs zero additional writes', () => {
+    resetIncomingDomMountAckForTest();
+    expectNextDisplayDomMount('in-9');
+    acknowledgeIncomingDomMounted('in-9');
+    const before = getIncomingDomMountAckWriteCounts();
+    const snapBefore = getIncomingDomMountAckSnapshot();
+    for (let i = 0; i < 20; i += 1) {
+      acknowledgeIncomingDomMounted('in-9');
+      assert.equal(getIncomingDomMountAckSnapshot(), snapBefore);
+    }
+    const after = getIncomingDomMountAckWriteCounts();
+    assert.equal(after.acknowledge, before.acknowledge);
+    assert.equal(after.expect, before.expect);
+  });
+
+  await spec('ack: new displayId acknowledges exactly once', () => {
+    resetIncomingDomMountAckForTest();
+    expectNextDisplayDomMount('in-a');
+    acknowledgeIncomingDomMounted('in-a');
+    assert.equal(getIncomingDomMountAckWriteCounts().acknowledge, 1);
+    expectNextDisplayDomMount('in-b');
+    // Expected change clears stale mount → matching false until new ack.
+    assert.equal(nextDisplayDomMounted('in-b'), false);
+    acknowledgeIncomingDomMounted('in-b');
+    assert.equal(getIncomingDomMountAckWriteCounts().acknowledge, 2);
+    acknowledgeIncomingDomMounted('in-b');
+    assert.equal(getIncomingDomMountAckWriteCounts().acknowledge, 2);
+    assert.equal(nextDisplayDomMounted('in-b'), true);
+  });
+
+  await spec('ack: unmount clear then remount acknowledges once again', () => {
+    resetIncomingDomMountAckForTest();
+    expectNextDisplayDomMount('in-1');
+    acknowledgeIncomingDomMounted('in-1');
+    assert.equal(getIncomingDomMountAckWriteCounts().acknowledge, 1);
+    clearIncomingDomMountAck('in-1');
+    assert.equal(getIncomingDomMountAckWriteCounts().clear, 1);
+    assert.equal(getIncomingDomMountAckSnapshot().mountedDisplayId, null);
+    // Remount same id — one new write.
+    acknowledgeIncomingDomMounted('in-1');
+    assert.equal(getIncomingDomMountAckWriteCounts().acknowledge, 2);
+    acknowledgeIncomingDomMounted('in-1');
+    assert.equal(getIncomingDomMountAckWriteCounts().acknowledge, 2);
+    // reset after handoff complete is also idempotent when repeated.
+    resetIncomingDomMountAck();
+    assert.equal(getIncomingDomMountAckWriteCounts().reset, 1);
+    resetIncomingDomMountAck();
+    assert.equal(getIncomingDomMountAckWriteCounts().reset, 1);
+  });
+
+  await spec('wiring: ack effect deps are stable (no reportOverlayRendered)', () => {
+    const incoming = read(
+      join(webRoot, 'src/components/IncomingBanOverlay.tsx'),
+    );
+    assert.match(
+      incoming,
+      /acknowledgeIncomingDomMounted\(activeIncomingBan\.id\);\s*\n\s*\}, \[activeIncomingBan\?\.id, visible, verifyPhase\]\)/,
+    );
+    assert.match(
+      incoming,
+      /getIncomingDomMountAckSnapshot[\s\S]*useSyncExternalStore|acknowledgeIncomingDomMounted/,
+    );
+    const ackSrc = read(join(webRoot, 'src/lib/incoming-dom-mount-ack.ts'));
+    assert.match(ackSrc, /cachedSnapshot/);
+    assert.match(ackSrc, /Referentially stable/);
   });
 
   await spec(

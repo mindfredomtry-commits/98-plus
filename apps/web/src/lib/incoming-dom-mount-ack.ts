@@ -4,6 +4,10 @@
  * Presentation-only: does not own queue/display/lifecycle. InstantBanFlow
  * retains SUCCESS until `nextDisplayDomMounted(expectedId)` matches.
  * IncomingBanOverlay acknowledges only after the card DOM is laid out.
+ *
+ * CRITICAL: getIncomingDomMountAckSnapshot must return a referentially stable
+ * object when values are unchanged — useSyncExternalStore compares with
+ * Object.is and a fresh object each call causes React error #185 (max update depth).
  */
 
 export type IncomingDomMountAckSnapshot = {
@@ -23,7 +27,21 @@ type Listener = () => void;
 let expectedDisplayId: string | null = null;
 let mountedDisplayId: string | null = null;
 let visibilityLifetimeStartedForId: string | null = null;
+/** Referentially stable while values are unchanged (useSyncExternalStore). */
+let cachedSnapshot: IncomingDomMountAckSnapshot = {
+  expectedDisplayId: null,
+  mountedDisplayId: null,
+  matchingDomMounted: false,
+  visibilityLifetimeStartedForId: null,
+};
 const listeners = new Set<Listener>();
+
+/** Test / diagnostics — counts mutating writes only (idempotent no-ops excluded). */
+let acknowledgeWriteCount = 0;
+let expectWriteCount = 0;
+let clearWriteCount = 0;
+let resetWriteCount = 0;
+let snapshotCallCount = 0;
 
 function normalizeDisplayId(id: string | null | undefined): string | null {
   const trimmed = id?.trim() ?? '';
@@ -34,16 +52,27 @@ function notify(): void {
   for (const listener of listeners) listener();
 }
 
-function snapshot(): IncomingDomMountAckSnapshot {
-  const expected = expectedDisplayId;
-  const mounted = mountedDisplayId;
-  return {
-    expectedDisplayId: expected,
-    mountedDisplayId: mounted,
-    matchingDomMounted:
-      expected != null && mounted != null && expected === mounted,
+function rebuildSnapshotIfNeeded(): IncomingDomMountAckSnapshot {
+  const matchingDomMounted =
+    expectedDisplayId != null &&
+    mountedDisplayId != null &&
+    expectedDisplayId === mountedDisplayId;
+  if (
+    cachedSnapshot.expectedDisplayId === expectedDisplayId &&
+    cachedSnapshot.mountedDisplayId === mountedDisplayId &&
+    cachedSnapshot.matchingDomMounted === matchingDomMounted &&
+    cachedSnapshot.visibilityLifetimeStartedForId ===
+      visibilityLifetimeStartedForId
+  ) {
+    return cachedSnapshot;
+  }
+  cachedSnapshot = {
+    expectedDisplayId,
+    mountedDisplayId,
+    matchingDomMounted,
     visibilityLifetimeStartedForId,
   };
+  return cachedSnapshot;
 }
 
 /** Arm the expected next display id (SUCCESS exit / handoff wait). */
@@ -51,27 +80,35 @@ export function expectNextDisplayDomMount(displayId: string | null): void {
   const next = normalizeDisplayId(displayId);
   if (expectedDisplayId === next) return;
   expectedDisplayId = next;
+  expectWriteCount += 1;
   // Stale mount must not release SUCCESS for a new expected id.
   if (mountedDisplayId != null && mountedDisplayId !== next) {
     mountedDisplayId = null;
     visibilityLifetimeStartedForId = null;
   }
+  rebuildSnapshotIfNeeded();
   notify();
 }
 
 /**
  * Incoming card DOM laid out for this display id.
- * Starts visibility lifetime for this id (gate only — no auto-dismiss clock).
+ * Writes at most once per matching displayId — repeated ack is a no-op.
  */
 export function acknowledgeIncomingDomMounted(displayId: string): void {
   const id = normalizeDisplayId(displayId);
   if (!id) return;
-  const changed =
-    mountedDisplayId !== id || visibilityLifetimeStartedForId !== id;
+  // Idempotent: same mounted id must not mutate or notify.
+  if (
+    mountedDisplayId === id &&
+    visibilityLifetimeStartedForId === id
+  ) {
+    return;
+  }
   mountedDisplayId = id;
-  // Lifetime starts only on DOM mount — never on runtime materialize / shell mount.
   visibilityLifetimeStartedForId = id;
-  if (changed) notify();
+  acknowledgeWriteCount += 1;
+  rebuildSnapshotIfNeeded();
+  notify();
 }
 
 /** Clear mount ack when the card unmounts (id must match to avoid races). */
@@ -85,6 +122,8 @@ export function clearIncomingDomMountAck(displayId?: string | null): void {
   }
   mountedDisplayId = null;
   visibilityLifetimeStartedForId = null;
+  clearWriteCount += 1;
+  rebuildSnapshotIfNeeded();
   notify();
 }
 
@@ -100,6 +139,8 @@ export function resetIncomingDomMountAck(): void {
   expectedDisplayId = null;
   mountedDisplayId = null;
   visibilityLifetimeStartedForId = null;
+  resetWriteCount += 1;
+  rebuildSnapshotIfNeeded();
   notify();
 }
 
@@ -110,8 +151,13 @@ export function nextDisplayDomMounted(displayId: string | null): boolean {
   return mountedDisplayId === expected;
 }
 
+/**
+ * Referentially stable while values are unchanged.
+ * Required by useSyncExternalStore (Object.is comparison).
+ */
 export function getIncomingDomMountAckSnapshot(): IncomingDomMountAckSnapshot {
-  return snapshot();
+  snapshotCallCount += 1;
+  return rebuildSnapshotIfNeeded();
 }
 
 export function subscribeIncomingDomMountAck(listener: Listener): () => void {
@@ -121,10 +167,39 @@ export function subscribeIncomingDomMountAck(listener: Listener): () => void {
   };
 }
 
+export type IncomingDomMountAckWriteCounts = {
+  acknowledge: number;
+  expect: number;
+  clear: number;
+  reset: number;
+  snapshotCalls: number;
+};
+
+export function getIncomingDomMountAckWriteCounts(): IncomingDomMountAckWriteCounts {
+  return {
+    acknowledge: acknowledgeWriteCount,
+    expect: expectWriteCount,
+    clear: clearWriteCount,
+    reset: resetWriteCount,
+    snapshotCalls: snapshotCallCount,
+  };
+}
+
 /** Test helper — reset module state between specs. */
 export function resetIncomingDomMountAckForTest(): void {
   expectedDisplayId = null;
   mountedDisplayId = null;
   visibilityLifetimeStartedForId = null;
+  cachedSnapshot = {
+    expectedDisplayId: null,
+    mountedDisplayId: null,
+    matchingDomMounted: false,
+    visibilityLifetimeStartedForId: null,
+  };
+  acknowledgeWriteCount = 0;
+  expectWriteCount = 0;
+  clearWriteCount = 0;
+  resetWriteCount = 0;
+  snapshotCallCount = 0;
   listeners.clear();
 }
