@@ -33,7 +33,7 @@ import {
   logLobbyInfluenceDebug,
   resolveLobbyInfluencePercent,
 } from '@/lib/lobby-influence';
-import { isLobbyBootIntroPrimed, subscribeLobbyBootIntroSession } from '@/lib/lobby-boot-intro-session';
+import { useNotificationOwnerBootLobbyBridge } from '@/notification-owner';
 import { patchBootHandoffDebug } from '@/lib/boot-handoff-debug';
 import { instantBanDebug } from '@/lib/instant-ban-debug';
 import {
@@ -134,11 +134,14 @@ export default function HomePage() {
   const lobbyPrefetch = loading && !hasAuthSession;
   /** v2 arena shell — never drop to legacy HomeArena while session is active. */
   const arenaVisible = lobbyPrefetch || hasAuthSession;
-  const lobbyBootIntroDone = useSyncExternalStore(
-    subscribeLobbyBootIntroSession,
-    isLobbyBootIntroPrimed,
-    () => false,
-  );
+  /**
+   * BOOT/LOBBY macro ownership: NotificationOwner decides BOOT vs LOBBY.
+   * Visual path stays LobbyBootLogoShell + InstantBanFlow (unchanged renderers).
+   */
+  const {
+    showLobbyBootLogoShell,
+    showBottomNavWhenIntroComplete,
+  } = useNotificationOwnerBootLobbyBridge();
   /** SSR + hydration: auth starts loading=true, deeplink boot pending=false. */
   const showBootScreen = useSyncExternalStore(
     subscribeDeepLinkRouteBoot,
@@ -170,9 +173,9 @@ export default function HomePage() {
 
   useLayoutEffect(() => {
     patchBootHandoffDebug({
-      showBottomNav: !lobbyPrefetch && lobbyBootIntroDone,
+      showBottomNav: !lobbyPrefetch && showBottomNavWhenIntroComplete,
     });
-  }, [lobbyBootIntroDone, lobbyPrefetch]);
+  }, [showBottomNavWhenIntroComplete, lobbyPrefetch]);
   const replyDeeplinkPending =
     !replyComposeActive &&
     !incomingCardFullyReady &&
@@ -470,7 +473,7 @@ export default function HomePage() {
       <PillSourceDebugBadge />
       <BootHandoffDebugBadge />
 
-      {!lobbyBootIntroDone ? (
+      {showLobbyBootLogoShell ? (
         <LobbyBootLogoShell
           logoScaleActive={bootIntro.logoScaleActive}
           logoLocked={bootIntro.logoLocked}
@@ -518,7 +521,7 @@ export default function HomePage() {
         </ShellErrorBoundary>
       ) : null}
 
-      {!lobbyPrefetch && lobbyBootIntroDone ? (
+      {!lobbyPrefetch && showBottomNavWhenIntroComplete ? (
         <BottomNav tab={tab} onChange={setTab} />
       ) : null}
 
