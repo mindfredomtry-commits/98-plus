@@ -31,8 +31,14 @@ export type SuccessPresentationHandoffHoldInput = {
   runtimeDisplayKind: SuccessPresentationRuntimeDisplayKind;
   runtimeDisplayPayloadPresent: boolean;
   runtimeQueueLength: number;
-  /** Runtime overlay lifecycle currently claims the notification screen. */
+  /**
+   * @deprecated Not used for terminal R1. Overlay lifecycle claim alone must
+   * not release the hold under an empty shell.
+   */
   notificationPresentationClaimed: boolean;
+  /** Matching next card DOM mounted (same ack as Stage 3A R1). */
+  nextDisplayDomMounted?: boolean;
+  expectedDisplayId?: string | null;
   /** Terminal: drain finished with no next item (explicit empty → Lobby). */
   chainExplicitlyEmpty: boolean;
   /** Terminal: drain/recovery failed and released presentation. */
@@ -44,6 +50,8 @@ export type SuccessPresentationHandoffHoldInput = {
 export type SuccessPresentationHandoffReleaseReason =
   | 'lobby-boot-not-primed'
   | 'not-armed'
+  | 'next-display-dom-mounted'
+  /** @deprecated alias — prefer next-display-dom-mounted */
   | 'runtime-materialized-and-claimed'
   | 'chain-explicitly-empty'
   | 'presentation-ownership-released'
@@ -81,8 +89,21 @@ export function evaluateSuccessPresentationHandoffHold(
   if (!input.handoffArmed) {
     return { hold: false, releaseReason: 'not-armed' };
   }
-  // Terminal R1: next card materialized AND notification owns the screen.
+  // Terminal R1a: incoming requires matching card DOM painted.
   if (
+    input.runtimeDisplayKind === 'incoming' &&
+    input.expectedDisplayId != null &&
+    input.nextDisplayDomMounted === true
+  ) {
+    return {
+      hold: false,
+      releaseReason: 'next-display-dom-mounted',
+    };
+  }
+  // Terminal R1b: check/result — claimed path (result behavior unchanged).
+  if (
+    (input.runtimeDisplayKind === 'check' ||
+      input.runtimeDisplayKind === 'result') &&
     runtimeMaterializedHead(input) &&
     input.notificationPresentationClaimed
   ) {
@@ -140,6 +161,8 @@ export function evaluateSuccessDrainEmptyShellHold(
     runtimeDisplayPayloadPresent: input.runtimeDisplayPayloadPresent,
     runtimeQueueLength: input.runtimeQueueLength,
     notificationPresentationClaimed: input.notificationPresentationClaimed,
+    nextDisplayDomMounted: input.nextDisplayDomMounted,
+    expectedDisplayId: input.expectedDisplayId,
     chainExplicitlyEmpty:
       input.chainExplicitlyEmpty ?? input.drainCompletedEmpty ?? false,
     presentationOwnershipReleased: input.presentationOwnershipReleased,
