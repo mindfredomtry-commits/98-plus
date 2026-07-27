@@ -55,6 +55,8 @@ function handoffInput(
     handoffArmed: true,
     runtimeDisplayKind: null,
     runtimeDisplayPayloadPresent: false,
+    expectedDisplayId: null,
+    nextDisplayDomMounted: false,
     notificationPresentationClaimed: false,
     chainExplicitlyEmpty: false,
     presentationOwnershipReleased: false,
@@ -83,18 +85,51 @@ async function main() {
     assert.equal(d.allowLobbyBase, false);
   });
 
-  await spec('contract: materialize+claimed → NEXT_NOTIFICATION_VISIBLE', () => {
+  await spec('contract: materialize+claimed alone does NOT release SUCCESS', () => {
     const d = evaluateSuccessToNextHandoff(
       handoffInput({
         runtimeDisplayKind: 'incoming',
         runtimeDisplayPayloadPresent: true,
+        expectedDisplayId: 'in-1',
+        notificationPresentationClaimed: true,
+        nextDisplayDomMounted: false,
+      }),
+    );
+    assert.equal(d.phase, 'SUCCESS_HANDOFF_WAIT');
+    assert.equal(d.mayClearSuccessLocal, false);
+    assert.equal(d.retainSuccessPresentation, true);
+  });
+
+  await spec('contract: matching nextDisplayDomMounted → NEXT_NOTIFICATION_VISIBLE', () => {
+    const d = evaluateSuccessToNextHandoff(
+      handoffInput({
+        runtimeDisplayKind: 'incoming',
+        runtimeDisplayPayloadPresent: true,
+        expectedDisplayId: 'in-1',
+        nextDisplayDomMounted: true,
         notificationPresentationClaimed: true,
       }),
     );
     assert.equal(d.phase, 'NEXT_NOTIFICATION_VISIBLE');
+    assert.equal(d.releaseReason, 'next-display-dom-mounted');
     assert.equal(d.mayClearSuccessLocal, true);
     assert.equal(d.retainSuccessPresentation, false);
     assert.equal(d.allowLobbyBase, false);
+  });
+
+  await spec('contract: mismatched stale mount id cannot release SUCCESS', () => {
+    const d = evaluateSuccessToNextHandoff(
+      handoffInput({
+        runtimeDisplayKind: 'incoming',
+        runtimeDisplayPayloadPresent: true,
+        expectedDisplayId: 'in-expected',
+        // Call site must only set nextDisplayDomMounted when ids match.
+        nextDisplayDomMounted: false,
+        notificationPresentationClaimed: true,
+      }),
+    );
+    assert.equal(d.phase, 'SUCCESS_HANDOFF_WAIT');
+    assert.equal(d.mayClearSuccessLocal, false);
   });
 
   await spec('contract: explicit empty → EMPTY_LOBBY_RELEASED once', () => {
