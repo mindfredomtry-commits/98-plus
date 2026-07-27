@@ -4127,7 +4127,9 @@ export function InstantBanFlow({
           prepareLobbyBaseAfterSuccess('send-success', { deferLobbyOpen: true });
         }
 
-        // FIX A + Stage 3A: arm presentation handoff BEFORE SUCCESS may clear.
+        // FIX A + Stage 3A: arm presentation handoff BEFORE SUCCESS may clear
+        // so base ArenaLobbyOrb cannot paint between SUCCESS and the next card /
+        // Lobby. send-success retains banSentSuccess until mayClearSuccessLocal.
         setSuccessPresentationChainExplicitlyEmpty(false);
         setSuccessEmptyShellHoldExpired(false);
         setSuccessPresentationHandoffArmed(true);
