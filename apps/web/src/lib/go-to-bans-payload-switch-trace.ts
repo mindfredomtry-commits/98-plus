@@ -317,7 +317,7 @@ export function logNextPayloadSelectionFromOwnerSync(
   const goToBansRelated =
     eventType === 'RESULT_GO_TO_BANS' ||
     eventType === 'CHAIN_CONTINUE_REQUESTED' ||
-    eventType === 'PRODUCTION_QUEUE_APPLIED' ||
+    eventType === 'SHADOW_QUEUE_APPLIED' ||
     eventType === 'NOTIFICATION_DISMISSED' ||
     (eventType?.includes('go-to-bans') ?? false);
   if (!goToBansRelated) return;
@@ -349,6 +349,6 @@ export function logNextPayloadSelectionFromOwnerSync(
         ? 'active-already-matches-queue-head'
         : 'active-remains-null-no-queue-head',
     eventType: eventType ?? null,
-    source: 'notification-owner-pin-state:syncActiveFromQueueHead',
+    source: 'notification-overlay-owner:syncActiveFromQueueHead',
   });
 }

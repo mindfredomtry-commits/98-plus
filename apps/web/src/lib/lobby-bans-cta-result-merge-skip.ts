@@ -1,7 +1,7 @@
 'use client';
 
 import { logPlatformQueueFlowTrace } from '@/lib/platform-queue-flow-trace-debug';
-import type { NotificationOverlayOwnerState } from '@/notification-owner/notification-owner-pin-state';
+import type { NotificationOverlayOwnerState } from './notification-overlay-owner';
 import { normalizeId } from './normalize-json';
 import type { QueuedOverlay } from './overlay-queue';
 

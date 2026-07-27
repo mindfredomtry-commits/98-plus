@@ -1,8 +1,8 @@
 'use client';
 
-import type { NotificationOverlayOwnerState } from '@/notification-owner/notification-owner-pin-state';
-import { resolveOwnerHeadBanId } from '@/notification-owner/notification-owner-pin-state';
-import { isPhase12DiagEnabled } from '@/lib/phase12-diag-env-gate';
+import type { NotificationOverlayOwnerState } from '@/lib/notification-overlay-owner';
+import { resolveOwnerHeadBanId } from '@/lib/notification-overlay-owner';
+import { isPhase12DiagEnabled } from '@/lib/notification-overlay-owner-phase12-smoke-env';
 import { logPhase12TraceReached } from '@/lib/phase12-diag-probe-debug';
 
 export type OwnerTrackedWriteField =
@@ -198,7 +198,7 @@ export function logOwnerReducerTrackedFieldAssignments(args: {
   logTrackedSnapshotDiff({
     previous: readOwnerTrackedWriteFields(args.previous),
     next: readOwnerTrackedWriteFields(args.next),
-    file: 'notification-owner-pin-state.ts',
+    file: 'notification-overlay-owner.ts',
     function: args.function,
     writePath: 'reducer-draft',
     eventType: args.eventType,

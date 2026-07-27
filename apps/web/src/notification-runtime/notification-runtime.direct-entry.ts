@@ -3,7 +3,7 @@
  * Transport fetch only; queue/display/lobby decided by reducer.
  */
 import type { BanInteraction, BanResult } from '@98plus/shared';
-import type { OwnerActiveDisplayPatch } from '@/notification-runtime/notification-runtime.display-patch';
+import type { OwnerActiveDisplayPatch } from '@/lib/notification-overlay-owner';
 import type { QueuedOverlay } from '@/lib/overlay-queue';
 import {
   buildExclusiveDisplayPatchFromRuntime,
