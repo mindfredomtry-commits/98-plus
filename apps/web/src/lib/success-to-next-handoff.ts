@@ -6,8 +6,7 @@
  * Does not remount InstantBanFlow. Does not use timeouts to invent Lobby.
  *
  * Terminal outcomes (only these may clear retained SUCCESS):
- * 1. nextDisplayDomMounted(expectedDisplayId) — matching incoming card DOM painted
- *    (NOT display != null, NOT overlay host mount, NOT lifecycle presenting alone)
+ * 1. next notification display fully materialized + claimed
  * 2. runtime explicitly confirms queue empty → Lobby
  * 3. recoverable failure → keep SUCCESS (never inferred Lobby from display null)
  *
@@ -33,8 +32,6 @@ export type SuccessToNextHandoffReleaseReason =
   | 'idle'
   | 'success-visible'
   | 'waiting-terminal'
-  | 'next-display-dom-mounted'
-  /** @deprecated alias — prefer next-display-dom-mounted */
   | 'runtime-materialized-and-claimed'
   | 'chain-explicitly-empty'
   | 'retain-on-failure';
@@ -51,20 +48,7 @@ export type SuccessToNextHandoffInput = {
   handoffArmed: boolean;
   runtimeDisplayKind: SuccessToNextRuntimeDisplayKind;
   runtimeDisplayPayloadPresent: boolean;
-  /**
-   * Expected next display id (ban id for incoming). Required for matching DOM ack.
-   * Stale mounts for a different id must not release SUCCESS.
-   */
-  expectedDisplayId: string | null;
-  /**
-   * True only when IncomingBanOverlay (or equivalent) has laid out the card DOM
-   * for `expectedDisplayId` — `nextDisplayDomMounted(expectedDisplayId)`.
-   */
-  nextDisplayDomMounted: boolean;
-  /**
-   * @deprecated Not used for terminal R1. Kept for call-site compatibility /
-   * diagnostics. Overlay lifecycle / host mount alone must not clear SUCCESS.
-   */
+  /** Overlay host claims the notification screen with a painted card. */
   notificationPresentationClaimed: boolean;
   /** Explicit empty-chain release (not inferred from display null). */
   chainExplicitlyEmpty: boolean;
@@ -115,29 +99,8 @@ export function evaluateSuccessToNextHandoff(
     };
   }
 
-  // Terminal R1a: incoming requires matching card DOM painted.
-  // display != null / overlay host / lifecycle presenting alone are insufficient.
-  if (
-    input.runtimeDisplayKind === 'incoming' &&
-    input.expectedDisplayId != null &&
-    input.nextDisplayDomMounted
-  ) {
-    return {
-      phase: 'NEXT_NOTIFICATION_VISIBLE',
-      releaseReason: 'next-display-dom-mounted',
-      retainSuccessPresentation: false,
-      mayClearSuccessLocal: true,
-      allowLobbyBase: false,
-    };
-  }
-
-  // Terminal R1b: check/result — unchanged claimed path (not in this task's scope).
-  if (
-    (input.runtimeDisplayKind === 'check' ||
-      input.runtimeDisplayKind === 'result') &&
-    runtimeMaterializedHead(input) &&
-    input.notificationPresentationClaimed
-  ) {
+  // Terminal R1: next card materialized AND host claims the screen.
+  if (runtimeMaterializedHead(input) && input.notificationPresentationClaimed) {
     return {
       phase: 'NEXT_NOTIFICATION_VISIBLE',
       releaseReason: 'runtime-materialized-and-claimed',
