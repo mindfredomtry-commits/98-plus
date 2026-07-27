@@ -195,6 +195,15 @@ export function reduceNotificationOwner(
           presentation: presentationFromQueueItem(input.next),
         });
       }
+      // Prefer any items already ingested during BOOT (session/ws).
+      const claimed = claimNext(state);
+      if (claimed) {
+        return ok({
+          ...state,
+          presentation: claimed.presentation,
+          queue: claimed.queue,
+        });
+      }
       return ok({
         ...state,
         presentation: fullLobby(),
@@ -457,6 +466,21 @@ export function reduceNotificationOwner(
         nextState = markConsumed(state, banId, displayId);
       }
       return ok(selectNextAfterConsume({ ...nextState, action: null }, null));
+    }
+
+    case 'CLAIM_NEXT': {
+      if (state.presentation.kind !== 'LOBBY') {
+        return reject(state, 'claim-next-requires-lobby');
+      }
+      const claimed = claimNext(state);
+      if (!claimed) {
+        return reject(state, 'claim-next-empty-queue');
+      }
+      return ok({
+        ...state,
+        presentation: claimed.presentation,
+        queue: claimed.queue,
+      });
     }
 
     case 'ITEMS_INGESTED': {

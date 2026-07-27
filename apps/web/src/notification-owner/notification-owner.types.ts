@@ -32,11 +32,18 @@ export type ResultCardModel = {
   outcome: string | null;
 };
 
+export type ComposeFriendOption = {
+  id: string;
+  label: string;
+};
+
 export type ComposeDraft = {
   selectedUserId: string | null;
   banText: string;
   durationMinutes: number;
   replyToBanId: BanId | null;
+  /** Host-provided picker rows for WHAT (display-only; not a second owner). */
+  friendOptions?: ComposeFriendOption[];
 };
 
 export type SendSnapshot = {
@@ -152,7 +159,9 @@ export type NotificationOwnerCommand =
       action: 'overboard' | 'counter' | 'check-answer';
     }
   | { type: 'DISMISS_CARD' }
-  | { type: 'CLOSE_RESULT' };
+  | { type: 'CLOSE_RESULT' }
+  /** Idle Lobby only — claim the next complete queued card. */
+  | { type: 'CLAIM_NEXT' };
 
 /** Owner-internal / network events. */
 export type NotificationOwnerEvent =
@@ -194,6 +203,7 @@ export function emptyComposeDraft(
     banText: '',
     durationMinutes: 30,
     replyToBanId: null,
+    friendOptions: undefined,
     ...overrides,
   };
 }

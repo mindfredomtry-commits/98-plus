@@ -44,28 +44,46 @@ export function WhatSurface({
   draft: ComposeDraft;
   onIntent: PresentationIntentHandler;
 }) {
+  const options = draft.friendOptions ?? [];
   return (
     <div data-np-surface="WHAT">
       <div data-np-what-compose="" className="np-what">
         <p>Кому и что запретить</p>
-        <p data-np-what-target="">{draft.selectedUserId ?? '—'}</p>
+        <div data-np-what-friends="">
+          {options.length === 0 ? (
+            <p data-np-what-target="">{draft.selectedUserId ?? '—'}</p>
+          ) : (
+            options.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                data-np-what-friend={opt.id}
+                data-np-what-friend-selected={
+                  draft.selectedUserId === opt.id ? '' : undefined
+                }
+                onClick={() =>
+                  onIntent({
+                    type: 'EDIT_DRAFT',
+                    draft: { selectedUserId: opt.id },
+                  })
+                }
+              >
+                {opt.label}
+              </button>
+            ))
+          )}
+        </div>
         <textarea
           data-np-what-text=""
           value={draft.banText}
-          readOnly
           aria-label="Текст запрета"
-        />
-        <button
-          type="button"
-          onClick={() =>
+          onChange={(e) =>
             onIntent({
               type: 'EDIT_DRAFT',
-              draft: { banText: draft.banText },
+              draft: { banText: e.target.value },
             })
           }
-        >
-          Изменить
-        </button>
+        />
         <button type="button" onClick={() => onIntent({ type: 'OPEN_CONFIRM' })}>
           Далее
         </button>

@@ -20,6 +20,8 @@ import { BootHandoffDebugBadge } from '@/components/BootHandoffDebugBadge';
 import { PillSourceDebugBadge } from '@/components/PillSourceDebugBadge';
 import { HomeArena } from '@/components/HomeArena';
 import { InstantBanFlow } from '@/components/instant-ban/InstantBanFlow';
+import { NotificationOwnerHost } from '@/notification-owner/NotificationOwnerHost';
+import { isNotificationOwnerCutoverLive } from '@/notification-owner';
 import { useBootSceneIntro } from '@/components/instant-ban/useBootSceneIntro';
 import { LobbyBootLogoShell } from '@/components/lobby/LobbyBootLogoShell';
 import { shouldHideLobbyBootLogoOnly } from '@/lib/lobby-boot-logo-hide';
@@ -470,7 +472,7 @@ export default function HomePage() {
       <PillSourceDebugBadge />
       <BootHandoffDebugBadge />
 
-      {!lobbyBootIntroDone ? (
+      {!isNotificationOwnerCutoverLive() && !lobbyBootIntroDone ? (
         <LobbyBootLogoShell
           logoScaleActive={bootIntro.logoScaleActive}
           logoLocked={bootIntro.logoLocked}
@@ -518,7 +520,8 @@ export default function HomePage() {
         </ShellErrorBoundary>
       ) : null}
 
-      {!lobbyPrefetch && lobbyBootIntroDone ? (
+      {!lobbyPrefetch &&
+      (isNotificationOwnerCutoverLive() || lobbyBootIntroDone) ? (
         <BottomNav tab={tab} onChange={setTab} />
       ) : null}
 
@@ -538,17 +541,21 @@ export default function HomePage() {
       ) : null}
 
       {arenaVisible ? (
-        <InstantBanFlow
-          bootIntro={bootIntro}
-          sendStarted={sendStarted}
-          onStartSend={handleLobbyEnter}
-          influencePercent={
-            hasAuthSession ? lobbyInfluence.influencePercent : 0
-          }
-          energyLoaded={hasAuthSession && !lobbyInfluence.fromFallback}
-          inviteUsername={user?.username ?? null}
-          onClose={handleCloseInstantBan}
-        />
+        isNotificationOwnerCutoverLive() ? (
+          <NotificationOwnerHost />
+        ) : (
+          <InstantBanFlow
+            bootIntro={bootIntro}
+            sendStarted={sendStarted}
+            onStartSend={handleLobbyEnter}
+            influencePercent={
+              hasAuthSession ? lobbyInfluence.influencePercent : 0
+            }
+            energyLoaded={hasAuthSession && !lobbyInfluence.fromFallback}
+            inviteUsername={user?.username ?? null}
+            onClose={handleCloseInstantBan}
+          />
+        )
       ) : null}
 
     </div>

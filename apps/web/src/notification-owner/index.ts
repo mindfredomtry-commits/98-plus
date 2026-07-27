@@ -57,3 +57,22 @@ export type {
   PresentationSurfaceDescriptor,
   PresentationSurfaceId,
 } from './presentation';
+
+export {
+  NOTIFICATION_OWNER_CUTOVER,
+  isNotificationOwnerCutoverLive,
+} from './notification-owner.cutover';
+
+export {
+  dispatchNotificationOwner,
+  getNotificationOwnerState,
+  subscribeNotificationOwner,
+  resetNotificationOwnerStoreForTests,
+} from './notification-owner.store';
+
+export {
+  queueItemFromIncoming,
+  queueItemFromCheck,
+  queueItemFromResult,
+  resultCardFromBanResult,
+} from './notification-owner.ingest';

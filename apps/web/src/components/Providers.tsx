@@ -274,6 +274,13 @@ import {
   subscribeIncomingOverboardCompletion,
 } from '@/notification-runtime/notification-runtime.overboard-completion';
 import {
+  isNotificationOwnerCutoverLive,
+  queueItemFromCheck,
+  queueItemFromIncoming,
+  queueItemFromResult,
+} from '@/notification-owner';
+import { ingestAndClaimIfLobby } from '@/notification-owner/notification-owner.live-ingest';
+import {
   logOverboardV3ProdTrace,
   logOverboardV3ProdTraceBoot,
   logOverboardV3WriterChange,
@@ -19653,6 +19660,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       source: 'ws' | 'http' | 'poll',
     ) => {
       if (!payload) return;
+      if (isNotificationOwnerCutoverLive()) {
+        const normalized = normalizeBanResult(payload);
+        if (!normalizeId(normalized.id)) return;
+        ingestAndClaimIfLobby([queueItemFromResult(normalized)]);
+        return;
+      }
       const normalized = normalizeBanResult(payload);
       const banId = normalizeId(normalized.id);
       const uid = userIdRef.current;
@@ -24940,6 +24953,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const receiveIncomingBan = useCallback(
     (payload: BanInteraction, source: 'ws' | 'session' | 'poll') => {
       const b = enrichBanInteraction(payload);
+      if (isNotificationOwnerCutoverLive()) {
+        const viewerId = userIdRef.current;
+        const decision = incomingShowDecision(
+          b,
+          viewerId,
+          dismissedIncomingRef.current,
+        );
+        if (decision.shouldShow) {
+          const incoming = pickIncomingForOverlay(
+            b,
+            dismissedIncomingRef.current,
+            viewerId,
+          );
+          if (incoming) {
+            ingestAndClaimIfLobby([queueItemFromIncoming(incoming)]);
+          }
+        }
+        return;
+      }
       const viewerId = userIdRef.current;
 
       if (source === 'ws' || source === 'poll') {
@@ -25126,6 +25158,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const receiveCheckBan = useCallback(
     (payload: BanInteraction, source: 'ws' | 'session' | 'poll') => {
       const b = enrichBanInteraction(payload);
+      if (isNotificationOwnerCutoverLive()) {
+        const viewerId = userIdRef.current;
+        const decision = checkShowDecision(
+          b,
+          viewerId,
+          dismissedCheckSessionRef.current,
+          answeredCheckRef.current,
+          checkAnswerInFlightRef.current,
+          resultOpenRef.current,
+        );
+        if (decision.shouldShow) {
+          ingestAndClaimIfLobby([queueItemFromCheck(b)]);
+        }
+        return;
+      }
       const viewerId = userIdRef.current;
 
       if (
@@ -45387,7 +45434,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
                   'ProvidersBody.queue-shell-path',
                 );
               const globalOverlayHostEmit =
-                !composeBlocksNotificationHost && globalOverlayHostActive;
+                !isNotificationOwnerCutoverLive() &&
+                !composeBlocksNotificationHost &&
+                globalOverlayHostActive;
               queueShellBranchCollector.markBranchReached(
                   'global-overlay-host-emit',
                 );
@@ -45992,9 +46041,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               <DirectOverboardResultLayer
                 result={directOverboardRenderResult}
                 onClose={dismissBanResult}
-                visible={ownerDirectOverboardVisibility.visible}
+                visible={
+                  !isNotificationOwnerCutoverLive() &&
+                  ownerDirectOverboardVisibility.visible
+                }
                 visibilityReason={ownerDirectOverboardVisibility.reason}
-                resultVisible={ownerDirectResultVisibility.visible}
+                resultVisible={
+                  !isNotificationOwnerCutoverLive() &&
+                  ownerDirectResultVisibility.visible
+                }
                 resultVisibilityReason={ownerDirectResultVisibility.reason}
                 resultReturnsNullReason={ownerDirectResultVisibility.returnsNullReason}
                 resultOverboardQueueBody={ownerDirectResultVisibility.overboardQueueBody}
