@@ -43,3 +43,17 @@ export {
   reduceNotificationOwner,
   reduceNotificationOwnerUnchecked,
 } from './notification-owner.reducer';
+
+export {
+  NotificationPresentation,
+  NotificationPresentationController,
+  countTopLevelSurfaces,
+  resolvePresentationSurface,
+} from './presentation';
+export type {
+  NotificationPresentationProps,
+  NotificationPresentationControllerProps,
+  PresentationIntentHandler,
+  PresentationSurfaceDescriptor,
+  PresentationSurfaceId,
+} from './presentation';
