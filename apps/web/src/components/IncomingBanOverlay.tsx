@@ -61,6 +61,10 @@ import {
   logResultRenderBranch,
   logResultRenderSelectionTrace,
 } from '@/lib/result-render-selection-trace';
+import {
+  acknowledgeIncomingDomMounted,
+  clearIncomingDomMountAck,
+} from '@/lib/incoming-dom-mount-ack';
 
 type VerifyPhase = 'idle' | 'pending' | 'ok' | 'failed';
 
@@ -542,6 +546,8 @@ function IncomingBanOverlayInner({
       banId: activeIncomingBan.id,
       kind: replyDirect ? 'incoming-reply-direct' : 'incoming-queue',
     });
+    // INCOMING_DOM_MOUNTED — visibility lifetime / SUCCESS handoff may start here.
+    acknowledgeIncomingDomMounted(activeIncomingBan.id);
   }, [
     activeIncomingBan?.id,
     replyDirect,
@@ -550,6 +556,16 @@ function IncomingBanOverlayInner({
     buttonsEnabled,
     reportOverlayRendered,
   ]);
+
+  useLayoutEffect(() => {
+    const banId = activeIncomingBan?.id ?? null;
+    if (!banId || !visible || verifyPhase === 'failed') {
+      return;
+    }
+    return () => {
+      clearIncomingDomMountAck(banId);
+    };
+  }, [activeIncomingBan?.id, visible, verifyPhase]);
 
   useEffect(() => {
     if (!activeIncomingBan?.id || !visible || verifyPhase === 'failed') {

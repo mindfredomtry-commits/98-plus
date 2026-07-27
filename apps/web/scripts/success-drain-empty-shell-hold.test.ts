@@ -129,26 +129,27 @@ async function main() {
           runtimeLifecycle: 'showing',
           runtimeDisplayKind: 'incoming',
           runtimeDisplayPayloadPresent: true,
-          // Claim not yet — keep holding so orb cannot flash.
-          notificationPresentationClaimed: false,
+          expectedDisplayId: 'in-1',
+          // Claim / materialize not enough — keep holding until DOM mount.
+          notificationPresentationClaimed: true,
+          nextDisplayDomMounted: false,
         }),
         armedNullDisplay({
           runtimeLifecycle: 'showing',
           runtimeDisplayKind: 'incoming',
           runtimeDisplayPayloadPresent: true,
+          expectedDisplayId: 'in-1',
           notificationPresentationClaimed: true,
+          nextDisplayDomMounted: true,
         }),
       ];
       const holds = frames.map((f) => lobbyRenderBranch(f));
       assert.equal(holds[0]!.hold, true);
       assert.equal(holds[1]!.hold, true);
-      assert.equal(holds[2]!.hold, true, 'materialized but unclaimed still holds');
+      assert.equal(holds[2]!.hold, true, 'materialized but unmounted still holds');
       assert.equal(holds[2]!.branch, 'base-null');
       assert.equal(holds[3]!.hold, false);
-      assert.equal(
-        holds[3]!.releaseReason,
-        'runtime-materialized-and-claimed',
-      );
+      assert.equal(holds[3]!.releaseReason, 'next-display-dom-mounted');
       // No intermediate lobby paint while hold was active.
       for (const h of holds.slice(0, 3)) {
         assert.equal(h!.branch, 'base-null');
@@ -169,7 +170,9 @@ async function main() {
           runtimeLifecycle: 'showing',
           runtimeDisplayKind: 'result',
           runtimeDisplayPayloadPresent: true,
+          expectedDisplayId: 'res-1',
           notificationPresentationClaimed: true,
+          nextDisplayDomMounted: false,
         }),
       );
       assert.equal(after.hold, false);

@@ -438,6 +438,46 @@ export function baseParityInput(
   };
 }
 
+/**
+ * Parity: distinguish internal host mount vs visible empty shell vs card DOM.
+ * Visible shell must never be true without an incoming card DOM mount.
+ */
+export type OverlayMaterializationParity = {
+  overlayHostMountedInternally: boolean;
+  visibleOverlayShell: boolean;
+  incomingCardDomMounted: boolean;
+};
+
+export function deriveOverlayMaterializationParity(input: {
+  /** GlobalOverlayHost portal / emit predicate (may be true with null children). */
+  overlayHostMountedInternally: boolean;
+  /** Opaque/active notification layer chrome would paint. */
+  visibleOverlayShell: boolean;
+  /** Matching IncomingBanOverlay card DOM acknowledgement. */
+  incomingCardDomMounted: boolean;
+}): OverlayMaterializationParity {
+  const incomingCardDomMounted = input.incomingCardDomMounted;
+  // Atomic contract: never report a visible shell without a card.
+  const visibleOverlayShell =
+    input.visibleOverlayShell && incomingCardDomMounted;
+  return {
+    overlayHostMountedInternally: input.overlayHostMountedInternally,
+    visibleOverlayShell,
+    incomingCardDomMounted,
+  };
+}
+
+export function assertNoVisibleShellWithoutCard(
+  parity: OverlayMaterializationParity,
+  label: string,
+): void {
+  if (parity.visibleOverlayShell && !parity.incomingCardDomMounted) {
+    throw new Error(
+      `${label}: visible overlay shell without incoming card DOM`,
+    );
+  }
+}
+
 export function idleRuntime(
   overrides: Partial<ParityRuntimeSnapshot> = {},
 ): ParityRuntimeSnapshot {
