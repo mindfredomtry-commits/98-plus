@@ -739,7 +739,7 @@ async function main() {
       'utf8',
     );
     const shadow = readFileSync(
-      join(webSrc, 'lib/notification-overlay-owner-shadow.ts'),
+      join(webSrc, 'notification-owner/notification-owner-pin-state.ts'),
       'utf8',
     );
     const bootstrap = readFileSync(

@@ -73,7 +73,7 @@ export function resolveWhySilentUpdateAllowed(input: {
     return 'owner-queue-cleared-via-resetOverlayQueueState';
   }
   if (input.silent === true) {
-    return 'step2a-silent-commit-via-applyOverlayQueue-skips-display-sync';
+    return 'step2a-silent-commit-via-legacy-queue-writer-skips-display-sync';
   }
   return 'queue-silent-updated-dispatch';
 }

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BanInteraction, BanResult } from '@98plus/shared';
-import type { OwnerActiveDisplayPatch } from '../src/lib/notification-overlay-owner';
+import type { OwnerActiveDisplayPatch } from '../src/notification-runtime/notification-runtime.display-patch';
 import type { QueuedOverlay } from '../src/lib/overlay-queue';
 import {
   completeBootstrap,

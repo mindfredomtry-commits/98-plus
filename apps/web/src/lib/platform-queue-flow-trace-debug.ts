@@ -1,7 +1,7 @@
 'use client';
 
 import { resolveBansLayerOwnerDisplayKind } from '@/lib/bans-layer-open-gate';
-import type { NotificationOverlayOwnerState } from '@/lib/notification-overlay-owner';
+import type { NotificationOverlayOwnerState } from '@/notification-owner/notification-owner-pin-state';
 
 export type PlatformQueueFlowTracePlatform = {
   userAgent: string | null;

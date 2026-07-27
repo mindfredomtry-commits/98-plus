@@ -3,7 +3,7 @@
 import type {
   NotificationOverlayOwnerEvent,
   NotificationOverlayOwnerState,
-} from '@/lib/notification-overlay-owner';
+} from '@/notification-owner/notification-owner-pin-state';
 import { readGoToBansSessionTrace } from '@/lib/go-to-bans-session-trace-debug';
 import type { QueuedOverlay } from '@/lib/overlay-queue';
 import { overlayBanId, overlayQueueKey } from '@/lib/overlay-queue';

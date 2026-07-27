@@ -1,6 +1,6 @@
 'use client';
 
-import type { NotificationOwnerDisplayState } from '@/lib/notification-overlay-owner';
+import type { NotificationOwnerDisplayState } from '@/notification-owner/notification-owner-pin-state';
 import type { QueuedOverlay } from '@/lib/overlay-queue';
 import { overlayBanId } from '@/lib/overlay-queue';
 import { normalizeId } from '@/lib/normalize-json';

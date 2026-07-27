@@ -1,6 +1,6 @@
 'use client';
 
-import { isPhase12DiagEnabled } from '@/lib/notification-overlay-owner-phase12-smoke-env';
+import { isPhase12DiagEnabled } from '@/lib/phase12-diag-env-gate';
 import { PHASE12_BUILD_MARKER } from '@/lib/phase12-build-marker';
 
 export function logPhase12DiagBoot(): void {
