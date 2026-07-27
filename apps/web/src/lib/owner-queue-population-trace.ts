@@ -61,7 +61,7 @@ function isOwnerQueuePopulationObservationSource(source: string): boolean {
     source.includes('INCOMING_POLL_RECEIVED') ||
     source.includes('resolveLobbyBansDrainGateDecision') ||
     source.includes('receiveIncomingBan') ||
-    source.includes('enqueueNotification') ||
+    source.includes('ingestQueuedOverlay') ||
     source.includes('deferNotificationToPendingStartup') ||
     source.includes('commitPendingQueueViaOwner') ||
     source.includes('resetOverlayQueueState')

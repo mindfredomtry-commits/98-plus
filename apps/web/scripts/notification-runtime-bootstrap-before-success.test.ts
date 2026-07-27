@@ -31,7 +31,7 @@ import {
   selectLobbyMayShow,
 } from '../src/notification-runtime/notification-runtime.selectors';
 import type { QueuedOverlay } from '../src/lib/overlay-queue';
-import type { OwnerActiveDisplayPatch } from '../src/lib/notification-overlay-owner';
+import type { OwnerActiveDisplayPatch } from '../src/notification-runtime/notification-runtime.display-patch';
 
 function ban(id: string): BanInteraction {
   return { id } as BanInteraction;

@@ -206,14 +206,7 @@ async function main() {
     assert.equal(getNotificationOwnerState().presentation.kind, 'LOBBY');
   });
 
-  await spec('cutover flag is live', async () => {
-    const { isNotificationOwnerCutoverLive } = await import(
-      '../src/notification-owner/notification-owner.cutover'
-    );
-    assert.equal(isNotificationOwnerCutoverLive(), true);
-  });
-
-  await spec('page mounts NotificationOwnerHost under cutover', async () => {
+  await spec('page always mounts NotificationOwnerHost for the arena', async () => {
     const { readFileSync } = await import('node:fs');
     const { join } = await import('node:path');
     const page = readFileSync(
@@ -221,19 +214,18 @@ async function main() {
       'utf8',
     );
     assert.ok(page.includes('NotificationOwnerHost'));
-    assert.ok(page.includes('isNotificationOwnerCutoverLive'));
+    assert.ok(page.includes('{arenaVisible ? <NotificationOwnerHost /> : null}'));
   });
 
-  await spec('Providers gates GlobalOverlayHost under cutover', async () => {
+  await spec('Providers always ingests notification events through owner', async () => {
     const { readFileSync } = await import('node:fs');
     const { join } = await import('node:path');
     const providers = readFileSync(
       join(process.cwd(), 'apps/web/src/components/Providers.tsx'),
       'utf8',
     );
-    assert.ok(providers.includes('isNotificationOwnerCutoverLive()'));
-    assert.ok(providers.includes('dispatchNotificationOwner'));
     assert.ok(providers.includes('queueItemFromIncoming'));
+    assert.ok(providers.includes('ingestAndClaimIfLobby'));
   });
 
   const failed = results.filter((r) => !r.ok);

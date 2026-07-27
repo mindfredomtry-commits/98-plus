@@ -6,7 +6,7 @@
  * Vertical 9: RuntimeLegacySinks are empty no-ops in production (no dual-store /
  * projection engine). Callers must pass EMPTY_RUNTIME_LEGACY_SINKS.
  */
-import type { OwnerActiveDisplayPatch } from '@/lib/notification-overlay-owner';
+import type { OwnerActiveDisplayPatch } from '@/notification-runtime/notification-runtime.display-patch';
 import type { QueuedOverlay } from '@/lib/overlay-queue';
 import {
   mapDismissReasonToCardReason,

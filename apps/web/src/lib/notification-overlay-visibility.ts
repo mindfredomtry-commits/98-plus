@@ -1,3 +1,9 @@
+/**
+ * Pure notification overlay visibility computations.
+ *
+ * These functions have no dependency on any owner/shadow state machine —
+ * they compute a visibility decision from explicit, passed-in inputs.
+ */
 import {
   getCheckModalView,
   isDirectOverboardOpenable,
@@ -7,9 +13,7 @@ import {
 } from '@98plus/shared';
 import { normalizeId } from '@/lib/normalize-json';
 import { shouldShowIncomingBanModal } from '@/lib/incoming-challenge';
-import {
-  isReplyDeeplinkShellBan,
-} from '@/lib/reply-deeplink-fast';
+import { isReplyDeeplinkShellBan } from '@/lib/reply-deeplink-fast';
 
 export type CheckOverlayVisibilityInput = {
   checkBan: BanInteraction | null | undefined;

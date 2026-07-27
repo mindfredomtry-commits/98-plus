@@ -1,6 +1,6 @@
 'use client';
 
-import type { NotificationOverlayOwnerState } from './notification-overlay-owner';
+import type { NotificationOverlayOwnerState } from '@/notification-owner/notification-owner-pin-state';
 import { normalizeId } from './normalize-json';
 
 export function resolveLobbyIndicatorResultPrefetchBlocked(input: {

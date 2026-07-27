@@ -76,3 +76,10 @@ export {
   queueItemFromResult,
   resultCardFromBanResult,
 } from './notification-owner.ingest';
+
+export {
+  ingestAndClaimIfLobby,
+  ingestItems,
+  ingestQueuedOverlay,
+} from './notification-owner.live-ingest';
+export type { QueuedOverlayIngestPayload } from './notification-owner.live-ingest';

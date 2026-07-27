@@ -22,7 +22,7 @@ import type {
   RuntimeSource,
 } from './notification-runtime.types';
 import { projectRuntimeQueueToLegacy } from './notification-runtime.adapters';
-import type { OwnerActiveDisplayPatch } from '@/lib/notification-overlay-owner';
+import type { OwnerActiveDisplayPatch } from '@/notification-runtime/notification-runtime.display-patch';
 import type { QueuedOverlay } from '@/lib/overlay-queue';
 
 export type CheckSubmitApiResponse = {
