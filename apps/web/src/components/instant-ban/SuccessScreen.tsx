@@ -7,8 +7,6 @@ import { LobbyBanMark, SuccessBanCardBody } from './SuccessBanCardBody';
 import { traceSuccessCardUnmounted } from '@/lib/success-card-trace';
 import { logSuccessExitClick } from '@/lib/success-exit-first-notification-debug';
 
-const SUCCESS_CARD_EXIT_MS = 220;
-
 type Props = {
   senderUser: UserPublic | null | undefined;
   selectedUser: FriendCard;
@@ -16,7 +14,22 @@ type Props = {
   durationMinutes: number;
   onExitComplete: () => void;
   onShare: () => void;
+  /**
+   * Stage 3A: keep the settled SUCCESS card visible (entered frame) during
+   * SUCCESS_HANDOFF_WAIT. No exit animation, no entrance replay. Parent unmounts
+   * SuccessOverlay only on handoff terminal.
+   */
+  freezeFinalFrame?: boolean;
 };
+
+type CardFrame = 'enter' | 'entered' | 'frozen';
+
+function frameClassName(frame: CardFrame): string {
+  // enter only once on first mount; entered/frozen both use --entered (no exit).
+  return frame === 'enter'
+    ? 'instant-ban-success-card--enter'
+    : 'instant-ban-success-card--entered';
+}
 
 export function SuccessScreen({
   senderUser,
@@ -25,10 +38,12 @@ export function SuccessScreen({
   durationMinutes,
   onExitComplete,
   onShare,
+  freezeFinalFrame = false,
 }: Props) {
   const cardRef = useRef<HTMLDivElement>(null);
   const exitingRef = useRef(false);
   const [isExiting, setIsExiting] = useState(false);
+  const [cardFrame, setCardFrame] = useState<CardFrame>('enter');
 
   useEffect(() => {
     window.__debug98log?.('[SUCCESS ON_EXIT_COMPLETE PROP]', {
@@ -48,13 +63,19 @@ export function SuccessScreen({
     [onExitComplete],
   );
 
+  // Stage 3A retain: lock entered frame without re-applying --enter.
+  useLayoutEffect(() => {
+    if (!freezeFinalFrame) return;
+    setCardFrame((prev) => (prev === 'frozen' ? prev : 'frozen'));
+  }, [freezeFinalFrame]);
+
   useLayoutEffect(() => {
     const node = cardRef.current;
     if (!node) return;
+    if (cardFrame !== 'enter') return;
 
     const settle = () => {
-      node.classList.remove('instant-ban-success-card--enter');
-      node.classList.add('instant-ban-success-card--entered');
+      setCardFrame((prev) => (prev === 'enter' ? 'entered' : prev));
     };
 
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -71,61 +92,37 @@ export function SuccessScreen({
 
     node.addEventListener('animationend', onEnd);
     return () => node.removeEventListener('animationend', onEnd);
-  }, []);
+  }, [cardFrame]);
 
   const handleAgain = useCallback(() => {
     window.__debug98log?.('[SUCCESS CTA CLICK]', {
       exitingRef: exitingRef.current,
       isExiting,
       hasCardNode: Boolean(cardRef.current),
+      freezeFinalFrame,
+      cardFrame,
     });
     if (exitingRef.current) return;
     logSuccessExitClick();
     exitingRef.current = true;
-
-    const node = cardRef.current;
-    if (!node) {
-      callOnExitComplete('no-card-node');
-      return;
-    }
-
-    node.classList.remove(
-      'instant-ban-success-card--enter',
-      'instant-ban-success-card--entered',
-    );
-    node.classList.add('instant-ban-success-card--exit');
-
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      callOnExitComplete('reduced-motion');
-      return;
-    }
-
-    let finished = false;
-    const finish = () => {
-      if (finished) return;
-      finished = true;
-      callOnExitComplete('exit-animation');
-    };
-
-    const onEnd = (event: AnimationEvent) => {
-      if (event.target !== node || event.animationName !== 'instant-ban-success-card-exit') {
-        return;
-      }
-      finish();
-    };
-
-    node.addEventListener('animationend', onEnd);
-    window.setTimeout(() => {
-      node.removeEventListener('animationend', onEnd);
-      finish();
-    }, SUCCESS_CARD_EXIT_MS + 80);
-  }, [callOnExitComplete, isExiting]);
+    setIsExiting(true);
+    // Freeze final visible frame; handoff owns when SuccessOverlay unmounts.
+    // Do not apply --exit (that was the production-visible blank gap).
+    setCardFrame('frozen');
+    callOnExitComplete(cardRef.current ? 'freeze-final-frame' : 'no-card-node');
+  }, [callOnExitComplete, cardFrame, freezeFinalFrame, isExiting]);
 
   return (
-    <div className="instant-ban-success-screen">
+    <div
+      className="instant-ban-success-screen"
+      data-success-freeze-final-frame={
+        freezeFinalFrame || cardFrame === 'frozen' ? '' : undefined
+      }
+    >
       <div
         ref={cardRef}
-        className="modal-card modal-card--incoming instant-ban-success-card instant-ban-success-card--enter"
+        className={`modal-card modal-card--incoming instant-ban-success-card ${frameClassName(cardFrame)}`}
+        data-success-card-frame={cardFrame}
       >
         <div className="modal-card-body text-center">
           <SuccessBanCardBody
