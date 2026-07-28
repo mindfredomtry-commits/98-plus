@@ -22,8 +22,15 @@ export function telegramShareUrl(shareText: string): string {
   return `https://t.me/share/url?text=${encodeURIComponent(shareText)}`;
 }
 
-function copyFallback(text: string) {
-  void navigator.clipboard?.writeText(text);
+function copyFallback(text: string): boolean {
+  try {
+    const clipboard = window.navigator?.clipboard;
+    if (!clipboard?.writeText) return false;
+    void clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function clickHiddenShareAnchor(link: string): void {
@@ -138,35 +145,92 @@ export function shareLobbyAskInvite(username: string | null | undefined): void {
 export const INSTANT_BAN_INVITE_MORE_MESSAGE =
   'Заходи в 98+ — будем запрещать друг другу';
 
+export type WhoInviteFinalOutcome = 'opened' | 'copied' | 'failed';
+
 export type WhoInviteMoreDiag = {
   username: string | null;
   shareMethod: OpenTelegramShareResult;
   linkPreview: string;
+  /** Human-readable share body (message + bot link) for clipboard recovery. */
+  shareText: string;
+  /** Primary API used before any clipboard recovery. */
+  primaryMethod: OpenTelegramShareResult | 'none';
+  fallbackUsed: boolean;
+  finalOutcome: WhoInviteFinalOutcome;
 };
+
+function buildInviteMoreShareText(username: string | null): {
+  link: string;
+  shareText: string;
+} {
+  if (username) {
+    const startParam = buildStartParam({ type: 'invite', username });
+    const link = buildShareUrl(BOT, startParam, INSTANT_BAN_INVITE_MORE_MESSAGE);
+    // buildShareUrl embeds bot start in the share text query; recover message body.
+    const botStart = `https://t.me/${BOT}?start=${encodeURIComponent(startParam)}`;
+    return {
+      link,
+      shareText: `${INSTANT_BAN_INVITE_MORE_MESSAGE}\n\n${botStart}`,
+    };
+  }
+  const botLink = `https://t.me/${BOT}`;
+  const shareText = `${INSTANT_BAN_INVITE_MORE_MESSAGE}\n\n${botLink}`;
+  return { link: telegramShareUrl(shareText), shareText };
+}
 
 /**
  * WhoScreen — invite more people into your ban circle (Telegram share picker).
- * Returns diagnostics for temporary WHO invite instrumentation.
+ * Never fails silently: on open failure attempts clipboard copy.
  */
 export function shareInstantBanInviteMore(
   username: string | null | undefined,
 ): WhoInviteMoreDiag {
   const clean = username?.replace('@', '').trim() || null;
-  let link: string;
-  if (clean) {
-    const startParam = buildStartParam({ type: 'invite', username: clean });
-    link = buildShareUrl(BOT, startParam, INSTANT_BAN_INVITE_MORE_MESSAGE);
-  } else {
-    const botLink = `https://t.me/${BOT}`;
-    link = telegramShareUrl(
-      `${INSTANT_BAN_INVITE_MORE_MESSAGE}\n\n${botLink}`,
-    );
-  }
+  const { link, shareText } = buildInviteMoreShareText(clean);
   const shareMethod = openTelegramShareLink(link);
+  const opened =
+    shareMethod === 'openTelegramLink' ||
+    shareMethod === 'openLink' ||
+    shareMethod === 'anchor' ||
+    shareMethod === 'windowOpen';
+
+  if (opened) {
+    return {
+      username: clean,
+      shareMethod,
+      linkPreview: link.slice(0, 120),
+      shareText,
+      primaryMethod: shareMethod,
+      fallbackUsed: shareMethod !== 'openTelegramLink',
+      finalOutcome: 'opened',
+    };
+  }
+
+  try {
+    const copied = copyFallback(shareText);
+    if (copied) {
+      return {
+        username: clean,
+        shareMethod: 'copied',
+        linkPreview: link.slice(0, 120),
+        shareText,
+        primaryMethod: shareMethod,
+        fallbackUsed: true,
+        finalOutcome: 'copied',
+      };
+    }
+  } catch {
+    /* fall through to failed */
+  }
+
   return {
     username: clean,
-    shareMethod,
+    shareMethod: 'failed',
     linkPreview: link.slice(0, 120),
+    shareText,
+    primaryMethod: shareMethod,
+    fallbackUsed: true,
+    finalOutcome: 'failed',
   };
 }
 

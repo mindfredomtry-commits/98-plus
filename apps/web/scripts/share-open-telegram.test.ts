@@ -14,6 +14,8 @@ function installWindow(opts: {
   openLink?: OpenFn;
   windowOpen?: (url: string) => Window | null;
   anchorClick?: () => void;
+  breakAnchor?: boolean;
+  clipboard?: boolean;
 }) {
   const calls: string[] = [];
 
@@ -40,6 +42,9 @@ function installWindow(opts: {
     },
     document: {
       createElement: () => {
+        if (opts.breakAnchor) {
+          throw new Error('no anchor');
+        }
         const a = {
           href: '',
           target: '',
@@ -57,6 +62,15 @@ function installWindow(opts: {
         appendChild() {},
       },
     },
+    navigator: opts.clipboard
+      ? {
+          clipboard: {
+            writeText: async (t: string) => {
+              calls.push(`clipboard:${t.slice(0, 16)}`);
+            },
+          },
+        }
+      : { clipboard: undefined },
     setTimeout: (fn: () => void) => {
       fn();
       return 0;
@@ -126,10 +140,25 @@ async function main() {
     const { shareInstantBanInviteMore } = await loadShare();
     const diag = shareInstantBanInviteMore('alice');
     assert.equal(diag.shareMethod, 'openTelegramLink');
+    assert.equal(diag.finalOutcome, 'opened');
     assert.equal(diag.username, 'alice');
     assert.match(diag.linkPreview, /t\.me\/share/);
     assert.ok(calls.includes('openTelegramLink'));
     pass('shareInstantBanInviteMore opens invite share for username');
+  }
+
+  {
+    const { calls } = installWindow({
+      breakAnchor: true,
+      clipboard: true,
+      windowOpen: () => null,
+    });
+    const { shareInstantBanInviteMore } = await loadShare();
+    const diag = shareInstantBanInviteMore('bob');
+    assert.equal(diag.finalOutcome, 'copied');
+    assert.equal(diag.fallbackUsed, true);
+    assert.ok(calls.some((c) => c.startsWith('clipboard:')));
+    pass('clipboard fallback when primary share open fails');
   }
 
   console.log(`\n=== ${passed} passed ===\n`);

@@ -94,10 +94,9 @@ const gestureSrc = read(gesturePath);
   pass('Add via invite is share deep-link (B/C join once via Telegram, not duplicate slots)');
 }
 
-// 4. Button works after returning WHO from WHAT/CONFIRM — no transition gate on invite
+// 4. Button works after returning WHO from WHAT — no transition gate on invite
 {
   assert.match(flowSrc, /completeWhatToWho/);
-  assert.match(flowSrc, /handleConfirmBack/);
   const inviteBlock = flowSrc.slice(
     flowSrc.indexOf('const handleInviteMore = useCallback'),
     flowSrc.indexOf('const handleSendContextChange'),
@@ -105,7 +104,19 @@ const gestureSrc = read(gesturePath);
   assert.doesNotMatch(inviteBlock, /screenTransitionRef\.current\) return/);
   assert.match(whoSrc, /data-gesture-exclude/);
   assert.match(gestureSrc, /GESTURE_EXCLUDE_SELECTOR/);
-  pass('Invite works after WHAT/CONFIRM return (no transition gate; gesture-exclude)');
+  pass('Invite works after returning from WHAT (no transition gate)');
+}
+
+// 4b. Button works after returning from CONFIRM
+{
+  assert.match(flowSrc, /handleConfirmBack/);
+  const inviteBlock = flowSrc.slice(
+    flowSrc.indexOf('const handleInviteMore = useCallback'),
+    flowSrc.indexOf('const handleSendContextChange'),
+  );
+  assert.doesNotMatch(inviteBlock, /if \(phase !== 'selectingTarget'\)/);
+  assert.doesNotMatch(inviteBlock, /confirmActive/);
+  pass('Invite works after returning from CONFIRM');
 }
 
 // 5. Not blocked by NotificationOwner / chain flags
@@ -121,7 +132,7 @@ const gestureSrc = read(gesturePath);
   );
   assert.doesNotMatch(inviteBlock, /startupHold/);
   assert.doesNotMatch(inviteBlock, /overlayInputLocked/);
-  pass('Invite not blocked by NotificationOwner transition flags');
+  pass('NotificationOwner transitions do not block invite');
 }
 
 // 6. Pointer / stacking fix — body above gesture zone; zone starts zero-height
@@ -138,20 +149,34 @@ const gestureSrc = read(gesturePath);
     whoSrc,
     /gestureZoneInsetBottom[\s\S]*?Math\.max\(window\.innerHeight,\s*1\)/,
   );
-  pass('Gesture zone cannot cover friend/invite list (z-index 12 body + safe inset)');
+  assert.match(whoSrc, /onPointerDown=\{\(\) => logInvitePointer\('pointerdown'\)\}/);
+  assert.match(whoSrc, /logInvitePointer\('click'\)/);
+  pass('Click reaches invite handler (pointer/click diag + stacking)');
 }
 
-// 7. Share open has Telegram WebView fallbacks (not window.open alone)
+// 7. Handler calls invite/share + WebView fallbacks
 {
   assert.match(shareSrc, /export function openTelegramShareLink/);
   assert.match(shareSrc, /openTelegramLink/);
   assert.match(shareSrc, /openLink/);
   assert.match(shareSrc, /clickHiddenShareAnchor/);
-  assert.match(shareSrc, /WHO_INVITE_DIAG|WhoInviteMoreDiag|shareMethod/);
-  pass('Share open uses openTelegramLink → openLink → anchor (WebView-safe)');
+  assert.match(flowSrc, /shareInstantBanInviteMore\(/);
+  pass('Handler calls invite/share; primary→fallback open path present');
 }
 
-// 8. Share helpers exported for invite path
+// 8. Fallback executes if primary share fails + visible failure (never silent)
+{
+  assert.match(shareSrc, /finalOutcome: 'copied'/);
+  assert.match(shareSrc, /finalOutcome: 'failed'/);
+  assert.match(shareSrc, /copyFallback\(shareText\)/);
+  assert.match(flowSrc, /setWhoInviteToast\(/);
+  assert.match(flowSrc, /Не удалось открыть приглашение/);
+  assert.match(flowSrc, /Ссылка скопирована/);
+  assert.match(flowSrc, /data-who-invite-toast/);
+  pass('Fallback executes if primary share fails; failure is visible');
+}
+
+// 9. Share helpers exported for invite path
 {
   assert.match(shareSrc, /export function shareInstantBanInviteMore/);
   assert.match(shareSrc, /export function openTelegramShareLink/);
