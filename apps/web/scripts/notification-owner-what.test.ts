@@ -44,6 +44,11 @@ function toWhat() {
   dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
 }
 
+function toConfirm() {
+  toWhat();
+  dispatchNotificationOwnerBootLobby({ type: 'OPEN_CONFIRM' });
+}
+
 function toLegacyConfirm() {
   toWhat();
   dispatchNotificationOwnerBootLobby({ type: 'LEAVE_WHAT_FOR_LEGACY_FLOW' });
@@ -109,17 +114,17 @@ const providersSrc = read(providersPath);
   pass('BOOT rejects OPEN_WHAT');
 }
 
-// 3. WHAT → CONFIRM via LEAVE_WHAT_FOR_LEGACY_FLOW
+// 3. WHAT → CONFIRM via OPEN_CONFIRM
 {
   toWhat();
-  const leave = reduceNotificationOwnerBootLobby(
+  const openConfirm = reduceNotificationOwnerBootLobby(
     getNotificationOwnerBootLobbyState(),
-    { type: 'LEAVE_WHAT_FOR_LEGACY_FLOW' },
+    { type: 'OPEN_CONFIRM' },
   );
-  assert.equal(leave.rejected, null);
-  assert.equal(leave.state.presentation.kind, 'LEGACY_FLOW');
+  assert.equal(openConfirm.rejected, null);
+  assert.equal(openConfirm.state.presentation.kind, 'CONFIRM');
   const surf = resolveSendFlowSurfaceExclusivity({
-    ownerKind: 'LEGACY_FLOW',
+    ownerKind: 'CONFIRM',
     phase: 'confirming',
   });
   assert.equal(surf.confirm, true);
@@ -131,7 +136,7 @@ const providersSrc = read(providersPath);
 
 // 4. CONFIRM → WHAT via OPEN_WHAT
 {
-  toLegacyConfirm();
+  toConfirm();
   const reopen = reduceNotificationOwnerBootLobby(
     getNotificationOwnerBootLobbyState(),
     { type: 'OPEN_WHAT' },
@@ -160,15 +165,18 @@ const providersSrc = read(providersPath);
   pass('Lobby CTA → WHO → select → WHAT uses OPEN_WHAT');
 }
 
-// 6. handleWhatSubmit leaves WHAT before confirming
+// 6. handleWhatSubmit opens CONFIRM via OPEN_CONFIRM
 {
   const idx = instantBanSrc.indexOf('const handleWhatSubmit');
   const end = instantBanSrc.indexOf('const handleWhatBack', idx);
   const body = instantBanSrc.slice(idx, end);
-  const leaveIdx = body.indexOf('LEAVE_WHAT_FOR_LEGACY_FLOW');
-  const phaseIdx = body.indexOf("setPhase('confirming')");
-  assert.ok(leaveIdx >= 0 && phaseIdx > leaveIdx);
-  pass('WHAT → CONFIRM dispatches LEAVE_WHAT_FOR_LEGACY_FLOW before confirming');
+  const openIdx = body.indexOf('OPEN_CONFIRM');
+  const phaseIdx = body.indexOf(
+    "setPhase('confirming', 'notification-owner-confirm-projection')",
+  );
+  assert.ok(openIdx >= 0 && phaseIdx > openIdx);
+  assert.doesNotMatch(body, /LEAVE_WHAT_FOR_LEGACY_FLOW/);
+  pass('WHAT → CONFIRM dispatches OPEN_CONFIRM before confirming projection');
 }
 
 // 7. handleConfirmBack routes through OPEN_WHAT

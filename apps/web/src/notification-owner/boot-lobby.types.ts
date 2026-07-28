@@ -1,7 +1,6 @@
 /**
- * NotificationOwner — BOOT / LOBBY / WHO / WHAT macro ownership.
- * LEGACY_FLOW is a non-rendering handoff so owner does not project Lobby/WHO/WHAT
- * while InstantBanFlow owns CONFIRM (and remaining legacy send-flow surfaces).
+ * NotificationOwner — BOOT / LOBBY / WHO / WHAT / CONFIRM macro ownership.
+ * LEGACY_FLOW remains for any later unmigrated handoffs (not CONFIRM).
  */
 
 export type BootLobbyPresentation =
@@ -9,7 +8,8 @@ export type BootLobbyPresentation =
   | { kind: 'LOBBY'; mode: 'full' }
   | { kind: 'WHO'; mode: 'selecting-target' }
   | { kind: 'WHAT'; mode: 'composing-ban' }
-  /** Neutral — no Lobby/WHO/WHAT projection; legacy InstantBanFlow owns CONFIRM paint. */
+  | { kind: 'CONFIRM'; mode: 'confirming' }
+  /** Neutral — reserved for later unmigrated handoffs. Not used for CONFIRM. */
   | { kind: 'LEGACY_FLOW'; mode: 'non-rendering' };
 
 export type NotificationOwnerBootLobbyState = {
@@ -21,12 +21,15 @@ export type NotificationOwnerBootLobbyInput =
   | { type: 'OPEN_WHO' }
   | { type: 'CLOSE_WHO' }
   | { type: 'OPEN_WHAT' }
+  | { type: 'OPEN_CONFIRM' }
   | { type: 'RESET_TO_LOBBY' }
   /**
-   * @deprecated Prefer OPEN_WHAT for WHO → WHAT. Kept for WHO → CONFIRM skip-WHAT.
+   * @deprecated Prefer OPEN_WHAT / OPEN_CONFIRM. Kept for any remaining skip paths.
    */
   | { type: 'LEAVE_WHO_FOR_LEGACY_FLOW' }
-  /** Leave WHAT for legacy CONFIRM (and remaining non-WHAT legacy surfaces). */
+  /**
+   * @deprecated Prefer OPEN_CONFIRM for WHAT → CONFIRM.
+   */
   | { type: 'LEAVE_WHAT_FOR_LEGACY_FLOW' };
 
 export type NotificationOwnerBootLobbyReduceResult = {
