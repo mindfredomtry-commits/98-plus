@@ -223,7 +223,7 @@ import {
   lockNotificationQueue,
   logOverlayPriority,
 } from '@/lib/overlay-priority';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import {
   getSavedBans,
   saveBan,
