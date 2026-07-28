@@ -771,6 +771,10 @@ export function InstantBanFlow({
   const whoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [whoExitActive, setWhoExitActive] = useState(false);
   const [whoDismissProgress, setWhoDismissProgress] = useState(0);
+  const [whoInviteToast, setWhoInviteToast] = useState<string | null>(null);
+  const whoInviteToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [ctaState, setCtaStateRaw] = useState<LobbyCtaState>(() =>
     activeBanDeepLinkBanId || activeBanUiShellActive
       ? 'hidden'
@@ -6079,9 +6083,59 @@ export function InstantBanFlow({
   }, [setCrossScreenProgressImmediate, stopCrossScreenAnim]);
 
   const handleInviteMore = useCallback(() => {
-    shareInstantBanInviteMore(user?.username ?? null);
-    haptic('light');
-  }, [user?.username, haptic]);
+    // WHO invite is Telegram share-to-add-friends — no owner/transition guards.
+    // Temporary diagnostics for the pre-existing dead-button blocker.
+    const ownerKind = getNotificationOwnerBootLobbyState().presentation.kind;
+    const selectedIds = selectedUser
+      ? [selectedUser.userId ?? selectedUser.id ?? selectedUser.username ?? null]
+      : [];
+    const diag = shareInstantBanInviteMore(user?.username ?? null);
+    console.info('[98+] WHO_INVITE_HANDLER', {
+      fired: true,
+      earlyReturnGuard: null,
+      phase,
+      ownerKind,
+      screenTransition: screenTransitionRef.current,
+      selectedRecipientIds: selectedIds,
+      selectedCount: selectedIds.length,
+      actionPending: Boolean(screenTransitionRef.current),
+      chainTransitioning: notificationChainTransitioning,
+      shareApiCalled: true,
+      shareApiResult: diag.shareMethod,
+      primaryMethod: diag.primaryMethod,
+      fallbackUsed: diag.fallbackUsed,
+      finalOutcome: diag.finalOutcome,
+      shareUsername: diag.username,
+      linkPreview: diag.linkPreview,
+      disabled: false,
+    });
+    if (diag.finalOutcome === 'opened') {
+      haptic('light');
+      return;
+    }
+    // Never fail silently — surface toast (copy recovery or hard failure).
+    if (whoInviteToastTimerRef.current) {
+      clearTimeout(whoInviteToastTimerRef.current);
+      whoInviteToastTimerRef.current = null;
+    }
+    if (diag.finalOutcome === 'copied') {
+      setWhoInviteToast('Ссылка скопирована — вставь в чат');
+      haptic('medium');
+    } else {
+      setWhoInviteToast('Не удалось открыть приглашение');
+      haptic('heavy');
+    }
+    whoInviteToastTimerRef.current = setTimeout(() => {
+      whoInviteToastTimerRef.current = null;
+      setWhoInviteToast(null);
+    }, 3200);
+  }, [
+    user?.username,
+    haptic,
+    phase,
+    selectedUser,
+    notificationChainTransitioning,
+  ]);
 
   const handleSendContextChange = useCallback(
     (ctx: { payoffPhase: string; sendTriggered: boolean }) => {
@@ -8517,6 +8571,16 @@ export function InstantBanFlow({
           ) : (
             lobbyDeeplinkToast
           )}
+        </div>
+      ) : null}
+      {whoInviteToast ? (
+        <div
+          className="lobby-deeplink-toast"
+          role="alert"
+          aria-live="assertive"
+          data-who-invite-toast=""
+        >
+          {whoInviteToast}
         </div>
       ) : null}
 

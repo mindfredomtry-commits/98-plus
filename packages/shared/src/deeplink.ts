@@ -3,6 +3,10 @@ import {
   parseReplyStartParamRest,
   type ReplyStartParamPreview,
 } from './reply-preview';
+import {
+  TELEGRAM_BOT_USERNAME,
+  TELEGRAM_BOT_USERNAME_LEGACY_REJECTED,
+} from './constants';
 
 export type DeepLinkAction =
   | { type: 'invite'; username: string }
@@ -17,6 +21,44 @@ export type DeepLinkAction =
   | { type: 'active'; banId: string };
 
 export type { ReplyStartParamPreview };
+
+const LEGACY_REJECTED = new Set(
+  TELEGRAM_BOT_USERNAME_LEGACY_REJECTED.map((u) => u.toLowerCase()),
+);
+
+/**
+ * Resolve bot username for t.me links.
+ * Strips leading @, preserves casing/underscores, never emits legacy wrong names.
+ */
+export function normalizeTelegramBotUsername(
+  raw?: string | null,
+): string {
+  const cleaned = (raw ?? '').replace(/^@+/, '').trim();
+  if (!cleaned || LEGACY_REJECTED.has(cleaned.toLowerCase())) {
+    return TELEGRAM_BOT_USERNAME;
+  }
+  return cleaned;
+}
+
+/**
+ * Bot /start invite URL — canonical BotFather username + encoded payload.
+ *
+ * buildTelegramInviteUrl('u_justDim')
+ * → https://t.me/Ninety_eight_pluss_Bot?start=u_justDim
+ */
+export function buildTelegramInviteUrl(
+  startPayload: string,
+  botUsername?: string | null,
+): string {
+  const bot = normalizeTelegramBotUsername(botUsername);
+  if (bot.includes('@')) {
+    throw new Error('Telegram bot username must not include @ in URL path');
+  }
+  if (LEGACY_REJECTED.has(bot.toLowerCase())) {
+    throw new Error(`Rejected legacy Telegram bot username: ${bot}`);
+  }
+  return `https://t.me/${bot}?start=${encodeURIComponent(startPayload)}`;
+}
 
 /** Read signed start_param from Telegram WebApp initData string */
 export function readStartParamFromInitData(initData?: string | null): string | null {
@@ -132,7 +174,7 @@ export function buildMiniAppUrl(
   botUsername: string,
   startParam: string,
 ): string {
-  const bot = botUsername.replace('@', '');
+  const bot = normalizeTelegramBotUsername(botUsername);
   return `https://t.me/${bot}?startapp=${encodeURIComponent(startParam)}`;
 }
 
@@ -141,8 +183,7 @@ export function buildBotStartUrl(
   botUsername: string,
   startParam: string,
 ): string {
-  const bot = botUsername.replace('@', '');
-  return `https://t.me/${bot}?start=${encodeURIComponent(startParam)}`;
+  return buildTelegramInviteUrl(startParam, botUsername);
 }
 
 /**
@@ -154,7 +195,7 @@ export function buildShareUrl(
   startParam: string,
   messageBody: string,
 ): string {
-  const botStart = buildBotStartUrl(botUsername, startParam);
+  const botStart = buildTelegramInviteUrl(startParam, botUsername);
   const shareText = messageBody.trim()
     ? `${messageBody.trim()}\n\n${botStart}`
     : botStart;
