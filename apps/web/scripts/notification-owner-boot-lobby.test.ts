@@ -83,6 +83,7 @@ console.log('\n=== BOOT/LOBBY OWNERSHIP SLICE ===\n');
   assert.equal(plan.showLobbyBootLogoShell, true);
   assert.equal(plan.mountInstantBanFlowWhenArenaVisible, true);
   assert.equal(plan.showBottomNavWhenIntroComplete, false);
+  assert.equal(plan.ownerWhoActive, false);
   pass('Under BOOT, visual plan includes LobbyBootLogoShell path');
 }
 
@@ -92,7 +93,21 @@ console.log('\n=== BOOT/LOBBY OWNERSHIP SLICE ===\n');
   assert.equal(plan.showLobbyBootLogoShell, false);
   assert.equal(plan.mountInstantBanFlowWhenArenaVisible, true);
   assert.equal(plan.showBottomNavWhenIntroComplete, true);
+  assert.equal(plan.ownerWhoActive, false);
   pass('Under LOBBY, visual plan mounts InstantBanFlow when arena visible');
+}
+
+// Visual plan — WHO (shell same as LOBBY; InstantBanFlow paints WhoOverlay)
+{
+  const plan = planBootLobbyVisuals({
+    kind: 'WHO',
+    mode: 'selecting-target',
+  });
+  assert.equal(plan.showLobbyBootLogoShell, false);
+  assert.equal(plan.mountInstantBanFlowWhenArenaVisible, true);
+  assert.equal(plan.showBottomNavWhenIntroComplete, true);
+  assert.equal(plan.ownerWhoActive, true);
+  pass('Under WHO, visual plan keeps InstantBanFlow path (no .np-* shell)');
 }
 
 const pageSrc = read(pagePath);

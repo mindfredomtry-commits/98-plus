@@ -1,5 +1,5 @@
 /**
- * NotificationOwner public surface — BOOT/LOBBY ownership slice.
+ * NotificationOwner public surface — BOOT/LOBBY/WHO ownership slice.
  * No presentation renderer. No .np-* UI.
  */
 
@@ -20,4 +20,5 @@ export {
 export {
   planBootLobbyVisuals,
   useNotificationOwnerBootLobbyBridge,
+  useNotificationOwnerWhoProjection,
 } from './boot-lobby.adapter';

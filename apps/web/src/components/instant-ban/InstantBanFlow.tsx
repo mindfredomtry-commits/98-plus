@@ -84,6 +84,11 @@ import {
 } from '@/lib/post-notification-presentation-release';
 import { decideLobbyClaimFromRuntime } from '@/lib/lobby-claim-from-runtime';
 import { planLobbyBansOpenNavigation } from '@/lib/lobby-bans-open-navigation';
+import {
+  dispatchNotificationOwnerBootLobby,
+  getNotificationOwnerBootLobbyState,
+  useNotificationOwnerWhoProjection,
+} from '@/notification-owner';
 import { logBootGate } from '@/lib/boot-gate-diag';
 import { safeResolveReceiverTarget } from '@/lib/resolve-receiver';
 import { resolveDevSendTarget } from '@/lib/dev-receiver';
@@ -641,6 +646,37 @@ export function InstantBanFlow({
     },
     [setComposeFlowState],
   );
+
+  /**
+   * WHO ownership: NotificationOwner is authority for LOBBY ↔ WHO.
+   * Legacy `phase === 'selectingTarget'` is a one-way projection of owner WHO.
+   * WHO→WHAT sets leaveWhoForLegacyRef before LEAVE_WHO so Lobby does not flash.
+   */
+  const leaveWhoForLegacyRef = useRef(false);
+  const finishWhoDismissRef = useRef<() => void>(() => {});
+  const applyWhoPhaseFromOwner = useCallback(() => {
+    leaveWhoForLegacyRef.current = false;
+    setPhase('selectingTarget', 'notification-owner-who-projection');
+  }, [setPhase]);
+  const applyLobbyFromWhoOwner = useCallback(() => {
+    finishWhoDismissRef.current();
+  }, []);
+  useNotificationOwnerWhoProjection(
+    phase,
+    applyWhoPhaseFromOwner,
+    applyLobbyFromWhoOwner,
+    leaveWhoForLegacyRef,
+  );
+
+  /** Clear owner WHO before legacy idle resets so projection does not re-open WHO. */
+  const releaseOwnerWhoToLobby = useCallback(() => {
+    if (getNotificationOwnerBootLobbyState().presentation.kind !== 'WHO') {
+      return;
+    }
+    leaveWhoForLegacyRef.current = false;
+    dispatchNotificationOwnerBootLobby({ type: 'RESET_TO_LOBBY' });
+  }, []);
+
   useLayoutEffect(() => {
     setComposeFlowState({ phase, source: 'instant-ban-mount' });
   }, []);
@@ -1595,14 +1631,22 @@ export function InstantBanFlow({
   const completeWhoToWhat = useCallback(() => {
     screenTransitionRef.current = null;
     setScreenTransition(null);
-    setPhase('composingBan');
+    // Advance legacy phase BEFORE leaving owner WHO so projection does not
+    // treat LOBBY + selectingTarget as a dismiss (no Lobby flash under WHAT).
+    leaveWhoForLegacyRef.current = true;
+    flushSync(() => {
+      setPhase('composingBan', 'who-to-what-legacy');
+    });
     setCrossScreenProgressImmediate(1);
-  }, [setCrossScreenProgressImmediate]);
+    dispatchNotificationOwnerBootLobby({ type: 'LEAVE_WHO_FOR_LEGACY_FLOW' });
+  }, [setCrossScreenProgressImmediate, setPhase]);
 
   const completeWhatToWho = useCallback(() => {
     screenTransitionRef.current = null;
     setScreenTransition(null);
-    setPhase('selectingTarget');
+    leaveWhoForLegacyRef.current = false;
+    // Owner re-claims WHO; phase projection applies selectingTarget.
+    dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
     setCrossScreenProgressImmediate(0);
   }, [setCrossScreenProgressImmediate]);
 
@@ -1922,11 +1966,30 @@ export function InstantBanFlow({
       const entryPhase = sendEntryPhaseRef.current;
       sendEntryPhaseRef.current = null;
       if (entryPhase) {
-        setPhase(entryPhase);
-        if (entryPhase === 'composingBan') {
-          setCrossScreenProgressImmediate(1);
+        if (entryPhase === 'selectingTarget') {
+          leaveWhoForLegacyRef.current = false;
+          dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
+        } else {
+          leaveWhoForLegacyRef.current = true;
+          if (
+            getNotificationOwnerBootLobbyState().presentation.kind === 'WHO'
+          ) {
+            dispatchNotificationOwnerBootLobby({
+              type: 'LEAVE_WHO_FOR_LEGACY_FLOW',
+            });
+          }
+          setPhase(entryPhase);
+          if (entryPhase === 'composingBan') {
+            setCrossScreenProgressImmediate(1);
+          }
         }
       } else if (incomingReplyBanId || replyComposeActive) {
+        leaveWhoForLegacyRef.current = true;
+        if (getNotificationOwnerBootLobbyState().presentation.kind === 'WHO') {
+          dispatchNotificationOwnerBootLobby({
+            type: 'LEAVE_WHO_FOR_LEGACY_FLOW',
+          });
+        }
         if (phase !== 'composingBan') {
           setPhase('composingBan');
         } else {
@@ -1934,7 +1997,8 @@ export function InstantBanFlow({
         }
         setCrossScreenProgressImmediate(1);
       } else {
-        setPhase('selectingTarget');
+        leaveWhoForLegacyRef.current = false;
+        dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
       }
       setCtaState('hidden');
     }
@@ -2891,7 +2955,8 @@ export function InstantBanFlow({
         clearWhoPanelEnterTimer();
         setCtaState('hidden');
         onStartSend();
-        setPhase('selectingTarget');
+        leaveWhoForLegacyRef.current = false;
+        dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
         return false;
       }
 
@@ -2962,7 +3027,18 @@ export function InstantBanFlow({
       }
 
       onStartSend();
-      setPhase(targetPhase);
+      if (targetPhase === 'selectingTarget') {
+        leaveWhoForLegacyRef.current = false;
+        dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
+      } else {
+        leaveWhoForLegacyRef.current = true;
+        if (getNotificationOwnerBootLobbyState().presentation.kind === 'WHO') {
+          dispatchNotificationOwnerBootLobby({
+            type: 'LEAVE_WHO_FOR_LEGACY_FLOW',
+          });
+        }
+        setPhase(targetPhase);
+      }
 
       return true;
     },
@@ -2972,6 +3048,7 @@ export function InstantBanFlow({
       onStartSend,
       safeFriends,
       setCrossScreenProgressImmediate,
+      setPhase,
       user?.id,
     ],
   );
@@ -3105,12 +3182,13 @@ export function InstantBanFlow({
       setBansTab('yours');
       setSelectedBanForDetails(ban);
       setBansOverlayOpen(true);
+      releaseOwnerWhoToLobby();
       setPhase('idle');
       setCtaState('hidden');
       onStartSend();
       return true;
     },
-    [onStartSend],
+    [onStartSend, releaseOwnerWhoToLobby],
   );
 
   const prepareLobbyBaseAfterSuccess = useCallback(
@@ -3579,8 +3657,14 @@ export function InstantBanFlow({
     traceSuccessSnapshotCleared('resetSendUiForBansCta');
     sendSnapshotRef.current = null;
     setCtaState('hidden');
+    releaseOwnerWhoToLobby();
     setPhase('idle');
-  }, [logReplyQueueHandoffDiag, setCrossScreenProgressImmediate, stopCrossScreenAnim]);
+  }, [
+    logReplyQueueHandoffDiag,
+    releaseOwnerWhoToLobby,
+    setCrossScreenProgressImmediate,
+    stopCrossScreenAnim,
+  ]);
 
   const resetSendUiForBansNavigation = useCallback(() => {
     const needsComposeReset =
@@ -4142,6 +4226,7 @@ export function InstantBanFlow({
         setComposeExitProgress(0);
         setComposeDismissing(false);
         setCrossScreenProgressImmediate(0);
+        releaseOwnerWhoToLobby();
         setPhase('idle');
 
         if (opts.lobbySource === 'reply-parent-active' && opts.parentActiveBan) {
@@ -5252,7 +5337,8 @@ export function InstantBanFlow({
     setCtaState('exiting');
     setWhoPanelEntering(true);
     onStartSend();
-    setPhase('selectingTarget');
+    leaveWhoForLegacyRef.current = false;
+    dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
 
     ctaExitTimerRef.current = setTimeout(() => {
       ctaExitTimerRef.current = null;
@@ -5320,7 +5406,8 @@ export function InstantBanFlow({
     sendSnapshotRef.current = null;
     setCrossScreenProgressImmediate(0);
     onStartSend();
-    setPhase('selectingTarget');
+    leaveWhoForLegacyRef.current = false;
+    dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
   }, [
     clearBansCtaQueueSuppress,
     clearCtaExitTimer,
@@ -5821,12 +5908,13 @@ export function InstantBanFlow({
     setBanText('');
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
     setSendError(null);
-    setPhase('idle');
+    setPhase('idle', 'notification-owner-who-close-projection');
     beginCtaSpringIn();
     if (process.env.NODE_ENV === 'development') {
       console.log('[who-dismiss-set-phase-idle]');
     }
-  }, [beginCtaSpringIn, setCrossScreenProgressImmediate, stopCrossScreenAnim]);
+  }, [beginCtaSpringIn, setCrossScreenProgressImmediate, stopCrossScreenAnim, setPhase]);
+  finishWhoDismissRef.current = finishWhoDismiss;
 
   const handleWhoDismissDragProgress = useCallback((progress: number) => {
     setWhoDismissProgress(progress);
@@ -5843,7 +5931,8 @@ export function InstantBanFlow({
     }
     if (screenTransitionRef.current) return;
     if (phase !== 'selectingTarget') return;
-    finishWhoDismiss();
+    leaveWhoForLegacyRef.current = false;
+    dispatchNotificationOwnerBootLobby({ type: 'CLOSE_WHO' });
     if (process.env.NODE_ENV === 'development') {
       requestAnimationFrame(() => {
         console.log('[who-dismiss-phase-after]', {
@@ -5851,7 +5940,7 @@ export function InstantBanFlow({
         });
       });
     }
-  }, [finishWhoDismiss, phase]);
+  }, [phase]);
 
 
   useEffect(() => {
@@ -5945,6 +6034,7 @@ export function InstantBanFlow({
       setSelectedUser(null);
       setBanText('');
       setDurationMinutes(DEFAULT_DURATION_MINUTES);
+      releaseOwnerWhoToLobby();
       setPhase('idle');
       setBansOverlayOpen(true);
       setCrossScreenProgressImmediate(0);
@@ -6042,6 +6132,7 @@ export function InstantBanFlow({
       setCrossScreenProgressImmediate(0);
       setBansOverlayOpen(false);
       setSelectedBanForDetails(null);
+      releaseOwnerWhoToLobby();
       setPhase('idle');
       setCtaState('hidden');
       setLowInfluenceRevealed(opts.blockReason === 'low-energy');
