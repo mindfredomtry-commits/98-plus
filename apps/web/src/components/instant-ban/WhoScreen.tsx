@@ -71,7 +71,10 @@ export function WhoOverlay({
 }: WhoOverlayProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
-  const [gestureZoneInsetBottom, setGestureZoneInsetBottom] = useState(0);
+  /** Start with zero-height zone (full inset) so we never cover the friend list before measure. */
+  const [gestureZoneInsetBottom, setGestureZoneInsetBottom] = useState(() =>
+    typeof window !== 'undefined' ? Math.max(window.innerHeight, 1) : 9999,
+  );
   const commitRef = useRef(false);
   const dismissCompletingRef = useRef(false);
   const dismissZoneGestureRef = useRef(false);
@@ -554,6 +557,20 @@ function WhoFriendList({ friends, onSelect, onInviteMore }: ListProps) {
     [friends],
   );
 
+  const logInvitePointer = useCallback(
+    (event: 'pointerdown' | 'click', extra?: Record<string, unknown>) => {
+      console.info('[98+] WHO_INVITE_DIAG', {
+        event,
+        friendsCount: enrichedFriends.length,
+        friendIds: enrichedFriends.map(
+          (f) => f.userId ?? f.id ?? f.username ?? null,
+        ),
+        ...extra,
+      });
+    },
+    [enrichedFriends],
+  );
+
   return (
     <div className="instant-ban-who-list">
       {enrichedFriends.map((friend, i) => (
@@ -566,7 +583,14 @@ function WhoFriendList({ friends, onSelect, onInviteMore }: ListProps) {
       <button
         type="button"
         className="instant-ban-who-item instant-ban-who-item--invite"
-        onClick={onInviteMore}
+        data-gesture-exclude=""
+        data-who-invite-more=""
+        aria-label="Кому ещё запретишь?"
+        onPointerDown={() => logInvitePointer('pointerdown')}
+        onClick={() => {
+          logInvitePointer('click');
+          onInviteMore();
+        }}
       >
         <span className="instant-ban-who-item__plus" aria-hidden>
           +

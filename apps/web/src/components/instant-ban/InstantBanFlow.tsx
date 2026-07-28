@@ -6079,9 +6079,36 @@ export function InstantBanFlow({
   }, [setCrossScreenProgressImmediate, stopCrossScreenAnim]);
 
   const handleInviteMore = useCallback(() => {
-    shareInstantBanInviteMore(user?.username ?? null);
+    // WHO invite is Telegram share-to-add-friends — no owner/transition guards.
+    // Temporary diagnostics for the pre-existing dead-button blocker.
+    const ownerKind = getNotificationOwnerBootLobbyState().presentation.kind;
+    const selectedIds = selectedUser
+      ? [selectedUser.userId ?? selectedUser.id ?? selectedUser.username ?? null]
+      : [];
+    const diag = shareInstantBanInviteMore(user?.username ?? null);
+    console.info('[98+] WHO_INVITE_HANDLER', {
+      fired: true,
+      earlyReturnGuard: null,
+      phase,
+      ownerKind,
+      screenTransition: screenTransitionRef.current,
+      selectedRecipientIds: selectedIds,
+      selectedCount: selectedIds.length,
+      actionPending: Boolean(screenTransitionRef.current),
+      chainTransitioning: notificationChainTransitioning,
+      shareMethod: diag.shareMethod,
+      shareUsername: diag.username,
+      linkPreview: diag.linkPreview,
+      disabled: false,
+    });
     haptic('light');
-  }, [user?.username, haptic]);
+  }, [
+    user?.username,
+    haptic,
+    phase,
+    selectedUser,
+    notificationChainTransitioning,
+  ]);
 
   const handleSendContextChange = useCallback(
     (ctx: { payoffPhase: string; sendTriggered: boolean }) => {

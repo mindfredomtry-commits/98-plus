@@ -8,10 +8,13 @@ import type { DeepLinkAction } from '@98plus/shared';
 const BOT =
   process.env.NEXT_PUBLIC_BOT_USERNAME?.replace('@', '') ?? 'ninety8plus_bot';
 
-function getTelegramWebApp() {
-  return window.Telegram?.WebApp as
-    | { openTelegramLink?: (url: string) => void }
-    | undefined;
+type TelegramShareWebApp = {
+  openTelegramLink?: (url: string) => void;
+  openLink?: (url: string, options?: { try_instant_view?: boolean }) => void;
+};
+
+function getTelegramWebApp(): TelegramShareWebApp | undefined {
+  return window.Telegram?.WebApp as TelegramShareWebApp | undefined;
 }
 
 /** Telegram share — text only (link lives in message body, no preview duplicate). */
@@ -23,13 +26,75 @@ function copyFallback(text: string) {
   void navigator.clipboard?.writeText(text);
 }
 
-function openTelegramShareLink(link: string) {
+function clickHiddenShareAnchor(link: string): void {
+  const doc = window.document;
+  const a = doc.createElement('a');
+  a.href = link;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.setAttribute('aria-hidden', 'true');
+  a.style.cssText =
+    'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
+  doc.body.appendChild(a);
+  a.click();
+  window.setTimeout(() => {
+    try {
+      a.remove();
+    } catch {
+      /* test mocks / detached nodes */
+    }
+  }, 200);
+}
+
+export type OpenTelegramShareResult =
+  | 'openTelegramLink'
+  | 'openLink'
+  | 'anchor'
+  | 'windowOpen'
+  | 'copied'
+  | 'failed';
+
+/**
+ * Open a t.me share/url link inside Telegram Mini App.
+ * Prefer openTelegramLink; fall back to openLink / hidden anchor / window.open.
+ * window.open alone is often blocked in Telegram WebView → "nothing happens".
+ */
+export function openTelegramShareLink(link: string): OpenTelegramShareResult {
   const tg = getTelegramWebApp();
+
   if (tg?.openTelegramLink) {
-    tg.openTelegramLink(link);
-    return;
+    try {
+      tg.openTelegramLink(link);
+      return 'openTelegramLink';
+    } catch (err) {
+      console.warn('[98+] openTelegramLink failed', err);
+    }
   }
-  window.open(link, '_blank', 'noopener,noreferrer');
+
+  if (tg?.openLink) {
+    try {
+      tg.openLink(link, { try_instant_view: false });
+      return 'openLink';
+    } catch (err) {
+      console.warn('[98+] openLink failed', err);
+    }
+  }
+
+  try {
+    clickHiddenShareAnchor(link);
+    return 'anchor';
+  } catch (err) {
+    console.warn('[98+] share anchor click failed', err);
+  }
+
+  try {
+    const opened = window.open(link, '_blank', 'noopener,noreferrer');
+    if (opened) return 'windowOpen';
+  } catch (err) {
+    console.warn('[98+] window.open share failed', err);
+  }
+
+  return 'failed';
 }
 
 /**
@@ -52,7 +117,7 @@ export function handleShareChallenge(
 export function shareDeepLink(action: DeepLinkAction, text: string) {
   const startParam = buildStartParam(action);
   const link = buildShareUrl(BOT, startParam, text);
-  openTelegramShareLink(link);
+  return openTelegramShareLink(link);
 }
 
 export const LOBBY_ASK_SHARE_MESSAGE = '🚫 Запретите мне это в 98+';
@@ -73,22 +138,36 @@ export function shareLobbyAskInvite(username: string | null | undefined): void {
 export const INSTANT_BAN_INVITE_MORE_MESSAGE =
   'Заходи в 98+ — будем запрещать друг другу';
 
-/** WhoScreen — invite more people into your ban circle. */
+export type WhoInviteMoreDiag = {
+  username: string | null;
+  shareMethod: OpenTelegramShareResult;
+  linkPreview: string;
+};
+
+/**
+ * WhoScreen — invite more people into your ban circle (Telegram share picker).
+ * Returns diagnostics for temporary WHO invite instrumentation.
+ */
 export function shareInstantBanInviteMore(
   username: string | null | undefined,
-): void {
-  const clean = username?.replace('@', '').trim();
+): WhoInviteMoreDiag {
+  const clean = username?.replace('@', '').trim() || null;
+  let link: string;
   if (clean) {
-    shareDeepLink(
-      { type: 'invite', username: clean },
-      INSTANT_BAN_INVITE_MORE_MESSAGE,
+    const startParam = buildStartParam({ type: 'invite', username: clean });
+    link = buildShareUrl(BOT, startParam, INSTANT_BAN_INVITE_MORE_MESSAGE);
+  } else {
+    const botLink = `https://t.me/${BOT}`;
+    link = telegramShareUrl(
+      `${INSTANT_BAN_INVITE_MORE_MESSAGE}\n\n${botLink}`,
     );
-    return;
   }
-  const botLink = `https://t.me/${BOT}`;
-  openTelegramShareLink(
-    telegramShareUrl(`${INSTANT_BAN_INVITE_MORE_MESSAGE}\n\n${botLink}`),
-  );
+  const shareMethod = openTelegramShareLink(link);
+  return {
+    username: clean,
+    shareMethod,
+    linkPreview: link.slice(0, 120),
+  };
 }
 
 /**
@@ -122,10 +201,12 @@ export function shareChallengeAndWait(
     document.addEventListener('visibilitychange', onVisible);
 
     const link = telegramShareUrl(shareText);
-    const tg = getTelegramWebApp();
-    if (tg?.openTelegramLink) {
-      tg.openTelegramLink(link);
+    const method = openTelegramShareLink(link);
+    if (method === 'openTelegramLink' || method === 'openLink' || method === 'anchor' || method === 'windowOpen') {
       fallback = window.setTimeout(() => finish('shared'), 120_000);
+    } else if (method === 'failed') {
+      copyFallback(shareText);
+      finish('copied');
     } else {
       copyFallback(shareText);
       finish('copied');
