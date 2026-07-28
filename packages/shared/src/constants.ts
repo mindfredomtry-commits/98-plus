@@ -29,6 +29,19 @@ export const ONBOARDING_SUGGESTION_CHIPS = [
 /** Placeholder username for Telegram share picker (token claim is authoritative) */
 export const SHARE_PICKER_USERNAME = 'share';
 
+/**
+ * Confirmed BotFather username — single canonical source for t.me invite/share links.
+ * Do not use legacy aliases such as ninety8plus_bot.
+ */
+export const TELEGRAM_BOT_USERNAME = 'Ninety_eight_pluss_Bot';
+
+/** Known incorrect usernames that must never appear in generated invite URLs. */
+export const TELEGRAM_BOT_USERNAME_LEGACY_REJECTED = [
+  'ninety8plus_bot',
+  'ninety8plusbot',
+] as const;
+
+
 /** @deprecated use BAN_DURATIONS_MINUTES */
 export const BAN_DURATIONS = BAN_DURATIONS_MINUTES;
 export type BanDurationHours = BanDurationMinutes;

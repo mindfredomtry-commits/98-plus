@@ -3,9 +3,14 @@
  * Only uses tg:// and t.me — never auth or external login URLs.
  */
 
-const BOT_DOMAIN =
-  process.env.NEXT_PUBLIC_BOT_USERNAME?.replace('@', '') ??
-  'Ninety_eight_pluss_Bot';
+import {
+  TELEGRAM_BOT_USERNAME,
+  normalizeTelegramBotUsername,
+} from '@98plus/shared';
+
+const BOT_DOMAIN = normalizeTelegramBotUsername(
+  process.env.NEXT_PUBLIC_BOT_USERNAME ?? TELEGRAM_BOT_USERNAME,
+);
 
 const START_PARAM = 'invite';
 

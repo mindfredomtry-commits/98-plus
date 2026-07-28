@@ -3,6 +3,7 @@ import {
   buildShareUrl,
   buildStartParam,
   buildWebAppDirectUrl,
+  normalizeTelegramBotUsername,
   type DeepLinkAction,
 } from '@98plus/shared';
 
@@ -14,10 +15,8 @@ export type BotWebAppButtonMeta = {
 };
 
 export function botUsername(): string {
-  return (
-    process.env.TELEGRAM_BOT_USERNAME ??
-    process.env.NEXT_PUBLIC_BOT_USERNAME ??
-    'ninety8plus_bot'
+  return normalizeTelegramBotUsername(
+    process.env.TELEGRAM_BOT_USERNAME ?? process.env.NEXT_PUBLIC_BOT_USERNAME,
   );
 }
 

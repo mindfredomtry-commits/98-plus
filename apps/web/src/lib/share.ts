@@ -1,12 +1,16 @@
 import {
   buildShareUrl,
   buildStartParam,
+  buildTelegramInviteUrl,
   formatViralBanShareMessage,
+  normalizeTelegramBotUsername,
 } from '@98plus/shared';
 import type { DeepLinkAction } from '@98plus/shared';
 
-const BOT =
-  process.env.NEXT_PUBLIC_BOT_USERNAME?.replace('@', '') ?? 'ninety8plus_bot';
+  /** Canonical bot username via shared normalizer (rejects legacy wrong names). */
+const BOT = normalizeTelegramBotUsername(
+  process.env.NEXT_PUBLIC_BOT_USERNAME,
+);
 
 type TelegramShareWebApp = {
   openTelegramLink?: (url: string) => void;
@@ -166,8 +170,7 @@ function buildInviteMoreShareText(username: string | null): {
   if (username) {
     const startParam = buildStartParam({ type: 'invite', username });
     const link = buildShareUrl(BOT, startParam, INSTANT_BAN_INVITE_MORE_MESSAGE);
-    // buildShareUrl embeds bot start in the share text query; recover message body.
-    const botStart = `https://t.me/${BOT}?start=${encodeURIComponent(startParam)}`;
+    const botStart = buildTelegramInviteUrl(startParam, BOT);
     return {
       link,
       shareText: `${INSTANT_BAN_INVITE_MORE_MESSAGE}\n\n${botStart}`,
