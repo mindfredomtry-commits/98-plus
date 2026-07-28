@@ -86,6 +86,7 @@ console.log('\n=== BOOT/LOBBY OWNERSHIP SLICE ===\n');
   assert.equal(plan.ownerWhoActive, false);
   assert.equal(plan.ownerWhatActive, false);
   assert.equal(plan.ownerConfirmActive, false);
+  assert.equal(plan.ownerSuccessActive, false);
   assert.equal(plan.ownerLegacyFlowActive, false);
   pass('Under BOOT, visual plan includes LobbyBootLogoShell path');
 }
@@ -99,6 +100,7 @@ console.log('\n=== BOOT/LOBBY OWNERSHIP SLICE ===\n');
   assert.equal(plan.ownerWhoActive, false);
   assert.equal(plan.ownerWhatActive, false);
   assert.equal(plan.ownerConfirmActive, false);
+  assert.equal(plan.ownerSuccessActive, false);
   assert.equal(plan.ownerLegacyFlowActive, false);
   pass('Under LOBBY, visual plan mounts InstantBanFlow when arena visible');
 }
@@ -115,6 +117,7 @@ console.log('\n=== BOOT/LOBBY OWNERSHIP SLICE ===\n');
   assert.equal(plan.ownerWhoActive, true);
   assert.equal(plan.ownerWhatActive, false);
   assert.equal(plan.ownerConfirmActive, false);
+  assert.equal(plan.ownerSuccessActive, false);
   assert.equal(plan.ownerLegacyFlowActive, false);
   pass('Under WHO, visual plan keeps InstantBanFlow path (no .np-* shell)');
 }
@@ -130,6 +133,7 @@ console.log('\n=== BOOT/LOBBY OWNERSHIP SLICE ===\n');
   assert.equal(plan.ownerWhoActive, false);
   assert.equal(plan.ownerWhatActive, true);
   assert.equal(plan.ownerConfirmActive, false);
+  assert.equal(plan.ownerSuccessActive, false);
   assert.equal(plan.ownerLegacyFlowActive, false);
   pass('Under WHAT, visual plan keeps InstantBanFlow path (no .np-* shell)');
 }
@@ -145,8 +149,25 @@ console.log('\n=== BOOT/LOBBY OWNERSHIP SLICE ===\n');
   assert.equal(plan.ownerWhoActive, false);
   assert.equal(plan.ownerWhatActive, false);
   assert.equal(plan.ownerConfirmActive, true);
+  assert.equal(plan.ownerSuccessActive, false);
   assert.equal(plan.ownerLegacyFlowActive, false);
   pass('Under CONFIRM, visual plan keeps InstantBanFlow path (no .np-* shell)');
+}
+
+// Visual plan — SUCCESS (no legacy phase; InstantBanFlow SuccessOverlay path)
+{
+  const plan = planBootLobbyVisuals({
+    kind: 'SUCCESS',
+    mode: 'send-success',
+  });
+  assert.equal(plan.showLobbyBootLogoShell, false);
+  assert.equal(plan.mountInstantBanFlowWhenArenaVisible, true);
+  assert.equal(plan.ownerWhoActive, false);
+  assert.equal(plan.ownerWhatActive, false);
+  assert.equal(plan.ownerConfirmActive, false);
+  assert.equal(plan.ownerSuccessActive, true);
+  assert.equal(plan.ownerLegacyFlowActive, false);
+  pass('Under SUCCESS, visual plan keeps InstantBanFlow path (no .np-* shell)');
 }
 
 // Visual plan — LEGACY_FLOW (non-rendering owner; reserved)
@@ -160,6 +181,7 @@ console.log('\n=== BOOT/LOBBY OWNERSHIP SLICE ===\n');
   assert.equal(plan.ownerWhoActive, false);
   assert.equal(plan.ownerWhatActive, false);
   assert.equal(plan.ownerConfirmActive, false);
+  assert.equal(plan.ownerSuccessActive, false);
   assert.equal(plan.ownerLegacyFlowActive, true);
   pass('Under LEGACY_FLOW, visual plan is non-rendering for owner');
 }
