@@ -136,7 +136,9 @@ export async function api<T>(
                   redirectToLobby:
                     data.redirectToLobby === true || res.status !== 402,
                 }
-              : undefined,
+              : typeof data.code === 'string'
+                ? { code: data.code }
+                : undefined,
         );
       }
 

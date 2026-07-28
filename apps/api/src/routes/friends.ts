@@ -5,6 +5,10 @@ import {
   searchFriend,
   touchFriendAfterShare,
 } from '../services/friends.service';
+import {
+  FirstContactError,
+  resolveFirstContact,
+} from '../services/friends-first-contact.service';
 import { touchPresence } from '../services/presence.service';
 import { broadcastToUser } from '../websocket/hub';
 
@@ -29,6 +33,42 @@ friendsRouter.get('/', async (req: AuthRequest, res) => {
   } catch (err) {
     console.error('[friends] GET / failed', err);
     res.json({ friends: [] });
+  }
+});
+
+/**
+ * WHO first-contact v1 — exact @username resolve.
+ * Registered → upsert SocialContact (WHO_FIRST_CONTACT), no BanInvite.
+ * Unregistered → no SocialContact, no BanInvite (client uses invite/share).
+ */
+friendsRouter.post('/first-contact', async (req: AuthRequest, res) => {
+  try {
+    const result = await resolveFirstContact(
+      req.userId!,
+      (req.body as { username?: unknown })?.username,
+    );
+    if (result.status === 'registered') {
+      res.json({
+        status: 'registered',
+        friend: result.friend,
+        alreadyInGraph: result.alreadyInGraph,
+      });
+      return;
+    }
+    res.json({
+      status: 'unregistered',
+      username: result.username,
+    });
+  } catch (err) {
+    if (err instanceof FirstContactError) {
+      res.status(err.status).json({
+        error: err.message,
+        code: err.code,
+      });
+      return;
+    }
+    console.error('[friends] POST /first-contact failed', err);
+    res.status(500).json({ error: 'first-contact failed' });
   }
 });
 

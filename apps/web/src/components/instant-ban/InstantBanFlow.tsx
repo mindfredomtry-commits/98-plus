@@ -239,6 +239,7 @@ import { ArenaLobbyOrb } from './ArenaLobbyOrb';
 import { syncSeedCachedFriendAvatars } from '@/lib/avatar-preload';
 import { enrichFriendsForWho } from '@/lib/friend-avatar-merge';
 import { WhoOverlay } from './WhoScreen';
+import { WhoFirstContactSheet } from './WhoFirstContactSheet';
 import { WhatScreen } from './WhatScreen';
 import { ConfirmScreen } from './ConfirmScreen';
 import { SuccessScreen } from './SuccessScreen';
@@ -246,6 +247,7 @@ import { ArenaLobbyTopNav } from './ArenaLobbyTopNav';
 import { ArenaSettingsPanel } from './ArenaSettingsPanel';
 import { MonetizationSection } from '../monetization/MonetizationSection';
 import { trackProductEvent } from '@/lib/product-analytics';
+import { api, ApiError } from '@/lib/api';
 import { BansOverlay } from './BansOverlay';
 import { ActiveBanCardOverlay } from './ActiveBanCardOverlay';
 import {
@@ -480,6 +482,7 @@ export function InstantBanFlow({
     token,
     user,
     friends,
+    upsertFriend,
     reloadPending,
     reloadFriends,
     refreshUser,
@@ -775,6 +778,16 @@ export function InstantBanFlow({
   const whoInviteToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const [firstContactOpen, setFirstContactOpen] = useState(false);
+  const [firstContactBusy, setFirstContactBusy] = useState(false);
+  const [firstContactError, setFirstContactError] = useState<string | null>(
+    null,
+  );
+  const [firstContactInviteUsername, setFirstContactInviteUsername] = useState<
+    string | null
+  >(null);
+  /** Prevents duplicate WHAT opens from double-submit. */
+  const firstContactWhatLockRef = useRef(false);
   const [ctaState, setCtaStateRaw] = useState<LobbyCtaState>(() =>
     activeBanDeepLinkBanId || activeBanUiShellActive
       ? 'hidden'
@@ -6082,9 +6095,8 @@ export function InstantBanFlow({
     setPhase('composingBan', 'notification-owner-what-projection');
   }, [setCrossScreenProgressImmediate, stopCrossScreenAnim]);
 
-  const handleInviteMore = useCallback(() => {
-    // WHO invite is Telegram share-to-add-friends — no owner/transition guards.
-    // Temporary diagnostics for the pre-existing dead-button blocker.
+  const runWhoInviteShare = useCallback(() => {
+    // Existing invite/share fallback — Telegram share-to-add-friends.
     const ownerKind = getNotificationOwnerBootLobbyState().presentation.kind;
     const selectedIds = selectedUser
       ? [selectedUser.userId ?? selectedUser.id ?? selectedUser.username ?? null]
@@ -6113,7 +6125,6 @@ export function InstantBanFlow({
       haptic('light');
       return;
     }
-    // Never fail silently — surface toast (copy recovery or hard failure).
     if (whoInviteToastTimerRef.current) {
       clearTimeout(whoInviteToastTimerRef.current);
       whoInviteToastTimerRef.current = null;
@@ -6137,6 +6148,148 @@ export function InstantBanFlow({
     notificationChainTransitioning,
   ]);
 
+  const handleInviteMore = useCallback(() => {
+    firstContactWhatLockRef.current = false;
+    setFirstContactError(null);
+    setFirstContactInviteUsername(null);
+    setFirstContactBusy(false);
+    setFirstContactOpen(true);
+    trackProductEvent(ANALYTICS_EVENTS.WHO_FIRST_CONTACT_OPEN, token, {
+      friends_count: safeFriends.length,
+    });
+  }, [token, safeFriends.length]);
+
+  const handleFirstContactClose = useCallback(() => {
+    if (firstContactBusy) return;
+    setFirstContactOpen(false);
+    setFirstContactError(null);
+    setFirstContactInviteUsername(null);
+    firstContactWhatLockRef.current = false;
+  }, [firstContactBusy]);
+
+  const handleFirstContactShare = useCallback(() => {
+    trackProductEvent(ANALYTICS_EVENTS.WHO_FIRST_CONTACT_INVITE_SHARE, token, {
+      username: firstContactInviteUsername,
+    });
+    runWhoInviteShare();
+  }, [token, firstContactInviteUsername, runWhoInviteShare]);
+
+  const handleFirstContactSubmit = useCallback(
+    async (rawUsername: string) => {
+      if (firstContactBusy || firstContactWhatLockRef.current) return;
+      if (screenTransitionRef.current) return;
+
+      const trimmed = rawUsername.replace(/^@/, '').trim();
+      if (!trimmed) {
+        setFirstContactError('Введи @username');
+        trackProductEvent(ANALYTICS_EVENTS.WHO_FIRST_CONTACT_FAIL, token, {
+          reason: 'empty',
+        });
+        return;
+      }
+
+      trackProductEvent(ANALYTICS_EVENTS.WHO_FIRST_CONTACT_SUBMIT, token, {
+        username: trimmed.toLowerCase(),
+      });
+      setFirstContactBusy(true);
+      setFirstContactError(null);
+      setFirstContactInviteUsername(null);
+
+      try {
+        const result = await api<{
+          status: 'registered' | 'unregistered';
+          friend?: FriendCard;
+          username?: string;
+          alreadyInGraph?: boolean;
+        }>('/friends/first-contact', {
+          method: 'POST',
+          token,
+          body: JSON.stringify({ username: trimmed }),
+          retries: 0,
+        });
+
+        if (result.status === 'unregistered') {
+          const u = (result.username ?? trimmed).replace(/^@/, '').trim();
+          setFirstContactInviteUsername(u);
+          trackProductEvent(
+            ANALYTICS_EVENTS.WHO_FIRST_CONTACT_UNREGISTERED,
+            token,
+            { username: u },
+          );
+          return;
+        }
+
+        const friend = result.friend
+          ? coerceFriendList([result.friend])[0]
+          : null;
+        if (!friend) {
+          setFirstContactError('Не удалось добавить контакт');
+          trackProductEvent(ANALYTICS_EVENTS.WHO_FIRST_CONTACT_FAIL, token, {
+            reason: 'missing_friend_card',
+          });
+          return;
+        }
+
+        if (firstContactWhatLockRef.current || screenTransitionRef.current) {
+          return;
+        }
+        firstContactWhatLockRef.current = true;
+
+        trackProductEvent(
+          ANALYTICS_EVENTS.WHO_FIRST_CONTACT_REGISTERED,
+          token,
+          {
+            already_in_graph: !!result.alreadyInGraph,
+            target_user_id: friend.userId,
+          },
+        );
+
+        upsertFriend(friend);
+        setFirstContactOpen(false);
+        setFirstContactInviteUsername(null);
+        setFirstContactError(null);
+        handleSelectUser(friend);
+        trackProductEvent(
+          ANALYTICS_EVENTS.WHO_FIRST_CONTACT_WHAT_OPENED,
+          token,
+          { target_user_id: friend.userId },
+        );
+      } catch (err) {
+        let message = 'Не удалось найти пользователя';
+        let reason = 'network';
+        if (err instanceof ApiError) {
+          if (err.code === 'self' || /yourself|себя/i.test(err.message)) {
+            message = 'Нельзя запретить самому себе';
+            reason = 'self';
+          } else if (
+            err.code === 'invalid_username' ||
+            /invalid.*username/i.test(err.message)
+          ) {
+            message = 'Некорректный @username';
+            reason = 'invalid_username';
+          } else if (err.status === 429 || err.code === 'rate_limited') {
+            message = 'Слишком много попыток — подожди немного';
+            reason = 'rate_limited';
+          } else if (err.message) {
+            message = err.message;
+            reason = err.code ?? `http_${err.status}`;
+          }
+        }
+        setFirstContactError(message);
+        trackProductEvent(ANALYTICS_EVENTS.WHO_FIRST_CONTACT_FAIL, token, {
+          reason,
+        });
+      } finally {
+        setFirstContactBusy(false);
+      }
+    },
+    [
+      firstContactBusy,
+      token,
+      upsertFriend,
+      handleSelectUser,
+    ],
+  );
   const handleSendContextChange = useCallback(
     (ctx: { payoffPhase: string; sendTriggered: boolean }) => {
       confirmSendContextRef.current = ctx;
@@ -8583,6 +8736,18 @@ export function InstantBanFlow({
           {whoInviteToast}
         </div>
       ) : null}
+
+      <WhoFirstContactSheet
+        open={firstContactOpen}
+        busy={firstContactBusy}
+        error={firstContactError}
+        inviteRequiredUsername={firstContactInviteUsername}
+        onClose={handleFirstContactClose}
+        onSubmitUsername={(u) => {
+          void handleFirstContactSubmit(u);
+        }}
+        onInviteShare={handleFirstContactShare}
+      />
 
       <div
         className="instant-ban-arena-send__stage"
