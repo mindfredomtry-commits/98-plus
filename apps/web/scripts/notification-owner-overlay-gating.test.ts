@@ -90,5 +90,27 @@ function pass(name: string): void {
   pass('overlay closed when neither WHO nor WHAT renderable');
 }
 
+// 5. SUCCESS -> Lobby -> press "Запрещать" => WHO materializes
+{
+  // Rare production failure shape:
+  // legacy phase stayed on composingBan after SUCCESS cleanup,
+  // selectedUser was cleared, and the shell opened with no child.
+  const stalePostSuccessComposeOpen = overlayOpenCandidate({
+    ownerKind: 'LOBBY',
+    phase: 'composingBan',
+    selectedUserPresent: false,
+  });
+  assert.equal(stalePostSuccessComposeOpen, false);
+
+  // After pressing "Запрещать", owner enters WHO and WHO becomes renderable.
+  const whoAfterPressingBan = overlayOpenCandidate({
+    ownerKind: 'WHO',
+    phase: 'selectingTarget',
+    selectedUserPresent: false,
+  });
+  assert.equal(whoAfterPressingBan, true);
+  pass('SUCCESS -> Lobby -> press "Запрещать" materializes WHO instead of empty shell');
+}
+
 console.log('\nOK\n');
 
