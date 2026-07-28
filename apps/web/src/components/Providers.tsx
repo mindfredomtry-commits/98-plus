@@ -3629,17 +3629,20 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return false;
       });
     const pruneOwner = readOwnerC2Decision('lockOverkillTerminalPrune');
-    const nextOverlay = pruneConflictingQueuedResults([...pruneOwner.queue]);
+    const runtimePrev = projectRuntimeQueueToLegacy(
+      notificationRuntimeStoreRef.current.getState(),
+    );
+    const nextOverlay = pruneConflictingQueuedResults([...runtimePrev]);
     const nextPending = pruneConflictingQueuedResults([...pruneOwner.pending]);
     if (
       readOwnerC2QueueLengthChanged(
         pruneOwner,
         'lockOverkillTerminalPrune',
         nextOverlay.length,
-        { queueRef: overlayQueueRef.current },
+        { queueRef: runtimePrev },
       )
     ) {
-      const queueBefore = overlayQueueRef.current;
+      const queueBefore = runtimePrev;
       const fields = buildStep2bQueueWriteFields(
         queueBefore,
         nextOverlay,
@@ -4534,6 +4537,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   /** Vertical 1 — sole production queue / current / dismiss-advance authority. */
   const notificationRuntimeStoreRef = useRef(createNotificationRuntimeStore());
   const notificationRuntimeStore = notificationRuntimeStoreRef.current;
+  /**
+   * Stage 6A — sole previous-queue source for enqueue/dismiss/unlock mutations.
+   * Do not use overlayQueueRef (never written under V9).
+   */
+  const readRuntimePrevQueue = useCallback((): QueuedOverlay[] => {
+    return projectRuntimeQueueToLegacy(
+      notificationRuntimeStoreRef.current.getState(),
+    );
+  }, []);
   // Vertical 6: TEMP adapters read runtime direct-entry (not module singletons).
   useEffect(() => {
     registerRuntimeDirectEntryActiveReader(() =>
@@ -9433,7 +9445,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const applyQueueViaOwnerAuthority = useCallback(
     (next: QueuedOverlay[], source: string, silent: boolean) => {
       const ownerBefore = ownerShadowRef.current.getState();
-      const queueBefore = [...ownerBefore.queue];
+      // Stage 6A: queueBefore for mutation/compare is runtime authority.
+      const queueBefore = readRuntimePrevQueue();
       const queueHeadBefore = queueBefore[0] ?? null;
       const queueHeadAfterPreview = next[0] ?? null;
       const dispatchEventType = silent ? 'QUEUE_SILENT_UPDATED' : 'QUEUE_APPLIED';
@@ -9508,7 +9521,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         },
       );
       const ownerAfter = ownerShadowRef.current.getState();
-      const queueAfter = [...ownerAfter.queue];
+      // Stage 6A: post-write length from runtime (owner QUEUE_* is V9 noop).
+      const queueAfter = projectRuntimeQueueToLegacy(
+        notificationRuntimeStoreRef.current.getState(),
+      );
       traceQueueTailDroppedWhileResultHeadIfNeeded({
         beforeQueue: queueBefore,
         afterQueue: queueAfter,
@@ -9558,7 +9574,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         reason: silent ? 'QUEUE_SILENT_UPDATED' : 'QUEUE_APPLIED',
         ownerQueueBefore: queueBefore.length,
         ownerPendingBefore: ownerBefore.pending.length,
-        ownerQueueAfter: ownerAfter.queue.length,
+        ownerQueueAfter: queueAfter.length,
         ownerPendingAfter: ownerAfter.pending.length,
         mutationApplied: true,
         mutationSkipped: false,
@@ -9599,7 +9615,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
       }
     },
-    [],
+    [readRuntimePrevQueue],
   );
 
   /** Step 3 Phase 9 — owner authority for active display payload (syncDisplayFromQueue). */
@@ -13095,13 +13111,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
   const dismissCurrentOverlay = useCallback(
     (reason: string, nextQueue?: QueuedOverlay[], diagnosticCaller?: string) => {
       const owner = readOwnerImperative('dismissCurrentOverlay');
-      const prevHead = readOwnerImperativeQueueHeadForRuntime(
-        owner,
-        'dismissCurrentOverlay',
-        { queueRef: overlayQueueRef.current },
-      );
-      const prev =
-        owner.queue.length > 0 ? owner.queue : overlayQueueRef.current;
+      // Stage 6A: previous queue from runtime (not empty overlayQueueRef / owner mirror).
+      const prev = readRuntimePrevQueue();
+      const prevHead = prev[0] ?? null;
       const prevKey = prev[0] ? overlayQueueKey(prev[0]) : null;
       const dismissKind = prevHead?.kind ?? null;
       const dismissBanId =
@@ -13940,7 +13952,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         commit();
       }
     },
-    [applyOverlayQueue, applyPendingQueueViaOwner, commitSyncDisplayActivePayload, setChainAdvanceWaiting, setChainAdvancePlaceholderKind, setCheckAnswerWaitingResultHold, setLobbyOpen, setNotificationChainTransitioning],
+    [applyOverlayQueue, applyPendingQueueViaOwner, commitSyncDisplayActivePayload, readRuntimePrevQueue, setChainAdvanceWaiting, setChainAdvancePlaceholderKind, setCheckAnswerWaitingResultHold, setLobbyOpen, setNotificationChainTransitioning],
   );
 
   const markSessionBanSendSuccess = useCallback(() => {
@@ -14644,7 +14656,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       setFatalStage('before-enqueue-with-active-lock');
-      const prev = overlayQueueRef.current;
+      // Stage 6A: prev from runtime authority (overlayQueueRef is never written under V9).
+      const prev = readRuntimePrevQueue();
       const activeKey = getActiveOverlayKey(prev);
       const newKey = key;
       const { queue: next, changed, action } = enqueueWithActiveLock(
@@ -14817,7 +14830,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         logFatalTrace(`${fatalStage}:finally`);
       }
     },
-    [applyOverlayQueue, applyPendingQueueViaOwner, isOverlayLive],
+    [applyOverlayQueue, applyPendingQueueViaOwner, isOverlayLive, readRuntimePrevQueue],
   );
 
   const unlockNotificationQueueAndFlush = useCallback(
@@ -14834,7 +14847,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       const prevLock = getNotificationQueueLockReason();
       const startupPending = pendingStartupInteractionsRef.current;
       const startupCounts = countQueuedOverlaysByKind(startupPending);
-      const queueCounts = countQueuedOverlaysByKind(overlayQueueRef.current);
+      const queueCounts = countQueuedOverlaysByKind(readRuntimePrevQueue());
 
       logQueueDebug('unlock queue', {
         reason,
@@ -14902,13 +14915,19 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
               unlockEnqueueBefore,
               { enqueuedCount: startupPending.length },
             );
-            // Vertical 8: unlock flush is transport → runtime ingest (no Legacy enqueue authority).
+            // Vertical 8 / Stage 6A: unlock flush merges startup pending onto
+            // runtime prev (never replace from empty legacy overlayQueueRef).
             {
-              const runtimeItems = toQueuedOverlayItems(startupPending);
+              let merged = readRuntimePrevQueue();
+              for (const item of startupPending) {
+                merged = enqueueWithActiveLock(merged, item, {
+                  source: `unlock-flush:${reason}`,
+                }).queue;
+              }
               const unlockTid = nextRuntimeTransitionId('unlock-flush');
               syncRuntimeQueue(
                 notificationRuntimeStoreRef.current,
-                toRuntimeItems(runtimeItems),
+                toQueuedOverlayItems(merged),
                 'system',
                 unlockTid,
               );
@@ -15014,7 +15033,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         }
       });
     },
-    [syncPendingStartupCount],
+    [commitSyncDisplayActivePayload, readRuntimePrevQueue, syncPendingStartupCount],
   );
 
   const storeAcceptedParentActiveBan = useCallback(
@@ -16389,7 +16408,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
       applyPendingQueueViaOwner([], `${source}:merge-startup-clear`);
 
-      let next = [...ownerShadowRef.current.getState().queue];
+      let next = readRuntimePrevQueue();
       for (const item of releasable) {
         next = enqueueWithActiveLock(next, item).queue;
       }
@@ -16442,7 +16461,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       return releasable.length;
     },
-    [applyPendingQueueViaOwner, isResultBlockedForNotificationChain, syncPendingStartupCount],
+    [applyPendingQueueViaOwner, isResultBlockedForNotificationChain, readRuntimePrevQueue, syncPendingStartupCount],
   );
 
   const maybeTriggerPostConsumePendingPromotion = useCallback(
@@ -16894,13 +16913,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         releaseBefore,
         { enqueuedCount: releasable.length },
       );
-      // Vertical 8: release is transport only — ingest via runtime, never Legacy enqueue authority.
+      // Vertical 8 / Stage 6A: release merges onto runtime prev (never empty-ref replace).
       if (releasable.length > 0) {
-        const runtimeItems = toQueuedOverlayItems(releasable);
+        let merged = readRuntimePrevQueue();
+        for (const item of releasable) {
+          merged = enqueueWithActiveLock(merged, item, {
+            source: 'startup-release',
+          }).queue;
+        }
         const releaseTid = nextRuntimeTransitionId('startup-release');
         syncRuntimeQueue(
           notificationRuntimeStoreRef.current,
-          toRuntimeItems(runtimeItems),
+          toQueuedOverlayItems(merged),
           'system',
           releaseTid,
         );
@@ -16922,9 +16946,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
     },
     [
+      commitSyncDisplayActivePayload,
       hasActiveNotificationOverlayMounted,
       isNotificationChainPausedForReply,
       isResultBlockedForNotificationChain,
+      readRuntimePrevQueue,
       syncPendingStartupCount,
     ],
   );
@@ -19062,7 +19088,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const pruneAndSyncOverlayQueue = useCallback(() => {
     const viewerId = userIdRef.current;
-    const prev = overlayQueueRef.current;
+    const prev = readRuntimePrevQueue();
     const prunedChecks = prev
       .filter((q) => q.kind === 'check')
       .map((q) => q.ban.id);
@@ -19216,7 +19242,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     }
 
     applyOverlayQueue(next);
-  }, [applyOverlayQueue]);
+  }, [applyOverlayQueue, readRuntimePrevQueue]);
 
   useEffect(() => {
     incomingBanRef.current = incomingBan;
@@ -19623,7 +19649,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       checkWaitingTimerRef.current = null;
     }
     setCheckWaiting(false);
-    const prev = overlayQueueRef.current;
+    const prev = readRuntimePrevQueue();
     const dismissedIds = prev
       .filter((q) => q.kind === 'check')
       .map((q) => q.ban.id);
@@ -19638,7 +19664,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
     }
     dismissCurrentOverlay('clear-check-overlay', next, 'clearCheckOverlay');
-  }, [dismissCurrentOverlay]);
+  }, [dismissCurrentOverlay, readRuntimePrevQueue]);
 
   const cancelResultPollBurst = useCallback(() => {
     for (const t of resultPollBurstTimersRef.current) {
@@ -23260,7 +23286,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
       }
       if (b === null) {
-        const prev = overlayQueueRef.current;
+        const prev = readRuntimePrevQueue();
         if (prev[0]?.kind === 'incoming') {
           applyOverlayQueue(popOverlayHead(prev));
         }
@@ -23272,12 +23298,12 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       );
       resolvePendingDeepLinkRoute('incoming', b.id);
     },
-    [auth.user?.id, auth.loading, applyOverlayQueue, enqueueNotification],
+    [auth.user?.id, auth.loading, applyOverlayQueue, enqueueNotification, readRuntimePrevQueue],
   );
 
   const removeIncomingFromQueue = useCallback(
     (banId: string, opts?: { explicitUserAction?: boolean }) => {
-      const prev = overlayQueueRef.current;
+      const prev = readRuntimePrevQueue();
       const next = prev.filter(
         (q) => !(q.kind === 'incoming' && q.ban.id === banId),
       );
@@ -23310,7 +23336,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         applyOverlayQueue(next);
       }
     },
-    [applyOverlayQueue, dismissCurrentOverlay],
+    [applyOverlayQueue, dismissCurrentOverlay, readRuntimePrevQueue],
   );
 
   const clearReplyDeeplinkFastTimeout = useCallback(() => {
@@ -23535,7 +23561,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   const hydrateReplyDeeplinkIncomingBan = useCallback(
     (enriched: BanInteraction): boolean => {
-      const prev = overlayQueueRef.current;
+      const prev = readRuntimePrevQueue();
       const idx = prev.findIndex(
         (q) => q.kind === 'incoming' && q.ban.id === enriched.id,
       );
@@ -23545,7 +23571,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       applyOverlayQueue(next);
       return true;
     },
-    [applyOverlayQueue],
+    [applyOverlayQueue, readRuntimePrevQueue],
   );
 
   const collectReplyStartupBlockers =
@@ -23844,7 +23870,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         return false;
       }
       const item: QueuedOverlay = { kind: 'incoming', ban };
-      const prev = overlayQueueRef.current;
+      const prev = readRuntimePrevQueue();
       const key = overlayQueueKey(item);
       const next: QueuedOverlay[] = [
         item,
@@ -23887,6 +23913,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       applyOverlayQueue,
       isReplyFastQueueHeadValid,
       auth.user?.id,
+      readRuntimePrevQueue,
       syncPendingStartupCount,
     ],
   );
