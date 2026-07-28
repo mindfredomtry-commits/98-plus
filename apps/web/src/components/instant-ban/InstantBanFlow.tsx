@@ -885,7 +885,7 @@ export function InstantBanFlow({
   const showWhoSurface = sendFlowSurfaces.who;
   const showWhatSurface = sendFlowSurfaces.what;
   const showCrossScreenPager =
-    !activeBanDeepLinkBooting && (showWhoSurface || showWhatSurface);
+    !activeBanDeepLinkBooting && (showWhoSurface || (showWhatSurface && selectedUser != null));
   const overlayOpen = showCrossScreenPager;
   const notificationOverlayActive =
     notificationOverlayVisible || incomingGateActive || checkGateActive || !!result;
