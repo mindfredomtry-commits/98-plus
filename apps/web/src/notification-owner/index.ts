@@ -1,5 +1,5 @@
 /**
- * NotificationOwner public surface — BOOT/LOBBY ownership slice.
+ * NotificationOwner public surface — BOOT/LOBBY/WHO/WHAT ownership slice.
  * No presentation renderer. No .np-* UI.
  */
 
@@ -20,4 +20,11 @@ export {
 export {
   planBootLobbyVisuals,
   useNotificationOwnerBootLobbyBridge,
+  useNotificationOwnerWhoProjection,
 } from './boot-lobby.adapter';
+export {
+  resolveSendFlowSurfaceExclusivity,
+  type SendFlowLegacyPhase,
+  type SendFlowOwnerKind,
+  type SendFlowSurfaceExclusivity,
+} from './send-flow-exclusivity';
