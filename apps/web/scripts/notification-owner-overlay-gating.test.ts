@@ -1,5 +1,5 @@
 /**
- * Overlay-shell gating must match child renderability.
+ * Overlay-shell gating must match child renderability (WHAT ownership).
  *
  * Run:
  *   npx tsx --tsconfig apps/web/tsconfig.json apps/web/scripts/notification-owner-overlay-gating.test.ts
@@ -31,7 +31,7 @@ function pass(name: string): void {
 }
 
 function overlayOpenCandidate(input: {
-  ownerKind: 'BOOT' | 'LOBBY' | 'WHO' | 'LEGACY_FLOW';
+  ownerKind: 'BOOT' | 'LOBBY' | 'WHO' | 'WHAT' | 'LEGACY_FLOW';
   phase: 'idle' | 'selectingTarget' | 'composingBan' | 'confirming';
   selectedUserPresent: boolean;
 }): boolean {
@@ -55,7 +55,7 @@ pass('InstantBanFlow: showCrossScreenPager gates WHAT on selectedUser');
 // 1. showWhatSurface=true + selectedUser=null => overlay must be closed
 {
   const open = overlayOpenCandidate({
-    ownerKind: 'LEGACY_FLOW',
+    ownerKind: 'WHAT',
     phase: 'composingBan',
     selectedUserPresent: false,
   });
@@ -77,7 +77,7 @@ pass('InstantBanFlow: showCrossScreenPager gates WHAT on selectedUser');
 // 3. showWhatSurface=true + selectedUser present => overlay and WHAT materialize
 {
   const open = overlayOpenCandidate({
-    ownerKind: 'LEGACY_FLOW',
+    ownerKind: 'WHAT',
     phase: 'composingBan',
     selectedUserPresent: true,
   });
@@ -88,8 +88,8 @@ pass('InstantBanFlow: showCrossScreenPager gates WHAT on selectedUser');
 // 4. overlay cannot open when both WHO and WHAT are non-renderable
 {
   const open = overlayOpenCandidate({
-    ownerKind: 'WHO',
-    phase: 'composingBan',
+    ownerKind: 'WHAT',
+    phase: 'selectingTarget',
     selectedUserPresent: false,
   });
   assert.equal(open, false);
@@ -99,8 +99,6 @@ pass('InstantBanFlow: showCrossScreenPager gates WHAT on selectedUser');
 // 5. Complete product flow:
 // SUCCESS → Lobby → press "Запрещать" → WHO materializes
 {
-  // --- Product wiring (InstantBanFlow) ---
-  // SUCCESS exit clears selectedUser, resets owner to Lobby, then prepares Lobby base.
   const successExitIdx = src.indexOf("prepareLobbyBaseAfterSuccess('send-success'");
   assert.ok(successExitIdx > 0);
   const successExitWindow = src.slice(
@@ -115,7 +113,6 @@ pass('InstantBanFlow: showCrossScreenPager gates WHAT on selectedUser');
     /dispatchNotificationOwnerBootLobby\(\{\s*type:\s*'RESET_TO_LOBBY'\s*\}\)/,
   );
 
-  // Lobby CTA ("Запрещать") opens WHO via owner intent, not a direct selectingTarget write.
   const beginIdx = src.indexOf('const handleBeginSend = useCallback');
   const beginEnd = src.indexOf('const beginNewBanWhoFlow = useCallback', beginIdx);
   assert.ok(beginIdx >= 0 && beginEnd > beginIdx);
@@ -124,7 +121,6 @@ pass('InstantBanFlow: showCrossScreenPager gates WHAT on selectedUser');
   assert.doesNotMatch(beginBody, /setPhase\(\s*'selectingTarget'/);
   assert.match(src, /onBeginSend=\{handleBeginSend\}/);
 
-  // WHO child still paints through WhoOverlay; overlayOpen follows showCrossScreenPager.
   assert.match(src, /showWhoSurface \? \(/);
   assert.match(src, /<WhoOverlay[\s\S]*gestureZoneActive=\{whoDismissGestureActive\}/);
   assert.match(src, /const overlayOpen = showCrossScreenPager/);
@@ -133,17 +129,15 @@ pass('InstantBanFlow: showCrossScreenPager gates WHAT on selectedUser');
     /setPhase\('selectingTarget', 'notification-owner-who-projection'\)/,
   );
 
-  // --- Runtime owner sequence for the product flow ---
   resetNotificationOwnerBootLobbyStoreForTests();
   dispatchNotificationOwnerBootLobby({ type: 'BOOT_COMPLETE' });
   dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
-  dispatchNotificationOwnerBootLobby({ type: 'LEAVE_WHO_FOR_LEGACY_FLOW' });
+  dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
   assert.equal(
     getNotificationOwnerBootLobbyState().presentation.kind,
-    'LEGACY_FLOW',
+    'WHAT',
   );
 
-  // SUCCESS cleanup returns owner to Lobby.
   const afterSuccess = reduceNotificationOwnerBootLobby(
     getNotificationOwnerBootLobbyState(),
     { type: 'RESET_TO_LOBBY' },
@@ -152,8 +146,7 @@ pass('InstantBanFlow: showCrossScreenPager gates WHAT on selectedUser');
   assert.equal(afterSuccess.state.presentation.kind, 'LOBBY');
   resetNotificationOwnerBootLobbyStoreForTests(afterSuccess.state);
 
-  // Rare failure shape after SUCCESS: stale composingBan + cleared selectedUser.
-  // Overlay shell must stay closed (no empty dark overlay).
+  // Stale post-SUCCESS: without owner WHAT, composingBan alone cannot open WHAT.
   const staleEmptyShell = overlayOpenCandidate({
     ownerKind: 'LOBBY',
     phase: 'composingBan',
@@ -165,14 +158,8 @@ pass('InstantBanFlow: showCrossScreenPager gates WHAT on selectedUser');
     phase: 'composingBan',
   });
   assert.equal(staleSurfaces.who, false);
-  assert.equal(staleSurfaces.what, true);
-  // WHAT surface flag alone is not enough — selectedUser null keeps shell closed.
-  assert.equal(
-    staleSurfaces.who || (staleSurfaces.what && false),
-    false,
-  );
+  assert.equal(staleSurfaces.what, false);
 
-  // Press "Запрещать": Lobby CTA dispatches OPEN_WHO.
   const afterCta = reduceNotificationOwnerBootLobby(
     getNotificationOwnerBootLobbyState(),
     { type: 'OPEN_WHO' },
@@ -180,7 +167,6 @@ pass('InstantBanFlow: showCrossScreenPager gates WHAT on selectedUser');
   assert.equal(afterCta.rejected, null);
   assert.equal(afterCta.state.presentation.kind, 'WHO');
 
-  // Projection writes selectingTarget; WHO becomes the exclusive renderable child.
   const whoSurfaces = resolveSendFlowSurfaceExclusivity({
     ownerKind: 'WHO',
     phase: 'selectingTarget',

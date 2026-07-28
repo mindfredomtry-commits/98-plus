@@ -3,7 +3,12 @@
  * WHO / WHAT / CONFIRM / SUCCESS are mutually exclusive; at most one may render.
  */
 
-export type SendFlowOwnerKind = 'BOOT' | 'LOBBY' | 'WHO' | 'LEGACY_FLOW';
+export type SendFlowOwnerKind =
+  | 'BOOT'
+  | 'LOBBY'
+  | 'WHO'
+  | 'WHAT'
+  | 'LEGACY_FLOW';
 
 export type SendFlowLegacyPhase =
   | 'idle'
@@ -39,13 +44,12 @@ export function resolveSendFlowSurfaceExclusivity(input: {
   }
 
   /**
-   * WHAT only while legacy owns composingBan and owner is not WHO.
-   * Prevents WHO+composingBan frames from painting WhatScreen.
+   * WHAT only when owner is WHAT and legacy phase is still composingBan.
+   * Owner is macro authority; phase gate keeps WHAT non-renderable during
+   * atomic WHAT→WHO flushSync (phase selectingTarget before OPEN_WHO).
    */
   const what =
-    input.phase === 'composingBan' &&
-    input.ownerKind !== 'WHO' &&
-    input.ownerKind !== 'BOOT';
+    input.ownerKind === 'WHAT' && input.phase === 'composingBan';
 
   /**
    * WHO only when owner is WHO and legacy is not on WHAT/CONFIRM.
@@ -55,9 +59,14 @@ export function resolveSendFlowSurfaceExclusivity(input: {
     input.phase !== 'composingBan' &&
     input.phase !== 'confirming';
 
+  /**
+   * CONFIRM while legacy owns confirming and owner is not WHO/WHAT/BOOT.
+   * LEGACY_FLOW (or LOBBY mid-edge) may host confirm until CONFIRM ownership.
+   */
   const confirm =
     input.phase === 'confirming' &&
     input.ownerKind !== 'WHO' &&
+    input.ownerKind !== 'WHAT' &&
     input.ownerKind !== 'BOOT';
 
   const active = [who, what, confirm, success].filter(Boolean).length;

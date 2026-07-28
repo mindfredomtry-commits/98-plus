@@ -1,5 +1,5 @@
 /**
- * NotificationOwner public surface — BOOT/LOBBY/WHO ownership slice.
+ * NotificationOwner public surface — BOOT/LOBBY/WHO/WHAT ownership slice.
  * No presentation renderer. No .np-* UI.
  */
 

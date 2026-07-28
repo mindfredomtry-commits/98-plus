@@ -649,15 +649,19 @@ export function InstantBanFlow({
   );
 
   /**
-   * WHO ownership: NotificationOwner is authority for LOBBY ↔ WHO.
-   * Legacy `phase === 'selectingTarget'` is a one-way projection of owner WHO.
-   * WHO→WHAT sets leaveWhoForLegacyRef before LEAVE_WHO so Lobby does not flash.
+   * WHO/WHAT ownership: NotificationOwner is macro authority for LOBBY ↔ WHO ↔ WHAT.
+   * Legacy selectingTarget / composingBan are one-way projections of owner WHO / WHAT.
+   * LEGACY_FLOW remains the temporary CONFIRM handoff (not WHAT).
    */
   const leaveWhoForLegacyRef = useRef(false);
   const finishWhoDismissRef = useRef<() => void>(() => {});
   const applyWhoPhaseFromOwner = useCallback(() => {
     leaveWhoForLegacyRef.current = false;
     setPhase('selectingTarget', 'notification-owner-who-projection');
+  }, [setPhase]);
+  const applyWhatPhaseFromOwner = useCallback(() => {
+    leaveWhoForLegacyRef.current = false;
+    setPhase('composingBan', 'notification-owner-what-projection');
   }, [setPhase]);
   const applyLobbyFromWhoOwner = useCallback(() => {
     finishWhoDismissRef.current();
@@ -667,12 +671,13 @@ export function InstantBanFlow({
     applyWhoPhaseFromOwner,
     applyLobbyFromWhoOwner,
     leaveWhoForLegacyRef,
+    applyWhatPhaseFromOwner,
   );
 
-  /** Clear owner WHO / LEGACY_FLOW before legacy idle resets so projection does not re-open WHO. */
+  /** Clear owner WHO / WHAT / LEGACY_FLOW before legacy idle resets. */
   const releaseOwnerWhoToLobby = useCallback(() => {
     const kind = getNotificationOwnerBootLobbyState().presentation.kind;
-    if (kind !== 'WHO' && kind !== 'LEGACY_FLOW') {
+    if (kind !== 'WHO' && kind !== 'WHAT' && kind !== 'LEGACY_FLOW') {
       return;
     }
     leaveWhoForLegacyRef.current = false;
@@ -1639,12 +1644,11 @@ export function InstantBanFlow({
   const completeWhoToWhat = useCallback(() => {
     screenTransitionRef.current = null;
     setScreenTransition(null);
-    // Owner must leave WHO *before* composingBan. Otherwise setting composingBan
-    // while still WHO runs projection (WHO + !selectingTarget → force selectingTarget)
-    // and clears the suppress ref, then a LOBBY handoff would dismiss to Lobby.
-    leaveWhoForLegacyRef.current = true;
-    dispatchNotificationOwnerBootLobby({ type: 'LEAVE_WHO_FOR_LEGACY_FLOW' });
-    setPhase('composingBan', 'who-to-what-legacy');
+    // Owner enters WHAT; authorized projection writes composingBan in the same turn
+    // so the pager does not close on an empty shell frame.
+    leaveWhoForLegacyRef.current = false;
+    dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
+    setPhase('composingBan', 'notification-owner-what-projection');
     setCrossScreenProgressImmediate(1);
   }, [setCrossScreenProgressImmediate, setPhase]);
 
@@ -1652,7 +1656,7 @@ export function InstantBanFlow({
     screenTransitionRef.current = null;
     setScreenTransition(null);
     leaveWhoForLegacyRef.current = false;
-    // Make WHAT non-renderable *before* owner enters WHO (no WHO+composingBan frame).
+    // Make WHAT non-renderable *before* owner enters WHO (no WHAT flash over WHO).
     flushSync(() => {
       setPhase('selectingTarget', 'what-to-who-legacy');
       setCrossScreenProgressImmediate(0);
@@ -1979,29 +1983,37 @@ export function InstantBanFlow({
         if (entryPhase === 'selectingTarget') {
           leaveWhoForLegacyRef.current = false;
           dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
+        } else if (entryPhase === 'composingBan') {
+          leaveWhoForLegacyRef.current = false;
+          dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
+          setPhase('composingBan', 'notification-owner-what-projection');
+          setCrossScreenProgressImmediate(1);
         } else {
+          // confirming (and any other legacy entry) — temporary LEGACY_FLOW bag
           leaveWhoForLegacyRef.current = true;
           if (
-            getNotificationOwnerBootLobbyState().presentation.kind === 'WHO'
+            getNotificationOwnerBootLobbyState().presentation.kind === 'WHO' ||
+            getNotificationOwnerBootLobbyState().presentation.kind === 'WHAT'
           ) {
-            dispatchNotificationOwnerBootLobby({
-              type: 'LEAVE_WHO_FOR_LEGACY_FLOW',
-            });
+            const kind =
+              getNotificationOwnerBootLobbyState().presentation.kind;
+            if (kind === 'WHAT') {
+              dispatchNotificationOwnerBootLobby({
+                type: 'LEAVE_WHAT_FOR_LEGACY_FLOW',
+              });
+            } else {
+              dispatchNotificationOwnerBootLobby({
+                type: 'LEAVE_WHO_FOR_LEGACY_FLOW',
+              });
+            }
           }
           setPhase(entryPhase);
-          if (entryPhase === 'composingBan') {
-            setCrossScreenProgressImmediate(1);
-          }
         }
       } else if (incomingReplyBanId || replyComposeActive) {
-        leaveWhoForLegacyRef.current = true;
-        if (getNotificationOwnerBootLobbyState().presentation.kind === 'WHO') {
-          dispatchNotificationOwnerBootLobby({
-            type: 'LEAVE_WHO_FOR_LEGACY_FLOW',
-          });
-        }
+        leaveWhoForLegacyRef.current = false;
+        dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
         if (phase !== 'composingBan') {
-          setPhase('composingBan');
+          setPhase('composingBan', 'notification-owner-what-projection');
         } else {
           logReplyFlowLoopGuard('skip already composingBan');
         }
@@ -3040,9 +3052,19 @@ export function InstantBanFlow({
       if (targetPhase === 'selectingTarget') {
         leaveWhoForLegacyRef.current = false;
         dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
+      } else if (targetPhase === 'composingBan') {
+        leaveWhoForLegacyRef.current = false;
+        dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
+        setPhase('composingBan', 'notification-owner-what-projection');
       } else {
+        // confirming — temporary LEGACY_FLOW (CONFIRM not owned yet)
         leaveWhoForLegacyRef.current = true;
-        if (getNotificationOwnerBootLobbyState().presentation.kind === 'WHO') {
+        const kind = getNotificationOwnerBootLobbyState().presentation.kind;
+        if (kind === 'WHAT') {
+          dispatchNotificationOwnerBootLobby({
+            type: 'LEAVE_WHAT_FOR_LEGACY_FLOW',
+          });
+        } else if (kind === 'WHO') {
           dispatchNotificationOwnerBootLobby({
             type: 'LEAVE_WHO_FOR_LEGACY_FLOW',
           });
@@ -3110,8 +3132,10 @@ export function InstantBanFlow({
       setBanSentSuccess(false);
       traceSuccessSnapshotCleared('beginComposingBanForOpponent');
       sendSnapshotRef.current = null;
+      leaveWhoForLegacyRef.current = false;
+      dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
       if (phase !== 'composingBan') {
-        setPhase('composingBan');
+        setPhase('composingBan', 'notification-owner-what-projection');
       } else {
         logReplyFlowLoopGuard('skip already composingBan');
       }
@@ -3600,7 +3624,9 @@ export function InstantBanFlow({
       clearWhoPanelEnterTimer();
       setCtaState('hidden');
       setCrossScreenProgressImmediate(1);
-      setPhase('composingBan');
+      leaveWhoForLegacyRef.current = false;
+      dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
+      setPhase('composingBan', 'notification-owner-what-projection');
 
       // Opening send from outside Who (lobby was idle) — same gate as beginComposingBanForOpponent.
       if (!sendStarted) {
@@ -6009,6 +6035,9 @@ export function InstantBanFlow({
     traceSuccessSnapshotCleared('handleWhatSubmit');
     sendSnapshotRef.current = null;
     confirmEntrySourceRef.current = 'send-flow';
+    // Leave WHAT ownership before CONFIRM; CONFIRM stays legacy-owned this slice.
+    leaveWhoForLegacyRef.current = true;
+    dispatchNotificationOwnerBootLobby({ type: 'LEAVE_WHAT_FOR_LEGACY_FLOW' });
     setPhase('confirming');
   }, []);
 
@@ -6054,7 +6083,9 @@ export function InstantBanFlow({
       return;
     }
 
-    setPhase('composingBan');
+    leaveWhoForLegacyRef.current = false;
+    dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
+    setPhase('composingBan', 'notification-owner-what-projection');
   }, [setCrossScreenProgressImmediate, stopCrossScreenAnim]);
 
   const handleInviteMore = useCallback(() => {

@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Thin BOOT/LOBBY/WHO/LEGACY_FLOW adapter — state authority only.
+ * Thin BOOT/LOBBY/WHO/WHAT/LEGACY_FLOW adapter — state authority only.
  * Maps owner kinds onto the EXISTING production visual path.
  * Does not mount NotificationPresentation or .np-* surfaces.
  */
@@ -20,13 +20,15 @@ import type { BootLobbyPresentation } from './boot-lobby.types';
 
 /**
  * Pure visual plan for the production page.
- * LEGACY_FLOW is non-rendering for owner — InstantBanFlow keeps painting WHAT.
+ * LEGACY_FLOW is non-rendering for owner — InstantBanFlow keeps painting CONFIRM.
+ * WHAT keeps InstantBanFlow mounted (WhatScreen paint path unchanged).
  */
 export function planBootLobbyVisuals(presentation: BootLobbyPresentation): {
   showLobbyBootLogoShell: boolean;
   mountInstantBanFlowWhenArenaVisible: true;
   showBottomNavWhenIntroComplete: boolean;
   ownerWhoActive: boolean;
+  ownerWhatActive: boolean;
   ownerLegacyFlowActive: boolean;
 } {
   const isBoot = presentation.kind === 'BOOT';
@@ -35,6 +37,7 @@ export function planBootLobbyVisuals(presentation: BootLobbyPresentation): {
     mountInstantBanFlowWhenArenaVisible: true,
     showBottomNavWhenIntroComplete: !isBoot,
     ownerWhoActive: presentation.kind === 'WHO',
+    ownerWhatActive: presentation.kind === 'WHAT',
     ownerLegacyFlowActive: presentation.kind === 'LEGACY_FLOW',
   };
 }
@@ -49,6 +52,7 @@ export function useNotificationOwnerBootLobbyBridge(): {
   showLobbyBootLogoShell: boolean;
   showBottomNavWhenIntroComplete: boolean;
   ownerWhoActive: boolean;
+  ownerWhatActive: boolean;
   ownerLegacyFlowActive: boolean;
 } {
   const presentation = useSyncExternalStore(
@@ -71,6 +75,7 @@ export function useNotificationOwnerBootLobbyBridge(): {
     if (
       presentation.kind === 'LOBBY' ||
       presentation.kind === 'WHO' ||
+      presentation.kind === 'WHAT' ||
       presentation.kind === 'LEGACY_FLOW'
     ) {
       completedRef.current = true;
@@ -86,25 +91,28 @@ export function useNotificationOwnerBootLobbyBridge(): {
     showLobbyBootLogoShell: plan.showLobbyBootLogoShell,
     showBottomNavWhenIntroComplete: plan.showBottomNavWhenIntroComplete,
     ownerWhoActive: plan.ownerWhoActive,
+    ownerWhatActive: plan.ownerWhatActive,
     ownerLegacyFlowActive: plan.ownerLegacyFlowActive,
   };
 }
 
 /**
- * InstantBanFlow projection of owner WHO ↔ selectingTarget.
+ * InstantBanFlow projection of owner WHO ↔ selectingTarget and WHAT ↔ composingBan.
  * One-way: owner → legacy phase. Never writes back into the owner.
  *
  * CLOSE applies only on WHO → LOBBY (explicit dismiss/reset), never on
- * WHO → LEGACY_FLOW (WHAT handoff). LEGACY_FLOW never forces idle or WHO.
+ * WHO → WHAT or WHAT → LEGACY_FLOW. LEGACY_FLOW never forces idle/WHO/WHAT.
  */
 export function useNotificationOwnerWhoProjection(
   phase: string,
   applyWhoPhase: () => void,
   applyLobbyFromWho: () => void,
-  /** Kept for call-site compatibility; LEGACY_FLOW is the real handoff guard. */
+  /** Kept for call-site compatibility; WHAT/LEGACY_FLOW are the real handoff guards. */
   suppressLobbyWhoCloseRef: { current: boolean },
+  applyWhatPhase: () => void,
 ): {
   ownerWhoActive: boolean;
+  ownerWhatActive: boolean;
   ownerLegacyFlowActive: boolean;
   ownerKind: BootLobbyPresentation['kind'];
 } {
@@ -115,6 +123,7 @@ export function useNotificationOwnerWhoProjection(
   );
 
   const ownerWhoActive = presentation.kind === 'WHO';
+  const ownerWhatActive = presentation.kind === 'WHAT';
   const ownerLegacyFlowActive = presentation.kind === 'LEGACY_FLOW';
   const prevKindRef = useRef(presentation.kind);
 
@@ -123,8 +132,15 @@ export function useNotificationOwnerWhoProjection(
     const prev = prevKindRef.current;
     prevKindRef.current = kind;
 
-    // Never project while legacy InstantBanFlow owns WHAT/CONFIRM.
+    // Never project while legacy InstantBanFlow owns CONFIRM.
     if (kind === 'LEGACY_FLOW') {
+      return;
+    }
+
+    if (kind === 'WHAT') {
+      if (phase !== 'composingBan') {
+        applyWhatPhase();
+      }
       return;
     }
 
@@ -133,7 +149,7 @@ export function useNotificationOwnerWhoProjection(
       return;
     }
 
-    // Explicit WHO → LOBBY only (CLOSE_WHO / RESET from WHO). Not LEGACY_FLOW.
+    // Explicit WHO → LOBBY only (CLOSE_WHO / RESET from WHO). Not WHAT/LEGACY.
     if (
       prev === 'WHO' &&
       kind === 'LOBBY' &&
@@ -146,12 +162,14 @@ export function useNotificationOwnerWhoProjection(
     presentation.kind,
     phase,
     applyWhoPhase,
+    applyWhatPhase,
     applyLobbyFromWho,
     suppressLobbyWhoCloseRef,
   ]);
 
   return {
     ownerWhoActive,
+    ownerWhatActive,
     ownerLegacyFlowActive,
     ownerKind: presentation.kind,
   };

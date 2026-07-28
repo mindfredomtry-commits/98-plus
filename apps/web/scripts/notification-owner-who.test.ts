@@ -202,23 +202,24 @@ pass('No direct legacy WHO open write remains');
   pass('No direct legacy WHO close write remains');
 }
 
-// 12. WHO → WHAT does not produce a Lobby frame (owner → LEGACY_FLOW, not LOBBY)
-assert.match(instantBanSrc, /LEAVE_WHO_FOR_LEGACY_FLOW/);
+// 12. WHO → WHAT does not produce a Lobby frame (owner → WHAT, not LOBBY)
+assert.match(instantBanSrc, /OPEN_WHAT/);
 assert.match(instantBanSrc, /leaveWhoForLegacyRef/);
-assert.match(instantBanSrc, /who-to-what-legacy/);
+assert.match(instantBanSrc, /notification-owner-what-projection/);
 {
   toLobby();
   dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
-  const leave = reduceNotificationOwnerBootLobby(
+  const openWhat = reduceNotificationOwnerBootLobby(
     getNotificationOwnerBootLobbyState(),
-    { type: 'LEAVE_WHO_FOR_LEGACY_FLOW' },
+    { type: 'OPEN_WHAT' },
   );
-  assert.equal(leave.rejected, null);
-  assert.equal(leave.state.presentation.kind, 'LEGACY_FLOW');
-  assert.notEqual(leave.state.presentation.kind, 'LOBBY');
-  const plan = planBootLobbyVisuals(leave.state.presentation);
+  assert.equal(openWhat.rejected, null);
+  assert.equal(openWhat.state.presentation.kind, 'WHAT');
+  assert.notEqual(openWhat.state.presentation.kind, 'LOBBY');
+  const plan = planBootLobbyVisuals(openWhat.state.presentation);
   assert.equal(plan.ownerWhoActive, false);
-  assert.equal(plan.ownerLegacyFlowActive, true);
+  assert.equal(plan.ownerWhatActive, true);
+  assert.equal(plan.ownerLegacyFlowActive, false);
   assert.equal(plan.showLobbyBootLogoShell, false);
 
   const whoToWhatIdx = instantBanSrc.indexOf('const completeWhoToWhat');
@@ -227,15 +228,15 @@ assert.match(instantBanSrc, /who-to-what-legacy/);
     whoToWhatIdx,
   );
   const body = instantBanSrc.slice(whoToWhatIdx, whoToWhatEnd);
-  // LEAVE must happen before composingBan so WHO+composingBan never projects
-  const leaveIdx = body.indexOf('LEAVE_WHO_FOR_LEGACY_FLOW');
+  // OPEN_WHAT must happen before composingBan projection write
+  const openIdx = body.indexOf('OPEN_WHAT');
   const phaseIdx = body.indexOf("setPhase('composingBan'");
-  assert.ok(leaveIdx >= 0 && phaseIdx > leaveIdx);
+  assert.ok(openIdx >= 0 && phaseIdx > openIdx);
   assert.doesNotMatch(body, /flushSync\s*\(/);
   pass('WHO → WHAT does not produce a Lobby frame');
 }
 
-// 12b. WHO → WHAT preserves composingBan write after leave
+// 12b. WHO → WHAT preserves composingBan write after OPEN_WHAT
 {
   const whoToWhatIdx = instantBanSrc.indexOf('const completeWhoToWhat');
   const whoToWhatEnd = instantBanSrc.indexOf(
@@ -243,33 +244,36 @@ assert.match(instantBanSrc, /who-to-what-legacy/);
     whoToWhatIdx,
   );
   const body = instantBanSrc.slice(whoToWhatIdx, whoToWhatEnd);
-  assert.match(body, /setPhase\('composingBan', 'who-to-what-legacy'\)/);
+  assert.match(
+    body,
+    /setPhase\('composingBan', 'notification-owner-what-projection'\)/,
+  );
   assert.doesNotMatch(body, /setPhase\('idle'/);
   assert.doesNotMatch(body, /RESET_TO_LOBBY/);
   pass('WHO → WHAT preserves composingBan');
 }
 
-// 12c. Legacy WHAT remains visible — LEGACY_FLOW is non-rendering for owner
+// 12c. Owner WHAT keeps WhatScreen paint path
 {
   const plan = planBootLobbyVisuals({
-    kind: 'LEGACY_FLOW',
-    mode: 'non-rendering',
+    kind: 'WHAT',
+    mode: 'composing-ban',
   });
-  assert.equal(plan.ownerLegacyFlowActive, true);
+  assert.equal(plan.ownerWhatActive, true);
   assert.equal(plan.ownerWhoActive, false);
   assert.match(instantBanSrc, /phase === 'composingBan'/);
   assert.match(instantBanSrc, /WhatScreen|WhatOverlay|showCrossScreenPager/);
   pass('Legacy WHAT remains visible after owner leaves WHO');
 }
 
-// 12d. WHAT → WHO returns to WHO from LEGACY_FLOW
+// 12d. WHAT → WHO returns to WHO from WHAT
 {
   toLobby();
   dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
-  dispatchNotificationOwnerBootLobby({ type: 'LEAVE_WHO_FOR_LEGACY_FLOW' });
+  dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
   assert.equal(
     getNotificationOwnerBootLobbyState().presentation.kind,
-    'LEGACY_FLOW',
+    'WHAT',
   );
   const reopen = reduceNotificationOwnerBootLobby(
     getNotificationOwnerBootLobbyState(),
@@ -287,11 +291,11 @@ assert.match(instantBanSrc, /who-to-what-legacy/);
   pass('WHAT → WHO returns to WHO');
 }
 
-// 12e. Explicit legacy reset returns to LOBBY
+// 12e. Explicit legacy/WHAT reset returns to LOBBY
 {
   toLobby();
   dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
-  dispatchNotificationOwnerBootLobby({ type: 'LEAVE_WHO_FOR_LEGACY_FLOW' });
+  dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
   const reset = reduceNotificationOwnerBootLobby(
     getNotificationOwnerBootLobbyState(),
     { type: 'RESET_TO_LOBBY' },
@@ -299,6 +303,7 @@ assert.match(instantBanSrc, /who-to-what-legacy/);
   assert.equal(reset.rejected, null);
   assert.equal(reset.state.presentation.kind, 'LOBBY');
   assert.match(instantBanSrc, /kind !== 'LEGACY_FLOW'/);
+  assert.match(instantBanSrc, /kind !== 'WHAT'/);
   pass('Explicit legacy reset returns to LOBBY');
 }
 

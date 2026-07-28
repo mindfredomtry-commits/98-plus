@@ -1,5 +1,5 @@
 /**
- * Send-flow surface exclusivity + WHAT→WHO handoff regressions.
+ * Send-flow surface exclusivity + WHAT↔WHO handoff regressions (WHAT ownership).
  *
  * Run:
  *   npx tsx --tsconfig apps/web/tsconfig.json apps/web/scripts/notification-owner-what-who-handoff.test.ts
@@ -38,9 +38,9 @@ function toWho() {
   dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
 }
 
-function toLegacyWhat() {
+function toWhat() {
   toWho();
-  dispatchNotificationOwnerBootLobby({ type: 'LEAVE_WHO_FOR_LEGACY_FLOW' });
+  dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
 }
 
 let passed = 0;
@@ -54,8 +54,8 @@ console.log('\n=== WHAT → WHO HANDOFF / EXCLUSIVITY ===\n');
 // 1. WHAT → WHO never produces WHO+WHAT both renderable
 {
   const bad = resolveSendFlowSurfaceExclusivity({
-    ownerKind: 'WHO',
-    phase: 'composingBan',
+    ownerKind: 'WHAT',
+    phase: 'selectingTarget',
   });
   assert.equal(bad.who, false);
   assert.equal(bad.what, false);
@@ -70,7 +70,7 @@ console.log('\n=== WHAT → WHO HANDOFF / EXCLUSIVITY ===\n');
   assert.equal(goodWho.overlap, false);
 
   const goodWhat = resolveSendFlowSurfaceExclusivity({
-    ownerKind: 'LEGACY_FLOW',
+    ownerKind: 'WHAT',
     phase: 'composingBan',
   });
   assert.equal(goodWhat.who, false);
@@ -110,21 +110,19 @@ console.log('\n=== WHAT → WHO HANDOFF / EXCLUSIVITY ===\n');
     assert.equal(surf.overlap, false);
     assert.equal(surf.who, true);
 
-    r = reduceNotificationOwnerBootLobby(r.state, {
-      type: 'LEAVE_WHO_FOR_LEGACY_FLOW',
-    });
-    assert.equal(r.state.presentation.kind, 'LEGACY_FLOW');
+    r = reduceNotificationOwnerBootLobby(r.state, { type: 'OPEN_WHAT' });
+    assert.equal(r.state.presentation.kind, 'WHAT');
     surf = resolveSendFlowSurfaceExclusivity({
-      ownerKind: 'LEGACY_FLOW',
+      ownerKind: 'WHAT',
       phase: 'composingBan',
     });
     assert.equal(surf.overlap, false);
     assert.equal(surf.what, true);
     assert.equal(surf.who, false);
 
-    // Simulate atomic WHAT→WHO: phase selectingTarget while still LEGACY, then OPEN_WHO
+    // Simulate atomic WHAT→WHO: phase selectingTarget while still WHAT, then OPEN_WHO
     surf = resolveSendFlowSurfaceExclusivity({
-      ownerKind: 'LEGACY_FLOW',
+      ownerKind: 'WHAT',
       phase: 'selectingTarget',
     });
     assert.equal(surf.what, false);
@@ -159,17 +157,16 @@ console.log('\n=== WHAT → WHO HANDOFF / EXCLUSIVITY ===\n');
 
 // 6. No Lobby frame during WHAT → WHO
 {
-  toLegacyWhat();
+  toWhat();
   const mid = resolveSendFlowSurfaceExclusivity({
-    ownerKind: 'LEGACY_FLOW',
+    ownerKind: 'WHAT',
     phase: 'selectingTarget',
   });
   assert.equal(mid.who, false);
   assert.equal(mid.what, false);
-  // Not LOBBY owner
   assert.equal(
     getNotificationOwnerBootLobbyState().presentation.kind,
-    'LEGACY_FLOW',
+    'WHAT',
   );
   const open = reduceNotificationOwnerBootLobby(
     getNotificationOwnerBootLobbyState(),
@@ -180,16 +177,16 @@ console.log('\n=== WHAT → WHO HANDOFF / EXCLUSIVITY ===\n');
   pass('No Lobby frame appears during WHAT → WHO');
 }
 
-// 7. WHO → WHAT remains LEGACY_FLOW (not Lobby)
+// 7. WHO → WHAT becomes owner WHAT (not Lobby)
 {
   toWho();
-  const leave = reduceNotificationOwnerBootLobby(
+  const openWhat = reduceNotificationOwnerBootLobby(
     getNotificationOwnerBootLobbyState(),
-    { type: 'LEAVE_WHO_FOR_LEGACY_FLOW' },
+    { type: 'OPEN_WHAT' },
   );
-  assert.equal(leave.state.presentation.kind, 'LEGACY_FLOW');
+  assert.equal(openWhat.state.presentation.kind, 'WHAT');
   const surf = resolveSendFlowSurfaceExclusivity({
-    ownerKind: 'LEGACY_FLOW',
+    ownerKind: 'WHAT',
     phase: 'composingBan',
   });
   assert.equal(surf.what, true);
@@ -197,9 +194,9 @@ console.log('\n=== WHAT → WHO HANDOFF / EXCLUSIVITY ===\n');
   pass('WHO → WHAT remains fixed and does not return to Lobby');
 }
 
-// 8. Explicit reset from legacy → LOBBY
+// 8. Explicit reset from WHAT → LOBBY
 {
-  toLegacyWhat();
+  toWhat();
   const reset = reduceNotificationOwnerBootLobby(
     getNotificationOwnerBootLobbyState(),
     { type: 'RESET_TO_LOBBY' },
