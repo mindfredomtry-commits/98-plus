@@ -649,9 +649,8 @@ export function InstantBanFlow({
   );
 
   /**
-   * WHO/WHAT ownership: NotificationOwner is macro authority for LOBBY ↔ WHO ↔ WHAT.
-   * Legacy selectingTarget / composingBan are one-way projections of owner WHO / WHAT.
-   * LEGACY_FLOW remains the temporary CONFIRM handoff (not WHAT).
+   * WHO/WHAT/CONFIRM ownership: NotificationOwner is macro authority.
+   * Legacy selectingTarget / composingBan / confirming are one-way projections.
    */
   const leaveWhoForLegacyRef = useRef(false);
   const finishWhoDismissRef = useRef<() => void>(() => {});
@@ -663,6 +662,10 @@ export function InstantBanFlow({
     leaveWhoForLegacyRef.current = false;
     setPhase('composingBan', 'notification-owner-what-projection');
   }, [setPhase]);
+  const applyConfirmPhaseFromOwner = useCallback(() => {
+    leaveWhoForLegacyRef.current = false;
+    setPhase('confirming', 'notification-owner-confirm-projection');
+  }, [setPhase]);
   const applyLobbyFromWhoOwner = useCallback(() => {
     finishWhoDismissRef.current();
   }, []);
@@ -672,12 +675,18 @@ export function InstantBanFlow({
     applyLobbyFromWhoOwner,
     leaveWhoForLegacyRef,
     applyWhatPhaseFromOwner,
+    applyConfirmPhaseFromOwner,
   );
 
-  /** Clear owner WHO / WHAT / LEGACY_FLOW before legacy idle resets. */
+  /** Clear owner WHO / WHAT / CONFIRM / LEGACY_FLOW before legacy idle resets. */
   const releaseOwnerWhoToLobby = useCallback(() => {
     const kind = getNotificationOwnerBootLobbyState().presentation.kind;
-    if (kind !== 'WHO' && kind !== 'WHAT' && kind !== 'LEGACY_FLOW') {
+    if (
+      kind !== 'WHO' &&
+      kind !== 'WHAT' &&
+      kind !== 'CONFIRM' &&
+      kind !== 'LEGACY_FLOW'
+    ) {
       return;
     }
     leaveWhoForLegacyRef.current = false;
@@ -1988,25 +1997,11 @@ export function InstantBanFlow({
           dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
           setPhase('composingBan', 'notification-owner-what-projection');
           setCrossScreenProgressImmediate(1);
+        } else if (entryPhase === 'confirming') {
+          leaveWhoForLegacyRef.current = false;
+          dispatchNotificationOwnerBootLobby({ type: 'OPEN_CONFIRM' });
+          setPhase('confirming', 'notification-owner-confirm-projection');
         } else {
-          // confirming (and any other legacy entry) — temporary LEGACY_FLOW bag
-          leaveWhoForLegacyRef.current = true;
-          if (
-            getNotificationOwnerBootLobbyState().presentation.kind === 'WHO' ||
-            getNotificationOwnerBootLobbyState().presentation.kind === 'WHAT'
-          ) {
-            const kind =
-              getNotificationOwnerBootLobbyState().presentation.kind;
-            if (kind === 'WHAT') {
-              dispatchNotificationOwnerBootLobby({
-                type: 'LEAVE_WHAT_FOR_LEGACY_FLOW',
-              });
-            } else {
-              dispatchNotificationOwnerBootLobby({
-                type: 'LEAVE_WHO_FOR_LEGACY_FLOW',
-              });
-            }
-          }
           setPhase(entryPhase);
         }
       } else if (incomingReplyBanId || replyComposeActive) {
@@ -3057,19 +3052,10 @@ export function InstantBanFlow({
         dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
         setPhase('composingBan', 'notification-owner-what-projection');
       } else {
-        // confirming — temporary LEGACY_FLOW (CONFIRM not owned yet)
-        leaveWhoForLegacyRef.current = true;
-        const kind = getNotificationOwnerBootLobbyState().presentation.kind;
-        if (kind === 'WHAT') {
-          dispatchNotificationOwnerBootLobby({
-            type: 'LEAVE_WHAT_FOR_LEGACY_FLOW',
-          });
-        } else if (kind === 'WHO') {
-          dispatchNotificationOwnerBootLobby({
-            type: 'LEAVE_WHO_FOR_LEGACY_FLOW',
-          });
-        }
-        setPhase(targetPhase);
+        // confirming — NotificationOwner CONFIRM
+        leaveWhoForLegacyRef.current = false;
+        dispatchNotificationOwnerBootLobby({ type: 'OPEN_CONFIRM' });
+        setPhase('confirming', 'notification-owner-confirm-projection');
       }
 
       return true;
@@ -6035,10 +6021,10 @@ export function InstantBanFlow({
     traceSuccessSnapshotCleared('handleWhatSubmit');
     sendSnapshotRef.current = null;
     confirmEntrySourceRef.current = 'send-flow';
-    // Leave WHAT ownership before CONFIRM; CONFIRM stays legacy-owned this slice.
-    leaveWhoForLegacyRef.current = true;
-    dispatchNotificationOwnerBootLobby({ type: 'LEAVE_WHAT_FOR_LEGACY_FLOW' });
-    setPhase('confirming');
+    // Owner enters CONFIRM; authorized projection writes confirming in the same turn.
+    leaveWhoForLegacyRef.current = false;
+    dispatchNotificationOwnerBootLobby({ type: 'OPEN_CONFIRM' });
+    setPhase('confirming', 'notification-owner-confirm-projection');
   }, []);
 
   const handleWhatBack = useCallback(() => {
