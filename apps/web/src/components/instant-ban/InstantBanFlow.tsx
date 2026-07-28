@@ -668,9 +668,10 @@ export function InstantBanFlow({
     leaveWhoForLegacyRef,
   );
 
-  /** Clear owner WHO before legacy idle resets so projection does not re-open WHO. */
+  /** Clear owner WHO / LEGACY_FLOW before legacy idle resets so projection does not re-open WHO. */
   const releaseOwnerWhoToLobby = useCallback(() => {
-    if (getNotificationOwnerBootLobbyState().presentation.kind !== 'WHO') {
+    const kind = getNotificationOwnerBootLobbyState().presentation.kind;
+    if (kind !== 'WHO' && kind !== 'LEGACY_FLOW') {
       return;
     }
     leaveWhoForLegacyRef.current = false;
@@ -1631,21 +1632,20 @@ export function InstantBanFlow({
   const completeWhoToWhat = useCallback(() => {
     screenTransitionRef.current = null;
     setScreenTransition(null);
-    // Advance legacy phase BEFORE leaving owner WHO so projection does not
-    // treat LOBBY + selectingTarget as a dismiss (no Lobby flash under WHAT).
+    // Owner must leave WHO *before* composingBan. Otherwise setting composingBan
+    // while still WHO runs projection (WHO + !selectingTarget → force selectingTarget)
+    // and clears the suppress ref, then a LOBBY handoff would dismiss to Lobby.
     leaveWhoForLegacyRef.current = true;
-    flushSync(() => {
-      setPhase('composingBan', 'who-to-what-legacy');
-    });
-    setCrossScreenProgressImmediate(1);
     dispatchNotificationOwnerBootLobby({ type: 'LEAVE_WHO_FOR_LEGACY_FLOW' });
+    setPhase('composingBan', 'who-to-what-legacy');
+    setCrossScreenProgressImmediate(1);
   }, [setCrossScreenProgressImmediate, setPhase]);
 
   const completeWhatToWho = useCallback(() => {
     screenTransitionRef.current = null;
     setScreenTransition(null);
     leaveWhoForLegacyRef.current = false;
-    // Owner re-claims WHO; phase projection applies selectingTarget.
+    // Owner re-claims WHO from LEGACY_FLOW (or LOBBY); phase projection applies selectingTarget.
     dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
     setCrossScreenProgressImmediate(0);
   }, [setCrossScreenProgressImmediate]);

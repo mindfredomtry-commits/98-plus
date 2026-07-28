@@ -1,12 +1,15 @@
 /**
  * NotificationOwner — BOOT / LOBBY / WHO macro ownership slice.
- * State authority for which macro shell is active. Not a visual renderer.
+ * LEGACY_FLOW is a non-rendering handoff so owner does not project Lobby
+ * while InstantBanFlow owns WHAT/CONFIRM/etc. locally.
  */
 
 export type BootLobbyPresentation =
   | { kind: 'BOOT'; surface: 'deliberate-boot' }
   | { kind: 'LOBBY'; mode: 'full' }
-  | { kind: 'WHO'; mode: 'selecting-target' };
+  | { kind: 'WHO'; mode: 'selecting-target' }
+  /** Neutral — no Lobby/WHO projection; legacy InstantBanFlow owns paint. */
+  | { kind: 'LEGACY_FLOW'; mode: 'non-rendering' };
 
 export type NotificationOwnerBootLobbyState = {
   presentation: BootLobbyPresentation;

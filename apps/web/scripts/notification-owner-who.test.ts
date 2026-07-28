@@ -202,11 +202,40 @@ pass('No direct legacy WHO open write remains');
   pass('No direct legacy WHO close write remains');
 }
 
-// 12. WHO → WHAT does not produce a Lobby frame
+// 12. WHO → WHAT does not produce a Lobby frame (owner → LEGACY_FLOW, not LOBBY)
 assert.match(instantBanSrc, /LEAVE_WHO_FOR_LEGACY_FLOW/);
 assert.match(instantBanSrc, /leaveWhoForLegacyRef/);
-assert.match(instantBanSrc, /flushSync/);
 assert.match(instantBanSrc, /who-to-what-legacy/);
+{
+  toLobby();
+  dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
+  const leave = reduceNotificationOwnerBootLobby(
+    getNotificationOwnerBootLobbyState(),
+    { type: 'LEAVE_WHO_FOR_LEGACY_FLOW' },
+  );
+  assert.equal(leave.rejected, null);
+  assert.equal(leave.state.presentation.kind, 'LEGACY_FLOW');
+  assert.notEqual(leave.state.presentation.kind, 'LOBBY');
+  const plan = planBootLobbyVisuals(leave.state.presentation);
+  assert.equal(plan.ownerWhoActive, false);
+  assert.equal(plan.ownerLegacyFlowActive, true);
+  assert.equal(plan.showLobbyBootLogoShell, false);
+
+  const whoToWhatIdx = instantBanSrc.indexOf('const completeWhoToWhat');
+  const whoToWhatEnd = instantBanSrc.indexOf(
+    'const completeWhatToWho',
+    whoToWhatIdx,
+  );
+  const body = instantBanSrc.slice(whoToWhatIdx, whoToWhatEnd);
+  // LEAVE must happen before composingBan so WHO+composingBan never projects
+  const leaveIdx = body.indexOf('LEAVE_WHO_FOR_LEGACY_FLOW');
+  const phaseIdx = body.indexOf("setPhase('composingBan'");
+  assert.ok(leaveIdx >= 0 && phaseIdx > leaveIdx);
+  assert.doesNotMatch(body, /flushSync\s*\(/);
+  pass('WHO → WHAT does not produce a Lobby frame');
+}
+
+// 12b. WHO → WHAT preserves composingBan write after leave
 {
   const whoToWhatIdx = instantBanSrc.indexOf('const completeWhoToWhat');
   const whoToWhatEnd = instantBanSrc.indexOf(
@@ -214,11 +243,63 @@ assert.match(instantBanSrc, /who-to-what-legacy/);
     whoToWhatIdx,
   );
   const body = instantBanSrc.slice(whoToWhatIdx, whoToWhatEnd);
-  // phase advances before leave
-  const phaseIdx = body.indexOf("setPhase('composingBan'");
-  const leaveIdx = body.indexOf('LEAVE_WHO_FOR_LEGACY_FLOW');
-  assert.ok(phaseIdx >= 0 && leaveIdx > phaseIdx);
-  pass('WHO → WHAT does not produce a Lobby frame');
+  assert.match(body, /setPhase\('composingBan', 'who-to-what-legacy'\)/);
+  assert.doesNotMatch(body, /setPhase\('idle'/);
+  assert.doesNotMatch(body, /RESET_TO_LOBBY/);
+  pass('WHO → WHAT preserves composingBan');
+}
+
+// 12c. Legacy WHAT remains visible — LEGACY_FLOW is non-rendering for owner
+{
+  const plan = planBootLobbyVisuals({
+    kind: 'LEGACY_FLOW',
+    mode: 'non-rendering',
+  });
+  assert.equal(plan.ownerLegacyFlowActive, true);
+  assert.equal(plan.ownerWhoActive, false);
+  assert.match(instantBanSrc, /phase === 'composingBan'/);
+  assert.match(instantBanSrc, /WhatScreen|WhatOverlay|showCrossScreenPager/);
+  pass('Legacy WHAT remains visible after owner leaves WHO');
+}
+
+// 12d. WHAT → WHO returns to WHO from LEGACY_FLOW
+{
+  toLobby();
+  dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
+  dispatchNotificationOwnerBootLobby({ type: 'LEAVE_WHO_FOR_LEGACY_FLOW' });
+  assert.equal(
+    getNotificationOwnerBootLobbyState().presentation.kind,
+    'LEGACY_FLOW',
+  );
+  const reopen = reduceNotificationOwnerBootLobby(
+    getNotificationOwnerBootLobbyState(),
+    { type: 'OPEN_WHO' },
+  );
+  assert.equal(reopen.rejected, null);
+  assert.equal(reopen.state.presentation.kind, 'WHO');
+  assert.match(instantBanSrc, /const completeWhatToWho/);
+  {
+    const idx = instantBanSrc.indexOf('const completeWhatToWho');
+    const end = instantBanSrc.indexOf('const shouldCompleteWhoToWhat', idx);
+    const body = instantBanSrc.slice(idx, end);
+    assert.match(body, /type:\s*'OPEN_WHO'/);
+  }
+  pass('WHAT → WHO returns to WHO');
+}
+
+// 12e. Explicit legacy reset returns to LOBBY
+{
+  toLobby();
+  dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
+  dispatchNotificationOwnerBootLobby({ type: 'LEAVE_WHO_FOR_LEGACY_FLOW' });
+  const reset = reduceNotificationOwnerBootLobby(
+    getNotificationOwnerBootLobbyState(),
+    { type: 'RESET_TO_LOBBY' },
+  );
+  assert.equal(reset.rejected, null);
+  assert.equal(reset.state.presentation.kind, 'LOBBY');
+  assert.match(instantBanSrc, /kind !== 'LEGACY_FLOW'/);
+  pass('Explicit legacy reset returns to LOBBY');
 }
 
 // 13. Incoming notification hosts unchanged while WHO is active
