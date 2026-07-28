@@ -22,3 +22,9 @@ export {
   useNotificationOwnerBootLobbyBridge,
   useNotificationOwnerWhoProjection,
 } from './boot-lobby.adapter';
+export {
+  resolveSendFlowSurfaceExclusivity,
+  type SendFlowLegacyPhase,
+  type SendFlowOwnerKind,
+  type SendFlowSurfaceExclusivity,
+} from './send-flow-exclusivity';

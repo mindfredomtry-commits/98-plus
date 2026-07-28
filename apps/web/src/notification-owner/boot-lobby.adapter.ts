@@ -103,7 +103,11 @@ export function useNotificationOwnerWhoProjection(
   applyLobbyFromWho: () => void,
   /** Kept for call-site compatibility; LEGACY_FLOW is the real handoff guard. */
   suppressLobbyWhoCloseRef: { current: boolean },
-): { ownerWhoActive: boolean; ownerLegacyFlowActive: boolean } {
+): {
+  ownerWhoActive: boolean;
+  ownerLegacyFlowActive: boolean;
+  ownerKind: BootLobbyPresentation['kind'];
+} {
   const presentation = useSyncExternalStore(
     subscribeNotificationOwnerBootLobby,
     () => getNotificationOwnerBootLobbyState().presentation,
@@ -146,5 +150,9 @@ export function useNotificationOwnerWhoProjection(
     suppressLobbyWhoCloseRef,
   ]);
 
-  return { ownerWhoActive, ownerLegacyFlowActive };
+  return {
+    ownerWhoActive,
+    ownerLegacyFlowActive,
+    ownerKind: presentation.kind,
+  };
 }

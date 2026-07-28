@@ -87,6 +87,7 @@ import { planLobbyBansOpenNavigation } from '@/lib/lobby-bans-open-navigation';
 import {
   dispatchNotificationOwnerBootLobby,
   getNotificationOwnerBootLobbyState,
+  resolveSendFlowSurfaceExclusivity,
   useNotificationOwnerWhoProjection,
 } from '@/notification-owner';
 import { logBootGate } from '@/lib/boot-gate-diag';
@@ -661,7 +662,7 @@ export function InstantBanFlow({
   const applyLobbyFromWhoOwner = useCallback(() => {
     finishWhoDismissRef.current();
   }, []);
-  useNotificationOwnerWhoProjection(
+  const { ownerKind } = useNotificationOwnerWhoProjection(
     phase,
     applyWhoPhaseFromOwner,
     applyLobbyFromWhoOwner,
@@ -876,9 +877,15 @@ export function InstantBanFlow({
   const activeBanDeepLinkBooting =
     activeBanUiShellActive ||
     (activeBanDeepLinkBanId != null && !bansOverlayOpen);
+  const sendFlowSurfaces = resolveSendFlowSurfaceExclusivity({
+    ownerKind,
+    phase,
+    banSentSuccess,
+  });
+  const showWhoSurface = sendFlowSurfaces.who;
+  const showWhatSurface = sendFlowSurfaces.what;
   const showCrossScreenPager =
-    !activeBanDeepLinkBooting &&
-    (phase === 'selectingTarget' || phase === 'composingBan');
+    !activeBanDeepLinkBooting && (showWhoSurface || showWhatSurface);
   const overlayOpen = showCrossScreenPager;
   const notificationOverlayActive =
     notificationOverlayVisible || incomingGateActive || checkGateActive || !!result;
@@ -1645,10 +1652,13 @@ export function InstantBanFlow({
     screenTransitionRef.current = null;
     setScreenTransition(null);
     leaveWhoForLegacyRef.current = false;
-    // Owner re-claims WHO from LEGACY_FLOW (or LOBBY); phase projection applies selectingTarget.
+    // Make WHAT non-renderable *before* owner enters WHO (no WHO+composingBan frame).
+    flushSync(() => {
+      setPhase('selectingTarget', 'what-to-who-legacy');
+      setCrossScreenProgressImmediate(0);
+    });
     dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
-    setCrossScreenProgressImmediate(0);
-  }, [setCrossScreenProgressImmediate]);
+  }, [setCrossScreenProgressImmediate, setPhase]);
 
   const shouldCompleteWhoToWhat = useCallback(
     (progress: number, velocity: number) =>
@@ -7004,7 +7014,7 @@ export function InstantBanFlow({
   );
 
   const confirmActive =
-    phase === 'confirming' && selectedUser != null && !banSentSuccess;
+    sendFlowSurfaces.confirm && selectedUser != null && !banSentSuccess;
   const orbCompressActive =
     !banSentSuccess &&
     (composeDismissing || (phase === 'confirming' && selectedUser != null));
@@ -8676,25 +8686,32 @@ export function InstantBanFlow({
             >
               <div className="instant-ban-cross-screen-track">
                 <div className="instant-ban-cross-screen-page instant-ban-cross-screen-page--who">
-                  <WhoOverlay
-                    title={WHO_OVERLAY_TITLE}
-                    friends={safeFriends}
-                    onSelect={handleSelectUser}
-                    onInviteMore={handleInviteMore}
-                    onDismissDragProgress={handleWhoDismissDragProgress}
-                    onDismissExitStart={handleWhoDismissExitStart}
-                    onDismissToLobby={handleWhoDismissToLobby}
-                    whoPanelEntering={
-                      whoPanelEntering && crossScreenProgress < 0.02
-                    }
-                    gestureZoneActive={whoDismissGestureActive}
-                  />
+                  {showWhoSurface ? (
+                    <WhoOverlay
+                      title={WHO_OVERLAY_TITLE}
+                      friends={safeFriends}
+                      onSelect={handleSelectUser}
+                      onInviteMore={handleInviteMore}
+                      onDismissDragProgress={handleWhoDismissDragProgress}
+                      onDismissExitStart={handleWhoDismissExitStart}
+                      onDismissToLobby={handleWhoDismissToLobby}
+                      whoPanelEntering={
+                        whoPanelEntering && crossScreenProgress < 0.02
+                      }
+                      gestureZoneActive={whoDismissGestureActive}
+                    />
+                  ) : (
+                    <div
+                      className="instant-ban-cross-screen-page__placeholder"
+                      aria-hidden
+                    />
+                  )}
                 </div>
                 <div
                   className="instant-ban-cross-screen-page instant-ban-cross-screen-page--what"
                   data-no-horizontal-pager=""
                 >
-                  {selectedUser ? (
+                  {showWhatSurface && selectedUser ? (
                     <WhatScreen
                       key={
                         selectedUser.id ??
