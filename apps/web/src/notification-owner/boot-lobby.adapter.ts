@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Thin BOOT/LOBBY/WHO/WHAT/CONFIRM/LEGACY_FLOW adapter — state authority only.
+ * Thin BOOT/LOBBY/WHO/WHAT/CONFIRM/SUCCESS/LEGACY_FLOW adapter — state authority only.
  * Maps owner kinds onto the EXISTING production visual path.
  * Does not mount NotificationPresentation or .np-* surfaces.
  */
@@ -20,7 +20,8 @@ import type { BootLobbyPresentation } from './boot-lobby.types';
 
 /**
  * Pure visual plan for the production page.
- * CONFIRM / WHAT / WHO keep InstantBanFlow mounted (existing paint paths).
+ * SUCCESS / CONFIRM / WHAT / WHO keep InstantBanFlow mounted (existing paint paths).
+ * SUCCESS has no legacy phase projection — paint stays banSentSuccess + snapshot.
  * LEGACY_FLOW is non-rendering for owner.
  */
 export function planBootLobbyVisuals(presentation: BootLobbyPresentation): {
@@ -30,6 +31,7 @@ export function planBootLobbyVisuals(presentation: BootLobbyPresentation): {
   ownerWhoActive: boolean;
   ownerWhatActive: boolean;
   ownerConfirmActive: boolean;
+  ownerSuccessActive: boolean;
   ownerLegacyFlowActive: boolean;
 } {
   const isBoot = presentation.kind === 'BOOT';
@@ -40,6 +42,7 @@ export function planBootLobbyVisuals(presentation: BootLobbyPresentation): {
     ownerWhoActive: presentation.kind === 'WHO',
     ownerWhatActive: presentation.kind === 'WHAT',
     ownerConfirmActive: presentation.kind === 'CONFIRM',
+    ownerSuccessActive: presentation.kind === 'SUCCESS',
     ownerLegacyFlowActive: presentation.kind === 'LEGACY_FLOW',
   };
 }
@@ -56,6 +59,7 @@ export function useNotificationOwnerBootLobbyBridge(): {
   ownerWhoActive: boolean;
   ownerWhatActive: boolean;
   ownerConfirmActive: boolean;
+  ownerSuccessActive: boolean;
   ownerLegacyFlowActive: boolean;
 } {
   const presentation = useSyncExternalStore(
@@ -80,6 +84,7 @@ export function useNotificationOwnerBootLobbyBridge(): {
       presentation.kind === 'WHO' ||
       presentation.kind === 'WHAT' ||
       presentation.kind === 'CONFIRM' ||
+      presentation.kind === 'SUCCESS' ||
       presentation.kind === 'LEGACY_FLOW'
     ) {
       completedRef.current = true;
@@ -97,6 +102,7 @@ export function useNotificationOwnerBootLobbyBridge(): {
     ownerWhoActive: plan.ownerWhoActive,
     ownerWhatActive: plan.ownerWhatActive,
     ownerConfirmActive: plan.ownerConfirmActive,
+    ownerSuccessActive: plan.ownerSuccessActive,
     ownerLegacyFlowActive: plan.ownerLegacyFlowActive,
   };
 }
@@ -105,8 +111,9 @@ export function useNotificationOwnerBootLobbyBridge(): {
  * InstantBanFlow projection of owner WHO/WHAT/CONFIRM → legacy phases.
  * One-way: owner → legacy phase. Never writes back into the owner.
  *
+ * SUCCESS has no legacy phase projection (paint remains banSentSuccess + snapshot).
  * CLOSE applies only on WHO → LOBBY (explicit dismiss/reset).
- * LEGACY_FLOW never forces idle/WHO/WHAT/CONFIRM.
+ * LEGACY_FLOW never forces idle/WHO/WHAT/CONFIRM/SUCCESS.
  */
 export function useNotificationOwnerWhoProjection(
   phase: string,
@@ -120,6 +127,7 @@ export function useNotificationOwnerWhoProjection(
   ownerWhoActive: boolean;
   ownerWhatActive: boolean;
   ownerConfirmActive: boolean;
+  ownerSuccessActive: boolean;
   ownerLegacyFlowActive: boolean;
   ownerKind: BootLobbyPresentation['kind'];
 } {
@@ -132,6 +140,7 @@ export function useNotificationOwnerWhoProjection(
   const ownerWhoActive = presentation.kind === 'WHO';
   const ownerWhatActive = presentation.kind === 'WHAT';
   const ownerConfirmActive = presentation.kind === 'CONFIRM';
+  const ownerSuccessActive = presentation.kind === 'SUCCESS';
   const ownerLegacyFlowActive = presentation.kind === 'LEGACY_FLOW';
   const prevKindRef = useRef(presentation.kind);
 
@@ -142,6 +151,11 @@ export function useNotificationOwnerWhoProjection(
 
     // Never project while parked on reserved LEGACY_FLOW.
     if (kind === 'LEGACY_FLOW') {
+      return;
+    }
+
+    // SUCCESS: no phase === 'success' — local paint owns materialization.
+    if (kind === 'SUCCESS') {
       return;
     }
 
@@ -187,6 +201,7 @@ export function useNotificationOwnerWhoProjection(
     ownerWhoActive,
     ownerWhatActive,
     ownerConfirmActive,
+    ownerSuccessActive,
     ownerLegacyFlowActive,
     ownerKind: presentation.kind,
   };

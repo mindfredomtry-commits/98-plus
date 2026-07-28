@@ -9,6 +9,7 @@ export type SendFlowOwnerKind =
   | 'WHO'
   | 'WHAT'
   | 'CONFIRM'
+  | 'SUCCESS'
   | 'LEGACY_FLOW';
 
 export type SendFlowLegacyPhase =

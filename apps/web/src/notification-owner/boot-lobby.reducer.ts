@@ -1,5 +1,5 @@
 /**
- * Pure BOOT / LOBBY / WHO / WHAT / CONFIRM / LEGACY_FLOW reducer.
+ * Pure BOOT / LOBBY / WHO / WHAT / CONFIRM / SUCCESS / LEGACY_FLOW reducer.
  * No React. No DOM. No timers.
  */
 
@@ -23,6 +23,10 @@ const WHAT: NotificationOwnerBootLobbyState = {
 
 const CONFIRM: NotificationOwnerBootLobbyState = {
   presentation: { kind: 'CONFIRM', mode: 'confirming' },
+};
+
+const SUCCESS: NotificationOwnerBootLobbyState = {
+  presentation: { kind: 'SUCCESS', mode: 'send-success' },
 };
 
 const LEGACY_FLOW: NotificationOwnerBootLobbyState = {
@@ -55,11 +59,12 @@ export function reduceNotificationOwnerBootLobby(
         state.presentation.kind !== 'LOBBY' &&
         state.presentation.kind !== 'LEGACY_FLOW' &&
         state.presentation.kind !== 'WHAT' &&
-        state.presentation.kind !== 'CONFIRM'
+        state.presentation.kind !== 'CONFIRM' &&
+        state.presentation.kind !== 'SUCCESS'
       ) {
         return {
           state,
-          rejected: 'open-who-requires-lobby-legacy-what-or-confirm',
+          rejected: 'open-who-requires-lobby-legacy-what-confirm-or-success',
         };
       }
       return { state: WHO, rejected: null };
@@ -86,11 +91,12 @@ export function reduceNotificationOwnerBootLobby(
         state.presentation.kind !== 'WHO' &&
         state.presentation.kind !== 'LOBBY' &&
         state.presentation.kind !== 'LEGACY_FLOW' &&
-        state.presentation.kind !== 'CONFIRM'
+        state.presentation.kind !== 'CONFIRM' &&
+        state.presentation.kind !== 'SUCCESS'
       ) {
         return {
           state,
-          rejected: 'open-what-requires-who-lobby-legacy-or-confirm',
+          rejected: 'open-what-requires-who-lobby-legacy-confirm-or-success',
         };
       }
       return { state: WHAT, rejected: null };
@@ -108,14 +114,29 @@ export function reduceNotificationOwnerBootLobby(
         state.presentation.kind !== 'WHAT' &&
         state.presentation.kind !== 'WHO' &&
         state.presentation.kind !== 'LOBBY' &&
-        state.presentation.kind !== 'LEGACY_FLOW'
+        state.presentation.kind !== 'LEGACY_FLOW' &&
+        state.presentation.kind !== 'SUCCESS'
       ) {
         return {
           state,
-          rejected: 'open-confirm-requires-what-who-lobby-or-legacy',
+          rejected: 'open-confirm-requires-what-who-lobby-legacy-or-success',
         };
       }
       return { state: CONFIRM, rejected: null };
+    }
+
+    case 'OPEN_SUCCESS': {
+      if (state.presentation.kind === 'SUCCESS') {
+        // Idempotent — already SUCCESS.
+        return { state, rejected: null };
+      }
+      if (state.presentation.kind !== 'CONFIRM') {
+        return {
+          state,
+          rejected: 'open-success-requires-confirm',
+        };
+      }
+      return { state: SUCCESS, rejected: null };
     }
 
     case 'RESET_TO_LOBBY': {
@@ -129,11 +150,12 @@ export function reduceNotificationOwnerBootLobby(
         state.presentation.kind !== 'WHO' &&
         state.presentation.kind !== 'WHAT' &&
         state.presentation.kind !== 'CONFIRM' &&
+        state.presentation.kind !== 'SUCCESS' &&
         state.presentation.kind !== 'LEGACY_FLOW'
       ) {
         return {
           state,
-          rejected: 'reset-to-lobby-requires-who-what-confirm-or-legacy',
+          rejected: 'reset-to-lobby-requires-who-what-confirm-success-or-legacy',
         };
       }
       return { state: LOBBY, rejected: null };

@@ -31,7 +31,7 @@ function pass(name: string): void {
 }
 
 function overlayOpenCandidate(input: {
-  ownerKind: 'BOOT' | 'LOBBY' | 'WHO' | 'WHAT' | 'CONFIRM' | 'LEGACY_FLOW';
+  ownerKind: 'BOOT' | 'LOBBY' | 'WHO' | 'WHAT' | 'CONFIRM' | 'SUCCESS' | 'LEGACY_FLOW';
   phase: 'idle' | 'selectingTarget' | 'composingBan' | 'confirming';
   selectedUserPresent: boolean;
 }): boolean {

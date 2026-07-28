@@ -678,13 +678,14 @@ export function InstantBanFlow({
     applyConfirmPhaseFromOwner,
   );
 
-  /** Clear owner WHO / WHAT / CONFIRM / LEGACY_FLOW before legacy idle resets. */
+  /** Clear owner WHO / WHAT / CONFIRM / SUCCESS / LEGACY_FLOW before legacy idle resets. */
   const releaseOwnerWhoToLobby = useCallback(() => {
     const kind = getNotificationOwnerBootLobbyState().presentation.kind;
     if (
       kind !== 'WHO' &&
       kind !== 'WHAT' &&
       kind !== 'CONFIRM' &&
+      kind !== 'SUCCESS' &&
       kind !== 'LEGACY_FLOW'
     ) {
       return;
@@ -4950,6 +4951,9 @@ export function InstantBanFlow({
         payoffPending: confirmSendContextRef.current.sendTriggered,
         payoffPhase: confirmSendContextRef.current.payoffPhase,
       });
+      // Macro owner leaves CONFIRM atomically; paint remains banSentSuccess + snapshot.
+      leaveWhoForLegacyRef.current = false;
+      dispatchNotificationOwnerBootLobby({ type: 'OPEN_SUCCESS' });
       setBanSentSuccess(true);
       setSendSuccessCardMounted(true, { banId, source: 'open-success' });
       if (isReplyDeeplinkSendContext()) {
