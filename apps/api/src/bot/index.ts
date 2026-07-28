@@ -12,6 +12,7 @@ import { sendBotStartInviteChallenge, sendViralInviteBootNotification } from './
 import { findUserByUsername } from '../services/ban.service';
 import { resolveViralInviteBootContext } from '../services/invite-deeplink.service';
 import { registerTelegramStarsHandlers } from './telegram-stars-handlers';
+import { handleUsersSharedSpike } from '../services/native-picker-spike.service';
 
 let bot: Telegraf | null = null;
 let botLaunchStarted = false;
@@ -232,6 +233,26 @@ export function startBot(): Telegraf | null {
   });
 
   registerTelegramStarsHandlers(bot);
+
+  // SPIKE: users_shared from KeyboardButtonRequestUsers / prepared request_users
+  bot.on('message', async (ctx, next) => {
+    const msg = ctx.message as {
+      users_shared?: unknown;
+      from?: { id?: number };
+    };
+    if (msg?.users_shared != null) {
+      try {
+        await handleUsersSharedSpike({
+          messageFromId: msg.from?.id ?? ctx.from?.id ?? 0,
+          usersShared: msg.users_shared,
+        });
+      } catch (err) {
+        console.error('[spike-native-picker] users_shared handler failed', err);
+      }
+      return;
+    }
+    return next();
+  });
 
   // Telegraf `launch()` Promise resolves when polling stops — log start before await.
   console.log('BOT_POLLING_STARTED', {

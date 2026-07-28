@@ -3,6 +3,10 @@
 import { useCallback } from 'react';
 import type { NotificationMode } from '@98plus/shared';
 import { WhatBackIcon } from './WhatBackIcon';
+import {
+  SpikeNativePickerPanel,
+  isSpikeNativePickerEnabled,
+} from '../spike/SpikeNativePickerPanel';
 
 const MODE_OPTIONS: { id: NotificationMode; label: string }[] = [
   { id: 'normal', label: 'normal' },
@@ -81,6 +85,8 @@ export function ArenaSettingsPanel({
           </div>
           <p className="instant-ban-settings-overlay__hint">{MODE_HINTS[mode]}</p>
         </div>
+
+        {isSpikeNativePickerEnabled() ? <SpikeNativePickerPanel /> : null}
       </div>
     </div>
   );

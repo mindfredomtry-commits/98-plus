@@ -461,3 +461,31 @@ enum MonetizationEventStatus {
   PROCESSED
   FAILED
 }
+
+/// SPIKE ONLY — Telegram native request_users / users_shared diagnostic.
+/// Not used by production WHO / SocialContact flows.
+model NativePickerSpikeRequest {
+  id                 String    @id @default(cuid())
+  ownerUserId        String
+  ownerTelegramId    BigInt
+  telegramRequestId  Int
+  preparedButtonId   String?
+  status             String    @default("pending")
+  selectedUserId     BigInt?
+  selectedFirstName  String?
+  selectedLastName   String?
+  selectedUsername   String?
+  hasPhotoMeta       Boolean   @default(false)
+  messageFromId      BigInt?
+  registeredInApp    Boolean?
+  rawUsersShared     Json?
+  requestChatCallback Boolean?
+  errorMessage       String?
+  createdAt          DateTime  @default(now())
+  expiresAt          DateTime
+  resolvedAt         DateTime?
+
+  @@index([ownerUserId, status])
+  @@index([ownerTelegramId, telegramRequestId])
+  @@index([expiresAt])
+}

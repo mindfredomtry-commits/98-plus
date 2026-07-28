@@ -7,6 +7,7 @@ import { adminRouter } from './routes/admin';
 import { analyticsRouter } from './routes/analytics';
 import { friendsRouter } from './routes/friends';
 import { invitesRouter } from './routes/invites';
+import { spikeNativePickerRouter } from './routes/spike-native-picker';
 import { productsRouter } from './routes/products';
 import { meRouter } from './routes/me';
 import { paymentProvidersRouter } from './routes/payment-providers';
@@ -109,6 +110,7 @@ export function createApp() {
   app.use('/analytics', analyticsRouter);
   app.use('/friends', friendsRouter);
   app.use('/invites', invitesRouter);
+  app.use('/spike/native-picker', spikeNativePickerRouter);
   app.use('/products', productsRouter);
   app.use('/me', meRouter);
   app.use('/payment-providers', paymentProvidersRouter);
