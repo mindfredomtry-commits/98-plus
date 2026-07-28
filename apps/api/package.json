@@ -18,7 +18,8 @@
     "test:monetization-unit": "tsx scripts/monetization-unit.test.ts",
     "test:telegram-stars": "tsx scripts/telegram-stars.test.ts",
     "test:telegram-stars-provider": "tsx scripts/telegram-stars-provider.test.ts",
-    "test:telegram-stars-integration": "tsx scripts/telegram-stars-integration.test.ts"
+    "test:telegram-stars-integration": "tsx scripts/telegram-stars-integration.test.ts",
+    "test:friends-first-contact": "tsx scripts/friends-first-contact.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

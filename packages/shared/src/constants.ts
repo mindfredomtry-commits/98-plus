@@ -118,6 +118,13 @@ export const ANALYTICS_EVENTS = {
   INVITE_SHARED: 'invite_shared',
   INVITE_PENDING_CREATED: 'invite_pending_created',
   INVITE_CLAIMED: 'invite_claimed',
+  WHO_FIRST_CONTACT_OPEN: 'who_first_contact_open',
+  WHO_FIRST_CONTACT_SUBMIT: 'who_first_contact_submit',
+  WHO_FIRST_CONTACT_REGISTERED: 'who_first_contact_registered',
+  WHO_FIRST_CONTACT_UNREGISTERED: 'who_first_contact_unregistered',
+  WHO_FIRST_CONTACT_WHAT_OPENED: 'who_first_contact_what_opened',
+  WHO_FIRST_CONTACT_INVITE_SHARE: 'who_first_contact_invite_share',
+  WHO_FIRST_CONTACT_FAIL: 'who_first_contact_fail',
   WS_RECONNECT: 'ws_reconnect',
   SESSION_RECOVERED: 'session_recovered',
   // —— Monetization (Profile / Premium / Payment Sheet) ——

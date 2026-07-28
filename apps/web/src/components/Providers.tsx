@@ -38,6 +38,7 @@ import {
   ANALYTICS_EVENTS,
   coerceFriendList,
   formatSenderDisplayName,
+  sanitizeFriendCard,
   SYSTEM_VOICE,
 } from '@98plus/shared';
 import { useAuth } from '@/hooks/useAuth';
@@ -1773,6 +1774,8 @@ interface AppContextValue {
   pushPopup: (p: EnergyPopup) => void;
   activeBans: BanInteraction[];
   friends: FriendCard[];
+  /** Merge a FriendCard into local WHO/friends state (first-contact ensure). */
+  upsertFriend: (card: FriendCard) => void;
   sendOpen: boolean;
   setSendOpen: (v: boolean) => void;
   sendReceiver: string;
@@ -25641,6 +25644,28 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   reloadFriendsRef.current = reloadFriends;
 
+  const upsertFriend = useCallback((card: FriendCard) => {
+    const sanitized = sanitizeFriendCard(card);
+    if (!sanitized) return;
+    const prev = friendsRef.current;
+    const uname = sanitized.username.toLowerCase();
+    const idx = prev.findIndex(
+      (f) =>
+        (sanitized.userId != null &&
+          f.userId != null &&
+          f.userId === sanitized.userId) ||
+        (f.username ?? '').toLowerCase() === uname,
+    );
+    const nextList =
+      idx >= 0
+        ? prev.map((f, i) => (i === idx ? { ...f, ...sanitized } : f))
+        : [sanitized, ...prev];
+    void commitFriendsWithAvatarPreload(nextList, {
+      via: 'upsertFriend',
+      allowEmpty: true,
+    });
+  }, [commitFriendsWithAvatarPreload]);
+
   const reloadPending = useCallback(async () => {
     if (sendSuccessCardActiveRef.current) {
       console.log('[notification-flush-blocked]', {
@@ -44637,6 +44662,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       applySession,
       reloadPending,
       reloadFriends,
+      upsertFriend,
       wsStatus,
       connectionUiState,
       networkBootstrapCompleted,
@@ -44835,6 +44861,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       applySession,
       reloadPending,
       reloadFriends,
+      upsertFriend,
       wsStatus,
       connectionUiState,
       networkBootstrapCompleted,

@@ -1,7 +1,8 @@
 /**
  * WHO “+ кому ещё запретишь” invite / add-recipient interaction.
  *
- * Product: button opens Telegram invite share (not multi-select slots).
+ * Product (v1): button opens first-contact sheet; unregistered path still uses
+ * Telegram invite share (not multi-select slots).
  * Pre-existing blocker: gesture zone z-index swallowed taps; share fell through
  * to window.open which WebView popup-blockers kill → “nothing happens”.
  *
@@ -41,98 +42,94 @@ const cssSrc = read(cssPath);
 const shareSrc = read(sharePath);
 const gestureSrc = read(gesturePath);
 
-// 1. One selected recipient context → invite button opens share flow (wired)
+// 1. Invite button opens first-contact sheet; share remains as fallback
 {
   assert.match(whoSrc, /data-who-invite-more/);
   assert.match(whoSrc, /onInviteMore\(\)/);
   assert.match(whoSrc, /Кому ещё запретишь\?/);
   assert.match(flowSrc, /onInviteMore=\{handleInviteMore\}/);
+  assert.match(flowSrc, /setFirstContactOpen\(true\)/);
   assert.match(flowSrc, /shareInstantBanInviteMore\(/);
-  assert.match(
-    flowSrc,
-    /const handleInviteMore = useCallback\(\(\) => \{[\s\S]*?shareInstantBanInviteMore/,
-  );
-  // No early-return guards on invite (unlike handleSelectUser / handleWhatBack)
-  const inviteBlock = flowSrc.slice(
+  assert.match(flowSrc, /const runWhoInviteShare = useCallback/);
+  // Opening the sheet has no early-return guards (unlike handleSelectUser)
+  const openBlock = flowSrc.slice(
     flowSrc.indexOf('const handleInviteMore = useCallback'),
-    flowSrc.indexOf('const handleSendContextChange'),
+    flowSrc.indexOf('const handleFirstContactClose'),
   );
-  assert.doesNotMatch(inviteBlock, /if \(screenTransitionRef\.current\) return/);
-  assert.doesNotMatch(inviteBlock, /if \(notificationChainTransitioning\)/);
-  assert.doesNotMatch(inviteBlock, /if \(phase !==/);
-  assert.match(inviteBlock, /earlyReturnGuard: null/);
+  assert.doesNotMatch(openBlock, /if \(screenTransitionRef\.current\) return/);
+  assert.doesNotMatch(openBlock, /if \(notificationChainTransitioning\)/);
+  assert.doesNotMatch(openBlock, /if \(phase !==/);
   pass(
-    'One selected recipient → press invite → share/add-friends flow wired (no early return)',
+    'Invite button opens first-contact sheet; share fallback still wired',
   );
 }
 
-// 2. Existing selectedUser is not cleared by invite handler
+// 2. Share fallback does not clear selectedUser
 {
-  const inviteBlock = flowSrc.slice(
+  const shareBlock = flowSrc.slice(
+    flowSrc.indexOf('const runWhoInviteShare = useCallback'),
     flowSrc.indexOf('const handleInviteMore = useCallback'),
-    flowSrc.indexOf('const handleSendContextChange'),
   );
-  assert.doesNotMatch(inviteBlock, /setSelectedUser\(null\)/);
-  assert.doesNotMatch(inviteBlock, /setSelectedUser\(/);
-  assert.match(inviteBlock, /selectedRecipientIds: selectedIds/);
-  pass('Existing recipient remains selected after invite (handler does not clear)');
+  assert.doesNotMatch(shareBlock, /setSelectedUser\(null\)/);
+  assert.doesNotMatch(shareBlock, /setSelectedUser\(/);
+  assert.match(shareBlock, /selectedRecipientIds: selectedIds/);
+  assert.match(shareBlock, /earlyReturnGuard: null/);
+  pass('Existing recipient remains selected after invite share');
 }
 
 // 3. Sequential friends B then C — select replaces one-at-a-time; invite does not invent duplicates
 {
-  // Single-recipient select path still used for send; invite is share-only.
   assert.match(flowSrc, /const handleSelectUser = useCallback/);
   const selectBlock = flowSrc.slice(
     flowSrc.indexOf('const handleSelectUser = useCallback'),
     flowSrc.indexOf('const handleComposeExitStart'),
   );
   assert.match(selectBlock, /setSelectedUser\(friend\)/);
-  // Invite share builds invite deep link — unique bot start, not duplicate local slots
   assert.match(shareSrc, /INSTANT_BAN_INVITE_MORE_MESSAGE/);
   assert.match(shareSrc, /type: 'invite'/);
   assert.match(shareSrc, /export function shareInstantBanInviteMore/);
   pass('Add via invite is share deep-link (B/C join once via Telegram, not duplicate slots)');
 }
 
-// 4. Button works after returning WHO from WHAT — no transition gate on invite
+// 4. Sheet open works after returning WHO from WHAT — no transition gate on open
 {
   assert.match(flowSrc, /completeWhatToWho/);
-  const inviteBlock = flowSrc.slice(
+  const openBlock = flowSrc.slice(
     flowSrc.indexOf('const handleInviteMore = useCallback'),
-    flowSrc.indexOf('const handleSendContextChange'),
+    flowSrc.indexOf('const handleFirstContactClose'),
   );
-  assert.doesNotMatch(inviteBlock, /screenTransitionRef\.current\) return/);
+  assert.doesNotMatch(openBlock, /screenTransitionRef\.current\) return/);
   assert.match(whoSrc, /data-gesture-exclude/);
   assert.match(gestureSrc, /GESTURE_EXCLUDE_SELECTOR/);
-  pass('Invite works after returning from WHAT (no transition gate)');
+  pass('Invite works after returning from WHAT (no transition gate on sheet open)');
 }
 
 // 4b. Button works after returning from CONFIRM
 {
   assert.match(flowSrc, /handleConfirmBack/);
-  const inviteBlock = flowSrc.slice(
+  const openBlock = flowSrc.slice(
     flowSrc.indexOf('const handleInviteMore = useCallback'),
-    flowSrc.indexOf('const handleSendContextChange'),
+    flowSrc.indexOf('const handleFirstContactClose'),
   );
-  assert.doesNotMatch(inviteBlock, /if \(phase !== 'selectingTarget'\)/);
-  assert.doesNotMatch(inviteBlock, /confirmActive/);
+  assert.doesNotMatch(openBlock, /if \(phase !== 'selectingTarget'\)/);
+  assert.doesNotMatch(openBlock, /confirmActive/);
   pass('Invite works after returning from CONFIRM');
 }
 
-// 5. Not blocked by NotificationOwner / chain flags
+// 5. Share fallback not blocked by NotificationOwner / chain flags
 {
-  const inviteBlock = flowSrc.slice(
+  const shareBlock = flowSrc.slice(
+    flowSrc.indexOf('const runWhoInviteShare = useCallback'),
     flowSrc.indexOf('const handleInviteMore = useCallback'),
-    flowSrc.indexOf('const handleSendContextChange'),
   );
-  assert.match(inviteBlock, /chainTransitioning: notificationChainTransitioning/);
+  assert.match(shareBlock, /chainTransitioning: notificationChainTransitioning/);
   assert.doesNotMatch(
-    inviteBlock,
+    shareBlock,
     /if \(notificationChainTransitioning\)\s*return/,
   );
-  assert.doesNotMatch(inviteBlock, /startupHold/);
-  assert.doesNotMatch(inviteBlock, /overlayInputLocked/);
-  pass('NotificationOwner transitions do not block invite');
+  assert.doesNotMatch(shareBlock, /startupHold/);
+  assert.doesNotMatch(shareBlock, /overlayInputLocked/);
+  pass('NotificationOwner transitions do not block invite share');
 }
 
 // 6. Pointer / stacking fix — body above gesture zone; zone starts zero-height

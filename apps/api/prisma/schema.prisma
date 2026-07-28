@@ -54,7 +54,7 @@ model BotRetentionLog {
   @@index([userId, sentAt])
 }
 
-/// Persistent Telegram social graph (grows from real challenges/invites)
+/// Persistent social graph (grows from challenges/invites/WHO first-contact)
 model SocialContact {
   id                String   @id @default(cuid())
   ownerId           String
