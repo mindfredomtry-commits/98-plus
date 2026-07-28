@@ -113,7 +113,7 @@ console.log('\n=== TELEGRAM INVITE BOT USERNAME ===\n');
   const docker = readFileSync(join(root, 'Dockerfile'), 'utf8');
   assert.match(docker, /ARG NEXT_PUBLIC_BOT_USERNAME=Ninety_eight_pluss_Bot/);
   const apiDeeplink = readFileSync(
-    join(root, '../../api/src/lib/deeplink.ts'),
+    join(root, '../api/src/lib/deeplink.ts'),
     'utf8',
   );
   assert.doesNotMatch(apiDeeplink, /['"`]ninety8plus_bot['"`]/);
