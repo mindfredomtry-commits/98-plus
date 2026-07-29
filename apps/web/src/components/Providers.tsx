@@ -38,8 +38,10 @@ import {
   ANALYTICS_EVENTS,
   coerceFriendList,
   formatSenderDisplayName,
+  sanitizeFriendCard,
   SYSTEM_VOICE,
 } from '@98plus/shared';
+import type { WhoFirstContactClientResult } from '@/lib/who-native-picker';
 import { useAuth } from '@/hooks/useAuth';
 import { useTelegram } from '@/hooks/useTelegram';
 import { isUserDataScoped } from '@/lib/user-data-scope';
@@ -1795,6 +1797,11 @@ interface AppContextValue {
   applySession: (s: SessionState) => void;
   reloadPending: () => Promise<void>;
   reloadFriends: () => Promise<void>;
+  upsertFriend: (friend: FriendCard) => void;
+  /** Native WHO picker resolution delivered via WS or consume. */
+  whoFirstContactResult: WhoFirstContactClientResult | null;
+  clearWhoFirstContactResult: () => void;
+  setWhoFirstContactResult: (result: WhoFirstContactClientResult | null) => void;
   wsStatus: ReturnType<typeof useWebSocket>['status'];
   connectionUiState: ConnectionUiState;
   networkBootstrapCompleted: boolean;
@@ -25641,6 +25648,84 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
   reloadFriendsRef.current = reloadFriends;
 
+  const upsertFriend = useCallback(
+    (card: FriendCard) => {
+      const sanitized = sanitizeFriendCard(card);
+      if (!sanitized) return;
+      const prev = friendsRef.current;
+      const uname = sanitized.username.toLowerCase();
+      const idx = prev.findIndex(
+        (f) =>
+          (sanitized.userId != null &&
+            f.userId != null &&
+            f.userId === sanitized.userId) ||
+          (f.username ?? '').toLowerCase() === uname,
+      );
+      const nextList =
+        idx >= 0
+          ? prev.map((f, i) => (i === idx ? { ...f, ...sanitized } : f))
+          : [sanitized, ...prev];
+      void commitFriendsWithAvatarPreload(nextList, {
+        via: 'upsertFriend',
+        allowEmpty: true,
+      });
+    },
+    [commitFriendsWithAvatarPreload],
+  );
+
+  const [whoFirstContactResult, setWhoFirstContactResult] =
+    useState<WhoFirstContactClientResult | null>(null);
+  const clearWhoFirstContactResult = useCallback(() => {
+    setWhoFirstContactResult(null);
+  }, []);
+  const whoFirstContactConsumeKeyRef = useRef<string | null>(null);
+
+  // Restore WHO first-contact after Telegram picker via start_param wfc_<token>.
+  useEffect(() => {
+    const tokenAuth = auth.token;
+    const uid = auth.user?.id;
+    if (!tokenAuth || !uid || auth.loading) return;
+    const raw = readPriorityStartParamRaw();
+    const action = parseStartParam(raw ?? undefined);
+    if (action?.type !== 'who_first_contact') return;
+    if (action.token.startsWith('pick_')) return;
+    const bootKey = `wfc:${action.token}`;
+    if (whoFirstContactConsumeKeyRef.current === bootKey) return;
+    whoFirstContactConsumeKeyRef.current = bootKey;
+    void api<{
+      status: string;
+      friend?: unknown;
+      selectedTelegramId?: string | null;
+      selectedUsername?: string | null;
+    }>('/friends/first-contact/consume', {
+      method: 'POST',
+      token: tokenAuth,
+      body: JSON.stringify({ token: action.token }),
+      retries: 0,
+    })
+      .then((result) => {
+        if (
+          result.status !== 'registered' &&
+          result.status !== 'unregistered' &&
+          result.status !== 'error'
+        ) {
+          return;
+        }
+        setWhoFirstContactResult({
+          requestId: action.token,
+          token: action.token,
+          status: result.status as WhoFirstContactClientResult['status'],
+          friend: result.friend ?? null,
+          selectedTelegramId: result.selectedTelegramId ?? null,
+          selectedUsername: result.selectedUsername ?? null,
+          source: 'consume',
+        });
+      })
+      .catch(() => {
+        whoFirstContactConsumeKeyRef.current = null;
+      });
+  }, [auth.token, auth.user?.id, auth.loading]);
+
   const reloadPending = useCallback(async () => {
     if (sendSuccessCardActiveRef.current) {
       console.log('[notification-flush-blocked]', {
@@ -36279,6 +36364,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           });
           break;
         }
+        case 'who:first-contact': {
+          const payload = event.payload as WhoFirstContactClientResult;
+          if (!payload?.requestId || !payload?.status) break;
+          setWhoFirstContactResult({
+            ...payload,
+            source: 'ws',
+          });
+          break;
+        }
       }
     },
     () => {
@@ -44637,6 +44731,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       applySession,
       reloadPending,
       reloadFriends,
+      upsertFriend,
+      whoFirstContactResult,
+      clearWhoFirstContactResult,
+      setWhoFirstContactResult,
       wsStatus,
       connectionUiState,
       networkBootstrapCompleted,
@@ -44835,6 +44933,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       applySession,
       reloadPending,
       reloadFriends,
+      upsertFriend,
+      whoFirstContactResult,
+      clearWhoFirstContactResult,
+      setWhoFirstContactResult,
       wsStatus,
       connectionUiState,
       networkBootstrapCompleted,

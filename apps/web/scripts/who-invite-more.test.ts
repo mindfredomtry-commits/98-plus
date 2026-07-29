@@ -1,9 +1,8 @@
 /**
- * WHO “+ кому ещё запретишь” invite / add-recipient interaction.
+ * WHO “+ кому ещё запретишь” — native picker (production) + share fallback.
  *
- * Product: button opens Telegram invite share (not multi-select slots).
- * Pre-existing blocker: gesture zone z-index swallowed taps; share fell through
- * to window.open which WebView popup-blockers kill → “nothing happens”.
+ * Product: button launches native Telegram request_users picker when supported;
+ * otherwise bot keyboard / invite share last resort. No @username sheet.
  *
  * Run:
  *   npx tsx --tsconfig apps/web/tsconfig.json apps/web/scripts/who-invite-more.test.ts
@@ -33,7 +32,7 @@ function pass(name: string): void {
   console.log(`PASS — ${name}`);
 }
 
-console.log('\n=== WHO INVITE MORE / ADD-RECIPIENT ===\n');
+console.log('\n=== WHO INVITE MORE / NATIVE PICKER ===\n');
 
 const whoSrc = read(whoPath);
 const flowSrc = read(flowPath);
@@ -41,65 +40,53 @@ const cssSrc = read(cssPath);
 const shareSrc = read(sharePath);
 const gestureSrc = read(gesturePath);
 
-// 1. One selected recipient context → invite button opens share flow (wired)
 {
   assert.match(whoSrc, /data-who-invite-more/);
   assert.match(whoSrc, /onInviteMore\(\)/);
   assert.match(whoSrc, /Кому ещё запретишь\?/);
   assert.match(flowSrc, /onInviteMore=\{handleInviteMore\}/);
-  assert.match(flowSrc, /shareInstantBanInviteMore\(/);
-  assert.match(
-    flowSrc,
-    /const handleInviteMore = useCallback\(\(\) => \{[\s\S]*?shareInstantBanInviteMore/,
-  );
-  // No early-return guards on invite (unlike handleSelectUser / handleWhatBack)
+  assert.match(flowSrc, /\/friends\/first-contact\/begin/);
+  assert.match(flowSrc, /requestChat\(/);
   const inviteBlock = flowSrc.slice(
     flowSrc.indexOf('const handleInviteMore = useCallback'),
-    flowSrc.indexOf('const handleSendContextChange'),
+    flowSrc.indexOf('// Native picker resolution'),
   );
   assert.doesNotMatch(inviteBlock, /if \(screenTransitionRef\.current\) return/);
   assert.doesNotMatch(inviteBlock, /if \(notificationChainTransitioning\)/);
   assert.doesNotMatch(inviteBlock, /if \(phase !==/);
-  assert.match(inviteBlock, /earlyReturnGuard: null/);
   pass(
-    'One selected recipient → press invite → share/add-friends flow wired (no early return)',
+    'WHO + launches native picker begin/requestChat (no early return guards)',
   );
 }
 
-// 2. Existing selectedUser is not cleared by invite handler
 {
   const inviteBlock = flowSrc.slice(
     flowSrc.indexOf('const handleInviteMore = useCallback'),
-    flowSrc.indexOf('const handleSendContextChange'),
+    flowSrc.indexOf('// Native picker resolution'),
   );
   assert.doesNotMatch(inviteBlock, /setSelectedUser\(null\)/);
   assert.doesNotMatch(inviteBlock, /setSelectedUser\(/);
-  assert.match(inviteBlock, /selectedRecipientIds: selectedIds/);
-  pass('Existing recipient remains selected after invite (handler does not clear)');
+  pass('Existing recipient remains selected (handler does not clear)');
 }
 
-// 3. Sequential friends B then C — select replaces one-at-a-time; invite does not invent duplicates
 {
-  // Single-recipient select path still used for send; invite is share-only.
   assert.match(flowSrc, /const handleSelectUser = useCallback/);
   const selectBlock = flowSrc.slice(
     flowSrc.indexOf('const handleSelectUser = useCallback'),
     flowSrc.indexOf('const handleComposeExitStart'),
   );
   assert.match(selectBlock, /setSelectedUser\(friend\)/);
-  // Invite share builds invite deep link — unique bot start, not duplicate local slots
   assert.match(shareSrc, /INSTANT_BAN_INVITE_MORE_MESSAGE/);
   assert.match(shareSrc, /type: 'invite'/);
   assert.match(shareSrc, /export function shareInstantBanInviteMore/);
-  pass('Add via invite is share deep-link (B/C join once via Telegram, not duplicate slots)');
+  pass('Friend select unchanged; share helper kept for unregistered/fallback');
 }
 
-// 4. Button works after returning WHO from WHAT — no transition gate on invite
 {
   assert.match(flowSrc, /completeWhatToWho/);
   const inviteBlock = flowSrc.slice(
     flowSrc.indexOf('const handleInviteMore = useCallback'),
-    flowSrc.indexOf('const handleSendContextChange'),
+    flowSrc.indexOf('// Native picker resolution'),
   );
   assert.doesNotMatch(inviteBlock, /screenTransitionRef\.current\) return/);
   assert.match(whoSrc, /data-gesture-exclude/);
@@ -107,25 +94,21 @@ const gestureSrc = read(gesturePath);
   pass('Invite works after returning from WHAT (no transition gate)');
 }
 
-// 4b. Button works after returning from CONFIRM
 {
-  assert.match(flowSrc, /handleConfirmBack/);
   const inviteBlock = flowSrc.slice(
     flowSrc.indexOf('const handleInviteMore = useCallback'),
-    flowSrc.indexOf('const handleSendContextChange'),
+    flowSrc.indexOf('// Native picker resolution'),
   );
   assert.doesNotMatch(inviteBlock, /if \(phase !== 'selectingTarget'\)/);
   assert.doesNotMatch(inviteBlock, /confirmActive/);
   pass('Invite works after returning from CONFIRM');
 }
 
-// 5. Not blocked by NotificationOwner / chain flags
 {
   const inviteBlock = flowSrc.slice(
     flowSrc.indexOf('const handleInviteMore = useCallback'),
-    flowSrc.indexOf('const handleSendContextChange'),
+    flowSrc.indexOf('// Native picker resolution'),
   );
-  assert.match(inviteBlock, /chainTransitioning: notificationChainTransitioning/);
   assert.doesNotMatch(
     inviteBlock,
     /if \(notificationChainTransitioning\)\s*return/,
@@ -135,7 +118,6 @@ const gestureSrc = read(gesturePath);
   pass('NotificationOwner transitions do not block invite');
 }
 
-// 6. Pointer / stacking fix — body above gesture zone; zone starts zero-height
 {
   assert.match(
     cssSrc,
@@ -154,29 +136,23 @@ const gestureSrc = read(gesturePath);
   pass('Click reaches invite handler (pointer/click diag + stacking)');
 }
 
-// 7. Handler calls invite/share + WebView fallbacks
 {
   assert.match(shareSrc, /export function openTelegramShareLink/);
-  assert.match(shareSrc, /openTelegramLink/);
-  assert.match(shareSrc, /openLink/);
-  assert.match(shareSrc, /clickHiddenShareAnchor/);
   assert.match(flowSrc, /shareInstantBanInviteMore\(/);
-  pass('Handler calls invite/share; primary→fallback open path present');
+  assert.match(flowSrc, /botPickStartUrl/);
+  assert.match(flowSrc, /request_mode: 'share_fallback'/);
+  pass('Fallbacks: bot keyboard + invite/share last resort');
 }
 
-// 8. Fallback executes if primary share fails + visible failure (never silent)
 {
-  assert.match(shareSrc, /finalOutcome: 'copied'/);
-  assert.match(shareSrc, /finalOutcome: 'failed'/);
-  assert.match(shareSrc, /copyFallback\(shareText\)/);
   assert.match(flowSrc, /setWhoInviteToast\(/);
   assert.match(flowSrc, /Не удалось открыть приглашение/);
   assert.match(flowSrc, /Ссылка скопирована/);
   assert.match(flowSrc, /data-who-invite-toast/);
-  pass('Fallback executes if primary share fails; failure is visible');
+  assert.doesNotMatch(flowSrc, /WhoFirstContactSheet/);
+  pass('Share fallback visible; username sheet absent');
 }
 
-// 9. Share helpers exported for invite path
 {
   assert.match(shareSrc, /export function shareInstantBanInviteMore/);
   assert.match(shareSrc, /export function openTelegramShareLink/);

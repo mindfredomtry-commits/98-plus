@@ -54,7 +54,7 @@ model BotRetentionLog {
   @@index([userId, sentAt])
 }
 
-/// Persistent Telegram social graph (grows from real challenges/invites)
+/// Persistent Telegram social graph (grows from real challenges/invites/WHO first-contact)
 model SocialContact {
   id                String   @id @default(cuid())
   ownerId           String
@@ -460,4 +460,30 @@ enum MonetizationEventStatus {
   PROCESSING
   PROCESSED
   FAILED
+}
+
+/// WHO “+” native Telegram request_users first-contact session.
+model WhoFirstContactRequest {
+  id                  String    @id @default(cuid())
+  token               String    @unique
+  ownerUserId         String
+  ownerTelegramId     BigInt
+  telegramRequestId   Int
+  preparedButtonId    String?
+  status              String    @default("pending")
+  selectedTelegramId  BigInt?
+  selectedFirstName   String?
+  selectedLastName    String?
+  selectedUsername    String?
+  hasPhotoMeta        Boolean   @default(false)
+  friendCardJson      Json?
+  errorMessage        String?
+  createdAt           DateTime  @default(now())
+  expiresAt           DateTime
+  resolvedAt          DateTime?
+  consumedAt          DateTime?
+
+  @@index([ownerUserId, status])
+  @@index([ownerTelegramId, telegramRequestId])
+  @@index([expiresAt])
 }
