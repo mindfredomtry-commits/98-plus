@@ -54,6 +54,10 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_BUILD_TIMESTAMP: phase12BuildTimestamp,
     NEXT_PUBLIC_BUILD_COMMIT: phase12BuildCommit,
     NEXT_PUBLIC_BUILD_ENV: phase12BuildEnv,
+    NEXT_PUBLIC_WHAT_TRANSITION_DIAG:
+      process.env.NEXT_PUBLIC_WHAT_TRANSITION_DIAG ?? "",
+    NEXT_PUBLIC_DEV_AUTH_ENABLED:
+      process.env.NEXT_PUBLIC_DEV_AUTH_ENABLED ?? "",
   },
 
   transpilePackages: ["@98plus/shared"],

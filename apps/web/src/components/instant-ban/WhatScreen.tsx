@@ -76,6 +76,23 @@ const SCROLL_SETTLE_MS = 48;
 const COMPOSE_EXIT_MS = 240;
 /** Snap-back when release below threshold. */
 const COMPOSE_RESET_MS = 160;
+const WHAT_TRANSITION_DIAG =
+  process.env.NEXT_PUBLIC_WHAT_TRANSITION_DIAG === '1';
+
+function logWhatTransition(
+  event:
+    | 'WHAT_RENDER_STATE'
+    | 'WHAT_GESTURE_START'
+    | 'WHAT_GESTURE_PROGRESS'
+    | 'WHAT_GESTURE_COMMIT'
+    | 'WHAT_CONFIRM_GUARD'
+    | 'WHAT_CONFIRM_TRANSITION_REQUESTED',
+  fields: Record<string, unknown>,
+): void {
+  if (!WHAT_TRANSITION_DIAG) return;
+  console.info(event, fields);
+}
+
 const WhatSwipeTapZone = memo(function WhatSwipeTapZone({
   onTap,
 }: {
@@ -213,6 +230,11 @@ function WhatScreenInner({
   const [phraseVisible, setPhraseVisible] = useState(true);
 
   const isComposeScene = Boolean(overlayTitle);
+  const directRecipientId =
+    selectedUser?.userId ?? selectedUser?.id ?? null;
+  const recipientValid =
+    recipientMode === COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER ||
+    selectedUser != null;
 
   const [exitProgress, setExitProgress] = useState(0);
   const [isExiting, setIsExiting] = useState(false);
@@ -456,12 +478,75 @@ function WhatScreenInner({
 
   const handleSubmit = useCallback(() => {
     const text = (inputRef.current?.value ?? '').trim();
-    if (text.length < 3) return;
+    const textValid = text.length >= 3;
+    const valid = textValid && recipientValid && durationMinutes > 0;
+    logWhatTransition('WHAT_CONFIRM_GUARD', {
+      recipientMode,
+      directRecipientId,
+      textLength: text.length,
+      textValid,
+      recipientValid,
+      durationValid: durationMinutes > 0,
+      validationResult: valid,
+      blockingReason: !recipientValid
+        ? 'invalid-recipient'
+        : !textValid
+          ? 'text-too-short'
+          : durationMinutes <= 0
+            ? 'invalid-duration'
+            : null,
+      currentScreen: 'WHAT',
+      targetScreen: 'CONFIRM',
+    });
+    if (!valid) return;
+    logWhatTransition('WHAT_CONFIRM_TRANSITION_REQUESTED', {
+      recipientMode,
+      directRecipientId,
+      textLength: text.length,
+      validationResult: true,
+      blockingReason: null,
+      currentScreen: 'WHAT',
+      targetScreen: 'CONFIRM',
+    });
     onSubmit(text, durationMinutes);
-  }, [durationMinutes, onSubmit]);
+  }, [
+    directRecipientId,
+    durationMinutes,
+    onSubmit,
+    recipientMode,
+    recipientValid,
+  ]);
 
   const showSwipeHint =
-    canSwipeToConfirm && selectedUser != null && durationMinutes > 0;
+    canSwipeToConfirm && recipientValid && durationMinutes > 0;
+
+  useEffect(() => {
+    logWhatTransition('WHAT_RENDER_STATE', {
+      recipientMode,
+      directRecipientId,
+      textLength: inputRef.current?.value.trim().length ?? 0,
+      textValid: canContinue,
+      recipientValid,
+      validationResult: canContinue && recipientValid && durationMinutes > 0,
+      blockingReason: !recipientValid
+        ? 'invalid-recipient'
+        : !canContinue
+          ? 'text-too-short'
+          : durationMinutes <= 0
+            ? 'invalid-duration'
+            : null,
+      showSwipeHint,
+      currentScreen: 'WHAT',
+      targetScreen: 'CONFIRM',
+    });
+  }, [
+    canContinue,
+    directRecipientId,
+    durationMinutes,
+    recipientMode,
+    recipientValid,
+    showSwipeHint,
+  ]);
 
   const canContinueRef = useRef(canContinue);
   const canSwipeToConfirmRef = useRef(canSwipeToConfirm);
@@ -507,8 +592,13 @@ function WhatScreenInner({
 
   const isScrollReady = useCallback(() => {
     const textOk = (inputRef.current?.value ?? '').trim().length >= 3;
-    return canContinueRef.current && textOk && durationMinutes > 0;
-  }, [durationMinutes]);
+    return (
+      canContinueRef.current &&
+      textOk &&
+      recipientValid &&
+      durationMinutes > 0
+    );
+  }, [durationMinutes, recipientValid]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const submitLockRef = useRef(false);
@@ -642,6 +732,16 @@ function WhatScreenInner({
       exitCommitRef.current = true;
       submitLockRef.current = true;
       setIsExiting(true);
+      logWhatTransition('WHAT_GESTURE_COMMIT', {
+        recipientMode,
+        directRecipientId,
+        textLength: inputRef.current?.value.trim().length ?? 0,
+        validationResult: true,
+        blockingReason: null,
+        source,
+        currentScreen: 'WHAT',
+        targetScreen: 'CONFIRM',
+      });
       onComposeExitStart?.();
       clearExitAnim();
 
@@ -674,7 +774,15 @@ function WhatScreenInner({
       exitAnimRef.current = requestAnimationFrame(tick);
       return true;
     },
-    [clearExitAnim, clearSnapSettleTimer, handleSubmit, isScrollReady, onComposeExitStart],
+    [
+      clearExitAnim,
+      clearSnapSettleTimer,
+      directRecipientId,
+      handleSubmit,
+      isScrollReady,
+      onComposeExitStart,
+      recipientMode,
+    ],
   );
 
   const shouldSnapComplete = useCallback(() => {
@@ -791,19 +899,56 @@ function WhatScreenInner({
   }, [tryAdvanceToConfirm]);
 
   const gestureTouchRef = useRef({ y: 0, startProgress: 0 });
+  const gestureDiagProgressRef = useRef(-1);
 
   const applyComposeExitProgress = useCallback(
     (progress: number) => {
       const clamped = Math.min(1, Math.max(0, progress));
       recordProgressSample(clamped);
       setExitProgress(clamped);
+      const step = Math.floor(clamped * 10);
+      if (step !== gestureDiagProgressRef.current) {
+        gestureDiagProgressRef.current = step;
+        logWhatTransition('WHAT_GESTURE_PROGRESS', {
+          recipientMode,
+          directRecipientId,
+          progress: Number(clamped.toFixed(3)),
+          textLength: inputRef.current?.value.trim().length ?? 0,
+          validationResult: isScrollReady(),
+          blockingReason: isScrollReady() ? null : 'confirm-guard',
+          currentScreen: 'WHAT',
+          targetScreen: 'CONFIRM',
+        });
+      }
       return clamped;
     },
-    [recordProgressSample],
+    [
+      directRecipientId,
+      isScrollReady,
+      recipientMode,
+      recordProgressSample,
+    ],
   );
 
   const onGestureTouchStart = useCallback(
     (e: React.TouchEvent) => {
+      const textLength = inputRef.current?.value.trim().length ?? 0;
+      logWhatTransition('WHAT_GESTURE_START', {
+        recipientMode,
+        directRecipientId,
+        textLength,
+        textValid: textLength >= 3,
+        recipientValid,
+        validationResult:
+          textLength >= 3 && recipientValid && durationMinutes > 0,
+        blockingReason: !recipientValid
+          ? 'invalid-recipient'
+          : textLength === 0
+            ? 'no-text'
+            : null,
+        currentScreen: 'WHAT',
+        targetScreen: 'CONFIRM',
+      });
       if (!canSwipeToConfirmRef.current) {
         logComposeGesture('gesture', 'touchstart-skipped-no-text');
         return;
@@ -849,7 +994,14 @@ function WhatScreenInner({
         startProgress: exitProgressRef.current,
       };
     },
-    [clearSnapSettleTimer, showSwipeHint],
+    [
+      clearSnapSettleTimer,
+      directRecipientId,
+      durationMinutes,
+      recipientMode,
+      recipientValid,
+      showSwipeHint,
+    ],
   );
 
   const onGestureTouchMove = useCallback(

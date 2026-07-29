@@ -60,6 +60,38 @@ function parseAllowedOrigins(): string[] {
 
 const allowedOrigins = parseAllowedOrigins();
 
+function deploymentIdentity() {
+  let databaseHost: string | null = null;
+  let databaseName: string | null = null;
+  try {
+    const databaseUrl = process.env.DATABASE_URL;
+    if (databaseUrl) {
+      const parsed = new URL(databaseUrl);
+      databaseHost = parsed.hostname;
+      databaseName = parsed.pathname.replace(/^\//, '') || null;
+    }
+  } catch {
+    // Health diagnostics must never fail or expose credentials.
+  }
+  return {
+    commit:
+      process.env.BUILD_COMMIT ??
+      process.env.RAILWAY_GIT_COMMIT_SHA ??
+      process.env.GITHUB_SHA ??
+      null,
+    branch:
+      process.env.BUILD_BRANCH ??
+      process.env.RAILWAY_GIT_BRANCH ??
+      null,
+    builtAt: process.env.BUILD_TIMESTAMP ?? null,
+    environment: process.env.RAILWAY_ENVIRONMENT_NAME ?? null,
+    database: {
+      host: databaseHost,
+      name: databaseName,
+    },
+  };
+}
+
 function isOriginAllowed(origin: string | undefined): boolean {
   if (!origin) return true;
   if (allowedOrigins.includes(origin)) return true;
@@ -99,6 +131,7 @@ export function createApp() {
       ok: true,
       service: '98plus-api',
       cors: allowedOrigins.length ? allowedOrigins : 'dynamic',
+      deployment: deploymentIdentity(),
     });
   });
 

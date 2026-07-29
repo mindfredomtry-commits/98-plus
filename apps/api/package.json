@@ -11,6 +11,7 @@
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed-preview-e2e": "tsx scripts/seed-preview-e2e.ts",
     "db:backfill-result-seen": "tsx scripts/backfill-result-seen.ts",
     "db:clear-user-bans": "tsx scripts/clear-user-bans.ts",
     "db:clear-ban-history": "tsx scripts/clear-ban-history.ts",
