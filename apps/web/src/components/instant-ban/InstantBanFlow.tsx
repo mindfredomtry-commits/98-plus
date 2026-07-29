@@ -6080,25 +6080,7 @@ export function InstantBanFlow({
     leaveWhoForLegacyRef.current = false;
     dispatchNotificationOwnerBootLobby({ type: 'OPEN_CONFIRM' });
     setPhase('confirming', 'notification-owner-confirm-projection');
-    if (process.env.NEXT_PUBLIC_WHAT_TRANSITION_DIAG === '1') {
-      console.info('WHAT_CONFIRM_TRANSITION_APPLIED', {
-        recipientMode,
-        directRecipientId:
-          selectedUser?.userId ?? selectedUser?.id ?? null,
-        textLength: text.trim().length,
-        textValid: text.trim().length >= 3,
-        recipientValid:
-          recipientMode === COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER ||
-          selectedUser != null,
-        validationResult: true,
-        blockingReason: null,
-        ownerPresentation:
-          getNotificationOwnerBootLobbyState().presentation.kind,
-        currentScreen: 'WHAT',
-        targetScreen: 'CONFIRM',
-      });
-    }
-  }, [recipientMode, selectedUser]);
+  }, []);
 
   const handleWhatBack = useCallback(() => {
     if (screenTransitionRef.current) return;
