@@ -18,7 +18,8 @@ export type DeepLinkAction =
   | { type: 'check'; banId: string }
   | { type: 'ban'; banId: string }
   | { type: 'reply'; banId: string; preview?: ReplyStartParamPreview }
-  | { type: 'active'; banId: string };
+  | { type: 'active'; banId: string }
+  | { type: 'who_first_contact'; token: string };
 
 export type { ReplyStartParamPreview };
 
@@ -124,6 +125,10 @@ export function parseStartParam(raw?: string | null): DeepLinkAction | null {
   if (p.startsWith('a_')) {
     return { type: 'active', banId: p.slice(2) };
   }
+  if (p.startsWith('wfc_')) {
+    const token = p.slice(4).trim();
+    return token ? { type: 'who_first_contact', token } : null;
+  }
   return null;
 }
 
@@ -153,6 +158,8 @@ export function buildStartParam(action: DeepLinkAction): string {
       return buildReplyStartParam(action.banId, action.preview);
     case 'active':
       return `a_${action.banId}`;
+    case 'who_first_contact':
+      return `wfc_${action.token}`;
   }
 }
 

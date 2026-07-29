@@ -15,7 +15,8 @@ export type SocialSource =
   | 'CHALLENGE_RECEIVED'
   | 'INVITE_SENT'
   | 'INVITE_CLAIMED'
-  | 'SHARE_TARGET';
+  | 'SHARE_TARGET'
+  | 'WHO_FIRST_CONTACT';
 
 export async function recordSocialContact(
   ownerId: string,

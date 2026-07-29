@@ -118,6 +118,13 @@ export const ANALYTICS_EVENTS = {
   INVITE_SHARED: 'invite_shared',
   INVITE_PENDING_CREATED: 'invite_pending_created',
   INVITE_CLAIMED: 'invite_claimed',
+  WHO_NATIVE_PICKER_STARTED: 'who_native_picker_started',
+  WHO_NATIVE_PICKER_OPENED: 'who_native_picker_opened',
+  WHO_NATIVE_PICKER_CANCELLED: 'who_native_picker_cancelled',
+  WHO_NATIVE_PICKER_REGISTERED: 'who_native_picker_registered',
+  WHO_NATIVE_PICKER_UNREGISTERED: 'who_native_picker_unregistered',
+  WHO_NATIVE_PICKER_WHAT_OPENED: 'who_native_picker_what_opened',
+  WHO_NATIVE_PICKER_FAILED: 'who_native_picker_failed',
   WS_RECONNECT: 'ws_reconnect',
   SESSION_RECOVERED: 'session_recovered',
   // —— Monetization (Profile / Premium / Payment Sheet) ——

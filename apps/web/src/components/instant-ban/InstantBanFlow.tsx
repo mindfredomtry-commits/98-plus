@@ -223,7 +223,7 @@ import {
   lockNotificationQueue,
   logOverlayPriority,
 } from '@/lib/overlay-priority';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import {
   getSavedBans,
   saveBan,
@@ -234,6 +234,12 @@ import {
   shareInstantBanInviteMore,
   shareLobbyAskInvite,
 } from '@/lib/share';
+import {
+  getTelegramWebAppPicker,
+  pickerAnalyticsBase,
+  supportsNativeRequestChat,
+  type WhoFirstContactBeginResponse,
+} from '@/lib/who-native-picker';
 import { ArenaLobbyIdle, type LobbyCtaState } from './ArenaLobbyIdle';
 import { ArenaLobbyOrb } from './ArenaLobbyOrb';
 import { syncSeedCachedFriendAvatars } from '@/lib/avatar-preload';
@@ -480,6 +486,10 @@ export function InstantBanFlow({
     token,
     user,
     friends,
+    upsertFriend,
+    whoFirstContactResult,
+    clearWhoFirstContactResult,
+    setWhoFirstContactResult,
     reloadPending,
     reloadFriends,
     refreshUser,
@@ -775,6 +785,11 @@ export function InstantBanFlow({
   const whoInviteToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const nativePickerWhatLockRef = useRef(false);
+  const nativePickerRequestIdRef = useRef<string | null>(null);
+  const nativePickerTokenRef = useRef<string | null>(null);
+  const nativePickerStartedAtRef = useRef<number>(0);
+  const [nativePickerPending, setNativePickerPending] = useState(false);
   const [ctaState, setCtaStateRaw] = useState<LobbyCtaState>(() =>
     activeBanDeepLinkBanId || activeBanUiShellActive
       ? 'hidden'
@@ -6083,59 +6098,325 @@ export function InstantBanFlow({
   }, [setCrossScreenProgressImmediate, stopCrossScreenAnim]);
 
   const handleInviteMore = useCallback(() => {
-    // WHO invite is Telegram share-to-add-friends — no owner/transition guards.
-    // Temporary diagnostics for the pre-existing dead-button blocker.
-    const ownerKind = getNotificationOwnerBootLobbyState().presentation.kind;
-    const selectedIds = selectedUser
-      ? [selectedUser.userId ?? selectedUser.id ?? selectedUser.username ?? null]
-      : [];
-    const diag = shareInstantBanInviteMore(user?.username ?? null);
-    console.info('[98+] WHO_INVITE_HANDLER', {
-      fired: true,
-      earlyReturnGuard: null,
-      phase,
-      ownerKind,
-      screenTransition: screenTransitionRef.current,
-      selectedRecipientIds: selectedIds,
-      selectedCount: selectedIds.length,
-      actionPending: Boolean(screenTransitionRef.current),
-      chainTransitioning: notificationChainTransitioning,
-      shareApiCalled: true,
-      shareApiResult: diag.shareMethod,
-      primaryMethod: diag.primaryMethod,
-      fallbackUsed: diag.fallbackUsed,
-      finalOutcome: diag.finalOutcome,
-      shareUsername: diag.username,
-      linkPreview: diag.linkPreview,
-      disabled: false,
-    });
-    if (diag.finalOutcome === 'opened') {
-      haptic('light');
+    void (async () => {
+      const tg = getTelegramWebAppPicker();
+      const analyticsBase = pickerAnalyticsBase(tg);
+      const startedAt = Date.now();
+      trackProductEvent(ANALYTICS_EVENTS.WHO_NATIVE_PICKER_STARTED, token, {
+        ...analyticsBase,
+        friends_count: friends.length,
+      });
+
+      const runShareFallback = (reason: string) => {
+        trackProductEvent(ANALYTICS_EVENTS.WHO_NATIVE_PICKER_FAILED, token, {
+          ...analyticsBase,
+          reason,
+          request_mode: 'share_fallback',
+          latency_ms: Date.now() - startedAt,
+        });
+        const diag = shareInstantBanInviteMore(user?.username ?? null);
+        if (diag.finalOutcome === 'opened') {
+          haptic('light');
+          return;
+        }
+        if (whoInviteToastTimerRef.current) {
+          clearTimeout(whoInviteToastTimerRef.current);
+          whoInviteToastTimerRef.current = null;
+        }
+        if (diag.finalOutcome === 'copied') {
+          setWhoInviteToast('Ссылка скопирована — вставь в чат');
+          haptic('medium');
+        } else {
+          setWhoInviteToast('Не удалось открыть приглашение');
+          haptic('heavy');
+        }
+        whoInviteToastTimerRef.current = setTimeout(() => {
+          whoInviteToastTimerRef.current = null;
+          setWhoInviteToast(null);
+        }, 3200);
+      };
+
+      if (!token) {
+        runShareFallback('no_token');
+        return;
+      }
+
+      try {
+        const begin = await api<WhoFirstContactBeginResponse>(
+          '/friends/first-contact/begin',
+          {
+            method: 'POST',
+            token,
+            body: JSON.stringify({}),
+            retries: 0,
+          },
+        );
+
+        nativePickerRequestIdRef.current = begin.requestId;
+        nativePickerTokenRef.current = begin.token;
+        nativePickerStartedAtRef.current = startedAt;
+        setNativePickerPending(true);
+
+        const canNative =
+          !!begin.preparedId && supportsNativeRequestChat(tg);
+
+        if (canNative && begin.preparedId && tg?.requestChat) {
+          trackProductEvent(ANALYTICS_EVENTS.WHO_NATIVE_PICKER_OPENED, token, {
+            ...analyticsBase,
+            request_mode: 'prepared',
+            request_id: begin.requestId,
+          });
+          tg.requestChat(begin.preparedId, (ok: boolean) => {
+            if (ok === true) return;
+            setNativePickerPending(false);
+            trackProductEvent(
+              ANALYTICS_EVENTS.WHO_NATIVE_PICKER_CANCELLED,
+              token,
+              {
+                ...analyticsBase,
+                request_mode: 'prepared',
+                request_id: begin.requestId,
+                latency_ms: Date.now() - startedAt,
+              },
+            );
+            void api(`/friends/first-contact/${begin.requestId}/cancel`, {
+              method: 'POST',
+              token,
+              body: JSON.stringify({}),
+              retries: 0,
+            }).catch(() => {});
+            // Stay on WHO — no error screen, no invite.
+          });
+          return;
+        }
+
+        // Fallback: bot chat request_users keyboard.
+        if (begin.botPickStartUrl) {
+          trackProductEvent(ANALYTICS_EVENTS.WHO_NATIVE_PICKER_OPENED, token, {
+            ...analyticsBase,
+            request_mode: 'bot_keyboard',
+            request_id: begin.requestId,
+          });
+          if (typeof tg?.openTelegramLink === 'function') {
+            tg.openTelegramLink(begin.botPickStartUrl);
+          } else if (typeof tg?.openLink === 'function') {
+            tg.openLink(begin.botPickStartUrl);
+          } else {
+            window.open(begin.botPickStartUrl, '_blank');
+          }
+          return;
+        }
+
+        setNativePickerPending(false);
+        runShareFallback('no_prepared_or_bot_url');
+      } catch (err) {
+        setNativePickerPending(false);
+        let reason = 'begin_failed';
+        if (err instanceof ApiError) {
+          if (err.status === 429 || err.code === 'rate_limited') {
+            reason = 'rate_limited';
+            setWhoInviteToast('Слишком много попыток — подожди немного');
+            if (whoInviteToastTimerRef.current) {
+              clearTimeout(whoInviteToastTimerRef.current);
+            }
+            whoInviteToastTimerRef.current = setTimeout(() => {
+              whoInviteToastTimerRef.current = null;
+              setWhoInviteToast(null);
+            }, 3200);
+            trackProductEvent(ANALYTICS_EVENTS.WHO_NATIVE_PICKER_FAILED, token, {
+              ...analyticsBase,
+              reason,
+              latency_ms: Date.now() - startedAt,
+            });
+            return;
+          }
+          reason = err.code ?? `http_${err.status}`;
+        }
+        runShareFallback(reason);
+      }
+    })();
+  }, [token, friends.length, user?.username, haptic]);
+
+  // Native picker resolution (WS or start_param consume) → WHAT or invite.
+  useEffect(() => {
+    if (!whoFirstContactResult) return;
+    const result = whoFirstContactResult;
+    clearWhoFirstContactResult();
+    setNativePickerPending(false);
+
+    const tg = getTelegramWebAppPicker();
+    const analyticsBase = pickerAnalyticsBase(tg);
+    const latencyMs =
+      nativePickerStartedAtRef.current > 0
+        ? Date.now() - nativePickerStartedAtRef.current
+        : undefined;
+
+    if (result.status === 'error') {
+      if (result.errorMessage === 'self') {
+        setWhoInviteToast('Нельзя запретить самому себе');
+        if (whoInviteToastTimerRef.current) {
+          clearTimeout(whoInviteToastTimerRef.current);
+        }
+        whoInviteToastTimerRef.current = setTimeout(() => {
+          whoInviteToastTimerRef.current = null;
+          setWhoInviteToast(null);
+        }, 3200);
+      }
+      trackProductEvent(ANALYTICS_EVENTS.WHO_NATIVE_PICKER_FAILED, token, {
+        ...analyticsBase,
+        reason: result.errorMessage ?? 'error',
+        latency_ms: latencyMs,
+        source: result.source,
+      });
       return;
     }
-    // Never fail silently — surface toast (copy recovery or hard failure).
-    if (whoInviteToastTimerRef.current) {
-      clearTimeout(whoInviteToastTimerRef.current);
-      whoInviteToastTimerRef.current = null;
+
+    if (result.status === 'unregistered') {
+      trackProductEvent(
+        ANALYTICS_EVENTS.WHO_NATIVE_PICKER_UNREGISTERED,
+        token,
+        {
+          ...analyticsBase,
+          selected_telegram_id: result.selectedTelegramId,
+          selected_username: result.selectedUsername,
+          latency_ms: latencyMs,
+          source: result.source,
+        },
+      );
+      // Existing invite/share — do not open WHAT, no SocialContact on client.
+      const diag = shareInstantBanInviteMore(user?.username ?? null);
+      if (diag.finalOutcome === 'opened') {
+        haptic('light');
+      } else if (diag.finalOutcome === 'copied') {
+        setWhoInviteToast('Ссылка скопирована — вставь в чат');
+        haptic('medium');
+        if (whoInviteToastTimerRef.current) {
+          clearTimeout(whoInviteToastTimerRef.current);
+        }
+        whoInviteToastTimerRef.current = setTimeout(() => {
+          whoInviteToastTimerRef.current = null;
+          setWhoInviteToast(null);
+        }, 3200);
+      }
+      return;
     }
-    if (diag.finalOutcome === 'copied') {
-      setWhoInviteToast('Ссылка скопирована — вставь в чат');
-      haptic('medium');
-    } else {
-      setWhoInviteToast('Не удалось открыть приглашение');
-      haptic('heavy');
+
+    if (result.status !== 'registered') return;
+
+    const friend = result.friend
+      ? coerceFriendList([result.friend])[0]
+      : null;
+    if (!friend) {
+      trackProductEvent(ANALYTICS_EVENTS.WHO_NATIVE_PICKER_FAILED, token, {
+        ...analyticsBase,
+        reason: 'missing_friend_card',
+        latency_ms: latencyMs,
+        source: result.source,
+      });
+      return;
     }
-    whoInviteToastTimerRef.current = setTimeout(() => {
-      whoInviteToastTimerRef.current = null;
-      setWhoInviteToast(null);
-    }, 3200);
+
+    if (nativePickerWhatLockRef.current || screenTransitionRef.current) {
+      return;
+    }
+    nativePickerWhatLockRef.current = true;
+
+    trackProductEvent(ANALYTICS_EVENTS.WHO_NATIVE_PICKER_REGISTERED, token, {
+      ...analyticsBase,
+      target_user_id: friend.userId,
+      latency_ms: latencyMs,
+      source: result.source,
+    });
+
+    if (phase === 'idle') {
+      beginNewBanWhoFlow();
+    }
+
+    upsertFriend(friend);
+    handleSelectUser(friend);
+    if (result.token && token) {
+      void api('/friends/first-contact/consume', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ token: result.token }),
+        retries: 0,
+      }).catch(() => {});
+    }
+    trackProductEvent(ANALYTICS_EVENTS.WHO_NATIVE_PICKER_WHAT_OPENED, token, {
+      ...analyticsBase,
+      target_user_id: friend.userId,
+      latency_ms: latencyMs,
+      source: result.source,
+    });
+
+    // Allow a later picker session to open WHAT again.
+    window.setTimeout(() => {
+      nativePickerWhatLockRef.current = false;
+    }, 1500);
   }, [
+    whoFirstContactResult,
+    clearWhoFirstContactResult,
+    token,
     user?.username,
     haptic,
+    upsertFriend,
+    handleSelectUser,
+    beginNewBanWhoFlow,
     phase,
-    selectedUser,
-    notificationChainTransitioning,
   ]);
+
+  // Poll while picker pending (WS miss / Mini App briefly backgrounded).
+  useEffect(() => {
+    if (!nativePickerPending || !token || !nativePickerRequestIdRef.current) {
+      return;
+    }
+    const requestId = nativePickerRequestIdRef.current;
+    const started = Date.now();
+    const timer = setInterval(() => {
+      if (Date.now() - started > 15 * 60 * 1000) {
+        setNativePickerPending(false);
+        clearInterval(timer);
+        return;
+      }
+      void api<{
+        request: {
+          status: string;
+          token: string;
+          friend?: unknown;
+          selectedTelegramId?: string | null;
+          selectedUsername?: string | null;
+        };
+      }>(`/friends/first-contact/${encodeURIComponent(requestId)}`, {
+        token,
+        retries: 0,
+      })
+        .then((res) => {
+          const st = res.request?.status;
+          if (st === 'expired' || st === 'cancelled') {
+            setNativePickerPending(false);
+            return;
+          }
+          if (
+            st !== 'registered' &&
+            st !== 'unregistered' &&
+            st !== 'error'
+          ) {
+            return;
+          }
+          setWhoFirstContactResult({
+            requestId,
+            token: res.request.token,
+            status: st,
+            friend: res.request.friend ?? null,
+            selectedTelegramId: res.request.selectedTelegramId ?? null,
+            selectedUsername: res.request.selectedUsername ?? null,
+            source: 'poll',
+          });
+        })
+        .catch(() => {});
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [nativePickerPending, token, setWhoFirstContactResult]);
 
   const handleSendContextChange = useCallback(
     (ctx: { payoffPhase: string; sendTriggered: boolean }) => {

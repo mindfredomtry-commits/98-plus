@@ -12,6 +12,11 @@ import { sendBotStartInviteChallenge, sendViralInviteBootNotification } from './
 import { findUserByUsername } from '../services/ban.service';
 import { resolveViralInviteBootContext } from '../services/invite-deeplink.service';
 import { registerTelegramStarsHandlers } from './telegram-stars-handlers';
+import {
+  handleWhoFirstContactUsersShared,
+  sendBotKeyboardForFirstContact,
+} from '../services/who-first-contact.service';
+import { parseStartParam } from '@98plus/shared';
 
 let bot: Telegraf | null = null;
 let botLaunchStarted = false;
@@ -87,6 +92,23 @@ export function startBot(): Telegraf | null {
     });
 
     try {
+      const deeplink = parseStartParam(
+        payload.startsWith('wfc_') ? payload : null,
+      );
+      if (deeplink?.type === 'who_first_contact' && deeplink.token.startsWith('pick_')) {
+        const ok = await sendBotKeyboardForFirstContact({
+          telegramId: tgUser.id,
+          tokenWithPickPrefix: deeplink.token,
+        });
+        if (ok) {
+          console.log('[who-first-contact] bot keyboard sent', {
+            telegramId: tgUser.id,
+            token: deeplink.token,
+          });
+          return;
+        }
+      }
+
       const user = await prisma.user.upsert({
         where: { telegramId: chatId },
         create: {
@@ -232,6 +254,25 @@ export function startBot(): Telegraf | null {
   });
 
   registerTelegramStarsHandlers(bot);
+
+  bot.on('message', async (ctx, next) => {
+    const msg = ctx.message as {
+      users_shared?: unknown;
+      from?: { id?: number };
+    };
+    if (msg?.users_shared != null) {
+      try {
+        await handleWhoFirstContactUsersShared({
+          messageFromId: msg.from?.id ?? ctx.from?.id ?? 0,
+          usersShared: msg.users_shared,
+        });
+      } catch (err) {
+        console.error('[who-first-contact] users_shared handler failed', err);
+      }
+      return;
+    }
+    return next();
+  });
 
   // Telegraf `launch()` Promise resolves when polling stops — log start before await.
   console.log('BOT_POLLING_STARTED', {

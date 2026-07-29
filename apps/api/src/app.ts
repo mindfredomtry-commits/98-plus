@@ -7,6 +7,7 @@ import { adminRouter } from './routes/admin';
 import { analyticsRouter } from './routes/analytics';
 import { friendsRouter } from './routes/friends';
 import { invitesRouter } from './routes/invites';
+import { whoFirstContactRouter } from './routes/who-first-contact';
 import { productsRouter } from './routes/products';
 import { meRouter } from './routes/me';
 import { paymentProvidersRouter } from './routes/payment-providers';
@@ -107,6 +108,7 @@ export function createApp() {
   app.use('/bans', bansRouter);
   app.use('/admin', adminRouter);
   app.use('/analytics', analyticsRouter);
+  app.use('/friends/first-contact', whoFirstContactRouter);
   app.use('/friends', friendsRouter);
   app.use('/invites', invitesRouter);
   app.use('/products', productsRouter);
