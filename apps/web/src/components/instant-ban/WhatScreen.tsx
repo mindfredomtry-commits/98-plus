@@ -213,6 +213,9 @@ function WhatScreenInner({
   const [phraseVisible, setPhraseVisible] = useState(true);
 
   const isComposeScene = Boolean(overlayTitle);
+  const recipientValid =
+    recipientMode === COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER ||
+    selectedUser != null;
 
   const [exitProgress, setExitProgress] = useState(0);
   const [isExiting, setIsExiting] = useState(false);
@@ -456,12 +459,12 @@ function WhatScreenInner({
 
   const handleSubmit = useCallback(() => {
     const text = (inputRef.current?.value ?? '').trim();
-    if (text.length < 3) return;
+    if (text.length < 3 || !recipientValid) return;
     onSubmit(text, durationMinutes);
-  }, [durationMinutes, onSubmit]);
+  }, [durationMinutes, onSubmit, recipientValid]);
 
   const showSwipeHint =
-    canSwipeToConfirm && selectedUser != null && durationMinutes > 0;
+    canSwipeToConfirm && recipientValid && durationMinutes > 0;
 
   const canContinueRef = useRef(canContinue);
   const canSwipeToConfirmRef = useRef(canSwipeToConfirm);
@@ -507,8 +510,13 @@ function WhatScreenInner({
 
   const isScrollReady = useCallback(() => {
     const textOk = (inputRef.current?.value ?? '').trim().length >= 3;
-    return canContinueRef.current && textOk && durationMinutes > 0;
-  }, [durationMinutes]);
+    return (
+      canContinueRef.current &&
+      textOk &&
+      recipientValid &&
+      durationMinutes > 0
+    );
+  }, [durationMinutes, recipientValid]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const submitLockRef = useRef(false);

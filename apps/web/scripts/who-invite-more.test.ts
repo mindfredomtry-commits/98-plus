@@ -79,6 +79,14 @@ const inviteBlock = flowSrc.slice(
     whatSrc,
     /KNOWN_BY_SENDER[\s\S]*?src=\{null\}[\s\S]*?letter=""/,
   );
+  assert.match(
+    whatSrc,
+    /recipientValid\s*=\s*[\s\S]*KNOWN_BY_SENDER[\s\S]*selectedUser\s*!=\s*null/,
+  );
+  assert.match(
+    whatSrc,
+    /showSwipeHint\s*=[\s\S]*canSwipeToConfirm\s*&&\s*recipientValid/,
+  );
   pass('Anonymous WHAT: empty avatar + “ты уже знаешь кто это”');
 }
 
