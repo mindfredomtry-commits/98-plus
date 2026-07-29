@@ -49,11 +49,6 @@ function toConfirm() {
   dispatchNotificationOwnerBootLobby({ type: 'OPEN_CONFIRM' });
 }
 
-function toLegacyConfirm() {
-  toWhat();
-  dispatchNotificationOwnerBootLobby({ type: 'LEAVE_WHAT_FOR_LEGACY_FLOW' });
-}
-
 let passed = 0;
 function pass(name: string): void {
   passed += 1;
@@ -86,14 +81,6 @@ const providersSrc = read(providersPath);
   assert.equal(r.rejected, null);
   assert.equal(r.state.presentation.kind, 'WHAT');
   pass('LOBBY → OPEN_WHAT → WHAT');
-
-  toLegacyConfirm();
-  r = reduceNotificationOwnerBootLobby(getNotificationOwnerBootLobbyState(), {
-    type: 'OPEN_WHAT',
-  });
-  assert.equal(r.rejected, null);
-  assert.equal(r.state.presentation.kind, 'WHAT');
-  pass('LEGACY_FLOW → OPEN_WHAT → WHAT');
 
   toWhat();
   r = reduceNotificationOwnerBootLobby(getNotificationOwnerBootLobbyState(), {
@@ -161,7 +148,6 @@ const providersSrc = read(providersPath);
     body,
     /setPhase\('composingBan', 'notification-owner-what-projection'\)/,
   );
-  assert.doesNotMatch(body, /LEAVE_WHO_FOR_LEGACY_FLOW/);
   pass('Lobby CTA → WHO → select → WHAT uses OPEN_WHAT');
 }
 
@@ -175,7 +161,6 @@ const providersSrc = read(providersPath);
     "setPhase('confirming', 'notification-owner-confirm-projection')",
   );
   assert.ok(openIdx >= 0 && phaseIdx > openIdx);
-  assert.doesNotMatch(body, /LEAVE_WHAT_FOR_LEGACY_FLOW/);
   pass('WHAT → CONFIRM dispatches OPEN_CONFIRM before confirming projection');
 }
 
@@ -254,7 +239,7 @@ const providersSrc = read(providersPath);
   assert.equal(overlayOpen, false);
   assert.match(
     instantBanSrc,
-    /showWhatSurface && selectedUser != null|showWhatSurface && selectedUser/,
+    /showWhatSurface && hasComposeRecipient|hasComposeRecipient/,
   );
   pass('WHAT without selectedUser keeps overlay closed');
 }

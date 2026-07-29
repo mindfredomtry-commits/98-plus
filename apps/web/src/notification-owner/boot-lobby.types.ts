@@ -1,6 +1,5 @@
 /**
  * NotificationOwner — BOOT / LOBBY / WHO / WHAT / CONFIRM / SUCCESS macro ownership.
- * LEGACY_FLOW remains for any later unmigrated handoffs (not CONFIRM/SUCCESS).
  */
 
 export type BootLobbyPresentation =
@@ -9,9 +8,7 @@ export type BootLobbyPresentation =
   | { kind: 'WHO'; mode: 'selecting-target' }
   | { kind: 'WHAT'; mode: 'composing-ban' }
   | { kind: 'CONFIRM'; mode: 'confirming' }
-  | { kind: 'SUCCESS'; mode: 'send-success' }
-  /** Neutral — reserved for later unmigrated handoffs. Not used for CONFIRM/SUCCESS. */
-  | { kind: 'LEGACY_FLOW'; mode: 'non-rendering' };
+  | { kind: 'SUCCESS'; mode: 'send-success' };
 
 export type NotificationOwnerBootLobbyState = {
   presentation: BootLobbyPresentation;
@@ -24,15 +21,7 @@ export type NotificationOwnerBootLobbyInput =
   | { type: 'OPEN_WHAT' }
   | { type: 'OPEN_CONFIRM' }
   | { type: 'OPEN_SUCCESS' }
-  | { type: 'RESET_TO_LOBBY' }
-  /**
-   * @deprecated Prefer OPEN_WHAT / OPEN_CONFIRM. Kept for any remaining skip paths.
-   */
-  | { type: 'LEAVE_WHO_FOR_LEGACY_FLOW' }
-  /**
-   * @deprecated Prefer OPEN_CONFIRM for WHAT → CONFIRM.
-   */
-  | { type: 'LEAVE_WHAT_FOR_LEGACY_FLOW' };
+  | { type: 'RESET_TO_LOBBY' };
 
 export type NotificationOwnerBootLobbyReduceResult = {
   state: NotificationOwnerBootLobbyState;

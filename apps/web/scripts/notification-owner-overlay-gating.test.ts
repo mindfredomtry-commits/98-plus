@@ -31,72 +31,112 @@ function pass(name: string): void {
 }
 
 function overlayOpenCandidate(input: {
-  ownerKind: 'BOOT' | 'LOBBY' | 'WHO' | 'WHAT' | 'CONFIRM' | 'SUCCESS' | 'LEGACY_FLOW';
+  ownerKind: 'BOOT' | 'LOBBY' | 'WHO' | 'WHAT' | 'CONFIRM' | 'SUCCESS';
   phase: 'idle' | 'selectingTarget' | 'composingBan' | 'confirming';
-  selectedUserPresent: boolean;
+  composeRecipientPresent: boolean;
 }): boolean {
   const surfaces = resolveSendFlowSurfaceExclusivity({
     ownerKind: input.ownerKind,
     phase: input.phase,
   });
   // Mirror component logic with activeBanDeepLinkBooting=false.
-  return surfaces.who || (surfaces.what && input.selectedUserPresent);
+  return surfaces.who || (surfaces.what && input.composeRecipientPresent);
+}
+
+function composeRecipientPresent(input: {
+  selectedUserPresent: boolean;
+  recipientMode: 'DIRECT' | 'KNOWN_BY_SENDER';
+}): boolean {
+  return (
+    input.selectedUserPresent || input.recipientMode === 'KNOWN_BY_SENDER'
+  );
 }
 
 console.log('\n=== Overlay shell render gating ===\n');
 
 const src = read(instantBanPath);
 
-// Gate should require selectedUser for the WHAT branch.
-assert.match(src, /showCrossScreenPager[\s\S]*selectedUser != null/);
-assert.match(src, /showWhoSurface.*showWhatSurface.*selectedUser != null/);
-pass('InstantBanFlow: showCrossScreenPager gates WHAT on selectedUser');
+// Gate should require compose recipient for the WHAT branch.
+assert.match(
+  src,
+  /const hasComposeRecipient =\s*selectedUser != null \|\|\s*recipientMode === COMPOSE_RECIPIENT_MODES\.KNOWN_BY_SENDER/,
+);
+assert.match(src, /showCrossScreenPager[\s\S]*hasComposeRecipient/);
+assert.match(
+  src,
+  /showWhoSurface \|\| \(showWhatSurface && hasComposeRecipient\)/,
+);
+pass('InstantBanFlow: showCrossScreenPager gates WHAT on hasComposeRecipient');
 
-// 1. showWhatSurface=true + selectedUser=null => overlay must be closed
+// 1. DIRECT requires selectedUser; KNOWN_BY_SENDER intentionally does not.
+assert.equal(
+  composeRecipientPresent({
+    selectedUserPresent: false,
+    recipientMode: 'DIRECT',
+  }),
+  false,
+);
+assert.equal(
+  composeRecipientPresent({
+    selectedUserPresent: true,
+    recipientMode: 'DIRECT',
+  }),
+  true,
+);
+assert.equal(
+  composeRecipientPresent({
+    selectedUserPresent: false,
+    recipientMode: 'KNOWN_BY_SENDER',
+  }),
+  true,
+);
+pass('DIRECT requires selectedUser; KNOWN_BY_SENDER is intentionally anonymous');
+
+// 2. showWhatSurface=true + no compose recipient => overlay must be closed
 {
   const open = overlayOpenCandidate({
     ownerKind: 'WHAT',
     phase: 'composingBan',
-    selectedUserPresent: false,
+    composeRecipientPresent: false,
   });
   assert.equal(open, false);
-  pass('overlay closed when WHAT active but selectedUser missing');
+  pass('overlay closed when WHAT active but compose recipient missing');
 }
 
-// 2. showWhoSurface=true => overlay and WHO materialize (WHO does not require selectedUser)
+// 3. showWhoSurface=true => overlay and WHO materialize (WHO does not require recipient)
 {
   const open = overlayOpenCandidate({
     ownerKind: 'WHO',
     phase: 'selectingTarget',
-    selectedUserPresent: false,
+    composeRecipientPresent: false,
   });
   assert.equal(open, true);
-  pass('overlay open when WHO active even if selectedUser missing');
+  pass('overlay open when WHO active even if compose recipient missing');
 }
 
-// 3. showWhatSurface=true + selectedUser present => overlay and WHAT materialize
+// 4. showWhatSurface=true + compose recipient present => overlay and WHAT materialize
 {
   const open = overlayOpenCandidate({
     ownerKind: 'WHAT',
     phase: 'composingBan',
-    selectedUserPresent: true,
+    composeRecipientPresent: true,
   });
   assert.equal(open, true);
-  pass('overlay open when WHAT active and selectedUser present');
+  pass('overlay open when WHAT active and compose recipient present');
 }
 
-// 4. overlay cannot open when both WHO and WHAT are non-renderable
+// 5. overlay cannot open when both WHO and WHAT are non-renderable
 {
   const open = overlayOpenCandidate({
     ownerKind: 'WHAT',
     phase: 'selectingTarget',
-    selectedUserPresent: false,
+    composeRecipientPresent: false,
   });
   assert.equal(open, false);
   pass('overlay closed when neither WHO nor WHAT renderable');
 }
 
-// 5. Complete product flow:
+// 6. Complete product flow:
 // SUCCESS → Lobby → press "Запрещать" → WHO materializes
 {
   const successExitIdx = src.indexOf("prepareLobbyBaseAfterSuccess('send-success'");
@@ -150,7 +190,7 @@ pass('InstantBanFlow: showCrossScreenPager gates WHAT on selectedUser');
   const staleEmptyShell = overlayOpenCandidate({
     ownerKind: 'LOBBY',
     phase: 'composingBan',
-    selectedUserPresent: false,
+    composeRecipientPresent: false,
   });
   assert.equal(staleEmptyShell, false);
   const staleSurfaces = resolveSendFlowSurfaceExclusivity({
@@ -178,7 +218,7 @@ pass('InstantBanFlow: showCrossScreenPager gates WHAT on selectedUser');
     overlayOpenCandidate({
       ownerKind: 'WHO',
       phase: 'selectingTarget',
-      selectedUserPresent: false,
+      composeRecipientPresent: false,
     }),
     true,
   );

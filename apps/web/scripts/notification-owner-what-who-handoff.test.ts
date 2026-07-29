@@ -149,7 +149,7 @@ console.log('\n=== WHAT → WHO HANDOFF / EXCLUSIVITY ===\n');
   const src = read(instantBanPath);
   assert.match(src, /onBack=\{handleWhatBack\}/);
   assert.match(src, /animateCrossScreenProgress\(0, completeWhatToWho\)/);
-  assert.match(src, /showWhatSurface && selectedUser/);
+  assert.match(src, /showWhatSurface && hasComposeRecipient/);
   assert.match(src, /showWhoSurface \? \(/);
   pass('Back during WHAT entrance animation still returns cleanly to WHO');
   pass('Back during WHAT idle state returns cleanly to WHO');
