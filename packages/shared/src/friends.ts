@@ -226,6 +226,10 @@ export interface SendBanResponse {
   /** True when target is not in 98+ — must share via Telegram */
   pending?: boolean;
   requiresShare?: boolean;
+  /** Prepared invite-ban (KNOWN_BY_SENDER) before Telegram Share. */
+  prepared?: boolean;
+  created?: boolean;
+  invite?: { id: string; token: string };
   /** Present only when requiresShare / pending invite */
   shareText?: string;
   shareUrl?: string;

@@ -19,10 +19,12 @@ import {
 import { createPortal, flushSync } from 'react-dom';
 import {
   coerceFriendList,
+  COMPOSE_RECIPIENT_MODES,
   findFriendByUsername,
   isValidDurationMinutes,
   ANALYTICS_EVENTS,
   type BanInteraction,
+  type ComposeRecipientMode,
   type FriendCard,
   type NotificationMode,
   type SessionState,
@@ -230,6 +232,7 @@ import {
   unsaveBan,
 } from '@/lib/saved-bans-api';
 import {
+  handleShareChallenge,
   shareDeepLink,
   shareInstantBanInviteMore,
   shareLobbyAskInvite,
@@ -396,6 +399,13 @@ export type SendFlowPhase =
 
 /** Legacy step ids for CSS hooks / debug. */
 type LegacyStep = 'idle' | 'who' | 'what' | 'confirm';
+
+function createPreparedInviteRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `prepared-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 type BansOverlayEntrySource = {
   type: 'bans-overlay';
@@ -698,6 +708,11 @@ export function InstantBanFlow({
     setComposeFlowState({ phase, source: 'instant-ban-mount' });
   }, []);
   const [selectedUser, setSelectedUser] = useState<FriendCard | null>(null);
+  const [recipientMode, setRecipientMode] = useState<ComposeRecipientMode>(
+    COMPOSE_RECIPIENT_MODES.DIRECT,
+  );
+  const preparedInviteRequestIdRef = useRef<string | null>(null);
+  const preparedInviteInFlightRef = useRef(false);
   const [banText, setBanText] = useState('');
   const [durationMinutes, setDurationMinutes] = useState(DEFAULT_DURATION_MINUTES);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -709,11 +724,19 @@ export function InstantBanFlow({
     setSendSuccessCardMounted(false, { source: 'ban-sent-success-cleared' });
   }, [banSentSuccess, setSendSuccessCardMounted]);
   const [replySending, setReplySending] = useState(false);
+  const [preparedInviteSending, setPreparedInviteSending] = useState(false);
   const sendSnapshotRef = useRef<{
     banText: string;
-    selectedUser: FriendCard;
+    recipientMode: ComposeRecipientMode;
+    selectedUser: FriendCard | null;
     durationMinutes: number;
     replyToBanId: string | null;
+    preparedInvite: {
+      id: string;
+      token: string;
+      shareUrl: string;
+      shareText: string;
+    } | null;
   } | null>(null);
   const lastSendSuccessBanIdRef = useRef<string | null>(null);
   const successExitAwaitingNotificationDrainRef = useRef(false);
@@ -903,8 +926,12 @@ export function InstantBanFlow({
   });
   const showWhoSurface = sendFlowSurfaces.who;
   const showWhatSurface = sendFlowSurfaces.what;
+  const hasComposeRecipient =
+    selectedUser != null ||
+    recipientMode === COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER;
   const showCrossScreenPager =
-    !activeBanDeepLinkBooting && (showWhoSurface || (showWhatSurface && selectedUser != null));
+    !activeBanDeepLinkBooting &&
+    (showWhoSurface || (showWhatSurface && hasComposeRecipient));
   const overlayOpen = showCrossScreenPager;
   const notificationOverlayActive =
     notificationOverlayVisible || incomingGateActive || checkGateActive || !!result;
@@ -3028,6 +3055,8 @@ export function InstantBanFlow({
       clearCtaExitTimer();
       clearWhoPanelEnterTimer();
       setCtaState('hidden');
+      setRecipientMode(COMPOSE_RECIPIENT_MODES.DIRECT);
+      preparedInviteRequestIdRef.current = null;
       setSelectedUser(friend);
       setBanText(text);
       setDurationMinutes(duration);
@@ -3108,6 +3137,8 @@ export function InstantBanFlow({
       clearCtaExitTimer();
       clearWhoPanelEnterTimer();
       setCtaState('hidden');
+      setRecipientMode(COMPOSE_RECIPIENT_MODES.DIRECT);
+      preparedInviteRequestIdRef.current = null;
       setSelectedUser((prev) => {
         const prevKey = prev?.userId ?? prev?.id ?? prev?.username ?? null;
         if (prevKey && friendKey && prevKey === friendKey) return prev;
@@ -3600,6 +3631,8 @@ export function InstantBanFlow({
       setMonetizationOpen(false);
 
       // Same prep as handleSelectUser (after friend chosen on Who):
+      setRecipientMode(COMPOSE_RECIPIENT_MODES.DIRECT);
+      preparedInviteRequestIdRef.current = null;
       setSelectedUser(friend);
       setBanText('');
       setDurationMinutes(DEFAULT_DURATION_MINUTES);
@@ -3670,6 +3703,9 @@ export function InstantBanFlow({
     stopCrossScreenAnim();
     screenTransitionRef.current = null;
     setScreenTransition(null);
+    setRecipientMode(COMPOSE_RECIPIENT_MODES.DIRECT);
+    preparedInviteRequestIdRef.current = null;
+    preparedInviteInFlightRef.current = false;
     setSelectedUser(null);
     setBanText('');
     setSendError(null);
@@ -4244,6 +4280,9 @@ export function InstantBanFlow({
         stopCrossScreenAnim();
         screenTransitionRef.current = null;
         setScreenTransition(null);
+        setRecipientMode(COMPOSE_RECIPIENT_MODES.DIRECT);
+        preparedInviteRequestIdRef.current = null;
+        preparedInviteInFlightRef.current = false;
         setSelectedUser(null);
         setBanText('');
         setDurationMinutes(DEFAULT_DURATION_MINUTES);
@@ -5423,6 +5462,9 @@ export function InstantBanFlow({
     clearCtaExitTimer();
     clearWhoPanelEnterTimer();
     setCtaState('hidden');
+    setRecipientMode(COMPOSE_RECIPIENT_MODES.DIRECT);
+    preparedInviteRequestIdRef.current = null;
+    preparedInviteInFlightRef.current = false;
     setSelectedUser(null);
     setBanText('');
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
@@ -5934,6 +5976,9 @@ export function InstantBanFlow({
     setWhoDismissProgress(0);
     setComposeExitProgress(0);
     setComposeDismissing(false);
+    setRecipientMode(COMPOSE_RECIPIENT_MODES.DIRECT);
+    preparedInviteRequestIdRef.current = null;
+    preparedInviteInFlightRef.current = false;
     setSelectedUser(null);
     setBanText('');
     setDurationMinutes(DEFAULT_DURATION_MINUTES);
@@ -5995,6 +6040,8 @@ export function InstantBanFlow({
   const handleSelectUser = useCallback(
     (friend: FriendCard) => {
       if (screenTransitionRef.current) return;
+      setRecipientMode(COMPOSE_RECIPIENT_MODES.DIRECT);
+      preparedInviteRequestIdRef.current = null;
       setSelectedUser(friend);
       setBanText('');
       setDurationMinutes(DEFAULT_DURATION_MINUTES);
@@ -6064,6 +6111,9 @@ export function InstantBanFlow({
       confirmEntrySourceRef.current = 'send-flow';
       setBansTab(entrySource.tab);
       setSelectedBanForDetails(null);
+      setRecipientMode(COMPOSE_RECIPIENT_MODES.DIRECT);
+      preparedInviteRequestIdRef.current = null;
+      preparedInviteInFlightRef.current = false;
       setSelectedUser(null);
       setBanText('');
       setDurationMinutes(DEFAULT_DURATION_MINUTES);
@@ -6083,6 +6133,34 @@ export function InstantBanFlow({
   }, [setCrossScreenProgressImmediate, stopCrossScreenAnim]);
 
   const handleInviteMore = useCallback(() => {
+    if (screenTransitionRef.current) return;
+    setRecipientMode(COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER);
+    preparedInviteRequestIdRef.current = createPreparedInviteRequestId();
+    preparedInviteInFlightRef.current = false;
+    setSelectedUser(null);
+    setBanText('');
+    setDurationMinutes(DEFAULT_DURATION_MINUTES);
+    setSendError(null);
+    setComposeExitProgress(0);
+    setComposeDismissing(false);
+    traceSuccessStateReset('handleInviteMore:known-by-sender');
+    traceSuccessHide('handleInviteMore:known-by-sender');
+    setBanSentSuccess(false);
+    traceSuccessSnapshotCleared('handleInviteMore:known-by-sender');
+    sendSnapshotRef.current = null;
+    screenTransitionRef.current = 'whoToWhat';
+    setScreenTransition('whoToWhat');
+    setCrossScreenProgressImmediate(0);
+    animateCrossScreenProgress(1, completeWhoToWhat);
+    haptic('light');
+  }, [
+    animateCrossScreenProgress,
+    completeWhoToWhat,
+    haptic,
+    setCrossScreenProgressImmediate,
+  ]);
+
+  const handleShareInviteMore = useCallback(() => {
     // WHO invite is Telegram share-to-add-friends — no owner/transition guards.
     // Temporary diagnostics for the pre-existing dead-button blocker.
     const ownerKind = getNotificationOwnerBootLobbyState().presentation.kind;
@@ -6136,6 +6214,21 @@ export function InstantBanFlow({
     selectedUser,
     notificationChainTransitioning,
   ]);
+
+  const handlePreparedInviteChoosePerson = useCallback(async () => {
+    const prepared = sendSnapshotRef.current?.preparedInvite;
+    if (!prepared?.shareUrl) {
+      setWhoInviteToast('Сначала подготовь запрет');
+      haptic('heavy');
+      return;
+    }
+    haptic('light');
+    await handleShareChallenge(
+      sendSnapshotRef.current?.banText?.trim() || '',
+      sendSnapshotRef.current?.durationMinutes ?? durationMinutes,
+      prepared.shareUrl,
+    );
+  }, [durationMinutes, haptic]);
 
   const handleSendContextChange = useCallback(
     (ctx: { payoffPhase: string; sendTriggered: boolean }) => {
@@ -6206,6 +6299,9 @@ export function InstantBanFlow({
       stopCrossScreenAnim();
       screenTransitionRef.current = null;
       setScreenTransition(null);
+      setRecipientMode(COMPOSE_RECIPIENT_MODES.DIRECT);
+      preparedInviteRequestIdRef.current = null;
+      preparedInviteInFlightRef.current = false;
       setSelectedUser(null);
       setBanText('');
       setDurationMinutes(DEFAULT_DURATION_MINUTES);
@@ -6323,8 +6419,151 @@ export function InstantBanFlow({
     setLowEnergyRedirecting(false);
     const attemptId = ++flowSendAttemptRef.current;
 
-    const { banText: snapText, selectedUser: snapUser, durationMinutes: snapDuration } =
-      snap;
+    const {
+      banText: snapText,
+      selectedUser: snapUser,
+      durationMinutes: snapDuration,
+      recipientMode: snapRecipientMode,
+    } = snap;
+
+    if (snapRecipientMode === COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER) {
+      if (!token) {
+        logHoldBlocked('no-token');
+        setSendError('Не получилось подготовить запрет');
+        return 'rejected';
+      }
+
+      const text = snapText.trim();
+      if (text.length < 3) {
+        logHoldBlocked('text-too-short', { textLength: text.length });
+        setSendError('Не получилось подготовить запрет');
+        return 'rejected';
+      }
+
+      if (snap.preparedInvite?.shareUrl) {
+        openSuccess(`invite:${snap.preparedInvite.id}`, attemptId);
+        return 'started';
+      }
+
+      if (preparedInviteInFlightRef.current || preparedInviteSending) {
+        logHoldBlocked('prepared-invite-in-flight');
+        return 'skipped';
+      }
+
+      const clientRequestId =
+        preparedInviteRequestIdRef.current ?? createPreparedInviteRequestId();
+      preparedInviteRequestIdRef.current = clientRequestId;
+
+      const canUseCachedEnergyGate =
+        energyLoaded && canLobbySendBan(energyLoaded, influencePercent);
+      let energyGate: ConfirmSubmitEnergyDecision;
+      if (canUseCachedEnergyGate) {
+        energyGate = {
+          allowed: true,
+          influencePercent,
+          energyLoaded: true,
+          energyBefore: influencePercent,
+        };
+        void evaluateConfirmSubmitEnergy(token, {
+          energyLoaded,
+          influencePercent,
+        }).catch(() => {});
+      } else {
+        energyGate = await evaluateConfirmSubmitEnergy(token, {
+          energyLoaded,
+          influencePercent,
+        });
+      }
+      void refreshUser().catch(() => {});
+
+      if (!energyGate.allowed) {
+        returnToLobbyAfterLowEnergy({
+          source: 'prepared-invite',
+          apiResult: 'client-gate',
+        });
+        return 'rejected';
+      }
+
+      preparedInviteInFlightRef.current = true;
+      setPreparedInviteSending(true);
+      setSendError(null);
+
+      void (async () => {
+        try {
+          const res = await api<{
+            pending?: boolean;
+            prepared?: boolean;
+            requiresShare?: boolean;
+            created?: boolean;
+            shareUrl?: string;
+            shareText?: string;
+            invite?: { id: string; token: string };
+          }>('/bans/send', {
+            method: 'POST',
+            token,
+            body: JSON.stringify({
+              text,
+              durationMinutes: snapDuration,
+              recipientMode: COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER,
+              clientRequestId,
+            }),
+            retries: 0,
+            timeoutMs: DEFAULT_SEND_TIMEOUT_MS,
+          });
+
+          if (!res.invite?.id || !res.shareUrl) {
+            throw new Error('Сервер не подтвердил подготовленный запрет');
+          }
+
+          if (sendSnapshotRef.current) {
+            sendSnapshotRef.current = {
+              ...sendSnapshotRef.current,
+              preparedInvite: {
+                id: res.invite.id,
+                token: res.invite.token,
+                shareUrl: res.shareUrl,
+                shareText: res.shareText ?? '',
+              },
+            };
+          }
+
+          scheduleDeferredSync();
+          openSuccess(`invite:${res.invite.id}`, attemptId);
+        } catch (e) {
+          if (isDailyBanLimitSendFailure(e)) {
+            returnToLobbyAfterDailyLimit({
+              source: 'prepared-invite',
+              apiResult: 'DAILY_BAN_LIMIT',
+            });
+            return;
+          }
+          if (isLowEnergySendFailure(e)) {
+            returnToLobbyAfterLowEnergy({
+              source: 'prepared-invite',
+              apiResult: 'INSUFFICIENT_ENERGY',
+            });
+            return;
+          }
+          const message =
+            e instanceof Error ? e.message : 'Не получилось подготовить запрет';
+          setSendError(message);
+          traceSuccessHide('executeSend-prepared-invite-catch');
+          setBanSentSuccess(false);
+          confirmAbortReleaseRef.current?.();
+        } finally {
+          preparedInviteInFlightRef.current = false;
+          setPreparedInviteSending(false);
+        }
+      })();
+
+      return 'started';
+    }
+
+    if (!snapUser) {
+      logHoldBlocked('no-selectedUser');
+      setSendError('Не получилось отправить запрет');
+      return 'rejected';
+    }
 
     const username = (snapUser.username ?? '').replace(/^@/, '').trim();
     const resolved = safeResolveReceiverTarget(username, safeFriends, {
@@ -6928,6 +7167,7 @@ export function InstantBanFlow({
     clearDeepLinkReplyBan,
     releaseReplyHandoffLock,
     setDeepLinkReplyBooting,
+    preparedInviteSending,
   ]);
 
   const captureSendSnapshot = useCallback(() => {
@@ -6944,7 +7184,10 @@ export function InstantBanFlow({
       durationMinutes,
       activeOverlayKind,
     });
-    if (!selectedUser) {
+    if (
+      !selectedUser &&
+      recipientMode !== COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER
+    ) {
       logHoldBlocked('no-selectedUser');
       return false;
     }
@@ -6958,18 +7201,24 @@ export function InstantBanFlow({
       null;
     sendSnapshotRef.current = {
       banText,
+      recipientMode,
       selectedUser,
       durationMinutes,
       replyToBanId: pinnedReplyId,
+      preparedInvite: null,
     };
     console.log('[reply-send-debug] snapshot-captured', {
       replyToBanId: pinnedReplyId,
       selectedUserId:
-        selectedUser.userId ?? selectedUser.id ?? selectedUser.username ?? null,
+        selectedUser?.userId ??
+        selectedUser?.id ??
+        selectedUser?.username ??
+        null,
     });
     return true;
   }, [
     banText,
+    recipientMode,
     selectedUser,
     durationMinutes,
     getPinnedReplyToBanId,
@@ -7001,7 +7250,7 @@ export function InstantBanFlow({
       activeOverlayKind,
       replyLobbyBlocked,
       confirmActive:
-        phase === 'confirming' && selectedUser != null && !banSentSuccess,
+        phase === 'confirming' && hasComposeRecipient && !banSentSuccess,
       inFlight,
       sharing,
       replySending,
@@ -7054,8 +7303,8 @@ export function InstantBanFlow({
   );
 
   const liteMode = isInstantBanLiteMode();
-  /** What layout in pager — from friend pick, not from phase commit (avoids vertical jump). */
-  const whatMobileSafe = Boolean(selectedUser) && showCrossScreenPager;
+  /** What layout in pager — from friend pick / anonymous mode, not phase commit. */
+  const whatMobileSafe = hasComposeRecipient && showCrossScreenPager;
 
   const composeOverlayStyle = useMemo(
     () =>
@@ -7089,10 +7338,10 @@ export function InstantBanFlow({
   );
 
   const confirmActive =
-    sendFlowSurfaces.confirm && selectedUser != null && !banSentSuccess;
+    sendFlowSurfaces.confirm && hasComposeRecipient && !banSentSuccess;
   const orbCompressActive =
     !banSentSuccess &&
-    (composeDismissing || (phase === 'confirming' && selectedUser != null));
+    (composeDismissing || (phase === 'confirming' && hasComposeRecipient));
   const hideLobbyBootLogoOnly = shouldHideLobbyBootLogoOnly({
     phase,
     replyComposeActive,
@@ -7120,7 +7369,7 @@ export function InstantBanFlow({
     compressActive: orbCompressActive,
     enterKey: confirmEnterKey,
     influencePercent: lobbyInfluencePercent,
-    sending: inFlight || sharing || replySending,
+    sending: inFlight || sharing || replySending || preparedInviteSending,
     error: confirmSendError,
     orbWrapRef: lobbyOrbMountRef,
     onConfirm: () => void handleConfirmRelease(),
@@ -7408,8 +7657,8 @@ export function InstantBanFlow({
         successSnapshot: successSnapshot
           ? {
               selectedUserId:
-                successSnapshot.selectedUser.userId ??
-                successSnapshot.selectedUser.id ??
+                successSnapshot.selectedUser?.userId ??
+                successSnapshot.selectedUser?.id ??
                 null,
               banText: successSnapshot.banText,
               durationMinutes: successSnapshot.durationMinutes,
@@ -8657,11 +8906,19 @@ export function InstantBanFlow({
           >
             <SuccessScreen
               senderUser={user}
+              recipientMode={
+                successSnapshot.recipientMode ?? COMPOSE_RECIPIENT_MODES.DIRECT
+              }
               selectedUser={successSnapshot.selectedUser}
               banText={successSnapshot.banText}
               durationMinutes={successSnapshot.durationMinutes}
               onExitComplete={handleSuccessExitComplete}
-              onShare={handleInviteMore}
+              onShare={
+                successSnapshot.recipientMode ===
+                COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER
+                  ? handlePreparedInviteChoosePerson
+                  : handleShareInviteMore
+              }
               freezeFinalFrame={
                 successToNextHandoff.retainSuccessPresentation ||
                 successPresentationHandoffArmed
@@ -8730,11 +8987,19 @@ export function InstantBanFlow({
               ) : null}
             </div>
             <ConfirmScreen
-              key={`confirm-${confirmEnterKey}-${selectedUser!.id ?? selectedUser!.userId ?? selectedUser!.username}`}
+              key={`confirm-${confirmEnterKey}-${
+                recipientMode === COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER
+                  ? 'known-by-sender'
+                  : selectedUser?.id ??
+                    selectedUser?.userId ??
+                    selectedUser?.username ??
+                    'none'
+              }`}
               enterKey={confirmEnterKey}
               enterPhase={confirmOrb.enterPhase}
               holdPhase={confirmOrb.holdPhase}
-              selectedUser={selectedUser!}
+              recipientMode={recipientMode}
+              selectedUser={selectedUser}
               banText={banText}
               durationMinutes={durationMinutes}
               onBack={handleConfirmBack}
@@ -8796,16 +9061,20 @@ export function InstantBanFlow({
                   className="instant-ban-cross-screen-page instant-ban-cross-screen-page--what"
                   data-no-horizontal-pager=""
                 >
-                  {showWhatSurface && selectedUser ? (
+                  {showWhatSurface && hasComposeRecipient ? (
                     <WhatScreen
                       key={
-                        selectedUser.id ??
-                        selectedUser.userId ??
-                        selectedUser.username
+                        recipientMode ===
+                        COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER
+                          ? 'known-by-sender'
+                          : selectedUser?.id ??
+                            selectedUser?.userId ??
+                            selectedUser?.username
                       }
                       overlayTitle={WHAT_OVERLAY_TITLE}
                       onComposeExitProgress={handleComposeExitProgress}
                       onComposeExitStart={handleComposeExitStart}
+                      recipientMode={recipientMode}
                       selectedUser={selectedUser}
                       initialBanText={banText}
                       initialDurationMinutes={durationMinutes}

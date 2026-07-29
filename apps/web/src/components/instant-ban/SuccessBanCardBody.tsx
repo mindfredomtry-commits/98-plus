@@ -1,6 +1,11 @@
 'use client';
 
-import type { FriendCard, UserPublic } from '@98plus/shared';
+import {
+  COMPOSE_RECIPIENT_MODES,
+  type ComposeRecipientMode,
+  type FriendCard,
+  type UserPublic,
+} from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { userAvatarSrc } from '@/lib/user-public-avatar';
 import { AvatarImage } from '../AvatarImage';
@@ -65,21 +70,25 @@ function formatDurationMinutes(minutes: number): string {
 
 type Props = {
   senderUser: UserPublic | null | undefined;
-  selectedUser: FriendCard;
+  recipientMode: ComposeRecipientMode;
+  selectedUser: FriendCard | null;
   banText: string;
   durationMinutes: number;
 };
 
 export function SuccessBanCardBody({
   senderUser,
+  recipientMode,
   selectedUser,
   banText,
   durationMinutes,
 }: Props) {
   const trimmed = banText.trim();
+  const knownBySender =
+    recipientMode === COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER;
   const receiverLetter = (
-    selectedUser.firstName?.[0] ??
-    selectedUser.username?.[0] ??
+    selectedUser?.firstName?.[0] ??
+    selectedUser?.username?.[0] ??
     '?'
   ).toUpperCase();
   const senderLetter = (
@@ -94,7 +103,7 @@ export function SuccessBanCardBody({
         <BanGlyph />
       </div>
       <p className="instant-ban-success-card__title text-xl font-black text-glow mb-3">
-        Запрет отправлен
+        {knownBySender ? 'запрет готов' : 'Запрет отправлен'}
       </p>
       <div className="result-compare mx-auto mb-3">
         <div className="result-party">
@@ -113,8 +122,12 @@ export function SuccessBanCardBody({
         <div className="result-party">
           <div className="modal-avatar overflow-hidden">
             <AvatarImage
-              src={friendAvatarUrl(selectedUser)}
-              letter={receiverLetter}
+              src={
+                knownBySender || !selectedUser
+                  ? null
+                  : friendAvatarUrl(selectedUser)
+              }
+              letter={knownBySender ? '' : receiverLetter}
               sizeClass="w-full h-full"
               textClass="text-lg"
             />

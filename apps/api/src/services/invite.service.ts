@@ -1,5 +1,13 @@
 import { randomBytes } from 'crypto';
-import { ANALYTICS_EVENTS, formatViralBanShareMessage } from '@98plus/shared';
+import {
+  ANALYTICS_EVENTS,
+  SHARE_PICKER_USERNAME,
+  applyRewardMultiplier,
+  calcSendCost,
+  formatViralBanShareMessage,
+  normalizeBanTone,
+} from '@98plus/shared';
+import { BanInviteRecipientMode, Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { mapBanToInteraction } from './ban.service';
 import { linkPairInteraction } from './energy.service';
@@ -47,6 +55,7 @@ export async function createPendingInvite(params: {
   targetUsername: string;
   text: string;
   durationMinutes: number;
+  tone?: string | null;
 }) {
   const targetUsername = normalizeUsername(params.targetUsername);
   const token = generateInviteToken();
@@ -59,6 +68,7 @@ export async function createPendingInvite(params: {
       targetUsername,
       text: params.text.trim(),
       durationMinutes: params.durationMinutes,
+      tone: normalizeBanTone(params.tone),
       expiresAt,
     },
     include: { sender: true },
@@ -97,6 +107,123 @@ export async function createPendingInvite(params: {
   });
 
   return { invite, links, shareText, shareUrl: links.botStart };
+}
+
+export async function findPreparedInviteByClientRequestId(
+  senderId: string,
+  clientRequestId: string,
+) {
+  return prisma.banInvite.findUnique({
+    where: {
+      senderId_clientRequestId: { senderId, clientRequestId },
+    },
+  });
+}
+
+function preparedInviteSharePayload(invite: {
+  token: string;
+  text: string;
+  durationMinutes: number;
+}) {
+  const links = inviteLinks(invite.token);
+  const shareText = formatViralBanShareMessage({
+    banText: invite.text,
+    durationMinutes: invite.durationMinutes,
+    link: links.botStart,
+  });
+  return { links, shareText, shareUrl: links.botStart };
+}
+
+/**
+ * Create one recipient-less BanInvite and charge the sender in the same DB
+ * transaction. The composite key is replay protection for repeated hold
+ * callbacks, rerenders, retries, and SUCCESS re-entry.
+ */
+export async function createPreparedInviteOnce(params: {
+  senderId: string;
+  clientRequestId: string;
+  text: string;
+  durationMinutes: number;
+  tone?: string | null;
+}) {
+  const existing = await findPreparedInviteByClientRequestId(
+    params.senderId,
+    params.clientRequestId,
+  );
+  if (existing) {
+    return {
+      invite: existing,
+      created: false,
+      energyDelta: 0,
+      ...preparedInviteSharePayload(existing),
+    };
+  }
+
+  const sender = await prisma.user.findUnique({
+    where: { id: params.senderId },
+    select: { energy: true },
+  });
+  if (!sender) throw new Error('User not found');
+
+  const energyDelta = applyRewardMultiplier(
+    calcSendCost().sender,
+    sender.energy,
+  );
+  const token = generateInviteToken();
+  const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 86400000);
+
+  try {
+    const [invite] = await prisma.$transaction([
+      prisma.banInvite.create({
+        data: {
+          token,
+          senderId: params.senderId,
+          targetUsername: null,
+          recipientMode: BanInviteRecipientMode.KNOWN_BY_SENDER,
+          clientRequestId: params.clientRequestId,
+          text: params.text.trim(),
+          durationMinutes: params.durationMinutes,
+          tone: normalizeBanTone(params.tone),
+          expiresAt,
+        },
+      }),
+      prisma.user.update({
+        where: { id: params.senderId },
+        data: { energy: { increment: energyDelta } },
+      }),
+    ]);
+
+    await trackEvent(ANALYTICS_EVENTS.INVITE_PENDING_CREATED, params.senderId, {
+      token: invite.token,
+      recipientMode: 'KNOWN_BY_SENDER',
+    });
+
+    return {
+      invite,
+      created: true,
+      energyDelta,
+      ...preparedInviteSharePayload(invite),
+    };
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      const replay = await findPreparedInviteByClientRequestId(
+        params.senderId,
+        params.clientRequestId,
+      );
+      if (replay) {
+        return {
+          invite: replay,
+          created: false,
+          energyDelta: 0,
+          ...preparedInviteSharePayload(replay),
+        };
+      }
+    }
+    throw error;
+  }
 }
 
 /** Claim all pending invites matching this user's username */
@@ -186,6 +313,7 @@ async function materializeInviteAsBan(inviteId: string, receiverId: string) {
       receiverId,
       text: invite.text,
       durationMinutes: invite.durationMinutes,
+      tone: invite.tone,
       status: 'PENDING',
       inviteId: invite.id,
     },
@@ -227,7 +355,7 @@ async function materializeInviteAsBan(inviteId: string, receiverId: string) {
 
     const receiverContactKey = receiver.username
       ? normalizeUsername(receiver.username)
-      : invite.targetUsername;
+      : invite.targetUsername ?? `${SHARE_PICKER_USERNAME}:${receiver.id}`;
 
     await recordSocialContact(invite.senderId, {
       username: receiverContactKey,
@@ -239,6 +367,7 @@ async function materializeInviteAsBan(inviteId: string, receiverId: string) {
     });
 
     if (
+      invite.targetUsername &&
       receiver.username &&
       normalizeUsername(receiver.username) !== invite.targetUsername
     ) {

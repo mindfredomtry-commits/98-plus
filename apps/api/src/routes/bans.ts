@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   ANALYTICS_EVENTS,
   BAN_TONES,
+  COMPOSE_RECIPIENT_MODES,
   DAILY_BAN_LIMIT_ERROR_CODE,
   INSUFFICIENT_ENERGY_ERROR,
   isValidDurationMinutes,
@@ -81,6 +82,10 @@ const sendSchema = z.object({
   receiverTelegramId: z.string().optional(),
   receiverUserId: z.string().optional(),
   receiverUsername: z.string().optional(),
+  recipientMode: z
+    .literal(COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER)
+    .optional(),
+  clientRequestId: z.string().min(8).max(128).optional(),
   tone: z.enum(BAN_TONES).optional().nullable(),
 });
 
@@ -274,8 +279,21 @@ bansRouter.post('/send', async (req: AuthRequest, res) => {
 
   const { receiverUserId } = parsed.data;
 
-  if (!receiverTelegramId && !receiverUsername && !receiverUserId) {
+  if (
+    !receiverTelegramId &&
+    !receiverUsername &&
+    !receiverUserId &&
+    parsed.data.recipientMode !== COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER
+  ) {
     res.status(400).json({ error: 'Укажи получателя' });
+    return;
+  }
+
+  if (
+    parsed.data.recipientMode === COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER &&
+    !parsed.data.clientRequestId?.trim()
+  ) {
+    res.status(400).json({ error: 'clientRequestId required' });
     return;
   }
 
@@ -290,6 +308,8 @@ bansRouter.post('/send', async (req: AuthRequest, res) => {
         ? BigInt(receiverTelegramId)
         : undefined,
       receiverUsername,
+      recipientMode: parsed.data.recipientMode,
+      clientRequestId: parsed.data.clientRequestId,
       tone: parsed.data.tone ?? null,
     });
     console.log(`[98+] /bans/send in ${Date.now() - t0}ms`);

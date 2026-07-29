@@ -10,7 +10,11 @@ import {
   type CSSProperties,
   type TouchEvent,
 } from 'react';
-import type { FriendCard } from '@98plus/shared';
+import {
+  COMPOSE_RECIPIENT_MODES,
+  type ComposeRecipientMode,
+  type FriendCard,
+} from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { instantBanDebug } from '@/lib/instant-ban-debug';
 import { AvatarImage } from '../AvatarImage';
@@ -111,7 +115,8 @@ function chipFromFullText(value: string): string | null {
 }
 
 type Props = {
-  selectedUser: FriendCard;
+  recipientMode: ComposeRecipientMode;
+  selectedUser: FriendCard | null;
   initialBanText?: string;
   initialDurationMinutes?: number;
   /** Unified compose scene title (inside swipe layer). */
@@ -133,10 +138,32 @@ function easeOutCubic(t: number): number {
 }
 
 const WhatSelectedUser = memo(function WhatSelectedUser({
+  recipientMode,
   user,
 }: {
-  user: FriendCard;
+  recipientMode: ComposeRecipientMode;
+  user: FriendCard | null;
 }) {
+  if (recipientMode === COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER) {
+    return (
+      <div
+        className="instant-ban-what-selected instant-ban-what-selected--mobile"
+        data-recipient-mode={recipientMode}
+      >
+        <AvatarImage
+          src={null}
+          letter=""
+          sizeClass="w-11 h-11"
+          textClass="text-base"
+        />
+        <div className="instant-ban-what-selected__name">
+          ты уже знаешь кто это
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) return null;
   const letter = (
     user.firstName?.[0] ?? user.username?.[0] ?? '?'
   ).toUpperCase();
@@ -155,6 +182,7 @@ const WhatSelectedUser = memo(function WhatSelectedUser({
 });
 
 function WhatScreenInner({
+  recipientMode,
   selectedUser,
   initialBanText = '',
   initialDurationMinutes = DEFAULT_DURATION,
@@ -185,6 +213,9 @@ function WhatScreenInner({
   const [phraseVisible, setPhraseVisible] = useState(true);
 
   const isComposeScene = Boolean(overlayTitle);
+  const recipientValid =
+    recipientMode === COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER ||
+    selectedUser != null;
 
   const [exitProgress, setExitProgress] = useState(0);
   const [isExiting, setIsExiting] = useState(false);
@@ -428,12 +459,12 @@ function WhatScreenInner({
 
   const handleSubmit = useCallback(() => {
     const text = (inputRef.current?.value ?? '').trim();
-    if (text.length < 3) return;
+    if (text.length < 3 || !recipientValid) return;
     onSubmit(text, durationMinutes);
-  }, [durationMinutes, onSubmit]);
+  }, [durationMinutes, onSubmit, recipientValid]);
 
   const showSwipeHint =
-    canSwipeToConfirm && selectedUser != null && durationMinutes > 0;
+    canSwipeToConfirm && recipientValid && durationMinutes > 0;
 
   const canContinueRef = useRef(canContinue);
   const canSwipeToConfirmRef = useRef(canSwipeToConfirm);
@@ -479,8 +510,13 @@ function WhatScreenInner({
 
   const isScrollReady = useCallback(() => {
     const textOk = (inputRef.current?.value ?? '').trim().length >= 3;
-    return canContinueRef.current && textOk && durationMinutes > 0;
-  }, [durationMinutes]);
+    return (
+      canContinueRef.current &&
+      textOk &&
+      recipientValid &&
+      durationMinutes > 0
+    );
+  }, [durationMinutes, recipientValid]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const submitLockRef = useRef(false);
@@ -911,7 +947,7 @@ function WhatScreenInner({
           </span>
         )}
       </button>
-      <WhatSelectedUser user={selectedUser} />
+      <WhatSelectedUser recipientMode={recipientMode} user={selectedUser} />
       <label className="instant-ban-what-field" data-gesture-exclude="">
         {isEmpty ? (
           <span

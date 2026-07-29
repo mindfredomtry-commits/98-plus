@@ -1,7 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { FriendCard, UserPublic } from '@98plus/shared';
+import {
+  COMPOSE_RECIPIENT_MODES,
+  type ComposeRecipientMode,
+  type FriendCard,
+  type UserPublic,
+} from '@98plus/shared';
 import { BigButton } from '../BigButton';
 import { LobbyBanMark, SuccessBanCardBody } from './SuccessBanCardBody';
 import { traceSuccessCardUnmounted } from '@/lib/success-card-trace';
@@ -9,11 +14,12 @@ import { logSuccessExitClick } from '@/lib/success-exit-first-notification-debug
 
 type Props = {
   senderUser: UserPublic | null | undefined;
-  selectedUser: FriendCard;
+  recipientMode: ComposeRecipientMode;
+  selectedUser: FriendCard | null;
   banText: string;
   durationMinutes: number;
   onExitComplete: () => void;
-  onShare: () => void;
+  onShare: () => void | Promise<void>;
   /**
    * Stage 3A: keep the settled SUCCESS card visible (entered frame) during
    * SUCCESS_HANDOFF_WAIT. No exit animation, no entrance replay. Parent unmounts
@@ -33,6 +39,7 @@ function frameClassName(frame: CardFrame): string {
 
 export function SuccessScreen({
   senderUser,
+  recipientMode,
   selectedUser,
   banText,
   durationMinutes,
@@ -42,7 +49,9 @@ export function SuccessScreen({
 }: Props) {
   const cardRef = useRef<HTMLDivElement>(null);
   const exitingRef = useRef(false);
+  const shareActionRef = useRef(false);
   const [isExiting, setIsExiting] = useState(false);
+  const [sharePending, setSharePending] = useState(false);
   const [cardFrame, setCardFrame] = useState<CardFrame>('enter');
 
   useEffect(() => {
@@ -95,6 +104,16 @@ export function SuccessScreen({
   }, [cardFrame]);
 
   const handleAgain = useCallback(() => {
+    if (recipientMode === COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER) {
+      if (shareActionRef.current) return;
+      shareActionRef.current = true;
+      setSharePending(true);
+      void Promise.resolve(onShare()).finally(() => {
+        shareActionRef.current = false;
+        setSharePending(false);
+      });
+      return;
+    }
     window.__debug98log?.('[SUCCESS CTA CLICK]', {
       exitingRef: exitingRef.current,
       isExiting,
@@ -110,7 +129,17 @@ export function SuccessScreen({
     // Do not apply --exit (that was the production-visible blank gap).
     setCardFrame('frozen');
     callOnExitComplete(cardRef.current ? 'freeze-final-frame' : 'no-card-node');
-  }, [callOnExitComplete, cardFrame, freezeFinalFrame, isExiting]);
+  }, [
+    callOnExitComplete,
+    cardFrame,
+    freezeFinalFrame,
+    isExiting,
+    onShare,
+    recipientMode,
+  ]);
+
+  const knownBySender =
+    recipientMode === COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER;
 
   return (
     <div
@@ -127,6 +156,7 @@ export function SuccessScreen({
         <div className="modal-card-body text-center">
           <SuccessBanCardBody
             senderUser={senderUser}
+            recipientMode={recipientMode}
             selectedUser={selectedUser}
             banText={banText}
             durationMinutes={durationMinutes}
@@ -136,21 +166,41 @@ export function SuccessScreen({
           <BigButton
             className="instant-ban-success-card__btn-primary"
             onClick={handleAgain}
-            disabled={isExiting}
+            disabled={isExiting || sharePending}
           >
             <span className="instant-ban-success-card__btn-label">
               <LobbyBanMark className="instant-ban-success-card__btn-emoji" />
-              <span className="instant-ban-success-card__btn-text">Запретить ещё!</span>
+              <span className="instant-ban-success-card__btn-text">
+                {knownBySender ? 'выбрать человека' : 'Запретить ещё!'}
+              </span>
             </span>
           </BigButton>
-          <BigButton
-            variant="ghost"
-            className="instant-ban-success-card__btn-secondary"
-            onClick={onShare}
-            disabled={isExiting}
-          >
-            Поделиться
-          </BigButton>
+          {!knownBySender ? (
+            <BigButton
+              variant="ghost"
+              className="instant-ban-success-card__btn-secondary"
+              onClick={onShare}
+              disabled={isExiting}
+            >
+              Поделиться
+            </BigButton>
+          ) : (
+            <BigButton
+              variant="ghost"
+              className="instant-ban-success-card__btn-secondary"
+              onClick={() => {
+                if (exitingRef.current) return;
+                logSuccessExitClick();
+                exitingRef.current = true;
+                setIsExiting(true);
+                setCardFrame('frozen');
+                callOnExitComplete('prepared-invite-done');
+              }}
+              disabled={isExiting || sharePending}
+            >
+              Готово
+            </BigButton>
+          )}
         </div>
       </div>
     </div>

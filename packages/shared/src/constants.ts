@@ -29,6 +29,14 @@ export const ONBOARDING_SUGGESTION_CHIPS = [
 /** Placeholder username for Telegram share picker (token claim is authoritative) */
 export const SHARE_PICKER_USERNAME = 'share';
 
+/** Explicit outgoing-compose recipient mode; never infer from a missing id. */
+export const COMPOSE_RECIPIENT_MODES = {
+  DIRECT: 'DIRECT',
+  KNOWN_BY_SENDER: 'KNOWN_BY_SENDER',
+} as const;
+export type ComposeRecipientMode =
+  (typeof COMPOSE_RECIPIENT_MODES)[keyof typeof COMPOSE_RECIPIENT_MODES];
+
 /**
  * Confirmed BotFather username — single canonical source for t.me invite/share links.
  * Do not use legacy aliases such as ninety8plus_bot.

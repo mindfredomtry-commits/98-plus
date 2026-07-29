@@ -178,7 +178,11 @@ export async function materializeRegisteredUser(user: {
       recentChallenge: inv.text,
       source: 'INVITE_CLAIMED',
     });
-    if (inv.targetUsername !== contactKey && user.username) {
+    if (
+      inv.targetUsername &&
+      inv.targetUsername !== contactKey &&
+      user.username
+    ) {
       await prisma.socialContact.deleteMany({
         where: {
           ownerId: inv.senderId,
@@ -226,14 +230,22 @@ export async function syncSocialGraphFromHistory(userId: string) {
   });
 
   for (const inv of sentInvites) {
-    if (isSyntheticSocialUsername(inv.targetUsername)) continue;
+    if (!inv.targetUsername && !inv.claimedById) continue;
+    if (
+      inv.targetUsername &&
+      isSyntheticSocialUsername(inv.targetUsername)
+    ) {
+      continue;
+    }
     const claimedUser = inv.claimedById
       ? await prisma.user.findUnique({ where: { id: inv.claimedById } })
       : null;
+    const username = claimedUser?.username
+      ? normalizeUsername(claimedUser.username)
+      : inv.targetUsername;
+    if (!username) continue;
     await recordSocialContact(userId, {
-      username: claimedUser?.username
-        ? normalizeUsername(claimedUser.username)
-        : inv.targetUsername,
+      username,
       contactUserId: inv.claimedById ?? undefined,
       firstName: claimedUser?.firstName,
       photoUrl: claimedUser?.photoUrl,
@@ -380,6 +392,7 @@ async function getRelationshipOverlaysBatch(
 
     const latestInviteByUsername = new Map<string, (typeof invites)[0]>();
     for (const inv of invites) {
+      if (!inv.targetUsername) continue;
       const key = normalizeUsername(inv.targetUsername);
       if (!usernameSet.has(key) || latestInviteByUsername.has(key)) continue;
       latestInviteByUsername.set(key, inv);
