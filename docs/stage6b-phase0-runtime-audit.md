@@ -109,7 +109,7 @@ E. RECOVERY
 5. **Compose macro:** `dispatchNotificationOwnerBootLobby` + `useNotificationOwnerWhoProjection`.
 6. **Paint host:** Providers still computes shell kinds using runtime paint + residual owner-shadow/primary selectors; InstantBanFlow projects compose via local `phase` + `banSentSuccess`.
 
-`overlayQueueRef` comment: never written under V9; still read in many Providers paths (diagnostics and some head fallbacks).
+`overlayQueueRef` comment: never written under V9; still read in many Providers paths. **Confirmed residual:** WS `check:completed` removes from `overlayQueueRef.current` then `applyOverlayQueue` → can overwrite canonical runtime with an empty queue.
 
 ---
 
@@ -121,7 +121,7 @@ E. RECOVERY
 | Owner presentation `LEGACY_FLOW` / `LEAVE_*` / `leaveWhoForLegacyRef` | No (Stage 6A removed) | No | Deleted | n/a |
 | `legacyQueueClaims*` / `queueLobbyGuardActiveDiag` | No (Stage 6A Phase 2) | No | Deleted | n/a |
 | `shouldBlockLobbyForActiveQueue` / `queue-lobby-guard.ts` | Yes (sync + diag) | **Not product claim** (claim uses runtime) | Scaffolding / stale-guard maintenance | Conditional after proving no decision consumers |
-| `overlayQueueRef` | Reads yes; writes no | Indirect via stale length/head fallbacks in some paths | Dead as authority; live as stale reader surface | Incremental read deletion |
+| `overlayQueueRef` | Reads yes; writes no under V9 | **Yes — confirmed** WS `check:completed` derives next queue from `overlayQueueRef.current` then `applyOverlayQueue` → `syncRuntimeQueue` | Frozen empty ref with residual behavior-changing write-back | Replace with `readRuntimePrevQueue()` first |
 | `projectRuntimeQueueToLegacy` | Yes | Bridge only | Production adapter | Keep until native consumers |
 | `EMPTY_RUNTIME_LEGACY_SINKS` / demolition | Yes | Intentional empty sinks | Completed Stage 6A substrate | Keep |
 | `ownerShadowRef` / `notification-overlay-owner*` / phase12 | Yes (dispatch + reads) | **Mixed** — some decision helpers still called; many diag-only | Entangled residual | Highest risk; staged |
@@ -144,7 +144,9 @@ E. RECOVERY
 | `notificationChainTransitioning` host state | Separate React state/ref from runtime `completing` | HIGH for delays / empty overlay |
 | Pending generation OOO guard | Reducer stamps `pending.generation`; late empty fetch cannot clear newer snapshot | CONFIRMED protection exists |
 | Queue dedupe on ITEMS_RECEIVED | `dedupeAppend` in reducer | CONFIRMED for id-level dedupe |
-| `overlayQueueRef` stale reads | Still used for lengths/heads in Providers helpers | MEDIUM diag/fallback risk |
+| Canonical queue overwritten from frozen empty `overlayQueueRef` | Providers WS `check:completed` → `applyOverlayQueue(removeOverlaysForBan(overlayQueueRef.current, …))` while ref is never written under V9 | **CONFIRMED** |
+| `overlayQueueRef` other stale reads | Lengths/heads in Providers helpers / diags | MEDIUM |
+| Reconnect double refresh / uncleared backoff | `useWebSocket` `onReconnect` from close path and `onopen`; timeout cleanup gaps | HIGH |
 | Projection delay | Owner boot-lobby → InstantBanFlow phase via effects; SUCCESS has no phase projection (by design) | MEDIUM |
 | Timers | CTA enter/exit, who dismiss, SUCCESS hold max ms, rAF in ResultOverlay | MEDIUM–HIGH for 0.5–2s pauses |
 
@@ -170,7 +172,7 @@ E. RECOVERY
 | # | Symptom | Top candidate cause(s) | Confidence |
 |---|---|---|---|
 | 1 | Lobby flicker between cards | SUCCESS/empty-shell hold release + host transitioning latch + CTA/orb predicates briefly true while next display not mounted | HIGH |
-| 2 | Queue interrupted by full lobby | Same as #1; `selectLobbyMayShow` true or chrome path paints before next head ack | HIGH |
+| 2 | Queue interrupted by full lobby | Same as #1; plus **CONFIRMED** path that can clear runtime queue from empty `overlayQueueRef` on WS `check:completed` | HIGH / CONFIRMED path |
 | 3 | Second tap required | `allowOverlayUserTap` 350ms carryover lock; IncomingBanOverlay incomplete action lock; disabled until verifyPhase/buttonsEnabled | HIGH |
 | 4 | Result buttons unresponsive | Overlay input lock carryover; result timer hit-test / pointer layers; action blocked while `action.succeeded` wait | HIGH |
 | 5 | Overlay remains after queue ends | Host shell kind / chain transitioning not cleared when runtime idle+empty | HIGH |
@@ -180,7 +182,7 @@ E. RECOVERY
 | 9 | ~15s incoming delay | Historical; candidates: bootstrap settle, deferred drain, compose block, WS backlog — needs Phase 1 tracing | MEDIUM |
 | 10 | Cards on forbidden screens | Gate miss if `sendComposePhase` wrong; reply compose paused flags | MEDIUM |
 | 11 | Refresh restores stale display | Bootstrap restore + consumed set incomplete; direct entry preserve | MEDIUM |
-| 12 | WS reconnect miss/dup/reorder | Merge/dedupe vs replaceQueue; pending generation helps pending not queue order | MEDIUM |
+| 12 | WS reconnect miss/dup/reorder | Double `reloadPending` per reconnect + uncleared backoff; merge/dedupe / pending generation help but do not cancel duplicate transport | HIGH |
 | 13 | Duplicate WS display | Reducer dedupe by item id; host could still remount same head | MEDIUM |
 | 14 | Duplicate action submit | Incoming overboard lock never armed; check uses `selectIsActionBlocked` better | HIGH (incoming) |
 | 15 | Empty queue but UI active card | Host shell/held card vs runtime empty | HIGH |
@@ -300,11 +302,11 @@ Correlate by `banId` + `transitionId`/`commandId` + monotonic `seq`. Gate behind
 
 ## 14. Proposed Stage 6B repair phases (dependency order)
 
-1. **Phase 1 — Observability + invariant harness**  
-   Temporary correlated trace; deterministic failing tests for #1/#3/#6/#8/#17 without product “fixes” that hide races.
+1. **Phase 1 — Observability + invariant harness + stop frozen-ref write-back**  
+   Temporary correlated trace; replace behavior-changing `overlayQueueRef.current` queue derivations with `readRuntimePrevQueue()` (start: WS `check:completed`); deterministic tests for #1/#2/#3/#6/#8/#17.
 
 2. **Phase 2 — Action single-flight**  
-   Route IncomingBanOverlay through runtime action blocking; fix overboard lock; align with CheckOverlay.
+   Route IncomingBanOverlay through runtime action blocking; fix overboard lock; scope/clear 350ms carryover lock; align with CheckOverlay.
 
 3. **Phase 3 — Inter-card presentation contract**  
    Eliminate Lobby flash between cards: one release predicate from runtime + explicit next-display ack; shrink SUCCESS hold surface.
@@ -393,8 +395,8 @@ node node_modules/typescript/bin/tsc -p apps/web/tsconfig.json --noEmit --pretty
 
 ## Facts vs hypotheses
 
-**Facts:** dual compose/runtime owners; CTA local machine; composeBlocks gate; overlay input lock 350ms; incoming overboard lock never armed; Stage 6A claim/indicator/prev-queue paths; deleted Stage 6A symbols absent; v2-lifecycle source-scan fail; build pass; 289 tsc errors baseline.
+**Facts:** dual compose/runtime owners; CTA local machine; composeBlocks gate; overlay input lock 350ms; incoming overboard lock never armed; Stage 6A claim/indicator/prev-queue paths; deleted Stage 6A symbols absent; **WS `check:completed` can syncRuntimeQueue from empty `overlayQueueRef`**; reconnect double-refresh pattern; v2-lifecycle source-scan fail; build pass; 289 tsc errors baseline.
 
-**Hypotheses:** exact production timing of 15s delay; which single latch dominates lobby flicker in field; WS reconnect ordering bugs without live traces.
+**Hypotheses:** exact production timing of historical ~15s delay; which single latch dominates lobby flicker in field when queue is intact.
 
-Phase 1 diagnostics are required before promoting MEDIUM reconnect/delay hypotheses to CONFIRMED.
+Cross-agent consensus (ownership / races / tests+obs): runtime reducer invariants are strong; host frozen-ref write-back, tap lock, CTA timing, and paint≠lifecycle gaps are the Stage 6B priority surface.
