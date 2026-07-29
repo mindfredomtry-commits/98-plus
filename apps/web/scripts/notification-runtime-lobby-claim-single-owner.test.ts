@@ -130,6 +130,14 @@ async function main() {
         src,
         /const queueClaimsNotificationScreen = runtimeClaimsNotificationScreen/,
       );
+      assert.match(
+        src,
+        /const queueLobbyGuardActive = runtimeClaimsNotificationScreen/,
+      );
+      assert.doesNotMatch(src, /legacyQueueClaimsNotificationScreen/);
+      assert.doesNotMatch(src, /legacyQueueLobbyGuardActive/);
+      assert.doesNotMatch(src, /legacyQueueClaimsDiag/);
+      assert.doesNotMatch(src, /queueLobbyGuardActiveDiag/);
       assert.match(src, /!interactiveLobbyChromeMayShow/);
       assert.doesNotMatch(
         src,
