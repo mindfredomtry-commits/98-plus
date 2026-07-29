@@ -78,7 +78,6 @@ function sinksFor(
   dismissProductionHeadAtomic(
     store,
     {
-      queueBefore: [incoming('A')],
       targetItemId: 'incoming:A',
       reason: 'incoming-dismiss',
       source: 'user',
@@ -111,7 +110,6 @@ function sinksFor(
   dismissProductionHeadAtomic(
     store,
     {
-      queueBefore: [resultItem('R')],
       targetItemId: 'result:R',
       reason: 'result-dismiss',
       source: 'user',
@@ -131,7 +129,6 @@ function sinksFor(
   dismissProductionHeadAtomic(
     store,
     {
-      queueBefore: [resultItem('G')],
       targetItemId: 'result:G',
       reason: 'result-cta-go-to-bans',
       source: 'user',
@@ -154,7 +151,6 @@ function sinksFor(
   dismissProductionHeadAtomic(
     store,
     {
-      queueBefore: q,
       targetItemId: 'incoming:A',
       reason: 'incoming-dismiss',
       source: 'user',
@@ -184,7 +180,6 @@ function sinksFor(
   dismissProductionHeadAtomic(
     store,
     {
-      queueBefore: [resultItem('A')],
       targetItemId: 'result:A',
       reason: 'result-dismiss',
       source: 'user',
@@ -305,7 +300,6 @@ function sinksFor(
   const first = dismissProductionHeadAtomic(
     store,
     {
-      queueBefore: [incoming('D')],
       targetItemId: 'incoming:D',
       reason: 'incoming-dismiss',
       source: 'user',
@@ -318,7 +312,6 @@ function sinksFor(
   const second = dismissProductionHeadAtomic(
     store,
     {
-      queueBefore: [],
       targetItemId: 'incoming:D',
       reason: 'incoming-dismiss',
       source: 'user',
@@ -338,7 +331,6 @@ function sinksFor(
   dismissProductionHeadAtomic(
     store,
     {
-      queueBefore: [incoming('F')],
       targetItemId: 'incoming:F',
       reason: 'incoming-dismiss',
       source: 'user',
@@ -393,7 +385,8 @@ function sinksFor(
     /FEATURE_FLAG.*notification.?runtime|USE_NEW_RUNTIME|notificationRuntimeEnabled/i,
   );
   assert.match(instant, /runtimeLobbyMayShow/);
-  assert.match(instant, /selectInteractiveLobbyChromeMayShow/);
+  assert.match(instant, /decideLobbyClaimFromRuntime/);
+  assert.match(instant, /lobbyClaimFromRuntime\.chromeMayShow/);
   assert.match(instant, /interactiveLobbyChromeMayShow/);
   // Strict openLobby authority remains selectLobbyMayShow (Providers / handoff).
   assert.match(

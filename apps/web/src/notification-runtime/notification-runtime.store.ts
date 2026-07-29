@@ -197,4 +197,19 @@ export function dismissRuntimeHead(
   });
 }
 
+export function completeRuntimeItem(
+  store: NotificationRuntimeStore,
+  targetItemId: string,
+  source: RuntimeSource,
+  transitionId?: string,
+): NotificationRuntimeReducerResult {
+  const tid = transitionId ?? nextRuntimeTransitionId('complete');
+  return store.dispatch({
+    type: 'ITEM_COMPLETED',
+    transitionId: tid,
+    targetItemId,
+    source,
+  });
+}
+
 export { notificationItemId };

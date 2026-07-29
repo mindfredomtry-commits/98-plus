@@ -163,19 +163,14 @@ async function main() {
 
     const order: string[] = [];
     for (let step = 0; step < 2; step += 1) {
-      const queueBefore = store.getState().items.queue.map((item) =>
-        item.kind === 'incoming'
-          ? incomingQueued(item.ban.id)
-          : incomingQueued('x'),
-      );
-      const head = store.getState().display.payload;
+      const head = store.getState().items.queue[0];
       assert.ok(head, 'display must be set before advancing');
-      const targetItemId = `incoming:${queueBefore[0]!.kind === 'incoming' ? (queueBefore[0] as { ban: BanInteraction }).ban.id : ''}`;
+      assert.equal(head.kind, 'incoming');
+      const targetItemId = `incoming:${head.ban.id}`;
       order.push(targetItemId);
       const dismissed = dismissProductionHeadAtomic(
         store,
         {
-          queueBefore,
           targetItemId,
           reason: 'continue_chain',
           source: 'success',

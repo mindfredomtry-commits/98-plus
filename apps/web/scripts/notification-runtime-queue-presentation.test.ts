@@ -324,7 +324,6 @@ async function main() {
     const dismissed = dismissProductionHeadAtomic(
       store,
       {
-        queueBefore: [incomingQueued('S1'), incomingQueued('S2')],
         targetItemId: 'incoming:S1',
         reason: 'continue_chain',
         source: 'success',
@@ -343,7 +342,6 @@ async function main() {
     const dismissed = dismissProductionHeadAtomic(
       store,
       {
-        queueBefore: queue,
         targetItemId: 'incoming:T1',
         reason: 'continue_chain',
         source: 'timer',
@@ -573,15 +571,9 @@ async function main() {
       assert.equal(store.getState().items.queue.length, 3);
 
       // Advance S1 → S2 → S3 via continue_chain
-      let queue = [
-        incomingQueued('S1'),
-        incomingQueued('S2'),
-        incomingQueued('S3'),
-      ];
       let d = dismissProductionHeadAtomic(
         store,
         {
-          queueBefore: queue,
           targetItemId: 'incoming:S1',
           reason: 'continue_chain',
           source: 'success',
@@ -589,11 +581,9 @@ async function main() {
         sinks(),
       );
       assert.equal(d.hasNext, true);
-      queue = [incomingQueued('S2'), incomingQueued('S3')];
       d = dismissProductionHeadAtomic(
         store,
         {
-          queueBefore: queue,
           targetItemId: 'incoming:S2',
           reason: 'continue_chain',
           source: 'success',

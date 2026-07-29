@@ -206,6 +206,7 @@ import {
   toQueuedOverlayItems,
 } from '@/notification-runtime/notification-runtime.production-advance';
 import {
+  completeRuntimeItem,
   createNotificationRuntimeStore,
   nextRuntimeTransitionId,
   notificationItemId,
@@ -13319,7 +13320,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           const atomic = dismissProductionHeadAtomic(
             notificationRuntimeStoreRef.current,
             {
-              queueBefore: prev,
               targetItemId,
               reason,
               source: `dismissCurrentOverlay:${reason}`,
@@ -13434,11 +13434,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             reason: 'single-card-deferred-to-pending',
           });
         }
-        writeOverlayQueueSilent(
-          [],
-          reason,
-          'deeplink-single-card-dismiss-clear-queue',
-        );
         clearActiveUserCardHold(`deeplink-single-card:${reason}`);
         clearActiveOverlayStateForDismiss(dismissKind, dismissBanId, {
           explicitUserAction: true,
@@ -13558,11 +13553,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             `live-overlay-single-defer:${reason}`,
           );
         }
-        writeOverlayQueueSilent(
-          [],
-          reason,
-          'live-overlay-single-dismiss-clear-queue',
-        );
         clearActiveUserCardHold(`live-overlay-single:${reason}`);
         clearActiveOverlayStateForDismiss(dismissKind, dismissBanId, {
           explicitUserAction: true,
@@ -13720,11 +13710,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           if (normalizedCheckBanId) {
             setCheckAnswerWaitingResultHold(normalizedCheckBanId);
           }
-          writeOverlayQueueSilent(
-            [],
-            reason,
-            'check-answer-empty-remaining-clear-queue',
-          );
+          if (normalizedCheckBanId) {
+            completeRuntimeItem(
+              notificationRuntimeStoreRef.current,
+              `check:${normalizedCheckBanId}`,
+              'user',
+            );
+          }
           activeOverlayLockRef.current = null;
           setChainAdvancePlaceholderKind('check');
           setChainAdvanceWaiting(true);
@@ -15635,7 +15627,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       kinds: QueuedOverlay['kind'][] = ['result'],
     ): { removedOverlay: number; removedStartup: number } => {
       const norm = normalizeId(banId);
-      const head = overlayQueueRef.current[0];
+      const runtimeQueue = readRuntimePrevQueue();
+      const head = runtimeQueue[0];
       const headProtected =
         Boolean(norm) &&
         head?.kind === 'result' &&
@@ -15677,7 +15670,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         predicateResult: true,
         willPrune: true,
       });
-      const beforeOverlay = overlayQueueRef.current;
+      const beforeOverlay = runtimeQueue;
       const beforeStartup = pendingStartupInteractionsRef.current;
       const nextOverlay = traceRemoveOverlaysForBan(
         beforeOverlay,
@@ -15706,11 +15699,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           removedOverlay,
           removedStartup,
         });
-        commitOverlayQueueViaApply(
-          nextOverlay,
-          source,
-          'prune-result-from-notification-chain-commit',
-        );
+        for (const kind of kinds) {
+          completeRuntimeItem(
+            notificationRuntimeStoreRef.current,
+            `${kind}:${norm}`,
+            mapProvidersSourceToRuntime(source),
+          );
+        }
         commitPendingQueueViaOwner(
           nextStartup,
           source,
@@ -15738,7 +15733,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
       return { removedOverlay, removedStartup };
     },
-    [emitResultClearCallsite, emitResultHeldStillPresentAfterClear],
+    [
+      emitResultClearCallsite,
+      emitResultHeldStillPresentAfterClear,
+      readRuntimePrevQueue,
+    ],
   );
 
   const sanitizeNotificationChainQueues = useCallback(
@@ -15747,9 +15746,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         replyDeeplinkParentBanIdRef.current?.trim() ??
         replyDeepLinkBanIdRef.current?.trim() ??
         null;
+      const runtimeQueue = readRuntimePrevQueue();
       const overlayHeadFreshResultId =
-        overlayQueueRef.current[0]?.kind === 'result'
-          ? normalizeId(overlayQueueRef.current[0].result.id)
+        runtimeQueue[0]?.kind === 'result'
+          ? normalizeId(runtimeQueue[0].result.id)
           : null;
       const filterQueue = (
         queue: QueuedOverlay[],
@@ -15809,19 +15809,25 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           );
         });
       const nextOverlay = filterQueue(
-        overlayQueueRef.current,
+        runtimeQueue,
         overlayHeadFreshResultId,
       );
       const nextStartup = filterQueue(pendingStartupInteractionsRef.current, null);
       if (
-        nextOverlay.length !== overlayQueueRef.current.length ||
+        nextOverlay.length !== runtimeQueue.length ||
         nextStartup.length !== pendingStartupInteractionsRef.current.length
       ) {
-        commitOverlayQueueViaApply(
-          nextOverlay,
-          source,
-          'sanitize-notification-chain-queues-commit',
-        );
+        const keptIds = new Set(nextOverlay.map(overlayQueueKey));
+        for (const item of runtimeQueue) {
+          const itemId = overlayQueueKey(item);
+          if (!keptIds.has(itemId)) {
+            completeRuntimeItem(
+              notificationRuntimeStoreRef.current,
+              itemId,
+              mapProvidersSourceToRuntime(source),
+            );
+          }
+        }
         commitPendingQueueViaOwner(
           nextStartup,
           source,
@@ -15829,7 +15835,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         );
       }
     },
-    [isResultBlockedForNotificationChain],
+    [isResultBlockedForNotificationChain, readRuntimePrevQueue],
   );
 
   const isNotificationChainPausedForReply = useCallback(() => {
@@ -18694,7 +18700,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           source: `openBanResult:${mode}`,
           rejectReason: 'null-payload',
         });
-        applyOverlayQueue([]);
         return;
       }
 
@@ -20272,11 +20277,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
 
       if (source === 'poll') {
         const pollGuardCtx = buildResultShellHeldCardGuardContext(
-          overlayQueueRef.current[0] ?? null,
+          readRuntimePrevQueue()[0] ?? null,
         );
         if (isHeldOrMountedIncomingOrCheckActive(pollGuardCtx)) {
           const nextQueue = buildResultPriorityQueue(
-            overlayQueueRef.current,
+            readRuntimePrevQueue(),
             banId,
             resultItem,
           );
@@ -20349,7 +20354,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       const nextQueue = buildResultPriorityQueue(
-        overlayQueueRef.current,
+        readRuntimePrevQueue(),
         banId,
         resultItem,
       );
@@ -20445,6 +20450,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       holdResultForActiveNotificationChain,
       isFreshCheckAnswerResultPendingFirstShow,
       isResultBlockedForNotificationChain,
+      readRuntimePrevQueue,
       releaseCheckAnswerWaitingResultHold,
       setChainAdvanceWaiting,
       setNotificationChainTransitioning,
@@ -20832,11 +20838,18 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
         return;
       }
-      applyOverlayQueue(
-        overlayQueueRef.current.filter((q) => q.kind !== 'check'),
+      const runtimeChecks = readRuntimePrevQueue().filter(
+        (item) => item.kind === 'check',
       );
+      for (const item of runtimeChecks) {
+        completeRuntimeItem(
+          notificationRuntimeStoreRef.current,
+          `check:${item.ban.id}`,
+          'system',
+        );
+      }
     },
-    [auth.user?.id, applyOverlayQueue, enqueueNotification],
+    [auth.user?.id, enqueueNotification, readRuntimePrevQueue],
   );
 
   const collectCheckStartupBlockers =
@@ -21675,8 +21688,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
       }
 
+      const runtimeQueue = readRuntimePrevQueue();
       const queueHead =
-        overlayQueueRef.current[0] ??
+        runtimeQueue[0] ??
         remaining[0] ??
         pendingStartupInteractionsRef.current[0] ??
         null;
@@ -21699,8 +21713,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
 
         const queueToApply =
-          overlayQueueRef.current.length > 0
-            ? overlayQueueRef.current
+          runtimeQueue.length > 0
+            ? runtimeQueue
             : remaining.length > 0
               ? remaining
               : null;
@@ -21802,6 +21816,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [
       applyOverlayQueue,
       commitSyncDisplayActivePayload,
+      readRuntimePrevQueue,
       releaseCheckAnswerWaitingResultHold,
       setChainAdvanceWaiting,
       setCheckAnswerWaitingResultHold,
@@ -22325,25 +22340,26 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         dismissedIncomingIds: new Set(dismissedIncomingRef.current),
       });
 
-      const cleaned = removeOverlaysForBan(
-        overlayQueueRef.current,
-        banId,
-        ['incoming', 'check'],
+      const runtimeQueue = readRuntimePrevQueue();
+      completeRuntimeItem(
+        notificationRuntimeStoreRef.current,
+        `incoming:${banId}`,
+        'user',
       );
+      completeRuntimeItem(
+        notificationRuntimeStoreRef.current,
+        `check:${banId}`,
+        'user',
+      );
+      const cleaned = readRuntimePrevQueue();
       traceQueueHeadBecameResultIfNeeded(
-        overlayQueueRef.current,
+        runtimeQueue,
         cleaned,
         buildQueueHeadResultTraceContext(
           'forceOpenOverboardResult',
           'force-open-overboard-queue-cleaned',
         ),
       );
-      writeOverlayQueueSilent(
-        cleaned,
-        'forceOpenOverboardResult',
-        'force-open-overboard-queue-cleaned',
-      );
-
       logForceOverboard('before-flushSync', {
         banId,
         queueLength: cleaned.length,
@@ -22482,6 +22498,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       closeSendFlow,
       commitDirectOverboardLayerRefs,
       readDirectOverboardSnapshot,
+      readRuntimePrevQueue,
       snapshotDirectOverboardGate,
     ],
   );
@@ -22565,7 +22582,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       logConsumeAfterAnswerQueueBeforeLazy(traceBase);
 
       const alreadyConsumed = incomingConsumedAfterAnswerRef.current.has(banId);
-      const beforeQueue = overlayQueueRef.current;
+      const beforeQueue = readRuntimePrevQueue();
       const beforeLen = beforeQueue.length;
       const beforePendingLen = pendingStartupInteractionsRef.current.length;
       const previewNextQueue = removeOverlaysForBan(beforeQueue, banId, [
@@ -22630,27 +22647,23 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         awaitingUser: false,
       });
 
-      const nextQueue = removeOverlaysForBan(beforeQueue, banId, ['incoming']);
-      if (nextQueue.length !== beforeLen) {
-        applyOverlayQueue(nextQueue);
-      } else if (overlayQueueRef.current !== nextQueue) {
-        commitOverlayQueueViaApply(
-          nextQueue,
-          'incoming-answer-pop',
-          'incoming-queue-pop-after-answer-commit',
-        );
-      }
+      completeRuntimeItem(
+        notificationRuntimeStoreRef.current,
+        `incoming:${banId}`,
+        'user',
+      );
+      const runtimeQueueAfter = readRuntimePrevQueue();
 
       console.log('[INCOMING QUEUE POP AFTER ANSWER]', {
         banId,
         before: beforeLen,
-        after: nextQueue.length,
+        after: runtimeQueueAfter.length,
         answer,
       });
       markVisibleOverboardTrace('[INCOMING QUEUE POP AFTER ANSWER]', {
         banId,
         before: beforeLen,
-        after: nextQueue.length,
+        after: runtimeQueueAfter.length,
         answer,
       });
 
@@ -22667,10 +22680,10 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       logConsumeAfterAnswerQueueAfterLazy({
         ...buildConsumeAfterAnswerTraceSnapshot(banId, answer, diagSource),
         queueLenBefore: beforeLen,
-        queueLenAfter: overlayQueueRef.current.length,
+        queueLenAfter: runtimeQueueAfter.length,
         pendingLenBefore: beforePendingLen,
         pendingLenAfter: pendingStartupInteractionsRef.current.length,
-        removedIncomingCount: beforeLen - nextQueue.length,
+        removedIncomingCount: beforeLen - runtimeQueueAfter.length,
       });
       logConsumeAfterAnswerDisplayAfterLazy(
         buildConsumeAfterAnswerTraceSnapshot(banId, answer, diagSource),
@@ -22690,7 +22703,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         });
       }
     },
-    [applyOverlayQueue, clearReplyFastSessionAfterAnswer, clearReplyParentActivePriority],
+    [
+      clearReplyFastSessionAfterAnswer,
+      clearReplyParentActivePriority,
+      readRuntimePrevQueue,
+    ],
   );
 
   const shouldBlockIncomingCardReopen = useCallback(
@@ -22718,7 +22735,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (banId: string) => {
       incomingReplyComposeDismissedRef.current.add(banId);
 
-      const beforeQueue = overlayQueueRef.current;
+      const beforeQueue = readRuntimePrevQueue();
       const nextQueue = removeOverlaysForBan(beforeQueue, banId, ['incoming']);
       commitOverlayQueueViaApply(
         nextQueue,
@@ -22872,15 +22889,11 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       });
       incomingReplyComposeDismissedRef.current.delete(parentBanId);
 
-      const beforeQueue = overlayQueueRef.current;
-      const nextQueue = removeOverlaysForBan(beforeQueue, parentBanId, ['incoming']);
-      if (nextQueue.length !== beforeQueue.length) {
-        commitOverlayQueueViaApply(
-          nextQueue,
-          'incoming-reply-finalize',
-          'incoming-reply-finalize-queue-commit',
-        );
-      }
+      completeRuntimeItem(
+        notificationRuntimeStoreRef.current,
+        `incoming:${parentBanId}`,
+        'user',
+      );
 
       const beforePending = pendingStartupInteractionsRef.current;
       const beforePendingLen = beforePending.length;
@@ -23450,7 +23463,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         dismissedIncomingIds: new Set(dismissedIncomingRef.current),
       });
 
-      const beforeQueue = overlayQueueRef.current;
+      const beforeQueue = readRuntimePrevQueue();
       const nextQueue = removeOverlaysForBan(beforeQueue, normalizedBanId, [
         'incoming',
       ]);
@@ -23468,11 +23481,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
             remainingLen: nextQueue.length,
           });
         } else {
-          applyOverlayQueue(nextQueue);
+          completeRuntimeItem(
+            notificationRuntimeStoreRef.current,
+            `incoming:${normalizedBanId}`,
+            'user',
+          );
         }
       } else if (
-        overlayQueueRef.current[0]?.kind === 'incoming' &&
-        overlayQueueRef.current[0].ban.id === normalizedBanId
+        beforeQueue[0]?.kind === 'incoming' &&
+        beforeQueue[0].ban.id === normalizedBanId
       ) {
         dismissCurrentOverlay('reply-completed-route', nextQueue, 'replyCompletedRoute');
       }
@@ -23556,6 +23573,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       dismissCurrentOverlay,
       homeSnapshotReady,
       pinReplyToBanId,
+      readRuntimePrevQueue,
     ],
   );
 
@@ -23785,12 +23803,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       if (!ban) return;
       const item: QueuedOverlay = { kind: 'incoming', ban };
       const key = overlayQueueKey(item);
+      const runtimeQueue = readRuntimePrevQueue();
       applyOverlayQueue([
         item,
-        ...overlayQueueRef.current.filter((q) => overlayQueueKey(q) !== key),
+        ...runtimeQueue.filter((q) => overlayQueueKey(q) !== key),
       ]);
     },
-    [applyOverlayQueue, isReplyFastQueueHeadValid],
+    [applyOverlayQueue, isReplyFastQueueHeadValid, readRuntimePrevQueue],
   );
 
   const scheduleReplyFastTimeout = useCallback(
@@ -26478,7 +26497,8 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     (ban: BanInteraction): BanInteraction => {
       return runWithHeadSwitchPipelineFrame('applyIncomingBanToQueueHead', () => {
       const norm = normalizeId(ban.id);
-      const head = overlayQueueRef.current[0];
+      const runtimeQueue = readRuntimePrevQueue();
+      const head = runtimeQueue[0];
       const enriched = enrichBanInteraction(ban);
       const richer =
         head?.kind === 'incoming' && normalizeId(head.ban.id) === norm
@@ -26491,7 +26511,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           incomingBanRef.current?.id !== richer.id ||
           incomingBanRef.current.text !== richer.text)
       ) {
-        const next = [...overlayQueueRef.current];
+        const next = [...runtimeQueue];
         next[0] = { kind: 'incoming', ban: richer };
         commitOverlayQueueViaApply(
           next,
@@ -26516,7 +26536,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       return richer;
       });
     },
-    [],
+    [readRuntimePrevQueue],
   );
 
   const upgradeIncomingQueueHeadFromMemory = useCallback(
@@ -33867,7 +33887,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         finTrace('[FINALIZE GO TO BANS BRANCH]', 'finalizeResultForGoToBans:queue-prune', {
           branch: 'isQueueOverboardResultDismiss-prune',
         });
-        const beforeQueue = overlayQueueRef.current;
+        const beforeQueue = readRuntimePrevQueue();
         const beforePending = pendingStartupInteractionsRef.current;
         traceFinalizeGoToBansQueue('before-remove-overlays-for-ban', {
           beforeQueue: [...beforeQueue],
@@ -34109,7 +34129,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         pruneResultFromNotificationChain(key, 'go-to-bans', ['check', 'result']);
         sanitizeNotificationChainQueues('go-to-bans');
 
-        const beforeQueue = overlayQueueRef.current;
+        const beforeQueue = readRuntimePrevQueue();
         traceFinalizeGoToBansQueue('before-remove-overlays-for-ban', {
           beforeQueue: [...beforeQueue],
           branch: 'prune',
@@ -34535,6 +34555,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       consumeIncomingAfterAnswer,
       markResultOverlayConsumed,
       pruneResultFromNotificationChain,
+      readRuntimePrevQueue,
       result,
       sanitizeNotificationChainQueues,
       setChainAdvanceWaiting,
@@ -36240,11 +36261,15 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           }
           queueMicrotask(() => {
             if (banId) {
-              applyOverlayQueue(
-                removeOverlaysForBan(overlayQueueRef.current, banId, [
-                  'check',
-                  'incoming',
-                ]),
+              completeRuntimeItem(
+                notificationRuntimeStoreRef.current,
+                `check:${banId}`,
+                'websocket',
+              );
+              completeRuntimeItem(
+                notificationRuntimeStoreRef.current,
+                `incoming:${banId}`,
+                'websocket',
               );
             }
             void refreshUserRef.current().catch(() => {});
@@ -37523,21 +37548,21 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
         setResultCtaBansOverlayOpen(false);
         setOverboardTransitionActive(false);
 
-        let nextQueue = overlayQueueRef.current;
+        let nextQueue = readRuntimePrevQueue();
         let poppedDismissedResult = false;
         while (nextQueue[0]?.kind === 'result') {
           const headResult = nextQueue[0].result;
           const viewerId = headResult.viewerId ?? userIdRef.current ?? null;
           if (!isDismissedResultLocally(headResult.id, viewerId)) break;
-          nextQueue = popOverlayHead(nextQueue);
+          completeRuntimeItem(
+            notificationRuntimeStoreRef.current,
+            `result:${headResult.id}`,
+            'user',
+          );
+          nextQueue = readRuntimePrevQueue();
           poppedDismissedResult = true;
         }
         if (poppedDismissedResult) {
-          commitOverlayQueueViaApply(
-            nextQueue,
-            'completeBansOverlayCloseFromResultCta',
-            'bans-close-pop-dismissed-result-commit',
-          );
           markVisibleOverboardTrace('[BANS CLOSE QUEUE DRAIN]', {
             queueLength: nextQueue.length,
             headKind: nextQueue[0]?.kind ?? null,
@@ -37610,6 +37635,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     [
       clearDirectOverboardLayerRefs,
       dismissCurrentOverlay,
+      readRuntimePrevQueue,
       resetBansNavState,
       restoreLobbyShellForResultCtaReturn,
       unlockNotificationQueueAndFlush,

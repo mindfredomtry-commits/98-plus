@@ -176,6 +176,16 @@ export type NotificationRuntimeCommand =
       source: RuntimeSource;
     }
   | {
+      /**
+       * Transport/host reports one completed identity. The reducer removes only
+       * that canonical item; no queue snapshot is accepted from the caller.
+       */
+      type: 'ITEM_COMPLETED';
+      transitionId: string;
+      targetItemId: string;
+      source: RuntimeSource;
+    }
+  | {
       type: 'LOBBY_REQUESTED';
       source: RuntimeSource;
     }

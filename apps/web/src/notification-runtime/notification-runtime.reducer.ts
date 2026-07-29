@@ -330,6 +330,36 @@ function dismissHead(
   return { state: next, effects };
 }
 
+function completeItemById(
+  state: NotificationRuntimeState,
+  targetItemId: string,
+  transitionId: string,
+  source: NotificationRuntimeState['lifecycle']['source'],
+): NotificationRuntimeReducerResult {
+  const index = state.items.queue.findIndex(
+    (item) => notificationItemId(item) === targetItemId,
+  );
+  if (index < 0) {
+    return { state, effects: [] };
+  }
+  if (index === 0) {
+    return dismissHead(state, targetItemId, transitionId, source);
+  }
+
+  const queue = state.items.queue.filter((_, itemIndex) => itemIndex !== index);
+  const next = addConsumed(
+    {
+      ...state,
+      items: { queue },
+    },
+    targetItemId,
+  );
+  return {
+    state: next,
+    effects: [{ type: 'MARK_CONSUMED', itemId: targetItemId }],
+  };
+}
+
 function targetItemIdFromKind(
   targetId: string,
   targetKind: NotificationItem['kind'] | null | undefined,
@@ -874,6 +904,22 @@ export function notificationRuntimeReducer(
 
     case 'CARD_DISMISS_REQUESTED': {
       return dismissHead(
+        base,
+        event.targetItemId,
+        event.transitionId,
+        event.source,
+      );
+    }
+
+    case 'ITEM_COMPLETED': {
+      if (
+        !base.items.queue.some(
+          (item) => notificationItemId(item) === event.targetItemId,
+        )
+      ) {
+        return { state, effects: [] };
+      }
+      return completeItemById(
         base,
         event.targetItemId,
         event.transitionId,

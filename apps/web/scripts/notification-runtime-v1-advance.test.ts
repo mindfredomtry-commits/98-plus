@@ -125,7 +125,6 @@ function createMirror(store: ReturnType<typeof createNotificationRuntimeStore>):
   const result = dismissProductionHeadAtomic(
     store,
     {
-      queueBefore: queue,
       targetItemId: 'incoming:A',
       reason: 'incoming-dismiss',
       source: 'test-dismiss',
@@ -171,7 +170,6 @@ function createMirror(store: ReturnType<typeof createNotificationRuntimeStore>):
   const r = dismissProductionHeadAtomic(
     store,
     {
-      queueBefore: [incoming('A'), check('B')],
       targetItemId: 'incoming:A',
       reason: 'incoming-dismiss',
       source: 'user',
@@ -181,7 +179,7 @@ function createMirror(store: ReturnType<typeof createNotificationRuntimeStore>):
   assert.equal(selectLobbyMayShow(r.state), false);
 }
 
-// —— 6–7. Duplicate dismiss / same transitionId no-op ——
+// —— 6–7. Duplicate item dismiss is an identity no-op ——
 {
   const store = createNotificationRuntimeStore();
   const { sinks } = createMirror(store);
@@ -191,7 +189,6 @@ function createMirror(store: ReturnType<typeof createNotificationRuntimeStore>):
   const first = dismissProductionHeadAtomic(
     store,
     {
-      queueBefore: queue,
       targetItemId: 'incoming:A',
       reason: 'incoming-dismiss',
       source: 'user',
@@ -203,17 +200,17 @@ function createMirror(store: ReturnType<typeof createNotificationRuntimeStore>):
   const second = dismissProductionHeadAtomic(
     store,
     {
-      queueBefore: projectRuntimeQueueToLegacy(first.state),
-      targetItemId: 'check:B',
+      targetItemId: 'incoming:A',
       reason: 'incoming-dismiss',
       source: 'user',
-      transitionId, // same id → CARD_DISMISS ignored; align ingest may refresh
+      transitionId,
     },
     sinks,
   );
-  // Same transitionId: dismiss is no-op; queue stays [B] (or realigned to queueBefore)
+  // A is already consumed/current is B, so the duplicate cannot remove B.
   assert.equal(second.state.lifecycle.status, 'showing');
-  assert.ok(second.state.items.queue.length >= 1);
+  assert.equal(second.state.items.queue.length, 1);
+  assert.equal(runtimeHeadItemId(projectRuntimeQueueToLegacy(second.state)), 'check:B');
 }
 
 // —— 8. Ingest duplicate item does not duplicate ——
@@ -243,7 +240,6 @@ function createMirror(store: ReturnType<typeof createNotificationRuntimeStore>):
   dismissProductionHeadAtomic(
     store,
     {
-      queueBefore: [incoming('A'), check('B')],
       targetItemId: 'incoming:A',
       reason: 'incoming-dismiss',
       source: 'user',
@@ -301,7 +297,6 @@ function createMirror(store: ReturnType<typeof createNotificationRuntimeStore>):
   dismissProductionHeadAtomic(
     store,
     {
-      queueBefore: [incoming('A'), check('B')],
       targetItemId: 'incoming:A',
       reason: 'incoming-dismiss',
       source: 'user',

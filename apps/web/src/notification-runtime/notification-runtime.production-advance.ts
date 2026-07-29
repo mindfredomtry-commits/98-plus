@@ -136,8 +136,6 @@ export type AtomicDismissResult = {
 export function dismissProductionHeadAtomic(
   store: NotificationRuntimeStore,
   args: {
-    /** Full queue before dismiss (must include current head). */
-    queueBefore: readonly QueuedOverlay[];
     targetItemId: string;
     reason: string;
     source: string;
@@ -146,14 +144,6 @@ export function dismissProductionHeadAtomic(
   sinks: RuntimeLegacySinks,
 ): AtomicDismissResult {
   const runtimeSource = mapProvidersSourceToRuntime(args.source);
-  // Align runtime queue with production snapshot before dismiss.
-  syncRuntimeQueue(
-    store,
-    toQueuedOverlayItems(args.queueBefore),
-    runtimeSource,
-    args.transitionId ? `${args.transitionId}:align` : undefined,
-  );
-
   const cardReason = mapDismissReasonToCardReason(args.reason);
   const result = dismissRuntimeHead(
     store,

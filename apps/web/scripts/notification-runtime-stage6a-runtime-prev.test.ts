@@ -145,11 +145,9 @@ const providersSrc = readFileSync(providersPath, 'utf8');
 {
   const store = createNotificationRuntimeStore();
   showHead(store, [incoming('A'), incoming('B'), incoming('C')]);
-  const prev1 = projectRuntimeQueueToLegacy(store.getState());
   const atomic1 = dismissProductionHeadAtomic(
     store,
     {
-      queueBefore: prev1,
       targetItemId: 'incoming:A',
       reason: 'user_dismiss',
       source: 'stage6a-dismiss-A',
@@ -170,11 +168,9 @@ const providersSrc = readFileSync(providersPath, 'utf8');
   assert.notEqual(store.getState().lifecycle.status, 'idle');
   pass('Dismiss A → B immediately visible; no Lobby (hasNext)');
 
-  const prev2 = projectRuntimeQueueToLegacy(store.getState());
   const atomic2 = dismissProductionHeadAtomic(
     store,
     {
-      queueBefore: prev2,
       targetItemId: 'incoming:B',
       reason: 'user_dismiss',
       source: 'stage6a-dismiss-B',
