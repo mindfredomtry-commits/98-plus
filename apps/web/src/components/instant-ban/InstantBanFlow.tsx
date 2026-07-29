@@ -662,18 +662,16 @@ export function InstantBanFlow({
    * WHO/WHAT/CONFIRM ownership: NotificationOwner is macro authority.
    * Legacy selectingTarget / composingBan / confirming are one-way projections.
    */
-  const leaveWhoForLegacyRef = useRef(false);
+  /** Projection API compatibility; suppress flag remains permanently false. */
+  const suppressLobbyWhoCloseRef = useRef(false);
   const finishWhoDismissRef = useRef<() => void>(() => {});
   const applyWhoPhaseFromOwner = useCallback(() => {
-    leaveWhoForLegacyRef.current = false;
     setPhase('selectingTarget', 'notification-owner-who-projection');
   }, [setPhase]);
   const applyWhatPhaseFromOwner = useCallback(() => {
-    leaveWhoForLegacyRef.current = false;
     setPhase('composingBan', 'notification-owner-what-projection');
   }, [setPhase]);
   const applyConfirmPhaseFromOwner = useCallback(() => {
-    leaveWhoForLegacyRef.current = false;
     setPhase('confirming', 'notification-owner-confirm-projection');
   }, [setPhase]);
   const applyLobbyFromWhoOwner = useCallback(() => {
@@ -683,24 +681,22 @@ export function InstantBanFlow({
     phase,
     applyWhoPhaseFromOwner,
     applyLobbyFromWhoOwner,
-    leaveWhoForLegacyRef,
+    suppressLobbyWhoCloseRef,
     applyWhatPhaseFromOwner,
     applyConfirmPhaseFromOwner,
   );
 
-  /** Clear owner WHO / WHAT / CONFIRM / SUCCESS / LEGACY_FLOW before legacy idle resets. */
+  /** Clear owner WHO / WHAT / CONFIRM / SUCCESS before legacy idle resets. */
   const releaseOwnerWhoToLobby = useCallback(() => {
     const kind = getNotificationOwnerBootLobbyState().presentation.kind;
     if (
       kind !== 'WHO' &&
       kind !== 'WHAT' &&
       kind !== 'CONFIRM' &&
-      kind !== 'SUCCESS' &&
-      kind !== 'LEGACY_FLOW'
+      kind !== 'SUCCESS'
     ) {
       return;
     }
-    leaveWhoForLegacyRef.current = false;
     dispatchNotificationOwnerBootLobby({ type: 'RESET_TO_LOBBY' });
   }, []);
 
@@ -1687,7 +1683,6 @@ export function InstantBanFlow({
     setScreenTransition(null);
     // Owner enters WHAT; authorized projection writes composingBan in the same turn
     // so the pager does not close on an empty shell frame.
-    leaveWhoForLegacyRef.current = false;
     dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
     setPhase('composingBan', 'notification-owner-what-projection');
     setCrossScreenProgressImmediate(1);
@@ -1696,7 +1691,6 @@ export function InstantBanFlow({
   const completeWhatToWho = useCallback(() => {
     screenTransitionRef.current = null;
     setScreenTransition(null);
-    leaveWhoForLegacyRef.current = false;
     // Make WHAT non-renderable *before* owner enters WHO (no WHAT flash over WHO).
     flushSync(() => {
       setPhase('selectingTarget', 'what-to-who-legacy');
@@ -2022,22 +2016,18 @@ export function InstantBanFlow({
       sendEntryPhaseRef.current = null;
       if (entryPhase) {
         if (entryPhase === 'selectingTarget') {
-          leaveWhoForLegacyRef.current = false;
           dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
         } else if (entryPhase === 'composingBan') {
-          leaveWhoForLegacyRef.current = false;
           dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
           setPhase('composingBan', 'notification-owner-what-projection');
           setCrossScreenProgressImmediate(1);
         } else if (entryPhase === 'confirming') {
-          leaveWhoForLegacyRef.current = false;
           dispatchNotificationOwnerBootLobby({ type: 'OPEN_CONFIRM' });
           setPhase('confirming', 'notification-owner-confirm-projection');
         } else {
           setPhase(entryPhase);
         }
       } else if (incomingReplyBanId || replyComposeActive) {
-        leaveWhoForLegacyRef.current = false;
         dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
         if (phase !== 'composingBan') {
           setPhase('composingBan', 'notification-owner-what-projection');
@@ -2046,7 +2036,6 @@ export function InstantBanFlow({
         }
         setCrossScreenProgressImmediate(1);
       } else {
-        leaveWhoForLegacyRef.current = false;
         dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
       }
       setCtaState('hidden');
@@ -3004,7 +2993,6 @@ export function InstantBanFlow({
         clearWhoPanelEnterTimer();
         setCtaState('hidden');
         onStartSend();
-        leaveWhoForLegacyRef.current = false;
         dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
         return false;
       }
@@ -3079,15 +3067,12 @@ export function InstantBanFlow({
 
       onStartSend();
       if (targetPhase === 'selectingTarget') {
-        leaveWhoForLegacyRef.current = false;
         dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
       } else if (targetPhase === 'composingBan') {
-        leaveWhoForLegacyRef.current = false;
         dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
         setPhase('composingBan', 'notification-owner-what-projection');
       } else {
         // confirming — NotificationOwner CONFIRM
-        leaveWhoForLegacyRef.current = false;
         dispatchNotificationOwnerBootLobby({ type: 'OPEN_CONFIRM' });
         setPhase('confirming', 'notification-owner-confirm-projection');
       }
@@ -3154,7 +3139,6 @@ export function InstantBanFlow({
       setBanSentSuccess(false);
       traceSuccessSnapshotCleared('beginComposingBanForOpponent');
       sendSnapshotRef.current = null;
-      leaveWhoForLegacyRef.current = false;
       dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
       if (phase !== 'composingBan') {
         setPhase('composingBan', 'notification-owner-what-projection');
@@ -3648,7 +3632,6 @@ export function InstantBanFlow({
       clearWhoPanelEnterTimer();
       setCtaState('hidden');
       setCrossScreenProgressImmediate(1);
-      leaveWhoForLegacyRef.current = false;
       dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
       setPhase('composingBan', 'notification-owner-what-projection');
 
@@ -4995,7 +4978,6 @@ export function InstantBanFlow({
         payoffPhase: confirmSendContextRef.current.payoffPhase,
       });
       // Macro owner leaves CONFIRM atomically; paint remains banSentSuccess + snapshot.
-      leaveWhoForLegacyRef.current = false;
       dispatchNotificationOwnerBootLobby({ type: 'OPEN_SUCCESS' });
       setBanSentSuccess(true);
       setSendSuccessCardMounted(true, { banId, source: 'open-success' });
@@ -5406,7 +5388,6 @@ export function InstantBanFlow({
     setCtaState('exiting');
     setWhoPanelEntering(true);
     onStartSend();
-    leaveWhoForLegacyRef.current = false;
     dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
 
     ctaExitTimerRef.current = setTimeout(() => {
@@ -5478,7 +5459,6 @@ export function InstantBanFlow({
     sendSnapshotRef.current = null;
     setCrossScreenProgressImmediate(0);
     onStartSend();
-    leaveWhoForLegacyRef.current = false;
     dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHO' });
   }, [
     clearBansCtaQueueSuppress,
@@ -6006,7 +5986,6 @@ export function InstantBanFlow({
     }
     if (screenTransitionRef.current) return;
     if (phase !== 'selectingTarget') return;
-    leaveWhoForLegacyRef.current = false;
     dispatchNotificationOwnerBootLobby({ type: 'CLOSE_WHO' });
     if (process.env.NODE_ENV === 'development') {
       requestAnimationFrame(() => {
@@ -6077,7 +6056,6 @@ export function InstantBanFlow({
     sendSnapshotRef.current = null;
     confirmEntrySourceRef.current = 'send-flow';
     // Owner enters CONFIRM; authorized projection writes confirming in the same turn.
-    leaveWhoForLegacyRef.current = false;
     dispatchNotificationOwnerBootLobby({ type: 'OPEN_CONFIRM' });
     setPhase('confirming', 'notification-owner-confirm-projection');
   }, []);
@@ -6127,7 +6105,6 @@ export function InstantBanFlow({
       return;
     }
 
-    leaveWhoForLegacyRef.current = false;
     dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' });
     setPhase('composingBan', 'notification-owner-what-projection');
   }, [setCrossScreenProgressImmediate, stopCrossScreenAnim]);
