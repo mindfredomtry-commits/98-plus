@@ -204,7 +204,6 @@ pass('No direct legacy WHO open write remains');
 
 // 12. WHO → WHAT does not produce a Lobby frame (owner → WHAT, not LOBBY)
 assert.match(instantBanSrc, /OPEN_WHAT/);
-assert.match(instantBanSrc, /leaveWhoForLegacyRef/);
 assert.match(instantBanSrc, /notification-owner-what-projection/);
 {
   toLobby();
@@ -219,7 +218,6 @@ assert.match(instantBanSrc, /notification-owner-what-projection/);
   const plan = planBootLobbyVisuals(openWhat.state.presentation);
   assert.equal(plan.ownerWhoActive, false);
   assert.equal(plan.ownerWhatActive, true);
-  assert.equal(plan.ownerLegacyFlowActive, false);
   assert.equal(plan.showLobbyBootLogoShell, false);
 
   const whoToWhatIdx = instantBanSrc.indexOf('const completeWhoToWhat');
@@ -302,9 +300,9 @@ assert.match(instantBanSrc, /notification-owner-what-projection/);
   );
   assert.equal(reset.rejected, null);
   assert.equal(reset.state.presentation.kind, 'LOBBY');
-  assert.match(instantBanSrc, /kind !== 'LEGACY_FLOW'/);
+  assert.doesNotMatch(instantBanSrc, /LEGACY_FLOW/);
   assert.match(instantBanSrc, /kind !== 'WHAT'/);
-  pass('Explicit legacy reset returns to LOBBY');
+  pass('Explicit WHAT/CONFIRM/SUCCESS reset returns to LOBBY');
 }
 
 // 13. Incoming notification hosts unchanged while WHO is active

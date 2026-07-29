@@ -49,11 +49,6 @@ function toConfirm() {
   dispatchNotificationOwnerBootLobby({ type: 'OPEN_CONFIRM' });
 }
 
-function toLegacy() {
-  toWho();
-  dispatchNotificationOwnerBootLobby({ type: 'LEAVE_WHO_FOR_LEGACY_FLOW' });
-}
-
 let passed = 0;
 function pass(name: string): void {
   passed += 1;
@@ -65,7 +60,7 @@ console.log('\n=== CONFIRM OWNERSHIP SLICE ===\n');
 const instantBanSrc = read(instantBanPath);
 const providersSrc = read(providersPath);
 
-// 1. OPEN_CONFIRM from WHAT / WHO / LOBBY / LEGACY_FLOW / CONFIRM
+// 1. OPEN_CONFIRM from WHAT / WHO / LOBBY / CONFIRM
 {
   toWhat();
   let r = reduceNotificationOwnerBootLobby(
@@ -94,14 +89,6 @@ const providersSrc = read(providersPath);
   assert.equal(r.rejected, null);
   assert.equal(r.state.presentation.kind, 'CONFIRM');
   pass('OPEN_CONFIRM from LOBBY');
-
-  toLegacy();
-  r = reduceNotificationOwnerBootLobby(getNotificationOwnerBootLobbyState(), {
-    type: 'OPEN_CONFIRM',
-  });
-  assert.equal(r.rejected, null);
-  assert.equal(r.state.presentation.kind, 'CONFIRM');
-  pass('OPEN_CONFIRM from LEGACY_FLOW');
 
   toConfirm();
   r = reduceNotificationOwnerBootLobby(getNotificationOwnerBootLobbyState(), {
@@ -174,10 +161,10 @@ const providersSrc = read(providersPath);
   assert.equal(confirmOk.what, false);
   assert.equal(confirmOk.who, false);
 
-  // Paint still requires selectedUser at InstantBanFlow confirmActive.
+  // Paint still requires compose recipient at InstantBanFlow confirmActive.
   assert.match(
     instantBanSrc,
-    /confirmActive\s*=\s*\n?\s*sendFlowSurfaces\.confirm && selectedUser != null && !banSentSuccess/,
+    /confirmActive\s*=\s*\n?\s*sendFlowSurfaces\.confirm && hasComposeRecipient && !banSentSuccess/,
   );
 
   const success = resolveSendFlowSurfaceExclusivity({
@@ -214,7 +201,6 @@ const providersSrc = read(providersPath);
     submitBody,
     /setPhase\('confirming', 'notification-owner-confirm-projection'\)/,
   );
-  assert.doesNotMatch(submitBody, /LEAVE_WHAT_FOR_LEGACY_FLOW/);
 
   const backIdx = instantBanSrc.indexOf('const handleConfirmBack');
   const backEnd = instantBanSrc.indexOf('const handleInviteMore', backIdx);
@@ -229,8 +215,6 @@ const providersSrc = read(providersPath);
   );
   const repeatBody = instantBanSrc.slice(repeatIdx, repeatEnd);
   assert.match(repeatBody, /type:\s*'OPEN_CONFIRM'/);
-  assert.doesNotMatch(repeatBody, /LEAVE_WHO_FOR_LEGACY_FLOW/);
-  assert.doesNotMatch(repeatBody, /LEAVE_WHAT_FOR_LEGACY_FLOW/);
 
   assert.match(instantBanSrc, /applyConfirmPhaseFromOwner/);
   assert.match(instantBanSrc, /handleConfirmRelease/);

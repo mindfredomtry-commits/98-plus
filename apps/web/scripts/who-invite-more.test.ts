@@ -126,7 +126,9 @@ const inviteBlock = flowSrc.slice(
     /OPEN_WHAT[\s\S]*?setPhase\('composingBan'/,
   );
   const sendFlowReturn = confirmBack.slice(
-    confirmBack.indexOf('leaveWhoForLegacyRef.current = false'),
+    confirmBack.indexOf(
+      "dispatchNotificationOwnerBootLobby({ type: 'OPEN_WHAT' })",
+    ),
   );
   assert.doesNotMatch(
     sendFlowReturn,
