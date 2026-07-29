@@ -90,6 +90,23 @@ async function bootstrapPreviewAnalytics(): Promise<void> {
       1::bigint AS interaction_count
     FROM "Ban" b
   `);
+  await prisma.$executeRawUnsafe(`
+    CREATE OR REPLACE FUNCTION analytics.relationship_metric_direction_v1(
+      p_viewer_share numeric
+    )
+    RETURNS text
+    LANGUAGE sql
+    IMMUTABLE
+    PARALLEL SAFE
+    AS $$
+      SELECT CASE
+        WHEN p_viewer_share IS NULL THEN 'LOW_DATA'
+        WHEN round(p_viewer_share * 100) > 51 THEN 'VIEWER'
+        WHEN round(p_viewer_share * 100) < 49 THEN 'OTHER'
+        ELSE 'BALANCED'
+      END;
+    $$
+  `);
   const overviewSql = readFileSync(
     join(
       __dirname,
