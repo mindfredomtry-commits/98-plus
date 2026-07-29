@@ -10,7 +10,11 @@ import {
   type CSSProperties,
   type TouchEvent,
 } from 'react';
-import type { FriendCard } from '@98plus/shared';
+import {
+  COMPOSE_RECIPIENT_MODES,
+  type ComposeRecipientMode,
+  type FriendCard,
+} from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { instantBanDebug } from '@/lib/instant-ban-debug';
 import { AvatarImage } from '../AvatarImage';
@@ -111,7 +115,8 @@ function chipFromFullText(value: string): string | null {
 }
 
 type Props = {
-  selectedUser: FriendCard;
+  recipientMode: ComposeRecipientMode;
+  selectedUser: FriendCard | null;
   initialBanText?: string;
   initialDurationMinutes?: number;
   /** Unified compose scene title (inside swipe layer). */
@@ -133,10 +138,32 @@ function easeOutCubic(t: number): number {
 }
 
 const WhatSelectedUser = memo(function WhatSelectedUser({
+  recipientMode,
   user,
 }: {
-  user: FriendCard;
+  recipientMode: ComposeRecipientMode;
+  user: FriendCard | null;
 }) {
+  if (recipientMode === COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER) {
+    return (
+      <div
+        className="instant-ban-what-selected instant-ban-what-selected--mobile"
+        data-recipient-mode={recipientMode}
+      >
+        <AvatarImage
+          src={null}
+          letter=""
+          sizeClass="w-11 h-11"
+          textClass="text-base"
+        />
+        <div className="instant-ban-what-selected__name">
+          ты уже знаешь кто это
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) return null;
   const letter = (
     user.firstName?.[0] ?? user.username?.[0] ?? '?'
   ).toUpperCase();
@@ -155,6 +182,7 @@ const WhatSelectedUser = memo(function WhatSelectedUser({
 });
 
 function WhatScreenInner({
+  recipientMode,
   selectedUser,
   initialBanText = '',
   initialDurationMinutes = DEFAULT_DURATION,
@@ -911,7 +939,7 @@ function WhatScreenInner({
           </span>
         )}
       </button>
-      <WhatSelectedUser user={selectedUser} />
+      <WhatSelectedUser recipientMode={recipientMode} user={selectedUser} />
       <label className="instant-ban-what-field" data-gesture-exclude="">
         {isEmpty ? (
           <span

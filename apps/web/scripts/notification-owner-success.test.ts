@@ -193,7 +193,7 @@ const adapterSrc = read(adapterPath);
   );
   assert.match(
     instantBanSrc,
-    /confirmActive\s*=\s*\n?\s*sendFlowSurfaces\.confirm && selectedUser != null && !banSentSuccess/,
+    /confirmActive\s*=\s*\n?\s*sendFlowSurfaces\.confirm && hasComposeRecipient && !banSentSuccess/,
   );
 
   // Owner LOBBY after exit; local SUCCESS still paints via banSentSuccess.

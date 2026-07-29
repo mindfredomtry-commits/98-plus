@@ -1,6 +1,10 @@
 'use client';
 
-import type { FriendCard } from '@98plus/shared';
+import {
+  COMPOSE_RECIPIENT_MODES,
+  type ComposeRecipientMode,
+  type FriendCard,
+} from '@98plus/shared';
 import { friendAvatarUrl } from '@/lib/avatar-url';
 import { AvatarImage } from '../AvatarImage';
 import { WhatBackIcon } from './WhatBackIcon';
@@ -10,7 +14,8 @@ type Props = {
   enterKey: number;
   enterPhase: EnterPhase;
   holdPhase: HoldPhase;
-  selectedUser: FriendCard;
+  recipientMode: ComposeRecipientMode;
+  selectedUser: FriendCard | null;
   banText: string;
   durationMinutes: number;
   onBack: () => void;
@@ -24,16 +29,23 @@ export function ConfirmScreen({
   enterKey,
   enterPhase,
   holdPhase,
+  recipientMode,
   selectedUser,
   banText,
   durationMinutes,
   onBack,
 }: Props) {
-  const name = friendLabel(selectedUser);
+  const knownBySender =
+    recipientMode === COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER;
+  const name = knownBySender
+    ? 'ты уже знаешь кто это'
+    : selectedUser
+      ? friendLabel(selectedUser)
+      : '—';
   const trimmed = banText.trim();
   const letter = (
-    selectedUser.firstName?.[0] ??
-    selectedUser.username?.[0] ??
+    selectedUser?.firstName?.[0] ??
+    selectedUser?.username?.[0] ??
     '?'
   ).toUpperCase();
   return (
@@ -61,8 +73,8 @@ export function ConfirmScreen({
         </strong>
         <div className="instant-ban-confirm-info__avatar instant-ban-confirm-copy__avatar instant-ban-confirm-enter instant-ban-confirm-enter--2">
           <AvatarImage
-            src={friendAvatarUrl(selectedUser)}
-            letter={letter}
+            src={knownBySender || !selectedUser ? null : friendAvatarUrl(selectedUser)}
+            letter={knownBySender ? '' : letter}
             sizeClass="w-12 h-12"
             textClass="text-base"
             priority

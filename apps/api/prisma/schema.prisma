@@ -75,24 +75,33 @@ model SocialContact {
 }
 
 model BanInvite {
-  id              String       @id @default(cuid())
-  token           String       @unique
-  senderId        String
-  sender          User         @relation("SentInvites", fields: [senderId], references: [id])
-  targetUsername  String
-  text            String
-  durationMinutes Int
-  status          InviteStatus @default(PENDING)
-  banId           String?      @unique
-  claimedById     String?
-  claimedBy       User?        @relation("ClaimedInvites", fields: [claimedById], references: [id])
-  claimedAt       DateTime?
-  botNotifiedAt   DateTime?
-  createdAt       DateTime     @default(now())
-  expiresAt       DateTime
+  id                String                 @id @default(cuid())
+  token             String                 @unique
+  senderId          String
+  sender            User                   @relation("SentInvites", fields: [senderId], references: [id])
+  targetUsername    String?
+  recipientMode     BanInviteRecipientMode @default(USERNAME)
+  clientRequestId   String?
+  text              String
+  durationMinutes   Int
+  tone              String?
+  status            InviteStatus           @default(PENDING)
+  banId             String?                @unique
+  claimedById       String?
+  claimedBy         User?                  @relation("ClaimedInvites", fields: [claimedById], references: [id])
+  claimedAt         DateTime?
+  botNotifiedAt     DateTime?
+  createdAt         DateTime               @default(now())
+  expiresAt         DateTime
 
   @@index([targetUsername, status])
   @@index([senderId])
+  @@unique([senderId, clientRequestId])
+}
+
+enum BanInviteRecipientMode {
+  USERNAME
+  KNOWN_BY_SENDER
 }
 
 enum InviteStatus {

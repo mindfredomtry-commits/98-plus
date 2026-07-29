@@ -1,9 +1,8 @@
 /**
- * WHO “+ кому ещё запретишь” invite / add-recipient interaction.
+ * WHO “+ кому ещё запретишь” → prepare-first anonymous WHAT flow.
  *
- * Product: button opens Telegram invite share (not multi-select slots).
- * Pre-existing blocker: gesture zone z-index swallowed taps; share fell through
- * to window.open which WebView popup-blockers kill → “nothing happens”.
+ * Product: tap opens WHAT immediately with KNOWN_BY_SENDER recipient mode.
+ * Telegram Share opens only after SUCCESS “выбрать человека”.
  *
  * Run:
  *   npx tsx --tsconfig apps/web/tsconfig.json apps/web/scripts/who-invite-more.test.ts
@@ -16,11 +15,18 @@ import { join } from 'node:path';
 const root = join(__dirname, '..');
 const whoPath = join(root, 'src/components/instant-ban/WhoScreen.tsx');
 const flowPath = join(root, 'src/components/instant-ban/InstantBanFlow.tsx');
+const whatPath = join(root, 'src/components/instant-ban/WhatScreen.tsx');
+const confirmPath = join(root, 'src/components/instant-ban/ConfirmScreen.tsx');
+const successPath = join(root, 'src/components/instant-ban/SuccessScreen.tsx');
+const successBodyPath = join(
+  root,
+  'src/components/instant-ban/SuccessBanCardBody.tsx',
+);
 const cssPath = join(root, 'src/components/instant-ban/instant-ban.css');
 const sharePath = join(root, 'src/lib/share.ts');
-const gesturePath = join(
+const constantsPath = join(
   root,
-  'src/components/instant-ban/gestureExclusion.ts',
+  '../../packages/shared/src/constants.ts',
 );
 
 function read(p: string): string {
@@ -33,155 +39,185 @@ function pass(name: string): void {
   console.log(`PASS — ${name}`);
 }
 
-console.log('\n=== WHO INVITE MORE / ADD-RECIPIENT ===\n');
+console.log('\n=== PREPARE-FIRST WHO INVITE MORE ===\n');
 
 const whoSrc = read(whoPath);
 const flowSrc = read(flowPath);
+const whatSrc = read(whatPath);
+const confirmSrc = read(confirmPath);
+const successSrc = read(successPath);
+const successBodySrc = read(successBodyPath);
 const cssSrc = read(cssPath);
 const shareSrc = read(sharePath);
-const gestureSrc = read(gesturePath);
+const constantsSrc = read(constantsPath);
 
-// 1. One selected recipient context → invite button opens share flow (wired)
+const inviteBlock = flowSrc.slice(
+  flowSrc.indexOf('const handleInviteMore = useCallback'),
+  flowSrc.indexOf('const handleShareInviteMore'),
+);
+
+// 1. WHO “+ кому ещё запретишь” → opens WHAT immediately
 {
   assert.match(whoSrc, /data-who-invite-more/);
   assert.match(whoSrc, /onInviteMore\(\)/);
   assert.match(whoSrc, /Кому ещё запретишь\?/);
   assert.match(flowSrc, /onInviteMore=\{handleInviteMore\}/);
-  assert.match(flowSrc, /shareInstantBanInviteMore\(/);
+  assert.match(
+    inviteBlock,
+    /COMPOSE_RECIPIENT_MODES\.KNOWN_BY_SENDER/,
+  );
+  assert.match(inviteBlock, /animateCrossScreenProgress\(1, completeWhoToWhat\)/);
+  assert.match(constantsSrc, /KNOWN_BY_SENDER:\s*'KNOWN_BY_SENDER'/);
+  pass('WHO “+ кому ещё запретишь” → opens WHAT immediately');
+}
+
+// 2. Anonymous WHAT displays empty avatar + label
+{
+  assert.match(whatSrc, /data-recipient-mode=\{recipientMode\}/);
+  assert.match(whatSrc, /ты уже знаешь кто это/);
+  assert.match(
+    whatSrc,
+    /KNOWN_BY_SENDER[\s\S]*?src=\{null\}[\s\S]*?letter=""/,
+  );
+  pass('Anonymous WHAT: empty avatar + “ты уже знаешь кто это”');
+}
+
+// 3. Does not open Telegram Share from WHO
+{
+  assert.doesNotMatch(inviteBlock, /shareInstantBanInviteMore/);
+  assert.doesNotMatch(inviteBlock, /handleShareChallenge/);
+  assert.doesNotMatch(inviteBlock, /openTelegramShareLink/);
+  pass('Does not open Telegram Share from WHO');
+}
+
+// 4–5. No SocialContact / no direct recipient ban from this CTA
+{
+  assert.match(
+    inviteBlock,
+    /setRecipientMode\(COMPOSE_RECIPIENT_MODES\.KNOWN_BY_SENDER\)/,
+  );
+  assert.match(inviteBlock, /setSelectedUser\(null\)/);
+  assert.doesNotMatch(inviteBlock, /recordSocialContact|\/friends\/touch/);
+  assert.doesNotMatch(inviteBlock, /\/bans\/send/);
+  pass('CTA does not create SocialContact or direct recipient ban');
+}
+
+// 6. WHAT → CONFIRM preserves anonymous recipient mode
+{
   assert.match(
     flowSrc,
-    /const handleInviteMore = useCallback\(\(\) => \{[\s\S]*?shareInstantBanInviteMore/,
+    /sendSnapshotRef\.current = \{[\s\S]*?recipientMode,/,
   );
-  // No early-return guards on invite (unlike handleSelectUser / handleWhatBack)
-  const inviteBlock = flowSrc.slice(
+  const confirmBack = flowSrc.slice(
+    flowSrc.indexOf('const handleConfirmBack = useCallback'),
     flowSrc.indexOf('const handleInviteMore = useCallback'),
-    flowSrc.indexOf('const handleSendContextChange'),
   );
-  assert.doesNotMatch(inviteBlock, /if \(screenTransitionRef\.current\) return/);
-  assert.doesNotMatch(inviteBlock, /if \(notificationChainTransitioning\)/);
-  assert.doesNotMatch(inviteBlock, /if \(phase !==/);
-  assert.match(inviteBlock, /earlyReturnGuard: null/);
-  pass(
-    'One selected recipient → press invite → share/add-friends flow wired (no early return)',
+  // Send-flow CONFIRM → WHAT keeps mode; bans-overlay abort clears (cancel).
+  assert.match(
+    confirmBack,
+    /OPEN_WHAT[\s\S]*?setPhase\('composingBan'/,
   );
-}
-
-// 2. Existing selectedUser is not cleared by invite handler
-{
-  const inviteBlock = flowSrc.slice(
-    flowSrc.indexOf('const handleInviteMore = useCallback'),
-    flowSrc.indexOf('const handleSendContextChange'),
+  const sendFlowReturn = confirmBack.slice(
+    confirmBack.indexOf('leaveWhoForLegacyRef.current = false'),
   );
-  assert.doesNotMatch(inviteBlock, /setSelectedUser\(null\)/);
-  assert.doesNotMatch(inviteBlock, /setSelectedUser\(/);
-  assert.match(inviteBlock, /selectedRecipientIds: selectedIds/);
-  pass('Existing recipient remains selected after invite (handler does not clear)');
-}
-
-// 3. Sequential friends B then C — select replaces one-at-a-time; invite does not invent duplicates
-{
-  // Single-recipient select path still used for send; invite is share-only.
-  assert.match(flowSrc, /const handleSelectUser = useCallback/);
-  const selectBlock = flowSrc.slice(
-    flowSrc.indexOf('const handleSelectUser = useCallback'),
-    flowSrc.indexOf('const handleComposeExitStart'),
-  );
-  assert.match(selectBlock, /setSelectedUser\(friend\)/);
-  // Invite share builds invite deep link — unique bot start, not duplicate local slots
-  assert.match(shareSrc, /INSTANT_BAN_INVITE_MORE_MESSAGE/);
-  assert.match(shareSrc, /type: 'invite'/);
-  assert.match(shareSrc, /export function shareInstantBanInviteMore/);
-  pass('Add via invite is share deep-link (B/C join once via Telegram, not duplicate slots)');
-}
-
-// 4. Button works after returning WHO from WHAT — no transition gate on invite
-{
-  assert.match(flowSrc, /completeWhatToWho/);
-  const inviteBlock = flowSrc.slice(
-    flowSrc.indexOf('const handleInviteMore = useCallback'),
-    flowSrc.indexOf('const handleSendContextChange'),
-  );
-  assert.doesNotMatch(inviteBlock, /screenTransitionRef\.current\) return/);
-  assert.match(whoSrc, /data-gesture-exclude/);
-  assert.match(gestureSrc, /GESTURE_EXCLUDE_SELECTOR/);
-  pass('Invite works after returning from WHAT (no transition gate)');
-}
-
-// 4b. Button works after returning from CONFIRM
-{
-  assert.match(flowSrc, /handleConfirmBack/);
-  const inviteBlock = flowSrc.slice(
-    flowSrc.indexOf('const handleInviteMore = useCallback'),
-    flowSrc.indexOf('const handleSendContextChange'),
-  );
-  assert.doesNotMatch(inviteBlock, /if \(phase !== 'selectingTarget'\)/);
-  assert.doesNotMatch(inviteBlock, /confirmActive/);
-  pass('Invite works after returning from CONFIRM');
-}
-
-// 5. Not blocked by NotificationOwner / chain flags
-{
-  const inviteBlock = flowSrc.slice(
-    flowSrc.indexOf('const handleInviteMore = useCallback'),
-    flowSrc.indexOf('const handleSendContextChange'),
-  );
-  assert.match(inviteBlock, /chainTransitioning: notificationChainTransitioning/);
   assert.doesNotMatch(
-    inviteBlock,
-    /if \(notificationChainTransitioning\)\s*return/,
+    sendFlowReturn,
+    /setRecipientMode\(COMPOSE_RECIPIENT_MODES\.DIRECT\)/,
   );
-  assert.doesNotMatch(inviteBlock, /startupHold/);
-  assert.doesNotMatch(inviteBlock, /overlayInputLocked/);
-  pass('NotificationOwner transitions do not block invite');
+  assert.match(confirmSrc, /recipientMode: ComposeRecipientMode/);
+  assert.match(confirmSrc, /ты уже знаешь кто это/);
+  pass('WHAT → CONFIRM preserves anonymous recipient mode');
 }
 
-// 6. Pointer / stacking fix — body above gesture zone; zone starts zero-height
+// 7. Successful hold creates one prepared invite-ban
+{
+  assert.match(
+    flowSrc,
+    /recipientMode: COMPOSE_RECIPIENT_MODES\.KNOWN_BY_SENDER/,
+  );
+  assert.match(flowSrc, /clientRequestId/);
+  assert.match(flowSrc, /preparedInviteInFlightRef/);
+  assert.match(
+    flowSrc,
+    /if \(snap\.preparedInvite\?\.shareUrl\)/,
+  );
+  pass('Hold creates one prepared invite-ban (clientRequestId + in-flight)');
+}
+
+// 8–9. Anonymous SUCCESS copy + buttons
+{
+  assert.match(successBodySrc, /запрет готов/);
+  assert.match(successSrc, /выбрать человека/);
+  assert.match(
+    successSrc,
+    /KNOWN_BY_SENDER[\s\S]*?выбрать человека[\s\S]*?Запретить ещё!/,
+  );
+  const knownBranch = successSrc.slice(
+    successSrc.indexOf('const knownBySender'),
+  );
+  assert.match(knownBranch, /выбрать человека/);
+  assert.doesNotMatch(
+    knownBranch.slice(0, knownBranch.indexOf('Готово') + 20),
+    />\s*Запретить ещё!/,
+  );
+  pass('Anonymous SUCCESS: “запрет готов” + “выбрать человека”');
+}
+
+// 10–11. Share only after CTA; double-tap guarded
+{
+  assert.match(
+    flowSrc,
+    /handlePreparedInviteChoosePerson[\s\S]*?handleShareChallenge/,
+  );
+  assert.match(successSrc, /shareActionRef/);
+  assert.match(
+    successSrc,
+    /if \(shareActionRef\.current\) return/,
+  );
+  assert.match(
+    flowSrc,
+    /successSnapshot\.recipientMode ===[\s\S]*KNOWN_BY_SENDER[\s\S]*handlePreparedInviteChoosePerson/,
+  );
+  pass('Share opens only after “выбрать человека”; double-tap guarded');
+}
+
+// 12. Normal registered SUCCESS unchanged
+{
+  assert.match(successBodySrc, /Запрет отправлен/);
+  assert.match(successSrc, /Запретить ещё!/);
+  assert.match(successSrc, /Поделиться/);
+  assert.match(
+    flowSrc,
+    /COMPOSE_RECIPIENT_MODES\.KNOWN_BY_SENDER[\s\S]*handlePreparedInviteChoosePerson[\s\S]*handleShareInviteMore/,
+  );
+  pass('Normal registered-recipient SUCCESS remains unchanged');
+}
+
+// 13–14. Cancel clears mode; later normal ban does not inherit
+{
+  assert.match(
+    flowSrc,
+    /finishWhoDismiss[\s\S]*?setRecipientMode\(COMPOSE_RECIPIENT_MODES\.DIRECT\)/,
+  );
+  assert.match(
+    flowSrc,
+    /handleSelectUser[\s\S]*?setRecipientMode\(COMPOSE_RECIPIENT_MODES\.DIRECT\)/,
+  );
+  assert.match(
+    flowSrc,
+    /resetSendUiForBansCta[\s\S]*?setRecipientMode\(COMPOSE_RECIPIENT_MODES\.DIRECT\)/,
+  );
+  pass('Cancel/reset/select friend clears anonymous recipient mode');
+}
+
+// Gesture stacking still intact for WHO invite row
 {
   assert.match(
     cssSrc,
-    /\.instant-ban-who-screen-layer__body\s*\{[^}]*z-index:\s*12/s,
+    /\.instant-ban-who-screen-layer__body[\s\S]*?z-index:\s*12/,
   );
-  assert.match(
-    cssSrc,
-    /\.instant-ban-who-dismiss-gesture-zone\s*\{[^}]*z-index:\s*11/s,
-  );
-  assert.match(
-    whoSrc,
-    /gestureZoneInsetBottom[\s\S]*?Math\.max\(window\.innerHeight,\s*1\)/,
-  );
-  assert.match(whoSrc, /onPointerDown=\{\(\) => logInvitePointer\('pointerdown'\)\}/);
-  assert.match(whoSrc, /logInvitePointer\('click'\)/);
-  pass('Click reaches invite handler (pointer/click diag + stacking)');
-}
-
-// 7. Handler calls invite/share + WebView fallbacks
-{
-  assert.match(shareSrc, /export function openTelegramShareLink/);
-  assert.match(shareSrc, /openTelegramLink/);
-  assert.match(shareSrc, /openLink/);
-  assert.match(shareSrc, /clickHiddenShareAnchor/);
-  assert.match(flowSrc, /shareInstantBanInviteMore\(/);
-  pass('Handler calls invite/share; primary→fallback open path present');
-}
-
-// 8. Fallback executes if primary share fails + visible failure (never silent)
-{
-  assert.match(shareSrc, /finalOutcome: 'copied'/);
-  assert.match(shareSrc, /finalOutcome: 'failed'/);
-  assert.match(shareSrc, /copyFallback\(shareText\)/);
-  assert.match(flowSrc, /setWhoInviteToast\(/);
-  assert.match(flowSrc, /Не удалось открыть приглашение/);
-  assert.match(flowSrc, /Ссылка скопирована/);
-  assert.match(flowSrc, /data-who-invite-toast/);
-  pass('Fallback executes if primary share fails; failure is visible');
-}
-
-// 9. Share helpers exported for invite path
-{
-  assert.match(shareSrc, /export function shareInstantBanInviteMore/);
-  assert.match(shareSrc, /export function openTelegramShareLink/);
-  assert.match(shareSrc, /export type WhoInviteMoreDiag/);
-  pass('shareInstantBanInviteMore / openTelegramShareLink exported');
+  assert.match(shareSrc, /export function handleShareChallenge/);
+  pass('WHO invite stacking + share helper still available');
 }
 
 console.log(`\n=== ${passed} passed ===\n`);

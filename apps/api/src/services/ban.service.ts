@@ -7,10 +7,16 @@ import {
   ANALYTICS_EVENTS,
   CHECK_TIMEOUT_MINUTES,
   COOLDOWN_CHECK_SECONDS,
+  COMPOSE_RECIPIENT_MODES,
   INCOMING_PENDING_MAX_AGE_MS,
   normalizeBanTone,
 } from '@98plus/shared';
-import type { BanInteraction, CheckState, BanResult } from '@98plus/shared';
+import type {
+  BanInteraction,
+  BanResult,
+  CheckState,
+  ComposeRecipientMode,
+} from '@98plus/shared';
 import { prisma } from '../lib/prisma';
 import {
   buildPendingRejectDiagnostic,
@@ -56,7 +62,12 @@ import { applyCheckResult, resolveCheckOutcome } from './energy.service';
 import { banParticipantRole, logResultLatency } from '../lib/result-latency-diag';
 import { assertCanSendBan } from '../lib/ban-send-errors';
 import { trackEvent } from './analytics.service';
-import { createPendingInvite, normalizeUsername } from './invite.service';
+import {
+  createPendingInvite,
+  createPreparedInviteOnce,
+  findPreparedInviteByClientRequestId,
+  normalizeUsername,
+} from './invite.service';
 import { recordSocialContact } from './social-graph.service';
 import { applySenderSendCostOnly } from './energy.service';
 import {
@@ -382,6 +393,8 @@ export async function sendBan(params: {
   receiverTelegramId?: bigint;
   receiverUserId?: string;
   receiverUsername?: string;
+  recipientMode?: ComposeRecipientMode;
+  clientRequestId?: string;
   text: string;
   durationMinutes: number;
   tone?: string | null;
@@ -395,6 +408,74 @@ export async function sendBan(params: {
 
   if (devMode) {
     await ensureDevFixturesForUser(senderId);
+  }
+
+  if (params.recipientMode === COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER) {
+    const clientRequestId = params.clientRequestId?.trim();
+    if (!clientRequestId) throw new Error('clientRequestId required');
+
+    const existing = await findPreparedInviteByClientRequestId(
+      senderId,
+      clientRequestId,
+    );
+    if (existing) {
+      const replay = await createPreparedInviteOnce({
+        senderId,
+        clientRequestId,
+        text,
+        durationMinutes,
+        tone: params.tone,
+      });
+      return {
+        pending: true,
+        prepared: true,
+        requiresShare: true,
+        created: false,
+        energyDelta: 0,
+        invite: { id: replay.invite.id, token: replay.invite.token },
+        shareText: replay.shareText,
+        shareUrl: replay.shareUrl,
+      };
+    }
+
+    assertCanSendBan(await canSendBan(senderId));
+    if (
+      !devMode &&
+      (await hasCooldown(`cooldown:send:${senderId}`))
+    ) {
+      throw new Error('Подожди немного.');
+    }
+
+    const prepared = await createPreparedInviteOnce({
+      senderId,
+      clientRequestId,
+      text,
+      durationMinutes,
+      tone: params.tone,
+    });
+
+    if (prepared.created) {
+      await setCooldown(`cooldown:send:${senderId}`, COOLDOWN_SEND);
+      await recordBanSent(senderId);
+    }
+
+    console.log('BACKEND PREPARED INVITE BAN', {
+      inviteId: prepared.invite.id,
+      senderId,
+      recipientMode: COMPOSE_RECIPIENT_MODES.KNOWN_BY_SENDER,
+      created: prepared.created,
+    });
+
+    return {
+      pending: true,
+      prepared: true,
+      requiresShare: true,
+      created: prepared.created,
+      energyDelta: prepared.energyDelta,
+      invite: { id: prepared.invite.id, token: prepared.invite.token },
+      shareText: prepared.shareText,
+      shareUrl: prepared.shareUrl,
+    };
   }
 
   assertCanSendBan(await canSendBan(senderId));
@@ -437,6 +518,7 @@ export async function sendBan(params: {
       targetUsername,
       text,
       durationMinutes,
+      tone: params.tone,
     });
 
     console.log('BACKEND SEND BAN', {
