@@ -42,7 +42,8 @@ function main(): void {
     assert.doesNotMatch(layout, /\{children\}/);
     assert.doesNotMatch(appServices, /\{children\}|hidden|aria-hidden/);
     assert.doesNotMatch(appServices, /app-services-page-slot/);
-    assert.ok(page.includes('HomePage'));
+    assert.doesNotMatch(page, /HomePage|useAppServices|InstantBanFlow/);
+    assert.match(page, /return null/);
     pass('1. route page subtree is not mounted under a hidden compatibility slot');
   }
 

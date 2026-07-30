@@ -68,8 +68,8 @@ function seed(items: NotificationItem[]) {
 }
 
 const webSrc = join(process.cwd(), 'apps/web/src');
-const providersSrc = readFileSync(
-  join(webSrc, 'components/Providers.tsx'),
+const transportSrc = readFileSync(
+  join(webSrc, 'notification-host/NotificationRuntimeTransport.tsx'),
   'utf8',
 );
 const pendingSrc = readFileSync(
@@ -423,32 +423,13 @@ async function main() {
     assert.match(reducerSrc, /decidePendingSnapshotApply/);
     assert.match(pendingSrc, /nextPendingAuthorityGeneration/);
     assert.match(pendingSrc, /generation \?\? nextPendingAuthorityGeneration/);
-    // Prefetch stamps generation and calls ingestPendingSnapshot — not
+    // Active transport stamps generation and calls ingestPendingSnapshot — not
     // syncRuntimeQueue(overlayQueueRef) on the pending-authority path.
-    assert.match(providersSrc, /ingestPendingSnapshot\(/);
-    assert.match(
-      providersSrc,
-      /requestGeneration = nextPendingAuthorityGeneration\(\)/,
-    );
-    const prefetchStart = providersSrc.indexOf(
-      'const prefetchPendingNotificationChain',
-    );
-    assert.ok(prefetchStart > 0);
-    const prefetchWindow = providersSrc.slice(prefetchStart, prefetchStart + 40000);
-    assert.match(prefetchWindow, /ingestPendingSnapshot\(/);
-    assert.match(prefetchWindow, /requestGeneration/);
-    const ingestAt = prefetchWindow.indexOf('ingestPendingSnapshot(');
-    assert.ok(ingestAt > 0);
-    const afterIngest = prefetchWindow.slice(ingestAt, ingestAt + 500);
-    assert.match(afterIngest, /requestGeneration/);
-    assert.doesNotMatch(
-      afterIngest,
-      /syncRuntimeQueue\(/,
-    );
-    assert.doesNotMatch(
-      afterIngest,
-      /toRuntimeItems\(\s*overlayQueueRef/,
-    );
+    assert.match(transportSrc, /ingestPendingSnapshot\(/);
+    assert.match(transportSrc, /nextPendingAuthorityGeneration\(\)/);
+    assert.doesNotMatch(transportSrc, /syncRuntimeQueue\(/);
+    assert.doesNotMatch(transportSrc, /overlayQueueRef/);
+    assert.doesNotMatch(transportSrc, /from ['"]@\/components\/Providers['"]/);
     assert.equal(isStalePendingRefreshGeneration(5, 3), true);
     assert.equal(isStalePendingRefreshGeneration(5, 5), false);
     assert.equal(isStalePendingRefreshGeneration(5, null), false);

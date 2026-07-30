@@ -22,6 +22,7 @@ import { deliverDirectChallenge } from '@/lib/deliver-challenge';
 import { WhoOverlay } from '@/components/instant-ban/WhoScreen';
 import { SuccessScreen } from '@/components/instant-ban/SuccessScreen';
 import type { ProductFlowController } from './product-flow.controller';
+import '@/components/instant-ban/instant-ban.css';
 
 export type ProductFlowSurfaceProps = {
   controller: ProductFlowController;

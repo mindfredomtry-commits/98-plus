@@ -1,5 +1,6 @@
 /**
  * Phase 0 — Direct Notification Host architecture / source-scan tests.
+ * Updated for Phase 4: legacy Providers / DirectLobbySurface deleted.
  *
  * Run:
  *   npx tsx --tsconfig apps/web/tsconfig.json apps/web/scripts/direct-notification-host-phase0-architecture.test.ts
@@ -34,10 +35,6 @@ const appServicesSrc = readFileSync(
   join(webSrc, 'app-services/AppServicesProvider.tsx'),
   'utf8',
 );
-const providersSrc = readFileSync(
-  join(webSrc, 'components/Providers.tsx'),
-  'utf8',
-);
 const incomingCardSrc = readFileSync(
   join(webSrc, 'components/notification/DirectIncomingCard.tsx'),
   'utf8',
@@ -48,10 +45,6 @@ const checkCardSrc = readFileSync(
 );
 const resultCardSrc = readFileSync(
   join(webSrc, 'components/notification/DirectResultCard.tsx'),
-  'utf8',
-);
-const lobbySrc = readFileSync(
-  join(webSrc, 'components/notification/DirectLobbySurface.tsx'),
   'utf8',
 );
 const transportSrc = readFileSync(
@@ -88,7 +81,8 @@ async function main() {
     assert.match(layoutSrc, /AppServicesProvider/);
     assert.doesNotMatch(layoutSrc, /from ['"]@\/components\/Providers['"]/);
     assert.doesNotMatch(layoutSrc, /<Providers[\s>]/);
-    pass('1. layout uses AppServicesProvider, not Providers');
+    assert.equal(existsSync(join(webSrc, 'components/Providers.tsx')), false);
+    pass('1. layout uses AppServicesProvider; Providers file deleted');
   }
 
   // 2. AppServices owns Runtime provider/transport; ApplicationSurface mounts Direct host under Coordinator
@@ -102,7 +96,7 @@ async function main() {
     pass('2. AppServices mounts coordinator lifecycle + runtime transport');
   }
 
-  // 3. Page does not import legacy host / InstantBanFlow notification path
+  // 3. Page is a non-mounted route stub without legacy host imports
   {
     assert.doesNotMatch(pageSrc, /from ['"]@\/components\/Providers['"]/);
     assert.doesNotMatch(
@@ -114,8 +108,9 @@ async function main() {
       pageSrc,
       /from ['"]@\/components\/NotificationQueueShell['"]/,
     );
-    assert.match(pageSrc, /useAppServices/);
-    pass('3. page does not import legacy notification host');
+    assert.doesNotMatch(pageSrc, /HomePage|useAppServices|InstantBanFlow/);
+    assert.match(pageSrc, /return null/);
+    pass('3. page is a non-mounted route stub without legacy hosts');
   }
 
   // 4. DirectNotificationHost has no forbidden compatibility symbols
@@ -123,6 +118,11 @@ async function main() {
     assertNoForbidden('DirectNotificationHost', directHostSrc);
     assert.doesNotMatch(directHostSrc, /useApp\(/);
     assert.doesNotMatch(directHostSrc, /from ['"]@\/components\/Providers['"]/);
+    assert.doesNotMatch(directHostSrc, /DirectLobbySurface/);
+    assert.equal(
+      existsSync(join(webSrc, 'components/notification/DirectLobbySurface.tsx')),
+      false,
+    );
     pass('4. DirectNotificationHost has no legacy compatibility symbols');
   }
 
@@ -132,7 +132,6 @@ async function main() {
       ['DirectIncomingCard', incomingCardSrc],
       ['DirectCheckCard', checkCardSrc],
       ['DirectResultCard', resultCardSrc],
-      ['DirectLobbySurface', lobbySrc],
     ] as const) {
       assert.doesNotMatch(src, /useApp\(/);
       assert.doesNotMatch(src, /from ['"]@\/components\/Providers['"]/);
@@ -153,15 +152,22 @@ async function main() {
     pass('6. transport does not use legacy queue bridges');
   }
 
-  // 7. Legacy Providers throws when invoked
+  // 7. Legacy ownership graph files are gone
   {
-    assert.match(providersSrc, /LEGACY_NOTIFICATION_HOST_IS_DISABLED/);
-    assert.match(
-      providersSrc,
-      /export function Providers[\s\S]*?throw new Error\('LEGACY_NOTIFICATION_HOST_IS_DISABLED'\)/,
+    assert.equal(existsSync(join(webSrc, 'components/Providers.tsx')), false);
+    assert.equal(
+      existsSync(join(webSrc, 'components/instant-ban/InstantBanFlow.tsx')),
+      false,
     );
-    // Dynamic import of the live module would throw on call; source-scan is enough.
-    pass('7. Providers entry throws LEGACY_NOTIFICATION_HOST_IS_DISABLED');
+    assert.equal(
+      existsSync(join(webSrc, 'components/GlobalOverlayHost.tsx')),
+      false,
+    );
+    assert.equal(
+      existsSync(join(webSrc, 'components/NotificationQueueShell.tsx')),
+      false,
+    );
+    pass('7. legacy ownership graph files are deleted');
   }
 
   // 8. View-state selector works without legacy paint
