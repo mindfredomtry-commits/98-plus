@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import { createPortal } from 'react-dom';
 import type { BanInteraction } from '@98plus/shared';
@@ -31,11 +32,14 @@ import { ModalShell } from './ModalShell';
 import { APP_NOTIFICATION_BACKDROP_Z_INDEX, APP_NOTIFICATION_CARD_Z_INDEX } from '@/lib/overlay-queue';
 import { verifyOverlayCardLayout } from '@/lib/overlay-card-layout-debug';
 import { installOverlayHitTestProbe } from '@/lib/overlay-hit-test-debug';
-import { allowOverlayUserTap } from '@/lib/overlay-input-guard';
 import {
   logOverboardActionStart,
   logResultCardRenderDecision,
 } from '@/lib/overboard-action-queue-debug';
+import { useNotificationRuntimeStoreOptional } from '@/notification-runtime/notification-runtime.context';
+import { createInitialNotificationRuntimeState } from '@/notification-runtime/notification-runtime.types';
+import { selectIsActionBlocked } from '@/notification-runtime/notification-runtime.selectors';
+import { decideCardActionTap } from '@/notification-runtime/notification-runtime.card-action-tap';
 import {
   logIncomingOverlayHasBan,
   logIncomingOverlayRenderEnter,
@@ -110,10 +114,20 @@ function IncomingBanOverlayInner({
     replyDeepLinkBanId,
   } = useApp();
   const { haptic, hapticSuccess, bindBack } = useTelegram();
-  const [actionLoading, setActionLoading] = useState(false);
+  const runtimeStore = useNotificationRuntimeStoreOptional();
+  const runtimeState = useSyncExternalStore(
+    runtimeStore?.subscribe ?? (() => () => {}),
+    runtimeStore?.getState ?? (() => createInitialNotificationRuntimeState()),
+    () => createInitialNotificationRuntimeState(),
+  );
+  const actionBlocked = selectIsActionBlocked(runtimeState);
+  const [replyInFlight, setReplyInFlight] = useState(false);
   const [verifiedBan, setVerifiedBan] = useState<BanInteraction | null>(null);
   const [verifyPhase, setVerifyPhase] = useState<VerifyPhase>('idle');
   const verifyGenRef = useRef(0);
+  /** Sync latch for reply CTA (not a CARD_ACTION) — prevents double start. */
+  const counterClickLockRef = useRef(false);
+  /** Sync latch until runtime pending is visible; complements selectIsActionBlocked. */
   const overboardClickLockRef = useRef(false);
   const replyShellBanIdRef = useRef<string | null>(null);
   const blockingLayerLoggedRef = useRef(false);
@@ -196,7 +210,9 @@ function IncomingBanOverlayInner({
   );
 
   useEffect(() => {
-    setActionLoading(false);
+    counterClickLockRef.current = false;
+    overboardClickLockRef.current = false;
+    setReplyInFlight(false);
   }, [activeIncomingBan?.id]);
 
   const isReplyDeeplinkShell =
@@ -437,29 +453,33 @@ function IncomingBanOverlayInner({
       banId: activeIncomingBan?.id ?? null,
       action: 'counter',
     });
-    if (!allowOverlayUserTap('incoming-counter')) return;
     logClickTest('counter');
     const actBan = verifiedBan ?? resolvedIncoming ?? activeIncomingBan;
-    if (!actBan?.id || !actBan.sender?.id || actionLoading) return;
-    console.log('[incoming-reply-button-click]', {
-      banId: actBan.id,
-      source: 'IncomingBanOverlay',
-      senderId: actBan.sender?.id ?? null,
+    const decision = decideCardActionTap({
+      targetPresent: Boolean(actBan?.id && actBan.sender?.id),
+      controlReady: counterEnabled,
+      localInFlight: counterClickLockRef.current,
     });
-    markOverlayUserAction('incoming', actBan.id);
+    if (!decision.accept) return;
+    console.log('[incoming-reply-button-click]', {
+      banId: actBan!.id,
+      source: 'IncomingBanOverlay',
+      senderId: actBan!.sender?.id ?? null,
+    });
+    counterClickLockRef.current = true;
+    setReplyInFlight(true);
+    markOverlayUserAction('incoming', actBan!.id);
     haptic('medium');
-    setActionLoading(true);
-    acknowledgeIncomingAndStartReply(actBan);
-    setActionLoading(false);
+    acknowledgeIncomingAndStartReply(actBan!);
   }, [
     verifiedBan,
     resolvedIncoming,
     activeIncomingBan,
     haptic,
-    actionLoading,
     markOverlayUserAction,
     acknowledgeIncomingAndStartReply,
     logClickTest,
+    counterEnabled,
   ]);
 
   const handleOverboard = useCallback(() => {
@@ -467,7 +487,6 @@ function IncomingBanOverlayInner({
       banId: activeIncomingBan?.id ?? null,
       action: 'overboard',
     });
-    if (!allowOverlayUserTap('incoming-overboard')) return;
     logClickTest('overboard');
     const actBan = verifiedBan ?? resolvedIncoming ?? activeIncomingBan;
     logOverboardActionStart({
@@ -478,21 +497,23 @@ function IncomingBanOverlayInner({
       pendingLen: 0,
       source: 'IncomingBanOverlay.handleOverboard',
     });
-    if (!actBan?.id || actionLoading || overboardClickLockRef.current) {
+    const decision = decideCardActionTap({
+      targetPresent: Boolean(actBan?.id),
+      controlReady: overboardEnabled,
+      runtimeActionBlocked: actionBlocked,
+      localInFlight: overboardClickLockRef.current,
+    });
+    if (!decision.accept) {
       logResultPath('local-overboard-click', 'path-skip', {
         banId: actBan?.id ?? null,
         allowed: false,
-        reason: !actBan?.id
-          ? 'no-ban'
-          : actionLoading
-            ? 'action-loading'
-            : 'click-lock',
+        reason: decision.reason,
       });
       return;
     }
 
     logResultPath('local-overboard-click', 'click', {
-      banId: actBan.id,
+      banId: actBan!.id,
       allowed: true,
       extra: {
         verifyPhase,
@@ -500,28 +521,28 @@ function IncomingBanOverlayInner({
       },
     });
 
-    logOverboardButtonClick(actBan.id, 'submitIncomingOverboard');
-    markOverlayUserAction('incoming', actBan.id);
+    overboardClickLockRef.current = true;
+    logOverboardButtonClick(actBan!.id, 'submitIncomingOverboard');
+    markOverlayUserAction('incoming', actBan!.id);
     hapticSuccess();
 
-    void submitIncomingOverboard(actBan)
+    void submitIncomingOverboard(actBan!)
       .then((res) => {
         if (!res.ok && res.error) {
+          overboardClickLockRef.current = false;
           alert(res.error);
         }
       })
       .catch((e) => {
-        alert(formatDeliveryError(e));
-      })
-      .finally(() => {
         overboardClickLockRef.current = false;
+        alert(formatDeliveryError(e));
       });
   }, [
     verifiedBan,
     resolvedIncoming,
     activeIncomingBan,
     hapticSuccess,
-    actionLoading,
+    actionBlocked,
     markOverlayUserAction,
     submitIncomingOverboard,
     verifyPhase,
@@ -529,6 +550,7 @@ function IncomingBanOverlayInner({
     logClickTest,
     activeOverlayKind,
     overlayQueueLength,
+    overboardEnabled,
   ]);
 
   useLayoutEffect(() => {
@@ -848,7 +870,7 @@ function IncomingBanOverlayInner({
             });
           }}
           onClick={handleCounter}
-          disabled={actionLoading || !counterEnabled}
+          disabled={!counterEnabled || replyInFlight}
         >
           🚫 Запретить в ответ
         </BigButton>
@@ -861,7 +883,7 @@ function IncomingBanOverlayInner({
             });
           }}
           onClick={handleOverboard}
-          disabled={actionLoading || !overboardEnabled}
+          disabled={!overboardEnabled || actionBlocked}
         >
           {INCOMING_OVERBOARD_BUTTON_EMOJI} Перебор!
         </BigButton>

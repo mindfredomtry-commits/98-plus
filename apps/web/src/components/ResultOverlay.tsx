@@ -62,7 +62,7 @@ import {
   APP_NOTIFICATION_Z_INDEX,
   DIRECT_OVERBOARD_RESULT_Z_INDEX,
 } from '@/lib/overlay-queue';
-import { allowOverlayUserTap } from '@/lib/overlay-input-guard';
+import { decideCardActionTap } from '@/notification-runtime/notification-runtime.card-action-tap';
 import {
   getOverboardClickTs,
   logOverboardPaint,
@@ -223,6 +223,13 @@ function ResultOverlayInner({
   const [archiveSaved, setArchiveSaved] = useState(false);
   const resultOverlayMountedRef = useRef(false);
   const goToBansClickInFlightRef = useRef(false);
+  /** Sync latch for reply CTA — not a CARD_ACTION; blocks duplicate starts. */
+  const replyClickInFlightRef = useRef(false);
+  /** Sync latch for ban-others CTA. */
+  const banOthersClickInFlightRef = useRef(false);
+  const [replyInFlight, setReplyInFlight] = useState(false);
+  const [banOthersInFlight, setBanOthersInFlight] = useState(false);
+  const [goToBansInFlight, setGoToBansInFlight] = useState(false);
   const dismissInitiatedRef = useRef(false);
   const dismissSourceRef = useRef<string | null>(null);
   const closeReasonRef = useRef<string | null>(null);
@@ -243,6 +250,11 @@ function ResultOverlayInner({
 
   useEffect(() => {
     goToBansClickInFlightRef.current = false;
+    replyClickInFlightRef.current = false;
+    banOthersClickInFlightRef.current = false;
+    setReplyInFlight(false);
+    setBanOthersInFlight(false);
+    setGoToBansInFlight(false);
   }, [result.id]);
 
   const viewerId = resolveResultOverlayViewerId(result, user?.id ?? null);
@@ -835,7 +847,13 @@ function ResultOverlayInner({
   }, [haptic, result.id, result.text, token, view.displayHeadline]);
 
   const replyFromResult = useCallback(() => {
-    if (!allowOverlayUserTap('result-reply')) return;
+    const decision = decideCardActionTap({
+      targetPresent: Boolean(result.id),
+      localInFlight: replyClickInFlightRef.current,
+    });
+    if (!decision.accept) return;
+    replyClickInFlightRef.current = true;
+    setReplyInFlight(true);
     markOverlayUserAction('result-reply', result.id);
     haptic('medium');
     startReplyFromResult(result);
@@ -863,6 +881,7 @@ function ResultOverlayInner({
       return;
     }
     goToBansClickInFlightRef.current = true;
+    setGoToBansInFlight(true);
     markOverlayUserAction('result-go-to-bans', result.id);
     haptic('light');
     const closureResultId = result.id;
@@ -951,7 +970,13 @@ function ResultOverlayInner({
   }, [directPaint, effectiveShowable, haptic, markOverlayUserAction, navigateFromResult, overboardQueueBody, result.id, result.outcome, resultStatus, contentOnly, embedded]);
 
   const banOthers = useCallback(() => {
-    if (!allowOverlayUserTap('result-ban-others')) return;
+    const decision = decideCardActionTap({
+      targetPresent: Boolean(result.id),
+      localInFlight: banOthersClickInFlightRef.current,
+    });
+    if (!decision.accept) return;
+    banOthersClickInFlightRef.current = true;
+    setBanOthersInFlight(true);
     markOverlayUserAction('result', result.id);
     haptic('medium');
     recordDismiss('ban-others', 'ResultOverlay.banOthers', 'ban-others-cta');
@@ -1558,13 +1583,23 @@ function ResultOverlayInner({
 
       {hasActions ? (
         <div className="modal-card-actions result-card-actions space-y-2.5">
-          <BigButton onClick={replyFromResult}>{view.primaryLabel}</BigButton>
+          <BigButton onClick={replyFromResult} disabled={replyInFlight}>
+            {view.primaryLabel}
+          </BigButton>
           {view.showBanOthers ? (
-            <BigButton variant="ghost" onClick={banOthers}>
+            <BigButton
+              variant="ghost"
+              onClick={banOthers}
+              disabled={banOthersInFlight}
+            >
               🚫 Запретить другим!
             </BigButton>
           ) : null}
-          <BigButton variant="ghost" onClick={goToBans}>
+          <BigButton
+            variant="ghost"
+            onClick={goToBans}
+            disabled={goToBansInFlight}
+          >
             К запретам
           </BigButton>
         </div>

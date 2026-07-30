@@ -206,7 +206,7 @@ async function main() {
         ),
         'utf8',
       );
-      assert.match(overlay, /submitIncomingOverboard\(actBan\)/);
+      assert.match(overlay, /submitIncomingOverboard\(actBan!?\)/);
       assert.doesNotMatch(
         overlay,
         /openIncomingOverboardOptimistic\(actBan/,

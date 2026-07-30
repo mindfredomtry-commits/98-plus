@@ -2,7 +2,17 @@
 
 import type { SyntheticEvent } from 'react';
 
-const OVERLAY_INPUT_LOCK_MS = 350;
+/**
+ * Stage 6B Phase 2 — timer carryover lock is retired for card-action gating.
+ *
+ * Historical bug: markOverlayUserAction set a ~350ms window lock; the next
+ * card's first tap hit allowOverlayUserTap and was rejected until the timer
+ * expired (forced second tap). Action single-flight now belongs to
+ * NotificationRuntime (selectIsActionBlocked) or sync identity latches.
+ *
+ * These helpers remain as no-op / always-allow compatibility surfaces so
+ * residual call sites cannot reintroduce timer gating.
+ */
 
 declare global {
   interface Window {
@@ -11,13 +21,15 @@ declare global {
   }
 }
 
-/** Set carryover lock only after a user action was accepted — not on pointerdown. */
+/** Compatibility no-op — does not create a wall-clock action lock. */
 export function setOverlayInputLockAfterAction(source?: string): void {
   if (typeof window === 'undefined') return;
-  const until = Date.now() + OVERLAY_INPUT_LOCK_MS;
-  window.__overlayInputLockedUntil = until;
-  window.__overlayInputLockSource = source ?? 'unknown';
-  window.__debug98log?.('[OVERLAY INPUT LOCK SET AFTER ACTION]', { until, source });
+  window.__overlayInputLockedUntil = 0;
+  window.__overlayInputLockSource = undefined;
+  window.__debug98log?.('[OVERLAY INPUT LOCK RETIRED]', {
+    source: source ?? 'unknown',
+    phase: 'stage6b-phase2',
+  });
 }
 
 /** @deprecated Use setOverlayInputLockAfterAction — lock belongs after action, not pointerdown. */
@@ -32,7 +44,7 @@ export function clearOverlayInputLock(source?: string): void {
   window.__debug98log?.('[OVERLAY INPUT LOCK CLEARED]', { source });
 }
 
-/** Drop carryover from prior overlay cards when a check-card becomes interactive. */
+/** Drop residual carryover state when a check-card becomes interactive. */
 export function clearCheckOverlayInputLock(banId?: string): void {
   if (typeof window === 'undefined') return;
   window.__overlayInputLockedUntil = 0;
@@ -40,59 +52,36 @@ export function clearCheckOverlayInputLock(banId?: string): void {
   window.__debug98log?.('[CHECK INPUT LOCK CLEARED]', { banId: banId ?? null });
 }
 
+/** Always false — timer lock no longer blocks taps. */
 export function isOverlayInputLocked(): boolean {
   if (typeof window === 'undefined') return false;
-  const until = window.__overlayInputLockedUntil ?? 0;
-  if (until === 0) return false;
-  const now = Date.now();
-  if (now < until) return true;
   window.__overlayInputLockedUntil = 0;
   window.__overlayInputLockSource = undefined;
-  window.__debug98log?.('[OVERLAY INPUT LOCK EXPIRED]', { until, now });
   return false;
 }
 
-/** Block stale carryover taps during the short post-action lock window. */
-export function shouldBlockOverlayUserTap(source: string): boolean {
-  if (!isOverlayInputLocked()) return false;
-  const lockSource = window.__overlayInputLockSource ?? '';
-  // Check-card answers must not inherit the prior card's post-action lock.
-  if (source === 'check-answer' && !lockSource.startsWith('check:')) {
-    return false;
-  }
-  const now = Date.now();
-  const until = window.__overlayInputLockedUntil ?? 0;
-  window.__debug98log?.('[OVERLAY INPUT BLOCKED CARRYOVER]', {
-    reason: 'input-lock-active',
-    source,
-    lockSource: window.__overlayInputLockSource ?? null,
-    until,
-    now,
-    remainingMs: Math.max(0, until - now),
-  });
-  return true;
+/** Always false — carryover timer gating is retired. */
+export function shouldBlockOverlayUserTap(_source: string): boolean {
+  return false;
 }
 
-/** Returns false when tap should be ignored (carryover lock). Logs allow on success. */
+/**
+ * Always allows. Card actions must gate on runtime pending/succeeded or a
+ * sync local in-flight latch — never on this helper.
+ */
 export function allowOverlayUserTap(source: string): boolean {
-  if (shouldBlockOverlayUserTap(source)) return false;
-  window.__debug98log?.('[OVERLAY INPUT CURRENT ACTION ALLOWED]', { source });
+  if (typeof window !== 'undefined') {
+    window.__debug98log?.('[OVERLAY INPUT CURRENT ACTION ALLOWED]', {
+      source,
+      phase: 'stage6b-phase2-no-timer-gate',
+    });
+  }
   return true;
 }
 
 /** @deprecated Prefer allowOverlayUserTap in button handlers — capture guards block real clicks. */
 export function overlayInputCaptureGuard(event: SyntheticEvent): void {
   if (!isOverlayInputLocked()) return;
-  const now = Date.now();
-  const until = window.__overlayInputLockedUntil ?? 0;
-  window.__debug98log?.('[OVERLAY INPUT BLOCKED CARRYOVER]', {
-    type: event.type,
-    reason: 'capture-guard',
-    lockSource: window.__overlayInputLockSource ?? null,
-    until,
-    now,
-    remainingMs: Math.max(0, until - now),
-  });
   event.preventDefault();
   event.stopPropagation();
 }

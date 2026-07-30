@@ -37,7 +37,7 @@ import {
   logResultTimerInputBlockedBug,
   logResultTimerReplyClick,
 } from '@/lib/result-timer-card-debug';
-import { allowOverlayUserTap } from '@/lib/overlay-input-guard';
+import { decideCardActionTap } from '@/notification-runtime/notification-runtime.card-action-tap';
 import { installResultTimerHitTestProbe } from '@/lib/result-timer-hit-test-debug';
 import { useApp } from '../Providers';
 import { useTelegram } from '@/hooks/useTelegram';
@@ -709,6 +709,9 @@ export function InstantBanFlow({
   );
   const preparedInviteRequestIdRef = useRef<string | null>(null);
   const preparedInviteInFlightRef = useRef(false);
+  /** Stage 6B Phase 2 — sync latch for result-timer CTAs (no timer gate). */
+  const resultTimerGoToBansInFlightRef = useRef(false);
+  const resultTimerReplyInFlightRef = useRef(false);
   const [banText, setBanText] = useState('');
   const [durationMinutes, setDurationMinutes] = useState(DEFAULT_DURATION_MINUTES);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -899,6 +902,11 @@ export function InstantBanFlow({
     return () => {
       delete document.documentElement.dataset.replyParentActiveTimer;
     };
+  }, [lobbyActiveBanOverlay?.id]);
+
+  useEffect(() => {
+    resultTimerGoToBansInFlightRef.current = false;
+    resultTimerReplyInFlightRef.current = false;
   }, [lobbyActiveBanOverlay?.id]);
 
   useEffect(() => {
@@ -4045,7 +4053,10 @@ export function InstantBanFlow({
 
   const handleLobbyActiveBanOverlayBack = useCallback(() => {
     const banId = lobbyActiveBanOverlay?.id ?? null;
-    if (!allowOverlayUserTap('result-timer-go-to-bans')) {
+    const decision = decideCardActionTap({
+      localInFlight: resultTimerGoToBansInFlightRef.current,
+    });
+    if (!decision.accept) {
       logResultTimerInputBlockedBug({
         action: 'go-to-bans',
         banId,
@@ -4053,6 +4064,7 @@ export function InstantBanFlow({
       });
       return;
     }
+    resultTimerGoToBansInFlightRef.current = true;
     logResultTimerActionAllowed({
       action: 'go-to-bans',
       banId,
@@ -4152,7 +4164,11 @@ export function InstantBanFlow({
 
   const handleBanMore = useCallback(
     (ban: BanInteraction) => {
-      if (!allowOverlayUserTap('result-timer-reply')) {
+      const decision = decideCardActionTap({
+        targetPresent: Boolean(ban?.id),
+        localInFlight: resultTimerReplyInFlightRef.current,
+      });
+      if (!decision.accept) {
         logResultTimerInputBlockedBug({
           action: 'reply',
           banId: ban.id,
@@ -4160,6 +4176,7 @@ export function InstantBanFlow({
         });
         return;
       }
+      resultTimerReplyInFlightRef.current = true;
       logResultTimerActionAllowed({
         action: 'reply',
         banId: ban.id,
