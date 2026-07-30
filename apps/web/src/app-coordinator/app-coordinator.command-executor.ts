@@ -1,0 +1,48 @@
+import type { AppCoordinatorEffect } from './app-coordinator.types';
+import type {
+  NotificationRuntimePort,
+  ProductFlowPort,
+} from './app-coordinator.ports';
+
+export interface AppCoordinatorCommandExecutor {
+  execute(effect: AppCoordinatorEffect): void;
+}
+
+export function createAppCoordinatorCommandExecutor(input: {
+  notificationRuntime: NotificationRuntimePort;
+  productFlow: ProductFlowPort;
+}): AppCoordinatorCommandExecutor {
+  return {
+    execute(effect) {
+      if (effect.target === 'PRODUCT_FLOW') {
+        const { route, context } = effect.command;
+        input.productFlow.openRoute({ route, context });
+        return;
+      }
+
+      const command = effect.command;
+      switch (command.type) {
+        case 'INGEST_ENTRY':
+          input.notificationRuntime.ingestEntry(command.intent);
+          return;
+        case 'SUSPEND':
+          input.notificationRuntime.suspend({
+            sourceItemId: command.sourceItemId,
+            resumeToken: command.resumeToken,
+          });
+          return;
+        case 'RESUME':
+          input.notificationRuntime.resume({
+            resumeToken: command.resumeToken,
+          });
+          return;
+        case 'COMPLETE_SOURCE_ITEM':
+          input.notificationRuntime.completeSourceItem({
+            sourceItemId: command.sourceItemId,
+            resumeToken: command.resumeToken,
+          });
+          return;
+      }
+    },
+  };
+}

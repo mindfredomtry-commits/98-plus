@@ -1,6 +1,7 @@
 /**
  * Phase 0 — NotificationRuntime transport (bootstrap / pending / WS ingest).
  * Writes only into NotificationRuntime. No legacy sinks.
+ * Emits lifecycle facts to the coordinator Runtime port when provided.
  */
 'use client';
 
@@ -33,18 +34,22 @@ import {
   decideReconnectRecoveryRequest,
 } from '@/notification-runtime/notification-runtime.reconnect-recovery';
 import { useNotificationRuntimeStore } from '@/notification-runtime/notification-runtime.context';
+import { selectCurrentItemId } from '@/notification-runtime/notification-runtime.selectors';
 import { notificationItemId } from '@/notification-runtime/notification-runtime.types';
 import type { NotificationItem } from '@/notification-runtime/notification-runtime.types';
 import {
   stageMatchingActionResult,
   snapshotRuntimeForActionResultHandoff,
 } from '@/notification-runtime/notification-runtime.action-result-handoff';
+import type { NotificationRuntimePortHandle } from '@/notification-runtime/notification-runtime.coordinator-port';
 
 export type NotificationTransportAuth = {
   token: string | null;
   userId: string | null;
   /** real-time → autoShow; normal → badge/pending only when idle policy says so */
   notificationMode?: 'normal' | 'real-time';
+  /** Optional coordinator Runtime port for factual lifecycle events. */
+  runtimePort?: NotificationRuntimePortHandle | null;
 };
 
 /**
@@ -55,13 +60,17 @@ export function NotificationRuntimeTransport({
   token,
   userId,
   notificationMode = 'real-time',
+  runtimePort = null,
 }: NotificationTransportAuth) {
   const store = useNotificationRuntimeStore();
   const tokenRef = useRef(token);
   const userIdRef = useRef(userId);
+  const runtimePortRef = useRef(runtimePort);
   tokenRef.current = token;
   userIdRef.current = userId;
+  runtimePortRef.current = runtimePort;
   const bootInFlightRef = useRef(false);
+  const coldBootSettledRef = useRef(false);
 
   const runBootstrap = useCallback(
     async (reason: 'bootstrap' | 'reconnect' | 'user') => {
@@ -76,6 +85,7 @@ export function NotificationRuntimeTransport({
           console.log('[ws-reconnect-recovery]', decision);
           return;
         }
+        runtimePortRef.current?.notifyReconnectStarted();
       }
 
       bootInFlightRef.current = true;
@@ -83,6 +93,9 @@ export function NotificationRuntimeTransport({
       const bootReq = requestBootstrap(store, { source: 'bootstrap' });
       if (!bootReq.accepted) {
         bootInFlightRef.current = false;
+        if (reason === 'reconnect') {
+          runtimePortRef.current?.notifyReconnectCompleted();
+        }
         return;
       }
       try {
@@ -128,6 +141,14 @@ export function NotificationRuntimeTransport({
         );
       } finally {
         bootInFlightRef.current = false;
+        const currentItemId = selectCurrentItemId(store.getState());
+        if (reason === 'bootstrap' && !coldBootSettledRef.current) {
+          coldBootSettledRef.current = true;
+          runtimePortRef.current?.notifyBootCompleted(currentItemId);
+        }
+        if (reason === 'reconnect') {
+          runtimePortRef.current?.notifyReconnectCompleted();
+        }
       }
     },
     [notificationMode, store],
@@ -163,7 +184,6 @@ export function NotificationRuntimeTransport({
           ...(prefetched.check ? [itemFromCheck(prefetched.check)] : []),
           ...(prefetched.result ? [itemFromResult(prefetched.result)] : []),
         ];
-        // Ingest new identities without replacing canonical queue wholesale.
         for (const item of items) {
           const id = notificationItemId(item);
           const already = store
@@ -184,8 +204,8 @@ export function NotificationRuntimeTransport({
     [store],
   );
 
-  // Cold bootstrap when auth is ready.
   useEffect(() => {
+    coldBootSettledRef.current = false;
     if (!token || !userId) return;
     void runBootstrap('bootstrap');
   }, [token, userId, runBootstrap]);
@@ -252,7 +272,6 @@ export function NotificationRuntimeTransport({
 
   useWebSocket(token, onWsEvent, onReconnect);
 
-  // Expose refresh for intents via ref on window for Phase 0 wiring through context.
   useEffect(() => {
     const api = {
       refresh: (reason: 'bootstrap' | 'reconnect' | 'user' = 'user') =>

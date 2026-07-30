@@ -91,13 +91,15 @@ async function main() {
     pass('1. layout uses AppServicesProvider, not Providers');
   }
 
-  // 2. AppServices mounts DirectNotificationHost + transport
+  // 2. AppServices owns Runtime provider/transport; ApplicationSurface mounts Direct host under Coordinator
   {
-    assert.match(appServicesSrc, /DirectNotificationHost/);
     assert.match(appServicesSrc, /NotificationRuntimeTransport/);
     assert.match(appServicesSrc, /NotificationRuntimeProvider/);
+    assert.match(appServicesSrc, /createAppCoordinatorLifecycle|ApplicationSurface/);
     assert.doesNotMatch(appServicesSrc, /from ['"]@\/components\/Providers['"]/);
-    pass('2. AppServices mounts Direct host + runtime transport');
+    assert.doesNotMatch(appServicesSrc, /sendFlowRequested/);
+    assert.doesNotMatch(appServicesSrc, /bansSectionRequested/);
+    pass('2. AppServices mounts coordinator lifecycle + runtime transport');
   }
 
   // 3. Page does not import legacy host / InstantBanFlow notification path

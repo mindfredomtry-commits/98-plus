@@ -1,6 +1,6 @@
 /**
- * Phase 0 — non-notification App Services root.
- * Auth / product shell only. Does NOT own notification queue, display, or transport.
+ * App Services root — auth + one coordinator lifecycle under Runtime provider.
+ * Coordinator is the sole global surface owner.
  */
 'use client';
 
@@ -8,14 +8,22 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
-  type ReactNode,
 } from 'react';
 import type { UserPublic } from '@98plus/shared';
 import { useAuth } from '@/hooks/useAuth';
+import { useTelegram } from '@/hooks/useTelegram';
+import { ApplicationSurface } from '@/app-coordinator/ApplicationSurface';
+import {
+  createAppCoordinatorLifecycle,
+  routeLaunchEntry,
+  type AppCoordinatorLifecycle,
+} from '@/app-coordinator/app-coordinator.lifecycle';
 import { NotificationRuntimeProvider } from '@/notification-runtime/NotificationRuntimeProvider';
-import { DirectNotificationHost } from '@/notification-host/DirectNotificationHost';
+import { useNotificationRuntimeStore } from '@/notification-runtime/notification-runtime.context';
 import { NotificationRuntimeTransport } from '@/notification-host/NotificationRuntimeTransport';
 
 export type AppServicesValue = {
@@ -26,12 +34,6 @@ export type AppServicesValue = {
   authReady: boolean;
   refreshUser: () => Promise<void>;
   onboard: () => Promise<void>;
-  /** Product: open send/WHO flow (non-notification). */
-  openSendFlow: () => void;
-  /** Product: open bans section. */
-  openBansSection: () => void;
-  sendFlowRequested: number;
-  bansSectionRequested: number;
 };
 
 const AppServicesContext = createContext<AppServicesValue | null>(null);
@@ -44,23 +46,98 @@ export function useAppServices(): AppServicesValue {
   return ctx;
 }
 
-/** Optional for pages that may render before provider in tests. */
 export function useAppServicesOptional(): AppServicesValue | null {
   return useContext(AppServicesContext);
 }
 
-export function AppServicesProvider({ children }: { children: ReactNode }) {
+function AppCoordinatorComposition({
+  token,
+  user,
+  loading,
+  authReady,
+  onboard,
+  refreshUser,
+  startParam,
+}: {
+  token: string | null;
+  user: UserPublic | null;
+  loading: boolean;
+  authReady: boolean;
+  onboard: () => Promise<void>;
+  refreshUser: () => Promise<void>;
+  startParam: string | null;
+}) {
+  const runtimeStore = useNotificationRuntimeStore();
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+  const getToken = useCallback(() => tokenRef.current, []);
+  const lifecycleRef = useRef<AppCoordinatorLifecycle | null>(null);
+  const [lifecycle, setLifecycle] = useState<AppCoordinatorLifecycle | null>(
+    null,
+  );
+  const entryRoutedRef = useRef(false);
+
+  useEffect(() => {
+    const next = createAppCoordinatorLifecycle({
+      runtimeStore,
+      getToken,
+    });
+    lifecycleRef.current = next;
+    setLifecycle(next);
+    return () => {
+      next.dispose();
+      if (lifecycleRef.current === next) {
+        lifecycleRef.current = null;
+      }
+      setLifecycle(null);
+    };
+    // One lifecycle per Runtime store identity — not per token change.
+  }, [runtimeStore, getToken]);
+
+  // Boot completion is Runtime-driven once a session exists.
+  // Without a session, leave BOOTING only until auth settles to no-token.
+  useEffect(() => {
+    if (!lifecycle || loading) return;
+    if (!token && !authReady) {
+      lifecycle.runtimePort.notifyBootCompleted(null);
+    }
+  }, [authReady, lifecycle, loading, token]);
+
+  useEffect(() => {
+    if (!lifecycle || !authReady || entryRoutedRef.current) return;
+    entryRoutedRef.current = true;
+    routeLaunchEntry(lifecycle, {
+      startParam,
+      launchSource: 'telegram',
+    });
+  }, [authReady, lifecycle, startParam]);
+
+  return (
+    <>
+      {lifecycle ? (
+        <NotificationRuntimeTransport
+          token={token}
+          userId={user?.id ?? null}
+          notificationMode="real-time"
+          runtimePort={lifecycle.runtimePort}
+        />
+      ) : null}
+      <ApplicationSurface
+        lifecycle={lifecycle}
+        loading={loading}
+        token={token}
+        user={user}
+        getToken={getToken}
+        onboard={onboard}
+        refreshUser={refreshUser}
+      />
+    </>
+  );
+}
+
+export function AppServicesProvider() {
   const auth = useAuth();
-  const [sendFlowRequested, setSendFlowRequested] = useState(0);
-  const [bansSectionRequested, setBansSectionRequested] = useState(0);
-
-  const openSendFlow = useCallback(() => {
-    setSendFlowRequested((n) => n + 1);
-  }, []);
-
-  const openBansSection = useCallback(() => {
-    setBansSectionRequested((n) => n + 1);
-  }, []);
+  const { startParam } = useTelegram();
 
   const value = useMemo<AppServicesValue>(
     () => ({
@@ -71,10 +148,6 @@ export function AppServicesProvider({ children }: { children: ReactNode }) {
       authReady: auth.authReady,
       refreshUser: auth.refreshUser,
       onboard: auth.onboard,
-      openSendFlow,
-      openBansSection,
-      sendFlowRequested,
-      bansSectionRequested,
     }),
     [
       auth.token,
@@ -84,37 +157,21 @@ export function AppServicesProvider({ children }: { children: ReactNode }) {
       auth.authReady,
       auth.refreshUser,
       auth.onboard,
-      openSendFlow,
-      openBansSection,
-      sendFlowRequested,
-      bansSectionRequested,
     ],
   );
-
-  const getToken = useCallback(() => auth.token, [auth.token]);
 
   return (
     <AppServicesContext.Provider value={value}>
       <NotificationRuntimeProvider>
-        <NotificationRuntimeTransport
+        <AppCoordinatorComposition
           token={auth.token}
-          userId={auth.user?.id ?? null}
-          notificationMode="real-time"
+          user={auth.user}
+          loading={auth.loading}
+          authReady={auth.authReady}
+          onboard={auth.onboard}
+          refreshUser={auth.refreshUser}
+          startParam={startParam ?? null}
         />
-        <DirectNotificationHost
-          viewerId={auth.user?.id ?? null}
-          getToken={getToken}
-          lobbyBootIntroPrimed={!auth.loading}
-          hostBlocksCta={false}
-          influencePercent={auth.user?.energyPercent ?? 0}
-          onStartBan={openSendFlow}
-          onOpenBans={() => openBansSection()}
-          onReply={() => {
-            // Compose handoff reserved for later product wiring.
-            openSendFlow();
-          }}
-        />
-        {children}
       </NotificationRuntimeProvider>
     </AppServicesContext.Provider>
   );
