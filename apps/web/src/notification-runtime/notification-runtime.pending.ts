@@ -59,6 +59,9 @@ function isPassiveIndicatorPrimeSource(source: string): boolean {
  * Replace pending source snapshot (server/live prefetch).
  * Consumed tombstones are retained; selector subtracts them (no resurrection).
  *
+ * Stage 6B Phase 5: pass the request-start generation so the reducer can drop
+ * stale empty and non-empty results. Unstamped calls remain for live merges.
+ *
  * Passive lobby-indicator-prime must not wipe a non-empty pending snapshot with an
  * empty race result (bootstrap / bans prefetch may already hold truth).
  */
@@ -94,6 +97,10 @@ export function ingestPendingSnapshot(
 /**
  * Merge ids into current pending snapshot (live / deeplink single-item).
  * Idempotent for duplicates.
+ *
+ * Stage 6B Phase 5: unstamped live merges allocate a generation so WebSocket
+ * (or other live) delivery that lands while a fetch is in flight outranks that
+ * fetch's later completion.
  */
 export function mergePendingItemIds(
   store: NotificationRuntimeStore,
@@ -106,7 +113,9 @@ export function mergePendingItemIds(
   if (incoming.length === 0) return;
   const current = store.getState().pending.itemIds;
   const merged = normalizePendingItemIds([...current, ...incoming]);
-  ingestPendingSnapshot(store, merged, source, sourceVersion, generation);
+  const stamped =
+    generation ?? nextPendingAuthorityGeneration();
+  ingestPendingSnapshot(store, merged, source, sourceVersion, stamped);
 }
 
 /**

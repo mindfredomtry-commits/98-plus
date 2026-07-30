@@ -15,6 +15,7 @@ import {
   type RuntimeEffect,
 } from './notification-runtime.types';
 import { selectCurrentItem, selectCurrentItemId } from './notification-runtime.selectors';
+import { decidePendingSnapshotApply } from './notification-runtime.pending-refresh-ordering';
 import { evaluateStaleReplaceGuard } from './notification-runtime.stale-replace-guard';
 
 function cloneState(state: NotificationRuntimeState): NotificationRuntimeState {
@@ -144,13 +145,11 @@ function addConsumed(
 }
 
 /**
- * Pending authority rule for snapshot replacements.
+ * Pending authority rule for snapshot replacements (Stage 6B Phase 5).
  *
- * Empty is only allowed to clear when it is the current authority: a response
- * stamped older than the applied generation is dropped, and so is an empty
- * snapshot while the runtime still holds a live/queued item the server has not
- * caught up with. Non-empty snapshots always apply, so the badge is never
- * latched on.
+ * Both empty and non-empty stamped results older than the applied generation
+ * are rejected. Empty current-authority clears only when the runtime does not
+ * still hold a live/queued item the server has not caught up with.
  */
 function resolvePendingReplacement(
   base: NotificationRuntimeState,
@@ -158,22 +157,29 @@ function resolvePendingReplacement(
   sourceVersion: string | null,
   generation: number | null | undefined,
 ): NotificationRuntimeState['pending'] {
-  const stamped = typeof generation === 'number' ? generation : null;
-  const nextGeneration = Math.max(base.pending.generation, stamped ?? 0);
-  if (incomingIds.length === 0) {
-    if (stamped != null && stamped < base.pending.generation) {
-      return base.pending;
-    }
-    const holdsLocalItem =
-      base.items.queue.length > 0 || base.display.kind != null;
-    if (holdsLocalItem && base.pending.itemIds.length > 0) {
-      return { ...base.pending, generation: nextGeneration };
-    }
+  const decision = decidePendingSnapshotApply({
+    currentGeneration: base.pending.generation,
+    currentItemIds: base.pending.itemIds,
+    currentSourceVersion: base.pending.sourceVersion,
+    incomingIds,
+    incomingSourceVersion: sourceVersion,
+    stamped: generation,
+    holdsLocalItem:
+      base.items.queue.length > 0 || base.display.kind != null,
+  });
+  if (decision.action === 'reject') {
+    return base.pending;
+  }
+  if (decision.action === 'hold-local-empty') {
+    return {
+      ...base.pending,
+      generation: decision.nextGeneration,
+    };
   }
   return {
-    itemIds: incomingIds,
-    sourceVersion,
-    generation: nextGeneration,
+    itemIds: decision.itemIds,
+    sourceVersion: decision.sourceVersion,
+    generation: decision.nextGeneration,
   };
 }
 
@@ -955,19 +961,25 @@ export function notificationRuntimeReducer(
     case 'PENDING_SOURCE_UPDATED': {
       // Snapshot replace: dedupe; strip already-consumed from stored pending
       // (tombstones stay in consumed — late refresh cannot resurrect).
+      // Stage 6B Phase 5: stale/idempotent completions return original `state`
+      // so the store does not emit a no-op write.
       const pendingIds = reconcilePending(
         event.itemIds,
         base.consumed.itemIds,
       );
+      const nextPending = resolvePendingReplacement(
+        base,
+        pendingIds,
+        event.sourceVersion,
+        event.generation,
+      );
+      if (nextPending === base.pending) {
+        return { state, effects: [] };
+      }
       return {
         state: {
           ...base,
-          pending: resolvePendingReplacement(
-            base,
-            pendingIds,
-            event.sourceVersion,
-            event.generation,
-          ),
+          pending: nextPending,
         },
         effects: [],
       };

@@ -262,7 +262,7 @@ async function main() {
     assert.match(providers, /overlayQueueLength: notificationRuntimeUi\.queueLength/);
     assert.match(providers, /v8-startup-release/);
     assert.match(providers, /v8-unlock-flush/);
-    assert.match(providers, /Vertical 8: unlock flush is transport/);
+    assert.match(providers, /Vertical 8 \/ Stage 6A: unlock flush merges/);
 
     // Adapters / sinks are TEMP write-through, not authority
     assert.match(adapters, /Vertical 8/);

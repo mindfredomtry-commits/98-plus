@@ -17188,9 +17188,6 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     ): Promise<QueuedOverlay[]> => {
       const queueLenBefore = overlayQueueRef.current.length;
       const pendingLenBefore = pendingStartupInteractionsRef.current.length;
-      // Stamped before the request so a late empty result from this request
-      // cannot clear a snapshot written by a request that started later.
-      const requestGeneration = nextPendingAuthorityGeneration();
 
       // DIAGNOSTICS ONLY (SUCCESS_PROD_TRACE_V1): trace SUCCESS transport prefetch.
       const traceSuccessPrefetch = source.includes('success-exit');
@@ -17337,9 +17334,13 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       }
 
       const runPrefetch = async (): Promise<QueuedOverlay[]> => {
+      // Stage 6B Phase 5: stamp generation at the real request start (after
+      // shared-promise coalesce) so unused generations are not burned on reuse.
+      const requestGeneration = nextPendingAuthorityGeneration();
       console.log('[pending-chain-prefetch-start]', {
         source,
         deeplinkBanId,
+        requestGeneration,
       });
 
       logQueueHydrateStartTrace(
