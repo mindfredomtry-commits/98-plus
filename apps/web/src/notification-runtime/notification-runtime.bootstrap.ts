@@ -59,9 +59,23 @@ export function isBootstrapTransitionCurrent(
   transitionId: string,
 ): boolean {
   const state = store.getState();
-  const expected =
-    state.recovery.transitionId ?? state.lifecycle.transitionId;
-  return expected === transitionId;
+  // Stage 6B Phase 4: only an in-flight boot/recovery owns completion.
+  // After applied, lifecycle.transitionId may still equal the old tid while
+  // showing — that must not accept a duplicate complete.
+  if (state.recovery.status === 'loading') {
+    return state.recovery.transitionId === transitionId;
+  }
+  if (state.lifecycle.status === 'booting') {
+    const expected =
+      state.recovery.transitionId ?? state.lifecycle.transitionId;
+    return expected === transitionId;
+  }
+  if (state.lifecycle.status === 'recovering') {
+    const expected =
+      state.recovery.transitionId ?? state.lifecycle.transitionId;
+    return expected === transitionId;
+  }
+  return false;
 }
 
 /**
@@ -129,6 +143,11 @@ export function completeBootstrap(
     source?: RuntimeSource;
     /** Prefer SNAPSHOT event name for transport clarity (same reducer path). */
     asSnapshot?: boolean;
+    /**
+     * Request-start pending generation. Stale/older stamped responses cannot
+     * move pending.generation backward (Stage 6B Phase 4).
+     */
+    generation?: number | null;
   },
   sinks?: RuntimeLegacySinks,
 ): BootstrapOutcome {
@@ -148,6 +167,7 @@ export function completeBootstrap(
     ? [...args.consumedItemIds]
     : undefined;
   const sourceVersion = args.sourceVersion ?? null;
+  const generation = args.generation ?? null;
 
   if (args.asSnapshot !== false) {
     store.dispatch({
@@ -159,6 +179,7 @@ export function completeBootstrap(
       autoShow,
       sourceVersion,
       source,
+      generation,
     });
   } else {
     store.dispatch({
@@ -170,6 +191,7 @@ export function completeBootstrap(
       autoShow,
       sourceVersion,
       source,
+      generation,
     });
   }
 

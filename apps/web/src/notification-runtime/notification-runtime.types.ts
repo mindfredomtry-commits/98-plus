@@ -225,6 +225,8 @@ export type NotificationRuntimeResultEvent =
       autoShow: boolean;
       sourceVersion: string | null;
       source: RuntimeSource;
+      /** Request-start pending generation (Stage 6B Phase 4). */
+      generation?: number | null;
     }
   | {
       type: 'BOOTSTRAP_COMPLETED';
@@ -236,6 +238,8 @@ export type NotificationRuntimeResultEvent =
       autoShow?: boolean;
       sourceVersion: string | null;
       source: RuntimeSource;
+      /** Request-start pending generation (Stage 6B Phase 4). */
+      generation?: number | null;
     }
   | {
       type: 'BOOTSTRAP_FAILED';
@@ -298,6 +302,8 @@ export type NotificationRuntimeResultEvent =
       sourceVersion: string | null;
       snapshotVersion: string | null;
       source: RuntimeSource;
+      /** Request-start pending generation (Stage 6B Phase 4). */
+      generation?: number | null;
     }
   | {
       type: 'RECOVERY_FAILED';

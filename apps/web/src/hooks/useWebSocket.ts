@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { ANALYTICS_EVENTS } from '@98plus/shared';
 import { api } from '@/lib/api';
 import {
   getApiUrl,
@@ -9,6 +8,7 @@ import {
   isApiConfiguredForProduction,
   logWsUrlResolution,
 } from '@/lib/config';
+import { decideWsReconnectSignal } from '@/notification-runtime/notification-runtime.reconnect-recovery';
 
 export type WsStatus = 'connecting' | 'connected' | 'disconnected' | 'skipped';
 
@@ -36,10 +36,19 @@ export function useWebSocket(
   const wsRef = useRef<WebSocket | null>(null);
   const backoffRef = useRef(1000);
   const mountedRef = useRef(true);
+  /** Stage 6B Phase 4 — true after first successful onopen (auth owns cold boot). */
+  const hasOpenedOnceRef = useRef(false);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const log = useCallback((msg: string) => {
     if (process.env.NODE_ENV === 'production') return;
     setEventLog((prev) => [msg, ...prev].slice(0, 40));
+  }, []);
+
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current == null) return;
+    clearTimeout(reconnectTimerRef.current);
+    reconnectTimerRef.current = null;
   }, []);
 
   const connect = useCallback(() => {
@@ -51,6 +60,7 @@ export function useWebSocket(
       return;
     }
 
+    clearReconnectTimer();
     logWsUrlResolution();
     const wsUrl = getWsUrl();
     const apiUrl = getApiUrl();
@@ -64,7 +74,17 @@ export function useWebSocket(
       setStatus('connected');
       log('ws: connected');
       console.log('[ws-connected]', { phase: 'socket-open', apiUrl, wsUrl });
-      onReconnectRef.current?.();
+      const signal = decideWsReconnectSignal({
+        source: 'socket-open',
+        hasOpenedOnce: hasOpenedOnceRef.current,
+      });
+      hasOpenedOnceRef.current = true;
+      if (signal.emit) {
+        console.log('[ws-reconnect-signal]', { reason: signal.reason });
+        onReconnectRef.current?.();
+      } else {
+        console.log('[ws-reconnect-signal-skipped]', { reason: signal.reason });
+      }
     };
 
     ws.onmessage = (ev) => {
@@ -122,9 +142,13 @@ export function useWebSocket(
       if (!mountedRef.current) return;
       const delay = backoffRef.current;
       backoffRef.current = Math.min(delay * 2, MAX_BACKOFF);
-      setTimeout(() => {
+      // Stage 6B Phase 4: do NOT emit onReconnect here — wait for onopen.
+      // Emitting on close-timeout + onopen caused double reloadPending.
+      clearReconnectTimer();
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null;
+        if (!mountedRef.current) return;
         connect();
-        onReconnectRef.current?.();
         if (token) {
           api('/users/me', { token }).catch(() => {});
         }
@@ -139,17 +163,19 @@ export function useWebSocket(
       console.log('[ws-error]', { wsUrl, apiUrl, error: err });
       log('ws: error');
     };
-  }, [token, log]);
+  }, [token, log, clearReconnectTimer]);
 
   useEffect(() => {
     mountedRef.current = true;
     seenRef.current.clear();
+    hasOpenedOnceRef.current = false;
     connect();
     return () => {
       mountedRef.current = false;
+      clearReconnectTimer();
       wsRef.current?.close();
     };
-  }, [connect]);
+  }, [connect, clearReconnectTimer]);
 
   return { status, eventLog };
 }

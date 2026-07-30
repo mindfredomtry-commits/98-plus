@@ -275,6 +275,7 @@ import {
   subscribeIncomingOverboardCompletion,
 } from '@/notification-runtime/notification-runtime.overboard-completion';
 import { decideHostOverlayRepairAfterIdleEmpty } from '@/lib/stage6b-overlay-lifecycle';
+import { decideReconnectRecoveryRequest } from '@/notification-runtime/notification-runtime.reconnect-recovery';
 import {
   logOverboardV3ProdTrace,
   logOverboardV3ProdTraceBoot,
@@ -25706,6 +25707,9 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     mirrorOwnerSessionFlagsRef.current('v7-bootstrap:hold-transport', {
       startupHold: true,
     });
+    // Stage 6B Phase 4: stamp pending generation at request start so a slow
+    // older fetch cannot move pending.generation backward on complete.
+    const bootstrapPendingGeneration = nextPendingAuthorityGeneration();
     const bootReq = requestBootstrap(notificationRuntimeStoreRef.current, {
       source: 'bootstrap',
     });
@@ -26052,6 +26056,7 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
           autoShow: allowNewLiveAutoShow,
           sourceVersion: String(requestedAt),
           source: 'bootstrap',
+          generation: bootstrapPendingGeneration,
         },
         bootstrapSinks,
       );
@@ -36311,6 +36316,17 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
       logResultLatency('[result-diag-ws-reconnect]', {
         authUserId: userIdRef.current,
       });
+      // Stage 6B Phase 4: coalesce while a recovery/bootstrap is already
+      // in-flight so a reconnect storm cannot open duplicate sequences.
+      // Overlay-visible skips (live card must not wipe). Intentional interrupt
+      // uses forceSupersede only from tests / explicit host paths.
+      const decision = decideReconnectRecoveryRequest(
+        notificationRuntimeStoreRef.current.getState(),
+      );
+      if (decision.action === 'skip' || decision.action === 'coalesce') {
+        console.log('[ws-reconnect-recovery]', decision);
+        return;
+      }
       void reloadPendingRef.current().catch(() => {});
     },
   );

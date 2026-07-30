@@ -633,6 +633,14 @@ export function notificationRuntimeReducer(
 
     case 'BOOTSTRAP_SNAPSHOT_RECEIVED':
     case 'BOOTSTRAP_COMPLETED': {
+      // Stage 6B Phase 4: only an in-flight boot/recovery may complete.
+      const inFlight =
+        base.recovery.status === 'loading' ||
+        base.lifecycle.status === 'booting' ||
+        base.lifecycle.status === 'recovering';
+      if (!inFlight) {
+        return { state: base, effects: [] };
+      }
       const expectedTid =
         base.recovery.transitionId ?? base.lifecycle.transitionId;
       if (expectedTid && expectedTid !== event.transitionId) {
@@ -667,7 +675,7 @@ export function notificationRuntimeReducer(
               base,
               pendingIds,
               event.sourceVersion,
-              null,
+              event.generation ?? null,
             ),
             consumed: { itemIds: consumedIds },
             recovery: {
@@ -693,7 +701,7 @@ export function notificationRuntimeReducer(
           base,
           pendingIds,
           event.sourceVersion,
-          null,
+          event.generation ?? null,
         ),
         consumed: { itemIds: consumedIds },
         recovery: {
@@ -1045,7 +1053,7 @@ export function notificationRuntimeReducer(
           base,
           pendingIds,
           event.sourceVersion,
-          null,
+          event.generation ?? null,
         ),
         consumed: { itemIds: consumed },
         recovery: {
