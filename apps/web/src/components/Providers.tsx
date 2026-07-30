@@ -2256,7 +2256,14 @@ function buildStep2bQueueWriteFields(
 }
 
 /** Hard remount on Telegram account switch — wipes in-memory friends/session. */
-export function Providers({ children }: { children: React.ReactNode }) {
+export function Providers(_props: { children: React.ReactNode }) {
+  // Phase 0: legacy notification host is disabled in the active runtime graph.
+  // Keep this module in git for rollback only — never mount via layout.
+  throw new Error('LEGACY_NOTIFICATION_HOST_IS_DISABLED');
+}
+
+/** @deprecated Phase 0 — retained in-file for rollback; not exported / not mounted. */
+function LegacyProvidersBodyDisabled({ children }: { children: React.ReactNode }) {
   const { telegramId } = useTelegram();
 
   const scopeKey = telegramId != null ? `tg:${telegramId}` : 'tg:pending';

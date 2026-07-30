@@ -1,0 +1,108 @@
+.direct-notification-host {
+  position: relative;
+  min-height: 100%;
+}
+
+.direct-lobby-surface {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 70vh;
+  padding: 24px 16px 48px;
+  gap: 16px;
+}
+
+.direct-lobby-surface__orb {
+  width: 120px;
+  height: 120px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 30%, #7c5cff, #1a0b2e 70%);
+  margin-bottom: auto;
+  margin-top: 20vh;
+}
+
+.direct-lobby-surface__meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.direct-lobby-surface__indicator {
+  min-width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #ff4d6d;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0 8px;
+}
+
+.direct-lobby-surface__cta {
+  width: min(360px, 100%);
+}
+
+.direct-notification-host__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: rgba(5, 3, 8, 0.72);
+}
+
+.direct-notification-card {
+  width: min(420px, 100%);
+  border-radius: 20px;
+  background: #12081c;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 20px;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.direct-notification-card__header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.direct-notification-card__avatar,
+.direct-notification-card__avatar-fallback {
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  object-fit: cover;
+  background: #2a1838;
+}
+
+.direct-notification-card__title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.direct-notification-card__subtitle {
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.direct-notification-card__body {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.4;
+  opacity: 0.92;
+}
+
+.direct-notification-card__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}

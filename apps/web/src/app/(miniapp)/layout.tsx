@@ -1,5 +1,5 @@
 import Script from 'next/script';
-import { Providers } from '@/components/Providers';
+import { AppServicesProvider } from '@/app-services/AppServicesProvider';
 import { AppHydrationMarker } from '@/components/AppHydrationMarker';
 import { DebugOverlay } from '@/components/DebugOverlay';
 
@@ -19,10 +19,10 @@ export default function MiniAppLayout({
       <Script id="lobby-orb-prehydrate-init" strategy="beforeInteractive">
         {`(function(){try{document.documentElement.style.setProperty('--boot-orb-initial-scale','0.15');}catch(e){}})();`}
       </Script>
-      <Providers>
+      <AppServicesProvider>
         <AppHydrationMarker />
         {children}
-      </Providers>
+      </AppServicesProvider>
       <DebugOverlay />
     </>
   );
