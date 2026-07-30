@@ -120,6 +120,9 @@ export function evaluateSuccessPresentationHandoffHold(
     };
   }
   // Terminal R2: chain explicitly empty → complete Lobby may render.
+  // Callers may derive this from runtime idle+empty when SUCCESS handoff is
+  // not awaiting a next card (Stage 6B Phase 3). While handoff is armed for a
+  // next display, idle+null must still hold (Fix A / no orb flash).
   if (input.chainExplicitlyEmpty) {
     return { hold: false, releaseReason: 'chain-explicitly-empty' };
   }

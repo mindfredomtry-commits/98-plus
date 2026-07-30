@@ -274,6 +274,7 @@ import {
   isRuntimeIdleEmptyAfterOverboard,
   subscribeIncomingOverboardCompletion,
 } from '@/notification-runtime/notification-runtime.overboard-completion';
+import { decideHostOverlayRepairAfterIdleEmpty } from '@/lib/stage6b-overlay-lifecycle';
 import {
   logOverboardV3ProdTrace,
   logOverboardV3ProdTraceBoot,
@@ -43231,6 +43232,57 @@ function ProvidersBody({ children }: { children: React.ReactNode }) {
     clearNotificationOverlayForEmptyQueueAfterSuccessExit,
     commitVisualQueueDimSessionRelease,
     incomingOverboardCompletion,
+    setNotificationChainTransitioning,
+  ]);
+
+  /**
+   * Stage 6B Phase 3 — when runtime is idle+empty, repair stale host shadow
+   * (transitioning / dim / held incoming) even without an overboard completion
+   * edge (result dismiss, check complete, remount). No timers.
+   */
+  useEffect(() => {
+    const runtime = notificationRuntimeState;
+    const repair = decideHostOverlayRepairAfterIdleEmpty({
+      runtime,
+      notificationChainTransitioning: notificationChainTransitioningRef.current,
+      visualQueueDimSession: visualQueueDimSessionRef.current,
+      notificationOverlayMounted,
+      hostResultActive: Boolean(result),
+      heldUserCardActive: isActiveUserCardHold(),
+    });
+    if (!repair.shouldRepair) return;
+    const source = `stage6b-phase3-idle-empty-repair:${repair.reason ?? 'stale'}`;
+    console.log('[STAGE6B PHASE3 IDLE EMPTY REPAIR]', {
+      reason: repair.reason,
+      lifecycle: runtime.lifecycle.status,
+      queueLen: runtime.items.queue.length,
+      notificationOverlayMounted,
+      chainTransitioning: notificationChainTransitioningRef.current,
+    });
+    clearActiveIncomingOverlayBanStable(source);
+    clearNotificationOverlayForEmptyQueueAfterSuccessExit(source);
+    setNotificationChainTransitioning(false);
+    if (visualQueueDimSessionRef.current) {
+      commitVisualQueueDimSessionRelease(source, {
+        mountedCardVisible: false,
+        mountedCardHasContent: false,
+        kind: null,
+        effectiveKind: null,
+        ownerQueueLen: 0,
+        ownerPendingLen: 0,
+        notificationSessionActive: false,
+        notificationChainTransitioning: false,
+        chainAdvanceWaiting: false,
+        sendFlowOpening: false,
+      });
+    }
+  }, [
+    clearActiveIncomingOverlayBanStable,
+    clearNotificationOverlayForEmptyQueueAfterSuccessExit,
+    commitVisualQueueDimSessionRelease,
+    notificationOverlayMounted,
+    notificationRuntimeState,
+    result,
     setNotificationChainTransitioning,
   ]);
 

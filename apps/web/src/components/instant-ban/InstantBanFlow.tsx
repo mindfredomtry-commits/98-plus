@@ -85,6 +85,11 @@ import {
   isPostNotificationPresentationFullyReleased,
 } from '@/lib/post-notification-presentation-release';
 import { decideLobbyClaimFromRuntime } from '@/lib/lobby-claim-from-runtime';
+import {
+  decideLobbyCtaEligibility,
+  isRuntimeIdleEmpty,
+  shouldRestoreCtaOnReleasedPresentation,
+} from '@/lib/stage6b-overlay-lifecycle';
 import { planLobbyBansOpenNavigation } from '@/lib/lobby-bans-open-navigation';
 import {
   dispatchNotificationOwnerBootLobby,
@@ -1123,7 +1128,12 @@ export function InstantBanFlow({
     notificationPresentationClaimed: runtimeClaimsNotificationScreen,
     expectedDisplayId: expectedNextDisplayId,
     nextDisplayDomMounted: nextDisplayDomMountedMatching,
-    chainExplicitlyEmpty: successPresentationChainExplicitlyEmpty,
+    chainExplicitlyEmpty:
+      successPresentationChainExplicitlyEmpty ||
+      // Phase 3: idle+empty ends the hold only when SUCCESS is not awaiting a
+      // next-card DOM ack (preserves Fix A orb-flash suppression).
+      (isRuntimeIdleEmpty(notificationRuntimeState) &&
+        !successPresentationHandoffArmed),
     presentationOwnershipReleased:
       selectIsRecovering(notificationRuntimeState) ||
       notificationRuntimeState.recovery.status === 'failed',
@@ -1153,7 +1163,10 @@ export function InstantBanFlow({
     expectedDisplayId: expectedNextDisplayId,
     nextDisplayDomMounted: nextDisplayDomMountedMatching,
     notificationPresentationClaimed: runtimeClaimsNotificationScreen,
-    chainExplicitlyEmpty: successPresentationChainExplicitlyEmpty,
+    chainExplicitlyEmpty:
+      successPresentationChainExplicitlyEmpty ||
+      (isRuntimeIdleEmpty(notificationRuntimeState) &&
+        !successPresentationHandoffArmed),
     presentationOwnershipReleased:
       selectIsRecovering(notificationRuntimeState) ||
       notificationRuntimeState.recovery.status === 'failed',
@@ -1290,6 +1303,44 @@ export function InstantBanFlow({
     transitionOwnsPresentation ||
     !interactiveLobbyChromeMayShow;
   const showLobbyChrome = lobbyBootIntroPrimed && !lobbyChromeHidden;
+  /** Stage 6B Phase 3 — presentation release + CTA eligibility (pure). */
+  const postNotificationPresentationSnap =
+    buildPostNotificationPresentationSnapshot(notificationRuntimeState, {
+      notificationOverlayMounted,
+      notificationQueueUiLock: notificationOverlayMounted,
+      hostResultActive: Boolean(result),
+      directOverboardActive: showDirectOverboardLayer,
+      notificationChainTransitioning,
+      visualQueueDimSession,
+      orbOverlayDim,
+      postSuccessHandoffBlocking,
+      successExitDraining,
+    });
+  const presentationFullyReleased = isPostNotificationPresentationFullyReleased(
+    postNotificationPresentationSnap,
+  );
+  const lobbyCtaHostBlocks =
+    replyIncomingDeeplinkPending ||
+    checkDeeplinkDirectPending ||
+    successToActiveLobbyBlocked ||
+    overlayHandoffLobbySuppressed ||
+    successExitDraining ||
+    postSuccessHandoffBlocking ||
+    transitionOwnsPresentation ||
+    (Boolean(replyLobbyBlocked) && !bansReturnToLobbyLatch) ||
+    deepLinkRouteBootPending ||
+    deepLinkReplyBooting ||
+    Boolean(incomingReplyBanId) ||
+    (Boolean(incomingGateActive) && !bansReturnToLobbyLatch);
+  const lobbyCtaEligibility = decideLobbyCtaEligibility({
+    lobbyBootIntroPrimed,
+    phaseIdle: phase === 'idle',
+    interactiveLobbyChromeMayShow,
+    presentationFullyReleased,
+    hostBlocksCta: lobbyCtaHostBlocks,
+    ctaState,
+  });
+  const showLobbyCta = lobbyCtaEligibility.show;
   useLayoutEffect(() => {
     traceQueueClaimsNotificationScreenIfChanged('InstantBanFlow.render', {
       queueClaimsNotificationScreen,
@@ -1322,26 +1373,6 @@ export function InstantBanFlow({
     showLobbyOrb,
     staleResultQueueClaimActive,
   ]);
-  const showLobbyCta =
-    lobbyBootIntroPrimed &&
-    !replyIncomingDeeplinkPending &&
-    !checkDeeplinkDirectPending &&
-    !successToActiveLobbyBlocked &&
-    !overlayHandoffLobbySuppressed &&
-    !successExitDraining &&
-    !postSuccessHandoffBlocking &&
-    // FIX A/orb-logo: one presentation predicate — hide CTA while handoff owns screen.
-    !transitionOwnsPresentation &&
-    // Safe chrome during empty bootstrap; strict idle still via selectLobbyMayShow for openLobby.
-    interactiveLobbyChromeMayShow &&
-    (!replyLobbyBlocked || bansReturnToLobbyLatch) &&
-    !deepLinkRouteBootPending &&
-    !deepLinkReplyBooting &&
-    !incomingReplyBanId &&
-    (!incomingGateActive || bansReturnToLobbyLatch) &&
-    (ctaState === 'visible' ||
-      ctaState === 'exiting' ||
-      ctaState === 'entering');
   console.log('QUEUE_CLAIMS_MIN_TRACE', {
     queueClaimsNotificationScreen,
     overlayQueueLength: effectiveOverlayQueueLengthForLobbyCta,
@@ -1416,76 +1447,14 @@ export function InstantBanFlow({
     deepLinkReplyBooting,
     incomingReplyBanId,
     incomingGateActive,
-    ctaStateAllowsLobbyCta:
-      ctaState === 'visible' ||
-      ctaState === 'exiting' ||
-      ctaState === 'entering',
-    firstFalseGuard: !lobbyBootIntroPrimed
-      ? 'lobbyBootIntroPrimed'
-      : replyIncomingDeeplinkPending
-        ? 'replyIncomingDeeplinkPending'
-        : checkDeeplinkDirectPending
-          ? 'checkDeeplinkDirectPending'
-          : successToActiveLobbyBlocked
-            ? 'successToActiveLobbyBlocked'
-            : overlayHandoffLobbySuppressed
-              ? 'overlayHandoffLobbySuppressed'
-              : successExitDraining
-                ? 'successExitDraining'
-                : postSuccessHandoffBlocking
-                  ? 'postSuccessHandoffBlocking'
-                  : notificationChainTransitioning
-                    ? 'notificationChainTransitioning'
-                    : !interactiveLobbyChromeMayShow
-                      ? 'interactiveLobbyChromeMayShow'
-                      : replyLobbyBlocked && !bansReturnToLobbyLatch
-                        ? 'replyLobbyBlocked'
-                        : deepLinkRouteBootPending
-                          ? 'deepLinkRouteBootPending'
-                          : deepLinkReplyBooting
-                            ? 'deepLinkReplyBooting'
-                            : incomingReplyBanId
-                              ? 'incomingReplyBanId'
-                              : incomingGateActive && !bansReturnToLobbyLatch
-                                ? 'incomingGateActive'
-                                : ctaState !== 'visible' &&
-                                    ctaState !== 'exiting' &&
-                                    ctaState !== 'entering'
-                                  ? 'ctaState'
-                                  : null,
-    reason: !lobbyBootIntroPrimed
-      ? 'lobbyBootIntroPrimed'
-      : replyIncomingDeeplinkPending
-        ? 'replyIncomingDeeplinkPending'
-        : checkDeeplinkDirectPending
-          ? 'checkDeeplinkDirectPending'
-          : successToActiveLobbyBlocked
-            ? 'successToActiveLobbyBlocked'
-            : overlayHandoffLobbySuppressed
-              ? 'overlayHandoffLobbySuppressed'
-              : successExitDraining
-                ? 'successExitDraining'
-                : postSuccessHandoffBlocking
-                  ? 'postSuccessHandoffBlocking'
-                  : notificationChainTransitioning
-                    ? 'notificationChainTransitioning'
-                    : !interactiveLobbyChromeMayShow
-                      ? 'interactiveLobbyChromeMayShow'
-                      : replyLobbyBlocked && !bansReturnToLobbyLatch
-                        ? 'replyLobbyBlocked'
-                        : deepLinkRouteBootPending
-                          ? 'deepLinkRouteBootPending'
-                          : deepLinkReplyBooting
-                            ? 'deepLinkReplyBooting'
-                            : incomingReplyBanId
-                              ? 'incomingReplyBanId'
-                              : incomingGateActive && !bansReturnToLobbyLatch
-                                ? 'incomingGateActive'
-                                : ctaState !== 'visible' &&
-                                    ctaState !== 'exiting' &&
-                                    ctaState !== 'entering'
-                                  ? 'ctaState'
-                                  : null,
+    ctaStateAllowsLobbyCta: showLobbyCta,
+    lobbyCtaEligibilityReason: lobbyCtaEligibility.reason,
+    firstFalseGuard: !showLobbyCta
+      ? lobbyCtaEligibility.reason ?? 'cta-eligibility'
+      : null,
+    reason: !showLobbyCta
+      ? lobbyCtaEligibility.reason ?? 'cta-eligibility'
+      : null,
   });
   type OverlayQueueMutationOperation =
     | 'enqueue'
@@ -5246,34 +5215,29 @@ export function InstantBanFlow({
   ]);
 
   /**
-   * V4: false→true edge on postNotificationPresentationFullyReleased.
-   * V3 runtime-idle completion edge is bypassed — CTA restores only after host
-   * result/status/dim/mount layers actually unmount. Uses canonical helpers only.
+   * Stage 6B Phase 3 / V4: restore Lobby CTA when presentation is fully
+   * released. Sync visible (no enter timer). Remount while already released
+   * also restores — false→true edge alone is insufficient.
    */
   useEffect(() => {
-    const snap = buildPostNotificationPresentationSnapshot(
-      notificationRuntimeState,
-      {
-        notificationOverlayMounted,
-        notificationQueueUiLock: notificationOverlayMounted,
-        hostResultActive: Boolean(result),
-        directOverboardActive: showDirectOverboardLayer,
-        notificationChainTransitioning,
-        visualQueueDimSession,
-        orbOverlayDim,
-        postSuccessHandoffBlocking,
-        successExitDraining,
-      },
-    );
-    const released = isPostNotificationPresentationFullyReleased(snap);
+    const released = presentationFullyReleased;
     const { edge, nextPrevious } = detectPostNotificationPresentationReleaseEdge(
       presentationFullyReleasedPrevRef.current,
       released,
     );
+    const remountOrEdge = shouldRestoreCtaOnReleasedPresentation({
+      presentationFullyReleased: released,
+      previousReleased: presentationFullyReleasedPrevRef.current,
+      ctaState,
+      phaseIdle: phase === 'idle',
+    });
     presentationFullyReleasedPrevRef.current = nextPrevious;
-    if (!edge) return;
-    // Existing check/reply/close paths may already have restored CTA — do not
-    // restart the spring when ctaState is already entering/visible.
+    if (!released) return;
+    if (!edge && !remountOrEdge && !lobbyCtaEligibility.forceCtaVisible) return;
+    if (phase !== 'idle') return;
+    if (lobbyCtaHostBlocks) return;
+    if (!interactiveLobbyChromeMayShow) return;
+    // Existing check/reply/close paths may already have restored CTA.
     if (
       ctaState === 'visible' ||
       ctaState === 'entering' ||
@@ -5281,24 +5245,20 @@ export function InstantBanFlow({
     ) {
       return;
     }
-    if (phase !== 'idle') return;
     allowSuccessExitLobbyOpen();
     openLobby('post-notification-presentation-released');
-    beginCtaSpringIn();
+    // Deterministic restore — no CTA_ENTER_MS timer (Phase 3 invariant 10).
+    clearCtaEnterTimer();
+    setCtaState('visible');
   }, [
-    beginCtaSpringIn,
+    clearCtaEnterTimer,
     ctaState,
-    notificationChainTransitioning,
-    notificationOverlayMounted,
-    notificationRuntimeState,
+    interactiveLobbyChromeMayShow,
+    lobbyCtaEligibility.forceCtaVisible,
+    lobbyCtaHostBlocks,
     openLobby,
-    orbOverlayDim,
     phase,
-    postSuccessHandoffBlocking,
-    result,
-    showDirectOverboardLayer,
-    successExitDraining,
-    visualQueueDimSession,
+    presentationFullyReleased,
   ]);
 
   useEffect(() => {

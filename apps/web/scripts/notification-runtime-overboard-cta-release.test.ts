@@ -135,11 +135,12 @@ async function main() {
         false,
       );
       assert.equal(flow.includes('subscribeIncomingOverboardCompletion'), false);
-      // V4: CTA restores only on post-notification presentation fully released.
+      // V4/Phase 3: CTA restores on presentation fully released (sync visible).
       assert.match(flow, /post-notification-presentation-released/);
       assert.match(flow, /isPostNotificationPresentationFullyReleased/);
       assert.match(flow, /detectPostNotificationPresentationReleaseEdge/);
-      assert.match(flow, /beginCtaSpringIn\(\)/);
+      assert.match(flow, /decideLobbyCtaEligibility/);
+      assert.match(flow, /setCtaState\('visible'\)/);
       assert.match(flow, /allowSuccessExitLobbyOpen\(\)/);
     },
   );

@@ -387,15 +387,15 @@ async function main() {
   );
 
   await spec(
-    'H: InstantBanFlow still uses existing restore paths; V4 does not call setCtaState directly',
+    'H: InstantBanFlow restores CTA sync on presentation release (Phase 3)',
     () => {
       const flow = readSource(
         'apps/web/src/components/instant-ban/InstantBanFlow.tsx',
       );
       assert.match(flow, /post-notification-presentation-released/);
       assert.match(flow, /allowSuccessExitLobbyOpen\(\)/);
-      assert.match(flow, /beginCtaSpringIn\(\)/);
       assert.match(flow, /openLobby\('post-notification-presentation-released'\)/);
+      assert.match(flow, /decideLobbyCtaEligibility/);
       // V3 CTA restore from runtime completion edge is bypassed
       assert.equal(
         flow.includes("openLobby('overboard-runtime-complete')"),
@@ -404,13 +404,12 @@ async function main() {
       // Existing restore paths remain
       assert.match(flow, /restoreLobbyCtaAfterBansSectionClose/);
       assert.match(flow, /success-exit-empty-queue/);
-      // V4 effect must not setCtaState directly in the release edge path —
-      // setCtaState still exists for normal UI; assert edge uses beginCtaSpringIn.
+      // Phase 3: release path sets visible synchronously (no enter timer).
       const edgeIdx = flow.indexOf('post-notification-presentation-released');
       assert.ok(edgeIdx > 0);
-      const window = flow.slice(Math.max(0, edgeIdx - 400), edgeIdx + 200);
-      assert.equal(window.includes("setCtaState('"), false);
-      assert.match(window, /beginCtaSpringIn\(\)/);
+      const window = flow.slice(Math.max(0, edgeIdx - 500), edgeIdx + 250);
+      assert.match(window, /setCtaState\('visible'\)/);
+      assert.doesNotMatch(window, /beginCtaSpringIn\(\)/);
     },
   );
 
