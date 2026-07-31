@@ -161,11 +161,12 @@ function main(): void {
       existsSync(join(webSrc, 'components/instant-ban/instant-ban.css')),
       true,
     );
-    assert.match(
-      read('product-flow/product-flow.surface.tsx'),
-      /instant-ban\.css/,
-    );
-    pass('6. shared Product Who/Success assets retained and styled');
+    const surface = read('product-flow/product-flow.surface.tsx');
+    assert.doesNotMatch(surface, /instant-ban\.css/);
+    assert.doesNotMatch(surface, /WhoOverlay|from ['"]@\/components\/instant-ban\//);
+    assert.match(surface, /ProductWhoScreen|presentation\/WhoScreen/);
+    assert.match(surface, /ProductSuccessScreen|presentation\/SuccessScreen/);
+    pass('6. legacy Who/Success files retained on disk; Product uses new presentation');
   }
 
   console.log(`\n${passed} passed\n`);

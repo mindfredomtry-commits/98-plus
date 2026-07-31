@@ -4,18 +4,17 @@
  */
 'use client';
 
-import { useCallback, useMemo, useSyncExternalStore } from 'react';
-import {
-  COMPOSE_RECIPIENT_MODES,
-  type FriendCard,
-  type UserPublic,
-} from '@98plus/shared';
-import { WhoOverlay } from '@/components/instant-ban/WhoScreen';
-import { SuccessScreen } from '@/components/instant-ban/SuccessScreen';
+import { useCallback, useSyncExternalStore } from 'react';
+import type { FriendCard, UserPublic } from '@98plus/shared';
 import type { ProductFlowController } from './product-flow.controller';
-import { selectCreateBanRecipientLabel } from './create-ban/create-ban.selectors';
+import {
+  selectCreateBanRecipientLabel,
+  selectCreateBanSuccessPresentation,
+  selectCreateBanWhoPresentation,
+} from './create-ban/create-ban.selectors';
 import type { CreateBanErrorCode } from './create-ban/create-ban.types';
-import '@/components/instant-ban/instant-ban.css';
+import { ProductWhoScreen } from './presentation/WhoScreen';
+import { ProductSuccessScreen } from './presentation/SuccessScreen';
 
 export type ProductFlowSurfaceProps = {
   controller: ProductFlowController;
@@ -63,12 +62,8 @@ export function ProductFlowSurface({
 }: ProductFlowSurfaceProps) {
   const state = useProductFlowState(controller);
   const createBan = controller.getCreateBanState();
-
-  const friends = useMemo<FriendCard[]>(() => {
-    return state.recipients.status === 'READY'
-      ? state.recipients.recipients
-      : [];
-  }, [state.recipients]);
+  const who = selectCreateBanWhoPresentation(createBan);
+  const success = selectCreateBanSuccessPresentation(createBan);
 
   const recipientLabel = selectCreateBanRecipientLabel(createBan);
   const sending = state.submission.status === 'SUBMITTING';
@@ -83,11 +78,10 @@ export function ProductFlowSurface({
       onComposeRequested();
       return;
     }
-    // Fallback only when Coordinator wiring is absent.
     controller.navigateLocal('WHO');
   }, [controller, onComposeRequested]);
 
-  const onSelectFriend = useCallback(
+  const onConfirmRecipient = useCallback(
     (friend: FriendCard) => {
       controller.dispatch({ type: 'RECIPIENT_SELECTED', recipient: friend });
     },
@@ -114,8 +108,12 @@ export function ProductFlowSurface({
     controller.dispatch({ type: 'BACK_REQUESTED' });
   }, [controller]);
 
-  const onDismissWho = useCallback(() => {
+  const onWhoBack = useCallback(() => {
     controller.dispatch({ type: 'RELEASE_TO_LOBBY_REQUESTED' });
+  }, [controller]);
+
+  const onWhoRetry = useCallback(() => {
+    controller.dispatch({ type: 'RECIPIENTS_RETRY_REQUESTED' });
   }, [controller]);
 
   if (state.route === 'LOBBY') {
@@ -187,14 +185,17 @@ export function ProductFlowSurface({
         className="product-flow-surface product-flow-surface--who"
         data-product-route="WHO"
       >
-        <WhoOverlay
-          title="Кому запретить?"
-          friends={friends}
-          onSelect={onSelectFriend}
-          onInviteMore={() => undefined}
-          onDismissDragProgress={() => undefined}
-          onDismissExitStart={() => undefined}
-          onDismissToLobby={onDismissWho}
+        <ProductWhoScreen
+          recipientsStatus={who.recipientsStatus}
+          recipients={who.recipients}
+          selectedRecipientId={who.selectedRecipientId}
+          isReply={who.isReply}
+          replyRecipientLabel={who.replyRecipientLabel}
+          errorDetail={who.errorDetail}
+          onSelectRecipient={() => undefined}
+          onConfirmRecipient={onConfirmRecipient}
+          onBack={onWhoBack}
+          onRetry={onWhoRetry}
         />
       </div>
     );
@@ -297,14 +298,12 @@ export function ProductFlowSurface({
         className="product-flow-surface product-flow-surface--success"
         data-product-route="SUCCESS"
       >
-        <SuccessScreen
-          senderUser={user}
-          recipientMode={COMPOSE_RECIPIENT_MODES.DIRECT}
-          selectedUser={state.selectedUser}
-          banText={state.banText}
-          durationMinutes={state.durationMinutes}
-          onExitComplete={onSuccessExit}
-          onShare={() => undefined}
+        <ProductSuccessScreen
+          recipientLabel={success.recipientLabel}
+          banText={success.banText}
+          durationMinutes={success.durationMinutes}
+          isReply={success.isReply}
+          onComplete={onSuccessExit}
         />
       </div>
     );
