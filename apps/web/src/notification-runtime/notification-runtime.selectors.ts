@@ -1,5 +1,6 @@
 /**
- * Vertical 0 — pure derived selectors for notification runtime.
+ * Stage 7 Phase 1 — queue / lifecycle selectors only.
+ * No Lobby, chrome, orb, CTA, or presentation-policy projections.
  */
 import type {
   NotificationItem,
@@ -7,27 +8,30 @@ import type {
 } from './notification-runtime.types';
 import { notificationItemId } from './notification-runtime.types';
 
-const OVERLAY_LIFECYCLE = new Set([
-  'showing',
-  'submitting',
-  'completing',
-  'draining',
-]);
-
+/** Ready head = FIFO queue[0]. Not an activated / visible surface claim. */
 export function selectCurrentItem(
   state: NotificationRuntimeState,
 ): NotificationItem | null {
   return state.items.queue[0] ?? null;
 }
 
-export function selectOverlayVisible(state: NotificationRuntimeState): boolean {
-  return OVERLAY_LIFECYCLE.has(state.lifecycle.status);
+export function selectReadyHeadId(
+  state: NotificationRuntimeState,
+): string | null {
+  const head = selectCurrentItem(state);
+  return head ? notificationItemId(head) : null;
+}
+
+/** @deprecated Alias — ready head id, not an activated surface. */
+export function selectCurrentItemId(
+  state: NotificationRuntimeState,
+): string | null {
+  return selectReadyHeadId(state);
 }
 
 /**
  * Canonical pending indicator:
  * unique(pending.itemIds) minus consumed.itemIds (order preserved from pending).
- * Queue length / display / current are not badge authority.
  */
 export function selectCanonicalPendingItemIds(
   state: NotificationRuntimeState,
@@ -43,7 +47,6 @@ export function selectCanonicalPendingItemIds(
   return out;
 }
 
-/** Alias — sole pending-ids selector for production badge. */
 export const selectPendingItemIds = selectCanonicalPendingItemIds;
 
 export function selectPendingCount(state: NotificationRuntimeState): number {
@@ -64,23 +67,12 @@ export function selectHasNext(state: NotificationRuntimeState): boolean {
   return state.items.queue.length > 1;
 }
 
-export function selectIsTransitioning(
-  state: NotificationRuntimeState,
-): boolean {
-  return state.lifecycle.status === 'completing';
-}
-
 export function selectIsActionBlocked(
   state: NotificationRuntimeState,
 ): boolean {
-  // pending = HTTP in flight; succeeded = answered, waiting for partner/result
   return (
     state.action.status === 'pending' || state.action.status === 'succeeded'
   );
-}
-
-export function selectIsDraining(state: NotificationRuntimeState): boolean {
-  return state.lifecycle.status === 'draining';
 }
 
 export function selectIsBooting(state: NotificationRuntimeState): boolean {
@@ -95,17 +87,7 @@ export function selectIsRecovering(state: NotificationRuntimeState): boolean {
 }
 
 export function selectIsDirectEntry(state: NotificationRuntimeState): boolean {
-  return (
-    state.directEntry.active ||
-    state.display.mode === 'direct' ||
-    state.display.mode === 'direct-overboard'
-  );
-}
-
-export function selectDirectReturnPolicy(
-  state: NotificationRuntimeState,
-): NotificationRuntimeState['directEntry']['returnPolicy'] {
-  return state.directEntry.returnPolicy;
+  return state.directEntry.active;
 }
 
 export function selectHasDeferredDirectEntry(
@@ -114,44 +96,6 @@ export function selectHasDeferredDirectEntry(
   return state.directEntry.deferred != null;
 }
 
-export function selectLobbyMayShow(state: NotificationRuntimeState): boolean {
-  return state.lifecycle.status === 'idle' && !selectOverlayVisible(state);
-}
-
-/**
- * Interactive lobby chrome (top nav + CTA) during notification bootstrap.
- * Strict lobby authority remains selectLobbyMayShow (idle only).
- * Safe while booting only when nothing must claim the overlay above lobby.
- */
-export function selectInteractiveLobbyChromeMayShow(
-  state: NotificationRuntimeState,
-): boolean {
-  if (selectLobbyMayShow(state)) return true;
-  if (state.lifecycle.status !== 'booting') return false;
-  if (selectOverlayVisible(state)) return false;
-  if (state.display.kind != null || state.display.payload != null) return false;
-  if (state.items.queue.length > 0) return false;
-  if (selectIsDirectEntry(state)) return false;
-  if (selectHasDeferredDirectEntry(state)) return false;
-  if (selectIsActionBlocked(state)) return false;
-  if (selectIsDraining(state)) return false;
-  // Bootstrap parks recovery.status=loading; only true recovery lifecycle blocks chrome.
-  if (state.lifecycle.status === 'recovering') return false;
-  return true;
-}
-
-/** Hold ready lobby orb until chrome may paint during unsafe bootstrap. */
-export function selectHoldLobbyOrbForBootstrap(
-  state: NotificationRuntimeState,
-): boolean {
-  return (
-    selectIsBooting(state) && !selectInteractiveLobbyChromeMayShow(state)
-  );
-}
-
-export function selectCurrentItemId(
-  state: NotificationRuntimeState,
-): string | null {
-  const current = selectCurrentItem(state);
-  return current ? notificationItemId(current) : null;
+export function selectQueueLength(state: NotificationRuntimeState): number {
+  return state.items.queue.length;
 }

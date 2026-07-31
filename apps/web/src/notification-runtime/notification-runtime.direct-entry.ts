@@ -1,14 +1,8 @@
 /**
- * Vertical 6 — deeplink / live-single direct entry (runtime sole owner).
- * Transport fetch only; queue/display/lobby decided by reducer.
+ * Stage 7 Phase 1 — deeplink / live-single direct entry (ingest only).
+ * Never activates a notification surface.
  */
 import type { BanInteraction, BanResult } from '@98plus/shared';
-import type { OwnerActiveDisplayPatch } from '@/lib/notification-overlay-owner';
-import type { QueuedOverlay } from '@/lib/overlay-queue';
-import {
-  buildExclusiveDisplayPatchFromRuntime,
-  type RuntimeLegacySinks,
-} from './notification-runtime.production-advance';
 import {
   nextRuntimeTransitionId,
   notificationItemId,
@@ -17,10 +11,7 @@ import {
 import {
   selectHasDeferredDirectEntry,
   selectIsDirectEntry,
-  selectLobbyMayShow,
-  selectOverlayVisible,
 } from './notification-runtime.selectors';
-import { projectRuntimeQueueToLegacy } from './notification-runtime.adapters';
 import type {
   DirectEntrySource,
   DirectReturnPolicy,
@@ -31,7 +22,7 @@ import type {
 } from './notification-runtime.types';
 
 export type DirectEntryOutcome =
-  | 'showing'
+  | 'queued'
   | 'idle'
   | 'deferred'
   | 'failed'
@@ -41,23 +32,6 @@ export type DirectItemTransport = (args: {
   targetId: string;
   targetKind: NotificationItemKind | null;
 }) => Promise<NotificationItem>;
-
-function projectAfterDirect(
-  store: NotificationRuntimeStore,
-  sinks: RuntimeLegacySinks,
-  source: string,
-): void {
-  const state = store.getState();
-  sinks.writeQueue(
-    projectRuntimeQueueToLegacy(state),
-    `v6-direct-entry:${source}`,
-  );
-  sinks.writeDisplay(
-    buildExclusiveDisplayPatchFromRuntime(state),
-    `v6-direct-entry-display:${source}`,
-  );
-  sinks.runEffects?.(store.getLastEffects());
-}
 
 export function toDirectNotificationItem(
   kind: NotificationItemKind,
@@ -73,8 +47,7 @@ export function toDirectNotificationItem(
 }
 
 /**
- * Begin direct entry. Duplicate transitionId → rejected (store no-op).
- * Host must set `defer` when SUCCESS / compose / product-exclusive is active.
+ * Begin direct entry. Fetches and enqueues; does not activate.
  */
 export function requestDirectEntry(
   store: NotificationRuntimeStore,
@@ -86,10 +59,8 @@ export function requestDirectEntry(
     defer?: boolean;
     transitionId?: string;
     source?: RuntimeSource;
-    /** When item already known (live), materialize immediately after request. */
     item?: NotificationItem | null;
   },
-  sinks?: RuntimeLegacySinks,
 ): {
   accepted: boolean;
   deferred: boolean;
@@ -115,7 +86,7 @@ export function requestDirectEntry(
     targetId: args.targetId,
     targetKind: args.targetKind ?? null,
     entrySource: args.entrySource,
-    returnPolicy: args.returnPolicy ?? 'lobby_after_card',
+    returnPolicy: args.returnPolicy ?? 'retain_queue',
     defer: args.defer === true,
     source,
   });
@@ -153,39 +124,27 @@ export function requestDirectEntry(
     !state.directEntry.active ||
     state.directEntry.transitionId !== transitionId
   ) {
-    // Consumed → idle lobby path
-    if (selectLobbyMayShow(state)) {
-      sinks && projectAfterDirect(store, sinks, 'consumed-or-idle');
-      return {
-        accepted: true,
-        deferred: false,
-        transitionId,
-        outcome: 'idle',
-        effects: result.effects,
-      };
-    }
-    return {
-      accepted: false,
-      deferred: false,
-      transitionId,
-      outcome: 'rejected',
-      effects: result.effects,
-    };
-  }
-
-  // Item already available — materialize without waiting for transport.
-  if (args.item) {
-    const mid = applyDirectItemReceived(
-      store,
-      { transitionId, item: args.item, source },
-      sinks,
-    );
     return {
       accepted: true,
       deferred: false,
       transitionId,
-      outcome: mid,
-      effects: store.getLastEffects(),
+      outcome: 'idle',
+      effects: result.effects,
+    };
+  }
+
+  if (args.item) {
+    applyDirectItemReceived(store, {
+      transitionId,
+      item: args.item,
+      source,
+    });
+    return {
+      accepted: true,
+      deferred: false,
+      transitionId,
+      outcome: 'queued',
+      effects: result.effects,
     };
   }
 
@@ -193,7 +152,7 @@ export function requestDirectEntry(
     accepted: true,
     deferred: false,
     transitionId,
-    outcome: state.lifecycle.status === 'recovering' ? 'deferred' : 'showing',
+    outcome: 'queued',
     effects: result.effects,
   };
 }
@@ -205,7 +164,6 @@ export function applyDirectItemReceived(
     item: NotificationItem;
     source?: RuntimeSource;
   },
-  sinks?: RuntimeLegacySinks,
 ): DirectEntryOutcome {
   store.dispatch({
     type: 'DIRECT_ITEM_RECEIVED',
@@ -213,75 +171,54 @@ export function applyDirectItemReceived(
     item: args.item,
     source: args.source ?? 'deeplink',
   });
-  sinks && projectAfterDirect(store, sinks, 'item-received');
-  const state = store.getState();
-  if (selectOverlayVisible(state) && selectIsDirectEntry(state)) {
-    return 'showing';
-  }
-  if (selectLobbyMayShow(state)) return 'idle';
-  return 'rejected';
+  return 'queued';
 }
 
-export function failDirectItem(
+export function applyDirectItemFailed(
   store: NotificationRuntimeStore,
   args: {
     transitionId: string;
-    errorCode: string;
+    errorCode?: string;
     source?: RuntimeSource;
   },
-  sinks?: RuntimeLegacySinks,
 ): DirectEntryOutcome {
   store.dispatch({
     type: 'DIRECT_ITEM_FAILED',
     transitionId: args.transitionId,
-    errorCode: args.errorCode,
+    errorCode: args.errorCode ?? 'DIRECT_FETCH_FAILED',
     source: args.source ?? 'deeplink',
   });
-  sinks && projectAfterDirect(store, sinks, 'item-failed');
-  return selectLobbyMayShow(store.getState()) ? 'failed' : 'rejected';
+  return 'failed';
 }
 
-/**
- * Run FETCH_DIRECT_ITEM transport; host supplies fetch fn.
- * Does not decide lobby/queue — only dispatches received/failed.
- */
 export async function executeFetchDirectItemEffect(
   store: NotificationRuntimeStore,
   effect: Extract<RuntimeEffect, { type: 'FETCH_DIRECT_ITEM' }>,
   fetchItem: DirectItemTransport,
-  sinks?: RuntimeLegacySinks,
 ): Promise<DirectEntryOutcome> {
   try {
     const item = await fetchItem({
       targetId: effect.targetId,
       targetKind: effect.targetKind,
     });
-    if (store.getState().directEntry.transitionId !== effect.transitionId) {
-      return 'rejected';
-    }
-    return applyDirectItemReceived(
-      store,
-      {
-        transitionId: effect.transitionId,
-        item,
-        source: effect.source,
-      },
-      sinks,
-    );
+    return applyDirectItemReceived(store, {
+      transitionId: effect.transitionId,
+      item,
+      source: effect.source,
+    });
   } catch (err) {
-    const code =
+    const message =
       err instanceof Error && err.message
-        ? err.message.slice(0, 64)
+        ? err.message
         : 'DIRECT_FETCH_FAILED';
-    return failDirectItem(
-      store,
-      { transitionId: effect.transitionId, errorCode: code, source: effect.source },
-      sinks,
-    );
+    return applyDirectItemFailed(store, {
+      transitionId: effect.transitionId,
+      errorCode: message,
+      source: effect.source,
+    });
   }
 }
 
-/** After SUCCESS drain / compose end — start deferred direct if any. */
 export function flushDeferredDirectEntry(
   store: NotificationRuntimeStore,
   source: RuntimeSource = 'system',
@@ -293,38 +230,4 @@ export function flushDeferredDirectEntry(
   return result.effects;
 }
 
-export function completeDirectSessionViaDismiss(
-  store: NotificationRuntimeStore,
-  args: {
-    targetItemId: string;
-    reason?:
-      | 'user_dismiss'
-      | 'go_to_bans'
-      | 'close_result'
-      | 'continue_chain'
-      | 'system';
-    source?: RuntimeSource;
-  },
-  sinks?: RuntimeLegacySinks,
-): { lobbyMayShow: boolean; pendingIds: string[] } {
-  store.dispatch({
-    type: 'CARD_DISMISS_REQUESTED',
-    transitionId: nextRuntimeTransitionId('direct-dismiss'),
-    targetItemId: args.targetItemId,
-    reason: args.reason ?? 'user_dismiss',
-    source: args.source ?? 'user',
-  });
-  sinks && projectAfterDirect(store, sinks, 'direct-dismiss');
-  const state = store.getState();
-  return {
-    lobbyMayShow: selectLobbyMayShow(state),
-    pendingIds: state.pending.itemIds,
-  };
-}
-
-export type DirectEntryLegacySinks = {
-  writeQueue: (queue: QueuedOverlay[], source: string) => void;
-  writeDisplay: (patch: OwnerActiveDisplayPatch, source: string) => void;
-};
-
-export { notificationItemId, selectIsDirectEntry, selectLobbyMayShow };
+export { notificationItemId, selectIsDirectEntry };

@@ -1,51 +1,46 @@
 /**
- * Phase 0 — narrow public Host ↔ Runtime contract.
- * UI must not import reducer events, generation IDs, or legacy refs.
+ * Stage 7 Phase 1 — passive Host ↔ Runtime contract.
+ * Exposes ready-head / queue / action status. No Lobby/CTA/Product fields.
  */
 import type { BanInteraction, BanResult } from '@98plus/shared';
 import {
   selectCurrentItem,
   selectHasNext,
   selectIndicatorVisible,
-  selectInteractiveLobbyChromeMayShow,
   selectIsActionBlocked,
   selectIsBooting,
   selectIsRecovering,
-  selectLobbyMayShow,
-  selectOverlayVisible,
   selectPendingCount,
+  selectReadyHeadId,
 } from './notification-runtime.selectors';
 import {
   notificationItemId,
-  type DisplayMode,
   type NotificationItem,
   type NotificationRuntimeState,
 } from './notification-runtime.types';
 
 export type NotificationHostPhase =
-  | 'LOBBY'
-  | 'INCOMING'
-  | 'CHECK'
-  | 'RESULT'
+  | 'READY'
+  | 'EMPTY'
   | 'BOOTING'
-  | 'RECOVERING';
+  | 'RECOVERING'
+  | 'ACTION_PENDING';
 
 export type NotificationCard =
-  | { kind: 'incoming'; itemId: string; ban: BanInteraction; mode: DisplayMode }
-  | { kind: 'check'; itemId: string; ban: BanInteraction; mode: DisplayMode }
-  | { kind: 'result'; itemId: string; result: BanResult; mode: DisplayMode };
+  | { kind: 'incoming'; itemId: string; ban: BanInteraction }
+  | { kind: 'check'; itemId: string; ban: BanInteraction }
+  | { kind: 'result'; itemId: string; result: BanResult };
 
 export type NotificationViewState = {
   phase: NotificationHostPhase;
-  currentCard: NotificationCard | null;
+  /** Ready FIFO head — not an activated surface claim. */
+  readyHead: NotificationCard | null;
+  readyHeadId: string | null;
   queueLength: number;
   pendingCount: number;
-  ctaVisible: boolean;
   indicatorVisible: boolean;
   isProcessingAction: boolean;
   hasNext: boolean;
-  lobbyMayShow: boolean;
-  interactiveLobbyChromeMayShow: boolean;
 };
 
 export type NotificationIntentResult = {
@@ -53,123 +48,68 @@ export type NotificationIntentResult = {
   reason?: string;
 };
 
-/**
- * Public intents. Host/UI never dispatches raw reducer events.
- * `reply` is a product-compose handoff signal (runtime has no incoming_reply executor yet).
- */
+/** Public intents. No Product / Reply navigation. */
 export type NotificationIntents = {
   accept(): Promise<NotificationIntentResult>;
   confirmCheck(completed: boolean): Promise<NotificationIntentResult>;
-  dismissResult(reason?: 'close_result' | 'go_to_bans' | 'continue_chain'): Promise<NotificationIntentResult>;
-  dismissCurrent(reason?: 'user_dismiss' | 'system'): Promise<NotificationIntentResult>;
-  /** Compose-domain handoff — does not mutate runtime queue by itself. */
-  reply(): NotificationIntentResult;
-  openBansCta(): NotificationIntentResult;
-  refresh(reason?: 'bootstrap' | 'reconnect' | 'user'): Promise<NotificationIntentResult>;
+  dismissResult(
+    reason?: 'close_result' | 'continue_chain',
+  ): Promise<NotificationIntentResult>;
+  dismissCurrent(
+    reason?: 'user_dismiss' | 'system',
+  ): Promise<NotificationIntentResult>;
+  refresh(
+    reason?: 'bootstrap' | 'reconnect' | 'user',
+  ): Promise<NotificationIntentResult>;
 };
 
-function cardFromItem(
-  item: NotificationItem,
-  mode: DisplayMode,
-): NotificationCard {
+function cardFromItem(item: NotificationItem): NotificationCard {
   const itemId = notificationItemId(item);
   if (item.kind === 'result') {
-    return { kind: 'result', itemId, result: item.result, mode };
+    return { kind: 'result', itemId, result: item.result };
   }
   if (item.kind === 'check') {
-    return { kind: 'check', itemId, ban: item.ban, mode };
+    return { kind: 'check', itemId, ban: item.ban };
   }
-  return { kind: 'incoming', itemId, ban: item.ban, mode };
+  return { kind: 'incoming', itemId, ban: item.ban };
 }
 
 /**
- * Sole host-facing view selector. Uses display.payload when present;
- * falls back to queue head. Never exposes pending generation / legacy paint.
+ * Passive read model. Ready head may exist without any application surface claim.
  */
 export function selectNotificationViewState(
   state: NotificationRuntimeState,
-  opts?: {
-    /** Boot intro primed (product shell). Default true for headless tests. */
-    lobbyBootIntroPrimed?: boolean;
-    /** Compose / send / SUCCESS product blockers. */
-    hostBlocksCta?: boolean;
-  },
 ): NotificationViewState {
-  const lobbyBootIntroPrimed = opts?.lobbyBootIntroPrimed ?? true;
-  const hostBlocksCta = opts?.hostBlocksCta ?? false;
-  const lobbyMayShow = selectLobbyMayShow(state);
-  const interactiveLobbyChromeMayShow =
-    selectInteractiveLobbyChromeMayShow(state);
-  const overlayVisible = selectOverlayVisible(state);
   const isProcessingAction = selectIsActionBlocked(state);
   const pendingCount = selectPendingCount(state);
   const indicatorVisible = selectIndicatorVisible(state);
   const hasNext = selectHasNext(state);
   const queueLength = state.items.queue.length;
-
-  const payload = state.display.payload;
   const head = selectCurrentItem(state);
-  const mode = state.display.mode;
-  let currentCard: NotificationCard | null = null;
-  if (payload) {
-    if (payload.kind === 'result') {
-      currentCard = {
-        kind: 'result',
-        itemId: notificationItemId({ kind: 'result', result: payload.result }),
-        result: payload.result,
-        mode,
-      };
-    } else if (payload.kind === 'check') {
-      currentCard = {
-        kind: 'check',
-        itemId: notificationItemId({ kind: 'check', ban: payload.ban }),
-        ban: payload.ban,
-        mode,
-      };
-    } else {
-      currentCard = {
-        kind: 'incoming',
-        itemId: notificationItemId({ kind: 'incoming', ban: payload.ban }),
-        ban: payload.ban,
-        mode,
-      };
-    }
-  } else if (head && overlayVisible) {
-    currentCard = cardFromItem(head, mode);
-  }
+  const readyHead = head ? cardFromItem(head) : null;
+  const readyHeadId = selectReadyHeadId(state);
 
   let phase: NotificationHostPhase;
-  if (selectIsBooting(state) && !currentCard) {
+  if (selectIsBooting(state)) {
     phase = 'BOOTING';
-  } else if (selectIsRecovering(state) && !currentCard) {
+  } else if (selectIsRecovering(state)) {
     phase = 'RECOVERING';
-  } else if (currentCard?.kind === 'incoming') {
-    phase = 'INCOMING';
-  } else if (currentCard?.kind === 'check') {
-    phase = 'CHECK';
-  } else if (currentCard?.kind === 'result') {
-    phase = 'RESULT';
+  } else if (isProcessingAction) {
+    phase = 'ACTION_PENDING';
+  } else if (readyHead) {
+    phase = 'READY';
   } else {
-    phase = 'LOBBY';
+    phase = 'EMPTY';
   }
-
-  const ctaVisible =
-    lobbyBootIntroPrimed &&
-    !hostBlocksCta &&
-    interactiveLobbyChromeMayShow &&
-    phase === 'LOBBY' &&
-    !currentCard;
 
   return {
     phase,
-    currentCard,
+    readyHead,
+    readyHeadId,
     queueLength,
     pendingCount,
-    ctaVisible,
     indicatorVisible,
     isProcessingAction,
     hasNext,
-    lobbyMayShow,
-    interactiveLobbyChromeMayShow,
   };
 }

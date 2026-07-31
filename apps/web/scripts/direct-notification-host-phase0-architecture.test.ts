@@ -170,7 +170,7 @@ async function main() {
     pass('7. legacy ownership graph files are deleted');
   }
 
-  // 8. View-state selector works without legacy paint
+  // 8. View-state selector exposes ready head without activation / Lobby fields
   {
     const store = createNotificationRuntimeStore();
     const ban = {
@@ -182,15 +182,24 @@ async function main() {
       item: { kind: 'incoming', ban },
       source: 'test',
     });
-    const view = selectNotificationViewState(store.getState(), {
-      lobbyBootIntroPrimed: true,
-      hostBlocksCta: false,
-    });
-    assert.equal(view.phase, 'INCOMING');
-    assert.equal(view.currentCard?.kind, 'incoming');
-    assert.equal(view.ctaVisible, false);
+    const view = selectNotificationViewState(store.getState());
+    assert.equal(view.phase, 'READY');
+    assert.equal(view.readyHead?.kind, 'incoming');
+    assert.equal(view.readyHeadId, 'incoming:A');
     assert.equal(view.queueLength >= 1, true);
-    pass('8. selectNotificationViewState maps incoming without legacy paint');
+    assert.equal('ctaVisible' in view, false);
+    assert.equal('currentCard' in view, false);
+    pass('8. selectNotificationViewState maps ready head without Lobby/CTA');
+  }
+
+  // 8b. Host has no expectedItem veto
+  {
+    assert.doesNotMatch(directHostSrc, /expectedItemIsDisplayable/);
+    assert.doesNotMatch(directHostSrc, /onSurfaceUnavailable/);
+    assert.doesNotMatch(directHostSrc, /onReply/);
+    assert.doesNotMatch(directHostSrc, /onOpenBans/);
+    assert.match(directHostSrc, /activation unavailable/i);
+    pass('8b. DirectNotificationHost has no identity veto or Product handoffs');
   }
 
   // 9. Host API / ingest / intents modules exist

@@ -52,7 +52,8 @@ export type RecoveryStatus = 'idle' | 'loading' | 'applied' | 'failed';
 
 /** Vertical 6 — deeplink / live-single entry metadata (not a second owner). */
 export type DirectEntrySource = 'deeplink' | 'live-single';
-export type DirectReturnPolicy = 'lobby_after_card';
+/** Queue retention after direct ingest. Product return is Coordinator-owned. */
+export type DirectReturnPolicy = 'retain_queue';
 
 export type DeferredDirectEntry = {
   transitionId: string;
@@ -118,11 +119,10 @@ export type NotificationRuntimeState = {
   directEntry: DirectEntryState;
 };
 
-export type CardActionType = 'check_answer' | 'incoming_reply' | 'incoming_overboard';
+export type CardActionType = 'check_answer' | 'incoming_overboard';
 
 export type CardDismissReason =
   | 'user_dismiss'
-  | 'go_to_bans'
   | 'close_result'
   | 'continue_chain'
   | 'system';
@@ -219,10 +219,6 @@ export type NotificationRuntimeResultEvent =
       pendingItemIds: string[];
       /** Local/server consumed tombstones (short TTL — never infinite). */
       consumedItemIds?: string[];
-      /**
-       * real-time → show queue head; normal → pending/badge only (no auto-show).
-       */
-      autoShow: boolean;
       sourceVersion: string | null;
       source: RuntimeSource;
       /** Request-start pending generation (Stage 6B Phase 4). */
@@ -234,8 +230,6 @@ export type NotificationRuntimeResultEvent =
       items: NotificationItem[];
       pendingItemIds: string[];
       consumedItemIds?: string[];
-      /** When false (normal mode), park in pending only — no overlay. */
-      autoShow?: boolean;
       sourceVersion: string | null;
       source: RuntimeSource;
       /** Request-start pending generation (Stage 6B Phase 4). */
@@ -312,7 +306,7 @@ export type NotificationRuntimeResultEvent =
       source: RuntimeSource;
     }
   | {
-      /** Vertical 5 — prefetch/materialize failed; go idle + lobbyMayShow. */
+      /** Prefetch/materialize failed; settle idle. */
       type: 'DRAIN_FAILED';
       transitionId: string;
       errorCode: string;
@@ -361,12 +355,7 @@ export type RuntimeEffect =
     }
   | { type: 'MARK_CONSUMED'; itemId: string }
   | { type: 'REFRESH_PENDING'; reason: string }
-  | { type: 'PREFETCH_NEXT'; skipItemId?: string }
-  | {
-      type: 'ANALYTICS_EVENT';
-      name: string;
-      fields?: Record<string, string | number | boolean | null>;
-    };
+  | { type: 'PREFETCH_NEXT'; skipItemId?: string };
 
 export type NotificationRuntimeReducerResult = {
   state: NotificationRuntimeState;

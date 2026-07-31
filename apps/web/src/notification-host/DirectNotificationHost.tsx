@@ -1,16 +1,13 @@
 /**
- * Phase 0 Direct Notification Host.
+ * Stage 7 Phase 1 — Direct Notification Host (passive).
  *
- * Subscribe → selectors → render → intents.
- * No own queue, timers of ownership, mirrors, or legacy refs.
+ * Activation policy is intentionally absent. Coordinator should not enter
+ * NOTIFICATION from Runtime queue facts. If it does, render a diagnostic only.
+ * No expectedItem veto / second identity authority.
  */
 'use client';
 
-import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
-import { createPortal } from 'react-dom';
-import { DirectCheckCard } from '@/components/notification/DirectCheckCard';
-import { DirectIncomingCard } from '@/components/notification/DirectIncomingCard';
-import { DirectResultCard } from '@/components/notification/DirectResultCard';
+import { useMemo, useSyncExternalStore } from 'react';
 import { useNotificationRuntimeStore } from '@/notification-runtime/notification-runtime.context';
 import {
   selectNotificationViewState,
@@ -23,23 +20,14 @@ import './direct-notification-host.css';
 export type DirectNotificationHostProps = {
   viewerId: string | null;
   getToken: () => string | null;
-  expectedItemId: string;
-  onSurfaceUnavailable?: (input: {
-    expectedItemId: string;
-    runtimeItemId: string | null;
-    runtimePhase: NotificationViewState['phase'];
-  }) => void;
-  onReply?: (itemId: string) => void;
-  onOpenBans?: (itemId: string | null) => void;
+  /** Coordinator owner item id — diagnostic only; not a veto gate. */
+  coordinatorItemId?: string | null;
 };
 
 export function DirectNotificationHost({
   viewerId,
   getToken,
-  expectedItemId,
-  onSurfaceUnavailable,
-  onReply,
-  onOpenBans,
+  coordinatorItemId = null,
 }: DirectNotificationHostProps) {
   const store = useNotificationRuntimeStore();
   const state = useSyncExternalStore(
@@ -52,34 +40,6 @@ export function DirectNotificationHost({
     () => selectNotificationViewState(state),
     [state],
   );
-  const unavailableSignatureRef = useRef<string | null>(null);
-  const runtimeItemId = view.currentCard?.itemId ?? null;
-  const expectedItemIsDisplayable =
-    runtimeItemId === expectedItemId &&
-    ((view.phase === 'INCOMING' && view.currentCard?.kind === 'incoming') ||
-      (view.phase === 'CHECK' && view.currentCard?.kind === 'check') ||
-      (view.phase === 'RESULT' && view.currentCard?.kind === 'result'));
-
-  useEffect(() => {
-    if (expectedItemIsDisplayable) {
-      unavailableSignatureRef.current = null;
-      return;
-    }
-    const signature = `${expectedItemId}|${runtimeItemId ?? 'none'}|${view.phase}`;
-    if (unavailableSignatureRef.current === signature) return;
-    unavailableSignatureRef.current = signature;
-    onSurfaceUnavailable?.({
-      expectedItemId,
-      runtimeItemId,
-      runtimePhase: view.phase,
-    });
-  }, [
-    expectedItemId,
-    expectedItemIsDisplayable,
-    onSurfaceUnavailable,
-    runtimeItemId,
-    view.phase,
-  ]);
 
   const intents = useMemo(
     () =>
@@ -87,93 +47,45 @@ export function DirectNotificationHost({
         store,
         getToken,
         onRefresh: (reason) => requestDirectTransportRefresh(reason),
-        onReply,
-        onOpenBans,
       }),
-    [store, getToken, onReply, onOpenBans],
+    [store, getToken],
   );
 
-  const overlay =
-    expectedItemIsDisplayable &&
-    view.phase === 'INCOMING' &&
-    view.currentCard?.kind === 'incoming' ? (
-      <div className="direct-notification-host__overlay" data-phase="INCOMING">
-        <DirectIncomingCard
-          ban={view.currentCard.ban}
-          disabled={view.isProcessingAction}
-          onAccept={() => {
-            void intents.accept();
-          }}
-          onReply={() => {
-            intents.reply();
-          }}
-        />
-      </div>
-    ) : expectedItemIsDisplayable &&
-      view.phase === 'CHECK' &&
-      view.currentCard?.kind === 'check' ? (
-      <div className="direct-notification-host__overlay" data-phase="CHECK">
-        <DirectCheckCard
-          ban={view.currentCard.ban}
-          viewerId={viewerId}
-          disabled={view.isProcessingAction}
-          onConfirm={(completed) => {
-            void intents.confirmCheck(completed);
-          }}
-        />
-      </div>
-    ) : expectedItemIsDisplayable &&
-      view.phase === 'RESULT' &&
-      view.currentCard?.kind === 'result' ? (
-      <div className="direct-notification-host__overlay" data-phase="RESULT">
-        <DirectResultCard
-          result={view.currentCard.result}
-          disabled={view.isProcessingAction}
-          onGoToBans={() => {
-            void intents.dismissResult('go_to_bans');
-          }}
-          onDismiss={() => {
-            void intents.dismissResult('close_result');
-          }}
-          onReply={() => {
-            intents.reply();
-          }}
-        />
-      </div>
-    ) : null;
+  void viewerId;
+  void intents;
 
-  if (!overlay) {
-    return (
-      <div
-        className="direct-notification-host direct-notification-host--neutral"
-        data-host="direct"
-        data-phase="NEUTRAL"
-        data-runtime-phase={view.phase}
-        data-expected-item-id={expectedItemId}
-        aria-busy={
-          view.phase === 'BOOTING' || view.phase === 'RECOVERING'
-            ? true
-            : undefined
-        }
-      >
-        <span className="sr-only">
-          {view.phase === 'RECOVERING'
-            ? 'Восстановление уведомления'
-            : 'Загрузка уведомления'}
-        </span>
-      </div>
-    );
-  }
-
-  if (typeof document === 'undefined') {
-    return (
-      <div className="direct-notification-host" data-host="direct" />
+  if (
+    process.env.NODE_ENV !== 'production' &&
+    coordinatorItemId &&
+    view.readyHeadId &&
+    coordinatorItemId !== view.readyHeadId
+  ) {
+    console.error(
+      '[DirectNotificationHost] Coordinator/Runtime identity skew',
+      { coordinatorItemId, readyHeadId: view.readyHeadId },
     );
   }
 
   return (
-    <div className="direct-notification-host" data-host="direct">
-      {createPortal(overlay, document.body)}
+    <div
+      className="direct-notification-host direct-notification-host--neutral"
+      data-host="direct"
+      data-phase={view.phase}
+      data-ready-head-id={view.readyHeadId ?? ''}
+      data-coordinator-item-id={coordinatorItemId ?? ''}
+      aria-busy={
+        view.phase === 'BOOTING' || view.phase === 'RECOVERING'
+          ? true
+          : undefined
+      }
+    >
+      <div className="direct-notification-host__diagnostic" role="status">
+        <p>Notification activation unavailable</p>
+        <p className="text-muted text-sm">
+          Queue ready: {view.readyHeadId ?? 'none'} · pending{' '}
+          {view.pendingCount}
+        </p>
+      </div>
     </div>
   );
 }

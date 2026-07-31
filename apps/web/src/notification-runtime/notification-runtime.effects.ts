@@ -1,10 +1,9 @@
 /**
- * Phase 0 — central NotificationRuntime effect runner.
- * No legacy sinks / overlayQueueRef / dual-write.
+ * Stage 7 Phase 1 — NotificationRuntime effect runner.
+ * No legacy sinks / dual-write.
  */
 import { api } from '@/lib/api';
 import { postOverboardWithTrace } from '@/lib/overboard-api';
-import { EMPTY_RUNTIME_LEGACY_SINKS } from './notification-runtime.demolition';
 import {
   executeSubmitCardActionEffect,
   type CheckSubmitTransport,
@@ -18,9 +17,7 @@ import type { RuntimeEffect } from './notification-runtime.types';
 
 export type NotificationEffectsContext = {
   getToken: () => string | null;
-  /** Optional pending refresh hook (transport). */
   onRefreshPending?: (reason: string) => void | Promise<void>;
-  /** Optional next-prefetch (transport). */
   onPrefetchNext?: (skipItemId?: string) => void | Promise<void>;
 };
 
@@ -60,10 +57,6 @@ const overboardTransport: OverboardSubmitTransport = async ({
   };
 };
 
-/**
- * Run effects produced by the last dispatch. Safe no-op for unknown types.
- * Never writes queue/display through legacy sinks.
- */
 export async function runNotificationRuntimeEffects(
   store: NotificationRuntimeStore,
   effects: readonly RuntimeEffect[],
@@ -80,7 +73,6 @@ export async function runNotificationRuntimeEffects(
             effect,
             checkTransport,
             token,
-            EMPTY_RUNTIME_LEGACY_SINKS,
           );
         } else if (effect.action === 'incoming_overboard') {
           await executeSubmitIncomingOverboardEffect(
@@ -88,7 +80,6 @@ export async function runNotificationRuntimeEffects(
             effect,
             overboardTransport,
             token,
-            EMPTY_RUNTIME_LEGACY_SINKS,
           );
         }
         break;
@@ -105,9 +96,7 @@ export async function runNotificationRuntimeEffects(
         break;
       }
       case 'MARK_CONSUMED':
-      case 'ANALYTICS_EVENT':
       case 'FETCH_DIRECT_ITEM':
-        // Consumed is already applied by reducer; analytics/direct handled elsewhere.
         break;
       default:
         break;

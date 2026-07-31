@@ -99,10 +99,11 @@ function main(): void {
     const host = read('notification-host/DirectNotificationHost.tsx');
     const surface = read('app-coordinator/ApplicationSurface.tsx');
     assert.doesNotMatch(host, /DirectLobbySurface|onStartBan|openBansCta|ctaVisible/);
-    assert.match(host, /data-phase="NEUTRAL"/);
-    assert.match(surface, /NOTIFICATION_SURFACE_UNAVAILABLE/);
+    assert.match(host, /activation unavailable/i);
+    assert.match(host, /data-phase=\{view\.phase\}/);
+    assert.doesNotMatch(surface, /NOTIFICATION_SURFACE_UNAVAILABLE/);
     assert.doesNotMatch(host + surface, /product-lobby-cta|Запретить/);
-    pass('3. notification mismatch cannot render Product Lobby/CTA');
+    pass('3. Host is diagnostic-only; no Lobby CTA / identity veto');
   }
 
   {

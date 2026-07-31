@@ -1,43 +1,20 @@
 /**
- * Vertical 2 — single UI snapshot from notification runtime store.
+ * Stage 7 Phase 1 — residual snapshot helper (not Host production API).
  */
 import {
-  selectCurrentItem,
-  selectCurrentItemId,
-  selectHoldLobbyOrbForBootstrap,
-  selectInteractiveLobbyChromeMayShow,
-  selectLobbyMayShow,
-  selectOverlayVisible,
+  selectHasPending,
+  selectPendingCount,
+  selectReadyHeadId,
 } from './notification-runtime.selectors';
-import type { NotificationRuntimeState } from './notification-runtime.types';
 import { projectRuntimeDisplayToLegacy } from './notification-runtime.adapters';
+import type { NotificationRuntimeState } from './notification-runtime.types';
 
-export type NotificationRuntimeUiSnapshot = {
-  state: NotificationRuntimeState;
-  lifecycleStatus: NotificationRuntimeState['lifecycle']['status'];
-  current: ReturnType<typeof selectCurrentItem>;
-  currentId: string | null;
-  display: ReturnType<typeof projectRuntimeDisplayToLegacy>;
-  overlayVisible: boolean;
-  lobbyMayShow: boolean;
-  interactiveLobbyChromeMayShow: boolean;
-  holdLobbyOrbForBootstrap: boolean;
-  queueLength: number;
-};
-
-export function selectNotificationRuntimeUiSnapshot(
-  state: NotificationRuntimeState,
-): NotificationRuntimeUiSnapshot {
+export function selectRuntimeSnapshot(state: NotificationRuntimeState) {
   return {
-    state,
-    lifecycleStatus: state.lifecycle.status,
-    current: selectCurrentItem(state),
-    currentId: selectCurrentItemId(state),
     display: projectRuntimeDisplayToLegacy(state),
-    overlayVisible: selectOverlayVisible(state),
-    lobbyMayShow: selectLobbyMayShow(state),
-    interactiveLobbyChromeMayShow: selectInteractiveLobbyChromeMayShow(state),
-    holdLobbyOrbForBootstrap: selectHoldLobbyOrbForBootstrap(state),
+    readyHeadId: selectReadyHeadId(state),
     queueLength: state.items.queue.length,
+    pendingCount: selectPendingCount(state),
+    hasPending: selectHasPending(state),
   };
 }

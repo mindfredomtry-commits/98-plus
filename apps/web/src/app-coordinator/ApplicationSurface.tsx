@@ -1,20 +1,16 @@
 /**
  * Coordinator-owned application surface.
  * Exactly one global surface owner at a time.
+ *
+ * Stage 7 Phase 1: Runtime does not auto-activate. NOTIFICATION mount shows
+ * a temporary diagnostic Host until Coordinator activation policy exists.
  */
 'use client';
 
 import { useCallback, useSyncExternalStore } from 'react';
 import type { UserPublic } from '@98plus/shared';
-import { selectReplyCompose } from '@/app-coordinator/app-coordinator.selectors';
 import type { AppCoordinatorLifecycle } from '@/app-coordinator/app-coordinator.lifecycle';
-import {
-  DirectNotificationHost,
-  type DirectNotificationHostProps,
-} from '@/notification-host/DirectNotificationHost';
-import { selectCurrentItem } from '@/notification-runtime/notification-runtime.selectors';
-import { useNotificationRuntimeStore } from '@/notification-runtime/notification-runtime.context';
-import { notificationItemId } from '@/notification-runtime/notification-runtime.types';
+import { DirectNotificationHost } from '@/notification-host/DirectNotificationHost';
 import { ProductFlowSurface } from '@/product-flow/product-flow.surface';
 
 export type ApplicationSurfaceProps = {
@@ -52,64 +48,10 @@ function ActiveApplicationSurface({
     lifecycle.store.getState,
     lifecycle.store.getState,
   );
-  const runtimeStore = useNotificationRuntimeStore();
-
-  const onReply = useCallback(
-    (itemId: string) => {
-      const current = selectCurrentItem(runtimeStore.getState());
-      if (!current) return;
-      const currentId = notificationItemId(current);
-      if (currentId !== itemId) return;
-
-      let targetUserId: string | null = null;
-      if (current.kind === 'incoming' || current.kind === 'check') {
-        targetUserId = current.ban.sender?.id ?? null;
-      } else if (current.kind === 'result') {
-        const senderId = current.result.sender?.id ?? null;
-        const receiverId = current.result.receiver?.id ?? null;
-        targetUserId =
-          user?.id && senderId === user.id ? receiverId : senderId;
-      }
-      if (!targetUserId) return;
-
-      const activeReply = selectReplyCompose(lifecycle.store.getState());
-      if (activeReply) return;
-
-      const resumeToken = lifecycle.resumeTokens.create();
-      lifecycle.dispatch({
-        type: 'REPLY_REQUESTED',
-        sourceItemId: itemId,
-        targetUserId,
-        resumeToken,
-      });
-    },
-    [lifecycle, runtimeStore, user?.id],
-  );
 
   const onStartBan = useCallback(() => {
     lifecycle.dispatch({ type: 'PRODUCT_COMPOSE_REQUESTED' });
   }, [lifecycle]);
-
-  const onOpenBans = useCallback(() => {
-    lifecycle.dispatch({
-      type: 'ENTRY_ROUTED',
-      intent: { type: 'PRODUCT', route: 'BANS' },
-    });
-  }, [lifecycle]);
-
-  const onNotificationSurfaceUnavailable = useCallback(
-    (
-      input: Parameters<
-        NonNullable<DirectNotificationHostProps['onSurfaceUnavailable']>
-      >[0],
-    ) => {
-      lifecycle.dispatch({
-        type: 'NOTIFICATION_SURFACE_UNAVAILABLE',
-        ...input,
-      });
-    },
-    [lifecycle],
-  );
 
   if (coordinatorState.mode.type === 'BOOTING') {
     return <BootSurface />;
@@ -121,10 +63,7 @@ function ActiveApplicationSurface({
         <DirectNotificationHost
           viewerId={user?.id ?? null}
           getToken={getToken}
-          expectedItemId={coordinatorState.mode.itemId}
-          onSurfaceUnavailable={onNotificationSurfaceUnavailable}
-          onOpenBans={onOpenBans}
-          onReply={onReply}
+          coordinatorItemId={coordinatorState.mode.itemId}
         />
       </div>
     );

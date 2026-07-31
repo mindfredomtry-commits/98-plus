@@ -1,18 +1,15 @@
 /**
- * Phase 0 — public intents wrapping existing runtime commands + effects.
+ * Stage 7 Phase 1 — public intents wrapping queue/lifecycle commands only.
+ * No Reply / Product / Bans navigation.
  */
-import {
-  requestCheckCardAction,
-} from './notification-runtime.check-action';
+import { requestCheckCardAction } from './notification-runtime.check-action';
 import { runNotificationRuntimeEffects } from './notification-runtime.effects';
 import type {
   NotificationIntentResult,
   NotificationIntents,
 } from './notification-runtime.host-api';
 import { selectNotificationViewState } from './notification-runtime.host-api';
-import {
-  requestIncomingOverboardAction,
-} from './notification-runtime.overboard-action';
+import { requestIncomingOverboardAction } from './notification-runtime.overboard-action';
 import {
   dismissRuntimeHead,
   type NotificationRuntimeStore,
@@ -23,10 +20,6 @@ export type NotificationIntentsDeps = {
   store: NotificationRuntimeStore;
   getToken: () => string | null;
   onRefresh?: (reason: 'bootstrap' | 'reconnect' | 'user') => Promise<void>;
-  /** Compose-domain: start reply from current incoming/result. */
-  onReply?: (itemId: string) => void;
-  /** Product: open bans section from CTA / result. */
-  onOpenBans?: (itemId: string | null) => void;
 };
 
 function fail(reason: string): NotificationIntentResult {
@@ -54,7 +47,7 @@ export function createNotificationIntents(
   return {
     async accept() {
       const view = selectNotificationViewState(store.getState());
-      const card = view.currentCard;
+      const card = view.readyHead;
       if (!card || card.kind !== 'incoming') {
         return fail('no-incoming-card');
       }
@@ -74,7 +67,7 @@ export function createNotificationIntents(
 
     async confirmCheck(completed: boolean) {
       const view = selectNotificationViewState(store.getState());
-      const card = view.currentCard;
+      const card = view.readyHead;
       if (!card || card.kind !== 'check') {
         return fail('no-check-card');
       }
@@ -95,40 +88,22 @@ export function createNotificationIntents(
 
     async dismissResult(reason = 'close_result') {
       const view = selectNotificationViewState(store.getState());
-      const card = view.currentCard;
+      const card = view.readyHead;
       if (!card || card.kind !== 'result') {
         return fail('no-result-card');
       }
       const dismissReason: CardDismissReason = reason;
       dismissRuntimeHead(store, card.itemId, dismissReason, 'user');
       await runEffects();
-      if (reason === 'go_to_bans') {
-        deps.onOpenBans?.(card.itemId);
-      }
       return ok();
     },
 
     async dismissCurrent(reason = 'user_dismiss') {
       const view = selectNotificationViewState(store.getState());
-      const card = view.currentCard;
+      const card = view.readyHead;
       if (!card) return fail('no-card');
       dismissRuntimeHead(store, card.itemId, reason, 'user');
       await runEffects();
-      return ok();
-    },
-
-    reply() {
-      const view = selectNotificationViewState(store.getState());
-      const card = view.currentCard;
-      if (!card) return fail('no-card');
-      // Runtime has no incoming_reply executor — compose handoff only.
-      deps.onReply?.(card.itemId);
-      return ok();
-    },
-
-    openBansCta() {
-      const view = selectNotificationViewState(store.getState());
-      deps.onOpenBans?.(view.currentCard?.itemId ?? null);
       return ok();
     },
 

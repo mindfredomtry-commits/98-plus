@@ -120,7 +120,6 @@ function AppCoordinatorComposition({
         <NotificationRuntimeTransport
           token={token}
           userId={user?.id ?? null}
-          notificationMode="real-time"
           runtimePort={lifecycle.runtimePort}
         />
       ) : null}

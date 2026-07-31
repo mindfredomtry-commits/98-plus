@@ -373,7 +373,7 @@ async function main() {
       (appServices.match(/createAppCoordinatorLifecycle\(/g) ?? []).length,
       1,
     );
-    assert.match(runtimePort, /selectCurrentItemId/);
+    assert.match(runtimePort, /selectReadyHeadId/);
     assert.doesNotMatch(runtimePort, /\.queue\s*=/);
     pass('16. no old ownership selector / second queue / legacy fallback');
   }

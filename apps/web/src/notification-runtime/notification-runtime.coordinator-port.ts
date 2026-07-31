@@ -1,6 +1,7 @@
 /**
- * Production NotificationRuntimePort — private store access, scalar facts only.
- * No queue/pending array copies cross this boundary.
+ * Stage 7 Phase 1 — Runtime port: facts without mute/suspend memory.
+ * No hidden fact suppression. Suspend/resume are explicit no-ops until
+ * the future suspended-lifecycle contract lands.
  */
 import type {
   NotificationRuntimeEventSink,
@@ -15,7 +16,7 @@ import {
   type DirectItemTransport,
 } from './notification-runtime.direct-entry';
 import { markRuntimeItemConsumed } from './notification-runtime.pending';
-import { selectCurrentItemId } from './notification-runtime.selectors';
+import { selectReadyHeadId } from './notification-runtime.selectors';
 import {
   completeRuntimeItem,
   type NotificationRuntimeStore,
@@ -28,15 +29,10 @@ import {
 
 export type NotificationRuntimePortHandle = NotificationRuntimePort & {
   dispose(): void;
-  /** Called by transport when cold bootstrap settles. */
-  notifyBootCompleted(currentItemId: string | null): void;
+  /** Called by transport when cold bootstrap settles. Always reports null ready activation. */
+  notifyBootCompleted(_readyHeadId: string | null): void;
   notifyReconnectStarted(): void;
   notifyReconnectCompleted(): void;
-};
-
-type ActiveSuspension = {
-  sourceItemId: string | null;
-  resumeToken: ResumeToken;
 };
 
 function parseCanonicalItemId(itemId: string): {
@@ -84,35 +80,13 @@ export function createNotificationRuntimePort(input: {
   fetchDirectItem: DirectItemTransport;
 }): NotificationRuntimePortHandle {
   let disposed = false;
-  let suspended: ActiveSuspension | null = null;
-  let previousCurrentId: string | null = selectCurrentItemId(
-    input.store.getState(),
-  );
   let bootSettled = false;
 
-  const emitCurrentOrDrained = (itemId: string | null): void => {
-    if (suspended) return;
-    if (itemId === null) {
-      input.sink.queueDrained();
-      return;
-    }
-    input.sink.currentChanged(itemId);
-  };
-
+  // Stage 7 Phase 1: do not emit currentChanged/queueDrained from queue mutations.
+  // Activation policy is intentionally absent — facts must not auto-switch AppMode.
   const unsubscribe = input.store.subscribe(() => {
     if (disposed) return;
-    const nextId = selectCurrentItemId(input.store.getState());
-    if (nextId === previousCurrentId) return;
-    const previous = previousCurrentId;
-    previousCurrentId = nextId;
-    if (suspended) return;
-    if (nextId !== null) {
-      input.sink.currentChanged(nextId);
-      return;
-    }
-    if (previous !== null) {
-      input.sink.queueDrained();
-    }
+    void selectReadyHeadId(input.store.getState());
   });
 
   return {
@@ -127,8 +101,8 @@ export function createNotificationRuntimePort(input: {
         targetId,
         targetKind: kind,
         entrySource: 'deeplink',
-        returnPolicy: 'lobby_after_card',
-        defer: suspended !== null,
+        returnPolicy: 'retain_queue',
+        defer: false,
       });
       if (!requested.accepted || requested.deferred) return;
       void runDirectEffects(
@@ -138,50 +112,22 @@ export function createNotificationRuntimePort(input: {
       );
     },
 
-    suspend({ sourceItemId, resumeToken }) {
+    suspend(_args: {
+      sourceItemId: string | null;
+      resumeToken: ResumeToken | null;
+    }) {
+      // Stage 7 Phase 1 — no mute memory; reply handoff temporarily unavailable.
       if (disposed) return;
-      if (!resumeToken) {
-        suspended = null;
-        return;
-      }
-      suspended = { sourceItemId, resumeToken };
     },
 
-    resume({ resumeToken }) {
+    resume(_args: { resumeToken: ResumeToken | null }) {
       if (disposed) return;
-      if (
-        suspended &&
-        resumeToken !== null &&
-        suspended.resumeToken !== resumeToken
-      ) {
-        return;
-      }
-      suspended = null;
       const effects = flushDeferredDirectEntry(input.store, 'system');
-      void runDirectEffects(input.store, effects, input.fetchDirectItem).then(
-        () => {
-          if (disposed || suspended) return;
-          const currentId = selectCurrentItemId(input.store.getState());
-          previousCurrentId = currentId;
-          emitCurrentOrDrained(currentId);
-        },
-      );
-      if (effects.length === 0) {
-        const currentId = selectCurrentItemId(input.store.getState());
-        previousCurrentId = currentId;
-        emitCurrentOrDrained(currentId);
-      }
+      void runDirectEffects(input.store, effects, input.fetchDirectItem);
     },
 
-    completeSourceItem({ sourceItemId, resumeToken }) {
+    completeSourceItem({ sourceItemId }) {
       if (disposed) return;
-      if (
-        suspended &&
-        resumeToken !== null &&
-        suspended.resumeToken !== resumeToken
-      ) {
-        return;
-      }
       const state = input.store.getState();
       const inQueue = state.items.queue.some(
         (item) => notificationItemId(item) === sourceItemId,
@@ -193,11 +139,11 @@ export function createNotificationRuntimePort(input: {
       }
     },
 
-    notifyBootCompleted(currentItemId) {
+    notifyBootCompleted(_readyHeadId) {
       if (disposed || bootSettled) return;
       bootSettled = true;
-      previousCurrentId = currentItemId;
-      input.sink.bootCompleted({ currentItemId });
+      // Never auto-open: boot always reports no activated notification.
+      input.sink.bootCompleted({ currentItemId: null });
     },
 
     notifyReconnectStarted() {
@@ -213,7 +159,6 @@ export function createNotificationRuntimePort(input: {
     dispose() {
       disposed = true;
       unsubscribe();
-      suspended = null;
     },
   };
 }

@@ -1,11 +1,7 @@
 /**
- * Vertical 8–9 — Legacy demolition helpers.
- *
- * Sole production notification paint/queue/pending authority:
- *   notification-runtime selectors / state.
- *
- * Vertical 9: RuntimeLegacySinks are empty — no write-through dual store.
- * Owner shadow must not act as a notification runtime engine.
+ * Stage 7 Phase 1 — demolition residue.
+ * EMPTY_RUNTIME_LEGACY_SINKS removed from production live path.
+ * Paint/lobby snapshot APIs are not production-reachable.
  */
 import type { QueuedOverlay } from '@/lib/overlay-queue';
 import {
@@ -13,13 +9,8 @@ import {
   projectRuntimeQueueToLegacy,
   type LegacyDisplayProjection,
 } from './notification-runtime.adapters';
-import type { RuntimeLegacySinks } from './notification-runtime.production-advance';
 import {
   selectHasPending,
-  selectHoldLobbyOrbForBootstrap,
-  selectInteractiveLobbyChromeMayShow,
-  selectLobbyMayShow,
-  selectOverlayVisible,
   selectPendingCount,
 } from './notification-runtime.selectors';
 import type {
@@ -28,8 +19,8 @@ import type {
 } from './notification-runtime.types';
 import { notificationItemId } from './notification-runtime.types';
 
-/** Vertical 9 — production sinks are no-ops (no dual-store / projection engine). */
-export const EMPTY_RUNTIME_LEGACY_SINKS: RuntimeLegacySinks = {
+/** @deprecated Not used on Stage 7 production live path. */
+export const EMPTY_RUNTIME_LEGACY_SINKS = {
   writeQueue: () => {},
   writeDisplay: () => {},
 };
@@ -41,13 +32,9 @@ export type RuntimePaintSnapshot = {
   queueLength: number;
   pendingCount: number;
   hasPending: boolean;
-  overlayVisible: boolean;
-  lobbyMayShow: boolean;
-  interactiveLobbyChromeMayShow: boolean;
-  holdLobbyOrbForBootstrap: boolean;
 };
 
-/** Sole notification paint snapshot for production UI. */
+/** Residual test helper — not Host production API. */
 export function selectRuntimePaintSnapshot(
   state: NotificationRuntimeState,
 ): RuntimePaintSnapshot {
@@ -59,10 +46,6 @@ export function selectRuntimePaintSnapshot(
     queueLength: queue.length,
     pendingCount: selectPendingCount(state),
     hasPending: selectHasPending(state),
-    overlayVisible: selectOverlayVisible(state),
-    lobbyMayShow: selectLobbyMayShow(state),
-    interactiveLobbyChromeMayShow: selectInteractiveLobbyChromeMayShow(state),
-    holdLobbyOrbForBootstrap: selectHoldLobbyOrbForBootstrap(state),
   };
 }
 
@@ -82,30 +65,17 @@ export function queuedOverlaysEqualHead(
   if (!a || !b) return false;
   if (a.kind !== b.kind) return false;
   if (a.kind === 'result' && b.kind === 'result') {
-    return a.result.id === b.result.id;
+    return String(a.result.id) === String(b.result.id);
   }
-  if (
-    (a.kind === 'incoming' || a.kind === 'check') &&
-    (b.kind === 'incoming' || b.kind === 'check')
-  ) {
-    return a.ban.id === b.ban.id;
+  if (a.kind !== 'result' && b.kind !== 'result') {
+    return String(a.ban.id) === String(b.ban.id);
   }
   return false;
 }
 
-/** Diagnostic: compare ids against runtime paint (read-only). */
-export function runtimePaintIds(state: NotificationRuntimeState): {
-  incomingId: string | null;
-  checkId: string | null;
-  resultId: string | null;
-  headId: string | null;
-} {
-  const display = projectRuntimeDisplayToLegacy(state);
-  const head = state.items.queue[0] ?? null;
-  return {
-    incomingId: display.incomingBan?.id ?? null,
-    checkId: display.checkBan?.id ?? null,
-    resultId: display.result?.id ?? null,
-    headId: head ? notificationItemId(head) : null,
-  };
+export function runtimeQueueHeadId(
+  state: NotificationRuntimeState,
+): string | null {
+  const head = state.items.queue[0];
+  return head ? notificationItemId(head) : null;
 }

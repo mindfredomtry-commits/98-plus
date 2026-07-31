@@ -1,14 +1,7 @@
 /**
- * Vertical 7 — bootstrap / recovery lifecycle (runtime sole owner).
- * Transport fetches only; overlay / badge / lobby decided by reducer.
+ * Stage 7 Phase 1 — bootstrap / recovery lifecycle (queue populate only).
+ * Transport fetches; Runtime never auto-activates.
  */
-import type { OwnerActiveDisplayPatch } from '@/lib/notification-overlay-owner';
-import type { QueuedOverlay } from '@/lib/overlay-queue';
-import {
-  buildExclusiveDisplayPatchFromRuntime,
-  toQueuedOverlayItems,
-  type RuntimeLegacySinks,
-} from './notification-runtime.production-advance';
 import {
   nextRuntimeTransitionId,
   notificationItemId,
@@ -17,51 +10,25 @@ import {
 import {
   selectIsBooting,
   selectIsDirectEntry,
-  selectLobbyMayShow,
-  selectOverlayVisible,
 } from './notification-runtime.selectors';
-import { projectRuntimeQueueToLegacy } from './notification-runtime.adapters';
 import type {
   NotificationItem,
   RuntimeEffect,
   RuntimeSource,
 } from './notification-runtime.types';
 
-export type BootstrapNotificationMode = 'normal' | 'real-time';
-
 export type BootstrapOutcome =
-  | 'showing'
   | 'idle'
   | 'preserved-direct'
   | 'failed'
   | 'stale'
   | 'rejected';
 
-function projectAfterBootstrap(
-  store: NotificationRuntimeStore,
-  sinks: RuntimeLegacySinks,
-  source: string,
-): void {
-  const state = store.getState();
-  sinks.writeQueue(
-    projectRuntimeQueueToLegacy(state),
-    `v7-bootstrap:${source}`,
-  );
-  sinks.writeDisplay(
-    buildExclusiveDisplayPatchFromRuntime(state),
-    `v7-bootstrap-display:${source}`,
-  );
-  sinks.runEffects?.(store.getLastEffects());
-}
-
 export function isBootstrapTransitionCurrent(
   store: NotificationRuntimeStore,
   transitionId: string,
 ): boolean {
   const state = store.getState();
-  // Stage 6B Phase 4: only an in-flight boot/recovery owns completion.
-  // After applied, lifecycle.transitionId may still equal the old tid while
-  // showing — that must not accept a duplicate complete.
   if (state.recovery.status === 'loading') {
     return state.recovery.transitionId === transitionId;
   }
@@ -78,10 +45,6 @@ export function isBootstrapTransitionCurrent(
   return false;
 }
 
-/**
- * Begin production bootstrap (cold / reload / visibility / WS reconnect).
- * Newer transitionId replaces an in-flight boot (stale completes ignored).
- */
 export function requestBootstrap(
   store: NotificationRuntimeStore,
   args?: {
@@ -123,8 +86,7 @@ export function requestBootstrap(
 }
 
 /**
- * Apply transport snapshot. Mode decides auto-show (real-time) vs badge-only (normal).
- * Consumed ids never enter display. Stale transitionId → ignore.
+ * Apply transport snapshot into FIFO queue. Never activates a surface.
  */
 export function completeBootstrap(
   store: NotificationRuntimeStore,
@@ -133,23 +95,11 @@ export function completeBootstrap(
     items: readonly NotificationItem[];
     pendingItemIds: readonly string[];
     consumedItemIds?: readonly string[];
-    mode: BootstrapNotificationMode;
-    /**
-     * Override mode-derived auto-show. Use when product surface blocks
-     * NEW live queue presentation (park pending; do not showHead).
-     */
-    autoShow?: boolean;
     sourceVersion?: string | null;
     source?: RuntimeSource;
-    /** Prefer SNAPSHOT event name for transport clarity (same reducer path). */
     asSnapshot?: boolean;
-    /**
-     * Request-start pending generation. Stale/older stamped responses cannot
-     * move pending.generation backward (Stage 6B Phase 4).
-     */
     generation?: number | null;
   },
-  sinks?: RuntimeLegacySinks,
 ): BootstrapOutcome {
   const { transitionId } = args;
   if (!isBootstrapTransitionCurrent(store, transitionId)) {
@@ -157,10 +107,6 @@ export function completeBootstrap(
   }
 
   const source: RuntimeSource = args.source ?? 'bootstrap';
-  const autoShow =
-    args.autoShow !== undefined
-      ? args.autoShow
-      : args.mode === 'real-time';
   const items = [...args.items];
   const pendingItemIds = [...args.pendingItemIds];
   const consumedItemIds = args.consumedItemIds
@@ -176,7 +122,6 @@ export function completeBootstrap(
       items,
       pendingItemIds,
       consumedItemIds,
-      autoShow,
       sourceVersion,
       source,
       generation,
@@ -188,22 +133,16 @@ export function completeBootstrap(
       items,
       pendingItemIds,
       consumedItemIds,
-      autoShow,
       sourceVersion,
       source,
       generation,
     });
   }
 
-  if (sinks) {
-    projectAfterBootstrap(store, sinks, args.mode);
-  }
-
   const state = store.getState();
   if (selectIsDirectEntry(state) || state.directEntry.deferred != null) {
     return 'preserved-direct';
   }
-  if (selectOverlayVisible(state)) return 'showing';
   return 'idle';
 }
 
@@ -214,7 +153,6 @@ export function failBootstrap(
     errorCode?: string;
     source?: RuntimeSource;
   },
-  sinks?: RuntimeLegacySinks,
 ): BootstrapOutcome {
   const { transitionId } = args;
   if (!isBootstrapTransitionCurrent(store, transitionId)) {
@@ -228,16 +166,11 @@ export function failBootstrap(
     source: args.source ?? 'bootstrap',
   });
 
-  if (sinks) {
-    projectAfterBootstrap(store, sinks, 'failed');
-  }
-
   const state = store.getState();
   if (selectIsDirectEntry(state)) return 'preserved-direct';
   return 'failed';
 }
 
-/** Build pending ids from notification items (deduped). */
 export function pendingIdsFromBootstrapItems(
   items: readonly NotificationItem[],
 ): string[] {
@@ -252,19 +185,6 @@ export function pendingIdsFromBootstrapItems(
   return out;
 }
 
-export function queuedOverlaysToBootstrapItems(
-  items: readonly QueuedOverlay[],
-): NotificationItem[] {
-  return toQueuedOverlayItems(items);
-}
-
-/** Host: after bootstrap idle, lobby only via selectLobbyMayShow. */
-export function bootstrapAllowsHostLobby(
-  store: NotificationRuntimeStore,
-): boolean {
-  return selectLobbyMayShow(store.getState());
-}
-
 export function bootstrapIsInFlight(store: NotificationRuntimeStore): boolean {
   const state = store.getState();
   return (
@@ -273,5 +193,3 @@ export function bootstrapIsInFlight(store: NotificationRuntimeStore): boolean {
       state.recovery.transitionId != null)
   );
 }
-
-export type { OwnerActiveDisplayPatch };

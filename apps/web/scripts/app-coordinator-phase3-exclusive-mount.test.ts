@@ -80,8 +80,8 @@ function main(): void {
   {
     assert.doesNotMatch(directHost, /DirectLobbySurface|openBansCta|onStartBan/);
     assert.doesNotMatch(directHost, /ctaVisible|influencePercent/);
-    assert.match(directHost, /data-phase="NEUTRAL"/);
-    assert.match(directHost, /expectedItemIsDisplayable/);
+    assert.doesNotMatch(directHost, /data-phase="NEUTRAL"|expectedItemIsDisplayable/);
+    assert.match(directHost, /activation unavailable/i);
     pass('5. notification host has no Product Lobby or Product CTA path');
   }
 
@@ -159,7 +159,7 @@ function main(): void {
   }
 
   {
-    assert.match(directHost, /useEffect\(/);
+    assert.doesNotMatch(directHost, /onSurfaceUnavailable|expectedItemIsDisplayable/);
     assert.match(applicationSurface, /useSyncExternalStore\(/);
     assert.doesNotMatch(appServices, /ProductFlowSurface|DirectIncomingCard|DirectCheckCard|DirectResultCard/);
     pass('10. domain subscriptions remain below exclusive conditional mounts');

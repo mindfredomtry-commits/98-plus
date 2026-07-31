@@ -1,12 +1,9 @@
 /**
  * Vertical 3 — check action command + SUBMIT_CARD_ACTION effect execution.
- * UI never calls the ban check API directly.
+ * Stage 7 Phase 1: no legacy sinks.
  */
 import type { BanResult } from '@98plus/shared';
 import { normalizeId } from '@/lib/normalize-json';
-import {
-  buildExclusiveDisplayPatchFromRuntime,
-} from './notification-runtime.production-advance';
 import {
   selectCurrentItem,
   selectIsActionBlocked,
@@ -21,9 +18,6 @@ import type {
   RuntimeEffect,
   RuntimeSource,
 } from './notification-runtime.types';
-import { projectRuntimeQueueToLegacy } from './notification-runtime.adapters';
-import type { OwnerActiveDisplayPatch } from '@/lib/notification-overlay-owner';
-import type { QueuedOverlay } from '@/lib/overlay-queue';
 
 export type CheckSubmitApiResponse = {
   done: boolean;
@@ -37,38 +31,12 @@ export type CheckSubmitTransport = (input: {
   token: string;
 }) => Promise<CheckSubmitApiResponse>;
 
-export type CheckActionLegacySinks = {
-  writeQueue: (queue: QueuedOverlay[], source: string) => void;
-  writeDisplay: (patch: OwnerActiveDisplayPatch, source: string) => void;
-  /** TEMP V5: schedule poll; must only later dispatch runtime events. */
-  scheduleResultPoll?: (banId: string) => void;
-  /** TEMP: fetch result when done without payload. */
-  fetchResult?: (banId: string) => Promise<BanResult | null>;
-};
-
 function banIdFromCheckItemId(itemId: string): string {
   return itemId.startsWith('check:') ? itemId.slice('check:'.length) : itemId;
 }
 
-function projectRuntimeAfterAction(
-  store: NotificationRuntimeStore,
-  sinks: CheckActionLegacySinks,
-  source: string,
-): void {
-  const state = store.getState();
-  sinks.writeQueue(
-    projectRuntimeQueueToLegacy(state),
-    `v3-check-action:${source}`,
-  );
-  sinks.writeDisplay(
-    buildExclusiveDisplayPatchFromRuntime(state),
-    `v3-check-action-display:${source}`,
-  );
-}
-
 /**
  * First-click entry: create commandId + CARD_ACTION_REQUESTED only.
- * Returns SUBMIT effects to run (exactly 0 or 1).
  */
 export function requestCheckCardAction(
   store: NotificationRuntimeStore,
@@ -133,14 +101,12 @@ export function requestCheckCardAction(
 
 /**
  * Execute SUBMIT_CARD_ACTION — sole production API caller for check answer.
- * Never dismisses / clears display before HTTP completes.
  */
 export async function executeSubmitCardActionEffect(
   store: NotificationRuntimeStore,
   effect: Extract<RuntimeEffect, { type: 'SUBMIT_CARD_ACTION' }>,
   transport: CheckSubmitTransport,
   token: string,
-  sinks: CheckActionLegacySinks,
 ): Promise<void> {
   if (effect.action !== 'check_answer') return;
   const banId = banIdFromCheckItemId(effect.targetItemId);
@@ -163,51 +129,16 @@ export async function executeSubmitCardActionEffect(
         replacement,
         source: 'user',
       });
-      projectRuntimeAfterAction(store, sinks, 'success-result');
       return;
     }
 
-    if (res.done) {
-      let fetched: BanResult | null = null;
-      if (sinks.fetchResult) {
-        try {
-          fetched = await sinks.fetchResult(banId);
-        } catch {
-          fetched = null;
-        }
-      }
-      if (fetched) {
-        store.dispatch({
-          type: 'CARD_ACTION_SUCCEEDED',
-          commandId: effect.commandId,
-          targetItemId: effect.targetItemId,
-          replacement: { kind: 'result', result: fetched },
-          source: 'user',
-        });
-        projectRuntimeAfterAction(store, sinks, 'success-fetched-result');
-        return;
-      }
-      // done without result yet — keep check, mark succeeded, TEMP poll
+    if (res.done || res.waiting) {
       store.dispatch({
         type: 'CARD_ACTION_SUCCEEDED',
         commandId: effect.commandId,
         targetItemId: effect.targetItemId,
         source: 'user',
       });
-      projectRuntimeAfterAction(store, sinks, 'success-done-waiting-result');
-      sinks.scheduleResultPoll?.(banId);
-      return;
-    }
-
-    if (res.waiting) {
-      store.dispatch({
-        type: 'CARD_ACTION_SUCCEEDED',
-        commandId: effect.commandId,
-        targetItemId: effect.targetItemId,
-        source: 'user',
-      });
-      projectRuntimeAfterAction(store, sinks, 'success-waiting-partner');
-      sinks.scheduleResultPoll?.(banId);
       return;
     }
 
@@ -218,7 +149,6 @@ export async function executeSubmitCardActionEffect(
       errorCode: 'CHECK_SUBMIT_UNKNOWN',
       source: 'user',
     });
-    projectRuntimeAfterAction(store, sinks, 'failed-unknown');
   } catch (err) {
     const message =
       err instanceof Error && err.message
@@ -231,19 +161,16 @@ export async function executeSubmitCardActionEffect(
       errorCode: message,
       source: 'user',
     });
-    projectRuntimeAfterAction(store, sinks, 'failed-transport');
   }
 }
 
 /**
- * TEMP poll/WS: apply result into runtime when waiting succeeded.
- * Must not dismiss/clear independently of reducer.
+ * Apply result into runtime when waiting succeeded.
  */
 export function applyPolledCheckResultToRuntime(
   store: NotificationRuntimeStore,
   banId: string,
   result: BanResult,
-  sinks: CheckActionLegacySinks,
 ): boolean {
   const state = store.getState();
   const targetItemId = `check:${normalizeId(banId)}`;
@@ -261,6 +188,5 @@ export function applyPolledCheckResultToRuntime(
     replacement: { kind: 'result', result },
     source: 'poll',
   });
-  projectRuntimeAfterAction(store, sinks, 'poll-result');
   return true;
 }

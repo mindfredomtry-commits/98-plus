@@ -1,17 +1,14 @@
 /**
- * Stage 6B Phase 4 — reconnect / recovery determinism (pure helpers).
- *
- * Prefer identity + generation + monotonic transition ownership over timers.
+ * Stage 7 Phase 1 — reconnect decision is infrastructure-only.
+ * Never reads presentation / surface visibility.
  */
-
-import { selectOverlayVisible } from './notification-runtime.selectors';
 import type { NotificationRuntimeState } from './notification-runtime.types';
 
 export type WsReconnectSignalSource = 'socket-open' | 'socket-close-timeout';
 
 /**
- * Emit host recovery only on a true reconnect (socket open after a prior open).
- * Close-timeout must never emit — that was the double-refresh root cause.
+ * Pure WS reconnect signal gate (connection-layer only).
+ * Independent of queue / presentation state.
  */
 export function decideWsReconnectSignal(args: {
   source: WsReconnectSignalSource;
@@ -28,18 +25,11 @@ export function decideWsReconnectSignal(args: {
 }
 
 export type ReconnectRecoveryRequestDecision =
-  | {
-      action: 'skip';
-      reason: 'overlay-visible' | 'already-complete-idle-empty';
-    }
+  | { action: 'bootstrap'; reason: 'safe-idle-or-empty' }
   | {
       action: 'coalesce';
       reason: 'recovery-in-flight';
       transitionId: string;
-    }
-  | {
-      action: 'bootstrap';
-      reason: 'safe-idle-or-empty';
     }
   | {
       action: 'supersede';
@@ -48,20 +38,13 @@ export type ReconnectRecoveryRequestDecision =
     };
 
 /**
- * Decide how a reconnect should talk to the runtime.
- *
- * - overlay visible → skip (must not wipe live card)
- * - recovery/boot already loading → coalesce by default (same reconnect storm)
- * - forceSupersede → second intentional reconnect interrupts (newer transition wins)
+ * Decide whether a WS reconnect should start a new bootstrap/recovery fetch.
+ * Visibility / card / surface state is intentionally ignored.
  */
 export function decideReconnectRecoveryRequest(
   state: NotificationRuntimeState,
   args?: { forceSupersede?: boolean },
 ): ReconnectRecoveryRequestDecision {
-  if (selectOverlayVisible(state)) {
-    return { action: 'skip', reason: 'overlay-visible' };
-  }
-
   const inFlightId =
     state.recovery.status === 'loading'
       ? state.recovery.transitionId
@@ -107,10 +90,6 @@ export function isRecoveryTransitionCurrent(
   return false;
 }
 
-/**
- * Pending generation must only move forward. Returns the stamped generation
- * that should be applied (max of current and incoming).
- */
 export function nextAppliedPendingGeneration(
   currentGeneration: number,
   stamped: number | null | undefined,
@@ -119,10 +98,6 @@ export function nextAppliedPendingGeneration(
   return Math.max(currentGeneration, stamped);
 }
 
-/**
- * Whether an incoming pending snapshot is stale relative to runtime.
- * Older stamped empty/non-empty both lose when stamped < current.
- */
 export function isStalePendingGeneration(
   currentGeneration: number,
   stamped: number | null | undefined,
@@ -131,7 +106,6 @@ export function isStalePendingGeneration(
   return stamped < currentGeneration;
 }
 
-/** Duplicate ITEM_COMPLETED / enqueue identity helper for tests and adapters. */
 export function isDuplicateQueuedIdentity(
   queueIds: readonly string[],
   itemId: string,

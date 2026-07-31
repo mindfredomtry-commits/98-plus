@@ -273,13 +273,10 @@ async function main() {
         items: [incoming('BOOT')],
         pendingItemIds: ['incoming:BOOT'],
         consumedItemIds: [],
-        mode: 'normal',
-        autoShow: true,
         sourceVersion: 'boot',
         source: 'bootstrap',
         generation: bootGen,
       },
-      sinks(),
     );
     assert.equal(store.getState().pending.generation, bootGen);
     const refreshGen = nextPendingAuthorityGeneration();
@@ -304,21 +301,22 @@ async function main() {
     pass('10. generation monotonic across bootstrap+refresh');
   }
 
-  // 11. Stale fetch cannot clear active display
+  // 11. Stale fetch cannot clear ready queue head
   {
     const store = seed([incoming('A'), check('B')]);
-    assert.equal(store.getState().display.kind, 'incoming');
+    assert.equal(notificationItemId(store.getState().items.queue[0]!), 'incoming:A');
+    assert.equal(store.getState().lifecycle.status, 'idle');
     const gOld = nextPendingAuthorityGeneration();
     const gNew = nextPendingAuthorityGeneration();
     ingestPendingSnapshot(store, ['incoming:A', 'check:B'], 'prefetch', 'n', gNew);
     ingestPendingSnapshot(store, [], 'prefetch', 'old', gOld);
-    assert.equal(store.getState().display.kind, 'incoming');
+    assert.equal(notificationItemId(store.getState().items.queue[0]!), 'incoming:A');
     assert.equal(store.getState().items.queue.length, 2);
     assert.deepEqual(selectPendingItemIds(store.getState()), [
       'incoming:A',
       'check:B',
     ]);
-    pass('11. stale fetch cannot clear active display');
+    pass('11. stale fetch cannot clear ready queue head');
   }
 
   // 12. Stale fetch cannot reorder canonical runtime queue

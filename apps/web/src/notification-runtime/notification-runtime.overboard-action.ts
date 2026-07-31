@@ -10,9 +10,6 @@
 import type { BanResult } from '@98plus/shared';
 import { normalizeId } from '@/lib/normalize-json';
 import {
-  buildExclusiveDisplayPatchFromRuntime,
-} from './notification-runtime.production-advance';
-import {
   selectCurrentItem,
   selectIsActionBlocked,
 } from './notification-runtime.selectors';
@@ -47,9 +44,6 @@ import type {
   RuntimeEffect,
   RuntimeSource,
 } from './notification-runtime.types';
-import { projectRuntimeQueueToLegacy } from './notification-runtime.adapters';
-import type { OwnerActiveDisplayPatch } from '@/lib/notification-overlay-owner';
-import type { QueuedOverlay } from '@/lib/overlay-queue';
 
 export type OverboardSubmitApiResponse = {
   ok?: boolean;
@@ -79,31 +73,10 @@ export type OverboardSubmitOutcome = {
   matchingResultSource?: ActionMatchingResultSource | null;
 };
 
-export type OverboardActionLegacySinks = {
-  writeQueue: (queue: QueuedOverlay[], source: string) => void;
-  writeDisplay: (patch: OwnerActiveDisplayPatch, source: string) => void;
-};
-
 function banIdFromIncomingItemId(itemId: string): string {
   return itemId.startsWith('incoming:')
     ? itemId.slice('incoming:'.length)
     : itemId;
-}
-
-function projectRuntimeAfterOverboard(
-  store: NotificationRuntimeStore,
-  sinks: OverboardActionLegacySinks,
-  source: string,
-): void {
-  const state = store.getState();
-  sinks.writeQueue(
-    projectRuntimeQueueToLegacy(state),
-    `v2-overboard-action:${source}`,
-  );
-  sinks.writeDisplay(
-    buildExclusiveDisplayPatchFromRuntime(state),
-    `v2-overboard-action-display:${source}`,
-  );
 }
 
 /**
@@ -205,7 +178,6 @@ function materializeMatchingReplacement(
     actionTransactionId: string;
   },
   handoffBefore: ReturnType<typeof snapshotRuntimeForActionResultHandoff>,
-  sinks: OverboardActionLegacySinks,
 ): OverboardSubmitOutcome {
   store.dispatch({
     type: 'CARD_ACTION_SUCCEEDED',
@@ -236,7 +208,6 @@ function materializeMatchingReplacement(
     banId,
     after: snapshotRuntimeForOverboardV3Trace(afterSucceeded),
   });
-  projectRuntimeAfterOverboard(store, sinks, 'success-replacement');
   return {
     ok: true,
     materializedResultBanId: banId,
@@ -309,7 +280,6 @@ export async function executeSubmitIncomingOverboardEffect(
   effect: Extract<RuntimeEffect, { type: 'SUBMIT_CARD_ACTION' }>,
   transport: OverboardSubmitTransport,
   token: string,
-  sinks: OverboardActionLegacySinks,
 ): Promise<OverboardSubmitOutcome> {
   if (effect.action !== 'incoming_overboard') {
     return { ok: false, error: 'wrong-action' };
@@ -336,7 +306,6 @@ export async function executeSubmitIncomingOverboardEffect(
         errorCode: res.error ?? 'OVERBOARD_SUBMIT_FAILED',
         source: 'user',
       });
-      projectRuntimeAfterOverboard(store, sinks, 'failed-api');
       logOverboardV3ProdTrace('SUBMIT_CARD_ACTION_RESULT', {
         commandId: effect.commandId,
         targetItemId: effect.targetItemId,
@@ -391,7 +360,6 @@ export async function executeSubmitIncomingOverboardEffect(
         banId,
         matching,
         handoffBefore,
-        sinks,
       );
       publishOverboardCompletion(
         effect,
@@ -433,7 +401,6 @@ export async function executeSubmitIncomingOverboardEffect(
         banId,
         after: snapshotRuntimeForOverboardV3Trace(afterSucceeded),
       });
-      projectRuntimeAfterOverboard(store, sinks, 'success-advance');
       publishOverboardCompletion(
         effect,
         banId,
@@ -460,7 +427,6 @@ export async function executeSubmitIncomingOverboardEffect(
       errorCode: 'ACTION_RESULT_WAIT_TIMEOUT',
       source: 'user',
     });
-    projectRuntimeAfterOverboard(store, sinks, 'result-wait-timeout');
     logOverboardV3ProdTrace('SUBMIT_CARD_ACTION_RESULT', {
       commandId: effect.commandId,
       targetItemId: effect.targetItemId,
@@ -486,7 +452,6 @@ export async function executeSubmitIncomingOverboardEffect(
       errorCode: message,
       source: 'user',
     });
-    projectRuntimeAfterOverboard(store, sinks, 'failed-transport');
     logOverboardV3ProdTrace('SUBMIT_CARD_ACTION_RESULT', {
       commandId: effect.commandId,
       targetItemId: effect.targetItemId,

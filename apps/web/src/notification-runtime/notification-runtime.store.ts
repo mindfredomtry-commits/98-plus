@@ -180,7 +180,6 @@ export function dismissRuntimeHead(
   targetItemId: string,
   reason:
     | 'user_dismiss'
-    | 'go_to_bans'
     | 'close_result'
     | 'continue_chain'
     | 'system',

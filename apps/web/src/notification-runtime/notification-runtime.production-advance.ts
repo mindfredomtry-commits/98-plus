@@ -1,10 +1,5 @@
 /**
- * Vertical 1 — production queue ingest + atomic dismiss bridge.
- *
- * Sole advance authority: notification-runtime reducer.
- * Vertical 8: Legacy sinks must not decide next card, lobby, or badge.
- * Vertical 9: RuntimeLegacySinks are empty no-ops in production (no dual-store /
- * projection engine). Callers must pass EMPTY_RUNTIME_LEGACY_SINKS.
+ * Stage 7 Phase 1 — residual helpers. Live production path does not use sinks.
  */
 import type { OwnerActiveDisplayPatch } from '@/lib/notification-overlay-owner';
 import type { QueuedOverlay } from '@/lib/overlay-queue';
@@ -27,13 +22,10 @@ import type {
   RuntimeSource,
 } from './notification-runtime.types';
 
-/** TEMP V1–V2: sinks that project runtime → legacy UI/owner mirrors. */
+/** @deprecated Stage 7 — not used on production live path. */
 export type RuntimeLegacySinks = {
-  /** Replace legacy queue mirror (owner + React). Must not decide next. */
   writeQueue: (queue: QueuedOverlay[], source: string) => void;
-  /** Replace legacy display mirror. Must not clear-before-next independently. */
   writeDisplay: (patch: OwnerActiveDisplayPatch, source: string) => void;
-  /** Optional side-effect adapter (MARK_CONSUMED / PREFETCH / ANALYTICS only). */
   runEffects?: (effects: RuntimeEffect[]) => void;
 };
 
@@ -44,7 +36,12 @@ export function mapProvidersSourceToRuntime(source: string): RuntimeSource {
   }
   if (s.includes('drain')) return 'drain';
   if (s.includes('deeplink')) return 'deeplink';
-  if (s.includes('websocket') || s.includes(':ws') || s.endsWith('-ws') || s.includes('ws-')) {
+  if (
+    s.includes('websocket') ||
+    s.includes(':ws') ||
+    s.endsWith('-ws') ||
+    s.includes('ws-')
+  ) {
     return 'websocket';
   }
   if (s.includes('poll')) return 'poll';
@@ -53,7 +50,6 @@ export function mapProvidersSourceToRuntime(source: string): RuntimeSource {
     s.includes('dismiss') ||
     s.includes('user-answer') ||
     s.includes('user') ||
-    s.includes('go-to-bans') ||
     s.includes('result-cta')
   ) {
     return 'user';
@@ -72,7 +68,6 @@ export function toQueuedOverlayItems(
   });
 }
 
-/** TEMP V1–V2: exclusive display patch from runtime (no partial clear gap). */
 export function buildExclusiveDisplayPatchFromRuntime(
   state: NotificationRuntimeState,
 ): OwnerActiveDisplayPatch {
@@ -83,105 +78,50 @@ export function buildExclusiveDisplayPatchFromRuntime(
     result: display.result,
     directResultOverlay: display.directResultOverlay,
     directResultOverlayActive: display.directResultOverlayActive,
-    // Clear presentation pins so exclusive card owns the shell.
     stableIncomingBan: null,
     replyIncomingBan: null,
     scopedIncomingBan: null,
   };
 }
 
-/**
- * Ingest / replace production queue via ITEMS_RECEIVED (sole queue authority).
- * Then TEMP-project to legacy sinks.
- */
 export function ingestProductionQueue(
   store: NotificationRuntimeStore,
   queue: readonly QueuedOverlay[],
   source: string,
-  sinks: RuntimeLegacySinks,
+  _sinks?: RuntimeLegacySinks,
   options?: { projectLegacy?: boolean; transitionId?: string },
 ): NotificationRuntimeState {
   const runtimeSource = mapProvidersSourceToRuntime(source);
-  const state = syncRuntimeQueue(
+  return syncRuntimeQueue(
     store,
     toQueuedOverlayItems(queue),
     runtimeSource,
     options?.transitionId,
   );
-  if (options?.projectLegacy !== false) {
-    sinks.writeQueue(projectRuntimeQueueToLegacy(state), `v1-runtime-ingest:${source}`);
-    if (state.items.queue.length > 0) {
-      sinks.writeDisplay(
-        buildExclusiveDisplayPatchFromRuntime(state),
-        `v1-runtime-ingest-display:${source}`,
-      );
-    }
-  }
-  return state;
 }
 
-export type AtomicDismissResult = {
-  ok: boolean;
-  state: NotificationRuntimeState;
-  snapshot: ReturnType<typeof projectRuntimeAdvanceSnapshot>;
-  effects: RuntimeEffect[];
-  /** True when next card exists after dismiss (no lobby). */
-  hasNext: boolean;
-};
-
-/**
- * Atomic A→B (or A→empty) via CARD_DISMISS_REQUESTED.
- * Projects queue+display together; never leaves display=null while hasNext.
- */
-export function dismissProductionHeadAtomic(
+export function dismissProductionHead(
   store: NotificationRuntimeStore,
   args: {
     targetItemId: string;
     reason: string;
-    source: string;
-    transitionId?: string;
+    source?: string;
   },
-  sinks: RuntimeLegacySinks,
-): AtomicDismissResult {
-  const runtimeSource = mapProvidersSourceToRuntime(args.source);
-  const cardReason = mapDismissReasonToCardReason(args.reason);
+  _sinks?: RuntimeLegacySinks,
+): {
+  snapshot: ReturnType<typeof projectRuntimeAdvanceSnapshot>;
+  effects: RuntimeEffect[];
+} {
   const result = dismissRuntimeHead(
     store,
     args.targetItemId,
-    cardReason,
-    runtimeSource,
-    args.transitionId,
+    mapDismissReasonToCardReason(args.reason),
+    mapProvidersSourceToRuntime(args.source ?? 'user'),
   );
-  const snapshot = projectRuntimeAdvanceSnapshot(result.state);
-  const hasNext = snapshot.queue.length > 0;
-
-  // Single projection flush: queue + display from the same reducer state.
-  sinks.writeQueue(snapshot.queue, `v1-runtime-dismiss:${args.reason}`);
-  sinks.writeDisplay(
-    buildExclusiveDisplayPatchFromRuntime(result.state),
-    `v1-runtime-dismiss-display:${args.reason}`,
-  );
-  sinks.runEffects?.(result.effects);
-
   return {
-    ok: true,
-    state: result.state,
-    snapshot,
+    snapshot: projectRuntimeAdvanceSnapshot(result.state),
     effects: result.effects,
-    hasNext,
   };
 }
 
-export function runtimeHeadItemId(
-  queue: readonly QueuedOverlay[],
-): string | null {
-  const head = queue[0];
-  if (!head) return null;
-  return notificationItemId(
-    head.kind === 'result'
-      ? { kind: 'result', result: head.result }
-      : head.kind === 'check'
-        ? { kind: 'check', ban: head.ban }
-        : { kind: 'incoming', ban: head.ban },
-  );
-}
+export { notificationItemId, projectRuntimeQueueToLegacy };

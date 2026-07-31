@@ -1,7 +1,6 @@
 /**
- * Phase 0 — NotificationRuntime transport (bootstrap / pending / WS ingest).
- * Writes only into NotificationRuntime. No legacy sinks.
- * Emits lifecycle facts to the coordinator Runtime port when provided.
+ * Stage 7 Phase 1 — NotificationRuntime transport (bootstrap / pending / WS).
+ * Writes only into NotificationRuntime. No preference / legacy sinks.
  */
 'use client';
 
@@ -16,7 +15,6 @@ import {
   failBootstrap,
   requestBootstrap,
 } from '@/notification-runtime/notification-runtime.bootstrap';
-import { EMPTY_RUNTIME_LEGACY_SINKS } from '@/notification-runtime/notification-runtime.demolition';
 import {
   completeNotificationIdentity,
   itemFromCheck,
@@ -30,11 +28,8 @@ import {
   pendingIdsFromPrefetchParts,
   pendingItemIdFromParts,
 } from '@/notification-runtime/notification-runtime.pending';
-import {
-  decideReconnectRecoveryRequest,
-} from '@/notification-runtime/notification-runtime.reconnect-recovery';
+import { decideReconnectRecoveryRequest } from '@/notification-runtime/notification-runtime.reconnect-recovery';
 import { useNotificationRuntimeStore } from '@/notification-runtime/notification-runtime.context';
-import { selectCurrentItemId } from '@/notification-runtime/notification-runtime.selectors';
 import { notificationItemId } from '@/notification-runtime/notification-runtime.types';
 import type { NotificationItem } from '@/notification-runtime/notification-runtime.types';
 import {
@@ -46,9 +41,6 @@ import type { NotificationRuntimePortHandle } from '@/notification-runtime/notif
 export type NotificationTransportAuth = {
   token: string | null;
   userId: string | null;
-  /** real-time → autoShow; normal → badge/pending only when idle policy says so */
-  notificationMode?: 'normal' | 'real-time';
-  /** Optional coordinator Runtime port for factual lifecycle events. */
   runtimePort?: NotificationRuntimePortHandle | null;
 };
 
@@ -59,7 +51,6 @@ export type NotificationTransportAuth = {
 export function NotificationRuntimeTransport({
   token,
   userId,
-  notificationMode = 'real-time',
   runtimePort = null,
 }: NotificationTransportAuth) {
   const store = useNotificationRuntimeStore();
@@ -81,7 +72,7 @@ export function NotificationRuntimeTransport({
 
       if (reason === 'reconnect') {
         const decision = decideReconnectRecoveryRequest(store.getState());
-        if (decision.action === 'skip' || decision.action === 'coalesce') {
+        if (decision.action === 'coalesce') {
           console.log('[ws-reconnect-recovery]', decision);
           return;
         }
@@ -101,57 +92,43 @@ export function NotificationRuntimeTransport({
       try {
         const session = await fetchSession(tok);
         if (tokenRef.current !== tok || userIdRef.current !== uid) {
-          failBootstrap(
-            store,
-            {
-              transitionId: bootReq.transitionId,
-              errorCode: 'AUTH_SWITCHED',
-              source: 'bootstrap',
-            },
-            EMPTY_RUNTIME_LEGACY_SINKS,
-          );
+          failBootstrap(store, {
+            transitionId: bootReq.transitionId,
+            errorCode: 'AUTH_SWITCHED',
+            source: 'bootstrap',
+          });
           return;
         }
         const { items, pendingItemIds, consumedItemIds } =
           sessionToRuntimeSnapshot(session);
-        completeBootstrap(
-          store,
-          {
-            transitionId: bootReq.transitionId,
-            items,
-            pendingItemIds,
-            consumedItemIds,
-            mode: notificationMode,
-            autoShow: notificationMode === 'real-time',
-            sourceVersion: `session:${Date.now()}`,
-            source: 'bootstrap',
-            generation,
-          },
-          EMPTY_RUNTIME_LEGACY_SINKS,
-        );
+        completeBootstrap(store, {
+          transitionId: bootReq.transitionId,
+          items,
+          pendingItemIds,
+          consumedItemIds,
+          sourceVersion: `session:${Date.now()}`,
+          source: 'bootstrap',
+          generation,
+        });
       } catch {
-        failBootstrap(
-          store,
-          {
-            transitionId: bootReq.transitionId,
-            errorCode: 'BOOTSTRAP_FAILED',
-            source: 'bootstrap',
-          },
-          EMPTY_RUNTIME_LEGACY_SINKS,
-        );
+        failBootstrap(store, {
+          transitionId: bootReq.transitionId,
+          errorCode: 'BOOTSTRAP_FAILED',
+          source: 'bootstrap',
+        });
       } finally {
         bootInFlightRef.current = false;
-        const currentItemId = selectCurrentItemId(store.getState());
         if (reason === 'bootstrap' && !coldBootSettledRef.current) {
           coldBootSettledRef.current = true;
-          runtimePortRef.current?.notifyBootCompleted(currentItemId);
+          // Stage 7 Phase 1 — never auto-activate on boot.
+          runtimePortRef.current?.notifyBootCompleted(null);
         }
         if (reason === 'reconnect') {
           runtimePortRef.current?.notifyReconnectCompleted();
         }
       }
     },
-    [notificationMode, store],
+    [store],
   );
 
   const runPendingRefresh = useCallback(
@@ -233,8 +210,9 @@ export function NotificationRuntimeTransport({
           break;
         }
         case 'check:completed': {
-          const result = (event.payload as { result?: BanResult })?.result
-            ?? (event.payload as BanResult);
+          const result =
+            (event.payload as { result?: BanResult })?.result ??
+            (event.payload as BanResult);
           if (!result?.id) return;
           const banId = result.id;
           stageMatchingActionResult({
