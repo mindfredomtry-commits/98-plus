@@ -57,6 +57,7 @@ body {
   opacity: 0;
   visibility: hidden;
 }
+html[data-app-hydrated] #lobby-boot-shell-early,
 html[data-lobby-logo-live] #lobby-boot-shell-early {
   display: none !important;
 }
