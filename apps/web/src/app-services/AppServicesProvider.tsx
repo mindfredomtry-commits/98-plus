@@ -81,6 +81,8 @@ function AppCoordinatorComposition({
     const next = createAppCoordinatorLifecycle({
       runtimeStore,
       getToken,
+      onboard,
+      refreshUser,
     });
     lifecycleRef.current = next;
     setLifecycle(next);
@@ -92,7 +94,7 @@ function AppCoordinatorComposition({
       setLifecycle(null);
     };
     // One lifecycle per Runtime store identity — not per token change.
-  }, [runtimeStore, getToken]);
+  }, [runtimeStore, getToken, onboard, refreshUser]);
 
   // Boot completion is Runtime-driven once a session exists.
   // Without a session, leave BOOTING only until auth settles to no-token.
@@ -125,11 +127,8 @@ function AppCoordinatorComposition({
       <ApplicationSurface
         lifecycle={lifecycle}
         loading={loading}
-        token={token}
         user={user}
         getToken={getToken}
-        onboard={onboard}
-        refreshUser={refreshUser}
       />
     </>
   );

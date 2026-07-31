@@ -1,5 +1,5 @@
 /**
- * Product Flow controller — sole owner of product route and compose context.
+ * Product Flow controller — composes CreateBan domain and Coordinator sinks.
  * Does not read Runtime queue or decide global surface ownership.
  */
 import type {
@@ -12,6 +12,25 @@ import type {
   ResumeToken,
 } from '@/app-coordinator/app-coordinator.types';
 import type { FriendCard } from '@98plus/shared';
+import {
+  createCreateBanController,
+  type CreateBanController,
+} from './create-ban/create-ban.controller';
+import type {
+  CreateBanRecipientsPort,
+  CreateBanSubmissionPort,
+} from './create-ban/create-ban.ports';
+import {
+  selectLastSentBanId,
+  selectSubmissionErrorDetail,
+} from './create-ban/create-ban.selectors';
+import type {
+  CreateBanState,
+  CreateBanUiIntent,
+  CreateBanValidation,
+  CreateBanSubmission,
+  CreateBanRecipientsStatus,
+} from './create-ban/create-ban.types';
 
 export type ProductReplyContext = {
   sourceItemId: string;
@@ -19,6 +38,10 @@ export type ProductReplyContext = {
   resumeToken: ResumeToken;
 };
 
+/**
+ * Compatibility + CreateBan read model for Product presentation.
+ * Flat fields remain for Coordinator tests; CreateBan fields are authoritative.
+ */
 export type ProductFlowState = {
   route: ProductRoute;
   reply: ProductReplyContext | null;
@@ -26,8 +49,12 @@ export type ProductFlowState = {
   banText: string;
   durationMinutes: number;
   lastSentBanId: string | null;
-  /** Prevents duplicate OPEN_ROUTE side effects for the same command. */
   navigationGeneration: number;
+  validation: CreateBanValidation;
+  submission: CreateBanSubmission;
+  recipients: CreateBanRecipientsStatus;
+  /** Presentation helper: submission failure detail string. */
+  submissionErrorDetail: string | null;
 };
 
 export type ProductFlowListener = (state: ProductFlowState) => void;
@@ -39,11 +66,14 @@ export type ProductFlowController = {
     route: ProductRoute;
     context?: ProductRouteContext;
   }): void;
-  /** Local Product navigation (WHO→WHAT etc.). Emits routeChanged once. */
+  /** Local Product navigation intents (WHO→WHAT etc.). Prefer dispatch(). */
   navigateLocal(route: ProductRoute): void;
-  setSelectedUser(user: FriendCard | null): void;
-  setBanText(text: string): void;
-  setDurationMinutes(minutes: number): void;
+  dispatch(intent: CreateBanUiIntent): void;
+  getCreateBanState(): CreateBanState;
+  /**
+   * Compatibility for Coordinator harness tests.
+   * Prefer SUBMIT via ports; this only marks SUCCESS.
+   */
   markSendSucceeded(banId: string): void;
   cancelReply(): void;
   completeReply(): void;
@@ -52,94 +82,59 @@ export type ProductFlowController = {
   dispose(): void;
 };
 
-function createInitialState(): ProductFlowState {
+function project(createBan: CreateBanState): ProductFlowState {
   return {
-    route: 'LOBBY',
-    reply: null,
-    selectedUser: null,
-    banText: '',
-    durationMinutes: 3,
-    lastSentBanId: null,
-    navigationGeneration: 0,
+    route: createBan.route,
+    reply: createBan.replyContext,
+    selectedUser: createBan.draft.recipient,
+    banText: createBan.draft.text,
+    durationMinutes: createBan.draft.durationMinutes,
+    lastSentBanId: selectLastSentBanId(createBan),
+    navigationGeneration: createBan.navigationGeneration,
+    validation: createBan.validation,
+    submission: createBan.submission,
+    recipients: createBan.recipients,
+    submissionErrorDetail: selectSubmissionErrorDetail(createBan),
   };
 }
 
 export function createProductFlowController(input: {
   sink: ProductFlowEventSink;
+  submissionPort?: CreateBanSubmissionPort | null;
+  recipientsPort?: CreateBanRecipientsPort | null;
 }): ProductFlowController {
-  let state = createInitialState();
-  let disposed = false;
+  const createBan: CreateBanController = createCreateBanController({
+    sink: input.sink,
+    submissionPort: input.submissionPort,
+    recipientsPort: input.recipientsPort,
+  });
+
   const listeners = new Set<ProductFlowListener>();
+  let disposed = false;
 
-  function commit(next: ProductFlowState): void {
-    state = next;
+  const unsubscribeCreateBan = createBan.subscribe(() => {
+    const snapshot = project(createBan.getState());
     for (const listener of [...listeners]) {
-      listener(state);
+      listener(snapshot);
     }
-  }
+  });
 
-  function openRoute(openInput: {
-    route: ProductRoute;
-    context?: ProductRouteContext;
-  }): void {
+  function navigateLocal(route: ProductRoute): void {
     if (disposed) return;
-    const { route, context } = openInput;
-
-    if (context?.type === 'REPLY') {
-      commit({
-        ...state,
-        route,
-        reply: {
-          sourceItemId: context.sourceItemId,
-          targetUserId: context.targetUserId,
-          resumeToken: context.resumeToken,
-        },
-        selectedUser: state.selectedUser,
-        banText: '',
-        durationMinutes: 3,
-        lastSentBanId: null,
-        navigationGeneration: state.navigationGeneration + 1,
-      });
-      input.sink.routeChanged(route);
+    if (route === 'BANS') {
+      createBan.dispatch({ type: 'NAVIGATE_BANS_REQUESTED' });
       return;
     }
-
     if (route === 'LOBBY') {
-      const wasReply = state.reply;
-      commit({
-        ...createInitialState(),
-        navigationGeneration: state.navigationGeneration + 1,
-      });
-      if (!wasReply) {
-        input.sink.routeChanged('LOBBY');
-      }
+      createBan.dispatch({ type: 'RELEASE_TO_LOBBY_REQUESTED' });
       return;
     }
-
-    if (route === state.route && !context) {
-      return;
-    }
-
-    commit({
-      ...state,
-      route,
-      reply: null,
-      navigationGeneration: state.navigationGeneration + 1,
-      ...(route === 'WHO'
-        ? {
-            selectedUser: null,
-            banText: '',
-            durationMinutes: 3,
-            lastSentBanId: null,
-          }
-        : {}),
-    });
-    input.sink.routeChanged(route);
+    createBan.changeLocalRoute(route);
   }
 
   const controller: ProductFlowController = {
     getState() {
-      return state;
+      return project(createBan.getState());
     },
 
     subscribe(listener) {
@@ -149,88 +144,53 @@ export function createProductFlowController(input: {
       };
     },
 
-    openRoute,
-
-    navigateLocal(route) {
-      if (disposed) return;
-      if (state.route === route) return;
-      if (state.reply && (route === 'LOBBY' || route === 'WHO' || route === 'BANS')) {
-        return;
-      }
-      commit({
-        ...state,
-        route,
-        navigationGeneration: state.navigationGeneration + 1,
-      });
-      input.sink.routeChanged(route);
+    openRoute(openInput) {
+      createBan.openRoute(openInput);
     },
 
-    setSelectedUser(user) {
-      if (disposed) return;
-      commit({ ...state, selectedUser: user });
+    navigateLocal,
+
+    dispatch(intent) {
+      createBan.dispatch(intent);
     },
 
-    setBanText(text) {
-      if (disposed) return;
-      commit({ ...state, banText: text });
-    },
-
-    setDurationMinutes(minutes) {
-      if (disposed) return;
-      commit({ ...state, durationMinutes: minutes });
+    getCreateBanState() {
+      return createBan.getState();
     },
 
     markSendSucceeded(banId) {
-      if (disposed) return;
-      commit({
-        ...state,
-        lastSentBanId: banId,
-        route: 'SUCCESS',
-        navigationGeneration: state.navigationGeneration + 1,
-      });
-      input.sink.routeChanged('SUCCESS');
+      createBan.markSendSucceeded(banId);
     },
 
     cancelReply() {
-      if (disposed || !state.reply) return;
-      const { resumeToken, sourceItemId } = state.reply;
-      commit({
-        ...createInitialState(),
-        navigationGeneration: state.navigationGeneration + 1,
-      });
-      input.sink.replyCancelled({ resumeToken, sourceItemId });
+      createBan.dispatch({ type: 'REPLY_CANCEL_REQUESTED' });
     },
 
     completeReply() {
-      if (disposed || !state.reply) return;
-      const { resumeToken, sourceItemId } = state.reply;
-      commit({
-        ...createInitialState(),
-        navigationGeneration: state.navigationGeneration + 1,
-      });
-      input.sink.replyCompleted({ resumeToken, sourceItemId });
+      createBan.dispatch({ type: 'SUCCESS_DISMISSED' });
     },
 
     releaseFlow(route = 'LOBBY') {
-      if (disposed) return;
-      if (state.reply) return;
-      commit({
-        ...createInitialState(),
-        route,
-        navigationGeneration: state.navigationGeneration + 1,
-      });
-      input.sink.flowReleased(route);
+      if (route !== 'LOBBY') {
+        createBan.openRoute({ route });
+        return;
+      }
+      createBan.dispatch({ type: 'RELEASE_TO_LOBBY_REQUESTED' });
     },
 
     asPort() {
       return {
-        openRoute,
+        openRoute: (openInput) => {
+          createBan.openRoute(openInput);
+        },
       };
     },
 
     dispose() {
       disposed = true;
+      unsubscribeCreateBan();
       listeners.clear();
+      createBan.dispose();
     },
   };
 

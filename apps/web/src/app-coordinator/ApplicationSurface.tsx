@@ -20,11 +20,8 @@ import { ProductFlowSurface } from '@/product-flow/product-flow.surface';
 export type ApplicationSurfaceProps = {
   lifecycle: AppCoordinatorLifecycle | null;
   loading: boolean;
-  token: string | null;
   user: UserPublic | null;
   getToken: () => string | null;
-  onboard: () => Promise<void>;
-  refreshUser: () => Promise<void>;
 };
 
 type ActiveApplicationSurfaceProps = Omit<
@@ -47,11 +44,8 @@ function BootSurface() {
 
 function ActiveApplicationSurface({
   lifecycle,
-  token,
   user,
   getToken,
-  onboard,
-  refreshUser,
 }: ActiveApplicationSurfaceProps) {
   const coordinatorState = useSyncExternalStore(
     lifecycle.store.subscribe,
@@ -140,11 +134,8 @@ function ActiveApplicationSurface({
     <div data-surface-owner="PRODUCT_FLOW">
       <ProductFlowSurface
         controller={lifecycle.productController}
-        token={token}
         user={user}
         influencePercent={user?.energyPercent ?? 0}
-        onboard={onboard}
-        refreshUser={refreshUser}
         onComposeRequested={onStartBan}
       />
     </div>

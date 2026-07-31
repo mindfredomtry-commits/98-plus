@@ -30,6 +30,10 @@ import {
   createProductFlowController,
   type ProductFlowController,
 } from '@/product-flow/product-flow.controller';
+import {
+  createHttpCreateBanRecipientsPort,
+  createHttpCreateBanSubmissionPort,
+} from '@/product-flow/create-ban/create-ban.adapters';
 import { createTelegramEntryRouter } from './app-coordinator.entry-router';
 import {
   entryIntentToCoordinatorEvent,
@@ -49,6 +53,8 @@ export type AppCoordinatorLifecycle = {
 export function createAppCoordinatorLifecycle(input: {
   runtimeStore: NotificationRuntimeStore;
   getToken: () => string | null;
+  onboard: () => Promise<void>;
+  refreshUser: () => Promise<void>;
   onInvariantViolation?: (
     violation: AppCoordinatorInvariantViolation,
     event: AppCoordinatorEvent,
@@ -70,7 +76,20 @@ export function createAppCoordinatorLifecycle(input: {
   const runtimeSink = createNotificationRuntimeEventSink(dispatch);
   const productSink = createProductFlowEventSink(dispatch);
 
-  productController = createProductFlowController({ sink: productSink });
+  const submissionPort = createHttpCreateBanSubmissionPort({
+    getToken: input.getToken,
+    onboard: input.onboard,
+    refreshUser: input.refreshUser,
+  });
+  const recipientsPort = createHttpCreateBanRecipientsPort({
+    getToken: input.getToken,
+  });
+
+  productController = createProductFlowController({
+    sink: productSink,
+    submissionPort,
+    recipientsPort,
+  });
   runtimePort = createNotificationRuntimePort({
     store: input.runtimeStore,
     sink: runtimeSink,
