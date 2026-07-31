@@ -111,11 +111,18 @@ export function createProductFlowController(input: {
 
   const listeners = new Set<ProductFlowListener>();
   let disposed = false;
+  /**
+   * Cached projection for useSyncExternalStore.
+   * getSnapshot must return a stable reference when CreateBan state is unchanged;
+   * allocating a new object per getState() call causes React error #185
+   * (Maximum update depth exceeded).
+   */
+  let cachedProjection: ProductFlowState = project(createBan.getState());
 
   const unsubscribeCreateBan = createBan.subscribe(() => {
-    const snapshot = project(createBan.getState());
+    cachedProjection = project(createBan.getState());
     for (const listener of [...listeners]) {
-      listener(snapshot);
+      listener(cachedProjection);
     }
   });
 
@@ -134,7 +141,7 @@ export function createProductFlowController(input: {
 
   const controller: ProductFlowController = {
     getState() {
-      return project(createBan.getState());
+      return cachedProjection;
     },
 
     subscribe(listener) {
