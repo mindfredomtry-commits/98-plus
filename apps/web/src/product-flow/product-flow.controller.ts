@@ -6,11 +6,8 @@ import type {
   ProductFlowEventSink,
   ProductFlowPort,
 } from '@/app-coordinator/app-coordinator.ports';
-import type {
-  ProductRoute,
-  ProductRouteContext,
-  ResumeToken,
-} from '@/app-coordinator/app-coordinator.types';
+import type { ProductRoute } from '@/app-coordinator/app-coordinator.types';
+import type { ResumeToken } from '@/app-coordinator/resume-token';
 import type { FriendCard } from '@98plus/shared';
 import {
   createCreateBanController,
@@ -30,6 +27,7 @@ import type {
   CreateBanValidation,
   CreateBanSubmission,
   CreateBanRecipientsStatus,
+  ProductRouteContext,
 } from './create-ban/create-ban.types';
 
 export type ProductReplyContext = {

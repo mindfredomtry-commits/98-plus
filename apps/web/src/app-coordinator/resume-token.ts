@@ -1,15 +1,17 @@
-import type { ResumeToken } from './app-coordinator.types';
+/**
+ * Opaque reply suspension identity for Product CreateBan reply context.
+ * Not an AppMode / Coordinator ownership token in Stage 7 Phase 3.
+ */
+declare const resumeTokenBrand: unique symbol;
+
+export type ResumeToken = string & {
+  readonly [resumeTokenBrand]: 'ResumeToken';
+};
 
 export interface ResumeTokenFactory {
   create(): ResumeToken;
 }
 
-/**
- * Framework-independent monotonic token factory.
- *
- * A factory instance is injected into the integration owner; no global token
- * state is shared between coordinator instances.
- */
 export function createSequentialResumeTokenFactory(
   prefix = 'reply',
 ): ResumeTokenFactory {
@@ -22,10 +24,6 @@ export function createSequentialResumeTokenFactory(
   };
 }
 
-/**
- * Boundary parser for persisted/external opaque tokens. Empty values are
- * rejected instead of being branded.
- */
 export function parseResumeToken(value: string): ResumeToken | null {
   const normalized = value.trim();
   return normalized ? (normalized as ResumeToken) : null;

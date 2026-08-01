@@ -28,7 +28,7 @@ import {
   completeRuntimeItem,
   createNotificationRuntimeStore,
 } from '../src/notification-runtime/notification-runtime.store';
-import { createNotificationRuntimePort } from '../src/notification-runtime/notification-runtime.coordinator-port';
+import { createNotificationRuntimePort } from '../src/app-coordinator/notification-runtime-port';
 import { createInitialNotificationRuntimeState } from '../src/notification-runtime/notification-runtime.types';
 import type { BanInteraction } from '@98plus/shared';
 
@@ -221,7 +221,7 @@ function assertIdlePassive(store: ReturnType<typeof createNotificationRuntimeSto
 // 14. No production activation path
 {
   const port = readFileSync(
-    join(runtimeDir, 'notification-runtime.coordinator-port.ts'),
+    join(webSrc, 'app-coordinator/notification-runtime-port.ts'),
     'utf8',
   );
   const ports = readFileSync(
@@ -232,9 +232,9 @@ function assertIdlePassive(store: ReturnType<typeof createNotificationRuntimeSto
   assert.doesNotMatch(ports, /currentChanged|queueDrained/);
   assert.doesNotMatch(
     readFileSync(join(webSrc, 'app-coordinator/app-coordinator.types.ts'), 'utf8'),
-    /RUNTIME_CURRENT_CHANGED|RUNTIME_QUEUE_DRAINED/,
+    /\| \{ type: 'NOTIFICATION'; itemId: string \}/,
   );
-  pass('14. No Runtime→Coordinator currentChanged/queueDrained path');
+  pass('14. No Runtime→Coordinator activation path; AppMode has no NOTIFICATION');
 }
 
 // 15–20. Queue mechanics
@@ -300,7 +300,7 @@ function assertIdlePassive(store: ReturnType<typeof createNotificationRuntimeSto
     source: 'websocket',
   });
   assert.deepEqual(facts, []);
-  port.notifyBootCompleted('incoming:p1');
+  port.notifyBootCompleted();
   assert.deepEqual(facts, ['boot']);
   port.dispose();
   pass('Port emits boot only; never activation on ingest');

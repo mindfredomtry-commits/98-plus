@@ -1,9 +1,6 @@
 /**
  * Coordinator-owned application surface.
- * Exactly one global surface owner at a time.
- *
- * Stage 7 Phase 2: Notification activation is absent. ApplicationSurface mounts
- * Boot or Product only. NOTIFICATION mode is unreachable from production wiring.
+ * Stage 7 Phase 3: Boot or Product only.
  */
 'use client';
 
@@ -55,8 +52,6 @@ function ActiveApplicationSurface({
     return <BootSurface />;
   }
 
-  // Stage 7 Phase 2: no Notification owner until Coordinator activation exists.
-  // Residual NOTIFICATION / REPLY_COMPOSE still renders Product shell.
   return (
     <div data-surface-owner="PRODUCT_FLOW">
       <ProductFlowSurface

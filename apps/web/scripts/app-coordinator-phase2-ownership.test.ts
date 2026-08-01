@@ -1,5 +1,5 @@
 /**
- * App Coordinator Phase 2 — production ownership integration tests.
+ * App Coordinator Phase 2 — ownership after Stage 7 Phase 3 (BOOT | PRODUCT only).
  *
  * Run:
  *   npx tsx --tsconfig apps/web/tsconfig.json apps/web/scripts/app-coordinator-phase2-ownership.test.ts
@@ -17,12 +17,9 @@ import {
 import { createAppCoordinatorStore } from '../src/app-coordinator/app-coordinator.store';
 import {
   selectApplicationSurfaceOwner,
-  selectNotificationItemId,
   selectProductRoute,
-  selectReplyCompose,
 } from '../src/app-coordinator/app-coordinator.selectors';
 import { createTelegramEntryRouter } from '../src/app-coordinator/app-coordinator.entry-router';
-import { createSequentialResumeTokenFactory } from '../src/app-coordinator/resume-token';
 import {
   createInitialAppCoordinatorState,
   type AppCoordinatorInvariantViolation,
@@ -33,7 +30,6 @@ import { createProductFlowController } from '../src/product-flow/product-flow.co
 import { entryIntentToCoordinatorEvent } from '../src/app-coordinator/app-coordinator.boundaries';
 
 let passed = 0;
-const tokens = createSequentialResumeTokenFactory('phase2');
 
 function pass(name: string): void {
   passed += 1;
@@ -44,22 +40,12 @@ function productState(route: ProductRoute = 'LOBBY'): AppCoordinatorState {
   return {
     mode: { type: 'PRODUCT', route },
     resumeDestination: { type: 'PRODUCT', route },
-    lastSettledReply: null,
   };
 }
 
-function notificationState(
-  itemId = 'incoming:A',
-  returnRoute: ProductRoute = 'LOBBY',
-): AppCoordinatorState {
-  return {
-    mode: { type: 'NOTIFICATION', itemId },
-    resumeDestination: { type: 'PRODUCT', route: returnRoute },
-    lastSettledReply: null,
-  };
-}
-
-function createHarness(initialState: AppCoordinatorState = createInitialAppCoordinatorState()) {
+function createHarness(
+  initialState: AppCoordinatorState = createInitialAppCoordinatorState(),
+) {
   const calls: string[] = [];
   const violations: AppCoordinatorInvariantViolation[] = [];
   let surfaces: string[] = [];
@@ -68,18 +54,17 @@ function createHarness(initialState: AppCoordinatorState = createInitialAppCoord
     ingestEntry(intent) {
       calls.push(`ingest:${intent.itemId}`);
     },
-    suspend({ sourceItemId, resumeToken }) {
-      calls.push(`suspend:${sourceItemId}:${resumeToken}`);
-    },
-    resume({ resumeToken }) {
-      calls.push(`resume:${resumeToken}`);
-    },
-    completeSourceItem({ sourceItemId, resumeToken }) {
-      calls.push(`complete:${sourceItemId}:${resumeToken}`);
+    flushDeferredDirectEntry() {
+      calls.push('flush');
     },
   };
 
-  let productPort!: ProductFlowPort;
+  const productPort: ProductFlowPort = {
+    openRoute({ route }) {
+      calls.push(`open:${route}:plain`);
+    },
+  };
+
   const productController = createProductFlowController({
     sink: {
       routeChanged() {},
@@ -88,12 +73,6 @@ function createHarness(initialState: AppCoordinatorState = createInitialAppCoord
       flowReleased() {},
     },
   });
-  productPort = {
-    openRoute(input) {
-      calls.push(`open:${input.route}:${input.context?.type ?? 'plain'}`);
-      productController.openRoute(input);
-    },
-  };
 
   const store = createAppCoordinatorStore({
     initialState,
@@ -134,25 +113,24 @@ function createHarness(initialState: AppCoordinatorState = createInitialAppCoord
 async function main() {
   {
     const harness = createHarness();
-    harness.runtimeSink.bootCompleted({ currentItemId: null });
+    harness.runtimeSink.bootCompleted();
     assert.equal(selectProductRoute(harness.store.getState()), 'LOBBY');
     assert.equal(
       selectApplicationSurfaceOwner(harness.store.getState()),
       'PRODUCT_FLOW',
     );
-    assert.equal(harness.calls.at(-1), 'open:LOBBY:plain');
     pass('1. ordinary boot → Product Lobby');
   }
 
   {
     const harness = createHarness();
-    harness.runtimeSink.bootCompleted({ currentItemId: 'incoming:P' });
-    assert.equal(selectNotificationItemId(harness.store.getState()), null);
+    harness.runtimeSink.bootCompleted({ productRoute: 'LOBBY' });
     assert.equal(
       selectApplicationSurfaceOwner(harness.store.getState()),
       'PRODUCT_FLOW',
     );
-    pass('2. boot with pending item still → Product (no auto-activation)');
+    assert.equal(harness.store.getState().mode.type, 'PRODUCT');
+    pass('2. boot always → Product (no Notification mode)');
   }
 
   {
@@ -160,17 +138,22 @@ async function main() {
       join(process.cwd(), 'apps/web/src/app-coordinator/app-coordinator.ports.ts'),
       'utf8',
     );
-    assert.doesNotMatch(ports, /currentChanged|queueDrained/);
-    pass('3. Runtime sink has no currentChanged/queueDrained activation API');
-  }
-
-  {
     const types = readFileSync(
       join(process.cwd(), 'apps/web/src/app-coordinator/app-coordinator.types.ts'),
       'utf8',
     );
-    assert.doesNotMatch(types, /RUNTIME_CURRENT_CHANGED|RUNTIME_QUEUE_DRAINED/);
-    pass('4. Coordinator event union has no Runtime activation events');
+    assert.doesNotMatch(ports, /currentChanged|queueDrained|SUSPEND|COMPLETE_SOURCE/);
+    assert.doesNotMatch(types, /REPLY_COMPOSE/);
+    const appModeBlock = types.match(
+      /export type AppMode =[\s\S]*?;\r?\n/,
+    )?.[0];
+    assert.ok(appModeBlock, 'AppMode type block present');
+    assert.match(appModeBlock, /type:\s*'BOOTING'/);
+    assert.match(appModeBlock, /type:\s*'PRODUCT'/);
+    assert.doesNotMatch(appModeBlock, /NOTIFICATION/);
+    assert.match(types, /type: 'BOOTING'/);
+    assert.match(types, /type: 'PRODUCT'/);
+    pass('3. AppMode is BOOTING | PRODUCT only; no activation sink APIs');
   }
 
   {
@@ -178,130 +161,24 @@ async function main() {
     harness.runtimeSink.reconnectStarted();
     harness.runtimeSink.reconnectCompleted();
     assert.equal(selectProductRoute(harness.store.getState()), 'WHO');
-    assert.equal(
-      selectApplicationSurfaceOwner(harness.store.getState()),
-      'PRODUCT_FLOW',
-    );
-    const harnessWhat = createHarness(productState('WHAT'));
-    harnessWhat.runtimeSink.reconnectStarted();
-    harnessWhat.runtimeSink.reconnectCompleted();
-    assert.equal(selectProductRoute(harnessWhat.store.getState()), 'WHAT');
-    pass('5. reconnect during WHO/WHAT leaves Product owner unchanged');
+    pass('4. reconnect leaves Product owner unchanged');
   }
 
   {
     const harness = createHarness(productState('LOBBY'));
     harness.store.dispatch({ type: 'PRODUCT_COMPOSE_REQUESTED' });
     assert.equal(selectProductRoute(harness.store.getState()), 'WHO');
-    assert.match(harness.calls.join(','), /suspend/);
+    assert.doesNotMatch(harness.calls.join(','), /suspend/);
     assert.match(harness.calls.join(','), /open:WHO/);
-    pass('6. ordinary Lobby compose → WHO');
-  }
-
-  {
-    const harness = createHarness(notificationState('incoming:A'));
-    const token = tokens.create();
-    harness.store.dispatch({
-      type: 'REPLY_REQUESTED',
-      sourceItemId: 'incoming:A',
-      targetUserId: 'user:B',
-      resumeToken: token,
-    });
-    assert.equal(selectReplyCompose(harness.store.getState())?.route, 'WHAT');
-    assert.match(harness.calls.join(','), /suspend:incoming:A/);
-    assert.match(harness.calls.join(','), /open:WHAT:REPLY/);
-    pass('7. reply from incoming → Product WHAT with Runtime suspended');
-  }
-
-  {
-    const harness = createHarness(notificationState('result:R', 'BANS'));
-    const token = tokens.create();
-    harness.store.dispatch({
-      type: 'REPLY_REQUESTED',
-      sourceItemId: 'result:R',
-      targetUserId: 'user:B',
-      resumeToken: token,
-    });
-    assert.equal(harness.store.getState().mode.type, 'REPLY_COMPOSE');
-    assert.deepEqual(harness.store.getState().resumeDestination, {
-      type: 'NOTIFICATION',
-      itemId: 'result:R',
-      afterQueue: { type: 'PRODUCT', route: 'BANS' },
-    });
-    pass('8. reply from status → same contract');
-  }
-
-  {
-    const harness = createHarness(notificationState('incoming:source'));
-    const token = tokens.create();
-    harness.store.dispatch({
-      type: 'REPLY_REQUESTED',
-      sourceItemId: 'incoming:source',
-      targetUserId: 'user:B',
-      resumeToken: token,
-    });
-    harness.productSink.replyCancelled({
-      resumeToken: token,
-      sourceItemId: 'incoming:source',
-    });
-    assert.equal(selectNotificationItemId(harness.store.getState()), null);
-    assert.equal(selectProductRoute(harness.store.getState()), 'LOBBY');
-    pass('9. reply cancellation → Product (no Notification reactivation)');
-  }
-
-  {
-    const harness = createHarness(notificationState('incoming:A', 'BANS'));
-    const token = tokens.create();
-    harness.store.dispatch({
-      type: 'REPLY_REQUESTED',
-      sourceItemId: 'incoming:A',
-      targetUserId: 'user:B',
-      resumeToken: token,
-    });
-    harness.productSink.routeChanged('SUCCESS');
-    harness.productSink.replyCompleted({
-      resumeToken: token,
-      sourceItemId: 'incoming:A',
-    });
-    assert.equal(selectProductRoute(harness.store.getState()), 'BANS');
-    assert.match(harness.calls.join(','), /complete:incoming:A/);
-    pass('10. reply completion returns to saved Product route immediately');
-  }
-
-  {
-    const harness = createHarness(notificationState('incoming:A'));
-    const token = tokens.create();
-    harness.store.dispatch({
-      type: 'REPLY_REQUESTED',
-      sourceItemId: 'incoming:A',
-      targetUserId: 'user:B',
-      resumeToken: token,
-    });
-    harness.productSink.routeChanged('SUCCESS');
-    harness.productSink.replyCompleted({
-      resumeToken: token,
-      sourceItemId: 'incoming:A',
-    });
-    assert.equal(selectProductRoute(harness.store.getState()), 'LOBBY');
-    pass('11. reply completion with default resume → Product Lobby');
+    pass('5. ordinary Lobby compose → WHO without Runtime suspend');
   }
 
   {
     const harness = createHarness(productState('CONFIRM'));
-    const before = harness.store.getState();
-    harness.runtimeSink.reconnectStarted();
-    harness.runtimeSink.reconnectCompleted();
-    assert.equal(harness.store.getState(), before);
-    pass('12. reconnect while Product owns surface → mode unchanged');
-  }
-
-  {
-    const harness = createHarness(notificationState());
-    const before = harness.store.getState();
-    harness.runtimeSink.reconnectStarted();
-    harness.runtimeSink.reconnectCompleted();
-    assert.equal(harness.store.getState(), before);
-    pass('13. reconnect while Notification owns surface → mode unchanged');
+    harness.productSink.flowReleased('LOBBY');
+    assert.equal(selectProductRoute(harness.store.getState()), 'LOBBY');
+    assert.match(harness.calls.join(','), /flush/);
+    pass('6. Product release flushes deferred direct entry');
   }
 
   {
@@ -318,82 +195,35 @@ async function main() {
       ['ingest:incoming:abc123', 'ingest:incoming:abc123'],
     );
     assert.equal(selectProductRoute(harness.store.getState()), 'LOBBY');
-    pass('14. repeated deeplink remains Runtime dedupe concern');
+    pass('7. deeplink ENTRY ingests only; AppMode stays Product');
   }
 
   {
     const harness = createHarness();
     harness.resetSurfaces();
-    harness.runtimeSink.bootCompleted({ currentItemId: null });
+    harness.runtimeSink.bootCompleted();
     harness.store.dispatch({ type: 'PRODUCT_COMPOSE_REQUESTED' });
     const owners = new Set(harness.surfaces());
     assert.ok([...owners].every((o) => o === 'PRODUCT_FLOW' || o === 'BOOT'));
-    assert.equal(
-      selectApplicationSurfaceOwner(harness.store.getState()),
-      'PRODUCT_FLOW',
-    );
-    pass('15. one global surface owner at a time');
+    pass('8. one global surface owner at a time (Boot|Product)');
   }
 
   {
-    const root = process.cwd();
-    const appServices = readFileSync(
-      join(root, 'apps/web/src/app-services/AppServicesProvider.tsx'),
-      'utf8',
-    );
     const surface = readFileSync(
-      join(root, 'apps/web/src/app-coordinator/ApplicationSurface.tsx'),
-      'utf8',
-    );
-    const product = readFileSync(
-      join(root, 'apps/web/src/product-flow/product-flow.controller.ts'),
+      join(process.cwd(), 'apps/web/src/app-coordinator/ApplicationSurface.tsx'),
       'utf8',
     );
     const runtimePort = readFileSync(
-      join(
-        root,
-        'apps/web/src/notification-runtime/notification-runtime.coordinator-port.ts',
-      ),
+      join(process.cwd(), 'apps/web/src/app-coordinator/notification-runtime-port.ts'),
       'utf8',
     );
-
-    assert.doesNotMatch(appServices, /sendFlowRequested|bansSectionRequested/);
+    assert.doesNotMatch(surface, /DirectNotificationHost|NOTIFICATION_SYSTEM/);
     assert.doesNotMatch(
-      surface,
-      /overlayVisible|pendingCount|startupHold|chainTransitioning/,
+      runtimePort,
+      /from '@\/notification-runtime\/notification-runtime\.coordinator/,
     );
-    assert.doesNotMatch(product, /selectCurrentItemId|items\.queue|pending\.itemIds/);
-    assert.doesNotMatch(runtimePort, /shadow|mirror|fallback|second queue/i);
-    assert.equal(
-      (appServices.match(/createAppCoordinatorLifecycle\(/g) ?? []).length,
-      1,
-    );
-    assert.doesNotMatch(runtimePort, /currentChanged|queueDrained/);
-    assert.doesNotMatch(runtimePort, /\.queue\s*=/);
-    assert.doesNotMatch(surface, /DirectNotificationHost/);
-    pass('16. no old ownership selector / Host mount / activation sink');
-  }
-
-  {
-    const controller = createProductFlowController({
-      sink: {
-        routeChanged() {},
-        replyCancelled() {},
-        replyCompleted() {},
-        flowReleased() {},
-      },
-    });
-    controller.openRoute({ route: 'WHO' });
-    controller.openRoute({ route: 'WHO' });
-    assert.equal(controller.getState().route, 'WHO');
-    assert.equal(controller.getState().navigationGeneration, 1);
-    controller.markSendSucceeded('ban:1');
-    const gen = controller.getState().navigationGeneration;
-    controller.markSendSucceeded('ban:1');
-    // Second SUCCESS mark is still a local transition; Product prevents
-    // duplicate coordinator OPEN_ROUTE via executor-only opens.
-    assert.ok(controller.getState().navigationGeneration >= gen);
-    pass('17. Product navigation is controller-owned without dual Runtime resume');
+    assert.match(runtimePort, /from '\.\/app-coordinator\.ports'/);
+    pass('9. no Host mount; Runtime port adapter owned by Coordinator');
   }
 
   {
@@ -406,15 +236,7 @@ async function main() {
         notificationKind: 'status',
       },
     );
-    assert.deepEqual(
-      router.route({ startParam: 'res_r1', launchSource: 'telegram' }),
-      {
-        type: 'NOTIFICATION',
-        itemId: 'result:r1',
-        notificationKind: 'status',
-      },
-    );
-    pass('18. EntryRouter maps Telegram notification prefixes only');
+    pass('10. EntryRouter still maps Telegram prefixes to ingest intents');
   }
 
   console.log(`\n${passed} passed\n`);

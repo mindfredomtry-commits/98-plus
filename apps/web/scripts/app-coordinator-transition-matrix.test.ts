@@ -1,18 +1,14 @@
 /**
- * Stage 7 Phase 2 — Coordinator transitions without Runtime auto-activation.
- *
- * Run:
- *   npx tsx --tsconfig apps/web/tsconfig.json apps/web/scripts/app-coordinator-transition-matrix.test.ts
+ * Stage 7 Phase 3 — Coordinator transitions (BOOT | PRODUCT only).
  */
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { appCoordinatorReducer } from '../src/app-coordinator/app-coordinator.reducer';
 import {
   selectApplicationSurfaceOwner,
-  selectNotificationItemId,
   selectProductRoute,
-  selectReplyCompose,
 } from '../src/app-coordinator/app-coordinator.selectors';
-import { createSequentialResumeTokenFactory } from '../src/app-coordinator/resume-token';
+import { APP_COORDINATOR_TRANSITION_MATRIX } from '../src/app-coordinator/app-coordinator.transition-matrix';
 import {
   createInitialAppCoordinatorState,
   type AppCoordinatorEvent,
@@ -21,7 +17,6 @@ import {
 } from '../src/app-coordinator/app-coordinator.types';
 
 let passed = 0;
-const tokens = createSequentialResumeTokenFactory('matrix');
 
 function pass(name: string): void {
   passed += 1;
@@ -32,18 +27,6 @@ function productState(route: ProductRoute): AppCoordinatorState {
   return {
     mode: { type: 'PRODUCT', route },
     resumeDestination: { type: 'PRODUCT', route },
-    lastSettledReply: null,
-  };
-}
-
-function notificationState(
-  itemId: string,
-  returnRoute: ProductRoute = 'LOBBY',
-): AppCoordinatorState {
-  return {
-    mode: { type: 'NOTIFICATION', itemId },
-    resumeDestination: { type: 'PRODUCT', route: returnRoute },
-    lastSettledReply: null,
   };
 }
 
@@ -52,24 +35,15 @@ function dispatch(state: AppCoordinatorState, event: AppCoordinatorEvent) {
 }
 
 async function main() {
-  {
-    const result = dispatch(createInitialAppCoordinatorState(), {
-      type: 'BOOT_COMPLETED',
-      currentNotificationItemId: null,
-    });
-    assert.equal(selectProductRoute(result.state), 'LOBBY');
-    assert.equal(selectApplicationSurfaceOwner(result.state), 'PRODUCT_FLOW');
-    pass('1. ordinary launch → PRODUCT(LOBBY)');
-  }
+  assert.ok(APP_COORDINATOR_TRANSITION_MATRIX.length >= 4);
 
   {
     const result = dispatch(createInitialAppCoordinatorState(), {
       type: 'BOOT_COMPLETED',
-      currentNotificationItemId: 'incoming:A',
     });
     assert.equal(selectProductRoute(result.state), 'LOBBY');
-    assert.equal(selectNotificationItemId(result.state), null);
-    pass('2. boot with pending item → Product (no auto Notification)');
+    assert.equal(selectApplicationSurfaceOwner(result.state), 'PRODUCT_FLOW');
+    pass('1. ordinary launch → PRODUCT(LOBBY)');
   }
 
   {
@@ -84,7 +58,7 @@ async function main() {
     });
     assert.equal(selectProductRoute(result.state), 'LOBBY');
     assert.equal(result.effects[0]?.target, 'NOTIFICATION_RUNTIME');
-    pass('3. deeplink ENTRY ingests Runtime only; mode stays Product');
+    pass('2. deeplink ENTRY ingests; mode stays Product');
   }
 
   {
@@ -92,49 +66,24 @@ async function main() {
       type: 'PRODUCT_COMPOSE_REQUESTED',
     });
     assert.equal(selectProductRoute(result.state), 'WHO');
-    pass('4. ordinary compose remains Product-owned');
+    pass('3. ordinary compose remains Product-owned');
   }
 
   {
-    const token = tokens.create();
-    let state = notificationState('incoming:A');
-    let result = dispatch(state, {
-      type: 'REPLY_REQUESTED',
-      sourceItemId: 'incoming:A',
-      targetUserId: 'u1',
-      resumeToken: token,
-    });
-    assert.equal(selectReplyCompose(result.state)?.route, 'WHAT');
-    result = dispatch(result.state, {
-      type: 'REPLY_CANCELLED',
-      resumeToken: token,
+    const result = dispatch(productState('CONFIRM'), {
+      type: 'PRODUCT_FLOW_RELEASED',
+      route: 'LOBBY',
     });
     assert.equal(selectProductRoute(result.state), 'LOBBY');
-    assert.equal(selectNotificationItemId(result.state), null);
-    pass('5. reply cancel returns to Product');
-  }
-
-  {
-    const token = tokens.create();
-    let state = notificationState('incoming:A', 'BANS');
-    let result = dispatch(state, {
-      type: 'REPLY_REQUESTED',
-      sourceItemId: 'incoming:A',
-      targetUserId: 'u1',
-      resumeToken: token,
-    });
-    result = dispatch(result.state, {
-      type: 'REPLY_ROUTE_CHANGED',
-      resumeToken: token,
-      route: 'SUCCESS',
-    });
-    result = dispatch(result.state, {
-      type: 'REPLY_COMPLETED',
-      resumeToken: token,
-      sourceItemId: 'incoming:A',
-    });
-    assert.equal(selectProductRoute(result.state), 'BANS');
-    pass('6. reply completion returns saved Product route immediately');
+    assert.equal(
+      result.effects.some(
+        (e) =>
+          e.target === 'NOTIFICATION_RUNTIME' &&
+          e.command.type === 'FLUSH_DEFERRED_DIRECT_ENTRY',
+      ),
+      true,
+    );
+    pass('4. Product release flushes deferred direct entry');
   }
 
   {
@@ -142,18 +91,20 @@ async function main() {
     const mid = dispatch(before, { type: 'RECONNECT_STARTED' });
     const after = dispatch(mid.state, { type: 'RECONNECT_COMPLETED' });
     assert.deepEqual(after.state.mode, before.mode);
-    pass('7. reconnect facts preserve AppMode');
+    pass('5. reconnect facts preserve AppMode');
   }
 
   {
-    const types = await import('node:fs').then((fs) =>
-      fs.readFileSync(
-        'apps/web/src/app-coordinator/app-coordinator.types.ts',
-        'utf8',
-      ),
+    const types = readFileSync(
+      'apps/web/src/app-coordinator/app-coordinator.types.ts',
+      'utf8',
     );
-    assert.doesNotMatch(types, /RUNTIME_CURRENT_CHANGED|RUNTIME_QUEUE_DRAINED/);
-    pass('8. no Runtime activation events in Coordinator union');
+    assert.doesNotMatch(types, /REPLY_COMPOSE|NotificationResumeDestination/);
+    assert.doesNotMatch(
+      types,
+      /\| \{ type: 'NOTIFICATION'; itemId: string \}/,
+    );
+    pass('6. AppMode has no NOTIFICATION or REPLY_COMPOSE');
   }
 
   console.log(`\n${passed} passed\n`);

@@ -1,12 +1,17 @@
 /**
  * Create Ban domain types — React-free, serializable Product compose state.
  */
-import type {
-  ProductRoute,
-  ProductRouteContext,
-  ResumeToken,
-} from '@/app-coordinator/app-coordinator.types';
+import type { ProductRoute } from '@/app-coordinator/app-coordinator.types';
+import type { ResumeToken } from '@/app-coordinator/resume-token';
 import type { FriendCard } from '@98plus/shared';
+
+/** Optional Product open context for reply compose (Product-local, not AppMode). */
+export type ProductRouteContext = {
+  type: 'REPLY';
+  sourceItemId: string;
+  targetUserId: string;
+  resumeToken: ResumeToken;
+};
 
 /** Recipient identity for create-ban draft (FriendCard is the live contract). */
 export type CreateBanRecipient = FriendCard;

@@ -1,6 +1,6 @@
 /**
  * Stage 7 Phase 1 — deeplink / live-single direct entry (ingest only).
- * Never activates a notification surface.
+ * Never activates presentation or application mode.
  */
 import type { BanInteraction, BanResult } from '@98plus/shared';
 import {

@@ -25,7 +25,7 @@ import {
   completeRuntimeItem,
   createNotificationRuntimeStore,
 } from '../src/notification-runtime/notification-runtime.store';
-import { createNotificationRuntimePort } from '../src/notification-runtime/notification-runtime.coordinator-port';
+import { createNotificationRuntimePort } from '../src/app-coordinator/notification-runtime-port';
 import { createInitialNotificationRuntimeState } from '../src/notification-runtime/notification-runtime.types';
 import type { BanInteraction } from '@98plus/shared';
 

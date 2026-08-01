@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server';
 import {
   isPhase12DiagEnabled,
   PHASE12_TELEGRAM_FRAME_ANCESTORS_CSP,
-} from '@/lib/notification-overlay-owner-phase12-smoke-env';
+} from '@/lib/phase12-smoke-env';
 
 /** Dev / Phase12 smoke only — allow Telegram WebView to frame the mini app. */
 export function middleware(_request: NextRequest) {

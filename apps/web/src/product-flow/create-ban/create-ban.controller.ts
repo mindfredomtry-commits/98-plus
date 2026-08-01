@@ -2,10 +2,7 @@
  * Create Ban controller — owns CreateBanState, runs effects via ports/sinks.
  */
 import type { ProductFlowEventSink } from '@/app-coordinator/app-coordinator.ports';
-import type {
-  ProductRoute,
-  ProductRouteContext,
-} from '@/app-coordinator/app-coordinator.types';
+import type { ProductRoute } from '@/app-coordinator/app-coordinator.types';
 import {
   createBanReducer,
   createInitialCreateBanState,
@@ -19,6 +16,7 @@ import type {
   CreateBanEvent,
   CreateBanState,
   CreateBanUiIntent,
+  ProductRouteContext,
 } from './create-ban.types';
 
 export type CreateBanController = {

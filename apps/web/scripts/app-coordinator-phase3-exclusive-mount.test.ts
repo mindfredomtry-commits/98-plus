@@ -94,7 +94,6 @@ function main(): void {
     state = {
       mode: { type: 'PRODUCT', route: 'LOBBY' },
       resumeDestination: { type: 'PRODUCT', route: 'LOBBY' },
-      lastSettledReply: null,
     };
     assert.equal(selectApplicationSurfaceOwner(state), 'PRODUCT_FLOW');
     pass('7. Boot and Product remain exclusive surface owners');

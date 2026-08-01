@@ -1,34 +1,29 @@
 /**
- * Stage 7 Phase 2 — Runtime port: facts without mute/suspend memory.
- * No Runtime→Coordinator activation path.
+ * Coordinator-owned adapter: Runtime queue facts without activation policy.
+ * Lives under app-coordinator so Notification Runtime does not import Coordinator.
  */
 import type {
   NotificationRuntimeEventSink,
   NotificationRuntimePort,
-} from '@/app-coordinator/app-coordinator.ports';
-import type { ResumeToken } from '@/app-coordinator/app-coordinator.types';
+} from './app-coordinator.ports';
 import {
   executeFetchDirectItemEffect,
   flushDeferredDirectEntry,
   requestDirectEntry,
   toDirectNotificationItem,
   type DirectItemTransport,
-} from './notification-runtime.direct-entry';
-import { markRuntimeItemConsumed } from './notification-runtime.pending';
+} from '@/notification-runtime/notification-runtime.direct-entry';
 import {
-  completeRuntimeItem,
   type NotificationRuntimeStore,
-} from './notification-runtime.store';
+} from '@/notification-runtime/notification-runtime.store';
 import {
-  notificationItemId,
   type NotificationItemKind,
   type RuntimeEffect,
-} from './notification-runtime.types';
+} from '@/notification-runtime/notification-runtime.types';
 
 export type NotificationRuntimePortHandle = NotificationRuntimePort & {
   dispose(): void;
-  /** Called by transport when cold bootstrap settles. Always reports null activation. */
-  notifyBootCompleted(_readyHeadId: string | null): void;
+  notifyBootCompleted(): void;
   notifyReconnectStarted(): void;
   notifyReconnectCompleted(): void;
 };
@@ -103,36 +98,16 @@ export function createNotificationRuntimePort(input: {
       );
     },
 
-    suspend(_args: {
-      sourceItemId: string | null;
-      resumeToken: ResumeToken | null;
-    }) {
-      if (disposed) return;
-    },
-
-    resume(_args: { resumeToken: ResumeToken | null }) {
+    flushDeferredDirectEntry() {
       if (disposed) return;
       const effects = flushDeferredDirectEntry(input.store, 'system');
       void runDirectEffects(input.store, effects, input.fetchDirectItem);
     },
 
-    completeSourceItem({ sourceItemId }) {
-      if (disposed) return;
-      const state = input.store.getState();
-      const inQueue = state.items.queue.some(
-        (item) => notificationItemId(item) === sourceItemId,
-      );
-      if (inQueue) {
-        completeRuntimeItem(input.store, sourceItemId, 'user');
-      } else {
-        markRuntimeItemConsumed(input.store, sourceItemId, 'user');
-      }
-    },
-
-    notifyBootCompleted(_readyHeadId) {
+    notifyBootCompleted() {
       if (disposed || bootSettled) return;
       bootSettled = true;
-      input.sink.bootCompleted({ currentItemId: null });
+      input.sink.bootCompleted();
     },
 
     notifyReconnectStarted() {

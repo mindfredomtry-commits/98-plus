@@ -34,7 +34,7 @@ export type ActionStatus = 'idle' | 'pending' | 'succeeded' | 'failed';
 export type RecoveryStatus = 'idle' | 'loading' | 'applied' | 'failed';
 
 export type DirectEntrySource = 'deeplink' | 'live-single';
-/** Queue retention after direct ingest. Product return is Coordinator-owned. */
+/** Queue retention after direct ingest. Return navigation is out of Runtime scope. */
 export type DirectReturnPolicy = 'retain_queue';
 
 export type DeferredDirectEntry = {

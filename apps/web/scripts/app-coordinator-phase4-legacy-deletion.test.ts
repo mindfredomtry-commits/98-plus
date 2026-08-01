@@ -147,19 +147,15 @@ function main(): void {
 
   {
     assert.equal(
-      existsSync(join(webSrc, 'components/instant-ban/WhoScreen.tsx')),
-      true,
+      existsSync(join(webSrc, 'lib/notification-overlay-owner.ts')),
+      false,
     );
     assert.equal(
-      existsSync(join(webSrc, 'components/instant-ban/SuccessScreen.tsx')),
-      true,
+      existsSync(join(webSrc, 'lib/notification-overlay-owner-shadow.ts')),
+      false,
     );
     assert.equal(
-      existsSync(join(webSrc, 'components/instant-ban/SuccessBanCardBody.tsx')),
-      true,
-    );
-    assert.equal(
-      existsSync(join(webSrc, 'components/instant-ban/instant-ban.css')),
+      existsSync(join(webSrc, 'lib/phase12-smoke-env.ts')),
       true,
     );
     const surface = read('product-flow/product-flow.surface.tsx');
@@ -167,7 +163,7 @@ function main(): void {
     assert.doesNotMatch(surface, /WhoOverlay|from ['"]@\/components\/instant-ban\//);
     assert.match(surface, /ProductWhoScreen|presentation\/WhoScreen/);
     assert.match(surface, /ProductSuccessScreen|presentation\/SuccessScreen/);
-    pass('6. legacy Who/Success files retained on disk; Product uses new presentation');
+    pass('6. overlay-owner deleted; Product uses new presentation');
   }
 
   console.log(`\n${passed} passed\n`);

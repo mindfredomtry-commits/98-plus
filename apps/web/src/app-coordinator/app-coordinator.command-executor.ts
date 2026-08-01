@@ -15,8 +15,7 @@ export function createAppCoordinatorCommandExecutor(input: {
   return {
     execute(effect) {
       if (effect.target === 'PRODUCT_FLOW') {
-        const { route, context } = effect.command;
-        input.productFlow.openRoute({ route, context });
+        input.productFlow.openRoute({ route: effect.command.route });
         return;
       }
 
@@ -25,22 +24,8 @@ export function createAppCoordinatorCommandExecutor(input: {
         case 'INGEST_ENTRY':
           input.notificationRuntime.ingestEntry(command.intent);
           return;
-        case 'SUSPEND':
-          input.notificationRuntime.suspend({
-            sourceItemId: command.sourceItemId,
-            resumeToken: command.resumeToken,
-          });
-          return;
-        case 'RESUME':
-          input.notificationRuntime.resume({
-            resumeToken: command.resumeToken,
-          });
-          return;
-        case 'COMPLETE_SOURCE_ITEM':
-          input.notificationRuntime.completeSourceItem({
-            sourceItemId: command.sourceItemId,
-            resumeToken: command.resumeToken,
-          });
+        case 'FLUSH_DEFERRED_DIRECT_ENTRY':
+          input.notificationRuntime.flushDeferredDirectEntry();
           return;
       }
     },

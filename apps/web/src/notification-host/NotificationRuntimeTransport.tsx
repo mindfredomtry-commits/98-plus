@@ -36,7 +36,7 @@ import {
   stageMatchingActionResult,
   snapshotRuntimeForActionResultHandoff,
 } from '@/notification-runtime/notification-runtime.action-result-handoff';
-import type { NotificationRuntimePortHandle } from '@/notification-runtime/notification-runtime.coordinator-port';
+import type { NotificationRuntimePortHandle } from '@/app-coordinator/notification-runtime-port';
 
 export type NotificationTransportAuth = {
   token: string | null;
@@ -121,7 +121,7 @@ export function NotificationRuntimeTransport({
         if (reason === 'bootstrap' && !coldBootSettledRef.current) {
           coldBootSettledRef.current = true;
           // Stage 7 Phase 1 — never auto-activate on boot.
-          runtimePortRef.current?.notifyBootCompleted(null);
+          runtimePortRef.current?.notifyBootCompleted();
         }
         if (reason === 'reconnect') {
           runtimePortRef.current?.notifyReconnectCompleted();

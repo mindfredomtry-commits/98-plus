@@ -2,8 +2,6 @@ import type {
   AppCoordinatorEvent,
   EntryIntent,
   ProductRoute,
-  ProductRouteContext,
-  ResumeToken,
 } from './app-coordinator.types';
 
 export type NotificationEntryIntent = Extract<
@@ -11,47 +9,36 @@ export type NotificationEntryIntent = Extract<
   { type: 'NOTIFICATION' }
 >;
 
+/** Coordinator → Runtime commands. No activation / reply ownership. */
 export interface NotificationRuntimePort {
   ingestEntry(intent: NotificationEntryIntent): void;
-  suspend(input: {
-    sourceItemId: string | null;
-    resumeToken: ResumeToken | null;
-  }): void;
-  resume(input: { resumeToken: ResumeToken | null }): void;
-  completeSourceItem(input: {
-    sourceItemId: string;
-    resumeToken: ResumeToken;
-  }): void;
+  /** Flush deferred deeplink ingest after Product exclusive flow releases. */
+  flushDeferredDirectEntry(): void;
 }
 
 export interface ProductFlowPort {
-  openRoute(input: {
-    route: ProductRoute;
-    context?: ProductRouteContext;
-  }): void;
+  openRoute(input: { route: ProductRoute }): void;
 }
 
 export interface NotificationRuntimeEventSink {
-  /**
-   * Runtime reports that cold bootstrap settled. Coordinator alone decides mode.
-   * Production always supplies currentItemId: null (no auto-activation).
-   */
-  bootCompleted(input: {
-    currentItemId: string | null;
-    productRoute?: ProductRoute;
-  }): void;
+  /** Cold bootstrap settled. Coordinator alone decides mode (always Product). */
+  bootCompleted(input?: { productRoute?: ProductRoute }): void;
   reconnectStarted(): void;
   reconnectCompleted(): void;
 }
 
+/**
+ * Product → Coordinator facts.
+ * Reply cancel/complete are accepted as no-ops until Coordinator ACTIVATE/reply.
+ */
 export interface ProductFlowEventSink {
   routeChanged(route: ProductRoute): void;
   replyCancelled(input: {
-    resumeToken: ResumeToken;
+    resumeToken: string;
     sourceItemId: string;
   }): void;
   replyCompleted(input: {
-    resumeToken: ResumeToken;
+    resumeToken: string;
     sourceItemId: string;
   }): void;
   flowReleased(route: ProductRoute): void;
@@ -65,11 +52,10 @@ export function createNotificationRuntimeEventSink(
   dispatch: AppCoordinatorEventDispatcher,
 ): NotificationRuntimeEventSink {
   return {
-    bootCompleted({ currentItemId, productRoute }) {
+    bootCompleted(input) {
       dispatch({
         type: 'BOOT_COMPLETED',
-        currentNotificationItemId: currentItemId,
-        productRoute,
+        productRoute: input?.productRoute,
       });
     },
     reconnectStarted() {
@@ -88,11 +74,11 @@ export function createProductFlowEventSink(
     routeChanged(route) {
       dispatch({ type: 'PRODUCT_ROUTE_CHANGED', route });
     },
-    replyCancelled({ resumeToken }) {
-      dispatch({ type: 'REPLY_CANCELLED', resumeToken });
+    replyCancelled() {
+      // Stage 7 Phase 3 — reply ownership not in Coordinator yet.
     },
-    replyCompleted({ resumeToken, sourceItemId }) {
-      dispatch({ type: 'REPLY_COMPLETED', resumeToken, sourceItemId });
+    replyCompleted() {
+      // Stage 7 Phase 3 — reply ownership not in Coordinator yet.
     },
     flowReleased(route) {
       dispatch({ type: 'PRODUCT_FLOW_RELEASED', route });

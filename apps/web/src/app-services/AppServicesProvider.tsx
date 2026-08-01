@@ -101,7 +101,7 @@ function AppCoordinatorComposition({
   useEffect(() => {
     if (!lifecycle || loading) return;
     if (!token && !authReady) {
-      lifecycle.runtimePort.notifyBootCompleted(null);
+      lifecycle.runtimePort.notifyBootCompleted();
     }
   }, [authReady, lifecycle, loading, token]);
 

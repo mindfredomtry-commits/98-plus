@@ -17,13 +17,9 @@ import {
   type AppCoordinatorEvent,
 } from './app-coordinator.types';
 import {
-  createSequentialResumeTokenFactory,
-  type ResumeTokenFactory,
-} from './resume-token';
-import {
   createNotificationRuntimePort,
   type NotificationRuntimePortHandle,
-} from '@/notification-runtime/notification-runtime.coordinator-port';
+} from './notification-runtime-port';
 import { createDirectItemTransport } from '@/notification-runtime/notification-runtime.direct-item-transport';
 import type { NotificationRuntimeStore } from '@/notification-runtime/notification-runtime.store';
 import {
@@ -44,7 +40,6 @@ export type AppCoordinatorLifecycle = {
   store: AppCoordinatorStore;
   runtimePort: NotificationRuntimePortHandle;
   productController: ProductFlowController;
-  resumeTokens: ResumeTokenFactory;
   entryRouter: EntryRouter;
   dispatch(event: AppCoordinatorEvent): void;
   dispose(): void;
@@ -61,7 +56,6 @@ export function createAppCoordinatorLifecycle(input: {
   ) => void;
 }): AppCoordinatorLifecycle {
   let disposed = false;
-  const resumeTokens = createSequentialResumeTokenFactory('prod-reply');
   const entryRouter = createTelegramEntryRouter();
 
   let store!: AppCoordinatorStore;
@@ -116,7 +110,6 @@ export function createAppCoordinatorLifecycle(input: {
     store,
     runtimePort,
     productController,
-    resumeTokens,
     entryRouter,
     dispatch,
     dispose() {
