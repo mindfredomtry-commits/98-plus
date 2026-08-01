@@ -1,19 +1,18 @@
 /**
- * Stage 7 Phase 3 — Coordinator transitions (BOOT | PRODUCT only).
+ * Stage 8 Phase 1 — Coordinator transitions (currentOwner policy).
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { appCoordinatorReducer } from '../src/app-coordinator/app-coordinator.reducer';
 import {
   selectApplicationSurfaceOwner,
-  selectProductRoute,
+  selectCurrentOwner,
 } from '../src/app-coordinator/app-coordinator.selectors';
 import { APP_COORDINATOR_TRANSITION_MATRIX } from '../src/app-coordinator/app-coordinator.transition-matrix';
 import {
   createInitialAppCoordinatorState,
   type AppCoordinatorEvent,
   type AppCoordinatorState,
-  type ProductRoute,
 } from '../src/app-coordinator/app-coordinator.types';
 
 let passed = 0;
@@ -23,10 +22,9 @@ function pass(name: string): void {
   console.log(`PASS — ${name}`);
 }
 
-function productState(route: ProductRoute): AppCoordinatorState {
+function createBanOwner(): AppCoordinatorState {
   return {
-    mode: { type: 'PRODUCT', route },
-    resumeDestination: { type: 'PRODUCT', route },
+    currentOwner: { type: 'DOMAIN', domain: 'CREATE_BAN' },
   };
 }
 
@@ -41,14 +39,16 @@ async function main() {
     const result = dispatch(createInitialAppCoordinatorState(), {
       type: 'BOOT_COMPLETED',
     });
-    assert.equal(selectProductRoute(result.state), 'LOBBY');
-    assert.equal(selectApplicationSurfaceOwner(result.state), 'PRODUCT_FLOW');
-    pass('1. ordinary launch → PRODUCT(LOBBY)');
+    assert.deepEqual(selectCurrentOwner(result.state), {
+      type: 'DOMAIN',
+      domain: 'CREATE_BAN',
+    });
+    assert.equal(selectApplicationSurfaceOwner(result.state), 'CREATE_BAN');
+    pass('1. ordinary launch → DOMAIN(CREATE_BAN)');
   }
 
   {
-    let state = productState('LOBBY');
-    const result = dispatch(state, {
+    const result = dispatch(createBanOwner(), {
       type: 'ENTRY_ROUTED',
       intent: {
         type: 'NOTIFICATION',
@@ -56,25 +56,29 @@ async function main() {
         notificationKind: 'incoming',
       },
     });
-    assert.equal(selectProductRoute(result.state), 'LOBBY');
+    assert.deepEqual(selectCurrentOwner(result.state), {
+      type: 'DOMAIN',
+      domain: 'CREATE_BAN',
+    });
     assert.equal(result.effects[0]?.target, 'NOTIFICATION_RUNTIME');
-    pass('2. deeplink ENTRY ingests; mode stays Product');
+    pass('2. deeplink ENTRY ingests; owner stays CREATE_BAN');
   }
 
   {
-    const result = dispatch(productState('LOBBY'), {
-      type: 'PRODUCT_COMPOSE_REQUESTED',
+    const result = dispatch(createBanOwner(), {
+      type: 'ENTRY_ROUTED',
+      intent: { type: 'PRODUCT' },
     });
-    assert.equal(selectProductRoute(result.state), 'WHO');
-    pass('3. ordinary compose remains Product-owned');
+    assert.equal(selectApplicationSurfaceOwner(result.state), 'CREATE_BAN');
+    assert.equal(result.effects.length, 0);
+    pass('3. PRODUCT entry keeps CREATE_BAN owner');
   }
 
   {
-    const result = dispatch(productState('CONFIRM'), {
-      type: 'PRODUCT_FLOW_RELEASED',
-      route: 'LOBBY',
+    const result = dispatch(createBanOwner(), {
+      type: 'DOMAIN_RELEASED',
     });
-    assert.equal(selectProductRoute(result.state), 'LOBBY');
+    assert.equal(selectApplicationSurfaceOwner(result.state), 'CREATE_BAN');
     assert.equal(
       result.effects.some(
         (e) =>
@@ -83,15 +87,15 @@ async function main() {
       ),
       true,
     );
-    pass('4. Product release flushes deferred direct entry');
+    pass('4. Domain release flushes deferred direct entry');
   }
 
   {
-    const before = productState('CONFIRM');
+    const before = createBanOwner();
     const mid = dispatch(before, { type: 'RECONNECT_STARTED' });
     const after = dispatch(mid.state, { type: 'RECONNECT_COMPLETED' });
-    assert.deepEqual(after.state.mode, before.mode);
-    pass('5. reconnect facts preserve AppMode');
+    assert.deepEqual(after.state.currentOwner, before.currentOwner);
+    pass('5. reconnect facts preserve currentOwner');
   }
 
   {
@@ -100,11 +104,8 @@ async function main() {
       'utf8',
     );
     assert.doesNotMatch(types, /REPLY_COMPOSE|NotificationResumeDestination/);
-    assert.doesNotMatch(
-      types,
-      /\| \{ type: 'NOTIFICATION'; itemId: string \}/,
-    );
-    pass('6. AppMode has no NOTIFICATION or REPLY_COMPOSE');
+    assert.match(types, /currentOwner/);
+    pass('6. currentOwner authority; no reply-compose mode');
   }
 
   console.log(`\n${passed} passed\n`);

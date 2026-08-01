@@ -1,4 +1,7 @@
-import { appCoordinatorReducer } from './app-coordinator.reducer';
+import {
+  appCoordinatorReducer,
+  type AppCoordinatorReduceContext,
+} from './app-coordinator.reducer';
 import type {
   AppCoordinatorEvent,
   AppCoordinatorInvariantViolation,
@@ -26,6 +29,7 @@ export interface AppCoordinatorStore {
 export function createAppCoordinatorStore(input: {
   initialState: AppCoordinatorState;
   executor: AppCoordinatorCommandExecutor;
+  reduceContext?: AppCoordinatorReduceContext;
   onInvariantViolation: (
     violation: AppCoordinatorInvariantViolation,
     event: AppCoordinatorEvent,
@@ -38,6 +42,9 @@ export function createAppCoordinatorStore(input: {
     result?: AppCoordinatorResult;
   }> = [];
   const listeners = new Set<AppCoordinatorListener>();
+  const reduceContext: AppCoordinatorReduceContext = input.reduceContext ?? {
+    getCurrentCapability: () => ({ transition: 'ALLOWED' }),
+  };
 
   function processQueuedEvents(): void {
     if (processing) return;
@@ -48,7 +55,11 @@ export function createAppCoordinatorStore(input: {
         if (!pending) continue;
 
         const previousState = state;
-        const result = appCoordinatorReducer(previousState, pending.event);
+        const result = appCoordinatorReducer(
+          previousState,
+          pending.event,
+          reduceContext,
+        );
         pending.result = result;
 
         if (result.state !== previousState) {
@@ -67,7 +78,6 @@ export function createAppCoordinatorStore(input: {
         }
       }
     } catch (error) {
-      // Never retain events emitted by a partially executed command batch.
       queue.length = 0;
       throw error;
     } finally {

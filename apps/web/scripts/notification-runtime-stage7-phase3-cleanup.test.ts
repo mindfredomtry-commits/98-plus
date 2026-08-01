@@ -22,14 +22,10 @@ const coordinatorDir = join(webSrc, 'app-coordinator');
     join(coordinatorDir, 'app-coordinator.types.ts'),
     'utf8',
   );
-  assert.match(types, /type: 'BOOTING'/);
-  assert.match(types, /type: 'PRODUCT'/);
+  assert.match(types, /currentOwner: ApplicationOwner/);
   assert.doesNotMatch(types, /REPLY_COMPOSE|NotificationResumeDestination/);
-  assert.doesNotMatch(
-    types,
-    /\| \{ type: 'NOTIFICATION'; itemId: string \}/,
-  );
-  pass('AppMode is BOOTING | PRODUCT only');
+  assert.doesNotMatch(types, /mode: AppMode/);
+  pass('currentOwner is sole ownership authority');
 }
 
 {
@@ -69,9 +65,10 @@ const coordinatorDir = join(webSrc, 'app-coordinator');
     join(coordinatorDir, 'ApplicationSurface.tsx'),
     'utf8',
   );
-  assert.doesNotMatch(surface, /NOTIFICATION|DirectNotificationHost/);
+  assert.doesNotMatch(surface, /DirectNotificationHost/);
   assert.match(surface, /ProductFlowSurface/);
-  pass('ApplicationSurface is Boot|Product only');
+  assert.match(surface, /currentOwner/);
+  pass('ApplicationSurface selects presentation from currentOwner');
 }
 
 {

@@ -1,45 +1,29 @@
 /**
- * Pure App Coordinator selectors.
- * Surface owner is selected only from explicit AppMode.
+ * Pure App Coordinator selectors — Stage 8 Phase 1.
+ * Surface selection follows currentOwner only.
  */
-import type {
-  AppCoordinatorState,
-  AppMode,
-  ProductRoute,
-  ResumeDestination,
-} from './app-coordinator.types';
+import type { ApplicationOwner, DomainId } from './application-owner';
+import type { AppCoordinatorState } from './app-coordinator.types';
 
-export type ApplicationSurfaceOwner = 'BOOT' | 'PRODUCT_FLOW';
+export type ApplicationSurfaceOwner = 'BOOT' | DomainId;
 
-export function selectAppMode(state: AppCoordinatorState): AppMode {
-  return state.mode;
+export function selectCurrentOwner(
+  state: AppCoordinatorState,
+): ApplicationOwner {
+  return state.currentOwner;
 }
 
 export function selectApplicationSurfaceOwner(
   state: AppCoordinatorState,
 ): ApplicationSurfaceOwner {
-  switch (state.mode.type) {
-    case 'BOOTING':
-      return 'BOOT';
-    case 'PRODUCT':
-      return 'PRODUCT_FLOW';
-  }
+  if (state.currentOwner.type === 'BOOT') return 'BOOT';
+  return state.currentOwner.domain;
 }
 
-export function selectProductRoute(
+export function selectCurrentDomainId(
   state: AppCoordinatorState,
-): ProductRoute | null {
-  return state.mode.type === 'PRODUCT' ? state.mode.route : null;
-}
-
-export function selectResumeDestination(
-  state: AppCoordinatorState,
-): ResumeDestination {
-  return state.resumeDestination;
-}
-
-export function selectIsExclusiveProductFlow(
-  state: AppCoordinatorState,
-): boolean {
-  return state.mode.type === 'PRODUCT' && state.mode.route !== 'LOBBY';
+): DomainId | null {
+  return state.currentOwner.type === 'DOMAIN'
+    ? state.currentOwner.domain
+    : null;
 }

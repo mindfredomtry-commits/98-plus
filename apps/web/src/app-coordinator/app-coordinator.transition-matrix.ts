@@ -1,42 +1,42 @@
 /**
- * Stage 7 Phase 3 — documented Coordinator transitions (BOOT | PRODUCT only).
+ * Stage 8 Phase 1 — documented Coordinator transitions (owner policy).
  */
 export type TransitionMatrixRow = {
   id: string;
-  currentMode: string;
+  currentOwner: string;
   event: string;
-  nextMode: string;
+  nextOwner: string;
 };
 
 export const APP_COORDINATOR_TRANSITION_MATRIX: TransitionMatrixRow[] = [
   {
-    id: 'boot-product',
-    currentMode: 'BOOTING',
+    id: 'boot-default-domain',
+    currentOwner: 'BOOT',
     event: 'BOOT_COMPLETED',
-    nextMode: 'PRODUCT(LOBBY)',
+    nextOwner: 'DOMAIN(CREATE_BAN)',
+  },
+  {
+    id: 'entry-product-owner',
+    currentOwner: 'BOOT|DOMAIN(*)',
+    event: 'ENTRY_ROUTED(PRODUCT)',
+    nextOwner: 'DOMAIN(CREATE_BAN)',
   },
   {
     id: 'entry-ingest-only',
-    currentMode: 'PRODUCT(*)',
+    currentOwner: 'DOMAIN(CREATE_BAN)',
     event: 'ENTRY_ROUTED(NOTIFICATION)',
-    nextMode: 'PRODUCT(*) + Runtime INGEST_ENTRY',
+    nextOwner: 'DOMAIN(CREATE_BAN) + Runtime INGEST_ENTRY',
   },
   {
-    id: 'compose',
-    currentMode: 'PRODUCT(LOBBY)',
-    event: 'PRODUCT_COMPOSE_REQUESTED',
-    nextMode: 'PRODUCT(WHO)',
-  },
-  {
-    id: 'product-release',
-    currentMode: 'PRODUCT(*)',
-    event: 'PRODUCT_FLOW_RELEASED',
-    nextMode: 'PRODUCT(route) + FLUSH_DEFERRED_DIRECT_ENTRY',
+    id: 'domain-release-flush',
+    currentOwner: 'DOMAIN(CREATE_BAN)',
+    event: 'DOMAIN_RELEASED',
+    nextOwner: 'unchanged + FLUSH_DEFERRED_DIRECT_ENTRY',
   },
   {
     id: 'reconnect-noop',
-    currentMode: 'PRODUCT(*)',
+    currentOwner: 'DOMAIN(*)',
     event: 'RECONNECT_STARTED/COMPLETED',
-    nextMode: 'unchanged',
+    nextOwner: 'unchanged',
   },
 ];

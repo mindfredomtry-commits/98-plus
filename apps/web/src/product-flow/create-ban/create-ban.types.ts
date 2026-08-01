@@ -94,6 +94,7 @@ export type CreateBanCommand =
     };
 
 export type CreateBanUiIntent =
+  | { type: 'COMPOSE_REQUESTED' }
   | { type: 'RECIPIENT_SELECTED'; recipient: CreateBanRecipient }
   | { type: 'TEXT_CHANGED'; text: string }
   | { type: 'DURATION_CHANGED'; durationMinutes: number }

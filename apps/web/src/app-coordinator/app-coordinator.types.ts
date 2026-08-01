@@ -1,11 +1,17 @@
 /**
- * App Coordinator foundation.
+ * App Coordinator types — Stage 8 Phase 1 Application Policy core.
  *
- * Stage 7 Phase 3 — temporary modes: BOOTING | PRODUCT only.
- * Notification activation and reply-compose ownership are not built yet.
- * EntryIntent.NOTIFICATION remains ingest-only (not AppMode).
+ * Authority: currentOwner (ApplicationOwner).
+ * ProductRoute remains CreateBan-local domain state, not global ownership.
  */
+import type { ApplicationOwner } from './application-owner';
+import type { OwnerRequest } from './owner-request';
 
+export type { ApplicationOwner, DomainId } from './application-owner';
+export type { DomainCapability } from './domain-capability';
+export type { OwnerRequest, OwnerRequestReason } from './owner-request';
+
+/** CreateBan-local screen routes — not ApplicationOwner values. */
 export type ProductRoute =
   | 'LOBBY'
   | 'WHO'
@@ -14,68 +20,48 @@ export type ProductRoute =
   | 'SUCCESS'
   | 'BANS';
 
-export type AppMode =
-  | { type: 'BOOTING' }
-  | { type: 'PRODUCT'; route: ProductRoute };
-
-/** Product return destination after exclusive Product flows. */
-export type ProductResumeDestination = {
-  type: 'PRODUCT';
-  route: ProductRoute;
-};
-
-export type ResumeDestination = ProductResumeDestination;
-
 export type AppCoordinatorState = {
-  mode: AppMode;
-  resumeDestination: ResumeDestination;
+  currentOwner: ApplicationOwner;
 };
 
 export type NotificationEntryKind = 'incoming' | 'status';
 
 /**
- * Launch entry intent. NOTIFICATION means Runtime ingest only —
- * it does not select a Notification AppMode (none exists until ACTIVATE).
+ * Launch entry intent.
+ * PRODUCT → request default CREATE_BAN owner (no surface mount).
+ * NOTIFICATION → Runtime ingest only (no Notifications owner yet).
  */
 export type EntryIntent =
-  | { type: 'PRODUCT'; route: ProductRoute }
+  | { type: 'PRODUCT' }
   | {
       type: 'NOTIFICATION';
       itemId: string;
       notificationKind: NotificationEntryKind;
     };
 
-/** Backward-compatible name for the pure foundation tests. */
+/** Backward-compatible name for foundation tests. */
 export type AppEntryIntent = EntryIntent;
 
 export type AppCoordinatorEvent =
   | { type: 'APP_STARTED' }
-  | {
-      type: 'BOOT_COMPLETED';
-      productRoute?: ProductRoute;
-    }
+  | { type: 'BOOT_COMPLETED' }
   | { type: 'ENTRY_ROUTED'; intent: AppEntryIntent }
-  | { type: 'PRODUCT_COMPOSE_REQUESTED' }
-  | { type: 'PRODUCT_ROUTE_CHANGED'; route: ProductRoute }
-  | {
-      type: 'PRODUCT_FLOW_RELEASED';
-      route: ProductRoute;
-    }
+  | { type: 'OWNER_REQUESTED'; request: OwnerRequest }
+  | { type: 'DOMAIN_RELEASED' }
   | { type: 'RECONNECT_STARTED' }
   | { type: 'RECONNECT_COMPLETED' };
 
 export type RuntimeCoordinatorCommand =
-  | { type: 'INGEST_ENTRY'; intent: Extract<EntryIntent, { type: 'NOTIFICATION' }> }
+  | {
+      type: 'INGEST_ENTRY';
+      intent: Extract<EntryIntent, { type: 'NOTIFICATION' }>;
+    }
   | { type: 'FLUSH_DEFERRED_DIRECT_ENTRY' };
 
-export type ProductCoordinatorCommand = {
-  type: 'OPEN_ROUTE';
-  route: ProductRoute;
+export type AppCoordinatorEffect = {
+  target: 'NOTIFICATION_RUNTIME';
+  command: RuntimeCoordinatorCommand;
 };
-
-export type AppCoordinatorEffect =
-  | { target: 'NOTIFICATION_RUNTIME'; command: RuntimeCoordinatorCommand }
-  | { target: 'PRODUCT_FLOW'; command: ProductCoordinatorCommand };
 
 export type AppCoordinatorResult = {
   state: AppCoordinatorState;
@@ -83,18 +69,20 @@ export type AppCoordinatorResult = {
   violation: AppCoordinatorInvariantViolation | null;
 };
 
-/** No reply/notification invariants remain until Coordinator ACTIVATE. */
-export type AppCoordinatorInvariantCode = 'UNEXPECTED_EVENT';
+export type AppCoordinatorInvariantCode =
+  | 'UNEXPECTED_EVENT'
+  | 'UNREGISTERED_DOMAIN'
+  | 'BOOT_OWNER_FORBIDDEN'
+  | 'DOMAIN_INTENT_NOT_CURRENT_OWNER';
 
 export type AppCoordinatorInvariantViolation = {
   code: AppCoordinatorInvariantCode;
-  eventType: AppCoordinatorEvent['type'];
+  eventType: AppCoordinatorEvent['type'] | 'DOMAIN_INTENT';
   message: string;
 };
 
 export function createInitialAppCoordinatorState(): AppCoordinatorState {
   return {
-    mode: { type: 'BOOTING' },
-    resumeDestination: { type: 'PRODUCT', route: 'LOBBY' },
+    currentOwner: { type: 'BOOT' },
   };
 }

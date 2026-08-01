@@ -66,9 +66,9 @@ function pass(name: string): void {
 }
 
 {
-  assert.match(surface, /data-surface-owner="PRODUCT_FLOW"/);
+  assert.match(surface, /data-surface-owner="CREATE_BAN"/);
   assert.match(surface, /<ProductFlowSurface/);
-  pass('5. PRODUCT_FLOW renders ProductFlowSurface');
+  pass('5. CREATE_BAN renders ProductFlowSurface');
 }
 
 {

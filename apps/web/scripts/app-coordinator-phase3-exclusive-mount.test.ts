@@ -58,9 +58,10 @@ function main(): void {
   {
     assert.match(applicationSurface, /return \([\s\S]*?<ProductFlowSurface/);
     assert.equal(count(applicationSurface, /<ProductFlowSurface\s/g), 1);
+    assert.match(applicationSurface, /currentOwner/);
     assert.doesNotMatch(applicationSurface, /DirectNotificationHost/);
     assert.doesNotMatch(applicationSurface, /hidden|aria-hidden|display:\s*none/);
-    pass('3. ApplicationSurface mounts Product only (no Notification Host)');
+    pass('3. ApplicationSurface mounts CREATE_BAN presentation from currentOwner');
   }
 
   {
@@ -92,11 +93,10 @@ function main(): void {
     let state: AppCoordinatorState = createInitialAppCoordinatorState();
     assert.equal(selectApplicationSurfaceOwner(state), 'BOOT');
     state = {
-      mode: { type: 'PRODUCT', route: 'LOBBY' },
-      resumeDestination: { type: 'PRODUCT', route: 'LOBBY' },
+      currentOwner: { type: 'DOMAIN', domain: 'CREATE_BAN' },
     };
-    assert.equal(selectApplicationSurfaceOwner(state), 'PRODUCT_FLOW');
-    pass('7. Boot and Product remain exclusive surface owners');
+    assert.equal(selectApplicationSurfaceOwner(state), 'CREATE_BAN');
+    pass('7. Boot and CREATE_BAN remain exclusive surface owners');
   }
 
   {

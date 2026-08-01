@@ -1,131 +1,125 @@
 /**
- * Pure App Coordinator reducer.
- * Stage 7 Phase 3: BOOTING | PRODUCT only. No Notification / Reply ownership.
+ * Pure App Coordinator reducer — Stage 8 Phase 1.
+ * Ownership via Application Policy. No ProductRoute in Coordinator state.
+ * Domain intents are routed outside the reducer (lifecycle/ports).
  */
+import {
+  decideFromOwnerRequest,
+  type OwnerPolicyResult,
+} from './application-policy';
+import { DEFAULT_DOMAIN_ID } from './application-owner';
+import type { DomainCapability } from './domain-capability';
+import type { OwnerRequest } from './owner-request';
 import {
   createInitialAppCoordinatorState,
   type AppCoordinatorEffect,
   type AppCoordinatorEvent,
+  type AppCoordinatorInvariantViolation,
   type AppCoordinatorResult,
   type AppCoordinatorState,
-  type ProductResumeDestination,
-  type ProductRoute,
 } from './app-coordinator.types';
 
+export type AppCoordinatorReduceContext = {
+  /** Capability of current domain owner; null while BOOT. */
+  getCurrentCapability: () => DomainCapability | null;
+};
+
 function runtime(
-  command: Extract<
-    AppCoordinatorEffect,
-    { target: 'NOTIFICATION_RUNTIME' }
-  >['command'],
+  command: AppCoordinatorEffect['command'],
 ): AppCoordinatorEffect {
   return { target: 'NOTIFICATION_RUNTIME', command };
-}
-
-function product(
-  command: Extract<
-    AppCoordinatorEffect,
-    { target: 'PRODUCT_FLOW' }
-  >['command'],
-): AppCoordinatorEffect {
-  return { target: 'PRODUCT_FLOW', command };
-}
-
-function productDestination(route: ProductRoute): ProductResumeDestination {
-  return { type: 'PRODUCT', route };
 }
 
 function unchanged(state: AppCoordinatorState): AppCoordinatorResult {
   return { state, effects: [], violation: null };
 }
 
-function enterProduct(
+function applyOwnerPolicy(
   state: AppCoordinatorState,
-  destination: ProductResumeDestination,
+  policy: OwnerPolicyResult,
   effects: AppCoordinatorEffect[] = [],
 ): AppCoordinatorResult {
+  const violation: AppCoordinatorInvariantViolation | null = policy.violation
+    ? {
+        code: policy.violation.code,
+        eventType: 'OWNER_REQUESTED',
+        message: policy.violation.message,
+      }
+    : null;
+
+  if (policy.decision.type === 'KEEP_CURRENT') {
+    return { state, effects, violation };
+  }
+
   return {
-    state: {
-      ...state,
-      mode: { type: 'PRODUCT', route: destination.route },
-      resumeDestination: destination,
-    },
-    effects: [
-      ...effects,
-      product({ type: 'OPEN_ROUTE', route: destination.route }),
-    ],
-    violation: null,
+    state: { currentOwner: policy.decision.owner },
+    effects,
+    violation,
   };
 }
+
+function requestOwner(
+  state: AppCoordinatorState,
+  request: OwnerRequest,
+  getCurrentCapability: () => DomainCapability | null,
+  effects: AppCoordinatorEffect[] = [],
+): AppCoordinatorResult {
+  const policy = decideFromOwnerRequest({
+    currentOwner: state.currentOwner,
+    currentCapability: getCurrentCapability(),
+    request,
+  });
+  return applyOwnerPolicy(state, policy, effects);
+}
+
+const defaultContext: AppCoordinatorReduceContext = {
+  getCurrentCapability: () => ({ transition: 'ALLOWED' }),
+};
 
 export function appCoordinatorReducer(
   state: AppCoordinatorState,
   event: AppCoordinatorEvent,
+  context: AppCoordinatorReduceContext = defaultContext,
 ): AppCoordinatorResult {
   switch (event.type) {
     case 'APP_STARTED':
       return unchanged(state);
 
-    case 'BOOT_COMPLETED': {
-      const destination = productDestination(event.productRoute ?? 'LOBBY');
-      return enterProduct(state, destination);
-    }
+    case 'BOOT_COMPLETED':
+      return requestOwner(
+        state,
+        { target: DEFAULT_DOMAIN_ID, reason: 'SYSTEM_READY' },
+        context.getCurrentCapability,
+      );
 
     case 'ENTRY_ROUTED': {
       if (event.intent.type === 'NOTIFICATION') {
-        // Ingest only — does not change AppMode.
         return {
           state,
           effects: [runtime({ type: 'INGEST_ENTRY', intent: event.intent })],
           violation: null,
         };
       }
-      return enterProduct(state, productDestination(event.intent.route));
+      return requestOwner(
+        state,
+        { target: DEFAULT_DOMAIN_ID, reason: 'ENTRY' },
+        context.getCurrentCapability,
+      );
     }
 
-    case 'PRODUCT_COMPOSE_REQUESTED': {
-      if (
-        state.mode.type !== 'PRODUCT' ||
-        state.mode.route !== 'LOBBY'
-      ) {
-        return unchanged(state);
-      }
-      return {
-        state: {
-          ...state,
-          mode: { type: 'PRODUCT', route: 'WHO' },
-          resumeDestination: productDestination('LOBBY'),
-        },
-        effects: [product({ type: 'OPEN_ROUTE', route: 'WHO' })],
-        violation: null,
-      };
-    }
+    case 'OWNER_REQUESTED':
+      return requestOwner(
+        state,
+        event.request,
+        context.getCurrentCapability,
+      );
 
-    case 'PRODUCT_ROUTE_CHANGED': {
-      if (state.mode.type !== 'PRODUCT') return unchanged(state);
-      if (state.mode.route === event.route) return unchanged(state);
+    case 'DOMAIN_RELEASED':
       return {
-        state: {
-          ...state,
-          mode: { type: 'PRODUCT', route: event.route },
-        },
-        effects: [],
-        violation: null,
-      };
-    }
-
-    case 'PRODUCT_FLOW_RELEASED': {
-      if (state.mode.type !== 'PRODUCT') return unchanged(state);
-      const destination = productDestination(event.route);
-      return {
-        state: {
-          ...state,
-          mode: { type: 'PRODUCT', route: destination.route },
-          resumeDestination: destination,
-        },
+        state,
         effects: [runtime({ type: 'FLUSH_DEFERRED_DIRECT_ENTRY' })],
         violation: null,
       };
-    }
 
     case 'RECONNECT_STARTED':
     case 'RECONNECT_COMPLETED':
@@ -142,10 +136,11 @@ export function appCoordinatorReducer(
 export function reduceAppCoordinator(
   events: readonly AppCoordinatorEvent[],
   initialState = createInitialAppCoordinatorState(),
+  context: AppCoordinatorReduceContext = defaultContext,
 ): AppCoordinatorState {
   return events.reduce(
     (currentState, event) =>
-      appCoordinatorReducer(currentState, event).state,
+      appCoordinatorReducer(currentState, event, context).state,
     initialState,
   );
 }

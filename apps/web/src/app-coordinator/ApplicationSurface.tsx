@@ -1,6 +1,6 @@
 /**
  * Coordinator-owned application surface.
- * Stage 7 Phase 3: Boot or Product only.
+ * Stage 8 Phase 1: presentation selected from currentOwner.
  */
 'use client';
 
@@ -45,23 +45,31 @@ function ActiveApplicationSurface({
   );
 
   const onStartBan = useCallback(() => {
-    lifecycle.dispatch({ type: 'PRODUCT_COMPOSE_REQUESTED' });
+    lifecycle.dispatchDomainIntent('CREATE_BAN', {
+      type: 'COMPOSE_REQUESTED',
+    });
   }, [lifecycle]);
 
-  if (coordinatorState.mode.type === 'BOOTING') {
+  const owner = coordinatorState.currentOwner;
+
+  if (owner.type === 'BOOT') {
     return <BootSurface />;
   }
 
-  return (
-    <div data-surface-owner="PRODUCT_FLOW">
-      <ProductFlowSurface
-        controller={lifecycle.productController}
-        user={user}
-        influencePercent={user?.energyPercent ?? 0}
-        onComposeRequested={onStartBan}
-      />
-    </div>
-  );
+  if (owner.domain === 'CREATE_BAN') {
+    return (
+      <div data-surface-owner="CREATE_BAN">
+        <ProductFlowSurface
+          controller={lifecycle.productController}
+          user={user}
+          influencePercent={user?.energyPercent ?? 0}
+          onComposeRequested={onStartBan}
+        />
+      </div>
+    );
+  }
+
+  return <BootSurface />;
 }
 
 export function ApplicationSurface(props: ApplicationSurfaceProps) {

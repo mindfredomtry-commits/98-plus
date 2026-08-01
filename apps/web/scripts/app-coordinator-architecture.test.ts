@@ -1,5 +1,5 @@
 /**
- * App Coordinator foundation — architecture boundaries (Stage 7 Phase 3).
+ * App Coordinator foundation — architecture boundaries (Stage 8 Phase 1).
  */
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
@@ -27,50 +27,48 @@ const surfaceSrc = readFileSync(
   join(coordinatorDir, 'ApplicationSurface.tsx'),
   'utf8',
 );
+const policySrc = readFileSync(
+  join(coordinatorDir, 'application-policy.ts'),
+  'utf8',
+);
 
 async function main() {
   {
-    assert.match(typesSrc, /type: 'BOOTING'/);
-    assert.match(typesSrc, /type: 'PRODUCT'; route: ProductRoute/);
-    assert.doesNotMatch(
-      typesSrc,
-      /\| \{ type: 'NOTIFICATION'; itemId: string \}/,
-    );
+    assert.match(typesSrc, /currentOwner: ApplicationOwner/);
+    assert.match(typesSrc, /ApplicationOwner/);
+    assert.doesNotMatch(typesSrc, /mode: AppMode|resumeDestination/);
     assert.doesNotMatch(typesSrc, /REPLY_COMPOSE/);
-    pass('1. AppMode is BOOTING | PRODUCT only');
+    pass('1. currentOwner is sole ownership authority');
   }
 
   {
     const states: Array<{
       state: AppCoordinatorState;
-      owner: 'BOOT' | 'PRODUCT_FLOW';
+      owner: 'BOOT' | 'CREATE_BAN';
     }> = [
       {
-        state: {
-          mode: { type: 'BOOTING' },
-          resumeDestination: { type: 'PRODUCT', route: 'LOBBY' },
-        },
+        state: { currentOwner: { type: 'BOOT' } },
         owner: 'BOOT',
       },
       {
         state: {
-          mode: { type: 'PRODUCT', route: 'WHO' },
-          resumeDestination: { type: 'PRODUCT', route: 'LOBBY' },
+          currentOwner: { type: 'DOMAIN', domain: 'CREATE_BAN' },
         },
-        owner: 'PRODUCT_FLOW',
+        owner: 'CREATE_BAN',
       },
     ];
     for (const { state, owner } of states) {
       assert.equal(selectApplicationSurfaceOwner(state), owner);
     }
-    assert.doesNotMatch(selectorsSrc, /NOTIFICATION_SYSTEM/);
-    pass('2. selectors map only Boot and Product surfaces');
+    assert.doesNotMatch(selectorsSrc, /NOTIFICATION_SYSTEM|PRODUCT_FLOW/);
+    pass('2. selectors map Boot and CREATE_BAN from currentOwner');
   }
 
   {
     assert.match(surfaceSrc, /ProductFlowSurface/);
+    assert.match(surfaceSrc, /currentOwner/);
     assert.doesNotMatch(surfaceSrc, /DirectNotificationHost|NOTIFICATION_SYSTEM/);
-    pass('3. ApplicationSurface mounts Boot or Product only');
+    pass('3. ApplicationSurface mounts from currentOwner');
   }
 
   {
@@ -81,16 +79,11 @@ async function main() {
       false,
     );
     assert.equal(
-      existsSync(
-        join(root, 'apps/web/src/notification-runtime/notification-runtime.coordinator-port.ts'),
-      ),
-      false,
-    );
-    assert.equal(
-      existsSync(join(coordinatorDir, 'notification-runtime-port.ts')),
+      existsSync(join(coordinatorDir, 'application-policy.ts')),
       true,
     );
-    pass('4. overlay-owner deleted; Runtime port adapter is Coordinator-owned');
+    assert.doesNotMatch(policySrc, /\bWHO\b|\bLOBBY\b|\bqueue\b/);
+    pass('4. policy present; overlay-owner absent');
   }
 
   {

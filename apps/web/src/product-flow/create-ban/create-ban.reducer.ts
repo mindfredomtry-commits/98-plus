@@ -102,6 +102,24 @@ export function createBanReducer(
   const effects: CreateBanEffect[] = [];
 
   switch (event.type) {
+    case 'COMPOSE_REQUESTED': {
+      if (state.route !== 'LOBBY') {
+        return { state, effects: [] };
+      }
+      if (state.submission.status === 'SUBMITTING') {
+        return { state, effects: [] };
+      }
+      const next = bump(state, {
+        route: 'WHO',
+        replyContext: null,
+        draft: emptyDraft(),
+        submission: { status: 'IDLE' },
+      });
+      effects.push({ type: 'SINK_ROUTE_CHANGED', route: 'WHO' });
+      effects.push({ type: 'LOAD_RECIPIENTS' });
+      return { state: next, effects };
+    }
+
     case 'OPEN_ROUTE': {
       const { route, context } = event;
 

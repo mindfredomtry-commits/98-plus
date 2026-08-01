@@ -1,6 +1,6 @@
 /**
- * Minimal Telegram EntryRouter — notification prefixes only.
- * Never calls Runtime or Product Flow directly.
+ * Minimal Telegram EntryRouter — requests owner or ingest intent.
+ * Never mounts a surface and never calls Runtime/Product directly.
  */
 import { parseStartParam } from '@98plus/shared';
 import type {
@@ -14,7 +14,7 @@ export function createTelegramEntryRouter(): EntryRouter {
     route(input: EntryRouterInput): EntryIntent {
       const action = parseStartParam(input.startParam);
       if (!action) {
-        return { type: 'PRODUCT', route: 'LOBBY' };
+        return { type: 'PRODUCT' };
       }
       switch (action.type) {
         case 'ban':
@@ -36,7 +36,7 @@ export function createTelegramEntryRouter(): EntryRouter {
             notificationKind: 'status',
           };
         default:
-          return { type: 'PRODUCT', route: 'LOBBY' };
+          return { type: 'PRODUCT' };
       }
     },
   };

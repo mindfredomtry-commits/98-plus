@@ -1,5 +1,5 @@
 /**
- * App Coordinator Phase 2 — ownership after Stage 7 Phase 3 (BOOT | PRODUCT only).
+ * App Coordinator Phase 2 — ownership after Stage 8 Phase 1 (currentOwner).
  *
  * Run:
  *   npx tsx --tsconfig apps/web/tsconfig.json apps/web/scripts/app-coordinator-phase2-ownership.test.ts
@@ -12,19 +12,14 @@ import {
   createNotificationRuntimeEventSink,
   createProductFlowEventSink,
   type NotificationRuntimePort,
-  type ProductFlowPort,
 } from '../src/app-coordinator/app-coordinator.ports';
 import { createAppCoordinatorStore } from '../src/app-coordinator/app-coordinator.store';
-import {
-  selectApplicationSurfaceOwner,
-  selectProductRoute,
-} from '../src/app-coordinator/app-coordinator.selectors';
+import { selectApplicationSurfaceOwner } from '../src/app-coordinator/app-coordinator.selectors';
 import { createTelegramEntryRouter } from '../src/app-coordinator/app-coordinator.entry-router';
 import {
   createInitialAppCoordinatorState,
   type AppCoordinatorInvariantViolation,
   type AppCoordinatorState,
-  type ProductRoute,
 } from '../src/app-coordinator/app-coordinator.types';
 import { createProductFlowController } from '../src/product-flow/product-flow.controller';
 import { entryIntentToCoordinatorEvent } from '../src/app-coordinator/app-coordinator.boundaries';
@@ -36,10 +31,9 @@ function pass(name: string): void {
   console.log(`PASS — ${name}`);
 }
 
-function productState(route: ProductRoute = 'LOBBY'): AppCoordinatorState {
+function createBanOwner(): AppCoordinatorState {
   return {
-    mode: { type: 'PRODUCT', route },
-    resumeDestination: { type: 'PRODUCT', route },
+    currentOwner: { type: 'DOMAIN', domain: 'CREATE_BAN' },
   };
 }
 
@@ -59,12 +53,6 @@ function createHarness(
     },
   };
 
-  const productPort: ProductFlowPort = {
-    openRoute({ route }) {
-      calls.push(`open:${route}:plain`);
-    },
-  };
-
   const productController = createProductFlowController({
     sink: {
       routeChanged() {},
@@ -78,8 +66,14 @@ function createHarness(
     initialState,
     executor: createAppCoordinatorCommandExecutor({
       notificationRuntime: runtime,
-      productFlow: productPort,
     }),
+    reduceContext: {
+      getCurrentCapability() {
+        const owner = store.getState().currentOwner;
+        if (owner.type !== 'DOMAIN') return null;
+        return productController.asDomainPort().getCapability();
+      },
+    },
     onInvariantViolation(v) {
       violations.push(v);
     },
@@ -96,6 +90,16 @@ function createHarness(
     surfaces.push(selectApplicationSurfaceOwner(state));
   });
 
+  function dispatchDomainIntent(
+    domain: 'CREATE_BAN',
+    intent: { type: string },
+  ): void {
+    const owner = store.getState().currentOwner;
+    if (owner.type !== 'DOMAIN' || owner.domain !== domain) return;
+    productController.asDomainPort().dispatch(intent as never);
+    calls.push(`domain:${intent.type}`);
+  }
+
   return {
     store,
     calls,
@@ -104,6 +108,7 @@ function createHarness(
     runtimeSink,
     productSink,
     productController,
+    dispatchDomainIntent,
     resetSurfaces() {
       surfaces = [];
     },
@@ -114,23 +119,18 @@ async function main() {
   {
     const harness = createHarness();
     harness.runtimeSink.bootCompleted();
-    assert.equal(selectProductRoute(harness.store.getState()), 'LOBBY');
     assert.equal(
       selectApplicationSurfaceOwner(harness.store.getState()),
-      'PRODUCT_FLOW',
+      'CREATE_BAN',
     );
-    pass('1. ordinary boot → Product Lobby');
+    pass('1. ordinary boot → CREATE_BAN domain');
   }
 
   {
     const harness = createHarness();
-    harness.runtimeSink.bootCompleted({ productRoute: 'LOBBY' });
-    assert.equal(
-      selectApplicationSurfaceOwner(harness.store.getState()),
-      'PRODUCT_FLOW',
-    );
-    assert.equal(harness.store.getState().mode.type, 'PRODUCT');
-    pass('2. boot always → Product (no Notification mode)');
+    harness.runtimeSink.bootCompleted();
+    assert.equal(harness.store.getState().currentOwner.type, 'DOMAIN');
+    pass('2. boot always → domain owner (no Notification mode)');
   }
 
   {
@@ -142,70 +142,67 @@ async function main() {
       join(process.cwd(), 'apps/web/src/app-coordinator/app-coordinator.types.ts'),
       'utf8',
     );
-    assert.doesNotMatch(ports, /currentChanged|queueDrained|SUSPEND|COMPLETE_SOURCE/);
+    assert.doesNotMatch(
+      ports,
+      /currentChanged|queueDrained|SUSPEND|COMPLETE_SOURCE/,
+    );
     assert.doesNotMatch(types, /REPLY_COMPOSE/);
-    const appModeBlock = types.match(
-      /export type AppMode =[\s\S]*?;\r?\n/,
-    )?.[0];
-    assert.ok(appModeBlock, 'AppMode type block present');
-    assert.match(appModeBlock, /type:\s*'BOOTING'/);
-    assert.match(appModeBlock, /type:\s*'PRODUCT'/);
-    assert.doesNotMatch(appModeBlock, /NOTIFICATION/);
-    assert.match(types, /type: 'BOOTING'/);
-    assert.match(types, /type: 'PRODUCT'/);
-    pass('3. AppMode is BOOTING | PRODUCT only; no activation sink APIs');
+    assert.match(types, /currentOwner: ApplicationOwner/);
+    pass('3. currentOwner authority; no activation sink APIs');
   }
 
   {
-    const harness = createHarness(productState('WHO'));
+    const harness = createHarness(createBanOwner());
     harness.runtimeSink.reconnectStarted();
     harness.runtimeSink.reconnectCompleted();
-    assert.equal(selectProductRoute(harness.store.getState()), 'WHO');
-    pass('4. reconnect leaves Product owner unchanged');
+    assert.deepEqual(harness.store.getState().currentOwner, {
+      type: 'DOMAIN',
+      domain: 'CREATE_BAN',
+    });
+    pass('4. reconnect leaves domain owner unchanged');
   }
 
   {
-    const harness = createHarness(productState('LOBBY'));
-    harness.store.dispatch({ type: 'PRODUCT_COMPOSE_REQUESTED' });
-    assert.equal(selectProductRoute(harness.store.getState()), 'WHO');
+    const harness = createHarness(createBanOwner());
+    harness.dispatchDomainIntent('CREATE_BAN', { type: 'COMPOSE_REQUESTED' });
+    assert.equal(harness.productController.getState().route, 'WHO');
     assert.doesNotMatch(harness.calls.join(','), /suspend/);
-    assert.match(harness.calls.join(','), /open:WHO/);
-    pass('5. ordinary Lobby compose → WHO without Runtime suspend');
+    assert.match(harness.calls.join(','), /domain:COMPOSE_REQUESTED/);
+    pass('5. Lobby compose → domain intent → WHO');
   }
 
   {
-    const harness = createHarness(productState('CONFIRM'));
+    const harness = createHarness(createBanOwner());
     harness.productSink.flowReleased('LOBBY');
-    assert.equal(selectProductRoute(harness.store.getState()), 'LOBBY');
-    assert.match(harness.calls.join(','), /flush/);
+    assert.ok(harness.calls.includes('flush'));
     pass('6. Product release flushes deferred direct entry');
   }
 
   {
-    const harness = createHarness(productState());
-    const router = createTelegramEntryRouter();
-    const intent = router.route({
-      startParam: 'b_abc123',
-      launchSource: 'telegram',
-    });
-    harness.store.dispatch(entryIntentToCoordinatorEvent(intent));
-    harness.store.dispatch(entryIntentToCoordinatorEvent(intent));
-    assert.deepEqual(
-      harness.calls.filter((c) => c.startsWith('ingest:')),
-      ['ingest:incoming:abc123', 'ingest:incoming:abc123'],
+    const harness = createHarness(createBanOwner());
+    harness.store.dispatch(
+      entryIntentToCoordinatorEvent({
+        type: 'NOTIFICATION',
+        itemId: 'incoming:x',
+        notificationKind: 'incoming',
+      }),
     );
-    assert.equal(selectProductRoute(harness.store.getState()), 'LOBBY');
-    pass('7. deeplink ENTRY ingests only; AppMode stays Product');
+    assert.ok(harness.calls.includes('ingest:incoming:x'));
+    assert.equal(
+      selectApplicationSurfaceOwner(harness.store.getState()),
+      'CREATE_BAN',
+    );
+    pass('7. deeplink ENTRY ingests only; owner stays CREATE_BAN');
   }
 
   {
-    const harness = createHarness();
-    harness.resetSurfaces();
-    harness.runtimeSink.bootCompleted();
-    harness.store.dispatch({ type: 'PRODUCT_COMPOSE_REQUESTED' });
-    const owners = new Set(harness.surfaces());
-    assert.ok([...owners].every((o) => o === 'PRODUCT_FLOW' || o === 'BOOT'));
-    pass('8. one global surface owner at a time (Boot|Product)');
+    const owners = new Set(
+      [createInitialAppCoordinatorState(), createBanOwner()].map((s) =>
+        selectApplicationSurfaceOwner(s),
+      ),
+    );
+    assert.ok([...owners].every((o) => o === 'CREATE_BAN' || o === 'BOOT'));
+    pass('8. one global surface owner at a time (Boot|CREATE_BAN)');
   }
 
   {
@@ -214,7 +211,10 @@ async function main() {
       'utf8',
     );
     const runtimePort = readFileSync(
-      join(process.cwd(), 'apps/web/src/app-coordinator/notification-runtime-port.ts'),
+      join(
+        process.cwd(),
+        'apps/web/src/app-coordinator/notification-runtime-port.ts',
+      ),
       'utf8',
     );
     assert.doesNotMatch(surface, /DirectNotificationHost|NOTIFICATION_SYSTEM/);

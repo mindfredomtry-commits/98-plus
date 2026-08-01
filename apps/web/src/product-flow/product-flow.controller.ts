@@ -3,6 +3,7 @@
  * Does not read Runtime queue or decide global surface ownership.
  */
 import type {
+  CreateBanDomainPort,
   ProductFlowEventSink,
   ProductFlowPort,
 } from '@/app-coordinator/app-coordinator.ports';
@@ -13,6 +14,7 @@ import {
   createCreateBanController,
   type CreateBanController,
 } from './create-ban/create-ban.controller';
+import { mapCreateBanCapability } from './create-ban/create-ban.capability';
 import type {
   CreateBanRecipientsPort,
   CreateBanSubmissionPort,
@@ -77,6 +79,7 @@ export type ProductFlowController = {
   completeReply(): void;
   releaseFlow(route?: ProductRoute): void;
   asPort(): ProductFlowPort;
+  asDomainPort(): CreateBanDomainPort;
   dispose(): void;
 };
 
@@ -187,6 +190,17 @@ export function createProductFlowController(input: {
       return {
         openRoute: (openInput) => {
           createBan.openRoute(openInput);
+        },
+      };
+    },
+
+    asDomainPort() {
+      return {
+        dispatch(intent) {
+          createBan.dispatch(intent);
+        },
+        getCapability() {
+          return mapCreateBanCapability(createBan.getState());
         },
       };
     },

@@ -1,6 +1,6 @@
 /**
  * One App Coordinator lifecycle for the application.
- * Constructed once; disposed explicitly. No module-global mutable singleton.
+ * Stage 8 Phase 1 — owner policy + domain intent routing.
  */
 import { createAppCoordinatorCommandExecutor } from './app-coordinator.command-executor';
 import {
@@ -16,6 +16,8 @@ import {
   type AppCoordinatorInvariantViolation,
   type AppCoordinatorEvent,
 } from './app-coordinator.types';
+import type { DomainId } from './application-owner';
+import type { ApplicationDomainPorts } from './domain-ports';
 import {
   createNotificationRuntimePort,
   type NotificationRuntimePortHandle,
@@ -30,6 +32,7 @@ import {
   createHttpCreateBanRecipientsPort,
   createHttpCreateBanSubmissionPort,
 } from '@/product-flow/create-ban/create-ban.adapters';
+import type { CreateBanUiIntent } from '@/product-flow/create-ban/create-ban.types';
 import { createTelegramEntryRouter } from './app-coordinator.entry-router';
 import {
   entryIntentToCoordinatorEvent,
@@ -40,8 +43,14 @@ export type AppCoordinatorLifecycle = {
   store: AppCoordinatorStore;
   runtimePort: NotificationRuntimePortHandle;
   productController: ProductFlowController;
+  domainPorts: ApplicationDomainPorts;
   entryRouter: EntryRouter;
   dispatch(event: AppCoordinatorEvent): void;
+  /**
+   * Route a typed domain intent to the Current Owner port only.
+   * Coordinator does not inspect intent contents.
+   */
+  dispatchDomainIntent(domain: DomainId, intent: CreateBanUiIntent): void;
   dispose(): void;
 };
 
@@ -52,7 +61,7 @@ export function createAppCoordinatorLifecycle(input: {
   refreshUser: () => Promise<void>;
   onInvariantViolation?: (
     violation: AppCoordinatorInvariantViolation,
-    event: AppCoordinatorEvent,
+    event: AppCoordinatorEvent | { type: 'DOMAIN_INTENT' },
   ) => void;
 }): AppCoordinatorLifecycle {
   let disposed = false;
@@ -61,6 +70,7 @@ export function createAppCoordinatorLifecycle(input: {
   let store!: AppCoordinatorStore;
   let runtimePort!: NotificationRuntimePortHandle;
   let productController!: ProductFlowController;
+  let domainPorts!: ApplicationDomainPorts;
 
   const dispatch = (event: AppCoordinatorEvent) => {
     if (disposed) return;
@@ -84,6 +94,11 @@ export function createAppCoordinatorLifecycle(input: {
     submissionPort,
     recipientsPort,
   });
+
+  domainPorts = {
+    CREATE_BAN: productController.asDomainPort(),
+  };
+
   runtimePort = createNotificationRuntimePort({
     store: input.runtimeStore,
     sink: runtimeSink,
@@ -92,12 +107,21 @@ export function createAppCoordinatorLifecycle(input: {
 
   const executor = createAppCoordinatorCommandExecutor({
     notificationRuntime: runtimePort,
-    productFlow: productController.asPort(),
   });
 
   store = createAppCoordinatorStore({
     initialState: createInitialAppCoordinatorState(),
     executor,
+    reduceContext: {
+      getCurrentCapability() {
+        const owner = store.getState().currentOwner;
+        if (owner.type !== 'DOMAIN') return null;
+        if (owner.domain === 'CREATE_BAN') {
+          return domainPorts.CREATE_BAN.getCapability();
+        }
+        return null;
+      },
+    },
     onInvariantViolation(violation, event) {
       input.onInvariantViolation?.(violation, event);
       console.error('[app-coordinator:invariant]', violation, event);
@@ -110,8 +134,27 @@ export function createAppCoordinatorLifecycle(input: {
     store,
     runtimePort,
     productController,
+    domainPorts,
     entryRouter,
     dispatch,
+    dispatchDomainIntent(domain, intent) {
+      if (disposed) return;
+      const owner = store.getState().currentOwner;
+      if (owner.type !== 'DOMAIN' || owner.domain !== domain) {
+        const violation: AppCoordinatorInvariantViolation = {
+          code: 'DOMAIN_INTENT_NOT_CURRENT_OWNER',
+          eventType: 'DOMAIN_INTENT',
+          message: `Domain intent rejected: ${domain} is not current owner`,
+        };
+        input.onInvariantViolation?.(violation, { type: 'DOMAIN_INTENT' });
+        console.error('[app-coordinator:invariant]', violation);
+        return;
+      }
+      // One recipient. Payload opaque to Coordinator beyond typed port boundary.
+      if (domain === 'CREATE_BAN') {
+        domainPorts.CREATE_BAN.dispatch(intent);
+      }
+    },
     dispose() {
       if (disposed) return;
       disposed = true;

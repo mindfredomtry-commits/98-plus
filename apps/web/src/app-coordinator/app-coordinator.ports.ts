@@ -1,35 +1,44 @@
+/**
+ * Coordinator ↔ subsystem ports — Stage 8 Phase 1.
+ */
 import type {
   AppCoordinatorEvent,
   EntryIntent,
   ProductRoute,
 } from './app-coordinator.types';
+import type { CreateBanDomainPort } from './domain-ports';
+
+export type { CreateBanDomainPort, ApplicationDomainPorts } from './domain-ports';
 
 export type NotificationEntryIntent = Extract<
   EntryIntent,
   { type: 'NOTIFICATION' }
 >;
 
-/** Coordinator → Runtime commands. No activation / reply ownership. */
+/** Coordinator → Runtime commands. No activation / ownership. */
 export interface NotificationRuntimePort {
   ingestEntry(intent: NotificationEntryIntent): void;
-  /** Flush deferred deeplink ingest after Product exclusive flow releases. */
   flushDeferredDirectEntry(): void;
 }
 
+/**
+ * Legacy openRoute port for CreateBan domain-local tests.
+ * Coordinator command executor no longer uses this.
+ */
 export interface ProductFlowPort {
   openRoute(input: { route: ProductRoute }): void;
 }
 
 export interface NotificationRuntimeEventSink {
-  /** Cold bootstrap settled. Coordinator alone decides mode (always Product). */
-  bootCompleted(input?: { productRoute?: ProductRoute }): void;
+  bootCompleted(): void;
   reconnectStarted(): void;
   reconnectCompleted(): void;
 }
 
 /**
  * Product → Coordinator facts.
- * Reply cancel/complete are accepted as no-ops until Coordinator ACTIVATE/reply.
+ * Reply cancel/complete remain no-ops until Reply owner exists.
+ * routeChanged is ignored for ownership (routes are domain-local).
  */
 export interface ProductFlowEventSink {
   routeChanged(route: ProductRoute): void;
@@ -52,11 +61,8 @@ export function createNotificationRuntimeEventSink(
   dispatch: AppCoordinatorEventDispatcher,
 ): NotificationRuntimeEventSink {
   return {
-    bootCompleted(input) {
-      dispatch({
-        type: 'BOOT_COMPLETED',
-        productRoute: input?.productRoute,
-      });
+    bootCompleted() {
+      dispatch({ type: 'BOOT_COMPLETED' });
     },
     reconnectStarted() {
       dispatch({ type: 'RECONNECT_STARTED' });
@@ -71,17 +77,17 @@ export function createProductFlowEventSink(
   dispatch: AppCoordinatorEventDispatcher,
 ): ProductFlowEventSink {
   return {
-    routeChanged(route) {
-      dispatch({ type: 'PRODUCT_ROUTE_CHANGED', route });
+    routeChanged() {
+      // Domain-local route; Coordinator ownership is unaffected.
     },
     replyCancelled() {
-      // Stage 7 Phase 3 — reply ownership not in Coordinator yet.
+      // Reply owner not in Coordinator yet.
     },
     replyCompleted() {
-      // Stage 7 Phase 3 — reply ownership not in Coordinator yet.
+      // Reply owner not in Coordinator yet.
     },
-    flowReleased(route) {
-      dispatch({ type: 'PRODUCT_FLOW_RELEASED', route });
+    flowReleased() {
+      dispatch({ type: 'DOMAIN_RELEASED' });
     },
   };
 }
