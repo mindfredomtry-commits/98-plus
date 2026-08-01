@@ -1,7 +1,6 @@
 /**
- * Stage 7 Phase 1 — Runtime port: facts without mute/suspend memory.
- * No hidden fact suppression. Suspend/resume are explicit no-ops until
- * the future suspended-lifecycle contract lands.
+ * Stage 7 Phase 2 — Runtime port: facts without mute/suspend memory.
+ * No Runtime→Coordinator activation path.
  */
 import type {
   NotificationRuntimeEventSink,
@@ -16,7 +15,6 @@ import {
   type DirectItemTransport,
 } from './notification-runtime.direct-entry';
 import { markRuntimeItemConsumed } from './notification-runtime.pending';
-import { selectReadyHeadId } from './notification-runtime.selectors';
 import {
   completeRuntimeItem,
   type NotificationRuntimeStore,
@@ -29,7 +27,7 @@ import {
 
 export type NotificationRuntimePortHandle = NotificationRuntimePort & {
   dispose(): void;
-  /** Called by transport when cold bootstrap settles. Always reports null ready activation. */
+  /** Called by transport when cold bootstrap settles. Always reports null activation. */
   notifyBootCompleted(_readyHeadId: string | null): void;
   notifyReconnectStarted(): void;
   notifyReconnectCompleted(): void;
@@ -82,13 +80,6 @@ export function createNotificationRuntimePort(input: {
   let disposed = false;
   let bootSettled = false;
 
-  // Stage 7 Phase 1: do not emit currentChanged/queueDrained from queue mutations.
-  // Activation policy is intentionally absent — facts must not auto-switch AppMode.
-  const unsubscribe = input.store.subscribe(() => {
-    if (disposed) return;
-    void selectReadyHeadId(input.store.getState());
-  });
-
   return {
     ingestEntry(intent) {
       if (disposed) return;
@@ -116,7 +107,6 @@ export function createNotificationRuntimePort(input: {
       sourceItemId: string | null;
       resumeToken: ResumeToken | null;
     }) {
-      // Stage 7 Phase 1 — no mute memory; reply handoff temporarily unavailable.
       if (disposed) return;
     },
 
@@ -142,7 +132,6 @@ export function createNotificationRuntimePort(input: {
     notifyBootCompleted(_readyHeadId) {
       if (disposed || bootSettled) return;
       bootSettled = true;
-      // Never auto-open: boot always reports no activated notification.
       input.sink.bootCompleted({ currentItemId: null });
     },
 
@@ -158,7 +147,6 @@ export function createNotificationRuntimePort(input: {
 
     dispose() {
       disposed = true;
-      unsubscribe();
     },
   };
 }

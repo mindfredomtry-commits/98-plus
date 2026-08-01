@@ -34,13 +34,12 @@ export interface ProductFlowPort {
 export interface NotificationRuntimeEventSink {
   /**
    * Runtime reports that cold bootstrap settled. Coordinator alone decides mode.
+   * Production always supplies currentItemId: null (no auto-activation).
    */
   bootCompleted(input: {
     currentItemId: string | null;
     productRoute?: ProductRoute;
   }): void;
-  currentChanged(itemId: string | null): void;
-  queueDrained(): void;
   reconnectStarted(): void;
   reconnectCompleted(): void;
 }
@@ -72,16 +71,6 @@ export function createNotificationRuntimeEventSink(
         currentNotificationItemId: currentItemId,
         productRoute,
       });
-    },
-    currentChanged(itemId) {
-      dispatch(
-        itemId === null
-          ? { type: 'RUNTIME_QUEUE_DRAINED' }
-          : { type: 'RUNTIME_CURRENT_CHANGED', itemId },
-      );
-    },
-    queueDrained() {
-      dispatch({ type: 'RUNTIME_QUEUE_DRAINED' });
     },
     reconnectStarted() {
       dispatch({ type: 'RECONNECT_STARTED' });

@@ -82,17 +82,6 @@ function enterProduct(
   };
 }
 
-function settleCompletedReply(
-  state: AppCoordinatorState,
-): AppCoordinatorState['lastSettledReply'] {
-  if (state.mode.type !== 'REPLY_COMPOSE') return state.lastSettledReply;
-  return {
-    resumeToken: state.mode.resumeToken,
-    sourceItemId: state.mode.sourceItemId,
-    outcome: 'completed',
-  };
-}
-
 export function appCoordinatorReducer(
   state: AppCoordinatorState,
   event: AppCoordinatorEvent,
@@ -103,21 +92,9 @@ export function appCoordinatorReducer(
       return unchanged(state);
 
     case 'BOOT_COMPLETED': {
+      // Stage 7 Phase 2: never auto-enter NOTIFICATION from boot.
+      void event.currentNotificationItemId;
       const destination = productDestination(event.productRoute ?? 'LOBBY');
-      if (event.currentNotificationItemId) {
-        return {
-          state: {
-            ...state,
-            mode: {
-              type: 'NOTIFICATION',
-              itemId: event.currentNotificationItemId,
-            },
-            resumeDestination: destination,
-          },
-          effects: [],
-          violation: null,
-        };
-      }
       return enterProduct(state, destination);
     }
 
@@ -146,73 +123,6 @@ export function appCoordinatorReducer(
         );
       }
       return enterProduct(state, destination, effects);
-    }
-
-    case 'RUNTIME_CURRENT_CHANGED': {
-      if (
-        state.mode.type === 'REPLY_COMPOSE' &&
-        state.mode.completionPending
-      ) {
-        return {
-          state: {
-            ...state,
-            mode: { type: 'NOTIFICATION', itemId: event.itemId },
-            resumeDestination: finalProductDestination(
-              state.resumeDestination,
-            ),
-            lastSettledReply: settleCompletedReply(state),
-          },
-          effects: [],
-          violation: null,
-        };
-      }
-
-      if (
-        state.mode.type === 'REPLY_COMPOSE' ||
-        (state.mode.type === 'PRODUCT' && state.mode.route !== 'LOBBY')
-      ) {
-        return unchanged(state);
-      }
-
-      if (
-        state.mode.type === 'NOTIFICATION' &&
-        state.mode.itemId === event.itemId
-      ) {
-        return unchanged(state);
-      }
-
-      return {
-        state: {
-          ...state,
-          mode: { type: 'NOTIFICATION', itemId: event.itemId },
-          resumeDestination:
-            state.mode.type === 'PRODUCT'
-              ? productDestination(state.mode.route)
-              : state.resumeDestination,
-        },
-        effects: [],
-        violation: null,
-      };
-    }
-
-    case 'RUNTIME_QUEUE_DRAINED': {
-      if (
-        state.mode.type === 'REPLY_COMPOSE' &&
-        state.mode.completionPending
-      ) {
-        return enterProduct(
-          {
-            ...state,
-            lastSettledReply: settleCompletedReply(state),
-          },
-          finalProductDestination(state.resumeDestination),
-        );
-      }
-      if (state.mode.type !== 'NOTIFICATION') return unchanged(state);
-      return enterProduct(
-        state,
-        finalProductDestination(state.resumeDestination),
-      );
     }
 
     case 'PRODUCT_COMPOSE_REQUESTED': {
@@ -421,24 +331,19 @@ export function appCoordinatorReducer(
       }
 
       const sourceItemId = state.mode.sourceItemId;
-      return {
-        state: {
+      // Stage 7 Phase 2: no Notification activation — cancel returns to Product.
+      return enterProduct(
+        {
           ...state,
-          mode: { type: 'NOTIFICATION', itemId: sourceItemId },
-          resumeDestination: finalProductDestination(
-            state.resumeDestination,
-          ),
           lastSettledReply: {
             resumeToken: event.resumeToken,
             sourceItemId,
             outcome: 'cancelled',
           },
         },
-        effects: [
-          runtime({ type: 'RESUME', resumeToken: event.resumeToken }),
-        ],
-        violation: null,
-      };
+        finalProductDestination(state.resumeDestination),
+        [runtime({ type: 'RESUME', resumeToken: event.resumeToken })],
+      );
     }
 
     case 'REPLY_COMPLETED': {
@@ -494,12 +399,19 @@ export function appCoordinatorReducer(
         );
       }
 
-      return {
-        state: {
+      // Stage 7 Phase 2: no Runtime→Coordinator activation facts.
+      // Complete source in Runtime and return to Product immediately.
+      return enterProduct(
+        {
           ...state,
-          mode: { ...state.mode, completionPending: true },
+          lastSettledReply: {
+            resumeToken: event.resumeToken,
+            sourceItemId: event.sourceItemId,
+            outcome: 'completed',
+          },
         },
-        effects: [
+        finalProductDestination(state.resumeDestination),
+        [
           runtime({
             type: 'COMPLETE_SOURCE_ITEM',
             sourceItemId: state.mode.sourceItemId,
@@ -510,23 +422,6 @@ export function appCoordinatorReducer(
             resumeToken: state.mode.resumeToken,
           }),
         ],
-        violation: null,
-      };
-    }
-
-    case 'NOTIFICATION_SURFACE_UNAVAILABLE': {
-      if (
-        state.mode.type !== 'NOTIFICATION' ||
-        state.mode.itemId !== event.expectedItemId
-      ) {
-        // The surface fact was superseded before queued processing.
-        return unchanged(state);
-      }
-      return reject(
-        state,
-        event,
-        'NOTIFICATION_SURFACE_ITEM_UNAVAILABLE',
-        `Coordinator owns notification ${event.expectedItemId}, but Runtime phase ${event.runtimePhase} exposes ${event.runtimeItemId ?? 'no displayable item'}.`,
       );
     }
 

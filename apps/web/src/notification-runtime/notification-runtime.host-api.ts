@@ -1,8 +1,7 @@
 /**
- * Stage 7 Phase 1 — passive Host ↔ Runtime contract.
- * Exposes ready-head / queue / action status. No Lobby/CTA/Product fields.
+ * Stage 7 Phase 2 — passive Host ↔ Runtime contract (Option B readiness only).
+ * No display/overlay/Lobby/Product fields. Not mounted in production.
  */
-import type { BanInteraction, BanResult } from '@98plus/shared';
 import {
   selectCurrentItem,
   selectHasNext,
@@ -19,28 +18,15 @@ import {
   type NotificationRuntimeState,
 } from './notification-runtime.types';
 
-export type NotificationHostPhase =
-  | 'READY'
-  | 'EMPTY'
-  | 'BOOTING'
-  | 'RECOVERING'
-  | 'ACTION_PENDING';
-
-export type NotificationCard =
-  | { kind: 'incoming'; itemId: string; ban: BanInteraction }
-  | { kind: 'check'; itemId: string; ban: BanInteraction }
-  | { kind: 'result'; itemId: string; result: BanResult };
-
-export type NotificationViewState = {
-  phase: NotificationHostPhase;
-  /** Ready FIFO head — not an activated surface claim. */
-  readyHead: NotificationCard | null;
-  readyHeadId: string | null;
-  queueLength: number;
+export type NotificationQueueReadModel = {
+  readyItemId: string | null;
   pendingCount: number;
-  indicatorVisible: boolean;
-  isProcessingAction: boolean;
+  queueLength: number;
+  actionBlocked: boolean;
+  booting: boolean;
+  recovering: boolean;
   hasNext: boolean;
+  indicatorVisible: boolean;
 };
 
 export type NotificationIntentResult = {
@@ -63,53 +49,63 @@ export type NotificationIntents = {
   ): Promise<NotificationIntentResult>;
 };
 
-function cardFromItem(item: NotificationItem): NotificationCard {
-  const itemId = notificationItemId(item);
-  if (item.kind === 'result') {
-    return { kind: 'result', itemId, result: item.result };
-  }
-  if (item.kind === 'check') {
-    return { kind: 'check', itemId, ban: item.ban };
-  }
-  return { kind: 'incoming', itemId, ban: item.ban };
+/** @deprecated Prefer selectNotificationQueueReadModel. */
+export type NotificationViewState = NotificationQueueReadModel & {
+  phase: 'READY' | 'EMPTY' | 'BOOTING' | 'RECOVERING' | 'ACTION_PENDING';
+  readyHeadId: string | null;
+  readyHead: null;
+  isProcessingAction: boolean;
+};
+
+export function selectNotificationQueueReadModel(
+  state: NotificationRuntimeState,
+): NotificationQueueReadModel {
+  return {
+    readyItemId: selectReadyHeadId(state),
+    pendingCount: selectPendingCount(state),
+    queueLength: state.items.queue.length,
+    actionBlocked: selectIsActionBlocked(state),
+    booting: selectIsBooting(state),
+    recovering: selectIsRecovering(state),
+    hasNext: selectHasNext(state),
+    indicatorVisible: selectIndicatorVisible(state),
+  };
 }
 
 /**
- * Passive read model. Ready head may exist without any application surface claim.
+ * Passive read model for tests / residual callers.
+ * readyHead is always null — Host must not render queue head as active.
  */
 export function selectNotificationViewState(
   state: NotificationRuntimeState,
 ): NotificationViewState {
-  const isProcessingAction = selectIsActionBlocked(state);
-  const pendingCount = selectPendingCount(state);
-  const indicatorVisible = selectIndicatorVisible(state);
-  const hasNext = selectHasNext(state);
-  const queueLength = state.items.queue.length;
-  const head = selectCurrentItem(state);
-  const readyHead = head ? cardFromItem(head) : null;
-  const readyHeadId = selectReadyHeadId(state);
-
-  let phase: NotificationHostPhase;
-  if (selectIsBooting(state)) {
-    phase = 'BOOTING';
-  } else if (selectIsRecovering(state)) {
-    phase = 'RECOVERING';
-  } else if (isProcessingAction) {
-    phase = 'ACTION_PENDING';
-  } else if (readyHead) {
-    phase = 'READY';
-  } else {
-    phase = 'EMPTY';
-  }
+  const read = selectNotificationQueueReadModel(state);
+  let phase: NotificationViewState['phase'];
+  if (read.booting) phase = 'BOOTING';
+  else if (read.recovering) phase = 'RECOVERING';
+  else if (read.actionBlocked) phase = 'ACTION_PENDING';
+  else if (read.readyItemId) phase = 'READY';
+  else phase = 'EMPTY';
 
   return {
+    ...read,
     phase,
-    readyHead,
-    readyHeadId,
-    queueLength,
-    pendingCount,
-    indicatorVisible,
-    isProcessingAction,
-    hasNext,
+    readyHeadId: read.readyItemId,
+    readyHead: null,
+    isProcessingAction: read.actionBlocked,
   };
 }
+
+export function selectReadyItem(
+  state: NotificationRuntimeState,
+): NotificationItem | null {
+  return selectCurrentItem(state);
+}
+
+export function selectReadyItemId(
+  state: NotificationRuntimeState,
+): string | null {
+  return selectReadyHeadId(state);
+}
+
+export { notificationItemId };

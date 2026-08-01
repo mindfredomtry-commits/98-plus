@@ -1,5 +1,5 @@
 /**
- * Stage 7 Phase 1 — public intents wrapping queue/lifecycle commands only.
+ * Stage 7 Phase 2 — public intents wrapping queue/lifecycle commands only.
  * No Reply / Product / Bans navigation.
  */
 import { requestCheckCardAction } from './notification-runtime.check-action';
@@ -8,13 +8,17 @@ import type {
   NotificationIntentResult,
   NotificationIntents,
 } from './notification-runtime.host-api';
-import { selectNotificationViewState } from './notification-runtime.host-api';
+import { selectNotificationQueueReadModel } from './notification-runtime.host-api';
 import { requestIncomingOverboardAction } from './notification-runtime.overboard-action';
+import { selectCurrentItem } from './notification-runtime.selectors';
 import {
   dismissRuntimeHead,
   type NotificationRuntimeStore,
 } from './notification-runtime.store';
-import type { CardDismissReason } from './notification-runtime.types';
+import {
+  notificationItemId,
+  type CardDismissReason,
+} from './notification-runtime.types';
 
 export type NotificationIntentsDeps = {
   store: NotificationRuntimeStore;
@@ -46,16 +50,16 @@ export function createNotificationIntents(
 
   return {
     async accept() {
-      const view = selectNotificationViewState(store.getState());
-      const card = view.readyHead;
-      if (!card || card.kind !== 'incoming') {
+      const read = selectNotificationQueueReadModel(store.getState());
+      const head = selectCurrentItem(store.getState());
+      if (!head || head.kind !== 'incoming') {
         return fail('no-incoming-card');
       }
-      if (view.isProcessingAction) {
+      if (read.actionBlocked) {
         return fail('action-blocked');
       }
       const requested = requestIncomingOverboardAction(store, {
-        banId: card.ban.id,
+        banId: head.ban.id,
         source: 'user',
       });
       if (!requested.accepted) {
@@ -66,16 +70,16 @@ export function createNotificationIntents(
     },
 
     async confirmCheck(completed: boolean) {
-      const view = selectNotificationViewState(store.getState());
-      const card = view.readyHead;
-      if (!card || card.kind !== 'check') {
+      const read = selectNotificationQueueReadModel(store.getState());
+      const head = selectCurrentItem(store.getState());
+      if (!head || head.kind !== 'check') {
         return fail('no-check-card');
       }
-      if (view.isProcessingAction) {
+      if (read.actionBlocked) {
         return fail('action-blocked');
       }
       const requested = requestCheckCardAction(store, {
-        banId: card.ban.id,
+        banId: head.ban.id,
         completed,
         source: 'user',
       });
@@ -87,22 +91,25 @@ export function createNotificationIntents(
     },
 
     async dismissResult(reason = 'close_result') {
-      const view = selectNotificationViewState(store.getState());
-      const card = view.readyHead;
-      if (!card || card.kind !== 'result') {
+      const head = selectCurrentItem(store.getState());
+      if (!head || head.kind !== 'result') {
         return fail('no-result-card');
       }
       const dismissReason: CardDismissReason = reason;
-      dismissRuntimeHead(store, card.itemId, dismissReason, 'user');
+      dismissRuntimeHead(
+        store,
+        notificationItemId(head),
+        dismissReason,
+        'user',
+      );
       await runEffects();
       return ok();
     },
 
     async dismissCurrent(reason = 'user_dismiss') {
-      const view = selectNotificationViewState(store.getState());
-      const card = view.readyHead;
-      if (!card) return fail('no-card');
-      dismissRuntimeHead(store, card.itemId, reason, 'user');
+      const head = selectCurrentItem(store.getState());
+      if (!head) return fail('no-card');
+      dismissRuntimeHead(store, notificationItemId(head), reason, 'user');
       await runEffects();
       return ok();
     },

@@ -96,14 +96,14 @@ function main(): void {
   }
 
   {
-    const host = read('notification-host/DirectNotificationHost.tsx');
     const surface = read('app-coordinator/ApplicationSurface.tsx');
-    assert.doesNotMatch(host, /DirectLobbySurface|onStartBan|openBansCta|ctaVisible/);
-    assert.match(host, /activation unavailable/i);
-    assert.match(host, /data-phase=\{view\.phase\}/);
+    assert.doesNotMatch(surface, /DirectNotificationHost/);
+    assert.equal(
+      existsSync(join(webSrc, 'notification-host/DirectNotificationHost.tsx')),
+      false,
+    );
     assert.doesNotMatch(surface, /NOTIFICATION_SURFACE_UNAVAILABLE/);
-    assert.doesNotMatch(host + surface, /product-lobby-cta|Запретить/);
-    pass('3. Host is diagnostic-only; no Lobby CTA / identity veto');
+    pass('3. Notification Host removed from production mount');
   }
 
   {

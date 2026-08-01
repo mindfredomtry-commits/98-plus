@@ -6,7 +6,7 @@ import { normalizeId } from '@/lib/normalize-json';
 import { overlayQueueKey, type QueuedOverlay } from '@/lib/overlay-queue';
 import type { NotificationRuntimeStore } from './notification-runtime.store';
 import type { RuntimeSource } from './notification-runtime.types';
-import { mapProvidersSourceToRuntime } from './notification-runtime.production-advance';
+import { mapProvidersSourceToRuntime } from './notification-runtime.source-map';
 
 /** Normalize + dedupe stable item ids (`kind:id`). */
 export function normalizePendingItemIds(ids: readonly string[]): string[] {
@@ -62,7 +62,7 @@ function isPassiveIndicatorPrimeSource(source: string): boolean {
  * Stage 6B Phase 5: pass the request-start generation so the reducer can drop
  * stale empty and non-empty results. Unstamped calls remain for live merges.
  *
- * Passive lobby-indicator-prime must not wipe a non-empty pending snapshot with an
+ * Passive pending-indicator prime must not wipe a non-empty pending snapshot with an
  * empty race result (bootstrap / bans prefetch may already hold truth).
  */
 export function ingestPendingSnapshot(

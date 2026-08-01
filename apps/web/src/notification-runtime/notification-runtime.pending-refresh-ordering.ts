@@ -55,7 +55,7 @@ function sameIdList(a: readonly string[], b: readonly string[]): boolean {
 
 /**
  * Decide whether an incoming pending snapshot may replace runtime pending.
- * Does not mutate queue/display — pending authority only.
+ * Does not mutate queue — pending authority only.
  */
 export function decidePendingSnapshotApply(args: {
   currentGeneration: number;
@@ -64,7 +64,7 @@ export function decidePendingSnapshotApply(args: {
   incomingIds: readonly string[];
   incomingSourceVersion: string | null;
   stamped: number | null | undefined;
-  /** Runtime still holds a live queue head or active display. */
+  /** Runtime still holds a live queue head. */
   holdsLocalItem: boolean;
 }): PendingSnapshotApplyDecision {
   const stamped = normalizeStampedGeneration(args.stamped);

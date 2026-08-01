@@ -1,13 +1,12 @@
 /**
- * Vertical 0 — Single Owner notification runtime contract (offline pure).
- * Not wired to production Providers / overlays / transport.
+ * Stage 7 Phase 2 — passive Notification Runtime contract.
+ * Queue + item lifecycle + infrastructure only. No display/overlay/activation.
  */
 import type { BanInteraction, BanResult } from '@98plus/shared';
 import { normalizeId } from '@/lib/normalize-json';
 
 export type RuntimeSource =
   | 'bootstrap'
-  | 'drain'
   | 'deeplink'
   | 'websocket'
   | 'poll'
@@ -18,39 +17,22 @@ export type RuntimeSource =
 
 export type NotificationItemKind = 'incoming' | 'check' | 'result';
 
-/**
- * Queue item — product kinds only.
- * Overboard is display.mode on a result item, not a separate kind.
- * stable/reply/scoped are presentation pins, not queue kinds.
- */
+/** Queue item — product kinds only. */
 export type NotificationItem =
   | { kind: 'incoming'; ban: BanInteraction }
   | { kind: 'check'; ban: BanInteraction }
   | { kind: 'result'; result: BanResult };
 
-export type DisplayKind = NotificationItemKind;
-/** Vertical 6: `direct` = deeplink/live-single session; overboard is result presentation. */
-export type DisplayMode = 'normal' | 'direct' | 'direct-overboard';
-
-export type DisplayPayload =
-  | { kind: 'incoming'; ban: BanInteraction }
-  | { kind: 'check'; ban: BanInteraction }
-  | { kind: 'result'; result: BanResult };
-
-export type LifecycleStatus =
-  | 'booting'
-  | 'idle'
-  | 'draining'
-  | 'showing'
-  | 'submitting'
-  | 'completing'
-  | 'recovering';
+/**
+ * Queue / reconciliation lifecycle. Not a visual ownership state.
+ * Writers: bootstrap/reconnect (booting/recovering), actions (submitting), idle otherwise.
+ */
+export type LifecycleStatus = 'booting' | 'idle' | 'submitting' | 'recovering';
 
 export type ActionStatus = 'idle' | 'pending' | 'succeeded' | 'failed';
 
 export type RecoveryStatus = 'idle' | 'loading' | 'applied' | 'failed';
 
-/** Vertical 6 — deeplink / live-single entry metadata (not a second owner). */
 export type DirectEntrySource = 'deeplink' | 'live-single';
 /** Queue retention after direct ingest. Product return is Coordinator-owned. */
 export type DirectReturnPolicy = 'retain_queue';
@@ -70,7 +52,7 @@ export type DirectEntryState = {
   targetKind: NotificationItemKind | null;
   entrySource: DirectEntrySource | null;
   returnPolicy: DirectReturnPolicy | null;
-  /** Newer request while blocked or while another direct is showing. */
+  /** Newer request while another direct fetch is active. */
   deferred: DeferredDirectEntry | null;
 };
 
@@ -81,13 +63,8 @@ export type NotificationRuntimeState = {
     transitionId: string | null;
   };
   items: {
-    /** FIFO; current is always queue[0] (derived, not stored). */
+    /** FIFO; ready head is always queue[0] (derived, not stored). */
     queue: NotificationItem[];
-  };
-  display: {
-    kind: DisplayKind | null;
-    payload: DisplayPayload | null;
-    mode: DisplayMode;
   };
   action: {
     status: ActionStatus;
@@ -96,7 +73,7 @@ export type NotificationRuntimeState = {
     errorCode: string | null;
   };
   pending: {
-    /** Canonical unread item IDs (overlayQueueKey form: kind:id). */
+    /** Canonical unread item IDs (kind:id). */
     itemIds: string[];
     sourceVersion: string | null;
     /**
@@ -115,7 +92,7 @@ export type NotificationRuntimeState = {
     /** Active bootstrap/recovery fetch id (survives direct-entry preserve). */
     transitionId: string | null;
   };
-  /** Vertical 6 — sole direct-entry session (deeplink / live-single). */
+  /** Deeplink / live-single session (ingest only). */
   directEntry: DirectEntryState;
 };
 
@@ -134,28 +111,13 @@ export type NotificationRuntimeCommand =
       source: RuntimeSource;
     }
   | {
-      type: 'DRAIN_REQUESTED';
-      transitionId: string;
-      source: RuntimeSource;
-    }
-  | {
-      /** Vertical 5 — SUCCESS product screen finished; runtime owns handoff. */
-      type: 'SUCCESS_HANDOFF_REQUESTED';
-      transitionId: string;
-      source: RuntimeSource;
-    }
-  | {
-      /**
-       * Vertical 6 — deeplink / live-single direct entry.
-       * Host sets `defer` when SUCCESS / compose / product-exclusive blocks display.
-       */
       type: 'DEEPLINK_ENTRY_REQUESTED';
       transitionId: string;
       targetId: string;
       targetKind?: NotificationItemKind | null;
       entrySource: DirectEntrySource;
       returnPolicy: DirectReturnPolicy;
-      /** Host: SUCCESS / draining / compose — park without FETCH yet if true. */
+      /** Park without FETCH yet when another direct fetch is active. */
       defer?: boolean;
       source: RuntimeSource;
     }
@@ -186,16 +148,7 @@ export type NotificationRuntimeCommand =
       source: RuntimeSource;
     }
   | {
-      type: 'LOBBY_REQUESTED';
-      source: RuntimeSource;
-    }
-  | {
       type: 'RESET_REQUESTED';
-      source: RuntimeSource;
-    }
-  | {
-      type: 'RECOVERY_REQUESTED';
-      transitionId: string;
       source: RuntimeSource;
     };
 
@@ -204,24 +157,18 @@ export type NotificationRuntimeResultEvent =
       type: 'ITEMS_RECEIVED';
       transitionId: string;
       items: NotificationItem[];
-      /** When true, replace draining queue; otherwise merge/dedupe onto queue. */
+      /** When true, replace queue; otherwise merge/dedupe onto queue. */
       replaceQueue?: boolean;
       source: RuntimeSource;
     }
-    | {
-      /**
-       * Vertical 7 — transport delivered boot snapshot.
-       * Alias path: same decision surface as BOOTSTRAP_COMPLETED.
-       */
+  | {
       type: 'BOOTSTRAP_SNAPSHOT_RECEIVED';
       transitionId: string;
       items: NotificationItem[];
       pendingItemIds: string[];
-      /** Local/server consumed tombstones (short TTL — never infinite). */
       consumedItemIds?: string[];
       sourceVersion: string | null;
       source: RuntimeSource;
-      /** Request-start pending generation (Stage 6B Phase 4). */
       generation?: number | null;
     }
   | {
@@ -232,7 +179,6 @@ export type NotificationRuntimeResultEvent =
       consumedItemIds?: string[];
       sourceVersion: string | null;
       source: RuntimeSource;
-      /** Request-start pending generation (Stage 6B Phase 4). */
       generation?: number | null;
     }
   | {
@@ -247,12 +193,8 @@ export type NotificationRuntimeResultEvent =
       targetItemId: string;
       /** Atomic check→result replacement when present. */
       replacement?: NotificationItem;
-      /**
-       * Vertical V2 overboard: consume current head and show next / idle.
-       * Mutually exclusive with leaving a waiting head (check no-replacement).
-       */
+      /** Consume current head after successful action. */
       consumeAndAdvance?: boolean;
-      displayMode?: DisplayMode;
       source: RuntimeSource;
     }
   | {
@@ -267,67 +209,27 @@ export type NotificationRuntimeResultEvent =
       itemIds: string[];
       sourceVersion: string | null;
       source: RuntimeSource;
-      /** Request-start generation; omit for callers with no ordering context. */
       generation?: number | null;
     }
   | {
-      /**
-       * Recover from a drain that ended without an owner (rejected/abandoned
-       * handoff). Applies only while the requesting transition still owns
-       * lifecycle=draining, so it can never stomp a newer owner.
-       */
-      type: 'RUNTIME_NORMALIZE_IDLE';
-      transitionId: string;
-      reason: string;
-      source: RuntimeSource;
-    }
-  | {
-      /** Vertical 4 — local consume tombstone; does not touch queue/lifecycle. */
+      /** Local consume tombstone; does not touch queue/lifecycle. */
       type: 'ITEM_CONSUMED';
       itemId: string;
       source: RuntimeSource;
     }
   | {
-      type: 'RECOVERY_APPLIED';
-      transitionId: string;
-      items: NotificationItem[];
-      pendingItemIds: string[];
-      consumedItemIds: string[];
-      sourceVersion: string | null;
-      snapshotVersion: string | null;
-      source: RuntimeSource;
-      /** Request-start pending generation (Stage 6B Phase 4). */
-      generation?: number | null;
-    }
-  | {
-      type: 'RECOVERY_FAILED';
-      transitionId: string;
-      errorCode: string;
-      source: RuntimeSource;
-    }
-  | {
-      /** Prefetch/materialize failed; settle idle. */
-      type: 'DRAIN_FAILED';
-      transitionId: string;
-      errorCode: string;
-      source: RuntimeSource;
-    }
-  | {
-      /** Vertical 6 — direct fetch succeeded; place item at head (mode=direct). */
       type: 'DIRECT_ITEM_RECEIVED';
       transitionId: string;
       item: NotificationItem;
       source: RuntimeSource;
     }
   | {
-      /** Vertical 6 — direct fetch failed / not found. */
       type: 'DIRECT_ITEM_FAILED';
       transitionId: string;
       errorCode: string;
       source: RuntimeSource;
     }
   | {
-      /** Vertical 6 — host allows a deferred direct entry to start (idle boundary). */
       type: 'DIRECT_ENTRY_FLUSH_REQUESTED';
       source: RuntimeSource;
     };
@@ -362,45 +264,13 @@ export type NotificationRuntimeReducerResult = {
   effects: RuntimeEffect[];
 };
 
-/** Stable dedupe / pending key — matches legacy overlayQueueKey. */
+/** Stable dedupe / pending key. */
 export function notificationItemId(item: NotificationItem): string {
-  // Match overlayQueueKey so production dismiss targets align.
   const id =
     item.kind === 'result'
       ? normalizeId(item.result.id)
       : normalizeId(item.ban.id);
   return `${item.kind}:${id}`;
-}
-
-export function displayFromItem(
-  item: NotificationItem,
-  mode: DisplayMode = 'normal',
-): NotificationRuntimeState['display'] {
-  const resolvedMode: DisplayMode =
-    mode === 'direct-overboard' && item.kind === 'result'
-      ? 'direct-overboard'
-      : mode === 'direct'
-        ? 'direct'
-        : 'normal';
-  if (item.kind === 'result') {
-    return {
-      kind: 'result',
-      payload: { kind: 'result', result: item.result },
-      mode: resolvedMode,
-    };
-  }
-  if (item.kind === 'check') {
-    return {
-      kind: 'check',
-      payload: { kind: 'check', ban: item.ban },
-      mode: resolvedMode === 'direct' ? 'direct' : 'normal',
-    };
-  }
-  return {
-    kind: 'incoming',
-    payload: { kind: 'incoming', ban: item.ban },
-    mode: resolvedMode === 'direct' ? 'direct' : 'normal',
-  };
 }
 
 export function createEmptyDirectEntryState(): DirectEntryState {
@@ -423,11 +293,6 @@ export function createInitialNotificationRuntimeState(): NotificationRuntimeStat
       transitionId: null,
     },
     items: { queue: [] },
-    display: {
-      kind: null,
-      payload: null,
-      mode: 'normal',
-    },
     action: {
       status: 'idle',
       commandId: null,

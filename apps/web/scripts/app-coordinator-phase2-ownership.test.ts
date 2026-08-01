@@ -147,45 +147,46 @@ async function main() {
   {
     const harness = createHarness();
     harness.runtimeSink.bootCompleted({ currentItemId: 'incoming:P' });
-    assert.equal(selectNotificationItemId(harness.store.getState()), 'incoming:P');
+    assert.equal(selectNotificationItemId(harness.store.getState()), null);
     assert.equal(
       selectApplicationSurfaceOwner(harness.store.getState()),
-      'NOTIFICATION_SYSTEM',
+      'PRODUCT_FLOW',
     );
-    pass('2. boot with pending item → Notification');
+    pass('2. boot with pending item still → Product (no auto-activation)');
   }
 
   {
-    const harness = createHarness(productState());
-    harness.runtimeSink.currentChanged('incoming:WS');
-    assert.equal(
-      selectNotificationItemId(harness.store.getState()),
-      'incoming:WS',
+    const ports = readFileSync(
+      join(process.cwd(), 'apps/web/src/app-coordinator/app-coordinator.ports.ts'),
+      'utf8',
     );
-    pass('3. Runtime current item change → matching Notification identity');
+    assert.doesNotMatch(ports, /currentChanged|queueDrained/);
+    pass('3. Runtime sink has no currentChanged/queueDrained activation API');
   }
 
   {
-    const harness = createHarness(productState('LOBBY'));
-    harness.runtimeSink.currentChanged('incoming:WS');
+    const types = readFileSync(
+      join(process.cwd(), 'apps/web/src/app-coordinator/app-coordinator.types.ts'),
+      'utf8',
+    );
+    assert.doesNotMatch(types, /RUNTIME_CURRENT_CHANGED|RUNTIME_QUEUE_DRAINED/);
+    pass('4. Coordinator event union has no Runtime activation events');
+  }
+
+  {
+    const harness = createHarness(productState('WHO'));
+    harness.runtimeSink.reconnectStarted();
+    harness.runtimeSink.reconnectCompleted();
+    assert.equal(selectProductRoute(harness.store.getState()), 'WHO');
     assert.equal(
       selectApplicationSurfaceOwner(harness.store.getState()),
-      'NOTIFICATION_SYSTEM',
+      'PRODUCT_FLOW',
     );
-    pass('4. WS during Lobby → Notification');
-  }
-
-  {
-    for (const route of ['WHO', 'WHAT'] as const) {
-      const harness = createHarness(productState(route));
-      harness.runtimeSink.currentChanged(`incoming:${route}`);
-      assert.equal(selectProductRoute(harness.store.getState()), route);
-      assert.equal(
-        selectApplicationSurfaceOwner(harness.store.getState()),
-        'PRODUCT_FLOW',
-      );
-    }
-    pass('5. WS during WHO/WHAT → Product remains owner');
+    const harnessWhat = createHarness(productState('WHAT'));
+    harnessWhat.runtimeSink.reconnectStarted();
+    harnessWhat.runtimeSink.reconnectCompleted();
+    assert.equal(selectProductRoute(harnessWhat.store.getState()), 'WHAT');
+    pass('5. reconnect during WHO/WHAT leaves Product owner unchanged');
   }
 
   {
@@ -243,33 +244,9 @@ async function main() {
       resumeToken: token,
       sourceItemId: 'incoming:source',
     });
-    assert.equal(
-      selectNotificationItemId(harness.store.getState()),
-      'incoming:source',
-    );
-    pass('9. reply cancellation → exact source notification');
-  }
-
-  {
-    const harness = createHarness(notificationState('incoming:A'));
-    const token = tokens.create();
-    harness.store.dispatch({
-      type: 'REPLY_REQUESTED',
-      sourceItemId: 'incoming:A',
-      targetUserId: 'user:B',
-      resumeToken: token,
-    });
-    harness.productSink.routeChanged('SUCCESS');
-    harness.productSink.replyCompleted({
-      resumeToken: token,
-      sourceItemId: 'incoming:A',
-    });
-    harness.runtimeSink.currentChanged('check:NEXT');
-    assert.equal(
-      selectNotificationItemId(harness.store.getState()),
-      'check:NEXT',
-    );
-    pass('10. reply completion with next queue item → next Notification');
+    assert.equal(selectNotificationItemId(harness.store.getState()), null);
+    assert.equal(selectProductRoute(harness.store.getState()), 'LOBBY');
+    pass('9. reply cancellation → Product (no Notification reactivation)');
   }
 
   {
@@ -286,9 +263,27 @@ async function main() {
       resumeToken: token,
       sourceItemId: 'incoming:A',
     });
-    harness.runtimeSink.queueDrained();
     assert.equal(selectProductRoute(harness.store.getState()), 'BANS');
-    pass('11. reply completion with drained queue → saved Product route');
+    assert.match(harness.calls.join(','), /complete:incoming:A/);
+    pass('10. reply completion returns to saved Product route immediately');
+  }
+
+  {
+    const harness = createHarness(notificationState('incoming:A'));
+    const token = tokens.create();
+    harness.store.dispatch({
+      type: 'REPLY_REQUESTED',
+      sourceItemId: 'incoming:A',
+      targetUserId: 'user:B',
+      resumeToken: token,
+    });
+    harness.productSink.routeChanged('SUCCESS');
+    harness.productSink.replyCompleted({
+      resumeToken: token,
+      sourceItemId: 'incoming:A',
+    });
+    assert.equal(selectProductRoute(harness.store.getState()), 'LOBBY');
+    pass('11. reply completion with default resume → Product Lobby');
   }
 
   {
@@ -373,9 +368,10 @@ async function main() {
       (appServices.match(/createAppCoordinatorLifecycle\(/g) ?? []).length,
       1,
     );
-    assert.match(runtimePort, /selectReadyHeadId/);
+    assert.doesNotMatch(runtimePort, /currentChanged|queueDrained/);
     assert.doesNotMatch(runtimePort, /\.queue\s*=/);
-    pass('16. no old ownership selector / second queue / legacy fallback');
+    assert.doesNotMatch(surface, /DirectNotificationHost/);
+    pass('16. no old ownership selector / Host mount / activation sink');
   }
 
   {

@@ -128,20 +128,14 @@ function trimEarlyParked(at: number): void {
 export function snapshotRuntimeForActionResultHandoff(
   state: NotificationRuntimeState,
 ): ActionResultRuntimeSnapshot {
-  const payload = state.display.payload;
-  const displayId =
-    payload == null
-      ? null
-      : payload.kind === 'result'
-        ? normalizeId(payload.result.id)
-        : normalizeId(payload.ban.id);
   const head = state.items.queue[0] ?? null;
+  const readyHeadId = head ? notificationItemId(head) : null;
   return {
     lifecycle: state.lifecycle.status,
-    displayKind: state.display.kind,
-    displayId: displayId || null,
+    displayKind: null,
+    displayId: null,
     queueLength: state.items.queue.length,
-    activeItemId: head ? notificationItemId(head) : null,
+    activeItemId: readyHeadId,
   };
 }
 

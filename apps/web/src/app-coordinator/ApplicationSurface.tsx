@@ -2,15 +2,14 @@
  * Coordinator-owned application surface.
  * Exactly one global surface owner at a time.
  *
- * Stage 7 Phase 1: Runtime does not auto-activate. NOTIFICATION mount shows
- * a temporary diagnostic Host until Coordinator activation policy exists.
+ * Stage 7 Phase 2: Notification activation is absent. ApplicationSurface mounts
+ * Boot or Product only. NOTIFICATION mode is unreachable from production wiring.
  */
 'use client';
 
 import { useCallback, useSyncExternalStore } from 'react';
 import type { UserPublic } from '@98plus/shared';
 import type { AppCoordinatorLifecycle } from '@/app-coordinator/app-coordinator.lifecycle';
-import { DirectNotificationHost } from '@/notification-host/DirectNotificationHost';
 import { ProductFlowSurface } from '@/product-flow/product-flow.surface';
 
 export type ApplicationSurfaceProps = {
@@ -41,7 +40,6 @@ function BootSurface() {
 function ActiveApplicationSurface({
   lifecycle,
   user,
-  getToken,
 }: ActiveApplicationSurfaceProps) {
   const coordinatorState = useSyncExternalStore(
     lifecycle.store.subscribe,
@@ -57,18 +55,8 @@ function ActiveApplicationSurface({
     return <BootSurface />;
   }
 
-  if (coordinatorState.mode.type === 'NOTIFICATION') {
-    return (
-      <div data-surface-owner="NOTIFICATION_SYSTEM">
-        <DirectNotificationHost
-          viewerId={user?.id ?? null}
-          getToken={getToken}
-          coordinatorItemId={coordinatorState.mode.itemId}
-        />
-      </div>
-    );
-  }
-
+  // Stage 7 Phase 2: no Notification owner until Coordinator activation exists.
+  // Residual NOTIFICATION / REPLY_COMPOSE still renders Product shell.
   return (
     <div data-surface-owner="PRODUCT_FLOW">
       <ProductFlowSurface

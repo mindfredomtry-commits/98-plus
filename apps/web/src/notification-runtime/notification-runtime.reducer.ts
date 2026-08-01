@@ -1,11 +1,10 @@
 /**
- * Vertical 0 — pure notification runtime reducer (offline contract).
+ * Stage 7 Phase 2 — pure passive notification runtime reducer.
  * Deterministic: no Date.now / random / API / React.
  */
 import {
   createEmptyDirectEntryState,
   createInitialNotificationRuntimeState,
-  displayFromItem,
   notificationItemId,
   type DeferredDirectEntry,
   type NotificationItem,
@@ -22,7 +21,6 @@ function cloneState(state: NotificationRuntimeState): NotificationRuntimeState {
   return {
     lifecycle: { ...state.lifecycle },
     items: { queue: [...state.items.queue] },
-    display: { ...state.display },
     action: { ...state.action },
     pending: {
       itemIds: [...state.pending.itemIds],
@@ -45,53 +43,6 @@ function clearAction(
 ): NotificationRuntimeState {
   return {
     ...state,
-    action: {
-      status: 'idle',
-      commandId: null,
-      targetItemId: null,
-      errorCode: null,
-    },
-  };
-}
-
-function clearDisplay(
-  state: NotificationRuntimeState,
-): NotificationRuntimeState {
-  return {
-    ...state,
-    display: {
-      kind: null,
-      payload: null,
-      mode: 'normal',
-    },
-  };
-}
-
-function showHead(
-  state: NotificationRuntimeState,
-  source: NotificationRuntimeState['lifecycle']['source'],
-  transitionId: string | null,
-  mode: NotificationRuntimeState['display']['mode'] = 'normal',
-): NotificationRuntimeState {
-  const head = state.items.queue[0];
-  if (!head) {
-    return {
-      ...clearDisplay(clearAction(state)),
-      lifecycle: {
-        status: 'idle',
-        source,
-        transitionId: null,
-      },
-    };
-  }
-  return {
-    ...state,
-    lifecycle: {
-      status: 'showing',
-      source,
-      transitionId,
-    },
-    display: displayFromItem(head, mode),
     action: {
       status: 'idle',
       commandId: null,
@@ -164,8 +115,7 @@ function resolvePendingReplacement(
     incomingIds,
     incomingSourceVersion: sourceVersion,
     stamped: generation,
-    holdsLocalItem:
-      base.items.queue.length > 0 || base.display.kind != null,
+    holdsLocalItem: base.items.queue.length > 0,
   });
   if (decision.action === 'reject') {
     return base.pending;
@@ -199,67 +149,7 @@ function reconcilePending(
 }
 
 /**
- * Vertical 7 — repair queue/display invariants after bootstrap.
- * current = queue[0]; display only from runtime; idle ⇒ no overlay.
- */
-function repairQueueDisplayInvariant(
-  state: NotificationRuntimeState,
-  source: NotificationRuntimeState['lifecycle']['source'],
-): NotificationRuntimeState {
-  const head = state.items.queue[0] ?? null;
-  const overlayStatuses = new Set([
-    'showing',
-    'submitting',
-    'completing',
-  ]);
-
-  if (state.lifecycle.status === 'idle') {
-    if (state.display.kind != null || state.display.payload != null) {
-      return clearDisplay(clearAction(state));
-    }
-    return state;
-  }
-
-  if (overlayStatuses.has(state.lifecycle.status)) {
-    if (!head) {
-      return {
-        ...clearDisplay(clearAction(state)),
-        lifecycle: {
-          status: 'idle',
-          source,
-          transitionId: null,
-        },
-      };
-    }
-    const headId = notificationItemId(head);
-    const displayId =
-      state.display.payload == null
-        ? null
-        : state.display.payload.kind === 'result'
-          ? `result:${String(state.display.payload.result.id).trim()}`
-          : `${state.display.payload.kind}:${String(state.display.payload.ban.id).trim()}`;
-    if (
-      state.display.kind !== head.kind ||
-      displayId !== headId ||
-      state.display.payload == null
-    ) {
-      return showHead(
-        state,
-        source,
-        state.lifecycle.transitionId,
-        state.display.mode === 'direct' ||
-          state.display.mode === 'direct-overboard'
-          ? state.display.mode
-          : 'normal',
-      );
-    }
-  }
-
-  return state;
-}
-
-/**
- * Stage 7 Phase 1 — complete/consume head only.
+ * Stage 7 Phase 2 — complete/consume head only.
  * Does not activate the next item (no application surface claim).
  */
 function dismissHead(
@@ -289,7 +179,7 @@ function dismissHead(
   ];
 
   next = {
-    ...clearDisplay(clearAction(next)),
+    ...clearAction(next),
     lifecycle: {
       status: 'idle',
       source,
@@ -396,7 +286,7 @@ export function notificationRuntimeReducer(
     }
 
     case 'BOOTSTRAP_REQUESTED': {
-      // Vertical 7: deeplink / direct entry outranks boot snapshot display.
+      // Deeplink / direct entry outranks boot snapshot.
       const preserveDirect =
         base.directEntry.active || base.directEntry.deferred != null;
 
@@ -420,10 +310,10 @@ export function notificationRuntimeReducer(
         };
       }
 
-      // Fresh boot: drop mid-flight action/display/queue; keep consumed TTL.
+      // Fresh boot: drop mid-flight action/queue; keep consumed TTL.
       return {
         state: {
-          ...clearDisplay(clearAction(base)),
+          ...clearAction(base),
           items: { queue: [] },
           pending: {
             itemIds: [],
@@ -452,16 +342,9 @@ export function notificationRuntimeReducer(
       };
     }
 
-    case 'DRAIN_REQUESTED':
-    case 'SUCCESS_HANDOFF_REQUESTED':
-    case 'DRAIN_FAILED':
-    case 'LOBBY_REQUESTED':
-    case 'RUNTIME_NORMALIZE_IDLE':
-      // Stage 7 Phase 1 — dead policy APIs retained as no-ops until type deletion lands.
-      return { state: base, effects: [] };
 
     case 'ITEMS_RECEIVED': {
-      // Stage 7 Phase 1 — enqueue/dedupe only. Never activate / claim surface.
+      // Stage 7 Phase 2 — enqueue/dedupe only. Never activate / claim surface.
       if (event.replaceQueue) {
         const rejected = evaluateStaleReplaceGuard(base, {
           replaceQueue: true,
@@ -478,7 +361,7 @@ export function notificationRuntimeReducer(
         : dedupeAppend(base.items.queue, event.items);
 
       const next: NotificationRuntimeState = {
-        ...clearDisplay(clearAction(base)),
+        ...clearAction(base),
         items: { queue },
         lifecycle: {
           status:
@@ -553,11 +436,11 @@ export function notificationRuntimeReducer(
       const filteredItems = event.items.filter(
         (item) => !consumedIds.includes(notificationItemId(item)),
       );
-      // Stage 7 Phase 1 — always populate FIFO; never activate.
+      // Stage 7 Phase 2 — always populate FIFO; never activate.
       const queue = dedupeAppend([], filteredItems);
 
       const next: NotificationRuntimeState = {
-        ...clearDisplay(clearAction(base)),
+        ...clearAction(base),
         items: { queue },
         pending: resolvePendingReplacement(
           base,
@@ -590,8 +473,7 @@ export function notificationRuntimeReducer(
 
       const preserveDirect =
         base.directEntry.active ||
-        base.display.mode === 'direct' ||
-        base.display.mode === 'direct-overboard';
+        base.directEntry.deferred != null;
 
       if (preserveDirect) {
         return {
@@ -609,7 +491,7 @@ export function notificationRuntimeReducer(
 
       return {
         state: {
-          ...clearDisplay(clearAction(base)),
+          ...clearAction(base),
           items: { queue: [] },
           lifecycle: {
             status: 'idle',
@@ -632,7 +514,7 @@ export function notificationRuntimeReducer(
       if (!current || !currentId || currentId !== event.targetItemId) {
         return { state: base, effects: [] };
       }
-      // Stage 7 Phase 1 — actions run against ready queue head (no surface claim required).
+      // Stage 7 Phase 2 — actions run against ready queue head (no surface claim required).
       if (base.lifecycle.status === 'submitting') {
         return { state: base, effects: [] };
       }
@@ -690,7 +572,7 @@ export function notificationRuntimeReducer(
       if (event.replacement && headId === event.targetItemId) {
         // Item lifecycle: atomic head replacement (e.g. check→result). No surface claim.
         next = {
-          ...clearDisplay(clearAction(next)),
+          ...clearAction(next),
           items: {
             queue: [event.replacement, ...next.items.queue.slice(1)],
           },
@@ -715,7 +597,7 @@ export function notificationRuntimeReducer(
       }
 
       next = {
-        ...clearDisplay(next),
+        ...next,
         lifecycle: {
           status: 'idle',
           source: event.source,
@@ -740,7 +622,7 @@ export function notificationRuntimeReducer(
       }
       return {
         state: {
-          ...clearDisplay(base),
+          ...base,
           lifecycle: {
             status: 'idle',
             source: event.source,
@@ -808,7 +690,7 @@ export function notificationRuntimeReducer(
     }
 
     case 'ITEM_CONSUMED': {
-      // Immediate local tombstone — no queue/lifecycle/display change.
+      // Immediate local tombstone — no queue/lifecycle change.
       if (!event.itemId) {
         return { state: base, effects: [] };
       }
@@ -830,78 +712,6 @@ export function notificationRuntimeReducer(
       };
     }
 
-    case 'RECOVERY_REQUESTED': {
-      return {
-        state: {
-          ...base,
-          lifecycle: {
-            status: 'recovering',
-            source: event.source,
-            transitionId: event.transitionId,
-          },
-          recovery: {
-            status: 'loading',
-            snapshotVersion: null,
-            transitionId: event.transitionId,
-          },
-        },
-        effects: [
-          {
-            type: 'FETCH_PENDING',
-            transitionId: event.transitionId,
-            source: event.source,
-          },
-        ],
-      };
-    }
-
-    case 'RECOVERY_APPLIED': {
-      // Stage 7 Phase 1 — bootstrap is production authority; keep case passive.
-      const queue = dedupeAppend([], event.items);
-      const consumed = [...event.consumedItemIds];
-      const pendingIds = reconcilePending(event.pendingItemIds, consumed);
-      const next: NotificationRuntimeState = {
-        ...clearDisplay(clearAction(base)),
-        items: { queue },
-        pending: resolvePendingReplacement(
-          base,
-          pendingIds,
-          event.sourceVersion,
-          event.generation ?? null,
-        ),
-        consumed: { itemIds: consumed },
-        recovery: {
-          status: 'applied',
-          snapshotVersion: event.snapshotVersion,
-          transitionId: null,
-        },
-        lifecycle: {
-          status: 'idle',
-          source: event.source,
-          transitionId: null,
-        },
-      };
-      return { state: next, effects };
-    }
-
-    case 'RECOVERY_FAILED': {
-      return {
-        state: {
-          ...clearDisplay(clearAction(base)),
-          lifecycle: {
-            status: 'idle',
-            source: event.source,
-            transitionId: null,
-          },
-          recovery: {
-            status: 'failed',
-            snapshotVersion: base.recovery.snapshotVersion,
-            transitionId: null,
-          },
-        },
-        effects: [],
-      };
-    }
 
     case 'DEEPLINK_ENTRY_REQUESTED': {
       const targetId = String(event.targetId).trim();
@@ -913,7 +723,7 @@ export function notificationRuntimeReducer(
       if (isTargetConsumed(base, targetId, event.targetKind)) {
         return {
           state: {
-            ...clearDisplay(clearAction(base)),
+            ...clearAction(base),
             items: { queue: [] },
             lifecycle: {
               status: 'idle',
@@ -940,9 +750,7 @@ export function notificationRuntimeReducer(
       // Showing direct session: do not interrupt — park as deferred (newer wins).
       if (
         base.directEntry.active &&
-        (base.lifecycle.status === 'showing' ||
-          base.lifecycle.status === 'submitting' ||
-          base.lifecycle.status === 'completing' ||
+        (base.lifecycle.status === 'submitting' ||
           base.lifecycle.status === 'recovering')
       ) {
         return {
@@ -960,7 +768,6 @@ export function notificationRuntimeReducer(
       // V5 draining / host defer / recovering mid-fetch of another → park.
       const mustDefer =
         event.defer === true ||
-        base.lifecycle.status === 'draining' ||
         (base.lifecycle.status === 'recovering' &&
           base.directEntry.transitionId != null &&
           base.directEntry.transitionId !== event.transitionId);
@@ -1035,7 +842,7 @@ export function notificationRuntimeReducer(
       if (base.consumed.itemIds.includes(itemId)) {
         return {
           state: {
-            ...clearDisplay(clearAction(base)),
+            ...clearAction(base),
             items: { queue: [] },
             lifecycle: {
               status: 'idle',
@@ -1057,7 +864,7 @@ export function notificationRuntimeReducer(
       );
       const queue = [event.item, ...rest];
       const next: NotificationRuntimeState = {
-        ...clearDisplay(clearAction(base)),
+        ...clearAction(base),
         items: { queue },
         lifecycle: {
           status: 'idle',
@@ -1086,7 +893,7 @@ export function notificationRuntimeReducer(
       }
       return {
         state: {
-          ...clearDisplay(clearAction(base)),
+          ...clearAction(base),
           lifecycle: {
             status: 'idle',
             source: event.source,
@@ -1158,67 +965,19 @@ export function notificationRuntimeReducer(
   }
 }
 
-/** Local helper — avoid circular import with selectors during recovering. */
-function selectOverlayVisibleCompat(state: NotificationRuntimeState): boolean {
-  return (
-    state.lifecycle.status === 'showing' ||
-    state.lifecycle.status === 'submitting' ||
-    state.lifecycle.status === 'completing' ||
-    state.lifecycle.status === 'draining'
-  );
-}
+
 
 /**
- * Test/offline invariant helper — not thrown in production (contract is offline).
- * Production Validation 1.0 — expanded checks.
+ * Test/offline invariant helper — queue/action only (no display).
  */
 export function assertNotificationRuntimeInvariant(
   state: NotificationRuntimeState,
 ): void {
   const errors: string[] = [];
-  const head = state.items.queue[0] ?? null;
-  const overlayStatuses = new Set([
-    'showing',
-    'submitting',
-    'completing',
-    'draining',
-  ]);
 
-  // current == queue[0] (implicit via selectors; display must match head when showing)
-  if (
-    state.lifecycle.status === 'showing' ||
-    state.lifecycle.status === 'submitting'
-  ) {
+  if (state.lifecycle.status === 'submitting') {
     if (state.items.queue.length === 0) {
-      errors.push('showing/submitting requires non-empty queue');
-    }
-    if (state.display.kind == null || state.display.payload == null) {
-      errors.push('showing/submitting requires display payload');
-    }
-    if (head && state.display.kind !== head.kind) {
-      errors.push(
-        `display.kind=${state.display.kind} != head.kind=${head.kind}`,
-      );
-    }
-    if (head && state.display.payload) {
-      const headId = notificationItemId(head);
-      const payloadId =
-        state.display.payload.kind === 'result'
-          ? `result:${String(state.display.payload.result.id).trim()}`
-          : `${state.display.payload.kind}:${String(state.display.payload.ban.id).trim()}`;
-      if (headId !== payloadId) {
-        errors.push(`display payload id ${payloadId} != head ${headId}`);
-      }
-    }
-  }
-
-  // idle => no overlay
-  if (state.lifecycle.status === 'idle') {
-    if (state.display.kind != null || state.display.payload != null) {
-      errors.push('idle requires null display');
-    }
-    if (overlayStatuses.has(state.lifecycle.status)) {
-      errors.push('idle must not be overlay status');
+      errors.push('submitting requires non-empty queue');
     }
   }
 
@@ -1228,25 +987,21 @@ export function assertNotificationRuntimeInvariant(
     }
   }
 
-  // pending ∩ consumed = ∅
-  const consumed = new Set(state.consumed.itemIds);
-  for (const id of state.pending.itemIds) {
-    if (consumed.has(id)) {
-      errors.push(`pending ∩ consumed non-empty: ${id}`);
-    }
+  if (
+    state.action.status === 'pending' &&
+    state.lifecycle.status !== 'submitting'
+  ) {
+    errors.push('pending action requires submitting lifecycle');
   }
 
-  // Consumed items must not sit at queue head display
-  if (head) {
-    const headId = notificationItemId(head);
-    if (consumed.has(headId) && state.lifecycle.status === 'showing') {
-      errors.push(`consumed head still showing: ${headId}`);
-    }
+  const seen = new Set<string>();
+  for (const item of state.items.queue) {
+    const id = notificationItemId(item);
+    if (seen.has(id)) errors.push(`duplicate queue id ${id}`);
+    seen.add(id);
   }
 
-  if (errors.length > 0) {
-    throw new Error(
-      `NotificationRuntimeInvariant:\n${errors.map((e) => `  - ${e}`).join('\n')}`,
-    );
+  if (errors.length) {
+    throw new Error(`NotificationRuntime invariant: ${errors.join('; ')}`);
   }
 }

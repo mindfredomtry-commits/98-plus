@@ -1,6 +1,5 @@
 /**
- * Vertical 1 — production store for notification runtime (queue + advance only).
- * TEMP: Providers is the sole production consumer until Vertical 8 demolition.
+ * Stage 7 Phase 2 — production store for passive notification runtime.
  */
 import {
   assertNotificationRuntimeInvariant,
@@ -25,7 +24,7 @@ export type NotificationRuntimeStore = {
   dispatch: (
     event: NotificationRuntimeEvent,
   ) => NotificationRuntimeReducerResult;
-  /** Last effects from dispatch (for TEMP adapters). */
+  /** Last effects from dispatch. */
   getLastEffects: () => RuntimeEffect[];
 };
 
@@ -44,9 +43,7 @@ export function createNotificationRuntimeStore(): NotificationRuntimeStore {
   const seenDismissTransitionIds = new Set<string>();
   /** Dedup: ignore CARD_ACTION_REQUESTED with same commandId twice. */
   const seenActionCommandIds = new Set<string>();
-  /** Vertical 5: ignore duplicate SUCCESS_HANDOFF_REQUESTED transitionId. */
-  const seenSuccessHandoffTransitionIds = new Set<string>();
-  /** Vertical 6: ignore duplicate DEEPLINK_ENTRY_REQUESTED transitionId. */
+  /** Ignore duplicate DEEPLINK_ENTRY_REQUESTED transitionId. */
   const seenDeeplinkEntryTransitionIds = new Set<string>();
   const listeners = new Set<() => void>();
 
@@ -76,27 +73,11 @@ export function createNotificationRuntimeStore(): NotificationRuntimeStore {
         }
         seenActionCommandIds.add(event.commandId);
       }
-      if (event.type === 'SUCCESS_HANDOFF_REQUESTED') {
-        if (seenSuccessHandoffTransitionIds.has(event.transitionId)) {
-          return { state, effects: [] };
-        }
-        seenSuccessHandoffTransitionIds.add(event.transitionId);
-      }
       if (event.type === 'DEEPLINK_ENTRY_REQUESTED') {
         if (seenDeeplinkEntryTransitionIds.has(event.transitionId)) {
           return { state, effects: [] };
         }
         seenDeeplinkEntryTransitionIds.add(event.transitionId);
-      }
-      if (event.type === 'ITEMS_RECEIVED' || event.type === 'DRAIN_FAILED') {
-        // Stale batch: ignore if draining under a different transitionId.
-        if (
-          state.lifecycle.status === 'draining' &&
-          state.lifecycle.transitionId &&
-          event.transitionId !== state.lifecycle.transitionId
-        ) {
-          return { state, effects: [] };
-        }
       }
       if (
         event.type === 'DIRECT_ITEM_RECEIVED' ||
@@ -122,7 +103,6 @@ export function createNotificationRuntimeStore(): NotificationRuntimeStore {
       if (event.type === 'RESET_REQUESTED') {
         seenDismissTransitionIds.clear();
         seenActionCommandIds.clear();
-        seenSuccessHandoffTransitionIds.clear();
         seenDeeplinkEntryTransitionIds.clear();
         transitionSeq = 0;
       }

@@ -72,9 +72,9 @@ function pass(name: string): void {
 }
 
 {
-  assert.match(surface, /data-surface-owner="NOTIFICATION_SYSTEM"/);
-  assert.match(surface, /<DirectNotificationHost/);
-  pass('6. NOTIFICATION_SYSTEM renders DirectNotificationHost');
+  assert.doesNotMatch(surface, /DirectNotificationHost|NOTIFICATION_SYSTEM/);
+  assert.match(surface, /ProductFlowSurface/);
+  pass('6. no Notification Host mount; Product is the only domain surface');
 }
 
 {

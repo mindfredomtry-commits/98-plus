@@ -82,19 +82,11 @@ export type AppCoordinatorEvent =
   | { type: 'APP_STARTED' }
   | {
       type: 'BOOT_COMPLETED';
+      /** Always null from production Runtime — activation policy not built. */
       currentNotificationItemId: string | null;
       productRoute?: ProductRoute;
     }
   | { type: 'ENTRY_ROUTED'; intent: AppEntryIntent }
-  | {
-      /**
-       * Runtime reports presentation authority. This is an integration event,
-       * not a coordinator read of Runtime state.
-       */
-      type: 'RUNTIME_CURRENT_CHANGED';
-      itemId: string;
-    }
-  | { type: 'RUNTIME_QUEUE_DRAINED' }
   | { type: 'PRODUCT_COMPOSE_REQUESTED' }
   | { type: 'PRODUCT_ROUTE_CHANGED'; route: ProductRoute }
   | {
@@ -117,18 +109,6 @@ export type AppCoordinatorEvent =
       type: 'REPLY_COMPLETED';
       resumeToken: ResumeToken;
       sourceItemId: string;
-    }
-  | {
-      type: 'NOTIFICATION_SURFACE_UNAVAILABLE';
-      expectedItemId: string;
-      runtimeItemId: string | null;
-      runtimePhase:
-        | 'BOOTING'
-        | 'LOBBY'
-        | 'RECOVERING'
-        | 'INCOMING'
-        | 'CHECK'
-        | 'RESULT';
     }
   | { type: 'RECONNECT_STARTED' }
   | { type: 'RECONNECT_COMPLETED' };
@@ -182,8 +162,7 @@ export type AppCoordinatorInvariantCode =
   | 'DUPLICATE_REPLY_COMPLETION'
   | 'DUPLICATE_REPLY_CANCELLATION'
   | 'REPLY_COMPLETED_BEFORE_SUCCESS'
-  | 'RESUME_WITHOUT_ACTIVE_SUSPENSION'
-  | 'NOTIFICATION_SURFACE_ITEM_UNAVAILABLE';
+  | 'RESUME_WITHOUT_ACTIVE_SUSPENSION';
 
 export type AppCoordinatorInvariantViolation = {
   code: AppCoordinatorInvariantCode;

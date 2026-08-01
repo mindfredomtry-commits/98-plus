@@ -1,9 +1,8 @@
 /**
- * Active-display protection for ITEMS_RECEIVED { replaceQueue:true }.
+ * Stage 7 Phase 2 — replaceQueue guard for in-flight item actions.
  *
- * When lifecycle=showing with a renderable display, a stale/empty replace must
- * not clear or swap the visible head. Rejection is recorded as an explicit
- * outcome for tests/diagnostics — no unconditional production console noise.
+ * Rejects empty replace while an action is in flight against a non-empty queue.
+ * Does not model display/overlay ownership.
  */
 import {
   notificationItemId,
@@ -11,13 +10,13 @@ import {
   type NotificationRuntimeState,
 } from './notification-runtime.types';
 
-export const STALE_REPLACE_REJECTED_ACTIVE_DISPLAY =
-  'STALE_REPLACE_REJECTED_ACTIVE_DISPLAY' as const;
+export const STALE_REPLACE_REJECTED_ACTION_HEAD =
+  'STALE_REPLACE_REJECTED_ACTION_HEAD' as const;
 
 export type StaleReplaceGuardOutcome = {
-  outcome: typeof STALE_REPLACE_REJECTED_ACTIVE_DISPLAY;
+  outcome: typeof STALE_REPLACE_REJECTED_ACTION_HEAD;
   lifecycleStatus: NotificationRuntimeState['lifecycle']['status'];
-  activeDisplayItemId: string | null;
+  readyHeadId: string | null;
   incomingItemCount: number;
   incomingHeadId: string | null;
   transitionId: string | null;
@@ -35,33 +34,22 @@ export function getLastStaleReplaceRejection(): StaleReplaceGuardOutcome | null 
   return lastRejection;
 }
 
-export function activeDisplayItemId(
+export function selectReadyHeadIdForGuard(
   state: NotificationRuntimeState,
 ): string | null {
-  const payload = state.display.payload;
-  if (!payload || state.display.kind == null) return null;
-  if (payload.kind === 'result') {
-    return notificationItemId({ kind: 'result', result: payload.result });
-  }
-  return notificationItemId({
-    kind: payload.kind,
-    ban: payload.ban,
-  } as NotificationItem);
+  const head = state.items.queue[0];
+  return head ? notificationItemId(head) : null;
 }
 
-export function isRenderableShowing(
-  state: NotificationRuntimeState,
-): boolean {
+function isActionInFlight(state: NotificationRuntimeState): boolean {
   return (
-    state.lifecycle.status === 'showing' &&
-    state.display.kind != null &&
-    state.display.payload != null
+    state.lifecycle.status === 'submitting' ||
+    state.action.status === 'pending'
   );
 }
 
 /**
- * Returns a rejection outcome when replaceQueue must not mutate the active
- * visible head; otherwise null (caller proceeds).
+ * Returns a rejection when replaceQueue must not wipe an in-flight action head.
  */
 export function evaluateStaleReplaceGuard(
   state: NotificationRuntimeState,
@@ -72,35 +60,35 @@ export function evaluateStaleReplaceGuard(
   },
 ): StaleReplaceGuardOutcome | null {
   if (!args.replaceQueue) return null;
-  if (!isRenderableShowing(state)) return null;
+  if (!isActionInFlight(state)) return null;
+  if (state.items.queue.length === 0) return null;
 
-  const activeId = activeDisplayItemId(state);
-  if (!activeId) return null;
+  const readyHeadId = selectReadyHeadIdForGuard(state);
+  if (!readyHeadId) return null;
 
   const incomingHeadId =
     args.items.length > 0 ? notificationItemId(args.items[0]!) : null;
-  const ownsTransition =
-    state.lifecycle.transitionId != null &&
-    args.transitionId === state.lifecycle.transitionId;
 
-  // Empty replace never clears a valid visible head (use dismiss/RESET).
   if (args.items.length === 0) {
     return recordRejection({
       lifecycleStatus: state.lifecycle.status,
-      activeDisplayItemId: activeId,
+      readyHeadId,
       incomingItemCount: 0,
       incomingHeadId: null,
       transitionId: args.transitionId,
       owningTransitionId: state.lifecycle.transitionId,
-      reason: 'empty-replace-while-showing-renderable',
+      reason: 'empty-replace-while-action-in-flight',
     });
   }
 
-  // Different head: only current presentation authority may swap.
-  if (incomingHeadId !== activeId && !ownsTransition) {
+  if (
+    incomingHeadId !== readyHeadId &&
+    state.lifecycle.transitionId != null &&
+    args.transitionId !== state.lifecycle.transitionId
+  ) {
     return recordRejection({
       lifecycleStatus: state.lifecycle.status,
-      activeDisplayItemId: activeId,
+      readyHeadId,
       incomingItemCount: args.items.length,
       incomingHeadId,
       transitionId: args.transitionId,
@@ -116,7 +104,7 @@ function recordRejection(
   fields: Omit<StaleReplaceGuardOutcome, 'outcome'>,
 ): StaleReplaceGuardOutcome {
   const rejection: StaleReplaceGuardOutcome = {
-    outcome: STALE_REPLACE_REJECTED_ACTIVE_DISPLAY,
+    outcome: STALE_REPLACE_REJECTED_ACTION_HEAD,
     ...fields,
   };
   lastRejection = rejection;
