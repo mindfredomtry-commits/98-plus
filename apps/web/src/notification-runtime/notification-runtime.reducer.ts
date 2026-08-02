@@ -310,7 +310,7 @@ export function notificationRuntimeReducer(
   state: NotificationRuntimeState,
   event: NotificationRuntimeEvent,
 ): NotificationRuntimeReducerResult {
-  const base = cloneState(state);
+  let base = cloneState(state);
   const effects: RuntimeEffect[] = [];
 
   switch (event.type) {
@@ -346,11 +346,12 @@ export function notificationRuntimeReducer(
         };
       }
 
-      // Fresh boot: drop mid-flight action/queue; keep consumed TTL.
+      // Fresh boot: drop mid-flight action/queue/activation; keep consumed TTL.
       return {
         state: {
           ...clearAction(base),
           items: { queue: [] },
+          activation: { type: 'INACTIVE' },
           pending: {
             itemIds: [],
             sourceVersion: null,
@@ -539,6 +540,7 @@ export function notificationRuntimeReducer(
         state: {
           ...clearAction(base),
           items: { queue: [] },
+          activation: { type: 'INACTIVE' },
           lifecycle: {
             status: 'idle',
             source: event.source,
@@ -1012,8 +1014,18 @@ export function notificationRuntimeReducer(
     case 'ACTIVATE_READY_ITEM_REQUESTED': {
       // Explicit domain claim only. Ingest must never emit this.
       if (base.activation.type === 'ACTIVE') {
-        // Deterministic no-op: keep the same active item; do not advance queue.
-        return { state: base, effects: [] };
+        const stillQueued = base.items.queue.some(
+          (item) => notificationItemId(item) === base.activation.itemId,
+        );
+        if (stillQueued) {
+          // Deterministic no-op: keep the same active item; do not advance queue.
+          return { state: base, effects: [] };
+        }
+        // Stale claim — drop it and fall through to claim ready head.
+        base = {
+          ...base,
+          activation: { type: 'INACTIVE' },
+        };
       }
       const headId = selectCurrentItemId(base);
       if (!headId) {

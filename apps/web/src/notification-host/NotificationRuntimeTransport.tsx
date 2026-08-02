@@ -62,6 +62,9 @@ export function NotificationRuntimeTransport({
   runtimePortRef.current = runtimePort;
   const bootInFlightRef = useRef(false);
   const coldBootSettledRef = useRef(false);
+  const runPendingRefreshRef = useRef<(reason: string) => Promise<void>>(
+    async () => {},
+  );
 
   const runBootstrap = useCallback(
     async (reason: 'bootstrap' | 'reconnect' | 'user') => {
@@ -110,6 +113,9 @@ export function NotificationRuntimeTransport({
           source: 'bootstrap',
           generation,
         });
+        // Session.incoming is at most one card. Hydrate the full pending FIFO
+        // so manual Notifications open sees every ready item (no auto-activate).
+        await runPendingRefreshRef.current(`after-bootstrap:${reason}`);
       } catch {
         failBootstrap(store, {
           transitionId: bootReq.transitionId,
@@ -180,6 +186,8 @@ export function NotificationRuntimeTransport({
     },
     [store],
   );
+
+  runPendingRefreshRef.current = runPendingRefresh;
 
   useEffect(() => {
     coldBootSettledRef.current = false;

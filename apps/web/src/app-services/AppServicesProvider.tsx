@@ -71,6 +71,10 @@ function AppCoordinatorComposition({
   const tokenRef = useRef(token);
   tokenRef.current = token;
   const getToken = useCallback(() => tokenRef.current, []);
+  const onboardRef = useRef(onboard);
+  onboardRef.current = onboard;
+  const refreshUserRef = useRef(refreshUser);
+  refreshUserRef.current = refreshUser;
   const lifecycleRef = useRef<AppCoordinatorLifecycle | null>(null);
   const [lifecycle, setLifecycle] = useState<AppCoordinatorLifecycle | null>(
     null,
@@ -81,8 +85,8 @@ function AppCoordinatorComposition({
     const next = createAppCoordinatorLifecycle({
       runtimeStore,
       getToken,
-      onboard,
-      refreshUser,
+      onboard: () => onboardRef.current(),
+      refreshUser: () => refreshUserRef.current(),
     });
     lifecycleRef.current = next;
     setLifecycle(next);
@@ -93,8 +97,9 @@ function AppCoordinatorComposition({
       }
       setLifecycle(null);
     };
-    // One lifecycle per Runtime store identity — not per token change.
-  }, [runtimeStore, getToken, onboard, refreshUser]);
+    // One lifecycle per Runtime store identity — callbacks via refs so token
+    // churn does not dispose the coordinator (which would drop BOOT_COMPLETED).
+  }, [runtimeStore, getToken]);
 
   // Boot completion is Runtime-driven once a session exists.
   // Without a session, leave BOOTING only until auth settles to no-token.

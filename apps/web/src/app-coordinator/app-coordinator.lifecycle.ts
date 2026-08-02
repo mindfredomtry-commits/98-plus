@@ -100,7 +100,15 @@ export function createAppCoordinatorLifecycle(input: {
           type: 'ACTIVATE_READY_ITEM_REQUESTED',
         });
         const domainState = notificationsController.getState();
-        if (domainState.activation.type === 'INACTIVE') {
+        // Require a presentable active item — stale ACTIVE claims must not trap
+        // the owner, and failed activation must not leave an empty surface.
+        if (
+          domainState.activation.type === 'INACTIVE' ||
+          domainState.activeItem == null
+        ) {
+          domainPorts.NOTIFICATIONS.dispatch({
+            type: 'CLEAR_ACTIVATION_REQUESTED',
+          });
           store.dispatch({ type: 'NOTIFICATIONS_RELEASE_REQUESTED' });
         }
       }

@@ -115,14 +115,24 @@ export function createNotificationsController(input: {
 
       switch (intent.type) {
         case 'ACTIVATE_READY_ITEM_REQUESTED': {
-          const before = selectActiveItemId(input.store.getState());
-          if (before) {
+          const runtimeState = input.store.getState();
+          const before = selectActiveItemId(runtimeState);
+          const beforeItem = selectActiveItem(runtimeState);
+          // Stale claim (id not in queue) must not block ready-head activation.
+          if (before && beforeItem) {
             lastActivationOutcome = {
               type: 'ALREADY_ACTIVE',
               itemId: before,
             };
             emit();
             return;
+          }
+          if (before && !beforeItem) {
+            previousActiveId = null;
+            input.store.dispatch({
+              type: 'CLEAR_ACTIVATION_REQUESTED',
+              source: 'system',
+            });
           }
           const readyId = selectReadyHeadId(input.store.getState());
           if (!readyId) {
@@ -135,10 +145,12 @@ export function createNotificationsController(input: {
             source: 'user',
           });
           const after = selectActiveItemId(input.store.getState());
-          lastActivationOutcome = after
-            ? { type: 'ACTIVATED', itemId: after }
-            : { type: 'NO_READY_ITEM' };
-          previousActiveId = after;
+          const afterItem = selectActiveItem(input.store.getState());
+          lastActivationOutcome =
+            after && afterItem
+              ? { type: 'ACTIVATED', itemId: after }
+              : { type: 'NO_READY_ITEM' };
+          previousActiveId = after && afterItem ? after : null;
           emit();
           return;
         }
