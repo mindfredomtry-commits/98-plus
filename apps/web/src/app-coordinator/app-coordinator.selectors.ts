@@ -1,5 +1,5 @@
 /**
- * Pure App Coordinator selectors — Stage 8 Phase 1.
+ * Pure App Coordinator selectors — Stage 8 Phase 4.
  * Surface selection follows currentOwner only.
  */
 import type { ApplicationOwner, DomainId } from './application-owner';
@@ -11,6 +11,12 @@ export function selectCurrentOwner(
   state: AppCoordinatorState,
 ): ApplicationOwner {
   return state.currentOwner;
+}
+
+export function selectReturnOwner(
+  state: AppCoordinatorState,
+): ApplicationOwner | null {
+  return state.returnOwner;
 }
 
 export function selectApplicationSurfaceOwner(

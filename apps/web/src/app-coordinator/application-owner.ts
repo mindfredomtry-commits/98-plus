@@ -1,16 +1,18 @@
 /**
- * Application owner identity — Stage 8 Phase 2.
+ * Application owner identity — Stage 8 Phase 4.
  * DomainId names a business domain, not a screen route.
  */
 
-/** Sole production domain until Notification activation exists. */
-export type DomainId = 'CREATE_BAN';
+export type DomainId = 'CREATE_BAN' | 'SETTINGS';
 
 export type ApplicationOwner =
   | { type: 'BOOT' }
   | { type: 'DOMAIN'; domain: DomainId };
 
-export const REGISTERED_DOMAIN_IDS: readonly DomainId[] = ['CREATE_BAN'];
+export const REGISTERED_DOMAIN_IDS: readonly DomainId[] = [
+  'CREATE_BAN',
+  'SETTINGS',
+];
 
 /** Default domain after boot / ordinary launch. */
 export const DEFAULT_DOMAIN_ID: DomainId = 'CREATE_BAN';

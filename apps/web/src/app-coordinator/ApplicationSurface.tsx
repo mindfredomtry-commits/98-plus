@@ -1,6 +1,6 @@
 /**
  * Coordinator-owned application surface.
- * Stage 8 Phase 2: presentation emits intents; Coordinator routes to Domain Port.
+ * Stage 8 Phase 4: exclusive mount from currentOwner (CREATE_BAN | SETTINGS).
  */
 'use client';
 
@@ -9,6 +9,8 @@ import type { UserPublic } from '@98plus/shared';
 import type { AppCoordinatorLifecycle } from '@/app-coordinator/app-coordinator.lifecycle';
 import type { CreateBanUiIntent } from '@/product-flow/create-ban/create-ban.types';
 import { ProductFlowSurface } from '@/product-flow/product-flow.surface';
+import type { SettingsIntent } from '@/settings/settings.types';
+import { SettingsSurface } from '@/settings/presentation/SettingsSurface';
 
 export type ApplicationSurfaceProps = {
   lifecycle: AppCoordinatorLifecycle | null;
@@ -47,10 +49,25 @@ function ActiveApplicationSurface({
 
   const onCreateBanIntent = useCallback(
     (intent: CreateBanUiIntent) => {
-      lifecycle.dispatchDomainIntent('CREATE_BAN', intent);
+      lifecycle.dispatchDomainIntent({ domain: 'CREATE_BAN', intent });
     },
     [lifecycle],
   );
+
+  const onOpenSettings = useCallback(() => {
+    lifecycle.dispatch({ type: 'OPEN_SETTINGS_REQUESTED' });
+  }, [lifecycle]);
+
+  const onSettingsIntent = useCallback(
+    (intent: SettingsIntent) => {
+      lifecycle.dispatchDomainIntent({ domain: 'SETTINGS', intent });
+    },
+    [lifecycle],
+  );
+
+  const onCloseSettings = useCallback(() => {
+    lifecycle.dispatch({ type: 'CLOSE_SETTINGS_REQUESTED' });
+  }, [lifecycle]);
 
   const owner = coordinatorState.currentOwner;
 
@@ -66,8 +83,19 @@ function ActiveApplicationSurface({
           user={user}
           influencePercent={user?.energyPercent ?? 0}
           onIntent={onCreateBanIntent}
+          onOpenSettings={onOpenSettings}
         />
       </div>
+    );
+  }
+
+  if (owner.domain === 'SETTINGS') {
+    return (
+      <SettingsSurface
+        controller={lifecycle.settingsController}
+        onDomainIntent={onSettingsIntent}
+        onCloseSettings={onCloseSettings}
+      />
     );
   }
 

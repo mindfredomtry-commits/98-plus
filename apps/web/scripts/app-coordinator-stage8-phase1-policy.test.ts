@@ -238,7 +238,8 @@ async function main() {
 
   {
     const input = {
-      currentOwner: { type: 'BOOT' } as ApplicationOwner,
+      currentOwner: { type: 'BOOT' },
+    returnOwner: null as ApplicationOwner,
       currentCapability: null as DomainCapability | null,
       requestedOwner: DEFAULT_DOMAIN_ID,
       requestKind: 'SYSTEM_READY' as const,
@@ -326,8 +327,7 @@ async function main() {
       'utf8',
     );
     assert.match(surface, /currentOwner/);
-    assert.match(surface, /owner\.domain === 'CREATE_BAN'/);
-    assert.match(surface, /dispatchDomainIntent\('CREATE_BAN'/);
+    assert.match(surface, /dispatchDomainIntent\(\{[\s\S]*domain: 'CREATE_BAN'/);
     assert.doesNotMatch(surface, /currentOwner\s*=/);
     pass('18. ApplicationSurface selects presentation from currentOwner');
   }

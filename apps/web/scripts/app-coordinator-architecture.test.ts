@@ -47,12 +47,14 @@ async function main() {
       owner: 'BOOT' | 'CREATE_BAN';
     }> = [
       {
-        state: { currentOwner: { type: 'BOOT' } },
+        state: { currentOwner: { type: 'BOOT' },
+    returnOwner: null },
         owner: 'BOOT',
       },
       {
         state: {
           currentOwner: { type: 'DOMAIN', domain: 'CREATE_BAN' },
+    returnOwner: null,
         },
         owner: 'CREATE_BAN',
       },
@@ -66,6 +68,7 @@ async function main() {
 
   {
     assert.match(surfaceSrc, /ProductFlowSurface/);
+    assert.match(surfaceSrc, /SettingsSurface/);
     assert.match(surfaceSrc, /currentOwner/);
     assert.doesNotMatch(surfaceSrc, /DirectNotificationHost|NOTIFICATION_SYSTEM/);
     pass('3. ApplicationSurface mounts from currentOwner');

@@ -74,7 +74,7 @@ function pass(name: string): void {
 {
   assert.doesNotMatch(surface, /DirectNotificationHost|NOTIFICATION_SYSTEM/);
   assert.match(surface, /ProductFlowSurface/);
-  pass('6. no Notification Host mount; Product is the only domain surface');
+    pass('6. no Notification Host mount; CreateBan/Settings are domain surfaces');
 }
 
 {

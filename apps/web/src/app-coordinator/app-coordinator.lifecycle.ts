@@ -1,6 +1,6 @@
 /**
  * One App Coordinator lifecycle for the application.
- * Stage 8 Phase 1 — owner policy + domain intent routing.
+ * Stage 8 Phase 4 — CREATE_BAN + SETTINGS domain ports.
  */
 import { createAppCoordinatorCommandExecutor } from './app-coordinator.command-executor';
 import {
@@ -17,7 +17,10 @@ import {
   type AppCoordinatorEvent,
 } from './app-coordinator.types';
 import type { DomainId } from './application-owner';
-import type { ApplicationDomainPorts } from './domain-ports';
+import type {
+  ApplicationDomainPorts,
+  DomainIntent,
+} from './domain-ports';
 import {
   createNotificationRuntimePort,
   type NotificationRuntimePortHandle,
@@ -32,7 +35,10 @@ import {
   createHttpCreateBanRecipientsPort,
   createHttpCreateBanSubmissionPort,
 } from '@/product-flow/create-ban/create-ban.adapters';
-import type { CreateBanUiIntent } from '@/product-flow/create-ban/create-ban.types';
+import {
+  createSettingsController,
+  type SettingsController,
+} from '@/settings/settings.controller';
 import { createTelegramEntryRouter } from './app-coordinator.entry-router';
 import {
   entryIntentToCoordinatorEvent,
@@ -43,6 +49,7 @@ export type AppCoordinatorLifecycle = {
   store: AppCoordinatorStore;
   runtimePort: NotificationRuntimePortHandle;
   productController: ProductFlowController;
+  settingsController: SettingsController;
   domainPorts: ApplicationDomainPorts;
   entryRouter: EntryRouter;
   dispatch(event: AppCoordinatorEvent): void;
@@ -50,7 +57,7 @@ export type AppCoordinatorLifecycle = {
    * Route a typed domain intent to the Current Owner port only.
    * Coordinator does not inspect intent contents.
    */
-  dispatchDomainIntent(domain: DomainId, intent: CreateBanUiIntent): void;
+  dispatchDomainIntent(input: DomainIntent): void;
   dispose(): void;
 };
 
@@ -70,6 +77,7 @@ export function createAppCoordinatorLifecycle(input: {
   let store!: AppCoordinatorStore;
   let runtimePort!: NotificationRuntimePortHandle;
   let productController!: ProductFlowController;
+  let settingsController!: SettingsController;
   let domainPorts!: ApplicationDomainPorts;
 
   const dispatch = (event: AppCoordinatorEvent) => {
@@ -94,9 +102,11 @@ export function createAppCoordinatorLifecycle(input: {
     submissionPort,
     recipientsPort,
   });
+  settingsController = createSettingsController();
 
   domainPorts = {
     CREATE_BAN: productController.asDomainPort(),
+    SETTINGS: settingsController.asDomainPort(),
   };
 
   runtimePort = createNotificationRuntimePort({
@@ -119,6 +129,9 @@ export function createAppCoordinatorLifecycle(input: {
         if (owner.domain === 'CREATE_BAN') {
           return domainPorts.CREATE_BAN.getCapability();
         }
+        if (owner.domain === 'SETTINGS') {
+          return domainPorts.SETTINGS.getCapability();
+        }
         return null;
       },
     },
@@ -134,12 +147,14 @@ export function createAppCoordinatorLifecycle(input: {
     store,
     runtimePort,
     productController,
+    settingsController,
     domainPorts,
     entryRouter,
     dispatch,
-    dispatchDomainIntent(domain, intent) {
+    dispatchDomainIntent(inputIntent) {
       if (disposed) return;
       const owner = store.getState().currentOwner;
+      const domain: DomainId = inputIntent.domain;
       if (owner.type !== 'DOMAIN' || owner.domain !== domain) {
         const violation: AppCoordinatorInvariantViolation = {
           code: 'DOMAIN_INTENT_NOT_CURRENT_OWNER',
@@ -150,16 +165,18 @@ export function createAppCoordinatorLifecycle(input: {
         console.error('[app-coordinator:invariant]', violation);
         return;
       }
-      // One recipient. Payload opaque to Coordinator beyond typed port boundary.
-      if (domain === 'CREATE_BAN') {
-        domainPorts.CREATE_BAN.dispatch(intent);
+      if (inputIntent.domain === 'CREATE_BAN') {
+        domainPorts.CREATE_BAN.dispatch(inputIntent.intent);
+        return;
       }
+      domainPorts.SETTINGS.dispatch(inputIntent.intent);
     },
     dispose() {
       if (disposed) return;
       disposed = true;
       runtimePort.dispose();
       productController.dispose();
+      settingsController.dispose();
     },
   };
 }

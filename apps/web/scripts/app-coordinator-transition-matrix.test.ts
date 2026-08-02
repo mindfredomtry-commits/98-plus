@@ -25,6 +25,7 @@ function pass(name: string): void {
 function createBanOwner(): AppCoordinatorState {
   return {
     currentOwner: { type: 'DOMAIN', domain: 'CREATE_BAN' },
+    returnOwner: null,
   };
 }
 

@@ -94,6 +94,7 @@ function main(): void {
     assert.equal(selectApplicationSurfaceOwner(state), 'BOOT');
     state = {
       currentOwner: { type: 'DOMAIN', domain: 'CREATE_BAN' },
+    returnOwner: null,
     };
     assert.equal(selectApplicationSurfaceOwner(state), 'CREATE_BAN');
     pass('7. Boot and CREATE_BAN remain exclusive surface owners');

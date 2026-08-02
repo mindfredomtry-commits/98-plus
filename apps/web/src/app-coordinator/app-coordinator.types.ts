@@ -1,8 +1,7 @@
 /**
- * App Coordinator types — Stage 8 Phase 2.
+ * App Coordinator types — Stage 8 Phase 4.
  *
- * Authority: currentOwner (ApplicationOwner).
- * ProductRoute lives in CreateBan — not global ownership.
+ * Authority: currentOwner (+ returnOwner for temporary Settings).
  */
 import type { ApplicationOwner } from './application-owner';
 import type { OwnerRequest } from './owner-request';
@@ -16,6 +15,8 @@ export type { ProductRoute } from '@/product-flow/create-ban/create-ban.types';
 
 export type AppCoordinatorState = {
   currentOwner: ApplicationOwner;
+  /** One-level return context for temporary owners (Settings). */
+  returnOwner: ApplicationOwner | null;
 };
 
 export type NotificationEntryKind = 'incoming' | 'status';
@@ -41,6 +42,8 @@ export type AppCoordinatorEvent =
   | { type: 'BOOT_COMPLETED' }
   | { type: 'ENTRY_ROUTED'; intent: AppEntryIntent }
   | { type: 'OWNER_REQUESTED'; request: OwnerRequest }
+  | { type: 'OPEN_SETTINGS_REQUESTED' }
+  | { type: 'CLOSE_SETTINGS_REQUESTED' }
   | { type: 'DOMAIN_RELEASED' }
   | { type: 'RECONNECT_STARTED' }
   | { type: 'RECONNECT_COMPLETED' };
@@ -67,7 +70,8 @@ export type AppCoordinatorInvariantCode =
   | 'UNEXPECTED_EVENT'
   | 'UNREGISTERED_DOMAIN'
   | 'BOOT_OWNER_FORBIDDEN'
-  | 'DOMAIN_INTENT_NOT_CURRENT_OWNER';
+  | 'DOMAIN_INTENT_NOT_CURRENT_OWNER'
+  | 'MISSING_RETURN_OWNER';
 
 export type AppCoordinatorInvariantViolation = {
   code: AppCoordinatorInvariantCode;
@@ -78,5 +82,6 @@ export type AppCoordinatorInvariantViolation = {
 export function createInitialAppCoordinatorState(): AppCoordinatorState {
   return {
     currentOwner: { type: 'BOOT' },
+    returnOwner: null,
   };
 }

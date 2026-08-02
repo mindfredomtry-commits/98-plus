@@ -26,6 +26,8 @@ export type ProductFlowSurfaceProps = {
   influencePercent: number;
   /** Typed CreateBan intents — Coordinator routes to Domain Port. */
   onIntent: (intent: CreateBanUiIntent) => void;
+  /** Application intent — open Settings owner (not a CreateBan intent). */
+  onOpenSettings?: () => void;
 };
 
 function useProductFlowState(controller: ProductFlowController) {
@@ -63,6 +65,7 @@ export function ProductFlowSurface({
   user,
   influencePercent,
   onIntent,
+  onOpenSettings,
 }: ProductFlowSurfaceProps) {
   const state = useProductFlowState(controller);
   const createBan = controller.getCreateBanState();
@@ -153,6 +156,16 @@ export function ProductFlowSurface({
           >
             Твои запреты
           </button>
+          {onOpenSettings ? (
+            <button
+              type="button"
+              className="product-flow-lobby-settings mt-4 block mx-auto text-sm text-muted"
+              onClick={onOpenSettings}
+              data-testid="product-lobby-settings"
+            >
+              Настройки
+            </button>
+          ) : null}
         </div>
       </div>
     );

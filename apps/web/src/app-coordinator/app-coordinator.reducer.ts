@@ -1,7 +1,7 @@
 /**
- * Pure App Coordinator reducer — Stage 8 Phase 3.
- * Owner Switching Engine evaluates; reducer applies decision and routes effects.
- * No ProductRoute. Domain intents are routed outside the reducer.
+ * Pure App Coordinator reducer — Stage 8 Phase 4.
+ * Owner Switching Engine evaluates; reducer owns returnOwner context.
+ * No Settings-specific branches inside the pure policy engine.
  */
 import {
   decideOwnerSwitch,
@@ -37,6 +37,7 @@ function unchanged(state: AppCoordinatorState): AppCoordinatorResult {
 function applyOwnerSwitch(
   state: AppCoordinatorState,
   policy: OwnerSwitchResult,
+  patch: Partial<AppCoordinatorState> = {},
   effects: AppCoordinatorEffect[] = [],
 ): AppCoordinatorResult {
   const violation: AppCoordinatorInvariantViolation | null = policy.violation
@@ -48,11 +49,19 @@ function applyOwnerSwitch(
     : null;
 
   if (policy.decision.type === 'KEEP_CURRENT') {
-    return { state, effects, violation };
+    return {
+      state: { ...state, ...patch },
+      effects,
+      violation,
+    };
   }
 
   return {
-    state: { currentOwner: policy.decision.owner },
+    state: {
+      ...state,
+      ...patch,
+      currentOwner: policy.decision.owner,
+    },
     effects,
     violation,
   };
@@ -62,6 +71,7 @@ function requestOwner(
   state: AppCoordinatorState,
   request: OwnerRequest,
   getCurrentCapability: () => DomainCapability | null,
+  patch: Partial<AppCoordinatorState> = {},
   effects: AppCoordinatorEffect[] = [],
 ): AppCoordinatorResult {
   const policy = decideOwnerSwitch({
@@ -69,7 +79,7 @@ function requestOwner(
     currentCapability: getCurrentCapability(),
     request,
   });
-  return applyOwnerSwitch(state, policy, effects);
+  return applyOwnerSwitch(state, policy, patch, effects);
 }
 
 const defaultContext: AppCoordinatorReduceContext = {
@@ -90,11 +100,11 @@ export function appCoordinatorReducer(
         state,
         { target: DEFAULT_DOMAIN_ID, reason: 'SYSTEM_READY' },
         context.getCurrentCapability,
+        { returnOwner: null },
       );
 
     case 'ENTRY_ROUTED': {
       if (event.intent.type === 'NOTIFICATION') {
-        // Ingest only — not an owner switch.
         return {
           state,
           effects: [runtime({ type: 'INGEST_ENTRY', intent: event.intent })],
@@ -105,6 +115,7 @@ export function appCoordinatorReducer(
         state,
         { target: DEFAULT_DOMAIN_ID, reason: 'ENTRY' },
         context.getCurrentCapability,
+        { returnOwner: null },
       );
     }
 
@@ -115,8 +126,71 @@ export function appCoordinatorReducer(
         context.getCurrentCapability,
       );
 
+    case 'OPEN_SETTINGS_REQUESTED': {
+      if (state.currentOwner.type !== 'DOMAIN') {
+        return unchanged(state);
+      }
+      const previousOwner = state.currentOwner;
+      const policy = decideOwnerSwitch({
+        currentOwner: state.currentOwner,
+        currentCapability: context.getCurrentCapability(),
+        request: { target: 'SETTINGS', reason: 'USER_INTENT' },
+      });
+      if (policy.decision.type === 'KEEP_CURRENT') {
+        // BLOCKED / same / invalid — do not save a false return context.
+        return applyOwnerSwitch(state, policy);
+      }
+      return {
+        state: {
+          currentOwner: policy.decision.owner,
+          returnOwner: previousOwner,
+        },
+        effects: [],
+        violation: null,
+      };
+    }
+
+    case 'CLOSE_SETTINGS_REQUESTED': {
+      if (
+        state.currentOwner.type !== 'DOMAIN' ||
+        state.currentOwner.domain !== 'SETTINGS'
+      ) {
+        return unchanged(state);
+      }
+      if (
+        state.returnOwner == null ||
+        state.returnOwner.type !== 'DOMAIN'
+      ) {
+        return {
+          state,
+          effects: [],
+          violation: {
+            code: 'MISSING_RETURN_OWNER',
+            eventType: 'CLOSE_SETTINGS_REQUESTED',
+            message: 'Cannot close Settings without a valid return owner',
+          },
+        };
+      }
+      const returnDomain = state.returnOwner.domain;
+      const policy = decideOwnerSwitch({
+        currentOwner: state.currentOwner,
+        currentCapability: context.getCurrentCapability(),
+        request: { target: returnDomain, reason: 'DOMAIN_RELEASE' },
+      });
+      if (policy.decision.type === 'SWITCH_OWNER') {
+        return {
+          state: {
+            currentOwner: policy.decision.owner,
+            returnOwner: null,
+          },
+          effects: [],
+          violation: null,
+        };
+      }
+      return applyOwnerSwitch(state, policy);
+    }
+
     case 'DOMAIN_RELEASED':
-      // Runtime flush only — ownership unchanged.
       return {
         state,
         effects: [runtime({ type: 'FLUSH_DEFERRED_DIRECT_ENTRY' })],

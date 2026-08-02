@@ -144,7 +144,7 @@ async function main() {
       'utf8',
     );
     assert.match(surface, /onIntent:\s*\(intent: CreateBanUiIntent\)/);
-    assert.match(appSurface, /dispatchDomainIntent\('CREATE_BAN'/);
+    assert.match(appSurface, /dispatchDomainIntent\(\{[\s\S]*domain: 'CREATE_BAN'/);
     assert.match(appSurface, /onIntent=\{onCreateBanIntent\}/);
     pass('3. Every CreateBan UI action reaches Coordinator first');
   }
@@ -187,7 +187,8 @@ async function main() {
       join(webSrc, 'app-coordinator/app-coordinator.lifecycle.ts'),
       'utf8',
     );
-    assert.match(lifecycle, /domainPorts\.CREATE_BAN\.dispatch\(intent\)/);
+    assert.match(lifecycle, /domainPorts\.CREATE_BAN\.dispatch\(/);
+    assert.match(lifecycle, /domainPorts\.SETTINGS\.dispatch\(/);
     pass('5. Domain Port is the only production Runtime entry');
   }
 
@@ -230,7 +231,7 @@ async function main() {
       'utf8',
     );
     assert.doesNotMatch(owner, /NOTIFICATIONS/);
-    assert.match(owner, /DomainId = 'CREATE_BAN'/);
+    assert.match(owner, /'CREATE_BAN' \| 'SETTINGS'/);
     pass('9. No Notification owner exists');
   }
 

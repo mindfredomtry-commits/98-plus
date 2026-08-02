@@ -34,7 +34,8 @@ async function main() {
   {
     const state = createInitialAppCoordinatorState();
     assert.deepEqual(state.currentOwner, { type: 'BOOT' });
-    assert.deepEqual(Object.keys(state), ['currentOwner']);
+    assert.deepEqual(Object.keys(state).sort(), ['currentOwner', 'returnOwner']);
+    assert.equal(state.returnOwner, null);
     pass('1. currentOwner is the only ownership authority');
   }
 
@@ -121,7 +122,7 @@ async function main() {
     const invalid = decideOwnerSwitch({
       currentOwner: { type: 'BOOT' },
       currentCapability: null,
-      request: { target: 'SETTINGS' as never, reason: 'SYSTEM_READY' },
+      request: { target: 'PROFILE_ANALYTICS' as never, reason: 'SYSTEM_READY' },
     });
     assert.equal(invalid.decision.type, 'KEEP_CURRENT');
     assert.equal(invalid.decisionClass, 'INVALID_REQUEST');
