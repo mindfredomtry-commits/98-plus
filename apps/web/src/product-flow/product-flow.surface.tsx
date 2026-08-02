@@ -28,6 +28,8 @@ export type ProductFlowSurfaceProps = {
   onIntent: (intent: CreateBanUiIntent) => void;
   /** Application intent — open Settings owner (not a CreateBan intent). */
   onOpenSettings?: () => void;
+  /** Application intent — open Notifications owner (not a CreateBan intent). */
+  onOpenNotifications?: () => void;
 };
 
 function useProductFlowState(controller: ProductFlowController) {
@@ -66,6 +68,7 @@ export function ProductFlowSurface({
   influencePercent,
   onIntent,
   onOpenSettings,
+  onOpenNotifications,
 }: ProductFlowSurfaceProps) {
   const state = useProductFlowState(controller);
   const createBan = controller.getCreateBanState();
@@ -164,6 +167,16 @@ export function ProductFlowSurface({
               data-testid="product-lobby-settings"
             >
               Настройки
+            </button>
+          ) : null}
+          {onOpenNotifications ? (
+            <button
+              type="button"
+              className="product-flow-lobby-notifications mt-4 block mx-auto text-sm text-muted"
+              onClick={onOpenNotifications}
+              data-testid="product-lobby-notifications"
+            >
+              Уведомления
             </button>
           ) : null}
         </div>

@@ -111,8 +111,17 @@ function createHarness() {
       calls.push(`createban:${input.intent.type}`);
       return;
     }
-    domainPorts.SETTINGS.dispatch(input.intent);
-    calls.push(`settings:${input.intent.type}`);
+    if (input.domain === 'SETTINGS') {
+      domainPorts.SETTINGS.dispatch(input.intent);
+      calls.push(`settings:${input.intent.type}`);
+      return;
+    }
+    // Phase 4 harness has no Notifications port — reject other domains.
+    violations.push({
+      code: 'DOMAIN_INTENT_NOT_CURRENT_OWNER',
+      eventType: 'DOMAIN_INTENT',
+      message: 'rejected',
+    });
   }
 
   return {

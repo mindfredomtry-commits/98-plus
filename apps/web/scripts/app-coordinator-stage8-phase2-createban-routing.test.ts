@@ -230,9 +230,10 @@ async function main() {
       join(webSrc, 'app-coordinator/application-owner.ts'),
       'utf8',
     );
-    assert.doesNotMatch(owner, /NOTIFICATIONS/);
-    assert.match(owner, /'CREATE_BAN' \| 'SETTINGS'/);
-    pass('9. No Notification owner exists');
+    // Phase 2 historical: only CREATE_BAN. Phase 5 adds NOTIFICATIONS —
+    // CREATE_BAN remains registered; this suite still proves CreateBan routing.
+    assert.match(owner, /CREATE_BAN/);
+    pass('9. CREATE_BAN remains a registered domain');
   }
 
   {

@@ -48,6 +48,7 @@ function assertIdlePassive(
 ) {
   const state = store.getState();
   assert.equal(state.lifecycle.status, 'idle');
+  assert.equal(state.activation.type, 'INACTIVE');
   assert.equal('display' in state, false);
 }
 

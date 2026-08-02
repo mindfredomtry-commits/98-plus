@@ -1,14 +1,16 @@
 /**
- * Pure App Coordinator reducer — Stage 8 Phase 4.
+ * Pure App Coordinator reducer — Stage 8 Phase 5.
  * Owner Switching Engine evaluates; reducer owns returnOwner context.
- * No Settings-specific branches inside the pure policy engine.
+ * No Notifications/Settings-specific branches inside the pure policy engine.
  */
 import {
   decideOwnerSwitch,
   type OwnerSwitchResult,
 } from './application-policy';
 import { DEFAULT_DOMAIN_ID } from './application-owner';
+import type { DomainAvailability } from '@/domain-availability';
 import type { DomainCapability } from '@/domain-capability';
+import type { DomainId } from './application-owner';
 import type { OwnerRequest } from './owner-request';
 import {
   createInitialAppCoordinatorState,
@@ -22,6 +24,11 @@ import {
 export type AppCoordinatorReduceContext = {
   /** Capability of current domain owner; null while BOOT. */
   getCurrentCapability: () => DomainCapability | null;
+  /**
+   * Target availability for opening a domain (generic projection).
+   * Defaults to AVAILABLE when omitted (CreateBan / Settings).
+   */
+  getTargetAvailability?: (domain: DomainId) => DomainAvailability;
 };
 
 function runtime(
@@ -82,8 +89,53 @@ function requestOwner(
   return applyOwnerSwitch(state, policy, patch, effects);
 }
 
+function releaseTemporaryOwner(
+  state: AppCoordinatorState,
+  expectedDomain: DomainId,
+  eventType:
+    | 'CLOSE_SETTINGS_REQUESTED'
+    | 'NOTIFICATIONS_RELEASE_REQUESTED',
+  getCurrentCapability: () => DomainCapability | null,
+): AppCoordinatorResult {
+  if (
+    state.currentOwner.type !== 'DOMAIN' ||
+    state.currentOwner.domain !== expectedDomain
+  ) {
+    return unchanged(state);
+  }
+  if (state.returnOwner == null || state.returnOwner.type !== 'DOMAIN') {
+    return {
+      state,
+      effects: [],
+      violation: {
+        code: 'MISSING_RETURN_OWNER',
+        eventType,
+        message: `Cannot release ${expectedDomain} without a valid return owner`,
+      },
+    };
+  }
+  const returnDomain = state.returnOwner.domain;
+  const policy = decideOwnerSwitch({
+    currentOwner: state.currentOwner,
+    currentCapability: getCurrentCapability(),
+    request: { target: returnDomain, reason: 'DOMAIN_RELEASE' },
+  });
+  if (policy.decision.type === 'SWITCH_OWNER') {
+    return {
+      state: {
+        currentOwner: policy.decision.owner,
+        returnOwner: null,
+      },
+      effects: [],
+      violation: null,
+    };
+  }
+  return applyOwnerSwitch(state, policy);
+}
+
 const defaultContext: AppCoordinatorReduceContext = {
   getCurrentCapability: () => ({ transition: 'ALLOWED' }),
+  getTargetAvailability: () => ({ availability: 'AVAILABLE' }),
 };
 
 export function appCoordinatorReducer(
@@ -137,7 +189,6 @@ export function appCoordinatorReducer(
         request: { target: 'SETTINGS', reason: 'USER_INTENT' },
       });
       if (policy.decision.type === 'KEEP_CURRENT') {
-        // BLOCKED / same / invalid — do not save a false return context.
         return applyOwnerSwitch(state, policy);
       }
       return {
@@ -150,45 +201,59 @@ export function appCoordinatorReducer(
       };
     }
 
-    case 'CLOSE_SETTINGS_REQUESTED': {
-      if (
-        state.currentOwner.type !== 'DOMAIN' ||
-        state.currentOwner.domain !== 'SETTINGS'
-      ) {
+    case 'CLOSE_SETTINGS_REQUESTED':
+      return releaseTemporaryOwner(
+        state,
+        'SETTINGS',
+        'CLOSE_SETTINGS_REQUESTED',
+        context.getCurrentCapability,
+      );
+
+    case 'OPEN_NOTIFICATIONS_REQUESTED': {
+      if (state.currentOwner.type !== 'DOMAIN') {
         return unchanged(state);
       }
-      if (
-        state.returnOwner == null ||
-        state.returnOwner.type !== 'DOMAIN'
-      ) {
+      const getAvailability =
+        context.getTargetAvailability ??
+        (() => ({ availability: 'AVAILABLE' as const }));
+      const availability = getAvailability('NOTIFICATIONS');
+      if (availability.availability === 'UNAVAILABLE') {
         return {
           state,
           effects: [],
           violation: {
-            code: 'MISSING_RETURN_OWNER',
-            eventType: 'CLOSE_SETTINGS_REQUESTED',
-            message: 'Cannot close Settings without a valid return owner',
+            code: 'NOTIFICATIONS_UNAVAILABLE',
+            eventType: 'OPEN_NOTIFICATIONS_REQUESTED',
+            message: `Notifications unavailable: ${availability.reason}`,
           },
         };
       }
-      const returnDomain = state.returnOwner.domain;
+      const previousOwner = state.currentOwner;
       const policy = decideOwnerSwitch({
         currentOwner: state.currentOwner,
         currentCapability: context.getCurrentCapability(),
-        request: { target: returnDomain, reason: 'DOMAIN_RELEASE' },
+        request: { target: 'NOTIFICATIONS', reason: 'USER_INTENT' },
       });
-      if (policy.decision.type === 'SWITCH_OWNER') {
-        return {
-          state: {
-            currentOwner: policy.decision.owner,
-            returnOwner: null,
-          },
-          effects: [],
-          violation: null,
-        };
+      if (policy.decision.type === 'KEEP_CURRENT') {
+        return applyOwnerSwitch(state, policy);
       }
-      return applyOwnerSwitch(state, policy);
+      return {
+        state: {
+          currentOwner: policy.decision.owner,
+          returnOwner: previousOwner,
+        },
+        effects: [],
+        violation: null,
+      };
     }
+
+    case 'NOTIFICATIONS_RELEASE_REQUESTED':
+      return releaseTemporaryOwner(
+        state,
+        'NOTIFICATIONS',
+        'NOTIFICATIONS_RELEASE_REQUESTED',
+        context.getCurrentCapability,
+      );
 
     case 'DOMAIN_RELEASED':
       return {

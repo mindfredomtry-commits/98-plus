@@ -1,6 +1,7 @@
 /**
- * Stage 7 Phase 2 — passive Notification Runtime contract.
- * Queue + item lifecycle + infrastructure only. No display/overlay/activation.
+ * Stage 8 Phase 5 — Notification Runtime contract.
+ * Queue + item lifecycle + explicit activation (domain processing claim).
+ * No display/overlay/CSS/React ownership.
  */
 import type { BanInteraction, BanResult } from '@98plus/shared';
 import { normalizeId } from '@/lib/normalize-json';
@@ -56,6 +57,15 @@ export type DirectEntryState = {
   deferred: DeferredDirectEntry | null;
 };
 
+/**
+ * Domain processing claim — not presentation/display state.
+ * INACTIVE: queue may hold ready items; none claimed.
+ * ACTIVE: Notifications domain has explicitly claimed itemId.
+ */
+export type NotificationActivationState =
+  | { type: 'INACTIVE' }
+  | { type: 'ACTIVE'; itemId: string };
+
 export type NotificationRuntimeState = {
   lifecycle: {
     status: LifecycleStatus;
@@ -66,6 +76,11 @@ export type NotificationRuntimeState = {
     /** FIFO; ready head is always queue[0] (derived, not stored). */
     queue: NotificationItem[];
   };
+  /**
+   * Explicit activation claim. Never set by ingest/bootstrap/websocket.
+   * Distinct from ready head (queue[0]).
+   */
+  activation: NotificationActivationState;
   action: {
     status: ActionStatus;
     commandId: string | null;
@@ -138,13 +153,22 @@ export type NotificationRuntimeCommand =
       source: RuntimeSource;
     }
   | {
-      /**
-       * Transport/host reports one completed identity. The reducer removes only
-       * that canonical item; no queue snapshot is accepted from the caller.
-       */
       type: 'ITEM_COMPLETED';
       transitionId: string;
       targetItemId: string;
+      source: RuntimeSource;
+    }
+  | {
+      /**
+       * Explicit domain claim of ready head. Never emitted by ingest.
+       * No-op when already ACTIVE; no-op manufacturing when queue empty.
+       */
+      type: 'ACTIVATE_READY_ITEM_REQUESTED';
+      source: RuntimeSource;
+    }
+  | {
+      /** Clear activation claim without consuming queue items. */
+      type: 'CLEAR_ACTIVATION_REQUESTED';
       source: RuntimeSource;
     }
   | {
@@ -293,6 +317,7 @@ export function createInitialNotificationRuntimeState(): NotificationRuntimeStat
       transitionId: null,
     },
     items: { queue: [] },
+    activation: { type: 'INACTIVE' },
     action: {
       status: 'idle',
       commandId: null,

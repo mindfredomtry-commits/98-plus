@@ -204,7 +204,7 @@ async function main() {
         transition: 'BLOCKED',
         reason: 'SUBMISSION_IN_PROGRESS',
       },
-      requestedOwner: 'NOTIFICATIONS' as never,
+      requestedOwner: 'REPLY_BAN' as never,
       requestKind: 'USER_INTENT',
     });
     assert.equal(blockedUnreg.violation?.code, 'UNREGISTERED_DOMAIN');

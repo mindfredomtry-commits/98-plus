@@ -1,6 +1,6 @@
 /**
  * One App Coordinator lifecycle for the application.
- * Stage 8 Phase 4 — CREATE_BAN + SETTINGS domain ports.
+ * Stage 8 Phase 5 — CREATE_BAN + SETTINGS + NOTIFICATIONS domain ports.
  */
 import { createAppCoordinatorCommandExecutor } from './app-coordinator.command-executor';
 import {
@@ -39,17 +39,23 @@ import {
   createSettingsController,
   type SettingsController,
 } from '@/settings/settings.controller';
+import {
+  createNotificationsController,
+  type NotificationsController,
+} from '@/notifications/notifications.controller';
 import { createTelegramEntryRouter } from './app-coordinator.entry-router';
 import {
   entryIntentToCoordinatorEvent,
   type EntryRouter,
 } from './app-coordinator.boundaries';
+import { available } from '@/domain-availability';
 
 export type AppCoordinatorLifecycle = {
   store: AppCoordinatorStore;
   runtimePort: NotificationRuntimePortHandle;
   productController: ProductFlowController;
   settingsController: SettingsController;
+  notificationsController: NotificationsController;
   domainPorts: ApplicationDomainPorts;
   entryRouter: EntryRouter;
   dispatch(event: AppCoordinatorEvent): void;
@@ -78,11 +84,27 @@ export function createAppCoordinatorLifecycle(input: {
   let runtimePort!: NotificationRuntimePortHandle;
   let productController!: ProductFlowController;
   let settingsController!: SettingsController;
+  let notificationsController!: NotificationsController;
   let domainPorts!: ApplicationDomainPorts;
 
   const dispatch = (event: AppCoordinatorEvent) => {
     if (disposed) return;
     store.dispatch(event);
+
+    // After successful open: activate ready item. Prefer availability gate (A);
+    // if activation still fails, release immediately (no empty trap).
+    if (event.type === 'OPEN_NOTIFICATIONS_REQUESTED') {
+      const owner = store.getState().currentOwner;
+      if (owner.type === 'DOMAIN' && owner.domain === 'NOTIFICATIONS') {
+        domainPorts.NOTIFICATIONS.dispatch({
+          type: 'ACTIVATE_READY_ITEM_REQUESTED',
+        });
+        const domainState = notificationsController.getState();
+        if (domainState.activation.type === 'INACTIVE') {
+          store.dispatch({ type: 'NOTIFICATIONS_RELEASE_REQUESTED' });
+        }
+      }
+    }
   };
 
   const runtimeSink = createNotificationRuntimeEventSink(dispatch);
@@ -103,10 +125,24 @@ export function createAppCoordinatorLifecycle(input: {
     recipientsPort,
   });
   settingsController = createSettingsController();
+  notificationsController = createNotificationsController({
+    store: input.runtimeStore,
+    getToken: input.getToken,
+    sink: {
+      sessionCompleted() {
+        if (disposed) return;
+        const owner = store.getState().currentOwner;
+        if (owner.type === 'DOMAIN' && owner.domain === 'NOTIFICATIONS') {
+          dispatch({ type: 'NOTIFICATIONS_RELEASE_REQUESTED' });
+        }
+      },
+    },
+  });
 
   domainPorts = {
     CREATE_BAN: productController.asDomainPort(),
     SETTINGS: settingsController.asDomainPort(),
+    NOTIFICATIONS: notificationsController.asDomainPort(),
   };
 
   runtimePort = createNotificationRuntimePort({
@@ -132,7 +168,16 @@ export function createAppCoordinatorLifecycle(input: {
         if (owner.domain === 'SETTINGS') {
           return domainPorts.SETTINGS.getCapability();
         }
+        if (owner.domain === 'NOTIFICATIONS') {
+          return domainPorts.NOTIFICATIONS.getCapability();
+        }
         return null;
+      },
+      getTargetAvailability(domain) {
+        if (domain === 'NOTIFICATIONS') {
+          return domainPorts.NOTIFICATIONS.getAvailability();
+        }
+        return available();
       },
     },
     onInvariantViolation(violation, event) {
@@ -148,6 +193,7 @@ export function createAppCoordinatorLifecycle(input: {
     runtimePort,
     productController,
     settingsController,
+    notificationsController,
     domainPorts,
     entryRouter,
     dispatch,
@@ -169,7 +215,11 @@ export function createAppCoordinatorLifecycle(input: {
         domainPorts.CREATE_BAN.dispatch(inputIntent.intent);
         return;
       }
-      domainPorts.SETTINGS.dispatch(inputIntent.intent);
+      if (inputIntent.domain === 'SETTINGS') {
+        domainPorts.SETTINGS.dispatch(inputIntent.intent);
+        return;
+      }
+      domainPorts.NOTIFICATIONS.dispatch(inputIntent.intent);
     },
     dispose() {
       if (disposed) return;
@@ -177,6 +227,7 @@ export function createAppCoordinatorLifecycle(input: {
       runtimePort.dispose();
       productController.dispose();
       settingsController.dispose();
+      notificationsController.dispose();
     },
   };
 }

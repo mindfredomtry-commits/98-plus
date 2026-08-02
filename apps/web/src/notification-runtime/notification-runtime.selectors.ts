@@ -22,6 +22,30 @@ export function selectReadyHeadId(
   return head ? notificationItemId(head) : null;
 }
 
+/** Explicit domain activation claim — distinct from ready head. */
+export function selectActivation(
+  state: NotificationRuntimeState,
+): NotificationRuntimeState['activation'] {
+  return state.activation;
+}
+
+export function selectActiveItemId(
+  state: NotificationRuntimeState,
+): string | null {
+  return state.activation.type === 'ACTIVE' ? state.activation.itemId : null;
+}
+
+export function selectActiveItem(
+  state: NotificationRuntimeState,
+): NotificationItem | null {
+  const activeId = selectActiveItemId(state);
+  if (!activeId) return null;
+  return (
+    state.items.queue.find((item) => notificationItemId(item) === activeId) ??
+    null
+  );
+}
+
 /** @deprecated Alias — ready head id, not an activated surface. */
 export function selectCurrentItemId(
   state: NotificationRuntimeState,

@@ -1,6 +1,7 @@
 /**
  * Coordinator-owned application surface.
- * Stage 8 Phase 4: exclusive mount from currentOwner (CREATE_BAN | SETTINGS).
+ * Stage 8 Phase 5: exclusive mount from currentOwner
+ * (CREATE_BAN | SETTINGS | NOTIFICATIONS).
  */
 'use client';
 
@@ -11,6 +12,8 @@ import type { CreateBanUiIntent } from '@/product-flow/create-ban/create-ban.typ
 import { ProductFlowSurface } from '@/product-flow/product-flow.surface';
 import type { SettingsIntent } from '@/settings/settings.types';
 import { SettingsSurface } from '@/settings/presentation/SettingsSurface';
+import type { NotificationsIntent } from '@/notifications/notifications.types';
+import { NotificationsSurface } from '@/notifications/presentation/NotificationsSurface';
 
 export type ApplicationSurfaceProps = {
   lifecycle: AppCoordinatorLifecycle | null;
@@ -58,6 +61,10 @@ function ActiveApplicationSurface({
     lifecycle.dispatch({ type: 'OPEN_SETTINGS_REQUESTED' });
   }, [lifecycle]);
 
+  const onOpenNotifications = useCallback(() => {
+    lifecycle.dispatch({ type: 'OPEN_NOTIFICATIONS_REQUESTED' });
+  }, [lifecycle]);
+
   const onSettingsIntent = useCallback(
     (intent: SettingsIntent) => {
       lifecycle.dispatchDomainIntent({ domain: 'SETTINGS', intent });
@@ -67,6 +74,17 @@ function ActiveApplicationSurface({
 
   const onCloseSettings = useCallback(() => {
     lifecycle.dispatch({ type: 'CLOSE_SETTINGS_REQUESTED' });
+  }, [lifecycle]);
+
+  const onNotificationsIntent = useCallback(
+    (intent: NotificationsIntent) => {
+      lifecycle.dispatchDomainIntent({ domain: 'NOTIFICATIONS', intent });
+    },
+    [lifecycle],
+  );
+
+  const onReleaseNotifications = useCallback(() => {
+    lifecycle.dispatch({ type: 'NOTIFICATIONS_RELEASE_REQUESTED' });
   }, [lifecycle]);
 
   const owner = coordinatorState.currentOwner;
@@ -84,6 +102,7 @@ function ActiveApplicationSurface({
           influencePercent={user?.energyPercent ?? 0}
           onIntent={onCreateBanIntent}
           onOpenSettings={onOpenSettings}
+          onOpenNotifications={onOpenNotifications}
         />
       </div>
     );
@@ -95,6 +114,16 @@ function ActiveApplicationSurface({
         controller={lifecycle.settingsController}
         onDomainIntent={onSettingsIntent}
         onCloseSettings={onCloseSettings}
+      />
+    );
+  }
+
+  if (owner.domain === 'NOTIFICATIONS') {
+    return (
+      <NotificationsSurface
+        controller={lifecycle.notificationsController}
+        onDomainIntent={onNotificationsIntent}
+        onReleaseNotifications={onReleaseNotifications}
       />
     );
   }

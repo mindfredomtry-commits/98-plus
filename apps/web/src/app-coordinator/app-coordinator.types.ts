@@ -1,7 +1,7 @@
 /**
- * App Coordinator types — Stage 8 Phase 4.
+ * App Coordinator types — Stage 8 Phase 5.
  *
- * Authority: currentOwner (+ returnOwner for temporary Settings).
+ * Authority: currentOwner (+ returnOwner for temporary Settings/Notifications).
  */
 import type { ApplicationOwner } from './application-owner';
 import type { OwnerRequest } from './owner-request';
@@ -15,7 +15,7 @@ export type { ProductRoute } from '@/product-flow/create-ban/create-ban.types';
 
 export type AppCoordinatorState = {
   currentOwner: ApplicationOwner;
-  /** One-level return context for temporary owners (Settings). */
+  /** One-level return context for temporary owners (Settings / Notifications). */
   returnOwner: ApplicationOwner | null;
 };
 
@@ -24,7 +24,7 @@ export type NotificationEntryKind = 'incoming' | 'status';
 /**
  * Launch entry intent.
  * PRODUCT → request default CREATE_BAN owner (no surface mount).
- * NOTIFICATION → Runtime ingest only (no Notifications owner yet).
+ * NOTIFICATION → Runtime ingest only (no automatic Notifications owner).
  */
 export type EntryIntent =
   | { type: 'PRODUCT' }
@@ -44,6 +44,8 @@ export type AppCoordinatorEvent =
   | { type: 'OWNER_REQUESTED'; request: OwnerRequest }
   | { type: 'OPEN_SETTINGS_REQUESTED' }
   | { type: 'CLOSE_SETTINGS_REQUESTED' }
+  | { type: 'OPEN_NOTIFICATIONS_REQUESTED' }
+  | { type: 'NOTIFICATIONS_RELEASE_REQUESTED' }
   | { type: 'DOMAIN_RELEASED' }
   | { type: 'RECONNECT_STARTED' }
   | { type: 'RECONNECT_COMPLETED' };
@@ -71,7 +73,8 @@ export type AppCoordinatorInvariantCode =
   | 'UNREGISTERED_DOMAIN'
   | 'BOOT_OWNER_FORBIDDEN'
   | 'DOMAIN_INTENT_NOT_CURRENT_OWNER'
-  | 'MISSING_RETURN_OWNER';
+  | 'MISSING_RETURN_OWNER'
+  | 'NOTIFICATIONS_UNAVAILABLE';
 
 export type AppCoordinatorInvariantViolation = {
   code: AppCoordinatorInvariantCode;

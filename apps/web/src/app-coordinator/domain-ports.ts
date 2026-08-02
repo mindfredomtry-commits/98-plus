@@ -2,10 +2,12 @@
  * Coordinator → domain port contracts.
  * Built at composition boundary; Coordinator never imports domain controllers.
  */
+import type { DomainAvailability } from '@/domain-availability';
 import type { DomainCapability } from '@/domain-capability';
 import type { DomainId } from './application-owner';
 import type { CreateBanUiIntent } from '@/product-flow/create-ban/create-ban.types';
 import type { SettingsIntent } from '@/settings/settings.types';
+import type { NotificationsIntent } from '@/notifications/notifications.types';
 
 /** CreateBan domain port — typed intents stay at this boundary. */
 export type CreateBanDomainPort = {
@@ -19,18 +21,27 @@ export type SettingsDomainPort = {
   getCapability(): DomainCapability;
 };
 
+/** Notifications domain port — typed intents stay at this boundary. */
+export type NotificationsDomainPort = {
+  dispatch(intent: NotificationsIntent): void;
+  getCapability(): DomainCapability;
+  getAvailability(): DomainAvailability;
+};
+
 /**
- * Registered domain ports for Stage 8 Phase 4.
+ * Registered domain ports for Stage 8 Phase 5.
  * Typed registry — not an untyped service locator.
  */
 export type ApplicationDomainPorts = {
   CREATE_BAN: CreateBanDomainPort;
   SETTINGS: SettingsDomainPort;
+  NOTIFICATIONS: NotificationsDomainPort;
 };
 
 export type DomainIntent =
   | { domain: 'CREATE_BAN'; intent: CreateBanUiIntent }
-  | { domain: 'SETTINGS'; intent: SettingsIntent };
+  | { domain: 'SETTINGS'; intent: SettingsIntent }
+  | { domain: 'NOTIFICATIONS'; intent: NotificationsIntent };
 
 export type DomainIntentRouter = {
   /**

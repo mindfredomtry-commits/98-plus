@@ -21,6 +21,7 @@ function cloneState(state: NotificationRuntimeState): NotificationRuntimeState {
   return {
     lifecycle: { ...state.lifecycle },
     items: { queue: [...state.items.queue] },
+    activation: { ...state.activation },
     action: { ...state.action },
     pending: {
       itemIds: [...state.pending.itemIds],
@@ -50,6 +51,30 @@ function clearAction(
       errorCode: null,
     },
   };
+}
+
+/**
+ * Keep an active claim stable across queue reconcile.
+ * Never invent activation; never silently drop an active item.
+ */
+function preserveActiveItemInQueue(
+  activation: NotificationRuntimeState['activation'],
+  previousQueue: NotificationItem[],
+  nextQueue: NotificationItem[],
+): NotificationItem[] {
+  if (activation.type !== 'ACTIVE') return nextQueue;
+  const activeId = activation.itemId;
+  if (nextQueue.some((item) => notificationItemId(item) === activeId)) {
+    return nextQueue;
+  }
+  const previous = previousQueue.find(
+    (item) => notificationItemId(item) === activeId,
+  );
+  if (!previous) return nextQueue;
+  return [
+    previous,
+    ...nextQueue.filter((item) => notificationItemId(item) !== activeId),
+  ];
 }
 
 function dedupeAppend(
@@ -151,6 +176,7 @@ function reconcilePending(
 /**
  * Stage 7 Phase 2 — complete/consume head only.
  * Does not activate the next item (no application surface claim).
+ * Clears activation when the completed item was the active claim.
  */
 function dismissHead(
   state: NotificationRuntimeState,
@@ -170,6 +196,11 @@ function dismissHead(
     {
       ...state,
       items: { queue: remaining },
+      activation:
+        state.activation.type === 'ACTIVE' &&
+        state.activation.itemId === targetItemId
+          ? { type: 'INACTIVE' as const }
+          : state.activation,
     },
     targetItemId,
   );
@@ -218,6 +249,11 @@ function completeItemById(
     {
       ...state,
       items: { queue },
+      activation:
+        state.activation.type === 'ACTIVE' &&
+        state.activation.itemId === targetItemId
+          ? { type: 'INACTIVE' as const }
+          : state.activation,
     },
     targetItemId,
   );
@@ -356,13 +392,18 @@ export function notificationRuntimeReducer(
         }
       }
 
-      const queue = event.replaceQueue
-        ? dedupeAppend([], event.items)
-        : dedupeAppend(base.items.queue, event.items);
+      const queue = preserveActiveItemInQueue(
+        base.activation,
+        base.items.queue,
+        event.replaceQueue
+          ? dedupeAppend([], event.items)
+          : dedupeAppend(base.items.queue, event.items),
+      );
 
       const next: NotificationRuntimeState = {
         ...clearAction(base),
         items: { queue },
+        activation: base.activation,
         lifecycle: {
           status:
             base.lifecycle.status === 'booting' ||
@@ -437,11 +478,16 @@ export function notificationRuntimeReducer(
         (item) => !consumedIds.includes(notificationItemId(item)),
       );
       // Stage 7 Phase 2 — always populate FIFO; never activate.
-      const queue = dedupeAppend([], filteredItems);
+      const queue = preserveActiveItemInQueue(
+        base.activation,
+        base.items.queue,
+        dedupeAppend([], filteredItems),
+      );
 
       const next: NotificationRuntimeState = {
         ...clearAction(base),
         items: { queue },
+        activation: base.activation,
         pending: resolvePendingReplacement(
           base,
           pendingIds,
@@ -571,11 +617,17 @@ export function notificationRuntimeReducer(
 
       if (event.replacement && headId === event.targetItemId) {
         // Item lifecycle: atomic head replacement (e.g. check→result). No surface claim.
+        const replacementId = notificationItemId(event.replacement);
         next = {
           ...clearAction(next),
           items: {
             queue: [event.replacement, ...next.items.queue.slice(1)],
           },
+          activation:
+            next.activation.type === 'ACTIVE' &&
+            next.activation.itemId === event.targetItemId
+              ? { type: 'ACTIVE' as const, itemId: replacementId }
+              : next.activation,
           lifecycle: {
             status: 'idle',
             source: event.source,
@@ -957,6 +1009,38 @@ export function notificationRuntimeReducer(
       };
     }
 
+    case 'ACTIVATE_READY_ITEM_REQUESTED': {
+      // Explicit domain claim only. Ingest must never emit this.
+      if (base.activation.type === 'ACTIVE') {
+        // Deterministic no-op: keep the same active item; do not advance queue.
+        return { state: base, effects: [] };
+      }
+      const headId = selectCurrentItemId(base);
+      if (!headId) {
+        return { state: base, effects: [] };
+      }
+      return {
+        state: {
+          ...base,
+          activation: { type: 'ACTIVE', itemId: headId },
+        },
+        effects: [],
+      };
+    }
+
+    case 'CLEAR_ACTIVATION_REQUESTED': {
+      if (base.activation.type === 'INACTIVE') {
+        return { state: base, effects: [] };
+      }
+      return {
+        state: {
+          ...base,
+          activation: { type: 'INACTIVE' },
+        },
+        effects: [],
+      };
+    }
+
     default: {
       const _exhaustive: never = event;
       void _exhaustive;
@@ -968,7 +1052,7 @@ export function notificationRuntimeReducer(
 
 
 /**
- * Test/offline invariant helper — queue/action only (no display).
+ * Test/offline invariant helper — queue/action/activation only (no display).
  */
 export function assertNotificationRuntimeInvariant(
   state: NotificationRuntimeState,
@@ -999,6 +1083,14 @@ export function assertNotificationRuntimeInvariant(
     const id = notificationItemId(item);
     if (seen.has(id)) errors.push(`duplicate queue id ${id}`);
     seen.add(id);
+  }
+
+  if (state.activation.type === 'ACTIVE') {
+    if (!seen.has(state.activation.itemId)) {
+      errors.push(
+        `active item ${state.activation.itemId} must remain in queue`,
+      );
+    }
   }
 
   if (errors.length) {
