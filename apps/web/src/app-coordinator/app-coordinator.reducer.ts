@@ -1,14 +1,14 @@
 /**
- * Pure App Coordinator reducer — Stage 8 Phase 1.
- * Ownership via Application Policy. No ProductRoute in Coordinator state.
- * Domain intents are routed outside the reducer (lifecycle/ports).
+ * Pure App Coordinator reducer — Stage 8 Phase 3.
+ * Owner Switching Engine evaluates; reducer applies decision and routes effects.
+ * No ProductRoute. Domain intents are routed outside the reducer.
  */
 import {
-  decideFromOwnerRequest,
-  type OwnerPolicyResult,
+  decideOwnerSwitch,
+  type OwnerSwitchResult,
 } from './application-policy';
 import { DEFAULT_DOMAIN_ID } from './application-owner';
-import type { DomainCapability } from './domain-capability';
+import type { DomainCapability } from '@/domain-capability';
 import type { OwnerRequest } from './owner-request';
 import {
   createInitialAppCoordinatorState,
@@ -34,9 +34,9 @@ function unchanged(state: AppCoordinatorState): AppCoordinatorResult {
   return { state, effects: [], violation: null };
 }
 
-function applyOwnerPolicy(
+function applyOwnerSwitch(
   state: AppCoordinatorState,
-  policy: OwnerPolicyResult,
+  policy: OwnerSwitchResult,
   effects: AppCoordinatorEffect[] = [],
 ): AppCoordinatorResult {
   const violation: AppCoordinatorInvariantViolation | null = policy.violation
@@ -64,12 +64,12 @@ function requestOwner(
   getCurrentCapability: () => DomainCapability | null,
   effects: AppCoordinatorEffect[] = [],
 ): AppCoordinatorResult {
-  const policy = decideFromOwnerRequest({
+  const policy = decideOwnerSwitch({
     currentOwner: state.currentOwner,
     currentCapability: getCurrentCapability(),
     request,
   });
-  return applyOwnerPolicy(state, policy, effects);
+  return applyOwnerSwitch(state, policy, effects);
 }
 
 const defaultContext: AppCoordinatorReduceContext = {
@@ -94,6 +94,7 @@ export function appCoordinatorReducer(
 
     case 'ENTRY_ROUTED': {
       if (event.intent.type === 'NOTIFICATION') {
+        // Ingest only — not an owner switch.
         return {
           state,
           effects: [runtime({ type: 'INGEST_ENTRY', intent: event.intent })],
@@ -115,6 +116,7 @@ export function appCoordinatorReducer(
       );
 
     case 'DOMAIN_RELEASED':
+      // Runtime flush only — ownership unchanged.
       return {
         state,
         effects: [runtime({ type: 'FLUSH_DEFERRED_DIRECT_ENTRY' })],
