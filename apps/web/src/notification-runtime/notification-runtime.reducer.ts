@@ -16,6 +16,7 @@ import {
 import { selectCurrentItem, selectCurrentItemId } from './notification-runtime.selectors';
 import { decidePendingSnapshotApply } from './notification-runtime.pending-refresh-ordering';
 import { evaluateStaleReplaceGuard } from './notification-runtime.stale-replace-guard';
+import { sortNotificationQueueFifo } from './notification-runtime.order';
 
 function cloneState(state: NotificationRuntimeState): NotificationRuntimeState {
   return {
@@ -54,27 +55,27 @@ function clearAction(
 }
 
 /**
- * Keep an active claim stable across queue reconcile.
- * Never invent activation; never silently drop an active item.
+ * Keep an active claim present across queue reconcile, then canonicalize FIFO.
+ * Does not force the active item to index 0 — order is createdAt/id authority.
  */
-function preserveActiveItemInQueue(
+function reconcileQueueFifo(
   activation: NotificationRuntimeState['activation'],
   previousQueue: NotificationItem[],
   nextQueue: NotificationItem[],
 ): NotificationItem[] {
-  if (activation.type !== 'ACTIVE') return nextQueue;
-  const activeId = activation.itemId;
-  if (nextQueue.some((item) => notificationItemId(item) === activeId)) {
-    return nextQueue;
+  let queue = nextQueue;
+  if (activation.type === 'ACTIVE') {
+    const activeId = activation.itemId;
+    if (!queue.some((item) => notificationItemId(item) === activeId)) {
+      const previous = previousQueue.find(
+        (item) => notificationItemId(item) === activeId,
+      );
+      if (previous) {
+        queue = [...queue, previous];
+      }
+    }
   }
-  const previous = previousQueue.find(
-    (item) => notificationItemId(item) === activeId,
-  );
-  if (!previous) return nextQueue;
-  return [
-    previous,
-    ...nextQueue.filter((item) => notificationItemId(item) !== activeId),
-  ];
+  return sortNotificationQueueFifo(queue);
 }
 
 function dedupeAppend(
@@ -393,7 +394,7 @@ export function notificationRuntimeReducer(
         }
       }
 
-      const queue = preserveActiveItemInQueue(
+      const queue = reconcileQueueFifo(
         base.activation,
         base.items.queue,
         event.replaceQueue
@@ -479,7 +480,8 @@ export function notificationRuntimeReducer(
         (item) => !consumedIds.includes(notificationItemId(item)),
       );
       // Stage 7 Phase 2 — always populate FIFO; never activate.
-      const queue = preserveActiveItemInQueue(
+      // Normalize to oldest-first regardless of bootstrap/pending API order.
+      const queue = reconcileQueueFifo(
         base.activation,
         base.items.queue,
         dedupeAppend([], filteredItems),
@@ -912,11 +914,16 @@ export function notificationRuntimeReducer(
         };
       }
 
-      // Head = direct item; prior queue (minus duplicate) retained. Never activate.
+      // Prior queue (minus duplicate) + direct item; canonicalize FIFO (direct
+      // entry targets by id, not queue index).
       const rest = base.items.queue.filter(
         (q) => notificationItemId(q) !== itemId,
       );
-      const queue = [event.item, ...rest];
+      const queue = reconcileQueueFifo(
+        base.activation,
+        base.items.queue,
+        [event.item, ...rest],
+      );
       const next: NotificationRuntimeState = {
         ...clearAction(base),
         items: { queue },

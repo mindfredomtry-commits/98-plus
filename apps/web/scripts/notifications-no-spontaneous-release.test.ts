@@ -36,10 +36,11 @@ function pass(name: string): void {
   console.log(`PASS — ${name}`);
 }
 
-function ban(id: string, text: string): BanInteraction {
+function ban(id: string, text: string, createdAt: string): BanInteraction {
   return {
     id,
     text,
+    createdAt,
     sender: { id: 's1', firstName: 'Анна', username: 'anna' },
     receiver: { id: 'r1', firstName: 'R', username: 'r' },
   } as BanInteraction;
@@ -67,11 +68,11 @@ function main(): void {
     });
 
     receiveNotificationItem(runtimeStore, {
-      item: itemFromIncoming(ban('one', 'первый')),
+      item: itemFromIncoming(ban('one', 'первый', '2026-07-01T10:00:00.000Z')),
       source: 'websocket',
     });
     receiveNotificationItem(runtimeStore, {
-      item: itemFromIncoming(ban('two', 'второй')),
+      item: itemFromIncoming(ban('two', 'второй', '2026-07-01T10:01:00.000Z')),
       source: 'websocket',
     });
 
@@ -86,7 +87,7 @@ function main(): void {
 
     // Simulate intermediate Runtime emissions that do not complete the item.
     receiveNotificationItem(runtimeStore, {
-      item: itemFromIncoming(ban('three', 'хвост')),
+      item: itemFromIncoming(ban('three', 'хвост', '2026-07-01T10:02:00.000Z')),
       source: 'websocket',
     });
     const snap1 = lifecycle.notificationsController.getState();

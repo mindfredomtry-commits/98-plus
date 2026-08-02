@@ -167,6 +167,7 @@ export function NotificationRuntimeTransport({
           ...(prefetched.check ? [itemFromCheck(prefetched.check)] : []),
           ...(prefetched.result ? [itemFromResult(prefetched.result)] : []),
         ];
+        // pending-all is newest-first; Runtime ITEMS_RECEIVED canonicalizes FIFO.
         for (const item of items) {
           const id = notificationItemId(item);
           const already = store

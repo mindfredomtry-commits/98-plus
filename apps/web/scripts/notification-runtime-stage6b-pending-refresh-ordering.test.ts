@@ -44,14 +44,21 @@ function pass(name: string): void {
   console.log(`PASS — ${name}`);
 }
 
-function ban(id: string): BanInteraction {
-  return { id } as BanInteraction;
+const ORDER_EPOCH_MS = Date.parse('2026-07-01T10:00:00.000Z');
+
+function ban(id: string, createdAt?: string): BanInteraction {
+  return {
+    id,
+    createdAt:
+      createdAt ??
+      new Date(ORDER_EPOCH_MS + id.charCodeAt(0)).toISOString(),
+  } as BanInteraction;
 }
-function incoming(id: string): NotificationItem {
-  return { kind: 'incoming', ban: ban(id) };
+function incoming(id: string, createdAt?: string): NotificationItem {
+  return { kind: 'incoming', ban: ban(id, createdAt) };
 }
-function check(id: string): NotificationItem {
-  return { kind: 'check', ban: ban(id) };
+function check(id: string, createdAt?: string): NotificationItem {
+  return { kind: 'check', ban: ban(id, createdAt) };
 }
 
 function sinks() {
