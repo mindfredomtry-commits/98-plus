@@ -2,6 +2,9 @@
  * Notifications domain controller / port — Stage 8 Phase 5.
  * Wraps Notification Runtime; Coordinator never imports the store.
  * No CreateBan / Settings / React / application-owner imports.
+ *
+ * Snapshot identity: getState() returns a cached projection. useSyncExternalStore
+ * requires Object.is(getSnapshot(), getSnapshot()) while nothing mutated.
  */
 import type { DomainAvailability } from '@/domain-availability';
 import type { DomainCapability } from '@/domain-capability';
@@ -68,10 +71,13 @@ export function createNotificationsController(input: {
     );
   }
 
+  /** Stable external-store snapshot — replaced only on real mutations. */
+  let cachedState: NotificationsDomainState = project();
+
   function emit(): void {
-    const state = project();
+    cachedState = project();
     for (const listener of [...listeners]) {
-      listener(state);
+      listener(cachedState);
     }
   }
 
@@ -94,7 +100,7 @@ export function createNotificationsController(input: {
 
   const controller: NotificationsController = {
     getState() {
-      return project();
+      return cachedState;
     },
 
     subscribe(listener) {
