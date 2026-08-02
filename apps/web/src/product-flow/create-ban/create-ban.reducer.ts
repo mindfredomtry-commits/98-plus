@@ -2,7 +2,7 @@
  * Pure Create Ban reducer — route, draft, validation, submission, recipients.
  * Emits effects for async ports and Coordinator sinks; never calls them.
  */
-import type { ProductRoute } from '@/app-coordinator/app-coordinator.types';
+import type { ProductRoute } from './create-ban.types';
 import {
   CREATE_BAN_DEFAULT_DURATION,
   type CreateBanDraft,

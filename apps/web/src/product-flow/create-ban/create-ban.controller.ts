@@ -1,14 +1,14 @@
 /**
  * Create Ban controller — owns CreateBanState, runs effects via ports/sinks.
+ * No Coordinator imports. Production UI intents enter only via Domain Port.
  */
-import type { ProductFlowEventSink } from '@/app-coordinator/app-coordinator.ports';
-import type { ProductRoute } from '@/app-coordinator/app-coordinator.types';
 import {
   createBanReducer,
   createInitialCreateBanState,
 } from './create-ban.reducer';
 import {
   mapUnknownSubmitError,
+  type CreateBanHostSink,
   type CreateBanRecipientsPort,
   type CreateBanSubmissionPort,
 } from './create-ban.ports';
@@ -16,30 +16,25 @@ import type {
   CreateBanEvent,
   CreateBanState,
   CreateBanUiIntent,
+  ProductRoute,
   ProductRouteContext,
 } from './create-ban.types';
 
 export type CreateBanController = {
   getState(): CreateBanState;
   subscribe(listener: (state: CreateBanState) => void): () => void;
-  /** Coordinator ProductFlowPort entry. */
+  /** Composition / domain-test open. Not a Presentation entry. */
   openRoute(input: {
     route: ProductRoute;
     context?: ProductRouteContext;
   }): void;
-  /** Compatibility local navigation — preserves reply/draft. */
-  changeLocalRoute(route: ProductRoute): void;
   dispatch(intent: CreateBanUiIntent): void;
-  /**
-   * Compatibility: force SUCCESS after an external success mark.
-   * Prefer SUBMIT_SUCCEEDED via the submission port.
-   */
   markSendSucceeded(banId: string): void;
   dispose(): void;
 };
 
 export function createCreateBanController(input: {
-  sink: ProductFlowEventSink;
+  sink: CreateBanHostSink;
   submissionPort?: CreateBanSubmissionPort | null;
   recipientsPort?: CreateBanRecipientsPort | null;
 }): CreateBanController {
@@ -126,7 +121,6 @@ export function createCreateBanController(input: {
           return;
         }
         const gen = ++recipientsGeneration;
-        // Ensure LOADING if reducer did not already set it (OPEN_ROUTE path).
         if (state.recipients.status !== 'LOADING') {
           state = {
             ...state,
@@ -178,10 +172,6 @@ export function createCreateBanController(input: {
         route: openInput.route,
         context: openInput.context,
       });
-    },
-
-    changeLocalRoute(route) {
-      applyEvent({ type: 'LOCAL_ROUTE_CHANGED', route });
     },
 
     dispatch(intent) {

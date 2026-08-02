@@ -1,11 +1,11 @@
 /**
- * Coordinator ↔ subsystem ports — Stage 8 Phase 1.
+ * Coordinator ↔ subsystem ports — Stage 8 Phase 2.
  */
 import type {
   AppCoordinatorEvent,
   EntryIntent,
-  ProductRoute,
 } from './app-coordinator.types';
+import type { ProductRoute } from '@/product-flow/create-ban/create-ban.types';
 import type { CreateBanDomainPort } from './domain-ports';
 
 export type { CreateBanDomainPort, ApplicationDomainPorts } from './domain-ports';

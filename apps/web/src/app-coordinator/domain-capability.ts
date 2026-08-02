@@ -1,13 +1,7 @@
 /**
- * Minimal domain capability projection for Application Policy.
- * Domains map local state → this shape; Coordinator never reads routes.
+ * Re-export shared DomainCapability contract for Coordinator modules.
  */
-
-export type DomainCapabilityReason = 'SUBMISSION_IN_PROGRESS';
-
-export type DomainCapability =
-  | { transition: 'ALLOWED' }
-  | {
-      transition: 'BLOCKED';
-      reason: DomainCapabilityReason;
-    };
+export type {
+  DomainCapability,
+  DomainCapabilityReason,
+} from '@/domain-capability';

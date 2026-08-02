@@ -177,29 +177,39 @@ async function main() {
   }
 
   {
-    const allowed = decideApplicationOwner({
-      currentOwner: domainOwner('CREATE_BAN'),
-      currentCapability: { transition: 'ALLOWED' },
-      requestedOwner: 'NOTIFICATIONS',
-      requestKind: 'USER_INTENT',
+    const allowedBoot = decideApplicationOwner({
+      currentOwner: { type: 'BOOT' },
+      currentCapability: null,
+      requestedOwner: 'CREATE_BAN',
+      requestKind: 'SYSTEM_READY',
     });
-    assert.equal(allowed.decision.type, 'SWITCH_OWNER');
-    if (allowed.decision.type === 'SWITCH_OWNER') {
-      assert.deepEqual(allowed.decision.owner, domainOwner('NOTIFICATIONS'));
-    }
+    assert.equal(allowedBoot.decision.type, 'SWITCH_OWNER');
 
-    const blocked = decideApplicationOwner({
+    // With sole DomainId CREATE_BAN, BLOCKED cannot switch to another registered
+    // domain; same-owner KEEP still applies. Unregistered remains a violation.
+    const blockedSame = decideApplicationOwner({
       currentOwner: domainOwner('CREATE_BAN'),
       currentCapability: {
         transition: 'BLOCKED',
         reason: 'SUBMISSION_IN_PROGRESS',
       },
-      requestedOwner: 'NOTIFICATIONS',
+      requestedOwner: 'CREATE_BAN',
       requestKind: 'USER_INTENT',
     });
-    assert.equal(blocked.decision.type, 'KEEP_CURRENT');
-    assert.equal(blocked.violation, null);
-    pass('5. BLOCKED rejects target switch; ALLOWED permits registered switch');
+    assert.equal(blockedSame.decision.type, 'KEEP_CURRENT');
+
+    const blockedUnreg = decideApplicationOwner({
+      currentOwner: domainOwner('CREATE_BAN'),
+      currentCapability: {
+        transition: 'BLOCKED',
+        reason: 'SUBMISSION_IN_PROGRESS',
+      },
+      requestedOwner: 'NOTIFICATIONS' as never,
+      requestKind: 'USER_INTENT',
+    });
+    assert.equal(blockedUnreg.violation?.code, 'UNREGISTERED_DOMAIN');
+    assert.equal(blockedUnreg.decision.type, 'KEEP_CURRENT');
+    pass('5. BLOCKED keeps current; unregistered rejected');
   }
 
   {

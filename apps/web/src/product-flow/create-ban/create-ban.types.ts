@@ -1,11 +1,20 @@
 /**
- * Create Ban domain types — React-free, serializable Product compose state.
+ * Create Ban domain types — React-free, serializable compose state.
+ * No Coordinator imports.
  */
-import type { ProductRoute } from '@/app-coordinator/app-coordinator.types';
-import type { ResumeToken } from '@/app-coordinator/resume-token';
 import type { FriendCard } from '@98plus/shared';
+import type { ResumeToken } from './resume-token';
 
-/** Optional Product open context for reply compose (Product-local, not AppMode). */
+/** CreateBan-local screen routes — not ApplicationOwner values. */
+export type ProductRoute =
+  | 'LOBBY'
+  | 'WHO'
+  | 'WHAT'
+  | 'CONFIRM'
+  | 'SUCCESS'
+  | 'BANS';
+
+/** Optional open context for reply compose (CreateBan-local). */
 export type ProductRouteContext = {
   type: 'REPLY';
   sourceItemId: string;
@@ -93,6 +102,7 @@ export type CreateBanCommand =
       targetUserId: string;
     };
 
+/** Public CreateBan intents — Presentation emits these; Coordinator routes them. */
 export type CreateBanUiIntent =
   | { type: 'COMPOSE_REQUESTED' }
   | { type: 'RECIPIENT_SELECTED'; recipient: CreateBanRecipient }
@@ -114,7 +124,6 @@ export type CreateBanInternalEvent =
       route: ProductRoute;
       context?: ProductRouteContext;
     }
-  /** Compatibility local route change — preserves reply/draft. */
   | { type: 'LOCAL_ROUTE_CHANGED'; route: ProductRoute }
   | { type: 'SUBMIT_SUCCEEDED'; result: CreateBanResult }
   | { type: 'SUBMIT_FAILED'; error: CreateBanError }

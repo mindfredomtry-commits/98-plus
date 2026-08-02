@@ -1,7 +1,7 @@
 /**
- * CreateBan → DomainCapability projection (lives outside Application Policy).
+ * CreateBan → DomainCapability projection (outside Application Policy).
  */
-import type { DomainCapability } from '@/app-coordinator/domain-capability';
+import type { DomainCapability } from '@/domain-capability';
 import type { CreateBanState } from './create-ban.types';
 
 export function mapCreateBanCapability(

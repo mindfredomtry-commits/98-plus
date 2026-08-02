@@ -1,12 +1,13 @@
 /**
  * Coordinator-owned application surface.
- * Stage 8 Phase 1: presentation selected from currentOwner.
+ * Stage 8 Phase 2: presentation emits intents; Coordinator routes to Domain Port.
  */
 'use client';
 
 import { useCallback, useSyncExternalStore } from 'react';
 import type { UserPublic } from '@98plus/shared';
 import type { AppCoordinatorLifecycle } from '@/app-coordinator/app-coordinator.lifecycle';
+import type { CreateBanUiIntent } from '@/product-flow/create-ban/create-ban.types';
 import { ProductFlowSurface } from '@/product-flow/product-flow.surface';
 
 export type ApplicationSurfaceProps = {
@@ -44,11 +45,12 @@ function ActiveApplicationSurface({
     lifecycle.store.getState,
   );
 
-  const onStartBan = useCallback(() => {
-    lifecycle.dispatchDomainIntent('CREATE_BAN', {
-      type: 'COMPOSE_REQUESTED',
-    });
-  }, [lifecycle]);
+  const onCreateBanIntent = useCallback(
+    (intent: CreateBanUiIntent) => {
+      lifecycle.dispatchDomainIntent('CREATE_BAN', intent);
+    },
+    [lifecycle],
+  );
 
   const owner = coordinatorState.currentOwner;
 
@@ -63,7 +65,7 @@ function ActiveApplicationSurface({
           controller={lifecycle.productController}
           user={user}
           influencePercent={user?.energyPercent ?? 0}
-          onComposeRequested={onStartBan}
+          onIntent={onCreateBanIntent}
         />
       </div>
     );

@@ -1,6 +1,6 @@
 /**
- * Product Flow React surface — presentation adapter over CreateBan domain.
- * Global ownership is decided solely by the App Coordinator.
+ * Product Flow React surface — presentation adapter over CreateBan read model.
+ * Emits CreateBanUiIntent only; never dispatches Runtime or navigates locally.
  */
 'use client';
 
@@ -12,16 +12,20 @@ import {
   selectCreateBanSuccessPresentation,
   selectCreateBanWhoPresentation,
 } from './create-ban/create-ban.selectors';
-import type { CreateBanErrorCode } from './create-ban/create-ban.types';
+import type {
+  CreateBanErrorCode,
+  CreateBanUiIntent,
+} from './create-ban/create-ban.types';
 import { ProductWhoScreen } from './presentation/WhoScreen';
 import { ProductSuccessScreen } from './presentation/SuccessScreen';
 
 export type ProductFlowSurfaceProps = {
+  /** Read model only — Presentation must not call dispatch/navigate on it. */
   controller: ProductFlowController;
   user: UserPublic | null;
   influencePercent: number;
-  /** Ordinary Lobby compose must go through the Coordinator. */
-  onComposeRequested?: () => void;
+  /** Typed CreateBan intents — Coordinator routes to Domain Port. */
+  onIntent: (intent: CreateBanUiIntent) => void;
 };
 
 function useProductFlowState(controller: ProductFlowController) {
@@ -58,7 +62,7 @@ export function ProductFlowSurface({
   controller,
   user,
   influencePercent,
-  onComposeRequested,
+  onIntent,
 }: ProductFlowSurfaceProps) {
   const state = useProductFlowState(controller);
   const createBan = controller.getCreateBanState();
@@ -73,48 +77,51 @@ export function ProductFlowSurface({
         createBanErrorLabel(state.submission.error.code)
       : null;
 
+  const emit = useCallback(
+    (intent: CreateBanUiIntent) => {
+      onIntent(intent);
+    },
+    [onIntent],
+  );
+
   const onBeginSend = useCallback(() => {
-    if (onComposeRequested) {
-      onComposeRequested();
-      return;
-    }
-    controller.navigateLocal('WHO');
-  }, [controller, onComposeRequested]);
+    emit({ type: 'COMPOSE_REQUESTED' });
+  }, [emit]);
 
   const onConfirmRecipient = useCallback(
     (friend: FriendCard) => {
-      controller.dispatch({ type: 'RECIPIENT_SELECTED', recipient: friend });
+      emit({ type: 'RECIPIENT_SELECTED', recipient: friend });
     },
-    [controller],
+    [emit],
   );
 
   const onWhatContinue = useCallback(() => {
-    controller.dispatch({ type: 'CONTINUE_REQUESTED' });
-  }, [controller]);
+    emit({ type: 'CONTINUE_REQUESTED' });
+  }, [emit]);
 
   const onConfirmSend = useCallback(() => {
-    controller.dispatch({ type: 'SUBMIT_REQUESTED' });
-  }, [controller]);
+    emit({ type: 'SUBMIT_REQUESTED' });
+  }, [emit]);
 
   const onSuccessExit = useCallback(() => {
-    controller.dispatch({ type: 'SUCCESS_DISMISSED' });
-  }, [controller]);
+    emit({ type: 'SUCCESS_DISMISSED' });
+  }, [emit]);
 
   const onBackFromWhat = useCallback(() => {
-    controller.dispatch({ type: 'BACK_REQUESTED' });
-  }, [controller]);
+    emit({ type: 'BACK_REQUESTED' });
+  }, [emit]);
 
   const onBackFromConfirm = useCallback(() => {
-    controller.dispatch({ type: 'BACK_REQUESTED' });
-  }, [controller]);
+    emit({ type: 'BACK_REQUESTED' });
+  }, [emit]);
 
   const onWhoBack = useCallback(() => {
-    controller.dispatch({ type: 'RELEASE_TO_LOBBY_REQUESTED' });
-  }, [controller]);
+    emit({ type: 'RELEASE_TO_LOBBY_REQUESTED' });
+  }, [emit]);
 
   const onWhoRetry = useCallback(() => {
-    controller.dispatch({ type: 'RECIPIENTS_RETRY_REQUESTED' });
-  }, [controller]);
+    emit({ type: 'RECIPIENTS_RETRY_REQUESTED' });
+  }, [emit]);
 
   if (state.route === 'LOBBY') {
     return (
@@ -142,9 +149,7 @@ export function ProductFlowSurface({
           <button
             type="button"
             className="product-flow-lobby-bans mt-4 block mx-auto text-sm text-muted"
-            onClick={() =>
-              controller.dispatch({ type: 'NAVIGATE_BANS_REQUESTED' })
-            }
+            onClick={() => emit({ type: 'NAVIGATE_BANS_REQUESTED' })}
           >
             Твои запреты
           </button>
@@ -163,9 +168,7 @@ export function ProductFlowSurface({
           <button
             type="button"
             className="text-sm text-muted mb-4"
-            onClick={() =>
-              controller.dispatch({ type: 'RELEASE_TO_LOBBY_REQUESTED' })
-            }
+            onClick={() => emit({ type: 'RELEASE_TO_LOBBY_REQUESTED' })}
           >
             ← Лобби
           </button>
@@ -222,7 +225,7 @@ export function ProductFlowSurface({
           className="w-full min-h-[120px] rounded-xl bg-black/40 p-3 text-sm"
           value={state.banText}
           onChange={(e) =>
-            controller.dispatch({
+            emit({
               type: 'TEXT_CHANGED',
               text: e.target.value,
             })
@@ -239,7 +242,7 @@ export function ProductFlowSurface({
           max={1440}
           value={state.durationMinutes}
           onChange={(e) =>
-            controller.dispatch({
+            emit({
               type: 'DURATION_CHANGED',
               durationMinutes: Number(e.target.value) || 3,
             })

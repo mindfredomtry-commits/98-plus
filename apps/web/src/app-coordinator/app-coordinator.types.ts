@@ -1,24 +1,18 @@
 /**
- * App Coordinator types — Stage 8 Phase 1 Application Policy core.
+ * App Coordinator types — Stage 8 Phase 2.
  *
  * Authority: currentOwner (ApplicationOwner).
- * ProductRoute remains CreateBan-local domain state, not global ownership.
+ * ProductRoute lives in CreateBan — not global ownership.
  */
 import type { ApplicationOwner } from './application-owner';
 import type { OwnerRequest } from './owner-request';
 
 export type { ApplicationOwner, DomainId } from './application-owner';
-export type { DomainCapability } from './domain-capability';
+export type { DomainCapability } from '@/domain-capability';
 export type { OwnerRequest, OwnerRequestReason } from './owner-request';
 
-/** CreateBan-local screen routes — not ApplicationOwner values. */
-export type ProductRoute =
-  | 'LOBBY'
-  | 'WHO'
-  | 'WHAT'
-  | 'CONFIRM'
-  | 'SUCCESS'
-  | 'BANS';
+/** @deprecated Import ProductRoute from create-ban.types — kept for type re-exports. */
+export type { ProductRoute } from '@/product-flow/create-ban/create-ban.types';
 
 export type AppCoordinatorState = {
   currentOwner: ApplicationOwner;

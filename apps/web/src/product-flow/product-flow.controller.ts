@@ -1,14 +1,13 @@
 /**
- * Product Flow controller — composes CreateBan domain and Coordinator sinks.
+ * Product Flow controller — composes CreateBan domain and host sinks.
  * Does not read Runtime queue or decide global surface ownership.
+ * Production UI intents enter only through asDomainPort() via Coordinator.
  */
 import type {
   CreateBanDomainPort,
   ProductFlowEventSink,
   ProductFlowPort,
 } from '@/app-coordinator/app-coordinator.ports';
-import type { ProductRoute } from '@/app-coordinator/app-coordinator.types';
-import type { ResumeToken } from '@/app-coordinator/resume-token';
 import type { FriendCard } from '@98plus/shared';
 import {
   createCreateBanController,
@@ -29,8 +28,10 @@ import type {
   CreateBanValidation,
   CreateBanSubmission,
   CreateBanRecipientsStatus,
+  ProductRoute,
   ProductRouteContext,
 } from './create-ban/create-ban.types';
+import type { ResumeToken } from './create-ban/resume-token';
 
 export type ProductReplyContext = {
   sourceItemId: string;
@@ -39,8 +40,8 @@ export type ProductReplyContext = {
 };
 
 /**
- * Compatibility + CreateBan read model for Product presentation.
- * Flat fields remain for Coordinator tests; CreateBan fields are authoritative.
+ * CreateBan read model for Product presentation.
+ * Flat fields remain for tests; CreateBan fields are authoritative.
  */
 export type ProductFlowState = {
   route: ProductRoute;
@@ -53,7 +54,6 @@ export type ProductFlowState = {
   validation: CreateBanValidation;
   submission: CreateBanSubmission;
   recipients: CreateBanRecipientsStatus;
-  /** Presentation helper: submission failure detail string. */
   submissionErrorDetail: string | null;
 };
 
@@ -62,18 +62,12 @@ export type ProductFlowListener = (state: ProductFlowState) => void;
 export type ProductFlowController = {
   getState(): ProductFlowState;
   subscribe(listener: ProductFlowListener): () => void;
+  /** Domain-test / composition open — not Presentation. */
   openRoute(input: {
     route: ProductRoute;
     context?: ProductRouteContext;
   }): void;
-  /** Local Product navigation intents (WHO→WHAT etc.). Prefer dispatch(). */
-  navigateLocal(route: ProductRoute): void;
-  dispatch(intent: CreateBanUiIntent): void;
   getCreateBanState(): CreateBanState;
-  /**
-   * Compatibility for Coordinator harness tests.
-   * Prefer SUBMIT via ports; this only marks SUCCESS.
-   */
   markSendSucceeded(banId: string): void;
   cancelReply(): void;
   completeReply(): void;
@@ -112,12 +106,6 @@ export function createProductFlowController(input: {
 
   const listeners = new Set<ProductFlowListener>();
   let disposed = false;
-  /**
-   * Cached projection for useSyncExternalStore.
-   * getSnapshot must return a stable reference when CreateBan state is unchanged;
-   * allocating a new object per getState() call causes React error #185
-   * (Maximum update depth exceeded).
-   */
   let cachedProjection: ProductFlowState = project(createBan.getState());
 
   const unsubscribeCreateBan = createBan.subscribe(() => {
@@ -126,19 +114,6 @@ export function createProductFlowController(input: {
       listener(cachedProjection);
     }
   });
-
-  function navigateLocal(route: ProductRoute): void {
-    if (disposed) return;
-    if (route === 'BANS') {
-      createBan.dispatch({ type: 'NAVIGATE_BANS_REQUESTED' });
-      return;
-    }
-    if (route === 'LOBBY') {
-      createBan.dispatch({ type: 'RELEASE_TO_LOBBY_REQUESTED' });
-      return;
-    }
-    createBan.changeLocalRoute(route);
-  }
 
   const controller: ProductFlowController = {
     getState() {
@@ -154,12 +129,6 @@ export function createProductFlowController(input: {
 
     openRoute(openInput) {
       createBan.openRoute(openInput);
-    },
-
-    navigateLocal,
-
-    dispatch(intent) {
-      createBan.dispatch(intent);
     },
 
     getCreateBanState() {
@@ -196,7 +165,7 @@ export function createProductFlowController(input: {
 
     asDomainPort() {
       return {
-        dispatch(intent) {
+        dispatch(intent: CreateBanUiIntent) {
           createBan.dispatch(intent);
         },
         getCapability() {
@@ -207,6 +176,7 @@ export function createProductFlowController(input: {
 
     dispose() {
       disposed = true;
+      void disposed;
       unsubscribeCreateBan();
       listeners.clear();
       createBan.dispose();

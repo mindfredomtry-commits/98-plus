@@ -1,11 +1,12 @@
 /**
- * Create Ban ports — domain depends on these, not on concrete HTTP/React.
+ * Create Ban ports — domain depends on these, not on concrete HTTP/React/Coordinator.
  */
 import type {
   CreateBanCommand,
   CreateBanError,
   CreateBanRecipient,
   CreateBanResult,
+  ProductRoute,
 } from './create-ban.types';
 
 export interface CreateBanSubmissionPort {
@@ -14,6 +15,20 @@ export interface CreateBanSubmissionPort {
 
 export interface CreateBanRecipientsPort {
   loadRecipients(): Promise<CreateBanRecipient[]>;
+}
+
+/** Host facts emitted by CreateBan — wired by composition, not Coordinator types. */
+export interface CreateBanHostSink {
+  routeChanged(route: ProductRoute): void;
+  replyCancelled(input: {
+    resumeToken: string;
+    sourceItemId: string;
+  }): void;
+  replyCompleted(input: {
+    resumeToken: string;
+    sourceItemId: string;
+  }): void;
+  flowReleased(route: ProductRoute): void;
 }
 
 export function mapUnknownSubmitError(err: unknown): CreateBanError {

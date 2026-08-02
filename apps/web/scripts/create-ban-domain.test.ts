@@ -427,10 +427,25 @@ async function main(): Promise<void> {
     assert.doesNotMatch(surface, /from ['"]@\/lib\/api['"]/);
     assert.doesNotMatch(surface, /deliverDirectChallenge/);
     assert.doesNotMatch(surface, /\/friends/);
-    assert.doesNotMatch(surface, /method:\s*['"]POST['"]/);
-    assert.doesNotMatch(surface, /fetch\(/);
-    assert.doesNotMatch(surface, /useState\(/);
+    assert.doesNotMatch(surface, /controller\.dispatch\s*\(/);
+    assert.doesNotMatch(surface, /navigateLocal\s*\(/);
+    assert.match(surface, /onIntent/);
     assert.match(surface, /TEXT_CHANGED|CONTINUE_REQUESTED|SUBMIT_REQUESTED/);
+
+    const createBanDir = join(webSrc, 'product-flow/create-ban');
+    for (const name of [
+      'create-ban.types.ts',
+      'create-ban.reducer.ts',
+      'create-ban.controller.ts',
+      'create-ban.ports.ts',
+      'create-ban.capability.ts',
+      'create-ban.selectors.ts',
+      'create-ban.adapters.ts',
+      'resume-token.ts',
+    ]) {
+      const src = readFileSync(join(createBanDir, name), 'utf8');
+      assert.doesNotMatch(src, /from ['"]@\/app-coordinator/);
+    }
 
     const adapters = readFileSync(
       join(webSrc, 'product-flow/create-ban/create-ban.adapters.ts'),

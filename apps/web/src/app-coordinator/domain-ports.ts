@@ -2,8 +2,8 @@
  * Coordinator → domain port contracts.
  * Built at composition boundary; Coordinator never imports domain controllers.
  */
+import type { DomainCapability } from '@/domain-capability';
 import type { DomainId } from './application-owner';
-import type { DomainCapability } from './domain-capability';
 import type { CreateBanUiIntent } from '@/product-flow/create-ban/create-ban.types';
 
 /** CreateBan domain port — typed intents stay at this boundary. */

@@ -3,6 +3,8 @@
  * Answers ownership and whether an owner switch is allowed.
  * No React, routes, queues, or domain business logic.
  */
+import type { DomainCapability } from '@/domain-capability';
+import type { OwnerRequest, OwnerRequestReason } from './owner-request';
 import {
   domainOwner,
   isRegisteredDomainId,
@@ -10,8 +12,6 @@ import {
   type ApplicationOwner,
   type DomainId,
 } from './application-owner';
-import type { DomainCapability } from './domain-capability';
-import type { OwnerRequest, OwnerRequestReason } from './owner-request';
 
 export type OwnerDecision =
   | { type: 'KEEP_CURRENT' }
