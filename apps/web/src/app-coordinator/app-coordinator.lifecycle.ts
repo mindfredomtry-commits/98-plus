@@ -91,24 +91,18 @@ export function createAppCoordinatorLifecycle(input: {
     if (disposed) return;
     store.dispatch(event);
 
-    // After successful open: activate ready item. Prefer availability gate (A);
-    // if activation still fails, release immediately (no empty trap).
+    // After successful open: activate ready item as one ordered transaction.
+    // Rollback ownership only on typed NO_READY_ITEM — never by observing a
+    // temporary empty read model / presenter phase.
     if (event.type === 'OPEN_NOTIFICATIONS_REQUESTED') {
       const owner = store.getState().currentOwner;
       if (owner.type === 'DOMAIN' && owner.domain === 'NOTIFICATIONS') {
         domainPorts.NOTIFICATIONS.dispatch({
           type: 'ACTIVATE_READY_ITEM_REQUESTED',
         });
-        const domainState = notificationsController.getState();
-        // Require a presentable active item — stale ACTIVE claims must not trap
-        // the owner, and failed activation must not leave an empty surface.
-        if (
-          domainState.activation.type === 'INACTIVE' ||
-          domainState.activeItem == null
-        ) {
-          domainPorts.NOTIFICATIONS.dispatch({
-            type: 'CLEAR_ACTIVATION_REQUESTED',
-          });
+        const outcome =
+          notificationsController.getState().lastActivationOutcome;
+        if (outcome?.type === 'NO_READY_ITEM') {
           store.dispatch({ type: 'NOTIFICATIONS_RELEASE_REQUESTED' });
         }
       }

@@ -15,6 +15,7 @@ import {
   selectReadyHeadId,
 } from '@/notification-runtime/notification-runtime.selectors';
 import type { NotificationRuntimeStore } from '@/notification-runtime/notification-runtime.store';
+import { notificationItemId } from '@/notification-runtime/notification-runtime.types';
 import { mapNotificationsAvailability } from './notifications.availability';
 import { mapNotificationsCapability } from './notifications.capability';
 import { selectNotificationsDomainState } from './notifications.selectors';
@@ -82,10 +83,19 @@ export function createNotificationsController(input: {
   }
 
   function noteActivationClearedAfterSession(): void {
-    const nextActive = selectActiveItemId(input.store.getState());
+    const runtime = input.store.getState();
+    const nextActive = selectActiveItemId(runtime);
     if (previousActiveId != null && nextActive == null) {
+      const completedId = previousActiveId;
       previousActiveId = null;
-      input.sink?.sessionCompleted();
+      // Release only when the claimed item left the queue (consume/dismiss).
+      // CLEAR_ACTIVATION / close-without-consume must not look like completion.
+      const stillQueued = runtime.items.queue.some(
+        (item) => notificationItemId(item) === completedId,
+      );
+      if (!stillQueued) {
+        input.sink?.sessionCompleted();
+      }
       emit();
       return;
     }
