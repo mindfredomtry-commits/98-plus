@@ -2,7 +2,7 @@
  * Stage 7 Phase 1 — NotificationRuntime effect runner.
  * No legacy sinks / dual-write.
  */
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { postOverboardWithTrace } from '@/lib/overboard-api';
 import {
   executeSubmitCardActionEffect,
@@ -12,6 +12,10 @@ import {
   executeSubmitIncomingOverboardEffect,
   type OverboardSubmitTransport,
 } from './notification-runtime.overboard-action';
+import {
+  executeSubmitResultAckEffect,
+  type ResultAckTransport,
+} from './notification-runtime.result-ack-action';
 import type { NotificationRuntimeStore } from './notification-runtime.store';
 import type { RuntimeEffect } from './notification-runtime.types';
 
@@ -19,6 +23,8 @@ export type NotificationEffectsContext = {
   getToken: () => string | null;
   onRefreshPending?: (reason: string) => void | Promise<void>;
   onPrefetchNext?: (skipItemId?: string) => void | Promise<void>;
+  /** Test / adapter override for POST /bans/:id/result/ack */
+  resultAckTransport?: ResultAckTransport;
 };
 
 const checkTransport: CheckSubmitTransport = async ({
@@ -57,6 +63,28 @@ const overboardTransport: OverboardSubmitTransport = async ({
   };
 };
 
+/** Production adapter for POST /bans/:id/result/ack — no swallowed errors. */
+const resultAckTransport: ResultAckTransport = async ({ banId, token }) => {
+  try {
+    await api<{ ok: boolean }>(
+      `/bans/${encodeURIComponent(banId)}/result/ack`,
+      { method: 'POST', token },
+    );
+    return { ok: true };
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) {
+      // Ban gone / not participant — treat as already unseeable (idempotent).
+      return { ok: false, errorCode: 'RESULT_ACK_ALREADY_SEEN', status: 404 };
+    }
+    return {
+      ok: false,
+      errorCode:
+        e instanceof ApiError ? `RESULT_ACK_HTTP_${e.status}` : 'RESULT_ACK_FAILED',
+      status: e instanceof ApiError ? e.status : undefined,
+    };
+  }
+};
+
 export async function runNotificationRuntimeEffects(
   store: NotificationRuntimeStore,
   effects: readonly RuntimeEffect[],
@@ -79,6 +107,13 @@ export async function runNotificationRuntimeEffects(
             store,
             effect,
             overboardTransport,
+            token,
+          );
+        } else if (effect.action === 'result_ack') {
+          await executeSubmitResultAckEffect(
+            store,
+            effect,
+            ctx.resultAckTransport ?? resultAckTransport,
             token,
           );
         }

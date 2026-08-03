@@ -111,7 +111,11 @@ export type NotificationRuntimeState = {
   directEntry: DirectEntryState;
 };
 
-export type CardActionType = 'check_answer' | 'incoming_overboard';
+export type CardActionType =
+  | 'check_answer'
+  | 'incoming_overboard'
+  /** Explicit user dismiss of a result card → POST /bans/:id/result/ack */
+  | 'result_ack';
 
 export type CardDismissReason =
   | 'user_dismiss'

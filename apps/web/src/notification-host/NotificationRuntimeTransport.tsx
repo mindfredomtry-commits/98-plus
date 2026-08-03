@@ -170,6 +170,7 @@ export function NotificationRuntimeTransport({
         // pending-all is newest-first; Runtime ITEMS_RECEIVED canonicalizes FIFO.
         for (const item of items) {
           const id = notificationItemId(item);
+          if (store.getState().consumed.itemIds.includes(id)) continue;
           const already = store
             .getState()
             .items.queue.some((q) => notificationItemId(q) === id);

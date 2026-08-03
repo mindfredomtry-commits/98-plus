@@ -394,12 +394,16 @@ export function notificationRuntimeReducer(
         }
       }
 
+      // Never resurrect locally consumed identities (e.g. acked result).
+      const unconsumed = event.items.filter(
+        (item) => !base.consumed.itemIds.includes(notificationItemId(item)),
+      );
       const queue = reconcileQueueFifo(
         base.activation,
         base.items.queue,
         event.replaceQueue
-          ? dedupeAppend([], event.items)
-          : dedupeAppend(base.items.queue, event.items),
+          ? dedupeAppend([], unconsumed)
+          : dedupeAppend(base.items.queue, unconsumed),
       );
 
       const next: NotificationRuntimeState = {
@@ -576,7 +580,8 @@ export function notificationRuntimeReducer(
       }
       const actionOk =
         (event.action === 'check_answer' && current.kind === 'check') ||
-        (event.action === 'incoming_overboard' && current.kind === 'incoming');
+        (event.action === 'incoming_overboard' && current.kind === 'incoming') ||
+        (event.action === 'result_ack' && current.kind === 'result');
       if (!actionOk) {
         return { state: base, effects: [] };
       }

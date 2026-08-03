@@ -76,6 +76,8 @@ export function createAppCoordinatorLifecycle(input: {
     violation: AppCoordinatorInvariantViolation,
     event: AppCoordinatorEvent | { type: 'DOMAIN_INTENT' },
   ) => void;
+  /** Test override for result ack HTTP. */
+  resultAckTransport?: import('@/notification-runtime/notification-runtime.result-ack-action').ResultAckTransport;
 }): AppCoordinatorLifecycle {
   let disposed = false;
   const entryRouter = createTelegramEntryRouter();
@@ -130,6 +132,7 @@ export function createAppCoordinatorLifecycle(input: {
   notificationsController = createNotificationsController({
     store: input.runtimeStore,
     getToken: input.getToken,
+    resultAckTransport: input.resultAckTransport,
     sink: {
       sessionCompleted() {
         if (disposed) return;
