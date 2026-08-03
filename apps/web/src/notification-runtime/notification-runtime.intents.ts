@@ -10,7 +10,6 @@ import type {
 } from './notification-runtime.host-api';
 import { selectNotificationQueueReadModel } from './notification-runtime.host-api';
 import { requestIncomingOverboardAction } from './notification-runtime.overboard-action';
-import { requestResultAckAction } from './notification-runtime.result-ack-action';
 import { selectCurrentItem } from './notification-runtime.selectors';
 import {
   dismissRuntimeHead,
@@ -18,14 +17,13 @@ import {
 } from './notification-runtime.store';
 import {
   notificationItemId,
+  type CardDismissReason,
 } from './notification-runtime.types';
 
 export type NotificationIntentsDeps = {
   store: NotificationRuntimeStore;
   getToken: () => string | null;
   onRefresh?: (reason: 'bootstrap' | 'reconnect' | 'user') => Promise<void>;
-  /** Test override — production uses effects default HTTP adapter. */
-  resultAckTransport?: import('./notification-runtime.result-ack-action').ResultAckTransport;
 };
 
 function fail(reason: string): NotificationIntentResult {
@@ -41,22 +39,13 @@ export function createNotificationIntents(
 ): NotificationIntents {
   const { store, getToken } = deps;
 
-  const effectsCtx = {
-    getToken,
-    onRefreshPending: async () => {
-      await deps.onRefresh?.('user');
-    },
-    resultAckTransport: deps.resultAckTransport,
-  };
-
   const runEffects = async () => {
-    const batch = store.getLastEffects();
-    await runNotificationRuntimeEffects(store, batch, effectsCtx);
-    // Action executors may dispatch consume/refresh; drain one follow-up batch.
-    const followUp = store.getLastEffects();
-    if (followUp.length > 0 && followUp !== batch) {
-      await runNotificationRuntimeEffects(store, followUp, effectsCtx);
-    }
+    await runNotificationRuntimeEffects(store, store.getLastEffects(), {
+      getToken,
+      onRefreshPending: async () => {
+        await deps.onRefresh?.('user');
+      },
+    });
   };
 
   return {
@@ -102,19 +91,17 @@ export function createNotificationIntents(
     },
 
     async dismissResult(reason = 'close_result') {
-      void reason;
       const head = selectCurrentItem(store.getState());
       if (!head || head.kind !== 'result') {
         return fail('no-result-card');
       }
-      // Server ack first; local consume only on CARD_ACTION_SUCCEEDED.
-      const requested = requestResultAckAction(store, {
-        banId: head.result.id,
-        source: 'user',
-      });
-      if (!requested.accepted) {
-        return fail(requested.reason ?? 'result-ack-rejected');
-      }
+      const dismissReason: CardDismissReason = reason;
+      dismissRuntimeHead(
+        store,
+        notificationItemId(head),
+        dismissReason,
+        'user',
+      );
       await runEffects();
       return ok();
     },

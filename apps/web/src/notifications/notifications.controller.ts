@@ -51,8 +51,6 @@ export function createNotificationsController(input: {
   getToken: () => string | null;
   onRefresh?: (reason: 'bootstrap' | 'reconnect' | 'user') => Promise<void>;
   sink?: NotificationsDomainSink;
-  /** Test override for POST /bans/:id/result/ack */
-  resultAckTransport?: import('@/notification-runtime/notification-runtime.result-ack-action').ResultAckTransport;
 }): NotificationsController {
   let disposed = false;
   let lastActivationOutcome: NotificationsActivationOutcome | null = null;
@@ -65,7 +63,6 @@ export function createNotificationsController(input: {
     store: input.store,
     getToken: input.getToken,
     onRefresh: input.onRefresh,
-    resultAckTransport: input.resultAckTransport,
   });
 
   function project(): NotificationsDomainState {
@@ -216,10 +213,6 @@ export function createNotificationsController(input: {
           }
           if (active.kind === 'check') {
             void intents.confirmCheck(true);
-            return;
-          }
-          if (active.kind === 'result') {
-            void intents.dismissResult('close_result');
             return;
           }
           return;
