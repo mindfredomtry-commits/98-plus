@@ -15,3 +15,4 @@ export * from './relationship-relative-metric';
 export * from './relationship-direction';
 export * from './relationship-respect';
 export * from './relationship-global-share';
+export * from './notifications-contract-v1';

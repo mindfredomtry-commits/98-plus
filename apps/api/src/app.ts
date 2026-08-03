@@ -12,6 +12,7 @@ import { meRouter } from './routes/me';
 import { paymentProvidersRouter } from './routes/payment-providers';
 import { paymentsRouter } from './routes/payments';
 import { internalMonetizationRouter } from './routes/internal-monetization';
+import { notificationsRouter } from './routes/notifications';
 
 /** Explicit local dev frontends (safe to allow against Railway API). */
 const LOCAL_DEV_PORTS = ['3000', '3001', '3002'] as const;
@@ -105,6 +106,7 @@ export function createApp() {
   app.use('/auth', authRouter);
   app.use('/users', usersRouter);
   app.use('/bans', bansRouter);
+  app.use('/notifications', notificationsRouter);
   app.use('/admin', adminRouter);
   app.use('/analytics', analyticsRouter);
   app.use('/friends', friendsRouter);

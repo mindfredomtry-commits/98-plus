@@ -39,6 +39,8 @@ model User {
   retentionLogs  BotRetentionLog[]
   payments       Payment[]
   entitlements   Entitlement[]
+  /// Notifications Journal entries for this viewer (Restrict: keep history if user retained).
+  notificationJournalEntries NotificationJournalEntry[]
 }
 
 /// Dedup Telegram retention DMs per user–friend pair.
@@ -408,6 +410,27 @@ model Coupon {
   updatedAt DateTime   @updatedAt
 
   @@index([code])
+}
+
+/// Append-only Notifications Journal (delivery / ordering / removal).
+/// Ban remains business source of truth. No Ban FK — Ban deletes must not
+/// erase historical journal operations. userId Restrict keeps ops if User remains.
+model NotificationJournalEntry {
+  revision       BigInt   @id @default(autoincrement())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  operationType  String
+  itemId         String
+  itemSequence   BigInt?
+  itemKind       String?
+  banId          String?
+  deliveryPolicy String?
+  causedByItemId String?
+  payload        Json?
+  createdAt      DateTime @default(now())
+
+  @@index([userId, revision])
+  @@index([userId, itemId, revision])
 }
 
 enum ProductType {
