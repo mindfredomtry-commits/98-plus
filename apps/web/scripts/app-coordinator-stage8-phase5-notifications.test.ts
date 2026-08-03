@@ -1,33 +1,23 @@
 /**
- * Stage 8 Phase 5 domain tests — rewritten for Phase 8 Sync V1 Runtime model.
- *
- * Run:
- *   npx tsx --tsconfig apps/web/tsconfig.json apps/web/scripts/app-coordinator-stage8-phase5-notifications.test.ts
+ * Stage 8 Phase 5 domain invariants — rewritten against Sync V1 Runtime.
+ * Availability closed until truthful READY snapshot.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { BanInteraction } from '@98plus/shared';
+import { createNotificationRuntimeStore } from '../src/notification-runtime/notification-runtime.store';
 import {
   completeBootstrap,
   requestBootstrap,
 } from '../src/notification-runtime/notification-runtime.bootstrap';
-import {
-  itemFromIncoming,
-  receiveNotificationItem,
-} from '../src/notification-runtime/notification-runtime.ingest';
-import {
-  selectActiveItemId,
-  selectReadyHeadId,
-} from '../src/notification-runtime/notification-runtime.selectors';
-import { createNotificationRuntimeStore } from '../src/notification-runtime/notification-runtime.store';
 import { createNotificationsController } from '../src/notifications/notifications.controller';
 import { mapNotificationsAvailability } from '../src/notifications/notifications.availability';
 import { mapNotificationsCapability } from '../src/notifications/notifications.capability';
 import {
-  mapNotificationsUiEvent,
-  presentNotificationsState,
-} from '../src/notifications/presentation/notifications.presenter';
+  fixtureContractIncoming,
+  fixturePresentationIncoming,
+  fixtureSnapshot,
+} from './fixtures/notifications-contract-v1-fixture';
 
 let passed = 0;
 function pass(name: string): void {
@@ -38,108 +28,97 @@ function pass(name: string): void {
 const USER = 'r1';
 const webSrc = join(__dirname, '../src');
 
-function ban(id: string, createdAt = '2026-01-01T10:00:00.000Z'): BanInteraction {
-  return {
-    id,
-    text: 'текст',
-    status: 'PENDING',
-    durationMinutes: 30,
-    sender: {
-      id: 's1',
-      telegramId: '1',
-      username: 'anna',
-      firstName: 'Анна',
-      lastName: null,
-      avatarUrl: null,
-      photoUrl: null,
-      aura: 'stable',
-      auraLabel: '',
-      energyPercent: 50,
-      streak: 0,
-      isOnboarded: true,
-      notificationMode: 'all',
-    },
-    receiver: {
-      id: USER,
-      telegramId: '2',
-      username: 'r',
-      firstName: 'R',
-      lastName: null,
-      avatarUrl: null,
-      photoUrl: null,
-      aura: 'stable',
-      auraLabel: '',
-      energyPercent: 50,
-      streak: 0,
-      isOnboarded: true,
-      notificationMode: 'all',
-    },
-    isIncoming: true,
-    createdAt,
-    expiresAt: null,
-    checkDueAt: null,
-    threadId: 't',
-  };
-}
-
-function seed(store: ReturnType<typeof createNotificationRuntimeStore>, ids: string[]) {
-  const boot = requestBootstrap(store, { source: 'bootstrap' });
-  completeBootstrap(store, {
-    transitionId: boot.transitionId,
-    items: ids.map((id, i) =>
-      itemFromIncoming(
-        ban(id, `2026-01-01T10:0${i}:00.000Z`),
+function seedReady(
+  store: ReturnType<typeof createNotificationRuntimeStore>,
+  ids: string[],
+) {
+  store.dispatch({
+    type: 'APPLY_NOTIFICATIONS_SNAPSHOT_V1',
+    transitionId: 'seed',
+    snapshot: fixtureSnapshot({
+      revision: String(ids.length),
+      items: ids.map((id, i) =>
+        fixtureContractIncoming({
+          banId: id,
+          userId: USER,
+          sequence: String(i + 1),
+        }),
       ),
+    }),
+    presentationByItemId: Object.fromEntries(
+      ids.map((id) => [(`incoming:${id}` as const), fixturePresentationIncoming(id, USER)]),
     ),
-    userId: USER,
-    source: 'bootstrap',
+    source: 'test',
   });
 }
 
-console.log('\n=== PHASE 5 DOMAIN (Phase 8 Runtime model) ===\n');
+console.log('\n=== PHASE 5 DOMAIN (no synthetic authority) ===\n');
 
 {
   const store = createNotificationRuntimeStore();
-  assert.equal(mapNotificationsAvailability(store.getState()).availability, 'UNAVAILABLE');
-  seed(store, ['1']);
-  assert.equal(mapNotificationsAvailability(store.getState()).availability, 'AVAILABLE');
-  pass('Availability: empty UNAVAILABLE; ready item AVAILABLE');
+  assert.equal(
+    mapNotificationsAvailability(store.getState()).availability,
+    'UNAVAILABLE',
+  );
+  const boot = requestBootstrap(store, { source: 'bootstrap' });
+  completeBootstrap(store, { transitionId: boot.transitionId, source: 'bootstrap' });
+  assert.equal(store.getState().syncStatus, 'FAILED');
+  assert.equal(
+    mapNotificationsAvailability(store.getState()).availability,
+    'UNAVAILABLE',
+  );
+  pass('Availability closed before truthful sync (FAILED)');
 }
 
 {
   const store = createNotificationRuntimeStore();
-  seed(store, ['1', '2']);
+  seedReady(store, ['1']);
+  assert.equal(
+    mapNotificationsAvailability(store.getState()).availability,
+    'AVAILABLE',
+  );
   const ctrl = createNotificationsController({
     store,
     getToken: () => null,
-    getUserId: () => USER,
   });
-  assert.equal(selectActiveItemId(store.getState()), null);
   ctrl.dispatch({ type: 'ACTIVATE_READY_ITEM_REQUESTED' });
-  assert.equal(selectActiveItemId(store.getState()), 'incoming:1');
-  assert.equal(selectReadyHeadId(store.getState()), 'incoming:2');
-  const view = presentNotificationsState(ctrl.getState());
-  assert.equal(view.kind === 'ACTIVE' || view.phase === 'ACTIVE' || !!ctrl.getState().activeItem, true);
-  pass('Open activates ready head; presenter sees active only');
+  assert.equal(store.getState().activeItemId, 'incoming:1');
+  pass('Open activates ready head when READY');
 }
 
 {
   const store = createNotificationRuntimeStore();
-  seed(store, ['1']);
+  seedReady(store, ['1']);
   store.dispatch({ type: 'ACTIVATE_READY_ITEM_REQUESTED', source: 'user' });
-  receiveNotificationItem(store, {
-    item: itemFromIncoming(ban('2', '2026-01-01T11:00:00.000Z')),
-    source: 'websocket',
-    userId: USER,
+  store.dispatch({
+    type: 'APPLY_NOTIFICATIONS_DELTA_V1',
+    transitionId: 'd',
+    delta: {
+      type: 'DELTA',
+      fromRevision: '1',
+      revision: '2',
+      operations: [
+        {
+          type: 'UPSERT_ITEM',
+          revision: '2',
+          item: fixtureContractIncoming({
+            banId: '2',
+            userId: USER,
+            sequence: '2',
+          }),
+        },
+      ],
+    },
+    source: 'test',
   });
   assert.equal(store.getState().activeItemId, 'incoming:1');
   assert.ok(store.getState().passiveItemIds.includes('incoming:2'));
-  pass('New item while active → active stable; FIFO grows');
+  pass('New item while active → active stable; passive grows');
 }
 
 {
   const store = createNotificationRuntimeStore();
-  seed(store, ['1']);
+  seedReady(store, ['1']);
   store.dispatch({ type: 'ACTIVATE_READY_ITEM_REQUESTED', source: 'user' });
   store.dispatch({
     type: 'CARD_ACTION_REQUESTED',
@@ -149,20 +128,6 @@ console.log('\n=== PHASE 5 DOMAIN (Phase 8 Runtime model) ===\n');
     source: 'user',
   });
   assert.equal(mapNotificationsCapability(store.getState()).transition, 'BLOCKED');
-  pass('Action submission → capability BLOCKED');
-}
-
-{
-  const store = createNotificationRuntimeStore();
-  seed(store, ['1']);
-  store.dispatch({ type: 'ACTIVATE_READY_ITEM_REQUESTED', source: 'user' });
-  store.dispatch({
-    type: 'CARD_ACTION_REQUESTED',
-    commandId: 'c1',
-    targetItemId: 'incoming:1',
-    action: 'incoming_overboard',
-    source: 'user',
-  });
   store.dispatch({
     type: 'CARD_ACTION_FAILED',
     commandId: 'c1',
@@ -171,14 +136,17 @@ console.log('\n=== PHASE 5 DOMAIN (Phase 8 Runtime model) ===\n');
     source: 'user',
   });
   assert.equal(store.getState().activeItemId, 'incoming:1');
-  assert.equal(store.getState().action.status, 'FAILED');
-  pass('Action failure preserves active item');
+  pass('Action targets active; failure preserves active; capability BLOCKED while submitting');
 }
 
 {
-  const mapped = mapNotificationsUiEvent({ type: 'CLOSE' } as never);
-  assert.ok(mapped);
-  pass('Presenter UI event mapping exists');
+  const store = createNotificationRuntimeStore();
+  seedReady(store, ['1', '2']);
+  store.dispatch({ type: 'ACTIVATE_READY_ITEM_REQUESTED', source: 'user' });
+  store.dispatch({ type: 'ACTIVE_ITEM_CLOSE_REQUESTED', source: 'user' });
+  assert.equal(store.getState().activeItemId, null);
+  assert.equal(store.getState().passiveItemIds[0], 'incoming:1');
+  pass('No automatic queue drain');
 }
 
 {
@@ -187,26 +155,14 @@ console.log('\n=== PHASE 5 DOMAIN (Phase 8 Runtime model) ===\n');
     'utf8',
   );
   assert.doesNotMatch(reducer, /items\.queue/);
-  assert.match(reducer, /reconcileNotifications/);
-  const policy = readFileSync(
-    join(webSrc, 'app-coordinator/application-policy.ts'),
-    'utf8',
+  assert.doesNotMatch(
+    readFileSync(
+      join(webSrc, 'notification-runtime/notification-runtime.bootstrap.ts'),
+      'utf8',
+    ),
+    /temporary-adapter|epochMsSequence/,
   );
-  assert.doesNotMatch(policy, /passiveItemIds|itemsById/);
-  pass('Source guards: no queue in reducer; policy has no Notifications queue branches');
-}
-
-{
-  const store = createNotificationRuntimeStore();
-  seed(store, ['1', '2']);
-  store.dispatch({ type: 'ACTIVATE_READY_ITEM_REQUESTED', source: 'user' });
-  // Completing without auto-drain: close returns to passive; second stays until manual open
-  store.dispatch({ type: 'ACTIVE_ITEM_CLOSE_REQUESTED', source: 'user' });
-  assert.equal(store.getState().activeItemId, null);
-  assert.equal(store.getState().passiveItemIds[0], 'incoming:1');
-  store.dispatch({ type: 'ACTIVATE_READY_ITEM_REQUESTED', source: 'user' });
-  assert.equal(store.getState().activeItemId, 'incoming:1');
-  pass('No automatic queue drain / next-item activation');
+  pass('Source guards: no queue; no synthetic adapter in bootstrap');
 }
 
 console.log(`\n${passed} passed\n`);

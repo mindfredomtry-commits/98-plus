@@ -1,9 +1,8 @@
 /**
- * Stage 8 Phase 8 — deeplink / live-single direct entry via temporary adapter.
- * Does not activate; does not clear Runtime collections.
+ * Stage 8 correction — deeplink entry must not invent Runtime items.
+ * Fetch may still run for non-Runtime hosts; Runtime collection stays closed.
  */
 import type { BanInteraction, BanResult } from '@98plus/shared';
-import { receiveNotificationItem } from './notification-runtime.ingest';
 import {
   nextRuntimeTransitionId,
   type NotificationRuntimeStore,
@@ -23,7 +22,8 @@ export type DirectEntryOutcome =
   | 'idle'
   | 'deferred'
   | 'failed'
-  | 'rejected';
+  | 'rejected'
+  | 'blocked_awaiting_sync';
 
 export type DirectItemTransport = (args: {
   targetId: string;
@@ -44,7 +44,7 @@ export function toDirectNotificationItem(
 }
 
 export function requestDirectEntry(
-  store: NotificationRuntimeStore,
+  _store: NotificationRuntimeStore,
   args: {
     targetId: string;
     targetKind?: NotificationItemKind | null;
@@ -65,71 +65,28 @@ export function requestDirectEntry(
 } {
   const transitionId =
     args.transitionId ?? nextRuntimeTransitionId('direct-entry');
-  const source: RuntimeSource =
-    args.source ??
-    (args.entrySource === 'live-single' ? 'websocket' : 'deeplink');
-
-  if (args.defer) {
-    return {
-      accepted: true,
-      deferred: true,
-      transitionId,
-      outcome: 'deferred',
-      effects: [],
-    };
-  }
-
-  if (args.item && args.userId) {
-    receiveNotificationItem(store, {
-      item: args.item,
-      source,
-      userId: args.userId,
-      transitionId,
-    });
-    return {
-      accepted: true,
-      deferred: false,
-      transitionId,
-      outcome: 'queued',
-      effects: [],
-    };
-  }
-
-  // Fetch effect — caller runs executeFetchDirectItemEffect
+  // Do not write fabricated items into Runtime.
   return {
-    accepted: true,
+    accepted: false,
     deferred: false,
     transitionId,
-    outcome: 'queued',
+    outcome: 'blocked_awaiting_sync',
     effects: [],
   };
 }
 
 export async function executeFetchDirectItemEffect(
-  store: NotificationRuntimeStore,
-  args: {
+  _store: NotificationRuntimeStore,
+  _args: {
     targetId: string;
     targetKind: NotificationItemKind | null;
     transitionId: string;
     source?: RuntimeSource;
     userId: string;
   },
-  fetchItem: DirectItemTransport,
+  _fetchItem: DirectItemTransport,
 ): Promise<void> {
-  try {
-    const item = await fetchItem({
-      targetId: args.targetId,
-      targetKind: args.targetKind,
-    });
-    receiveNotificationItem(store, {
-      item,
-      source: args.source ?? 'deeplink',
-      userId: args.userId,
-      transitionId: args.transitionId,
-    });
-  } catch {
-    // Soft-fail direct fetch — do not clear Runtime.
-  }
+  // Intentionally empty — no Runtime writes without journal Sync.
 }
 
 export function flushDeferredDirectEntry(
@@ -140,19 +97,13 @@ export function flushDeferredDirectEntry(
 }
 
 export function applyDirectItemReceived(
-  store: NotificationRuntimeStore,
-  args: {
+  _store: NotificationRuntimeStore,
+  _args: {
     transitionId: string;
     item: NotificationItem;
     userId: string;
     source?: RuntimeSource;
   },
 ): DirectEntryOutcome {
-  receiveNotificationItem(store, {
-    item: args.item,
-    source: args.source ?? 'deeplink',
-    userId: args.userId,
-    transitionId: args.transitionId,
-  });
-  return 'queued';
+  return 'blocked_awaiting_sync';
 }

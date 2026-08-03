@@ -1,21 +1,13 @@
 /**
- * Stage 8 Phase 8 — FIFO via temporary adapter sequence (createdAt → sequence).
- * Replaces deleted items.queue FIFO tests.
- *
- * Run:
- *   npx tsx --tsconfig apps/web/tsconfig.json apps/web/scripts/notification-runtime-fifo-order.test.ts
+ * FIFO ordering via explicit Contract V1 sequences (test fixtures).
+ * Replaces deleted timestamp/queue FIFO tests.
  */
 import assert from 'node:assert/strict';
-import type { BanInteraction } from '@98plus/shared';
-import {
-  completeBootstrap,
-  requestBootstrap,
-} from '../src/notification-runtime/notification-runtime.bootstrap';
-import {
-  itemFromIncoming,
-  receiveNotificationItem,
-} from '../src/notification-runtime/notification-runtime.ingest';
 import { createNotificationRuntimeStore } from '../src/notification-runtime/notification-runtime.store';
+import {
+  fixtureContractIncoming,
+  fixtureSnapshot,
+} from './fixtures/notifications-contract-v1-fixture';
 
 let passed = 0;
 function pass(name: string): void {
@@ -25,115 +17,98 @@ function pass(name: string): void {
 
 const USER = 'u1';
 
-function ban(id: string, createdAt: string): BanInteraction {
-  return {
-    id,
-    text: id,
-    status: 'PENDING',
-    durationMinutes: 30,
-    sender: {
-      id: 's',
-      telegramId: '1',
-      username: 's',
-      firstName: 'S',
-      lastName: null,
-      avatarUrl: null,
-      photoUrl: null,
-      aura: 'stable',
-      auraLabel: '',
-      energyPercent: 0,
-      streak: 0,
-      isOnboarded: true,
-      notificationMode: 'all',
-    },
-    receiver: {
-      id: USER,
-      telegramId: '2',
-      username: 'r',
-      firstName: 'R',
-      lastName: null,
-      avatarUrl: null,
-      photoUrl: null,
-      aura: 'stable',
-      auraLabel: '',
-      energyPercent: 0,
-      streak: 0,
-      isOnboarded: true,
-      notificationMode: 'all',
-    },
-    isIncoming: true,
-    createdAt,
-    expiresAt: null,
-    checkDueAt: null,
-    threadId: 't',
-  };
+function seed(
+  store: ReturnType<typeof createNotificationRuntimeStore>,
+  revision: string,
+  pairs: Array<[string, string]>,
+) {
+  store.dispatch({
+    type: 'APPLY_NOTIFICATIONS_SNAPSHOT_V1',
+    transitionId: 't',
+    snapshot: fixtureSnapshot({
+      revision,
+      items: pairs.map(([banId, sequence]) =>
+        fixtureContractIncoming({ banId, userId: USER, sequence }),
+      ),
+    }),
+    source: 'test',
+  });
 }
 
-console.log('\n=== FIFO (Sync V1 temporary sequence) ===\n');
+console.log('\n=== FIFO (explicit Contract V1 sequence) ===\n');
 
 {
   const store = createNotificationRuntimeStore();
-  const boot = requestBootstrap(store, { source: 'bootstrap' });
-  completeBootstrap(store, {
-    transitionId: boot.transitionId,
-    items: [],
-    userId: USER,
-    source: 'bootstrap',
-  });
-  receiveNotificationItem(store, {
-    item: itemFromIncoming(ban('2', '2026-01-01T11:00:00.000Z')),
-    source: 'websocket',
-    userId: USER,
-  });
-  receiveNotificationItem(store, {
-    item: itemFromIncoming(ban('1', '2026-01-01T10:00:00.000Z')),
-    source: 'poll',
-    userId: USER,
+  seed(store, '2', [
+    ['2', '2'],
+    ['1', '1'],
+  ]);
+  assert.deepEqual(store.getState().passiveItemIds, [
+    'incoming:1',
+    'incoming:2',
+  ]);
+  pass('1. Snapshot out-of-order → sequence ASC [1,2]');
+}
+
+{
+  const store = createNotificationRuntimeStore();
+  seed(store, '1', [['2', '2']]);
+  store.dispatch({
+    type: 'APPLY_NOTIFICATIONS_DELTA_V1',
+    transitionId: 'd',
+    delta: {
+      type: 'DELTA',
+      fromRevision: '1',
+      revision: '2',
+      operations: [
+        {
+          type: 'UPSERT_ITEM',
+          revision: '2',
+          item: fixtureContractIncoming({
+            banId: '1',
+            userId: USER,
+            sequence: '1',
+          }),
+        },
+      ],
+    },
+    source: 'test',
   });
   assert.deepEqual(store.getState().passiveItemIds, [
     'incoming:1',
     'incoming:2',
   ]);
-  pass('1. WS then older poll → [1, 2]');
+  pass('2. Delta older sequence inserts before newer');
 }
 
 {
   const store = createNotificationRuntimeStore();
-  const boot = requestBootstrap(store, { source: 'bootstrap' });
-  completeBootstrap(store, {
-    transitionId: boot.transitionId,
-    items: [
-      itemFromIncoming(ban('2', '2026-01-01T11:00:00.000Z')),
-      itemFromIncoming(ban('1', '2026-01-01T10:00:00.000Z')),
-    ],
-    userId: USER,
-    source: 'bootstrap',
-  });
-  assert.deepEqual(store.getState().passiveItemIds, [
-    'incoming:1',
-    'incoming:2',
+  seed(store, '2', [
+    ['1', '1'],
+    ['2', '2'],
   ]);
-  pass('2. Bootstrap newest-first payload → canonical [1,2]');
-}
-
-{
-  const store = createNotificationRuntimeStore();
-  const boot = requestBootstrap(store, { source: 'bootstrap' });
-  completeBootstrap(store, {
-    transitionId: boot.transitionId,
-    items: [
-      itemFromIncoming(ban('1', '2026-01-01T10:00:00.000Z')),
-      itemFromIncoming(ban('2', '2026-01-01T11:00:00.000Z')),
-    ],
-    userId: USER,
-    source: 'bootstrap',
-  });
   store.dispatch({ type: 'ACTIVATE_READY_ITEM_REQUESTED', source: 'user' });
   assert.equal(store.getState().activeItemId, 'incoming:1');
-  receiveNotificationItem(store, {
-    item: itemFromIncoming(ban('0', '2026-01-01T09:00:00.000Z')),
-    source: 'websocket',
-    userId: USER,
+  store.dispatch({
+    type: 'APPLY_NOTIFICATIONS_DELTA_V1',
+    transitionId: 'd',
+    delta: {
+      type: 'DELTA',
+      fromRevision: '2',
+      revision: '3',
+      operations: [
+        {
+          type: 'UPSERT_ITEM',
+          revision: '3',
+          item: fixtureContractIncoming({
+            banId: '0',
+            userId: USER,
+            sequence: '0',
+          }),
+        },
+      ],
+    },
+    source: 'test',
   });
   assert.equal(store.getState().activeItemId, 'incoming:1');
   assert.deepEqual(store.getState().passiveItemIds, [
@@ -145,22 +120,16 @@ console.log('\n=== FIFO (Sync V1 temporary sequence) ===\n');
 
 {
   const store = createNotificationRuntimeStore();
-  const boot = requestBootstrap(store, { source: 'bootstrap' });
-  completeBootstrap(store, {
-    transitionId: boot.transitionId,
-    items: [
-      itemFromIncoming(ban('1', '2026-01-01T10:00:00.000Z')),
-      itemFromIncoming(ban('2', '2026-01-01T11:00:00.000Z')),
-    ],
-    userId: USER,
-    source: 'bootstrap',
-  });
+  seed(store, '2', [
+    ['1', '1'],
+    ['2', '2'],
+  ]);
   store.dispatch({ type: 'ACTIVATE_READY_ITEM_REQUESTED', source: 'user' });
   store.dispatch({ type: 'ACTIVE_ITEM_CLOSE_REQUESTED', source: 'user' });
   assert.equal(store.getState().activeItemId, null);
   store.dispatch({ type: 'ACTIVATE_READY_ITEM_REQUESTED', source: 'user' });
   assert.equal(store.getState().activeItemId, 'incoming:1');
-  pass('4. Close then reopen activates same FIFO head; no auto-drain');
+  pass('4. Close then reopen; no auto-drain');
 }
 
 console.log(`\n${passed} passed\n`);

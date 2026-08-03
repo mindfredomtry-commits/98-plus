@@ -1,124 +1,75 @@
 /**
- * Stage 8 Phase 8 — ingest via temporary adapter → APPLY_DELTA / SNAPSHOT.
- * No items.queue writers.
+ * Stage 8 correction — ingest boundary does NOT write Runtime items.
+ *
+ * Ban/WS/pending payloads lack journal sequence/revision. Fabricating them
+ * is forbidden. Phase 9 Sync API is the only item authority.
  */
 import type { BanInteraction, BanResult } from '@98plus/shared';
-import type { NotificationRuntimeStore } from './notification-runtime.store';
-import { nextRuntimeTransitionId } from './notification-runtime.store';
 import {
-  buildSnapshotFromLegacyItems,
-  buildUpsertDeltaFromLegacyItem,
   itemFromCheck,
   itemFromIncoming,
   itemFromResult,
-} from './notification-runtime.temporary-adapter';
-import type {
-  NotificationItem,
-  RuntimeSource,
-} from './notification-runtime.types';
-import { notificationItemId } from './notification-runtime.types';
+  notificationItemId,
+} from './notification-runtime.presentation';
+import type { NotificationItem, RuntimeSource } from './notification-runtime.types';
+import type { NotificationRuntimeStore } from './notification-runtime.store';
 
 export type ReceiveNotificationItemArgs = {
   item: NotificationItem;
   source: RuntimeSource;
-  userId: string;
+  userId?: string;
   transitionId?: string;
-  /** Causal NEXT_IN_SESSION when result follows overboard. */
   causedByItemId?: string;
 };
 
-export function receiveNotificationItem(
-  store: NotificationRuntimeStore,
-  args: ReceiveNotificationItemArgs,
-): void {
-  const state = store.getState();
-  const fromRevision = state.revision;
-  if (fromRevision == null) {
-    // No baseline yet — apply as single-item snapshot
-    const { snapshot, presentationByItemId } = buildSnapshotFromLegacyItems({
-      items: [args.item],
-      userId: args.userId,
-      priorRevision: null,
-    });
-    store.dispatch({
-      type: 'APPLY_NOTIFICATIONS_SNAPSHOT_V1',
-      transitionId: args.transitionId ?? nextRuntimeTransitionId('ingest'),
-      snapshot,
-      presentationByItemId,
-      source: args.source,
-    });
-    return;
+/**
+ * Intentionally a no-op for Runtime collection authority.
+ * Logs once per process in non-production for diagnostics.
+ */
+let warned = false;
+function warnBlocked(path: string): void {
+  if (warned) return;
+  warned = true;
+  if (process.env.NODE_ENV !== 'production') {
+    console.warn(
+      `[notifications-ingest] blocked ${path}: awaiting truthful Sync V1 (Phase 9)`,
+    );
   }
-  const { delta, presentationByItemId } = buildUpsertDeltaFromLegacyItem({
-    item: args.item,
-    userId: args.userId,
-    fromRevision,
-    causedByItemId: args.causedByItemId,
-  });
-  store.dispatch({
-    type: 'APPLY_NOTIFICATIONS_DELTA_V1',
-    transitionId: args.transitionId ?? nextRuntimeTransitionId('ingest'),
-    delta,
-    presentationByItemId,
-    source: args.source,
-  });
+}
+
+export function receiveNotificationItem(
+  _store: NotificationRuntimeStore,
+  _args: ReceiveNotificationItemArgs,
+): void {
+  warnBlocked('receiveNotificationItem');
 }
 
 export function receiveNotificationItems(
-  store: NotificationRuntimeStore,
-  args: {
+  _store: NotificationRuntimeStore,
+  _args: {
     items: NotificationItem[];
     source: RuntimeSource;
-    userId: string;
+    userId?: string;
     transitionId?: string;
   },
 ): void {
-  const prior = store.getState().revision;
-  const { snapshot, presentationByItemId } = buildSnapshotFromLegacyItems({
-    items: args.items,
-    userId: args.userId,
-    priorRevision: prior,
-  });
-  store.dispatch({
-    type: 'APPLY_NOTIFICATIONS_SNAPSHOT_V1',
-    transitionId: args.transitionId ?? nextRuntimeTransitionId('ingest'),
-    snapshot,
-    presentationByItemId,
-    source: args.source,
-  });
+  warnBlocked('receiveNotificationItems');
 }
 
-/** Complete identity: REMOVE prior kind for ban via authorized path only from actions. */
 export function completeNotificationIdentity(
-  store: NotificationRuntimeStore,
-  args: {
+  _store: NotificationRuntimeStore,
+  _args: {
     banId: string;
     kinds: Array<'incoming' | 'check'>;
     source: RuntimeSource;
-    userId: string;
+    userId?: string;
   },
 ): void {
-  const state = store.getState();
-  if (state.revision == null) return;
-  // Passive complete without action auth — only remove if not active
-  for (const kind of args.kinds) {
-    const itemId = `${kind}:${args.banId}`;
-    if (state.activeItemId === itemId) continue;
-    if (!state.itemsById[itemId]) continue;
-    const fromRevision = store.getState().revision!;
-    const rev = (BigInt(fromRevision) + BigInt(1)).toString();
-    store.dispatch({
-      type: 'APPLY_NOTIFICATIONS_DELTA_V1',
-      transitionId: nextRuntimeTransitionId('complete'),
-      delta: {
-        type: 'DELTA',
-        fromRevision,
-        revision: rev,
-        operations: [{ type: 'REMOVE_ITEM', revision: rev, itemId }],
-      },
-      source: args.source,
-    });
-  }
+  warnBlocked('completeNotificationIdentity');
+}
+
+export function pendingIdForItem(item: NotificationItem): string {
+  return notificationItemId(item);
 }
 
 export {
@@ -128,8 +79,4 @@ export {
   notificationItemId,
 };
 
-export function pendingIdForItem(item: NotificationItem): string {
-  return notificationItemId(item);
-}
-
-export type { BanInteraction, BanResult };
+export type { BanInteraction, BanResult, NotificationItem };

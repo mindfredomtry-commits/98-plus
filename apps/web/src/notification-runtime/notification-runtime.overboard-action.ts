@@ -1,7 +1,7 @@
 /**
- * Stage 8 Phase 8 — overboard action targets activeItemId; completes via reconcile delta.
+ * Stage 8 correction — overboard targets activeItemId.
+ * Cannot invent REMOVE/UPSERT revision; awaits Phase 9 truthful delta.
  */
-import type { BanResult } from '@98plus/shared';
 import { normalizeId } from '@/lib/normalize-json';
 import {
   selectActiveItem,
@@ -11,17 +11,12 @@ import {
   nextRuntimeTransitionId,
   type NotificationRuntimeStore,
 } from './notification-runtime.store';
-import {
-  buildRemoveDelta,
-  itemFromResult,
-  toCausalResultItemV1,
-} from './notification-runtime.temporary-adapter';
 import { notificationItemId } from './notification-runtime.types';
 import type { RuntimeEffect, RuntimeSource } from './notification-runtime.types';
 
 export type OverboardSubmitApiResponse = {
   ok?: boolean;
-  result?: BanResult | null;
+  result?: import('@98plus/shared').BanResult | null;
   error?: string;
   explicitNoResult?: boolean;
 };
@@ -56,6 +51,14 @@ export function requestIncomingOverboardAction(
   effects: RuntimeEffect[];
   reason?: string;
 } {
+  if (store.getState().syncStatus !== 'READY') {
+    return {
+      accepted: false,
+      commandId: null,
+      effects: [],
+      reason: 'sync-not-ready',
+    };
+  }
   if (selectIsActionBlocked(store.getState())) {
     return {
       accepted: false,
@@ -116,7 +119,7 @@ export async function executeSubmitIncomingOverboardEffect(
   effect: Extract<RuntimeEffect, { type: 'SUBMIT_CARD_ACTION' }>,
   transport: OverboardSubmitTransport,
   token: string,
-  userId: string,
+  _userId: string,
 ): Promise<OverboardSubmitOutcome> {
   if (effect.action !== 'incoming_overboard') {
     return { ok: false, error: 'wrong-action' };
@@ -135,47 +138,15 @@ export async function executeSubmitIncomingOverboardEffect(
       return { ok: false, error: res.error ?? 'OVERBOARD_FAILED' };
     }
 
-    if (res.result) {
-      const fromRevision = store.getState().revision ?? '0';
-      const upsert = toCausalResultItemV1(
-        res.result,
-        userId,
-        effect.targetItemId,
-      );
-      const { delta, presentationByItemId } = buildRemoveDelta({
-        itemId: effect.targetItemId,
-        fromRevision,
-        upsert,
-        presentationByItemId: {
-          [upsert.itemId]: itemFromResult(res.result),
-        },
-      });
-      store.dispatch({
-        type: 'CARD_ACTION_SUCCEEDED',
-        commandId: effect.commandId,
-        targetItemId: effect.targetItemId,
-        delta,
-        presentationByItemId,
-        promoteCausalNext: true,
-        source: 'user',
-      });
-      return { ok: true, materializedResultBanId: banId };
-    }
-
-    const fromRevision = store.getState().revision ?? '0';
-    const { delta } = buildRemoveDelta({
-      itemId: effect.targetItemId,
-      fromRevision,
-    });
+    // HTTP success without journal ops — cannot mutate Runtime collection.
     store.dispatch({
-      type: 'CARD_ACTION_SUCCEEDED',
+      type: 'CARD_ACTION_FAILED',
       commandId: effect.commandId,
       targetItemId: effect.targetItemId,
-      delta,
-      promoteCausalNext: true,
+      errorCode: 'AWAITING_TRUTHFUL_SYNC',
       source: 'user',
     });
-    return { ok: true };
+    return { ok: false, error: 'AWAITING_TRUTHFUL_SYNC' };
   } catch {
     store.dispatch({
       type: 'CARD_ACTION_FAILED',

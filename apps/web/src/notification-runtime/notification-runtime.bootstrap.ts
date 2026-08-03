@@ -1,19 +1,21 @@
 /**
- * Stage 8 Phase 8 — sync start / apply via temporary adapter (no queue clear).
+ * Stage 8 correction — sync status only. No item writes. No synthetic authority.
+ *
+ * Until Phase 9 truthful SNAPSHOT/DELTA, Notifications remain unavailable.
  */
 import type { NotificationRuntimeStore } from './notification-runtime.store';
 import { nextRuntimeTransitionId } from './notification-runtime.store';
-import { buildSnapshotFromLegacyItems } from './notification-runtime.temporary-adapter';
-import type {
-  NotificationItem,
-  RuntimeSource,
-} from './notification-runtime.types';
+import type { RuntimeSource } from './notification-runtime.types';
 
 export type BootstrapOutcome = {
   accepted: boolean;
   transitionId: string;
 };
 
+/**
+ * Begin sync attempt. Does not clear items (none should exist yet).
+ * Does not invent SNAPSHOT from Ban payloads.
+ */
 export function requestBootstrap(
   store: NotificationRuntimeStore,
   args: { source: RuntimeSource; recovery?: boolean },
@@ -29,26 +31,25 @@ export function requestBootstrap(
   return { accepted: true, transitionId };
 }
 
+/**
+ * Truthful Sync is not connected. Mark FAILED — do not apply fabricated items.
+ */
 export function completeBootstrap(
   store: NotificationRuntimeStore,
   args: {
     transitionId: string;
-    items: NotificationItem[];
-    userId: string;
     source: RuntimeSource;
+    /** Ignored — Ban payloads cannot supply journal sequence/revision. */
+    items?: unknown;
+    userId?: string;
   },
 ): void {
-  const prior = store.getState().revision;
-  const { snapshot, presentationByItemId } = buildSnapshotFromLegacyItems({
-    items: args.items,
-    userId: args.userId,
-    priorRevision: prior,
-  });
+  void args.items;
+  void args.userId;
   store.dispatch({
-    type: 'APPLY_NOTIFICATIONS_SNAPSHOT_V1',
+    type: 'SYNC_FAILED',
     transitionId: args.transitionId,
-    snapshot,
-    presentationByItemId,
+    errorCode: 'AWAITING_TRUTHFUL_SYNC',
     source: args.source,
   });
 }

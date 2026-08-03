@@ -649,8 +649,10 @@ console.log('\n=== NOTIFICATIONS RUNTIME RECONCILE V1 ===\n');
   pass('matrix: no Coordinator/owner commands in reconcile result');
 }
 
-// —— Reachability: kernel not wired to production ——————————
 {
+  // —— Reachability: Sync API unwired; no synthetic adapter ————————
+  // Phase 8 correction: reducer IS reconcile authority; Sync API still unwired.
+  // Temporary synthetic adapter must not exist under src/.
   const transport = readFileSync(
     join(webSrc, 'notification-host/NotificationRuntimeTransport.tsx'),
     'utf8',
@@ -659,29 +661,25 @@ console.log('\n=== NOTIFICATIONS RUNTIME RECONCILE V1 ===\n');
     join(runtimeDir, 'notification-runtime.bootstrap.ts'),
     'utf8',
   );
-  const intents = readFileSync(
-    join(runtimeDir, 'notification-runtime.intents.ts'),
+  const ingest = readFileSync(
+    join(runtimeDir, 'notification-runtime.ingest.ts'),
     'utf8',
   );
-
-  // Phase 8: reducer IS the reconcile authority. Transport must not call Sync API yet.
-  for (const [name, src] of [
-    ['transport', transport],
-    ['bootstrap', bootstrap],
-    ['intents', intents],
-  ] as const) {
-    assert.doesNotMatch(src, /\/notifications\/sync/, `${name} Sync API`);
-    assert.doesNotMatch(src, /notifications:delta:v1/, `${name} WS V1`);
-  }
-
   const reducer = readFileSync(
     join(runtimeDir, 'notification-runtime.reducer.ts'),
     'utf8',
   );
+
   assert.match(reducer, /reconcileNotifications(Snapshot|Delta)V1/);
   assert.doesNotMatch(reducer, /items\.queue/);
+  assert.doesNotMatch(transport, /\/notifications\/sync|notifications:delta:v1/);
+  assert.doesNotMatch(bootstrap, /APPLY_NOTIFICATIONS_SNAPSHOT|temporary-adapter/);
+  assert.doesNotMatch(ingest, /APPLY_NOTIFICATIONS_/);
+  assert.match(bootstrap, /AWAITING_TRUTHFUL_SYNC/);
 
-  // Kernel deps: no React/HTTP/WS/Coordinator/Presenter imports
+  const files = readdirSync(runtimeDir);
+  assert.ok(!files.includes('notification-runtime.temporary-adapter.ts'));
+
   const reconcileSrc = readFileSync(
     join(runtimeDir, 'notification-runtime.reconcile.ts'),
     'utf8',
@@ -692,9 +690,8 @@ console.log('\n=== NOTIFICATIONS RUNTIME RECONCILE V1 ===\n');
     reconcileSrc,
     /from ['"][^'"]*(app-coordinator|presenter|prisma)/i,
   );
-  assert.doesNotMatch(reconcileSrc, /NotificationRuntimeTransport/);
 
-  pass('reachability: reconcile is Runtime authority; Sync API not connected');
+  pass('reachability: no synthetic adapter; Sync API unwired; reconcile owns items');
 }
 
 {

@@ -1,7 +1,7 @@
 /**
- * Stage 8 Phase 8 — check action targets activeItemId.
+ * Stage 8 correction — check action targets activeItemId.
+ * Cannot invent REMOVE/UPSERT revision; awaits Phase 9 truthful delta.
  */
-import type { BanResult } from '@98plus/shared';
 import { normalizeId } from '@/lib/normalize-json';
 import {
   selectActiveItem,
@@ -11,19 +11,13 @@ import {
   nextRuntimeTransitionId,
   type NotificationRuntimeStore,
 } from './notification-runtime.store';
-import {
-  buildRemoveDelta,
-  itemFromResult,
-  toCausalResultItemV1,
-  toContractItemV1,
-} from './notification-runtime.temporary-adapter';
 import { notificationItemId } from './notification-runtime.types';
 import type { RuntimeEffect, RuntimeSource } from './notification-runtime.types';
 
 export type CheckSubmitApiResponse = {
   done: boolean;
   waiting?: boolean;
-  result?: BanResult;
+  result?: import('@98plus/shared').BanResult;
 };
 
 export type CheckSubmitTransport = (input: {
@@ -50,6 +44,14 @@ export function requestCheckCardAction(
   effects: RuntimeEffect[];
   reason?: string;
 } {
+  if (store.getState().syncStatus !== 'READY') {
+    return {
+      accepted: false,
+      commandId: null,
+      effects: [],
+      reason: 'sync-not-ready',
+    };
+  }
   if (selectIsActionBlocked(store.getState())) {
     return {
       accepted: false,
@@ -110,7 +112,7 @@ export async function executeSubmitCardActionEffect(
   effect: Extract<RuntimeEffect, { type: 'SUBMIT_CARD_ACTION' }>,
   transport: CheckSubmitTransport,
   token: string,
-  userId: string,
+  _userId: string,
 ): Promise<void> {
   if (effect.action !== 'check_answer') return;
   const banId = banIdFromCheckItemId(effect.targetItemId);
@@ -121,34 +123,8 @@ export async function executeSubmitCardActionEffect(
       token,
     });
 
-    if (res.result) {
-      const fromRevision = store.getState().revision ?? '0';
-      const causedBy = effect.targetItemId;
-      const upsert = toCausalResultItemV1(res.result, userId, causedBy);
-      // Prefer FIFO result if not causal — check completion is usually FIFO
-      const fifo = toContractItemV1(itemFromResult(res.result), userId);
-      const { delta, presentationByItemId } = buildRemoveDelta({
-        itemId: effect.targetItemId,
-        fromRevision,
-        upsert: fifo,
-        presentationByItemId: {
-          [fifo.itemId]: itemFromResult(res.result),
-        },
-      });
-      void upsert;
-      store.dispatch({
-        type: 'CARD_ACTION_SUCCEEDED',
-        commandId: effect.commandId,
-        targetItemId: effect.targetItemId,
-        delta,
-        presentationByItemId,
-        promoteCausalNext: false,
-        source: 'user',
-      });
-      return;
-    }
-
-    if (res.done || res.waiting) {
+    // Waiting / done without truthful journal ops: clear SUBMITTING only.
+    if (res.waiting || (res.done && !res.result)) {
       store.dispatch({
         type: 'CARD_ACTION_SUCCEEDED',
         commandId: effect.commandId,
@@ -158,11 +134,12 @@ export async function executeSubmitCardActionEffect(
       return;
     }
 
+    // Result payload without journal REMOVE/UPSERT cannot be applied.
     store.dispatch({
       type: 'CARD_ACTION_FAILED',
       commandId: effect.commandId,
       targetItemId: effect.targetItemId,
-      errorCode: 'CHECK_SUBMIT_UNKNOWN',
+      errorCode: 'AWAITING_TRUTHFUL_SYNC',
       source: 'user',
     });
   } catch {
