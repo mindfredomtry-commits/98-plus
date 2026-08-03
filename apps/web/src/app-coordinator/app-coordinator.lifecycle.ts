@@ -49,6 +49,10 @@ import {
   type EntryRouter,
 } from './app-coordinator.boundaries';
 import { available } from '@/domain-availability';
+import {
+  logNotificationsChaos,
+  nextChaosLifecycleId,
+} from '@/notification-runtime/notification-chaos-diag';
 
 export type AppCoordinatorLifecycle = {
   store: AppCoordinatorStore;
@@ -58,6 +62,8 @@ export type AppCoordinatorLifecycle = {
   notificationsController: NotificationsController;
   domainPorts: ApplicationDomainPorts;
   entryRouter: EntryRouter;
+  /** Stable identity for chaos diagnostics. */
+  chaosLifecycleId: string;
   dispatch(event: AppCoordinatorEvent): void;
   /**
    * Route a typed domain intent to the Current Owner port only.
@@ -79,6 +85,11 @@ export function createAppCoordinatorLifecycle(input: {
 }): AppCoordinatorLifecycle {
   let disposed = false;
   const entryRouter = createTelegramEntryRouter();
+  const chaosLifecycleId = nextChaosLifecycleId();
+  logNotificationsChaos('lifecycle', 'CREATED', {
+    lifecycleId: chaosLifecycleId,
+    storeId: input.runtimeStore.chaosStoreId,
+  });
 
   let store!: AppCoordinatorStore;
   let runtimePort!: NotificationRuntimePortHandle;
@@ -89,7 +100,28 @@ export function createAppCoordinatorLifecycle(input: {
 
   const dispatch = (event: AppCoordinatorEvent) => {
     if (disposed) return;
+    const ownerBefore = store.getState().currentOwner;
     store.dispatch(event);
+    const ownerAfter = store.getState().currentOwner;
+    if (
+      event.type === 'NOTIFICATIONS_RELEASE_REQUESTED' ||
+      event.type === 'OPEN_NOTIFICATIONS_REQUESTED'
+    ) {
+      logNotificationsChaos('coordinator', event.type, {
+        lifecycleId: chaosLifecycleId,
+        storeId: input.runtimeStore.chaosStoreId,
+        currentOwner:
+          ownerAfter.type === 'DOMAIN' ? ownerAfter.domain : ownerAfter.type,
+        returnOwner: store.getState().returnOwner,
+        reason: event.type,
+        detail: {
+          ownerBefore:
+            ownerBefore.type === 'DOMAIN'
+              ? ownerBefore.domain
+              : ownerBefore.type,
+        },
+      });
+    }
 
     // After successful open: activate ready item as one ordered transaction.
     // Rollback ownership only on typed NO_READY_ITEM — never by observing a
@@ -103,6 +135,11 @@ export function createAppCoordinatorLifecycle(input: {
         const outcome =
           notificationsController.getState().lastActivationOutcome;
         if (outcome?.type === 'NO_READY_ITEM') {
+          logNotificationsChaos('coordinator', 'NOTIFICATIONS_RELEASE_REQUESTED', {
+            lifecycleId: chaosLifecycleId,
+            reason: 'NO_READY_ITEM_AFTER_OPEN',
+            currentOwner: 'NOTIFICATIONS',
+          });
           store.dispatch({ type: 'NOTIFICATIONS_RELEASE_REQUESTED' });
         }
       }
@@ -135,6 +172,18 @@ export function createAppCoordinatorLifecycle(input: {
         if (disposed) return;
         const owner = store.getState().currentOwner;
         if (owner.type === 'DOMAIN' && owner.domain === 'NOTIFICATIONS') {
+          logNotificationsChaos('controller', 'sessionCompleted', {
+            lifecycleId: chaosLifecycleId,
+            storeId: input.runtimeStore.chaosStoreId,
+            reason: 'ACTIVE_LEFT_QUEUE',
+            currentOwner: 'NOTIFICATIONS',
+            activeItemId: null,
+            queueAfter: input.runtimeStore
+              .getState()
+              .items.queue.map((i) =>
+                i.kind === 'result' ? `result:${i.result.id}` : `${i.kind}:${i.ban.id}`,
+              ),
+          });
           dispatch({ type: 'NOTIFICATIONS_RELEASE_REQUESTED' });
         }
       },
@@ -198,6 +247,7 @@ export function createAppCoordinatorLifecycle(input: {
     notificationsController,
     domainPorts,
     entryRouter,
+    chaosLifecycleId,
     dispatch,
     dispatchDomainIntent(inputIntent) {
       if (disposed) return;
@@ -226,6 +276,10 @@ export function createAppCoordinatorLifecycle(input: {
     dispose() {
       if (disposed) return;
       disposed = true;
+      logNotificationsChaos('lifecycle', 'DISPOSED', {
+        lifecycleId: chaosLifecycleId,
+        storeId: input.runtimeStore.chaosStoreId,
+      });
       runtimePort.dispose();
       productController.dispose();
       settingsController.dispose();

@@ -7,6 +7,10 @@ import {
 } from './notification-runtime.reducer';
 import { recordCommand } from './notification-runtime.command-ledger';
 import {
+  logNotificationsChaos,
+  nextChaosStoreId,
+} from './notification-chaos-diag';
+import {
   createInitialNotificationRuntimeState,
   notificationItemId,
   type NotificationItem,
@@ -26,6 +30,8 @@ export type NotificationRuntimeStore = {
   ) => NotificationRuntimeReducerResult;
   /** Last effects from dispatch. */
   getLastEffects: () => RuntimeEffect[];
+  /** Stable identity for chaos diagnostics. */
+  chaosStoreId: string;
 };
 
 let transitionSeq = 0;
@@ -46,12 +52,14 @@ export function createNotificationRuntimeStore(): NotificationRuntimeStore {
   /** Ignore duplicate DEEPLINK_ENTRY_REQUESTED transitionId. */
   const seenDeeplinkEntryTransitionIds = new Set<string>();
   const listeners = new Set<() => void>();
+  const chaosStoreId = nextChaosStoreId();
 
   const emit = () => {
     for (const listener of listeners) listener();
   };
 
   return {
+    chaosStoreId,
     getState: () => state,
     getLastEffects: () => lastEffects,
     subscribe(listener) {
@@ -107,6 +115,9 @@ export function createNotificationRuntimeStore(): NotificationRuntimeStore {
         transitionSeq = 0;
       }
       const before = state;
+      const queueBefore = before.items.queue.map(notificationItemId);
+      const activationBefore =
+        before.activation.type === 'ACTIVE' ? before.activation.itemId : null;
       const result = notificationRuntimeReducer(state, event);
       // Offline invariant stays test-only; production store does not throw.
       try {
@@ -117,6 +128,29 @@ export function createNotificationRuntimeStore(): NotificationRuntimeStore {
       const changed = result.state !== state || result.effects.length > 0;
       state = result.state;
       lastEffects = result.effects;
+      logNotificationsChaos('runtime', event.type, {
+        storeId: chaosStoreId,
+        source: 'source' in event ? String(event.source) : null,
+        itemId:
+          'targetItemId' in event
+            ? String(event.targetItemId)
+            : 'itemId' in event
+              ? String(event.itemId)
+              : null,
+        queueBefore,
+        queueAfter: state.items.queue.map(notificationItemId),
+        activationBefore,
+        activationAfter:
+          state.activation.type === 'ACTIVE' ? state.activation.itemId : null,
+        activeItemId:
+          state.activation.type === 'ACTIVE' ? state.activation.itemId : null,
+        consumedIds: [...state.consumed.itemIds],
+        pendingGeneration: state.pending.generation,
+        detail: {
+          lifecycle: state.lifecycle.status,
+          effects: result.effects.map((e) => e.type),
+        },
+      });
       // Canonical dispatch-boundary ledger (dev/test only; no-op unless flag on).
       recordCommand(event, before, result.state);
       if (changed) emit();
