@@ -1,6 +1,5 @@
 /**
- * Coordinator-owned adapter: Runtime queue facts without activation policy.
- * Lives under app-coordinator so Notification Runtime does not import Coordinator.
+ * Coordinator-owned adapter: Runtime facts without activation policy.
  */
 import type {
   NotificationRuntimeEventSink,
@@ -8,18 +7,13 @@ import type {
 } from './app-coordinator.ports';
 import {
   executeFetchDirectItemEffect,
-  flushDeferredDirectEntry,
+  flushDeferredDirectEntry as flushDeferredDirectEntryEffects,
   requestDirectEntry,
-  toDirectNotificationItem,
   type DirectItemTransport,
 } from '@/notification-runtime/notification-runtime.direct-entry';
-import {
-  type NotificationRuntimeStore,
-} from '@/notification-runtime/notification-runtime.store';
-import {
-  type NotificationItemKind,
-  type RuntimeEffect,
-} from '@/notification-runtime/notification-runtime.types';
+import type { NotificationRuntimeStore } from '@/notification-runtime/notification-runtime.store';
+import type { NotificationItemKind } from '@/notification-runtime/notification-runtime.types';
+import { nextRuntimeTransitionId } from '@/notification-runtime/notification-runtime.store';
 
 export type NotificationRuntimePortHandle = NotificationRuntimePort & {
   dispose(): void;
@@ -56,21 +50,11 @@ function resolveTargetKind(
   };
 }
 
-async function runDirectEffects(
-  store: NotificationRuntimeStore,
-  effects: readonly RuntimeEffect[],
-  fetchItem: DirectItemTransport,
-): Promise<void> {
-  for (const effect of effects) {
-    if (effect.type !== 'FETCH_DIRECT_ITEM') continue;
-    await executeFetchDirectItemEffect(store, effect, fetchItem);
-  }
-}
-
 export function createNotificationRuntimePort(input: {
   store: NotificationRuntimeStore;
   sink: NotificationRuntimeEventSink;
   fetchDirectItem: DirectItemTransport;
+  getUserId?: () => string | null;
 }): NotificationRuntimePortHandle {
   let disposed = false;
   let bootSettled = false;
@@ -83,25 +67,32 @@ export function createNotificationRuntimePort(input: {
         intent.notificationKind,
       );
       if (!targetId) return;
+      const transitionId = nextRuntimeTransitionId('direct-entry');
       const requested = requestDirectEntry(input.store, {
         targetId,
         targetKind: kind,
         entrySource: 'deeplink',
         returnPolicy: 'retain_queue',
         defer: false,
+        transitionId,
       });
       if (!requested.accepted || requested.deferred) return;
-      void runDirectEffects(
+      const userId = input.getUserId?.() ?? '';
+      void executeFetchDirectItemEffect(
         input.store,
-        requested.effects,
+        {
+          targetId,
+          targetKind: kind,
+          transitionId,
+          userId,
+        },
         input.fetchDirectItem,
       );
     },
 
     flushDeferredDirectEntry() {
       if (disposed) return;
-      const effects = flushDeferredDirectEntry(input.store, 'system');
-      void runDirectEffects(input.store, effects, input.fetchDirectItem);
+      flushDeferredDirectEntryEffects(input.store, 'system');
     },
 
     notifyBootCompleted() {
@@ -125,5 +116,3 @@ export function createNotificationRuntimePort(input: {
     },
   };
 }
-
-export { toDirectNotificationItem };

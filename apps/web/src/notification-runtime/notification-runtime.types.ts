@@ -1,10 +1,21 @@
 /**
- * Stage 8 Phase 5 — Notification Runtime contract.
- * Queue + item lifecycle + explicit activation (domain processing claim).
- * No display/overlay/CSS/React ownership.
+ * Stage 8 Phase 8 — Notifications Runtime state (single Sync V1 model).
+ *
+ * One store, one state model, one reconcile authority.
+ * Temporary presentation cache is not collection/FIFO authority.
  */
-import type { BanInteraction, BanResult } from '@98plus/shared';
-import { normalizeId } from '@/lib/normalize-json';
+import type {
+  BanInteraction,
+  BanResult,
+  NotificationItemV1,
+  NotificationsDeltaV1,
+  NotificationsSnapshotV1,
+} from '@98plus/shared';
+import {
+  createInitialNotificationsReconcileStateV1,
+  type NotificationsReconcileStateV1,
+  type NotificationsSyncStatusV1,
+} from './notification-runtime.sync-types';
 
 export type RuntimeSource =
   | 'bootstrap'
@@ -16,100 +27,13 @@ export type RuntimeSource =
   | 'system'
   | 'test';
 
-export type NotificationItemKind = 'incoming' | 'check' | 'result';
-
-/** Queue item — product kinds only. */
+/** Legacy presentation payload (temporary until Sync Mapper cutover). */
 export type NotificationItem =
   | { kind: 'incoming'; ban: BanInteraction }
   | { kind: 'check'; ban: BanInteraction }
   | { kind: 'result'; result: BanResult };
 
-/**
- * Queue / reconciliation lifecycle. Not a visual ownership state.
- * Writers: bootstrap/reconnect (booting/recovering), actions (submitting), idle otherwise.
- */
-export type LifecycleStatus = 'booting' | 'idle' | 'submitting' | 'recovering';
-
-export type ActionStatus = 'idle' | 'pending' | 'succeeded' | 'failed';
-
-export type RecoveryStatus = 'idle' | 'loading' | 'applied' | 'failed';
-
-export type DirectEntrySource = 'deeplink' | 'live-single';
-/** Queue retention after direct ingest. Return navigation is out of Runtime scope. */
-export type DirectReturnPolicy = 'retain_queue';
-
-export type DeferredDirectEntry = {
-  transitionId: string;
-  targetId: string;
-  targetKind: NotificationItemKind | null;
-  entrySource: DirectEntrySource;
-  returnPolicy: DirectReturnPolicy;
-};
-
-export type DirectEntryState = {
-  active: boolean;
-  transitionId: string | null;
-  targetId: string | null;
-  targetKind: NotificationItemKind | null;
-  entrySource: DirectEntrySource | null;
-  returnPolicy: DirectReturnPolicy | null;
-  /** Newer request while another direct fetch is active. */
-  deferred: DeferredDirectEntry | null;
-};
-
-/**
- * Domain processing claim — not presentation/display state.
- * INACTIVE: queue may hold ready items; none claimed.
- * ACTIVE: Notifications domain has explicitly claimed itemId.
- */
-export type NotificationActivationState =
-  | { type: 'INACTIVE' }
-  | { type: 'ACTIVE'; itemId: string };
-
-export type NotificationRuntimeState = {
-  lifecycle: {
-    status: LifecycleStatus;
-    source: RuntimeSource | null;
-    transitionId: string | null;
-  };
-  items: {
-    /** FIFO; ready head is always queue[0] (derived, not stored). */
-    queue: NotificationItem[];
-  };
-  /**
-   * Explicit activation claim. Never set by ingest/bootstrap/websocket.
-   * Distinct from ready head (queue[0]).
-   */
-  activation: NotificationActivationState;
-  action: {
-    status: ActionStatus;
-    commandId: string | null;
-    targetItemId: string | null;
-    errorCode: string | null;
-  };
-  pending: {
-    /** Canonical unread item IDs (kind:id). */
-    itemIds: string[];
-    sourceVersion: string | null;
-    /**
-     * Monotonic authority generation of the last applied snapshot.
-     * Stamped when a request starts, so a late empty response from an older
-     * request cannot clear a newer non-empty snapshot (out-of-order guard).
-     */
-    generation: number;
-  };
-  consumed: {
-    itemIds: string[];
-  };
-  recovery: {
-    status: RecoveryStatus;
-    snapshotVersion: string | null;
-    /** Active bootstrap/recovery fetch id (survives direct-entry preserve). */
-    transitionId: string | null;
-  };
-  /** Deeplink / live-single session (ingest only). */
-  directEntry: DirectEntryState;
-};
+export type NotificationItemKind = 'incoming' | 'check' | 'result';
 
 export type CardActionType = 'check_answer' | 'incoming_overboard';
 
@@ -119,21 +43,84 @@ export type CardDismissReason =
   | 'continue_chain'
   | 'system';
 
+export type NotificationsActivationOutcome =
+  | { type: 'ACTIVATED'; itemId: string }
+  | { type: 'ALREADY_ACTIVE'; itemId: string }
+  | { type: 'NO_READY_ITEM' }
+  | { type: 'SYNC_NOT_READY' };
+
+/**
+ * Single Runtime state = Phase 7 reconcile fields + isolated non-authority meta.
+ */
+export type NotificationRuntimeState = NotificationsReconcileStateV1 & {
+  /**
+   * Presentation-only cache keyed by itemId.
+   * Must never be used for FIFO, activation, or action targeting.
+   * Written only alongside APPLY_* from the temporary input adapter.
+   */
+  presentationByItemId: Readonly<Record<string, NotificationItem>>;
+  /** Last typed reconcile conflict (does not clear items). */
+  lastConflict:
+    | {
+        type:
+          | 'REVISION_GAP'
+          | 'ACTIVE_ITEM_CONFLICT'
+          | 'ACTIVE_ITEM_REMOVE_CONFLICT'
+          | 'INVALID_CONTRACT';
+        detail: string;
+      }
+    | null;
+  /** In-flight sync transition (status only; does not clear items). */
+  syncTransitionId: string | null;
+};
+
 export type NotificationRuntimeCommand =
   | {
-      type: 'BOOTSTRAP_REQUESTED';
+      type: 'SYNC_STARTED';
       transitionId: string;
       source: RuntimeSource;
     }
   | {
-      type: 'DEEPLINK_ENTRY_REQUESTED';
+      type: 'SYNC_RECOVERY_STARTED';
       transitionId: string;
-      targetId: string;
-      targetKind?: NotificationItemKind | null;
-      entrySource: DirectEntrySource;
-      returnPolicy: DirectReturnPolicy;
-      /** Park without FETCH yet when another direct fetch is active. */
-      defer?: boolean;
+      source: RuntimeSource;
+    }
+  | {
+      type: 'SYNC_FAILED';
+      transitionId: string;
+      errorCode: string;
+      source: RuntimeSource;
+    }
+  | {
+      type: 'APPLY_NOTIFICATIONS_SNAPSHOT_V1';
+      transitionId: string;
+      snapshot: NotificationsSnapshotV1;
+      /** Temporary presentation map for items in this snapshot. */
+      presentationByItemId?: Readonly<Record<string, NotificationItem>>;
+      source: RuntimeSource;
+    }
+  | {
+      type: 'APPLY_NOTIFICATIONS_DELTA_V1';
+      transitionId: string;
+      delta: NotificationsDeltaV1;
+      presentationByItemId?: Readonly<Record<string, NotificationItem>>;
+      /** Authorize REMOVE of the active item after confirmed action. */
+      activeRemoveAuthorization?: { actionId: string; itemId: string };
+      /** After authorized active REMOVE, promote causal next if set. */
+      promoteCausalNext?: boolean;
+      source: RuntimeSource;
+    }
+  | {
+      type: 'ACTIVATE_READY_ITEM_REQUESTED';
+      source: RuntimeSource;
+    }
+  | {
+      /** User CLOSE: return active to passive FIFO; release owner once. */
+      type: 'ACTIVE_ITEM_CLOSE_REQUESTED';
+      source: RuntimeSource;
+    }
+  | {
+      type: 'CLEAR_ACTIVATION_REQUESTED';
       source: RuntimeSource;
     }
   | {
@@ -141,84 +128,17 @@ export type NotificationRuntimeCommand =
       commandId: string;
       targetItemId: string;
       action: CardActionType;
-      /** For check_answer: whether the viewer completed the challenge. */
       completed?: boolean;
-      source: RuntimeSource;
-    }
-  | {
-      type: 'CARD_DISMISS_REQUESTED';
-      transitionId: string;
-      targetItemId: string;
-      reason: CardDismissReason;
-      source: RuntimeSource;
-    }
-  | {
-      type: 'ITEM_COMPLETED';
-      transitionId: string;
-      targetItemId: string;
-      source: RuntimeSource;
-    }
-  | {
-      /**
-       * Explicit domain claim of ready head. Never emitted by ingest.
-       * No-op when already ACTIVE; no-op manufacturing when queue empty.
-       */
-      type: 'ACTIVATE_READY_ITEM_REQUESTED';
-      source: RuntimeSource;
-    }
-  | {
-      /** Clear activation claim without consuming queue items. */
-      type: 'CLEAR_ACTIVATION_REQUESTED';
-      source: RuntimeSource;
-    }
-  | {
-      type: 'RESET_REQUESTED';
-      source: RuntimeSource;
-    };
-
-export type NotificationRuntimeResultEvent =
-  | {
-      type: 'ITEMS_RECEIVED';
-      transitionId: string;
-      items: NotificationItem[];
-      /** When true, replace queue; otherwise merge/dedupe onto queue. */
-      replaceQueue?: boolean;
-      source: RuntimeSource;
-    }
-  | {
-      type: 'BOOTSTRAP_SNAPSHOT_RECEIVED';
-      transitionId: string;
-      items: NotificationItem[];
-      pendingItemIds: string[];
-      consumedItemIds?: string[];
-      sourceVersion: string | null;
-      source: RuntimeSource;
-      generation?: number | null;
-    }
-  | {
-      type: 'BOOTSTRAP_COMPLETED';
-      transitionId: string;
-      items: NotificationItem[];
-      pendingItemIds: string[];
-      consumedItemIds?: string[];
-      sourceVersion: string | null;
-      source: RuntimeSource;
-      generation?: number | null;
-    }
-  | {
-      type: 'BOOTSTRAP_FAILED';
-      transitionId: string;
-      errorCode: string;
       source: RuntimeSource;
     }
   | {
       type: 'CARD_ACTION_SUCCEEDED';
       commandId: string;
       targetItemId: string;
-      /** Atomic check→result replacement when present. */
-      replacement?: NotificationItem;
-      /** Consume current head after successful action. */
-      consumeAndAdvance?: boolean;
+      /** Confirmed ops to apply through reconcile (REMOVE/UPSERT). */
+      delta?: NotificationsDeltaV1;
+      presentationByItemId?: Readonly<Record<string, NotificationItem>>;
+      promoteCausalNext?: boolean;
       source: RuntimeSource;
     }
   | {
@@ -229,49 +149,14 @@ export type NotificationRuntimeResultEvent =
       source: RuntimeSource;
     }
   | {
-      type: 'PENDING_SOURCE_UPDATED';
-      itemIds: string[];
-      sourceVersion: string | null;
-      source: RuntimeSource;
-      generation?: number | null;
-    }
-  | {
-      /** Local consume tombstone; does not touch queue/lifecycle. */
-      type: 'ITEM_CONSUMED';
-      itemId: string;
-      source: RuntimeSource;
-    }
-  | {
-      type: 'DIRECT_ITEM_RECEIVED';
-      transitionId: string;
-      item: NotificationItem;
-      source: RuntimeSource;
-    }
-  | {
-      type: 'DIRECT_ITEM_FAILED';
-      transitionId: string;
-      errorCode: string;
-      source: RuntimeSource;
-    }
-  | {
-      type: 'DIRECT_ENTRY_FLUSH_REQUESTED';
+      type: 'RESET_REQUESTED';
       source: RuntimeSource;
     };
 
-export type NotificationRuntimeEvent =
-  | NotificationRuntimeCommand
-  | NotificationRuntimeResultEvent;
+export type NotificationRuntimeEvent = NotificationRuntimeCommand;
 
 export type RuntimeEffect =
-  | { type: 'FETCH_PENDING'; transitionId: string; source: RuntimeSource }
-  | {
-      type: 'FETCH_DIRECT_ITEM';
-      transitionId: string;
-      targetId: string;
-      targetKind: NotificationItemKind | null;
-      entrySource: DirectEntrySource;
-      source: RuntimeSource;
-    }
+  | { type: 'REQUEST_FULL_SYNC'; reason: string }
   | {
       type: 'SUBMIT_CARD_ACTION';
       commandId: string;
@@ -279,64 +164,39 @@ export type RuntimeEffect =
       action: CardActionType;
       completed?: boolean;
     }
-  | { type: 'MARK_CONSUMED'; itemId: string }
-  | { type: 'REFRESH_PENDING'; reason: string }
-  | { type: 'PREFETCH_NEXT'; skipItemId?: string };
+  | { type: 'SESSION_COMPLETE'; reason: 'action' | 'close' | 'no_ready' }
+  | { type: 'REFRESH_PENDING'; reason: string };
 
 export type NotificationRuntimeReducerResult = {
   state: NotificationRuntimeState;
   effects: RuntimeEffect[];
+  activationOutcome?: NotificationsActivationOutcome;
 };
 
-/** Stable dedupe / pending key. */
-export function notificationItemId(item: NotificationItem): string {
-  const id =
-    item.kind === 'result'
-      ? normalizeId(item.result.id)
-      : normalizeId(item.ban.id);
-  return `${item.kind}:${id}`;
-}
-
-export function createEmptyDirectEntryState(): DirectEntryState {
-  return {
-    active: false,
-    transitionId: null,
-    targetId: null,
-    targetKind: null,
-    entrySource: null,
-    returnPolicy: null,
-    deferred: null,
-  };
-}
+export type { NotificationsSyncStatusV1, NotificationItemV1 };
 
 export function createInitialNotificationRuntimeState(): NotificationRuntimeState {
+  const base = createInitialNotificationsReconcileStateV1();
   return {
-    lifecycle: {
-      status: 'idle',
-      source: null,
-      transitionId: null,
-    },
-    items: { queue: [] },
-    activation: { type: 'INACTIVE' },
-    action: {
-      status: 'idle',
-      commandId: null,
-      targetItemId: null,
-      errorCode: null,
-    },
-    pending: {
-      itemIds: [],
-      sourceVersion: null,
-      generation: 0,
-    },
-    consumed: {
-      itemIds: [],
-    },
-    recovery: {
-      status: 'idle',
-      snapshotVersion: null,
-      transitionId: null,
-    },
-    directEntry: createEmptyDirectEntryState(),
+    ...base,
+    presentationByItemId: {},
+    lastConflict: null,
+    syncTransitionId: null,
   };
+}
+
+/** Stable Contract V1 item id (preferred). */
+export function notificationItemIdFromV1(item: NotificationItemV1): string {
+  return item.itemId;
+}
+
+/** Legacy presentation item id — adapter / presenter only. */
+export function notificationItemId(item: NotificationItem): string {
+  if (item.kind === 'result') {
+    return `result:${String(item.result.id)}`;
+  }
+  if (item.kind === 'check') {
+    return `check:${String(item.ban.id)}`;
+  }
+  return `incoming:${String(item.ban.id)}`;
 }

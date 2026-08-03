@@ -1,6 +1,5 @@
 /**
- * Stage 7 Phase 2 — public intents wrapping queue/lifecycle commands only.
- * No Reply / Product / Bans navigation.
+ * Stage 8 Phase 8 — host intents targeting activeItemId only.
  */
 import { requestCheckCardAction } from './notification-runtime.check-action';
 import { runNotificationRuntimeEffects } from './notification-runtime.effects';
@@ -10,19 +9,13 @@ import type {
 } from './notification-runtime.host-api';
 import { selectNotificationQueueReadModel } from './notification-runtime.host-api';
 import { requestIncomingOverboardAction } from './notification-runtime.overboard-action';
-import { selectCurrentItem } from './notification-runtime.selectors';
-import {
-  dismissRuntimeHead,
-  type NotificationRuntimeStore,
-} from './notification-runtime.store';
-import {
-  notificationItemId,
-  type CardDismissReason,
-} from './notification-runtime.types';
+import { selectActiveItem } from './notification-runtime.selectors';
+import type { NotificationRuntimeStore } from './notification-runtime.store';
 
 export type NotificationIntentsDeps = {
   store: NotificationRuntimeStore;
   getToken: () => string | null;
+  getUserId?: () => string | null;
   onRefresh?: (reason: 'bootstrap' | 'reconnect' | 'user') => Promise<void>;
 };
 
@@ -42,6 +35,7 @@ export function createNotificationIntents(
   const runEffects = async () => {
     await runNotificationRuntimeEffects(store, store.getLastEffects(), {
       getToken,
+      getUserId: deps.getUserId,
       onRefreshPending: async () => {
         await deps.onRefresh?.('user');
       },
@@ -51,15 +45,15 @@ export function createNotificationIntents(
   return {
     async accept() {
       const read = selectNotificationQueueReadModel(store.getState());
-      const head = selectCurrentItem(store.getState());
-      if (!head || head.kind !== 'incoming') {
+      const active = selectActiveItem(store.getState());
+      if (!active || active.kind !== 'incoming') {
         return fail('no-incoming-card');
       }
       if (read.actionBlocked) {
         return fail('action-blocked');
       }
       const requested = requestIncomingOverboardAction(store, {
-        banId: head.ban.id,
+        banId: active.ban.id,
         source: 'user',
       });
       if (!requested.accepted) {
@@ -71,15 +65,15 @@ export function createNotificationIntents(
 
     async confirmCheck(completed: boolean) {
       const read = selectNotificationQueueReadModel(store.getState());
-      const head = selectCurrentItem(store.getState());
-      if (!head || head.kind !== 'check') {
+      const active = selectActiveItem(store.getState());
+      if (!active || active.kind !== 'check') {
         return fail('no-check-card');
       }
       if (read.actionBlocked) {
         return fail('action-blocked');
       }
       const requested = requestCheckCardAction(store, {
-        banId: head.ban.id,
+        banId: active.ban.id,
         completed,
         source: 'user',
       });
@@ -90,26 +84,26 @@ export function createNotificationIntents(
       return ok();
     },
 
-    async dismissResult(reason = 'close_result') {
-      const head = selectCurrentItem(store.getState());
-      if (!head || head.kind !== 'result') {
+    async dismissResult(_reason = 'close_result') {
+      const active = selectActiveItem(store.getState());
+      if (!active || active.kind !== 'result') {
         return fail('no-result-card');
       }
-      const dismissReason: CardDismissReason = reason;
-      dismissRuntimeHead(
-        store,
-        notificationItemId(head),
-        dismissReason,
-        'user',
-      );
+      store.dispatch({
+        type: 'ACTIVE_ITEM_CLOSE_REQUESTED',
+        source: 'user',
+      });
       await runEffects();
       return ok();
     },
 
-    async dismissCurrent(reason = 'user_dismiss') {
-      const head = selectCurrentItem(store.getState());
-      if (!head) return fail('no-card');
-      dismissRuntimeHead(store, notificationItemId(head), reason, 'user');
+    async dismissCurrent(_reason = 'user_dismiss') {
+      const active = selectActiveItem(store.getState());
+      if (!active) return fail('no-card');
+      store.dispatch({
+        type: 'ACTIVE_ITEM_CLOSE_REQUESTED',
+        source: 'user',
+      });
       await runEffects();
       return ok();
     },

@@ -1,6 +1,6 @@
 /**
- * Stage 7 Phase 1 — NotificationRuntime transport (bootstrap / pending / WS).
- * Writes only into NotificationRuntime. No preference / legacy sinks.
+ * Stage 8 Phase 8 — NotificationRuntime transport.
+ * Temporary adapter → APPLY_SNAPSHOT / APPLY_DELTA. No queue clear/replace.
  */
 'use client';
 
@@ -15,27 +15,18 @@ import {
   failBootstrap,
   requestBootstrap,
 } from '@/notification-runtime/notification-runtime.bootstrap';
+import { decideReconnectRecoveryRequest } from '@/notification-runtime/notification-runtime.reconnect-recovery';
 import {
   completeNotificationIdentity,
   itemFromCheck,
   itemFromIncoming,
   itemFromResult,
   receiveNotificationItem,
+  receiveNotificationItems,
 } from '@/notification-runtime/notification-runtime.ingest';
-import {
-  ingestPendingSnapshot,
-  nextPendingAuthorityGeneration,
-  pendingIdsFromPrefetchParts,
-  pendingItemIdFromParts,
-} from '@/notification-runtime/notification-runtime.pending';
-import { decideReconnectRecoveryRequest } from '@/notification-runtime/notification-runtime.reconnect-recovery';
 import { useNotificationRuntimeStore } from '@/notification-runtime/notification-runtime.context';
 import { notificationItemId } from '@/notification-runtime/notification-runtime.types';
 import type { NotificationItem } from '@/notification-runtime/notification-runtime.types';
-import {
-  stageMatchingActionResult,
-  snapshotRuntimeForActionResultHandoff,
-} from '@/notification-runtime/notification-runtime.action-result-handoff';
 import type { NotificationRuntimePortHandle } from '@/app-coordinator/notification-runtime-port';
 
 export type NotificationTransportAuth = {
@@ -44,10 +35,6 @@ export type NotificationTransportAuth = {
   runtimePort?: NotificationRuntimePortHandle | null;
 };
 
-/**
- * Mount once under NotificationRuntimeProvider.
- * Owns bootstrap, pending refresh, websocket ingest, reconnect recovery.
- */
 export function NotificationRuntimeTransport({
   token,
   userId,
@@ -83,15 +70,11 @@ export function NotificationRuntimeTransport({
       }
 
       bootInFlightRef.current = true;
-      const generation = nextPendingAuthorityGeneration();
-      const bootReq = requestBootstrap(store, { source: 'bootstrap' });
-      if (!bootReq.accepted) {
-        bootInFlightRef.current = false;
-        if (reason === 'reconnect') {
-          runtimePortRef.current?.notifyReconnectCompleted();
-        }
-        return;
-      }
+
+      const bootReq = requestBootstrap(store, {
+        source: 'bootstrap',
+        recovery: reason === 'reconnect',
+      });
       try {
         const session = await fetchSession(tok);
         if (tokenRef.current !== tok || userIdRef.current !== uid) {
@@ -102,19 +85,13 @@ export function NotificationRuntimeTransport({
           });
           return;
         }
-        const { items, pendingItemIds, consumedItemIds } =
-          sessionToRuntimeSnapshot(session);
+        const { items } = sessionToRuntimeSnapshot(session);
         completeBootstrap(store, {
           transitionId: bootReq.transitionId,
           items,
-          pendingItemIds,
-          consumedItemIds,
-          sourceVersion: `session:${Date.now()}`,
+          userId: uid,
           source: 'bootstrap',
-          generation,
         });
-        // Session.incoming is at most one card. Hydrate the full pending FIFO
-        // so manual Notifications open sees every ready item (no auto-activate).
         await runPendingRefreshRef.current(`after-bootstrap:${reason}`);
       } catch {
         failBootstrap(store, {
@@ -126,7 +103,6 @@ export function NotificationRuntimeTransport({
         bootInFlightRef.current = false;
         if (reason === 'bootstrap' && !coldBootSettledRef.current) {
           coldBootSettledRef.current = true;
-          // Stage 7 Phase 1 — never auto-activate on boot.
           runtimePortRef.current?.notifyBootCompleted();
         }
         if (reason === 'reconnect') {
@@ -142,7 +118,6 @@ export function NotificationRuntimeTransport({
       const tok = tokenRef.current;
       const uid = userIdRef.current;
       if (!tok || !uid) return;
-      const generation = nextPendingAuthorityGeneration();
       try {
         const prefetched = await fetchPendingChainPrefetch(tok, {
           source: `direct-host:${reason}`,
@@ -150,39 +125,27 @@ export function NotificationRuntimeTransport({
           reason: `NotificationRuntimeTransport:${reason}`,
         });
         if (tokenRef.current !== tok || userIdRef.current !== uid) return;
-        const serverPendingIds = pendingIdsFromPrefetchParts({
-          incomingIds: prefetched.incoming.map((b) => b.id),
-          checkId: prefetched.check?.id ?? null,
-          resultId: prefetched.result?.id ?? null,
-        });
-        ingestPendingSnapshot(
-          store,
-          serverPendingIds,
-          'poll',
-          `prefetch:${reason}:${serverPendingIds.join(',')}`,
-          generation,
-        );
         const items: NotificationItem[] = [
           ...prefetched.incoming.map(itemFromIncoming),
           ...(prefetched.check ? [itemFromCheck(prefetched.check)] : []),
           ...(prefetched.result ? [itemFromResult(prefetched.result)] : []),
         ];
-        // pending-all is newest-first; Runtime ITEMS_RECEIVED canonicalizes FIFO.
-        for (const item of items) {
-          const id = notificationItemId(item);
-          const already = store
-            .getState()
-            .items.queue.some((q) => notificationItemId(q) === id);
-          if (!already) {
-            receiveNotificationItem(store, {
-              item,
-              source: 'poll',
-              mergePending: false,
-            });
-          }
+        // Merge into target Runtime via snapshot (preserves active; no clear).
+        const existing = Object.values(store.getState().presentationByItemId);
+        const byId = new Map<string, NotificationItem>();
+        for (const item of existing) {
+          byId.set(notificationItemId(item), item);
         }
+        for (const item of items) {
+          byId.set(notificationItemId(item), item);
+        }
+        receiveNotificationItems(store, {
+          items: [...byId.values()],
+          source: 'poll',
+          userId: uid,
+        });
       } catch {
-        // Soft-fail refresh; runtime keeps prior authority.
+        // Soft-fail refresh.
       }
     },
     [store],
@@ -198,6 +161,8 @@ export function NotificationRuntimeTransport({
 
   const onWsEvent = useCallback(
     (event: { type: string; payload: unknown }) => {
+      const uid = userIdRef.current;
+      if (!uid) return;
       switch (event.type) {
         case 'ban:incoming': {
           const ban = event.payload as BanInteraction;
@@ -205,6 +170,7 @@ export function NotificationRuntimeTransport({
           receiveNotificationItem(store, {
             item: itemFromIncoming(ban),
             source: 'websocket',
+            userId: uid,
           });
           break;
         }
@@ -215,6 +181,7 @@ export function NotificationRuntimeTransport({
           receiveNotificationItem(store, {
             item: itemFromCheck(ban),
             source: 'websocket',
+            userId: uid,
           });
           break;
         }
@@ -223,23 +190,18 @@ export function NotificationRuntimeTransport({
             (event.payload as { result?: BanResult })?.result ??
             (event.payload as BanResult);
           if (!result?.id) return;
-          const banId = result.id;
-          stageMatchingActionResult({
-            banId,
-            result,
-            source: 'ws',
-            runtime: snapshotRuntimeForActionResultHandoff(store.getState()),
-          });
+          const banId = String(result.id);
           receiveNotificationItem(store, {
             item: itemFromResult(result),
             source: 'websocket',
+            userId: uid,
           });
-          const checkId = pendingItemIdFromParts('check', banId);
-          const incomingId = pendingItemIdFromParts('incoming', banId);
-          if (checkId) completeNotificationIdentity(store, checkId, 'websocket');
-          if (incomingId) {
-            completeNotificationIdentity(store, incomingId, 'websocket');
-          }
+          completeNotificationIdentity(store, {
+            banId,
+            kinds: ['check', 'incoming'],
+            source: 'websocket',
+            userId: uid,
+          });
           break;
         }
         case 'sync:session': {
@@ -286,31 +248,17 @@ export function NotificationRuntimeTransport({
 
 function sessionToRuntimeSnapshot(session: SessionState): {
   items: NotificationItem[];
-  pendingItemIds: string[];
-  consumedItemIds: string[];
 } {
   const items: NotificationItem[] = [];
-  const pendingItemIds: string[] = [];
   if (session.incoming?.id) {
-    const ban = enrichBanInteraction(session.incoming);
-    items.push(itemFromIncoming(ban));
-    const id = pendingItemIdFromParts('incoming', ban.id);
-    if (id) pendingItemIds.push(id);
+    items.push(itemFromIncoming(enrichBanInteraction(session.incoming)));
   }
   if (session.check?.id) {
-    const ban = enrichBanInteraction(session.check);
-    items.push(itemFromCheck(ban));
-    const id = pendingItemIdFromParts('check', ban.id);
-    if (id) pendingItemIds.push(id);
+    items.push(itemFromCheck(enrichBanInteraction(session.check)));
   }
-  if (session.pendingResultId) {
-    const id = pendingItemIdFromParts('result', session.pendingResultId);
-    if (id) pendingItemIds.push(id);
-  }
-  return { items, pendingItemIds, consumedItemIds: [] };
+  return { items };
 }
 
-/** Imperative refresh used by intents when transport is mounted. */
 export function requestDirectTransportRefresh(
   reason: 'bootstrap' | 'reconnect' | 'user' = 'user',
 ): Promise<void> {

@@ -224,22 +224,29 @@ export function logOverboardV3WriterChange(args: {
 
 /** Compact runtime snapshot for before/after success ledger rows. */
 export function snapshotRuntimeForOverboardV3Trace(state: {
-  lifecycle: { status: string };
-  display: { kind: string | null; payload: unknown };
-  items: { queue: unknown[] };
+  syncStatus?: string;
+  lifecycle?: { status: string };
+  display?: { kind: string | null; payload: unknown };
+  items?: { queue: unknown[] };
+  passiveItemIds?: readonly string[];
+  activeItemId?: string | null;
   action: {
     status: string;
-    commandId: string | null;
-    targetItemId: string | null;
+    commandId?: string | null;
+    actionId?: string | null;
+    targetItemId?: string | null;
+    itemId?: string | null;
   };
 }): Record<string, unknown> {
   return {
-    lifecycle: state.lifecycle.status,
-    displayKind: state.display.kind,
-    displayPayloadNull: state.display.payload == null,
-    queueLen: state.items.queue.length,
+    lifecycle: state.syncStatus ?? state.lifecycle?.status ?? null,
+    displayKind: state.display?.kind ?? null,
+    displayPayloadNull: state.display ? state.display.payload == null : null,
+    queueLen:
+      state.passiveItemIds?.length ?? state.items?.queue.length ?? 0,
     actionStatus: state.action.status,
-    actionCommandId: state.action.commandId,
-    actionTargetItemId: state.action.targetItemId,
+    actionCommandId: state.action.actionId ?? state.action.commandId ?? null,
+    actionTargetItemId:
+      state.action.itemId ?? state.action.targetItemId ?? null,
   };
 }

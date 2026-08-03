@@ -1,309 +1,67 @@
 /**
- * Stage 7 Phase 2 — pure passive notification runtime reducer.
- * Deterministic: no Date.now / random / API / React.
+ * Stage 8 Phase 8 — single Notifications Runtime reducer.
+ * Item mutations only through Phase 7 reconcile kernel.
  */
 import {
-  createEmptyDirectEntryState,
-  createInitialNotificationRuntimeState,
-  notificationItemId,
-  type DeferredDirectEntry,
-  type NotificationItem,
-  type NotificationRuntimeEvent,
-  type NotificationRuntimeReducerResult,
-  type NotificationRuntimeState,
-  type RuntimeEffect,
+  applyCausalNextClaimV1,
+  beginActionCaptureV1,
+  claimActiveItemV1,
+  reconcileNotificationsDeltaV1,
+  reconcileNotificationsSnapshotV1,
+  rebuildPassiveFifoV1,
+} from './notification-runtime.reconcile';
+import { compareNotificationSequenceV1 } from './notification-runtime.sequence';
+import type {
+  NotificationItem,
+  NotificationRuntimeEvent,
+  NotificationRuntimeReducerResult,
+  NotificationRuntimeState,
+  RuntimeEffect,
 } from './notification-runtime.types';
-import { selectCurrentItem, selectCurrentItemId } from './notification-runtime.selectors';
-import { decidePendingSnapshotApply } from './notification-runtime.pending-refresh-ordering';
-import { evaluateStaleReplaceGuard } from './notification-runtime.stale-replace-guard';
-import { sortNotificationQueueFifo } from './notification-runtime.order';
+import { createInitialNotificationRuntimeState } from './notification-runtime.types';
 
-function cloneState(state: NotificationRuntimeState): NotificationRuntimeState {
-  return {
-    lifecycle: { ...state.lifecycle },
-    items: { queue: [...state.items.queue] },
-    activation: { ...state.activation },
-    action: { ...state.action },
-    pending: {
-      itemIds: [...state.pending.itemIds],
-      sourceVersion: state.pending.sourceVersion,
-      generation: state.pending.generation,
-    },
-    consumed: { itemIds: [...state.consumed.itemIds] },
-    recovery: { ...state.recovery },
-    directEntry: {
-      ...state.directEntry,
-      deferred: state.directEntry.deferred
-        ? { ...state.directEntry.deferred }
-        : null,
-    },
-  };
-}
-
-function clearAction(
-  state: NotificationRuntimeState,
-): NotificationRuntimeState {
-  return {
-    ...state,
-    action: {
-      status: 'idle',
-      commandId: null,
-      targetItemId: null,
-      errorCode: null,
-    },
-  };
-}
-
-/**
- * Keep an active claim present across queue reconcile, then canonicalize FIFO.
- * Does not force the active item to index 0 — order is createdAt/id authority.
- */
-function reconcileQueueFifo(
-  activation: NotificationRuntimeState['activation'],
-  previousQueue: NotificationItem[],
-  nextQueue: NotificationItem[],
-): NotificationItem[] {
-  let queue = nextQueue;
-  if (activation.type === 'ACTIVE') {
-    const activeId = activation.itemId;
-    if (!queue.some((item) => notificationItemId(item) === activeId)) {
-      const previous = previousQueue.find(
-        (item) => notificationItemId(item) === activeId,
-      );
-      if (previous) {
-        queue = [...queue, previous];
-      }
-    }
+function mergePresentation(
+  current: Readonly<Record<string, NotificationItem>>,
+  patch: Readonly<Record<string, NotificationItem>> | undefined,
+  keepIds: ReadonlySet<string>,
+): Record<string, NotificationItem> {
+  const next: Record<string, NotificationItem> = {};
+  for (const id of keepIds) {
+    if (patch?.[id]) next[id] = patch[id]!;
+    else if (current[id]) next[id] = current[id]!;
   }
-  return sortNotificationQueueFifo(queue);
-}
-
-function dedupeAppend(
-  queue: NotificationItem[],
-  incoming: NotificationItem[],
-): NotificationItem[] {
-  const seen = new Set(queue.map(notificationItemId));
-  const next = [...queue];
-  for (const item of incoming) {
-    const id = notificationItemId(item);
-    // Reject empty ids (e.g. "incoming:")
-    if (!id.includes(':') || id.endsWith(':') || seen.has(id)) continue;
-    seen.add(id);
-    next.push(item);
+  if (patch) {
+    for (const [id, item] of Object.entries(patch)) {
+      if (keepIds.has(id)) next[id] = item;
+    }
   }
   return next;
 }
 
-function addConsumed(
+function withReconcileBase(
   state: NotificationRuntimeState,
-  itemId: string,
+  next: Omit<
+    NotificationRuntimeState,
+    'presentationByItemId' | 'lastConflict' | 'syncTransitionId'
+  > &
+    Partial<
+      Pick<
+        NotificationRuntimeState,
+        'presentationByItemId' | 'lastConflict' | 'syncTransitionId'
+      >
+    >,
 ): NotificationRuntimeState {
-  if (state.consumed.itemIds.includes(itemId)) {
-    // Still strip from pending if a prior path left overlap.
-    const pendingIds = reconcilePending(
-      state.pending.itemIds,
-      state.consumed.itemIds,
-    );
-    if (pendingIds.length === state.pending.itemIds.length) return state;
-    return {
-      ...state,
-      pending: { ...state.pending, itemIds: pendingIds },
-    };
-  }
-  const consumedIds = [...state.consumed.itemIds, itemId];
   return {
     ...state,
-    consumed: { itemIds: consumedIds },
-    pending: {
-      ...state.pending,
-      itemIds: reconcilePending(state.pending.itemIds, consumedIds),
-    },
-  };
-}
-
-/**
- * Pending authority rule for snapshot replacements (Stage 6B Phase 5).
- *
- * Both empty and non-empty stamped results older than the applied generation
- * are rejected. Empty current-authority clears only when the runtime does not
- * still hold a live/queued item the server has not caught up with.
- */
-function resolvePendingReplacement(
-  base: NotificationRuntimeState,
-  incomingIds: string[],
-  sourceVersion: string | null,
-  generation: number | null | undefined,
-): NotificationRuntimeState['pending'] {
-  const decision = decidePendingSnapshotApply({
-    currentGeneration: base.pending.generation,
-    currentItemIds: base.pending.itemIds,
-    currentSourceVersion: base.pending.sourceVersion,
-    incomingIds,
-    incomingSourceVersion: sourceVersion,
-    stamped: generation,
-    holdsLocalItem: base.items.queue.length > 0,
-  });
-  if (decision.action === 'reject') {
-    return base.pending;
-  }
-  if (decision.action === 'hold-local-empty') {
-    return {
-      ...base.pending,
-      generation: decision.nextGeneration,
-    };
-  }
-  return {
-    itemIds: decision.itemIds,
-    sourceVersion: decision.sourceVersion,
-    generation: decision.nextGeneration,
-  };
-}
-
-function reconcilePending(
-  pendingIds: string[],
-  consumedIds: readonly string[],
-): string[] {
-  const consumed = new Set(consumedIds);
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const id of pendingIds) {
-    if (consumed.has(id) || seen.has(id)) continue;
-    seen.add(id);
-    out.push(id);
-  }
-  return out;
-}
-
-/**
- * Stage 7 Phase 2 — complete/consume head only.
- * Does not activate the next item (no application surface claim).
- * Clears activation when the completed item was the active claim.
- */
-function dismissHead(
-  state: NotificationRuntimeState,
-  targetItemId: string,
-  transitionId: string,
-  source: NotificationRuntimeState['lifecycle']['source'],
-): NotificationRuntimeReducerResult {
-  void transitionId;
-  const head = selectCurrentItem(state);
-  const headId = selectCurrentItemId(state);
-  if (!head || headId !== targetItemId) {
-    return { state, effects: [] };
-  }
-
-  const remaining = state.items.queue.slice(1);
-  let next = addConsumed(
-    {
-      ...state,
-      items: { queue: remaining },
-      activation:
-        state.activation.type === 'ACTIVE' &&
-        state.activation.itemId === targetItemId
-          ? { type: 'INACTIVE' as const }
-          : state.activation,
-    },
-    targetItemId,
-  );
-
-  const effects: RuntimeEffect[] = [
-    { type: 'MARK_CONSUMED', itemId: targetItemId },
-  ];
-
-  next = {
-    ...clearAction(next),
-    lifecycle: {
-      status: 'idle',
-      source,
-      transitionId: null,
-    },
-    directEntry: {
-      ...createEmptyDirectEntryState(),
-      deferred: state.directEntry.deferred,
-    },
-  };
-  effects.push({
-    type: 'REFRESH_PENDING',
-    reason: remaining.length > 0 ? 'item-completed' : 'queue-completed',
-  });
-  return { state: next, effects };
-}
-
-function completeItemById(
-  state: NotificationRuntimeState,
-  targetItemId: string,
-  transitionId: string,
-  source: NotificationRuntimeState['lifecycle']['source'],
-): NotificationRuntimeReducerResult {
-  const index = state.items.queue.findIndex(
-    (item) => notificationItemId(item) === targetItemId,
-  );
-  if (index < 0) {
-    return { state, effects: [] };
-  }
-  if (index === 0) {
-    return dismissHead(state, targetItemId, transitionId, source);
-  }
-
-  const queue = state.items.queue.filter((_, itemIndex) => itemIndex !== index);
-  const next = addConsumed(
-    {
-      ...state,
-      items: { queue },
-      activation:
-        state.activation.type === 'ACTIVE' &&
-        state.activation.itemId === targetItemId
-          ? { type: 'INACTIVE' as const }
-          : state.activation,
-    },
-    targetItemId,
-  );
-  return {
-    state: next,
-    effects: [{ type: 'MARK_CONSUMED', itemId: targetItemId }],
-  };
-}
-
-function targetItemIdFromKind(
-  targetId: string,
-  targetKind: NotificationItem['kind'] | null | undefined,
-): string {
-  const id = String(targetId).trim();
-  if (!id) return '';
-  if (targetKind === 'check') return `check:${id}`;
-  if (targetKind === 'result') return `result:${id}`;
-  if (targetKind === 'incoming') return `incoming:${id}`;
-  // Unknown kind — match any consumed suffix for this ban id.
-  return id;
-}
-
-function isTargetConsumed(
-  state: NotificationRuntimeState,
-  targetId: string,
-  targetKind: NotificationItem['kind'] | null | undefined,
-): boolean {
-  const exact = targetItemIdFromKind(targetId, targetKind);
-  if (exact.includes(':') && state.consumed.itemIds.includes(exact)) {
-    return true;
-  }
-  const id = String(targetId).trim();
-  if (!id) return false;
-  return state.consumed.itemIds.some((c) => c.endsWith(`:${id}`));
-}
-
-function buildDeferred(
-  transitionId: string,
-  targetId: string,
-  targetKind: NotificationItem['kind'] | null | undefined,
-  entrySource: DeferredDirectEntry['entrySource'],
-  returnPolicy: DeferredDirectEntry['returnPolicy'],
-): DeferredDirectEntry {
-  return {
-    transitionId,
-    targetId: String(targetId).trim(),
-    targetKind: targetKind ?? null,
-    entrySource,
-    returnPolicy,
+    ...next,
+    presentationByItemId:
+      next.presentationByItemId ?? state.presentationByItemId,
+    lastConflict:
+      next.lastConflict !== undefined ? next.lastConflict : state.lastConflict,
+    syncTransitionId:
+      next.syncTransitionId !== undefined
+        ? next.syncTransitionId
+        : state.syncTransitionId,
   };
 }
 
@@ -311,9 +69,6 @@ export function notificationRuntimeReducer(
   state: NotificationRuntimeState,
   event: NotificationRuntimeEvent,
 ): NotificationRuntimeReducerResult {
-  let base = cloneState(state);
-  const effects: RuntimeEffect[] = [];
-
   switch (event.type) {
     case 'RESET_REQUESTED': {
       return {
@@ -322,280 +77,359 @@ export function notificationRuntimeReducer(
       };
     }
 
-    case 'BOOTSTRAP_REQUESTED': {
-      // Deeplink / direct entry outranks boot snapshot.
-      const preserveDirect =
-        base.directEntry.active || base.directEntry.deferred != null;
-
-      if (preserveDirect) {
-        return {
-          state: {
-            ...base,
-            recovery: {
-              status: 'loading',
-              snapshotVersion: null,
-              transitionId: event.transitionId,
-            },
-          },
-          effects: [
-            {
-              type: 'FETCH_PENDING',
-              transitionId: event.transitionId,
-              source: event.source,
-            },
-          ],
-        };
-      }
-
-      // Fresh boot: drop mid-flight action/queue/activation; keep consumed TTL.
+    case 'SYNC_STARTED': {
       return {
         state: {
-          ...clearAction(base),
-          items: { queue: [] },
-          activation: { type: 'INACTIVE' },
-          pending: {
-            itemIds: [],
-            sourceVersion: null,
-            generation: base.pending.generation,
-          },
-          lifecycle: {
-            status: 'booting',
-            source: event.source,
-            transitionId: event.transitionId,
-          },
-          recovery: {
-            status: 'loading',
-            snapshotVersion: null,
-            transitionId: event.transitionId,
-          },
-          directEntry: createEmptyDirectEntryState(),
+          ...state,
+          syncStatus: 'SYNCING',
+          syncTransitionId: event.transitionId,
+          lastConflict: null,
         },
-        effects: [
-          {
-            type: 'FETCH_PENDING',
-            transitionId: event.transitionId,
-            source: event.source,
-          },
-        ],
+        effects: [],
       };
     }
 
-
-    case 'ITEMS_RECEIVED': {
-      // Stage 7 Phase 2 — enqueue/dedupe only. Never activate / claim surface.
-      if (event.replaceQueue) {
-        const rejected = evaluateStaleReplaceGuard(base, {
-          replaceQueue: true,
-          items: event.items,
-          transitionId: event.transitionId,
-        });
-        if (rejected) {
-          return { state, effects: [] };
-        }
-      }
-
-      const queue = reconcileQueueFifo(
-        base.activation,
-        base.items.queue,
-        event.replaceQueue
-          ? dedupeAppend([], event.items)
-          : dedupeAppend(base.items.queue, event.items),
-      );
-
-      const next: NotificationRuntimeState = {
-        ...clearAction(base),
-        items: { queue },
-        activation: base.activation,
-        lifecycle: {
-          status:
-            base.lifecycle.status === 'booting' ||
-            base.lifecycle.status === 'recovering' ||
-            base.lifecycle.status === 'submitting'
-              ? base.lifecycle.status
-              : 'idle',
-          source: event.source,
-          transitionId:
-            base.lifecycle.status === 'booting' ||
-            base.lifecycle.status === 'recovering' ||
-            base.lifecycle.status === 'submitting'
-              ? base.lifecycle.transitionId
-              : null,
-        },
-      };
-
-      return { state: next, effects };
-    }
-
-    case 'BOOTSTRAP_SNAPSHOT_RECEIVED':
-    case 'BOOTSTRAP_COMPLETED': {
-      // Stage 6B Phase 4: only an in-flight boot/recovery may complete.
-      const inFlight =
-        base.recovery.status === 'loading' ||
-        base.lifecycle.status === 'booting' ||
-        base.lifecycle.status === 'recovering';
-      if (!inFlight) {
-        return { state: base, effects: [] };
-      }
-      const expectedTid =
-        base.recovery.transitionId ?? base.lifecycle.transitionId;
-      if (expectedTid && expectedTid !== event.transitionId) {
-        // Stale bootstrap response — ignore.
-        return { state: base, effects: [] };
-      }
-
-      const preserveDirect =
-        base.directEntry.active || base.directEntry.deferred != null;
-
-      const extraConsumed = event.consumedItemIds ?? [];
-      let consumedIds = [...base.consumed.itemIds];
-      for (const id of extraConsumed) {
-        if (id && !consumedIds.includes(id)) consumedIds.push(id);
-      }
-
-      const pendingIds = reconcilePending(event.pendingItemIds, consumedIds);
-
-      if (preserveDirect) {
-        // Active direct fetch: refresh pending/consumed only; do not replace queue.
-        return {
-          state: {
-            ...base,
-            pending: resolvePendingReplacement(
-              base,
-              pendingIds,
-              event.sourceVersion,
-              event.generation ?? null,
-            ),
-            consumed: { itemIds: consumedIds },
-            recovery: {
-              status: 'applied',
-              snapshotVersion: event.sourceVersion,
-              transitionId: null,
-            },
-          },
-          effects,
-        };
-      }
-
-      const filteredItems = event.items.filter(
-        (item) => !consumedIds.includes(notificationItemId(item)),
-      );
-      // Stage 7 Phase 2 — always populate FIFO; never activate.
-      // Normalize to oldest-first regardless of bootstrap/pending API order.
-      const queue = reconcileQueueFifo(
-        base.activation,
-        base.items.queue,
-        dedupeAppend([], filteredItems),
-      );
-
-      const next: NotificationRuntimeState = {
-        ...clearAction(base),
-        items: { queue },
-        activation: base.activation,
-        pending: resolvePendingReplacement(
-          base,
-          pendingIds,
-          event.sourceVersion,
-          event.generation ?? null,
-        ),
-        consumed: { itemIds: consumedIds },
-        recovery: {
-          status: 'applied',
-          snapshotVersion: event.sourceVersion,
-          transitionId: null,
-        },
-        lifecycle: {
-          status: 'idle',
-          source: event.source,
-          transitionId: null,
-        },
-      };
-
-      return { state: next, effects };
-    }
-
-    case 'BOOTSTRAP_FAILED': {
-      const expectedTid =
-        base.recovery.transitionId ?? base.lifecycle.transitionId;
-      if (expectedTid && expectedTid !== event.transitionId) {
-        return { state: base, effects: [] };
-      }
-
-      const preserveDirect =
-        base.directEntry.active ||
-        base.directEntry.deferred != null;
-
-      if (preserveDirect) {
-        return {
-          state: {
-            ...base,
-            recovery: {
-              status: 'failed',
-              snapshotVersion: base.recovery.snapshotVersion,
-              transitionId: null,
-            },
-          },
-          effects: [],
-        };
-      }
-
+    case 'SYNC_RECOVERY_STARTED': {
       return {
         state: {
-          ...clearAction(base),
-          items: { queue: [] },
-          activation: { type: 'INACTIVE' },
-          lifecycle: {
-            status: 'idle',
-            source: event.source,
-            transitionId: null,
-          },
-          recovery: {
-            status: 'failed',
-            snapshotVersion: base.recovery.snapshotVersion,
-            transitionId: null,
+          ...state,
+          syncStatus: 'RECOVERING',
+          syncTransitionId: event.transitionId,
+          lastConflict: null,
+        },
+        effects: [],
+      };
+    }
+
+    case 'SYNC_FAILED': {
+      if (
+        state.syncTransitionId &&
+        event.transitionId !== state.syncTransitionId
+      ) {
+        return { state, effects: [] };
+      }
+      return {
+        state: {
+          ...state,
+          syncStatus: 'FAILED',
+          lastConflict: {
+            type: 'INVALID_CONTRACT',
+            detail: event.errorCode,
           },
         },
         effects: [],
       };
     }
 
-    case 'CARD_ACTION_REQUESTED': {
-      const current = selectCurrentItem(base);
-      const currentId = selectCurrentItemId(base);
-      if (!current || !currentId || currentId !== event.targetItemId) {
-        return { state: base, effects: [] };
-      }
-      // Stage 7 Phase 2 — actions run against ready queue head (no surface claim required).
-      if (base.lifecycle.status === 'submitting') {
-        return { state: base, effects: [] };
-      }
+    case 'APPLY_NOTIFICATIONS_SNAPSHOT_V1': {
       if (
-        base.action.status === 'pending' ||
-        base.action.status === 'succeeded'
+        state.syncTransitionId &&
+        event.transitionId !== state.syncTransitionId &&
+        (state.syncStatus === 'SYNCING' || state.syncStatus === 'RECOVERING')
       ) {
-        return { state: base, effects: [] };
+        // Stale sync response — ignore
+        return { state, effects: [] };
       }
-      const actionOk =
-        (event.action === 'check_answer' && current.kind === 'check') ||
-        (event.action === 'incoming_overboard' && current.kind === 'incoming');
-      if (!actionOk) {
-        return { state: base, effects: [] };
+      const result = reconcileNotificationsSnapshotV1(state, event.snapshot);
+      const effects: RuntimeEffect[] = [];
+      if (result.type === 'STALE_IGNORED') {
+        return { state, effects: [] };
       }
-      const next: NotificationRuntimeState = {
-        ...base,
-        lifecycle: {
-          status: 'submitting',
-          source: event.source,
-          transitionId: base.lifecycle.transitionId,
-        },
+      if (result.type === 'INVALID_CONTRACT') {
+        return {
+          state: {
+            ...state,
+            lastConflict: {
+              type: 'INVALID_CONTRACT',
+              detail: result.reason,
+            },
+          },
+          effects: [{ type: 'REQUEST_FULL_SYNC', reason: result.reason }],
+        };
+      }
+      if (result.type === 'ACTIVE_ITEM_CONFLICT') {
+        const keep = new Set(Object.keys(result.state.itemsById));
+        return {
+          state: withReconcileBase(state, {
+            ...result.state,
+            presentationByItemId: mergePresentation(
+              state.presentationByItemId,
+              event.presentationByItemId,
+              keep,
+            ),
+            lastConflict: {
+              type: 'ACTIVE_ITEM_CONFLICT',
+              detail: result.reason,
+            },
+            syncTransitionId: null,
+          }),
+          effects: [
+            {
+              type: 'REQUEST_FULL_SYNC',
+              reason: 'ACTIVE_ITEM_MISSING_FROM_SNAPSHOT',
+            },
+          ],
+        };
+      }
+      // APPLIED
+      const keep = new Set(Object.keys(result.state.itemsById));
+      return {
+        state: withReconcileBase(state, {
+          ...result.state,
+          presentationByItemId: mergePresentation(
+            state.presentationByItemId,
+            event.presentationByItemId,
+            keep,
+          ),
+          lastConflict: null,
+          syncTransitionId: null,
+        }),
+        effects,
+      };
+    }
+
+    case 'APPLY_NOTIFICATIONS_DELTA_V1': {
+      const result = reconcileNotificationsDeltaV1(state, event.delta, {
+        activeRemoveAuthorization: event.activeRemoveAuthorization,
+      });
+      if (result.type === 'REVISION_GAP') {
+        return {
+          state: {
+            ...state,
+            lastConflict: {
+              type: 'REVISION_GAP',
+              detail: `expected ${result.expected} received ${result.received}`,
+            },
+          },
+          effects: [{ type: 'REQUEST_FULL_SYNC', reason: 'REVISION_GAP' }],
+        };
+      }
+      if (result.type === 'ACTIVE_ITEM_REMOVE_CONFLICT') {
+        return {
+          state: {
+            ...state,
+            lastConflict: {
+              type: 'ACTIVE_ITEM_REMOVE_CONFLICT',
+              detail: result.itemId,
+            },
+          },
+          effects: [
+            {
+              type: 'REQUEST_FULL_SYNC',
+              reason: 'ACTIVE_ITEM_REMOVE_CONFLICT',
+            },
+          ],
+        };
+      }
+      if (result.type === 'INVALID_CONTRACT') {
+        return {
+          state: {
+            ...state,
+            lastConflict: {
+              type: 'INVALID_CONTRACT',
+              detail: result.reason,
+            },
+          },
+          effects: [{ type: 'REQUEST_FULL_SYNC', reason: result.reason }],
+        };
+      }
+      let next = result.state;
+      const effects: RuntimeEffect[] = [];
+      const removedActiveId = event.activeRemoveAuthorization?.itemId ?? null;
+
+      // After authorized active REMOVE: claim NEXT_IN_SESSION caused by it, then promote.
+      if (
+        event.promoteCausalNext &&
+        next.activeItemId == null &&
+        removedActiveId
+      ) {
+        if (next.causalNextItemId == null) {
+          for (const item of Object.values(next.itemsById)) {
+            if (
+              item.deliveryPolicy === 'NEXT_IN_SESSION' &&
+              item.causedByItemId === removedActiveId
+            ) {
+              const claimed = applyCausalNextClaimV1(next, {
+                completedItemId: removedActiveId,
+                confirmedCausalItemId: item.itemId,
+              });
+              if (claimed.type === 'APPLIED') {
+                next = claimed.state;
+              }
+              break;
+            }
+          }
+        }
+        if (
+          next.causalNextItemId != null &&
+          next.itemsById[next.causalNextItemId]
+        ) {
+          const causalId = next.causalNextItemId;
+          next = {
+            ...next,
+            activeItemId: causalId,
+            causalNextItemId: null,
+            action: {
+              status: 'IDLE',
+              itemId: null,
+              actionId: null,
+              errorCode: null,
+            },
+            passiveItemIds: rebuildPassiveFifoV1(next.itemsById, causalId, null),
+          };
+        } else {
+          next = {
+            ...next,
+            action: {
+              status: 'IDLE',
+              itemId: null,
+              actionId: null,
+              errorCode: null,
+            },
+          };
+          effects.push({ type: 'SESSION_COMPLETE', reason: 'action' });
+        }
+      }
+
+      const keep = new Set(Object.keys(next.itemsById));
+      return {
+        state: withReconcileBase(state, {
+          ...next,
+          presentationByItemId: mergePresentation(
+            state.presentationByItemId,
+            event.presentationByItemId,
+            keep,
+          ),
+          lastConflict: null,
+        }),
+        effects,
+      };
+    }
+
+    case 'ACTIVATE_READY_ITEM_REQUESTED': {
+      if (state.syncStatus !== 'READY') {
+        return {
+          state,
+          effects: [],
+          activationOutcome: { type: 'SYNC_NOT_READY' },
+        };
+      }
+      if (state.activeItemId != null && state.itemsById[state.activeItemId]) {
+        return {
+          state,
+          effects: [],
+          activationOutcome: {
+            type: 'ALREADY_ACTIVE',
+            itemId: state.activeItemId,
+          },
+        };
+      }
+      // Stale claim without item — clear then activate
+      let base = state;
+      if (state.activeItemId != null && !state.itemsById[state.activeItemId]) {
+        base = {
+          ...state,
+          activeItemId: null,
+          passiveItemIds: rebuildPassiveFifoV1(
+            state.itemsById,
+            null,
+            state.causalNextItemId,
+          ),
+        };
+      }
+      const head = base.passiveItemIds[0];
+      if (!head) {
+        return {
+          state: base,
+          effects: [{ type: 'SESSION_COMPLETE', reason: 'no_ready' }],
+          activationOutcome: { type: 'NO_READY_ITEM' },
+        };
+      }
+      const claimed = claimActiveItemV1(base, head);
+      if (claimed.type !== 'APPLIED') {
+        return {
+          state: base,
+          effects: [],
+          activationOutcome: { type: 'NO_READY_ITEM' },
+        };
+      }
+      return {
+        state: withReconcileBase(state, claimed.state),
+        effects: [],
+        activationOutcome: { type: 'ACTIVATED', itemId: head },
+      };
+    }
+
+    case 'ACTIVE_ITEM_CLOSE_REQUESTED': {
+      // User CLOSE: return active to passive at server sequence; do not REMOVE.
+      if (state.activeItemId == null) {
+        return { state, effects: [] };
+      }
+      const id = state.activeItemId;
+      const next = {
+        ...state,
+        activeItemId: null,
         action: {
-          status: 'pending',
-          commandId: event.commandId,
-          targetItemId: event.targetItemId,
+          status: 'IDLE' as const,
+          itemId: null,
+          actionId: null,
           errorCode: null,
         },
+        passiveItemIds: rebuildPassiveFifoV1(
+          state.itemsById,
+          null,
+          state.causalNextItemId,
+        ),
       };
+      void id;
       return {
         state: next,
+        effects: [{ type: 'SESSION_COMPLETE', reason: 'close' }],
+      };
+    }
+
+    case 'CLEAR_ACTIVATION_REQUESTED': {
+      if (state.activeItemId == null) return { state, effects: [] };
+      return {
+        state: {
+          ...state,
+          activeItemId: null,
+          passiveItemIds: rebuildPassiveFifoV1(
+            state.itemsById,
+            null,
+            state.causalNextItemId,
+          ),
+        },
+        effects: [],
+      };
+    }
+
+    case 'CARD_ACTION_REQUESTED': {
+      if (state.action.status === 'SUBMITTING') {
+        return { state, effects: [] };
+      }
+      if (state.activeItemId == null) {
+        return { state, effects: [] };
+      }
+      if (event.targetItemId !== state.activeItemId) {
+        return {
+          state: {
+            ...state,
+            lastConflict: {
+              type: 'INVALID_CONTRACT',
+              detail: 'action-target-not-active',
+            },
+          },
+          effects: [],
+        };
+      }
+      const captured = beginActionCaptureV1(state, event.commandId);
+      if (captured.type !== 'APPLIED') {
+        return { state, effects: [] };
+      }
+      // Map SUBMITTING onto reconcile action; keep legacy mapping for capability
+      return {
+        state: withReconcileBase(state, captured.state),
         effects: [
           {
             type: 'SUBMIT_CARD_ACTION',
@@ -608,86 +442,20 @@ export function notificationRuntimeReducer(
       };
     }
 
-    case 'CARD_ACTION_SUCCEEDED': {
-      if (
-        base.action.commandId !== event.commandId ||
-        base.action.targetItemId !== event.targetItemId
-      ) {
-        return { state: base, effects: [] };
-      }
-
-      let next = cloneState(base);
-      const headId = selectCurrentItemId(next);
-
-      if (event.replacement && headId === event.targetItemId) {
-        // Item lifecycle: atomic head replacement (e.g. check→result). No surface claim.
-        const replacementId = notificationItemId(event.replacement);
-        next = {
-          ...clearAction(next),
-          items: {
-            queue: [event.replacement, ...next.items.queue.slice(1)],
-          },
-          activation:
-            next.activation.type === 'ACTIVE' &&
-            next.activation.itemId === event.targetItemId
-              ? { type: 'ACTIVE' as const, itemId: replacementId }
-              : next.activation,
-          lifecycle: {
-            status: 'idle',
-            source: event.source,
-            transitionId: null,
-          },
-        };
-        next = addConsumed(next, event.targetItemId);
-        effects.push({ type: 'MARK_CONSUMED', itemId: event.targetItemId });
-        return { state: next, effects };
-      }
-
-      if (event.consumeAndAdvance && headId === event.targetItemId) {
-        return dismissHead(
-          next,
-          event.targetItemId,
-          next.lifecycle.transitionId ?? event.commandId,
-          event.source,
-        );
-      }
-
-      next = {
-        ...next,
-        lifecycle: {
-          status: 'idle',
-          source: event.source,
-          transitionId: null,
-        },
-        action: {
-          status: 'succeeded',
-          commandId: event.commandId,
-          targetItemId: event.targetItemId,
-          errorCode: null,
-        },
-      };
-      return { state: next, effects };
-    }
-
     case 'CARD_ACTION_FAILED': {
       if (
-        base.action.commandId !== event.commandId ||
-        base.action.targetItemId !== event.targetItemId
+        state.action.actionId !== event.commandId ||
+        state.action.itemId !== event.targetItemId
       ) {
-        return { state: base, effects: [] };
+        return { state, effects: [] };
       }
       return {
         state: {
-          ...base,
-          lifecycle: {
-            status: 'idle',
-            source: event.source,
-            transitionId: null,
-          },
+          ...state,
           action: {
-            status: 'failed',
-            commandId: event.commandId,
-            targetItemId: event.targetItemId,
+            status: 'FAILED',
+            itemId: event.targetItemId,
+            actionId: event.commandId,
             errorCode: event.errorCode,
           },
         },
@@ -695,424 +463,87 @@ export function notificationRuntimeReducer(
       };
     }
 
-    case 'CARD_DISMISS_REQUESTED': {
-      return dismissHead(
-        base,
-        event.targetItemId,
-        event.transitionId,
-        event.source,
-      );
-    }
-
-    case 'ITEM_COMPLETED': {
+    case 'CARD_ACTION_SUCCEEDED': {
       if (
-        !base.items.queue.some(
-          (item) => notificationItemId(item) === event.targetItemId,
-        )
+        state.action.actionId !== event.commandId ||
+        state.action.itemId !== event.targetItemId
       ) {
         return { state, effects: [] };
       }
-      return completeItemById(
-        base,
-        event.targetItemId,
-        event.transitionId,
-        event.source,
-      );
-    }
-
-    case 'PENDING_SOURCE_UPDATED': {
-      // Snapshot replace: dedupe; strip already-consumed from stored pending
-      // (tombstones stay in consumed — late refresh cannot resurrect).
-      const pendingIds = reconcilePending(
-        event.itemIds,
-        base.consumed.itemIds,
-      );
-      const nextPending = resolvePendingReplacement(
-        base,
-        pendingIds,
-        event.sourceVersion,
-        event.generation,
-      );
-      if (nextPending === base.pending) {
-        return { state, effects: [] };
+      if (!event.delta) {
+        // Success without ops — clear submitting, keep active (e.g. waiting check)
+        return {
+          state: {
+            ...state,
+            action: {
+              status: 'IDLE',
+              itemId: null,
+              actionId: null,
+              errorCode: null,
+            },
+          },
+          effects: [],
+        };
       }
-      return {
-        state: {
-          ...base,
-          pending: nextPending,
-        },
-        effects: [],
-      };
-    }
-
-    case 'ITEM_CONSUMED': {
-      // Immediate local tombstone — no queue/lifecycle change.
-      if (!event.itemId) {
-        return { state: base, effects: [] };
-      }
-      const next = addConsumed(base, event.itemId);
-      // Keep pending list consistent with selector (optional strip).
-      const pendingIds = reconcilePending(
-        next.pending.itemIds,
-        next.consumed.itemIds,
-      );
-      return {
-        state: {
-          ...next,
-          pending: {
-            ...next.pending,
-            itemIds: pendingIds,
+      // Apply confirmed delta with active REMOVE authorization
+      return notificationRuntimeReducer(
+        {
+          ...state,
+          action: {
+            status: 'SUBMITTING',
+            itemId: event.targetItemId,
+            actionId: event.commandId,
+            errorCode: null,
           },
         },
-        effects: [{ type: 'MARK_CONSUMED', itemId: event.itemId }],
-      };
-    }
-
-
-    case 'DEEPLINK_ENTRY_REQUESTED': {
-      const targetId = String(event.targetId).trim();
-      if (!targetId) {
-        return { state: base, effects: [] };
-      }
-
-      // Already consumed → idle (no card).
-      if (isTargetConsumed(base, targetId, event.targetKind)) {
-        return {
-          state: {
-            ...clearAction(base),
-            items: { queue: [] },
-            lifecycle: {
-              status: 'idle',
-              source: event.source,
-              transitionId: null,
-            },
-            directEntry: {
-              ...createEmptyDirectEntryState(),
-              deferred: base.directEntry.deferred,
-            },
+        {
+          type: 'APPLY_NOTIFICATIONS_DELTA_V1',
+          transitionId: event.commandId,
+          delta: event.delta,
+          presentationByItemId: event.presentationByItemId,
+          activeRemoveAuthorization: {
+            actionId: event.commandId,
+            itemId: event.targetItemId,
           },
-          effects: [],
-        };
-      }
-
-      const deferredPayload = buildDeferred(
-        event.transitionId,
-        targetId,
-        event.targetKind,
-        event.entrySource,
-        event.returnPolicy,
-      );
-
-      // Showing direct session: do not interrupt — park as deferred (newer wins).
-      if (
-        base.directEntry.active &&
-        (base.lifecycle.status === 'submitting' ||
-          base.lifecycle.status === 'recovering')
-      ) {
-        return {
-          state: {
-            ...base,
-            directEntry: {
-              ...base.directEntry,
-              deferred: deferredPayload,
-            },
-          },
-          effects: [],
-        };
-      }
-
-      // V5 draining / host defer / recovering mid-fetch of another → park.
-      const mustDefer =
-        event.defer === true ||
-        (base.lifecycle.status === 'recovering' &&
-          base.directEntry.transitionId != null &&
-          base.directEntry.transitionId !== event.transitionId);
-
-      if (mustDefer) {
-        return {
-          state: {
-            ...base,
-            directEntry: {
-              ...base.directEntry,
-              deferred: deferredPayload,
-            },
-          },
-          effects: [],
-        };
-      }
-
-      // Start direct fetch (recovering = no overlay flash).
-      return {
-        state: {
-          ...base,
-          lifecycle: {
-            status: 'recovering',
-            source: event.source,
-            transitionId: event.transitionId,
-          },
-          directEntry: {
-            active: true,
-            transitionId: event.transitionId,
-            targetId,
-            targetKind: event.targetKind ?? null,
-            entrySource: event.entrySource,
-            returnPolicy: event.returnPolicy,
-            deferred: null,
-          },
-        },
-        effects: [
-          {
-            type: 'FETCH_DIRECT_ITEM',
-            transitionId: event.transitionId,
-            targetId,
-            targetKind: event.targetKind ?? null,
-            entrySource: event.entrySource,
-            source: event.source,
-          },
-        ],
-      };
-    }
-
-    case 'DIRECT_ITEM_RECEIVED': {
-      if (
-        base.directEntry.transitionId !== event.transitionId &&
-        base.lifecycle.transitionId !== event.transitionId
-      ) {
-        // Stale — ignore (do not touch newer transition / lobby).
-        return { state: base, effects: [] };
-      }
-      if (
-        base.lifecycle.status !== 'recovering' &&
-        !(
-          base.directEntry.active &&
-          base.directEntry.transitionId === event.transitionId
-        )
-      ) {
-        // Allow receive when already recovering for this transition.
-        if (base.lifecycle.transitionId !== event.transitionId) {
-          return { state: base, effects: [] };
-        }
-      }
-
-      const itemId = notificationItemId(event.item);
-      if (base.consumed.itemIds.includes(itemId)) {
-        return {
-          state: {
-            ...clearAction(base),
-            items: { queue: [] },
-            lifecycle: {
-              status: 'idle',
-              source: event.source,
-              transitionId: null,
-            },
-            directEntry: {
-              ...createEmptyDirectEntryState(),
-              deferred: base.directEntry.deferred,
-            },
-          },
-          effects: [],
-        };
-      }
-
-      // Prior queue (minus duplicate) + direct item; canonicalize FIFO (direct
-      // entry targets by id, not queue index).
-      const rest = base.items.queue.filter(
-        (q) => notificationItemId(q) !== itemId,
-      );
-      const queue = reconcileQueueFifo(
-        base.activation,
-        base.items.queue,
-        [event.item, ...rest],
-      );
-      const next: NotificationRuntimeState = {
-        ...clearAction(base),
-        items: { queue },
-        lifecycle: {
-          status: 'idle',
+          promoteCausalNext: event.promoteCausalNext ?? true,
           source: event.source,
-          transitionId: null,
         },
-        directEntry: {
-          active: false,
-          transitionId: null,
-          targetId: null,
-          targetKind: null,
-          entrySource: null,
-          returnPolicy: null,
-          deferred: base.directEntry.deferred,
-        },
-      };
-      return { state: next, effects: [] };
-    }
-
-    case 'DIRECT_ITEM_FAILED': {
-      if (
-        base.directEntry.transitionId !== event.transitionId &&
-        base.lifecycle.transitionId !== event.transitionId
-      ) {
-        return { state: base, effects: [] };
-      }
-      return {
-        state: {
-          ...clearAction(base),
-          lifecycle: {
-            status: 'idle',
-            source: event.source,
-            transitionId: null,
-          },
-          directEntry: {
-            ...createEmptyDirectEntryState(),
-            deferred: base.directEntry.deferred,
-          },
-        },
-        effects: [],
-      };
-    }
-
-    case 'DIRECT_ENTRY_FLUSH_REQUESTED': {
-      const deferred = base.directEntry.deferred;
-      if (!deferred) {
-        return { state: base, effects: [] };
-      }
-      // Only flush when idle and no active direct fetch.
-      if (base.lifecycle.status !== 'idle' || base.directEntry.active) {
-        return { state: base, effects: [] };
-      }
-      if (isTargetConsumed(base, deferred.targetId, deferred.targetKind)) {
-        return {
-          state: {
-            ...base,
-            directEntry: createEmptyDirectEntryState(),
-          },
-          effects: [],
-        };
-      }
-      return {
-        state: {
-          ...base,
-          lifecycle: {
-            status: 'recovering',
-            source: event.source,
-            transitionId: deferred.transitionId,
-          },
-          directEntry: {
-            active: true,
-            transitionId: deferred.transitionId,
-            targetId: deferred.targetId,
-            targetKind: deferred.targetKind,
-            entrySource: deferred.entrySource,
-            returnPolicy: deferred.returnPolicy,
-            deferred: null,
-          },
-        },
-        effects: [
-          {
-            type: 'FETCH_DIRECT_ITEM',
-            transitionId: deferred.transitionId,
-            targetId: deferred.targetId,
-            targetKind: deferred.targetKind,
-            entrySource: deferred.entrySource,
-            source: event.source,
-          },
-        ],
-      };
-    }
-
-    case 'ACTIVATE_READY_ITEM_REQUESTED': {
-      // Explicit domain claim only. Ingest must never emit this.
-      if (base.activation.type === 'ACTIVE') {
-        const stillQueued = base.items.queue.some(
-          (item) => notificationItemId(item) === base.activation.itemId,
-        );
-        if (stillQueued) {
-          // Deterministic no-op: keep the same active item; do not advance queue.
-          return { state: base, effects: [] };
-        }
-        // Stale claim — drop it and fall through to claim ready head.
-        base = {
-          ...base,
-          activation: { type: 'INACTIVE' },
-        };
-      }
-      const headId = selectCurrentItemId(base);
-      if (!headId) {
-        return { state: base, effects: [] };
-      }
-      return {
-        state: {
-          ...base,
-          activation: { type: 'ACTIVE', itemId: headId },
-        },
-        effects: [],
-      };
-    }
-
-    case 'CLEAR_ACTIVATION_REQUESTED': {
-      if (base.activation.type === 'INACTIVE') {
-        return { state: base, effects: [] };
-      }
-      return {
-        state: {
-          ...base,
-          activation: { type: 'INACTIVE' },
-        },
-        effects: [],
-      };
+      );
     }
 
     default: {
       const _exhaustive: never = event;
       void _exhaustive;
-      return { state: base, effects: [] };
+      return { state, effects: [] };
     }
   }
 }
 
-
-
-/**
- * Test/offline invariant helper — queue/action/activation only (no display).
- */
 export function assertNotificationRuntimeInvariant(
   state: NotificationRuntimeState,
 ): void {
-  const errors: string[] = [];
-
-  if (state.lifecycle.status === 'submitting') {
-    if (state.items.queue.length === 0) {
-      errors.push('submitting requires non-empty queue');
-    }
-  }
-
-  if (state.action.status === 'pending') {
-    if (!state.action.commandId || !state.action.targetItemId) {
-      errors.push('pending action requires commandId and targetItemId');
-    }
-  }
-
   if (
-    state.action.status === 'pending' &&
-    state.lifecycle.status !== 'submitting'
+    state.activeItemId != null &&
+    state.passiveItemIds.includes(state.activeItemId)
   ) {
-    errors.push('pending action requires submitting lifecycle');
+    throw new Error('invariant: active in passive');
   }
-
-  const seen = new Set<string>();
-  for (const item of state.items.queue) {
-    const id = notificationItemId(item);
-    if (seen.has(id)) errors.push(`duplicate queue id ${id}`);
-    seen.add(id);
+  if (
+    state.action.status === 'SUBMITTING' &&
+    state.action.itemId != null &&
+    state.action.itemId !== state.activeItemId
+  ) {
+    throw new Error('invariant: submitting retarget');
   }
-
-  if (state.activation.type === 'ACTIVE') {
-    if (!seen.has(state.activation.itemId)) {
-      errors.push(
-        `active item ${state.activation.itemId} must remain in queue`,
-      );
+  const sorted = [...state.passiveItemIds].sort((a, b) => {
+    const ia = state.itemsById[a];
+    const ib = state.itemsById[b];
+    if (!ia || !ib) return 0;
+    return compareNotificationSequenceV1(ia.sequence, ib.sequence);
+  });
+  for (let i = 0; i < state.passiveItemIds.length; i++) {
+    if (state.passiveItemIds[i] !== sorted[i]) {
+      throw new Error('invariant: passive not sequence ASC');
     }
-  }
-
-  if (errors.length) {
-    throw new Error(`NotificationRuntime invariant: ${errors.join('; ')}`);
   }
 }

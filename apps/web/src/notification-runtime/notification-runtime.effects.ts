@@ -1,6 +1,5 @@
 /**
- * Stage 7 Phase 1 — NotificationRuntime effect runner.
- * No legacy sinks / dual-write.
+ * Stage 8 Phase 8 — Runtime effects (submit + sync request + session complete).
  */
 import { api } from '@/lib/api';
 import { postOverboardWithTrace } from '@/lib/overboard-api';
@@ -17,8 +16,10 @@ import type { RuntimeEffect } from './notification-runtime.types';
 
 export type NotificationEffectsContext = {
   getToken: () => string | null;
+  getUserId?: () => string | null;
   onRefreshPending?: (reason: string) => void | Promise<void>;
-  onPrefetchNext?: (skipItemId?: string) => void | Promise<void>;
+  onRequestFullSync?: (reason: string) => void;
+  onSessionComplete?: (reason: 'action' | 'close' | 'no_ready') => void;
 };
 
 const checkTransport: CheckSubmitTransport = async ({
@@ -63,16 +64,27 @@ export async function runNotificationRuntimeEffects(
   ctx: NotificationEffectsContext,
 ): Promise<void> {
   const token = ctx.getToken();
+  const userId = ctx.getUserId?.() ?? '';
   for (const effect of effects) {
     switch (effect.type) {
       case 'SUBMIT_CARD_ACTION': {
-        if (!token) break;
+        if (!token) {
+          store.dispatch({
+            type: 'CARD_ACTION_FAILED',
+            commandId: effect.commandId,
+            targetItemId: effect.targetItemId,
+            errorCode: 'NO_TOKEN',
+            source: 'system',
+          });
+          break;
+        }
         if (effect.action === 'check_answer') {
           await executeSubmitCardActionEffect(
             store,
             effect,
             checkTransport,
             token,
+            userId,
           );
         } else if (effect.action === 'incoming_overboard') {
           await executeSubmitIncomingOverboardEffect(
@@ -80,24 +92,23 @@ export async function runNotificationRuntimeEffects(
             effect,
             overboardTransport,
             token,
+            userId,
           );
         }
         break;
       }
-      case 'FETCH_PENDING':
       case 'REFRESH_PENDING': {
-        await ctx.onRefreshPending?.(
-          effect.type === 'REFRESH_PENDING' ? effect.reason : 'fetch-pending',
-        );
+        await ctx.onRefreshPending?.(effect.reason);
         break;
       }
-      case 'PREFETCH_NEXT': {
-        await ctx.onPrefetchNext?.(effect.skipItemId);
+      case 'REQUEST_FULL_SYNC': {
+        ctx.onRequestFullSync?.(effect.reason);
         break;
       }
-      case 'MARK_CONSUMED':
-      case 'FETCH_DIRECT_ITEM':
+      case 'SESSION_COMPLETE': {
+        ctx.onSessionComplete?.(effect.reason);
         break;
+      }
       default:
         break;
     }

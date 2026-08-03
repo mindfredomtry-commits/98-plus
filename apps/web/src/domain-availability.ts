@@ -4,7 +4,14 @@
  * Availability: can the target owner truthfully start?
  */
 
-export type DomainAvailabilityReason = 'NO_READY_OR_ACTIVE_ITEM';
+export type DomainAvailabilityReason =
+  | 'NO_READY_OR_ACTIVE_ITEM'
+  | 'UNINITIALIZED'
+  | 'SYNCING'
+  | 'RECOVERING'
+  | 'FAILED'
+  | 'EMPTY'
+  | 'ACTION_TARGET_MISSING';
 
 export type DomainAvailability =
   | { availability: 'AVAILABLE' }

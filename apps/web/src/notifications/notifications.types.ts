@@ -1,6 +1,5 @@
 /**
- * Notifications domain intents — Stage 8 Phase 5.
- * Owner switching is application-level; these intents process the active item.
+ * Notifications domain intents — Stage 8 Phase 8.
  */
 
 export type NotificationItemAction =
@@ -22,11 +21,9 @@ export type NotificationsIntent =
 export type NotificationsActivationOutcome =
   | { type: 'ACTIVATED'; itemId: string }
   | { type: 'ALREADY_ACTIVE'; itemId: string }
-  | { type: 'NO_READY_ITEM' };
+  | { type: 'NO_READY_ITEM' }
+  | { type: 'SYNC_NOT_READY' };
 
-/**
- * Domain read model for presentation — active item only (never readyHead).
- */
 export type NotificationsDomainState = {
   activation:
     | { type: 'INACTIVE' }

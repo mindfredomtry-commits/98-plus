@@ -1,21 +1,16 @@
 /**
- * Notifications domain controller / port — Stage 8 Phase 5.
- * Wraps Notification Runtime; Coordinator never imports the store.
- * No CreateBan / Settings / React / application-owner imports.
- *
- * Snapshot identity: getState() returns a cached projection. useSyncExternalStore
- * requires Object.is(getSnapshot(), getSnapshot()) while nothing mutated.
+ * Stage 8 Phase 8 — Notifications domain controller / port.
+ * Session completion only from Runtime SESSION_COMPLETE effect (or CLOSE path).
  */
 import type { DomainAvailability } from '@/domain-availability';
 import type { DomainCapability } from '@/domain-capability';
 import { createNotificationIntents } from '@/notification-runtime/notification-runtime.intents';
+import { runNotificationRuntimeEffects } from '@/notification-runtime/notification-runtime.effects';
 import {
   selectActiveItem,
   selectActiveItemId,
-  selectReadyHeadId,
 } from '@/notification-runtime/notification-runtime.selectors';
 import type { NotificationRuntimeStore } from '@/notification-runtime/notification-runtime.store';
-import { notificationItemId } from '@/notification-runtime/notification-runtime.types';
 import { mapNotificationsAvailability } from './notifications.availability';
 import { mapNotificationsCapability } from './notifications.capability';
 import { selectNotificationsDomainState } from './notifications.selectors';
@@ -28,7 +23,6 @@ import type {
 export type NotificationsListener = (state: NotificationsDomainState) => void;
 
 export type NotificationsDomainSink = {
-  /** Active item completed and activation cleared — request application release. */
   sessionCompleted(): void;
 };
 
@@ -49,21 +43,40 @@ export type NotificationsController = {
 export function createNotificationsController(input: {
   store: NotificationRuntimeStore;
   getToken: () => string | null;
+  getUserId?: () => string | null;
   onRefresh?: (reason: 'bootstrap' | 'reconnect' | 'user') => Promise<void>;
   sink?: NotificationsDomainSink;
 }): NotificationsController {
   let disposed = false;
   let lastActivationOutcome: NotificationsActivationOutcome | null = null;
-  let previousActiveId: string | null = selectActiveItemId(
-    input.store.getState(),
-  );
   const listeners = new Set<NotificationsListener>();
 
   const intents = createNotificationIntents({
     store: input.store,
     getToken: input.getToken,
+    getUserId: input.getUserId,
     onRefresh: input.onRefresh,
   });
+
+  async function drainEffects(): Promise<void> {
+    await runNotificationRuntimeEffects(
+      input.store,
+      input.store.getLastEffects(),
+      {
+        getToken: input.getToken,
+        getUserId: input.getUserId,
+        onRefreshPending: async () => {
+          await input.onRefresh?.('user');
+        },
+        onRequestFullSync: () => {
+          void input.onRefresh?.('reconnect');
+        },
+        onSessionComplete: () => {
+          input.sink?.sessionCompleted();
+        },
+      },
+    );
+  }
 
   function project(): NotificationsDomainState {
     return selectNotificationsDomainState(
@@ -72,7 +85,6 @@ export function createNotificationsController(input: {
     );
   }
 
-  /** Stable external-store snapshot — replaced only on real mutations. */
   let cachedState: NotificationsDomainState = project();
 
   function emit(): void {
@@ -82,30 +94,9 @@ export function createNotificationsController(input: {
     }
   }
 
-  function noteActivationClearedAfterSession(): void {
-    const runtime = input.store.getState();
-    const nextActive = selectActiveItemId(runtime);
-    if (previousActiveId != null && nextActive == null) {
-      const completedId = previousActiveId;
-      previousActiveId = null;
-      // Release only when the claimed item left the queue (consume/dismiss).
-      // CLEAR_ACTIVATION / close-without-consume must not look like completion.
-      const stillQueued = runtime.items.queue.some(
-        (item) => notificationItemId(item) === completedId,
-      );
-      if (!stillQueued) {
-        input.sink?.sessionCompleted();
-      }
-      emit();
-      return;
-    }
-    previousActiveId = nextActive;
-    emit();
-  }
-
   const unsubscribeStore = input.store.subscribe(() => {
     if (disposed) return;
-    noteActivationClearedAfterSession();
+    emit();
   });
 
   const controller: NotificationsController = {
@@ -125,55 +116,32 @@ export function createNotificationsController(input: {
 
       switch (intent.type) {
         case 'ACTIVATE_READY_ITEM_REQUESTED': {
-          const runtimeState = input.store.getState();
-          const before = selectActiveItemId(runtimeState);
-          const beforeItem = selectActiveItem(runtimeState);
-          // Stale claim (id not in queue) must not block ready-head activation.
-          if (before && beforeItem) {
-            lastActivationOutcome = {
-              type: 'ALREADY_ACTIVE',
-              itemId: before,
-            };
-            emit();
-            return;
-          }
-          if (before && !beforeItem) {
-            previousActiveId = null;
-            input.store.dispatch({
-              type: 'CLEAR_ACTIVATION_REQUESTED',
-              source: 'system',
-            });
-          }
-          const readyId = selectReadyHeadId(input.store.getState());
-          if (!readyId) {
-            lastActivationOutcome = { type: 'NO_READY_ITEM' };
-            emit();
-            return;
-          }
-          input.store.dispatch({
+          const result = input.store.dispatch({
             type: 'ACTIVATE_READY_ITEM_REQUESTED',
             source: 'user',
           });
-          const after = selectActiveItemId(input.store.getState());
-          const afterItem = selectActiveItem(input.store.getState());
           lastActivationOutcome =
-            after && afterItem
-              ? { type: 'ACTIVATED', itemId: after }
-              : { type: 'NO_READY_ITEM' };
-          previousActiveId = after && afterItem ? after : null;
+            result.activationOutcome ?? { type: 'NO_READY_ITEM' };
+          void drainEffects();
           emit();
           return;
         }
 
-        case 'CLEAR_ACTIVATION_REQUESTED':
-        case 'ACTIVE_ITEM_CLOSE_REQUESTED': {
-          // Clear claim only — do not consume queue; do not auto-activate next.
-          // Close path releases via application intent; suppress sessionCompleted.
-          previousActiveId = null;
+        case 'CLEAR_ACTIVATION_REQUESTED': {
           input.store.dispatch({
             type: 'CLEAR_ACTIVATION_REQUESTED',
             source: 'user',
           });
+          emit();
+          return;
+        }
+
+        case 'ACTIVE_ITEM_CLOSE_REQUESTED': {
+          input.store.dispatch({
+            type: 'ACTIVE_ITEM_CLOSE_REQUESTED',
+            source: 'user',
+          });
+          void drainEffects();
           emit();
           return;
         }
@@ -206,7 +174,7 @@ export function createNotificationsController(input: {
         case 'RETRY_REQUESTED': {
           const active = selectActiveItem(input.store.getState());
           const runtime = input.store.getState();
-          if (!active || runtime.action.status !== 'failed') return;
+          if (!active || runtime.action.status !== 'FAILED') return;
           if (active.kind === 'incoming') {
             void intents.accept();
             return;
@@ -254,5 +222,6 @@ export function createNotificationsController(input: {
     },
   };
 
+  void selectActiveItemId;
   return controller;
 }

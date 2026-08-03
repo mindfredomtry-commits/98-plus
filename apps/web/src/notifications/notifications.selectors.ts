@@ -1,11 +1,7 @@
 /**
  * Notifications domain read-model projection for presentation.
- * Presenter must not read readyHead / queue directly.
  */
-import {
-  selectActiveItem,
-  selectActiveItemId,
-} from '@/notification-runtime/notification-runtime.selectors';
+import { selectActiveItem, selectActiveItemId } from '@/notification-runtime/notification-runtime.selectors';
 import {
   notificationItemId,
   type NotificationItem,
@@ -56,6 +52,14 @@ function toActiveView(item: NotificationItem): NotificationsActiveItemView {
   };
 }
 
+function mapActionStatus(
+  status: NotificationRuntimeState['action']['status'],
+): NotificationsDomainState['actionStatus'] {
+  if (status === 'SUBMITTING') return 'pending';
+  if (status === 'FAILED') return 'failed';
+  return 'idle';
+}
+
 export function selectNotificationsDomainState(
   state: NotificationRuntimeState,
   lastActivationOutcome: NotificationsActivationOutcome | null = null,
@@ -67,7 +71,7 @@ export function selectNotificationsDomainState(
       ? { type: 'ACTIVE', itemId: activeId }
       : { type: 'INACTIVE' },
     activeItem: activeItem ? toActiveView(activeItem) : null,
-    actionStatus: state.action.status,
+    actionStatus: mapActionStatus(state.action.status),
     actionErrorCode: state.action.errorCode,
     lastActivationOutcome,
   };

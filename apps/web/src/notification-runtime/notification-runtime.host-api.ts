@@ -1,111 +1,66 @@
 /**
- * Stage 7 Phase 2 — passive Host ↔ Runtime contract (Option B readiness only).
- * No display/overlay/Lobby/Product fields. Not mounted in production.
+ * Stage 8 Phase 8 — passive read model for host intents.
  */
 import {
-  selectCurrentItem,
-  selectHasNext,
-  selectIndicatorVisible,
+  selectActiveItem,
+  selectActiveItemId,
   selectIsActionBlocked,
-  selectIsBooting,
-  selectIsRecovering,
-  selectPendingCount,
+  selectPassiveItemIds,
   selectReadyHeadId,
+  selectSyncStatus,
 } from './notification-runtime.selectors';
-import {
-  notificationItemId,
-  type NotificationItem,
-  type NotificationRuntimeState,
-} from './notification-runtime.types';
-
-export type NotificationQueueReadModel = {
-  readyItemId: string | null;
-  pendingCount: number;
-  queueLength: number;
-  actionBlocked: boolean;
-  booting: boolean;
-  recovering: boolean;
-  hasNext: boolean;
-  indicatorVisible: boolean;
-};
+import type { NotificationRuntimeState } from './notification-runtime.types';
+import { notificationItemId } from './notification-runtime.types';
 
 export type NotificationIntentResult = {
   accepted: boolean;
   reason?: string;
 };
 
-/** Public intents. No Product / Reply navigation. */
 export type NotificationIntents = {
   accept(): Promise<NotificationIntentResult>;
   confirmCheck(completed: boolean): Promise<NotificationIntentResult>;
-  dismissResult(
-    reason?: 'close_result' | 'continue_chain',
-  ): Promise<NotificationIntentResult>;
-  dismissCurrent(
-    reason?: 'user_dismiss' | 'system',
-  ): Promise<NotificationIntentResult>;
-  refresh(
-    reason?: 'bootstrap' | 'reconnect' | 'user',
-  ): Promise<NotificationIntentResult>;
+  dismissResult(reason?: string): Promise<NotificationIntentResult>;
+  dismissCurrent(reason?: string): Promise<NotificationIntentResult>;
+  refresh(reason?: 'bootstrap' | 'reconnect' | 'user'): Promise<NotificationIntentResult>;
 };
 
-/** @deprecated Prefer selectNotificationQueueReadModel. */
-export type NotificationViewState = NotificationQueueReadModel & {
-  phase: 'READY' | 'EMPTY' | 'BOOTING' | 'RECOVERING' | 'ACTION_PENDING';
+export type NotificationQueueReadModel = {
+  activeItemId: string | null;
   readyHeadId: string | null;
-  readyHead: null;
-  isProcessingAction: boolean;
+  passiveCount: number;
+  actionBlocked: boolean;
+  syncStatus: NotificationRuntimeState['syncStatus'];
 };
 
 export function selectNotificationQueueReadModel(
   state: NotificationRuntimeState,
 ): NotificationQueueReadModel {
   return {
-    readyItemId: selectReadyHeadId(state),
-    pendingCount: selectPendingCount(state),
-    queueLength: state.items.queue.length,
+    activeItemId: selectActiveItemId(state),
+    readyHeadId: selectReadyHeadId(state),
+    passiveCount: selectPassiveItemIds(state).length,
     actionBlocked: selectIsActionBlocked(state),
-    booting: selectIsBooting(state),
-    recovering: selectIsRecovering(state),
-    hasNext: selectHasNext(state),
-    indicatorVisible: selectIndicatorVisible(state),
+    syncStatus: selectSyncStatus(state),
   };
 }
 
-/**
- * Passive read model for tests / residual callers.
- * readyHead is always null — Host must not render queue head as active.
- */
-export function selectNotificationViewState(
-  state: NotificationRuntimeState,
-): NotificationViewState {
-  const read = selectNotificationQueueReadModel(state);
-  let phase: NotificationViewState['phase'];
-  if (read.booting) phase = 'BOOTING';
-  else if (read.recovering) phase = 'RECOVERING';
-  else if (read.actionBlocked) phase = 'ACTION_PENDING';
-  else if (read.readyItemId) phase = 'READY';
-  else phase = 'EMPTY';
-
-  return {
-    ...read,
-    phase,
-    readyHeadId: read.readyItemId,
-    readyHead: null,
-    isProcessingAction: read.actionBlocked,
-  };
+export function selectReadyItem(state: NotificationRuntimeState) {
+  const id = selectReadyHeadId(state);
+  if (!id) return null;
+  return state.presentationByItemId[id] ?? null;
 }
 
-export function selectReadyItem(
-  state: NotificationRuntimeState,
-): NotificationItem | null {
-  return selectCurrentItem(state);
-}
-
-export function selectReadyItemId(
-  state: NotificationRuntimeState,
-): string | null {
+export function selectReadyItemId(state: NotificationRuntimeState) {
   return selectReadyHeadId(state);
+}
+
+export function selectNotificationViewState(state: NotificationRuntimeState) {
+  return {
+    activeItemId: selectActiveItemId(state),
+    activeItem: selectActiveItem(state),
+    actionStatus: state.action.status,
+  };
 }
 
 export { notificationItemId };

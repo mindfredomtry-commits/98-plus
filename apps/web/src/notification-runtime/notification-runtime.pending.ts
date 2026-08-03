@@ -1,161 +1,44 @@
 /**
- * Vertical 4 — canonical pending indicator ingest + consume helpers.
- * Badge = selectIndicatorVisible only. Queue length / hints are not authority.
+ * Stage 8 Phase 8 — pending helpers retired as Runtime authority.
+ * Kept as thin id helpers for transport prefetch mapping only.
  */
-import { normalizeId } from '@/lib/normalize-json';
-import { overlayQueueKey, type QueuedOverlay } from '@/lib/overlay-queue';
-import type { NotificationRuntimeStore } from './notification-runtime.store';
-import type { RuntimeSource } from './notification-runtime.types';
-import { mapProvidersSourceToRuntime } from './notification-runtime.source-map';
-
-/** Normalize + dedupe stable item ids (`kind:id`). */
-export function normalizePendingItemIds(ids: readonly string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const raw of ids) {
-    const id = typeof raw === 'string' ? raw.trim() : '';
-    if (!id || !id.includes(':') || id.endsWith(':') || seen.has(id)) continue;
-    seen.add(id);
-    out.push(id);
-  }
-  return out;
-}
-
-export function pendingItemIdsFromQueued(
-  items: readonly QueuedOverlay[],
-): string[] {
-  return normalizePendingItemIds(items.map(overlayQueueKey));
-}
-
 export function pendingItemIdFromParts(
   kind: 'incoming' | 'check' | 'result',
-  banId: string,
+  id: string | null | undefined,
 ): string | null {
-  const id = normalizeId(banId);
   if (!id) return null;
   return `${kind}:${id}`;
 }
 
-let pendingAuthorityGenerationCounter = 0;
-
-/**
- * Allocate a monotonic generation at request start. Stamping the request (not
- * the response) is what lets the reducer drop an older empty result that lands
- * after a newer non-empty one.
- */
-export function nextPendingAuthorityGeneration(): number {
-  pendingAuthorityGenerationCounter += 1;
-  return pendingAuthorityGenerationCounter;
-}
-
-function isPassiveIndicatorPrimeSource(source: string): boolean {
-  return (
-    source === 'lobby-indicator-prime' ||
-    source.startsWith('lobby-indicator-prime')
-  );
-}
-
-/**
- * Replace pending source snapshot (server/live prefetch).
- * Consumed tombstones are retained; selector subtracts them (no resurrection).
- *
- * Stage 6B Phase 5: pass the request-start generation so the reducer can drop
- * stale empty and non-empty results. Unstamped calls remain for live merges.
- *
- * Passive pending-indicator prime must not wipe a non-empty pending snapshot with an
- * empty race result (bootstrap / bans prefetch may already hold truth).
- */
-export function ingestPendingSnapshot(
-  store: NotificationRuntimeStore,
-  itemIds: readonly string[],
-  source: string | RuntimeSource,
-  sourceVersion: string | null = null,
-  generation: number | null = null,
-): void {
-  const nextIds = normalizePendingItemIds(itemIds);
-  if (
-    typeof source === 'string' &&
-    isPassiveIndicatorPrimeSource(source) &&
-    nextIds.length === 0
-  ) {
-    const current = store.getState().pending.itemIds;
-    if (current.length > 0) {
-      return;
-    }
-  }
-  const runtimeSource =
-    typeof source === 'string' ? mapProvidersSourceToRuntime(source) : source;
-  store.dispatch({
-    type: 'PENDING_SOURCE_UPDATED',
-    itemIds: nextIds,
-    sourceVersion,
-    source: runtimeSource,
-    generation,
-  });
-}
-
-/**
- * Merge ids into current pending snapshot (live / deeplink single-item).
- * Idempotent for duplicates.
- *
- * Stage 6B Phase 5: unstamped live merges allocate a generation so WebSocket
- * (or other live) delivery that lands while a fetch is in flight outranks that
- * fetch's later completion.
- */
-export function mergePendingItemIds(
-  store: NotificationRuntimeStore,
-  itemIds: readonly string[],
-  source: string | RuntimeSource,
-  sourceVersion: string | null = null,
-  generation: number | null = null,
-): void {
-  const incoming = normalizePendingItemIds(itemIds);
-  if (incoming.length === 0) return;
-  const current = store.getState().pending.itemIds;
-  const merged = normalizePendingItemIds([...current, ...incoming]);
-  const stamped =
-    generation ?? nextPendingAuthorityGeneration();
-  ingestPendingSnapshot(store, merged, source, sourceVersion, stamped);
-}
-
-/**
- * Immediate local consume tombstone — badge hides without server ack.
- * Does not clear queue/lifecycle; idempotent.
- */
-export function markRuntimeItemConsumed(
-  store: NotificationRuntimeStore,
-  itemId: string,
-  source: string | RuntimeSource = 'user',
-): void {
-  const id = itemId.trim();
-  if (!id) return;
-  const runtimeSource =
-    typeof source === 'string' ? mapProvidersSourceToRuntime(source) : source;
-  store.dispatch({
-    type: 'ITEM_CONSUMED',
-    itemId: id,
-    source: runtimeSource,
-  });
-}
-
-/** Map prefetch payload rows → stable pending item ids. */
 export function pendingIdsFromPrefetchParts(input: {
-  incomingIds?: readonly string[];
-  checkId?: string | null;
-  resultId?: string | null;
+  incomingIds: string[];
+  checkId: string | null;
+  resultId: string | null;
 }): string[] {
-  const ids: string[] = [];
-  for (const raw of input.incomingIds ?? []) {
-    const id = pendingItemIdFromParts('incoming', raw);
-    if (id) ids.push(id);
+  const out: string[] = [];
+  for (const id of input.incomingIds) {
+    const p = pendingItemIdFromParts('incoming', id);
+    if (p) out.push(p);
   }
-  if (input.checkId) {
-    const id = pendingItemIdFromParts('check', input.checkId);
-    if (id) ids.push(id);
-  }
-  if (input.resultId) {
-    const id = pendingItemIdFromParts('result', input.resultId);
-    if (id) ids.push(id);
-  }
-  return normalizePendingItemIds(ids);
+  const c = pendingItemIdFromParts('check', input.checkId);
+  if (c) out.push(c);
+  const r = pendingItemIdFromParts('result', input.resultId);
+  if (r) out.push(r);
+  return out;
+}
+
+/** @deprecated No longer Runtime authority — returns 0. */
+export function nextPendingAuthorityGeneration(): number {
+  return 0;
+}
+
+/** @deprecated No-op — pending is not Runtime authority after Phase 8. */
+export function ingestPendingSnapshot(
+  _store: unknown,
+  _itemIds: string[],
+  _source: unknown,
+  _sourceVersion?: string | null,
+  _generation?: number | null,
+): void {
+  // intentionally empty
 }

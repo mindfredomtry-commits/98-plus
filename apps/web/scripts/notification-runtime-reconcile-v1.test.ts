@@ -655,16 +655,8 @@ console.log('\n=== NOTIFICATIONS RUNTIME RECONCILE V1 ===\n');
     join(webSrc, 'notification-host/NotificationRuntimeTransport.tsx'),
     'utf8',
   );
-  const reducer = readFileSync(
-    join(runtimeDir, 'notification-runtime.reducer.ts'),
-    'utf8',
-  );
   const bootstrap = readFileSync(
     join(runtimeDir, 'notification-runtime.bootstrap.ts'),
-    'utf8',
-  );
-  const store = readFileSync(
-    join(runtimeDir, 'notification-runtime.store.ts'),
     'utf8',
   );
   const intents = readFileSync(
@@ -672,21 +664,22 @@ console.log('\n=== NOTIFICATIONS RUNTIME RECONCILE V1 ===\n');
     'utf8',
   );
 
+  // Phase 8: reducer IS the reconcile authority. Transport must not call Sync API yet.
   for (const [name, src] of [
     ['transport', transport],
-    ['reducer', reducer],
     ['bootstrap', bootstrap],
-    ['store', store],
     ['intents', intents],
   ] as const) {
-    assert.doesNotMatch(
-      src,
-      /reconcileNotifications(Snapshot|Delta)V1|notification-runtime\.reconcile/,
-      `${name} must not import reconcile kernel`,
-    );
-    assert.doesNotMatch(src, /\/notifications\/sync/);
-    assert.doesNotMatch(src, /notifications:delta:v1/);
+    assert.doesNotMatch(src, /\/notifications\/sync/, `${name} Sync API`);
+    assert.doesNotMatch(src, /notifications:delta:v1/, `${name} WS V1`);
   }
+
+  const reducer = readFileSync(
+    join(runtimeDir, 'notification-runtime.reducer.ts'),
+    'utf8',
+  );
+  assert.match(reducer, /reconcileNotifications(Snapshot|Delta)V1/);
+  assert.doesNotMatch(reducer, /items\.queue/);
 
   // Kernel deps: no React/HTTP/WS/Coordinator/Presenter imports
   const reconcileSrc = readFileSync(
@@ -701,12 +694,7 @@ console.log('\n=== NOTIFICATIONS RUNTIME RECONCILE V1 ===\n');
   );
   assert.doesNotMatch(reconcileSrc, /NotificationRuntimeTransport/);
 
-  // Old production writers untouched
-  assert.match(reducer, /BOOTSTRAP_REQUESTED/);
-  assert.match(reducer, /items:\s*\{\s*queue:\s*\[\]/);
-  assert.match(reducer, /selectCurrentItem/);
-
-  pass('reachability: kernel isolated; production writers unchanged');
+  pass('reachability: reconcile is Runtime authority; Sync API not connected');
 }
 
 {

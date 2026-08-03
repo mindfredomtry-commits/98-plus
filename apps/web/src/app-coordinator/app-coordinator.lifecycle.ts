@@ -112,7 +112,11 @@ export function createAppCoordinatorLifecycle(input: {
         storeId: input.runtimeStore.chaosStoreId,
         currentOwner:
           ownerAfter.type === 'DOMAIN' ? ownerAfter.domain : ownerAfter.type,
-        returnOwner: store.getState().returnOwner,
+        returnOwner: (() => {
+          const r = store.getState().returnOwner;
+          if (!r) return null;
+          return r.type === 'DOMAIN' ? r.domain : r.type;
+        })(),
         reason: event.type,
         detail: {
           ownerBefore:
@@ -167,22 +171,23 @@ export function createAppCoordinatorLifecycle(input: {
   notificationsController = createNotificationsController({
     store: input.runtimeStore,
     getToken: input.getToken,
+    getUserId: () => {
+      // Token auth user — transport owns userId; optional for adapter.
+      return null;
+    },
     sink: {
       sessionCompleted() {
         if (disposed) return;
         const owner = store.getState().currentOwner;
         if (owner.type === 'DOMAIN' && owner.domain === 'NOTIFICATIONS') {
+          const rt = input.runtimeStore.getState();
           logNotificationsChaos('controller', 'sessionCompleted', {
             lifecycleId: chaosLifecycleId,
             storeId: input.runtimeStore.chaosStoreId,
-            reason: 'ACTIVE_LEFT_QUEUE',
+            reason: 'SESSION_COMPLETE_EFFECT',
             currentOwner: 'NOTIFICATIONS',
-            activeItemId: null,
-            queueAfter: input.runtimeStore
-              .getState()
-              .items.queue.map((i) =>
-                i.kind === 'result' ? `result:${i.result.id}` : `${i.kind}:${i.ban.id}`,
-              ),
+            activeItemId: rt.activeItemId,
+            queueAfter: [...rt.passiveItemIds],
           });
           dispatch({ type: 'NOTIFICATIONS_RELEASE_REQUESTED' });
         }

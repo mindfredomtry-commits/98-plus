@@ -1,23 +1,24 @@
 /**
- * Vertical 3 — check action command + SUBMIT_CARD_ACTION effect execution.
- * Stage 7 Phase 1: no legacy sinks.
+ * Stage 8 Phase 8 — check action targets activeItemId.
  */
 import type { BanResult } from '@98plus/shared';
 import { normalizeId } from '@/lib/normalize-json';
 import {
-  selectCurrentItem,
+  selectActiveItem,
   selectIsActionBlocked,
 } from './notification-runtime.selectors';
 import {
   nextRuntimeTransitionId,
-  notificationItemId,
   type NotificationRuntimeStore,
 } from './notification-runtime.store';
-import type {
-  NotificationItem,
-  RuntimeEffect,
-  RuntimeSource,
-} from './notification-runtime.types';
+import {
+  buildRemoveDelta,
+  itemFromResult,
+  toCausalResultItemV1,
+  toContractItemV1,
+} from './notification-runtime.temporary-adapter';
+import { notificationItemId } from './notification-runtime.types';
+import type { RuntimeEffect, RuntimeSource } from './notification-runtime.types';
 
 export type CheckSubmitApiResponse = {
   done: boolean;
@@ -35,9 +36,6 @@ function banIdFromCheckItemId(itemId: string): string {
   return itemId.startsWith('check:') ? itemId.slice('check:'.length) : itemId;
 }
 
-/**
- * First-click entry: create commandId + CARD_ACTION_REQUESTED only.
- */
 export function requestCheckCardAction(
   store: NotificationRuntimeStore,
   args: {
@@ -60,22 +58,30 @@ export function requestCheckCardAction(
       reason: 'action-blocked',
     };
   }
-  const current = selectCurrentItem(store.getState());
-  if (!current || current.kind !== 'check') {
+  const active = selectActiveItem(store.getState());
+  if (!active || active.kind !== 'check') {
     return {
       accepted: false,
       commandId: null,
       effects: [],
-      reason: 'current-not-check',
+      reason: 'active-not-check',
     };
   }
-  const targetItemId = notificationItemId(current);
-  if (normalizeId(current.ban.id) !== normalizeId(args.banId)) {
+  const targetItemId = notificationItemId(active);
+  if (normalizeId(active.ban.id) !== normalizeId(args.banId)) {
     return {
       accepted: false,
       commandId: null,
       effects: [],
       reason: 'ban-mismatch',
+    };
+  }
+  if (store.getState().activeItemId !== targetItemId) {
+    return {
+      accepted: false,
+      commandId: null,
+      effects: [],
+      reason: 'active-mismatch',
     };
   }
   const commandId = args.commandId ?? nextRuntimeTransitionId('check-action');
@@ -99,14 +105,12 @@ export function requestCheckCardAction(
   };
 }
 
-/**
- * Execute SUBMIT_CARD_ACTION — sole production API caller for check answer.
- */
 export async function executeSubmitCardActionEffect(
   store: NotificationRuntimeStore,
   effect: Extract<RuntimeEffect, { type: 'SUBMIT_CARD_ACTION' }>,
   transport: CheckSubmitTransport,
   token: string,
+  userId: string,
 ): Promise<void> {
   if (effect.action !== 'check_answer') return;
   const banId = banIdFromCheckItemId(effect.targetItemId);
@@ -118,15 +122,27 @@ export async function executeSubmitCardActionEffect(
     });
 
     if (res.result) {
-      const replacement: NotificationItem = {
-        kind: 'result',
-        result: res.result,
-      };
+      const fromRevision = store.getState().revision ?? '0';
+      const causedBy = effect.targetItemId;
+      const upsert = toCausalResultItemV1(res.result, userId, causedBy);
+      // Prefer FIFO result if not causal — check completion is usually FIFO
+      const fifo = toContractItemV1(itemFromResult(res.result), userId);
+      const { delta, presentationByItemId } = buildRemoveDelta({
+        itemId: effect.targetItemId,
+        fromRevision,
+        upsert: fifo,
+        presentationByItemId: {
+          [fifo.itemId]: itemFromResult(res.result),
+        },
+      });
+      void upsert;
       store.dispatch({
         type: 'CARD_ACTION_SUCCEEDED',
         commandId: effect.commandId,
         targetItemId: effect.targetItemId,
-        replacement,
+        delta,
+        presentationByItemId,
+        promoteCausalNext: false,
         source: 'user',
       });
       return;
@@ -149,44 +165,13 @@ export async function executeSubmitCardActionEffect(
       errorCode: 'CHECK_SUBMIT_UNKNOWN',
       source: 'user',
     });
-  } catch (err) {
-    const message =
-      err instanceof Error && err.message
-        ? err.message
-        : 'CHECK_SUBMIT_FAILED';
+  } catch {
     store.dispatch({
       type: 'CARD_ACTION_FAILED',
       commandId: effect.commandId,
       targetItemId: effect.targetItemId,
-      errorCode: message,
+      errorCode: 'CHECK_SUBMIT_FAILED',
       source: 'user',
     });
   }
-}
-
-/**
- * Apply result into runtime when waiting succeeded.
- */
-export function applyPolledCheckResultToRuntime(
-  store: NotificationRuntimeStore,
-  banId: string,
-  result: BanResult,
-): boolean {
-  const state = store.getState();
-  const targetItemId = `check:${normalizeId(banId)}`;
-  if (
-    state.action.status !== 'succeeded' ||
-    state.action.targetItemId !== targetItemId ||
-    !state.action.commandId
-  ) {
-    return false;
-  }
-  store.dispatch({
-    type: 'CARD_ACTION_SUCCEEDED',
-    commandId: state.action.commandId,
-    targetItemId,
-    replacement: { kind: 'result', result },
-    source: 'poll',
-  });
-  return true;
 }

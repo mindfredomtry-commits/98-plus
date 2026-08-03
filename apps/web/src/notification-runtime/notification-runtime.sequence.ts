@@ -17,8 +17,8 @@ export function compareNotificationSequenceV1(a: string, b: string): number {
   const bOk = DECIMAL_RE.test(b);
   if (aOk && bOk) {
     const diff = BigInt(a) - BigInt(b);
-    if (diff < 0n) return -1;
-    if (diff > 0n) return 1;
+    if (diff < BigInt(0)) return -1;
+    if (diff > BigInt(0)) return 1;
     return 0;
   }
   if (aOk && !bOk) return -1;

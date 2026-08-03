@@ -1,84 +1,118 @@
 /**
- * Stage 7 Phase 1 — queue / lifecycle selectors only.
- * No Lobby, chrome, orb, CTA, or presentation-policy projections.
+ * Stage 8 Phase 8 — Runtime selectors (target Sync V1 state only).
  */
+import type { NotificationItemV1 } from '@98plus/shared';
+import { selectNotificationsAvailabilityV1 } from './notification-runtime.reconcile';
 import type {
   NotificationItem,
   NotificationRuntimeState,
 } from './notification-runtime.types';
-import { notificationItemId } from './notification-runtime.types';
-
-/** Ready head = FIFO queue[0]. Not an activated / visible surface claim. */
-export function selectCurrentItem(
-  state: NotificationRuntimeState,
-): NotificationItem | null {
-  return state.items.queue[0] ?? null;
-}
-
-export function selectReadyHeadId(
-  state: NotificationRuntimeState,
-): string | null {
-  const head = selectCurrentItem(state);
-  return head ? notificationItemId(head) : null;
-}
-
-/** Explicit domain activation claim — distinct from ready head. */
-export function selectActivation(
-  state: NotificationRuntimeState,
-): NotificationRuntimeState['activation'] {
-  return state.activation;
-}
 
 export function selectActiveItemId(
   state: NotificationRuntimeState,
 ): string | null {
-  return state.activation.type === 'ACTIVE' ? state.activation.itemId : null;
+  return state.activeItemId;
 }
 
+export function selectActiveItemV1(
+  state: NotificationRuntimeState,
+): NotificationItemV1 | null {
+  if (!state.activeItemId) return null;
+  return state.itemsById[state.activeItemId] ?? null;
+}
+
+/** Presentation projection for active item (temporary adapter cache). */
 export function selectActiveItem(
   state: NotificationRuntimeState,
 ): NotificationItem | null {
-  const activeId = selectActiveItemId(state);
-  if (!activeId) return null;
+  const id = state.activeItemId;
+  if (!id) return null;
+  return state.presentationByItemId[id] ?? null;
+}
+
+export function selectPassiveItemIds(
+  state: NotificationRuntimeState,
+): readonly string[] {
+  return state.passiveItemIds;
+}
+
+/** Ready head = passive FIFO head (not an activation claim). */
+export function selectReadyHeadId(
+  state: NotificationRuntimeState,
+): string | null {
+  return state.passiveItemIds[0] ?? null;
+}
+
+export function selectIsActionBlocked(
+  state: NotificationRuntimeState,
+): boolean {
+  return state.action.status === 'SUBMITTING';
+}
+
+export function selectIsActionSubmitting(
+  state: NotificationRuntimeState,
+): boolean {
+  return state.action.status === 'SUBMITTING';
+}
+
+export function selectSyncStatus(state: NotificationRuntimeState) {
+  return state.syncStatus;
+}
+
+export function selectIsSyncReady(state: NotificationRuntimeState): boolean {
+  return state.syncStatus === 'READY';
+}
+
+export function selectIsRecovering(state: NotificationRuntimeState): boolean {
+  return state.syncStatus === 'RECOVERING';
+}
+
+export function selectIsBooting(state: NotificationRuntimeState): boolean {
   return (
-    state.items.queue.find((item) => notificationItemId(item) === activeId) ??
-    null
+    state.syncStatus === 'SYNCING' || state.syncStatus === 'UNINITIALIZED'
   );
 }
 
-/** @deprecated Alias — ready head id, not an activated surface. */
-export function selectCurrentItemId(
-  state: NotificationRuntimeState,
-): string | null {
-  return selectReadyHeadId(state);
+export function selectQueueLength(state: NotificationRuntimeState): number {
+  return (
+    state.passiveItemIds.length + (state.activeItemId != null ? 1 : 0)
+  );
 }
 
-/**
- * Canonical pending indicator:
- * unique(pending.itemIds) minus consumed.itemIds (order preserved from pending).
- */
+export function selectHasNext(state: NotificationRuntimeState): boolean {
+  return state.passiveItemIds.length > 0;
+}
+
+export function selectRuntimeAvailability(state: NotificationRuntimeState) {
+  return selectNotificationsAvailabilityV1(state);
+}
+
+export function selectIsDirectEntry(_state: NotificationRuntimeState): boolean {
+  return false;
+}
+
+export function selectHasDeferredDirectEntry(
+  _state: NotificationRuntimeState,
+): boolean {
+  return false;
+}
+
 export function selectCanonicalPendingItemIds(
   state: NotificationRuntimeState,
 ): string[] {
-  const consumed = new Set(state.consumed.itemIds);
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const id of state.pending.itemIds) {
-    if (!id || consumed.has(id) || seen.has(id)) continue;
-    seen.add(id);
-    out.push(id);
-  }
-  return out;
+  return [...state.passiveItemIds];
 }
 
-export const selectPendingItemIds = selectCanonicalPendingItemIds;
+export function selectPendingItemIds(state: NotificationRuntimeState): string[] {
+  return selectCanonicalPendingItemIds(state);
+}
 
 export function selectPendingCount(state: NotificationRuntimeState): number {
-  return selectPendingItemIds(state).length;
+  return state.passiveItemIds.length;
 }
 
 export function selectHasPending(state: NotificationRuntimeState): boolean {
-  return selectPendingCount(state) > 0;
+  return state.passiveItemIds.length > 0 || state.activeItemId != null;
 }
 
 export function selectIndicatorVisible(
@@ -87,39 +121,18 @@ export function selectIndicatorVisible(
   return selectHasPending(state);
 }
 
-export function selectHasNext(state: NotificationRuntimeState): boolean {
-  return state.items.queue.length > 1;
-}
-
-export function selectIsActionBlocked(
-  state: NotificationRuntimeState,
+export function selectInteractiveLobbyChromeMayShow(
+  _state: NotificationRuntimeState,
 ): boolean {
-  return (
-    state.action.status === 'pending' || state.action.status === 'succeeded'
+  return true;
+}
+
+/**
+ * @deprecated Removed — must not target queue head for actions.
+ * Kept as compile-fail trap: throws if called.
+ */
+export function selectCurrentItem(_state: NotificationRuntimeState): never {
+  throw new Error(
+    'selectCurrentItem removed — use selectActiveItem / selectActionTargetV1',
   );
-}
-
-export function selectIsBooting(state: NotificationRuntimeState): boolean {
-  return state.lifecycle.status === 'booting';
-}
-
-export function selectIsRecovering(state: NotificationRuntimeState): boolean {
-  return (
-    state.lifecycle.status === 'recovering' ||
-    state.recovery.status === 'loading'
-  );
-}
-
-export function selectIsDirectEntry(state: NotificationRuntimeState): boolean {
-  return state.directEntry.active;
-}
-
-export function selectHasDeferredDirectEntry(
-  state: NotificationRuntimeState,
-): boolean {
-  return state.directEntry.deferred != null;
-}
-
-export function selectQueueLength(state: NotificationRuntimeState): number {
-  return state.items.queue.length;
 }
