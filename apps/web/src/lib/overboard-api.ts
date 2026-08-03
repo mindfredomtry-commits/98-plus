@@ -17,6 +17,7 @@ export type OverboardPostResponse = {
   result?: BanResult | null;
   idempotent?: boolean;
   error?: string;
+  notifications?: import('@98plus/shared').NotificationsDeltaV1 | null;
 };
 
 export async function postOverboardWithTrace(

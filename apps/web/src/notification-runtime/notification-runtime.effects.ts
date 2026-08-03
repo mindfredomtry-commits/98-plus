@@ -31,6 +31,7 @@ const checkTransport: CheckSubmitTransport = async ({
     result?: import('@98plus/shared').BanResult;
     done?: boolean;
     waiting?: boolean;
+    notifications?: import('@98plus/shared').NotificationsDeltaV1 | null;
   }>(`/bans/${encodeURIComponent(banId)}/check`, {
     method: 'POST',
     token,
@@ -40,6 +41,7 @@ const checkTransport: CheckSubmitTransport = async ({
     done: Boolean(res.done),
     waiting: res.waiting,
     result: res.result,
+    notifications: res.notifications ?? null,
   };
 };
 
@@ -55,6 +57,7 @@ const overboardTransport: OverboardSubmitTransport = async ({
     explicitNoResult: Boolean(
       (res as { explicitNoResult?: boolean }).explicitNoResult,
     ),
+    notifications: res.notifications ?? null,
   };
 };
 

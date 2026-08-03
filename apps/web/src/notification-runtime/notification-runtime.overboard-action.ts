@@ -13,12 +13,17 @@ import {
 } from './notification-runtime.store';
 import { notificationItemId } from './notification-runtime.types';
 import type { RuntimeEffect, RuntimeSource } from './notification-runtime.types';
+import {
+  applyNotificationsDeltaToStore,
+  parseNotificationsDeltaV1,
+} from './notifications-mapper';
 
 export type OverboardSubmitApiResponse = {
   ok?: boolean;
   result?: import('@98plus/shared').BanResult | null;
   error?: string;
   explicitNoResult?: boolean;
+  notifications?: import('@98plus/shared').NotificationsDeltaV1 | null;
 };
 
 export type OverboardSubmitTransport = (input: {
@@ -138,7 +143,30 @@ export async function executeSubmitIncomingOverboardEffect(
       return { ok: false, error: res.error ?? 'OVERBOARD_FAILED' };
     }
 
-    // HTTP success without journal ops — cannot mutate Runtime collection.
+    const delta = parseNotificationsDeltaV1(res.notifications ?? null);
+    if (delta) {
+      applyNotificationsDeltaToStore(store, {
+        delta,
+        transitionId: effect.commandId,
+        activeRemoveAuthorization: {
+          actionId: effect.commandId,
+          itemId: effect.targetItemId,
+        },
+        promoteCausalNext: true,
+        source: 'user',
+      });
+      store.dispatch({
+        type: 'CARD_ACTION_SUCCEEDED',
+        commandId: effect.commandId,
+        targetItemId: effect.targetItemId,
+        source: 'user',
+      });
+      return {
+        ok: true,
+        materializedResultBanId: res.result?.id ?? banId,
+      };
+    }
+
     store.dispatch({
       type: 'CARD_ACTION_FAILED',
       commandId: effect.commandId,

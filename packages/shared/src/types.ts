@@ -120,6 +120,7 @@ export interface WsEvent {
     | 'energy:popup'
     | 'interaction:list'
     | 'sync:session'
+    | 'notifications:delta:v1'
     | 'pong';
   payload: unknown;
   eventId?: string;

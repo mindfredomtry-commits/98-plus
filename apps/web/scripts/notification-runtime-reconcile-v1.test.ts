@@ -672,7 +672,9 @@ console.log('\n=== NOTIFICATIONS RUNTIME RECONCILE V1 ===\n');
 
   assert.match(reducer, /reconcileNotifications(Snapshot|Delta)V1/);
   assert.doesNotMatch(reducer, /items\.queue/);
-  assert.doesNotMatch(transport, /\/notifications\/sync|notifications:delta:v1/);
+  // Phase 9: Transport calls Sync HTTP + Delta V1; bootstrap helper stays fail-closed.
+  assert.match(transport, /runNotificationsSyncViaMapper|\/notifications\/sync/);
+  assert.match(transport, /isNotificationsDeltaV1Event|notifications:delta:v1/);
   assert.doesNotMatch(bootstrap, /APPLY_NOTIFICATIONS_SNAPSHOT|temporary-adapter/);
   assert.doesNotMatch(ingest, /APPLY_NOTIFICATIONS_/);
   assert.match(bootstrap, /AWAITING_TRUTHFUL_SYNC/);
@@ -691,7 +693,7 @@ console.log('\n=== NOTIFICATIONS RUNTIME RECONCILE V1 ===\n');
     /from ['"][^'"]*(app-coordinator|presenter|prisma)/i,
   );
 
-  pass('reachability: no synthetic adapter; Sync API unwired; reconcile owns items');
+  pass('reachability: Sync wired via Transport; no synthetic adapter; reconcile owns items');
 }
 
 {

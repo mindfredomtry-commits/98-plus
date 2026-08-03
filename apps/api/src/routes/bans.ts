@@ -202,21 +202,25 @@ bansRouter.get('/:id/result', async (req: AuthRequest, res) => {
 });
 
 bansRouter.post('/:id/result/ack', async (req: AuthRequest, res) => {
-  const ok = await acknowledgeBanResult(paramId(req), req.userId!);
-  if (!ok) {
+  const outcome = await acknowledgeBanResult(paramId(req), req.userId!);
+  if (!outcome.ok) {
     res.status(404).json({ error: 'Not found' });
     return;
   }
-  res.json({ ok: true });
+  res.json({ ok: true, notifications: outcome.notifications });
 });
 
 bansRouter.post('/:id/incoming/ack', async (req: AuthRequest, res) => {
-  const ban = await acknowledgeIncomingBan(paramId(req), req.userId!);
-  if (!ban) {
+  const outcome = await acknowledgeIncomingBan(paramId(req), req.userId!);
+  if (!outcome.ban) {
     res.status(404).json({ error: 'Not found' });
     return;
   }
-  res.json({ ok: true, ban });
+  res.json({
+    ok: true,
+    ban: outcome.ban,
+    notifications: outcome.notifications,
+  });
 });
 
 bansRouter.post('/:id/save', async (req: AuthRequest, res) => {
@@ -470,6 +474,7 @@ bansRouter.post('/:id/overboard', async (req: AuthRequest, res) => {
       result: outcome.result,
       ok: true,
       status: 'OVERBOARD' as const,
+      notifications: outcome.notifications ?? null,
       ...(outcome.idempotent ? { idempotent: true as const } : {}),
     };
     res.json(payload);
@@ -511,6 +516,8 @@ bansRouter.post('/:id/check', async (req: AuthRequest, res) => {
       waiting: 'waiting' in result ? !!result.waiting : false,
       checkState: 'checkState' in result ? result.checkState : undefined,
       farmSkipped: 'farmSkipped' in result ? result.farmSkipped : undefined,
+      notifications:
+        'notifications' in result ? result.notifications ?? null : null,
     });
   } catch (e) {
     res.status(400).json({ error: (e as Error).message });

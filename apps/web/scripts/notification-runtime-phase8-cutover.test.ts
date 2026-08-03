@@ -496,9 +496,9 @@ console.log('\n=== PHASE 8 CORRECTION (no synthetic authority) ===\n');
   );
   assert.doesNotMatch(transport, /temporary-adapter/);
   assert.doesNotMatch(transport, /receiveNotificationItem/);
-  assert.doesNotMatch(transport, /APPLY_NOTIFICATIONS_/);
-  assert.doesNotMatch(transport, /\/notifications\/sync/);
-  assert.match(transport, /AWAITING_TRUTHFUL_SYNC|completeBootstrap/);
+  assert.doesNotMatch(transport, /pending-all|fetchPendingChainPrefetch/);
+  assert.match(transport, /runNotificationsSyncViaMapper|notifications:delta:v1|isNotificationsDeltaV1Event/);
+  assert.match(transport, /\/notifications\/sync|runNotificationsSyncViaMapper/);
 
   const ingest = readFileSync(
     join(runtimeDir, 'notification-runtime.ingest.ts'),
@@ -511,6 +511,7 @@ console.log('\n=== PHASE 8 CORRECTION (no synthetic authority) ===\n');
     join(runtimeDir, 'notification-runtime.bootstrap.ts'),
     'utf8',
   );
+  // Legacy completeBootstrap still fails closed if called without Sync.
   assert.match(bootstrap, /AWAITING_TRUTHFUL_SYNC/);
   assert.doesNotMatch(bootstrap, /APPLY_NOTIFICATIONS_SNAPSHOT/);
 

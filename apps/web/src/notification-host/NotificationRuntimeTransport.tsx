@@ -1,19 +1,21 @@
 /**
- * Stage 8 correction — Transport must not write Notification items into Runtime.
- * Sync status only → FAILED AWAITING_TRUTHFUL_SYNC until Phase 9.
+ * Stage 8 Phase 9 — Transport cutover to Sync V1 Mapper.
+ * HTTP GET /notifications/sync + WS notifications:delta:v1.
+ * No Ban/session/pending item authority. No synthetic sequence/revision.
  */
 'use client';
 
 import { useCallback, useEffect, useRef } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import {
-  completeBootstrap,
-  failBootstrap,
-  requestBootstrap,
-} from '@/notification-runtime/notification-runtime.bootstrap';
 import { decideReconnectRecoveryRequest } from '@/notification-runtime/notification-runtime.reconnect-recovery';
 import { useNotificationRuntimeStore } from '@/notification-runtime/notification-runtime.context';
 import type { NotificationRuntimePortHandle } from '@/app-coordinator/notification-runtime-port';
+import {
+  applyNotificationsDeltaToStore,
+  isNotificationsDeltaV1Event,
+  parseNotificationsDeltaV1,
+  runNotificationsSyncViaMapper,
+} from '@/notification-runtime/notifications-mapper';
 
 export type NotificationTransportAuth = {
   token: string | null;
@@ -23,7 +25,7 @@ export type NotificationTransportAuth = {
 
 /**
  * Mount once under NotificationRuntimeProvider.
- * Owns sync status transitions only — no item collection writes.
+ * Owns Sync bootstrap/recovery and live Delta V1 ingestion.
  */
 export function NotificationRuntimeTransport({
   token,
@@ -39,6 +41,7 @@ export function NotificationRuntimeTransport({
   runtimePortRef.current = runtimePort;
   const bootInFlightRef = useRef(false);
   const coldBootSettledRef = useRef(false);
+  const syncGenerationRef = useRef(0);
 
   const runBootstrap = useCallback(
     async (reason: 'bootstrap' | 'reconnect' | 'user') => {
@@ -56,31 +59,25 @@ export function NotificationRuntimeTransport({
       }
 
       bootInFlightRef.current = true;
-      const bootReq = requestBootstrap(store, {
-        source: 'bootstrap',
-        recovery: reason === 'reconnect',
-      });
+      const generation = ++syncGenerationRef.current;
       try {
-        // Ban/session/pending payloads cannot supply journal sequence/revision.
-        // Do not invent SNAPSHOT/DELTA. Mark sync failed until Phase 9.
-        if (tokenRef.current !== tok || userIdRef.current !== uid) {
-          failBootstrap(store, {
-            transitionId: bootReq.transitionId,
-            errorCode: 'AUTH_SWITCHED',
-            source: 'bootstrap',
-          });
+        const recovery = reason === 'reconnect';
+        const result = await runNotificationsSyncViaMapper(store, {
+          token: tok,
+          recovery,
+          afterRevision: recovery ? store.getState().revision : null,
+        });
+        if (generation !== syncGenerationRef.current) {
+          // Stale HTTP generation — ignore further side effects
           return;
         }
-        completeBootstrap(store, {
-          transitionId: bootReq.transitionId,
-          source: 'bootstrap',
-        });
-      } catch {
-        failBootstrap(store, {
-          transitionId: bootReq.transitionId,
-          errorCode: 'BOOTSTRAP_FAILED',
-          source: 'bootstrap',
-        });
+        if (
+          tokenRef.current !== tok ||
+          userIdRef.current !== uid
+        ) {
+          return;
+        }
+        void result;
       } finally {
         bootInFlightRef.current = false;
         if (reason === 'bootstrap' && !coldBootSettledRef.current) {
@@ -102,10 +99,19 @@ export function NotificationRuntimeTransport({
   }, [token, userId, runBootstrap]);
 
   const onWsEvent = useCallback(
-    (_event: { type: string; payload: unknown }) => {
-      // WS Ban events must not write Runtime items without journal Sync.
+    (event: { type: string; payload: unknown }) => {
+      if (!isNotificationsDeltaV1Event(event.type)) {
+        // Legacy ban:/check:/sync:session must not write Runtime items.
+        return;
+      }
+      const delta = parseNotificationsDeltaV1(event.payload);
+      if (!delta) return;
+      applyNotificationsDeltaToStore(store, {
+        delta,
+        source: 'ws',
+      });
     },
-    [],
+    [store],
   );
 
   const onReconnect = useCallback(() => {
@@ -118,37 +124,31 @@ export function NotificationRuntimeTransport({
     const api = {
       refresh: (reason: 'bootstrap' | 'reconnect' | 'user' = 'user') =>
         runBootstrap(reason === 'user' ? 'user' : reason),
-      pendingRefresh: async () => {
-        // No-op: pending payloads are not Runtime authority.
+      /** Pending refresh removed — Sync V1 only. */
+      pendingRefresh: () => {
+        /* no-op: journal Sync is sole authority */
       },
     };
     (
-      window as Window & {
+      globalThis as unknown as {
         __directNotificationTransport?: typeof api;
       }
     ).__directNotificationTransport = api;
     return () => {
       delete (
-        window as Window & {
+        globalThis as unknown as {
           __directNotificationTransport?: typeof api;
         }
       ).__directNotificationTransport;
     };
   }, [runBootstrap]);
 
-  return null;
-}
+  // REQUEST_FULL_SYNC effect sink — listen via store subscription
+  useEffect(() => {
+    return store.subscribe(() => {
+      /* effects handled by controller/effects layer */
+    });
+  }, [store]);
 
-export function requestDirectTransportRefresh(
-  reason: 'bootstrap' | 'reconnect' | 'user' = 'user',
-): Promise<void> {
-  const api = (
-    window as Window & {
-      __directNotificationTransport?: {
-        refresh: (r: 'bootstrap' | 'reconnect' | 'user') => Promise<void>;
-      };
-    }
-  ).__directNotificationTransport;
-  if (!api) return Promise.resolve();
-  return api.refresh(reason);
+  return null;
 }

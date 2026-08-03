@@ -77,6 +77,23 @@ import {
   isDevTelegramId,
   resolveDevBanReceiver,
 } from './dev-fixtures.service';
+import {
+  appendJournalOpsFlatTx,
+  publishCommittedNotificationDeltas,
+  toNotificationsDeltaV1,
+  type CommittedUserDeltaV1,
+} from '../notifications/notification-journal-commit';
+import {
+  opsCheckCompletion,
+  opsFirstCheckAnswer,
+  opsOverboardResult,
+  opsRemoveIncomingForReceiver,
+  opsRemoveResultForUser,
+  opsTimeoutResult,
+  opsUpsertCheckForBoth,
+  opsUpsertIncomingForReceiver,
+} from '../notifications/ban-notification-ops';
+import type { NotificationsDeltaV1 } from '@98plus/shared';
 
 const COOLDOWN_SEND = 10;
 
@@ -552,20 +569,28 @@ export async function sendBan(params: {
 
   const thread = await getOrCreateThread(senderId, receiver.id);
 
-  const ban = await prisma.ban.create({
-    data: {
-      threadId: thread.id,
-      senderId,
-      receiverId: receiver.id,
-      text: text.trim(),
-      durationMinutes,
-      tone: normalizeBanTone(params.tone),
-      status: 'PENDING',
-      expiresAt: null,
-      checkDueAt: null,
-    },
-    include: { sender: true, receiver: true },
+  const { ban, journalDeltas } = await prisma.$transaction(async (tx) => {
+    const created = await tx.ban.create({
+      data: {
+        threadId: thread.id,
+        senderId,
+        receiverId: receiver.id,
+        text: text.trim(),
+        durationMinutes,
+        tone: normalizeBanTone(params.tone),
+        status: 'PENDING',
+        expiresAt: null,
+        checkDueAt: null,
+      },
+      include: { sender: true, receiver: true },
+    });
+    const deltas = await appendJournalOpsFlatTx(
+      tx,
+      opsUpsertIncomingForReceiver(created),
+    );
+    return { ban: created, journalDeltas: deltas };
   });
+  publishCommittedNotificationDeltas(journalDeltas);
 
   console.log('BACKEND SEND BAN', {
     banId: ban.id,
@@ -580,6 +605,7 @@ export async function sendBan(params: {
     ban.receiverId,
   );
 
+  // Legacy ban:incoming retained for non-Notifications domains; Runtime ignores it.
   const emitResult = broadcastToUser(receiver.id, {
     type: 'ban:incoming',
     payload: interaction,
@@ -670,10 +696,17 @@ export async function rejectBan(banId: string, userId: string) {
     return mapBanToInteraction(banId, userId);
   }
 
-  await prisma.ban.update({
-    where: { id: banId },
-    data: { status: 'EXPIRED', handledAt: new Date() },
+  const journalDeltas = await prisma.$transaction(async (tx) => {
+    await tx.ban.update({
+      where: { id: banId },
+      data: { status: 'EXPIRED', handledAt: new Date() },
+    });
+    return appendJournalOpsFlatTx(
+      tx,
+      opsRemoveIncomingForReceiver(banId, userId),
+    );
   });
+  publishCommittedNotificationDeltas(journalDeltas);
 
   await trackEvent(ANALYTICS_EVENTS.BAN_REJECTED, userId, { banId });
 
@@ -702,16 +735,23 @@ export async function acceptBan(banId: string, userId: string) {
   const fromStatus = ban.status;
   const expiresAt = scheduleEnd(ban.durationMinutes);
 
-  await prisma.ban.update({
-    where: { id: banId },
-    data: {
-      status: 'ACTIVE',
-      acceptedAt: new Date(),
-      handledAt: new Date(),
-      expiresAt,
-      checkDueAt: expiresAt,
-    },
+  const journalDeltas = await prisma.$transaction(async (tx) => {
+    await tx.ban.update({
+      where: { id: banId },
+      data: {
+        status: 'ACTIVE',
+        acceptedAt: new Date(),
+        handledAt: new Date(),
+        expiresAt,
+        checkDueAt: expiresAt,
+      },
+    });
+    return appendJournalOpsFlatTx(
+      tx,
+      opsRemoveIncomingForReceiver(banId, userId),
+    );
   });
+  publishCommittedNotificationDeltas(journalDeltas);
 
   console.log('[ban-status-change]', {
     banId,
@@ -949,20 +989,29 @@ export async function replyToIncomingBan(params: {
   log.step('resolving receiver: getOrCreateThread done', { threadId: thread.id });
 
   log.step('creating reply ban');
-  const reply = await prisma.ban.create({
-    data: {
-      threadId: thread.id,
-      senderId: params.userId,
-      receiverId: parent.senderId,
-      text: params.text.trim(),
-      durationMinutes: params.durationMinutes,
-      status: 'PENDING',
-      parentBanId: parent.id,
-      expiresAt: null,
-      checkDueAt: null,
-    },
-    include: { sender: true, receiver: true },
+  const { reply, journalDeltas } = await prisma.$transaction(async (tx) => {
+    const created = await tx.ban.create({
+      data: {
+        threadId: thread.id,
+        senderId: params.userId,
+        receiverId: parent.senderId,
+        text: params.text.trim(),
+        durationMinutes: params.durationMinutes,
+        status: 'PENDING',
+        parentBanId: parent.id,
+        expiresAt: null,
+        checkDueAt: null,
+      },
+      include: { sender: true, receiver: true },
+    });
+    const ops = [
+      ...opsRemoveIncomingForReceiver(parent.id, params.userId),
+      ...opsUpsertIncomingForReceiver(created),
+    ];
+    const deltas = await appendJournalOpsFlatTx(tx, ops);
+    return { reply: created, journalDeltas: deltas };
   });
+  publishCommittedNotificationDeltas(journalDeltas);
   log.step('reply ban created', { replyBanId: reply.id });
 
   await setCooldown(`cooldown:send:${params.userId}`, COOLDOWN_SEND);
@@ -1021,25 +1070,33 @@ export async function counterBan(params: {
 
   const expiresAt = scheduleEnd(params.durationMinutes);
 
-  await prisma.ban.update({
-    where: { id: parent.id },
-    data: { status: 'COUNTERED' },
+  const { counter, journalDeltas } = await prisma.$transaction(async (tx) => {
+    await tx.ban.update({
+      where: { id: parent.id },
+      data: { status: 'COUNTERED' },
+    });
+    const created = await tx.ban.create({
+      data: {
+        threadId: parent.threadId,
+        senderId: params.userId,
+        receiverId: parent.senderId,
+        text: params.text.trim(),
+        durationMinutes: params.durationMinutes,
+        status: 'ACTIVE',
+        parentBanId: parent.id,
+        acceptedAt: new Date(),
+        expiresAt,
+        checkDueAt: expiresAt,
+      },
+    });
+    // Child is ACTIVE — no INCOMING UPSERT. REMOVE parent incoming for actor.
+    const deltas = await appendJournalOpsFlatTx(
+      tx,
+      opsRemoveIncomingForReceiver(parent.id, params.userId),
+    );
+    return { counter: created, journalDeltas: deltas };
   });
-
-  const counter = await prisma.ban.create({
-    data: {
-      threadId: parent.threadId,
-      senderId: params.userId,
-      receiverId: parent.senderId,
-      text: params.text.trim(),
-      durationMinutes: params.durationMinutes,
-      status: 'ACTIVE',
-      parentBanId: parent.id,
-      acceptedAt: new Date(),
-      expiresAt,
-      checkDueAt: expiresAt,
-    },
-  });
+  publishCommittedNotificationDeltas(journalDeltas);
 
   const { scheduleCheckDueTimer } = await import('./check-due-timer');
   scheduleCheckDueTimer(counter.id, expiresAt);
@@ -1109,7 +1166,12 @@ async function loadOverboardIdempotent(banId: string, userId: string) {
   return { ban: updated, result, idempotent: true as const };
 }
 
-export async function markOverboard(banId: string, userId: string) {
+export async function markOverboard(banId: string, userId: string): Promise<{
+  ban: BanInteraction | null;
+  result: BanResult | null;
+  idempotent: boolean;
+  notifications: NotificationsDeltaV1 | null;
+}> {
   const ban = await prisma.ban.findUnique({ where: { id: banId } });
   if (!ban) throw new Error('Ban not found');
   if (ban.receiverId !== userId) throw new Error('Not your ban');
@@ -1117,42 +1179,62 @@ export async function markOverboard(banId: string, userId: string) {
   const alreadyOverboard = ban.status === 'OVERBOARD' || ban.isOverboard;
   if (alreadyOverboard) {
     const existing = await loadOverboardIdempotent(banId, userId);
-    if (existing) return existing;
+    if (existing) {
+      return { ...existing, notifications: null };
+    }
   }
 
   if (!['PENDING', 'ACTIVE'].includes(ban.status)) {
     const existing = await loadOverboardIdempotent(banId, userId);
-    if (existing) return existing;
+    if (existing) return { ...existing, notifications: null };
     throw new Error('Already handled');
   }
 
   const cooldownKey = `cooldown:overboard:${banId}:${userId}`;
   if (await hasCooldown(cooldownKey)) {
     const existing = await loadOverboardIdempotent(banId, userId);
-    if (existing) return existing;
+    if (existing) return { ...existing, notifications: null };
     throw new Error('Подожди.');
   }
   await setCooldown(cooldownKey, 120);
 
+  // Energy remains outside Ban+Journal tx (pre-existing non-atomicity).
   const energy = await applyOverboard(ban.senderId, ban.receiverId);
+  const completedAt = new Date();
 
-  await prisma.ban.update({
-    where: { id: banId },
-    data: {
-      status: 'OVERBOARD',
-      isOverboard: true,
-      outcome: overboardToPrisma(),
-      completedAt: new Date(),
-      senderEnergyDelta: energy.sender,
-      receiverEnergyDelta: energy.receiver,
-      energyApplied: true,
-      funMode: energy.funMode,
-      pairBanCount24h: energy.pairBanCount24h,
-      receiverIncomingAckAt: new Date(),
-      senderResultSeenAt: null,
-      receiverResultSeenAt: null,
-    },
+  const journalDeltas = await prisma.$transaction(async (tx) => {
+    await tx.ban.update({
+      where: { id: banId },
+      data: {
+        status: 'OVERBOARD',
+        isOverboard: true,
+        outcome: overboardToPrisma(),
+        completedAt,
+        senderEnergyDelta: energy.sender,
+        receiverEnergyDelta: energy.receiver,
+        energyApplied: true,
+        funMode: energy.funMode,
+        pairBanCount24h: energy.pairBanCount24h,
+        receiverIncomingAckAt: new Date(),
+        senderResultSeenAt: null,
+        receiverResultSeenAt: null,
+      },
+    });
+    return appendJournalOpsFlatTx(
+      tx,
+      opsOverboardResult({
+        id: banId,
+        text: ban.text,
+        senderId: ban.senderId,
+        receiverId: ban.receiverId,
+        durationMinutes: ban.durationMinutes,
+        createdAt: ban.createdAt,
+        completedAt,
+        outcome: 'overboard',
+      }),
+    );
   });
+  publishCommittedNotificationDeltas(journalDeltas);
 
   await trackEvent(ANALYTICS_EVENTS.BAN_OVERBOARD, userId, { banId });
 
@@ -1174,7 +1256,19 @@ export async function markOverboard(banId: string, userId: string) {
       message: (e as Error).message,
     });
   });
-  return { ban: updated, result, idempotent: false as const };
+  return {
+    ban: updated,
+    result,
+    idempotent: false as const,
+    notifications: toNotificationsDeltaV1(deltaForActingUser(journalDeltas, userId)),
+  };
+}
+
+function deltaForActingUser(
+  deltas: CommittedUserDeltaV1[],
+  userId: string,
+): CommittedUserDeltaV1 | null {
+  return deltas.find((d) => d.userId === userId) ?? null;
 }
 
 export async function submitCheckAnswer(
@@ -1220,6 +1314,7 @@ export async function submitCheckAnswer(
     t0,
   });
 
+  // Persist answer first; journal REMOVE for first answer in same follow-up tx.
   await prisma.banCheckAnswer.upsert({
     where: { banId_userId: { banId, userId } },
     create: { banId, userId, completed },
@@ -1235,6 +1330,11 @@ export async function submitCheckAnswer(
   const answers = await prisma.banCheckAnswer.findMany({ where: { banId } });
 
   if (answers.length < 2) {
+    const journalDeltas = await prisma.$transaction(async (tx) =>
+      appendJournalOpsFlatTx(tx, opsFirstCheckAnswer(banId, userId)),
+    );
+    publishCommittedNotificationDeltas(journalDeltas);
+
     logResultLatency('[result-first-answer-waiting]', {
       banId,
       userId,
@@ -1254,6 +1354,9 @@ export async function submitCheckAnswer(
       outcome: null,
       waiting: true,
       checkState: waitingPayload,
+      notifications: toNotificationsDeltaV1(
+        deltaForActingUser(journalDeltas, userId),
+      ),
     };
   }
 
@@ -1285,6 +1388,8 @@ export async function submitCheckAnswer(
     role: actorRole,
     elapsedMs: Date.now() - t0,
   });
+  // Energy + Ban COMPLETED (applyCheckResult). Journal appended immediately after
+  // in a dedicated tx — Ban completion and energy are not re-wrapped here.
   const energy = await applyCheckResult(banId, outcome, {
     id: ban.id,
     senderId: ban.senderId,
@@ -1299,6 +1404,28 @@ export async function submitCheckAnswer(
     role: actorRole,
     elapsedMs: Date.now() - t0,
   });
+
+  const completedAt =
+    energy.completedBan.completedAt ?? new Date();
+  const journalDeltas = await prisma.$transaction(async (tx) =>
+    appendJournalOpsFlatTx(
+      tx,
+      opsCheckCompletion({
+        ban: {
+          id: ban.id,
+          text: ban.text,
+          senderId: ban.senderId,
+          receiverId: ban.receiverId,
+          durationMinutes: ban.durationMinutes,
+          createdAt: ban.createdAt,
+          completedAt,
+          outcome,
+        },
+        answererId: userId,
+      }),
+    ),
+  );
+  publishCommittedNotificationDeltas(journalDeltas);
 
   logResultLatency('[result-build-start]', {
     banId,
@@ -1358,6 +1485,9 @@ export async function submitCheckAnswer(
     result,
     waiting: false,
     farmSkipped: energy.farmSkipped,
+    notifications: toNotificationsDeltaV1(
+      deltaForActingUser(journalDeltas, userId),
+    ),
   };
 }
 
@@ -1849,10 +1979,13 @@ export async function getAllPendingIncomingForPoll(
 export async function acknowledgeIncomingBan(
   banId: string,
   userId: string,
-): Promise<BanInteraction | null> {
+): Promise<{
+  ban: BanInteraction | null;
+  notifications: NotificationsDeltaV1 | null;
+}> {
   const ban = await prisma.ban.findUnique({ where: { id: banId } });
-  if (!ban) return null;
-  if (ban.receiverId !== userId) return null;
+  if (!ban) return { ban: null, notifications: null };
+  if (ban.receiverId !== userId) return { ban: null, notifications: null };
 
   console.log('[incoming-ack]', {
     banId,
@@ -1861,14 +1994,27 @@ export async function acknowledgeIncomingBan(
     status: ban.status,
   });
 
+  let journalDeltas: CommittedUserDeltaV1[] = [];
   const fresh = await prisma.ban.findUnique({ where: { id: banId } });
   if (fresh && !fresh.receiverIncomingAckAt) {
-    await prisma.ban.update({
-      where: { id: banId },
-      data: { receiverIncomingAckAt: new Date() },
+    journalDeltas = await prisma.$transaction(async (tx) => {
+      await tx.ban.update({
+        where: { id: banId },
+        data: { receiverIncomingAckAt: new Date() },
+      });
+      return appendJournalOpsFlatTx(
+        tx,
+        opsRemoveIncomingForReceiver(banId, userId),
+      );
     });
+    publishCommittedNotificationDeltas(journalDeltas);
   }
-  return mapBanToInteraction(banId, userId);
+  return {
+    ban: await mapBanToInteraction(banId, userId),
+    notifications: toNotificationsDeltaV1(
+      deltaForActingUser(journalDeltas, userId),
+    ),
+  };
 }
 
 export async function getPendingCheck(userId: string) {
@@ -2016,26 +2162,46 @@ export async function getPendingResultForPoll(userId: string) {
 export async function acknowledgeBanResult(
   banId: string,
   userId: string,
-): Promise<boolean> {
+): Promise<{ ok: boolean; notifications: NotificationsDeltaV1 | null }> {
   const ban = await prisma.ban.findUnique({ where: { id: banId } });
-  if (!ban) return false;
-  if (ban.senderId !== userId && ban.receiverId !== userId) return false;
+  if (!ban) return { ok: false, notifications: null };
+  if (ban.senderId !== userId && ban.receiverId !== userId) {
+    return { ok: false, notifications: null };
+  }
   const role = ban.senderId === userId ? 'sender' : 'receiver';
   const field = role === 'sender' ? 'senderResultSeenAt' : 'receiverResultSeenAt';
-  await prisma.ban.update({
-    where: { id: banId },
-    data:
-      role === 'sender'
-        ? { senderResultSeenAt: new Date() }
-        : { receiverResultSeenAt: new Date() },
-  });
+  const alreadySeen =
+    role === 'sender' ? ban.senderResultSeenAt : ban.receiverResultSeenAt;
+
+  let journalDeltas: CommittedUserDeltaV1[] = [];
+  if (!alreadySeen) {
+    journalDeltas = await prisma.$transaction(async (tx) => {
+      await tx.ban.update({
+        where: { id: banId },
+        data:
+          role === 'sender'
+            ? { senderResultSeenAt: new Date() }
+            : { receiverResultSeenAt: new Date() },
+      });
+      return appendJournalOpsFlatTx(
+        tx,
+        opsRemoveResultForUser(banId, userId),
+      );
+    });
+    publishCommittedNotificationDeltas(journalDeltas);
+  }
   console.log('[result-ack]', {
     userId,
     banId,
     role,
     updatedField: field,
   });
-  return true;
+  return {
+    ok: true,
+    notifications: toNotificationsDeltaV1(
+      deltaForActingUser(journalDeltas, userId),
+    ),
+  };
 }
 
 /** Timer reminder DMs removed — check overlay handles this in-app. */
@@ -2057,15 +2223,31 @@ export async function processSingleDueCheck(banId: string): Promise<boolean> {
 
   const latenessMs = now.getTime() - ban.checkDueAt.getTime();
 
-  const updated = await prisma.ban.updateMany({
-    where: {
-      id: banId,
-      status: 'ACTIVE',
-      checkDueAt: { lte: now },
-    },
-    data: { status: 'CHECKING', checkStartedAt: now },
+  const journalDeltas = await prisma.$transaction(async (tx) => {
+    const updated = await tx.ban.updateMany({
+      where: {
+        id: banId,
+        status: 'ACTIVE',
+        checkDueAt: { lte: now },
+      },
+      data: { status: 'CHECKING', checkStartedAt: now },
+    });
+    if (updated.count === 0) return null;
+    return appendJournalOpsFlatTx(
+      tx,
+      opsUpsertCheckForBoth({
+        id: ban.id,
+        text: ban.text,
+        senderId: ban.senderId,
+        receiverId: ban.receiverId,
+        durationMinutes: ban.durationMinutes,
+        createdAt: ban.createdAt,
+        checkDueAt: ban.checkDueAt,
+      }),
+    );
   });
-  if (updated.count === 0) return false;
+  if (!journalDeltas) return false;
+  publishCommittedNotificationDeltas(journalDeltas);
 
   const { cancelCheckDueTimer } = await import('./check-due-timer');
   cancelCheckDueTimer(banId);
@@ -2224,17 +2406,34 @@ export async function processStaleChecks() {
       });
     }
 
-    await prisma.ban.update({
-      where: { id: ban.id },
-      data: {
-        status: 'FAILED',
-        outcome: 'TIMEOUT' as PrismaOutcome,
-        completedAt: new Date(),
-        energyApplied: true,
-        senderResultSeenAt: null,
-        receiverResultSeenAt: null,
-      },
+    const completedAt = new Date();
+    const journalDeltas = await prisma.$transaction(async (tx) => {
+      await tx.ban.update({
+        where: { id: ban.id },
+        data: {
+          status: 'FAILED',
+          outcome: 'TIMEOUT' as PrismaOutcome,
+          completedAt,
+          energyApplied: true,
+          senderResultSeenAt: null,
+          receiverResultSeenAt: null,
+        },
+      });
+      return appendJournalOpsFlatTx(
+        tx,
+        opsTimeoutResult({
+          id: ban.id,
+          text: ban.text,
+          senderId: ban.senderId,
+          receiverId: ban.receiverId,
+          durationMinutes: ban.durationMinutes,
+          createdAt: ban.createdAt,
+          completedAt,
+          outcome: 'timeout',
+        }),
+      );
     });
+    publishCommittedNotificationDeltas(journalDeltas);
 
     await trackEvent(ANALYTICS_EVENTS.CHECK_TIMEOUT, ban.senderId, {
       banId: ban.id,

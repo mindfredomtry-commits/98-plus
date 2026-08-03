@@ -175,6 +175,16 @@ export function createAppCoordinatorLifecycle(input: {
       // Token auth user — transport owns userId; optional for adapter.
       return null;
     },
+    onRefresh: async (reason) => {
+      const transport = (
+        globalThis as unknown as {
+          __directNotificationTransport?: {
+            refresh: (r: 'bootstrap' | 'reconnect' | 'user') => Promise<void>;
+          };
+        }
+      ).__directNotificationTransport;
+      await transport?.refresh(reason);
+    },
     sink: {
       sessionCompleted() {
         if (disposed) return;

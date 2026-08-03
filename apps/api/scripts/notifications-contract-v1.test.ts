@@ -445,13 +445,14 @@ console.log('\n=== NOTIFICATIONS CONTRACT V1 FOUNDATION ===\n');
     join(webSrc, 'lib/pending-chain-prefetch.ts'),
     'utf8',
   );
-  assert.doesNotMatch(transport, /\/notifications\/sync/);
+  // Phase 9 cutover: Transport calls Sync; pending prefetch must not be Sync authority.
+  assert.match(transport, /runNotificationsSyncViaMapper|\/notifications\/sync/);
+  assert.doesNotMatch(transport, /pending-all|fetchPendingChainPrefetch/);
   assert.doesNotMatch(prefetch, /\/notifications\/sync/);
-  assert.match(prefetch, /\/bans\/incoming\/pending-all/);
   const app = read('src/app.ts');
   assert.match(app, /\/notifications/);
   assert.match(app, /notificationsRouter/);
-  pass('16. Production Notifications transport not wired to /notifications/sync');
+  pass('16. Production Notifications transport wired to /notifications/sync (Phase 9)');
 }
 
 {

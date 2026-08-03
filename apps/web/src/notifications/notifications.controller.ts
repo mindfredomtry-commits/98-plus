@@ -69,7 +69,8 @@ export function createNotificationsController(input: {
           await input.onRefresh?.('user');
         },
         onRequestFullSync: () => {
-          void input.onRefresh?.('reconnect');
+          // Full snapshot — do not use afterRevision recovery.
+          void input.onRefresh?.('user');
         },
         onSessionComplete: () => {
           input.sink?.sessionCompleted();

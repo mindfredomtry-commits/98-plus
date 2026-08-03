@@ -23,6 +23,11 @@ import {
   recordSocialContact,
 } from './social-graph.service';
 import { pushFriendsGraphRefresh } from './friends-sync';
+import {
+  appendJournalOpsFlatTx,
+  publishCommittedNotificationDeltas,
+} from '../notifications/notification-journal-commit';
+import { opsUpsertIncomingForReceiver } from '../notifications/ban-notification-ops';
 
 const INVITE_TTL_DAYS = 7;
 
@@ -306,28 +311,37 @@ async function materializeInviteAsBan(inviteId: string, receiverId: string) {
   const { getOrCreateThread } = await import('./ban.service');
   const thread = await getOrCreateThread(invite.senderId, receiverId);
 
-  const ban = await prisma.ban.create({
-    data: {
-      threadId: thread.id,
-      senderId: invite.senderId,
-      receiverId,
-      text: invite.text,
-      durationMinutes: invite.durationMinutes,
-      tone: invite.tone,
-      status: 'PENDING',
-      inviteId: invite.id,
-    },
-  });
+  const { ban, journalDeltas } = await prisma.$transaction(async (tx) => {
+    const created = await tx.ban.create({
+      data: {
+        threadId: thread.id,
+        senderId: invite.senderId,
+        receiverId,
+        text: invite.text,
+        durationMinutes: invite.durationMinutes,
+        tone: invite.tone,
+        status: 'PENDING',
+        inviteId: invite.id,
+      },
+    });
 
-  await prisma.banInvite.update({
-    where: { id: invite.id },
-    data: {
-      status: 'CLAIMED',
-      banId: ban.id,
-      claimedById: receiverId,
-      claimedAt: new Date(),
-    },
+    await tx.banInvite.update({
+      where: { id: invite.id },
+      data: {
+        status: 'CLAIMED',
+        banId: created.id,
+        claimedById: receiverId,
+        claimedAt: new Date(),
+      },
+    });
+
+    const deltas = await appendJournalOpsFlatTx(
+      tx,
+      opsUpsertIncomingForReceiver(created),
+    );
+    return { ban: created, journalDeltas: deltas };
   });
+  publishCommittedNotificationDeltas(journalDeltas);
 
   await linkPairInteraction(invite.senderId, receiverId);
   await trackEvent(ANALYTICS_EVENTS.INVITE_CLAIMED, receiverId, {

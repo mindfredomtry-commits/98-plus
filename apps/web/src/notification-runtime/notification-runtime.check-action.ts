@@ -13,11 +13,16 @@ import {
 } from './notification-runtime.store';
 import { notificationItemId } from './notification-runtime.types';
 import type { RuntimeEffect, RuntimeSource } from './notification-runtime.types';
+import {
+  applyNotificationsDeltaToStore,
+  parseNotificationsDeltaV1,
+} from './notifications-mapper';
 
 export type CheckSubmitApiResponse = {
   done: boolean;
   waiting?: boolean;
   result?: import('@98plus/shared').BanResult;
+  notifications?: import('@98plus/shared').NotificationsDeltaV1 | null;
 };
 
 export type CheckSubmitTransport = (input: {
@@ -123,7 +128,28 @@ export async function executeSubmitCardActionEffect(
       token,
     });
 
-    // Waiting / done without truthful journal ops: clear SUBMITTING only.
+    const delta = parseNotificationsDeltaV1(res.notifications ?? null);
+    if (delta) {
+      applyNotificationsDeltaToStore(store, {
+        delta,
+        transitionId: effect.commandId,
+        activeRemoveAuthorization: {
+          actionId: effect.commandId,
+          itemId: effect.targetItemId,
+        },
+        promoteCausalNext: true,
+        source: 'user',
+      });
+      store.dispatch({
+        type: 'CARD_ACTION_SUCCEEDED',
+        commandId: effect.commandId,
+        targetItemId: effect.targetItemId,
+        source: 'user',
+      });
+      return;
+    }
+
+    // Waiting without journal ops: clear SUBMITTING only (partner still answering).
     if (res.waiting || (res.done && !res.result)) {
       store.dispatch({
         type: 'CARD_ACTION_SUCCEEDED',
@@ -134,7 +160,6 @@ export async function executeSubmitCardActionEffect(
       return;
     }
 
-    // Result payload without journal REMOVE/UPSERT cannot be applied.
     store.dispatch({
       type: 'CARD_ACTION_FAILED',
       commandId: effect.commandId,
