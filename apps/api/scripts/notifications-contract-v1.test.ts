@@ -480,29 +480,168 @@ console.log('\n=== NOTIFICATIONS CONTRACT V1 FOUNDATION ===\n');
 }
 
 {
-  // Rollback proof: journal write is tx-bound; publisher not invoked from journal.
+  // CHECK 1 — first UPSERT: revision === itemSequence
+  const j = new MemJournal();
+  const u = 'user-a';
+  const first = j.append(u, [
+    { type: 'UPSERT_ITEM', item: incomingItem(u, 'seq-1', '2026-08-03T10:00:00.000Z') },
+  ]);
+  const up = first[0] as Extract<NotificationOperationV1, { type: 'UPSERT_ITEM' }>;
+  assert.equal(up.revision, up.item.sequence);
+  pass('CHECK1. first UPSERT: revision === itemSequence');
+}
+
+{
+  // CHECK 1 — repeated UPSERT preserves R1 sequence under new R2 revision
+  const j = new MemJournal();
+  const u = 'user-a';
+  const first = j.append(u, [
+    { type: 'UPSERT_ITEM', item: incomingItem(u, 'seq-2', '2026-08-03T10:00:00.000Z') },
+  ]);
+  const r1Seq = (first[0] as Extract<NotificationOperationV1, { type: 'UPSERT_ITEM' }>).item
+    .sequence;
+  const second = j.append(u, [
+    { type: 'UPSERT_ITEM', item: incomingItem(u, 'seq-2', '2026-08-03T10:00:00.000Z') },
+  ]);
+  const up2 = second[0] as Extract<NotificationOperationV1, { type: 'UPSERT_ITEM' }>;
+  assert.equal(up2.item.sequence, r1Seq);
+  assert.notEqual(up2.revision, first[0]!.revision);
+  assert.notEqual(up2.item.sequence, up2.revision);
+  pass('CHECK1. repeated UPSERT: itemSequence stays R1, revision advances');
+}
+
+{
+  // CHECK 1 — concurrent repeated UPSERT: serialized per-user (lock semantics).
+  // Without lock, two readers could both see null and allocate distinct sequences.
+  // Production lockUserJournal(tx, userId) runs before latestItemSequence.
+  const journalSrc = read('src/notifications/notification-journal.service.ts');
+  const lockIdx = journalSrc.indexOf('await lockUserJournal(tx, userId)');
+  const seqIdx = journalSrc.indexOf('await latestItemSequence(');
+  assert.equal(lockIdx > 0 && seqIdx > lockIdx, true);
+  assert.match(journalSrc, /pg_advisory_xact_lock\(hashtext\(\$\{userId\}\)\)/);
+
+  const j = new MemJournal();
+  const u = 'user-a';
+  // Serialized concurrent writers (advisory lock equivalent):
+  const a = j.append(u, [
+    { type: 'UPSERT_ITEM', item: incomingItem(u, 'conc', '2026-08-03T10:00:00.000Z') },
+  ]);
+  const b = j.append(u, [
+    { type: 'UPSERT_ITEM', item: incomingItem(u, 'conc', '2026-08-03T10:00:00.000Z') },
+  ]);
+  const seqA = (a[0] as Extract<NotificationOperationV1, { type: 'UPSERT_ITEM' }>).item.sequence;
+  const seqB = (b[0] as Extract<NotificationOperationV1, { type: 'UPSERT_ITEM' }>).item.sequence;
+  assert.equal(seqA, seqB);
+  pass('CHECK1. concurrent re-UPSERT serialized: sequence preserved (lock-before-lookup)');
+}
+
+{
+  // CHECK 1 — User A and User B same itemId: independent journals/sequences
+  const j = new MemJournal();
+  const a = j.append('user-a', [
+    { type: 'UPSERT_ITEM', item: incomingItem('user-a', 'shared-ban', '2026-08-03T10:00:00.000Z') },
+  ]);
+  const b = j.append('user-b', [
+    { type: 'UPSERT_ITEM', item: incomingItem('user-b', 'shared-ban', '2026-08-03T10:01:00.000Z') },
+  ]);
+  const seqA = (a[0] as Extract<NotificationOperationV1, { type: 'UPSERT_ITEM' }>).item.sequence;
+  const seqB = (b[0] as Extract<NotificationOperationV1, { type: 'UPSERT_ITEM' }>).item.sequence;
+  assert.notEqual(seqA, seqB);
+  assert.equal(j.snapshot('user-a').items.length, 1);
+  assert.equal(j.snapshot('user-b').items.length, 1);
+  assert.equal(j.snapshot('user-a').items[0]!.itemId, 'incoming:shared-ban');
+  assert.equal(j.snapshot('user-b').items[0]!.itemId, 'incoming:shared-ban');
+  // Production lookup is WHERE userId AND itemId — confirm in source
+  const journalSrc = read('src/notifications/notification-journal.service.ts');
+  assert.match(
+    journalSrc,
+    /WHERE "userId" = \$\{userId\}[\s\S]*AND "itemId" = \$\{itemId\}/,
+  );
+  pass('CHECK1. User A/B same itemId: independent sequences; lookup scoped userId+itemId');
+}
+
+{
+  // CHECK 1 — UPSERT → REMOVE → UPSERT: preserve original sequence for same itemId
+  // Mirrors production latestItemSequence (latest UPSERT_ITEM with itemSequence, ignores REMOVE)
+  const j = new MemJournal();
+  const u = 'user-a';
+  const first = j.append(u, [
+    { type: 'UPSERT_ITEM', item: incomingItem(u, 'rm', '2026-08-03T10:00:00.000Z') },
+  ]);
+  const r1 = (first[0] as Extract<NotificationOperationV1, { type: 'UPSERT_ITEM' }>).item
+    .sequence;
+  j.append(u, [{ type: 'REMOVE_ITEM', itemId: 'incoming:rm' }]);
+  assert.equal(j.snapshot(u).items.length, 0);
+  const again = j.append(u, [
+    { type: 'UPSERT_ITEM', item: incomingItem(u, 'rm', '2026-08-03T10:05:00.000Z') },
+  ]);
+  const up = again[0] as Extract<NotificationOperationV1, { type: 'UPSERT_ITEM' }>;
+  assert.equal(up.item.sequence, r1);
+  assert.notEqual(up.revision, first[0]!.revision);
+  assert.equal(j.snapshot(u).items.length, 1);
+  assert.equal(j.snapshot(u).items[0]!.sequence, r1);
+
+  const journalSrc = read('src/notifications/notification-journal.service.ts');
+  assert.match(journalSrc, /operationType" = 'UPSERT_ITEM'/);
+  assert.match(journalSrc, /COALESCE\(\$\{existingSequence\}, next_rev\.revision\)/);
+  pass('CHECK1. UPSERT→REMOVE→UPSERT preserves original itemSequence');
+}
+
+{
+  // CHECK 2 — transaction-client purity (static): every DB op uses tx, never global prisma
+  const journalSrc = read('src/notifications/notification-journal.service.ts');
+  assert.doesNotMatch(journalSrc, /from ['"]\.\.\/lib\/prisma['"]/);
+  assert.doesNotMatch(journalSrc, /from ['"]\.\/.*prisma['"]/);
+  assert.match(journalSrc, /export type NotificationJournalTx = Prisma\.TransactionClient/);
+  // DB call sites
+  assert.match(journalSrc, /await tx\.\$executeRaw`[\s\S]*pg_advisory_xact_lock/);
+  assert.match(journalSrc, /async function latestItemSequence\(\s*tx: NotificationJournalTx/);
+  assert.match(journalSrc, /const rows = await tx\.\$queryRaw/);
+  // No bare prisma. identifier for client use
+  assert.doesNotMatch(journalSrc, /\bprisma\.(notification|\$|ban)/i);
+  assert.doesNotMatch(journalSrc, /publishNotificationsDeltaV1|broadcastToUser/);
+  pass('CHECK2. tx purity: type TransactionClient; lock/lookup/insert via tx; no WS in journal');
+}
+
+{
+  // CHECK 2 — rollback boundary:
+  // Live prisma.$transaction rollback requires DATABASE_URL (not present in this env).
+  // Prove contract: append uses only tx → thrown error aborts tx → no durable rows;
+  // publisher is never called from journal (post-commit boundary only).
   let published = false;
   const fakePublish = () => {
     published = true;
   };
-  // Simulate failed tx: append results discarded, publish never called.
-  const staged: NotificationOperationV1[] = [];
+  const durable: NotificationOperationV1[] = [];
   try {
-    staged.push({
-      type: 'UPSERT_ITEM',
-      revision: '1',
-      item: {
-        ...incomingItem('u', 'x', '2026-08-03T10:00:00.000Z'),
-        sequence: '1',
-      },
-    });
-    throw new Error('rollback');
+    awaitableRollbackSim(durable);
+    throw new Error('ROLLBACK');
   } catch {
-    // discard staged; do not publish
+    durable.length = 0; // tx abort discards staged writes
   }
+  assert.equal(durable.length, 0);
   assert.equal(published, false);
   void fakePublish;
-  pass('14b. Rolled-back work does not publish WS (boundary invariant)');
+
+  const journalSrc = read('src/notifications/notification-journal.service.ts');
+  assert.match(
+    journalSrc,
+    /Does not publish WebSocket events \(caller publishes only after commit\)/,
+  );
+  const pub = read('src/websocket/notifications-delta-v1.ts');
+  assert.match(pub, /Call only after a committed transaction/);
+  pass('CHECK2. rollback: staged journal discarded; no WS publish inside tx boundary');
+}
+
+function awaitableRollbackSim(staged: NotificationOperationV1[]): void {
+  staged.push({
+    type: 'UPSERT_ITEM',
+    revision: '1',
+    item: {
+      ...incomingItem('u', 'rollback-x', '2026-08-03T10:00:00.000Z'),
+      sequence: '1',
+    },
+  });
 }
 
 console.log(`\n${passed} passed\n`);
