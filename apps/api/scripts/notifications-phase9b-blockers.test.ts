@@ -21,7 +21,6 @@ import {
   banPartyFromUsers,
   opsCheckCompletion,
   opsOverboardResult,
-  opsTimeoutResult,
 } from '../src/notifications/ban-notification-ops';
 import { notificationItemV1ObjectSchema } from '../src/notifications/notifications-contract-v1.schema';
 
@@ -87,27 +86,26 @@ function banParties() {
   assert.match(banSvc, /opsCheckCompletion/);
   assert.match(banSvc, /opsFirstCheckAnswer/);
 
-  // Timeout: Ban + answers + journal in one $transaction; WS after commit
-  assert.match(banSvc, /opsTimeoutResult/);
-  const timeoutBlock = banSvc.slice(
-    banSvc.indexOf("reason: 'check-timeout'"),
-    banSvc.indexOf('export async function adminExpireBan'),
+  // Phase 9C: automatic TIMEOUT removed — processStaleChecks is no-op
+  assert.doesNotMatch(banSvc, /opsTimeoutResult/);
+  const staleStart = banSvc.indexOf('export async function processStaleChecks');
+  assert.ok(staleStart >= 0);
+  const staleEnd = banSvc.indexOf(
+    '/** Admin: force expire timer → check */',
+    staleStart,
   );
-  assert.match(timeoutBlock, /prisma\.\$transaction/);
-  assert.match(timeoutBlock, /appendJournalOpsFlatTx/);
-  assert.match(timeoutBlock, /publishCommittedNotificationDeltas\(journalDeltas\)/);
-  const txIdx = timeoutBlock.indexOf('prisma.$transaction');
-  const publishIdx = timeoutBlock.indexOf(
-    'publishCommittedNotificationDeltas(journalDeltas)',
+  const staleBody = banSvc.slice(
+    staleStart,
+    staleEnd > 0 ? staleEnd : staleStart + 400,
   );
-  assert.ok(txIdx >= 0 && publishIdx > txIdx);
+  assert.match(staleBody, /no-op|automatic TIMEOUT deleted/i);
 
   assert.match(energy, /export type EnergyDb/);
   assert.match(energy, /export async function applyOverboard\(/);
   assert.match(energy, /db: EnergyDb = defaultPrisma/);
   assert.match(energy, /export async function applyCheckResult\(/);
 
-  pass('1-5. Atomic Ban+energy+journal source guards (overboard/check/timeout)');
+  pass('1-5. Atomic Ban+energy+journal source guards (overboard/check; no TIMEOUT)');
 }
 
 {
@@ -132,13 +130,7 @@ function banParties() {
     answererId: 'r1',
   });
   assert.ok(checkOps.length >= 3);
-  const timeoutOps = opsTimeoutResult({
-    ...banParties(),
-    completedAt: '2026-08-04T12:00:00.000Z',
-    outcome: 'timeout',
-  });
-  assert.ok(timeoutOps.length >= 3);
-  pass('4. Ban lifecycle ops include Ban+Journal pair for overboard/check/timeout');
+  pass('4. Ban lifecycle ops include Ban+Journal pair for overboard/check');
 }
 
 {
@@ -164,7 +156,7 @@ function banParties() {
   );
   assert.match(backfill, /--dry-run/);
   assert.match(backfill, /TIMEOUT_excluded|timeoutPolicy: 'EXCLUDE'/);
-  assert.match(backfill, /outcome: \{ not: null, notIn: \['TIMEOUT'\] \}/);
+  assert.match(backfill, /FORCE_LEGACY_BACKFILL|PHASE 9C CUTOVER/);
   assert.match(backfill, /latestOpIsUpsert/);
   assert.match(backfill, /INCOMING_BAN:/);
   assert.match(backfill, /CHECK_REQUEST:/);
@@ -173,7 +165,7 @@ function banParties() {
   assert.match(backfill, /duplicateLogical/);
   assert.match(backfill, /invalidPayload/);
   assert.match(backfill, /usersAffected/);
-  pass('6-7. Backfill dry-run counts + TIMEOUT exclude policy A');
+  pass('6-7. Backfill refused by default; legacy TIMEOUT exclude retained');
 }
 
 {

@@ -1,19 +1,25 @@
 /**
  * One-time Notifications Journal backfill from current Ban pending state.
  *
- * Decision A — deterministic UPSERT for currently supported pending items:
- * - pending incoming (PENDING, !receiverIncomingAckAt)
- * - pending check (CHECKING, user has not answered)
- * - unseen results (terminal + null *ResultSeenAt)
+ * ═══════════════════════════════════════════════════════════════════════════
+ * PHASE 9C CUTOVER — DO NOT RUN
  *
- * TIMEOUT policy (Phase 9B): EXCLUDE historical TIMEOUT from Journal backfill.
- * Automatic TIMEOUT is not wanted in the product Notifications surface.
+ * Global Ban + Journal reset precedes Notifications deploy. Journal starts
+ * empty; only new post-deployment Ban mutations write Journal ops.
+ * Historical backfill would reintroduce deleted Ban pollution.
  *
- * Usage:
- *   npx tsx --tsconfig apps/api/tsconfig.json apps/api/scripts/notifications-journal-backfill.ts [--dry-run]
+ * This script is retained for rare operational recovery only. It refuses to
+ * run unless FORCE_LEGACY_BACKFILL=1 is set explicitly.
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * TIMEOUT policy (legacy): EXCLUDE historical TIMEOUT from Journal backfill.
+ *
+ * Usage (legacy only):
+ *   FORCE_LEGACY_BACKFILL=1 npx tsx --tsconfig apps/api/tsconfig.json \
+ *     apps/api/scripts/notifications-journal-backfill.ts [--dry-run]
  *
  * Idempotent: skips when latest op for (userId,itemId) is already UPSERT_ITEM.
- * Does not destroy data. Do not run without --dry-run unless explicitly approved.
+ * Do not run the non-dry-run command without explicit user approval.
  */
 import { prisma } from '../src/lib/prisma';
 import {
@@ -30,6 +36,7 @@ import {
 import type { AppendOperationInput } from '../src/notifications/notifications-contract-v1.schema';
 
 const dryRun = process.argv.includes('--dry-run');
+const forceLegacy = process.env.FORCE_LEGACY_BACKFILL === '1';
 
 const OUTCOME_MAP: Record<string, string> = {
   BOTH_YES: 'both_yes',
@@ -54,6 +61,13 @@ async function latestOpIsUpsert(
 }
 
 async function main() {
+  if (!forceLegacy) {
+    console.error(
+      '[notifications-journal-backfill] REFUSED — Phase 9C cutover uses empty Journal after global Ban reset. Set FORCE_LEGACY_BACKFILL=1 only for explicit legacy recovery.',
+    );
+    process.exit(2);
+  }
+
   const counts = {
     incoming: 0,
     check: 0,

@@ -5,7 +5,6 @@ import {
   formatChallengeShareMessage,
   isValidDurationMinutes,
   ANALYTICS_EVENTS,
-  CHECK_TIMEOUT_MINUTES,
   COOLDOWN_CHECK_SECONDS,
   COMPOSE_RECIPIENT_MODES,
   INCOMING_PENDING_MAX_AGE_MS,
@@ -90,7 +89,6 @@ import {
   opsOverboardResult,
   opsRemoveIncomingForReceiver,
   opsRemoveResultForUser,
-  opsTimeoutResult,
   opsUpsertCheckForBoth,
   opsUpsertIncomingForReceiver,
 } from '../notifications/ban-notification-ops';
@@ -2413,91 +2411,17 @@ export async function hydrateCheckDueTimers(): Promise<void> {
   }
 }
 
-export async function processStaleChecks() {
-  const cutoff = new Date(Date.now() - CHECK_TIMEOUT_MINUTES * 60 * 1000);
-  const stale = await prisma.ban.findMany({
-    where: {
-      status: 'CHECKING',
-      checkStartedAt: { lte: cutoff },
-    },
-    take: 30,
-    include: { checkAnswers: true, sender: true, receiver: true },
-  });
-
-  for (const ban of stale) {
-    logCheckScheduler({
-      banId: ban.id,
-      status: ban.status,
-      endsAt: ban.checkDueAt?.toISOString() ?? null,
-      shouldCreateCheck: false,
-      reason: 'check-timeout',
-    });
-    const hasSender = ban.checkAnswers.some((a) => a.userId === ban.senderId);
-    const hasReceiver = ban.checkAnswers.some(
-      (a) => a.userId === ban.receiverId,
-    );
-
-    if (!hasSender) {
-      await trackEvent(ANALYTICS_EVENTS.CHECK_IGNORED, ban.senderId, {
-        banId: ban.id,
-      });
-    }
-    if (!hasReceiver) {
-      await trackEvent(ANALYTICS_EVENTS.CHECK_IGNORED, ban.receiverId, {
-        banId: ban.id,
-      });
-    }
-
-    const completedAt = new Date();
-    const journalDeltas = await prisma.$transaction(async (tx) => {
-      if (!hasSender) {
-        await tx.banCheckAnswer.create({
-          data: { banId: ban.id, userId: ban.senderId, completed: false },
-        });
-      }
-      if (!hasReceiver) {
-        await tx.banCheckAnswer.create({
-          data: { banId: ban.id, userId: ban.receiverId, completed: false },
-        });
-      }
-      await tx.ban.update({
-        where: { id: ban.id },
-        data: {
-          status: 'FAILED',
-          outcome: 'TIMEOUT' as PrismaOutcome,
-          completedAt,
-          energyApplied: true,
-          senderResultSeenAt: null,
-          receiverResultSeenAt: null,
-        },
-      });
-      return appendJournalOpsFlatTx(
-        tx,
-        opsTimeoutResult({
-          ...banPartyFromUsers({
-            id: ban.id,
-            text: ban.text,
-            senderId: ban.senderId,
-            receiverId: ban.receiverId,
-            durationMinutes: ban.durationMinutes,
-            createdAt: ban.createdAt,
-            sender: ban.sender,
-            receiver: ban.receiver,
-          }),
-          completedAt,
-          outcome: 'timeout',
-        }),
-      );
-    });
-    publishCommittedNotificationDeltas(journalDeltas);
-
-    await trackEvent(ANALYTICS_EVENTS.CHECK_TIMEOUT, ban.senderId, {
-      banId: ban.id,
-    });
-    await broadcastResultReady(ban.id, ban.senderId, ban.receiverId);
-    await syncSession(ban.senderId);
-    await syncSession(ban.receiverId);
-  }
+/**
+ * Phase 9C — automatic check TIMEOUT removed from the product.
+ *
+ * CHECK_REQUEST remains available until an explicit ✅/❌ (or other supported
+ * action). Elapsed time after checkStartedAt must not set FAILED/TIMEOUT,
+ * fabricate BanCheckAnswer, journal BAN_RESULT, or publish timeout deltas.
+ *
+ * Retained as an explicit no-op so any stale imports fail closed.
+ */
+export async function processStaleChecks(): Promise<void> {
+  /* no-op — automatic TIMEOUT deleted */
 }
 
 /** Admin: force expire timer → check */

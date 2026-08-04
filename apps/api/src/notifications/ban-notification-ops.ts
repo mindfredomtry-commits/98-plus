@@ -218,47 +218,6 @@ export function opsCheckCompletion(input: {
   ];
 }
 
-export function opsTimeoutResult(
-  ban: BanPartyUsers & { completedAt: Date | string },
-): AppendOperationInput[] {
-  const completedAt = ban.completedAt;
-  const outcome = ban.outcome ?? 'timeout';
-  return [
-    removeItemOp(ban.senderId, checkItemId(ban.id)),
-    removeItemOp(ban.receiverId, checkItemId(ban.id)),
-    upsertItemOp(
-      buildBanResultNotificationItemV1({
-        userId: ban.senderId,
-        banId: ban.id,
-        outcome,
-        text: ban.text,
-        completedAt,
-        senderId: ban.senderId,
-        receiverId: ban.receiverId,
-        sender: ban.sender,
-        receiver: ban.receiver,
-        deliveryPolicy: 'FIFO',
-        causedByItemId: null,
-      }),
-    ),
-    upsertItemOp(
-      buildBanResultNotificationItemV1({
-        userId: ban.receiverId,
-        banId: ban.id,
-        outcome,
-        text: ban.text,
-        completedAt,
-        senderId: ban.senderId,
-        receiverId: ban.receiverId,
-        sender: ban.sender,
-        receiver: ban.receiver,
-        deliveryPolicy: 'FIFO',
-        causedByItemId: null,
-      }),
-    ),
-  ];
-}
-
 export function opsRemoveResultForUser(
   banId: string,
   userId: string,

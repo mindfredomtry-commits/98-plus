@@ -68,6 +68,11 @@ export const COOLDOWN_OVERBOARD_SECONDS = 120;
 export const COOLDOWN_CHECK_SECONDS = 5;
 
 /** After check starts, auto-resolve if partner silent (minutes) */
+/**
+ * @deprecated Phase 9C — automatic check TIMEOUT removed from the product.
+ * Retained only so historical analytics event names remain discoverable.
+ * Do not use to terminate Ban/CHECK lifecycle.
+ */
 export const CHECK_TIMEOUT_MINUTES = 120;
 
 export const REMINDER_BEFORE_MS = 60_000;

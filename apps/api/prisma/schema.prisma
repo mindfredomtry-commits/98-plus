@@ -186,6 +186,8 @@ enum InteractionOutcome {
   BOTH_NO
   SPLIT
   OVERBOARD
+  /// Phase 9C Policy B: retained for DB/migration compatibility only.
+  /// Production code must not write TIMEOUT — automatic check timeout removed.
   TIMEOUT
   EXPIRED
 }

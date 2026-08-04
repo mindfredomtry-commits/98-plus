@@ -2,7 +2,6 @@ import cron from 'node-cron';
 import {
   processExpiredBans,
   processRetention,
-  processStaleChecks,
 } from '../services/ban.service';
 import { processAutomaticRetention } from '../services/retention-automation.service';
 import { processPendingMonetizationEvents } from '../services/monetization-event-processor';
@@ -13,11 +12,11 @@ import {
 } from '../lib/retention-timing';
 
 export function startScheduler() {
-  // Precise timers handle check due; this cron is backup (≤15s skew).
+  // Precise timers handle checkDueAt → CHECK_REQUEST; this cron is backup (≤15s skew).
+  // Phase 9C: automatic check TIMEOUT removed — unanswered CHECK remains until explicit action.
   cron.schedule('*/15 * * * * *', async () => {
     try {
       await processExpiredBans();
-      await processStaleChecks();
     } catch (e) {
       console.error('[scheduler]', e);
     }
@@ -70,6 +69,6 @@ export function startScheduler() {
   });
 
   console.log(
-    `[scheduler] check backup every 15s; retention daily 12:00; auto-retention every ${RETENTION_TEST_INTERVAL_MINUTES}m; monetization outbox every 30s; payment cleanup every 10m; heartbeat every minute`,
+    `[scheduler] checkDueAt backup every 15s (no auto TIMEOUT); retention daily 12:00; auto-retention every ${RETENTION_TEST_INTERVAL_MINUTES}m; monetization outbox every 30s; payment cleanup every 10m; heartbeat every minute`,
   );
 }

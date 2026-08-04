@@ -25,10 +25,10 @@ function pass(name: string) {
   assert.match(banSvc, /opsUpsertIncomingForReceiver/);
   assert.match(banSvc, /opsOverboardResult/);
   assert.match(banSvc, /opsCheckCompletion|opsFirstCheckAnswer/);
-  assert.match(banSvc, /opsTimeoutResult/);
+  assert.doesNotMatch(banSvc, /opsTimeoutResult/);
   assert.match(banSvc, /opsRemoveResultForUser/);
   assert.match(banSvc, /opsUpsertCheckForBoth/);
-  pass('ban.service: all lifecycle journal ops wired');
+  pass('ban.service: lifecycle journal ops wired (no auto TIMEOUT)');
 }
 
 {
@@ -91,9 +91,9 @@ function pass(name: string) {
   );
   assert.match(backfill, /--dry-run/);
   assert.match(backfill, /latestOpIsUpsert/);
+  assert.match(backfill, /FORCE_LEGACY_BACKFILL|PHASE 9C CUTOVER/);
   assert.match(backfill, /timeoutPolicy: 'EXCLUDE'|TIMEOUT_excluded/);
-  assert.match(backfill, /notIn: \['TIMEOUT'\]/);
-  pass('backfill script: dry-run + idempotent + TIMEOUT exclude');
+  pass('backfill script: refused by default; legacy dry-run + TIMEOUT exclude');
 }
 
 console.log(`\n${passed} passed\n`);
