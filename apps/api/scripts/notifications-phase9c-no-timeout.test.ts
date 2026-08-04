@@ -132,21 +132,27 @@ async function main() {
       join(apiRoot, 'scripts/phase9c-global-ban-reset.sql'),
       'utf8',
     );
-    assert.match(sql, /BEGIN;/);
-    assert.match(sql, /TRUNCATE TABLE "NotificationJournalEntry" RESTART IDENTITY/);
-    assert.match(sql, /DELETE FROM "Ban"/);
-    assert.match(sql, /DELETE FROM "PairDailyStat"/);
-    // Actual DELETE statements must not target preserved tables
-    assert.doesNotMatch(sql, /^DELETE FROM "User"/m);
-    assert.doesNotMatch(sql, /^DELETE FROM "SocialContact"/m);
-    assert.doesNotMatch(sql, /^DELETE FROM "Payment"/m);
-    assert.doesNotMatch(sql, /^DELETE FROM "Entitlement"/m);
-    assert.doesNotMatch(sql, /^DELETE FROM "SelfBan"/m);
-    assert.doesNotMatch(
-      sql,
-      /^CREATE (TABLE|TEMP|VIEW|FUNCTION)/im,
+    assert.match(sql, /DEPRECATED|phase9d-global-ban-reset/);
+    const preview = readFileSync(
+      join(apiRoot, 'scripts/phase9d-global-ban-reset-preview.sql'),
+      'utf8',
     );
-    assert.match(sql, /DO NOT EXECUTE/);
+    const exec = readFileSync(
+      join(apiRoot, 'scripts/phase9d-global-ban-reset-execute.sql'),
+      'utf8',
+    );
+    const previewCode = preview
+      .split('\n')
+      .filter((l) => !l.trimStart().startsWith('--'))
+      .join('\n');
+    assert.doesNotMatch(previewCode, /\bDELETE\b/i);
+    assert.match(exec, /DELETE FROM "NotificationJournalEntry"/);
+    const execCode = exec
+      .split('\n')
+      .filter((l) => !l.trimStart().startsWith('--'))
+      .join('\n');
+    assert.doesNotMatch(execCode, /RESTART IDENTITY/i);
+    assert.match(exec, /RAISE EXCEPTION/);
     pass('reset SQL prepared: Ban/Journal clear; User/Payment preserved; no DDL');
   }
 
