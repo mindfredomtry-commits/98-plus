@@ -105,6 +105,8 @@ function read(path: string): string {
   assert.match(previewCode, /SELECT/);
   assert.match(preview, /max_journal_revision/);
   assert.match(preview, /sequence_last_value/);
+  assert.doesNotMatch(preview, /is_called/);
+  assert.doesNotMatch(preview, /sequence_is_called/);
   pass('4. Preview SQL is SELECT-only (no mutations)');
 }
 
@@ -177,11 +179,25 @@ function read(path: string): string {
   const exec = read(
     join(apiRoot, 'scripts/phase9d-global-ban-reset-execute.sql'),
   );
+  const execCode = exec
+    .split('\n')
+    .filter((l) => !l.trimStart().startsWith('--'))
+    .join('\n');
   assert.match(exec, /BanInvite/);
   assert.match(exec, /BotRetentionLog/);
   assert.match(exec, /parentBanId/);
   assert.match(exec, /PairDailyStat/);
   assert.match(exec, /ban_sent/);
+  assert.match(execCode, /result_shared/);
+  assert.doesNotMatch(execCode, /session_recovered/);
+  const previewAnalytics = read(
+    join(apiRoot, 'scripts/phase9d-global-ban-reset-preview.sql'),
+  );
+  const previewCodeAnalytics = previewAnalytics
+    .split('\n')
+    .filter((l) => !l.trimStart().startsWith('--'))
+    .join('\n');
+  assert.doesNotMatch(previewCodeAnalytics, /session_recovered/);
   pass('schema inventory covered by execute script');
 }
 

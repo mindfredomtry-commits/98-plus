@@ -26,8 +26,7 @@ UNION ALL SELECT 'PairDailyStat', COUNT(*)::bigint FROM "PairDailyStat"
 UNION ALL SELECT 'AnalyticsEvent_ban_named', COUNT(*)::bigint FROM "AnalyticsEvent"
   WHERE "name" IN (
     'ban_sent', 'ban_accepted', 'ban_rejected', 'ban_counter', 'ban_overboard',
-    'check_answered', 'check_timeout', 'check_ignored', 'result_shared',
-    'session_recovered'
+    'check_answered', 'check_timeout', 'check_ignored', 'result_shared'
   )
 UNION ALL SELECT 'SelfBan', COUNT(*)::bigint FROM "SelfBan"
 UNION ALL SELECT 'User', COUNT(*)::bigint FROM "User"
@@ -75,15 +74,7 @@ SELECT
         '^public\.',
         ''
       )
-  ) AS sequence_last_value,
-  (SELECT is_called FROM pg_sequences
-    WHERE schemaname = 'public'
-      AND sequencename = regexp_replace(
-        pg_get_serial_sequence('"NotificationJournalEntry"', 'revision'),
-        '^public\.',
-        ''
-      )
-  ) AS sequence_is_called;
+  ) AS sequence_last_value;
 
 SELECT COALESCE("itemKind", '(null)') AS item_kind, COUNT(*)::bigint AS n
 FROM "NotificationJournalEntry"

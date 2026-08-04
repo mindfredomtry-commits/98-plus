@@ -12,8 +12,8 @@
 --
 -- AnalyticsEvent names deleted (Ban-related only — not a broad wipe):
 --   ban_sent, ban_accepted, ban_rejected, ban_counter, ban_overboard,
---   check_answered, check_timeout, check_ignored, result_shared,
---   session_recovered
+--   check_answered, check_timeout, check_ignored, result_shared
+-- Excluded: session_recovered (not proven Ban-only; no Ban-scoped producer)
 --
 -- BanThread is exclusively Ban-owned (every Ban.threadId → BanThread);
 -- after Ban=0, all BanThread rows are deleted.
@@ -97,8 +97,7 @@ BEGIN
   DELETE FROM "AnalyticsEvent"
   WHERE "name" IN (
     'ban_sent', 'ban_accepted', 'ban_rejected', 'ban_counter', 'ban_overboard',
-    'check_answered', 'check_timeout', 'check_ignored', 'result_shared',
-    'session_recovered'
+    'check_answered', 'check_timeout', 'check_ignored', 'result_shared'
   );
 
   -- -------------------------------------------------------------------------
