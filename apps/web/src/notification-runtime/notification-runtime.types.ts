@@ -35,7 +35,10 @@ export type NotificationItem =
 
 export type NotificationItemKind = 'incoming' | 'check' | 'result';
 
-export type CardActionType = 'check_answer' | 'incoming_overboard';
+export type CardActionType =
+  | 'check_answer'
+  | 'incoming_overboard'
+  | 'result_ack';
 
 export type CardDismissReason =
   | 'user_dismiss'

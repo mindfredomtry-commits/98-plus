@@ -84,6 +84,7 @@ import {
   type CommittedUserDeltaV1,
 } from '../notifications/notification-journal-commit';
 import {
+  banPartyFromUsers,
   opsCheckCompletion,
   opsFirstCheckAnswer,
   opsOverboardResult,
@@ -586,7 +587,7 @@ export async function sendBan(params: {
     });
     const deltas = await appendJournalOpsFlatTx(
       tx,
-      opsUpsertIncomingForReceiver(created),
+      opsUpsertIncomingForReceiver(banPartyFromUsers(created)),
     );
     return { ban: created, journalDeltas: deltas };
   });
@@ -1006,7 +1007,7 @@ export async function replyToIncomingBan(params: {
     });
     const ops = [
       ...opsRemoveIncomingForReceiver(parent.id, params.userId),
-      ...opsUpsertIncomingForReceiver(created),
+      ...opsUpsertIncomingForReceiver(banPartyFromUsers(created)),
     ];
     const deltas = await appendJournalOpsFlatTx(tx, ops);
     return { reply: created, journalDeltas: deltas };
@@ -1198,11 +1199,22 @@ export async function markOverboard(banId: string, userId: string): Promise<{
   }
   await setCooldown(cooldownKey, 120);
 
-  // Energy remains outside Ban+Journal tx (pre-existing non-atomicity).
-  const energy = await applyOverboard(ban.senderId, ban.receiverId);
+  // Energy + Ban + Journal in one transaction.
   const completedAt = new Date();
+  const parties = await prisma.user.findMany({
+    where: { id: { in: [ban.senderId, ban.receiverId] } },
+    select: { id: true, username: true, firstName: true, photoUrl: true },
+  });
+  const senderUser = parties.find((u) => u.id === ban.senderId);
+  const receiverUser = parties.find((u) => u.id === ban.receiverId);
+  if (!senderUser || !receiverUser) throw new Error('Ban parties not found');
 
-  const journalDeltas = await prisma.$transaction(async (tx) => {
+  const { journalDeltas, energy } = await prisma.$transaction(async (tx) => {
+    const energyResult = await applyOverboard(
+      ban.senderId,
+      ban.receiverId,
+      tx,
+    );
     await tx.ban.update({
       where: { id: banId },
       data: {
@@ -1210,29 +1222,34 @@ export async function markOverboard(banId: string, userId: string): Promise<{
         isOverboard: true,
         outcome: overboardToPrisma(),
         completedAt,
-        senderEnergyDelta: energy.sender,
-        receiverEnergyDelta: energy.receiver,
+        senderEnergyDelta: energyResult.sender,
+        receiverEnergyDelta: energyResult.receiver,
         energyApplied: true,
-        funMode: energy.funMode,
-        pairBanCount24h: energy.pairBanCount24h,
+        funMode: energyResult.funMode,
+        pairBanCount24h: energyResult.pairBanCount24h,
         receiverIncomingAckAt: new Date(),
         senderResultSeenAt: null,
         receiverResultSeenAt: null,
       },
     });
-    return appendJournalOpsFlatTx(
+    const deltas = await appendJournalOpsFlatTx(
       tx,
       opsOverboardResult({
-        id: banId,
-        text: ban.text,
-        senderId: ban.senderId,
-        receiverId: ban.receiverId,
-        durationMinutes: ban.durationMinutes,
-        createdAt: ban.createdAt,
+        ...banPartyFromUsers({
+          id: banId,
+          text: ban.text,
+          senderId: ban.senderId,
+          receiverId: ban.receiverId,
+          durationMinutes: ban.durationMinutes,
+          createdAt: ban.createdAt,
+          sender: senderUser,
+          receiver: receiverUser,
+        }),
         completedAt,
         outcome: 'overboard',
       }),
     );
+    return { journalDeltas: deltas, energy: energyResult };
   });
   publishCommittedNotificationDeltas(journalDeltas);
 
@@ -1314,37 +1331,121 @@ export async function submitCheckAnswer(
     t0,
   });
 
-  // Persist answer first; journal REMOVE for first answer in same follow-up tx.
-  await prisma.banCheckAnswer.upsert({
-    where: { banId_userId: { banId, userId } },
-    create: { banId, userId, completed },
-    update: { completed },
-  });
-  logResultLatency('[result-answer-saved]', {
-    banId,
-    userId,
-    role: actorRole,
-    elapsedMs: Date.now() - t0,
-  });
+  // Answer + energy/Ban complete + Journal in one transaction.
+  const txResult = await prisma.$transaction(async (tx) => {
+    await tx.banCheckAnswer.upsert({
+      where: { banId_userId: { banId, userId } },
+      create: { banId, userId, completed },
+      update: { completed },
+    });
+    logResultLatency('[result-answer-saved]', {
+      banId,
+      userId,
+      role: actorRole,
+      elapsedMs: Date.now() - t0,
+    });
 
-  const answers = await prisma.banCheckAnswer.findMany({ where: { banId } });
+    const answers = await tx.banCheckAnswer.findMany({ where: { banId } });
 
-  if (answers.length < 2) {
-    const journalDeltas = await prisma.$transaction(async (tx) =>
-      appendJournalOpsFlatTx(tx, opsFirstCheckAnswer(banId, userId)),
+    if (answers.length < 2) {
+      const deltas = await appendJournalOpsFlatTx(
+        tx,
+        opsFirstCheckAnswer(banId, userId),
+      );
+      return {
+        kind: 'waiting' as const,
+        journalDeltas: deltas,
+        answerCount: answers.length,
+      };
+    }
+
+    const senderAns = answers.find((a) => a.userId === ban.senderId)!;
+    const receiverAns = answers.find((a) => a.userId === ban.receiverId)!;
+    const outcome = resolveCheckOutcome(
+      senderAns.completed,
+      receiverAns.completed,
     );
-    publishCommittedNotificationDeltas(journalDeltas);
 
+    logResultLatency('[result-second-answer]', {
+      banId,
+      userId,
+      role: actorRole,
+      elapsedMs: Date.now() - t0,
+    });
+    logResultLatency('[result-both-answered]', {
+      banId,
+      secondAnswererId: userId,
+      secondAnswererRole: actorRole,
+      elapsedMs: Date.now() - t0,
+    });
+    logResultLatency('[result-apply-start]', {
+      banId,
+      role: actorRole,
+      elapsedMs: Date.now() - t0,
+    });
+
+    const energy = await applyCheckResult(
+      banId,
+      outcome,
+      {
+        id: ban.id,
+        senderId: ban.senderId,
+        receiverId: ban.receiverId,
+        energyApplied: ban.energyApplied,
+        senderEnergyDelta: ban.senderEnergyDelta,
+        receiverEnergyDelta: ban.receiverEnergyDelta,
+        farmSkipped: ban.farmSkipped,
+      },
+      tx,
+    );
+    logResultLatency('[result-apply-done]', {
+      banId,
+      role: actorRole,
+      elapsedMs: Date.now() - t0,
+    });
+
+    const completedAt = energy.completedBan.completedAt ?? new Date();
+    const deltas = await appendJournalOpsFlatTx(
+      tx,
+      opsCheckCompletion({
+        ban: {
+          ...banPartyFromUsers({
+            id: ban.id,
+            text: ban.text,
+            senderId: ban.senderId,
+            receiverId: ban.receiverId,
+            durationMinutes: ban.durationMinutes,
+            createdAt: ban.createdAt,
+            sender: ban.sender,
+            receiver: ban.receiver,
+          }),
+          completedAt,
+          outcome,
+        },
+        answererId: userId,
+      }),
+    );
+    return {
+      kind: 'completed' as const,
+      journalDeltas: deltas,
+      energy,
+      outcome,
+    };
+  });
+  publishCommittedNotificationDeltas(txResult.journalDeltas);
+
+  void trackEvent(ANALYTICS_EVENTS.CHECK_ANSWERED, userId, {
+    banId,
+    completed,
+  });
+
+  if (txResult.kind === 'waiting') {
     logResultLatency('[result-first-answer-waiting]', {
       banId,
       userId,
       role: actorRole,
-      answerCount: answers.length,
+      answerCount: txResult.answerCount,
       elapsedMs: Date.now() - t0,
-    });
-    void trackEvent(ANALYTICS_EVENTS.CHECK_ANSWERED, userId, {
-      banId,
-      completed,
     });
     const waitingPayload = await getCheckState(banId, userId);
     broadcastToUser(ban.senderId, { type: 'check:waiting', payload: waitingPayload });
@@ -1355,77 +1456,14 @@ export async function submitCheckAnswer(
       waiting: true,
       checkState: waitingPayload,
       notifications: toNotificationsDeltaV1(
-        deltaForActingUser(journalDeltas, userId),
+        deltaForActingUser(txResult.journalDeltas, userId),
       ),
     };
   }
 
-  const senderAns = answers.find((a) => a.userId === ban.senderId)!;
-  const receiverAns = answers.find((a) => a.userId === ban.receiverId)!;
-
-  logResultLatency('[result-second-answer]', {
-    banId,
-    userId,
-    role: actorRole,
-    elapsedMs: Date.now() - t0,
-  });
-  logResultLatency('[result-both-answered]', {
-    banId,
-    secondAnswererId: userId,
-    secondAnswererRole: actorRole,
-    elapsedMs: Date.now() - t0,
-  });
-
-  void trackEvent(ANALYTICS_EVENTS.CHECK_ANSWERED, userId, {
-    banId,
-    completed,
-  });
-
-  const outcome = resolveCheckOutcome(senderAns.completed, receiverAns.completed);
-
-  logResultLatency('[result-apply-start]', {
-    banId,
-    role: actorRole,
-    elapsedMs: Date.now() - t0,
-  });
-  // Energy + Ban COMPLETED (applyCheckResult). Journal appended immediately after
-  // in a dedicated tx — Ban completion and energy are not re-wrapped here.
-  const energy = await applyCheckResult(banId, outcome, {
-    id: ban.id,
-    senderId: ban.senderId,
-    receiverId: ban.receiverId,
-    energyApplied: ban.energyApplied,
-    senderEnergyDelta: ban.senderEnergyDelta,
-    receiverEnergyDelta: ban.receiverEnergyDelta,
-    farmSkipped: ban.farmSkipped,
-  });
-  logResultLatency('[result-apply-done]', {
-    banId,
-    role: actorRole,
-    elapsedMs: Date.now() - t0,
-  });
-
-  const completedAt =
-    energy.completedBan.completedAt ?? new Date();
-  const journalDeltas = await prisma.$transaction(async (tx) =>
-    appendJournalOpsFlatTx(
-      tx,
-      opsCheckCompletion({
-        ban: {
-          id: ban.id,
-          text: ban.text,
-          senderId: ban.senderId,
-          receiverId: ban.receiverId,
-          durationMinutes: ban.durationMinutes,
-          createdAt: ban.createdAt,
-          completedAt,
-          outcome,
-        },
-        answererId: userId,
-      }),
-    ),
-  );
-  publishCommittedNotificationDeltas(journalDeltas);
+  const energy = txResult.energy;
+  const outcome = txResult.outcome;
+  const journalDeltas = txResult.journalDeltas;
 
   logResultLatency('[result-build-start]', {
     banId,
@@ -2173,9 +2211,9 @@ export async function acknowledgeBanResult(
   const alreadySeen =
     role === 'sender' ? ban.senderResultSeenAt : ban.receiverResultSeenAt;
 
-  let journalDeltas: CommittedUserDeltaV1[] = [];
-  if (!alreadySeen) {
-    journalDeltas = await prisma.$transaction(async (tx) => {
+  // Always journal REMOVE (idempotent). Ban seenAt only if not yet set.
+  const journalDeltas = await prisma.$transaction(async (tx) => {
+    if (!alreadySeen) {
       await tx.ban.update({
         where: { id: banId },
         data:
@@ -2183,18 +2221,19 @@ export async function acknowledgeBanResult(
             ? { senderResultSeenAt: new Date() }
             : { receiverResultSeenAt: new Date() },
       });
-      return appendJournalOpsFlatTx(
-        tx,
-        opsRemoveResultForUser(banId, userId),
-      );
-    });
-    publishCommittedNotificationDeltas(journalDeltas);
-  }
+    }
+    return appendJournalOpsFlatTx(
+      tx,
+      opsRemoveResultForUser(banId, userId),
+    );
+  });
+  publishCommittedNotificationDeltas(journalDeltas);
   console.log('[result-ack]', {
     userId,
     banId,
     role,
     updatedField: field,
+    alreadySeen: Boolean(alreadySeen),
   });
   return {
     ok: true,
@@ -2233,17 +2272,26 @@ export async function processSingleDueCheck(banId: string): Promise<boolean> {
       data: { status: 'CHECKING', checkStartedAt: now },
     });
     if (updated.count === 0) return null;
+    const full = await tx.ban.findUnique({
+      where: { id: banId },
+      include: { sender: true, receiver: true },
+    });
+    if (!full) return null;
     return appendJournalOpsFlatTx(
       tx,
-      opsUpsertCheckForBoth({
-        id: ban.id,
-        text: ban.text,
-        senderId: ban.senderId,
-        receiverId: ban.receiverId,
-        durationMinutes: ban.durationMinutes,
-        createdAt: ban.createdAt,
-        checkDueAt: ban.checkDueAt,
-      }),
+      opsUpsertCheckForBoth(
+        banPartyFromUsers({
+          id: full.id,
+          text: full.text,
+          senderId: full.senderId,
+          receiverId: full.receiverId,
+          durationMinutes: full.durationMinutes,
+          createdAt: full.createdAt,
+          checkDueAt: full.checkDueAt,
+          sender: full.sender,
+          receiver: full.receiver,
+        }),
+      ),
     );
   });
   if (!journalDeltas) return false;
@@ -2390,17 +2438,11 @@ export async function processStaleChecks() {
     );
 
     if (!hasSender) {
-      await prisma.banCheckAnswer.create({
-        data: { banId: ban.id, userId: ban.senderId, completed: false },
-      });
       await trackEvent(ANALYTICS_EVENTS.CHECK_IGNORED, ban.senderId, {
         banId: ban.id,
       });
     }
     if (!hasReceiver) {
-      await prisma.banCheckAnswer.create({
-        data: { banId: ban.id, userId: ban.receiverId, completed: false },
-      });
       await trackEvent(ANALYTICS_EVENTS.CHECK_IGNORED, ban.receiverId, {
         banId: ban.id,
       });
@@ -2408,6 +2450,16 @@ export async function processStaleChecks() {
 
     const completedAt = new Date();
     const journalDeltas = await prisma.$transaction(async (tx) => {
+      if (!hasSender) {
+        await tx.banCheckAnswer.create({
+          data: { banId: ban.id, userId: ban.senderId, completed: false },
+        });
+      }
+      if (!hasReceiver) {
+        await tx.banCheckAnswer.create({
+          data: { banId: ban.id, userId: ban.receiverId, completed: false },
+        });
+      }
       await tx.ban.update({
         where: { id: ban.id },
         data: {
@@ -2422,12 +2474,16 @@ export async function processStaleChecks() {
       return appendJournalOpsFlatTx(
         tx,
         opsTimeoutResult({
-          id: ban.id,
-          text: ban.text,
-          senderId: ban.senderId,
-          receiverId: ban.receiverId,
-          durationMinutes: ban.durationMinutes,
-          createdAt: ban.createdAt,
+          ...banPartyFromUsers({
+            id: ban.id,
+            text: ban.text,
+            senderId: ban.senderId,
+            receiverId: ban.receiverId,
+            durationMinutes: ban.durationMinutes,
+            createdAt: ban.createdAt,
+            sender: ban.sender,
+            receiver: ban.receiver,
+          }),
           completedAt,
           outcome: 'timeout',
         }),

@@ -11,6 +11,10 @@ import {
   executeSubmitIncomingOverboardEffect,
   type OverboardSubmitTransport,
 } from './notification-runtime.overboard-action';
+import {
+  executeSubmitResultAckEffect,
+  type ResultAckTransport,
+} from './notification-runtime.result-ack-action';
 import type { NotificationRuntimeStore } from './notification-runtime.store';
 import type { RuntimeEffect } from './notification-runtime.types';
 
@@ -20,6 +24,8 @@ export type NotificationEffectsContext = {
   onRefreshPending?: (reason: string) => void | Promise<void>;
   onRequestFullSync?: (reason: string) => void;
   onSessionComplete?: (reason: 'action' | 'close' | 'no_ready') => void;
+  /** Test / adapter override for POST /bans/:id/result/ack */
+  resultAckTransport?: ResultAckTransport;
 };
 
 const checkTransport: CheckSubmitTransport = async ({
@@ -61,6 +67,23 @@ const overboardTransport: OverboardSubmitTransport = async ({
   };
 };
 
+const resultAckTransportDefault: ResultAckTransport = async ({
+  banId,
+  token,
+}) => {
+  const res = await api<{
+    ok?: boolean;
+    notifications?: import('@98plus/shared').NotificationsDeltaV1 | null;
+  }>(`/bans/${encodeURIComponent(banId)}/result/ack`, {
+    method: 'POST',
+    token,
+  });
+  return {
+    ok: res.ok !== false,
+    notifications: res.notifications ?? null,
+  };
+};
+
 export async function runNotificationRuntimeEffects(
   store: NotificationRuntimeStore,
   effects: readonly RuntimeEffect[],
@@ -94,6 +117,14 @@ export async function runNotificationRuntimeEffects(
             store,
             effect,
             overboardTransport,
+            token,
+            userId,
+          );
+        } else if (effect.action === 'result_ack') {
+          await executeSubmitResultAckEffect(
+            store,
+            effect,
+            ctx.resultAckTransport ?? resultAckTransportDefault,
             token,
             userId,
           );

@@ -91,7 +91,9 @@ function pass(name: string) {
   );
   assert.match(backfill, /--dry-run/);
   assert.match(backfill, /latestOpIsUpsert/);
-  pass('backfill script: dry-run + idempotent');
+  assert.match(backfill, /timeoutPolicy: 'EXCLUDE'|TIMEOUT_excluded/);
+  assert.match(backfill, /notIn: \['TIMEOUT'\]/);
+  pass('backfill script: dry-run + idempotent + TIMEOUT exclude');
 }
 
 console.log(`\n${passed} passed\n`);

@@ -18,12 +18,23 @@ import {
   ANTI_FARM_DAILY_SUCCESS_LIMIT,
   type CanSendBanCode,
 } from '@98plus/shared';
-import { prisma } from '../lib/prisma';
+import type { Prisma } from '@prisma/client';
+import { prisma as defaultPrisma } from '../lib/prisma';
 import { getDailyCount, incrDaily } from '../lib/redis';
 import {
   banResultRowInclude,
   type BanResultRow,
 } from './result.service';
+
+/** Prisma client or open transaction — Ban+energy+journal must share one tx. */
+export type EnergyDb = Prisma.TransactionClient | typeof defaultPrisma;
+
+function dbOf(db?: EnergyDb): EnergyDb {
+  return db ?? defaultPrisma;
+}
+
+/** @deprecated Prefer EnergyDb; kept for callers that import prisma from energy. */
+const prisma = defaultPrisma;
 
 function pairKey(a: string, b: string): [string, string] {
   return a < b ? [a, b] : [b, a];
@@ -45,12 +56,13 @@ function tomorrowDate(): Date {
 async function countPairBansToday(
   userAId: string,
   userBId: string,
+  db: EnergyDb = defaultPrisma,
 ): Promise<number> {
   const [a, b] = pairKey(userAId, userBId);
   const start = todayDate();
   const end = tomorrowDate();
 
-  return prisma.ban.count({
+  return db.ban.count({
     where: {
       createdAt: { gte: start, lt: end },
       OR: [
@@ -80,8 +92,9 @@ export async function getPairEconomyState(
 async function isPairFreeMode(
   userAId: string,
   userBId: string,
+  db: EnergyDb = defaultPrisma,
 ): Promise<{ free: boolean; countToday: number }> {
-  const countToday = await countPairBansToday(userAId, userBId);
+  const countToday = await countPairBansToday(userAId, userBId, db);
   const free = isPairDailyFreeMode(countToday);
   if (free) {
     const [a, b] = pairKey(userAId, userBId);
@@ -183,9 +196,10 @@ export async function recordBanSent(userId: string): Promise<void> {
 async function shouldSkipFarmRewards(
   userAId: string,
   userBId: string,
+  db: EnergyDb = defaultPrisma,
 ): Promise<boolean> {
   const [a, b] = pairKey(userAId, userBId);
-  const stat = await prisma.pairDailyStat.findUnique({
+  const stat = await db.pairDailyStat.findUnique({
     where: {
       userAId_userBId_date: { userAId: a, userBId: b, date: todayDate() },
     },
@@ -196,9 +210,10 @@ async function shouldSkipFarmRewards(
 async function incrementPairSuccess(
   userAId: string,
   userBId: string,
+  db: EnergyDb = defaultPrisma,
 ): Promise<void> {
   const [a, b] = pairKey(userAId, userBId);
-  await prisma.pairDailyStat.upsert({
+  await db.pairDailyStat.upsert({
     where: {
       userAId_userBId_date: { userAId: a, userBId: b, date: todayDate() },
     },
@@ -216,9 +231,10 @@ async function incrementPairSuccess(
 async function incrementPairInteraction(
   userAId: string,
   userBId: string,
+  db: EnergyDb = defaultPrisma,
 ): Promise<void> {
   const [a, b] = pairKey(userAId, userBId);
-  await prisma.pairDailyStat.upsert({
+  await db.pairDailyStat.upsert({
     where: {
       userAId_userBId_date: { userAId: a, userBId: b, date: todayDate() },
     },
@@ -241,16 +257,17 @@ async function applyDelta(
   userId: string,
   rawDelta: number,
   opts: ApplyDeltaOpts = {},
+  db: EnergyDb = defaultPrisma,
 ): Promise<number> {
   if (rawDelta === 0) return 0;
   if (opts.pairFreeMode) return 0;
   if (opts.skipPositiveRewards && rawDelta > 0) return 0;
 
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const user = await db.user.findUnique({ where: { id: userId } });
   if (!user) return 0;
 
   const delta = applyRewardMultiplier(rawDelta, user.energy);
-  await prisma.user.update({
+  await db.user.update({
     where: { id: userId },
     data: { energy: { increment: delta } },
   });
@@ -263,6 +280,7 @@ async function applyCheckPairDeltas(
   receiverId: string,
   raw: { sender: number; receiver: number },
   opts: ApplyDeltaOpts = {},
+  db: EnergyDb = defaultPrisma,
 ): Promise<{ sender: number; receiver: number }> {
   if (opts.pairFreeMode) {
     return { sender: 0, receiver: 0 };
@@ -271,7 +289,7 @@ async function applyCheckPairDeltas(
     return { sender: 0, receiver: 0 };
   }
 
-  const users = await prisma.user.findMany({
+  const users = await db.user.findMany({
     where: { id: { in: [senderId, receiverId] } },
     select: { id: true, energy: true },
   });
@@ -294,7 +312,7 @@ async function applyCheckPairDeltas(
   const updates: Promise<unknown>[] = [];
   if (s.increment && senderUser) {
     updates.push(
-      prisma.user.update({
+      db.user.update({
         where: { id: senderId },
         data: { energy: { increment: s.delta } },
       }),
@@ -302,7 +320,7 @@ async function applyCheckPairDeltas(
   }
   if (r.increment && receiverUser) {
     updates.push(
-      prisma.user.update({
+      db.user.update({
         where: { id: receiverId },
         data: { energy: { increment: r.delta } },
       }),
@@ -345,14 +363,17 @@ export async function linkPairInteraction(
 export async function applyOverboard(
   senderId: string,
   receiverId: string,
+  db: EnergyDb = defaultPrisma,
 ): Promise<
   EnergyDelta & { funMode: boolean; pairBanCount24h: number }
 > {
+  const client = dbOf(db);
   const { free: pairFreeMode, countToday } = await isPairFreeMode(
     senderId,
     receiverId,
+    client,
   );
-  await incrementPairInteraction(senderId, receiverId);
+  await incrementPairInteraction(senderId, receiverId, client);
 
   if (pairFreeMode) {
     return {
@@ -364,8 +385,8 @@ export async function applyOverboard(
   }
 
   const raw = calcOverboardPenalty();
-  const s = await applyDelta(senderId, raw.sender, { pairFreeMode: false });
-  const r = await applyDelta(receiverId, raw.receiver, { pairFreeMode: false });
+  const s = await applyDelta(senderId, raw.sender, { pairFreeMode: false }, client);
+  const r = await applyDelta(receiverId, raw.receiver, { pairFreeMode: false }, client);
   return {
     sender: s,
     receiver: r,
@@ -388,10 +409,12 @@ export async function applyCheckResult(
   banId: string,
   outcome: CheckOutcome,
   knownBan?: CheckResultBanRow | null,
+  db: EnergyDb = defaultPrisma,
 ): Promise<EnergyDelta & { farmSkipped: boolean; completedBan: BanResultRow }> {
+  const client = dbOf(db);
   const ban =
     knownBan ??
-    (await prisma.ban.findUnique({
+    (await client.ban.findUnique({
       where: { id: banId },
       select: {
         id: true,
@@ -409,7 +432,7 @@ export async function applyCheckResult(
   }
 
   if (ban.energyApplied) {
-    const completedBan = await prisma.ban.findUnique({
+    const completedBan = await client.ban.findUnique({
       where: { id: banId },
       include: banResultRowInclude,
     });
@@ -428,7 +451,7 @@ export async function applyCheckResult(
   const noEnergyApply = process.env.TEST_MODE_NO_ENERGY_APPLY === 'true';
 
   if (noEnergyApply) {
-    const completedBan = await prisma.ban.update({
+    const completedBan = await client.ban.update({
       where: { id: banId },
       data: {
         energyApplied: true,
@@ -447,23 +470,23 @@ export async function applyCheckResult(
   }
 
   const { free: pairFreeMode, countToday: pairBanCount24h } =
-    await isPairFreeMode(ban.senderId, ban.receiverId);
+    await isPairFreeMode(ban.senderId, ban.receiverId, client);
   const skipPositiveRewards =
     !pairFreeMode &&
-    (await shouldSkipFarmRewards(ban.senderId, ban.receiverId));
+    (await shouldSkipFarmRewards(ban.senderId, ban.receiverId, client));
   const farmSkipped = pairFreeMode || skipPositiveRewards;
 
   const { sender: senderDelta, receiver: receiverDelta } =
     await applyCheckPairDeltas(ban.senderId, ban.receiverId, raw, {
       pairFreeMode,
       skipPositiveRewards,
-    });
+    }, client);
 
   if (outcome === 'both_yes' && !pairFreeMode && !skipPositiveRewards) {
-    void incrementPairSuccess(ban.senderId, ban.receiverId);
+    await incrementPairSuccess(ban.senderId, ban.receiverId, client);
   }
 
-  const completedBan = await prisma.ban.update({
+  const completedBan = await client.ban.update({
     where: { id: banId },
     data: {
       energyApplied: true,

@@ -2,6 +2,7 @@
  * Lifecycle operation builders for Ban → Notification Journal.
  * Pure op construction; callers append inside a transaction.
  */
+import type { NotificationPartyPublicV1 } from '@98plus/shared';
 import type { AppendOperationInput } from './notifications-contract-v1.schema';
 import {
   buildBanResultNotificationItemV1,
@@ -9,12 +10,13 @@ import {
   buildIncomingBanNotificationItemV1,
   checkItemId,
   incomingItemId,
+  partyPublicFromUser,
   removeItemOp,
   resultItemId,
   upsertItemOp,
 } from './notification-item-builders';
 
-type BanParty = {
+export type BanPartyUsers = {
   id: string;
   text: string;
   senderId: string;
@@ -24,9 +26,43 @@ type BanParty = {
   checkDueAt?: Date | string | null;
   completedAt?: Date | string | null;
   outcome?: string | null;
+  sender: NotificationPartyPublicV1;
+  receiver: NotificationPartyPublicV1;
 };
 
-export function opsUpsertIncomingForReceiver(ban: BanParty): AppendOperationInput[] {
+export function banPartyFromUsers(input: {
+  id: string;
+  text: string;
+  senderId: string;
+  receiverId: string;
+  durationMinutes: number;
+  createdAt: Date | string;
+  checkDueAt?: Date | string | null;
+  completedAt?: Date | string | null;
+  outcome?: string | null;
+  sender: {
+    id: string;
+    username?: string | null;
+    firstName?: string | null;
+    photoUrl?: string | null;
+  };
+  receiver: {
+    id: string;
+    username?: string | null;
+    firstName?: string | null;
+    photoUrl?: string | null;
+  };
+}): BanPartyUsers {
+  return {
+    ...input,
+    sender: partyPublicFromUser(input.sender),
+    receiver: partyPublicFromUser(input.receiver),
+  };
+}
+
+export function opsUpsertIncomingForReceiver(
+  ban: BanPartyUsers,
+): AppendOperationInput[] {
   return [
     upsertItemOp(
       buildIncomingBanNotificationItemV1({
@@ -37,6 +73,8 @@ export function opsUpsertIncomingForReceiver(ban: BanParty): AppendOperationInpu
         senderId: ban.senderId,
         receiverId: ban.receiverId,
         createdAt: ban.createdAt,
+        sender: ban.sender,
+        receiver: ban.receiver,
       }),
     ),
   ];
@@ -49,14 +87,17 @@ export function opsRemoveIncomingForReceiver(
   return [removeItemOp(receiverId, incomingItemId(banId))];
 }
 
-export function opsUpsertCheckForBoth(ban: BanParty): AppendOperationInput[] {
+export function opsUpsertCheckForBoth(ban: BanPartyUsers): AppendOperationInput[] {
   const base = {
     banId: ban.id,
     text: ban.text,
+    durationMinutes: ban.durationMinutes,
     checkDueAt: ban.checkDueAt ?? null,
     senderId: ban.senderId,
     receiverId: ban.receiverId,
     createdAt: ban.createdAt,
+    sender: ban.sender,
+    receiver: ban.receiver,
   };
   return [
     upsertItemOp(
@@ -81,7 +122,9 @@ export function opsRemoveCheckForUser(
   return [removeItemOp(userId, checkItemId(banId))];
 }
 
-export function opsOverboardResult(ban: BanParty & { completedAt: Date | string }): AppendOperationInput[] {
+export function opsOverboardResult(
+  ban: BanPartyUsers & { completedAt: Date | string },
+): AppendOperationInput[] {
   const completedAt = ban.completedAt;
   const outcome = ban.outcome ?? 'overboard';
   return [
@@ -95,6 +138,8 @@ export function opsOverboardResult(ban: BanParty & { completedAt: Date | string 
         completedAt,
         senderId: ban.senderId,
         receiverId: ban.receiverId,
+        sender: ban.sender,
+        receiver: ban.receiver,
         deliveryPolicy: 'NEXT_IN_SESSION',
         causedByItemId: incomingItemId(ban.id),
       }),
@@ -108,6 +153,8 @@ export function opsOverboardResult(ban: BanParty & { completedAt: Date | string 
         completedAt,
         senderId: ban.senderId,
         receiverId: ban.receiverId,
+        sender: ban.sender,
+        receiver: ban.receiver,
         deliveryPolicy: 'FIFO',
         causedByItemId: null,
       }),
@@ -128,7 +175,7 @@ export function opsFirstCheckAnswer(
  * REMOVE check for answerer; UPSERT result for both.
  */
 export function opsCheckCompletion(input: {
-  ban: BanParty & { completedAt: Date | string; outcome: string };
+  ban: BanPartyUsers & { completedAt: Date | string; outcome: string };
   answererId: string;
 }): AppendOperationInput[] {
   const { ban, answererId } = input;
@@ -137,7 +184,6 @@ export function opsCheckCompletion(input: {
   const completedAt = ban.completedAt;
   return [
     removeItemOp(answererId, checkItemId(ban.id)),
-    // Partner may still have check — remove for both to clear
     removeItemOp(otherId, checkItemId(ban.id)),
     upsertItemOp(
       buildBanResultNotificationItemV1({
@@ -148,6 +194,8 @@ export function opsCheckCompletion(input: {
         completedAt,
         senderId: ban.senderId,
         receiverId: ban.receiverId,
+        sender: ban.sender,
+        receiver: ban.receiver,
         deliveryPolicy: 'NEXT_IN_SESSION',
         causedByItemId: checkItemId(ban.id),
       }),
@@ -161,6 +209,8 @@ export function opsCheckCompletion(input: {
         completedAt,
         senderId: ban.senderId,
         receiverId: ban.receiverId,
+        sender: ban.sender,
+        receiver: ban.receiver,
         deliveryPolicy: 'FIFO',
         causedByItemId: null,
       }),
@@ -169,7 +219,7 @@ export function opsCheckCompletion(input: {
 }
 
 export function opsTimeoutResult(
-  ban: BanParty & { completedAt: Date | string },
+  ban: BanPartyUsers & { completedAt: Date | string },
 ): AppendOperationInput[] {
   const completedAt = ban.completedAt;
   const outcome = ban.outcome ?? 'timeout';
@@ -185,6 +235,8 @@ export function opsTimeoutResult(
         completedAt,
         senderId: ban.senderId,
         receiverId: ban.receiverId,
+        sender: ban.sender,
+        receiver: ban.receiver,
         deliveryPolicy: 'FIFO',
         causedByItemId: null,
       }),
@@ -198,6 +250,8 @@ export function opsTimeoutResult(
         completedAt,
         senderId: ban.senderId,
         receiverId: ban.receiverId,
+        sender: ban.sender,
+        receiver: ban.receiver,
         deliveryPolicy: 'FIFO',
         causedByItemId: null,
       }),
@@ -212,4 +266,4 @@ export function opsRemoveResultForUser(
   return [removeItemOp(userId, resultItemId(banId))];
 }
 
-export { incomingItemId, checkItemId, resultItemId };
+export { incomingItemId, checkItemId, resultItemId, partyPublicFromUser };

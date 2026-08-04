@@ -27,7 +27,7 @@ import {
   appendJournalOpsFlatTx,
   publishCommittedNotificationDeltas,
 } from '../notifications/notification-journal-commit';
-import { opsUpsertIncomingForReceiver } from '../notifications/ban-notification-ops';
+import { opsUpsertIncomingForReceiver, banPartyFromUsers } from '../notifications/ban-notification-ops';
 
 const INVITE_TTL_DAYS = 7;
 
@@ -335,9 +335,26 @@ async function materializeInviteAsBan(inviteId: string, receiverId: string) {
       },
     });
 
+    const receiverRow = await tx.user.findUnique({
+      where: { id: receiverId },
+      select: { id: true, username: true, firstName: true, photoUrl: true },
+    });
+    if (!receiverRow) throw new Error('Receiver not found');
+
     const deltas = await appendJournalOpsFlatTx(
       tx,
-      opsUpsertIncomingForReceiver(created),
+      opsUpsertIncomingForReceiver(
+        banPartyFromUsers({
+          id: created.id,
+          text: created.text,
+          senderId: created.senderId,
+          receiverId: created.receiverId,
+          durationMinutes: created.durationMinutes,
+          createdAt: created.createdAt,
+          sender: invite.sender,
+          receiver: receiverRow,
+        }),
+      ),
     );
     return { ban: created, journalDeltas: deltas };
   });

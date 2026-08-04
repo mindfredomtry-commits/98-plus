@@ -13,10 +13,7 @@ import {
 } from './notification-runtime.store';
 import { notificationItemId } from './notification-runtime.types';
 import type { RuntimeEffect, RuntimeSource } from './notification-runtime.types';
-import {
-  applyNotificationsDeltaToStore,
-  parseNotificationsDeltaV1,
-} from './notifications-mapper';
+import { parseNotificationsDeltaV1 } from './notifications-mapper';
 
 export type CheckSubmitApiResponse = {
   done: boolean;
@@ -130,20 +127,14 @@ export async function executeSubmitCardActionEffect(
 
     const delta = parseNotificationsDeltaV1(res.notifications ?? null);
     if (delta) {
-      applyNotificationsDeltaToStore(store, {
-        delta,
-        transitionId: effect.commandId,
-        activeRemoveAuthorization: {
-          actionId: effect.commandId,
-          itemId: effect.targetItemId,
-        },
-        promoteCausalNext: true,
-        source: 'user',
-      });
+      const { presentationMapFromDelta } = await import('./notifications-mapper');
       store.dispatch({
         type: 'CARD_ACTION_SUCCEEDED',
         commandId: effect.commandId,
         targetItemId: effect.targetItemId,
+        delta,
+        presentationByItemId: presentationMapFromDelta(delta),
+        promoteCausalNext: true,
         source: 'user',
       });
       return;

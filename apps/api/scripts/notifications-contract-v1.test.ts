@@ -157,6 +157,10 @@ class MemJournal {
   }
 }
 
+function party(id: string, username: string) {
+  return { id, username, firstName: username, photoUrl: null as string | null };
+}
+
 function incomingItem(
   userId: string,
   banId: string,
@@ -178,6 +182,8 @@ function incomingItem(
       senderId: 'sender',
       receiverId: userId,
       createdAt,
+      sender: party('sender', 'sender'),
+      receiver: party(userId, 'recv'),
     },
   };
 }
@@ -204,6 +210,10 @@ function resultItem(
       completedAt: '2026-08-03T12:00:00.000Z',
       senderId: 'sender',
       receiverId: userId,
+      headline: 'ПЕРЕБОР',
+      subline: '−8 ⚡ обоим.',
+      sender: party('sender', 'sender'),
+      receiver: party(userId, 'recv'),
     },
   };
 }
@@ -332,10 +342,13 @@ console.log('\n=== NOTIFICATIONS CONTRACT V1 FOUNDATION ===\n');
           kind: 'CHECK_REQUEST',
           banId: 'c1',
           text: 'check',
+          durationMinutes: 30,
           checkDueAt: null,
           senderId: 's',
           receiverId: u,
           createdAt: '2026-08-03T10:02:00.000Z',
+          sender: party('s', 's'),
+          receiver: party(u, 'recv'),
         },
       },
     },

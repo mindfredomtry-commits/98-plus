@@ -3,6 +3,9 @@
  *
  * HTTP GET /notifications/sync and WS notifications:delta:v1 use these shapes.
  * Server owns sequence/revision; client receive time is not FIFO authority.
+ *
+ * Payload includes display identity required by Presenter/UI. Frontend must not
+ * invent missing business/display fields or fetch users separately.
  */
 
 export type NotificationItemKindV1 =
@@ -12,6 +15,14 @@ export type NotificationItemKindV1 =
 
 export type NotificationDeliveryPolicyV1 = 'FIFO' | 'NEXT_IN_SESSION';
 
+/** Minimal party identity for Notifications UI (names + avatar). */
+export type NotificationPartyPublicV1 = {
+  id: string;
+  username: string | null;
+  firstName: string | null;
+  photoUrl: string | null;
+};
+
 export type NotificationIncomingBanPayloadV1 = {
   kind: 'INCOMING_BAN';
   banId: string;
@@ -20,16 +31,21 @@ export type NotificationIncomingBanPayloadV1 = {
   senderId: string;
   receiverId: string;
   createdAt: string;
+  sender: NotificationPartyPublicV1;
+  receiver: NotificationPartyPublicV1;
 };
 
 export type NotificationCheckRequestPayloadV1 = {
   kind: 'CHECK_REQUEST';
   banId: string;
   text: string;
+  durationMinutes: number;
   checkDueAt: string | null;
   senderId: string;
   receiverId: string;
   createdAt: string;
+  sender: NotificationPartyPublicV1;
+  receiver: NotificationPartyPublicV1;
 };
 
 export type NotificationBanResultPayloadV1 = {
@@ -40,6 +56,11 @@ export type NotificationBanResultPayloadV1 = {
   completedAt: string;
   senderId: string;
   receiverId: string;
+  /** Viewer-scoped presentation copy (built server-side for this userId). */
+  headline: string;
+  subline: string;
+  sender: NotificationPartyPublicV1;
+  receiver: NotificationPartyPublicV1;
 };
 
 export type NotificationItemPayloadV1 =

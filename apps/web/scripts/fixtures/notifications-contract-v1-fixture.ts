@@ -8,11 +8,28 @@ import {
   notificationItemIdV1,
   type NotificationItemV1,
   type NotificationOperationV1,
+  type NotificationPartyPublicV1,
   type NotificationsDeltaV1,
   type NotificationsSnapshotV1,
 } from '@98plus/shared';
 import type { BanInteraction, BanResult } from '@98plus/shared';
 import type { NotificationItem } from '../../src/notification-runtime/notification-runtime.types';
+
+const SENDER: NotificationPartyPublicV1 = {
+  id: 'sender',
+  username: 'sender',
+  firstName: 'S',
+  photoUrl: 'https://cdn.example/s.jpg',
+};
+
+function receiverParty(userId: string): NotificationPartyPublicV1 {
+  return {
+    id: userId,
+    username: 'recv',
+    firstName: 'R',
+    photoUrl: 'https://cdn.example/r.jpg',
+  };
+}
 
 export function fixtureItemFromIncoming(ban: BanInteraction): NotificationItem {
   return { kind: 'incoming', ban };
@@ -34,6 +51,7 @@ export function fixtureContractIncoming(input: {
   createdAt?: string;
 }): NotificationItemV1 {
   const createdAt = input.createdAt ?? '2026-01-01T10:00:00.000Z';
+  const receiver = receiverParty(input.userId);
   return {
     itemId: notificationItemIdV1('INCOMING_BAN', input.banId),
     userId: input.userId,
@@ -48,9 +66,11 @@ export function fixtureContractIncoming(input: {
       banId: input.banId,
       text: input.text ?? `ban ${input.banId}`,
       durationMinutes: 30,
-      senderId: 'sender',
+      senderId: SENDER.id,
       receiverId: input.userId,
       createdAt,
+      sender: SENDER,
+      receiver,
     },
   };
 }
@@ -60,6 +80,7 @@ export function fixtureContractCheck(input: {
   userId: string;
   sequence: string;
 }): NotificationItemV1 {
+  const receiver = receiverParty(input.userId);
   return {
     itemId: notificationItemIdV1('CHECK_REQUEST', input.banId),
     userId: input.userId,
@@ -73,10 +94,13 @@ export function fixtureContractCheck(input: {
       kind: 'CHECK_REQUEST',
       banId: input.banId,
       text: 'check',
+      durationMinutes: 30,
       checkDueAt: null,
-      senderId: 's',
+      senderId: SENDER.id,
       receiverId: input.userId,
       createdAt: '2026-01-01T10:02:00.000Z',
+      sender: SENDER,
+      receiver,
     },
   };
 }
@@ -89,6 +113,8 @@ export function fixtureContractResult(input: {
   causedByItemId?: string | null;
   outcome?: string;
 }): NotificationItemV1 {
+  const receiver = receiverParty(input.userId);
+  const outcome = input.outcome ?? 'overboard';
   return {
     itemId: notificationItemIdV1('BAN_RESULT', input.banId),
     userId: input.userId,
@@ -101,11 +127,15 @@ export function fixtureContractResult(input: {
     payload: {
       kind: 'BAN_RESULT',
       banId: input.banId,
-      outcome: input.outcome ?? 'overboard',
+      outcome,
       text: 'result',
       completedAt: '2026-01-01T12:00:00.000Z',
-      senderId: 's',
+      senderId: SENDER.id,
       receiverId: input.userId,
+      headline: 'ПЕРЕБОР',
+      subline: '−8 ⚡ обоим.',
+      sender: SENDER,
+      receiver,
     },
   };
 }
@@ -176,13 +206,13 @@ export function fixturePresentationIncoming(
     status: 'PENDING',
     durationMinutes: 30,
     sender: {
-      id: 's',
+      id: 'sender',
       telegramId: '1',
       username: 'sender',
       firstName: 'S',
       lastName: null,
-      avatarUrl: null,
-      photoUrl: null,
+      avatarUrl: 'https://cdn.example/s.jpg',
+      photoUrl: 'https://cdn.example/s.jpg',
       aura: 'stable',
       auraLabel: '',
       energyPercent: 50,
@@ -196,8 +226,8 @@ export function fixturePresentationIncoming(
       username: 'recv',
       firstName: 'R',
       lastName: null,
-      avatarUrl: null,
-      photoUrl: null,
+      avatarUrl: 'https://cdn.example/r.jpg',
+      photoUrl: 'https://cdn.example/r.jpg',
       aura: 'stable',
       auraLabel: '',
       energyPercent: 50,
@@ -223,8 +253,8 @@ export function fixturePresentationResult(
     id: banId,
     text: 'result',
     outcome: 'overboard',
-    headline: 'H',
-    subline: 'S',
+    headline: 'ПЕРЕБОР',
+    subline: '−8 ⚡ обоим.',
     completedAt: '2026-01-01T12:00:00.000Z',
     sender: incoming.ban.sender,
     receiver: incoming.ban.receiver,

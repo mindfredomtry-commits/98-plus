@@ -44,6 +44,15 @@ function pass(name: string): void {
   console.log(`PASS — ${name}`);
 }
 
+function party(id: string, username: string) {
+  return {
+    id,
+    username,
+    firstName: username,
+    photoUrl: null as string | null,
+  };
+}
+
 function incoming(
   banId: string,
   sequence: string,
@@ -67,6 +76,8 @@ function incoming(
       senderId: 'sender',
       receiverId: userId,
       createdAt: '2026-08-03T10:00:00.000Z',
+      sender: party('sender', 'sender'),
+      receiver: party(userId, 'recv'),
     },
   };
 }
@@ -85,10 +96,13 @@ function checkItem(banId: string, sequence: string): NotificationItemV1 {
       kind: 'CHECK_REQUEST',
       banId,
       text: 'check',
+      durationMinutes: 30,
       checkDueAt: null,
       senderId: 's',
       receiverId: 'user-a',
       createdAt: '2026-08-03T10:02:00.000Z',
+      sender: party('s', 's'),
+      receiver: party('user-a', 'recv'),
     },
   };
 }
@@ -111,6 +125,10 @@ function resultFifo(banId: string, sequence: string): NotificationItemV1 {
       completedAt: '2026-08-03T12:00:00.000Z',
       senderId: 's',
       receiverId: 'user-a',
+      headline: 'ГОТОВО',
+      subline: 'оба подтвердили',
+      sender: party('s', 's'),
+      receiver: party('user-a', 'recv'),
     },
   };
 }
@@ -132,6 +150,10 @@ function resultCausal(
       completedAt: '2026-08-03T12:00:00.000Z',
       senderId: 's',
       receiverId: 'user-a',
+      headline: 'ПЕРЕБОР',
+      subline: '−8 ⚡ обоим.',
+      sender: party('s', 's'),
+      receiver: party('user-a', 'recv'),
     },
   };
 }

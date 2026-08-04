@@ -1,6 +1,11 @@
 /**
- * Stage 8 correction — overboard targets activeItemId.
- * Cannot invent REMOVE/UPSERT revision; awaits Phase 9 truthful delta.
+ * Result card acknowledgement — SUBMIT_CARD_ACTION(result_ack).
+ *
+ * Server: POST /bans/:id/result/ack → truthful notifications delta (REMOVE).
+ * Success → CARD_ACTION_SUCCEEDED with delta + active REMOVE authorization.
+ * Failure → CARD_ACTION_FAILED; item stays active for retry.
+ *
+ * Does not invent revision/sequence. Does not consume locally without delta.
  */
 import { normalizeId } from '@/lib/normalize-json';
 import {
@@ -15,32 +20,24 @@ import { notificationItemId } from './notification-runtime.types';
 import type { RuntimeEffect, RuntimeSource } from './notification-runtime.types';
 import { parseNotificationsDeltaV1 } from './notifications-mapper';
 
-export type OverboardSubmitApiResponse = {
+export type ResultAckApiResponse = {
   ok?: boolean;
-  result?: import('@98plus/shared').BanResult | null;
   error?: string;
-  explicitNoResult?: boolean;
   notifications?: import('@98plus/shared').NotificationsDeltaV1 | null;
 };
 
-export type OverboardSubmitTransport = (input: {
+export type ResultAckTransport = (input: {
   banId: string;
   token: string;
-}) => Promise<OverboardSubmitApiResponse>;
+}) => Promise<ResultAckApiResponse>;
 
-export type OverboardSubmitOutcome = {
-  ok: boolean;
-  error?: string;
-  materializedResultBanId?: string | null;
-};
-
-function banIdFromIncomingItemId(itemId: string): string {
-  return itemId.startsWith('incoming:')
-    ? itemId.slice('incoming:'.length)
+function banIdFromResultItemId(itemId: string): string {
+  return itemId.startsWith('result:')
+    ? itemId.slice('result:'.length)
     : itemId;
 }
 
-export function requestIncomingOverboardAction(
+export function requestResultAckAction(
   store: NotificationRuntimeStore,
   args: {
     banId: string;
@@ -70,16 +67,16 @@ export function requestIncomingOverboardAction(
     };
   }
   const active = selectActiveItem(store.getState());
-  if (!active || active.kind !== 'incoming') {
+  if (!active || active.kind !== 'result') {
     return {
       accepted: false,
       commandId: null,
       effects: [],
-      reason: 'active-not-incoming',
+      reason: 'active-not-result',
     };
   }
   const targetItemId = notificationItemId(active);
-  if (normalizeId(active.ban.id) !== normalizeId(args.banId)) {
+  if (normalizeId(active.result.id) !== normalizeId(args.banId)) {
     return {
       accepted: false,
       commandId: null,
@@ -96,12 +93,12 @@ export function requestIncomingOverboardAction(
     };
   }
   const commandId =
-    args.commandId ?? nextRuntimeTransitionId('overboard-action');
+    args.commandId ?? nextRuntimeTransitionId('result-ack-action');
   const result = store.dispatch({
     type: 'CARD_ACTION_REQUESTED',
     commandId,
     targetItemId,
-    action: 'incoming_overboard',
+    action: 'result_ack',
     source: args.source ?? 'user',
   });
   const submitEffects = result.effects.filter(
@@ -116,17 +113,15 @@ export function requestIncomingOverboardAction(
   };
 }
 
-export async function executeSubmitIncomingOverboardEffect(
+export async function executeSubmitResultAckEffect(
   store: NotificationRuntimeStore,
   effect: Extract<RuntimeEffect, { type: 'SUBMIT_CARD_ACTION' }>,
-  transport: OverboardSubmitTransport,
+  transport: ResultAckTransport,
   token: string,
   _userId: string,
-): Promise<OverboardSubmitOutcome> {
-  if (effect.action !== 'incoming_overboard') {
-    return { ok: false, error: 'wrong-action' };
-  }
-  const banId = banIdFromIncomingItemId(effect.targetItemId);
+): Promise<void> {
+  if (effect.action !== 'result_ack') return;
+  const banId = banIdFromResultItemId(effect.targetItemId);
   try {
     const res = await transport({ banId, token });
     if (res.error || res.ok === false) {
@@ -134,10 +129,10 @@ export async function executeSubmitIncomingOverboardEffect(
         type: 'CARD_ACTION_FAILED',
         commandId: effect.commandId,
         targetItemId: effect.targetItemId,
-        errorCode: res.error ?? 'OVERBOARD_FAILED',
+        errorCode: res.error ?? 'RESULT_ACK_FAILED',
         source: 'user',
       });
-      return { ok: false, error: res.error ?? 'OVERBOARD_FAILED' };
+      return;
     }
 
     const delta = parseNotificationsDeltaV1(res.notifications ?? null);
@@ -152,10 +147,7 @@ export async function executeSubmitIncomingOverboardEffect(
         promoteCausalNext: true,
         source: 'user',
       });
-      return {
-        ok: true,
-        materializedResultBanId: res.result?.id ?? banId,
-      };
+      return;
     }
 
     store.dispatch({
@@ -165,15 +157,18 @@ export async function executeSubmitIncomingOverboardEffect(
       errorCode: 'AWAITING_TRUTHFUL_SYNC',
       source: 'user',
     });
-    return { ok: false, error: 'AWAITING_TRUTHFUL_SYNC' };
+    store.dispatch({
+      type: 'SYNC_RECOVERY_STARTED',
+      transitionId: nextRuntimeTransitionId('result-ack-sync'),
+      source: 'system',
+    });
   } catch {
     store.dispatch({
       type: 'CARD_ACTION_FAILED',
       commandId: effect.commandId,
       targetItemId: effect.targetItemId,
-      errorCode: 'OVERBOARD_SUBMIT_FAILED',
+      errorCode: 'RESULT_ACK_SUBMIT_FAILED',
       source: 'user',
     });
-    return { ok: false, error: 'OVERBOARD_SUBMIT_FAILED' };
   }
 }

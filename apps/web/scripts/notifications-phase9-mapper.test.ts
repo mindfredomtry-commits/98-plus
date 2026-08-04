@@ -126,13 +126,24 @@ function pass(name: string) {
     join(webSrc, 'notification-runtime/notification-runtime.check-action.ts'),
     'utf8',
   );
-  assert.match(check, /applyNotificationsDeltaToStore/);
+  assert.match(check, /CARD_ACTION_SUCCEEDED/);
+  assert.match(check, /parseNotificationsDeltaV1/);
   const overboard = readFileSync(
     join(webSrc, 'notification-runtime/notification-runtime.overboard-action.ts'),
     'utf8',
   );
-  assert.match(overboard, /applyNotificationsDeltaToStore/);
-  pass('action paths apply Contract V1 notifications delta');
+  assert.match(overboard, /CARD_ACTION_SUCCEEDED/);
+  assert.match(overboard, /parseNotificationsDeltaV1/);
+  const resultAck = readFileSync(
+    join(
+      webSrc,
+      'notification-runtime/notification-runtime.result-ack-action.ts',
+    ),
+    'utf8',
+  );
+  assert.match(resultAck, /CARD_ACTION_SUCCEEDED/);
+  assert.match(resultAck, /result\/ack|result_ack/);
+  pass('action paths apply Contract V1 notifications delta via CARD_ACTION_SUCCEEDED');
 }
 
 console.log(`\n${passed} passed\n`);

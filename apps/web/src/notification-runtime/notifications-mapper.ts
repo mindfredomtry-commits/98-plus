@@ -1,44 +1,48 @@
 /**
  * Notifications Mapper — Sync HTTP + Delta WS → Runtime APPLY commands.
  *
- * Owns Contract V1 validation and presentation hydration.
- * Does not generate sequence/revision. Does not sort queues.
+ * Owns Contract V1 validation and presentation hydration from Contract payloads.
+ * Does not generate sequence/revision. Does not invent display identity.
  * Runtime reconcile is the only item-state writer.
  */
 import {
   NOTIFICATIONS_DELTA_V1_EVENT,
+  formatSenderDisplayName,
   type NotificationItemV1,
+  type NotificationPartyPublicV1,
   type NotificationsDeltaV1,
   type NotificationsSnapshotV1,
   type NotificationsSyncResponseV1,
   type BanInteraction,
   type BanResult,
+  type InteractionOutcome,
   type UserPublic,
 } from '@98plus/shared';
 import { api } from '@/lib/api';
 import type { NotificationItem } from '@/notification-runtime/notification-runtime.types';
 import type { NotificationRuntimeStore } from '@/notification-runtime/notification-runtime.store';
 import {
-  completeBootstrap,
   failBootstrap,
   requestBootstrap,
 } from '@/notification-runtime/notification-runtime.bootstrap';
 
-const STUB_USER = (id: string): UserPublic => ({
-  id,
-  telegramId: '0',
-  username: null,
-  firstName: null,
-  lastName: null,
-  avatarUrl: null,
-  photoUrl: null,
-  aura: 'stable',
-  auraLabel: '',
-  energyPercent: 50,
-  streak: 0,
-  isOnboarded: true,
-  notificationMode: 'all',
-});
+function partyToUserPublic(party: NotificationPartyPublicV1): UserPublic {
+  return {
+    id: party.id,
+    telegramId: '0',
+    username: party.username,
+    firstName: party.firstName,
+    lastName: null,
+    avatarUrl: party.photoUrl,
+    photoUrl: party.photoUrl,
+    aura: 'stable',
+    auraLabel: '',
+    energyPercent: 50,
+    streak: 0,
+    isOnboarded: true,
+    notificationMode: 'all',
+  };
+}
 
 export function presentationFromContractItemV1(
   item: NotificationItemV1,
@@ -50,8 +54,8 @@ export function presentationFromContractItemV1(
       text: payload.text,
       status: 'pending',
       durationMinutes: payload.durationMinutes as BanInteraction['durationMinutes'],
-      sender: STUB_USER(payload.senderId),
-      receiver: STUB_USER(payload.receiverId),
+      sender: partyToUserPublic(payload.sender),
+      receiver: partyToUserPublic(payload.receiver),
       isIncoming: item.userId === payload.receiverId,
       createdAt: payload.createdAt,
       expiresAt: null,
@@ -65,9 +69,9 @@ export function presentationFromContractItemV1(
       id: payload.banId,
       text: payload.text,
       status: 'checking',
-      durationMinutes: 30 as BanInteraction['durationMinutes'],
-      sender: STUB_USER(payload.senderId),
-      receiver: STUB_USER(payload.receiverId),
+      durationMinutes: payload.durationMinutes as BanInteraction['durationMinutes'],
+      sender: partyToUserPublic(payload.sender),
+      receiver: partyToUserPublic(payload.receiver),
       isIncoming: false,
       createdAt: payload.createdAt,
       expiresAt: null,
@@ -76,20 +80,20 @@ export function presentationFromContractItemV1(
     };
     return { kind: 'check', ban };
   }
+  const sender = partyToUserPublic(payload.sender);
+  const receiver = partyToUserPublic(payload.receiver);
+  const opponent =
+    item.userId === payload.senderId ? receiver : sender;
   const result: BanResult = {
     id: payload.banId,
     text: payload.text,
-    outcome: payload.outcome as BanResult['outcome'],
-    headline: payload.outcome.toUpperCase(),
-    subline: '',
-    sender: STUB_USER(payload.senderId),
-    receiver: STUB_USER(payload.receiverId),
+    outcome: payload.outcome as InteractionOutcome,
+    headline: payload.headline,
+    subline: payload.subline,
+    sender,
+    receiver,
     viewerId: item.userId,
-    opponent: STUB_USER(
-      item.userId === payload.senderId
-        ? payload.receiverId
-        : payload.senderId,
-    ),
+    opponent,
     confirmations: null,
     energy: { sender: 0, receiver: 0 },
     farmSkipped: false,
@@ -121,6 +125,16 @@ export function presentationMapFromDelta(
     }
   }
   return out;
+}
+
+/** Display label used by Presenter — sourced from Contract party fields. */
+export function senderLabelFromContractItem(item: NotificationItemV1): string {
+  const payload = item.payload;
+  const party =
+    payload.kind === 'CHECK_REQUEST' && item.userId === payload.senderId
+      ? payload.receiver
+      : payload.sender;
+  return formatSenderDisplayName(party.username, party.firstName);
 }
 
 function isSyncResponse(value: unknown): value is NotificationsSyncResponseV1 {
@@ -248,21 +262,7 @@ export async function runNotificationsSyncViaMapper(
       sync,
       source: 'bootstrap',
     });
-    // APPLY sets READY via reconcile base; ensure FAILED path cleared
-    if (store.getState().syncStatus !== 'READY') {
-      // Snapshot/delta apply sets syncStatus via withReconcileBase — if still
-      // SYNCING, mark ready explicitly only when revision applied.
-      if (store.getState().revision != null) {
-        store.dispatch({
-          type: 'SYNC_FAILED',
-          transitionId: boot.transitionId,
-          errorCode: 'SYNC_STATUS_STUCK',
-          source: 'bootstrap',
-        });
-        return { ok: false, errorCode: 'SYNC_STATUS_STUCK' };
-      }
-    }
-    return { ok: true };
+    return { ok: store.getState().syncStatus === 'READY' };
   } catch (e) {
     const code = (e as Error).message || 'SYNC_FAILED';
     failBootstrap(store, {
@@ -273,6 +273,3 @@ export async function runNotificationsSyncViaMapper(
     return { ok: false, errorCode: code };
   }
 }
-
-/** @deprecated completeBootstrap no longer applies items — prefer Mapper sync. */
-export { completeBootstrap };

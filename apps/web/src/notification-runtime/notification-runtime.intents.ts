@@ -9,6 +9,7 @@ import type {
 } from './notification-runtime.host-api';
 import { selectNotificationQueueReadModel } from './notification-runtime.host-api';
 import { requestIncomingOverboardAction } from './notification-runtime.overboard-action';
+import { requestResultAckAction } from './notification-runtime.result-ack-action';
 import { selectActiveItem } from './notification-runtime.selectors';
 import type { NotificationRuntimeStore } from './notification-runtime.store';
 
@@ -85,14 +86,21 @@ export function createNotificationIntents(
     },
 
     async dismissResult(_reason = 'close_result') {
+      const read = selectNotificationQueueReadModel(store.getState());
       const active = selectActiveItem(store.getState());
       if (!active || active.kind !== 'result') {
         return fail('no-result-card');
       }
-      store.dispatch({
-        type: 'ACTIVE_ITEM_CLOSE_REQUESTED',
+      if (read.actionBlocked) {
+        return fail('action-blocked');
+      }
+      const requested = requestResultAckAction(store, {
+        banId: active.result.id,
         source: 'user',
       });
+      if (!requested.accepted) {
+        return fail(requested.reason ?? 'result-ack-rejected');
+      }
       await runEffects();
       return ok();
     },

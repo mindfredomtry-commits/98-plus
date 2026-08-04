@@ -15,6 +15,13 @@ import {
 const kindSchema = z.enum(['INCOMING_BAN', 'CHECK_REQUEST', 'BAN_RESULT']);
 const deliveryPolicySchema = z.enum(['FIFO', 'NEXT_IN_SESSION']);
 
+const partyPublicSchema = z.object({
+  id: z.string().min(1),
+  username: z.string().nullable(),
+  firstName: z.string().nullable(),
+  photoUrl: z.string().nullable(),
+});
+
 const incomingPayloadSchema = z.object({
   kind: z.literal('INCOMING_BAN'),
   banId: z.string().min(1),
@@ -23,16 +30,21 @@ const incomingPayloadSchema = z.object({
   senderId: z.string().min(1),
   receiverId: z.string().min(1),
   createdAt: z.string().min(1),
+  sender: partyPublicSchema,
+  receiver: partyPublicSchema,
 });
 
 const checkPayloadSchema = z.object({
   kind: z.literal('CHECK_REQUEST'),
   banId: z.string().min(1),
   text: z.string(),
+  durationMinutes: z.number().int(),
   checkDueAt: z.string().nullable(),
   senderId: z.string().min(1),
   receiverId: z.string().min(1),
   createdAt: z.string().min(1),
+  sender: partyPublicSchema,
+  receiver: partyPublicSchema,
 });
 
 const resultPayloadSchema = z.object({
@@ -43,6 +55,10 @@ const resultPayloadSchema = z.object({
   completedAt: z.string().min(1),
   senderId: z.string().min(1),
   receiverId: z.string().min(1),
+  headline: z.string(),
+  subline: z.string(),
+  sender: partyPublicSchema,
+  receiver: partyPublicSchema,
 });
 
 export const notificationItemPayloadV1Schema = z.discriminatedUnion('kind', [

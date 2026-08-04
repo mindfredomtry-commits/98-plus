@@ -6,11 +6,14 @@
  * - pending check (CHECKING, user has not answered)
  * - unseen results (terminal + null *ResultSeenAt)
  *
+ * TIMEOUT policy (Phase 9B): EXCLUDE historical TIMEOUT from Journal backfill.
+ * Automatic TIMEOUT is not wanted in the product Notifications surface.
+ *
  * Usage:
  *   npx tsx --tsconfig apps/api/tsconfig.json apps/api/scripts/notifications-journal-backfill.ts [--dry-run]
  *
  * Idempotent: skips when latest op for (userId,itemId) is already UPSERT_ITEM.
- * Does not destroy data. Does not redesign TIMEOUT policy (includes unseen TIMEOUT results).
+ * Does not destroy data. Do not run without --dry-run unless explicitly approved.
  */
 import { prisma } from '../src/lib/prisma';
 import {
@@ -21,11 +24,20 @@ import {
   buildBanResultNotificationItemV1,
   buildCheckRequestNotificationItemV1,
   buildIncomingBanNotificationItemV1,
+  partyPublicFromUser,
   upsertItemOp,
 } from '../src/notifications/notification-item-builders';
 import type { AppendOperationInput } from '../src/notifications/notifications-contract-v1.schema';
 
 const dryRun = process.argv.includes('--dry-run');
+
+const OUTCOME_MAP: Record<string, string> = {
+  BOTH_YES: 'both_yes',
+  BOTH_NO: 'both_no',
+  SPLIT: 'split',
+  OVERBOARD: 'overboard',
+  EXPIRED: 'expired',
+};
 
 async function latestOpIsUpsert(
   userId: string,
@@ -46,7 +58,10 @@ async function main() {
     incoming: 0,
     check: 0,
     result: 0,
+    overboard: 0,
     skipped: 0,
+    invalidPayload: 0,
+    duplicateLogical: 0,
     users: new Set<string>(),
   };
 
@@ -55,10 +70,12 @@ async function main() {
       status: 'PENDING',
       receiverIncomingAckAt: null,
     },
+    include: { sender: true, receiver: true },
     take: 5000,
   });
 
   const ops: AppendOperationInput[] = [];
+  const seenKeys = new Set<string>();
 
   for (const ban of pendingIncoming) {
     const item = buildIncomingBanNotificationItemV1({
@@ -69,7 +86,15 @@ async function main() {
       senderId: ban.senderId,
       receiverId: ban.receiverId,
       createdAt: ban.createdAt,
+      sender: partyPublicFromUser(ban.sender),
+      receiver: partyPublicFromUser(ban.receiver),
     });
+    const key = `${ban.receiverId}:${item.itemId}`;
+    if (seenKeys.has(key)) {
+      counts.duplicateLogical += 1;
+      continue;
+    }
+    seenKeys.add(key);
     if (await latestOpIsUpsert(ban.receiverId, item.itemId)) {
       counts.skipped += 1;
       continue;
@@ -81,7 +106,7 @@ async function main() {
 
   const checking = await prisma.ban.findMany({
     where: { status: 'CHECKING' },
-    include: { checkAnswers: true },
+    include: { checkAnswers: true, sender: true, receiver: true },
     take: 5000,
   });
 
@@ -92,11 +117,20 @@ async function main() {
         userId,
         banId: ban.id,
         text: ban.text,
+        durationMinutes: ban.durationMinutes,
         checkDueAt: ban.checkDueAt,
         senderId: ban.senderId,
         receiverId: ban.receiverId,
         createdAt: ban.createdAt,
+        sender: partyPublicFromUser(ban.sender),
+        receiver: partyPublicFromUser(ban.receiver),
       });
+      const key = `${userId}:${item.itemId}`;
+      if (seenKeys.has(key)) {
+        counts.duplicateLogical += 1;
+        continue;
+      }
+      seenKeys.add(key);
       if (await latestOpIsUpsert(userId, item.itemId)) {
         counts.skipped += 1;
         continue;
@@ -107,17 +141,33 @@ async function main() {
     }
   }
 
-  const terminals = await prisma.ban.findMany({
+  /** Policy A: exclude historical TIMEOUT from Journal backfill. */
+  const timeoutExcluded = await prisma.ban.count({
     where: {
       status: { in: ['COMPLETED', 'OVERBOARD', 'FAILED', 'EXPIRED'] },
-      outcome: { not: null },
+      outcome: 'TIMEOUT',
       completedAt: { not: null },
       OR: [{ senderResultSeenAt: null }, { receiverResultSeenAt: null }],
     },
+  });
+
+  const terminals = await prisma.ban.findMany({
+    where: {
+      status: { in: ['COMPLETED', 'OVERBOARD', 'FAILED', 'EXPIRED'] },
+      outcome: { not: null, notIn: ['TIMEOUT'] },
+      completedAt: { not: null },
+      OR: [{ senderResultSeenAt: null }, { receiverResultSeenAt: null }],
+    },
+    include: { sender: true, receiver: true },
     take: 5000,
   });
 
   for (const ban of terminals) {
+    const outcome = OUTCOME_MAP[String(ban.outcome)];
+    if (!outcome) {
+      counts.invalidPayload += 1;
+      continue;
+    }
     const parties: Array<{ userId: string; seen: Date | null }> = [
       { userId: ban.senderId, seen: ban.senderResultSeenAt },
       { userId: ban.receiverId, seen: ban.receiverResultSeenAt },
@@ -127,45 +177,45 @@ async function main() {
       const item = buildBanResultNotificationItemV1({
         userId: p.userId,
         banId: ban.id,
-        outcome: String(ban.outcome).toLowerCase().replace(/_/g, '_'),
+        outcome,
         text: ban.text,
         completedAt: ban.completedAt!,
         senderId: ban.senderId,
         receiverId: ban.receiverId,
+        sender: partyPublicFromUser(ban.sender),
+        receiver: partyPublicFromUser(ban.receiver),
         deliveryPolicy: 'FIFO',
         causedByItemId: null,
       });
-      // Normalize prisma enum to shared lowercase outcome
-      const outcomeMap: Record<string, string> = {
-        BOTH_YES: 'both_yes',
-        BOTH_NO: 'both_no',
-        SPLIT: 'split',
-        OVERBOARD: 'overboard',
-        TIMEOUT: 'timeout',
-        EXPIRED: 'expired',
-      };
-      item.payload = {
-        ...item.payload,
-        kind: 'BAN_RESULT',
-        outcome: outcomeMap[String(ban.outcome)] ?? String(ban.outcome),
-      };
+      const key = `${p.userId}:${item.itemId}`;
+      if (seenKeys.has(key)) {
+        counts.duplicateLogical += 1;
+        continue;
+      }
+      seenKeys.add(key);
       if (await latestOpIsUpsert(p.userId, item.itemId)) {
         counts.skipped += 1;
         continue;
       }
       ops.push(upsertItemOp(item));
       counts.result += 1;
+      if (outcome === 'overboard') counts.overboard += 1;
       counts.users.add(p.userId);
     }
   }
 
   console.log('[notifications-journal-backfill]', {
     dryRun,
-    incoming: counts.incoming,
-    check: counts.check,
-    result: counts.result,
-    skipped: counts.skipped,
-    users: counts.users.size,
+    usersAffected: counts.users.size,
+    INCOMING_BAN: counts.incoming,
+    CHECK_REQUEST: counts.check,
+    BAN_RESULT: counts.result,
+    OVERBOARD: counts.overboard,
+    TIMEOUT_excluded: timeoutExcluded,
+    timeoutPolicy: 'EXCLUDE',
+    skippedAlreadyPresent: counts.skipped,
+    duplicateLogical: counts.duplicateLogical,
+    invalidPayload: counts.invalidPayload,
     ops: ops.length,
   });
 
@@ -173,7 +223,6 @@ async function main() {
     return;
   }
 
-  // Chunk by 50 ops per transaction to bound lock time.
   const chunkSize = 50;
   for (let i = 0; i < ops.length; i += chunkSize) {
     const chunk = ops.slice(i, i + chunkSize);
