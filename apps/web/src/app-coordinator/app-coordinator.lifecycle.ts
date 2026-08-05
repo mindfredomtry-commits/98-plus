@@ -353,10 +353,11 @@ export function createAppCoordinatorLifecycle(input: {
       input.onInvariantViolation?.(violation, event);
       console.error('[app-coordinator:invariant]', violation, event);
     },
-    onEventProcessed(event, _result, previousState) {
+    onEventProcessed(event, result, previousState) {
       if (disposed) return;
       if (event.type !== 'OPEN_NOTIFICATIONS_REQUESTED') return;
-      // Skip activation when open was rejected (owner unchanged / unavailable).
+      // Rejected OPEN (UNAVAILABLE / policy) must never activate.
+      if (result.violation) return;
       const owner = store.getState().currentOwner;
       if (owner.type !== 'DOMAIN' || owner.domain !== 'NOTIFICATIONS') return;
       activateAfterOpen(

@@ -395,12 +395,17 @@ console.log('\n=== NOTIFICATIONS RUNTIME RECONCILE V1 ===\n');
   state = mustApplied(claimActiveItemV1(state, 'incoming:1'));
   state = setNotificationsSyncStatusV1(state, 'RECOVERING');
   const recovering = selectNotificationsAvailabilityV1(state);
-  // Local FIFO remains openable during background recover/sync (Phase 9F).
-  assert.equal(recovering.available, true);
+  // RECOVERING always blocks open/activate (Phase 9F safety).
+  assert.equal(recovering.available, false);
+  assert.equal(recovering.reason, 'RECOVERING');
   assert.equal(state.activeItemId, 'incoming:1'); // preserved during recovery
   assert.ok(state.itemsById['incoming:1']);
 
   state = setNotificationsSyncStatusV1(state, 'READY');
+  assert.equal(selectNotificationsAvailabilityV1(state).available, true);
+
+  // Background SYNCING with revision + items remains available.
+  state = setNotificationsSyncStatusV1(state, 'SYNCING');
   assert.equal(selectNotificationsAvailabilityV1(state).available, true);
 
   state = setNotificationsSyncStatusV1(state, 'FAILED');
@@ -409,7 +414,7 @@ console.log('\n=== NOTIFICATIONS RUNTIME RECONCILE V1 ===\n');
     reason: 'FAILED',
     retryable: true,
   });
-  pass('race5: cold SYNCING blocked; items keep AVAILABLE during RECOVERING; FAILED blocked');
+  pass('race5: cold SYNCING blocked; RECOVERING blocked; bg SYNCING+items allowed; FAILED blocked');
 }
 
 // —— Additional matrix ————————————————————————————————————

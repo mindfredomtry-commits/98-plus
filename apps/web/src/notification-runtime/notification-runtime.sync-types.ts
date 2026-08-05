@@ -76,6 +76,7 @@ export type NotificationsAvailabilityV1 =
         | 'RECOVERING'
         | 'FAILED'
         | 'EMPTY'
+        | 'CONFLICT'
         | 'ACTION_TARGET_MISSING';
       retryable: boolean;
     };

@@ -10,6 +10,7 @@ import {
   reconcileNotificationsSnapshotV1,
   rebuildPassiveFifoV1,
 } from './notification-runtime.reconcile';
+import { selectNotificationsMayActivateV1 } from './notification-runtime.open-gate';
 import { compareNotificationSequenceV1 } from './notification-runtime.sequence';
 import type {
   NotificationItem,
@@ -78,24 +79,41 @@ export function notificationRuntimeReducer(
     }
 
     case 'SYNC_STARTED': {
+      // Preserve reconcile conflicts across background SYNCING so open/activate
+      // stay blocked until a successful apply clears lastConflict.
+      const conflict = state.lastConflict;
+      const preserveConflict =
+        conflict != null &&
+        (conflict.type === 'REVISION_GAP' ||
+          conflict.type === 'ACTIVE_ITEM_CONFLICT' ||
+          conflict.type === 'ACTIVE_ITEM_REMOVE_CONFLICT' ||
+          conflict.type === 'INVALID_CONTRACT');
       return {
         state: {
           ...state,
           syncStatus: 'SYNCING',
           syncTransitionId: event.transitionId,
-          lastConflict: null,
+          lastConflict: preserveConflict ? conflict : null,
         },
         effects: [],
       };
     }
 
     case 'SYNC_RECOVERY_STARTED': {
+      // Conflict recovery / reconnect recovery — keep conflict marker if present.
+      const conflict = state.lastConflict;
+      const preserveConflict =
+        conflict != null &&
+        (conflict.type === 'REVISION_GAP' ||
+          conflict.type === 'ACTIVE_ITEM_CONFLICT' ||
+          conflict.type === 'ACTIVE_ITEM_REMOVE_CONFLICT' ||
+          conflict.type === 'INVALID_CONTRACT');
       return {
         state: {
           ...state,
           syncStatus: 'RECOVERING',
           syncTransitionId: event.transitionId,
-          lastConflict: null,
+          lastConflict: preserveConflict ? conflict : null,
         },
         effects: [],
       };
@@ -307,12 +325,8 @@ export function notificationRuntimeReducer(
     }
 
     case 'ACTIVATE_READY_ITEM_REQUESTED': {
-      // Claim from local FIFO during READY and during background SYNCING/
-      // RECOVERING (items already hydrated). Block only cold/failed sync.
-      if (
-        state.syncStatus === 'UNINITIALIZED' ||
-        state.syncStatus === 'FAILED'
-      ) {
+      const gate = selectNotificationsMayActivateV1(state);
+      if (!gate.available) {
         return {
           state,
           effects: [],
