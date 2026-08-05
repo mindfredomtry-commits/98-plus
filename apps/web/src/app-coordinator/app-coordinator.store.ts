@@ -34,6 +34,15 @@ export function createAppCoordinatorStore(input: {
     violation: AppCoordinatorInvariantViolation,
     event: AppCoordinatorEvent,
   ) => void;
+  /**
+   * Called after each queued event is fully reduced (including nested/QUEUED
+   * events). Used for OPEN → activate so nested opens cannot skip activation.
+   */
+  onEventProcessed?: (
+    event: AppCoordinatorEvent,
+    result: AppCoordinatorResult,
+    previousState: AppCoordinatorState,
+  ) => void;
 }): AppCoordinatorStore {
   let state = input.initialState;
   let processing = false;
@@ -76,6 +85,8 @@ export function createAppCoordinatorStore(input: {
         for (const effect of result.effects) {
           input.executor.execute(effect);
         }
+
+        input.onEventProcessed?.(pending.event, result, previousState);
       }
     } catch (error) {
       queue.length = 0;

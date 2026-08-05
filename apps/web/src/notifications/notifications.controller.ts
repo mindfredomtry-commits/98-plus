@@ -19,6 +19,10 @@ import type {
   NotificationsDomainState,
   NotificationsIntent,
 } from './notifications.types';
+import {
+  logNotificationsSyncDiag,
+  nextNotificationsSyncCorrelationId,
+} from '@/notification-runtime/notifications-sync-diag';
 
 export type NotificationsListener = (state: NotificationsDomainState) => void;
 
@@ -138,9 +142,28 @@ export function createNotificationsController(input: {
         }
 
         case 'ACTIVE_ITEM_CLOSE_REQUESTED': {
-          input.store.dispatch({
+          const closeDiagId = nextNotificationsSyncCorrelationId('close');
+          const before = input.store.getState();
+          logNotificationsSyncDiag(closeDiagId, 'CLOSE_INTENT', {
+            activeItemId: before.activeItemId,
+            passiveItemIds: [...before.passiveItemIds],
+            syncStatus: before.syncStatus,
+            revision: before.revision,
+          });
+          const closeResult = input.store.dispatch({
             type: 'ACTIVE_ITEM_CLOSE_REQUESTED',
             source: 'user',
+          });
+          const after = input.store.getState();
+          logNotificationsSyncDiag(closeDiagId, 'CLOSE_REDUCER_RESULT', {
+            activeItemId: after.activeItemId,
+            passiveItemIds: [...after.passiveItemIds],
+            effects: closeResult.effects.map((e) => e.type),
+            presentationRetained: before.activeItemId
+              ? Boolean(
+                  after.presentationByItemId[before.activeItemId],
+                )
+              : true,
           });
           void drainEffects();
           emit();

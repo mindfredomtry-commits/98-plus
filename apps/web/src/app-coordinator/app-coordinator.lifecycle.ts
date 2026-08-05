@@ -90,6 +90,7 @@ export function createAppCoordinatorLifecycle(input: {
   let disposed = false;
   const entryRouter = createTelegramEntryRouter();
   const chaosLifecycleId = nextChaosLifecycleId();
+  let notificationsOpenCount = 0;
   logNotificationsChaos('lifecycle', 'CREATED', {
     lifecycleId: chaosLifecycleId,
     storeId: input.runtimeStore.chaosStoreId,
@@ -105,6 +106,22 @@ export function createAppCoordinatorLifecycle(input: {
   const dispatch = (event: AppCoordinatorEvent) => {
     if (disposed) return;
     const ownerBefore = store.getState().currentOwner;
+    if (event.type === 'NOTIFICATIONS_RELEASE_REQUESTED') {
+      const rt = input.runtimeStore.getState();
+      logNotificationsSyncDiag(
+        nextNotificationsSyncCorrelationId('close'),
+        'OWNER_RELEASE_REQUEST',
+        {
+          ownerBefore:
+            ownerBefore.type === 'DOMAIN'
+              ? ownerBefore.domain
+              : ownerBefore.type,
+          activeItemId: rt.activeItemId,
+          passiveItemIds: [...rt.passiveItemIds],
+          syncStatus: rt.syncStatus,
+        },
+      );
+    }
     store.dispatch(event);
     const ownerAfter = store.getState().currentOwner;
     if (
@@ -130,51 +147,101 @@ export function createAppCoordinatorLifecycle(input: {
         },
       });
     }
+    if (event.type === 'NOTIFICATIONS_RELEASE_REQUESTED') {
+      const rt = input.runtimeStore.getState();
+      const closeDiagId = nextNotificationsSyncCorrelationId('close');
+      logNotificationsSyncDiag(closeDiagId, 'OWNER_RELEASE_RESULT', {
+        ownerAfter:
+          ownerAfter.type === 'DOMAIN' ? ownerAfter.domain : ownerAfter.type,
+        returnOwner: (() => {
+          const r = store.getState().returnOwner;
+          if (!r) return null;
+          return r.type === 'DOMAIN' ? r.domain : r.type;
+        })(),
+      });
+      logNotificationsSyncDiag(closeDiagId, 'AVAILABILITY_AFTER_CLOSE', {
+        availability: domainPorts.NOTIFICATIONS.getAvailability(),
+        syncStatus: rt.syncStatus,
+        revision: rt.revision,
+        activeItemId: rt.activeItemId,
+        passiveItemIds: [...rt.passiveItemIds],
+      });
+    }
+    // OPEN activation runs in onEventProcessed so QUEUED nested opens activate.
+  };
 
-    // After successful open: activate ready item as one ordered transaction.
-    // Rollback ownership only on typed NO_READY_ITEM — never by observing a
-    // temporary empty read model / presenter phase.
-    if (event.type === 'OPEN_NOTIFICATIONS_REQUESTED') {
-      const openDiagId = nextNotificationsSyncCorrelationId('open');
-      const rtBefore = input.runtimeStore.getState();
-      logNotificationsSyncDiag(openDiagId, 'OPEN_INTENT', {
+  function activateAfterOpen(ownerBefore: {
+    type: string;
+    domain?: string;
+  }): void {
+    notificationsOpenCount += 1;
+    const isSecondOpen = notificationsOpenCount >= 2;
+    const openDiagId = nextNotificationsSyncCorrelationId('open');
+    const rtBefore = input.runtimeStore.getState();
+    logNotificationsSyncDiag(
+      openDiagId,
+      isSecondOpen ? 'SECOND_OPEN_INTENT' : 'OPEN_INTENT',
+      {
         syncStatus: rtBefore.syncStatus,
         revision: rtBefore.revision,
         passiveItemIds: [...rtBefore.passiveItemIds],
         activeItemId: rtBefore.activeItemId,
+        openCount: notificationsOpenCount,
         ownerBefore:
-          ownerBefore.type === 'DOMAIN' ? ownerBefore.domain : ownerBefore.type,
+          ownerBefore.type === 'DOMAIN'
+            ? ownerBefore.domain
+            : ownerBefore.type,
+      },
+    );
+    const owner = store.getState().currentOwner;
+    logNotificationsSyncDiag(openDiagId, 'OWNER_DECISION', {
+      owner: owner.type === 'DOMAIN' ? owner.domain : owner.type,
+      availability: domainPorts.NOTIFICATIONS.getAvailability(),
+    });
+    if (owner.type === 'DOMAIN' && owner.domain === 'NOTIFICATIONS') {
+      domainPorts.NOTIFICATIONS.dispatch({
+        type: 'ACTIVATE_READY_ITEM_REQUESTED',
       });
-      const owner = store.getState().currentOwner;
-      logNotificationsSyncDiag(openDiagId, 'OWNER_DECISION', {
-        owner:
-          owner.type === 'DOMAIN' ? owner.domain : owner.type,
-        availability: domainPorts.NOTIFICATIONS.getAvailability(),
-      });
-      if (owner.type === 'DOMAIN' && owner.domain === 'NOTIFICATIONS') {
-        domainPorts.NOTIFICATIONS.dispatch({
-          type: 'ACTIVATE_READY_ITEM_REQUESTED',
-        });
-        const outcome =
-          notificationsController.getState().lastActivationOutcome;
-        logNotificationsSyncDiag(openDiagId, 'ACTIVATION_RESULT', {
+      const outcome =
+        notificationsController.getState().lastActivationOutcome;
+      const rtAfter = input.runtimeStore.getState();
+      logNotificationsSyncDiag(
+        openDiagId,
+        isSecondOpen ? 'SECOND_ACTIVATION_RESULT' : 'ACTIVATION_RESULT',
+        {
           outcome,
-          activeItemId: input.runtimeStore.getState().activeItemId,
+          activeItemId: rtAfter.activeItemId,
+          passiveItemIds: [...rtAfter.passiveItemIds],
+        },
+      );
+      logNotificationsSyncDiag(openDiagId, 'SURFACE_VISIBLE_ITEM', {
+        activeItemId: rtAfter.activeItemId,
+        presentationPresent: rtAfter.activeItemId
+          ? Boolean(rtAfter.presentationByItemId[rtAfter.activeItemId])
+          : false,
+      });
+      if (
+        outcome?.type === 'NO_READY_ITEM' ||
+        outcome?.type === 'SYNC_NOT_READY'
+      ) {
+        logNotificationsChaos('coordinator', 'NOTIFICATIONS_RELEASE_REQUESTED', {
+          lifecycleId: chaosLifecycleId,
+          reason:
+            outcome.type === 'NO_READY_ITEM'
+              ? 'NO_READY_ITEM_AFTER_OPEN'
+              : 'SYNC_NOT_READY_AFTER_OPEN',
+          currentOwner: 'NOTIFICATIONS',
         });
-        if (outcome?.type === 'NO_READY_ITEM') {
-          logNotificationsChaos('coordinator', 'NOTIFICATIONS_RELEASE_REQUESTED', {
-            lifecycleId: chaosLifecycleId,
-            reason: 'NO_READY_ITEM_AFTER_OPEN',
-            currentOwner: 'NOTIFICATIONS',
-          });
-          logNotificationsSyncDiag(openDiagId, 'RELEASE', {
-            reason: 'NO_READY_ITEM_AFTER_OPEN',
-          });
-          store.dispatch({ type: 'NOTIFICATIONS_RELEASE_REQUESTED' });
-        }
+        logNotificationsSyncDiag(openDiagId, 'RELEASE', {
+          reason:
+            outcome.type === 'NO_READY_ITEM'
+              ? 'NO_READY_ITEM_AFTER_OPEN'
+              : 'SYNC_NOT_READY_AFTER_OPEN',
+        });
+        store.dispatch({ type: 'NOTIFICATIONS_RELEASE_REQUESTED' });
       }
     }
-  };
+  }
 
   const runtimeSink = createNotificationRuntimeEventSink(dispatch);
   const productSink = createProductFlowEventSink(dispatch);
@@ -215,8 +282,18 @@ export function createAppCoordinatorLifecycle(input: {
       sessionCompleted() {
         if (disposed) return;
         const owner = store.getState().currentOwner;
+        const rt = input.runtimeStore.getState();
+        logNotificationsSyncDiag(
+          nextNotificationsSyncCorrelationId('close'),
+          'SESSION_COMPLETE_EFFECT',
+          {
+            currentOwner:
+              owner.type === 'DOMAIN' ? owner.domain : owner.type,
+            activeItemId: rt.activeItemId,
+            passiveItemIds: [...rt.passiveItemIds],
+          },
+        );
         if (owner.type === 'DOMAIN' && owner.domain === 'NOTIFICATIONS') {
-          const rt = input.runtimeStore.getState();
           logNotificationsChaos('controller', 'sessionCompleted', {
             lifecycleId: chaosLifecycleId,
             storeId: input.runtimeStore.chaosStoreId,
@@ -275,6 +352,21 @@ export function createAppCoordinatorLifecycle(input: {
     onInvariantViolation(violation, event) {
       input.onInvariantViolation?.(violation, event);
       console.error('[app-coordinator:invariant]', violation, event);
+    },
+    onEventProcessed(event, _result, previousState) {
+      if (disposed) return;
+      if (event.type !== 'OPEN_NOTIFICATIONS_REQUESTED') return;
+      // Skip activation when open was rejected (owner unchanged / unavailable).
+      const owner = store.getState().currentOwner;
+      if (owner.type !== 'DOMAIN' || owner.domain !== 'NOTIFICATIONS') return;
+      activateAfterOpen(
+        previousState.currentOwner.type === 'DOMAIN'
+          ? {
+              type: 'DOMAIN',
+              domain: previousState.currentOwner.domain,
+            }
+          : { type: previousState.currentOwner.type },
+      );
     },
   });
 

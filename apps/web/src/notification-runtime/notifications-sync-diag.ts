@@ -26,7 +26,16 @@ export type NotificationsSyncDiagStage =
   | 'RELEASE'
   | 'WS_DELTA'
   | 'REQUEST_FULL_SYNC'
-  | 'SYNC_FAILED';
+  | 'SYNC_FAILED'
+  | 'CLOSE_INTENT'
+  | 'CLOSE_REDUCER_RESULT'
+  | 'SESSION_COMPLETE_EFFECT'
+  | 'OWNER_RELEASE_REQUEST'
+  | 'OWNER_RELEASE_RESULT'
+  | 'AVAILABILITY_AFTER_CLOSE'
+  | 'SECOND_OPEN_INTENT'
+  | 'SECOND_ACTIVATION_RESULT'
+  | 'SURFACE_VISIBLE_ITEM';
 
 export type NotificationsSyncDiagEntry = {
   seq: number;

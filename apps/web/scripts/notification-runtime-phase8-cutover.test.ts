@@ -115,7 +115,7 @@ console.log('\n=== PHASE 8 CORRECTION (no synthetic authority) ===\n');
   assert.equal(store.getState().activeItemId, 'incoming:1');
   assert.equal(
     mapNotificationsAvailability(store.getState()).availability,
-    'UNAVAILABLE',
+    'AVAILABLE',
   );
 
   store.dispatch({
@@ -287,9 +287,9 @@ console.log('\n=== PHASE 8 CORRECTION (no synthetic authority) ===\n');
   });
   assert.equal(
     mapNotificationsAvailability(store.getState()).availability,
-    'UNAVAILABLE',
+    'AVAILABLE',
   );
-  pass('race5: unavailable until READY; recovering unavailable');
+  pass('race5: cold SYNCING blocked; items stay AVAILABLE during RECOVERING');
 }
 
 // —— Sessions A/B/C/D/E ————————————————

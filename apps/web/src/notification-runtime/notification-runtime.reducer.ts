@@ -307,7 +307,12 @@ export function notificationRuntimeReducer(
     }
 
     case 'ACTIVATE_READY_ITEM_REQUESTED': {
-      if (state.syncStatus !== 'READY') {
+      // Claim from local FIFO during READY and during background SYNCING/
+      // RECOVERING (items already hydrated). Block only cold/failed sync.
+      if (
+        state.syncStatus === 'UNINITIALIZED' ||
+        state.syncStatus === 'FAILED'
+      ) {
         return {
           state,
           effects: [],

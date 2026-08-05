@@ -234,19 +234,21 @@ export function selectNotificationsAvailabilityV1(
   if (state.syncStatus === 'UNINITIALIZED') {
     return { available: false, reason: 'UNINITIALIZED', retryable: true };
   }
+  if (state.syncStatus === 'FAILED') {
+    return { available: false, reason: 'FAILED', retryable: true };
+  }
+  // Local FIFO work must remain openable during background SYNCING/RECOVERING.
+  // Cold boot (no items yet) still blocks on SYNCING/RECOVERING.
+  if (state.activeItemId != null || state.passiveItemIds.length > 0) {
+    return { available: true };
+  }
   if (state.syncStatus === 'SYNCING') {
     return { available: false, reason: 'SYNCING', retryable: true };
   }
   if (state.syncStatus === 'RECOVERING') {
     return { available: false, reason: 'RECOVERING', retryable: true };
   }
-  if (state.syncStatus === 'FAILED') {
-    return { available: false, reason: 'FAILED', retryable: true };
-  }
-  // READY
-  if (state.activeItemId != null || state.passiveItemIds.length > 0) {
-    return { available: true };
-  }
+  // READY + empty
   return { available: false, reason: 'EMPTY', retryable: false };
 }
 
