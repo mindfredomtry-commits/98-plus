@@ -2,6 +2,16 @@
  * Stage 8 Phase 9 — Transport cutover to Sync V1 Mapper.
  * HTTP GET /notifications/sync + WS notifications:delta:v1.
  * No Ban/session/pending item authority. No synthetic sequence/revision.
+ *
+ * Single-flight Sync: one HTTP sync at a time. REQUEST_FULL_SYNC latches.
+ * Stale generations never clear a newer in-flight owner.
+ *
+ * Effect-consumption rule:
+ * - WS delta REQUEST_FULL_SYNC is consumed only here from the exact dispatch
+ *   result (not mutable getLastEffects()).
+ * - Controller drainEffects handles REQUEST_FULL_SYNC only for effects from
+ *   its own dispatches; both paths share this single-flight entry so parallel
+ *   syncs cannot start.
  */
 'use client';
 
@@ -16,6 +26,14 @@ import {
   parseNotificationsDeltaV1,
   runNotificationsSyncViaMapper,
 } from '@/notification-runtime/notifications-mapper';
+import {
+  beginSyncFlight,
+  completeSyncFlight,
+  createInitialSyncFlightState,
+  latchPendingFullSync,
+  type SyncFlightReason,
+  type SyncFlightState,
+} from '@/notification-runtime/notification-runtime.sync-flight';
 import {
   logNotificationsSyncDiag,
   nextNotificationsSyncCorrelationId,
@@ -43,35 +61,53 @@ export function NotificationRuntimeTransport({
   tokenRef.current = token;
   userIdRef.current = userId;
   runtimePortRef.current = runtimePort;
-  const bootInFlightRef = useRef(false);
+  const flightRef = useRef<SyncFlightState>(createInitialSyncFlightState());
   const coldBootSettledRef = useRef(false);
-  const syncGenerationRef = useRef(0);
+  const runBootstrapRef = useRef<
+    (reason: SyncFlightReason) => Promise<void>
+  >(async () => {});
 
   const runBootstrap = useCallback(
-    async (reason: 'bootstrap' | 'reconnect' | 'user') => {
+    async (reason: SyncFlightReason) => {
       const tok = tokenRef.current;
       const uid = userIdRef.current;
       if (!tok || !uid) return;
-      if (bootInFlightRef.current && reason !== 'reconnect') return;
 
       if (reason === 'reconnect') {
         const decision = decideReconnectRecoveryRequest(store.getState());
         if (decision.action === 'coalesce') {
           return;
         }
+      }
+
+      const begun = beginSyncFlight(flightRef.current, reason);
+      flightRef.current = begun.state;
+      if (!begun.accepted) {
+        logNotificationsSyncDiag(
+          nextNotificationsSyncCorrelationId(reason),
+          'REQUEST_FULL_SYNC',
+          {
+            coalesced: true,
+            latchReason: begun.reason,
+            pendingFullSync: flightRef.current.pendingFullSync,
+            inFlight: flightRef.current.inFlight,
+          },
+        );
+        return;
+      }
+
+      const { generation, forceFullSnapshot } = begun;
+      if (reason === 'reconnect') {
         runtimePortRef.current?.notifyReconnectStarted();
       }
 
-      bootInFlightRef.current = true;
-      const generation = ++syncGenerationRef.current;
       const correlationId = nextNotificationsSyncCorrelationId(reason);
+      let ok = false;
       try {
-        const recovery = reason === 'reconnect';
-        // Full snapshot when user/effect requested recovery from REVISION_GAP.
-        const forceFullSnapshot = reason === 'user';
+        const recovery = reason === 'reconnect' && !forceFullSnapshot;
         const result = await runNotificationsSyncViaMapper(store, {
           token: tok,
-          recovery: recovery && !forceFullSnapshot,
+          recovery,
           afterRevision: forceFullSnapshot
             ? null
             : recovery
@@ -79,38 +115,86 @@ export function NotificationRuntimeTransport({
               : null,
           correlationId,
         });
-        if (generation !== syncGenerationRef.current) {
-          return;
+        ok = result.ok;
+        const sessionMatches =
+          tokenRef.current === tok && userIdRef.current === uid;
+        if (
+          generation === flightRef.current.generation &&
+          flightRef.current.ownerGeneration === generation &&
+          sessionMatches
+        ) {
+          const st = store.getState();
+          logNotificationsSyncDiag(correlationId, 'AVAILABILITY', {
+            syncStatus: st.syncStatus,
+            revision: st.revision,
+            passiveItemIds: [...st.passiveItemIds],
+            ok: result.ok,
+            errorCode: result.errorCode ?? null,
+          });
         }
-        if (tokenRef.current !== tok || userIdRef.current !== uid) {
-          return;
-        }
-        const st = store.getState();
-        logNotificationsSyncDiag(correlationId, 'AVAILABILITY', {
-          syncStatus: st.syncStatus,
-          revision: st.revision,
-          passiveItemIds: [...st.passiveItemIds],
-          ok: result.ok,
-          errorCode: result.errorCode ?? null,
-        });
       } finally {
-        bootInFlightRef.current = false;
-        // First sync completion leaves BOOT — including user-triggered full
-        // snapshot kicked by WS REVISION_GAP before the bootstrap effect runs.
-        if (!coldBootSettledRef.current) {
+        const sessionMatches =
+          tokenRef.current === tok && userIdRef.current === uid;
+        const settled = completeSyncFlight(flightRef.current, {
+          generation,
+          reason,
+          ok,
+          coldBootSettled: coldBootSettledRef.current,
+          sessionMatches,
+        });
+        flightRef.current = settled.state;
+
+        if (!settled.isOwner) {
+          // Stale generation — must not clear newer in-flight ownership or
+          // complete boot/reconnect for a newer request.
+          return;
+        }
+
+        if (settled.shouldNotifyBootCompleted) {
           coldBootSettledRef.current = true;
           runtimePortRef.current?.notifyBootCompleted();
         }
-        if (reason === 'reconnect') {
+        if (settled.shouldNotifyReconnectCompleted) {
           runtimePortRef.current?.notifyReconnectCompleted();
+        }
+        if (settled.shouldRunPendingFullSync) {
+          logNotificationsSyncDiag(correlationId, 'REQUEST_FULL_SYNC', {
+            drainedPending: true,
+            afterRevision: null,
+          });
+          void runBootstrapRef.current('user');
         }
       }
     },
     [store],
   );
+  runBootstrapRef.current = runBootstrap;
+
+  const requestFullSync = useCallback(
+    (diagReason: string) => {
+      const latched = latchPendingFullSync(flightRef.current);
+      flightRef.current = latched.state;
+      logNotificationsSyncDiag(
+        nextNotificationsSyncCorrelationId('ws'),
+        'REQUEST_FULL_SYNC',
+        {
+          reason: diagReason,
+          pendingFullSync: flightRef.current.pendingFullSync,
+          shouldStartNow: latched.shouldStartNow,
+          revision: store.getState().revision,
+          syncStatus: store.getState().syncStatus,
+        },
+      );
+      if (latched.shouldStartNow) {
+        void runBootstrap('user');
+      }
+    },
+    [runBootstrap, store],
+  );
 
   useEffect(() => {
     coldBootSettledRef.current = false;
+    flightRef.current = createInitialSyncFlightState();
     logNotificationsSyncDiag(
       nextNotificationsSyncCorrelationId('mount'),
       'RUNTIME_STORE_CREATED',
@@ -129,30 +213,18 @@ export function NotificationRuntimeTransport({
       const delta = parseNotificationsDeltaV1(event.payload);
       if (!delta) return;
       const correlationId = nextNotificationsSyncCorrelationId('ws');
-      applyNotificationsDeltaToStore(store, {
+      const applied = applyNotificationsDeltaToStore(store, {
         delta,
         source: 'websocket',
         correlationId,
       });
-      const effects = store.getLastEffects();
-      const needsFullSync = effects.some((e) => e.type === 'REQUEST_FULL_SYNC');
-      if (needsFullSync) {
-        logNotificationsSyncDiag(correlationId, 'REQUEST_FULL_SYNC', {
-          reason: effects.find((e) => e.type === 'REQUEST_FULL_SYNC')
-            ? (
-                effects.find((e) => e.type === 'REQUEST_FULL_SYNC') as {
-                  reason: string;
-                }
-              ).reason
-            : 'unknown',
-          revision: store.getState().revision,
-          syncStatus: store.getState().syncStatus,
-        });
-        // Full snapshot — do not use afterRevision recovery.
-        void runBootstrap('user');
+      // Consume effects from this exact dispatch — not mutable getLastEffects().
+      const fullSync = applied.effects.find((e) => e.type === 'REQUEST_FULL_SYNC');
+      if (fullSync && fullSync.type === 'REQUEST_FULL_SYNC') {
+        requestFullSync(fullSync.reason);
       }
     },
-    [store, runBootstrap],
+    [store, requestFullSync],
   );
 
   const onReconnect = useCallback(() => {
@@ -163,8 +235,7 @@ export function NotificationRuntimeTransport({
 
   useEffect(() => {
     const api = {
-      refresh: (reason: 'bootstrap' | 'reconnect' | 'user' = 'user') =>
-        runBootstrap(reason === 'user' ? 'user' : reason),
+      refresh: (reason: SyncFlightReason = 'user') => runBootstrap(reason),
       /** Pending refresh removed — Sync V1 only. */
       pendingRefresh: () => {
         /* no-op: journal Sync is sole authority */

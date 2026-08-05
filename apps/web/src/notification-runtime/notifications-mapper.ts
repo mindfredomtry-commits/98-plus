@@ -20,7 +20,10 @@ import {
 } from '@98plus/shared';
 import { api } from '@/lib/api';
 import { getApiUrl } from '@/lib/config';
-import type { NotificationItem } from '@/notification-runtime/notification-runtime.types';
+import type {
+  NotificationItem,
+  NotificationRuntimeReducerResult,
+} from '@/notification-runtime/notification-runtime.types';
 import type { NotificationRuntimeStore } from '@/notification-runtime/notification-runtime.store';
 import {
   failBootstrap,
@@ -272,7 +275,7 @@ export function applyNotificationsDeltaToStore(
     source?: 'bootstrap' | 'websocket' | 'user';
     correlationId?: string;
   },
-): void {
+): NotificationRuntimeReducerResult {
   const correlationId =
     input.correlationId ?? nextNotificationsSyncCorrelationId('ws');
   logNotificationsSyncDiag(correlationId, 'WS_DELTA', {
@@ -282,7 +285,7 @@ export function applyNotificationsDeltaToStore(
     runtimeRevision: store.getState().revision,
     syncStatus: store.getState().syncStatus,
   });
-  store.dispatch({
+  return store.dispatch({
     type: 'APPLY_NOTIFICATIONS_DELTA_V1',
     transitionId: input.transitionId ?? `delta-${Date.now()}`,
     delta: input.delta,

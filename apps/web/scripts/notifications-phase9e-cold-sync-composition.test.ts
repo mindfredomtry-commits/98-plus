@@ -180,9 +180,12 @@ async function main() {
       'utf8',
     );
     assert.match(transport, /REQUEST_FULL_SYNC/);
-    assert.match(transport, /runBootstrap\('user'\)/);
+    assert.match(transport, /beginSyncFlight|latchPendingFullSync/);
+    assert.match(transport, /applied\.effects/);
+    assert.doesNotMatch(transport, /store\.getLastEffects\(\)/);
+    assert.doesNotMatch(transport, /reason !== 'reconnect'/);
     assert.doesNotMatch(transport, /effects handled by controller/);
-    pass('transport drains REQUEST_FULL_SYNC via full snapshot sync');
+    pass('transport drains REQUEST_FULL_SYNC via single-flight full snapshot sync');
   }
 
   {
