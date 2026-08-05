@@ -381,10 +381,14 @@ export function notificationRuntimeReducer(
 
     case 'ACTIVE_ITEM_CLOSE_REQUESTED': {
       // User CLOSE: return active to passive at server sequence; do not REMOVE.
+      // Always emit SESSION_COMPLETE — sole owner-release producer for Close
+      // (Surface must not also dispatch NOTIFICATIONS_RELEASE_REQUESTED).
       if (state.activeItemId == null) {
-        return { state, effects: [] };
+        return {
+          state,
+          effects: [{ type: 'SESSION_COMPLETE', reason: 'close' }],
+        };
       }
-      const id = state.activeItemId;
       const next = {
         ...state,
         activeItemId: null,
@@ -400,7 +404,6 @@ export function notificationRuntimeReducer(
           state.causalNextItemId,
         ),
       };
-      void id;
       return {
         state: next,
         effects: [{ type: 'SESSION_COMPLETE', reason: 'close' }],

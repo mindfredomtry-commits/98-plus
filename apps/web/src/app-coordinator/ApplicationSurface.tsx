@@ -5,7 +5,7 @@
  */
 'use client';
 
-import { useCallback, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { UserPublic } from '@98plus/shared';
 import type { AppCoordinatorLifecycle } from '@/app-coordinator/app-coordinator.lifecycle';
 import type { CreateBanUiIntent } from '@/product-flow/create-ban/create-ban.types';
@@ -14,6 +14,10 @@ import type { SettingsIntent } from '@/settings/settings.types';
 import { SettingsSurface } from '@/settings/presentation/SettingsSurface';
 import type { NotificationsIntent } from '@/notifications/notifications.types';
 import { NotificationsSurface } from '@/notifications/presentation/NotificationsSurface';
+import {
+  logNotificationsSyncDiag,
+  nextNotificationsSyncCorrelationId,
+} from '@/notification-runtime/notifications-sync-diag';
 
 export type ApplicationSurfaceProps = {
   lifecycle: AppCoordinatorLifecycle | null;
@@ -45,10 +49,14 @@ function ActiveApplicationSurface({
   user,
 }: ActiveApplicationSurfaceProps) {
   const coordinatorState = useSyncExternalStore(
-    lifecycle.store.subscribe,
+    (onStoreChange) =>
+      lifecycle.store.subscribe(() => {
+        onStoreChange();
+      }),
     lifecycle.store.getState,
     lifecycle.store.getState,
   );
+  const notificationsSessionSeenRef = useRef(false);
 
   const onCreateBanIntent = useCallback(
     (intent: CreateBanUiIntent) => {
@@ -62,6 +70,29 @@ function ActiveApplicationSurface({
   }, [lifecycle]);
 
   const onOpenNotifications = useCallback(() => {
+    const owner = lifecycle.store.getState().currentOwner;
+    if (
+      notificationsSessionSeenRef.current &&
+      owner.type === 'DOMAIN' &&
+      owner.domain === 'CREATE_BAN'
+    ) {
+      logNotificationsSyncDiag(
+        nextNotificationsSyncCorrelationId('open2'),
+        'SECOND_NOTIFICATIONS_BUTTON_PRESSED',
+        {
+          ownerBefore: 'CREATE_BAN',
+          returnOwner: lifecycle.store.getState().returnOwner
+            ? lifecycle.store.getState().returnOwner!.type === 'DOMAIN'
+              ? (
+                  lifecycle.store.getState().returnOwner as {
+                    domain: string;
+                  }
+                ).domain
+              : lifecycle.store.getState().returnOwner!.type
+            : null,
+        },
+      );
+    }
     lifecycle.dispatch({ type: 'OPEN_NOTIFICATIONS_REQUESTED' });
   }, [lifecycle]);
 
@@ -83,11 +114,13 @@ function ActiveApplicationSurface({
     [lifecycle],
   );
 
-  const onReleaseNotifications = useCallback(() => {
-    lifecycle.dispatch({ type: 'NOTIFICATIONS_RELEASE_REQUESTED' });
-  }, [lifecycle]);
-
   const owner = coordinatorState.currentOwner;
+
+  useEffect(() => {
+    if (owner.type === 'DOMAIN' && owner.domain === 'NOTIFICATIONS') {
+      notificationsSessionSeenRef.current = true;
+    }
+  }, [owner]);
 
   if (owner.type === 'BOOT') {
     return <BootSurface />;
@@ -123,7 +156,6 @@ function ActiveApplicationSurface({
       <NotificationsSurface
         controller={lifecycle.notificationsController}
         onDomainIntent={onNotificationsIntent}
-        onReleaseNotifications={onReleaseNotifications}
       />
     );
   }

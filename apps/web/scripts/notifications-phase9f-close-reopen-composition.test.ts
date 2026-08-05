@@ -45,16 +45,15 @@ const snapshot = fixtureSnapshot({
 
 const origFetch = globalThis.fetch;
 
-/** Exact NotificationsSurface CLOSE_PRESSED path. */
+/** Exact NotificationsSurface CLOSE_PRESSED path (single SESSION_COMPLETE producer). */
 function surfaceClose(life: ReturnType<typeof createAppCoordinatorLifecycle>) {
   const mapped = mapNotificationsUiEvent({ type: 'CLOSE_PRESSED' });
-  assert.equal(mapped.kind, 'APPLICATION');
-  assert.equal(mapped.intent, 'NOTIFICATIONS_RELEASE_REQUESTED');
+  assert.equal(mapped.kind, 'DOMAIN');
+  assert.equal(mapped.intent.type, 'ACTIVE_ITEM_CLOSE_REQUESTED');
   life.dispatchDomainIntent({
     domain: 'NOTIFICATIONS',
-    intent: { type: 'ACTIVE_ITEM_CLOSE_REQUESTED' },
+    intent: mapped.intent,
   });
-  life.dispatch({ type: 'NOTIFICATIONS_RELEASE_REQUESTED' });
 }
 
 async function main() {
@@ -183,11 +182,12 @@ async function main() {
     // no server ack / REMOVE — items remain
     assert.ok(store2.getState().itemsById[`incoming:${BAN1}`]);
     assert.equal(store2.getLastEffects().some((e) => e.type === 'SESSION_COMPLETE'), true);
-    // second close with null active must not emit another SESSION_COMPLETE
+    // second close with null active still emits SESSION_COMPLETE (EMPTY dismiss)
+    // but controller sink is not re-entered here — effects only.
     store2.dispatch({ type: 'ACTIVE_ITEM_CLOSE_REQUESTED', source: 'user' });
     assert.equal(
       store2.getLastEffects().some((e) => e.type === 'SESSION_COMPLETE'),
-      false,
+      true,
     );
     ctrl.dispose();
     sessionCompleteCount = sessions;

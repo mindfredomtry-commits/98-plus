@@ -71,11 +71,10 @@ export function createAppCoordinatorStore(input: {
         );
         pending.result = result;
 
+        // Commit state before activation / UI notify so OPEN → activate
+        // completes before React mounts NotificationsSurface.
         if (result.state !== previousState) {
           state = result.state;
-          for (const listener of [...listeners]) {
-            listener(state, previousState, pending.event);
-          }
         }
 
         if (result.violation) {
@@ -86,7 +85,15 @@ export function createAppCoordinatorStore(input: {
           input.executor.execute(effect);
         }
 
+        // Activation must run before subscribers (ApplicationSurface) paint,
+        // otherwise Surface mounts EMPTY and can ingest a same-gesture Close.
         input.onEventProcessed?.(pending.event, result, previousState);
+
+        if (result.state !== previousState) {
+          for (const listener of [...listeners]) {
+            listener(state, previousState, pending.event);
+          }
+        }
       }
     } catch (error) {
       queue.length = 0;

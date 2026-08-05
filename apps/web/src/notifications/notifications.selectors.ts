@@ -63,6 +63,7 @@ function mapActionStatus(
 export function selectNotificationsDomainState(
   state: NotificationRuntimeState,
   lastActivationOutcome: NotificationsActivationOutcome | null = null,
+  activationGeneration = 0,
 ): NotificationsDomainState {
   const activeId = selectActiveItemId(state);
   const activeItem = selectActiveItem(state);
@@ -74,5 +75,6 @@ export function selectNotificationsDomainState(
     actionStatus: mapActionStatus(state.action.status),
     actionErrorCode: state.action.errorCode,
     lastActivationOutcome,
+    activationGeneration,
   };
 }

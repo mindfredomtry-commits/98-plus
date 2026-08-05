@@ -40,6 +40,7 @@ export type NotificationsUiEvent =
 
 export type NotificationsPresenterOutput =
   | { kind: 'DOMAIN'; intent: NotificationsIntent }
+  /** @deprecated Close release is SESSION_COMPLETE-only; prefer DOMAIN close. */
   | { kind: 'APPLICATION'; intent: 'NOTIFICATIONS_RELEASE_REQUESTED' };
 
 export function presentNotificationsState(
@@ -101,9 +102,11 @@ export function mapNotificationsUiEvent(
 ): NotificationsPresenterOutput {
   switch (event.type) {
     case 'CLOSE_PRESSED':
+      // Authoritative Close: domain reinsert + SESSION_COMPLETE → sink release.
+      // Do not emit APPLICATION NOTIFICATIONS_RELEASE_REQUESTED (dual producer).
       return {
-        kind: 'APPLICATION',
-        intent: 'NOTIFICATIONS_RELEASE_REQUESTED',
+        kind: 'DOMAIN',
+        intent: { type: 'ACTIVE_ITEM_CLOSE_REQUESTED' },
       };
     case 'ACTION_PRESSED': {
       switch (event.actionId) {
@@ -153,8 +156,8 @@ export function mapNotificationsUiEvent(
           const _exhaustive: never = event.actionId;
           void _exhaustive;
           return {
-            kind: 'APPLICATION',
-            intent: 'NOTIFICATIONS_RELEASE_REQUESTED',
+            kind: 'DOMAIN',
+            intent: { type: 'ACTIVE_ITEM_CLOSE_REQUESTED' },
           };
         }
       }
@@ -163,8 +166,8 @@ export function mapNotificationsUiEvent(
       const _exhaustive: never = event;
       void _exhaustive;
       return {
-        kind: 'APPLICATION',
-        intent: 'NOTIFICATIONS_RELEASE_REQUESTED',
+        kind: 'DOMAIN',
+        intent: { type: 'ACTIVE_ITEM_CLOSE_REQUESTED' },
       };
     }
   }

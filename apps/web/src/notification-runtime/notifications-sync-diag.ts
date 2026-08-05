@@ -1,5 +1,5 @@
 /**
- * Stage 8 Phase 9E — production-safe Sync path diagnostics.
+ * Stage 8 Phase 9E/9G — production-safe Sync / Close→reopen diagnostics.
  *
  * Enable in browser console:
  *   window.__NOTIFICATIONS_SYNC_DIAG__ = true
@@ -28,14 +28,26 @@ export type NotificationsSyncDiagStage =
   | 'REQUEST_FULL_SYNC'
   | 'SYNC_FAILED'
   | 'CLOSE_INTENT'
-  | 'CLOSE_REDUCER_RESULT'
-  | 'SESSION_COMPLETE_EFFECT'
-  | 'OWNER_RELEASE_REQUEST'
-  | 'OWNER_RELEASE_RESULT'
-  | 'AVAILABILITY_AFTER_CLOSE'
-  | 'SECOND_OPEN_INTENT'
-  | 'SECOND_ACTIVATION_RESULT'
-  | 'SURFACE_VISIBLE_ITEM';
+  /** Phase 9G Close → second OPEN breadcrumbs (exact values). */
+  | 'CLOSE_BUTTON_PRESSED'
+  | 'CLOSE_SURFACE_EVENT'
+  | 'CLOSE_RUNTIME_DISPATCH_RESULT'
+  | 'CLOSE_EFFECTS'
+  | 'SESSION_COMPLETE_SINK'
+  | 'RELEASE_EVENT_DISPATCHED'
+  | 'RELEASE_EVENT_RESULT'
+  | 'OWNER_AFTER_RELEASE'
+  | 'AVAILABILITY_AFTER_RELEASE'
+  | 'SECOND_NOTIFICATIONS_BUTTON_PRESSED'
+  | 'SECOND_OPEN_EVENT_DISPATCHED'
+  | 'SECOND_OPEN_EVENT_RESULT'
+  | 'OWNER_AFTER_SECOND_OPEN'
+  | 'ACTIVATE_EVENT_DISPATCHED'
+  | 'ACTIVATE_EVENT_RESULT'
+  | 'RUNTIME_AFTER_ACTIVATION'
+  | 'CONTROLLER_SNAPSHOT_AFTER_ACTIVATION'
+  | 'PRESENTER_VIEW_AFTER_ACTIVATION'
+  | 'SURFACE_MOUNT_OR_UPDATE';
 
 export type NotificationsSyncDiagEntry = {
   seq: number;

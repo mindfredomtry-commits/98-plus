@@ -32,6 +32,12 @@ export type NotificationsDomainState = {
   actionStatus: 'idle' | 'pending' | 'succeeded' | 'failed';
   actionErrorCode: string | null;
   lastActivationOutcome: NotificationsActivationOutcome | null;
+  /**
+   * Monotonic claim generation — increments on each successful activation.
+   * Presentation keys remount on reopen of the same itemId without changing
+   * Journal / item identity.
+   */
+  activationGeneration: number;
 };
 
 export type NotificationsActiveItemView =

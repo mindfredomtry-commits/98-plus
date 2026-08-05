@@ -1,6 +1,6 @@
 /**
  * Stage 8 Phase 8 — Notifications domain controller / port.
- * Session completion only from Runtime SESSION_COMPLETE effect (or CLOSE path).
+ * Session completion only from Runtime SESSION_COMPLETE effect (Close release).
  */
 import type { DomainAvailability } from '@/domain-availability';
 import type { DomainCapability } from '@/domain-capability';
@@ -53,6 +53,7 @@ export function createNotificationsController(input: {
 }): NotificationsController {
   let disposed = false;
   let lastActivationOutcome: NotificationsActivationOutcome | null = null;
+  let activationGeneration = 0;
   const listeners = new Set<NotificationsListener>();
 
   const intents = createNotificationIntents({
@@ -73,7 +74,6 @@ export function createNotificationsController(input: {
           await input.onRefresh?.('user');
         },
         onRequestFullSync: () => {
-          // Full snapshot — do not use afterRevision recovery.
           void input.onRefresh?.('user');
         },
         onSessionComplete: () => {
@@ -87,6 +87,7 @@ export function createNotificationsController(input: {
     return selectNotificationsDomainState(
       input.store.getState(),
       lastActivationOutcome,
+      activationGeneration,
     );
   }
 
@@ -121,14 +122,52 @@ export function createNotificationsController(input: {
 
       switch (intent.type) {
         case 'ACTIVATE_READY_ITEM_REQUESTED': {
+          const diagId = nextNotificationsSyncCorrelationId('activate');
+          const rtBefore = input.store.getState();
+          logNotificationsSyncDiag(diagId, 'ACTIVATE_EVENT_DISPATCHED', {
+            syncStatus: rtBefore.syncStatus,
+            revision: rtBefore.revision,
+            activeItemId: rtBefore.activeItemId,
+            passiveItemIds: [...rtBefore.passiveItemIds],
+            activationGeneration,
+          });
           const result = input.store.dispatch({
             type: 'ACTIVATE_READY_ITEM_REQUESTED',
             source: 'user',
           });
           lastActivationOutcome =
             result.activationOutcome ?? { type: 'NO_READY_ITEM' };
+          if (
+            lastActivationOutcome.type === 'ACTIVATED' ||
+            lastActivationOutcome.type === 'ALREADY_ACTIVE'
+          ) {
+            activationGeneration += 1;
+          }
+          const rtAfter = input.store.getState();
+          logNotificationsSyncDiag(diagId, 'ACTIVATE_EVENT_RESULT', {
+            outcome: lastActivationOutcome,
+            activeItemId: rtAfter.activeItemId,
+            passiveItemIds: [...rtAfter.passiveItemIds],
+            activationGeneration,
+          });
           void drainEffects();
           emit();
+          logNotificationsSyncDiag(diagId, 'RUNTIME_AFTER_ACTIVATION', {
+            syncStatus: rtAfter.syncStatus,
+            revision: rtAfter.revision,
+            activeItemId: rtAfter.activeItemId,
+            passiveItemIds: [...rtAfter.passiveItemIds],
+          });
+          logNotificationsSyncDiag(
+            diagId,
+            'CONTROLLER_SNAPSHOT_AFTER_ACTIVATION',
+            {
+              activation: cachedState.activation,
+              activeItemId: cachedState.activeItem?.itemId ?? null,
+              activationGeneration: cachedState.activationGeneration,
+              lastActivationOutcome: cachedState.lastActivationOutcome,
+            },
+          );
           return;
         }
 
@@ -149,23 +188,49 @@ export function createNotificationsController(input: {
             passiveItemIds: [...before.passiveItemIds],
             syncStatus: before.syncStatus,
             revision: before.revision,
+            activationGeneration,
           });
           const closeResult = input.store.dispatch({
             type: 'ACTIVE_ITEM_CLOSE_REQUESTED',
             source: 'user',
           });
           const after = input.store.getState();
-          logNotificationsSyncDiag(closeDiagId, 'CLOSE_REDUCER_RESULT', {
+          logNotificationsSyncDiag(closeDiagId, 'CLOSE_RUNTIME_DISPATCH_RESULT', {
             activeItemId: after.activeItemId,
             passiveItemIds: [...after.passiveItemIds],
+            syncStatus: after.syncStatus,
+            revision: after.revision,
             effects: closeResult.effects.map((e) => e.type),
             presentationRetained: before.activeItemId
-              ? Boolean(
-                  after.presentationByItemId[before.activeItemId],
-                )
+              ? Boolean(after.presentationByItemId[before.activeItemId])
               : true,
           });
-          void drainEffects();
+          logNotificationsSyncDiag(closeDiagId, 'CLOSE_EFFECTS', {
+            effects: closeResult.effects.map((e) =>
+              e.type === 'SESSION_COMPLETE'
+                ? { type: e.type, reason: e.reason }
+                : { type: e.type },
+            ),
+          });
+          // Drain SESSION_COMPLETE synchronously so release cannot race OPEN.
+          // Pass exact effects from this dispatch (not mutable getLastEffects).
+          void runNotificationRuntimeEffects(
+            input.store,
+            closeResult.effects,
+            {
+              getToken: input.getToken,
+              getUserId: input.getUserId,
+              onRefreshPending: async () => {
+                await input.onRefresh?.('user');
+              },
+              onRequestFullSync: () => {
+                void input.onRefresh?.('user');
+              },
+              onSessionComplete: () => {
+                input.sink?.sessionCompleted();
+              },
+            },
+          );
           emit();
           return;
         }
