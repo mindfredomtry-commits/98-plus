@@ -19,19 +19,25 @@ import {
   type UserPublic,
 } from '@98plus/shared';
 import { api } from '@/lib/api';
+import { getApiUrl } from '@/lib/config';
 import type { NotificationItem } from '@/notification-runtime/notification-runtime.types';
 import type { NotificationRuntimeStore } from '@/notification-runtime/notification-runtime.store';
 import {
   failBootstrap,
   requestBootstrap,
 } from '@/notification-runtime/notification-runtime.bootstrap';
+import {
+  logNotificationsSyncDiag,
+  nextNotificationsSyncCorrelationId,
+  redactSyncUrl,
+} from '@/notification-runtime/notifications-sync-diag';
 
 function partyToUserPublic(party: NotificationPartyPublicV1): UserPublic {
   return {
     id: party.id,
     telegramId: '0',
     username: party.username,
-    firstName: party.firstName,
+    firstName: party.firstName ?? '',
     lastName: null,
     avatarUrl: party.photoUrl,
     photoUrl: party.photoUrl,
@@ -40,7 +46,7 @@ function partyToUserPublic(party: NotificationPartyPublicV1): UserPublic {
     energyPercent: 50,
     streak: 0,
     isOnboarded: true,
-    notificationMode: 'all',
+    notificationMode: 'real-time',
   };
 }
 
@@ -146,18 +152,68 @@ function isSyncResponse(value: unknown): value is NotificationsSyncResponseV1 {
 export async function fetchNotificationsSyncV1(input: {
   token: string;
   afterRevision?: string | null;
+  correlationId?: string;
 }): Promise<NotificationsSyncResponseV1> {
   const q =
     input.afterRevision != null && input.afterRevision !== ''
       ? `?afterRevision=${encodeURIComponent(input.afterRevision)}`
       : '';
-  const raw = await api<unknown>(`/notifications/sync${q}`, {
-    token: input.token,
+  const path = `/notifications/sync${q}`;
+  const url = `${getApiUrl()}${path}`;
+  const correlationId =
+    input.correlationId ?? nextNotificationsSyncCorrelationId('http');
+  logNotificationsSyncDiag(correlationId, 'HTTP_REQUEST_STARTED', {
+    hasToken: Boolean(input.token),
+    afterRevision: input.afterRevision ?? null,
   });
-  if (!isSyncResponse(raw)) {
-    throw new Error('INVALID_SYNC_RESPONSE');
+  logNotificationsSyncDiag(correlationId, 'HTTP_URL', {
+    url: redactSyncUrl(url),
+  });
+  try {
+    const raw = await api<unknown>(path, {
+      token: input.token,
+    });
+    logNotificationsSyncDiag(correlationId, 'HTTP_STATUS', { status: 200 });
+    logNotificationsSyncDiag(correlationId, 'HTTP_RAW_RESPONSE', {
+      type:
+        raw && typeof raw === 'object'
+          ? (raw as { type?: string }).type ?? null
+          : typeof raw,
+      revision:
+        raw && typeof raw === 'object'
+          ? (raw as { revision?: string }).revision ?? null
+          : null,
+      itemCount:
+        raw &&
+        typeof raw === 'object' &&
+        Array.isArray((raw as { items?: unknown }).items)
+          ? (raw as { items: unknown[] }).items.length
+          : raw &&
+              typeof raw === 'object' &&
+              Array.isArray((raw as { operations?: unknown }).operations)
+            ? (raw as { operations: unknown[] }).operations.length
+            : null,
+    });
+    if (!isSyncResponse(raw)) {
+      logNotificationsSyncDiag(correlationId, 'CONTRACT_PARSE', {
+        ok: false,
+        reason: 'INVALID_SYNC_RESPONSE',
+      });
+      throw new Error('INVALID_SYNC_RESPONSE');
+    }
+    logNotificationsSyncDiag(correlationId, 'CONTRACT_PARSE', {
+      ok: true,
+      type: raw.type,
+    });
+    return raw;
+  } catch (e) {
+    const err = e as { status?: number; message?: string };
+    logNotificationsSyncDiag(correlationId, 'HTTP_STATUS', {
+      status: err.status ?? null,
+      error: err.message ?? 'fetch_failed',
+    });
+    throw e;
   }
-  return raw;
 }
 
 export function applySyncResponseToStore(
@@ -165,12 +221,19 @@ export function applySyncResponseToStore(
   input: {
     transitionId: string;
     sync: NotificationsSyncResponseV1;
-    source?: 'bootstrap' | 'ws' | 'user';
+    source?: 'bootstrap' | 'websocket' | 'user';
+    correlationId?: string;
   },
 ): void {
   const source = input.source ?? 'bootstrap';
+  const correlationId = input.correlationId ?? nextNotificationsSyncCorrelationId('apply');
   if (input.sync.type === 'SNAPSHOT') {
     const snapshot = input.sync as NotificationsSnapshotV1;
+    logNotificationsSyncDiag(correlationId, 'MAPPER_COMMAND', {
+      command: 'APPLY_NOTIFICATIONS_SNAPSHOT_V1',
+      revision: snapshot.revision,
+      itemIds: snapshot.items.map((i) => i.itemId),
+    });
     store.dispatch({
       type: 'APPLY_NOTIFICATIONS_SNAPSHOT_V1',
       transitionId: input.transitionId,
@@ -181,6 +244,12 @@ export function applySyncResponseToStore(
     return;
   }
   const delta = input.sync as NotificationsDeltaV1;
+  logNotificationsSyncDiag(correlationId, 'MAPPER_COMMAND', {
+    command: 'APPLY_NOTIFICATIONS_DELTA_V1',
+    fromRevision: delta.fromRevision,
+    revision: delta.revision,
+    opCount: delta.operations.length,
+  });
   store.dispatch({
     type: 'APPLY_NOTIFICATIONS_DELTA_V1',
     transitionId: input.transitionId,
@@ -200,9 +269,19 @@ export function applyNotificationsDeltaToStore(
       itemId: string;
     };
     promoteCausalNext?: boolean;
-    source?: 'bootstrap' | 'ws' | 'user';
+    source?: 'bootstrap' | 'websocket' | 'user';
+    correlationId?: string;
   },
 ): void {
+  const correlationId =
+    input.correlationId ?? nextNotificationsSyncCorrelationId('ws');
+  logNotificationsSyncDiag(correlationId, 'WS_DELTA', {
+    fromRevision: input.delta.fromRevision,
+    revision: input.delta.revision,
+    opCount: input.delta.operations.length,
+    runtimeRevision: store.getState().revision,
+    syncStatus: store.getState().syncStatus,
+  });
   store.dispatch({
     type: 'APPLY_NOTIFICATIONS_DELTA_V1',
     transitionId: input.transitionId ?? `delta-${Date.now()}`,
@@ -210,7 +289,7 @@ export function applyNotificationsDeltaToStore(
     presentationByItemId: presentationMapFromDelta(input.delta),
     activeRemoveAuthorization: input.activeRemoveAuthorization,
     promoteCausalNext: input.promoteCausalNext,
-    source: input.source ?? 'ws',
+    source: input.source ?? 'websocket',
   });
 }
 
@@ -240,11 +319,22 @@ export async function runNotificationsSyncViaMapper(
     token: string;
     recovery?: boolean;
     afterRevision?: string | null;
+    correlationId?: string;
   },
 ): Promise<{ ok: boolean; errorCode?: string }> {
+  const correlationId =
+    args.correlationId ?? nextNotificationsSyncCorrelationId('boot');
+  logNotificationsSyncDiag(correlationId, 'TOKEN_RESOLVED', {
+    hasToken: Boolean(args.token),
+    recovery: Boolean(args.recovery),
+  });
   const boot = requestBootstrap(store, {
     source: 'bootstrap',
     recovery: args.recovery,
+  });
+  logNotificationsSyncDiag(correlationId, 'SYNC_STARTED', {
+    transitionId: boot.transitionId,
+    recovery: Boolean(args.recovery),
   });
   try {
     const after =
@@ -256,15 +346,43 @@ export async function runNotificationsSyncViaMapper(
     const sync = await fetchNotificationsSyncV1({
       token: args.token,
       afterRevision: after,
+      correlationId,
     });
     applySyncResponseToStore(store, {
       transitionId: boot.transitionId,
       sync,
       source: 'bootstrap',
+      correlationId,
     });
-    return { ok: store.getState().syncStatus === 'READY' };
+    const state = store.getState();
+    logNotificationsSyncDiag(correlationId, 'RECONCILE_OUTCOME', {
+      syncStatus: state.syncStatus,
+      revision: state.revision,
+      lastConflict: state.lastConflict,
+    });
+    logNotificationsSyncDiag(correlationId, 'RUNTIME_STATE', {
+      syncStatus: state.syncStatus,
+      revision: state.revision,
+      itemIds: Object.keys(state.itemsById),
+      passiveItemIds: [...state.passiveItemIds],
+      activeItemId: state.activeItemId,
+      lastConflict: state.lastConflict,
+    });
+    if (state.syncStatus !== 'READY') {
+      const code =
+        state.lastConflict?.detail ?? 'SYNC_APPLY_NOT_READY';
+      logNotificationsSyncDiag(correlationId, 'SYNC_FAILED', { code });
+      failBootstrap(store, {
+        transitionId: boot.transitionId,
+        errorCode: code,
+        source: 'bootstrap',
+      });
+      return { ok: false, errorCode: code };
+    }
+    return { ok: true };
   } catch (e) {
     const code = (e as Error).message || 'SYNC_FAILED';
+    logNotificationsSyncDiag(correlationId, 'SYNC_FAILED', { code });
     failBootstrap(store, {
       transitionId: boot.transitionId,
       errorCode: code,

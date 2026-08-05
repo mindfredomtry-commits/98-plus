@@ -16,6 +16,10 @@ import {
   parseNotificationsDeltaV1,
   runNotificationsSyncViaMapper,
 } from '@/notification-runtime/notifications-mapper';
+import {
+  logNotificationsSyncDiag,
+  nextNotificationsSyncCorrelationId,
+} from '@/notification-runtime/notifications-sync-diag';
 
 export type NotificationTransportAuth = {
   token: string | null;
@@ -60,27 +64,40 @@ export function NotificationRuntimeTransport({
 
       bootInFlightRef.current = true;
       const generation = ++syncGenerationRef.current;
+      const correlationId = nextNotificationsSyncCorrelationId(reason);
       try {
         const recovery = reason === 'reconnect';
+        // Full snapshot when user/effect requested recovery from REVISION_GAP.
+        const forceFullSnapshot = reason === 'user';
         const result = await runNotificationsSyncViaMapper(store, {
           token: tok,
-          recovery,
-          afterRevision: recovery ? store.getState().revision : null,
+          recovery: recovery && !forceFullSnapshot,
+          afterRevision: forceFullSnapshot
+            ? null
+            : recovery
+              ? store.getState().revision
+              : null,
+          correlationId,
         });
         if (generation !== syncGenerationRef.current) {
-          // Stale HTTP generation — ignore further side effects
           return;
         }
-        if (
-          tokenRef.current !== tok ||
-          userIdRef.current !== uid
-        ) {
+        if (tokenRef.current !== tok || userIdRef.current !== uid) {
           return;
         }
-        void result;
+        const st = store.getState();
+        logNotificationsSyncDiag(correlationId, 'AVAILABILITY', {
+          syncStatus: st.syncStatus,
+          revision: st.revision,
+          passiveItemIds: [...st.passiveItemIds],
+          ok: result.ok,
+          errorCode: result.errorCode ?? null,
+        });
       } finally {
         bootInFlightRef.current = false;
-        if (reason === 'bootstrap' && !coldBootSettledRef.current) {
+        // First sync completion leaves BOOT — including user-triggered full
+        // snapshot kicked by WS REVISION_GAP before the bootstrap effect runs.
+        if (!coldBootSettledRef.current) {
           coldBootSettledRef.current = true;
           runtimePortRef.current?.notifyBootCompleted();
         }
@@ -94,6 +111,11 @@ export function NotificationRuntimeTransport({
 
   useEffect(() => {
     coldBootSettledRef.current = false;
+    logNotificationsSyncDiag(
+      nextNotificationsSyncCorrelationId('mount'),
+      'RUNTIME_STORE_CREATED',
+      { hasToken: Boolean(token), hasUserId: Boolean(userId) },
+    );
     if (!token || !userId) return;
     void runBootstrap('bootstrap');
   }, [token, userId, runBootstrap]);
@@ -106,12 +128,31 @@ export function NotificationRuntimeTransport({
       }
       const delta = parseNotificationsDeltaV1(event.payload);
       if (!delta) return;
+      const correlationId = nextNotificationsSyncCorrelationId('ws');
       applyNotificationsDeltaToStore(store, {
         delta,
-        source: 'ws',
+        source: 'websocket',
+        correlationId,
       });
+      const effects = store.getLastEffects();
+      const needsFullSync = effects.some((e) => e.type === 'REQUEST_FULL_SYNC');
+      if (needsFullSync) {
+        logNotificationsSyncDiag(correlationId, 'REQUEST_FULL_SYNC', {
+          reason: effects.find((e) => e.type === 'REQUEST_FULL_SYNC')
+            ? (
+                effects.find((e) => e.type === 'REQUEST_FULL_SYNC') as {
+                  reason: string;
+                }
+              ).reason
+            : 'unknown',
+          revision: store.getState().revision,
+          syncStatus: store.getState().syncStatus,
+        });
+        // Full snapshot — do not use afterRevision recovery.
+        void runBootstrap('user');
+      }
     },
-    [store],
+    [store, runBootstrap],
   );
 
   const onReconnect = useCallback(() => {
@@ -142,13 +183,6 @@ export function NotificationRuntimeTransport({
       ).__directNotificationTransport;
     };
   }, [runBootstrap]);
-
-  // REQUEST_FULL_SYNC effect sink — listen via store subscription
-  useEffect(() => {
-    return store.subscribe(() => {
-      /* effects handled by controller/effects layer */
-    });
-  }, [store]);
 
   return null;
 }

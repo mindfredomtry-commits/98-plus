@@ -43,16 +43,20 @@ import {
   createNotificationsController,
   type NotificationsController,
 } from '@/notifications/notifications.controller';
+import {
+  logNotificationsChaos,
+  nextChaosLifecycleId,
+} from '@/notification-runtime/notification-chaos-diag';
+import {
+  logNotificationsSyncDiag,
+  nextNotificationsSyncCorrelationId,
+} from '@/notification-runtime/notifications-sync-diag';
+import { available } from '@/domain-availability';
 import { createTelegramEntryRouter } from './app-coordinator.entry-router';
 import {
   entryIntentToCoordinatorEvent,
   type EntryRouter,
 } from './app-coordinator.boundaries';
-import { available } from '@/domain-availability';
-import {
-  logNotificationsChaos,
-  nextChaosLifecycleId,
-} from '@/notification-runtime/notification-chaos-diag';
 
 export type AppCoordinatorLifecycle = {
   store: AppCoordinatorStore;
@@ -131,18 +135,40 @@ export function createAppCoordinatorLifecycle(input: {
     // Rollback ownership only on typed NO_READY_ITEM — never by observing a
     // temporary empty read model / presenter phase.
     if (event.type === 'OPEN_NOTIFICATIONS_REQUESTED') {
+      const openDiagId = nextNotificationsSyncCorrelationId('open');
+      const rtBefore = input.runtimeStore.getState();
+      logNotificationsSyncDiag(openDiagId, 'OPEN_INTENT', {
+        syncStatus: rtBefore.syncStatus,
+        revision: rtBefore.revision,
+        passiveItemIds: [...rtBefore.passiveItemIds],
+        activeItemId: rtBefore.activeItemId,
+        ownerBefore:
+          ownerBefore.type === 'DOMAIN' ? ownerBefore.domain : ownerBefore.type,
+      });
       const owner = store.getState().currentOwner;
+      logNotificationsSyncDiag(openDiagId, 'OWNER_DECISION', {
+        owner:
+          owner.type === 'DOMAIN' ? owner.domain : owner.type,
+        availability: domainPorts.NOTIFICATIONS.getAvailability(),
+      });
       if (owner.type === 'DOMAIN' && owner.domain === 'NOTIFICATIONS') {
         domainPorts.NOTIFICATIONS.dispatch({
           type: 'ACTIVATE_READY_ITEM_REQUESTED',
         });
         const outcome =
           notificationsController.getState().lastActivationOutcome;
+        logNotificationsSyncDiag(openDiagId, 'ACTIVATION_RESULT', {
+          outcome,
+          activeItemId: input.runtimeStore.getState().activeItemId,
+        });
         if (outcome?.type === 'NO_READY_ITEM') {
           logNotificationsChaos('coordinator', 'NOTIFICATIONS_RELEASE_REQUESTED', {
             lifecycleId: chaosLifecycleId,
             reason: 'NO_READY_ITEM_AFTER_OPEN',
             currentOwner: 'NOTIFICATIONS',
+          });
+          logNotificationsSyncDiag(openDiagId, 'RELEASE', {
+            reason: 'NO_READY_ITEM_AFTER_OPEN',
           });
           store.dispatch({ type: 'NOTIFICATIONS_RELEASE_REQUESTED' });
         }
