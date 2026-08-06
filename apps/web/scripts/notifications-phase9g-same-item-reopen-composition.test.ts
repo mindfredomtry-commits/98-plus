@@ -121,9 +121,13 @@ async function main() {
       ),
       'utf8',
     );
-    assert.match(surfaceSrc, /key=\{state\.activationGeneration\}/);
+    assert.match(surfaceSrc, /key=\{remountKey\}/);
+    assert.match(
+      surfaceSrc,
+      /presentationSessionGeneration.*activationGeneration.*itemId/,
+    );
     assert.doesNotMatch(surfaceSrc, /onReleaseNotifications\(\)/);
-    pass('Surface keys Screen by activationGeneration; no dual release call');
+    pass('Surface keys Screen by session:activation:itemId; no dual release call');
   }
 
   const store = createNotificationRuntimeStore();

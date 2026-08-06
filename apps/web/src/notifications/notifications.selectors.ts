@@ -64,6 +64,7 @@ export function selectNotificationsDomainState(
   state: NotificationRuntimeState,
   lastActivationOutcome: NotificationsActivationOutcome | null = null,
   activationGeneration = 0,
+  presentationSessionGeneration = 0,
 ): NotificationsDomainState {
   const activeId = selectActiveItemId(state);
   const activeItem = selectActiveItem(state);
@@ -76,5 +77,6 @@ export function selectNotificationsDomainState(
     actionErrorCode: state.action.errorCode,
     lastActivationOutcome,
     activationGeneration,
+    presentationSessionGeneration,
   };
 }

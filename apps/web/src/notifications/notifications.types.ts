@@ -38,6 +38,12 @@ export type NotificationsDomainState = {
    * Journal / item identity.
    */
   activationGeneration: number;
+  /**
+   * Monotonic presentation session — increments on each successful OPEN
+   * (BEGIN_PRESENTATION_SESSION). Close completes the session; does not
+   * rewind. Stale SESSION_COMPLETE from older sessions must be ignored.
+   */
+  presentationSessionGeneration: number;
 };
 
 export type NotificationsActiveItemView =

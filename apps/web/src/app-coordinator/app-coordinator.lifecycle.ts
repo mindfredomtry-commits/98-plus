@@ -1,9 +1,10 @@
 /**
  * One App Coordinator lifecycle for the application.
- * Stage 8 Phase 5 — CREATE_BAN + SETTINGS + NOTIFICATIONS domain ports.
+ * Stage 8 Phase 5/9H — CREATE_BAN + SETTINGS + NOTIFICATIONS domain ports.
  *
- * Phase 9G: Close release is solely SESSION_COMPLETE → sink →
- * NOTIFICATIONS_RELEASE_REQUESTED (Surface must not dual-dispatch release).
+ * Phase 9H: openNotifications() activates Runtime BEFORE committing
+ * NOTIFICATIONS owner. Close release is SESSION_COMPLETE → sink only,
+ * stale session generations ignored.
  */
 import { createAppCoordinatorCommandExecutor } from './app-coordinator.command-executor';
 import {
@@ -46,6 +47,10 @@ import {
   createNotificationsController,
   type NotificationsController,
 } from '@/notifications/notifications.controller';
+import type {
+  NotificationsOpenResult,
+  NotificationsSessionCompleteMeta,
+} from '@/notifications/notifications.open-types';
 import {
   logNotificationsChaos,
   nextChaosLifecycleId,
@@ -70,20 +75,16 @@ export type AppCoordinatorLifecycle = {
   notificationsController: NotificationsController;
   domainPorts: ApplicationDomainPorts;
   entryRouter: EntryRouter;
-  /** Stable identity for chaos diagnostics. */
   chaosLifecycleId: string;
+  /** Phase 9H — sole production Lobby → Notifications open transaction. */
+  openNotifications(correlationId?: string): NotificationsOpenResult;
+  getOwnerTransitionGeneration(): number;
   dispatch(event: AppCoordinatorEvent): void;
-  /**
-   * Route a typed domain intent to the Current Owner port only.
-   * Coordinator does not inspect intent contents.
-   */
   dispatchDomainIntent(input: DomainIntent): void;
   dispose(): void;
 };
 
-function ownerLabel(
-  owner: { type: string; domain?: string },
-): string {
+function ownerLabel(owner: { type: string; domain?: string }): string {
   return owner.type === 'DOMAIN' ? String(owner.domain) : owner.type;
 }
 
@@ -102,6 +103,12 @@ export function createAppCoordinatorLifecycle(input: {
   const chaosLifecycleId = nextChaosLifecycleId();
   let notificationsOpenCount = 0;
   let releaseDispatchCount = 0;
+  let ownerTransitionGeneration = 0;
+  /** Session generation committed with the current NOTIFICATIONS ownership. */
+  let committedPresentationSessionGeneration = 0;
+  /** When true, OPEN_NOTIFICATIONS_REQUESTED must not re-activate. */
+  let openPreActivated = false;
+
   logNotificationsChaos('lifecycle', 'CREATED', {
     lifecycleId: chaosLifecycleId,
     storeId: input.runtimeStore.chaosStoreId,
@@ -124,10 +131,18 @@ export function createAppCoordinatorLifecycle(input: {
     };
   };
 
+  const generationSnap = () => ({
+    ownerTransitionGeneration,
+    presentationSessionGeneration:
+      notificationsController?.getPresentationSessionGeneration() ?? 0,
+    activationGeneration:
+      notificationsController?.getActivationGeneration() ?? 0,
+    committedPresentationSessionGeneration,
+  });
+
   const dispatch = (event: AppCoordinatorEvent) => {
     if (disposed) return;
     const ownerBefore = store.getState().currentOwner;
-    const transitioningBefore = false;
     const isSecondOpen =
       event.type === 'OPEN_NOTIFICATIONS_REQUESTED' &&
       notificationsOpenCount >= 1;
@@ -142,27 +157,29 @@ export function createAppCoordinatorLifecycle(input: {
         releaseDispatchCount,
         releaseProducer: 'SESSION_COMPLETE_SINK',
         ownerBefore: ownerLabel(ownerBefore),
-        transitioning: transitioningBefore,
         ...runtimeSnap(),
+        ...generationSnap(),
+      });
+      logNotificationsSyncDiag(releaseDiagId, 'COORDINATOR_RELEASE', {
+        releaseDispatchCount,
+        ownerBefore: ownerLabel(ownerBefore),
+        ...generationSnap(),
       });
     }
 
     if (event.type === 'OPEN_NOTIFICATIONS_REQUESTED' && isSecondOpen) {
-      logNotificationsSyncDiag(
-        openDiagId,
-        'SECOND_OPEN_EVENT_DISPATCHED',
-        {
-          openCount: notificationsOpenCount + 1,
-          ownerBefore: ownerLabel(ownerBefore),
-          transitioning: transitioningBefore,
-          ...runtimeSnap(),
-        },
-      );
+      logNotificationsSyncDiag(openDiagId, 'SECOND_OPEN_EVENT_DISPATCHED', {
+        openCount: notificationsOpenCount + 1,
+        ownerBefore: ownerLabel(ownerBefore),
+        ...runtimeSnap(),
+        ...generationSnap(),
+      });
     } else if (event.type === 'OPEN_NOTIFICATIONS_REQUESTED') {
       logNotificationsSyncDiag(openDiagId, 'OPEN_INTENT', {
         openCount: notificationsOpenCount + 1,
         ownerBefore: ownerLabel(ownerBefore),
         ...runtimeSnap(),
+        ...generationSnap(),
       });
     }
 
@@ -202,6 +219,7 @@ export function createAppCoordinatorLifecycle(input: {
             ? dispatchResult.result.violation
             : null,
         ...runtimeSnap(),
+        ...generationSnap(),
       });
       logNotificationsSyncDiag(releaseDiagId, 'OWNER_AFTER_RELEASE', {
         currentOwner: ownerLabel(ownerAfter),
@@ -210,10 +228,25 @@ export function createAppCoordinatorLifecycle(input: {
           : null,
         releaseDispatchCount,
       });
+      logNotificationsSyncDiag(
+        releaseDiagId,
+        'COORDINATOR_OWNER_COMMIT_CREATE_BAN',
+        {
+          currentOwner: ownerLabel(ownerAfter),
+          ...runtimeSnap(),
+          ...generationSnap(),
+        },
+      );
       logNotificationsSyncDiag(releaseDiagId, 'AVAILABILITY_AFTER_RELEASE', {
         availability: domainPorts.NOTIFICATIONS.getAvailability(),
         ...runtimeSnap(),
       });
+      if (
+        ownerAfter.type === 'DOMAIN' &&
+        ownerAfter.domain === 'CREATE_BAN'
+      ) {
+        committedPresentationSessionGeneration = 0;
+      }
     }
 
     if (event.type === 'OPEN_NOTIFICATIONS_REQUESTED' && isSecondOpen) {
@@ -226,6 +259,7 @@ export function createAppCoordinatorLifecycle(input: {
         ownerBefore: ownerLabel(ownerBefore),
         ownerAfter: ownerLabel(ownerAfter),
         ...runtimeSnap(),
+        ...generationSnap(),
       });
       logNotificationsSyncDiag(openDiagId, 'OWNER_AFTER_SECOND_OPEN', {
         currentOwner: ownerLabel(ownerAfter),
@@ -241,6 +275,11 @@ export function createAppCoordinatorLifecycle(input: {
     type: string;
     domain?: string;
   }): void {
+    // Fallback for legacy dispatch(OPEN) without openNotifications().
+    if (input.runtimeStore.getState().activeItemId != null) {
+      notificationsOpenCount += 1;
+      return;
+    }
     notificationsOpenCount += 1;
     const isSecondOpen = notificationsOpenCount >= 2;
     const openDiagId = nextNotificationsSyncCorrelationId(
@@ -266,6 +305,8 @@ export function createAppCoordinatorLifecycle(input: {
       availability: domainPorts.NOTIFICATIONS.getAvailability(),
     });
     if (owner.type === 'DOMAIN' && owner.domain === 'NOTIFICATIONS') {
+      const sessionGen = notificationsController.beginPresentationSession();
+      committedPresentationSessionGeneration = sessionGen;
       domainPorts.NOTIFICATIONS.dispatch({
         type: 'ACTIVATE_READY_ITEM_REQUESTED',
       });
@@ -308,6 +349,139 @@ export function createAppCoordinatorLifecycle(input: {
     }
   }
 
+  function openNotifications(
+    correlationIdInput?: string,
+  ): NotificationsOpenResult {
+    const correlationId =
+      correlationIdInput ?? nextNotificationsSyncCorrelationId('open');
+    if (disposed) {
+      return {
+        ok: false,
+        correlationId,
+        code: 'DISPOSED',
+        message: 'Lifecycle disposed',
+      };
+    }
+
+    const ownerBefore = store.getState().currentOwner;
+    logNotificationsSyncDiag(correlationId, 'COORDINATOR_OPEN_BEGIN', {
+      source: 'openNotifications',
+      currentOwner: ownerLabel(ownerBefore),
+      returnOwner: store.getState().returnOwner
+        ? ownerLabel(store.getState().returnOwner!)
+        : null,
+      ...runtimeSnap(),
+      ...generationSnap(),
+    });
+
+    if (
+      ownerBefore.type !== 'DOMAIN' ||
+      ownerBefore.domain !== 'CREATE_BAN'
+    ) {
+      return {
+        ok: false,
+        correlationId,
+        code: 'OWNER_NOT_ALLOWED',
+        message: `Cannot open Notifications from owner ${ownerLabel(ownerBefore)}`,
+      };
+    }
+
+    const capability = domainPorts.NOTIFICATIONS.getAvailability();
+    logNotificationsSyncDiag(correlationId, 'COORDINATOR_CAPABILITY', {
+      capability,
+      ...runtimeSnap(),
+      ...generationSnap(),
+    });
+    if (capability.availability !== 'AVAILABLE') {
+      return {
+        ok: false,
+        correlationId,
+        code: 'NOTIFICATIONS_UNAVAILABLE',
+        message: `Notifications unavailable: ${capability.reason ?? 'unknown'}`,
+      };
+    }
+
+    ownerTransitionGeneration += 1;
+    const sessionGen = notificationsController.beginPresentationSession();
+    logNotificationsSyncDiag(correlationId, 'RUNTIME_SESSION_BEGIN', {
+      presentationSessionGeneration: sessionGen,
+      ownerTransitionGeneration,
+      ...runtimeSnap(),
+    });
+
+    const activate = notificationsController.activateNext(correlationId);
+    const domainState = notificationsController.getState();
+    const view = presentNotificationsState(domainState);
+    logNotificationsSyncDiag(correlationId, 'PRESENTER_SNAPSHOT', {
+      viewPhase: view.phase,
+      viewItemId: view.phase === 'ITEM' ? view.itemId : null,
+      activationGeneration: activate.activationGeneration,
+      presentationSessionGeneration: sessionGen,
+      activeItemId: activate.activeItemId,
+    });
+
+    const activated =
+      (activate.outcome.type === 'ACTIVATED' ||
+        activate.outcome.type === 'ALREADY_ACTIVE') &&
+      activate.activeItemId != null &&
+      view.phase === 'ITEM';
+
+    if (!activated) {
+      // Do not commit owner. Clear any accidental claim.
+      if (input.runtimeStore.getState().activeItemId != null) {
+        notificationsController.dispatch({
+          type: 'CLEAR_ACTIVATION_REQUESTED',
+        });
+      }
+      return {
+        ok: false,
+        correlationId,
+        code: 'ACTIVATION_FAILED',
+        message: `Activation failed: ${activate.outcome.type}`,
+      };
+    }
+
+    // Activate succeeded — commit owner. Skip re-activation in onEventProcessed.
+    openPreActivated = true;
+    committedPresentationSessionGeneration = sessionGen;
+    notificationsOpenCount += 1;
+    dispatch({ type: 'OPEN_NOTIFICATIONS_REQUESTED' });
+    openPreActivated = false;
+
+    const ownerAfter = store.getState().currentOwner;
+    logNotificationsSyncDiag(correlationId, 'COORDINATOR_OWNER_COMMIT', {
+      currentOwner: ownerLabel(ownerAfter),
+      returnOwner: store.getState().returnOwner
+        ? ownerLabel(store.getState().returnOwner!)
+        : null,
+      activeItemId: activate.activeItemId,
+      ...generationSnap(),
+    });
+
+    if (
+      ownerAfter.type !== 'DOMAIN' ||
+      ownerAfter.domain !== 'NOTIFICATIONS'
+    ) {
+      notificationsController.dispatch({ type: 'CLEAR_ACTIVATION_REQUESTED' });
+      committedPresentationSessionGeneration = 0;
+      return {
+        ok: false,
+        correlationId,
+        code: 'OWNER_NOT_ALLOWED',
+        message: 'Owner commit did not yield NOTIFICATIONS',
+      };
+    }
+
+    return {
+      ok: true,
+      correlationId,
+      ownerTransitionGeneration,
+      presentationSessionGeneration: sessionGen,
+      activationGeneration: activate.activationGeneration,
+      activeItemId: activate.activeItemId!,
+    };
+  }
+
   const runtimeSink = createNotificationRuntimeEventSink(dispatch);
   const productSink = createProductFlowEventSink(dispatch);
 
@@ -329,9 +503,7 @@ export function createAppCoordinatorLifecycle(input: {
   notificationsController = createNotificationsController({
     store: input.runtimeStore,
     getToken: input.getToken,
-    getUserId: () => {
-      return null;
-    },
+    getUserId: () => null,
     onRefresh: async (reason) => {
       const transport = (
         globalThis as unknown as {
@@ -343,7 +515,7 @@ export function createAppCoordinatorLifecycle(input: {
       await transport?.refresh(reason);
     },
     sink: {
-      sessionCompleted() {
+      sessionCompleted(meta: NotificationsSessionCompleteMeta) {
         if (disposed) return;
         const owner = store.getState().currentOwner;
         const rt = runtimeSnap();
@@ -353,11 +525,33 @@ export function createAppCoordinatorLifecycle(input: {
           {
             currentOwner: ownerLabel(owner),
             releaseDispatchCountBefore: releaseDispatchCount,
+            eventSessionGeneration: meta.presentationSessionGeneration,
+            committedPresentationSessionGeneration,
+            reason: meta.reason,
             ...rt,
-            event: 'NOTIFICATIONS_RELEASE_REQUESTED',
+            ...generationSnap(),
             producer: 'SESSION_COMPLETE_ONLY',
           },
         );
+
+        if (
+          committedPresentationSessionGeneration > 0 &&
+          meta.presentationSessionGeneration <
+            committedPresentationSessionGeneration
+        ) {
+          logNotificationsSyncDiag(
+            nextNotificationsSyncCorrelationId('close'),
+            'STALE_SESSION_COMPLETE_IGNORED',
+            {
+              eventSessionGeneration: meta.presentationSessionGeneration,
+              committedPresentationSessionGeneration,
+              currentOwner: ownerLabel(owner),
+              ...rt,
+            },
+          );
+          return;
+        }
+
         if (owner.type === 'DOMAIN' && owner.domain === 'NOTIFICATIONS') {
           logNotificationsChaos('controller', 'sessionCompleted', {
             lifecycleId: chaosLifecycleId,
@@ -421,10 +615,13 @@ export function createAppCoordinatorLifecycle(input: {
     onEventProcessed(event, result, previousState) {
       if (disposed) return;
       if (event.type !== 'OPEN_NOTIFICATIONS_REQUESTED') return;
-      // Rejected OPEN (UNAVAILABLE / policy) must never activate.
       if (result.violation) return;
       const owner = store.getState().currentOwner;
       if (owner.type !== 'DOMAIN' || owner.domain !== 'NOTIFICATIONS') return;
+      if (openPreActivated) {
+        // openNotifications already activated before owner commit.
+        return;
+      }
       activateAfterOpen(
         previousState.currentOwner.type === 'DOMAIN'
           ? {
@@ -438,7 +635,7 @@ export function createAppCoordinatorLifecycle(input: {
 
   store.dispatch({ type: 'APP_STARTED' });
 
-  return {
+  const lifecycleApi: AppCoordinatorLifecycle = {
     store,
     runtimePort,
     productController,
@@ -447,6 +644,10 @@ export function createAppCoordinatorLifecycle(input: {
     domainPorts,
     entryRouter,
     chaosLifecycleId,
+    openNotifications,
+    getOwnerTransitionGeneration() {
+      return ownerTransitionGeneration;
+    },
     dispatch,
     dispatchDomainIntent(inputIntent) {
       if (disposed) return;
@@ -485,6 +686,41 @@ export function createAppCoordinatorLifecycle(input: {
       notificationsController.dispose();
     },
   };
+
+  // Test-only: inject delayed SESSION_COMPLETE from an older generation.
+  (
+    lifecycleApi as AppCoordinatorLifecycle & {
+      __testInjectSessionComplete: (
+        meta: NotificationsSessionCompleteMeta,
+      ) => void;
+    }
+  ).__testInjectSessionComplete = (meta) => {
+    if (disposed) return;
+    const owner = store.getState().currentOwner;
+    const rt = runtimeSnap();
+    if (
+      committedPresentationSessionGeneration > 0 &&
+      meta.presentationSessionGeneration <
+        committedPresentationSessionGeneration
+    ) {
+      logNotificationsSyncDiag(
+        nextNotificationsSyncCorrelationId('close'),
+        'STALE_SESSION_COMPLETE_IGNORED',
+        {
+          eventSessionGeneration: meta.presentationSessionGeneration,
+          committedPresentationSessionGeneration,
+          currentOwner: ownerLabel(owner),
+          ...rt,
+        },
+      );
+      return;
+    }
+    if (owner.type === 'DOMAIN' && owner.domain === 'NOTIFICATIONS') {
+      dispatch({ type: 'NOTIFICATIONS_RELEASE_REQUESTED' });
+    }
+  };
+
+  return lifecycleApi;
 }
 
 export function routeLaunchEntry(

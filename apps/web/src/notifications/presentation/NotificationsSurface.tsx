@@ -3,10 +3,13 @@
  *
  * Close: domain ACTIVE_ITEM_CLOSE_REQUESTED only. Owner release is solely via
  * Runtime SESSION_COMPLETE → controller sink → NOTIFICATIONS_RELEASE_REQUESTED.
+ *
+ * Remount key includes presentationSessionGeneration + activationGeneration +
+ * itemId so same-item Ban1 reopen is a new React instance.
  */
 'use client';
 
-import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import React, { useCallback, useEffect, useSyncExternalStore } from 'react';
 import type { NotificationsController } from '../notifications.controller';
 import type { NotificationsIntent } from '../notifications.types';
 import {
@@ -41,46 +44,40 @@ export function NotificationsSurface({
 }: NotificationsSurfaceProps) {
   const state = useNotificationsState(controller);
   const viewState = presentNotificationsState(state);
+  const remountKey =
+    viewState.phase === 'ITEM'
+      ? `${state.presentationSessionGeneration}:${state.activationGeneration}:${viewState.itemId}`
+      : `empty:${state.presentationSessionGeneration}:${state.activationGeneration}`;
 
   useEffect(() => {
     const diagId = nextNotificationsSyncCorrelationId('surface');
+    logNotificationsSyncDiag(diagId, 'NOTIFICATION_SURFACE_MOUNT', {
+      phase: 'mount',
+      remountKey,
+      activationGeneration: state.activationGeneration,
+      presentationSessionGeneration: state.presentationSessionGeneration,
+      domainActiveItemId: state.activeItem?.itemId ?? null,
+      viewPhase: viewState.phase,
+      viewItemId: viewState.phase === 'ITEM' ? viewState.itemId : null,
+    });
     logNotificationsSyncDiag(diagId, 'SURFACE_MOUNT_OR_UPDATE', {
       phase: 'mount',
+      remountKey,
       activationGeneration: state.activationGeneration,
-      domainActiveItemId: state.activeItem?.itemId ?? null,
+      presentationSessionGeneration: state.presentationSessionGeneration,
       viewPhase: viewState.phase,
       viewItemId: viewState.phase === 'ITEM' ? viewState.itemId : null,
     });
     return () => {
       logNotificationsSyncDiag(diagId, 'SURFACE_MOUNT_OR_UPDATE', {
         phase: 'unmount',
+        remountKey,
         activationGeneration: state.activationGeneration,
-        domainActiveItemId: state.activeItem?.itemId ?? null,
+        presentationSessionGeneration: state.presentationSessionGeneration,
       });
     };
-    // Mount/unmount only — generation changes remount Screen via key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (state.activation.type !== 'ACTIVE') return;
-    logNotificationsSyncDiag(
-      nextNotificationsSyncCorrelationId('surface'),
-      'PRESENTER_VIEW_AFTER_ACTIVATION',
-      {
-        source: 'NotificationsSurface',
-        viewPhase: viewState.phase,
-        viewItemId: viewState.phase === 'ITEM' ? viewState.itemId : null,
-        activationGeneration: state.activationGeneration,
-        domainActiveItemId: state.activeItem?.itemId ?? null,
-      },
-    );
-  }, [
-    state.activation,
-    state.activationGeneration,
-    state.activeItem?.itemId,
-    viewState,
-  ]);
+  }, [remountKey]);
 
   const onEvent = useCallback(
     (event: NotificationsUiEvent) => {
@@ -93,6 +90,8 @@ export function NotificationsSurface({
             viewPhase: viewState.phase,
             viewItemId: viewState.phase === 'ITEM' ? viewState.itemId : null,
             activationGeneration: before.activationGeneration,
+            presentationSessionGeneration:
+              before.presentationSessionGeneration,
             domainActiveItemId: before.activeItem?.itemId ?? null,
           });
           logNotificationsSyncDiag(diagId, 'CLOSE_SURFACE_EVENT', {
@@ -104,16 +103,7 @@ export function NotificationsSurface({
         onDomainIntent(mapped.intent);
         return;
       }
-      // Legacy APPLICATION close mapping — still domain-only (no dual release).
       const diagId = nextNotificationsSyncCorrelationId('close');
-      const before = controller.getState();
-      logNotificationsSyncDiag(diagId, 'CLOSE_BUTTON_PRESSED', {
-        viewPhase: viewState.phase,
-        viewItemId: viewState.phase === 'ITEM' ? viewState.itemId : null,
-        activationGeneration: before.activationGeneration,
-        domainActiveItemId: before.activeItem?.itemId ?? null,
-        legacyApplicationIntent: mapped.intent,
-      });
       logNotificationsSyncDiag(diagId, 'CLOSE_SURFACE_EVENT', {
         mappedKind: 'DOMAIN',
         mappedIntent: { type: 'ACTIVE_ITEM_CLOSE_REQUESTED' },
@@ -129,10 +119,14 @@ export function NotificationsSurface({
     <div
       data-surface-owner="NOTIFICATIONS"
       data-activation-generation={state.activationGeneration}
+      data-presentation-session-generation={
+        state.presentationSessionGeneration
+      }
       data-visible-item={viewState.phase === 'ITEM' ? viewState.itemId : ''}
+      data-remount-key={remountKey}
     >
       <NotificationsScreen
-        key={state.activationGeneration}
+        key={remountKey}
         viewState={viewState}
         onEvent={onEvent}
       />

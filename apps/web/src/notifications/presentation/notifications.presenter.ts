@@ -32,6 +32,8 @@ export type NotificationsViewState =
       actions: NotificationsActionView[];
       closeAllowed: boolean;
       closeLabel: string;
+      activationGeneration: number;
+      presentationSessionGeneration: number;
     };
 
 export type NotificationsUiEvent =
@@ -94,6 +96,8 @@ export function presentNotificationsState(
     actions,
     closeAllowed: !submitting,
     closeLabel: 'Закрыть',
+    activationGeneration: state.activationGeneration,
+    presentationSessionGeneration: state.presentationSessionGeneration,
   };
 }
 

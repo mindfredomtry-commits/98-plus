@@ -4,7 +4,7 @@
  */
 'use client';
 
-import { useCallback, useSyncExternalStore } from 'react';
+import React, { useCallback, useSyncExternalStore } from 'react';
 import type { FriendCard, UserPublic } from '@98plus/shared';
 import type { ProductFlowController } from './product-flow.controller';
 import {
@@ -152,13 +152,16 @@ export function ProductFlowSurface({
           >
             Запретить
           </button>
-          <button
-            type="button"
-            className="product-flow-lobby-bans mt-4 block mx-auto text-sm text-muted"
-            onClick={() => emit({ type: 'NAVIGATE_BANS_REQUESTED' })}
-          >
-            Твои запреты
-          </button>
+          {onOpenNotifications ? (
+            <button
+              type="button"
+              className="product-flow-lobby-your-bans mt-4 block mx-auto text-sm text-muted"
+              onClick={onOpenNotifications}
+              data-testid="product-lobby-your-bans"
+            >
+              Твои запреты
+            </button>
+          ) : null}
           {onOpenSettings ? (
             <button
               type="button"
@@ -167,16 +170,6 @@ export function ProductFlowSurface({
               data-testid="product-lobby-settings"
             >
               Настройки
-            </button>
-          ) : null}
-          {onOpenNotifications ? (
-            <button
-              type="button"
-              className="product-flow-lobby-notifications mt-4 block mx-auto text-sm text-muted"
-              onClick={onOpenNotifications}
-              data-testid="product-lobby-notifications"
-            >
-              Уведомления
             </button>
           ) : null}
         </div>
