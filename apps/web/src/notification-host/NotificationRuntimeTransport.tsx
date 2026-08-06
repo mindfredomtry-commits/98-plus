@@ -38,6 +38,7 @@ import {
   logNotificationsSyncDiag,
   nextNotificationsSyncCorrelationId,
 } from '@/notification-runtime/notifications-sync-diag';
+import { rec } from '@/notifications/diagnostics/notifications-recorder-bridge';
 
 export type NotificationTransportAuth = {
   token: string | null;
@@ -93,6 +94,14 @@ export function NotificationRuntimeTransport({
             inFlight: flightRef.current.inFlight,
           },
         );
+        rec('transport', 'FULL_SYNC_REQUESTED', {
+          result: 'coalesced',
+          metadata: {
+            reason,
+            latchReason: begun.reason,
+            pendingFullSync: flightRef.current.pendingFullSync,
+          },
+        });
         return;
       }
 
@@ -102,6 +111,29 @@ export function NotificationRuntimeTransport({
       }
 
       const correlationId = nextNotificationsSyncCorrelationId(reason);
+      const revisionBefore = store.getState().revision;
+      rec('transport', 'SYNC_FLIGHT_BEGIN', {
+        correlationId,
+        stateBefore: {
+          revision: revisionBefore,
+          syncStatus: store.getState().syncStatus,
+          flightGeneration: generation,
+          reason,
+          forceFullSnapshot,
+        },
+      });
+      rec('transport', 'HTTP_SYNC_BEGIN', {
+        correlationId,
+        metadata: {
+          reason,
+          recovery: reason === 'reconnect' && !forceFullSnapshot,
+          afterRevision: forceFullSnapshot
+            ? null
+            : reason === 'reconnect'
+              ? revisionBefore
+              : null,
+        },
+      });
       let ok = false;
       try {
         const recovery = reason === 'reconnect' && !forceFullSnapshot;
@@ -116,6 +148,45 @@ export function NotificationRuntimeTransport({
           correlationId,
         });
         ok = result.ok;
+        rec('transport', 'HTTP_SYNC_RESPONSE', {
+          correlationId,
+          result: ok ? 'ok' : 'failed',
+          rejectionReason: result.errorCode ?? null,
+          stateAfter: {
+            revision: store.getState().revision,
+            syncStatus: store.getState().syncStatus,
+            passiveItemIds: [...store.getState().passiveItemIds],
+            activeItemId: store.getState().activeItemId,
+          },
+          metadata: {
+            reason,
+            flightGeneration: generation,
+          },
+        });
+        rec('transport', 'RECONCILIATION_BEGIN', {
+          correlationId,
+          stateBefore: { revision: revisionBefore },
+        });
+        rec('transport', 'RECONCILIATION_RESULT', {
+          correlationId,
+          result: ok ? 'ok' : 'failed',
+          stateAfter: {
+            revision: store.getState().revision,
+            syncStatus: store.getState().syncStatus,
+            passiveItemIds: [...store.getState().passiveItemIds],
+            activeItemId: store.getState().activeItemId,
+          },
+        });
+        rec('transport', ok ? 'HTTP_SYNC_COMPLETE' : 'HTTP_SYNC_FAILED', {
+          correlationId,
+          result: ok ? 'ok' : 'failed',
+          rejectionReason: result.errorCode ?? null,
+          stateAfter: {
+            revision: store.getState().revision,
+            syncStatus: store.getState().syncStatus,
+            passiveItemIds: [...store.getState().passiveItemIds],
+          },
+        });
         const sessionMatches =
           tokenRef.current === tok && userIdRef.current === uid;
         if (
@@ -145,10 +216,24 @@ export function NotificationRuntimeTransport({
         flightRef.current = settled.state;
 
         if (!settled.isOwner) {
+          rec('transport', 'SYNC_FLIGHT_STALE_COMPLETE', {
+            correlationId,
+            metadata: { generation, reason },
+          });
           // Stale generation — must not clear newer in-flight ownership or
           // complete boot/reconnect for a newer request.
           return;
         }
+
+        rec('transport', 'SYNC_FLIGHT_COMPLETE', {
+          correlationId,
+          result: ok ? 'ok' : 'failed',
+          stateAfter: {
+            revision: store.getState().revision,
+            syncStatus: store.getState().syncStatus,
+            flightGeneration: generation,
+          },
+        });
 
         if (settled.shouldNotifyBootCompleted) {
           coldBootSettledRef.current = true;
@@ -161,6 +246,10 @@ export function NotificationRuntimeTransport({
           logNotificationsSyncDiag(correlationId, 'REQUEST_FULL_SYNC', {
             drainedPending: true,
             afterRevision: null,
+          });
+          rec('transport', 'FULL_SYNC_REQUESTED', {
+            correlationId,
+            metadata: { drainedPending: true },
           });
           void runBootstrapRef.current('user');
         }
@@ -213,10 +302,34 @@ export function NotificationRuntimeTransport({
       const delta = parseNotificationsDeltaV1(event.payload);
       if (!delta) return;
       const correlationId = nextNotificationsSyncCorrelationId('ws');
+      rec('transport', 'WS_DELTA_RECEIVED', {
+        correlationId,
+        stateBefore: {
+          revision: store.getState().revision,
+          passiveItemIds: [...store.getState().passiveItemIds],
+        },
+        metadata: {
+          fromRevision: delta.fromRevision,
+          toRevision: delta.revision,
+          operationCount: delta.operations.length,
+          operationTypes: delta.operations.map((o) => o.type).slice(0, 32),
+        },
+      });
       const applied = applyNotificationsDeltaToStore(store, {
         delta,
         source: 'websocket',
         correlationId,
+      });
+      rec('transport', 'WS_DELTA_MAPPED', {
+        correlationId,
+        stateAfter: {
+          revision: store.getState().revision,
+          passiveItemIds: [...store.getState().passiveItemIds],
+          activeItemId: store.getState().activeItemId,
+        },
+        metadata: {
+          effectTypes: applied.effects.map((e) => e.type),
+        },
       });
       // Consume effects from this exact dispatch — not mutable getLastEffects().
       const fullSync = applied.effects.find((e) => e.type === 'REQUEST_FULL_SYNC');

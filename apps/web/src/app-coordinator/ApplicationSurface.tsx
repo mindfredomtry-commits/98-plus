@@ -7,7 +7,7 @@
  */
 'use client';
 
-import React, { useCallback, useSyncExternalStore } from 'react';
+import React, { useCallback, useEffect, useSyncExternalStore } from 'react';
 import type { UserPublic } from '@98plus/shared';
 import type { AppCoordinatorLifecycle } from '@/app-coordinator/app-coordinator.lifecycle';
 import type { CreateBanUiIntent } from '@/product-flow/create-ban/create-ban.types';
@@ -21,6 +21,14 @@ import {
   logNotificationsSyncDiag,
   nextNotificationsSyncCorrelationId,
 } from '@/notification-runtime/notifications-sync-diag';
+import { rec, ownerLabel } from '@/notifications/diagnostics/notifications-recorder-bridge';
+import {
+  getNotificationsProductionRecorder,
+  installRecorderGlobal,
+} from '@/notifications/diagnostics/notifications-production-recorder';
+
+// Ensure console API exists in the browser (disabled until .start()).
+installRecorderGlobal(getNotificationsProductionRecorder());
 
 export type ApplicationSurfaceProps = {
   lifecycle: AppCoordinatorLifecycle | null;
@@ -37,6 +45,11 @@ type ActiveApplicationSurfaceProps = Omit<
 };
 
 function BootSurface() {
+  useEffect(() => {
+    rec('ApplicationSurface', 'APP_BOOT', {
+      stateAfter: { currentOwner: 'BOOT' },
+    });
+  }, []);
   return (
     <div
       className="app-coordinator-boot pt-16 text-center text-muted text-sm"
@@ -100,15 +113,40 @@ function ActiveApplicationSurface({
 
   const onOpenNotifications = useCallback(() => {
     const correlationId = nextNotificationsSyncCorrelationId('open');
+    const owner = lifecycle.store.getState().currentOwner;
+    const ownerName =
+      owner.type === 'DOMAIN' ? owner.domain : owner.type;
     logNotificationsSyncDiag(correlationId, 'LOBBY_CTA_CLICK', {
       source: 'ApplicationSurface.onOpenNotifications',
       label: 'Твои запреты',
-      currentOwner: (() => {
-        const o = lifecycle.store.getState().currentOwner;
-        return o.type === 'DOMAIN' ? o.domain : o.type;
-      })(),
+      currentOwner: ownerName,
     });
-    lifecycle.openNotifications(correlationId);
+    rec('ApplicationSurface', 'LOBBY_YOUR_BANS_CLICK', {
+      correlationId,
+      stateBefore: { currentOwner: ownerName },
+      metadata: { label: 'Твои запреты' },
+    });
+    rec('ApplicationSurface', 'LOBBY_OPEN_INTENT_CREATED', {
+      correlationId,
+      metadata: { intent: 'OPEN_NOTIFICATIONS' },
+    });
+    rec('ApplicationSurface', 'LOBBY_OPEN_HANDLER_BEGIN', {
+      correlationId,
+    });
+    const result = lifecycle.openNotifications(correlationId);
+    rec('ApplicationSurface', 'LOBBY_OPEN_HANDLER_END', {
+      correlationId,
+      result: result.ok ? 'ok' : 'rejected',
+      rejectionReason: result.ok ? null : result.code,
+      stateAfter: {
+        currentOwner: (() => {
+          const o = lifecycle.store.getState().currentOwner;
+          return o.type === 'DOMAIN' ? o.domain : o.type;
+        })(),
+        activeItemId: result.ok ? result.activeItemId : null,
+      },
+      metadata: { openOk: result.ok },
+    });
   }, [lifecycle]);
 
   const onSettingsIntent = useCallback(
@@ -130,6 +168,48 @@ function ActiveApplicationSurface({
   );
 
   const owner = coordinatorState.currentOwner;
+
+  useEffect(() => {
+    if (owner.type === 'BOOT') return;
+    const ownerName = ownerLabel(owner);
+    rec('ApplicationSurface', 'APPLICATION_SURFACE_RENDER', {
+      stateAfter: {
+        currentOwner: ownerName,
+      },
+    });
+    rec('ApplicationSurface', 'APPLICATION_SURFACE_OWNER_READ', {
+      stateAfter: {
+        currentOwner: ownerName,
+      },
+    });
+    if (owner.type === 'DOMAIN' && owner.domain === 'CREATE_BAN') {
+      rec('ApplicationSurface', 'APPLICATION_SURFACE_BRANCH_CREATE_BAN', {
+        stateAfter: { currentOwner: 'CREATE_BAN' },
+      });
+    }
+    if (owner.type === 'DOMAIN' && owner.domain === 'NOTIFICATIONS') {
+      const view = presentNotificationsState(notificationsState);
+      if (view.phase !== 'ITEM') {
+        rec('ApplicationSurface', 'APPLICATION_SURFACE_INVARIANT_VIOLATION', {
+          stateAfter: {
+            currentOwner: 'NOTIFICATIONS',
+            viewPhase: view.phase,
+          },
+        });
+      } else {
+        rec('ApplicationSurface', 'APPLICATION_SURFACE_BRANCH_NOTIFICATIONS', {
+          stateAfter: {
+            currentOwner: 'NOTIFICATIONS',
+            viewPhase: view.phase,
+            itemId: view.itemId,
+            activationGeneration: notificationsState.activationGeneration,
+            presentationSessionGeneration:
+              notificationsState.presentationSessionGeneration,
+          },
+        });
+      }
+    }
+  }, [owner, notificationsState]);
 
   if (owner.type === 'BOOT') {
     return <BootSurface />;

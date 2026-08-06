@@ -13,11 +13,14 @@ import type {
 export type NotificationsScreenProps = {
   viewState: NotificationsViewState;
   onEvent: (event: NotificationsUiEvent) => void;
+  /** Observational Phase 9I — pointer contact before Close click. */
+  onClosePointerDown?: () => void;
 };
 
 export function NotificationsScreen({
   viewState,
   onEvent,
+  onClosePointerDown,
 }: NotificationsScreenProps) {
   if (viewState.phase === 'EMPTY') {
     return (
@@ -32,6 +35,7 @@ export function NotificationsScreen({
           type="button"
           className="notifications-close text-sm text-muted"
           data-testid="notifications-close"
+          onPointerDown={onClosePointerDown}
           onClick={() => onEvent({ type: 'CLOSE_PRESSED' })}
         >
           {viewState.closeLabel}
@@ -88,6 +92,7 @@ export function NotificationsScreen({
           type="button"
           className="notifications-close text-sm text-muted"
           data-testid="notifications-close"
+          onPointerDown={onClosePointerDown}
           onClick={() => onEvent({ type: 'CLOSE_PRESSED' })}
         >
           {viewState.closeLabel}

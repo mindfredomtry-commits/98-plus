@@ -66,6 +66,7 @@ import {
   entryIntentToCoordinatorEvent,
   type EntryRouter,
 } from './app-coordinator.boundaries';
+import { rec } from '@/notifications/diagnostics/notifications-recorder-bridge';
 
 export type AppCoordinatorLifecycle = {
   store: AppCoordinatorStore;
@@ -373,11 +374,38 @@ export function createAppCoordinatorLifecycle(input: {
       ...runtimeSnap(),
       ...generationSnap(),
     });
+    rec('coordinator', 'COORDINATOR_OPEN_BEGIN', {
+      correlationId,
+      stateBefore: {
+        currentOwner: ownerLabel(ownerBefore),
+        ...runtimeSnap(),
+        ...generationSnap(),
+      },
+    });
+    rec('coordinator', 'COORDINATOR_OPEN_TRANSACTION_BEGIN', {
+      correlationId,
+    });
 
     if (
       ownerBefore.type !== 'DOMAIN' ||
       ownerBefore.domain !== 'CREATE_BAN'
     ) {
+      if (
+        ownerBefore.type === 'DOMAIN' &&
+        ownerBefore.domain === 'NOTIFICATIONS'
+      ) {
+        rec('coordinator', 'COORDINATOR_OPEN_REENTRANT', {
+          correlationId,
+          result: 'rejected',
+          rejectionReason: 'OWNER_NOT_ALLOWED',
+          stateBefore: { currentOwner: 'NOTIFICATIONS' },
+        });
+      }
+      rec('coordinator', 'COORDINATOR_OPEN_REJECTED', {
+        correlationId,
+        rejectionReason: 'OWNER_NOT_ALLOWED',
+        result: 'rejected',
+      });
       return {
         ok: false,
         correlationId,
@@ -392,7 +420,23 @@ export function createAppCoordinatorLifecycle(input: {
       ...runtimeSnap(),
       ...generationSnap(),
     });
+    rec('coordinator', 'COORDINATOR_CAPABILITY_READ', {
+      correlationId,
+      stateAfter: {
+        capability: capability.availability,
+        reason: 'reason' in capability ? capability.reason : null,
+      },
+    });
     if (capability.availability !== 'AVAILABLE') {
+      rec('coordinator', 'COORDINATOR_OPEN_REJECTED', {
+        correlationId,
+        rejectionReason: 'NOTIFICATIONS_UNAVAILABLE',
+        result: 'rejected',
+      });
+      rec('coordinator', 'COORDINATOR_OPEN_TRANSACTION_ABORT', {
+        correlationId,
+        rejectionReason: 'NOTIFICATIONS_UNAVAILABLE',
+      });
       return {
         ok: false,
         correlationId,
@@ -402,11 +446,23 @@ export function createAppCoordinatorLifecycle(input: {
     }
 
     ownerTransitionGeneration += 1;
+    rec('runtime', 'RUNTIME_SESSION_BEGIN_BEFORE', {
+      correlationId,
+      stateBefore: { ...runtimeSnap(), ...generationSnap() },
+    });
     const sessionGen = notificationsController.beginPresentationSession();
     logNotificationsSyncDiag(correlationId, 'RUNTIME_SESSION_BEGIN', {
       presentationSessionGeneration: sessionGen,
       ownerTransitionGeneration,
       ...runtimeSnap(),
+    });
+    rec('runtime', 'RUNTIME_SESSION_BEGIN_AFTER', {
+      correlationId,
+      stateAfter: {
+        presentationSessionGeneration: sessionGen,
+        ownerTransitionGeneration,
+        ...runtimeSnap(),
+      },
     });
 
     const activate = notificationsController.activateNext(correlationId);
@@ -419,6 +475,29 @@ export function createAppCoordinatorLifecycle(input: {
       presentationSessionGeneration: sessionGen,
       activeItemId: activate.activeItemId,
     });
+    rec(
+      'presenter',
+      view.phase === 'ITEM' ? 'PRESENTER_OUTPUT_ITEM' : 'PRESENTER_OUTPUT_EMPTY',
+      {
+        correlationId,
+        stateAfter: {
+          viewPhase: view.phase,
+          itemId: view.phase === 'ITEM' ? view.itemId : null,
+          activationGeneration: activate.activationGeneration,
+          presentationSessionGeneration: sessionGen,
+          activeItemId: activate.activeItemId,
+        },
+      },
+    );
+    rec('runtime', 'RUNTIME_STATE_AFTER_ACTIVATE', {
+      correlationId,
+      result: activate.outcome.type,
+      stateAfter: {
+        ...runtimeSnap(),
+        activeItemId: activate.activeItemId,
+        outcome: activate.outcome.type,
+      },
+    });
 
     const activated =
       (activate.outcome.type === 'ACTIVATED' ||
@@ -427,12 +506,21 @@ export function createAppCoordinatorLifecycle(input: {
       view.phase === 'ITEM';
 
     if (!activated) {
-      // Do not commit owner. Clear any accidental claim.
       if (input.runtimeStore.getState().activeItemId != null) {
         notificationsController.dispatch({
           type: 'CLEAR_ACTIVATION_REQUESTED',
         });
       }
+      rec('coordinator', 'COORDINATOR_OPEN_TRANSACTION_ABORT', {
+        correlationId,
+        rejectionReason: 'ACTIVATION_FAILED',
+        metadata: { outcome: activate.outcome.type },
+      });
+      rec('coordinator', 'COORDINATOR_OPEN_REJECTED', {
+        correlationId,
+        rejectionReason: 'ACTIVATION_FAILED',
+        result: 'rejected',
+      });
       return {
         ok: false,
         correlationId,
@@ -441,12 +529,22 @@ export function createAppCoordinatorLifecycle(input: {
       };
     }
 
+    rec('coordinator', 'COORDINATOR_OWNER_BEFORE_COMMIT', {
+      correlationId,
+      stateBefore: { currentOwner: ownerLabel(ownerBefore) },
+    });
     // Activate succeeded — commit owner. Skip re-activation in onEventProcessed.
     openPreActivated = true;
     committedPresentationSessionGeneration = sessionGen;
     notificationsOpenCount += 1;
+    rec('coordinator', 'COORDINATOR_SUBSCRIBERS_NOTIFY_BEGIN', {
+      correlationId,
+    });
     dispatch({ type: 'OPEN_NOTIFICATIONS_REQUESTED' });
     openPreActivated = false;
+    rec('coordinator', 'COORDINATOR_SUBSCRIBERS_NOTIFY_END', {
+      correlationId,
+    });
 
     const ownerAfter = store.getState().currentOwner;
     logNotificationsSyncDiag(correlationId, 'COORDINATOR_OWNER_COMMIT', {
@@ -456,6 +554,22 @@ export function createAppCoordinatorLifecycle(input: {
         : null,
       activeItemId: activate.activeItemId,
       ...generationSnap(),
+    });
+    rec('coordinator', 'COORDINATOR_OWNER_AFTER_COMMIT', {
+      correlationId,
+      stateAfter: {
+        currentOwner: ownerLabel(ownerAfter),
+        activeItemId: activate.activeItemId,
+        ...generationSnap(),
+      },
+    });
+    rec('coordinator', 'COORDINATOR_OPEN_TRANSACTION_COMMIT', {
+      correlationId,
+      result: 'ok',
+      stateAfter: {
+        currentOwner: ownerLabel(ownerAfter),
+        activeItemId: activate.activeItemId,
+      },
     });
 
     if (
@@ -526,13 +640,21 @@ export function createAppCoordinatorLifecycle(input: {
             currentOwner: ownerLabel(owner),
             releaseDispatchCountBefore: releaseDispatchCount,
             eventSessionGeneration: meta.presentationSessionGeneration,
-            committedPresentationSessionGeneration,
             reason: meta.reason,
             ...rt,
             ...generationSnap(),
             producer: 'SESSION_COMPLETE_ONLY',
           },
         );
+        rec('runtime', 'RUNTIME_SESSION_COMPLETE_DISPATCHED', {
+          stateBefore: {
+            ...rt,
+            currentOwner: ownerLabel(owner),
+            eventSessionGeneration: meta.presentationSessionGeneration,
+            committedPresentationSessionGeneration,
+          },
+          metadata: { reason: meta.reason },
+        });
 
         if (
           committedPresentationSessionGeneration > 0 &&
@@ -549,6 +671,14 @@ export function createAppCoordinatorLifecycle(input: {
               ...rt,
             },
           );
+          rec('runtime', 'RUNTIME_STALE_EVENT_RECEIVED', {
+            result: 'ignored',
+            metadata: {
+              stale: true,
+              eventSessionGeneration: meta.presentationSessionGeneration,
+              committedPresentationSessionGeneration,
+            },
+          });
           return;
         }
 
@@ -561,7 +691,24 @@ export function createAppCoordinatorLifecycle(input: {
             activeItemId: rt.activeItemId,
             queueAfter: rt.passiveItemIds,
           });
+          rec('coordinator', 'COORDINATOR_RELEASE_RECEIVED', {
+            stateBefore: { currentOwner: 'NOTIFICATIONS', ...rt },
+          });
+          rec('coordinator', 'COORDINATOR_OWNER_RETURN_BEGIN', {
+            stateBefore: { currentOwner: 'NOTIFICATIONS' },
+          });
           dispatch({ type: 'NOTIFICATIONS_RELEASE_REQUESTED' });
+          rec('coordinator', 'COORDINATOR_RELEASE_ACCEPTED', {
+            stateAfter: {
+              currentOwner: ownerLabel(store.getState().currentOwner),
+              ...runtimeSnap(),
+            },
+          });
+          rec('coordinator', 'COORDINATOR_OWNER_RETURN_COMMIT', {
+            stateAfter: {
+              currentOwner: ownerLabel(store.getState().currentOwner),
+            },
+          });
         }
       },
     },

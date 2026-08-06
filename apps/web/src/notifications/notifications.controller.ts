@@ -27,6 +27,7 @@ import {
   logNotificationsSyncDiag,
   nextNotificationsSyncCorrelationId,
 } from '@/notification-runtime/notifications-sync-diag';
+import { rec } from '@/notifications/diagnostics/notifications-recorder-bridge';
 
 export type NotificationsListener = (state: NotificationsDomainState) => void;
 
@@ -75,6 +76,16 @@ export function createNotificationsController(input: {
   /** Session gen captured at CLOSE so delayed completes stay tagged. */
   let closingSessionGeneration: number | null = null;
   const listeners = new Set<NotificationsListener>();
+  const controllerIdentity = `notifications-controller:${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+
+  rec('controller', 'CONTROLLER_CREATED', {
+    metadata: {
+      controllerIdentity,
+      storeId: (input.store as { chaosStoreId?: string }).chaosStoreId ?? null,
+    },
+  });
 
   const intents = createNotificationIntents({
     store: input.store,
@@ -123,9 +134,53 @@ export function createNotificationsController(input: {
   }
 
   let cachedState: NotificationsDomainState = project();
+  let lastPublishedFingerprint: string | null = null;
+
+  function snapshotFingerprint(s: NotificationsDomainState): string {
+    return [
+      s.activation.type,
+      s.activeItem?.itemId ?? '',
+      s.activationGeneration,
+      s.presentationSessionGeneration,
+      s.actionStatus,
+    ].join(':');
+  }
 
   function emit(): void {
+    const rt = input.store.getState();
+    rec('controller', 'CONTROLLER_RUNTIME_SNAPSHOT_RECEIVED', {
+      stateAfter: {
+        revision: rt.revision,
+        syncStatus: rt.syncStatus,
+        activeItemId: rt.activeItemId,
+        passiveItemIds: [...rt.passiveItemIds],
+        activationGeneration,
+        presentationSessionGeneration,
+      },
+    });
     cachedState = project();
+    const fp = snapshotFingerprint(cachedState);
+    if (fp === lastPublishedFingerprint) {
+      rec('controller', 'CONTROLLER_SNAPSHOT_DEDUPED', {
+        metadata: {
+          fingerprint: fp,
+          subscriberCount: listeners.size,
+          controllerIdentity,
+        },
+      });
+    } else {
+      lastPublishedFingerprint = fp;
+      rec('controller', 'CONTROLLER_SNAPSHOT_PUBLISHED', {
+        stateAfter: {
+          activeItemId: cachedState.activeItem?.itemId ?? null,
+          activationGeneration: cachedState.activationGeneration,
+          presentationSessionGeneration:
+            cachedState.presentationSessionGeneration,
+          subscriberCount: listeners.size,
+        },
+      });
+    }
+    // Always notify listeners — dedupe is observational only.
     for (const listener of [...listeners]) {
       listener(cachedState);
     }
@@ -140,6 +195,17 @@ export function createNotificationsController(input: {
     correlationId: string,
   ): NotificationsActivateNextResult {
     const rtBefore = input.store.getState();
+    rec('controller', 'RUNTIME_ACTIVATE_BEGIN', {
+      correlationId,
+      stateBefore: {
+        syncStatus: rtBefore.syncStatus,
+        revision: rtBefore.revision,
+        activeItemId: rtBefore.activeItemId,
+        passiveItemIds: [...rtBefore.passiveItemIds],
+        activationGeneration,
+        presentationSessionGeneration,
+      },
+    });
     logNotificationsSyncDiag(correlationId, 'RUNTIME_ACTIVATE_BEGIN', {
       syncStatus: rtBefore.syncStatus,
       revision: rtBefore.revision,
@@ -156,6 +222,10 @@ export function createNotificationsController(input: {
       activationGeneration,
       presentationSessionGeneration,
     });
+    rec('controller', 'RUNTIME_COMMAND_RECEIVED', {
+      correlationId,
+      metadata: { command: 'ACTIVATE_READY_ITEM_REQUESTED', source: 'user' },
+    });
     const result = input.store.dispatch({
       type: 'ACTIVATE_READY_ITEM_REQUESTED',
       source: 'user',
@@ -169,6 +239,23 @@ export function createNotificationsController(input: {
       activationGeneration += 1;
     }
     const rtAfter = input.store.getState();
+    rec('controller', 'RUNTIME_NEXT_ITEM_SELECTED', {
+      correlationId,
+      stateAfter: {
+        activeItemId: rtAfter.activeItemId,
+        outcome: lastActivationOutcome.type,
+      },
+    });
+    rec('controller', 'RUNTIME_ACTIVATE_RESULT', {
+      correlationId,
+      result: lastActivationOutcome.type,
+      stateAfter: {
+        activeItemId: rtAfter.activeItemId,
+        passiveItemIds: [...rtAfter.passiveItemIds],
+        activationGeneration,
+        presentationSessionGeneration,
+      },
+    });
     logNotificationsSyncDiag(correlationId, 'RUNTIME_ACTIVATE_RESULT', {
       outcome: lastActivationOutcome,
       activeItemId: rtAfter.activeItemId,
@@ -217,8 +304,20 @@ export function createNotificationsController(input: {
 
     subscribe(listener) {
       listeners.add(listener);
+      rec('controller', 'CONTROLLER_SUBSCRIBE', {
+        metadata: {
+          controllerIdentity,
+          subscriberCount: listeners.size,
+        },
+      });
       return () => {
         listeners.delete(listener);
+        rec('controller', 'CONTROLLER_UNSUBSCRIBE', {
+          metadata: {
+            controllerIdentity,
+            subscriberCount: listeners.size,
+          },
+        });
       };
     },
 
@@ -282,6 +381,15 @@ export function createNotificationsController(input: {
             presentationSessionGeneration,
           });
           const closedItemId = before.activeItemId;
+          rec('controller', 'RUNTIME_DEACTIVATE_BEGIN', {
+            correlationId: closeDiagId,
+            stateBefore: {
+              activeItemId: before.activeItemId,
+              passiveItemIds: [...before.passiveItemIds],
+              presentationSessionGeneration,
+              activationGeneration,
+            },
+          });
           const closeResult = input.store.dispatch({
             type: 'ACTIVE_ITEM_CLOSE_REQUESTED',
             source: 'user',
@@ -292,12 +400,32 @@ export function createNotificationsController(input: {
             activeItemId: after.activeItemId,
             presentationSessionGeneration,
           });
+          rec('controller', 'RUNTIME_ITEM_REINSERTED', {
+            correlationId: closeDiagId,
+            stateAfter: {
+              previousActiveItemId: closedItemId,
+              activeItemId: after.activeItemId,
+              passiveItemIds: [...after.passiveItemIds],
+              reinserted: closedItemId,
+              presentationRetained: closedItemId
+                ? Boolean(after.presentationByItemId[closedItemId])
+                : true,
+            },
+          });
           logNotificationsSyncDiag(closeDiagId, 'RUNTIME_ITEM_REINSERTED', {
             passiveItemIds: [...after.passiveItemIds],
             reinserted: closedItemId,
             presentationRetained: closedItemId
               ? Boolean(after.presentationByItemId[closedItemId])
               : true,
+          });
+          rec('controller', 'RUNTIME_DEACTIVATE_END', {
+            correlationId: closeDiagId,
+            stateAfter: {
+              activeItemId: after.activeItemId,
+              passiveItemIds: [...after.passiveItemIds],
+              effectTypes: closeResult.effects.map((e) => e.type),
+            },
           });
           logNotificationsSyncDiag(closeDiagId, 'CLOSE_RUNTIME_DISPATCH_RESULT', {
             activeItemId: after.activeItemId,
@@ -306,6 +434,26 @@ export function createNotificationsController(input: {
             revision: after.revision,
             effects: closeResult.effects.map((e) => e.type),
           });
+          for (const effect of closeResult.effects) {
+            rec('controller', 'RUNTIME_EFFECT_CREATED', {
+              correlationId: closeDiagId,
+              metadata: {
+                effectType: effect.type,
+                reason:
+                  effect.type === 'SESSION_COMPLETE' ? effect.reason : null,
+              },
+            });
+            if (effect.type === 'SESSION_COMPLETE') {
+              rec('controller', 'RUNTIME_SESSION_COMPLETE_CREATED', {
+                correlationId: closeDiagId,
+                metadata: {
+                  reason: effect.reason,
+                  presentationSessionGeneration:
+                    closingSessionGeneration ?? presentationSessionGeneration,
+                },
+              });
+            }
+          }
           logNotificationsSyncDiag(closeDiagId, 'CLOSE_EFFECTS', {
             effects: closeResult.effects.map((e) =>
               e.type === 'SESSION_COMPLETE'
@@ -417,6 +565,9 @@ export function createNotificationsController(input: {
       disposed = true;
       unsubscribeStore();
       listeners.clear();
+      rec('controller', 'CONTROLLER_DISPOSED', {
+        metadata: { controllerIdentity },
+      });
     },
   };
 

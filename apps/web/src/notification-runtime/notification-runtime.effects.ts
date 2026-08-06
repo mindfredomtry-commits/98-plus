@@ -17,6 +17,7 @@ import {
 } from './notification-runtime.result-ack-action';
 import type { NotificationRuntimeStore } from './notification-runtime.store';
 import type { RuntimeEffect } from './notification-runtime.types';
+import { rec } from '@/notifications/diagnostics/notifications-recorder-bridge';
 
 export type NotificationEffectsContext = {
   getToken: () => string | null;
@@ -92,59 +93,81 @@ export async function runNotificationRuntimeEffects(
   const token = ctx.getToken();
   const userId = ctx.getUserId?.() ?? '';
   for (const effect of effects) {
-    switch (effect.type) {
-      case 'SUBMIT_CARD_ACTION': {
-        if (!token) {
-          store.dispatch({
-            type: 'CARD_ACTION_FAILED',
-            commandId: effect.commandId,
-            targetItemId: effect.targetItemId,
-            errorCode: 'NO_TOKEN',
-            source: 'system',
-          });
+    rec('runtime', 'RUNTIME_EFFECT_EXECUTED', {
+      metadata: {
+        effectType: effect.type,
+        reason: effect.type === 'SESSION_COMPLETE' ? effect.reason : null,
+      },
+    });
+    try {
+      switch (effect.type) {
+        case 'SUBMIT_CARD_ACTION': {
+          if (!token) {
+            store.dispatch({
+              type: 'CARD_ACTION_FAILED',
+              commandId: effect.commandId,
+              targetItemId: effect.targetItemId,
+              errorCode: 'NO_TOKEN',
+              source: 'system',
+            });
+            break;
+          }
+          if (effect.action === 'check_answer') {
+            await executeSubmitCardActionEffect(
+              store,
+              effect,
+              checkTransport,
+              token,
+              userId,
+            );
+          } else if (effect.action === 'incoming_overboard') {
+            await executeSubmitIncomingOverboardEffect(
+              store,
+              effect,
+              overboardTransport,
+              token,
+              userId,
+            );
+          } else if (effect.action === 'result_ack') {
+            await executeSubmitResultAckEffect(
+              store,
+              effect,
+              ctx.resultAckTransport ?? resultAckTransportDefault,
+              token,
+              userId,
+            );
+          }
           break;
         }
-        if (effect.action === 'check_answer') {
-          await executeSubmitCardActionEffect(
-            store,
-            effect,
-            checkTransport,
-            token,
-            userId,
-          );
-        } else if (effect.action === 'incoming_overboard') {
-          await executeSubmitIncomingOverboardEffect(
-            store,
-            effect,
-            overboardTransport,
-            token,
-            userId,
-          );
-        } else if (effect.action === 'result_ack') {
-          await executeSubmitResultAckEffect(
-            store,
-            effect,
-            ctx.resultAckTransport ?? resultAckTransportDefault,
-            token,
-            userId,
-          );
+        case 'REFRESH_PENDING': {
+          await ctx.onRefreshPending?.(effect.reason);
+          break;
         }
-        break;
+        case 'REQUEST_FULL_SYNC': {
+          ctx.onRequestFullSync?.(effect.reason);
+          break;
+        }
+        case 'SESSION_COMPLETE': {
+          ctx.onSessionComplete?.(effect.reason);
+          break;
+        }
+        default:
+          break;
       }
-      case 'REFRESH_PENDING': {
-        await ctx.onRefreshPending?.(effect.reason);
-        break;
-      }
-      case 'REQUEST_FULL_SYNC': {
-        ctx.onRequestFullSync?.(effect.reason);
-        break;
-      }
-      case 'SESSION_COMPLETE': {
-        ctx.onSessionComplete?.(effect.reason);
-        break;
-      }
-      default:
-        break;
+      rec('runtime', 'RUNTIME_EFFECT_COMPLETED', {
+        result: 'ok',
+        metadata: {
+          effectType: effect.type,
+          reason: effect.type === 'SESSION_COMPLETE' ? effect.reason : null,
+        },
+      });
+    } catch (err) {
+      rec('runtime', 'RUNTIME_EFFECT_COMPLETED', {
+        result: 'error',
+        error: err instanceof Error ? err.message : String(err),
+        metadata: { effectType: effect.type },
+      });
+      throw err;
     }
   }
 }

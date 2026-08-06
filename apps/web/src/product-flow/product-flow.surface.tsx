@@ -4,7 +4,7 @@
  */
 'use client';
 
-import React, { useCallback, useSyncExternalStore } from 'react';
+import React, { useCallback, useEffect, useSyncExternalStore } from 'react';
 import type { FriendCard, UserPublic } from '@98plus/shared';
 import type { ProductFlowController } from './product-flow.controller';
 import {
@@ -18,6 +18,7 @@ import type {
 } from './create-ban/create-ban.types';
 import { ProductWhoScreen } from './presentation/WhoScreen';
 import { ProductSuccessScreen } from './presentation/SuccessScreen';
+import { rec } from '@/notifications/diagnostics/notifications-recorder-bridge';
 
 export type ProductFlowSurfaceProps = {
   /** Read model only — Presentation must not call dispatch/navigate on it. */
@@ -60,6 +61,83 @@ function createBanErrorLabel(code: CreateBanErrorCode): string {
     default:
       return 'Ошибка';
   }
+}
+
+/** Lobby route — observational mount/unmount for Phase 9I recorder. */
+function LobbyRoute({
+  user,
+  influencePercent,
+  onBeginSend,
+  onOpenNotifications,
+  onOpenSettings,
+}: {
+  user: UserPublic | null;
+  influencePercent: number;
+  onBeginSend: () => void;
+  onOpenNotifications?: () => void;
+  onOpenSettings?: () => void;
+}) {
+  useEffect(() => {
+    rec('ProductFlowSurface', 'LOBBY_MOUNT', {
+      stateAfter: { route: 'LOBBY' },
+    });
+    return () => {
+      rec('ProductFlowSurface', 'LOBBY_UNMOUNT', {
+        stateBefore: { route: 'LOBBY' },
+      });
+    };
+  }, []);
+
+  return (
+    <div
+      className="product-flow-surface product-flow-surface--lobby"
+      data-product-route="LOBBY"
+    >
+      <div className="pt-16 px-4 text-center">
+        {user ? (
+          <p className="text-muted text-sm mb-6">
+            @{user.username ?? user.firstName}
+          </p>
+        ) : null}
+        <p className="text-xs text-muted mb-4">
+          Влияние {Math.round(influencePercent)}%
+        </p>
+        <button
+          type="button"
+          className="product-flow-lobby-cta"
+          onClick={onBeginSend}
+          data-testid="product-lobby-cta"
+        >
+          Запретить
+        </button>
+        {onOpenNotifications ? (
+          <button
+            type="button"
+            className="product-flow-lobby-your-bans mt-4 block mx-auto text-sm text-muted"
+            onPointerDown={() => {
+              rec('ProductFlowSurface', 'LOBBY_YOUR_BANS_POINTER_DOWN', {
+                metadata: { label: 'Твои запреты' },
+              });
+            }}
+            onClick={onOpenNotifications}
+            data-testid="product-lobby-your-bans"
+          >
+            Твои запреты
+          </button>
+        ) : null}
+        {onOpenSettings ? (
+          <button
+            type="button"
+            className="product-flow-lobby-settings mt-4 block mx-auto text-sm text-muted"
+            onClick={onOpenSettings}
+            data-testid="product-lobby-settings"
+          >
+            Настройки
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 export function ProductFlowSurface({
@@ -131,49 +209,13 @@ export function ProductFlowSurface({
 
   if (state.route === 'LOBBY') {
     return (
-      <div
-        className="product-flow-surface product-flow-surface--lobby"
-        data-product-route="LOBBY"
-      >
-        <div className="pt-16 px-4 text-center">
-          {user ? (
-            <p className="text-muted text-sm mb-6">
-              @{user.username ?? user.firstName}
-            </p>
-          ) : null}
-          <p className="text-xs text-muted mb-4">
-            Влияние {Math.round(influencePercent)}%
-          </p>
-          <button
-            type="button"
-            className="product-flow-lobby-cta"
-            onClick={onBeginSend}
-            data-testid="product-lobby-cta"
-          >
-            Запретить
-          </button>
-          {onOpenNotifications ? (
-            <button
-              type="button"
-              className="product-flow-lobby-your-bans mt-4 block mx-auto text-sm text-muted"
-              onClick={onOpenNotifications}
-              data-testid="product-lobby-your-bans"
-            >
-              Твои запреты
-            </button>
-          ) : null}
-          {onOpenSettings ? (
-            <button
-              type="button"
-              className="product-flow-lobby-settings mt-4 block mx-auto text-sm text-muted"
-              onClick={onOpenSettings}
-              data-testid="product-lobby-settings"
-            >
-              Настройки
-            </button>
-          ) : null}
-        </div>
-      </div>
+      <LobbyRoute
+        user={user}
+        influencePercent={influencePercent}
+        onBeginSend={onBeginSend}
+        onOpenNotifications={onOpenNotifications}
+        onOpenSettings={onOpenSettings}
+      />
     );
   }
 
